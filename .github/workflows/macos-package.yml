@@ -1,0 +1,374 @@
+# macOS 打包（可复用工作流）：本地与 CI **共用同一个脚本**（scripts/package-mac.sh），
+# 这里只负责「装工具链 + 造 Linux 会话安装包 + 调脚本 + 传产物」。
+#
+# 谁来调：
+#   · .github/workflows/macos-release.yml  → tag `v*` / PR / 手动（channel=release、gates=full）
+#   · .github/workflows/dev-build.yml      → 每次 push main（channel=dev、gates=light）
+#
+# 为什么有 linux-bundle job（不是可选装饰）：
+#   scripts/package-mac.sh 硬要求内嵌 Linux 会话安装包（缺了就 fail），而 bundle 只能在
+#   Linux 上造；bundle 的 session contract 又必须与 mac 端逐位一致
+#   （scripts/stage-session-runtime.py 校验）。所以出 mac 包必须先出 Linux bundle。
+#
+# 诚实口径（AGENTS.md 铁律 #6）：
+#   · 没有签名 secret 时降级 ad-hoc 并在 BUILD-INFO 里明说，不假装已签名；
+#   · 包内最低系统版本会被内嵌的 Homebrew 库抬高（BUILD-INFO.txt 记真实值）；
+#   · Linux bundle 的 min_glibc 是**远端主机**能否跑会话的条件，逐架构写进 BUILD-INFO；
+#   · 缺工具链时显式 SKIP 或失败，不静默跳过。
+name: macOS Package (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        description: "dev（ad-hoc，每次提交）/ release（Developer ID + 可选公证）"
+        type: string
+        required: false
+        default: dev
+      gates:
+        description: "light（core + ABI + 图标）/ full（Apple 端闸门 + 全部变异验证）"
+        type: string
+        required: false
+        default: light
+      version:
+        description: "版本号（留空 = 0.1.0-dev）"
+        type: string
+        required: false
+        default: ""
+      notarize:
+        description: "公证（仅 channel=release 且配了公证 secret 时生效）"
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      MACOS_CERTIFICATE_P12_BASE64:
+        required: false
+      MACOS_CERTIFICATE_PASSWORD:
+        required: false
+      KEYCHAIN_PASSWORD:
+        required: false
+      NOTARY_APPLE_ID:
+        required: false
+      NOTARY_TEAM_ID:
+        required: false
+      NOTARY_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  # 临时文件一律落仓库 tmp/（AGENTS.md 环境硬约束）
+  TMPDIR: ${{ github.workspace }}/tmp
+  ZIG_VERSION: 0.16.0
+
+jobs:
+  # ---------------------------------------------------------------- Linux 会话安装包
+  linux-bundle:
+    name: Linux 会话安装包 (${{ matrix.arch }})
+    # 在 glibc 2.34 的 ubuntu:22.04 容器里构建：min_glibc 是 bundle 的**下限**，
+    # 在滚动 runner 自带的新 glibc 上构建会把这个下限抬高到没人跑得动的程度。
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ${{ matrix.image }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+            image: ubuntu:22.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            image: arm64v8/ubuntu:22.04
+    env:
+      # arm64 的 ubuntu:22.04 官方镜像名带 arm64v8/ 前缀，zig 包名跟着机器架构走
+      ZIG_ARCH: ${{ matrix.arch }}
+    steps:
+      - name: 检出（只要 vendor/ghostty 这个 submodule）
+        uses: actions/checkout@v4
+        with:
+          submodules: vendor/ghostty
+          fetch-depth: 0
+
+      # 容器里 uid 与 runner 挂载的文件属主不一致，git 会拒绝操作仓库。
+      - name: 允许容器内读工作区
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "*"
+
+      - name: 安装构建依赖
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            build-essential ca-certificates cmake curl git pkg-config python3 tar xz-utils
+
+      - name: 缓存 zig ${{ env.ZIG_VERSION }}
+        uses: actions/cache@v4
+        id: zig
+        with:
+          path: tmp/zig
+          key: zig-${{ env.ZIG_VERSION }}-${{ matrix.arch }}-linux
+
+      - name: 取 zig
+        if: steps.zig.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          URL="https://ziglang.org/download/${ZIG_VERSION}/zig-${ZIG_ARCH}-linux-${ZIG_VERSION}.tar.xz"
+          echo "下载 $URL"
+          mkdir -p tmp/zig "$RUNNER_TEMP/zig-dl"
+          curl -fsSL -o "$RUNNER_TEMP/zig-dl/zig.tar.xz" "$URL"
+          tar -xJf "$RUNNER_TEMP/zig-dl/zig.tar.xz" -C "$RUNNER_TEMP/zig-dl" --strip-components=1
+          cp -R "$RUNNER_TEMP/zig-dl/." tmp/zig/
+          tmp/zig/zig version
+
+      - name: 环境信息
+        run: |
+          set -x
+          uname -a; ldd --version 2>/dev/null || true
+          python3 -c 'import platform;print(platform.system(),platform.machine())'
+          cmake --version | head -1; readelf --version | head -1; tmp/zig/zig version
+          git submodule status
+
+      # 与 mac 探针链同一补丁全集/顺序 + 同一 <engine>/include 头树，否则
+      # stage-session-runtime.py 会报 Linux bundle identity mismatch（契约不等）。
+      - name: 构建 libghostty-vt 并打包 bundle
+        env:
+          ZIG: ${{ github.workspace }}/tmp/zig/zig
+        run: |
+          set -euo pipefail
+          python3 scripts/build-session-vt-linux.py | tee "$RUNNER_TEMP/vt-linux.log"
+          # 这条 step 在 CI 上不允许任何降级：出现 SKIP 就是环境没装对。
+          if grep -q SKIP "$RUNNER_TEMP/vt-linux.log"; then
+            echo "构建输出里出现 SKIP（本步必须真跑）" >&2; exit 1
+          fi
+          bundle="$(ls -d tmp/vt-linux/bundles/*/ | head -1)"
+          [ -n "$bundle" ] || { echo "没造出 bundle" >&2; exit 1; }
+          echo "--- manifest ---"; cat "$bundle/manifest.tsv"
+          echo "--- SOURCE-INFO ---"; cat "$bundle/SOURCE-INFO.json"
+
+      - name: 上传 bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: sessiond-linux-${{ matrix.arch }}
+          path: tmp/vt-linux/bundles
+          retention-days: 1
+
+  # ---------------------------------------------------------------- macOS 出包
+  mac-package:
+    name: Package macOS app（${{ inputs.channel }}）
+    needs: linux-bundle
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      INPUT_VERSION: ${{ inputs.version }}
+      INPUT_NOTARIZE: ${{ inputs.notarize }}
+      INPUT_CHANNEL: ${{ inputs.channel }}
+    steps:
+      - name: 检出（含 submodule：libghostty 来自 vendor/ghostty）
+        uses: actions/checkout@v4
+        with:
+          submodules: vendor/ghostty
+          fetch-depth: 0 # git describe 要完整历史
+
+      - name: 备好 tmp/
+        run: mkdir -p "$TMPDIR"
+
+      - name: 环境信息
+        run: |
+          set -x
+          sw_vers; uname -m; swift --version; xcodebuild -version; cmake --version | head -1
+          git submodule status
+
+      - name: vendor pin（做缓存 key）
+        id: pin
+        run: echo "value=$(git -C vendor/ghostty rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+
+      # 缓存的是「一次 build-ghostty.sh 的全部下游依赖」：SDK、会话引擎（dylib + 打补丁的头树）、
+      # Ghostty 主题集。少缓存任一项，package-mac.sh / build-sessiond-mac.py 都会在下一步炸。
+      # key 跟着 vendor pin + 补丁 + 构建脚本走：任一变化都要重建。
+      - name: 缓存 libghostty 会话产物
+        uses: actions/cache@v4
+        id: ghostty
+        with:
+          path: |
+            build/GhosttyKit.xcframework
+            tmp/worker-surface/engine/include
+            tmp/worker-surface/out/lib
+            tmp/ghostty-resources
+          key: ghostty-${{ runner.os }}-${{ steps.pin.outputs.value }}-${{ hashFiles('patches/libghostty/**', 'patches/zig/**', 'scripts/build-ghostty.sh', 'scripts/build-session-engine.py', 'scripts/build-sessiond-mac.py', 'scripts/probe-session-*.py') }}
+          restore-keys: |
+            ghostty-${{ runner.os }}-${{ steps.pin.outputs.value }}-
+
+      - name: 安装依赖（librsvg / ImageMagick）
+        run: brew install librsvg imagemagick
+
+      - name: 装 zig ${{ env.ZIG_VERSION }}（仅重建引擎时）
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          # libghostty 的 build.zig.zon 钉了 minimum_zig_version=0.16.0
+          ARCH="$(uname -m)"   # arm64 → aarch64
+          case "$ARCH" in arm64) ARCH=aarch64;; esac
+          URL="https://ziglang.org/download/${ZIG_VERSION}/zig-${ARCH}-macos-${ZIG_VERSION}.tar.xz"
+          echo "缺缓存 → 下载 $URL"
+          mkdir -p tmp/zig "$RUNNER_TEMP/zig-dl"
+          curl -fsSL -o "$RUNNER_TEMP/zig-dl/zig.tar.xz" "$URL"
+          tar -xJf "$RUNNER_TEMP/zig-dl/zig.tar.xz" -C "$RUNNER_TEMP/zig-dl" --strip-components=1
+          cp -R "$RUNNER_TEMP/zig-dl/." tmp/zig/
+          tmp/zig/zig version
+
+      - name: 确保 Metal toolchain（Xcode 16+ 需单独下载，仅重建引擎时）
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          if xcrun -sdk macosx metal --version >/dev/null 2>&1; then
+            echo "Metal toolchain 已就绪"
+          else
+            echo "缺 Metal toolchain → 下载（libghostty 要编译 Metal shader）"
+            sudo xcodebuild -downloadComponent MetalToolchain
+            xcrun -sdk macosx metal --version
+          fi
+
+      - name: 构建 libghostty（缓存未命中时）
+        run: |
+          set -euo pipefail
+          if [ -d build/GhosttyKit.xcframework ]; then
+            echo "缓存命中，跳过 libghostty 构建"
+          else
+            export PATH="$PWD/tmp/zig:$PATH"
+            export ZIG="$PWD/tmp/zig/zig"
+            bash scripts/build-ghostty.sh
+          fi
+          bash scripts/gate-ghostty-patch.sh
+
+      - name: 轻闸门（core + ABI + 图标一致性）
+        run: |
+          set -euo pipefail
+          bash scripts/gate.sh
+          if python3 -c 'import PIL' 2>/dev/null; then
+            bash scripts/build-icons.sh check
+          else
+            echo "SKIP 图标一致性校验：缺 Pillow（装它：python3 -m pip install --user pillow）"
+          fi
+
+      # Apple 端的四层证据（绑定对拍 / 本地 PTY / SSH e2e / 终端 UX）+ 每个断言组配一份
+      # 变异验证。CI 与本地跑的是同一批脚本，本地绿而 CI 红时先怀疑环境。
+      # 注意：**须在 libghostty 构建之后**——apple-app-gate 依赖 xcframework。
+      - name: Apple 端闸门 + 变异验证（full）
+        if: inputs.gates == 'full'
+        run: |
+          set -euo pipefail
+          if ! command -v swift >/dev/null 2>&1; then
+            echo "SKIP Apple 端闸门：无 swift 工具链"; exit 0
+          fi
+          bash scripts/apple-app-gate.sh
+          bash scripts/terminal-gate.sh
+          bash scripts/mutation-check-terminal.sh
+          bash scripts/mutation-check-transport.sh
+          bash scripts/mutation-check-tabs.sh
+          bash scripts/mutation-check-chrome.sh
+          bash scripts/mutation-check-settings.sh
+          bash scripts/mutation-check-pixel.sh
+          bash scripts/mutation-check-focus.sh
+          bash scripts/mutation-check-split-dim.sh
+          bash scripts/mutation-check-occlusion.sh
+
+      - name: 导入 Developer ID 证书（release 轨且有 secret 才做）
+        if: inputs.channel == 'release'
+        id: signing
+        env:
+          P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${P12_BASE64:-}" ]; then
+            echo "mode=adhoc" >> "$GITHUB_OUTPUT"
+            echo "没有 MACOS_CERTIFICATE_P12_BASE64 → 走 ad-hoc 签名（产物未签名/未公证，仅内测）"
+            exit 0
+          fi
+          KC="$RUNNER_TEMP/build.keychain-db"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          IDENTITY="$(security find-identity -v -p codesigning "$KC" | awk -F'"' '/Developer ID Application/{print $2; exit}')"
+          if [ -z "$IDENTITY" ]; then echo "导入后找不到 Developer ID Application 身份" >&2; exit 1; fi
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "mode=developer-id" >> "$GITHUB_OUTPUT"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      - name: 配置公证凭据（release 轨、有 secret 且要求公证时）
+        if: inputs.channel == 'release' && steps.signing.outputs.mode == 'developer-id' && (github.event_name == 'push' || inputs.notarize)
+        id: notary
+        env:
+          APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_ID:-}" ]; then
+            echo "没有公证 secret（NOTARY_APPLE_ID/NOTARY_TEAM_ID/NOTARY_PASSWORD）→ 跳过公证"
+            exit 0
+          fi
+          xcrun notarytool store-credentials "ghosterm-notary" \
+            --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$PASSWORD"
+          echo "profile=ghosterm-notary" >> "$GITHUB_OUTPUT"
+
+      - name: 取 Linux 会话安装包（两架构）
+        uses: actions/download-artifact@v4
+        with:
+          name: sessiond-linux-x86_64
+          path: tmp/sessiond/x86_64
+
+      - name: 取 Linux 会话安装包（aarch64）
+        uses: actions/download-artifact@v4
+        with:
+          name: sessiond-linux-aarch64
+          path: tmp/sessiond/aarch64
+
+      - name: 出包（dmg + zip + 校验和）
+        env:
+          SIGN_MODE: ${{ steps.signing.outputs.mode }}
+          SIGN_IDENTITY: ${{ steps.signing.outputs.identity }}
+          NOTARY_PROFILE: ${{ steps.notary.outputs.profile }}
+        run: |
+          set -euo pipefail
+          ARGS=(--out dist --build "$GITHUB_RUN_NUMBER")
+          if [ -n "${INPUT_VERSION:-}" ]; then ARGS+=(--version "$INPUT_VERSION"); fi
+          if [ "${INPUT_CHANNEL}" = "release" ] && [ "${SIGN_MODE:-adhoc}" = "developer-id" ]; then
+            ARGS+=(--sign "$SIGN_IDENTITY")
+            if [ -n "${NOTARY_PROFILE:-}" ]; then ARGS+=(--notarize "$NOTARY_PROFILE"); fi
+          else
+            ARGS+=(--adhoc)
+          fi
+          BUNDLES=()
+          for arch in x86_64 aarch64; do
+            bundle="$(ls -d "tmp/sessiond/$arch"/*/ 2>/dev/null | head -1)"
+            [ -n "$bundle" ] || { echo "缺 $arch 的 Linux 会话安装包" >&2; exit 1; }
+            BUNDLES+=(--session-linux-bundle "${bundle%/}")
+          done
+          bash scripts/package-mac.sh "${ARGS[@]}" "${BUNDLES[@]}"
+          echo "--- BUILD-INFO ---"
+          cat dist/BUILD-INFO.txt
+          # 内嵌的 Linux 会话包下限必须在 BUILD-INFO 里看得见（远端主机能不能跑就靠它）。
+          grep -q 'Linux glibc 下限' dist/BUILD-INFO.txt || { echo "BUILD-INFO 没记 min_glibc" >&2; exit 1; }
+          ls -la dist
+
+      - name: 上传 workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghosterm-macOS-${{ inputs.channel }}-${{ github.sha }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/SHA256SUMS
+            dist/BUILD-INFO.txt
+          retention-days: 1
