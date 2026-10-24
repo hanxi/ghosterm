@@ -128,6 +128,18 @@ jobs:
       - name: 复验 dev Release 指向本轮
         run: |
           set -euo pipefail
-          target="$(gh release view dev --json targetCommit -q .targetCommit.oid)"
+          # gh 的 release JSON 里没有 targetCommit，只有 targetCommitish
+          # （实测 --target <sha> 建出来的 release 就回该 sha）。
+          target="$(gh release view dev --json targetCommitish -q .targetCommitish)"
           [ "$target" = "$GITHUB_SHA" ] || { echo "dev Release 指向 $target ≠ $GITHUB_SHA" >&2; exit 1; }
-          echo "dev Release → $target · 资产 $(gh release view dev --json assets -q '[.assets[].name]|join(" ")')"
+          # tag 本身也要落在同一 commit：下载链接的稳定入口靠的是它。
+          tagsha="$(git ls-remote origin refs/tags/dev | cut -f1)"
+          [ "$tagsha" = "$GITHUB_SHA" ] || { echo "tag dev 指向 $tagsha ≠ $GITHUB_SHA" >&2; exit 1; }
+          prerelease="$(gh release view dev --json isPrerelease -q .isPrerelease)"
+          [ "$prerelease" = "true" ] || { echo "dev Release 不是 prerelease" >&2; exit 1; }
+          assets="$(gh release view dev --json assets -q '[.assets[].name]|join(" ")')"
+          echo "dev Release → $target · 资产 $assets"
+          # 滚动替换必须「只有一份、旧资产不残留」：资产名不含短 sha，所以
+          # 数量必须正好是本轮那 4 个（多了就是旧的没删干净）。
+          n="$(gh release view dev --json assets -q '.assets | length')"
+          [ "$n" = "4" ] || { echo "dev Release 有 $n 个资产，预期 4（旧资产残留）" >&2; exit 1; }
