@@ -288,29 +288,37 @@ static void macos_login_dash0(const char *shell, char **out_dash0,const gt_alloc
 /*
  * 这个 shell 认不认显式的 `-l`（再补一道保险）。
  *
- * 为什么光靠 argv[0] 的 `-` 不够：那是 POSIX 系 shell 的约定，bash/zsh/
- * tcsh 都认，但 **fish 官方文档只写 `-l/--login`**，argv[0] 前缀没有任何
- * 文档保证；nushell / xonsh / elvish 更是基本不认。而我们的 shell 列表是
- * 解析 /etc/shells 来的，Homebrew 装的 fish 会把自己写进去——也就是说
- * 用户**选得到**一个只靠 dash 前缀保证不了的 shell。两道一起上，哪道成立
- * 都行。
+ * 为什么光靠 argv[0] 的 `-` 不够：那是 POSIX 系 shell 的约定，zsh 连 `-c` 都
+ * 照读 /etc/zprofile，但 **bash 不**——实测 `argv[0]="-bash"` 配 `-c …` 完全不读
+ * /etc/profile（PATH 还是注入的那三个目录），只有**显式 `-l`** 才走登录语义。
+ * 而默认 shell 恰恰可能就是 bash（CI 的 macos runner 账号是 /bin/bash，
+ * 红过一次：登录语义静默失效、屏幕上不报错＝铁律 #6 禁止的那种失效）。
+ * fish 官方只文档化 `-l`，argv[0] 前缀没有保证；nushell / xonsh / elvish
+ * 更是基本不认。而我们的 shell 列表是解析 /etc/shells 来的，Homebrew 装的
+ * fish 会把自己写进去——也就是说用户**选得到**一个只靠 dash 前缀保证不了的
+ * shell。两道一起上，哪道成立都行。
  *
- * **只在调用方没给 argv 时补**，这不是偷懒：tcsh/csh 的 `-l` 规定「只能
- * 是唯一的标志」，`tcsh -l -c …` 直接报错退出——那比 PATH 不全糟得多
- * （用户看到的是个起不来的窗格）。本机实测：`tcsh -l` 单独跑 rc=0，
- * 叠上 `-c` 就 rc=1。
+ * `alongside_args` 把名单分成两档：**tcsh/csh 的 `-l` 规定「只能是唯一的
+ * 标志」**，`tcsh -l -c …` 直接报错退出——那比 PATH 不全糟得多（用户看到的
+ * 是个起不来的窗格）。本机实测：`tcsh -l` 单独跑 rc=0，叠上 `-c` 就 rc=1。
+ * 所以调用方给了 argv 时只给「能与参数并存」那一档补 `-l`，没给 argv 时两档都补。
  *
- * 名单按「本机实测认 -l」取：bash / zsh / ksh / dash / sh 实测通过，
- * tcsh / csh 在单独使用时通过，fish 按官方文档收录。拿不准的一律不收——
- * 漏收只是回到 dash 前缀那一档，误收会让窗格起不来。
+ * 名单按「本机实测」取：bash / zsh / ksh / dash / sh / fish 认 `-l` 且能与
+ * `-c` 并存，tcsh / csh 只认独占的 `-l`。拿不准的一律不收——漏收只是回到 dash
+ * 前缀那一档，误收会让窗格起不来。
  */
-static bool shell_takes_dash_l(const char *shell) {
-  static const char *const ok[] = {"bash", "zsh",  "fish", "ksh",
-                                   "tcsh", "csh",  "dash", "sh"};
+static bool shell_takes_dash_l(const char *shell, bool alongside_args) {
+  static const char *const ok[] = {"bash", "zsh",  "fish", "ksh", "dash", "sh"};
+  static const char *const lone_only[] = {"tcsh", "csh"};
   const char *base = strrchr(shell, '/');
   base = base ? base + 1 : shell;
   for (size_t i = 0; i < sizeof ok / sizeof *ok; i++) {
     if (strcmp(base, ok[i]) == 0) return true;
+  }
+  if (!alongside_args) {
+    for (size_t i = 0; i < sizeof lone_only / sizeof *lone_only; i++) {
+      if (strcmp(base, lone_only[i]) == 0) return true;
+    }
   }
   return false;
 }
@@ -409,10 +417,9 @@ gt_io_backend_t *gt__pty_open_with_options(const gt_pty_opts_t *opts,const gt_al
 #endif
 
   size_t extra = arr_len(o->argv);
-  /* 调用方没给参数时，对认 `-l` 的 shell 再显式补一个（见
-   * shell_takes_dash_l：给的 fish 之流留后路，而 tcsh 要求 `-l` 独占，
-   * 所以只在 extra == 0 时补）。 */
-  bool add_dash_l = is_shell && extra == 0 && shell_takes_dash_l(exe);
+  /* 对认 `-l` 的 shell 再显式补一个（见 shell_takes_dash_l：bash 配 `-c` 时
+   * dash 前缀不生效，而 tcsh 要求 `-l` 独占，故给了 argv 只补能并存那一档）。 */
+  bool add_dash_l = is_shell && shell_takes_dash_l(exe, extra > 0);
   size_t nargs = extra + (add_dash_l ? 1u : 0u);
   char **argv = pty_calloc(&domain,nargs + 2, sizeof(char *));
   if (!argv) {
