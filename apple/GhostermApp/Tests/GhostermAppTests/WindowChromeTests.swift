@@ -126,20 +126,44 @@ final class WindowChromeTests: XCTestCase {
             else { UserDefaults.standard.removeObject(forKey: key) }
         }
 
-        // None：用户显式关掉了 → 什么都不做，窗口不缩放、不最小化。
-        let w = makeWindow()
+        // 判据读的是**代码选了哪个动作**，不是 AppKit 那头的落地效果：
+        // CI 的 runner 上没有可交互的窗口服务器会话，performMiniaturize 会
+        // 静默 no-op（实测本机 isMiniaturized=true、runner 上永远 false），
+        // 而这条要护的正是「设成最小化却去缩放」这种分叉。
+        // 三档全测：原先只测 Minimize 与 None，「未设置/Maximize」那一档
+        // 换成什么都不做也不会红。
+        for (setting, expected) in [("None", [] as [String]),
+                                    ("Minimize", ["miniaturize"]),
+                                    ("Maximize", ["zoom"]),
+                                    (nil, ["zoom"])] {
+            if let setting { UserDefaults.standard.set(setting, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+            let w = ActionRecordingWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered, defer: false)
+            WindowChrome.performDoubleClickAction(on: w)
+            XCTAssertEqual(w.actions, expected,
+                "AppleActionOnDoubleClick=\(setting ?? "未设置") 时双击该选 \(expected)，"
+                + "实际选了 \(w.actions)")
+        }
+
+        // 真实窗口 + 「无」：不许动 frame、不许最小化（这条走的是真 AppKit）。
         UserDefaults.standard.set("None", forKey: key)
+        let w = makeWindow()
         let before = w.frame
         WindowChrome.performDoubleClickAction(on: w)
         XCTAssertEqual(w.frame, before, "设为「无」时双击不该改变窗口")
         XCTAssertFalse(w.isMiniaturized, "设为「无」时双击不该最小化")
 
-        // Minimize：按系统设置走最小化分支。
-        UserDefaults.standard.set("Minimize", forKey: key)
-        WindowChrome.performDoubleClickAction(on: w)
-        XCTAssertTrue(w.isMiniaturized, "设为「最小化」时双击应最小化窗口")
-
         // nil 传入：不崩、无副作用（标题栏可能还没来得及挂上）。
         WindowChrome.performDoubleClickAction(on: nil)
     }
+}
+
+/// 只记录「被调了哪个动作」的窗口——见 `testDoubleClickHonorsSystemPreference`。
+private final class ActionRecordingWindow: NSWindow {
+    private(set) var actions: [String] = []
+    override func performMiniaturize(_ sender: Any?) { actions.append("miniaturize") }
+    override func performZoom(_ sender: Any?) { actions.append("zoom") }
 }

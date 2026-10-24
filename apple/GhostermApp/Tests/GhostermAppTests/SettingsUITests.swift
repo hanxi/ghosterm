@@ -506,6 +506,13 @@ final class SettingsUITests: XCTestCase {
     /// 最后一条有内容的像素行，`留白 = 窗口高 - 内容底`。下界防裁切
     /// （裁切时内容/滚动条画到窗口底，留白趋 0），上界防大空白。数值
     /// 实测而来：增删设置行后按 `Pane.height` 注释重新对表。
+    ///
+    /// **上界为什么是 55 而不是 40**：留白是环境相关量——定高是写死的，
+    /// 而行高跟着系统控件高度漂。同一份代码实测：本机 macOS 26 四页留白
+    /// 21~24pt，CI 的 macos-15 runner 上「外观」页 49pt（页里控件多，累计
+    /// 漂 ≈28pt）。按 40 会在老系统上常红，而这条真正要拦的是「删了一行
+    /// 没收高度」（当年 145pt）：一行约 40~55pt，任何环境都还在 55 之外。
+    /// 每页留白都打出来（`留白 外观=…`），对不上表时能看见是谁漂了多少。
     @MainActor
     func testPaneHeightsMatchContent() throws {
         let model = try makeModel()
@@ -539,10 +546,13 @@ final class SettingsUITests: XCTestCase {
             }
             XCTAssertGreaterThanOrEqual(lastRow, 0, "\(pane.rawValue) 页扫不到任何内容")
             let gap = h - CGFloat(lastRow + 1) / scale
+            // 归因：留白是**环境相关量**（控件高度随 macOS 版本漂），CI 与本机
+            // 对不上时必须看得见是谁漂了多少，而不是只看到一个红。
+            print("留白 \(pane.rawValue)=\(gap)pt 高=\(h) scale=\(scale)")
             XCTAssertGreaterThanOrEqual(gap, 2,
                 "\(pane.rawValue) 页内容顶到窗口底（留白 \(gap)pt）——定高装不下，"
                 + "底部藏在滚动里；见 Pane.height 注释重新对表")
-            XCTAssertLessThanOrEqual(gap, 40,
+            XCTAssertLessThanOrEqual(gap, 55,
                 "\(pane.rawValue) 页底部留白 \(gap)pt——定高远大于内容；"
                 + "见 Pane.height 注释重新对表")
         }
