@@ -25,6 +25,9 @@
 # 故本脚本一律写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-tabs
+
 TMP="$ROOT/tmp"
 PKG="$ROOT/apple/GhostermApp"
 TABS="$ROOT/apple/GhostermApp/Sources/GhostermAppModel/TabManager.swift"
@@ -79,11 +82,11 @@ for i in "${!FILES[@]}"; do
 done
 
 run_tabs() {  # 标签页结构 / 分屏 / 退出折叠 / 新建菜单
-  ( cd "$PKG" && timeout 300 swift test --filter \
+  ( cd "$PKG" && gt_timeout 300 swift test --filter \
       "TabManagerTests|SplitLayoutTests|NewTabMenuTests|SplitExitTests|SplitPaneGeometryTests|TabContextMenuTests|WorkspaceTests" >/dev/null 2>&1 )
 }
 run_other() {  # 指向性对照：设置生效那批（与标签页结构无关）
-  ( cd "$PKG" && timeout 300 swift test --filter TerminalConfigTests >/dev/null 2>&1 )
+  ( cd "$PKG" && gt_timeout 300 swift test --filter TerminalConfigTests >/dev/null 2>&1 )
 }
 
 expect() { # ${1}=期望 red|green ${2}=描述 ${3}=函数名

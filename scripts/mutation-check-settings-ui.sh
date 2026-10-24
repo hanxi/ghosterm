@@ -35,6 +35,9 @@
 # 故一律写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-settings-ui
+
 TMP="$ROOT/tmp"
 PKG="$ROOT/apple/GhostermApp"
 THEME="$ROOT/apple/GhostermApp/Sources/GhostermAppModel/ThemeSelection.swift"
@@ -80,8 +83,8 @@ for f in "${FILES[@]}"; do
   cp "$f" "$b"; BACKUPS+=("$b")
 done
 
-run_ui()    { ( cd "$PKG" && timeout 300 swift test --filter SettingsUITests >/dev/null 2>&1 ); }
-run_other() { ( cd "$PKG" && timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 ); }
+run_ui()    { ( cd "$PKG" && gt_timeout 300 swift test --filter SettingsUITests >/dev/null 2>&1 ); }
+run_other() { ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 ); }
 expect() {
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))

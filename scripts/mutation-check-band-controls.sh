@@ -22,6 +22,9 @@
 # 注意：`$var` 紧跟全角字符会被 bash 吃进变量名，故一律写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-band-controls
+
 TMP="$ROOT/tmp"
 PKG="$ROOT/apple/GhostermApp"
 BAND="$ROOT/apple/GhostermApp/Sources/GhostermApp/BandControls.swift"
@@ -62,11 +65,11 @@ for i in "${!FILES[@]}"; do
   cp "${FILES[$i]}" "${BACKUPS[$i]}"
 done
 
-run_band()    { ( cd "$PKG" && timeout 420 swift test --filter TabStripVisibilityTests >/dev/null 2>&1 ); }
-run_menu()    { ( cd "$PKG" && timeout 420 swift test --filter AppMenuCoverageTests >/dev/null 2>&1 ); }
-run_catalog() { ( cd "$PKG" && timeout 420 swift test --filter SettingsUITests >/dev/null 2>&1 ); }
-run_pixels()  { ( cd "$PKG" && timeout 420 swift test --filter SidebarChromeTests >/dev/null 2>&1 ); }
-run_about()   { ( cd "$PKG" && timeout 420 swift test --filter AboutWindowTests >/dev/null 2>&1 ); }
+run_band()    { ( cd "$PKG" && gt_timeout 420 swift test --filter TabStripVisibilityTests >/dev/null 2>&1 ); }
+run_menu()    { ( cd "$PKG" && gt_timeout 420 swift test --filter AppMenuCoverageTests >/dev/null 2>&1 ); }
+run_catalog() { ( cd "$PKG" && gt_timeout 420 swift test --filter SettingsUITests >/dev/null 2>&1 ); }
+run_pixels()  { ( cd "$PKG" && gt_timeout 420 swift test --filter SidebarChromeTests >/dev/null 2>&1 ); }
+run_about()   { ( cd "$PKG" && gt_timeout 420 swift test --filter AboutWindowTests >/dev/null 2>&1 ); }
 expect() {
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))

@@ -13,6 +13,9 @@
 # 回滚后比对起跑前记录的 sha256。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-settings
+
 TMP="$ROOT/tmp"
 PKG="$ROOT/apple/GhostermApp"
 SHIM="$ROOT/apple/GhostermTerminal/Sources/CGhostty/shim.c"
@@ -71,10 +74,10 @@ cp "$SETTINGS" "$BACKUP_SETTINGS"
 cp "$SURF" "$BACKUP_SURF"
 
 run_tests() {
-  ( cd "$PKG" && timeout 300 swift test --filter TerminalConfigTests >/dev/null 2>&1 )
+  ( cd "$PKG" && gt_timeout 300 swift test --filter TerminalConfigTests >/dev/null 2>&1 )
 }             # 这一组是「设置生效」的断言
 run_other() { # 指向性：另一组断言（标签页结构）在同样变异下应仍绿
-  ( cd "$PKG" && timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 )
+  ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 )
 }
 
 expect() { # $1=期望 red|green  $2=描述  $3=函数名

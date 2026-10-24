@@ -15,6 +15,9 @@
 # 注意：`$var` 紧跟全角字符会被 bash 吃进变量名，故一律写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-auth
+
 TMP="$ROOT/tmp"
 SRC="$ROOT/apple/GhostermApp/Sources/GhostermAppModel/AppModel.swift"
 PKG="$ROOT/apple/GhostermApp"
@@ -100,10 +103,10 @@ run_auth() {
   ( cd "$PKG" && env GHOSTERM_SSH_HOST=127.0.0.1 GHOSTERM_SSH_PORT="$PORT" \
       GHOSTERM_SSH_USER="$(id -un)" GHOSTERM_SSH_KEY="$WORK/clientkey" \
       GHOSTERM_SSH_KNOWN_HOSTS="$WORK/known_hosts" \
-      timeout 300 swift test --filter SSHAuthTests >"$WORK/auth-test-${PASS}.log" 2>&1 )
+      gt_timeout 300 swift test --filter SSHAuthTests >"$WORK/auth-test-${PASS}.log" 2>&1 )
 }
 run_other() {  # 指向性对照：与认证无关的那批（主机列表解析）
-  ( cd "$PKG" && timeout 300 swift test --filter HostListTests >/dev/null 2>&1 )
+  ( cd "$PKG" && gt_timeout 300 swift test --filter HostListTests >/dev/null 2>&1 )
 }
 expect() {
   if "$3"; then actual=green; else actual=red; fi

@@ -8,9 +8,12 @@
 #   I3 无损写回不再跳过 included 节点（铁律 #4 破坏）→ 崩溃/红；
 #   I4 include_error 不传播 → 「具名缺失必失败」「自环必拦下」红。
 # 纪律（AGENTS.md）：起跑前扫残留标记；trap 复原；回滚比对 sha256。
-# 每次 I 变异前重建（防 timeout 300 ctest/旧二进制假绿——SFTP 变异教训）。
+# 每次 I 变异前重建（防 gt_timeout 300 ctest/旧二进制假绿——SFTP 变异教训）。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-include
+
 TMP="$ROOT/tmp"
 SRC="$ROOT/core/src/config.c"
 FIXTURES="$ROOT/core/tests/fixtures"
@@ -51,7 +54,7 @@ run_suite() {
     LAST_REASON="构建失败"
     return 1
   fi
-  if ! timeout 60 "$ROOT/core/build/test_config" "$FIXTURES" \
+  if ! gt_timeout 60 "$ROOT/core/build/test_config" "$FIXTURES" \
         >"$TMP/gt-mutinc-run.log" 2>&1; then
     LAST_REASON="断言红（$(grep -c '^FAIL' "$TMP/gt-mutinc-run.log" 2>/dev/null || echo 0) 条 FAIL）"
     return 1

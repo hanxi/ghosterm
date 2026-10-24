@@ -17,6 +17,9 @@
 # 无 sshd 时整体 SKIP。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-sftp
+
 TMP="$ROOT/tmp"
 mkdir -p "$TMP"
 SRC="$ROOT/core/src/sftp.c"
@@ -53,7 +56,7 @@ cp "$SRC" "$BACKUP"
 
 run_e2e() {
   ( cmake --build "$ROOT/core/build" >/dev/null 2>&1 && \
-    timeout 300 ctest --test-dir "$ROOT/core/build" -R ssh_e2e --output-on-failure >/dev/null 2>&1 )
+    gt_timeout 300 ctest --test-dir "$ROOT/core/build" -R ssh_e2e --output-on-failure >/dev/null 2>&1 )
 }
 expect_e2e() {
   if run_e2e; then actual=green; else actual=red; fi

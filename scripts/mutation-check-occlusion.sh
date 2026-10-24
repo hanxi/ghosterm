@@ -15,6 +15,9 @@
 # 写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-occlusion
+
 TMP="$ROOT/tmp"
 PKG="$ROOT/apple/GhostermApp"
 SHIM="$ROOT/apple/GhostermTerminal/Sources/CGhostty/shim.c"
@@ -55,8 +58,8 @@ BACKUP_VIEW="$(mktemp "$TMP/gt-mutocc-view-XXXXXX")"; BACKUP_VIEW="$BACKUP_VIEW.
 BACKUP_TEST="$(mktemp "$TMP/gt-mutocc-test-XXXXXX")"; BACKUP_TEST="$BACKUP_TEST.swift"
 cp "$SHIM" "$BACKUP_SHIM"; cp "$VIEW" "$BACKUP_VIEW"; cp "$TEST" "$BACKUP_TEST"
 
-run_occ() { ( cd "$PKG" && timeout 420 swift test --filter WindowFocusTests >/dev/null 2>&1 ); }
-run_other() { ( cd "$PKG" && timeout 420 swift test --filter ProgramStatusStoreTests >/dev/null 2>&1 ); }
+run_occ() { ( cd "$PKG" && gt_timeout 420 swift test --filter WindowFocusTests >/dev/null 2>&1 ); }
+run_other() { ( cd "$PKG" && gt_timeout 420 swift test --filter ProgramStatusStoreTests >/dev/null 2>&1 ); }
 
 expect() { # $1=期望 red|green $2=描述 $3=函数名
   if "$3"; then actual=green; else actual=red; fi

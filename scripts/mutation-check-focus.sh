@@ -21,6 +21,9 @@
 # 写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-focus
+
 TMP="$ROOT/tmp"
 PKG="$ROOT/apple/GhostermApp"
 SURF="$ROOT/apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurface.swift"
@@ -61,8 +64,8 @@ BACKUP_VIEW="$(mktemp "$TMP/gt-mutfocus-view-XXXXXX")"; BACKUP_VIEW="$BACKUP_VIE
 BACKUP_TEST="$(mktemp "$TMP/gt-mutfocus-test-XXXXXX")"; BACKUP_TEST="$BACKUP_TEST.swift"
 cp "$SURF" "$BACKUP_SURF"; cp "$VIEW" "$BACKUP_VIEW"; cp "$TEST" "$BACKUP_TEST"
 
-run_focus() { ( cd "$PKG" && timeout 420 swift test --filter WindowFocusTests >/dev/null 2>&1 ); }
-run_other() { ( cd "$PKG" && timeout 420 swift test --filter ProgramStatusStoreTests >/dev/null 2>&1 ); }
+run_focus() { ( cd "$PKG" && gt_timeout 420 swift test --filter WindowFocusTests >/dev/null 2>&1 ); }
+run_other() { ( cd "$PKG" && gt_timeout 420 swift test --filter ProgramStatusStoreTests >/dev/null 2>&1 ); }
 
 expect() { # $1=期望 red|green $2=描述 $3=函数名
   if "$3"; then actual=green; else actual=red; fi

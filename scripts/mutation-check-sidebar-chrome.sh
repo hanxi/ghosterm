@@ -14,6 +14,9 @@
 # 注意：`$var` 紧跟全角字符会被 bash 吃进变量名，故一律写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-sidebar-chrome
+
 TMP="$ROOT/tmp"
 PKG="$ROOT/apple/GhostermApp"
 STRIP="$ROOT/apple/GhostermApp/Sources/GhostermApp/TabStrip.swift"
@@ -57,9 +60,9 @@ for i in "${!FILES[@]}"; do
   cp "${FILES[$i]}" "${BACKUPS[$i]}"
 done
 
-run_chrome() { ( cd "$PKG" && timeout 300 swift test --filter "SidebarChromeTests|WindowChromeTests" >/dev/null 2>&1 ); }
-run_other()  { ( cd "$PKG" && timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 ); }
-run_strip()  { ( cd "$PKG" && timeout 300 swift test --filter TabStripScrollTests >/dev/null 2>&1 ); }
+run_chrome() { ( cd "$PKG" && gt_timeout 300 swift test --filter "SidebarChromeTests|WindowChromeTests" >/dev/null 2>&1 ); }
+run_other()  { ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 ); }
+run_strip()  { ( cd "$PKG" && gt_timeout 300 swift test --filter TabStripScrollTests >/dev/null 2>&1 ); }
 expect() {
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))

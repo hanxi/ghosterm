@@ -21,6 +21,9 @@
 # 写脚本注意：`$var` 后缀全角字符会被 bash 吃进变量名，故一律写 ${var}。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-transport
+
 TMP="$ROOT/tmp"
 SRC="$ROOT/core/src/io/pty_posix.c"
 FACADE="$ROOT/core/src/transport.c"
@@ -71,11 +74,11 @@ cp "$FACADE" "$FACADE_BACKUP"
 # 每个被调用的套件都带 timeout：P3 会让 close 真的卡住（直到作业自己结束）。
 run_transport() {
   ( cmake --build "$ROOT/core/build" >/dev/null 2>&1 && \
-    timeout 180 "$ROOT/core/build/test_transport" "$TMP" >/dev/null 2>&1 )
+    gt_timeout 180 "$ROOT/core/build/test_transport" "$TMP" >/dev/null 2>&1 )
 }
 run_config() { # 指向性对照：另一组核心断言（ssh_config）在同样变异下仍绿
   ( cmake --build "$ROOT/core/build" >/dev/null 2>&1 && \
-    timeout 120 "$ROOT/core/build/test_config" "$ROOT/core/tests/fixtures" >/dev/null 2>&1 )
+    gt_timeout 120 "$ROOT/core/build/test_config" "$ROOT/core/tests/fixtures" >/dev/null 2>&1 )
 }
 expect() { # ${1}=期望 red|green ${2}=描述 ${3}=函数名
   if "$3"; then actual=green; else actual=red; fi

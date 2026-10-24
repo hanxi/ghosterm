@@ -15,6 +15,9 @@
 # 注意：`$var` 紧跟全角字符会被 bash 吃进变量名，故一律写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-known-hosts
+
 TMP="$ROOT/tmp"
 SRC="$ROOT/core/src/ssh.c"
 # 每个被调用的套件都带 timeout：某些变异会让被测代码**真的卡住**
@@ -45,7 +48,7 @@ cp "$SRC" "$BACKUP"
 
 run_kh() { # 两种算法各跑一遍（缺 sshd 时脚本自身 SKIP 并按 0 退出）
   ( cmake --build "$ROOT/core/build" >/dev/null 2>&1 && \
-    timeout 300 ctest --test-dir "$ROOT/core/build" -R "known_hosts" >/dev/null 2>&1 )
+    gt_timeout 300 ctest --test-dir "$ROOT/core/build" -R "known_hosts" >/dev/null 2>&1 )
 }
 run_other() { # 指向性对照：ssh_config 那批不受影响
   ( cmake --build "$ROOT/core/build" >/dev/null 2>&1 && \

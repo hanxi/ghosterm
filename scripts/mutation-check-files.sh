@@ -19,6 +19,9 @@
 # 纪律照 AGENTS.md：起跑扫残留标记；trap 复原；回滚比对 sha256。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-files
+
 TMP="$ROOT/tmp"
 mkdir -p "$TMP"
 MARK="GT_MUTATION_MARK"
@@ -60,7 +63,7 @@ i=0
 for f in "${FILES[@]}"; do BASE_SHAS[$i]="$(sha_of "$f")"; i=$((i+1)); done
 
 run_test() {
-  ( cd "$ROOT/apple/GhostermApp" && timeout 900 swift test --filter \
+  ( cd "$ROOT/apple/GhostermApp" && gt_timeout 900 swift test --filter \
       "FilesPanelTests|PanelChromeTests" >/dev/null 2>&1 )
 }
 expect_green() {

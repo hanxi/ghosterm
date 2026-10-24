@@ -13,6 +13,9 @@
 # 注意：`$var` 紧跟全角字符会被 bash 吃进变量名，故一律写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-chrome
+
 TMP="$ROOT/tmp"
 PKG="$ROOT/apple/GhostermApp"
 SRC="$ROOT/apple/GhostermApp/Sources/GhostermAppModel/WindowChrome.swift"
@@ -45,8 +48,8 @@ BASE_SHA="$(shasum -a 256 "$SRC" | awk '{print $1}')"
 BACKUP="$(mktemp "$TMP/gt-mutchrome-XXXXXX")"; BACKUP="$BACKUP.swift"
 cp "$SRC" "$BACKUP"
 
-run_chrome() { ( cd "$PKG" && timeout 300 swift test --filter WindowChromeTests >/dev/null 2>&1 ); }
-run_other()  { ( cd "$PKG" && timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 ); }
+run_chrome() { ( cd "$PKG" && gt_timeout 300 swift test --filter WindowChromeTests >/dev/null 2>&1 ); }
+run_other()  { ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 ); }
 expect() {
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))

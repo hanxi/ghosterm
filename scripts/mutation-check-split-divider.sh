@@ -13,6 +13,9 @@
 # sha256。注意：`$var` 紧跟全角字符会被 bash 吃进变量名，故一律写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-split-divider
+
 TMP="$ROOT/tmp"
 PKG="$ROOT/apple/GhostermApp"
 ROOTVIEW="$ROOT/apple/GhostermApp/Sources/GhostermApp/WorkspaceView.swift"
@@ -53,8 +56,8 @@ for i in "${!FILES[@]}"; do
   cp "${FILES[$i]}" "${BACKUPS[$i]}"
 done
 
-run_divider()  { ( cd "$PKG" && timeout 420 swift test --filter SplitDividerTests >/dev/null 2>&1 ); }
-run_geometry() { ( cd "$PKG" && timeout 420 swift test --filter SplitPaneGeometryTests >/dev/null 2>&1 ); }
+run_divider()  { ( cd "$PKG" && gt_timeout 420 swift test --filter SplitDividerTests >/dev/null 2>&1 ); }
+run_geometry() { ( cd "$PKG" && gt_timeout 420 swift test --filter SplitPaneGeometryTests >/dev/null 2>&1 ); }
 expect() {
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))

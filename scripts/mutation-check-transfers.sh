@@ -9,6 +9,9 @@
 # 纪律照 AGENTS.md：起跑扫残留标记；trap 复原；回滚比对 sha256。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-transfers
+
 TMP="$ROOT/tmp"; mkdir -p "$TMP"
 SRC="$ROOT/apple/GhostermApp/Sources/GhostermAppModel/TransferManager.swift"
 MARK="GT_MUTATION_MARK"
@@ -27,7 +30,7 @@ fi
 BASE_SHA="$(shasum -a 256 "$SRC" | awk '{print $1}')"
 BACKUP="$(mktemp "$TMP/gt-muttr-XXXXXX")"; cp "$SRC" "$BACKUP"
 
-run_test() { ( cd "$ROOT/apple/GhostermApp" && timeout 900 swift test --filter TransferManagerTests >/dev/null 2>&1 ); }
+run_test() { ( cd "$ROOT/apple/GhostermApp" && gt_timeout 900 swift test --filter TransferManagerTests >/dev/null 2>&1 ); }
 expect_green() { if run_test; then echo "  ✓ $1 → green"; PASS=$((PASS+1)); else echo "  ✗ $1 → 期望 green，实际 red"; FAIL=$((FAIL+1)); fi; }
 expect_red() { if run_test; then echo "  ✗ $1 → 期望 red，实际 green（断言无牙）"; FAIL=$((FAIL+1)); else echo "  ✓ $1 → red"; PASS=$((PASS+1)); fi; }
 mutate() { python3 "$1" "$SRC"; }

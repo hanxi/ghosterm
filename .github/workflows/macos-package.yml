@@ -250,7 +250,10 @@ jobs:
           # /opt/homebrew/bin 在 PATH 里排在 /bin 前面，`bash …` 才是 5.x。
           # Pillow 是图标一致性校验的依赖：装在 venv 里（系统 Python 是
           # externally-managed，pip --user 会直接被拒），下一步把它放进 PATH。
-          brew install librsvg imagemagick bash
+          # coreutils 是给变异验证的 `gt_timeout` 用的：runner 上没有 GNU
+          # `timeout`（只有 brew 的 `gtimeout`），而变异脚本要靠超时才有界——
+          # CI 实测踩过「命令不存在 = 非零 = 被当成断言变红」的假牙。
+          brew install librsvg imagemagick bash coreutils
           python3 -m venv tmp/venv-icons
           tmp/venv-icons/bin/python -m pip install --quiet --upgrade pip pillow
           tmp/venv-icons/bin/python -c 'import PIL; print("Pillow", PIL.__version__)'

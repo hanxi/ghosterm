@@ -229,7 +229,14 @@ AppKit 收编吃掉——用户报的「主题预览没显示」；断言数的�
 
 - 验「无损往返」必须改被插值的**期望值**，不能改两侧一起变的常量；
 - 验「agent 不产生假绿」要用**双断言**（同一变异下闸门红 + 另一条仍绿，证明红有指向性）；
-- 变异脚本必须：**起跑前扫变异标记**（命中即 `exit 2`）、`trap … INT TERM` 复原、回滚时比对**起跑前记录的 sha256**。
+- 变异脚本必须：**起跑前扫变异标记**（命中即 `exit 2`）、`trap … INT TERM` 复原、回滚时比对**起跑前记录的 sha256**；
+- 变异脚本要超时**只能走 `scripts/lib/gt-timeout.sh` 的 `gt_timeout`**，**禁止**裸用 `timeout`：
+  macOS（含 CI 的 macos-15 runner）没有 GNU `timeout`，brew 装的是 `gtimeout`。
+  「命令不存在」和「断言变红」都是非零退出码，于是**基线红、变异也红**，`expect red`
+  整片假通过（CI 实测：`mutation-check-transport` 报「4 passed / 8 failed」，每项只花
+  2–4 秒，而同一 job 里 ctest 是绿的）。`gt_timeout_require` 解析不到 `timeout`/`gtimeout`
+  就 `exit 2` 拒绝起跑——**宁可红，不拿「命令不存在」冒充有牙**；也绝不降级成
+  「不设超时」（P4 那类「无限等」的变异靠超时才有界，拿掉超时就是拿掉判据）。
 
 ## 提交纪律
 

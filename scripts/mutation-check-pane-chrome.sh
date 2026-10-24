@@ -25,6 +25,9 @@
 # 注意：`$var` 紧跟全角字符会被 bash 吃进变量名，故一律写 `${var}`。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-pane-chrome
+
 TMP="$ROOT/tmp"
 PKG="$ROOT/apple/GhostermApp"
 CHROME="$ROOT/apple/GhostermApp/Sources/GhostermApp/PaneChrome.swift"
@@ -69,25 +72,25 @@ for i in "${!FILES[@]}"; do
   cp "${FILES[$i]}" "${BACKUPS[$i]}"
 done
 
-run_pixels() { ( cd "$PKG" && timeout 420 swift test --filter PaneChromeTests >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
-run_zoom()   { ( cd "$PKG" && timeout 420 swift test --filter PaneZoomTests >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
+run_pixels() { ( cd "$PKG" && gt_timeout 420 swift test --filter PaneChromeTests >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
+run_zoom()   { ( cd "$PKG" && gt_timeout 420 swift test --filter PaneZoomTests >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
 # P7 要证明「比例丢了」与「几何塌了」是两条不同的红，故各自单跑一条。
-run_zoom_ratio() { ( cd "$PKG" && timeout 420 swift test \
+run_zoom_ratio() { ( cd "$PKG" && gt_timeout 420 swift test \
   --filter 'PaneZoomTests/testZoomRoundTripKeepsDraggedDividerRatio' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
-run_zoom_sibling() { ( cd "$PKG" && timeout 420 swift test \
+run_zoom_sibling() { ( cd "$PKG" && gt_timeout 420 swift test \
   --filter 'PaneZoomTests/testSiblingGeometryIsUntouchedByZoom' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
-run_strip()  { ( cd "$PKG" && timeout 420 swift test --filter TabStripVisibilityTests >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
+run_strip()  { ( cd "$PKG" && gt_timeout 420 swift test --filter TabStripVisibilityTests >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
 # P8/P9 量的是「窗格离窗口顶多远」，与量「两格之间空多少」的间距那条互为指向性。
-run_top_inset() { ( cd "$PKG" && timeout 420 swift test \
+run_top_inset() { ( cd "$PKG" && gt_timeout 420 swift test \
   --filter 'PaneChromeTests/testSplitPanesReachWindowTopWhenSidebarIsOpen' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
-run_pane_gap() { ( cd "$PKG" && timeout 420 swift test \
+run_pane_gap() { ( cd "$PKG" && gt_timeout 420 swift test \
   --filter 'PaneChromeTests/testGapIsRealWhitespaceBetweenPanes' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
 # P10/P11 互为指向性：一个管「分屏时点上」，一个管「单格时别点」。
-run_focus_tint() { ( cd "$PKG" && timeout 420 swift test \
+run_focus_tint() { ( cd "$PKG" && gt_timeout 420 swift test \
   --filter 'PaneChromeTests/testFocusedPaneTitleBarIsTinted' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
-run_lone_tint() { ( cd "$PKG" && timeout 420 swift test \
+run_lone_tint() { ( cd "$PKG" && gt_timeout 420 swift test \
   --filter 'PaneChromeTests/testLonePaneTitleBarIsNotTinted' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
-run_other()  { ( cd "$PKG" && timeout 420 swift test --filter TabManagerTests >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
+run_other()  { ( cd "$PKG" && gt_timeout 420 swift test --filter TabManagerTests >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
 expect() {
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))
