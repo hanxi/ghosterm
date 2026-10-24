@@ -82,29 +82,34 @@ jobs:
           - arch: aarch64
             runner: ubuntu-24.04-arm
             image: arm64v8/ubuntu:22.04
+    defaults:
+      run:
+        # 容器里的 /bin/sh 是 dash，不认 `set -o pipefail`（实测红过一次）。
+        shell: bash
     env:
       # arm64 的 ubuntu:22.04 官方镜像名带 arm64v8/ 前缀，zig 包名跟着机器架构走
       ZIG_ARCH: ${{ matrix.arch }}
     steps:
-      - name: 检出（只要 vendor/ghostty 这个 submodule）
-        uses: actions/checkout@v4
-        with:
-          submodules: vendor/ghostty
-          fetch-depth: 0
-
-      # 容器里 uid 与 runner 挂载的文件属主不一致，git 会拒绝操作仓库。
-      - name: 允许容器内读工作区
-        run: |
-          set -euo pipefail
-          git config --global --add safe.directory "*"
-
-      - name: 安装构建依赖
+      # 必须在 checkout **之前**：ubuntu:22.04 容器里没有 git，actions/checkout 会
+      # 退回 REST 归档下载——那样 submodule 根本拿不到，构建器第一步就红。
+      - name: 装 git 与构建依赖
         run: |
           set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
           apt-get update -qq
           apt-get install -y --no-install-recommends \
             build-essential ca-certificates cmake curl git pkg-config python3 tar xz-utils
+          # 容器里 uid 与 runner 挂载的文件属主不一致，git 会拒绝操作仓库。
+          git config --global --add safe.directory "*"
+
+      # persist-credentials=false：vendor/ghostty 是**别人家的公开仓库**，checkout 写进
+      # 配置的 GITHUB_TOKEN extraheader 会让跨仓库 fetch 被拒（公开仓库匿名反而能拉）。
+      # 本 job 不需要 git 网络写操作，构建只读 HEAD 与补丁。
+      - name: 检出（只要 vendor/ghostty 这个 submodule）
+        uses: actions/checkout@v4
+        with:
+          submodules: vendor/ghostty
+          persist-credentials: false
 
       - name: 缓存 zig ${{ env.ZIG_VERSION }}
         uses: actions/cache@v4
@@ -184,7 +189,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: vendor/ghostty
-          fetch-depth: 0 # git describe 要完整历史
+          persist-credentials: false # 跨仓库拉公开 submodule 不能用本仓库的 token header
+          fetch-depth: 0 # git describe 要完整历史与 tag
 
       - name: 备好 tmp/
         run: mkdir -p "$TMPDIR"
