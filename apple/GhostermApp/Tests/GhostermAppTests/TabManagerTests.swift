@@ -422,10 +422,19 @@ final class NewTabMenuTests: XCTestCase {
 
         // 先把当前 shell **cd 到别处**：否则新 shell 即使不继承也落在同一默认
         // 目录，断言就不敏感（变异不会红）。cd /usr 之后继承与否才看得出来。
-        first.surface?.sendCommandLine("cd /usr")
-        let d1 = Date().addingTimeInterval(10)
-        while Date() < d1 && first.currentDirectory != "/usr" {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        //
+        // 前置要**重发**：登录 shell 起步（rc 文件、path_helper）期间敲进去的
+        // 字符会落在提示符就绪之前。CI 的 macos-15 runner 上实测丢过一次
+        // （`currentDirectory` 10 秒都停在 /Users/runner），本地全过——那是
+        // 「前置没建立」，不是「继承目录」这条契约断了。真断了下面照样红，
+        // 只是不拿启动时序冒充功能坏。
+        for _ in 0..<3 {
+            first.surface?.sendCommandLine("cd /usr")
+            let d1 = Date().addingTimeInterval(10)
+            while Date() < d1 && first.currentDirectory != "/usr" {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            }
+            if first.currentDirectory == "/usr" { break }
         }
         XCTAssertEqual(first.currentDirectory, "/usr", "前置：当前 shell 应在 /usr")
 
