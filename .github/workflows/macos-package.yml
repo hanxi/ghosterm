@@ -239,8 +239,20 @@ jobs:
           restore-keys: |
             ghostty-${{ runner.os }}-${{ steps.pin.outputs.value }}-
 
-      - name: 安装依赖（librsvg / ImageMagick）
-        run: brew install librsvg imagemagick
+      - name: 安装依赖（librsvg / ImageMagick / bash / Pillow）
+        run: |
+          set -euo pipefail
+          # **bash 必须在列**：macOS 自带的 /bin/bash 是 3.2，而
+          # scripts/package-mac.sh 显式要求 ≥4（CI 实测红过一次：runner 的 PATH
+          # 里 /bin 先命中 → 出包第一步就 fail）。装了 brew 的 bash 之后
+          # /opt/homebrew/bin 在 PATH 里排在 /bin 前面，`bash …` 才是 5.x。
+          # Pillow 是图标一致性校验的依赖：装在 venv 里（系统 Python 是
+          # externally-managed，pip --user 会直接被拒），下一步把它放进 PATH。
+          brew install librsvg imagemagick bash
+          python3 -m venv tmp/venv-icons
+          tmp/venv-icons/bin/python -m pip install --quiet --upgrade pip pillow
+          tmp/venv-icons/bin/python -c 'import PIL; print("Pillow", PIL.__version__)'
+          bash --version | head -1
 
       - name: 装 zig ${{ env.ZIG_VERSION }}（仅重建引擎时）
         if: steps.ghostty.outputs.cache-hit != 'true'
@@ -285,11 +297,9 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/gate.sh
-          if python3 -c 'import PIL' 2>/dev/null; then
-            bash scripts/build-icons.sh check
-          else
-            echo "SKIP 图标一致性校验：缺 Pillow（装它：python3 -m pip install --user pillow）"
-          fi
+          # 图标一致性**不许在 CI 上 SKIP**：轻闸门的口径就包含它，缺依赖时
+          # 上面那步已经把 Pillow 装进 venv 了。真跑不了要红，不能绿得没牙。
+          PATH="$PWD/tmp/venv-icons/bin:$PATH" bash scripts/build-icons.sh check
 
       # Apple 端的四层证据（绑定对拍 / 本地 PTY / SSH e2e / 终端 UX）+ 每个断言组配一份
       # 变异验证。CI 与本地跑的是同一批脚本，本地绿而 CI 红时先怀疑环境。
