@@ -43,7 +43,7 @@ int main(int argc,char **argv) {
   end=now()+5000;
   for(;;){CHECK(now()<end && gt__ssh_link_step(owner)==GT_OK);gt_ssh_link_info_t a,b;CHECK(gt__ssh_link_info(owner,0,&a) && gt__ssh_link_info(owner,1,&b));if(a.phase==GT_SSH_LINK_ENDED && b.phase==GT_SSH_LINK_ENDED){CHECK(!a.has_exit_code && !b.has_exit_code);break;}}
   CHECK(gt__ssh_link_stream(owner,0,absent,argv[5],absent,&ops[0])==GT_OK);end=now()+5000;
-  for(;;){CHECK(now()<end && gt__ssh_link_step(owner)==GT_OK);gt_ssh_link_info_t info;CHECK(gt__ssh_link_info(owner,0,&info));if(info.phase==GT_SSH_LINK_ENDED){CHECK(info.has_exit_code && info.exit_code==127 && info.stderr_bytes>0);break;}}
+  for(;;){CHECK(now()<end && gt__ssh_link_step(owner)==GT_OK);gt_ssh_link_info_t info;CHECK(gt__ssh_link_info(owner,0,&info));if(info.phase==GT_SSH_LINK_ENDED){if(!(info.has_exit_code&&info.exit_code==127&&info.stderr_bytes>0))fprintf(stderr,"归因 absent-command: has_exit_code=%d exit_code=%d stderr_bytes=%llu error=%d\n",(int)info.has_exit_code,info.exit_code,(unsigned long long)info.stderr_bytes,(int)info.error);CHECK(info.has_exit_code && info.exit_code==127 && info.stderr_bytes>0);break;}}
   ops[0].close(ops[0].context);gt__ssh_link_cancel(owner);CHECK(gt__ssh_link_step(owner)==GT_ERR_CANCELLED && ops[1].read(ops[1].context,bytes,1).kind==GT_STREAM_ERROR);
   cleanup();owner=NULL;puts("PASS real SSH multiplexed streams, binary fidelity, fairness, stderr, backpressure, quoting and cancellation");return 0;
 }

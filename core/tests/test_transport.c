@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <time.h>
@@ -251,9 +252,11 @@ int main(int argc, char **argv_main) {
      * 根因不是 PATH 注错了，是没给登录 shell。
      */
 #if defined(__APPLE__)
+    /* HOME 指到空目录（与 9b/9c 同一口径）：判据只落在 /etc 那套启动文件上。
+     * 用真实 HOME 时结果取决于跑测试那个账号自己的 dotfile——CI 的 runner
+     * 账号里就有一条把 PATH 补没了，红得无法归因（实测）。 */
     char home_kv[1024];
-    const char *home = getenv("HOME");
-    snprintf(home_kv, sizeof home_kv, "HOME=%s", home ? home : "/tmp");
+    snprintf(home_kv, sizeof home_kv, "HOME=%s", tmpdir);
     const char *minenv[] = {"PATH=/usr/bin:/bin", home_kv, NULL};
 
     const char *argv[] = {"-c", "echo PATH_IS:$PATH", NULL};
@@ -268,8 +271,19 @@ int main(int argc, char **argv_main) {
     if (t) {
       read_until_contains(t, "PATH_IS:", buf, sizeof buf, 20000);
       char *line = strstr(buf, "PATH_IS:");
-      CHECK(line != NULL, "默认 shell 输出了 PATH");
       bool has_sbin = line && strstr(line, "/usr/sbin") != NULL;
+      if (!has_sbin) {
+        /* 默认 shell 由 getenv(SHELL) → passwd 解析（见 pty_posix.c 的
+         * default_shell）：不印出来就没法区分「我们没起成登录 shell」与
+         * 「这台机器的账号 shell 压根不认登录语义」。 */
+        struct passwd *pw = getpwuid(getuid());
+        const char *sh = getenv("SHELL");
+        printf("  归因: $SHELL=%s passwd=%s 期望登录 shell 补出 /usr/sbin，实际 %s\n",
+               (sh && *sh) ? sh : "(未设)",
+               (pw && pw->pw_shell) ? pw->pw_shell : "(无)",
+               line ? line : "(没读到 PATH_IS)");
+      }
+      CHECK(line != NULL, "默认 shell 输出了 PATH");
       CHECK(has_sbin,
             "默认 shell 必须是**登录 shell**（注入最小 PATH 后仍能经 "
             "path_helper 补出 /usr/sbin）——否则 ~/.zshrc 里的 brew/go "
