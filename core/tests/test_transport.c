@@ -92,6 +92,43 @@ static int read_until_contains(gt_transport_t *t, const char *needle, char *buf,
   return strstr(buf, needle) != NULL;
 }
 
+/* 起一个**默认** shell（=登录 shell），等它进入交互状态后关掉，返回 close
+ * 耗时（秒）。opened / saw_output 把「起不来」与「起来了但没输出」分开报，
+ * 折叠成一种就看不出是哪种故障。
+ *
+ * 为什么必须「等到有输出再关」：固定 sleep 不可靠——shell 在读 rc 文件期间
+ * 还没装 SIGHUP 处理器，那时关它会「很配合地」秒退，于是变异（把宽限写长）
+ * 也能蒙混过关（实测踩到：同一变异手动跑红、脚本里跑绿）。等到有输出时
+ * shell 已在正常交互状态，SIGHUP 才真的被忽略。
+ */
+static double open_interactive_then_close(bool *opened, bool *saw_output) {
+  gt_pty_opts_t o;
+  memset(&o, 0, sizeof o);
+  o.cols = 80; o.rows = 24; o.term = "xterm-256color";
+  gt_transport_t *t = gt_transport_open_pty(&o);
+  *opened = (t != NULL);
+  if (!t) return -1;
+
+  char rb[4096];
+  int got = 0;
+  for (int i = 0; i < 200 && got == 0; i++) { /* 最多 20s */
+    int n = gt_transport_read(t, (uint8_t *)rb, sizeof rb, 100);
+    if (n > 0) got = n;
+    else if (n == GT_TRANSPORT_READ_EOF) break;
+  }
+  *saw_output = (got > 0);
+  if (!*saw_output) {
+    gt_transport_close(t);
+    return -1;
+  }
+
+  struct timespec a, b;
+  clock_gettime(CLOCK_MONOTONIC, &a);
+  gt_transport_close(t);
+  clock_gettime(CLOCK_MONOTONIC, &b);
+  return (b.tv_sec - a.tv_sec) + (b.tv_nsec - a.tv_nsec) / 1e9;
+}
+
 /* hay[0..haylen) 是否含 needle。 */
 static int mem_contains(const char *hay, size_t haylen, const char *needle) {
   size_t nl = strlen(needle);
@@ -344,37 +381,101 @@ int main(int argc, char **argv_main) {
      * 时内核会丢掉原 argv[0]（换成解释器），所以这里看不见 dash 前缀，
      * 正好只隔离出 `-l` 这一维——dash 前缀那一维由 9a/9b 的 PATH 守。
      */
-    const char *fakes[] = {"fish", "nu"};
-    for (int i = 0; i < 2; i++) {
-      char path[1200];
-      snprintf(path, sizeof path, "%s/%s", tmpdir, fakes[i]);
-      FILE *f = fopen(path, "w");
-      CHECK(f != NULL, "假 shell 脚本写得出");
-      if (!f) continue;
-      fputs("#!/bin/sh\necho \"ARGV:[$*]\"\n", f);
-      fclose(f);
-      chmod(path, 0755);
+    /* 两维：{假 shell 名单} × {调用方给不给 argv}。
+     * 期望补 -l 的那一档见 pty_posix.c 的 shell_takes_dash_l：
+     * fish/bash 两档都要（bash 给了 argv 就必须补——见 9e），nu 一律不补，
+     * tcsh 只认**独占**的 -l（给了 argv 还不补就是起不来的窗格）。 */
+    const char *fakes[] = {"fish", "nu", "tcsh", "bash"};
+    const bool expect_l[4][2] = {{1, 1}, {0, 0}, {1, 0}, {1, 1}};
+    for (int i = 0; i < 4; i++) {
+      for (int with_argv = 0; with_argv <= 1; with_argv++) {
+        char path[1200];
+        snprintf(path, sizeof path, "%s/%s", tmpdir, fakes[i]);
+        FILE *f = fopen(path, "w");
+        CHECK(f != NULL, "假 shell 脚本写得出");
+        if (!f) continue;
+        fputs("#!/bin/sh\necho \"ARGV:[$*]\"\n", f);
+        fclose(f);
+        chmod(path, 0755);
 
-      gt_pty_opts_t o3;
-      memset(&o3, 0, sizeof o3);
-      o3.executable = path;
-      o3.cmd_kind = GT_PTY_CMD_SHELL;  /* 调用方不给 argv */
-      o3.cols = 80; o3.rows = 24;
-      gt_transport_t *t3 = gt_transport_open_pty(&o3);
-      CHECK(t3 != NULL, "假 shell 起得来");
-      if (!t3) continue;
-      read_until_contains(t3, "ARGV:[", buf, sizeof buf, 10000);
-      char *line = strstr(buf, "ARGV:[");
-      bool got_l = line && strncmp(line, "ARGV:[-l]", 9) == 0;
-      if (strcmp(fakes[i], "fish") == 0) {
-        CHECK(got_l, "名单内的 shell（fish）要补上 -l"
-                     "——只靠 argv[0] 的 `-` 它没有文档保证");
-      } else {
-        CHECK(!got_l, "名单外的 shell（nu）不许加 -l"
-                      "——它不认这个参数，加了窗格直接起不来");
+        const char *argv_fake[] = {"-c", "true", NULL};
+        gt_pty_opts_t o3;
+        memset(&o3, 0, sizeof o3);
+        o3.executable = path;
+        o3.cmd_kind = GT_PTY_CMD_SHELL;
+        o3.argv = with_argv ? argv_fake : NULL;  /* 两档各验一次 */
+        o3.cols = 80; o3.rows = 24;
+        gt_transport_t *t3 = gt_transport_open_pty(&o3);
+        CHECK(t3 != NULL, "假 shell 起得来");
+        if (!t3) { unlink(path); continue; }
+        read_until_contains(t3, "ARGV:[", buf, sizeof buf, 10000);
+        char *line = strstr(buf, "ARGV:[");
+        bool got_l = line && strncmp(line, "ARGV:[-l", 8) == 0;
+        char msg[200];
+        snprintf(msg, sizeof msg, "%s（%s argv）的 -l = %s"
+                 "——见 pty_posix.c 的 shell_takes_dash_l 两档名单",
+                 fakes[i], with_argv ? "给了" : "没给",
+                 expect_l[i][with_argv] ? "必须补" : "不许补");
+        CHECK(got_l == expect_l[i][with_argv], msg);
+        gt_transport_close(t3);
+        unlink(path);
       }
-      gt_transport_close(t3);
-      unlink(path);
+    }
+
+    /*
+     * 9e：**bash 给了 argv 也要真的登录**（CI 的 macos runner 就是这条红出来的）。
+     *
+     * argv[0] 的 `-` 前缀对 bash 的 `-c` 不生效：实测 `-bash -c 'echo $PATH'`
+     * 拿到的还是注入的最小 PATH（zsh 不是这样，所以本机一直是绿的）。
+     * 9a 走的是「默认 shell」这一维，落在谁的 shell 上由机器决定；这里**钉住
+     * /bin/bash**，把「补 -l」这一环单独锁死，免得换台机器就看不见这个缺口。
+     */
+    const char *bash_argv[] = {"-c", "echo PATH_IS:$PATH", NULL};
+    gt_pty_opts_t o5;
+    memset(&o5, 0, sizeof o5);
+    o5.executable = "/bin/bash";
+    o5.argv = bash_argv;
+    o5.env = cleanenv;
+    o5.cmd_kind = GT_PTY_CMD_SHELL;
+    o5.cols = 80; o5.rows = 24;
+    o5.term = "xterm-256color";
+    gt_transport_t *t5 = gt_transport_open_pty(&o5);
+    CHECK(t5 != NULL, "/bin/bash 带 argv 起得来");
+    if (t5) {
+      read_until_contains(t5, "PATH_IS:", buf, sizeof buf, 20000);
+      char *line5 = strstr(buf, "PATH_IS:");
+      CHECK(line5 && strstr(line5, "/usr/sbin") != NULL,
+            "bash + argv 也必须是登录 shell（显式 -l）——否则这一格"
+            "的 brew/go 全成 command not found，且不报错");
+      gt_transport_close(t5);
+    }
+
+    /*
+     * 9f：argv[0] 的 `-` 前缀仍然要**画得出**（补 `-l` 之外的另一条机制）。
+     *
+     * 为什么补 `-l` 之后还要守这条：`-l` 只覆盖名单内的 shell，而名单外的
+     * （nu / xonsh / elvish 与任何自填的 shell 路径）只剩 dash 前缀这一道。
+     * 观测用 `$0`：shell 在 `-c` 模式下把 `$0` 就是 argv[0] 打出来，
+     * 实测 `-sh` → "ARGV0:-sh"、`sh` → "ARGV0:sh"，所以这条不依赖登录语义、
+     * 也不被 `-l` 掩盖（变异 L2「照抄 basename 忘了前导 -」只有它能抓到）。
+     */
+    const char *sh_argv[] = {"-c", "echo ARGV0:$0", NULL};
+    gt_pty_opts_t o6;
+    memset(&o6, 0, sizeof o6);
+    o6.executable = "/bin/sh";
+    o6.argv = sh_argv;
+    o6.env = cleanenv;
+    o6.cmd_kind = GT_PTY_CMD_SHELL;
+    o6.cols = 80; o6.rows = 24;
+    o6.term = "xterm-256color";
+    gt_transport_t *t6 = gt_transport_open_pty(&o6);
+    CHECK(t6 != NULL, "/bin/sh 带 argv 起得来");
+    if (t6) {
+      read_until_contains(t6, "ARGV0:", buf, sizeof buf, 20000);
+      char *line6 = strstr(buf, "ARGV0:");
+      CHECK(line6 && strncmp(line6, "ARGV0:-", 7) == 0,
+            "登录 shell 的 argv[0] 必须带前导 `-`（名单外的 shell 只剩这一道）");
+      gt_transport_close(t6);
     }
 #else
     printf("  （跳过登录 shell 断言：非 macOS 平台没有这套 login(1) 语义）\n");
@@ -387,37 +488,27 @@ int main(int argc, char **argv_main) {
      * 所以关闭路径的宽限必须短并果断升级 SIGKILL——实测原先 2 秒宽限让
      * 「关一个标签页」卡 2.3 秒（不报错，就是慢，用户能感觉出来）。
      *
-     * 起一个**默认** shell（=登录 shell，走 argv[0] 前缀 `-` 那条路）。
-     *
-     * **等它真的起来再关**：固定 sleep 不可靠——zsh 在读 ~/.zshrc 期间还
-     * 没装 SIGHUP 处理器，那时关它会「很配合地」秒退，于是变异（把宽限
-     * 写长）也能蒙混过关（实测踩到：同一变异手动跑红、脚本里跑绿）。
-     * 判据改为**等到它有输出**（提示符 / 启动信息），那时 shell 已经在
-     * 正常交互状态，SIGHUP 才真的被忽略。
+     * 判据是「**最多量 3 次、取最小值，达标就停**」而不是单次 wall-clock：
+     * 共享 CI runner 会把个别样本的线程唤醒挤到 1 秒开外（同一 commit 在
+     * dev 轮 0.2s 过、full 轮 >1s 红——那次 414 条 ctest 并发）。抖动只让
+     * **个别**样本慢；而真回归（宽限写长、或 close 只发单个 child 收不掉
+     * 整组）**每一次**都慢，最小值照样红（变异 L3/L4 复跑验证）。
      */
-    gt_pty_opts_t o;
-    memset(&o, 0, sizeof o);
-    o.cols = 80; o.rows = 24; o.term = "xterm-256color";
-    gt_transport_t *t = gt_transport_open_pty(&o);
-    CHECK(t != NULL, "默认 shell 起得来");
-    if (t) {
-      char rb[4096];
-      int got = 0;
-      for (int i = 0; i < 200 && got == 0; i++) { /* 最多 20s */
-        int n = gt_transport_read(t, (uint8_t *)rb, sizeof rb, 100);
-        if (n > 0) got = n;
-        else if (n == GT_TRANSPORT_READ_EOF) break;
+    double secs = -1;
+    for (int attempt = 0; attempt < 3; attempt++) {
+      bool opened = false, saw_output = false;
+      double s = open_interactive_then_close(&opened, &saw_output);
+      if (attempt == 0) {
+        CHECK(opened, "默认 shell 起得来");
+        CHECK(saw_output, "默认 shell 有输出（说明它已进入交互状态）");
       }
-      CHECK(got > 0, "默认 shell 有输出（说明它已进入交互状态）");
-
-      struct timespec a, b;
-      clock_gettime(CLOCK_MONOTONIC, &a);
-      gt_transport_close(t);
-      clock_gettime(CLOCK_MONOTONIC, &b);
-      double secs = (b.tv_sec - a.tv_sec) + (b.tv_nsec - a.tv_nsec) / 1e9;
-      CHECK(secs < 1.0,
-            "close 要快——交互式 shell 忽略 SIGHUP，宽限必须短并果断升级 SIGKILL");
+      if (s < 0) break;
+      if (secs < 0 || s < secs) secs = s;
+      if (secs < 1.0) break;
+      printf("  归因: 第 %d 次 close=%.2fs（超预算），复量\n", attempt + 1, s);
     }
+    CHECK(secs >= 0 && secs < 1.0,
+          "close 要快——交互式 shell 忽略 SIGHUP，宽限必须短并果断升级 SIGKILL");
   }
 
   SEC("11 child-state");

@@ -17,6 +17,8 @@
 #   L4 回退成「给了 executable 就不当交互 shell」（分屏 brew 丢失的原版
 #      形态）→ 断言红；
 #   L5 `-l` 白名单恒假 → fish 那条红。
+#   L6 退回「只有没给 argv 才补 -l」→ bash 带 argv 那格不再是登录 shell
+#      （CI 的 macos runner 默认 shell 是 /bin/bash，这条就是这么红的）。
 #
 # 历史：这里原先是验 login(1) 包装的（不包装 / 丢 argv / argv 槽数不足）。
 # 那套方案被整个换掉了——/usr/bin/login 是 setuid root，非 root 父进程杀不掉
@@ -162,6 +164,25 @@ assert old in s, "L5 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PYEOF
 expect red "L5 名单内的 shell 拿不到 -l" run_transport
+rollback
+
+# ---- L6：退回「只有没给 argv 才补 -l」（bash 带 argv 就不登录） ----
+echo "== L6：给了 argv 就不补 \`-l\`（CI runner 默认 bash 红出来的那条） =="
+# bash 的 argv[0] `-` 前缀对 `-c` 不生效（实测 PATH 还是注入的最小值），只有显式
+# -l 才走 /etc/profile。所以「补 -l」这件事在给了 argv 时不能塌掉；塌掉就是
+# 「这一格 brew command not found」，不报错。对照：tcsh 那一档必须仍然**不补**
+# （tcsh -l -c 直接报错退出，补了反而起不来），由同一份断言表的另一半守着。
+python3 - "$SRC" <<'PYEOF'
+import sys
+p = sys.argv[1]; s = open(p).read()
+old = '  bool add_dash_l = is_shell && shell_takes_dash_l(exe, extra > 0);'
+new = ('  bool add_dash_l = is_shell && extra == 0 && shell_takes_dash_l(exe, false);'
+       ' /* GT_MUTATION_MARK：给了 argv 就不补 -l */')
+assert old in s, "L6 锚点缺失"
+open(p, 'w').write(s.replace(old, new, 1))
+PYEOF
+expect red "L6 bash 带 argv 拿不到 -l" run_transport
+expect green "L6 指向性（ssh_config 不受影响）" run_config
 rollback
 
 echo "== 回滚复绿 =="
