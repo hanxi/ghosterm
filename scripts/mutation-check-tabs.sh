@@ -29,6 +29,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 gt_timeout_require mutation-check-tabs
 
 TMP="$ROOT/tmp"
+# 判据反了时要当场看到是哪条 swift 断言红（全丢 /dev/null 的话，
+# CI 上只剩一行「期望 green，实际 red」＝没有证据）。同一个 expect 只跑一个
+# 函数，所以这份日志永远是「刚那一次」的输出。
+RUN_LOG="$TMP/gt-muttabs-run.log"
 PKG="$ROOT/apple/GhostermApp"
 TABS="$ROOT/apple/GhostermApp/Sources/GhostermAppModel/TabManager.swift"
 TAB="$ROOT/apple/GhostermApp/Sources/GhostermAppModel/TerminalTab.swift"
@@ -83,16 +87,19 @@ done
 
 run_tabs() {  # 标签页结构 / 分屏 / 退出折叠 / 新建菜单
   ( cd "$PKG" && gt_timeout 300 swift test --filter \
-      "TabManagerTests|SplitLayoutTests|NewTabMenuTests|SplitExitTests|SplitPaneGeometryTests|TabContextMenuTests|WorkspaceTests" >/dev/null 2>&1 )
+      "TabManagerTests|SplitLayoutTests|NewTabMenuTests|SplitExitTests|SplitPaneGeometryTests|TabContextMenuTests|WorkspaceTests" >"$RUN_LOG" 2>&1 )
 }
 run_other() {  # 指向性对照：设置生效那批（与标签页结构无关）
-  ( cd "$PKG" && gt_timeout 300 swift test --filter TerminalConfigTests >/dev/null 2>&1 )
+  ( cd "$PKG" && gt_timeout 300 swift test --filter TerminalConfigTests >"$RUN_LOG" 2>&1 )
 }
 
 expect() { # ${1}=期望 red|green ${2}=描述 ${3}=函数名
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))
-  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"; FAIL=$((FAIL+1)); fi
+  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}";
+    echo "      —— 最后一次运行的输出（尾 25 行，完整见 ${RUN_LOG}）"
+    tail -25 "$RUN_LOG" 2>/dev/null | sed 's/^/      /'
+    FAIL=$((FAIL+1)); fi
 }
 rollback() {
   local i now

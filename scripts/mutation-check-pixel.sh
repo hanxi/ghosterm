@@ -18,6 +18,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 gt_timeout_require mutation-check-pixel
 
 TMP="$ROOT/tmp"
+# 判据反了时要当场看到是哪条 swift 断言红（全丢 /dev/null 的话，
+# CI 上只剩一行「期望 green，实际 red」＝没有证据）。同一个 expect 只跑一个
+# 函数，所以这份日志永远是「刚那一次」的输出。
+RUN_LOG="$TMP/gt-mutpixel-run.log"
 PKG="$ROOT/apple/GhostermApp"
 SURF="$ROOT/apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurface.swift"
 TEST="$ROOT/apple/GhostermApp/Tests/GhostermAppTests/PixelRenderTests.swift"
@@ -58,13 +62,16 @@ BACKUP_SURF="$(mktemp "$TMP/gt-mutpix-surf-XXXXXX")"; BACKUP_SURF="$BACKUP_SURF.
 BACKUP_TEST="$(mktemp "$TMP/gt-mutpix-test-XXXXXX")"; BACKUP_TEST="$BACKUP_TEST.swift"
 cp "$SURF" "$BACKUP_SURF"; cp "$TEST" "$BACKUP_TEST"
 
-run_pixel() { ( cd "$PKG" && gt_timeout 300 swift test --filter PixelRenderTests >/dev/null 2>&1 ); }
-run_other() { ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 ); }
+run_pixel() { ( cd "$PKG" && gt_timeout 300 swift test --filter PixelRenderTests >"$RUN_LOG" 2>&1 ); }
+run_other() { ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >"$RUN_LOG" 2>&1 ); }
 
 expect() { # $1=期望 red|green $2=描述 $3=函数名
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))
-  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"; FAIL=$((FAIL+1)); fi
+  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}";
+    echo "      —— 最后一次运行的输出（尾 25 行，完整见 ${RUN_LOG}）"
+    tail -25 "$RUN_LOG" 2>/dev/null | sed 's/^/      /'
+    FAIL=$((FAIL+1)); fi
 }
 rollback() {
   cp "$BACKUP_SURF" "$SURF"; cp "$BACKUP_TEST" "$TEST"

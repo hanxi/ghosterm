@@ -72,18 +72,28 @@ cp "$SRC" "$BACKUP"
 cp "$FACADE" "$FACADE_BACKUP"
 
 # 每个被调用的套件都带 timeout：P3 会让 close 真的卡住（直到作业自己结束）。
+# 两次运行（变异 + 指向性对照）串在同一个 expect 里，所以判据**反了**时必须
+# 能当场看出是哪条断言红——全丢进 /dev/null 的话，CI 上只剩一行
+# 「期望 green，实际 red」，等于没证据（实测踩过：回滚复绿在 runner 上红，
+# 本地三次都绿，日志里查不出是哪一条）。
+RUN_LOG="$TMP/gt-muttransport-run.log"
 run_transport() {
   ( cmake --build "$ROOT/core/build" >/dev/null 2>&1 && \
-    gt_timeout 180 "$ROOT/core/build/test_transport" "$TMP" >/dev/null 2>&1 )
+    gt_timeout 180 "$ROOT/core/build/test_transport" "$TMP" >"$RUN_LOG" 2>&1 )
 }
 run_config() { # 指向性对照：另一组核心断言（ssh_config）在同样变异下仍绿
   ( cmake --build "$ROOT/core/build" >/dev/null 2>&1 && \
-    gt_timeout 120 "$ROOT/core/build/test_config" "$ROOT/core/tests/fixtures" >/dev/null 2>&1 )
+    gt_timeout 120 "$ROOT/core/build/test_config" "$ROOT/core/tests/fixtures" >"$RUN_LOG" 2>&1 )
 }
 expect() { # ${1}=期望 red|green ${2}=描述 ${3}=函数名
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))
-  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"; FAIL=$((FAIL+1)); fi
+  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"
+    # rc=124 是超时（P4 的判据本来就是「卡住」），不是断言失败——不分清就会
+    # 把「超时」读成「代码错了」。
+    echo "      —— 最后一次运行的输出（尾 20 行，完整见 ${RUN_LOG}）"
+    tail -20 "$RUN_LOG" 2>/dev/null | sed 's/^/      /'
+    FAIL=$((FAIL+1)); fi
 }
 rollback() {
   cp "$BACKUP" "$SRC"

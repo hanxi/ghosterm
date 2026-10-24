@@ -17,6 +17,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 gt_timeout_require mutation-check-settings
 
 TMP="$ROOT/tmp"
+# 判据反了时要当场看到是哪条 swift 断言红（全丢 /dev/null 的话，
+# CI 上只剩一行「期望 green，实际 red」＝没有证据）。同一个 expect 只跑一个
+# 函数，所以这份日志永远是「刚那一次」的输出。
+RUN_LOG="$TMP/gt-mutsettings-run.log"
 PKG="$ROOT/apple/GhostermApp"
 SHIM="$ROOT/apple/GhostermTerminal/Sources/CGhostty/shim.c"
 SETTINGS="$ROOT/apple/GhostermApp/Sources/GhostermAppModel/SettingsStore.swift"
@@ -74,16 +78,19 @@ cp "$SETTINGS" "$BACKUP_SETTINGS"
 cp "$SURF" "$BACKUP_SURF"
 
 run_tests() {
-  ( cd "$PKG" && gt_timeout 300 swift test --filter TerminalConfigTests >/dev/null 2>&1 )
+  ( cd "$PKG" && gt_timeout 300 swift test --filter TerminalConfigTests >"$RUN_LOG" 2>&1 )
 }             # 这一组是「设置生效」的断言
 run_other() { # 指向性：另一组断言（标签页结构）在同样变异下应仍绿
-  ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 )
+  ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >"$RUN_LOG" 2>&1 )
 }
 
 expect() { # $1=期望 red|green  $2=描述  $3=函数名
   if "$3"; then actual=green; else actual=red; fi
   if [ "$actual" = "$1" ]; then echo "  ✓ $2 → $actual"; PASS=$((PASS+1))
-  else echo "  ✗ $2 → 期望 $1，实际 $actual"; FAIL=$((FAIL+1)); fi
+  else echo "  ✗ $2 → 期望 $1，实际 $actual";
+    echo "      —— 最后一次运行的输出（尾 25 行，完整见 ${RUN_LOG}）"
+    tail -25 "$RUN_LOG" 2>/dev/null | sed 's/^/      /'
+    FAIL=$((FAIL+1)); fi
 }
 
 rollback() {

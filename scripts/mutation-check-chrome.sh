@@ -17,6 +17,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 gt_timeout_require mutation-check-chrome
 
 TMP="$ROOT/tmp"
+# 判据反了时要当场看到是哪条 swift 断言红（全丢 /dev/null 的话，
+# CI 上只剩一行「期望 green，实际 red」＝没有证据）。同一个 expect 只跑一个
+# 函数，所以这份日志永远是「刚那一次」的输出。
+RUN_LOG="$TMP/gt-mutchrome-run.log"
 PKG="$ROOT/apple/GhostermApp"
 SRC="$ROOT/apple/GhostermApp/Sources/GhostermAppModel/WindowChrome.swift"
 # 每个被调用的套件都带 timeout：某些变异会让被测代码**真的卡住**
@@ -48,12 +52,15 @@ BASE_SHA="$(shasum -a 256 "$SRC" | awk '{print $1}')"
 BACKUP="$(mktemp "$TMP/gt-mutchrome-XXXXXX")"; BACKUP="$BACKUP.swift"
 cp "$SRC" "$BACKUP"
 
-run_chrome() { ( cd "$PKG" && gt_timeout 300 swift test --filter WindowChromeTests >/dev/null 2>&1 ); }
-run_other()  { ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 ); }
+run_chrome() { ( cd "$PKG" && gt_timeout 300 swift test --filter WindowChromeTests >"$RUN_LOG" 2>&1 ); }
+run_other()  { ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >"$RUN_LOG" 2>&1 ); }
 expect() {
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))
-  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"; FAIL=$((FAIL+1)); fi
+  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}";
+    echo "      —— 最后一次运行的输出（尾 25 行，完整见 ${RUN_LOG}）"
+    tail -25 "$RUN_LOG" 2>/dev/null | sed 's/^/      /'
+    FAIL=$((FAIL+1)); fi
 }
 rollback() {
   cp "$BACKUP" "$SRC"
