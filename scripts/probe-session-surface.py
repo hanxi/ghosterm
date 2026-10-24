@@ -29,7 +29,10 @@ def run(command, **kwargs):
 
 def prepare(work):
     engine = work / "engine"
-    engine.mkdir()
+    # parents=True：干净检出（CI、新克隆）里 work 还不存在，CI 实测
+    # FileNotFoundError: tmp/worker-surface/engine。仍不允许 engine 已存在——
+    # 引擎副本必须是从 vendor 归档重建的，不接受半个工作树。
+    engine.mkdir(parents=True)
     archive = work / "engine.tar"
     with archive.open("wb") as output:
         run(["git", "-C", str(VENDOR), "archive", "HEAD"], stdout=output)
