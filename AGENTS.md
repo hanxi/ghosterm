@@ -81,8 +81,16 @@ bash scripts/build-core.sh  # 只构建核心（快速）
 **CI 双轨（每次提交自动出包）**：push `main` → `dev-build.yml`（轻闸门 + ad-hoc macOS 包 +
 滚动 `dev` prerelease）；tag `v*` / PR / 手动 → `macos-release.yml`（全量闸门 + 签名/公证分支）。
 两条轨共用 `.github/workflows/macos-package.yml`；包内必须内嵌的 Linux 会话安装包由
-`scripts/build-session-vt-linux.py` 在 `ubuntu:22.04` 容器里双架构现造（`sessiond-linux`
-变异验证只在 `gates=full` 的那条跑）。装机口径见 `docs/how-to/dev-build.md`。
+`scripts/build-session-vt-linux.py` 在 `ubuntu:22.04` 容器里双架构现造。装机口径见 `docs/how-to/dev-build.md`。
+
+> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **11 份**变异验证——
+> Apple 端 `terminal / transport / tabs / chrome / settings / pixel / focus / split-dim / occlusion`、
+> Linux builder 的 `sessiond-linux`、以及 `package-mac`（在**干净检出**上验打包链，输出里
+> 出现 `SKIP` 一律判红，缺随包主题不许蒙过去）。**其余闸门仍是「手工跑」**：`core/` 侧的
+> sshconfig / include / ssh / sftp / exec / files / transfers / dragdrop / pty-inheritance /
+> attachment-peer / auth / login-shell / known-hosts / public-headers 等 CI 看不见。
+> 所以「CI 绿」≠「闸门全绿」——改到上面那些面，合并前仍要本地 `bash scripts/gate.sh` +
+> 对应变异脚本各自跑绿。
 
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
