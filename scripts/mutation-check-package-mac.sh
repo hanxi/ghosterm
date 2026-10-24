@@ -29,8 +29,12 @@ cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
 
 PASS=0
-expect_red()   { local d=$1; shift; if "$@" >/dev/null 2>&1; then echo "MUTATION FAIL: ${d}：预期红，实际绿" >&2; exit 1; fi; echo "   ok  ${d} → 红"; PASS=$((PASS+1)); }
-expect_green() { local d=$1; shift; if ! "$@" >/dev/null 2>&1; then echo "MUTATION FAIL: ${d}：预期绿，实际红" >&2; exit 1; fi; echo "   ok  ${d} → 绿"; PASS=$((PASS+1)); }
+# 判据反了时必须当场看到**为什么**反（CI 上实测踩过：A7 的对照红了，
+# 但所有输出被 >/dev/null 吃掉，只剩一行「预期绿，实际红」＝没有证据）。
+# 一次 expect 只跑一条命令，所以这份日志永远是「刚那一次」的输出。
+LAST_LOG="$WORK/last.log"
+expect_red()   { local d=$1; shift; if "$@" >"$LAST_LOG" 2>&1; then echo "MUTATION FAIL: ${d}：预期红，实际绿（尾 15 行）" >&2; tail -15 "$LAST_LOG" >&2; exit 1; fi; echo "   ok  ${d} → 红"; PASS=$((PASS+1)); }
+expect_green() { local d=$1; shift; if ! "$@" >"$LAST_LOG" 2>&1; then echo "MUTATION FAIL: ${d}：预期绿，实际红（尾 15 行）" >&2; tail -15 "$LAST_LOG" >&2; exit 1; fi; echo "   ok  ${d} → 绿"; PASS=$((PASS+1)); }
 
 echo "== 基线：出一次包（同时作为变异用的样本） =="
 bash scripts/package-mac.sh --out "$WORK/dist" --app-only --no-zip --version 0.0.0-mut >"$WORK/base.log" 2>&1 \
@@ -125,6 +129,25 @@ echo "== A7：配色集定位（A7 必须红——这条正是「出过没主题
 # sha256 那道统一验（它已并入 SCRIPTS）。
 A7_LIB="$PWD/scripts/lib/ghostty-themes.sh"
 cp "$A7_LIB" "$WORK/ghostty-themes.sh.orig"
+# **先定源，再谈变异**：CI 的 runner 上 `vendor/ghostty/zig-pkg` 常常不存在
+# （缓存命中时不跑 zig build，zig-pkg 是构建期产物、不入库），配色集来自
+# 缓存的 `tmp/ghostty-resources` 暂存目录——package-mac.sh 也正是这两条路。
+# 原先这里写死 zig-pkg，于是 CI 上「变异→红」是**因为目录不在**（假红＝
+# 红得没有指向性），而「复原→应绿」也红，闸门整个判失败。现在跟打包脚本
+# 取同一个源；两条路都没有就当场判失败（不 SKIP、不拿不存在的路径蒙）。
+# 两条都**在子 shell 里现源现调**：本函数正是 A7 的变异目标，若在脚本自己
+# 的 shell 里 `. ` 一次，内存里留下的永远是未变异的实现，A7 就失去牙
+# （本地实测：直接调用时函数没定义，两条分支同时落空）。
+if bash -c '. scripts/lib/ghostty-themes.sh; ghostty_themes_find "$1" >/dev/null 2>&1' _ "$ROOT/vendor/ghostty/zig-pkg"; then
+  A7_ROOT="$ROOT/vendor/ghostty/zig-pkg"
+elif bash -c '. scripts/lib/ghostty-themes.sh; ghostty_themes_find "$1" >/dev/null 2>&1' _ "$ROOT/tmp/ghostty-resources/ghostty"; then
+  A7_ROOT="$ROOT/tmp/ghostty-resources/ghostty"
+else
+  echo "MUTATION FAIL: 两处都没有配色集（vendor/ghostty/zig-pkg、tmp/ghostty-resources 暂存）——A7 无法验到定位分支。跑一次 bash scripts/build-ghostty.sh。" >&2
+  exit 1
+fi
+expect_green "变异前就找得到配色集（A7 前置，源 $A7_ROOT）" \
+  bash -c '. scripts/lib/ghostty-themes.sh; ghostty_themes_find "$1"' _ "$A7_ROOT"
 python3 - "$A7_LIB" <<'PY'
 import sys
 p = sys.argv[1]
@@ -136,7 +159,7 @@ t = t.replace(needle,
 open(p, "w", encoding="utf-8").write(t)
 PY
 expect_red "配色集按目录找（A7，回到出过 bug 的实现）" \
-  bash -c '. scripts/lib/ghostty-themes.sh; ghostty_themes_find vendor/ghostty/zig-pkg'
+  bash -c '. scripts/lib/ghostty-themes.sh; ghostty_themes_find "$1"' _ "$A7_ROOT"
 # 端到端那半：定位失败时**必须拒绝出包**，不许像原先那样 note 一句 SKIP
 # 把「没主题的包」放出去。为了确定性地验到这条分支（而不是被 tmp 暂存
 # 目录的兜底救回来），把兜底目录临时挪开。
@@ -148,7 +171,7 @@ expect_red "定位失败时拒绝出包（A7 端到端）" \
 if [ "$STASHED" -eq 1 ]; then mv "$STASH" tmp/ghostty-resources; fi
 cp "$WORK/ghostty-themes.sh.orig" "$A7_LIB"
 expect_green "改回按文件找后同一调用复绿（A7 指向性）" \
-  bash -c '. scripts/lib/ghostty-themes.sh; ghostty_themes_find vendor/ghostty/zig-pkg'
+  bash -c '. scripts/lib/ghostty-themes.sh; ghostty_themes_find "$1"' _ "$A7_ROOT"
 
 echo "== 复原：仓库文件必须与起跑前逐字节一致 =="
 for f in "${SCRIPTS[@]}"; do
