@@ -63,10 +63,16 @@ bash scripts/package-mac.sh --out dist --adhoc --build 42 \
 
 ```bash
 docker run --rm -it -v "$PWD":/work -w /work arm64v8/ubuntu:22.04 bash
-# 容器内：apt-get install -y build-essential cmake binutils python3 xz-utils git
-#         git config --global --add safe.directory "*"
-#         ZIG=/path/to/zig python3 scripts/build-session-vt-linux.py
+# 容器内（与 CI 的 linux-bundle job 同一套依赖）：
+#   mkdir -p tmp                       # TMPDIR 指到仓库 tmp/，容器里那目录还不存在
+#   apt-get update && apt-get install -y --no-install-recommends \
+#     build-essential ca-certificates cmake curl git pkg-config python3 tar xz-utils
+#   git config --global --add safe.directory "*"
+#   ZIG=/path/to/zig python3 scripts/build-session-vt-linux.py
 ```
+
+容器里跑之前记得先取 zig 0.16.0（`libghostty` 的 `build.zig.zon` 钉了最低版本），
+CI 是下载后缓存在 `tmp/zig/` 并传 `ZIG=$PWD/tmp/zig/zig`。
 
 ## CI 是怎么串起来的
 
