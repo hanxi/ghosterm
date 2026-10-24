@@ -72,12 +72,25 @@ expect() { # $1=期望 $2=描述 $3=函数名
   else echo "  ✗ $2 → 期望 $1，实际 $actual"; FAIL=$((FAIL+1)); fi
 }
 
+mutate() { # $1=标签 $2=目标文件；变异脚本本体从 heredoc 走 stdin
+  # 锚点没对上 = 实现改了而这里没跟着改。此时**现场是没变异的**，后面所有
+  # 判据都毫无意义（实测漂过一次：期望红却拿到别处的红，看着像有牙）。
+  # 所以立刻复原并红掉整条套件，而不是继续跑。
+  if ! python3 - "$2"; then
+    restore_all
+    echo "  ✗ $1 的变异锚点没对上——实现改了，判据必须跟着改（不许拿未变异的现场跑判据）" >&2
+    echo
+    echo "mutation-check-terminal: $PASS passed, $((FAIL + 1)) failed"
+    exit 1
+  fi
+}
+
 echo "== 基线 =="
 expect green "terminal-gate 基线" run_terminal
 
 # ---- T1：feed 变空操作（字节永不到达网格） ----
 echo "== T1：feed 不再把字节送进网格 =="
-python3 - "$SURF" <<'PY'
+mutate "T1" "$SURF" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old="""    public func feed(_ data: Data) {
@@ -110,7 +123,7 @@ echo "== T2：ProgramStatusReport 抄写时丢掉 app =="
 restore_all
 BACKUP="$(mktemp "$TMP/gt-mutterm-XXXXXX")"; BACKUP="$BACKUP.swift"
 cp "$SURF" "$BACKUP"
-python3 - "$SURF" <<'PY'
+mutate "T2" "$SURF" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old = """        self.message = str(c.message)
@@ -139,12 +152,12 @@ fi
 # surface 各自那份没变 → 不换色；新开的 surface 创建时才拷到新状态 → 看着
 # 像「只有新开终端对」。断言用 mode 2031 的配色上报，必须变红。
 echo "== T3：砍掉逐个 surface 下发（只剩 app 级） =="
-python3 - "$SHIM" <<'PY_T3'
+mutate "T3" "$SHIM" <<'PY_T3'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old = """  for (size_t i = 0; i < a->surface_count; i++) {
     struct gt_ghostty_surface *s = a->surfaces[i];
-    if (s && s->surface) ghostty_surface_set_color_scheme(s->surface, scheme);
+    if (s && s->surface && !s->replica) ghostty_surface_set_color_scheme(s->surface, scheme);
   }"""
 new = "  /* GT_MUTATION_MARK：砍掉逐个 surface 下发 */"
 assert old in s, "T3 锚点缺失"
@@ -168,7 +181,7 @@ cp "$SHIM" "$SHIM_BACKUP"
 # 另一半：即使逐个 surface 报了，libghostty 也只是把「该重读配置」当动作丢回
 # 嵌入侧；不消费它，条件状态改了也不重派生 → 同样不换色。
 echo "== T4：砍掉 reload_config 动作处理 =="
-python3 - "$SHIM" <<'PY_T4'
+mutate "T4" "$SHIM" <<'PY_T4'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old = """  if (action.tag == GHOSTTY_ACTION_RELOAD_CONFIG) {
@@ -207,7 +220,7 @@ echo "== T5：setPreedit 不下发（组合串看不到） =="
 restore_all
 BACKUP="$(mktemp "$TMP/gt-mutterm-XXXXXX")"; BACKUP="$BACKUP.swift"
 cp "$SURF" "$BACKUP"
-python3 - "$SURF" <<'PY_T5'
+mutate "T5" "$SURF" <<'PY_T5'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old = """    public func setPreedit(_ text: String) {
@@ -238,7 +251,7 @@ echo "== T6：提交走成粘贴语义 =="
 restore_all
 BACKUP="$(mktemp "$TMP/gt-mutterm-XXXXXX")"; BACKUP="$BACKUP.swift"
 cp "$SURF" "$BACKUP"
-python3 - "$SURF" <<'PY_T6'
+mutate "T6" "$SURF" <<'PY_T6'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old = """        text.withCString {
@@ -264,7 +277,7 @@ fi
 # 这条钉住「keyDown 必须走 NSTextInputClient 链路」：把 keyDown 整个短路，
 # 普通按键就到不了 transport——正是用户报的「敲了没反应」的终态。
 echo "== T7：keyDown 不路由按键 =="
-python3 - "$VIEW" <<'PY_T7'
+mutate "T7" "$VIEW" <<'PY_T7'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old = """    public override func keyDown(with event: NSEvent) {
@@ -298,7 +311,7 @@ echo "== T8：提交文本丢掉控制字符 =="
 restore_all
 BACKUP="$(mktemp "$TMP/gt-mutterm-XXXXXX")"; BACKUP="$BACKUP.swift"
 cp "$SURF" "$BACKUP"
-python3 - "$SURF" <<'PY_T8'
+mutate "T8" "$SURF" <<'PY_T8'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old = """    public func sendCommittedText(_ text: String) {
