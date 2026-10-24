@@ -30,6 +30,14 @@ static void refund(void *ctx,void *p,size_t n){fixture *f=ctx;block *b=(block *)
 static bool fake_clock(void *ctx,uint64_t *out){fixture *f=ctx;*out=f->now;return !f->clock_fail;}
 static bool real_clock(void *ctx,uint64_t *out){(void)ctx;struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return false;*out=(uint64_t)t.tv_sec*1000+(uint64_t)t.tv_nsec/1000000;return true;}
 static uint64_t now(void){uint64_t n;CHECK(real_clock(NULL,&n));return n;}
+/* 量一遍「real-deadline 那条轮询」在**当前负载下**的真实耗时（30 次 1ms sleep，
+ * 与被测循环一模一样的步长），用来给上界做标定——共享 runner 会把每次唤醒
+ * 整倍往后挤，固定 500ms 预算测到的是调度抖动而不是「到期没人管」。 */
+static uint64_t measure_step_cost(void){
+  struct timespec t={0,1000000};uint64_t a=now();
+  for(int i=0;i<30;i++)nanosleep(&t,NULL);
+  return now()-a;
+}
 static gt_ssh_connector_info_t info(void){gt_ssh_connector_info_t i;CHECK(gt__ssh_connector_info(active,&i));return i;}
 static gt_hostkey_decision_t forbidden_decider(void *ctx,const char *h,uint16_t port,const char *type,const char *fingerprint){(void)ctx;(void)h;(void)port;(void)type;(void)fingerprint;CHECK(false);return GT_HOSTKEY_UNKNOWN;}
 static void setup(uint16_t port,const char *known,const char *key) {
@@ -52,8 +60,26 @@ static void unit(const char *mode) {
   if(!strcmp(mode,"deadline")){f.now=100;CHECK(gt__ssh_connector_step(active)==GT_SSH_CONNECT_FAILED && info().deadline && info().error==GT_ERR_IO);}
   else if(!strcmp(mode,"cancel")){uint64_t started=now();gt__ssh_connector_cancel(active);CHECK(now()-started<100 && info().phase==GT_SSH_CONNECT_CANCELLED && info().error==GT_ERR_CANCELLED);}
   else if(!strcmp(mode,"clock")){f.now=10;(void)gt__ssh_connector_step(active);f.now=9;CHECK(gt__ssh_connector_step(active)==GT_SSH_CONNECT_FAILED && info().error==GT_ERR_INTERNAL);}
-  else{CHECK(!strcmp(mode,"real-deadline"));cleanup();setup(port,"/dev/null",NULL);c.clock=real_clock;c.timeout_ms=30;CHECK(gt__ssh_connector_open(&owned,&c,&a,&active)==GT_OK);uint64_t started=now();
-    while(gt__ssh_connector_step(active)!=GT_SSH_CONNECT_FAILED){CHECK(now()-started<500);struct timespec t={0,1000000};nanosleep(&t,NULL);}CHECK(info().deadline && now()-started>=30 && now()-started<500);}
+  else{CHECK(!strcmp(mode,"real-deadline"));cleanup();setup(port,"/dev/null",NULL);c.clock=real_clock;c.timeout_ms=30;
+    /* 时间戳必须在 open **之前**取。连接器记的是它自己启动那一刻，原先在 open
+     * 返回之后才取，两者之间被 runner 挤掉 1ms 就量到 elapsed=29，而 `>=30` 的
+     * 下界零余量（CI 实测 0.04 秒内即红；本机空载与 8 路忙循环下都是 30/31，
+     * 所以不是忙循环问题，是取点问题）。取早了 elapsed 只会变大，代价是下界白捡
+     * 一段 open_cost（实测 0~1ms）的松弛——那段松弛由下面的 open_cost 断言钉住，
+     * 而到期算术本身由 fake-clock 的 ssh_connector_deadline 逐毫秒盯着。 */
+    /* 标定必须在 started 之前：它自己就要跑 30 次 1ms，放在后面等于把标定算进
+     * elapsed（实测 44ms），那条上界就再也不量轮询了。 */
+    uint64_t calib=measure_step_cost(),budget=calib*4+60;if(budget<500)budget=500;
+    uint64_t started=now();
+    CHECK(gt__ssh_connector_open(&owned,&c,&a,&active)==GT_OK);
+    uint64_t open_cost=now()-started;
+    /* 连接器记的是**它自己**那一刻，所以「不早于 30ms」这条下界天然带着
+     * open_cost 的松弛。把它钉在预算一半以内，松弛就不可能自己长大到把真实回归
+     * 整段吞掉；超了就是环境不可用，宁可红。 */
+    CHECK(open_cost<budget/2);
+    while(gt__ssh_connector_step(active)!=GT_SSH_CONNECT_FAILED){CHECK(now()-started<budget);struct timespec t={0,1000000};nanosleep(&t,NULL);}
+    fprintf(stderr,"real-deadline: elapsed=%llu（open %llu）/ 预算 %llu（轮询标定 %llu）\n",(unsigned long long)(now()-started),(unsigned long long)open_cost,(unsigned long long)budget,(unsigned long long)calib);
+    CHECK(info().deadline && now()-started>=30 && now()-started<budget);}
   cleanup();CHECK(!f.live);close(accepted);close(server);
 }
 static void until(gt_ssh_connector_phase_t phase){uint64_t deadline=now()+5000;int previous=-1;for(;;){gt_ssh_connector_phase_t p=gt__ssh_connector_step(active);if(getenv("GT_CONNECT_TRACE") && (int)p!=previous){fprintf(stderr,"connector phase=%d target=%d\n",p,phase);previous=(int)p;}if(p==phase)return;CHECK(p!=GT_SSH_CONNECT_FAILED && p!=GT_SSH_CONNECT_CANCELLED && p!=GT_SSH_CONNECT_READY && p!=GT_SSH_CONNECT_HOSTKEY && now()<deadline);struct timespec t={0,1000000};nanosleep(&t,NULL);}}
