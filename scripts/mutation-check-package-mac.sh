@@ -82,15 +82,23 @@ A6_APP="$WORK/A6.app"
 ditto "$BASELINE" "$A6_APP"
 A6_EXE="$A6_APP/Contents/MacOS/GhostermApp"
 printf 'theme = "iTerm2 Default"\n' > "$WORK/a6.conf"
+# 跑检查时**必须把主题的两个搜索目录都钉死**，否则这条断言会假绿（实测踩过）：
+# 上游 theme.zig 先找「用户主题目录」（$XDG_CONFIG_HOME/ghostty/themes），再找
+# 「资源目录」，而资源目录可被 GHOSTTY_RESOURCES_DIR 覆盖——开发机上装着
+# Ghostty.app 并把这个变量指过去（本机实测确实如此），于是把**包内**主题挪走
+# 后引擎照样在别处找到它，A6 期望红却绿。所以：资源目录显式指向被测包自己，
+# HOME 换成空目录（挡掉 ~/.config/ghostty/themes 那条）。
+A6_HOME="$WORK/a6-home"
+mkdir -p "$A6_HOME"
+# $0=被测二进制 $1=配置 $2=被测包 $3=空 HOME
+A6_RUN='env GHOSTTY_RESOURCES_DIR="$2/Contents/Resources/ghostty" HOME="$3" "$0" --config-check "$1" 2>/dev/null | grep -q "CONFIG_OK diagnostics=0"'
 if [ -f "$A6_APP/Contents/Resources/ghostty/themes/iTerm2 Default" ]; then
   mv "$A6_APP/Contents/Resources/ghostty/themes/iTerm2 Default" "$WORK/theme.bak"
   expect_red "主题文件缺失时包内配置检查红（A6）" \
-    bash -c '"$0" --config-check "$1" 2>/dev/null | grep -q "CONFIG_OK diagnostics=0"' \
-      "$A6_EXE" "$WORK/a6.conf"
+    bash -c "$A6_RUN" "$A6_EXE" "$WORK/a6.conf" "$A6_APP" "$A6_HOME"
   mv "$WORK/theme.bak" "$A6_APP/Contents/Resources/ghostty/themes/iTerm2 Default"
   expect_green "主题放回后同一检查复绿（A6 指向性）" \
-    bash -c '"$0" --config-check "$1" 2>/dev/null | grep -q "CONFIG_OK diagnostics=0"' \
-      "$A6_EXE" "$WORK/a6.conf"
+    bash -c "$A6_RUN" "$A6_EXE" "$WORK/a6.conf" "$A6_APP" "$A6_HOME"
 else
   echo "   SKIP A6：基线包里没有随包主题（先跑 build-ghostty.sh 生成资源）"
 fi
