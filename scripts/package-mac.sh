@@ -283,6 +283,19 @@ note "CFBundleShortVersionString=${VERSION} · CFBundleVersion=${BUILD_NUMBER} �
 # 构建信息：**必须在签名前**写进 bundle —— 签名后再加文件会破坏 sealed resource
 # （codesign 报 "a sealed resource is missing or invalid / file added"，实测被
 #  dmg 挂载复验抓到）。所以这里生成一次，bundle 内与 dist/ 用同一份内容。
+# Linux 会话安装包的真实 glibc 下限写进 BUILD-INFO：那是**远端主机**能不能跑的条件，
+# 与本机 macOS 下限无关，藏在 manifest 里等于没写。
+SESSION_LINUX_IDS="$(python3 - "${SESSION_LINUX_BUNDLES[@]}" <<'PY'
+import sys
+from pathlib import Path
+rows = []
+for bundle in sys.argv[1:]:
+    release = Path(bundle) / "manifest.tsv"
+    arch, min_glibc = release.read_text().splitlines()[0].split("\t")[2:4]
+    rows.append(f"{arch}=min_glibc {min_glibc} [{Path(bundle).name}]")
+print("; ".join(rows))
+PY
+)" || fail "读不到 Linux 会话安装包的 min_glibc（见 bundle 内 manifest.tsv）"
 INFO="$WORK/BUILD-INFO.txt"
 {
   echo "Ghosterm macOS 包"
@@ -295,6 +308,7 @@ INFO="$WORK/BUILD-INFO.txt"
   echo "libghostty:  pin ${PIN} + patches/libghostty/${PIN}/"
   echo "会话运行环境: ${SESSION_MAC}"
   echo "Linux 会话安装包: ${SESSION_LINUX_BUNDLES[*]}"
+  echo "Linux glibc 下限: ${SESSION_LINUX_IDS}"
   echo "内嵌动态库:"
   grep '^embed:' "$EMBED_LOG" | sed 's/^embed: /  - /'
   echo "工具链:      $(swift --version 2>/dev/null | head -1) · $(xcodebuild -version 2>/dev/null | head -1) · cmake $(cmake --version | head -1 | awk '{print $3}')"

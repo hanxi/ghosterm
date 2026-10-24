@@ -40,24 +40,30 @@ def build(args):
             for name in FILES[:3]:subprocess.run(['strip','--strip-unneeded',str(stage/name)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT)
         shutil.copyfile(ROOT/'LICENSE',stage/'LICENSE')
         commit=run(['git','rev-parse','HEAD']).strip();upstream=run(['git','-C',ROOT/'vendor/ghostty','rev-parse','HEAD']).strip()
-        info={'project':'Ghosterm','license':'MIT','source_commit':commit,'source_repository':'https://github.com/hanxi/ghosterm',
-              'engine':{'repository':'https://github.com/ghostty-org/ghostty','commit':upstream,'license':'MIT'},
-              'patches':'patches/libghostty/8159838','build_script':'scripts/package-sessiond-linux.py','zig':'0.16.0',
-              'stripped':not args.no_strip}
-        (stage/'SOURCE-INFO.json').write_text(json.dumps(info,indent=2)+'\n')
-        versions=[];interpreter=None
+        versions=[];interpreter=None;needed={}
         allowed={'libc.so.6','libm.so.6','librt.so.1','libdl.so.2','libpthread.so.0','libgcc_s.so.1','libghostty-vt.so.0','ld-linux-aarch64.so.1','ld-linux-x86-64.so.2'}
         for name in FILES[:3]:
-            binary=stage/name;dynamic=run(['readelf','-d',binary]);needed=re.findall(r'Shared library: \[([^]]+)\]',dynamic)
-            if set(needed)-allowed:raise RuntimeError('unbundled dependencies: '+repr(set(needed)-allowed))
+            binary=stage/name;dynamic=run(['readelf','-d',binary]);needed[name]=set(re.findall(r'Shared library: \[([^]]+)\]',dynamic))
+            if needed[name]-allowed:raise RuntimeError('unbundled dependencies: '+repr(needed[name]-allowed))
             versions.extend(tuple(map(int,v.split('.'))) for v in re.findall(r'GLIBC_([0-9]+\.[0-9]+(?:\.[0-9]+)?)',run(['readelf','--version-info',binary])))
             if name=='ghosterm-sessiond':
                 match=re.search(r'Requesting program interpreter: ([^]]+)',run(['readelf','-l',binary]));interpreter=match.group(1) if match else None
         if not interpreter or not versions:raise RuntimeError('glibc/loader evidence missing')
+        # 上界（allowed 白名单）只禁「多」，不禁「少」：把静态库 .a 当 --engine 传进来会被
+        # 静默吸收，产物照样自包含却根本没带 VT 引擎。链接证据必须有下界。
+        if 'libghostty-vt.so.0' not in needed['ghosterm-sessiond']:
+            raise RuntimeError('ghosterm-sessiond 没有动态链接 libghostty-vt.so.0；--engine 必须是共享库而非 .a')
+        min_glibc='.'.join(map(str,max(versions)))
+        info={'project':'Ghosterm','license':'MIT','source_commit':commit,'source_repository':'https://github.com/hanxi/ghosterm',
+              'engine':{'repository':'https://github.com/ghostty-org/ghostty','commit':upstream,'license':'MIT'},
+              'patches':'patches/libghostty/8159838','build_script':'scripts/package-sessiond-linux.py','zig':'0.16.0',
+              'min_glibc':min_glibc,
+              'stripped':not args.no_strip}
+        (stage/'SOURCE-INFO.json').write_text(json.dumps(info,indent=2)+'\n')
         version=run([stage/'ghosterm-sessiond','--version']).strip();contract=version.split()[-1]
         if not re.fullmatch('[0-9a-f]{64}',contract):raise RuntimeError('invalid session contract probe')
         run([stage/'ghosterm-session-proxy','--help'])
-        manifest={'format':1,'os':'Linux','arch':arch,'libc':'glibc','min_glibc':'.'.join(map(str,max(versions))),
+        manifest={'format':1,'os':'Linux','arch':arch,'libc':'glibc','min_glibc':min_glibc,
                   'interpreter':interpreter,'commit':commit,'contract':contract,'files':[]}
         for name in FILES:
             p=stage/name;manifest['files'].append({'name':name,'size':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'mode':0o700 if name in FILES[:2] else 0o600})
