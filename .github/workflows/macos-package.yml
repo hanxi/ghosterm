@@ -89,6 +89,11 @@ jobs:
     env:
       # arm64 的 ubuntu:22.04 官方镜像名带 arm64v8/ 前缀，zig 包名跟着机器架构走
       ZIG_ARCH: ${{ matrix.arch }}
+      # 必须挂在 **job** 上而不是 step 上：scripts/prepare-session-io.py 找 zig 的顺序是
+      # $ZIG → PATH → tmp/zig/zig-aarch64-macos-<ver>/zig（最后那条是 mac 开发的回落）。
+      # 只在「构建 bundle」一步给 ZIG，变异验证那步没给 → Linux runner 上直接
+      # FileNotFoundError（CI 实测红过一次）。
+      ZIG: ${{ github.workspace }}/tmp/zig/zig
     steps:
       # 必须在 checkout **之前**：ubuntu:22.04 容器里没有 git，actions/checkout 会
       # 退回 REST 归档下载——那样 submodule 根本拿不到，构建器第一步就红。
@@ -150,8 +155,6 @@ jobs:
       # 与 mac 探针链同一补丁全集/顺序 + 同一 <engine>/include 头树，否则
       # stage-session-runtime.py 会报 Linux bundle identity mismatch（契约不等）。
       - name: 构建 libghostty-vt 并打包 bundle
-        env:
-          ZIG: ${{ github.workspace }}/tmp/zig/zig
         run: |
           set -euo pipefail
           python3 scripts/build-session-vt-linux.py | tee "$RUNNER_TEMP/vt-linux.log"
