@@ -1,0 +1,15 @@
+{
+  "id": "android-termux-proot-aarch64",
+  "version": "1.0.0",
+  "platform": "android",
+  "arch": "arm64-v8a",
+  "url": "https://example.invalid/termux-proot-aarch64-1.0.0.tar.zst",
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "bytes": 12345678,
+  "unpacked_bytes": 234567890,
+  "format": "tar.zst",
+  "entrypoint": "usr/bin/login",
+  "mode": "proot",
+  "license": "GPL-3.0-or-later (mixed; see LICENSES/)",
+  "source_offer": "https://example.invalid/sources/"
+}

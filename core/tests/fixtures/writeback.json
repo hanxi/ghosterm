@@ -1,0 +1,176 @@
+{
+  "cases": [
+    {
+      "alias": "web",
+      "edit": {
+        "alias": "web",
+        "tags": [],
+        "user": "ops"
+      },
+      "name": "sparse_patch_user_web",
+      "output": "# Ghosterm managed config\n# 顶层注释：不得被动过\n\nHost web\n  # 生产入口\n  HostName 10.0.0.5\n  User ops\n  Port 2222\n  IdentityFile keystore://host-a/id_ed25519\n  IdentityFile ~/.ssh/plain_key\n  VisualHostKey yes\n  Ciphers aes256-gcm@openssh.com\n  ServerAliveInterval 30\n\nHost db\n  HostName 10.0.0.6\n  User dba\n  ProxyJump web\n  SetEnv DBMODE=ro DBTRACE=1\n  LocalForward 5432 localhost:5432\n  LocalForward 6432 localhost:6432\n  RemoteForward 9000 localhost:9000\n  Compression yes\n  ForwardAgent no\n  RequestTTY force\n  StrictHostKeyChecking accept-new\n\nHost bastion\n  HostName bastion.example.com\n  User jumpuser\n  Port 2200\n  IdentityFile=~/.ssh/bastion_key\n\n# 尾部注释：不得被动过\n",
+      "reset": false,
+      "touched": [
+        "user"
+      ]
+    },
+    {
+      "alias": "web",
+      "edit": {
+        "alias": "web",
+        "identity_file": [],
+        "port": null,
+        "tags": []
+      },
+      "name": "explicit_clear_port_and_identity_web",
+      "output": "# Ghosterm managed config\n# 顶层注释：不得被动过\n\nHost web\n  # 生产入口\n  HostName 10.0.0.5\n  User deploy\n  VisualHostKey yes\n  Ciphers aes256-gcm@openssh.com\n  ServerAliveInterval 30\n\nHost db\n  HostName 10.0.0.6\n  User dba\n  ProxyJump web\n  SetEnv DBMODE=ro DBTRACE=1\n  LocalForward 5432 localhost:5432\n  LocalForward 6432 localhost:6432\n  RemoteForward 9000 localhost:9000\n  Compression yes\n  ForwardAgent no\n  RequestTTY force\n  StrictHostKeyChecking accept-new\n\nHost bastion\n  HostName bastion.example.com\n  User jumpuser\n  Port 2200\n  IdentityFile=~/.ssh/bastion_key\n\n# 尾部注释：不得被动过\n",
+      "reset": false,
+      "touched": [
+        "port",
+        "identityfile"
+      ]
+    },
+    {
+      "alias": "bastion",
+      "edit": {
+        "alias": "bastion",
+        "port": 2222,
+        "tags": []
+      },
+      "name": "restyle_keep_equals_separator_bastion",
+      "output": "# Ghosterm managed config\n# 顶层注释：不得被动过\n\nHost web\n  # 生产入口\n  HostName 10.0.0.5\n  User deploy\n  Port 2222\n  IdentityFile keystore://host-a/id_ed25519\n  IdentityFile ~/.ssh/plain_key\n  VisualHostKey yes\n  Ciphers aes256-gcm@openssh.com\n  ServerAliveInterval 30\n\nHost db\n  HostName 10.0.0.6\n  User dba\n  ProxyJump web\n  SetEnv DBMODE=ro DBTRACE=1\n  LocalForward 5432 localhost:5432\n  LocalForward 6432 localhost:6432\n  RemoteForward 9000 localhost:9000\n  Compression yes\n  ForwardAgent no\n  RequestTTY force\n  StrictHostKeyChecking accept-new\n\nHost bastion\n  HostName bastion.example.com\n  User jumpuser\n  Port 2222\n  IdentityFile=~/.ssh/bastion_key\n\n# 尾部注释：不得被动过\n",
+      "reset": false,
+      "touched": [
+        "port"
+      ]
+    },
+    {
+      "alias": "db",
+      "edit": {
+        "alias": "db",
+        "set_env": [
+          "A=1",
+          "B=2",
+          "C=3"
+        ],
+        "tags": []
+      },
+      "name": "setenv_three_tokens_one_line_db",
+      "output": "# Ghosterm managed config\n# 顶层注释：不得被动过\n\nHost web\n  # 生产入口\n  HostName 10.0.0.5\n  User deploy\n  Port 2222\n  IdentityFile keystore://host-a/id_ed25519\n  IdentityFile ~/.ssh/plain_key\n  VisualHostKey yes\n  Ciphers aes256-gcm@openssh.com\n  ServerAliveInterval 30\n\nHost db\n  HostName 10.0.0.6\n  User dba\n  ProxyJump web\n  SetEnv A=1 B=2 C=3\n  LocalForward 5432 localhost:5432\n  LocalForward 6432 localhost:6432\n  RemoteForward 9000 localhost:9000\n  Compression yes\n  ForwardAgent no\n  RequestTTY force\n  StrictHostKeyChecking accept-new\n\nHost bastion\n  HostName bastion.example.com\n  User jumpuser\n  Port 2200\n  IdentityFile=~/.ssh/bastion_key\n\n# 尾部注释：不得被动过\n",
+      "reset": false,
+      "touched": [
+        "setenv"
+      ]
+    },
+    {
+      "alias": "db",
+      "edit": {
+        "alias": "db",
+        "local_forward": [
+          "5432 localhost:5432",
+          "6432 localhost:6432",
+          "7432 localhost:7432"
+        ],
+        "tags": []
+      },
+      "name": "local_forward_one_line_per_entry_db",
+      "output": "# Ghosterm managed config\n# 顶层注释：不得被动过\n\nHost web\n  # 生产入口\n  HostName 10.0.0.5\n  User deploy\n  Port 2222\n  IdentityFile keystore://host-a/id_ed25519\n  IdentityFile ~/.ssh/plain_key\n  VisualHostKey yes\n  Ciphers aes256-gcm@openssh.com\n  ServerAliveInterval 30\n\nHost db\n  HostName 10.0.0.6\n  User dba\n  ProxyJump web\n  SetEnv DBMODE=ro DBTRACE=1\n  LocalForward 5432 localhost:5432\n  LocalForward 6432 localhost:6432\n  LocalForward 7432 localhost:7432\n  RemoteForward 9000 localhost:9000\n  Compression yes\n  ForwardAgent no\n  RequestTTY force\n  StrictHostKeyChecking accept-new\n\nHost bastion\n  HostName bastion.example.com\n  User jumpuser\n  Port 2200\n  IdentityFile=~/.ssh/bastion_key\n\n# 尾部注释：不得被动过\n",
+      "reset": false,
+      "touched": [
+        "localforward"
+      ]
+    },
+    {
+      "alias": "web",
+      "edit": {
+        "alias": "web",
+        "identity_file": [
+          "keystore://host-a/id_ed25519",
+          "keystore://host-b/backup",
+          "~/.ssh/plain_key"
+        ],
+        "tags": []
+      },
+      "name": "append_keystore_reference_web",
+      "output": "# Ghosterm managed config\n# 顶层注释：不得被动过\n\nHost web\n  # 生产入口\n  HostName 10.0.0.5\n  User deploy\n  Port 2222\n  IdentityFile keystore://host-a/id_ed25519\n  IdentityFile keystore://host-b/backup\n  IdentityFile ~/.ssh/plain_key\n  VisualHostKey yes\n  Ciphers aes256-gcm@openssh.com\n  ServerAliveInterval 30\n\nHost db\n  HostName 10.0.0.6\n  User dba\n  ProxyJump web\n  SetEnv DBMODE=ro DBTRACE=1\n  LocalForward 5432 localhost:5432\n  LocalForward 6432 localhost:6432\n  RemoteForward 9000 localhost:9000\n  Compression yes\n  ForwardAgent no\n  RequestTTY force\n  StrictHostKeyChecking accept-new\n\nHost bastion\n  HostName bastion.example.com\n  User jumpuser\n  Port 2200\n  IdentityFile=~/.ssh/bastion_key\n\n# 尾部注释：不得被动过\n",
+      "reset": false,
+      "touched": [
+        "identityfile"
+      ]
+    },
+    {
+      "alias": "web",
+      "edit": {
+        "alias": "web",
+        "extra": {
+          "Ciphers": [
+            "chacha20-poly1305@openssh.com"
+          ]
+        },
+        "tags": []
+      },
+      "name": "extra_touches_only_ciphers_web",
+      "output": "# Ghosterm managed config\n# 顶层注释：不得被动过\n\nHost web\n  # 生产入口\n  HostName 10.0.0.5\n  User deploy\n  Port 2222\n  IdentityFile keystore://host-a/id_ed25519\n  IdentityFile ~/.ssh/plain_key\n  VisualHostKey yes\n  Ciphers chacha20-poly1305@openssh.com\n  ServerAliveInterval 30\n\nHost db\n  HostName 10.0.0.6\n  User dba\n  ProxyJump web\n  SetEnv DBMODE=ro DBTRACE=1\n  LocalForward 5432 localhost:5432\n  LocalForward 6432 localhost:6432\n  RemoteForward 9000 localhost:9000\n  Compression yes\n  ForwardAgent no\n  RequestTTY force\n  StrictHostKeyChecking accept-new\n\nHost bastion\n  HostName bastion.example.com\n  User jumpuser\n  Port 2200\n  IdentityFile=~/.ssh/bastion_key\n\n# 尾部注释：不得被动过\n",
+      "reset": false,
+      "touched": [
+        "ciphers"
+      ]
+    },
+    {
+      "alias": "web",
+      "edit": {
+        "alias": "web",
+        "compression": null,
+        "extra": {
+          "Ciphers": [
+            "aes256-gcm@openssh.com"
+          ],
+          "VisualHostKey": [
+            "yes"
+          ]
+        },
+        "forward_agent": null,
+        "host_name": "10.0.0.5",
+        "identity_file": [
+          "keystore://host-a/id_ed25519",
+          "~/.ssh/plain_key"
+        ],
+        "local_forward": [],
+        "port": 2222,
+        "proxy_command": null,
+        "proxy_jump": [],
+        "remote_forward": [],
+        "request_tty": null,
+        "server_alive_interval": 30,
+        "set_env": [],
+        "tags": [],
+        "user": "deploy"
+      },
+      "name": "full_roundtrip_web_is_byte_identical",
+      "output": "# Ghosterm managed config\n# 顶层注释：不得被动过\n\nHost web\n  # 生产入口\n  HostName 10.0.0.5\n  User deploy\n  Port 2222\n  IdentityFile keystore://host-a/id_ed25519\n  IdentityFile ~/.ssh/plain_key\n  VisualHostKey yes\n  Ciphers aes256-gcm@openssh.com\n  ServerAliveInterval 30\n\nHost db\n  HostName 10.0.0.6\n  User dba\n  ProxyJump web\n  SetEnv DBMODE=ro DBTRACE=1\n  LocalForward 5432 localhost:5432\n  LocalForward 6432 localhost:6432\n  RemoteForward 9000 localhost:9000\n  Compression yes\n  ForwardAgent no\n  RequestTTY force\n  StrictHostKeyChecking accept-new\n\nHost bastion\n  HostName bastion.example.com\n  User jumpuser\n  Port 2200\n  IdentityFile=~/.ssh/bastion_key\n\n# 尾部注释：不得被动过\n",
+      "reset": false,
+      "touched": []
+    },
+    {
+      "alias": "web",
+      "edit": {
+        "alias": "web",
+        "host_name": "10.0.0.50",
+        "tags": [],
+        "user": "deploy"
+      },
+      "name": "delete_then_upsert_fresh_block_web",
+      "output": "# Ghosterm managed config\n# 顶层注释：不得被动过\n\nHost db\n  HostName 10.0.0.6\n  User dba\n  ProxyJump web\n  SetEnv DBMODE=ro DBTRACE=1\n  LocalForward 5432 localhost:5432\n  LocalForward 6432 localhost:6432\n  RemoteForward 9000 localhost:9000\n  Compression yes\n  ForwardAgent no\n  RequestTTY force\n  StrictHostKeyChecking accept-new\n\nHost bastion\n  HostName bastion.example.com\n  User jumpuser\n  Port 2200\n  IdentityFile=~/.ssh/bastion_key\n\n# 尾部注释：不得被动过\n\nHost web\n  HostName 10.0.0.50\n  User deploy\n",
+      "reset": true,
+      "touched": [
+        "hostname",
+        "user"
+      ]
+    }
+  ],
+  "generated_by": "Ghosterm sshconfig writeback golden / 0.1.0",
+  "openssh": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.18, OpenSSL 3.0.13 30 Jan 2024",
+  "sample": "# Ghosterm managed config\n# 顶层注释：不得被动过\n\nHost web\n  # 生产入口\n  HostName 10.0.0.5\n  User deploy\n  Port 2222\n  IdentityFile keystore://host-a/id_ed25519\n  IdentityFile ~/.ssh/plain_key\n  VisualHostKey yes\n  Ciphers aes256-gcm@openssh.com\n  ServerAliveInterval 30\n\nHost db\n  HostName 10.0.0.6\n  User dba\n  ProxyJump web\n  SetEnv DBMODE=ro DBTRACE=1\n  LocalForward 5432 localhost:5432\n  LocalForward 6432 localhost:6432\n  RemoteForward 9000 localhost:9000\n  Compression yes\n  ForwardAgent no\n  RequestTTY force\n  StrictHostKeyChecking accept-new\n\nHost bastion\n  HostName bastion.example.com\n  User jumpuser\n  Port 2200\n  IdentityFile=~/.ssh/bastion_key\n\n# 尾部注释：不得被动过\n",
+  "sample_source": "tests/fixtures/writeback-sample.conf",
+  "validated": "ssh -G rc=0 × 9 用例；未触碰键语义不变 × 8 原地补丁用例 × 3 alias（1 例整块替换仅校验 rc=0）"
+}

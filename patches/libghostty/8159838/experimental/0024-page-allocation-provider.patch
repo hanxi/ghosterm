@@ -1,0 +1,368 @@
+diff --git a/include/ghostty/vt/snapshot.h b/include/ghostty/vt/snapshot.h
+index feaa367..328b157 100644
+--- a/include/ghostty/vt/snapshot.h
++++ b/include/ghostty/vt/snapshot.h
+@@ -609,6 +609,11 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_get_multi(
+ 
+ /** @} */
+ 
++
++/* P0: configure before decoding; borrowed OS page allocator, same contract as
++ * ghostty_terminal_p0_new_with_page_allocator. NULL restores default policy. */
++GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_p0_page_allocator(GhosttySnapshotDecoder, const GhosttyAllocator*);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/include/ghostty/vt/terminal.h b/include/ghostty/vt/terminal.h
+index 413eeb0..b457218 100644
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -3110,6 +3110,10 @@ typedef bool (*GhosttyP0ResourceResolveFn)(void*, uint32_t, const uint8_t*, size
+ /* P0 pending producer: resolved ID/number, dimensions, RGB/RGBA byte width.
+  * Status follows the resource codec (0 success, 1 invalid, 2 OOM, 4 limit).
+  * Complete/cancel report applied=false for a stale or already-finished token. */
++/** P0 only: pages must be zero-filled OS mappings, page-aligned, independently
++ * decommittable/recommittable; malloc storage is invalid. Both allocator
++ * descriptors and contexts must outlive the terminal and derived clones. */
++GHOSTTY_API GhosttyResult ghostty_terminal_p0_new_with_page_allocator(const GhosttyAllocator*, const GhosttyAllocator*, GhosttyTerminal*, uint16_t, uint16_t);
+ GHOSTTY_API int ghostty_terminal_p0_pending_begin(GhosttyTerminal, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint64_t*);
+ GHOSTTY_API int ghostty_terminal_p0_pending_ready(GhosttyTerminal, uint32_t, uint64_t, const uint8_t*, size_t, bool*);
+ GHOSTTY_API int ghostty_terminal_p0_pending_cancel(GhosttyTerminal, uint32_t, uint64_t, bool*);
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 9459824..66291cd 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -322,6 +322,8 @@ comptime {
+         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
++        @export(&c.terminal_p0_new_with_page_allocator, .{ .name = "ghostty_terminal_p0_new_with_page_allocator" });
++        @export(&c.snapshot_decoder_p0_page_allocator, .{ .name = "ghostty_snapshot_decoder_p0_page_allocator" });
+         @export(&c.terminal_p0_pending_begin, .{ .name = "ghostty_terminal_p0_pending_begin" });
+         @export(&c.terminal_p0_pending_ready, .{ .name = "ghostty_terminal_p0_pending_ready" });
+         @export(&c.terminal_p0_pending_cancel, .{ .name = "ghostty_terminal_p0_pending_cancel" });
+diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
+index 24c3e3a..6dd7343 100644
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -400,6 +400,8 @@ pub const MemoryPool = struct {
+ 
+ /// The memory pool we get page nodes, pages from.
+ pool: MemoryPool,
++/// Optional OS-compatible page provider; host policy, never serialized.
++p0_page_allocator: ?Allocator = null,
+ 
+ /// The list of pages in the screen.
+ pages: List,
+@@ -594,6 +596,7 @@ const init_tw = tripwire.module(enum {
+ 
+ pub const Options = struct {
+     /// The initial active-area size. This can be resized with `resize`.
++    p0_page_allocator: ?Allocator = null,
+     cols: size.CellCountInt,
+     rows: size.CellCountInt,
+ 
+@@ -646,7 +649,7 @@ pub fn init(
+     try tw.check(.init_memory_pool);
+     var pool = try MemoryPool.init(
+         alloc,
+-        pageAllocator(alloc),
++        opts.p0_page_allocator orelse pageAllocator(alloc),
+         page_preheat,
+     );
+     errdefer pool.deinit();
+@@ -679,6 +682,7 @@ pub fn init(
+         .cols = cols,
+         .rows = rows,
+         .pool = pool,
++        .p0_page_allocator = opts.p0_page_allocator,
+         .pages = page_list,
+         .page_serial = page_serial,
+         .page_serial_epoch = 0,
+@@ -1105,7 +1109,7 @@ pub fn clone(
+     // Setup our pool
+     var pool: MemoryPool = try .init(
+         alloc,
+-        pageAllocator(alloc),
++        self.p0_page_allocator orelse pageAllocator(alloc),
+         page_count,
+     );
+     errdefer pool.deinit();
+@@ -1179,6 +1183,7 @@ pub fn clone(
+ 
+     var result: PageList = .{
+         .pool = pool,
++        .p0_page_allocator = self.p0_page_allocator,
+         .pages = page_list,
+         .page_serial = page_serial,
+         .page_serial_epoch = 0,
+@@ -7615,7 +7620,7 @@ pub const Builder = struct {
+         return .{
+             .pool = try MemoryPool.init(
+                 alloc,
+-                pageAllocator(alloc),
++                options.p0_page_allocator orelse pageAllocator(alloc),
+                 page_preheat,
+             ),
+             .options = options,
+@@ -7724,6 +7729,7 @@ pub const Builder = struct {
+             .cols = self.options.cols,
+             .rows = self.options.rows,
+             .pool = self.pool,
++            .p0_page_allocator = self.options.p0_page_allocator,
+             .pages = self.pages,
+             .page_serial = self.page_serial,
+             .page_serial_epoch = 0,
+@@ -20831,3 +20837,27 @@ test "PageList eraseActive preserves history prefix and retained tail" {
+         try testing.expectEqual(@as(size.CellCountInt, 1), s.pointFromPin(.active, tail_pin.*).?.active.y);
+     }
+ }
++
++test "P0 page provider clone preserves admission and accounting" {
++    var pages = std.testing.FailingAllocator.init(std.heap.page_allocator, .{});
++    {
++        var source = try PageList.init(std.testing.allocator, .{
++            .cols = 80, .rows = 24, .p0_page_allocator = pages.allocator(),
++        });
++        defer source.deinit();
++        const before = pages.allocated_bytes;
++        pages.fail_index = pages.alloc_index;
++        if (source.clone(std.testing.allocator, .{ .top = .{ .active = .{} } })) |value| {
++            var unexpected = value;
++            unexpected.deinit();
++            return error.TestExpectedError;
++        } else |err| try std.testing.expectEqual(error.OutOfMemory, err);
++        try std.testing.expect(pages.has_induced_failure);
++        pages.fail_index = std.math.maxInt(usize);
++        var copy = try source.clone(std.testing.allocator, .{ .top = .{ .active = .{} } });
++        defer copy.deinit();
++        try std.testing.expect(copy.p0_page_allocator.?.ptr == source.p0_page_allocator.?.ptr);
++        try std.testing.expect(pages.allocated_bytes > before);
++    }
++    try std.testing.expectEqual(pages.allocated_bytes, pages.freed_bytes);
++}
+diff --git a/src/terminal/Screen.zig b/src/terminal/Screen.zig
+index 820455e..1554c55 100644
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -257,6 +257,7 @@ pub const CharsetState = struct {
+ };
+ 
+ pub const Options = struct {
++    p0_page_allocator: ?Allocator = null,
+     cols: size.CellCountInt,
+     rows: size.CellCountInt,
+ 
+@@ -307,6 +308,7 @@ pub fn init(
+ ) Allocator.Error!Screen {
+     // Initialize our backing pages.
+     var pages = try PageList.init(alloc, .{
++        .p0_page_allocator = opts.p0_page_allocator,
+         .cols = opts.cols,
+         .rows = opts.rows,
+         .max_size = opts.max_scrollback_bytes,
+diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
+index 20b1636..7a71418 100644
+--- a/src/terminal/Terminal.zig
++++ b/src/terminal/Terminal.zig
+@@ -283,6 +283,7 @@ pub const Cursor = struct {
+ };
+ 
+ pub const Options = struct {
++    p0_page_allocator: ?Allocator = null,
+     cols: size.CellCountInt,
+     rows: size.CellCountInt,
+ 
+@@ -339,6 +340,7 @@ pub fn init(
+     const rows = opts.rows;
+ 
+     var screen_set: ScreenSet = try .init(io_impl, alloc, .{
++        .p0_page_allocator = opts.p0_page_allocator,
+         .cols = cols,
+         .rows = rows,
+         .max_scrollback_bytes = opts.max_scrollback_bytes,
+@@ -4196,6 +4198,7 @@ pub fn resize(
+                 .cols = opts.cols,
+                 .rows = opts.rows,
+                 .max_scrollback_bytes = 0,
++                .p0_page_allocator = primary.pages.p0_page_allocator,
+                 .kitty_image_storage_limit = if (comptime build_options.kitty_graphics)
+                     primary.kitty_images.total_limit
+                 else
+@@ -4853,6 +4856,7 @@ pub fn switchScreen(self: *Terminal, key: ScreenSet.Key) !?*Screen {
+ 
+                 // Inherit our Kitty image settings from the primary
+                 // screen if we have to initialize.
++                .p0_page_allocator = primary.pages.p0_page_allocator,
+                 .kitty_image_storage_limit = if (comptime build_options.kitty_graphics)
+                     primary.kitty_images.total_limit
+                 else
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index 793518c..dba6e97 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -303,3 +303,6 @@ test {
+     // We want to make sure we run the tests for the C allocator interface.
+     _ = @import("../../lib/allocator.zig");
+ }
++
++pub const terminal_p0_new_with_page_allocator = terminal.p0_new_with_page_allocator;
++pub const snapshot_decoder_p0_page_allocator = snapshot.decoder_p0_page_allocator;
+diff --git a/src/terminal/c/snapshot.zig b/src/terminal/c/snapshot.zig
+index 1188d4b..5391b3c 100644
+--- a/src/terminal/c/snapshot.zig
++++ b/src/terminal/c/snapshot.zig
+@@ -105,6 +105,7 @@ const DecoderWrapper = struct {
+     };
+ 
+     alloc: std.mem.Allocator,
++    p0_page_allocator: ?std.mem.Allocator = null,
+     source: Source,
+     decoder: snapshot_core.Decoder,
+     state: State,
+@@ -170,6 +171,7 @@ fn decoderNewSource(
+     // Initialize the core decoder only after its reader has a stable address.
+     wrapper.* = undefined;
+     wrapper.alloc = alloc;
++    wrapper.p0_page_allocator = null;
+     wrapper.source = source;
+     wrapper.state = .configuring;
+     wrapper.max_continuation_bytes = default_max_continuation_bytes;
+@@ -214,6 +216,14 @@ pub fn decoder_set(
+     return .success;
+ }
+ 
++/// Borrow an OS-compatible, zero-filled page allocator until terminal destruction.
++pub fn decoder_p0_page_allocator(decoder_: Decoder, alloc_: ?*const CAllocator) callconv(lib.calling_conv) Result {
++    const decoder = decoder_ orelse return .invalid_value;
++    switch (decoder.state) { .configuring => {}, else => return .invalid_value }
++    decoder.p0_page_allocator = if (alloc_) |value| lib.alloc.default(value) else null;
++    return .success;
++}
++
+ /// Read one typed decoder value through the type-erased C API.
+ pub fn decoder_get(
+     decoder_: Decoder,
+@@ -466,6 +476,7 @@ fn decoderReadyTerminal(decoder: *DecoderWrapper) anyerror!ReadyTerminal {
+         io.io(),
+         .{
+             .max_continuation_bytes = decoder.max_continuation_bytes,
++            .p0_page_allocator = decoder.p0_page_allocator,
+             .compress_history = decoder.compress_history,
+         },
+     );
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+index d8e5668..544068a 100644
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -1003,7 +1003,7 @@ pub fn new(
+     cols: size.CellCountInt,
+     rows: size.CellCountInt,
+ ) callconv(lib.calling_conv) Result {
+-    result.* = new_(alloc_, cols, rows) catch |err| {
++    result.* = new_(alloc_, cols, rows, null) catch |err| {
+         result.* = null;
+         return switch (err) {
+             error.InvalidValue => .invalid_value,
+@@ -1014,10 +1014,20 @@ pub fn new(
+     return .success;
+ }
+ 
++pub fn p0_new_with_page_allocator(alloc_: ?*const CAllocator, pages: ?*const CAllocator, result: *Terminal, cols: size.CellCountInt, rows: size.CellCountInt) callconv(lib.calling_conv) Result {
++    result.* = null;
++    const provider = pages orelse return .invalid_value;
++    result.* = new_(alloc_, cols, rows, lib.alloc.default(provider)) catch |err| return switch (err) {
++        error.InvalidValue => .invalid_value, error.OutOfMemory => .out_of_memory,
++    };
++    return .success;
++}
++
+ fn new_(
+     alloc_: ?*const CAllocator,
+     cols: size.CellCountInt,
+     rows: size.CellCountInt,
++    page_alloc: ?std.mem.Allocator,
+ ) NewError!Terminal {
+     if (cols == 0 or rows == 0) return error.InvalidValue;
+ 
+@@ -1033,6 +1043,7 @@ fn new_(
+         io.io(),
+         alloc,
+         .{
++            .p0_page_allocator = page_alloc,
+             .cols = cols,
+             .rows = rows,
+         },
+diff --git a/src/terminal/snapshot/screen.zig b/src/terminal/snapshot/screen.zig
+index d4ef16f..20ffb61 100644
+--- a/src/terminal/snapshot/screen.zig
++++ b/src/terminal/snapshot/screen.zig
+@@ -363,6 +363,7 @@ pub fn decode(
+     // retain scrollback, while primary screens inherit the caller's limits.
+     var result: TerminalScreen = result: {
+         var builder = try TerminalPageList.Builder.init(alloc, .{
++            .p0_page_allocator = options.p0_page_allocator,
+             .cols = options.cols,
+             .rows = options.rows,
+             .max_size = if (key == .alternate)
+diff --git a/src/terminal/snapshot/snapshot.zig b/src/terminal/snapshot/snapshot.zig
+index 8d04811..e905cc1 100644
+--- a/src/terminal/snapshot/snapshot.zig
++++ b/src/terminal/snapshot/snapshot.zig
+@@ -103,6 +103,7 @@ pub const DecodeOptions = struct {
+     /// Largest non-ground continuation the decoder may allocate and return.
+     /// Set this to zero when only ground-state snapshots are acceptable.
+     max_continuation_bytes: usize,
++    p0_page_allocator: ?Allocator = null,
+ 
+     /// Compress each history page as soon as it is restored.
+     ///
+@@ -324,7 +325,7 @@ pub const Decoder = struct {
+         // screen slots with their final routing. SCREEN values replace those
+         // slots in place so ScreenSet pointers, including the active
+         // pointer, stay valid.
+-        var result = try terminal.decode(reader, io_, alloc);
++        var result = try terminal.decodeWithPageAllocator(reader, io_, alloc, options.p0_page_allocator);
+         errdefer result.deinit(alloc);
+ 
+         // TERMINAL initializes exactly the number of screen slots it
+@@ -336,6 +337,7 @@ pub const Decoder = struct {
+             const explicit_bytes = primary.pages.limits.bytes.explicit;
+             const explicit_lines = primary.pages.limits.lines.explicit;
+             break :options .{
++                .p0_page_allocator = options.p0_page_allocator,
+                 .kitty_image_storage_limit = options.kitty_image_storage_limit orelse primary.kitty_images.total_limit,
+                 .cols = result.cols,
+                 .rows = result.rows,
+diff --git a/src/terminal/snapshot/terminal.zig b/src/terminal/snapshot/terminal.zig
+index 1930537..9a13df7 100644
+--- a/src/terminal/snapshot/terminal.zig
++++ b/src/terminal/snapshot/terminal.zig
+@@ -953,6 +953,10 @@ pub fn decode(
+     io_: std.Io,
+     alloc: Allocator,
+ ) DecodeError!Terminal {
++    return decodeWithPageAllocator(source, io_, alloc, null);
++}
++
++pub fn decodeWithPageAllocator(source: *std.Io.Reader, io_: std.Io, alloc: Allocator, page_alloc: ?Allocator) DecodeError!Terminal {
+     // Finish the complete record before constructing native terminal state.
+     var payload: DecodedPayload = payload: {
+         var record_reader: record.Reader = undefined;
+@@ -978,6 +982,7 @@ pub fn decode(
+ 
+     // Terminal.init establishes native pools, pins, defaults, and ownership.
+     var result = try Terminal.init(io_, alloc, .{
++        .p0_page_allocator = page_alloc,
+         .cols = header.columns,
+         .rows = header.rows,
+         .max_scrollback_bytes = max_scrollback_bytes,
+@@ -1002,6 +1007,7 @@ pub fn decode(
+     // its empty screens are replaced by the following SCREEN records.
+     if (header.screen_count == 2) {
+         _ = try result.screens.getInit(io_, alloc, .alternate, .{
++            .p0_page_allocator = page_alloc,
+             .cols = header.columns,
+             .rows = header.rows,
+             .max_scrollback_bytes = 0,

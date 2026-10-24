@@ -1,0 +1,144 @@
+diff --git a/src/global.zig b/src/global.zig
+--- a/src/global.zig
++++ b/src/global.zig
+@@ -282,9 +282,12 @@
+ ///
+ /// Asserts that the global state is initialized when not running as a test.
+ pub fn environMap() !std.process.Environ.Map {
+-    if (builtin.is_test) return std.testing.environ.createMap(std.testing.allocator);
+-
+-    return state.?.environ.createMap(state.?.alloc);
++    return environMapWithAllocator(alloc());
++}
++
++/// Request-local copies must use the requesting owner's allocation domain.
++pub fn environMapWithAllocator(allocator: std.mem.Allocator) !std.process.Environ.Map {
++    return environ().createMap(allocator);
+ }
+ 
+ /// Re-synchronizes the global Environ (both the higher-level and I/O versions)
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -4647,27 +4647,12 @@
+     }
+ }
+ 
+-/// Expand tilde paths to absolute paths to the user's home directory.
+-/// If expansion fails, an error is logged and the original path is returned.
+-fn expandHome(path: []const u8, buf: []u8) []const u8 {
+-    if (!std.mem.startsWith(u8, path, "~/"))
+-        return path;
+-
+-    var environ_map = global.environMap() catch |err| {
+-        log.warn("failed to get environment map for path \"{s}\": {}", .{ path, err });
+-        return path;
+-    };
++/// Expand using the caller's domain; failure is never an unexpanded success.
++fn expandHome(allocator: Allocator, path: []const u8, buf: []u8) ![]const u8 {
++    if (!std.mem.startsWith(u8, path, "~/")) return path;
++    var environ_map = try global.environMapWithAllocator(allocator);
+     defer environ_map.deinit();
+-
+-    return internal_os.expandHome(
+-        global.io(),
+-        &environ_map,
+-        path,
+-        buf,
+-    ) catch |err| {
+-        log.warn("failed to expand home directory in path \"{s}\": {}", .{ path, err });
+-        return path;
+-    };
++    return try internal_os.expandHome(global.io(), &environ_map, path, buf);
+ }
+ 
+ fn loadTheme(self: *Config, theme: Theme) !void {
+@@ -4870,7 +4855,7 @@
+                     }
+ 
+                     if (wd == .home) {
+-                        var environ_map = try global.environMap();
++                        var environ_map = try global.environMapWithAllocator(alloc);
+                         defer environ_map.deinit();
+                         var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+                         if (try internal_os.home(global.io(), &environ_map, &buf)) |home| {
+@@ -5616,14 +5601,14 @@
+     }
+ 
+     /// Expand tilde paths in .path values.
+-    pub fn finalize(self: *Self, alloc: Allocator) Allocator.Error!void {
++    pub fn finalize(self: *Self, alloc: Allocator) !void {
+         const path = switch (self.*) {
+             .path => |path| path,
+             else => return,
+         };
+ 
+         var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+-        const expanded = expandHome(path, &buf);
++        const expanded = try expandHome(alloc, path, &buf);
+ 
+         if (std.mem.eql(u8, expanded, path)) return;
+         self.* = .{ .path = try alloc.dupe(u8, expanded) };
+@@ -10192,14 +10177,14 @@
+     }
+ 
+     /// Expand tilde paths in light/dark theme values.
+-    pub fn finalize(self: *Theme, alloc: Allocator) Allocator.Error!void {
++    pub fn finalize(self: *Theme, alloc: Allocator) !void {
+         var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+ 
+-        const light = expandHome(self.light, &buf);
++        const light = try expandHome(alloc, self.light, &buf);
+         if (!std.mem.eql(u8, light, self.light))
+             self.light = try alloc.dupeZ(u8, light);
+ 
+-        const dark = expandHome(self.dark, &buf);
++        const dark = try expandHome(alloc, self.dark, &buf);
+         if (!std.mem.eql(u8, dark, self.dark))
+             self.dark = try alloc.dupeZ(u8, dark);
+     }
+diff --git a/src/config/path.zig b/src/config/path.zig
+--- a/src/config/path.zig
++++ b/src/config/path.zig
+@@ -164,7 +164,7 @@
+             // Windows isn't supported yet
+             if (comptime builtin.os.tag == .windows) break :expand;
+ 
+-            var environ_map = try global.environMap();
++            var environ_map = try global.environMapWithAllocator(arena_alloc);
+             defer environ_map.deinit();
+ 
+             const expanded: []const u8 = internal_os.expandHome(
+diff --git a/src/config/theme.zig b/src/config/theme.zig
+--- a/src/config/theme.zig
++++ b/src/config/theme.zig
+@@ -24,7 +24,7 @@
+         self: Location,
+         arena_alloc: Allocator,
+     ) error{ OutOfMemory, Unexpected }!?[]const u8 {
+-        var environ_map = try global.environMap();
++        var environ_map = try global.environMapWithAllocator(arena_alloc);
+         defer environ_map.deinit();
+         return switch (self) {
+             .user => user: {
+diff --git a/src/config/file_load.zig b/src/config/file_load.zig
+--- a/src/config/file_load.zig
++++ b/src/config/file_load.zig
+@@ -10,7 +10,7 @@
+ /// Default path for the XDG home configuration file. Returned value
+ /// must be freed by the caller.
+ pub fn defaultXdgPath(alloc: Allocator) ![]const u8 {
+-    var environ_map = try global.environMap();
++    var environ_map = try global.environMapWithAllocator(alloc);
+     defer environ_map.deinit();
+     return try internal_os.xdg.config(
+         global.io(),
+@@ -23,7 +23,7 @@
+ /// Ghostty <1.3.0 default path for the XDG home configuration file.
+ /// Returned value must be freed by the caller.
+ pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
+-    var environ_map = try global.environMap();
++    var environ_map = try global.environMapWithAllocator(alloc);
+     defer environ_map.deinit();
+     return try internal_os.xdg.config(
+         global.io(),

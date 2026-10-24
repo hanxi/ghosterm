@@ -1,0 +1,131 @@
+diff --git a/src/terminal/p0_loading_snapshot.zig b/src/terminal/p0_loading_snapshot.zig
+new file mode 100644
+index 0000000..ea62859
+--- /dev/null
++++ b/src/terminal/p0_loading_snapshot.zig
+@@ -0,0 +1,72 @@
++//! Experimental chunked image state; animation frames and async pending fail closed.
++const std = @import("std");
++const Loading = @import("kitty/graphics_image.zig").LoadingImage;
++const command = @import("kitty/graphics_command.zig");
++const Allocator = std.mem.Allocator;
++const display_unsigned = .{ "image_id", "image_number", "placement_id", "x", "y", "width", "height", "x_offset", "y_offset", "columns", "rows", "parent_id", "parent_placement_id" };
++const display_signed = .{ "horizontal_offset", "vertical_offset", "z" };
++const max_loading_bytes = 400 * 1024 * 1024;
++fn put(w: *std.Io.Writer, value: u64) !void { try w.writeInt(u64, value, .little); }
++fn get(r: *std.Io.Reader) !u64 { return try r.takeInt(u64, .little); }
++fn word(r: *std.Io.Reader) !u32 { return std.math.cast(u32, try get(r)) orelse error.InvalidData; }
++fn flag(r: *std.Io.Reader) !bool { return switch (try get(r)) { 0 => false, 1 => true, else => error.InvalidData }; }
++fn enumeration(comptime T: type, r: *std.Io.Reader) !T { return std.enums.fromInt(T, try word(r)) orelse error.InvalidData; }
++pub fn write(w: *std.Io.Writer, maybe: ?*const Loading) !void {
++    try put(w, @intFromBool(maybe != null));
++    const loading = maybe orelse return;
++    const img = loading.image;
++    if (loading.frame != null or img.animation != null or img.data != .complete or img.data.complete.len != 0 or
++        img.generation != 0 or img.metadata.placement_count != 0 or
++        loading.response.frame != 0 or !std.mem.eql(u8, loading.response.message, "OK")) return error.Unsupported;
++    if (img.width > 10000 or img.height > 10000 or loading.data.items.len > max_loading_bytes) return error.LimitExceeded;
++    if (img.format != .rgb and img.format != .rgba and img.format != .png) return error.Unsupported;
++    try put(w, img.id); try put(w, img.number); try put(w, img.width); try put(w, img.height);
++    try put(w, @as(u32, @intCast(@intFromEnum(img.format)))); try put(w, @as(u32, @intCast(@intFromEnum(img.compression))));
++    try put(w, @as(u64, @intFromBool(img.metadata.transient)) | (@as(u64, @intFromBool(img.metadata.implicit_id)) << 1)); try put(w, @intFromEnum(loading.quiet));
++    try put(w, loading.response.id); try put(w, loading.response.image_number); try put(w, loading.response.placement_id);
++    try put(w, @intFromBool(loading.display != null));
++    if (loading.display) |display| {
++        inline for (display_unsigned) |field| try put(w, @field(display, field));
++        inline for (display_signed) |field| try put(w, @as(u32, @bitCast(@field(display, field))));
++        try put(w, @intFromEnum(display.cursor_movement));
++        try put(w, @intFromBool(display.virtual_placement));
++    }
++    try put(w, loading.data.items.len); try w.writeAll(loading.data.items);
++}
++const View = struct { loading: Loading, bytes: []const u8 };
++fn read(r: *std.Io.Reader, limits: Loading.Limits, max_bytes: usize) !?View {
++    if (!try flag(r)) return null;
++    var loading: Loading = .{
++        .image = .{ .id = try word(r), .number = try word(r), .width = try word(r), .height = try word(r) },
++        .quiet = .no,
++        .temporary_directory = switch (limits.temporary_file) { .enabled => |d| d.directory, .disabled => null },
++    };
++    loading.image.format = try enumeration(command.Transmission.Format, r);
++    if (loading.image.format != .rgb and loading.image.format != .rgba and loading.image.format != .png) return error.InvalidData;
++    loading.image.compression = try enumeration(command.Transmission.Compression, r);
++    const flags = try word(r); if (flags > 3) return error.InvalidData;
++    loading.image.metadata.transient = flags & 1 != 0;
++    loading.image.metadata.implicit_id = flags & 2 != 0;
++    loading.quiet = try enumeration(command.Command.Quiet, r);
++    loading.response.id = try word(r); loading.response.image_number = try word(r); loading.response.placement_id = try word(r);
++    if (try flag(r)) {
++        var display: command.Display = .{};
++        inline for (display_unsigned) |field| @field(display, field) = try word(r);
++        inline for (display_signed) |field| @field(display, field) = @bitCast(try word(r));
++        display.cursor_movement = try enumeration(command.Display.CursorMovement, r);
++        display.virtual_placement = try flag(r);
++        loading.display = display;
++    }
++    const len = std.math.cast(usize, try get(r)) orelse return error.LimitExceeded;
++    if (len > max_loading_bytes or len > max_bytes or loading.image.width > 10000 or loading.image.height > 10000) return error.LimitExceeded;
++    return .{ .loading = loading, .bytes = try r.take(len) };
++}
++pub fn preflight(r: *std.Io.Reader, limits: Loading.Limits, max_bytes: usize) !void { _ = try read(r, limits, max_bytes); }
++pub fn restore(alloc: Allocator, r: *std.Io.Reader, limits: Loading.Limits, max_bytes: usize) !?*Loading {
++    const view = (try read(r, limits, max_bytes)) orelse return null;
++    const loading = try alloc.create(Loading);
++    loading.* = view.loading;
++    errdefer loading.destroy(alloc);
++    try loading.data.appendSlice(alloc, view.bytes);
++    return loading;
++}
+diff --git a/src/terminal/p0_resource_snapshot.zig b/src/terminal/p0_resource_snapshot.zig
+index 2660c22..c5857cb 100644
+--- a/src/terminal/p0_resource_snapshot.zig
++++ b/src/terminal/p0_resource_snapshot.zig
+@@ -1,5 +1,5 @@
+ //! Experimental complete static images and pinned/virtual placements.
+-//! Loading/animation/pending fail closed; relative ancestry is preflighted.
++//! Chunked loading is captured; animation/pending fail closed; ancestry is preflighted.
+ const std = @import("std");
+ const Terminal = @import("Terminal.zig");
+ const Storage = @import("kitty/graphics_storage.zig").ImageStorage;
+@@ -7,7 +7,8 @@ const Image = @import("kitty/graphics_image.zig").Image;
+ const Allocator = std.mem.Allocator;
+ const max_images = 1024;
+ const max_placements = 4096;
+-const magic = "GTIR0002";
++const magic = "GTIR0003";
++const loading_snapshot = @import("p0_loading_snapshot.zig");
+ fn put(w: *std.Io.Writer, v: u64) !void { try w.writeInt(u64, v, .little); }
+ fn get(r: *std.Io.Reader) !u64 { return try r.takeInt(u64, .little); }
+ fn u32get(r: *std.Io.Reader) !u32 { return std.math.cast(u32, try get(r)) orelse error.InvalidData; }
+@@ -26,7 +27,6 @@ fn payload(t: *Terminal, w: *std.Io.Writer) !void {
+     for ([_]@TypeOf(t.screens.active_key){ .primary, .alternate }) |key| {
+         const s = t.screens.get(key) orelse continue;
+         const storage = &s.kitty_images;
+-        if (storage.loading != null) return error.Unsupported;
+         if (storage.images.count() > max_images or storage.placements.count() > max_placements) return error.LimitExceeded;
+         try put(w, if (key == .primary) 0 else 1);
+         try put(w, storage.next_image_id);
+@@ -85,6 +85,7 @@ fn payload(t: *Terminal, w: *std.Io.Writer) !void {
+                 try put(w, @as(u32, @bitCast(rel.vertical_offset)));
+             }
+         }
++        try loading_snapshot.write(w, storage.loading);
+     }
+ }
+ pub fn encode(alloc: Allocator, t: *Terminal, max_bytes: usize) ![]u8 {
+@@ -176,6 +177,7 @@ fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize, expected_limit:
+                 } else break;
+             }
+         };
++        try loading_snapshot.preflight(&r, screen.kitty_images.image_limits, max_bytes);
+     }
+     if (r.seek != bytes.len) return error.InvalidData;
+ }
+@@ -257,6 +259,7 @@ pub fn decodeWithLimit(alloc: Allocator, t: *Terminal, data: []const u8, max_byt
+             try storage.placements.putNoClobber(alloc, key, p);
+             img.metadata.placement_count += 1;
+         }
++        storage.loading = try loading_snapshot.restore(alloc, &reader, storage.image_limits, max_bytes);
+         storage.next_image_id = next_image_id;
+         storage.next_internal_placement_id = next_placement_id;
+         storage.markMutated(t.io());

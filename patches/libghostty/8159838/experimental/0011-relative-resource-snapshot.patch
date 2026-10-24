@@ -1,0 +1,126 @@
+diff --git a/src/terminal/p0_resource_snapshot.zig b/src/terminal/p0_resource_snapshot.zig
+index a66f416..2660c22 100644
+--- a/src/terminal/p0_resource_snapshot.zig
++++ b/src/terminal/p0_resource_snapshot.zig
+@@ -1,5 +1,5 @@
+ //! Experimental complete static images and pinned/virtual placements.
+-//! Unsupported loading/animation/pending/relative states fail closed.
++//! Loading/animation/pending fail closed; relative ancestry is preflighted.
+ const std = @import("std");
+ const Terminal = @import("Terminal.zig");
+ const Storage = @import("kitty/graphics_storage.zig").ImageStorage;
+@@ -7,7 +7,7 @@ const Image = @import("kitty/graphics_image.zig").Image;
+ const Allocator = std.mem.Allocator;
+ const max_images = 1024;
+ const max_placements = 4096;
+-const magic = "GTIR0001";
++const magic = "GTIR0002";
+ fn put(w: *std.Io.Writer, v: u64) !void { try w.writeInt(u64, v, .little); }
+ fn get(r: *std.Io.Reader) !u64 { return try r.takeInt(u64, .little); }
+ fn u32get(r: *std.Io.Reader) !u32 { return std.math.cast(u32, try get(r)) orelse error.InvalidData; }
+@@ -67,16 +67,23 @@ fn payload(t: *Terminal, w: *std.Io.Writer) !void {
+         }.less);
+         for (keys[0..key_count]) |key_| {
+             const p = storage.placements.getPtr(key_).?;
+-            if (p.location == .relative) return error.Unsupported;
++            if (p.location == .relative and storage.resolveChain(p.location.relative) == null) return error.InvalidData;
+             if (!storage.images.contains(key_.image_id)) return error.InvalidData;
+             try put(w, key_.image_id);
+             try put(w, if (key_.placement_id.tag == .internal) 0 else 1);
+             try put(w, key_.placement_id.id);
+-            try put(w, if (p.location == .pin) 0 else 1);
++            try put(w, switch (p.location) { .pin => 0, .virtual => 1, .relative => 2 });
+             const coord: @import("point.zig").Coordinate = if (p.location == .pin) (s.pages.pointFromPin(.screen, p.location.pin.*) orelse return error.InvalidData).screen else .{ .x = 0, .y = 0 };
+-            try put(w, coord.x); try put(w, coord.y);
++            try put(w, if (p.location == .relative) p.location.relative.parent.image_id else coord.x);
++            try put(w, if (p.location == .relative) p.location.relative.parent.placement_id.id else coord.y);
+             inline for (.{ "x_offset", "y_offset", "source_x", "source_y", "source_width", "source_height", "columns", "rows" }) |field| try put(w, @field(p, field));
+             try put(w, @as(u32, @bitCast(p.z)));
++            if (p.location == .relative) {
++                const rel = p.location.relative;
++                try put(w, if (rel.parent.placement_id.tag == .internal) 0 else 1);
++                try put(w, @as(u32, @bitCast(rel.horizontal_offset)));
++                try put(w, @as(u32, @bitCast(rel.vertical_offset)));
++            }
+         }
+     }
+ }
+@@ -116,6 +123,7 @@ fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize, expected_limit:
+         if (images > max_images or placements > max_placements or expected_total > limit or expected_total > max_bytes) return error.LimitExceeded;
+         var ids: [max_images]u32 = undefined;
+         var keys: [max_placements]Storage.PlacementKey = undefined;
++        var parents: [max_placements]?Storage.PlacementKey = undefined;
+         var total: usize = 0;
+         for (0..images) |i| {
+             var img: Image = .{ .id = try u32get(&r), .number = try u32get(&r), .width = try u32get(&r), .height = try u32get(&r) };
+@@ -136,15 +144,38 @@ fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize, expected_limit:
+             const location = try get(&r);
+             const x = try u32get(&r);
+             const y = try u32get(&r);
+-            if (tag > 1 or location > 1 or x > std.math.maxInt(u16) or std.mem.indexOfScalar(u32, ids[0..images], image_id) == null) return error.InvalidData;
++            if (tag > 1 or location > 2 or (location == 0 and x > std.math.maxInt(u16)) or std.mem.indexOfScalar(u32, ids[0..images], image_id) == null) return error.InvalidData;
+             const key: Storage.PlacementKey = .{ .image_id = image_id, .placement_id = .{ .tag = if (tag == 0) .internal else .external, .id = id } };
+             for (keys[0..i]) |old| if (Storage.PlacementKey.eql(old, key)) return error.InvalidData;
+             keys[i] = key;
+             if (location == 0) {
+                 if (screen.pages.pin(.{ .screen = .{ .x = @intCast(x), .y = y } }) == null) return error.InvalidData;
+-            } else if (x != 0 or y != 0) return error.InvalidData;
++            } else if (location == 1 and (x != 0 or y != 0)) return error.InvalidData;
+             for (0..9) |_| _ = try u32get(&r);
++            parents[i] = null;
++            if (location == 2) {
++                const parent_tag = try get(&r);
++                if (parent_tag > 1) return error.InvalidData;
++                _ = try u32get(&r); _ = try u32get(&r);
++                parents[i] = .{ .image_id = x, .placement_id = .{ .tag = if (parent_tag == 0) .internal else .external, .id = y } };
++            }
+         }
++        // Validate the entire ancestry before any tracked pin is allocated.
++        for (parents[0..placements], 0..) |maybe_parent, i| if (maybe_parent) |parent| {
++            var current = parent;
++            var depth: usize = 1;
++            while (true) {
++                if (Storage.PlacementKey.eql(current, keys[i])) return error.InvalidData;
++                var parent_index: ?usize = null;
++                for (keys[0..placements], 0..) |key, j| if (Storage.PlacementKey.eql(current, key)) { parent_index = j; break; };
++                const j = parent_index orelse return error.InvalidData;
++                if (parents[j]) |next| {
++                    if (depth >= Storage.parent_chain_limit) return error.InvalidData;
++                    depth += 1;
++                    current = next;
++                } else break;
++            }
++        };
+     }
+     if (r.seek != bytes.len) return error.InvalidData;
+ }
+@@ -202,7 +233,7 @@ pub fn decodeWithLimit(alloc: Allocator, t: *Terminal, data: []const u8, max_byt
+             const location = try get(&reader);
+             const x = try u32get(&reader);
+             const y = try u32get(&reader);
+-            if (tag > 1 or location > 1 or x > std.math.maxInt(u16)) return error.InvalidData;
++            if (tag > 1 or location > 2 or (location == 0 and x > std.math.maxInt(u16))) return error.InvalidData;
+             const img = storage.images.getPtr(image_id) orelse return error.InvalidData;
+             const key: Storage.PlacementKey = .{ .image_id = image_id, .placement_id = .{ .tag = if (tag == 0) .internal else .external, .id = id } };
+             if (storage.placements.contains(key)) return error.InvalidData;
+@@ -210,10 +241,19 @@ pub fn decodeWithLimit(alloc: Allocator, t: *Terminal, data: []const u8, max_byt
+             if (location == 0) {
+                 const pin = s.pages.pin(.{ .screen = .{ .x = @intCast(x), .y = y } }) orelse return error.InvalidData;
+                 p.location = .{ .pin = try s.pages.trackPin(pin) };
+-            } else if (x != 0 or y != 0) return error.InvalidData;
++            } else if (location == 1 and (x != 0 or y != 0)) return error.InvalidData;
+             errdefer p.deinit(s);
+             inline for (.{ "x_offset", "y_offset", "source_x", "source_y", "source_width", "source_height", "columns", "rows" }) |field| @field(p, field) = try u32get(&reader);
+             p.z = @bitCast(try u32get(&reader));
++            if (location == 2) {
++                const parent_tag = try get(&reader);
++                if (parent_tag > 1) return error.InvalidData;
++                p.location = .{ .relative = .{
++                    .parent = .{ .image_id = x, .placement_id = .{ .tag = if (parent_tag == 0) .internal else .external, .id = y } },
++                    .horizontal_offset = @bitCast(try u32get(&reader)),
++                    .vertical_offset = @bitCast(try u32get(&reader)),
++                } };
++            }
+             try storage.placements.putNoClobber(alloc, key, p);
+             img.metadata.placement_count += 1;
+         }

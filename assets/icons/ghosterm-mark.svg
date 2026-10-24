@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 由 scripts/lib/icons_mark.py 从 assets/icons/ghosterm.svg 派生，勿手改 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Ghosterm">
+  <defs>
+    <linearGradient id="gt-bg" x1="0.08" y1="0" x2="0.92" y2="1">
+      <stop offset="0" stop-color="#232D5C"/>
+      <stop offset="1" stop-color="#0A0D1C"/>
+    </linearGradient>
+    <radialGradient id="gt-glow" cx="0.5" cy="0.44" r="0.6">
+      <stop offset="0" stop-color="#7A88FF" stop-opacity="0.34"/>
+      <stop offset="0.6" stop-color="#7A88FF" stop-opacity="0.09"/>
+      <stop offset="1" stop-color="#7A88FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gt-body" x1="0.25" y1="0" x2="0.78" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.62" stop-color="#F3F6FF"/>
+      <stop offset="1" stop-color="#C6D1F2"/>
+    </linearGradient>
+  </defs>
+  <g id="gt-mark">
+    <path fill="url(#gt-body)" d="M185.4 787.1 V454.6 A326.6 326.6 0 0 1 838.6 454.6 V787.1 A108.9 108.9 0 0 1 620.9 787.1 A108.9 108.9 0 0 1 403.1 787.1 A108.9 108.9 0 0 1 185.4 787.1 Z"/>
+    <circle cx="390.3" cy="383.3" r="52" fill="#1A2142"/>
+    <circle cx="633.7" cy="383.3" r="52" fill="#1A2142"/>
+  </g>
+</svg>

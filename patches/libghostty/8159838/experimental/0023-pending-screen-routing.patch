@@ -1,0 +1,108 @@
+diff --git a/src/terminal/kitty/graphics_storage.zig b/src/terminal/kitty/graphics_storage.zig
+index f4d18e7..069dd8b 100644
+--- a/src/terminal/kitty/graphics_storage.zig
++++ b/src/terminal/kitty/graphics_storage.zig
+@@ -164,6 +164,17 @@ pub const ImageStorage = struct {
+             storage.markMutated(io);
+             return true;
+         }
++        /// Remove this producer from its original screen, including placement pins
++        /// and relative descendants, without switching terminal screen state.
++        pub fn cancel(self: PendingImage, storage: *ImageStorage, io: std.Io, alloc: Allocator, screen: *terminal.Screen) bool {
++            const img = storage.images.getPtr(self.id) orelse return false;
++            if (img.generation != self.generation or img.data != .pending) return false;
++            storage.deleteById(alloc, screen, self.id, 0, true);
++            _ = storage.removeOrphans(screen, alloc);
++            storage.markMutated(io);
++            return true;
++        }
++
+     };
+ 
+     pub fn deinit(
+diff --git a/src/terminal/p0_pending_image.zig b/src/terminal/p0_pending_image.zig
+index 031c69e..77edec0 100644
+--- a/src/terminal/p0_pending_image.zig
++++ b/src/terminal/p0_pending_image.zig
+@@ -6,9 +6,27 @@ const Storage = @import("kitty/graphics_storage.zig").ImageStorage;
+ pub fn origin(img: *const Image) u64 {
+     return if (img.p0_pending_origin != 0) img.p0_pending_origin else img.generation;
+ }
++const Target = struct { screen: *@import("Screen.zig"), id: u32 };
++// Authority origins are global; active-screen changes never retarget a producer.
++fn find(t: *Terminal, token: u64) !?Target {
++    var found: ?Target = null;
++    var screens = t.screens.all.iterator();
++    while (screens.next()) |entry| {
++        const screen = entry.value.*;
++        var images = screen.kitty_images.images.valueIterator();
++        while (images.next()) |img| {
++            if (img.data != .pending or origin(img) != token) continue;
++            if (found != null) return error.InvalidData;
++            found = .{ .screen = screen, .id = img.id };
++        }
++    }
++    return found;
++}
+ pub fn begin(t: *Terminal, id: u32, number: u32, width: u32, height: u32, bpp: u32, external: ?u64) !u64 {
+     if (id == 0 or width == 0 or height == 0 or width > 10000 or height > 10000 or (bpp != 3 and bpp != 4)) return error.InvalidData;
+-    if (external) |token| if (token == 0) return error.InvalidData;
++    if (external) |token| {
++        if (token == 0 or try find(t, token) != null) return error.InvalidData;
++    }
+     const count = try std.math.mul(usize, width, height);
+     const len = try std.math.mul(usize, count, bpp);
+     const screen = t.screens.active;
+@@ -27,8 +45,10 @@ pub fn begin(t: *Terminal, id: u32, number: u32, width: u32, height: u32, bpp: u
+ }
+ pub fn ready(t: *Terminal, id: u32, token: u64, bytes: []const u8) !bool {
+     if (token == 0) return error.InvalidData;
+-    const storage = &t.screens.active.kitty_images;
+-    const img = storage.images.getPtr(id) orelse return false;
++    const target = try find(t, token) orelse return false;
++    if (target.id != id) return false;
++    const storage = &target.screen.kitty_images;
++    const img = storage.images.getPtr(id).?;
+     if (img.data != .pending or origin(img) != token) return false;
+     if (bytes.len != img.data.pending) return error.InvalidData;
+     const data = try t.gpa().dupe(u8, bytes);
+@@ -41,9 +61,11 @@ pub fn ready(t: *Terminal, id: u32, token: u64, bytes: []const u8) !bool {
+ }
+ pub fn cancel(t: *Terminal, id: u32, token: u64) !bool {
+     if (token == 0) return error.InvalidData;
+-    const storage = &t.screens.active.kitty_images;
+-    const img = storage.images.getPtr(id) orelse return false;
++    const target = try find(t, token) orelse return false;
++    if (target.id != id) return false;
++    const storage = &target.screen.kitty_images;
++    const img = storage.images.getPtr(id).?;
+     if (img.data != .pending or origin(img) != token) return false;
+-    storage.delete(t.io(), t.gpa(), t, .{ .id = .{ .image_id = id, .delete = true } });
+-    return true;
++    const local: Storage.PendingImage = .{ .id = id, .generation = img.generation };
++    return local.cancel(storage, t.io(), t.gpa(), target.screen);
+ }
+diff --git a/src/terminal/p0_resource_snapshot.zig b/src/terminal/p0_resource_snapshot.zig
+index 00144ef..173943c 100644
+--- a/src/terminal/p0_resource_snapshot.zig
++++ b/src/terminal/p0_resource_snapshot.zig
+@@ -126,6 +126,8 @@ fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize, expected_limit:
+     const count = try get(&r);
+     if (count != t.screens.all.count() or count < 1 or count > 2) return error.InvalidData;
+     var seen: [2]bool = .{ false, false };
++    var origins: [2 * max_images]u64 = undefined;
++    var origin_count: usize = 0;
+     for (0..@intCast(count)) |_| {
+         const index = try get(&r);
+         if (index > 1 or seen[index]) return error.InvalidData;
+@@ -149,6 +151,10 @@ fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize, expected_limit:
+             if (try get(&r) > 3) return error.InvalidData;
+             const kind = try get(&r); const token = try get(&r);
+             if (kind > 1 or (kind == 0 and token != 0) or (kind == 1 and token == 0)) return error.InvalidData;
++            if (kind == 1) {
++                if (std.mem.indexOfScalar(u64, origins[0..origin_count], token) != null) return error.InvalidData;
++                origins[origin_count] = token; origin_count += 1;
++            }
+             const len = try usizeget(&r);
+             if (len > expected_total - total or std.mem.indexOfScalar(u32, ids[0..i], img.id) != null) return error.InvalidData;
+             ids[i] = img.id; numbers[i] = img.number;

@@ -1,0 +1,238 @@
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -67,6 +67,7 @@
+ replica_stream: ?terminalpkg.TerminalStream = null,
+ replica_budget_userdata: ?*anyopaque = null,
+ replica_budget_healthy: ?*const fn (?*anyopaque) callconv(.c) bool = null,
++replica_scheme: ?struct { sequence: u64, dark: bool, dispatched: bool = false } = null,
+ replica_sequence: u64 = 0,
+ replica_generation: u64 = 0,
+ replica_start_sequence: u64 = 0,
+@@ -204,6 +205,7 @@
+     xt_checksum_report: bool,
+     xt_checksum_extension: terminalpkg.xt_checksum.Flags,
+     conditional_state: configpkg.ConditionalState,
++    replica_scheme_sequence: u64 = 0,
+ 
+     pub fn init(
+         alloc_gpa: Allocator,
+@@ -547,6 +549,7 @@
+     return .{
+         .generation = self.replica_generation,
+         .sequence = self.replica_sequence,
++        .blocked = self.replica_scheme != null,
+         .linefeed = self.terminal.modes.get(.linefeed),
+         .valid = if (self.replica_stream) |stream| !stream.handler.semantic_failure and self.replicaBudgetHealthyRead() else false,
+     };
+@@ -559,6 +562,10 @@
+         return error.NotReplica;
+     };
+     const stamp = request.stamp;
++    if (stamp.blocked) {
++        self.renderer_state.mutex.unlock(global.io());
++        return;
++    }
+     if (!self.replicaBudgetHealthy() or stream.handler.semantic_failure or !stamp.valid or stamp.generation == 0 or
+         stamp.generation != self.replica_generation or stamp.sequence < self.replica_start_sequence or stamp.sequence > self.replica_sequence or
+         self.backend != .host or self.backend.host.callbacks.write_input == null)
+@@ -580,6 +587,20 @@
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
+ 
++    if (self.replica_scheme) |pending| {
++        if (!pending.dispatched or config.replica_scheme_sequence != pending.sequence or
++            (config.conditional_state.theme == .dark) != pending.dark)
++        {
++            config.deinit();
++            self.replica_stream.?.handler.semantic_failure = true;
++            return error.InvalidReplicaConfiguration;
++        }
++    } else if (self.replica_generation != 0 or config.replica_scheme_sequence != 0) {
++        config.deinit();
++        if (self.replica_stream) |*s| s.handler.semantic_failure = true;
++        return error.InvalidReplicaConfiguration;
++    }
++
+     // Deinit our old config. We do this in the lock because the
+     // stream handler may be referencing the old config (i.e. enquiry resp)
+     self.config.deinit();
+@@ -624,6 +645,11 @@
+         if (self.replica_resources.resolve != null) limits.resource_hooks = &self.replica_resources;
+         self.terminal.setKittyGraphicsLoadingLimits(limits);
+     } else self.terminal.setKittyGraphicsLoadingLimits(.allWithTempDir(global.tmpDirPath()));
++    if (self.replica_scheme) |pending| {
++        if (!self.replicaBudgetHealthy() or self.replica_stream.?.handler.semantic_failure) return error.InvalidReplicaConfiguration;
++        self.replica_sequence = pending.sequence;
++        self.replica_scheme = null;
++    }
+ }
+ 
+ /// Resize the terminal.
+@@ -822,8 +848,47 @@
+ // used for input-mode reads. It does not acknowledge rendering or an IPC read.
+ pub fn replicaEvent(self: *Termio, sequence: u64, event: ReplicaEvent) bool {
+     return self.replicaEventFor(0, sequence, event);
++}
++
++// Admission only: sequence stays at the previously applied event until the
++// exact tagged change_config message has updated the terminal under this lock.
++pub fn replicaSchemeBegin(self: *Termio, generation: u64, sequence: u64, dark: bool) bool {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    const stream = if (self.replica_stream) |*s| s else return false;
++    if (!self.replicaBudgetHealthy() or stream.handler.semantic_failure or self.replica_scheme != null or
++        generation != self.replica_generation or self.replica_sequence == std.math.maxInt(u64) or sequence != self.replica_sequence + 1) return false;
++    self.replica_scheme = .{ .sequence = sequence, .dark = dark };
++    return true;
++}
++
++pub fn replicaSchemeDispatch(self: *Termio, generation: u64, sequence: u64) ?bool {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    const pending = if (self.replica_scheme) |*p| p else return null;
++    if (generation != self.replica_generation or sequence != pending.sequence or pending.dispatched or
++        !self.replicaBudgetHealthy() or self.replica_stream.?.handler.semantic_failure) return null;
++    pending.dispatched = true;
++    return pending.dark;
++}
++
++pub fn replicaSchemeFail(self: *Termio) void {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    if (self.replica_stream) |*s| s.handler.semantic_failure = true;
+ }
+ 
++pub fn replicaSchemeState(self: *Termio, generation: u64, dark: *bool, background: *u32) bool {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    const stream = if (self.replica_stream) |*s| s else return false;
++    if (generation != self.replica_generation or !self.replicaBudgetHealthy() or stream.handler.semantic_failure) return false;
++    dark.* = self.config.conditional_state.theme == .dark;
++    const c = self.terminal.colors.background.default orelse return false;
++    background.* = (@as(u32, c.r) << 16) | (@as(u32, c.g) << 8) | c.b;
++    return true;
++}
++
+ pub fn replicaEventFor(self: *Termio, generation: u64, sequence: u64, event: ReplicaEvent) bool {
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
+@@ -832,6 +897,7 @@
+     if (stream.handler.semantic_failure) return false;
+     if (generation != self.replica_generation) return false;
+     if (self.replica_sequence == std.math.maxInt(u64) or sequence != self.replica_sequence + 1) return false;
++    if (self.replica_scheme != null) return false;
+     switch (event) {
+         .pending_begin => |p| {
+             _ = @import("../terminal/p0_pending_image.zig").begin(&self.terminal, p.id, p.number, p.width, p.height, p.bpp, p.origin) catch {
+diff --git a/src/termio/message.zig b/src/termio/message.zig
+--- a/src/termio/message.zig
++++ b/src/termio/message.zig
+@@ -20,6 +20,7 @@
+         sequence: u64 = 0,
+         linefeed: bool = false,
+         valid: bool = true,
++        blocked: bool = false,
+     };
+     pub const ReplicaWrite = struct {
+         data: WriteReq,
+diff --git a/src/Surface.zig b/src/Surface.zig
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -954,7 +954,7 @@
+ }
+ 
+ fn queueEncodedInput(self: *Surface, request: termio.Message.ReplicaWrite, mutex: termio.Termio.MutexState) void {
+-    if (self.readonly) { request.deinit(); return; }
++    if (self.readonly or request.stamp.blocked) { request.deinit(); return; }
+     if (request.stamp.generation != 0) {
+         if (mutex == .unlocked) {
+             if (comptime @hasDecl(apprt.Surface, "inputEncoded")) self.rt_surface.inputEncoded(request.stamp.generation, request.stamp.sequence);
+@@ -971,7 +971,7 @@
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     const stamp = self.io.replicaInputStampLocked();
+     self.renderer_state.mutex.unlock(global.io());
+-    if (!stamp.valid or stamp.generation == 0) return error.InvalidReplicaState;
++    if (!stamp.valid or stamp.blocked or stamp.generation == 0) return error.InvalidReplicaState;
+     // This callback only queues a control request; no speculative local reset.
+     // It may query state or synchronously feed an authority event in probes.
+     if (comptime @hasDecl(apprt.Surface, "requestHostAction")) {
+@@ -1882,11 +1882,16 @@
+     self: *Surface,
+     original: *const configpkg.Config,
+ ) !void {
++    return self.updateConfigTagged(original, 0);
++}
++
++pub fn updateConfigTagged(self: *Surface, original: *const configpkg.Config, sequence: u64) !void {
+     // Apply our conditional state. If we fail to apply the conditional state
+     // then we log and attempt to move forward with the old config.
+     var config_: ?configpkg.Config = original.changeConditionalState(
+         self.config_conditional_state,
+     ) catch |err| err: {
++        if (sequence != 0) return err;
+         log.warn("failed to apply conditional state to config err={}", .{err});
+         break :err null;
+     };
+@@ -1901,6 +1906,7 @@
+         // If the derivation fails then we just log and return. We don't
+         // hard fail in this case because we don't want to error the surface
+         // when config fails we just want to keep using the old config.
++        if (sequence != 0) return err;
+         log.err("error updating configuration err={}", .{err});
+         return;
+     };
+@@ -1951,6 +1957,9 @@
+     var termio_config_ptr = try self.alloc.create(termio.Termio.DerivedConfig);
+     errdefer self.alloc.destroy(termio_config_ptr);
+     termio_config_ptr.* = try termio.Termio.DerivedConfig.init(self.alloc, config);
++    termio_config_ptr.replica_scheme_sequence = sequence;
++    // Upstream skips irrelevant conditional changes; reports still need the authority theme.
++    if (sequence != 0) termio_config_ptr.conditional_state = self.config_conditional_state;
+     errdefer termio_config_ptr.deinit();
+ 
+     _ = self.renderer_thread.mailbox.push(global.io(), renderer_message, .{ .forever = {} });
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -2132,7 +2132,25 @@
+             @as(u64, rows) * height > std.math.maxInt(u32);
+         if (invalid) return false;
+         return surface.core_surface.io.replicaEventFor(generation, sequence, .{ .resize = .{ .cols = cols, .rows = rows, .width = width, .height = height } });
++    }
++
++    // begin is thread-safe admission. apply must run on the host main thread;
++    // its success means queued, never applied. Poll applied_sequence_for.
++    export fn ghostty_p0_surface_scheme_begin_for(surface: *Surface, generation: u64, sequence: u64, dark: bool) bool {
++        return surface.core_surface.io.replicaSchemeBegin(generation, sequence, dark);
++    }
++    export fn ghostty_p0_surface_scheme_apply_for(surface: *Surface, generation: u64, sequence: u64, config: *const Config) bool {
++        const dark = surface.core_surface.io.replicaSchemeDispatch(generation, sequence) orelse return false;
++        surface.core_surface.config_conditional_state.theme = if (dark) .dark else .light;
++        surface.core_surface.updateConfigTagged(config, sequence) catch {
++            surface.core_surface.io.replicaSchemeFail();
++            return false;
++        };
++        return true;
+     }
++    export fn ghostty_p0_surface_scheme_state_for(surface: *Surface, generation: u64, dark: *bool, background: *u32) bool {
++        return surface.core_surface.io.replicaSchemeState(generation, dark, background);
++    }
+ 
+     export fn ghostty_p0_surface_applied_sequence_for(surface: *Surface, generation: u64, sequence: *u64) bool {
+         sequence.* = 0;
+diff --git a/include/ghostty.h b/include/ghostty.h
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1333,6 +1333,11 @@
+ // P0 only: generation-fenced variants for bound checkpoints.
+ GHOSTTY_API bool ghostty_p0_surface_event_output_for(ghostty_surface_t, uint64_t, uint64_t, const uint8_t*, size_t);
+ GHOSTTY_API bool ghostty_p0_surface_event_resize_for(ghostty_surface_t, uint64_t, uint64_t, uint16_t, uint16_t, uint32_t, uint32_t);
++/* Experimental: begin is admission; apply queues config on main thread.
++ * Neither acknowledges application. Use applied_sequence_for for the barrier. */
++GHOSTTY_API bool ghostty_p0_surface_scheme_begin_for(ghostty_surface_t, uint64_t, uint64_t, bool);
++GHOSTTY_API bool ghostty_p0_surface_scheme_apply_for(ghostty_surface_t, uint64_t, uint64_t, ghostty_config_t);
++GHOSTTY_API bool ghostty_p0_surface_scheme_state_for(ghostty_surface_t, uint64_t, bool*, uint32_t*);
+ GHOSTTY_API bool ghostty_p0_surface_applied_sequence_for(ghostty_surface_t, uint64_t, uint64_t*);
+ // P0 only: observe the complete resource graph; separate from canonical capture.
+ GHOSTTY_API bool ghostty_p0_surface_resources_snapshot(ghostty_surface_t, uint8_t*, size_t, size_t*);

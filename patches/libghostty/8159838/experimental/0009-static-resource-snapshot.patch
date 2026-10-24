@@ -1,0 +1,310 @@
+diff --git a/include/ghostty/vt/terminal.h b/include/ghostty/vt/terminal.h
+index 6afcb8e..0526a75 100644
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -3104,6 +3104,9 @@ typedef bool (*GhosttyP0ResourceObserveFn)(void*, uint32_t, const uint8_t*, size
+                                         uint32_t, const uint8_t*, size_t);
+ typedef bool (*GhosttyP0ResourceResolveFn)(void*, uint32_t, const uint8_t*, size_t,
+                                         uint32_t*, const uint8_t**, size_t*);
++/* P0 only. 0=ok, 1=invalid, 2=OOM, 3=unsupported state, 4=limit, 5=buffer size. */
++GHOSTTY_API int ghostty_terminal_p0_resources_encode(GhosttyTerminal, size_t, uint8_t*, size_t, size_t*);
++GHOSTTY_API int ghostty_terminal_p0_resources_decode(GhosttyTerminal, const uint8_t*, size_t, size_t);
+ GHOSTTY_API GhosttyResult ghostty_terminal_p0_resource_hooks(
+     GhosttyTerminal, void*, GhosttyP0ResourceObserveFn, GhosttyP0ResourceResolveFn);
+
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 9762c29..f9a0c9b 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -326,6 +326,8 @@ comptime {
+         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
+         @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
+         @export(&c.terminal_p0_resource_hooks, .{ .name = "ghostty_terminal_p0_resource_hooks" });
++        @export(&c.terminal_p0_resources_encode, .{ .name = "ghostty_terminal_p0_resources_encode" });
++        @export(&c.terminal_p0_resources_decode, .{ .name = "ghostty_terminal_p0_resources_decode" });
+         @export(&c.terminal_vt_write_until_ground, .{ .name = "ghostty_terminal_vt_write_until_ground" });
+         @export(&c.terminal_scroll_viewport, .{ .name = "ghostty_terminal_scroll_viewport" });
+         @export(&c.terminal_compression_activity, .{ .name = "ghostty_terminal_compression_activity" });
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index a5ef0b9..af65bec 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -189,6 +189,8 @@ pub const terminal_resize = terminal.resize;
+ pub const terminal_set = terminal.set;
+ pub const terminal_vt_write = terminal.vt_write;
+ pub const terminal_p0_resource_hooks = terminal.p0_resource_hooks;
++pub const terminal_p0_resources_encode = terminal.p0_resources_encode;
++pub const terminal_p0_resources_decode = terminal.p0_resources_decode;
+ pub const terminal_vt_write_until_ground = terminal.vt_write_until_ground;
+ pub const terminal_scroll_viewport = terminal.scroll_viewport;
+ pub const terminal_compression_activity = terminal.compression_activity;
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+index 91dc609..5f5bf30 100644
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -1052,6 +1052,31 @@ fn new_(
+     );
+ }
+
++fn p0ResourceError(err: anyerror) c_int {
++    return switch (err) { error.OutOfMemory => 2, error.Unsupported => 3, error.LimitExceeded => 4, else => 1 };
++}
++pub fn p0_resources_encode(terminal_: Terminal, max_bytes: usize, ptr: ?[*]u8, len: usize, written_: ?*usize) callconv(lib.calling_conv) c_int {
++    if (comptime !build_options.kitty_graphics) return 3;
++    const written = written_ orelse return 1;
++    written.* = 0;
++    const wrapper = terminal_ orelse return 1;
++    if (ptr == null and len != 0 or wrapper.stream.handler.semantic_failure) return 1;
++    const alloc = wrapper.terminal.gpa();
++    const bytes = @import("../p0_resource_snapshot.zig").encode(alloc, wrapper.terminal, max_bytes) catch |err| return p0ResourceError(err);
++    defer alloc.free(bytes);
++    written.* = bytes.len;
++    if (len < bytes.len) return 5;
++    @memcpy(ptr.?[0..bytes.len], bytes);
++    return 0;
++}
++pub fn p0_resources_decode(terminal_: Terminal, ptr: ?[*]const u8, len: usize, max_bytes: usize) callconv(lib.calling_conv) c_int {
++    if (comptime !build_options.kitty_graphics) return 3;
++    const wrapper = terminal_ orelse return 1;
++    if (ptr == null or wrapper.stream.handler.semantic_failure) return 1;
++    @import("../p0_resource_snapshot.zig").decode(wrapper.terminal.gpa(), wrapper.terminal, ptr.?[0..len], max_bytes) catch |err| return p0ResourceError(err);
++    return 0;
++}
++
+ pub fn p0_resource_hooks(
+     terminal_: Terminal,
+     userdata: ?*anyopaque,
+diff --git a/src/terminal/p0_resource_snapshot.zig b/src/terminal/p0_resource_snapshot.zig
+new file mode 100644
+index 0000000..8728edc
+--- /dev/null
++++ b/src/terminal/p0_resource_snapshot.zig
+@@ -0,0 +1,228 @@
++//! Experimental complete static images and pinned/virtual placements.
++//! Unsupported loading/animation/pending/relative states fail closed.
++const std = @import("std");
++const Terminal = @import("Terminal.zig");
++const Storage = @import("kitty/graphics_storage.zig").ImageStorage;
++const Image = @import("kitty/graphics_image.zig").Image;
++const Allocator = std.mem.Allocator;
++const max_images = 1024;
++const max_placements = 4096;
++const magic = "GTIR0001";
++fn put(w: *std.Io.Writer, v: u64) !void { try w.writeInt(u64, v, .little); }
++fn get(r: *std.Io.Reader) !u64 { return try r.takeInt(u64, .little); }
++fn u32get(r: *std.Io.Reader) !u32 { return std.math.cast(u32, try get(r)) orelse error.InvalidData; }
++fn usizeget(r: *std.Io.Reader) !usize { return std.math.cast(usize, try get(r)) orelse error.InvalidData; }
++fn imageLen(img: Image) !usize {
++    if (img.animation != null or img.data == .pending or img.compression != .none) return error.Unsupported;
++    const bpp: usize = switch (img.format) { .rgb => 3, .rgba => 4, else => return error.Unsupported };
++    if (img.id == 0 or img.width == 0 or img.height == 0 or img.width > 10000 or img.height > 10000) return error.InvalidData;
++    const count = try std.math.mul(usize, img.width, img.height);
++    const len = try std.math.mul(usize, count, bpp);
++    if (len != img.data.complete.len) return error.InvalidData;
++    return len;
++}
++fn payload(t: *Terminal, w: *std.Io.Writer) !void {
++    try put(w, t.screens.all.count());
++    for ([_]@TypeOf(t.screens.active_key){ .primary, .alternate }) |key| {
++        const s = t.screens.get(key) orelse continue;
++        const storage = &s.kitty_images;
++        if (storage.loading != null) return error.Unsupported;
++        if (storage.images.count() > max_images or storage.placements.count() > max_placements) return error.LimitExceeded;
++        try put(w, if (key == .primary) 0 else 1);
++        try put(w, storage.next_image_id);
++        try put(w, storage.next_internal_placement_id);
++        try put(w, storage.total_limit);
++        try put(w, storage.total_bytes);
++        try put(w, storage.images.count());
++        try put(w, storage.placements.count());
++        // Preserve transmission age without reusing renderer cache generations.
++        var images: [max_images]*const Image = undefined;
++        var it = storage.images.valueIterator();
++        var n: usize = 0;
++        while (it.next()) |img| { images[n] = img; n += 1; }
++        std.mem.sort(*const Image, images[0..n], {}, struct {
++            fn less(_: void, a: *const Image, b: *const Image) bool { return a.generation < b.generation; }
++        }.less);
++        var total: usize = 0;
++        for (images[0..n]) |img| {
++            const len = try imageLen(img.*);
++            total = try std.math.add(usize, total, len);
++            try put(w, img.id); try put(w, img.number);
++            try put(w, img.width); try put(w, img.height);
++            try put(w, if (img.format == .rgba) 4 else 3);
++            try put(w, @as(u64, @intFromBool(img.metadata.transient)) | (@as(u64, @intFromBool(img.metadata.implicit_id)) << 1));
++            try put(w, len); try w.writeAll(img.data.complete);
++        }
++        if (total != storage.total_bytes or total > storage.total_limit) return error.InvalidData;
++        var keys: [max_placements]Storage.PlacementKey = undefined;
++        var placements = storage.placements.keyIterator();
++        var key_count: usize = 0;
++        while (placements.next()) |key_| { keys[key_count] = key_.*; key_count += 1; }
++        std.mem.sort(Storage.PlacementKey, keys[0..key_count], {}, struct {
++            fn less(_: void, a: Storage.PlacementKey, b: Storage.PlacementKey) bool {
++                if (a.image_id != b.image_id) return a.image_id < b.image_id;
++                if (a.placement_id.tag != b.placement_id.tag) return a.placement_id.tag == .internal;
++                return a.placement_id.id < b.placement_id.id;
++            }
++        }.less);
++        for (keys[0..key_count]) |key_| {
++            const p = storage.placements.getPtr(key_).?;
++            if (p.location == .relative) return error.Unsupported;
++            if (!storage.images.contains(key_.image_id)) return error.InvalidData;
++            try put(w, key_.image_id);
++            try put(w, if (key_.placement_id.tag == .internal) 0 else 1);
++            try put(w, key_.placement_id.id);
++            try put(w, if (p.location == .pin) 0 else 1);
++            const coord: @import("point.zig").Coordinate = if (p.location == .pin) (s.pages.pointFromPin(.screen, p.location.pin.*) orelse return error.InvalidData).screen else .{ .x = 0, .y = 0 };
++            try put(w, coord.x); try put(w, coord.y);
++            inline for (.{ "x_offset", "y_offset", "source_x", "source_y", "source_width", "source_height", "columns", "rows" }) |field| try put(w, @field(p, field));
++            try put(w, @as(u32, @bitCast(p.z)));
++        }
++    }
++}
++pub fn encode(alloc: Allocator, t: *Terminal, max_bytes: usize) ![]u8 {
++    if (max_bytes < 16) return error.LimitExceeded;
++    var counter: std.Io.Writer.Discarding = .init(&.{});
++    try payload(t, &counter.writer);
++    const len = std.math.cast(usize, counter.count) orelse return error.LimitExceeded;
++    if (len > max_bytes - 16 or len > std.math.maxInt(u32)) return error.LimitExceeded;
++    const data = try alloc.alloc(u8, len + 16);
++    errdefer alloc.free(data);
++    var writer: std.Io.Writer = .fixed(data[16..]);
++    try payload(t, &writer);
++    @memcpy(data[0..8], magic);
++    std.mem.writeInt(u32, data[8..12], @intCast(len), .little);
++    std.mem.writeInt(u32, data[12..16], std.hash.crc.Crc32Iscsi.hash(data[16..]), .little);
++    return data;
++}
++// Preflight the complete wire before touching page pin pools. Their backing
++// capacity is retained by the terminal even after individual pins are freed.
++fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize) !void {
++    var r: std.Io.Reader = .fixed(bytes);
++    const count = try get(&r);
++    if (count != t.screens.all.count() or count < 1 or count > 2) return error.InvalidData;
++    var seen: [2]bool = .{ false, false };
++    for (0..@intCast(count)) |_| {
++        const index = try get(&r);
++        if (index > 1 or seen[index]) return error.InvalidData;
++        seen[index] = true;
++        const screen = t.screens.get(if (index == 0) .primary else .alternate) orelse return error.InvalidData;
++        _ = try u32get(&r); _ = try u32get(&r);
++        const limit = try usizeget(&r);
++        const expected_total = try usizeget(&r);
++        const images = try usizeget(&r);
++        const placements = try usizeget(&r);
++        if (images > max_images or placements > max_placements or expected_total > limit or expected_total > max_bytes) return error.LimitExceeded;
++        var ids: [max_images]u32 = undefined;
++        var keys: [max_placements]Storage.PlacementKey = undefined;
++        var total: usize = 0;
++        for (0..images) |i| {
++            var img: Image = .{ .id = try u32get(&r), .number = try u32get(&r), .width = try u32get(&r), .height = try u32get(&r) };
++            img.format = switch (try get(&r)) { 3 => .rgb, 4 => .rgba, else => return error.InvalidData };
++            if (try get(&r) > 3) return error.InvalidData;
++            const len = try usizeget(&r);
++            if (len > expected_total - total or std.mem.indexOfScalar(u32, ids[0..i], img.id) != null) return error.InvalidData;
++            ids[i] = img.id;
++            img.data = .{ .complete = try r.take(len) };
++            _ = try imageLen(img);
++            total += len;
++        }
++        if (total != expected_total) return error.InvalidData;
++        for (0..placements) |i| {
++            const image_id = try u32get(&r);
++            const tag = try get(&r);
++            const id = try u32get(&r);
++            const location = try get(&r);
++            const x = try u32get(&r);
++            const y = try u32get(&r);
++            if (tag > 1 or location > 1 or x > std.math.maxInt(u16) or std.mem.indexOfScalar(u32, ids[0..images], image_id) == null) return error.InvalidData;
++            const key: Storage.PlacementKey = .{ .image_id = image_id, .placement_id = .{ .tag = if (tag == 0) .internal else .external, .id = id } };
++            for (keys[0..i]) |old| if (Storage.PlacementKey.eql(old, key)) return error.InvalidData;
++            keys[i] = key;
++            if (location == 0) {
++                if (screen.pages.pin(.{ .screen = .{ .x = @intCast(x), .y = y } }) == null) return error.InvalidData;
++            } else if (x != 0 or y != 0) return error.InvalidData;
++            for (0..9) |_| _ = try u32get(&r);
++        }
++    }
++    if (r.seek != bytes.len) return error.InvalidData;
++}
++pub fn decode(alloc: Allocator, t: *Terminal, data: []const u8, max_bytes: usize) !void {
++    if (data.len > max_bytes) return error.LimitExceeded;
++    if (data.len < 16 or !std.mem.eql(u8, data[0..8], magic)) return error.InvalidData;
++    if (std.mem.readInt(u32, data[8..12], .little) != data.len - 16 or std.mem.readInt(u32, data[12..16], .little) != std.hash.crc.Crc32Iscsi.hash(data[16..])) return error.InvalidData;
++    try preflight(t, data[16..], max_bytes);
++    var reader: std.Io.Reader = .fixed(data[16..]);
++    const count = try get(&reader);
++    if (count != t.screens.all.count() or count < 1 or count > 2) return error.InvalidData;
++    var slots: [2]?Storage = .{ null, null };
++    defer for (&slots, 0..) |*slot, index| if (slot.*) |*storage| storage.deinit(alloc, t.screens.get(if (index == 0) .primary else .alternate).?);
++    for (0..@intCast(count)) |_| {
++        const index = try get(&reader);
++        if (index > 1 or slots[index] != null) return error.InvalidData;
++        const s = t.screens.get(if (index == 0) .primary else .alternate) orelse return error.InvalidData;
++        if (s.kitty_images.images.count() != 0 or s.kitty_images.placements.count() != 0 or s.kitty_images.loading != null) return error.Unsupported;
++        const next_image_id = try u32get(&reader);
++        const next_placement_id = try u32get(&reader);
++        const limit = try usizeget(&reader);
++        const total_bytes = try usizeget(&reader);
++        const images = try usizeget(&reader);
++        const placements = try usizeget(&reader);
++        if (images > max_images or placements > max_placements or total_bytes > limit or total_bytes > max_bytes) return error.LimitExceeded;
++        slots[index] = .{ .total_limit = limit, .image_limits = s.kitty_images.image_limits };
++        const storage = &slots[index].?;
++        var total: usize = 0;
++        for (0..images) |_| {
++            var img: Image = .{ .id = try u32get(&reader), .number = try u32get(&reader), .width = try u32get(&reader), .height = try u32get(&reader) };
++            const bpp = try get(&reader);
++            img.format = switch (bpp) { 3 => .rgb, 4 => .rgba, else => return error.InvalidData };
++            const flags = try get(&reader);
++            if (flags > 3) return error.InvalidData;
++            img.metadata.transient = flags & 1 != 0;
++            img.metadata.implicit_id = flags & 2 != 0;
++            const len = try usizeget(&reader);
++            if (len > total_bytes - total or storage.images.contains(img.id)) return error.InvalidData;
++            const borrowed = try reader.take(len);
++            img.data = .{ .complete = borrowed };
++            _ = try imageLen(img);
++            img.data = .{ .complete = try alloc.dupe(u8, borrowed) };
++            errdefer img.deinit(alloc);
++            try storage.addImage(t.io(), alloc, s, img);
++            total += len;
++        }
++        if (total != total_bytes) return error.InvalidData;
++        for (0..placements) |_| {
++            const image_id = try u32get(&reader);
++            const tag = try get(&reader);
++            const id = try u32get(&reader);
++            const location = try get(&reader);
++            const x = try u32get(&reader);
++            const y = try u32get(&reader);
++            if (tag > 1 or location > 1 or x > std.math.maxInt(u16)) return error.InvalidData;
++            const img = storage.images.getPtr(image_id) orelse return error.InvalidData;
++            const key: Storage.PlacementKey = .{ .image_id = image_id, .placement_id = .{ .tag = if (tag == 0) .internal else .external, .id = id } };
++            if (storage.placements.contains(key)) return error.InvalidData;
++            var p: Storage.Placement = .{ .location = .virtual };
++            if (location == 0) {
++                const pin = s.pages.pin(.{ .screen = .{ .x = @intCast(x), .y = y } }) orelse return error.InvalidData;
++                p.location = .{ .pin = try s.pages.trackPin(pin) };
++            } else if (x != 0 or y != 0) return error.InvalidData;
++            errdefer p.deinit(s);
++            inline for (.{ "x_offset", "y_offset", "source_x", "source_y", "source_width", "source_height", "columns", "rows" }) |field| @field(p, field) = try u32get(&reader);
++            p.z = @bitCast(try u32get(&reader));
++            try storage.placements.putNoClobber(alloc, key, p);
++            img.metadata.placement_count += 1;
++        }
++        storage.next_image_id = next_image_id;
++        storage.next_internal_placement_id = next_placement_id;
++        storage.markMutated(t.io());
++    }
++    if (reader.seek != data.len - 16) return error.InvalidData;
++    // Publish only after the complete resource graph has validated.
++    for (&slots, 0..) |*slot, index| if (slot.*) |storage| {
++        const s = t.screens.get(if (index == 0) .primary else .alternate).?;
++        s.kitty_images.deinit(alloc, s);
++        s.kitty_images = storage;
++        slot.* = null;
++    };
++}

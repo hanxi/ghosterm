@@ -1,0 +1,36 @@
+# ---- build output ----
+/build/
+/dist/
+/core/build/
+**/build/
+**/.build/
+**/DerivedData/
+**/.gradle/
+**/.cxx/
+**/.hvigor/
+**/node_modules/
+
+# ---- local / payload (runtime 环境包，不入库) ----
+/runtime-payload/_cache/
+/runtime-payload/**/*.zip
+/runtime-payload/**/*.tar.*
+
+# ---- macOS ----
+.DS_Store
+
+# ---- Python ----（图标/打包脚本是 python3 写的；别把字节码缓存入库）
+__pycache__/
+*.py[cod]
+
+# ---- 编辑器 ----
+.idea/
+.vscode/
+*.xcuserstate
+xcuserdata/
+.qoder/
+
+# ---- 崩溃转储（本地调试产物，不入库） ----
+*.dmp
+
+# ---- 本地临时（约定：临时文件与执行都放这里，见 AGENTS.md） ----
+/tmp/

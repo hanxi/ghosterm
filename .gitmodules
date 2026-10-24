@@ -1,0 +1,6 @@
+[submodule "vendor/ish-arm64"]
+	path = vendor/ish-arm64
+	url = https://github.com/OpenMinis/ish-arm64.git
+[submodule "vendor/ghostty"]
+	path = vendor/ghostty
+	url = https://github.com/ghostty-org/ghostty.git

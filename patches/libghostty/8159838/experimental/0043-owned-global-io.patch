@@ -1,0 +1,257 @@
+diff --git a/src/global.zig b/src/global.zig
+--- a/src/global.zig
++++ b/src/global.zig
+@@ -1,4 +1,6 @@
+ const std = @import("std");
++const P0Io = @import("lib/p0_threaded_io.zig");
++const P0Threads = @import("apprt/p0_io_threads.zig");
+ const builtin = @import("builtin");
+ const build_config = @import("build_config.zig");
+ const build_options = @import("build_options");
+@@ -123,7 +125,11 @@
+     self.io_impl = .init(self.alloc, .{
+         .argv0 = .init(self.args),
+         .environ = self.environ,
++        .stack_size = P0Threads.stack_size,
++        .async_limit = if (host_allocator != null) .limited(P0Threads.limit) else null,
++        .concurrent_limit = if (host_allocator != null) .limited(P0Threads.limit) else .unlimited,
+     });
++    if (host_allocator != null) self.io_impl.p0_registry = &self.io_threads;
+ 
+     // Discover and save the temporary directory path
+     self.tmp_dir_path = try allocTmpDir(self.alloc, self.environ);
+@@ -247,6 +253,7 @@
+ 
+     // Release our I/O instance
+     self.io_impl.deinit();
++    self.io_threads.join();
+ 
+     if (self.gpa) |*value| {
+         // We want to ensure that we deinit the GPA because this is
+@@ -385,7 +392,8 @@
+ pub const GlobalState = struct {
+     const GPA = std.heap.DebugAllocator(.{});
+ 
+-    io_impl: std.Io.Threaded,
++    io_impl: P0Io,
++    io_threads: P0Threads = .{},
+     gpa: ?GPA,
+     alloc: std.mem.Allocator,
+     environ: std.process.Environ,
+@@ -452,3 +460,6 @@
+         if (self.nofile) |lim| internal_os.restoreMaxFiles(lim);
+     }
+ };
++
++pub fn p0IoImpl() *P0Io { return &state.?.io_impl; }
++pub fn p0IoStats() P0Threads.Stats { return state.?.io_threads.stats(); }
+diff --git a/src/main_c.zig b/src/main_c.zig
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -110,12 +110,14 @@
+ // Global third-party initialization is process-scoped and not retryable.
+ // 0=cold, 1=initializing, 2=legacy, 3=owned, 4=retired, 5=failed.
+ var p0_global_phase = std.atomic.Value(u8).init(0);
++var p0_io_retired = std.atomic.Value(bool).init(false);
+ 
+ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
+     return initC(argc, argv, null);
+ }
+ 
+ pub export fn ghostty_p0_init(argc: usize, argv: [*][*:0]u8, host: ?*const @import("lib/allocator.zig").Allocator) c_int {
++    if (comptime !builtin.os.tag.isDarwin()) return 1;
+     const selected = host orelse return 1;
+     return initC(argc, argv, selected.zig());
+ }
+@@ -131,6 +133,7 @@
+ pub export fn ghostty_p0_deinit() bool {
+     if (p0_global_phase.cmpxchgStrong(3, 4, .acq_rel, .acquire) != null) return false;
+     global.deinit();
++    p0_io_retired.store(true, .release);
+     return true;
+ }
+ 
+@@ -293,3 +296,114 @@
+     try testing.expect(zig_string.len == 5);
+     try testing.expect(zig_string.sentinel == false);
+ }
++
++const P0IoThreads = @import("apprt/p0_io_threads.zig");
++pub export fn ghostty_p0_global_io_thread_limit() usize { return P0IoThreads.limit; }
++pub export fn ghostty_p0_global_io_thread_stack_size() usize { return P0IoThreads.stack_size; }
++pub export fn ghostty_p0_global_io_set_observer(context: ?*anyopaque, callback: ?P0IoThreads.Observe) bool {
++    if (p0_global_phase.load(.acquire) != 3) return false;
++    return global.p0IoImpl().p0SetObserver(context, callback);
++}
++pub export fn ghostty_p0_global_io_thread_allocator(index: u32, output: ?*usize) bool {
++    const out = output orelse return false;
++    if (p0_global_phase.load(.acquire) != 3) return false;
++    const allocator = global.p0IoImpl().p0Allocator(index) orelse return false;
++    out.* = @intFromPtr(allocator.ptr);return true;
++}
++pub export fn ghostty_p0_global_io_stats(output: ?*P0IoThreads.Stats) bool {
++    const out = output orelse return false;
++    const phase = p0_global_phase.load(.acquire);
++    if (phase == 3) { out.* = global.p0IoImpl().p0Stats();return true; }
++    if (phase == 4 and p0_io_retired.load(.acquire)) { out.* = global.p0IoStats();return true; }
++    return false;
++}
++// Experimental integration exercise, not a production session API. The caller
++// independently observes real pthreads, allocator ranges and final reclamation.
++const P0IoProbeWork = struct {
++    stop: std.atomic.Value(bool) = .init(false),
++    entered: std.atomic.Value(usize) = .init(0),
++    quick: std.atomic.Value(usize) = .init(0),
++    timed_out: std.atomic.Value(bool) = .init(false),
++    extern "c" fn usleep(u32) c_int;
++    fn run(self: *@This()) usize {
++        _ = self.entered.fetchAdd(1, .acq_rel);
++        var tries: usize = 0;
++        while (!self.stop.load(.acquire) and tries < 2000) : (tries += 1) global.io().sleep(.fromMilliseconds(1), .awake) catch { self.timed_out.store(true, .release);return 0; };
++        if (!self.stop.load(.acquire)) self.timed_out.store(true, .release);
++        return 1;
++    }
++    fn group(self: *@This()) void { _ = self.run(); }
++    fn fast(self: *@This()) usize { _ = self.quick.fetchAdd(1, .acq_rel);return 1; }
++    fn fastGroup(self: *@This()) void { _ = self.fast(); }
++    fn idle() bool {
++        var tries: usize = 0;
++        while (!global.p0IoImpl().p0Idle() and tries < 2000) : (tries += 1) _ = usleep(1000);
++        return global.p0IoImpl().p0Idle();
++    }
++    fn ready(self: *@This()) bool {
++        var tries: usize = 0;
++        while (self.entered.load(.acquire) != 2 and tries < 2000) : (tries += 1) _ = usleep(1000);
++        return self.entered.load(.acquire) == 2 and !self.timed_out.load(.acquire);
++    }
++};
++const P0IoCancel = struct {
++    fn run(io: std.Io, entered: *std.atomic.Value(bool)) bool {
++        entered.store(true, .release);
++        io.sleep(.fromSeconds(3), .awake) catch |err| return err == error.Canceled;
++        return false;
++    }
++};
++pub export fn ghostty_p0_global_io_probe(kind: u32) bool {
++    if (p0_global_phase.load(.acquire) != 3 or kind > 4) return false;
++    const io = global.io();
++    if (!P0IoProbeWork.idle()) return false;
++    if (kind == 4) {
++        var entered = std.atomic.Value(bool).init(false);
++        var future = io.concurrent(P0IoCancel.run, .{io, &entered}) catch return false;
++        var tries: usize = 0;
++        while (!entered.load(.acquire) and tries < 2000) : (tries += 1) _ = P0IoProbeWork.usleep(1000);
++        return future.cancel(io) and entered.load(.acquire) and P0IoProbeWork.idle();
++    }
++    var work = P0IoProbeWork{};
++    const asynchronous = (kind & 1) != 0;
++    if (kind < 2) {
++        var first = if (asynchronous) io.async(P0IoProbeWork.run, .{&work}) else io.concurrent(P0IoProbeWork.run, .{&work}) catch return false;
++        defer { work.stop.store(true, .release);_ = first.await(io); }
++        var second = if (asynchronous) io.async(P0IoProbeWork.run, .{&work}) else io.concurrent(P0IoProbeWork.run, .{&work}) catch return false;
++        defer { work.stop.store(true, .release);_ = second.await(io); }
++        if (!work.ready()) return false;
++        if (asynchronous) {
++            var third = io.async(P0IoProbeWork.fast, .{&work});
++            const inline_result = third.any_future == null;
++            _ = third.await(io);
++            if (!inline_result or work.quick.load(.acquire) != 1) return false;
++        } else {
++            if (io.concurrent(P0IoProbeWork.fast, .{&work})) |value| {
++                var unexpected = value;_ = unexpected.await(io);return false;
++            } else |err| if (err != error.ConcurrencyUnavailable) return false;
++            if (work.quick.load(.acquire) != 0) return false;
++        }
++        work.stop.store(true, .release);
++        return first.await(io) == 1 and second.await(io) == 1 and !work.timed_out.load(.acquire) and P0IoProbeWork.idle();
++    }
++    var group: std.Io.Group = .init;
++    defer { work.stop.store(true, .release);group.await(io) catch {}; }
++    if (asynchronous) {
++        group.async(io, P0IoProbeWork.group, .{&work});
++        group.async(io, P0IoProbeWork.group, .{&work});
++    } else {
++        group.concurrent(io, P0IoProbeWork.group, .{&work}) catch return false;
++        group.concurrent(io, P0IoProbeWork.group, .{&work}) catch return false;
++    }
++    if (!work.ready()) return false;
++    if (asynchronous) {
++        group.async(io, P0IoProbeWork.fastGroup, .{&work});
++        if (work.quick.load(.acquire) != 1) return false;
++    } else {
++        if (group.concurrent(io, P0IoProbeWork.fastGroup, .{&work})) |_| return false else |err| if (err != error.ConcurrencyUnavailable) return false;
++        if (work.quick.load(.acquire) != 0) return false;
++    }
++    work.stop.store(true, .release);
++    group.await(io) catch return false;
++    return !work.timed_out.load(.acquire) and P0IoProbeWork.idle();
++}
+diff --git a/include/ghostty.h b/include/ghostty.h
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1289,6 +1289,17 @@
+ GHOSTTY_API bool ghostty_p0_deinit(void);
+ // Process-local allocator identity while owned globals are live; otherwise 0.
+ GHOSTTY_API uintptr_t ghostty_p0_global_allocator(void);
++// P0 Darwin owned I/O policy. Caller admits this native stack/guard capacity
++// before init; entry frames and signal buffers use the global host allocator.
++typedef struct { uintptr_t threads, started, finished, joined, failures, stack; } ghostty_p0_io_stats_s;
++GHOSTTY_API uintptr_t ghostty_p0_global_io_thread_limit(void);
++GHOSTTY_API uintptr_t ghostty_p0_global_io_thread_stack_size(void);
++GHOSTTY_API bool ghostty_p0_global_io_set_observer(void*, void (*)(void*, uint32_t, uint32_t));
++GHOSTTY_API bool ghostty_p0_global_io_thread_allocator(uint32_t, uintptr_t*);
++GHOSTTY_API bool ghostty_p0_global_io_stats(ghostty_p0_io_stats_s*);
++// P0 exercise of actual future/group async/concurrent paths (kinds 0..3), plus cancellation (4).
++GHOSTTY_API bool ghostty_p0_global_io_probe(uint32_t);
++
+ 
+ GHOSTTY_API void ghostty_cli_try_action(void);
+ GHOSTTY_API ghostty_info_s ghostty_info(void);
+diff --git a/src/apprt/p0_io_threads.zig b/src/apprt/p0_io_threads.zig
+new file mode 100644
+--- /dev/null
++++ b/src/apprt/p0_io_threads.zig
+@@ -0,0 +1,43 @@
++// Experimental P0 global-I/O workers. Spawn runs under Threaded.mutex.
++// Threaded.deinit only waits for worker() to finish; explicit pthread joins
++// also wait for the outer entry frame and registered signal stack to retire.
++const std = @import("std");
++const Owned = @import("p0_thread.zig");
++const Self = @This();
++pub const limit: usize = 2;
++pub const stack_size: usize = 16 * 1024 * 1024;
++pub const Observe = *const fn (?*anyopaque, u32, u32) callconv(.c) void;
++pub const Stats = extern struct { threads: usize, started: usize, finished: usize, joined: usize, failures: usize, stack: usize };
++threads: [limit]?Owned.Thread = @splat(null),
++count: usize = 0,
++joined: usize = 0,
++started: std.atomic.Value(usize) = .init(0),
++finished: std.atomic.Value(usize) = .init(0),
++failures: std.atomic.Value(usize) = .init(0),
++context: ?*anyopaque = null,
++observe: ?Observe = null,
++pub fn spawn(self: *Self, allocator: std.mem.Allocator, config: std.Thread.SpawnConfig, comptime function: anytype, args: anytype) !void {
++    if (self.count >= limit) { _ = self.failures.fetchAdd(1, .acq_rel);return error.ThreadLimit; }
++    const Wrapper = struct {
++        fn run(owner: *Self, index: usize, values: @TypeOf(args)) void {
++            _ = owner.started.fetchAdd(1, .acq_rel);
++            if (owner.observe) |observe| observe(owner.context, @intCast(index), 0);
++            @call(.auto, function, values);
++            if (owner.observe) |observe| observe(owner.context, @intCast(index), 1);
++            _ = owner.finished.fetchAdd(1, .acq_rel);
++        }
++    };
++    const thread = Owned.spawn(allocator, config, Wrapper.run, .{self, self.count, args}) catch |err| {
++        _ = self.failures.fetchAdd(1, .acq_rel);return err;
++    };
++    self.threads[self.count] = thread;
++    self.count += 1;
++}
++pub fn join(self: *Self) void {
++    for (self.threads[0..self.count]) |thread| { thread.?.join();self.joined += 1; }
++    self.count = 0;
++    self.threads = @splat(null);
++}
++pub fn stats(self: *const Self) Stats {
++    return .{ .threads = self.count, .started = self.started.load(.acquire), .finished = self.finished.load(.acquire), .joined = self.joined, .failures = self.failures.load(.acquire), .stack = stack_size };
++}

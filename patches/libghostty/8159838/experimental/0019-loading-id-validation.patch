@@ -1,0 +1,12 @@
+diff --git a/src/terminal/p0_loading_snapshot.zig b/src/terminal/p0_loading_snapshot.zig
+index ea62859..29b6099 100644
+--- a/src/terminal/p0_loading_snapshot.zig
++++ b/src/terminal/p0_loading_snapshot.zig
+@@ -41,6 +41,7 @@ fn read(r: *std.Io.Reader, limits: Loading.Limits, max_bytes: usize) !?View {
+         .quiet = .no,
+         .temporary_directory = switch (limits.temporary_file) { .enabled => |d| d.directory, .disabled => null },
+     };
++    if (loading.image.id == 0) return error.InvalidData;
+     loading.image.format = try enumeration(command.Transmission.Format, r);
+     if (loading.image.format != .rgb and loading.image.format != .rgba and loading.image.format != .png) return error.InvalidData;
+     loading.image.compression = try enumeration(command.Transmission.Compression, r);

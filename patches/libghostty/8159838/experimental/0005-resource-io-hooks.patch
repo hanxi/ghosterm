@@ -1,0 +1,198 @@
+diff --git a/include/ghostty/vt/terminal.h b/include/ghostty/vt/terminal.h
+index 482b970..6afcb8e 100644
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -3094,6 +3094,19 @@ GHOSTTY_API GhosttyResult ghostty_terminal_set(GhosttyTerminal terminal,
+  *
+  * @ingroup terminal
+  */
++/* P0 experimental resource events. Medium: 1=file, 2=temp, 3=shared.
++ * Status: 0=bytes, 1=source load rejected. Callbacks are synchronous.
++ * Paths/payloads are borrowed byte buffers. Resolve payload must remain valid
++ * through the current feed. Set once, before input; exactly one callback.
++ * Callback rejection sets sticky VT_PROCESSING_ERROR. No filesystem fallback.
++ */
++typedef bool (*GhosttyP0ResourceObserveFn)(void*, uint32_t, const uint8_t*, size_t,
++                                        uint32_t, const uint8_t*, size_t);
++typedef bool (*GhosttyP0ResourceResolveFn)(void*, uint32_t, const uint8_t*, size_t,
++                                        uint32_t*, const uint8_t**, size_t*);
++GHOSTTY_API GhosttyResult ghostty_terminal_p0_resource_hooks(
++    GhosttyTerminal, void*, GhosttyP0ResourceObserveFn, GhosttyP0ResourceResolveFn);
++
+ GHOSTTY_API void ghostty_terminal_vt_write(GhosttyTerminal terminal,
+                                 const uint8_t* data,
+                                 size_t len);
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 517ccce..bcc1c19 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -324,6 +324,7 @@ comptime {
+         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
+         @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });
++        @export(&c.terminal_p0_resource_hooks, .{ .name = "ghostty_terminal_p0_resource_hooks" });
+         @export(&c.terminal_vt_write_until_ground, .{ .name = "ghostty_terminal_vt_write_until_ground" });
+         @export(&c.terminal_scroll_viewport, .{ .name = "ghostty_terminal_scroll_viewport" });
+         @export(&c.terminal_compression_activity, .{ .name = "ghostty_terminal_compression_activity" });
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index 5248c2c..115fdf5 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -187,6 +187,7 @@ pub const terminal_reset = terminal.reset;
+ pub const terminal_resize = terminal.resize;
+ pub const terminal_set = terminal.set;
+ pub const terminal_vt_write = terminal.vt_write;
++pub const terminal_p0_resource_hooks = terminal.p0_resource_hooks;
+ pub const terminal_vt_write_until_ground = terminal.vt_write_until_ground;
+ pub const terminal_scroll_viewport = terminal.scroll_viewport;
+ pub const terminal_compression_activity = terminal.compression_activity;
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+index 06cab9b..91dc609 100644
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -85,6 +85,7 @@ const TerminalWrapper = struct {
+     terminfo_name_buf: [Handler.max_terminfo_name_bytes]u8,
+     stream: Stream,
+     effects: Effects = .{},
++    resource_hooks: @import("../kitty/graphics_image.zig").LoadingImage.ResourceHooks = .{},
+     tracked_grid_refs: std.AutoArrayHashMapUnmanaged(*grid_ref_tracked_c.TrackedGridRef, void) = .{},
+     searches: std.AutoArrayHashMapUnmanaged(*search_c.SearchWrapper, void) = .{},
+
+@@ -1051,6 +1052,27 @@ fn new_(
+     );
+ }
+
++pub fn p0_resource_hooks(
++    terminal_: Terminal,
++    userdata: ?*anyopaque,
++    observe: ?@import("../kitty/graphics_image.zig").LoadingImage.ResourceHooks.Observe,
++    resolve: ?@import("../kitty/graphics_image.zig").LoadingImage.ResourceHooks.Resolve,
++) callconv(lib.calling_conv) Result {
++    const wrapper = terminal_ orelse return .invalid_value;
++    if (comptime !build_options.kitty_graphics) return .invalid_value;
++    if ((observe == null) == (resolve == null)) return .invalid_value;
++    if (wrapper.resource_hooks.observe != null or wrapper.resource_hooks.resolve != null) return .invalid_value;
++    wrapper.resource_hooks = .{
++        .userdata = userdata,
++        .observe = observe,
++        .resolve = resolve,
++        .failed = &wrapper.stream.handler.semantic_failure,
++    };
++    var it = wrapper.terminal.screens.all.iterator();
++    while (it.next()) |entry| entry.value.*.kitty_images.image_limits.resource_hooks = &wrapper.resource_hooks;
++    return .success;
++}
++
+ pub fn vt_write(
+     terminal_: Terminal,
+     ptr: [*]const u8,
+diff --git a/src/terminal/kitty/graphics_image.zig b/src/terminal/kitty/graphics_image.zig
+index c50e46c..d95bebe 100644
+--- a/src/terminal/kitty/graphics_image.zig
++++ b/src/terminal/kitty/graphics_image.zig
+@@ -76,7 +76,22 @@ pub const LoadingImage = struct {
+     /// parameters for resource or security reasons. Note that depending
+     /// on how libghostty is compiled, some of these may be fully unsupported
+     /// and ignored (e.g. "file" on wasm32-freestanding).
++    pub const ResourceHooks = struct {
++        pub const Observe = *const fn (?*anyopaque, u32, [*]const u8, usize, u32, ?[*]const u8, usize) callconv(.c) bool;
++        pub const Resolve = *const fn (?*anyopaque, u32, [*]const u8, usize, *u32, *?[*]const u8, *usize) callconv(.c) bool;
++        userdata: ?*anyopaque = null,
++        observe: ?Observe = null,
++        resolve: ?Resolve = null,
++        failed: ?*bool = null,
++
++        fn fail(self: *const ResourceHooks) error{InvalidData} {
++            if (self.failed) |value| value.* = true;
++            return error.InvalidData;
++        }
++    };
++
+     pub const Limits = struct {
++        resource_hooks: ?*ResourceHooks = null,
+         file: bool,
+         temporary_file: union(enum) {
+             enabled: struct {
+@@ -108,21 +123,9 @@ pub const LoadingImage = struct {
+     /// Initialize a chunked immage from the first image transmission.
+     /// If this is a multi-chunk image, this should only be the FIRST
+     /// chunk.
+-    pub fn init(
+-        io: std.Io,
+-        alloc: Allocator,
+-        cmd: *const command.Command,
+-        limits: Limits,
+-    ) !LoadingImage {
+-        // Build our initial image from the properties sent via the control.
+-        // These can be overwritten by the data loading process. For example,
+-        // PNG loading sets the width/height from the data.
++    fn initMetadata(cmd: *const command.Command, limits: Limits) LoadingImage {
+         const t = cmd.transmission().?;
+-
+-        // Validated here rather than while parsing so the response can
+-        // carry the image id, matching Kitty's initialize_load_data.
+-        if (t.format_unknown) return error.UnsupportedFormat;
+-        var result: LoadingImage = .{
++        return .{
+             .image = .{
+                 .id = t.image_id,
+                 .number = t.image_number,
+@@ -145,6 +148,58 @@ pub const LoadingImage = struct {
+                 .disabled => null,
+             },
+         };
++    }
++
++    pub fn init(
++        io: std.Io,
++        alloc: Allocator,
++        cmd: *const command.Command,
++        limits: Limits,
++    ) !LoadingImage {
++        const t = cmd.transmission().?;
++        if (t.medium == .direct) return initUnobserved(io, alloc, cmd, limits);
++        const hooks = limits.resource_hooks orelse return initUnobserved(io, alloc, cmd, limits);
++        const medium: u32 = @intCast(@intFromEnum(t.medium));
++        if (hooks.resolve) |resolve| {
++            var status: u32 = 0;
++            var bytes: ?[*]const u8 = null;
++            var len: usize = 0;
++            if (!resolve(hooks.userdata, medium, cmd.data.ptr, cmd.data.len, &status, &bytes, &len)) return hooks.fail();
++            if (status == 1) return error.InvalidData;
++            if (status != 0 or len > max_size or (len > 0 and bytes == null)) return hooks.fail();
++            var result = initMetadata(cmd, limits);
++            errdefer result.deinit(alloc);
++            result.addData(alloc, if (bytes) |p| p[0..len] else &.{}) catch |err| {
++                if (hooks.failed) |failed| failed.* = true;
++                return err;
++            };
++            return result;
++        }
++        const observe = hooks.observe orelse return hooks.fail();
++        var result = initUnobserved(io, alloc, cmd, limits) catch |err| {
++            if (!observe(hooks.userdata, medium, cmd.data.ptr, cmd.data.len, 1, null, 0)) return hooks.fail();
++            return err;
++        };
++        errdefer result.deinit(alloc);
++        if (!observe(hooks.userdata, medium, cmd.data.ptr, cmd.data.len, 0, result.data.items.ptr, result.data.items.len)) return hooks.fail();
++        return result;
++    }
++
++    fn initUnobserved(
++        io: std.Io,
++        alloc: Allocator,
++        cmd: *const command.Command,
++        limits: Limits,
++    ) !LoadingImage {
++        // Build our initial image from the properties sent via the control.
++        // These can be overwritten by the data loading process. For example,
++        // PNG loading sets the width/height from the data.
++        const t = cmd.transmission().?;
++
++        // Validated here rather than while parsing so the response can
++        // carry the image id, matching Kitty's initialize_load_data.
++        if (t.format_unknown) return error.UnsupportedFormat;
++        var result = initMetadata(cmd, limits);
+
+         // Special case for the direct medium, we just add the chunk directly.
+         if (t.medium == .direct) {

@@ -1,0 +1,376 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 97829c0..e46db5a 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1303,6 +1303,8 @@ GHOSTTY_API bool ghostty_p0_surface_applied_sequence(ghostty_surface_t, uint64_t
+ GHOSTTY_API bool ghostty_p0_surface_test_input(ghostty_surface_t, uint64_t, uint64_t, bool, const uint8_t*, size_t);
+ GHOSTTY_API bool ghostty_p0_surface_test_reply(ghostty_surface_t);
+ GHOSTTY_API bool ghostty_p0_surface_test_cursor(ghostty_surface_t);
++// P0: apply authority animation time; replica renderer never advances itself.
++GHOSTTY_API bool ghostty_p0_surface_event_animation_tick_for(ghostty_surface_t, uint64_t, uint64_t, uint64_t);
+ // P0: apply committed clear, validating outcome; never emit prompt repaint input.
+ GHOSTTY_API bool ghostty_p0_surface_event_clear_for(ghostty_surface_t, uint64_t, uint64_t, bool, uint32_t);
+ // P0 only: apply an authority-accepted reset at this sequence.
+diff --git a/include/ghostty/vt/terminal.h b/include/ghostty/vt/terminal.h
+index b2ff2e7..3bca04e 100644
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -3107,6 +3107,8 @@ typedef bool (*GhosttyP0ResourceResolveFn)(void*, uint32_t, const uint8_t*, size
+ /* P0 only. 0=ok, 1=invalid, 2=OOM, 3=unsupported state, 4=limit, 5=buffer size. */
+ /* P0: apply host clear; outcome 0=alternate no-op, 1=cleared, 2=prompt repaint.
+  * Only this authority entry invokes write_pty with FF for outcome 2. */
++/* P0: authority animation tick; UINT64_MAX means no next deadline. */
++GHOSTTY_API GhosttyResult ghostty_terminal_p0_animation_tick(GhosttyTerminal, uint64_t, uint64_t*);
+ GHOSTTY_API GhosttyResult ghostty_terminal_p0_clear(GhosttyTerminal, bool, uint32_t*);
+ GHOSTTY_API int ghostty_terminal_p0_resources_encode(GhosttyTerminal, size_t, uint8_t*, size_t, size_t*);
+ GHOSTTY_API int ghostty_terminal_p0_resources_decode(GhosttyTerminal, const uint8_t*, size_t, size_t);
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 1014613..bf58102 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -2073,6 +2073,10 @@ pub const CAPI = struct {
+         return true;
+     }
+ 
++    export fn ghostty_p0_surface_event_animation_tick_for(surface: *Surface, generation: u64, sequence: u64, now_ms: u64) bool {
++        return surface.core_surface.io.replicaEventFor(generation, sequence, .{ .animation_tick = now_ms });
++    }
++
+     export fn ghostty_p0_surface_event_clear_for(surface: *Surface, generation: u64, sequence: u64, history: bool, outcome: u32) bool {
+         if (outcome > 2) return false;
+         return surface.core_surface.io.replicaEventFor(generation, sequence, .{ .clear_screen = .{ .history = history, .outcome = outcome } });
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index dcb4ce9..8446923 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -322,6 +322,7 @@ comptime {
+         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
++        @export(&c.terminal_p0_animation_tick, .{ .name = "ghostty_terminal_p0_animation_tick" });
+         @export(&c.terminal_p0_clear, .{ .name = "ghostty_terminal_p0_clear" });
+         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 5a021b0..0a604dc 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -1474,6 +1474,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 // This must happen before the dirty check below:
+                 // advancing a frame marks the image state dirty.
+                 self.kitty_animation_next_ms = next: {
++                    if (state.terminal.p0_external_animation_clock) break :next null;
+                     // Likely case: we have no kitty images, so do nothing.
+                     const storage = &state.terminal.screens.active.kitty_images;
+                     if (storage.images.count() == 0) break :next null;
+diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
+index 2667c51..20b1636 100644
+--- a/src/terminal/Terminal.zig
++++ b/src/terminal/Terminal.zig
+@@ -48,6 +48,10 @@ const TABSTOP_INTERVAL = 8;
+ /// The set of screens behind this terminal (e.g. primary vs alternate).
+ screens: ScreenSet,
+ 
++/// P0: clock ownership is host policy, while the last authority tick is checkpoint state.
++p0_external_animation_clock: bool = false,
++p0_animation_tick_ms: ?u64 = null,
++
+ /// Whether we're currently writing to the status line (DECSASD and DECSSDT).
+ /// We don't support a status line currently so we just black hole this
+ /// data so that it doesn't mess up our main display.
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index e8fd2c4..8919b10 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -185,6 +185,7 @@ pub const sys_p0_decode_png = sys.p0_decode_png;
+ pub const terminal_new = terminal.new;
+ pub const terminal_free = terminal.free;
+ pub const terminal_reset = terminal.reset;
++pub const terminal_p0_animation_tick = terminal.p0_animation_tick;
+ pub const terminal_p0_clear = terminal.p0_clear;
+ pub const terminal_resize = terminal.resize;
+ pub const terminal_set = terminal.set;
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+index fc4d872..eb961a1 100644
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -1791,6 +1791,16 @@ pub fn resize(
+     return .success;
+ }
+ 
++pub fn p0_animation_tick(terminal_: Terminal, now_ms: u64, delay_: ?*u64) callconv(lib.calling_conv) Result {
++    const delay = delay_ orelse return .invalid_value;
++    delay.* = std.math.maxInt(u64);
++    const wrapper = terminal_ orelse return .invalid_value;
++    if (wrapper.stream.handler.semantic_failure) return .invalid_value;
++    const next = @import("../p0_animation_tick.zig").apply(wrapper.terminal, now_ms) catch return .invalid_value;
++    delay.* = next orelse std.math.maxInt(u64);
++    return .success;
++}
++
+ pub fn p0_clear(terminal_: Terminal, history: bool, outcome_: ?*u32) callconv(lib.calling_conv) Result {
+     const outcome = outcome_ orelse return .invalid_value;
+     outcome.* = 0;
+diff --git a/src/terminal/kitty/graphics_storage.zig b/src/terminal/kitty/graphics_storage.zig
+index 897c894..3412f58 100644
+--- a/src/terminal/kitty/graphics_storage.zig
++++ b/src/terminal/kitty/graphics_storage.zig
+@@ -274,7 +274,7 @@ pub const ImageStorage = struct {
+         s: *terminal.Screen,
+         img: Image,
+     ) Allocator.Error!void {
+-        const new_len = img.data.len();
++        const new_len = img.storageSize();
+ 
+         // If the image itself is over the limit, then error immediately
+         if (new_len > self.total_limit) return error.OutOfMemory;
+@@ -1133,7 +1133,7 @@ pub const ImageStorage = struct {
+ 
+                         // Each wrap completes a loop; a finite budget
+                         // that just ran out parks on the last frame.
+-                        anim.current_loop += 1;
++                        anim.current_loop +|= 1;
+                         if (anim.max_loops > 0 and
+                             anim.current_loop >= anim.max_loops) break :advance;
+                     }
+diff --git a/src/terminal/p0_animation_snapshot.zig b/src/terminal/p0_animation_snapshot.zig
+new file mode 100644
+index 0000000..20cbc27
+--- /dev/null
++++ b/src/terminal/p0_animation_snapshot.zig
+@@ -0,0 +1,92 @@
++//! Bounded animation metadata and composed frames. No renderer cache identities.
++const std = @import("std");
++const Animation = @import("kitty/graphics_animation.zig").Animation;
++const Allocator = std.mem.Allocator;
++const max_frames = 4096;
++fn put(w: *std.Io.Writer, value: u64) !void {
++    try w.writeInt(u64, value, .little);
++}
++fn get(r: *std.Io.Reader) !u64 {
++    return try r.takeInt(u64, .little);
++}
++fn word(r: *std.Io.Reader) !u32 {
++    return std.math.cast(u32, try get(r)) orelse error.InvalidData;
++}
++fn flag(r: *std.Io.Reader) !bool {
++    return switch (try get(r)) {
++        0 => false,
++        1 => true,
++        else => error.InvalidData,
++    };
++}
++pub fn write(w: *std.Io.Writer, maybe: ?*const Animation, rgba_len: usize) !usize {
++    try put(w, @intFromBool(maybe != null));
++    const anim = maybe orelse return 0;
++    if (anim.frames.items.len > max_frames) return error.LimitExceeded;
++    if (anim.current_index > anim.frames.items.len) return error.InvalidData;
++    try put(w, anim.frames.items.len);
++    try put(w, anim.root_gap_ms);
++    try put(w, anim.current_index);
++    try put(w, @intFromEnum(anim.state));
++    try put(w, anim.max_loops);
++    try put(w, anim.current_loop);
++    try put(w, @intFromBool(anim.frame_shown_at_ms != null));
++    if (anim.frame_shown_at_ms) |at| try put(w, at);
++    var bytes: usize = 0;
++    for (anim.frames.items) |frame| {
++        if (frame.data.len != rgba_len) return error.InvalidData;
++        bytes = try std.math.add(usize, bytes, frame.data.len);
++        try put(w, frame.gap_ms);
++        try put(w, frame.data.len);
++        try w.writeAll(frame.data);
++    }
++    return bytes;
++}
++const Header = struct { count: usize, anim: Animation };
++fn header(r: *std.Io.Reader) !?Header {
++    if (!try flag(r)) return null;
++    const count = std.math.cast(usize, try get(r)) orelse return error.LimitExceeded;
++    if (count > max_frames) return error.LimitExceeded;
++    var anim: Animation = .{ .root_gap_ms = try word(r), .current_index = try word(r) };
++    anim.state = std.enums.fromInt(Animation.State, try word(r)) orelse return error.InvalidData;
++    anim.max_loops = try word(r);
++    anim.current_loop = try word(r);
++    if (try flag(r)) anim.frame_shown_at_ms = try get(r);
++    if (anim.current_index > count) return error.InvalidData;
++    return .{ .count = count, .anim = anim };
++}
++const FrameView = struct { gap: u32, bytes: []const u8 };
++fn readFrame(r: *std.Io.Reader, rgba_len: usize, remaining: usize) !FrameView {
++    const gap = try word(r);
++    const len = std.math.cast(usize, try get(r)) orelse return error.LimitExceeded;
++    if (len != rgba_len) return error.InvalidData;
++    if (len > remaining) return error.LimitExceeded;
++    return .{ .gap = gap, .bytes = try r.take(len) };
++}
++pub fn preflight(r: *std.Io.Reader, rgba_len: usize, max_bytes: usize) !usize {
++    const h = (try header(r)) orelse return 0;
++    var bytes: usize = 0;
++    for (0..h.count) |_| {
++        const f = try readFrame(r, rgba_len, max_bytes - bytes);
++        bytes += f.bytes.len;
++    }
++    return bytes;
++}
++pub fn restore(alloc: Allocator, r: *std.Io.Reader, rgba_len: usize, max_bytes: usize) !?*Animation {
++    const h = (try header(r)) orelse return null;
++    const anim = try alloc.create(Animation);
++    anim.* = h.anim;
++    errdefer {
++        anim.deinit(alloc);
++        alloc.destroy(anim);
++    }
++    var bytes: usize = 0;
++    for (0..h.count) |_| {
++        const f = try readFrame(r, rgba_len, max_bytes - bytes);
++        const data = try alloc.dupe(u8, f.bytes);
++        errdefer alloc.free(data);
++        try anim.frames.append(alloc, .{ .data = data, .gap_ms = f.gap });
++        bytes += data.len;
++    }
++    return anim;
++}
+diff --git a/src/terminal/p0_animation_tick.zig b/src/terminal/p0_animation_tick.zig
+new file mode 100644
+index 0000000..c6c91df
+--- /dev/null
++++ b/src/terminal/p0_animation_tick.zig
+@@ -0,0 +1,8 @@
++//! One authority clock domain. The GUI renderer never advances a replica itself.
++const Terminal = @import("Terminal.zig");
++pub fn apply(t: *Terminal, now_ms: u64) !?u64 {
++    if (t.p0_animation_tick_ms) |previous| if (now_ms < previous) return error.InvalidClock;
++    const delay = t.screens.active.kitty_images.animationTick(t.io(), now_ms);
++    t.p0_animation_tick_ms = now_ms;
++    return delay;
++}
+diff --git a/src/terminal/p0_resource_snapshot.zig b/src/terminal/p0_resource_snapshot.zig
+index c5857cb..272048a 100644
+--- a/src/terminal/p0_resource_snapshot.zig
++++ b/src/terminal/p0_resource_snapshot.zig
+@@ -1,5 +1,5 @@
+-//! Experimental complete static images and pinned/virtual placements.
+-//! Chunked loading is captured; animation/pending fail closed; ancestry is preflighted.
++//! Experimental image/animation graph plus chunked image loading.
++//! Frame loading/pending fail closed; ancestry and all frame bytes are preflighted.
+ const std = @import("std");
+ const Terminal = @import("Terminal.zig");
+ const Storage = @import("kitty/graphics_storage.zig").ImageStorage;
+@@ -7,14 +7,15 @@ const Image = @import("kitty/graphics_image.zig").Image;
+ const Allocator = std.mem.Allocator;
+ const max_images = 1024;
+ const max_placements = 4096;
+-const magic = "GTIR0003";
++const magic = "GTIR0004";
++const animation_snapshot = @import("p0_animation_snapshot.zig");
+ const loading_snapshot = @import("p0_loading_snapshot.zig");
+ fn put(w: *std.Io.Writer, v: u64) !void { try w.writeInt(u64, v, .little); }
+ fn get(r: *std.Io.Reader) !u64 { return try r.takeInt(u64, .little); }
+ fn u32get(r: *std.Io.Reader) !u32 { return std.math.cast(u32, try get(r)) orelse error.InvalidData; }
+ fn usizeget(r: *std.Io.Reader) !usize { return std.math.cast(usize, try get(r)) orelse error.InvalidData; }
+ fn imageLen(img: Image) !usize {
+-    if (img.animation != null or img.data == .pending or img.compression != .none) return error.Unsupported;
++    if (img.data == .pending or img.compression != .none) return error.Unsupported;
+     const bpp: usize = switch (img.format) { .rgb => 3, .rgba => 4, else => return error.Unsupported };
+     if (img.id == 0 or img.width == 0 or img.height == 0 or img.width > 10000 or img.height > 10000) return error.InvalidData;
+     const count = try std.math.mul(usize, img.width, img.height);
+@@ -23,6 +24,8 @@ fn imageLen(img: Image) !usize {
+     return len;
+ }
+ fn payload(t: *Terminal, w: *std.Io.Writer) !void {
++    try put(w, @intFromBool(t.p0_animation_tick_ms != null));
++    if (t.p0_animation_tick_ms) |at| try put(w, at);
+     try put(w, t.screens.all.count());
+     for ([_]@TypeOf(t.screens.active_key){ .primary, .alternate }) |key| {
+         const s = t.screens.get(key) orelse continue;
+@@ -52,6 +55,9 @@ fn payload(t: *Terminal, w: *std.Io.Writer) !void {
+             try put(w, if (img.format == .rgba) 4 else 3);
+             try put(w, @as(u64, @intFromBool(img.metadata.transient)) | (@as(u64, @intFromBool(img.metadata.implicit_id)) << 1));
+             try put(w, len); try w.writeAll(img.data.complete);
++            const frame_bytes = try animation_snapshot.write(w, img.animation, @as(usize, img.width) * img.height * 4);
++            if (frame_bytes != 0 and img.format != .rgba) return error.InvalidData;
++            total = try std.math.add(usize, total, frame_bytes);
+         }
+         if (total != storage.total_bytes or total > storage.total_limit) return error.InvalidData;
+         var keys: [max_placements]Storage.PlacementKey = undefined;
+@@ -107,6 +113,9 @@ pub fn encode(alloc: Allocator, t: *Terminal, max_bytes: usize) ![]u8 {
+ // capacity is retained by the terminal even after individual pins are freed.
+ fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize, expected_limit: ?usize) !void {
+     var r: std.Io.Reader = .fixed(bytes);
++    const has_clock = try get(&r);
++    if (has_clock > 1) return error.InvalidData;
++    if (has_clock == 1) _ = try get(&r);
+     const count = try get(&r);
+     if (count != t.screens.all.count() or count < 1 or count > 2) return error.InvalidData;
+     var seen: [2]bool = .{ false, false };
+@@ -136,6 +145,9 @@ fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize, expected_limit:
+             img.data = .{ .complete = try r.take(len) };
+             _ = try imageLen(img);
+             total += len;
++            const frame_bytes = try animation_snapshot.preflight(&r, @as(usize, img.width) * img.height * 4, expected_total - total);
++            if (frame_bytes != 0 and img.format != .rgba) return error.InvalidData;
++            total += frame_bytes;
+         }
+         if (total != expected_total) return error.InvalidData;
+         for (0..placements) |i| {
+@@ -190,6 +202,9 @@ pub fn decodeWithLimit(alloc: Allocator, t: *Terminal, data: []const u8, max_byt
+     if (std.mem.readInt(u32, data[8..12], .little) != data.len - 16 or std.mem.readInt(u32, data[12..16], .little) != std.hash.crc.Crc32Iscsi.hash(data[16..])) return error.InvalidData;
+     try preflight(t, data[16..], max_bytes, expected_limit);
+     var reader: std.Io.Reader = .fixed(data[16..]);
++    const has_clock = try get(&reader);
++    if (has_clock > 1) return error.InvalidData;
++    const clock: ?u64 = if (has_clock == 1) try get(&reader) else null;
+     const count = try get(&reader);
+     if (count != t.screens.all.count() or count < 1 or count > 2) return error.InvalidData;
+     var slots: [2]?Storage = .{ null, null };
+@@ -224,8 +239,11 @@ pub fn decodeWithLimit(alloc: Allocator, t: *Terminal, data: []const u8, max_byt
+             _ = try imageLen(img);
+             img.data = .{ .complete = try alloc.dupe(u8, borrowed) };
+             errdefer img.deinit(alloc);
++            img.animation = try animation_snapshot.restore(alloc, &reader, @as(usize, img.width) * img.height * 4, total_bytes - total - len);
++            const stored_bytes = img.storageSize();
++            if (stored_bytes != len and img.format != .rgba) return error.InvalidData;
+             try storage.addImage(t.io(), alloc, s, img);
+-            total += len;
++            total += stored_bytes;
+         }
+         if (total != total_bytes) return error.InvalidData;
+         for (0..placements) |_| {
+@@ -266,6 +284,7 @@ pub fn decodeWithLimit(alloc: Allocator, t: *Terminal, data: []const u8, max_byt
+     }
+     if (reader.seek != data.len - 16) return error.InvalidData;
+     // Publish only after the complete resource graph has validated.
++    t.p0_animation_tick_ms = clock;
+     for (&slots, 0..) |*slot, index| if (slot.*) |storage| {
+         const s = t.screens.get(if (index == 0) .primary else .alternate).?;
+         s.kitty_images.deinit(alloc, s);
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index f6f2e39..a961a9f 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -317,6 +317,8 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+         try @import("../terminal/p0_resource_snapshot.zig").decodeWithLimit(alloc, &term, bytes, 16 * 1024 * 1024, opts.replica_image_storage_limit);
+     }
+ 
++    term.p0_external_animation_clock = decoded != null;
++
+     // The default palette may be an allocator-owned copy, so it is set
+     // once the terminal owns its memory and can release it on deinit.
+     if (decoded == null) try term.colors.palette.changeDefault(alloc, opts.config.palette);
+@@ -777,6 +779,7 @@ pub fn replicaReadImage(self: *Termio, id: u32, dest: []u8, written: *usize, col
+ }
+ 
+ pub const ReplicaEvent = union(enum) {
++    animation_tick: u64,
+     clear_screen: struct { history: bool, outcome: u32 },
+     reset: void,
+     output: []const u8,
+@@ -804,6 +807,7 @@ pub fn replicaEventFor(self: *Termio, generation: u64, sequence: u64, event: Rep
+                 return false;
+             }
+         },
++        .animation_tick => |now_ms| { _ = @import("../terminal/p0_animation_tick.zig").apply(&self.terminal, now_ms) catch return false; },
+         .reset => self.terminal.fullReset(),
+         .output => |bytes| stream.nextSlice(bytes),
+         .resize => |size| self.terminal.resize(self.alloc, .{

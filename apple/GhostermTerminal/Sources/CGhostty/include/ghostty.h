@@ -1,0 +1,1 @@
+../../../../../build/GhosttyKit.xcframework/macos-arm64/Headers/ghostty.h

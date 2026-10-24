@@ -1,0 +1,175 @@
+diff --git a/src/apprt/p0_warmup.zig b/src/apprt/p0_warmup.zig
+new file mode 100644
+--- /dev/null
++++ b/src/apprt/p0_warmup.zig
+@@ -0,0 +1,83 @@
++// P0: two owned, joinable warmups; partial startup is transactional.
++const std = @import("std");
++const thread = @import("p0_thread.zig");
++pub const Observer = ?*const fn (?*anyopaque, u32, u32) callconv(.c) void;
++pub const Group = struct {
++    context: ?*anyopaque = null,
++    observer: Observer = null,
++    threads: [2]?thread.Thread = .{ null, null },
++    pub fn start(self: *Group, allocator: std.mem.Allocator, comptime first: anytype, comptime second: anytype, context: ?*anyopaque, observer: Observer) !void {
++        std.debug.assert(self.threads[0] == null and self.threads[1] == null);
++        self.context = context;self.observer = observer;
++        errdefer self.join();
++        inline for (.{ first, second }, 0..) |function, i| {
++            const Job = struct {
++                fn run(c: ?*anyopaque, observe: Observer) void {
++                    if (observe) |callback| callback(c, i, 0);
++                    function();
++                    if (observe) |callback| callback(c, i, 1);
++                }
++            };
++            self.threads[i] = try thread.spawn(allocator, .{}, Job.run, .{ context, observer });
++        }
++    }
++    pub fn join(self: *Group) void {
++        for (&self.threads, 0..) |*slot, i| {
++            if (slot.*) |value| {
++                value.join();
++                if (self.observer) |callback| callback(self.context, @intCast(i), 2);
++            }
++            slot.* = null;
++        }
++    }
++};
++test "warmups run and join both entries" {
++    const Job = struct {
++        var completed = std.atomic.Value(u32).init(0);
++        fn run() void { _ = completed.fetchAdd(1, .seq_cst); }
++    };
++    var group = Group{};
++    try group.start(std.testing.allocator, Job.run, Job.run, null, null);
++    for (group.threads) |slot| try std.testing.expect(slot != null);
++    group.join();
++    try std.testing.expectEqual(@as(u32, 2), Job.completed.load(.seq_cst));
++    for (group.threads) |slot| try std.testing.expect(slot == null);
++}
++test "second warmup allocation failure joins the first" {
++    const Job = struct { fn run() void {} };
++    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
++    var group = Group{};
++    try std.testing.expectError(error.OutOfMemory, group.start(failing.allocator(), Job.run, Job.run, null, null));
++    for (group.threads) |slot| try std.testing.expect(slot == null);
++    try std.testing.expectEqual(failing.allocated_bytes, failing.freed_bytes);
++}
++test "join waits for active warmups" {
++    const Job = struct {
++        var release = std.atomic.Value(bool).init(false);
++        var entered = std.atomic.Value(u32).init(0);
++        fn run() void {
++            _ = entered.fetchAdd(1, .seq_cst);
++            while (!release.load(.seq_cst)) pause(100_000);
++        }
++    };
++    const Joiner = struct {
++        var entered = std.atomic.Value(bool).init(false);
++        var returned = std.atomic.Value(bool).init(false);
++        fn run(g: *Group) void {
++            entered.store(true, .seq_cst);g.join();returned.store(true, .seq_cst);
++        }
++    };
++    var group = Group{};
++    try group.start(std.testing.allocator, Job.run, Job.run, null, null);
++    while (Job.entered.load(.seq_cst) != 2) pause(100_000);
++    const saved = group.threads;
++    const joiner = try std.Thread.spawn(.{}, Joiner.run, .{&group});
++    while (!Joiner.entered.load(.seq_cst)) pause(100_000);
++    pause(30 * std.time.ns_per_ms);
++    const early = Joiner.returned.load(.seq_cst);
++    Job.release.store(true, .seq_cst);joiner.join();
++    if (early) for (saved) |slot| { slot.?.join(); };
++    try std.testing.expect(!early);
++}
++
++fn pause(ns: u64) void { _ = std.c.nanosleep(&.{ .sec = @intCast(ns / std.time.ns_per_s), .nsec = @intCast(ns % std.time.ns_per_s) }, null); }
+diff --git a/src/App.zig b/src/App.zig
+--- a/src/App.zig
++++ b/src/App.zig
+@@ -73,10 +73,26 @@
+ /// if they are the first surface.
+ first: bool = true,
+ 
++// P0 budgeted embedded warmups are owned until destroy, never detached.
++p0_warmups: @import("apprt/p0_warmup.zig").Group = .{},
++
+ pub const CreateError = Allocator.Error || font.SharedGridSet.InitError;
+ 
+ /// Create a new app instance. This returns a stable pointer to the app
+ /// instance which is required for callbacks.
++pub fn createUnwarmed(alloc: Allocator) CreateError!*App {
++    var app = try alloc.create(App);
++    errdefer alloc.destroy(app);
++    try app.init(alloc);
++    return app;
++}
++
++pub fn startBudgetedWarmups(self: *App, allocator: Allocator, context: ?*anyopaque, observer: @import("apprt/p0_warmup.zig").Observer) !void {
++    if (comptime @hasDecl(font.Discover, "warmup") and @hasDecl(renderer.Device, "warmup")) {
++        try self.p0_warmups.start(allocator, font.Discover.warmup, renderer.Device.warmup, context, observer);
++    } else return error.UnsupportedWarmups;
++}
++
+ pub fn create(alloc: Allocator) CreateError!*App {
+     var app = try alloc.create(App);
+     errdefer alloc.destroy(app);
+@@ -134,6 +150,7 @@
+ }
+ 
+ pub fn deinit(self: *App) void {
++    self.p0_warmups.join();
+     // Clean up all our surfaces
+     for (self.surfaces.items) |surface| surface.deinit();
+     self.surfaces.deinit(self.alloc);
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -101,6 +101,9 @@
+ 
+         // P0: App/core, cloned configuration and shared font allocations.
+         p0_allocator: ?*const @import("../lib/allocator.zig").Allocator = null,
++        p0_thread_allocator: ?*const @import("../lib/allocator.zig").Allocator = null,
++        p0_warmup_userdata: ?*anyopaque = null,
++        p0_warmup_observer: @import("p0_warmup.zig").Observer = null,
+     };
+ 
+     /// This is the key event sent for ghostty_surface_key and
+@@ -1927,7 +1930,8 @@
+         config: *const Config,
+     ) !*App {
+         const alloc = if (opts.p0_allocator) |a| a.zig() else global.alloc();
+-        const core_app = try CoreApp.create(alloc);
++        if (opts.p0_allocator == null and (opts.p0_thread_allocator != null or opts.p0_warmup_observer != null)) return error.MissingAppBudget;
++        const core_app = if (opts.p0_allocator != null) try CoreApp.createUnwarmed(alloc) else try CoreApp.create(alloc);
+         errdefer core_app.destroy();
+ 
+         // Create our runtime app
+@@ -1935,6 +1939,10 @@
+         errdefer alloc.destroy(app);
+         try app.init(core_app, config, opts.*);
+         errdefer app.terminate();
++        if (opts.p0_allocator != null) {
++            const thread_allocator = if (opts.p0_thread_allocator) |a| a.zig() else alloc;
++            try core_app.startBudgetedWarmups(thread_allocator, opts.p0_warmup_userdata, opts.p0_warmup_observer);
++        }
+ 
+         return app;
+     }
+diff --git a/include/ghostty.h b/include/ghostty.h
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1237,6 +1237,11 @@
+   ghostty_runtime_close_surface_cb close_surface_cb;
+   // P0: borrowed until app_free, including all surfaces; NULL keeps default.
+   const ghostty_p0_allocator_s* p0_allocator;
++  // P0: joinable warmups use this domain (NULL inherits App allocator).
++  // Phases 0/1 run on workers before/after work; phase 2 reports join on owner.
++  const ghostty_p0_allocator_s* p0_thread_allocator;
++  void* p0_warmup_userdata;
++  void (*p0_warmup_observer)(void*, uint32_t, uint32_t);
+ } ghostty_runtime_config_s;
+ 
+ // apprt.ipc.Target.Key

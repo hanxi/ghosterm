@@ -1,0 +1,12 @@
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -621,7 +621,7 @@
+     return .{
+         .generation = self.replica_generation,
+         .sequence = self.replica_sequence,
+-        .blocked = self.replica_scheme != null or (self.replica_dynamic and !self.replica_input_enabled),
++        .blocked = (self.replica_scheme != null and !self.replica_dynamic) or (self.replica_dynamic and !self.replica_input_enabled),
+         .linefeed = self.terminal.modes.get(.linefeed),
+         .valid = if (self.replica_stream) |stream| self.replica_input_enabled and !stream.handler.semantic_failure and self.replicaBudgetHealthyRead() else false,
+     };

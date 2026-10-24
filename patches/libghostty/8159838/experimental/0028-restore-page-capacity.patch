@@ -1,0 +1,46 @@
+diff --git a/src/terminal/snapshot/page.zig b/src/terminal/snapshot/page.zig
+index b9613e1..f787f8e 100644
+--- a/src/terminal/snapshot/page.zig
++++ b/src/terminal/snapshot/page.zig
+@@ -368,6 +368,10 @@ fn decodePayloadBody(
+     page.pauseIntegrityChecks(true);
+     defer page.pauseIntegrityChecks(false);
+ 
++    // The allocated capacity may exceed the encoded dimensions, so the page
++    // takes its logical size from the header rather than from `init`.
++    page.size = .{ .cols = header.columns, .rows = header.rows };
++
+     // Pages without styles or hyperlinks, the common case for plain
+     // scrollback, skip the remap tables entirely: every encoded cell ID
+     // resolves to the default through the empty remap.
+@@ -569,7 +573,7 @@ pub const Header = struct {
+             return error.InvalidDimensions;
+         }
+ 
+-        const cap: TerminalPageCapacity = .{
++        const exact: TerminalPageCapacity = .{
+             .cols = self.columns,
+             .rows = self.rows,
+             .styles = self.style_capacity,
+@@ -578,6 +582,21 @@ pub const Header = struct {
+             .string_bytes = self.string_capacity_bytes,
+         };
+ 
++        // The wire format carries logical rows, not row capacity. Allocating
++        // exactly `rows` leaves a restored page completely full, so the first
++        // reflow has to split it while an identical natively grown page still
++        // has standard-capacity headroom and reflows in place. Give the page
++        // the headroom a native page of these columns would have been given.
++        // Only logical rows are encoded, so this cannot change the bytes the
++        // page re-encodes to.
++        var cap = exact;
++        if (terminal_page.std_capacity.adjust(
++            .{ .cols = self.columns },
++        )) |std_cap| {
++            cap.rows = @max(cap.rows, std_cap.rows);
++        } else |_| {}
++        if (TerminalPage.layout(cap).total_size > max_page_size) cap = exact;
++
+         const page_layout = TerminalPage.layout(cap);
+         if (page_layout.total_size > max_page_size) {
+             return error.PageTooLarge;

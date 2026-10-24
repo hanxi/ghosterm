@@ -1,0 +1,81 @@
+diff --git a/src/Surface.zig b/src/Surface.zig
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -209,7 +209,7 @@
+ /// The search state for the surface.
+ const Search = struct {
+     state: terminal.search.Thread,
+-    thread: std.Thread,
++    thread: @import("apprt/p0_thread.zig").Thread,
+ 
+     pub fn deinit(self: *Search) void {
+         // Notify the thread to stop
+@@ -5213,13 +5213,16 @@
+                     .thread = undefined,
+                 };
+                 const s: *Search = &self.search.?;
+-                errdefer s.state.deinit();
+-
+-                s.thread = try .spawn(
+-                    .{},
+-                    terminal.search.Thread.threadMain,
+-                    .{&s.state},
+-                );
++                errdefer {
++                    s.state.deinit();
++                    self.search = null;
++                }
++
++                const bounded = if (comptime @hasDecl(apprt.Surface, "replicaPageAllocator")) self.rt_surface.replicaPageAllocator() != null else false;
++                const thread_allocator = if (comptime @hasDecl(apprt.Surface, "replicaThreadAllocator")) self.rt_surface.replicaThreadAllocator() orelse self.alloc else self.alloc;
++                s.thread = if (bounded)
++                    try @import("apprt/p0_thread.zig").spawn(thread_allocator, .{}, terminal.search.Thread.threadMain, .{&s.state})
++                else .{ .standard = try std.Thread.spawn(.{}, terminal.search.Thread.threadMain, .{&s.state}) };
+                 s.thread.setName(global.io(), "search") catch {};
+ 
+                 break :init s;
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -2542,6 +2542,10 @@
+         surface.mousePressureCallback(stage, pressure);
+     }
+ 
++    export fn ghostty_p0_surface_search_exists(surface: ?*Surface) bool {
++        const s = surface orelse return false;return s.core_surface.search != null;
++    }
++
+     // P0: actual allocator descriptor selected for each bounded entry frame.
+     export fn ghostty_p0_surface_thread_args_allocator(surface: ?*Surface, role: u32, out: ?*usize) bool {
+         const result = out orelse return false;result.* = 0;
+@@ -2549,6 +2553,7 @@
+         const allocator = switch (role) {
+             1 => s.core_surface.renderer_thr.argsAllocator(),
+             2 => s.core_surface.io_thr.argsAllocator(),
++            3 => if (s.core_surface.search) |*search| search.thread.argsAllocator() else return false,
+             else => return false,
+         } orelse return false;
+         result.* = @intFromPtr(allocator.ptr);return true;
+@@ -2569,6 +2574,7 @@
+         const thread = switch (role) {
+             1 => s.core_surface.renderer_thr,
+             2 => s.core_surface.io_thr,
++            3 => if (s.core_surface.search) |*search| search.thread else return false,
+             else => return false,
+         };
+         result.* = @intFromPtr(thread.getHandle());
+diff --git a/include/ghostty.h b/include/ghostty.h
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1388,7 +1388,10 @@
+                                                  double,
+                                                  ghostty_input_scroll_mods_t);
+ GHOSTTY_API void ghostty_surface_mouse_pressure(ghostty_surface_t, uint32_t, double);
+-// P0 Darwin observation only. Handles are borrowed until surface_free, never serialized.
++// P0 Darwin observation only. Handles are process-local borrows, never serialized.
++// Roles: 1 renderer, 2 IO (valid until surface_free), 3 search (only until end_search).
++// Absent search returns false/zero. Queries require the surface main owner.
++GHOSTTY_API bool ghostty_p0_surface_search_exists(ghostty_surface_t);
+ GHOSTTY_API bool ghostty_p0_surface_thread_args_allocator(ghostty_surface_t, uint32_t, uintptr_t*);
+ GHOSTTY_API size_t ghostty_p0_surface_thread_signal_stack_size(void);
+ GHOSTTY_API size_t ghostty_p0_surface_thread_stack_size(void);

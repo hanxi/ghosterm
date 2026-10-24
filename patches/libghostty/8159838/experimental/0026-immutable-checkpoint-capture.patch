@@ -1,0 +1,319 @@
+diff --git a/include/ghostty/vt/snapshot.h b/include/ghostty/vt/snapshot.h
+index 2462a70..4b0b647 100644
+--- a/include/ghostty/vt/snapshot.h
++++ b/include/ghostty/vt/snapshot.h
+@@ -619,6 +619,14 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_p0_page_allocator(GhosttySnap
+  * with that same allocator. Source mutation must be excluded by the owner. */
+ GHOSTTY_API GhosttyResult ghostty_snapshot_p0_encode_alloc(GhosttyTerminal, const GhosttyAllocator*, uint8_t**, size_t*);
+ 
++/* P0 immutable capture. Owner excludes mutations during freeze; encode later
++ * has no source dependency. Capture/encode allocator descriptors outlive all
++ * borrowers. No concurrent free/encode; free after encoders finish. */
++typedef struct GhosttyP0FrozenCheckpoint *GhosttyP0FrozenCheckpoint;
++GHOSTTY_API GhosttyResult ghostty_snapshot_p0_freeze(GhosttyTerminal, const GhosttyAllocator*, size_t, GhosttyP0FrozenCheckpoint*);
++GHOSTTY_API void ghostty_snapshot_p0_frozen_free(GhosttyP0FrozenCheckpoint);
++GHOSTTY_API GhosttyResult ghostty_snapshot_p0_frozen_encode(GhosttyP0FrozenCheckpoint, const GhosttyAllocator*, size_t, uint8_t**, size_t*, uint8_t**, size_t*);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index cd892f5..1c57a19 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -322,6 +322,9 @@ comptime {
+         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
++        @export(&c.snapshot_p0_freeze, .{ .name = "ghostty_snapshot_p0_freeze" });
++        @export(&c.snapshot_p0_frozen_free, .{ .name = "ghostty_snapshot_p0_frozen_free" });
++        @export(&c.snapshot_p0_frozen_encode, .{ .name = "ghostty_snapshot_p0_frozen_encode" });
+         @export(&c.snapshot_p0_encode_alloc, .{ .name = "ghostty_snapshot_p0_encode_alloc" });
+         @export(&c.terminal_p0_resources_encode_alloc, .{ .name = "ghostty_terminal_p0_resources_encode_alloc" });
+         @export(&c.terminal_p0_new_with_page_allocator, .{ .name = "ghostty_terminal_p0_new_with_page_allocator" });
+diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
+index 6dd7343..c82e670 100644
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -56,7 +56,7 @@ pub const List = DoublyLinkedList(Node);
+ /// A single node within the PageList linked list.
+ ///
+ /// This isn't pub because you can access the type via List.Node.
+-const Node = struct {
++pub const Node = struct {
+     prev: ?*Node = null,
+     next: ?*Node = null,
+     data: Data,
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index 750126f..df71689 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -309,3 +309,7 @@ pub const snapshot_decoder_p0_page_allocator = snapshot.decoder_p0_page_allocato
+ 
+ pub const snapshot_p0_encode_alloc = snapshot.p0_encode_alloc;
+ pub const terminal_p0_resources_encode_alloc = terminal.p0_resources_encode_alloc;
++
++pub const snapshot_p0_freeze = snapshot.p0_freeze;
++pub const snapshot_p0_frozen_free = snapshot.p0_frozen_free;
++pub const snapshot_p0_frozen_encode = snapshot.p0_frozen_encode;
+diff --git a/src/terminal/c/snapshot.zig b/src/terminal/c/snapshot.zig
+index c85a43f..1a374ea 100644
+--- a/src/terminal/c/snapshot.zig
++++ b/src/terminal/c/snapshot.zig
+@@ -710,6 +710,37 @@ pub fn p0_encode_alloc(
+     return .success;
+ }
+ 
++const P0Frozen = @import("../p0_frozen_checkpoint.zig");
++pub fn p0_freeze(terminal: terminal_c.Terminal, alloc_: ?*const CAllocator, limit: usize, out_: ?*?*P0Frozen) callconv(lib.calling_conv) Result {
++    const out = out_ orelse return .invalid_value;
++    out.* = null;
++    const native = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
++    const provider = alloc_ orelse return .invalid_value;
++    if (terminal.?.stream.handler.semantic_failure) return .invalid_value;
++    const alloc = lib.alloc.default(provider);
++    const continuation = continuationOwned(terminal, alloc);
++    if (continuation.result != .success) return continuation.result;
++    defer alloc.free(continuation.bytes);
++    out.* = P0Frozen.capture(alloc, native, continuationValue(continuation.bytes), limit) catch |err| return mapEncodeError(err, null);
++    return .success;
++}
++pub fn p0_frozen_free(value: ?*P0Frozen) callconv(lib.calling_conv) void {
++    if (value) |frozen| frozen.destroy();
++}
++pub fn p0_frozen_encode(value: ?*const P0Frozen, alloc_: ?*const CAllocator, limit: usize, canonical_: ?*?[*]u8, canonical_len_: ?*usize, resources_: ?*?[*]u8, resources_len_: ?*usize) callconv(lib.calling_conv) Result {
++    const canonical = canonical_ orelse return .invalid_value;
++    const canonical_len = canonical_len_ orelse return .invalid_value;
++    const resources = resources_ orelse return .invalid_value;
++    const resources_len = resources_len_ orelse return .invalid_value;
++    canonical.* = null; canonical_len.* = 0; resources.* = null; resources_len.* = 0;
++    const frozen = value orelse return .invalid_value;
++    const provider = alloc_ orelse return .invalid_value;
++    const encoded = frozen.encode(lib.alloc.default(provider), limit) catch |err| return mapEncodeError(err, null);
++    canonical.* = encoded.canonical.ptr; canonical_len.* = encoded.canonical.len;
++    resources.* = encoded.resources.ptr; resources_len.* = encoded.resources.len;
++    return .success;
++}
++
+ /// Map core encoder and callback-adapter failures to public result codes.
+ fn mapEncodeError(
+     err: anyerror,
+@@ -725,6 +756,7 @@ fn mapEncodeError(
+     // Fixed and allocating writers surface only core allocation or size errors.
+     return switch (err) {
+         error.OutOfMemory, error.WriteFailed => .out_of_memory,
++        error.LimitExceeded,
+         error.Overflow,
+         error.PayloadTooLarge,
+         error.PageCountOverflow,
+diff --git a/src/terminal/p0_frozen_checkpoint.zig b/src/terminal/p0_frozen_checkpoint.zig
+new file mode 100644
+index 0000000..315e2e6
+--- /dev/null
++++ b/src/terminal/p0_frozen_checkpoint.zig
+@@ -0,0 +1,136 @@
++//! Private P0 immutable capture: no source pointer survives capture.
++const std = @import("std");
++const Terminal = @import("Terminal.zig");
++const Page = @import("page.zig").Page;
++const Node = @import("PageList.zig").Node;
++const Key = @import("ScreenSet.zig").Key;
++const codec = @import("snapshot/main.zig");
++const resources_codec = @import("p0_resource_snapshot.zig");
++const Allocator = std.mem.Allocator;
++const Compressed = struct { metadata: Page, raw_len: usize, encoded: []u8 };
++const Fragment = union(enum) { bytes: []u8, resident: Page, compressed: Compressed };
++const Frozen = @This();
++alloc: Allocator,
++fragments: std.ArrayList(Fragment) = .empty,
++resources: []u8 = &.{},
++copied: usize = 0,
++pages: usize = 0,
++compressed_pages: usize = 0,
++limit: usize,
++
++pub fn destroy(self: *Frozen) void {
++    const alloc = self.alloc;
++    for (self.fragments.items) |fragment| switch (fragment) {
++        .bytes => |bytes| alloc.free(bytes),
++        .resident => |page| alloc.free(page.memory),
++        .compressed => |page| alloc.free(page.encoded),
++    };
++    self.fragments.deinit(alloc);
++    alloc.free(self.resources);
++    alloc.destroy(self);
++}
++fn charge(self: *Frozen, n: usize) !void {
++    if (n > self.limit - self.copied) return error.LimitExceeded;
++    self.copied += n;
++}
++fn flush(self: *Frozen, bytes: *std.Io.Writer.Allocating) !void {
++    if (bytes.written().len == 0) return;
++    try self.charge(bytes.written().len);
++    const owned = try bytes.toOwnedSlice();
++    errdefer self.alloc.free(owned);
++    try self.fragments.append(self.alloc, .{ .bytes = owned });
++}
++fn copyPage(self: *Frozen, node: *const Node, bytes: *std.Io.Writer.Allocating) !void {
++    try self.flush(bytes);
++    switch (node.data) {
++        .resident => |page| {
++            try self.charge(page.memory.len);
++            const memory = try self.alloc.alignedAlloc(u8, .fromByteUnits(std.heap.page_size_min), page.memory.len);
++            errdefer self.alloc.free(memory);
++            const copy = page.cloneBuf(memory);
++            try self.fragments.append(self.alloc, .{ .resident = copy });
++        },
++        .compressed => |page| {
++            try self.charge(page.encoded.len);
++            const encoded = try self.alloc.dupe(u8, page.encoded);
++            errdefer self.alloc.free(encoded);
++            var metadata = page.page;
++            const raw_len = metadata.memory.len;
++            // Metadata contains offsets. Erase its sole source-memory slice.
++            metadata.memory = &.{};
++            try self.fragments.append(self.alloc, .{ .compressed = .{ .metadata = metadata, .raw_len = raw_len, .encoded = encoded } });
++            self.compressed_pages += 1;
++        },
++    }
++    self.pages += 1;
++}
++pub fn capture(alloc: Allocator, t: *Terminal, continuation: codec.Continuation, limit: usize) !*Frozen {
++    try codec.continuation.validate(continuation);
++    const self = try alloc.create(Frozen);
++    self.* = .{ .alloc = alloc, .limit = limit };
++    errdefer self.destroy();
++    var bytes: std.Io.Writer.Allocating = .init(alloc);
++    defer bytes.deinit();
++    var stream: codec.record.Writer = .init(alloc, &bytes.writer);
++    defer stream.deinit();
++    try codec.envelope.encode(stream.writer());
++    try codec.terminal.encode(t, &stream);
++    for ([_]Key{ .primary, .alternate }) |key| {
++        const screen = t.screens.get(key) orelse continue;
++        const first = screen.pages.getTopLeft(.active).node;
++        var count: usize = 0;
++        var it: ?*Node = first;
++        while (it) |node| : (it = node.next) count += 1;
++        try codec.screen.p0_encode_header(screen, key, std.math.cast(u16, count) orelse return error.LimitExceeded, &stream);
++        it = first;
++        while (it) |node| : (it = node.next) try self.copyPage(node, &bytes);
++    }
++    try codec.continuation.encode(continuation, &stream);
++    try codec.checkpoint.encode(.ready, &stream);
++    for ([_]Key{ .primary, .alternate }) |key| {
++        const screen = t.screens.get(key) orelse continue;
++        const first = screen.pages.getTopLeft(.active).node.prev;
++        var count: usize = 0;
++        var it = first;
++        while (it) |node| : (it = node.prev) count += 1;
++        const payload = stream.begin(.history);
++        errdefer stream.cancel();
++        try (codec.history.Header{ .key = key, .page_count = std.math.cast(u32, count) orelse return error.LimitExceeded }).encode(payload);
++        try stream.finish();
++        it = first;
++        while (it) |node| : (it = node.prev) try self.copyPage(node, &bytes);
++    }
++    try codec.checkpoint.encode(.finish, &stream);
++    try self.flush(&bytes);
++    self.resources = try resources_codec.freeze(alloc, t, limit - self.copied);
++    try self.charge(self.resources.len);
++    return self;
++}
++pub const Encoded = struct { canonical: []u8, resources: []u8 };
++pub fn encode(self: *const Frozen, alloc: Allocator, max_wire: usize) !Encoded {
++    var bytes: std.Io.Writer.Allocating = .init(alloc);
++    defer bytes.deinit();
++    var stream: codec.record.Writer = .init(alloc, &bytes.writer);
++    defer stream.deinit();
++    for (self.fragments.items) |fragment| {
++        switch (fragment) {
++            .bytes => |data| try bytes.writer.writeAll(data),
++            .resident => |page| try codec.page.encode(&page, &stream),
++            .compressed => |page| {
++                const memory = try alloc.alignedAlloc(u8, .fromByteUnits(std.heap.page_size_min), page.raw_len);
++                defer alloc.free(memory);
++                var restored = page.metadata;
++                restored.memory = memory;
++                _ = try @import("compress.zig").lz4.decompress(page.encoded, memory);
++                try codec.page.encode(&restored, &stream);
++            },
++        }
++        if (bytes.written().len > max_wire) return error.LimitExceeded;
++    }
++    if (self.resources.len > max_wire - bytes.written().len) return error.LimitExceeded;
++    const canonical = try bytes.toOwnedSlice();
++    errdefer alloc.free(canonical);
++    const resources = try alloc.dupe(u8, self.resources);
++    resources_codec.finalize(resources);
++    return .{ .canonical = canonical, .resources = resources };
++}
+diff --git a/src/terminal/p0_resource_snapshot.zig b/src/terminal/p0_resource_snapshot.zig
+index 173943c..6ad7682 100644
+--- a/src/terminal/p0_resource_snapshot.zig
++++ b/src/terminal/p0_resource_snapshot.zig
+@@ -100,6 +100,15 @@ fn payload(t: *Terminal, w: *std.Io.Writer) !void {
+     }
+ }
+ pub fn encode(alloc: Allocator, t: *Terminal, max_bytes: usize) ![]u8 {
++    const data = try freeze(alloc, t, max_bytes);
++    finalize(data);
++    return data;
++}
++pub fn finalize(data: []u8) void {
++    std.mem.writeInt(u32, data[12..16], std.hash.crc.Crc32Iscsi.hash(data[16..]), .little);
++}
++/// Owner-side copy only; the unpublished wire checksum is completed off-owner.
++pub fn freeze(alloc: Allocator, t: *Terminal, max_bytes: usize) ![]u8 {
+     if (max_bytes < 16) return error.LimitExceeded;
+     var screens = t.screens.all.iterator();
+     while (screens.next()) |entry| if (entry.value.*.kitty_images.total_bytes > max_bytes) return error.LimitExceeded;
+@@ -113,7 +122,7 @@ pub fn encode(alloc: Allocator, t: *Terminal, max_bytes: usize) ![]u8 {
+     try payload(t, &writer);
+     @memcpy(data[0..8], magic);
+     std.mem.writeInt(u32, data[8..12], @intCast(len), .little);
+-    std.mem.writeInt(u32, data[12..16], std.hash.crc.Crc32Iscsi.hash(data[16..]), .little);
++    @memset(data[12..16], 0);
+     return data;
+ }
+ // Preflight the complete wire before touching page pin pools. Their backing
+diff --git a/src/terminal/snapshot/screen.zig b/src/terminal/snapshot/screen.zig
+index 096f52b..889b662 100644
+--- a/src/terminal/snapshot/screen.zig
++++ b/src/terminal/snapshot/screen.zig
+@@ -259,19 +259,7 @@ pub fn encode(
+         page_count,
+     ) orelse return error.PageCountOverflow;
+ 
+-    // SCREEN declares exactly how many immediately following PAGE records
+-    // belong to it.
+-    {
+-        const payload = destination.begin(.screen);
+-        errdefer destination.cancel();
+-        try encodePayload(
+-            screen,
+-            key,
+-            encoded_page_count,
+-            payload,
+-        );
+-        try destination.finish();
+-    }
++    try p0_encode_header(screen, key, encoded_page_count, destination);
+ 
+     // Active pages are resident today, but use the representation-safe access
+     // path so a future PageList compression-policy change cannot turn this
+@@ -284,6 +272,14 @@ pub fn encode(
+     }
+ }
+ 
++/// P0 metadata capture uses the exact SCREEN payload encoder, without pages.
++pub fn p0_encode_header(screen: *const TerminalScreen, key: TerminalScreenKey, count: u16, destination: *record.Writer) EncodeError!void {
++    const output = destination.begin(.screen);
++    errdefer destination.cancel();
++    try encodePayload(screen, key, count, output);
++    try destination.finish();
++}
++
+ /// Errors possible while restoring a SCREEN and its declared PAGE sequence.
+ pub const DecodeError = PayloadDecodeError ||
+     page.DecodeError ||

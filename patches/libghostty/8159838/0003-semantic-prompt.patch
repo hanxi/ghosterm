@@ -1,0 +1,226 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 43b04f4..0f61833 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -546,6 +546,37 @@ typedef struct {
+ 
+ typedef void (*ghostty_host_program_status_fn)(void*, const ghostty_program_status_s*);
+ 
++// Shell integration events (OSC 133). Ghosterm patch: the embedder opts in
++// through ghostty_surface_config_s.host_semantic_prompt. Ordinals match
++// GhosttySemanticPromptKind / GhosttySemanticPromptPromptKind in
++// include/ghostty/vt/terminal.h. See patches/libghostty.
++typedef enum {
++  GHOSTTY_SEMANTIC_PROMPT_INVALID = 0,
++  GHOSTTY_SEMANTIC_PROMPT_PROMPT_START = 1,
++  GHOSTTY_SEMANTIC_PROMPT_INPUT_START = 2,
++  GHOSTTY_SEMANTIC_PROMPT_OUTPUT_START = 3,
++  GHOSTTY_SEMANTIC_PROMPT_COMMAND_END = 4,
++} ghostty_semantic_prompt_kind_e;
++
++typedef enum {
++  GHOSTTY_SEMANTIC_PROMPT_PROMPT_PRIMARY = 0,
++  GHOSTTY_SEMANTIC_PROMPT_PROMPT_RIGHT = 1,
++  GHOSTTY_SEMANTIC_PROMPT_PROMPT_CONTINUATION = 2,
++  GHOSTTY_SEMANTIC_PROMPT_PROMPT_SECONDARY = 3,
++} ghostty_semantic_prompt_prompt_kind_e;
++
++// A shell integration event. Sized struct; strings are only valid during the
++// callback and are never NULL (an absent value is an empty string).
++typedef struct {
++  size_t size;
++  ghostty_semantic_prompt_kind_e kind;
++  ghostty_semantic_prompt_prompt_kind_e prompt_kind;
++  bool has_exit_code;
++  int32_t exit_code;
++  ghostty_string_s command;
++  ghostty_string_s err;
++} ghostty_semantic_prompt_s;
++
+ typedef struct {
+   ghostty_platform_e platform_tag;
+   ghostty_platform_u platform;
+@@ -577,6 +608,10 @@ typedef struct {
+   // makes the terminal answer the support query (OSC 7501 ; ?). See
+   // patches/libghostty/8159838/0002-program-status.patch.
+   void (*host_program_status)(void*, const ghostty_program_status_s*);
++
++  // Optional. Called with each shell integration event (OSC 133). See
++  // patches/libghostty/8159838/0003-semantic-prompt.patch.
++  void (*host_semantic_prompt)(void*, const ghostty_semantic_prompt_s*);
+ } ghostty_surface_config_s;
+ 
+ typedef struct {
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index c9f45ac..798cf9d 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -467,6 +467,10 @@ pub const Surface = struct {
+     /// support query answered. See patches/libghostty/8159838.
+     host_program_status: ?*const fn (?*anyopaque, *const terminal.osc.program_status.C) callconv(.c) void = null,
+ 
++    /// Optional. Called with each shell integration event (OSC 133). See
++    /// patches/libghostty/8159838.
++    host_semantic_prompt: ?*const fn (?*anyopaque, *const terminal.osc.semantic_prompt.C) callconv(.c) void = null,
++
+     /// The current title of the surface. The embedded apprt saves this so
+     /// that getTitle works without the implementer needing to save it.
+     title: ?[:0]const u8 = null,
+@@ -531,6 +535,10 @@ pub const Surface = struct {
+         /// it also makes the terminal answer the support query. See
+         /// patches/libghostty/8159838.
+         host_program_status: ?*const fn (?*anyopaque, *const terminal.osc.program_status.C) callconv(.c) void = null,
++
++        /// Optional. Called with each shell integration event (OSC 133). See
++        /// patches/libghostty/8159838.
++        host_semantic_prompt: ?*const fn (?*anyopaque, *const terminal.osc.semantic_prompt.C) callconv(.c) void = null,
+     };
+ 
+     pub fn init(self: *Surface, app: *App, opts: Options) !void {
+@@ -549,6 +557,7 @@ pub const Surface = struct {
+             .host_write = opts.host_write,
+             .host_resize = opts.host_resize,
+             .host_program_status = opts.host_program_status,
++            .host_semantic_prompt = opts.host_semantic_prompt,
+         };
+ 
+         // Add ourselves to the list of surfaces on the app.
+@@ -740,6 +749,18 @@ pub const Surface = struct {
+         };
+     }
+ 
++    /// True when the embedder wants OSC 133 (shell integration) events.
++    pub fn hostSemanticPromptEnabled(self: *const Surface) bool {
++        return self.host_semantic_prompt != null;
++    }
++
++    /// Deliver an OSC 133 event to the embedder. `event` and its strings are
++    /// only valid for the duration of this call, on the termio thread.
++    pub fn hostSemanticPrompt(self: *Surface, event: *const terminal.osc.semantic_prompt.C) void {
++        const func = self.host_semantic_prompt orelse return;
++        func(self.userdata, event);
++    }
++
+     /// True when the embedder wants OSC 7501 reports. The terminal only
+     /// answers the protocol's support query when this is true. See
+     /// patches/libghostty/8159838.
+diff --git a/src/terminal/osc/parsers/semantic_prompt.zig b/src/terminal/osc/parsers/semantic_prompt.zig
+index ea25103..e2e9bf2 100644
+--- a/src/terminal/osc/parsers/semantic_prompt.zig
++++ b/src/terminal/osc/parsers/semantic_prompt.zig
+@@ -300,6 +300,31 @@ pub const PromptKind = enum {
+     }
+ };
+ 
++/// A shell integration event (OSC 133) in the form an embedder receives it
++/// across the C ABI. Sync with: ghostty_semantic_prompt_s in ghostty.h; the
++/// `kind` / `prompt_kind` ordinals match upstream's
++/// GhosttySemanticPromptKind / GhosttySemanticPromptPromptKind in
++/// include/ghostty/vt/terminal.h. See patches/libghostty.
++///
++/// Strings borrow memory that only lives for the duration of the call.
++pub const C = extern struct {
++    size: usize,
++    /// 0 invalid / 1 prompt_start / 2 input_start / 3 output_start / 4 command_end
++    kind: c_int,
++    /// 0 primary / 1 right / 2 continuation / 3 secondary
++    prompt_kind: c_int,
++    has_exit_code: bool,
++    exit_code: i32,
++    command: String = .{},
++    err: String = .{},
++
++    pub const String = extern struct {
++        ptr: ?[*]const u8 = null,
++        len: usize = 0,
++        sentinel: bool = false,
++    };
++};
++
+ /// The values for the `redraw` extension to OSC133. This was
+ /// started by Kitty[1] and extended by Ghostty (the "last" option).
+ ///
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index c29c66e..ddf6db1 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -1485,6 +1485,10 @@ pub const StreamHandler = struct {
+         self: *StreamHandler,
+         cmd: Stream.Action.SemanticPrompt,
+     ) !void {
++        // 顺带把 OSC 133 事件转发给宿主（见 patches/libghostty）。
++        // 终端自己的记账（下面那段）保持不变。
++        self.semanticPromptHost(cmd);
++
+         switch (cmd.action) {
+             .end_input_start_output => {
+                 self.surfaceMessageWriter(.start_command);
+@@ -1517,6 +1521,68 @@ pub const StreamHandler = struct {
+         try self.terminal.semanticPrompt(cmd);
+     }
+ 
++    /// OSC 133（semantic prompt）→ 宿主。映射照抄上游 VT 层
++    /// （stream_terminal.Handler.semanticPrompt）：kind/prompt_kind 的取值与
++    /// 序数一致，`command` 是解码后的命令行，`exit_code` 只在 command_end 有意义。
++    fn semanticPromptHost(self: *StreamHandler, cmd: terminal.osc.Command.SemanticPrompt) void {
++        // 只有 embedded apprt 实现这条；其它 apprt 原样不动。
++        if (comptime @hasDecl(apprt.Surface, "hostSemanticPrompt")) {
++            const Sp = terminal.osc.semantic_prompt;
++            const rt_surface = self.surface_mailbox.surface.rt_surface;
++            if (!rt_surface.hostSemanticPromptEnabled()) return;
++
++            // 序数与 GHOSTTY_SEMANTIC_PROMPT_* 一致（upstream vt/terminal.h）。
++            const kind_invalid: c_int = 0;
++            const kind_prompt_start: c_int = 1;
++            const kind_input_start: c_int = 2;
++            const kind_output_start: c_int = 3;
++            const kind_command_end: c_int = 4;
++
++            var c: Sp.C = .{
++                .size = @sizeOf(Sp.C),
++                .kind = kind_invalid,
++                .prompt_kind = @intFromEnum(Sp.PromptKind.initial),
++                .has_exit_code = false,
++                .exit_code = 0,
++            };
++
++            var cmd_buf: [4096]u8 = undefined;
++            switch (cmd.action) {
++                // 上游 VT 层也不报 fresh_line。
++                .fresh_line => return,
++
++                .fresh_line_new_prompt, .new_command, .prompt_start => {
++                    c.kind = kind_prompt_start;
++                    if (cmd.readOption(.prompt_kind)) |v| c.prompt_kind = @intFromEnum(v);
++                },
++
++                .end_prompt_start_input, .end_prompt_start_input_terminate_eol => {
++                    c.kind = kind_input_start;
++                },
++
++                .end_input_start_output => {
++                    c.kind = kind_output_start;
++                    var w: std.Io.Writer = .fixed(&cmd_buf);
++                    cmd.writeCommandLine(&w) catch {};
++                    const s = w.buffered();
++                    c.command = .{ .ptr = &cmd_buf, .len = s.len };
++                },
++
++                .end_command => {
++                    c.kind = kind_command_end;
++                    if (cmd.readOption(.exit_code)) |code| {
++                        c.has_exit_code = true;
++                        c.exit_code = code;
++                    }
++                    const err = cmd.readOption(.err) orelse "";
++                    c.err = .{ .ptr = err.ptr, .len = err.len };
++                },
++            }
++
++            rt_surface.hostSemanticPrompt(&c);
++        }
++    }
++
+     fn reportPwd(self: *StreamHandler, url: []const u8) !void {
+         // Special handling for the empty URL. We treat the empty URL
+         // as resetting the pwd as if we never saw a pwd. I can't find any

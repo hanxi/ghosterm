@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Ghosterm macOS .app 的 Info.plist 模板（被 scripts/package-mac.sh 填充）。
+  @VERSION@ / @BUILD@ / @MIN_OS@ 三个占位符由打包脚本替换，其余是静态口径。
+  为什么不是 Xcode 工程：Apple 端目前是 SwiftPM 包，.app 由脚本组装；
+  真正的 Xcode 工程（含 Asset Catalog 编译 / 公证 workflow）落地前，
+  这份模板就是 bundle 契约的唯一事实来源。
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleExecutable</key><string>GhostermApp</string>
+    <key>CFBundleIdentifier</key><string>dev.ghosterm.mac</string>
+    <key>CFBundleName</key><string>Ghosterm</string>
+    <key>CFBundleDisplayName</key><string>Ghosterm</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+    <key>CFBundleVersion</key><string>@BUILD@</string>
+    <key>LSMinimumSystemVersion</key><string>@MIN_OS@</string>
+    <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+    <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSHumanReadableCopyright</key><string>MIT License · https://github.com/hanxi/ghosterm</string>
+</dict>
+</plist>

@@ -1,0 +1,263 @@
+diff --git a/include/ghostty/vt/snapshot.h b/include/ghostty/vt/snapshot.h
+index 328b157..2462a70 100644
+--- a/include/ghostty/vt/snapshot.h
++++ b/include/ghostty/vt/snapshot.h
+@@ -614,6 +614,11 @@ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_get_multi(
+  * ghostty_terminal_p0_new_with_page_allocator. NULL restores default policy. */
+ GHOSTTY_API GhosttyResult ghostty_snapshot_decoder_p0_page_allocator(GhosttySnapshotDecoder, const GhosttyAllocator*);
+ 
++/* P0: every encoder allocation (including continuation and compressed-page
++ * inspection) uses the required scratch allocator. Free output via ghostty_free
++ * with that same allocator. Source mutation must be excluded by the owner. */
++GHOSTTY_API GhosttyResult ghostty_snapshot_p0_encode_alloc(GhosttyTerminal, const GhosttyAllocator*, uint8_t**, size_t*);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/include/ghostty/vt/terminal.h b/include/ghostty/vt/terminal.h
+index b457218..2d5e0fb 100644
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -3114,6 +3114,9 @@ typedef bool (*GhosttyP0ResourceResolveFn)(void*, uint32_t, const uint8_t*, size
+  * decommittable/recommittable; malloc storage is invalid. Both allocator
+  * descriptors and contexts must outlive the terminal and derived clones. */
+ GHOSTTY_API GhosttyResult ghostty_terminal_p0_new_with_page_allocator(const GhosttyAllocator*, const GhosttyAllocator*, GhosttyTerminal*, uint16_t, uint16_t);
++/* P0: all resource wire memory uses the required scratch allocator. On failure
++ * outputs are NULL/0; on success free via ghostty_free with the same allocator. */
++GHOSTTY_API int ghostty_terminal_p0_resources_encode_alloc(GhosttyTerminal, const GhosttyAllocator*, size_t, uint8_t**, size_t*);
+ GHOSTTY_API int ghostty_terminal_p0_pending_begin(GhosttyTerminal, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint64_t*);
+ GHOSTTY_API int ghostty_terminal_p0_pending_ready(GhosttyTerminal, uint32_t, uint64_t, const uint8_t*, size_t, bool*);
+ GHOSTTY_API int ghostty_terminal_p0_pending_cancel(GhosttyTerminal, uint32_t, uint64_t, bool*);
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 66291cd..cd892f5 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -322,6 +322,8 @@ comptime {
+         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
++        @export(&c.snapshot_p0_encode_alloc, .{ .name = "ghostty_snapshot_p0_encode_alloc" });
++        @export(&c.terminal_p0_resources_encode_alloc, .{ .name = "ghostty_terminal_p0_resources_encode_alloc" });
+         @export(&c.terminal_p0_new_with_page_allocator, .{ .name = "ghostty_terminal_p0_new_with_page_allocator" });
+         @export(&c.snapshot_decoder_p0_page_allocator, .{ .name = "ghostty_snapshot_decoder_p0_page_allocator" });
+         @export(&c.terminal_p0_pending_begin, .{ .name = "ghostty_terminal_p0_pending_begin" });
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index dba6e97..750126f 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -306,3 +306,6 @@ test {
+ 
+ pub const terminal_p0_new_with_page_allocator = terminal.p0_new_with_page_allocator;
+ pub const snapshot_decoder_p0_page_allocator = snapshot.decoder_p0_page_allocator;
++
++pub const snapshot_p0_encode_alloc = snapshot.p0_encode_alloc;
++pub const terminal_p0_resources_encode_alloc = terminal.p0_resources_encode_alloc;
+diff --git a/src/terminal/c/snapshot.zig b/src/terminal/c/snapshot.zig
+index 5391b3c..c85a43f 100644
+--- a/src/terminal/c/snapshot.zig
++++ b/src/terminal/c/snapshot.zig
+@@ -528,16 +528,16 @@ fn decoderMapError(decoder: *DecoderWrapper, err: anyerror) Result {
+ }
+ 
+ /// Export the allocator-owned continuation required by snapshot encoding.
+-fn continuationOwned(terminal: terminal_c.Terminal) struct {
++fn continuationOwned(terminal: terminal_c.Terminal, scratch: ?std.mem.Allocator) struct {
+     result: Result,
+     bytes: []u8,
+ } {
+-    // The terminal allocator also owns the temporary continuation copy.
++    // The selected allocator owns the temporary continuation copy.
+     const native = terminal_c.zigTerminal(terminal) orelse return .{
+         .result = .invalid_value,
+         .bytes = &.{},
+     };
+-    const alloc = native.gpa();
++    const alloc = scratch orelse native.gpa();
+ 
+     // Snapshotting can prove an untracked ground stream needs no replay bytes;
+     // only non-ground streams require tracking to have retained their prefix.
+@@ -573,7 +573,7 @@ pub fn encode(
+     // Validate both handles and preflight the terminal continuation.
+     const native = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
+     if (writer.write == null) return .invalid_value;
+-    const continuation = continuationOwned(terminal);
++    const continuation = continuationOwned(terminal, null);
+     if (continuation.result != .success) return continuation.result;
+     defer native.gpa().free(continuation.bytes);
+ 
+@@ -604,7 +604,7 @@ pub fn encode_buf(
+     out_written.* = 0;
+     if (buf == null and buf_len != 0) return .invalid_value;
+     const native = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
+-    const continuation = continuationOwned(terminal);
++    const continuation = continuationOwned(terminal, null);
+     if (continuation.result != .success) return continuation.result;
+     defer native.gpa().free(continuation.bytes);
+ 
+@@ -653,7 +653,7 @@ pub fn encode_alloc(
+ 
+     // Preflight continuation state before building an allocating writer.
+     const native = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
+-    const continuation = continuationOwned(terminal);
++    const continuation = continuationOwned(terminal, null);
+     if (continuation.result != .success) return continuation.result;
+     defer native.gpa().free(continuation.bytes);
+ 
+@@ -673,6 +673,43 @@ pub fn encode_alloc(
+     return .success;
+ }
+ 
++/// P0: all encoder-owned memory, including continuation and preserved pages,
++/// belongs to the caller scratch allocator. Output remains owned by caller.
++pub fn p0_encode_alloc(
++    terminal: terminal_c.Terminal,
++    alloc_: ?*const CAllocator,
++    out_ptr_: ?*?[*]u8,
++    out_len_: ?*usize,
++) callconv(lib.calling_conv) Result {
++    // Initialize outputs before validating terminal state or allocating bytes.
++    const out_ptr = out_ptr_ orelse return .invalid_value;
++    const out_len = out_len_ orelse return .invalid_value;
++    out_ptr.* = null;
++    out_len.* = 0;
++
++    // Preflight continuation state before building an allocating writer.
++    const native = terminal_c.zigTerminal(terminal) orelse return .invalid_value;
++    const provider = alloc_ orelse return .invalid_value;
++    const alloc = lib.alloc.default(provider);
++    const continuation = continuationOwned(terminal, alloc);
++    if (continuation.result != .success) return continuation.result;
++    defer alloc.free(continuation.bytes);
++
++    // Encode once, then transfer ownership of the writer's completed slice.
++    var writer: std.Io.Writer.Allocating = .init(alloc);
++    defer writer.deinit();
++    snapshot_core.encode(
++        alloc,
++        &writer.writer,
++        native,
++        .{ .continuation = continuationValue(continuation.bytes) },
++    ) catch |err| return mapEncodeError(err, null);
++    const bytes = writer.toOwnedSlice() catch return .out_of_memory;
++    out_ptr.* = bytes.ptr;
++    out_len.* = bytes.len;
++    return .success;
++}
++
+ /// Map core encoder and callback-adapter failures to public result codes.
+ fn mapEncodeError(
+     err: anyerror,
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+index 544068a..13b3578 100644
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -1080,6 +1080,20 @@ pub fn p0_resources_encode(terminal_: Terminal, max_bytes: usize, ptr: ?[*]u8, l
+     @memcpy(ptr.?[0..bytes.len], bytes);
+     return 0;
+ }
++/// P0: allocate resource wire directly in the caller's bounded scratch scope.
++pub fn p0_resources_encode_alloc(terminal_: Terminal, alloc_: ?*const CAllocator, max_bytes: usize, out_ptr_: ?*?[*]u8, out_len_: ?*usize) callconv(lib.calling_conv) c_int {
++    const out_ptr = out_ptr_ orelse return 1;
++    const out_len = out_len_ orelse return 1;
++    out_ptr.* = null; out_len.* = 0;
++    if (comptime !build_options.kitty_graphics) return 3;
++    const provider = alloc_ orelse return 1;
++    const wrapper = terminal_ orelse return 1;
++    if (wrapper.stream.handler.semantic_failure) return 1;
++    const alloc = lib.alloc.default(provider);
++    const bytes = @import("../p0_resource_snapshot.zig").encode(alloc, wrapper.terminal, max_bytes) catch |err| return p0ResourceError(err);
++    out_ptr.* = bytes.ptr; out_len.* = bytes.len;
++    return 0;
++}
+ pub fn p0_resources_decode(terminal_: Terminal, ptr: ?[*]const u8, len: usize, max_bytes: usize) callconv(lib.calling_conv) c_int {
+     if (comptime !build_options.kitty_graphics) return 3;
+     const wrapper = terminal_ orelse return 1;
+diff --git a/src/terminal/snapshot/history.zig b/src/terminal/snapshot/history.zig
+index 40716bc..91bc8f7 100644
+--- a/src/terminal/snapshot/history.zig
++++ b/src/terminal/snapshot/history.zig
+@@ -179,7 +179,7 @@ pub fn encode(
+     // changing the source node's representation.
+     var node = first;
+     while (node) |current| : (node = current.prev) {
+-        var preserved = try current.pagePreservingState(terminal_screen.alloc);
++        var preserved = try current.pagePreservingState(destination.scratch.allocator);
+         defer preserved.deinit();
+         try page.encode(preserved.page(), destination);
+     }
+diff --git a/src/terminal/snapshot/screen.zig b/src/terminal/snapshot/screen.zig
+index 20ffb61..096f52b 100644
+--- a/src/terminal/snapshot/screen.zig
++++ b/src/terminal/snapshot/screen.zig
+@@ -278,7 +278,7 @@ pub fn encode(
+     // wire encoder's optimization invariant into undefined behavior.
+     node = first;
+     while (node) |current| : (node = current.next) {
+-        var preserved = try current.pagePreservingState(screen.alloc);
++        var preserved = try current.pagePreservingState(destination.scratch.allocator);
+         defer preserved.deinit();
+         try page.encode(preserved.page(), destination);
+     }
+@@ -2459,3 +2459,62 @@ test "SCREEN decode ignores a PAGE with an empty hyperlink URI" {
+     try decoded.screen.resize(.{ .cols = 2, .rows = 1 });
+     try std.testing.expect(!decoded.screen.cursor.page_cell.hyperlink);
+ }
++
++test "P0 SCREEN scratch allocator preserves compressed source" {
++    const testing = std.testing;
++    const compression = @import("../compress.zig");
++
++    var owner = std.testing.FailingAllocator.init(testing.allocator, .{});
++    var screen = try TerminalScreen.init(
++        testing.io,
++        owner.allocator(),
++        .{ .cols = 8, .rows = 2, .max_scrollback_bytes = 0 },
++    );
++    defer screen.deinit();
++    screen.pages.getCell(.{ .active = .{} }).?.cell.* = .init('A');
++
++    // Force the active suffix into the representation that current PageList
++    // policy normally reserves for history. This models a future policy change
++    // and makes pageAssumeResident an invalid tagged-union access.
++    const node = screen.pages.getTopLeft(.active).node;
++    const resident = node.pageAssumeResident();
++    const scratch = try testing.allocator.alloc(
++        u8,
++        try compression.Page.requiredScratch(resident.memory.len),
++    );
++    defer testing.allocator.free(scratch);
++    var table: compression.lz4.HashTable = undefined;
++    const compressed = (try compression.Page.init(
++        owner.allocator(),
++        resident,
++        scratch,
++        &table,
++    )).?;
++    node.data = .{ .compressed = compressed };
++    try testing.expectEqual(.compressed, node.storage());
++
++    var destination: std.Io.Writer.Allocating = .init(testing.allocator);
++    defer destination.deinit();
++    var stream: record.Writer = .init(testing.allocator, &destination.writer);
++    defer stream.deinit();
++    owner.fail_index = owner.alloc_index;
++    try encode(&screen, .primary, &stream);
++    try testing.expect(!owner.has_induced_failure);
++
++    // Encoding borrows or clones through PreservedPage and never changes the
++    // source node's storage representation.
++    try testing.expectEqual(.compressed, node.storage());
++
++    var source: std.Io.Reader = .fixed(destination.written());
++    var decoded = try decode(
++        &source,
++        testing.io,
++        testing.allocator,
++        .{ .cols = 8, .rows = 2, .max_scrollback_bytes = 0 },
++    );
++    defer decoded.deinit();
++    try testing.expectEqual(
++        @as(u21, 'A'),
++        decoded.screen.pages.getCell(.{ .active = .{} }).?.cell.codepoint(),
++    );
++}

@@ -1,0 +1,496 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 46cbb26..d12233f 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -627,6 +627,10 @@ typedef struct {
+   uint64_t p0_checkpoint_generation;
+   uint64_t p0_checkpoint_sequence;
+   uint8_t p0_checkpoint_digest[32];
++  // P0: encoded input metadata is borrowed with bytes for this callback only.
++  void (*p0_host_write_input)(void*, uint64_t, uint64_t, const uint8_t*, size_t);
++  // P0 test hook: after encoding, before unlocked queueing. Never under state lock.
++  void (*p0_input_encoded)(void*, uint64_t, uint64_t);
+ } ghostty_surface_config_s;
+
+ typedef struct {
+@@ -1293,6 +1297,10 @@ GHOSTTY_API bool ghostty_p0_surface_snapshot(ghostty_surface_t, uint8_t*, size_t
+ GHOSTTY_API bool ghostty_p0_surface_event_output(ghostty_surface_t, uint64_t, const uint8_t*, size_t);
+ GHOSTTY_API bool ghostty_p0_surface_event_resize(ghostty_surface_t, uint64_t, uint16_t, uint16_t, uint32_t, uint32_t);
+ GHOSTTY_API bool ghostty_p0_surface_applied_sequence(ghostty_surface_t, uint64_t*);
++// P0 test-only injections. True means queued, not accepted by the authority.
++GHOSTTY_API bool ghostty_p0_surface_test_input(ghostty_surface_t, uint64_t, uint64_t, bool, const uint8_t*, size_t);
++GHOSTTY_API bool ghostty_p0_surface_test_reply(ghostty_surface_t);
++GHOSTTY_API bool ghostty_p0_surface_test_cursor(ghostty_surface_t);
+ // P0 only: generation-fenced variants for bound checkpoints.
+ GHOSTTY_API bool ghostty_p0_surface_event_output_for(ghostty_surface_t, uint64_t, uint64_t, const uint8_t*, size_t);
+ GHOSTTY_API bool ghostty_p0_surface_event_resize_for(ghostty_surface_t, uint64_t, uint64_t, uint16_t, uint16_t, uint32_t, uint32_t);
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 475f94b..249f1c3 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -277,7 +277,7 @@ pub const Keyboard = struct {
+     ///
+     /// This is naturally bounded due to the configuration maximum
+     /// length of a sequence.
+-    sequence_queued: std.ArrayListUnmanaged(termio.Message.WriteReq) = .empty,
++    sequence_queued: std.ArrayListUnmanaged(termio.Message.ReplicaWrite) = .empty,
+
+     /// The stack of tables that is currently active. The first value
+     /// in this is the first activated table (NOT the default keybinding set).
+@@ -922,6 +922,7 @@ fn queueIo(
+             .write_small,
+             .write_stable,
+             .write_alloc,
++            .write_replica,
+             => {
+                 msg.deinit();
+                 return;
+@@ -931,9 +932,38 @@ fn queueIo(
+         }
+     }
+
++    if (self.io.replica_generation != 0) {
++        const data: ?termio.Message.WriteReq = switch (msg) {
++            .write_small => |v| .{ .small = v },
++            .write_stable => |v| .{ .stable = v },
++            .write_alloc => |v| .{ .alloc = v },
++            else => null,
++        };
++        if (data) |request| {
++            if (mutex == .unlocked) self.renderer_state.mutex.lockUncancelable(global.io());
++            const stamp = self.io.replicaInputStampLocked();
++            if (mutex == .unlocked) self.renderer_state.mutex.unlock(global.io());
++            self.queueEncodedInput(.{ .data = request, .stamp = stamp }, mutex);
++            return;
++        }
++    }
+     self.io.queueMessage(msg, mutex);
+ }
+
++fn queueEncodedInput(self: *Surface, request: termio.Message.ReplicaWrite, mutex: termio.Termio.MutexState) void {
++    if (self.readonly) { request.deinit(); return; }
++    if (request.stamp.generation != 0) {
++        if (mutex == .unlocked) {
++            if (comptime @hasDecl(apprt.Surface, "inputEncoded")) self.rt_surface.inputEncoded(request.stamp.generation, request.stamp.sequence);
++        }
++        self.queueIo(.{ .write_replica = request }, mutex);
++    } else self.queueIo(switch (request.data) {
++        .small => |v| .{ .write_small = v },
++        .stable => |v| .{ .write_stable = v },
++        .alloc => |v| .{ .write_alloc = v },
++    }, mutex);
++}
++
+ /// Feed terminal output from an externally-owned transport (SSH session,
+ /// socket, ...) into the terminal grid. Only meaningful for host-backed
+ /// surfaces (termio.Host); exec-backed surfaces get their output from their
+@@ -1064,6 +1094,7 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
+         },
+
+         .report_title => |style| report_title: {
++            if (self.io.replica_generation != 0) return error.ReplicaReplyForbidden;
+             if (!self.config.title_report) {
+                 log.info("report_title requested, but disabled via config", .{});
+                 break :report_title;
+@@ -2973,11 +3004,7 @@ pub fn keyCallback(
+             return .closed;
+         }
+
+-        self.queueIo(switch (write_req) {
+-            .small => |v| .{ .write_small = v },
+-            .stable => |v| .{ .write_stable = v },
+-            .alloc => |v| .{ .write_alloc = v },
+-        }, .unlocked);
++        self.queueEncodedInput(write_req, .unlocked);
+     } else {
+         // No valid request means that we didn't encode anything.
+         return .ignored;
+@@ -3327,11 +3354,7 @@ fn endKeySequence(
+     // Run the proper action first
+     switch (action) {
+         .flush => for (self.keyboard.sequence_queued.items) |write_req| {
+-            self.queueIo(switch (write_req) {
+-                .small => |v| .{ .write_small = v },
+-                .stable => |v| .{ .write_stable = v },
+-                .alloc => |v| .{ .write_alloc = v },
+-            }, .unlocked);
++            self.queueEncodedInput(write_req, .unlocked);
+         },
+
+         .drop => for (self.keyboard.sequence_queued.items) |req| req.deinit(),
+@@ -3350,10 +3373,11 @@ fn encodeKey(
+     self: *Surface,
+     event: input.KeyEvent,
+     insp_ev: ?*inspectorpkg.KeyEvent,
+-) !?termio.Message.WriteReq {
++) !?termio.Message.ReplicaWrite {
++    var stamp: termio.Message.InputStamp = undefined;
+     const write_req: termio.Message.WriteReq = req: {
+         // Build our encoding options, which requires the lock.
+-        const encoding_opts = self.encodeKeyOpts();
++        const encoding_opts = self.encodeKeyOpts(&stamp);
+
+         // Try to write the input into a small array. This fits almost
+         // every scenario. Larger situations can happen due to long
+@@ -3416,14 +3440,15 @@ fn encodeKey(
+         ev.pty = copy;
+     }
+
+-    return write_req;
++    return .{ .data = write_req, .stamp = stamp };
+ }
+
+-fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
++fn encodeKeyOpts(self: *const Surface, stamp: *termio.Message.InputStamp) input.key_encode.Options {
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
+     const t = &self.io.terminal;
+
++    stamp.* = self.io.replicaInputStampLocked();
+     var opts: input.key_encode.Options = .fromTerminal(t);
+     if (comptime builtin.os.tag != .macos) return opts;
+
+@@ -5045,12 +5070,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+         },
+
+         .cursor_key => |ck| {
++            self.renderer_state.mutex.lockUncancelable(global.io());
++            defer self.renderer_state.mutex.unlock(global.io());
+             // We send a different sequence depending on if we're
+             // in cursor keys mode. We're in "normal" mode if cursor
+             // keys mode is NOT set.
+             const normal = normal: {
+-                self.renderer_state.mutex.lockUncancelable(global.io());
+-                defer self.renderer_state.mutex.unlock(global.io());
+
+                 // With the lock held, we must scroll to the bottom.
+                 // We always scroll to the bottom for these inputs.
+@@ -5062,9 +5087,9 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+             };
+
+             if (normal) {
+-                self.queueIo(.{ .write_stable = ck.normal }, .unlocked);
++                self.queueIo(.{ .write_stable = ck.normal }, .locked);
+             } else {
+-                self.queueIo(.{ .write_stable = ck.application }, .unlocked);
++                self.queueIo(.{ .write_stable = ck.application }, .locked);
+             }
+         },
+
+@@ -6285,9 +6310,11 @@ fn completeClipboardPaste(
+ ) !void {
+     if (data.len == 0) return;
+
++    var stamp: termio.Message.InputStamp = undefined;
+     const encode_opts: input.paste.Options = encode_opts: {
+         self.renderer_state.mutex.lockUncancelable(global.io());
+         defer self.renderer_state.mutex.unlock(global.io());
++        stamp = self.io.replicaInputStampLocked();
+         const opts: input.paste.Options = .fromTerminal(&self.io.terminal);
+
+         // If we have paste protection enabled, we detect unsafe pastes and return
+@@ -6350,10 +6377,7 @@ fn completeClipboardPaste(
+     };
+
+     for (vecs) |vec| if (vec.len > 0) {
+-        self.queueIo(try termio.Message.writeReq(
+-            self.alloc,
+-            vec,
+-        ), .unlocked);
++        self.queueEncodedInput(.{ .data = try termio.Message.WriteReq.init(self.alloc, vec), .stamp = stamp }, .unlocked);
+     };
+ }
+
+@@ -6420,6 +6444,7 @@ fn completeClipboardReadOSC52(
+     clipboard_type: apprt.Clipboard,
+     confirmed: bool,
+ ) !void {
++    if (self.io.replica_generation != 0) return error.ReplicaReplyForbidden;
+     // We should never get here if clipboard-read is set to deny
+     assert(self.config.clipboard_read != .deny);
+
+@@ -6554,7 +6579,8 @@ fn kittyClipboardStatus(
+     id: []const u8,
+     terminator: terminal.osc.Terminator,
+     status: terminal.kitty.clipboard.Status,
+-) error{ OutOfMemory, WriteFailed }!void {
++) error{ OutOfMemory, WriteFailed, ReplicaReplyForbidden }!void {
++    if (self.io.replica_generation != 0) return error.ReplicaReplyForbidden;
+     var aw: std.Io.Writer.Allocating = .init(self.alloc);
+     defer aw.deinit();
+     try (terminal.kitty.clipboard.Response{
+@@ -6578,6 +6604,7 @@ fn completeKittyClipboardRead(
+     contents: []const terminal.clipboard.Content,
+     available: []const []const u8,
+ ) !void {
++    if (self.io.replica_generation != 0) return error.ReplicaReplyForbidden;
+     const kitty_clipboard = terminal.kitty.clipboard;
+
+     // Serve the requested representations in request order under their
+@@ -6711,6 +6738,18 @@ test "queueIo frees allocated writes in readonly mode" {
+     } }, .unlocked);
+ }
+
++test "queueIo frees stamped writes in readonly mode" {
++    const testing = std.testing;
++    const surface = try testing.allocator.create(Surface);
++    defer testing.allocator.destroy(surface);
++    surface.readonly = true;
++    const data = try testing.allocator.dupe(u8, "STAMPED");
++    surface.queueIo(.{ .write_replica = .{
++        .data = .{ .alloc = .{ .alloc = testing.allocator, .data = data } },
++        .stamp = .{ .generation = 81, .sequence = 40 },
++    } }, .unlocked);
++}
++
+ test "promptClickRelativeRow" {
+     const testing = std.testing;
+     const Case = struct {
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 76aa6e4..0bd99e9 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -457,6 +457,8 @@ pub const Surface = struct {
+
+     /// Host-backed IO configuration (see Options.host). Both are stored as
+     /// plain optionals so the struct stays trivially initialized.
++    p0_host_write_input: ?*const fn (?*anyopaque, u64, u64, [*]const u8, usize) callconv(.c) void = null,
++    p0_input_encoded: ?*const fn (?*anyopaque, u64, u64) callconv(.c) void = null,
+     p0_generation: u64 = 0,
+     p0_sequence: u64 = 0,
+     p0_snapshot: ?[]const u8 = null,
+@@ -558,8 +560,14 @@ pub const Surface = struct {
+         p0_checkpoint_generation: u64 = 0,
+         p0_checkpoint_sequence: u64 = 0,
+         p0_checkpoint_digest: [32]u8 = @splat(0),
++        p0_host_write_input: ?*const fn (?*anyopaque, u64, u64, [*]const u8, usize) callconv(.c) void = null,
++        p0_input_encoded: ?*const fn (?*anyopaque, u64, u64) callconv(.c) void = null,
+     };
+
++    pub fn inputEncoded(self: *const Surface, generation: u64, sequence: u64) void {
++        if (self.p0_input_encoded) |callback| callback(self.userdata, generation, sequence);
++    }
++
+     pub fn replicaGeneration(self: *const Surface) u64 { return self.p0_generation; }
+     pub fn replicaSequence(self: *const Surface) u64 { return self.p0_sequence; }
+
+@@ -604,6 +612,8 @@ pub const Surface = struct {
+             if (!std.mem.eql(u8, &digest, &opts.p0_checkpoint_digest)) return error.CheckpointBindingMismatch;
+         } else if (opts.p0_checkpoint_generation != 0 or opts.p0_checkpoint_sequence != 0 or !std.mem.allEqual(u8, &opts.p0_checkpoint_digest, 0)) return error.UnboundCheckpointMetadata;
+         self.* = .{
++            .p0_host_write_input = opts.p0_host_write_input,
++            .p0_input_encoded = opts.p0_input_encoded,
+             .p0_generation = if (opts.p0_checkpoint_bound) opts.p0_checkpoint_generation else 0,
+             .p0_sequence = if (opts.p0_checkpoint_bound) opts.p0_checkpoint_sequence else 0,
+             .p0_image_storage_limit = if (opts.p0_image_storage_limit_set) @intCast(opts.p0_image_storage_limit) else null,
+@@ -814,6 +824,7 @@ pub const Surface = struct {
+         return .{
+             .userdata = self.userdata,
+             .write = self.host_write orelse return null,
++            .write_input = self.p0_host_write_input,
+             .resize = self.host_resize orelse return null,
+         };
+     }
+@@ -2032,6 +2043,28 @@ pub const CAPI = struct {
+         return surface.core_surface.io.replicaAppliedSequence(sequence);
+     }
+
++    export fn ghostty_p0_surface_test_input(surface: *Surface, generation: u64, sequence: u64, raw: bool, ptr: ?[*]const u8, len: usize) bool {
++        if (ptr == null and len != 0 or len > 16 * 1024 * 1024) return false;
++        const data: []const u8 = if (ptr) |p| p[0..len] else &.{};
++        const request = termio.Message.WriteReq.init(surface.core_surface.alloc, data) catch return false;
++        const message: termio.Message = if (raw) switch (request) {
++            .small => |v| .{ .write_small = v },
++            .stable => |v| .{ .write_stable = v },
++            .alloc => |v| .{ .write_alloc = v },
++        } else .{ .write_replica = .{ .data = request, .stamp = .{ .generation = generation, .sequence = sequence } } };
++        surface.core_surface.io.queueMessage(message, .unlocked);
++        return true;
++    }
++
++    export fn ghostty_p0_surface_test_cursor(surface: *Surface) bool {
++        return surface.core_surface.performBindingAction(.{ .cursor_key = .{ .normal = "\x1b[A", .application = "\x1bOA" } }) catch false;
++    }
++
++    export fn ghostty_p0_surface_test_reply(surface: *Surface) bool {
++        surface.core_surface.handleMessage(.{ .report_title = .csi_21_t }) catch return false;
++        return true;
++    }
++
+     export fn ghostty_p0_surface_event_output_for(surface: *Surface, generation: u64, sequence: u64, ptr: ?[*]const u8, len: usize) bool {
+         if (ptr == null and len != 0 or len > 16 * 1024 * 1024) return false;
+         return surface.core_surface.io.replicaEventFor(generation, sequence, .{ .output = if (ptr) |p| p[0..len] else &.{} });
+diff --git a/src/termio/Host.zig b/src/termio/Host.zig
+index 9fab3ce..308fcd7 100644
+--- a/src/termio/Host.zig
++++ b/src/termio/Host.zig
+@@ -37,6 +37,7 @@ pub const Callbacks = struct {
+     /// User input encoded by the terminal, ready to be written to the
+     /// embedder's transport. Called from the termio thread.
+     write: *const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
++    write_input: ?*const fn (?*anyopaque, u64, u64, [*]const u8, usize) callconv(.c) void = null,
+
+     /// The terminal grid changed size; the embedder must forward this to its
+     /// transport (SSH window-change / pty resize).
+@@ -148,6 +149,26 @@ pub fn queueWrite(
+     }
+ }
+
++/// Input was encoded against this exact mode stamp. Do not re-read modes here.
++pub fn queueWriteInput(self: *Host, data: []const u8, stamp: termio.Message.InputStamp) !void {
++    const callback = self.callbacks.write_input orelse return error.MissingReplicaInputCallback;
++    if (!stamp.linefeed) {
++        callback(self.callbacks.userdata, stamp.generation, stamp.sequence, data.ptr, data.len);
++        return;
++    }
++    var buf: [4096]u8 = undefined;
++    var i: usize = 0;
++    while (i < data.len) {
++        var n: usize = 0;
++        while (i < data.len and n < buf.len - 1) {
++            const ch = data[i]; i += 1;
++            buf[n] = ch; n += 1;
++            if (ch == '\r') { buf[n] = '\n'; n += 1; }
++        }
++        if (n > 0) callback(self.callbacks.userdata, stamp.generation, stamp.sequence, &buf, n);
++    }
++}
++
+ /// The host signals abnormal exits itself (it knows its transport); nothing
+ /// to synthesize here.
+ pub fn childExitedAbnormally(
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 75d780a..1df75c2 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -67,6 +67,7 @@ terminal_stream: StreamHandler.Stream,
+ replica_stream: ?terminalpkg.TerminalStream = null,
+ replica_sequence: u64 = 0,
+ replica_generation: u64 = 0,
++replica_start_sequence: u64 = 0,
+ replica_image_storage_limit: ?usize = null,
+ replica_resources: @import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks = .{},
+
+@@ -359,6 +360,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+         .terminal = term,
+         .replica_image_storage_limit = opts.replica_image_storage_limit,
+         .replica_generation = opts.replica_generation,
++        .replica_start_sequence = opts.replica_sequence,
+         .replica_sequence = opts.replica_sequence,
+         .config = opts.config,
+         .renderer_state = opts.renderer_state,
+@@ -509,6 +511,12 @@ pub inline fn queueWrite(
+     data: []const u8,
+     linefeed: bool,
+ ) !void {
++    if (self.replica_generation != 0) {
++        self.renderer_state.mutex.lockUncancelable(global.io());
++        if (self.replica_stream) |*stream| stream.handler.semantic_failure = true;
++        self.renderer_state.mutex.unlock(global.io());
++        return error.UnstampedReplicaInput;
++    }
+     if (self.replica_stream != null) {
+         self.renderer_state.mutex.lockUncancelable(global.io());
+         const enabled = self.terminal.modes.get(.linefeed);
+@@ -517,6 +525,36 @@ pub inline fn queueWrite(
+     } else try self.backend.queueWrite(self.alloc, td, data, linefeed);
+ }
+
++// Caller holds renderer_state.mutex: mode options and this stamp share a cut.
++pub fn replicaInputStampLocked(self: *const Termio) termio.Message.InputStamp {
++    return .{
++        .generation = self.replica_generation,
++        .sequence = self.replica_sequence,
++        .linefeed = self.terminal.modes.get(.linefeed),
++        .valid = if (self.replica_stream) |stream| !stream.handler.semantic_failure else false,
++    };
++}
++
++pub fn queueReplicaInput(self: *Termio, request: termio.Message.ReplicaWrite) !void {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    const stream = if (self.replica_stream) |*s| s else {
++        self.renderer_state.mutex.unlock(global.io());
++        return error.NotReplica;
++    };
++    const stamp = request.stamp;
++    if (stream.handler.semantic_failure or !stamp.valid or stamp.generation == 0 or
++        stamp.generation != self.replica_generation or stamp.sequence < self.replica_start_sequence or stamp.sequence > self.replica_sequence or
++        self.backend != .host or self.backend.host.callbacks.write_input == null)
++    {
++        stream.handler.semantic_failure = true;
++        self.renderer_state.mutex.unlock(global.io());
++        return error.InvalidReplicaInput;
++    }
++    // The callback may feed new authority output; never invoke it under this lock.
++    self.renderer_state.mutex.unlock(global.io());
++    try self.backend.host.queueWriteInput(request.data.slice(), stamp);
++}
++
+ /// Update the configuration.
+ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !void {
+     // The remainder of this function is modifying terminal state or
+diff --git a/src/termio/Thread.zig b/src/termio/Thread.zig
+index de26835..687801e 100644
+--- a/src/termio/Thread.zig
++++ b/src/termio/Thread.zig
+@@ -347,6 +347,10 @@ fn drainMailbox(
+             .start_synchronized_output => self.startSynchronizedOutput(cb),
+             .linefeed_mode => |v| self.flags.linefeed_mode = v,
+             .focused => |v| try io.focusGained(data, v),
++            .write_replica => |v| {
++                defer v.deinit();
++                try io.queueReplicaInput(v);
++            },
+             .write_small => |v| try io.queueWrite(
+                 data,
+                 v.data[0..v.len],
+diff --git a/src/termio/message.zig b/src/termio/message.zig
+index 2416874..1122659 100644
+--- a/src/termio/message.zig
++++ b/src/termio/message.zig
+@@ -7,14 +7,27 @@ const MessageData = @import("../datastruct/main.zig").MessageData;
+
+ /// The messages that can be sent to an IO thread.
+ ///
+-/// This is not a tiny structure (~40 bytes at the time of writing this comment),
++/// This is not a tiny structure (~72 bytes at the time of writing this comment),
+ /// but the number of messages we send to the IO thread is also very small.
+-/// At the current size we can queue 26,000 messages before consuming a MB of RAM.
++/// At the current size we can queue 14,000 messages before consuming a MB of RAM.
+ pub const Message = union(enum) {
+     /// Represents a write request. Magic number comes from the largest
+     /// other union value. It can be upped if we add a larger union member
+     /// in the future.
+     pub const WriteReq = MessageData(u8, 38);
++    pub const InputStamp = struct {
++        generation: u64 = 0,
++        sequence: u64 = 0,
++        linefeed: bool = false,
++        valid: bool = true,
++    };
++    pub const ReplicaWrite = struct {
++        data: WriteReq,
++        stamp: InputStamp,
++        pub fn deinit(self: @This()) void { self.data.deinit(); }
++    };
++    // P0: stamp must survive both the UI key-sequence queue and IO mailbox.
++    write_replica: ReplicaWrite,
+
+     /// Request a color scheme report is sent to the PTY.
+     color_scheme_report: struct {
+@@ -124,6 +137,7 @@ pub const Message = union(enum) {
+                 v.alloc.destroy(v.ptr);
+             },
+             .write_alloc => |v| v.alloc.free(v.data),
++            .write_replica => |v| v.deinit(),
+             .kitty_clipboard_grant_read,
+             .kitty_clipboard_grant_write,
+             => |v| v.alloc.free(v.pw),
+@@ -142,5 +156,6 @@ test {
+ test {
+     // Ensure we don't grow our IO message size without explicitly wanting to.
+     const testing = std.testing;
+-    try testing.expectEqual(@as(usize, 40), @sizeOf(Message));
++    // P0 intentionally adds a WriteReq + 24-byte immutable encoding stamp.
++    try testing.expectEqual(@as(usize, 72), @sizeOf(Message));
+ }

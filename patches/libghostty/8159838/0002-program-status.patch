@@ -1,0 +1,273 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 9d7f8d8e8..43b04f4bb 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -505,6 +505,47 @@ typedef enum {
+   GHOSTTY_SURFACE_CONTEXT_SPLIT = 2,
+ } ghostty_surface_context_e;
+ 
++// Program status protocol (OSC 7501). Ghosterm patch: the embedder opts in
++// through ghostty_surface_config_s.host_program_status. See
++// patches/libghostty/8159838/0002-program-status.patch. The strings below use
++// the ghostty_string_s already declared in this header.
++//
++// What the program is doing. Same ordinals as GhosttyProgramStatusState in
++// include/ghostty/vt/terminal.h.
++typedef enum {
++  GHOSTTY_PROGRAM_STATUS_STATE_IDLE = 0,
++  GHOSTTY_PROGRAM_STATUS_STATE_WORKING = 1,
++  GHOSTTY_PROGRAM_STATUS_STATE_DONE = 2,
++  GHOSTTY_PROGRAM_STATUS_STATE_BLOCKED = 3,
++  GHOSTTY_PROGRAM_STATUS_STATE_ERROR = 4,
++  GHOSTTY_PROGRAM_STATUS_STATE_CLEAR = 5,
++} ghostty_program_status_state_e;
++
++// What a blocked program needs. Same ordinals as GhosttyProgramStatusKind.
++typedef enum {
++  GHOSTTY_PROGRAM_STATUS_KIND_NONE = 0,
++  GHOSTTY_PROGRAM_STATUS_KIND_PERMISSION = 1,
++  GHOSTTY_PROGRAM_STATUS_KIND_QUESTION = 2,
++  GHOSTTY_PROGRAM_STATUS_KIND_AUTH = 3,
++} ghostty_program_status_kind_e;
++
++// A program status report. Sized struct: read `size` first and only touch the
++// fields it covers, so fields may be appended in a later version. The strings
++// are borrowed and are only valid during the callback; they are never NULL, an
++// absent value is an empty string. `title`/`message` are already decoded.
++typedef struct {
++  size_t size;
++  ghostty_program_status_state_e state;
++  ghostty_program_status_kind_e kind;
++  int8_t progress;  // 0..100, or -1 for indeterminate / not applicable
++  ghostty_string_s id;
++  ghostty_string_s app;
++  ghostty_string_s title;
++  ghostty_string_s message;
++} ghostty_program_status_s;
++
++typedef void (*ghostty_host_program_status_fn)(void*, const ghostty_program_status_s*);
++
+ typedef struct {
+   ghostty_platform_e platform_tag;
+   ghostty_platform_u platform;
+@@ -531,6 +572,11 @@ typedef struct {
+   bool host;
+   void (*host_write)(void*, const uint8_t*, size_t);
+   void (*host_resize)(void*, uint16_t, uint16_t);
++
++  // Optional. Called with a program status report (OSC 7501). Setting it also
++  // makes the terminal answer the support query (OSC 7501 ; ?). See
++  // patches/libghostty/8159838/0002-program-status.patch.
++  void (*host_program_status)(void*, const ghostty_program_status_s*);
+ } ghostty_surface_config_s;
+ 
+ typedef struct {
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 3538bb03d..c9f45ac6b 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -461,6 +461,12 @@ pub const Surface = struct {
+     host_write: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void = null,
+     host_resize: ?*const fn (?*anyopaque, u16, u16) callconv(.c) void = null,
+ 
++    /// Optional. Called with a program status report (OSC 7501) when the
++    /// running program says what it is doing. The report and its strings are
++    /// only valid during the call. Set it to receive reports and to have the
++    /// support query answered. See patches/libghostty/8159838.
++    host_program_status: ?*const fn (?*anyopaque, *const terminal.osc.program_status.C) callconv(.c) void = null,
++
+     /// The current title of the surface. The embedded apprt saves this so
+     /// that getTitle works without the implementer needing to save it.
+     title: ?[:0]const u8 = null,
+@@ -520,6 +526,11 @@ pub const Surface = struct {
+         /// Called when the terminal grid changed size; the embedder must
+         /// forward this to its transport. Required when `host` is true.
+         host_resize: ?*const fn (?*anyopaque, u16, u16) callconv(.c) void = null,
++
++        /// Optional. Called with a program status report (OSC 7501). Setting
++        /// it also makes the terminal answer the support query. See
++        /// patches/libghostty/8159838.
++        host_program_status: ?*const fn (?*anyopaque, *const terminal.osc.program_status.C) callconv(.c) void = null,
+     };
+ 
+     pub fn init(self: *Surface, app: *App, opts: Options) !void {
+@@ -537,6 +548,7 @@ pub const Surface = struct {
+             .host = opts.host,
+             .host_write = opts.host_write,
+             .host_resize = opts.host_resize,
++            .host_program_status = opts.host_program_status,
+         };
+ 
+         // Add ourselves to the list of surfaces on the app.
+@@ -728,6 +740,21 @@ pub const Surface = struct {
+         };
+     }
+ 
++    /// True when the embedder wants OSC 7501 reports. The terminal only
++    /// answers the protocol's support query when this is true. See
++    /// patches/libghostty/8159838.
++    pub fn hostProgramStatusEnabled(self: *const Surface) bool {
++        return self.host_program_status != null;
++    }
++
++    /// Deliver an OSC 7501 report to the embedder. `report` and the strings
++    /// it points at are only valid for the duration of this call, and this
++    /// runs on the termio thread.
++    pub fn hostProgramStatus(self: *Surface, report: *const terminal.osc.program_status.C) void {
++        const func = self.host_program_status orelse return;
++        func(self.userdata, report);
++    }
++
+     pub fn getTitle(self: *Surface) ?[:0]const u8 {
+         return self.title;
+     }
+diff --git a/src/terminal/osc/parsers/program_status.zig b/src/terminal/osc/parsers/program_status.zig
+index c9e5926da..1c5f205a8 100644
+--- a/src/terminal/osc/parsers/program_status.zig
++++ b/src/terminal/osc/parsers/program_status.zig
+@@ -140,6 +140,43 @@ pub const Command = union(enum) {
+     report: program_status.Report,
+ };
+ 
++/// A program status report in the form an embedder receives it across the
++/// C ABI (see patches/libghostty/8159838/0002-program-status.patch).
++///
++/// This is a sized struct: a later revision of the protocol may add fields at
++/// the end, so read `size` first and only touch the fields it covers. Every
++/// field below has been present since the struct was introduced.
++///
++/// The strings borrow memory that only lives for the duration of the call
++/// that delivers the report. They are never null; a value the program did not
++/// send is an empty string. `title` and `message` are already decoded from
++/// base64.
++///
++/// `state` and `kind` use the same ordinals as upstream's
++/// `GhosttyProgramStatusState` / `GhosttyProgramStatusKind` in
++/// include/ghostty/vt/terminal.h, so the two C surfaces agree.
++pub const C = extern struct {
++    size: usize,
++    state: c_int,
++    kind: c_int,
++    progress: i8,
++    id: String,
++    app: String,
++    title: String,
++    message: String,
++
++    /// A borrowed byte string. Sync with: ghostty_string_s in
++    /// include/ghostty.h.
++    pub const String = extern struct {
++        ptr: ?[*]const u8 = null,
++        len: usize = 0,
++
++        /// True when `ptr` is NUL-terminated. Our strings are bounded
++        /// slices, so this is always false.
++        sentinel: bool = false,
++    };
++};
++
+ /// The value of the required `state` key.
+ ///
+ /// - `idle`: at rest, waiting for the user's next instruction.
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index 5d549d807..c29c66e7e 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -20,6 +20,11 @@ const log = std.log.scoped(.io_handler);
+ /// stateful and is expected to live for the entire lifetime of the terminal.
+ /// It is NOT VALID to stop a stream handler, create a new one, and use that
+ /// unless all of the member fields are copied.
++/// The reply to an OSC 7501 support query, ended to match the terminator the
++/// program used. See the Program Status Protocol specification.
++const program_status_reply_st = "\x1b]7501;" ++ terminal.osc.program_status.query_reply ++ "\x1b\\";
++const program_status_reply_bel = "\x1b]7501;" ++ terminal.osc.program_status.query_reply ++ "\x07";
++
+ pub const StreamHandler = struct {
+     alloc: Allocator,
+     size: *renderer.Size,
+@@ -349,6 +354,7 @@ pub const StreamHandler = struct {
+             .report_pwd => try self.reportPwd(value.url),
+             .show_desktop_notification => try self.showDesktopNotification(value.title, value.body),
+             .progress_report => self.progressReport(value),
++            .program_status => self.programStatus(value),
+             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
+             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
+             .semantic_prompt => try self.semanticPrompt(value),
+@@ -389,7 +395,6 @@ pub const StreamHandler = struct {
+             .title_pop,
+             .kitty_dnd,
+             .osc_unknown,
+-            .program_status,
+             => {},
+         }
+     }
+@@ -1946,6 +1951,69 @@ pub const StreamHandler = struct {
+     fn progressReport(self: *StreamHandler, report: terminal.osc.Command.ProgressReport) void {
+         self.surfaceMessageWriter(.{ .progress_report = report });
+     }
++
++    /// Program status protocol (OSC 7501). See patches/libghostty/8159838.
++    ///
++    /// The terminal keeps no records. A valid report goes straight to the
++    /// embedder through the apprt's callback, on this thread and only while
++    /// the parser's memory is valid; the support query is answered inline.
++    /// A query is answered only while an embedder is listening, so a program
++    /// can tell a terminal that implements the protocol from one that does
++    /// not.
++    fn programStatus(self: *StreamHandler, cmd: terminal.osc.Command.ProgramStatus) void {
++        // Only the embedded apprt implements this today; every other apprt
++        // leaves the arm a no-op, so the terminal claims no support.
++        if (comptime @hasDecl(apprt.Surface, "hostProgramStatus")) {
++            const ps = terminal.osc.program_status;
++            const rt_surface = self.surface_mailbox.surface.rt_surface;
++
++            switch (cmd) {
++                // A valid report. `title`/`message` arrive base64-encoded, so
++                // decode them; the other strings stay borrowed (they are valid
++                // for this call, and the callback runs synchronously).
++                .report => |report| {
++                    var title_buf: [ps.max_title_bytes]u8 = undefined;
++                    var title_writer: std.Io.Writer = .fixed(&title_buf);
++                    report.writeText(.title, &title_writer) catch {};
++
++                    var msg_buf: [ps.max_msg_bytes]u8 = undefined;
++                    var msg_writer: std.Io.Writer = .fixed(&msg_buf);
++                    report.writeText(.msg, &msg_writer) catch {};
++
++                    const id = report.readOption(.id) orelse "";
++                    const app = report.readOption(.app) orelse "";
++
++                    // state/kind keep upstream's C ordinals (kind has no
++                    // "none" in Zig, so +1 to reach GHOSTTY_PROGRAM_STATUS_KIND_*).
++                    const c: ps.C = .{
++                        .size = @sizeOf(ps.C),
++                        .state = @intFromEnum(report.state),
++                        .kind = if (report.readOption(.kind)) |k| @intFromEnum(k) + 1 else 0,
++                        .progress = if (report.readOption(.progress)) |p| @intCast(p) else -1,
++                        .id = .{ .ptr = id.ptr, .len = id.len },
++                        .app = .{ .ptr = app.ptr, .len = app.len },
++                        .title = .{ .ptr = &title_buf, .len = title_writer.buffered().len },
++                        .message = .{ .ptr = &msg_buf, .len = msg_writer.buffered().len },
++                    };
++
++                    rt_surface.hostProgramStatus(&c);
++                },
++
++                // The program asked whether the terminal implements the
++                // protocol. Answer with the states and kinds we accept, ended
++                // with the same terminator the program used. Stay silent when
++                // nobody is listening.
++                .query => |terminator| {
++                    if (!rt_surface.hostProgramStatusEnabled()) return;
++                    const reply: []const u8 = switch (terminator) {
++                        .st => program_status_reply_st,
++                        .bel => program_status_reply_bel,
++                    };
++                    self.messageWriter(.{ .write_stable = reply });
++                },
++            }
++        }
++    }
+ };
+ 
+ test "kitty clipboard read: targets-only never consumes a one-time grant" {

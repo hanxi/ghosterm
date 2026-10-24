@@ -1,0 +1,69 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 3c4d92b..a7721f8 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1284,6 +1284,8 @@ GHOSTTY_API ghostty_surface_t ghostty_surface_new(ghostty_app_t,
+ GHOSTTY_API void ghostty_surface_free(ghostty_surface_t);
+ // P0 only: synchronous snapshot of a readonly replica. Not a production ABI.
+ GHOSTTY_API bool ghostty_p0_surface_snapshot(ghostty_surface_t, uint8_t*, size_t, size_t*);
++// P0 only: observe the complete resource graph; separate from canonical capture.
++GHOSTTY_API bool ghostty_p0_surface_resources_snapshot(ghostty_surface_t, uint8_t*, size_t, size_t*);
+ // P0 only: copy one displayed image and its viewport pin under the renderer lock.
+ GHOSTTY_API bool ghostty_p0_surface_read_image(ghostty_surface_t, uint32_t,
+     uint8_t*, size_t, size_t*, uint32_t*, uint32_t*);
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 5f94bce..666d7bc 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1984,6 +1984,12 @@ pub const CAPI = struct {
+         return surface.core_surface.io.replicaSnapshot(if (ptr) |p| p[0..len] else &.{}, written) catch false;
+     }
+
++    export fn ghostty_p0_surface_resources_snapshot(surface: *Surface, ptr: ?[*]u8, len: usize, written: *usize) bool {
++        written.* = 0;
++        if (ptr == null and len != 0) return false;
++        return surface.core_surface.io.replicaResourcesSnapshot(if (ptr) |p| p[0..len] else &.{}, written) catch false;
++    }
++
+     export fn ghostty_p0_surface_read_image(surface: *Surface, id: u32, ptr: ?[*]u8, len: usize, written: *usize, col: *u32, row: *u32) bool {
+         written.* = 0;
+         col.* = 0;
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index f23740c..17632e2 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -584,8 +584,10 @@ pub fn resize(
+         self.renderer_state.mutex.lockUncancelable(global.io());
+         defer self.renderer_state.mutex.unlock(global.io());
+
+-        // Update the size of our terminal state
+-        try self.terminal.resize(
++        // A replica forwards the GUI request above, but only its authority may
++        // change the logical grid. Ordered authority resize application is a
++        // separate P0 interface; no local speculative reflow is allowed.
++        if (self.replica_stream == null) try self.terminal.resize(
+             self.alloc,
+             .{
+                 .cols = grid_size.columns,
+@@ -774,6 +776,21 @@ pub fn replicaReadImage(self: *Termio, id: u32, dest: []u8, written: *usize, col
+     return true;
+ }
+
++// Experimental observation point: export the actual full-surface resource graph.
++// This is not a production checkpoint API; canonical/resource capture is separate.
++pub fn replicaResourcesSnapshot(self: *Termio, dest: []u8, written: *usize) !bool {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    const stream = if (self.replica_stream) |*s| s else return error.NotReplica;
++    if (stream.handler.semantic_failure) return error.ReplicaSemanticFailure;
++    const bytes = try @import("../terminal/p0_resource_snapshot.zig").encode(self.alloc, &self.terminal, 16 * 1024 * 1024);
++    defer self.alloc.free(bytes);
++    written.* = bytes.len;
++    if (dest.len < bytes.len) return false;
++    @memcpy(dest[0..bytes.len], bytes);
++    return true;
++}
++
+ pub fn replicaSnapshot(self: *Termio, dest: []u8, written: *usize) !bool {
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());

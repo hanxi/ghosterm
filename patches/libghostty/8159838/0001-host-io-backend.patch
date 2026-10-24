@@ -1,0 +1,512 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 9a12b9cad..9d7f8d8e8 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -518,6 +518,19 @@ typedef struct {
+   const char* initial_input;
+   bool wait_after_command;
+   ghostty_surface_context_e context;
++
++  // Host-backed IO (Ghosterm patch): when `host` is true the surface does
++  // not fork a subprocess/pty. The embedder owns the byte stream (SSH
++  // session, socket, ...) and drives it through these callbacks:
++  //   - host_write: user input encoded by the terminal, write it to your
++  //     transport;
++  //   - host_resize: the terminal grid changed size, forward it to your
++  //     transport and feed your output back in with
++  //     ghostty_surface_process_output.
++  // Both are required when `host` is true. See patches/libghostty/.
++  bool host;
++  void (*host_write)(void*, const uint8_t*, size_t);
++  void (*host_resize)(void*, uint16_t, uint16_t);
+ } ghostty_surface_config_s;
+ 
+ typedef struct {
+@@ -1241,6 +1254,13 @@ GHOSTTY_API bool ghostty_surface_read_text(ghostty_surface_t,
+                                               ghostty_text_s*);
+ GHOSTTY_API void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+ 
++// Feed output from an externally-owned transport into a host-backed surface
++// (see ghostty_surface_config_s.host). No-op for exec-backed surfaces, which
++// read their own pty. Safe to call from any thread.
++GHOSTTY_API void ghostty_surface_process_output(ghostty_surface_t,
++                                                    const uint8_t*,
++                                                    size_t);
++
+ #ifdef __APPLE__
+ GHOSTTY_API void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);
+ GHOSTTY_API void* ghostty_surface_quicklook_font(ghostty_surface_t);
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 568b74d83..2a064c878 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -651,7 +651,33 @@ pub fn init(
+     // Start our IO implementation
+     // This separate block ({}) is important because our errdefers must
+     // be scoped here to be valid.
+-    {
++    //
++    // An apprt may opt out of the subprocess/pty backend entirely and own the
++    // byte stream itself (see termio.Host). Only the embedded apprt exposes
++    // that today, so the accessor is optional.
++    const host_callbacks: ?termio.Host.Callbacks =
++        if (comptime @hasDecl(apprt.Surface, "hostCallbacks"))
++            rt_surface.hostCallbacks()
++        else
++            null;
++
++    if (host_callbacks) |callbacks| {
++        // Initialize our IO mailbox
++        var io_mailbox = try termio.Mailbox.initSPSC(alloc);
++        errdefer io_mailbox.deinit(alloc);
++
++        try termio.Termio.init(&self.io, alloc, .{
++            .size = size,
++            .full_config = config,
++            .config = try termio.Termio.DerivedConfig.init(alloc, config),
++            .backend = .{ .host = termio.Host.init(callbacks) },
++            .mailbox = io_mailbox,
++            .renderer_state = &self.renderer_state,
++            .renderer_wakeup = render_thread.wakeup,
++            .renderer_mailbox = render_thread.mailbox,
++            .surface_mailbox = .{ .surface = self, .app = app_mailbox },
++        });
++    } else {
+         var env = rt_surface.defaultTermioEnv() catch |err| env: {
+             // If an error occurs, we don't want to block surface startup.
+             log.warn("error getting env map for surface err={}", .{err});
+@@ -899,6 +925,18 @@ fn queueIo(
+     self.io.queueMessage(msg, mutex);
+ }
+ 
++/// Feed terminal output from an externally-owned transport (SSH session,
++/// socket, ...) into the terminal grid. Only meaningful for host-backed
++/// surfaces (termio.Host); exec-backed surfaces get their output from their
++/// own pty reader thread.
++///
++/// Safe to call from any thread: it takes the same renderer lock that the
++/// pty reader thread takes. The bytes are consumed synchronously, so the
++/// caller keeps ownership of `data`.
++pub fn processOutput(self: *Surface, data: []const u8) void {
++    self.io.processOutput(data);
++}
++
+ /// Forces the surface to render. This is useful for when the surface
+ /// is in the middle of animation (such as a resize, etc.) or when
+ /// the render timer is managed manually by the apprt.
+@@ -1363,10 +1401,12 @@ fn childExitedAbnormally(
+     defer arena.deinit();
+     const alloc = arena.allocator();
+ 
+-    // Build up our command for the error message
+-    const command = try std.mem.join(alloc, " ", switch (self.io.backend) {
+-        .exec => |*exec| exec.subprocess.args,
+-    });
++    // Build up our command for the error message. A host-backed surface has no
++// subprocess, so there is no command to name.
++    const command = switch (self.io.backend) {
++        .exec => |*exec| try std.mem.join(alloc, " ", exec.subprocess.args),
++        .host => "host transport",
++    };
+     const runtime_str = try std.fmt.allocPrint(alloc, "{d} ms", .{info.runtime_ms});
+ 
+     self.renderer_state.mutex.lockUncancelable(global.io());
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 3c6b2c1f6..3538bb03d 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -16,6 +16,7 @@ const input = @import("../input.zig");
+ const internal_os = @import("../os/main.zig");
+ const renderer = @import("../renderer.zig");
+ const terminal = @import("../terminal/main.zig");
++const termio = @import("../termio.zig");
+ const CoreApp = @import("../App.zig");
+ const CoreInspector = @import("../inspector/main.zig").Inspector;
+ const CoreSurface = @import("../Surface.zig");
+@@ -454,6 +455,12 @@ pub const Surface = struct {
+     cursor_pos: apprt.CursorPos,
+     inspector: ?*Inspector = null,
+ 
++    /// Host-backed IO configuration (see Options.host). Both are stored as
++    /// plain optionals so the struct stays trivially initialized.
++    host: bool = false,
++    host_write: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void = null,
++    host_resize: ?*const fn (?*anyopaque, u16, u16) callconv(.c) void = null,
++
+     /// The current title of the surface. The embedded apprt saves this so
+     /// that getTitle works without the implementer needing to save it.
+     title: ?[:0]const u8 = null,
+@@ -499,6 +506,20 @@ pub const Surface = struct {
+ 
+         /// Context for the new surface
+         context: apprt.surface.NewSurfaceContext = .window,
++
++        /// If true, this surface does NOT fork a subprocess/pty. Instead the
++        /// embedder owns the byte stream and drives it through the two
++        /// callbacks below. Used by embedders that already have a transport
++        /// (SSH session, socket, ...). See termio.Host for the seam.
++        host: bool = false,
++
++        /// Called with user input encoded by the terminal, ready to be
++        /// written to the embedder's transport. Required when `host` is true.
++        host_write: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void = null,
++
++        /// Called when the terminal grid changed size; the embedder must
++        /// forward this to its transport. Required when `host` is true.
++        host_resize: ?*const fn (?*anyopaque, u16, u16) callconv(.c) void = null,
+     };
+ 
+     pub fn init(self: *Surface, app: *App, opts: Options) !void {
+@@ -513,6 +534,9 @@ pub const Surface = struct {
+             },
+             .size = .{ .width = 800, .height = 600 },
+             .cursor_pos = .{ .x = -1, .y = -1 },
++            .host = opts.host,
++            .host_write = opts.host_write,
++            .host_resize = opts.host_resize,
+         };
+ 
+         // Add ourselves to the list of surfaces on the app.
+@@ -692,6 +716,18 @@ pub const Surface = struct {
+         return self.size;
+     }
+ 
++    /// If this surface is host-backed (no subprocess/pty) then return the
++    /// callbacks libghostty should drive the embedder's transport through.
++    /// `null` for the default exec backend. See termio.Host.
++    pub fn hostCallbacks(self: *const Surface) ?termio.Host.Callbacks {
++        if (!self.host) return null;
++        return .{
++            .userdata = self.userdata,
++            .write = self.host_write orelse return null,
++            .resize = self.host_resize orelse return null,
++        };
++    }
++
+     pub fn getTitle(self: *Surface) ?[:0]const u8 {
+         return self.title;
+     }
+@@ -1989,6 +2025,16 @@ pub const CAPI = struct {
+         surface.draw();
+     }
+ 
++    /// Feed output from an externally-owned transport into a host-backed
++    /// surface. See ghostty_surface_config_s.host.
++    export fn ghostty_surface_process_output(
++        surface: *Surface,
++        data: [*]const u8,
++        len: usize,
++    ) void {
++        surface.core_surface.processOutput(data[0..len]);
++    }
++
+     /// Update the size of a surface. This will trigger resize notifications
+     /// to the pty and the renderer.
+     export fn ghostty_surface_set_size(surface: *Surface, w: u32, h: u32) void {
+diff --git a/src/termio.zig b/src/termio.zig
+index b16885109..e2860fe2a 100644
+--- a/src/termio.zig
++++ b/src/termio.zig
+@@ -23,6 +23,7 @@ const message = @import("termio/message.zig");
+ pub const backend = @import("termio/backend.zig");
+ pub const mailbox = @import("termio/mailbox.zig");
+ pub const Exec = @import("termio/Exec.zig");
++pub const Host = @import("termio/Host.zig");
+ pub const Options = @import("termio/Options.zig");
+ pub const Termio = @import("termio/Termio.zig");
+ pub const Thread = @import("termio/Thread.zig");
+diff --git a/src/termio/Host.zig b/src/termio/Host.zig
+new file mode 100644
+index 000000000..9fab3ce14
+--- /dev/null
++++ b/src/termio/Host.zig
+@@ -0,0 +1,175 @@
++//! Host IO backend: the embedder owns the byte stream (SSH session, local
++//! shell over a socket, ...) and libghostty only does terminal emulation +
++//! rendering.
++//!
++//! Upstream libghostty only ships the `exec` backend, which always forks a
++//! subprocess behind a pty (`termio.Exec`). Embedders that already have their
++//! own transport (e.g. libssh2 as in Ghosterm) have no way to hand bytes in or
++//! take user input out, which is why this exists.
++//!
++//! Data flow (identical shape to `Exec`, minus the pty):
++//!   host  --ghostty_surface_process_output-->  Termio.processOutput  (grid)
++//!   grid  --mailbox write-->  Host.queueWrite  --write_cb-->  host
++//!   host  --ghostty_surface_set_size-->  Host.resize  --resize_cb-->  host
++//!
++//! No subprocess, no read thread, no termios timer. The termio thread still
++//! runs: it drains the mailbox (input, resize, config) and is the only writer
++//! of terminal state from the input side, while the host's own session thread
++//! feeds output through `processOutput`, exactly like Exec's reader thread
++//! does. Both paths take the renderer lock, so they are safe to run
++//! concurrently.
++const Host = @This();
++
++const std = @import("std");
++const Allocator = std.mem.Allocator;
++const renderer = @import("../renderer.zig");
++const terminal = @import("../terminal/main.zig");
++const termio = @import("../termio.zig");
++const ProcessInfo = @import("../pty.zig").ProcessInfo;
++
++const log = std.log.scoped(.io_host);
++
++/// Callbacks into the embedder. All are called from the termio thread.
++pub const Callbacks = struct {
++    /// Opaque pointer passed back to every callback.
++    userdata: ?*anyopaque = null,
++
++    /// User input encoded by the terminal, ready to be written to the
++    /// embedder's transport. Called from the termio thread.
++    write: *const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
++
++    /// The terminal grid changed size; the embedder must forward this to its
++    /// transport (SSH window-change / pty resize).
++    resize: *const fn (?*anyopaque, u16, u16) callconv(.c) void,
++};
++
++callbacks: Callbacks,
++
++pub fn init(callbacks: Callbacks) Host {
++    return .{ .callbacks = callbacks };
++}
++
++/// The host has no process to wait for, so there is no thread data.
++pub const ThreadData = struct {
++    pub fn deinit(self: *ThreadData, alloc: Allocator) void {
++        _ = self;
++        _ = alloc;
++    }
++};
++
++/// Nothing to start. The terminal state is already sized from the surface's
++/// initial size by the caller.
++pub fn initTerminal(self: *Host, t: *terminal.Terminal) void {
++    _ = self;
++    _ = t;
++}
++
++pub fn threadEnter(
++    self: *Host,
++    alloc: Allocator,
++    io: *termio.Termio,
++    td: *termio.Termio.ThreadData,
++) !void {
++    _ = self;
++    _ = alloc;
++    _ = io;
++    td.backend = .{ .host = .{} };
++}
++
++pub fn threadExit(self: *Host, td: *termio.Termio.ThreadData) void {
++    _ = self;
++    _ = td;
++}
++
++pub fn deinit(self: *Host) void {
++    _ = self;
++}
++
++/// The host owns focus semantics for its transport; nothing to forward.
++pub fn focusGained(
++    self: *Host,
++    td: *termio.Termio.ThreadData,
++    focused: bool,
++) !void {
++    _ = self;
++    _ = td;
++    _ = focused;
++}
++
++pub fn resize(
++    self: *Host,
++    grid_size: renderer.GridSize,
++    screen_size: renderer.ScreenSize,
++) !void {
++    _ = screen_size;
++    log.debug("host resize cols={} rows={}", .{ grid_size.columns, grid_size.rows });
++    self.callbacks.resize(
++        self.callbacks.userdata,
++        @intCast(grid_size.columns),
++        @intCast(grid_size.rows),
++    );
++}
++
++pub fn queueWrite(
++    self: *Host,
++    alloc: Allocator,
++    td: *termio.Termio.ThreadData,
++    data: []const u8,
++    linefeed: bool,
++) !void {
++    _ = alloc;
++    _ = td;
++    if (data.len == 0) return;
++
++    var buf: [4096]u8 = undefined;
++    if (!linefeed) {
++        self.callbacks.write(self.callbacks.userdata, data.ptr, data.len);
++        return;
++    }
++
++    // Slow path: CR -> CRLF, mirrored from the exec backend so that embedded
++    // hosts get the same linefeed-mode behavior.
++    var i: usize = 0;
++    while (i < data.len) {
++        var buf_i: usize = 0;
++        while (i < data.len and buf_i < buf.len - 1) {
++            const ch = data[i];
++            i += 1;
++            if (ch != '\r') {
++                buf[buf_i] = ch;
++                buf_i += 1;
++                continue;
++            }
++            buf[buf_i] = '\r';
++            buf[buf_i + 1] = '\n';
++            buf_i += 2;
++        }
++        if (buf_i > 0) self.callbacks.write(self.callbacks.userdata, &buf, buf_i);
++    }
++}
++
++/// The host signals abnormal exits itself (it knows its transport); nothing
++/// to synthesize here.
++pub fn childExitedAbnormally(
++    self: *Host,
++    gpa: Allocator,
++    t: *terminal.Terminal,
++    exit_code: u32,
++    runtime_ms: u64,
++) !void {
++    _ = self;
++    _ = gpa;
++    _ = t;
++    _ = exit_code;
++    _ = runtime_ms;
++}
++
++pub fn getProcessInfo(self: *Host, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
++    _ = self;
++    // Foreground pid / tty name are pty concepts; the host's transport may
++    // have neither. Reporting "unavailable" is the honest answer.
++    return switch (info) {
++        .foreground_pid => null,
++        .tty_name => null,
++    };
++}
+\ No newline at end of file
+diff --git a/src/termio/backend.zig b/src/termio/backend.zig
+index c29009acb..196293049 100644
+--- a/src/termio/backend.zig
++++ b/src/termio/backend.zig
+@@ -11,28 +11,34 @@ const ProcessInfo = @import("../pty.zig").ProcessInfo;
+ const WRITE_REQ_PREALLOC = std.math.pow(usize, 2, 5);
+ 
+ /// The kinds of backends.
+-pub const Kind = enum { exec };
++pub const Kind = enum { exec, host };
+ 
+ /// Configuration for the various backend types.
+ pub const Config = union(Kind) {
+     /// Exec uses posix exec to run a command with a pty.
+     exec: termio.Exec.Config,
++
++    /// Host lets the embedder own the byte stream (see termio.Host).
++    host: termio.Host.Callbacks,
+ };
+ 
+ /// Backend implementations. A backend is responsible for owning the pty
+ /// behavior and providing read/write capabilities.
+ pub const Backend = union(Kind) {
+     exec: termio.Exec,
++    host: termio.Host,
+ 
+     pub fn deinit(self: *Backend) void {
+         switch (self.*) {
+             .exec => |*exec| exec.deinit(),
++            .host => |*host| host.deinit(),
+         }
+     }
+ 
+     pub fn initTerminal(self: *Backend, t: *terminal.Terminal) void {
+         switch (self.*) {
+             .exec => |*exec| exec.initTerminal(t),
++            .host => |*host| host.initTerminal(t),
+         }
+     }
+ 
+@@ -44,12 +50,14 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.threadEnter(alloc, io, td),
++            .host => |*host| try host.threadEnter(alloc, io, td),
+         }
+     }
+ 
+     pub fn threadExit(self: *Backend, td: *termio.Termio.ThreadData) void {
+         switch (self.*) {
+             .exec => |*exec| exec.threadExit(td),
++            .host => |*host| host.threadExit(td),
+         }
+     }
+ 
+@@ -60,6 +68,7 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.focusGained(td, focused),
++            .host => |*host| try host.focusGained(td, focused),
+         }
+     }
+ 
+@@ -70,6 +79,7 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.resize(grid_size, screen_size),
++            .host => |*host| try host.resize(grid_size, screen_size),
+         }
+     }
+ 
+@@ -82,6 +92,7 @@ pub const Backend = union(Kind) {
+     ) !void {
+         switch (self.*) {
+             .exec => |*exec| try exec.queueWrite(alloc, td, data, linefeed),
++            .host => |*host| try host.queueWrite(alloc, td, data, linefeed),
+         }
+     }
+ 
+@@ -99,6 +110,12 @@ pub const Backend = union(Kind) {
+                 exit_code,
+                 runtime_ms,
+             ),
++            .host => |*host| try host.childExitedAbnormally(
++                gpa,
++                t,
++                exit_code,
++                runtime_ms,
++            ),
+         }
+     }
+ 
+@@ -108,6 +125,7 @@ pub const Backend = union(Kind) {
+     pub fn getProcessInfo(self: *Backend, comptime info: ProcessInfo) ?ProcessInfo.Type(info) {
+         return switch (self.*) {
+             .exec => |*exec| exec.getProcessInfo(info),
++            .host => |*host| host.getProcessInfo(info),
+         };
+     }
+ };
+@@ -115,10 +133,12 @@ pub const Backend = union(Kind) {
+ /// Termio thread data. See termio.ThreadData for docs.
+ pub const ThreadData = union(Kind) {
+     exec: termio.Exec.ThreadData,
++    host: termio.Host.ThreadData,
+ 
+     pub fn deinit(self: *ThreadData, alloc: Allocator) void {
+         switch (self.*) {
+             .exec => |*exec| exec.deinit(alloc),
++            .host => |*host| host.deinit(alloc),
+         }
+     }
+ 

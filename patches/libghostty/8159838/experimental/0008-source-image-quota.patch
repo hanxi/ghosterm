@@ -1,0 +1,138 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index dceac2c..150e622 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -618,6 +618,8 @@ typedef struct {
+   void* p0_resource_userdata;
+   bool (*p0_resource_resolve)(void*, uint32_t, const uint8_t*, size_t,
+                               uint32_t*, const uint8_t**, size_t*);
++  uint64_t p0_image_storage_limit;
++  bool p0_image_storage_limit_set;
+ } ghostty_surface_config_s;
+
+ typedef struct {
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 3fb71c8..304443c 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -675,6 +675,7 @@ pub fn init(
+             .backend = .{ .host = termio.Host.init(callbacks) },
+             .replica_snapshot = if (comptime @hasDecl(apprt.Surface, "replicaSnapshot")) rt_surface.replicaSnapshot() else null,
+             .replica_resources = if (comptime @hasDecl(apprt.Surface, "replicaResourceHooks")) rt_surface.replicaResourceHooks() else null,
++            .replica_image_storage_limit = if (comptime @hasDecl(apprt.Surface, "replicaImageStorageLimit")) rt_surface.replicaImageStorageLimit() else null,
+             .mailbox = io_mailbox,
+             .renderer_state = &self.renderer_state,
+             .renderer_wakeup = render_thread.wakeup,
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 707473d..c60ada2 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -458,6 +458,7 @@ pub const Surface = struct {
+     /// Host-backed IO configuration (see Options.host). Both are stored as
+     /// plain optionals so the struct stays trivially initialized.
+     p0_snapshot: ?[]const u8 = null,
++    p0_image_storage_limit: ?usize = null,
+     p0_resource_userdata: ?*anyopaque = null,
+     p0_resource_resolve: ?@import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks.Resolve = null,
+     host: bool = false,
+@@ -546,8 +547,12 @@ pub const Surface = struct {
+         p0_snapshot_len: usize = 0,
+         p0_resource_userdata: ?*anyopaque = null,
+         p0_resource_resolve: ?@import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks.Resolve = null,
++        p0_image_storage_limit: u64 = 0,
++        p0_image_storage_limit_set: bool = false,
+     };
+
++    pub fn replicaImageStorageLimit(self: *const Surface) ?usize { return self.p0_image_storage_limit; }
++
+     pub fn replicaResourceHooks(self: *const Surface) ?@import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks {
+         const resolve = self.p0_resource_resolve orelse return null;
+         return .{ .userdata = self.p0_resource_userdata, .resolve = resolve };
+@@ -562,7 +567,10 @@ pub const Surface = struct {
+         if (opts.p0_snapshot != null and (!opts.host or opts.p0_snapshot_len == 0 or opts.p0_snapshot_len > 16 * 1024 * 1024))
+             return error.InvalidReplicaSnapshot;
+         if (opts.p0_resource_resolve != null and opts.p0_snapshot == null) return error.InvalidReplicaResources;
++        if (opts.p0_resource_resolve != null and !opts.p0_image_storage_limit_set) return error.MissingReplicaImageLimit;
++        if (opts.p0_image_storage_limit_set and (opts.p0_snapshot == null or std.math.cast(usize, opts.p0_image_storage_limit) == null)) return error.InvalidReplicaImageLimit;
+         self.* = .{
++            .p0_image_storage_limit = if (opts.p0_image_storage_limit_set) @intCast(opts.p0_image_storage_limit) else null,
+             .p0_resource_userdata = opts.p0_resource_userdata,
+             .p0_resource_resolve = opts.p0_resource_resolve,
+             .app = app,
+diff --git a/src/terminal/snapshot/snapshot.zig b/src/terminal/snapshot/snapshot.zig
+index 16737ca..8d04811 100644
+--- a/src/terminal/snapshot/snapshot.zig
++++ b/src/terminal/snapshot/snapshot.zig
+@@ -118,6 +118,9 @@ pub const DecodeOptions = struct {
+     /// The snapshot format is unchanged, so this works with any snapshot.
+     /// It has no effect on platforms that do not support compression.
+     compress_history: bool = false,
++
++    /// P0: source session policy, applied before screen decoding.
++    kitty_image_storage_limit: ?usize = null,
+ };
+
+ /// One decoded Terminal and the bytes needed to resume its Stream.
+@@ -333,6 +336,7 @@ pub const Decoder = struct {
+             const explicit_bytes = primary.pages.limits.bytes.explicit;
+             const explicit_lines = primary.pages.limits.lines.explicit;
+             break :options .{
++                .kitty_image_storage_limit = options.kitty_image_storage_limit orelse primary.kitty_images.total_limit,
+                 .cols = result.cols,
+                 .rows = result.rows,
+                 .max_scrollback_bytes = if (explicit_bytes == std.math.maxInt(usize))
+diff --git a/src/termio/Options.zig b/src/termio/Options.zig
+index 98aef44..7b5e571 100644
+--- a/src/termio/Options.zig
++++ b/src/termio/Options.zig
+@@ -9,6 +9,7 @@ const termio = @import("../termio.zig");
+ /// All size metrics for the terminal.
+ size: renderer.Size,
+ replica_snapshot: ?[]const u8 = null,
++replica_image_storage_limit: ?usize = null,
+ replica_resources: ?@import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks = null,
+
+ /// The full app configuration. This is only available during initialization.
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 19ffe46..753c6d2 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -65,6 +65,7 @@ mailbox: termio.Mailbox,
+ /// from the child process and calls callbacks in the stream handler.
+ terminal_stream: StreamHandler.Stream,
+ replica_stream: ?terminalpkg.TerminalStream = null,
++replica_image_storage_limit: ?usize = null,
+ replica_resources: @import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks = .{},
+
+ /// Last time the cursor was reset. This is used to prevent message
+@@ -278,6 +279,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+         var reader: std.Io.Reader = .fixed(bytes);
+         decoded = try terminalpkg.snapshot.decodeExact(alloc, global.io(), &reader, .{
+             .max_continuation_bytes = 1024 * 1024,
++            .kitty_image_storage_limit = opts.replica_image_storage_limit,
+         });
+     }
+     // Store the terminal at its final address before restoring its stream.
+@@ -349,6 +351,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+     self.* = .{
+         .alloc = alloc,
+         .terminal = term,
++        .replica_image_storage_limit = opts.replica_image_storage_limit,
+         .config = opts.config,
+         .renderer_state = opts.renderer_state,
+         .renderer_wakeup = opts.renderer_wakeup,
+@@ -552,8 +555,12 @@ pub fn changeConfig(self: *Termio, td: *ThreadData, config: *DerivedConfig) !voi
+     };
+
+     // Set the image limits
+-    self.terminal.setKittyGraphicsSizeLimit(self.alloc, config.image_storage_limit);
+-    self.terminal.setKittyGraphicsLoadingLimits(.allWithTempDir(global.tmpDirPath()));
++    self.terminal.setKittyGraphicsSizeLimit(self.alloc, self.replica_image_storage_limit orelse config.image_storage_limit);
++    if (self.replica_stream != null) {
++        var limits = @import("../terminal/kitty/graphics_image.zig").LoadingImage.Limits.direct;
++        if (self.replica_resources.resolve != null) limits.resource_hooks = &self.replica_resources;
++        self.terminal.setKittyGraphicsLoadingLimits(limits);
++    } else self.terminal.setKittyGraphicsLoadingLimits(.allWithTempDir(global.tmpDirPath()));
+ }
+
+ /// Resize the terminal.

@@ -1,0 +1,104 @@
+diff --git a/src/global.zig b/src/global.zig
+--- a/src/global.zig
++++ b/src/global.zig
+@@ -53,6 +53,11 @@
+ 
+ /// Initialize the global state.
+ pub fn init(opts: InitOpts) !void {
++    return initWithAllocator(opts, null);
++}
++
++/// Experimental embedding boundary: descriptor outlives global teardown.
++pub fn initWithAllocator(opts: InitOpts, host_allocator: ?std.mem.Allocator) !void {
+     // Initialize ourself to nothing so we don't have any extra state.
+     // IMPORTANT: this MUST be initialized before any log output because
+     // the log function uses the global state.
+@@ -86,7 +91,7 @@
+     const self = &state.?;
+     errdefer deinit();
+ 
+-    self.gpa = gpa: {
++    self.gpa = if (host_allocator != null) null else gpa: {
+         // Use the libc allocator if it is available because it is WAY
+         // faster than GPA. We only do this in release modes so that we
+         // can get easy memory leak detection in debug modes.
+@@ -103,7 +108,7 @@
+         break :gpa .init;
+     };
+ 
+-    self.alloc = if (self.gpa) |*value|
++    self.alloc = host_allocator orelse if (self.gpa) |*value|
+         value.allocator()
+     else if (builtin.link_libc)
+         std.heap.c_allocator
+diff --git a/src/main_c.zig b/src/main_c.zig
+--- a/src/main_c.zig
++++ b/src/main_c.zig
+@@ -107,10 +107,32 @@
+ };
+ 
+ /// Initialize ghostty global state.
++// Global third-party initialization is process-scoped and not retryable.
++// 0=cold, 1=initializing, 2=legacy, 3=owned, 4=retired, 5=failed.
++var p0_global_phase = std.atomic.Value(u8).init(0);
++
+ pub export fn ghostty_init(argc: usize, argv: [*][*:0]u8) c_int {
++    return initC(argc, argv, null);
++}
++
++pub export fn ghostty_p0_init(argc: usize, argv: [*][*:0]u8, host: ?*const @import("lib/allocator.zig").Allocator) c_int {
++    const selected = host orelse return 1;
++    return initC(argc, argv, selected.zig());
++}
++
++// Caller has destroyed all apps/configs/surfaces and joined their threads.
++// Only an owned successful initialization can be retired, exactly once.
++pub export fn ghostty_p0_deinit() bool {
++    if (p0_global_phase.cmpxchgStrong(3, 4, .acq_rel, .acquire) != null) return false;
++    global.deinit();
++    return true;
++}
++
++fn initC(argc: usize, argv: [*][*:0]u8, host_allocator: ?std.mem.Allocator) c_int {
+     assert(builtin.link_libc);
+-
+-    global.init(.{
++    if (p0_global_phase.cmpxchgStrong(0, 1, .acq_rel, .acquire) != null) return 1;
++
++    global.initWithAllocator(.{
+         .c = .{
+             .argc = argc,
+             .argv = argv,
+@@ -126,11 +148,13 @@
+                 // purposes of initialization.
+                 .{ .block = .{ .use_global = true } },
+         },
+-    }) catch |err| {
++    }, host_allocator) catch |err| {
++        p0_global_phase.store(5, .release);
+         std.log.err("failed to initialize ghostty error={}", .{err});
+         return 1;
+     };
+ 
++    p0_global_phase.store(if (host_allocator != null) 3 else 2, .release);
+     return 0;
+ }
+ 
+diff --git a/include/ghostty.h b/include/ghostty.h
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1280,6 +1280,14 @@
+ // Published API
+ 
+ GHOSTTY_API int ghostty_init(uintptr_t, char**);
++// Experimental P0: custom descriptor outlives all globals and every borrower.
++// One initialization attempt per process (including legacy); no retry after
++// failure/teardown. NULL host rejects without consuming the attempt. Before
++// deinit, destroy all apps/configs/surfaces and join all engine threads.
++// Teardown covers allocator-owned globals, not third-party library internals.
++GHOSTTY_API int ghostty_p0_init(uintptr_t, char**, const ghostty_p0_allocator_s*);
++GHOSTTY_API bool ghostty_p0_deinit(void);
++
+ GHOSTTY_API void ghostty_cli_try_action(void);
+ GHOSTTY_API ghostty_info_s ghostty_info(void);
+ GHOSTTY_API const char* ghostty_translate(const char*);

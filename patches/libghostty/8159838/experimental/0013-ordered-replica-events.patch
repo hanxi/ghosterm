@@ -1,0 +1,115 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index a7721f8..0c0b643 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1284,6 +1284,10 @@ GHOSTTY_API ghostty_surface_t ghostty_surface_new(ghostty_app_t,
+ GHOSTTY_API void ghostty_surface_free(ghostty_surface_t);
+ // P0 only: synchronous snapshot of a readonly replica. Not a production ABI.
+ GHOSTTY_API bool ghostty_p0_surface_snapshot(ghostty_surface_t, uint8_t*, size_t, size_t*);
++// P0 only: synchronous ordered authority events; sequence starts at one.
++GHOSTTY_API bool ghostty_p0_surface_event_output(ghostty_surface_t, uint64_t, const uint8_t*, size_t);
++GHOSTTY_API bool ghostty_p0_surface_event_resize(ghostty_surface_t, uint64_t, uint16_t, uint16_t, uint32_t, uint32_t);
++GHOSTTY_API bool ghostty_p0_surface_applied_sequence(ghostty_surface_t, uint64_t*);
+ // P0 only: observe the complete resource graph; separate from canonical capture.
+ GHOSTTY_API bool ghostty_p0_surface_resources_snapshot(ghostty_surface_t, uint8_t*, size_t, size_t*);
+ // P0 only: copy one displayed image and its viewport pin under the renderer lock.
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 666d7bc..10cfda8 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1984,6 +1984,25 @@ pub const CAPI = struct {
+         return surface.core_surface.io.replicaSnapshot(if (ptr) |p| p[0..len] else &.{}, written) catch false;
+     }
+
++    export fn ghostty_p0_surface_event_output(surface: *Surface, sequence: u64, ptr: ?[*]const u8, len: usize) bool {
++        if (ptr == null and len != 0 or len > 16 * 1024 * 1024) return false;
++        return surface.core_surface.io.replicaEvent(sequence, .{ .output = if (ptr) |p| p[0..len] else &.{} });
++    }
++
++    export fn ghostty_p0_surface_event_resize(surface: *Surface, sequence: u64, cols: u16, rows: u16, width: u32, height: u32) bool {
++        const invalid = cols == 0 or rows == 0 or width == 0 or height == 0 or
++            @as(u64, cols) * rows > 1024 * 1024 or
++            @as(u64, cols) * width > std.math.maxInt(u32) or
++            @as(u64, rows) * height > std.math.maxInt(u32);
++        if (invalid) return false;
++        return surface.core_surface.io.replicaEvent(sequence, .{ .resize = .{ .cols = cols, .rows = rows, .width = width, .height = height } });
++    }
++
++    export fn ghostty_p0_surface_applied_sequence(surface: *Surface, sequence: *u64) bool {
++        sequence.* = 0;
++        return surface.core_surface.io.replicaAppliedSequence(sequence);
++    }
++
+     export fn ghostty_p0_surface_resources_snapshot(surface: *Surface, ptr: ?[*]u8, len: usize, written: *usize) bool {
+         written.* = 0;
+         if (ptr == null and len != 0) return false;
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 17632e2..0d690a4 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -65,6 +65,7 @@ mailbox: termio.Mailbox,
+ /// from the child process and calls callbacks in the stream handler.
+ terminal_stream: StreamHandler.Stream,
+ replica_stream: ?terminalpkg.TerminalStream = null,
++replica_sequence: u64 = 0,
+ replica_image_storage_limit: ?usize = null,
+ replica_resources: @import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks = .{},
+
+@@ -776,6 +777,46 @@ pub fn replicaReadImage(self: *Termio, id: u32, dest: []u8, written: *usize, col
+     return true;
+ }
+
++pub const ReplicaEvent = union(enum) {
++    output: []const u8,
++    resize: struct { cols: u16, rows: u16, width: u32, height: u32 },
++};
++
++// Acceptance means the parser/grid has applied this event under the same lock
++// used for input-mode reads. It does not acknowledge rendering or an IPC read.
++pub fn replicaEvent(self: *Termio, sequence: u64, event: ReplicaEvent) bool {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    const stream = if (self.replica_stream) |*s| s else return false;
++    if (stream.handler.semantic_failure) return false;
++    if (self.replica_sequence == std.math.maxInt(u64) or sequence != self.replica_sequence + 1) return false;
++    switch (event) {
++        .output => |bytes| stream.nextSlice(bytes),
++        .resize => |size| self.terminal.resize(self.alloc, .{
++            .cols = size.cols, .rows = size.rows,
++            .cell_size_px = .{ .width = size.width, .height = size.height },
++        }) catch {
++            // A failed resize can have partially changed page state. Invalidate
++            // this replica rather than exporting a plausible partial result.
++            stream.handler.semantic_failure = true;
++            return false;
++        },
++    }
++    if (stream.handler.semantic_failure) return false;
++    self.replica_sequence = sequence;
++    self.renderer_wakeup.notify() catch {};
++    return true;
++}
++
++pub fn replicaAppliedSequence(self: *Termio, sequence: *u64) bool {
++    self.renderer_state.mutex.lockUncancelable(global.io());
++    defer self.renderer_state.mutex.unlock(global.io());
++    const stream = if (self.replica_stream) |*s| s else return false;
++    if (stream.handler.semantic_failure) return false;
++    sequence.* = self.replica_sequence;
++    return true;
++}
++
+ // Experimental observation point: export the actual full-surface resource graph.
+ // This is not a production checkpoint API; canonical/resource capture is separate.
+ pub fn replicaResourcesSnapshot(self: *Termio, dest: []u8, written: *usize) !bool {
+@@ -823,6 +864,10 @@ pub fn processOutput(self: *Termio, buf: []const u8) void {
+ /// Process output from readdata but the lock is already held.
+ fn processOutputLocked(self: *Termio, buf: []const u8) void {
+     if (self.replica_stream) |*stream| {
++        if (self.replica_sequence != 0) {
++            stream.handler.semantic_failure = true;
++            return;
++        }
+         stream.nextSlice(buf);
+         self.renderer_wakeup.notify() catch {};
+         return;

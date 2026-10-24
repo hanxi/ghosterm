@@ -1,0 +1,152 @@
+diff --git a/src/terminal/PageList.zig b/src/terminal/PageList.zig
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -402,6 +402,10 @@
+ pool: MemoryPool,
+ /// Optional OS-compatible page provider; host policy, never serialized.
+ p0_page_allocator: ?Allocator = null,
++
++// P0: source-owner notification only. Not an option and never cloned/encoded.
++p0_history_context: ?*anyopaque = null,
++p0_history_pruned: ?*const fn (?*anyopaque) callconv(.c) void = null,
+ 
+ /// The list of pages in the screen.
+ pages: List,
+@@ -4066,6 +4070,11 @@
+             break :prune;
+         }
+ 
++        // The protected active-area case above has restored the page and left.
++        // Here an actual historical prefix has been discarded, even if a later
++        // allocation fails. Observers only record a flag, never reenter us.
++        if (self.p0_history_pruned) |notify| notify(self.p0_history_context);
++
+         // If we have a pin viewport cache then we need to update it.
+         if (self.viewport == .pin) viewport: {
+             if (self.viewport_pin_row_offset) |*v| {
+@@ -7118,7 +7127,10 @@
+ 
+         // Reconcile viewport mode and cached row offsets with the combined prefix
+         // removal only after every page and pin points into the final list.
+-        if (removed > 0) pagelist.fixupViewport(removed);
++        if (removed > 0) {
++            pagelist.fixupViewport(removed);
++            if (pagelist.p0_history_pruned) |notify| notify(pagelist.p0_history_context);
++        }
+     }
+ 
+     /// Returns the minimum valid "max size" for a given number of rows and cols
+@@ -20861,3 +20873,57 @@
+     }
+     try std.testing.expectEqual(pages.allocated_bytes, pages.freed_bytes);
+ }
++
++// Source-owner callbacks stay within the lifetime of their PageList.
++const P0HistoryCounter = struct {
++    fn notify(context: ?*anyopaque) callconv(.c) void {
++        const count: *usize = @ptrCast(@alignCast(context.?));count.* += 1;
++    }
++};
++test "p0-history-pruned byte-line-reset" {
++    for ([_]bool{ true, false }) |byte_limit| {
++        var list = try init(std.testing.allocator, .{
++            .cols = 80, .rows = 24,
++            .max_size = if (byte_limit) std_size else null,
++            .max_lines = if (byte_limit) null else @as(usize, 1),
++        });
++        defer list.deinit();
++        var count: usize = 0;list.p0_history_context = &count;list.p0_history_pruned = P0HistoryCounter.notify;
++        const watched = try list.trackPin(list.pin(.{ .screen = .{} }).?);
++        defer list.untrackPin(watched);
++        for (0..2400) |_| { _ = try list.grow(); }
++        try std.testing.expect(count > 0 and watched.garbage and list.total_rows >= list.rows);
++        const before_reset = count;list.reset();
++        try std.testing.expectEqual(before_reset, count);
++        for (0..2400) |_| { _ = try list.grow(); }
++        try std.testing.expect(count > before_reset);
++    }
++}
++test "p0-history-pruned policy-clear" {
++    var list = try init(std.testing.allocator, .{ .cols = 80, .rows = 24 });
++    defer list.deinit();
++    var count: usize = 0;list.p0_history_context = &count;list.p0_history_pruned = P0HistoryCounter.notify;
++    for (0..2400) |_| { _ = try list.grow(); }
++    try std.testing.expectEqual(@as(usize, 0), count);
++    list.setMaxBytes(std_size);
++    try std.testing.expect(count > 0);
++    list.setMaxBytes(null);
++    const before_lines = count;
++    for (0..2400) |_| { _ = try list.grow(); }
++    try std.testing.expectEqual(before_lines, count);
++    list.setMaxLines(1);
++    try std.testing.expect(count > before_lines);
++    const before_reset = count;list.reset();
++    try std.testing.expectEqual(before_reset, count);
++}
++test "p0-history-pruned clone-isolation" {
++    var source = try init(std.testing.allocator, .{ .cols = 80, .rows = 24, .max_size = std_size });
++    defer source.deinit();
++    var count: usize = 0;source.p0_history_context = &count;source.p0_history_pruned = P0HistoryCounter.notify;
++    var copy = try source.clone(std.testing.allocator, .{ .top = .{ .screen = .{} } });
++    defer copy.deinit();
++    for (0..2400) |_| { _ = try copy.grow(); }
++    try std.testing.expectEqual(@as(usize, 0), count);
++    for (0..2400) |_| { _ = try source.grow(); }
++    try std.testing.expect(count > 0);
++}
+diff --git a/src/terminal/c/terminal.zig b/src/terminal/c/terminal.zig
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -1011,6 +1011,15 @@
+         };
+     };
+ 
++    return .success;
++}
++
++// Owner-only, low-frequency notification. Explicit clear/reset is not pruning.
++pub fn p0_set_history_observer(terminal_: Terminal, context: ?*anyopaque, observer: ?*const fn (?*anyopaque) callconv(.c) void) callconv(lib.calling_conv) Result {
++    const wrapper = terminal_ orelse return .invalid_value;
++    const pages = &wrapper.terminal.screens.get(.primary).?.pages;
++    pages.p0_history_context = if (observer != null) context else null;
++    pages.p0_history_pruned = observer;
+     return .success;
+ }
+ 
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -305,6 +305,7 @@
+ }
+ 
+ pub const terminal_p0_new_with_page_allocator = terminal.p0_new_with_page_allocator;
++pub const terminal_p0_set_history_observer = terminal.p0_set_history_observer;
+ pub const snapshot_decoder_p0_page_allocator = snapshot.decoder_p0_page_allocator;
+ 
+ pub const snapshot_p0_encode_alloc = snapshot.p0_encode_alloc;
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -328,6 +328,7 @@
+         @export(&c.snapshot_p0_encode_alloc, .{ .name = "ghostty_snapshot_p0_encode_alloc" });
+         @export(&c.terminal_p0_resources_encode_alloc, .{ .name = "ghostty_terminal_p0_resources_encode_alloc" });
+         @export(&c.terminal_p0_new_with_page_allocator, .{ .name = "ghostty_terminal_p0_new_with_page_allocator" });
++        @export(&c.terminal_p0_set_history_observer, .{ .name = "ghostty_terminal_p0_set_history_observer" });
+         @export(&c.snapshot_decoder_p0_page_allocator, .{ .name = "ghostty_snapshot_decoder_p0_page_allocator" });
+         @export(&c.terminal_p0_pending_begin, .{ .name = "ghostty_terminal_p0_pending_begin" });
+         @export(&c.terminal_p0_pending_ready, .{ .name = "ghostty_terminal_p0_pending_ready" });
+diff --git a/include/ghostty/vt/terminal.h b/include/ghostty/vt/terminal.h
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -3113,6 +3113,11 @@
+ /** P0 only: pages must be zero-filled OS mappings, page-aligned, independently
+  * decommittable/recommittable; malloc storage is invalid. Both allocator
+  * descriptors and contexts must outlive the terminal and derived clones. */
++/* P0 source-owner callback for automatic page pruning under retention limits.
++ * Callback/context are borrowed until replaced or terminal_free, not serialized.
++ * Only record a flag; no terminal calls, UI work, allocation or reentrancy here.
++ * Clear/reset does not report pruning; clone/import does not inherit observers. */
++GHOSTTY_API GhosttyResult ghostty_terminal_p0_set_history_observer(GhosttyTerminal, void*, void (*)(void*));
+ GHOSTTY_API GhosttyResult ghostty_terminal_p0_new_with_page_allocator(const GhosttyAllocator*, const GhosttyAllocator*, GhosttyTerminal*, uint16_t, uint16_t);
+ /* P0: all resource wire memory uses the required scratch allocator. On failure
+  * outputs are NULL/0; on success free via ghostty_free with the same allocator. */

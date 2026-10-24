@@ -1,0 +1,4 @@
+module Cghosterm {
+    umbrella header "Cghosterm.h"
+    export *
+}

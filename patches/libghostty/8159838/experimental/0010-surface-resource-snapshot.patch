@@ -1,0 +1,134 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 150e622..3c4d92b 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -620,6 +620,8 @@ typedef struct {
+                               uint32_t*, const uint8_t**, size_t*);
+   uint64_t p0_image_storage_limit;
+   bool p0_image_storage_limit_set;
++  const uint8_t* p0_resources_snapshot;
++  size_t p0_resources_snapshot_len;
+ } ghostty_surface_config_s;
+
+ typedef struct {
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 304443c..3ae246a 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -529,6 +529,7 @@ pub fn init(
+         &derived_config.font,
+         font_size,
+     );
++    errdefer app.font_grid_set.deref(font_grid_key);
+
+     // Build our size struct which has all the sizes we need.
+     const size: rendererpkg.Size = size: {
+@@ -676,6 +677,7 @@ pub fn init(
+             .replica_snapshot = if (comptime @hasDecl(apprt.Surface, "replicaSnapshot")) rt_surface.replicaSnapshot() else null,
+             .replica_resources = if (comptime @hasDecl(apprt.Surface, "replicaResourceHooks")) rt_surface.replicaResourceHooks() else null,
+             .replica_image_storage_limit = if (comptime @hasDecl(apprt.Surface, "replicaImageStorageLimit")) rt_surface.replicaImageStorageLimit() else null,
++            .replica_resources_snapshot = if (comptime @hasDecl(apprt.Surface, "replicaResourcesSnapshot")) rt_surface.replicaResourcesSnapshot() else null,
+             .mailbox = io_mailbox,
+             .renderer_state = &self.renderer_state,
+             .renderer_wakeup = render_thread.wakeup,
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index c60ada2..5f94bce 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -459,6 +459,7 @@ pub const Surface = struct {
+     /// plain optionals so the struct stays trivially initialized.
+     p0_snapshot: ?[]const u8 = null,
+     p0_image_storage_limit: ?usize = null,
++    p0_resources_snapshot: ?[]const u8 = null,
+     p0_resource_userdata: ?*anyopaque = null,
+     p0_resource_resolve: ?@import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks.Resolve = null,
+     host: bool = false,
+@@ -549,8 +550,12 @@ pub const Surface = struct {
+         p0_resource_resolve: ?@import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks.Resolve = null,
+         p0_image_storage_limit: u64 = 0,
+         p0_image_storage_limit_set: bool = false,
++        p0_resources_snapshot: ?[*]const u8 = null,
++        p0_resources_snapshot_len: usize = 0,
+     };
+
++    pub fn replicaResourcesSnapshot(self: *const Surface) ?[]const u8 { return self.p0_resources_snapshot; }
++
+     pub fn replicaImageStorageLimit(self: *const Surface) ?usize { return self.p0_image_storage_limit; }
+
+     pub fn replicaResourceHooks(self: *const Surface) ?@import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks {
+@@ -568,9 +573,12 @@ pub const Surface = struct {
+             return error.InvalidReplicaSnapshot;
+         if (opts.p0_resource_resolve != null and opts.p0_snapshot == null) return error.InvalidReplicaResources;
+         if (opts.p0_resource_resolve != null and !opts.p0_image_storage_limit_set) return error.MissingReplicaImageLimit;
++        if (opts.p0_resources_snapshot == null and opts.p0_resources_snapshot_len != 0) return error.InvalidReplicaResourcesSnapshot;
++        if (opts.p0_resources_snapshot != null and (opts.p0_snapshot == null or !opts.p0_image_storage_limit_set or opts.p0_resources_snapshot_len > 16 * 1024 * 1024)) return error.InvalidReplicaResourcesSnapshot;
+         if (opts.p0_image_storage_limit_set and (opts.p0_snapshot == null or std.math.cast(usize, opts.p0_image_storage_limit) == null)) return error.InvalidReplicaImageLimit;
+         self.* = .{
+             .p0_image_storage_limit = if (opts.p0_image_storage_limit_set) @intCast(opts.p0_image_storage_limit) else null,
++            .p0_resources_snapshot = if (opts.p0_resources_snapshot) |p| p[0..opts.p0_resources_snapshot_len] else null,
+             .p0_resource_userdata = opts.p0_resource_userdata,
+             .p0_resource_resolve = opts.p0_resource_resolve,
+             .app = app,
+diff --git a/src/terminal/p0_resource_snapshot.zig b/src/terminal/p0_resource_snapshot.zig
+index 8728edc..a66f416 100644
+--- a/src/terminal/p0_resource_snapshot.zig
++++ b/src/terminal/p0_resource_snapshot.zig
+@@ -97,7 +97,7 @@ pub fn encode(alloc: Allocator, t: *Terminal, max_bytes: usize) ![]u8 {
+ }
+ // Preflight the complete wire before touching page pin pools. Their backing
+ // capacity is retained by the terminal even after individual pins are freed.
+-fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize) !void {
++fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize, expected_limit: ?usize) !void {
+     var r: std.Io.Reader = .fixed(bytes);
+     const count = try get(&r);
+     if (count != t.screens.all.count() or count < 1 or count > 2) return error.InvalidData;
+@@ -109,6 +109,7 @@ fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize) !void {
+         const screen = t.screens.get(if (index == 0) .primary else .alternate) orelse return error.InvalidData;
+         _ = try u32get(&r); _ = try u32get(&r);
+         const limit = try usizeget(&r);
++        if (expected_limit) |expected| if (limit != expected) return error.InvalidSourceLimit;
+         const expected_total = try usizeget(&r);
+         const images = try usizeget(&r);
+         const placements = try usizeget(&r);
+@@ -148,10 +149,13 @@ fn preflight(t: *Terminal, bytes: []const u8, max_bytes: usize) !void {
+     if (r.seek != bytes.len) return error.InvalidData;
+ }
+ pub fn decode(alloc: Allocator, t: *Terminal, data: []const u8, max_bytes: usize) !void {
++    return decodeWithLimit(alloc, t, data, max_bytes, null);
++}
++pub fn decodeWithLimit(alloc: Allocator, t: *Terminal, data: []const u8, max_bytes: usize, expected_limit: ?usize) !void {
+     if (data.len > max_bytes) return error.LimitExceeded;
+     if (data.len < 16 or !std.mem.eql(u8, data[0..8], magic)) return error.InvalidData;
+     if (std.mem.readInt(u32, data[8..12], .little) != data.len - 16 or std.mem.readInt(u32, data[12..16], .little) != std.hash.crc.Crc32Iscsi.hash(data[16..])) return error.InvalidData;
+-    try preflight(t, data[16..], max_bytes);
++    try preflight(t, data[16..], max_bytes, expected_limit);
+     var reader: std.Io.Reader = .fixed(data[16..]);
+     const count = try get(&reader);
+     if (count != t.screens.all.count() or count < 1 or count > 2) return error.InvalidData;
+diff --git a/src/termio/Options.zig b/src/termio/Options.zig
+index 7b5e571..41e0443 100644
+--- a/src/termio/Options.zig
++++ b/src/termio/Options.zig
+@@ -10,6 +10,7 @@ const termio = @import("../termio.zig");
+ size: renderer.Size,
+ replica_snapshot: ?[]const u8 = null,
+ replica_image_storage_limit: ?usize = null,
++replica_resources_snapshot: ?[]const u8 = null,
+ replica_resources: ?@import("../terminal/kitty/graphics_image.zig").LoadingImage.ResourceHooks = null,
+
+ /// The full app configuration. This is only available during initialization.
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 753c6d2..f23740c 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -309,6 +309,10 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+         };
+     });
+     errdefer term.deinit(alloc);
++    if (opts.replica_resources_snapshot) |bytes| {
++        if (opts.replica_snapshot == null or opts.replica_image_storage_limit == null) return error.InvalidReplicaResourcesSnapshot;
++        try @import("../terminal/p0_resource_snapshot.zig").decodeWithLimit(alloc, &term, bytes, 16 * 1024 * 1024, opts.replica_image_storage_limit);
++    }
+
+     // The default palette may be an allocator-owned copy, so it is set
+     // once the terminal owns its memory and can release it on deinit.

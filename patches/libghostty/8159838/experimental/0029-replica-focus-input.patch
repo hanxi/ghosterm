@@ -1,0 +1,41 @@
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 5f84c46..1543f4d 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -745,9 +745,11 @@ pub fn jumpToPrompt(self: *Termio, delta: isize) !void {
+ 
+ /// Called when focus is gained or lost (when focus events are enabled)
+ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
+-    if (self.replica_stream != null) return;
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     const focus_event = self.renderer_state.terminal.modes.get(.focus_event);
++    // P0: the stamp and the mode read must come from the same cut.
++    const replica = self.replica_stream != null;
++    const stamp = self.replicaInputStampLocked();
+     self.renderer_state.mutex.unlock(global.io());
+ 
+     // If we have focus events enabled, we send the focus event.
+@@ -758,11 +760,21 @@ pub fn focusGained(self: *Termio, td: *ThreadData, focused: bool) !void {
+             log.err("error encoding focus event err={}", .{err});
+             return;
+         };
+-        try self.queueWrite(td, writer.buffered(), false);
++        // P0: focus is user input, not a replica host action. A replica must
++        // not write the authority pty directly, but dropping the report is
++        // wrong too: route it back as stamped input, exactly like mouse.
++        if (replica) {
++            const request: termio.Message.ReplicaWrite = .{
++                .data = try termio.Message.WriteReq.init(self.alloc, writer.buffered()),
++                .stamp = stamp,
++            };
++            defer request.deinit();
++            try self.queueReplicaInput(request);
++        } else try self.queueWrite(td, writer.buffered(), false);
+     }
+ 
+     // We always notify our backend of focus changes.
+-    try self.backend.focusGained(td, focused);
++    if (!replica) try self.backend.focusGained(td, focused);
+ }
+ 
+ /// Process output from the pty. This is the manual API that users can

@@ -1,0 +1,44 @@
+diff --git a/include/ghostty.h b/include/ghostty.h
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1386,7 +1386,11 @@
+                                                  double,
+                                                  ghostty_input_scroll_mods_t);
+ GHOSTTY_API void ghostty_surface_mouse_pressure(ghostty_surface_t, uint32_t, double);
+-GHOSTTY_API void ghostty_surface_ime_point(ghostty_surface_t, double*, double*, double*, double*);
++// P0 Darwin observation only. Handles are borrowed until surface_free, never serialized.
++GHOSTTY_API size_t ghostty_p0_surface_thread_stack_size(void);
++GHOSTTY_API bool ghostty_p0_surface_thread_handle(ghostty_surface_t, uint32_t, uintptr_t*);
++
++GHOSTTY_API void ghostty_surface_ime_point(ghostty_surface_t, double*, double*, double*, double*);
+ GHOSTTY_API void ghostty_surface_request_close(ghostty_surface_t);
+ GHOSTTY_API void ghostty_surface_split(ghostty_surface_t, ghostty_action_split_direction_e);
+ GHOSTTY_API void ghostty_surface_split_focus(ghostty_surface_t,
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -2536,6 +2536,24 @@
+         surface.mousePressureCallback(stage, pressure);
+     }
+ 
++    // P0: inspect live native thread stacks; no pointer enters a checkpoint.
++    export fn ghostty_p0_surface_thread_stack_size() usize {
++        return std.Thread.SpawnConfig.default_stack_size;
++    }
++    export fn ghostty_p0_surface_thread_handle(surface: ?*Surface, role: u32, out: ?*usize) bool {
++        const result = out orelse return false;
++        result.* = 0;
++        if (comptime !builtin.os.tag.isDarwin()) return false;
++        const s = surface orelse return false;
++        const thread = switch (role) {
++            1 => s.core_surface.renderer_thr,
++            2 => s.core_surface.io_thr,
++            else => return false,
++        };
++        result.* = @intFromPtr(thread.getHandle());
++        return true;
++    }
++
+     export fn ghostty_surface_ime_point(
+         surface: *Surface,
+         x: *f64,

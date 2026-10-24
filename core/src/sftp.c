@@ -1,0 +1,807 @@
+/*
+ * sftp.c — SFTP 客户端（libssh2_sftp 薄封装）。
+ *
+ * 契约（AGENTS.md「libssh2 的 SFTP 历史漏洞」条款）：
+ *   - 上层**永不**接触 LIBSSH2_SFTP / LIBSSH2_SFTP_HANDLE；边界参数
+ *     （路径长度、条目数上限、深度上限）在本层拦截；
+ *   - **一会话一线程**（libssh2 会话非线程安全）：一个 gt_sftp_t 的**全部**
+ *     libssh2 调用经每会话 I/O 锁（`gt__ssh_io_lock`）串行化。请求/响应操作
+ *     （list/stat/mkdir/...）由调用线程在锁内完成；传输 job 由**单条 I/O
+ *     worker 线程**分块推进，块间释放锁——故浏览与传输交替推进，不并发触
+ *     同一会话（修掉先前「每 job 一条 detached 线程共用同一 LIBSSH2_SFTP」
+ *     的潜伏竞态）。
+ *
+ * 三态（铁律 #6）：job 结果 OK / FAILED / CANCELLED 不折叠；取消与暂停都是
+ * **协作式**（分块间检查标志，已写部分保留在磁盘）。未编译进 libssh2 时所有
+ * 入口显式 GT_ERR_UNSUPPORTED——能力缺失显式报错，绝不静默降级。
+ */
+#include "ghosterm.h"
+#include "internal.h"
+
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef GT_HAVE_LIBSSH2
+#include <libssh2.h>
+#include <libssh2_sftp.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "internal.h"
+
+#define SFTP_LOCK(s) gt__ssh_io_lock((s)->ssh)
+#define SFTP_UNLOCK(s) gt__ssh_io_unlock((s)->ssh)
+
+/* 单次 readdir/read 缓冲、条目上限、递归深度护栏。 */
+#define GT_SFTP_MAX_ENTRIES 65536
+#define GT_SFTP_CHUNK 32768
+#define GT_SFTP_MAX_DEPTH 64
+
+/* ------------------------------------------------------------------ */
+/* job 与 worker 线程                                                   */
+/* ------------------------------------------------------------------ */
+
+typedef struct sftp_job sftp_job_t;
+struct sftp_job {
+  sftp_job_t *next_pending; /* pending 队列链 */
+  sftp_job_t *next_all;     /* 全部在途 job 链（cancel/pause 查表用） */
+  gt_sftp_t *sftp;
+  char *remote;
+  char *local;
+  uint64_t job_id;
+  bool upload; /* false = download */
+  atomic_bool cancelled;
+  atomic_bool paused;
+};
+
+struct gt_sftp {
+  LIBSSH2_SFTP *sftp;
+  gt_ssh_t *ssh;
+
+  pthread_t worker;
+  bool worker_started;
+  pthread_mutex_t qlock;
+  pthread_cond_t qcond;
+  sftp_job_t *pending_head, *pending_tail; /* 待跑（FIFO） */
+  sftp_job_t *all_head;                    /* 在途（含正在跑与排队） */
+  bool quit;
+};
+
+static uint64_t g_next_job_id = 1;
+
+static int64_t mono_ms(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static void emit_progress(uint64_t job_id, uint64_t done, uint64_t total) {
+  char msg[GT_EVENT_MESSAGE_MAX];
+  snprintf(msg, sizeof msg, "sftp %llu/%llu",
+           (unsigned long long)done, (unsigned long long)total);
+  gt__emit_event(GT_EVENT_PROGRESS, job_id, 0, msg);
+}
+
+static void emit_job_done(uint64_t job_id, int result, const char *detail) {
+  char msg[GT_EVENT_MESSAGE_MAX];
+  snprintf(msg, sizeof msg, "sftp job %llu: %s",
+           (unsigned long long)job_id, detail ? detail : "");
+  gt__emit_event(GT_EVENT_JOB_DONE, job_id, result, msg);
+}
+
+/* ------------------------------------------------------------------ */
+/* 打开 / 关闭                                                          */
+/* ------------------------------------------------------------------ */
+
+static void *worker_main(void *arg);
+
+gt_sftp_t *gt__sftp_from_session(void *session, gt_ssh_t *ssh) {
+  LIBSSH2_SESSION *sess = session;
+  if (!sess) {
+    gt__set_error("sftp: 会话为空");
+    return NULL;
+  }
+  gt_sftp_t *out = gt__alloc(sizeof *out);
+  if (!out) return NULL;
+  out->ssh = ssh;
+  if (pthread_mutex_init(&out->qlock, NULL) != 0 ||
+      pthread_cond_init(&out->qcond, NULL) != 0) {
+    gt__set_error("sftp: 初始化 worker 同步原语失败");
+    free(out);
+    return NULL;
+  }
+  gt__ssh_io_lock(ssh);
+  LIBSSH2_SFTP *sf = libssh2_sftp_init(sess);
+  gt__ssh_io_unlock(ssh);
+  if (!sf) {
+    gt__set_error("sftp: libssh2_sftp_init 失败（服务器不支持 SFTP？）");
+    pthread_mutex_destroy(&out->qlock);
+    pthread_cond_destroy(&out->qcond);
+    free(out);
+    return NULL;
+  }
+  out->sftp = sf;
+  if (pthread_create(&out->worker, NULL, worker_main, out) == 0)
+    out->worker_started = true;
+  else
+    gt__set_error("sftp: 起 I/O worker 失败（传输将不可用）");
+  return out;
+}
+
+void gt_sftp_close(gt_sftp_t *sftp) {
+  if (!sftp) return;
+  if (sftp->worker_started) {
+    pthread_mutex_lock(&sftp->qlock);
+    sftp->quit = true;
+    pthread_cond_broadcast(&sftp->qcond);
+    pthread_mutex_unlock(&sftp->qlock);
+    pthread_join(sftp->worker, NULL);
+  }
+  /* 关闭时丢弃剩余在途 job（面板/标签页已在关闭，UI 不再等它们）。 */
+  sftp_job_t *j = sftp->all_head;
+  while (j) {
+    sftp_job_t *next = j->next_all;
+    free(j->remote);
+    free(j->local);
+    free(j);
+    j = next;
+  }
+  if (sftp->sftp) {
+    SFTP_LOCK(sftp);
+    libssh2_sftp_shutdown(sftp->sftp);
+    SFTP_UNLOCK(sftp);
+  }
+  pthread_mutex_destroy(&sftp->qlock);
+  pthread_cond_destroy(&sftp->qcond);
+  free(sftp);
+}
+
+/* ------------------------------------------------------------------ */
+/* stat / lstat / readlink / realpath / list                            */
+/* ------------------------------------------------------------------ */
+
+static void attrs_to_stat(const LIBSSH2_SFTP_ATTRIBUTES *a, gt_sftp_stat_t *out) {
+  memset(out, 0, sizeof *out);
+  if (!a) return;
+  out->size = (a->flags & LIBSSH2_SFTP_ATTR_SIZE) ? a->filesize : 0;
+  out->mode = (a->flags & LIBSSH2_SFTP_ATTR_PERMISSIONS)
+                  ? (uint32_t)(a->permissions & 07777) : 0;
+  out->mtime_unix = (a->flags & LIBSSH2_SFTP_ATTR_ACMODTIME)
+                        ? (int64_t)(long)a->mtime : -1;
+  out->has_owner = (a->flags & LIBSSH2_SFTP_ATTR_UIDGID) != 0;
+  out->uid = (a->flags & LIBSSH2_SFTP_ATTR_UIDGID) ? (uint32_t)a->uid : 0;
+  out->gid = (a->flags & LIBSSH2_SFTP_ATTR_UIDGID) ? (uint32_t)a->gid : 0;
+  unsigned long type = (a->flags & LIBSSH2_SFTP_ATTR_PERMISSIONS)
+                           ? (a->permissions & LIBSSH2_SFTP_S_IFMT) : 0;
+  out->is_dir = (type == LIBSSH2_SFTP_S_IFDIR);
+  out->is_symlink = (type == LIBSSH2_SFTP_S_IFLNK);
+}
+
+static int stat_common(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out,
+                       bool follow) {
+  if (!sftp || !path || !*path || !out) {
+    gt__set_error("sftp_stat: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  LIBSSH2_SFTP_ATTRIBUTES a;
+  memset(&a, 0, sizeof a);
+  SFTP_LOCK(sftp);
+  int rc = follow ? libssh2_sftp_stat(sftp->sftp, path, &a)
+                  : libssh2_sftp_lstat(sftp->sftp, path, &a);
+  SFTP_UNLOCK(sftp);
+  if (rc != 0) {
+    gt__set_error("sftp_stat: %s 不存在或不可访问", path);
+    return GT_ERR_IO;
+  }
+  attrs_to_stat(&a, out);
+  return GT_OK;
+}
+
+int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out) {
+  return stat_common(sftp, path, out, true);
+}
+
+int gt_sftp_lstat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out) {
+  return stat_common(sftp, path, out, false);
+}
+
+int gt_sftp_readlink(gt_sftp_t *sftp, const char *path, char *buf, size_t cap) {
+  if (!sftp || !path || !*path || !buf || cap == 0) {
+    gt__set_error("sftp_readlink: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  SFTP_LOCK(sftp);
+  int n = libssh2_sftp_symlink_ex(sftp->sftp, path, (unsigned)strlen(path),
+                                  buf, (int)(cap - 1), LIBSSH2_SFTP_READLINK);
+  SFTP_UNLOCK(sftp);
+  if (n < 0) {
+    gt__set_error("sftp_readlink: 读链接失败（%s）", path);
+    return GT_ERR_IO;
+  }
+  buf[n] = '\0';
+  return GT_OK;
+}
+
+int gt_sftp_realpath(gt_sftp_t *sftp, const char *path, char *buf, size_t cap) {
+  if (!sftp || !path || !*path || !buf || cap == 0) {
+    gt__set_error("sftp_realpath: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  SFTP_LOCK(sftp);
+  int n = libssh2_sftp_realpath(sftp->sftp, path, buf, (int)cap);
+  SFTP_UNLOCK(sftp);
+  if (n < 0) {
+    gt__set_error("sftp_realpath: %s 解析失败", path);
+    return GT_ERR_IO;
+  }
+  buf[cap - 1] = '\0';
+  return GT_OK;
+}
+
+int gt_sftp_list(gt_sftp_t *sftp, const char *path,
+                 gt_sftp_entry_t **out, size_t *out_count) {
+  if (!sftp || !path || !*path || !out || !out_count) {
+    gt__set_error("sftp_list: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  *out = NULL;
+  *out_count = 0;
+
+  SFTP_LOCK(sftp);
+  LIBSSH2_SFTP_HANDLE *h = libssh2_sftp_opendir(sftp->sftp, path);
+  SFTP_UNLOCK(sftp);
+  if (!h) {
+    gt__set_error("sftp_list: 打不开目录 %s", path);
+    return GT_ERR_IO;
+  }
+
+  gt_sftp_entry_t *entries = NULL;
+  size_t n = 0, cap = 0;
+  char name[512];
+  char longentry[1024];
+  LIBSSH2_SFTP_ATTRIBUTES a;
+  size_t plen = strlen(path);
+
+  int rc = GT_OK;
+  for (;;) {
+    memset(name, 0, sizeof name);
+    memset(&a, 0, sizeof a);
+    SFTP_LOCK(sftp);
+    ssize_t got = libssh2_sftp_readdir_ex(h, name, sizeof name - 1,
+                                          longentry, sizeof longentry, &a);
+    SFTP_UNLOCK(sftp);
+    if (got == 0) break;      /* 目录读完 */
+    if (got < 0) {
+      gt__set_error("sftp_list: readdir 失败（%s）", path);
+      rc = GT_ERR_IO;
+      break;
+    }
+    if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+    if (n == cap) {
+      size_t nc = cap ? cap * 2 : 16;
+      gt_sftp_entry_t *q = gt__realloc(entries, nc * sizeof *q);
+      if (!q) { rc = GT_ERR_INTERNAL; break; }
+      entries = q;
+      cap = nc;
+    }
+    gt_sftp_entry_t *e = &entries[n];
+    memset(e, 0, sizeof *e);
+    e->name = NULL; /* 名字由 full_path 持有（见 gt_sftp_list_free 约定） */
+    e->full_path = gt__alloc(plen + 1 + strlen(name) + 1);
+    if (!e->full_path) { rc = GT_ERR_INTERNAL; break; }
+    memcpy(e->full_path, path, plen);
+    size_t off = plen;
+    if (off == 0 || e->full_path[off - 1] != '/') e->full_path[off++] = '/';
+    strcpy(e->full_path + off, name);
+    attrs_to_stat(&a, &e->stat);
+    n++;
+    if (n >= GT_SFTP_MAX_ENTRIES) {
+      gt__set_error("sftp_list: 条目数超上限 %d", GT_SFTP_MAX_ENTRIES);
+      rc = GT_ERR_INTERNAL;
+      break;
+    }
+  }
+  SFTP_LOCK(sftp);
+  libssh2_sftp_closedir(h);
+  SFTP_UNLOCK(sftp);
+
+  if (rc != GT_OK) {
+    gt_sftp_list_free(entries, n);
+    return rc;
+  }
+  *out = entries;
+  *out_count = n;
+  return GT_OK;
+}
+
+void gt_sftp_list_free(gt_sftp_entry_t *entries, size_t count) {
+  if (!entries) return;
+  for (size_t i = 0; i < count; i++) free(entries[i].full_path);
+  free(entries);
+}
+
+/* ------------------------------------------------------------------ */
+/* 写侧原语                                                            */
+/* ------------------------------------------------------------------ */
+
+int gt_sftp_mkdir(gt_sftp_t *sftp, const char *path, uint32_t mode) {
+  if (!sftp || !path || !*path) {
+    gt__set_error("sftp_mkdir: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  SFTP_LOCK(sftp);
+  int rc = libssh2_sftp_mkdir_ex(sftp->sftp, path, (unsigned)strlen(path),
+                                 mode ? (long)mode : 0755);
+  SFTP_UNLOCK(sftp);
+  if (rc != 0) {
+    gt__set_error("sftp_mkdir: 创建目录失败（%s）", path);
+    return GT_ERR_IO;
+  }
+  return GT_OK;
+}
+
+int gt_sftp_rmdir(gt_sftp_t *sftp, const char *path) {
+  if (!sftp || !path || !*path) {
+    gt__set_error("sftp_rmdir: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  SFTP_LOCK(sftp);
+  int rc = libssh2_sftp_rmdir_ex(sftp->sftp, path, (unsigned)strlen(path));
+  SFTP_UNLOCK(sftp);
+  if (rc != 0) {
+    gt__set_error("sftp_rmdir: 删除目录失败（仅空目录，%s）", path);
+    return GT_ERR_IO;
+  }
+  return GT_OK;
+}
+
+int gt_sftp_remove(gt_sftp_t *sftp, const char *path) {
+  if (!sftp || !path || !*path) {
+    gt__set_error("sftp_remove: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  SFTP_LOCK(sftp);
+  int rc = libssh2_sftp_unlink_ex(sftp->sftp, path, (unsigned)strlen(path));
+  SFTP_UNLOCK(sftp);
+  if (rc != 0) {
+    gt__set_error("sftp_remove: 删除失败（%s）", path);
+    return GT_ERR_IO;
+  }
+  return GT_OK;
+}
+
+/* 递归删除：先删孩子，再删目录自己。失败如实返回（不折叠成 OK）。 */
+static int remove_all_rec(gt_sftp_t *sftp, const char *path, int depth) {
+  if (depth > GT_SFTP_MAX_DEPTH) {
+    gt__set_error("sftp_remove_all: 递归深度超上限 %d", GT_SFTP_MAX_DEPTH);
+    return GT_ERR_INTERNAL;
+  }
+  gt_sftp_stat_t st;
+  int rc = gt_sftp_lstat(sftp, path, &st);
+  if (rc != GT_OK) return rc; /* 不存在 / 不可访问：如实报错 */
+  if (!st.is_dir) return gt_sftp_remove(sftp, path);
+
+  gt_sftp_entry_t *ents = NULL;
+  size_t n = 0;
+  rc = gt_sftp_list(sftp, path, &ents, &n);
+  if (rc != GT_OK) return rc;
+  for (size_t i = 0; i < n; i++) {
+    int r = remove_all_rec(sftp, ents[i].full_path, depth + 1);
+    if (r != GT_OK) { gt_sftp_list_free(ents, n); return r; }
+  }
+  gt_sftp_list_free(ents, n);
+  return gt_sftp_rmdir(sftp, path);
+}
+
+int gt_sftp_remove_all(gt_sftp_t *sftp, const char *path) {
+  if (!sftp || !path || !*path) {
+    gt__set_error("sftp_remove_all: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  return remove_all_rec(sftp, path, 0);
+}
+
+int gt_sftp_rename(gt_sftp_t *sftp, const char *from, const char *to) {
+  if (!sftp || !from || !*from || !to || !*to) {
+    gt__set_error("sftp_rename: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  SFTP_LOCK(sftp);
+  int rc = libssh2_sftp_rename_ex(sftp->sftp, from, (unsigned)strlen(from),
+                                  to, (unsigned)strlen(to),
+                                  LIBSSH2_SFTP_RENAME_OVERWRITE |
+                                      LIBSSH2_SFTP_RENAME_ATOMIC);
+  if (rc != 0)
+    rc = libssh2_sftp_rename(sftp->sftp, from, to); /* 无 posix-rename 扩展时回退 */
+  SFTP_UNLOCK(sftp);
+  if (rc != 0) {
+    gt__set_error("sftp_rename: 重命名/移动失败（%s → %s）", from, to);
+    return GT_ERR_IO;
+  }
+  return GT_OK;
+}
+
+int gt_sftp_chmod(gt_sftp_t *sftp, const char *path, uint32_t mode) {
+  if (!sftp || !path || !*path) {
+    gt__set_error("sftp_chmod: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  LIBSSH2_SFTP_ATTRIBUTES a;
+  memset(&a, 0, sizeof a);
+  a.flags = LIBSSH2_SFTP_ATTR_PERMISSIONS;
+  a.permissions = (unsigned long)(mode & 07777);
+  SFTP_LOCK(sftp);
+  int rc = libssh2_sftp_setstat(sftp->sftp, path, &a);
+  SFTP_UNLOCK(sftp);
+  if (rc != 0) {
+    gt__set_error("sftp_chmod: 改权限失败（%s）", path);
+    return GT_ERR_IO;
+  }
+  return GT_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* 递归枚举（walk）                                                     */
+/* ------------------------------------------------------------------ */
+
+static int walk_rec(gt_sftp_t *sftp, const char *dir, int depth, int max_depth,
+                    gt_sftp_walk_fn fn, void *ud) {
+  gt_sftp_entry_t *ents = NULL;
+  size_t n = 0;
+  int rc = gt_sftp_list(sftp, dir, &ents, &n);
+  if (rc != GT_OK) return rc;
+  for (size_t i = 0; i < n; i++) {
+    gt_sftp_entry_t *e = &ents[i];
+    const char *base = strrchr(e->full_path, '/');
+    gt_sftp_walk_ent_t we = {
+        .path = e->full_path,
+        .name = base ? base + 1 : e->full_path,
+        .stat = &e->stat,
+    };
+    if (fn(ud, &we) != 0) { gt_sftp_list_free(ents, n); return GT_ERR_CANCELLED; }
+    if (e->stat.is_dir && (max_depth < 0 || depth < max_depth)) {
+      int r = walk_rec(sftp, e->full_path, depth + 1, max_depth, fn, ud);
+      if (r != GT_OK) { gt_sftp_list_free(ents, n); return r; }
+    }
+  }
+  gt_sftp_list_free(ents, n);
+  return GT_OK;
+}
+
+int gt_sftp_walk(gt_sftp_t *sftp, const char *root, int max_depth,
+                 gt_sftp_walk_fn fn, void *ud) {
+  if (!sftp || !root || !*root || !fn) {
+    gt__set_error("sftp_walk: null/empty argument");
+    return GT_ERR_INVALID_ARG;
+  }
+  if (max_depth > GT_SFTP_MAX_DEPTH) max_depth = GT_SFTP_MAX_DEPTH;
+  return walk_rec(sftp, root, 1, max_depth, fn, ud);
+}
+
+/* ------------------------------------------------------------------ */
+/* 传输 job（单 worker 线程 + 分块推进）                                */
+/* ------------------------------------------------------------------ */
+
+static int job_download(sftp_job_t *j) {
+  int rc = GT_JOB_FAILED;
+  FILE *f = fopen(j->local, "wb");
+  if (!f) {
+    emit_job_done(j->job_id, GT_JOB_FAILED, strerror(errno));
+    return GT_JOB_FAILED;
+  }
+  gt_sftp_t *s = j->sftp;
+  SFTP_LOCK(s);
+  LIBSSH2_SFTP_HANDLE *h = libssh2_sftp_open(s->sftp, j->remote,
+                                             LIBSSH2_FXF_READ, 0);
+  SFTP_UNLOCK(s);
+  if (!h) {
+    fclose(f);
+    emit_job_done(j->job_id, GT_JOB_FAILED, "打开远端文件失败");
+    return GT_JOB_FAILED;
+  }
+  LIBSSH2_SFTP_ATTRIBUTES a;
+  memset(&a, 0, sizeof a);
+  SFTP_LOCK(s);
+  int frc = libssh2_sftp_fstat(h, &a);
+  SFTP_UNLOCK(s);
+  uint64_t total = (frc == 0 && (a.flags & LIBSSH2_SFTP_ATTR_SIZE)) ? a.filesize : 0;
+
+  char buf[GT_SFTP_CHUNK];
+  uint64_t done = 0;
+  int64_t last_emit = 0;
+  for (;;) {
+    if (atomic_load(&j->cancelled)) { rc = GT_JOB_CANCELLED; break; }
+    if (atomic_load(&j->paused)) { usleep(20 * 1000); continue; }
+    SFTP_LOCK(s);
+    ssize_t n = libssh2_sftp_read(h, buf, sizeof buf);
+    SFTP_UNLOCK(s);
+    if (n == 0) { rc = GT_JOB_OK; break; }
+    if (n < 0) { rc = GT_JOB_FAILED; break; }
+    if (fwrite(buf, 1, (size_t)n, f) != (size_t)n) { rc = GT_JOB_FAILED; break; }
+    done += (uint64_t)n;
+    int64_t now = mono_ms();
+    if (now - last_emit >= 16) { emit_progress(j->job_id, done, total); last_emit = now; }
+  }
+  SFTP_LOCK(s);
+  libssh2_sftp_close(h);
+  SFTP_UNLOCK(s);
+  fclose(f);
+  const char *detail =
+      rc == GT_JOB_OK ? "download done"
+      : rc == GT_JOB_CANCELLED ? "download cancelled（已写部分保留）"
+                               : "download failed";
+  emit_job_done(j->job_id, rc, detail);
+  return rc;
+}
+
+static int job_upload(sftp_job_t *j) {
+  int rc = GT_JOB_FAILED;
+  FILE *f = fopen(j->local, "rb");
+  if (!f) {
+    emit_job_done(j->job_id, GT_JOB_FAILED, strerror(errno));
+    return GT_JOB_FAILED;
+  }
+  fseeko(f, 0, SEEK_END);
+  uint64_t total = (uint64_t)ftello(f);
+  fseeko(f, 0, SEEK_SET);
+
+  gt_sftp_t *s = j->sftp;
+  SFTP_LOCK(s);
+  LIBSSH2_SFTP_HANDLE *h = libssh2_sftp_open(s->sftp, j->remote,
+                                             LIBSSH2_FXF_WRITE |
+                                                 LIBSSH2_FXF_CREAT,
+                                             0644);
+  SFTP_UNLOCK(s);
+  if (!h) {
+    fclose(f);
+    emit_job_done(j->job_id, GT_JOB_FAILED, "打开远端文件失败");
+    return GT_JOB_FAILED;
+  }
+
+  char buf[GT_SFTP_CHUNK];
+  uint64_t done = 0;
+  int64_t last_emit = 0;
+  for (;;) {
+    if (atomic_load(&j->cancelled)) { rc = GT_JOB_CANCELLED; break; }
+    if (atomic_load(&j->paused)) { usleep(20 * 1000); continue; }
+    size_t n = fread(buf, 1, sizeof buf, f);
+    if (n == 0) { rc = ferror(f) ? GT_JOB_FAILED : GT_JOB_OK; break; }
+    size_t w = 0;
+    while (w < n) {
+      if (atomic_load(&j->cancelled)) break;
+      SFTP_LOCK(s);
+      ssize_t k = libssh2_sftp_write(h, buf + w, n - w);
+      SFTP_UNLOCK(s);
+      if (k < 0) { rc = GT_JOB_FAILED; goto out; }
+      w += (size_t)k;
+    }
+    if (w < n && atomic_load(&j->cancelled)) { rc = GT_JOB_CANCELLED; break; }
+    done += n;
+    int64_t now = mono_ms();
+    if (now - last_emit >= 16) { emit_progress(j->job_id, done, total); last_emit = now; }
+  }
+out:
+  SFTP_LOCK(s);
+  libssh2_sftp_close(h);
+  SFTP_UNLOCK(s);
+  fclose(f);
+  const char *detail =
+      rc == GT_JOB_OK ? "upload done"
+      : rc == GT_JOB_CANCELLED ? "upload cancelled（已传部分保留）"
+                               : "upload failed";
+  emit_job_done(j->job_id, rc, detail);
+  return rc;
+}
+
+static void *worker_main(void *arg) {
+  gt_sftp_t *sftp = arg;
+  for (;;) {
+    pthread_mutex_lock(&sftp->qlock);
+    while (!sftp->pending_head && !sftp->quit)
+      pthread_cond_wait(&sftp->qcond, &sftp->qlock);
+    if (sftp->quit) { pthread_mutex_unlock(&sftp->qlock); break; }
+    sftp_job_t *j = sftp->pending_head;
+    sftp->pending_head = j->next_pending;
+    if (!sftp->pending_head) sftp->pending_tail = NULL;
+    pthread_mutex_unlock(&sftp->qlock);
+
+    if (j->upload) job_upload(j);
+    else job_download(j);
+
+    /* 从在途表摘除并释放。 */
+    pthread_mutex_lock(&sftp->qlock);
+    sftp_job_t **pp = &sftp->all_head;
+    while (*pp && *pp != j) pp = &(*pp)->next_all;
+    if (*pp == j) *pp = j->next_all;
+    pthread_mutex_unlock(&sftp->qlock);
+    free(j->remote);
+    free(j->local);
+    free(j);
+  }
+  return NULL;
+}
+
+static uint64_t submit_job(gt_sftp_t *sftp, const char *a, const char *b,
+                           bool upload) {
+  if (!sftp || !sftp->sftp || !a || !b || !*a || !*b) {
+    gt__set_error("sftp job: 参数非法或 SFTP 未就绪");
+    return 0;
+  }
+  if (!sftp->worker_started) {
+    gt__set_error("sftp job: I/O worker 未起（不可用）");
+    return 0;
+  }
+  sftp_job_t *j = gt__alloc(sizeof *j);
+  if (!j) return 0;
+  j->sftp = sftp;
+  j->upload = upload;
+  j->remote = gt__strdup(upload ? b : a);
+  j->local = gt__strdup(upload ? a : b);
+  j->job_id = __sync_fetch_and_add(&g_next_job_id, 1);
+  atomic_init(&j->cancelled, false);
+  atomic_init(&j->paused, false);
+  if (!j->remote || !j->local) {
+    free(j->remote);
+    free(j->local);
+    free(j);
+    return 0;
+  }
+  pthread_mutex_lock(&sftp->qlock);
+  j->next_pending = NULL;
+  if (sftp->pending_tail) sftp->pending_tail->next_pending = j;
+  else sftp->pending_head = j;
+  sftp->pending_tail = j;
+  j->next_all = sftp->all_head;
+  sftp->all_head = j;
+  pthread_cond_signal(&sftp->qcond);
+  pthread_mutex_unlock(&sftp->qlock);
+  return j->job_id;
+}
+
+uint64_t gt_sftp_download(gt_sftp_t *sftp, const char *remote, const char *local) {
+  return submit_job(sftp, remote, local, false);
+}
+
+uint64_t gt_sftp_upload(gt_sftp_t *sftp, const char *local, const char *remote) {
+  return submit_job(sftp, local, remote, true);
+}
+
+/* cancel / pause 都按 job_id 查在途表（调用可来自任意线程）。 */
+static sftp_job_t *find_job(gt_sftp_t *sftp, uint64_t job_id) {
+  for (sftp_job_t *j = sftp->all_head; j; j = j->next_all)
+    if (j->job_id == job_id) return j;
+  return NULL;
+}
+
+int gt_sftp_cancel(gt_sftp_t *sftp, uint64_t job_id) {
+  if (!sftp || job_id == 0) return GT_ERR_INVALID_ARG;
+  pthread_mutex_lock(&sftp->qlock);
+  sftp_job_t *j = find_job(sftp, job_id);
+  if (j) atomic_store(&j->cancelled, true);
+  pthread_mutex_unlock(&sftp->qlock);
+  return j ? GT_OK : GT_ERR_NOT_FOUND;
+}
+
+int gt_sftp_pause(gt_sftp_t *sftp, uint64_t job_id, bool paused) {
+  if (!sftp || job_id == 0) return GT_ERR_INVALID_ARG;
+  pthread_mutex_lock(&sftp->qlock);
+  sftp_job_t *j = find_job(sftp, job_id);
+  if (j) atomic_store(&j->paused, paused);
+  pthread_mutex_unlock(&sftp->qlock);
+  return j ? GT_OK : GT_ERR_NOT_FOUND;
+}
+
+#else /* !GT_HAVE_LIBSSH2 —— 显式 UNSUPPORTED */
+
+struct gt_sftp { void *unused; };
+
+gt_sftp_t *gt__sftp_from_session(void *session, gt_ssh_t *ssh) {
+  (void)session; (void)ssh;
+  gt__set_error("sftp: libssh2 未编译进核心（显式 UNSUPPORTED）");
+  return NULL;
+}
+
+int gt_sftp_list(gt_sftp_t *sftp, const char *path,
+                 gt_sftp_entry_t **out, size_t *out_count) {
+  if (out) *out = NULL;
+  if (out_count) *out_count = 0;
+  if (!sftp || !path || !*path || !out || !out_count) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_list: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+
+void gt_sftp_list_free(gt_sftp_entry_t *entries, size_t count) {
+  (void)count;
+  if (!entries) return;
+  for (size_t i = 0; i < count; i++) free(entries[i].full_path);
+  free(entries);
+}
+
+int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out) {
+  if (!sftp || !path || !*path || !out) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_stat: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_lstat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out) {
+  if (!sftp || !path || !*path || !out) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_lstat: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_readlink(gt_sftp_t *sftp, const char *path, char *buf, size_t cap) {
+  if (!sftp || !path || !*path || !buf || cap == 0) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_readlink: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_realpath(gt_sftp_t *sftp, const char *path, char *buf, size_t cap) {
+  if (!sftp || !path || !*path || !buf || cap == 0) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_realpath: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_mkdir(gt_sftp_t *sftp, const char *path, uint32_t mode) {
+  if (!sftp || !path || !*path) return GT_ERR_INVALID_ARG;
+  (void)mode;
+  gt__set_error("gt_sftp_mkdir: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_rmdir(gt_sftp_t *sftp, const char *path) {
+  if (!sftp || !path || !*path) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_rmdir: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_remove(gt_sftp_t *sftp, const char *path) {
+  if (!sftp || !path || !*path) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_remove: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_remove_all(gt_sftp_t *sftp, const char *path) {
+  if (!sftp || !path || !*path) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_remove_all: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_rename(gt_sftp_t *sftp, const char *from, const char *to) {
+  if (!sftp || !from || !*from || !to || !*to) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_rename: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_chmod(gt_sftp_t *sftp, const char *path, uint32_t mode) {
+  if (!sftp || !path || !*path) return GT_ERR_INVALID_ARG;
+  (void)mode;
+  gt__set_error("gt_sftp_chmod: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_walk(gt_sftp_t *sftp, const char *root, int max_depth,
+                 gt_sftp_walk_fn fn, void *ud) {
+  (void)max_depth; (void)ud;
+  if (!sftp || !root || !*root || !fn) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_walk: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+uint64_t gt_sftp_download(gt_sftp_t *sftp, const char *remote, const char *local) {
+  (void)sftp; (void)remote; (void)local;
+  gt__set_error("gt_sftp_download: libssh2 未编译进核心");
+  return 0;
+}
+uint64_t gt_sftp_upload(gt_sftp_t *sftp, const char *local, const char *remote) {
+  (void)sftp; (void)local; (void)remote;
+  gt__set_error("gt_sftp_upload: libssh2 未编译进核心");
+  return 0;
+}
+int gt_sftp_cancel(gt_sftp_t *sftp, uint64_t job_id) {
+  (void)sftp;
+  if (job_id == 0) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_cancel: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+int gt_sftp_pause(gt_sftp_t *sftp, uint64_t job_id, bool paused) {
+  (void)sftp; (void)paused;
+  if (job_id == 0) return GT_ERR_INVALID_ARG;
+  gt__set_error("gt_sftp_pause: libssh2 未编译进核心");
+  return GT_ERR_UNSUPPORTED;
+}
+void gt_sftp_close(gt_sftp_t *sftp) { free(sftp); }
+
+#endif /* GT_HAVE_LIBSSH2 */
