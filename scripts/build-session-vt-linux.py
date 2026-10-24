@@ -85,7 +85,7 @@ def load_suite():
     return suite["FULL"], patches
 
 
-def stage_engine():
+def stage_engine(work):
     """vendor 副本 → prepare-session-io → 补丁全集，逐片先 --check 再 apply。"""
     full, patches = load_suite()
     vendor = ROOT / "vendor/ghostty"
@@ -94,13 +94,13 @@ def stage_engine():
     if commit != PIN:
         raise RuntimeError(f"engine pin mismatch: {commit} != {PIN}")
     for stale in ("engine", "engine.tar"):
-        path = WORK / stale
+        path = work / stale
         if path.is_dir():
             shutil.rmtree(path)
         elif path.exists() or path.is_symlink():
             path.unlink()
-    WORK.mkdir(parents=True, exist_ok=True)
-    engine = full["prepare"](WORK)
+    work.mkdir(parents=True, exist_ok=True)
+    engine = full["prepare"](work)
     for patch in patches:
         checked(["git", "-C", engine, "apply", "--check", patch])
         checked(["git", "-C", engine, "apply", patch])
@@ -114,21 +114,21 @@ def header_map(root):
             for path in sorted(root.rglob("*.h"))}
 
 
-def build_vt(engine):
+def build_vt(engine, work):
     """与 nix/libghostty-vt.nix 同方子的 ReleaseFast 共享库；-Dcpu=baseline 保证下发到他机可跑。"""
     zig = os.environ.get("ZIG") or shutil.which("zig")
     if not zig:
         raise RuntimeError("需要 zig 0.16.0 在 PATH（或设 ZIG 环境变量）")
     env = dict(os.environ, ZIG_LOCAL_CACHE_DIR=str(ROOT / "tmp/zig-cache-vt-linux"),
                ZIG_GLOBAL_CACHE_DIR=str(ROOT / "tmp/zig-global"))
-    log = WORK / "build.log"
+    log = work / "build.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("w") as stream:
         # ReleaseFast 全量构建在慢 runner 上远超探针脚本的 600s，这里单独放宽。
         checked([zig, "build", "-Demit-lib-vt=true", "-Demit-xcframework=false",
                  "-Dapp-runtime=none", "-Dcpu=baseline", "-Doptimize=ReleaseFast",
-                 "-p", WORK / "out"], timeout=1800, cwd=engine, env=env, stdout=stream)
-    return locate_shared(WORK / "out/lib")
+                 "-p", work / "out"], timeout=1800, cwd=engine, env=env, stdout=stream)
+    return locate_shared(work / "out/lib")
 
 
 def locate_shared(libdir):
@@ -180,11 +180,11 @@ def cross_check_mac(engine, reference=None):
     return len(local)
 
 
-def package(engine, binary):
+def package(include, binary, work):
     """调既有打包脚本出 bundle；本脚本不复制任何 bundle 校验逻辑。"""
     result = subprocess.run([sys.executable, ROOT / "scripts/package-sessiond-linux.py",
-                             "--include", engine / "include", "--engine", binary.parent / SONAME,
-                             "--build-dir", WORK / "daemon", "--out", WORK / "bundles"],
+                             "--include", include, "--engine", binary.parent / SONAME,
+                             "--build-dir", work / "daemon", "--out", work / "bundles"],
                             capture_output=True, text=True, check=False)
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)
@@ -201,24 +201,29 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true",
                         help="只做「副本 + 补丁 + 头清单」，不构建 .so、不出包（可在 macOS 上跑）")
-    parser.add_argument("--evidence", type=Path, default=WORK / "vt-evidence.json")
+    parser.add_argument("--work", type=Path, default=WORK, help="工作目录，必须在 tmp/ 下")
+    parser.add_argument("--evidence", type=Path)
     args = parser.parse_args()
+    work = args.work.resolve()
+    if not work.is_relative_to((ROOT / "tmp").resolve()):
+        raise RuntimeError("工作目录必须在 tmp/ 下（AGENTS.md 环境硬约束）")
+    evidence_path = args.evidence or work / "vt-evidence.json"
     if not args.dry_run and (platform.system() != "Linux" or platform.machine() not in ("aarch64", "x86_64")):
         raise RuntimeError("真实构建需要 Linux aarch64/x86_64 builder；本机请改用 --dry-run")
     (ROOT / "tmp").mkdir(exist_ok=True)
     os.environ["TMPDIR"] = str(ROOT / "tmp")
     os.umask(0o077)
     guard_mutation_marks()
-    engine, patches = stage_engine()
-    binary = None if args.dry_run else build_vt(engine)
-    evidence = write_evidence(engine, patches, binary, args.evidence)
-    line = f"引擎头 {len(evidence['headers'])} 个（<engine>/include）: {args.evidence}"
+    engine, patches = stage_engine(work)
+    binary = None if args.dry_run else build_vt(engine, work)
+    evidence = write_evidence(engine, patches, binary, evidence_path)
+    line = f"引擎头 {len(evidence['headers'])} 个（<engine>/include）: {evidence_path}"
     if args.dry_run:
         if sys.platform == "darwin":
             line += f"；与 mac SDK 头树逐字节一致（{cross_check_mac(engine)} 个）"
         print("PASS dry-run 契约预检 " + line, flush=True)
     else:
-        bundle = package(engine, binary)
+        bundle = package(engine / "include", binary, work)
         print(f"PASS libghostty-vt {binary.name} + bundle {bundle}；" + line, flush=True)
         print(bundle)
     return 0

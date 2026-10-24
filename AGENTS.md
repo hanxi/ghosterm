@@ -78,6 +78,12 @@ bash scripts/build-core.sh  # 只构建核心（快速）
 
 **改了 `apple/ android/ windows/ linux/ harmony/ web/` 必须另跑对应平台构建**；JS/宿主闸门不覆盖原生编译。
 
+**CI 双轨（每次提交自动出包）**：push `main` → `dev-build.yml`（轻闸门 + ad-hoc macOS 包 +
+滚动 `dev` prerelease）；tag `v*` / PR / 手动 → `macos-release.yml`（全量闸门 + 签名/公证分支）。
+两条轨共用 `.github/workflows/macos-package.yml`；包内必须内嵌的 Linux 会话安装包由
+`scripts/build-session-vt-linux.py` 在 `ubuntu:22.04` 容器里双架构现造（`sessiond-linux`
+变异验证只在 `gates=full` 的那条跑）。装机口径见 `docs/how-to/dev-build.md`。
+
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
 `ghosterm.h` 是**单一事实来源**。新增/删除/改签名后必须：
@@ -92,11 +98,21 @@ bash scripts/build-core.sh  # 只构建核心（快速）
 
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。
 样板见 `scripts/mutation-check-sshconfig.sh`（当前 14 项：基线 + A1~A6 + B1~B6 + 回滚）。
-**现有 32 份**（每份都必须能独立跑绿）：sshconfig / include / settings /
+**现有 33 份**（每份都必须能独立跑绿）：sshconfig / include / settings /
 settings-ui / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
-package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / attachment-peer。
+package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / attachment-peer / sessiond-linux。
+（`sessiond-linux` 用 `python3 scripts/mutation-check-sessiond-linux.py` 执行，
+护「mac 与 Linux 两侧 session contract 逐位一致」这条链条：少打一片**真改到头树**的
+补丁 / vendor pin 被改 / 把 `.a` 冒充 `--engine` / 改一个公开头的一字节——四组变异都要
+让对应断言变红，且每组带**指向性对照**（静态版的 `DT_NEEDED` 仍是基线的子集，证明红的
+是新加的下界断言而不是旧的上界白名单；没动 `core/` 时 `public-headers` 仍绿）。
+脚本只 import `scripts/build-session-vt-linux.py` 复用同一份 staging/打包实现，不复制逻辑；
+变异落在 `tmp/` 的副本上，回滚逐字节比 sha。**需要 Linux builder**：非 Linux 主机显式
+打印 `SKIP` 并 `exit 0`，CI 的 `linux-bundle` job（`gates=full`）断言输出**不含** `SKIP`。
+注意契约的真实边界：契约只哈希「头树 + 补丁文件本身 + schema 源文件」，所以「少打一片
+只改 `.zig` 的补丁」契约**看不见**——别拿那种变异冒充有牙。）
 （`public-headers` 用 `python3 scripts/mutation-check-public-headers.py` 执行，
 护子头→聚合头、隐藏聚合类型依赖与子头环路；变异目标红、独立 config 头对照绿。
 会话状态 P0 的 `scripts/probe-session-state.py --mutations` 是另一个原型证据，

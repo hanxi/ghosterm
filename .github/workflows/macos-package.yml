@@ -157,6 +157,18 @@ jobs:
           path: tmp/vt-linux/bundles
           retention-days: 1
 
+      # 契约链条的牙（AGENTS.md「新增闸门必附变异验证」）：少打一片真改到头树的补丁、
+      # vendor pin 被改、把 .a 冒充 --engine、改一个头的一字节——四种破坏都要让对应断言变红。
+      # 本 job 就是 Linux builder，这里出现 SKIP 一律判失败。
+      - name: 变异验证 sessiond-linux（full）
+        if: inputs.gates == 'full'
+        run: |
+          set -euo pipefail
+          python3 scripts/mutation-check-sessiond-linux.py | tee "$RUNNER_TEMP/mutation-sessiond.log"
+          if grep -q SKIP "$RUNNER_TEMP/mutation-sessiond.log"; then
+            echo "变异验证被 SKIP（本步必须真跑）" >&2; exit 1
+          fi
+
   # ---------------------------------------------------------------- macOS 出包
   mac-package:
     name: Package macOS app（${{ inputs.channel }}）

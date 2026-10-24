@@ -61,10 +61,18 @@
       所以现在的断言先做内容判别（全黑帧直接判红）再谈颜色。
       （抓帧取位图的顺序、以及 UI 层的坑另见
       `docs/reference/apple-ui-pitfalls.md`。）
-- [x] 打包脚本 + CI：`scripts/package-mac.sh`（`.app` + `.dmg` + `.zip` +
-      SHA256SUMS + BUILD-INFO；递归内嵌依赖闭包并断言不依赖 Homebrew；
-      dmg 挂载复验 + 包内二进制冒烟）+ `.github/workflows/macos-release.yml`
-      （tag / 手动 / PR 三个入口，签名 secret 缺失时降级 ad-hoc 并明说）
+- [x] 打包脚本 + CI：**双轨**。`scripts/package-mac.sh`（`.app` + `.dmg` + `.zip` +
+      SHA256SUMS + BUILD-INFO；递归内嵌依赖闭包并断言不依赖 Homebrew；dmg 挂载复验 +
+      包内二进制冒烟）是唯一出包逻辑，两个入口共用同一份可复用工作流
+      `.github/workflows/macos-package.yml`：
+      · `dev-build.yml` = 每次 push main → Linux 会话安装包（x86_64 + aarch64，在
+        ubuntu:22.04 容器里由 `scripts/build-session-vt-linux.py` 现造，契约与 mac 端
+        逐位一致）→ ad-hoc mac 包 → 滚动 tag `dev` 的 prerelease；
+      · `macos-release.yml` = tag `v*` / PR / 手动（`channel=release、gates=full`，
+        多跑 Apple 端全量闸门 + `scripts/mutation-check-sessiond-linux.py`）。
+      build 号取 `GITHUB_RUN_NUMBER`。**装机口径见 `docs/how-to/dev-build.md`**
+- [ ] dev 包签名 + 公证：**遗留**——dev 轨永远 ad-hoc（无证书 secret 就不假装签名），
+      且每轮 cdhash 不同、`dev` tag 会被强删重建，**不能当自动更新通道**
 - [ ] Developer ID 签名 + 公证：**遗留**——本机无签名证书
       （`security find-identity` 0 项）；脚本与 CI 已支持（`--sign` /
       `--notarize`），拿到证书即用
