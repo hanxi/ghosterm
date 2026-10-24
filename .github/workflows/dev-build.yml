@@ -39,3 +39,95 @@ jobs:
       channel: dev
       gates: light
     secrets: inherit
+
+  # 滚动 dev prerelease：tag `dev` 永远指向最近一次 main 的构建，下载链接因此是稳定的。
+  release-dev:
+    name: 滚动 dev Release
+    needs: package
+    if: github.event.repository.fork == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      # 删旧 + 建新必须串行：连续 push 时两轮交错会把 dev 删成半态（没得下）。
+      group: dev-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # 兜底删 tag 要用 git，gh 也要靠仓库上下文认得自己在哪个 repo。
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 取产物
+        uses: actions/download-artifact@v4
+        with:
+          name: Ghosterm-macOS-dev-${{ github.sha }}
+          path: dist
+
+      # 顺序刻意是「先验产物、后删旧、再建」：产物有问题时旧的 dev 还在，
+      # 不会把用户下载到一半的东西抽掉。
+      - name: 校验产物齐备且自洽
+        run: |
+          set -euo pipefail
+          cd dist
+          ls -1 *.dmg *.zip SHA256SUMS BUILD-INFO.txt > /dev/null
+          shasum -a 256 -c SHA256SUMS
+          grep -q 'Linux glibc 下限' BUILD-INFO.txt
+          grep -Eq '签名: *adhoc' BUILD-INFO.txt || {
+            echo "dev 轨的包不是 ad-hoc 签名，正文口径会失真" >&2; exit 1; }
+          echo "dev 产物 $(ls -1 *.dmg | tr '\n' ' ') 校验通过"
+
+      - name: 替换 dev Release
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/^版本: *\([^ ]*\).*/\1/p' dist/BUILD-INFO.txt)"
+          BUILD="$(sed -n 's/^版本: *[^ ]* (build *\([0-9]*\)).*/\1/p' dist/BUILD-INFO.txt)"
+
+          # 404（不存在）与真错误必须分开：后者不许 || true 吞掉。
+          if ! gh release view dev >/dev/null 2>"$RUNNER_TEMP/gh-view.err"; then
+            if grep -qiE 'HTTP 404|Not Found' "$RUNNER_TEMP/gh-view.err"; then
+              echo "dev Release 不存在 → 首次发布"
+            else
+              cat "$RUNNER_TEMP/gh-view.err" >&2; exit 1
+            fi
+          else
+            deleted=""
+            for attempt in 1 2 3; do
+              if gh release delete dev --yes --cleanup-tag; then deleted=yes; break; fi
+              echo "第 ${attempt} 次删除 dev Release 失败，退避 $((attempt * 15))s" >&2
+              sleep $((attempt * 15))
+            done
+            # 兜底只处理「Release 已没、tag 卡着」这一种半途态。真删不掉就让
+            # 下一步的 gh release create 当场红——不许 || true 把失败糊成成功。
+            if [ -z "$deleted" ]; then
+              git push --force-with-lease origin :refs/tags/dev
+            fi
+          fi
+
+          NOTES="$(cat dist/BUILD-INFO.txt)"
+          # YAML 会剥掉 block scalar 的公共缩进，所以正文落到脚本里仍是顶格——
+          # 少缩进会被 YAML 当成新键，多缩进会被 Markdown 读成代码块。
+          NOTES="${NOTES}$(cat <<'MD'
+
+          ## 这个 dev 包是什么
+          滚动 tag `dev`：每次 push main 覆盖一次，正文里的 build 号就是那次运行的编号。
+
+          - **ad-hoc 签名、未公证**。首次打开会被 Gatekeeper 拦：右键 →「打开」，或
+            `xattr -dr com.apple.quarantine /Applications/Ghosterm.app`。
+          - **仅 macOS arm64**。Android / iOS 目前根本没有构建入口，不是这条流水线漏了。
+          - 内嵌的 Linux 会话安装包带 glibc 下限（见上面 BUILD-INFO 的「Linux glibc 下限」），
+            那是**远端主机**能不能跑 sessiond 的条件。
+          - **别把 `dev` 当自动更新通道**：每轮 ad-hoc 签名的 cdhash 都不同，且 tag 会被强删重建。
+          MD
+          )"
+          gh release create dev --prerelease --target "$GITHUB_SHA" \
+            --title "Ghosterm dev（${VERSION} build ${BUILD}）" --notes "$NOTES" \
+            dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt
+
+      - name: 复验 dev Release 指向本轮
+        run: |
+          set -euo pipefail
+          target="$(gh release view dev --json targetCommit -q .targetCommit.oid)"
+          [ "$target" = "$GITHUB_SHA" ] || { echo "dev Release 指向 $target ≠ $GITHUB_SHA" >&2; exit 1; }
+          echo "dev Release → $target · 资产 $(gh release view dev --json assets -q '[.assets[].name]|join(" ")')"
