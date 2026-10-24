@@ -129,6 +129,29 @@ static double open_interactive_then_close(bool *opened, bool *saw_output) {
   return (b.tv_sec - a.tv_sec) + (b.tv_nsec - a.tv_nsec) / 1e9;
 }
 
+/* 量一遍「pty_close 里那段宽限轮询」在**当前负载下**的真实耗时。
+ *
+ * 实现等 SIGHUP 生效的方式是 20 次 10ms 的 nanosleep 轮询（见
+ * core/src/io/pty_posix.c 的 pty_close），交互式 shell 忽略 SIGHUP，所以
+ * close 的 wall-clock 里**必然含整段宽限**——名义 0.2s。共享 CI runner 会把
+ * 每次唤醒往后挤（实测三次 close = 1.07/1.53/1.09s），于是「拿固定 1 秒当
+ * 预算」测的就不是功能，是调度抖动。标定用同一个循环，放大就是双向的：
+ * 真回归（把宽限写长、或 close 只发单个 child 收不掉整组）只有 close 一侧
+ * 变慢，照样红。
+ */
+static double measure_grace_poll_cost(void) {
+  struct timespec a, b;
+  clock_gettime(CLOCK_MONOTONIC, &a);
+  for (int i = 0; i < 20; i++) {
+    struct timespec ts;
+    ts.tv_sec = 0;
+    ts.tv_nsec = 10 * 1000 * 1000; /* 与 pty_close 同一个步长 */
+    nanosleep(&ts, NULL);
+  }
+  clock_gettime(CLOCK_MONOTONIC, &b);
+  return (b.tv_sec - a.tv_sec) + (b.tv_nsec - a.tv_nsec) / 1e9;
+}
+
 /* hay[0..haylen) 是否含 needle。 */
 static int mem_contains(const char *hay, size_t haylen, const char *needle) {
   size_t nl = strlen(needle);
@@ -488,14 +511,18 @@ int main(int argc, char **argv_main) {
      * 所以关闭路径的宽限必须短并果断升级 SIGKILL——实测原先 2 秒宽限让
      * 「关一个标签页」卡 2.3 秒（不报错，就是慢，用户能感觉出来）。
      *
-     * 判据是「**最多量 3 次、取最小值，达标就停**」而不是单次 wall-clock：
-     * 共享 CI runner 会把个别样本的线程唤醒挤到 1 秒开外（同一 commit 在
-     * dev 轮 0.2s 过、full 轮 >1s 红——那次 414 条 ctest 并发）。抖动只让
-     * **个别**样本慢；而真回归（宽限写长、或 close 只发单个 child 收不掉
-     * 整组）**每一次**都慢，最小值照样红（变异 L3/L4 复跑验证）。
+     * 判据是「**最多量 3 次、取最小值，并与同一次量到的宽限标定比**」，
+     * 不是单次 wall-clock：共享 CI runner 会把线程唤醒整体往后挤（full 轨实测
+     * 连续三次 close = 1.07/1.53/1.09s，而同一 commit 在 dev 轮空机器上
+     * 0.2s 就过）。固定 1 秒预算测到的其实是调度抖动，于是预算改为
+     * `max(1.0s, 1.5×宽限标定 + 0.3s)`——标定跑的是实现里那段一模一样的
+     * 20×10ms 轮询，放大对两侧同向，真回归（宽限写长、或 close 只发单个
+     * child 收不掉整组）只有 close 一侧变慢，照样红；而 1.0s 的绝对下限
+     * 不放宽，空机器上的判据与历史上拦住 2.3 秒那次完全一致。
      */
-    double secs = -1;
+    double secs = -1, budget = 1.0, calib = -1;
     for (int attempt = 0; attempt < 3; attempt++) {
+      double c = measure_grace_poll_cost();
       bool opened = false, saw_output = false;
       double s = open_interactive_then_close(&opened, &saw_output);
       if (attempt == 0) {
@@ -503,11 +530,18 @@ int main(int argc, char **argv_main) {
         CHECK(saw_output, "默认 shell 有输出（说明它已进入交互状态）");
       }
       if (s < 0) break;
-      if (secs < 0 || s < secs) secs = s;
-      if (secs < 1.0) break;
-      printf("  归因: 第 %d 次 close=%.2fs（超预算），复量\n", attempt + 1, s);
+      /* 预算 = max(1.0 秒, 1.5×宽限标定 + 0.3)。绝对下限**不放宽**：空机器上
+       * 判据仍是 close<1.0s，历史上那次「2 秒宽限 → 关标签页卡 2.3 秒」就是
+       * 被它拦下的；标定只用来容忍 runner 的调度放大。 */
+      double b = 1.0;
+      if (c > 0 && 1.5 * c + 0.3 > b) b = 1.5 * c + 0.3;
+      if (secs < 0 || s < secs) { secs = s; budget = b; calib = c; }
+      if (secs < budget) break;
+      printf("  归因: 第 %d 次 close=%.2fs（预算 %.2fs，宽限标定 %.2fs），复量\n",
+             attempt + 1, s, budget, c);
     }
-    CHECK(secs >= 0 && secs < 1.0,
+    printf("  close=%.2fs / 预算 %.2fs（宽限标定 %.2fs）\n", secs, budget, calib);
+    CHECK(secs >= 0 && secs < budget,
           "close 要快——交互式 shell 忽略 SIGHUP，宽限必须短并果断升级 SIGKILL");
   }
 
