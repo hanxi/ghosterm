@@ -1,0 +1,41 @@
+# dev 轨：每次 push main 自动出一个 ad-hoc 签名的 macOS 包。
+#
+# 与 release 轨（macos-release.yml）共用 macos-package.yml，差别只有三件事：
+#   · 渠道 = dev ⇒ 永远 ad-hoc 签名、不公证（没有 Developer ID secret 也不会假装签名）；
+#   · 闸门 = light（core + ABI + 图标 + 补丁闸门）；Apple 端全量闸门仍由 tag/PR 轨跑；
+#   · 产物只保留 1 天（每次提交都出包，留 90 天是给仓库堆垃圾）。
+#
+# 已知边界（不掩盖）：
+#   · dev 轮**只出 macOS**。Android/iOS 目前没有构建入口，不是这条流水线漏了；
+#   · `paths-ignore` 只对 push 生效，tag push 与手动触发不会被它省掉；
+#   · 内嵌的 Homebrew 库会抬高包的最低系统版本，真实值写在随包 BUILD-INFO.txt 里。
+name: Dev Build (macOS)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "android/**"
+      - "LICENSE"
+      - ".gitignore"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  # 同一分支上一次 dev 还没跑完就作废：连续 push 时只留最新一轮。
+  group: dev-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    # 分叉仓库不必消耗 mac runner 配额。
+    if: github.event.repository.fork == false
+    uses: ./.github/workflows/macos-package.yml
+    with:
+      channel: dev
+      gates: light
+    secrets: inherit
