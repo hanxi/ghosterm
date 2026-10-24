@@ -191,7 +191,9 @@ jobs:
     name: Package macOS app（${{ inputs.channel }}）
     needs: linux-bundle
     runs-on: macos-15
-    timeout-minutes: 90
+    # full 轨要跑九份 Apple 变异 + 一份打包变异（后者自己就要出四次包）。
+    # 90 分钟是加打包变异之前的上限，实测会顶到边缘。
+    timeout-minutes: 120
     env:
       INPUT_VERSION: ${{ inputs.version }}
       INPUT_NOTARIZE: ${{ inputs.notarize }}
@@ -355,6 +357,22 @@ jobs:
           bash scripts/mutation-check-focus.sh
           bash scripts/mutation-check-split-dim.sh
           bash scripts/mutation-check-occlusion.sh
+
+      # 打包链自己的牙（内嵌依赖 / code seal / 谎报最低系统 / 随包主题 / 配色集
+      # 定位 / 公证守卫）。它依赖 build/runtime/catalog.json 与 GhosttyKit.xcframework，
+      # 所以只能排在「装配会话运行时」和「构建 libghostty」之后——本地一直是手工跑，
+      # 干净检出上从没验过（出过「catalog.json 不存在」和「主题被别处的
+      # GHOSTTY_RESOURCES_DIR 蒙过去」两类假绿，都只有 CI 的干净态能暴露）。
+      # A6 在缺随包主题时打的是 SKIP，这里一律判失败：打包轨的口径是主题必须随包。
+      - name: 变异验证 macOS 打包（full）
+        if: inputs.gates == 'full'
+        run: |
+          set -euo pipefail
+          PATH="$PWD/tmp/venv-icons/bin:$PATH" \
+            bash scripts/mutation-check-package-mac.sh | tee "$RUNNER_TEMP/mutation-package.log"
+          if grep -q SKIP "$RUNNER_TEMP/mutation-package.log"; then
+            echo "打包变异验证里出现 SKIP（干净检出上这条必须真跑）" >&2; exit 1
+          fi
 
       - name: 导入 Developer ID 证书（release 轨且有 secret 才做）
         if: inputs.channel == 'release'
