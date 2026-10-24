@@ -124,7 +124,9 @@ static int publication_parent(const char *path,char leaf[96],char parent[1024]) 
   if(!valid){close(fd);return -1;}return fd;
 }
 static int publish_release(const char *source,const char *destination) {
-  char from[96],to[96],source_parent[1024],destination_parent[1024],expected[1024];
+  // expected 必须容得下 source_parent 加 "/releases"：写成同尺寸数组时 gcc 无法证明
+  // 不会截断（-Werror=format-truncation 在 Linux 上直接红），按上界声明才既安全又可比。
+  char from[96],to[96],source_parent[1024],destination_parent[1024],expected[sizeof(source_parent)+sizeof("/releases")];
   int a=publication_parent(source,from,source_parent);if(a<0)return 1;
   int b=publication_parent(destination,to,destination_parent);if(b<0){close(a);return 1;}
   bool okay=!strncmp(from,".stage-",7) && strlen(from)==31;
