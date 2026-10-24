@@ -95,6 +95,9 @@ jobs:
       - name: 装 git 与构建依赖
         run: |
           set -euo pipefail
+          # TMPDIR 指向仓库 tmp/（AGENTS.md 环境硬约束），但容器里那目录还不存在；
+          # ca-certificates 的 postinst 用 mktemp 就直接失败（实测红过一次）。
+          mkdir -p "$TMPDIR"
           export DEBIAN_FRONTEND=noninteractive
           apt-get update -qq
           apt-get install -y --no-install-recommends \
