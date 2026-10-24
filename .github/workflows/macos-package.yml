@@ -301,6 +301,38 @@ jobs:
           # 上面那步已经把 Pillow 装进 venv 了。真跑不了要红，不能绿得没牙。
           PATH="$PWD/tmp/venv-icons/bin:$PATH" bash scripts/build-icons.sh check
 
+      # 会话运行时要在 Apple 端闸门**之前**装配：Swift 的 owned-session fixture
+      # 读 build/runtime/catalog.json（干净检出上没有这文件——它由打包流程现造，
+      # CI 实测红过一次：WorkspaceTests 全部报 catalog.json 不存在）。
+      # 两架构 bundle 必须先取下来，因为 stage-session-runtime.py 要求 Linux
+      # bundle 的 contract 与 mac 侧逐位相等（不等就是出包链断了，早点红）。
+      - name: 取 Linux 会话安装包（两架构）
+        uses: actions/download-artifact@v4
+        with:
+          name: sessiond-linux-x86_64
+          path: tmp/sessiond/x86_64
+
+      - name: 取 Linux 会话安装包（aarch64）
+        uses: actions/download-artifact@v4
+        with:
+          name: sessiond-linux-aarch64
+          path: tmp/sessiond/aarch64
+
+      - name: 装配会话运行时（catalog.json，full 轨的 Swift 测试要）
+        if: inputs.gates == 'full'
+        run: |
+          set -euo pipefail
+          bash scripts/build-core.sh >/dev/null
+          python3 scripts/build-sessiond-mac.py --sign -
+          SESSION_MAC="build/runtime/macos-arm64/$(python3 -c \
+            'import json;print(json.load(open("build/runtime/macos-arm64/current.json"))["release"])')"
+          python3 scripts/stage-session-runtime.py --macos "$SESSION_MAC" \
+            --linux "$(ls -d tmp/sessiond/x86_64/*/ | head -1)" \
+            --linux "$(ls -d tmp/sessiond/aarch64/*/ | head -1)"
+          # 缺文件不许静默走「跳过 Swift 测试」那条路：这里当场红。
+          test -f build/runtime/catalog.json
+          python3 -c 'import json;print("catalog linux:", sorted(json.load(open("build/runtime/catalog.json"))["linux"]))'
+
       # Apple 端的四层证据（绑定对拍 / 本地 PTY / SSH e2e / 终端 UX）+ 每个断言组配一份
       # 变异验证。CI 与本地跑的是同一批脚本，本地绿而 CI 红时先怀疑环境。
       # 注意：**须在 libghostty 构建之后**——apple-app-gate 依赖 xcframework。
@@ -308,9 +340,10 @@ jobs:
         if: inputs.gates == 'full'
         run: |
           set -euo pipefail
-          if ! command -v swift >/dev/null 2>&1; then
-            echo "SKIP Apple 端闸门：无 swift 工具链"; exit 0
-          fi
+          # 这条 step 只在 gates=full 时跑，跑的就是「Apple 端证据真验过」——
+          # 没有 swift 工具链时不许 SKIP 成绿（那样这一整步等于没跑）。
+          command -v swift >/dev/null 2>&1 || {
+            echo "缺 swift 工具链，无法跑 Apple 端闸门（本步不许降级为 SKIP）" >&2; exit 1; }
           bash scripts/apple-app-gate.sh
           bash scripts/terminal-gate.sh
           bash scripts/mutation-check-terminal.sh
@@ -367,18 +400,6 @@ jobs:
           xcrun notarytool store-credentials "ghosterm-notary" \
             --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$PASSWORD"
           echo "profile=ghosterm-notary" >> "$GITHUB_OUTPUT"
-
-      - name: 取 Linux 会话安装包（两架构）
-        uses: actions/download-artifact@v4
-        with:
-          name: sessiond-linux-x86_64
-          path: tmp/sessiond/x86_64
-
-      - name: 取 Linux 会话安装包（aarch64）
-        uses: actions/download-artifact@v4
-        with:
-          name: sessiond-linux-aarch64
-          path: tmp/sessiond/aarch64
 
       - name: 出包（dmg + zip + 校验和）
         env:
