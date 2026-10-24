@@ -52,7 +52,7 @@ done
 
 echo "== 2/2 补丁引入的符号已导出 =="
 if [ ! -f "$LIB" ]; then
-  echo "SKIP gate-ghostty-patch: 缺 $LIB（先跑 scripts/build-ghostty.sh）"
+  echo "SKIP gate-ghostty-patch: 缺 ${LIB}（先跑 scripts/build-ghostty.sh）"
 else
   # 注意：符号表要落盘再 grep，不能 `echo "$SYMS" | grep -q`。
   # grep -q 命中即退出，上游 echo 收到 SIGPIPE，pipefail 会把「命中」判成失败

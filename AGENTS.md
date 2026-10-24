@@ -58,6 +58,17 @@ Ghosterm = **libghostty 驱动的多端终端** × **VS Code 式 `~/.ssh/config`
 - `scripts/` 与闸门产生的临时文件同样落在 `tmp/`（构建产物 `core/build/` 已忽略，不在此列）。
 - `tmp/` 内容不入库；用完自行清理：`rm -rf tmp/*`（保留目录本身）。
 
+## Shell 写法（跨 runner 的硬约束）
+
+- **`$var` 紧跟非 ASCII 字符（中文标点、全角括号、破折号）时必须写 `${var}`**：某些
+  bash×locale 组合会把多字节的首字节**吃进变量名**，`set -u` 下当场报「unbound
+  variable」——于是**该打日志说明失败原因的那一行，反而把脚本打死**。CI 实测两例：
+  打包变异 A7 的 `源 $A7_ROOT）` 报 `A7_ROOT?: unbound variable`（其余 15 项全绿却整步
+  判红），本地 `LC_ALL=en_US.UTF-8 /bin/bash` 可稳定复现同样的旧写法红、`${A7_ROOT}）`
+  绿。仓库文案与注释里中文很多，这条不是风格而是验收口径；自查用正则
+  `\$\{?[A-Za-z_][A-Za-z0-9_]*\}?[^\x00-\x7F]`（对 `git ls-files '*.sh'` 全量跑，
+  命中且未带花括号的就是雷）。
+
 ## 验收闸门（合并前必须全绿）
 
 ```bash

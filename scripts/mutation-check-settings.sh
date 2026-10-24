@@ -63,7 +63,7 @@ trap 'restore_all; echo "已复原（trap）"' INT TERM
 
 for f in "$SHIM" "$SETTINGS" "$SURF"; do
   if grep -q "$MARK" "$f" 2>/dev/null; then
-    echo "检测到残留变异标记（$MARK）于 $f——拒绝起跑（exit 2）" >&2; exit 2
+    echo "检测到残留变异标记（${MARK}）于 ${f}——拒绝起跑（exit 2）" >&2; exit 2
   fi
 done
 

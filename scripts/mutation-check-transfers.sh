@@ -25,7 +25,7 @@ trap 'restore_all' EXIT
 trap 'restore_all; echo "已复原（trap）"' INT TERM
 
 if grep -q "$MARK" "$SRC" 2>/dev/null; then
-  echo "检测到残留变异标记（$MARK）——拒绝起跑（exit 2）" >&2; exit 2
+  echo "检测到残留变异标记（${MARK}）——拒绝起跑（exit 2）" >&2; exit 2
 fi
 BASE_SHA="$(shasum -a 256 "$SRC" | awk '{print $1}')"
 BACKUP="$(mktemp "$TMP/gt-muttr-XXXXXX")"; cp "$SRC" "$BACKUP"

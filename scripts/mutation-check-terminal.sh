@@ -49,7 +49,7 @@ trap 'restore_all; echo "已复原（trap）"' INT TERM
 
 for f in "$SURF" "$SHIM" "$VIEW"; do
   if grep -q "$MARK" "$f" 2>/dev/null; then
-    echo "检测到残留变异标记（$MARK）于 $f——拒绝起跑（exit 2）" >&2; exit 2
+    echo "检测到残留变异标记（${MARK}）于 ${f}——拒绝起跑（exit 2）" >&2; exit 2
   fi
 done
 
@@ -111,7 +111,7 @@ APP_LOG="$TMP/apple-app-test.log"
 if grep -q "HostListTests.*passed" "$APP_LOG" 2>/dev/null; then
   echo "  ✓ 同一变异下主机列表用例仍绿（红落在网格断言上）"; PASS=$((PASS+1))
 else
-  echo "  ✗ 无法确认红有指向性（见 $APP_LOG）"; FAIL=$((FAIL+1))
+  echo "  ✗ 无法确认红有指向性（见 ${APP_LOG}）"; FAIL=$((FAIL+1))
 fi
 
 # ---- T2：C→Swift 抄写改坏（app 丢掉） ----

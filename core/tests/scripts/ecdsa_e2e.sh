@@ -32,7 +32,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [ ! -f "$WORK/sshd.pid" ]; then
-  echo "SKIP ecdsa_e2e: sshd 未能起在 127.0.0.1:$PORT（本机环境限制）"
+  echo "SKIP ecdsa_e2e: sshd 未能起在 127.0.0.1:${PORT}（本机环境限制）"
   sed 's/^/  sshd: /' "$WORK/sshd.log" 2>/dev/null
   exit 0
 fi

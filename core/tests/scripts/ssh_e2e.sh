@@ -13,7 +13,7 @@ BIN="${1:?需要 test_ssh 可执行}"
 SSHD="${SSHD:-/usr/sbin/sshd}"
 
 if [ ! -x "$SSHD" ] && ! command -v sshd >/dev/null 2>&1; then
-  echo "SKIP ssh_e2e: 未找到 sshd（$SSHD）"; exit 0
+  echo "SKIP ssh_e2e: 未找到 sshd（${SSHD}）"; exit 0
 fi
 SSHD="$(command -v sshd 2>/dev/null || echo "$SSHD")"
 
@@ -64,7 +64,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [ "$ready" != 1 ]; then
-  echo "SKIP ssh_e2e: sshd 未能起在 127.0.0.1:$PORT（本机环境限制）"
+  echo "SKIP ssh_e2e: sshd 未能起在 127.0.0.1:${PORT}（本机环境限制）"
   sed 's/^/  sshd: /' "$WORK/sshd.log" 2>/dev/null
   exit 0
 fi

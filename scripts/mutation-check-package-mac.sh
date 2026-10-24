@@ -146,7 +146,7 @@ else
   echo "MUTATION FAIL: 两处都没有配色集（vendor/ghostty/zig-pkg、tmp/ghostty-resources 暂存）——A7 无法验到定位分支。跑一次 bash scripts/build-ghostty.sh。" >&2
   exit 1
 fi
-expect_green "变异前就找得到配色集（A7 前置，源 $A7_ROOT）" \
+expect_green "变异前就找得到配色集（A7 前置，源 ${A7_ROOT}）" \
   bash -c '. scripts/lib/ghostty-themes.sh; ghostty_themes_find "$1"' _ "$A7_ROOT"
 python3 - "$A7_LIB" <<'PY'
 import sys
@@ -176,7 +176,7 @@ expect_green "改回按文件找后同一调用复绿（A7 指向性）" \
 echo "== 复原：仓库文件必须与起跑前逐字节一致 =="
 for f in "${SCRIPTS[@]}"; do
   NOW="$(shasum -a 256 "$f" | awk '{print $1}')"
-  [ "$NOW" = "${SHA_BEFORE[$f]}" ] || { echo "MUTATION FAIL: $f 未复原（${SHA_BEFORE[$f]} → $NOW）" >&2; exit 1; }
+  [ "$NOW" = "${SHA_BEFORE[$f]}" ] || { echo "MUTATION FAIL: $f 未复原（${SHA_BEFORE[$f]} → ${NOW}）" >&2; exit 1; }
 done
 echo "   ok  ${#SCRIPTS[@]} 个仓库文件 sha256 与起跑前一致"
 expect_green "复原后基线自包含检查复绿" python3 scripts/lib/embed-dylibs.py check "$BASELINE"

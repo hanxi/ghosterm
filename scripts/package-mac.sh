@@ -397,7 +397,7 @@ fi
 if [ "$GUI_SMOKE" -eq 1 ]; then
   # 走真实启动路径（LaunchServices 认不认这个 bundle，只有 open 才知道）。
   if [ "$(launchctl managername 2>/dev/null)" != "Aqua" ]; then
-    note "SKIP GUI 冒烟：当前不是 Aqua 图形会话（$USER）"
+    note "SKIP GUI 冒烟：当前不是 Aqua 图形会话（${USER}）"
   else
     open -n "$APP" || fail "open 启动失败（Info.plist/签名有问题？）"
     sleep 3

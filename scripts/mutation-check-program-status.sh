@@ -27,7 +27,7 @@ if [ ! -d "$ROOT/build/GhosttyKit.xcframework" ]; then
 fi
 for f in "${FILES[@]}"; do
   if grep -q "$MARK" "$f" 2>/dev/null; then
-    echo "检测到残留变异标记（$f）——拒绝起跑（exit 2）" >&2; exit 2
+    echo "检测到残留变异标记（${f}）——拒绝起跑（exit 2）" >&2; exit 2
   fi
 done
 

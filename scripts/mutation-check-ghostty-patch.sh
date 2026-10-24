@@ -16,12 +16,12 @@ MARK="GT_GHOSTTY_MUTATION"
 PASS=0; FAIL=0
 
 if [ ! -f "$LIB" ]; then
-  echo "SKIP mutation-check-ghostty-patch: 无 $LIB（先跑 scripts/build-ghostty.sh）"
+  echo "SKIP mutation-check-ghostty-patch: 无 ${LIB}（先跑 scripts/build-ghostty.sh）"
   exit 0
 fi
 
 if [ -e "$LIB.$MARK" ]; then
-  echo "检测到残留变异产物（$LIB.$MARK）——工作区不干净，拒绝起跑（exit 2）" >&2
+  echo "检测到残留变异产物（$LIB.${MARK}）——工作区不干净，拒绝起跑（exit 2）" >&2
   exit 2
 fi
 

@@ -17,7 +17,7 @@ pinned="$(git ls-tree HEAD "$PATH_NAME" | awk '{print $3}')"
 # 本机常用路径：已经在 pin 上就别再动它（fetch 一次也费时间）。
 # .git 必须是 -e 不是 -d：正常初始化的子模块里它是指向 .git/modules/… 的**文件**。
 if [ -e "$PATH_NAME/.git" ] && [ "$(git -C "$PATH_NAME" rev-parse HEAD 2>/dev/null || true)" = "$pinned" ]; then
-  echo "$PATH_NAME 已在 pin $pinned（未改动）"
+  echo "$PATH_NAME 已在 pin ${pinned}（未改动）"
   exit 0
 fi
 

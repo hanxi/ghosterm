@@ -54,7 +54,7 @@ fi
 
 echo "== 3/3 SSH e2e（本机真 sshd + Swift 绑定） =="
 if [ ! -x "$SSHD" ] && ! command -v sshd >/dev/null 2>&1; then
-  echo "SKIP apple-gate e2e: 未找到 sshd（$SSHD）"
+  echo "SKIP apple-gate e2e: 未找到 sshd（${SSHD}）"
   echo "APPLE GATE PASS（e2e SKIP）"
   exit 0
 fi
@@ -105,7 +105,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [ "$ready" != 1 ]; then
-  echo "SKIP apple-gate e2e: sshd 未能起在 127.0.0.1:$PORT（本机环境限制）"
+  echo "SKIP apple-gate e2e: sshd 未能起在 127.0.0.1:${PORT}（本机环境限制）"
   sed 's/^/  sshd: /' "$WORK/sshd.log" 2>/dev/null
   echo "APPLE GATE PASS（e2e SKIP）"
   exit 0

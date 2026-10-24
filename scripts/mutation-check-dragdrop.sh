@@ -26,7 +26,7 @@ trap 'restore_all' EXIT
 trap 'restore_all; echo "已复原（trap）"' INT TERM
 
 for f in "${FILES[@]}"; do
-  if grep -q "$MARK" "$f" 2>/dev/null; then echo "残留标记（$f）——拒绝（exit 2）" >&2; exit 2; fi
+  if grep -q "$MARK" "$f" 2>/dev/null; then echo "残留标记（${f}）——拒绝（exit 2）" >&2; exit 2; fi
 done
 i=0; for f in "${FILES[@]}"; do b="$(mktemp "$TMP/gt-mutdd-XXXXXX")"; cp "$f" "$b"; BACKUPS[$i]="$b"; BASE_SHAS[$i]="$(shasum -a 256 "$f" | awk '{print $1}')"; i=$((i+1)); done
 
