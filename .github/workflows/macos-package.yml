@@ -108,11 +108,17 @@ jobs:
       # persist-credentials=false：vendor/ghostty 是**别人家的公开仓库**，checkout 写进
       # 配置的 GITHUB_TOKEN extraheader 会让跨仓库 fetch 被拒（公开仓库匿名反而能拉）。
       # 本 job 不需要 git 网络写操作，构建只读 HEAD 与补丁。
-      - name: 检出（只要 vendor/ghostty 这个 submodule）
+      #
+      # 故意**不带** submodules 输入：浅克隆下 checkout 会把子模块落到远端分支头，
+      # 而构建器只认 .gitmodules 钉死的 commit（实测 engine pin mismatch: 55ebd1bb…）。
+      # 取 pin 一律走 scripts/fetch-vendor-pin.sh，两个 job 共用同一套实现。
+      - name: 检出
         uses: actions/checkout@v4
         with:
-          submodules: vendor/ghostty
           persist-credentials: false
+
+      - name: 取 vendor pin
+        run: bash scripts/fetch-vendor-pin.sh
 
       - name: 缓存 zig ${{ env.ZIG_VERSION }}
         uses: actions/cache@v4
@@ -188,12 +194,18 @@ jobs:
       INPUT_NOTARIZE: ${{ inputs.notarize }}
       INPUT_CHANNEL: ${{ inputs.channel }}
     steps:
-      - name: 检出（含 submodule：libghostty 来自 vendor/ghostty）
+      # vendor pin 一律走 scripts/fetch-vendor-pin.sh，与 linux-bundle 同一套实现：
+      # checkout 的内置 submodule 拉取不可靠（浅克隆会把子模块落到远端分支头，实测
+      # engine pin mismatch: 55ebd1bb…），而这里的缓存 key、补丁链与契约都只认钉死的 commit。
+      # persist-credentials=false：跨仓库拉公开 submodule 不能用本仓库的 token header。
+      - name: 检出
         uses: actions/checkout@v4
         with:
-          submodules: vendor/ghostty
-          persist-credentials: false # 跨仓库拉公开 submodule 不能用本仓库的 token header
+          persist-credentials: false
           fetch-depth: 0 # git describe 要完整历史与 tag
+
+      - name: 取 vendor pin
+        run: bash scripts/fetch-vendor-pin.sh
 
       - name: 备好 tmp/
         run: mkdir -p "$TMPDIR"
