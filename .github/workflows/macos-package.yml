@@ -338,6 +338,26 @@ jobs:
           test -f build/runtime/catalog.json
           python3 -c 'import json;print("catalog linux:", sorted(json.load(open("build/runtime/catalog.json"))["linux"]))'
 
+      # 打包链自己的牙（内嵌依赖 / code seal / 谎报最低系统 / 随包主题 / 配色集
+      # 定位 / 公证守卫）。它依赖 build/runtime/catalog.json 与 GhosttyKit.xcframework，
+      # 所以只能排在「装配会话运行时」和「构建 libghostty」之后——本地一直是手工跑，
+      # 干净检出上从没验过（出过「catalog.json 不存在」和「主题被别处的
+      # GHOSTTY_RESOURCES_DIR 蒙过去」两类假绿，都只有 CI 的干净态能暴露）。
+      # A6 在缺随包主题时打的是 SKIP，这里一律判失败：打包轨的口径是主题必须随包。
+      #
+      # 排在 Apple 长闸门**之前**的理由是纯账面的：这一步 CI 上只要 ~2 分钟，
+      # Apple 那一步要 ~50 分钟。前两轮 full 轨都是跑到第 50 分钟才撞出打包链
+      # 的问题（一次是 unbound variable、一次是取源写死 zig-pkg），每轮白等 48 分钟。
+      - name: 变异验证 macOS 打包（full）
+        if: inputs.gates == 'full'
+        run: |
+          set -euo pipefail
+          PATH="$PWD/tmp/venv-icons/bin:$PATH" \
+            bash scripts/mutation-check-package-mac.sh | tee "$RUNNER_TEMP/mutation-package.log"
+          if grep -q SKIP "$RUNNER_TEMP/mutation-package.log"; then
+            echo "打包变异验证里出现 SKIP（干净检出上这条必须真跑）" >&2; exit 1
+          fi
+
       # Apple 端的四层证据（绑定对拍 / 本地 PTY / SSH e2e / 终端 UX）+ 每个断言组配一份
       # 变异验证。CI 与本地跑的是同一批脚本，本地绿而 CI 红时先怀疑环境。
       # 注意：**须在 libghostty 构建之后**——apple-app-gate 依赖 xcframework。
@@ -360,22 +380,6 @@ jobs:
           bash scripts/mutation-check-focus.sh
           bash scripts/mutation-check-split-dim.sh
           bash scripts/mutation-check-occlusion.sh
-
-      # 打包链自己的牙（内嵌依赖 / code seal / 谎报最低系统 / 随包主题 / 配色集
-      # 定位 / 公证守卫）。它依赖 build/runtime/catalog.json 与 GhosttyKit.xcframework，
-      # 所以只能排在「装配会话运行时」和「构建 libghostty」之后——本地一直是手工跑，
-      # 干净检出上从没验过（出过「catalog.json 不存在」和「主题被别处的
-      # GHOSTTY_RESOURCES_DIR 蒙过去」两类假绿，都只有 CI 的干净态能暴露）。
-      # A6 在缺随包主题时打的是 SKIP，这里一律判失败：打包轨的口径是主题必须随包。
-      - name: 变异验证 macOS 打包（full）
-        if: inputs.gates == 'full'
-        run: |
-          set -euo pipefail
-          PATH="$PWD/tmp/venv-icons/bin:$PATH" \
-            bash scripts/mutation-check-package-mac.sh | tee "$RUNNER_TEMP/mutation-package.log"
-          if grep -q SKIP "$RUNNER_TEMP/mutation-package.log"; then
-            echo "打包变异验证里出现 SKIP（干净检出上这条必须真跑）" >&2; exit 1
-          fi
 
       - name: 导入 Developer ID 证书（release 轨且有 secret 才做）
         if: inputs.channel == 'release'
