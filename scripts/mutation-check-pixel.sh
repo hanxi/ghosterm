@@ -44,7 +44,14 @@ restore_all() {
 # 只有现场还在变异态才复原：脚本被 kill -9 后，残留的 EXIT trap
   # 会拿**旧备份**把源文件盖回去，把别人的新改动一起抹掉（真踩过）。
   # 文件里没有标记 = 现场已不是变异态 → 什么都别动。
-  if ! grep -q "$MARK" "$SRC" 2>/dev/null; then return 0; fi
+  # **两个文件逐个查**：先前这里写的是 `$SRC`——本脚本根本没有这个变量
+  # （目标是 SURF/TEST 两个），于是 `set -u` 下 EXIT trap 自己报错、
+  # 脚本以 1 退出（CI 上变异 8/8 全绿却判失败）。与 settings 同一修法。
+  local dirty=0 f
+  for f in "$SURF" "$TEST"; do
+    grep -q "$MARK" "$f" 2>/dev/null && dirty=1
+  done
+  [ "$dirty" -eq 1 ] || return 0
   [ -n "$BACKUP_SURF" ] && [ -f "$BACKUP_SURF" ] && cp "$BACKUP_SURF" "$SURF" && rm -f "$BACKUP_SURF"
   [ -n "$BACKUP_TEST" ] && [ -f "$BACKUP_TEST" ] && cp "$BACKUP_TEST" "$TEST" && rm -f "$BACKUP_TEST"
 }
