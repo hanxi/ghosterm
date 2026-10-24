@@ -8,7 +8,8 @@
 // （实测：跨到第二个文件后报「'main' attribute cannot be used in a module
 // that contains top-level code」）。所以启动走 **NSApplicationDelegate**
 // （main.swift 是 `@main struct` 的唯一合法落点），这里只放 delegate 与
-// SwiftUI 视图；冒烟模式（--local / --ssh-smoke）也在 delegate 里分派。
+// SwiftUI 视图；冒烟模式（--local / --ssh-smoke / --config-check）在
+// `app.run()` **之前**分派，理由见 `smokeMode`。
 import AppKit
 import GhostermAppModel
 import GhostermCore
@@ -17,14 +18,38 @@ import SwiftUI
 
 @main
 struct GhostermAppMain {
+    @MainActor
     static func main() {
         GhostermUI.run()
     }
 }
 
 enum GhostermUI {
+    /// 无 UI 冒烟模式的判据。必须在 `app.run()` **之前**分派：走 run loop
+    /// 就要先处理 `oapp` Apple event，而 AppKit 可能在那条路上弹模态
+    /// （`NSPersistentUIRestorer promptToIgnorePersistentState`——本机有崩溃
+    /// 记录时实测会起 `-[NSAlert runModal]`），无人值守的闸门会被永久卡住。
+    /// 三个模式自己 `exit()`，永远不需要窗口。
+    @MainActor
+    static func smokeMode(_ args: [String]) -> Bool {
+        guard args.count >= 2 else { return false }
+        switch args[1] {
+        case "--local":
+            LocalSmoke.run(executable: args.count >= 3 ? args[2] : nil)
+        case "--ssh-smoke" where args.count >= 4:
+            SSHSmoke.run(configPath: args[2], pattern: args[3])
+        case "--config-check" where args.count >= 3:
+            ConfigSmoke.run(configPath: args[2])
+        default:
+            return false
+        }
+        return true
+    }
+
+    @MainActor
     static func run() {
         let app = NSApplication.shared
+        if smokeMode(CommandLine.arguments) { return }
         app.setActivationPolicy(.regular)
         let delegate = AppDelegate()
         app.delegate = delegate
@@ -39,20 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var appearanceObserver: NSKeyValueObservation?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 冒烟模式（无窗口 / 无 UI；闸门与调试用）。
         let args = CommandLine.arguments
-        if args.count >= 2, args[1] == "--local" {
-            LocalSmoke.run(executable: args.count >= 3 ? args[2] : nil)
-            return
-        }
-        if args.count >= 4, args[1] == "--ssh-smoke" {
-            SSHSmoke.run(configPath: args[2], pattern: args[3])
-            return
-        }
-        if args.count >= 3, args[1] == "--config-check" {
-            ConfigSmoke.run(configPath: args[2])
-            return
-        }
 
         if args.count == 4, args[1] == "--session-lifecycle-probe", ["create", "restore"].contains(args[3]) {
             SessionLifecycleProbe.run(configuration: args[2], restore: args[3] == "restore")
