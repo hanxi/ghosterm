@@ -48,7 +48,8 @@ curl -fsSL https://github.com/<owner>/ghosterm/releases/download/dev/version.jso
 | 字段 | 口径 |
 |---|---|
 | `git_commit` | **dev 渠道新旧的唯一主锚**。整条 40 位，比对不等即「有新版」 |
-| `build_time` | 本轮 workflow 的 `run_started_at`，只在 commit 缺失时兜底 |
+| `build_time` | 兜底锚（本机拿不到 commit 时才用），ISO-8601 UTC；空串一律判红 |
+| `build_time_source` | `run_started_at`（workflow 排队时刻）或 `step_clock`（出包时刻）——两个语义不同，所以显式标来源，不折叠成一个字段。CI 实测 `github.run_started_at` 在 step 级 `env` 会展开成空串，故有 `step_clock` 这条兜底 |
 | `version` / `build` | `0.1.0-dev` 与该 workflow 文件的运行编号，**不可跨轨比大小** |
 | `min_macos` / `arch` | 装机下限；`arch` 目前恒为 `arm64` |
 | `signature` / `notarized` | `adhoc` / `false`——这两个字段就是「不许自动安装」的机器可读声明 |
