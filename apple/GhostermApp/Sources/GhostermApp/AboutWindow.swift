@@ -133,7 +133,7 @@ struct UpdateRow: View {
             HStack(alignment: .firstTextBaseline, spacing: DS.Padding.m) {
                 Text("更新").frame(width: 130, alignment: .leading)
                 Text(verbatim: updater.isChecking ? "正在检查…"
-                     : (updater.query?.statusText ?? "未检查（只在你点下面的按钮时联网）"))
+                     : (updater.query?.statusText ?? "未检查（只在点「检查更新」时联网）"))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
