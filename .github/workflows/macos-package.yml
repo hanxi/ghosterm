@@ -380,6 +380,7 @@ jobs:
           bash scripts/mutation-check-focus.sh
           bash scripts/mutation-check-split-dim.sh
           bash scripts/mutation-check-occlusion.sh
+          bash scripts/mutation-check-app-update.sh
 
       - name: 导入 Developer ID 证书（release 轨且有 secret 才做）
         if: inputs.channel == 'release'
