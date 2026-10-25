@@ -195,8 +195,19 @@ jobs:
           # 检测口径的最后一环：客户端用的是**固定 URL**（不走 API），所以这一步
           # 直接从那个 URL 取回来对答案。取不到、或里面的 commit 不是本轮，就等于
           # 「dev 客户端永远显示已是最新」——只有这条能证伪它。
-          curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/dev/version.json" \
-            -o "$RUNNER_TEMP/fetched.json"
+          # 刚建好的 release 资产直链可能有秒级传播延迟，所以有限重试；**重试耗尽
+          # 必须 exit 1**，`|| true` 会把这条最关键的断言变成装饰。
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/dev/version.json"
+          try=0
+          until curl -fsSL "$url" -o "$RUNNER_TEMP/fetched.json"; do
+            try=$((try + 1))
+            if [ "$try" -ge 3 ]; then
+              echo "取回 version.json 失败（重试 $try 次后仍不可达）：$url" >&2
+              exit 1
+            fi
+            echo "资产直链还没就绪（第 $try 次），$((try * 5)) 秒后重试" >&2
+            sleep "$((try * 5))"
+          done
           python3 - "$RUNNER_TEMP/fetched.json" "$GITHUB_SHA" <<'PY'
           import json,sys
           d=json.load(open(sys.argv[1],encoding='utf-8'))
