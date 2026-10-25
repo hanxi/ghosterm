@@ -78,6 +78,53 @@ jobs:
             echo "dev 轨的包不是 ad-hoc 签名，正文口径会失真" >&2; exit 1; }
           echo "dev 产物 $(ls -1 *.dmg | tr '\n' ' ') 校验通过"
 
+      # 渠道检测用的机读清单。**为什么以 git_commit 为锚而不是 build 号**：
+      # CFBundleVersion = GITHUB_RUN_NUMBER 是按 workflow 文件计数的，dev 与 release
+      # 两轨不同源单调，拿它比「谁新」会把更旧的读成更新；commit 全局唯一，客户端
+      # 只需比对随包 BUILD-INFO 里的那条。固定 URL（releases/download/dev/version.json）
+      # 不需要 GitHub API，也就没有未认证 60 次/小时的配额问题。
+      # 口径与 songloft-player 的 dev 渠道一致：只解决「检测」，**不做自动安装**
+      # （ad-hoc 每轮 cdhash 变、未公证，替换二进制会被 Gatekeeper 拦）。
+      # 字段解析不到一律当场红——写「unknown」蒙过去等于把检测做成永远「已是最新」。
+      - name: 生成 version.json
+        env:
+          # 本轮运行的开始时刻（UTC）；同一轮多个 job 之间可能有分钟级偏差，
+          # 所以它只作 commit 缺失时的兜底，主锚是 git_commit。
+          BUILD_TIME: ${{ github.run_started_at }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,re,pathlib
+          info=pathlib.Path('dist/BUILD-INFO.txt').read_text(encoding='utf-8')
+          def grab(pattern,what):
+            m=re.search(pattern,info,re.M)
+            if not m: raise SystemExit(f'BUILD-INFO 里缺「{what}」：{pattern}')
+            return m.groups()
+          (version,build)=grab(r'^版本: *(\S+) \(build *([0-9]+)\)', '版本/build')
+          (arch,)=grab(r'^架构: *(\S+)', '架构')
+          (minos,)=grab(r'^最低系统: *(\S+)', '最低系统')
+          (sig,)=grab(r'^签名: *(\S+)', '签名')
+          (notary,)=grab(r'^公证: *(.+)$', '公证')
+          (contract,)=grab(r'^会话运行环境: *(\S+)', '会话运行环境')
+          (glibc,)=grab(r'^Linux glibc 下限: *(.+)$', 'Linux glibc 下限')
+          mins=dict(re.findall(r'(\w+)=min_glibc (\d+\.\d+)',glibc))
+          if set(mins)!={'x86_64','aarch64'}: raise SystemExit(f'min_glibc 架构不齐：{mins}')
+          sums={}
+          for line in pathlib.Path('dist/SHA256SUMS').read_text(encoding='utf-8').splitlines():
+            if line.strip(): h,name=line.split(None,1); sums[name.strip()]=h.strip()
+          dmg=[n for n in sums if n.endswith('.dmg')]; zip_=[n for n in sums if n.endswith('.zip')]
+          if len(dmg)!=1 or len(zip_)!=1: raise SystemExit(f'SHA256SUMS 里 dmg/zip 不是一份：{sorted(sums)}')
+          out={'channel':'dev','version':version,'build':int(build),'git_commit':os.environ['GITHUB_SHA'],
+               'build_time':os.environ['BUILD_TIME'],
+               'arch':arch,'min_macos':minos,'signature':sig,'notarized':False,'notarization_note':notary,
+               'session_contract':contract.split('/')[-1],'min_glibc':mins,
+               'assets':{'dmg':dmg[0],'zip':zip_[0],'checksums':'SHA256SUMS','build_info':'BUILD-INFO.txt'},
+               'sha256':{n:sums[n] for n in (dmg[0],zip_[0])},
+               'download_base':f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/dev"}
+          pathlib.Path('dist/version.json').write_text(json.dumps(out,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+
       - name: 替换 dev Release
         run: |
           set -euo pipefail
@@ -123,7 +170,7 @@ jobs:
           )"
           gh release create dev --prerelease --target "$GITHUB_SHA" \
             --title "Ghosterm dev（${VERSION} build ${BUILD}）" --notes "$NOTES" \
-            dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt
+            dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json
 
       - name: 复验 dev Release 指向本轮
         run: |
@@ -140,6 +187,28 @@ jobs:
           assets="$(gh release view dev --json assets -q '[.assets[].name]|join(" ")')"
           echo "dev Release → $target · 资产 $assets"
           # 滚动替换必须「只有一份、旧资产不残留」：资产名不含短 sha，所以
-          # 数量必须正好是本轮那 4 个（多了就是旧的没删干净）。
+          # 数量必须正好是本轮那 5 个（多了就是旧的没删干净，少了就是没挂上）。
           n="$(gh release view dev --json assets -q '.assets | length')"
-          [ "$n" = "4" ] || { echo "dev Release 有 $n 个资产，预期 4（旧资产残留）" >&2; exit 1; }
+          [ "$n" = "5" ] || { echo "dev Release 有 $n 个资产，预期 5（旧资产残留或 version.json 没挂上）" >&2; exit 1; }
+          case " $assets " in *" version.json "*) ;; *) echo "dev Release 资产里没有 version.json：$assets" >&2; exit 1;; esac
+
+          # 检测口径的最后一环：客户端用的是**固定 URL**（不走 API），所以这一步
+          # 直接从那个 URL 取回来对答案。取不到、或里面的 commit 不是本轮，就等于
+          # 「dev 客户端永远显示已是最新」——只有这条能证伪它。
+          curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/dev/version.json" \
+            -o "$RUNNER_TEMP/fetched.json"
+          python3 - "$RUNNER_TEMP/fetched.json" "$GITHUB_SHA" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding='utf-8'))
+          want=sys.argv[2]
+          problems=[]
+          if d.get('git_commit')!=want: problems.append(f"git_commit={d.get('git_commit')} ≠ {want}")
+          if d.get('channel')!='dev': problems.append(f"channel={d.get('channel')}")
+          if not d.get('version') or not d.get('build'): problems.append('version/build 为空')
+          if d.get('notarized') is not False: problems.append('dev 包不该声称已公证')
+          for k,v in (d.get('sha256') or {}).items():
+            if len(v)!=64: problems.append(f'{k} 的 sha256 不像 sha256')
+          if set((d.get('min_glibc') or {}))!={'x86_64','aarch64'}: problems.append('min_glibc 架构不齐')
+          if problems: raise SystemExit('version.json 有问题：'+'; '.join(problems))
+          print('version.json 对得上：',d['version'],'build',d['build'],d['git_commit'][:12])
+          PY

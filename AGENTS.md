@@ -93,6 +93,10 @@ bash scripts/build-core.sh  # 只构建核心（快速）
 滚动 `dev` prerelease）；tag `v*` / PR / 手动 → `macos-release.yml`（全量闸门 + 签名/公证分支）。
 两条轨共用 `.github/workflows/macos-package.yml`；包内必须内嵌的 Linux 会话安装包由
 `scripts/build-session-vt-linux.py` 在 `ubuntu:22.04` 容器里双架构现造。装机口径见 `docs/how-to/dev-build.md`。
+dev Release 另挂一份机读清单 `version.json`（固定 URL，不走 API）：**新旧以 `git_commit` 为主锚**
+——`build` 号按 workflow 文件计数，跨轨不可比；清单由随包 `BUILD-INFO.txt`/`SHA256SUMS` 解析而来
+（不是第二份真相），解析不到即当场红，「复验」step 再从固定 URL 取回对答案。它只解决**检测**，
+`signature=adhoc` + `notarized=false` 就是「不许自动安装」的机器可读声明。
 
 > **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **11 份**变异验证——
 > Apple 端 `terminal / transport / tabs / chrome / settings / pixel / focus / split-dim / occlusion`、

@@ -34,12 +34,40 @@
 文件之后，两条轨的 build 号**不再同源单调**（`GITHUB_RUN_NUMBER` 按文件计数）；
 比较先后请以 commit 为准，别拿 build 号跨轨比大小。
 
+## 「有没有新版」的机读入口：`version.json`
+
+dev Release 上挂了一份固定 URL 的清单，给客户端做**更新检测**用：
+
+```bash
+curl -fsSL https://github.com/<owner>/ghosterm/releases/download/dev/version.json
+```
+
+为什么是它而不是 GitHub API：`releases/download/dev/<name>` 是**固定直链**，不占
+未认证 API 的 60 次/小时额度，也不需要 token；渠道判据因此全部落在文件里。
+
+| 字段 | 口径 |
+|---|---|
+| `git_commit` | **dev 渠道新旧的唯一主锚**。整条 40 位，比对不等即「有新版」 |
+| `build_time` | 本轮 workflow 的 `run_started_at`，只在 commit 缺失时兜底 |
+| `version` / `build` | `0.1.0-dev` 与该 workflow 文件的运行编号，**不可跨轨比大小** |
+| `min_macos` / `arch` | 装机下限；`arch` 目前恒为 `arm64` |
+| `signature` / `notarized` | `adhoc` / `false`——这两个字段就是「不许自动安装」的机器可读声明 |
+| `assets` + `sha256` + `download_base` | 拼出 dmg/zip 直链并自行校验，不走 API 拿 `browser_download_url` |
+| `session_contract` / `min_glibc` | 内嵌会话安装包的契约与逐架构 glibc 下限 |
+
+清单由 `.github/workflows/dev-build.yml` 的「生成 version.json」step 从**随包
+`BUILD-INFO.txt` 与 `SHA256SUMS`** 解析而来（不是第二份真相），解析不到任何一项
+就当场红——写 `unknown` 蒙过去等于把检测做成永远「已是最新」。同一 job 的「复验」
+step 再从固定 URL 把它取回来对答案（commit、渠道、架构、sha256 形状），取不到或
+对不上就判失败。
+
 ## dev 包的边界（不是缺陷，是现状）
 
 - **只有 macOS**。Android / iOS 目前没有构建入口，不是 CI 漏了一条。
 - **`dev` 不能当自动更新通道**：每轮 ad-hoc 签名的 cdhash 都不同，而 `dev` tag 会被
   强删重建；做自动更新要等 Developer ID 签名 + 公证（见
-  [roadmap](../reference/roadmap.md) 的遗留项）。
+  [roadmap](../reference/roadmap.md) 的遗留项）。「有没有新版」的检测不受此限制，
+  见上面 [version.json](#有没有新版的机读入口versionjson)——它只给直链，装不装由人。
 - 构建细节与为什么必须先造 Linux 包，见 [CI 出包口径](#ci-是怎么串起来的)。
 
 ## 本地自己出一份
