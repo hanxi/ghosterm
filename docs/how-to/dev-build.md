@@ -25,6 +25,7 @@
 | 字段 | 含义 |
 |---|---|
 | `版本: 0.1.0-dev (build N)` | `N` = 那次 CI 运行的 `GITHUB_RUN_NUMBER`。**没有 tag 时版本号就是 `0.1.0-dev`** |
+| `构建时刻` | 打包那一刻的 UTC 时间（ISO-8601）。它是 dev 渠道「拿不到 commit」时的兜底锚——`version.json` 里的 `build_time` 就是这一行，两侧同语义才比得动 |
 | `架构` | 目前只有 `arm64`（`GhosttyKit.xcframework` 只切了 arm64） |
 | `最低系统` | 二进制自身的 `minos` 与**内嵌依赖**里最高者的较大值——内嵌的 Homebrew 库会把最低系统抬高，所以这一行往往大于 `Info.plist` 里的原始声明 |
 | `签名` | dev 轨恒为 `adhoc` |
@@ -48,8 +49,7 @@ curl -fsSL https://github.com/<owner>/ghosterm/releases/download/dev/version.jso
 | 字段 | 口径 |
 |---|---|
 | `git_commit` | **dev 渠道新旧的唯一主锚**。整条 40 位，比对不等即「有新版」 |
-| `build_time` | 兜底锚（本机拿不到 commit 时才用），ISO-8601 UTC；空串一律判红 |
-| `build_time_source` | `run_started_at`（workflow 排队时刻）或 `step_clock`（出包时刻）——两个语义不同，所以显式标来源，不折叠成一个字段。CI 实测 `github.run_started_at` 在 step 级 `env` 会展开成空串，故有 `step_clock` 这条兜底 |
+| `build_time` | 兜底锚（本机拿不到 commit 时才用），ISO-8601 UTC。它取自随包 `BUILD-INFO.txt` 的 `构建时刻`——**与本机那份同一个语义**（都是打包时刻），空串或格式不对一律判红 |
 | `version` / `build` | `0.1.0-dev` 与该 workflow 文件的运行编号，**不可跨轨比大小** |
 | `min_macos` / `arch` | 装机下限；`arch` 目前恒为 `arm64` |
 | `signature` / `notarized` | `adhoc` / `false`——这两个字段就是「不许自动安装」的机器可读声明 |

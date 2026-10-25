@@ -87,27 +87,8 @@ jobs:
       # （ad-hoc 每轮 cdhash 变、未公证，替换二进制会被 Gatekeeper 拦）。
       # 字段解析不到一律当场红——写「unknown」蒙过去等于把检测做成永远「已是最新」。
       - name: 生成 version.json
-        env:
-          # 本轮运行的开始时刻（UTC）；同一轮多个 job 之间可能有分钟级偏差，
-          # 所以它只作 commit 缺失时的兜底，主锚是 git_commit。
-          BUILD_TIME: ${{ github.run_started_at }}
         run: |
           set -euo pipefail
-          # build_time 是「本机拿不到 commit」时的兜底锚，留空等于悄悄把兜底拆掉。
-          # CI 实测（run 40157658884）github.run_started_at 在 step 级 env 里展开成空串
-          # ——所以先试它、拿不到就用本轮 step 自己的 UTC 时钟，并把**来源写进清单**：
-          # 两个来源语义不同（排队时刻 vs 出包时刻），折叠成一个字段就是撒谎。
-          RAW="${BUILD_TIME:-}"
-          echo "github.run_started_at 展开为 [$RAW]（run_id=${GITHUB_RUN_ID}）"
-          if [ -n "$RAW" ]; then
-            BUILD_TIME_SOURCE=run_started_at
-          else
-            BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            BUILD_TIME_SOURCE=step_clock
-            echo "::warning::github.run_started_at 展开为空，build_time 改用本轮 step 时钟" >&2
-          fi
-          export BUILD_TIME BUILD_TIME_SOURCE
-          set -u; [ -n "${BUILD_TIME:-}" ] || { echo "build_time 仍为空" >&2; exit 1; }
           python3 - <<'PY'
           import json,os,re,pathlib
           info=pathlib.Path('dist/BUILD-INFO.txt').read_text(encoding='utf-8')
@@ -116,6 +97,13 @@ jobs:
             if not m: raise SystemExit(f'BUILD-INFO 里缺「{what}」：{pattern}')
             return m.groups()
           (version,build)=grab(r'^版本: *(\S+) \(build *([0-9]+)\)', '版本/build')
+          # 兜底锚与**装到用户机器上的那一刻**同语义：两侧都是打包时刻，都来自
+          # BUILD-INFO（`scripts/package-mac.sh` 里写的那行）。不用 github.run_started_at：
+          # 那是 workflow 排队时刻，且 CI 实测（run 40157658884）它在 step 级 env 里
+          # 展开成空串——留空等于把「拿不到 commit 时比时间」这条路悄悄拆掉。
+          (stamp,)=grab(r'^构建时刻: *(\S+)', '构建时刻')
+          if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',stamp):
+            raise SystemExit(f'构建时刻不是 ISO-8601 UTC（客户端要拿它解析）：{stamp!r}')
           (arch,)=grab(r'^架构: *(\S+)', '架构')
           (minos,)=grab(r'^最低系统: *(\S+)', '最低系统')
           (sig,)=grab(r'^签名: *(\S+)', '签名')
@@ -129,11 +117,8 @@ jobs:
             if line.strip(): h,name=line.split(None,1); sums[name.strip()]=h.strip()
           dmg=[n for n in sums if n.endswith('.dmg')]; zip_=[n for n in sums if n.endswith('.zip')]
           if len(dmg)!=1 or len(zip_)!=1: raise SystemExit(f'SHA256SUMS 里 dmg/zip 不是一份：{sorted(sums)}')
-          build_time=os.environ['BUILD_TIME']
-          if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',build_time):
-            raise SystemExit(f'build_time 不是 ISO-8601 UTC（客户端要拿它解析）：{build_time!r}')
           out={'channel':'dev','version':version,'build':int(build),'git_commit':os.environ['GITHUB_SHA'],
-               'build_time':build_time,'build_time_source':os.environ['BUILD_TIME_SOURCE'],
+               'build_time':stamp,
                'arch':arch,'min_macos':minos,'signature':sig,'notarized':False,'notarization_note':notary,
                'session_contract':contract.split('/')[-1],'min_glibc':mins,
                'assets':{'dmg':dmg[0],'zip':zip_[0],'checksums':'SHA256SUMS','build_info':'BUILD-INFO.txt'},
@@ -234,13 +219,11 @@ jobs:
           if d.get('git_commit')!=want: problems.append(f"git_commit={d.get('git_commit')} ≠ {want}")
           if d.get('channel')!='dev': problems.append(f"channel={d.get('channel')}")
           if not d.get('version') or not d.get('build'): problems.append('version/build 为空')
-          # 兜底锚不许是空的：run 40157658884 就是 build_time=="" 混过了复验，
-          # 于是「commit 拿不到时比时间」这条路在客户端其实是死的。
+          # 兜底锚不许是空的、也不许是别的语义：run 40157658884 里 build_time=="" 混过了
+          # 复验，于是「commit 拿不到时比时间」这条路在客户端其实是死的。
           bt=d.get('build_time') or ''
           if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',bt):
               problems.append(f'build_time 不是 ISO-8601 UTC：{bt!r}')
-          if d.get('build_time_source') not in ('run_started_at', 'step_clock'):
-              problems.append(f"build_time_source={d.get('build_time_source')!r} 不在已知来源里")
           if d.get('notarized') is not False: problems.append('dev 包不该声称已公证')
           for k,v in (d.get('sha256') or {}).items():
             if len(v)!=64: problems.append(f'{k} 的 sha256 不像 sha256')

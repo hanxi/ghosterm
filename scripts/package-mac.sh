@@ -297,9 +297,15 @@ print("; ".join(rows))
 PY
 )" || fail "读不到 Linux 会话安装包的 min_glibc（见 bundle 内 manifest.tsv）"
 INFO="$WORK/BUILD-INFO.txt"
+# 打包时刻（UTC）：这是**本机装的这份包**唯一可用的时间锚。dev 渠道的检测在拿不到
+# commit 时要拿 `version.json` 的 build_time 和本地这一刻比大小（见
+# .github/workflows/dev-build.yml 与 docs/how-to/dev-build.md）——两侧必须是同一个
+# 语义（都是「这份包打出来的时刻」），否则兜底那条路永远在比错的东西。
+BUILD_STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 {
   echo "Ghosterm macOS 包"
   echo "版本:        ${VERSION} (build ${BUILD_NUMBER})"
+  echo "构建时刻:    ${BUILD_STAMP}"
   echo "架构:        ${ARCH}"
   echo "最低系统:    ${MIN_OS}   # 二进制自身 ${APP_MIN_OS}，内嵌库最高 ${REAL_MIN_OS}（${MIN_OS_SRC}）"
   echo "签名:        ${SIGN_MODE}${SIGN_ID:+ ${SIGN_ID}}"
