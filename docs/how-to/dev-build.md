@@ -25,7 +25,7 @@
 | 字段 | 含义 |
 |---|---|
 | `版本: 0.1.0-dev (build N)` | `N` = 那次 CI 运行的 `GITHUB_RUN_NUMBER`。**没有 tag 时版本号就是 `0.1.0-dev`** |
-| `构建时刻` | 打包那一刻的 UTC 时间（ISO-8601）。它是 dev 渠道「拿不到 commit」时的兜底锚——`version.json` 里的 `build_time` 就是这一行，两侧同语义才比得动 |
+| `构建时刻` | 打包那一刻的 UTC 时间（ISO-8601）。`version.json` 里的 `build_time` 就是同一行、同一语义（两侧都是打包时刻），所以两者**可以**比；但客户端当前不拿它下结论，见下面 [在 app 里看](#在-app-里看关于窗口的那一行) |
 | `架构` | 目前只有 `arm64`（`GhosttyKit.xcframework` 只切了 arm64） |
 | `最低系统` | 二进制自身的 `minos` 与**内嵌依赖**里最高者的较大值——内嵌的 Homebrew 库会把最低系统抬高，所以这一行往往大于 `Info.plist` 里的原始声明 |
 | `签名` | dev 轨恒为 `adhoc` |
@@ -49,7 +49,7 @@ curl -fsSL https://github.com/<owner>/ghosterm/releases/download/dev/version.jso
 | 字段 | 口径 |
 |---|---|
 | `git_commit` | **dev 渠道新旧的唯一主锚**。整条 40 位，比对不等即「有新版」 |
-| `build_time` | 兜底锚（本机拿不到 commit 时才用），ISO-8601 UTC。它取自随包 `BUILD-INFO.txt` 的 `构建时刻`——**与本机那份同一个语义**（都是打包时刻），空串或格式不对一律判红 |
+| `build_time` | 打包时刻，ISO-8601 UTC，取自随包 `BUILD-INFO.txt` 的 `构建时刻`——**与本机那份同一个语义**，空串或格式不对一律判红。它只做展示与对账：判据不拿时间比「谁新」（rolling 的 `dev` tag 会被重打，晚打包的可能是更旧的 commit） |
 | `version` / `build` | `0.1.0-dev` 与该 workflow 文件的运行编号，**不可跨轨比大小** |
 | `min_macos` / `arch` | 装机下限；`arch` 目前恒为 `arm64` |
 | `signature` / `notarized` | `adhoc` / `false`——这两个字段就是「不许自动安装」的机器可读声明 |
@@ -61,6 +61,35 @@ curl -fsSL https://github.com/<owner>/ghosterm/releases/download/dev/version.jso
 就当场红——写 `unknown` 蒙过去等于把检测做成永远「已是最新」。同一 job 的「复验」
 step 再从固定 URL 把它取回来对答案（commit、渠道、架构、sha256 形状），取不到或
 对不上就判失败。
+
+## 在 app 里看：关于窗口的那一行
+
+清单是给机器读的，机器读它的是 app。**入口在「关于 Ghosterm」窗口**（菜单栏
+`Ghosterm → 关于 Ghosterm`），版本号下面那一行：
+
+```
+更新    有新版（9ef21070d320…）        [检查更新]
+本机    0.1.0-dev (23) · d3e9fde742bd · 2026-10-25T03:17:24Z
+```
+
+口径（实现在 `apple/GhostermApp/Sources/GhostermAppModel/UpdateCheck.swift`，
+UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
+
+- **只在点「检查更新」时联网**：没有启动时检查、没有后台轮询。dev 包 ad-hoc 且未
+  公证，检测出来也装不上，静默联网换不来任何用户能用的东西。
+- **结论三态，不折叠**：`有新版` / `已是最新` / `查不出来（+原因）`。「本机这份包
+  里没有 commit 记录」「带未提交改动（`+dirty`）」「清单渠道不是 dev」「取不到
+  version.json」「version.json 读不懂」全都如实报，**绝不报成「已是最新」**。
+- **主锚是 commit**：本机记的是短 sha（`--short=12`），清单里是整条 40 位，比前缀。
+  不比 `version`/`build`——那两条跨轨不可比（见上面 [`BUILD-INFO.txt`](#确认这个包是怎么来的读-build-infotxt)）。
+- **没有「安装」按钮**：清单里 `signature=adhoc` + `notarized=false` 就是「装不上」
+  的机器可读声明，界面照它说话，只给「打开下载页」这一条直链；有新版时另外写明
+  首次打开要右键「打开」（或 `xattr -dr com.apple.quarantine`）。
+- 「本机」那行是**可复制**的：要用户自己核对 commit，报「查不出来」时才有的放矢。
+
+闸门：`bash scripts/mutation-check-app-update.sh`——七组变异（把「查不出来」折成
+「已是最新」、拿版本号当判据、解码给默认值、`installBlocked` 恒 false、文案撒谎、
+那一行整个不画、多给一颗「安装」按钮），每组都要让对应断言变红并带一条指向性对照。
 
 ## dev 包的边界（不是缺陷，是现状）
 

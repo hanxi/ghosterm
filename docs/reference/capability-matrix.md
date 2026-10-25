@@ -97,9 +97,10 @@
 |---|---|---|
 | macOS **dev** 包 | 🟡 | 每次 push `main` 出包：`.github/workflows/dev-build.yml` → ad-hoc 签名的 `.dmg`/`.zip` + SHA256SUMS + BUILD-INFO，挂到滚动 tag `dev` 的 prerelease。**仅 arm64**（`GhosttyKit.xcframework` 只有 arm64 切片）、**未公证**（首次打开要右键「打开」）。build 号 = `GITHUB_RUN_NUMBER`，dev/release 两轨不同源单调。不能当自动更新通道（每轮 cdhash 不同）。装机与本地复刻见 [dev 包怎么装](../how-to/dev-build.md) |
 | macOS **release** 包 | 🟡 | tag `v*` / PR / 手动 → `.github/workflows/macos-release.yml`，与 dev 共用同一份可复用工作流 `macos-package.yml`（`channel=release、gates=full`）。**🟡 无 Developer ID 证书 secret ⇒ 目前同样落 ad-hoc**；`--sign` / `--notarize` 分支已就绪，拿到 secret 即用 |
+| dev 版**更新检测**（app 内入口） | ✅ | 关于窗口（`Ghosterm → 关于 Ghosterm`）版本号下面那一行：手动点「检查更新」→ 取固定 URL 的 `version.json`（不走 API、不占 60 次/小时额度）→ 以 `git_commit` 为主锚（本机短 sha 前缀比清单的 40 位）。**三态不折叠**：无 commit 记录 / `+dirty` / 渠道不对 / 取不到 / 读不懂，一律报「查不出来 + 原因」，不报「已是最新」。**自动安装 ❌（有意不做）**：`signature=adhoc` + `notarized=false` ⇒ 只给下载直链，不画「安装」按钮。判据与文案由 `UpdateCheckTests`（12 项）钉，入口几何由 `AboutWindowTests` 钉，牙见 `scripts/mutation-check-app-update.sh`（7 组变异）；口径见 [dev 包怎么装](../how-to/dev-build.md) |
 | Linux 会话安装包（远端 `sessiond`） | 🟡 | CI 在 `ubuntu:22.04` / `arm64v8/ubuntu:22.04` 容器里由 `scripts/build-session-vt-linux.py` 现造 **x86_64 + aarch64** 两份；实测 `min_glibc=2.34`（逐架构写进随包 `BUILD-INFO.txt`），**无 musl 包**。bundle 的 session contract 必须与 mac 端逐位一致（`scripts/stage-session-runtime.py` 把关）；这条链条由 `scripts/mutation-check-sessiond-linux.py` 的四组变异验牙（少打一片改头树的补丁 / pin 被改 / `.a` 冒充 `--engine` / 改一个头的一字节） |
 | Android / iOS 出包入口 | ❌ | 没有构建脚本、没有 workflow——是**未开工**，不是 CI 漏项 |
-| 闸门分档 | ✅ | 轻档（dev）：`scripts/gate.sh`（core + ctest + ABI + api_smoke）+ 图标一致性 + `gate-ghostty-patch.sh`；全档（release）：再加 `apple-app-gate.sh` / `terminal-gate.sh` + 9 份 mac 侧变异验证 + Linux 侧契约变异验证。缺工具链时显式 `SKIP` 并让 CI 断言不许 SKIP，不静默跳过（铁律 #6） |
+| 闸门分档 | ✅ | 轻档（dev）：`scripts/gate.sh`（core + ctest + ABI + api_smoke）+ 图标一致性 + `gate-ghostty-patch.sh`；全档（release）：再加 `apple-app-gate.sh` / `terminal-gate.sh` + 10 份 mac 侧变异验证 + Linux 侧契约变异验证。缺工具链时显式 `SKIP` 并让 CI 断言不许 SKIP，不静默跳过（铁律 #6） |
 
 ## 各端 UI
 

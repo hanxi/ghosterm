@@ -97,9 +97,14 @@ dev Release 另挂一份机读清单 `version.json`（固定 URL，不走 API）
 ——`build` 号按 workflow 文件计数，跨轨不可比；清单由随包 `BUILD-INFO.txt`/`SHA256SUMS` 解析而来
 （不是第二份真相），解析不到即当场红，「复验」step 再从固定 URL 取回对答案。它只解决**检测**，
 `signature=adhoc` + `notarized=false` 就是「不许自动安装」的机器可读声明。
+app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Ghosterm`）版本号下面那一行，
+**只在用户点「检查更新」时联网**（无启动检查、无后台轮询）；结论三态不折叠，
+「本机没 commit 记录 / 包带未提交改动 / 渠道不对 / 取不到 / 读不懂」全都报「查不出来」，
+不报「已是最新」；有新版时只给下载直链，不画「安装」按钮。口径见
+`docs/how-to/dev-build.md`，牙见 `scripts/mutation-check-app-update.sh`。
 
-> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **11 份**变异验证——
-> Apple 端 `terminal / transport / tabs / chrome / settings / pixel / focus / split-dim / occlusion`、
+> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **12 份**变异验证——
+> Apple 端 `terminal / transport / tabs / chrome / settings / pixel / focus / split-dim / occlusion / app-update`、
 > Linux builder 的 `sessiond-linux`、以及 `package-mac`（在**干净检出**上验打包链，输出里
 > 出现 `SKIP` 一律判红，缺随包主题不许蒙过去）。**其余闸门仍是「手工跑」**：`core/` 侧的
 > sshconfig / include / ssh / sftp / exec / files / transfers / dragdrop / pty-inheritance /
@@ -121,11 +126,21 @@ dev Release 另挂一份机读清单 `version.json`（固定 URL，不走 API）
 
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。
 样板见 `scripts/mutation-check-sshconfig.sh`（当前 14 项：基线 + A1~A6 + B1~B6 + 回滚）。
-**现有 33 份**（每份都必须能独立跑绿）：sshconfig / include / settings /
+**现有 34 份**（每份都必须能独立跑绿）：sshconfig / include / settings /
 settings-ui / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
-package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / attachment-peer / sessiond-linux。
+package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / attachment-peer / sessiond-linux / app-update。
+（`app-update` 护 dev 版**更新检测**这条链——七组变异，每组都要让对应断言变红并带一条
+同变异下仍绿的指向性对照：U1 把「本机没有 commit 记录」折成「已是最新」（铁律 #6）、
+U2 把主锚从 commit 换回版本号（`build` 按 workflow 文件计数，跨轨不可比）、U3 解码时给
+`signature` 补默认值（缺了就当能自动装）、U4 `installBlocked` 恒 false、U5「查不出来」的
+界面文案写回「已是最新」（**文案本身就是断言对象**，谎报即红）、U6 关于窗口那一行整个
+不画、U7 多给一颗「安装更新」按钮。入口的观测口径是**几何**：实测 SwiftUI 的 `Button`
+在这棵树里不落 `NSButton`，`accessibilityLabel()` / `accessibilityIdentifier()` 也不下发到
+NSView（SwiftUI 自绘，a11y 元素只走真 AX API），留下的句柄是 `KeyViewProxy`（一控件一个）
+与 `_FocusRingView`——于是「有几颗按钮 / 画在不在框内」看得见，「按钮上写的什么」看不见，
+后者由 `UpdateCheckTests` 的 `statusText` 断言兜住（U5 正是打在那里）。）
 （`sessiond-linux` 用 `python3 scripts/mutation-check-sessiond-linux.py` 执行，
 护「mac 与 Linux 两侧 session contract 逐位一致」这条链条：少打一片**真改到头树**的
 补丁 / vendor pin 被改 / 把 `.a` 冒充 `--engine` / 改一个公开头的一字节——四组变异都要

@@ -69,7 +69,7 @@
         ubuntu:22.04 容器里由 `scripts/build-session-vt-linux.py` 现造，契约与 mac 端
         逐位一致）→ ad-hoc mac 包 → 滚动 tag `dev` 的 prerelease；
       · `macos-release.yml` = tag `v*` / PR / 手动（`channel=release、gates=full`，
-        多跑 Apple 端全量闸门 + 九份 Apple 变异 + `scripts/mutation-check-sessiond-linux.py`
+        多跑 Apple 端全量闸门 + 十份 Apple 变异 + `scripts/mutation-check-sessiond-linux.py`
         + `scripts/mutation-check-package-mac.sh`；后两份在 CI 的**干净检出**上跑，且
         输出里出现 `SKIP` 一律判红——本机有 catalog.json / 泄漏的 `GHOSTTY_RESOURCES_DIR`
         / Homebrew 库，那些「本地永远绿」的条件只有在干净态才证伪得了）。
