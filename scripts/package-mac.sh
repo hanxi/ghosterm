@@ -17,8 +17,9 @@
 #   --arch ARCH        目标架构（默认本机；目前只支持 arm64——GhosttyKit 只有 arm64 切片）
 #   --app-only         只出 .app（不出 dmg/zip）
 #   --no-zip           不出 .zip
-#   --sign ID|adhoc|none   签名（默认 adhoc；ID=Developer ID 真证书）
-#   --notarize PROFILE     公证（notarytool 的 keychain profile；需真证书签名）
+#   --sign ID|adhoc|none   签名（默认 adhoc；ID 必须是 Developer ID Application 或
+#                      Apple Development 两类之一，按证书**真实的类**记成 id/dev 两档）
+#   --notarize PROFILE     公证（notarytool 的 keychain profile；只有 id 档能公证）
 #   --min-os auto|X.Y  最低系统（默认 auto = 取实际二进制与内嵌库的最大 minos）
 #   --force-ghostty    强制重建 libghostty xcframework（默认有就复用）
 #   --keep-work        保留中间目录（默认清理 tmp/ 下的工作目录）
@@ -31,7 +32,9 @@
 #   · 依赖的 minos 高于声明的 LSMinimumSystemVersion → 抬到真实值并**打印原因**，
 #     绝不写一个自己都跑不起来的最低系统版本；
 #   · 代码签名：默认 ad-hoc（本机/内测可跑），真分发需 Developer ID + 公证；
-#     没证书时**显式说明**产物未公证，不假装可分发给终端用户。
+#     没证书时**显式说明**产物未公证，不假装可分发给终端用户；
+#   · 签名档位按证书**真实的类**记账：`Developer ID Application:` → `id`（可公证），
+#     `Apple Development:` → `dev`（免费个人账号，不能公证），其余身份直接拒。
 # 已知坑：本脚本大量用中文提示。**`$VAR` 后面紧跟中文字符时，bash 会把非 ASCII
 # 字节并进变量名**（表现为 `unbound variable`）。所以脚本里一律写 `${VAR}`，
 # 不要写 `$VAR（`。
@@ -72,7 +75,7 @@ while [ $# -gt 0 ]; do
     --keep-work) KEEP_WORK=1; shift ;;
     --gui-smoke) GUI_SMOKE=1; shift ;;
     --session-linux-bundle) SESSION_LINUX_BUNDLES+=("${2:?--session-linux-bundle 需要目录}"); shift 2 ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1（--help 看用法）" >&2; exit 2 ;;
   esac
 done
@@ -83,6 +86,29 @@ if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
 fi
 step() { echo "== $* =="; }
 note() { echo "   $*"; }
+
+# 签名档位要按**证书本身的类**记账，不能拿「钥匙串里有这串名字」当「有 Developer ID」。
+# 免费个人账号签出来的是 `Apple Development: …`：不能公证（Apple 侧也拒），Gatekeeper
+# 照样拦，与 ad-hoc 的差别只在签名身份稳定（覆盖安装不再因每轮 cdhash 变化被判成
+# 不同来源）。把它记成 `id`，随包 BUILD-INFO 与 version.json 的 `signature` 就成了
+# 谎话——而那个字段正是 app 侧判断「能不能自动装」的依据（`RemoteBuild.installBlocked`）。
+# 分类放在起跑而不是第 7 步：拿错身份要立刻红，不该先烧掉十几分钟构建才发现。
+if [ "$SIGN_MODE" = "id" ]; then
+  [ -n "$SIGN_ID" ] || fail "--sign 需要身份字符串"
+  case "$SIGN_ID" in
+    "Developer ID Application: "*) SIGN_MODE="id" ;;
+    "Apple Development: "*)        SIGN_MODE="dev" ;;
+    *) fail "签名身份「${SIGN_ID}」不在可记账的两档内：只接受「Developer ID Application: …」（付费计划，可公证）或「Apple Development: …」（免费个人账号，不可公证）。其余身份（Enterprise / Mac Installer / 自签）一律拒——宁可红，不拿别的证书冒充 Developer ID。" ;;
+  esac
+  # 记账要在任何拒绝之前打印：档位由证书的类决定，身份在不在钥匙串里是另一件事
+  # ——混着报错就分不出「分类器判错档」和「这台机器没这张证书」。
+  note "签名档：${SIGN_MODE}（身份 ${SIGN_ID}）"
+  if [ "$SIGN_MODE" = "dev" ] && [ -n "$NOTARIZE_PROFILE" ]; then
+    fail "--notarize 要求 Developer ID（付费计划）签名——当前签名档是 dev（Apple Development，免费个人账号）：这一档 Apple 不给公证，别把包提上去等一个看不懂的错"
+  fi
+  security find-identity -v -p codesigning 2>/dev/null | grep -qF "$SIGN_ID" \
+    || fail "钥匙串里没有签名身份「${SIGN_ID}」（security find-identity -v -p codesigning 自己看）"
+fi
 
 mkdir -p "$ROOT/tmp" "$OUT"
 OUT="$(cd "$OUT" && pwd)"   # 绝对化：脚本里有若干 ( cd "$OUT" && ... ) 子壳
@@ -140,7 +166,9 @@ note "core/build/libghosterm_core.a"
 
 # Matching user-space helpers/catalog are prepared before the native app.
 SESSION_SIGN="-"
-[ "$SIGN_MODE" = "id" ] && SESSION_SIGN="$SIGN_ID"
+case "$SIGN_MODE" in
+  id|dev) SESSION_SIGN="$SIGN_ID" ;;
+esac
 python3 "$ROOT/scripts/build-sessiond-mac.py" --sign "$SESSION_SIGN" >"$WORK/session-build.log" 2>&1 \
   || { tail -30 "$WORK/session-build.log" >&2; fail "会话 helper 构建失败"; }
 SESSION_MAC="$(python3 - "$ROOT" <<'PY_SESSION_MAC'
@@ -309,7 +337,7 @@ BUILD_STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "架构:        ${ARCH}"
   echo "最低系统:    ${MIN_OS}   # 二进制自身 ${APP_MIN_OS}，内嵌库最高 ${REAL_MIN_OS}（${MIN_OS_SRC}）"
   echo "签名:        ${SIGN_MODE}${SIGN_ID:+ ${SIGN_ID}}"
-  echo "公证:        ${NOTARIZE_PROFILE:-无（ad-hoc / 未公证的包不能直接分发给终端用户）}"
+  echo "公证:        ${NOTARIZE_PROFILE:-无（未公证的包不能直接分发给终端用户）}"
   echo "源码:        git ${GIT_SHA}${GIT_DIRTY}"
   echo "libghostty:  pin ${PIN} + patches/libghostty/${PIN}/"
   echo "会话运行环境: ${SESSION_MAC}"
@@ -331,11 +359,15 @@ case "$SIGN_MODE" in
     note "ad-hoc 签名：本机/内测可跑；终端用户首次打开需右键 →「打开」，或做 Developer ID + 公证"
     ;;
   id)
-    [ -n "$SIGN_ID" ] || fail "--sign 需要身份字符串"
-    security find-identity -v -p codesigning 2>/dev/null | grep -qF "$SIGN_ID" \
-      || fail "钥匙串里没有签名身份「${SIGN_ID}」（security find-identity -v -p codesigning 自己看）"
+    # 身份类型与钥匙串存在性在起跑时已核过（见上面的签名档分类）——这里只负责签。
     SIGN_ARGS=(-s "$SIGN_ID" --options runtime --timestamp)
     note "Developer ID 签名 + hardened runtime：${SIGN_ID}"
+    ;;
+  dev)
+    SIGN_ARGS=(-s "$SIGN_ID" --options runtime --timestamp)
+    note "Apple Development 签名（免费个人账号）+ hardened runtime：${SIGN_ID}"
+    note "   这一档**不能公证**：用户下载来仍会被 Gatekeeper 拦（同 ad-hoc 要右键「打开」）；"
+    note "   BUILD-INFO 与 version.json 记的是 dev，不是 id，app 侧照样不许自动安装。"
     ;;
   none)
     note "跳过签名（--no-sign）：产物未签名，不能分发"
@@ -417,7 +449,7 @@ if [ "$GUI_SMOKE" -eq 1 ]; then
 fi
 
 if [ -n "$NOTARIZE_PROFILE" ]; then
-  [ "$SIGN_MODE" = "id" ] || fail "--notarize 需要 Developer ID 真证书签名（--sign \"Developer ID Application: ...\"）"
+  [ "$SIGN_MODE" = "id" ] || fail "--notarize 需要 Developer ID 真证书签名（--sign \"Developer ID Application: ...\"）——当前签名档是「${SIGN_MODE}」"
 fi
 
 # ------------------------------------------------------------------ 9. 产物
@@ -493,6 +525,11 @@ echo "PACKAGE-MAC PASS"
 echo "  App:  ${APP}（$(du -sh "$APP" | awk '{print $1}')）"
 for f in ${DIST_FILES[@]+"${DIST_FILES[@]}"}; do echo "  产物: $f"; done
 echo "  信息: $OUT/BUILD-INFO.txt"
-if [ "$SIGN_MODE" != "id" ]; then
-  echo "  提示: 这是 ad-hoc 签名的包，适合本机与内测；正式分发请用 --sign \"Developer ID Application: ...\" --notarize <profile>"
-fi
+case "$SIGN_MODE" in
+  adhoc)
+    echo "  提示: 这是 ad-hoc 签名的包，适合本机与内测；正式分发请用 --sign \"Developer ID Application: ...\" --notarize <profile>"
+    ;;
+  dev)
+    echo "  提示: Apple Development（免费个人账号）签名——身份稳定但**不可公证**，用户下载来仍被 Gatekeeper 拦；正式分发需要付费计划的 Developer ID + 公证"
+    ;;
+esac

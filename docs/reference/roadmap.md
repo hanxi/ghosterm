@@ -78,7 +78,9 @@
       且每轮 cdhash 不同、`dev` tag 会被强删重建，**不能当自动更新通道**
 - [ ] Developer ID 签名 + 公证：**遗留**——本机无签名证书
       （`security find-identity` 0 项）；脚本与 CI 已支持（`--sign` /
-      `--notarize`），拿到证书即用
+      `--notarize`），拿到证书即用。**免费个人账号不是捷径**：Apple Development
+      能签，但 Apple 不给这一档公证，用户下载来照样被 Gatekeeper 拦（记账档位
+      `dev`，四档口径见 `docs/how-to/dev-build.md`）
 - [ ] 降低最低系统版本：**遗留**——内嵌 OpenSSL 来自 Homebrew（minos 26.0），
       把 `LSMinimumSystemVersion` 抬到真实值；需自建 libssh2/OpenSSL 并设
       `MACOSX_DEPLOYMENT_TARGET`

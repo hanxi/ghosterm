@@ -27,6 +27,16 @@ def write_notice(stage):
         patches='patches/libghostty/8159838',build_script='scripts/build-sessiond-mac.py',zig='0.16.0')
     (stage/'SOURCE-INFO.json').write_text(json.dumps(info,sort_keys=True,indent=2)+'\n')
 
+def sign_label(identity):
+    """签名档必须来自证书本身的类：Apple Development（免费账号，不可公证）不是 developer-id。"""
+    if identity == '-':
+        return 'ad-hoc'
+    if identity.startswith('Developer ID Application: '):
+        return 'developer-id'
+    if identity.startswith('Apple Development: '):
+        return 'apple-development'
+    raise RuntimeError('unrecognized codesign identity (只认 "Developer ID Application: …" 或 "Apple Development: …"): '+identity)
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--engine', type=Path, default=ROOT/'tmp/worker-surface/out/lib/libghostty-vt.dylib')
@@ -76,7 +86,7 @@ def main():
                  for name in ('ghosterm-sessiond', 'ghosterm-session-proxy', 'lib/libghostty-vt.dylib','LICENSE','SOURCE-INFO.json')}
         # Immutable content-addressed releases keep existing processes usable.
         release = contract[:12]+'-'+hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()[:16]
-        metadata = dict(format=1, platform='macos', arch='arm64', contract=contract, release=release, files=files, signature='ad-hoc' if args.sign=='-' else 'developer-id')
+        metadata = dict(format=1, platform='macos', arch='arm64', contract=contract, release=release, files=files, signature=sign_label(args.sign))
         (staging/'runtime.json').write_text(json.dumps(metadata, indent=2)+'\n')
         for name in ('ghosterm-sessiond', 'ghosterm-session-proxy'):
             run([staging/name, '--help'], stdout=subprocess.DEVNULL)

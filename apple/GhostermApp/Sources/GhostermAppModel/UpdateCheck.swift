@@ -92,8 +92,10 @@ public struct RemoteBuild: Equatable {
     public var assetSha256: String
     public var downloadBase: String
 
-    /// 装到机器上的这份能不能被 Gatekeeper 放行：**必须 Developer ID 签名且已公证**
-    /// （`signature` 的取值见 `scripts/package-mac.sh`：`adhoc` / `id` / `none`）。
+    /// 装到机器上的这份能不能被 Gatekeeper 放行：**必须 Developer ID 签名且已公证**。
+    /// `signature` 的取值见 `scripts/package-mac.sh`：`adhoc` / `dev`（免费个人账号的
+    /// Apple Development，不可公证）/ `id` / `none`。判据写成「不等于 `id` 就拦」而不是
+    /// 枚举已知不可装的档——将来新增的档位默认落在「不许自动装」那一侧（铁律 #6）。
     /// 界面上「有新版」必须连带这句话，否则等于给了个点了装不上的按钮。
     public var installBlocked: Bool { signature != "id" || !notarized }
 

@@ -158,6 +158,11 @@ final class UpdateCheckTests: XCTestCase {
         XCTAssertTrue(build.installBlocked)
         XCTAssertEqual(build.downloadURL?.absoluteString,
                        "https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-0.1.0-dev-arm64.dmg")
+        // 免费个人账号的 Apple Development 档（`scripts/package-mac.sh` 记为 `dev`）：
+        // 证书是真的，但这一档不能公证，用户下载来照样被 Gatekeeper 拦——判据写成
+        // 「不等于 id 就拦」，所以任何没枚举过的新档位都默认落在「不许自动装」一侧。
+        let devSigned = try remote { $0["signature"] = "dev" }
+        XCTAssertTrue(devSigned.installBlocked)
         let signed = try remote {
             $0["signature"] = "id"
             $0["notarized"] = true

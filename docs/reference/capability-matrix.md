@@ -112,6 +112,10 @@
 > （递归内嵌依赖闭包 + 运行时断言不从 Homebrew 加载）；默认 ad-hoc 签名。
 > **🟡 Developer ID 签名 + 公证未做**（无证书；脚本/CI 已就绪）。
 > **🟡 最低系统版本**受内嵌 Homebrew OpenSSL 抬高（minos 26.0），需要自建依赖才能降。
+> 签名档位按**证书真实的类**记账（`adhoc` / `dev` / `id` / `none`），身份串不在这两类
+> 当场拒——**免费个人账号的 Apple Development 能签但不能公证**，与 ad-hoc 一样被
+> Gatekeeper 拦（只多买到「签名身份稳定」），故它不构成第三条分发路；口径见
+> [dev 包怎么装](../how-to/dev-build.md#签名档位adhoc--dev--id--none)。
 
 > macOS 一行的口径：
 > - SSH ✅ —— `apple-app-gate.sh` 起**真 sshd** 跑通「认证 → shell 通道 → 回显进

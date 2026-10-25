@@ -131,6 +131,17 @@ settings-ui / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
 package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / attachment-peer / sessiond-linux / app-update。
+（`package-mac` 另护「**签名档位必须按证书真实的类记账**」：`--sign` 原先把任何身份都记
+成 `id`，于是随包 `BUILD-INFO.txt` 与 `version.json` 的 `signature` 会谎报 Developer ID——
+而那个字段正是 app 侧 `RemoteBuild.installBlocked` 判断「能不能自动装」的唯一依据。
+A8 打 `package-mac.sh` 的分类器（`Developer ID Application:` → `id`、`Apple Development:`
+→ `dev`、其余身份当场拒；`dev` 档配 `--notarize` 必须先拦下来），A9 打
+`build-sessiond-mac.py` 写进 `runtime.json` 的同一口径。背景：免费个人账号的
+Apple Development **能签但不能公证**，与 ad-hoc 一样被 Gatekeeper 拦，只多买到「签名身份
+稳定」这一件事，所以它不构成第三条分发路（口径写在 `docs/how-to/dev-build.md`）。
+这两组的判据是「**红在哪句文案**」而不是退出码——分类器拒的、钥匙串缺的、公证守卫拦的
+三类红用退出码分不出来，故新增 `expect_red_saying`；同一轮补齐了起跑前的变异标记扫描
+与 `gt_timeout`（原先这份脚本既没扫标记也没用超时）。）
 （`app-update` 护 dev 版**更新检测**这条链——七组变异，每组都要让对应断言变红并带一条
 同变异下仍绿的指向性对照：U1 把「本机没有 commit 记录」折成「已是最新」（铁律 #6）、
 U2 把主锚从 commit 换回版本号（`build` 按 workflow 文件计数，跨轨不可比）、U3 解码时给

@@ -28,7 +28,7 @@
 | `构建时刻` | 打包那一刻的 UTC 时间（ISO-8601）。`version.json` 里的 `build_time` 就是同一行、同一语义（两侧都是打包时刻），所以两者**可以**比；但客户端当前不拿它下结论，见下面 [在 app 里看](#在-app-里看关于窗口的那一行) |
 | `架构` | 目前只有 `arm64`（`GhosttyKit.xcframework` 只切了 arm64） |
 | `最低系统` | 二进制自身的 `minos` 与**内嵌依赖**里最高者的较大值——内嵌的 Homebrew 库会把最低系统抬高，所以这一行往往大于 `Info.plist` 里的原始声明 |
-| `签名` | dev 轨恒为 `adhoc` |
+| `签名` | 记账档位：`adhoc` / `dev`（免费个人账号）/ `id`（Developer ID）/ `none`。**dev 轨恒为 `adhoc`**（CI 当场验这一条），取值口径见 [签名档位](#签名档位adhoc--dev--id--none) |
 | `Linux glibc 下限` | 内嵌的 Linux 会话安装包按架构的 `min_glibc`（如 `x86_64=min_glibc 2.34`）——**远端主机**能不能跑 `ghosterm-sessiond` 就取决于它，与本机 macOS 无关 |
 
 `CFBundleVersion` 用的是 dev workflow 自己的运行编号。拆成 dev / release 两个 workflow
@@ -99,6 +99,33 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
   [roadmap](../reference/roadmap.md) 的遗留项）。「有没有新版」的检测不受此限制，
   见上面 [version.json](#有没有新版的机读入口versionjson)——它只给直链，装不装由人。
 - 构建细节与为什么必须先造 Linux 包，见 [CI 出包口径](#ci-是怎么串起来的)。
+
+## 签名档位：`adhoc` / `dev` / `id` / `none`
+
+`scripts/package-mac.sh` 按**证书本身的类**记账，记账结果原样进 `BUILD-INFO.txt` 的
+`签名:` 那一行与 `version.json` 的 `signature`：
+
+| 档位 | 怎么来 | 能公证吗 | 用户下载以后 |
+|---|---|---|---|
+| `adhoc` | `--adhoc`（默认；CI 的 dev 轨走这条） | ❌ | Gatekeeper 拦：右键「打开」或 `xattr -dr com.apple.quarantine` |
+| `dev` | `--sign "Apple Development: …"`（免费个人账号，不花 $99） | ❌ Apple 不给这一档公证，脚本自己先拦 | 同上，仍要右键 |
+| `id` | `--sign "Developer ID Application: …"`（付费 Apple Developer Program） | ✅ `--notarize <profile>` | 双击即装 |
+| `none` | `--no-sign`（排障用） | ❌ | 未签名，macOS 直接拒开 |
+
+- **免费账号买到的只有「签名身份稳定」这一件事**：同一 Team ID、同一 designated
+  requirement，覆盖安装不再因每轮 cdhash 变化被判成不同来源。它**不解决**「下载来能不能
+  双击」——那要公证，公证要付费的 Developer ID。
+- **因此「每 7 天重签一次」不是第三条路**：7 天是免费账号 *provisioning profile* 的有效期
+  （iOS 装机才吃这套），macOS 直发 dmg 不吃 profile；而带 `--timestamp` 的签名到期后依然
+  有效（校验用的是签名时刻）。真正的拦路石是公证，重打多少次都不动它。每轮重打反倒会换
+  cdhash、强删重建 `dev` tag，让用户机器上那份与清单里那份不是同一个二进制——检测照报
+  「已是最新」（`git_commit` 相同），实际内容已经换了，这是最坏的一种假绿。
+- 身份串不属于这两类（Enterprise、`Developer ID Installer`、自签）→ **当场拒**：宁可红，
+  不拿别的证书冒充 `id`。那个字段是 app 侧判断「能不能自动装」的唯一依据
+  （`RemoteBuild.installBlocked`，见
+  [关于窗口的那一行](#在-app-里看关于窗口的那一行)）。
+  会话 helper 的 `runtime.json` 走同一套记账（`ad-hoc` / `apple-development` / `developer-id`）。
+  牙见 `scripts/mutation-check-package-mac.sh` 的 A8、A9。
 
 ## 本地自己出一份
 

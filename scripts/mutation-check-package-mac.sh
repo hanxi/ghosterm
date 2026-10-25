@@ -4,13 +4,16 @@
 # 覆盖的断言（都在 scripts/package-mac.sh / scripts/lib/embed-dylibs.py 里）：
 #   1. 依赖必须递归内嵌：没内嵌 → check 红（连「改坏脚本里的内嵌调用」也红）；
 #   2. 签名后再往 bundle 里加文件 → code seal 失效 → codesign 校验红；
-#   3. 谎报最低系统版本（--min-os 低于依赖实际要求）→ 直接拒绝出包。
+#   3. 谎报最低系统版本（--min-os 低于依赖实际要求）→ 直接拒绝出包；
+#   4. 签名档位必须按证书**真实的类**记账：免费个人账号的 Apple Development 不能
+#      冒充 Developer ID（A8 打 package-mac.sh 的分类器，A9 打 sessiond 的 runtime.json）。
 #
 # 手法与仓库其它 mutation 脚本一致：基线绿 → 变异红 → 回滚复绿，
 # 并且**每个变异都配一条「应当仍绿」的对照**，证明红有指向性而不是环境坏了。
 #
-# 与其它 mutation 脚本的差异：本脚本的变异主要作用在 tmp/ 里的**副本**上
-# （不改仓库文件），唯一改仓库文件的那条带 sha256 复原校验。
+# 与其它 mutation 脚本的差异：部分变异作用在 tmp/ 里的**副本**上（不改仓库文件），
+# 改仓库文件的那几条（A2/A7/A8/A9）统一由末尾的 sha256 对拍兜底，且清理钩子先把
+# 备份拷回去再删工作目录。
 #
 # 用法：bash scripts/mutation-check-package-mac.sh
 set -euo pipefail
@@ -18,14 +21,36 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p "$ROOT/tmp"
 
-SCRIPTS=(scripts/package-mac.sh scripts/lib/embed-dylibs.py scripts/build-icons.sh scripts/lib/ghostty-themes.sh)
+SCRIPTS=(scripts/package-mac.sh scripts/lib/embed-dylibs.py scripts/build-icons.sh scripts/lib/ghostty-themes.sh scripts/build-sessiond-mac.py)
 for f in "${SCRIPTS[@]}"; do [ -f "$f" ] || { echo "缺少 $f" >&2; exit 2; }; done
+
+# 起跑前扫变异标记：上一轮被 kill -9 打断可能把 `# MUTATION` 留在仓库文件里，
+# 那种状态下每条断言都红得没有意义（AGENTS.md：命中即 exit 2，不许接着跑）。
+for f in "${SCRIPTS[@]}"; do
+  if grep -qF '# MUTATION' "$f"; then
+    echo "MUTATION FAIL: $f 里残留变异标记（# MUTATION）——上一轮没复原，先 git checkout 该文件再跑。" >&2
+    exit 2
+  fi
+done
+
+# 超时只走 gt_timeout：macOS 没有裸 `timeout`（brew coreutils 装的是 gtimeout），
+# 而「命令不存在」与「断言变红」都是非零退出码，混在一起就是假牙。解析不到则
+# exit 2 拒绝起跑。
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-package-mac
 
 declare -A SHA_BEFORE
 for f in "${SCRIPTS[@]}"; do SHA_BEFORE[$f]="$(shasum -a 256 "$f" | awk '{print $1}')"; done
 
 WORK="$(mktemp -d "$ROOT/tmp/mutation-package-XXXXXX")"
-cleanup() { rm -rf "$WORK"; }
+PKG_BAK="$WORK/package-mac.sh.orig"
+SESSIOND_BAK="$WORK/build-sessiond-mac.py.orig"
+cleanup() {
+  # 先复原仓库文件、再删工作目录：备份就放在工作目录里，顺序反了会把证据一起删掉。
+  [ -f "$PKG_BAK" ] && cp "$PKG_BAK" "$ROOT/scripts/package-mac.sh" 2>/dev/null || true
+  [ -f "$SESSIOND_BAK" ] && cp "$SESSIOND_BAK" "$ROOT/scripts/build-sessiond-mac.py" 2>/dev/null || true
+  rm -rf "$WORK"
+}
 trap cleanup EXIT INT TERM
 
 PASS=0
@@ -35,6 +60,20 @@ PASS=0
 LAST_LOG="$WORK/last.log"
 expect_red()   { local d=$1; shift; if "$@" >"$LAST_LOG" 2>&1; then echo "MUTATION FAIL: ${d}：预期红，实际绿（尾 15 行）" >&2; tail -15 "$LAST_LOG" >&2; exit 1; fi; echo "   ok  ${d} → 红"; PASS=$((PASS+1)); }
 expect_green() { local d=$1; shift; if ! "$@" >"$LAST_LOG" 2>&1; then echo "MUTATION FAIL: ${d}：预期绿，实际红（尾 15 行）" >&2; tail -15 "$LAST_LOG" >&2; exit 1; fi; echo "   ok  ${d} → 绿"; PASS=$((PASS+1)); }
+# expect_red_saying：不只看退出码，还看**红在哪一句**。A8 里「分类器拒了」与
+# 「钥匙串里没这身份」都是非零退出码，光看状态码分不出拦对还是拦错——只有文案能
+# 证明是分类器在做判断（这也是「假绿/假红」唯一的现场证据，故失败时照例 dump）。
+expect_red_saying() {
+  local d=$1 needle=$2; shift 2
+  if "$@" >"$LAST_LOG" 2>&1; then
+    echo "MUTATION FAIL: ${d}：预期红，实际绿（尾 15 行）" >&2; tail -15 "$LAST_LOG" >&2; exit 1
+  fi
+  if ! grep -qF -- "$needle" "$LAST_LOG"; then
+    echo "MUTATION FAIL: ${d}：是红了，但输出里没有「${needle}」＝红得没有指向性（尾 15 行）" >&2
+    tail -15 "$LAST_LOG" >&2; exit 1
+  fi
+  echo "   ok  ${d} → 红（文案含「${needle}」）"; PASS=$((PASS+1))
+}
 
 echo "== 基线：出一次包（同时作为变异用的样本） =="
 bash scripts/package-mac.sh --out "$WORK/dist" --app-only --no-zip --version 0.0.0-mut >"$WORK/base.log" 2>&1 \
@@ -119,6 +158,85 @@ expect_red "ad-hoc + --notarize 必须被守卫拦下（A5）" \
   bash scripts/package-mac.sh --out "$WORK/A5dist" --app-only --no-zip \
     --version 0.0.0-mut --adhoc --notarize ghosterm-notary
 expect_green "同一次跑里基线 .app 不受影响（A5 指向性）" python3 scripts/lib/embed-dylibs.py check "$BASELINE"
+
+echo "== A8：签名档位必须按证书**真实的类**记账（免费账号不能冒充 Developer ID） =="
+# 为什么打这一条：`--sign` 原先把**任何**身份都记成 SIGN_MODE=id，于是随包
+# BUILD-INFO 与 version.json 的 `signature` 会谎报「Developer ID」——而那个字段正是
+# app 侧 `RemoteBuild.installBlocked` 判断「能不能自动装」的依据（铁律 #6：宁可红，
+# 不拿别的证书冒充）。本机没有真证书（security find-identity 0 项），所以验的是
+# 分类器本身：三类假身份都走不到签名那一步，但**红必须红在不同的地方**——
+# 「随便什么都拒」和「按证书类分档」用退出码分不出来，只有文案分得出来。
+DEV_ID="Apple Development: 测试 (TEAMID)"
+DEVID="Developer ID Application: 测试 (TEAMID)"
+OTHER_ID="Developer ID Installer: 测试 (TEAMID)"
+pkg_sign() {
+  # 两条分支而不是 ${2:+…}：身份串里有空格，嵌套引号在展开里最容易出错。
+  if [ "$#" -gt 1 ]; then
+    gt_timeout 180 bash scripts/package-mac.sh --out "$WORK/A8dist" --app-only --no-zip \
+      --version 0.0.0-mut --sign "$1" --notarize "$2"
+  else
+    gt_timeout 180 bash scripts/package-mac.sh --out "$WORK/A8dist" --app-only --no-zip \
+      --version 0.0.0-mut --sign "$1"
+  fi
+}
+expect_red_saying "Apple Development 记成 dev 档（A8 基线）" "签名档：dev" pkg_sign "$DEV_ID"
+expect_red_saying "dev 档 + --notarize 被守卫拦下（A8 基线）" "不给公证" pkg_sign "$DEV_ID" ghosterm-notary
+expect_red_saying "Developer ID 假身份红在钥匙串那一层（A8 基线）" "钥匙串里没有" pkg_sign "$DEVID"
+expect_red_saying "不认识的身份直接拒（A8 基线）" "不在可记账的两档内" pkg_sign "$OTHER_ID"
+cp scripts/package-mac.sh "$PKG_BAK"
+python3 - scripts/package-mac.sh <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p, encoding="utf-8").read()
+needle = '''    "Developer ID Application: "*) SIGN_MODE="id" ;;
+    "Apple Development: "*)        SIGN_MODE="dev" ;;'''
+assert needle in t, "签名档分类实现变了，A8 的变异要跟着改"
+t = t.replace(needle,
+              '    *) SIGN_MODE="id" ;;  # MUTATION: 回到「凡是真证书都算 Developer ID」', 1)
+open(p, "w", encoding="utf-8").write(t)
+PY
+expect_red_saying "变异后：开发证书被记成 id（A8 有牙）" "签名档：id" pkg_sign "$DEV_ID"
+expect_red_saying "变异后：未知身份也不再被分类器拒（A8 第二处有牙）" "钥匙串里没有" pkg_sign "$OTHER_ID"
+expect_green "同一变异下基线 .app 不受影响（A8 指向性）" python3 scripts/lib/embed-dylibs.py check "$BASELINE"
+cp "$PKG_BAK" scripts/package-mac.sh
+expect_red_saying "复原后同一调用重新记成 dev（A8 复绿口径）" "签名档：dev" pkg_sign "$DEV_ID"
+
+echo "== A9：会话 helper 的 runtime.json 同一条记账口径 =="
+# build-sessiond-mac.py 原先写 `'ad-hoc' if sign=='-' else 'developer-id'`：拿免费账号
+# 的证书签 sessiond，runtime.json 里就成了 developer-id——同一个谎的第二处落点。
+# 这一档不进 release id（id 只由 contract 与文件哈希算），所以改它不动 mac↔Linux
+# 的契约对拍；也因此这里只能**现取现调**该函数（整脚本要真构建，代价不成比例）。
+A9_PROBE='import runpy
+f = runpy.run_path("scripts/build-sessiond-mac.py", run_name="gt_probe")["sign_label"]
+for got, exp in [("-", "ad-hoc"),
+                 ("Developer ID Application: X (T)", "developer-id"),
+                 ("Apple Development: X (T)", "apple-development")]:
+    if f(got) != exp:
+        raise SystemExit("记账错：%s → %s，应为 %s" % (got, f(got), exp))
+try:
+    f("Developer ID Installer: X (T)")
+except RuntimeError:
+    pass
+else:
+    raise SystemExit("未识别的身份没报错")'
+A9_CTRL='import runpy,sys
+f = runpy.run_path("scripts/build-sessiond-mac.py", run_name="gt_probe")["sign_label"]
+sys.exit(0 if f("-") == "ad-hoc" and f("Developer ID Application: X (T)") == "developer-id" else 1)'
+expect_green "三档记账 + 未知身份报错（A9 基线）" python3 -c "$A9_PROBE"
+cp scripts/build-sessiond-mac.py "$SESSIOND_BAK"
+python3 - scripts/build-sessiond-mac.py <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p, encoding="utf-8").read()
+needle = "        return 'apple-development'"
+assert needle in t, "sign_label 实现变了，A9 的变异要跟着改"
+t = t.replace(needle, "        return 'developer-id'  # MUTATION: 真证书一律算 developer-id", 1)
+open(p, "w", encoding="utf-8").write(t)
+PY
+expect_red "变异后：开发证书被记成 developer-id（A9 有牙）" python3 -c "$A9_PROBE"
+expect_green "同一变异下 ad-hoc 与 Developer ID 两档不受影响（A9 指向性）" python3 -c "$A9_CTRL"
+cp "$SESSIOND_BAK" scripts/build-sessiond-mac.py
+expect_green "复原后三档记账复绿（A9 复绿）" python3 -c "$A9_PROBE"
 
 echo "== A7：配色集定位（A7 必须红——这条正是「出过没主题的包」的根因） =="
 # 为什么打这一条：配色集定位原先写成 `find -type d`，而 zig-pkg 里的
