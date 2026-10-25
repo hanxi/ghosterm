@@ -57,6 +57,8 @@ struct AboutContentView: View {
 /// 关于：名字、版本、许可与项目地址（照抄 iGhostVT 的关于页形态：
 /// 图标 + 名称 + 版本，下面接许可）。
 struct AboutPane: View {
+    @StateObject private var updater = UpdateChecker()
+
     var body: some View {
         VStack(spacing: DS.Padding.l) {
             VStack(spacing: DS.Padding.s) {
@@ -81,6 +83,8 @@ struct AboutPane: View {
             }
             .frame(maxWidth: .infinity)
 
+            UpdateRow(updater: updater)
+
             MacTableFrame {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(AboutInfo.entries.enumerated()), id: \.offset) { index, entry in
@@ -104,6 +108,59 @@ struct AboutPane: View {
                          + "源码与许可全文：https://github.com/hanxi/ghosterm")
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+/// 「有没有新版」这一行：本机身份 + 手动检查 + 只给直链不代装。
+///
+/// 为什么入口在这里而不是设置页：它不是可调项，和「版本」「许可」同一类信息
+/// （见文件头对 `SettingsView` 的取舍）。
+///
+/// 为什么**没有**「立即安装」：dev 包 ad-hoc 签名、未公证，替换正在运行的二进制
+/// 必被 Gatekeeper 拦下——按钮给了也点不动（`installBlocked` 就是清单里那条
+/// 机器可读声明）。所以这里只报结论、只给下载直链。
+struct UpdateRow: View {
+    @ObservedObject var updater: UpdateChecker
+
+    private var newer: RemoteBuild? {
+        if case .newer(let build) = updater.query { return build }
+        return nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Padding.s) {
+            HStack(alignment: .firstTextBaseline, spacing: DS.Padding.m) {
+                Text("更新").frame(width: 130, alignment: .leading)
+                Text(verbatim: updater.isChecking ? "正在检查…"
+                     : (updater.query?.statusText ?? "未检查（只在你点下面的按钮时联网）"))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button(updater.isChecking ? "检查中…" : "检查更新") { updater.checkNow() }
+                    .disabled(updater.isChecking)
+                    .controlSize(.small)
+                if let url = newer?.downloadURL {
+                    Button("打开下载页") { NSWorkspace.shared.open(url) }
+                        .controlSize(.small)
+                        .help("只给直链：Ghosterm 不自动替换正在运行的二进制")
+                }
+            }
+            .font(DS.Font.detail)
+
+            HStack(spacing: DS.Padding.xs) {
+                Text("本机")
+                Text(verbatim: updater.installed.summary)
+                    .textSelection(.enabled)
+            }
+            .font(DS.Font.detail)
+            .foregroundStyle(.secondary)
+            .accessibilityElement(children: .combine)
+
+            if newer?.installBlocked == true {
+                SettingsNote("这份新版是 ad-hoc 签名、未公证：下载后需自行覆盖安装，"
+                             + "首次打开要对 App 右键选「打开」（或 xattr -dr com.apple.quarantine）。")
+            }
         }
     }
 }
