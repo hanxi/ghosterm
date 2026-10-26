@@ -25,6 +25,10 @@ public final class SessionSetupTransport {
             }
         }
     }
+    static func remotePaths(home: String, contract: String, installRoot: String?, runtimeDirectory: String?) -> (installRoot: String, runtimeDirectory: String) {
+        let base = home + "/.ghosterm"
+        return (installRoot ?? (base + "/sessiond"), runtimeDirectory ?? (base + "/runtime/" + contract.prefix(16)))
+    }
     public let owner = DispatchQueue(label: "dev.ghosterm.session-setup")
     private let options: SSHOptions
     private let bundles: [String: URL]
@@ -96,8 +100,8 @@ public final class SessionSetupTransport {
             guard let header, header.count == 6, header[0] == "GTB1", header[2] == Substring(linux.arch), header[5] == Substring(contract),
                   contract.utf8.count == 64, contract.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw Failure.invalidBundle }
             report("正在准备远程会话服务…")
-            let root = installRoot ?? (linux.home + "/.local/share/ghosterm/sessiond")
-            let result = connection.install(bundleDirectory: bundle.path, root: root, cancellation: cancellation, timeoutMilliseconds: try remaining()) { [weak self] value in
+            let paths = Self.remotePaths(home: linux.home, contract: contract, installRoot: installRoot, runtimeDirectory: runtimeDirectory)
+            let result = connection.install(bundleDirectory: bundle.path, root: paths.installRoot, cancellation: cancellation, timeoutMilliseconds: try remaining()) { [weak self] value in
                 switch value.stage {
                 case .upload:
                     if value.total > 0 { self?.report("正在上传会话服务：\(value.bytes)/\(value.total)") }
@@ -114,7 +118,7 @@ public final class SessionSetupTransport {
             guard !cancellation.isCancelled else { throw Failure.cancelled(result) }
             guard result.status == 0 else { throw Failure.installation(result) }
             let endpoint = SessionRecord.Endpoint(proxy: result.proxy, daemon: result.daemon,
-                runtime: runtimeDirectory ?? (linux.home + "/.local/state/ghosterm/" + contract.prefix(16)), contract: contract)
+                runtime: paths.runtimeDirectory, contract: contract)
             finish(.success(Installed(linux: linux, installation: result, endpoint: endpoint, acceptedAttempt: attempt)))
         } catch { finish(.failure(error)) }
     }

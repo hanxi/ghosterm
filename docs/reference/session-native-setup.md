@@ -14,8 +14,11 @@ Linux probe 后按实际架构选择应用内预编译包，并先核对 GTB1 ar
 保留 installation 的 publicationUnknown，不能宣称远端回滚。远端不编译，不安装
 系统依赖，不要求 sudo，不替换已运行的 daemon 或会话。
 
-默认部署到 `$HOME/.local/share/ghosterm/sessiond`，runtime 位于
-`$HOME/.local/state/ghosterm/<contract-prefix>`；专用夹具可显式覆盖两者。
+远端默认部署到 `$HOME/.ghosterm/sessiond`，runtime 位于
+`$HOME/.ghosterm/runtime/<contract-prefix>`；安装和端点初始化分别逐级创建
+缺失目录（0700），不会修改既有目录权限；专用夹具可显式覆盖两者。本机 runtime 路径不变。
+既有远端会话仍使用记录中的原 runtime，不自动迁移、重启或终止后端；旧路径如因
+父目录权限不安全而不可用，改默认路径也无法恢复那条旧会话。
 远端 Mac/Windows 和未附带的 Linux 架构明确不支持，不静默换连接路线。
 
 ## 真实闭环

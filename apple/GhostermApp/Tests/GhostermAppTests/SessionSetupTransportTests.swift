@@ -17,6 +17,17 @@ import XCTest
         while !predicate(), Date() < end { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertTrue(predicate(), "native Linux setup flow did not reach its observable state")
     }
+    func testRemotePathsDefaultToPrivateHomeAndPreserveOverrides() {
+        let contract = "0123456789abcdef" + String(repeating: "a", count: 48)
+        let paths = SessionSetupTransport.remotePaths(home: "/home/fixture", contract: contract, installRoot: nil, runtimeDirectory: nil)
+        XCTAssertEqual(paths.installRoot, "/home/fixture/.ghosterm/sessiond")
+        XCTAssertEqual(paths.runtimeDirectory, "/home/fixture/.ghosterm/runtime/0123456789abcdef")
+        let savedRuntime = "/home/fixture/.local/state/ghosterm/0123456789abcdef"
+        let overridden = SessionSetupTransport.remotePaths(home: "/home/fixture", contract: contract,
+            installRoot: "/fixture/install", runtimeDirectory: savedRuntime)
+        XCTAssertEqual(overridden.installRoot, "/fixture/install")
+        XCTAssertEqual(overridden.runtimeDirectory, savedRuntime)
+    }
     func testCancellationBeforeStartNeverRequestsCredentials() async throws {
         var calls = 0, completions = 0
         var result: Result<SessionSetupTransport.Installed, Swift.Error>?

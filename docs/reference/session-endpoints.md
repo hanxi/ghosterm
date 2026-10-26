@@ -17,7 +17,7 @@ Windows named pipe 后端仍待实现，不把本 Unix 实现当作 Windows 支�
 平台接线层提供短的绝对运行时目录；不在这里读取环境或猜测 HOME，不回退系统
 /tmp。目录必须没有点、重复斜杠、末尾斜杠或 symlink 组件。逐级以 openat/fstatat
 核验根/当前用户所有权，祖先不得有 group/world 写权限；最终目录必须属于当前
-有效 UID，权限恰为 0700。显式 create 时逐级创建缺失组件，模式为 0700，随后重新核验身份和权限；只读打开不创建目录，不自动修复既有目录权限。此行为供本地和远端代理冷启动共用，避免 ~/.local/state/ghosterm 等父目录缺失导致首次启动失败。
+有效 UID，权限恰为 0700。显式 create 时逐级创建缺失组件，模式为 0700，随后重新核验身份和权限；只读打开不创建目录，不自动修复既有目录权限。此行为供本地和远端代理冷启动共用；远端默认使用 `$HOME/.ghosterm/runtime/<contract-prefix>`，本机默认路径另由宿主指定。
 路径连同 `/session.sock` 和 NUL 超过实际 sun_path 容量时明确返回 INVALID。
 
 打开后持有目录 fd 与设备/inode 身份；后续启动/连接/accept 再核验路径仍指向

@@ -63,9 +63,9 @@ import XCTest
         XCTAssertTrue(FileManager.default.createFile(atPath: known.path, contents: Data(), attributes: [.posixPermissions: 0o600]))
         let records = directory.appendingPathComponent("records")
         let interaction = DefaultLinuxInteraction(expectedFingerprint)
-        func model() -> AppModel {
+        func model(runtimeOverride: String? = nil) -> AppModel {
             let model = isolatedAppModel(configPath: config.path, knownHostsPath: known.path, sessionDirectory: records,
-                remoteInstallRoot: root, remoteRuntimeDirectory: runtime)
+                remoteInstallRoot: root, remoteRuntimeDirectory: runtimeOverride ?? runtime)
             model.interaction = interaction; return model
         }
         var first: AppModel? = model()
@@ -109,7 +109,8 @@ import XCTest
         first!.detachKeepingSession(tab)
         try await until { first!.tabs.tabs.isEmpty && first!.savedSessions.contains { $0.id == saved.id } }
         window.contentView = nil; first = nil
-        let second = model(); defer { second.disconnectForTesting() }
+        // A changed default for new sessions must not redirect a saved session to a different socket.
+        let second = model(runtimeOverride: runtime + "/new-session"); defer { second.disconnectForTesting() }
         let restored = makeRootHostingView(model: second, initialShowsSidebar: true)
         restored.frame = host.frame; window.contentView = restored
         second.startInitialSessions(); second.startInitialSessions()
