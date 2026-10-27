@@ -6,13 +6,16 @@
 #   2. 签名后再往 bundle 里加文件 → code seal 失效 → codesign 校验红；
 #   3. 谎报最低系统版本（--min-os 低于依赖实际要求）→ 直接拒绝出包；
 #   4. 签名档位必须按证书**真实的类**记账：免费个人账号的 Apple Development 不能
-#      冒充 Developer ID（A8 打 package-mac.sh 的分类器，A9 打 sessiond 的 runtime.json）。
+#      冒充 Developer ID（A8 打 package-mac.sh 的分类器，A9 打 sessiond 的 runtime.json）；
+#   5. 对外声明的下载入口必须跟着本轮打包改名：Homebrew cask 的 URL 在另一个仓库手写，
+#      改名/版本 bump 时 dev 轨自己全绿、用户侧 404（A10 打 package-mac.sh 的资产命名，
+#      牙落在 scripts/check-dev-cask.sh 上）。
 #
 # 手法与仓库其它 mutation 脚本一致：基线绿 → 变异红 → 回滚复绿，
 # 并且**每个变异都配一条「应当仍绿」的对照**，证明红有指向性而不是环境坏了。
 #
 # 与其它 mutation 脚本的差异：部分变异作用在 tmp/ 里的**副本**上（不改仓库文件），
-# 改仓库文件的那几条（A2/A7/A8/A9）统一由末尾的 sha256 对拍兜底，且清理钩子先把
+# 改仓库文件的那几条（A2/A7/A8/A9/A10）统一由末尾的 sha256 对拍兜底，且清理钩子先把
 # 备份拷回去再删工作目录。
 #
 # 用法：bash scripts/mutation-check-package-mac.sh
@@ -21,7 +24,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p "$ROOT/tmp"
 
-SCRIPTS=(scripts/package-mac.sh scripts/lib/embed-dylibs.py scripts/build-icons.sh scripts/lib/ghostty-themes.sh scripts/build-sessiond-mac.py)
+SCRIPTS=(scripts/package-mac.sh scripts/lib/embed-dylibs.py scripts/build-icons.sh scripts/lib/ghostty-themes.sh scripts/build-sessiond-mac.py scripts/check-dev-cask.sh)
 for f in "${SCRIPTS[@]}"; do [ -f "$f" ] || { echo "缺少 $f" >&2; exit 2; }; done
 
 # 起跑前扫变异标记：上一轮被 kill -9 打断可能把 `# MUTATION` 留在仓库文件里，
@@ -290,6 +293,73 @@ if [ "$STASHED" -eq 1 ]; then mv "$STASH" tmp/ghostty-resources; fi
 cp "$WORK/ghostty-themes.sh.orig" "$A7_LIB"
 expect_green "改回按文件找后同一调用复绿（A7 指向性）" \
   bash -c '. scripts/lib/ghostty-themes.sh; ghostty_themes_find "$1"' _ "$A7_ROOT"
+
+echo "== A10：Homebrew cask 声明的资产名必须跟着本轮打包改名 =="
+# 为什么打这一条：tap 是**另一个仓库**（hanxi/homebrew-ghosterm），cask 里的 URL 是手写的，
+# 而 dev 资产名由 package-mac.sh 的 BASE 现算（带版本号）。版本一 bump、命名一改，那条 URL
+# 就指到不存在的东西——**dev 轨自己却是全绿的**：SHA256SUMS 与 version.json 都从本轮产物
+# 现算（它们跟着改名），用户侧的表现才是 `brew install --cask` 当场 404。
+# 分工要说清：这里验的是「check-dev-cask.sh 的比较逻辑有没有牙」（拿 fixture 当输入）；
+# 与**真实** cask 的一致性由 dev-build.yml 那一步直接取 raw 文件来对（它跑的是真 URL、真资产）。
+A10_CASK="$WORK/ghosterm-dev.rb"
+cat > "$A10_CASK" <<'RB'
+cask "ghosterm-dev" do
+  version :latest
+  sha256 :no_check
+
+  url "https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-0.0.0-mut-arm64.zip"
+  name "Ghosterm (dev channel)"
+  desc "Libghostty 驱动的多端终端（dev 滚动渠道，未公证）"
+  homepage "https://github.com/hanxi/ghosterm"
+
+  depends_on arch: :arm64
+  depends_on macos: :tahoe
+
+  app "Ghosterm.app"
+
+  uninstall quit: "dev.ghosterm.mac"
+end
+RB
+# fixture 只把资产名换成 mutation 用的版本串 0.0.0-mut，其余口径与真 cask 逐条一致。
+# **先断言源在、基线绿**，再谈变异（否则红得没有指向性）。
+check_cask() { bash scripts/check-dev-cask.sh --dist "$1" --cask-file "$2"; }
+expect_green "变异前：出一次带 zip 的包作为对拍输入（A10 前置）" \
+  bash scripts/package-mac.sh --out "$WORK/A10base" --app-only --version 0.0.0-mut
+expect_green "变异前：对拍绿（A10 基线）" check_cask "$WORK/A10base" "$A10_CASK"
+cp scripts/package-mac.sh "$PKG_BAK"
+python3 - scripts/package-mac.sh <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p, encoding="utf-8").read()
+needle = 'BASE="Ghosterm-${VERSION}-${ARCH}"'
+assert needle in t, "资产命名实现变了，A10 的变异要跟着改"
+t = t.replace(needle, 'BASE="ghosterm-${VERSION}-${ARCH}"  # MUTATION: 改名（模拟版本/命名漂移）', 1)
+open(p, "w", encoding="utf-8").write(t)
+PY
+expect_green "改名后打包本身仍然成功（A10 前置：红不该来自打包）" \
+  bash scripts/package-mac.sh --out "$WORK/A10mut" --app-only --version 0.0.0-mut
+expect_red_saying "变异后：cask 的 URL 追不上新资产名（A10 有牙）" "≠ 本轮资产" \
+  check_cask "$WORK/A10mut" "$A10_CASK"
+# 指向性对照：同一轮改名产物里，旧的自洽断言**照旧绿**（SHA256SUMS 是现算的，跟着改名）——
+# 证明红来自新加的那条下界，而不是环境坏了；这正是 dev 轨原先看不见这次漂移的原因。
+expect_green "同一变异下 SHA256SUMS 仍自洽（A10 指向性）" \
+  bash -c 'cd "$1" && shasum -a 256 -c SHA256SUMS' _ "$WORK/A10mut"
+cp "$PKG_BAK" scripts/package-mac.sh
+expect_green "复原后同一调用复绿（A10 复绿口径）" check_cask "$WORK/A10base" "$A10_CASK"
+
+# 第二处有牙：口径本身不许漂。把 fixture 的 `sha256 :no_check` 换成一个**真 sha**——
+# brew 会开始校验一个滚动渠道根本钉不住的字节串，等于谎报「这条路在校验完整性」。
+sed 's|sha256 :no_check|sha256 arm64: "8c2885e9fd4e24f60fa7166f03a912632d8abd232474354501c8299a96c803f3"|' \
+  "$A10_CASK" > "$WORK/ghosterm-dev.sha-pinned.rb"
+expect_red_saying "cask 被改成钉死 sha256（A10 第二处有牙）" "sha256 :no_check" \
+  check_cask "$WORK/A10base" "$WORK/ghosterm-dev.sha-pinned.rb"
+# 第三处有牙：能力缺失要显式报错。包只有 arm64 切片，删掉 arch 声明就是让 Intel
+# 机器装到一个**装得上、跑不起来**的包——Gatekeeper 不会替这一步兜底（它只看
+# quarantine 标记与代码判定，不看架构）。
+grep -v 'depends_on arch: :arm64' "$A10_CASK" > "$WORK/ghosterm-dev.no-arch.rb"
+expect_red_saying "cask 丢了 arch 下限（A10 第三处有牙）" "depends_on arch: :arm64" \
+  check_cask "$WORK/A10base" "$WORK/ghosterm-dev.no-arch.rb"
+expect_green "同一变异下未篡改的 fixture 仍绿（A10 三处对照）" check_cask "$WORK/A10base" "$A10_CASK"
 
 echo "== 复原：仓库文件必须与起跑前逐字节一致 =="
 for f in "${SCRIPTS[@]}"; do

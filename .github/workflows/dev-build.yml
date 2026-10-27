@@ -163,12 +163,19 @@ jobs:
           ## 这个 dev 包是什么
           滚动 tag `dev`：每次 push main 覆盖一次，正文里的 build 号就是那次运行的编号。
 
-          - **ad-hoc 签名、未公证**。首次打开会被 Gatekeeper 拦：右键 →「打开」，或
+          - **ad-hoc 签名、未公证**。首次打开会不会被拦，取决于下载工具贴不贴
+            `com.apple.quarantine`：浏览器、以及 `brew install --cask`（Homebrew 自己贴）
+            都要放行一次——系统设置 →「隐私与安全性」→「仍要打开」，或
             `xattr -dr com.apple.quarantine /Applications/Ghosterm.app`。
+            用 `curl` 取 zip + `ditto -x -k` 解出来则不贴标记（实测），但要自己核对
+            下面的 `SHA256SUMS`。口径见 `docs/how-to/dev-build.md`。
           - **仅 macOS arm64**。Android / iOS 目前根本没有构建入口，不是这条流水线漏了。
           - 内嵌的 Linux 会话安装包带 glibc 下限（见上面 BUILD-INFO 的「Linux glibc 下限」），
             那是**远端主机**能不能跑 sessiond 的条件。
           - **别把 `dev` 当自动更新通道**：每轮 ad-hoc 签名的 cdhash 都不同，且 tag 会被强删重建。
+          - 想一条命令装/升级：`brew tap hanxi/ghosterm && brew trust hanxi/homebrew-ghosterm
+            && brew install --cask ghosterm-dev`（升级 `brew upgrade --cask --greedy ghosterm-dev`）。
+            cask 走 `sha256 :no_check`——滚动资产字节钉不住，要验字节请对 `SHA256SUMS`。
           MD
           )"
           gh release create dev --prerelease --target "$GITHUB_SHA" \
@@ -231,3 +238,18 @@ jobs:
           if problems: raise SystemExit('version.json 有问题：'+'; '.join(problems))
           print('version.json 对得上：',d['version'],'build',d['build'],d['git_commit'][:12])
           PY
+
+      # Homebrew 是 dev 包对外的第二个入口，而 cask 文件写在**另一个仓库**
+      # （hanxi/homebrew-ghosterm），URL 是手写的、带版本号（package-mac.sh 的 BASE）。
+      # 版本一 bump 或命名一改，那条 URL 就指空——而本轮**全绿**：SHA256SUMS 与
+      # version.json 都从产物现算，跟着改名，只有 cask 追不上；用户侧表现为
+      # `brew install --cask` 当场 404。取真 cask 来对资产名，才看得见这次漂移。
+      # 顺带守住口径：`:no_check` / `:latest` / arch 与 macOS 下限漂了也一律红
+      # （牙见 scripts/mutation-check-package-mac.sh 的 A10）。
+      - name: 对拍 Homebrew cask ↔ 本轮资产
+        run: |
+          set -euo pipefail
+          bash scripts/check-dev-cask.sh \
+            --dist dist \
+            --cask-url "https://raw.githubusercontent.com/hanxi/homebrew-ghosterm/main/Casks/ghosterm-dev.rb" \
+            --live
