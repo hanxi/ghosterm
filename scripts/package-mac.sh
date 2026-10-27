@@ -368,7 +368,8 @@ SIGN_ARGS=()
 case "$SIGN_MODE" in
   adhoc)
     SIGN_ARGS=(-s -)
-    note "ad-hoc 签名：本机/内测可跑；终端用户首次打开需右键 →「打开」，或做 Developer ID + 公证"
+    note "ad-hoc 签名：本机/内测可跑；终端用户下载来首次打开要不要放行，取决于取包工具贴不贴"
+    note "   com.apple.quarantine（浏览器与 brew --cask 都贴；curl + ditto 不贴）——证据档见 docs/how-to/dev-build.md"
     ;;
   id)
     # 身份类型与钥匙串存在性在起跑时已核过（见上面的签名档分类）——这里只负责签。
@@ -378,7 +379,7 @@ case "$SIGN_MODE" in
   dev)
     SIGN_ARGS=(-s "$SIGN_ID" --options runtime --timestamp)
     note "Apple Development 签名（免费个人账号）+ hardened runtime：${SIGN_ID}"
-    note "   这一档**不能公证**：用户下载来仍会被 Gatekeeper 拦（同 ad-hoc 要右键「打开」）；"
+    note "   这一档**不能公证**：用户下载来仍会被 Gatekeeper 拦（同 ad-hoc，看取包工具贴不贴 quarantine）；"
     note "   BUILD-INFO 与 version.json 记的是 dev，不是 id，app 侧照样不许自动安装。"
     ;;
   none)

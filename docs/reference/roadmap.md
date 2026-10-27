@@ -81,6 +81,17 @@
       `--notarize`），拿到证书即用。**免费个人账号不是捷径**：Apple Development
       能签，但 Apple 不给这一档公证，用户下载来照样被 Gatekeeper 拦（记账档位
       `dev`，四档口径见 `docs/how-to/dev-build.md`）
+- [x] macOS dev 包 **Homebrew cask**（tap `hanxi/homebrew-ghosterm`）：一条命令装/升级，
+      `depends_on` 显式钉 arm64 + macOS 26 下限；cask 的 URL 与本轮资产名由
+      `scripts/check-dev-cask.sh` 在 dev 轨对拍（牙见 `mutation-check-package-mac.sh` A10）。
+      **它不解决 Gatekeeper**——实测 Homebrew 自己贴 `com.apple.quarantine`
+      （agent 写 `Homebrew Cask`、flag `0381`），首次打开与浏览器下载同样要放行一次；
+      实测唯一不贴标记的取包法是 `curl` + `ditto`。口径见 `docs/how-to/dev-build.md`
+- [ ] cask 切回**真实 `sha256` 校验**：**遗留**——现在写 `sha256 :no_check` 是因为 `dev`
+      资产每轮强删重建、字节钉不住。拿到 Developer ID 且出**不可变版本资产**之后，
+      把 cask 换成钉版本 + 真 sha256，并删掉 `:no_check` 与滚动 URL；届时
+      `scripts/check-dev-cask.sh` 里「必须是 `:no_check`」「必须是 dev 直链」两条断言
+      要跟着反过来，否则对拍会替已经作废的假口径背书
 - [ ] 降低最低系统版本：**遗留**——内嵌 OpenSSL 来自 Homebrew（minos 26.0），
       把 `LSMinimumSystemVersion` 抬到真实值；需自建 libssh2/OpenSSL 并设
       `MACOSX_DEPLOYMENT_TARGET`

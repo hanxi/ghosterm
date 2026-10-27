@@ -92,7 +92,13 @@ bash scripts/build-core.sh  # 只构建核心（快速）
 **CI 双轨（每次提交自动出包）**：push `main` → `dev-build.yml`（轻闸门 + ad-hoc macOS 包 +
 滚动 `dev` prerelease）；tag `v*` / PR / 手动 → `macos-release.yml`（全量闸门 + 签名/公证分支）。
 两条轨共用 `.github/workflows/macos-package.yml`；包内必须内嵌的 Linux 会话安装包由
-`scripts/build-session-vt-linux.py` 在 `ubuntu:22.04` 容器里双架构现造。装机口径见 `docs/how-to/dev-build.md`。
+`scripts/build-session-vt-linux.py` 在 `ubuntu:22.04` 容器里双架构现造。装机口径见 `docs/how-to/dev-build.md`
+（**首次打开拦不拦，取决于取包工具贴不贴 `com.apple.quarantine`**：浏览器与 `brew --cask` 都贴，
+`curl` + `ditto` 不贴——所以「走 Homebrew」换不到免弹窗，只换到一条命令装/升级）。
+dev 轨另有一条 Homebrew 分发链：公开 tap `hanxi/homebrew-ghosterm` 的 `ghosterm-dev` cask
+指向 `dev` 滚动直链、写 `sha256 :no_check`（滚动资产字节钉不住，如实标注不校验）；
+`dev-build.yml` 在「复验 dev Release」之后多一道 **cask 对拍**（`scripts/check-dev-cask.sh`
+从 raw 取回 cask，比资产名 / `:latest` / `:no_check` / 下限），它红只红这一步，不回滚 release。
 dev Release 另挂一份机读清单 `version.json`（固定 URL，不走 API）：**新旧以 `git_commit` 为主锚**
 ——`build` 号按 workflow 文件计数，跨轨不可比；清单由随包 `BUILD-INFO.txt`/`SHA256SUMS` 解析而来
 （不是第二份真相），解析不到即当场红，「复验」step 再从固定 URL 取回对答案。它只解决**检测**，
@@ -111,6 +117,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 > attachment-peer / auth / login-shell / known-hosts / public-headers 等 CI 看不见。
 > 所以「CI 绿」≠「闸门全绿」——改到上面那些面，合并前仍要本地 `bash scripts/gate.sh` +
 > 对应变异脚本各自跑绿。
+> 另：dev 轨比 release 轨多**一道对拍**（`check-dev-cask.sh` 比 Homebrew cask ↔ 本轮资产，
+> 它依赖公开 tap 里那份手写的 `.rb`，所以只能在 dev 轨跑）——tap 改了没改、版本号 bump 忘
+> 跟着改，都由这一步红。
 
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
@@ -141,7 +150,15 @@ Apple Development **能签但不能公证**，与 ad-hoc 一样被 Gatekeeper �
 稳定」这一件事，所以它不构成第三条分发路（口径写在 `docs/how-to/dev-build.md`）。
 这两组的判据是「**红在哪句文案**」而不是退出码——分类器拒的、钥匙串缺的、公证守卫拦的
 三类红用退出码分不出来，故新增 `expect_red_saying`；同一轮补齐了起跑前的变异标记扫描
-与 `gt_timeout`（原先这份脚本既没扫标记也没用超时）。）
+与 `gt_timeout`（原先这份脚本既没扫标记也没用超时）。
+A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi/homebrew-ghosterm`）声明的
+资产名必须追得上 `package-mac.sh` 的改名——版本号 bump 而 tap 忘改，用户拿到的是 404，
+不报错、只在装机时才发现。判据落在 `scripts/check-dev-cask.sh`（对拍 zip 名 / `:latest` /
+`sha256 :no_check` / dev 直链 / arm64 与 macOS 26 下限），变异打的是打包脚本里的资产名常量；
+指向性对照是「同一轮 `SHA256SUMS` 仍自洽」（那份清单是现算的，自适应改名——红的必须是新
+下界而不是旧断言）。**cask 不解决 Gatekeeper**：实测 Homebrew 自己给下载物贴
+`com.apple.quarantine`（agent `Homebrew Cask`），首次打开与浏览器下载同样要放行一次；
+决定拦不拦的是「标记在不在」，不是标记里的 flag 值。）
 （`app-update` 护 dev 版**更新检测**这条链——七组变异，每组都要让对应断言变红并带一条
 同变异下仍绿的指向性对照：U1 把「本机没有 commit 记录」折成「已是最新」（铁律 #6）、
 U2 把主锚从 commit 换回版本号（`build` 按 workflow 文件计数，跨轨不可比）、U3 解码时给

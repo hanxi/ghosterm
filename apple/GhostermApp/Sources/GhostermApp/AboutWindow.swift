@@ -159,7 +159,8 @@ struct UpdateRow: View {
 
             if newer?.installBlocked == true {
                 SettingsNote("这份新版是 ad-hoc 签名、未公证：下载后需自行覆盖安装，"
-                             + "首次打开要对 App 右键选「打开」（或 xattr -dr com.apple.quarantine）。")
+                             + "首次打开会被 Gatekeeper 拦下，需在系统设置「隐私与安全性」点「仍要打开」"
+                             + "（或 xattr -dr com.apple.quarantine）。")
             }
         }
     }
