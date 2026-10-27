@@ -85,7 +85,7 @@ public final class SessionControlTransport {
     private func tick() {
         guard !finished else { return }
         let now = DispatchTime.now().uptimeNanoseconds
-        guard now < deadline else { finish(.failure(GhostermError.failed("会话管理超时；请重新查询实际状态，未自动重发停止请求"))); return }
+        guard now < deadline else { finish(.failure(GhostermError.failed(timeoutMessage()))); return }
         if stage == .persisting { return }
         if stage == .switching {
             guard session?.close() ?? true else { return }
@@ -152,7 +152,7 @@ public final class SessionControlTransport {
                         guard !finished, stage == .persisting else { return }
                         do {
                             try result.get()
-                            guard DispatchTime.now().uptimeNanoseconds < deadline else { throw GhostermError.failed("保存停止意图后已超时；未发送停止请求") }
+                            guard DispatchTime.now().uptimeNanoseconds < deadline else { throw GhostermError.failed("\(record.displayTitle) 停止意图已保存但管理超时；未发送停止请求") }
                             guard self.session?.terminate(session: record.session) == .queued else { throw GhostermError.failed("停止请求未能入队；请查询实际状态") }
                             stage = .stopping
                         } catch { finish(.failure(error)) }
@@ -165,6 +165,22 @@ public final class SessionControlTransport {
                 nextRefresh = now + 250_000_000
             }
         } catch { finish(.failure(error)) }
+    }
+    private func timeoutMessage() -> String {
+        let op = operation == .inspect ? "检查状态" : "终止会话"
+        let stageText: String
+        switch stage {
+        case .initial: stageText = "尚未开始"
+        case .lookup: stageText = "等待 daemon 查询"
+        case .switching: stageText = "切换到清单查询"
+        case .catalog: stageText = "读取会话清单"
+        case .persisting: stageText = "持久化停止意图"
+        case .stopping: stageText = "等待停止回执"
+        case .observing: stageText = "等待停止后状态刷新"
+        }
+        // 既告知哪条、哪一步，又保留“未自动重发停止请求”这条终止语义——
+        // 顶部横幅不应把“超时”折叠成“已终止”或“已失败”。
+        return "\(record.displayTitle) \(op)超时（卡在：\(stageText)）；请重新查询实际状态，未自动重发停止请求"
     }
     private func finish(_ result: Result<Outcome, Swift.Error>) {
         guard !finished else { return }; finished = true; timer?.cancel(); timer = nil
