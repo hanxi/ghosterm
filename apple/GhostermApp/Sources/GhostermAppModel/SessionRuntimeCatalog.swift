@@ -6,19 +6,20 @@ import Foundation
 
 public struct SessionRuntimeCatalog {
     public enum Failure: Swift.Error, LocalizedError {
-        case unavailable, corrupt, unsupported
+        case unavailable, corrupt, unsupported, incompatibleSession
         public var errorDescription: String? {
             switch self {
             case .unavailable: return "会话运行环境缺失或无法读取，请重新安装应用"
             case .corrupt: return "会话运行环境校验失败，请重新安装应用"
-            case .unsupported: return "此会话的后端版本或平台不受当前应用支持"
+            case .unsupported: return "随包会话运行环境的版本或平台不受当前应用支持，请重新安装应用"
+            case .incompatibleSession: return "此会话的后端协议与当前应用不兼容，不能从应用内安全地终止旧后端；可遗忘记录，但不会杀掉后台会话"
             }
         }
     }
     private struct Index: Decodable { let format: Int; let contract, local: String; let linux: [String: String] }
     private struct Mac: Decodable { let format: Int; let platform, arch, contract, release: String; let files: [String: String] }
     private static let localFiles: Set<String> = ["ghosterm-sessiond", "ghosterm-session-proxy", "lib/libghostty-vt.dylib", "LICENSE", "SOURCE-INFO.json"]
-    private static let linuxFiles: Set<String> = ["ghosterm-sessiond", "ghosterm-session-proxy", "lib/libghostty-vt.so.0", "LICENSE", "SOURCE-INFO.json"]
+    private static let linuxFiles: Set<String> = ["ghosterm-sessiond", "ghosterm-session-proxy", "lib/libghostty-vt.so.0", "LICENSE", "SOURCE-INFO.json", "sources.tar.gz"]
     public let contract: String
     public let localDirectory: URL
     public let linuxBundles: [String: URL]
@@ -29,7 +30,7 @@ public struct SessionRuntimeCatalog {
         }
     }
     public func requireCompatible(_ record: SessionRecord) throws {
-        guard record.endpoint.contract == contract else { throw Failure.unsupported }
+        guard record.endpoint.contract == contract else { throw Failure.incompatibleSession }
     }
     private static func token(_ value: String) -> Bool {
         !value.isEmpty && value.utf8.count <= 128 && value != "." && value != ".." &&
@@ -94,7 +95,7 @@ public struct SessionRuntimeCatalog {
             let bundle = linuxRoot.appendingPathComponent(arch).appendingPathComponent(release)
             let text = String(decoding: try bytes(bundle.appendingPathComponent("manifest.tsv"), limit: 8192), as: UTF8.self)
             let lines = text.split(separator: "\n"), header = lines.first?.split(separator: "\t", omittingEmptySubsequences: false)
-            guard lines.count == 6, let header, header.count == 6, header[0] == "GTB1", header[1] == Substring(release),
+            guard lines.count == linuxFiles.count + 1, let header, header.count == 6, header[0] == "GTB1", header[1] == Substring(release),
                   header[2] == Substring(arch), header[5] == Substring(table.contract) else { throw Failure.unsupported }
             var seen = Set<String>()
             for line in lines.dropFirst() {
@@ -103,6 +104,7 @@ public struct SessionRuntimeCatalog {
                       let length = Int(row[1]), length >= 0 else { throw Failure.corrupt }
                 try verify(bundle.appendingPathComponent(String(row[0])), sha: String(row[2]), size: length)
             }
+            guard seen == linuxFiles else { throw Failure.corrupt }
             bundles[arch] = bundle
         }
         return SessionRuntimeCatalog(contract: table.contract, localDirectory: directory.resolvingSymlinksInPath(), linuxBundles: bundles)

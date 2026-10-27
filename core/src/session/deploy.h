@@ -3,7 +3,9 @@
 #define GT_SESSION_DEPLOY_H
 #include "ghosterm/types.h"
 typedef struct gt_ssh gt_ssh_t;
-enum {GT_BUNDLE_FILES=5,GT_BUNDLE_UPLOAD_FILES=5,GT_DEPLOY_PATH=1024};
+/* The source archive is validated in the app bundle, but only the five runtime
+ * files are uploaded; remote releases from earlier clients remain reusable. */
+enum {GT_BUNDLE_FILES=6,GT_BUNDLE_UPLOAD_FILES=5,GT_DEPLOY_PATH=1024};
 typedef struct {char name[40],sha256[65];uint64_t size;} gt_bundle_file_t;
 typedef struct {
   char directory[GT_DEPLOY_PATH],release[96],arch[24],min_glibc[24],loader[160],contract[65];

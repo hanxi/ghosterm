@@ -46,6 +46,14 @@ class RuntimeStageTests(unittest.TestCase):
   with fixture() as (root,native,linux,contract):
    path=linux/'ghosterm-sessiond';data=path.read_bytes();path.write_bytes(b'x'*len(data))
    with self.assertRaises(RuntimeError):MODULE['linux'](linux,contract)
+ def test_linux_source_archive_is_required_and_verified(self):
+  with fixture() as (root,native,linux,contract):
+   archive=linux/'sources.tar.gz';original=archive.read_bytes();archive.write_bytes(b'x'*len(original))
+   with self.assertRaises(RuntimeError):MODULE['linux'](linux,contract)
+   archive.write_bytes(original)
+   manifest=linux/'manifest.tsv';lines=[line for line in manifest.read_text().splitlines() if not line.startswith('sources.tar.gz\t')]
+   manifest.write_text('\n'.join(lines)+'\n')
+   with self.assertRaises(RuntimeError):MODULE['linux'](linux,contract)
  def test_existing_release_never_overwritten(self):
   with fixture() as (root,native,linux,contract):
    target=root/'published';MODULE['copy_release'](native,target,True)

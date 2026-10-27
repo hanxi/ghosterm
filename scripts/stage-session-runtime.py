@@ -3,7 +3,7 @@
 import argparse,hashlib,json,os,re,shutil,stat,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-LINUX_FILES=('ghosterm-sessiond','ghosterm-session-proxy','lib/libghostty-vt.so.0','LICENSE','SOURCE-INFO.json')
+LINUX_FILES=('ghosterm-sessiond','ghosterm-session-proxy','lib/libghostty-vt.so.0','LICENSE','SOURCE-INFO.json','sources.tar.gz')
 MAC_FILES=('ghosterm-sessiond','ghosterm-session-proxy','lib/libghostty-vt.dylib','LICENSE','SOURCE-INFO.json')
 def token(value):return isinstance(value,str) and bool(re.fullmatch('[A-Za-z0-9][A-Za-z0-9._-]{0,127}',value))
 def digest(path):
@@ -19,7 +19,7 @@ def macos(path):
 
 def linux(path,contract):
  lines=(path/'manifest.tsv').read_text().splitlines();header=lines[0].split('\t')
- if len(header)!=6 or header[0]!='GTB1' or not token(header[1]) or header[2] not in ('aarch64','x86_64') or header[5]!=contract or len(lines)!=6:raise RuntimeError('Linux bundle identity mismatch')
+ if len(header)!=6 or header[0]!='GTB1' or not token(header[1]) or header[2] not in ('aarch64','x86_64') or header[5]!=contract or len(lines)!=len(LINUX_FILES)+1:raise RuntimeError('Linux bundle identity mismatch')
  seen=set()
  for line in lines[1:]:
   entry=line.split('\t')
@@ -27,6 +27,16 @@ def linux(path,contract):
   seen.add(entry[0]);p=path/entry[0]
   if digest(p)!=entry[2] or p.stat().st_size!=int(entry[1]):raise RuntimeError('Linux bundle digest mismatch/'+entry[0])
  return header[2],header[1]
+
+def dedupe_sources(base):
+ # 每个架构都附带同一份源码快照。硬链接成一份物理副本，
+ # 全架构的 app 不为每个 Linux release 都付一遍源码包的体积。
+ seen={}
+ for path in sorted(base.rglob('sources.tar.gz')):
+  value=digest(path)
+  if value in seen:
+   path.unlink();os.link(seen[value],path)
+  else:seen[value]=path
 
 def copy_release(source,target,native):
  if target.is_symlink():raise RuntimeError('runtime destination symlink')
@@ -58,6 +68,7 @@ def main():
  else:base=args.out;native=base/'macos-arm64'
  copy_release(args.macos,native/local['release'],True)
  for arch,(release,bundle) in entries.items():copy_release(bundle,base/'linux'/arch/release,False)
+ dedupe_sources(base)
  catalog=dict(format=1,contract=contract,local=local['release'],linux={arch:release for arch,(release,_) in entries.items()})
  base.mkdir(parents=True,exist_ok=True);temporary=ROOT/'tmp'/('.catalog-'+str(os.getpid()))
  try:temporary.write_text(json.dumps(catalog,sort_keys=True,indent=2)+'\n');temporary.replace(base/'catalog.json')

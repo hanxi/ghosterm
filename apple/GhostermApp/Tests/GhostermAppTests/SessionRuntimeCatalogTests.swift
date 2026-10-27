@@ -10,7 +10,7 @@ final class SessionRuntimeCatalogTests: XCTestCase {
         let contract = String(repeating: "a", count: 64)
         let release = "fixture-release-1"
         let localFiles = ["ghosterm-sessiond", "ghosterm-session-proxy", "lib/libghostty-vt.dylib", "LICENSE", "SOURCE-INFO.json"]
-        let linuxFiles = ["ghosterm-sessiond", "ghosterm-session-proxy", "lib/libghostty-vt.so.0", "LICENSE", "SOURCE-INFO.json"]
+        let linuxFiles = ["ghosterm-sessiond", "ghosterm-session-proxy", "lib/libghostty-vt.so.0", "LICENSE", "SOURCE-INFO.json", "sources.tar.gz"]
         var local: URL { root.appendingPathComponent("macos/" + release) }
         var index: URL { root.appendingPathComponent("catalog.json") }
         func linux(_ arch: String) -> URL { root.appendingPathComponent("linux/" + arch + "/" + release) }
@@ -57,7 +57,11 @@ final class SessionRuntimeCatalogTests: XCTestCase {
             let record = SessionRecord(kind: .local, endpoint: .init(proxy: "/fixture/proxy", daemon: "/fixture/daemon", runtime: "/fixture/runtime", contract: f.contract), nonce: Array(repeating: 1, count: 16))
             XCTAssertNoThrow(try catalog.requireCompatible(record))
             var old = record; old.endpoint.contract = String(repeating: "b", count: 64)
-            XCTAssertThrowsError(try catalog.requireCompatible(old))
+            XCTAssertThrowsError(try catalog.requireCompatible(old)) { error in
+                guard case .incompatibleSession? = error as? SessionRuntimeCatalog.Failure else {
+                    return XCTFail("旧会话不兼容必须与随包运行环境不兼容区分")
+                }
+            }
         }
     }
     func testFutureCatalogAndUnsafeReleaseRejected() {
@@ -95,6 +99,19 @@ final class SessionRuntimeCatalogTests: XCTestCase {
             try f.write(Data(rows.joined(separator: "\n").utf8), table); XCTAssertThrowsError(try f.load())
             rows = original.components(separatedBy: "\n"); rows[1] = rows[2]
             try f.write(Data(rows.joined(separator: "\n").utf8), table); XCTAssertThrowsError(try f.load())
+        }
+    }
+    func testLinuxSourceArchiveMustBeListedAndUnmodified() {
+        fixture { f in
+            let archive = f.linux("aarch64").appendingPathComponent("sources.tar.gz")
+            let original = try Data(contentsOf: archive)
+            try f.write(Data(repeating: 0x78, count: original.count), archive)
+            XCTAssertThrowsError(try f.load(), "篡改源码包必须被哈希校验拦截")
+            try f.write(original, archive)
+            let manifest = f.linux("aarch64").appendingPathComponent("manifest.tsv")
+            let rows = try String(contentsOf: manifest).split(separator: "\n").filter { !$0.hasPrefix("sources.tar.gz\t") }
+            try f.write(Data((rows.joined(separator: "\n") + "\n").utf8), manifest)
+            XCTAssertThrowsError(try f.load(), "漏列源码包不能被当成旧格式接受")
         }
     }
     func testBoundedMetadataPreservesOriginal() {

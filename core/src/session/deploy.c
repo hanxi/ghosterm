@@ -12,9 +12,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-/* The whole inventory is uploaded; the client-only extras (manifest, catalog)
- * never leave the bundle. */
-static const char *inventory[GT_BUNDLE_FILES]={"ghosterm-sessiond","ghosterm-session-proxy","lib/libghostty-vt.so.0","LICENSE","SOURCE-INFO.json"};
+/* The source archive stays in the app's verified bundle. The first five files
+ * are the remote runtime inventory; old immutable releases remain reusable. */
+static const char *inventory[GT_BUNDLE_FILES]={"ghosterm-sessiond","ghosterm-session-proxy","lib/libghostty-vt.so.0","LICENSE","SOURCE-INFO.json","sources.tar.gz"};
 static bool hex(const char *s,size_t n){if(strlen(s)!=n)return false;for(size_t i=0;i<n;i++)if(!((s[i]>='0' && s[i]<='9') || (s[i]>='a' && s[i]<='f')))return false;return true;}
 static bool token(const char *s,size_t cap){size_t n=strlen(s);if(!n || n>=cap || !strcmp(s,".") || !strcmp(s,".."))return false;for(size_t i=0;i<n;i++)if(!((s[i]>='a' && s[i]<='z') || (s[i]>='A' && s[i]<='Z') || (s[i]>='0' && s[i]<='9') || s[i]=='-' || s[i]=='_' || s[i]=='.'))return false;return true;}
 static bool version(const char *s,unsigned *a,unsigned *b,unsigned *c) {

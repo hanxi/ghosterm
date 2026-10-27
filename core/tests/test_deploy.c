@@ -21,20 +21,23 @@ static void cleanup(void){gt_ssh_close(ssh);ssh=NULL;}
 static gt_hostkey_decision_t accept(void *c,const char *h,uint16_t p,const char *k,const char *f){(void)c;(void)h;(void)p;(void)k;(void)f;return GT_HOSTKEY_ACCEPT;}
 static void catalog(const char *root) {
   char directory[1024];CHECK(snprintf(directory,sizeof(directory),"%s/catalog-XXXXXX",root)>0 && mkdtemp(directory));
-  static const char *names[]={"ghosterm-sessiond","ghosterm-session-proxy","lib/libghostty-vt.so.0","LICENSE","SOURCE-INFO.json"};
-  char path[1200],manifest[1200],first[1200];CHECK(snprintf(path,sizeof(path),"%s/lib",directory)>0 && !mkdir(path,0700));
-  for(unsigned i=0;i<5;i++){CHECK(snprintf(path,sizeof(path),"%s/%s",directory,names[i])>0);FILE *f=fopen(path,"w");CHECK(f && fputc('x',f)!=EOF && !fclose(f));}
-  CHECK(snprintf(first,sizeof(first),"%s/%s",directory,names[0])>0 && snprintf(manifest,sizeof(manifest),"%s/manifest.tsv",directory)>0);
-  for(unsigned mode=0;mode<5;mode++) {
+  static const char *names[]={"ghosterm-sessiond","ghosterm-session-proxy","lib/libghostty-vt.so.0","LICENSE","SOURCE-INFO.json","sources.tar.gz"};
+  char path[1200],manifest[1200];CHECK(snprintf(path,sizeof(path),"%s/lib",directory)>0 && !mkdir(path,0700));
+  for(unsigned i=0;i<GT_BUNDLE_FILES;i++){CHECK(snprintf(path,sizeof(path),"%s/%s",directory,names[i])>0);FILE *f=fopen(path,"w");CHECK(f && fputc('x',f)!=EOF && !fclose(f));}
+  CHECK(snprintf(manifest,sizeof(manifest),"%s/manifest.tsv",directory)>0);
+  for(unsigned mode=0;mode<8;mode++) {
     FILE *f=fopen(manifest,"w");CHECK(f);CHECK(fprintf(f,"GTB1\trelease-one\taarch64\t2.34\t/lib/ld-linux-aarch64.so.1\t%064d\n",0)>0);
-    for(unsigned i=0;i<5;i++)CHECK(fprintf(f,"%s\t%u\t%064d\n",mode==1 && !i?"evil":names[i],mode==4 && !i?2u:1u,0)>0);
+    for(unsigned i=0;i<GT_BUNDLE_FILES-(mode==5);i++)CHECK(fprintf(f,"%s\t%u\t%064d\n",mode==1 && !i?"evil":mode==6 && i==5?names[4]:names[i],mode==4 && !i?2u:1u,0)>0);
     if(mode==2)CHECK(fputs("extra\n",f)>=0);
     CHECK(!fclose(f));
-    if(mode==3){CHECK(!unlink(first) && !symlink("LICENSE",first));}
+    if(mode==3 || mode==7){
+      const char *name=mode==3?names[0]:names[5];
+      CHECK(snprintf(path,sizeof(path),"%s/%s",directory,name)>0 && !unlink(path) && !symlink("LICENSE",path));
+    }
     gt_session_bundle_t b;CHECK(gt__session_bundle_read(directory,&b)==(mode?GT_ERR_INVALID_ARG:GT_OK));
-    if(mode==3){CHECK(!unlink(first));f=fopen(first,"w");CHECK(f && fputc('x',f)!=EOF && !fclose(f));}
+    if(mode==3 || mode==7){CHECK(!unlink(path));f=fopen(path,"w");CHECK(f && fputc('x',f)!=EOF && !fclose(f));}
   }
-  unlink(manifest);for(unsigned i=0;i<5;i++){CHECK(snprintf(path,sizeof(path),"%s/%s",directory,names[i])>0);unlink(path);}CHECK(snprintf(path,sizeof(path),"%s/lib",directory)>0);rmdir(path);rmdir(directory);puts("PASS fixed bundle catalog and malformed inventory refusals");
+  unlink(manifest);for(unsigned i=0;i<GT_BUNDLE_FILES;i++){CHECK(snprintf(path,sizeof(path),"%s/%s",directory,names[i])>0);unlink(path);}CHECK(snprintf(path,sizeof(path),"%s/lib",directory)>0);rmdir(path);rmdir(directory);puts("PASS fixed bundle catalog and malformed inventory refusals");
 }
 static bool stop_now(void *c){(void)c;return true;}
 static bool upload_cancelled;

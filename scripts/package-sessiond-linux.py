@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build a self-contained user-space Linux sessiond bundle on a Linux builder."""
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -9,12 +10,39 @@ import platform
 import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('ghosterm-sessiond','ghosterm-session-proxy','lib/libghostty-vt.so.0','LICENSE','SOURCE-INFO.json')
+FILES=('ghosterm-sessiond','ghosterm-session-proxy','lib/libghostty-vt.so.0','LICENSE','SOURCE-INFO.json','sources.tar.gz')
 
 def run(args):
     return subprocess.check_output([str(a) for a in args],cwd=ROOT,text=True,stderr=subprocess.STDOUT)
+
+def write_sources(stage):
+    # 随客户端安装包附上构建所需的源快照；远程旧 release 只需五个运行时文件。
+    # 零时间戳 + 固定排序，让两个架构的源码包可硬链接去重。
+    def normalized(member):
+        member.mtime=0;member.uid=member.gid=0;member.uname=member.gname='';member.pax_headers={}
+        return member
+    with (stage/'sources.tar.gz').open('wb') as output, gzip.GzipFile(filename='',mode='wb',fileobj=output,mtime=0) as compressed, tarfile.open(fileobj=compressed,mode='w|') as archive:
+        names=run(['git','ls-files','-z']).split('\0')
+        for name in sorted(set(names)):
+            if name and (name.startswith(('core/','daemon/','terminal/state/','terminal/session-state/','scripts/','patches/','docs/')) or name in ('LICENSE','AGENTS.md','.gitmodules')):
+                source=ROOT/name
+                if source.is_file():
+                    member=normalized(archive.gettarinfo(str(source),arcname='ghosterm/'+name))
+                    with source.open('rb') as contents:archive.addfile(member,contents)
+        process=subprocess.Popen(['git','-C',str(ROOT/'vendor/ghostty'),'archive','HEAD'],stdout=subprocess.PIPE)
+        try:
+            with tarfile.open(fileobj=process.stdout,mode='r|') as upstream:
+                for member in upstream:
+                    contents=upstream.extractfile(member) if member.isfile() else None
+                    member=normalized(member);member.name='ghosterm/vendor/ghostty/'+member.name
+                    archive.addfile(member,contents)
+                    if contents:contents.close()
+        finally:
+            process.stdout.close()
+            if process.wait():raise RuntimeError('upstream source archive failed')
 
 def build(args):
     if platform.system()!='Linux':raise RuntimeError('Linux builder required; client machines consume the resulting bundle')
@@ -39,6 +67,7 @@ def build(args):
         if not args.no_strip:
             for name in FILES[:3]:subprocess.run(['strip','--strip-unneeded',str(stage/name)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT)
         shutil.copyfile(ROOT/'LICENSE',stage/'LICENSE')
+        write_sources(stage)
         commit=run(['git','rev-parse','HEAD']).strip();upstream=run(['git','-C',ROOT/'vendor/ghostty','rev-parse','HEAD']).strip()
         versions=[];interpreter=None;needed={}
         allowed={'libc.so.6','libm.so.6','librt.so.1','libdl.so.2','libpthread.so.0','libgcc_s.so.1','libghostty-vt.so.0','ld-linux-aarch64.so.1','ld-linux-x86-64.so.2'}
@@ -57,8 +86,9 @@ def build(args):
         info={'project':'Ghosterm','license':'MIT','source_commit':commit,'source_repository':'https://github.com/hanxi/ghosterm',
               'engine':{'repository':'https://github.com/ghostty-org/ghostty','commit':upstream,'license':'MIT'},
               'patches':'patches/libghostty/8159838','build_script':'scripts/package-sessiond-linux.py','zig':'0.16.0',
-              'min_glibc':min_glibc,
-              'stripped':not args.no_strip}
+              'min_glibc':min_glibc,'stripped':not args.no_strip,
+              'source_archive':'sources.tar.gz',
+              'source_sha256':hashlib.sha256((stage/'sources.tar.gz').read_bytes()).hexdigest()}
         (stage/'SOURCE-INFO.json').write_text(json.dumps(info,indent=2)+'\n')
         version=run([stage/'ghosterm-sessiond','--version']).strip();contract=version.split()[-1]
         if not re.fullmatch('[0-9a-f]{64}',contract):raise RuntimeError('invalid session contract probe')
