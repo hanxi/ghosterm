@@ -110,7 +110,7 @@ public final class SessionControlTransport {
         }
         if state == .failed {
             context.observe(info)
-            finish(.failure(GhostermError.status(info.error, "会话管理连接失败"))); return
+            finish(.failure(GhostermError.status(info.error, failureMessage(info.error)))); return
         }
         if stage == .stopping {
             guard info.stop.state == .known else { return }
@@ -165,6 +165,18 @@ public final class SessionControlTransport {
                 nextRefresh = now + 250_000_000
             }
         } catch { finish(.failure(error)) }
+    }
+    private func failureMessage(_ status: Int32) -> String {
+        let op = operation == .inspect ? "检查状态" : "终止会话"
+        // GT_ERR_NOT_FOUND 不是连接没建上——而是 daemon 明确答复没有此会话。
+        // 常见因：daemon 已重启/catalog 丢；会话被别的客户端清理完回收；保存
+        // 记录的 session id 跟实际 catalog 对不上。此时「终止会话」已经没有
+        // 后台可杀，用户的安全出路是「遗忘记录（不终止后端）」。
+        if status == 2 {
+            return "\(record.displayTitle) \(op)：daemon 已无此会话（可能已结束或 daemon 重启）；可用「遗忘记录（不终止后端）」清理本机记录"
+        }
+        // 其他码：仍是“连接层/协议层失败”的统一表述，但带上会话与操作。
+        return "\(record.displayTitle) \(op)连接失败；可稍后再试或「遗忘记录（不终止后端）」"
     }
     private func timeoutMessage() -> String {
         let op = operation == .inspect ? "检查状态" : "终止会话"
