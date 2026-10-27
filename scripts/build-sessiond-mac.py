@@ -61,7 +61,8 @@ def main():
     run(['cmake', '-S', ROOT/'daemon', '-B', work, '-DCMAKE_BUILD_TYPE=Release',
          '-DGHOSTERM_WITH_LIBSSH2=OFF', '-DGHOSTERM_VT_INCLUDE_DIR='+str(headers),
          '-DGHOSTERM_VT_LIBRARY='+str(engine), '-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON',
-         '-DCMAKE_INSTALL_RPATH=@loader_path/lib', '-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0'])
+         '-DCMAKE_INSTALL_RPATH=@loader_path/lib', '-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0',
+         '-DCMAKE_OSX_SYSROOT='+os.environ.get('SDKROOT', subprocess.check_output(['xcrun','--sdk','macosx','--show-sdk-path'],text=True).strip())])
     run(['cmake', '--build', work, '--target', 'ghosterm-sessiond', 'ghosterm-session-proxy', '-j', '4'])
     contract = re.search(r'GT_SESSION_CONTRACT_HEX "([0-9a-f]{64})"', (work/'generated/session-contract.h').read_text()).group(1)
     staging = Path(tempfile.mkdtemp(prefix='mac-session-payload-', dir=ROOT/'tmp'))

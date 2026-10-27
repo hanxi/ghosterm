@@ -43,6 +43,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# 把 SDK 钉到 Xcode 自带的那份（26.5），而不是 CommandLineTools 的 27.0。
+# 必要性：本机 /usr/bin/cc + /usr/bin/ld（CommandLineTools 的 shim）在没有 -isysroot
+# 时默认落在 CommandLineTools 的 MacOSX27.0.sdk，其 libSystem.B.tbd 用了
+# `arm64e.x1-macos` 这类新架构串，经典 ld/tapi 解析不了 → 链接报
+# `tapi error: malformed file ... unknown architecture`（实测挂在拉了 -lssh2 的
+# test_config 与 ghosterm-sessiond 上）。export 出去后，本脚本调起来的 build-core.sh、
+# build-sessiond-mac.py 里的 cmake 子进程、以及 swift build 都继承这份 SDKROOT，
+# 一处修齐整条打包链。Swift 本来就经 xcrun 落 26.5，所以只有 CMake 这条路径受影响。
+# 见 scripts/build-core.sh 与 scripts/build-sessiond-mac.py 各自的等价注释（独立运行也钉）。
+SYSROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+[ -n "$SYSROOT" ] && export SDKROOT="$SYSROOT"
+
 VERSION=""
 BUILD_NUMBER=""
 OUT="$ROOT/dist"

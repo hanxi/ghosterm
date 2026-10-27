@@ -3,6 +3,11 @@
 # Vendor source is read-only. --restore remains accepted: no source needs restoring.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# 原生探针里的 cc 链接也必须走 Xcode SDK；CLT 27.0 的 TBD 经典 ld 读不了。
+if [ "$(uname -s)" = Darwin ]; then
+  SYSROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+  [ -n "$SYSROOT" ] && export SDKROOT="$SYSROOT"
+fi
 if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != --restore ]; }; then
   echo "Usage: bash scripts/build-ghostty.sh [--restore]" >&2; exit 2
 fi
