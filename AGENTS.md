@@ -149,7 +149,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。
 样板见 `scripts/mutation-check-sshconfig.sh`（当前 14 项：基线 + A1~A6 + B1~B6 + 回滚）。
 **基础与产品变异验证**（每份都必须能独立跑绿）：sshconfig / include / settings /
-settings-ui / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
+settings-ui / tab-presentation / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
 package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh / install-macos / native-tabs / native-focus / native-context / native-sheet / sidebar-hover / native-titlebar。
@@ -297,6 +297,7 @@ P3 侧栏展开时顶部标签条不隐（同一份标签清单画两处）、P4
 两块终端面之间空出多少点——按颜色比会假绿（浅色外观下窗口底色与窗格底色都是
 近白，变异验证当场抓到）；P4 数的是 SwiftUI `Menu` 落到 AppKit 的 popup 按钮
 个数；P5 量的是兄弟 `TerminalHostView` 的宽度。）
+`tab-presentation` 用 `python3 scripts/mutation-check-tab-presentation.py` 验证标签位置与精简侧栏偏好的保存、独立存储和即时发布；三组变异均须目标红、同变异独立对照绿、复原绿与 SHA256 一致。测试注入独立 UserDefaults，不改用户偏好；目前为手工证据。
 `settings-ui` 护设置弹窗的数据面：配色两档的序列化（拼错整份配置就废）、
 `/etc/shells` 的解析、**快捷键表与真菜单的双向对拍**、**下拉控件的定宽**
 （U6：回到 `maxWidth` 就会随选中值伸缩，短值 93pt / 长值 190pt）、

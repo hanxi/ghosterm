@@ -8,6 +8,13 @@ import XCTest
 @MainActor private final class AppModelFixture: NSObject, XCTestObservation {
     static let shared = AppModelFixture()
     let root: URL
+    private var defaultsSuites: [String] = []
+
+    func makeDefaults() -> UserDefaults {
+        let suite = "Ghosterm.AppModelFixture." + UUID().uuidString
+        defaultsSuites.append(suite)
+        return UserDefaults(suiteName: suite)!
+    }
     private override init() {
         var project = URL(fileURLWithPath: #filePath); for _ in 0..<5 { project.deleteLastPathComponent() }
         project = project.appendingPathComponent("build").resolvingSymlinksInPath().deletingLastPathComponent()
@@ -20,13 +27,17 @@ import XCTest
     }
     nonisolated func testBundleDidFinish(_ testBundle: Bundle) {
         MainActor.assumeIsolated {
+            for suite in defaultsSuites {
+                UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+            }
             try? FileManager.default.removeItem(at: root)
         }
     }
 }
 
 @MainActor func isolatedAppModel(configPath: String? = nil, knownHostsPath: String? = nil, settings: SettingsStore? = nil) -> AppModel {
-    AppModel(configPath: configPath, knownHostsPath: knownHostsPath, settings: settings)
+    AppModel(configPath: configPath, knownHostsPath: knownHostsPath, settings: settings,
+             defaults: AppModelFixture.shared.makeDefaults())
 }
 
 @MainActor func sessionTestDirectory() -> URL { AppModelFixture.shared.root.appendingPathComponent("profile-" + UUID().uuidString) }

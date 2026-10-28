@@ -184,3 +184,11 @@ GHOSTERM_AUTOMATION_OFFSCREEN=1 TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh
 本轮不改 `core/include/ghosterm.h`、C 实现、Transport、Ghostty pin、终端字节通路、SSH 配置存储协议或其他端 UI；不引入分组、工作区同步、私有 sessiond 或新的恢复机制。若实施确实需要突破这些边界，先单独记录原因与新增验收范围。
 
 完成时同时满足：已确认的无顶部侧栏与窗格按钮在真实 macOS 窗口中成立；顶部模式可用；主机管理与原有关键动作可达；切换布局不重连、不丢焦点；新断言均有变异证据；两档系统证据和手工 / CI 覆盖如实记账。只有达到这些条件，才把本文状态从待实施改为已交付。
+
+## 8. 实施记录
+
+- S0：macOS 26 实测多窗口原生标签组不能隐藏栏，决定改为单窗口宿主（第 3 节）。
+- S1 基础：标签位置 / 精简侧栏保存到注入的 UserDefaults，外观设置已加入对应控件；AppModel 通过既有 `@Published preferences` 传播。窗口壳与精简外观仍待 S3，菜单命名也在 S3 统一。
+- S1 本机证据：`scripts/gate.sh` 31 项测试、71 个 C ABI 符号通过；`apple-app-gate.sh` 构建与 319 项测试零失败，包含真实隔离 sshd。1 项随包主题测试因开发态无 `.app` 资源而跳过，不算主题打包证据。外观页实测底部留白 18pt。
+- S1 新变异：`mutation-check-tab-presentation.py` 三组全部目标红、同变异对照绿、复原绿且 SHA256 一致。已有 `settings-ui` 的页面高度变异锚点随内容更新，全量复验列入 S5。
+- 本机测试进程使用 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` 与工程 `TMPDIR`；系统 `xcode-select` 指向 Command Line Tools，直接使用该工具链缺 XCTest。没有修改系统开发工具设置。

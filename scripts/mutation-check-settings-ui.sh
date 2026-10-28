@@ -25,7 +25,7 @@
 #   U10 preferences 不是 @Published——改默认 shell 只写 UserDefaults、不发
 #      objectWillChange，用户报的「命令行解释器切换后下拉列表没更新」。
 #   U11 外观页定高不对表（640）——用户报的「外观设置下面空很多」，底部 145pt
-#      留白，打上界。**锚点写的是当前那个数**（现在是 470），所以每次增删外观
+#      留白，打上界。**锚点写的是当前那个数**（现在是 560），所以每次增删外观
 #      页的行都要把锚点跟着改：锚点失配时这段会打 traceback 并以「期望 red 实际
 #      green」收场，那不是断言没牙，是变异根本没落地。
 #   U12 键盘页定高回到 420（装不下内容）——底部 91pt 藏在滚动里，打下界。
@@ -310,7 +310,7 @@ echo "== U11：外观页定高不收（回 640 → 底部空一大截） =="
 python3 - "$SETTINGS" <<'PYU11'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "            case .appearance: return 470"
+old = "            case .appearance: return 560"
 new = "            case .appearance: return 640 /* GT_MUTATION_MARK：定高不对表 */"
 assert old in s, "U11 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))

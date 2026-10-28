@@ -271,11 +271,24 @@ public struct AppPreferences {
         case defaultShell = "Ghosterm.defaultShell"
         case rememberDirectories = "Ghosterm.rememberDirectories"
         case lockTabsOnLaunch = "Ghosterm.lockTabsOnLaunch"
+        case tabPlacement = "Ghosterm.tabPlacement"
+        case compactSidebar = "Ghosterm.compactSidebar"
     }
 
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    public var tabPlacement: TabPlacement {
+        get { defaults.string(forKey: Key.tabPlacement.rawValue).flatMap(TabPlacement.init(rawValue:)) ?? .sidebar }
+        set { defaults.set(newValue.rawValue, forKey: Key.tabPlacement.rawValue) }
+    }
+
+    /// 顶部布局不使用此偏好，但切回侧边时保留用户的选择。
+    public var compactSidebar: Bool {
+        get { bool(Key.compactSidebar.rawValue, default: false) }
+        set { defaults.set(newValue, forKey: Key.compactSidebar.rawValue) }
+    }
 
     /// 启动时是否新建一个本地 shell（关掉就是空窗口等用户操作，
     /// 对应 iGhostVT 的「启动时新建会话」）。

@@ -74,7 +74,7 @@ struct SettingsView: View {
         var height: CGFloat {
             switch self {
             case .general: return 320
-            case .appearance: return 470
+            case .appearance: return 560
             case .keyboard: return 535
             case .configuration: return 445
             }
@@ -346,6 +346,24 @@ private struct AppearancePane: View {
                 SettingsNote("界面与终端配色一起跟着这一项走——"
                              + "终端那边是 Ghostty 的 `theme` 条件值，"
                              + "深浅切换时引擎自己选边。")
+            }
+
+            Divider()
+
+            SettingsRow("标签位置") {
+                Menu {
+                    ForEach(TabPlacement.allCases) { placement in
+                        Button(placement.title) { model.preferences.tabPlacement = placement }
+                    }
+                } label: {
+                    PopupLabel(title: model.preferences.tabPlacement.title)
+                }
+                .accessibilityLabel("标签位置")
+                .accessibilityValue(model.preferences.tabPlacement.title)
+            }
+            SettingsRow("侧边标签") {
+                Checkbox("精简模式", isOn: $model.preferences.compactSidebar)
+                    .disabled(model.preferences.tabPlacement != .sidebar)
             }
 
             Divider()

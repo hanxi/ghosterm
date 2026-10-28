@@ -79,8 +79,10 @@ public final class AppModel: ObservableObject {
 
     /// 本窗口的标签页清单（**结构的唯一写入者**，见 TabManager）。
     @Published public private(set) var tabs = TabManager()
-    /// 原生窗口标签共享同一侧栏开合状态。
-    @Published public var sidebarVisible = true
+    public var sidebarVisible: Bool {
+        get { preferences.tabPlacement == .sidebar }
+        set { preferences.tabPlacement = newValue ? .sidebar : .top }
+    }
 
     /// 当前标签页的终端面。旧接口：转发到 activeTab.activePane。
     public var surface: TerminalSurface? { activePane?.surface }
@@ -162,12 +164,12 @@ public final class AppModel: ObservableObject {
 
 
     public init(configPath: String? = nil, knownHostsPath: String? = nil,
-                settings: SettingsStore? = nil) {
+                settings: SettingsStore? = nil, defaults: UserDefaults = .standard) {
         self.configPath = configPath ?? AppModel.defaultConfigPath()
         self.knownHostsPath = knownHostsPath ?? AppModel.defaultKnownHostsPath()
         self.settings = settings
             ?? SettingsStore(terminalConfigPath: SettingsStore.defaultTerminalConfigPath())
-        self.preferences = AppPreferences()
+        self.preferences = AppPreferences(defaults: defaults)
         self.appearance = AppearancePreference.current
         // 终端配置**无效**时：留用引擎的**默认配置**（app 还得在），并把错误
         // 显式报出去（启动告警 / 设置页）。**不能**因为一行写错的 `theme`
