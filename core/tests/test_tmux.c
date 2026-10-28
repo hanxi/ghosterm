@@ -682,10 +682,22 @@ int main(int argc, char **argv) {
         "tail;",      "-option",     "quote'\\\\$(touch NEVER)",
         "tab\\tname", "line\\nname", "a_b_c"};
     for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
-      change(GT_TMUX_RENAME, &rows[0], names[i]);
-      list();
-      CHECK(count == 1 && !strcmp(rows[0].name, expected[i]),
-            "literal/normalized name");
+      gt_tmux_session_t before = rows[0];
+      gt_tmux_result_t result = GT_TMUX_UNKNOWN;
+      int rc = gt_tmux_change(manager, GT_TMUX_RENAME, &before, names[i], &result);
+      if ((strchr(names[i], '\t') || strchr(names[i], '\n')) &&
+          rc == GT_ERR_IO && result == GT_TMUX_REJECTED) {
+        list();
+        CHECK(count == 1 && !strcmp(rows[0].name, before.name),
+              "rejected control-character name preserves session");
+      } else {
+        CHECK(rc == GT_OK && result == GT_TMUX_CONFIRMED, "confirmed name change");
+        list();
+        bool literal_newer = !strcmp(names[i], "a.b:c") && count == 1 &&
+                             !strcmp(rows[0].name, "a.b:c");
+        CHECK(count == 1 && (!strcmp(rows[0].name, expected[i]) || literal_newer),
+              "literal/normalized name");
+      }
     }
   } else if (!strcmp(argv[1], "identity")) {
     gt_tmux_session_t stale = rows[0];

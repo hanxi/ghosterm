@@ -182,8 +182,8 @@ A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi
 在工程 `tmp/` 的隔离目标里安装真实签名包，不触碰 `/Applications`。六组变异护 SHA256、
 应用标识、签名完整性、递归清除 quarantine、替换失败恢复与平台/运行中保护；每组目标红、
 独立对照绿、SHA 回滚。dev/full 打包后都用本轮 ZIP 运行，验证当前脚本与本轮产物配套。）
-（`tmux` 以 `python3 scripts/mutation-check-tmux.py` 跑 19 组隔离变异：缺失判定、
-重复/UTF-8 解析、未知策略/结果、版本、format/分号/shell 引用、身份、禁止 attach 起新 server、
+（`tmux` 以 `python3 scripts/mutation-check-tmux.py` 跑 20 组隔离变异：缺失判定、
+重复/UTF-8 解析、未知策略/结果、明确拒绝、版本、format/分号/shell 引用、身份、禁止 attach 起新 server、
 尺寸接线、丢失本地退出状态、关闭标准描述符、取消及探测错误分类。目标断言红、同变异下独立对照绿、SHA 回滚；make 整秒时间戳下强制重链，
 不让旧可执行文件冒充变异结果。普通离线 gate 只跑命令与恶意输出夹具；真实本地/SSH
 八模式（含已有空 server 与 owner 被 SIGKILL）另以 `test-tmux.py` / `test-tmux-ssh.py` 执行，缺 tmux 时明确失败，不算通过。已与 `tmux-ui` 纳入 CI full 档；Linux 与真实 SSH/断网仍是手工证据。）

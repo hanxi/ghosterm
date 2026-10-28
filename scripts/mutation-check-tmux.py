@@ -49,6 +49,7 @@ def main():
             ('unknown-policy', 'src/tmux/tmux.c', 'r->destroy_unattached=-1;r->exit_unattached=-1;', 'r->destroy_unattached=0;r->exit_unattached=0;', 'adversarial', 'command'),
             ('unknown-result', 'src/tmux/tmux.c', 'r.started?GT_TMUX_UNKNOWN:GT_TMUX_REJECTED', 'GT_TMUX_REJECTED', 'adversarial', 'command'),
             ('dirty-result', 'src/tmux/tmux.c', '*result=r.exit_code?GT_TMUX_REJECTED:GT_TMUX_UNKNOWN', '*result=GT_TMUX_REJECTED', 'adversarial', 'command'),
+            ('rejected-result', 'src/tmux/tmux.c', '*result=r.exit_code?GT_TMUX_REJECTED:GT_TMUX_UNKNOWN', '*result=GT_TMUX_UNKNOWN', 'adversarial', 'command'),
             ('discovery-status', 'src/tmux/tmux.c', 'rc = GT_ERR_NOT_FOUND;', 'rc = GT_ERR_UNSUPPORTED;', 'adversarial', 'command'),
             ('version-status', 'src/tmux/tmux.c', 'rc = valid ? GT_ERR_UNSUPPORTED : GT_ERR_PROTOCOL;', 'rc = GT_ERR_UNSUPPORTED;', 'adversarial', 'command'),
             ('version', 'src/tmux/tmux.c', "return major>3||(major==3&&(minor>6||(minor==6&&*suffix>='a')));", 'return major>=3;', 'adversarial', 'command'),
