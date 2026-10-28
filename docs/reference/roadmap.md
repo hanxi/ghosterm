@@ -1,5 +1,9 @@
 # 路线图
 
+2026-10-28 会话方向变更：正在实施 [可选 tmux 重构](plan-optional-tmux.md)。默认连接回到普通
+PTY/SSH，自有 sessiond 整体退役；下方 sessiond 条目记录当前与历史实现，不再作为后续目标。
+具体切片与验证进度见 [实施清单](optional-tmux-implementation.md)。
+
 > 优先级：**macOS 做到功能完整 → Android 竖切 → 其余端**（7 端都要，只是排期）。
 > 排期原则（2026-10-10 调整）：**所有核心能力（含 config 编辑 / SFTP）先在
 > macOS 一端实现并验证到位**，Android 动工时核心已冻结、只做端侧。差异化功能

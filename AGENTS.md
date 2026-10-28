@@ -9,6 +9,14 @@ Ghosterm = **libghostty 驱动的多端终端** × **VS Code 式 `~/.ssh/config`
 技术栈：**各端原生 UI + 共享 C 核心（libghostty / libssh2）+ Transport 接缝**。
 **不用跨端 UI 框架，不用 Rust。**
 
+## 当前重构决定
+
+2026-10-28 起按 `docs/reference/plan-optional-tmux.md` 实施：普通本地 PTY/SSH 为默认入口，
+后台会话由用户显式选择 tmux；整体退役自有 sessiond、私有恢复协议、安装与随包 runtime，
+不保留旧 ABI/记录的兼容层。依赖闭包、命令决策与验收进度见
+`docs/reference/optional-tmux-implementation.md`。旧能力尚未退役时，本文对应闸门仍须执行；
+退役提交同步修改源码、调用方、构建、测试、打包、CI 和下文覆盖范围，不能先删断言换绿。
+
 ## 目录边界（禁止越界）
 
 | 目录 | 内容 | 依赖规则 |
