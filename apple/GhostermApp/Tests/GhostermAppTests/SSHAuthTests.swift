@@ -247,9 +247,13 @@ final class SSHAuthTests: XCTestCase {
             if case .password = $0.kind { return true }
             return false
         }
-        XCTAssertTrue(wantedPassword,
-                      "服务器允许密码认证时应当问登录密码（方法表来自握手）"
-                      + "（实际: \(interaction.prompts.map(\.kind))）")
+        // Ask only for a method the connector implements. A server advertising
+        // keyboard-interactive alone is explicitly unsupported, not password.
+        let probe = try SSHSession(.init(host: e.host, port: e.port, username: e.user,
+            knownHostsPath: model.knownHostsPath))
+        try probe.handshake(); defer { probe.close() }
+        XCTAssertEqual(wantedPassword, probe.authMethods.contains(.password),
+                       "只在服务器允许 password 时问登录密码；未实现的 keyboard-interactive 必须报错")
     }
 }
 

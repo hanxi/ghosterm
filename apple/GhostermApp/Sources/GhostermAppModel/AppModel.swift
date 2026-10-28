@@ -151,6 +151,9 @@ public final class AppModel: ObservableObject {
     @Published public var preferences: AppPreferences
 
     private var startedInitialSessions = false
+    private var authentications: [UUID: (DispatchQueue, SSHAuthenticationFlow)] = [:]
+    @Published public var tmuxChooser: TmuxChooser?
+
 
     public init(configPath: String? = nil, knownHostsPath: String? = nil,
                 settings: SettingsStore? = nil) {
@@ -203,11 +206,11 @@ public final class AppModel: ObservableObject {
     /// 跳掉（不 attach、不弹凭据框）。已建好的会话由 TabManager.close →
     /// pane.stop 停掉，不在这里管。
     private func cancelInFlight(_ tab: TerminalTab) {
-        for pane in tab.panes where pane.status == .connecting { cancelledConnects.add(pane.id) }
+        for pane in tab.panes where pane.status == .connecting { cancelConnection(pane.id) }
         // 只有真有在途连接的标签页才投票：已建好的会话由 stop 收掉，投了
         // 也没人消费（还会让集合一直涨）。
         for pane in tab.filePanes where pane.remote && pane.panel == nil && pane.error == nil {
-            cancelledConnects.add(pane.id)
+            cancelConnection(pane.id)
         }
     }
 
@@ -372,29 +375,13 @@ public final class AppModel: ObservableObject {
                                                 identityFiles: [String],
                                                 knownHosts: String,
                                                 cancelID: UUID) async throws -> SFTPFileBackend {
-        let ssh: SSHSession = try await withCheckedThrowingContinuation { cont in
-            let model = self
-            let thread = Thread {
-                do {
-                    let s = try model.connectAuthenticated(
-                        host: host, port: port, user: user, knownHosts: knownHosts,
-                        identityFiles: identityFiles, cancelID: cancelID
-                    ) { [weak model] h, p, kt, fp in
-                        guard let model, !model.cancelledConnects.contains(cancelID) else {
-                            return .unknown
-                        }
-                        return model.decideHostKey(host: h, port: p, keyType: kt,
-                                                  fingerprint: fp, cancelID: cancelID)
-                    }
-                    cont.resume(returning: s)
-                } catch {
-                    cont.resume(throwing: error)
-                }
-            }
-            thread.name = "ghosterm-files-connect"
-            thread.start()
+        let owner = DispatchQueue(label: "dev.ghosterm.files-connect")
+        let target = SSHConnectionTarget(alias: host, host: host, user: user, port: port,
+            knownHosts: knownHosts, identityPaths: identityFiles)
+        let ssh = try await authenticate(target, id: cancelID, owner: owner)
+        let sftp: SFTPSession = try await withCheckedThrowingContinuation { continuation in
+            owner.async { do { continuation.resume(returning: try ssh.sftp()) } catch { continuation.resume(throwing: error) } }
         }
-        let sftp = try ssh.sftp()
         return SFTPFileBackend(session: ssh, sftp: sftp, user: user, host: host,
                                initialPath: ".")
     }
@@ -441,7 +428,7 @@ public final class AppModel: ObservableObject {
     public func closePane(in tab: TerminalTab) {
         if let file = tab.activeWorkspacePane?.files {
             if tab.workspacePanes.count == 1 { tabs.requestClose(tab); return }
-            if file.panel == nil && file.error == nil { cancelledConnects.add(file.id) }
+            if file.panel == nil && file.error == nil { cancelConnection(file.id) }
             tab.removeFilePane(file.id)
             return
         }
@@ -461,7 +448,7 @@ public final class AppModel: ObservableObject {
         guard let tab = tabs.activeTab else { return }
         if let file = tab.activeWorkspacePane?.files {
             if tab.workspacePanes.count == 1 { tabs.requestClose(tab); return }
-            if file.panel == nil && file.error == nil { cancelledConnects.add(file.id) }
+            if file.panel == nil && file.error == nil { cancelConnection(file.id) }
             tab.removeFilePane(file.id)
             return
         }
@@ -703,38 +690,34 @@ public final class AppModel: ObservableObject {
 
     private func startSSH(pane: TerminalPane, entry: HostEntry?, pattern: String,
                           terminalApp: TerminalApp) {
-        let host = entry?.hostname ?? pattern, user = entry?.user ?? NSUserName()
-        let port = UInt16(entry?.port ?? 22)
-        let paths = expandTilde(entry?.identityFiles ?? [])
-        let knownHosts = knownHostsPath, id = pane.id
-        statusMessage = "连接 \(user)@\(host)…"
-        // 与 SFTP 共用认证；连接只在工作线程进行，每条终端独占 SSHSession。
-        pane.onStop = { [weak self] in self?.cancelledConnects.add(id) }
-        let thread = Thread { [weak self, weak pane] in
+        let target = sshTarget(for: pattern), id = pane.id
+        let owner = DispatchQueue(label: "dev.ghosterm.terminal-connect")
+        statusMessage = "连接 \(target.user)@\(target.host)…"
+        pane.onStop = { [weak self] in self?.cancelConnection(id) }
+        Task { @MainActor [weak self, weak pane] in
             guard let self else { return }
-            let result: Result<(SSHSession, Transport), Error> = Result {
-                let ssh = try self.connectAuthenticated(host: host, port: port, user: user,
-                    knownHosts: knownHosts, identityFiles: paths, cancelID: id) { [weak self] h, p, kt, fp in
-                        self?.decideHostKey(host: h, port: p, keyType: kt, fingerprint: fp, cancelID: id) ?? .unknown
+            do {
+                let ssh = try await self.authenticate(target, id: id, owner: owner)
+                let transport: Transport = try await withCheckedThrowingContinuation { continuation in
+                    owner.async {
+                        do {
+                            let transport = try Transport.openSSHShell(ssh)
+                            transport.releaseOn(owner); continuation.resume(returning: transport)
+                        } catch { continuation.resume(throwing: error) }
                     }
-                try self.throwIfCancelled(id)
-                let transport = try Transport.openSSHShell(ssh, term: "xterm-256color", cols: 80, rows: 24)
-                return (ssh, transport)
-            }
-            DispatchQueue.main.async { [weak self, weak pane] in
-                guard let self else { return }
+                }
                 let cancelled = self.cancelledConnects.take(id)
                 guard let pane, !cancelled, self.tabs.tabs.contains(where: { $0.panes.contains(where: { $0.id == id }) }) else { return }
                 pane.onStop = nil
-                do {
-                    let (ssh, transport) = try result.get()
-                    let surface = try TerminalSurface(app: terminalApp)
-                    let session = SessionController(transport: transport, surface: surface, sshSession: ssh)
-                    pane.attach(surface: surface, session: session); pane.start()
-                } catch { pane.markFailed(connectionErrorMessage(error)) }
+                let surface = try TerminalSurface(app: terminalApp)
+                let session = SessionController(transport: transport, surface: surface)
+                pane.attach(surface: surface, session: session); pane.start()
+            } catch {
+                _ = self.cancelledConnects.take(id)
+                guard let pane, self.tabs.tabs.contains(where: { $0.panes.contains(where: { $0.id == id }) }) else { return }
+                pane.markFailed(connectionErrorMessage(error))
             }
         }
-        thread.name = "ghosterm-terminal-connect"; thread.start()
     }
 
     private func startLocal(pane: TerminalPane, app: TerminalApp, cwd: String?) {
@@ -768,36 +751,6 @@ public final class AppModel: ObservableObject {
 
     // MARK: - 主机密钥对话框（真三态：未知 ≠ 拒绝）
 
-    /// 挂起一次确认请求并在主线程等结果。decider 在工作线程被调用，
-    /// 这里同步桥到主线程的 interaction（AppKit alert 是模态的）。
-    private nonisolated func decideHostKey(host: String, port: UInt16,
-                                           keyType: String,
-                                           fingerprint: String, cancelID: UUID) -> HostKeyDecision {
-        var decision = HostKeyDecision.unknown
-        let semaphore = DispatchSemaphore(value: 0)
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, !self.cancelledConnects.contains(cancelID) else { semaphore.signal(); return }
-            let prompt = HostKeyPrompt(host: host, port: port, keyType: keyType,
-                                       fingerprint: fingerprint)
-            self.pendingHostKey = prompt
-            defer {
-                self.pendingHostKey = nil
-                semaphore.signal()
-            }
-            guard let interaction = self.interaction else { return }
-            decision = interaction.confirmHostKey(prompt)
-        }
-        semaphore.wait()
-        return decision
-    }
-
-    /// UI 调用：用户按了「信任并连接」（TOFU——核心会落盘 known_hosts）。
-    public func resolveHostKey(_ decision: HostKeyDecision) {
-        // decideHostKey 用模态 interaction 拿结果，这条路径留给
-        // 非模态 UI：结果已在 pendingHostKey 挂起时记录，这里只清状态。
-        pendingHostKey = nil
-    }
-
     /// 测试辅助：伪造「终端配置无效」。
     ///
     /// 真实路径只在 init 里按 libghostty 的解析结果设一次，测试没法让它出错；
@@ -822,199 +775,47 @@ public final class AppModel: ObservableObject {
         }
     }
 
-    // MARK: - 认证（凭据桥）
-
-    /// 建一条**已认证**的 SSH 会话（工作线程）。
-    ///
-    /// 顺序照 OpenSSH，也照用户对 `ssh` 命令行的预期：
-    ///   1. **先握手一次** —— 拿到服务器允许的认证方式（`gt_ssh_auth_methods`）；
-    ///   2. **逐把钥匙真试**（同一条会话上重试，libssh2 支持）：钥匙每次
-    ///      从 `~/.ssh` 读文件（**不缓存进 Keychain**，见下），只有**真加密**
-    ///      的钥匙才用缓存口令或问一次——没口令的钥匙绝不该被问口令；
-    ///   3. 钥匙都不行：服务器收密码 → 问**登录密码**（不是私钥口令）；
-    ///   4. 都不行：如实报「试过什么 + 服务器允许什么」，不猜、不静默。
-    ///
-    /// 为什么必须按这个顺序（用户实测踩过的坑）：
-    ///   · 先前是「设凭据 → connect（内含握手+认证）」一步走：方法表在认证前
-    ///     恒为空，于是「服务器只收密码」永远判不出来，一律猜成「问私钥口令」
-    ///     ——用户看到的就是「一把没口令的钥匙却让我输口令」；
-    ///   · 先前只要文件读得出来就先弹口令框（连没加密的钥匙也弹）。
-    private nonisolated func connectAuthenticated(
-        host: String, port: UInt16, user: String, knownHosts: String,
-        identityFiles: [String], cancelID: UUID, decider: @escaping HostKeyDecider
-    ) throws -> SSHSession {
-        // 用户在握手/认证途中把这个标签页关掉了 → 就地取消，不在已关掉的
-        // 标签页上继续弹框（凭据 / 主机密钥）。
-        try throwIfCancelled(cancelID)
-        let ssh = try SSHSession(SSHOptions(
-            host: host, port: port, username: user, knownHostsPath: knownHosts
-        ))
-        // 主机密钥：三态裁决。UNKNOWN ≠ REJECT——弹真对话框。
-        // （已知且一致由核心直接放行，decider 不会被调用。）
-        ssh.setHostKeyDecider(decider)
-
-        // 握手：主机密钥 + 服务器认证方式。只做一次，钥匙都在这一条会话上试。
-        try ssh.handshake()
-        let methods = ssh.authMethods
-
-        // ---- 1. 逐把钥匙 ----
-        let keyPaths = identityFiles.isEmpty ? Self.defaultKeyPaths() : identityFiles
-        var triedKeys: [String] = []
-        var lastAuthError: Error?
-        for path in keyPaths {
-            // 钥匙**每次都从文件读**：开着的会话本来就要公钥去认证，而
-            // 「把已解锁的 PEM 缓存进 Keychain」正是会让 macOS 弹
-            // 「想要使用钥匙串」的那一步（一个 generic-password 项被反复读，
-            // 用户莫名其妙被问一次）——用户实测报的就是这个。私钥仍不落盘、
-            // 不进日志（铁律 #5），只是不再多存一份副本。
-            guard let pem = readPrivateKeyFile(path) else {
-                continue // 文件不存在/读不了：跳过，别把它算进「试过」
-            }
-            triedKeys.append(path)
-
-            // 口令只对**真加密**的钥匙问（或复用 Keychain 里存过的）。
-            var passphrase: String? = nil
-            switch Ghosterm.keyPassphraseRequirement(pem) {
-            case .needed:
-                try throwIfCancelled(cancelID)
-                passphrase = try passphraseFor(keyPath: path, host: host,
-                                               port: port, user: user, cancelID: cancelID)
-                if passphrase == nil {
-                    // 用户取消了口令框：这把钥匙留着不动，试下一把。
-                    continue
-                }
-            case .notNeeded, .unknown:
-                // 没加密（或认不出来的格式）：不问口令，直接拿去试。
-                // 认不出来的文件 libssh2 本来也用不了，问口令解不开它。
-                passphrase = nil
-            }
-
-            do {
-                try ssh.authenticate(privateKeyPEM: pem, passphrase: passphrase)
-                try ssh.authenticate()
-                return ssh
-            } catch {
-                lastAuthError = error
-                // 这把钥匙没被接受：把整条 host 的口令缓存撤掉（多半是错的，
-                // 留着会让下一次连接拿错口令去试别的钥匙）。
-                try? KeychainStore.removePassphrase(forHost: host, port: Int(port))
-            }
-        }
-
-        // ---- 2. Keychain 里存过的登录密码（用户授权过一次就不该反复问）----
-        if let saved = try? KeychainStore.password(forHost: host, port: Int(port)),
-           !saved.isEmpty {
-            do {
-                try ssh.authenticate(password: saved)
-                try ssh.authenticate()
-                return ssh
-            } catch {
-                // 密码过期了：清掉，走下面的常规流程。
-                lastAuthError = error
-                try? KeychainStore.removePassword(forHost: host, port: Int(port))
-            }
-        }
-
-        // ---- 3. 按**握手上拿到的**方法表决定问什么 ----
-        // 这一条是先前永远走不到的死路（方法表那时还没握手）：明明服务器
-        // 只收密码，却被问成「私钥口令」。
-        let wantsPassword = methods.contains(.password)
-            || methods.contains(.keyboardInteractive)
-        if wantsPassword {
-            try throwIfCancelled(cancelID)
-            guard let answer = askCredential(host: host, port: port, user: user,
-                                             kind: .password(reason: passwordReason(
-                                                tried: triedKeys)), cancelID: cancelID) else {
-                throw GhostermError.failed(
-                    "服务器要求密码认证，但未提供密码（服务器允许：\(methods)）")
-            }
-            guard let password = answer.password, !password.isEmpty else {
-                throw GhostermError.failed("未输入密码")
-            }
-            try ssh.authenticate(password: password)
-            try ssh.authenticate()
-            // 存 Keychain：同一 host:port 下次**不用再问**（铁律 #5 的
-            // 平台安全存储；密钥材料不进日志、不进文件）。
-            try? KeychainStore.setPassword(password, forHost: host, port: Int(port))
-            return ssh
-        }
-
-        // ---- 4. 都不行：如实说清（不猜、不静默降级）----
-        if triedKeys.isEmpty {
-            throw GhostermError.failed(
-                "没有可用的私钥文件（试过：\(keyPaths.joined(separator: "、"))）"
-                + "；服务器允许：\(methods)")
-        }
-        throw lastAuthError ?? GhostermError.failed(
-            "已试过私钥都不被服务器接受（\(triedKeys.joined(separator: "、"))）"
-            + "；服务器允许：\(methods)")
-    }
-
-    /// 取消票命中就抛——把这次连接就地结束，不再弹框、不建会话。
-    private nonisolated func throwIfCancelled(_ id: UUID) throws {
+    /// One authentication implementation for ordinary terminals, files and
+    /// optional management/attach. Prompts stay on main; DNS/libssh2 on owner.
+    func authenticate(_ target: SSHConnectionTarget, id: UUID, owner: DispatchQueue) async throws -> SSHSession {
         if cancelledConnects.contains(id) { throw ConnectCancelled() }
-    }
-
-    /// 密码摘要里的一句话：说清「私钥试过但没被接受」，别让用户以为是
-    /// 自己密码打错了。
-    private nonisolated func passwordReason(tried keyPaths: [String]) -> String {
-        if keyPaths.isEmpty {
-            return "服务器要求密码认证。"
-        }
-        let names = keyPaths.map { ($0 as NSString).lastPathComponent }
-            .joined(separator: "、")
-        return "已试过私钥（\(names)）但服务器不接受，改用密码认证。"
-    }
-
-    /// 主线程问口令；无 interaction（无 UI）返回 nil。
-    private nonisolated func askCredential(host: String, port: UInt16, user: String,
-                                           kind: CredentialPrompt.Kind, cancelID: UUID)
-        -> CredentialAnswer? {
-        var answer: CredentialAnswer?
-        let semaphore = DispatchSemaphore(value: 0)
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, !self.cancelledConnects.contains(cancelID) else { semaphore.signal(); return }
-            let prompt = CredentialPrompt(host: host, port: port, user: user,
-                                          kind: kind)
-            self.pendingCredential = prompt
-            defer {
-                self.pendingCredential = nil
-                semaphore.signal()
-            }
-            guard let interaction = self.interaction else { return }
-            answer = interaction.askCredential(prompt)
-        }
-        semaphore.wait()
-        return answer
-    }
-
-    /// IdentityFile 缺省时的默认链（与 OpenSSH 用户习惯一致）。
-    private nonisolated static func defaultKeyPaths() -> [String] {
-        ["id_ed25519", "id_ecdsa", "id_rsa"].map { name in
-            (NSHomeDirectory() as NSString).appendingPathComponent(".ssh/\(name)")
+        let selector = SSHCredentialSelector(target: target, ask: { [weak self] kind in
+            guard let self, !self.cancelledConnects.contains(id) else { return nil }
+            let prompt = CredentialPrompt(host: target.host, port: target.port, user: target.user, kind: kind)
+            self.pendingCredential = prompt; defer { self.pendingCredential = nil }
+            return self.interaction?.askCredential(prompt)
+        }, hostkey: { [weak self] type, fingerprint in
+            guard let self, !self.cancelledConnects.contains(id) else { return .unknown }
+            let prompt = HostKeyPrompt(host: target.host, port: target.port, keyType: type, fingerprint: fingerprint)
+            self.pendingHostKey = prompt; defer { self.pendingHostKey = nil }
+            return self.interaction?.confirmHostKey(prompt) ?? .unknown
+        }, notice: { [weak self] message in self?.statusMessage = message })
+        return try await withCheckedThrowingContinuation { continuation in
+            var request: UInt64 = 0
+            let flow = SSHAuthenticationFlow(owner: owner,
+                options: SSHOptions(host: target.host, port: target.port, username: target.user, knownHostsPath: target.knownHosts),
+                prompts: selector.prompts, nextID: { guard request < UInt64.max else { return nil }; request += 1; return request },
+                completion: { [weak self] result in
+                    if case .success(let value) = result { value.connection.releaseOn(owner) }
+                    DispatchQueue.main.async { self?.authentications.removeValue(forKey: id) }
+                    continuation.resume(with: result.map { $0.connection }.mapError { $0 as Error })
+                })
+            authentications[id] = (owner, flow)
+            owner.async { flow.start() }
         }
     }
-
-    private nonisolated func readPrivateKeyFile(_ path: String) -> String? {
-        try? String(contentsOfFile: path, encoding: .utf8)
+    func cancelConnection(_ id: UUID) {
+        cancelledConnects.add(id)
+        if let (owner, flow) = authentications[id] { owner.async { flow.cancel() } }
+    }
+    func finishChooserAuthentication(_ id: UUID) { _ = cancelledConnects.take(id) }
+    func sshTarget(for pattern: String) -> SSHConnectionTarget {
+        let entry = hosts.first { $0.pattern == pattern }
+        return SSHConnectionTarget(alias: pattern, host: entry?.hostname ?? pattern,
+            user: entry?.user ?? NSUserName(), port: UInt16(entry?.port ?? 22),
+            knownHosts: knownHostsPath, identityPaths: expandTilde(entry?.identityFiles ?? []))
     }
 
-    /// Keychain 里的口令，没有则问一次并存回。
-    ///
-    /// **只在调用方确认这把钥匙真的加密之后**才会被调（见 connectAuthenticated）：
-    /// 没口令的钥匙不该被问口令——那是用户实测里最刺眼的一条。
-    private nonisolated func passphraseFor(keyPath: String, host: String,
-                                           port: UInt16, user: String, cancelID: UUID) throws -> String? {
-        if let cached = try? KeychainStore.passphrase(forHost: host, port: Int(port)) {
-            return cached
-        }
-        guard let answer = askCredential(host: host, port: port, user: user,
-                                         kind: .passphrase, cancelID: cancelID) else { return nil }
-        if let pass = answer.passphrase {
-            try? KeychainStore.setPassphrase(pass, forHost: host, port: Int(port))
-        }
-        return answer.passphrase
-    }
 }
 
 // MARK: - UI 交互协议与请求模型

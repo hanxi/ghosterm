@@ -71,6 +71,9 @@ open tmp/Ghosterm.app                # 双击即用：主机列表 / 终端 / �
 `Contents/Frameworks/`）——拷到别的 arm64 Mac 也能跑，不需要 Homebrew。
 ad-hoc 签名；Developer ID + 公证是显式遗留项（待证书，见 roadmap）。
 
+可选后台会话从 `+ → 本机后台会话…` 或主机右键菜单打开；目标需安装 tmux >=3.6a，
+不影响普通终端。操作与保留边界见[使用 tmux 后台会话](docs/how-to/tmux-sessions.md)。
+
 不带包直接跑（开发循环）：
 
 ```bash

@@ -121,12 +121,12 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 不报「已是最新」；有新版时只给下载直链，不画「安装」按钮。口径见
 `docs/how-to/dev-build.md`，牙见 `scripts/mutation-check-app-update.sh`。
 
-> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **14 份**变异验证——
+> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **17 份**变异验证——
 > Apple 端 `terminal / transport / tabs / chrome / settings / pixel / focus / split-dim / occlusion / app-update`、
-> `default-entry / ssh-auth / ssh-credentials`、以及 `package-mac`（在**干净检出**上验打包链，输出里
+> `default-entry / ssh-auth / ssh-credentials / auth / tmux / tmux-ui`、以及 `package-mac`（在**干净检出**上验打包链，输出里
 > 出现 `SKIP` 一律判红，缺随包主题不许蒙过去）。**其余闸门仍是「手工跑」**：`core/` 侧的
 > sshconfig / include / ssh / sftp / exec / files / transfers / dragdrop / pty-inheritance /
-> auth / login-shell / known-hosts / public-headers 等 CI 看不见。
+> login-shell / known-hosts / public-headers 等 CI 看不见。
 > 所以「CI 绿」≠「闸门全绿」——改到上面那些面，合并前仍要本地 `bash scripts/gate.sh` +
 > 对应变异脚本各自跑绿。
 > 另：dev 轨比 release 轨多**一道对拍**（`check-dev-cask.sh` 比 Homebrew cask ↔ 本轮资产，
@@ -151,7 +151,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 settings-ui / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
-package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux。
+package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui。
 （`package-mac` 另护「**签名档位必须按证书真实的类记账**」：`--sign` 原先把任何身份都记
 成 `id`，于是随包 `BUILD-INFO.txt` 与 `version.json` 的 `signature` 会谎报 Developer ID——
 而那个字段正是 app 侧 `RemoteBuild.installBlocked` 判断「能不能自动装」的唯一依据。
@@ -174,11 +174,15 @@ A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi
 新包校验仍红，而既有依赖校验仍绿；旧 profile 收据、旧 p0 头也分别目标红、对照绿、复原绿。
 `check-terminal-package.py` 复用普通引擎构建器的验证，核验实际 archive 哈希与三份补丁收据。
 打包变异起跑前检查 Pillow，不能拿图标对照缺依赖冒充有牙；EXIT/INT/TERM 都恢复并比对 SHA256。）
-（`tmux` 手工以 `python3 scripts/mutation-check-tmux.py` 跑 13 组隔离变异：缺失判定、
+（`tmux` 以 `python3 scripts/mutation-check-tmux.py` 跑 13 组隔离变异：缺失判定、
 重复/UTF-8 解析、未知策略/结果、版本、format/分号/shell 引用、身份、禁止 attach 起新 server、
 尺寸接线。目标断言红、同变异下独立对照绿、SHA 回滚；make 整秒时间戳下强制重链，
 不让旧可执行文件冒充变异结果。普通离线 gate 只跑命令与恶意输出夹具；真实本地/SSH
-六模式另以 `test-tmux.py` / `test-tmux-ssh.py` 执行，缺 tmux 时明确失败，不算通过。）
+六模式另以 `test-tmux.py` / `test-tmux-ssh.py` 执行，缺 tmux 时明确失败，不算通过。已与 `tmux-ui` 纳入 CI full 档；Linux 与真实 SSH/断网仍是手工证据。）
+（`tmux-ui` 用 `python3 scripts/mutation-check-tmux-ui.py` 验新格子不覆盖任务、detach 保留
+断开格子、关闭只断开客户端、未知文案、路径变更清选择与拒绝覆盖运行格子。使用真 tmux +
+full surface，断言内层任务 PID 不变；旧绑定不提供结束入口。`auth` 现复用同一异步认证，
+在真 sshd 上以三个隔离变异护 tilde、没口令的钥匙、服务器方法表；不再变异已经删除的认证副本。）
 （`ssh-auth` 保留公开非阻塞认证的八组翻译变异；`ssh-credentials` 保留方法表、取消、请求归属、
 拒绝凭据清理、服务端方法掩码与未知格式六组变异。它们独立于旧安装器和 daemon 探针运行。）
 （`app-update` 护 dev 版**更新检测**这条链——七组变异，每组都要让对应断言变红并带一条

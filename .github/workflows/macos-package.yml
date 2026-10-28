@@ -118,6 +118,7 @@ jobs:
           # `timeout`（只有 brew 的 `gtimeout`），而变异脚本要靠超时才有界——
           # CI 实测踩过「命令不存在 = 非零 = 被当成断言变红」的假牙。
           brew install librsvg imagemagick bash coreutils
+          if [ "${{ inputs.gates }}" = full ]; then brew install tmux; fi
           python3 -m venv tmp/venv-icons
           tmp/venv-icons/bin/python -m pip install --quiet --upgrade pip pillow
           tmp/venv-icons/bin/python -c 'import PIL; print("Pillow", PIL.__version__)'
@@ -216,6 +217,10 @@ jobs:
           bash scripts/mutation-check-default-entry.sh
           python3 scripts/mutation-check-ssh-auth.py
           python3 scripts/mutation-check-ssh-credentials.py
+          bash scripts/mutation-check-auth.sh | tee tmp/ci-auth-mutations.log
+          if grep -q SKIP tmp/ci-auth-mutations.log; then exit 1; fi
+          python3 scripts/mutation-check-tmux.py
+          python3 scripts/mutation-check-tmux-ui.py
 
       - name: 导入 Developer ID 证书（release 轨且有 secret 才做）
         if: inputs.channel == 'release'

@@ -47,6 +47,10 @@ cp "$WORK/clientkey.pub" "$WORK/authorized_keys"
   echo "UsePAM no"
   echo "StrictModes no"
   echo "LogLevel ERROR"
+  # Repeated deliberate failures are fixture traffic, not a password attack.
+  if "$SSHD" -T -o PerSourcePenalties=no >/dev/null 2>&1; then
+    echo "PerSourcePenalties no"
+  fi
   # OpenSSH 自带实现，避免把 macOS 的外部程序路径带到 Linux runner。
   echo "Subsystem sftp internal-sftp"
 } > "$WORK/sshd_config"

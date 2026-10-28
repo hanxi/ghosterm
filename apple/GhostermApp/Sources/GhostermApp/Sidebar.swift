@@ -88,6 +88,7 @@ struct Sidebar: View {
                     }
                     .contextMenu {
                         Button("连接") { model.connect(to: .host(host.pattern)) }
+                        Button("后台会话…") { model.showTmux(for: .host(host.pattern)) }
                         Button("用 SFTP 浏览文件…") {
                             model.openSFTP(for: host.pattern)
                         }

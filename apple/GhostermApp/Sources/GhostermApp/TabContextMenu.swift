@@ -51,6 +51,11 @@ struct TabContextMenu: View {
             Divider()
         }
 
+        if tab.kind.isTerminal {
+            Button("后台会话…") {
+                model.showTmux(for: tab.kind.remoteTarget.map { .host($0.pattern) } ?? .localShell)
+            }
+        }
         Button("打开本地文件窗格") { tabs.activate(tab); model.openLocalFiles() }
         Button("恢复默认布局") { tab.restoreDefaultWorkspace() }
         Divider()

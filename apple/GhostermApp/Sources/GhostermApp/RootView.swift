@@ -93,6 +93,10 @@ struct RootView: View {
                   let tab = tabs.tabs.first(where: { $0.id == id }) else { return }
             tabs.requestClose(tab)
         }
+        .sheet(item: Binding(get: { model.tmuxChooser }, set: { if $0 == nil { model.dismissTmux() } })) { chooser in
+            TmuxSheet(chooser: chooser, close: { model.dismissTmux() })
+                .onDisappear { chooser.cancel() }
+        }
         .sheet(item: $editingHost) { item in
             HostEditorSheet(model: model, alias: item.name, isNew: false)
         }
@@ -211,6 +215,11 @@ struct PaneView: View {
                             return workspaceDragProvider(tab: tab, paneID: pane.id)
                         })
                 }
+                if let context = pane.tmuxContext {
+                    Text("tmux · 连接时选择：\(context.selectedName)")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                }
                 terminalArea
             }
         }
@@ -244,7 +253,10 @@ struct PaneView: View {
 
             // 覆盖层只在**非 ready** 时出现：ready 时屏幕就是终端内容，
             // 盖东西上去反而碍事（iGhostVT 的 SessionStatusOverlay 同口径）。
-            switch pane.status {
+            if let context = pane.tmuxContext, pane.status.isExited || pane.status.isFailed {
+                StatusCard(title: "tmux 连接已断开", detail: "后端状态未知。连接时选择：\(context.selectedName)", isError: pane.status.isFailed,
+                           action: { model.showTmux(for: context.target, replacing: pane) }, actionTitle: "重新选择会话")
+            } else { switch pane.status {
             case .ready:
                 EmptyView()
             case .connecting:
@@ -256,6 +268,8 @@ struct PaneView: View {
                 StatusPill(text: "已退出（\(code)）")
             case .exitedUnknown:
                 StatusPill(text: "已结束（退出码未知）")
+            }
+
             }
 
             if tab.isLocked {
@@ -311,6 +325,7 @@ private struct StatusCard: View {
     let detail: String
     let isError: Bool
     let action: (() -> Void)?
+    var actionTitle = "关闭标签页"
 
     var body: some View {
         VStack(spacing: DS.Padding.m) {
@@ -327,7 +342,7 @@ private struct StatusCard: View {
                     .frame(maxWidth: 420)
             }
             if let action {
-                Button("关闭标签页", action: action)
+                Button(actionTitle, action: action)
             }
         }
         .padding(DS.Padding.l)

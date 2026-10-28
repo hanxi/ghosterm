@@ -223,6 +223,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
 
     /// 谁建会话谁持有（UAF 教训）：pane 撑住 SessionController，
     /// SessionController 撑住 transport 与 SSHSession。
+    @Published public var tmuxContext: TmuxPaneContext?
     private var session: SessionController?
     var onStop: (() -> Void)?
 
@@ -347,7 +348,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
     /// 当前目录优先使用本地 PTY 的内核观测，随后回落到
     /// OSC 7；没有证据时保持 nil，供新建、分屏与文件面板使用。
     public var currentDirectory: String? {
-        if let local = session?.childCwd { return local }
+        if tmuxContext == nil, let local = session?.childCwd { return local }
         return reportedDirectory
     }
 
@@ -371,6 +372,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
     /// 建立失败的收尾：**保留** pane（屏幕显示失败卡片），不是把 tab
     /// 悄悄删掉——用户得看得见失败与原因（铁律 #6）。
     public func markFailed(_ message: String) {
+        session?.stop(); onStop = nil
         surface = nil
         session = nil
         status = .failed(message)
@@ -383,7 +385,12 @@ public final class TerminalPane: ObservableObject, Identifiable {
 
     /// 前台作业判定（关闭确认用）。建立前/失败后没有 transport，按
     /// `.unknown`（**不折叠**：查不出来就不当空闲）。
-    public var childState: Transport.ChildState { session?.childState ?? .unknown }
+    public var childState: Transport.ChildState {
+        // The local attach client's foreground group says nothing about tmux's
+        // inner jobs. Only its stream ending is observable without a protocol.
+        if tmuxContext != nil { return status.isExited ? .exited : .unknown }
+        return session?.childState ?? .unknown
+    }
 
     /// 关闭这个窗格会不会打断东西。**纯函数**：接线与测试走同一条路径
     /// （不建真会话也能断言每一档，见 TabManagerTests）。
@@ -399,7 +406,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
     public var closeNeedsConfirmation: Bool {
         // 已结束：没什么可丢。记录可能还没刷到 .ended（状态先到、记录后到），
         // 所以先看本窗格自己的状态，否则退出后的自动收起会被弹框挡住。
-        if status.isExited { return false }
+        if tmuxContext != nil || status.isExited { return false }
         return Self.closeNeedsConfirmation(status: status, childState: childState)
     }
 }

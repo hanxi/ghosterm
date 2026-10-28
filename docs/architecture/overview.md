@@ -57,7 +57,7 @@ tmux session，采用普通 PTY 客户端；tmux 内部的 window/pane 不映射
 断线后由用户刷新列表并重新选择，不按旧名称自动创建或恢复，也不重放输入。
 
 自有 sessiond、私有恢复协议、快照/replica、安装与随包 runtime 已退役。
-可选 tmux 的管理模块和 UI 尚在实施；实际支持范围见 [能力矩阵](../reference/capability-matrix.md)，
+共享管理模块与原生列表通过普通 Transport 接入；不存 session ID、不启动恢复轮询。实际支持范围见 [能力矩阵](../reference/capability-matrix.md)，
 切片与验收见 [实施清单](../reference/optional-tmux-implementation.md)。
 
 ## 终端引擎分档（哪些端不能用 full libghostty）

@@ -1,7 +1,7 @@
 # 能力矩阵
 
 2026-10-28 已开始 [可选 tmux 重构](plan-optional-tmux.md)。默认 PTY/SSH 已恢复，
-旧 sessiond、私有恢复与随包 runtime 已退役。可选 tmux 为 ⏳（命令研究完成，管理/UI 尚在实施）。
+旧 sessiond、私有恢复与随包 runtime 已退役。可选 tmux 为 🟡：本机与 Linux SSH 的 tmux 3.6a 真实命令/PTY、原生列表与任务 PID 保留已有证据；断网、受限账户和最终打包仍在验收。仅支持 POSIX 兼容远端登录 shell；不自动安装、恢复或管理旧 daemon。
 进度见 [实施清单](optional-tmux-implementation.md)。
 
 > 口径（铁律 #8）：**✅** 已实现且有闸门/实测证据 · **🟡** 已实现但只在某一档证据下成立
@@ -69,7 +69,7 @@
 | macOS **release** 包 | 🟡 | tag `v*` / PR / 手动 → `.github/workflows/macos-release.yml`，与 dev 共用同一份可复用工作流 `macos-package.yml`（`channel=release、gates=full`）。**🟡 无 Developer ID 证书 secret ⇒ 目前同样落 ad-hoc**；`--sign` / `--notarize` 分支已就绪，拿到 secret 即用 |
 | dev 版**更新检测**（app 内入口） | ✅ | 关于窗口（`Ghosterm → 关于 Ghosterm`）版本号下面那一行：手动点「检查更新」→ 取固定 URL 的 `version.json`（不走 API、不占 60 次/小时额度）→ 以 `git_commit` 为主锚（本机短 sha 前缀比清单的 40 位）。**三态不折叠**：无 commit 记录 / `+dirty` / 渠道不对 / 取不到 / 读不懂，一律报「查不出来 + 原因」，不报「已是最新」。**自动安装 ❌（有意不做）**：`signature=adhoc` + `notarized=false` ⇒ 只给下载直链，不画「安装」按钮。判据与文案由 `UpdateCheckTests`（12 项）钉，入口几何由 `AboutWindowTests` 钉，牙见 `scripts/mutation-check-app-update.sh`（7 组变异）；口径见 [dev 包怎么装](../how-to/dev-build.md) |
 | Android / iOS 出包入口 | ❌ | 没有构建脚本、没有 workflow——是**未开工**，不是 CI 漏项 |
-| 闸门分档 | ✅ | 轻档（dev）：`scripts/gate.sh`（core + ctest + ABI + api_smoke）+ 图标一致性 + `gate-ghostty-patch.sh`；全档（release）：再加 `apple-app-gate.sh` / `terminal-gate.sh` + 10 份 mac 侧变异验证 + Linux 侧契约变异验证。缺工具链时显式 `SKIP` 并让 CI 断言不许 SKIP，不静默跳过（铁律 #6） |
+| 闸门分档 | ✅ | 轻档（dev）：`scripts/gate.sh`（core + ctest + ABI + api_smoke）+ 图标一致性 + `gate-ghostty-patch.sh`；全档（release）：再加 Apple 原生三包闸门与 17 份变异（终端/传输/标签/界面/设置/像素/焦点/变暗/遮挡/更新、普通默认入口、认证 ABI、凭据、真实认证、tmux 管理与 UI、打包）。真实 Linux SSH/断网仍须手工验证。缺工具链时显式 `SKIP` 并让 CI 断言不许 SKIP，不静默跳过（铁律 #6） |
 
 ## 各端 UI
 

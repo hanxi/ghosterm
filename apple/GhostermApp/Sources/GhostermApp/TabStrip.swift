@@ -132,6 +132,7 @@ struct NewTabMenu: View {
     var body: some View {
         Menu {
             Button("本地 shell") { model.connect(to: .localShell) }
+            Button("本机后台会话…") { model.showTmux(for: .localShell) }
             Button("本地文件") { model.openLocalFiles(newTab: true) }
             if !model.hosts.isEmpty {
                 Divider()
