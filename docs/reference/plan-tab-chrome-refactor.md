@@ -1,0 +1,191 @@
+# macOS 标签栏与窗格界面重构计划
+
+> 状态：待实施。本文只制定重构与验收安排，不代表原生界面已经完成。
+> 日期：2026-10-29。源码基线：`54331f1`。
+> 设计依据：[已确认的交互原型](../design/tabs-chrome-prototype.html)与[侧栏模式示意图](../design/tabs-split-preview.png)。
+> 执行约束：以仓库 `AGENTS.md` 为准；每个切片包含源码、调用方、测试与变异的同步调整，检查通过后直接提交 `main`。
+
+## 1. 已确定的产品行为
+
+本轮仅改 macOS 原生窗口、标签导航、连接入口和窗格外观，继续使用 AppKit / SwiftUI、full libghostty 与既有 Transport 接缝。
+
+| 区域 | 最终行为 |
+|---|---|
+| 标签布局 | 外观设置选择顶部或侧边；侧边另有精简模式。所有标签平铺，不分组 |
+| 侧边模式 | 红绿灯和唯一的「＋」位于侧栏顶部；终端列上方没有全宽标题带、当前标签胶囊或占位空行 |
+| 顶部模式 | 保留一行标签栏与唯一的「＋」，标签多时可滚动；不再显示侧边标签列表 |
+| 常驻操作 | 删除窗口中的侧栏切换按钮和搜索图标；布局在外观设置，标签搜索保留菜单入口 |
+| 连接 | 侧栏只列打开的标签；点击「＋」按需选择本地终端、SSH、文件或显式 tmux 入口 |
+| 窗格分屏 | 按钮位于各窗格标题右侧，当前窗格或鼠标悬停时显示；操作对象就是按钮所属窗格 |
+| 切分预览 | 悬停或键盘聚焦分屏按钮时，仅在目标窗格内显示方向和新增区域；预览不改变布局与输入焦点 |
+| 切分完成 | 新窗格获得焦点；沿用已有本地 / SSH / 文件窗格的分屏语义 |
+| 其他入口 | 窗格右键菜单、主菜单、关闭确认、缩放、拖动、文件功能继续可用 |
+
+原型中的像素、示例进程、固定目录、假测试输出和配色只是示意。原生界面使用真实状态与现有字号、主题、间距偏好。特别是 HTML 的 48px 标题栏不等于当前原生 `WindowChrome.barHeight = 38pt`；节省空间以实际窗口几何为验收依据。
+
+## 2. 现有实现与改动落点
+
+以下路径均相对 `apple/GhostermApp/`。
+
+| 现有代码 | 当前事实 | 重构处理 |
+|---|---|---|
+| `Sources/GhostermApp/GhostermApp.swift` | 生产入口创建 `NativeTitlebarWindow`，安装 `NativeTabWindows` | 首选保留窗口与会话生命周期，不因改样式改为另一套宿主 |
+| `Sources/GhostermApp/NativeTabWindows.swift` | 每个应用标签有自己的 NSWindow；模型、原生选择、标题和顺序双向同步 | 新增布局偏好的同步，保留窗口身份、关闭路由和 sheet 所属窗口 |
+| `Sources/GhostermApp/NativeTitlebarWindow.swift` | 创建 `NSToolbar`，约束系统标签栏；关闭与右键菜单按 AppKit backing item 身份路由 | 原生标签栏只在顶部模式出现；调整控件避让，侧边模式撤去原生栏与多余 toolbar 占位 |
+| `Sources/GhostermApp/RootView.swift` | `nativeTabs && tabs.count > 1` 时终端列留一条 `barHeight` 空带；另有非原生标签测试路径 | 以统一布局状态决定预留；生产路径验证侧边模式终端直抵顶部，避免只修测试路径 |
+| `Sources/GhostermAppModel/WindowChrome.swift` | 全尺寸内容、原生红绿灯定位、resize 后重装、拖动与系统双击行为 | 由布局提供窗口控件安全区，保护终端与文件窗格的鼠标事件 |
+| `Sources/GhostermApp/Sidebar.swift` | 标签、主机和通配块都在同一列表，主机区还承担编辑、新增与刷新入口 | 搬走主机管理能力后，改成纯标签列表，增加精简样式与排序 |
+| `Sources/GhostermApp/BandControls.swift` | 红绿灯留白、侧栏开关、加号与配置错误提示共用一组 | 删除布局开关，保留唯一加号；错误提示迁移到明确可见的错误条 |
+| `Sources/GhostermApp/TabStrip.swift` | 自绘标签条、滚轮横滚、`NewTabMenu`；生产顶部实际走 AppKit 标签栏 | 复用动作与滚动经验，不能把只改自绘 `TabChip` 当成生产顶部已交付 |
+| `Sources/GhostermApp/SettingsView.swift` | 外观页已有字号、主题、窗格间距、标题栏开关 | 添加标签位置与精简侧栏，保存后立即作用于现存窗口 |
+| `Sources/GhostermApp/PaneChrome.swift`、`RootView.swift` 的 `PaneView` | 分屏按钮已经在窗格上，但终端标题栏只在当前窗格显示按钮 | 扩展为当前 / 悬停 / 键盘操作可见，保留身份明确的命令与预览 |
+| `Sources/GhostermApp/WorkspaceFileView.swift` | 文件窗格独立实现标题与分屏、缩放、关闭按钮，当前未统一显隐 | 与终端窗格统一显示规则，同时保留文件专属动作 |
+| `Sources/GhostermApp/WorkspaceView.swift` | `WorkspaceHostView.hosts` 按窗格 UUID 保持原生宿主；已有拖动落点预览与 `mouseDownCanMoveWindow = false` | 切分预览另存瞬时状态，不复用拖动预览状态，不重挂现有宿主 |
+| `Sources/GhostermApp/AppMenu.swift`、`Sources/GhostermAppModel/Shortcuts.swift` | 菜单与快捷键目录双向校验；文件面板目前在「显示」菜单 | 统一布局命令，补主机管理与标签搜索；文件面板入口保留现有位置与 ⇧⌘E |
+
+## 3. 窗口层方案与先行验证
+
+### 3.1 首选保留原生窗口标签的生命周期
+
+本轮首选保留 `NativeTabWindows` 与 `TabManager`，顶部继续使用 AppKit 原生标签栏；侧边模式隐藏该栏并取消对应占位。侧栏与顶部只是同一份标签状态的显示方式，不新增窗口映射或排序副本。
+
+原因是现有原生路径已经覆盖真实 shell、`firstResponder`、关闭确认、标题、排序、右键菜单与 tmux sheet 归属。为了外观直接切回 `nativeTabs: false`，会同时改变上述生命周期与测试前提，超出必要改动。
+
+顶部的颜色、空间和控件位置在原生能力范围内向已确认设计靠拢。AppKit 内建标签的精确圆角并非由 `TabChip` 控制，不能以修改非生产组件假装交付，也不为逐像素复刻新增私有样式补丁。若先行验证表明原生栏无法满足最终设计，需要单独记录顶部渲染方案的变更决定，再实施，不暗中换掉窗口模型。
+
+### 3.2 第一个切片必须回答的问题
+
+以真实 `NativeTitlebarWindow` 与标签组验证以下矩阵，记录截图、窗口和工作区几何：
+
+- 0 / 1 / 多标签，顶部 / 侧边 / 精简侧栏，反复切换。
+- 主窗口切换、增加标签、关闭最后一个标签、窗口 resize、全屏进出后，侧边模式仍无原生标签条和隐藏空带。
+- 顶部模式恢复原生栏时只预留一次空间；栏不遮住窗格、加号和错误提示。
+- 保持原有 NSWindow、`WorkspaceHostView`、`TerminalHostView`、surface 和 shell PID 身份；切换模式不重连。
+- 本机 macOS 26 与 CI macOS 15 分别验证；包的最低系统版本不因本次重构擅自上调。
+
+AppKit 提供 [`toggleTabBar(_:)`](https://developer.apple.com/documentation/appkit/nswindow/toggletabbar(_:))，标签组提供只读的 [`isTabBarVisible`](https://developer.apple.com/documentation/appkit/nswindowtabgroup/istabbarvisible)。同步必须先比较目标和实际状态，再在选中窗口执行必要动作；不能在每个窗口重画时盲目 toggle。SDK 声明可确认接口存在，隐藏后是否仍占空间、空标签组如何恢复，仍须上述原生验证。
+
+布局更新不能重新调用 `configure` 去替换已有 `contentView`。`configure` 继续只负责新窗口；既有窗口更新 chrome 与观察到的偏好即可。`WindowChrome.apply` 当前会清空标题，重排方案必须继续保护用于原生标签的真实标题，不能在侧边模式清掉后导致顶部恢复为空。
+
+窗口拖动与系统双击行为留在侧栏顶部或顶部标签栏的空白区域，继续复用 `WindowDragArea`。终端列直抵窗口上沿后，不能把整个窗格标题或工作区变成移窗热点：`WorkspaceHostView`、窗格宿主和拖动源的 `mouseDownCanMoveWindow = false` 仍须成立，窗格重排、分隔条拖动与终端划选不得被 AppKit 标题栏抢走。
+
+先行验证未通过的几何或生命周期项不得记为完成，也不能只删掉 `Color.clear` 留给内容被原生栏盖住。
+
+## 4. 状态与动作设计
+
+### 4.1 布局偏好
+
+建议新增 `Sources/GhostermAppModel/TabPresentation.swift`：
+
+- `TabPlacement`：`sidebar` / `top`，默认侧边。
+- `compactSidebar`：独立 Bool，只在侧边模式启用；切到顶部时保留偏好，切回侧边再恢复。
+- 偏好写入 UserDefaults，不写入 Ghostty 配置或 `ssh_config`；非法存储值有明确默认解释。
+- `AppModel` 发布唯一的布局状态，所有原生标签窗口观察它。移除 `sidebarVisible` 与 RootView 本地开合状态作为并列生产真相。
+- 现有 ⌥⌘S 可保留为调用同一布局命令的快捷入口；主菜单使用准确的布局切换名称并同步 `ShortcutCatalog`，不再直接翻转旧 Bool。
+
+精简侧栏不能照搬 HTML 的 62px：目前 `trafficLightsWidth = 78pt`、标准侧栏宽 240pt。实际最小宽度应由三个原生窗口按钮的包围盒与内距确定，加号必要时排在下一行，不能缩小、重绘或遮住系统按钮。
+
+### 4.2 新建连接与主机管理
+
+建议将 `NewTabMenu` 的动作整理为可搜索的原生 `NewTabChooser`，唯一加号打开它。可复用 `model.hosts`、`HostListModel`、`HostEditorSheet`、`connect(to:)`、`showTmux`、`openLocalFiles` 与 `openSFTP`，不重新实现配置解析或认证。
+
+在删除侧栏主机区之前，先交付以下入口：
+
+- 本地 shell、SSH 主机、本地文件、远端 SFTP、显式后台 tmux 会话。
+- 「管理 SSH 配置…」：可搜索的主机列表、新增 Host、编辑现有 Host、刷新，以及通配块编辑。通配块可编辑但不出现在可连接列表中。
+- 主机管理同时可从主菜单「文件」进入，不依赖打开新建面板。
+- 配置未创建 / 合法空配置与 `loadError` 区分；读取失败明确显示错误与重试，不伪装成没有主机。
+- 新建、编辑与 tmux 等 sheet 保留打开时的窗口归属；切换标签不会重复展示或迁移到另一窗口。
+
+`⌘T` 保留当前 `newTabLikeActive()` 的行为：本地新建本地、SSH 新建同目标连接、文件标签新建对应文件标签。加号打开选择器与快捷键直接新建可以并存；HTML 的 ⌘T 行为不作为覆盖既有产品行为的依据。
+
+### 4.3 标签搜索与状态信息
+
+- 搜索只针对打开的标签，选择结果按 UUID 激活；重名标题不能选错对象。
+- 新增「窗口 → 搜索标签页…」，建议默认使用 `⇧⌘A`；实施时与主菜单、pin 中默认键位及终端按键路由共同验证。
+- 不照搬原型的 ⌘K：`vendor/ghostty/src/config/Config.zig` 在当前 pin 中把 macOS Super+K 绑定为 `clear_screen`，本轮保留它的清屏用途。
+- 标签继续显示真实连接状态、锁定、运行 / 等待提示、失败命令记号及必要的副标题；精简模式用图标、状态和可访问名称保留识别能力，悬停可读完整信息。
+- 排序统一写 `TabManager.move`；侧栏拖动、原生顶部拖动、搜索与快捷切换均读取同一顺序。
+- `terminalConfigError` 从旧 `BandControls` 移到可见错误条，提供进入设置的入口；正常状态不多画一颗图标，出错时不得静默。
+
+### 4.4 窗格操作与预览
+
+现有 `PaneView` 通过「先设当前窗格、再 `model.split(tab, axis:)`」确定目标。新增悬停按钮后，非当前窗格也能被操作，应收敛为按身份分派的命令，例如 `split(tabID:paneID:axis:)`、`closePane(tabID:paneID:)`。
+
+这些是 Swift 应用层接缝，不改 C ABI。每次执行时确认标签与窗格仍存在、类型正确且允许操作；失效的 UUID 不得回落到当前窗格。快捷键传当前对象，窗格按钮与右键菜单传所属对象，最终复用现有分屏 / 关闭实现。
+
+建议新增 `PaneActionsView`、`PaneContextMenu` 与 `SplitPreview`，复用到终端和文件窗格：
+
+- 可见条件为当前、悬停或键盘操作。控件使用固定预留宽度，出现时不改变窗格尺寸、不让标题反复跳动；隐藏后不可点击，键盘与 AX 仍有可发现的操作路径。
+- 不因追求示意图的两颗按钮删除已有缩放、还原、关闭与远端文件专属动作；标题栏隐藏时保留主菜单、右键和现有隐藏拖动把手。
+- 预览只持有标签 UUID、窗格 UUID 与方向，不能创建 surface / shell、改选中状态、改布局比例或发送终端尺寸变化。
+- 覆盖层放在实际目标的内容区域，不能遮住按钮、截获终端输入、吞掉文件拖放；不进入终端字节流。
+- 离开按钮、失焦、关闭菜单、取消、目标消失、切换标签、切换布局、缩放及拖动结束时清除预览。布局尺寸变化时重新按目标几何计算，不能留下旧矩形。
+- 窗格拖动落点预览与分屏按钮预览分开存储；拖动期间不同时显示两套覆盖层。
+- 本地分屏继承当前目录，SSH 仍建立对应连接，文件窗格仍复制文件浏览器语义。tmux 的显式选择与关闭只断开客户端等既有规则不变。
+- 单个终端窗格标题不增加关闭标签页的隐藏入口；现有最后窗格关闭、任务未知时确认和文件关闭范围继续按实际模型执行，不照搬 HTML 演示里的禁用规则。
+
+## 5. 实施切片与依赖
+
+每片同步补测试和变异，不能把测试集中拖到最后一片。
+
+| 切片 | 交付 | 主要文件 | 完成条件 |
+|---|---|---|---|
+| S0 原生窗口验证 | 第 3 节的真实窗口实验与结果记录，明确顶部外观的原生限制 | `NativeTitlebarWindow`、`NativeTabWindows`、原生窗口测试夹具 | 两种布局几何可实现，窗口 / surface / PID 不变；不引入另一套窗口模型冒充通过 |
+| S1 布局偏好 | 唯一布局状态、存储、外观设置控件与主菜单命令 | 新 `TabPresentation`、`AppModel`、`SettingsView`、`AppMenu`、`Shortcuts` | 已开窗口立即响应；测试注入隔离 UserDefaults，不污染用户偏好 |
+| S2 连接入口搬迁 | 新建选择器、主机管理与 sheet 归属 | 新 `NewTabChooser` / 主机管理视图、`HostEditorSheet`、`RootView`、`NewTabMenu` | 主机新增、编辑、通配块、刷新、错误、SFTP、tmux 均可达；此时才能删除旧侧栏主机区 |
+| S3 标签与窗口外壳 | 无顶部空带的侧栏、精简模式、顶部原生栏、唯一加号、错误条和标签搜索 | `Sidebar`、`BandControls`、`RootView`、`TabStrip`、`NativeTitlebarWindow`、`NativeTabWindows`、`WindowChrome` | 生产宿主通过零 / 单 / 多标签、重排、resize、全屏与红绿灯避让；侧栏模式没有重复标签或占位 |
+| S4 窗格交互 | 统一显隐、身份命令、右键和切分预览 | `PaneChrome`、`PaneView`、`WorkspaceFileView`、`PaneAppearance`、`WorkspaceView`、`AppModel` | 非当前窗格操作不误切其他对象；预览不改变焦点和尺寸；实际切分聚焦新格且原任务不变 |
+| S5 验收与收尾 | 交叉场景原生截图、CI 覆盖与文档、移除失效分支和锚点 | 测试、相关变异脚本、`macos-package.yml`、`AGENTS.md`、能力矩阵、UI pitfalls | 下表证据全部归位，旧断言退役有替代证明，未执行的平台证据如实列出 |
+
+顺序为 S0 → S1 → S2 → S3 → S4 → S5。S0 若揭示原生方案无法满足目标，先更新本计划的窗口决策与验收映射，再推进 S3；不把阻碍留到样式已经改完才处理。
+
+## 6. 验收与变异映射
+
+### 6.1 必须保留和新增的证据
+
+| 验收对象 | 观测与失败条件 | 现有测试 / 脚本落点 |
+|---|---|---|
+| 侧边无顶栏、顶部不遮内容 | 真实 NSWindow 中量 `WorkspaceHostView` 顶边与窗口顶边、栏与红绿灯的矩形；不靠纯函数或背景颜色判断 | `NativeTabWindowsTests`、`PaneChromeTests`；`native-titlebar`、`native-sheet`、`pane-chrome` |
+| 唯一加号与无切换按钮 | 每种布局、错误状态、空态下实际控件数量与命中范围；标准侧栏 / 顶部尽量保持加号位置，精简模式独立验原生按钮避让 | `TabStripVisibilityTests`、`SidebarChromeTests`；`band-controls`、`sidebar-chrome` |
+| 标签选择、顺序、关闭归属 | 原生组与模型 / 侧栏双向一致；重复标题、非当前标签右键、非当前标签关闭有明确目标 | `NativeTabWindowsTests`、`TabContextMenuTests`；`native-tabs`、`native-context`、`tabs` |
+| 模式切换不重建终端 | 两个真实 shell 前后 PID、host / surface 对象身份相同；当前 firstResponder 正确，后台不抢输入 | `NativeTabWindowsTests`、`WindowFocusTests`、`WorkspaceTests`；`native-focus`、`focus`、`occlusion` |
+| 选择器与主机管理 | 合法空列表、读取失败、通配块不可连接、编辑后备份 / 冲突处理、重复连接、sheet 归属 | `TabManagerTests`、配置测试、新选择器测试；`tabs`、`native-sheet`、`default-entry`、认证相关脚本 |
+| 设置与快捷键 | 隔离存储、非法值、即时传播、顶部下禁用精简选项；真 NSMenuItem 与 `ShortcutCatalog` 一致；⌘K 仍清屏 | `SettingsUITests`、`AppMenuCoverageTests`、终端输入集成测试；`settings-ui`、`band-controls`、`terminal` |
+| 窗格按钮可见性 | 当前 / 非当前 / 悬停 / 键盘 / 标题栏隐藏；终端和文件窗格均验证控件命中与几何不跳动 | `PaneChromeTests`、`WorkspaceTests`、新窗格动作测试；`pane-chrome`、`sidebar-hover` 的跟踪经验 |
+| 分屏目标与切分预览 | 悬停 B 不激活 B、不创建会话、不改 A 尺寸；点击 B 的按钮才切 B；失效 UUID 不回落；离开 / resize / 切页清覆盖 | 新预览几何与命令集成测试；`pane-chrome`、`workspace` 扩展 |
+| 缩放、拖动、文件与 tmux | 不重置兄弟几何、拖动比例或文件工具条折行；预览不吞输入；后台任务和传输不受布局模式影响 | `PaneZoomTests`、`WorkspaceTests`、文件与 tmux 测试；`workspace`、`split-divider`、`files`、`tmux-ui` |
+
+### 6.2 旧规则如何更新
+
+本次用户确认的新设计替代以下旧规则，实施时必须改写对应断言与变异目标：
+
+- `native-tabs` 里的「多标签总是显示原生标签栏」改为按布局验证：顶部显示、侧边隐藏，但选择、标题、关闭确认与双向排序继续有牙。
+- `native-sheet` 里的固定 `Color.clear(barHeight)` 锚点改为顶部预留正确 / 侧边不预留；tmux sheet 归属断言继续保留。
+- `band-controls` 的「侧栏开关在加号左边」改为无开关、唯一加号；配置错误可见、设置 / 传输 / 关于菜单可达继续保留。
+- `sidebar-chrome` 的开关位置断言改为实际红绿灯与新建控件的避让；当前标签高亮、滚轮与悬停关闭继续保留。
+- `PaneTitleBar.showsButtons(isFocused:)` 的只看焦点规则扩展到悬停与键盘；不能删掉既有标题栏、间距、缩放和聚焦视觉断言来换绿。
+
+新增变异至少覆盖：侧栏重新塞入顶部空带、重复加号、布局设置不传播、配置错误被当空列表、主机管理入口丢失、操作 B 却切 A、悬停抢焦点或提前创建会话、覆盖层拦截输入、目标消失后预览残留、关闭按钮绕过目标确认。每项均记录目标红、同变异独立对照绿、复原绿与 SHA256 一致。
+
+脚本继续使用工程 `tmp/`、起跑前标记扫描、输入锚点前置验证、EXIT / INT / TERM 恢复、`gt_timeout_require` 与 `gt_timeout`。不得以编译失败、找不到锚点或缺依赖冒充目标断言红。
+
+### 6.3 执行检查
+
+源码实施后的基础检查：
+
+```bash
+bash scripts/gate.sh
+TMPDIR="$PWD/tmp" swift build --package-path apple/GhostermApp
+GHOSTERM_AUTOMATION_OFFSCREEN=1 TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh
+```
+
+按切片运行对应变异；最终至少复验 `tabs / native-tabs / native-focus / native-context / native-sheet / native-titlebar / sidebar-hover / chrome / sidebar-chrome / band-controls / pane-chrome / settings-ui / focus / split-dim / occlusion / default-entry`，并执行 `python3 scripts/mutation-check-workspace.py`。动到终端输入、文件动作或 tmux 接线时，分别补跑 `terminal / files / tmux-ui`。
+
+现有 full CI 已调用多份 native 与 Apple 变异，但未自动涵盖上述所有手工脚本。实施中将新外观与预览所依赖的手工脚本纳入 `.github/workflows/macos-package.yml` 的 full 档，或明确保留为手工合并证据；同步 `AGENTS.md` 的份数与覆盖范围，不能写成「CI 绿即本计划全验收」。测试里出现缺依赖或平台不适用的 SKIP，单独列出，不抵作该场景证据。
+
+## 7. 范围与完成定义
+
+本轮不改 `core/include/ghosterm.h`、C 实现、Transport、Ghostty pin、终端字节通路、SSH 配置存储协议或其他端 UI；不引入分组、工作区同步、私有 sessiond 或新的恢复机制。若实施确实需要突破这些边界，先单独记录原因与新增验收范围。
+
+完成时同时满足：已确认的无顶部侧栏与窗格按钮在真实 macOS 窗口中成立；顶部模式可用；主机管理与原有关键动作可达；切换布局不重连、不丢焦点；新断言均有变异证据；两档系统证据和手工 / CI 覆盖如实记账。只有达到这些条件，才把本文状态从待实施改为已交付。
