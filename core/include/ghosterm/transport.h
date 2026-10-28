@@ -84,7 +84,7 @@ gt_transport_t *gt_transport_open_ssh_shell(gt_ssh_t *ssh, const gt_shell_opts_t
 /* Dedicated authenticated owner; PTY request followed by exec, never shell injection.
  * timeout_ms=0 means 5000ms; cancelled may be NULL, invoked on the IO owner. */
 gt_transport_t *gt_transport_open_ssh_command(gt_ssh_t *ssh, const char *command,
-    const gt_shell_opts_t *opts, uint32_t timeout_ms, bool (*cancelled)(void *), void *context);
+    const gt_shell_opts_t *opts, uint32_t timeout_ms, bool (*cancelled)(void *), void *context, gt_status_t *out_status);
 
 /*
  * 写入用户输入。**绝不无限阻塞**（M1 修正）。
@@ -130,7 +130,9 @@ int gt_transport_read(gt_transport_t *t, uint8_t *buf, size_t cap, int timeout_m
  */
 void gt_transport_close(gt_transport_t *t);
 
-/* 是否已退出；退出时写入 exit_code（可为 NULL）。 */
+/* 仅在退出码已确认时返回 true 并写入 exit_code（可为 NULL）。
+ * EOF 独立由 read 报告；SSH 缺退出状态、PTY 被外部回收时返回 false，
+ * 不能把未知状态猜成 0。 */
 bool gt_transport_exited(const gt_transport_t *t, int *exit_code);
 
 /*

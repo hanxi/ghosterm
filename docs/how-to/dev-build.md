@@ -188,8 +188,7 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
   不拿别的证书冒充 `id`。那个字段是 app 侧判断「能不能自动装」的唯一依据
   （`RemoteBuild.installBlocked`，见
   [关于窗口的那一行](#在-app-里看关于窗口的那一行)）。
-  会话 helper 的 `runtime.json` 走同一套记账（`ad-hoc` / `apple-development` / `developer-id`）。
-  牙见 `scripts/mutation-check-package-mac.sh` 的 A8、A9。
+  牙见 `scripts/mutation-check-package-mac.sh` 的 A8。A9 现验证普通引擎收据和包内无旧 runtime。
 
 ## 本地怎么出同样的包
 

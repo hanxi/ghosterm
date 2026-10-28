@@ -18,8 +18,11 @@ int64_t gt__command_now(void) {
   return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
 }
 bool gt__command_expired(const gt_command_budget_t *b) {
-  return gt__command_now() >= b->deadline ||
-         (b->cancelled && b->cancelled(b->context));
+  bool expired = gt__command_now() >= b->deadline ||
+                 (b->cancelled && b->cancelled(b->context));
+  if (expired)
+    gt__set_error("tmux: command timed out or cancelled");
+  return expired;
 }
 int gt__command_append(char **dst, size_t *len, const char *src, size_t n) {
   if (n > GT_COMMAND_LIMIT - *len || memchr(src, 0, n)) {
@@ -63,12 +66,25 @@ char *gt__command_quote(const char *s) {
 static int make_pipe(int p[2]) {
   if (pipe(p))
     return -1;
-  for (int i = 0; i < 2; i++)
+  for (int i = 0; i < 2; i++) {
+    /* GUI hosts may have closed a standard descriptor. Keep pipe endpoints
+     * above stdio, otherwise dup2(fd, fd) would retain CLOEXEC at exec. */
+    if (p[i] < 3) {
+      int raised = fcntl(p[i], F_DUPFD_CLOEXEC, 3);
+      if (raised < 0) {
+        close(p[0]);
+        close(p[1]);
+        return -1;
+      }
+      close(p[i]);
+      p[i] = raised;
+    }
     if (fcntl(p[i], F_SETFD, FD_CLOEXEC) < 0) {
       close(p[0]);
       close(p[1]);
       return -1;
     }
+  }
   return 0;
 }
 int gt__command_local(const char *exe, const char *const *argv,

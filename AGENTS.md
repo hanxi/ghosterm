@@ -14,7 +14,7 @@ Ghosterm = **libghostty 驱动的多端终端** × **VS Code 式 `~/.ssh/config`
 2026-10-28 起按 `docs/reference/plan-optional-tmux.md` 实施：普通本地 PTY/SSH 为默认入口，
 后台会话由用户显式选择 tmux；整体退役自有 sessiond、私有恢复协议、安装与随包 runtime，
 不保留旧 ABI/记录的兼容层。依赖闭包、命令决策与验收进度见
-`docs/reference/optional-tmux-implementation.md`。旧能力尚未退役时，本文对应闸门仍须执行；
+`docs/reference/optional-tmux-implementation.md`。旧会话系统已退役；通用能力对应闸门仍须执行；
 退役提交同步修改源码、调用方、构建、测试、打包、CI 和下文覆盖范围，不能先删断言换绿。
 
 普通默认入口另以 `bash scripts/mutation-check-default-entry.sh` 手工验证：隔离副本不提供
@@ -140,8 +140,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 1. 同步实现与各端绑定；
 2. 跑 `scripts/check-abi.sh`：`nm` 静态库实际导出名 ↔ 头文件声明，**双向对拍**（漏导出与多泄漏都拦）。
 
-> **当前覆盖范围（诚实标注）**：只对拍「`core/` 内部实现 ↔ 头文件」。**各端绑定（Swift 模块表 / JNI / NAPI）尚未存在，故未纳入**。
-> M1 起每加一端绑定，就要把该端的「绑定引用名集合」并入同一份对拍，否则 `ghosterm.h` 改了而某端没改，闸门看不见。
+> **当前覆盖范围（诚实标注）**：`check-abi.sh` 对拍「`core/` 内部实现 ↔ 头文件」；
+> `check-abi-apple.sh` 另对拍 Swift 的引用名集合（68 项引用、2 项显式登记未用）。JNI / NAPI 尚无绑定。
+> 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
 
 ### 变异验证（新增闸门必须附）
 
@@ -151,7 +152,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 settings-ui / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
-package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui。
+package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh。
 （`package-mac` 另护「**签名档位必须按证书真实的类记账**」：`--sign` 原先把任何身份都记
 成 `id`，于是随包 `BUILD-INFO.txt` 与 `version.json` 的 `signature` 会谎报 Developer ID——
 而那个字段正是 app 侧 `RemoteBuild.installBlocked` 判断「能不能自动装」的唯一依据。
@@ -174,15 +175,19 @@ A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi
 新包校验仍红，而既有依赖校验仍绿；旧 profile 收据、旧 p0 头也分别目标红、对照绿、复原绿。
 `check-terminal-package.py` 复用普通引擎构建器的验证，核验实际 archive 哈希与三份补丁收据。
 打包变异起跑前检查 Pillow，不能拿图标对照缺依赖冒充有牙；EXIT/INT/TERM 都恢复并比对 SHA256。）
-（`tmux` 以 `python3 scripts/mutation-check-tmux.py` 跑 13 组隔离变异：缺失判定、
+（`tmux` 以 `python3 scripts/mutation-check-tmux.py` 跑 19 组隔离变异：缺失判定、
 重复/UTF-8 解析、未知策略/结果、版本、format/分号/shell 引用、身份、禁止 attach 起新 server、
-尺寸接线。目标断言红、同变异下独立对照绿、SHA 回滚；make 整秒时间戳下强制重链，
+尺寸接线、丢失本地退出状态、关闭标准描述符、取消及探测错误分类。目标断言红、同变异下独立对照绿、SHA 回滚；make 整秒时间戳下强制重链，
 不让旧可执行文件冒充变异结果。普通离线 gate 只跑命令与恶意输出夹具；真实本地/SSH
-六模式另以 `test-tmux.py` / `test-tmux-ssh.py` 执行，缺 tmux 时明确失败，不算通过。已与 `tmux-ui` 纳入 CI full 档；Linux 与真实 SSH/断网仍是手工证据。）
+八模式（含已有空 server 与 owner 被 SIGKILL）另以 `test-tmux.py` / `test-tmux-ssh.py` 执行，缺 tmux 时明确失败，不算通过。已与 `tmux-ui` 纳入 CI full 档；Linux 与真实 SSH/断网仍是手工证据。）
 （`tmux-ui` 用 `python3 scripts/mutation-check-tmux-ui.py` 验新格子不覆盖任务、detach 保留
-断开格子、关闭只断开客户端、未知文案、路径变更清选择与拒绝覆盖运行格子。使用真 tmux +
+断开格子、关闭只断开客户端、未知文案、探测错误分类、路径变更清选择、鼠标输入及拒绝覆盖运行格子，共九组。使用真 tmux +
 full surface，断言内层任务 PID 不变；旧绑定不提供结束入口。`auth` 现复用同一异步认证，
 在真 sshd 上以三个隔离变异护 tilde、没口令的钥匙、服务器方法表；不再变异已经删除的认证副本。）
+（`tmux-ssh` 用 `python3 scripts/mutation-check-tmux-ssh.py` 配合隔离真 sshd 运行，六组变异护
+PTY、退出未知、变更结果未知、总 deadline、取消与背压尾队列；目标红、同变异下 lifecycle
+仍绿、回滚后目标绿并核对 SHA。TCP 代理以非阻塞双向缓冲保留密文，静默断网与恢复不丢
+中间字节；3 MiB 负载必须由远端任务回报完整 SHA256。属于手工证据，未计入 CI 17 份。）
 （`ssh-auth` 保留公开非阻塞认证的八组翻译变异；`ssh-credentials` 保留方法表、取消、请求归属、
 拒绝凭据清理、服务端方法掩码与未知格式六组变异。它们独立于旧安装器和 daemon 探针运行。）
 （`app-update` 护 dev 版**更新检测**这条链——七组变异，每组都要让对应断言变红并带一条

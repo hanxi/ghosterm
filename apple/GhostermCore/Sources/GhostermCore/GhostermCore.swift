@@ -834,8 +834,9 @@ public final class Transport {
                                       timeoutMilliseconds: UInt32 = 5000) throws -> Transport {
         guard !command.utf8.contains(0) else { throw GhostermError.failed("SSH 命令包含 NUL") }
         var size = gt_shell_opts_t(); size.cols = cols; size.rows = rows
-        let raw = command.withCString { gt_transport_open_ssh_command(session.handle, $0, &size, timeoutMilliseconds, nil, nil) }
-        guard let raw else { throw GhostermError.failed(Ghosterm.lastError) }
+        var status = GT_OK
+        let raw = command.withCString { gt_transport_open_ssh_command(session.handle, $0, &size, timeoutMilliseconds, nil, nil, &status) }
+        guard let raw else { throw GhostermError.status(Int32(status.rawValue), Ghosterm.lastError) }
         return Transport(handle: raw, sshOwner: session)
     }
 

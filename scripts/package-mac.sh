@@ -37,7 +37,7 @@
 #     `Apple Development:` → `dev`（免费个人账号，不能公证），其余身份直接拒。
 # 已知坑：本脚本大量用中文提示。**`$VAR` 后面紧跟中文字符时，bash 会把非 ASCII
 # 字节并进变量名**（表现为 `unbound variable`）。所以脚本里一律写 `${VAR}`，
-# 不要写 `$VAR（`。
+# 避免变量名后直接紧跟全角括号。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

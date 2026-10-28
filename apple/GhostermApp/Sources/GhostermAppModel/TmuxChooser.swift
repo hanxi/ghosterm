@@ -90,7 +90,13 @@ public final class TmuxChooser: ObservableObject, Identifiable {
             message = snapshot.serverAbsent ? "tmux 服务器未运行；可显式新建后台会话。" : sessions.isEmpty ? "当前没有后台会话。" : "\(sessions.count) 个后台会话。多客户端可能共享窗口选择、输入与尺寸。"
         case .failure(let error):
             sessions = []; requiresRefresh = true
-            message = "查不出来：\(connectionErrorMessage(error))。普通终端仍可使用。"
+            if case GhostermError.status(2, _) = error {
+                message = "未找到 tmux：请安装 tmux ≥3.6a，或指定可执行文件的绝对路径。普通终端仍可使用。"
+            } else if case GhostermError.status(7, _) = error {
+                message = "tmux 版本或目标能力不支持：\(connectionErrorMessage(error))。普通终端仍可使用。"
+            } else {
+                message = "查不出来：\(connectionErrorMessage(error))。普通终端仍可使用。"
+            }
         }
     }
     public func change(_ operation: TmuxConnection.Operation, name: String = "") {

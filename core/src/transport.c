@@ -113,9 +113,10 @@ gt_transport_kind_t gt_transport_kind(const gt_transport_t *t) {
 }
 
 gt_transport_t *gt_transport_open_ssh_command(gt_ssh_t *ssh,const char *command,const gt_shell_opts_t *opts,
-    uint32_t timeout,bool (*cancelled)(void *),void *context){
+    uint32_t timeout,bool (*cancelled)(void *),void *context,gt_status_t *out_status){
+  if(out_status)*out_status=GT_ERR_INVALID_ARG;
   if(!ssh||!command||!*command){gt__set_error("ssh command: invalid arguments");return NULL;}
-  gt_transport_t *t=new_transport(GT_TRANSPORT_SSH_SHELL);if(!t)return NULL;
-  t->backend=gt__ssh_backend_command(ssh,command,opts,timeout,cancelled,context);
+  gt_transport_t *t=new_transport(GT_TRANSPORT_SSH_SHELL);if(!t){if(out_status)*out_status=GT_ERR_INTERNAL;return NULL;}
+  t->backend=gt__ssh_backend_command(ssh,command,opts,timeout,cancelled,context,out_status);
   if(!t->backend){free(t);return NULL;}return t;
 }

@@ -1,9 +1,17 @@
 #define _POSIX_C_SOURCE 200809L
 #include "ghosterm.h"
+#include "internal.h"
 #include "tmux/command.h"
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <pthread.h>
+#include <signal.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 #define CHECK(c, m)                                                            \
@@ -59,6 +67,7 @@ static gt_ssh_t *connect_ssh(void) {
   CHECK(gt_ssh_connect(ssh) == GT_OK, "authenticate real SSH");
   return ssh;
 }
+static gt_status_t attach_status;
 static gt_transport_t *attach(const gt_tmux_session_t *row,
                               const gt_shell_opts_t *size) {
   gt_ssh_t *ssh = NULL;
@@ -67,7 +76,7 @@ static gt_transport_t *attach(const gt_tmux_session_t *row,
     ssh = connect_ssh();
     attach_owners[attach_count++] = ssh;
   }
-  gt_transport_t *transport = gt_tmux_attach(manager, row, ssh, size);
+  gt_transport_t *transport = gt_tmux_attach(manager, row, ssh, size, &attach_status);
   if (transport) {
     /* A real surface answers DA queries. This byte-only fixture lets tmux's
      * capability discovery settle while draining its initial screen. */
@@ -142,7 +151,7 @@ static void command_tests(void) {
   CHECK(quoted && !strcmp(quoted, "'a'\\''$(touch nope);\n'"),
         "POSIX single quoting");
   free(quoted);
-  gt_command_budget_t b = {gt__command_now() + 150, NULL, NULL};
+  gt_command_budget_t b = {gt__command_now() + 2000, NULL, NULL};
   gt_command_result_t r = {0};
   const char *args[] = {"/bin/sh", "-c",
                         "printf output; printf error >&2; exit 7", NULL};
@@ -151,6 +160,65 @@ static void command_tests(void) {
             !strcmp(r.err, "error"),
         "separate output/status");
   gt__command_free(&r);
+  pid_t child = fork();
+  CHECK(child >= 0, "closed-stdio fixture fork");
+  if (child == 0) {
+    close(0);
+    close(1);
+    close(2);
+    gt_command_result_t captured = {0};
+    gt_command_budget_t limit = {gt__command_now() + 2000, NULL, NULL};
+    int status = gt__command_local(args[0], args, &limit, &captured);
+    bool ok = status == GT_OK && captured.completed &&
+              captured.exit_code == 7 && captured.out && captured.err &&
+              !strcmp(captured.out, "output") && !strcmp(captured.err, "error");
+    gt__command_free(&captured);
+    _exit(ok ? 0 : 1);
+  }
+  int child_status = 0;
+  pid_t waited;
+  do {
+    waited = waitpid(child, &child_status, 0);
+  } while (waited < 0 && errno == EINTR);
+  CHECK(waited == child && WIFEXITED(child_status) &&
+            WEXITSTATUS(child_status) == 0,
+        "command captures output even with host stdio closed");
+  child = fork();
+  CHECK(child >= 0, "unknown-exit fixture fork");
+  if (child == 0) {
+    struct sigaction ignored = {.sa_handler = SIG_IGN,
+                                .sa_flags = SA_NOCLDWAIT};
+    sigemptyset(&ignored.sa_mask);
+    if (sigaction(SIGCHLD, &ignored, NULL))
+      _exit(2);
+    const char *arguments[] = {"-c", "exit 7", NULL};
+    gt_pty_opts_t options = {.executable = "/bin/sh",
+                             .argv = arguments,
+                             .cmd_kind = GT_PTY_CMD_DIRECT};
+    gt_transport_t *transport = gt_transport_open_pty(&options);
+    if (!transport)
+      _exit(2);
+    uint8_t buffer[128];
+    int status = -2;
+    int64_t until = gt__command_now() + 5000;
+    while (status != 0 && status != -1 && gt__command_now() < until)
+      status = gt_transport_read(transport, buffer, sizeof buffer, 20);
+    while (gt_transport_child_state(transport) != GT_TRANSPORT_CHILD_EXITED &&
+           gt__command_now() < until)
+      nanosleep(&(struct timespec){0, 1000000}, NULL);
+    bool observed =
+        gt_transport_child_state(transport) == GT_TRANSPORT_CHILD_EXITED;
+    int exit_code = 123;
+    bool known = gt_transport_exited(transport, &exit_code);
+    gt_transport_close(transport);
+    _exit(status == 0 && observed && !known ? 0 : 1);
+  }
+  do {
+    waited = waitpid(child, &child_status, 0);
+  } while (waited < 0 && errno == EINTR);
+  CHECK(waited == child && WIFEXITED(child_status) &&
+            WEXITSTATUS(child_status) == 0,
+        "PTY without wait status reports unknown exit");
   const char *sleep[] = {"/bin/sh", "-c", "sleep 30", NULL};
   b.deadline = gt__command_now() + 150;
   CHECK(gt__command_local(sleep[0], sleep, &b, &r) == GT_ERR_CANCELLED &&
@@ -170,13 +238,17 @@ static void command_tests(void) {
         "bounded output");
   gt__command_free(&r);
   gt_tmux_opts_t bad = {.executable = "relative"};
-  CHECK(!gt_tmux_open(NULL, &bad), "absolute paths required");
+  CHECK(!gt_tmux_open(NULL, &bad, NULL), "absolute paths required");
   gt_tmux_result_t result = GT_TMUX_CONFIRMED;
   CHECK(gt_tmux_change(NULL, GT_TMUX_TERMINATE, NULL, NULL, &result) ==
                 GT_ERR_INVALID_ARG &&
             result == GT_TMUX_REJECTED,
         "invalid != success");
   puts("PASS tmux command");
+}
+static bool cancel_all(void *context) {
+  (void)context;
+  return true;
 }
 static void adversarial(void) {
   const char *invalid[] = {"permission", "numeric",   "duplicate",
@@ -224,10 +296,300 @@ static void adversarial(void) {
         "confirmed failure distinct");
   setenv("GT_TMUX_FAKE_MODE", "old", 1);
   gt_tmux_opts_t opts = {.executable = exe, .socket_path = socket_path};
-  CHECK(!gt_tmux_open(NULL, &opts), "unsupported tmux version refused");
+  gt_status_t status = GT_OK;
+  CHECK(!gt_tmux_open(NULL, &opts, &status) && status == GT_ERR_UNSUPPORTED,
+        "unsupported tmux version refused with typed capability error");
+  setenv("GT_TMUX_FAKE_MODE", "version-dirty", 1);
+  CHECK(!gt_tmux_open(NULL, &opts, &status) && status == GT_ERR_PROTOCOL,
+        "dirty version output is not an unsupported version");
+  gt_tmux_opts_t discovery = {.login_shell = exe};
+  setenv("GT_TMUX_FAKE_MODE", "discovery-missing", 1);
+  CHECK(!gt_tmux_open(NULL, &discovery, &status) && status == GT_ERR_NOT_FOUND,
+        "completed missing discovery has typed not-found status");
+  setenv("GT_TMUX_FAKE_MODE", "discovery-dirty", 1);
+  CHECK(!gt_tmux_open(NULL, &discovery, &status) && status == GT_ERR_PROTOCOL,
+        "startup pollution cannot claim tmux is missing");
+  discovery.login_shell = "/ghosterm-missing-login-shell";
+  CHECK(!gt_tmux_open(NULL, &discovery, &status) && status == GT_ERR_IO,
+        "missing login shell cannot claim tmux is missing");
+  setenv("GT_TMUX_FAKE_MODE", "good", 1);
+  opts.cancelled = cancel_all;
+  CHECK(!gt_tmux_open(NULL, &opts, NULL) && strstr(gt_last_error(), "cancelled"),
+        "explicit cancellation stops discovery with current error");
   gt_tmux_close(manager);
   puts("PASS tmux adversarial");
 }
+static void proxy_fault(const char *mode) {
+  char path[4096], ack[4096];
+  snprintf(ack, sizeof ack, "%s/fault-done", ssh_work);
+  unlink(ack);
+  snprintf(path, sizeof path, "%s/fault-%s", ssh_work, mode);
+  FILE *f = fopen(path, "wb");
+  CHECK(f, "request owned proxy fault");
+  fclose(f);
+  int64_t deadline = gt__command_now() + 5000;
+  while (access(ack, F_OK) != 0 && gt__command_now() < deadline)
+    nanosleep(&(struct timespec){0, 10000000}, NULL);
+  f = fopen(ack, "rb");
+  CHECK(f, "proxy confirms actual fault");
+  char applied[32] = {0};
+  (void)fread(applied, 1, sizeof applied - 1, f);
+  fclose(f);
+  CHECK(!strcmp(applied, mode), "acknowledgement matches requested fault");
+}
+static atomic_bool query_cancel;
+static bool query_cancelled(void *context) {
+  return atomic_load((atomic_bool *)context);
+}
+static void *cancel_query(void *context) {
+  nanosleep(&(struct timespec){0, 200000000}, NULL);
+  atomic_store((atomic_bool *)context, true);
+  return NULL;
+}
+static long live_pid(gt_transport_t *transport) {
+  char output[65536] = {0};
+  size_t used = 0;
+  int64_t deadline = gt__command_now() + 5000;
+  while (gt__command_now() < deadline) {
+    if (used + 8192 >= sizeof output) {
+      memmove(output, output + used - 256, 256);
+      used = 256;
+    }
+    int n = gt_transport_read(transport, (uint8_t *)output + used,
+                              sizeof output - used - 1, 20);
+    if (n == 0 || n == -1)
+      break;
+    if (n > 0) {
+      used += (size_t)n;
+      output[used] = 0;
+      for (char *p = output; (p = strstr(p, "LOOP_")); p++) {
+        long pid = 0;
+        int end = 0;
+        if (sscanf(p, "LOOP_%ld_END%n", &pid, &end) == 1 && end > 0 && pid > 0)
+          return pid;
+      }
+    }
+  }
+  fprintf(stderr, "OUTPUT: %.8000s\n", output);
+  return 0;
+}
+static void reconnect_manager(const gt_tmux_opts_t *options) {
+  gt_tmux_close(manager);
+  gt_ssh_close(management_ssh);
+  management_ssh = connect_ssh();
+  manager = gt_tmux_open(management_ssh, options, NULL);
+  CHECK(manager, "explicit reauthenticated management");
+  list();
+}
+static void owner_exit(const gt_tmux_opts_t *options) {
+  gt_tmux_session_t before = rows[0];
+  int report[2];
+  CHECK(pipe(report) == 0, "owner-report pipe");
+  for (int i = 0; i < 2; i++)
+    CHECK(fcntl(report[i], F_SETFD, FD_CLOEXEC) == 0, "owner-report CLOEXEC");
+  pid_t child = fork();
+  CHECK(child >= 0, "fork isolated client owner");
+  if (child == 0) {
+    close(report[0]);
+    if (management_ssh) {
+      /* Never use the parent's copied SSH state. Closing only this process's
+       * descriptor cannot send a disconnect on the parent's connection. */
+      void *session = NULL;
+      int socket = -1;
+      if (gt__ssh_borrow(management_ssh, &session, &socket) != GT_OK)
+        _exit(2);
+      close(socket);
+      management_ssh = connect_ssh();
+      manager = gt_tmux_open(management_ssh, options, NULL);
+      if (!manager)
+        _exit(2);
+    }
+    gt_transport_t *transport = attach(&before, NULL);
+    if (!transport)
+      _exit(2);
+    send(transport,
+         "while :; do printf 'LOOP_%s_END\\n' \"$$\"; sleep 0.1; done\r");
+    int64_t pid = live_pid(transport);
+    if (pid <= 0)
+      _exit(2);
+    if (write(report[1], &pid, sizeof pid) != (ssize_t)sizeof pid)
+      _exit(2);
+    close(report[1]);
+    for (;;) {
+      uint8_t bytes[8192];
+      if (gt_transport_read(transport, bytes, sizeof bytes, 20) == -1)
+        _exit(2);
+    }
+  }
+  close(report[1]);
+  struct pollfd ready = {report[0], POLLIN, 0};
+  int result;
+  do {
+    result = poll(&ready, 1, 15000);
+  } while (result < 0 && errno == EINTR);
+  int64_t task = 0;
+  ssize_t got = result > 0 ? read(report[0], &task, sizeof task) : -1;
+  close(report[0]);
+  CHECK(kill(child, SIGKILL) == 0, "kill actual client owner process");
+  int status = 0;
+  pid_t waited;
+  do {
+    waited = waitpid(child, &status, 0);
+  } while (waited < 0 && errno == EINTR);
+  CHECK(got == (ssize_t)sizeof task && task > 0,
+        "client and actual inner task were running before owner death");
+  CHECK(waited == child && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL,
+        "owner really died without cleanup/destructors");
+  int64_t deadline = gt__command_now() + 5000;
+  do {
+    list();
+    if (count == 1 && rows[0].attached == 0)
+      break;
+  } while (gt__command_now() < deadline);
+  CHECK(count == 1 && rows[0].attached == 0 &&
+            rows[0].server_pid == before.server_pid && rows[0].id == before.id,
+        "owner death detaches client and leaves same session");
+  gt_transport_t *transport = attach(&rows[0], NULL);
+  CHECK(transport, "rejoin after owner process death");
+  CHECK(live_pid(transport) == task,
+        "task keeps producing output after owner process death");
+  send(transport, "\003");
+  gt_transport_close(transport);
+}
+
+static void network(const char *mode, const gt_tmux_opts_t *options) {
+  CHECK(management_ssh, "network fixture requires SSH");
+  gt_tmux_session_t before = rows[0];
+  if (!strcmp(mode, "query-timeout") || !strcmp(mode, "query-cancel")) {
+    int64_t calibration = gt__command_now();
+    for (int i = 0; i < 20; i++)
+      nanosleep(&(struct timespec){0, 10000000}, NULL);
+    calibration = gt__command_now() - calibration;
+    CHECK(calibration < 2500, "query cancellation fixture scheduling budget");
+    proxy_fault("blackhole");
+    bool cancel = !strcmp(mode, "query-cancel");
+    pthread_t worker;
+    int64_t started = gt__command_now();
+    if (cancel)
+      CHECK(pthread_create(&worker, NULL, cancel_query, &query_cancel) == 0,
+            "cancellation worker");
+    printf("BEGIN tmux %s\n", mode);
+    fflush(stdout);
+    size_t n = 123;
+    gt_tmux_server_t state;
+    int rc = gt_tmux_list(manager, rows, GT_TMUX_SESSION_MAX, &n, &state);
+    int64_t elapsed = gt__command_now() - started;
+    if (cancel)
+      pthread_join(worker, NULL);
+    CHECK(rc == GT_ERR_CANCELLED && n == 0,
+          "blackholed management query has bounded deadline/cancellation");
+    if (cancel) {
+      int64_t bound = calibration * 3 / 2 + 250;
+      if (bound < 1000)
+        bound = 1000;
+      CHECK(elapsed < bound,
+            "cancel does not wait for the five-second command deadline");
+    }
+    atomic_store(&query_cancel, false);
+    reconnect_manager(options);
+    CHECK(count == 1 && rows[0].id == before.id &&
+              rows[0].server_pid == before.server_pid,
+          "query cancellation does not end session");
+    return;
+  }
+
+  if (!strcmp(mode, "backpressure")) {
+    gt_transport_t *transport = attach(&before, NULL);
+    CHECK(transport, "attach for backpressure drain");
+    send(transport, "stty -echo -icanon; python3 -c 'import sys,hashlib; "
+                    "print(\"drain-\"+\"ready\",flush=True); "
+                    "data=sys.stdin.buffer.read(3145728); "
+                    "print(\"DRAIN_\"+hashlib.sha256(data).hexdigest(),flush="
+                    "True)'; stty sane\r");
+    CHECK(read_until(transport, "drain-ready"), "receiver ready before fault");
+    proxy_fault("blackhole");
+    uint8_t *payload = malloc(3 * 1024 * 1024);
+    CHECK(payload, "drain payload");
+    memset(payload, 'x', 3 * 1024 * 1024);
+    CHECK(gt_transport_write(transport, payload, 3 * 1024 * 1024) == GT_OK,
+          "backpressure accepts input");
+    free(payload);
+    proxy_fault("resume");
+    CHECK(
+        read_until(
+            transport,
+            "DRAIN_"
+            "3bea8a9a07c1e8dcaa4c1b816815c35a29b4fb585ba6ecc70ea44840a794cfb3"),
+        "queued SSH tail drains without losing or reordering bytes");
+    gt_transport_close(transport);
+    return;
+  }
+
+  if (!strcmp(mode, "lost-create") || !strcmp(mode, "lost-terminate")) {
+    if (!strcmp(mode, "lost-terminate")) {
+      change(GT_TMUX_CREATE, NULL, "survivor");
+      list();
+    }
+    gt_tmux_result_t result = GT_TMUX_CONFIRMED;
+    int rc = gt_tmux_change(
+        manager,
+        !strcmp(mode, "lost-create") ? GT_TMUX_CREATE : GT_TMUX_TERMINATE,
+        !strcmp(mode, "lost-create") ? NULL : &before, "lost-reply", &result);
+    CHECK(rc != GT_OK && result == GT_TMUX_UNKNOWN,
+          "lost remote mutation reply stays unknown");
+    reconnect_manager(options);
+    CHECK(count == (!strcmp(mode, "lost-create") ? 2u : 1u),
+          "fresh list observes exactly one mutation, no replay");
+    CHECK(!strcmp(mode, "lost-create") || !strcmp(rows[0].name, "survivor"),
+          "other session survives lost terminate reply");
+    return;
+  }
+  gt_transport_t *transport = attach(&before, NULL);
+  CHECK(transport, "attach before network fault");
+  send(transport,
+       "while :; do printf 'LOOP_%s_END\\n' \"$$\"; sleep 0.1; done\r");
+  long pid = live_pid(transport);
+  CHECK(pid > 0, "actual running task before fault");
+  proxy_fault(!strcmp(mode, "reset") ? "reset" : "blackhole");
+  uint8_t bytes[8192];
+  int status = -2;
+  if (!strcmp(mode, "reset")) {
+    int64_t deadline = gt__command_now() + 5000;
+    while (status != 0 && status != -1 && gt__command_now() < deadline)
+      status = gt_transport_read(transport, bytes, sizeof bytes, 20);
+    CHECK(status == 0 || status == -1, "reset detected as disconnected");
+  } else {
+    /* Drain any bytes already accepted before the blackhole was acknowledged.
+     */
+    do {
+      status = gt_transport_read(transport, bytes, sizeof bytes, 20);
+    } while (status > 0);
+    CHECK(status == GT_TRANSPORT_READ_TIMEOUT,
+          "silent loss remains unknown, not EOF");
+    uint8_t *payload = malloc(3 * 1024 * 1024);
+    CHECK(payload, "backpressure input");
+    memset(payload, 'x', 3 * 1024 * 1024);
+    CHECK(gt_transport_write(transport, payload, 3 * 1024 * 1024) == GT_OK,
+          "blackhole write bounded and accepted into tail");
+    free(payload);
+  }
+  int code = 123;
+  CHECK(!gt_transport_exited(transport, &code),
+        "lost SSH exit status never invented as zero");
+  gt_transport_close(transport);
+  reconnect_manager(options);
+  CHECK(count == 1 && rows[0].server_pid == before.server_pid &&
+            rows[0].server_started == before.server_started &&
+            rows[0].id == before.id && rows[0].created == before.created,
+        "same live session after network loss");
+  transport = attach(&rows[0], NULL);
+  CHECK(transport, "explicit attach after fresh authentication and list");
+  CHECK(live_pid(transport) == pid,
+        "same task continues producing output after reconnect");
+  send(transport, "\003");
+  gt_transport_close(transport);
+}
+
 int main(int argc, char **argv) {
   if (argc == 2 && !strcmp(argv[1], "command")) {
     command_tests();
@@ -247,7 +609,23 @@ int main(int argc, char **argv) {
   socket_path = argv[3];
   gt_tmux_opts_t opts = {.executable = exe, .socket_path = socket_path};
   opts.timeout_ms = 5000;
-  manager = gt_tmux_open(management_ssh, &opts);
+  atomic_init(&query_cancel, false);
+  opts.cancelled = query_cancelled;
+  opts.context = &query_cancel;
+  manager = gt_tmux_open(management_ssh, &opts, NULL);
+  if (!strcmp(argv[1], "exec-denied") || !strcmp(argv[1], "sftp-only")) {
+    CHECK(!manager, "restricted account cannot pretend tmux is supported");
+    if (!strcmp(argv[1], "sftp-only")) {
+      gt_ssh_close(management_ssh);
+      management_ssh = connect_ssh();
+      gt_sftp_t *sftp = gt_ssh_sftp(management_ssh);
+      CHECK(sftp, "SFTP-only account really supports SFTP");
+      gt_sftp_close(sftp);
+    }
+    gt_ssh_close(management_ssh);
+    printf("PASS tmux %s\n", argv[1]);
+    return 0;
+  }
   CHECK(manager, "probe supported tmux");
   if (!strcmp(argv[1], "adversarial")) {
     adversarial();
@@ -260,7 +638,29 @@ int main(int argc, char **argv) {
   list();
   CHECK(count == 1 && rows[0].windows == 1 && rows[0].attached == 0,
         "create/list real fields");
-  if (!strcmp(argv[1], "race")) {
+  if (!strcmp(argv[1], "owner-kill")) {
+    owner_exit(&opts);
+  } else if (!strcmp(argv[1], "empty")) {
+    cli("set-option", "-s", "exit-empty", "off");
+    change(GT_TMUX_TERMINATE, &rows[0], NULL);
+    list();
+    CHECK(count == 0 && server == GT_TMUX_SERVER_RUNNING,
+          "real empty server is distinct from absent server");
+    change(GT_TMUX_CREATE, NULL, "after-empty");
+    list();
+    CHECK(count == 1, "explicit creation on an existing empty server");
+  } else if (!strcmp(argv[1], "reset") || !strcmp(argv[1], "blackhole") ||
+             !strcmp(argv[1], "backpressure") ||
+             !strncmp(argv[1], "query-", 6) || !strncmp(argv[1], "lost-", 5)) {
+    network(argv[1], &opts);
+  } else if (!strcmp(argv[1], "pty-denied")) {
+    CHECK(management_ssh && !attach(&rows[0], NULL),
+          "PTY denial is explicit attach failure");
+    CHECK(attach_status == GT_ERR_UNSUPPORTED && strstr(gt_last_error(), "refused PTY"),
+          "PTY failure reports missing capability");
+    list();
+    CHECK(count == 1, "management owner unaffected by attach PTY denial");
+  } else if (!strcmp(argv[1], "race")) {
     gt_transport_t *t = attach(&rows[0], NULL);
     CHECK(t, "attach client launch");
     int64_t deadline = gt__command_now() + 3000;

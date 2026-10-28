@@ -219,6 +219,7 @@ struct PaneView: View {
                     Text("tmux · 连接时选择：\(context.selectedName)")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                        .padding(.vertical, 3).background(Color(nsColor: .controlBackgroundColor))
                 }
                 terminalArea
             }

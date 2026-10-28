@@ -49,12 +49,13 @@ public final class TmuxConnection {
         self.owner = owner; self.ssh = ssh; self.cancellation = cancellation
         var opts = gt_tmux_opts_t(); opts.timeout_ms = options.timeoutMilliseconds
         opts.cancelled = tmuxCancelled; opts.context = Unmanaged.passUnretained(cancellation).toOpaque()
+        var status = GT_OK
         var result: OpaquePointer?
         options.executable.withCStringOrNil { exe in options.socketPath.withCStringOrNil { socket in options.loginShell.withCStringOrNil { shell in
             opts.executable = exe; opts.socket_path = socket; opts.login_shell = shell
-            result = gt_tmux_open(ssh?.handle, &opts)
+            result = gt_tmux_open(ssh?.handle, &opts, &status)
         } } }
-        guard let result else { throw GhostermError.failed(Ghosterm.lastError) }; handle = result
+        guard let result else { throw GhostermError.status(Int32(status.rawValue), Ghosterm.lastError) }; handle = result
     }
     deinit {
         gt_tmux_close(handle)
@@ -82,10 +83,11 @@ public final class TmuxConnection {
     public func attach(_ session: TmuxSession, ssh attachSSH: SSHSession? = nil, cols: UInt16 = 80, rows: UInt16 = 24) throws -> Transport {
         dispatchPrecondition(condition: .onQueue(owner))
         var selected = session.native, size = gt_shell_opts_t(); size.cols = cols; size.rows = rows
+        var status = GT_OK
         let raw = "xterm-256color".withCString { term -> OpaquePointer? in
-            size.term = term; return gt_tmux_attach(handle, &selected, attachSSH?.handle, &size)
+            size.term = term; return gt_tmux_attach(handle, &selected, attachSSH?.handle, &size, &status)
         }
-        guard let raw else { throw GhostermError.failed(Ghosterm.lastError) }
+        guard let raw else { throw GhostermError.status(Int32(status.rawValue), Ghosterm.lastError) }
         let result = Transport(handle: raw, sshOwner: attachSSH); result.releaseOn(owner); return result
     }
 }

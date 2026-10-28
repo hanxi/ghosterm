@@ -76,8 +76,6 @@ import Security
     private var cursor = 0
     private var lastReference: Reference?
     private var selection: Selection?
-    private var preferred: Reference?
-    private(set) var acceptedIdentityPaths: [String]?
 
     init(target: SSHConnectionTarget, storage: Storage = .platform,
          ask: @escaping (CredentialPrompt.Kind) -> CredentialAnswer?,
@@ -104,13 +102,12 @@ import Security
         guard let methods = offered, methods.0 == id, methods.1 != 0 else { finish(request, .failure(GhostermError.status(7, "SSH 认证方式尚未确认或不受支持"))); return }
         if attempt == 1 {
             cursor = 0; paths = target.identityPaths
-            if case .identity(let path)? = preferred { paths.removeAll { $0 == path }; paths.insert(path, at: 0) }
         }
         if methods.2 == 4, let rejected = lastReference {
             let storage = storage, target = target
             io.async { [weak self] in do { try storage.remove(rejected, target) } catch { DispatchQueue.main.async { self?.notice("无法移除被拒绝的钥匙串缓存") } } }
         }
-        if SSHAuthMethods(rawValue: methods.1).contains(.publicKey), (preferred != .password || !SSHAuthMethods(rawValue: methods.1).contains(.password)), cursor < paths.count { tryKey(request, methods: methods.1) }
+        if SSHAuthMethods(rawValue: methods.1).contains(.publicKey), cursor < paths.count { tryKey(request, methods: methods.1) }
         else { tryPassword(request, methods: methods.1) }
     }
     private func active(_ request: Request) -> Bool { pending === request && !request.cancellation.isCancelled }
@@ -169,8 +166,7 @@ import Security
         guard active(request) else { return }; pending = nil; request.cancellation.cancel(); request.done(result)
     }
     private func accept(_ id: UInt64) {
-        guard let value = selection, value.id == id else { return }; selection = nil; preferred = value.reference
-        switch value.reference { case .identity(let path): acceptedIdentityPaths = [path]; case .password: acceptedIdentityPaths = [] }
+        guard let value = selection, value.id == id else { return }; selection = nil
         guard let secret = value.secret else { return }; let storage = storage, target = target
         io.async { [weak self] in do { try storage.save(value.reference, target, secret) } catch { DispatchQueue.main.async { self?.notice("认证成功，但无法保存钥匙串凭据，下次可能需要重新输入") } } }
     }

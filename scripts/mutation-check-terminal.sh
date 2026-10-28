@@ -69,7 +69,9 @@ run_app()      { ( cd "$ROOT" && bash scripts/apple-app-gate.sh >/dev/null 2>&1 
 expect() { # $1=期望 $2=描述 $3=函数名
   if "$3"; then actual=green; else actual=red; fi
   if [ "$actual" = "$1" ]; then echo "  ✓ $2 → 闸门 $actual"; PASS=$((PASS+1))
-  else echo "  ✗ $2 → 期望 $1，实际 $actual"; FAIL=$((FAIL+1)); fi
+  else echo "  ✗ $2 → 期望 $1，实际 $actual"
+    tail -35 "$TMP/terminal-test.log" 2>/dev/null
+    FAIL=$((FAIL+1)); fi
 }
 
 mutate() { # $1=标签 $2=目标文件；变异脚本本体从 heredoc 走 stdin
@@ -157,7 +159,7 @@ import sys
 p=sys.argv[1]; s=open(p).read()
 old = """  for (size_t i = 0; i < a->surface_count; i++) {
     struct gt_ghostty_surface *s = a->surfaces[i];
-    if (s && s->surface && !s->replica) ghostty_surface_set_color_scheme(s->surface, scheme);
+    if (s && s->surface) ghostty_surface_set_color_scheme(s->surface, scheme);
   }"""
 new = "  /* GT_MUTATION_MARK：砍掉逐个 surface 下发 */"
 assert old in s, "T3 锚点缺失"

@@ -34,6 +34,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fake', action='store_true')
     parser.add_argument('--binary', type=pathlib.Path, default=ROOT / 'core/build/test_tmux')
-    parser.add_argument('modes', nargs='*', default=['lifecycle', 'names', 'identity', 'policy', 'attach', 'race'])
+    parser.add_argument('modes', nargs='*', default=['lifecycle', 'names', 'identity', 'policy', 'attach', 'race', 'empty', 'owner-kill'])
     args = parser.parse_args()
     run(args.binary.resolve(), ["adversarial"] if args.fake else args.modes, args.fake)

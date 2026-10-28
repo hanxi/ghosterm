@@ -154,7 +154,13 @@ python3 scripts/test-tmux-ssh.py --host HOST --port PORT --user USER --key KEY -
 
 前两条要求真 tmux >=3.6a（`TMUX_BINARY` 可指定绝对路径）；SSH 测试要求隔离账户和远端
 工程临时目录，管理与 attach 都由被测 libssh2 实现。系统 ssh 仅用于布置/清理测试配置。
-六模式覆盖 lifecycle/names/identity/policy/attach/race；测试只终止自己的 socket，
+八模式覆盖 lifecycle/names/identity/policy/attach/race/empty/owner-kill；测试只终止自己的 socket，
 不调用用户默认实例。变异脚本的编译、目标及对照都经 `gt_timeout`，不把编译失败当断言红。
+SSH 故障模式可在命令末追加 `reset blackhole backpressure lost-create lost-terminate query-timeout query-cancel`。
+同一 SSH 参数传给 `scripts/mutation-check-tmux-ssh.py` 可跑六组变异；
+PTY 拒绝、exec 拒绝和仅 SFTP 账户另用 `--key` 与 `--setup-key` 指定受限/布置密钥，
+分别运行 `pty-denied` / `exec-denied` / `sftp-only`。受限账户不会假装支持交互终端。
+关闭标准描述符和无 wait status 的本地子进程也在离线命令测试中覆盖；缺 tmux、
+旧版本与启动输出污染以类型化状态区分，Swift 绑定及原生列表均验证此口径。
 macOS make 按整秒比较时间戳时，快速变异可能留下旧可执行文件，故强制删除受影响 object、
 archive 与测试可执行再重链；回滚同样执行，并核对原始 SHA256。

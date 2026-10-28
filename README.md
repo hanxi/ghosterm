@@ -63,7 +63,7 @@ bash scripts/package-mac.sh --help             # 全部选项（版本/签名/�
 ## 跑起来（macOS）
 
 ```bash
-bash scripts/build-mac-app.sh        # 出包：tmp/Ghosterm.app（自包含，47MB）
+bash scripts/build-mac-app.sh        # 出包：tmp/Ghosterm.app（自包含的普通终端包）
 open tmp/Ghosterm.app                # 双击即用：主机列表 / 终端 / 编辑器 / SFTP
 ```
 
@@ -82,11 +82,11 @@ swift run GhostermApp --local                                 # 无窗口冒烟�
 swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 AppModel 全链路
 ```
 
-## 当前状态（2026-10-10，M2–M4 收口）
+## 当前状态（2026-10-28，可选 tmux 重构）
 
 | 能力 | 状态 |
 |---|---|
-| C 核心骨架 + `ghosterm.h` v0 ABI | ✅ 36 符号，双向对拍 |
+| C 核心骨架 + `ghosterm.h` v0 ABI | ✅ 70 符号，双向对拍；旧会话 ABI 已移除 |
 | `ssh_config` 解析 / 无损往返（未编辑） | ✅ 与原文逐字节相同 |
 | `ssh_config` 求值 | ✅ typed 视图 + 通用视图（`ssh -G` 等价）；42 键 × 6 host 全表语义对拍 |
 | `ssh_config` 编辑 API | ✅ 无损写回（除目标行外逐字节不变）+ 9 用例对拍 |
@@ -96,14 +96,15 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 | SFTP（list / stat / 上传 / 下载 / job 三态） | ✅ libssh2_sftp 封装 + 真 sshd e2e + 变异验证 |
 | **macOS 功能完整（M2–M4.5）** | ✅ 2026-10-12 |
 | ├ TerminalSurface（full libghostty + Metal） | ✅ 上游补丁提供 host IO 后端（`patches/libghostty/`） |
-| ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；绑定 ABI 对拍 34/36 |
+| ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；绑定 ABI 对拍 68/70（另 2 项显式登记） |
 | ├ 终端 UX（M4.5：标签页 / 分屏 / 设置页） | ✅ 布局视觉参照 iGhostVT；后台标签页保持挂载；16 项结构断言 + 设置断言变异 S1~S5。**遗留**：标签页恢复、拖拽重排手势 |
-| ├ 配色集随包 + 主题选择 | ✅ 607 套 Ghostty 配色随包（`Contents/Resources/ghostty/themes`）+ 资源目录推导；出包包内配置检查验主题被引擎接受 |
+| ├ 配色集随包 + 主题选择 | ✅ 725 套 Ghostty 配色随包（`Contents/Resources/ghostty/themes`）+ 资源目录推导；出包包内配置检查验主题被引擎接受 |
 | ├ 终端的设置真的生效 | ✅ 写 Ghostty 语法的配置文件交给引擎解析（不自己维护配置子集）；`font-size` 改完网格密度真的变（11 项断言） |
 | ├ ssh_config 图形编辑（M3） | ✅ 编辑器 + 通配块 + 备份 / 冲突检测 / 原子写回 |
 | ├ SFTP 文件浏览器（M4） | ✅ 浏览 / 下载 / 上传 / 传输四态（与终端解耦的第二会话） |
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |
+| 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
 | iOS / Android / 其余端 | ⏳ 未开始 |
 
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。

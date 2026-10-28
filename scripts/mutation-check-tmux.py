@@ -26,6 +26,7 @@ def replacement(source, old, new):
     return re.sub(pattern, lambda _: new, source, count=1)
 
 def main():
+    (ROOT/'tmp/tmux-analysis').mkdir(parents=True,exist_ok=True)
     originals = {f: (ROOT/'core'/f).read_bytes() for f in FILES}
     checksums = {f: sha(ROOT/'core'/f) for f in FILES}
     if any(MARK.encode() in b for b in originals.values()): raise SystemExit('leftover mutation marker: exit 2')
@@ -40,7 +41,7 @@ def main():
         def check(mode, red=False):
             if mode == 'command': timed([binary,'command'],1 if red else 0)
             else: timed(['python3',ROOT/'scripts/test-tmux.py','--binary',binary] + (['--fake'] if mode=='adversarial' else [mode]),1 if red else 0)
-        for mode in ['command','adversarial','names','identity','policy','attach','race']: check(mode)
+        for mode in ['command','adversarial','names','identity','policy','attach','race','empty','owner-kill']: check(mode)
         mutants = [
             ('missing', 'src/tmux/tmux.c', '  if(!r->completed||r->exit_code!=1||r->out_len||!r->err)return false;', '  if(r->completed&&r->exit_code==1)return true;', 'adversarial', 'command'),
             ('duplicates', 'src/tmux/tmux.c', 'if(rows[i].id==r->id||', 'if(false||', 'adversarial', 'command'),
@@ -48,14 +49,22 @@ def main():
             ('unknown-policy', 'src/tmux/tmux.c', 'r->destroy_unattached=-1;r->exit_unattached=-1;', 'r->destroy_unattached=0;r->exit_unattached=0;', 'adversarial', 'command'),
             ('unknown-result', 'src/tmux/tmux.c', 'r.started?GT_TMUX_UNKNOWN:GT_TMUX_REJECTED', 'GT_TMUX_REJECTED', 'adversarial', 'command'),
             ('dirty-result', 'src/tmux/tmux.c', '*result=r.exit_code?GT_TMUX_REJECTED:GT_TMUX_UNKNOWN', '*result=GT_TMUX_REJECTED', 'adversarial', 'command'),
+            ('discovery-status', 'src/tmux/tmux.c', 'rc = GT_ERR_NOT_FOUND;', 'rc = GT_ERR_UNSUPPORTED;', 'adversarial', 'command'),
+            ('version-status', 'src/tmux/tmux.c', 'rc = valid ? GT_ERR_UNSUPPORTED : GT_ERR_PROTOCOL;', 'rc = GT_ERR_UNSUPPORTED;', 'adversarial', 'command'),
             ('version', 'src/tmux/tmux.c', "return major>3||(major==3&&(minor>6||(minor==6&&*suffix>='a')));", 'return major>=3;', 'adversarial', 'command'),
             ('format-injection', 'src/tmux/tmux.c', "if(name[i]=='#')*out++='#';", '', 'names', 'command'),
             ('separator-injection', 'src/tmux/tmux.c', "if(i+1==n&&name[i]==';')*out++='\\\\';", '', 'names', 'command'),
             ('shell-quote', 'src/tmux/command.c', 'memcpy(p,"\'\\\\\'\'",4);p+=4;', 'memcpy(p,"xxxx",4);p+=4;', 'command', 'lifecycle'),
             ('identity', 'src/tmux/tmux.c', 'r->id==target->id&&r->created==target->created&&r->server_pid==target->server_pid&&r->server_started==target->server_started', 'r->id==target->id', 'identity', 'command'),
             ('no-autostart', 'src/tmux/tmux.c', 't->socket,"-N","attach-session"', 't->socket,"attach-session"', 'race', 'command'),
+            ('known-empty', 'src/tmux/tmux.c', '*server = GT_TMUX_SERVER_RUNNING;', '*server = GT_TMUX_SERVER_ABSENT;', 'adversarial', 'command'),
+            ('local-unknown-exit', 'src/io/pty_posix.c', 'bool e = atomic_load(&t->exited) && atomic_load(&t->exit_code) >= 0;', 'bool e = atomic_load(&t->exited);', 'command', 'lifecycle'),
+            ('closed-stdio', 'src/tmux/command.c', 'if (p[i] < 3) {', 'if (false) {', 'command', 'lifecycle'),
+            ('cancellation', 'src/tmux/command.c', 'b->cancelled && b->cancelled(b->context)', 'false', 'adversarial', 'command'),
             ('resize', 'src/io/pty_posix.c', 'if (ioctl(t->master_fd, TIOCSWINSZ, &ws) < 0)', 'if ((void)ws, false)', 'attach', 'command'),
         ]
+        requested=os.environ.get('GT_TMUX_MUTATIONS')
+        if requested: mutants=[case for case in mutants if case[0] in requested.split(',')]
         try:
             for name, file, old, new, target, control in mutants:
                 path=core/file; source=originals[file].decode()
@@ -87,5 +96,5 @@ def main():
                 (core/file).write_bytes(data)
                 assert sha(core/file)==checksums[file]
                 assert sha(ROOT/'core'/file)==checksums[file], 'source tree changed during mutations'
-    print('PASS tmux mutations (13 groups, isolated, restored)')
+    print('PASS tmux mutations ('+str(len(mutants))+' groups, isolated, restored)')
 if __name__=='__main__': main()

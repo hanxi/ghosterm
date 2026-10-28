@@ -16,7 +16,7 @@ typedef struct {
   const char *executable; /* absolute path or NULL: login-shell command -v */
   const char
       *socket_path; /* absolute path or NULL: tmux default, then locked */
-  const char *login_shell; /* local only, NULL uses passwd shell */
+  const char *login_shell; /* local only, NULL uses SHELL or /bin/sh */
   uint32_t timeout_ms;     /* 0 = 5000, per high-level operation */
   bool (*cancelled)(void *);
   void *context;
@@ -40,8 +40,9 @@ typedef enum {
   GT_TMUX_REJECTED,
   GT_TMUX_UNKNOWN
 } gt_tmux_result_t;
-/* ssh=NULL selects local. Resolves path and verifies tmux >=3.6a. */
-gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *opts);
+/* ssh=NULL selects local. Resolves path and verifies tmux >=3.6a.
+ * Optional out_status distinguishes NOT_FOUND from UNSUPPORTED, IO and PROTOCOL. */
+gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *opts, gt_status_t *out_status);
 void gt_tmux_close(gt_tmux_t *tmux);
 /* All-or-error snapshot. A failed refresh clears count; caller discards old UI
  * selection. ABSENT is distinct from a successfully parsed empty list. */
@@ -59,7 +60,7 @@ int gt_tmux_change(gt_tmux_t *, gt_tmux_operation_t,
  */
 gt_transport_t *gt_tmux_attach(gt_tmux_t *, const gt_tmux_session_t *,
                                gt_ssh_t *attach_ssh,
-                               const gt_shell_opts_t *size);
+                               const gt_shell_opts_t *size, gt_status_t *out_status);
 #ifdef __cplusplus
 }
 #endif

@@ -792,7 +792,6 @@ typedef struct {
   gt_ssh_t *ssh;
   LIBSSH2_SESSION *sess;
   LIBSSH2_CHANNEL *chan;
-  bool eof;
   uint8_t *wtail;    /* 没送出去的尾巴（见 gt__ssh_shell_write） */
   size_t wtail_len;
 } ssh_shell_t;
@@ -871,7 +870,7 @@ failed:
   if (*status != GT_ERR_UNSUPPORTED)
     gt__set_error("SSH: channel timed out, cancelled or disconnected");
   /* A partly admitted request is unsafe to retry on this owner. */
-  gt__ssh_abort(ssh);
+  if (*status != GT_ERR_UNSUPPORTED) gt__ssh_abort(ssh);
   libssh2_session_set_blocking(ssh->session, 1);
   libssh2_session_set_timeout(ssh->session, 50);
   if (channel)
@@ -899,7 +898,7 @@ int gt__command_ssh(gt_ssh_t *ssh, const char *command,
   }
   snprintf(
       wrapped, n,
-      "%s; gt_tmux_rc=$?; printf '\\nGHOSTERM_TMUX_RC=%%d\\n' \"$gt_tmux_rc\"",
+      "set +e; %s; gt_tmux_rc=$?; printf '\\nGHOSTERM_TMUX_RC=%%d\\n' \"$gt_tmux_rc\"",
       command);
   r->started = true;
   LIBSSH2_CHANNEL *ch = command_channel(ssh, wrapped, NULL, b, &rc);
@@ -964,7 +963,8 @@ end:
 }
 void *gt__ssh_command_open(gt_ssh_t *ssh, const char *command,
                            const gt_shell_opts_t *opts, uint32_t timeout_ms,
-                           bool (*cancelled)(void *), void *context) {
+                           bool (*cancelled)(void *), void *context, gt_status_t *out_status) {
+  if (out_status) *out_status = GT_ERR_INVALID_ARG;
   if (!ssh || !ssh->session)
     return NULL;
   gt_command_budget_t budget = {
@@ -983,10 +983,13 @@ void *gt__ssh_command_open(gt_ssh_t *ssh, const char *command,
       sh->ssh = ssh;
       sh->sess = ssh->session;
       sh->chan = channel;
-    } else
+    } else {
+      status = GT_ERR_INTERNAL;
       libssh2_channel_free(channel);
+    }
   }
   gt__ssh_io_unlock(ssh);
+  if (out_status) *out_status = (gt_status_t)status;
   return sh;
 }
 
@@ -1069,7 +1072,7 @@ static int ssh_wtail_append(ssh_shell_t *sh, const uint8_t *data, size_t len) {
 void *gt__ssh_shell_open(gt_ssh_t *ssh, const char *term, uint16_t cols,
                          uint16_t rows, uint32_t px_w, uint32_t px_h) {
   gt_shell_opts_t o={term,cols,rows,px_w,px_h};
-  return gt__ssh_command_open(ssh,NULL,&o,5000,NULL,NULL);
+  return gt__ssh_command_open(ssh,NULL,&o,5000,NULL,NULL,NULL);
 }
 
 int gt__ssh_shell_read(void *ch, uint8_t *buf, size_t cap, int timeout_ms) {
@@ -1080,7 +1083,7 @@ int gt__ssh_shell_read(void *ch, uint8_t *buf, size_t cap, int timeout_ms) {
   ssize_t n = libssh2_channel_read(sh->chan, (char *)buf, cap);
   if (n > 0) return (int)n;
   if (n == 0) {
-    if (libssh2_channel_eof(sh->chan)) { sh->eof = true; return GT_TRANSPORT_READ_EOF; }
+    if (libssh2_channel_eof(sh->chan)) return GT_TRANSPORT_READ_EOF;
     return GT_TRANSPORT_READ_TIMEOUT;
   }
   if (n == LIBSSH2_ERROR_TIMEOUT || n == LIBSSH2_ERROR_EAGAIN)
@@ -1110,7 +1113,6 @@ int gt__ssh_shell_write(void *ch, const uint8_t *data, size_t len) {
   rc = ssh_write_bounded(sh, data, len, GT_SSH_WRITE_GRACE_MS, &off);
   if (rc != GT_OK) return rc;
   if (off < len) {
-    fprintf(stderr, "[q] queued=%zu sent=%zu/%zu\n", len - off, off, len);
     return ssh_wtail_append(sh, data + off, len - off);
   }
   return GT_OK;
@@ -1130,11 +1132,9 @@ int gt__ssh_shell_resize(void *ch, uint16_t cols, uint16_t rows, uint32_t px_w,
 }
 
 bool gt__ssh_shell_exited(void *ch, int *exit_code) {
-  ssh_shell_t *sh = ch;
-  if (!sh) { if (exit_code) *exit_code = 0; return false; }
-  /* libssh2's getter defaults to 0 when no exit-status was received. Its
-   * public API does not expose that availability bit: report unknown. */
-  (void)exit_code; return false;
+  /* libssh2 defaults its status getter to zero if no exit-status arrived. Its
+   * public API has no availability bit. EOF alone cannot prove an exit code. */
+  (void)ch; (void)exit_code; return false;
 }
 
 void gt__ssh_shell_close(void *ch) {
@@ -1165,63 +1165,57 @@ typedef struct gt_ssh_exec {
 
 gt_ssh_exec_t *gt_ssh_exec(gt_ssh_t *ssh, const char *command,
                            gt_status_t *out_status) {
-  if (out_status) *out_status = GT_ERR_INTERNAL;
+  if (out_status)
+    *out_status = GT_ERR_INTERNAL;
   if (!ssh || !ssh->connected || !ssh->session) {
     gt__set_error("ssh_exec: 会话未连接");
-    if (out_status) *out_status = GT_ERR_INVALID_ARG;
+    if (out_status)
+      *out_status = GT_ERR_INVALID_ARG;
     return NULL;
   }
   if (!command || !*command) {
     gt__set_error("ssh_exec: 命令为空");
-    if (out_status) *out_status = GT_ERR_INVALID_ARG;
+    if (out_status)
+      *out_status = GT_ERR_INVALID_ARG;
     return NULL;
   }
   gt_ssh_exec_t *e = gt__alloc(sizeof *e);
-  if (!e) return NULL;
+  if (!e)
+    return NULL;
   e->ssh = ssh;
   e->sess = ssh->session;
 
-  gt__ssh_io_lock(ssh);
-  LIBSSH2_CHANNEL *chan = libssh2_channel_open_session(ssh->session);
-  if (!chan) {
-    gt__ssh_io_unlock(ssh);
-    gt__set_error("ssh_exec: 打开通道失败");
-    free(e);
-    if (out_status) *out_status = GT_ERR_IO;
-    return NULL;
-  }
-  /* libssh2 的 exec 不接受命令行里的换行——有的调用方习惯给命令带尾换行，
-   * 这里统一剥掉尾部的 \n/\r，让两种写法都能跑。 */
-  size_t clen = strlen(command);
-  char *cmd = gt__alloc(clen + 1);
+  /* Both streaming exec and bounded management use the same channel admission.
+   * Streaming reads retain their existing stdout/stderr interface. */
+  size_t length = strlen(command);
+  char *cmd = gt__strdup(command);
   if (!cmd) {
-    libssh2_channel_free(chan); /* 锁内释放（libssh2 调用都在锁内） */
-    gt__ssh_io_unlock(ssh);
-    if (out_status) *out_status = GT_ERR_INTERNAL;
+    free(e);
     return NULL;
   }
-  char *tmp = cmd;
-  memcpy(cmd, command, clen + 1);
-  while (clen > 0 && (tmp[clen - 1] == '\n' || tmp[clen - 1] == '\r')) tmp[--clen] = '\0';
-  int rc = libssh2_channel_exec(chan, tmp);
-  free(cmd);
+  while (length && (cmd[length - 1] == '\n' || cmd[length - 1] == '\r'))
+    cmd[--length] = 0;
+  gt_command_budget_t budget = {gt__command_now() + 15000, NULL, NULL};
+  gt__ssh_io_lock(ssh);
+  long previous = libssh2_session_get_timeout(ssh->session);
+  int blocking = libssh2_session_get_blocking(ssh->session), status = GT_OK;
+  LIBSSH2_CHANNEL *chan = command_channel(ssh, cmd, NULL, &budget, &status);
+  libssh2_session_set_blocking(ssh->session, blocking);
+  libssh2_session_set_timeout(ssh->session, previous);
   gt__ssh_io_unlock(ssh);
-  if (rc != 0) {
-    gt__ssh_io_lock(ssh);
-    libssh2_channel_free(chan);
-    gt__ssh_io_unlock(ssh);
-    /* 服务器拒 exec（纯 sftp 账号）是「能力缺失」，显式 UNSUPPORTED——
-     * 让上层据此回退 SFTP walk，而不是当成普通 IO 错。 */
-    gt__set_error("ssh_exec: 服务器拒绝 exec（可能仅允许 sftp）");
+  free(cmd);
+  if (!chan) {
     free(e);
-    if (out_status) *out_status = GT_ERR_UNSUPPORTED;
+    if (out_status)
+      *out_status = (gt_status_t)status;
     return NULL;
   }
   e->chan = chan;
   e->closed = false;
   e->stdout_eof = false;
   e->stderr_eof = false;
-  if (out_status) *out_status = GT_OK;
+  if (out_status)
+    *out_status = GT_OK;
   return e;
 }
 
@@ -1306,7 +1300,8 @@ void gt_ssh_exec_close(gt_ssh_exec_t *e) {
 int gt__command_ssh(gt_ssh_t *s,const char *c,const gt_command_budget_t *b,gt_command_result_t *r){
   (void)s;(void)c;(void)b;memset(r,0,sizeof *r);gt__set_error("SSH: libssh2 unavailable");return GT_ERR_UNSUPPORTED;
 }
-void *gt__ssh_command_open(gt_ssh_t *s,const char *c,const gt_shell_opts_t *o,uint32_t t,bool (*f)(void *),void *u){
+void *gt__ssh_command_open(gt_ssh_t *s,const char *c,const gt_shell_opts_t *o,uint32_t t,bool (*f)(void *),void *u,gt_status_t *out_status){
+  if(out_status)*out_status=GT_ERR_UNSUPPORTED;
   (void)s;(void)c;(void)o;(void)t;(void)f;(void)u;gt__set_error("SSH: libssh2 unavailable");return NULL;
 }
 

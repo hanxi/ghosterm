@@ -48,4 +48,19 @@
 | 3 退役旧系统 | 已完成 | 删除 daemon/私有 IPC/快照与 replica/旧 ABI/安装及 CI bundle 链；通用认证独立保留。干净检出上 core 28 项/64 ABI 与原生 release 打包通过；主工作区 App 299 项（1 项主题环境跳过）、Terminal 24 项通过；打包 63 项、认证 ABI 8 组、凭据 6 组、PTY 尺寸 10 组、公开头/PTY 继承变异通过。普通 SDK 为同 pin 的 3 份补丁，无旧 runtime |
 | 4 共享 tmux 模块 | 已完成 | Core 30 项/70 ABI；macOS 与 Ubuntu 22.04（GCC 11、libssh2 1.10）本地真 tmux 六模式和 Mac→Linux libssh2 六模式通过；13 组隔离变异有指向性及 SHA 回滚。薄 Swift 绑定、SSH PTY exec、总 deadline/取消/输出限额与非阻塞 UI 关闭已接通；断网和受限账户仍在最终验收切片 |
 | 5 后台会话 UI | 已完成 | 本机/主机入口、列表操作、独立 attach、新标签页与断开格子重新选择；普通终端/SFTP/管理/attach 共用异步认证。App 303 项（1 项随包主题环境跳过）通过；UI 7 组隔离变异、真 sshd 认证 3 组变异通过；内层任务 PID 不变、关闭误杀目标红，未知/路径选择及运行格子保护有指向性 |
-| 6 全量验收 | 待实施 | 原计划全部普通/后台/远端/竞态/清理/变异及干净打包证据 |
+| 6 全量验收 | 已完成 | 本地/SSH 八模式、七种网络故障、三种受限账户、19/9/6 组 tmux 变异、干净打包 63 项通过；普通 PTY/登录 shell/终端/焦点/标签页变异分别 12/13/19/14/37 项通过，均回滚复绿 |
+
+## 最终验收口径（2026-10-28）
+
+最终切片补齐错误码及绑定、终端退出未知、关闭标准描述符时的子进程 IO、真实 SSH 故障与原生鼠标验收，清除最后的无消费者私有入口及认证记录。保留流式 exec 复用同一有界通道准入；SFTP、普通 SSH 与通用认证各自保留独立变异。规则更新只校正实际 ABI 绑定、CI 覆盖与新增测试，并未降低普通终端闸门。
+
+- 离线核心：30 项 CTest、70 个公共 ABI；Swift 引用 68 项，另外 2 项明确登记。关闭 libssh2 的构建以及公开头/API/tmux 四项离线冒烟验证不支持分支；不将要求真实 SSH 的测试算作该配置通过。
+- 原生 App：305 项，1 项只在随包主题环境成立的检查跳过；主题由干净发行包的实际引擎配置检查补验。新增测试直接运行 full libghostty 与 AppKit NSEvent，鼠标选择 tmux 内层 pane，Ghosterm 仍只有一个格子。
+- 真实 tmux：macOS 与 Ubuntu 22.04（GCC 11、libssh2 1.10）本地八模式、Mac→Linux libssh2 八模式；owner 被 SIGKILL 后原任务仍输出，重新认证/选择后 PID 一致。
+- SSH 故障：reset、静默断网、恢复同一链路后的 3 MiB SHA256、创建/结束回复丢失、管理查询总超时/取消。无自动重发；仅新连接重新认证。PTY 拒绝返回 UNSUPPORTED，exec 拒绝与仅 SFTP 账户明确失败；后者仍能用独立 SFTP 连接。
+- 干净打包：同一 vendor pin 在独立检出中重新构建三份普通补丁，公共 `build-ghostty.sh` 同步暂存 725 套主题；release Swift 构建、实际依赖加载、自包含/签名/配置检查与无旧 runtime 校验通过。App 约 28 MB，打包 63 项变异无 SKIP，七份脚本 SHA 回滚一致。
+- 普通终端：Terminal 24 项及 19 项变异检查、焦点 14 项、标签页 37 项检查通过；字节进网格、已有 surface 配色更新、reload_config、输入法预编辑/提交、keyDown 与 Ctrl+B 控制字节均有目标红和独立对照。
+- 普通核心回归：PTY transport 12 项变异、登录 shell 13 项变异通过；回滚后再次 core gate 30 项/70 ABI 全绿。Swift Core 离线 14 项中两项仅在注入真实 SSH 时运行，随后真实 sshd 两项通过，未把跳过计作 SSH 证据。
+- 新增变异：共享 tmux 19 组、原生 UI 9 组、SSH 故障 6 组；每组有目标红、同变异独立对照绿、回滚复绿与 SHA 校验。SSH/exec/SFTP 的通用变异分别为 4/2/8 组，保留真实 sshd；暂停同时破坏读/写两条循环，避免重复锚点或旧可执行文件冒充结果。
+
+以上只声明 tmux 3.6a、macOS full libghostty 和实际测过的 Linux SSH 目标。用户 hooks、destroy/exit-unattached、登出清理及机器重启仍可能结束任务；不提供私有快照等价、启动恢复、SFTP 保活、其他 shell/版本或其他平台的支持承诺。

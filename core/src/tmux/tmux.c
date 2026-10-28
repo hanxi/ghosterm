@@ -4,6 +4,7 @@
 #include "tmux/command.h"
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -140,20 +141,26 @@ static bool line(char *s, size_t *n) {
   s[--*n] = 0;
   return !strchr(s, '\n') && !strchr(s, '\r');
 }
-static bool supported(const char *s) {
-  if (strncmp(s, "tmux ", 5))
-    return false;
-  unsigned major = 0, minor = 0;
-  int end = 0;
-  if (sscanf(s + 5, "%u.%u%n", &major, &minor, &end) != 2)
-    return false;
-  const char *suffix = s + 5 + end;
-  if (*suffix && !(suffix[0] >= 'a' && suffix[0] <= 'z' && suffix[1] == 0))
-    return false;
+static bool supported(const char *s, bool *valid) {
+  *valid = false;
+  if (strncmp(s, "tmux ", 5)) return false;
+  const char *p = s + 5;
+  if (*p < '0' || *p > '9') return false;
+  char *end; errno = 0;
+  unsigned long major = strtoul(p, &end, 10);
+  if (errno || major > UINT_MAX || *end != '.') return false;
+  p = end + 1;
+  if (*p < '0' || *p > '9') return false;
+  unsigned long minor = strtoul(p, &end, 10);
+  if (errno || minor > UINT_MAX) return false;
+  const char *suffix = end;
+  if (*suffix && !(suffix[0] >= 'a' && suffix[0] <= 'z' && suffix[1] == 0)) return false;
+  *valid = true;
   return major > 3 ||
          (major == 3 && (minor > 6 || (minor == 6 && *suffix >= 'a')));
 }
-gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *o) {
+gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *o, gt_status_t *out_status) {
+  if (out_status) *out_status = GT_ERR_INVALID_ARG;
   static const gt_tmux_opts_t zero;
   if (!o)
     o = &zero;
@@ -164,8 +171,10 @@ gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *o) {
     return NULL;
   }
   gt_tmux_t *t = calloc(1, sizeof *t);
-  if (!t)
+  if (!t) {
+    if (out_status) *out_status = GT_ERR_INTERNAL;
     return NULL;
+  }
   t->ssh = ssh;
   t->timeout = o->timeout_ms ? o->timeout_ms : 5000;
   t->cancelled = o->cancelled;
@@ -174,12 +183,13 @@ gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *o) {
     strcpy(t->socket, o->socket_path);
   gt_command_budget_t b = budget(t);
   gt_command_result_t r = {0};
-  int rc;
+  int rc = GT_ERR_INVALID_ARG;
+  const char *discover = "set +e; unset TMUX; (if command -v tmux; then :; else printf 'GHOSTERM_TMUX_MISSING\\n'; false; fi)";
   if (o->executable)
     strcpy(t->exe, o->executable);
   else {
     if (ssh)
-      rc = gt__command_ssh(ssh, "unset TMUX; command -v tmux", &b, &r);
+      rc = gt__command_ssh(ssh, discover, &b, &r);
     else {
       const char *shell = o->login_shell ? o->login_shell : getenv("SHELL");
       if (!shell || !*shell)
@@ -188,13 +198,24 @@ gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *o) {
         gt__set_error("tmux: invalid login shell");
         goto failed;
       }
-      const char *argv[] = {shell, "-l", "-c", "command -v tmux", NULL};
+      const char *argv[] = {shell, "-l", "-c", discover, NULL};
       rc = gt__command_local(shell, argv, &b, &r);
     }
-    if (rc || !r.completed || r.exit_code || r.err_len ||
+    if (rc) {
+      /* A missing login shell is not evidence that tmux is absent. */
+      if (rc == GT_ERR_NOT_FOUND) rc = GT_ERR_IO;
+      goto failed;
+    }
+    if (r.completed && r.exit_code == 1 && !r.err_len && r.out &&
+        !strcmp(r.out, "GHOSTERM_TMUX_MISSING\n")) {
+      rc = GT_ERR_NOT_FOUND;
+      gt__set_error("tmux: executable not found in login-shell PATH");
+      goto failed;
+    }
+    if (!r.completed || r.exit_code || r.err_len ||
         !line(r.out, &r.out_len) || !text(r.out, sizeof t->exe, true)) {
-      gt__set_error("tmux: executable missing or login-shell discovery failed; "
-                    "specify an absolute path");
+      rc = GT_ERR_PROTOCOL;
+      gt__set_error("tmux: invalid login-shell discovery output; specify an absolute path");
       goto failed;
     }
     strcpy(t->exe, r.out);
@@ -204,13 +225,17 @@ gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *o) {
   rc = checked(t, v, false, &b, &r);
   if (rc)
     goto failed;
-  if (!line(r.out, &r.out_len) || !supported(r.out)) {
+  bool valid = false;
+  if (!line(r.out, &r.out_len) || !supported(r.out, &valid)) {
+    rc = valid ? GT_ERR_UNSUPPORTED : GT_ERR_PROTOCOL;
     gt__set_error("tmux: requires tmux >=3.6a with stable list formats");
     goto failed;
   }
   gt__command_free(&r);
+  if (out_status) *out_status = GT_OK;
   return t;
 failed:
+  if (out_status) *out_status = (gt_status_t)rc;
   gt__command_free(&r);
   free(t);
   return NULL;
@@ -482,14 +507,18 @@ int gt_tmux_change(gt_tmux_t *t, gt_tmux_operation_t op,
   return rc;
 }
 gt_transport_t *gt_tmux_attach(gt_tmux_t *t, const gt_tmux_session_t *target,
-                               gt_ssh_t *ssh, const gt_shell_opts_t *size) {
+                               gt_ssh_t *ssh, const gt_shell_opts_t *size, gt_status_t *out_status) {
+  if (out_status) *out_status = GT_ERR_INVALID_ARG;
   if (!t || ((t->ssh != NULL) != (ssh != NULL)) || (ssh && ssh == t->ssh)) {
     gt__set_error("tmux: attach needs its own SSH owner");
     return NULL;
   }
   gt_command_budget_t b = budget(t);
-  if (validate(t, target, &b))
+  int rc = validate(t, target, &b);
+  if (rc) {
+    if (out_status) *out_status = (gt_status_t)rc;
     return NULL;
+  }
   char id[32];
   snprintf(id, sizeof id, "$%" PRIu64, target->id);
   const char *argv[] = {t->exe,           "-u", "-S", t->socket, "-N",
@@ -499,15 +528,19 @@ gt_transport_t *gt_tmux_attach(gt_tmux_t *t, const gt_tmux_session_t *target,
     size = &zero;
   if (ssh) {
     char *command = shell_command(argv);
-    if (!command)
+    if (!command) {
+      if (out_status) *out_status = GT_ERR_INTERNAL;
       return NULL;
+    }
     int64_t left = b.deadline - gt__command_now();
     gt_transport_t *transport = NULL;
     if (left > 0)
       transport = gt_transport_open_ssh_command(
-          ssh, command, size, (uint32_t)left, t->cancelled, t->context);
-    else
+          ssh, command, size, (uint32_t)left, t->cancelled, t->context, out_status);
+    else {
+      if (out_status) *out_status = GT_ERR_CANCELLED;
       gt__set_error("tmux: attach admission timed out");
+    }
     free(command);
     return transport;
   }
@@ -524,5 +557,7 @@ gt_transport_t *gt_tmux_attach(gt_tmux_t *t, const gt_tmux_session_t *target,
   opts.rows = size->rows;
   opts.px_width = size->px_width;
   opts.px_height = size->px_height;
-  return gt_transport_open_pty(&opts);
+  gt_transport_t *transport = gt_transport_open_pty(&opts);
+  if (out_status) *out_status = transport ? GT_OK : GT_ERR_IO;
+  return transport;
 }

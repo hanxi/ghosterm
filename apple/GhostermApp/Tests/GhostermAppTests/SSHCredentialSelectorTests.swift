@@ -19,7 +19,7 @@ import XCTest
         XCTAssertTrue(failed)
         wait(for: [touched], timeout: 0.05)
     }
-    func testUnencryptedKeyNeverUsesSecretStorageOrPromptsAndOnlyAcceptedReferencePersists() async throws {
+    func testUnencryptedKeyNeverUsesSecretStorageOrPrompts() async throws {
         var delivered = false, asked = 0, secrets = 0
         let storage = SSHCredentialSelector.Storage(key: { _ in "-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----\n" }, secret: { _, _ in secrets += 1; return nil }, save: { _, _, _ in secrets += 1 }, remove: { _, _ in secrets += 1 })
         let selector = SSHCredentialSelector(target: target, storage: storage, ask: { _ in asked += 1; return nil }, hostkey: { _, _ in .unknown }, notice: { _ in })
@@ -30,9 +30,7 @@ import XCTest
             XCTAssertNil(pass); delivered = true
         }
         try await until { delivered }
-        XCTAssertNil(selector.acceptedIdentityPaths, "delivery is not authentication success")
-        prompts.accepted(999, 1); XCTAssertNil(selector.acceptedIdentityPaths)
-        prompts.accepted(1, 1); XCTAssertEqual(selector.acceptedIdentityPaths, ["/identity"])
+        prompts.accepted(999, 1); prompts.accepted(1, 1)
         XCTAssertEqual(asked, 0); XCTAssertEqual(secrets, 0)
     }
     func testPasswordSavedOnlyAfterSuccessAndRejectedCacheRemovedBeforeRetry() async throws {
@@ -51,11 +49,15 @@ import XCTest
         request(1, 0); try await until { deliveries == 1 }
         lock.lock(); let before = saved; lock.unlock(); XCTAssertTrue(before.isEmpty)
         request(2, 4); try await until { deliveries == 2 }
-        prompts.accepted(1, 1); XCTAssertNil(selector.acceptedIdentityPaths)
-        prompts.accepted(2, 2)
+        prompts.accepted(1, 1)
+        // A further lookup is a real IO-queue barrier: any incorrectly saved
+        // secret from that stale acknowledgement must already be visible.
+        request(3, 0); try await until { deliveries == 3 }
+        lock.lock(); let beforeSuccess = saved; lock.unlock(); XCTAssertTrue(beforeSuccess.isEmpty)
+        prompts.accepted(3, 3)
         try await until { lock.lock(); defer { lock.unlock() }; return saved.count == 1 }
         lock.lock(); let after = saved; lock.unlock()
-        XCTAssertEqual(after, ["fixture-secret-2"]); XCTAssertEqual(selector.acceptedIdentityPaths, [])
+        XCTAssertEqual(after, ["fixture-secret-3"])
     }
     func testUnknownKeyFormatIsReportedAndNeverSubmitted() async throws {
         var warnings: [String] = [], status: Int32?

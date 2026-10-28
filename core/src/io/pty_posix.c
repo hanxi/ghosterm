@@ -64,7 +64,6 @@ typedef struct {
   atomic_bool exited;
   atomic_bool closing;
   atomic_int exit_code;
-  atomic_int observed_kind,observed_code;
 
   bool eof;
 
@@ -340,10 +339,6 @@ static void *pty_waiter(void *arg) {
     if (WIFEXITED(status)) code = WEXITSTATUS(status);
     else if (WIFSIGNALED(status)) code = 128 + WTERMSIG(status);
   }
-  if(r==t->child && (WIFEXITED(status) || WIFSIGNALED(status))) {
-    atomic_store(&t->observed_code,WIFEXITED(status)?WEXITSTATUS(status):WTERMSIG(status));
-    atomic_store(&t->observed_kind,WIFEXITED(status)?GT_IO_EXIT_CODE:GT_IO_EXIT_SIGNAL);
-  }
   atomic_store(&t->exit_code, code);
   atomic_store(&t->exited, true);
   if (t->wake_w >= 0) {
@@ -398,7 +393,6 @@ gt_io_backend_t *gt__pty_open_with_options(const gt_pty_opts_t *opts,const gt_al
   atomic_init(&t->exited, false);
   atomic_init(&t->closing, false);
   atomic_init(&t->exit_code, -1);
-  atomic_init(&t->observed_kind,GT_IO_EXIT_UNKNOWN);atomic_init(&t->observed_code,0);
 
   bool is_shell = (o->cmd_kind == GT_PTY_CMD_SHELL);
   char *exe = (o->executable && *o->executable) ? pty_strdup(&domain,o->executable)
@@ -639,8 +633,8 @@ static int pty_resize(gt_io_backend_t *backend, uint16_t cols, uint16_t rows,
   return GT_OK;
 }
 
-static int pty_read_with_wake(gt_io_backend_t *backend, uint8_t *buf, size_t cap,
-                    int timeout_ms, int command_fd) {
+static int pty_read(gt_io_backend_t *backend, uint8_t *buf, size_t cap,
+                    int timeout_ms) {
   gt_pty_backend_t *t = (gt_pty_backend_t *)backend;
   if (!t || !buf) {
     gt__set_error("transport_read: null argument");
@@ -667,7 +661,7 @@ static int pty_read_with_wake(gt_io_backend_t *backend, uint8_t *buf, size_t cap
       wait_ms = (int)rem;
     }
 
-    struct pollfd pfds[3];
+    struct pollfd pfds[2];
     pfds[0].fd = t->master_fd;
     pfds[0].events = POLLIN;
     pfds[0].revents = 0;
@@ -675,10 +669,7 @@ static int pty_read_with_wake(gt_io_backend_t *backend, uint8_t *buf, size_t cap
     pfds[1].events = POLLIN;
     pfds[1].revents = 0;
 
-    pfds[2].fd = command_fd;
-    pfds[2].events = POLLIN;
-    pfds[2].revents = 0;
-    int pr = poll(pfds, 3, wait_ms);
+    int pr = poll(pfds, 2, wait_ms);
     if (pr < 0) {
       if (errno == EINTR) continue;
       gt__set_error("transport_read: poll failed: %s", strerror(errno));
@@ -689,13 +680,6 @@ static int pty_read_with_wake(gt_io_backend_t *backend, uint8_t *buf, size_t cap
       t->eof = true;
       return GT_TRANSPORT_READ_EOF;
     }
-    /* The worker owns/drains this fd. Prefer one ready output chunk so a
-     * continuous command producer cannot starve the PTY. The next worker
-     * round handles another command before reading again. */
-    if (pfds[2].revents & (POLLERR | POLLHUP | POLLNVAL)) return GT_TRANSPORT_READ_ERROR;
-    if ((pfds[2].revents & POLLIN) &&
-        !(pfds[0].revents & (POLLIN | POLLHUP | POLLERR)))
-      return GT_TRANSPORT_READ_TIMEOUT;
     if (pr == 0) {
       /* 超时：再做一次非阻塞探测。Darwin 上「对端已关闭」不一定报 POLLHUP，
        * EOF 的可靠识别不能只依赖 poll —— 这里读一手，0/EIO 即 EOF。 */
@@ -737,10 +721,6 @@ static int pty_read_with_wake(gt_io_backend_t *backend, uint8_t *buf, size_t cap
       return GT_TRANSPORT_READ_ERROR;
     }
   }
-}
-
-static int pty_read(gt_io_backend_t *backend,uint8_t *buf,size_t cap,int timeout_ms) {
-  return pty_read_with_wake(backend,buf,cap,timeout_ms,-1);
 }
 
 static void pty_close(gt_io_backend_t *backend) {
@@ -814,20 +794,11 @@ static bool pty_exited(const gt_io_backend_t *backend, int *exit_code) {
     if (exit_code) *exit_code = 0;
     return false;
   }
-  bool e = atomic_load(&t->exited);
+  bool e = atomic_load(&t->exited) && atomic_load(&t->exit_code) >= 0;
   if (e && exit_code) *exit_code = atomic_load(&t->exit_code);
   return e;
 }
 
-static gt_status_t pty_observe_exit(const gt_io_backend_t *backend,gt_io_exit_t *out) {
-  if(out)memset(out,0,sizeof(*out));
-  if(!backend || !out)return GT_ERR_INVALID_ARG;
-  const gt_pty_backend_t *t=(const gt_pty_backend_t *)backend;
-  if(!atomic_load(&t->exited))return GT_ERR_NOT_FOUND;
-  gt_io_exit_kind_t kind=(gt_io_exit_kind_t)atomic_load(&t->observed_kind);
-  if(kind==GT_IO_EXIT_UNKNOWN)return GT_ERR_NOT_FOUND;
-  *out=(gt_io_exit_t){kind,atomic_load(&t->observed_code)};return GT_OK;
-}
 static gt_transport_child_t pty_child_state(const gt_io_backend_t *backend) {
   const gt_pty_backend_t *t = (const gt_pty_backend_t *)backend;
   if (!t) return GT_TRANSPORT_CHILD_UNKNOWN;
@@ -893,6 +864,4 @@ static const gt_io_ops_t pty_ops = {
   .child_state = pty_child_state,
   .child_cwd = pty_child_cwd,
   .close = pty_close,
-  .observe_exit = pty_observe_exit,
-  .read_with_wake = pty_read_with_wake,
 };
