@@ -5,11 +5,13 @@
 #   - 起跑前扫残留变异标记，命中即 exit 2（假基线比跑不起来更坏）；
 #   - trap INT TERM 复原；
 #   - 回滚后除比对备份，还比对起跑前记录的 sha256。
-# 覆盖 A1~A8（求值/无损/支持集/行内注释与 Forward 防护）+ B1~B6（编辑 API
-# 写回）共 14 项变异。
+# 覆盖 A1~A9（求值/无损/支持集/行内注释与 Forward 防护）+ B1~B6（编辑 API
+# 写回）共 15 项变异。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$ROOT/tmp"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require mutation-check-sshconfig
 mkdir -p "$TMP"
 SRC="$ROOT/core/src/config.c"
 MARK="GT_MUTATION_MARK"
@@ -17,14 +19,16 @@ PASS=0; FAIL=0
 BACKUP=""
 
 restore_all() {
-# 只有现场还在变异态才复原：脚本被 kill -9 后，残留的 EXIT trap
-  # 会拿**旧备份**把源文件盖回去，把别人的新改动一起抹掉（真踩过）。
-  # 文件里没有标记 = 现场已不是变异态 → 什么都别动。
-  if ! grep -q "$MARK" "$SRC" 2>/dev/null; then return 0; fi
-  [ -n "$BACKUP" ] && [ -f "$BACKUP" ] && cp "$BACKUP" "$SRC" && rm -f "$BACKUP"
+  [ -n "$BACKUP" ] && [ -f "$BACKUP" ] || return 0
+  # 只复原本轮仍带标记的现场；没有标记时不覆盖别人的修改，但仍核对 SHA。
+  if grep -q "$MARK" "$SRC" 2>/dev/null; then cp "$BACKUP" "$SRC" || return 1; fi
+  local actual
+  actual="$(shasum -a 256 "$SRC" | awk '{print $1}')"
+  if [ "$actual" != "$BASE_SHA" ]; then echo '退出恢复 SHA256 不一致' >&2; return 1; fi
 }
-trap 'restore_all' EXIT
-trap 'restore_all; echo "已复原（trap）"' INT TERM
+trap 'rc=$?; restore_all || rc=1; exit "$rc"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if grep -q "$MARK" "$SRC" 2>/dev/null; then
   echo "检测到残留变异标记（${MARK}）——工作区不干净，拒绝起跑（exit 2）" >&2
@@ -35,7 +39,8 @@ BASE_SHA="$(shasum -a 256 "$SRC" | awk '{print $1}')"
 BACKUP="$(mktemp "$TMP/gt-mut-XXXXXX")"; BACKUP="$BACKUP.c"
 cp "$SRC" "$BACKUP"
 
-run_gate_quiet() { (cd "$ROOT" && bash scripts/gate.sh >/dev/null 2>&1); }
+LOG="${BACKUP}.log"
+run_gate_quiet() { (cd "$ROOT" && gt_timeout 300 bash scripts/gate.sh) >"$LOG" 2>&1; }
 
 expect_gate() {
   if run_gate_quiet; then actual=green; else actual=red; fi
@@ -264,6 +269,31 @@ open(p,'w').write(s.replace(old,new,1))
 PY
 mutate A8 "$TMP/gtmut_a8.py" "$SRC"
 expect_gate red "A8 防护路径丢值"
+rollback
+
+# A9：把真实 fread 错误误当作 EOF；同一变异下合法配置仍须通过。
+echo "== A9：读取失败不能变成空配置 =="
+python3 - "$SRC" <<'MUTATION'
+import sys
+p=sys.argv[1]; s=open(p).read()
+old="  if (ferror(f)) {"
+assert s.count(old) == 1, "A9 读取错误锚点缺失或重复"
+open(p,'w').write(s.replace(old,"  if (0 && ferror(f)) { /* GT_MUTATION_MARK */",1))
+MUTATION
+if ! gt_timeout 120 bash "$ROOT/scripts/build-core.sh" >"$LOG" 2>&1; then
+  cat "$LOG"; echo 'A9 构建失败，不算目标红' >&2; exit 1
+fi
+if gt_timeout 60 ctest --test-dir "$ROOT/core/build" -R '^sshconfig_read_error$' --output-on-failure >"$LOG" 2>&1; then
+  cat "$LOG"; echo 'A9 未检测到读取错误折叠' >&2; exit 1
+fi
+if ! grep -Fq 'FAIL: read failure must not become empty config' "$LOG"; then
+  cat "$LOG"; echo 'A9 失败不在读取错误断言' >&2; exit 1
+fi
+if ! gt_timeout 60 ctest --test-dir "$ROOT/core/build" -R '^sshconfig_golden$' --output-on-failure >"$LOG" 2>&1; then
+  cat "$LOG"; echo 'A9 同变异合法配置对照失败' >&2; exit 1
+fi
+PASS=$((PASS+1))
+echo '  ✓ A9 目标红、同变异合法配置对照绿'
 rollback
 
 echo "== 回滚复绿 =="

@@ -490,6 +490,13 @@ gt_config_t *gt_config_parse_file(const char *path) {
     len += got;
     if (got == 0) break;
   }
+  if (ferror(f)) {
+    int read_error = errno ? errno : EIO;
+    fclose(f);
+    free(buf);
+    gt__set_error("read %s: %s", path, strerror(read_error));
+    return NULL;
+  }
   fclose(f);
   buf[len] = '\0';
   /* 相对 include 解析相对 ~/.ssh（OpenSSH 用户级语义，见 process_include）。 */

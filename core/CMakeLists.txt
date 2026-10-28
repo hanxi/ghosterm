@@ -60,6 +60,11 @@ target_link_libraries(test_config PRIVATE ghosterm_core)
 add_test(NAME sshconfig_golden
          COMMAND test_config ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
 
+add_executable(test_config_read tests/test_config_read.c)
+target_link_libraries(test_config_read PRIVATE ghosterm_core)
+add_test(NAME sshconfig_read_error
+         COMMAND test_config_read ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+
 add_executable(test_api tests/test_api.c)
 target_link_libraries(test_api PRIVATE ghosterm_core)
 add_test(NAME api_smoke COMMAND test_api)

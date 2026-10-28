@@ -117,6 +117,7 @@ golden.effective.tsv 的 # supported_key 元数据
 |---|---|
 | Host 块 / 模式 | 4 块 / 6 模式（顺序断言） |
 | 全表语义对拍 | **42 键 × 6 host = 252 项** |
+| 配置读取错误 | `sshconfig_read_error` 以目录触发真实 fread 错误，必须返回失败；ENOENT 仍为合法空配置。`mutation-check-sshconfig.sh` A9 验目标红、同变异 golden 绿与复原绿 |
 | 无损往返 | 未编辑路径：**逐字节相同**；编辑路径：**除目标行外逐字节相同**（`sshconfig_writeback`） |
 | 编辑语义 | 原地补丁 / 删除 / `=` 分隔符保留 / SetEnv 一行多 token / IdentityFile·LocalForward 一行一条 / reset 整块重建 |
 | IdentityFile 回落机制 | 显式条目不追加默认链 / 无显式时按策略回落 / 三档预设条数 |
