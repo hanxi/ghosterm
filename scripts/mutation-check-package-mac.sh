@@ -24,7 +24,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p "$ROOT/tmp"
 
-SCRIPTS=(scripts/package-mac.sh scripts/lib/embed-dylibs.py scripts/build-icons.sh scripts/lib/ghostty-themes.sh scripts/check-dev-cask.sh scripts/check-terminal-package.py scripts/build-terminal-engine.py)
+SCRIPTS=(scripts/package-mac.sh scripts/lib/embed-dylibs.py scripts/build-icons.sh scripts/lib/ghostty-themes.sh scripts/check-dev-cask.sh scripts/check-terminal-package.py scripts/build-terminal-engine.py scripts/lib/package-dmg.sh scripts/mutation-check-package-dmg.py)
 for f in "${SCRIPTS[@]}"; do [ -f "$f" ] || { echo "缺少 $f" >&2; exit 2; }; done
 
 # 起跑前扫变异标记：上一轮被 kill -9 打断可能把 `# MUTATION` 留在仓库文件里，
@@ -450,4 +450,5 @@ done
 echo "   ok  ${#SCRIPTS[@]} 个仓库文件 sha256 与起跑前一致"
 expect_green "复原后基线自包含检查复绿" python3 scripts/lib/embed-dylibs.py check "$BASELINE"
 
-echo "MUTATION PASS（$PASS 项）"
+python3 scripts/mutation-check-package-dmg.py
+echo "MUTATION PASS（${PASS} 项 + DMG 3 组）"

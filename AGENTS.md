@@ -174,7 +174,10 @@ A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi
 （`package-mac` 的 A9 现护普通引擎与旧 runtime 清理：重新签名后塞入旧 helper 目录，
 新包校验仍红，而既有依赖校验仍绿；旧 profile 收据、旧 p0 头也分别目标红、对照绿、复原绿。
 `check-terminal-package.py` 复用普通引擎构建器的验证，核验实际 archive 哈希与三份补丁收据。
-打包变异起跑前检查 Pillow，不能拿图标对照缺依赖冒充有牙；EXIT/INT/TERM 都恢复并比对 SHA256。）
+打包变异起跑前检查 Pillow，不能拿图标对照缺依赖冒充有牙；EXIT/INT/TERM 都恢复并比对 SHA256。
+另调用 `mutation-check-package-dmg.py` 跑三组真实只读 DMG 变异：普通卸载忙时强制卸载、
+卸载失败保留临时目录、命令返回成功后仍核验挂载状态。任何递归清理之前必须确认本次验包
+挂载已卸载；清理钩子保留原始失败状态，不得吞掉卸载错误再谎报成功。）
 （`tmux` 以 `python3 scripts/mutation-check-tmux.py` 跑 19 组隔离变异：缺失判定、
 重复/UTF-8 解析、未知策略/结果、版本、format/分号/shell 引用、身份、禁止 attach 起新 server、
 尺寸接线、丢失本地退出状态、关闭标准描述符、取消及探测错误分类。目标断言红、同变异下独立对照绿、SHA 回滚；make 整秒时间戳下强制重链，

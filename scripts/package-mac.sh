@@ -122,8 +122,19 @@ fi
 mkdir -p "$ROOT/tmp" "$OUT"
 OUT="$(cd "$OUT" && pwd)"   # 绝对化：脚本里有若干 ( cd "$OUT" && ... ) 子壳
 WORK="$(mktemp -d "$ROOT/tmp/package-mac-XXXXXX")"
-cleanup() { [ "$KEEP_WORK" -eq 1 ] || rm -rf "$WORK"; }
+. "$ROOT/scripts/lib/package-dmg.sh"
+MOUNT=""
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if ! gt_package_cleanup_work "$WORK" "$MOUNT" "$KEEP_WORK"; then
+    [ "$status" -ne 0 ] || status=1
+  fi
+  exit "$status"
+}
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 APP="$OUT/Ghosterm.app"
 FW="$APP/Contents/Frameworks"
@@ -422,17 +433,17 @@ if [ "$APP_ONLY" -eq 0 ]; then
   MOUNT="$WORK/mnt"
   mkdir -p "$MOUNT"
   if hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT" >/dev/null 2>&1; then
-    [ -d "$MOUNT/Ghosterm.app" ] || { hdiutil detach "$MOUNT" >/dev/null 2>&1 || true; fail "dmg 里没有 Ghosterm.app"; }
+    [ -d "$MOUNT/Ghosterm.app" ] || { fail "dmg 里没有 Ghosterm.app"; }
     codesign --verify --strict --deep "$MOUNT/Ghosterm.app" >/dev/null 2>&1 \
-      || { hdiutil detach "$MOUNT" >/dev/null 2>&1 || true; fail "dmg 内的 .app 签名不完整"; }
+      || { fail "dmg 内的 .app 签名不完整"; }
     if [ -x "$MOUNT/Ghosterm.app/Contents/MacOS/GhostermApp" ]; then
       MOUNTED_SMOKE="$(DYLD_PRINT_LIBRARIES=1 "$MOUNT/Ghosterm.app/Contents/MacOS/GhostermApp" --local /bin/sh 2>"$WORK/dyld-mount.log" | head -1 || true)"
-      echo "${MOUNTED_SMOKE}" | grep -q GRID || { hdiutil detach "$MOUNT" >/dev/null 2>&1 || true; fail "dmg 内的二进制跑不起来（无 GRID）"; }
-      grep -qE "/opt/homebrew|/usr/local" "$WORK/dyld-mount.log" && { hdiutil detach "$MOUNT" >/dev/null 2>&1 || true; fail "从 dmg 运行时仍在用 Homebrew 的库"; }
+      echo "${MOUNTED_SMOKE}" | grep -q GRID || { fail "dmg 内的二进制跑不起来（无 GRID）"; }
+      grep -qE "/opt/homebrew|/usr/local" "$WORK/dyld-mount.log" && { fail "从 dmg 运行时仍在用 Homebrew 的库"; }
       note "dmg 内二进制冒烟 ok：${MOUNTED_SMOKE}"
     fi
     [ -L "$MOUNT/Applications" ] || note "（提示：dmg 内缺 /Applications 软链）"
-    hdiutil detach "$MOUNT" >/dev/null 2>&1 || true
+    gt_package_detach_dmg "$MOUNT" || fail "dmg 卸载失败，保留挂载与临时目录供排查"
     note "dmg 已挂载复验（.app 存在 + 签名完整）"
   else
     note "SKIP dmg 挂载复验：当前环境挂不上（CI/无权限），只做了 checksum 校验"
