@@ -110,7 +110,7 @@ class Family:
     def close(self):self.queue.close()
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--default-entry',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.parse_args()
     env=dict(os.environ,DEVELOPER_DIR=os.environ.get('DEVELOPER_DIR','/Applications/Xcode.app/Contents/Developer'),TMPDIR=str(ROOT/'tmp'))
     required=('GHOSTERM_REPLICA_RUNTIME','GHOSTERM_SESSION_SETUP_ROOT','GHOSTERM_SESSION_LINUX_BUNDLE','GHOSTERM_REPLICA_SSH_PORT','GHOSTERM_REPLICA_SSH_KEY','GHOSTERM_REPLICA_SSH_KNOWN','GHOSTERM_REPLICA_CONTRACT')
     if any(not env.get(name) for name in required):raise RuntimeError('dedicated Linux setup fixture environment missing')
@@ -119,8 +119,8 @@ def main():
     def interrupted(sig,frame):raise RuntimeError('native Linux setup probe interrupted: '+str(sig))
     for sig in (signal.SIGINT,signal.SIGTERM):signal.signal(sig,interrupted)
     package=Path(env.get('GHOSTERM_NATIVE_SETUP_PACKAGE',ROOT/'apple/GhostermApp'))
-    target='DefaultRemoteSessionTests.testLinuxDefaultEntryInstallDetachStartupRestoreAndStop' if args.default_entry else 'SessionSetupTransportTests.testRealLinuxInstallNativePaneResumeAndExplicitStop'
-    marker='PASS default Linux entry:' if args.default_entry else 'PASS Mac-to-Linux native setup:'
+    target='SessionSetupTransportTests.testRealLinuxInstallNativePaneResumeAndExplicitStop'
+    marker='PASS Mac-to-Linux native setup:'
     child=subprocess.Popen(['xcrun','swift','test','--package-path',str(package),'--filter',target],env=env,start_new_session=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
     family=Family(child)
     try:

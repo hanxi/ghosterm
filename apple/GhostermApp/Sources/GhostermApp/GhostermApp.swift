@@ -66,11 +66,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = CommandLine.arguments
 
-        if args.count == 4, args[1] == "--session-lifecycle-probe", ["create", "restore"].contains(args[3]) {
-            SessionLifecycleProbe.run(configuration: args[2], restore: args[3] == "restore")
-            return
-        }
-
         let model = AppModel()
         model.interaction = AlertInteraction(model: model)
         // 主菜单必须在窗口之前装好：没有它，⌘Q / ⌘, / ⌘V 这些标准快捷键

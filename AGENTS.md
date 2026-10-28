@@ -17,6 +17,10 @@ Ghosterm = **libghostty 驱动的多端终端** × **VS Code 式 `~/.ssh/config`
 `docs/reference/optional-tmux-implementation.md`。旧能力尚未退役时，本文对应闸门仍须执行；
 退役提交同步修改源码、调用方、构建、测试、打包、CI 和下文覆盖范围，不能先删断言换绿。
 
+普通默认入口另以 `bash scripts/mutation-check-default-entry.sh` 手工验证：隔离副本不提供
+runtime catalog，四组变异护本地创建、启动偏好、分屏目录与关闭确认；每组目标红、
+同变异的主机配置读取对照绿，复原比对 SHA256。目前尚未纳入 CI 自动覆盖。
+
 ## 目录边界（禁止越界）
 
 | 目录 | 内容 | 依赖规则 |

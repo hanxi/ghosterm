@@ -101,7 +101,7 @@ final class TabContextMenuTests: XCTestCase {
         XCTAssertEqual(titles, ["显示文件面板", "向右分屏", "向下分屏",
                                 "打开本地文件窗格", "恢复默认布局",
                                 "拷贝文本", "导出文本…",
-                                "锁定标签页", "断开并保留会话", "关闭标签页"],
+                                "锁定标签页", "关闭标签页"],
                        "菜单项（去掉分隔线）应是这几条")
 
         // 菜单项标题 → `ShortcutCatalog` 里同一个动作的标题（措辞不同，动作同一个）。
@@ -140,7 +140,7 @@ final class TabContextMenuTests: XCTestCase {
                                 "缩放当前分屏", "关闭当前分屏",
                                 "打开本地文件窗格", "恢复默认布局",
                                 "拷贝文本", "导出文本…",
-                                "锁定标签页", "断开并保留会话", "关闭标签页"],
+                                "锁定标签页", "关闭标签页"],
                        "分屏后应多出缩放 / 关闭当前分屏两条")
 
         let zoom = try XCTUnwrap(items.first { $0.title == "缩放当前分屏" })

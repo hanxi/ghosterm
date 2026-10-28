@@ -44,15 +44,9 @@ python3 scripts/probe-session-runtime-package.py --app tmp/session-native-packag
 
 ## 默认入口与进程恢复验证
 
-`DefaultRemoteSessionTests` 使用默认 AppModel 连接与启动恢复路径；Linux aarch64
-为原生 VM，x86_64 为 QEMU 用户态容器。aarch64 默认入口还经真实 TCP reset
-与静默黑洞恢复。实际 GUI 进程验证通过以下探针运行，配置仍由专用夹具注入：
-
-```bash
-python3 scripts/probe-default-session-gui.py --executable /absolute/Ghosterm.app/Contents/MacOS/GhostermApp
-# 本地路径不需要 Linux 夹具环境。
-python3 scripts/probe-default-session-gui.py --local --executable /absolute/Ghosterm.app/Contents/MacOS/GhostermApp
-```
+2026-10-28：默认 AppModel 已切回普通 PTY/SSH。`DefaultRemoteSessionTests` 现验证
+普通 SSH、分屏和 SFTP，不安装 helper；旧 GUI 启动恢复探针随入口一起退役。
+下方为旧方案的历史证据，不代表当前默认行为；见 [tmux 实施进度](optional-tmux-implementation.md)。
 
 本地 daemon 与 Linux aarch64 远端均已通过。探针启动真实 RootView，收到带随机
 标记的新命令响应后 SIGKILL GUI，再从同一

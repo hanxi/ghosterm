@@ -337,6 +337,10 @@ public final class TerminalPane: ObservableObject, Identifiable {
                 self.programStatus.removeEphemeral()
                 // 通知持有者：分屏里该收掉这个窗格（最后一个 → 关标签页）。
                 self.onExit?(self)
+            case .exitedUnknown:
+                self.status = .exitedUnknown
+                self.programStatus.removeEphemeral()
+                self.onExit?(self)
             case .failed(let message):
                 self.status = .failed(message)
                 self.programStatus.removeEphemeral()

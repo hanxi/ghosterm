@@ -1,5 +1,8 @@
 # 原生产品会话协调器
 
+2026-10-28：默认入口已切回普通 PTY/SSH；侧栏恢复、断开保留与启动恢复入口已退役。
+下文保留待删除组件的历史行为，不能当作当前产品默认行为。见 [tmux 实施进度](optional-tmux-implementation.md)。
+
 `NativeSessionCoordinator` 组织运行时校验、远程准备、持久化记录、窗格挂接与管理操作。本地和远程均通过 `TerminalPane.attachRecoverable` 进入同一套 Transport，不转发终端字节。
 
 本地创建从应用运行时清单选择 helper；远程创建先用共享认证流程探测 Linux 架构、校验并上传对应预编译环境，再建立独立的 SSH 长连接。准备工作带取消票，已关闭窗格不能因迟到结果创建会话。运行时哈希与记录不一致时明确拒绝，不启动兼容适配或替代 shell。
@@ -23,4 +26,4 @@
 没有新增协议字段或旧版本适配。恢复原 Source 不重新运行这条命令。专用 Linux
 账户为 `/bin/bash`，实际 `$0` 与 `shopt -q login_shell` 均已验证；退回固定 `/bin/sh`
 的隔离变异会触发普通 XCTest 失败，同变异的主机配置读取对照仍绿。入口为
-`scripts/mutation-check-session-login.py`。
+旧的 session-login 变异随默认入口退役；普通登录 shell 仍由 login-shell 闸门验证。

@@ -151,34 +151,10 @@ public final class AppModel: ObservableObject {
     /// 这样 `model.preferences.xxx = y` 会重赋这个 @Published 属性、触发广播。
     @Published public var preferences: AppPreferences
 
-    @Published public private(set) var savedSessions: [SessionRecord] = []
-    @Published public private(set) var sessionError: String?
-    private let sessionDirectory, sessionRuntimeRoot: URL
-    private let sessionCatalog: () throws -> SessionRuntimeCatalog
-    private let remoteInstallRoot, remoteRuntimeDirectory: String?
     private var startedInitialSessions = false
-    private lazy var nativeSessions = NativeSessionCoordinator(directory: sessionDirectory, runtimeRoot: sessionRuntimeRoot,
-        loadCatalog: sessionCatalog, remoteInstallRoot: remoteInstallRoot, remoteRuntimeDirectory: remoteRuntimeDirectory, credentials: { [weak self] target in
-            SessionCredentialSelector(target: target, ask: { [weak self] kind in
-                guard let self else { return nil }
-                let prompt = CredentialPrompt(host: target.host, port: target.port, user: target.user, kind: kind)
-                self.pendingCredential = prompt; defer { self.pendingCredential = nil }
-                return self.interaction?.askCredential(prompt)
-            }, hostkey: { [weak self] type, fingerprint in
-                guard let self else { return .unknown }
-                let prompt = HostKeyPrompt(host: target.host, port: target.port, keyType: type, fingerprint: fingerprint)
-                self.pendingHostKey = prompt; defer { self.pendingHostKey = nil }
-                return self.interaction?.confirmHostKey(prompt) ?? .unknown
-            }, notice: { [weak self] in self?.sessionError = $0 })
-        }, changed: { [weak self] in self?.savedSessions = $0 }, failed: { [weak self] in self?.sessionError = $0 })
 
     public init(configPath: String? = nil, knownHostsPath: String? = nil,
-                settings: SettingsStore? = nil, sessionDirectory: URL? = nil, sessionRuntimeRoot: URL? = nil,
-                sessionCatalog: @escaping () throws -> SessionRuntimeCatalog = SessionRuntimeCatalog.loadDefault,
-                remoteInstallRoot: String? = nil, remoteRuntimeDirectory: String? = nil) {
-        self.sessionDirectory = sessionDirectory ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support/Ghosterm/sessions")
-        self.sessionRuntimeRoot = sessionRuntimeRoot ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/state/ghosterm")
-        self.sessionCatalog = sessionCatalog; self.remoteInstallRoot = remoteInstallRoot; self.remoteRuntimeDirectory = remoteRuntimeDirectory
+                settings: SettingsStore? = nil) {
         self.configPath = configPath ?? AppModel.defaultConfigPath()
         self.knownHostsPath = knownHostsPath ?? AppModel.defaultKnownHostsPath()
         self.settings = settings
@@ -221,15 +197,14 @@ public final class AppModel: ObservableObject {
         // TabManager stop 之前跑。
         tabs.willClose = { [weak self] tab in
             guard let self else { return }; self.cancelInFlight(tab)
-            for pane in tab.panes { self.nativeSessions.close(pane) }
         }
-        nativeSessions.refresh()
     }
 
     /// 投一张取消票：若这个标签页的连接还在途中，工作线程会在下一个检查点
     /// 跳掉（不 attach、不弹凭据框）。已建好的会话由 TabManager.close →
     /// pane.stop 停掉，不在这里管。
     private func cancelInFlight(_ tab: TerminalTab) {
+        for pane in tab.panes where pane.status == .connecting { cancelledConnects.add(pane.id) }
         // 只有真有在途连接的标签页才投票：已建好的会话由 stop 收掉，投了
         // 也没人消费（还会让集合一直涨）。
         for pane in tab.filePanes where pane.remote && pane.panel == nil && pane.error == nil {
@@ -443,10 +418,10 @@ public final class AppModel: ObservableObject {
         tab.split(axis: axis, with: pane)
 
         if tab.kind.isLocalShell {
-            nativeSessions.local(pane: pane, app: terminalApp, shell: preferences.resolvedShell, cwd: startCwd ?? NSHomeDirectory())
+            startLocal(pane: pane, app: terminalApp, cwd: startCwd)
         } else if let target = tab.kind.remoteTarget {
             let entry = hosts.first { $0.pattern == target.pattern }
-            startSSH(tabID: tab.id, pane: pane, entry: entry, pattern: target.pattern, terminalApp: terminalApp, cwd: startCwd)
+            startSSH(pane: pane, entry: entry, pattern: target.pattern, terminalApp: terminalApp)
         }
     }
 
@@ -691,11 +666,11 @@ public final class AppModel: ObservableObject {
 
         switch target {
         case .localShell:
-            nativeSessions.local(pane: pane, app: terminalApp, shell: preferences.resolvedShell, cwd: cwd ?? NSHomeDirectory())
+            startLocal(pane: pane, app: terminalApp, cwd: cwd)
             statusMessage = "本地 shell"
         case .host(let pattern):
             let entry = hosts.first { $0.pattern == pattern }
-            startSSH(tabID: tab.id, pane: pane, entry: entry, pattern: pattern, terminalApp: terminalApp)
+            startSSH(pane: pane, entry: entry, pattern: pattern, terminalApp: terminalApp)
         }
     }
 
@@ -727,52 +702,57 @@ public final class AppModel: ObservableObject {
         }
     }
 
-    private func startSSH(tabID: UUID, pane: TerminalPane, entry: HostEntry?, pattern: String,
-                          terminalApp: TerminalApp, cwd: String? = nil) {
+    private func startSSH(pane: TerminalPane, entry: HostEntry?, pattern: String,
+                          terminalApp: TerminalApp) {
         let host = entry?.hostname ?? pattern, user = entry?.user ?? NSUserName()
         let port = UInt16(entry?.port ?? 22)
         let paths = expandTilde(entry?.identityFiles ?? [])
-        let target = SessionRecord.Target(alias: pattern, host: host, user: user, port: port,
-            knownHosts: knownHostsPath, identityPaths: paths.isEmpty ? Self.defaultKeyPaths() : paths)
+        let knownHosts = knownHostsPath, id = pane.id
         statusMessage = "连接 \(user)@\(host)…"
-        nativeSessions.remote(pane: pane, app: terminalApp, target: target, cwd: cwd)
+        // 与 SFTP 共用认证；连接只在工作线程进行，每条终端独占 SSHSession。
+        pane.onStop = { [weak self] in self?.cancelledConnects.add(id) }
+        let thread = Thread { [weak self, weak pane] in
+            guard let self else { return }
+            let result: Result<(SSHSession, Transport), Error> = Result {
+                let ssh = try self.connectAuthenticated(host: host, port: port, user: user,
+                    knownHosts: knownHosts, identityFiles: paths, cancelID: id) { [weak self] h, p, kt, fp in
+                        self?.decideHostKey(host: h, port: p, keyType: kt, fingerprint: fp, cancelID: id) ?? .unknown
+                    }
+                try self.throwIfCancelled(id)
+                let transport = try Transport.openSSHShell(ssh, term: "xterm-256color", cols: 80, rows: 24)
+                return (ssh, transport)
+            }
+            DispatchQueue.main.async { [weak self, weak pane] in
+                guard let self else { return }
+                let cancelled = self.cancelledConnects.take(id)
+                guard let pane, !cancelled, self.tabs.tabs.contains(where: { $0.panes.contains(where: { $0.id == id }) }) else { return }
+                pane.onStop = nil
+                do {
+                    let (ssh, transport) = try result.get()
+                    let surface = try TerminalSurface(app: terminalApp)
+                    let session = SessionController(transport: transport, surface: surface, sshSession: ssh)
+                    pane.attach(surface: surface, session: session); pane.start()
+                } catch { pane.markFailed(sessionMessage(error)) }
+            }
+        }
+        thread.name = "ghosterm-terminal-connect"; thread.start()
     }
 
-    public func refreshSavedSessions() { nativeSessions.refresh() }
-    public func dismissSessionError() { sessionError = nil }
-    public func sessionIsManaging(_ record: SessionRecord) -> Bool { nativeSessions.isManaging(record.id) }
-    public func inspectSavedSession(_ record: SessionRecord) { nativeSessions.control(record, operation: .inspect) }
-    public func terminateSavedSession(_ record: SessionRecord) { nativeSessions.control(record, operation: .terminate) }
-    public func forgetSavedSession(_ record: SessionRecord) { nativeSessions.forget(record) }
-    public func restoreSavedSession(_ record: SessionRecord) {
-        guard let app = terminalApp else { sessionError = "终端引擎不可用"; return }
-        if let existing = tabs.tabs.first(where: { $0.panes.contains { $0.sessionRecord?.id == record.id } }) {
-            tabs.activate(existing); return
-        }
-        let kind: TabKind
-        if let target = record.target { kind = .ssh(.init(pattern: target.alias, user: target.user, host: target.host, port: target.port)) }
-        else { kind = .localShell }
-        let pane = TerminalPane(), tab = TerminalTab(kind: kind, pane: pane)
-        pane.acceptRecoverableRecord(record)
-        tabs.add(tab); nativeSessions.resume(record, pane: pane, app: app)
+    private func startLocal(pane: TerminalPane, app: TerminalApp, cwd: String?) {
+        do {
+            let surface = try TerminalSurface(app: app)
+            let session = try SessionController.localShell(surface: surface,
+                executable: preferences.resolvedShell, cwd: cwd ?? NSHomeDirectory(), kind: .shell)
+            pane.attach(surface: surface, session: session); pane.start()
+        } catch { pane.markFailed(sessionMessage(error)) }
     }
-    public func detachKeepingSession(_ tab: TerminalTab) {
-        cancelInFlight(tab)
-        for pane in tab.panes { nativeSessions.detached(pane) }
-        tab.stop(); tabs.remove(tab)
-    }
-    /// Startup discovery never CREATEs an unconfirmed intent. Stop uncertainty
-    /// remains in the recovery list until explicitly inspected by the user.
+
+    /// 普通启动只按偏好新开 shell；不读取旧记录、探测 tmux 或启动服务。
     public func startInitialSessions() {
         guard !startedInitialSessions else { return }; startedInitialSessions = true
-        nativeSessions.refresh { [weak self] result in
-            guard let self, case .success(let rows) = result else { return }
-            guard self.tabs.tabs.isEmpty else { return }
-            for record in rows where record.disposition == .session && (record.session > 0 || record.admitted) {
-                self.restoreSavedSession(record)
-                self.tabs.activeTab?.isLocked = self.preferences.lockTabsOnLaunch
-            }
-            if self.tabs.tabs.isEmpty && self.preferences.shellOnLaunch { self.connect(to: .localShell) }
+        if tabs.tabs.isEmpty && preferences.shellOnLaunch {
+            connect(to: .localShell)
+            tabs.activeTab?.isLocked = preferences.lockTabsOnLaunch
         }
     }
 
@@ -830,16 +810,16 @@ public final class AppModel: ObservableObject {
 
     /// 测试辅助：停掉全部标签页并清空（断言收尾用）。
     public func disconnectForTesting() {
-        for tab in tabs.tabs { cancelInFlight(tab); for pane in tab.panes { nativeSessions.close(pane) } }
+        for tab in tabs.tabs { cancelInFlight(tab) }
         tabs.removeAll()
         statusMessage = "未连接"
     }
 
-    /// 持久终端在 GUI 退出后保留；传输与非持久化会话仍需确认。
+    /// 普通终端的前台作业与传输仍需关闭确认。
     public func shouldTerminate() -> Bool {
         !TransferManager.shared.hasActive && !tabs.tabs.contains { tab in
             if case .sftp = tab.kind { return tab.closeNeedsConfirmation }
-            return tab.panes.contains { $0.sessionRecord == nil && $0.closeNeedsConfirmation }
+            return tab.panes.contains { $0.closeNeedsConfirmation }
         }
     }
 

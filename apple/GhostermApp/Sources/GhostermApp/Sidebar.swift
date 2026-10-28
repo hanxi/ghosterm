@@ -19,29 +19,18 @@ struct Sidebar: View {
     /// 顶带上的切换按钮要能收起侧栏（按钮组两处共用，见 BandControls）。
     @Binding var showsSidebar: Bool
     let onShowSettings: () -> Void
-    @State private var forgetRequest: SessionRecord?
 
     var body: some View {
         VStack(spacing: 0) {
             header
             List {
                 tabsSection
-                if !model.savedSessions.isEmpty { savedSessionsSection }
                 hostsSection
                 if !model.wildcards.isEmpty { wildcardsSection }
             }
             .listStyle(.sidebar)
         }
-        .alert("遗忘会话记录？", isPresented: Binding(
-            get: { forgetRequest != nil }, set: { if !$0 { forgetRequest = nil } })) {
-            Button("遗忘记录（不终止后端）", role: .destructive) {
-                if let record = forgetRequest { model.forgetSavedSession(record) }
-                forgetRequest = nil
-            }
-            Button("取消", role: .cancel) { forgetRequest = nil }
-        } message: {
-            Text("只删除「\(forgetRequest?.displayTitle ?? "")」的本机记录，不会停止本地或远端后台会话。若仍在运行，遗忘后可能无法从应用恢复；要停止它，请先使用「终止会话」。")
-        }
+
     }
 
     /// 侧栏自己的顶带（与顶栏同高）：按钮组贴着红绿灯**左对齐**。
@@ -80,50 +69,6 @@ struct Sidebar: View {
         } header: {
             Text("标签页")
         }
-    }
-
-    private var savedSessionsSection: some View {
-        Section {
-            ForEach(model.savedSessions) { record in
-                HStack(spacing: DS.Padding.xs) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(record.displayTitle).lineLimit(1)
-                        Text(record.stateLabel).font(DS.Font.caption).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if record.canRestore { model.restoreSavedSession(record) } }
-                    Menu { savedSessionActions(record) } label: {
-                        Image(systemName: "ellipsis")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .help("管理「\(record.displayTitle)」：检查、终止或遗忘记录")
-                    .accessibilityLabel("管理会话：\(record.displayTitle)")
-                }
-                .contextMenu { savedSessionActions(record) }
-            }
-        } header: {
-            HStack {
-                Text("保留的会话")
-                Spacer()
-                Button { model.refreshSavedSessions() } label: { Image(systemName: "arrow.clockwise").font(DS.Font.caption) }
-                    .buttonStyle(.plain).help("重新读取保留的会话")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func savedSessionActions(_ record: SessionRecord) -> some View {
-        Button("恢复会话") { model.restoreSavedSession(record) }
-            .disabled(!record.canRestore || model.sessionIsManaging(record))
-        Button("检查状态") { model.inspectSavedSession(record) }
-            .disabled(!record.canRestore || model.sessionIsManaging(record))
-        Button("终止会话", role: .destructive) { model.terminateSavedSession(record) }
-            .disabled(!record.canRestore || model.sessionIsManaging(record))
-        Divider()
-        Button("遗忘记录（不终止后端）", role: .destructive) { forgetRequest = record }
-            .disabled(model.sessionIsManaging(record))
     }
 
     // MARK: - 可连接的 Host

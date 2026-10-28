@@ -66,9 +66,6 @@ struct TabContextMenu: View {
 
         Button(tab.isLocked ? "解锁标签页" : "锁定标签页") { tab.isLocked.toggle() }
         Divider()
-        if !tab.panes.isEmpty {
-            Button("断开并保留会话") { model.detachKeepingSession(tab) }
-        }
         Button("关闭标签页") { tabs.requestClose(tab) }
             .keyboardShortcut("w", modifiers: .command)
     }

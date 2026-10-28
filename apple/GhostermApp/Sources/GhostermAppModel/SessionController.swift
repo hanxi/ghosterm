@@ -19,6 +19,7 @@ public enum SessionState: Equatable {
     case idle
     case running
     case exited(code: Int32)
+    case exitedUnknown
     case failed(String)
 }
 
@@ -60,7 +61,11 @@ public final class SessionController {
     /// 子进程的工作目录（本地 PTY 才有；SSH 返回 nil）。内核查询，随取随新。
     public var childCwd: String? { transport.childCwd }
     private let queue = DispatchQueue(label: "dev.ghosterm.session")
-    private var running = false
+    private var _running = false
+    private var running: Bool {
+        get { stateLock.lock(); defer { stateLock.unlock() }; return _running }
+        set { stateLock.lock(); _running = newValue; stateLock.unlock() }
+    }
 
     /// core 的契约是 read/write/resize 由**同一会话线程**独占调用（libssh2 的
     /// session 非线程安全）。但 libghostty 会在它自己的 termio 线程上回调
@@ -82,7 +87,7 @@ public final class SessionController {
         pendingLock.unlock()
     }
 
-    private func drainPending() {
+    private func drainPending() throws {
         pendingLock.lock()
         let ops = pending
         pending.removeAll(keepingCapacity: true)
@@ -90,9 +95,9 @@ public final class SessionController {
         for op in ops {
             switch op {
             case .write(let bytes):
-                try? transport.write(bytes)
+                try transport.write(bytes)
             case .resize(let cols, let rows):
-                try? transport.resize(cols: cols, rows: rows)
+                try transport.resize(cols: cols, rows: rows)
             }
         }
     }
@@ -171,10 +176,9 @@ public final class SessionController {
         while running {
             // 先排空输入/尺寸待办：这些是 UI/termio 线程转交过来的，
             // 在这里执行才满足「transport 由会话线程独占」的契约。
-            drainPending()
-
             let result: Transport.ReadResult
             do {
+                try drainPending()
                 result = try transport.read(timeoutMilliseconds: 20)
             } catch {
                 finish(.failed(Ghosterm.lastError))
@@ -187,7 +191,7 @@ public final class SessionController {
                 continue
             case .eof:
                 let exited = transport.exited(exitCode: &exitCode)
-                finish(.exited(code: exited ? exitCode : 0))
+                finish(exited ? .exited(code: exitCode) : .exitedUnknown)
                 return
             }
         }
@@ -216,7 +220,7 @@ public final class SessionController {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             switch state {
-            case .exited, .failed: return state
+            case .exited, .exitedUnknown, .failed: return state
             default: Thread.sleep(forTimeInterval: 0.02)
             }
         }

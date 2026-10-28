@@ -10,10 +10,7 @@
 #   3. SSH e2e：起本机真 sshd 注入 GHOSTERM_SSH_*（无 sshd 显式 SKIP）。
 #
 # 前置：scripts/build-ghostty.sh 已产出补丁版 GhosttyKit.xcframework。
-# 前置：GhostermApp 的 owned-session fixture 读 build/runtime/catalog.json——
-#       它由 scripts/build-sessiond-mac.py + scripts/stage-session-runtime.py
-#       现造（CI 在闸门**之前**跑这两步；干净检出上没有这文件，WorkspaceTests
-#       会整片报「catalog.json 不存在」，见 macos-package.yml 的装配步骤）。
+# 普通 AppModel 夹具只使用本地 PTY / SSH，不需要 sessiond 或 runtime catalog。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PKG="$ROOT/apple/GhostermApp"

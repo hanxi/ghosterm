@@ -77,18 +77,6 @@ struct RootView: View {
                              onShowSettings: { SettingsWindow.open(model: model) })
                     Divider()
                 }
-                if let message = model.sessionError {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                        Text(message).font(DS.Font.callout).textSelection(.enabled)
-                        Spacer(minLength: 4)
-                        Button { model.dismissSessionError() } label: { Image(systemName: "xmark") }
-                            .buttonStyle(.plain).accessibilityLabel("关闭会话提示")
-                    }
-                    .padding(10)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    Divider()
-                }
                 panes
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

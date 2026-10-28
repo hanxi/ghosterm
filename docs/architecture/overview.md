@@ -52,7 +52,15 @@
 SSH 断网恢复与产品接线仍未交付。目标架构与未通过的 P0 条件见
 [会话重构计划](../reference/plan-session-daemon.md) 和 [会话运行时 ADR](session-runtime.md)。
 
-## 远端持久会话方向（2026-10-20，尚未交付）
+## 可选后台会话方向（2026-10-28，实施中）
+
+默认本地/SSH 连接已回接普通 PTY/SSH shell，不读取旧会话记录、不探测 tmux、不安装 helper。
+后台会话按 [可选 tmux 计划](../reference/plan-optional-tmux.md) 实施，连接由用户从刷新后的
+列表选择，每个格子承载普通 tmux attach；不使用 control mode。共享模块负责 tmux 管理，
+TerminalSurface 保持后端无关，终端输出直连 I/O owner。
+
+以下自有 sessiond 方向已被替代，其组件、构建、打包和文档正按依赖闭包退役，不能当作
+后续交付要求。进度见 [实施清单](../reference/optional-tmux-implementation.md)。
 
 各平台原生客户端经现有 SSH 端口，以不申请 PTY 的 exec channel 承载会话协议；
 远端短生命周期连接代理接入当前用户的 sessiond。sessiond 独立持有原 PTY、程序

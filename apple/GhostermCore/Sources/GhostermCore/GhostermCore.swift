@@ -747,7 +747,12 @@ public enum TransportKind: Equatable {
 public final class Transport {
     let handle: OpaquePointer
 
-    init(handle: OpaquePointer) { self.handle = handle }
+    init(handle: OpaquePointer, sshOwner: SSHSession? = nil) {
+        self.handle = handle; self.sshOwner = sshOwner
+    }
+    // C Transport 借用 SSH session，绑定必须保证 close 在 owner 释放前发生。
+    // 包括取消连接后尚未交给 SessionController 的 transport。
+    private let sshOwner: SSHSession?
     deinit { gt_transport_close(handle) }
 
     /// 起的是「用户的交互 shell」还是「一条具体命令」。
@@ -805,7 +810,7 @@ public final class Transport {
             h = ghosterm_open_ssh_shell(session.handle, t, cols, rows)
         }
         guard let handle = h else { throw GhostermError.failed(Ghosterm.lastError) }
-        return Transport(handle: handle)
+        return Transport(handle: handle, sshOwner: session)
     }
 
     public var kind: TransportKind {

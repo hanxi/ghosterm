@@ -213,9 +213,9 @@ p = sys.argv[1]; s = open(p).read()
 # `splitActiveTab` 各有一处，只写这一行会被替换成文件里**第一处**（文件面板那条
 # ——改它不会让分屏断言变红，T7 曾因此假绿）。带上上一行注释定位到分屏那处。
 old = """        if tab.kind.isLocalShell {
-            nativeSessions.local(pane: pane,"""
+            startLocal(pane: pane,"""
 new = """        if false { /* GT_MUTATION_MARK：本地 shell 不分屏 */
-            nativeSessions.local(pane: pane,"""
+            startLocal(pane: pane,"""
 assert old in s, "T7 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PYEOF
@@ -408,8 +408,8 @@ echo "== T19：本地 shell 无可继承目录时不落家目录（回到继承�
 python3 - "$APPMODEL" <<'PYT19'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "nativeSessions.local(pane: pane, app: terminalApp, shell: preferences.resolvedShell, cwd: cwd ?? NSHomeDirectory())"
-new = "nativeSessions.local(pane: pane, app: terminalApp, shell: preferences.resolvedShell, cwd: cwd ?? FileManager.default.currentDirectoryPath) /* GT_MUTATION_MARK */"
+old = "executable: preferences.resolvedShell, cwd: cwd ?? NSHomeDirectory(), kind: .shell)"
+new = "executable: preferences.resolvedShell, cwd: cwd ?? FileManager.default.currentDirectoryPath, kind: .shell) /* GT_MUTATION_MARK */"
 assert old in s, "T19 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PYT19

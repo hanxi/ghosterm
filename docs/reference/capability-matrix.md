@@ -1,6 +1,7 @@
 # 能力矩阵
 
-2026-10-28 已开始 [可选 tmux 重构](plan-optional-tmux.md)，当前仍是旧 sessiond 产品实现。
+2026-10-28 已开始 [可选 tmux 重构](plan-optional-tmux.md)，默认入口已切回普通 PTY/SSH。
+下表 sessiond 均为旧组件/历史路径证据，产品已移除自动恢复与安装入口，源码仍待整体退役。
 可选 tmux 为 ⏳（仅有命令研究，尚无产品实现）；下表 sessiond 证据随其退役同步移除，
 不能据此宣称 tmux 路径已交付。进度见 [实施清单](optional-tmux-implementation.md)。
 
