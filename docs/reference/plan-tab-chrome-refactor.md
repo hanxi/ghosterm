@@ -1,6 +1,6 @@
 # macOS 标签栏与窗格界面重构计划
 
-> 状态：待实施。本文只制定重构与验收安排，不代表原生界面已经完成。
+> 状态：实施中。S0 已验证原生标签组限制，按用户“不考虑兼容、架构简洁”的要求调整窗口方案。
 > 日期：2026-10-29。源码基线：`54331f1`。
 > 设计依据：[已确认的交互原型](../design/tabs-chrome-prototype.html)与[侧栏模式示意图](../design/tabs-split-preview.png)。
 > 执行约束：以仓库 `AGENTS.md` 为准；每个切片包含源码、调用方、测试与变异的同步调整，检查通过后直接提交 `main`。
@@ -29,14 +29,14 @@
 
 | 现有代码 | 当前事实 | 重构处理 |
 |---|---|---|
-| `Sources/GhostermApp/GhostermApp.swift` | 生产入口创建 `NativeTitlebarWindow`，安装 `NativeTabWindows` | 首选保留窗口与会话生命周期，不因改样式改为另一套宿主 |
-| `Sources/GhostermApp/NativeTabWindows.swift` | 每个应用标签有自己的 NSWindow；模型、原生选择、标题和顺序双向同步 | 新增布局偏好的同步，保留窗口身份、关闭路由和 sheet 所属窗口 |
-| `Sources/GhostermApp/NativeTitlebarWindow.swift` | 创建 `NSToolbar`，约束系统标签栏；关闭与右键菜单按 AppKit backing item 身份路由 | 原生标签栏只在顶部模式出现；调整控件避让，侧边模式撤去原生栏与多余 toolbar 占位 |
-| `Sources/GhostermApp/RootView.swift` | `nativeTabs && tabs.count > 1` 时终端列留一条 `barHeight` 空带；另有非原生标签测试路径 | 以统一布局状态决定预留；生产路径验证侧边模式终端直抵顶部，避免只修测试路径 |
+| `Sources/GhostermApp/GhostermApp.swift` | 生产入口创建 `NativeTitlebarWindow`，安装 `NativeTabWindows` | 改为单个原生窗口；终端生命周期继续归 TabManager / TerminalPane |
+| `Sources/GhostermApp/NativeTabWindows.swift` | 每个应用标签有自己的 NSWindow；模型、原生选择、标题和顺序双向同步 | 退役每标签一个窗口的映射，关闭与 sheet 在唯一窗口内按身份路由 |
+| `Sources/GhostermApp/NativeTitlebarWindow.swift` | 创建 `NSToolbar`，约束系统标签栏；关闭与右键菜单按 AppKit backing item 身份路由 | 退役私有标签栏补丁，顶部由统一原生导航视图绘制 |
+| `Sources/GhostermApp/RootView.swift` | `nativeTabs && tabs.count > 1` 时终端列留一条 `barHeight` 空带；另有非原生标签测试路径 | 移除双路径与局部状态，以统一布局决定导航；工作区宿主保持同一层级 |
 | `Sources/GhostermAppModel/WindowChrome.swift` | 全尺寸内容、原生红绿灯定位、resize 后重装、拖动与系统双击行为 | 由布局提供窗口控件安全区，保护终端与文件窗格的鼠标事件 |
 | `Sources/GhostermApp/Sidebar.swift` | 标签、主机和通配块都在同一列表，主机区还承担编辑、新增与刷新入口 | 搬走主机管理能力后，改成纯标签列表，增加精简样式与排序 |
 | `Sources/GhostermApp/BandControls.swift` | 红绿灯留白、侧栏开关、加号与配置错误提示共用一组 | 删除布局开关，保留唯一加号；错误提示迁移到明确可见的错误条 |
-| `Sources/GhostermApp/TabStrip.swift` | 自绘标签条、滚轮横滚、`NewTabMenu`；生产顶部实际走 AppKit 标签栏 | 复用动作与滚动经验，不能把只改自绘 `TabChip` 当成生产顶部已交付 |
+| `Sources/GhostermApp/TabStrip.swift` | 自绘标签条、滚轮横滚、`NewTabMenu`；生产顶部实际走 AppKit 标签栏 | 作为唯一生产顶部导航，复用动作与滚动并增加按 UUID 重排 |
 | `Sources/GhostermApp/SettingsView.swift` | 外观页已有字号、主题、窗格间距、标题栏开关 | 添加标签位置与精简侧栏，保存后立即作用于现存窗口 |
 | `Sources/GhostermApp/PaneChrome.swift`、`RootView.swift` 的 `PaneView` | 分屏按钮已经在窗格上，但终端标题栏只在当前窗格显示按钮 | 扩展为当前 / 悬停 / 键盘操作可见，保留身份明确的命令与预览 |
 | `Sources/GhostermApp/WorkspaceFileView.swift` | 文件窗格独立实现标题与分屏、缩放、关闭按钮，当前未统一显隐 | 与终端窗格统一显示规则，同时保留文件专属动作 |
@@ -45,31 +45,26 @@
 
 ## 3. 窗口层方案与先行验证
 
-### 3.1 首选保留原生窗口标签的生命周期
+### 3.1 S0 实测结果与最终架构决定（2026-10-29）
 
-本轮首选保留 `NativeTabWindows` 与 `TabManager`，顶部继续使用 AppKit 原生标签栏；侧边模式隐藏该栏并取消对应占位。侧栏与顶部只是同一份标签状态的显示方式，不新增窗口映射或排序副本。
+macOS 26 上用两个真实 NSWindow 组成原生标签组，分别在 anchor 与选中窗口调用公开的 `toggleTabBar(nil)`；每次等待 AppKit 完成布局后读取 `isTabBarVisible`，三次结果都是 `true`。公开接口无法隐藏多窗口标签组的栏，不能满足侧边布局。探针在工程 `tmp/tab-chrome-probe/main.swift`，不作为产品依赖。
 
-原因是现有原生路径已经覆盖真实 shell、`firstResponder`、关闭确认、标题、排序、右键菜单与 tmux sheet 归属。为了外观直接切回 `nativeTabs: false`，会同时改变上述生命周期与测试前提，超出必要改动。
+根据用户补充的“不考虑兼容问题，确保代码架构简洁”，本轮改为**一个原生 NSWindow + 同一 TabManager + 两种原生导航视图**。顶部使用 SwiftUI / AppKit 控件绘制已确认的标签样式，侧边只改变导航布局。移除 `NativeTabWindows`、`NativeTitlebarWindow` 及其基于 AppKit 私有 ivar 的标签控件识别，不保留双宿主开关或测试专属渲染路径。
 
-顶部的颜色、空间和控件位置在原生能力范围内向已确认设计靠拢。AppKit 内建标签的精确圆角并非由 `TabChip` 控制，不能以修改非生产组件假装交付，也不为逐像素复刻新增私有样式补丁。若先行验证表明原生栏无法满足最终设计，需要单独记录顶部渲染方案的变更决定，再实施，不暗中换掉窗口模型。
+终端并不随导航重建：工作区一直在同一层级，按标签 UUID 保留宿主，后台继续挂载并停止渲染。切换导航只改变工作区的可用矩形。sheet 属于这一宿主窗口，关闭确认按标签 UUID 定位。窗口关闭必须确认可能中断的任务，不能沿用“每个窗口只关一页”的旧假设。
 
-### 3.2 第一个切片必须回答的问题
+### 3.2 替代验收
 
-以真实 `NativeTitlebarWindow` 与标签组验证以下矩阵，记录截图、窗口和工作区几何：
+旧原生窗口组断言随实现一起迁移为真实单窗口的等价功能证据，不删掉生命周期验证：
 
-- 0 / 1 / 多标签，顶部 / 侧边 / 精简侧栏，反复切换。
-- 主窗口切换、增加标签、关闭最后一个标签、窗口 resize、全屏进出后，侧边模式仍无原生标签条和隐藏空带。
-- 顶部模式恢复原生栏时只预留一次空间；栏不遮住窗格、加号和错误提示。
-- 保持原有 NSWindow、`WorkspaceHostView`、`TerminalHostView`、surface 和 shell PID 身份；切换模式不重连。
-- 本机 macOS 26 与 CI macOS 15 分别验证；包的最低系统版本不因本次重构擅自上调。
+- 0 / 1 / 多标签、顶部 / 侧边 / 精简侧栏，反复切换、resize 和全屏后几何正确；没有重复栏或顶部空带。
+- 保持同一 NSWindow、WorkspaceHostView、TerminalHostView、surface 和 shell PID；当前 firstResponder 正确。
+- 标签选择、重排、重名标签关闭与右键菜单按 UUID 定位，最后一页关闭保留空工作区。
+- 红绿灯真实矩形与加号避让；拖动只在导航空白处生效，工作区不被标题栏抢鼠标事件。
+- tmux、主机编辑与关闭确认仅由一个窗口呈现，切标签不产生另一份 sheet。
+- 本机 macOS 26 实跑；macOS 15 证据由对应 CI 提供，未运行时不得声称通过。
 
-AppKit 提供 [`toggleTabBar(_:)`](https://developer.apple.com/documentation/appkit/nswindow/toggletabbar(_:))，标签组提供只读的 [`isTabBarVisible`](https://developer.apple.com/documentation/appkit/nswindowtabgroup/istabbarvisible)。同步必须先比较目标和实际状态，再在选中窗口执行必要动作；不能在每个窗口重画时盲目 toggle。SDK 声明可确认接口存在，隐藏后是否仍占空间、空标签组如何恢复，仍须上述原生验证。
-
-布局更新不能重新调用 `configure` 去替换已有 `contentView`。`configure` 继续只负责新窗口；既有窗口更新 chrome 与观察到的偏好即可。`WindowChrome.apply` 当前会清空标题，重排方案必须继续保护用于原生标签的真实标题，不能在侧边模式清掉后导致顶部恢复为空。
-
-窗口拖动与系统双击行为留在侧栏顶部或顶部标签栏的空白区域，继续复用 `WindowDragArea`。终端列直抵窗口上沿后，不能把整个窗格标题或工作区变成移窗热点：`WorkspaceHostView`、窗格宿主和拖动源的 `mouseDownCanMoveWindow = false` 仍须成立，窗格重排、分隔条拖动与终端划选不得被 AppKit 标题栏抢走。
-
-先行验证未通过的几何或生命周期项不得记为完成，也不能只删掉 `Color.clear` 留给内容被原生栏盖住。
+原计划中“顶部原生栏 / 原生组双向同步”的表述由本节决定替代。相关脚本保留业务断言，移除 AppKit 私有视图类名与 backing ivar 的测试依赖。
 
 ## 4. 状态与动作设计
 
@@ -80,7 +75,7 @@ AppKit 提供 [`toggleTabBar(_:)`](https://developer.apple.com/documentation/app
 - `TabPlacement`：`sidebar` / `top`，默认侧边。
 - `compactSidebar`：独立 Bool，只在侧边模式启用；切到顶部时保留偏好，切回侧边再恢复。
 - 偏好写入 UserDefaults，不写入 Ghostty 配置或 `ssh_config`；非法存储值有明确默认解释。
-- `AppModel` 发布唯一的布局状态，所有原生标签窗口观察它。移除 `sidebarVisible` 与 RootView 本地开合状态作为并列生产真相。
+- `AppModel` 发布唯一的布局状态，窗口根视图观察它。移除 `sidebarVisible` 与 RootView 本地开合状态作为并列生产真相。
 - 现有 ⌥⌘S 可保留为调用同一布局命令的快捷入口；主菜单使用准确的布局切换名称并同步 `ShortcutCatalog`，不再直接翻转旧 Bool。
 
 精简侧栏不能照搬 HTML 的 62px：目前 `trafficLightsWidth = 78pt`、标准侧栏宽 240pt。实际最小宽度应由三个原生窗口按钮的包围盒与内距确定，加号必要时排在下一行，不能缩小、重绘或遮住系统按钮。
@@ -105,7 +100,7 @@ AppKit 提供 [`toggleTabBar(_:)`](https://developer.apple.com/documentation/app
 - 新增「窗口 → 搜索标签页…」，建议默认使用 `⇧⌘A`；实施时与主菜单、pin 中默认键位及终端按键路由共同验证。
 - 不照搬原型的 ⌘K：`vendor/ghostty/src/config/Config.zig` 在当前 pin 中把 macOS Super+K 绑定为 `clear_screen`，本轮保留它的清屏用途。
 - 标签继续显示真实连接状态、锁定、运行 / 等待提示、失败命令记号及必要的副标题；精简模式用图标、状态和可访问名称保留识别能力，悬停可读完整信息。
-- 排序统一写 `TabManager.move`；侧栏拖动、原生顶部拖动、搜索与快捷切换均读取同一顺序。
+- 排序统一写 `TabManager.move`；侧栏拖动、顶部拖动、搜索与快捷切换均读取同一顺序。
 - `terminalConfigError` 从旧 `BandControls` 移到可见错误条，提供进入设置的入口；正常状态不多画一颗图标，出错时不得静默。
 
 ### 4.4 窗格操作与预览
@@ -131,14 +126,14 @@ AppKit 提供 [`toggleTabBar(_:)`](https://developer.apple.com/documentation/app
 
 | 切片 | 交付 | 主要文件 | 完成条件 |
 |---|---|---|---|
-| S0 原生窗口验证 | 第 3 节的真实窗口实验与结果记录，明确顶部外观的原生限制 | `NativeTitlebarWindow`、`NativeTabWindows`、原生窗口测试夹具 | 两种布局几何可实现，窗口 / surface / PID 不变；不引入另一套窗口模型冒充通过 |
-| S1 布局偏好 | 唯一布局状态、存储、外观设置控件与主菜单命令 | 新 `TabPresentation`、`AppModel`、`SettingsView`、`AppMenu`、`Shortcuts` | 已开窗口立即响应；测试注入隔离 UserDefaults，不污染用户偏好 |
+| S0 窗口方案验证（已完成） | 多窗口组不能隐藏标签栏，改为单个原生窗口，见第 3 节 | AppKit 真实窗口探针 | 已记录公开 API 的限制与架构决定；生命周期证据在 S3 迁移 |
+| S1 布局偏好 | 唯一布局状态、存储、外观设置控件与主菜单命令 | 新 `TabPresentation`、`AppModel`、`SettingsView`、`AppMenu`、`Shortcuts` | 偏好发布与保存即时生效；测试注入隔离 UserDefaults，不污染用户偏好；最终布局在 S3 接入 |
 | S2 连接入口搬迁 | 新建选择器、主机管理与 sheet 归属 | 新 `NewTabChooser` / 主机管理视图、`HostEditorSheet`、`RootView`、`NewTabMenu` | 主机新增、编辑、通配块、刷新、错误、SFTP、tmux 均可达；此时才能删除旧侧栏主机区 |
-| S3 标签与窗口外壳 | 无顶部空带的侧栏、精简模式、顶部原生栏、唯一加号、错误条和标签搜索 | `Sidebar`、`BandControls`、`RootView`、`TabStrip`、`NativeTitlebarWindow`、`NativeTabWindows`、`WindowChrome` | 生产宿主通过零 / 单 / 多标签、重排、resize、全屏与红绿灯避让；侧栏模式没有重复标签或占位 |
+| S3 标签与窗口外壳 | 无顶部空带的侧栏、精简模式、顶部标签栏、唯一加号、错误条和标签搜索 | `Sidebar`、`BandControls`、`RootView`、`TabStrip`、`NativeTitlebarWindow`、`NativeTabWindows`、`WindowChrome` | 生产宿主通过零 / 单 / 多标签、重排、resize、全屏与红绿灯避让；侧栏模式没有重复标签或占位 |
 | S4 窗格交互 | 统一显隐、身份命令、右键和切分预览 | `PaneChrome`、`PaneView`、`WorkspaceFileView`、`PaneAppearance`、`WorkspaceView`、`AppModel` | 非当前窗格操作不误切其他对象；预览不改变焦点和尺寸；实际切分聚焦新格且原任务不变 |
 | S5 验收与收尾 | 交叉场景原生截图、CI 覆盖与文档、移除失效分支和锚点 | 测试、相关变异脚本、`macos-package.yml`、`AGENTS.md`、能力矩阵、UI pitfalls | 下表证据全部归位，旧断言退役有替代证明，未执行的平台证据如实列出 |
 
-顺序为 S0 → S1 → S2 → S3 → S4 → S5。S0 若揭示原生方案无法满足目标，先更新本计划的窗口决策与验收映射，再推进 S3；不把阻碍留到样式已经改完才处理。
+顺序为 S0 → S1 → S2 → S3 → S4 → S5。S0 已揭示原生组限制并在第 3 节调整方案，S3 须完成单窗口生命周期与验收迁移。
 
 ## 6. 验收与变异映射
 
@@ -148,7 +143,7 @@ AppKit 提供 [`toggleTabBar(_:)`](https://developer.apple.com/documentation/app
 |---|---|---|
 | 侧边无顶栏、顶部不遮内容 | 真实 NSWindow 中量 `WorkspaceHostView` 顶边与窗口顶边、栏与红绿灯的矩形；不靠纯函数或背景颜色判断 | `NativeTabWindowsTests`、`PaneChromeTests`；`native-titlebar`、`native-sheet`、`pane-chrome` |
 | 唯一加号与无切换按钮 | 每种布局、错误状态、空态下实际控件数量与命中范围；标准侧栏 / 顶部尽量保持加号位置，精简模式独立验原生按钮避让 | `TabStripVisibilityTests`、`SidebarChromeTests`；`band-controls`、`sidebar-chrome` |
-| 标签选择、顺序、关闭归属 | 原生组与模型 / 侧栏双向一致；重复标题、非当前标签右键、非当前标签关闭有明确目标 | `NativeTabWindowsTests`、`TabContextMenuTests`；`native-tabs`、`native-context`、`tabs` |
+| 标签选择、顺序、关闭归属 | 顶部与侧边共用模型顺序；重复标题、非当前标签右键、非当前标签关闭有明确目标 | `NativeTabWindowsTests`、`TabContextMenuTests`；`native-tabs`、`native-context`、`tabs` |
 | 模式切换不重建终端 | 两个真实 shell 前后 PID、host / surface 对象身份相同；当前 firstResponder 正确，后台不抢输入 | `NativeTabWindowsTests`、`WindowFocusTests`、`WorkspaceTests`；`native-focus`、`focus`、`occlusion` |
 | 选择器与主机管理 | 合法空列表、读取失败、通配块不可连接、编辑后备份 / 冲突处理、重复连接、sheet 归属 | `TabManagerTests`、配置测试、新选择器测试；`tabs`、`native-sheet`、`default-entry`、认证相关脚本 |
 | 设置与快捷键 | 隔离存储、非法值、即时传播、顶部下禁用精简选项；真 NSMenuItem 与 `ShortcutCatalog` 一致；⌘K 仍清屏 | `SettingsUITests`、`AppMenuCoverageTests`、终端输入集成测试；`settings-ui`、`band-controls`、`terminal` |
@@ -160,8 +155,8 @@ AppKit 提供 [`toggleTabBar(_:)`](https://developer.apple.com/documentation/app
 
 本次用户确认的新设计替代以下旧规则，实施时必须改写对应断言与变异目标：
 
-- `native-tabs` 里的「多标签总是显示原生标签栏」改为按布局验证：顶部显示、侧边隐藏，但选择、标题、关闭确认与双向排序继续有牙。
-- `native-sheet` 里的固定 `Color.clear(barHeight)` 锚点改为顶部预留正确 / 侧边不预留；tmux sheet 归属断言继续保留。
+- `native-tabs` 的原生组断言迁移到单窗口的真实导航：顶部 / 侧边互斥，选择、标题、关闭确认与重排继续有牙。
+- `native-sheet` 的固定占位锚点改为顶部预留正确 / 侧边不预留；tmux sheet 验证唯一宿主与切页不重复呈现。
 - `band-controls` 的「侧栏开关在加号左边」改为无开关、唯一加号；配置错误可见、设置 / 传输 / 关于菜单可达继续保留。
 - `sidebar-chrome` 的开关位置断言改为实际红绿灯与新建控件的避让；当前标签高亮、滚轮与悬停关闭继续保留。
 - `PaneTitleBar.showsButtons(isFocused:)` 的只看焦点规则扩展到悬停与键盘；不能删掉既有标题栏、间距、缩放和聚焦视觉断言来换绿。
