@@ -181,7 +181,7 @@ GHOSTERM_AUTOMATION_OFFSCREEN=1 TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh
 
 ## 7. 范围与完成定义
 
-本轮不改 `core/include/ghosterm.h`、C 实现、Transport、Ghostty pin、终端字节通路、SSH 配置存储协议或其他端 UI；不引入分组、工作区同步、私有 sessiond 或新的恢复机制。若实施确实需要突破这些边界，先单独记录原因与新增验收范围。
+除第 8 节已记录的配置读取错误修复外，本轮不改 `core/include/ghosterm.h`、C 实现、Transport、Ghostty pin、终端字节通路、SSH 配置存储协议或其他端 UI；不引入分组、工作区同步、私有 sessiond 或新的恢复机制。若实施确实需要突破这些边界，先单独记录原因与新增验收范围。
 
 完成时同时满足：已确认的无顶部侧栏与窗格按钮在真实 macOS 窗口中成立；顶部模式可用；主机管理与原有关键动作可达；切换布局不重连、不丢焦点；新断言均有变异证据；两档系统证据和手工 / CI 覆盖如实记账。只有达到这些条件，才把本文状态从待实施改为已交付。
 
@@ -190,5 +190,15 @@ GHOSTERM_AUTOMATION_OFFSCREEN=1 TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh
 - S0：macOS 26 实测多窗口原生标签组不能隐藏栏，决定改为单窗口宿主（第 3 节）。
 - S1 基础：标签位置 / 精简侧栏保存到注入的 UserDefaults，外观设置已加入对应控件；AppModel 通过既有 `@Published preferences` 传播。窗口壳与精简外观仍待 S3，菜单命名也在 S3 统一。
 - S1 本机证据：`scripts/gate.sh` 31 项测试、71 个 C ABI 符号通过；`apple-app-gate.sh` 构建与 319 项测试零失败，包含真实隔离 sshd。1 项随包主题测试因开发态无 `.app` 资源而跳过，不算主题打包证据。外观页实测底部留白 18pt。
-- S1 新变异：`mutation-check-tab-presentation.py` 三组全部目标红、同变异对照绿、复原绿且 SHA256 一致。已有 `settings-ui` 的页面高度变异锚点随内容更新，全量复验列入 S5。
+- S1 新变异：`mutation-check-tab-chrome.py --group preferences` 三组全部目标红、同变异对照绿、复原绿且 SHA256 一致。已有 `settings-ui` 的页面高度变异锚点随内容更新，全量复验列入 S5。
 - 本机测试进程使用 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` 与工程 `TMPDIR`；系统 `xcode-select` 指向 Command Line Tools，直接使用该工具链缺 XCTest。没有修改系统开发工具设置。
+
+### S2 验证发现的必要边界扩展
+
+真实错误夹具发现 `core/src/config.c` 的 `gt_config_parse_file` 在 `fread` 失败时未检查 `ferror`，把读目录产生的 EISDIR 当作空配置。这使选择器无法区分“尚未配置”与“读取失败”。因此本轮允许在该函数补读取错误检查，不改 C ABI；新增 C 回归与隔离变异，另跑 C gate / ABI / sshconfig 变异，界面继续复用统一配置入口，不新增一份 Swift 解析或磁盘读取实现。
+
+S2 新入口已经接入：文件菜单的「新建连接…」与「管理 SSH 配置…」，以及加号菜单的「选择连接…」。选择器提供主机搜索与终端 / 文件 / 显式 tmux 三种方式；管理器支持搜索、新增、编辑通配块、刷新与错误重试。旧侧栏主机区和加号快捷菜单将在 S3 窗口壳迁移时统一删除，当前不将导航外观记为交付。
+
+S2 验证：14 项连接选择器 / 配置编辑 / 菜单测试通过；读取失败已通过真实目录夹具触发，两个面板都用像素验证警告可见。`mutation-check-tab-chrome.py` 合并偏好与连接入口，共九组目标红、同变异对照绿、复原绿与 SHA256 一致。C 侧 `gate.sh` 为 32 项测试与 71 个符号通过，配置变异为 15 组（含新 A9）；恢复钩子另验证 EXIT / INT / TERM 恢复原字节并保留退出码，未带标记的外部修改不被覆盖且 SHA 不一致会报错。
+
+S2 完整宿主回归：`apple-app-gate.sh` 构建与 324 项测试零失败，包含真实隔离 sshd；仍只有开发态随包主题检查这一项 SKIP，不能作为打包主题证据。下一步为 S3：生产窗口外壳、唯一加号、纯标签侧栏、顶部标签、搜索与重排，以及旧窗口组 / 测试双路径的同步退役。

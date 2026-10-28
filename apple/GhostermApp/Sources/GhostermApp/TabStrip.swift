@@ -131,6 +131,10 @@ struct NewTabMenu: View {
 
     var body: some View {
         Menu {
+            Button("选择连接…") {
+                NotificationCenter.default.post(name: .ghostermNewConnection, object: nil)
+            }
+            Divider()
             Button("本地 shell") { model.connect(to: .localShell) }
             Button("本机后台会话…") { model.showTmux(for: .localShell) }
             Button("本地文件") { model.openLocalFiles(newTab: true) }

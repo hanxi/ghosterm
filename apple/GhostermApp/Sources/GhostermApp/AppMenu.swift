@@ -24,6 +24,14 @@ final class AppCommands: NSObject {
     /// ⌘T：**沿用当前标签页的类型**新建（本地→本地、ssh→同机、SFTP→同目标）。
     @objc func newTab(_ sender: Any?) { model?.newTabLikeActive() }
 
+    @objc func newConnection(_ sender: Any?) {
+        NotificationCenter.default.post(name: .ghostermNewConnection, object: nil)
+    }
+
+    @objc func manageHosts(_ sender: Any?) {
+        NotificationCenter.default.post(name: .ghostermManageHosts, object: nil)
+    }
+
     @objc func closeTab(_ sender: Any?) { model?.requestCloseActiveTab() }
 
     @objc func splitRight(_ sender: Any?) {
@@ -137,6 +145,13 @@ enum AppMenu {
         closeWindow.keyEquivalentModifierMask = [.command, .shift]
 
         menu.addItem(newTab)
+        let connection = NSMenuItem(title: "新建连接…", action: #selector(AppCommands.newConnection(_:)), keyEquivalent: "")
+        connection.target = commands
+        menu.addItem(connection)
+        let hosts = NSMenuItem(title: "管理 SSH 配置…", action: #selector(AppCommands.manageHosts(_:)), keyEquivalent: "")
+        hosts.target = commands
+        menu.addItem(hosts)
+        menu.addItem(.separator())
         menu.addItem(closeTab)
         menu.addItem(closeWindow)
         item.submenu = menu
@@ -253,6 +268,8 @@ enum AppMenu {
 }
 
 extension Notification.Name {
+    static let ghostermNewConnection = Notification.Name("Ghosterm.newConnection")
+    static let ghostermManageHosts = Notification.Name("Ghosterm.manageHosts")
     /// 菜单「设置…」（⌘,）→ 由 RootView 打开设置面板。
     /// 与 `ghostermRequestCloseTab` 同一套路：菜单不发号施令，只把意图
     /// 广播给视图，结构的改动仍由视图/模型自己做。

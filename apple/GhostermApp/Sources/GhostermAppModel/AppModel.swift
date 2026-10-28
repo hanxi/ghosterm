@@ -240,7 +240,9 @@ public final class AppModel: ObservableObject {
             loadError = nil
         } catch {
             hosts = []
+            wildcards = []
             configModel = nil
+            configStore = nil
             loadError = "读取 \(configPath) 失败：\(error)"
         }
     }

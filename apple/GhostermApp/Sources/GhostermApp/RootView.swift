@@ -62,6 +62,8 @@ struct RootView: View {
     @State private var editingHost: HostAlias?
     @State private var addingHost = false
     @State private var editError: String?
+    @State private var connectionPanel: ConnectionPanel?
+    @State private var pendingConnection: ConnectionRequest?
     /// 空态 vs 有标签页的键盘焦点（无标签页时焦点给侧边栏，便于键盘操作）。
     @FocusState private var focused: Bool
 
@@ -134,6 +136,25 @@ struct RootView: View {
             TmuxSheet(chooser: chooser, close: { model.dismissTmux() })
                 .onDisappear { chooser.cancel() }
         }
+        .sheet(item: $connectionPanel, onDismiss: openPendingConnection) { panel in
+            switch panel {
+            case .chooser:
+                ConnectionChooser(model: model, choose: { request in
+                    pendingConnection = request
+                    connectionPanel = nil
+                }, manageHosts: { connectionPanel = .hosts })
+            case .hosts:
+                HostManagerView(model: model)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghostermNewConnection)) { _ in
+            guard windowTabID == nil || windowTabID == tabs.activeTabID else { return }
+            connectionPanel = .chooser
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghostermManageHosts)) { _ in
+            guard windowTabID == nil || windowTabID == tabs.activeTabID else { return }
+            connectionPanel = .hosts
+        }
         .sheet(item: $editingHost) { item in
             HostEditorSheet(model: model, alias: item.name, isNew: false)
         }
@@ -167,12 +188,19 @@ struct RootView: View {
                 Text("关闭「\(tab.title)」（\(tab.subtitle)）会结束其中的终端连接，并停止尚在建立的文件连接。已入队的文件传输仍由传输队列继续管理。")
             }
         }
-        .alert("保存失败", isPresented: Binding(
+        .alert("操作失败", isPresented: Binding(
             get: { editError != nil }, set: { if !$0 { editError = nil } })) {
             Button("好", role: .cancel) {}
         } message: {
             Text(editError ?? "")
         }
+    }
+
+    private func openPendingConnection() {
+        guard let request = pendingConnection else { return }
+        pendingConnection = nil
+        do { try request.open(in: model) }
+        catch { editError = error.localizedDescription }
     }
 
     /// 所有标签页的面都挂在这里，只显示当前那个。
@@ -191,6 +219,11 @@ struct RootView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+private enum ConnectionPanel: String, Identifiable {
+    case chooser, hosts
+    var id: Self { self }
 }
 
 /// 一个标签页的内容：终端（可能多窗格）或 SFTP 浏览器。
