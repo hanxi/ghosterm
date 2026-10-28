@@ -17,6 +17,10 @@ body{margin:0;background:var(--page);color:var(--ink);font-family:Inter,-apple-s
 
 .window-tools{display:flex;align-items:center;gap:5px;flex-shrink:0;margin-left:auto;padding-left:12px}#focus-target{font-size:10px;color:var(--muted);padding-right:9px}.tools-divider{width:1px;height:14px;background:var(--line);margin:0 4px}.window-tools .is-previewing{color:var(--accent);background:var(--accent-bg)}.window[data-mode=top] .top-tabs{flex:1}.window[data-mode=top] .top-list{flex:1}.window[data-mode=top] .window-tools{height:100%;padding-bottom:3px}.window .content{background:var(--surface);border-radius:10px;margin:0 7px 7px 0}.terminal-layout{padding:6px;background:var(--surface);gap:6px}.pane-tree,.pane-branch{display:flex;flex:1;min-width:0;min-height:0;gap:6px}.pane-branch[data-axis=rows]{flex-direction:column}.pane{display:flex;flex-direction:column;position:relative;flex:1;min-width:0;min-height:0;border:1px solid #354238;border-radius:7px;overflow:hidden;background:var(--terminal);outline:none}.pane:focus-visible{outline:2px solid #7aa584;outline-offset:1px}.pane.is-active{border-color:#7f9f80;box-shadow:inset 0 2px #a1c296}.pane-header{height:30px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 11px;border-bottom:1px solid #ffffff05;color:#718277;font-size:10px;background:#1e2521;white-space:nowrap;overflow:hidden}.pane-header strong{font-weight:500;color:#a6b3a8;font-size:10px}.pane.is-active .pane-header{background:#263129}.pane.is-active .pane-header strong{color:#d4e2d0}.pane-focus-dot{width:4px;height:4px;flex-shrink:0;border-radius:50%;background:#57685b}.pane.is-active .pane-focus-dot{background:#b4d6a7}.pane-host{max-width:30%;overflow:hidden;text-overflow:ellipsis}.pane-path{overflow:hidden;text-overflow:ellipsis;min-width:0}.pane-active-label{margin-left:auto;color:#99b590;font-size:9px;padding-left:5px;visibility:hidden}.pane.is-active .pane-active-label{visibility:visible}.pane-body{flex:1;min-height:0;padding:19px 19px;font-size:11px;line-height:1.85}.pane:not(.is-active) .pane-body{opacity:.78}.pane:not(.is-active) .cursor{visibility:hidden}.pane-body .terminal-note{display:none}.split-preview{position:absolute;inset:30px 0 0;z-index:2;pointer-events:none;background:#accb9b06}.preview-half{position:absolute;background:#a4c89413;display:flex;align-items:center;justify-content:center;color:#afc7a3;font-size:10px;letter-spacing:1px}.preview-half span{background:#243c2ddd;padding:5px 10px;border-radius:5px;border:1px solid #819e7344}.split-preview[data-axis=cols] .preview-half{inset:0 0 0 50%}.split-preview[data-axis=rows] .preview-half{inset:50% 0 0}.preview-line{position:absolute;box-shadow:0 0 10px #b6da9c35}.split-preview[data-axis=cols] .preview-line{top:0;bottom:0;left:50%;width:1px;background:repeating-linear-gradient(to bottom,#bdd7a8 0 5px,transparent 5px 9px)}.split-preview[data-axis=rows] .preview-line{left:0;right:0;top:50%;height:1px;background:repeating-linear-gradient(to right,#bdd7a8 0 5px,transparent 5px 9px)}.preview-label{position:absolute;top:9px;right:9px;font-size:10px;color:#cbdcbe;background:#263c2de8;border:1px solid #8baa7855;border-radius:5px;padding:5px 8px}.pane-menu{position:fixed;z-index:30;width:196px;padding:5px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 35px #14211c35}.pane-menu[hidden]{display:none}.pane-menu-title{font-size:10px;color:var(--muted);padding:8px}.pane-menu button{width:100%;display:flex;justify-content:space-between;text-align:left;font-size:12px;padding:9px 8px;border-radius:5px}.pane-menu button:hover{background:var(--accent-bg)}.pane-menu button span{color:var(--muted)}.pane-menu-divider{height:1px;background:var(--line);margin:4px}.file-panel{border-radius:6px}.window .statusbar{margin-top:0}
 @media(max-width:1000px){h1{font-size:28px}.pane-body{padding:15px 12px;font-size:10px}.window-tools{padding-left:6px;gap:2px}}@media(max-width:640px){h1{font-size:24px}#focus-target{display:none}.window-tools{gap:0;padding-left:0}.window-tools .icon-btn{width:25px}.tools-divider{margin:0 3px}.pane-header{padding:0 6px;gap:5px}.pane-host,.pane-active-label{display:none}.pane-body{padding:12px 8px;font-size:9px}.terminal-layout,.pane-tree,.pane-branch{gap:4px}.terminal-layout{padding:4px}.preview-label{font-size:8px;top:5px;right:5px;padding:4px}.preview-half{font-size:9px}}
+
+/* 侧栏模式让终端直抵窗口上沿；只有顶部标签模式保留整行标题栏。 */
+.window:not([data-mode=top])>.titlebar{display:none}.sidebar{padding-top:0}#side-controls-slot{height:48px;flex-shrink:0;display:flex;align-items:center;padding:0 4px}.window-controls{display:flex;align-items:center;gap:14px;flex-shrink:0}#top-controls-slot{flex-shrink:0}.window[data-mode=top] .titlebar{display:flex}.window[data-mode=top] .content{border-radius:0 0 9px 9px}.window:not([data-mode=top]) .content{border-radius:0 10px 9px 9px;margin-top:0}.window:not([data-mode=top]) .terminal-layout{padding-top:6px}.pane-header{padding-right:5px;gap:7px}.pane-path{flex:1}.pane-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex-shrink:0;opacity:0;pointer-events:none}.pane:is(.is-active,:hover,:focus-within) .pane-actions{opacity:1;pointer-events:auto}.pane-action{width:24px;height:24px;border-radius:5px;color:#8d9c90}.pane-action .icon{width:15px;height:15px}.pane-action:hover,.pane-action.is-previewing{background:#54704d50;color:#c9dfba}.pane:has(.split-preview){border-color:#8aab7e}.pane:not(:is(.is-active,:hover,:focus-within)) .pane-actions{visibility:hidden}.window[data-mode=compact] #side-controls-slot{height:82px;padding:11px 0 7px;justify-content:center}.window[data-mode=compact] .window-controls{flex-direction:column;gap:10px}.window[data-mode=compact] .traffic{gap:4px;padding:0}.window[data-mode=compact] .traffic i{width:10px;height:10px}.window[data-mode=compact] .sidebar{padding-top:0}
+@media(max-width:640px){.window-controls{gap:8px}.pane-host,.pane-path{display:none}.pane-header{gap:4px;padding-left:5px}.pane-actions{gap:0}.pane-action{width:21px}.pane-action .icon{width:14px;height:14px}.window:not([data-mode=top]) .terminal-layout{padding-top:4px}.window[data-mode=compact] #side-controls-slot{height:78px}.pane-header strong{font-size:9px}}
 </style>
 </head>
 <body>
@@ -40,16 +44,16 @@ body{margin:0;background:var(--page);color:var(--ink);font-family:Inter,-apple-s
 <symbol id="i-pin" viewBox="0 0 24 24"><path d="m9 3 6 0-1 6 4 4v2H6v-2l4-4Zm3 12v6"/></symbol>
 </defs></svg>
 <main class="page">
- <header class="masthead"><div class="brand"><span class="brandmark"><svg class="icon"><use href="#i-terminal"/></svg></span>Ghosterm</div><div class="mast-meta"><span>INTERFACE EXPLORATION</span><span class="tag">交互原型 · 04</span></div></header>
- <section class="intro"><div><div class="eyebrow">LESS CHROME. MORE TERMINAL.</div><h1>按钮在右上角，切分落在当前窗格。</h1><p>点击窗格确定操作对象，悬停右上角分屏按钮，先看清楚这一刀切在哪里。</p></div><div class="controls"><button class="settings-entry" data-action="appearance">体验外观设置 <span>⌘ ,</span></button></div></section>
+ <header class="masthead"><div class="brand"><span class="brandmark"><svg class="icon"><use href="#i-terminal"/></svg></span>Ghosterm</div><div class="mast-meta"><span>INTERFACE EXPLORATION</span><span class="tag">交互原型 · 05</span></div></header>
+ <section class="intro"><div><div class="eyebrow">LESS CHROME. MORE TERMINAL.</div><h1>侧栏管标签，窗格管分屏。</h1><p>侧边模式去掉整条顶栏。分屏按钮回到窗格标题里，操作哪里，就在哪里出现。</p></div><div class="controls"><button class="settings-entry" data-action="appearance">体验外观设置 <span>⌘ ,</span></button></div></section>
  <nav class="system-menu" aria-label="macOS 菜单栏示意">
   <details><summary class="app-menu-name">Ghosterm</summary><div class="menu-popup"><button data-action="appearance">设置… <kbd>⌘ ,</kbd></button><p>标签布局位于「外观」</p></div></details>
-  <details><summary>窗口</summary><div class="menu-popup"><button data-action="search">搜索标签页… <kbd>⌘ K</kbd></button></div></details>
+  <details><summary>窗口</summary><div class="menu-popup"><button data-action="search">搜索标签页… <kbd>⌘ K</kbd></button><button id="files" aria-pressed="false">显示文件面板</button></div></details>
   <span class="menu-note">系统菜单栏示意 · 不占窗口空间</span>
  </nav>
  <section id="app" class="window" data-mode="side" aria-label="Ghosterm 应用交互预览">
-  <div class="titlebar"><div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div><button id="new-tab" class="icon-btn" data-action="new" title="新建标签页 · ⌘T" aria-label="新建标签页"><svg class="icon"><use href="#i-plus"/></svg></button><div class="window-label"><strong>Ghosterm</strong><span>/</span><span id="window-title">ghosterm</span></div><div class="top-tabs"><div id="top-list" class="top-list" role="tablist" aria-label="顶部会话标签"></div></div><div class="title-spacer"></div><div class="window-tools" role="group" aria-label="当前窗格操作"><span id="focus-target">当前：终端 2</span><button id="split-cols" class="icon-btn" aria-label="左右分屏当前窗格" title="左右分屏当前窗格" data-split="cols"><svg class="icon"><use href="#i-split"/></svg></button><button id="split-rows" class="icon-btn" aria-label="上下分屏当前窗格" title="上下分屏当前窗格" data-split="rows"><svg class="icon"><use href="#i-split-rows"/></svg></button><span class="tools-divider"></span><button id="files" class="icon-btn" title="切换文件面板预览" aria-label="切换文件面板预览" aria-pressed="false"><svg class="icon"><use href="#i-folder"/></svg></button></div></div>
-  <div class="workarea"><aside class="sidebar" aria-label="会话侧栏"><div class="side-header"><span>打开的标签页</span><span id="tab-count">5</span></div><div id="side-list" class="tab-list" role="tablist" aria-label="侧边会话标签" aria-orientation="vertical"></div></aside>
+  <div class="titlebar"><div id="top-controls-slot"></div><div class="top-tabs"><div id="top-list" class="top-list" role="tablist" aria-label="顶部会话标签"></div></div></div>
+  <div class="workarea"><aside class="sidebar" aria-label="会话侧栏"><div id="side-controls-slot"><div id="window-controls" class="window-controls"><div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div><button id="new-tab" class="icon-btn" data-action="new" title="新建标签页 · ⌘T" aria-label="新建标签页"><svg class="icon"><use href="#i-plus"/></svg></button></div></div><div class="side-header"><span>打开的标签页</span><span id="tab-count">5</span></div><div id="side-list" class="tab-list" role="tablist" aria-label="侧边会话标签" aria-orientation="vertical"></div></aside>
    <div class="content"><div class="terminal-layout"><div class="pane-tree" id="terminal" role="tabpanel" aria-label="模拟终端窗格"></div><aside class="file-panel" aria-label="文件面板示意"><h3>文件 <span style="float:right;color:#718576">只读预览</span></h3><div class="file-path">~/work/ghosterm/</div><div id="file-rows"></div></aside></div>
     <div class="statusbar"><span class="state-dot"></span><span id="status-label">本地 shell</span><span style="opacity:.4">│</span><span>UTF-8</span><div class="status-right"><span id="pane-label">1 个窗格</span><span>120 × 32</span><span>zsh</span></div></div>
    </div>
@@ -57,9 +61,9 @@ body{margin:0;background:var(--page);color:var(--ink);font-family:Inter,-apple-s
  </section>
  <div class="caption"><div class="caption-left"><span class="live-dot"></span><span id="mode-caption">侧边标签 · 会话平铺排列，完整标题一目了然</span></div><span><kbd>⌘ T</kbd> 新建 · <kbd>⌘ K</kbd> 搜索 · <kbd>⌘ ,</kbd> 设置</span></div>
  <section class="principles" aria-label="设计思路">
-  <article class="principle"><span class="principle-number">01 /</span><div><h2>操作集中，窗格保持干净</h2><p>左右分屏、上下分屏统一放在窗口右上角。每个窗格只显示名称与路径，不再重复放工具按钮。</p></div></article>
-  <article class="principle"><span class="principle-number">02 /</span><div><h2>先看目标，再执行切分</h2><p>细强调线标出当前窗格。悬停分屏按钮，目标内显示切分线与新窗格区域；点击后聚焦新窗格。</p></div></article>
-  <article class="principle"><span class="principle-number">03 /</span><div><h2>右键就地操作，同样直达</h2><p>右键任意窗格，可直接在这里分屏或关闭窗格。标签仍然平铺，布局切换仍在外观设置中。</p></div></article>
+  <article class="principle"><span class="principle-number">01 /</span><div><h2>侧栏模式，省下一整行</h2><p>红绿灯与唯一的加号收进侧栏顶部。终端从窗口上沿展开，不再重复显示当前标签标题。</p></div></article>
+  <article class="principle"><span class="principle-number">02 /</span><div><h2>分屏操作，跟着窗格走</h2><p>当前窗格或鼠标悬停时，标题右侧显示两颗分屏按钮。悬停先预览，点击只切分所在窗格。</p></div></article>
+  <article class="principle"><span class="principle-number">03 /</span><div><h2>同一套操作，适配两种布局</h2><p>顶部模式保留标签栏，分屏入口仍在窗格里。标签平铺、右键菜单与外观设置保持一致。</p></div></article>
  </section>
  <footer class="footnote"><span>设计预览：会话、终端输出及主机均为演示数据；不会执行命令或建立连接。</span><span>参考 <a href="https://blog.google/products-and-platforms/products/chrome/new-chrome-productivity-features/" target="_blank" rel="noopener noreferrer">Chrome 新版纵向标签</a> · Ghosterm UI concept</span></footer>
 </main>
@@ -88,19 +92,24 @@ let nextPaneId=1,menuPane=null;const paneStates=new Map();
 const hosts=[{name:'dev-server',address:'dev@192.0.2.10',path:'/srv/ghosterm'},{name:'api-staging',address:'dev@192.0.2.21',path:'/srv/api'},{name:'production',address:'ops@198.51.100.8',path:'/srv/app'}];
 function notify(message){$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),2400)}
 function tabHTML(t){return `<div class="tab" role="tab" tabindex="${t.id===active?0:-1}" aria-selected="${t.id===active}" aria-controls="terminal" draggable="true" data-id="${t.id}" title="${escapeHTML(t.name+' · '+(t.host||'本地 shell'))}"><span class="tab-icon">${icon(t.type)}</span><span class="tab-name">${escapeHTML(t.name)}</span>${t.busy?'<span class="state-dot busy" title="任务运行中" aria-label="任务运行中"></span>':''}<button class="tab-close" aria-label="关闭 ${escapeHTML(t.name)}" title="关闭标签页" tabindex="-1">${icon('close')}</button></div>`}
+function syncChromeLayout(){
+ const slot=$(mode==='top'?'#top-controls-slot':'#side-controls-slot');
+ if($('#window-controls').parentElement!==slot)slot.append($('#window-controls'));
+}
 function render(){
+ syncChromeLayout();
  $('#tab-count').textContent=tabs.length;
  const tabMarkup=tabs.map(tabHTML).join('');
  $('#side-list').innerHTML=tabMarkup;
  $('#top-list').innerHTML=tabMarkup;
  const t=tabs.find(t=>t.id===active);
  document.querySelectorAll('[data-split],#files').forEach(button=>button.disabled=!t);
- $('#window-title').textContent=t?t.name:'新标签页';
+
 
  $('#status-label').textContent=t?(t.kind==='ssh'?'SSH · 已连接（演示）':'本地 shell · 演示'):'未连接';
  $('#terminal').innerHTML=t?renderPaneTree(getPaneState(t).tree,t,getPaneState(t).active):'<div class="empty-terminal"><h2>从一个新标签开始</h2><p>点击左上角的＋，打开本地终端或连接主机。</p></div>';
  $('#app').classList.toggle('files',!!t&&files);
- $('#files').setAttribute('aria-pressed',String(!!t&&files));
+ $('#files').setAttribute('aria-pressed',String(!!t&&files));$('#files').textContent=files?'隐藏文件面板':'显示文件面板';
  updatePaneFocus();
  const visibleList=mode==='top'?'#top-list':'#side-list';
  document.querySelector(visibleList+' .tab[aria-selected="true"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
@@ -136,14 +145,14 @@ function renderPaneTree(node,t,focused){
 
 <span class="term-green">❯</span> <span class="term-blue">${escapeHTML(t.path)}</span>
 <span class="term-green">❯</span> <span class="cursor"></span></pre>`;
- return `<section class="pane ${node.id===focused?'is-active':''}" data-pane="${node.id}" tabindex="${node.id===focused?0:-1}" aria-label="${node.label}${node.id===focused?'，当前窗格':''}"><header class="pane-header"><span class="pane-focus-dot"></span><strong>${node.label}</strong><span class="pane-host">${escapeHTML(t.host||'本地')}</span><span class="pane-path">${escapeHTML(t.path)}</span><span class="pane-active-label">当前</span></header><div class="terminal pane-body">${output}</div></section>`;
+ return `<section class="pane ${node.id===focused?'is-active':''}" data-pane="${node.id}" tabindex="${node.id===focused?0:-1}" aria-label="${node.label}${node.id===focused?'，当前窗格':''}"><header class="pane-header"><span class="pane-focus-dot"></span><strong>${node.label}</strong><span class="pane-host">${escapeHTML(t.host||'本地')}</span><span class="pane-path">${escapeHTML(t.path)}</span><div class="pane-actions" role="group" aria-label="${node.label}分屏操作"><button class="icon-btn pane-action" data-split="cols" aria-label="左右分屏${node.label}" title="左右分屏此窗格" tabindex="${node.id===focused?0:-1}">${icon('split')}</button><button class="icon-btn pane-action" data-split="rows" aria-label="上下分屏${node.label}" title="上下分屏此窗格" tabindex="${node.id===focused?0:-1}">${icon('split-rows')}</button></div></header><div class="terminal pane-body">${output}</div></section>`;
 }
 function updatePaneFocus(){
  const t=tabs.find(t=>t.id===active),state=t?getPaneState(t):null;
- const leaf=state?paneLeaves(state.tree).find(p=>p.id===state.active):null;
- $('#focus-target').textContent=leaf?'当前：'+leaf.label:'没有当前窗格';
+
+
  $('#pane-label').textContent=state?paneLeaves(state.tree).length+' 个窗格':'0 个窗格';
- document.querySelectorAll('.pane').forEach(p=>{const selected=p.dataset.pane===state?.active;p.classList.toggle('is-active',selected);p.tabIndex=selected?0:-1;p.setAttribute('aria-label',p.querySelector('strong').textContent+(selected?'，当前窗格':''))});
+ document.querySelectorAll('.pane').forEach(p=>{const selected=p.dataset.pane===state?.active;p.classList.toggle('is-active',selected);p.tabIndex=selected?0:-1;p.setAttribute('aria-label',p.querySelector('strong').textContent+(selected?'，当前窗格':''));p.querySelectorAll('.pane-action').forEach(button=>button.tabIndex=selected?0:-1)});
 }
 function focusPane(id){
  const t=tabs.find(t=>t.id===active);if(!t)return;
@@ -157,7 +166,7 @@ function previewSplit(axis,id){
  const label=paneLeaves(state.tree).find(p=>p.id===target).label;
  const preview=document.createElement('div');preview.className='split-preview';preview.dataset.axis=axis;preview.setAttribute('aria-hidden','true');
  preview.innerHTML=`<div class="preview-half"><span>新窗格</span></div><div class="preview-line"></div><div class="preview-label">${label} · ${axis==='cols'?'左右':'上下'}分屏</div>`;pane.append(preview);
- document.querySelector(`[data-split="${axis}"]`)?.classList.add('is-previewing');
+ pane.querySelector(`[data-split="${axis}"]`)?.classList.add('is-previewing');
 }
 function splitPane(axis,id){
  const t=tabs.find(t=>t.id===active);if(!t)return;const state=getPaneState(t),target=id||state.active;
@@ -212,14 +221,12 @@ function openAppearance(){syncAppearance();$('#appearance').showModal()}
 document.querySelectorAll('[name="position"]').forEach(input=>input.addEventListener('change',()=>setMode(input.value)));
 $('#compact-mode').addEventListener('change',()=>setMode($('#compact-mode').checked?'compact':'side'));
 document.querySelectorAll('[name="color"]').forEach(input=>input.addEventListener('change',()=>document.body.classList.toggle('dark',input.value==='dark')));
-$('#files').onclick=()=>{files=!files;render()};
-document.querySelectorAll('[data-split]').forEach(button=>{
- button.addEventListener('pointerenter',()=>previewSplit(button.dataset.split));
- button.addEventListener('pointerleave',clearPreview);
- button.addEventListener('focus',()=>previewSplit(button.dataset.split));
- button.addEventListener('blur',clearPreview);
- button.addEventListener('click',()=>splitPane(button.dataset.split));
-});
+$('#files').onclick=()=>{files=!files;document.querySelectorAll('.system-menu details').forEach(menu=>menu.open=false);render()};
+$('#terminal').addEventListener('pointerover',e=>{const button=e.target.closest('[data-split]');if(button&&!button.contains(e.relatedTarget))previewSplit(button.dataset.split,button.closest('.pane').dataset.pane)});
+$('#terminal').addEventListener('pointerout',e=>{const button=e.target.closest('[data-split]');if(button&&!button.contains(e.relatedTarget))clearPreview()});
+$('#terminal').addEventListener('focusin',e=>{const button=e.target.closest('[data-split]');if(button)previewSplit(button.dataset.split,button.closest('.pane').dataset.pane)});
+$('#terminal').addEventListener('focusout',e=>{if(e.target.closest('[data-split]'))clearPreview()});
+$('#terminal').addEventListener('click',e=>{const button=e.target.closest('[data-split]');if(button){e.stopPropagation();closePaneMenu();splitPane(button.dataset.split,button.closest('.pane').dataset.pane)}});
 document.addEventListener('click',e=>{
  const paneAction=e.target.closest('[data-pane-action]');if(paneAction){const target=menuPane,action=paneAction.dataset.paneAction;closePaneMenu();if(action==='close')closePane(target);else splitPane(action,target);return}
  if(!e.target.closest('#pane-menu'))closePaneMenu();
