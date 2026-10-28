@@ -119,7 +119,7 @@
 > - UI ✅ —— 窗口 + 侧边栏（标签页/连接两栏）+ 顶部标签条（胶囊）
 >   + 顶带按钮组（红绿灯 → 侧栏开关 → `+` → 配置无效时的 ⚠，侧栏开合两态
 >   同一个 x，`BandControls` 一份两处用；设置与窗口级动作只在 macOS 全局
->   菜单条里，由 `AppMenuCoverageTests` + 变异 `band-controls` 钉住）
+>   菜单条里，由 `AppMenuCoverageTests` + 变异 `tab-chrome --group menu` 钉住）
 >   + 多标签页（后台标签页 surface 保持挂载）+ 递归分屏（⌘D / ⌘⇧D；窗格
 >   退出即收掉、只剩一个则关标签页 + 结构改动后分隔等分，见 `SplitExitTests` /
 >   `tabs` 变异 T15/T16）

@@ -28,6 +28,7 @@ public enum ShortcutCatalog {
         ShortcutGroup(title: "标签页", items: [
             ShortcutItem(title: "新建标签页", keys: "⌘T"),
             ShortcutItem(title: "关闭标签页", keys: "⌘W"),
+            ShortcutItem(title: "搜索标签页…", keys: "⇧⌘A"),
             ShortcutItem(title: "标签页 1 … 标签页 9", keys: "⌘1 … ⌘9"),
         ]),
         ShortcutGroup(title: "窗格", items: [
@@ -38,7 +39,7 @@ public enum ShortcutCatalog {
         ]),
         ShortcutGroup(title: "窗口与界面", items: [
             ShortcutItem(title: "关闭窗口", keys: "⇧⌘W"),
-            ShortcutItem(title: "显示侧边栏", keys: "⌥⌘S"),
+            ShortcutItem(title: "切换标签位置", keys: "⌥⌘S"),
             ShortcutItem(title: "文件面板", keys: "⇧⌘E"),
             ShortcutItem(title: "设置…", keys: "⌘,"),
             ShortcutItem(title: "退出 Ghosterm", keys: "⌘Q"),

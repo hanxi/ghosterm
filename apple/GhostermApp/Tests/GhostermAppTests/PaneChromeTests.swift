@@ -146,7 +146,8 @@ final class PaneChromeTests: XCTestCase {
         let tab = TerminalTab(kind: .localShell, pane: TerminalPane())
         model.tabs.add(tab)
         tab.split(axis: .horizontal, with: TerminalPane())
-        return render(RootView(model: model, initialShowsSidebar: false), size: Self.size)
+        model.preferences.tabPlacement = .top
+        return render(RootView(model: model), size: Self.size)
     }
 
     /// 左右分屏，两格都挂上真 surface，返回两块终端面的窗口坐标（按 x 排序）。
@@ -184,8 +185,9 @@ final class PaneChromeTests: XCTestCase {
         let app = try TerminalApp.shared()
         for p in tab.panes { p.attachForTesting(surface: try TerminalSurface(app: app)) }
 
-        let host = makeRootHostingView(model: model,
-                                       initialShowsSidebar: sidebar)
+        model.preferences.tabPlacement = sidebar ? .sidebar : .top
+
+        let host = makeRootHostingView(model: model)
         host.frame = NSRect(origin: .zero, size: Self.size)
         let window = NSWindow(contentRect: host.frame,
                               styleMask: [.titled, .closable, .resizable,
@@ -303,7 +305,8 @@ final class PaneChromeTests: XCTestCase {
             tab.split(axis: .horizontal, with: TerminalPane())
             tab.activePaneID = tab.panes[0].id
         }
-        return render(RootView(model: model, initialShowsSidebar: false),
+        model.preferences.tabPlacement = .top
+        return render(RootView(model: model),
                       size: Self.size)
     }
 
@@ -369,7 +372,7 @@ final class PaneChromeTests: XCTestCase {
     ///
     /// 用户实测报回来的：「左侧栏打开时，多窗格的情况下，顶部出现了多余的
     /// 空白区域」。机理是——侧栏展开时顶部标签条被整块移除（判据见
-    /// `TabStripVisibility.shows`），终端列于是从窗口 y=0 开始；而多窗格时
+    /// `tabPlacement`），终端列于是从窗口 y=0 开始；而多窗格时
     /// 树里多了 `HSplitView`/`VSplitView`（真 `NSSplitView` 桥接），
     /// `RootView` 根上那句 `.ignoresSafeArea(.container, edges: .top)`
     /// 过不去这层 AppKit 桥，split 的子视图又被按窗口安全区（

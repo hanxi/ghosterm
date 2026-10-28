@@ -322,7 +322,7 @@ echo "== U12：键盘页定高装不下内容（回 420 → 底部藏滚动里�
 python3 - "$SETTINGS" <<'PYU12'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "            case .keyboard: return 535"
+old = "            case .keyboard: return 565"
 new = "            case .keyboard: return 420 /* GT_MUTATION_MARK：定高不对表 */"
 assert old in s, "U12 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))

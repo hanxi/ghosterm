@@ -510,7 +510,7 @@ import XCTest
 
     // MARK: - 标题栏带劫持（「拖窗格把整个窗口拖走了」回归）
 
-    /// 侧栏展开时右列没有顶栏（TabStripVisibility），最上排窗格顶到窗口
+    /// 侧栏展开时右列没有顶栏（侧边标签布局），最上排窗格顶到窗口
     /// y=0，正好落进系统标题栏带（顶部约 28pt；fullSizeContentView 下这条
     /// 带仍在，且保留「这里拖动=移窗」语义）。AppKit 的判据是**命中视图**的
     /// `mouseDownCanMoveWindow`（非不透明视图默认 YES）：YES → mouseDown

@@ -11,7 +11,7 @@
 // 「键盘页列出的快捷键」出发对拍，只覆盖**有快捷键**的项；「传输」「关闭
 // 当前分屏」没有快捷键，不在那张表里，正是这里要补的缺口。
 //
-// 变异验证见 `scripts/mutation-check-band-controls.sh`。
+// 变异验证见 `scripts/mutation-check-tab-chrome.py --group menu`。
 import AppKit
 import GhostermAppModel
 import XCTest
@@ -65,7 +65,7 @@ final class AppMenuCoverageTests: XCTestCase {
         let required = [
             "设置…", "传输", "关闭窗口", "关闭标签页", "新建标签页",
             "向右分屏", "向下分屏", "缩放当前分屏", "关闭当前分屏",
-            "文件面板", "显示侧边栏", "关于 Ghosterm",
+            "文件面板", "切换标签位置", "关于 Ghosterm",
         ]
         for title in required {
             guard let item = items[title] else {
@@ -92,7 +92,7 @@ final class AppMenuCoverageTests: XCTestCase {
         let needsTarget = [
             "设置…", "传输", "关闭标签页", "新建标签页",
             "向右分屏", "向下分屏", "缩放当前分屏", "关闭当前分屏",
-            "文件面板", "显示侧边栏",
+            "文件面板", "切换标签位置",
             // 「关于」也走 AppCommands：开的是我们自己的关于窗口，不是系统
             // 那张只认 Info.plist 的标准面板（列不出随包组件的许可）。
             "关于 Ghosterm",

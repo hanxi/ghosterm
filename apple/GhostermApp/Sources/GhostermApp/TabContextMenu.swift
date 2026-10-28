@@ -43,7 +43,7 @@ struct TabContextMenu: View {
             // 标题固定不随缩放状态变：主菜单那条也是固定的，而
             // `ShortcutCatalog` 按**标题**与菜单对拍。缩没缩放看窗格标题栏上
             // 那个按钮（它会换成「还原」图标），不靠菜单文案。
-            Button("缩放当前分屏") { model.toggleZoomActivePane() }
+            Button("缩放当前分屏") { tabs.activate(tab); model.toggleZoomActivePane() }
                 .keyboardShortcut(.return, modifiers: [.command, .shift])
             Button("关闭当前分屏") { model.closePane(in: tab) }
         }

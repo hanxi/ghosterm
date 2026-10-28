@@ -209,11 +209,7 @@ jobs:
           bash scripts/mutation-check-terminal.sh
           bash scripts/mutation-check-transport.sh
           bash scripts/mutation-check-tabs.sh
-          bash scripts/mutation-check-native-tabs.sh
-          bash scripts/mutation-check-native-focus.sh
-          bash scripts/mutation-check-native-context.sh
-          bash scripts/mutation-check-native-sheet.sh
-          bash scripts/mutation-check-native-titlebar.sh
+          python3 scripts/mutation-check-tab-chrome.py
           bash scripts/mutation-check-sidebar-hover.sh
           bash scripts/mutation-check-chrome.sh
           bash scripts/mutation-check-settings.sh

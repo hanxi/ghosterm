@@ -121,9 +121,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 不报「已是最新」；有新版时只给下载直链，不画「安装」按钮。口径见
 `docs/how-to/dev-build.md`，牙见 `scripts/mutation-check-app-update.sh`。
 
-> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **24 份**变异验证——
+> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **20 份**变异验证——
 > Apple 端 `terminal / transport / tabs / chrome / settings / pixel / focus / split-dim / occlusion / app-update`、
-> `default-entry / ssh-auth / ssh-credentials / auth / tmux / tmux-ui`、`native-tabs / native-focus / native-context / native-sheet / native-titlebar / sidebar-hover`、`install-macos`（dev 也执行）、以及 `package-mac`（在**干净检出**上验打包链，输出里
+> `default-entry / ssh-auth / ssh-credentials / auth / tmux / tmux-ui`、`tab-chrome / sidebar-hover`、`install-macos`（dev 也执行）、以及 `package-mac`（在**干净检出**上验打包链，输出里
 > 出现 `SKIP` 一律判红，缺随包主题不许蒙过去）。**其余闸门仍是「手工跑」**：`core/` 侧的
 > sshconfig / include / ssh / sftp / exec / files / transfers / dragdrop / pty-inheritance /
 > login-shell / known-hosts / public-headers 等 CI 看不见。
@@ -141,7 +141,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 2. 跑 `scripts/check-abi.sh`：`nm` 静态库实际导出名 ↔ 头文件声明，**双向对拍**（漏导出与多泄漏都拦）。
 
 > **当前覆盖范围（诚实标注）**：`check-abi.sh` 对拍「`core/` 内部实现 ↔ 头文件」；
-> `check-abi-apple.sh` 另对拍 Swift 的引用名集合（68 项引用、2 项显式登记未用）。JNI / NAPI 尚无绑定。
+> `check-abi-apple.sh` 另对拍 Swift 的引用名集合（69 项引用、2 项显式登记未用）。JNI / NAPI 尚无绑定。
 > 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
 
 ### 变异验证（新增闸门必须附）
@@ -149,12 +149,15 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。
 样板见 `scripts/mutation-check-sshconfig.sh`（15 组变异：A1~A9 + B1~B6，另验基线与回滚）。A9 用真实目录触发 fread 错误，断言必须返回失败；同变异下合法配置 golden 对照仍须通过，不能把读取错误当成空配置。
 **基础与产品变异验证**（每份都必须能独立跑绿）：sshconfig / include / settings /
-settings-ui / tab-chrome / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
+settings-ui / tab-chrome / tabs / chrome / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
-package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh / install-macos / native-tabs / native-focus / native-context / native-sheet / sidebar-hover / native-titlebar。
-`native-titlebar` 验证原生标签栏在标题栏中的位置、宽度和控件避让；CI 在 macOS 15 执行，本机 macOS 26 也须验证。
-`native-focus` 在离屏原生窗口标签组中切换两个真实 shell，检查当前终端的焦点位和 AppKit firstResponder；变异掐断标签活跃状态，独立排序对照仍须为绿。
+package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh / install-macos / sidebar-hover。
+`tab-chrome` 验证单个原生窗口中的顶部 / 侧边导航、真实红绿灯避让、无顶部空带、唯一加号、
+标签 UUID 选择 / 关闭确认 / 重排 / 右键、唯一 sheet 与窗口关闭路由；用两个真实 shell
+验证布局切换保留宿主、surface、PID、引擎焦点与 AppKit firstResponder。旧 `native-*`
+五份脚本随多窗口标签组整体退役，等价业务断言迁入本脚本，不再读取 AppKit 私有 ivar。
+CI 在 macOS 15 执行，本机 macOS 26 也须验证；未运行的系统不能记为通过。
 （`package-mac` 另护「**签名档位必须按证书真实的类记账**」：`--sign` 原先把任何身份都记
 成 `id`，于是随包 `BUILD-INFO.txt` 与 `version.json` 的 `signature` 会谎报 Developer ID——
 而那个字段正是 app 侧 `RemoteBuild.installBlocked` 判断「能不能自动装」的唯一依据。
@@ -230,12 +233,9 @@ list 不过滤隐藏 / 目录优先排序 / 双栏接线）**与面板顶栏那�
 `transfers` 护全局传输队列
 （进度总量 / 失败不折叠 / 冲突 skip / 暂停路由），`dragdrop` 护拖放路由
 （远端→本地=下载的方向 / 转义往返 / 完成回调），三者跑 `swift test`。）
-（`band-controls` 护「顶带那一组按钮 + 菜单栏是唯一退路」——侧栏底部的 ⚙︎ 与
-标签条右端的 ⋯ 都删了（macOS 顶上有全局菜单条，窗口里再挂一份是重复），于是
-三件事会**悄悄**坏掉：按钮顺序换了（B1，像素断言看不出组内顺序，必须靠几何
-断言）、终端配置坏了没人吭声（B2/B3，铁律 #6）、菜单栏少一项就等于功能消失
-（B4~B6）。B5 的指向性特意证明「传输」没有快捷键、旧的 ShortcutCatalog 对拍
-看不见它——新 gate 堵的是真缺口。）
+（旧 `band-controls` 与 `sidebar-chrome` 已并入 `tab-chrome` 的 navigation / menu / sidebar 组。
+无切换按钮、唯一加号取代旧按钮顺序规则；配置错误必须可见，设置 / 传输 / 关于和分屏菜单必须可达。
+仍保留实际标签高亮、红绿灯避让、清除系统标题和普通鼠标横向滚轮的回归证据。）
 （`focus` 护「分屏只有当前窗格的光标才闪」——焦点从 SwiftUI 下发到 libghostty
 的 surface；漏下发时**屏幕上不报错**，每个格子都停在引擎「默认已聚焦」上
 一起闪。断言用 DEC 1004 焦点上报的 `CSI I`/`CSI O` 字节做观测，变异 F1~F3 有牙。
@@ -274,9 +274,7 @@ flush 一次 wtail，当尾队列的泵。契约见 `transport.h`：「输入不
 且 `keyDown` 走 `interpretKeyEvents`，组合串经 preedit 内联显示、提交走**键入**
 语义（`TerminalIMETests`，观测口径是 libghostty 的 `ime_point` 宽度与 transport
 字节）。变异 T1~T7 有牙。）
-（`sidebar-chrome` 与 `auth` 是用户实测反馈带出来的两份：前者护「侧栏切换按钮
-在它要收的那条边上、当前标签页高亮、顶栏标签条标签多了能横向滚（普通鼠标滚轮
-也算）」，后者护「没口令的钥匙不被问口令」。
+（`tab-chrome` 保留当前标签高亮与标签条普通鼠标横滚；`auth` 护「没口令的钥匙不被问口令」。
 `tabs` 另护**标签右键菜单的落点**（T17/T18）：菜单里的分屏 / 文件面板开关
 必须作用在**被右键的那条**标签上，不是「当前标签页」——右键的未必是当前的，
 写错就「右键 A 却动了 B」，不报错、只在屏幕上不对。T20 再护**菜单上的快捷键
@@ -295,9 +293,12 @@ P3 侧栏展开时顶部标签条不隐（同一份标签清单画两处）、P4
 （所以实现是「盖一层」：原位留一张空卡片，`layout.viewID` 不变）、P6 关掉被
 缩放那格后不清状态（覆盖层盖出一片空白）。P2 的判据是**像素**；P1 量的是真视图树里
 两块终端面之间空出多少点——按颜色比会假绿（浅色外观下窗口底色与窗格底色都是
-近白，变异验证当场抓到）；P4 数的是 SwiftUI `Menu` 落到 AppKit 的 popup 按钮
-个数；P5 量的是兄弟 `TerminalHostView` 的宽度。）
-`tab-chrome` 用 `python3 scripts/mutation-check-tab-chrome.py` 验证标签界面重构：preferences 组三项护标签位置 / 精简偏好保存与即时发布；connections 组六项护失效目标拒绝、文件新标签、读取错误不折叠、旧通配块清理、错误条实际渲染和主机管理菜单。九组均须目标红、同变异独立对照绿、复原绿与 SHA256 一致；可用 `--group preferences` / `--group connections` 单独复验。测试注入独立 UserDefaults，不改用户偏好；目前为手工证据。
+近白，变异验证当场抓到）；P3/P4 已迁至 `tab-chrome`：直接量生产窗口的几何并数原生新建按钮；P5 量的是兄弟 `TerminalHostView` 的宽度。）
+`tab-chrome` 用 `python3 scripts/mutation-check-tab-chrome.py` 执行。按 `--group` 可分开验证
+preferences（存储与发布）、connections（选择器、配置错误与主机管理）、navigation（导航几何与目标）、
+lifecycle（真实终端焦点、关闭、sheet 与右键）、menu（删按钮后的主菜单退路）、sidebar（高亮与滚轮）、search（实时标题、搜索目标和保留终端清屏）。
+每组必须目标断言红、同变异独立对照绿、复原绿与 SHA256 一致；不能把编译失败当目标红。
+测试注入独立 UserDefaults，不改用户偏好。已接入 full CI；本机与 CI 的运行结果在实施计划分别记账。
 `settings-ui` 护设置弹窗的数据面：配色两档的序列化（拼错整份配置就废）、
 `/etc/shells` 的解析、**快捷键表与真菜单的双向对拍**、**下拉控件的定宽**
 （U6：回到 `maxWidth` 就会随选中值伸缩，短值 93pt / 长值 190pt）、

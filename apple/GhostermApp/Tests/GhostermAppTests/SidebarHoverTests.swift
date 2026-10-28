@@ -33,8 +33,8 @@ import XCTest
         }
         settle()
         let before = try image()
-        func tracker(_ view: NSView) -> SidebarHoverTrackingView? {
-            if let tracker = view as? SidebarHoverTrackingView { return tracker }
+        func tracker(_ view: NSView) -> HoverTrackingView? {
+            if let tracker = view as? HoverTrackingView { return tracker }
             return view.subviews.lazy.compactMap { tracker($0) }.first
         }
         let tracking = try XCTUnwrap(tracker(host))

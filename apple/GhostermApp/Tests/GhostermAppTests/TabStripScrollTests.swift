@@ -57,7 +57,8 @@ final class TabStripScrollTests: XCTestCase {
             model.tabs.add(t)
         }
         // 侧栏收起 → 顶栏就是那条要横向滚的标签条。
-        let host = makeRootHostingView(model: model, initialShowsSidebar: false)
+        model.preferences.tabPlacement = .top
+        let host = makeRootHostingView(model: model)
         host.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
         let window = NSWindow(contentRect: host.frame,
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView],

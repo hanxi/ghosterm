@@ -75,7 +75,7 @@ struct SettingsView: View {
             switch self {
             case .general: return 320
             case .appearance: return 560
-            case .keyboard: return 535
+            case .keyboard: return 565
             case .configuration: return 445
             }
         }

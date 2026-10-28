@@ -5,7 +5,7 @@
 //     也弹窗，但弹的是只认 Info.plist 的那张，随包组件的许可整个没了，
 //     而随包分发第三方组件就得把这些声明亮给用户看；
 //   · 窗口里那张组件许可表没画出来——窗口在、是空的。
-// 两条各有一条断言钉住。变异验证见 `scripts/mutation-check-band-controls.sh`。
+// 两条各有一条断言钉住。变异验证见 `scripts/mutation-check-tab-chrome.py --group menu`。
 import AppKit
 import GhostermAppModel
 import SwiftUI

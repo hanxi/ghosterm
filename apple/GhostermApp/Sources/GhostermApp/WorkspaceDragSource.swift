@@ -18,7 +18,7 @@ struct WorkspaceDragSource: NSViewRepresentable {
     private var down: NSEvent?
     private var starting = false
     /// 窗格拖动把手**必须拒绝**「拖动=移窗」。侧栏展开时右列没有顶栏
-    /// （TabStripVisibility），最上排窗格的标题栏正好顶进系统标题栏带
+    /// （侧边标签布局），最上排窗格的标题栏正好顶进系统标题栏带
     /// （顶部约 28pt，fullSizeContentView 下这条带仍然存在）；带内 AppKit
     /// 按命中视图的 `mouseDownCanMoveWindow`（非不透明视图默认 YES）把
     /// 拖动劫持成「移动窗口」，被劫持的视图收不到 mouseDragged——4pt 起拖

@@ -55,8 +55,10 @@ final class AppCommands: NSObject {
         NotificationCenter.default.post(name: .ghostermShowSettings, object: nil)
     }
 
-    @objc func toggleSidebar(_ sender: Any?) {
-        NotificationCenter.default.post(name: .ghostermToggleSidebar, object: nil)
+    @objc func toggleTabPlacement(_ sender: Any?) { model?.toggleTabPlacement() }
+
+    @objc func searchTabs(_ sender: Any?) {
+        NotificationCenter.default.post(name: .ghostermSearchTabs, object: nil)
     }
 
     /// ⌘⇧E：切换当前标签页的内嵌文件面板。
@@ -207,8 +209,8 @@ enum AppMenu {
                                    keyEquivalent: "")
         closePane.target = commands
 
-        let sidebar = NSMenuItem(title: "显示侧边栏",
-                                 action: #selector(AppCommands.toggleSidebar(_:)),
+        let sidebar = NSMenuItem(title: "切换标签位置",
+                                 action: #selector(AppCommands.toggleTabPlacement(_:)),
                                  keyEquivalent: "s")
         // ⌥⌘S 而不是 ⌘S：⌘S 是各应用「存储」的通用键位，抢它会让用户
         // 在自己的 shell 里按 ⌘S 时莫名其妙收起侧边栏（设置页列的是 ⌥⌘S）。
@@ -250,6 +252,11 @@ enum AppMenu {
     private static func windowMenuItem(commands: AppCommands) -> NSMenuItem {
         let item = NSMenuItem()
         let menu = NSMenu(title: "窗口")
+        let search = NSMenuItem(title: "搜索标签页…", action: #selector(AppCommands.searchTabs(_:)), keyEquivalent: "A")
+        search.keyEquivalentModifierMask = [.command, .shift]
+        search.target = commands
+        menu.addItem(search)
+        menu.addItem(.separator())
         let transfers = NSMenuItem(title: "传输",
                                    action: #selector(AppCommands.showTransfers(_:)),
                                    keyEquivalent: "")
@@ -274,6 +281,5 @@ extension Notification.Name {
     /// 与 `ghostermRequestCloseTab` 同一套路：菜单不发号施令，只把意图
     /// 广播给视图，结构的改动仍由视图/模型自己做。
     static let ghostermShowSettings = Notification.Name("Ghosterm.showSettings")
-    /// 菜单「显示侧边栏」（⇧⌘S）。
-    static let ghostermToggleSidebar = Notification.Name("Ghosterm.toggleSidebar")
+    static let ghostermSearchTabs = Notification.Name("Ghosterm.searchTabs")
 }

@@ -53,18 +53,6 @@ final class PaneAppearanceTests: XCTestCase {
                        "非聚焦那格不画按钮")
     }
 
-    // MARK: - 顶部标签条的显隐
-
-    /// 两态穷举（规则写死，曾经的「侧栏展开时隐藏」偏好已弃用——见
-    /// TabStripVisibility）。要害是「侧栏收起时顶栏一定在」——顶栏没了
-    /// 标签列表就没有落点，红绿灯也住在那条横带上。
-    func testTabStripVisibilityMatrix() {
-        XCTAssertTrue(TabStripVisibility.shows(sidebarVisible: false),
-                      "侧栏收起时顶栏必须在（标签清单只剩这一个落点）")
-        XCTAssertFalse(TabStripVisibility.shows(sidebarVisible: true),
-                       "侧栏展开时顶栏让位（标签已经列在侧栏里）")
-    }
-
     // MARK: - 标题取值：进程 → 目录 → 标签标题
 
     func testTitleFallsBackThroughThreeLevels() {

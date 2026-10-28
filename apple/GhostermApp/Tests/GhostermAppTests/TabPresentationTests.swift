@@ -54,8 +54,8 @@ final class TabPresentationTests: XCTestCase {
         model.preferences.tabPlacement = .top
         model.preferences.compactSidebar = true
         XCTAssertEqual(changes, 2, "布局设置必须立即通知已有视图")
-        XCTAssertFalse(model.sidebarVisible)
-        model.sidebarVisible = true
+        XCTAssertEqual(model.preferences.tabPlacement, .top)
+        model.toggleTabPlacement()
         XCTAssertEqual(model.preferences.tabPlacement, .sidebar, "布局命令写同一份偏好")
         XCTAssertTrue(model.tabs.activeTab === tab, "改布局不替换标签对象")
         XCTAssertEqual(model.tabs.tabs.count, 1)

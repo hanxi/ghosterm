@@ -57,16 +57,13 @@ enum GhostermUI {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private var window: NSWindow?
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: AppModel?
-    private var nativeTabs: NativeTabWindows?
+    private var windowController: TabWindowController?
     /// 观察系统外观变化（跟随系统时终端配色要跟着换）。
     private var appearanceObserver: NSKeyValueObservation?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let args = CommandLine.arguments
-
         let model = AppModel()
         model.interaction = AlertInteraction(model: model)
         // 主菜单必须在窗口之前装好：没有它，⌘Q / ⌘, / ⌘V 这些标准快捷键
@@ -74,30 +71,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         AppMenu.install(model: model)
         // S4：把面板/传输的冲突询问接到 UI（弹「覆盖/跳过/重命名 + 应用到全部」）。
         installTransferConflictPrompt()
-        // `.fullSizeContentView` 必须在**创建时**就在 styleMask 里：事后
-        // insert 进去窗口不会重新布局，标题栏照样占一条（实测：用户看到的
-        // 就是「红绿灯在一条灰带上、标签条在它下面」）。
-        let window = NativeTitlebarWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1040, height: 680),
-            styleMask: [.titled, .closable, .resizable, .miniaturizable,
-                        .fullSizeContentView],
-            backing: .buffered, defer: false
-        )
-        // 标题留空：AppKit 会把 CFBundleName（"Ghosterm"）当默认标题，而
-        // 「标题栏即顶栏」这件事并不总是成立——实测**分屏**会触发 AppKit
-        // 重新 tile 标题栏，把标题字画出来（用户看到的「Ghosterm」就在那）。
-        // 我们不显示任何标题，空串是唯一对「连 AppKit 都别想画」都成立的值。
-        window.title = ""
-        window.contentView = makeRootHostingView(model: model, nativeTabs: true)
+        let controller = TabWindowController(model: model, requestClose: { NSApp.terminate(nil) })
+        let window = controller.window!
         window.center()
-        window.makeKeyAndOrderFront(nil)
-        // 顶栏即标题栏：红绿灯挪进我们的条里，内容铺满整窗（见 WindowChrome）。
-        WindowChrome.apply(to: window)
+        controller.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
-        // AppKit 分屏 / 改尺寸会重新 tile 标题栏（红绿灯归位、标题字复现）。
-        // 挂上 delegate，在每次 resize 后把装束重新套一遍（见 WindowChrome.redress）。
-        nativeTabs = NativeTabWindows(model: model, anchor: window)
-        self.window = window
+        self.windowController = controller
         self.model = model
 
         // 外观偏好（浅色 / 深色 / 跟随系统）落到 AppKit；跟随系统时还要
@@ -130,23 +109,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    /// 已建立的终端脱离 GUI 后保留；仅为传输、连接准备或非持久化
-    /// 会话确认退出。显式关闭标签页仍走独立终止操作。
+    /// 普通终端随应用结束；显式 tmux 会话只断开客户端。
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model, !model.shouldTerminate() else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = "退出 Ghosterm？"
-        alert.informativeText = "退出会中断文件传输与正在建立的连接。已建立的终端会话会保留，可在下次启动时恢复。"
+        alert.informativeText = "退出会结束普通终端会话，并中断文件传输和正在建立的连接。显式 tmux 后台会话会继续运行。"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "退出")
         alert.addButton(withTitle: "取消")
         return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
-    }
-
-    /// 分屏 / 改尺寸后重装顶栏（红绿灯与标题字都会被 AppKit 重新摆一遍）。
-    func windowDidResize(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
-        WindowChrome.redress(window)
     }
 
     /// 切回本 App：报「活动」。

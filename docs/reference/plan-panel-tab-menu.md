@@ -1,5 +1,8 @@
 # 计划：文件面板顶栏修复 + 标签右键菜单
 
+> 历史方案：标签布局、窗口宿主与导航入口已由 [标签界面重构计划](plan-tab-chrome-refactor.md) 取代；下文旧按钮位置和脚本名称仅记录当时决定。
+
+
 > 状态：**已交付**（2026-10-15）——全量闸门绿、变异补齐、已提交。
 > 相关：`capability-matrix.md`（SFTP / files 行）、`roadmap.md`（M4.5 遗留 / M4.6）、
 > `plan-files-manager.md`（内嵌文件面板的出处）。

@@ -79,9 +79,8 @@ public final class AppModel: ObservableObject {
 
     /// 本窗口的标签页清单（**结构的唯一写入者**，见 TabManager）。
     @Published public private(set) var tabs = TabManager()
-    public var sidebarVisible: Bool {
-        get { preferences.tabPlacement == .sidebar }
-        set { preferences.tabPlacement = newValue ? .sidebar : .top }
+    public func toggleTabPlacement() {
+        preferences.tabPlacement = preferences.tabPlacement == .sidebar ? .top : .sidebar
     }
 
     /// 当前标签页的终端面。旧接口：转发到 activeTab.activePane。
@@ -156,11 +155,7 @@ public final class AppModel: ObservableObject {
 
     private var startedInitialSessions = false
     private var authentications: [UUID: (DispatchQueue, SSHAuthenticationFlow)] = [:]
-    @Published public var tmuxChooser: TmuxChooser? {
-        didSet { tmuxChooserOwnerID = tmuxChooser == nil ? nil : tabs.activeTabID }
-    }
-    /// 对话框属于打开它的原生标签窗口，切换标签时不迁移或重复呈现。
-    @Published public private(set) var tmuxChooserOwnerID: UUID?
+    @Published public var tmuxChooser: TmuxChooser?
 
 
     public init(configPath: String? = nil, knownHostsPath: String? = nil,
@@ -764,7 +759,7 @@ public final class AppModel: ObservableObject {
     /// 测试辅助：伪造「终端配置无效」。
     ///
     /// 真实路径只在 init 里按 libghostty 的解析结果设一次，测试没法让它出错；
-    /// 而顶带那个 ⚠ 按钮（`BandControls`）只在这个值非空时才画，不给钩子就
+    /// 配置错误条只在这个值非空时才画，不给钩子就
     /// 没法钉住「配置坏了说得出口」这条。
     public func setTerminalConfigErrorForTesting(_ message: String?) {
         terminalConfigError = message

@@ -134,16 +134,10 @@ final class TerminalStatusRenderTests: XCTestCase {
         if let status { pane.applyProgramStatus(status) }
         if let lastCommand { pane.applyLastCommandForTesting(lastCommand) }
 
-        var show = true
-        let sb = Binding(get: { show }, set: { show = $0 })
-        var editing: HostAlias?
-        let eb = Binding(get: { editing }, set: { editing = $0 })
-        var adding = false
-        let ab = Binding(get: { adding }, set: { adding = $0 })
 
-        return render(Sidebar(model: model, tabs: model.tabs,
-                              editingHost: eb, addingHost: ab,
-                              showsSidebar: sb, onShowSettings: {}),
+
+
+        return render(Sidebar(model: model, tabs: model.tabs),
                       size: NSSize(width: DS.sidebarWidth, height: 300))
     }
 
@@ -232,10 +226,7 @@ final class TerminalStatusRenderTests: XCTestCase {
         model.tabs.activeTabID = tab.id
         if let lastCommand { pane.applyLastCommandForTesting(lastCommand) }
 
-        var show = false
-        let sb = Binding(get: { show }, set: { show = $0 })
-        return render(TabStrip(model: model, tabs: model.tabs,
-                               showsSidebar: sb, onShowSettings: {}),
+        return render(TabStrip(model: model, tabs: model.tabs),
                       size: NSSize(width: 420, height: 44))
     }
 

@@ -17,19 +17,13 @@ import SwiftUI
 /// 悄悄分叉（测试直接 `NSHostingView(rootView:)` 过，就量不到生产的真值）。
 ///
 /// `safeAreaRegions = []` 是关键的一笔：窗口开着 `.fullSizeContentView`，
-/// 顶上那 32pt 标题栏由我们自己的 chrome 顶着（见 `WindowChrome`），
+/// 顶上那 38pt 标题栏由我们自己的 chrome 顶着（见 `WindowChrome`），
 /// SwiftUI 不该再替我们避让一次。不关掉的话，分屏时 SwiftUI 给
 /// `NSSplitView` 每个子项套的那层独立宿主视图会把安全区**又算一遍**，
 /// 于是分屏比单窗格多顶出 5pt（配合子项上的 `.ignoresSafeArea` 才归零）。
 @MainActor
-func makeRootHostingView(model: AppModel,
-                         initialShowsSidebar: Bool = true,
-                         windowTabID: UUID? = nil,
-                         nativeTabs: Bool = false) -> NSHostingView<RootView> {
-    let host = NSHostingView(rootView: RootView(model: model,
-                                                initialShowsSidebar: initialShowsSidebar,
-                                                windowTabID: windowTabID,
-                                                nativeTabs: nativeTabs))
+func makeRootHostingView(model: AppModel) -> NSHostingView<RootView> {
+    let host = NSHostingView(rootView: RootView(model: model))
     // 13.3 才有这个开关；更早的系统上分屏会比单窗格高 5pt，纯外观差，
     // 不影响任何能力，故不报错。
     if #available(macOS 13.3, *) { host.safeAreaRegions = [] }
@@ -39,82 +33,35 @@ func makeRootHostingView(model: AppModel,
 struct RootView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var tabs: TabManager
-    /// 原生窗口标签各自只持有一页；nil 维持单窗口模式。
-    private let windowTabID: UUID?
-    private let nativeTabs: Bool
-    private var nativeTabBarInset: CGFloat {
-        0
-    }
-
-    @State private var localShowsSidebar = true
-    private var showsSidebar: Bool { nativeTabs ? model.sidebarVisible : localShowsSidebar }
-    private var sidebarBinding: Binding<Bool> {
-        Binding(get: { showsSidebar }, set: { value in
-            if nativeTabs { model.sidebarVisible = value } else { localShowsSidebar = value }
-        })
-    }
+    private var showsSidebar: Bool { model.preferences.tabPlacement == .sidebar }
     private var tmuxBinding: Binding<TmuxChooser?> {
-        Binding(get: {
-            guard !nativeTabs || windowTabID == model.tmuxChooserOwnerID else { return nil }
-            return model.tmuxChooser
-        }, set: { if $0 == nil { model.dismissTmux() } })
+        Binding(get: { panel == nil ? model.tmuxChooser : nil },
+                set: { if $0 == nil { model.dismissTmux() } })
     }
-    @State private var editingHost: HostAlias?
-    @State private var addingHost = false
     @State private var editError: String?
-    @State private var connectionPanel: ConnectionPanel?
+    @State private var panel: WindowPanel?
     @State private var pendingConnection: ConnectionRequest?
-    /// 空态 vs 有标签页的键盘焦点（无标签页时焦点给侧边栏，便于键盘操作）。
-    @FocusState private var focused: Bool
-
-    /// `initialShowsSidebar` 只给测试留一个可控初值（生产用默认 true）：
-    /// 「侧栏开/合时切换按钮在哪」是像素级断言，必须能渲染两种状态。
-    init(model: AppModel, initialShowsSidebar: Bool = true, windowTabID: UUID? = nil,
-         nativeTabs: Bool = false) {
+    init(model: AppModel) {
         self.model = model
         self.tabs = model.tabs
-        self.windowTabID = windowTabID
-        self.nativeTabs = nativeTabs
-        _localShowsSidebar = State(initialValue: initialShowsSidebar)
     }
 
     var body: some View {
-        // 侧栏是**整列**（含它自己的顶带），顶栏只压终端列上方。
-        //
-        // 取法参照 iGhostVT 的 `RootView`：`HStack { SidebarView ; terminalColumn }`，
-        // 其中 terminalColumn 才带 TabStripBar。这样红绿灯落在**侧栏的顶带**上
-        // （左段留空），侧栏切换按钮也才能待在「它要收的那条边」旁边——
-        // 先前顶栏横跨整窗，按钮被红绿灯压住（用户截图里那团蓝色高亮）。
+        // 工作区始终留在同一棵树中，布局切换只增减导航与可用空间。
         HStack(spacing: 0) {
             if showsSidebar {
-                Sidebar(model: model, tabs: tabs,
-                        editingHost: $editingHost, addingHost: $addingHost,
-                        showsSidebar: sidebarBinding,
-                        onShowSettings: { SettingsWindow.open(model: model) },
-                        nativeTabBarInset: nativeTabBarInset)
-                    .frame(width: DS.sidebarWidth)
-                    .transition(.move(edge: .leading))
+                Sidebar(model: model, tabs: tabs)
+                    .frame(width: model.preferences.compactSidebar ? DS.compactSidebarWidth : DS.sidebarWidth)
                 Divider()
             }
             VStack(spacing: 0) {
-                // 标签页只列一处：侧栏展开时它已经在侧栏里列着，顶栏再排一遍
-                // 就是同一份清单画两处（规则写死，判据是纯函数，见
-                // TabStripVisibility）。
-                if nativeTabs && !showsSidebar {
-                    GlassBar {
-                        BandControls(model: model, showsSidebar: sidebarBinding,
-                                     onShowSettings: { SettingsWindow.open(model: model) })
-                        Spacer().titleBarDoubleClick()
-                    }
-                    Divider()
-                } else if nativeTabs && tabs.tabs.count > 1 {
-                    Color.clear.frame(height: WindowChrome.barHeight)
-                } else if !nativeTabs && TabStripVisibility.shows(sidebarVisible: showsSidebar) {
-                    TabStrip(model: model, tabs: tabs, showsSidebar: sidebarBinding,
-                             onShowSettings: { SettingsWindow.open(model: model) })
+                if model.preferences.tabPlacement == .top {
+                    TabStrip(model: model, tabs: tabs)
                     Divider()
                 }
-                if nativeTabBarInset > 0 { Color.clear.frame(height: nativeTabBarInset) }
+                if let error = model.terminalConfigError {
+                    TerminalConfigurationError(message: error) { SettingsWindow.open(model: model) }
+                }
                 panes
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -127,8 +74,7 @@ struct RootView: View {
         // 关闭标签页：胶囊上的 × 发通知过来（视图不直接改 tabs）。
         .onReceive(NotificationCenter.default.publisher(
             for: .ghostermRequestCloseTab)) { note in
-            guard (windowTabID == nil || windowTabID == tabs.activeTabID),
-                  let id = note.object as? UUID,
+            guard let id = note.object as? UUID,
                   let tab = tabs.tabs.first(where: { $0.id == id }) else { return }
             tabs.requestClose(tab)
         }
@@ -136,41 +82,40 @@ struct RootView: View {
             TmuxSheet(chooser: chooser, close: { model.dismissTmux() })
                 .onDisappear { chooser.cancel() }
         }
-        .sheet(item: $connectionPanel, onDismiss: openPendingConnection) { panel in
-            switch panel {
+        .sheet(item: $panel, onDismiss: openPendingConnection) { presented in
+            switch presented {
             case .chooser:
                 ConnectionChooser(model: model, choose: { request in
                     pendingConnection = request
-                    connectionPanel = nil
-                }, manageHosts: { connectionPanel = .hosts })
+                    panel = nil
+                }, manageHosts: { panel = .hosts })
             case .hosts:
                 HostManagerView(model: model)
+            case .tabs:
+                TabSearchView(tabs: tabs, select: { id in
+                    guard let tab = tabs.tabs.first(where: { $0.id == id }) else { return }
+                    tabs.activate(tab)
+                    panel = nil
+                })
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghostermNewConnection)) { _ in
-            guard windowTabID == nil || windowTabID == tabs.activeTabID else { return }
-            connectionPanel = .chooser
+            guard model.tmuxChooser == nil else { return }
+            panel = .chooser
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghostermManageHosts)) { _ in
-            guard windowTabID == nil || windowTabID == tabs.activeTabID else { return }
-            connectionPanel = .hosts
+            guard model.tmuxChooser == nil else { return }
+            panel = .hosts
         }
-        .sheet(item: $editingHost) { item in
-            HostEditorSheet(model: model, alias: item.name, isNew: false)
+        .onReceive(NotificationCenter.default.publisher(for: .ghostermSearchTabs)) { _ in
+            guard model.tmuxChooser == nil else { return }
+            panel = .tabs
         }
-        .sheet(isPresented: $addingHost) {
-            HostEditorSheet(model: model, alias: "", isNew: true)
-        }
-        // 设置：**独立窗口**（⌘, 或侧栏齿轮），不是 sheet——理由见
+        // 设置：**独立窗口**（⌘, 或主菜单），不是 sheet——理由见
         // SettingsWindow 的说明。菜单与界面都只发意图，窗口的开关归这里。
         .onReceive(NotificationCenter.default.publisher(
             for: .ghostermShowSettings)) { _ in
             SettingsWindow.open(model: model)
-        }
-        .onReceive(NotificationCenter.default.publisher(
-            for: .ghostermToggleSidebar)) { _ in
-            guard windowTabID == nil || windowTabID == tabs.activeTabID else { return }
-            sidebarBinding.wrappedValue.toggle()
         }
         // 界面字号：装在整棵树的根上（终端面不吃它——终端字号是 Ghostty
         // 配置里的事，见 AppearancePane 的说明）。
@@ -179,7 +124,7 @@ struct RootView: View {
         // 已退出 / 失败 / 连接中都不问——判据在 TabManager.requestClose）。
         .alert("关闭这个标签页？",
                isPresented: Binding(
-                get: { (windowTabID == nil || windowTabID == tabs.activeTabID) && tabs.closeRequest != nil },
+                get: { tabs.closeRequest != nil },
                 set: { if !$0 && tabs.closeRequest != nil { tabs.cancelClose() } })) {
             Button("关闭", role: .destructive) { tabs.confirmClose() }
             Button("取消", role: .cancel) { tabs.cancelClose() }
@@ -209,7 +154,7 @@ struct RootView: View {
             if tabs.tabs.isEmpty {
                 EmptyStateView { model.connect(to: .localShell) }
             }
-            ForEach(tabs.tabs.filter { windowTabID == nil || $0.id == windowTabID }) { tab in
+            ForEach(tabs.tabs) { tab in
                 TabContentView(model: model, tab: tab,
                                isActive: tab.id == tabs.activeTabID)
                     .opacity(tab.id == tabs.activeTabID ? 1 : 0)
@@ -221,8 +166,8 @@ struct RootView: View {
     }
 }
 
-private enum ConnectionPanel: String, Identifiable {
-    case chooser, hosts
+private enum WindowPanel: String, Identifiable {
+    case chooser, hosts, tabs
     var id: Self { self }
 }
 
@@ -434,7 +379,7 @@ private struct EmptyStateView: View {
             HStack(spacing: DS.Padding.s) {
                 Button("新建本地 shell", action: onNewTab)
                     .keyboardShortcut("t", modifiers: .command)
-                Text("或从左侧选一台主机")
+                Text("或点击左上角 ＋ 选择连接")
                     .font(DS.Font.callout).foregroundStyle(.tertiary)
             }
         }

@@ -5,10 +5,7 @@
 # 这几条全是「不报错、只在屏幕上不对」的改动：
 #   P1 间距偏好读了但没留白（padding 加在错的层）→ 两格还是贴着；
 #   P2 窗格标题栏开关没接上（关了照画）；
-#   P3 侧栏展开时顶部标签条还在 → 同一份标签清单画两处；
-#   P4 调用点绕过 TabStripVisibility 判据（侧栏展开也画顶栏）→ 顶栏与侧栏
-#      同场、屏幕上两个加号（用户实测报回来的那条；原变异位——TabStrip 里
-#      BandControls 的守卫——在「顶栏显隐写死」之后成了等价变异，见 P4 段）；
+#   P3/P4 导航显隐与唯一加号迁到 tab-chrome 的 navigation 组。
 #   P5 缩放把被缩放那格的位置**塌掉** → 兄弟窗格跟着重排（终端那边是一轮
 #      SIGWINCH，回卷内容被揉烂）；
 #   P6 关掉被缩放那格后不清缩放状态 → 覆盖层盖出一片空白；
@@ -94,7 +91,7 @@ run_other()  { ( cd "$PKG" && gt_timeout 420 swift test --filter TabManagerTests
 expect() {
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))
-  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"; FAIL=$((FAIL+1)); fi
+  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"; cat "$TMP/pane-chrome-${PASS}-${FAIL}-test.log"; FAIL=$((FAIL+1)); fi
 }
 rollback() {
   local i now
@@ -137,35 +134,7 @@ PY
 expect red "P2 关掉标题栏还是画出来了" run_pixels
 rollback
 
-echo "== P3：侧栏展开时顶部标签条不隐（清单画两处） =="
-python3 - "$APPEAR" <<'PY'
-import sys
-p = sys.argv[1]; s = open(p).read()
-old = "        return !sidebarVisible"
-new = "        return true /* GT_MUTATION_MARK：永远画顶栏 */"
-assert old in s, "P3 锚点缺失"
-open(p, 'w').write(s.replace(old, new, 1))
-PY
-expect red "P3 侧栏展开时顶部标签条还在" run_strip
-expect green "P3 指向性（标签页结构不受影响）" run_other
-rollback
-
-echo "== P4：调用点绕过判据（侧栏展开也画顶栏 → 两个加号） =="
-python3 - "$ROOTVIEW" <<'PY'
-import sys
-p = sys.argv[1]; s = open(p).read()
-old = "                if TabStripVisibility.shows(sidebarVisible: showsSidebar) {"
-new = "                if true { /* GT_MUTATION_MARK：绕过判据，顶栏永远画 */"
-assert old in s, "P4 锚点缺失"
-open(p, 'w').write(s.replace(old, new, 1))
-PY
-# 原 P4 变异的是 TabStrip 里 BandControls 的 `if !showsSidebar` 守卫。顶栏
-# 显隐写死后它成了**等价变异**：标签条只在侧栏收起时在场，守卫恒真，变异
-# 无任何可观测行为、红不起来（死变异位，退役而非断言缺口）。「两个加号」
-# 的回归改由这条守：绕过判据 = 顶栏与侧栏同场 =
-# testSidebarOpenShowsExactlyOneNewTabMenu 数到两个菜单、对照用例数到两条顶带。
-expect red "P4 侧栏展开时顶栏也出现（两个加号）" run_strip
-rollback
+# P3/P4 顶部空带与重复导航已迁到 mutation-check-tab-chrome.py navigation 组。
 
 echo "== P5：缩放时把被缩放那格的位置塌掉（兄弟跟着重排） =="
 python3 - "$WORKSPACE" <<'PY'

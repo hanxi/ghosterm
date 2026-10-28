@@ -3,7 +3,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/scripts/lib/gt-timeout.sh"
 gt_timeout_require mutation-check-sidebar-hover
-SOURCE="$ROOT/apple/GhostermApp/Sources/GhostermApp/Sidebar.swift"
+SOURCE="$ROOT/apple/GhostermApp/Sources/GhostermApp/HoverTracking.swift"
 BUTTON="$ROOT/apple/GhostermApp/Sources/GhostermApp/TabStrip.swift"
 PKG="$ROOT/apple/GhostermApp"
 mkdir -p "$ROOT/tmp"
@@ -38,7 +38,7 @@ expect_green() {
   if ! run_test "$1"; then cat "$LOG"; echo "期望通过：${1}" >&2; exit 1; fi
 }
 TARGET='SidebarHoverTests.testHoverChangesRowRendering'
-CONTROL='NativeTabWindowsTests.testSwitchingNativeTabsKeepsLiveTerminalHostsAndProcesses'
+CONTROL='TabWindowTests.testNavigationChangesKeepLiveHostsProcessesAndKeyboardFocus'
 expect_green "$TARGET"
 expect_green "$CONTROL"
 python3 - "$SOURCE" <<'PY'

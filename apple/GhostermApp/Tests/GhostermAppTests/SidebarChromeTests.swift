@@ -124,7 +124,8 @@ final class SidebarChromeTests: XCTestCase {
     private func renderWindow(sidebar: Bool) throws -> (Frame, Double) {
         let model = try makeModel()
         model.tabs.add(TerminalTab(kind: .localShell))
-        let view = RootView(model: model, initialShowsSidebar: sidebar)
+        model.preferences.tabPlacement = sidebar ? .sidebar : .top
+        let view = RootView(model: model)
         return render(view, size: NSSize(width: 900, height: 600))
     }
 
@@ -214,15 +215,10 @@ final class SidebarChromeTests: XCTestCase {
 
         let size = NSSize(width: DS.sidebarWidth, height: 420)
         func renderSidebar() -> (Frame, Double) {
-            var show = true
-            let sb = Binding(get: { show }, set: { show = $0 })
-            var editing: HostAlias?
-            let eb = Binding(get: { editing }, set: { editing = $0 })
-            var adding = false
-            let ab = Binding(get: { adding }, set: { adding = $0 })
-            return render(Sidebar(model: model, tabs: model.tabs,
-                                  editingHost: eb, addingHost: ab,
-                                  showsSidebar: sb, onShowSettings: {}),
+
+
+
+            return render(Sidebar(model: model, tabs: model.tabs),
                           size: size)
         }
 

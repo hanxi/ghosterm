@@ -141,12 +141,12 @@ macOS 26 上用两个真实 NSWindow 组成原生标签组，分别在 anchor �
 
 | 验收对象 | 观测与失败条件 | 现有测试 / 脚本落点 |
 |---|---|---|
-| 侧边无顶栏、顶部不遮内容 | 真实 NSWindow 中量 `WorkspaceHostView` 顶边与窗口顶边、栏与红绿灯的矩形；不靠纯函数或背景颜色判断 | `NativeTabWindowsTests`、`PaneChromeTests`；`native-titlebar`、`native-sheet`、`pane-chrome` |
-| 唯一加号与无切换按钮 | 每种布局、错误状态、空态下实际控件数量与命中范围；标准侧栏 / 顶部尽量保持加号位置，精简模式独立验原生按钮避让 | `TabStripVisibilityTests`、`SidebarChromeTests`；`band-controls`、`sidebar-chrome` |
-| 标签选择、顺序、关闭归属 | 顶部与侧边共用模型顺序；重复标题、非当前标签右键、非当前标签关闭有明确目标 | `NativeTabWindowsTests`、`TabContextMenuTests`；`native-tabs`、`native-context`、`tabs` |
-| 模式切换不重建终端 | 两个真实 shell 前后 PID、host / surface 对象身份相同；当前 firstResponder 正确，后台不抢输入 | `NativeTabWindowsTests`、`WindowFocusTests`、`WorkspaceTests`；`native-focus`、`focus`、`occlusion` |
-| 选择器与主机管理 | 合法空列表、读取失败、通配块不可连接、编辑后备份 / 冲突处理、重复连接、sheet 归属 | `TabManagerTests`、配置测试、新选择器测试；`tabs`、`native-sheet`、`default-entry`、认证相关脚本 |
-| 设置与快捷键 | 隔离存储、非法值、即时传播、顶部下禁用精简选项；真 NSMenuItem 与 `ShortcutCatalog` 一致；⌘K 仍清屏 | `SettingsUITests`、`AppMenuCoverageTests`、终端输入集成测试；`settings-ui`、`band-controls`、`terminal` |
+| 侧边无顶栏、顶部不遮内容 | 真实 NSWindow 中量 `WorkspaceHostView` 顶边与窗口顶边、栏与红绿灯的矩形；不靠纯函数或背景颜色判断 | `TabWindowTests`、`PaneChromeTests`；`tab-chrome`、`pane-chrome` |
+| 唯一加号与无切换按钮 | 每种布局、错误状态、空态下实际控件数量与命中范围；标准侧栏 / 顶部尽量保持加号位置，精简模式独立验原生按钮避让 | `TabStripVisibilityTests`、`SidebarChromeTests`；`tab-chrome` |
+| 标签选择、顺序、关闭归属 | 顶部与侧边共用模型顺序；重复标题、非当前标签右键、非当前标签关闭有明确目标 | `TabWindowTests`、`TabContextMenuTests`；`tab-chrome`、`tabs` |
+| 模式切换不重建终端 | 两个真实 shell 前后 PID、host / surface 对象身份相同；当前 firstResponder 正确，后台不抢输入 | `TabWindowTests`、`WindowFocusTests`、`WorkspaceTests`；`tab-chrome`、`focus`、`occlusion` |
+| 选择器与主机管理 | 合法空列表、读取失败、通配块不可连接、编辑后备份 / 冲突处理、重复连接、sheet 归属 | `TabManagerTests`、配置测试、新选择器测试；`tabs`、`tab-chrome`、`default-entry`、认证相关脚本 |
+| 设置与快捷键 | 隔离存储、非法值、即时传播、顶部下禁用精简选项；真 NSMenuItem 与 `ShortcutCatalog` 一致；⌘K 仍清屏 | `SettingsUITests`、`AppMenuCoverageTests`、终端输入集成测试；`settings-ui`、`tab-chrome`、`terminal` |
 | 窗格按钮可见性 | 当前 / 非当前 / 悬停 / 键盘 / 标题栏隐藏；终端和文件窗格均验证控件命中与几何不跳动 | `PaneChromeTests`、`WorkspaceTests`、新窗格动作测试；`pane-chrome`、`sidebar-hover` 的跟踪经验 |
 | 分屏目标与切分预览 | 悬停 B 不激活 B、不创建会话、不改 A 尺寸；点击 B 的按钮才切 B；失效 UUID 不回落；离开 / resize / 切页清覆盖 | 新预览几何与命令集成测试；`pane-chrome`、`workspace` 扩展 |
 | 缩放、拖动、文件与 tmux | 不重置兄弟几何、拖动比例或文件工具条折行；预览不吞输入；后台任务和传输不受布局模式影响 | `PaneZoomTests`、`WorkspaceTests`、文件与 tmux 测试；`workspace`、`split-divider`、`files`、`tmux-ui` |
@@ -175,7 +175,7 @@ TMPDIR="$PWD/tmp" swift build --package-path apple/GhostermApp
 GHOSTERM_AUTOMATION_OFFSCREEN=1 TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh
 ```
 
-按切片运行对应变异；最终至少复验 `tabs / native-tabs / native-focus / native-context / native-sheet / native-titlebar / sidebar-hover / chrome / sidebar-chrome / band-controls / pane-chrome / settings-ui / focus / split-dim / occlusion / default-entry`，并执行 `python3 scripts/mutation-check-workspace.py`。动到终端输入、文件动作或 tmux 接线时，分别补跑 `terminal / files / tmux-ui`。
+按切片运行对应变异；最终至少复验 `tabs / tab-chrome / sidebar-hover / chrome / pane-chrome / settings-ui / focus / split-dim / occlusion / default-entry`，并执行 `python3 scripts/mutation-check-workspace.py`。动到终端输入、文件动作或 tmux 接线时，分别补跑 `terminal / files / tmux-ui`。
 
 现有 full CI 已调用多份 native 与 Apple 变异，但未自动涵盖上述所有手工脚本。实施中将新外观与预览所依赖的手工脚本纳入 `.github/workflows/macos-package.yml` 的 full 档，或明确保留为手工合并证据；同步 `AGENTS.md` 的份数与覆盖范围，不能写成「CI 绿即本计划全验收」。测试里出现缺依赖或平台不适用的 SKIP，单独列出，不抵作该场景证据。
 
@@ -202,3 +202,17 @@ S2 新入口已经接入：文件菜单的「新建连接…」与「管理 SSH 
 S2 验证：14 项连接选择器 / 配置编辑 / 菜单测试通过；读取失败已通过真实目录夹具触发，两个面板都用像素验证警告可见。`mutation-check-tab-chrome.py` 合并偏好与连接入口，共九组目标红、同变异对照绿、复原绿与 SHA256 一致。C 侧 `gate.sh` 为 32 项测试与 71 个符号通过，配置变异为 15 组（含新 A9）；恢复钩子另验证 EXIT / INT / TERM 恢复原字节并保留退出码，未带标记的外部修改不被覆盖且 SHA 不一致会报错。
 
 S2 完整宿主回归：`apple-app-gate.sh` 构建与 324 项测试零失败，包含真实隔离 sshd；仍只有开发态随包主题检查这一项 SKIP，不能作为打包主题证据。下一步为 S3：生产窗口外壳、唯一加号、纯标签侧栏、顶部标签、搜索与重排，以及旧窗口组 / 测试双路径的同步退役。
+
+### S3 单窗口导航已落地（跨系统与整体视觉验收待 S5）
+
+生产已改为 `TabWindowController` 单窗口与唯一 `makeRootHostingView`，删除每标签窗口映射、私有 AppKit 标签栏识别、旧 BandControls 与无调用方的 HostAlias / TabStripVisibility。顶部和侧边共用 TabManager、TabInteraction 与 TabContextMenu，按 UUID 选择、排序、关闭。侧边只列打开的标签，无全宽顶部占位；精简侧栏宽 88pt，红绿灯与加号分行。唯一加号打开连接选择器，⇧⌘A 从主菜单打开标签搜索。
+
+`TabWindowTests`、`TabNavigationContextTests`、`TabStripVisibilityTests` 与 `TabSearchTests` 替代旧 NativeTabWindows / NativeTabContextMenu 测试。真实窗口证据覆盖空 / 单 / 多标签、布局和尺寸变化、重名标签点击 / 关闭 / 菜单落点、终端宿主与 surface 身份、shell PID、引擎焦点与 firstResponder、tmux sheet 归属及统一退出裁决。
+
+搜索通过真实菜单按键、原生文本输入与回车验证：按副标题找到重名标签、按 UUID 激活、搜索期间标题变动即时更新。macOS 26 的独立 NSMenu 探针发现新搜索键需要使用大写 `A` 才能匹配带 Shift 的事件；集成测试保护这一点。⌘K 用真实 shell 输出后的终端网格验证仍能清屏。S4 同时复核既有带 Shift 的窗格 / 文件菜单字母键，不能只依赖快捷键文字对拍。
+
+变异脚本已收敛：五份 native 脚本与旧 band-controls / sidebar-chrome 并入 `mutation-check-tab-chrome.py`，共 39 组（preferences 3、connections 6、navigation 8、lifecycle 6、menu 5、sidebar 4、search 7），本机全部目标红、同变异独立对照绿、复原绿与 SHA256 一致。sidebar-hover 的两组改验共享 HoverTracking 与真实关闭落点，已复验通过。pane-chrome 的 P3/P4 迁到 navigation，其余窗格断言保留，最终再与 S4 一起复验。
+
+完整宿主回归为 **324 项测试、零失败**，包含真实隔离 sshd；1 项随包主题测试因开发态无 .app 资源而跳过，不算打包证据。C gate 为 **32 项测试与 71 个公共符号通过**，Apple 绑定对拍为 69 项引用 / 2 项登记未用。新搜索快捷键增加后键盘设置页高度同步调整，实测留白 22pt。
+
+full CI 从 24 份脚本收敛到 20 份，同时新增偏好、连接选择器、菜单与搜索的覆盖；这是接线记录，尚未取得本轮 CI 结果。真实全屏、macOS 15、S4 窗格交互、最终原生截图与相关完整变异仍未完成，不能把 S3 的本机通过当作整个重构交付。

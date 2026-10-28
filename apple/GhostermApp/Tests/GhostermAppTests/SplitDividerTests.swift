@@ -101,7 +101,8 @@ final class SplitDividerTests: XCTestCase {
 
     private func renderWindow(_ model: AppModel) -> NSHostingView<RootView> {
         let size = NSSize(width: 900, height: 600)
-        let host = makeRootHostingView(model: model, initialShowsSidebar: false)
+        model.preferences.tabPlacement = .top
+        let host = makeRootHostingView(model: model)
         host.frame = NSRect(origin: .zero, size: size)
         let window = NSWindow(contentRect: host.frame,
                               styleMask: [.titled, .closable, .resizable,

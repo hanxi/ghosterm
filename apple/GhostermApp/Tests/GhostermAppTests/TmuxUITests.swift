@@ -180,7 +180,8 @@ import XCTest
         browser.change(.create, name: "native-mouse"); try await until { !browser.busy }
         browser.selectedID = browser.sessions.first?.id; browser.connectSelected()
         try await until { model.activePane?.status.isReady == true && model.tmuxChooser == nil }
-        let rootView = makeRootHostingView(model: model, initialShowsSidebar: false)
+        model.preferences.tabPlacement = .top
+        let rootView = makeRootHostingView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 520), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.contentView = rootView; TestWindows.presentOffscreenAsKey(window)
         defer { window.orderOut(nil); window.contentView = nil }
