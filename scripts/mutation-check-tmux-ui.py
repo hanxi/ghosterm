@@ -5,7 +5,8 @@ ROOT=pathlib.Path(__file__).resolve().parent.parent
 MARK='GT_TMUX_UI_MUTATION_MARK'
 FILES=['apple/GhostermApp/Sources/GhostermAppModel/TmuxChooser.swift',
        'apple/GhostermApp/Sources/GhostermAppModel/TerminalTab.swift',
-       'apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift']
+       'apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift',
+       'apple/GhostermApp/Tests/GhostermAppTests/TmuxUITests.swift']
 
 def run(args):
     result=subprocess.run(['bash','-c','. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require tmux-ui; shift; gt_timeout 240 "$@"','tmux-ui',str(ROOT)]+list(map(str,args)),cwd=ROOT,capture_output=True,text=True)
@@ -28,8 +29,9 @@ def main():
             valid=(code==1 and ('XCTAssert' in out or ': failed - ' in out) and 'Build complete' in out) if red else code==0 and 'Test Suite' in out and 'skipped' not in out
             if not valid:print(out,flush=True);raise RuntimeError('chooser mutation expected '+('red' if red else 'green'))
         check();check(control=True)
-        chooser, pane, view=FILES
+        chooser, pane, view, fixture=FILES
         mutants=[
+            ('runner-socket-path',fixture,'"tmux-" + String(UUID().uuidString.prefix(8))','"profile-" + UUID().uuidString'),
             ('probe-error-state',chooser,'if case GhostermError.status(2, _) = error {','if case GhostermError.status(7, _) = error {'),
             ('overwrite',chooser,'} else { pane = TerminalPane() }','} else { pane = self.activePane ?? TerminalPane() }'),
             ('detach-loses-pane',chooser,'pane.onExit = nil','pane.onExit = { [weak self] pane in self?.handlePaneExit(pane) }'),

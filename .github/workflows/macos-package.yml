@@ -297,3 +297,16 @@ jobs:
             dist/SHA256SUMS
             dist/BUILD-INFO.txt
           retention-days: 1
+
+      - name: 保存失败日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs-${{ inputs.channel }}-${{ github.sha }}
+          path: |
+            tmp/*test.log
+            tmp/apple-e2e.log
+            tmp/*mut*.log
+            tmp/terminal-engine/build.log
+            core/build/Testing/Temporary/LastTest.log
+          retention-days: 1

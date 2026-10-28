@@ -184,7 +184,7 @@ A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi
 不让旧可执行文件冒充变异结果。普通离线 gate 只跑命令与恶意输出夹具；真实本地/SSH
 八模式（含已有空 server 与 owner 被 SIGKILL）另以 `test-tmux.py` / `test-tmux-ssh.py` 执行，缺 tmux 时明确失败，不算通过。已与 `tmux-ui` 纳入 CI full 档；Linux 与真实 SSH/断网仍是手工证据。）
 （`tmux-ui` 用 `python3 scripts/mutation-check-tmux-ui.py` 验新格子不覆盖任务、detach 保留
-断开格子、关闭只断开客户端、未知文案、探测错误分类、路径变更清选择、鼠标输入及拒绝覆盖运行格子，共九组。使用真 tmux +
+断开格子、关闭只断开客户端、未知文案、探测错误分类、路径变更清选择、鼠标输入及拒绝覆盖运行格子，共十组，另护 runner 长路径下 Unix socket 的真实绑定。使用真 tmux +
 full surface，断言内层任务 PID 不变；旧绑定不提供结束入口。`auth` 现复用同一异步认证，
 在真 sshd 上以三个隔离变异护 tilde、没口令的钥匙、服务器方法表；不再变异已经删除的认证副本。）
 （`tmux-ssh` 用 `python3 scripts/mutation-check-tmux-ssh.py` 配合隔离真 sshd 运行，六组变异护
@@ -200,8 +200,8 @@ U2 把主锚从 commit 换回版本号（`build` 按 workflow 文件计数，跨
 界面文案写回「已是最新」（**文案本身就是断言对象**，谎报即红）、U6 关于窗口那一行整个
 不画、U7 多给一颗「安装更新」按钮。入口的观测口径是**几何**：实测 SwiftUI 的 `Button`
 在这棵树里不落 `NSButton`，`accessibilityLabel()` / `accessibilityIdentifier()` 也不下发到
-NSView（SwiftUI 自绘，a11y 元素只走真 AX API），留下的句柄是 `KeyViewProxy`（一控件一个）
-与 `_FocusRingView`——于是「有几颗按钮 / 画在不在框内」看得见，「按钮上写的什么」看不见，
+NSView（SwiftUI 自绘，a11y 元素只走真 AX API），本机 macOS 26 上的句柄是 `KeyViewProxy`（一控件一个）
+与 `_FocusRingView`；测试也接受原生 `NSButton` 并直接量其边界，兼容其他系统的控件实现。于是「有几颗按钮 / 画在不在框内」看得见，「按钮上写的什么」看不见，
 后者由 `UpdateCheckTests` 的 `statusText` 断言兜住（U5 正是打在那里）。）
 （`public-headers` 用 `python3 scripts/mutation-check-public-headers.py` 执行，
 护子头→聚合头、隐藏聚合类型依赖与子头环路；变异目标红、独立 config 头对照绿。

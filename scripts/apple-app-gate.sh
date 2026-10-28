@@ -95,7 +95,7 @@ fi
 echo "== 3/3 GhostermApp 构建 + 测试 =="
 ( cd "$PKG" && "${ENVARGS[@]}" swift test ) >"$TMP/apple-app-test.log" 2>&1 || {
   echo "apple-app-gate: swift test 失败" >&2
-  grep -E "error:|Test Case .* failed|panic" "$TMP/apple-app-test.log" >&2 | head -30
+  grep -E "(^|: )error:|Test Case .* failed|Fatal error:|unexpected signal|panic" "$TMP/apple-app-test.log" >&2 | head -30
   exit 1
 }
 sed -n 's/^.*Executed \(.*\)/\   执行: \1/p' "$TMP/apple-app-test.log" | tail -1

@@ -14,9 +14,12 @@ import XCTest
         while !predicate(), Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertTrue(predicate(), file: file, line: line)
     }
-    private func fixture(delayCreate: Bool = false) throws -> (URL, String, String) {
+    private func fixture(delayCreate: Bool = false, longParent: Bool = false) throws -> (URL, String, String) {
         _ = NSApplication.shared; NSApplication.shared.setActivationPolicy(.accessory)
-        let root = sessionTestDirectory(); try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        var parent = sessionTestDirectory().deletingLastPathComponent()
+        if longParent { parent.appendPathComponent("runner-path") }
+        let root = parent.appendingPathComponent("tmux-" + String(UUID().uuidString.prefix(8)))
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let env = ProcessInfo.processInfo.environment
         let binary = env["TMUX_BINARY"] ?? "/opt/homebrew/bin/tmux"
         guard FileManager.default.isExecutableFile(atPath: binary) else { throw GhostermError.failed("tmux >=3.6a is required for TmuxUITests; set TMUX_BINARY") }
@@ -27,6 +30,7 @@ import XCTest
         let script = delayCreate ? "#!/bin/sh\ncase \"$*\" in *new-session*) \(command); sleep 30; exit;; esac\nexec \(command)\n" : "#!/bin/sh\nexec \(command)\n"
         try script.write(to: wrapper, atomically: true, encoding: .utf8); try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
         let socket = root.appendingPathComponent("socket").path
+        XCTAssertLessThan(socket.utf8.count, 104, "tmux fixture exceeds macOS sockaddr_un: \(socket)")
         addTeardownBlock {
             let process = Process(); process.executableURL = URL(fileURLWithPath: binary)
             process.arguments = ["-S", socket, "-N", "kill-server"]; process.standardError = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice
@@ -44,6 +48,16 @@ import XCTest
             let text = line.trimmingCharacters(in: .whitespaces)
             return text.hasPrefix(prefix) ? Int32(text.dropFirst(prefix.count)) : nil
         }.first
+    }
+    func testLongRunnerParentStillBindsRealTmuxSocket() async throws {
+        let (_, exe, socket) = try fixture(longParent: true)
+        let model = isolatedAppModel(); defer { model.dismissTmux(); model.disconnectForTesting() }
+        let browser = chooser(model, exe: exe, socket: socket)
+        try await until { !browser.busy }
+        XCTAssertFalse(browser.requiresRefresh, browser.message)
+        browser.change(.create, name: "runner-path")
+        try await until { !browser.busy }
+        XCTAssertEqual(browser.sessions.map(\.name), ["runner-path"], browser.message)
     }
     func testProbeErrorsDistinguishMissingUnsupportedAndUncertain() async throws {
         let (_, exe, socket) = try fixture()
