@@ -252,6 +252,8 @@ public final class SSHSession {
         init(_ d: @escaping HostKeyDecider) { decider = d }
     }
 
+    init(adopting handle: OpaquePointer) { self.handle = handle }
+
     public init(_ opts: SSHOptions) throws {
         var h: OpaquePointer?
         opts.host.withCString { host in

@@ -57,23 +57,7 @@ public final class TerminalApp {
     }
 
     let raw: OpaquePointer
-    private var currentDark = false
     private var eventLoop: Timer?
-    private var configurationObservers: [UUID: () -> Void] = [:]
-    public struct Style: Equatable {
-        public let dark: Bool
-        public let colors: [UInt8]
-    }
-    /// Main owner only; no transport or authority metadata enters this layer.
-    public func resolvedStyle() -> Style? {
-        var bytes = [UInt8](repeating: 0, count: 777)
-        let ok = bytes.withUnsafeMutableBufferPointer { gt_ghostty_app_style(raw, currentDark, $0.baseAddress, $0.count) }
-        return ok ? Style(dark: currentDark, colors: bytes) : nil
-    }
-    public func observeConfiguration(_ id: UUID, changed: @escaping () -> Void) { configurationObservers[id] = changed }
-    public func removeConfigurationObserver(_ id: UUID) { configurationObservers.removeValue(forKey: id) }
-    private func configurationChanged() { for observer in Array(configurationObservers.values) { observer() } }
-
     /// `configPath` 指向 Ghostty 语法的配置文件（设置页产出的那份）。
     /// nil / 空 = 默认配置。配置无效时**抛错**（不静默回落成默认值——
     /// 用户改了字体却看到默认大小，比报错更难查）。
@@ -110,9 +94,7 @@ public final class TerminalApp {
     /// 把界面的深浅告诉了 libghostty（`theme = light:X,dark:Y` 靠它选边）。
     /// 幂等：同一档重复调用由 libghostty 自己短路。
     public func setColorScheme(dark: Bool) {
-        currentDark = dark
         gt_ghostty_app_set_color_scheme(raw, dark)
-        configurationChanged()
     }
 
     /// 告诉 libghostty「本 App 是不是活动 App」（**app 级**焦点）。
@@ -132,7 +114,6 @@ public final class TerminalApp {
     @discardableResult
     public func reloadConfig(path: String?) -> String? {
         let rc: Int32 = (path ?? "").withCString { gt_ghostty_app_reload_config(raw, $0) }
-        if rc == 0 { configurationChanged() }
         return rc == 0 ? nil : Self.lastError()
     }
 
@@ -285,9 +266,6 @@ private final class SurfaceAnchorView: NSView {
 public final class TerminalSurface {
     /// 终端编码后的用户输入，调用方应写进自己的 transport。
     public var onInput: ((Data) -> Void)?
-    /// Encoded replica input; source stamp must survive the Transport queue.
-    public var onReplicaInput: ((UInt64, UInt64, Data) -> Void)?
-    public let replicaGeneration: UInt64?
     /// 网格尺寸变化（列 / 行），调用方应转成 transport 的 resize。
     public var onResize: ((UInt16, UInt16) -> Void)?
     /// 终端标题变化（OSC 0/2）。
@@ -313,7 +291,6 @@ public final class TerminalSurface {
     /// 回调里引用的 C 结构必须存活到 surface 释放为止。
     private final class CallbackBox {
         var onInput: ((Data) -> Void)?
-        var onReplicaInput: ((UInt64, UInt64, Data) -> Void)?
         var onResize: ((UInt16, UInt16) -> Void)?
         var onTitle: ((String) -> Void)?
         var onProgramStatus: ((ProgramStatusReport) -> Void)?
@@ -322,18 +299,7 @@ public final class TerminalSurface {
     }
     private let box = CallbackBox()
 
-    public convenience init(app: TerminalApp, frame: NSRect = NSRect(x: 0, y: 0, width: 800, height: 600)) throws {
-        try self.init(app: app, frame: frame, generation: 0, policy: nil)
-    }
-
-    public convenience init(replica app: TerminalApp, generation: UInt64, policy: ReplicaPolicy,
-                            frame: NSRect = NSRect(x: 0, y: 0, width: 800, height: 600)) throws {
-        precondition(Thread.isMainThread)
-        try self.init(app: app, frame: frame, generation: generation, policy: policy)
-    }
-
-    private init(app: TerminalApp, frame: NSRect, generation: UInt64, policy: ReplicaPolicy?) throws {
-        self.replicaGeneration = policy == nil ? nil : generation
+    public init(app: TerminalApp, frame: NSRect = NSRect(x: 0, y: 0, width: 800, height: 600)) throws {
         self.view = SurfaceAnchorView(frame: frame)
         // 不要在这里设 wantsLayer：libghostty 的 Metal 渲染器要把 view 做成
         // "layer-hosting"——必须先给它自己的 layer，再置 wantsLayer（见
@@ -347,11 +313,6 @@ public final class TerminalSurface {
             guard let ud = ud, let data = data else { return }
             let box = Unmanaged<CallbackBox>.fromOpaque(ud).takeUnretainedValue()
             box.onInput?(Data(bytes: data, count: len))
-        }
-        cbs.write_stamped = { ud, generation, sequence, bytes, length in
-            guard let ud, let bytes else { return }
-            let box = Unmanaged<CallbackBox>.fromOpaque(ud).takeUnretainedValue()
-            box.onReplicaInput?(generation, sequence, Data(bytes: bytes, count: length))
         }
         cbs.resize = { ud, cols, rows in
             guard let ud = ud else { return }
@@ -384,90 +345,18 @@ public final class TerminalSurface {
 
         let scale = view.window?.backingScaleFactor
             ?? NSScreen.main?.backingScaleFactor ?? 2.0
-        let made: OpaquePointer?
-        if var policy = policy?.value {
-            made = gt_ghostty_surface_new_replica(app.raw, Unmanaged.passUnretained(view).toOpaque(), scale, &cbs, generation, &policy)
-        } else {
-            made = gt_ghostty_surface_new(app.raw, Unmanaged.passUnretained(view).toOpaque(), scale, &cbs)
-        }
+        let made = gt_ghostty_surface_new(app.raw, Unmanaged.passUnretained(view).toOpaque(), scale, &cbs)
         guard let s = made else {
             throw TerminalSurfaceError.surfaceInit(TerminalApp.lastError())
         }
         self.raw = s
         // C 侧回调经 box 转发，故这里只设 box 上的闭包。
         self.box.onInput = { [weak self] d in self?.onInput?(d) }
-        self.box.onReplicaInput = { [weak self] g, s, bytes in self?.onReplicaInput?(g, s, bytes) }
         self.box.onResize = { [weak self] c, r in self?.onResize?(c, r) }
         self.box.onTitle = { [weak self] t in self?.onTitle?(t) }
         self.box.onProgramStatus = { [weak self] r in self?.onProgramStatus?(r) }
         self.box.onSemanticPrompt = { [weak self] e in self?.onSemanticPrompt?(e) }
         self.box.onPwd = { [weak self] p in self?.onPwd?(p) }
-    }
-
-    /// Plain metadata only: decoded on the IO owner before asking UI to create a view.
-    public struct ReplicaPolicy {
-        fileprivate var value: gt_ghostty_replica_policy_t
-        public var dark: Bool { value.dark }
-        public var memoryBytes: Int { value.memory_bytes }
-        public func withMemoryLimit(_ bytes: Int) -> ReplicaPolicy {
-            var p = self; p.value.memory_bytes = max(0, bytes); return p
-        }
-        public static func decode(_ bytes: UnsafeRawBufferPointer) throws -> ReplicaPolicy {
-            precondition(!Thread.isMainThread)
-            var policy = gt_ghostty_replica_policy_t()
-            let status = gt_ghostty_replica_policy(bytes.baseAddress, bytes.count, &policy)
-            guard status == 0 else { throw TerminalSurfaceError.surfaceInit("恢复元数据无效：\(status)") }
-            return ReplicaPolicy(value: policy)
-        }
-    }
-    public func importReplica(generation: UInt64, sequence: UInt64, bytes: UnsafeRawBufferPointer) -> Bool {
-        precondition(!Thread.isMainThread)
-        return gt_ghostty_surface_replica_import(raw, generation, sequence, bytes.baseAddress, bytes.count)
-    }
-    public func applyReplicaOutput(generation: UInt64, sequence: UInt64, bytes: UnsafeRawBufferPointer) -> Bool {
-        precondition(!Thread.isMainThread)
-        return gt_ghostty_surface_replica_output(raw, generation, sequence, bytes.baseAddress, bytes.count)
-    }
-    public func applyReplicaResize(generation: UInt64, sequence: UInt64, cols: UInt16, rows: UInt16) -> Bool {
-        precondition(!Thread.isMainThread)
-        return gt_ghostty_surface_replica_resize(raw, generation, sequence, cols, rows)
-    }
-    /// First stage runs on IO; the native UI owner applies only scalar config metadata.
-    public func beginReplicaScheme(generation: UInt64, sequence: UInt64, dark: Bool) -> Bool {
-        precondition(!Thread.isMainThread)
-        return gt_ghostty_surface_replica_scheme_begin(raw, generation, sequence, dark)
-    }
-    /// Read actual IO-applied defaults; a queued configuration is not applied.
-    public func replicaAppearance(generation: UInt64) -> (dark: Bool, background: UInt32)? {
-        var dark = false, background: UInt32 = 0
-        return gt_ghostty_surface_replica_appearance(raw, generation, &dark, &background) ? (dark, background) : nil
-    }
-    public func applyReplicaStyle(generation: UInt64, sequence: UInt64, dark: Bool, colors: [UInt8]) -> Bool {
-        precondition(Thread.isMainThread)
-        return colors.withUnsafeBufferPointer { gt_ghostty_surface_replica_style_apply(raw, generation, sequence, dark, $0.baseAddress, $0.count) }
-    }
-    public func applyReplicaScheme(generation: UInt64, sequence: UInt64, dark: Bool) -> Bool {
-        precondition(Thread.isMainThread)
-        return gt_ghostty_surface_replica_scheme_apply(raw, generation, sequence, dark)
-    }
-    /// A known zero returns .some(0); nil means not applied yet.
-    public func replicaApplied(generation: UInt64) throws -> UInt64? {
-        precondition(!Thread.isMainThread)
-        var sequence: UInt64 = 0
-        let status = gt_ghostty_surface_replica_applied(raw, generation, &sequence)
-        if status == 2 { return nil }
-        guard status == 0 else { throw TerminalSurfaceError.surfaceInit("恢复状态不可用：\(status)") }
-        return sequence
-    }
-    @discardableResult public func setReplicaInput(generation: UInt64, sequence: UInt64, enabled: Bool) -> Bool {
-        precondition(!Thread.isMainThread)
-        return gt_ghostty_surface_replica_input(raw, generation, sequence, enabled)
-    }
-    public static var replicaBudgetUsage: (live: Int, committed: Int, retired: Int) {
-        precondition(Thread.isMainThread)
-        var live = 0, committed = 0, retired = 0
-        gt_ghostty_replica_budget_usage(&live, &committed, &retired)
-        return (live, committed, retired)
     }
 
     /// 释放 C surface。**必须在主线程**——见下面的说明。

@@ -90,7 +90,6 @@ arm64 切片；最低系统被内嵌的 Homebrew `libcrypto` 抬到 26.0），�
 | `架构` | 目前只有 `arm64`（`GhosttyKit.xcframework` 只切了 arm64） |
 | `最低系统` | 二进制自身的 `minos` 与**内嵌依赖**里最高者的较大值——内嵌的 Homebrew 库会把最低系统抬高，所以这一行往往大于 `Info.plist` 里的原始声明 |
 | `签名` | 记账档位：`adhoc` / `dev`（免费个人账号）/ `id`（Developer ID）/ `none`。**dev 轨恒为 `adhoc`**（CI 当场验这一条），取值口径见 [签名档位](#签名档位adhoc--dev--id--none) |
-| `Linux glibc 下限` | 内嵌的 Linux 会话安装包按架构的 `min_glibc`（如 `x86_64=min_glibc 2.34`）——**远端主机**能不能跑 `ghosterm-sessiond` 就取决于它，与本机 macOS 无关 |
 
 `CFBundleVersion` 用的是 dev workflow 自己的运行编号。拆成 dev / release 两个 workflow
 文件之后，两条轨的 build 号**不再同源单调**（`GITHUB_RUN_NUMBER` 按文件计数）；
@@ -115,7 +114,6 @@ curl -fsSL https://github.com/<owner>/ghosterm/releases/download/dev/version.jso
 | `min_macos` / `arch` | 装机下限；`arch` 目前恒为 `arm64` |
 | `signature` / `notarized` | `adhoc` / `false`——这两个字段就是「不许自动安装」的机器可读声明 |
 | `assets` + `sha256` + `download_base` | 拼出 dmg/zip 直链并自行校验，不走 API 拿 `browser_download_url` |
-| `session_contract` / `min_glibc` | 内嵌会话安装包的契约与逐架构 glibc 下限 |
 
 清单由 `.github/workflows/dev-build.yml` 的「生成 version.json」step 从**随包
 `BUILD-INFO.txt` 与 `SHA256SUMS`** 解析而来（不是第二份真相），解析不到任何一项
@@ -159,7 +157,7 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
   强删重建；做自动更新要等 Developer ID 签名 + 公证（见
   [roadmap](../reference/roadmap.md) 的遗留项）。「有没有新版」的检测不受此限制，
   见上面 [version.json](#有没有新版的机读入口versionjson)——它只给直链，装不装由人。
-- 构建细节与为什么必须先造 Linux 包，见 [CI 出包口径](#ci-是怎么串起来的)。
+- 普通终端构建细节，见 [CI 出包口径](#ci-是怎么串起来的)。
 
 ## 签名档位：`adhoc` / `dev` / `id` / `none`
 
@@ -193,64 +191,34 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
   会话 helper 的 `runtime.json` 走同一套记账（`ad-hoc` / `apple-development` / `developer-id`）。
   牙见 `scripts/mutation-check-package-mac.sh` 的 A8、A9。
 
-## 本地自己出一份
+## 本地怎么出同样的包
 
-前提：macOS arm64 主机 + 一份已构建好的 Linux 会话安装包（只能由 Linux 机器产出）。
-
-```bash
-# 1) 契约预检：Linux 侧会喂给 CMake 的头树，是否与已验证的 mac SDK 头树逐字节相同
-python3 scripts/build-session-engine.py            # 产出 build/GhosttyKit.xcframework
-python3 scripts/build-session-vt-linux.py --dry-run
-
-# 2) 在 Linux（aarch64 或 x86_64）上造 bundle：出 libghostty-vt.so + sessiond 包
-python3 scripts/build-session-vt-linux.py          # 末行打印 bundle 目录
-
-# 3) 出 mac 包（显式带上两个架构的 bundle；缺了 package-mac.sh 会直接 fail）
-bash scripts/package-mac.sh --out dist --adhoc --build 42 \
-  --session-linux-bundle <x86_64-bundle> --session-linux-bundle <aarch64-bundle>
-```
-
-没有 Linux 机器时可以用容器（min_glibc 由容器里的 glibc 决定，别用宿主的新版本）：
+前提：macOS arm64、Xcode、Zig 0.16.0 与普通核心构建依赖。
 
 ```bash
-docker run --rm -it -v "$PWD":/work -w /work arm64v8/ubuntu:22.04 bash
-# 容器内（与 CI 的 linux-bundle job 同一套依赖）：
-#   mkdir -p tmp                       # TMPDIR 指到仓库 tmp/，容器里那目录还不存在
-#   apt-get update && apt-get install -y --no-install-recommends \
-#     build-essential ca-certificates cmake curl git pkg-config python3 tar xz-utils
-#   git config --global --add safe.directory "*"
-#   ZIG=/path/to/zig python3 scripts/build-session-vt-linux.py
+bash scripts/build-ghostty.sh
+bash scripts/gate.sh
+bash scripts/package-mac.sh --adhoc --out dist
 ```
 
-容器里跑之前记得先取 zig 0.16.0（`libghostty` 的 `build.zig.zon` 钉了最低版本），
-CI 是下载后缓存在 `tmp/zig/` 并传 `ZIG=$PWD/tmp/zig/zig`。
+普通 full libghostty 仅应用 host IO、程序状态与语义提示三份补丁；构建器在工程 `tmp/`
+内使用隔离源码，保持 vendor pin 不变。SDK 的 `terminal-engine.json` 记录实际 archive
+与补丁哈希。打包校验拒绝旧 session helper、快照 API、旧收据与随包 runtime。
+应用不携带 Linux 安装包，不要求远端编译器，也不自动安装 tmux。
 
 ## CI 是怎么串起来的
 
-```
-push main ─▶ dev-build.yml
-              ├─ macos-package.yml（workflow_call：channel=dev、gates=light）
-              │    ├─ linux-bundle ×2（x86_64 / aarch64，ubuntu:22.04 容器）
-              │    │     └─ scripts/build-session-vt-linux.py → sessiond-linux-<arch> artifact
-              │    └─ mac-package ─▶ scripts/package-mac.sh → Ghosterm-macOS-dev-<sha> artifact
-              └─ release-dev ─▶ 先验产物 → 删旧 dev → gh release create dev --prerelease
+```text
+push main → dev-build.yml
+              ├─ macos-package.yml → package-mac.sh → macOS artifact
+              └─ release-dev → 复验字节与版本清单 → 滚动 dev prerelease
 ```
 
-三个入口（tag `v*` / PR / 手动）走 `macos-release.yml`，调同一个
-`macos-package.yml`，只是 `channel=release、gates=full`——多跑 Apple 端全量闸门、
-Linux 侧的 `scripts/mutation-check-sessiond-linux.py`，并在有证书 secret 时才走
-Developer ID 签名 + 公证分支。
-
-为什么 Linux bundle 必须先造：`scripts/package-mac.sh` 硬要求内嵌 Linux 会话安装包，
-而 `scripts/stage-session-runtime.py` 要求 bundle 的 session contract 与 mac 端
-**逐位一致**。契约由 `daemon/CMakeLists.txt` 对「include 根下全部 `*.h` +
-`patches/libghostty/8159838/**/*.patch` + schema 源文件」取 sha256 拼出，所以 Linux
-侧必须打**同一补丁全集、同一顺序**，且 `--include` 指向 `<engine>/include`（36 个头，
-含顶层 `ghostty.h`）而**不是** `zig build` 装出来的 `zig-out/include`（只有 35 个）。
-这条链条的四条断言由 `scripts/mutation-check-sessiond-linux.py` 验牙。
+tag `v*` / PR / 手动走 `macos-release.yml`，共用 `macos-package.yml` 与同一份打包脚本。
+release 的 full 档运行 Apple 原生与变异闸门；有证书时才走签名/公证。
+macOS 包只依赖普通引擎 SDK、共享 C 核心、原生 UI、图标和主题，不再依赖 Linux bundle job。
 
 ## 相关文档
 
-- [从 macOS 使用 Linux 持久会话](linux-persistent-session.md)——远端要求 glibc ≥ 2.34 的由来
 - [能力矩阵](../reference/capability-matrix.md)——构建与交付一行的状态口径
 - [路线图](../reference/roadmap.md)——签名 / 公证 / 降最低系统版本的遗留项

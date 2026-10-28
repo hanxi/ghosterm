@@ -48,15 +48,11 @@ struct gt_ghostty_app {
 
 struct gt_ghostty_surface {
   ghostty_surface_t surface;
-  struct gt_ghostty_replica_private *replica;
   gt_host_callbacks_t cbs;
   /* 从 app 的清单里摘除时用；NULL = 还没登记（创建失败路径）。 */
   struct gt_ghostty_app *owner;
   /* libghostty 保存的是 userdata 指针，回调里要找回本结构，故自存。 */
 };
-
-static gt_ghostty_surface_t *surface_new_(gt_ghostty_app_t *,void *,double,const gt_host_callbacks_t *,uint64_t,const gt_ghostty_replica_policy_t *);
-#include "replica.inc"
 
 static void cb_wakeup(void *ud) {
   (void)ud;
@@ -352,7 +348,7 @@ void gt_ghostty_app_set_color_scheme(gt_ghostty_app_t *a, bool dark) {
    * 否则「切深色只有新开的终端变色、已开的不变」（用户实测）。 */
   for (size_t i = 0; i < a->surface_count; i++) {
     struct gt_ghostty_surface *s = a->surfaces[i];
-    if (s && s->surface && !s->replica) ghostty_surface_set_color_scheme(s->surface, scheme);
+    if (s && s->surface) ghostty_surface_set_color_scheme(s->surface, scheme);
   }
 }
 
@@ -385,11 +381,11 @@ static void app_untrack_surface(gt_ghostty_surface_t *s) {
   s->owner = NULL;
 }
 
-static gt_ghostty_surface_t *surface_new_(gt_ghostty_app_t *a,void *nsview,double scale,
-  const gt_host_callbacks_t *cbs,uint64_t generation,const gt_ghostty_replica_policy_t *policy) {
+gt_ghostty_surface_t *gt_ghostty_surface_new(gt_ghostty_app_t *a,void *nsview,double scale,
+  const gt_host_callbacks_t *cbs) {
   if (!a || !a->app) { set_err("surface_new: app 为空"); return NULL; }
   if (!nsview) { set_err("surface_new: nsview 为空（需要渲染锚点）"); return NULL; }
-  if (!cbs || !cbs->write || !cbs->resize || (policy && !cbs->write_stamped)) {
+  if (!cbs || !cbs->write || !cbs->resize) {
     set_err("surface_new: host 后端需要 write 与 resize 回调");
     return NULL;
   }
@@ -411,12 +407,9 @@ static gt_ghostty_surface_t *surface_new_(gt_ghostty_app_t *a,void *nsview,doubl
   sc.host_program_status = host_program_status;
   sc.host_semantic_prompt = host_semantic_prompt;
 
-  if(policy){s->replica=replica_prepare(a->config,generation,policy,&sc);if(!s->replica){free(s);set_err("replica policy/budget/config rejected");return NULL;}sc.p0_host_write_input=replica_input;}
   s->surface = ghostty_surface_new(a->app, &sc);
-  if(s->replica){ghostty_config_free(s->replica->config);s->replica->config=NULL;}
   if (!s->surface) {
     set_err("ghostty_surface_new 失败");
-    replica_dispose(s->replica);
     free(s);
     return NULL;
   }
@@ -425,13 +418,11 @@ static gt_ghostty_surface_t *surface_new_(gt_ghostty_app_t *a,void *nsview,doubl
   return s;
 }
 
-gt_ghostty_surface_t *gt_ghostty_surface_new(gt_ghostty_app_t *a,void *view,double scale,const gt_host_callbacks_t *cbs){return surface_new_(a,view,scale,cbs,0,NULL);}
 
 void gt_ghostty_surface_free(gt_ghostty_surface_t *s) {
   if (!s) return;
   app_untrack_surface(s);
   if (s->surface) ghostty_surface_free(s->surface);
-  replica_dispose(s->replica);
   free(s);
 }
 

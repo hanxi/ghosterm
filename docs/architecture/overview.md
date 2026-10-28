@@ -47,37 +47,18 @@
 输入尾队列位于 `io/pty_posix.c`；SSH shell 适配位于 `io/ssh_shell.c`，libssh2
 会话和通道实现仍在 `ssh.c`。后端不依赖 surface 或平台 UI，宿主不访问私有头。
 
-这次拆分保持既有行为：当前 close 仍结束 backend，会话尚未独立于 GUI。
-私有 session/attachment/worker/manager 已有基础与恢复原型，生产 daemon、
-SSH 断网恢复与产品接线仍未交付。目标架构与未通过的 P0 条件见
-[会话重构计划](../reference/plan-session-daemon.md) 和 [会话运行时 ADR](session-runtime.md)。
+普通连接直接使用本地 PTY / SSH shell，不依赖后台进程或旧会话记录。
 
-## 可选后台会话方向（2026-10-28，实施中）
+## 可选后台会话
 
-默认本地/SSH 连接已回接普通 PTY/SSH shell，不读取旧会话记录、不探测 tmux、不安装 helper。
-后台会话按 [可选 tmux 计划](../reference/plan-optional-tmux.md) 实施，连接由用户从刷新后的
-列表选择，每个格子承载普通 tmux attach；不使用 control mode。共享模块负责 tmux 管理，
-TerminalSurface 保持后端无关，终端输出直连 I/O owner。
+后台保活按 [可选 tmux 计划](../reference/plan-optional-tmux.md) 实施。每个格子连接一个
+tmux session，采用普通 PTY 客户端；tmux 内部的 window/pane 不映射到 Ghosterm 布局。
+管理命令由共享 C 模块执行，交互字节保持 Transport 与 TerminalSurface 直连。
+断线后由用户刷新列表并重新选择，不按旧名称自动创建或恢复，也不重放输入。
 
-以下自有 sessiond 方向已被替代，其组件、构建、打包和文档正按依赖闭包退役，不能当作
-后续交付要求。进度见 [实施清单](../reference/optional-tmux-implementation.md)。
-
-各平台原生客户端经现有 SSH 端口，以不申请 PTY 的 exec channel 承载会话协议；
-远端短生命周期连接代理接入当前用户的 sessiond。sessiond 独立持有原 PTY、程序
-和无 UI 权威状态，断网只撤销 attachment；新 SSH 连接认证后接回原 session。
-自有 sessiond，不直接依赖 tmux，不新增公网端口。普通 SSH 保持独立、无持久承诺。
-本地 daemon 同样必须交付，共用同一 sessiond/runtime、协议处理器和管理/恢复逻辑，
-本地直连私有端点，远端仅增加 SSH 代理。[共用帧封装](../reference/session-ipc.md)
-已有有界流式解析/续送实现；[Unix 端点基础](../reference/session-endpoints.md)
-另有两把锁、真实监听/连接与内核 UID 证据；共用 connection/socket-stream 已
-组合帧往返、双缓冲、整帧超时/取消与背压读取。服务循环、协议身份/实际 SSH
-通道与完整会话接线尚未交付。
-
-客户端与会话宿主分别验收：首条链路为 macOS 客户端 → Linux sessiond，再以
-第二种原生客户端验证跨平台；本机 helper 的产品收尾和 Windows ConPTY 都不是
-连接 Linux 的前置条件，Windows 客户端渲染/平台适配仍待完成。移动端不依赖本机
-后台保活，Web 网关另行设计。部署、身份、断线租约、升级限制与产品先例见
-[远端会话架构](remote-session.md)，实施顺序见会话重构计划。
+自有 sessiond、私有恢复协议、快照/replica、安装与随包 runtime 已退役。
+可选 tmux 的管理模块和 UI 尚在实施；实际支持范围见 [能力矩阵](../reference/capability-matrix.md)，
+切片与验收见 [实施清单](../reference/optional-tmux-implementation.md)。
 
 ## 终端引擎分档（哪些端不能用 full libghostty）
 

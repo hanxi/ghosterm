@@ -6,7 +6,7 @@
 #   2. 签名后再往 bundle 里加文件 → code seal 失效 → codesign 校验红；
 #   3. 谎报最低系统版本（--min-os 低于依赖实际要求）→ 直接拒绝出包；
 #   4. 签名档位必须按证书**真实的类**记账：免费个人账号的 Apple Development 不能
-#      冒充 Developer ID（A8 打 package-mac.sh 的分类器，A9 打 sessiond 的 runtime.json）；
+#      冒充 Developer ID（A8 打 package-mac.sh 的分类器）；
 #   5. 对外声明的下载入口必须跟着本轮打包改名：Homebrew cask 的 URL 在另一个仓库手写，
 #      改名/版本 bump 时 dev 轨自己全绿、用户侧 404（A10 打 package-mac.sh 的资产命名，
 #      牙落在 scripts/check-dev-cask.sh 上）。
@@ -15,7 +15,7 @@
 # 并且**每个变异都配一条「应当仍绿」的对照**，证明红有指向性而不是环境坏了。
 #
 # 与其它 mutation 脚本的差异：部分变异作用在 tmp/ 里的**副本**上（不改仓库文件），
-# 改仓库文件的那几条（A2/A7/A8/A9/A10）统一由末尾的 sha256 对拍兜底，且清理钩子先把
+# 改仓库文件的那几条（A2/A7/A8/A10）统一由末尾的 sha256 对拍兜底，且清理钩子先把
 # 备份拷回去再删工作目录。
 #
 # 用法：bash scripts/mutation-check-package-mac.sh
@@ -24,7 +24,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p "$ROOT/tmp"
 
-SCRIPTS=(scripts/package-mac.sh scripts/lib/embed-dylibs.py scripts/build-icons.sh scripts/lib/ghostty-themes.sh scripts/build-sessiond-mac.py scripts/check-dev-cask.sh)
+SCRIPTS=(scripts/package-mac.sh scripts/lib/embed-dylibs.py scripts/build-icons.sh scripts/lib/ghostty-themes.sh scripts/check-dev-cask.sh scripts/check-terminal-package.py scripts/build-terminal-engine.py)
 for f in "${SCRIPTS[@]}"; do [ -f "$f" ] || { echo "缺少 $f" >&2; exit 2; }; done
 
 # 起跑前扫变异标记：上一轮被 kill -9 打断可能把 `# MUTATION` 留在仓库文件里，
@@ -41,20 +41,32 @@ done
 # exit 2 拒绝起跑。
 . "$ROOT/scripts/lib/gt-timeout.sh"
 gt_timeout_require mutation-check-package-mac
+python3 -c 'from PIL import Image' >/dev/null 2>&1 || {
+  echo "缺 Pillow，图标对照无法起跑；请将 tmp/venv-icons/bin 加入 PATH" >&2; exit 2;
+}
 
 declare -A SHA_BEFORE
 for f in "${SCRIPTS[@]}"; do SHA_BEFORE[$f]="$(shasum -a 256 "$f" | awk '{print $1}')"; done
 
 WORK="$(mktemp -d "$ROOT/tmp/mutation-package-XXXXXX")"
 PKG_BAK="$WORK/package-mac.sh.orig"
-SESSIOND_BAK="$WORK/build-sessiond-mac.py.orig"
 cleanup() {
+  local status=$? f actual
   # 先复原仓库文件、再删工作目录：备份就放在工作目录里，顺序反了会把证据一起删掉。
   [ -f "$PKG_BAK" ] && cp "$PKG_BAK" "$ROOT/scripts/package-mac.sh" 2>/dev/null || true
-  [ -f "$SESSIOND_BAK" ] && cp "$SESSIOND_BAK" "$ROOT/scripts/build-sessiond-mac.py" 2>/dev/null || true
+  for f in "${SCRIPTS[@]}"; do
+    actual="$(shasum -a 256 "$ROOT/$f" | awk '{print $1}')"
+    if [ "$actual" != "${SHA_BEFORE[$f]}" ]; then
+      echo "MUTATION FAIL: 回滚 SHA256 不一致：${f}" >&2; status=2
+    fi
+  done
   rm -rf "$WORK"
+  trap - EXIT
+  exit "$status"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 PASS=0
 # 判据反了时必须当场看到**为什么**反（CI 上实测踩过：A7 的对照红了，
@@ -84,6 +96,7 @@ bash scripts/package-mac.sh --out "$WORK/dist" --app-only --no-zip --version 0.0
 BASELINE="$WORK/dist/Ghosterm.app"
 [ -d "$BASELINE" ] || { echo "MUTATION FAIL: 基线没有产出 .app" >&2; exit 1; }
 expect_green "基线：自包含检查" python3 scripts/lib/embed-dylibs.py check "$BASELINE"
+expect_green "基线：图标对照" bash scripts/build-icons.sh check
 
 echo "== A1：把一条依赖改回绝对路径 → 自包含检查必须红 =="
 cp -R "$BASELINE" "$WORK/A1.app"
@@ -204,42 +217,110 @@ expect_green "同一变异下基线 .app 不受影响（A8 指向性）" python3
 cp "$PKG_BAK" scripts/package-mac.sh
 expect_red_saying "复原后同一调用重新记成 dev（A8 复绿口径）" "签名档：dev" pkg_sign "$DEV_ID"
 
-echo "== A9：会话 helper 的 runtime.json 同一条记账口径 =="
-# build-sessiond-mac.py 原先写 `'ad-hoc' if sign=='-' else 'developer-id'`：拿免费账号
-# 的证书签 sessiond，runtime.json 里就成了 developer-id——同一个谎的第二处落点。
-# 这一档不进 release id（id 只由 contract 与文件哈希算），所以改它不动 mac↔Linux
-# 的契约对拍；也因此这里只能**现取现调**该函数（整脚本要真构建，代价不成比例）。
-A9_PROBE='import runpy
-f = runpy.run_path("scripts/build-sessiond-mac.py", run_name="gt_probe")["sign_label"]
-for got, exp in [("-", "ad-hoc"),
-                 ("Developer ID Application: X (T)", "developer-id"),
-                 ("Apple Development: X (T)", "apple-development")]:
-    if f(got) != exp:
-        raise SystemExit("记账错：%s → %s，应为 %s" % (got, f(got), exp))
-try:
-    f("Developer ID Installer: X (T)")
-except RuntimeError:
-    pass
-else:
-    raise SystemExit("未识别的身份没报错")'
-A9_CTRL='import runpy,sys
-f = runpy.run_path("scripts/build-sessiond-mac.py", run_name="gt_probe")["sign_label"]
-sys.exit(0 if f("-") == "ad-hoc" and f("Developer ID Application: X (T)") == "developer-id" else 1)'
-expect_green "三档记账 + 未知身份报错（A9 基线）" python3 -c "$A9_PROBE"
-cp scripts/build-sessiond-mac.py "$SESSIOND_BAK"
-python3 - scripts/build-sessiond-mac.py <<'PY'
-import sys
-p = sys.argv[1]
-t = open(p, encoding="utf-8").read()
-needle = "        return 'apple-development'"
-assert needle in t, "sign_label 实现变了，A9 的变异要跟着改"
-t = t.replace(needle, "        return 'developer-id'  # MUTATION: 真证书一律算 developer-id", 1)
-open(p, "w", encoding="utf-8").write(t)
+echo "== A9：旧 runtime、旧引擎 API 与构建收据不得混入新包 =="
+expect_green "普通终端包与引擎基线（A9）" python3 scripts/check-terminal-package.py --app "$BASELINE"
+ditto "$BASELINE" "$WORK/A9.app"
+mkdir -p "$WORK/A9.app/Contents/Resources/sessiond"
+printf 'retired runtime fixture\n' > "$WORK/A9.app/Contents/Resources/sessiond/fixture.txt"
+codesign --force --deep --sign - "$WORK/A9.app" >/dev/null 2>&1
+expect_red_saying "重新签名也不能携带旧 runtime（A9a）" "retired session payload remains" \
+  python3 scripts/check-terminal-package.py --app "$WORK/A9.app"
+expect_green "同一旧 runtime 变异的依赖检查仍绿（A9a 指向性）" python3 scripts/lib/embed-dylibs.py check "$WORK/A9.app"
+python3 - "$WORK/sdk" <<'PY'
+import shutil,sys
+shutil.copytree('build/GhosttyKit.xcframework',sys.argv[1],symlinks=True)
 PY
-expect_red "变异后：开发证书被记成 developer-id（A9 有牙）" python3 -c "$A9_PROBE"
-expect_green "同一变异下 ad-hoc 与 Developer ID 两档不受影响（A9 指向性）" python3 -c "$A9_CTRL"
-cp "$SESSIOND_BAK" scripts/build-sessiond-mac.py
-expect_green "复原后三档记账复绿（A9 复绿）" python3 -c "$A9_PROBE"
+cp "$WORK/sdk/terminal-engine.json" "$WORK/receipt.json"
+python3 - "$WORK/sdk/terminal-engine.json" <<'PY'
+import json,sys
+p=sys.argv[1];v=json.load(open(p));v['profile']='session-replica';open(p,'w').write(json.dumps(v))
+PY
+expect_red_saying "旧 profile 收据被拒（A9b）" "receipt does not match" \
+  python3 scripts/check-terminal-package.py --app "$BASELINE" --sdk "$WORK/sdk"
+expect_green "同一收据变异的应用依赖仍绿（A9b 指向性）" python3 scripts/lib/embed-dylibs.py check "$BASELINE"
+cp "$WORK/receipt.json" "$WORK/sdk/terminal-engine.json"
+cp "$WORK/sdk/macos-arm64/Headers/ghostty.h" "$WORK/header.h"
+printf '\n/* ghostty_p0_retired_fixture */\n' >> "$WORK/sdk/macos-arm64/Headers/ghostty.h"
+expect_red_saying "旧 p0 头被拒（A9c）" "retired session engine API remains" \
+  python3 scripts/check-terminal-package.py --app "$BASELINE" --sdk "$WORK/sdk"
+expect_green "同一头树变异的应用依赖仍绿（A9c 指向性）" python3 scripts/lib/embed-dylibs.py check "$BASELINE"
+cp "$WORK/header.h" "$WORK/sdk/macos-arm64/Headers/ghostty.h"
+for kind in engine patches; do
+  python3 - "$WORK/sdk/terminal-engine.json" "$kind" <<'PY'
+import json,sys
+p,kind=sys.argv[1:];v=json.load(open(p));v[kind]='wrong-pin' if kind=='engine' else {};open(p,'w').write(json.dumps(v))
+PY
+  expect_red_saying "收据 ${kind} 与源码不匹配（A9d）" "receipt does not match" \
+    python3 scripts/check-terminal-package.py --app "$BASELINE" --sdk "$WORK/sdk"
+  expect_green "同一收据变异的依赖仍绿（A9d 指向性）" python3 scripts/lib/embed-dylibs.py check "$BASELINE"
+  cp "$WORK/receipt.json" "$WORK/sdk/terminal-engine.json"
+done
+python3 - "$WORK/sdk/terminal-engine.json" <<'PY'
+import json,sys
+p=sys.argv[1];v=json.load(open(p));v['archive_sha256']='0'*64;open(p,'w').write(json.dumps(v))
+PY
+expect_red_saying "实际 archive 与收据不匹配（A9e）" "archive does not match receipt" \
+  python3 scripts/check-terminal-package.py --app "$BASELINE" --sdk "$WORK/sdk"
+expect_green "同一 archive 收据变异的依赖仍绿（A9e 指向性）" python3 scripts/lib/embed-dylibs.py check "$BASELINE"
+cp "$WORK/receipt.json" "$WORK/sdk/terminal-engine.json"
+python3 - "$WORK/sdk/macos-arm64/Headers/ghostty.h" <<'PY'
+import sys
+p=sys.argv[1];s=open(p).read();assert 'host_semantic_prompt' in s;open(p,'w').write(s.replace('host_semantic_prompt','missing_host_callback'))
+PY
+expect_red_saying "普通 host 回调缺失（A9f）" "ordinary host callbacks missing" \
+  python3 scripts/check-terminal-package.py --app "$BASELINE" --sdk "$WORK/sdk"
+expect_green "同一回调变异的独立公开头仍绿（A9f 指向性）" python3 scripts/check-public-headers.py
+cp "$WORK/header.h" "$WORK/sdk/macos-arm64/Headers/ghostty.h"
+
+cp "$WORK/sdk/macos-arm64/libghostty-internal.a" "$WORK/engine.a"
+printf 'void ghostty_p0_retired_fixture(void) {}\n' > "$WORK/A9-p0.c"
+xcrun --sdk macosx clang -c "$WORK/A9-p0.c" -o "$WORK/A9-p0.o"
+ar -r "$WORK/sdk/macos-arm64/libghostty-internal.a" "$WORK/A9-p0.o"
+python3 - "$WORK/sdk" <<'PY'
+import hashlib,json,sys
+from pathlib import Path
+p=Path(sys.argv[1]);v=json.loads((p/'terminal-engine.json').read_text());v['archive_sha256']=hashlib.sha256((p/'macos-arm64/libghostty-internal.a').read_bytes()).hexdigest();(p/'terminal-engine.json').write_text(json.dumps(v))
+PY
+expect_red_saying "收据自洽仍不能导出旧 p0 API（A9g）" "retired session engine API remains" \
+  python3 scripts/check-terminal-package.py --app "$BASELINE" --sdk "$WORK/sdk"
+expect_green "同一旧符号变异的独立公开头仍绿（A9g 指向性）" python3 scripts/check-public-headers.py
+cat > "$WORK/A9-exports.c" <<'C'
+void ghostty_surface_process_output(void) {}
+void ghostty_surface_new(void) {}
+void ghostty_surface_set_color_scheme(void) {}
+C
+xcrun --sdk macosx clang -c "$WORK/A9-exports.c" -o "$WORK/A9-exports.o"
+rm "$WORK/sdk/macos-arm64/libghostty-internal.a"
+ar -rcs "$WORK/sdk/macos-arm64/libghostty-internal.a" "$WORK/A9-exports.o"
+python3 - "$WORK/sdk" <<'PY'
+import hashlib,json,sys
+from pathlib import Path
+p=Path(sys.argv[1]);v=json.loads((p/'terminal-engine.json').read_text());v['archive_sha256']=hashlib.sha256((p/'macos-arm64/libghostty-internal.a').read_bytes()).hexdigest();(p/'terminal-engine.json').write_text(json.dumps(v))
+PY
+expect_red_saying "收据自洽仍不能缺普通入口（A9h）" "entry points missing" \
+  python3 scripts/check-terminal-package.py --app "$BASELINE" --sdk "$WORK/sdk"
+expect_green "同一入口变异的独立公开头仍绿（A9h 指向性）" python3 scripts/check-public-headers.py
+cp "$WORK/engine.a" "$WORK/sdk/macos-arm64/libghostty-internal.a"
+cp "$WORK/receipt.json" "$WORK/sdk/terminal-engine.json"
+
+rm -rf "$WORK/A9.app/Contents/Resources/sessiond"
+printf '\nLinux glibc 下限: retired-fixture\n' >> "$WORK/A9.app/Contents/Resources/BUILD-INFO.txt"
+codesign --force --deep --sign - "$WORK/A9.app" >/dev/null 2>&1
+expect_red_saying "旧运行时元数据不得留在 BUILD-INFO（A9i）" "retired session metadata remains" \
+  python3 scripts/check-terminal-package.py --app "$WORK/A9.app"
+expect_green "同一元数据变异的依赖仍绿（A9i 指向性）" python3 scripts/lib/embed-dylibs.py check "$WORK/A9.app"
+cp "$BASELINE/Contents/Resources/BUILD-INFO.txt" "$WORK/A9.app/Contents/Resources/BUILD-INFO.txt"
+mkdir -p "$WORK/A9-empty.app/Contents/MacOS"
+expect_red_saying "缺可执行文件不能假绿（A9j）" "app executable missing" \
+  python3 scripts/check-terminal-package.py --app "$WORK/A9-empty.app"
+expect_green "同一空包变异的独立公开头仍绿（A9j 指向性）" python3 scripts/check-public-headers.py
+printf 'void gt_session_retired_fixture(void) {}\nint main(void) { return 0; }\n' > "$WORK/A9-symbol.c"
+xcrun --sdk macosx clang "$WORK/A9-symbol.c" -o "$WORK/A9.app/Contents/MacOS/GhostermApp"
+codesign --force --deep --sign - "$WORK/A9.app" >/dev/null 2>&1
+expect_red_saying "旧公开 ABI 不得残留在应用（A9k）" "retired session symbols remain" \
+  python3 scripts/check-terminal-package.py --app "$WORK/A9.app"
+expect_green "同一旧 ABI 变异的依赖仍绿（A9k 指向性）" python3 scripts/lib/embed-dylibs.py check "$WORK/A9.app"
+expect_green "收据与头树复原后复绿（A9 回滚）" python3 scripts/check-terminal-package.py --app "$BASELINE" --sdk "$WORK/sdk"
 
 echo "== A7：配色集定位（A7 必须红——这条正是「出过没主题的包」的根因） =="
 # 为什么打这一条：配色集定位原先写成 `find -type d`，而 zig-pkg 里的

@@ -1,19 +1,13 @@
 # macOS 打包（可复用工作流）：本地与 CI **共用同一个脚本**（scripts/package-mac.sh），
-# 这里只负责「装工具链 + 造 Linux 会话安装包 + 调脚本 + 传产物」。
+# 这里只负责「装工具链 + 构建普通终端 + 调脚本 + 传产物」。
 #
 # 谁来调：
 #   · .github/workflows/macos-release.yml  → tag `v*` / PR / 手动（channel=release、gates=full）
 #   · .github/workflows/dev-build.yml      → 每次 push main（channel=dev、gates=light）
 #
-# 为什么有 linux-bundle job（不是可选装饰）：
-#   scripts/package-mac.sh 硬要求内嵌 Linux 会话安装包（缺了就 fail），而 bundle 只能在
-#   Linux 上造；bundle 的 session contract 又必须与 mac 端逐位一致
-#   （scripts/stage-session-runtime.py 校验）。所以出 mac 包必须先出 Linux bundle。
-#
 # 诚实口径（AGENTS.md 铁律 #6）：
 #   · 没有签名 secret 时降级 ad-hoc 并在 BUILD-INFO 里明说，不假装已签名；
 #   · 包内最低系统版本会被内嵌的 Homebrew 库抬高（BUILD-INFO.txt 记真实值）；
-#   · Linux bundle 的 min_glibc 是**远端主机**能否跑会话的条件，逐架构写进 BUILD-INFO；
 #   · 缺工具链时显式 SKIP 或失败，不静默跳过。
 name: macOS Package (reusable)
 
@@ -63,133 +57,9 @@ env:
   ZIG_VERSION: 0.16.0
 
 jobs:
-  # ---------------------------------------------------------------- Linux 会话安装包
-  linux-bundle:
-    name: Linux 会话安装包 (${{ matrix.arch }})
-    # 在 glibc 2.34 的 ubuntu:22.04 容器里构建：min_glibc 是 bundle 的**下限**，
-    # 在滚动 runner 自带的新 glibc 上构建会把这个下限抬高到没人跑得动的程度。
-    runs-on: ${{ matrix.runner }}
-    container:
-      image: ${{ matrix.image }}
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x86_64
-            runner: ubuntu-24.04
-            image: ubuntu:22.04
-          - arch: aarch64
-            runner: ubuntu-24.04-arm
-            image: arm64v8/ubuntu:22.04
-    defaults:
-      run:
-        # 容器里的 /bin/sh 是 dash，不认 `set -o pipefail`（实测红过一次）。
-        shell: bash
-    env:
-      # arm64 的 ubuntu:22.04 官方镜像名带 arm64v8/ 前缀，zig 包名跟着机器架构走
-      ZIG_ARCH: ${{ matrix.arch }}
-      # 必须挂在 **job** 上而不是 step 上：scripts/prepare-session-io.py 找 zig 的顺序是
-      # $ZIG → PATH → tmp/zig/zig-aarch64-macos-<ver>/zig（最后那条是 mac 开发的回落）。
-      # 只在「构建 bundle」一步给 ZIG，变异验证那步没给 → Linux runner 上直接
-      # FileNotFoundError（CI 实测红过一次）。
-      ZIG: ${{ github.workspace }}/tmp/zig/zig
-    steps:
-      # 必须在 checkout **之前**：ubuntu:22.04 容器里没有 git，actions/checkout 会
-      # 退回 REST 归档下载——那样 submodule 根本拿不到，构建器第一步就红。
-      - name: 装 git 与构建依赖
-        run: |
-          set -euo pipefail
-          # TMPDIR 指向仓库 tmp/（AGENTS.md 环境硬约束），但容器里那目录还不存在；
-          # ca-certificates 的 postinst 用 mktemp 就直接失败（实测红过一次）。
-          mkdir -p "$TMPDIR"
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update -qq
-          apt-get install -y --no-install-recommends \
-            build-essential ca-certificates cmake curl git pkg-config python3 tar xz-utils
-          # 容器里 uid 与 runner 挂载的文件属主不一致，git 会拒绝操作仓库。
-          git config --global --add safe.directory "*"
-
-      # persist-credentials=false：vendor/ghostty 是**别人家的公开仓库**，checkout 写进
-      # 配置的 GITHUB_TOKEN extraheader 会让跨仓库 fetch 被拒（公开仓库匿名反而能拉）。
-      # 本 job 不需要 git 网络写操作，构建只读 HEAD 与补丁。
-      #
-      # 故意**不带** submodules 输入：浅克隆下 checkout 会把子模块落到远端分支头，
-      # 而构建器只认 .gitmodules 钉死的 commit（实测 engine pin mismatch: 55ebd1bb…）。
-      # 取 pin 一律走 scripts/fetch-vendor-pin.sh，两个 job 共用同一套实现。
-      - name: 检出
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: 取 vendor pin
-        run: bash scripts/fetch-vendor-pin.sh
-
-      - name: 缓存 zig ${{ env.ZIG_VERSION }}
-        uses: actions/cache@v4
-        id: zig
-        with:
-          path: tmp/zig
-          key: zig-${{ env.ZIG_VERSION }}-${{ matrix.arch }}-linux
-
-      - name: 取 zig
-        if: steps.zig.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          URL="https://ziglang.org/download/${ZIG_VERSION}/zig-${ZIG_ARCH}-linux-${ZIG_VERSION}.tar.xz"
-          echo "下载 $URL"
-          mkdir -p tmp/zig "$RUNNER_TEMP/zig-dl"
-          curl -fsSL -o "$RUNNER_TEMP/zig-dl/zig.tar.xz" "$URL"
-          tar -xJf "$RUNNER_TEMP/zig-dl/zig.tar.xz" -C "$RUNNER_TEMP/zig-dl" --strip-components=1
-          cp -R "$RUNNER_TEMP/zig-dl/." tmp/zig/
-          tmp/zig/zig version
-
-      - name: 环境信息
-        run: |
-          set -x
-          uname -a; ldd --version 2>/dev/null || true
-          python3 -c 'import platform;print(platform.system(),platform.machine())'
-          cmake --version | head -1; readelf --version | head -1; tmp/zig/zig version
-          git submodule status
-
-      # 与 mac 探针链同一补丁全集/顺序 + 同一 <engine>/include 头树，否则
-      # stage-session-runtime.py 会报 Linux bundle identity mismatch（契约不等）。
-      - name: 构建 libghostty-vt 并打包 bundle
-        run: |
-          set -euo pipefail
-          python3 scripts/build-session-vt-linux.py | tee "$RUNNER_TEMP/vt-linux.log"
-          # 这条 step 在 CI 上不允许任何降级：出现 SKIP 就是环境没装对。
-          if grep -q SKIP "$RUNNER_TEMP/vt-linux.log"; then
-            echo "构建输出里出现 SKIP（本步必须真跑）" >&2; exit 1
-          fi
-          bundle="$(ls -d tmp/vt-linux/bundles/*/ | head -1)"
-          [ -n "$bundle" ] || { echo "没造出 bundle" >&2; exit 1; }
-          echo "--- manifest ---"; cat "$bundle/manifest.tsv"
-          echo "--- SOURCE-INFO ---"; cat "$bundle/SOURCE-INFO.json"
-
-      - name: 上传 bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: sessiond-linux-${{ matrix.arch }}
-          path: tmp/vt-linux/bundles
-          retention-days: 1
-
-      # 契约链条的牙（AGENTS.md「新增闸门必附变异验证」）：少打一片真改到头树的补丁、
-      # vendor pin 被改、把 .a 冒充 --engine、改一个头的一字节——四种破坏都要让对应断言变红。
-      # 本 job 就是 Linux builder，这里出现 SKIP 一律判失败。
-      - name: 变异验证 sessiond-linux（full）
-        if: inputs.gates == 'full'
-        run: |
-          set -euo pipefail
-          python3 scripts/mutation-check-sessiond-linux.py | tee "$RUNNER_TEMP/mutation-sessiond.log"
-          if grep -q SKIP "$RUNNER_TEMP/mutation-sessiond.log"; then
-            echo "变异验证被 SKIP（本步必须真跑）" >&2; exit 1
-          fi
-
   # ---------------------------------------------------------------- macOS 出包
   mac-package:
     name: Package macOS app（${{ inputs.channel }}）
-    needs: linux-bundle
     runs-on: macos-15
     # full 轨要跑九份 Apple 变异 + 一份打包变异（后者自己就要出四次包）。
     # 90 分钟是加打包变异之前的上限，实测会顶到边缘。
@@ -199,7 +69,7 @@ jobs:
       INPUT_NOTARIZE: ${{ inputs.notarize }}
       INPUT_CHANNEL: ${{ inputs.channel }}
     steps:
-      # vendor pin 一律走 scripts/fetch-vendor-pin.sh，与 linux-bundle 同一套实现：
+      # vendor pin 一律走 scripts/fetch-vendor-pin.sh：
       # checkout 的内置 submodule 拉取不可靠（浅克隆会把子模块落到远端分支头，实测
       # engine pin mismatch: 55ebd1bb…），而这里的缓存 key、补丁链与契约都只认钉死的 commit。
       # persist-credentials=false：跨仓库拉公开 submodule 不能用本仓库的 token header。
@@ -225,21 +95,15 @@ jobs:
         id: pin
         run: echo "value=$(git -C vendor/ghostty rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
 
-      # 缓存的是「一次 build-ghostty.sh 的全部下游依赖」：SDK、会话引擎（dylib + 打补丁的头树）、
-      # Ghostty 主题集。少缓存任一项，package-mac.sh / build-sessiond-mac.py 都会在下一步炸。
-      # key 跟着 vendor pin + 补丁 + 构建脚本走：任一变化都要重建。
-      - name: 缓存 libghostty 会话产物
+      # SDK 与随包主题采用同一份普通引擎构建；缓存不包含旧 runtime。
+      - name: 缓存 libghostty 终端产物
         uses: actions/cache@v4
         id: ghostty
         with:
           path: |
             build/GhosttyKit.xcframework
-            tmp/worker-surface/engine/include
-            tmp/worker-surface/out/lib
             tmp/ghostty-resources
-          key: ghostty-${{ runner.os }}-${{ steps.pin.outputs.value }}-${{ hashFiles('patches/libghostty/**', 'patches/zig/**', 'scripts/build-ghostty.sh', 'scripts/build-session-engine.py', 'scripts/build-sessiond-mac.py', 'scripts/probe-session-*.py') }}
-          restore-keys: |
-            ghostty-${{ runner.os }}-${{ steps.pin.outputs.value }}-
+          key: terminal-${{ runner.os }}-${{ steps.pin.outputs.value }}-${{ hashFiles('patches/libghostty/**', 'scripts/build-ghostty.sh', 'scripts/build-terminal-engine.py') }}
 
       - name: 安装依赖（librsvg / ImageMagick / bash / Pillow）
         run: |
@@ -306,43 +170,10 @@ jobs:
           # 上面那步已经把 Pillow 装进 venv 了。真跑不了要红，不能绿得没牙。
           PATH="$PWD/tmp/venv-icons/bin:$PATH" bash scripts/build-icons.sh check
 
-      # 会话运行时要在 Apple 端闸门**之前**装配：Swift 的 owned-session fixture
-      # 读 build/runtime/catalog.json（干净检出上没有这文件——它由打包流程现造，
-      # CI 实测红过一次：WorkspaceTests 全部报 catalog.json 不存在）。
-      # 两架构 bundle 必须先取下来，因为 stage-session-runtime.py 要求 Linux
-      # bundle 的 contract 与 mac 侧逐位相等（不等就是出包链断了，早点红）。
-      - name: 取 Linux 会话安装包（两架构）
-        uses: actions/download-artifact@v4
-        with:
-          name: sessiond-linux-x86_64
-          path: tmp/sessiond/x86_64
-
-      - name: 取 Linux 会话安装包（aarch64）
-        uses: actions/download-artifact@v4
-        with:
-          name: sessiond-linux-aarch64
-          path: tmp/sessiond/aarch64
-
-      - name: 装配会话运行时（catalog.json，full 轨的 Swift 测试要）
-        if: inputs.gates == 'full'
-        run: |
-          set -euo pipefail
-          bash scripts/build-core.sh >/dev/null
-          python3 scripts/build-sessiond-mac.py --sign -
-          SESSION_MAC="build/runtime/macos-arm64/$(python3 -c \
-            'import json;print(json.load(open("build/runtime/macos-arm64/current.json"))["release"])')"
-          python3 scripts/stage-session-runtime.py --macos "$SESSION_MAC" \
-            --linux "$(ls -d tmp/sessiond/x86_64/*/ | head -1)" \
-            --linux "$(ls -d tmp/sessiond/aarch64/*/ | head -1)"
-          # 缺文件不许静默走「跳过 Swift 测试」那条路：这里当场红。
-          test -f build/runtime/catalog.json
-          python3 -c 'import json;print("catalog linux:", sorted(json.load(open("build/runtime/catalog.json"))["linux"]))'
-
       # 打包链自己的牙（内嵌依赖 / code seal / 谎报最低系统 / 随包主题 / 配色集
-      # 定位 / 公证守卫）。它依赖 build/runtime/catalog.json 与 GhosttyKit.xcframework，
-      # 所以只能排在「装配会话运行时」和「构建 libghostty」之后——本地一直是手工跑，
-      # 干净检出上从没验过（出过「catalog.json 不存在」和「主题被别处的
-      # GHOSTTY_RESOURCES_DIR 蒙过去」两类假绿，都只有 CI 的干净态能暴露）。
+      # 定位 / 公证守卫）。它依赖 GhosttyKit.xcframework 与随包主题，
+      # 所以排在「构建 libghostty」之后——本地一直是手工跑，
+      # 从干净检出验证，不能让开发机资源掩盖缺失依赖。
       # A6 在缺随包主题时打的是 SKIP，这里一律判失败：打包轨的口径是主题必须随包。
       #
       # 排在 Apple 长闸门**之前**的理由是纯账面的：这一步 CI 上只要 ~2 分钟，
@@ -369,6 +200,7 @@ jobs:
           # 没有 swift 工具链时不许 SKIP 成绿（那样这一整步等于没跑）。
           command -v swift >/dev/null 2>&1 || {
             echo "缺 swift 工具链，无法跑 Apple 端闸门（本步不许降级为 SKIP）" >&2; exit 1; }
+          bash scripts/apple-gate.sh
           bash scripts/apple-app-gate.sh
           bash scripts/terminal-gate.sh
           bash scripts/mutation-check-terminal.sh
@@ -381,6 +213,9 @@ jobs:
           bash scripts/mutation-check-split-dim.sh
           bash scripts/mutation-check-occlusion.sh
           bash scripts/mutation-check-app-update.sh
+          bash scripts/mutation-check-default-entry.sh
+          python3 scripts/mutation-check-ssh-auth.py
+          python3 scripts/mutation-check-ssh-credentials.py
 
       - name: 导入 Developer ID 证书（release 轨且有 secret 才做）
         if: inputs.channel == 'release'
@@ -442,17 +277,9 @@ jobs:
           else
             ARGS+=(--adhoc)
           fi
-          BUNDLES=()
-          for arch in x86_64 aarch64; do
-            bundle="$(ls -d "tmp/sessiond/$arch"/*/ 2>/dev/null | head -1)"
-            [ -n "$bundle" ] || { echo "缺 $arch 的 Linux 会话安装包" >&2; exit 1; }
-            BUNDLES+=(--session-linux-bundle "${bundle%/}")
-          done
-          bash scripts/package-mac.sh "${ARGS[@]}" "${BUNDLES[@]}"
+          bash scripts/package-mac.sh "${ARGS[@]}"
           echo "--- BUILD-INFO ---"
           cat dist/BUILD-INFO.txt
-          # 内嵌的 Linux 会话包下限必须在 BUILD-INFO 里看得见（远端主机能不能跑就靠它）。
-          grep -q 'Linux glibc 下限' dist/BUILD-INFO.txt || { echo "BUILD-INFO 没记 min_glibc" >&2; exit 1; }
           ls -la dist
 
       - name: 上传 workflow artifact

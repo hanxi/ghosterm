@@ -10,7 +10,6 @@ on:
       - "apple/**"
       - "terminal/**"
       - "core/**"
-      - "daemon/**"
       - "assets/icons/**"
       - "scripts/**"
       - "patches/**"
@@ -59,7 +58,7 @@ jobs:
           name: Ghosterm-macOS-release-${{ github.sha }}
           path: dist
 
-      # BUILD-INFO.txt 里带着真实签名模式、min_glibc 与最低系统版本，原样进正文，
+      # BUILD-INFO.txt 里带着真实签名模式与最低系统版本，原样进正文，
       # 不额外润色（铁律 #6：不许把没做的事写成做了）。
       - name: 建草稿 Release
         run: |

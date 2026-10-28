@@ -30,7 +30,7 @@ import XCTest
         guard let original = model.activePane else { return XCTFail("missing SSH pane") }
         try await until { original.status == .ready || original.status.isFailed }
         XCTAssertEqual(original.status, .ready)
-        XCTAssertTrue(original.isRunning); XCTAssertNil(original.sessionRecord)
+        XCTAssertTrue(original.isRunning)
         original.surface?.sendCommittedText("printf 'ORDINARY-SSH:%s\\n' \"$$\"\r")
         func process(_ pane: TerminalPane) -> Int32? {
             pane.surface?.readText()?.components(separatedBy: .newlines).compactMap { line in
@@ -43,7 +43,7 @@ import XCTest
         model.splitActiveTab(axis: .horizontal)
         guard let next = model.activePane else { return XCTFail("missing SSH split") }
         try await until { next.status == .ready || next.status.isFailed }
-        XCTAssertEqual(next.status, .ready); XCTAssertNil(next.sessionRecord)
+        XCTAssertEqual(next.status, .ready)
         next.surface?.sendCommittedText("printf 'ORDINARY-SSH:%s\\n' \"$$\"\r")
         try await until { process(next) != nil }
         XCTAssertNotEqual(process(next), originalPID); XCTAssertEqual(process(original), originalPID)

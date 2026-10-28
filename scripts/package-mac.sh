@@ -48,10 +48,9 @@ cd "$ROOT"
 # 时默认落在 CommandLineTools 的 MacOSX27.0.sdk，其 libSystem.B.tbd 用了
 # `arm64e.x1-macos` 这类新架构串，经典 ld/tapi 解析不了 → 链接报
 # `tapi error: malformed file ... unknown architecture`（实测挂在拉了 -lssh2 的
-# test_config 与 ghosterm-sessiond 上）。export 出去后，本脚本调起来的 build-core.sh、
-# build-sessiond-mac.py 里的 cmake 子进程、以及 swift build 都继承这份 SDKROOT，
+# test_config 上）。export 出去后，build-core.sh 与 swift build 都继承这份 SDKROOT，
 # 一处修齐整条打包链。Swift 本来就经 xcrun 落 26.5，所以只有 CMake 这条路径受影响。
-# 见 scripts/build-core.sh 与 scripts/build-sessiond-mac.py 各自的等价注释（独立运行也钉）。
+# 见 scripts/build-core.sh 的等价注释（独立运行也钉）。
 SYSROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
 [ -n "$SYSROOT" ] && export SDKROOT="$SYSROOT"
 
@@ -68,7 +67,6 @@ MIN_OS="auto"
 FORCE_GHOSTTY=0
 KEEP_WORK=0
 GUI_SMOKE=0
-SESSION_LINUX_BUNDLES=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -86,7 +84,6 @@ while [ $# -gt 0 ]; do
     --force-ghostty) FORCE_GHOSTTY=1; shift ;;
     --keep-work) KEEP_WORK=1; shift ;;
     --gui-smoke) GUI_SMOKE=1; shift ;;
-    --session-linux-bundle) SESSION_LINUX_BUNDLES+=("${2:?--session-linux-bundle 需要目录}"); shift 2 ;;
     -h|--help) sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数：$1（--help 看用法）" >&2; exit 2 ;;
   esac
@@ -176,36 +173,6 @@ step "2/9 构建 C 核心"
 bash "$ROOT/scripts/build-core.sh" || fail "core 构建失败"
 note "core/build/libghosterm_core.a"
 
-# Matching user-space helpers/catalog are prepared before the native app.
-SESSION_SIGN="-"
-case "$SIGN_MODE" in
-  id|dev) SESSION_SIGN="$SIGN_ID" ;;
-esac
-python3 "$ROOT/scripts/build-sessiond-mac.py" --sign "$SESSION_SIGN" >"$WORK/session-build.log" 2>&1 \
-  || { tail -30 "$WORK/session-build.log" >&2; fail "会话 helper 构建失败"; }
-SESSION_MAC="$(python3 - "$ROOT" <<'PY_SESSION_MAC'
-import json,sys
-from pathlib import Path
-base=Path(sys.argv[1])/'build/runtime/macos-arm64'
-print(base/json.loads((base/'current.json').read_text())['release'])
-PY_SESSION_MAC
-)"
-if [ "${#SESSION_LINUX_BUNDLES[@]}" -eq 0 ]; then
-  while IFS= read -r bundle; do SESSION_LINUX_BUNDLES+=("$bundle"); done < <(python3 - "$ROOT" <<'PY_SESSION_LINUX'
-import json,sys
-from pathlib import Path
-base=Path(sys.argv[1])/'build/runtime'
-if (base/'catalog.json').is_file():
- for arch,release in json.loads((base/'catalog.json').read_text())['linux'].items():print(base/'linux'/arch/release)
-PY_SESSION_LINUX
-)
-fi
-[ "${#SESSION_LINUX_BUNDLES[@]}" -gt 0 ] || fail "缺 Linux 会话安装包；请提供 --session-linux-bundle 预编译目录"
-SESSION_ARGS=()
-for bundle in "${SESSION_LINUX_BUNDLES[@]}"; do SESSION_ARGS+=(--linux "$bundle"); done
-python3 "$ROOT/scripts/stage-session-runtime.py" --macos "$SESSION_MAC" "${SESSION_ARGS[@]}" \
-  >"$WORK/session-stage.log" 2>&1 || { cat "$WORK/session-stage.log" >&2; fail "会话安装包不匹配"; }
-
 # ------------------------------------------------------------------ 3. release 构建
 step "3/9 SwiftPM release 构建"
 ( cd "$ROOT/apple/GhostermApp" && swift build -c release --arch "$ARCH" ) >"$WORK/swift-build.log" 2>&1 \
@@ -219,9 +186,6 @@ step "4/9 组装 .app（图标 / Info.plist / 可执行）"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$FW"
 cp "$BIN" "$MAIN_EXE"
-python3 "$ROOT/scripts/stage-session-runtime.py" --macos "$SESSION_MAC" "${SESSION_ARGS[@]}" --app "$APP" \
-  >>"$WORK/session-stage.log" 2>&1 || { cat "$WORK/session-stage.log" >&2; fail "会话安装包嵌入失败"; }
-
 # 图标：从 assets/icons 的母版派生产物生成 .icns（不在打包时重画 SVG，避免第二套真相）
 ICONSET_SRC="$ROOT/assets/icons/apple/AppIcon.appiconset"
 [ -d "$ICONSET_SRC" ] || fail "缺 ${ICONSET_SRC}（先跑 bash scripts/build-icons.sh apple）"
@@ -283,21 +247,6 @@ step "6/9 Info.plist（版本 / 最低系统）"
 TEMPLATE="$ROOT/apple/GhostermApp/Resources/Info.plist.in"
 [ -f "$TEMPLATE" ] || fail "缺模板 $TEMPLATE"
 APP_MIN_OS="$(otool -l "$MAIN_EXE" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
-SESSION_MIN_OS="$(python3 - "$APP" <<'PY_SESSION_MIN'
-import re,subprocess,sys
-from pathlib import Path
-root=Path(sys.argv[1])/'Contents/Resources/sessiond/macos-arm64'
-versions=[]
-for binary in root.rglob('*'):
- if binary.is_file() and (binary.name in ('ghosterm-sessiond','ghosterm-session-proxy') or binary.suffix=='.dylib'):
-  output=subprocess.check_output(['otool','-l',binary],text=True)
-  match=re.search(r'\bminos\s+([0-9.]+)',output)
-  if not match:raise SystemExit('会话 helper 缺最低系统信息')
-  versions.append(match.group(1))
-print(max(versions,key=lambda v:tuple(map(int,v.split('.')))))
-PY_SESSION_MIN
-)"
-REAL_MIN_OS="$(printf '%s\n%s\n' "$REAL_MIN_OS" "$SESSION_MIN_OS" | sort -V | tail -1)"
 if [ "$MIN_OS" = "auto" ]; then
   # 声明的最低系统 = max(二进制, 内嵌库)。宁可写高，也不写一个跑不起来的低值。
   MIN_OS="$(printf '%s\n%s\n' "$APP_MIN_OS" "$REAL_MIN_OS" | sort -V | tail -1)"
@@ -323,19 +272,6 @@ note "CFBundleShortVersionString=${VERSION} · CFBundleVersion=${BUILD_NUMBER} �
 # 构建信息：**必须在签名前**写进 bundle —— 签名后再加文件会破坏 sealed resource
 # （codesign 报 "a sealed resource is missing or invalid / file added"，实测被
 #  dmg 挂载复验抓到）。所以这里生成一次，bundle 内与 dist/ 用同一份内容。
-# Linux 会话安装包的真实 glibc 下限写进 BUILD-INFO：那是**远端主机**能不能跑的条件，
-# 与本机 macOS 下限无关，藏在 manifest 里等于没写。
-SESSION_LINUX_IDS="$(python3 - "${SESSION_LINUX_BUNDLES[@]}" <<'PY'
-import sys
-from pathlib import Path
-rows = []
-for bundle in sys.argv[1:]:
-    release = Path(bundle) / "manifest.tsv"
-    arch, min_glibc = release.read_text().splitlines()[0].split("\t")[2:4]
-    rows.append(f"{arch}=min_glibc {min_glibc} [{Path(bundle).name}]")
-print("; ".join(rows))
-PY
-)" || fail "读不到 Linux 会话安装包的 min_glibc（见 bundle 内 manifest.tsv）"
 INFO="$WORK/BUILD-INFO.txt"
 # 打包时刻（UTC）：这是**本机装的这份包**唯一可用的时间锚。dev 渠道的检测在拿不到
 # commit 时要拿 `version.json` 的 build_time 和本地这一刻比大小（见
@@ -352,15 +288,14 @@ BUILD_STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "公证:        ${NOTARIZE_PROFILE:-无（未公证的包不能直接分发给终端用户）}"
   echo "源码:        git ${GIT_SHA}${GIT_DIRTY}"
   echo "libghostty:  pin ${PIN} + patches/libghostty/${PIN}/"
-  echo "会话运行环境: ${SESSION_MAC}"
-  echo "Linux 会话安装包: ${SESSION_LINUX_BUNDLES[*]}"
-  echo "Linux glibc 下限: ${SESSION_LINUX_IDS}"
   echo "内嵌动态库:"
   grep '^embed:' "$EMBED_LOG" | sed 's/^embed: /  - /'
   echo "工具链:      $(swift --version 2>/dev/null | head -1) · $(xcodebuild -version 2>/dev/null | head -1) · cmake $(cmake --version | head -1 | awk '{print $3}')"
 } > "$INFO"
 cp "$INFO" "$APP/Contents/Resources/BUILD-INFO.txt"
 note "BUILD-INFO.txt 已写入包内（签名会覆盖它）"
+python3 "$ROOT/scripts/check-terminal-package.py" --app "$APP" \
+  || fail "普通终端包仍含旧会话 runtime 或引擎不匹配"
 
 # ------------------------------------------------------------------ 7. 签名
 step "7/9 代码签名（模式：${SIGN_MODE}）"

@@ -1,5 +1,5 @@
 // SSHAuthTests — SFTP 认证桥的回归；终端使用共享异步认证与平台选择器，
-// 对应 SessionAuthenticationBrokerTests / SessionCredentialSelectorTests 和 Linux 默认流程。
+// 对应 SSHCredentialSelectorTests 与普通 SSH/SFTP 默认流程。
 //
 // 这组用例是用户实测问题的回归网（原话：「为何 ssh 提示需要私钥口令？
 // 我用 ssh 命令行测试过这个密钥是没口令的」）。三个根因各有一条用例：

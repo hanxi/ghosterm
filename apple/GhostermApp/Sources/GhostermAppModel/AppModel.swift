@@ -105,7 +105,6 @@ public final class AppModel: ObservableObject {
         if case .sftp = tab.kind { return tab.sftpError ?? "SFTP \(tab.kind.subtitle)" }
         switch tab.status {
         case .connecting: return "连接中…"
-        case .recovering(let message): return message
         case .ready: return tab.kind.subtitle
         case .failed(let m): return "连接失败：\(m)"
         case .exited(let c): return "已退出（\(c)）"
@@ -732,7 +731,7 @@ public final class AppModel: ObservableObject {
                     let surface = try TerminalSurface(app: terminalApp)
                     let session = SessionController(transport: transport, surface: surface, sshSession: ssh)
                     pane.attach(surface: surface, session: session); pane.start()
-                } catch { pane.markFailed(sessionMessage(error)) }
+                } catch { pane.markFailed(connectionErrorMessage(error)) }
             }
         }
         thread.name = "ghosterm-terminal-connect"; thread.start()
@@ -744,7 +743,7 @@ public final class AppModel: ObservableObject {
             let session = try SessionController.localShell(surface: surface,
                 executable: preferences.resolvedShell, cwd: cwd ?? NSHomeDirectory(), kind: .shell)
             pane.attach(surface: surface, session: session); pane.start()
-        } catch { pane.markFailed(sessionMessage(error)) }
+        } catch { pane.markFailed(connectionErrorMessage(error)) }
     }
 
     /// 普通启动只按偏好新开 shell；不读取旧记录、探测 tmux 或启动服务。

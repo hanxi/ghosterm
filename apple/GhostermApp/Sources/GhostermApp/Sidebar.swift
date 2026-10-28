@@ -228,7 +228,7 @@ struct StatusDot: View {
     private var color: Color {
         switch status {
         case .ready: return .green
-        case .connecting, .recovering: return .yellow
+        case .connecting: return .yellow
         case .failed: return .red
         case .exited, .exitedUnknown: return .secondary
         }

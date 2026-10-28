@@ -1,7 +1,0 @@
-/* Generated from platform-independent protocol, engine headers and patch set.
- * Candidate INLINE profile only; no platform binary hash or ABI compatibility. */
-#ifndef GT_SESSION_CONTRACT_H
-#define GT_SESSION_CONTRACT_H
-#define GT_SESSION_CONTRACT_HEX "@GHOSTERM_SESSION_CONTRACT@"
-static const unsigned char gt_session_contract[32]={@GHOSTERM_SESSION_CONTRACT_BYTES@};
-#endif

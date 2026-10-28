@@ -249,8 +249,6 @@ struct PaneView: View {
                 EmptyView()
             case .connecting:
                 StatusPill(text: "连接中…")
-            case .recovering(let message):
-                StatusPill(text: message)
             case .failed(let message):
                 StatusCard(title: "连接失败", detail: message, isError: true,
                            action: nil)
@@ -260,19 +258,6 @@ struct PaneView: View {
                 StatusPill(text: "已结束（退出码未知）")
             }
 
-            if let notice = pane.sessionNotice {
-                VStack {
-                    Spacer()
-                    HStack {
-                        Text(notice).font(.caption)
-                        Button { pane.dismissSessionNotice() } label: { Image(systemName: "xmark") }
-                            .buttonStyle(.plain).help("关闭提示")
-                    }
-                    .padding(8)
-                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                    .padding(8)
-                }
-            }
             if tab.isLocked {
                 LockOverlay { tab.isLocked = false }
             }

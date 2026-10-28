@@ -73,7 +73,6 @@ jobs:
           cd dist
           ls -1 *.dmg *.zip SHA256SUMS BUILD-INFO.txt > /dev/null
           shasum -a 256 -c SHA256SUMS
-          grep -q 'Linux glibc 下限' BUILD-INFO.txt
           grep -Eq '签名: *adhoc' BUILD-INFO.txt || {
             echo "dev 轨的包不是 ad-hoc 签名，正文口径会失真" >&2; exit 1; }
           echo "dev 产物 $(ls -1 *.dmg | tr '\n' ' ') 校验通过"
@@ -108,10 +107,6 @@ jobs:
           (minos,)=grab(r'^最低系统: *(\S+)', '最低系统')
           (sig,)=grab(r'^签名: *(\S+)', '签名')
           (notary,)=grab(r'^公证: *(.+)$', '公证')
-          (contract,)=grab(r'^会话运行环境: *(\S+)', '会话运行环境')
-          (glibc,)=grab(r'^Linux glibc 下限: *(.+)$', 'Linux glibc 下限')
-          mins=dict(re.findall(r'(\w+)=min_glibc (\d+\.\d+)',glibc))
-          if set(mins)!={'x86_64','aarch64'}: raise SystemExit(f'min_glibc 架构不齐：{mins}')
           sums={}
           for line in pathlib.Path('dist/SHA256SUMS').read_text(encoding='utf-8').splitlines():
             if line.strip(): h,name=line.split(None,1); sums[name.strip()]=h.strip()
@@ -120,7 +115,6 @@ jobs:
           out={'channel':'dev','version':version,'build':int(build),'git_commit':os.environ['GITHUB_SHA'],
                'build_time':stamp,
                'arch':arch,'min_macos':minos,'signature':sig,'notarized':False,'notarization_note':notary,
-               'session_contract':contract.split('/')[-1],'min_glibc':mins,
                'assets':{'dmg':dmg[0],'zip':zip_[0],'checksums':'SHA256SUMS','build_info':'BUILD-INFO.txt'},
                'sha256':{n:sums[n] for n in (dmg[0],zip_[0])},
                'download_base':f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/dev"}
@@ -170,8 +164,6 @@ jobs:
             用 `curl` 取 zip + `ditto -x -k` 解出来则不贴标记（实测），但要自己核对
             下面的 `SHA256SUMS`。口径见 `docs/how-to/dev-build.md`。
           - **仅 macOS arm64**。Android / iOS 目前根本没有构建入口，不是这条流水线漏了。
-          - 内嵌的 Linux 会话安装包带 glibc 下限（见上面 BUILD-INFO 的「Linux glibc 下限」），
-            那是**远端主机**能不能跑 sessiond 的条件。
           - **别把 `dev` 当自动更新通道**：每轮 ad-hoc 签名的 cdhash 都不同，且 tag 会被强删重建。
           - 想一条命令装/升级：`brew tap hanxi/ghosterm && brew trust hanxi/homebrew-ghosterm
             && brew install --cask ghosterm-dev`（升级 `brew upgrade --cask --greedy ghosterm-dev`）。
@@ -234,7 +226,6 @@ jobs:
           if d.get('notarized') is not False: problems.append('dev 包不该声称已公证')
           for k,v in (d.get('sha256') or {}).items():
             if len(v)!=64: problems.append(f'{k} 的 sha256 不像 sha256')
-          if set((d.get('min_glibc') or {}))!={'x86_64','aarch64'}: problems.append('min_glibc 架构不齐')
           if problems: raise SystemExit('version.json 有问题：'+'; '.join(problems))
           print('version.json 对得上：',d['version'],'build',d['build'],d['git_commit'][:12])
           PY

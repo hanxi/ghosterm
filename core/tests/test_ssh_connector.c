@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE 1
-#include "ipc/ssh-connector.h"
+#include "ssh/connector.h"
 #include "internal.h"
 #include "base/secure-random.h"
 #include <arpa/inet.h>

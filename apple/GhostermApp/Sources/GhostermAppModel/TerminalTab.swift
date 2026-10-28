@@ -112,7 +112,6 @@ public enum TabKind: Equatable {
 ///   exited     —— 会话自己结束了（远端 shell 退出），屏幕保留最后画面。
 public enum PaneStatus: Equatable {
     case connecting
-    case recovering(String)
     case ready
     case failed(String)
     case exited(code: Int32)
@@ -121,7 +120,6 @@ public enum PaneStatus: Equatable {
     public var label: String {
         switch self {
         case .connecting: return "连接中…"
-        case .recovering(let message): return message
         case .ready: return ""
         case .failed(let m): return "失败：\(m)"
         case .exited(let c): return "已退出（\(c)）"
@@ -226,19 +224,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
     /// 谁建会话谁持有（UAF 教训）：pane 撑住 SessionController，
     /// SessionController 撑住 transport 与 SSHSession。
     private var session: SessionController?
-    private var recoverable: RecoverablePaneSession?
-    @Published public private(set) var sessionRecord: SessionRecord?
-    @Published public private(set) var sessionNotice: String?
-    @Published public private(set) var sourceDirectory: String?
-    @Published public private(set) var sourceChildState: Transport.ChildState = .unknown
-
-    /// 本窗格真的见过 LIVE。区分「跑着跑着自己退出」与「从恢复列表打开的、
-    /// 本来就已结束的会话」：前者退出即收起，后者保留终态（退出码/最后画面）。
-    private var sawLive = false
-
     var onStop: (() -> Void)?
-    public var onSessionRecord: ((SessionRecord) -> Void)?
-    public var onExplicitClose: ((TerminalPane) -> Void)?
 
     public init() {}
 
@@ -260,68 +246,13 @@ public final class TerminalPane: ObservableObject, Identifiable {
     /// 存在的理由：这是**能被外部观测**的会话归属——「关掉标签页之后
     /// 会话还在后台跑」是一种不报错的泄漏（多一条没人管的连接与读循环），
     /// 没有这个读数就只能靠内存工具才看得见。UI 也可用它做灰显判断。
-    public var isRunning: Bool { session != nil || recoverable != nil }
+    public var isRunning: Bool { session != nil }
 
     /// 停会话（先置停止标志，再等读循环真的退出——见 SessionController.stop）。
     public func stop() {
         onStop?()
         session?.stop()
         session = nil
-        recoverable?.detach(); recoverable = nil
-        sourceDirectory = nil; sourceChildState = .unknown
-    }
-
-    public func detachThenRecord(_ completion: @escaping (Result<SessionRecord, Swift.Error>) -> Void) {
-        guard let controller = recoverable else {
-            if let record = sessionRecord { completion(.success(record)) }
-            else { completion(.failure(GhostermError.failed("窗格尚未创建持久会话"))) }
-            return
-        }
-        recoverable = nil; sourceDirectory = nil; sourceChildState = .unknown
-        controller.detachThenRecord(completion)
-    }
-
-    /// Starts the same durable Transport for local and SSH. Authentication
-    /// supplies fresh material asynchronously on the Transport owner.
-    public func attachRecoverable(app: TerminalApp, record: SessionRecord, directory: URL,
-                                  options: RecoverableSession.Options,
-                                  authentication: ((RecoverableSurfaceTransport) throws -> RecoverableSession.Authentication?)? = nil) throws {
-        guard session == nil, recoverable == nil else { throw GhostermError.failed("窗格已持有会话") }
-        let controller = try RecoverablePaneSession(pane: self, app: app, record: record, directory: directory,
-                                                    options: options, authentication: authentication)
-        recoverable = controller; sessionRecord = record; status = .connecting
-        controller.start()
-    }
-    func acceptRecoverableSurface(_ next: TerminalSurface) {
-        surface?.onProgramStatus = nil; surface?.onSemanticPrompt = nil; surface?.onPwd = nil
-        surface = next
-        observeProgramStatus(); observeSemanticPrompt(); observePwd()
-    }
-    func acceptRecoverableNotice(_ message: String) { sessionNotice = message }
-    public func dismissSessionNotice() { sessionNotice = nil }
-    func acceptRecoverableRecord(_ record: SessionRecord) { sessionRecord = record; onSessionRecord?(record) }
-    func acceptRecoverableFailure(_ message: String) { status = .failed(message); programStatus.removeEphemeral() }
-    func acceptRecoverableState(_ info: RecoverableSession.Info) {
-        sourceDirectory = info.cwd
-        sourceChildState = info.hasTerminal ? .exited : (info.hasProcess ? info.childState : .unknown)
-        switch info.state {
-        case .live:
-            sawLive = true
-            status = info.readonly ? .recovering("会话只读") : .ready
-        case .readonly: status = .recovering("会话只读")
-        case .starting, .recovering, .restoring:
-            status = surface == nil ? .connecting : .recovering("连接中断，正在恢复…")
-            programStatus.removeEphemeral(); lastCommand = LastCommand(); reportedDirectory = nil
-        case .ended:
-            let alreadyExited = status.isExited
-            status = info.hasExitCode ? .exited(code: info.exitCode) : .exitedUnknown
-            programStatus.removeEphemeral()
-            // 在本窗格里跑过又结束的会话：退出即收起（与旧直连路径同一语义，
-            // 对齐 iTerm2 / Ghostty）。只报一次，重复轮询不再触发。
-            if sawLive && !alreadyExited { onExit?(self) }
-        case .failed: acceptRecoverableFailure("可恢复会话失败：\(info.error)")
-        case .closed, .catalog: break
-        }
     }
 
     /// 会话状态变化（低频；SessionController 已 hop 回主线程）。
@@ -413,11 +344,10 @@ public final class TerminalPane: ObservableObject, Identifiable {
         observePwd()
     }
 
-    /// 当前目录优先使用本地 PTY / 后台 Source 的内核观测，随后回落到
+    /// 当前目录优先使用本地 PTY 的内核观测，随后回落到
     /// OSC 7；没有证据时保持 nil，供新建、分屏与文件面板使用。
     public var currentDirectory: String? {
         if let local = session?.childCwd { return local }
-        if let sourceDirectory { return sourceDirectory }
         return reportedDirectory
     }
 
@@ -453,7 +383,7 @@ public final class TerminalPane: ObservableObject, Identifiable {
 
     /// 前台作业判定（关闭确认用）。建立前/失败后没有 transport，按
     /// `.unknown`（**不折叠**：查不出来就不当空闲）。
-    public var childState: Transport.ChildState { session?.childState ?? sourceChildState }
+    public var childState: Transport.ChildState { session?.childState ?? .unknown }
 
     /// 关闭这个窗格会不会打断东西。**纯函数**：接线与测试走同一条路径
     /// （不建真会话也能断言每一档，见 TabManagerTests）。
@@ -461,7 +391,6 @@ public final class TerminalPane: ObservableObject, Identifiable {
                                               childState: Transport.ChildState) -> Bool {
         switch status {
         case .exited, .exitedUnknown, .failed, .connecting: return false  // 没什么可丢
-        case .recovering: return true
         case .ready: return childState != .idle           // 有作业 / 查不出 → 问
         }
     }
@@ -471,8 +400,6 @@ public final class TerminalPane: ObservableObject, Identifiable {
         // 已结束：没什么可丢。记录可能还没刷到 .ended（状态先到、记录后到），
         // 所以先看本窗格自己的状态，否则退出后的自动收起会被弹框挡住。
         if status.isExited { return false }
-        if let record = sessionRecord, record.admitted || record.session > 0,
-           record.disposition != .ended { return true }
         return Self.closeNeedsConfirmation(status: status, childState: childState)
     }
 }
@@ -681,7 +608,6 @@ public final class TerminalTab: ObservableObject, Identifiable {
     /// （不然验这条规则得造真 surface + 真会话，测试反而更脆）。
     public static func worst(_ statuses: [PaneStatus]) -> PaneStatus {
         if let failed = statuses.first(where: { $0.isFailed }) { return failed }
-        if let recovering = statuses.first(where: { if case .recovering = $0 { return true }; return false }) { return recovering }
         if statuses.contains(where: { $0.isConnecting }) { return .connecting }
         if statuses.contains(.exitedUnknown) { return .exitedUnknown }
         if let exited = statuses.first(where: {
@@ -747,7 +673,6 @@ public final class TerminalTab: ObservableObject, Identifiable {
     @discardableResult
     public func closePane(_ pane: TerminalPane) -> Bool {
         guard let node = workspaceLayout, workspacePanes.count > 1 else { return false }
-        pane.onExplicitClose?(pane)
         pane.stop()
         workspaceLayout = node.removing(pane.id, equalize: true)
         workspacePanes.removeAll { $0.id == pane.id }

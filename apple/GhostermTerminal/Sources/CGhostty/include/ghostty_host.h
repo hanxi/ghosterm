@@ -53,9 +53,6 @@ typedef struct {
   void (*semantic_prompt)(void *ud, const ghostty_semantic_prompt_s *event);
   /* OSC 7 工作目录；字符串只在回调期间有效，要留存请自行拷贝。 */
   void (*pwd)(void *ud, const char *pwd);
-  /* Replica inputs carry the generation/actual engine sequence at encoding. */
-  void (*write_stamped)(void *ud, uint64_t generation, uint64_t sequence,
-                        const uint8_t *bytes, size_t length);
 } gt_host_callbacks_t;
 
 /* 创建 app（内含默认配置 + 最小 runtime 回调）。失败返回 NULL 并置错误串。 */
@@ -85,29 +82,6 @@ void gt_ghostty_app_set_focus(gt_ghostty_app_t *app, bool focused);
  *   scale   —— backing scale factor（Retina=2.0）；
  * 失败返回 NULL 并置错误串。
  */
-/* Transport-independent checkpoint metadata. No snapshot bytes cross to UI. */
-typedef struct {uint8_t r,g,b;} gt_ghostty_replica_rgb_t;
-typedef struct {
-  uint32_t profile,cell_width,cell_height;uint64_t history_bytes,history_lines,
-    continuation_bytes,image_bytes;size_t memory_bytes;bool dark;
-  gt_ghostty_replica_rgb_t light_background,light_foreground,dark_background,dark_foreground;
-} gt_ghostty_replica_policy_t;
-int gt_ghostty_replica_policy(const void *,size_t,gt_ghostty_replica_policy_t *);
-gt_ghostty_surface_t *gt_ghostty_surface_new_replica(gt_ghostty_app_t *,void *nsview,double,
-  const gt_host_callbacks_t *,uint64_t generation,const gt_ghostty_replica_policy_t *);
-bool gt_ghostty_surface_replica_import(gt_ghostty_surface_t *,uint64_t,uint64_t,const void *,size_t);
-bool gt_ghostty_surface_replica_output(gt_ghostty_surface_t *,uint64_t,uint64_t,const void *,size_t);
-bool gt_ghostty_surface_replica_resize(gt_ghostty_surface_t *,uint64_t,uint64_t,uint16_t,uint16_t);
-bool gt_ghostty_surface_replica_scheme_begin(gt_ghostty_surface_t *,uint64_t,uint64_t,bool);
-bool gt_ghostty_surface_replica_scheme_apply(gt_ghostty_surface_t *,uint64_t,uint64_t,bool);
-bool gt_ghostty_surface_replica_style_apply(gt_ghostty_surface_t *,uint64_t,uint64_t,bool,const uint8_t *,size_t);
-bool gt_ghostty_app_style(gt_ghostty_app_t *,bool,uint8_t *,size_t);
-bool gt_ghostty_surface_replica_appearance(gt_ghostty_surface_t *,uint64_t,bool *,uint32_t *);
-/* OK with known sequence (including zero); NOT_FOUND while not imported. */
-int gt_ghostty_surface_replica_applied(gt_ghostty_surface_t *,uint64_t,uint64_t *);
-bool gt_ghostty_surface_replica_input(gt_ghostty_surface_t *,uint64_t,uint64_t,bool);
-void gt_ghostty_replica_budget_usage(size_t *live,size_t *committed,size_t *retired);
-
 gt_ghostty_surface_t *gt_ghostty_surface_new(gt_ghostty_app_t *app, void *nsview,
                                              double scale,
                                              const gt_host_callbacks_t *cbs);

@@ -16,7 +16,7 @@
  */
 #include "ghosterm.h"
 #include "internal.h"
-#include "ipc/ssh-connector.h"
+#include "ssh/connector.h"
 #include "base/secure-random.h"
 
 #include <stdio.h>

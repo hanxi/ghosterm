@@ -28,8 +28,7 @@ echo "$ALLOW_UNBOUND" | awk 'NF && $1 !~ /^#/ {print $1}' | sort -u > "$TMP/appl
 APPLE_SRC=(
   "$ROOT/apple/GhostermCore/Sources/CGhosterm/shim.c"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/GhostermCore.swift"
-  "$ROOT/apple/GhostermCore/Sources/GhostermCore/RecoverableSession.swift"
-  "$ROOT/apple/GhostermCore/Sources/GhostermCore/SessionSetup.swift"
+  "$ROOT/apple/GhostermCore/Sources/GhostermCore/SSHAuthenticator.swift"
   "$ROOT/apple/GhostermCore/Tests/GhostermCoreTests/GhostermCoreTests.swift"
   "$ROOT/apple/GhostermTerminal/Sources/CGhostty/shim.c"
   "$ROOT/apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurface.swift"

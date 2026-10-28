@@ -1,7 +1,7 @@
 # 路线图
 
 2026-10-28 会话方向变更：正在实施 [可选 tmux 重构](plan-optional-tmux.md)。默认连接回到普通
-PTY/SSH，自有 sessiond 整体退役；下方 sessiond 条目记录当前与历史实现，不再作为后续目标。
+PTY/SSH，自有 sessiond 整体退役；旧私有恢复与随包 runtime 已退役，tmux 管理/UI 仍在实施。
 具体切片与验证进度见 [实施清单](optional-tmux-implementation.md)。
 
 > 优先级：**macOS 做到功能完整 → Android 竖切 → 其余端**（7 端都要，只是排期）。
@@ -9,9 +9,8 @@ PTY/SSH，自有 sessiond 整体退役；下方 sessiond 条目记录当前与�
 > macOS 一端实现并验证到位**，Android 动工时核心已冻结、只做端侧。差异化功能
 > （config GUI / SFTP）不再后置成独立里程碑，而是并入 mac 阶段。
 > 每项完成时必须同步更新能力矩阵并附证据。
-> 2026-10-20 会话专项调整：跨平台客户端 → SSH → Linux 远端 sessiond 优先，
-> 不等待本机 daemon 产品收尾后才做远程；客户端与宿主分开验收，见下方会话章节。
-> 该专项仍会调整共享 C 契约，不能把此前「核心已冻结、只做端侧」当作当前状态。
+> 2026-10-28 会话专项调整：普通连接为默认，可选 tmux 保活正在实施；共享 C 契约仍会调整，
+> 不能把此前「核心已冻结、只做端侧」当作当前状态。
 
 ## M1 — macOS 竖切 ✅ 完成（2026-10-10）
 
@@ -69,14 +68,9 @@ PTY/SSH，自有 sessiond 整体退役；下方 sessiond 条目记录当前与�
       SHA256SUMS + BUILD-INFO；递归内嵌依赖闭包并断言不依赖 Homebrew；dmg 挂载复验 +
       包内二进制冒烟）是唯一出包逻辑，两个入口共用同一份可复用工作流
       `.github/workflows/macos-package.yml`：
-      · `dev-build.yml` = 每次 push main → Linux 会话安装包（x86_64 + aarch64，在
-        ubuntu:22.04 容器里由 `scripts/build-session-vt-linux.py` 现造，契约与 mac 端
-        逐位一致）→ ad-hoc mac 包 → 滚动 tag `dev` 的 prerelease；
-      · `macos-release.yml` = tag `v*` / PR / 手动（`channel=release、gates=full`，
-        多跑 Apple 端全量闸门 + 十份 Apple 变异 + `scripts/mutation-check-sessiond-linux.py`
-        + `scripts/mutation-check-package-mac.sh`；后两份在 CI 的**干净检出**上跑，且
-        输出里出现 `SKIP` 一律判红——本机有 catalog.json / 泄漏的 `GHOSTTY_RESOURCES_DIR`
-        / Homebrew 库，那些「本地永远绿」的条件只有在干净态才证伪得了）。
+      · `dev-build.yml` = 每次 push main → ad-hoc mac 包 → 滚动 `dev` prerelease；
+      · `macos-release.yml` = tag `v*` / PR / 手动（`channel=release、gates=full`），
+        多跑 Apple 原生、认证和打包变异；打包链从干净检出验证，缺主题不能被开发机资源掩盖。
       build 号取 `GITHUB_RUN_NUMBER`。**装机口径见 `docs/how-to/dev-build.md`**
 - [ ] dev 包签名 + 公证：**遗留**——dev 轨永远 ad-hoc（无证书 secret 就不假装签名），
       且每轮 cdhash 不同、`dev` tag 会被强删重建，**不能当自动更新通道**
@@ -319,29 +313,18 @@ macOS/iPhone 终端）。
 > 有 e2e，但**传输队列 UI 还没接**；「SSH↔SFTP 同目录落地」依赖远端 cwd
 > （OSC 7 到不了宿主，见 M4.5 遗留 / R2），仍未做。
 
-## 会话 daemon 重构 — 远端 sessiond 主线确定，产品能力未交付
+## 可选 tmux 后台会话重构
 
-完整设计与 P0–P8 依赖、切片和验收见 [会话重构计划](plan-session-daemon.md)。
-本阶段允许直接调整 ABI/绑定与目录，不承担旧 API、协议或会话跨版本兼容。
-2026-10-20 确定[远端会话方向](../architecture/remote-session.md)：自有用户级
-sessiond，经现有 SSH 端口上的无 PTY exec 流接入；断网保留原 shell/PTY，
-新连接认证后恢复。无需 tmux、额外公网监听或客户端本机常驻 daemon。
-本地 daemon 也是必交付，与远端共用同一服务、session runtime、协议和恢复逻辑；
-本地直连私有端点，远端经 SSH 代理接入，两条路径同期跑生命周期/恢复验收。
+设计、依赖闭包和命令契约见 [重构计划](plan-optional-tmux.md) 与 [实施清单](optional-tmux-implementation.md)。
 
-- [x] 精确 Ghostty pin 源码审计及无 UI VT 探针：continuation/effects/损坏拒绝及真实 PTY 最小 TUI 局部验证通过，七组变异有牙。
-- [x] VT 语义失败标记和 callback 分配回收：四组变异通过；原生页面 mmap 绕过该预算，完整限额仍未交付。
-- [x] 实验 full surface 构造时导入：ground、六类 continuation、真实 PTY/Vim/tmux 实读增量的状态对拍、查询/剪贴板/通知抑制、bracketed-paste 输入及八组变异通过；实验补丁不进入生产构建。
-- [x] 本地/远端共用协议基础：GTSD 封装/短写续送与 Unix 私有端点，独立组件基线/变异通过；端点实际 socket/锁/UID/fd 验证为 macOS arm64，服务/协议/恢复组合仍欠。
-- [ ] P0 收口：图像/placement、full surface 导入、应答/宿主动作隔离、有界捕获、真实 PTY/TUI 证据。
-- [ ] P1–P4：backend/session/attachment、私有 IPC/身份/启动、SSH exec owner/代理/租约、Linux 远端 PTY 与真断网完整恢复事务。
-- [ ] P5：本地 IPC 与 macOS 客户端 → Linux sessiond 两条产品链路、本机 helper/远端用户安装/发现/恢复 UI、第二种原生客户端与跨 OS/CPU 格式验证。
-- [ ] P6–P7：其他客户端与本地/macOS/Windows 宿主分别验收；网络黑洞/丢确认/高 RTT、部署与登录清理策略收口，普通 SSH/SFTP 独立回归。
-- [ ] P8：旧 owner/队列清理、性能校准、文档与能力审计。
+- [x] 默认本地/SSH 入口切回普通 PTY，移除旧启动恢复与安装 UI；真实普通终端、分屏、SFTP 及变异验证通过。
+- [x] 退役旧 daemon、IPC、快照、replica、专用补丁、ABI、构建与随包 runtime；通用认证独立保留。
+- [ ] 共享 tmux 管理与 SSH PTY exec、本地/远端交互 attach。
+- [ ] 后台会话列表、新格子连接、断开提示与刷新后重新选择。
+- [ ] 完整本地/远端、网络中断、竞态、原生 UI、变异与干净打包验收。
 
-2026-10-17 的资源探针确认上游 snapshot 省略图像，明确返回 3；P0 尚未通过。
-局部证据和待补接口见 [会话运行时 ADR](../architecture/session-runtime.md)。
-只有与恢复策略无关的 backend/生命周期拆分可以在 P0 收口前推进，不能据此宣称支持恢复。
+后台能力由用户显式启用；普通终端无后台保活承诺。tmux 内窗口与分屏交给普通客户端，
+不使用 control mode，不恢复私有快照协议，不保留旧记录或 ABI 兼容层。
 
 ## M5 — Android 竖切
 
@@ -389,5 +372,5 @@ iOS（复用 Apple 那套 + iSH 打包）→ HarmonyOS / Windows / Linux / Web
 | mac 阶段战线拉长（config GUI / SFTP 前置） | M2/M3/M4 各自独立可交付、每里程碑出一版；SFTP 先核心后 UI 可再切片 |
 | Termux proot 的性能/体积 | 按需下载；先验证 `android sh` 再上 payload；W^X PoC 前置 |
 | iOS iSH 体积与许可 | 延后；GPL source offer 见 licensing.md |
-| 无 daemon：关窗口 / 退出**真杀**会话 | 关窗口/退出按「有前台作业才弹一次」确认（`hasRunningProgram` 口径，同 iGhostVT）；将来上 daemon 改成 detach（不弹）。见 `plan-tabs-close-and-newtab.md` |
+| 无 daemon：关窗口 / 退出**真杀**会话 | 关窗口/退出按「有前台作业才弹一次」确认（`hasRunningProgram` 口径，同 iGhostVT）；可选 tmux 格子另按 attach 生命周期处理。见 `plan-tabs-close-and-newtab.md` |
 | 远端 cwd 依赖 shell integration 注入（R2） | 现阶段只做 plumbing（OSC 7，有则用、无则 nil）；不注入、不猜。R2 列为独立里程碑 |

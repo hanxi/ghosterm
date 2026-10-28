@@ -25,7 +25,7 @@ import XCTest
         for _ in 0..<6 { model.connect(to: .localShell) }
         let panes = model.tabs.tabs.flatMap(\.panes)
         XCTAssertEqual(panes.count, 6)
-        XCTAssertTrue(panes.allSatisfy { $0.isRunning && $0.sessionRecord == nil })
+        XCTAssertTrue(panes.allSatisfy { $0.isRunning })
         for pane in panes { pane.surface?.sendCommittedText("printf 'LOCAL-PID:%s\\n' \"$$\"\r") }
         try await until { panes.allSatisfy { self.pid($0) != nil } }
         let processes = panes.compactMap(pid)
@@ -44,7 +44,6 @@ import XCTest
         XCTAssertEqual(model.tabs.tabs.count, 1)
         XCTAssertEqual(model.tabs.activeTab?.isLocked, true)
         XCTAssertEqual(model.activePane?.isRunning, true)
-        XCTAssertNil(model.activePane?.sessionRecord)
         let disabled = isolatedAppModel(); disabled.preferences.shellOnLaunch = false
         disabled.startInitialSessions(); XCTAssertTrue(disabled.tabs.tabs.isEmpty)
     }
@@ -63,7 +62,7 @@ import XCTest
         XCTAssertEqual(model.tabs.activeTab?.panes.count, 2)
         guard let next = model.activePane else { return XCTFail("missing split") }
         XCTAssertTrue(next !== original)
-        XCTAssertTrue(next.isRunning); XCTAssertNil(next.sessionRecord)
+        XCTAssertTrue(next.isRunning)
         next.surface?.sendCommittedText("printf 'LOCAL-PID:%s\\n' \"$$\"\r")
         try await until { self.pid(next) != nil }
         XCTAssertEqual(next.currentDirectory, directory.path)

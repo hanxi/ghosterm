@@ -19,7 +19,7 @@ Ghosterm = **libghostty 驱动的多端终端** × **VS Code 式 `~/.ssh/config`
 
 普通默认入口另以 `bash scripts/mutation-check-default-entry.sh` 手工验证：隔离副本不提供
 runtime catalog，四组变异护本地创建、启动偏好、分屏目录与关闭确认；每组目标红、
-同变异的主机配置读取对照绿，复原比对 SHA256。目前尚未纳入 CI 自动覆盖。
+同变异的主机配置读取对照绿，复原比对 SHA256。已纳入 CI 的 full 档；轻闸门不运行此变异。
 
 ## 目录边界（禁止越界）
 
@@ -103,8 +103,8 @@ bash scripts/build-core.sh  # 只构建核心（快速）
 
 **CI 双轨（每次提交自动出包）**：push `main` → `dev-build.yml`（轻闸门 + ad-hoc macOS 包 +
 滚动 `dev` prerelease）；tag `v*` / PR / 手动 → `macos-release.yml`（全量闸门 + 签名/公证分支）。
-两条轨共用 `.github/workflows/macos-package.yml`；包内必须内嵌的 Linux 会话安装包由
-`scripts/build-session-vt-linux.py` 在 `ubuntu:22.04` 容器里双架构现造。装机口径见 `docs/how-to/dev-build.md`
+两条轨共用 `.github/workflows/macos-package.yml`；普通终端包不携带 helper 或 Linux 安装包，
+只构建普通 full libghostty、共享核心和原生 UI。装机口径见 `docs/how-to/dev-build.md`
 （**首次打开拦不拦，取决于取包工具贴不贴 `com.apple.quarantine`**：浏览器与 `brew --cask` 都贴，
 `curl` + `ditto` 不贴——所以「走 Homebrew」换不到免弹窗，只换到一条命令装/升级）。
 dev 轨另有一条 Homebrew 分发链：公开 tap `hanxi/homebrew-ghosterm` 的 `ghosterm-dev` cask
@@ -121,12 +121,12 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 不报「已是最新」；有新版时只给下载直链，不画「安装」按钮。口径见
 `docs/how-to/dev-build.md`，牙见 `scripts/mutation-check-app-update.sh`。
 
-> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **12 份**变异验证——
+> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **14 份**变异验证——
 > Apple 端 `terminal / transport / tabs / chrome / settings / pixel / focus / split-dim / occlusion / app-update`、
-> Linux builder 的 `sessiond-linux`、以及 `package-mac`（在**干净检出**上验打包链，输出里
+> `default-entry / ssh-auth / ssh-credentials`、以及 `package-mac`（在**干净检出**上验打包链，输出里
 > 出现 `SKIP` 一律判红，缺随包主题不许蒙过去）。**其余闸门仍是「手工跑」**：`core/` 侧的
 > sshconfig / include / ssh / sftp / exec / files / transfers / dragdrop / pty-inheritance /
-> attachment-peer / auth / login-shell / known-hosts / public-headers 等 CI 看不见。
+> auth / login-shell / known-hosts / public-headers 等 CI 看不见。
 > 所以「CI 绿」≠「闸门全绿」——改到上面那些面，合并前仍要本地 `bash scripts/gate.sh` +
 > 对应变异脚本各自跑绿。
 > 另：dev 轨比 release 轨多**一道对拍**（`check-dev-cask.sh` 比 Homebrew cask ↔ 本轮资产，
@@ -147,20 +147,19 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。
 样板见 `scripts/mutation-check-sshconfig.sh`（当前 14 项：基线 + A1~A6 + B1~B6 + 回滚）。
-**现有 34 份**（每份都必须能独立跑绿）：sshconfig / include / settings /
+**基础与产品变异验证**（每份都必须能独立跑绿）：sshconfig / include / settings /
 settings-ui / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
-package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / attachment-peer / sessiond-linux / app-update。
+package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials。
 （`package-mac` 另护「**签名档位必须按证书真实的类记账**」：`--sign` 原先把任何身份都记
 成 `id`，于是随包 `BUILD-INFO.txt` 与 `version.json` 的 `signature` 会谎报 Developer ID——
 而那个字段正是 app 侧 `RemoteBuild.installBlocked` 判断「能不能自动装」的唯一依据。
 A8 打 `package-mac.sh` 的分类器（`Developer ID Application:` → `id`、`Apple Development:`
-→ `dev`、其余身份当场拒；`dev` 档配 `--notarize` 必须先拦下来），A9 打
-`build-sessiond-mac.py` 写进 `runtime.json` 的同一口径。背景：免费个人账号的
+→ `dev`、其余身份当场拒；`dev` 档配 `--notarize` 必须先拦下来）。背景：免费个人账号的
 Apple Development **能签但不能公证**，与 ad-hoc 一样被 Gatekeeper 拦，只多买到「签名身份
 稳定」这一件事，所以它不构成第三条分发路（口径写在 `docs/how-to/dev-build.md`）。
-这两组的判据是「**红在哪句文案**」而不是退出码——分类器拒的、钥匙串缺的、公证守卫拦的
+签名分类的判据是「**红在哪句文案**」而不是退出码——分类器拒的、钥匙串缺的、公证守卫拦的
 三类红用退出码分不出来，故新增 `expect_red_saying`；同一轮补齐了起跑前的变异标记扫描
 与 `gt_timeout`（原先这份脚本既没扫标记也没用超时）。
 A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi/homebrew-ghosterm`）声明的
@@ -171,6 +170,12 @@ A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi
 下界而不是旧断言）。**cask 不解决 Gatekeeper**：实测 Homebrew 自己给下载物贴
 `com.apple.quarantine`（agent `Homebrew Cask`），首次打开与浏览器下载同样要放行一次；
 决定拦不拦的是「标记在不在」，不是标记里的 flag 值。）
+（`package-mac` 的 A9 现护普通引擎与旧 runtime 清理：重新签名后塞入旧 helper 目录，
+新包校验仍红，而既有依赖校验仍绿；旧 profile 收据、旧 p0 头也分别目标红、对照绿、复原绿。
+`check-terminal-package.py` 复用普通引擎构建器的验证，核验实际 archive 哈希与三份补丁收据。
+打包变异起跑前检查 Pillow，不能拿图标对照缺依赖冒充有牙；EXIT/INT/TERM 都恢复并比对 SHA256。）
+（`ssh-auth` 保留公开非阻塞认证的八组翻译变异；`ssh-credentials` 保留方法表、取消、请求归属、
+拒绝凭据清理、服务端方法掩码与未知格式六组变异。它们独立于旧安装器和 daemon 探针运行。）
 （`app-update` 护 dev 版**更新检测**这条链——七组变异，每组都要让对应断言变红并带一条
 同变异下仍绿的指向性对照：U1 把「本机没有 commit 记录」折成「已是最新」（铁律 #6）、
 U2 把主锚从 commit 换回版本号（`build` 按 workflow 文件计数，跨轨不可比）、U3 解码时给
@@ -181,25 +186,9 @@ U2 把主锚从 commit 换回版本号（`build` 按 workflow 文件计数，跨
 NSView（SwiftUI 自绘，a11y 元素只走真 AX API），留下的句柄是 `KeyViewProxy`（一控件一个）
 与 `_FocusRingView`——于是「有几颗按钮 / 画在不在框内」看得见，「按钮上写的什么」看不见，
 后者由 `UpdateCheckTests` 的 `statusText` 断言兜住（U5 正是打在那里）。）
-（`sessiond-linux` 用 `python3 scripts/mutation-check-sessiond-linux.py` 执行，
-护「mac 与 Linux 两侧 session contract 逐位一致」这条链条：少打一片**真改到头树**的
-补丁 / vendor pin 被改 / 把 `.a` 冒充 `--engine` / 改一个公开头的一字节——四组变异都要
-让对应断言变红，且每组带**指向性对照**（静态版的 `DT_NEEDED` 仍是基线的子集，证明红的
-是新加的下界断言而不是旧的上界白名单；没动 `core/` 时 `public-headers` 仍绿）。
-脚本只 import `scripts/build-session-vt-linux.py` 复用同一份 staging/打包实现，不复制逻辑；
-变异落在 `tmp/` 的副本上，回滚逐字节比 sha。**需要 Linux builder**：非 Linux 主机显式
-打印 `SKIP` 并 `exit 0`，CI 的 `linux-bundle` job（`gates=full`）断言输出**不含** `SKIP`。
-注意契约的真实边界：契约只哈希「头树 + 补丁文件本身 + schema 源文件」，所以「少打一片
-只改 `.zig` 的补丁」契约**看不见**——别拿那种变异冒充有牙。）
 （`public-headers` 用 `python3 scripts/mutation-check-public-headers.py` 执行，
 护子头→聚合头、隐藏聚合类型依赖与子头环路；变异目标红、独立 config 头对照绿。
-会话状态 P0 的 `scripts/probe-session-state.py --mutations` 是另一个原型证据，
-尚不作为完整恢复闸门，资源探针返回 3 表示 P0 未完成。）
-（`attachment-peer` 用 `python3 scripts/mutation-check-attachment-peer.py` 执行，
-护 Unix stream 连接死亡释放本代、旧 owner 不碰新代、未接受字节在 HUP 后丢弃、
-短写/背压不谎报、信号不重置超时与 socket 的 CLOEXEC/NONBLOCK。
-十三类基线、十五组隔离变异及 SHA256 回滚；SIGKILL 用独立空闲客户端进程，
-真实 PTY 在断连后继续输入/输出，尚不替代 full surface 的跨进程 GUI 恢复。）
+旧私有恢复/P0 探针已随其能力整体退役；本闸门继续验证实际公开头。）
 （`pty-inheritance` 用 `python3 scripts/mutation-check-pty-inheritance.py` 执行，
 护 master/唤醒管道的 CLOEXEC 以及 exec 前隔离调用方描述符：后开的 shell 若继承
 前一条会话的 master，父进程关 master 也无法触发 hangup，close 的 waiter join
