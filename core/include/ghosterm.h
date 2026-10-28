@@ -76,6 +76,7 @@ size_t gt_core_poll_events(gt_event_t *out, size_t cap);
 #include "ghosterm/ssh.h"
 #include "ghosterm/sftp.h"
 #include "ghosterm/ssh_auth.h"
+#include "ghosterm/tmux.h"
 
 #ifdef __cplusplus
 } /* extern "C" */

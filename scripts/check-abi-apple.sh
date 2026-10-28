@@ -29,6 +29,7 @@ APPLE_SRC=(
   "$ROOT/apple/GhostermCore/Sources/CGhosterm/shim.c"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/GhostermCore.swift"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/SSHAuthenticator.swift"
+  "$ROOT/apple/GhostermCore/Sources/GhostermCore/Tmux.swift"
   "$ROOT/apple/GhostermCore/Tests/GhostermCoreTests/GhostermCoreTests.swift"
   "$ROOT/apple/GhostermTerminal/Sources/CGhostty/shim.c"
   "$ROOT/apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurface.swift"

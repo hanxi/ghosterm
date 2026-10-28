@@ -81,6 +81,11 @@ gt_transport_t *gt_transport_open_pty(const gt_pty_opts_t *opts);
 /* 在已连接的 SSH 会话上开交互式 shell（pty-req + shell）。 */
 gt_transport_t *gt_transport_open_ssh_shell(gt_ssh_t *ssh, const gt_shell_opts_t *opts);
 
+/* Dedicated authenticated owner; PTY request followed by exec, never shell injection.
+ * timeout_ms=0 means 5000ms; cancelled may be NULL, invoked on the IO owner. */
+gt_transport_t *gt_transport_open_ssh_command(gt_ssh_t *ssh, const char *command,
+    const gt_shell_opts_t *opts, uint32_t timeout_ms, bool (*cancelled)(void *), void *context);
+
 /*
  * 写入用户输入。**绝不无限阻塞**（M1 修正）。
  *

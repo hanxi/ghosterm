@@ -19,6 +19,8 @@ add_library(ghosterm_core STATIC
   src/io/ssh_shell.c
   src/ssh.c
   src/ssh/authenticator.c
+  src/tmux/command.c
+  src/tmux/tmux.c
   src/sftp.c
 )
 target_include_directories(ghosterm_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -168,3 +170,14 @@ target_compile_options(test_ssh_auth_bridge PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(test_ssh_auth_bridge PRIVATE ghosterm_core)
 add_test(NAME ssh_auth_bridge COMMAND test_ssh_auth_bridge)
 set_tests_properties(ssh_auth_bridge PROPERTIES TIMEOUT 10)
+
+add_executable(test_tmux tests/test_tmux.c)
+target_include_directories(test_tmux PRIVATE src)
+target_compile_options(test_tmux PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(test_tmux PRIVATE ghosterm_core)
+add_test(NAME tmux_command COMMAND test_tmux command)
+set_tests_properties(tmux_command PROPERTIES TIMEOUT 15)
+
+add_test(NAME tmux_adversarial COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-tmux.py --fake --binary $<TARGET_FILE:test_tmux>)
+set_tests_properties(tmux_adversarial PROPERTIES TIMEOUT 30)

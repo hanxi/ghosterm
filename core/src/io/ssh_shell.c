@@ -81,3 +81,12 @@ gt_io_backend_t *gt__ssh_backend_open(gt_ssh_t *ssh, const gt_shell_opts_t *opts
   backend->base.ops = &ssh_ops;
   return &backend->base;
 }
+
+gt_io_backend_t *gt__ssh_backend_command(gt_ssh_t *ssh,const char *command,const gt_shell_opts_t *opts,
+    uint32_t timeout,bool (*cancelled)(void *),void *context){
+  static const gt_shell_opts_t zero;
+  gt_ssh_backend_t *backend=calloc(1,sizeof *backend);if(!backend)return NULL;
+  backend->channel=gt__ssh_command_open(ssh,command,opts?opts:&zero,timeout,cancelled,context);
+  if(!backend->channel){free(backend);return NULL;}
+  backend->base.ops=&ssh_ops;return &backend->base;
+}

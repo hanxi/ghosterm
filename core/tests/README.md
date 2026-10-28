@@ -140,3 +140,21 @@ bash scripts/gate.sh                                  # 配置 / PTY / SSH / 公
 core/build/test_config core/tests/fixtures            # 单独跑对拍
 bash scripts/mutation-check-sshconfig.sh              # 证明闸门有牙（14 项）
 ```
+
+## 可选 tmux
+
+普通 core gate 不依赖安装 tmux：`tmux_command` 与 `tmux_adversarial` 验证有界执行、
+输出上限、严格解析、缺失/权限、版本、策略与变更结果三态。合并 tmux 改动另跑：
+
+```bash
+python3 scripts/test-tmux.py
+python3 scripts/mutation-check-tmux.py
+python3 scripts/test-tmux-ssh.py --host HOST --port PORT --user USER --key KEY --remote-root /absolute/project/tmp
+```
+
+前两条要求真 tmux >=3.6a（`TMUX_BINARY` 可指定绝对路径）；SSH 测试要求隔离账户和远端
+工程临时目录，管理与 attach 都由被测 libssh2 实现。系统 ssh 仅用于布置/清理测试配置。
+六模式覆盖 lifecycle/names/identity/policy/attach/race；测试只终止自己的 socket，
+不调用用户默认实例。变异脚本的编译、目标及对照都经 `gt_timeout`，不把编译失败当断言红。
+macOS make 按整秒比较时间戳时，快速变异可能留下旧可执行文件，故强制删除受影响 object、
+archive 与测试可执行再重链；回滚同样执行，并核对原始 SHA256。

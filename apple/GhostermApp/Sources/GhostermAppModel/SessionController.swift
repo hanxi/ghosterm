@@ -61,6 +61,7 @@ public final class SessionController {
     /// 子进程的工作目录（本地 PTY 才有；SSH 返回 nil）。内核查询，随取随新。
     public var childCwd: String? { transport.childCwd }
     private let queue = DispatchQueue(label: "dev.ghosterm.session")
+    private var stopped = false
     private var _running = false
     private var running: Bool {
         get { stateLock.lock(); defer { stateLock.unlock() }; return _running }
@@ -82,6 +83,7 @@ public final class SessionController {
     private var pending: [Pending] = []
 
     private func enqueue(_ op: Pending) {
+        guard !isStopped else { return }
         pendingLock.lock()
         pending.append(op)
         pendingLock.unlock()
@@ -93,6 +95,7 @@ public final class SessionController {
         pending.removeAll(keepingCapacity: true)
         pendingLock.unlock()
         for op in ops {
+            guard running else { return }
             switch op {
             case .write(let bytes):
                 try transport.write(bytes)
@@ -145,6 +148,7 @@ public final class SessionController {
         self.transport = transport
         self.surface = surface
         self.sshSession = sshSession
+        transport.releaseOn(queue)
         wireSurfaceToTransport(surface)
     }
 
@@ -165,8 +169,10 @@ public final class SessionController {
 
     /// 起会话线程。read 循环在专用线程上，字节直连 surface（不过 UI 线程）。
     public func start() {
-        guard !running else { return }
-        running = true
+        stateLock.lock()
+        guard !_running, !stopped else { stateLock.unlock(); return }
+        _running = true
+        stateLock.unlock()
         setState(.running)
         queue.async { [weak self] in self?.readLoop() }
     }
@@ -202,16 +208,14 @@ public final class SessionController {
         setState(s)
     }
 
-    /// 停会话：先置停止标志，再**等读循环真的退出**。
-    ///
-    /// 等待是必须的：读循环正在 `transport.read` 里，若此时就让
-    /// deinit 去 `gt_transport_close`（释放 libssh2 通道/pty fd），
-    /// 读循环会踩到已释放的内存。`queue.sync` 是屏障——读循环跑在这条
-    /// 队列上，所以它返回即代表已退出。
+    private var isStopped: Bool {
+        stateLock.lock(); defer { stateLock.unlock() }; return stopped
+    }
+    /// Cancel synchronously; the IO invocation retains self until its bounded
+    /// read/write returns. Transport cleanup then runs on the same IO owner.
     public func stop() {
-        guard running else { return }
-        running = false
-        queue.sync {}
+        stateLock.lock(); stopped = true; _running = false; stateLock.unlock()
+        pendingLock.lock(); pending.removeAll(); pendingLock.unlock()
     }
 
     /// 等待会话结束（测试用；返回最终状态）。

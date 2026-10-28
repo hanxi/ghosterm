@@ -52,6 +52,7 @@ size_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud);
 /* 打开交互式 shell 通道（pty-req + shell）。失败返回 NULL。 */
 void *gt__ssh_shell_open(gt_ssh_t *ssh, const char *term, uint16_t cols,
                          uint16_t rows, uint32_t px_w, uint32_t px_h);
+void *gt__ssh_command_open(gt_ssh_t *,const char *,const gt_shell_opts_t *,uint32_t,bool (*)(void *),void *);
 /* 返回 >0 字节数 / GT_TRANSPORT_READ_TIMEOUT / GT_TRANSPORT_READ_EOF /
  * GT_TRANSPORT_READ_ERROR；语义同 gt_transport_read。 */
 int gt__ssh_shell_read(void *ch, uint8_t *buf, size_t cap, int timeout_ms);
@@ -84,9 +85,6 @@ gt_sftp_t *gt__sftp_from_session(void *session, gt_ssh_t *ssh);
 void gt__ssh_io_lock(gt_ssh_t *ssh);
 void gt__ssh_io_unlock(gt_ssh_t *ssh);
 
-/* Transfer a dedicated authenticated session to the single-owner IPC link.
- * No shell/SFTP/exec handles or aliases may remain. Clears *ssh on success. */
-int gt__ssh_take(gt_ssh_t **ssh, void **session, int *socket);
 int gt__ssh_borrow(gt_ssh_t *,void **session,int *socket);
 void gt__ssh_abort(gt_ssh_t *);
 

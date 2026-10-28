@@ -1,6 +1,6 @@
 # 可选 tmux 后台会话重构计划
 
-日期：2026-10-28。状态：已进入实施；依赖与命令决策见 [实施清单](optional-tmux-implementation.md)。当前产品仍使用 sessiond，不能将目标架构当作已交付能力。
+日期：2026-10-28。状态：已进入实施；依赖与命令决策见 [实施清单](optional-tmux-implementation.md)。普通默认入口与自有 sessiond 退役已完成；可选能力按实施清单逐片交付，未完成的验收不计为支持证据。
 
 将默认连接恢复为普通本地 PTY / SSH 终端，把后台保活改为用户显式选择的外部会话能力。首版支持 tmux：一个 Ghosterm 格子附着一个 tmux session；session 内的 window、pane、状态栏、快捷键和鼠标行为全部由普通 tmux 客户端处理。删除自有 sessiond 及其恢复、部署和打包体系，不保留旧 ABI、协议、配置或记录格式的兼容代码。
 

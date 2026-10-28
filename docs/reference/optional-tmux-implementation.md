@@ -28,9 +28,9 @@
 
 最低版本为 **tmux 3.6a**，同时探测所需命令/格式字段；旧版本返回明确不支持。后续扩大兼容范围须在实际版本验证后降低下限。2026-10-28 本机 `/opt/homebrew/bin/tmux` 为 3.6a；在项目 `tmp/` 下隔离 socket/config 验证了以下行为。临时命令研究记录为 `tmp/tmux-analysis/commands.json`；后续共享模块测试接管这些判据。
 
-1. 路径：用户显式绝对路径优先；本机以登录环境和已知系统/包管理目录有界查找，不假定 GUI PATH 等于交互 shell；远端在服务器实际登录 shell 环境内解析后锁定绝对路径。路径未解析、启动文件污染输出、超时分别报错。查询不启动交互终端，不触碰用户已有格子。
+1. 路径：用户显式绝对路径优先；本机以所选登录 shell 有界查找，不假定 GUI PATH 等于交互 shell；远端在服务器实际 POSIX 兼容登录 shell 环境内解析后锁定绝对路径。路径未解析、启动文件污染输出、超时分别报错。查询不启动交互终端，不触碰用户已有格子。
 2. socket：显式绝对路径优先；默认按 tmux 原有 endpoint 选择规则解析，成功后锁定返回的 `socket_path`。管理与 attach 使用同一个 endpoint，清除继承的 `TMUX`，不误用本机或其他格子的环境。查询与 attach 加 `-N`；只有显式新建允许启动 server，attach 不带 `-A`/`-d`。测试始终指定工程 `tmp/` 的 socket，不用系统临时目录。
-3. 列表：`list-sessions -F` 固定输出 `pid/start_time/session_id/session_created/session_windows/session_attached` 与最后一列 `session_name`。3.6a 的 `session_check_name` 将控制字符可视化、点与冒号替换为下划线；实测 TAB/LF 变成字面 `\\t`/`\\n`，中文及空格保留。因此以 TAB 分字段、LF 分记录在此支持版本成立；原样保留名字，不反向解码。拒绝非法字段数、非数值、重复 ID、非预期控制字节、超限与非 UTF-8，不能把脏输出当空列表。
+3. 列表：`list-sessions -F` 固定输出 `pid/start_time/session_id/session_created/session_windows/session_attached` 与最后一列 `session_name`。3.6a 的 `session_check_name` 将控制字符可视化、点与冒号替换为下划线；实测 TAB/LF 变成字面 `\\t`/`\\n`，中文及空格保留。查询与 attach 显式加 `-u`，避免 C locale 把中文规范化成下划线；诊断只固定 `LC_MESSAGES`，移除覆盖它的 `LC_ALL`。因此以 TAB 分字段、LF 分记录在此支持版本成立；原样保留名字，不反向解码。拒绝非法字段数、非数值、重复 ID、非预期控制字节、超限与非 UTF-8，不能把脏输出当空列表。
 4. 目标：使用本次列表中的 `$<数字>` session ID，并记录 server PID/start_time、session_created 和 endpoint。操作前重查身份，不匹配即失效。查询后至操作间仍有竞态；不宣称跨 server 重启的原子身份保证，不保存 ID 或自动 attach。外部客户端切 session 后格子只保留“连接时选择”的显示。
 5. 引用：本地 argv 与远端 shell 引用分开。远端先构造 tmux argv，再统一 POSIX 单引号编码。tmux 自身还解析末尾分号并对新建/重命名名称做 format expansion；名称中的 `#` 要按 format 规则保护，末尾 `;` 按 tmux argv 规则保护，位置参数加 `--`。实测名称 `#{pid}`、`;`、`tail;`、`-option` 都能作为字面名称使用。新建后展示 tmux 回读的实际名称，不能承诺 `a.b:c` 不被规范化。
 6. 结果：成功输出、退出码和 stderr 分开保留；命令执行有总 deadline/取消/输出上限。所有 exit 1 不等价：无 server、坏 socket、权限拒绝、格式错误分别处理。无 server 只有在版本支持、固定 locale 的已验证连接诊断匹配时标为“未运行”，其余查询失败；“已知空列表”只来自成功解析的列表。失联的变更显示结果未知，刷新前不重发。
@@ -46,6 +46,6 @@
 | 1 依赖与命令契约 | 已完成 | 源码消费者、3.6a 命令研究、相对链接与 diff 校验；基线 core gate 414 项、82 公共符号及 build-core 通过 |
 | 2 普通默认连接 | 已完成 | 默认 PTY/SSH、移除旧恢复入口；App 329 项（6 项旧会话专用环境、1 项随包主题跳过）、Core Swift 真 SSH、Terminal 29 项（5 项旧 replica 夹具跳过）通过；无 runtime 隔离副本 4 组默认入口变异及标签页变异 37 项检查通过 |
 | 3 退役旧系统 | 已完成 | 删除 daemon/私有 IPC/快照与 replica/旧 ABI/安装及 CI bundle 链；通用认证独立保留。干净检出上 core 28 项/64 ABI 与原生 release 打包通过；主工作区 App 299 项（1 项主题环境跳过）、Terminal 24 项通过；打包 63 项、认证 ABI 8 组、凭据 6 组、PTY 尺寸 10 组、公开头/PTY 继承变异通过。普通 SDK 为同 pin 的 3 份补丁，无旧 runtime |
-| 4 共享 tmux 模块 | 待实施 | 真 tmux、PTY exec、ABI/绑定与命令失败回归 |
+| 4 共享 tmux 模块 | 已完成 | Core 30 项/70 ABI；macOS 与 Ubuntu 22.04（GCC 11、libssh2 1.10）本地真 tmux 六模式和 Mac→Linux libssh2 六模式通过；13 组隔离变异有指向性及 SHA 回滚。薄 Swift 绑定、SSH PTY exec、总 deadline/取消/输出限额与非阻塞 UI 关闭已接通；断网和受限账户仍在最终验收切片 |
 | 5 后台会话 UI | 待实施 | 列表、新格子、断开保留、重新选择与配置提示 |
 | 6 全量验收 | 待实施 | 原计划全部普通/后台/远端/竞态/清理/变异及干净打包证据 |

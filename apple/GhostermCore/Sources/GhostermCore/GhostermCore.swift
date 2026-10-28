@@ -304,7 +304,14 @@ public final class SSHSession {
         gt_ssh_close(handle)
     }
 
-    deinit { close() }
+    private var releaseOwner: DispatchQueue?
+    public func releaseOn(_ owner: DispatchQueue) { releaseOwner = owner }
+    deinit {
+        if !closed, let releaseOwner {
+            let raw = handle
+            releaseOwner.async { gt_ssh_close(raw) }
+        } else { close() }
+    }
 
     public func setHostKeyDecider(_ decider: @escaping HostKeyDecider) {
         let box = Box(decider)
@@ -755,7 +762,14 @@ public final class Transport {
     // C Transport 借用 SSH session，绑定必须保证 close 在 owner 释放前发生。
     // 包括取消连接后尚未交给 SessionController 的 transport。
     private let sshOwner: SSHSession?
-    deinit { gt_transport_close(handle) }
+    private var releaseOwner: DispatchQueue?
+    /// Set before handing a newly opened transport to another thread.
+    public func releaseOn(_ owner: DispatchQueue) { releaseOwner = owner }
+    deinit {
+        let raw = handle, ssh = sshOwner
+        if let releaseOwner { releaseOwner.async { gt_transport_close(raw); withExtendedLifetime(ssh) {} } }
+        else { gt_transport_close(raw) }
+    }
 
     /// 起的是「用户的交互 shell」还是「一条具体命令」。
     ///
@@ -813,6 +827,16 @@ public final class Transport {
         }
         guard let handle = h else { throw GhostermError.failed(Ghosterm.lastError) }
         return Transport(handle: handle, sshOwner: session)
+    }
+
+    public static func openSSHCommand(_ session: SSHSession, command: String,
+                                      cols: UInt16 = 80, rows: UInt16 = 24,
+                                      timeoutMilliseconds: UInt32 = 5000) throws -> Transport {
+        guard !command.utf8.contains(0) else { throw GhostermError.failed("SSH 命令包含 NUL") }
+        var size = gt_shell_opts_t(); size.cols = cols; size.rows = rows
+        let raw = command.withCString { gt_transport_open_ssh_command(session.handle, $0, &size, timeoutMilliseconds, nil, nil) }
+        guard let raw else { throw GhostermError.failed(Ghosterm.lastError) }
+        return Transport(handle: raw, sshOwner: session)
     }
 
     public var kind: TransportKind {

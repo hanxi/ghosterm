@@ -1,8 +1,6 @@
 /*
  * Transport facade. Platform I/O and process resources live in private
  * backends; this object owns only dispatch and stream EOF state.
- * P1-b preserves the current close semantics. Session/attachment lifetime
- * separation is a subsequent slice, not an implicit behavior change here.
  */
 #include "ghosterm.h"
 #include "internal.h"
@@ -112,4 +110,12 @@ bool gt_transport_child_cwd(const gt_transport_t *t, char *buf, size_t cap) {
 
 gt_transport_kind_t gt_transport_kind(const gt_transport_t *t) {
   return t ? t->kind : GT_TRANSPORT_LOCAL_PTY;
+}
+
+gt_transport_t *gt_transport_open_ssh_command(gt_ssh_t *ssh,const char *command,const gt_shell_opts_t *opts,
+    uint32_t timeout,bool (*cancelled)(void *),void *context){
+  if(!ssh||!command||!*command){gt__set_error("ssh command: invalid arguments");return NULL;}
+  gt_transport_t *t=new_transport(GT_TRANSPORT_SSH_SHELL);if(!t)return NULL;
+  t->backend=gt__ssh_backend_command(ssh,command,opts,timeout,cancelled,context);
+  if(!t->backend){free(t);return NULL;}return t;
 }
