@@ -3,7 +3,7 @@
 每次 push 到 `main` 都会自动出一个 macOS 包，放在滚动 tag `dev` 的 prerelease 里。
 本页说明**怎么装、装了之后怎么确认它到底是怎么造出来的**，以及**怎么在本地自己出一份**。
 
-## 怎么装：三条路，差别只在「谁贴了 quarantine 标记」
+## 怎么装：一键脚本、手工解包、Homebrew 或浏览器
 
 dev 轨**没有 Developer ID 证书**，只做 ad-hoc 签名、不公证。首次打开会不会被拦，
 由两件事相乘决定：**取包的工具**贴不贴 `com.apple.quarantine`，以及 Gatekeeper 对
@@ -13,6 +13,7 @@ dev 轨**没有 Developer ID 证书**，只做 ad-hoc 签名、不公证。首�
 |---|---|---|
 | 浏览器 / AirDrop 下 dmg | 下载工具贴（`0081;…;Safari;…`），且会**从 dmg 传染**给拖出来的 `.app`（`0281;…`） | 拦，需放行一次 |
 | `brew install --cask` | **Homebrew 自己贴**（`0381;…;;<uuid>`，agent 写 `Homebrew Cask`；Homebrew 7 没有关掉它的开关） | 拦，需放行一次 |
+| 一键安装脚本 | 安装时显式递归清除 | 无需手动执行 xattr |
 | `curl` + `ditto` | **不贴**（zip 与解出的 `.app` 都只有 `com.apple.provenance`） | 不拦 |
 
 > **拦与不拦的分界是「标记在不在」，不是标记里的 flag 值。** 拿同一个 ad-hoc 签名
@@ -21,6 +22,28 @@ dev 轨**没有 Developer ID 证书**，只做 ad-hoc 签名、不公证。首�
 > 被 spawn 出来但挂起不执行），syspolicyd 两侧都报 `GatekeeperPolicyScanError -67018
 > Code did not match any currently allowed policy` 并弹框；不贴标记的那一份照常执行。
 > 所以**换渠道并不能换来「双击就开」**，能换到的只有「不带标记」这一条。
+
+### 一键安装或升级（自动清除 quarantine）
+
+先退出 Ghosterm，然后执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hanxi/ghosterm/main/scripts/install-macos.sh | /bin/bash
+```
+
+脚本读取 dev 发布清单，检查 Apple Silicon 和本次构建的最低 macOS 版本，校验 ZIP 的
+SHA256、应用签名完整性及包内 commit，随后安装到 `/Applications/Ghosterm.app`，递归
+清除 `com.apple.quarantine`。已有应用会先备份，替换失败自动恢复；目录需要管理员权限时
+由 `sudo` 请求密码。后续升级重复执行同一命令。
+
+只装到当前用户目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hanxi/ghosterm/main/scripts/install-macos.sh | /bin/bash -s -- --app-dir "$HOME/Applications"
+```
+
+这是用户主动运行的安装入口；应用内更新检测仍只给下载链接。检出内运行时临时文件在
+工程 `tmp/`，管道执行时在 `~/Library/Caches/Ghosterm/Install`，安装结束自动清理。
 
 ### 免弹窗装（实测不贴标记）
 

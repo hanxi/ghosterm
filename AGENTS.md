@@ -121,9 +121,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 不报「已是最新」；有新版时只给下载直链，不画「安装」按钮。口径见
 `docs/how-to/dev-build.md`，牙见 `scripts/mutation-check-app-update.sh`。
 
-> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **17 份**变异验证——
+> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **18 份**变异验证——
 > Apple 端 `terminal / transport / tabs / chrome / settings / pixel / focus / split-dim / occlusion / app-update`、
-> `default-entry / ssh-auth / ssh-credentials / auth / tmux / tmux-ui`、以及 `package-mac`（在**干净检出**上验打包链，输出里
+> `default-entry / ssh-auth / ssh-credentials / auth / tmux / tmux-ui`、`install-macos`（dev 也执行）、以及 `package-mac`（在**干净检出**上验打包链，输出里
 > 出现 `SKIP` 一律判红，缺随包主题不许蒙过去）。**其余闸门仍是「手工跑」**：`core/` 侧的
 > sshconfig / include / ssh / sftp / exec / files / transfers / dragdrop / pty-inheritance /
 > login-shell / known-hosts / public-headers 等 CI 看不见。
@@ -152,7 +152,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 settings-ui / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
-package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh。
+package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh / install-macos。
 （`package-mac` 另护「**签名档位必须按证书真实的类记账**」：`--sign` 原先把任何身份都记
 成 `id`，于是随包 `BUILD-INFO.txt` 与 `version.json` 的 `signature` 会谎报 Developer ID——
 而那个字段正是 app 侧 `RemoteBuild.installBlocked` 判断「能不能自动装」的唯一依据。
@@ -178,6 +178,10 @@ A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi
 另调用 `mutation-check-package-dmg.py` 跑三组真实只读 DMG 变异：普通卸载忙时强制卸载、
 卸载失败保留临时目录、命令返回成功后仍核验挂载状态。任何递归清理之前必须确认本次验包
 挂载已卸载；清理钩子保留原始失败状态，不得吞掉卸载错误再谎报成功。）
+（`install-macos` 用 `python3 scripts/mutation-check-install-macos.py --archive 本轮.zip` 执行，
+在工程 `tmp/` 的隔离目标里安装真实签名包，不触碰 `/Applications`。六组变异护 SHA256、
+应用标识、签名完整性、递归清除 quarantine、替换失败恢复与平台/运行中保护；每组目标红、
+独立对照绿、SHA 回滚。dev/full 打包后都用本轮 ZIP 运行，验证当前脚本与本轮产物配套。）
 （`tmux` 以 `python3 scripts/mutation-check-tmux.py` 跑 19 组隔离变异：缺失判定、
 重复/UTF-8 解析、未知策略/结果、版本、format/分号/shell 引用、身份、禁止 attach 起新 server、
 尺寸接线、丢失本地退出状态、关闭标准描述符、取消及探测错误分类。目标断言红、同变异下独立对照绿、SHA 回滚；make 整秒时间戳下强制重链，

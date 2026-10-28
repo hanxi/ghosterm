@@ -62,6 +62,16 @@ bash scripts/package-mac.sh --help             # 全部选项（版本/签名/�
 
 ## 跑起来（macOS）
 
+安装最新 dev 版（自动校验并清除 quarantine；升级前先退出 Ghosterm）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hanxi/ghosterm/main/scripts/install-macos.sh | /bin/bash
+```
+
+安装到 `/Applications/Ghosterm.app`，后续升级重复执行；[安装说明](docs/how-to/dev-build.md)。
+
+从源码构建：
+
 ```bash
 bash scripts/build-mac-app.sh        # 出包：tmp/Ghosterm.app（自包含的普通终端包）
 open tmp/Ghosterm.app                # 双击即用：主机列表 / 终端 / 编辑器 / SFTP

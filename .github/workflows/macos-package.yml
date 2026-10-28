@@ -287,6 +287,13 @@ jobs:
           cat dist/BUILD-INFO.txt
           ls -la dist
 
+      - name: 一键安装脚本集成与变异验证
+        run: |
+          set -euo pipefail
+          ARCHIVES=(dist/*.zip)
+          [ "${#ARCHIVES[@]}" -eq 1 ] || { echo "需要唯一的本轮 ZIP" >&2; exit 1; }
+          python3 scripts/mutation-check-install-macos.py --archive "${ARCHIVES[0]}"
+
       - name: 上传 workflow artifact
         uses: actions/upload-artifact@v4
         with:
