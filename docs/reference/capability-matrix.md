@@ -1,7 +1,7 @@
 # 能力矩阵
 
 2026-10-28 已完成 [可选 tmux 重构](plan-optional-tmux.md)。默认 PTY/SSH 已恢复，
-旧 sessiond、私有恢复与随包 runtime 已退役。可选 tmux 为 🟡：支持证据限于 macOS 本机与 Ubuntu 22.04 SSH 的 tmux 3.6a；真实命令/PTY、原生列表、任务 PID 保留、断网与受限账户已验证，最终打包证据见实施清单。仅支持 POSIX 兼容远端登录 shell；不自动安装、恢复或管理旧 daemon。
+旧 sessiond、私有恢复与随包 runtime 已退役。可选 tmux 为 🟡：tmux 3.2a 已验证 macOS 本机与 Ubuntu 22.04 SSH 的真实命令和 PTY；3.6a 另验证原生列表、任务 PID 保留、断网与受限账户，最终打包证据见实施清单。仅支持 POSIX 兼容远端登录 shell；不自动安装、恢复或管理旧 daemon。
 进度见 [实施清单](optional-tmux-implementation.md)。
 
 > 口径（铁律 #8）：**✅** 已实现且有闸门/实测证据 · **🟡** 已实现但只在某一档证据下成立
@@ -34,7 +34,7 @@
 | 本地 PTY | 🟡 | POSIX（macOS/Linux）forkpty ✅；Windows ConPTY ⏳（能力缺失显式报错） |
 | 可取消的 SSH 认证 | 🟡 | 通用公开 `ssh_auth.h` 与 Apple `SSHAuthenticator`/DNS 解析已从旧安装链拆出；C 连接器与公开翻译测试、8 组认证 ABI / 6 组凭据选择变异通过。产品入口统一接线仍在实施。 |
 | POSIX PTY 尺寸能力 | 🟡 | macOS 共享后端 `pty_dimensions` 三类基线随核心闸门通过；保留像素尺寸与默认值校验，非全平台证据。 |
-| 可选 tmux 后台会话 | 🟡 | macOS 本机与 Ubuntu 22.04 SSH 的 tmux 3.6a 真 PTY attach、列表/管理、原生键鼠与任务保留；TCP reset/静默断网、背压、未知回复及受限账户验证。仅 POSIX 兼容远端 shell；其他版本/平台未验，不自动恢复，受用户 tmux 与系统清理策略影响。 |
+| 可选 tmux 后台会话 | 🟡 | 3.2a 已在 macOS 本机与 Ubuntu 22.04 SSH 验证真 PTY attach 和列表/管理；3.6a 另验证原生键鼠、任务保留、断网、背压、未知回复及受限账户。仅 POSIX 兼容远端 shell；其他版本与平台证据有限，不自动恢复，受用户 tmux 与系统清理策略影响。 |
 | 配色集随包 + 主题选择 | ✅ | `build-ghostty.sh` 从 `iterm2_themes` 依赖派生 607 套配色 → `Contents/Resources/ghostty/themes`；CGhostty 推导 `GHOSTTY_RESOURCES_DIR`（上游入口，未设置时兜底）；出包脚本的**包内**配置检查验随包主题被引擎接受（变异 A6 有牙） |
 | 终端配置下发（GUI → 引擎） | ✅ | `gt_ghostty_app_new_with_config` / `_app_reload_config` / `_config_get_{float,double,bool}`：设置页写 Ghostty 语法的配置文件，libghostty 自己解析；**判有效看诊断条数**（未知键只记诊断不丢配置）；`font-size` 改完网格密度真的变（`TerminalConfigTests` 11 项，含读回入口的键长度/类型）；数值键的 C 类型分 f32/f64（用错只得到 0）；变异 S1~S4 有牙 |
 | 嵌入者自有字节流（host IO 后端） | ✅ | `patches/libghostty/8159838`：`ghostty_surface_process_output` + host 回调；`gate-ghostty-patch.sh` 对拍 4 个导出符号 + `mutation-check-ghostty-patch.sh` 证明有牙 |

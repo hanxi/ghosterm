@@ -91,3 +91,39 @@ public final class TmuxConnection {
         let result = Transport(handle: raw, sshOwner: attachSSH); result.releaseOn(owner); return result
     }
 }
+
+public struct TmuxCandidate: Identifiable, Equatable {
+    public let path: String
+    public let version: String
+    public let status: Int32
+    public var id: String { path }
+    public var description: String {
+        let detail = version.isEmpty ? "版本查不清" : version
+        let support = status == 0 ? "版本符合" : status == 7 ? "版本不支持" : "查不清"
+        return "\(detail) · \(support) · \(path)"
+    }
+}
+
+extension TmuxConnection {
+    public static func discover(ssh: SSHSession? = nil, options: Options = .init(), owner: DispatchQueue, cancellation: SSHCancellation) throws -> [TmuxCandidate] {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        guard options.loginShell?.utf8.contains(0) != true else { throw GhostermError.failed("登录 shell 路径包含 NUL") }
+        var opts = gt_tmux_opts_t(); opts.timeout_ms = options.timeoutMilliseconds
+        opts.cancelled = tmuxCancelled; opts.context = Unmanaged.passUnretained(cancellation).toOpaque()
+        let capacity = Int(GT_TMUX_CANDIDATE_MAX)
+        let rows = UnsafeMutablePointer<gt_tmux_candidate_t>.allocate(capacity: capacity)
+        defer { rows.deallocate() }
+        var count = 0
+        let code = options.loginShell.withCStringOrNil { shell in
+            opts.login_shell = shell
+            return gt_tmux_discover(ssh?.handle, &opts, rows, capacity, &count)
+        }
+        guard code == 0 else { throw GhostermError.status(Int32(code), Ghosterm.lastError) }
+        return (0..<count).map { index in
+            var row = rows[index]
+            let path = withUnsafeBytes(of: &row.path) { String(cString: $0.baseAddress!.assumingMemoryBound(to: CChar.self)) }
+            let version = withUnsafeBytes(of: &row.version) { String(cString: $0.baseAddress!.assumingMemoryBound(to: CChar.self)) }
+            return TmuxCandidate(path: path, version: version, status: Int32(row.status.rawValue))
+        }
+    }
+}

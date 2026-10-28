@@ -26,7 +26,7 @@
 
 ## 首版命令决策
 
-最低版本为 **tmux 3.6a**，同时探测所需命令/格式字段；旧版本返回明确不支持。后续扩大兼容范围须在实际版本验证后降低下限。2026-10-28 本机 `/opt/homebrew/bin/tmux` 为 3.6a；在项目 `tmp/` 下隔离 socket/config 验证了以下行为。临时命令研究记录为 `tmp/tmux-analysis/commands.json`；后续共享模块测试接管这些判据。
+最低版本为 **tmux 3.2a**，同时探测所需命令/格式字段；旧版本返回明确不支持。3.2a 已在 macOS 本机和 Ubuntu 22.04 SSH 目标完成真实会话操作测试。2026-10-28 本机 `/opt/homebrew/bin/tmux` 为 3.6a；在项目 `tmp/` 下隔离 socket/config 验证了以下行为。临时命令研究记录为 `tmp/tmux-analysis/commands.json`；后续共享模块测试接管这些判据。
 
 1. 路径：用户显式绝对路径优先；本机以所选登录 shell 有界查找，不假定 GUI PATH 等于交互 shell；远端在服务器实际 POSIX 兼容登录 shell 环境内解析后锁定绝对路径。路径未解析、启动文件污染输出、超时分别报错。查询不启动交互终端，不触碰用户已有格子。
 2. socket：显式绝对路径优先；默认按 tmux 原有 endpoint 选择规则解析，成功后锁定返回的 `socket_path`。管理与 attach 使用同一个 endpoint，清除继承的 `TMUX`，不误用本机或其他格子的环境。查询与 attach 加 `-N`；只有显式新建允许启动 server，attach 不带 `-A`/`-d`。测试始终指定工程 `tmp/` 的 socket，不用系统临时目录。
@@ -63,7 +63,7 @@
 - 普通核心回归：PTY transport 12 项变异、登录 shell 13 项变异通过；回滚后再次 core gate 30 项/70 ABI 全绿。Swift Core 离线 14 项中两项仅在注入真实 SSH 时运行，随后真实 sshd 两项通过，未把跳过计作 SSH 证据。
 - 新增变异：共享 tmux 19 组、原生 UI 9 组、SSH 故障 6 组；每组有目标红、同变异独立对照绿、回滚复绿与 SHA 校验。SSH/exec/SFTP 的通用变异分别为 4/2/8 组，保留真实 sshd；暂停同时破坏读/写两条循环，避免重复锚点或旧可执行文件冒充结果。
 
-以上只声明 tmux 3.6a、macOS full libghostty 和实际测过的 Linux SSH 目标。用户 hooks、destroy/exit-unattached、登出清理及机器重启仍可能结束任务；不提供私有快照等价、启动恢复、SFTP 保活、其他 shell/版本或其他平台的支持承诺。
+以上只声明已验证的 tmux 3.2a 和 3.6a、macOS full libghostty 和实际测过的 Linux SSH 目标。用户 hooks、destroy/exit-unattached、登出清理及机器重启仍可能结束任务；不提供私有快照等价、启动恢复、SFTP 保活、其他 shell/版本或其他平台的支持承诺。
 
 2026-10-28 CI 复验：Homebrew 提供的 tmux 3.7c 对 Tab/LF 名称明确拒绝，点与冒号则保留；
 3.6a 将前者转义、后者替换为下划线。两种结果都由真实 tmux 对拍，拒绝时验证原名称不变；

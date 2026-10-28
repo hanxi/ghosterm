@@ -12,6 +12,14 @@ extern "C" {
 #define GT_TMUX_PATH_MAX 4096
 #define GT_TMUX_SESSION_MAX 256
 typedef struct gt_tmux gt_tmux_t;
+#define GT_TMUX_CANDIDATE_MAX 64
+#define GT_TMUX_VERSION_MAX 128
+typedef struct {
+  char path[GT_TMUX_PATH_MAX];
+  char version[GT_TMUX_VERSION_MAX];
+  gt_status_t status; /* OK, UNSUPPORTED, or IO/PROTOCOL when unknown */
+} gt_tmux_candidate_t;
+
 typedef struct {
   const char *executable; /* absolute path or NULL: login-shell command -v */
   const char
@@ -40,7 +48,12 @@ typedef enum {
   GT_TMUX_REJECTED,
   GT_TMUX_UNKNOWN
 } gt_tmux_result_t;
-/* ssh=NULL selects local. Resolves path and verifies tmux >=3.6a.
+/* PATH order, first candidate is the default. Unknown versions stay unknown.
+ * All-or-error: no partial candidate list on invalid output or timeout. */
+int gt_tmux_discover(gt_ssh_t *ssh, const gt_tmux_opts_t *opts,
+                     gt_tmux_candidate_t *candidates, size_t capacity,
+                     size_t *count);
+/* ssh=NULL selects local. Resolves path and verifies tmux >=3.2a.
  * Optional out_status distinguishes NOT_FOUND from UNSUPPORTED, IO and PROTOCOL. */
 gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *opts, gt_status_t *out_status);
 void gt_tmux_close(gt_tmux_t *tmux);

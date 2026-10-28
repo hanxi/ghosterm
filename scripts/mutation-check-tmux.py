@@ -30,7 +30,7 @@ def main():
     originals = {f: (ROOT/'core'/f).read_bytes() for f in FILES}
     checksums = {f: sha(ROOT/'core'/f) for f in FILES}
     if any(MARK.encode() in b for b in originals.values()): raise SystemExit('leftover mutation marker: exit 2')
-    if not shutil.which('tmux') and not os.environ.get('TMUX_BINARY'): raise SystemExit('real tmux >=3.6a required')
+    if not shutil.which('tmux') and not os.environ.get('TMUX_BINARY'): raise SystemExit('real tmux >=3.2a required')
     def interrupted(signum, frame): raise InterruptedError(signum)
     for sig in [signal.SIGINT, signal.SIGTERM]: signal.signal(sig, interrupted)
     with tempfile.TemporaryDirectory(prefix='tmux-mutations-', dir=ROOT/'tmp') as work:
@@ -40,9 +40,16 @@ def main():
         binary=build/'test_tmux'
         def check(mode, red=False):
             if mode == 'command': timed([binary,'command'],1 if red else 0)
+            elif mode == 'discovery': timed(['python3',ROOT/'core/tests/scripts/test-tmux-discovery.py',binary],1 if red else 0)
             else: timed(['python3',ROOT/'scripts/test-tmux.py','--binary',binary] + (['--fake'] if mode=='adversarial' else [mode]),1 if red else 0)
-        for mode in ['command','adversarial','names','identity','policy','attach','race','empty','owner-kill']: check(mode)
+        for mode in ['command','discovery','adversarial','names','identity','policy','attach','race','empty','owner-kill']: check(mode)
         mutants = [
+            ('version-probe-flag', 'src/tmux/tmux.c', 'run_argv(&context, args, true, &b, &r)', 'run_argv(&context, args, false, &b, &r)', 'discovery', 'command'),
+            ('path-newline', 'src/tmux/tmux.c', "\"case $p in *'\\n'*) exit 1;; esac; \"", '""', 'discovery', 'command'),
+            ('path-order', 'src/tmux/tmux.c', 'strcpy(out[(*count)++].path, p);', 'strcpy(out[0].path, p); (*count)++;', 'discovery', 'command'),
+            ('path-duplicates', 'src/tmux/tmux.c', 'if (!duplicate) {', 'if ((void)duplicate, true) {', 'discovery', 'command'),
+            ('path-capacity', 'src/tmux/tmux.c', 'if (*count == cap) { rc = GT_ERR_PROTOCOL; goto done; }', 'if (*count == cap) break;', 'discovery', 'command'),
+            ('path-unknown', 'src/tmux/tmux.c', 'out[i].status = ok ? GT_OK : valid ? GT_ERR_UNSUPPORTED : GT_ERR_PROTOCOL;', 'out[i].status = ok ? GT_OK : GT_ERR_UNSUPPORTED;', 'discovery', 'command'),
             ('missing', 'src/tmux/tmux.c', '  if(!r->completed||r->exit_code!=1||r->out_len||!r->err)return false;', '  if(r->completed&&r->exit_code==1)return true;', 'adversarial', 'command'),
             ('duplicates', 'src/tmux/tmux.c', 'if(rows[i].id==r->id||', 'if(false||', 'adversarial', 'command'),
             ('utf8', 'src/tmux/tmux.c', '}else return false;\n    unsigned count=n;', '}else {p++;continue;}\n    unsigned count=n;', 'adversarial', 'command'),
@@ -52,7 +59,7 @@ def main():
             ('rejected-result', 'src/tmux/tmux.c', '*result=r.exit_code?GT_TMUX_REJECTED:GT_TMUX_UNKNOWN', '*result=GT_TMUX_UNKNOWN', 'adversarial', 'command'),
             ('discovery-status', 'src/tmux/tmux.c', 'rc = GT_ERR_NOT_FOUND;', 'rc = GT_ERR_UNSUPPORTED;', 'adversarial', 'command'),
             ('version-status', 'src/tmux/tmux.c', 'rc = valid ? GT_ERR_UNSUPPORTED : GT_ERR_PROTOCOL;', 'rc = GT_ERR_UNSUPPORTED;', 'adversarial', 'command'),
-            ('version', 'src/tmux/tmux.c', "return major>3||(major==3&&(minor>6||(minor==6&&*suffix>='a')));", 'return major>=3;', 'adversarial', 'command'),
+            ('version', 'src/tmux/tmux.c', "return major>3||(major==3&&(minor>2||(minor==2&&*suffix>='a')));", 'return major>=3;', 'adversarial', 'command'),
             ('format-injection', 'src/tmux/tmux.c', "if(name[i]=='#')*out++='#';", '', 'names', 'command'),
             ('separator-injection', 'src/tmux/tmux.c', "if(i+1==n&&name[i]==';')*out++='\\\\';", '', 'names', 'command'),
             ('shell-quote', 'src/tmux/command.c', 'memcpy(p,"\'\\\\\'\'",4);p+=4;', 'memcpy(p,"xxxx",4);p+=4;', 'command', 'lifecycle'),

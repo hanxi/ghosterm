@@ -175,6 +175,9 @@ add_executable(test_tmux tests/test_tmux.c)
 target_include_directories(test_tmux PRIVATE src)
 target_compile_options(test_tmux PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(test_tmux PRIVATE ghosterm_core)
+add_test(NAME tmux_discovery COMMAND ${Python3_EXECUTABLE}
+         ${CMAKE_CURRENT_SOURCE_DIR}/tests/scripts/test-tmux-discovery.py $<TARGET_FILE:test_tmux>)
+set_tests_properties(tmux_discovery PROPERTIES TIMEOUT 40)
 add_test(NAME tmux_command COMMAND test_tmux command)
 set_tests_properties(tmux_command PROPERTIES TIMEOUT 15)
 

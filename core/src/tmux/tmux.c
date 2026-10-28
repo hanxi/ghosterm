@@ -157,7 +157,90 @@ static bool supported(const char *s, bool *valid) {
   if (*suffix && !(suffix[0] >= 'a' && suffix[0] <= 'z' && suffix[1] == 0)) return false;
   *valid = true;
   return major > 3 ||
-         (major == 3 && (minor > 6 || (minor == 6 && *suffix >= 'a')));
+         (major == 3 && (minor > 2 || (minor == 2 && *suffix >= 'a')));
+}
+int gt_tmux_discover(gt_ssh_t *ssh, const gt_tmux_opts_t *o,
+                     gt_tmux_candidate_t *out, size_t cap, size_t *count) {
+  static const gt_tmux_opts_t zero;
+  if (!count || !out || !cap || cap > GT_TMUX_CANDIDATE_MAX)
+    return GT_ERR_INVALID_ARG;
+  *count = 0;
+  if (!o) o = &zero;
+  if (o->timeout_ms > 60000) return GT_ERR_INVALID_ARG;
+  gt_tmux_t context = {0};
+  context.ssh = ssh; context.timeout = o->timeout_ms ? o->timeout_ms : 5000;
+  context.cancelled = o->cancelled; context.context = o->context;
+  gt_command_budget_t b = budget(&context);
+  /* PATH expansion is data, never shell source. Relative/empty entries cannot
+   * supply a stable absolute executable and are omitted. */
+  const char *discover = "set +e; unset TMUX; set -f; oldIFS=$IFS; IFS=:; "
+      "for d in $PATH; do case $d in /*) p=${d%/}/tmux; "
+      "case $p in *'\n'*) exit 1;; esac; "
+      "if [ -f \"$p\" ] && [ -x \"$p\" ]; then printf '%s\\n' \"$p\"; fi;; esac; done; IFS=$oldIFS";
+  char *quoted = gt__command_quote(discover);
+  char *command = NULL;
+  size_t command_len = 0;
+  if (!quoted || gt__command_append(&command, &command_len, "/bin/sh -c ", 11) ||
+      gt__command_append(&command, &command_len, quoted, quoted ? strlen(quoted) : 0)) {
+    free(quoted); free(command); return GT_ERR_INTERNAL;
+  }
+  free(quoted);
+  gt_command_result_t r = {0};
+  int rc;
+  if (ssh) rc = gt__command_ssh(ssh, command, &b, &r);
+  else {
+    const char *shell = o->login_shell ? o->login_shell : getenv("SHELL");
+    if (!shell || !*shell) shell = "/bin/sh";
+    if (!text(shell, GT_TMUX_PATH_MAX, true)) { free(command); return GT_ERR_INVALID_ARG; }
+    const char *args[] = {shell, "-l", "-c", command, NULL};
+    rc = gt__command_local(shell, args, &b, &r);
+  }
+  free(command);
+  if (rc || !r.completed || r.exit_code || r.err_len) {
+    if (!rc) rc = GT_ERR_PROTOCOL;
+    gt__set_error("tmux: PATH discovery failed or produced unexpected diagnostics");
+    goto done;
+  }
+  char *p = r.out;
+  while (p && *p) {
+    char *end = strchr(p, '\n');
+    if (!end) { rc = GT_ERR_PROTOCOL; goto done; }
+    *end = 0;
+    if (!text(p, GT_TMUX_PATH_MAX, true)) { rc = GT_ERR_PROTOCOL; goto done; }
+    bool duplicate = false;
+    for (size_t i = 0; i < *count; i++) if (!strcmp(out[i].path, p)) duplicate = true;
+    if (!duplicate) {
+      if (*count == cap) { rc = GT_ERR_PROTOCOL; goto done; }
+      memset(&out[*count], 0, sizeof out[*count]);
+      strcpy(out[(*count)++].path, p);
+    }
+    p = end + 1;
+  }
+  gt__command_free(&r);
+  for (size_t i = 0; i < *count; i++) {
+    strcpy(context.exe, out[i].path);
+    const char *args[] = {"-V", NULL};
+    rc = run_argv(&context, args, true, &b, &r);
+    if (rc && rc != GT_ERR_NOT_FOUND) goto done;
+    if (rc || !r.completed || r.exit_code || r.err_len) {
+      out[i].status = GT_ERR_IO;
+    } else if (!line(r.out, &r.out_len) ||
+               !text(r.out, GT_TMUX_VERSION_MAX, false)) {
+      out[i].status = GT_ERR_PROTOCOL;
+    } else {
+      strcpy(out[i].version, r.out);
+      bool valid = false;
+      bool ok = supported(r.out, &valid);
+      out[i].status = ok ? GT_OK : valid ? GT_ERR_UNSUPPORTED : GT_ERR_PROTOCOL;
+    }
+    gt__command_free(&r);
+    rc = GT_OK;
+  }
+  rc = GT_OK;
+done:
+  gt__command_free(&r);
+  if (rc) *count = 0;
+  return rc;
 }
 gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *o, gt_status_t *out_status) {
   if (out_status) *out_status = GT_ERR_INVALID_ARG;
@@ -222,13 +305,13 @@ gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *o, gt_status_t *out
     gt__command_free(&r);
   }
   const char *v[] = {"-V", NULL};
-  rc = checked(t, v, false, &b, &r);
+  rc = checked(t, v, true, &b, &r);
   if (rc)
     goto failed;
   bool valid = false;
   if (!line(r.out, &r.out_len) || !supported(r.out, &valid)) {
     rc = valid ? GT_ERR_UNSUPPORTED : GT_ERR_PROTOCOL;
-    gt__set_error("tmux: requires tmux >=3.6a with stable list formats");
+    gt__set_error("tmux: requires tmux >=3.2a with stable list formats");
     goto failed;
   }
   gt__command_free(&r);

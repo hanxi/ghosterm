@@ -81,7 +81,7 @@ open tmp/Ghosterm.app                # 双击即用：主机列表 / 终端 / �
 `Contents/Frameworks/`）——拷到别的 arm64 Mac 也能跑，不需要 Homebrew。
 ad-hoc 签名；Developer ID + 公证是显式遗留项（待证书，见 roadmap）。
 
-可选后台会话从 `+ → 本机后台会话…` 或主机右键菜单打开；目标需安装 tmux >=3.6a，
+可选后台会话从 `+ → 本机后台会话…` 或主机右键菜单打开；目标需安装 tmux >=3.2a，
 不影响普通终端。操作与保留边界见[使用 tmux 后台会话](docs/how-to/tmux-sessions.md)。
 
 不带包直接跑（开发循环）：
@@ -114,7 +114,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 | ├ SFTP 文件浏览器（M4） | ✅ 浏览 / 下载 / 上传 / 传输四态（与终端解耦的第二会话） |
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |
-| 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
+| 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
 | iOS / Android / 其余端 | ⏳ 未开始 |
 
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。

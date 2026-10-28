@@ -12,9 +12,34 @@ struct TmuxSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("后台会话 · tmux").font(.title2)
             Text(chooser.targetLabel).foregroundStyle(.secondary)
-            DisclosureGroup("可执行路径与 socket（可选）") {
-                TextField("tmux 绝对路径；留空使用登录环境", text: $chooser.executablePath)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("tmux 程序").font(.headline)
+                Picker("程序", selection: Binding(get: { chooser.executablePath }, set: { chooser.selectExecutable($0) })) {
+                    Text("自动：使用 PATH 中第一个").tag("")
+                    ForEach(chooser.candidates) { candidate in
+                        Text(candidate.description).tag(candidate.path)
+                    }
+                    if !chooser.executablePath.isEmpty && !chooser.candidates.contains(where: { $0.path == chooser.executablePath }) {
+                        Text("指定路径 · \(chooser.executablePath)").tag(chooser.executablePath)
+                    }
+                }.labelsHidden()
+                Text("候选来自目标登录环境的 PATH；未列出的程序可手动指定。")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let warning = chooser.discoveryWarning {
+                    Text("PATH 探测失败：\(warning)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                if let candidate = chooser.executablePath.isEmpty ? chooser.candidates.first : chooser.candidates.first(where: { $0.path == chooser.executablePath }) {
+                    Text(chooser.executablePath.isEmpty ? "默认：\(candidate.description)" : candidate.description)
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                } else if chooser.candidates.isEmpty {
+                    Text("未发现 PATH 中的程序；可展开下方手动输入路径。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }.disabled(chooser.busy)
+            DisclosureGroup("手动路径与 socket（可选）") {
+                TextField("tmux 绝对路径；留空自动选择", text: $chooser.executablePath)
                 TextField("socket 绝对路径；留空使用 tmux 默认实例", text: $chooser.socketPath)
+                Button("使用此路径") { chooser.selectExecutable(chooser.executablePath) }
                 Text("更改后点刷新。尊重用户配置，不安装程序或抢占已有客户端。")
                     .font(.caption).foregroundStyle(.secondary)
             }.disabled(chooser.busy)

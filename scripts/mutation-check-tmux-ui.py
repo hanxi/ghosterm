@@ -31,6 +31,9 @@ def main():
         check();check(control=True)
         chooser, pane, view, fixture=FILES
         mutants=[
+            ('manual-fallback',chooser,'if options.executable == nil, case .failure(let error) = discovery { throw error }','if case .failure(let error) = discovery { throw error }'),
+            ('default-first',chooser,'resolved.executable = discovered.first?.path','resolved.executable = discovered.last?.path'),
+            ('choice-persistence',chooser,'defaults.set(path, forKey: preferenceKey)','defaults.removeObject(forKey: preferenceKey)'),
             ('runner-socket-path',fixture,'"tmux-" + String(UUID().uuidString.prefix(8))','"profile-" + UUID().uuidString'),
             ('probe-error-state',chooser,'if case GhostermError.status(2, _) = error {','if case GhostermError.status(7, _) = error {'),
             ('overwrite',chooser,'} else { pane = TerminalPane() }','} else { pane = self.activePane ?? TerminalPane() }'),

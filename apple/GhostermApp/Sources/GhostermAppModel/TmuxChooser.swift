@@ -16,6 +16,8 @@ public final class TmuxChooser: ObservableObject, Identifiable {
     public let target: AppModel.Target
     public let replacingPaneID: UUID?
     @Published public var executablePath = "" { didSet { if executablePath != oldValue { invalidatePaths() } } }
+    @Published public private(set) var candidates: [TmuxCandidate] = []
+    @Published public private(set) var discoveryWarning: String?
     @Published public var socketPath = "" { didSet { if socketPath != oldValue { invalidatePaths() } } }
     @Published public var selectedID: String?
     @Published public private(set) var sessions: [TmuxSession] = []
@@ -31,15 +33,27 @@ public final class TmuxChooser: ObservableObject, Identifiable {
     private weak var model: AppModel?
     private let sshTarget: SSHConnectionTarget?
     private let loginShell: String?
+    private let defaults: UserDefaults
     private var authID: UUID?
     private var options = TmuxConnection.Options()
+    private var preferenceKey: String {
+        switch target { case .localShell: return "tmux.executable.local"
+        case .host(let alias): return "tmux.executable.host." + alias }
+    }
+    public func selectExecutable(_ path: String) {
+        executablePath = path
+        if path.isEmpty { defaults.removeObject(forKey: preferenceKey) }
+        else { defaults.set(path, forKey: preferenceKey) }
+        refresh()
+    }
 
     init(model: AppModel, target: AppModel.Target, replacing: UUID? = nil,
-         options: TmuxConnection.Options = .init()) {
-        self.model = model; self.target = target; replacingPaneID = replacing
+         options: TmuxConnection.Options = .init(), defaults: UserDefaults = .standard) {
+        self.model = model; self.target = target; replacingPaneID = replacing; self.defaults = defaults
         if case .host(let pattern) = target { sshTarget = model.sshTarget(for: pattern) } else { sshTarget = nil }
-        loginShell = model.preferences.resolvedShell
-        executablePath = options.executable ?? ""; socketPath = options.socketPath ?? ""
+        loginShell = options.loginShell ?? model.preferences.resolvedShell
+        executablePath = options.executable ?? defaults.string(forKey: preferenceKey) ?? ""
+        socketPath = options.socketPath ?? ""
     }
     public var targetLabel: String {
         if let sshTarget { return "\(sshTarget.alias) · \(sshTarget.user)@\(sshTarget.host):\(sshTarget.port)" }
@@ -72,12 +86,25 @@ public final class TmuxChooser: ObservableObject, Identifiable {
                 let ssh = try await self.authenticate()
                 queue.async { [weak self] in
                     guard !cancel.isCancelled else { return }
+                    state.connection = nil
+                    let discovery = Result { try TmuxConnection.discover(ssh: ssh, options: options, owner: queue, cancellation: cancel) }
+                    let discovered = (try? discovery.get()) ?? []
+                    var resolved = options
+                    if resolved.executable == nil { resolved.executable = discovered.first?.path }
                     let result = Result { () -> TmuxConnection.Snapshot in
-                        state.connection = nil
-                        let connection = try TmuxConnection(ssh: ssh, options: options, owner: queue, cancellation: cancel)
+                        if options.executable == nil, case .failure(let error) = discovery { throw error }
+                        guard resolved.executable != nil else { throw GhostermError.status(2, "PATH 中未找到 tmux") }
+                        let connection = try TmuxConnection(ssh: ssh, options: resolved, owner: queue, cancellation: cancel)
                         state.connection = connection; return try connection.list()
                     }
-                    DispatchQueue.main.async { [weak self] in self?.finishList(result) }
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        self.candidates = discovered
+                        self.options = options
+                        if case .failure(let error) = discovery { self.discoveryWarning = connectionErrorMessage(error) }
+                        else { self.discoveryWarning = nil }
+                        self.finishList(result)
+                    }
                 }
             } catch { self.finishList(.failure(error)) }
         }
@@ -91,7 +118,7 @@ public final class TmuxChooser: ObservableObject, Identifiable {
         case .failure(let error):
             sessions = []; requiresRefresh = true
             if case GhostermError.status(2, _) = error {
-                message = "未找到 tmux：请安装 tmux ≥3.6a，或指定可执行文件的绝对路径。普通终端仍可使用。"
+                message = "未找到 tmux：请安装 tmux ≥3.2a，或指定可执行文件的绝对路径。普通终端仍可使用。"
             } else if case GhostermError.status(7, _) = error {
                 message = "tmux 版本或目标能力不支持：\(connectionErrorMessage(error))。普通终端仍可使用。"
             } else {

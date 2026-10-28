@@ -10,7 +10,7 @@ while [ "$#" -gt 0 ]; do
  case "$1" in
  -u|-N) shift;;
  -S) shift; shift;;
- -V) if [ "$GT_TMUX_FAKE_MODE" = old ]; then echo 'tmux 3.5a'; elif [ "$GT_TMUX_FAKE_MODE" = version-dirty ]; then echo 'startup banner'; echo 'tmux 3.6a'; else echo 'tmux 3.6a'; fi; exit 0;;
+ -V) if [ "$GT_TMUX_FAKE_MODE" = old ]; then echo 'tmux 3.1a'; elif [ "$GT_TMUX_FAKE_MODE" = version-dirty ]; then echo 'startup banner'; echo 'tmux 3.6a'; else echo 'tmux 3.6a'; fi; exit 0;;
  *) break;;
  esac
 done

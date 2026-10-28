@@ -152,7 +152,7 @@ python3 scripts/mutation-check-tmux.py
 python3 scripts/test-tmux-ssh.py --host HOST --port PORT --user USER --key KEY --remote-root /absolute/project/tmp
 ```
 
-前两条要求真 tmux >=3.6a（`TMUX_BINARY` 可指定绝对路径）；SSH 测试要求隔离账户和远端
+前两条要求真 tmux >=3.2a（`TMUX_BINARY` 可指定绝对路径）；SSH 测试要求隔离账户和远端
 工程临时目录，管理与 attach 都由被测 libssh2 实现。系统 ssh 仅用于布置/清理测试配置。
 八模式覆盖 lifecycle/names/identity/policy/attach/race/empty/owner-kill；测试只终止自己的 socket，
 不调用用户默认实例。变异脚本的编译、目标及对照都经 `gt_timeout`，不把编译失败当断言红。

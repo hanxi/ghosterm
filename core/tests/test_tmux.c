@@ -595,6 +595,29 @@ int main(int argc, char **argv) {
     command_tests();
     return 0;
   }
+  if (argc == 4 && !strcmp(argv[1], "discover")) {
+    gt_tmux_opts_t options = {.login_shell = argv[2]};
+    gt_tmux_candidate_t candidates[4]; size_t n = 0;
+    CHECK(gt_tmux_discover(NULL, &options, candidates, 4, &n) == GT_OK && n == 3,
+          "PATH order, duplicate removal and invalid-version candidate");
+    CHECK(!strcmp(candidates[0].path, getenv("GT_TMUX_TEST_FIRST")) &&
+          candidates[0].status == GT_ERR_UNSUPPORTED &&
+          !strcmp(candidates[0].version, "tmux 3.1a"), "first unsupported remains first");
+    CHECK(!strcmp(candidates[1].path, getenv("GT_TMUX_TEST_SECOND")) &&
+          candidates[1].status == GT_OK && !strcmp(candidates[1].version, "tmux 3.2a"),
+          "second candidate reports supported version");
+    CHECK(!strcmp(candidates[2].path, getenv("GT_TMUX_TEST_BAD")) &&
+          candidates[2].status == GT_ERR_PROTOCOL, "malformed version remains unknown");
+    n = 42;
+    CHECK(gt_tmux_discover(NULL, &options, candidates, 1, &n) == GT_ERR_PROTOCOL && n == 0,
+          "capacity failure never returns a partial list");
+    CHECK(setenv("GT_TMUX_TEST_PATH", getenv("GT_TMUX_TEST_NEWLINE"), 1) == 0,
+          "install adversarial newline PATH");
+    n = 42;
+    CHECK(gt_tmux_discover(NULL, &options, candidates, 4, &n) == GT_ERR_PROTOCOL && n == 0,
+          "newline path cannot forge two absolute candidates");
+    puts("PASS tmux PATH discovery"); return 0;
+  }
   CHECK(argc == 4 || argc == 9,
         "usage test_tmux MODE EXE SOCKET [HOST PORT USER KEY WORK]");
   if (argc == 9) {
@@ -604,6 +627,18 @@ int main(int argc, char **argv) {
     ssh_key = argv[7];
     ssh_work = argv[8];
     management_ssh = connect_ssh();
+  }
+  if (!strcmp(argv[1], "discover-ssh")) {
+    CHECK(management_ssh, "SSH discovery requires a connection");
+    gt_tmux_candidate_t candidates[8]; size_t n = 0;
+    CHECK(gt_tmux_discover(management_ssh, NULL, candidates, 8, &n) == GT_OK && n == 2,
+          "remote PATH returns both candidates");
+    CHECK(!strcmp(candidates[0].path, argv[2]) && candidates[0].status == GT_ERR_UNSUPPORTED,
+          "remote first candidate remains first and unsupported");
+    CHECK(!strcmp(candidates[1].path, argv[3]) && candidates[1].status == GT_OK,
+          "remote second candidate has supported version");
+    gt_ssh_close(management_ssh);
+    puts("PASS tmux SSH PATH discovery"); return 0;
   }
   exe = argv[2];
   socket_path = argv[3];

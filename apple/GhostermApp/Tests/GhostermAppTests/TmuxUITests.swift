@@ -22,7 +22,7 @@ import XCTest
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let env = ProcessInfo.processInfo.environment
         let binary = env["TMUX_BINARY"] ?? "/opt/homebrew/bin/tmux"
-        guard FileManager.default.isExecutableFile(atPath: binary) else { throw GhostermError.failed("tmux >=3.6a is required for TmuxUITests; set TMUX_BINARY") }
+        guard FileManager.default.isExecutableFile(atPath: binary) else { throw GhostermError.failed("tmux >=3.2a is required for TmuxUITests; set TMUX_BINARY") }
         let config = root.appendingPathComponent("tmux.conf"), wrapper = root.appendingPathComponent("tmux")
         try "set -g default-shell /bin/sh\nset -g default-command \"exec /bin/sh\"\nset -g status off\nset -g assume-paste-time 0\nset -g mouse on\nset -g destroy-unattached off\nset -s exit-unattached off\n".write(to: config, atomically: true, encoding: .utf8)
         func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
@@ -49,6 +49,54 @@ import XCTest
             return text.hasPrefix(prefix) ? Int32(text.dropFirst(prefix.count)) : nil
         }.first
     }
+    func testCandidatePickerUsesFirstAndRemembersExplicitChoice() async throws {
+        let (root, executable, socket) = try fixture()
+        let first = root.appendingPathComponent("first"), second = root.appendingPathComponent("second")
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        let old = first.appendingPathComponent("tmux"), selected = second.appendingPathComponent("tmux")
+        try "#!/bin/sh\necho 'tmux 3.1a'\n".write(to: old, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: old.path)
+        try FileManager.default.createSymbolicLink(at: selected, withDestinationURL: URL(fileURLWithPath: executable))
+        func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let shell = root.appendingPathComponent("login-shell")
+        try "#!/bin/sh\nPATH=\(quote(first.path + ":" + second.path)); export PATH\nexec /bin/sh -c \"$3\"\n".write(to: shell, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shell.path)
+        let suite = "tmux-picker-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = isolatedAppModel(); defer { model.dismissTmux(); model.disconnectForTesting() }
+        let options = TmuxConnection.Options(socketPath: socket, loginShell: shell.path)
+        let browser = TmuxChooser(model: model, target: .localShell, options: options, defaults: defaults)
+        model.tmuxChooser = browser; browser.refresh()
+        try await until { !browser.busy }
+        XCTAssertEqual(browser.candidates.map(\.path), [old.path, selected.path])
+        XCTAssertEqual(browser.candidates.map(\.status), [7, 0])
+        XCTAssertTrue(browser.requiresRefresh, "unsupported first PATH entry must not silently switch")
+        browser.selectExecutable(selected.path)
+        try await until { !browser.busy }
+        XCTAssertFalse(browser.requiresRefresh, browser.message)
+        model.dismissTmux()
+        let reopened = TmuxChooser(model: model, target: .localShell, options: options, defaults: defaults)
+        model.tmuxChooser = reopened
+        XCTAssertEqual(reopened.executablePath, selected.path, "explicit selection persists")
+        reopened.refresh(); try await until { !reopened.busy }
+        XCTAssertFalse(reopened.requiresRefresh, reopened.message)
+    }
+
+    func testExplicitPathWorksWhenDiscoveryFails() async throws {
+        let (root, exe, socket) = try fixture()
+        let shell = root.appendingPathComponent("broken-shell")
+        try "#!/bin/sh\necho discovery-failed >&2\nexit 1\n".write(to: shell, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shell.path)
+        let model = isolatedAppModel(); defer { model.dismissTmux(); model.disconnectForTesting() }
+        let browser = TmuxChooser(model: model, target: .localShell, options: .init(executable: exe, socketPath: socket, loginShell: shell.path))
+        model.tmuxChooser = browser; browser.refresh()
+        try await until { !browser.busy }
+        XCTAssertFalse(browser.requiresRefresh, browser.message)
+        XCTAssertNotNil(browser.discoveryWarning)
+    }
+
     func testLongRunnerParentStillBindsRealTmuxSocket() async throws {
         let (_, exe, socket) = try fixture(longParent: true)
         let model = isolatedAppModel(); defer { model.dismissTmux(); model.disconnectForTesting() }
@@ -62,7 +110,7 @@ import XCTest
     func testProbeErrorsDistinguishMissingUnsupportedAndUncertain() async throws {
         let (_, exe, socket) = try fixture()
         let model = isolatedAppModel(); defer { model.dismissTmux(); model.disconnectForTesting() }
-        for (script, expected) in [("#!/bin/sh\necho 'tmux 3.5a'\n", "tmux 版本或目标能力不支持"),
+        for (script, expected) in [("#!/bin/sh\necho 'tmux 3.1a'\n", "tmux 版本或目标能力不支持"),
                                    ("#!/bin/sh\necho banner\necho 'tmux 3.6a'\n", "查不出来")] {
             try script.write(toFile: exe, atomically: true, encoding: .utf8)
             let browser = chooser(model, exe: exe, socket: socket)
@@ -95,6 +143,7 @@ import XCTest
         XCTAssertTrue(background !== original); XCTAssertEqual(pid(original, prefix: "ORDINARY:"), originalPID)
         XCTAssertNotNil(background.tmuxContext); XCTAssertEqual(background.childState, .unknown)
         XCTAssertFalse(background.closeNeedsConfirmation)
+        try await until { !(background.surface?.readText()?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) }
         background.surface?.sendCommittedText("printf 'BACKGROUND:%s\\n' \"$$\"\r")
         try await until { self.pid(background, prefix: "BACKGROUND:") != nil }
         let taskPID = try XCTUnwrap(pid(background, prefix: "BACKGROUND:"))
@@ -113,6 +162,7 @@ import XCTest
         fresh.selectedID = fresh.sessions.first?.id; fresh.connectSelected()
         try await until { background.status.isReady && model.tmuxChooser == nil }
         XCTAssertEqual(model.tabs.tabs.count, 2); XCTAssertTrue(tab.activePane === background)
+        try await until { background.surface?.readText()?.contains("BACKGROUND:") == true }
         background.surface?.sendCommittedText("printf 'REJOIN:%s\\n' \"$$\"\r")
         try await until { self.pid(background, prefix: "REJOIN:") != nil }
         XCTAssertEqual(pid(background, prefix: "REJOIN:"), taskPID)
@@ -149,6 +199,15 @@ import XCTest
                 return String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
             } catch { return [] }
         }
+        func attached() -> Bool {
+            let process = Process(), output = Pipe()
+            process.executableURL = URL(fileURLWithPath: exe)
+            process.arguments = ["-S", socket, "-N", "list-clients", "-t", "native-mouse", "-F", "#{client_name}"]
+            process.standardOutput = output; process.standardError = FileHandle.nullDevice
+            do { try process.run(); let data = output.fileHandleForReading.readDataToEndOfFile(); process.waitUntilExit(); return !data.isEmpty }
+            catch { return false }
+        }
+        try await until { attached() }
         host.insertText("\u{2}%", replacementRange: NSRange(location: NSNotFound, length: 0))
         try await until { panes().count == 2 }
         let before = panes(), left = try XCTUnwrap(before.first?.split(separator: ":").first.map(String.init))

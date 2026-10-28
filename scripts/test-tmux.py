@@ -8,7 +8,7 @@ FAKE = (ROOT / 'core/tests/fixtures/tmux-command.sh').read_text()
 def run(binary, modes, fake=False):
     tmux = os.environ.get('TMUX_BINARY') or shutil.which('tmux')
     if not tmux and not fake:
-        raise SystemExit('tmux fixture requires tmux >=3.6a; install it or set TMUX_BINARY')
+        raise SystemExit('tmux fixture requires tmux >=3.2a; install it or set TMUX_BINARY')
     for mode in modes:
         with tempfile.TemporaryDirectory(prefix='tmux-test-', dir=ROOT / 'tmp') as work:
             folder = pathlib.Path(work)
