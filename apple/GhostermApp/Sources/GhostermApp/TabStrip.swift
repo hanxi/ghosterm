@@ -87,7 +87,7 @@ struct TabStrip: View {
     private var chipStrip: some View {
         ScrollViewReader { scroller in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: DS.Padding.xs) {
+                HStack(spacing: 0) {
                     ForEach(tabs.tabs) { tab in
                         TabChip(tab: tab, isActive: tab.id == tabs.activeTabID)
                             .id(tab.id)
@@ -162,11 +162,13 @@ struct NewTabMenu: View {
 private struct TabChip: View {
     @ObservedObject var tab: TerminalTab
     let isActive: Bool
+    @State private var hovering = false
 
     var body: some View {
         HStack(spacing: DS.Padding.xs) {
-            StatusDot(status: tab.status)
+            TabCloseButton(tab: tab, visible: hovering)
             Text(tab.title).lineLimit(1)
+                .frame(maxWidth: .infinity)
             if let badge = ProgramStatusBadge(record: tab.programStatusSummary,
                                               terminalName: tab.title) {
                 ProgramStatusBadgeView(badge: badge)
@@ -191,27 +193,40 @@ private struct TabChip: View {
                     .background(Capsule().fill(Color.secondary.opacity(0.2)))
                     .help("\(tab.panes.count) 个分屏窗格")
             }
-            Button {
-                // 有活跃会话时先确认（不静默杀掉用户正在跑的东西）。
-                NotificationCenter.default.post(
-                    name: .ghostermRequestCloseTab, object: tab.id)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(DS.Font.captionSmall)
-                    .frame(width: 14, height: 14)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
         }
         .padding(.horizontal, DS.Padding.s)
         .padding(.vertical, DS.Padding.xs)
+        .frame(minWidth: 120, idealWidth: 180, maxWidth: 200)
         .background(
             RoundedRectangle(cornerRadius: DS.Radius.control)
-                .fill(isActive ? Color.accentColor.opacity(0.18)
-                               : Color.secondary.opacity(0.08))
+                .fill(isActive ? Color.primary.opacity(0.12)
+                               : Color.clear)
         )
         .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+    }
+}
+
+struct TabCloseButton: View {
+    @ObservedObject var tab: TerminalTab
+    let visible: Bool
+
+    var body: some View {
+        Button {
+            NotificationCenter.default.post(name: .ghostermRequestCloseTab, object: tab.id)
+        } label: {
+            Image(systemName: "xmark")
+                .font(DS.Font.captionSmall)
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+        .help("关闭标签页")
+        .accessibilityLabel("关闭标签页")
+        .accessibilityHidden(!visible)
     }
 }
 

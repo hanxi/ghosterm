@@ -79,6 +79,8 @@ public final class AppModel: ObservableObject {
 
     /// 本窗口的标签页清单（**结构的唯一写入者**，见 TabManager）。
     @Published public private(set) var tabs = TabManager()
+    /// 原生窗口标签共享同一侧栏开合状态。
+    @Published public var sidebarVisible = true
 
     /// 当前标签页的终端面。旧接口：转发到 activeTab.activePane。
     public var surface: TerminalSurface? { activePane?.surface }
@@ -152,7 +154,11 @@ public final class AppModel: ObservableObject {
 
     private var startedInitialSessions = false
     private var authentications: [UUID: (DispatchQueue, SSHAuthenticationFlow)] = [:]
-    @Published public var tmuxChooser: TmuxChooser?
+    @Published public var tmuxChooser: TmuxChooser? {
+        didSet { tmuxChooserOwnerID = tmuxChooser == nil ? nil : tabs.activeTabID }
+    }
+    /// 对话框属于打开它的原生标签窗口，切换标签时不迁移或重复呈现。
+    @Published public private(set) var tmuxChooserOwnerID: UUID?
 
 
     public init(configPath: String? = nil, knownHostsPath: String? = nil,

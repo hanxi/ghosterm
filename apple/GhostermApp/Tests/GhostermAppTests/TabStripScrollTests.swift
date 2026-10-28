@@ -24,6 +24,14 @@ final class TabStripScrollTests: XCTestCase {
         NSApplication.shared.setActivationPolicy(.accessory)
     }
 
+    @MainActor
+    func testQuartzScreenPointUsesAppKitVerticalAxis() throws {
+        let height = try XCTUnwrap(NSScreen.screens.first?.frame.height)
+        let point = WheelScrollsHorizontally.WheelView.appKitScreenPoint(CGPoint(x: 123, y: 75))
+        XCTAssertEqual(point.x, 123)
+        XCTAssertEqual(point.y, height - 75, "Quartz 坐标必须转换为 AppKit 的纵轴")
+    }
+
     private func findScroll(_ v: NSView) -> NSScrollView? {
         if let s = v as? NSScrollView { return s }
         for sub in v.subviews { if let s = findScroll(sub) { return s } }

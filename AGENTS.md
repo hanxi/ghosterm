@@ -121,9 +121,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 不报「已是最新」；有新版时只给下载直链，不画「安装」按钮。口径见
 `docs/how-to/dev-build.md`，牙见 `scripts/mutation-check-app-update.sh`。
 
-> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **18 份**变异验证——
+> **CI 覆盖范围（诚实标注）**：`gates=full` 只自动跑这 **24 份**变异验证——
 > Apple 端 `terminal / transport / tabs / chrome / settings / pixel / focus / split-dim / occlusion / app-update`、
-> `default-entry / ssh-auth / ssh-credentials / auth / tmux / tmux-ui`、`install-macos`（dev 也执行）、以及 `package-mac`（在**干净检出**上验打包链，输出里
+> `default-entry / ssh-auth / ssh-credentials / auth / tmux / tmux-ui`、`native-tabs / native-focus / native-context / native-sheet / native-titlebar / sidebar-hover`、`install-macos`（dev 也执行）、以及 `package-mac`（在**干净检出**上验打包链，输出里
 > 出现 `SKIP` 一律判红，缺随包主题不许蒙过去）。**其余闸门仍是「手工跑」**：`core/` 侧的
 > sshconfig / include / ssh / sftp / exec / files / transfers / dragdrop / pty-inheritance /
 > login-shell / known-hosts / public-headers 等 CI 看不见。
@@ -152,7 +152,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 settings-ui / tabs / chrome / sidebar-chrome / band-controls / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
-package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh / install-macos。
+package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh / install-macos / native-tabs / native-focus / native-context / native-sheet / sidebar-hover / native-titlebar。
+`native-titlebar` 验证原生标签栏在标题栏中的位置、宽度和控件避让；CI 在 macOS 15 执行，本机 macOS 26 也须验证。
+`native-focus` 在离屏原生窗口标签组中切换两个真实 shell，检查当前终端的焦点位和 AppKit firstResponder；变异掐断标签活跃状态，独立排序对照仍须为绿。
 （`package-mac` 另护「**签名档位必须按证书真实的类记账**」：`--sign` 原先把任何身份都记
 成 `id`，于是随包 `BUILD-INFO.txt` 与 `version.json` 的 `signature` 会谎报 Developer ID——
 而那个字段正是 app 侧 `RemoteBuild.installBlocked` 判断「能不能自动装」的唯一依据。

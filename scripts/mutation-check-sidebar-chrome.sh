@@ -60,13 +60,14 @@ for i in "${!FILES[@]}"; do
   cp "${FILES[$i]}" "${BACKUPS[$i]}"
 done
 
-run_chrome() { ( cd "$PKG" && gt_timeout 300 swift test --filter "SidebarChromeTests|WindowChromeTests" >/dev/null 2>&1 ); }
-run_other()  { ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >/dev/null 2>&1 ); }
-run_strip()  { ( cd "$PKG" && gt_timeout 300 swift test --filter TabStripScrollTests >/dev/null 2>&1 ); }
+RUN_LOG="$TMP/sidebar-chrome-mutation.log"
+run_chrome() { ( cd "$PKG" && gt_timeout 300 swift test --filter "SidebarChromeTests|WindowChromeTests" >"$RUN_LOG" 2>&1 ); }
+run_other()  { ( cd "$PKG" && gt_timeout 300 swift test --filter TabManagerTests >"$RUN_LOG" 2>&1 ); }
+run_strip()  { ( cd "$PKG" && gt_timeout 300 swift test --filter TabStripScrollTests >"$RUN_LOG" 2>&1 ); }
 expect() {
   if "$3"; then actual=green; else actual=red; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))
-  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"; FAIL=$((FAIL+1)); fi
+  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"; cat "$RUN_LOG"; FAIL=$((FAIL+1)); fi
 }
 rollback() {
   local i now

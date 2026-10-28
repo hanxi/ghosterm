@@ -19,10 +19,14 @@ struct Sidebar: View {
     /// 顶带上的切换按钮要能收起侧栏（按钮组两处共用，见 BandControls）。
     @Binding var showsSidebar: Bool
     let onShowSettings: () -> Void
+    var nativeTabBarInset: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if nativeTabBarInset > 0 {
+                Color.clear.frame(height: nativeTabBarInset)
+            }
             List {
                 tabsSection
                 hostsSection
@@ -137,9 +141,10 @@ struct Sidebar: View {
 }
 
 /// 标签页行：状态点 + 标题 + 副标题 + 锁定标记 + 关闭。
-private struct TabRow: View {
+struct TabRow: View {
     @ObservedObject var tab: TerminalTab
     let isActive: Bool
+    @State private var hovering = false
 
     var body: some View {
         // 当前标签页要**看得出是它**：这行是「窗口现在在哪」的唯一标识
@@ -185,6 +190,7 @@ private struct TabRow: View {
             }
             Image(systemName: tab.kind.symbolName)
                 .font(DS.Font.caption).foregroundStyle(.tertiary)
+            TabCloseButton(tab: tab, visible: hovering)
         }
         .padding(.horizontal, DS.Padding.xs)
         .padding(.vertical, DS.Padding.xs)
@@ -193,8 +199,34 @@ private struct TabRow: View {
                 .fill(isActive ? Color.primary.opacity(0.12) : Color.clear)
         )
         .contentShape(Rectangle())
+        .background(SidebarHoverTracking(hovering: $hovering))
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
+}
+
+private struct SidebarHoverTracking: NSViewRepresentable {
+    @Binding var hovering: Bool
+    func makeNSView(context: Context) -> SidebarHoverTrackingView {
+        let view = SidebarHoverTrackingView()
+        view.changed = { hovering = $0 }
+        return view
+    }
+    func updateNSView(_ view: SidebarHoverTrackingView, context: Context) {
+        view.changed = { hovering = $0 }
+    }
+}
+
+final class SidebarHoverTrackingView: NSView {
+    var changed: ((Bool) -> Void)?
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+    override func mouseEntered(with event: NSEvent) { changed?(true) }
+    override func mouseExited(with event: NSEvent) { changed?(false) }
 }
 
 private struct HostRow: View {

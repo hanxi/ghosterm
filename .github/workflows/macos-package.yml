@@ -201,12 +201,20 @@ jobs:
           # 没有 swift 工具链时不许 SKIP 成绿（那样这一整步等于没跑）。
           command -v swift >/dev/null 2>&1 || {
             echo "缺 swift 工具链，无法跑 Apple 端闸门（本步不许降级为 SKIP）" >&2; exit 1; }
+          export GHOSTERM_AUTOMATION_OFFSCREEN=1
+          export TMPDIR="$PWD/tmp"
           bash scripts/apple-gate.sh
           bash scripts/apple-app-gate.sh
           bash scripts/terminal-gate.sh
           bash scripts/mutation-check-terminal.sh
           bash scripts/mutation-check-transport.sh
           bash scripts/mutation-check-tabs.sh
+          bash scripts/mutation-check-native-tabs.sh
+          bash scripts/mutation-check-native-focus.sh
+          bash scripts/mutation-check-native-context.sh
+          bash scripts/mutation-check-native-sheet.sh
+          bash scripts/mutation-check-native-titlebar.sh
+          bash scripts/mutation-check-sidebar-hover.sh
           bash scripts/mutation-check-chrome.sh
           bash scripts/mutation-check-settings.sh
           bash scripts/mutation-check-pixel.sh

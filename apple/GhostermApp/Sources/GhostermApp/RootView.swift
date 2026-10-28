@@ -23,9 +23,13 @@ import SwiftUI
 /// 于是分屏比单窗格多顶出 5pt（配合子项上的 `.ignoresSafeArea` 才归零）。
 @MainActor
 func makeRootHostingView(model: AppModel,
-                         initialShowsSidebar: Bool = true) -> NSHostingView<RootView> {
+                         initialShowsSidebar: Bool = true,
+                         windowTabID: UUID? = nil,
+                         nativeTabs: Bool = false) -> NSHostingView<RootView> {
     let host = NSHostingView(rootView: RootView(model: model,
-                                                initialShowsSidebar: initialShowsSidebar))
+                                                initialShowsSidebar: initialShowsSidebar,
+                                                windowTabID: windowTabID,
+                                                nativeTabs: nativeTabs))
     // 13.3 才有这个开关；更早的系统上分屏会比单窗格高 5pt，纯外观差，
     // 不影响任何能力，故不报错。
     if #available(macOS 13.3, *) { host.safeAreaRegions = [] }
@@ -35,8 +39,26 @@ func makeRootHostingView(model: AppModel,
 struct RootView: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var tabs: TabManager
+    /// 原生窗口标签各自只持有一页；nil 维持单窗口模式。
+    private let windowTabID: UUID?
+    private let nativeTabs: Bool
+    private var nativeTabBarInset: CGFloat {
+        0
+    }
 
-    @State private var showsSidebar = true
+    @State private var localShowsSidebar = true
+    private var showsSidebar: Bool { nativeTabs ? model.sidebarVisible : localShowsSidebar }
+    private var sidebarBinding: Binding<Bool> {
+        Binding(get: { showsSidebar }, set: { value in
+            if nativeTabs { model.sidebarVisible = value } else { localShowsSidebar = value }
+        })
+    }
+    private var tmuxBinding: Binding<TmuxChooser?> {
+        Binding(get: {
+            guard !nativeTabs || windowTabID == model.tmuxChooserOwnerID else { return nil }
+            return model.tmuxChooser
+        }, set: { if $0 == nil { model.dismissTmux() } })
+    }
     @State private var editingHost: HostAlias?
     @State private var addingHost = false
     @State private var editError: String?
@@ -45,10 +67,13 @@ struct RootView: View {
 
     /// `initialShowsSidebar` 只给测试留一个可控初值（生产用默认 true）：
     /// 「侧栏开/合时切换按钮在哪」是像素级断言，必须能渲染两种状态。
-    init(model: AppModel, initialShowsSidebar: Bool = true) {
+    init(model: AppModel, initialShowsSidebar: Bool = true, windowTabID: UUID? = nil,
+         nativeTabs: Bool = false) {
         self.model = model
         self.tabs = model.tabs
-        _showsSidebar = State(initialValue: initialShowsSidebar)
+        self.windowTabID = windowTabID
+        self.nativeTabs = nativeTabs
+        _localShowsSidebar = State(initialValue: initialShowsSidebar)
     }
 
     var body: some View {
@@ -62,8 +87,9 @@ struct RootView: View {
             if showsSidebar {
                 Sidebar(model: model, tabs: tabs,
                         editingHost: $editingHost, addingHost: $addingHost,
-                        showsSidebar: $showsSidebar,
-                        onShowSettings: { SettingsWindow.open(model: model) })
+                        showsSidebar: sidebarBinding,
+                        onShowSettings: { SettingsWindow.open(model: model) },
+                        nativeTabBarInset: nativeTabBarInset)
                     .frame(width: DS.sidebarWidth)
                     .transition(.move(edge: .leading))
                 Divider()
@@ -72,11 +98,21 @@ struct RootView: View {
                 // 标签页只列一处：侧栏展开时它已经在侧栏里列着，顶栏再排一遍
                 // 就是同一份清单画两处（规则写死，判据是纯函数，见
                 // TabStripVisibility）。
-                if TabStripVisibility.shows(sidebarVisible: showsSidebar) {
-                    TabStrip(model: model, tabs: tabs, showsSidebar: $showsSidebar,
+                if nativeTabs && !showsSidebar {
+                    GlassBar {
+                        BandControls(model: model, showsSidebar: sidebarBinding,
+                                     onShowSettings: { SettingsWindow.open(model: model) })
+                        Spacer().titleBarDoubleClick()
+                    }
+                    Divider()
+                } else if nativeTabs && tabs.tabs.count > 1 {
+                    Color.clear.frame(height: WindowChrome.barHeight)
+                } else if !nativeTabs && TabStripVisibility.shows(sidebarVisible: showsSidebar) {
+                    TabStrip(model: model, tabs: tabs, showsSidebar: sidebarBinding,
                              onShowSettings: { SettingsWindow.open(model: model) })
                     Divider()
                 }
+                if nativeTabBarInset > 0 { Color.clear.frame(height: nativeTabBarInset) }
                 panes
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -89,11 +125,12 @@ struct RootView: View {
         // 关闭标签页：胶囊上的 × 发通知过来（视图不直接改 tabs）。
         .onReceive(NotificationCenter.default.publisher(
             for: .ghostermRequestCloseTab)) { note in
-            guard let id = note.object as? UUID,
+            guard (windowTabID == nil || windowTabID == tabs.activeTabID),
+                  let id = note.object as? UUID,
                   let tab = tabs.tabs.first(where: { $0.id == id }) else { return }
             tabs.requestClose(tab)
         }
-        .sheet(item: Binding(get: { model.tmuxChooser }, set: { if $0 == nil { model.dismissTmux() } })) { chooser in
+        .sheet(item: tmuxBinding) { chooser in
             TmuxSheet(chooser: chooser, close: { model.dismissTmux() })
                 .onDisappear { chooser.cancel() }
         }
@@ -111,7 +148,8 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: .ghostermToggleSidebar)) { _ in
-            showsSidebar.toggle()
+            guard windowTabID == nil || windowTabID == tabs.activeTabID else { return }
+            sidebarBinding.wrappedValue.toggle()
         }
         // 界面字号：装在整棵树的根上（终端面不吃它——终端字号是 Ghostty
         // 配置里的事，见 AppearancePane 的说明）。
@@ -120,8 +158,8 @@ struct RootView: View {
         // 已退出 / 失败 / 连接中都不问——判据在 TabManager.requestClose）。
         .alert("关闭这个标签页？",
                isPresented: Binding(
-                get: { tabs.closeRequest != nil },
-                set: { if !$0 { tabs.cancelClose() } })) {
+                get: { (windowTabID == nil || windowTabID == tabs.activeTabID) && tabs.closeRequest != nil },
+                set: { if !$0 && tabs.closeRequest != nil { tabs.cancelClose() } })) {
             Button("关闭", role: .destructive) { tabs.confirmClose() }
             Button("取消", role: .cancel) { tabs.cancelClose() }
         } message: {
@@ -143,7 +181,7 @@ struct RootView: View {
             if tabs.tabs.isEmpty {
                 EmptyStateView { model.connect(to: .localShell) }
             }
-            ForEach(tabs.tabs) { tab in
+            ForEach(tabs.tabs.filter { windowTabID == nil || $0.id == windowTabID }) { tab in
                 TabContentView(model: model, tab: tab,
                                isActive: tab.id == tabs.activeTabID)
                     .opacity(tab.id == tabs.activeTabID ? 1 : 0)

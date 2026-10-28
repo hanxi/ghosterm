@@ -60,6 +60,7 @@ enum GhostermUI {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow?
     private var model: AppModel?
+    private var nativeTabs: NativeTabWindows?
     /// 观察系统外观变化（跟随系统时终端配色要跟着换）。
     private var appearanceObserver: NSKeyValueObservation?
 
@@ -76,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // `.fullSizeContentView` 必须在**创建时**就在 styleMask 里：事后
         // insert 进去窗口不会重新布局，标题栏照样占一条（实测：用户看到的
         // 就是「红绿灯在一条灰带上、标签条在它下面」）。
-        let window = NSWindow(
+        let window = NativeTitlebarWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1040, height: 680),
             styleMask: [.titled, .closable, .resizable, .miniaturizable,
                         .fullSizeContentView],
@@ -87,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 重新 tile 标题栏，把标题字画出来（用户看到的「Ghosterm」就在那）。
         // 我们不显示任何标题，空串是唯一对「连 AppKit 都别想画」都成立的值。
         window.title = ""
-        window.contentView = makeRootHostingView(model: model)
+        window.contentView = makeRootHostingView(model: model, nativeTabs: true)
         window.center()
         window.makeKeyAndOrderFront(nil)
         // 顶栏即标题栏：红绿灯挪进我们的条里，内容铺满整窗（见 WindowChrome）。
@@ -95,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         // AppKit 分屏 / 改尺寸会重新 tile 标题栏（红绿灯归位、标题字复现）。
         // 挂上 delegate，在每次 resize 后把装束重新套一遍（见 WindowChrome.redress）。
-        window.delegate = self
+        nativeTabs = NativeTabWindows(model: model, anchor: window)
         self.window = window
         self.model = model
 
