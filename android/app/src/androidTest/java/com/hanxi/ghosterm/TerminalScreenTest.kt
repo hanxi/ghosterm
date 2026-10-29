@@ -347,6 +347,80 @@ class TerminalScreenTest {
         assertTrue(text(), text().replace(Regex("\\s+"), " ").contains("01 62 03 04 65"))
     }
 
+    /** Capture the program's bytes, independent of wrapping or VT escape interpretation. */
+    private fun captureKeys(mode: String, expected: ByteArray, input: () -> Unit) {
+        val token = UUID.randomUUID().toString().take(8)
+        val result = File(directory, "home/keys-$token")
+        send("stty raw -echo; printf '\\033[2J\\033[H${mode}KEY_READY_$token\\r\\n'; " +
+            "dd bs=1 count=${expected.size} of='${result.absolutePath}' 2>/dev/null; " +
+            "stty sane; printf '\\033[<u\\033[>4;0m\\r\\nKEY_DONE_$token\\r\\n'\r")
+        ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "KEY_READY_$token" }
+        input()
+        ui.waitUntil(10_000) { terminal().currentFrame?.let { frame ->
+            (0 until frame.rows).any { frame.line(it) == "KEY_DONE_$token" }
+        } == true }
+        assertArrayEquals("raw PTY input (${result.readBytes().joinToString { "%02x".format(it) }})", expected, result.readBytes())
+    }
+
+    @Test fun ctrlPunctuationUsesVtAndLeavesUnicodeAndBulkCommitsIntact() {
+        // The pinned VT deliberately disambiguates Ctrl+[ as CSI 91;5u.
+        val controls = byteArrayOf(31, 0) + "\u001b[91;5u".toByteArray(Charsets.UTF_8) +
+            byteArrayOf(28, 29, 30, 31, 127, 0, 27, 28, 29, 30, 31, 127, 0)
+        captureKeys("\\033[?2004h", controls + "K中文😀ab/".toByteArray(Charsets.UTF_8)) {
+            ui.onNodeWithText("Ctrl").performClick()
+            ui.onNodeWithText("/").performClick()
+            ui.onNodeWithText("Ctrl").assertIsDisplayed()
+            ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
+            ui.runOnIdle {
+                val ime = terminal().onCreateInputConnection(EditorInfo())
+                "@[\\]^_?2345678 ".forEach { assertTrue(ime.commitText(it.toString(), 1)) }
+                // Kelvin sign lowercases to ASCII k; it must still remain Unicode text.
+                listOf("K", "中文", "😀", "ab").forEach { assertTrue(ime.commitText(it, 1)) }
+            }
+            ui.onNodeWithText("Ctrl 锁定").assertIsDisplayed()
+            ui.onNodeWithText("Ctrl 锁定").performClick()
+            ui.onNodeWithText("/").performClick()
+        }
+    }
+
+    @Test fun softCtrlUsesCurrentKittyAndModifyOtherKeysModes() {
+        listOf("\\033[>1u" to "\u001b[47;5u", "\\033[>4;2m" to "\u001b[27;5;47~").forEach { (mode, encoded) ->
+            captureKeys(mode, encoded.toByteArray(Charsets.UTF_8)) {
+                ui.onNodeWithText("Ctrl").performClick()
+                ui.onNodeWithText("/").performClick()
+                ui.onNodeWithText("Ctrl").assertIsDisplayed()
+            }
+        }
+    }
+
+    @Test fun hardwareModifiersKeepLayoutCodepointsForKittyEncoding() {
+        val expected = "\u001b[47;6u\u001b[50;7u\u001b[97;6u".toByteArray(Charsets.UTF_8)
+        captureKeys("\\033[>1u", expected) {
+            ui.runOnIdle {
+                val view = terminal(); view.requestFocus()
+                listOf(KeyEvent.KEYCODE_SLASH to KeyEvent.META_SHIFT_ON,
+                    KeyEvent.KEYCODE_2 to KeyEvent.META_ALT_ON, KeyEvent.KEYCODE_A to KeyEvent.META_SHIFT_ON).forEach { (key, modifier) ->
+                    val event = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, key, 0, KeyEvent.META_CTRL_ON or modifier)
+                    assertTrue(ui.activity.window.decorView.dispatchKeyEvent(event))
+                    assertTrue(ui.activity.window.decorView.dispatchKeyEvent(KeyEvent.changeAction(event, KeyEvent.ACTION_UP)))
+                }
+            }
+        }
+    }
+
+    @Test fun imeSingleNewlineUsesEnterButMultilineCommitStaysText() {
+        listOf("" to "\r", "\\033[>9u" to "\u001b[13u").forEach { (mode, enter) ->
+            val block = "\n中文\n"
+            captureKeys(mode, (enter + block).toByteArray(Charsets.UTF_8)) {
+                ui.runOnIdle {
+                    val ime = terminal().onCreateInputConnection(EditorInfo())
+                    assertTrue(ime.commitText("\n", 1))
+                    assertTrue(ime.commitText(block, 1))
+                }
+            }
+        }
+    }
+
     @Test fun ctrlAndCompositionClearWhenFocusMovesToAnotherView() {
         lateinit var old: android.view.inputmethod.InputConnection
         lateinit var edit: android.widget.EditText

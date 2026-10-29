@@ -5,7 +5,8 @@ interface TerminalSurface {
     fun frame(after: Long): TerminalFrame?
     fun resize(cols: Int, rows: Int, cellWidth: Int, cellHeight: Int)
     fun commit(text: String)
-    fun key(code: Int, modifiers: Int = 0, text: String = "")
+    /** Layout character without modifiers, for VT keyboard protocols; zero means unavailable. */
+    fun key(code: Int, modifiers: Int = 0, text: String = "", unshiftedCodepoint: Int = 0)
     fun scroll(lines: Int)
     /** False requests confirmation; no bytes were written in that case. */
     suspend fun paste(text: String, allowUnsafe: Boolean = false): Boolean

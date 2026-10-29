@@ -92,7 +92,7 @@ static GhosttyKey key_code(int key) {
     }
 }
 
-bool gat_surface_key(gat_surface *s, int key, int mods, const uint8_t *text, size_t length) {
+bool gat_surface_key(gat_surface *s, int key, int mods, uint32_t unshifted, const uint8_t *text, size_t length) {
     bottom(s);
     ghostty_key_encoder_setopt_from_terminal(s->encoder, s->terminal);
     ghostty_key_event_set_action(s->key, GHOSTTY_KEY_ACTION_PRESS);
@@ -100,7 +100,8 @@ bool gat_surface_key(gat_surface *s, int key, int mods, const uint8_t *text, siz
     ghostty_key_event_set_mods(s->key, (GhosttyMods)mods);
     ghostty_key_event_set_consumed_mods(s->key, 0);
     ghostty_key_event_set_utf8(s->key, (const char *)text, length);
-    ghostty_key_event_set_unshifted_codepoint(s->key, key >= 29 && key <= 54 ? (uint32_t)('a' + key - 29) : 0);
+    ghostty_key_event_set_unshifted_codepoint(s->key, unshifted ? unshifted :
+        (key >= 29 && key <= 54 ? (uint32_t)('a' + key - 29) : 0));
     char buffer[256]; size_t length_out = 0;
     GhosttyResult result = ghostty_key_encoder_encode(s->encoder, s->key, buffer, sizeof(buffer), &length_out);
     if (result != GHOSTTY_SUCCESS) return false;

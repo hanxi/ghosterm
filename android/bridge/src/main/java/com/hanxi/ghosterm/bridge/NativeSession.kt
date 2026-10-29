@@ -19,11 +19,12 @@ class LocalSession(home: String) : TerminalSurface, Closeable {
         NativeSession.setSize(handle, cols, rows, cellWidth, cellHeight)
     }
     @Synchronized override fun commit(text: String) = input(1, 0, 0, text)
-    @Synchronized override fun key(code: Int, modifiers: Int, text: String) = input(2, code, modifiers, text)
+    @Synchronized override fun key(code: Int, modifiers: Int, text: String, unshiftedCodepoint: Int) =
+        input(2, code, modifiers, text, unshiftedCodepoint)
     @Synchronized override fun scroll(lines: Int) = input(3, lines, 0, "")
-    private fun input(kind: Int, code: Int, mods: Int, text: String) {
+    private fun input(kind: Int, code: Int, mods: Int, text: String, unshiftedCodepoint: Int = 0) {
         check(handle != 0L) { "终端会话已关闭" }
-        NativeSession.enqueue(handle, kind, code, mods, text.toByteArray(Charsets.UTF_8))
+        NativeSession.enqueue(handle, kind, code, mods, unshiftedCodepoint, text.toByteArray(Charsets.UTF_8))
     }
     private suspend fun action(kind: Int, x: Int = 0, y: Int = 0, bytes: ByteArray = byteArrayOf()): ByteArray = actionMutex.withLock {
         val (owner, request) = synchronized(this) {
@@ -85,7 +86,7 @@ internal object NativeSession {
     init { System.loadLibrary("ghosterm_android") }
     external fun create(home: ByteArray): Long
     external fun dispose(handle: Long)
-    external fun enqueue(handle: Long, kind: Int, key: Int, mods: Int, bytes: ByteArray)
+    external fun enqueue(handle: Long, kind: Int, key: Int, mods: Int, unshiftedCodepoint: Int, bytes: ByteArray)
     external fun setSize(handle: Long, cols: Int, rows: Int, cellWidth: Int, cellHeight: Int)
     external fun readFrame(handle: Long, after: Long): IntArray?
     external fun readState(handle: Long): IntArray

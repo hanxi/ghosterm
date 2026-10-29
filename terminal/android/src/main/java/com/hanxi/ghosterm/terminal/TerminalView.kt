@@ -331,14 +331,19 @@ class TerminalView(context: Context) : View(context) {
     }
     fun showKeyboard() { requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT) }
     fun hideKeyboard() { inputMethod.hideSoftInputFromWindow(windowToken, 0) }
-    fun sendKey(code: Int, modifiers: Int = 0, text: String = ""): Boolean {
-        val sent = dispatch { surface?.key(code, modifiers or if (ctrl != 0) 2 else 0, text) }
+    fun sendKey(code: Int, modifiers: Int = 0, text: String = "", unshiftedCodepoint: Int = 0): Boolean {
+        val sent = dispatch { surface?.key(code, modifiers or if (ctrl != 0) 2 else 0, text, unshiftedCodepoint) }
         if (sent && ctrl == 1) ctrl = 0
         return sent
     }
     fun commitText(text: String): Boolean {
-        if (ctrl != 0 && text.length == 1 && text[0].lowercaseChar() in 'a'..'z')
-            return sendKey(KeyEvent.KEYCODE_A + text[0].lowercaseChar().code - 'a'.code, text = text)
+        if (ctrl != 0 && text.length == 1 && text[0] in ' '..'~') {
+            // A soft keyboard commits characters, not physical key positions.
+            // Let VT decide C0/CSI-u/modifyOtherKeys; never encode Ctrl bytes here.
+            val character = text[0].lowercaseChar()
+            val code = if (character in 'a'..'z') KeyEvent.KEYCODE_A + character.code - 'a'.code else KeyEvent.KEYCODE_UNKNOWN
+            return sendKey(code, text = text, unshiftedCodepoint = character.code)
+        }
         val sent = dispatch { surface?.commit(text) }
         if (sent && ctrl == 1) ctrl = 0
         return sent
@@ -365,7 +370,10 @@ class TerminalView(context: Context) : View(context) {
         val text = if (unicode > 0) String(Character.toChars(unicode)) else ""
         val modifiers = (if (event.isShiftPressed) 1 else 0) or (if (event.isCtrlPressed) 2 else 0) or
             (if (event.isAltPressed) 4 else 0) or (if (event.isMetaPressed) 8 else 0)
-        return sendKey(code, modifiers, text)
+        val unshifted = event.getUnicodeChar(0).let {
+            if (it and android.view.KeyCharacterMap.COMBINING_ACCENT == 0) it else 0
+        }
+        return sendKey(code, modifiers, text, unshifted)
     }
     override fun onKeyUp(code: Int, event: KeyEvent): Boolean = if (code == KeyEvent.KEYCODE_BACK ||
         code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN) super.onKeyUp(code, event) else true
@@ -463,7 +471,12 @@ class TerminalView(context: Context) : View(context) {
             val ok = super.setComposingRegion(start, end); changed(); return ok
         }
         override fun commitText(text: CharSequence, position: Int): Boolean {
-            if (!valid || !this@TerminalView.commitText(text.toString())) return false
+            if (!valid) return false
+            // Gboard may commit a single LF for Enter instead of sending a key
+            // event. Preserve terminal Enter semantics without rewriting text blocks.
+            val sent = if (text.toString() == "\n") sendKey(KeyEvent.KEYCODE_ENTER)
+                else this@TerminalView.commitText(text.toString())
+            if (!sent) return false
             pending.clear(); Selection.setSelection(pending, 0); changed(); return true
         }
         override fun finishComposingText(): Boolean {

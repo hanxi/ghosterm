@@ -67,12 +67,25 @@ class LocalTerminalTest {
         assertTrue(text(output), text(output).contains("1b 4f 41 02 e4 b8 ad e6 96 87 f0 9f 98 80"))
     }
 
+    @Test fun invalidLayoutCodepointsAreRejectedWithoutPoisoningInput() = terminal { session ->
+        session.commit("stty raw -echo; printf '\\033[2J\\033[HLAYOUT_READY'; dd bs=1 count=1 2>/dev/null | od -An -tx1; stty sane; printf 'LAYOUT_DONE'\r")
+        frame(session) { it.line(0).startsWith("LAYOUT_READY") }
+        listOf(-1, 0xd800, 0xdfff, 0x110000).forEach { point ->
+            assertThrows(IllegalStateException::class.java) { session.key(KeyEvent.KEYCODE_UNKNOWN, 2, "x", point) }
+        }
+        session.key(KeyEvent.KEYCODE_B, 2, "b", 'b'.code)
+        val output = frame(session) { text(it).contains("LAYOUT_DONE") }
+        assertTrue(text(output), text(output).contains("02"))
+    }
+
     @Test fun resizeReachesPtyAndExitStatusIsReal() = terminal { session ->
         session.resize(61, 19, 8, 17)
         frame(session) { it.cols == 61 && it.rows == 19 }
         session.commit("stty -echo; printf '\\033[2J\\033[H'; stty size; printf 'SIZE_DONE'\r")
-        val output = frame(session) { text(it).contains("SIZE_DONE") }
-        assertTrue(text(output), text(output).contains("19 61"))
+        // A command being edited/echoed also contains SIZE_DONE. Wait for the
+        // separate output line after clear+home and stty, not its source text.
+        val output = frame(session) { it.line(1) == "SIZE_DONE" }
+        assertEquals(text(output), "19 61", output.line(0))
         session.commit("exit 7\r")
         await { session.state().terminal }
         assertEquals(session.state().toString(), 7, session.state().exitCode)

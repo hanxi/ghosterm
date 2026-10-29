@@ -14,7 +14,9 @@
 
 `patches/libghostty/` 里必须记录每个补丁的**为什么**与**上游对照 commit**。
 
-## 现状（M1 已完成）
+## 当前实现（2026-10-30）
+
+M1 已交付的是 macOS 终端竖切。系统剪贴板仍未接通，iOS 没有可用引擎产物和宿主；不能把 full libghostty 的上游能力视为已完成的平台接线。当前缺口见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 实现落在 **`apple/GhostermTerminal`**（SPM 包），本目录只保留说明：
 

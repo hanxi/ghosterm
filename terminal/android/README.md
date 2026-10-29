@@ -12,7 +12,7 @@
 
 - 已接：原生 owner 将 Transport 输出直接送 `native/surface.c` 的 VT，`TerminalView` 从受控网格快照读取；不把输出文本送 Compose。
 - Canvas 已有真 PTY 的 ANSI/宽字符网格和红绿底像素定向证据；`12c88ba` 已接入 VT 选区高亮与手柄。持续输出/滚动性能仍待补齐，再固定生产 renderer；需要 GLES 时保持 surface 接缝。
-- `TerminalView` 已实现 InputConnection 与键编码，尺寸同时通知 VT/Transport；组合/删除/提交已有真实 PTY 字节回读；此前结束标记换行导致的夹具超时已修正。初始焦点与基本硬件按键已由生产 Activity 验证；真实中文 IME 和完整硬件键盘矩阵仍待补。
+- `TerminalView` 已实现 InputConnection 与键编码，尺寸同时通知 VT/Transport；组合/删除/提交已有真实 PTY 字节回读；此前结束标记换行导致的夹具超时已修正。初始焦点与基本硬件按键已由生产 Activity 验证；真实 Gboard 拼音基本路径已按 §9.16 验证，完整软硬键盘矩阵仍待补。
 - `setFontSize` 可更新字号并触发网格 resize；当前默认 14sp，主题/字号/行距设置尚未接入。不可见时停画、owner 继续读流，surface 不知道连接类别。
 - 文本动作由 native owner 串行执行：VT 跟踪选区、formatter 复制原始字符、paste 按当前模式编码。平台 View 接系统剪贴板和浮动工具条，确认使用原始快照；URI 不转换为 shell 文本。正常 EOF 后保留 VT 供浏览/复制，显式关闭释放；不承诺错误退出后仍保留。
 - 本地清屏使用独立 `0002-local-clear.patch`，清当前屏幕/历史/选区/图像，保留模式、解析器与另一屏幕；不向 PTY 写入。JNI 包含同次构建安装的 patched 头，`terminal.h` 和 archive 都进入缓存校验；不修改 Apple full 引擎补丁集。
@@ -20,3 +20,5 @@
 文本动作首片结果见[实施计划 §9.14](../../docs/reference/android-implementation.md#914-a2-文本操作工作区与文档复核2026-10-30)，首片 16 项定向测试与 21 组终端变异保留在 §9.13。证据均限 API 36 arm64 / 4 KB 页模拟器，不扩大为真机或完整 A2。已提交选区支持可见范围手柄拖动、滚动后选择及全选。边缘自动滚动、跨越锚点/重新抓取、最近手柄命中与 Ctrl 生命周期已交付，完整 85 项设备测试与 35 组文本/21 组终端变异见[§9.15](../../docs/reference/android-implementation.md#915-选区与-ctrl-工作区进度2026-10-30)。
 
 最终验收仍须覆盖真 PTY/SSH→VT→像素、CJK/组合字符、软硬键盘、旋转/IME resize、焦点、背压和有界关闭；当前 JNI 冒烟不能替代这些证据。
+
+Ctrl 标点与键盘协议切片见[§9.16](../../docs/reference/android-implementation.md#916-ctrl-标点与键盘协议2026-10-30)：单个 ASCII 提交交 VT 编码，Unicode/批量提交保持原文；私有按键接缝携带布局原始字符，按当前 Kitty/modifyOtherKeys 模式编码已测按键；InputConnection 单独 LF 经 Enter 编码，整段提交保持原文。本片完整 90 项设备测试通过，文本/终端变异分别选跑 12/9 个不同组；真实 Gboard 拼音候选、删除与提交有手工字节证据。真实外接设备、死键与完整重复/释放事件矩阵仍待实现和验收。

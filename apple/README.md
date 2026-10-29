@@ -32,16 +32,18 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 ## 当前功能与代码入口
 
-下表路径相对 `GhostermApp/Sources/`。页面名称与目录结构以生产代码为准，旧计划中的独立双栏和多窗口标签组仅用于历史追溯。
+下表链接定位当前生产代码；2026-10-30 复核的是实际接线与限制。旧计划中的独立双栏和多窗口标签组仅用于历史追溯，新增 Android 证据不改变 macOS 完成状态。
 
 | 功能 | 代码入口 | 当前边界 |
 |---|---|---|
-| 顶部/侧边标签、窗口与焦点 | `GhostermApp/TabWindowController.swift`、`TabStrip.swift`、`Sidebar.swift` | 同一窗口内切换，唯一新建入口；不跨启动恢复标签/布局 |
-| 终端与文件窗格 | `GhostermAppModel/WorkspaceLayout.swift`、`GhostermApp/WorkspaceView.swift` | 同一布局、身份与宿主；真实拖动等遗留见工作区交接 |
-| 连接与配置编辑 | `GhostermApp/ConnectionChooser.swift`、`HostEditorSheet.swift`、`GhostermAppModel/ConfigStore.swift` | 主机不放侧栏；表单从块内指令取初值，已有别名不提供改名字段；尚无继承来源展示，配置事务仍有缺口 |
-| SSH 认证与凭据 | `GhostermAppModel/SSHAuthenticationFlow.swift`、`SSHCredentialSelector.swift` | 可取消认证；Keychain 存口令/密码，生产私钥仍读受限文件 |
-| 文件与传输 | `GhostermApp/FilesPanelView.swift`、`GhostermAppModel/TransferManager.swift` | 本地↔远端；尚无四方向统一复制队列；暂停/继续/取消忽略后端错误仍改状态，未知结果映射尚待修复 |
-| 菜单与偏好 | `GhostermApp/AppMenu.swift`、`GhostermAppModel/SettingsStore.swift`、`Shortcuts.swift` | 设置持久化、已有终端即时更新；Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签 |
+| 顶部/侧边标签、窗口与焦点 | [TabWindowController](GhostermApp/Sources/GhostermApp/TabWindowController.swift)、[TabStrip](GhostermApp/Sources/GhostermApp/TabStrip.swift)、[Sidebar](GhostermApp/Sources/GhostermApp/Sidebar.swift) | 同一窗口内切换，唯一新建入口；不跨启动恢复标签/布局 |
+| 终端与文件窗格 | [WorkspaceLayout](GhostermApp/Sources/GhostermAppModel/WorkspaceLayout.swift)、[WorkspaceView](GhostermApp/Sources/GhostermApp/WorkspaceView.swift) | 同一布局、身份与宿主；真实拖动等遗留见工作区交接 |
+| 连接与配置编辑 | [ConnectionChooser](GhostermApp/Sources/GhostermApp/ConnectionChooser.swift)、[HostEditorSheet](GhostermApp/Sources/GhostermApp/HostEditorSheet.swift)、[ConfigStore](GhostermApp/Sources/GhostermAppModel/ConfigStore.swift) | 主机不放侧栏；表单从块内指令取初值，已有别名不提供改名字段；尚无继承来源展示，配置事务仍有缺口 |
+| SSH 认证与凭据 | [SSHAuthenticationFlow](GhostermApp/Sources/GhostermAppModel/SSHAuthenticationFlow.swift)、[SSHCredentialSelector](GhostermApp/Sources/GhostermAppModel/SSHCredentialSelector.swift) | 可取消认证；Keychain 存口令/密码，生产私钥仍读受限文件 |
+| 文件与传输 | [FilesPanelView](GhostermApp/Sources/GhostermApp/FilesPanelView.swift)、[TransferManager](GhostermApp/Sources/GhostermAppModel/TransferManager.swift) | 本地↔远端；尚无四方向统一复制队列；暂停/继续/取消忽略后端错误仍改状态，未知结果映射尚待修复 |
+| 菜单与偏好 | [AppMenu](GhostermApp/Sources/GhostermApp/AppMenu.swift)、[SettingsStore](GhostermApp/Sources/GhostermAppModel/SettingsStore.swift)、[Shortcuts](GhostermApp/Sources/GhostermAppModel/Shortcuts.swift) | 正常设置已持久化并重载已有终端；存储异常/重复键及过时提示仍待修；Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签 |
+| 配置到连接 | [HostListModel](GhostermApp/Sources/GhostermAppModel/HostListModel.swift)、[SSHConnectionTarget](GhostermApp/Sources/GhostermAppModel/SSHConnectionTarget.swift) | 高级配置求值结果未传入连接，缺少连接前能力校验；列为 P0 |
+| 终端文本与剪贴板 | [TerminalSurfaceView](GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift)、[shim](GhostermTerminal/Sources/CGhostty/shim.c) | IME 已接通；系统复制/粘贴和确认回调仍占位，列为 P1 |
 
 **终端系统剪贴板尚未接通**：`GhostermTerminal/Sources/CGhostty/shim.c` 的读取回调返回 `GHOSTTY_CLIPBOARD_READ_UNAVAILABLE`，写入和确认回调为空。`TerminalHostView` 尚无 `copy:` / `paste:` 响应方法；编辑菜单虽注册了这两个 selector，不能据此宣布终端复制粘贴可用。`TerminalSurface.sendText` 的粘贴编码测试只证明给定文本能送到程序，不包含系统剪贴板读取、选区复制或确认框。文件路径复制、标签信息复制及设置文本复制各有独立 `NSPasteboard` 接线，也不补全终端链路。此为源码核对结果，尚无本轮真实菜单操作复测；实现与验收列入路线图 P1。
 

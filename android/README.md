@@ -10,7 +10,7 @@
 - [详细实现计划](../docs/reference/android-implementation.md)：模块/线程、配置与认证、输入法、复制、设置默认值、A0–A10 与验收。
 - [跨端路线图](../docs/reference/roadmap.md)、[能力矩阵](../docs/reference/capability-matrix.md)。
 
-A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnection、会话切换和关闭确认；Activity 重建与系统键盘尺寸已有真实路径证据。首片完整 63 项设备测试与 21 组终端变异的历史记录见[§9.13](../docs/reference/android-implementation.md#913-a2-真本地终端与生命周期首片2026-10-30)。文本操作切片另接长按选词、选区手柄、系统复制粘贴及确认、本地清屏、正常 shell 退出后的浏览/复制；最新验证集中记录在[§9.14](../docs/reference/android-implementation.md#914-a2-文本操作工作区与文档复核2026-10-30)。选区边缘自动滚动、锚点跨越与 Ctrl 状态清理已交付，85 项完整设备测试及 35 组文本/21 组终端变异见[§9.15](../docs/reference/android-implementation.md#915-选区与-ctrl-工作区进度2026-10-30)；真实中文 IME、完整键盘矩阵与性能仍待完成。
+A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnection、会话切换和关闭确认；Activity 重建与系统键盘尺寸已有真实路径证据。首片完整 63 项设备测试与 21 组终端变异的历史记录见[§9.13](../docs/reference/android-implementation.md#913-a2-真本地终端与生命周期首片2026-10-30)。文本操作切片另接长按选词、选区手柄、系统复制粘贴及确认、本地清屏、正常 shell 退出后的浏览/复制；该片验证集中记录在[§9.14](../docs/reference/android-implementation.md#914-a2-文本操作工作区与文档复核2026-10-30)。选区边缘自动滚动、锚点跨越与 Ctrl 状态清理已交付，85 项完整设备测试及 35 组文本/21 组终端变异见[§9.15](../docs/reference/android-implementation.md#915-选区与-ctrl-工作区进度2026-10-30)；本片已验 Ctrl 标点、模式感知 Enter 与真实 Gboard 拼音基本路径，完整 90 项设备测试和本轮选组变异见[§9.16](../docs/reference/android-implementation.md#916-ctrl-标点与键盘协议2026-10-30)；完整软硬键盘矩阵与性能仍待完成。
 
 与最终原型的差距仍需保留：终端底栏目前是主机/会话/键盘，文件入口等 A4；字号当前为 14sp，原型的默认 12sp 与其余完整偏好等 A7。文本剪贴板不等于文件待粘贴清单，后者属于 A5/A6。
 
@@ -48,7 +48,7 @@ python3 scripts/mutation-check-android-abi.py
 python3 scripts/mutation-check-android-native.py
 python3 scripts/mutation-check-android-config.py
 python3 scripts/mutation-check-android-terminal.py
-# A2 文本切片验证，范围见实现计划 §9.14
+# A2 文本与按键切片验证，范围及各轮结果见实现计划 §9.14–§9.16
 python3 scripts/mutation-check-android-text.py
 python3 scripts/mutation-check-android-vt-libc.py
 bash scripts/gate.sh
@@ -68,6 +68,6 @@ A0 证据：API 36 / arm64 / 4 KB 页模拟器，3 项设备测试、3 组 JNI �
 
 ## 边界
 
-UI 经 ViewModel/controller/repository 使用桥；不直接调用 JNI。终端实现位于 [terminal/android](../terminal/android/README.md)，使用 libghostty-vt + 自绘，不引用 Apple 代码。JNI 字符串经标准 UTF-8 byte array 传递，拒绝内嵌 NUL；A2 首片已建立原生 Transport→VT 数据通路，Canvas 读取网格快照；输出禁止通过 Compose/String/Flow 搬运，输入法契约和生命周期已有定向证据，真实中文 IME 与性能仍待补齐。
+UI 经 ViewModel/controller/repository 使用桥；不直接调用 JNI。终端实现位于 [terminal/android](../terminal/android/README.md)，使用 libghostty-vt + 自绘，不引用 Apple 代码。JNI 字符串经标准 UTF-8 byte array 传递，拒绝内嵌 NUL；A2 首片已建立原生 Transport→VT 数据通路，Canvas 读取网格快照；输出禁止通过 Compose/String/Flow 搬运，输入法契约和生命周期已有定向证据，真实 Gboard 拼音基本路径另有手工证据；完整输入矩阵与性能仍待补齐。
 
 普通 SSH 为主要远端入口。本地 A2 验证系统 `/system/bin/sh` 与 PTY，不把它称为随 App 内置的 shell。Termux/proot 环境包独立延后，按需下载且不进 APK。

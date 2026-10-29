@@ -12,7 +12,7 @@ void gat_surface_free(gat_surface *surface);
 void gat_surface_feed(gat_surface *surface, const uint8_t *bytes, size_t length);
 bool gat_surface_resize(gat_surface *surface, uint16_t cols, uint16_t rows, uint16_t cw, uint16_t ch);
 bool gat_surface_text(gat_surface *surface, const uint8_t *text, size_t length);
-bool gat_surface_key(gat_surface *surface, int key, int mods, const uint8_t *text, size_t length);
+bool gat_surface_key(gat_surface *surface, int key, int mods, uint32_t unshifted, const uint8_t *text, size_t length);
 void gat_surface_scroll(gat_surface *surface, int delta);
 /* Control result: 0 success, 1 paste confirmation required, 2 operation error.
  * kind: 1 paste (x=allow unsafe), 2 word, 3 start, 4 end, 5 all,
