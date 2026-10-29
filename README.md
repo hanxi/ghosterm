@@ -102,7 +102,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
 
-Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付真实本地终端、文本选择/复制粘贴、键盘协议与闪烁文本绘制。最新完整设备结果为 **100 项通过**，见[实现计划 §9.19](docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；物理键盘/布局矩阵与性能仍未完成，工作区性能实验单列在 [§9.20](docs/reference/android-implementation.md#920-性能实验与待验收边界2026-10-30)。SSH、文件四方向复制和完整设置仍待实施。macOS 配置事务、认证安全、终端剪贴板、设置读写与文件异常处理独立列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)；Android 的验收不改变其状态。
+Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付真实本地终端、文本选择/复制粘贴、键盘协议与闪烁文本绘制。最新完整设备结果为 **101 项通过**；输入后短时取帧与模拟器 debug 性能基线见[实现计划 §9.21](docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)。真机/release、长时间负载及物理键盘/布局矩阵仍未完成。SSH、文件四方向复制和完整设置仍待实施。macOS 配置事务、认证安全、终端剪贴板、设置读写与文件异常处理独立列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)；Android 的验收不改变其状态。
 
 | 能力 | 状态 |
 |---|---|
@@ -127,7 +127,7 @@ Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |
 | 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
-| Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；完整软硬键盘矩阵/性能待补，SSH/文件仍待接入 |
+| Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；已有模拟器 debug 性能基线；真机/长负载性能和完整键盘矩阵待补，SSH/文件仍待接入 |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。

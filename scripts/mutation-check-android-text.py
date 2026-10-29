@@ -125,7 +125,7 @@ def main():
         (view, 'if (previous != null && event.repeatCount > 0) KeyAction.REPEAT else KeyAction.PRESS',
          'if (previous != null && event.repeatCount > 0) KeyAction.PRESS else KeyAction.PRESS',
          ui + 'hardwarePressRepeatAndReleaseFollowCurrentVtMode'),
-        (view, 'return dispatch { surface?.key(key.code, keyModifiers(event) or key.softCtrl, "", key.unshifted, KeyAction.RELEASE) }',
+        (view, 'return dispatchInput { surface?.key(key.code, keyModifiers(event) or key.softCtrl, "", key.unshifted, KeyAction.RELEASE) }',
          'return true', ui + 'hardwarePressRepeatAndReleaseFollowCurrentVtMode'),
         (view, 'previous?.softCtrl ?: if (ctrl != 0) 2 else 0', 'if (ctrl != 0) 2 else 0',
          ui + 'oneShotCtrlStaysWithHeldKeyUntilRelease'),

@@ -11,7 +11,7 @@
 ## A2 当前实现与待验收
 
 - 已接：原生 owner 将 Transport 输出直接送 `native/surface.c` 的 VT，`TerminalView` 从受控网格快照读取；不把输出文本送 Compose。
-- Canvas 已有真 PTY 的 ANSI/宽字符网格和红绿底像素定向证据；`12c88ba` 已接入 VT 选区高亮与手柄。持续输出/滚动性能仍待补齐，再固定生产 renderer；需要 GLES 时保持 surface 接缝。
+- Canvas 已有真 PTY 的 ANSI/宽字符网格和红绿底像素定向证据；`12c88ba` 已接入 VT 选区高亮与手柄。模拟器 debug 持续输出/滚动基线已见 §9.21；仍须补真机/release/长负载证据再固定生产 renderer；需要 GLES 时保持 surface 接缝。
 - `TerminalView` 已实现 InputConnection 与键编码，尺寸同时通知 VT/Transport；组合/删除/提交已有真实 PTY 字节回读；此前结束标记换行导致的夹具超时已修正。初始焦点与基本硬件按键已由生产 Activity 验证；真实 Gboard 拼音基本路径已按 §9.16 验证，完整软硬键盘矩阵仍待补。
 - `setFontSize` 可更新字号并触发网格 resize；当前默认 14sp，主题/字号/行距设置尚未接入。不可见时停画、owner 继续读流，surface 不知道连接类别。
 - 文本动作由 native owner 串行执行：VT 跟踪选区、formatter 复制原始字符、paste 按当前模式编码。平台 View 接系统剪贴板和浮动工具条，确认使用原始快照；URI 不转换为 shell 文本。正常 EOF 后保留 VT 供浏览/复制，显式关闭释放；不承诺错误退出后仍保留。
@@ -27,4 +27,6 @@ Ctrl 标点与键盘协议切片见[§9.16](../../docs/reference/android-impleme
 
 独立修饰键、数字键盘和组合音符后续切片已完成本片验收，沿私有按键接缝交 VT 编码，并按输入设备隔离组合状态。完整 99 项设备测试及 24 组选组变异通过，见[§9.18](../../docs/reference/android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。不扩大为全部物理键、布局或性能已交付。
 
-静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。最新完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
+静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
+
+输入后短时取帧已交付：键入/按键成功后唤醒 tick，120ms 内按显示帧取快照，随后恢复 32ms；隐藏仍停画，native owner 持续读流。完整 **101 项设备测试**、新增四组性能变异及终端四组/文本一组回归通过，见[§9.21](../../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)。性能证据仅限当前模拟器 debug 档；原持续按显示帧轮询的实验因 CPU/吞吐代价未采用。

@@ -41,7 +41,7 @@ class TerminalView(context: Context) : View(context) {
             releaseHeldKeys()
             resetTextActions()
             connection?.cancel(); connection = null
-            field = value; currentFrame = null; lastSize = null
+            field = value; currentFrame = null; lastSize = null; inputFrameDeadline = 0L
             ctrl = 0; updateSize(); invalidate()
             inputMethod.restartInput(this)
         }
@@ -87,6 +87,7 @@ class TerminalView(context: Context) : View(context) {
     private var baseline = 1f
     private var lastSize: List<Int>? = null
     private var running = false
+    private var inputFrameDeadline = 0L
     private var blink = true
     private var fractionalScroll = 0f
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -120,7 +121,10 @@ class TerminalView(context: Context) : View(context) {
                 blink = next
                 if (currentFrame?.cursorBlink == true || currentFrame?.hasBlinkingText == true) invalidate()
             }
-            postDelayed(this, 32)
+            // Input needs a prompt echo; sustained output and idle retain the
+            // lower polling rate to avoid rebuilding snapshots every display frame.
+            if (SystemClock.uptimeMillis() < inputFrameDeadline) postOnAnimation(this)
+            else postDelayed(this, 32)
         }
     }
     init {
@@ -147,6 +151,13 @@ class TerminalView(context: Context) : View(context) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) { updateSize() }
     private fun dispatch(action: () -> Unit): Boolean = try { action(); true } catch (e: IllegalStateException) {
         onError(e.message ?: "终端操作失败"); false
+    }
+    private fun dispatchInput(action: () -> Unit): Boolean = dispatch(action).also { sent ->
+        if (sent && running) {
+            inputFrameDeadline = SystemClock.uptimeMillis() + 120
+            removeCallbacks(tick)
+            postOnAnimation(tick)
+        }
     }
     private fun rendering() {
         val next = isAttachedToWindow && isShown && windowVisibility == VISIBLE
@@ -362,7 +373,7 @@ class TerminalView(context: Context) : View(context) {
             pendingAccents.clear(); invalidate()
         }
         val effectiveMods = modifiers or if (ctrl != 0) 2 else 0
-        val sent = dispatch { surface?.let { target ->
+        val sent = dispatchInput { surface?.let { target ->
             target.key(code, effectiveMods, text, unshiftedCodepoint, KeyAction.PRESS)
             target.key(code, effectiveMods, "", unshiftedCodepoint, KeyAction.RELEASE)
         } }
@@ -378,7 +389,7 @@ class TerminalView(context: Context) : View(context) {
             val code = if (character in 'a'..'z') KeyEvent.KEYCODE_A + character.code - 'a'.code else KeyEvent.KEYCODE_UNKNOWN
             return sendKey(code, text = text, unshiftedCodepoint = character.code)
         }
-        val sent = dispatch { surface?.commit(text) }
+        val sent = dispatchInput { surface?.commit(text) }
         if (sent && ctrl == 1) ctrl = 0
         return sent
     }
@@ -418,7 +429,7 @@ class TerminalView(context: Context) : View(context) {
         val terminalCode = previous?.code ?: if (!event.isNumLockOn &&
             (code in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 || code == KeyEvent.KEYCODE_NUMPAD_DOT))
             code or TerminalKeys.KEYPAD_NAVIGATION else code
-        val sent = dispatch { surface?.key(terminalCode, modifiers, text, unshifted, action) }
+        val sent = dispatchInput { surface?.key(terminalCode, modifiers, text, unshifted, action) }
         if (sent) {
             heldKeys[identity] = HeldKey(terminalCode, modifiers, unshifted, softCtrl)
             if (!modifierKey && ctrl == 1) ctrl = 0
@@ -461,7 +472,7 @@ class TerminalView(context: Context) : View(context) {
     }
     private fun commitHardware(text: String): Boolean {
         invalidate()
-        val sent = dispatch { surface?.commit(text) }
+        val sent = dispatchInput { surface?.commit(text) }
         if (sent && ctrl == 1) ctrl = 0
         return sent
     }
@@ -479,7 +490,7 @@ class TerminalView(context: Context) : View(context) {
             return super.onKeyUp(code, event)
         // A shortcut, composition, or another surface may have consumed the down.
         val key = heldKeys.remove(event.deviceId to code) ?: return true
-        return dispatch { surface?.key(key.code, keyModifiers(event) or key.softCtrl, "", key.unshifted, KeyAction.RELEASE) }
+        return dispatchInput { surface?.key(key.code, keyModifiers(event) or key.softCtrl, "", key.unshifted, KeyAction.RELEASE) }
     }
 
     override fun onDraw(canvas: Canvas) {

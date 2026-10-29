@@ -16,9 +16,9 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 修饰键、数字键盘与组合音符扩展已完成本片验收：完整 **99 项设备测试，0 失败/错误/跳过**；文本变异选跑 **24 组**通过，含新增 16 组与旧八组，见[§9.18](../docs/reference/android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。脚本总量 71 组不是本轮全量重跑；证据仍限 API 36 arm64 / 4 KB 页模拟器。
 
-静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。最新完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
+静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
 
-当前工作区另有性能探针与取帧调度实验，只有单独测量记录，尚未完成变异/完整回归；不计入上述已交付能力或设备测试总量，见[§9.20](../docs/reference/android-implementation.md#920-性能实验与待验收边界2026-10-30)。
+后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。最新完整设备结果 **101 项，0 失败/错误/跳过**，见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
 
 ## 构建
 
@@ -71,6 +71,18 @@ A0 证据：API 36 / arm64 / 4 KB 页模拟器，3 项设备测试、3 组 JNI �
 读取失败或保存冲突后，旧快照失效，列表不冒充合法空态/当前数据；保留编辑草稿，成功重载前禁用保存与配置入口。错误跨设置/关于页返回后保留重试入口；重载有未保存内容时先确认放弃，选择继续编辑不动草稿或磁盘。主机重载会刷新来源/值，目标已删除则回首页。此片 40 项设备测试与 47 组变异证据见[§9.10](../docs/reference/android-implementation.md#910-配置错误恢复与重载确认2026-10-30)。
 
 系统文件选择器、预览确认/取消、完整导入、空文档、超限/权限/编码/私钥/NUL/Include 失败与保存冲突已通过真实 DocumentsUI 测试；可写的测试 provider 记录外部写入次数为零，生产 APK 不注册它。确认框的预览有明确截断提示，保存完整字节；错误和重载入口不被长预览遮挡。A1 收尾见[§9.11](../docs/reference/android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。
+
+## 性能测量
+
+明确选择测试设备后运行（安装 debug 与测试 APK）：
+
+```bash
+ANDROID_SERIAL=emulator-5554 python3 scripts/profile-android-terminal.py --label baseline
+# adb 在 PATH
+ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-performance.py
+```
+
+报告保存在工程 `tmp/android-performance/`，含原始样本、窗口帧时长、输入至实际像素延迟、吞吐、CPU、采样内存和关闭耗时，以及 APK 哈希/设备信息。测量使用真实 PTY/VT/Canvas，但运行的是 debug + instrumentation，不能等同于 release 真机性能。调度方案和本片验证记录见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)。
 
 ## 边界
 
