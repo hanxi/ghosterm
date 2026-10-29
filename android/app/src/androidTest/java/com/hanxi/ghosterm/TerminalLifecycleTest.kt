@@ -83,6 +83,12 @@ class TerminalLifecycleTest {
         val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
         for (key in listOf(android.view.KeyEvent.KEYCODE_P, android.view.KeyEvent.KEYCODE_W,
             android.view.KeyEvent.KEYCODE_D, android.view.KeyEvent.KEYCODE_ENTER)) instrumentation.sendKeyDownUpSync(key)
+        // A real IME may consume the first Enter to commit its candidate (e.g.
+        // Gboard Pinyin commits "pwd" without a newline). Do not require a
+        // particular installed IME/subtype or execute a composition as a command.
+        // The next Enter executes; direct single-Enter encoding has separate tests.
+        waitFor("pwd")
+        instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_ENTER)
         waitFor("/files/home")
         if (ui.onAllNodesWithText("显示键盘").fetchSemanticsNodes().isNotEmpty())
             ui.onNodeWithTag("terminal-keyboard").performClick()

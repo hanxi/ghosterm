@@ -37,6 +37,7 @@ class TerminalView(context: Context) : View(context) {
     var surface: TerminalSurface? = null
         set(value) {
             if (field === value) return
+            releaseHeldKeys()
             resetTextActions()
             connection?.cancel(); connection = null
             field = value; currentFrame = null; lastSize = null
@@ -53,6 +54,15 @@ class TerminalView(context: Context) : View(context) {
     var composition: String = ""
         private set
     private var connection: TerminalInputConnection? = null
+    private data class HeldKey(val code: Int, val modifiers: Int, val unshifted: Int, val softCtrl: Int)
+    private val heldKeys = mutableMapOf<Pair<Int, Int>, HeldKey>()
+    private fun releaseHeldKeys() {
+        val pending = heldKeys.values.toList()
+        heldKeys.clear()
+        pending.forEach { key -> dispatch {
+            surface?.key(key.code, key.modifiers, "", key.unshifted, KeyAction.RELEASE)
+        } }
+    }
     private var actionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var actionMode: ActionMode? = null
     private var pasteDialog: AlertDialog? = null
@@ -144,6 +154,7 @@ class TerminalView(context: Context) : View(context) {
         post { if (isAttachedToWindow && isShown) requestFocus() }
     }
     override fun onDetachedFromWindow() {
+        releaseHeldKeys()
         resetTextActions()
         ctrl = 0
         running = false; removeCallbacks(tick); connection?.cancel(); connection = null
@@ -153,11 +164,13 @@ class TerminalView(context: Context) : View(context) {
     override fun onWindowVisibilityChanged(visibility: Int) { super.onWindowVisibilityChanged(visibility); rendering() }
     override fun onFocusChanged(gain: Boolean, direction: Int, previous: Rect?) {
         super.onFocusChanged(gain, direction, previous)
+        if (!gain) releaseHeldKeys()
         if (!gain) { stopDrag(); connection?.cancel(); connection = null; ctrl = 0 }
         invalidate()
     }
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) releaseHeldKeys()
         if (!hasWindowFocus) { stopDrag(); ctrl = 0 }
     }
     override fun performClick(): Boolean {
@@ -332,7 +345,11 @@ class TerminalView(context: Context) : View(context) {
     fun showKeyboard() { requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT) }
     fun hideKeyboard() { inputMethod.hideSoftInputFromWindow(windowToken, 0) }
     fun sendKey(code: Int, modifiers: Int = 0, text: String = "", unshiftedCodepoint: Int = 0): Boolean {
-        val sent = dispatch { surface?.key(code, modifiers or if (ctrl != 0) 2 else 0, text, unshiftedCodepoint) }
+        val effectiveMods = modifiers or if (ctrl != 0) 2 else 0
+        val sent = dispatch { surface?.let { target ->
+            target.key(code, effectiveMods, text, unshiftedCodepoint, KeyAction.PRESS)
+            target.key(code, effectiveMods, "", unshiftedCodepoint, KeyAction.RELEASE)
+        } }
         if (sent && ctrl == 1) ctrl = 0
         return sent
     }
@@ -368,15 +385,32 @@ class TerminalView(context: Context) : View(context) {
         val unicode = event.getUnicodeChar(event.metaState and KeyEvent.META_CTRL_MASK.inv() and KeyEvent.META_META_MASK.inv())
         if (unicode and android.view.KeyCharacterMap.COMBINING_ACCENT != 0) return super.onKeyDown(code, event)
         val text = if (unicode > 0) String(Character.toChars(unicode)) else ""
-        val modifiers = (if (event.isShiftPressed) 1 else 0) or (if (event.isCtrlPressed) 2 else 0) or
-            (if (event.isAltPressed) 4 else 0) or (if (event.isMetaPressed) 8 else 0)
+        val identity = event.deviceId to code
+        val previous = heldKeys[identity]
+        val softCtrl = previous?.softCtrl ?: if (ctrl != 0) 2 else 0
+        val modifiers = keyModifiers(event) or softCtrl
         val unshifted = event.getUnicodeChar(0).let {
             if (it and android.view.KeyCharacterMap.COMBINING_ACCENT == 0) it else 0
         }
-        return sendKey(code, modifiers, text, unshifted)
+        val action = if (previous != null && event.repeatCount > 0) KeyAction.REPEAT else KeyAction.PRESS
+        val sent = dispatch { surface?.key(code, modifiers, text, unshifted, action) }
+        if (sent) {
+            heldKeys[identity] = HeldKey(code, modifiers, unshifted, softCtrl)
+            if (ctrl == 1) ctrl = 0
+        }
+        return sent
     }
-    override fun onKeyUp(code: Int, event: KeyEvent): Boolean = if (code == KeyEvent.KEYCODE_BACK ||
-        code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN) super.onKeyUp(code, event) else true
+    private fun keyModifiers(event: KeyEvent): Int =
+        (if (event.isShiftPressed) 1 else 0) or (if (event.isCtrlPressed) 2 else 0) or
+            (if (event.isAltPressed) 4 else 0) or (if (event.isMetaPressed) 8 else 0)
+
+    override fun onKeyUp(code: Int, event: KeyEvent): Boolean {
+        if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN)
+            return super.onKeyUp(code, event)
+        // A shortcut, composition, or another surface may have consumed the down.
+        val key = heldKeys.remove(event.deviceId to code) ?: return true
+        return dispatch { surface?.key(key.code, keyModifiers(event) or key.softCtrl, "", key.unshifted, KeyAction.RELEASE) }
+    }
 
     override fun onDraw(canvas: Canvas) {
         val checkpoint = canvas.save()

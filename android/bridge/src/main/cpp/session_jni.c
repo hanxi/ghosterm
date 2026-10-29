@@ -21,7 +21,7 @@
 
 typedef struct command {
     struct command *next;
-    int kind, key, mods;
+    int kind, key, mods, key_action;
     uint32_t unshifted;
     uint64_t action_id;
     size_t length;
@@ -156,7 +156,7 @@ static void *owner(void *context) {
                 pthread_mutex_unlock(&s->mutex);
                 free(result);
             } else if (cmd->kind == 1) ok = gat_surface_text(s->surface, cmd->bytes, cmd->length);
-            else if (cmd->kind == 2) ok = gat_surface_key(s->surface, cmd->key, cmd->mods, cmd->unshifted, cmd->bytes, cmd->length);
+            else if (cmd->kind == 2) ok = gat_surface_key(s->surface, cmd->key, cmd->mods, cmd->unshifted, cmd->key_action, cmd->bytes, cmd->length);
             else if (cmd->kind == 3) gat_surface_scroll(s->surface, cmd->key);
             else ok = false;
             free(cmd);
@@ -239,9 +239,9 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_dispose(JNIE
     if (s) release(s);
 }
 JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_enqueue(JNIEnv *env, jobject self, jlong id,
-        jint kind, jint key, jint mods, jint unshifted, jbyteArray bytes) {
+        jint kind, jint key, jint mods, jint unshifted, jint key_action, jbyteArray bytes) {
     (void)self;
-    if (!bytes || kind < 1 || kind > 3 || mods < 0 || mods > 15) { fail(env, "终端输入无效"); return; }
+    if (!bytes || kind < 1 || kind > 3 || mods < 0 || mods > 15 || key_action < 0 || key_action > 2) { fail(env, "终端输入无效"); return; }
     if (unshifted < 0 || unshifted > 0x10ffff || (unshifted >= 0xd800 && unshifted <= 0xdfff)) {
         fail(env, "终端按键字符无效"); return;
     }
@@ -250,7 +250,7 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_enqueue(JNIE
     session *s = borrow(env, id); if (!s) return;
     command *cmd = malloc(sizeof(*cmd) + (size_t)length);
     if (!cmd) { release(s); fail(env, "无法分配终端输入"); return; }
-    *cmd = (command){.kind = kind, .key = key, .mods = mods, .unshifted = (uint32_t)unshifted, .length = (size_t)length};
+    *cmd = (command){.kind = kind, .key = key, .mods = mods, .unshifted = (uint32_t)unshifted, .key_action = key_action, .length = (size_t)length};
     (*env)->GetByteArrayRegion(env, bytes, 0, length, (jbyte *)cmd->bytes);
     if ((*env)->ExceptionCheck(env)) { free(cmd); release(s); return; }
     pthread_mutex_lock(&s->mutex);

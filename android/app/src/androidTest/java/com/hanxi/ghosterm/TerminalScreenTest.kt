@@ -348,14 +348,14 @@ class TerminalScreenTest {
     }
 
     /** Capture the program's bytes, independent of wrapping or VT escape interpretation. */
-    private fun captureKeys(mode: String, expected: ByteArray, input: () -> Unit) {
+    private fun captureKeys(mode: String, expected: ByteArray, input: (File) -> Unit) {
         val token = UUID.randomUUID().toString().take(8)
         val result = File(directory, "home/keys-$token")
         send("stty raw -echo; printf '\\033[2J\\033[H${mode}KEY_READY_$token\\r\\n'; " +
             "dd bs=1 count=${expected.size} of='${result.absolutePath}' 2>/dev/null; " +
             "stty sane; printf '\\033[<u\\033[>4;0m\\r\\nKEY_DONE_$token\\r\\n'\r")
         ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "KEY_READY_$token" }
-        input()
+        input(result)
         ui.waitUntil(10_000) { terminal().currentFrame?.let { frame ->
             (0 until frame.rows).any { frame.line(it) == "KEY_DONE_$token" }
         } == true }
@@ -405,6 +405,101 @@ class TerminalScreenTest {
                     assertTrue(ui.activity.window.decorView.dispatchKeyEvent(KeyEvent.changeAction(event, KeyEvent.ACTION_UP)))
                 }
             }
+        }
+    }
+
+    @Test fun hardwarePressRepeatAndReleaseFollowCurrentVtMode() {
+        val kitty = "\u001b[97u\u001b[97;1:2u\u001b[97;1:3u" +
+            "\u001b[13u\u001b[13;1:2u\u001b[13;1:3uEND"
+        listOf("" to "aa\r\rEND", "\\033[>11u" to kitty).forEach { (mode, expected) ->
+            captureKeys(mode, expected.toByteArray(Charsets.UTF_8)) {
+                ui.runOnIdle {
+                    val view = terminal(); view.requestFocus()
+                    val ime = view.onCreateInputConnection(EditorInfo())
+                    for (code in listOf(KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_ENTER)) {
+                        val down = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, code, 0)
+                        assertTrue(ime.sendKeyEvent(down))
+                        assertTrue(ime.sendKeyEvent(KeyEvent.changeTimeRepeat(down, 1, 1)))
+                        assertTrue(ime.sendKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP)))
+                        // No matching down: no duplicate release or typed character.
+                        assertTrue(ime.sendKeyEvent(KeyEvent.changeAction(down, KeyEvent.ACTION_UP)))
+                    }
+                    assertTrue(view.commitText("END"))
+                }
+            }
+        }
+    }
+
+    @Test fun oneShotCtrlStaysWithHeldKeyUntilRelease() {
+        val expected = "\u001b[97;5u\u001b[97;5:2u\u001b[97;5:3u\u001b[98u\u001b[98;1:3uEND"
+        captureKeys("\\033[>11u", expected.toByteArray(Charsets.UTF_8)) {
+            ui.onNodeWithText("Ctrl").performClick()
+            ui.runOnIdle {
+                val view = terminal(); view.requestFocus()
+                val a = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, 0)
+                assertTrue(ui.activity.window.decorView.dispatchKeyEvent(a))
+                assertEquals(0, view.ctrl)
+                assertTrue(ui.activity.window.decorView.dispatchKeyEvent(KeyEvent.changeTimeRepeat(a, 1, 1)))
+                assertTrue(ui.activity.window.decorView.dispatchKeyEvent(KeyEvent.changeAction(a, KeyEvent.ACTION_UP)))
+                val b = KeyEvent(0, 2, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_B, 0)
+                assertTrue(ui.activity.window.decorView.dispatchKeyEvent(b))
+                assertTrue(ui.activity.window.decorView.dispatchKeyEvent(KeyEvent.changeAction(b, KeyEvent.ACTION_UP)))
+                assertTrue(view.commitText("END"))
+            }
+        }
+    }
+
+    @Test fun heldKeysReleaseOnFocusLossAndBeforeSurfaceChanges() {
+        val pair = "\u001b[97u\u001b[97;1:3u"
+        captureKeys("\\033[>11u", (pair.repeat(3) + "END").toByteArray(Charsets.UTF_8)) { result ->
+            val event = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, 0)
+            lateinit var edit: android.widget.EditText
+            for (phase in 0..2) {
+                ui.runOnIdle {
+                    val view = terminal(); view.requestFocus()
+                    assertTrue(view.onKeyDown(event.keyCode, event))
+                    when (phase) {
+                        0 -> {
+                            edit = android.widget.EditText(ui.activity)
+                            ui.activity.findViewById<ViewGroup>(android.R.id.content).addView(edit, ViewGroup.LayoutParams(120, 80))
+                            edit.requestFocus(); assertTrue(edit.hasFocus()); assertFalse(view.hasFocus())
+                        }
+                        1 -> view.onWindowFocusChanged(false)
+                        else -> {
+                            val original = view.surface
+                            val other = com.hanxi.ghosterm.bridge.LocalSession(File(directory, "other-home").apply { mkdirs() }.absolutePath)
+                            try {
+                                view.surface = other
+                                assertTrue(view.onKeyUp(event.keyCode, KeyEvent.changeAction(event, KeyEvent.ACTION_UP)))
+                                view.surface = original
+                            } finally { view.surface = original; other.close() }
+                        }
+                    }
+                }
+                // Observe the release BEFORE allowing the delayed physical key-up.
+                // Otherwise a broken focus hook could be masked by the later key-up.
+                val prefix = pair.repeat(phase + 1).toByteArray(Charsets.UTF_8)
+                ui.waitUntil(5_000) { result.exists() && result.length() == prefix.size.toLong() }
+                assertArrayEquals(prefix, result.readBytes())
+                ui.runOnIdle {
+                    val view = terminal()
+                    assertTrue(view.onKeyUp(event.keyCode, KeyEvent.changeAction(event, KeyEvent.ACTION_UP)))
+                    if (phase == 0) (edit.parent as ViewGroup).removeView(edit)
+                    if (phase == 1) view.onWindowFocusChanged(true)
+                    view.requestFocus()
+                }
+            }
+            ui.runOnIdle { assertTrue(terminal().commitText("END")) }
+        }
+    }
+
+    @Test fun auxiliaryAndImeKeyTapsIncludeReleaseWhenRequested() {
+        val expected = "\u001b[9u\u001b[9;1:3u\u001b[13u\u001b[13;1:3u\u001b[47;5u\u001b[47;5:3uEND"
+        captureKeys("\\033[>11u", expected.toByteArray(Charsets.UTF_8)) {
+            ui.onNodeWithText("Tab").performClick()
+            ui.runOnIdle { assertTrue(terminal().onCreateInputConnection(EditorInfo()).performEditorAction(EditorInfo.IME_ACTION_NONE)) }
+            ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("/").performClick()
+            ui.runOnIdle { assertTrue(terminal().commitText("END")) }
         }
     }
 

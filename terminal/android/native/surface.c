@@ -92,10 +92,10 @@ static GhosttyKey key_code(int key) {
     }
 }
 
-bool gat_surface_key(gat_surface *s, int key, int mods, uint32_t unshifted, const uint8_t *text, size_t length) {
-    bottom(s);
+bool gat_surface_key(gat_surface *s, int key, int mods, uint32_t unshifted, int action, const uint8_t *text, size_t length) {
+    if (action != GHOSTTY_KEY_ACTION_RELEASE) bottom(s);
     ghostty_key_encoder_setopt_from_terminal(s->encoder, s->terminal);
-    ghostty_key_event_set_action(s->key, GHOSTTY_KEY_ACTION_PRESS);
+    ghostty_key_event_set_action(s->key, (GhosttyKeyAction)action);
     ghostty_key_event_set_key(s->key, key_code(key));
     ghostty_key_event_set_mods(s->key, (GhosttyMods)mods);
     ghostty_key_event_set_consumed_mods(s->key, 0);

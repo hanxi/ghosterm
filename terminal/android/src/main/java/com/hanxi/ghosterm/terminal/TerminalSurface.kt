@@ -6,7 +6,7 @@ interface TerminalSurface {
     fun resize(cols: Int, rows: Int, cellWidth: Int, cellHeight: Int)
     fun commit(text: String)
     /** Layout character without modifiers, for VT keyboard protocols; zero means unavailable. */
-    fun key(code: Int, modifiers: Int = 0, text: String = "", unshiftedCodepoint: Int = 0)
+    fun key(code: Int, modifiers: Int = 0, text: String = "", unshiftedCodepoint: Int = 0, action: KeyAction = KeyAction.PRESS)
     fun scroll(lines: Int)
     /** False requests confirmation; no bytes were written in that case. */
     suspend fun paste(text: String, allowUnsafe: Boolean = false): Boolean
@@ -16,6 +16,9 @@ interface TerminalSurface {
     suspend fun copySelection(): String
     suspend fun clearLocal()
 }
+
+/** Private VT event action, independent of Android KeyEvent numeric values. */
+enum class KeyAction(val code: Int) { RELEASE(0), PRESS(1), REPEAT(2) }
 
 enum class SelectionOperation(val code: Int) { WORD(2), START(3), END(4), ALL(5), CLEAR(6), ORDER(9) }
 

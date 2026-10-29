@@ -3,7 +3,7 @@
 日期：2026-10-30。状态：**设计已定，A0、A1 完成（API 36 arm64 模拟器档）；A2 本地终端首片已交付，文本操作切片已验，完整阶段仍在开发**。页面与操作基准为唯一的
 [Android HTML 原型](../design/android-prototype.html)。本文定义原生实现的模块、状态、数据边界、实施依赖与验收；HTML 的模拟主机、文件、键盘和进度不构成 Android 能力证据。
 
-仓库约束以 [AGENTS.md](../../AGENTS.md) 为准；跨端进度见[路线图](roadmap.md)，已实现范围见[能力矩阵](capability-matrix.md)。A0、§9.2 的 A1 首片及 §9.4 的共享编辑修复已有验收记录；§9.5 交付字段来源、编辑归属和原生页面接线，§9.7 完成显式覆盖与恢复继承。§9.8 保留当时未提交草稿的复核边界；§9.9 已完成主机别名重命名切片，§9.10 补齐配置错误恢复和重载确认。§9.11 补齐 SAF 导入与表单校验，A1 退出清单在当前设备档位完成；§9.12 保留 A2 草稿及失败记录；§9.13 交付真本地终端首片和生命周期验证；§9.14 单独记录已提交的文本操作及验证，§9.15 交付选区边缘滚动与 Ctrl 生命周期切片；本片的 Ctrl 标点、键盘协议与 Gboard 回车修复已验证，完整设备与真实拼音检查记在 §9.16；A3–A8/A10 仍待实施，不能从设计表推断功能已经可用。
+仓库约束以 [AGENTS.md](../../AGENTS.md) 为准；跨端进度见[路线图](roadmap.md)，已实现范围见[能力矩阵](capability-matrix.md)。A0、§9.2 的 A1 首片及 §9.4 的共享编辑修复已有验收记录；§9.5 交付字段来源、编辑归属和原生页面接线，§9.7 完成显式覆盖与恢复继承。§9.8 保留当时未提交草稿的复核边界；§9.9 已完成主机别名重命名切片，§9.10 补齐配置错误恢复和重载确认。§9.11 补齐 SAF 导入与表单校验，A1 退出清单在当前设备档位完成；§9.12 保留 A2 草稿及失败记录；§9.13 交付真本地终端首片和生命周期验证；§9.14 单独记录已提交的文本操作及验证，§9.15 交付选区边缘滚动与 Ctrl 生命周期切片；本片的 Ctrl 标点、键盘协议与 Gboard 回车修复已验证，完整设备与真实拼音检查记在 §9.16；§9.17 补齐按键重复/释放与焦点归属并完成本片验收；A3–A8/A10 仍待实施，不能从设计表推断功能已经可用。
 
 ## 1. 交付范围与当前基础
 
@@ -598,7 +598,30 @@ Core 34 CTest / 73 ABI、Apple 71/2 与 macOS 增量构建已在紧邻的 `207e2
 
 环境与字节记录在 `tmp/android-ime/verification-environment.json`、`verified-byte-checks.json`，候选/删除/提交截图分别为该目录的 `verified-pinyin-candidate.png`、`verified-pinyin-deleted.png`、`verified-chinese-committed.png`。这些是本机临时证据，不入库；上述版本、步骤与字节判据用于复现。此次是模拟器上的真实输入法操作，不是物理设备或全部中文 IME 验收。
 
-完整软硬键盘矩阵（含死键、重复/释放事件）、持续输出/内存/输入延迟与后续设备档位仍须补齐，整个 A2 保持未完成。本片实现、测试与文档一并提交。
+该片结束时完整软硬键盘矩阵（含死键、重复/释放事件）、持续输出/内存/输入延迟与后续设备档位仍须补齐；重复/释放后续见 §9.17，整个 A2 保持未完成。本片实现、测试与文档一并提交。
+
+### 9.17 按键重复、释放与焦点归属（2026-10-30）
+
+本片延续 `a811aaf` 的布局字符接缝，补齐 `KeyAction.PRESS/REPEAT/RELEASE` 经 TerminalSurface → 私有 JNI 命令 → native owner → VT 的链路；不修改共享 Core ABI，不在 Kotlin 拼协议字节。VT 每次按当前模式编码；传统模式的释放不产生输入，Kitty 开启事件报告时才按模式发出释放/重复序列。释放不将滚动视口拉回底部。
+
+`TerminalView` 按设备 ID 与 keycode 保存已发送的按下状态。只有本 View 接收过按下，后续长按才是 REPEAT；没有匹配按下的 key-up 不补造事件。单次软 Ctrl 在首次按下后从 UI 释放，但在同一次物理按键的重复/松开期间保持修饰，下一键不继承。复制/粘贴快捷键、选区操作及组合输入消费掉的按下不会单独生成释放。
+
+View 失焦、窗口失焦、卸载，以及切换 surface **之前**，向原 owner 发送已按住键的释放并清除集合。迟到 key-up 不进入新会话，也不重复释放。辅助键和 IME 的按键式操作是一次完整点击，产生 PRESS/RELEASE；整段文本提交保持原有键入语义。单独修饰键、死键组合、数字键盘和真实外接键盘矩阵仍须继续实现/验证；不能把本片当作全部键盘能力完成。
+
+新增四项 API 36 arm64 / 4 KB 页模拟器设备测试，通过真实 PTY `dd` 捕获字节：传统/Kitty 的按下→重复→松开、单次 Ctrl 的长按归属、失焦及换 surface 的释放时点、辅助键和 IME 点击的成对事件。末尾普通文本作为对照，验证多余释放不会污染后续输入。首次三项基线通过；X46–X50 变异通过后，**X51 未能让旧失焦测试变红**：旧测试只比最终字节，迟到 key-up 掩盖了缺失的失焦处理。原记录保留在 `tmp/android-key-actions-mutations.log`，该轮不记为全部通过。
+
+测试现已加强为：失焦/换 surface 后，先等待并精确核对释放字节，再派发迟到 key-up；不能用之后的事件补齐此前承诺。加强后的四项定向回归通过（`tmp/android-key-actions-strengthened.log`）。最终文本变异选跑 **18 组**通过：原有 X31–X35/X39/X44/X45 八组与新增 X46–X55 十组，均编译成功后目标红、同 APK 独立 Core 配置对照绿、恢复绿与 SHA256 一致；日志 `tmp/android-key-actions-final-mutations.log`。脚本现在共 55 组，本轮不称为全量 55 组重跑。恢复后 8 份实现/测试/脚本与 `tmp/android-key-actions-source-sha.json` 一致。首次完整回归没有完成：计划 94 项，报告记录 83 项、2 项失败（其中像素用例无断言正文，runner 报运行中断），记录保留在 `tmp/android-key-actions-full-device.log` 和 `tmp/android-key-actions-first-full-results.xml`，不记为通过。
+
+生产 Activity 的物理输入用例失败已定位到设备上启用的 Gboard 拼音：临时元数据探针只观察到 `commit len=3 LF=false`，第一次 Enter 提交候选文本，并非执行命令。探针已移除，生产输入逻辑不改；用例先确认 `pwd` 文本提交，再用下一次 Enter 执行，避免依赖输入法处于英语模式。单次 Enter 的精确编码仍由独立用例验证，不能把任意候选提交自动追加换行。该用例和原像素用例两项定向重跑通过（`tmp/android-key-actions-lifecycle-corrected.log`）；系统日志随后确认中断时进程因 `deletePackageX` 被终止，再报 instrumentation crash；尚未确认是谁触发卸载，不能据此宣称 native 崩溃已修复。该失败轮仍不算完整回归，日志保留在 `tmp/android-key-actions-verification-logcat.log`；随后完整复验结果如下。
+
+| 最终验收 | 结果与范围 |
+|---|---|
+| Android 完整套件 | **94 项，0 失败、0 错误、0 跳过**；配置 25、主机页面 13、SAF 6、JNI 3、本地终端 19、终端页面 25、生命周期 3；`tmp/android-key-actions-verified-device.log` 与 `tmp/android-key-actions-verified-results.xml` |
+| 变异 | 上述文本 **18 组选跑**通过；生命周期夹具修正后，原终端 **T20/T21 两组**另行通过（`tmp/android-key-actions-lifecycle-mutations.log`），仍验证生产 View 焦点和返回键路由，不是全量 55/21 组重跑 |
+| Core 与绑定 | Core **34 项 CTest / 73 个公共符号**、Apple **71/2**、JNI **19/54** 通过；日志前缀 `tmp/android-key-actions-` 的 `core-gate` / `apple-abi` / `jni-abi` |
+| 源码一致性 | 最终完整设备回归后，**9 份**实现/测试/脚本与 `tmp/android-key-actions-source-sha.json` 一致；临时 IME 探针已移除 |
+
+本片在同一 API 36 arm64 / 4 KB 页模拟器完成。按键测试使用事件注入与真实 PTY 回读，生产 Activity 另经过当前 Gboard 拼音；不记为真实外接键盘或完整输入法矩阵验收。A2 仍缺独立修饰键/锁定键、死键/AltGr/数字键盘等矩阵及持续输出/内存/输入延迟；无新增真机、API 29、16 KB 页、Android CI 或 SSH 证据。
 
 ## 10. 验收与变异清单
 
