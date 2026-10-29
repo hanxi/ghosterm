@@ -42,17 +42,6 @@ final class PaneAppearanceTests: XCTestCase {
         }
     }
 
-    // MARK: - 标题栏按钮
-
-    /// 两态穷举：按钮只画聚焦那格（曾经的「每一格都显示」偏好已弃用——
-    /// 见 PaneTitleBar.showsButtons。四分屏时同一组动作画四遍，多的那份
-    /// 不是信息，是图标墙）。
-    func testTitleBarButtonVisibility() {
-        XCTAssertTrue(PaneTitleBar.showsButtons(isFocused: true))
-        XCTAssertFalse(PaneTitleBar.showsButtons(isFocused: false),
-                       "非聚焦那格不画按钮")
-    }
-
     // MARK: - 标题取值：进程 → 目录 → 标签标题
 
     func testTitleFallsBackThroughThreeLevels() {

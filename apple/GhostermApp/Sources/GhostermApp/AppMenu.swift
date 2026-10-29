@@ -192,7 +192,7 @@ enum AppMenu {
         right.target = commands
         let down = NSMenuItem(title: "向下分屏",
                               action: #selector(AppCommands.splitDown(_:)),
-                              keyEquivalent: "d")
+                              keyEquivalent: "D")
         down.keyEquivalentModifierMask = [.command, .shift]
         // 没有 target 的菜单项会沿响应者链找人接——AppCommands 不在链上，
         // 于是 ⇧⌘D 与点这一项都**什么都不发生**（漏了这一行，别的项都有）。
@@ -219,7 +219,7 @@ enum AppMenu {
 
         let filesPanel = NSMenuItem(title: "文件面板",
                                     action: #selector(AppCommands.toggleFilesPanel(_:)),
-                                    keyEquivalent: "e")
+                                    keyEquivalent: "E")
         filesPanel.keyEquivalentModifierMask = [.command, .shift]
         filesPanel.target = commands
 

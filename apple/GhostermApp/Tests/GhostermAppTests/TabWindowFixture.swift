@@ -11,7 +11,7 @@ import XCTest
     var window: NSWindow { controller.window! }
     var root: NSView { window.contentView! }
 
-    init(requestClose: @escaping () -> Void = {}) throws {
+    init(window: NSWindow? = nil, requestClose: @escaping () -> Void = {}) throws {
         _ = NSApplication.shared
         NSApplication.shared.setActivationPolicy(.accessory)
         directory = sessionTestDirectory()
@@ -19,10 +19,10 @@ import XCTest
         model = isolatedAppModel(configPath: directory.appendingPathComponent("config").path,
                                  knownHostsPath: directory.appendingPathComponent("known_hosts").path,
                                  settings: SettingsStore(terminalConfigPath: directory.appendingPathComponent("ghostty").path))
-        controller = TabWindowController(model: model, requestClose: requestClose)
-        window.setContentSize(NSSize(width: 1000, height: 600))
-        TestWindows.presentOffscreenAsKey(window)
-        WindowChrome.redress(window)
+        controller = TabWindowController(model: model, window: window, requestClose: requestClose)
+        self.window.setContentSize(NSSize(width: 1000, height: 600))
+        TestWindows.presentOffscreenAsKey(self.window)
+        WindowChrome.redress(self.window)
         settle()
     }
     func capture(_ name: String) throws {
@@ -63,9 +63,24 @@ import XCTest
         }
         settle()
     }
+    /// NSButton.mouseDown 会同步跟踪到 mouseUp，抬起事件必须先入 AppKit 队列。
+    func clickNative(_ view: NSView) throws {
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                                             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                             context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        }
+        NSApp.postEvent(try event(.leftMouseUp), atStart: true)
+        NSApp.sendEvent(try event(.leftMouseDown))
+        settle()
+    }
     func menu(for id: UUID) throws -> NSMenu {
         let view = try tabView(id)
         let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        return try menu(at: point)
+    }
+    func menu(at point: NSPoint) throws -> NSMenu {
         let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [],
                                                    timestamp: ProcessInfo.processInfo.systemUptime,
                                                    windowNumber: window.windowNumber, context: nil,
@@ -74,7 +89,7 @@ import XCTest
             if let menu = view.menu(for: event), !menu.items.isEmpty { return menu }
             return view.subviews.lazy.compactMap { find($0) }.first
         }
-        return try XCTUnwrap(find(root), "标签实际命中范围内应提供右键菜单")
+        return try XCTUnwrap(find(root), "实际命中范围内应提供右键菜单")
     }
     func shell(_ title: String) throws -> (TerminalTab, TerminalSurface) {
         let pane = TerminalPane()

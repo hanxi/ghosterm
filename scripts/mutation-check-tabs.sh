@@ -371,8 +371,8 @@ python3 - "$APPMODEL" <<'PYT17'
 import sys
 p = sys.argv[1]; s = open(p).read()
 old = """    public func split(_ tab: TerminalTab, axis: PaneLayout.Axis) {
-        tabs.activate(tab)
-        splitActiveTab(axis: axis)
+        guard let id = tab.activeWorkspacePaneID else { return }
+        split(tabID: tab.id, paneID: id, axis: axis)
     }"""
 new = """    public func split(_ tab: TerminalTab, axis: PaneLayout.Axis) {
         splitActiveTab(axis: axis) /* GT_MUTATION_MARK：作用到当前标签页 */

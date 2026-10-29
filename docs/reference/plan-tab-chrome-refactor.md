@@ -1,7 +1,7 @@
 # macOS 标签栏与窗格界面重构计划
 
-> 状态：实施中。S0 已验证原生标签组限制，按用户“不考虑兼容、架构简洁”的要求调整窗口方案。
-> 日期：2026-10-29。源码基线：`54331f1`。
+> 状态：实施中。S1–S4 已落地并完成对应本机验证；S5 的最终交叉回归、真实系统焦点 / 全屏、截图与 macOS 15 CI 尚未全部完成。
+> 日期：2026-10-29。初始源码基线：`54331f1`；本轮窗格实现起点：`99342b6`。实现与验收进度分别见第 2.1、8 节。
 > 设计依据：[已确认的交互原型](../design/tabs-chrome-prototype.html)与[侧栏模式示意图](../design/tabs-split-preview.png)。
 > 执行约束：以仓库 `AGENTS.md` 为准；每个切片包含源码、调用方、测试与变异的同步调整，检查通过后直接提交 `main`。
 
@@ -25,7 +25,7 @@
 
 ## 2. 现有实现与改动落点
 
-以下路径均相对 `apple/GhostermApp/`。
+下表保留初始基线的改动分析，不代表这些旧文件仍然存在。当前代码与后续任务见第 2.1 节；实施记录见第 8 节。以下路径均相对 `apple/GhostermApp/`。
 
 | 现有代码 | 当前事实 | 重构处理 |
 |---|---|---|
@@ -42,6 +42,21 @@
 | `Sources/GhostermApp/WorkspaceFileView.swift` | 文件窗格独立实现标题与分屏、缩放、关闭按钮，当前未统一显隐 | 与终端窗格统一显示规则，同时保留文件专属动作 |
 | `Sources/GhostermApp/WorkspaceView.swift` | `WorkspaceHostView.hosts` 按窗格 UUID 保持原生宿主；已有拖动落点预览与 `mouseDownCanMoveWindow = false` | 切分预览另存瞬时状态，不复用拖动预览状态，不重挂现有宿主 |
 | `Sources/GhostermApp/AppMenu.swift`、`Sources/GhostermAppModel/Shortcuts.swift` | 菜单与快捷键目录双向校验；文件面板目前在「显示」菜单 | 统一布局命令，补主机管理与标签搜索；文件面板入口保留现有位置与 ⇧⌘E |
+
+### 2.1 当前代码复核与剩余工作
+
+本次按 `99342b6` 与工作区实际文件复核；已有实现继续使用，不再从旧窗口组重做一遍。
+
+| 当前落点 | 已有基础 | 后续任务 |
+|---|---|---|
+| `TabWindowController.swift`、`RootView.swift` | 单窗口、唯一根视图；顶部与侧边互斥，后台工作区保持挂载 | 补真实全屏、恢复窗口尺寸和跨系统证据，检查安全区与红绿灯避让 |
+| `TabPresentation.swift`、`SettingsStore.swift`、`SettingsView.swift` | 标签位置和精简侧栏已持久化，外观设置已接入 | 复验设置控件宽度、即时传播及模式切换后宿主身份不变 |
+| `Sidebar.swift`、`TabStrip.swift`、`TabInteraction.swift` | 纯标签列表、唯一加号、按 UUID 选择与排序 | 保持同一动作入口，补深浅色、长标题、多标签与精简模式的最终视觉检查 |
+| `ConnectionChooser.swift`（含 `HostManagerView`）、`TabSearchView.swift` | 主机管理迁出侧栏，连接与标签搜索已有独立入口 | 回归真实错误提示、重名对象、关闭确认与 sheet 归属 |
+| `AppModel.swift`、`PaneActions.swift`（工作区） | 分屏、关闭、缩放已开始按标签 / 窗格 UUID 路由，终端与文件共用动作描述 | 审核失效、隐藏、锁定目标的处理；完成按钮、菜单和快捷键的一致性验证 |
+| `WorkspaceView.swift`、`SplitPreview.swift`（工作区） | 已加入独立分屏预览层与清理接线 | 完成原生输入与焦点测试，验证 resize、失焦、切页、缩放、拖动和目标消失后的行为 |
+
+优先收口 S4，再执行 S5。窗格命令、控件与预览已经接入，调试输出已清理；本机完整宿主闸门为 336 项测试、1 项开发态资源跳过、零失败。锁屏造成系统 key window 前置条件不成立，因此确定性预览测试注入窗口焦点状态，生产失焦保护保持有效。真实系统激活、全屏、最终视觉与 macOS 15 CI 仍单独待验，不能用这批测试替代。最新细节与变异进度见第 8 节。
 
 ## 3. 窗口层方案与先行验证
 
@@ -135,6 +150,14 @@ macOS 26 上用两个真实 NSWindow 组成原生标签组，分别在 anchor �
 
 顺序为 S0 → S1 → S2 → S3 → S4 → S5。S0 已揭示原生组限制并在第 3 节调整方案，S3 须完成单窗口生命周期与验收迁移。
 
+当前剩余工作按三个可独立审阅的切片推进：
+
+1. **S4a 窗格动作收口**：统一终端与文件窗格按钮和右键菜单；按钮固定占位，当前 / 悬停 / 键盘聚焦时显现；分屏、关闭、缩放都传所属 UUID。用真实点击证明“操作 B 只切 B”，验证本地目录继承、文件复制语义、新窗格键盘落点，以及失效目标不回落到 A；同步原有 `tabs` 变异锚点。
+2. **S4b 分屏预览收口**：先使原生窗口测试前置条件成立，再验证右半区 / 下半区预览。补文件窗格、键盘、窗口失焦、尺寸变化、拖动互斥、标题栏隐藏及取消路径；断言预览期间 PID、布局、焦点、终端尺寸不变。清理调试输出，为新断言补目标红 / 独立对照绿 / 复原绿的变异证据。
+3. **S5 整体验收**：复验相关闸门，采集真实原生截图与全屏结果，记录 macOS 26 本机和 macOS 15 CI 的独立证据；同步规则、能力矩阵、CI 覆盖及遗留限制。只有证据齐备才将整个计划标记为交付。
+
+最终截图至少包括：侧边与顶部两种布局的深 / 浅色、精简侧栏、多窗格悬停预览、终端与文件混排；空态、长标题与大量标签另做原生几何检查。截图用于视觉评审，焦点和会话保留仍以真实事件与对象 / PID 断言为准。
+
 ## 6. 验收与变异映射
 
 ### 6.1 必须保留和新增的证据
@@ -171,8 +194,8 @@ macOS 26 上用两个真实 NSWindow 组成原生标签组，分别在 anchor �
 
 ```bash
 bash scripts/gate.sh
-TMPDIR="$PWD/tmp" swift build --package-path apple/GhostermApp
-GHOSTERM_AUTOMATION_OFFSCREEN=1 TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" swift build --package-path apple/GhostermApp
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer GHOSTERM_AUTOMATION_OFFSCREEN=1 TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh
 ```
 
 按切片运行对应变异；最终至少复验 `tabs / tab-chrome / sidebar-hover / chrome / pane-chrome / settings-ui / focus / split-dim / occlusion / default-entry`，并执行 `python3 scripts/mutation-check-workspace.py`。动到终端输入、文件动作或 tmux 接线时，分别补跑 `terminal / files / tmux-ui`。
@@ -183,7 +206,7 @@ GHOSTERM_AUTOMATION_OFFSCREEN=1 TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh
 
 除第 8 节已记录的配置读取错误修复外，本轮不改 `core/include/ghosterm.h`、C 实现、Transport、Ghostty pin、终端字节通路、SSH 配置存储协议或其他端 UI；不引入分组、工作区同步、私有 sessiond 或新的恢复机制。若实施确实需要突破这些边界，先单独记录原因与新增验收范围。
 
-完成时同时满足：已确认的无顶部侧栏与窗格按钮在真实 macOS 窗口中成立；顶部模式可用；主机管理与原有关键动作可达；切换布局不重连、不丢焦点；新断言均有变异证据；两档系统证据和手工 / CI 覆盖如实记账。只有达到这些条件，才把本文状态从待实施改为已交付。
+完成时同时满足：已确认的无顶部侧栏与窗格按钮在真实 macOS 窗口中成立；顶部模式可用；主机管理与原有关键动作可达；切换布局不重连、不丢焦点；新断言均有变异证据；两档系统证据和手工 / CI 覆盖如实记账。只有达到这些条件，才把本文状态从实施中改为已交付。
 
 ## 8. 实施记录
 
@@ -207,7 +230,7 @@ S2 完整宿主回归：`apple-app-gate.sh` 构建与 324 项测试零失败，�
 
 生产已改为 `TabWindowController` 单窗口与唯一 `makeRootHostingView`，删除每标签窗口映射、私有 AppKit 标签栏识别、旧 BandControls 与无调用方的 HostAlias / TabStripVisibility。顶部和侧边共用 TabManager、TabInteraction 与 TabContextMenu，按 UUID 选择、排序、关闭。侧边只列打开的标签，无全宽顶部占位；精简侧栏宽 88pt，红绿灯与加号分行。唯一加号打开连接选择器，⇧⌘A 从主菜单打开标签搜索。
 
-`TabWindowTests`、`TabNavigationContextTests`、`TabStripVisibilityTests` 与 `TabSearchTests` 替代旧 NativeTabWindows / NativeTabContextMenu 测试。真实窗口证据覆盖空 / 单 / 多标签、布局和尺寸变化、重名标签点击 / 关闭 / 菜单落点、终端宿主与 surface 身份、shell PID、引擎焦点与 firstResponder、tmux sheet 归属及统一退出裁决。
+`TabWindowTests`、`TabNavigationContextTests`、`TabStripVisibilityTests` 与 `TabSearchTests` 替代旧 NativeTabWindows / NativeTabContextMenu 测试。真实窗口证据覆盖空 / 单 / 多标签、布局和尺寸变化、重名标签点击 / 关闭 / 菜单落点、终端宿主与 surface 身份、shell PID、窗格焦点状态与 firstResponder、tmux sheet 归属及统一退出裁决。
 
 搜索通过真实菜单按键、原生文本输入与回车验证：按副标题找到重名标签、按 UUID 激活、搜索期间标题变动即时更新。macOS 26 的独立 NSMenu 探针发现新搜索键需要使用大写 `A` 才能匹配带 Shift 的事件；集成测试保护这一点。⌘K 用真实 shell 输出后的终端网格验证仍能清屏。S4 同时复核既有带 Shift 的窗格 / 文件菜单字母键，不能只依赖快捷键文字对拍。
 
@@ -216,3 +239,18 @@ S2 完整宿主回归：`apple-app-gate.sh` 构建与 324 项测试零失败，�
 完整宿主回归为 **324 项测试、零失败**，包含真实隔离 sshd；1 项随包主题测试因开发态无 .app 资源而跳过，不算打包证据。C gate 为 **32 项测试与 71 个公共符号通过**，Apple 绑定对拍为 69 项引用 / 2 项登记未用。新搜索快捷键增加后键盘设置页高度同步调整，实测留白 22pt。
 
 full CI 从 24 份脚本收敛到 20 份，同时新增偏好、连接选择器、菜单与搜索的覆盖；这是接线记录，尚未取得本轮 CI 结果。真实全屏、macOS 15、S4 窗格交互、最终原生截图与相关完整变异仍未完成，不能把 S3 的本机通过当作整个重构交付。
+
+
+### S4 窗格动作与预览已落地（整体交付仍待 S5）
+
+`AppModel` 的分屏、关闭和缩放统一按 `tabID / paneID` 解析目标；无效、外来或隐藏文件目标不回落到当前窗格。终端与文件标题共用 `PaneActionsView` 和 `PaneContextMenu`，动作按钮固定占位，按当前 / 悬停 / 键盘焦点显现。标题隐藏时从 6pt 拖动把手进入同一菜单；终端内容区继续把鼠标交给终端引擎。移除外层重复点击手势，防止按钮完成分屏后又把焦点改回旧格。
+
+`SplitPreview` 是独立、不接收输入的原生覆盖视图，按目标内容区显示右半区或下半区。AppKit 管理视图顺序，绘制时解析动态强调色；像素、命中与几何分别验证，不把 path 存在当作已绘制。预览状态与窗格拖动落点分离；仅在系统真正开始拖动后抑制分屏预览，避免异步准备拖动数据时提前松手留下错误状态。窗口失焦、切页、布局 / 当前窗格改变、缩放、Escape、离开按钮及目标移除都会清理，窗口 resize 则重算矩形。
+
+新增 `PaneCommandTests` 三项与 `PaneActionsTests` 十项，覆盖真实 shell 目录继承、失效身份、文件动作、原生按钮事件、键盘焦点、预览像素与命中、窗口 / 标签失焦、尺寸变化、隐藏标题菜单和 Shift 快捷键。后两条按键验证发现旧 ⇧⌘D / ⇧⌘E 使用小写 keyEquivalent 无法匹配真实事件，已改为大写；原有快捷键目录与标签菜单对拍仍通过。
+
+2026-10-29 本机证据：`apple-app-gate.sh` 为 **336 项测试，1 项随包主题跳过，零失败**，包含隔离真 sshd；C gate 为 **32 项测试，71 个 ABI 符号通过**，Apple 绑定为 69 项引用 / 2 项登记未用。`tab-chrome --group panes` 的 22 组变异已全部目标红、同变异独立对照绿、恢复绿且 SHA256 一致（全脚本现为 61 组）；既有 `pane-chrome` 为 24 个检查、`tabs` 为 37 个检查通过，终端包 `terminal-gate.sh` 为 24 项测试通过。原生 `swift build` 通过。日志位于工程 `tmp/pane-actions-*`、`tmp/pane-local-files-*` 与 `tmp/pane-file-focus-*`。
+
+收尾另修两条真实回归：远端文件窗格的旧「打开本地文件」动作必须验证标签仍存在且源窗格可见；通过按钮分屏后必须把键盘交给新文件列表，而被动浏览按钮时保持焦点不被文件刷新抢走。两者都先复现失败再修复，并各有两个变异。旧 `showsSurface` 缩放占位分支已无调用方，整体删除；缩放继续由 WorkspaceHostView 保持原宿主与兄弟尺寸。
+
+锁屏限制已定位：正常启动的独立 AppKit 应用同样不能激活，系统前台为登录窗口。测试只注入 NSWindow 的 `isKeyWindow` 状态，窗口内容仍由生产 `TabWindowController` 创建；这证明焦点接线与控件行为，不证明系统激活。真实全屏、系统焦点、最终截图及 macOS 15 CI 仍为 S5 待验项。

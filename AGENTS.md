@@ -155,7 +155,7 @@ dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
 package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh / install-macos / sidebar-hover。
 `tab-chrome` 验证单个原生窗口中的顶部 / 侧边导航、真实红绿灯避让、无顶部空带、唯一加号、
 标签 UUID 选择 / 关闭确认 / 重排 / 右键、唯一 sheet 与窗口关闭路由；用两个真实 shell
-验证布局切换保留宿主、surface、PID、引擎焦点与 AppKit firstResponder。旧 `native-*`
+验证布局切换保留宿主、surface、PID、窗格焦点状态与 AppKit firstResponder。旧 `native-*`
 五份脚本随多窗口标签组整体退役，等价业务断言迁入本脚本，不再读取 AppKit 私有 ivar。
 CI 在 macOS 15 执行，本机 macOS 26 也须验证；未运行的系统不能记为通过。
 （`package-mac` 另护「**签名档位必须按证书真实的类记账**」：`--sign` 原先把任何身份都记
@@ -296,9 +296,12 @@ P3 侧栏展开时顶部标签条不隐（同一份标签清单画两处）、P4
 近白，变异验证当场抓到）；P3/P4 已迁至 `tab-chrome`：直接量生产窗口的几何并数原生新建按钮；P5 量的是兄弟 `TerminalHostView` 的宽度。）
 `tab-chrome` 用 `python3 scripts/mutation-check-tab-chrome.py` 执行。按 `--group` 可分开验证
 preferences（存储与发布）、connections（选择器、配置错误与主机管理）、navigation（导航几何与目标）、
-lifecycle（真实终端焦点、关闭、sheet 与右键）、menu（删按钮后的主菜单退路）、sidebar（高亮与滚轮）、search（实时标题、搜索目标和保留终端清屏）。
+lifecycle（终端宿主与键盘落点、关闭、sheet 与右键）、menu（删按钮后的主菜单退路）、sidebar（高亮与滚轮）、search（实时标题、搜索目标和保留终端清屏）、
+panes（窗格 UUID 命令、悬停 / 键盘按钮、分屏预览的像素 / 命中 / 方向 / 尺寸 / 失焦 / 拖动互斥、真实 Shift 按键）。
 每组必须目标断言红、同变异独立对照绿、复原绿与 SHA256 一致；不能把编译失败当目标红。
 测试注入独立 UserDefaults，不改用户偏好。已接入 full CI；本机与 CI 的运行结果在实施计划分别记账。
+窗格预览测试在锁屏 / CI 中注入可控制 `isKeyWindow` 的 NSWindow，内容仍由生产控制器创建，
+证明的是焦点接线和原生控件行为；真实系统激活、全屏与最终视觉验收须另列证据，不得混称已验证。
 `settings-ui` 护设置弹窗的数据面：配色两档的序列化（拼错整份配置就废）、
 `/etc/shells` 的解析、**快捷键表与真菜单的双向对拍**、**下拉控件的定宽**
 （U6：回到 `maxWidth` 就会随选中值伸缩，短值 93pt / 长值 190pt）、

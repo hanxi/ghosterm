@@ -397,17 +397,26 @@ public final class AppModel: ObservableObject {
     /// 连接参数从当前标签页抄（同一个 host 再开一条 shell——
     /// 这是终端的常规用法：同一台机器开两个 shell）。
     public func splitActiveTab(axis: PaneLayout.Axis) {
-        guard let tab = tabs.activeTab, !tab.isLocked else { return }
-        if let file = tab.activeWorkspacePane?.files {
-            tab.duplicateFilePane(file, axis: axis); return
+        guard let tab = tabs.activeTab, let id = tab.activeWorkspacePaneID else { return }
+        split(tabID: tab.id, paneID: id, axis: axis)
+    }
+
+    /// 窗格按钮传所属 UUID；只在点击时改变焦点，不从失效目标回落到当前窗格。
+    public func split(tabID: UUID, paneID: UUID, axis: PaneLayout.Axis) {
+        guard let (tab, source) = resolvePane(tabID: tabID, paneID: paneID), !tab.isLocked else { return }
+        if let file = source.files {
+            guard file.panel != nil else { return }
+            tabs.activate(tab)
+            tab.duplicateFilePane(file, axis: axis)
+            return
         }
-        guard let terminalApp = terminalApp, tab.activeWorkspacePane?.terminal != nil else { return }
-        let startCwd = tab.activePane?.currentDirectory
+        guard let terminalApp, let terminal = source.terminal else { return }
+        let startCwd = terminal.currentDirectory
+        tabs.activate(tab)
+        tab.activeWorkspacePaneID = paneID
         let pane = TerminalPane()
-        // 两条路径同一语义：窗格自己结束（shell 退出）= 收起这格、布局塌陷。
         pane.onExit = { [weak self] p in self?.handlePaneExit(p) }
         tab.split(axis: axis, with: pane)
-
         if tab.kind.isLocalShell {
             startLocal(pane: pane, app: terminalApp, cwd: startCwd)
         } else if let target = tab.kind.remoteTarget {
@@ -416,49 +425,56 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    private func resolvePane(tabID: UUID, paneID: UUID) -> (TerminalTab, WorkspacePane)? {
+        guard let tab = tabs.tabs.first(where: { $0.id == tabID }),
+              tab.visibleWorkspaceLayout?.paneIDs.contains(paneID) == true,
+              let pane = tab.workspacePanes.first(where: { $0.id == paneID }) else { return nil }
+        return (tab, pane)
+    }
+
     /// 关闭当前标签页（⌘W）。有会话在跑时留给 UI 确认。
     public func requestCloseActiveTab() {
         guard let tab = tabs.activeTab else { return }
         tabs.requestClose(tab)
     }
 
-    /// 对**指定**标签页分屏（标签右键菜单用）：先切到它，再在它的当前窗格
-    /// 一分为二。分屏的作用域是「当前窗格」，故不可能悄悄作用在别的标签页上。
+    /// 标签菜单把该标签当前窗格的身份交给同一命令入口。
     public func split(_ tab: TerminalTab, axis: PaneLayout.Axis) {
-        tabs.activate(tab)
-        splitActiveTab(axis: axis)
+        guard let id = tab.activeWorkspacePaneID else { return }
+        split(tabID: tab.id, paneID: id, axis: axis)
     }
 
-    /// 关闭**指定**标签页的当前窗格（右键菜单）；只剩一个窗格时改为关标签页。
     public func closePane(in tab: TerminalTab) {
-        if let file = tab.activeWorkspacePane?.files {
-            if tab.workspacePanes.count == 1 { tabs.requestClose(tab); return }
+        guard let id = tab.activeWorkspacePaneID else { return }
+        closePane(tabID: tab.id, paneID: id)
+    }
+
+    public func closePane(tabID: UUID, paneID: UUID) {
+        guard let (tab, target) = resolvePane(tabID: tabID, paneID: paneID) else { return }
+        if tab.workspacePanes.count == 1 { tabs.requestClose(tab); return }
+        if let file = target.files {
             if file.panel == nil && file.error == nil { cancelConnection(file.id) }
             tab.removeFilePane(file.id)
-            return
+        } else if let terminal = target.terminal {
+            if !tab.closePane(terminal) { tabs.requestClose(tab) }
         }
-        guard let pane = tab.activePane else { tabs.requestClose(tab); return }
-        if !tab.closePane(pane) { tabs.requestClose(tab) }
     }
 
-    /// 缩放/还原当前窗格（⇧⌘↩）。没分屏时什么都不做——单格本来就铺满。
+    public func toggleZoom(tabID: UUID, paneID: UUID) {
+        guard let (tab, _) = resolvePane(tabID: tabID, paneID: paneID) else { return }
+        tabs.activate(tab)
+        tab.toggleWorkspaceZoom(paneID)
+    }
+
+    /// 菜单 / 快捷键仅负责取得当前身份，行为由窗格命令统一处理。
     public func toggleZoomActivePane() {
         guard let tab = tabs.activeTab, let id = tab.activeWorkspacePaneID else { return }
-        tab.toggleWorkspaceZoom(id)
+        toggleZoom(tabID: tab.id, paneID: id)
     }
 
-    /// 关闭当前窗格；只剩一个窗格时改为关标签页（与 iGhostVT 同语义：
-    /// 「关掉最后一个分屏」= 关掉这个标签页）。
     public func closeActivePane() {
-        guard let tab = tabs.activeTab else { return }
-        if let file = tab.activeWorkspacePane?.files {
-            if tab.workspacePanes.count == 1 { tabs.requestClose(tab); return }
-            if file.panel == nil && file.error == nil { cancelConnection(file.id) }
-            tab.removeFilePane(file.id)
-            return
-        }
-        guard let pane = tab.activePane else { tabs.requestClose(tab); return }
-        if !tab.closePane(pane) { tabs.requestClose(tab) }
+        guard let tab = tabs.activeTab, let id = tab.activeWorkspacePaneID else { return }
+        closePane(tabID: tab.id, paneID: id)
     }
 
     /// 一个窗格的会话**自己结束**了（本地 / SSH shell `exit`，读到 EOF）。

@@ -43,7 +43,14 @@ struct WorkspaceView: NSViewRepresentable {
     private var opts = PaneChromeOptions()
     private var isActive = false
     private var mouseMonitor: Any?
-    private var dragEndObserver: NSObjectProtocol?
+    private var previewObservers: [NSObjectProtocol] = []
+    let splitPreview = SplitPreview()
+    private var placement: GhostermAppModel.TabPlacement?
+    private var zoomedID: UUID?
+    private var compactSidebar = false
+    private var isDraggingPane = false
+    private var workspaceLayout: WorkspaceLayout?
+    private var focusedPaneID: UUID?
     private var dividers: [WorkspaceDividerView] = []
     private var dividerGeometry: [WorkspaceLayout.Divider] = []
     private var normalFrames: [UUID: CGRect] = [:]
@@ -58,8 +65,10 @@ struct WorkspaceView: NSViewRepresentable {
         previewLayer.lineWidth = 2
         previewLayer.zPosition = 1000
         layer?.addSublayer(previewLayer)
-        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self, self.isActive, let window = self.window, event.window === window, let tab = self.tab else { return event }
+            if event.type != .keyDown || event.keyCode == 53 { self.splitPreview.clear() }
+            guard event.type == .leftMouseDown else { return event }
             let point = self.convert(event.locationInWindow, from: nil)
             if let id = self.hosts.first(where: { !$0.value.isHidden && $0.value.frame.contains(point)
                 && (tab.zoomedPaneID == nil || tab.zoomedPaneID == $0.key) })?.key {
@@ -69,18 +78,39 @@ struct WorkspaceView: NSViewRepresentable {
         }
         // Esc 取消由 AppKit 终止拖动会话；结束回调统一清预览，不依赖
         // `draggingExited`（取消时不保证送达）。
-        dragEndObserver = NotificationCenter.default.addObserver(
-            forName: .workspacePaneDragEnded, object: nil, queue: .main
-        ) { [weak self] _ in
-            DispatchQueue.main.async { self?.clearDropPreview() }
+        for name in [Notification.Name.workspacePaneDragBegan, .workspacePaneDragEnded, NSWindow.didResignKeyNotification] {
+            previewObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if name == NSWindow.didResignKeyNotification, (note.object as? NSWindow) !== self.window { return }
+                    self.splitPreview.clear()
+                    if name == .workspacePaneDragBegan { self.isDraggingPane = true }
+                    if name == .workspacePaneDragEnded { self.isDraggingPane = false }
+                    if name == .workspacePaneDragEnded { self.clearDropPreview() }
+                }
+            })
         }
     }
     deinit {
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
-        if let dragEndObserver { NotificationCenter.default.removeObserver(dragEndObserver) }
+        previewObservers.forEach(NotificationCenter.default.removeObserver)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) 未实现") }
     func update(model: AppModel, tab: TerminalTab, isActive: Bool, opts: PaneChromeOptions) {
+        let focusMoved = self.tab !== tab || focusedPaneID != tab.activeWorkspacePaneID
+        // 浏览按钮时保留键盘；命令真正切换窗格后让新终端 / 文件列表接手。
+        if isActive, focusMoved, let button = window?.firstResponder as? PaneActionButton,
+           button.isDescendant(of: self) {
+            window?.makeFirstResponder(nil)
+        }
+        if self.tab !== tab || !isActive || !opts.showsTitleBar || tab.isLocked ||
+            placement != model.preferences.tabPlacement || compactSidebar != model.preferences.compactSidebar || zoomedID != tab.zoomedPaneID ||
+            workspaceLayout != tab.workspaceLayout || focusedPaneID != tab.activeWorkspacePaneID {
+            splitPreview.clear()
+        }
+        placement = model.preferences.tabPlacement; compactSidebar = model.preferences.compactSidebar
+        zoomedID = tab.zoomedPaneID
+        workspaceLayout = tab.workspaceLayout; focusedPaneID = tab.activeWorkspacePaneID
         self.tab = tab; self.opts = opts; self.isActive = isActive
         let live = Set(tab.workspacePanes.map(\.id))
         for id in Array(hosts.keys) where !live.contains(id) {
@@ -92,7 +122,8 @@ struct WorkspaceView: NSViewRepresentable {
             let showing = isActive && visible.contains(pane.id) && (tab.zoomedPaneID == nil || tab.zoomedPaneID == pane.id)
             let root = WorkspacePaneView(model: model, tab: tab, pane: pane, isFocused: focused,
                                          isVisible: showing, opts: opts,
-                                         fileChromeChanged: { [weak self] in self?.needsLayout = true })
+                                         fileChromeChanged: { [weak self] in self?.needsLayout = true },
+                                         splitPreview: { [weak self] axis in self?.showSplitPreview(paneID: pane.id, axis: axis) })
             if let host = hosts[pane.id] { host.rootView = root }
             else {
                 let host = WorkspacePaneHostingView(rootView: root)
@@ -129,7 +160,7 @@ struct WorkspaceView: NSViewRepresentable {
     /// 窗口自身（不是 NSView）也可能是 firstResponder，纯文件标签页
     /// 首次显示就是这一档；此时同样要把键盘交给列表。
     private func focusedFileHost(window: NSWindow?) -> NSHostingView<WorkspacePaneView>? {
-        guard isActive, let window, window.isKeyWindow, let tab,
+        guard isActive, let window, window.isKeyWindow, !(window.firstResponder is PaneActionButton), let tab,
               let id = tab.activeWorkspacePaneID, tab.activeWorkspacePane?.files != nil,
               let host = hosts[id],
               (window.firstResponder as? NSView)?.isDescendant(of: host) != true
@@ -157,7 +188,9 @@ struct WorkspaceView: NSViewRepresentable {
     }
     override func layout() {
         super.layout()
-        guard let tab, let tree = tab.visibleWorkspaceLayout, bounds.width > 0, bounds.height > 0 else { return }
+        previewLayer.frame = bounds
+        splitPreview.frame = bounds
+        guard let tab, let tree = tab.visibleWorkspaceLayout, bounds.width > 0, bounds.height > 0 else { splitPreview.clear(); return }
         let inset = CGFloat(opts.gap) / 2
         let rect = bounds.insetBy(dx: inset, dy: inset)
         let geometry = tree.geometry(in: rect, minimum: minimum)
@@ -186,6 +219,11 @@ struct WorkspaceView: NSViewRepresentable {
             view.onDrag = { [weak self] point in self?.resizeDivider(i, at: point) }
             addSubview(view, positioned: .above, relativeTo: nil)
         }
+        addSubview(splitPreview, positioned: .above, relativeTo: nil)
+        if let id = splitPreview.paneID {
+            if let content = previewContent(for: id) { splitPreview.update(content: content) }
+            else { splitPreview.clear() }
+        }
         let min = tree.minimumSize(minimum)
         if let window, window.contentView != nil, !isHidden,
            tab.id == (hosts.values.first?.rootView.model.tabs.activeTabID) {
@@ -198,6 +236,23 @@ struct WorkspaceView: NSViewRepresentable {
                 window.setContentSize(NSSize(width: max(content.bounds.width, required.width), height: max(content.bounds.height, required.height)))
             }
         }
+    }
+    func showSplitPreview(paneID: UUID, axis: PaneLayout.Axis?) {
+        guard let axis else {
+            if splitPreview.paneID == paneID { splitPreview.clear() }
+            return
+        }
+        guard isActive, opts.showsTitleBar, window?.isKeyWindow == true, tab?.isLocked == false, !isDraggingPane,
+              preview == nil, let content = previewContent(for: paneID) else { splitPreview.clear(); return }
+        splitPreview.show(paneID: paneID, axis: axis, content: content)
+    }
+    private func previewContent(for id: UUID) -> CGRect? {
+        guard let tab, tab.visibleWorkspaceLayout?.paneIDs.contains(id) == true,
+              tab.zoomedPaneID == nil || tab.zoomedPaneID == id,
+              let host = hosts[id], !host.isHidden else { return nil }
+        let card = host.frame.insetBy(dx: CGFloat(opts.gap) / 2, dy: CGFloat(opts.gap) / 2)
+        return CGRect(x: card.minX, y: card.minY + PaneTitleBar.height,
+                      width: card.width, height: max(0, card.height - PaneTitleBar.height))
     }
     var dividerViews: [NSView] { dividers.filter { !$0.isHidden } }
     func setPosition(_ position: CGFloat, ofDividerAt index: Int) {
@@ -230,6 +285,7 @@ struct WorkspaceView: NSViewRepresentable {
     @discardableResult
     func updateDropPreview(_ drag: WorkspacePaneDrag, at point: NSPoint) -> Bool {
         guard let value = drop(drag, at: point) else { clearDropPreview(); return false }
+        splitPreview.clear()
         preview = value
         previewLayer.path = CGPath(roundedRect: value.3, cornerWidth: 8, cornerHeight: 8,
                                    transform: nil)
@@ -308,14 +364,21 @@ struct WorkspacePaneView: View {
     let opts: PaneChromeOptions
     /// 文件窗格头部实测高度变化后，让 AppKit 宿主重算最小尺寸与 frame。
     var fileChromeChanged: () -> Void = {}
-    @ViewBuilder var body: some View {
-        switch pane {
-        case .terminal(let terminal):
-            PaneView(model: model, tab: tab, pane: terminal, isFocused: isFocused,
-                     isVisible: isVisible, dim: model.splitDim, opts: opts)
-        case .files(let file):
-            WorkspaceFileView(model: model, tab: tab, file: file, isFocused: isFocused, opts: opts,
-                              chromeChanged: fileChromeChanged)
+    var splitPreview: (PaneLayout.Axis?) -> Void = { _ in }
+    @State private var hovering = false
+    var body: some View {
+        Group {
+            switch pane {
+            case .terminal(let terminal):
+                PaneView(model: model, tab: tab, pane: terminal, isFocused: isFocused,
+                         isVisible: isVisible, dim: model.splitDim, opts: opts,
+                         showsActions: hovering, preview: splitPreview)
+            case .files(let file):
+                WorkspaceFileView(model: model, tab: tab, file: file, isFocused: isFocused, opts: opts,
+                                  chromeChanged: fileChromeChanged, isVisible: isVisible, showsActions: hovering, preview: splitPreview)
+            }
         }
+        .background(HoverTracking(hovering: $hovering, identifier: "pane-hover-\(pane.id)"))
+        .onDisappear { splitPreview(nil) }
     }
 }

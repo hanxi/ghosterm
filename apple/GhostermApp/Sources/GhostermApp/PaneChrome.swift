@@ -57,16 +57,8 @@ struct PaneTitleBarView: View {
     /// 进程与目录都拿不到时回落到它（标签页标题）。
     let fallbackTitle: String
     let isFocused: Bool
-    /// 右侧按钮画不画（只画聚焦那格，见 PaneTitleBar.showsButtons）。
-    let showsButtons: Bool
-    /// 这格正被缩放（按钮换成「还原」）。
-    let isZoomed: Bool
-    /// 分屏中（缩放与关闭窗格只在分屏时有意义）。
+    let actions: PaneActionsView
     let isSplit: Bool
-    let onSplitRight: () -> Void
-    let onSplitDown: () -> Void
-    let onToggleZoom: () -> Void
-    let onClose: () -> Void
     var dragProvider: (() -> NSItemProvider)? = nil
 
     var body: some View {
@@ -93,7 +85,7 @@ struct PaneTitleBarView: View {
             Color.clear.frame(maxWidth: .infinity, minHeight: 20)
                 .contentShape(Rectangle())
                 .modifier(WorkspaceTitleDrag(provider: dragProvider))
-            if showsButtons { buttons }
+            actions
         }
         .padding(.leading, DS.Padding.s)
         .padding(.trailing, DS.Padding.xs)
@@ -106,53 +98,7 @@ struct PaneTitleBarView: View {
                     PaneFocusChrome.tintOpacity(isFocused: isFocused, isSplit: isSplit)))
         }
         .overlay(alignment: .bottom) { Divider() }
+        .contextMenu { PaneContextMenu(actions: actions) }
     }
 
-    @ViewBuilder
-    private var buttons: some View {
-        HStack(spacing: 1) {
-            PaneTitleButton(systemName: "square.split.2x1",
-                            help: "向右分屏 ⌘D", action: onSplitRight)
-            PaneTitleButton(systemName: "square.split.1x2",
-                            help: "向下分屏 ⇧⌘D", action: onSplitDown)
-            if isSplit {
-                PaneTitleButton(
-                    systemName: isZoomed
-                        ? "arrow.down.right.and.arrow.up.left"
-                        : "arrow.up.left.and.arrow.down.right",
-                    help: isZoomed ? "还原分屏 ⇧⌘↩" : "缩放当前分屏 ⇧⌘↩",
-                    action: onToggleZoom)
-                // 只剩一格时不画 ✕：那一下关的是**标签页**，不该藏在
-                // 窗格标题栏上（关标签页在标签胶囊和 ⌘W）。
-                PaneTitleButton(systemName: "xmark",
-                                help: "关闭这个窗格", action: onClose)
-            }
-        }
-    }
-}
-
-/// 标题栏上的小图标按钮（20×20，比顶栏的 GlassIconButton 小一圈）。
-struct PaneTitleButton: View {
-    let systemName: String
-    let help: String
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(DS.Font.captionSmall)
-                .frame(width: 20, height: 20)
-                .background(
-                    RoundedRectangle(cornerRadius: DS.Radius.s, style: .continuous)
-                        .fill(hovering ? Color.primary.opacity(0.12) : .clear)
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .help(help)
-        .accessibilityLabel(help)
-    }
 }

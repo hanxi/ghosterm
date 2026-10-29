@@ -60,13 +60,7 @@ public enum PaneTitleBar {
     /// 而它本来就只有「够放一行小字」这一个正确值。
     public static let height: CGFloat = 26
 
-    /// 这一格要不要画右侧按钮：**只画聚焦那格**。
-    ///
-    /// 这里曾是一个「每一格都显示」的偏好，弃用的理由与顶栏偏好同源：
-    /// 打开它得到的是四分屏 16 个图标 vs 1 个图标的差别——同一组动作在
-    /// 四格里各画一遍，没有第二份信息。键**不读不写**，旧 plist 里存过的
-    /// 值成为无害的死数据。
-    public static func showsButtons(isFocused: Bool) -> Bool { isFocused }
+
 }
 
 // MARK: - 分屏时「哪格是当前」

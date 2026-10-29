@@ -17,7 +17,7 @@ import SwiftUI
 /// 悄悄分叉（测试直接 `NSHostingView(rootView:)` 过，就量不到生产的真值）。
 ///
 /// `safeAreaRegions = []` 是关键的一笔：窗口开着 `.fullSizeContentView`，
-/// 顶上那 38pt 标题栏由我们自己的 chrome 顶着（见 `WindowChrome`），
+/// 顶部模式由标签条预留窗口按钮区，侧边模式只在侧栏预留，工作区直达顶边。
 /// SwiftUI 不该再替我们避让一次。不关掉的话，分屏时 SwiftUI 给
 /// `NSSplitView` 每个子项套的那层独立宿主视图会把安全区**又算一遍**，
 /// 于是分屏比单窗格多顶出 5pt（配合子项上的 `.ignoresSafeArea` 才归零）。
@@ -200,32 +200,28 @@ struct PaneView: View {
     /// 这个窗格所在标签页是不是当前显示的那一个。后台标签页的 surface 还在
     /// 树上（只 opacity(0)），要报成「不可见」让引擎停画——省 CPU/GPU。
     let isVisible: Bool
-    /// 画不画终端面。`false` = 这格正被缩放、surface 挂在覆盖层上，这里
-    /// 只留一张同形状的空壳占位（见 PaneLayoutView 的 `.leaf`）。
-    var showsSurface: Bool = true
     /// 非聚焦窗格的变暗遮罩（nil = 不变暗）。
     let dim: SplitDim?
     let opts: PaneChromeOptions
+
+    var showsActions = false
+    var preview: (PaneLayout.Axis?) -> Void = { _ in }
+    private var actions: PaneActionsView {
+        PaneActionsView(model: model, tab: tab, paneID: pane.id, revealed: isFocused || showsActions, isAvailable: isVisible, preview: preview)
+    }
 
     var body: some View {
         PaneCard(gap: opts.gap, isFocused: isFocused, isSplit: tab.isSplit) {
             VStack(spacing: 0) {
                 if !opts.showsTitleBar {
                     WorkspaceHiddenHandle(tab: tab, paneID: pane.id)
+                        .contextMenu { PaneContextMenu(actions: actions) }
                 }
                 if opts.showsTitleBar {
                     PaneTitleBarView(
                         pane: pane, fallbackTitle: tab.title,
                         isFocused: isFocused,
-                        showsButtons: PaneTitleBar.showsButtons(isFocused: isFocused),
-                        isZoomed: tab.zoomedPaneID == pane.id,
-                        isSplit: tab.isSplit,
-                        // 按钮作用在**这一格**上：先把它设成当前窗格，再走
-                        // 与菜单/快捷键同一条路径（分屏的作用域是当前窗格）。
-                        onSplitRight: { focusThisPane(); model.split(tab, axis: .horizontal) },
-                        onSplitDown: { focusThisPane(); model.split(tab, axis: .vertical) },
-                        onToggleZoom: { focusThisPane(); tab.toggleZoom(pane) },
-                        onClose: { focusThisPane(); model.closePane(in: tab) },
+                        actions: actions, isSplit: tab.isSplit,
                         dragProvider: {
                             tab.zoomedPaneID = nil
                             return workspaceDragProvider(tab: tab, paneID: pane.id)
@@ -240,16 +236,11 @@ struct PaneView: View {
                 terminalArea
             }
         }
-        .onTapGesture { tab.activeWorkspacePaneID = pane.id }
-    }
-
-    private func focusThisPane() {
-        tab.activePaneID = pane.id
     }
 
     private var terminalArea: some View {
         ZStack {
-            if showsSurface, let surface = pane.surface {
+            if let surface = pane.surface {
                 TerminalSurfaceView(surface: surface, isFocused: isFocused,
                                     isVisible: isVisible)
                     .id(ObjectIdentifier(surface))

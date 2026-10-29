@@ -258,3 +258,35 @@ public final class TerminalHostView: NSView, NSTextInputClient {
 - 变异：`scripts/mutation-check-terminal.sh` 的 **T5**（`setPreedit` 不下发 → 预编辑
   断言红）、**T6**（提交误走粘贴 → 提交断言红）、**T7**（`keyDown` 不路由 → 按键
   断言红）；三条都带指向性对照仍绿。
+
+## 8. 带 Shift 的菜单字母键必须验实际事件
+
+macOS 26 上，`NSMenuItem(keyEquivalent: "d")` 加 `.command, .shift` 的文字能显示为
+⇧⌘D，但真实 `characters = "D"` 的按键没有匹配。向下分屏和文件面板已改为 `D` / `E`，
+搜索标签用 `A`。快捷键目录的文字对拍仍保留，另用 `performKeyEquivalent(with:)` 驱动
+真实菜单并检查窗格实际创建。`PaneActionsTests.testShiftShortcutsReachTheSplitAndFileCommands`
+与 `tab-chrome --group panes` 的两组变异护这条链。
+
+## 9. 预览 path 存在，不等于覆盖层已经画到窗格上
+
+本机离屏验证发现，挂在工作区 backing layer 上的两个 `CAShapeLayer` 仍排在
+AppKit 管理的窗格 backing layers 之前；仅断言 path 和矩形全部通过，像素却只变了按钮背景。
+提高 `zPosition` 不能作为离屏绘制正确的证据：Apple 的
+[render(in:) 文档](https://developer.apple.com/documentation/quartzcore/calayer/render(in:))
+明确指出这一路绘制不支持完整合成模型。
+
+分屏预览改用最上层 `SplitPreview: NSView`，由 AppKit 排视图顺序，绘制时解析动态强调色。
+`hitTest` 返回 nil，不可获取键盘焦点，不能吞终端选择、文件输入与拖动。
+`PaneActionsTests` 同时验证工作区像素变化、底层命中对象保持不变、目标半区的几何和取消路径。
+变异分别移除挂载、错误拦截命中、翻转方向，不能用一条 path 断言代替三种证据。
+
+## 10. 离屏窗口的 firstResponder 与系统 key window 是两件事
+
+锁屏时 `makeKeyAndOrderFront`、`activate`、完整 AppKit run loop 乃至正常应用启动都不能
+保证 `isKeyWindow == true`。2026-10-29 的本机探针确认前台是登录窗口且会话处于锁屏，
+这不是应该通过删掉生产端失焦保护来修的产品问题。
+
+确定性窗格测试只注入 NSWindow 的焦点状态，生产窗口控制器与根视图仍是同一条路径；
+覆盖真实 NSButton 点击、firstResponder、失焦通知与重新进入的保护。该证据只证明接线，
+系统激活和全屏仍须在可交互桌面单独验收。记录中不得把 `paneFocused` 或可控制的
+`isKeyWindow` 写成已经验证了系统激活。

@@ -69,7 +69,7 @@
 | macOS **release** 包 | 🟡 | tag `v*` / PR / 手动 → `.github/workflows/macos-release.yml`，与 dev 共用同一份可复用工作流 `macos-package.yml`（`channel=release、gates=full`）。**🟡 无 Developer ID 证书 secret ⇒ 目前同样落 ad-hoc**；`--sign` / `--notarize` 分支已就绪，拿到 secret 即用 |
 | dev 版**更新检测**（app 内入口） | ✅ | 关于窗口（`Ghosterm → 关于 Ghosterm`）版本号下面那一行：手动点「检查更新」→ 取固定 URL 的 `version.json`（不走 API、不占 60 次/小时额度）→ 以 `git_commit` 为主锚（本机短 sha 前缀比清单的 40 位）。**三态不折叠**：无 commit 记录 / `+dirty` / 渠道不对 / 取不到 / 读不懂，一律报「查不出来 + 原因」，不报「已是最新」。**自动安装 ❌（有意不做）**：`signature=adhoc` + `notarized=false` ⇒ 只给下载直链，不画「安装」按钮。判据与文案由 `UpdateCheckTests`（12 项）钉，入口几何由 `AboutWindowTests` 钉，牙见 `scripts/mutation-check-app-update.sh`（7 组变异）；口径见 [dev 包怎么装](../how-to/dev-build.md) |
 | Android / iOS 出包入口 | ❌ | 没有构建脚本、没有 workflow——是**未开工**，不是 CI 漏项 |
-| 闸门分档 | ✅ | 轻档（dev）：`scripts/gate.sh`（core + ctest + ABI + api_smoke）+ 图标一致性 + `gate-ghostty-patch.sh`；全档（release）：再加 Apple 原生三包闸门与 18 份变异（终端/传输/标签/界面/设置/像素/焦点/变暗/遮挡/更新、普通默认入口、认证 ABI、凭据、真实认证、tmux 管理与 UI、打包）。dev/full 都另以本轮 ZIP 验一键安装脚本（签名/SHA/递归 quarantine/回滚），不触碰真实应用目录。真实 Linux SSH/断网仍须手工验证。缺工具链时显式 `SKIP` 并让 CI 断言不许 SKIP，不静默跳过（铁律 #6） |
+| 闸门分档 | ✅ | 轻档（dev）：`scripts/gate.sh`（core + ctest + ABI + api_smoke）+ 图标一致性 + `gate-ghostty-patch.sh`；full 档共接入 20 份变异，准确清单以 `AGENTS.md` 与 `.github/workflows/macos-package.yml` 为准。标签导航与窗格交互合并在 `tab-chrome`，不再依赖原生多窗口标签组的私有实现。dev/full 都另以本轮 ZIP 验一键安装脚本（签名/SHA/递归 quarantine/回滚），不触碰真实应用目录。接线不等于本轮 CI 通过；`pane-chrome / settings-ui / workspace` 等手工证据与真实系统激活、全屏另行记录。缺工具链时显式 `SKIP` 并让 CI 断言不许 SKIP，不静默跳过（铁律 #6） |
 
 ## 各端 UI
 
@@ -116,23 +116,22 @@
 >   右沿不许有控件被裁、给了 `onClose` 才画得出 ✕），变异 `files` F10~F12 有牙。
 >   **仍未做**：iOS 抽屉（无 iOS target）、Finder 拖出**远端**条目的懒下载
 >   文件承诺（v1 只支持本地拖出）；
-> - UI ✅ —— 窗口 + 侧边栏（标签页/连接两栏）+ 顶部标签条（胶囊）
->   + 顶带按钮组（红绿灯 → 侧栏开关 → `+` → 配置无效时的 ⚠，侧栏开合两态
->   同一个 x，`BandControls` 一份两处用；设置与窗口级动作只在 macOS 全局
->   菜单条里，由 `AppMenuCoverageTests` + 变异 `tab-chrome --group menu` 钉住）
->   + 多标签页（后台标签页 surface 保持挂载）+ 递归分屏（⌘D / ⌘⇧D；窗格
->   退出即收掉、只剩一个则关标签页 + 结构改动后分隔等分，见 `SplitExitTests` /
->   `tabs` 变异 T15/T16）
->   + **标签右键菜单**（`TabContextMenu`，侧栏标签行 / 顶栏当前标签胶囊 /
->   标签条 chip **共用一份**：文件面板开关 + 向右/向下分屏 + 关当前分屏 +
->   锁定 + 关闭；顶栏原本可见的两个分屏按钮移入菜单，右端那个 ⋯ 溢出菜单已删——
->   里面每条都是副本。菜单作用在**被右键的
->   那条**标签上并把它带到前台——右键的未必是当前标签页，写错就「右键 A 却
->   动了 B」，不报错、只在屏幕上不对；`TabContextMenuTests` 4 条 +
->   变异 `tabs` T17/T18 钉住）
->   + 标签页锁定 + 状态覆盖层（连接中/失败/已退出四档显式）+ 设置页（通用/
->   会话/外观/高级）+ 编辑器 + SFTP 浏览器 + 三态对话框 + 传输面板；
->   **遗留（显式）**：标签页恢复/持久化、拖拽重排手势；
+> - 标签与窗格 UI 🟡 —— 单个原生窗口内切换顶部 / 侧边标签；侧栏只列已打开标签，
+>   不分组，终端上方无全宽标题占位。外观设置保存标签位置与精简侧栏；唯一加号打开连接选择器，
+>   主机管理与标签搜索保留主菜单入口。`TabWindowTests` 验模式切换保留宿主、surface、shell PID
+>   和键盘落点；`tab-chrome` 变异护导航几何、UUID 目标、错误提示和菜单。
+>   **🟡 证据范围**：macOS 26 本机原生构建与完整宿主测试通过；真实系统激活、全屏、最终截图
+>   及 macOS 15 CI 本轮结果仍待验，进度见 [重构计划](plan-tab-chrome-refactor.md)。
+>   + 多标签页（后台 surface 保持挂载并停止渲染）、递归分屏（⌘D / ⇧⌘D）、
+>   退出折叠与分隔拖动；标签两种布局按 UUID 选择、重排与关闭。
+>   + `TabContextMenu` 统一顶部 / 侧边标签右键；`PaneActionsView` / `PaneContextMenu`
+>   统一终端与文件窗格的分屏、缩放、关闭。非当前窗格悬停可操作，命令按所属 UUID 路由；
+>   标题隐藏时保留把手菜单。Shift 快捷键另验真实菜单按键事件。
+>   + 目标半区分屏预览不改变会话、布局或输入焦点，覆盖视图不接收输入；像素、命中、几何、
+>   取消与拖动互斥由 `PaneActionsTests` 与 `tab-chrome --group panes` 验证。
+>   其中窗口焦点状态可控制，不能当作系统激活证据。
+>   + 标签锁定、连接状态、设置、配置编辑、SFTP 浏览器、三态对话框与传输面板继续保留。
+>   **遗留（显式）**：标签页恢复 / 持久化不在本次范围；
 > - ssh_config GUI ✅ —— HostEditorSheet（含 `Host *` 通配块编辑，M1 遗留
 >   落点）+ 写侧三件套（备份 / 冲突检测 / 原子写，ConfigStoreTests 6 项）。
 | Android | ❌ | ❌ | ❌ | ❌ | ❌ |

@@ -34,11 +34,17 @@ struct WorkspaceFileView: View {
     let isFocused: Bool
     let opts: PaneChromeOptions
     var chromeChanged: () -> Void = {}
+    var isVisible = true
+    var showsActions = false
+    var preview: (PaneLayout.Axis?) -> Void = { _ in }
+    private var actions: PaneActionsView {
+        PaneActionsView(model: model, tab: tab, paneID: file.id, revealed: isFocused || showsActions, isAvailable: isVisible, preview: preview)
+    }
     var body: some View {
         PaneCard(gap: opts.gap, isFocused: isFocused, isSplit: tab.isSplit) {
             VStack(spacing: 0) {
                 if opts.showsTitleBar { title }
-                else { WorkspaceHiddenHandle(tab: tab, paneID: file.id) }
+                else { WorkspaceHiddenHandle(tab: tab, paneID: file.id).contextMenu { PaneContextMenu(actions: actions) } }
                 if let panel = file.panel {
                     FilesPanelView(panel: panel, downloadTo: { download($0) }, uploadFrom: { uploadPicker(panel) },
                                    side: file.remote ? .remote : .local,
@@ -59,7 +65,6 @@ struct WorkspaceFileView: View {
             }
             .background(Color(nsColor: .textBackgroundColor))
         }
-        .simultaneousGesture(TapGesture().onEnded { tab.activeWorkspacePaneID = file.id })
     }
     private var title: some View {
         HStack(spacing: 4) {
@@ -72,24 +77,15 @@ struct WorkspaceFileView: View {
             .contentShape(Rectangle())
             .modifier(WorkspaceTitleDrag(provider: { tab.zoomedPaneID = nil; return workspaceDragProvider(tab: tab, paneID: file.id) }))
             .help("拖动以调整窗格位置")
-            if file.remote {
-                PaneTitleButton(systemName: "folder.badge.plus", help: "打开本地文件窗格") { model.openLocalFiles() }
-            }
-            PaneTitleButton(systemName: "square.split.2x1", help: "向右分屏 ⌘D") { focus(); model.split(tab, axis: .horizontal) }
-            PaneTitleButton(systemName: "square.split.1x2", help: "向下分屏 ⇧⌘D") { focus(); model.split(tab, axis: .vertical) }
-            if tab.isSplit {
-                PaneTitleButton(systemName: tab.zoomedPaneID == file.id ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                                help: "缩放／还原窗格 ⇧⌘↩") { tab.toggleWorkspaceZoom(file.id) }
-            }
-            PaneTitleButton(systemName: "xmark", help: "关闭文件窗格") { focus(); model.closePane(in: tab) }
+            actions
         }
         .font(DS.Font.captionEmphasis).padding(.leading, 8).padding(.trailing, 4)
         .frame(height: PaneTitleBar.height)
         .background(Color(nsColor: .windowBackgroundColor).overlay(Color.accentColor.opacity(
             PaneFocusChrome.tintOpacity(isFocused: isFocused, isSplit: tab.isSplit))))
         .overlay(alignment: .bottom) { Divider() }
+        .contextMenu { PaneContextMenu(actions: actions) }
     }
-    private func focus() { tab.activeWorkspacePaneID = file.id }
     private func download(_ entry: FileEntry) {
         guard let b = file.panel?.backend as? TransferBackend else { return }
         let target = tab.localFiles?.panel

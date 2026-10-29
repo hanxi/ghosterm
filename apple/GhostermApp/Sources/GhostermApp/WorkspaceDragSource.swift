@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 extension Notification.Name {
+    static let workspacePaneDragBegan = Notification.Name("Ghosterm.workspacePaneDragBegan")
     /// 窗格拖动会话结束（正常放下或被 Esc/系统取消）。
     static let workspacePaneDragEnded = Notification.Name("Ghosterm.workspacePaneDragEnded")
 }
@@ -53,6 +54,13 @@ struct WorkspaceDragSource: NSViewRepresentable {
     }
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         Self.operationMask(for: context)
+    }
+    func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
+        beginDrag()
+    }
+    /// 只在系统真正开始会话后通知；异步读取 provider 期间松手不算开始拖动。
+    func beginDrag() {
+        NotificationCenter.default.post(name: .workspacePaneDragBegan, object: nil)
     }
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         finishDrag()
