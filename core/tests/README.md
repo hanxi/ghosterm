@@ -49,6 +49,33 @@ python3 scripts/mutation-check-pty-inheritance.py
 `python3 scripts/mutation-check-ssh-credentials.py` 验证六组原生凭据选择变异。
 它们不依赖旧 daemon、安装器、记录或私有协议；临时文件均位于工程 `tmp/`。
 
+## 主机信任与撤销
+
+`known_hosts_e2e` / `known_hosts_ecdsa` 使用隔离的真实 sshd，分别以 ed25519 与 ECDSA
+主机密钥验证同步握手和公开异步认证；不是纯离线字符串测试。
+
+| 输入 | 当前行为 |
+|---|---|
+| 明文主机列表 | 匹配普通条目及 `*` / `?`，命中的 `!` 否定项排除该行；保留原有裸名及 `[host]:port` 匹配方式 |
+| 匹配主机与密钥的 `@revoked` | `GT_ERR_HOST_KEY`；异步状态为 `GT_SSH_AUTH_HOST_REVOKED`；无论普通信任记录在前或在后，都不进入确认/凭据阶段 |
+| 其他主机或其他密钥的撤销 | 不撤销当前密钥；测试保留正常普通信任对照 |
+| 当前主机的 `@cert-authority` | 不当作普通信任；无明确匹配普通记录时返回 `GT_ERR_UNSUPPORTED`；若普通记录匹配，信任依据仅为该普通记录 |
+| 当前主机的未知标记 | `GT_ERR_UNSUPPORTED`，不提示接受为新主机 |
+| 已解析的 hashed 条目 | `GT_ERR_UNSUPPORTED`，即使另有普通记录匹配。尚无法判断哈希是否属于当前主机，不能跳过潜在撤销；这不是哈希匹配实现 |
+| 文件不存在 / 读取失败 | ENOENT 继续未知主机流程；其他打开、读取、关闭错误返回 `GT_ERR_IO`，不当作空信任库 |
+
+`bash scripts/mutation-check-known-hosts.sh` 调用 Python runner，在工程 `tmp/` 的独立
+Core 副本中运行 **15 组**变异；每次清洁构建，必须实际启动两类 sshd，SKIP/缺测试
+结束标记直接失败。目标断言红、同变异配置求值对照绿、复原测试绿并核对 SHA256。
+覆盖旧算法过滤/多记录/裸名规则，以及标记保留、撤销优先、CA/未知/哈希拒绝、
+通配/否定/其他密钥、读取失败和同步/异步路由。该脚本仍是手工闸门，未纳入 macOS CI 20 份。
+
+边界：这不是完整 OpenSSH known_hosts 解析器，畸形行仍可能按现有形状过滤跳过；
+裸名匹配任意端口是沿用的现有契约，本轮没有进行 OpenSSH 端口语义对拍。
+未实现哈希匹配与主机证书验证。TOFU 写侧也仍有缺口：`kh_append` 未检查
+`fprintf` / `fclose` 错误，同步握手忽略追加返回值；异步路径只传播 helper 已报告的错误。
+读取失败的修复不等于持久化失败已修复，后续故障注入见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+
 ## 夹具是「规范」，不是「快照」
 
 `fixtures/` 是 **`ssh_config` 语义的唯一权威**，由真 OpenSSH 的 `ssh -G` 对

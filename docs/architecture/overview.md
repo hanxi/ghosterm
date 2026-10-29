@@ -92,6 +92,8 @@ Android 与 `terminal/android` 已有 A0 Gradle/JNI/VT 交叉构建和 API 36 ar
 
 Android 文本操作继续沿 TerminalSurface 接缝：带序号的控制请求由 native owner 执行，选区交给 VT 跟踪，复制结果按需返回；系统剪贴板由平台视图读取/写入，文件待粘贴清单保持独立。粘贴确认保留请求时的文本快照，清屏不向 transport 写入命令。已提交文本切片的验收见 Android 实现计划 §9.14，后续原子滚动/选区端点与 Ctrl 验证进度见 §9.15，不能以接口存在代替完整输入法/性能验收。
 
+共享认证的主机信任已保留 known_hosts 标记：撤销优先拒绝，读取失败与未支持规则分别报错；Swift 已消费新增撤销状态，Android SSH 绑定仍待 A3。哈希主机名/证书验证未实现，TOFU 写盘错误与连接前高级配置能力校验仍有缺口。实现与各端证据见 [Android §9.22](../reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)，不将共享 API 的进展当成所有原生端已交付。
+
 ## 参考实现（技术对照）
 
 | 项目 | 平台 | 许可 | 借用点 |

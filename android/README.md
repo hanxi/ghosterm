@@ -20,6 +20,8 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。最新完整设备结果 **101 项，0 失败/错误/跳过**，见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
 
+共享主机信任前置已修复撤销/CA 标记误信任，并新增公开撤销状态；Core 与 macOS 证据见[§9.22](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。Android 的 SSH JNI、连接前配置能力校验、认证页面及 Keystore 仍未接入，不能把共享修复记为 A3 完成。
+
 ## 构建
 
 锁定 JDK 17、Gradle 8.13（wrapper 验 SHA256）、AGP 8.13.2、Kotlin 2.2.21、Compose BOM 2025.10.01、NDK 28.2.13676358、CMake 3.22.1、Zig 0.16.0。compile/target API 36，min API 29，当前只构建 arm64-v8a。API 29 是声明下限，尚无该版本运行证据。
