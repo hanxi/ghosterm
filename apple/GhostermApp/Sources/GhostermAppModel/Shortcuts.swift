@@ -28,6 +28,8 @@ public enum ShortcutCatalog {
         ShortcutGroup(title: "标签页", items: [
             ShortcutItem(title: "新建标签页", keys: "⌘T"),
             ShortcutItem(title: "关闭标签页", keys: "⌘W"),
+            ShortcutItem(title: "下一个标签页", keys: "⌃⇥"),
+            ShortcutItem(title: "上一个标签页", keys: "⌃⇧⇥"),
             ShortcutItem(title: "搜索标签页…", keys: "⇧⌘A"),
             ShortcutItem(title: "标签页 1 … 标签页 9", keys: "⌘1 … ⌘9"),
         ]),
@@ -67,6 +69,7 @@ public enum ShortcutCatalog {
     private static let glyphs: [String: String] = [
         "\r": "↩",          // Return
         "\t": "⇥",          // Tab
+        "\u{19}": "⇥",      // Backtab（Shift+Tab）
         "\u{8}": "⌫",       // Delete
         "\u{1b}": "⎋",      // Esc
     ]

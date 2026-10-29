@@ -387,3 +387,12 @@ macOS 15 CI 仍待运行；本机通过不替代跨系统证据。
 
 
 本轮本机验证（macOS 26.6.2）：C gate 的 32 项测试与 71 个 ABI 符号通过；`apple-app-gate.sh` 原生构建及 341 项测试通过，1 项开发态随包主题资源跳过、0 失败，包含隔离真 sshd。`pane-chrome` 为 24 项检查全绿；`tab-chrome` appearance 的 12 组分别证明目标红、同变异独立对照绿、复原绿及 SHA256 一致。「贴边不叠框」以间距几何作为独立对照，避免把同样受新增描边影响的顶边 / 中线像素误当独立对照。浏览器复验 32 张新图、Tern 四种布局与 390px 窄屏通过；最终图像及源码 SHA256 均与 `layout-review.json` 一致。日志在工程 `tmp/pane-border-study/`；未新增 macOS 15 CI 或真实桌面激活 / 全屏证据。
+
+
+### 2026-10-29 补齐标签循环快捷键
+
+主菜单「显示」与设置「键盘」新增 Ctrl+Tab（下一个标签页）和 Ctrl+Shift+Tab（上一个标签页）。按当前显示顺序首尾循环，拖动重排后跟随新顺序；空清单不操作，单标签保持原页。切换复用现有标签激活与键盘焦点接线，不重建终端宿主。AppKit 的 Shift+Tab 使用 Backtab（U+0019），反向菜单项绑定该字符。
+
+`TabCycleTests` 经 `NSApp.sendEvent` 向生产窗口发送按键，使用三个真实 shell 验证顶部 / 侧边导航下的重排、双向循环、终端宿主身份与 firstResponder；另验空清单和单文件标签。`tab-chrome --group menu` 新增四组变异，分别破坏 Ctrl 绑定、反向动作、Backtab 字符与首尾循环；每组以导航选择 / 重排测试作为同变异独立对照。
+
+本机 macOS 26.6.2 原生构建和六项定向测试通过；`gate.sh` 的 32 项 C 测试与 71 个 ABI 符号通过。`mutation-check-tab-chrome.py --group menu` 全部九组通过（含新增四组）：目标红、同变异对照绿、复原绿且 SHA256 一致。macOS 15 CI 与物理键盘操作尚未作为本轮已通过证据。

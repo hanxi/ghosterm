@@ -9,8 +9,8 @@
 //      改一处必须改另一处，注释里互相指着）。
 //
 // 快捷键的落点：菜单项用 AppKit 的 target/action，优先级高于第一响应者
-// 的 keyDown，所以焦点在终端里时 ⌘T/⌘W 仍然由菜单接走；不带 ⌘ 的按键
-// 不经过菜单，原样落到终端面（铁律：终端里的程序优先）。
+// 的 keyDown，所以焦点在终端里时 ⌘T/⌘W、⌃Tab/⌃⇧Tab 仍由菜单接走；
+// 未绑定的按键原样落到终端面。
 import AppKit
 import GhostermAppModel
 
@@ -33,6 +33,9 @@ final class AppCommands: NSObject {
     }
 
     @objc func closeTab(_ sender: Any?) { model?.requestCloseActiveTab() }
+
+    @objc func nextTab(_ sender: Any?) { model?.tabs.cycleTab() }
+    @objc func previousTab(_ sender: Any?) { model?.tabs.cycleTab(backwards: true) }
 
     @objc func splitRight(_ sender: Any?) {
         model?.splitActiveTab(axis: .horizontal)
@@ -237,6 +240,17 @@ enum AppMenu {
         menu.addItem(reset)
         menu.addItem(sidebar)
         menu.addItem(.separator())
+        let nextTab = NSMenuItem(title: "下一个标签页",
+                                 action: #selector(AppCommands.nextTab(_:)), keyEquivalent: "\t")
+        nextTab.keyEquivalentModifierMask = [.control]
+        nextTab.target = commands
+        menu.addItem(nextTab)
+        // AppKit 的 Shift+Tab 事件使用 Backtab (U+0019)，不能仍绑定 U+0009。
+        let previousTab = NSMenuItem(title: "上一个标签页",
+                                     action: #selector(AppCommands.previousTab(_:)), keyEquivalent: "\u{19}")
+        previousTab.keyEquivalentModifierMask = [.control, .shift]
+        previousTab.target = commands
+        menu.addItem(previousTab)
         for i in 0..<9 {
             let switchTab = NSMenuItem(title: "标签页 \(i + 1)",
                                        action: #selector(AppCommands.selectTab(_:)),

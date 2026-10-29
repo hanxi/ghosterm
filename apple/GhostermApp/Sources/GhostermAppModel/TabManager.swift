@@ -60,7 +60,13 @@ public final class TabManager: ObservableObject {
         activeTabID = tabs[index].id
     }
 
-    /// 激活相邻标签页（⌘⇧[ / ⌘⇧]，以及关闭后接管）。
+    /// 按当前显示顺序循环切换，首尾相接；空清单不操作。
+    public func cycleTab(backwards: Bool = false) {
+        guard let index = activeIndex else { return }
+        activate(index: (index + (backwards ? tabs.count - 1 : 1)) % tabs.count)
+    }
+
+    /// 激活相邻标签页（关闭后接管）。
     /// 关闭一个标签页后要激活谁：优先右边的，没有就左边的（Safari 习惯）。
     public func activateNeighbor(of tab: TerminalTab) {
         guard let idx = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
