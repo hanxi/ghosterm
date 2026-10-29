@@ -21,6 +21,29 @@ body{margin:0;background:var(--page);color:var(--ink);font-family:Inter,-apple-s
 /* 侧栏模式让终端直抵窗口上沿；只有顶部标签模式保留整行标题栏。 */
 .window:not([data-mode=top])>.titlebar{display:none}.sidebar{padding-top:0}#side-controls-slot{height:48px;flex-shrink:0;display:flex;align-items:center;padding:0 4px}.window-controls{display:flex;align-items:center;gap:14px;flex-shrink:0}#top-controls-slot{flex-shrink:0}.window[data-mode=top] .titlebar{display:flex}.window[data-mode=top] .content{border-radius:0 0 9px 9px}.window:not([data-mode=top]) .content{border-radius:0 10px 9px 9px;margin-top:0}.window:not([data-mode=top]) .terminal-layout{padding-top:6px}.pane-header{padding-right:5px;gap:7px}.pane-path{flex:1}.pane-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex-shrink:0;opacity:0;pointer-events:none}.pane:is(.is-active,:hover,:focus-within) .pane-actions{opacity:1;pointer-events:auto}.pane-action{width:24px;height:24px;border-radius:5px;color:#8d9c90}.pane-action .icon{width:15px;height:15px}.pane-action:hover,.pane-action.is-previewing{background:#54704d50;color:#c9dfba}.pane:has(.split-preview){border-color:#8aab7e}.pane:not(:is(.is-active,:hover,:focus-within)) .pane-actions{visibility:hidden}.window[data-mode=compact] #side-controls-slot{height:82px;padding:11px 0 7px;justify-content:center}.window[data-mode=compact] .window-controls{flex-direction:column;gap:10px}.window[data-mode=compact] .traffic{gap:4px;padding:0}.window[data-mode=compact] .traffic i{width:10px;height:10px}.window[data-mode=compact] .sidebar{padding-top:0}
 @media(max-width:640px){.window-controls{gap:8px}.pane-host,.pane-path{display:none}.pane-header{gap:4px;padding-left:5px}.pane-actions{gap:0}.pane-action{width:21px}.pane-action .icon{width:14px;height:14px}.window:not([data-mode=top]) .terminal-layout{padding-top:4px}.window[data-mode=compact] #side-controls-slot{height:78px}.pane-header strong{font-size:9px}}
+
+/* 原始 Tern 网页截图保留不变；默认窗口区域，按需显示完整页面。 */
+.reference-jump{color:var(--accent);font-size:12px;text-underline-offset:4px;white-space:nowrap}
+.tern-reference{margin:22px 0 30px;padding-top:24px;border-top:1px solid var(--line);scroll-margin-top:24px}
+.reference-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
+.reference-head h2{font-size:19px;font-weight:600;margin:0 0 8px;letter-spacing:-.4px}
+.reference-head p{font-size:12px;color:var(--muted);margin:0;line-height:1.8}
+.reference-head a,.reference-meta a{color:var(--accent);text-underline-offset:3px}
+.reference-controls{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.reference-choices{display:flex;gap:4px;flex-wrap:wrap;padding:4px;background:var(--chrome);border-radius:10px}
+.reference-choice{padding:8px 13px;border-radius:7px;font-size:12px;color:var(--muted)}
+.reference-choice:hover{background:var(--hover);color:var(--ink)}
+.reference-choice[aria-pressed=true]{background:var(--active);color:var(--ink);box-shadow:0 1px 3px #0000000d}
+.reference-full-label{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px;cursor:pointer}
+.reference-full-label input{accent-color:var(--accent)}
+.reference-figure{margin:0}
+.reference-frame{display:block;position:relative;overflow:hidden;aspect-ratio:var(--reference-ratio,1080 / 675);background:#101319;border-radius:14px;box-shadow:var(--shadow)}
+.reference-frame img{display:block;position:absolute;width:148.148148%;max-width:none;height:auto;left:-24.074074%;top:var(--reference-top,-70.1180556%)}
+.reference-frame.reference-full{aspect-ratio:auto}
+.reference-frame.reference-full img{position:static;width:100%;height:auto}
+.reference-meta{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-top:14px;font-size:11px;line-height:1.8;color:var(--muted)}
+.reference-meta p{margin:0}.reference-meta a{white-space:nowrap}
+@media(max-width:640px){.reference-head{flex-direction:column}.reference-head h2{font-size:17px}.reference-meta{align-items:flex-start;flex-direction:column;gap:6px}.reference-choice{padding:8px 10px}.reference-frame{border-radius:9px}.reference-jump{font-size:11px}}
 </style>
 </head>
 <body>
@@ -45,7 +68,7 @@ body{margin:0;background:var(--page);color:var(--ink);font-family:Inter,-apple-s
 </defs></svg>
 <main class="page">
  <header class="masthead"><div class="brand"><span class="brandmark"><svg class="icon"><use href="#i-terminal"/></svg></span>Ghosterm</div><div class="mast-meta"><span>INTERFACE EXPLORATION</span><span class="tag">交互原型 · 05</span></div></header>
- <section class="intro"><div><div class="eyebrow">LESS CHROME. MORE TERMINAL.</div><h1>侧栏管标签，窗格管分屏。</h1><p>侧边模式去掉整条顶栏。分屏按钮回到窗格标题里，操作哪里，就在哪里出现。</p></div><div class="controls"><button class="settings-entry" data-action="appearance">体验外观设置 <span>⌘ ,</span></button></div></section>
+ <section class="intro"><div><div class="eyebrow">LESS CHROME. MORE TERMINAL.</div><h1>侧栏管标签，窗格管分屏。</h1><p>侧边模式去掉整条顶栏。分屏按钮回到窗格标题里，操作哪里，就在哪里出现。</p></div><div class="controls"><a class="reference-jump" href="#tern-reference">对照 Tern ↓</a><button class="settings-entry" data-action="appearance">体验外观设置 <span>⌘ ,</span></button></div></section>
  <nav class="system-menu" aria-label="macOS 菜单栏示意">
   <details><summary class="app-menu-name">Ghosterm</summary><div class="menu-popup"><button data-action="appearance">设置… <kbd>⌘ ,</kbd></button><p>标签布局位于「外观」</p></div></details>
   <details><summary>窗口</summary><div class="menu-popup"><button data-action="search">搜索标签页… <kbd>⌘ K</kbd></button><button id="files" aria-pressed="false">显示文件面板</button></div></details>
@@ -60,6 +83,11 @@ body{margin:0;background:var(--page);color:var(--ink);font-family:Inter,-apple-s
   </div><div class="toast" id="toast" role="status"></div>
  </section>
  <div class="caption"><div class="caption-left"><span class="live-dot"></span><span id="mode-caption">侧边标签 · 会话平铺排列，完整标题一目了然</span></div><span><kbd>⌘ T</kbd> 新建 · <kbd>⌘ K</kbd> 搜索 · <kbd>⌘ ,</kbd> 设置</span></div>
+ <section id="tern-reference" class="tern-reference" aria-labelledby="tern-reference-title">
+  <div class="reference-head"><div><div class="eyebrow">REFERENCE / TERN</div><h2 id="tern-reference-title">Tern，放在一起对照。</h2><p>重新抓取官网介绍中的四种布局：Tiles、Studio、Rail、Float。默认显示窗口区域，勾选后可查看带布局名称的完整截图。</p></div><a class="reference-jump" href="#app">返回 Ghosterm 原型 ↑</a></div>
+  <div class="reference-controls"><div class="reference-choices" role="group" aria-label="选择 Tern 的四种布局"><button class="reference-choice" data-reference="tiles" aria-pressed="true" aria-controls="tern-image">Tiles · 平铺</button><button class="reference-choice" data-reference="studio" aria-pressed="false" aria-controls="tern-image">Studio · 顶部标签</button><button class="reference-choice" data-reference="rail" aria-pressed="false" aria-controls="tern-image">Rail · 侧栏</button><button class="reference-choice" data-reference="float" aria-pressed="false" aria-controls="tern-image">Float · 悬浮工具栏</button></div><label class="reference-full-label"><input id="reference-full" type="checkbox" aria-controls="tern-image-frame">显示完整截图</label></div>
+  <figure class="reference-figure"><a id="tern-image-frame" class="reference-frame" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer" aria-label="打开 Tern 参考原图"><img id="tern-image" src="tern-reference/tern-tiles.png" width="1600" height="1400" alt="Tern Tiles 平铺布局官网演示截图" loading="lazy" decoding="async"></a><figcaption class="reference-meta"><p id="reference-caption" aria-live="polite">Tiles · 平铺：窗格并排铺满窗口，各自保留标题信息。</p><span><a id="tern-original" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer">打开原图 ↗</a> · <a href="https://stencil.so/tern#yours" target="_blank" rel="noopener noreferrer">Tern 官方介绍 ↗</a></span></figcaption></figure>
+ </section>
  <section class="principles" aria-label="设计思路">
   <article class="principle"><span class="principle-number">01 /</span><div><h2>侧栏模式，省下一整行</h2><p>红绿灯与唯一的加号收进侧栏顶部。终端从窗口上沿展开，不再重复显示当前标签标题。</p></div></article>
   <article class="principle"><span class="principle-number">02 /</span><div><h2>分屏操作，跟着窗格走</h2><p>当前窗格或鼠标悬停时，标题右侧显示两颗分屏按钮。悬停先预览，点击只切分所在窗格。</p></div></article>
@@ -263,6 +291,25 @@ $('#query').oninput=renderPalette;$('#palette-close').onclick=()=>$('#palette').
 $('#palette').addEventListener('click',e=>{if(e.target!==$('#palette'))return;const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close()});
 $('#file-rows').innerHTML=['apple','core','docs','scripts','terminal','README.md','LICENSE'].map(n=>`<div class="file-row">${icon(n.includes('.')||n==='LICENSE'?'file':'folder')}<span>${n}</span></div>`).join('');
 render();
+
+// 参考截图独立切换，不改变可交互原型的布局或配色。
+(() => {
+ const references = {
+  tiles:{alt:'Tern Tiles 平铺布局官网演示截图',caption:'Tiles · 平铺：窗格并排铺满窗口，各自保留标题信息。'},
+  studio:{alt:'Tern Studio 顶部标签布局官网演示截图',caption:'Studio · 顶部标签：顶部使用简洁的胶囊标签，右端保留加号，终端窗格紧接下方。'},
+  rail:{alt:'Tern Rail 侧栏布局官网演示截图',caption:'Rail · 侧栏：标签列表移到左侧，终端直接从窗口上沿展开。'},
+  float:{alt:'Tern Float 悬浮工具栏布局官网演示截图',caption:'Float · 悬浮工具栏：标签与窗口操作收进顶部中央的悬浮工具栏。'}
+ };
+ const frame=document.getElementById('tern-image-frame'),img=document.getElementById('tern-image');
+ document.querySelectorAll('[data-reference]').forEach(button=>button.addEventListener('click',()=>{
+  const reference=references[button.dataset.reference],src='tern-reference/tern-'+button.dataset.reference+'.png';
+  img.src=src;img.alt=reference.alt;frame.href=src;
+  document.getElementById('tern-original').href=src;
+  document.getElementById('reference-caption').textContent=reference.caption;
+  document.querySelectorAll('[data-reference]').forEach(choice=>choice.setAttribute('aria-pressed',String(choice===button)));
+ }));
+ document.getElementById('reference-full').addEventListener('change',event=>frame.classList.toggle('reference-full',event.target.checked));
+})();
 </script>
 </body>
 </html>
