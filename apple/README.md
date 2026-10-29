@@ -26,6 +26,8 @@ apple/
 `SSHConfig.inspect(alias:)` 已接入并有值复制/来源转换的定向测试与变异，尚未接入 `HostEditorSheet`；存在 Swift 绑定不表示 macOS 表单已提供继承值展示、别名重命名或完整包含文件编辑。新增接口状态见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。
 已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。当前为 73 个公共符号、Apple 71 个引用/2 个登记未用，改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
 
+共享主机信任仍有 P0 缺口：`core/src/ssh.c` 丢弃 known_hosts 的 `@revoked` / `@cert-authority` 等标记后按普通条目匹配，同主机同密钥可被当成已知。macOS 普通 SSH、SFTP、tmux 共用的认证链路受影响；现有普通条目测试不能替代撤销/CA 语义验收。修复及 Android A3 的共同前置见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+
 UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 ## 当前功能与代码入口

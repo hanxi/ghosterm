@@ -84,7 +84,7 @@ libghostty-vt；[ghostty-web](https://github.com/coder/ghostty-web) 走的也正
 
 macOS 已由 `TabWindowController` 单窗口管理顶部/侧边标签；`WorkspaceLayout` 是终端与文件窗格唯一可写布局，`WorkspaceHostView` 保持宿主身份。旧多窗口标签组、独立双栏文件组件已退役。文件/配置等控制面经平台模型与绑定进入 Core，不经过终端字节通路。
 
-Android 与 `terminal/android` 已有 A0 Gradle/JNI/VT 交叉构建和 API 36 arm64 模拟器装载证据，已有主机/配置首片，尚无 renderer/交互终端/SSH UI；实现以[最终原型](../design/android-prototype.html)和[详细计划](../reference/android-implementation.md)为基准。iOS 仍无可用宿主/引擎产物，不能把 macOS SwiftPM 包称为已跨 iOS。
+Android 与 `terminal/android` 已有 A0 Gradle/JNI/VT 交叉构建和 API 36 arm64 模拟器装载证据，A1 主机/配置、来源/改名、导入预览与错误恢复已完成当前模拟器档验收，尚无 renderer/交互终端/SSH UI；实现以[最终原型](../design/android-prototype.html)和[详细计划](../reference/android-implementation.md)为基准。iOS 仍无可用宿主/引擎产物，不能把 macOS SwiftPM 包称为已跨 iOS。
 
 ## 参考实现（技术对照）
 
