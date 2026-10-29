@@ -1,6 +1,6 @@
 # macOS 标签栏与窗格界面重构计划
 
-> 状态：实施中。S1–S4 已落地并完成对应本机验证；S5 的最终交叉回归、真实系统焦点 / 全屏、截图与 macOS 15 CI 尚未全部完成。
+> 状态：实施中。S1–S4 已落地并完成对应本机验证；S5 的本机交叉回归与原生离屏截图已完成；真实系统焦点 / 全屏与 macOS 15 CI 待验。
 > 日期：2026-10-29。初始源码基线：`54331f1`；本轮窗格实现起点：`99342b6`。实现与验收进度分别见第 2.1、8 节。
 > 设计依据：[已确认的交互原型](../design/tabs-chrome-prototype.html)与[侧栏模式示意图](../design/tabs-split-preview.png)。
 > 执行约束：以仓库 `AGENTS.md` 为准；每个切片包含源码、调用方、测试与变异的同步调整，检查通过后直接提交 `main`。
@@ -45,18 +45,18 @@
 
 ### 2.1 当前代码复核与剩余工作
 
-本次按 `99342b6` 与工作区实际文件复核；已有实现继续使用，不再从旧窗口组重做一遍。
+当前功能源码基线为 `2efecae`；S1–S4 与 S5 收尾修复已提交，下表列已有证据和剩余验收。初始分析保留在上一节。
 
 | 当前落点 | 已有基础 | 后续任务 |
 |---|---|---|
 | `TabWindowController.swift`、`RootView.swift` | 单窗口、唯一根视图；顶部与侧边互斥，后台工作区保持挂载 | 补真实全屏、恢复窗口尺寸和跨系统证据，检查安全区与红绿灯避让 |
-| `TabPresentation.swift`、`SettingsStore.swift`、`SettingsView.swift` | 标签位置和精简侧栏已持久化，外观设置已接入 | 复验设置控件宽度、即时传播及模式切换后宿主身份不变 |
-| `Sidebar.swift`、`TabStrip.swift`、`TabInteraction.swift` | 纯标签列表、唯一加号、按 UUID 选择与排序 | 保持同一动作入口，补深浅色、长标题、多标签与精简模式的最终视觉检查 |
-| `ConnectionChooser.swift`（含 `HostManagerView`）、`TabSearchView.swift` | 主机管理迁出侧栏，连接与标签搜索已有独立入口 | 回归真实错误提示、重名对象、关闭确认与 sheet 归属 |
-| `AppModel.swift`、`PaneActions.swift`（工作区） | 分屏、关闭、缩放已开始按标签 / 窗格 UUID 路由，终端与文件共用动作描述 | 审核失效、隐藏、锁定目标的处理；完成按钮、菜单和快捷键的一致性验证 |
-| `WorkspaceView.swift`、`SplitPreview.swift`（工作区） | 已加入独立分屏预览层与清理接线 | 完成原生输入与焦点测试，验证 resize、失焦、切页、缩放、拖动和目标消失后的行为 |
+| `TabPresentation.swift`、`SettingsStore.swift`、`SettingsView.swift` | 标签位置和精简侧栏已持久化，外观设置已接入 | 本机设置与宿主身份检查通过；待 macOS 15 验证 |
+| `Sidebar.swift`、`TabStrip.swift`、`TabInteraction.swift` | 纯标签列表、唯一加号、按 UUID 选择与排序 | 深浅色原生离屏截图及长标题 / 多标签几何检查通过；待真实桌面验收 |
+| `ConnectionChooser.swift`（含 `HostManagerView`）、`TabSearchView.swift` | 主机管理迁出侧栏，连接与标签搜索已有独立入口 | 本机对应回归通过；待 macOS 15 验证 |
+| `AppModel.swift`、`PaneActions.swift` | 分屏、关闭、缩放按标签 / 窗格 UUID 路由，终端与文件共用动作描述；目标校验和菜单 / 按键已验证 | 文件、关闭确认与默认入口闸门已通过 |
+| `WorkspaceView.swift`、`SplitPreview.swift` | 独立预览层与清理接线已验证，含像素、命中、resize、失焦、切页、缩放、拖动与目标消失 | 本机对应闸门已通过；补真实系统焦点与全屏 |
 
-优先收口 S4，再执行 S5。窗格命令、控件与预览已经接入，调试输出已清理；本机完整宿主闸门为 336 项测试、1 项开发态资源跳过、零失败。锁屏造成系统 key window 前置条件不成立，因此确定性预览测试注入窗口焦点状态，生产失焦保护保持有效。真实系统激活、全屏、最终视觉与 macOS 15 CI 仍单独待验，不能用这批测试替代。最新细节与变异进度见第 8 节。
+S4 已完成，当前执行 S5。窗格命令、控件与预览已经接入，调试输出已清理；本机完整宿主闸门为 336 项测试、1 项开发态资源跳过、零失败。锁屏造成系统 key window 前置条件不成立，因此确定性预览测试注入窗口焦点状态，生产失焦保护保持有效。真实系统激活、全屏与 macOS 15 CI 仍单独待验；已生成的离屏截图也不能替代这些证据。最新细节与变异进度见第 8 节。
 
 ## 3. 窗口层方案与先行验证
 
@@ -150,11 +150,11 @@ macOS 26 上用两个真实 NSWindow 组成原生标签组，分别在 anchor �
 
 顺序为 S0 → S1 → S2 → S3 → S4 → S5。S0 已揭示原生组限制并在第 3 节调整方案，S3 须完成单窗口生命周期与验收迁移。
 
-当前剩余工作按三个可独立审阅的切片推进：
+S4a（窗格动作）与 S4b（分屏预览）已随 `f6b72db` 完成，包含对应测试与 22 组变异。S5 进度如下：
 
-1. **S4a 窗格动作收口**：统一终端与文件窗格按钮和右键菜单；按钮固定占位，当前 / 悬停 / 键盘聚焦时显现；分屏、关闭、缩放都传所属 UUID。用真实点击证明“操作 B 只切 B”，验证本地目录继承、文件复制语义、新窗格键盘落点，以及失效目标不回落到 A；同步原有 `tabs` 变异锚点。
-2. **S4b 分屏预览收口**：先使原生窗口测试前置条件成立，再验证右半区 / 下半区预览。补文件窗格、键盘、窗口失焦、尺寸变化、拖动互斥、标题栏隐藏及取消路径；断言预览期间 PID、布局、焦点、终端尺寸不变。清理调试输出，为新断言补目标红 / 独立对照绿 / 复原绿的变异证据。
-3. **S5 整体验收**：复验相关闸门，采集真实原生截图与全屏结果，记录 macOS 26 本机和 macOS 15 CI 的独立证据；同步规则、能力矩阵、CI 覆盖及遗留限制。只有证据齐备才将整个计划标记为交付。
+1. **交叉回归（本机通过）**：第 6.3 节的相关闸门已复验。收尾发现文件双击 selector 错误和两处旧测试漏洞，已修复并补变异证据，详见第 8 节。
+2. **系统与视觉证据**：七张原生离屏截图已生成；待可交互桌面补真实系统激活、全屏进入 / 退出及窗口尺寸恢复。macOS 15 需取得对应提交的 CI 结果，历史绿灯不作本轮证据。
+3. **文档与交付**：同步规则、能力矩阵、CI 覆盖及遗留限制；清理失效描述。只有第 7 节完成条件全部满足，才将整个计划标记为交付。
 
 最终截图至少包括：侧边与顶部两种布局的深 / 浅色、精简侧栏、多窗格悬停预览、终端与文件混排；空态、长标题与大量标签另做原生几何检查。截图用于视觉评审，焦点和会话保留仍以真实事件与对象 / PID 断言为准。
 
@@ -254,3 +254,66 @@ full CI 从 24 份脚本收敛到 20 份，同时新增偏好、连接选择器�
 收尾另修两条真实回归：远端文件窗格的旧「打开本地文件」动作必须验证标签仍存在且源窗格可见；通过按钮分屏后必须把键盘交给新文件列表，而被动浏览按钮时保持焦点不被文件刷新抢走。两者都先复现失败再修复，并各有两个变异。旧 `showsSurface` 缩放占位分支已无调用方，整体删除；缩放继续由 WorkspaceHostView 保持原宿主与兄弟尺寸。
 
 锁屏限制已定位：正常启动的独立 AppKit 应用同样不能激活，系统前台为登录窗口。测试只注入 NSWindow 的 `isKeyWindow` 状态，窗口内容仍由生产 `TabWindowController` 创建；这证明焦点接线与控件行为，不证明系统激活。真实全屏、系统焦点、最终截图及 macOS 15 CI 仍为 S5 待验项。
+
+
+### S5 原生离屏视觉记录与交叉回归
+
+2026-10-29 已从生产窗口控制器创建的原生视图抓取七张图；终端文字来自真实本地 shell 的 `pwd` / `uname` 输出，文件面板使用隔离测试目录。界面切换深 / 浅色，终端保留当前默认配色。
+
+| 布局 | 浅色界面 | 深色界面 |
+|---|---|---|
+| 侧边标签 | [查看](../design/tab-chrome-native/sidebar-light.png) | [查看](../design/tab-chrome-native/sidebar-dark.png) |
+| 顶部标签 | [查看](../design/tab-chrome-native/top-light.png) | [查看](../design/tab-chrome-native/top-dark.png) |
+| 精简侧栏 | [查看](../design/tab-chrome-native/compact-light.png) | [查看](../design/tab-chrome-native/compact-dark.png) |
+
+另有[终端与文件混排](../design/tab-chrome-native/mixed-files.png)。已逐张检查导航互斥、唯一加号、精简侧栏的窗口按钮避让、窗格按钮和目标半区预览。截图包含窗口框架；原生红绿灯呈灰色，反映测试应用没有获得系统激活。
+
+**证据边界**：这是离屏视觉记录。测试窗口的 key 状态受控，抓 Metal 帧前显式设置 surface 可见并请求绘制，不能据此声称已验证正常桌面激活或系统全屏。真实系统状态仍待可交互桌面验证。
+
+复现命令（图片生成在工程 `tmp/tab-chrome-screenshots/`）：
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+GHOSTERM_AUTOMATION_OFFSCREEN=1 GHOSTERM_CAPTURE_TAB_CHROME=1 TMPDIR="$PWD/tmp" \
+swift test --package-path apple/GhostermApp \
+  --filter 'PaneActionsTests/testHoverPreview|PaneActionsTests/testFilePaneUses'
+```
+
+2026-10-29 本机交叉回归已完成，逐项日志为 `tmp/tab-chrome-s5-*.log`。最终结果：
+
+| 检查 | 结果 |
+|---|---|
+| `tab-chrome` | 本轮七组分类共 39 组变异通过；S4 的 panes 22 组已通过，合计 61 组 |
+| `sidebar-hover / chrome / settings-ui` | 分别 2 组变异、9 项检查、23 项检查通过 |
+| `focus / split-dim / occlusion` | 分别 14 / 10 / 10 项检查通过 |
+| `default-entry / workspace` | 4 / 21 组变异通过；workspace 已用统一 gt_timeout 复验 |
+| `files / split-divider` | 15 / 8 项检查通过 |
+| S4 已通过的 `tabs / pane-chrome / terminal` | 37 / 24 项检查与 24 项终端测试，相关源码未再改动 |
+| 最终 `apple-app-gate.sh` | 336 项测试，1 项开发态随包主题资源跳过，零失败；隔离真实 sshd 已运行 |
+| 最终 `swift build` | 原生构建通过；Apple ABI 为 69 项引用 / 2 项登记未用 |
+
+工作区最终日志为 `tmp/tab-chrome-s5-workspace-timeout.log`，宿主与构建日志为
+`tmp/tab-chrome-s5-app-gate-final.log`、`tmp/tab-chrome-s5-build-final.log`。
+C gate 的 32 项测试 / 71 个符号证据沿用 S4，收尾未改 C 实现或 ABI。
+截图复现的两项测试通过，七张图片已检查；不据此跳过真实系统焦点、全屏和 macOS 15 证据。
+
+
+### S5 待执行的系统验收
+
+可交互桌面恢复后，使用真实生产窗口完成以下场景；不覆盖 `isKeyWindow`，不手动设置 fullScreen styleMask 来代替系统转换：
+
+- 分别从顶部、侧边与精简侧栏进入系统全屏，再退出；检查终端顶边、唯一加号、窗口按钮避让及原窗口尺寸恢复。
+- 在同一窗口中切换两条真实 shell 标签及导航布局，检查原有宿主 / surface / PID 保留、键盘输入落在当前窗格；点击非当前窗格分屏按钮后输入落到新窗格。
+- 切到其他应用再切回，检查预览消失、按钮重新可用、焦点和终端渲染恢复；全屏中也执行一次。
+- 记录实际提交、系统版本、通过 / 失败和屏幕截图。macOS 15 另以该提交的 full CI 结果登记，不能引用之前提交的通过结果。
+
+当前尚无上述系统验收结果；桌面锁屏与旧提交的 CI 成功均不计为通过。
+
+
+### S5 交叉回归发现的修复
+
+- **标题栏命中测试**：旧测试误把工作区局部坐标传给 `hitTest`，采到了窗口底部，放开拖动把手的移窗行为后仍假绿。改为父视图坐标，并先证明命中终端与文件标题的拖动把手；生产拖动行为不变。
+- **文件双击动作**：`Coordinator.perform(_:)` 与 `NSObject.perform(_:)` 重载冲突，selector 实际成为 `performSelector:`，派发时报错。处理函数改名 `openClickedRow(_:)`。测试通过生产窗口安装的 action / target 验证目录实际打开；仅提供只读 clickedRow 的事件数据，不将其称作物理双击证据。
+- **工作区验证脚本**：保留“安装缺失”变异，另加“错误 selector”变异，共 21 组。每组配独立对照，失败输出原始日志，超时统一走 `gt_timeout`。先前两条假绿不计为验收证据，以修复后的整组结果为准。
+
+修复已提交为 `2efecae`，相关源码、测试、脚本与证据口径同步更新。文件、工作区及完整宿主回归均已通过；见本节结果表。

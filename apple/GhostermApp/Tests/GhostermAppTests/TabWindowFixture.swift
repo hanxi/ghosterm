@@ -30,8 +30,11 @@ import XCTest
         for _ in 0..<5 { project.deleteLastPathComponent() }
         let output = project.appendingPathComponent("tmp/tab-chrome-screenshots")
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let image = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
-        root.cacheDisplay(in: root.bounds, to: image)
+        let frame = root.superview ?? root
+        let image = try XCTUnwrap(frame.bitmapImageRepForCachingDisplay(in: frame.bounds))
+        window.effectiveAppearance.performAsCurrentDrawingAppearance {
+            frame.cacheDisplay(in: frame.bounds, to: image)
+        }
         try XCTUnwrap(image.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(name + ".png"))
     }
     func close() {

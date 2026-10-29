@@ -120,8 +120,9 @@
 >   不分组，终端上方无全宽标题占位。外观设置保存标签位置与精简侧栏；唯一加号打开连接选择器，
 >   主机管理与标签搜索保留主菜单入口。`TabWindowTests` 验模式切换保留宿主、surface、shell PID
 >   和键盘落点；`tab-chrome` 变异护导航几何、UUID 目标、错误提示和菜单。
->   **🟡 证据范围**：macOS 26 本机原生构建与完整宿主测试通过；真实系统激活、全屏、最终截图
->   及 macOS 15 CI 本轮结果仍待验，进度见 [重构计划](plan-tab-chrome-refactor.md)。
+>   **🟡 证据范围**：macOS 26 原生构建、336 项宿主测试（1 项开发态资源跳过，零失败）与相关交叉回归通过；
+>   七张原生离屏截图已记录。真实系统激活、全屏及 macOS 15 CI 本轮结果仍待验，
+>   进度见 [重构计划](plan-tab-chrome-refactor.md)。
 >   + 多标签页（后台 surface 保持挂载并停止渲染）、递归分屏（⌘D / ⇧⌘D）、
 >   退出折叠与分隔拖动；标签两种布局按 UUID 选择、重排与关闭。
 >   + `TabContextMenu` 统一顶部 / 侧边标签右键；`PaneActionsView` / `PaneContextMenu`

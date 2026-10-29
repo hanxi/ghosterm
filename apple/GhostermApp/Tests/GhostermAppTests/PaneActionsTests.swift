@@ -86,6 +86,35 @@ import XCTest
         try hover(f, second.id, enter: false)
         XCTAssertFalse(controls.controlsVisible, "离开非当前窗格应隐藏按钮")
         XCTAssertNil(controls.hitTest(controls.frame.origin), "隐藏按钮不能接鼠标")
+        if ProcessInfo.processInfo.environment["GHOSTERM_CAPTURE_TAB_CHROME"] == "1" {
+            tab.title = "Workspace"
+            _ = try f.shell("Shell")
+            let files = TerminalTab(kind: .localFiles)
+            let panel = FilesPanelModel(backend: LocalFileBackend(initialPath: f.directory.path))
+            files.addFilePane(WorkspaceFilePane(remote: false, panel: panel)); panel.start()
+            files.title = "Files"; f.model.tabs.add(files)
+            f.model.tabs.activate(tab)
+            var project = URL(fileURLWithPath: #filePath)
+            for _ in 0..<5 { project.deleteLastPathComponent() }
+            let quotedProject = "'" + project.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            for pane in [first, second] {
+                pane.surface?.sendCommandLine("export PS1='ghosterm $ '; cd " + quotedProject + "; clear; pwd; uname -sm")
+            }
+            f.settle(1)
+            for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                f.window.appearance = NSAppearance(named: appearance)
+                for (layout, placement, compact) in [("sidebar", TabPlacement.sidebar, false), ("top", .top, false), ("compact", .sidebar, true)] {
+                    f.model.preferences.tabPlacement = placement
+                    f.model.preferences.compactSidebar = compact
+                    f.settle()
+                    try hover(f, second.id, enter: true)
+                    try button(f, second.id, "split-right").mouseEntered(with: event(f, .mouseEntered))
+                    for pane in [first, second] { pane.surface?.setVisible(true); pane.surface?.draw() }
+                    f.settle()
+                    try f.capture("review-\(layout)-\(name)")
+                }
+            }
+        }
     }
 
     func testNativeClickSplitsItsOwnPaneAndFocusesTheNewTerminal() throws {
@@ -214,6 +243,11 @@ import XCTest
             guard let host = workspace.hosts[copy.id], let responder = f.window.firstResponder as? NSView else { return false }
             return responder.isDescendant(of: host)
         }, "文件分屏后键盘必须交给新文件列表")
+        if ProcessInfo.processInfo.environment["GHOSTERM_CAPTURE_TAB_CHROME"] == "1" {
+            for pane in tab.panes { pane.surface?.setVisible(true); pane.surface?.draw() }
+            f.settle()
+            try f.capture("review-mixed-files")
+        }
         for (id, frame) in terminalFrames {
             XCTAssertEqual(workspace.hosts[id]?.frame, frame, "文件分屏不改变终端区域")
         }

@@ -1,26 +1,12 @@
-// WindowChrome — 把标题栏变成我们的顶栏（对齐 iGhostVT 的观感）。
-//
-// 要做到的效果（用户给的参照是 iGhostVT）：窗口**看不到系统标题栏**，
-// 顶栏就是那条 38pt 高的自绘条，红绿灯直接嵌在它的垂直中心上，下面紧接
-// 内容（侧边栏与终端从同一条线开始）。这正是 iGhostVT 的做法
-// （`Application/CatalystWindowChrome.swift`），只是它是 Catalyst、用
-// ObjC runtime 绕路；我们是真 AppKit，可以直说。
-//
-// 三件事必须一起做，缺一个都会露馅：
-//   1. `.fullSizeContentView` + `titlebarAppearsTransparent` + 隐藏标题字：
-//      内容铺满整窗（否则顶栏被压在系统标题栏下面，多出一条空带）；
-//   2. `titlebarSeparatorStyle = .none`：去掉标题栏那条分隔线；
-//   3. 把三个红绿灯**移进我们的顶栏**：系统默认位置是按系统标题栏高度
-//      （约 28pt）算的，我们的条是 38pt——不移就会看着偏上、与内容对不齐。
-//
-// 为什么不用 `titlebarHeight` 之类的私有 API 调整标题栏高度：那是 AppKit
-// 私有属性（`titlebarHeight` 只有 Catalyst 的 UINSWindow 才有对应物），
-// 在真 AppKit 上只能靠移按钮 + 让内容铺满来实现同样的观感。
+// 单窗口外观：内容铺满窗口，系统红绿灯嵌入导航区。
+// 顶部布局留一行 38pt 标签栏；侧边布局只在侧栏顶部留出窗口按钮空间，
+// 终端列直接延伸到窗口顶边。导航视图负责各自的安全区，这里仅管理系统窗口外观。
+// 使用公开 AppKit 接口隐藏标题和分隔线、移动标准窗口按钮，不依赖私有标题栏属性。
 import AppKit
 import SwiftUI
 
 public enum WindowChrome {
-    /// 顶栏高度。红绿灯按它的垂直中心摆，侧边栏与终端也从这条线以下开始。
+    /// 导航行高度；红绿灯按此居中。侧边模式的终端列不预留这一行。
     public static let barHeight: CGFloat = 38
 
     /// 把窗口收拾成「顶栏即标题栏」的样子。必须在窗口有内容、且已
@@ -91,7 +77,7 @@ public enum WindowChrome {
     private static let trafficLightHeight: CGFloat = 14
 
     /// 红绿灯右侧需要留出的宽度（三个 14pt 按钮 + 间距 + 左边距）。
-    /// 顶栏左侧内容据此避让——不然侧边栏切换按钮会压在红绿灯上。
+    /// 导航区中的新建按钮与标签据此避让系统窗口按钮。
     public static let trafficLightsWidth: CGFloat = 78
 }
 

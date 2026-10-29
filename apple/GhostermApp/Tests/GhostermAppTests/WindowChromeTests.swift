@@ -107,7 +107,7 @@ final class WindowChromeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(WindowChrome.trafficLightsWidth,
                                     zoom.frame.maxX,
                                     "顶栏左侧留白要盖住最后一个按钮的右边缘，"
-                                    + "否则侧栏切换按钮会压在红绿灯上")
+                                    + "否则导航控件会压在红绿灯上")
     }
 
     /// 双击顶栏 = 系统的「双击窗口标题栏以…」行为，**按系统设置走**。

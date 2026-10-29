@@ -6,7 +6,7 @@
 #
 #   W1 不做 fullSizeContentView（顶栏被压在系统标题栏下）；
 #   W2 红绿灯不挪（还是系统标题栏的位置，偏上）；
-#   W3 顶栏左侧不留红绿灯的位置（切换按钮压在按钮上）。
+#   W3 顶栏左侧不留红绿灯的位置（导航控件压在按钮上）。
 #
 # 纪律（AGENTS.md）：起跑前扫残留标记（命中 exit 2）；trap INT TERM 复原；
 # 回滚后比对起跑前记录的 sha256。
@@ -106,7 +106,7 @@ new = "    public static let trafficLightsWidth: CGFloat = 8 /* GT_MUTATION_MARK
 assert old in s, "W3 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PY
-expect red "W3 切换按钮压在红绿灯上" run_chrome
+expect red "W3 导航控件压在红绿灯上" run_chrome
 rollback
 
 echo "== W4：双击顶栏忽略系统设置（None 也缩放） =="
