@@ -29,20 +29,61 @@ data class Host(val alias: String, val hostname: String, val user: String, val p
     val address: String get() = (if (user.isEmpty()) "" else "$user@") + hostname + ":$port"
 }
 
-data class HostEdit(val originalAlias: String?, val alias: String, val hostname: String, val user: String, val port: String) {
+enum class HostField(val keyword: String, val label: String) {
+    HOSTNAME("HostName", "主机地址"), USER("User", "远端用户名"), PORT("Port", "端口");
+
+    fun source(host: Host?): FieldSource? = when (this) {
+        HOSTNAME -> host?.source?.hostname; USER -> host?.source?.user; PORT -> host?.source?.port
+    }
+    fun effective(host: Host): String = when (this) {
+        HOSTNAME -> host.hostname; USER -> host.user; PORT -> host.port.toString()
+    }
+}
+
+/** Explicit values and inheritance are independent of the currently effective value. */
+data class HostEdit(val originalAlias: String?, val alias: String, val hostname: String, val user: String,
+                    val port: String, val inherited: Set<HostField> = emptySet()) {
+    companion object {
+        fun from(host: Host?): HostEdit {
+            if (host == null) return HostEdit(null, "", "", "", "22")
+            fun initial(field: HostField) = field.source(host)?.explicitValue ?: field.effective(host)
+            return HostEdit(host.alias, host.alias, initial(HostField.HOSTNAME), initial(HostField.USER), initial(HostField.PORT),
+                HostField.entries.filter { it.source(host)?.explicitValue == null }.toSet())
+        }
+    }
+    fun value(field: HostField): String = when (field) {
+        HostField.HOSTNAME -> hostname; HostField.USER -> user; HostField.PORT -> port
+    }
+    fun withValue(field: HostField, value: String): HostEdit = when (field) {
+        HostField.HOSTNAME -> copy(hostname = value); HostField.USER -> copy(user = value); HostField.PORT -> copy(port = value)
+    }
+    fun withInheritance(field: HostField, enabled: Boolean) =
+        copy(inherited = if (enabled) inherited + field else inherited - field)
+    fun normalized() = copy(alias = alias.trim(), hostname = hostname.trim(), user = user.trim(), port = port.trim())
+    fun isDirty(previous: Host?): Boolean {
+        if (previous == null) return this != from(null)
+        return alias != previous.alias || HostField.entries.any { field ->
+            val explicit = field.source(previous)?.explicitValue
+            if (field in inherited) explicit != null else value(field) != explicit
+        }
+    }
     fun validate() {
         require(alias.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,127}"))) { "别名只能包含字母、数字、点、短横线与下划线" }
-        require(hostname.isNotBlank() && hostname.none { it.isWhitespace() || it in "\u0000\r\n#\"'\\" }) { "请填写有效的主机地址" }
-        require(user.isNotBlank() && user.none { it.isWhitespace() || it in "\u0000\r\n#\"'\\" }) { "请填写远端用户名" }
-        require(port.toIntOrNull() in 1..65535) { "端口必须为 1–65535" }
+        fun validToken(value: String) = value.isNotBlank() && value.none { it.isWhitespace() || it in "\u0000\r\n#\"'\\" }
+        if (HostField.HOSTNAME !in inherited) require(validToken(hostname)) { "请填写有效的主机地址，或选择使用继承值" }
+        if (HostField.USER !in inherited) require(validToken(user)) { "请填写远端用户名，或选择使用继承值" }
+        if (HostField.PORT !in inherited) require(port.toIntOrNull() in 1..65535) { "端口必须为 1–65535，或选择使用继承值" }
         require(originalAlias == null || originalAlias == alias) { "别名修改请使用 SSH 配置编辑器" }
     }
-    fun changes(previous: Host?): Map<String, String> {
+    fun changes(previous: Host?): Map<String, String?> {
         validate()
         return buildMap {
-            if (previous == null || hostname != previous.hostname) put("HostName", hostname)
-            if (previous == null || user != previous.user) put("User", user)
-            if (previous == null || port.toInt() != previous.port) put("Port", port)
+            for (field in HostField.entries) {
+                val explicit = field.source(previous)?.explicitValue
+                if (field in inherited) {
+                    if (explicit != null) put(field.keyword, null)
+                } else if (value(field) != explicit) put(field.keyword, value(field))
+            }
         }
     }
 }

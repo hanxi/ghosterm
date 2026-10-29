@@ -13,10 +13,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 enum class Page { HOSTS, SETTINGS, ABOUT, CONFIG, EDIT_HOST }
-data class HostDraft(val original: Host?, val alias: String, val hostname: String, val user: String, val port: String) {
-    fun edit() = HostEdit(original?.alias, alias.trim(), hostname.trim(), user.trim(), port.trim())
-    val dirty: Boolean get() = if (original == null) alias.isNotEmpty() || hostname.isNotEmpty() || user.isNotEmpty() || port != "22"
-        else alias != original.alias || hostname != original.hostname || user != original.user || port != original.port.toString()
+data class HostDraft(val original: Host?, val edit: HostEdit = HostEdit.from(original)) {
+    val dirty: Boolean get() = edit.isDirty(original)
 }
 
 class HostsViewModel(application: Application) : AndroidViewModel(application) {
@@ -66,7 +64,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun edit(host: Host? = null) {
         if (busy || snapshot == null) return
-        draft = HostDraft(host, host?.alias ?: "", host?.hostname ?: "", host?.user ?: "", host?.port?.toString() ?: "22")
+        draft = HostDraft(host)
         error = null; page = Page.EDIT_HOST
     }
     fun back() { if (!busy) { if (dirty) discard = true else leave() } }
@@ -80,7 +78,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         val alias = draft?.original?.alias
         val current = snapshot?.hosts?.firstOrNull { it.alias.equals(alias, ignoreCase = true) }
         if (current == null) { draft = null; page = Page.HOSTS }
-        else draft = HostDraft(current, current.alias, current.hostname, current.user, current.port.toString())
+        else draft = HostDraft(current)
     }
     fun confirmDiscard() = leave()
     fun keepEditing() { discard = false }
@@ -90,7 +88,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         val base = snapshot ?: return
         val editing = draft ?: return
         work {
-            val saved = withContext(Dispatchers.IO) { repository.saveHost(base, editing.edit()) }
+            val saved = withContext(Dispatchers.IO) { repository.saveHost(base, editing.edit.normalized()) }
             snapshot = saved.snapshot; notice = saved.warning ?: "主机已保存"; page = Page.HOSTS; draft = null
         }
     }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -19,6 +20,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.hanxi.ghosterm.domain.HostField
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -148,6 +153,7 @@ private fun HostsPage(model: HostsViewModel) {
 @Composable
 private fun EditHostPage(model: HostsViewModel) {
     val draft = model.draft ?: return
+    val edit = draft.edit
     val source = draft.original?.source
     val enabled = !model.busy && model.canEditDraft
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -160,16 +166,38 @@ private fun EditHostPage(model: HostsViewModel) {
             Text(source?.editRestriction ?: "无法确定主机配置归属，请重新载入", color = MaterialTheme.colorScheme.error)
             OutlinedButton(onClick = model::config, enabled = !model.busy) { Text("查看与编辑 SSH 配置") }
         }
-        Text("输入框显示当前生效值；未修改的字段不会写回。字段下方说明值来自哪里。", style = MaterialTheme.typography.bodySmall)
-        OutlinedTextField(draft.alias, { model.draft = draft.copy(alias = it) }, label = { Text("别名") }, singleLine = true,
+        Text("开启“使用继承值”时由配置规则或默认值决定；关闭后为此主机设置。未改字段保留原文。", style = MaterialTheme.typography.bodySmall)
+        OutlinedTextField(edit.alias, { model.draft = draft.copy(edit = edit.copy(alias = it)) }, label = { Text("别名") }, singleLine = true,
             enabled = !model.busy && draft.original == null, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(draft.hostname, { model.draft = draft.copy(hostname = it) }, label = { Text("主机地址") }, singleLine = true,
-            supportingText = { source?.hostname?.let { Text(it.description) } }, enabled = enabled, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(draft.user, { model.draft = draft.copy(user = it) }, label = { Text("远端用户名") }, singleLine = true,
-            supportingText = { source?.user?.let { Text(it.description) } }, enabled = enabled, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(draft.port, { model.draft = draft.copy(port = it) }, label = { Text("端口") }, singleLine = true,
-            supportingText = { source?.port?.let { Text(it.description) } },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = enabled, modifier = Modifier.fillMaxWidth())
+        for (field in HostField.entries) {
+            val provenance = field.source(draft.original)
+            val inherits = field in edit.inherited
+            val pendingInheritance = inherits && (draft.original == null || provenance?.explicitValue != null)
+            Column {
+                OutlinedTextField(if (pendingInheritance) "" else edit.value(field),
+                    { model.draft = draft.copy(edit = edit.withValue(field, it)) },
+                    label = { Text(field.label) }, singleLine = true,
+                    placeholder = { if (pendingInheritance) Text("保存后重新求值") },
+                    supportingText = {
+                        Column {
+                            provenance?.let { Text(it.description) }
+                            if (provenance?.explicitValue != null && !provenance.effectiveIsExplicit)
+                                Text("当前生效：${field.effective(draft.original!!).ifEmpty { "未设置" }}")
+                            if (pendingInheritance) Text("待保存：使用其他规则或默认值，移除此 Host 块的设置。")
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = if (field == HostField.PORT) KeyboardType.Number else KeyboardType.Text),
+                    enabled = enabled && !inherits, modifier = Modifier.fillMaxWidth())
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .toggleable(value = inherits, enabled = enabled, role = Role.Switch) {
+                        model.draft = draft.copy(edit = edit.withInheritance(field, it))
+                    }.semantics { contentDescription = "${field.label}使用继承值" },
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("使用继承值", Modifier.weight(1f))
+                    Switch(checked = inherits, onCheckedChange = null, enabled = enabled)
+                }
+            }
+        }
         Text("身份与认证将在连接功能中接入。现有 IdentityFile 和其他指令保留。", style = MaterialTheme.typography.bodySmall)
     }
 }

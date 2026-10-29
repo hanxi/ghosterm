@@ -148,7 +148,8 @@ class ConfigRepositoryTest {
         val original = "Host demo\n  HostName example.test\n  User alice\n  FutureOption preserve\n  User carol\n"
         val file = File(directory, "config").apply { writeText(original) }
         val repo = ConfigRepository(directory)
-        val saved = runCatching { repo.saveHost(repo.load(), HostEdit("demo", "demo", "example.test", "bob", "22")) }
+        val initial = repo.load()
+        val saved = runCatching { repo.saveHost(initial, HostEdit.from(initial.hosts.single()).copy(user = "bob")) }
         assertTrue("Sparse duplicate edit must succeed: ${saved.exceptionOrNull()}", saved.isSuccess)
         assertEquals("Host demo\n  HostName example.test\n  User bob\n  FutureOption preserve\n", file.readText())
         assertEquals("bob", saved.getOrThrow().snapshot.hosts.single().user)
@@ -160,7 +161,8 @@ class ConfigRepositoryTest {
         val file = File(directory, "config").apply { writeBytes(original) }
         val repo = ConfigRepository(directory, editConfig = { _, _, _, _ -> corrupted })
         assertThrows(ConfigAccess::class.java) {
-            repo.saveHost(repo.load(), HostEdit("demo", "demo", "example.test", "bob", "22"))
+            val initial = repo.load()
+            repo.saveHost(initial, HostEdit.from(initial.hosts.single()).copy(user = "bob"))
         }
         assertArrayEquals(original, file.readBytes())
         assertFalse(directory.listFiles()!!.any { it.name.startsWith("config.backup-") })
@@ -185,8 +187,79 @@ class ConfigRepositoryTest {
     @Test fun inheritedValuesAreNotWrittenBack() = fixture { directory ->
         val file = File(directory, "config").apply { writeText("Host demo\n  HostName example.test\nHost *\n  User inherited\n  Port 2222\n") }
         val repo = ConfigRepository(directory); val initial = repo.load()
-        repo.saveHost(initial, HostEdit("demo", "demo", "changed.test", "inherited", "2222"))
+        repo.saveHost(initial, HostEdit.from(initial.hosts.single()).copy(hostname = "changed.test"))
         assertEquals("Host demo\n  HostName changed.test\nHost *\n  User inherited\n  Port 2222\n", file.readText())
+    }
+    @Test fun sameValueCanBeExplicitAndRestoredToInheritance() = fixture { directory ->
+        val original = "Host demo\n  HostName example.test\nHost *\n  User inherited\n  Port 2222\n"
+        val file = File(directory, "config").apply { writeText(original) }
+        val repo = ConfigRepository(directory); val initial = repo.load()
+        val override = HostEdit.from(initial.hosts.single()).withInheritance(HostField.USER, false)
+        val explicit = repo.saveHost(initial, override).snapshot
+        assertEquals("inherited", explicit.hosts.single().source!!.user.explicitValue)
+        assertTrue(explicit.hosts.single().source!!.user.effectiveIsExplicit)
+        assertNotEquals(original, file.readText())
+        val restore = HostEdit.from(explicit.hosts.single()).withInheritance(HostField.USER, true)
+        val saved = runCatching { repo.saveHost(explicit, restore) }
+        assertTrue("Restoring inheritance must succeed: ${saved.exceptionOrNull()}", saved.isSuccess)
+        assertEquals(original, file.readText())
+        assertNull(saved.getOrThrow().snapshot.hosts.single().source!!.user.explicitValue)
+        assertEquals("inherited", saved.getOrThrow().snapshot.hosts.single().user)
+    }
+    @Test fun emptyInheritedUserCanBeKeptAndRestored() = fixture { directory ->
+        val file = File(directory, "config").apply { writeText("Host demo\n  HostName example.test\n") }
+        val repo = ConfigRepository(directory); val initial = repo.load()
+        val changed = runCatching { repo.saveHost(initial, HostEdit.from(initial.hosts.single()).copy(hostname = "new.test")) }
+        assertTrue("Empty inherited User is valid: ${changed.exceptionOrNull()}", changed.isSuccess)
+        assertEquals("", changed.getOrThrow().snapshot.hosts.single().user)
+        val updated = changed.getOrThrow().snapshot
+        val explicit = repo.saveHost(updated, HostEdit.from(updated.hosts.single())
+            .withInheritance(HostField.USER, false).copy(user = "alice")).snapshot
+        val restored = runCatching { repo.saveHost(explicit, HostEdit.from(explicit.hosts.single()).withInheritance(HostField.USER, true)) }
+        assertTrue("Deleting the last User is valid: ${restored.exceptionOrNull()}", restored.isSuccess)
+        assertEquals("", restored.getOrThrow().snapshot.hosts.single().user)
+        assertEquals("Host demo\n  HostName new.test\n", file.readText())
+    }
+    @Test fun newHostMayInheritEveryConnectionField() = fixture { directory ->
+        val repo = ConfigRepository(directory)
+        val saved = repo.saveHost(repo.load(), HostEdit.from(null).copy(alias = "inherited-only",
+            inherited = HostField.entries.toSet())).snapshot
+        assertEquals(listOf("inherited-only"), saved.hosts.map { it.alias })
+        assertEquals("inherited-only", saved.hosts.single().hostname)
+        assertEquals("", saved.hosts.single().user)
+        assertEquals(22, saved.hosts.single().port)
+        assertEquals("Host inherited-only", File(directory, "config").readText().trim())
+        for (field in HostField.entries) assertNull(field.source(saved.hosts.single())!!.explicitValue)
+    }
+    @Test fun shadowedOverrideIsRejectedBeforeBackup() = fixture { directory ->
+        val original = "User earlier\nHost demo\n  HostName example.test\n"
+        val file = File(directory, "config").apply { writeText(original) }
+        val repo = ConfigRepository(directory); val initial = repo.load()
+        assertThrows(ConfigAccess::class.java) {
+            repo.saveHost(initial, HostEdit.from(initial.hosts.single()).withInheritance(HostField.USER, false).copy(user = "later"))
+        }
+        assertEquals(original, file.readText())
+        assertFalse(directory.listFiles()!!.any { it.name.startsWith("config.backup-") })
+    }
+    @Test fun unchangedShadowedExplicitValueIsNotRewritten() = fixture { directory ->
+        val original = "User inherited\nHost demo\n  User explicit\n  HostName example.test\n"
+        val file = File(directory, "config").apply { writeText(original) }
+        val repo = ConfigRepository(directory); val initial = repo.load()
+        val saved = runCatching { repo.saveHost(initial, HostEdit.from(initial.hosts.single())) }
+        assertTrue("Unchanged shadowed value must be preserved: ${saved.exceptionOrNull()}", saved.isSuccess)
+        assertEquals(original, file.readText())
+        assertFalse(directory.listFiles()!!.any { it.name.startsWith("config.backup-") })
+    }
+    @Test fun editorMustActuallyRemoveRequestedDirective() = fixture { directory ->
+        val original = "Host demo\n  User explicit\n"
+        val file = File(directory, "config").apply { writeText(original) }
+        val repo = ConfigRepository(directory, editConfig = { bytes, _, _, _ -> bytes })
+        val initial = repo.load()
+        assertThrows(ConfigAccess::class.java) {
+            repo.saveHost(initial, HostEdit.from(initial.hosts.single()).withInheritance(HostField.USER, true))
+        }
+        assertEquals(original, file.readText())
+        assertFalse(directory.listFiles()!!.any { it.name.startsWith("config.backup-") })
     }
     @Test fun missingIncludeAndInvalidUtf8RemainErrors() = fixture { directory ->
         val file = File(directory, "config")

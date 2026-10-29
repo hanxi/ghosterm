@@ -59,7 +59,7 @@ open class ConfigFileOps {
 class ConfigRepository(
     private val directory: File,
     private val ops: ConfigFileOps = ConfigFileOps(),
-    private val editConfig: (ByteArray, String, Map<String, String>, Boolean) -> ByteArray = { bytes, alias, changes, create ->
+    private val editConfig: (ByteArray, String, Map<String, String?>, Boolean) -> ByteArray = { bytes, alias, changes, create ->
         ConfigBridge.edit(bytes, alias, changes, create)
     },
 ) {
@@ -129,7 +129,7 @@ class ConfigRepository(
         if (host == null && previous.hosts.any { it.alias.equals(edit.alias, ignoreCase = true) })
             throw ConfigAccess("该主机别名已存在")
         val changes = edit.changes(host)
-        if (changes.isEmpty()) return ConfigSaved(load().also { if (it.revision != previous.revision) throw ConfigConflict() })
+        if (host != null && changes.isEmpty()) return ConfigSaved(load().also { if (it.revision != previous.revision) throw ConfigConflict() })
         val candidate = editConfig(previous.bytes, edit.alias, changes, host == null)
         // Refuse an edit if the shared editor touched unrelated lines. This is a
         // byte-preservation guard, not a second evaluator of ssh_config semantics.
@@ -143,10 +143,15 @@ class ConfigRepository(
         }
         val parsed = snapshot(candidate, previous.revision)
         val effective = parsed.hosts.firstOrNull { it.alias == edit.alias } ?: throw ConfigAccess("编辑后找不到主机")
-        if (("HostName" in changes && effective.hostname != edit.hostname) ||
-            ("User" in changes && effective.user != edit.user) ||
-            ("Port" in changes && effective.port != edit.port.toInt()))
-            throw ConfigAccess("更早的 Host 规则或 Include 覆盖了这些字段，请在 SSH 配置页调整顺序")
+        for (field in HostField.entries) {
+            if (field.keyword !in changes) continue
+            val requested = changes[field.keyword]
+            val declared = field.source(effective) ?: throw ConfigAccess("编辑后无法确认字段来源")
+            if (declared.explicitValue != requested)
+                throw ConfigAccess("${field.label}未按请求写入或恢复继承，原配置未修改")
+            if (requested != null && !declared.effectiveIsExplicit)
+                throw ConfigAccess("${field.label}被更早的 Host 规则或 Include 覆盖，请在 SSH 配置页调整顺序")
+        }
         return save(previous, candidate)
     }
 

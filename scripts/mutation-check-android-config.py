@@ -37,7 +37,11 @@ def main():
             require(run([*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs' / apk]))
     def test(method, green):
         ui_tests = {'addEditSearchAndDiscardUseRealConfiguration', 'fieldSourcesAndSharedBlockWarningAreVisible',
-                    'readOnlyHostCanInspectConfigAndReturnWithFreshOwnership'}
+                    'readOnlyHostCanInspectConfigAndReturnWithFreshOwnership',
+                    'inheritanceSwitchSavesSameValueAndThenRemovesOverride',
+                    'inheritanceChangesRequireDiscardAndRevertingIsClean',
+                    'invalidExplicitValueKeepsDraftAndCanReturnToInheritance',
+                    'allFieldsCanInheritForNewAndExistingHost'}
         name = ('HostScreenTest' if method in ui_tests else 'ConfigRepositoryTest') + '#' + method
         result = run([*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
                       'com.hanxi.ghosterm.' + name,
@@ -53,7 +57,7 @@ def main():
         (repo, 'if (revision != previous.revision) throw ConfigConflict()', 'if (false && revision != previous.revision) throw ConfigConflict()', 'equalSizeExternalEditIsRejected', control),
         (repo, 'if (raw().second != revision) throw ConfigConflict()', 'if (false && raw().second != revision) throw ConfigConflict()', 'externalEditDuringBackupIsRejected', control),
         (repo, 'ops.replace(temp, target)', 'Files.deleteIfExists(target); ops.replace(temp, target)', 'replaceFailureNeverDeletesOriginal', control),
-        (domain, 'if (previous == null || user != previous.user)', 'if (true)', 'inheritedValuesAreNotWrittenBack', control),
+        (domain, 'if (field in inherited) {', 'if (field in inherited && field != HostField.USER) {', 'inheritedValuesAreNotWrittenBack', control),
         (repo, 'name.isNotBlank() && name.none { it in "*?![]" || it.isWhitespace() }', 'name.isNotBlank()', 'sparseEditAndBackupPreserveUnchangedBytes', control),
         (native, '.default_user = ""', '.default_user = "android_uid"', 'unspecifiedRemoteUserRemainsEmpty', control),
         (screen, 'model.edit(host)', 'model.edit()', 'addEditSearchAndDiscardUseRealConfiguration', control),
@@ -70,12 +74,12 @@ def main():
          '/* contiguous splice regression */\n        if (elist_splice(&l, first, nfound, rl, rn, e->keyword, blk) != 0)',
          'complexDuplicateEditPreservesOtherDirectives', control),
         (core, 's->origin = n;', 's->origin = NULL;',
-         'provenanceDistinguishesShadowedExplicitInheritedAndDefault', control),
+         'provenanceDistinguishesShadowedExplicitInheritedAndDefault', 'backupFailureLeavesOriginal'),
         (native, 'info.included ? "1" : "0"', '"0"',
          'ambiguousAndIncludedHostsAreReadOnlyBeforeEditing', control),
         (repo, 'if (host != null && host.source?.editable != true)', 'if (host != null && host.source?.editable == null)',
          'ambiguousAndIncludedHostsAreReadOnlyBeforeEditing', control),
-        (screen, 'source?.user?.let { Text(it.description) }', 'source?.user?.let { Text("") }',
+        (screen, 'provenance?.let { Text(it.description) }', 'provenance?.let { Text("") }',
          'fieldSourcesAndSharedBlockWarningAreVisible', control),
         (screen, 'if (source.patternCount > 1)', 'if (false && source.patternCount > 1)',
          'fieldSourcesAndSharedBlockWarningAreVisible', control),
@@ -86,9 +90,38 @@ def main():
         (model, 'notice = saved.warning ?: "SSH 配置已保存"; page = configReturn\n            restoreDraftOrClear()',
          'notice = saved.warning ?: "SSH 配置已保存"; page = configReturn',
          'readOnlyHostCanInspectConfigAndReturnWithFreshOwnership', control),
+        (domain, 'else if (value(field) != explicit) put(field.keyword, value(field))',
+         'else if (previous == null || value(field) != field.effective(previous)) put(field.keyword, value(field))',
+         'sameValueCanBeExplicitAndRestoredToInheritance', control),
+        (native, 'edits[i].values = has_value ? tokens[i] : NULL;',
+         'tokens[i][0] = has_value ? value_storage[i] : ""; edits[i].values = tokens[i];',
+         'emptyInheritedUserCanBeKeptAndRestored', control),
+        (domain, 'if (HostField.USER !in inherited) require(validToken(user))',
+         'require(validToken(user))', 'emptyInheritedUserCanBeKeptAndRestored', control),
+        (repo, 'if (host != null && changes.isEmpty())', 'if (changes.isEmpty())',
+         'newHostMayInheritEveryConnectionField', control),
+        (repo, 'if (requested != null && !declared.effectiveIsExplicit)',
+         'if (false && requested != null && !declared.effectiveIsExplicit)',
+         'shadowedOverrideIsRejectedBeforeBackup', control),
+        (domain, 'field.source(host)?.explicitValue ?: field.effective(host)', 'field.effective(host)',
+         'unchangedShadowedExplicitValueIsNotRewritten', control),
+        (repo, 'if (declared.explicitValue != requested)', 'if (false && declared.explicitValue != requested)',
+         'editorMustActuallyRemoveRequestedDirective', control),
+        (model, 'val dirty: Boolean get() = edit.isDirty(original)', 'val dirty: Boolean get() = false',
+         'inheritanceChangesRequireDiscardAndRevertingIsClean', control),
+        (screen, 'model.draft = draft.copy(edit = edit.withInheritance(field, it))', 'model.draft = draft',
+         'inheritanceSwitchSavesSameValueAndThenRemovesOverride', control),
+        (domain, 'if (HostField.USER !in inherited) require(validToken(user))',
+         'if (false && HostField.USER !in inherited) require(validToken(user))',
+         'invalidExplicitValueKeepsDraftAndCanReturnToInheritance', control),
+        (domain, 'if (explicit != null) put(field.keyword, null)',
+         'if (explicit != null && field != HostField.PORT) put(field.keyword, null)',
+         'allFieldsCanInheritForNewAndExistingHost', control),
+        (screen, 'val enabled = !model.busy && model.canEditDraft', 'val enabled = !model.busy',
+         'readOnlyHostCanInspectConfigAndReturnWithFreshOwnership', control),
     ]
     build()
-    for name in dict.fromkeys([case[3] for case in cases] + [control]): test(name, True)
+    for name in dict.fromkeys(name for case in cases for name in case[3:]): test(name, True)
     try:
         for index, (path, before, after, target, independent) in enumerate(cases, 1):
             source = originals[path].decode()

@@ -118,16 +118,18 @@ Java_com_hanxi_ghosterm_bridge_ConfigBridge_editBytes(JNIEnv *env, jobject self,
     for (jsize i = 0; i < count; ++i) {
         jbyteArray key = (*env)->GetObjectArrayElement(env, keys, i);
         jbyteArray value = (*env)->GetObjectArrayElement(env, values, i);
+        bool has_value = value != NULL;
         key_storage[i] = utf8(env, key);
-        value_storage[i] = utf8(env, value);
+        /* A null array element is an explicit request to remove this directive. */
+        if (has_value) value_storage[i] = utf8(env, value);
         (*env)->DeleteLocalRef(env, key); (*env)->DeleteLocalRef(env, value);
-        if (!key_storage[i] || !value_storage[i]) goto done;
+        if (!key_storage[i] || (has_value && !value_storage[i])) goto done;
         if (strcmp(key_storage[i], "HostName") && strcmp(key_storage[i], "User") && strcmp(key_storage[i], "Port")) {
             fail(env, "不支持的编辑字段"); goto done;
         }
-        if (strpbrk(value_storage[i], "\r\n")) { fail(env, "编辑值不能包含换行"); goto done; }
+        if (value_storage[i] && strpbrk(value_storage[i], "\r\n")) { fail(env, "编辑值不能包含换行"); goto done; }
         tokens[i][0] = value_storage[i];
-        edits[i].keyword = key_storage[i]; edits[i].values = tokens[i];
+        edits[i].keyword = key_storage[i]; edits[i].values = has_value ? tokens[i] : NULL;
     }
     if (gt_config_edit(cfg, alias, edits, (size_t)count, create) != GT_OK) {
         fail(env, "无法编辑该主机；请在 SSH 配置页检查原始块"); goto done;

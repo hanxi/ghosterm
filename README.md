@@ -98,11 +98,11 @@ swift run GhostermApp --local                                 # 无窗口冒烟�
 swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 AppModel 全链路
 ```
 
-## 当前状态（2026-10-29）
+## 当前状态（2026-10-30）
 
 字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
 
-最近已验证的 Android 版本为 `169cc60`；本轮文档复核发现，工作区继承编辑草稿尚未同步页面字段，Android 编译未通过，详见[§9.6](docs/reference/android-implementation.md#96-文档复核时的工作区草稿2026-10-29)。下表 Android 能力按已验证版本记账。macOS 配置事务、表单保真、传输控制错误与未知结果仍列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)。
+Android 已补齐三字段显式覆盖/恢复继承，原工作区的页面编译失败已解决；32 项设备测试及 32 组配置/页面变异通过，见[实现计划 §9.7](docs/reference/android-implementation.md#97-显式覆盖与恢复继承2026-10-30)。A1 的别名重命名、SAF UI 和其他错误页面验收仍未完成。macOS 配置事务、表单保真、传输控制错误与未知结果继续列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 | 能力 | 状态 |
 |---|---|

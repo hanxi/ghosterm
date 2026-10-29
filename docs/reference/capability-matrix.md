@@ -7,7 +7,7 @@
 > 口径（铁律 #8）：**✅** 已实现且有闸门/实测证据 · **🟡** 已实现但只在某一档证据下成立
 > （必须写明哪档）· **⏳** 契约/占位在，无实现 · **❌** 未开始 · **⛔ WONTFIX** 不做并注明原因。
 >
-> 核对日期：**2026-10-29**。当前 C ABI 72 项、Apple 70 项引用/2 项登记未用、JNI 10 项引用/62 项待办；字段来源与 Android 页面接线见 [Android 实施计划 §9.5](android-implementation.md#95-字段来源与编辑归属2026-10-29)，各次构建、设备测试与变异见[路线图验收记录](roadmap.md#验收记账与历史记录)。历史平台/像素/网络证据各自保留范围，未重跑的专项不算本轮结果。
+> 核对日期：**2026-10-30**。当前 C ABI 72 项、Apple 70 项引用/2 项登记未用、JNI 10 项引用/62 项待办；字段来源与 Android 页面接线见 [Android 实施计划 §9.5](android-implementation.md#95-字段来源与编辑归属2026-10-29)，各次构建、设备测试与变异见[路线图验收记录](roadmap.md#验收记账与历史记录)。历史平台/像素/网络证据各自保留范围，未重跑的专项不算本轮结果。
 
 ## 核心（C）
 
@@ -20,7 +20,7 @@
 | `ssh_config` 求值（通用视图 = `ssh -G`） | ✅ | `gt_config_effective`：**42 键 × 6 host = 252 项**全表语义对拍（布尔归一化）；支持集双向校验 |
 | 默认 IdentityFile 候选链 | ✅ | `gt_identity_policy_t` 五档（9_6=7 / 10_3=5 / MASTER=6 / NONE / CUSTOM），每条链注明出处；回落机制有断言 |
 | `ssh_config` **编辑** API（改值后无损写回） | 🟡 | `gt_config_edit`：9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令替换/删除已按实际匹配行修复，未知行、注释、CRLF 和相邻块保留，B7/B8 变异护此行为。Android 另验实际保存与编辑器输出保护；来源查询与包含文件/重名块保护已接入；不代表表单已支持全部指令或重命名 |
-| 配置字段来源与编辑归属 | 🟡 | `gt_config_inspect_host`、Swift/JNI 绑定及 8 组 C / 1 组 Swift 变异；Android 来源提示、只读保护及配置往返已接入。仅覆盖 HostName/User/Port，macOS 表单尚未消费，Android 显式覆盖/恢复继承与别名重命名仍待补；见 [Android §9.5](android-implementation.md#95-字段来源与编辑归属2026-10-29) |
+| 配置字段来源与编辑归属 | 🟡 | `gt_config_inspect_host`、Swift/JNI 绑定及 8 组 C / 1 组 Swift 变异；Android 来源提示、只读保护及配置往返已接入。仅覆盖 HostName/User/Port，macOS 表单尚未消费，Android 显式覆盖/恢复继承已有 32 项设备/32 组配置变异证据，别名重命名仍待补；见 [Android §9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30) |
 | `Include` 展开 / glob | ✅ | `process_include`：相对路径基准 = **~/.ssh**（OpenSSH_10.3p1 实测 + 真 ssh `-G` 同口径对拍）、`~`/`~user`、glob 无匹配静默 / 具名缺失显式失败 / 嵌套 + 深度上限 16；被含内容不进写回（铁律 #4）；`test_config` 6 组断言 + 变异 I1~I4 有牙 |
 | 事件队列（低频、批量轮询） | 🟡 | `src/core.c` 为加锁的 256 项环形缓冲；`test_api` 与 SFTP job 的 PROGRESS / JOB_DONE 证据已存在。队列满会覆盖最旧事件，尚无 job 终态查询 ABI，不能保证过载时终态不丢；需按路线图补保留/查询保障 |
 | Transport 接缝（本地 PTY） | ✅ | `gt_transport_open_pty`（POSIX forkpty）；`pty_transport` 行为断言（真 forkpty，离线）：EOF 前不丢最后一批 / 退出码 / 字节往返 / 超时不折叠 EOF / winsize / resize / TERM / close(NULL) 安全 / 前台作业四态 / 内核 cwd / **写绝不无限等**（第 13 节：pty 输入队列满时写要有界返回且积压字节随后补送——旧实现的 `poll(-1)` 会钉死会话线程 → 关标签页时 `queue.sync` 把主线程也钉死＝整个 app 无响应）；变异 `mutation-check-transport` P1~P4 有牙。**Swift 端** `StopBoundedTests` 断言 `SessionController.stop()` 只取消且有界返回，并等待弱引用证明 I/O owner 真正释放（当前 stop 不再同步等待队列）（走生产链路 `sendText → onInput → 会话线程 write`，子进程 `stty -icanon -echo` 才会真触发 EAGAIN 而非 canonical 丢弃），对 P4 验过牙（变异体挂起超时 / 干净 0.7s 绿） |
@@ -82,9 +82,9 @@
 | iOS | ❌ | ❌ | ❌ | ❌ | ❌ |
 | HarmonyOS / Windows / Linux / Web | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、摘要复核与原子替换，按应用私有目录和协作锁约束工作，不承诺任意非协作写入者下的无竞态提交。A1 已展示继承来源与共享别名影响，显式覆盖/恢复继承、别名重命名和 SAF UI 仍待补齐，终端、文件和完整设置未实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[A1 实施记录](android-implementation.md#92-a1-主机与配置首片2026-10-29)区分已验证与待办。
+Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、摘要复核与原子替换，按应用私有目录和协作锁约束工作，不承诺任意非协作写入者下的无竞态提交。A1 已展示继承来源与共享别名影响，并支持同值显式覆盖、删除指令恢复继承；别名重命名、SAF UI 及其他错误页面验收仍待补齐，终端、文件和完整设置未实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[A1 实施记录](android-implementation.md#92-a1-主机与配置首片2026-10-29)区分已验证与待办。
 
-这里的设备证据截止于 `169cc60`；文档复核时的继承编辑工作区草稿未完成页面接线，Android 编译失败，详见[§9.6](android-implementation.md#96-文档复核时的工作区草稿2026-10-29)。不据此撤销历史验证，也不把草稿计为新增完成项。
+最新设备证据为 2026-10-30 的 32 项测试与 32 组配置/页面变异。此前工作区的继承编辑草稿已补齐接线，原 Kotlin 编译失败已解决；历史记录见[§9.6](android-implementation.md#96-文档复核时的工作区草稿2026-10-29)，当前实现与验证见[§9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30)。
 
 ### macOS 当前实现与限制
 
