@@ -10,11 +10,13 @@ interface TerminalSurface {
     /** False requests confirmation; no bytes were written in that case. */
     suspend fun paste(text: String, allowUnsafe: Boolean = false): Boolean
     suspend fun select(operation: SelectionOperation, x: Int = 0, y: Int = 0)
+    /** Scroll and extend one endpoint atomically on the VT owner. */
+    suspend fun extendSelection(operation: SelectionOperation, x: Int, y: Int, scrollLines: Int)
     suspend fun copySelection(): String
     suspend fun clearLocal()
 }
 
-enum class SelectionOperation(val code: Int) { WORD(2), START(3), END(4), ALL(5), CLEAR(6) }
+enum class SelectionOperation(val code: Int) { WORD(2), START(3), END(4), ALL(5), CLEAR(6), ORDER(9) }
 
 data class TerminalCell(val background: Int, val foreground: Int, val flags: Int, val width: Int, val text: String)
 

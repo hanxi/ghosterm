@@ -313,7 +313,7 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_ownerCount(J
 JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_beginAction(JNIEnv *env, jobject self, jlong id,
         jint kind, jint x, jint y, jbyteArray bytes) {
     (void)self;
-    if (!bytes || kind < 1 || kind > 8) { fail(env, "文本操作无效"); return 0; }
+    if (!bytes || kind < 1 || kind > 11) { fail(env, "文本操作无效"); return 0; }
     jsize length = (*env)->GetArrayLength(env, bytes);
     if (length > INPUT_LIMIT) { fail(env, "文本超过 1 MiB 限制"); return 0; }
     session *s = borrow(env, id); if (!s) return 0;

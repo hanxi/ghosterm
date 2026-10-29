@@ -25,8 +25,7 @@ class LocalSession(home: String) : TerminalSurface, Closeable {
         check(handle != 0L) { "终端会话已关闭" }
         NativeSession.enqueue(handle, kind, code, mods, text.toByteArray(Charsets.UTF_8))
     }
-    private suspend fun action(kind: Int, x: Int = 0, y: Int = 0, text: String = ""): ByteArray = actionMutex.withLock {
-        val bytes = text.toByteArray(Charsets.UTF_8)
+    private suspend fun action(kind: Int, x: Int = 0, y: Int = 0, bytes: ByteArray = byteArrayOf()): ByteArray = actionMutex.withLock {
         val (owner, request) = synchronized(this) {
             check(handle != 0L) { "终端会话已关闭" }
             handle to NativeSession.beginAction(handle, kind, x, y, bytes)
@@ -47,9 +46,14 @@ class LocalSession(home: String) : TerminalSurface, Closeable {
         }
     }
     override suspend fun paste(text: String, allowUnsafe: Boolean): Boolean =
-        action(1, if (allowUnsafe) 1 else 0, text = text)[0].toInt() == 1
+        action(1, if (allowUnsafe) 1 else 0, bytes = text.toByteArray(Charsets.UTF_8))[0].toInt() == 1
     override suspend fun select(operation: SelectionOperation, x: Int, y: Int) {
         action(operation.code, x, y)
+    }
+    override suspend fun extendSelection(operation: SelectionOperation, x: Int, y: Int, scrollLines: Int) {
+        require(operation == SelectionOperation.START || operation == SelectionOperation.END)
+        require(scrollLines in -1..1)
+        action(if (operation == SelectionOperation.START) 10 else 11, x, y, byteArrayOf(scrollLines.toByte()))
     }
     override suspend fun clearLocal() { action(8) }
     override suspend fun copySelection(): String = action(7).let { it.copyOfRange(1, it.size).toString(Charsets.UTF_8) }

@@ -6,6 +6,7 @@
 **/.build/
 **/DerivedData/
 **/.gradle/
+**/.kotlin/
 **/.cxx/
 **/.hvigor/
 **/node_modules/

@@ -134,6 +134,13 @@ int gat_surface_action(gat_surface *s, int kind, int x, int y,
         bottom(s); return 0;
     }
     if (kind == 8) return ghostty_terminal_clear_local(s->terminal) == GHOSTTY_SUCCESS ? 0 : 2;
+    if (kind == 9) {
+        GhosttySelection current = GHOSTTY_INIT_SIZED(GhosttySelection);
+        GhosttySelection ordered = GHOSTTY_INIT_SIZED(GhosttySelection);
+        if (ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_SELECTION, &current) != GHOSTTY_SUCCESS ||
+            ghostty_terminal_selection_ordered(s->terminal, &current, GHOSTTY_SELECTION_ORDER_FORWARD, &ordered) != GHOSTTY_SUCCESS) return 2;
+        return ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &ordered) == GHOSTTY_SUCCESS ? 0 : 2;
+    }
     if (kind == 6)
         return ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL) == GHOSTTY_SUCCESS ? 0 : 2;
     if (kind == 7) {
@@ -148,6 +155,13 @@ int gat_surface_action(gat_surface *s, int kind, int x, int y,
         status = ghostty_terminal_selection_format_buf(s->terminal, opts, copy, required, result_length);
         if (status != GHOSTTY_SUCCESS) { free(copy); *result_length = 0; return 2; }
         *result = copy; return 0;
+    }
+    if (kind == 10 || kind == 11) {
+        if (length != 1 || (int8_t)bytes[0] < -1 || (int8_t)bytes[0] > 1) return 2;
+        /* Scrolling and moving the endpoint are one owner operation. Cancellation
+         * can skip the whole command, never scroll without the matching selection. */
+        gat_surface_scroll(s, (int8_t)bytes[0]);
+        kind = kind == 10 ? 3 : 4;
     }
     GhosttySelection selection = GHOSTTY_INIT_SIZED(GhosttySelection);
     GhosttyResult status;
@@ -165,8 +179,10 @@ int gat_surface_action(gat_surface *s, int kind, int x, int y,
         } else if (kind == 3 || kind == 4) {
             GhosttySelection current = GHOSTTY_INIT_SIZED(GhosttySelection);
             if (ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_SELECTION, &current) != GHOSTTY_SUCCESS) return 2;
-            status = ghostty_terminal_selection_ordered(s->terminal, &current, GHOSTTY_SELECTION_ORDER_FORWARD, &selection);
-            if (status != GHOSTTY_SUCCESS) return 2;
+            /* Preserve the other endpoint throughout this gesture, even after crossing it.
+             * The UI orders endpoints once, when the next handle gesture starts. */
+            selection = current;
+            status = GHOSTTY_SUCCESS;
             if (kind == 3) selection.start = ref; else selection.end = ref;
         } else return 2;
     }

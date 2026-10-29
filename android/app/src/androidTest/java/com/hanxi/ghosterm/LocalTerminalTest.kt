@@ -208,6 +208,26 @@ class LocalTerminalTest {
         frame(session) { it.cells.none { cell -> cell.flags and 256 != 0 } }
     }
 
+    @Test fun draggingAcrossTheAnchorKeepsTheOtherEndpointUntilNextGesture() = terminal { session ->
+        session.commit("printf '\\033[2J\\033[Halpha beta gamma'; sleep 30\r")
+        frame(session) { it.line(0) == "alpha beta gamma" }
+        runBlocking {
+            session.select(SelectionOperation.WORD, 7, 0)
+            session.select(SelectionOperation.ORDER)
+            session.select(SelectionOperation.END, 3, 0)
+            assertEquals("ha b", session.copySelection())
+            session.select(SelectionOperation.END, 1, 0)
+            assertEquals("lpha b", session.copySelection())
+            session.select(SelectionOperation.ORDER)
+            session.select(SelectionOperation.START, 0, 0)
+            assertEquals("alpha b", session.copySelection())
+            session.select(SelectionOperation.START, 8, 0)
+            assertEquals("bet", session.copySelection())
+            session.select(SelectionOperation.START, 11, 0)
+            assertEquals("beta g", session.copySelection())
+        }
+    }
+
     @Test fun localClearPreservesParserModesCursorAndDoesNotWriteInput() = terminal { session ->
         session.commit("stty raw -echo; printf '\\033[?1h\\033[2J\\033[HCLEAR_READY\\033[5;7H\\033]2;partial'; value=\u0024(dd bs=1 count=3 2>/dev/null | od -An -tx1); printf 'complete\\007\\r\\n%s\\r\\nCLEAR_DONE\\r\\n' \"\u0024value\"; stty sane\r")
         val before = frame(session) { text(it).contains("CLEAR_READY") && it.cursorY == 4 }

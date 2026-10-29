@@ -37,6 +37,7 @@ class TerminalView(context: Context) : View(context) {
     var surface: TerminalSurface? = null
         set(value) {
             if (field === value) return
+            resetTextActions()
             connection?.cancel(); connection = null
             field = value; currentFrame = null; lastSize = null
             ctrl = 0; updateSize(); invalidate()
@@ -59,6 +60,8 @@ class TerminalView(context: Context) : View(context) {
     private var dragging: SelectionOperation? = null
     private var dragPoint: Pair<Int, Int>? = null
     private var dragJob: Job? = null
+    private var dragScroll = 0
+    private var orderDrag = false
     private val clipboard get() = context.getSystemService(ClipboardManager::class.java)
     private val handleRadius get() = 10f * resources.displayMetrics.density
     private val inputMethod get() = context.getSystemService(InputMethodManager::class.java)
@@ -141,9 +144,8 @@ class TerminalView(context: Context) : View(context) {
         post { if (isAttachedToWindow && isShown) requestFocus() }
     }
     override fun onDetachedFromWindow() {
-        pasteDialog?.dismiss(); pasteDialog = null
-        actionMode?.finish(); actionMode = null; selecting = false; dragging = null
-        actionScope.cancel()
+        resetTextActions()
+        ctrl = 0
         running = false; removeCallbacks(tick); connection?.cancel(); connection = null
         super.onDetachedFromWindow()
     }
@@ -151,40 +153,76 @@ class TerminalView(context: Context) : View(context) {
     override fun onWindowVisibilityChanged(visibility: Int) { super.onWindowVisibilityChanged(visibility); rendering() }
     override fun onFocusChanged(gain: Boolean, direction: Int, previous: Rect?) {
         super.onFocusChanged(gain, direction, previous)
-        if (!gain) { connection?.cancel(); connection = null; ctrl = 0 }
+        if (!gain) { stopDrag(); connection?.cancel(); connection = null; ctrl = 0 }
         invalidate()
+    }
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) { stopDrag(); ctrl = 0 }
     }
     override fun performClick(): Boolean {
         super.performClick(); requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT); return true
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN && selecting) {
+            stopDrag()
             val bounds = selectionHandles()
             dragging = bounds?.let { (start, end) ->
-                when {
-                    kotlin.math.hypot(event.x - start.first, event.y - start.second) < handleRadius * 2.4f -> SelectionOperation.START
-                    kotlin.math.hypot(event.x - end.first, event.y - end.second) < handleRadius * 2.4f -> SelectionOperation.END
-                    else -> null
-                }
+                listOf(SelectionOperation.START to start, SelectionOperation.END to end)
+                    .map { (operation, point) -> operation to kotlin.math.hypot(event.x - point.first, event.y - point.second) }
+                    .minByOrNull { it.second }?.takeIf { it.second < handleRadius * 2.4f }?.first
             }
+            orderDrag = dragging != null
         }
         if (dragging != null) {
             if (event.actionMasked == MotionEvent.ACTION_MOVE) {
                 val frame = currentFrame ?: return true
                 dragPoint = (event.x / cellWidth).toInt().coerceIn(0, frame.cols - 1) to
                     (event.y / cellHeight).toInt().coerceIn(0, frame.rows - 1)
-                val operation = dragging!!
-                if (dragJob?.isActive != true) dragJob = textAction { target ->
-                    while (dragPoint != null) {
-                        val point = dragPoint!!; dragPoint = null
-                        target.select(operation, point.first, point.second)
-                    }
+                val edge = minOf(height / 4f, maxOf(cellHeight.toFloat(), 24f * resources.displayMetrics.density))
+                dragScroll = when {
+                    event.y < edge -> -1
+                    event.y > height - edge -> 1
+                    else -> 0
                 }
+                updateDrag()
             }
-            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) dragging = null
+            if (event.actionMasked == MotionEvent.ACTION_UP) finishDrag()
+            if (event.actionMasked == MotionEvent.ACTION_CANCEL) stopDrag()
             return true
         }
         return gestures.onTouchEvent(event)
+    }
+    private fun updateDrag() {
+        val operation = dragging ?: return
+        if (dragJob?.isActive == true) return
+        dragJob = textAction { target ->
+            if (orderDrag) { orderDrag = false; target.select(SelectionOperation.ORDER) }
+            while (dragPoint != null) {
+                val point = dragPoint!!; dragPoint = null
+                // One acknowledged native operation keeps viewport and endpoint
+                // consistent even when this coroutine is cancelled mid-request.
+                target.extendSelection(operation, point.first, point.second, if (dragging == operation) dragScroll else 0)
+                if (dragScroll == 0 || dragging != operation) continue
+                delay(80)
+                if (dragging == operation && dragPoint == null) dragPoint = point
+            }
+        }
+    }
+    private fun finishDrag() {
+        dragging = null; dragScroll = 0
+        // Drain an already pending final move, but never schedule another scroll.
+    }
+    private fun stopDrag() {
+        finishDrag(); dragPoint = null; orderDrag = false
+        dragJob?.cancel(); dragJob = null
+    }
+    private fun resetTextActions() {
+        stopDrag(); selecting = false
+        pasteDialog?.dismiss(); pasteDialog = null
+        actionMode?.finish(); actionMode = null
+        actionScope.cancel()
+        actionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     }
     private fun textAction(action: suspend (TerminalSurface) -> Unit): Job {
         val target = surface
@@ -196,13 +234,13 @@ class TerminalView(context: Context) : View(context) {
         }
     }
     private fun beginSelection(x: Int, y: Int) {
-        selecting = true; dragging = SelectionOperation.END
+        stopDrag(); selecting = true; dragging = SelectionOperation.END; orderDrag = true
         performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
         textAction { target -> target.select(SelectionOperation.WORD, x, y); showTextActions() }
     }
     fun dismissSelection(): Boolean {
         if (!selecting) return false
-        selecting = false; dragging = null; dragPoint = null
+        selecting = false; stopDrag()
         actionMode?.finish(); actionMode = null
         textAction { it.select(SelectionOperation.CLEAR) }
         invalidate(); return true

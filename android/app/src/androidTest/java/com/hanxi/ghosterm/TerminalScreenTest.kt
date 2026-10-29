@@ -326,6 +326,166 @@ class TerminalScreenTest {
         ui.waitUntil { ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() == "alpha bet" }
     }
 
+    @Test fun ctrlSingleUseAndLockEncodeRealPtyInput() {
+        send("stty raw -echo; printf '\\033[2J\\033[HCTRL_READY\\r\\n'; dd bs=1 count=5 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nCTRL_DONE\\r\\n'\r")
+        waitFor("CTRL_READY")
+        ui.onNodeWithText("Ctrl").performClick()
+        ui.onNodeWithText("Ctrl ✓").assertIsDisplayed()
+        ui.runOnIdle { assertTrue(terminal().onCreateInputConnection(EditorInfo()).commitText("a", 1)) }
+        ui.onNodeWithText("Ctrl").assertIsDisplayed()
+        send("b")
+        ui.onNodeWithText("Ctrl").performClick()
+        ui.onNodeWithText("Ctrl ✓").performClick()
+        ui.onNodeWithText("Ctrl 锁定").assertIsDisplayed()
+        ui.runOnIdle {
+            val ime = terminal().onCreateInputConnection(EditorInfo())
+            assertTrue(ime.commitText("c", 1)); assertTrue(ime.commitText("d", 1))
+        }
+        ui.onNodeWithText("Ctrl 锁定").assertIsDisplayed()
+        ui.onNodeWithText("Ctrl 锁定").performClick()
+        send("e"); waitFor("CTRL_DONE")
+        assertTrue(text(), text().replace(Regex("\\s+"), " ").contains("01 62 03 04 65"))
+    }
+
+    @Test fun ctrlAndCompositionClearWhenFocusMovesToAnotherView() {
+        lateinit var old: android.view.inputmethod.InputConnection
+        lateinit var edit: android.widget.EditText
+        ui.runOnIdle {
+            val view = terminal(); view.requestFocus(); assertTrue(view.hasFocus())
+            old = view.onCreateInputConnection(EditorInfo())
+            assertTrue(old.setComposingText("未提交", 1))
+            view.ctrl = 2
+            edit = android.widget.EditText(ui.activity)
+            ui.activity.findViewById<ViewGroup>(android.R.id.content).addView(edit, ViewGroup.LayoutParams(120, 80))
+            edit.requestFocus()
+        }
+        ui.runOnIdle {
+            assertTrue(edit.hasFocus()); assertFalse(terminal().hasFocus())
+            assertEquals(0, terminal().ctrl); assertEquals("", terminal().composition)
+            assertFalse("stale IME must not input into an unfocused session", old.commitText("x", 1))
+            (edit.parent as ViewGroup).removeView(edit)
+            terminal().requestFocus()
+        }
+    }
+
+    @Test fun ctrlDoesNotCrossPagesSessionsOrNormalExit() {
+        val original = sessions.active!!.id
+        ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
+        ui.onNodeWithText("主机", useUnmergedTree = true).performClick()
+        ui.onNodeWithText("继续本地终端").performClick()
+        ui.waitUntil { viewOrNull()?.currentFrame != null }
+        ui.onNodeWithText("Ctrl").assertIsDisplayed()
+        ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
+        val first = terminal()
+        ui.onNodeWithText("会话 · 1").performClick(); ui.onNodeWithText("新建本地会话").performClick()
+        ui.waitUntil { sessions.sessions.size == 2 && sessions.active!!.state.connected && viewOrNull()?.currentFrame != null }
+        ui.runOnIdle { assertNotSame("each session needs its own input/selection state", first, terminal()); assertEquals(0, terminal().ctrl) }
+        ui.onNodeWithText("会话 · 2").performClick(); ui.onNodeWithText("本地终端 1").performClick()
+        ui.waitUntil { sessions.active!!.id == original && viewOrNull()?.currentFrame != null }
+        ui.onNodeWithText("Ctrl").assertIsDisplayed()
+        ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
+        ui.runOnIdle { sessions.active!!.surface.commit("exit 0\r") }
+        ui.waitUntil { sessions.active!!.state.terminal }
+        ui.onNodeWithText("Ctrl").assertIsNotEnabled()
+        ui.runOnIdle { assertEquals(0, terminal().ctrl); assertFalse(terminal().commitText("x")) }
+    }
+
+    private inner class HandleDrag(start: Boolean) {
+        private val instrumentation = InstrumentationRegistry.getInstrumentation()
+        private val started = android.os.SystemClock.uptimeMillis()
+        private var origin = IntArray(2)
+        private var x = 0f
+        private var y = 0f
+        init {
+            ui.runOnIdle {
+                val view = terminal(); val frame = view.currentFrame!!
+                val index = if (start) frame.cells.indexOfFirst { it.flags and 256 != 0 }
+                    else frame.cells.indexOfLast { it.flags and 256 != 0 }
+                assertTrue("handle requires a real visible selection", index >= 0)
+                view.getLocationOnScreen(origin)
+                val radius = 10f * view.resources.displayMetrics.density
+                x = ((index % frame.cols + if (start) 0 else 1) * (view.width / frame.cols)).toFloat()
+                    .coerceIn(radius, view.width - radius)
+                y = ((index / frame.cols + 1) * (view.height / frame.rows)).toFloat()
+                    .coerceIn(radius, view.height - radius)
+            }
+            touch(android.view.MotionEvent.ACTION_DOWN)
+        }
+        private fun touch(action: Int) {
+            val event = android.view.MotionEvent.obtain(started, android.os.SystemClock.uptimeMillis(), action,
+                origin[0] + x, origin[1] + y, 0)
+            instrumentation.sendPointerSync(event); event.recycle()
+        }
+        fun move(toX: Float, toY: Float) {
+            val fromX = x; val fromY = y
+            for (i in 1..6) {
+                x = fromX + (toX - fromX) * i / 6; y = fromY + (toY - fromY) * i / 6
+                touch(android.view.MotionEvent.ACTION_MOVE)
+                android.os.SystemClock.sleep(20)
+            }
+        }
+        fun finish(cancel: Boolean = false) = touch(if (cancel) android.view.MotionEvent.ACTION_CANCEL else android.view.MotionEvent.ACTION_UP)
+    }
+
+    @Test fun handleEdgesScrollWhileHeldAndStopOnReleaseOrCancel() {
+        send("printf '\\033[2J\\033[H'; seq 1 300; printf 'SCROLL_DONE'; sleep 30\r")
+        waitFor("SCROLL_DONE")
+        val before = terminal().currentFrame!!.line(0)
+        ui.runOnIdle { sessions.active!!.surface.scroll(-80) }
+        ui.waitUntil { terminal().currentFrame!!.line(0) != before }
+        for (up in listOf(true, false)) {
+            val top = terminal().currentFrame!!.line(0).toInt()
+            val anchor = terminal().currentFrame!!.line(8).toInt()
+            clipboard("before-edge-copy")
+            longPressCell(1, 8)
+            ui.waitUntil { terminal().currentFrame!!.cells.any { it.flags and 256 != 0 } }
+            val drag = HandleDrag(start = up)
+            var x = 0f; var y = 0f
+            ui.runOnIdle {
+                val view = terminal(); val frame = view.currentFrame!!
+                x = if (up) 1f else (frame.cols - 0.5f) * (view.width / frame.cols)
+                y = if (up) 1f else view.height - 2f
+            }
+            drag.move(x, y)
+            // No more MOVE events: holding at the edge must continue scrolling.
+            ui.waitUntil(5_000) {
+                val now = terminal().currentFrame!!.line(0).toIntOrNull() ?: return@waitUntil false
+                if (up) now <= top - 7 else now >= top + 7
+            }
+            drag.finish(cancel = !up)
+            android.os.SystemClock.sleep(250)
+            val stopped = terminal().currentFrame!!
+            android.os.SystemClock.sleep(400)
+            assertEquals("release/cancel must stop auto-scroll", stopped.line(0), terminal().currentFrame!!.line(0))
+            val first = if (up) stopped.line(0).toInt() else anchor
+            val last = if (up) anchor else stopped.line(stopped.rows - 1).toInt()
+            val expected = (first..last).joinToString("\n")
+            clickSystemText("复制")
+            ui.waitUntil {
+                ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() == expected
+            }
+        }
+    }
+
+    @Test fun crossingThenRegrabbingHandleKeepsTheCorrectAnchor() {
+        send("printf '\\033[2J\\033[Halpha beta gamma'; sleep 30\r")
+        waitFor("alpha beta gamma"); longPressCell(7, 0)
+        ui.waitUntil { terminal().currentFrame!!.cells[9].flags and 256 != 0 }
+        var cw = 0; var ch = 0
+        ui.runOnIdle { val view = terminal(); cw = view.width / view.currentFrame!!.cols; ch = view.height / view.currentFrame!!.rows }
+        val end = HandleDrag(start = false)
+        end.move(cw * 3.5f, ch * 0.5f)
+        end.move(cw * 1.5f, ch * 0.5f)
+        end.finish()
+        ui.waitUntil { terminal().currentFrame!!.cells[1].flags and 256 != 0 }
+        kotlinx.coroutines.runBlocking { assertEquals("lpha b", sessions.active!!.surface.copySelection()) }
+        val start = HandleDrag(start = true)
+        start.move(cw * 0.5f, ch * 0.5f)
+        start.finish()
+        ui.waitUntil { terminal().currentFrame!!.cells[0].flags and 256 != 0 }
+        kotlinx.coroutines.runBlocking { assertEquals("alpha b", sessions.active!!.surface.copySelection()) }
+    }
+
     @Test fun inputConnectionContextPasteUsesBracketedEncoding() {
         send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hCONTEXT_READY\\r\\n'; dd bs=1 count=15 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nCONTEXT_DONE\\r\\n'\r")
         waitFor("CONTEXT_READY"); clipboard("abc")
