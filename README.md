@@ -115,7 +115,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |
 | 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
-| Android | ⏳ [最终原型](docs/design/android-prototype.html)与[实现计划](docs/reference/android-implementation.md)完成；原生工程未开始 |
+| Android | 🟡 A0 Compose/JNI/arm64 APK 已实现并通过模拟器冒烟；[实现进度](docs/reference/android-implementation.md)，SSH/交互终端/文件仍待接入 |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。

@@ -337,7 +337,9 @@ static void process_include(gt_config_t *cfg, const char *const *paths, int npat
 
     glob_t g;
     memset(&g, 0, sizeof g);
-    int gr = glob(resolved, GLOB_TILDE, NULL, &g);
+    /* expand_tilde already resolved ~ / ~user above. GLOB_TILDE is a
+     * non-POSIX extension absent from Android Bionic. */
+    int gr = glob(resolved, 0, NULL, &g);
     if (gr == 0) {
       for (size_t k = 0; k < g.gl_pathc; k++) {
         size_t flen = 0;

@@ -1,9 +1,9 @@
 # Android 最终方案实现计划
 
-日期：2026-10-29。状态：**设计已定，原生实现未开始**。页面与操作基准为唯一的
+日期：2026-10-29。状态：**设计已定，A0 构建基础已完成；A1–A8/A10 尚未交付**。页面与操作基准为唯一的
 [Android HTML 原型](../design/android-prototype.html)。本文定义原生实现的模块、状态、数据边界、实施依赖与验收；HTML 的模拟主机、文件、键盘和进度不构成 Android 能力证据。
 
-仓库约束以 [AGENTS.md](../../AGENTS.md) 为准；跨端进度见[路线图](roadmap.md)，已实现范围见[能力矩阵](capability-matrix.md)。下文新增模块名、数据类型和构建入口均为**拟实现**，不代表仓库已有代码。
+仓库约束以 [AGENTS.md](../../AGENTS.md) 为准；跨端进度见[路线图](roadmap.md)，已实现范围见[能力矩阵](capability-matrix.md)。下文 A0 已落盘并有模拟器证据；其他模块、数据类型与行为仍为拟实现，不能从设计表推断功能已经可用。
 
 ## 1. 交付范围与当前基础
 
@@ -11,8 +11,8 @@
 
 | 能力 | 当前代码与证据 | Android 需要补齐 |
 |---|---|---|
-| 宿主 | `android/` 仅 README，无 Gradle、Manifest、Kotlin、JNI | Compose 原生工程、生命周期、导航、存储与构建 |
-| 终端 | `terminal/android/` 仅 README；vendor pin 为 `81598385d608dda4946093d6d6a234d204a2f225` | libghostty-vt 交叉编译、渲染、输入法、字体与宽字符 |
+| 宿主 | Compose/Gradle 宿主、Core JNI 与 debug APK；首页仅构建空态 | 主机/会话生命周期、导航、存储与产品页面 |
+| 终端 | `terminal/android` 已有 VT 交叉构建与 JNI 装载；vendor pin 为 `81598385d608dda4946093d6d6a234d204a2f225` | 真实 surface、渲染、输入法、字体与宽字符 |
 | Transport | `core/include/ghosterm/transport.h`；POSIX PTY 与 SSH shell 已有桌面证据 | NDK/Bionic 编译与真机 PTY、线程、退出和尺寸验证 |
 | SSH 认证 | `ssh_auth.h` 有可取消、分步认证；Apple 已统一接线 | DNS、主机密钥确认、Keystore、请求归属和取消 |
 | 配置 | `config.h` 有解析、求值、稀疏编辑与序列化 | 私有配置目录、文件事务、导入、身份引用映射 |
@@ -21,7 +21,7 @@
 | 环境包 | `runtime-payload/` 只有规范，无安装器 | 独立后续 PoC；不作为首版 SSH/系统 shell 的依赖 |
 | CI 与出包 | 现有工作流只构建 macOS | Android 构建、设备测试、APK 与证据归档 |
 
-Apple 的 `SessionController`、`SSHAuthenticationFlow`、`FilesPanelModel`、`TransferManager` 可供行为对照，**不能由 Android 引用或移植为跨端 UI**。已有 C 接口不等于 Android 已可使用：当前 CMake 通过宿主 pkg-config 找 libssh2，并创建宿主测试目标，交叉构建必须先隔离宿主探测与设备库。
+Apple 的 `SessionController`、`SSHAuthenticationFlow`、`FilesPanelModel`、`TransferManager` 可供行为对照，**不能由 Android 引用或移植为跨端 UI**。已有 C 接口不等于 Android 已可使用：A0 已隔离交叉构建：显式传入 Android libssh2 target，不读取宿主 pkg-config；宿主测试目标在交叉构建默认关闭。
 
 ## 2. 页面与导航契约
 
@@ -43,7 +43,7 @@ Apple 的 `SessionController`、`SSHAuthenticationFlow`、`FilesPanelModel`、`T
 
 ## 3. 模块与线程设计
 
-拟定目录：
+模块目录（app/bridge/terminal 已建，domain/data 在后续阶段建立）：
 
 ```text
 android/
@@ -221,11 +221,11 @@ tmux 在 A8 接入，共享 `gt_tmux_*` 管理与普通 transport attach；用�
 
 ## 9. 分阶段实施与依赖
 
-每片直接提交 main，原生构建与对应检查通过后才勾完成；C ABI 变化同步 Apple 绑定并真实编译。文档中的验收项是实现要求，尚未新增这些测试或闸门。
+每片直接提交 main，原生构建与对应检查通过后才勾完成；C ABI 变化同步 Apple 绑定并真实编译。文档中的验收项是实现要求；A0 的设备冒烟与 ABI/原生变异已实现，后续业务验收尚未新增。
 
 | 切片 | 依赖 | 可审阅交付与退出条件 | 状态 |
 |---|---|---|---|
-| A0 工程与构建 | 无 | 原生空壳 APK；锁工具链/ABI/API；隔离 NDK sysroot 与宿主库；设备加载 core/vt；JNI 引用集合纳入 ABI 检查 | 未开始 |
+| A0 工程与构建 | 无 | 原生空壳 APK；锁工具链/ABI/API；隔离 NDK sysroot 与宿主库；设备加载 core/vt；JNI 引用集合纳入 ABI 检查 | 已完成：API 36 arm64 模拟器，见 §9.1 |
 | A1 导航与主机 | A0 | 首页/设置/页面返回；配置读取、搜索、增改、备份失败阻断、冲突拒绝、原子提交；假数据只在调试 fixture | 未开始 |
 | A2 本地终端 | A0 | `/system/bin/sh` 真 PTY→VT→像素；IME/辅助键/resize/暂停绘制/有界关闭；确认 renderer 方案 | 未开始 |
 | A3 SSH 与身份 | A1、A2 | DNS→hostkey→凭据→shell；Keystore 安全容器；取消归属、超时、失效身份、两会话隔离；真 sshd | 未开始 |
@@ -238,6 +238,18 @@ tmux 在 A8 接入，共享 `gt_tmux_*` 管理与普通 transport attach；用�
 | A10 验收与发行 | A1–A8 | 真机与模拟器矩阵、APK 自包含、安全与隐私检查、清单/许可、CI 实际运行；失败项不记绿 | 未开始 |
 
 A1 的视觉壳可与 A2 的底层实现解耦，但不能用演示终端代替 A2 完成条件。A5 是数据安全前置，不应先做“看起来完成”的粘贴按钮再补防覆盖。
+
+### 9.1 A0 实施记录（2026-10-29）
+
+- 已建 `:app`、`:bridge`、`:terminal`，Compose 首页/设置基础与真实组件版本；没有虚拟主机或假连接。后续产品功能仍按 A1–A8 实施。
+- 锁定 JDK 17、Gradle 8.13 + wrapper SHA256、AGP 8.13.2、Kotlin 2.2.21、Compose BOM 2025.10.01、NDK 28.2.13676358、CMake 3.22.1、Zig 0.16.0。compile/target 36、min 29、ABI arm64-v8a；下限声明不等于 API 29 已实测。[AGP 兼容表](https://developer.android.com/build/releases/agp-8-13-0-release-notes)
+- OpenSSL 3.5.4 / libssh2 1.11.1 源码哈希锁定并用 NDK 构建；VT 在隔离 pin 副本交叉编译；收据验证输入与 archive SHA256，APK 附各许可。Core 不探测宿主库。
+- Bionic 缺少 `GLOB_TILDE`：Core 已自行 `expand_tilde`，改用 POSIX `glob(...,0,...)`，没有删掉 tilde 语义；既有 Include 变异四组与回滚通过。
+- `bash scripts/build-android.sh` 生成主 APK 与测试 APK。API 36 arm64 模拟器（4 KB 页）3 项真实 JNI 测试通过：配置中文/emoji/CRLF 逐字节往返、NUL 拒绝、VT 光标指令。
+- JNI 引用 4 个公共函数、67 个暂未使用逐项登记；3 组 ABI 变异与 3 组设备 JNI 变异通过，均目标红/独立对照绿/恢复绿并核对 SHA256。Core 32 项闸门和 ABI 71 项通过。
+- **未验证**：真实手机、API 29、16 KB 页运行、x86_64、终端绘制/输入/PTY/SSH、后台与性能。没有 Android workflow；A10 仍未完成。
+
+可复现命令、SDK 准备与 APK 路径见 [Android README](../../android/README.md)。首片 `probeCursor` 只做 ABI 冒烟，A2 输出必须留在 native transport→VT，不得复用成 Kotlin 字节搬运通道。
 
 ## 10. 验收与变异清单
 
@@ -258,11 +270,11 @@ A1 的视觉壳可与 A2 的底层实现解耦，但不能用演示终端代替 
 
 性能证据至少记录设备/API/ABI、持续输出吞吐、帧耗时、峰值内存、空闲后台 CPU、输入到回显延迟与取消耗时。先测 A2 基线再锁门限；不能用模拟器或静态截图冒充真机流畅度。真正的 UI 测试要驱动按钮、手势与系统 IME，数据模型测试不能代替触控命中与像素检查。
 
-现有可执行检查：`bash scripts/gate.sh`、`bash scripts/check-abi-apple.sh`；C 变化按实际面执行 SSH/SFTP/config/transport/tmux 变异与 Apple 构建。Android 尚无构建命令，A0 须新增 wrapper 与可复现脚本，A10 才能将设备检查接入 CI；禁止把本机 Core 绿记为 Android 绿。
+现有可执行检查：`bash scripts/gate.sh`、`bash scripts/check-abi-apple.sh`；C 变化按实际面执行 SSH/SFTP/config/transport/tmux 变异与 Apple 构建。Android 构建入口为 `bash scripts/build-android.sh`；`check-abi-android.py`、`mutation-check-android-abi.py` 与 `mutation-check-android-native.py` 已实现。设备测试需显式选定设备；A10 再接入 CI，禁止把本机 Core 绿记为 Android 绿。
 
 ## 11. 本轮代码核对与文档修正
 
-核对基线为 `99b8b3c`；只修改文档，不把发现的代码缺口冒充已修复。
+以下保留文档审计基线 `99b8b3c` 的结论；A0 后续变化记于 §9.1，macOS 缺口没有因此自动修复。
 
 | 旧说法 | 对照代码后的结论 |
 |---|---|

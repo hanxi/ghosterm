@@ -49,7 +49,7 @@
 | iOS | full libghostty（Metal） | ❌ |
 | Linux | full libghostty（OpenGL 4.3） | ❌ |
 | Web | libghostty-vt + 自绘（wasm） | ❌ |
-| Android | libghostty-vt + 自绘 | ❌ |
+| Android | libghostty-vt + 自绘 | 🟡 | 仅 A0 交叉构建/装载与真实 VT 指令；API 36 arm64 模拟器设备测试通过。自绘、InputConnection 与 Transport 数据链未实现 |
 | HarmonyOS | libghostty-vt + ArkUI Canvas | ❌ |
 | Windows | 待定 | ❌ |
 
@@ -68,7 +68,8 @@
 | macOS dev 包 **Homebrew cask** | 🟡 | tap 在独立公开仓库 [`hanxi/homebrew-ghosterm`](https://github.com/hanxi/homebrew-ghosterm)（`Casks/ghosterm-dev.rb`），指向 `dev` 滚动直链。**🟡 成立的证据档**：`brew tap` + `brew trust` + `brew install --cask ghosterm-dev` 在本机装成、`brew style`/`brew audit --cask --strict` 绿、`brew info --cask` 读出 `depends_on arch: :arm64` 与 `depends_on macos: :tahoe`（26.0 下限由内嵌 Homebrew `libcrypto` 抬上去）。**不解决 Gatekeeper**（Homebrew 自己贴 quarantine，见上一行），**`sha256 :no_check`＝故意不校验字节**（滚动资产钉不住，验字节请对 `SHA256SUMS`）；`:latest` cask 默认不进 `brew outdated`，升级要 `--greedy`。**未实测**：Intel 机器与 macOS < 26 的报错路径没有实机可验，只验到声明被正确读出。cask 的 URL 与本轮资产名由 `scripts/check-dev-cask.sh` 在 dev 轨对拍，牙见 `scripts/mutation-check-package-mac.sh` 的 A10 |
 | macOS **release** 包 | 🟡 | tag `v*` / PR / 手动 → `.github/workflows/macos-release.yml`，与 dev 共用同一份可复用工作流 `macos-package.yml`（`channel=release、gates=full`）。**🟡 无 Developer ID 证书 secret ⇒ 目前同样落 ad-hoc**；`--sign` / `--notarize` 分支已就绪，拿到 secret 即用 |
 | dev 版**更新检测**（app 内入口） | ✅ | 关于窗口（`Ghosterm → 关于 Ghosterm`）版本号下面那一行：手动点「检查更新」→ 取固定 URL 的 `version.json`（不走 API、不占 60 次/小时额度）→ 以 `git_commit` 为主锚（本机短 sha 前缀比清单的 40 位）。**三态不折叠**：无 commit 记录 / `+dirty` / 渠道不对 / 取不到 / 读不懂，一律报「查不出来 + 原因」，不报「已是最新」。**自动安装 ❌（有意不做）**：`signature=adhoc` + `notarized=false` ⇒ 只给下载直链，不画「安装」按钮。判据与文案由 `UpdateCheckTests`（12 项）钉，入口几何由 `AboutWindowTests` 钉，牙见 `scripts/mutation-check-app-update.sh`（7 组变异）；口径见 [dev 包怎么装](../how-to/dev-build.md) |
-| Android / iOS 出包入口 | ❌ | 没有构建脚本、没有 workflow——是**未开工**，不是 CI 漏项 |
+| Android debug APK | 🟡 | `scripts/build-android.sh` 已生成 APK，并在 API 36 arm64 模拟器装载运行；无 Android workflow，无真机/16 KB 页/发行证据 |
+| iOS 出包入口 | ❌ | 没有构建脚本、没有 workflow |
 | 闸门分档 | ✅ | 轻档（dev）：`scripts/gate.sh`（core + ctest + ABI + api_smoke）+ 图标一致性 + `gate-ghostty-patch.sh`；full 档共接入 20 份变异，准确清单以 `AGENTS.md` 与 `.github/workflows/macos-package.yml` 为准。标签导航与窗格交互合并在 `tab-chrome`，不再依赖原生多窗口标签组的私有实现。dev/full 都另以本轮 ZIP 验一键安装脚本（签名/SHA/递归 quarantine/回滚），不触碰真实应用目录。接线不等于本轮 CI 通过；`pane-chrome / settings-ui / workspace` 等手工证据与真实系统激活、全屏另行记录。缺工具链时显式 `SKIP` 并让 CI 断言不许 SKIP，不静默跳过（铁律 #6） |
 
 ## 各端 UI
@@ -76,11 +77,11 @@
 | 端 | UI | SSH | SFTP | 本地 shell | ssh_config GUI |
 |---|---|---|---|---|---|
 | macOS | 🟡 | ✅ | 🟡 | ✅ | 🟡 |
-| Android | ⏳ 仅 HTML 设计 | ❌ | ❌ | ❌ | ❌ |
+| Android | 🟡 A0 Compose 空壳 | ❌ | ❌ | ❌ | ❌ |
 | iOS | ❌ | ❌ | ❌ | ❌ | ❌ |
 | HarmonyOS / Windows / Linux / Web | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-Android 的状态指[最终 HTML](../design/android-prototype.html)和[实现计划](android-implementation.md)，不是 Compose 或 APK 证据。
+Android UI 的 🟡 仅指 A0 首页/设置壳与版本显示已在 API 36 arm64 模拟器运行；主机管理、终端、文件和完整设置仍待实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[实施记录](android-implementation.md#91-a0-实施记录2026-10-29)区分已验证与待办。
 
 ### macOS 当前实现与限制
 

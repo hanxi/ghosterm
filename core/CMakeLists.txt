@@ -8,7 +8,12 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 find_package(Threads REQUIRED)
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
+if(CMAKE_CROSSCOMPILING)
+  set(GHOSTERM_TESTS_DEFAULT OFF)
+else()
+  set(GHOSTERM_TESTS_DEFAULT ON)
+endif()
+option(GHOSTERM_BUILD_TESTS "Build host executables and register tests" ${GHOSTERM_TESTS_DEFAULT})
 
 add_library(ghosterm_core STATIC
   src/base/secure-random.c
@@ -31,7 +36,18 @@ target_link_libraries(ghosterm_core PUBLIC Threads::Threads)
 # 默认 ON：探测到 libssh2 就编入；探测不到则 GT_HAVE_LIBSSH2 不定义，
 # 核心退化为「所有 SSH 入口显式 GT_ERR_UNSUPPORTED」，闸门仍可离线跑。
 option(GHOSTERM_WITH_LIBSSH2 "Build the libssh2 SSH/SFTP backend" ON)
+set(GHOSTERM_SSH2_TARGET "" CACHE STRING "Explicit target for a cross-compiled libssh2 backend")
 if(GHOSTERM_WITH_LIBSSH2)
+ if(GHOSTERM_SSH2_TARGET)
+  if(NOT TARGET ${GHOSTERM_SSH2_TARGET})
+    message(FATAL_ERROR "GHOSTERM_SSH2_TARGET must name an existing target")
+  endif()
+  target_compile_definitions(ghosterm_core PRIVATE GT_HAVE_LIBSSH2=1)
+  target_link_libraries(ghosterm_core PUBLIC ${GHOSTERM_SSH2_TARGET})
+  set(SSH2_FOUND TRUE)
+ elseif(CMAKE_CROSSCOMPILING)
+  message(FATAL_ERROR "Cross builds require GHOSTERM_SSH2_TARGET; host pkg-config is forbidden")
+ else()
   find_package(PkgConfig QUIET)
   if(PkgConfig_FOUND)
     pkg_check_modules(SSH2 QUIET libssh2)
@@ -45,10 +61,13 @@ if(GHOSTERM_WITH_LIBSSH2)
   else()
     message(STATUS "ghosterm_core: 未探测到 libssh2 —— SSH 入口将返回 GT_ERR_UNSUPPORTED")
   endif()
+ endif()
 endif()
 
 
 
+if(GHOSTERM_BUILD_TESTS)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
 add_test(NAME public_headers
          COMMAND ${Python3_EXECUTABLE}
@@ -189,3 +208,4 @@ set_tests_properties(tmux_command PROPERTIES TIMEOUT 15)
 add_test(NAME tmux_adversarial COMMAND ${Python3_EXECUTABLE}
   ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-tmux.py --fake --binary $<TARGET_FILE:test_tmux>)
 set_tests_properties(tmux_adversarial PROPERTIES TIMEOUT 30)
+endif()

@@ -34,3 +34,6 @@ xcuserdata/
 
 # ---- 本地临时（约定：临时文件与执行都放这里，见 AGENTS.md） ----
 /tmp/
+
+# Android developer SDK configuration
+/android/local.properties
