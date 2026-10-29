@@ -1,6 +1,6 @@
 # macOS 标签栏与窗格界面重构计划
 
-> 状态：实施中。S1–S4 已落地并完成对应本机验证；S5 的本机交叉回归与原生离屏截图已完成；真实系统焦点 / 全屏与 macOS 15 CI 待验。
+> 状态：实施中。S1–S4 已落地并完成对应本机验证；S5 的本机交叉回归、原生截图及真实系统焦点 / 全屏验收已完成；macOS 15 CI 待验。
 > 日期：2026-10-29。初始源码基线：`54331f1`；本轮窗格实现起点：`99342b6`。实现与验收进度分别见第 2.1、8 节。
 > 设计依据：[已确认的交互原型](../design/tabs-chrome-prototype.html)与[侧栏模式示意图](../design/tabs-split-preview.png)。
 > 执行约束：以仓库 `AGENTS.md` 为准；每个切片包含源码、调用方、测试与变异的同步调整，检查通过后直接提交 `main`。
@@ -49,14 +49,14 @@
 
 | 当前落点 | 已有基础 | 后续任务 |
 |---|---|---|
-| `TabWindowController.swift`、`RootView.swift` | 单窗口、唯一根视图；顶部与侧边互斥，后台工作区保持挂载 | 补真实全屏、恢复窗口尺寸和跨系统证据，检查安全区与红绿灯避让 |
+| `TabWindowController.swift`、`RootView.swift` | 单窗口、唯一根视图；顶部与侧边互斥，后台工作区保持挂载 | macOS 26.6.2 的全屏往返、尺寸恢复和控件避让已验证；待 macOS 15 CI |
 | `TabPresentation.swift`、`SettingsStore.swift`、`SettingsView.swift` | 标签位置和精简侧栏已持久化，外观设置已接入 | 本机设置与宿主身份检查通过；待 macOS 15 验证 |
-| `Sidebar.swift`、`TabStrip.swift`、`TabInteraction.swift` | 纯标签列表、唯一加号、按 UUID 选择与排序 | 深浅色原生离屏截图及长标题 / 多标签几何检查通过；待真实桌面验收 |
+| `Sidebar.swift`、`TabStrip.swift`、`TabInteraction.swift` | 纯标签列表、唯一加号、按 UUID 选择与排序 | 深浅色离屏截图、真实桌面三种布局及长标题 / 多标签几何检查通过 |
 | `ConnectionChooser.swift`（含 `HostManagerView`）、`TabSearchView.swift` | 主机管理迁出侧栏，连接与标签搜索已有独立入口 | 本机对应回归通过；待 macOS 15 验证 |
 | `AppModel.swift`、`PaneActions.swift` | 分屏、关闭、缩放按标签 / 窗格 UUID 路由，终端与文件共用动作描述；目标校验和菜单 / 按键已验证 | 文件、关闭确认与默认入口闸门已通过 |
-| `WorkspaceView.swift`、`SplitPreview.swift` | 独立预览层与清理接线已验证，含像素、命中、resize、失焦、切页、缩放、拖动与目标消失 | 本机对应闸门已通过；补真实系统焦点与全屏 |
+| `WorkspaceView.swift`、`SplitPreview.swift` | 独立预览层与清理接线已验证，含像素、命中、resize、失焦、切页、缩放、拖动与目标消失 | 本机对应闸门及真实系统焦点 / 全屏已通过 |
 
-S4 已完成，当前执行 S5。窗格命令、控件与预览已经接入，调试输出已清理；本机完整宿主闸门为 336 项测试、1 项开发态资源跳过、零失败。锁屏造成系统 key window 前置条件不成立，因此确定性预览测试注入窗口焦点状态，生产失焦保护保持有效。真实系统激活、全屏与 macOS 15 CI 仍单独待验；已生成的离屏截图也不能替代这些证据。最新细节与变异进度见第 8 节。
+S4 已完成，当前执行 S5。窗格命令、控件与预览已经接入，调试输出已清理；本机完整宿主闸门为 336 项测试、1 项开发态资源跳过、零失败。锁屏期间确定性预览测试注入窗口焦点状态，生产失焦保护保持有效。解锁后另以普通 NSWindow 验证了真实激活、全屏和按键落点（第 8 节）；macOS 15 CI 仍待验。最新细节与变异进度见第 8 节。
 
 ## 3. 窗口层方案与先行验证
 
@@ -153,7 +153,7 @@ macOS 26 上用两个真实 NSWindow 组成原生标签组，分别在 anchor �
 S4a（窗格动作）与 S4b（分屏预览）已随 `f6b72db` 完成，包含对应测试与 22 组变异。S5 进度如下：
 
 1. **交叉回归（本机通过）**：第 6.3 节的相关闸门已复验。收尾发现文件双击 selector 错误和两处旧测试漏洞，已修复并补变异证据，详见第 8 节。
-2. **系统与视觉证据**：七张原生离屏截图已生成；待可交互桌面补真实系统激活、全屏进入 / 退出及窗口尺寸恢复。macOS 15 需取得对应提交的 CI 结果，历史绿灯不作本轮证据。
+2. **系统与视觉证据**：七张原生离屏截图和六张真实桌面窗口截图已生成；系统激活、全屏进入 / 退出及尺寸恢复已验证。macOS 15 仍需取得对应提交的 CI 结果，历史绿灯不作本轮证据。
 3. **文档与交付**：同步规则、能力矩阵、CI 覆盖及遗留限制；清理失效描述。只有第 7 节完成条件全部满足，才将整个计划标记为交付。
 
 最终截图至少包括：侧边与顶部两种布局的深 / 浅色、精简侧栏、多窗格悬停预览、终端与文件混排；空态、长标题与大量标签另做原生几何检查。截图用于视觉评审，焦点和会话保留仍以真实事件与对象 / PID 断言为准。
@@ -268,7 +268,7 @@ full CI 从 24 份脚本收敛到 20 份，同时新增偏好、连接选择器�
 
 另有[终端与文件混排](../design/tab-chrome-native/mixed-files.png)。已逐张检查导航互斥、唯一加号、精简侧栏的窗口按钮避让、窗格按钮和目标半区预览。截图包含窗口框架；原生红绿灯呈灰色，反映测试应用没有获得系统激活。
 
-**证据边界**：这是离屏视觉记录。测试窗口的 key 状态受控，抓 Metal 帧前显式设置 surface 可见并请求绘制，不能据此声称已验证正常桌面激活或系统全屏。真实系统状态仍待可交互桌面验证。
+**证据边界**：这是离屏视觉记录。测试窗口的 key 状态受控，抓 Metal 帧前显式设置 surface 可见并请求绘制，不能据此声称已验证正常桌面激活或系统全屏。独立的真实桌面证据见下方系统验收记录。
 
 复现命令（图片生成在工程 `tmp/tab-chrome-screenshots/`）：
 
@@ -298,16 +298,45 @@ C gate 的 32 项测试 / 71 个符号证据沿用 S4，收尾未改 C 实现或
 截图复现的两项测试通过，七张图片已检查；不据此跳过真实系统焦点、全屏和 macOS 15 证据。
 
 
-### S5 待执行的系统验收
+### S5 系统验收（macOS 26.6.2 已完成）
 
-可交互桌面恢复后，使用真实生产窗口完成以下场景；不覆盖 `isKeyWindow`，不手动设置 fullScreen styleMask 来代替系统转换：
+2026-10-29 桌面解锁后，已使用生产窗口控制器创建的普通 NSWindow 完成以下场景；未覆盖 `isKeyWindow`，未手动设置 fullScreen styleMask：
 
 - 分别从顶部、侧边与精简侧栏进入系统全屏，再退出；检查终端顶边、唯一加号、窗口按钮避让及原窗口尺寸恢复。
 - 在同一窗口中切换两条真实 shell 标签及导航布局，检查原有宿主 / surface / PID 保留、键盘输入落在当前窗格；点击非当前窗格分屏按钮后输入落到新窗格。
 - 切到其他应用再切回，检查预览消失、按钮重新可用、焦点和终端渲染恢复；全屏中也执行一次。
 - 记录实际提交、系统版本、通过 / 失败和屏幕截图。macOS 15 另以该提交的 full CI 结果登记，不能引用之前提交的通过结果。
 
-当前尚无上述系统验收结果；桌面锁屏与旧提交的 CI 成功均不计为通过。
+本次实现基线为 `0086907`，27 条原始观测保存在 [desktop-observations.json](../design/tab-chrome-native/desktop-observations.json)。结果：
+
+| 场景 | 实测结果 |
+|---|---|
+| 标准侧栏 / 顶部 / 精简侧栏 | 普通窗口和全屏均为真实 active / key；唯一加号，与可见系统按钮不重叠 |
+| 终端列顶部预留 | 侧栏和精简模式 0pt；顶部模式 39pt（38pt 标签栏 + 1pt 分隔线） |
+| 系统全屏往返 | 三种布局各一次，另一次跨应用切换；收到 4 次进入及 4 次退出完成通知 |
+| 窗口尺寸 | 每次由 1000×600 进入 2560×1080 全屏，退出恢复原尺寸及位置 |
+| 标签与会话 | 根视图、三个终端宿主保持同一对象；三个真实 shell PID 全部保留 |
+| 系统失焦 / 重新激活 | 普通与全屏中预览均清除，切回后 key window、当前 Space、firstResponder 与窗格焦点恢复 |
+| 按键与分屏 | NSEvent 经 NSApp 派发，仅当前窗格收到 desktop1；点击非当前窗格分屏后，新窗格独占 desktop2，旧窗格未收到 |
+
+| 布局 | 普通窗口 | 系统全屏 |
+|---|---|---|
+| 侧边标签 | [查看](../design/tab-chrome-native/desktop-sidebar-normal.png) | [查看](../design/tab-chrome-native/desktop-sidebar-fullscreen.png) |
+| 顶部标签 | [查看](../design/tab-chrome-native/desktop-top-normal.png) | [查看](../design/tab-chrome-native/desktop-top-fullscreen.png) |
+| 精简侧栏 | [查看](../design/tab-chrome-native/desktop-compact-normal.png) | [查看](../design/tab-chrome-native/desktop-compact-fullscreen.png) |
+
+**方法与边界**：桌面探针在工程 tmp 的隔离副本运行，复用生产 TabWindowController、根视图和本地 PTY；
+窗口没有焦点替身，Metal 未被强制设为可见。鼠标悬停、按钮点击与字符按键为合成 NSEvent，
+经过 AppKit 派发，未使用物理键盘自动化，也不宣称覆盖所有 IME / 辅助功能行为。
+动画与跨 Space 切换必须异步等待系统完成；仅等 key 状态翻转而立即反向切换，会把尚未结束的
+Space 过渡带进下一项。等待真实 isOnActiveSpace 后，上述焦点往返通过，未改生产焦点逻辑。
+
+原始探针为 `tmp/TabDesktopProbeTests.swift`，最终日志为 `tmp/tab-desktop-validation.log`；
+运行于 `tmp/workspace-mutations-7srjuix6/apple/GhostermApp`，命令为设置 Xcode DEVELOPER_DIR 和工程 TMPDIR 后
+`swift test --package-path <隔离副本> --filter TabDesktopProbeTests`。临时测试未加入产品或常规测试集，
+不会让 CI 抢占桌面；既有 336 项宿主测试和变异闸门保持不变。本轮只提交观测记录和截图。
+
+macOS 15 CI 仍待运行；本机通过不替代跨系统证据。
 
 
 ### S5 交叉回归发现的修复

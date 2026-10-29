@@ -317,3 +317,15 @@ AppKit 管理的窗格 backing layers 之前；仅断言 path 和矩形全部通
 只读 clickedRow 的事件数据，不替换生产目标，也不把它称作物理双击证据。文件索引映射
 及选中绑定仍独立验证。工作区变异分别关闭动作安装、
 把 selector 改回 `NSObject.perform(_:)`，并各配独立文件焦点对照。
+
+
+## 13. 桌面探针应让 AppKit 与 Space 过渡完成
+
+XCTest 中仅泵 RunLoop 不等于运行 NSApplication 的事件循环；同步等待全屏完成还可能
+阻塞动画后续工作。2026-10-29 解锁后的探针使用 NSApp.run，并在主 actor 上异步等待
+真实进入 / 退出全屏通知，未覆写 key 状态或修改 fullScreen 标志。
+
+全屏中切换应用时，isKeyWindow 先翻转并不说明 Space 过渡已经结束。离开时等待窗口不在
+活动 Space，重新激活时等待 isOnActiveSpace，再测试退出全屏及按键落点；否则快速反向
+切换会使观察结果混入尚未完成的系统动画。本轮三种布局和独立跨应用往返均已通过，
+具体证据见 [标签重构计划](plan-tab-chrome-refactor.md)。

@@ -1,0 +1,239 @@
+{
+  "sourceCommit": "00869074a0cacca8bc83d7697056837e5a894c7c",
+  "macOS": "26.6.2",
+  "recordedAt": "2026-10-29T10:15:51.353800+08:00",
+  "method": "Production TabWindowController and ordinary NSWindow, real AppKit activation and fullscreen notifications. Hover/click/key NSEvents synthesized; no physical keyboard automation. No isKeyWindow override or forced surface visibility.",
+  "probeSHA256": "c362ba6d362aff46367204e7368705d7dbf7911059ae667544d21475155891fd",
+  "observations": [
+    {
+      "active": true,
+      "event": "activated",
+      "key": true,
+      "pids": [
+        "92856",
+        "92857",
+        "92858"
+      ],
+      "windowClass": "NSWindow"
+    },
+    {
+      "event": "sidebar-tab-selection",
+      "key": true,
+      "keyboardCorrect": true,
+      "selectedCorrect": true
+    },
+    {
+      "active": true,
+      "event": "sidebar-normal",
+      "firstResponderCorrect": true,
+      "frame": "{{780, 358}, {1000, 600}}",
+      "fullscreen": false,
+      "key": true,
+      "plusCount": 1,
+      "sameFirstHost": true,
+      "sameOtherHost": true,
+      "sameRoot": true,
+      "sameSecondHost": true,
+      "topInset": 0,
+      "trafficLightOverlap": false,
+      "workspaceX": 241
+    },
+    {
+      "event": "sidebar-normal-preview",
+      "passive": true,
+      "shown": true
+    },
+    {
+      "event": "sidebar-normal-deactivated",
+      "inactive": true,
+      "previewCleared": true
+    },
+    {
+      "event": "sidebar-normal-reactivated",
+      "key": true,
+      "onActiveSpace": true,
+      "paneFocus": true,
+      "responder": true
+    },
+    {
+      "collection": 0,
+      "entered": 1,
+      "event": "fullscreen-transition",
+      "frame": "{{0, 0}, {2560, 1080}}",
+      "fullscreen": true
+    },
+    {
+      "active": true,
+      "event": "sidebar-fullscreen",
+      "firstResponderCorrect": true,
+      "frame": "{{0, 0}, {2560, 1080}}",
+      "fullscreen": true,
+      "key": true,
+      "plusCount": 1,
+      "sameFirstHost": true,
+      "sameOtherHost": true,
+      "sameRoot": true,
+      "sameSecondHost": true,
+      "topInset": 0,
+      "trafficLightOverlap": false,
+      "workspaceX": 241
+    },
+    {
+      "event": "sidebar-restored",
+      "frameRestored": true,
+      "key": true,
+      "responder": true
+    },
+    {
+      "event": "top-tab-selection",
+      "key": true,
+      "keyboardCorrect": true,
+      "selectedCorrect": true
+    },
+    {
+      "active": true,
+      "event": "top-normal",
+      "firstResponderCorrect": true,
+      "frame": "{{780, 358}, {1000, 600}}",
+      "fullscreen": false,
+      "key": true,
+      "plusCount": 1,
+      "sameFirstHost": true,
+      "sameOtherHost": true,
+      "sameRoot": true,
+      "sameSecondHost": true,
+      "topInset": 39,
+      "trafficLightOverlap": false,
+      "workspaceX": 0
+    },
+    {
+      "collection": 0,
+      "entered": 2,
+      "event": "fullscreen-transition",
+      "frame": "{{0, 0}, {2560, 1080}}",
+      "fullscreen": true
+    },
+    {
+      "active": true,
+      "event": "top-fullscreen",
+      "firstResponderCorrect": true,
+      "frame": "{{0, 0}, {2560, 1080}}",
+      "fullscreen": true,
+      "key": true,
+      "plusCount": 1,
+      "sameFirstHost": true,
+      "sameOtherHost": true,
+      "sameRoot": true,
+      "sameSecondHost": true,
+      "topInset": 39,
+      "trafficLightOverlap": false,
+      "workspaceX": 0
+    },
+    {
+      "event": "top-restored",
+      "frameRestored": true,
+      "key": true,
+      "responder": true
+    },
+    {
+      "event": "compact-tab-selection",
+      "key": true,
+      "keyboardCorrect": true,
+      "selectedCorrect": true
+    },
+    {
+      "active": true,
+      "event": "compact-normal",
+      "firstResponderCorrect": true,
+      "frame": "{{780, 358}, {1000, 600}}",
+      "fullscreen": false,
+      "key": true,
+      "plusCount": 1,
+      "sameFirstHost": true,
+      "sameOtherHost": true,
+      "sameRoot": true,
+      "sameSecondHost": true,
+      "topInset": 0,
+      "trafficLightOverlap": false,
+      "workspaceX": 89
+    },
+    {
+      "collection": 0,
+      "entered": 3,
+      "event": "fullscreen-transition",
+      "frame": "{{0, 0}, {2560, 1080}}",
+      "fullscreen": true
+    },
+    {
+      "active": true,
+      "event": "compact-fullscreen",
+      "firstResponderCorrect": true,
+      "frame": "{{0, 0}, {2560, 1080}}",
+      "fullscreen": true,
+      "key": true,
+      "plusCount": 1,
+      "sameFirstHost": true,
+      "sameOtherHost": true,
+      "sameRoot": true,
+      "sameSecondHost": true,
+      "topInset": 0,
+      "trafficLightOverlap": false,
+      "workspaceX": 89
+    },
+    {
+      "event": "compact-restored",
+      "frameRestored": true,
+      "key": true,
+      "responder": true
+    },
+    {
+      "event": "separate-fullscreen-preview",
+      "passive": true,
+      "shown": true
+    },
+    {
+      "event": "separate-fullscreen-deactivated",
+      "inactive": true,
+      "previewCleared": true
+    },
+    {
+      "event": "separate-fullscreen-reactivated",
+      "key": true,
+      "onActiveSpace": true,
+      "paneFocus": true,
+      "responder": true
+    },
+    {
+      "active": true,
+      "event": "separate-fullscreen-restored",
+      "frameRestored": true,
+      "key": true
+    },
+    {
+      "backgroundReceived": false,
+      "currentReceived": true,
+      "event": "keyboard",
+      "siblingReceived": false
+    },
+    {
+      "event": "split-click",
+      "key": true,
+      "newPaneFocused": true
+    },
+    {
+      "event": "split-keyboard",
+      "newReceived": true,
+      "oldReceived": false
+    },
+    {
+      "enterNotifications": 4,
+      "event": "finished",
+      "exitNotifications": 4,
+      "pidsPreserved": [
+        true,
+        true,
+        true
+      ]
+    }
+  ]
+}
