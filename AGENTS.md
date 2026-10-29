@@ -277,7 +277,7 @@ flush 一次 wtail，当尾队列的泵。契约见 `transport.h`：「输入不
 了终端」（用户实测「敲不出中文、输入法不弹」）：视图必须实现 `NSTextInputClient`
 且 `keyDown` 走 `interpretKeyEvents`，组合串经 preedit 内联显示、提交走**键入**
 语义（`TerminalIMETests`，观测口径是 libghostty 的 `ime_point` 宽度与 transport
-字节）。变异 T1~T7 有牙。）
+字节）。变异 T1~T8 有牙，T8 另护输入法提交的控制字符原样到达 transport，避免吞掉 tmux 前缀。）
 （`tab-chrome` 保留当前标签高亮与标签条普通鼠标横滚；`auth` 护「没口令的钥匙不被问口令」。
 `tabs` 另护**标签右键菜单的落点**（T17/T18）：菜单里的分屏 / 文件面板开关
 必须作用在**被右键的那条**标签上，不是「当前标签页」——右键的未必是当前的，

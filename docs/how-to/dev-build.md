@@ -48,11 +48,17 @@ curl -fsSL https://raw.githubusercontent.com/hanxi/ghosterm/main/scripts/install
 ### 免弹窗装（实测不贴标记）
 
 ```bash
-curl -fsSL -o Ghosterm.zip https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-0.1.0-dev-arm64.zip
-curl -fsSL -o SHA256SUMS   https://github.com/hanxi/ghosterm/releases/download/dev/SHA256SUMS
-shasum -a 256 -c SHA256SUMS --ignore-missing   # 对最终字节算的，见下面「读 BUILD-INFO.txt」
-ditto -x -k Ghosterm.zip /Applications
+(
+  set -eu
+  curl -fsSL -o Ghosterm-0.1.0-dev-arm64.zip https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-0.1.0-dev-arm64.zip
+  curl -fsSL -o SHA256SUMS https://github.com/hanxi/ghosterm/releases/download/dev/SHA256SUMS
+  awk '$2 == "Ghosterm-0.1.0-dev-arm64.zip" && NF == 2 { print; n++ } END { if (n != 1) exit 1 }' SHA256SUMS > Ghosterm-zip.sha256
+  shasum -a 256 -c Ghosterm-zip.sha256
+  ditto -x -k Ghosterm-0.1.0-dev-arm64.zip /Applications
+)
 ```
+
+下载文件名须与清单一致。这里只提取 ZIP 的唯一一条记录；缺失、重复、下载失败或摘要不符时停止，不会继续解包。示例资产名对应当前脚本默认版本，版本变化时以 Release 实际名称为准；一键安装脚本会从 `version.json` 读取名称。手动解包不提供一键脚本的运行中检查和替换回滚。
 
 `curl` 不属于会贴标记的「下载代理」，所以解出来的 `.app` 没有 `com.apple.quarantine`。
 实测到的是**「标记不在」这一层**（外加一个不带标记的 ad-hoc 探针包被 LaunchServices
@@ -96,8 +102,14 @@ arm64 切片；最低系统被内嵌的 Homebrew `libcrypto` 抬到 26.0），�
 2. 校验和比对——`SHA256SUMS` 是打包脚本对**最终字节**算的：
 
    ```bash
-   shasum -a 256 -c SHA256SUMS
+   (
+     set -eu
+     awk '$2 == "Ghosterm-0.1.0-dev-arm64.dmg" && NF == 2 { print; n++ } END { if (n != 1) exit 1 }' SHA256SUMS > Ghosterm-dmg.sha256
+     shasum -a 256 -c Ghosterm-dmg.sha256
+   )
    ```
+
+   必须看到该 DMG 的 `OK` 后再继续；无需下载清单里的其他资产。
 
 3. 挂载拖进「应用程序」。浏览器下载的 dmg 会把 quarantine **传染**给拖出来的 `.app`，
    首次打开按上面 [被拦之后怎么放行](#被拦之后怎么放行) 处理。
@@ -123,7 +135,7 @@ arm64 切片；最低系统被内嵌的 Homebrew `libcrypto` 抬到 26.0），�
 dev Release 上挂了一份固定 URL 的清单，给客户端做**更新检测**用：
 
 ```bash
-curl -fsSL https://github.com/<owner>/ghosterm/releases/download/dev/version.json
+curl -fsSL https://github.com/hanxi/ghosterm/releases/download/dev/version.json
 ```
 
 为什么是它而不是 GitHub API：`releases/download/dev/<name>` 是**固定直链**，不占
@@ -158,16 +170,18 @@ step 再从固定 URL 把它取回来对答案（commit、渠道、架构、sha2
 UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
 
 - **只在点「检查更新」时联网**：没有启动时检查、没有后台轮询。dev 包 ad-hoc 且未
-  公证，检测出来也装不上，静默联网换不来任何用户能用的东西。
+  公证，当前产品只提供手动下载与用户主动执行的安装入口。
 - **结论三态，不折叠**：`有新版` / `已是最新` / `查不出来（+原因）`。「本机这份包
   里没有 commit 记录」「带未提交改动（`+dirty`）」「清单渠道不是 dev」「取不到
   version.json」「version.json 读不懂」全都如实报，**绝不报成「已是最新」**。
 - **主锚是 commit**：本机记的是短 sha（`--short=12`），清单里是整条 40 位，比前缀。
   不比 `version`/`build`——那两条跨轨不可比（见上面 [`BUILD-INFO.txt`](#确认这个包是怎么来的读-build-infotxt)）。
-- **没有「安装」按钮**：清单里 `signature=adhoc` + `notarized=false` 就是「装不上」
-  的机器可读声明，界面照它说话，只给「打开下载页」这一条直链；有新版时另外写明
+- **没有「安装」按钮**：清单里 `signature=adhoc` + `notarized=false` 表示当前渠道不允许自动安装，
+  不表示用户无法手动安装。界面只给「打开下载页」这一条直链；有新版时另外写明
   首次打开会被 Gatekeeper 拦、要怎么放行（口径同上面 [怎么装](#怎么装一键脚本手工解包homebrew-或浏览器)）。
 - 「本机」那行是**可复制**的：要用户自己核对 commit，报「查不出来」时才有的放矢。
+
+**当前校验边界**：发布脚本生成/复验清单、安装脚本验包和 App 解码是三条不同路径。`RemoteBuild.decode` 会拒绝缺字段、空字符串、不可解析时间及非 64 位摘要，但尚未检查远端 `git_commit` 为 40 位十六进制、摘要的十六进制字符集，也没有约束 `download_base` 的来源。`compare` 按 commit 前缀相同/不同作判断，不验证提交祖先关系；因此“有新版”实际表示“与本机不同的 dev 提交”。这些校验缺口列入[路线图](../reference/roadmap.md#macos-下一步与共享缺口)，不能把已有缺字段测试扩大为全部畸形输入都返回“查不出来”。
 
 闸门：`bash scripts/mutation-check-app-update.sh`——七组变异（把「查不出来」折成
 「已是最新」、拿版本号当判据、解码给默认值、`installBlocked` 恒 false、文案撒谎、
@@ -239,6 +253,8 @@ push main → dev-build.yml
 tag `v*` / PR / 手动走 `macos-release.yml`，共用 `macos-package.yml` 与同一份打包脚本。
 release 的 full 档运行 Apple 原生与变异闸门；有证书时才走签名/公证。
 macOS 包只依赖普通引擎 SDK、共享 C 核心、原生 UI、图标和主题，不再依赖 Linux bundle job。
+
+当前图标脚本缺依赖直接失败；workflow 对打包/认证变异日志中的 `SKIP` 有显式拦截，并在 Apple 步骤起跑前检查 Swift；没有对所有宿主闸门输出统一拒绝跳过。`apple-app-gate.sh` 在 sshd 启动失败时仍会跳过 SSH e2e、运行其余用例后返回成功；CI 已接线不等于该条 SSH 证据已取得。统一覆盖审计仍是[路线图待办](../reference/roadmap.md#macos-下一步与共享缺口)。
 
 ## 相关文档
 

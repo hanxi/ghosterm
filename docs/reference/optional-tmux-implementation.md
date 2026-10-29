@@ -2,9 +2,13 @@
 
 本清单落实 [重构计划](plan-optional-tmux.md)，以 `e000728` 为起点。目标是普通 PTY/SSH 默认连接、可选 tmux 后台会话和自有 sessiond 全面退役。保留 `vendor/ghostty` 的现有 pin；公开 ABI 删除与新增均按 BREAKING 提交。
 
-## 依赖闭包与保留责任
+## 当前状态（2026-10-30）
 
-| 模块 | 当前消费者 | 处理与验证 |
+六个实施切片与最终验收已完成；交付范围是共享 C 与 macOS 宿主，Android 的列表与 attach 仍在 A8 待办。下方依赖表记录重构前的消费者及当时迁移决定，列出的 daemon/session/IPC 路径已退役，不是当前待删除清单。当前目录与接口以源码为准，后续配置接口使 Core 增至 34 项 CTest、73 个公共符号，不改写本次 tmux 验收当时的 30/70 记录。各次结果分别见[路线图](roadmap.md#验收记账与历史记录)。
+
+## 重构时的依赖闭包与保留责任
+
+| 模块 | 重构前消费者 | 处理与验证 |
 | --- | --- | --- |
 | `daemon/` 全部 | helper builder、Linux builder、部署、daemon probes | 删除全部源码与构建目标；同时删除 CI Linux bundle job、needs、下载/上传 artifact 及打包调用 |
 | `core/src/session/` 的 runtime/worker/manager/creation/create-spec/state-owner/checkpoint-task/attachment/restore-stream/client-api/deploy | `daemon/`、IPC server/client、公开 session ABI | 删除及配套 C tests；从 `core/CMakeLists.txt` 移除 `ghosterm_client_*` 目标与专用对象库 |
