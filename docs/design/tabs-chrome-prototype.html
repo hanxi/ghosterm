@@ -3,26 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Ghosterm 标签页设计原型：Chrome 风格的横向与纵向标签、平铺会话列表和按需连接。">
-<title>Ghosterm · 标签页设计提案</title>
+<meta name="description" content="Ghosterm 原生窗口真实运行截图与 Tern 官网四种布局高清截图对照。">
+<title>Ghosterm × Tern · 实际界面对照</title>
 <style>
-*{box-sizing:border-box} :root{color-scheme:light;--page:#f6f7f4;--ink:#28342e;--muted:#778079;--chrome:#e6ebe4;--surface:#f7faf5;--active:#fff;--line:#d6ded4;--hover:#dbe3d8;--accent:#376b48;--accent-bg:#d6e8d1;--terminal:#171c1a;--termtext:#c9d3cc;--shadow:0 28px 70px -28px #263b3a50,0 2px 6px #263b3a12}
-body{margin:0;background:var(--page);color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;font-size:13px;-webkit-font-smoothing:antialiased}button,input{font:inherit}button{color:inherit;cursor:pointer}button,a,input{-webkit-tap-highlight-color:transparent}button{border:0;background:none}button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid #5b9565;outline-offset:3px}button:disabled{opacity:.35;cursor:default}svg.icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}svg.defs{position:absolute;width:0;height:0;overflow:hidden} .page{max-width:1376px;margin:auto;padding:30px 48px 24px}.masthead{display:flex;align-items:center;justify-content:space-between}.brand{font-size:19px;font-weight:650;letter-spacing:-.6px;display:flex;align-items:center;gap:10px}.brandmark{background:#273d31;color:#e1edda;display:grid;place-items:center;width:32px;height:32px;border-radius:10px}.mast-meta{display:flex;gap:16px;align-items:center;color:var(--muted);font-size:11px;letter-spacing:1.3px}.tag{border:1px solid var(--line);border-radius:20px;padding:6px 10px;letter-spacing:.3px;font-size:11px}.intro{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin:39px 0 25px}.eyebrow{font-size:10px;font-weight:650;letter-spacing:2.2px;color:var(--accent);margin-bottom:12px}h1{font-size:32px;letter-spacing:-1px;font-weight:600;margin:0 0 12px;line-height:1.2}.intro p{color:var(--muted);font-size:13px;margin:0;line-height:1.8}.controls{display:flex;align-items:center;gap:12px;flex-shrink:0;margin-bottom:3px}.window{background:var(--chrome);height:590px;min-height:440px;border:1px solid #cbd5c9;border-radius:15px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column;position:relative}.titlebar{height:48px;flex-shrink:0;display:flex;align-items:center;padding:0 14px;gap:14px}.traffic{display:flex;gap:8px;padding:0 11px 0 2px;flex-shrink:0}.traffic i{width:12px;height:12px;border-radius:50%;background:#ff6058;border:1px solid #0000000a}.traffic i:nth-child(2){background:#ffbd2e}.traffic i:nth-child(3){background:#27c840}.icon-btn{width:30px;height:30px;display:inline-grid;place-items:center;border-radius:8px;flex-shrink:0;color:var(--muted)}.icon-btn:hover{background:var(--hover);color:var(--ink)}.icon-btn[aria-pressed=true]{background:var(--accent-bg);color:var(--accent)}.window-label{font-size:12px;color:var(--muted);letter-spacing:.1px;display:flex;gap:8px;align-items:center}.window-label strong{font-weight:550;color:var(--ink)}.title-spacer{flex:1}.title-hint{font-size:10px;color:var(--muted);margin-right:6px}.workarea{display:flex;flex:1;min-height:0}.sidebar{width:236px;flex-shrink:0;padding:5px 10px 12px;display:flex;flex-direction:column;overflow:hidden;transition:width .18s}.side-header{display:flex;align-items:center;justify-content:space-between;padding:0 7px 10px;color:var(--muted);font-size:11px}.side-header span:last-child{font-size:10px}.tab-list{flex:1;min-height:0;overflow:auto;scrollbar-width:thin}.tab{position:relative;display:flex;align-items:center;gap:9px;margin:3px 0;padding:0 9px;height:40px;border-radius:9px;user-select:none;cursor:pointer;outline-offset:-2px;flex-shrink:0}.tab:hover{background:var(--hover)}.tab[aria-selected=true]{background:var(--active);box-shadow:0 1px 3px #1a34220d}.tab[aria-selected=true] .tab-name{font-weight:550}.tab-icon{display:grid;place-items:center;width:23px;height:23px;border-radius:6px;color:#617865;flex-shrink:0}.tab-icon .icon{width:17px;height:17px}.tab[aria-selected=true] .tab-icon{background:var(--accent-bg);color:var(--accent)}.tab-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1;font-size:12px}.state-dot{height:6px;width:6px;border-radius:50%;background:#7b9e78;flex-shrink:0}.state-dot.busy{background:#d9ae60;box-shadow:0 0 0 3px #d9ae6012}.tab-close{width:20px;height:20px;display:grid;place-items:center;border-radius:50%;opacity:0;padding:3px;color:var(--muted)}.tab-close .icon{width:13px;height:13px}.tab:hover .tab-close,.tab:focus-within .tab-close,.tab[aria-selected=true] .tab-close{opacity:1}.tab-close:hover{background:#89948825}.tab.drag-over{outline:2px solid #729f75}.content{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--surface);border-radius:12px 0 0 0;margin:0 7px 7px 0;overflow:hidden;border:1px solid #00000007}.session-toolbar{display:flex;align-items:center;height:45px;padding:0 13px;gap:9px;flex-shrink:0;border-bottom:1px solid var(--line)}.connection-kind{display:flex;align-items:center;gap:7px;font-size:11px;white-space:nowrap}.connection-kind .icon{width:15px;height:15px;color:var(--accent)}.breadcrumb{font-size:11px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.breadcrumb b{font-weight:400;color:var(--ink)}.toolbar-divider{height:12px;width:1px;background:var(--line);margin:0 2px}.tool-actions{margin-left:auto;display:flex;gap:4px;flex-shrink:0}.terminal-layout{display:flex;flex:1;min-height:0;background:var(--terminal)}.terminal{padding:24px 27px 10px;flex:1;min-width:0;overflow:auto;font:12px/1.85 "SFMono-Regular",Consolas,"Liberation Mono",monospace;color:var(--termtext);scrollbar-width:thin}.terminal pre{font:inherit;margin:0;white-space:pre-wrap;overflow-wrap:anywhere}.term-muted{color:#75867b}.term-green{color:#a8cfa3}.term-blue{color:#a3c8dd}.term-yellow{color:#dbca94}.term-violet{color:#c1b1de}.terminal .gap{height:19px}.prompt{display:flex;gap:10px;align-items:center;margin-top:4px;white-space:nowrap}.cursor{display:inline-block;background:#bfceb9;width:7px;height:15px;vertical-align:middle;animation:blink 1.3s steps(1) infinite}.terminal-note{margin-top:45px;color:#4a5b50;font-size:10px;letter-spacing:1px}.file-panel{width:224px;flex-shrink:0;border-left:1px solid #364239;background:#202722;padding:15px;color:#b2c2b5;display:none;font-size:11px}.window.files .file-panel{display:block}.file-panel h3{font-size:11px;font-weight:500;margin:0 0 20px;color:#d8e3d8}.file-path{color:#718576;font:10px monospace;margin-bottom:15px}.file-row{display:flex;gap:9px;align-items:center;padding:8px 2px}.file-row .icon{width:15px;height:15px;color:#7e9b80}.statusbar{background:var(--terminal);border-top:1px solid #ffffff09;color:#718576;min-height:27px;padding:0 15px;display:flex;align-items:center;gap:8px;font:10px "SFMono-Regular",Consolas,monospace}.statusbar .state-dot{width:5px;height:5px}.status-right{margin-left:auto;display:flex;gap:15px}.top-tabs{display:none;flex:1;min-width:0;height:100%;align-items:flex-end;gap:5px}.top-list{display:flex;align-items:flex-end;overflow:auto;scrollbar-width:none;flex:0 1 auto;min-width:0;height:100%;gap:5px;padding-top:9px}.top-list::-webkit-scrollbar{display:none}.top-list .tab{height:36px;width:168px;margin:0;border-radius:11px 11px 0 0;padding:0 11px}.top-list .tab[aria-selected=true]{background:var(--surface);box-shadow:none}.top-list .tab[aria-selected=true]:before,.top-list .tab[aria-selected=true]:after{content:"";position:absolute;bottom:0;width:10px;height:10px;pointer-events:none}.top-list .tab[aria-selected=true]:before{left:-10px;border-radius:0 0 10px 0;box-shadow:3px 3px 0 3px var(--surface)}.top-list .tab[aria-selected=true]:after{right:-10px;border-radius:0 0 0 10px;box-shadow:-3px 3px 0 3px var(--surface)}.top-list .tab-icon{width:19px;height:19px;background:transparent!important}.top-list .tab-name{font-size:11px}.top-list .tab-close{opacity:.6;flex-shrink:0}.window[data-mode=top] .sidebar{display:none}.window[data-mode=top] .window-label,.window[data-mode=top] .title-hint{display:none}.window[data-mode=top] .top-tabs{display:flex}.window[data-mode=top] .title-spacer{display:none}.window[data-mode=top] .titlebar{padding-bottom:0;gap:14px}.window[data-mode=top] .content{margin-left:7px;border-radius:0 0 9px 9px}.window[data-mode=compact] .sidebar{width:62px;padding:5px 8px 12px}.window[data-mode=compact] .side-header,.window[data-mode=compact] .tab-name,.window[data-mode=compact] .tab-close,.window[data-mode=compact] .tab .state-dot{display:none}.window[data-mode=compact] .tab{padding:0;justify-content:center;height:39px}.caption{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:11px;padding:18px 2px}.caption-left{display:flex;align-items:center;gap:8px}.live-dot{width:5px;height:5px;background:#719269;border-radius:50%}.caption kbd{font-size:10px;padding:3px 5px;border:1px solid var(--line);border-radius:4px;margin:0 3px}.principles{display:grid;grid-template-columns:repeat(3,1fr);gap:44px;margin-top:16px;padding:26px 0 24px;border-top:1px solid var(--line)}.principle{display:grid;grid-template-columns:25px 1fr;gap:8px}.principle-number{font:10px monospace;color:#8c9c89;padding-top:3px}.principle h2{font-size:13px;font-weight:550;margin:0 0 8px}.principle p{font-size:11px;color:var(--muted);line-height:1.9;margin:0}.footnote{color:#929a91;font-size:10px;line-height:1.8;display:flex;justify-content:space-between;gap:20px}.footnote a{color:inherit;text-underline-offset:3px}dialog{padding:0;border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--ink);width:490px;max-width:calc(100vw - 32px);box-shadow:0 25px 80px #0004}dialog::backdrop{background:#14241e60;backdrop-filter:blur(4px)}.dialog-head{display:flex;align-items:center;padding:17px 20px 10px;gap:10px}.dialog-head h2{font-size:14px;font-weight:550;margin:0;flex:1}.dialog-head .icon{width:18px;height:18px}.dialog-search{padding:5px 20px 15px;display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--line)}.dialog-search .icon{width:16px;color:var(--muted)}.dialog-search input{background:transparent;border:0;width:100%;padding:9px 0;color:var(--ink);outline:none;font-size:12px}.dialog-body{padding:10px;max-height:340px;overflow:auto}.dialog-section{font-size:10px;color:var(--muted);padding:10px 11px 7px}.connect-row{display:flex;align-items:center;gap:11px;width:100%;padding:11px;border-radius:9px;text-align:left}.connect-row:hover,.connect-row:focus-visible{background:var(--hover)}.connect-row .row-copy{flex:1;display:flex;flex-direction:column;gap:4px}.connect-row b{font-size:12px;font-weight:500}.connect-row small{font-size:10px;color:var(--muted)}.connect-row .icon{color:var(--accent)}.connect-row .enter{color:var(--muted);font-size:11px}.dialog-foot{padding:13px 20px;border-top:1px solid var(--line);font-size:10px;color:var(--muted);display:flex;justify-content:space-between}.empty{padding:28px;text-align:center;color:var(--muted);font-size:12px}.empty-terminal{padding:65px 20px;text-align:center;color:#859b8b}.empty-terminal h2{color:#d5dfd5;font-size:20px;font-weight:450}.empty-terminal button{background:#b7ceb0;color:#243d2b;border-radius:8px;padding:10px 18px;margin-top:15px}.toast{position:absolute;bottom:45px;left:50%;transform:translateX(-50%);background:#e3ecdf;color:#2e4832;padding:9px 14px;border-radius:8px;font-size:11px;box-shadow:0 5px 20px #0003;pointer-events:none;opacity:0;transition:opacity .15s;z-index:5;white-space:nowrap}.toast.show{opacity:1}body.dark{color-scheme:dark;--page:#171c19;--ink:#d6e0d3;--muted:#929f90;--chrome:#252e27;--surface:#303b31;--active:#3b493b;--line:#3b473b;--hover:#344235;--accent:#b3d1a7;--accent-bg:#465c41;--shadow:0 28px 70px -28px #000a}body.dark .window{border-color:#42513f}@keyframes blink{50%{opacity:0}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}@media(min-width:1500px){.window{height:650px}.intro{margin-top:50px}}@media(max-width:1000px){.page{padding:24px}.intro{align-items:flex-start;flex-direction:column;margin-top:30px;gap:20px}.controls{align-self:flex-end}.window{height:580px}.title-hint{display:none}.sidebar{width:210px}.terminal{padding:20px;font-size:11px}.principles{gap:20px}.file-panel{width:180px}}@media(max-width:640px){.page{padding:18px 12px}.mast-meta>span:first-child{display:none}.intro{margin:28px 4px 18px}h1{font-size:27px}.intro p{font-size:12px}.controls{align-self:stretch;justify-content:space-between;gap:6px}.window{height:540px;border-radius:12px}.sidebar{width:164px;padding-left:6px;padding-right:6px}.tab{gap:5px;padding:0 6px}.tab-name{font-size:11px}.tab .state-dot{display:none}.tab-close{opacity:.7}.terminal{padding:16px 12px;font-size:10px}.traffic{gap:5px;padding:0}.traffic i{width:10px;height:10px}.titlebar{gap:8px;padding:0 10px}.window-label{font-size:10px}.breadcrumb,.toolbar-divider,.status-right,.caption>span:last-child{display:none}.session-toolbar{padding:0 7px;gap:4px}.tool-actions{gap:0}.principles{grid-template-columns:1fr;gap:21px;margin:8px 4px 0}.principle p{font-size:12px}.footnote{flex-direction:column;gap:4px;padding:0 4px}.file-panel{width:145px;padding:12px}.top-list .tab{width:140px}.caption{font-size:10px}.titlebar>.icon-btn{width:25px}}
-
-.settings-entry{border:1px solid var(--line);border-radius:10px;padding:10px 13px;display:flex;gap:24px;align-items:center;font-size:12px;color:var(--ink);background:var(--active)}.settings-entry:hover{background:var(--hover)}.settings-entry span{font-size:10px;color:var(--muted)}
-.system-menu{display:flex;gap:3px;align-items:center;height:31px;margin:0 2px 8px;font-size:11px;color:var(--muted);position:relative;z-index:6}.system-menu details{position:relative}.system-menu summary{list-style:none;cursor:pointer;padding:6px 11px;border-radius:5px}.system-menu summary::-webkit-details-marker{display:none}.system-menu summary:hover,.system-menu details[open] summary{background:var(--hover);color:var(--ink)}.app-menu-name{font-weight:600;color:var(--ink)}.menu-note{margin-left:auto;font-size:10px;opacity:.65}.menu-popup{position:absolute;top:29px;left:0;min-width:232px;background:var(--surface);border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 30px #15251825;padding:5px}.menu-popup button{display:flex;justify-content:space-between;align-items:center;width:100%;padding:9px;border-radius:5px;color:var(--ink);font-size:12px;white-space:nowrap;gap:30px}.menu-popup button:hover{background:var(--accent-bg)}.menu-popup kbd{font-size:10px;color:var(--muted)}.menu-popup p{font-size:10px;padding:4px 9px;margin:0 0 3px;color:var(--muted)}
-#new-tab{color:var(--ink);margin-right:0}#new-tab:hover{background:var(--accent-bg);color:var(--accent)}.sidebar{padding-bottom:8px}.window-label{gap:0}.window-label strong,.window-label>span:first-of-type{display:none}.window-label #window-title{color:var(--muted)}
-#appearance{width:510px}#appearance .dialog-head{align-items:flex-start;justify-content:space-between;padding:22px 24px 13px}#appearance .dialog-head>div{flex:1}.settings-path{font-size:10px;color:var(--muted);margin-bottom:8px}#appearance h2{font-size:21px;font-weight:550}.appearance-body{padding:8px 24px 20px}.settings-field{border:0;padding:0;margin:0}.settings-field legend{font-size:12px;font-weight:550;padding:0}.settings-field>p{font-size:11px;color:var(--muted);margin:7px 0 15px}.layout-options{display:grid;grid-template-columns:1fr 1fr;gap:12px}.layout-option{border:1px solid var(--line);border-radius:11px;padding:13px;position:relative;cursor:pointer;display:flex;flex-direction:column;gap:7px}.layout-option:has(input:checked){border-color:var(--accent);background:var(--accent-bg)}.layout-option input{position:absolute;right:10px;top:10px;accent-color:var(--accent)}.layout-option strong{font-size:12px;font-weight:550;margin-top:4px}.layout-option small{font-size:10px;color:var(--muted)}.mini-window{display:block;width:98px;height:62px;border:1px solid var(--line);border-radius:6px;background:var(--chrome);position:relative;overflow:hidden;margin:4px 0 2px}.mini-window i{position:absolute;top:12px;left:32px;right:4px;bottom:4px;background:var(--terminal);border-radius:3px}.mini-window b{position:absolute;left:4px;top:16px;width:24px;height:7px;border-radius:2px;background:var(--active)}.mini-window b:last-child{top:28px;opacity:.5}.mini-top i{top:20px;left:4px}.mini-top b{top:6px;left:4px;width:37px;height:11px}.mini-top b:last-child{top:6px;left:44px}.compact-setting{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:21px 0;margin-top:3px;border-bottom:1px solid var(--line)}.compact-setting label{font-size:12px}.compact-setting p{font-size:11px;color:var(--muted);margin:6px 0 0}.compact-setting:has(input:disabled){opacity:.5}.compact-setting input{appearance:none;width:32px;height:19px;background:var(--line);border-radius:15px;position:relative;cursor:pointer;flex-shrink:0;margin:0}.compact-setting input:before{content:'';position:absolute;width:13px;height:13px;background:white;border-radius:50%;top:3px;left:3px;box-shadow:0 1px 3px #0002}.compact-setting input:checked{background:#62875d}.compact-setting input:checked:before{left:16px}.compact-setting input:disabled{cursor:default}.color-field{padding-top:21px}.color-field legend{float:left}.color-options{display:flex;gap:20px;justify-content:flex-end;font-size:12px}.color-options label{display:flex;align-items:center;gap:5px;cursor:pointer}.color-options input{accent-color:var(--accent);margin:0}.settings-footer{padding:15px 24px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--muted);font-size:10px}.settings-footer button{background:var(--accent-bg);color:var(--ink);padding:8px 20px;border-radius:7px;font-size:12px}.settings-footer button:hover{filter:brightness(.95)}
-@media(max-width:640px){.window[data-mode=top] .titlebar{gap:8px}.controls{align-self:flex-start}.menu-note{font-size:9px}.system-menu summary{padding:6px 8px}.settings-entry{padding:8px 11px}.appearance-body{padding:8px 18px 20px}#appearance .dialog-head{padding:18px}.layout-option{padding:10px}.layout-option small{font-size:9px}.mini-window{width:85px}.caption-left{font-size:10px}}
-
-.window-tools{display:flex;align-items:center;gap:5px;flex-shrink:0;margin-left:auto;padding-left:12px}#focus-target{font-size:10px;color:var(--muted);padding-right:9px}.tools-divider{width:1px;height:14px;background:var(--line);margin:0 4px}.window-tools .is-previewing{color:var(--accent);background:var(--accent-bg)}.window[data-mode=top] .top-tabs{flex:1}.window[data-mode=top] .top-list{flex:1}.window[data-mode=top] .window-tools{height:100%;padding-bottom:3px}.window .content{background:var(--surface);border-radius:10px;margin:0 7px 7px 0}.terminal-layout{padding:6px;background:var(--surface);gap:6px}.pane-tree,.pane-branch{display:flex;flex:1;min-width:0;min-height:0;gap:6px}.pane-branch[data-axis=rows]{flex-direction:column}.pane{display:flex;flex-direction:column;position:relative;flex:1;min-width:0;min-height:0;border:1px solid #354238;border-radius:7px;overflow:hidden;background:var(--terminal);outline:none}.pane:focus-visible{outline:2px solid #7aa584;outline-offset:1px}.pane.is-active{border-color:#7f9f80;box-shadow:inset 0 2px #a1c296}.pane-header{height:30px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 11px;border-bottom:1px solid #ffffff05;color:#718277;font-size:10px;background:#1e2521;white-space:nowrap;overflow:hidden}.pane-header strong{font-weight:500;color:#a6b3a8;font-size:10px}.pane.is-active .pane-header{background:#263129}.pane.is-active .pane-header strong{color:#d4e2d0}.pane-focus-dot{width:4px;height:4px;flex-shrink:0;border-radius:50%;background:#57685b}.pane.is-active .pane-focus-dot{background:#b4d6a7}.pane-host{max-width:30%;overflow:hidden;text-overflow:ellipsis}.pane-path{overflow:hidden;text-overflow:ellipsis;min-width:0}.pane-active-label{margin-left:auto;color:#99b590;font-size:9px;padding-left:5px;visibility:hidden}.pane.is-active .pane-active-label{visibility:visible}.pane-body{flex:1;min-height:0;padding:19px 19px;font-size:11px;line-height:1.85}.pane:not(.is-active) .pane-body{opacity:.78}.pane:not(.is-active) .cursor{visibility:hidden}.pane-body .terminal-note{display:none}.split-preview{position:absolute;inset:30px 0 0;z-index:2;pointer-events:none;background:#accb9b06}.preview-half{position:absolute;background:#a4c89413;display:flex;align-items:center;justify-content:center;color:#afc7a3;font-size:10px;letter-spacing:1px}.preview-half span{background:#243c2ddd;padding:5px 10px;border-radius:5px;border:1px solid #819e7344}.split-preview[data-axis=cols] .preview-half{inset:0 0 0 50%}.split-preview[data-axis=rows] .preview-half{inset:50% 0 0}.preview-line{position:absolute;box-shadow:0 0 10px #b6da9c35}.split-preview[data-axis=cols] .preview-line{top:0;bottom:0;left:50%;width:1px;background:repeating-linear-gradient(to bottom,#bdd7a8 0 5px,transparent 5px 9px)}.split-preview[data-axis=rows] .preview-line{left:0;right:0;top:50%;height:1px;background:repeating-linear-gradient(to right,#bdd7a8 0 5px,transparent 5px 9px)}.preview-label{position:absolute;top:9px;right:9px;font-size:10px;color:#cbdcbe;background:#263c2de8;border:1px solid #8baa7855;border-radius:5px;padding:5px 8px}.pane-menu{position:fixed;z-index:30;width:196px;padding:5px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 35px #14211c35}.pane-menu[hidden]{display:none}.pane-menu-title{font-size:10px;color:var(--muted);padding:8px}.pane-menu button{width:100%;display:flex;justify-content:space-between;text-align:left;font-size:12px;padding:9px 8px;border-radius:5px}.pane-menu button:hover{background:var(--accent-bg)}.pane-menu button span{color:var(--muted)}.pane-menu-divider{height:1px;background:var(--line);margin:4px}.file-panel{border-radius:6px}.window .statusbar{margin-top:0}
-@media(max-width:1000px){h1{font-size:28px}.pane-body{padding:15px 12px;font-size:10px}.window-tools{padding-left:6px;gap:2px}}@media(max-width:640px){h1{font-size:24px}#focus-target{display:none}.window-tools{gap:0;padding-left:0}.window-tools .icon-btn{width:25px}.tools-divider{margin:0 3px}.pane-header{padding:0 6px;gap:5px}.pane-host,.pane-active-label{display:none}.pane-body{padding:12px 8px;font-size:9px}.terminal-layout,.pane-tree,.pane-branch{gap:4px}.terminal-layout{padding:4px}.preview-label{font-size:8px;top:5px;right:5px;padding:4px}.preview-half{font-size:9px}}
-
-/* 侧栏模式让终端直抵窗口上沿；只有顶部标签模式保留整行标题栏。 */
-.window:not([data-mode=top])>.titlebar{display:none}.sidebar{padding-top:0}#side-controls-slot{height:48px;flex-shrink:0;display:flex;align-items:center;padding:0 4px}.window-controls{display:flex;align-items:center;gap:14px;flex-shrink:0}#top-controls-slot{flex-shrink:0}.window[data-mode=top] .titlebar{display:flex}.window[data-mode=top] .content{border-radius:0 0 9px 9px}.window:not([data-mode=top]) .content{border-radius:0 10px 9px 9px;margin-top:0}.window:not([data-mode=top]) .terminal-layout{padding-top:6px}.pane-header{padding-right:5px;gap:7px}.pane-path{flex:1}.pane-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex-shrink:0;opacity:0;pointer-events:none}.pane:is(.is-active,:hover,:focus-within) .pane-actions{opacity:1;pointer-events:auto}.pane-action{width:24px;height:24px;border-radius:5px;color:#8d9c90}.pane-action .icon{width:15px;height:15px}.pane-action:hover,.pane-action.is-previewing{background:#54704d50;color:#c9dfba}.pane:has(.split-preview){border-color:#8aab7e}.pane:not(:is(.is-active,:hover,:focus-within)) .pane-actions{visibility:hidden}.window[data-mode=compact] #side-controls-slot{height:82px;padding:11px 0 7px;justify-content:center}.window[data-mode=compact] .window-controls{flex-direction:column;gap:10px}.window[data-mode=compact] .traffic{gap:4px;padding:0}.window[data-mode=compact] .traffic i{width:10px;height:10px}.window[data-mode=compact] .sidebar{padding-top:0}
-@media(max-width:640px){.window-controls{gap:8px}.pane-host,.pane-path{display:none}.pane-header{gap:4px;padding-left:5px}.pane-actions{gap:0}.pane-action{width:21px}.pane-action .icon{width:14px;height:14px}.window:not([data-mode=top]) .terminal-layout{padding-top:4px}.window[data-mode=compact] #side-controls-slot{height:78px}.pane-header strong{font-size:9px}}
-
-/* 原始 Tern 网页截图保留不变；默认窗口区域，按需显示完整页面。 */
+:root{color-scheme:light;--ink:#28372e;--muted:#778479;--accent:#39734a;--line:#d8dfd7;--chrome:#e8ede6;--hover:#dfe7dc;--active:#fff;--shadow:0 16px 36px #23302214}
+*{box-sizing:border-box}body{margin:0;background:#f6f8f5;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input{font:inherit}button{border:0;cursor:pointer;background:transparent}a{color:var(--accent)}.page{max-width:1440px;padding:32px 40px;margin:auto}.masthead{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:20px;font-size:14px}.masthead span{font-size:11px;color:var(--muted)}.intro{display:flex;justify-content:space-between;align-items:center;gap:20px;margin:32px 0}.eyebrow{font-size:10px;letter-spacing:2px;color:var(--accent);margin-bottom:12px;font-weight:600}h1{font-size:30px;letter-spacing:-1px;margin:0 0 12px}.intro p{font-size:13px;color:var(--muted);line-height:1.8;margin:0}.native-frame{display:flex;justify-content:center;background:#e9ede7;border:1px solid var(--line);border-radius:12px;overflow:hidden;padding:12px}.native-frame img{display:block;width:100%;max-width:1000px;height:auto;object-fit:contain}.native-frame.is-fullscreen img{max-width:100%}.native-section{scroll-margin-top:24px}.footnote{font-size:11px;color:var(--muted);line-height:1.8;padding:20px 0;border-top:1px solid var(--line)}
 .reference-jump{color:var(--accent);font-size:12px;text-underline-offset:4px;white-space:nowrap}
 .tern-reference{margin:22px 0 30px;padding-top:24px;border-top:1px solid var(--line);scroll-margin-top:24px}
 .reference-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
@@ -37,262 +22,51 @@ body{margin:0;background:var(--page);color:var(--ink);font-family:Inter,-apple-s
 .reference-full-label{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px;cursor:pointer}
 .reference-full-label input{accent-color:var(--accent)}
 .reference-figure{margin:0}
-.reference-frame{display:block;position:relative;overflow:hidden;aspect-ratio:var(--reference-ratio,1080 / 675);background:#101319;border-radius:14px;box-shadow:var(--shadow)}
+.reference-frame{max-width:1080px;margin-inline:auto;display:block;position:relative;overflow:hidden;aspect-ratio:var(--reference-ratio,1080 / 675);background:#101319;border-radius:14px;box-shadow:var(--shadow)}
 .reference-frame img{display:block;position:absolute;width:148.148148%;max-width:none;height:auto;left:-24.074074%;top:var(--reference-top,-70.1180556%)}
 .reference-frame.reference-full{aspect-ratio:auto}
 .reference-frame.reference-full img{position:static;width:100%;height:auto}
 .reference-meta{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-top:14px;font-size:11px;line-height:1.8;color:var(--muted)}
 .reference-meta p{margin:0}.reference-meta a{white-space:nowrap}
 @media(max-width:640px){.reference-head{flex-direction:column}.reference-head h2{font-size:17px}.reference-meta{align-items:flex-start;flex-direction:column;gap:6px}.reference-choice{padding:8px 10px}.reference-frame{border-radius:9px}.reference-jump{font-size:11px}}
+
+@media(max-width:640px){.page{padding:20px 12px}.intro{align-items:flex-start;flex-direction:column}h1{font-size:25px}.native-frame{padding:4px}.masthead span{font-size:10px}}
 </style>
 </head>
 <body>
-<svg class="defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
-<symbol id="i-terminal" viewBox="0 0 24 24"><path d="m5 7 5 5-5 5m8 0h6"/></symbol>
-<symbol id="i-side" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16m-3-12v8"/></symbol>
-<symbol id="i-top" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 10h18m-12-6v6"/></symbol>
-<symbol id="i-compact" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 4v16m-2.5-12h0m0 4h0m0 4h0"/></symbol>
-<symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
-<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-<symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
-<symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="7" rx="2"/><rect x="4" y="14" width="16" height="7" rx="2"/><path d="M8 6.5h.01M8 17.5h.01M12 6.5h5M12 17.5h5"/></symbol>
-<symbol id="i-code" viewBox="0 0 24 24"><path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18"/></symbol>
-<symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></symbol>
-<symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6"/></symbol>
-<symbol id="i-split" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></symbol>
-<symbol id="i-split-rows" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18"/></symbol>
-<symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14A8.5 8.5 0 0 1 10 4a8.5 8.5 0 1 0 10 10Z"/></symbol>
-<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
-<symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Zm-4 9 3 3 5-6"/></symbol>
-<symbol id="i-pin" viewBox="0 0 24 24"><path d="m9 3 6 0-1 6 4 4v2H6v-2l4-4Zm3 12v6"/></symbol>
-</defs></svg>
 <main class="page">
- <header class="masthead"><div class="brand"><span class="brandmark"><svg class="icon"><use href="#i-terminal"/></svg></span>Ghosterm</div><div class="mast-meta"><span>INTERFACE EXPLORATION</span><span class="tag">交互原型 · 05</span></div></header>
- <section class="intro"><div><div class="eyebrow">LESS CHROME. MORE TERMINAL.</div><h1>侧栏管标签，窗格管分屏。</h1><p>侧边模式去掉整条顶栏。分屏按钮回到窗格标题里，操作哪里，就在哪里出现。</p></div><div class="controls"><a class="reference-jump" href="#tern-reference">对照 Tern ↓</a><button class="settings-entry" data-action="appearance">体验外观设置 <span>⌘ ,</span></button></div></section>
- <nav class="system-menu" aria-label="macOS 菜单栏示意">
-  <details><summary class="app-menu-name">Ghosterm</summary><div class="menu-popup"><button data-action="appearance">设置… <kbd>⌘ ,</kbd></button><p>标签布局位于「外观」</p></div></details>
-  <details><summary>窗口</summary><div class="menu-popup"><button data-action="search">搜索标签页… <kbd>⌘ K</kbd></button><button id="files" aria-pressed="false">显示文件面板</button></div></details>
-  <span class="menu-note">系统菜单栏示意 · 不占窗口空间</span>
- </nav>
- <section id="app" class="window" data-mode="side" aria-label="Ghosterm 应用交互预览">
-  <div class="titlebar"><div id="top-controls-slot"></div><div class="top-tabs"><div id="top-list" class="top-list" role="tablist" aria-label="顶部会话标签"></div></div></div>
-  <div class="workarea"><aside class="sidebar" aria-label="会话侧栏"><div id="side-controls-slot"><div id="window-controls" class="window-controls"><div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div><button id="new-tab" class="icon-btn" data-action="new" title="新建标签页 · ⌘T" aria-label="新建标签页"><svg class="icon"><use href="#i-plus"/></svg></button></div></div><div class="side-header"><span>打开的标签页</span><span id="tab-count">5</span></div><div id="side-list" class="tab-list" role="tablist" aria-label="侧边会话标签" aria-orientation="vertical"></div></aside>
-   <div class="content"><div class="terminal-layout"><div class="pane-tree" id="terminal" role="tabpanel" aria-label="模拟终端窗格"></div><aside class="file-panel" aria-label="文件面板示意"><h3>文件 <span style="float:right;color:#718576">只读预览</span></h3><div class="file-path">~/work/ghosterm/</div><div id="file-rows"></div></aside></div>
-    <div class="statusbar"><span class="state-dot"></span><span id="status-label">本地 shell</span><span style="opacity:.4">│</span><span>UTF-8</span><div class="status-right"><span id="pane-label">1 个窗格</span><span>120 × 32</span><span>zsh</span></div></div>
-   </div>
-  </div><div class="toast" id="toast" role="status"></div>
+ <header class="masthead"><strong>Ghosterm × Tern</strong><span>实际界面对照 · 2026-10-29</span></header>
+ <section class="intro"><div><div class="eyebrow">NATIVE / GHOSTERM</div><h1>看真实界面，再比较布局。</h1><p>Ghosterm 使用 macOS 26.6.2 桌面测试保存的原生窗口截图，包含真实终端渲染。<br>下方切换的是截图；标签、按钮和终端内容保留当时的实际状态。</p></div><a class="reference-jump" href="#tern-reference">对照 Tern ↓</a></section>
+ <section id="app" class="native-section" aria-label="Ghosterm 真实运行截图">
+  <div class="reference-controls"><div class="reference-choices" role="group" aria-label="选择 Ghosterm 标签布局"><button class="reference-choice" data-native="sidebar" aria-pressed="true" aria-controls="native-image">侧边标签</button><button class="reference-choice" data-native="top" aria-pressed="false" aria-controls="native-image">顶部标签</button><button class="reference-choice" data-native="compact" aria-pressed="false" aria-controls="native-image">精简侧栏</button></div><label class="reference-full-label"><input id="native-fullscreen" type="checkbox" aria-controls="native-image">查看全屏状态</label></div>
+  <figure class="reference-figure"><a id="native-frame" class="native-frame" href="tab-chrome-native/desktop-sidebar-normal.png" target="_blank" rel="noopener noreferrer" aria-label="打开 Ghosterm 实机原图"><img id="native-image" src="tab-chrome-native/desktop-sidebar-normal.png" width="1000" height="600" alt="Ghosterm 侧边标签模式真实运行截图"></a><figcaption class="reference-meta"><p id="native-caption" aria-live="polite">侧边标签 · 普通窗口 · 1000 × 600</p><span><a id="native-original" href="tab-chrome-native/desktop-sidebar-normal.png" target="_blank" rel="noopener noreferrer">打开原图 ↗</a> · <a href="tab-chrome-native/desktop-observations.json" target="_blank" rel="noopener noreferrer">桌面测试记录 ↗</a></span></figcaption></figure>
  </section>
- <div class="caption"><div class="caption-left"><span class="live-dot"></span><span id="mode-caption">侧边标签 · 会话平铺排列，完整标题一目了然</span></div><span><kbd>⌘ T</kbd> 新建 · <kbd>⌘ K</kbd> 搜索 · <kbd>⌘ ,</kbd> 设置</span></div>
  <section id="tern-reference" class="tern-reference" aria-labelledby="tern-reference-title">
-  <div class="reference-head"><div><div class="eyebrow">REFERENCE / TERN</div><h2 id="tern-reference-title">Tern，放在一起对照。</h2><p>重新抓取官网介绍中的四种布局：Tiles、Studio、Rail、Float。默认显示窗口区域，勾选后可查看带布局名称的完整截图。</p></div><a class="reference-jump" href="#app">返回 Ghosterm 原型 ↑</a></div>
+  <div class="reference-head"><div><div class="eyebrow">REFERENCE / TERN</div><h2 id="tern-reference-title">Tern，放在一起对照。</h2><p>官网演示 · 2× 高清截图。四种布局均使用 titanium 主题；默认显示窗口区域，可展开完整截图或点图查看原图。</p></div><a class="reference-jump" href="#app">返回 Ghosterm 实机 ↑</a></div>
   <div class="reference-controls"><div class="reference-choices" role="group" aria-label="选择 Tern 的四种布局"><button class="reference-choice" data-reference="tiles" aria-pressed="true" aria-controls="tern-image">Tiles · 平铺</button><button class="reference-choice" data-reference="studio" aria-pressed="false" aria-controls="tern-image">Studio · 顶部标签</button><button class="reference-choice" data-reference="rail" aria-pressed="false" aria-controls="tern-image">Rail · 侧栏</button><button class="reference-choice" data-reference="float" aria-pressed="false" aria-controls="tern-image">Float · 悬浮工具栏</button></div><label class="reference-full-label"><input id="reference-full" type="checkbox" aria-controls="tern-image-frame">显示完整截图</label></div>
-  <figure class="reference-figure"><a id="tern-image-frame" class="reference-frame" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer" aria-label="打开 Tern 参考原图"><img id="tern-image" src="tern-reference/tern-tiles.png" width="1600" height="1400" alt="Tern Tiles 平铺布局官网演示截图" loading="lazy" decoding="async"></a><figcaption class="reference-meta"><p id="reference-caption" aria-live="polite">Tiles · 平铺：窗格并排铺满窗口，各自保留标题信息。</p><span><a id="tern-original" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer">打开原图 ↗</a> · <a href="https://stencil.so/tern#yours" target="_blank" rel="noopener noreferrer">Tern 官方介绍 ↗</a></span></figcaption></figure>
+  <figure class="reference-figure"><a id="tern-image-frame" class="reference-frame" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer" aria-label="打开 Tern 参考原图"><img id="tern-image" src="tern-reference/tern-tiles.png" width="3200" height="2800" alt="Tern Tiles 平铺布局官网演示截图" loading="lazy" decoding="async"></a><figcaption class="reference-meta"><p id="reference-caption" aria-live="polite">Tiles · 平铺：窗格并排铺满窗口，各自保留标题信息。</p><span><a id="tern-original" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer">打开原图 ↗</a> · <a href="https://stencil.so/tern#yours" target="_blank" rel="noopener noreferrer">Tern 官方介绍 ↗</a></span></figcaption></figure>
  </section>
- <section class="principles" aria-label="设计思路">
-  <article class="principle"><span class="principle-number">01 /</span><div><h2>侧栏模式，省下一整行</h2><p>红绿灯与唯一的加号收进侧栏顶部。终端从窗口上沿展开，不再重复显示当前标签标题。</p></div></article>
-  <article class="principle"><span class="principle-number">02 /</span><div><h2>分屏操作，跟着窗格走</h2><p>当前窗格或鼠标悬停时，标题右侧显示两颗分屏按钮。悬停先预览，点击只切分所在窗格。</p></div></article>
-  <article class="principle"><span class="principle-number">03 /</span><div><h2>同一套操作，适配两种布局</h2><p>顶部模式保留标签栏，分屏入口仍在窗格里。标签平铺、右键菜单与外观设置保持一致。</p></div></article>
- </section>
- <footer class="footnote"><span>设计预览：会话、终端输出及主机均为演示数据；不会执行命令或建立连接。</span><span>参考 <a href="https://blog.google/products-and-platforms/products/chrome/new-chrome-productivity-features/" target="_blank" rel="noopener noreferrer">Chrome 新版纵向标签</a> · Ghosterm UI concept</span></footer>
+ <footer class="footnote">Ghosterm：原生应用桌面测试截图。Tern：官方网站动画演示截图。两组均保留原始图像；可点击图片查看原图细节。</footer>
 </main>
-<dialog id="palette" aria-labelledby="palette-title"><div class="dialog-head"><svg class="icon"><use href="#i-plus"/></svg><h2 id="palette-title">新建标签页</h2><button class="icon-btn" id="palette-close" aria-label="关闭弹窗"><svg class="icon"><use href="#i-close"/></svg></button></div><div class="dialog-search"><svg class="icon"><use href="#i-search"/></svg><input id="query" aria-label="搜索主机或标签页" placeholder="搜索主机别名或地址…" autocomplete="off"></div><div class="dialog-body" id="palette-results"></div><div class="dialog-foot"><span id="palette-foot">主机管理入口收进这里 · 当前为演示数据</span><span>ESC 关闭</span></div></dialog>
-<dialog id="appearance" aria-labelledby="appearance-title">
- <div class="dialog-head"><div><div class="settings-path">Ghosterm / 设置</div><h2 id="appearance-title">外观</h2></div><button class="icon-btn" data-close="appearance" aria-label="关闭外观设置"><svg class="icon"><use href="#i-close"/></svg></button></div>
- <div class="appearance-body">
-  <fieldset class="settings-field"><legend>标签位置</legend><p>同一组会话，只改变标签的排列方式。</p><div class="layout-options">
-   <label class="layout-option"><input type="radio" name="position" value="side" checked><span class="mini-window mini-side"><i></i><b></b><b></b></span><strong>侧边</strong><small>完整标题，适合多会话</small></label>
-   <label class="layout-option"><input type="radio" name="position" value="top"><span class="mini-window mini-top"><i></i><b></b><b></b></span><strong>顶部</strong><small>给终端更宽的空间</small></label>
-  </div></fieldset>
-  <div class="compact-setting"><div><label for="compact-mode">精简侧栏</label><p id="compact-description">仅显示会话图标，悬停查看标题。</p></div><input id="compact-mode" type="checkbox" role="switch" aria-describedby="compact-description"></div>
-  <fieldset class="settings-field color-field"><legend>界面配色</legend><div class="color-options"><label><input type="radio" name="color" value="light" checked>浅色</label><label><input type="radio" name="color" value="dark">深色</label></div></fieldset>
- </div>
- <div class="settings-footer"><span>设置立即应用于当前预览</span><button data-close="appearance">完成</button></div>
-</dialog>
-<div id="pane-menu" class="pane-menu" role="menu" aria-label="窗格操作" hidden><div class="pane-menu-title"></div><button role="menuitem" data-pane-action="cols">左右分屏 <span>↔</span></button><button role="menuitem" data-pane-action="rows">上下分屏 <span>↕</span></button><div class="pane-menu-divider"></div><button role="menuitem" data-pane-action="close">关闭窗格</button></div>
 <script>
-'use strict';
-const $=s=>document.querySelector(s);
-const icon=name=>`<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let tabs=[{id:1,name:'ghosterm',kind:'local',path:'~/work/ghosterm',type:'code'},{id:2,name:'本地终端',kind:'local',path:'~',type:'terminal'},{id:3,name:'dev-server',kind:'ssh',path:'/srv/ghosterm',host:'dev@dev-server',type:'server'},{id:4,name:'API · 运行中',kind:'ssh',path:'/srv/api',host:'dev@api-staging',type:'server',busy:true},{id:5,name:'构建日志',kind:'local',path:'~/work/ghosterm',type:'terminal',busy:true}];
-let active=1,nextId=6,mode='side',paletteMode='new',dragged=null,files=false,toastTimer;
-let nextPaneId=1,menuPane=null;const paneStates=new Map();
-const hosts=[{name:'dev-server',address:'dev@192.0.2.10',path:'/srv/ghosterm'},{name:'api-staging',address:'dev@192.0.2.21',path:'/srv/api'},{name:'production',address:'ops@198.51.100.8',path:'/srv/app'}];
-function notify(message){$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),2400)}
-function tabHTML(t){return `<div class="tab" role="tab" tabindex="${t.id===active?0:-1}" aria-selected="${t.id===active}" aria-controls="terminal" draggable="true" data-id="${t.id}" title="${escapeHTML(t.name+' · '+(t.host||'本地 shell'))}"><span class="tab-icon">${icon(t.type)}</span><span class="tab-name">${escapeHTML(t.name)}</span>${t.busy?'<span class="state-dot busy" title="任务运行中" aria-label="任务运行中"></span>':''}<button class="tab-close" aria-label="关闭 ${escapeHTML(t.name)}" title="关闭标签页" tabindex="-1">${icon('close')}</button></div>`}
-function syncChromeLayout(){
- const slot=$(mode==='top'?'#top-controls-slot':'#side-controls-slot');
- if($('#window-controls').parentElement!==slot)slot.append($('#window-controls'));
-}
-function render(){
- syncChromeLayout();
- $('#tab-count').textContent=tabs.length;
- const tabMarkup=tabs.map(tabHTML).join('');
- $('#side-list').innerHTML=tabMarkup;
- $('#top-list').innerHTML=tabMarkup;
- const t=tabs.find(t=>t.id===active);
- document.querySelectorAll('[data-split],#files').forEach(button=>button.disabled=!t);
-
-
- $('#status-label').textContent=t?(t.kind==='ssh'?'SSH · 已连接（演示）':'本地 shell · 演示'):'未连接';
- $('#terminal').innerHTML=t?renderPaneTree(getPaneState(t).tree,t,getPaneState(t).active):'<div class="empty-terminal"><h2>从一个新标签开始</h2><p>点击左上角的＋，打开本地终端或连接主机。</p></div>';
- $('#app').classList.toggle('files',!!t&&files);
- $('#files').setAttribute('aria-pressed',String(!!t&&files));$('#files').textContent=files?'隐藏文件面板':'显示文件面板';
- updatePaneFocus();
- const visibleList=mode==='top'?'#top-list':'#side-list';
- document.querySelector(visibleList+' .tab[aria-selected="true"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
-}
-function makePane(label,sample='shell'){return {id:'pane-'+nextPaneId++,label,sample}}
-function paneLeaves(node){return node.children?node.children.flatMap(paneLeaves):[node]}
-function getPaneState(t){
- if(!paneStates.has(t.id)){
-  const first=makePane('终端 1','work');
-  if(t.id===1){const second=makePane('终端 2','tests');paneStates.set(t.id,{tree:{axis:'cols',children:[first,second]},active:second.id,serial:2})}
-  else paneStates.set(t.id,{tree:first,active:first.id,serial:1});
+(() => {
+ let mode='sidebar';
+ const names={sidebar:'侧边标签',top:'顶部标签',compact:'精简侧栏'};
+ function renderNative(){
+  const fullscreen=document.getElementById('native-fullscreen').checked;
+  const src='tab-chrome-native/desktop-'+mode+'-'+(fullscreen?'fullscreen':'normal')+'.png';
+  const img=document.getElementById('native-image'),frame=document.getElementById('native-frame');
+  img.src=src;img.alt='Ghosterm '+names[mode]+(fullscreen?'全屏':'普通窗口')+'真实运行截图';
+  img.width=fullscreen?2560:1000;img.height=fullscreen?1080:600;
+  frame.href=src;frame.classList.toggle('is-fullscreen',fullscreen);
+  document.getElementById('native-original').href=src;
+  document.getElementById('native-caption').textContent=names[mode]+' · '+(fullscreen?'全屏状态 · 2560 × 1080':'普通窗口 · 1000 × 600');
+  document.querySelectorAll('[data-native]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.native===mode)));
  }
- return paneStates.get(t.id);
-}
-function renderPaneTree(node,t,focused){
- if(node.children)return `<div class="pane-branch" data-axis="${node.axis}">${node.children.map(child=>renderPaneTree(child,t,focused)).join('')}</div>`;
- let output=node.sample==='work'?terminalHTML(t):node.sample==='tests'?`<pre><span class="term-muted"># 测试会话 · 演示输出</span>
-
-<span class="term-green">❯</span> git status --short
-
-<span class="term-green">❯</span> ctest --test-dir core/build
-
-<span class="term-muted">Test project ghosterm/core/build</span>
-
-<span class="term-green">✓</span> sshconfig_golden
-<span class="term-green">✓</span> public_headers
-<span class="term-green">✓</span> api_smoke
-<span class="term-green">✓</span> …
-
-<span class="term-green">100% tests passed, 0 tests failed</span>
-
-<span class="term-green">❯</span> <span class="cursor"></span></pre>`:`<pre><span class="term-muted"># 新窗格 · 继承当前连接与目录（示意）</span>
-
-<span class="term-green">❯</span> <span class="term-blue">${escapeHTML(t.path)}</span>
-<span class="term-green">❯</span> <span class="cursor"></span></pre>`;
- return `<section class="pane ${node.id===focused?'is-active':''}" data-pane="${node.id}" tabindex="${node.id===focused?0:-1}" aria-label="${node.label}${node.id===focused?'，当前窗格':''}"><header class="pane-header"><span class="pane-focus-dot"></span><strong>${node.label}</strong><span class="pane-host">${escapeHTML(t.host||'本地')}</span><span class="pane-path">${escapeHTML(t.path)}</span><div class="pane-actions" role="group" aria-label="${node.label}分屏操作"><button class="icon-btn pane-action" data-split="cols" aria-label="左右分屏${node.label}" title="左右分屏此窗格" tabindex="${node.id===focused?0:-1}">${icon('split')}</button><button class="icon-btn pane-action" data-split="rows" aria-label="上下分屏${node.label}" title="上下分屏此窗格" tabindex="${node.id===focused?0:-1}">${icon('split-rows')}</button></div></header><div class="terminal pane-body">${output}</div></section>`;
-}
-function updatePaneFocus(){
- const t=tabs.find(t=>t.id===active),state=t?getPaneState(t):null;
-
-
- $('#pane-label').textContent=state?paneLeaves(state.tree).length+' 个窗格':'0 个窗格';
- document.querySelectorAll('.pane').forEach(p=>{const selected=p.dataset.pane===state?.active;p.classList.toggle('is-active',selected);p.tabIndex=selected?0:-1;p.setAttribute('aria-label',p.querySelector('strong').textContent+(selected?'，当前窗格':''));p.querySelectorAll('.pane-action').forEach(button=>button.tabIndex=selected?0:-1)});
-}
-function focusPane(id){
- const t=tabs.find(t=>t.id===active);if(!t)return;
- const state=getPaneState(t);if(!paneLeaves(state.tree).some(p=>p.id===id))return;
- clearPreview();state.active=id;updatePaneFocus();document.querySelector(`[data-pane="${id}"]`)?.focus({preventScroll:true});
-}
-function clearPreview(){document.querySelectorAll('.split-preview').forEach(p=>p.remove());document.querySelectorAll('[data-split]').forEach(b=>b.classList.remove('is-previewing'))}
-function previewSplit(axis,id){
- clearPreview();const t=tabs.find(t=>t.id===active);if(!t)return;
- const state=getPaneState(t),target=id||state.active,pane=document.querySelector(`[data-pane="${target}"]`);if(!pane)return;
- const label=paneLeaves(state.tree).find(p=>p.id===target).label;
- const preview=document.createElement('div');preview.className='split-preview';preview.dataset.axis=axis;preview.setAttribute('aria-hidden','true');
- preview.innerHTML=`<div class="preview-half"><span>新窗格</span></div><div class="preview-line"></div><div class="preview-label">${label} · ${axis==='cols'?'左右':'上下'}分屏</div>`;pane.append(preview);
- pane.querySelector(`[data-split="${axis}"]`)?.classList.add('is-previewing');
-}
-function splitPane(axis,id){
- const t=tabs.find(t=>t.id===active);if(!t)return;const state=getPaneState(t),target=id||state.active;
- if(!paneLeaves(state.tree).some(p=>p.id===target))return;
- const next=makePane('终端 '+ ++state.serial);
- function insert(node){if(node.children)return {...node,children:node.children.map(insert)};return node.id===target?{axis,children:[node,next]}:node}
- state.tree=insert(state.tree);state.active=next.id;clearPreview();render();focusPane(next.id);notify('已在目标窗格'+(axis==='cols'?'右侧':'下方')+'新建窗格 · 演示');
-}
-function closePane(id){
- const t=tabs.find(t=>t.id===active);if(!t)return;const state=getPaneState(t);if(paneLeaves(state.tree).length<=1)return;
- function remove(node){if(!node.children)return node.id===id?null:node;const children=node.children.map(remove).filter(Boolean);return children.length===1?children[0]:{...node,children}}
- state.tree=remove(state.tree);if(state.active===id)state.active=paneLeaves(state.tree)[0].id;render();focusPane(state.active);
-}
-function closePaneMenu(){$('#pane-menu').hidden=true;menuPane=null;clearPreview()}
-$('#terminal').addEventListener('contextmenu',e=>{
- const pane=e.target.closest('.pane');if(!pane)return;e.preventDefault();menuPane=pane.dataset.pane;focusPane(menuPane);
- const menu=$('#pane-menu');menu.querySelector('.pane-menu-title').textContent=pane.querySelector('strong').textContent;
- menu.querySelector('[data-pane-action="close"]').disabled=paneLeaves(getPaneState(tabs.find(t=>t.id===active)).tree).length<=1;
- menu.hidden=false;menu.style.left=Math.max(8,Math.min(e.clientX,innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(e.clientY,innerHeight-menu.offsetHeight-8))+'px';menu.querySelector('button').focus();
-});
-$('#terminal').addEventListener('focusin',e=>{const pane=e.target.closest('.pane');const t=tabs.find(t=>t.id===active);if(pane&&t&&getPaneState(t).active!==pane.dataset.pane){getPaneState(t).active=pane.dataset.pane;updatePaneFocus()}});
-$('#pane-menu').addEventListener('keydown',e=>{const items=[...$('#pane-menu').querySelectorAll('button:not(:disabled)')];if(['ArrowDown','ArrowUp'].includes(e.key)){e.preventDefault();items[(items.indexOf(document.activeElement)+(e.key==='ArrowDown'?1:-1)+items.length)%items.length].focus()}if(e.key==='Tab')closePaneMenu()});
-$('#pane-menu').querySelectorAll('[data-pane-action]').forEach(button=>{if(button.dataset.paneAction==='close')return;button.addEventListener('pointerenter',()=>previewSplit(button.dataset.paneAction,menuPane));button.addEventListener('pointerleave',clearPreview)});
-window.addEventListener('resize',closePaneMenu);window.addEventListener('scroll',closePaneMenu);
-function terminalHTML(t){
- const path=escapeHTML(t.path),name=escapeHTML(t.name);
- let output;
- if(t.id===1)output=`<span class="term-muted">Last login: Thu Oct 29 09:41:02 on ttys001</span><div class="gap"></div><span class="term-green">❯</span> <span class="term-blue">~/work/ghosterm</span> <span class="term-muted">on</span> <span class="term-violet"> main</span>\n<span class="term-green">❯</span> ls\n<span class="term-blue">apple/     core/      docs/      scripts/    terminal/</span>\n<span class="term-blue">android/   assets/    patches/   vendor/</span>\nREADME.md  LICENSE    AGENTS.md<div class="gap"></div><span class="term-green">❯</span> git log --oneline -3\n<span class="term-yellow">d4a9b82</span> <span class="term-muted">(HEAD → main)</span> feat: 更轻盈的终端工作空间\n<span class="term-yellow">08e7c31</span> fix: 优化会话切换与焦点管理\n<span class="term-yellow">6b32f90</span> refactor: 统一标签页状态<div class="gap"></div><span class="term-green">❯</span> <span class="term-blue">~/work/ghosterm</span> <span class="term-muted">on</span> <span class="term-violet"> main</span>\n<span class="term-green">❯</span> <span class="cursor"></span>`;
- else if(t.busy)output=`<span class="term-muted"># ${name} · 模拟任务输出</span><div class="gap"></div><span class="term-green">❯</span> ${t.kind==='ssh'?'npm run dev':'bash scripts/build-core.sh'}\n\n<span class="term-green">✓</span> Loading configuration\n<span class="term-green">✓</span> Preparing workspace\n<span class="term-green">✓</span> Ready\n\n<span class="term-muted">${t.kind==='ssh'?'Listening on localhost:3000':'[100%] Built target ghosterm'}</span>\n\n<span class="term-yellow">●</span> ${t.kind==='ssh'?'Watching for changes…':'Build complete · 演示记录'}`;
- else if(t.kind==='ssh')output=`<span class="term-muted"># SSH 会话预览 · 未建立真实连接</span>\n\n<span class="term-green">❯</span> ssh ${escapeHTML(t.host)}\n<span class="term-muted">Welcome to Ubuntu 24.04 LTS</span>\n\n<span class="term-green">${escapeHTML(t.host)}</span> <span class="term-blue">${path}</span>\n<span class="term-green">❯</span> ls\n<span class="term-blue">app/   config/   logs/   shared/</span>\n\n<span class="term-green">❯</span> <span class="cursor"></span>`;
- else output=`<span class="term-muted"># 本地终端预览 · 不执行命令</span>\n\n<span class="term-green">❯</span> <span class="term-blue">${path}</span>\n<span class="term-green">❯</span> <span class="cursor"></span>`;
- return `<pre>${output}</pre><div class="terminal-note">GHOSTERM / A LITTLE MORE ROOM TO THINK.</div>`;
-}
-function activate(id){const keepFocus=!!document.activeElement?.closest('.tab');active=id;render();if(keepFocus)document.querySelector((mode==='top'?'#top-list':'#side-list')+` .tab[data-id="${id}"]`)?.focus()}
-function closeTab(id){const i=tabs.findIndex(t=>t.id===id);if(i<0)return;const t=tabs[i];if(t.busy&&!confirm('演示：此标签有任务运行。关闭会话可能中断任务，仍要关闭吗？'))return;tabs.splice(i,1);paneStates.delete(id);if(active===id)active=tabs[Math.min(i,tabs.length-1)]?.id??null;render()}
-function setMode(value){mode=value;$('#app').dataset.mode=mode;$('#mode-caption').textContent={side:'侧边标签 · 会话平铺排列，完整标题一目了然',top:'顶部标签 · Chrome 式圆角标签，给终端更宽的空间',compact:'精简侧栏 · 会话图标连续排列，悬停查看完整标题'}[mode];syncAppearance();render()}
-function openPalette(type){paletteMode=type;$('#palette .dialog-head>svg use').setAttribute('href',type==='new'?'#i-plus':'#i-search');$('#palette-title').textContent=type==='new'?'新建标签页':'搜索标签页';$('#query').placeholder=type==='new'?'搜索主机别名或地址…':'搜索已打开的会话…';$('#palette-foot').textContent=type==='new'?'连接选择器 · 演示主机，不读取本机配置':'只搜索当前窗口已打开的标签';$('#query').value='';renderPalette();$('#palette').showModal();$('#query').focus()}
-function renderPalette(){const q=$('#query').value.trim().toLowerCase();let html='';if(paletteMode==='new'){
- if(!q||'本地终端 local shell'.includes(q))html+=`<div class="dialog-section">从这里开始</div><button class="connect-row" data-connect="local">${icon('terminal')}<span class="row-copy"><b>本地终端</b><small>新的 shell 会话</small></span><span class="enter">↵</span></button>`;
- const matches=hosts.filter(h=>(h.name+' '+h.address).toLowerCase().includes(q));
- if(matches.length)html+='<div class="dialog-section">SSH 主机 · 示例配置</div>'+matches.map(h=>`<button class="connect-row" data-connect="${h.name}">${icon('server')}<span class="row-copy"><b>${h.name}</b><small>${h.address}</small></span><span class="enter">↵</span></button>`).join('');
- }else{html=tabs.filter(t=>(t.name+' '+(t.host||'本地')+' '+t.path).toLowerCase().includes(q)).map(t=>`<button class="connect-row" data-activate="${t.id}">${icon(t.type)}<span class="row-copy"><b>${escapeHTML(t.name)}</b><small>${escapeHTML(t.host||t.path)}</small></span><span class="enter">${t.id===active?'当前':'↵'}</span></button>`).join('')}
- $('#palette-results').innerHTML=html||'<div class="empty">没有找到匹配项，试试其他名称。</div>';
-}
-function addTab(value){const host=hosts.find(h=>h.name===value);const t={id:nextId++,name:host?host.name:'本地终端',kind:host?'ssh':'local',path:host?host.path:'~',host:host?host.address:undefined,type:host?'server':'terminal'};tabs.push(t);$('#palette').close();activate(t.id);notify(host?'已打开 SSH 会话演示 · 未建立真实连接':'已打开本地终端演示')}
-function syncAppearance(){
- document.querySelectorAll('[name="position"]').forEach(input=>input.checked=input.value===(mode==='top'?'top':'side'));
- $('#compact-mode').checked=mode==='compact';$('#compact-mode').disabled=mode==='top';
- $('#compact-description').textContent=mode==='top'?'选择侧边标签后可启用。':'仅显示会话图标，悬停查看标题。';
-}
-function openAppearance(){syncAppearance();$('#appearance').showModal()}
-document.querySelectorAll('[name="position"]').forEach(input=>input.addEventListener('change',()=>setMode(input.value)));
-$('#compact-mode').addEventListener('change',()=>setMode($('#compact-mode').checked?'compact':'side'));
-document.querySelectorAll('[name="color"]').forEach(input=>input.addEventListener('change',()=>document.body.classList.toggle('dark',input.value==='dark')));
-$('#files').onclick=()=>{files=!files;document.querySelectorAll('.system-menu details').forEach(menu=>menu.open=false);render()};
-$('#terminal').addEventListener('pointerover',e=>{const button=e.target.closest('[data-split]');if(button&&!button.contains(e.relatedTarget))previewSplit(button.dataset.split,button.closest('.pane').dataset.pane)});
-$('#terminal').addEventListener('pointerout',e=>{const button=e.target.closest('[data-split]');if(button&&!button.contains(e.relatedTarget))clearPreview()});
-$('#terminal').addEventListener('focusin',e=>{const button=e.target.closest('[data-split]');if(button)previewSplit(button.dataset.split,button.closest('.pane').dataset.pane)});
-$('#terminal').addEventListener('focusout',e=>{if(e.target.closest('[data-split]'))clearPreview()});
-$('#terminal').addEventListener('click',e=>{const button=e.target.closest('[data-split]');if(button){e.stopPropagation();closePaneMenu();splitPane(button.dataset.split,button.closest('.pane').dataset.pane)}});
-document.addEventListener('click',e=>{
- const paneAction=e.target.closest('[data-pane-action]');if(paneAction){const target=menuPane,action=paneAction.dataset.paneAction;closePaneMenu();if(action==='close')closePane(target);else splitPane(action,target);return}
- if(!e.target.closest('#pane-menu'))closePaneMenu();
- const pane=e.target.closest('.pane');if(pane)focusPane(pane.dataset.pane);
- const action=e.target.closest('[data-action]');if(action){document.querySelectorAll('.system-menu details').forEach(menu=>menu.open=false);action.dataset.action==='appearance'?openAppearance():openPalette(action.dataset.action)}
- const closeDialog=e.target.closest('[data-close]');if(closeDialog)document.getElementById(closeDialog.dataset.close).close();
- if(!e.target.closest('.system-menu'))document.querySelectorAll('.system-menu details').forEach(menu=>menu.open=false);
- const close=e.target.closest('.tab-close');if(close){closeTab(Number(close.closest('.tab').dataset.id));return}
- const tab=e.target.closest('.tab');if(tab)activate(Number(tab.dataset.id));
- const connect=e.target.closest('[data-connect]');if(connect)addTab(connect.dataset.connect);
- const found=e.target.closest('[data-activate]');if(found){$('#palette').close();activate(Number(found.dataset.activate))}
-});
-document.addEventListener('keydown',e=>{
- if(e.key==='Escape'&&!$('#pane-menu').hidden){const id=menuPane;closePaneMenu();focusPane(id);return}
- if($('#appearance').open)return;
- if((e.metaKey||e.ctrlKey)&&e.key===','&&!$('#palette').open){e.preventDefault();openAppearance();return}
- if(e.key==='Escape')document.querySelectorAll('.system-menu details').forEach(menu=>menu.open=false);
- if($('#palette').open){if(e.key==='Enter'&&e.target===$('#query')){e.preventDefault();$('#palette-results .connect-row')?.click()}return}
- if((e.metaKey||e.ctrlKey)&&['k','t'].includes(e.key.toLowerCase())){e.preventDefault();openPalette(e.key.toLowerCase()==='k'?'search':'new');return}
- const tab=e.target.closest('.tab');if(!tab)return;
- if(e.key==='Delete'){e.preventDefault();closeTab(Number(tab.dataset.id));return}
- if(e.key==='Enter'||e.key===' '){e.preventDefault();activate(Number(tab.dataset.id));return}
- const moves=['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Home','End'];if(!moves.includes(e.key))return;
- e.preventDefault();const list=[...tab.parentElement.closest('[role=tablist]').querySelectorAll('.tab')];let i=list.indexOf(tab);i=e.key==='Home'?0:e.key==='End'?list.length-1:(i+(['ArrowUp','ArrowLeft'].includes(e.key)?-1:1)+list.length)%list.length;const id=Number(list[i].dataset.id);activate(id);document.querySelector((mode==='top'?'#top-list':'#side-list')+` .tab[data-id="${id}"]`)?.focus();
-});
-document.addEventListener('dragstart',e=>{const t=e.target.closest('.tab');if(!t)return;dragged=Number(t.dataset.id);e.dataTransfer.setData('text/plain',String(dragged));e.dataTransfer.effectAllowed='move'});
-document.addEventListener('dragover',e=>{const t=e.target.closest('.tab');if(t&&dragged!==null){e.preventDefault();t.classList.add('drag-over')}});
-document.addEventListener('dragleave',e=>e.target.closest('.tab')?.classList.remove('drag-over'));
-document.addEventListener('drop',e=>{const target=e.target.closest('.tab');if(!target||dragged===null)return;e.preventDefault();const id=Number(target.dataset.id),from=tabs.find(t=>t.id===dragged),to=tabs.find(t=>t.id===id);if(from&&to&&from!==to){tabs.splice(tabs.indexOf(from),1);tabs.splice(tabs.indexOf(to),0,from);notify('标签顺序已更新')}dragged=null;render()});
-document.addEventListener('dragend',()=>{dragged=null;document.querySelectorAll('.drag-over').forEach(t=>t.classList.remove('drag-over'))});
-$('#top-list').addEventListener('wheel',e=>{if(Math.abs(e.deltaY)>Math.abs(e.deltaX)&&$('#top-list').scrollWidth>$('#top-list').clientWidth){e.preventDefault();$('#top-list').scrollLeft+=e.deltaY}},{passive:false});
-document.querySelectorAll('.system-menu details').forEach(menu=>menu.addEventListener('toggle',()=>{if(menu.open)document.querySelectorAll('.system-menu details').forEach(other=>{if(other!==menu)other.open=false})}));
-$('#query').oninput=renderPalette;$('#palette-close').onclick=()=>$('#palette').close();
-$('#palette').addEventListener('click',e=>{if(e.target!==$('#palette'))return;const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close()});
-$('#file-rows').innerHTML=['apple','core','docs','scripts','terminal','README.md','LICENSE'].map(n=>`<div class="file-row">${icon(n.includes('.')||n==='LICENSE'?'file':'folder')}<span>${n}</span></div>`).join('');
-render();
-
-// 参考截图独立切换，不改变可交互原型的布局或配色。
+ document.querySelectorAll('[data-native]').forEach(button=>button.addEventListener('click',()=>{mode=button.dataset.native;renderNative()}));
+ document.getElementById('native-fullscreen').addEventListener('change',renderNative);
+})();
+// 两组截图独立切换。
 (() => {
  const references = {
   tiles:{alt:'Tern Tiles 平铺布局官网演示截图',caption:'Tiles · 平铺：窗格并排铺满窗口，各自保留标题信息。'},
