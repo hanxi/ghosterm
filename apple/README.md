@@ -20,7 +20,7 @@ apple/
 终端通过 `SessionController` 接 Transport，SFTP 使用专用 SSH owner；普通连接与 tmux 共用异步认证。
 
 已交付与遗留见[路线图](../docs/reference/roadmap.md)、[能力矩阵](../docs/reference/capability-matrix.md)。
-特别注意：共享 `gt_config_edit` 的非连续重复指令编辑、`ConfigStore` 的强制备份/原子替换，以及私钥材料完整安全存储接线目前仍有实现缺口。Android 的写盘与原文检查只保护 Android 调用方，不能算作 macOS 已修复。
+共享 `gt_config_edit` 已修复非连续重复指令误删中间行的问题，Apple 与 JNI 使用同一实现。`ConfigStore` 的强制备份/原子替换、私钥材料安全存储接线仍有缺口；Android 写盘事务不等于 macOS 写盘事务已修复。
 UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 ## 当前功能与代码入口

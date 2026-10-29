@@ -56,7 +56,13 @@ open class ConfigFileOps {
 }
 
 /** All methods are blocking; controllers call them on Dispatchers.IO. */
-class ConfigRepository(private val directory: File, private val ops: ConfigFileOps = ConfigFileOps()) {
+class ConfigRepository(
+    private val directory: File,
+    private val ops: ConfigFileOps = ConfigFileOps(),
+    private val editConfig: (ByteArray, String, Map<String, String>, Boolean) -> ByteArray = { bytes, alias, changes, create ->
+        ConfigBridge.edit(bytes, alias, changes, create)
+    },
+) {
     private val target = directory.toPath().resolve("config")
     companion object {
         private val processLock = Any()
@@ -117,14 +123,14 @@ class ConfigRepository(private val directory: File, private val ops: ConfigFileO
             throw ConfigAccess("该主机别名已存在")
         val changes = edit.changes(host)
         if (changes.isEmpty()) return ConfigSaved(load().also { if (it.revision != previous.revision) throw ConfigConflict() })
-        val candidate = ConfigBridge.edit(previous.bytes, edit.alias, changes, host == null)
+        val candidate = editConfig(previous.bytes, edit.alias, changes, host == null)
         // Refuse an edit if the shared editor touched unrelated lines. This is a
         // byte-preservation guard, not a second evaluator of ssh_config semantics.
         if (host != null) {
             val keys = changes.keys.joinToString("|") { Regex.escape(it) }
             val lines = Regex("(?im)^[\\t ]*(?:$keys)(?:[\\t =])[^\\n]*(?:\\n|$)")
             if (lines.replace(previous.text, "") != lines.replace(candidate.toString(Charsets.UTF_8), ""))
-                throw ConfigAccess("该配置块包含复杂的重复指令，无法安全稀疏编辑；请使用 SSH 配置页")
+                throw ConfigAccess("配置编辑改变了其他指令，已停止保存；请使用 SSH 配置页")
         } else if (!candidate.take(previous.bytes.size).toByteArray().contentEquals(previous.bytes)) {
             throw ConfigAccess("新增主机会改变已有配置，已停止保存")
         }

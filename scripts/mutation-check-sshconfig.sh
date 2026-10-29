@@ -5,9 +5,9 @@
 #   - 起跑前扫残留变异标记，命中即 exit 2（假基线比跑不起来更坏）；
 #   - trap INT TERM 复原；
 #   - 回滚后除比对备份，还比对起跑前记录的 sha256。
-# 覆盖 A1~A9（求值/无损/支持集/行内注释与 Forward 防护）+ B1~B6（编辑 API
-# 写回）共 15 项变异。
-set -uo pipefail
+# 覆盖 A1~A9（求值/无损/支持集/行内注释与 Forward 防护）+ B1~B8（编辑 API
+# 写回）共 17 项变异。
+set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$ROOT/tmp"
 . "$ROOT/scripts/lib/gt-timeout.sh"
@@ -36,19 +36,43 @@ if grep -q "$MARK" "$SRC" 2>/dev/null; then
 fi
 
 BASE_SHA="$(shasum -a 256 "$SRC" | awk '{print $1}')"
-BACKUP="$(mktemp "$TMP/gt-mut-XXXXXX")"; BACKUP="$BACKUP.c"
+BACKUP="$(mktemp "$TMP/gt-mut-XXXXXX")"
 cp "$SRC" "$BACKUP"
 
 LOG="${BACKUP}.log"
 run_gate_quiet() { (cd "$ROOT" && gt_timeout 300 bash scripts/gate.sh) >"$LOG" 2>&1; }
 
+force_config_rebuild() {
+  # Do not let whole-second make timestamps reuse a different mutation's object.
+  rm -f "$ROOT/core/build/CMakeFiles/ghosterm_core.dir/src/config.c.o" \
+        "$ROOT/core/build/libghosterm_core.a"
+}
+
 expect_gate() {
-  if run_gate_quiet; then actual=green; else actual=red; fi
-  if [ "$actual" = "$1" ]; then
-    echo "  ✓ $2 → 闸门 $actual"; PASS=$((PASS+1))
-  else
-    echo "  ✗ $2 → 期望 $1，实际 $actual"; FAIL=$((FAIL+1))
+  if [ "$1" = green ]; then
+    if ! run_gate_quiet; then cat "$LOG"; echo "$2 基线/回滚闸门失败" >&2; exit 1; fi
+    echo "  ✓ $2 → 闸门 green"; PASS=$((PASS+1)); return
   fi
+  local target control
+  case "$2" in
+    B6*) target=sshconfig_writeback; control=api_smoke ;;
+    B*) target=sshconfig_writeback; control=sshconfig_golden ;;
+    *) target=sshconfig_golden; control=api_smoke ;;
+  esac
+  force_config_rebuild
+  if ! gt_timeout 120 bash "$ROOT/scripts/build-core.sh" >"$LOG" 2>&1; then
+    cat "$LOG"; echo "$2 编译失败，不算目标红" >&2; exit 1
+  fi
+  if gt_timeout 60 ctest --test-dir "$ROOT/core/build" -R "^${target}$" --output-on-failure >"$LOG" 2>&1; then
+    cat "$LOG"; echo "$2 目标未红" >&2; exit 1
+  fi
+  if ! grep -Eq '^FAIL[: ]' "$LOG"; then
+    cat "$LOG"; echo "$2 未观察到配置断言失败" >&2; exit 1
+  fi
+  if ! gt_timeout 60 ctest --test-dir "$ROOT/core/build" -R "^${control}$" --output-on-failure >"$LOG" 2>&1; then
+    cat "$LOG"; echo "$2 同变异独立对照失败" >&2; exit 1
+  fi
+  echo "  ✓ $2 → 目标断言 red / 独立对照 green"; PASS=$((PASS+1))
 }
 
 rollback() {
@@ -56,6 +80,11 @@ rollback() {
   local now; now="$(shasum -a 256 "$SRC" | awk '{print $1}')"
   if [ "$now" != "$BASE_SHA" ]; then
     echo "  ✗ 回滚后 sha256 与起跑前不一致！" >&2; FAIL=$((FAIL+1)); return 1
+  fi
+  force_config_rebuild
+  if ! gt_timeout 120 bash "$ROOT/scripts/build-core.sh" >"$LOG" 2>&1 ||
+     ! gt_timeout 60 ctest --test-dir "$ROOT/core/build" -R '^(sshconfig_golden|sshconfig_writeback|sshconfig_read_error|api_smoke)$' --output-on-failure >>"$LOG" 2>&1; then
+    cat "$LOG"; echo '回滚后配置断言未复绿' >&2; return 1
   fi
 }
 
@@ -86,7 +115,7 @@ cat > "$TMP/gtmut_a2.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old="  return positive;\n}"
-new="  return 1; /* GT_MUTATION_MARK */\n}"
+new="  (void)positive; return 1; /* GT_MUTATION_MARK */\n}"
 assert old in s, "A2 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -117,7 +146,7 @@ cat > "$TMP/gtmut_a4.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old="  if (ids->n == 0) {"
-new="  if (ids->n >= 0) { /* GT_MUTATION_MARK */"
+new="  if (1) { /* GT_MUTATION_MARK */"
 assert old in s, "A4 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -146,7 +175,7 @@ import sys
 p=sys.argv[1]; s=open(p).read()
 old='    {"escapechar", K_SCALAR, "~"},\n'
 assert old in s, "A6 anchor missing"
-open(p,'w').write(s.replace(old,"",1))
+open(p,'w').write(s.replace(old,"    /* GT_MUTATION_MARK: removed escapechar */\n",1))
 PY
 mutate A6 "$TMP/gtmut_a6.py" "$SRC"
 expect_gate red "A6 支持集漂移未拦"
@@ -162,7 +191,7 @@ cat > "$TMP/gtmut_b1.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old="  *indent = gt__strndup(is, (size_t)(p - is));"
-new="  *indent = gt__strdup(\"\"); /* GT_MUTATION_MARK */"
+new="  (void)is; *indent = gt__strdup(\"\"); /* GT_MUTATION_MARK */"
 assert old in s, "B1 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -218,7 +247,7 @@ cat > "$TMP/gtmut_b5.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old="  *sep = gt__strndup(ss, (size_t)(p - ss));"
-new="  *sep = gt__strdup(\" \"); /* GT_MUTATION_MARK */"
+new="  (void)ss; *sep = gt__strdup(\" \"); /* GT_MUTATION_MARK */"
 assert old in s, "B5 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -280,6 +309,7 @@ old="  if (ferror(f)) {"
 assert s.count(old) == 1, "A9 读取错误锚点缺失或重复"
 open(p,'w').write(s.replace(old,"  if (0 && ferror(f)) { /* GT_MUTATION_MARK */",1))
 MUTATION
+force_config_rebuild
 if ! gt_timeout 120 bash "$ROOT/scripts/build-core.sh" >"$LOG" 2>&1; then
   cat "$LOG"; echo 'A9 构建失败，不算目标红' >&2; exit 1
 fi
@@ -295,6 +325,48 @@ fi
 PASS=$((PASS+1))
 echo '  ✓ A9 目标红、同变异合法配置对照绿'
 rollback
+
+# B7/B8：非连续重复指令必须按实际行编辑。构建失败不算红；
+# 目标是逐字节写回断言，同一变异下求值 golden 必须仍绿。
+for variant in replace delete; do
+  echo "== 稀疏重复指令：${variant} =="
+  python3 - "$SRC" "$variant" <<'MUTATION'
+import sys
+p, variant = sys.argv[1:]
+s = open(p).read()
+if variant == 'replace':
+    old = 'elist_remove_matches(&l, first + 1, e2, e->keyword);\n        if (elist_splice(&l, first, 1, rl, rn, e->keyword, blk) != 0)'
+    new = '/* GT_MUTATION_MARK */\n        if (elist_splice(&l, first, nfound, rl, rn, e->keyword, blk) != 0)'
+else:
+    old = 'elist_remove_matches(&l, first, e2, e->keyword);'
+    new = '(void)elist_splice(&l, first, nfound, NULL, 0, NULL, -1); /* GT_MUTATION_MARK */'
+assert s.count(old) == 1, 'sparse edit mutation anchor missing or ambiguous'
+open(p, 'w').write(s.replace(old, new, 1))
+MUTATION
+  force_config_rebuild
+  if ! gt_timeout 120 bash "$ROOT/scripts/build-core.sh" >"$LOG" 2>&1; then
+    cat "$LOG"; echo '稀疏编辑变异构建失败，不算目标红' >&2; exit 1
+  fi
+  if gt_timeout 60 ctest --test-dir "$ROOT/core/build" -R '^sshconfig_writeback$' --output-on-failure >"$LOG" 2>&1; then
+    cat "$LOG"; echo '稀疏编辑变异没有触发失败' >&2; exit 1
+  fi
+  if [ "$variant" = replace ]; then
+    targets=(sparse_scalar_replace sparse_list_grow sparse_list_shrink_and_next_edit)
+  else
+    targets=(sparse_delete)
+  fi
+  for target in "${targets[@]}"; do
+    if ! grep -Fq "FAIL ${target}: non-target bytes changed" "$LOG"; then
+      cat "$LOG"; echo "失败不在目标断言 ${target}" >&2; exit 1
+    fi
+  done
+  if ! gt_timeout 60 ctest --test-dir "$ROOT/core/build" -R '^sshconfig_golden$' --output-on-failure >"$LOG" 2>&1; then
+    cat "$LOG"; echo '同变异求值对照失败' >&2; exit 1
+  fi
+  rollback || exit 1
+  PASS=$((PASS+1))
+  echo "  ✓ ${variant} 目标红、同变异求值绿、恢复绿、SHA256 一致"
+done
 
 echo "== 回滚复绿 =="
 expect_gate green "回滚后"

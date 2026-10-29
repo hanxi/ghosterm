@@ -23,7 +23,8 @@ def main():
     domain = ROOT / 'android/domain/src/main/kotlin/com/hanxi/ghosterm/domain/Hosts.kt'
     screen = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm/MainActivity.kt'
     native = ROOT / 'android/bridge/src/main/cpp/config_jni.c'
-    originals = {p: p.read_bytes() for p in (repo, domain, screen, native)}
+    core = ROOT / 'core/src/config.c'
+    originals = {p: p.read_bytes() for p in (repo, domain, screen, native, core)}
     if any(MARK.encode() in text for text in originals.values()): raise RuntimeError('mutation marker present')
     hashes = {p: hashlib.sha256(data).digest() for p, data in originals.items()}
     work = ROOT / 'tmp/android-config-mutations'; work.mkdir(exist_ok=True)
@@ -55,13 +56,16 @@ def main():
         (screen, 'model.edit(host)', 'model.edit()', 'addEditSearchAndDiscardUseRealConfiguration', control),
         (repo, 'if (lines.replace(previous.text, "") != lines.replace(candidate.toString(Charsets.UTF_8), ""))',
          'if (false && lines.replace(previous.text, "") != lines.replace(candidate.toString(Charsets.UTF_8), ""))',
-         'complexDuplicateEditCannotRemoveOtherDirectives', control),
+         'unrelatedLineChangeIsRejected', control),
         (repo, 'throw ConfigAccess("备份失败，原配置未修改", error)',
          'Files.deleteIfExists(backup); throw ConfigAccess("备份失败，原配置未修改", error)',
          'backupNameCollisionDoesNotDeleteExistingFile', control),
         (repo, 'if (Regex("-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----").containsMatchIn(bytes.toString(Charsets.UTF_8)))',
          'if (false && Regex("-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----").containsMatchIn(bytes.toString(Charsets.UTF_8)))',
          'privateKeyContainerIsNeverSavedAsConfiguration', control),
+        (core, 'elist_remove_matches(&l, first + 1, e2, e->keyword);\n        if (elist_splice(&l, first, 1, rl, rn, e->keyword, blk) != 0)',
+         '/* contiguous splice regression */\n        if (elist_splice(&l, first, nfound, rl, rn, e->keyword, blk) != 0)',
+         'complexDuplicateEditPreservesOtherDirectives', control),
     ]
     build()
     for name in dict.fromkeys([case[3] for case in cases] + [control]): test(name, True)
@@ -81,7 +85,7 @@ def main():
         for path, data in originals.items():
             if MARK.encode() in path.read_bytes(): path.write_bytes(data)
         if any(hashlib.sha256(p.read_bytes()).digest() != h for p, h in hashes.items()): raise RuntimeError('source changed during mutation run')
-    print('ANDROID CONFIG MUTATIONS PASS: 11 groups')
+    print(f'ANDROID CONFIG MUTATIONS PASS: {len(cases)} groups')
 
 
 if __name__ == '__main__':

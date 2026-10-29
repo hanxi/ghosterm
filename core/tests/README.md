@@ -118,12 +118,13 @@ golden.effective.tsv 的 # supported_key 元数据
 | Host 块 / 模式 | 4 块 / 6 模式（顺序断言） |
 | 全表语义对拍 | **42 键 × 6 host = 252 项** |
 | 配置读取错误 | `sshconfig_read_error` 以目录触发真实 fread 错误，必须返回失败；ENOENT 仍为合法空配置。`mutation-check-sshconfig.sh` A9 验目标红、同变异 golden 绿与复原绿 |
-| 无损往返 | 未编辑路径：**逐字节相同**；编辑路径：`sshconfig_writeback` 的 9 个既有用例验证目标行以外逐字相同，不能扩大为全部配置形态已覆盖 |
+| 无损往返 | 未编辑路径：**逐字节相同**；编辑路径：`sshconfig_writeback` 的 9 个既有用例 + 5 个补充用例（`=`、非连续重复指令替换/删除、多值增减与后续编辑）逐字节对拍；不能扩大为全部配置形态已覆盖 |
 | 编辑语义 | 原地补丁 / 删除 / `=` 分隔符保留 / SetEnv 一行多 token / IdentityFile·LocalForward 一行一条 / reset 整块重建 |
 | IdentityFile 回落机制 | 显式条目不追加默认链 / 无显式时按策略回落 / 三档预设条数 |
 | `Include` 展开 | 相对路径以 **`~/.ssh`** 为基准，与包含者所在目录无关；glob / 嵌套 / 无损写回 / 自环深度上限（test_config 第 7 节）；Core 已先展开 tilde，再调用 POSIX glob，Android 也走同一语义 |
 | 行内注释与 Forward 归一化 | token 开头 `#` 剥离、中间 `#` 保留（ssh -G 实证）/ 括号归一化 / 负差值防护（test_config 第 8 节，SIGBUS 根因回归） |
-| **已知缺口** | 非连续重复指令编辑会按匹配数量连续 splice，可能误删中间无关行；Android 有调用方拒绝保护，Core/Apple 未修复。Forward `bind:port` 完整解析仍未实现（OpenSSH 对 `8080:lh 9090` 输出 `8080 [lh]:9090`，我们原样返回） |
+| 非连续重复指令 | 已按实际匹配行删除，替换保留首条的位置/缩进/拼写/分隔符；其他指令、注释、CRLF 和相邻块保持原字节。B7/B8 回退连续 splice 验目标红、同变异求值对照绿、复原绿与 SHA256 |
+| **已知缺口** | 字段来源和包含文件的编辑归属查询尚未补齐。Forward `bind:port` 完整解析仍未实现（OpenSSH 对 `8080:lh 9090` 输出 `8080 [lh]:9090`，我们原样返回） |
 
 ## 脚本
 
@@ -139,12 +140,12 @@ golden.effective.tsv 的 # supported_key 元数据
 ```bash
 bash scripts/gate.sh                                  # 配置 / PTY / SSH / 公开头
 core/build/test_config core/tests/fixtures            # 单独跑对拍
-bash scripts/mutation-check-sshconfig.sh              # 15 组：A1–A9、B1–B6
+bash scripts/mutation-check-sshconfig.sh              # 17 组：A1–A9、B1–B8
 bash scripts/mutation-check-include.sh                # Include 四组变异
 ```
 
 以上是宿主 C 测试，不能当作 Android 设备证据。Android A1 另有配置事务与页面测试、
-`mutation-check-android-config.py` 十一组变异；跨端当前结果见[路线图](../../docs/reference/roadmap.md)。
+`mutation-check-android-config.py` 十二组变异；跨端当前结果见[路线图](../../docs/reference/roadmap.md)。
 
 ## 可选 tmux
 

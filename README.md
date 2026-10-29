@@ -105,7 +105,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 | C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 71 符号，双向对拍；旧会话 ABI 已移除 |
 | `ssh_config` 解析 / 无损往返（未编辑） | ✅ 与原文逐字节相同 |
 | `ssh_config` 求值 | ✅ typed 视图 + 通用视图（`ssh -G` 等价）；42 键 × 6 host 全表语义对拍 |
-| `ssh_config` 编辑 API | 🟡 9 用例对拍通过；非连续重复指令存在误删中间行缺口，Android 已加拒绝写回保护，共享修复待办 |
+| `ssh_config` 编辑 API | 🟡 9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令已按实际匹配行编辑，字段来源/包含文件编辑归属仍待补齐 |
 | `ssh_config` `Include` 展开 | ✅ OpenSSH 同口径（相对路径基准 = ~/.ssh、glob、嵌套 + 深度上限 16）；6 组断言 + 变异 I1~I4 |
 | 本地 PTY transport（forkpty） | ✅ POSIX 实现（macOS/Linux 证据；Android 尚待设备验证） |
 | SSH（libssh2）connect / auth / hostkey TOFU / ssh-shell | ✅ `ssh_e2e` 真 sshd；密码/密钥与可取消认证，Android 尚未绑定 |
@@ -116,7 +116,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 | ├ 标签 / 窗格 / 设置 | ✅ 单窗口顶部或侧边标签、UUID 重排、唯一加号、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；统一终端/文件工作区、分屏预览、焦点与停画。**遗留**：标签/布局跨重启持久化（设置偏好已持久化） |
 | ├ 配色集随包 + 主题选择 | ✅ Ghostty 配色集随包（`Contents/Resources/ghostty/themes`，数量由构建输出决定）+ 资源目录推导；出包包内配置检查验主题被引擎接受 |
 | ├ 终端的设置真的生效 | ✅ 写 Ghostty 语法的配置文件交给引擎解析（不自己维护配置子集）；`font-size` 改完网格密度真的变（11 项断言） |
-| ├ ssh_config 图形编辑（M3） | 🟡 编辑器、通配块与基本稀疏编辑已实现；非连续重复指令仍有共享缺陷，备份错误被忽略、替换先删后移，事务保障待修复 |
+| ├ ssh_config 图形编辑（M3） | 🟡 编辑器、通配块与基本稀疏编辑已实现；共享重复指令误删已修复，macOS 备份错误被忽略、替换先删后移，事务保障待修复 |
 | ├ 文件工作区与传输 | 🟡 本地/SFTP 统一窗格、队列、拖放与 Quick Look；独立文件连接。目录冲突 UI 等验收缺口见交接文档 |
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |

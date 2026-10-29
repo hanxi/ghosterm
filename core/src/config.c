@@ -913,6 +913,23 @@ static int elist_splice(elist_t *l, size_t pos, size_t rm,
   return 0;
 }
 
+/* Remove actual matching rows, not a contiguous range sized by match count.
+ * Compact once so large blocks with interleaved directives remain linear.
+ * The caller owns this editable copy; cfg is not changed until serialization. */
+static void elist_remove_matches(elist_t *l, size_t start, size_t end,
+                                 const char *keyword) {
+  size_t out = start;
+  for (size_t k = start; k < l->n; k++) {
+    if (k < end && kw_eq(l->v[k].kw, keyword)) {
+      free(l->v[k].raw);
+      free(l->v[k].kw);
+    } else {
+      l->v[out++] = l->v[k];
+    }
+  }
+  l->n = out;
+}
+
 /* 累积型指令：一行一条目（与 ssh -G 的重复指令语义一致）。 */
 static bool render_per_line(const char *kw) {
   static const char *const names[] = {
@@ -1158,10 +1175,9 @@ int gt_config_edit(gt_config_t *cfg, const char *alias,
         }
       size_t nv = vcount(e->values);
       if (nv == 0) {
-        /* 删除 */
+        /* 仅删除匹配行，保留交错的其他指令和注释。 */
         if (nfound)
-          if (elist_splice(&l, first, nfound, NULL, 0, NULL, -1) != 0)
-            rc = GT_ERR_INTERNAL;
+          elist_remove_matches(&l, first, e2, e->keyword);
         continue;
       }
       /* 缩进 / 关键字原样拼写 / 分隔符：沿用首个既有行，否则用默认。 */
@@ -1180,9 +1196,11 @@ int gt_config_edit(gt_config_t *cfg, const char *alias,
       if (!rl) { rc = GT_ERR_INTERNAL; break; }
 
       if (nfound) {
-        /* 用 rn 行整体替换 nfound 行——一次 splice，避免两步之间索引错位。 */
+        /* 首条原位替换，其他同关键字行按实际位置移除。
+         * first 前没有移动；块号、未知指令、空白与其他块保持原样。 */
         int blk = l.v[first].block;
-        if (elist_splice(&l, first, nfound, rl, rn, e->keyword, blk) != 0) {
+        elist_remove_matches(&l, first + 1, e2, e->keyword);
+        if (elist_splice(&l, first, 1, rl, rn, e->keyword, blk) != 0) {
           free_lines(rl, rn); /* splice 失败：未接管所有权 */
           rc = GT_ERR_INTERNAL;
         } else {

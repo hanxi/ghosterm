@@ -1,6 +1,6 @@
 # 路线图
 
-更新：2026-10-29，源码核对基线 `4ed1308`。Android 已交付 A0 与 A1 首片；macOS 现有缺口独立记录，其余平台后续实施。本次为跨端文档校正，不改变实现状态。
+更新：2026-10-29。文档审计基线 `4ed1308`，此后已修复 A1 依赖的共享重复指令编辑，验证记录见文末与 Android 计划 §9.4。Android 已交付 A0 与 A1 首片，A1 仍在收尾；macOS 写盘与安全存储缺口独立记录，其余平台后续实施。
 已交付、部分实现和待验证分开记账；历史切片的测试数量不能当作当前测试总量。
 能力与证据边界见[能力矩阵](capability-matrix.md)，验收规则以 [AGENTS.md](../../AGENTS.md) 为准。
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | M1 macOS 终端竖切 | 已交付 | 普通本地 PTY/SSH、full libghostty + Metal |
 | M2 macOS 认证与分发 | 主要功能已交付，安全存储和发行仍有缺口 | 私钥材料接线、Developer ID/公证、降低发行包系统下限 |
-| M3 ssh_config 图形管理 | UI/基本稀疏编辑已交付，重复指令与写盘事务仍有缺口 | 备份失败必须阻断、真正原子替换、失败注入 |
+| M3 ssh_config 图形管理 | UI/基本稀疏编辑及重复指令修复已交付，macOS 写盘事务仍有缺口 | 备份失败必须阻断、真正原子替换、失败注入 |
 | M4/M4.6 文件管理 | macOS 队列/文件操作/系统集成已交付 | 统一工作区替代旧双栏组件；端点活性与 UI 验收仍有遗留 |
 | M4.5 终端 UX | 标签、分屏、设置、IME、焦点与停画已交付 | 布局/标签跨重启持久化未做 |
 | 统一文件窗格工作区 | 已交付主要实现 | 真拖动、Finder 多选、目录冲突及尺寸证据补齐 |
@@ -25,7 +25,7 @@
 
 - [x] 普通本地 PTY、SSH shell 的 Transport；输出直达 TerminalSurface，不经过 UI 事件队列。
 - [x] `ghosterm.h` 聚合 ABI、公开子头独立编译、符号双向对拍；当前 71 个公共符号，Apple 引用 69 个、2 个登记未用。接口尚未冻结。
-- [x] `ssh_config` 解析、Include、42 键 × 6 host 求值对拍与未编辑逐字节往返；基本稀疏编辑已交付，非连续重复指令仍有下表 P0 缺口，不记作完整无损编辑已验收。
+- [x] `ssh_config` 解析、Include、42 键 × 6 host 求值对拍与未编辑逐字节往返；基本稀疏编辑和非连续重复指令修复已交付。14 个写回用例不扩大为全部配置形态已验证，来源/编辑归属契约仍待补齐。
 - [x] 可取消的异步 SSH 认证、主机密钥确认、方法发现、凭据请求归属；普通 SSH/SFTP/tmux 复用 `SSHAuthenticationFlow`。
 - [x] macOS full libghostty + Metal；字节→网格、渲染层与自进程像素验证；中文等 IME 组合/提交链路。
 - [x] 有界输入写入、尾队列、异步关闭；PTY 控制终端、描述符隔离与退出状态未知不折叠。
@@ -68,11 +68,10 @@ M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。i
 
 ## macOS 下一步与共享缺口
 
-这些项目仍未完成；本轮只修正文档，没有修改相应代码。
+以下项目仍未完成；共享非连续重复指令误删已修复，从待办移至上方已交付范围，未因此改变其他缺口状态。
 
 | 优先级 | 工作 | 当前源码事实 | 完成条件 |
 |---|---|---|---|
-| P0 | 非连续重复指令编辑 | `gt_config_edit` 从首条开始按匹配数量连续 splice，可能误删夹在重复指令间的其他行；Android 已加原文保留检查并拒绝此类写回，Apple 尚无此保护 | 在 Core 按实际匹配行编辑，保留其他行；补共享用例/变异及 Apple/JNI 回归 |
 | P0 | 配置保存事务 | `ConfigStore.save` 对备份异常 `try?`，再 remove 旧文件、move 新文件；mtime/size 检测不是完整事务 | 备份失败停止；同目录原子替换；故障/并发变化注入证明原文件始终保留；与 `AGENTS.md` 铁律 #4 对齐 |
 | P0 | 私钥安全存储接线 | `SSHCredentialSelector.Storage.readKey` 每次读取受限磁盘 PEM；Keychain 实际保存口令/密码，旧 PEM helper 不等于生产接线 | 明确导入与存储所有权，平台安全存储承接私钥；取消/拒绝清理与既有认证回归；不得更改铁律 #5 迁就现状 |
 | P1 | 非覆盖文件复制与覆盖语义 | 公有 SFTP job API 无独占创建/非覆盖提交参数；上传 WRITE\|CREAT，无 TRUNC 契约 | 防并发重名覆盖与旧尾残留的共享契约、C/Apple/后续 JNI 绑定和真 sshd 变异；Android A5 依赖此项 |
@@ -106,7 +105,7 @@ M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。i
 - [ ] A10 设备矩阵、APK、CI 与发行验证。
 - [ ] A9 环境包独立 PoC（延后）：Termux/proot 执行限制、下载/哈希/原子激活/回滚；不阻塞普通 SSH。
 
-当前可构建 arm64 debug APK；首页读取真实配置并管理主机，设置有配置编辑/导入与组件版本。现有 A1 验收为 17 项设备测试与 11 组配置/页面变异，仍不满足整个 A1 的退出条件。下一片按[实现计划 §9.3](android-implementation.md#93-当前代码入口与-a1-退出清单)补齐来源/别名归属与 SAF UI，并先处理涉及的共享编辑 P0。交互终端与 SSH 尚未实现。暂无 Android CI。min API 29、16 KB 页及真机均未验证。
+当前可构建 arm64 debug APK；首页读取真实配置并管理主机，设置有配置编辑/导入与组件版本；共享重复指令编辑已修复。仍不满足整个 A1 的退出条件，下一片按[实现计划 §9.3](android-implementation.md#93-当前代码入口与-a1-退出清单)补齐来源/别名归属与 SAF UI，最新设备与变异证据见该文 §9.4。交互终端与 SSH 尚未实现。暂无 Android CI。min API 29、16 KB 页及真机均未验证。
 普通本地入口拟为系统 `/system/bin/sh`，不是打包一个新 shell；不能用桌面 PTY 证据代替 Android 真机验证。
 旧 attachment ABI 已退役，Android 走现有 Transport + 可选 tmux；共享接口未冻结，缺口须同步各端后再使用。
 
@@ -127,12 +126,13 @@ M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。i
 | `470c78b` 初始文档审计 | Core 32 项 CTest / 71 个符号、Apple 69 引用 / 2 登记、macOS 原生构建通过 | 无 Android 工程运行证据 |
 | `4d83ec6` Android A0 | API 36 arm64、4 KB 页模拟器；3 项 JNI 测试、3 组 JNI 变异、3 组 ABI 变异；Core 与 Include 回归通过 | 自绘/输入/PTY/SSH、真机与 API 29/16 KB 页 |
 | `4ed1308` Android A1 首片 | 同档模拟器 17 项设备测试；11 组配置/页面变异；C/Apple/JNI ABI 通过 | A1 完整收尾、交互终端/SSH/文件、Android CI |
+| A1 共享重复指令修复（2026-10-29） | 同档模拟器 18 项设备测试、12 组配置变异；Core 写回 14 用例、配置 17 组变异、32 项 CTest；Swift 配置三项定向测试与 macOS 构建通过，C/Apple/JNI ABI 无漂移 | 字段来源/别名/Include 归属与 SAF UI；未重跑完整 Apple 宿主或 CI；日志 `tmp/android-a1-sparse/` |
 
-本次文档复核重跑：`bash scripts/gate.sh` **32 项 CTest / 71 个公共符号通过**；
+`0c60f19` 文档复核重跑：`bash scripts/gate.sh` **32 项 CTest / 71 个公共符号通过**；
 `check-abi-apple.sh` **69 项引用 / 2 项登记通过**；`check-abi-android.py` **9 项引用 / 62 项待办通过**；
 `swift build --package-path apple/GhostermApp` 通过。构建仍报告 libssh2 依赖的 macOS 26 minos 高于源码 macOS 13 声明，与上文发行下限缺口一致。
 修改文档的本地链接与 `git diff --check` 通过；日志在工程 `tmp/docs-audit/`，不入库。
-本次未重跑 Android 设备/变异、macOS 完整宿主/像素/变异或 CI；既有结果只按上表与原实施记录引用。
+该文档提交未重跑 Android 设备/变异、macOS 完整宿主/像素/变异或 CI；既有结果只按上表与原实施记录引用。
 
 最近一次完整 macOS 宿主记录见[标签界面重构末尾](plan-tab-chrome-refactor.md)：
 341 项测试、1 项开发态资源跳过、0 失败，以及相应变异/像素证据；之后 Ctrl+Tab 切片另有六项定向测试和 menu 九组变异，未记为重跑完整 341 项。此前真实系统激活与全屏的测试范围另列。

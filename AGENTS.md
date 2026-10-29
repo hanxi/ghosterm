@@ -149,7 +149,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 ### 变异验证（新增闸门必须附）
 
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。
-样板见 `scripts/mutation-check-sshconfig.sh`（15 组变异：A1~A9 + B1~B6，另验基线与回滚）。A9 用真实目录触发 fread 错误，断言必须返回失败；同变异下合法配置 golden 对照仍须通过，不能把读取错误当成空配置。
+样板见 `scripts/mutation-check-sshconfig.sh`（17 组变异：A1~A9 + B1~B8，另验基线与回滚）。A9 用真实目录触发 fread 错误，断言必须返回失败；同变异下合法配置 golden 对照仍须通过，不能把读取错误当成空配置。B7/B8 护非连续重复指令替换/删除，构建通过后逐字节写回目标红、同变异求值对照绿、恢复绿与 SHA256 一致。
 **基础与产品变异验证**（每份都必须能独立跑绿）：sshconfig / include / settings /
 settings-ui / tab-chrome / workspace / tabs / chrome / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /

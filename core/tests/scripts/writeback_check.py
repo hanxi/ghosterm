@@ -93,8 +93,10 @@ def main():
     # ---- 补充断言：触及「既有行用 = 分隔」时必须保留 = ----
     # （golden 的 restyle 用例只触及空格分隔的 Port，不覆盖此点，故单列。）
     fails += supplement_equals_preserved(tool, sample, tmp)
+    sparse_count, sparse_fails = supplement_sparse_duplicates(tool, tmp)
+    fails += sparse_fails
 
-    print("writeback_check: %d cases, %d failed" % (len(spec["cases"]) + 1, fails))
+    print("writeback_check: %d cases, %d failed" % (len(spec["cases"]) + 1 + sparse_count, fails))
     return 1 if fails else 0
 
 
@@ -120,6 +122,42 @@ def supplement_equals_preserved(tool, sample, tmp):
             if "IdentityFile" in line:
                 print("   got: %r" % line)
     return 1
+
+
+def supplement_sparse_duplicates(tool, tmp):
+    """Literal byte expectations: non-target lines survive separated duplicates."""
+    cases = [
+        ("sparse_scalar_replace",
+         b"# before\r\nHost demo alias\r\n\tUsEr=alice\r\n  FutureOption keep\r\n# between\r\n  USER carol\n\tPort 22\r\nHost other\n  User untouched",
+         "KW\tUser\nV\tbob\n",
+         b"# before\r\nHost demo alias\r\n\tUsEr=bob\n  FutureOption keep\r\n# between\r\n\tPort 22\r\nHost other\n  User untouched"),
+        ("sparse_delete",
+         b"Host demo\n  User alice\n# keep\r\n  HostName example.test\n  User carol\n\nHost other\n  User untouched\n",
+         "KW\tUser\nDEL\n",
+         b"Host demo\n# keep\r\n  HostName example.test\n\nHost other\n  User untouched\n"),
+        ("sparse_list_grow",
+         b"Host demo\n\tIdentityFile=one\n  FutureOption keep\r\n\tIdentityFile=two\n# end\n",
+         "KW\tIdentityFile\nV\tnew-one\nV\tnew-two\nV\tnew-three\n",
+         b"Host demo\n\tIdentityFile=new-one\n\tIdentityFile=new-two\n\tIdentityFile=new-three\n  FutureOption keep\r\n# end\n"),
+        ("sparse_list_shrink_and_next_edit",
+         "Host demo\n  IdentityFile one\n# 保留注释\r\n  Port 22\n  IdentityFile two\n  FutureOption keep\n  IdentityFile three\nHost other\n  IdentityFile untouched\n".encode(),
+         "KW\tIdentityFile\nV\tnew-one\nKW\tPort\nV\t2222\n",
+         "Host demo\n  IdentityFile new-one\n# 保留注释\r\n  Port 2222\n  FutureOption keep\nHost other\n  IdentityFile untouched\n".encode()),
+    ]
+    fails = 0
+    with tempfile.TemporaryDirectory(dir=tmp) as work:
+        from pathlib import Path
+        conf, specp, outp = (Path(work) / name for name in ("input.conf", "edit.spec", "output.conf"))
+        for name, source, edit, expected in cases:
+            conf.write_bytes(source)
+            specp.write_text(edit)
+            result = subprocess.run([tool, "edit", conf, outp, "demo", "0", specp], capture_output=True, text=True)
+            if result.returncode != 0 or outp.read_bytes() != expected:
+                print("FAIL %s: non-target bytes changed or edit failed: %s" % (name, result.stderr.strip()))
+                fails += 1
+            else:
+                print("ok   %s" % name)
+    return len(cases), fails
 
 
 if __name__ == "__main__":

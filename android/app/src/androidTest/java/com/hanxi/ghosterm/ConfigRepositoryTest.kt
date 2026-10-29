@@ -102,12 +102,26 @@ class ConfigRepositoryTest {
         File(directory, "config").writeText("Host demo\n  HostName example.test\n")
         assertEquals("", ConfigRepository(directory).load().hosts.single().user)
     }
-    @Test fun complexDuplicateEditCannotRemoveOtherDirectives() = fixture { directory ->
+    @Test fun complexDuplicateEditPreservesOtherDirectives() = fixture { directory ->
         val original = "Host demo\n  HostName example.test\n  User alice\n  FutureOption preserve\n  User carol\n"
         val file = File(directory, "config").apply { writeText(original) }
         val repo = ConfigRepository(directory)
-        assertThrows(ConfigAccess::class.java) { repo.saveHost(repo.load(), HostEdit("demo", "demo", "example.test", "bob", "22")) }
-        assertEquals(original, file.readText())
+        val saved = runCatching { repo.saveHost(repo.load(), HostEdit("demo", "demo", "example.test", "bob", "22")) }
+        assertTrue("Sparse duplicate edit must succeed: ${saved.exceptionOrNull()}", saved.isSuccess)
+        assertEquals("Host demo\n  HostName example.test\n  User bob\n  FutureOption preserve\n", file.readText())
+        assertEquals("bob", saved.getOrThrow().snapshot.hosts.single().user)
+        assertArrayEquals(original.toByteArray(), directory.listFiles()!!.single { it.name.startsWith("config.backup-") }.readBytes())
+    }
+    @Test fun unrelatedLineChangeIsRejected() = fixture { directory ->
+        val original = "Host demo\n  HostName example.test\n  User alice\n  FutureOption preserve\n".toByteArray()
+        val corrupted = "Host demo\n  HostName example.test\n  User bob\n".toByteArray()
+        val file = File(directory, "config").apply { writeBytes(original) }
+        val repo = ConfigRepository(directory, editConfig = { _, _, _, _ -> corrupted })
+        assertThrows(ConfigAccess::class.java) {
+            repo.saveHost(repo.load(), HostEdit("demo", "demo", "example.test", "bob", "22"))
+        }
+        assertArrayEquals(original, file.readBytes())
+        assertFalse(directory.listFiles()!!.any { it.name.startsWith("config.backup-") })
     }
     @Test fun privateKeyContainerIsNeverSavedAsConfiguration() = fixture { directory ->
         val file = File(directory, "config").apply { writeText(source) }
