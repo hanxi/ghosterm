@@ -142,7 +142,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 > **当前覆盖范围（诚实标注）**：`check-abi.sh` 对拍「`core/` 内部实现 ↔ 头文件」；
 > `check-abi-apple.sh` 另对拍 Swift 的引用名集合；`check-abi-android.py` 对拍 Android JNI 引用。
-> 当前分别为 Apple 70/2、JNI 10/62（引用/显式登记未用），公共符号 72 项；实际数量以当前检出的脚本输出为准。
+> 当前工作区分别为 Apple 71/2、JNI 11/62（引用/显式登记未用），公共符号 73 项，含尚未提交的重命名草稿；已提交基线 `f1657e3` 为 70/2、10/62、72 项。实际数量以当前检出的脚本输出为准，草稿对拍不等于整片验收通过。
 > 各次接口与平台验收分别记在 `docs/reference/roadmap.md`，不得借旧结果记新接口通过。
 > Android 目前只有组件/配置绑定，终端 Transport、SSH/SFTP 尚未接线；NAPI 尚无绑定。
 > 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
@@ -151,7 +151,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。
 样板见 `scripts/mutation-check-sshconfig.sh`（17 组变异：A1~A9 + B1~B8，另验基线与回滚）。A9 用真实目录触发 fread 错误，断言必须返回失败；同变异下合法配置 golden 对照仍须通过，不能把读取错误当成空配置。B7/B8 护非连续重复指令替换/删除，构建通过后逐字节写回目标红、同变异求值对照绿、恢复绿与 SHA256 一致。
-`config-metadata` 以 `python3 scripts/mutation-check-config-metadata.py --apple` 手工执行：8 组 C 变异护来源/块归属、包含与歧义块拒写和重解析路径，1 组 Swift 变异护来源转换。编译成功后目标断言红、独立 API/配置往返对照绿、恢复绿与 SHA256 一致；不计入 CI 20 份。Android 来源、只读页面与显式覆盖/恢复继承由 `mutation-check-android-config.py` 的 32 组设备变异覆盖（同 APK 独立对照），同属手工证据。
+`config-metadata` 以 `python3 scripts/mutation-check-config-metadata.py --apple` 手工执行：8 组 C 变异护来源/块归属、包含与歧义块拒写和重解析路径，1 组 Swift 变异护来源转换。编译成功后目标断言红、独立 API/配置往返对照绿、恢复绿与 SHA256 一致；不计入 CI 20 份。Android 来源、只读页面与显式覆盖/恢复继承已有 32 组设备变异通过的记录（同 APK 独立对照）。当前重命名草稿将 `mutation-check-android-config.py` 扩展到 36 组，新增四组尚未完成整套复验；`mutation-check-config-rename.py --apple` 已有 12 组 C / 1 组 Swift 的隔离验证记录。均属手工证据，不计入 CI 20 份。
 **基础与产品变异验证**（每份都必须能独立跑绿）：sshconfig / include / settings /
 settings-ui / tab-chrome / workspace / tabs / chrome / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
