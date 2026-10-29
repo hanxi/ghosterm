@@ -14,12 +14,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -72,6 +74,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
             Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
                 if (hosts.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 hosts.error?.let { error ->
+                    if (hosts.imported == null)
                     Card(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = colors.errorContainer)) {
                         Column(Modifier.padding(12.dp)) {
                             Text(error, color = colors.onErrorContainer)
@@ -119,10 +122,28 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
             text = { Text("已保存的主机配置不会改变。") },
             confirmButton = { TextButton(onClick = hosts::confirmDiscard) { Text("放弃修改") } },
             dismissButton = { TextButton(onClick = hosts::keepEditing) { Text("继续编辑") } })
-        if (hosts.imported != null) AlertDialog(onDismissRequest = hosts::cancelImport, title = { Text("替换应用内 SSH 配置？") },
-            text = { Text("将先备份当前配置，再导入所选文档的副本。原文档不会修改。") },
-            confirmButton = { TextButton(onClick = hosts::confirmImport, enabled = !hosts.busy) { Text("确认导入") } },
+        hosts.imported?.let { document -> AlertDialog(onDismissRequest = hosts::cancelImport, title = { Text("替换应用内 SSH 配置？") },
+            text = {
+                Column(Modifier.heightIn(max = 440.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    hosts.error?.let { Text(it, Modifier.testTag("config-import-error"), color = colors.error) }
+                    if (hosts.snapshot == null) {
+                        Text("当前配置已变化或不可读取。重新载入后，请核对并再次确认导入。")
+                        TextButton(onClick = hosts::reload, enabled = !hosts.busy) { Text("重新载入当前配置") }
+                    }
+                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(document.name, style = MaterialTheme.typography.titleSmall)
+                        Text("${document.bytes.size} 字节 · UTF-8")
+                        Text("将先备份当前配置，再导入所选文档的副本。原文档不会修改。Include 相对应用私有 HOME/.ssh，不是所选文档所在目录。")
+                        if (document.truncated) Text("预览已截断；确认后导入完整文件。", Modifier.testTag("config-import-truncated"))
+                        SelectionContainer {
+                            Text(document.preview.ifEmpty { "（空配置）" }, Modifier.testTag("config-import-preview"), fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = hosts::confirmImport, enabled = !hosts.busy && hosts.snapshot != null) { Text("确认导入") } },
             dismissButton = { TextButton(onClick = hosts::cancelImport, enabled = !hosts.busy) { Text("取消") } })
+        }
     }
 }
 

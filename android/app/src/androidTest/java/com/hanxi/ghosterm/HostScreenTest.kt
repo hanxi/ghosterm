@@ -35,6 +35,36 @@ class HostScreenTest {
         ui.runOnIdle { model.reload() }
         ui.waitUntil(10_000) { !model.busy && model.snapshot?.text == text }
     }
+    @Test fun invalidAliasAddressAndPortPreserveDraftAndOriginal() {
+        val original = "Host original\n  HostName original.test\n  User owner\n  Port 22\n"
+        load(original)
+        ui.onNodeWithText("编辑").performClick()
+        val cases = listOf(
+            Triple("别名", listOf("", "*bad", "a".repeat(129)), "别名只能包含字母、数字、点、短横线与下划线"),
+            Triple("主机地址", listOf("", "bad host", "host#comment"), "请填写有效的主机地址，或选择使用继承值"),
+            Triple("端口", listOf("0", "65536", "not-a-port"), "端口必须为 1–65535，或选择使用继承值"),
+        )
+        for ((label, invalid, message) in cases) {
+            for (value in invalid) {
+                ui.onNodeWithText(label).performScrollTo().performTextReplacement(value)
+                closeSoftKeyboard()
+                ui.onNodeWithText("保存").performClick()
+                ui.waitUntil(10_000) { !model.busy }
+                ui.onNodeWithText(message).assertIsDisplayed()
+                assertEquals(Page.EDIT_HOST, model.page)
+                ui.onNodeWithText(label).performScrollTo().assertTextContains(value)
+                assertEquals(original, File(directory, "home/.ssh/config").readText())
+                assertTrue(File(directory, "home/.ssh").listFiles()!!.none { it.name.startsWith("config.backup-") })
+            }
+            val previous = when (label) { "别名" -> "original"; "主机地址" -> "original.test"; else -> "22" }
+            ui.onNodeWithText(label).performTextReplacement(previous)
+            closeSoftKeyboard()
+        }
+        assertFalse(model.dirty)
+        ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithText("放弃未保存的修改？").assertDoesNotExist()
+        ui.onNodeWithText("original").assertIsDisplayed()
+    }
     @Test fun loadFailureHidesEmptyAndStaleListsAndCanRetry() {
         ui.onNodeWithText("还没有主机").assertIsDisplayed()
         val file = File(directory, "home/.ssh/config")

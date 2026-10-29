@@ -148,7 +148,7 @@ python3 scripts/mutation-check-config-rename.py --apple # 重命名 12 C + 1 Swi
 ```
 
 以上是宿主 C 测试，不能当作 Android 设备证据。Android A1 另有配置事务与页面测试、
-`mutation-check-android-config.py` 当前 47 组通过记录包含别名重命名和配置错误恢复，不能继续把最初十二组称为当前覆盖。跨端结果见[路线图](../../docs/reference/roadmap.md)。
+`mutation-check-android-config.py` 当前 59 组通过记录包含别名重命名、配置错误恢复、真实 SAF 导入与表单校验，不能继续把最初十二组称为当前覆盖。跨端结果见[路线图](../../docs/reference/roadmap.md)。
 
 ## 可选 tmux
 

@@ -36,6 +36,9 @@ def main():
         for apk in ('apk/debug/app-debug.apk', 'apk/androidTest/debug/app-debug-androidTest.apk'):
             require(run([*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs' / apk]))
     def test(method, green):
+        saf_tests = {'selectedDocumentPreviewsThenCommitsExactBytes', 'pickerAndPreviewCancelDoNotChangeConfiguration',
+                     'invalidDocumentsExplainFailureWithoutReplacingConfig', 'importConflictStaysVisibleAndRequiresReloadBeforeRetry',
+                     'truncatedPreviewImportsWholeFileAndKeepsErrorsVisible', 'emptyDocumentRequiresConfirmationAndKeepsBackup'}
         ui_tests = {'addEditSearchAndDiscardUseRealConfiguration', 'fieldSourcesAndSharedBlockWarningAreVisible',
                     'readOnlyHostCanInspectConfigAndReturnWithFreshOwnership',
                     'inheritanceSwitchSavesSameValueAndThenRemovesOverride',
@@ -43,8 +46,9 @@ def main():
                     'invalidExplicitValueKeepsDraftAndCanReturnToInheritance',
                     'allFieldsCanInheritForNewAndExistingHost', 'renameUsesRealFormAndCollisionKeepsDraft',
                     'loadFailureHidesEmptyAndStaleListsAndCanRetry', 'invalidConfigurationRemainsErrorUntilReloaded',
-                    'configReloadConfirmsDiscardAndKeepsDraftOnReadFailure', 'hostConflictCanReloadOrDiscardDeletedTarget'}
-        name = ('HostScreenTest' if method in ui_tests else 'ConfigRepositoryTest') + '#' + method
+                    'configReloadConfirmsDiscardAndKeepsDraftOnReadFailure', 'hostConflictCanReloadOrDiscardDeletedTarget',
+                    'invalidAliasAddressAndPortPreserveDraftAndOriginal'}
+        name = ('SafImportTest' if method in saf_tests else 'HostScreenTest' if method in ui_tests else 'ConfigRepositoryTest') + '#' + method
         result = run([*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
                       'com.hanxi.ghosterm.' + name,
                       'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
@@ -156,6 +160,34 @@ def main():
         (screen, 'onClick = model::config, enabled = !model.busy && model.snapshot != null',
          'onClick = model::config, enabled = !model.busy',
          'hostConflictCanReloadOrDiscardDeletedTarget', control),
+        (screen, 'Text(document.preview.ifEmpty { "（空配置）" }', 'Text("missing preview"',
+         'selectedDocumentPreviewsThenCommitsExactBytes', control),
+        (model, 'val bytes = imported?.bytes ?: return', 'val bytes = imported?.preview?.toByteArray(Charsets.UTF_8) ?: return',
+         'truncatedPreviewImportsWholeFileAndKeepsErrorsVisible', control),
+        (model, 'fun cancelImport() { if (!busy) imported = null }', 'fun cancelImport() { confirmImport() }',
+         'pickerAndPreviewCancelDoNotChangeConfiguration', control),
+        (model, 'ConfigRepository.validate(bytes)', 'Unit',
+         'invalidDocumentsExplainFailureWithoutReplacingConfig', control),
+        (model, 'ConfigRepository.validate(bytes)',
+         'ConfigRepository.validate(bytes); resolver.openOutputStream(uri, "w")!!.use { it.write(bytes) }',
+         'selectedDocumentPreviewsThenCommitsExactBytes', control),
+        (screen, 'hosts.error?.let { Text(it, Modifier.testTag("config-import-error"), color = colors.error) }', 'Unit',
+         'importConflictStaysVisibleAndRequiresReloadBeforeRetry', control),
+        (screen, 'onClick = hosts::confirmImport, enabled = !hosts.busy && hosts.snapshot != null',
+         'onClick = hosts::confirmImport, enabled = !hosts.busy',
+         'importConflictStaysVisibleAndRequiresReloadBeforeRetry', control),
+        (screen, 'if (document.truncated)', 'if (false && document.truncated)',
+         'truncatedPreviewImportsWholeFileAndKeepsErrorsVisible', control),
+        (screen, 'document.preview.ifEmpty { "（空配置）" }', 'document.preview.ifEmpty { "invalid empty file" }',
+         'emptyDocumentRequiresConfirmationAndKeepsBackup', control),
+        (domain, 'require(alias.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")))', 'require(true)',
+         'invalidAliasAddressAndPortPreserveDraftAndOriginal', control),
+        (domain, 'if (HostField.HOSTNAME !in inherited) require(validToken(hostname))',
+         'if (false && HostField.HOSTNAME !in inherited) require(validToken(hostname))',
+         'invalidAliasAddressAndPortPreserveDraftAndOriginal', control),
+        (domain, 'if (HostField.PORT !in inherited) require(port.toIntOrNull() in 1..65535)',
+         'if (false && HostField.PORT !in inherited) require(port.toIntOrNull() in 1..65535)',
+         'invalidAliasAddressAndPortPreserveDraftAndOriginal', control),
     ]
     build()
     for name in dict.fromkeys(name for case in cases for name in case[3:]): test(name, True)

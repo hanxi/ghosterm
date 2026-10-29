@@ -2,6 +2,7 @@ package com.hanxi.ghosterm
 
 import android.app.Application
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -16,6 +17,12 @@ enum class Page { HOSTS, SETTINGS, ABOUT, CONFIG, EDIT_HOST }
 data class HostDraft(val original: Host?, val edit: HostEdit = HostEdit.from(original)) {
     val dirty: Boolean get() = edit.isDirty(original)
 }
+data class ConfigImport(val bytes: ByteArray, val name: String) {
+    val preview: String = bytes.toString(Charsets.UTF_8).take(8192).let {
+        if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it
+    }
+    val truncated: Boolean = preview.length < bytes.toString(Charsets.UTF_8).length
+}
 
 class HostsViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ConfigRepository(File(application.filesDir, "home/.ssh"))
@@ -28,7 +35,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     var draft by mutableStateOf<HostDraft?>(null)
     var configText by mutableStateOf("")
     var discard by mutableStateOf(false); private set
-    var imported by mutableStateOf<ByteArray?>(null); private set
+    var imported by mutableStateOf<ConfigImport?>(null); private set
     private var configReturn = Page.SETTINGS
     private var reloadAfterDiscard = false
     private var loadError: String? = null
@@ -125,8 +132,10 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun readImport(uri: Uri) = work {
+        imported = null
         imported = withContext(Dispatchers.IO) {
-            val bytes = getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+            val resolver = getApplication<Application>().contentResolver
+            val bytes = resolver.openInputStream(uri)?.use { input ->
                 val output = java.io.ByteArrayOutputStream()
                 val buffer = ByteArray(8192)
                 while (true) {
@@ -137,12 +146,18 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
                 output.toByteArray()
             } ?: throw ConfigAccess("无法读取所选文档")
             ConfigRepository.validate(bytes)
-            bytes
+            // A provider may omit metadata; its display name is never a filesystem path.
+            val name = try {
+                resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                    if (it.moveToFirst()) it.getString(0) else null
+                }
+            } catch (_: Exception) { null }
+            ConfigImport(bytes, name?.filterNot { it.isISOControl() }?.take(160)?.takeIf { it.isNotBlank() } ?: "所选文档")
         }
     }
-    fun cancelImport() { imported = null }
+    fun cancelImport() { if (!busy) imported = null }
     fun confirmImport() {
-        val bytes = imported ?: return
+        val bytes = imported?.bytes ?: return
         val base = snapshot ?: return
         work {
             val saved = withContext(Dispatchers.IO) { repository.save(base, bytes) }
