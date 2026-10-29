@@ -149,7 +149,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。
 样板见 `scripts/mutation-check-sshconfig.sh`（15 组变异：A1~A9 + B1~B6，另验基线与回滚）。A9 用真实目录触发 fread 错误，断言必须返回失败；同变异下合法配置 golden 对照仍须通过，不能把读取错误当成空配置。
 **基础与产品变异验证**（每份都必须能独立跑绿）：sshconfig / include / settings /
-settings-ui / tab-chrome / tabs / chrome / pane-chrome /
+settings-ui / tab-chrome / workspace / tabs / chrome / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
 package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh / install-macos / sidebar-hover。
@@ -302,6 +302,12 @@ panes（窗格 UUID 命令、悬停 / 键盘按钮、分屏预览的像素 / 命
 测试注入独立 UserDefaults，不改用户偏好。已接入 full CI；本机与 CI 的运行结果在实施计划分别记账。
 窗格预览测试在锁屏 / CI 中注入可控制 `isKeyWindow` 的 NSWindow，内容仍由生产控制器创建，
 证明的是焦点接线和原生控件行为；真实系统激活、全屏与最终视觉验收须另列证据，不得混称已验证。
+`workspace` 以 `python3 scripts/mutation-check-workspace.py` 手工执行 21 组隔离变异，
+护布局与宿主身份、文件目标 / 焦点 / 关闭、拖动和双击接线。标题栏带的命中采样必须
+转换到父视图坐标，并先证明命中终端与文件拖动把手；局部坐标直接传 hitTest 会测到底部而假绿。
+文件双击要经生产窗口安装的 action / target 真正打开目录；仅判断不等于空 selector 既漏 nil，
+也发现不了 NSObject.perform 的重载选错。安装缺失与错误 selector 分别变异，独立焦点对照须绿。
+本脚本仍属手工证据，未计入上述 CI 20 份。
 `settings-ui` 护设置弹窗的数据面：配色两档的序列化（拼错整份配置就废）、
 `/etc/shells` 的解析、**快捷键表与真菜单的双向对拍**、**下拉控件的定宽**
 （U6：回到 `maxWidth` 就会随选中值伸缩，短值 93pt / 长值 190pt）、

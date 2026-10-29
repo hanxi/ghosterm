@@ -618,7 +618,8 @@ private struct ListDoubleClick: NSViewRepresentable {
     final class Coordinator: NSObject {
         var onRow: (Int) -> Void
         init(_ onRow: @escaping (Int) -> Void) { self.onRow = onRow }
-        @objc func perform(_ sender: NSTableView) { onRow(sender.clickedRow) }
+        // 避免与 NSObject.perform(_:) 重载冲突；#selector 可能解析为 performSelector:。
+        @objc func openClickedRow(_ sender: NSTableView) { onRow(sender.clickedRow) }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(onRow) }
@@ -631,7 +632,7 @@ private struct ListDoubleClick: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let table = Self.enclosingTable(of: nsView),
                   table.target !== context.coordinator else { return }
-            table.doubleAction = #selector(Coordinator.perform(_:))
+            table.doubleAction = #selector(Coordinator.openClickedRow(_:))
             table.target = context.coordinator
         }
     }

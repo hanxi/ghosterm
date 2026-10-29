@@ -96,6 +96,10 @@ CASES = [
      "guard let table = Self.enclosingTable(of: nsView), false,",
      "WorkspaceTests/testFilePaneSelectionSyncKeyboardAndDoubleClickChannel",
      "WorkspaceTests/testPureFileTabClaimsKeyboardWhenWindowIsFirstResponder"),
+    ("双击动作派发", UI + "FilesPanelView.swift",
+     "#selector(Coordinator.openClickedRow(_:))", "#selector(NSObject.perform(_:))",
+     "WorkspaceTests/testFilePaneSelectionSyncKeyboardAndDoubleClickChannel",
+     "WorkspaceTests/testPureFileTabClaimsKeyboardWhenWindowIsFirstResponder"),
     ("错误行偏移映射", UI + "FilesPanelView.swift",
      "let idx = clickedRow - (errorVisible ? 1 : 0)",
      "let idx = clickedRow",
@@ -136,16 +140,23 @@ def main():
     package = work / "apple/GhostermApp"
     env = dict(os.environ, TMPDIR=str(ROOT / "tmp") + "/")
 
-    def run(label, test):
+    def run(label, test, expected=True):
         log = work / (label + ".log")
         with log.open("w") as output:
-            result = subprocess.run(["swift", "test", "--package-path", str(package), "--filter", test],
-                                    env=env, stdout=output, stderr=subprocess.STDOUT, timeout=420)
+            result = subprocess.run([
+                "bash", "-c",
+                '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require workspace; shift; gt_timeout 420 "$@"',
+                "workspace", str(ROOT), "swift", "test", "--package-path", str(package), "--filter", test,
+            ], env=env, stdout=output, stderr=subprocess.STDOUT)
         text = log.read_text()
         # 编译失败、超时和零测试不能用作目标变红的证据。
         if "Executed " not in text:
+            print(text, flush=True)
             raise RuntimeError(f"未完成实际测试：{log}")
-        return result.returncode == 0
+        passed = result.returncode == 0
+        if passed != expected:
+            print(text, flush=True)
+        return passed
 
     if not run("baseline", "WorkspaceTests|FilesDragDropTests"):
         raise SystemExit(f"基线失败：{work}")
@@ -157,7 +168,7 @@ def main():
             raise RuntimeError(f"{name} 锚点不唯一：{old}")
         try:
             path.write_text(text.replace(old, new + " /* " + MARK + " */", 1))
-            if run(f"{index}-target", target):
+            if run(f"{index}-target", target, expected=False):
                 raise RuntimeError(f"{name} 目标假绿：{work}")
             if not run(f"{index}-control", control):
                 raise RuntimeError(f"{name} 对照也红：{work}")

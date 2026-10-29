@@ -290,3 +290,30 @@ AppKit 管理的窗格 backing layers 之前；仅断言 path 和矩形全部通
 覆盖真实 NSButton 点击、firstResponder、失焦通知与重新进入的保护。该证据只证明接线，
 系统激活和全屏仍须在可交互桌面单独验收。记录中不得把 `paneFocused` 或可控制的
 `isKeyWindow` 写成已经验证了系统激活。
+
+
+## 11. 命中采样须先转换到父视图坐标，并证明命中了目标
+
+`NSView.hitTest(_:)` 接收父视图坐标。工作区 `isFlipped == true`，窗口框架未翻转；
+把工作区顶部的局部 y 直接传入，会采到窗口底部。旧标题栏带测试因此在拖动把手的
+`mouseDownCanMoveWindow` 被故意改成 true 后仍然通过。
+
+`WorkspaceTests.testWorkspaceSubtreeRefusesWindowDragInTitleBarStrip` 先用
+`view.convert(point, to: view.superview)` 转换，再采样真实命中视图；同时要求命中的
+拖动把手分别属于终端与文件窗格，避免“没有命中对象”也让拒绝移窗断言通过。
+`mutation-check-workspace.py` 保留对应变异与独立拖动载荷对照。
+
+
+## 12. 双击动作须验派发，避免 NSObject.perform 的重载陷阱
+
+`NSTableView.doubleAction` 是可选值，`nil != NSSelectorFromString("")` 为真。
+旧断言只排除了一个空 selector，没有验证动作能否执行；禁用安装逻辑后仍假绿。
+改成非 nil 并经 `NSApp.sendAction` 派发后，又发现实际方法选择错误：
+`#selector(Coordinator.perform(_:))` 解析为 `performSelector:`，命中了继承的
+`NSObject.perform(_:)`。将 NSTableView 作为 sender 交给它会抛出未识别 selector 异常。
+
+处理函数改名 `openClickedRow(_:)`，避免重载冲突。SwiftUI 默认 action 也能返回派发成功，
+故最终测试通过生产窗口安装的 action / target 验证目录实际打开；用 NSTableView 子类只提供
+只读 clickedRow 的事件数据，不替换生产目标，也不把它称作物理双击证据。文件索引映射
+及选中绑定仍独立验证。工作区变异分别关闭动作安装、
+把 selector 改回 `NSObject.perform(_:)`，并各配独立文件焦点对照。

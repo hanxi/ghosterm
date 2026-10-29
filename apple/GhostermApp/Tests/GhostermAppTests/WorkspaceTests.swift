@@ -554,14 +554,24 @@ import XCTest
         // 贴近事实——SwiftUI/AppKit 内部视图返回什么无关紧要，只要它们
         // 不是带内的命中落点。带高按系统标题栏口径取 28pt，采三档深度。
         var offenders: [String] = []
+        var draggablePanes = Set<UUID>()
         for x in stride(from: 4.0, to: view.bounds.width - 4, by: 13.0) {
             for y in [3.0, 13.0, 25.0] {
-                guard let hit = view.hitTest(NSPoint(x: x, y: y)) else { continue }
+                // hitTest 接受父视图坐标。工作区翻转、窗口框架不翻转，
+                // 直接传局部 y 会测到底部，漏掉最上排的真实拖动把手。
+                let point = view.convert(NSPoint(x: x, y: y), to: view.superview)
+                guard let hit = view.hitTest(point) else { continue }
+                if hit is WorkspaceDragSourceView,
+                   let pane = view.hosts.first(where: { hit.isDescendant(of: $0.value) }) {
+                    draggablePanes.insert(pane.key)
+                }
                 if hit.mouseDownCanMoveWindow {
                     offenders.append("(\(Int(x)),\(Int(y)))→\(type(of: hit))")
                 }
             }
         }
+        XCTAssertEqual(draggablePanes, Set([terminal.id, file.id]),
+                       "前置条件：必须实际命中终端和文件标题中的拖动把手")
         XCTAssertTrue(offenders.isEmpty,
                       "系统标题栏带内这些落点仍会「拖动=移窗」（窗格拖动会被劫持成拖窗口）：\(offenders)")
     }
@@ -576,9 +586,9 @@ import XCTest
         let dir = workspaceTestTmp + "workspace-click-\(UUID())"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
-        for name in ["alpha.txt", "beta.txt"] {
-            try Data("x".utf8).write(to: URL(fileURLWithPath: dir + "/" + name))
-        }
+        let childDirectory = dir + "/alpha"
+        try FileManager.default.createDirectory(atPath: childDirectory, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: URL(fileURLWithPath: dir + "/beta.txt"))
         let model = isolatedAppModel(configPath: dir + "/config", knownHostsPath: dir + "/known_hosts")
         defer { model.tabs.removeAll() }
         let tab = TerminalTab(kind: .localFiles)
@@ -607,7 +617,7 @@ import XCTest
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
             pump()
         }
-        XCTAssertEqual(panel.visibleEntries.count, 2, "前置条件：两个文件都列出来了")
+        XCTAssertEqual(panel.visibleEntries.count, 2, "前置条件：两个条目都列出来了")
 
         let fileHost = try XCTUnwrap(view.hosts[file.id])
         func table(in v: NSView) -> NSTableView? {
@@ -638,9 +648,22 @@ import XCTest
                       "键盘必须留在列表上：NSTableView 是 firstResponder 才画活动色高亮，实际 \(String(describing: window.firstResponder))")
 
         // 双击打开走 AppKit 通道：doubleAction 必须已装到这张表上。
-        XCTAssertNotEqual(tableView.doubleAction, NSSelectorFromString(""),
-                          "文件列表必须装有双击通道（doubleAction 为空=ListDoubleClick 没钩上表）")
+        let doubleAction = try XCTUnwrap(tableView.doubleAction,
+                                        "文件列表必须装有双击通道（nil 不能当成空 selector 来比较）")
         XCTAssertNotNil(tableView.target, "doubleAction 的 target 必须已安装")
+        // List 自带的默认 action 也可能非 nil；必须验证生产窗口安装的目标
+        // 真正执行“打开目录”。只提供只读 clickedRow 的事件数据，不替换目标。
+        final class ClickedRowTable: NSTableView {
+            override var clickedRow: Int { 0 }
+        }
+        XCTAssertEqual(panel.visibleEntries.first?.path, childDirectory)
+        XCTAssertTrue(NSApp.sendAction(doubleAction, to: tableView.target, from: ClickedRowTable()),
+                      "已安装的双击动作必须能由 AppKit 派发到目标")
+        let openedDeadline = Date().addingTimeInterval(3)
+        while panel.currentPath != childDirectory && Date() < openedDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        }
+        XCTAssertEqual(panel.currentPath, childDirectory, "文件双击必须实际打开被点击行的目录")
 
         // clickedRow→visibleEntries 映射：错误行占第 0 行时整体后移一位。
         XCTAssertEqual(FilesPanelView.entryIndex(clickedRow: 0, errorVisible: false, count: 2), 0)
