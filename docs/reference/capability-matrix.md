@@ -19,7 +19,7 @@
 | `ssh_config` 求值（typed） | ✅ | `gt_config_resolve`：user/hostname/port/forwardagent/compression/serveraliveinterval/identityfile/proxyjump/setenv/localforward |
 | `ssh_config` 求值（通用视图 = `ssh -G`） | ✅ | `gt_config_effective`：**42 键 × 6 host = 252 项**全表语义对拍（布尔归一化）；支持集双向校验 |
 | 默认 IdentityFile 候选链 | ✅ | `gt_identity_policy_t` 五档（9_6=7 / 10_3=5 / MASTER=6 / NONE / CUSTOM），每条链注明出处；回落机制有断言 |
-| `ssh_config` **编辑** API（改值后无损写回） | ✅ | `gt_config_edit`：`sshconfig_writeback` 9 用例逐字节对拍（`fixtures/writeback.json`）+ `=` 分隔符保留补充断言；B1~B6 变异有牙 |
+| `ssh_config` **编辑** API（改值后无损写回） | 🟡 | `gt_config_edit`：`sshconfig_writeback` 9 用例逐字节对拍（`fixtures/writeback.json`）+ `=` 分隔符保留补充断言；B1~B6 变异有牙。A1 设备用例发现非连续重复指令会误删中间无关行；Android `ConfigRepository` 在保存前拒绝此类改动（C9 变异验证），Core 与 Apple 尚待修复 |
 | `Include` 展开 / glob | ✅ | `process_include`：相对路径基准 = **~/.ssh**（OpenSSH_10.3p1 实测 + 真 ssh `-G` 同口径对拍）、`~`/`~user`、glob 无匹配静默 / 具名缺失显式失败 / 嵌套 + 深度上限 16；被含内容不进写回（铁律 #4）；`test_config` 6 组断言 + 变异 I1~I4 有牙 |
 | 事件队列（低频、批量、非阻塞） | ✅ | `src/core.c` 环形缓冲 + 锁；`test_api`；SFTP job（PROGRESS ~16ms 合帧 / JOB_DONE 三态）经此上报 |
 | Transport 接缝（本地 PTY） | ✅ | `gt_transport_open_pty`（POSIX forkpty）；`pty_transport` 行为断言（真 forkpty，离线）：EOF 前不丢最后一批 / 退出码 / 字节往返 / 超时不折叠 EOF / winsize / resize / TERM / close(NULL) 安全 / 前台作业四态 / 内核 cwd / **写绝不无限等**（第 13 节：pty 输入队列满时写要有界返回且积压字节随后补送——旧实现的 `poll(-1)` 会钉死会话线程 → 关标签页时 `queue.sync` 把主线程也钉死＝整个 app 无响应）；变异 `mutation-check-transport` P1~P4 有牙。**Swift 端** `StopBoundedTests` 断言 `SessionController.stop()` 只取消且有界返回，并等待弱引用证明 I/O owner 真正释放（当前 stop 不再同步等待队列）（走生产链路 `sendText → onInput → 会话线程 write`，子进程 `stty -icanon -echo` 才会真触发 EAGAIN 而非 canonical 丢弃），对 P4 验过牙（变异体挂起超时 / 干净 0.7s 绿） |
@@ -77,11 +77,11 @@
 | 端 | UI | SSH | SFTP | 本地 shell | ssh_config GUI |
 |---|---|---|---|---|---|
 | macOS | 🟡 | ✅ | 🟡 | ✅ | 🟡 |
-| Android | 🟡 A0 Compose 空壳 | ❌ | ❌ | ❌ | ❌ |
+| Android | 🟡 A1 主机/配置页面 | ❌ | ❌ | ❌ | 🟡 |
 | iOS | ❌ | ❌ | ❌ | ❌ | ❌ |
 | HarmonyOS / Windows / Linux / Web | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-Android UI 的 🟡 仅指 A0 首页/设置壳与版本显示已在 API 36 arm64 模拟器运行；主机管理、终端、文件和完整设置仍待实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[实施记录](android-implementation.md#91-a0-实施记录2026-10-29)区分已验证与待办。
+Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、冲突检查与原子替换。A1 继承/别名归属和 SAF UI 仍待补齐，终端、文件和完整设置未实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[实施记录](android-implementation.md#91-a0-实施记录2026-10-29)区分已验证与待办。
 
 ### macOS 当前实现与限制
 

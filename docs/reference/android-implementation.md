@@ -1,9 +1,9 @@
 # Android 最终方案实现计划
 
-日期：2026-10-29。状态：**设计已定，A0 构建基础已完成；A1–A8/A10 尚未交付**。页面与操作基准为唯一的
+日期：2026-10-29。状态：**设计已定，A0 完成，A1 主机与配置首片已实现；完整客户端仍在开发**。页面与操作基准为唯一的
 [Android HTML 原型](../design/android-prototype.html)。本文定义原生实现的模块、状态、数据边界、实施依赖与验收；HTML 的模拟主机、文件、键盘和进度不构成 Android 能力证据。
 
-仓库约束以 [AGENTS.md](../../AGENTS.md) 为准；跨端进度见[路线图](roadmap.md)，已实现范围见[能力矩阵](capability-matrix.md)。下文 A0 已落盘并有模拟器证据；其他模块、数据类型与行为仍为拟实现，不能从设计表推断功能已经可用。
+仓库约束以 [AGENTS.md](../../AGENTS.md) 为准；跨端进度见[路线图](roadmap.md)，已实现范围见[能力矩阵](capability-matrix.md)。A0 与 §9.2 所列 A1 首片已有代码和模拟器证据；其余行为仍为拟实现，不能从设计表推断功能已经可用。
 
 ## 1. 交付范围与当前基础
 
@@ -11,7 +11,7 @@
 
 | 能力 | 当前代码与证据 | Android 需要补齐 |
 |---|---|---|
-| 宿主 | Compose/Gradle 宿主、Core JNI 与 debug APK；首页仅构建空态 | 主机/会话生命周期、导航、存储与产品页面 |
+| 宿主 | Compose 主机列表/搜索/添加/编辑、配置页与导入入口；debug APK | A1 细节补齐、会话生命周期、终端/文件与完整设置 |
 | 终端 | `terminal/android` 已有 VT 交叉构建与 JNI 装载；vendor pin 为 `81598385d608dda4946093d6d6a234d204a2f225` | 真实 surface、渲染、输入法、字体与宽字符 |
 | Transport | `core/include/ghosterm/transport.h`；POSIX PTY 与 SSH shell 已有桌面证据 | NDK/Bionic 编译与真机 PTY、线程、退出和尺寸验证 |
 | SSH 认证 | `ssh_auth.h` 有可取消、分步认证；Apple 已统一接线 | DNS、主机密钥确认、Keystore、请求归属和取消 |
@@ -43,7 +43,7 @@ Apple 的 `SessionController`、`SSHAuthenticationFlow`、`FilesPanelModel`、`T
 
 ## 3. 模块与线程设计
 
-模块目录（app/bridge/terminal 已建，domain/data 在后续阶段建立）：
+模块目录（app/bridge/terminal/domain/data 已建）：
 
 ```text
 android/
@@ -226,7 +226,7 @@ tmux 在 A8 接入，共享 `gt_tmux_*` 管理与普通 transport attach；用�
 | 切片 | 依赖 | 可审阅交付与退出条件 | 状态 |
 |---|---|---|---|
 | A0 工程与构建 | 无 | 原生空壳 APK；锁工具链/ABI/API；隔离 NDK sysroot 与宿主库；设备加载 core/vt；JNI 引用集合纳入 ABI 检查 | 已完成：API 36 arm64 模拟器，见 §9.1 |
-| A1 导航与主机 | A0 | 首页/设置/页面返回；配置读取、搜索、增改、备份失败阻断、冲突拒绝、原子提交；假数据只在调试 fixture | 未开始 |
+| A1 导航与主机 | A0 | 首页/设置/页面返回；配置读取、搜索、增改、备份失败阻断、冲突拒绝、原子提交；假数据只在调试 fixture | 进行中：主机与配置首片见 §9.2 |
 | A2 本地终端 | A0 | `/system/bin/sh` 真 PTY→VT→像素；IME/辅助键/resize/暂停绘制/有界关闭；确认 renderer 方案 | 未开始 |
 | A3 SSH 与身份 | A1、A2 | DNS→hostkey→凭据→shell；Keystore 安全容器；取消归属、超时、失效身份、两会话隔离；真 sshd | 未开始 |
 | A4 文件浏览 | A3 | 本机私有目录/SAF/远端；真实预览与路径；点按/长按、多选；位置 generation；独立 SFTP owner | 未开始 |
@@ -250,6 +250,17 @@ A1 的视觉壳可与 A2 的底层实现解耦，但不能用演示终端代替 
 - **未验证**：真实手机、API 29、16 KB 页运行、x86_64、终端绘制/输入/PTY/SSH、后台与性能。没有 Android workflow；A10 仍未完成。
 
 可复现命令、SDK 准备与 APK 路径见 [Android README](../../android/README.md)。首片 `probeCursor` 只做 ABI 冒烟，A2 输出必须留在 native transport→VT，不得复用成 Kotlin 字节搬运通道。
+
+### 9.2 A1 主机与配置首片（2026-10-29）
+
+- 新增 `:domain` / `:data`，原生主机首页从真实私有 `home/.ssh/config` 派生；搜索名称/地址、添加与稀疏编辑、SSH 配置文本编辑、设置/关于导航及未保存返回确认已接入。没有生产假主机；终端连接入口暂显示功能尚未接入，不伪造会话。
+- 配置/用户名/端口求值均经 Core；JNI 只传 UTF-8 bytes，不输出裸指针。绑定当前 9 项，62 项登记待办。普通主机排除通配/否定规则，缺省远端用户名保留空，不使用 Android UID 名称。
+- 未改字段不写回；保留未知指令、注释与其他块。现有 Core 对非连续重复指令的编辑可能破坏中间行，因此保存前校验非目标行保持原文；复杂块拒绝表单写回，配置页仍可完整编辑。该保护不代表 Core 问题已经修复。
+- 写盘采用进程锁 + 文件锁、文件身份与 SHA256 复核、强制独占备份/同步、同目录独占暂存/同步、提交前再次检查与 `ATOMIC_MOVE` 替换。备份或替换失败保留原文件；替换后目录同步失败明确报告“已替换但同步失败”，不谎称原文未改。
+- `HOME` 仅在 Android 应用进程内设置为私有 home；相对 Include 和 `~/.ssh` 仍走 Core 原有语义。配置缺失显示空态，目录/读取/无效 UTF-8/不可访问 Include 显示错误。
+- 系统文档选择器读取最多 1 MiB 的配置，确认后备份并替换私有副本，不写回外部 provider。已有测试验证存储与 Include；完整 SAF 选择器驱动与取消场景仍待补齐。
+- API 36 arm64 模拟器：完整设备套件 17 项通过（13 项配置事务/解析、1 项 Compose 页面流、3 项 A0 JNI），配置/页面变异 11 组目标红、同 APK 独立对照绿、恢复绿且源码 SHA256 一致。Core 32 项、C/Apple/JNI ABI 与 JNI 对拍变异通过。
+- **A1 未完成项**：表单明确区分块内显式值与继承值、别名重命名/多别名及 Include 块的编辑归属、SAF 导入 UI 验收、配置错误状态的完整页面验证；身份选择依赖 A3。当前不可勾整个 A1。
 
 ## 10. 验收与变异清单
 

@@ -6,5 +6,5 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "Ghosterm"
-include(":app", ":bridge", ":terminal")
+include(":app", ":bridge", ":terminal", ":domain", ":data")
 project(":terminal").projectDir = file("../terminal/android")

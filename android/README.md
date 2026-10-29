@@ -1,6 +1,6 @@
 # Android 宿主
 
-状态（2026-10-29）：**A0 原生工程与构建基础已实现**。Compose 宿主、Core JNI、VT JNI、arm64 debug APK 和设备冒烟测试已有代码；当前首页为构建验证空态，设置页显示真实组件版本。**主机管理、交互终端、SSH/SFTP、文件与完整设置尚未接入**，没有 Android CI。
+状态（2026-10-29）：**A0 完成，A1 主机与配置首片已实现**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有配置导入与关于入口。**交互终端、SSH/SFTP、文件与完整设置尚未接入**，没有 Android CI。A1 的继承值展示、别名/多别名编辑归属与 SAF UI 验收仍待补齐。
 
 - [最终交互原型](../docs/design/android-prototype.html)：主机首页、终端、文件与完整设置，单一 HTML。
 - [详细实现计划](../docs/reference/android-implementation.md)：模块/线程、配置与认证、输入法、复制、设置默认值、A0–A10 与验收。
@@ -38,12 +38,13 @@ bash scripts/build-android.sh :app:connectedDebugAndroidTest
 python3 scripts/check-abi-android.py
 python3 scripts/mutation-check-android-abi.py
 python3 scripts/mutation-check-android-native.py
+python3 scripts/mutation-check-android-config.py
 bash scripts/gate.sh
 ```
 
-JNI ABI 当前引用 4 项、其余 67 项在 `bridge/deferred-abi.json` 按阶段登记；不能把未绑定能力称为已实现。变异脚本会在指定设备重新安装 debug APK，仅用于测试设备。原生变异分别破坏 UTF-8 配置往返、NUL 拒绝与 VT feed，目标断言红、同一 APK 独立对照绿、恢复后绿并校验源码 SHA256；中断会恢复带标记的源码。
+JNI ABI 当前引用 9 项、其余 62 项在 `bridge/deferred-abi.json` 按阶段登记；不能把未绑定能力称为已实现。变异脚本会在指定设备重新安装 debug APK，仅用于测试设备。原生变异分别破坏 UTF-8 配置往返、NUL 拒绝与 VT feed，目标断言红、同一 APK 独立对照绿、恢复后绿并校验源码 SHA256；中断会恢复带标记的源码。
 
-本轮证据：API 36 / arm64 / 4 KB 页模拟器，3 项设备测试、3 组 JNI 变异、3 组 ABI 对拍变异通过；首页与关于内容可启动。真机、API 29、16 KB 页运行、性能与完整 UI 验收留在后续阶段，不将 ELF 对齐等同于设备验证。
+A0 证据：API 36 / arm64 / 4 KB 页模拟器，3 项设备测试、3 组 JNI 变异、3 组 ABI 对拍变异通过。A1 新增真实配置事务与页面用例，当前设备套件共 17 项通过；11 组配置/页面变异均目标红、同 APK 独立对照绿、恢复绿且源码 SHA256 一致。真机、API 29、16 KB 页运行、性能与完整 UI 验收留在后续阶段，不将 ELF 对齐等同于设备验证。
 
 ## 边界
 

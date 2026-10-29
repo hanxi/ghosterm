@@ -20,7 +20,7 @@ set_target_properties(android_ssh2 PROPERTIES
 set(GHOSTERM_SSH2_TARGET android_ssh2 CACHE STRING "Android SSH library" FORCE)
 set(GHOSTERM_BUILD_TESTS OFF CACHE BOOL "No host probes in APK" FORCE)
 add_subdirectory("${GHOSTERM_ROOT}/core" core)
-add_library(ghosterm_android SHARED core_jni.c)
+add_library(ghosterm_android SHARED core_jni.c config_jni.c)
 target_include_directories(ghosterm_android PRIVATE "${GHOSTERM_ROOT}/core/include")
 target_compile_options(ghosterm_android PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ghosterm_android PRIVATE ghosterm_core)

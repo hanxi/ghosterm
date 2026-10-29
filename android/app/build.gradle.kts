@@ -23,6 +23,8 @@ android {
 }
 dependencies {
     implementation(project(":bridge"))
+    implementation(project(":data"))
+    implementation(project(":domain"))
     implementation(project(":terminal"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -31,4 +33,7 @@ dependencies {
     implementation(libs.lifecycle.viewmodel.compose)
     androidTestImplementation(libs.android.test.junit)
     androidTestImplementation(libs.android.test.runner)
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
