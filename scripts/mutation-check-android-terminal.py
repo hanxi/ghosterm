@@ -83,6 +83,12 @@ def main():
         (screen, 'navigationIcon = { TextButton(onClick = back, modifier = Modifier.testTag("terminal-back"))',
          'navigationIcon = { TextButton(onClick = model::home, modifier = Modifier.testTag("terminal-back"))',
          life + 'newTerminalReceivesPhysicalKeysAndTopBackHidesImeBeforeLeaving'),
+        (view, 'currentFrame?.cursorBlink == true || currentFrame?.hasBlinkingText == true',
+         'currentFrame?.cursorBlink == true', ui + 'blinkingTextRepaintsWithoutCursorOrNewOutput'),
+        (view, '(cell.flags and 128 != 0 && !blink)',
+         'false', ui + 'blinkingTextRepaintsWithoutCursorOrNewOutput'),
+        (surface, 'style.blink << 7',
+         '0 << 7', ui + 'blinkingTextRepaintsWithoutCursorOrNewOutput'),
     ]
     selected = args.selected or list(range(1, len(cases) + 1))
     if any(n < 1 or n > len(cases) for n in selected): raise RuntimeError('case out of range')

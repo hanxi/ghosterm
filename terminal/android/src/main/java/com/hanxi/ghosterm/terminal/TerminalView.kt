@@ -116,7 +116,10 @@ class TerminalView(context: Context) : View(context) {
                 }
             }
             val next = SystemClock.uptimeMillis() % 1000 < 500
-            if (next != blink) { blink = next; if (currentFrame?.cursorBlink == true) invalidate() }
+            if (next != blink) {
+                blink = next
+                if (currentFrame?.cursorBlink == true || currentFrame?.hasBlinkingText == true) invalidate()
+            }
             postDelayed(this, 32)
         }
     }

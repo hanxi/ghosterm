@@ -19,6 +19,8 @@ surface.resize(cols, rows)    ← 网格尺寸变化（要同时通知 transport
 
 **铁律**：surface **不得**知道背后是 SSH 还是本地 shell（铁律 #1）。
 
+静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。最新完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
+
 Android 当前证据来自 API 36 arm64、4 KB 页模拟器，只覆盖当前本地交互终端切片，不代表真机、SSH 或完整 A2 验收；见 [Android 引擎说明](android/README.md)与[实现阶段](../docs/reference/android-implementation.md)。
 
 修饰键、数字键盘与组合音符扩展已通过完整 99 项设备测试及 24 组选组变异，详见实现计划 §9.18；实际物理设备、更多布局与性能仍未完成，A2 保持部分完成。

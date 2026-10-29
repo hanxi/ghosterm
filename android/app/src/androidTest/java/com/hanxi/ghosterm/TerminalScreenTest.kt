@@ -108,6 +108,55 @@ class TerminalScreenTest {
         }
     }
 
+    @Test fun blinkingTextRepaintsWithoutCursorOrNewOutput() {
+        send("printf '\\033[0m\\033[40;97m\\033[2J\\033[H\\033[?25l\\033[2 q\\033[5mFLASH\\033[0m\\033[40;97m\\r\\nSTEADY'\r")
+        waitFor("STEADY")
+        ui.runOnIdle {
+            val frame = terminal().currentFrame!!
+            assertFalse(frame.cursorVisible)
+            assertFalse(frame.cursorBlink)
+            assertTrue(frame.cells[0].flags and 128 != 0)
+        }
+        // Copy the actual window buffer: calling View.draw ourselves would hide
+        // a missing invalidation and make a non-animating terminal pass.
+        val samples = mutableListOf<Pair<Int, Int>>()
+        repeat(24) {
+            var image: Bitmap? = null
+            var rowHeight = 0
+            var status = -1
+            val ready = java.util.concurrent.CountDownLatch(1)
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                val view = terminal()
+                val frame = view.currentFrame!!
+                val position = IntArray(2); view.getLocationInWindow(position)
+                rowHeight = view.height / frame.rows
+                val width = (view.width / frame.cols) * 7
+                val region = android.graphics.Rect(position[0], position[1], position[0] + width, position[1] + rowHeight * 2)
+                image = Bitmap.createBitmap(width, rowHeight * 2, Bitmap.Config.ARGB_8888)
+                android.view.PixelCopy.request(ui.activity.window, region, image!!, { result ->
+                    status = result; ready.countDown()
+                }, android.os.Handler(android.os.Looper.getMainLooper()))
+            }
+            assertTrue("window capture timed out", ready.await(3, java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(android.view.PixelCopy.SUCCESS, status)
+            val bitmap = image!!
+            fun white(row: Int): Int {
+                var count = 0
+                for (y in row * rowHeight until (row + 1) * rowHeight) for (x in 0 until bitmap.width) {
+                    val c = bitmap.getPixel(x, y)
+                    if (Color.red(c) > 180 && Color.green(c) > 180 && Color.blue(c) > 180) count++
+                }
+                return count
+            }
+            samples += white(0) to white(1)
+            bitmap.recycle()
+            android.os.SystemClock.sleep(80)
+        }
+        assertTrue("blinking text never appeared: $samples", samples.maxOf { it.first } > 20)
+        assertTrue("blinking text never disappeared: $samples", samples.minOf { it.first } < 5)
+        assertTrue("ordinary text must stay visible: $samples", samples.minOf { it.second } > 20)
+    }
+
     @Test fun canvasPaintingIsClippedToTerminalBounds() {
         send("stty -echo; printf '\\033[41m\\033[2J\\033[HCLIP_READY'\r")
         waitFor("CLIP_READY")

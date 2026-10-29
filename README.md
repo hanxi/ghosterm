@@ -130,6 +130,8 @@ Android 已补齐三字段显式覆盖/恢复继承、主机别名重命名及�
 | Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；完整软硬键盘矩阵/性能待补，SSH/文件仍待接入 |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
+静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。最新完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
+
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。
 
 Android 修饰键、数字键盘与组合音符切片已通过完整 **99 项设备测试**及 **24 组选组变异**，详见[§9.18](docs/reference/android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。A2 仍缺完整物理设备/布局矩阵和性能基线，不因本片通过而标为完成。

@@ -16,6 +16,8 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 修饰键、数字键盘与组合音符扩展已完成本片验收：完整 **99 项设备测试，0 失败/错误/跳过**；文本变异选跑 **24 组**通过，含新增 16 组与旧八组，见[§9.18](../docs/reference/android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。脚本总量 71 组不是本轮全量重跑；证据仍限 API 36 arm64 / 4 KB 页模拟器。
 
+静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。最新完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
+
 ## 构建
 
 锁定 JDK 17、Gradle 8.13（wrapper 验 SHA256）、AGP 8.13.2、Kotlin 2.2.21、Compose BOM 2025.10.01、NDK 28.2.13676358、CMake 3.22.1、Zig 0.16.0。compile/target API 36，min API 29，当前只构建 arm64-v8a。API 29 是声明下限，尚无该版本运行证据。

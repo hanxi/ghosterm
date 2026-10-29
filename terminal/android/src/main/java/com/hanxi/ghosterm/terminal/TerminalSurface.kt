@@ -32,6 +32,7 @@ data class TerminalFrame(
     val cursorX: Int, val cursorY: Int, val cursorVisible: Boolean, val cursorBlink: Boolean,
     val cursorStyle: Int, val cells: List<TerminalCell>,
 ) {
+    val hasBlinkingText: Boolean = cells.any { it.width != 0 && it.flags and 128 != 0 && it.flags and 8 == 0 }
     fun line(row: Int): String = cells.subList(row * cols, (row + 1) * cols)
         .joinToString("") { if (it.width == 0) "" else it.text.ifEmpty { " " } }.trimEnd()
 
