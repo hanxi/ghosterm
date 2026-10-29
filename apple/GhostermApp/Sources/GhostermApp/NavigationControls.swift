@@ -8,8 +8,12 @@ struct NewConnectionButton: NSViewRepresentable {
     var tint: NSColor = .labelColor
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: "新建连接")!,
-                              target: context.coordinator, action: #selector(Coordinator.open(_:)))
+        let button = NSButton(frame: .zero)
+        button.cell = ChromeNewConnectionCell(textCell: "")
+        button.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "新建连接")!
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.open(_:))
+        button.setButtonType(.momentaryPushIn)
         button.isBordered = false
         button.contentTintColor = tint
         button.title = showsTitle ? "新建标签页" : ""
@@ -23,6 +27,8 @@ struct NewConnectionButton: NSViewRepresentable {
     }
     func updateNSView(_ button: NSButton, context: Context) {
         button.contentTintColor = tint
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [tint]))
         button.attributedTitle = NSAttributedString(string: showsTitle ? "新建标签页" : "",
                                                     attributes: [.foregroundColor: tint, .font: NSFont.systemFont(ofSize: 13)])
     }
@@ -30,6 +36,18 @@ struct NewConnectionButton: NSViewRepresentable {
         @objc func open(_ sender: Any?) {
             NotificationCenter.default.post(name: .ghostermNewConnection, object: nil)
         }
+    }
+}
+
+/// 侧栏中的原生无边框按钮会重着色文字；按终端前景色绘制，保留原生按钮的命中和键盘行为。
+private final class ChromeNewConnectionCell: NSButtonCell {
+    override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
+        let height = attributedTitle.size().height
+        let rect = NSRect(x: frame.minX, y: frame.midY - height / 2, width: frame.width, height: height)
+        NSGraphicsContext.saveGraphicsState()
+        attributedTitle.draw(in: rect)
+        NSGraphicsContext.restoreGraphicsState()
+        return rect
     }
 }
 

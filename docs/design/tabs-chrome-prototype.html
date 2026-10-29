@@ -39,11 +39,12 @@
 <body>
 <main class="page">
  <header class="masthead"><strong>Ghosterm × Tern</strong><span>实际界面对照 · 2026-10-29</span></header>
- <section class="intro"><div><div class="eyebrow">NATIVE / GHOSTERM</div><h1>看真实界面，再比较布局。</h1><p>本轮统一配色：侧栏、顶栏与窗格标题跟随终端背景，去掉整圈描边，只用短线标示当前窗格。<br>截图来自 macOS 26.6.2 原生窗口与真实终端渲染；桌面锁屏时离屏抓取，可切换深浅色及现有间距设置审核，不新增风格开关。</p></div><a class="reference-jump" href="#tern-reference">对照 Tern ↓</a></section>
+ <section class="intro"><div><div class="eyebrow">NATIVE / GHOSTERM</div><h1>看真实界面，再比较布局。</h1><p>当前窗格用贯穿顶部的蓝线标记；有间距时恢复淡蓝外框，其余窗格使用中性细框。<br>加入左右分屏、上下分屏、终端与文件混排，共 32 张截图。侧栏、顶栏与窗格标题继续统一底色。<br>截图来自 macOS 26.6.2 原生窗口与真实终端渲染；桌面锁屏时离屏抓取，可切换深浅色及现有间距设置审核，不新增风格开关。</p></div><a class="reference-jump" href="#tern-reference">对照 Tern ↓</a></section>
  <p style="margin:0 0 24px;font-size:13px"><a href="chrome-visual-options.html">回看设计探索：A / B / C 示意（非当前实现） →</a></p>
  <section id="app" class="native-section" aria-label="Ghosterm 真实运行截图">
-  <div class="reference-controls"><div class="reference-choices" role="group" aria-label="选择 Ghosterm 标签布局"><button class="reference-choice" data-native="sidebar" aria-pressed="true" aria-controls="native-image">侧边标签</button><button class="reference-choice" data-native="top" aria-pressed="false" aria-controls="native-image">顶部标签</button></div><label class="reference-full-label"><input id="native-dark" type="checkbox" aria-controls="native-image">深色终端</label><label class="reference-full-label"><input id="native-gap" type="checkbox" aria-controls="native-image">窗格间距：标准（10 pt）</label></div>
-  <figure class="reference-figure"><a id="native-frame" class="native-frame" href="tab-chrome-native/review-sidebar-light.png" target="_blank" rel="noopener noreferrer" aria-label="打开 Ghosterm 原生窗口原图"><img id="native-image" src="tab-chrome-native/review-sidebar-light.png" width="1080" height="675" alt="Ghosterm 本轮侧边标签原生窗口离屏截图"></a><figcaption class="reference-meta"><p id="native-caption" aria-live="polite">侧边标签 · 浅色 · 新建入口位于标签末尾</p><span><a id="native-original" href="tab-chrome-native/review-sidebar-light.png" target="_blank" rel="noopener noreferrer">打开原图 ↗</a> · <a href="tab-chrome-native/layout-review.json" target="_blank" rel="noopener noreferrer">截图记录 ↗</a></span></figcaption></figure>
+  <div class="reference-controls"><div class="reference-choices" role="group" aria-label="选择 Ghosterm 标签布局"><button class="reference-choice" data-native="sidebar" aria-pressed="true" aria-controls="native-image">侧边标签</button><button class="reference-choice" data-native="top" aria-pressed="false" aria-controls="native-image">顶部标签</button></div><label class="reference-full-label"><input id="native-dark" type="checkbox" aria-controls="native-image">深色终端</label><label class="reference-full-label"><input id="native-gap" type="checkbox" checked aria-controls="native-image">窗格间距：标准（10 pt）</label></div>
+  <div class="reference-controls"><div class="reference-choices" role="group" aria-label="选择窗格场景"><button class="reference-choice" data-scene="horizontal" aria-pressed="false" aria-controls="native-image">左右分屏</button><button class="reference-choice" data-scene="vertical" aria-pressed="false" aria-controls="native-image">上下分屏</button><button class="reference-choice" data-scene="mixed-terminal" aria-pressed="true" aria-controls="native-image">混排 · 终端聚焦</button><button class="reference-choice" data-scene="mixed-files" aria-pressed="false" aria-controls="native-image">混排 · 文件聚焦</button></div></div>
+  <figure class="reference-figure"><a id="native-frame" class="native-frame" href="tab-chrome-native/edge-mixed-terminal-sidebar-light-gap10.png" target="_blank" rel="noopener noreferrer" aria-label="打开 Ghosterm 原生窗口原图"><img id="native-image" src="tab-chrome-native/edge-mixed-terminal-sidebar-light-gap10.png" width="1080" height="675" alt="Ghosterm 本轮侧边标签原生窗口离屏截图"></a><figcaption class="reference-meta"><p id="native-caption" aria-live="polite">侧边标签 · 浅色 · 新建入口位于标签末尾</p><span><a id="native-original" href="tab-chrome-native/edge-mixed-terminal-sidebar-light-gap10.png" target="_blank" rel="noopener noreferrer">打开原图 ↗</a> · <a href="tab-chrome-native/layout-review.json" target="_blank" rel="noopener noreferrer">截图记录 ↗</a></span></figcaption></figure>
  </section>
  <section id="tern-reference" class="tern-reference" aria-labelledby="tern-reference-title">
   <div class="reference-head"><div><div class="eyebrow">REFERENCE / TERN</div><h2 id="tern-reference-title">Tern，放在一起对照。</h2><p>官网演示 · 2× 高清截图。四种布局均使用 titanium 主题；默认显示窗口区域，可展开完整截图或点图查看原图。</p></div><a class="reference-jump" href="#app">返回 Ghosterm 新样式 ↑</a></div>
@@ -61,22 +62,25 @@
 </main>
 <script>
 (() => {
- let mode='sidebar';
+ let mode='sidebar',scene='mixed-terminal';
+ const scenes={horizontal:'左右分屏',vertical:'上下分屏','mixed-terminal':'混排 · 下方终端聚焦','mixed-files':'混排 · 文件窗格聚焦'};
  const names={sidebar:'侧边标签',top:'顶部标签'};
  function renderNative(){
   const dark=document.getElementById('native-dark').checked;
   const gap=document.getElementById('native-gap').checked;
-  const src='tab-chrome-native/review-'+mode+'-'+(dark?'dark':'light')+(gap?'-gap10':'')+'.png';
+  const src='tab-chrome-native/edge-'+scene+'-'+mode+'-'+(dark?'dark':'light')+'-gap'+(gap?'10':'0')+'.png';
   const img=document.getElementById('native-image'),frame=document.getElementById('native-frame');
-  img.src=src;img.alt='Ghosterm '+names[mode]+(dark?'深色':'浅色')+'本轮原生窗口截图';
+  img.src=src;img.alt='Ghosterm '+scenes[scene]+' '+names[mode]+(dark?'深色':'浅色')+'本轮原生窗口截图';
   frame.href=src;
   document.getElementById('native-original').href=src;
-  document.getElementById('native-caption').textContent=names[mode]+' · '+(dark?'深色':'浅色')+' · '+(gap?'标准间距 10 pt':'无间距')+' · '+(mode==='top'?'加号固定最右端':'新建入口位于标签末尾');
+  document.getElementById('native-caption').textContent=scenes[scene]+' · '+names[mode]+' · '+(dark?'深色':'浅色')+' · '+(gap?'标准间距 10 pt':'无间距')+' · '+(mode==='top'?'加号固定最右端':'新建入口位于标签末尾');
   document.querySelectorAll('[data-native]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.native===mode)));
  }
  document.querySelectorAll('[data-native]').forEach(button=>button.addEventListener('click',()=>{mode=button.dataset.native;renderNative()}));
+ document.querySelectorAll('[data-scene]').forEach(button=>button.addEventListener('click',()=>{scene=button.dataset.scene;document.querySelectorAll('[data-scene]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));renderNative()}));
  document.getElementById('native-dark').addEventListener('change',renderNative);
  document.getElementById('native-gap').addEventListener('change',renderNative);
+ renderNative();
 })();
 // 两组截图独立切换。
 (() => {

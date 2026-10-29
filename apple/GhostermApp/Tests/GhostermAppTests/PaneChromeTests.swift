@@ -248,7 +248,7 @@ final class PaneChromeTests: XCTestCase {
     // MARK: - 2. 标题栏
 
     /// 开了标题栏，每格顶上那条带里应有内容（状态点 + 进程名/目录 + 按钮）；
-    /// 关了就一个像素都不画。
+    /// 关闭后标题内容消失，窗格顶部的焦点线仍保留。
     ///
     /// 指向性：终端区中下部两次渲染的控件像素都应为 0——开关只影响顶上那条带。
     @MainActor
@@ -257,7 +257,7 @@ final class PaneChromeTests: XCTestCase {
         let (off, _) = try renderSplit(gap: 0, titleBar: false)
 
         // 终端区从顶栏（+ 分隔线）下面开始；标题栏就是它最上面 26 点。
-        let top = Int((WindowChrome.barHeight + 1) * scale)
+        let top = Int((WindowChrome.barHeight + 1 + 3) * scale)
         let bottom = Int((WindowChrome.barHeight + 1 + PaneTitleBar.height) * scale)
         let x0 = Int(8 * scale), x1 = Int((Self.size.width / 2 - 8) * scale)
         let painted = on.controlPixels(x0: x0, x1: x1, y0: top, y1: bottom)
@@ -317,37 +317,37 @@ final class PaneChromeTests: XCTestCase {
                       size: Self.size)
     }
 
-    /// 两格标题栏各自的横带（像素坐标，自上而下）。
+    /// 两格顶边各自的横带（像素坐标，自上而下）。
     private func titleBands(_ scale: Double) -> (y0: Int, y1: Int,
                                                  left: (Int, Int), right: (Int, Int)) {
         let gap = CGFloat(PaneGap.standard)
-        let centerY = WindowChrome.barHeight + 1 + gap + PaneTitleBar.height / 2
+        let centerY = WindowChrome.barHeight + 1 + gap + 1
         let y0 = Int((centerY - 1) * scale), y1 = Int((centerY + 1) * scale)
         let half = Self.size.width / 2
         return (y0, y1,
-                (Int((gap + 9) * scale), Int((gap + 23) * scale)),
-                (Int((half + gap / 2 + 9) * scale), Int((half + gap / 2 + 23) * scale)))
+                (Int((gap + 30) * scale), Int((Self.size.width / 2 - gap - 30) * scale)),
+                (Int((half + gap / 2 + 30) * scale), Int((Self.size.width - gap - 30) * scale)))
     }
 
-    // 标记只占标题前 16×2pt，深浅主题都应可见，未聚焦和单格不画。
+    // 蓝线覆盖窗格顶边，深浅主题均可见，未聚焦和单格不画。
     @MainActor
-    func testFocusedPaneTitleBarHasShortMarker() throws {
+    func testFocusedPaneHasTopEdge() throws {
         defer { NSApp.appearance = nil }
         for dark in [true, false] {
             let (frame, scale) = try renderFocusSplit(dark: dark)
             let b = titleBands(scale)
             let focused = frame.meanChroma(x0: b.left.0, x1: b.left.1, y0: b.y0, y1: b.y1)
             let unfocused = frame.meanChroma(x0: b.right.0, x1: b.right.1, y0: b.y0, y1: b.y1)
-            XCTAssertGreaterThan(focused, 20, "聚焦窗格必须显示短焦点线")
+            XCTAssertGreaterThan(focused, 20, "聚焦窗格必须显示贯穿顶边的焦点线")
             XCTAssertLessThan(unfocused, 8, "非聚焦窗格不能显示焦点线")
-            // 标题空白处应保持中性底色，不能把短线又变回整块蓝底。
+            // 标题空白处应保持中性底色，不能让焦点线铺满整个标题栏。
             XCTAssertLessThan(frame.meanChroma(x0: Int(190 * scale), x1: Int(240 * scale),
-                                              y0: b.y0, y1: b.y1), 8, "标题不能整条染色")
+                                              y0: b.y0 + Int(10 * scale), y1: b.y0 + Int(13 * scale)), 8, "标题不能整条染色")
         }
     }
 
     @MainActor
-    func testLonePaneTitleBarHasNoFocusMarker() throws {
+    func testLonePaneHasNoFocusEdge() throws {
         defer { NSApp.appearance = nil }
         let (frame, scale) = try renderFocusSplit(dark: true, split: false)
         let b = titleBands(scale)

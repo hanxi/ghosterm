@@ -13,7 +13,7 @@
 #   P8 单个窗格宿主不放弃安全区 → 侧栏展开时终端顶部出现额外空白。
 #   P9 工作区重复避让标题栏 → 几何顶上多出一条留白。
 #      旧根宿主安全区变异在直接子视图架构下已等价，改验实际几何偏移。
-#   P10 聚焦那格不画短焦点线 → 当前窗格缺少明确的标记；
+#   P10 聚焦那格不画顶部焦点线 → 当前窗格缺少明确的标记；
 #   P11 不看分不分屏 → 单个窗格也画焦点线（纯噪音）。
 #
 # 纪律（AGENTS.md）：起跑前扫残留标记（命中 exit 2）；trap INT TERM 复原；
@@ -83,9 +83,9 @@ run_pane_gap() { ( cd "$PKG" && gt_timeout 420 swift test \
   --filter 'PaneChromeTests/testGapIsRealWhitespaceBetweenPanes' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
 # P10/P11 互为指向性：一个管「分屏时点上」，一个管「单格时别点」。
 run_focus_tint() { ( cd "$PKG" && gt_timeout 420 swift test \
-  --filter 'PaneChromeTests/testFocusedPaneTitleBarHasShortMarker' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
+  --filter 'PaneChromeTests/testFocusedPaneHasTopEdge' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
 run_lone_tint() { ( cd "$PKG" && gt_timeout 420 swift test \
-  --filter 'PaneChromeTests/testLonePaneTitleBarHasNoFocusMarker' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
+  --filter 'PaneChromeTests/testLonePaneHasNoFocusEdge' >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
 run_other()  { ( cd "$PKG" && gt_timeout 420 swift test --filter TabManagerTests >"$TMP/pane-chrome-${PASS}-${FAIL}-test.log" 2>&1 ); }
 expect() {
   if "$3"; then actual=green; else actual=red; fi
@@ -201,7 +201,7 @@ expect red "P9 工作区顶部重复留白" run_top_inset
 expect green "P9 指向性（两格之间的间距没动）" run_pane_gap
 rollback
 
-echo "== P10：聚焦那格的标题栏不画短焦点线 =="
+echo "== P10：聚焦那格不画顶部焦点线 =="
 python3 - "$APPEAR" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
@@ -210,7 +210,7 @@ new = "        _ = (isFocused, isSplit); return false /* GT_MUTATION_MARK：不�
 assert old in s, "P10 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PY
-expect red "P10 分屏时聚焦那格的标题栏没画出短焦点线" run_focus_tint
+expect red "P10 分屏时聚焦那格没画出顶部焦点线" run_focus_tint
 expect green "P10 指向性（单格仍不画焦点线）" run_lone_tint
 rollback
 
@@ -223,8 +223,8 @@ new = "        isFocused /* GT_MUTATION_MARK：无视分屏 */"
 assert old in s, "P11 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PY
-expect red "P11 只有一格时标题栏也画出焦点线" run_lone_tint
-expect green "P11 指向性（分屏时的画焦点线仍对）" run_focus_tint
+expect red "P11 只有一格时也画出焦点线" run_lone_tint
+expect green "P11 指向性（分屏时焦点线仍正确）" run_focus_tint
 rollback
 
 echo "== 回滚复绿 =="

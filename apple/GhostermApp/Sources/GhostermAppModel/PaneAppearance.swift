@@ -40,9 +40,9 @@ public enum PaneTitleBar {
 
 // MARK: - 分屏时「哪格是当前」
 
-/// 只有分屏中的当前窗格显示短焦点标记；不再给整条标题或外框染色。
+/// 只有分屏中的当前窗格强调顶边；有间距时辅以淡蓝轮廓。
 public enum PaneFocusChrome {
-    public static func showsMarker(isFocused: Bool, isSplit: Bool) -> Bool {
+    public static func showsFocus(isFocused: Bool, isSplit: Bool) -> Bool {
         isFocused && isSplit
     }
 }

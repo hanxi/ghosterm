@@ -1,5 +1,5 @@
-// PaneChrome — 无描边窗格与融入终端的标题栏。
-// 间距为零时贴边，有留白时保留圆角；焦点只在标题前画短线。
+// PaneChrome — 有间距时恢复细边框，当前分屏由顶部贯穿蓝线标示。
+// 描边和焦点线都是不参与布局、命中的覆盖层，标题隐藏时仍然有效。
 import GhostermAppModel
 import SwiftUI
 
@@ -9,14 +9,32 @@ struct PaneChromeOptions {
     var showsTitleBar: Bool = PaneTitleBar.visibleDefault
 }
 
-/// 窗格外壳仅负责裁切与间距，不叠加外框。
+/// 终端和文件窗格共用边界；贴边时只保留工作区的共享分隔线。
 struct PaneCard<Content: View>: View {
     let gap: Int
+    let isFocused: Bool
+    let isSplit: Bool
+    let palette: ChromePalette
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         let radius = PaneGap.cornerRadius(gap: gap)
+        let focused = PaneFocusChrome.showsFocus(isFocused: isFocused, isSplit: isSplit)
         content()
+            .overlay {
+                if gap > 0 {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(focused ? Color.accentColor.opacity(0.45)
+                                              : palette.ink.opacity(0.15), lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay(alignment: .top) {
+                if focused {
+                    Rectangle().fill(Color.accentColor).frame(height: 2)
+                        .allowsHitTesting(false)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .padding(CGFloat(gap) / 2)
     }
@@ -36,7 +54,6 @@ struct PaneTitleBarView: View {
     var body: some View {
         let title = pane.displayTitle(fallback: fallbackTitle)
         HStack(spacing: DS.Padding.xs) {
-            PaneFocusMarker(isFocused: isFocused, isSplit: isSplit)
             StatusDot(status: pane.status)
             Text(title.name)
                 .font(DS.Font.captionEmphasis)
@@ -67,16 +84,4 @@ struct PaneTitleBarView: View {
         .contextMenu { PaneContextMenu(actions: actions) }
     }
 
-}
-
-/// 固定占位，切焦点不推动标题和按钮；单窗格也不改变命中位置。
-struct PaneFocusMarker: View {
-    let isFocused: Bool
-    let isSplit: Bool
-    var body: some View {
-        Capsule().fill(Color.accentColor)
-            .frame(width: 16, height: 2)
-            .opacity(PaneFocusChrome.showsMarker(isFocused: isFocused, isSplit: isSplit) ? 1 : 0)
-            .accessibilityHidden(true)
-    }
 }

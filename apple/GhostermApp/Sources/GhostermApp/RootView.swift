@@ -212,7 +212,8 @@ struct PaneView: View {
     }
 
     var body: some View {
-        PaneCard(gap: opts.gap) {
+        PaneCard(gap: opts.gap, isFocused: isFocused, isSplit: tab.isSplit,
+                 palette: ChromePalette(model: model)) {
             VStack(spacing: 0) {
                 if !opts.showsTitleBar {
                     WorkspaceHiddenHandle(tab: tab, paneID: pane.id)
@@ -285,7 +286,7 @@ struct PaneView: View {
             if tab.isLocked {
                 LockOverlay { tab.isLocked = false }
             }
-            // 当前窗格由标题前的短标记与非聚焦内容淡化共同区分。
+            // 当前窗格由窗格顶边蓝线、淡描边与非聚焦内容淡化共同区分。
         }
     }
 }

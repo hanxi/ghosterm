@@ -41,7 +41,8 @@ struct WorkspaceFileView: View {
         PaneActionsView(model: model, tab: tab, paneID: file.id, revealed: isFocused || showsActions, isAvailable: isVisible, preview: preview)
     }
     var body: some View {
-        PaneCard(gap: opts.gap) {
+        PaneCard(gap: opts.gap, isFocused: isFocused, isSplit: tab.isSplit,
+                 palette: ChromePalette(model: model)) {
             VStack(spacing: 0) {
                 if opts.showsTitleBar { title }
                 else { WorkspaceHiddenHandle(tab: tab, paneID: file.id).contextMenu { PaneContextMenu(actions: actions) } }
@@ -68,7 +69,6 @@ struct WorkspaceFileView: View {
     }
     private var title: some View {
         HStack(spacing: 4) {
-            PaneFocusMarker(isFocused: isFocused, isSplit: tab.isSplit)
             HStack(spacing: 4) {
                 Image(systemName: file.remote ? "network" : "folder")
                 Text(file.remote ? file.panel?.backend.displayName ?? "远端文件" : "本地文件")

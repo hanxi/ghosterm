@@ -1,5 +1,5 @@
 import AppKit
-import GhostermAppModel
+@testable import GhostermAppModel
 import GhostermTerminal
 import XCTest
 @testable import GhostermApp
@@ -62,7 +62,7 @@ import XCTest
                 try assertColor(shot, f, x: offset + 400, y: top + 3, rgb: rgb, "窗格标题必须融入终端")
                 try assertColor(shot, f, x: offset + 400, y: top + 25, rgb: rgb, "窗格标题不能有底部描边")
                 try assertColor(shot, f, x: offset + 100, y: 450, rgb: rgb, "真实终端背景必须与导航一致")
-                try assertColor(shot, f, x: offset, y: 200, rgb: rgb, "窗格不能绘制整圈焦点描边")
+                try assertColor(shot, f, x: offset, y: 200, rgb: rgb, "贴边窗格不能叠加整圈描边")
                 let plus = try XCTUnwrap(f.views(NSButton.self).first { $0.identifier?.rawValue == "new-connection" })
                 let ink = try XCTUnwrap(plus.contentTintColor?.usingColorSpace(.deviceRGB))
                 XCTAssertEqual(ink.redComponent, bg == "252a33" ? 209.0 / 255 : 53.0 / 255,
@@ -97,6 +97,102 @@ import XCTest
                 shot.getPixel(&beside, atX: Int(498 * scale), y: Int(200 * scale))
                 XCTAssertGreaterThan(Int(center[0]), Int(beside[0]) + 3, "贴边分屏必须保留细分隔线")
             }
+        }
+    }
+
+    /// 真生产窗格：上下终端 + 右侧文件，切焦点和标题开关均不能丢顶边。
+    func testMixedPaneEdgesFollowFocusAndGap() throws {
+        restoreGap()
+        let defaults = UserDefaults.standard
+        let oldBar = defaults.object(forKey: PaneTitleBar.visibleKey)
+        defer { defaults.set(oldBar, forKey: PaneTitleBar.visibleKey) }
+        let f = try TabWindowFixture(); defer { f.close() }
+        try f.model.replaceTerminalConfig("background = #303030\nforeground = #dddddd\n")
+        f.model.preferences.tabPlacement = .sidebar
+        f.window.setContentSize(NSSize(width: 1080, height: 675))
+        let first = TerminalPane(), second = TerminalPane()
+        for pane in [first, second] { pane.attachForTesting(surface: try TerminalSurface(app: TerminalApp.shared())) }
+        let tab = TerminalTab(kind: .localShell, pane: first)
+        tab.split(axis: .vertical, with: second)
+        let panel = FilesPanelModel(backend: LocalFileBackend(initialPath: f.directory.path))
+        let files = WorkspaceFilePane(remote: false, panel: panel)
+        tab.addFilePane(files); panel.start()
+        tab.workspaceLayout = .group([.group([.leaf(first.id), .leaf(second.id)], axis: .vertical),
+                                      .leaf(files.id)], axis: .horizontal)
+        f.model.tabs.add(tab)
+        for gap in [10, 0] {
+            defaults.set(gap, forKey: PaneGap.key)
+            for bar in [true, false] {
+                defaults.set(bar, forKey: PaneTitleBar.visibleKey)
+                for focused in [second.id, files.id] {
+                    tab.activeWorkspacePaneID = focused
+                    let shot = try image(f)
+                    let workspace = try XCTUnwrap(f.views(WorkspaceHostView.self).first)
+                    let scale = CGFloat(shot.pixelsWide) / f.root.bounds.width
+                    func pixel(_ x: CGFloat, _ y: CGFloat) -> [Int] {
+                        var p = [UInt](repeating: 0, count: shot.samplesPerPixel)
+                        shot.getPixel(&p, atX: Int(x * scale), y: Int(y * scale))
+                        return [Int(p[0]), Int(p[1]), Int(p[2])]
+                    }
+                    func chroma(_ p: [Int]) -> Int { p.max()! - p.min()! }
+                    for id in [first.id, second.id, files.id] {
+                        let host = try XCTUnwrap(workspace.hosts[id])
+                        let raw = host.convert(host.bounds, to: f.root)
+                        let top = f.root.isFlipped ? raw.minY : f.root.bounds.height - raw.maxY
+                        let rect = CGRect(x: raw.minX + CGFloat(gap) / 2, y: top + CGFloat(gap) / 2,
+                                          width: raw.width - CGFloat(gap), height: raw.height - CGFloat(gap))
+                        // 取 1/4、1/2、3/4 三处，不能拿标题前的一小段线冒充贯穿顶边。
+                        for fraction in [CGFloat(0.25), 0.5, 0.75] {
+                            let c = chroma(pixel(rect.minX + rect.width * fraction, rect.minY + 0.5))
+                            if id == focused {
+                                XCTAssertGreaterThan(c, 40, "混排当前窗格必须有贯穿顶边的蓝线（含隐藏标题）")
+                            } else {
+                                XCTAssertLessThan(c, 10, "混排非当前窗格不能显示蓝线")
+                            }
+                        }
+                        if gap > 0 {
+                            let edge = pixel(rect.minX + 0.25, rect.minY + 18)
+                            let inside = pixel(rect.minX + 3, rect.minY + 18)
+                            if id == focused {
+                                XCTAssertGreaterThan(chroma(edge), 20, "留白当前窗格必须保留淡蓝外框")
+                            } else {
+                                XCTAssertGreaterThan(zip(edge, inside).map { abs($0 - $1) }.max()!, 2,
+                                                     "留白非当前窗格必须保留中性细框")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testSidebarNewTabLabelRemainsReadableAfterThemeSwitch() throws {
+        restoreGap()
+        let f = try TabWindowFixture(); defer { f.close() }
+        f.model.preferences.tabPlacement = .sidebar
+        f.model.tabs.add(TerminalTab(kind: .localShell))
+        for dark in [false, true, false] {
+            f.window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            try f.model.replaceTerminalConfig(dark
+                ? "background = #252a33\nforeground = #d1d8e2\n"
+                : "background = #f6f7f9\nforeground = #35404e\n")
+            let shot = try image(f)
+            let button = try XCTUnwrap(f.views(NSButton.self).first { $0.identifier?.rawValue == "new-connection" })
+            let cell = try XCTUnwrap(button.cell as? NSButtonCell)
+            let rect = button.convert(cell.titleRect(forBounds: button.bounds), to: f.root)
+            let top = f.root.isFlipped ? rect.minY : f.root.bounds.height - rect.maxY
+            let scale = CGFloat(shot.pixelsWide) / f.root.bounds.width
+            var ink = 0
+            for y in Int(top * scale)..<Int((top + rect.height) * scale) {
+                for x in Int(rect.minX * scale)..<Int(rect.maxX * scale) {
+                    var pixel = [UInt](repeating: 0, count: shot.samplesPerPixel)
+                    shot.getPixel(&pixel, atX: x, y: y)
+                    let luma = (Int(pixel[0]) * 299 + Int(pixel[1]) * 587 + Int(pixel[2]) * 114) / 1000
+                    if dark ? luma > 140 : luma < 140 { ink += 1 }
+                }
+            }
+            XCTAssertGreaterThan(ink, 30, "侧栏新建标签页文字必须随深浅主题保持可读")
+            try f.capture("new-label-" + (dark ? "dark" : "light"))
         }
     }
 
