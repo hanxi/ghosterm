@@ -3,7 +3,6 @@
   "gt_config_parse_file": "A1: 主机配置与稀疏编辑接入时绑定",
   "gt_config_supported_keys": "A1: 主机配置与稀疏编辑接入时绑定",
   "gt_core_poll_events": "A6: 单消费者事件泵与任务控制接入时绑定",
-  "gt_last_error": "A1–A3: 错误报告与业务桥接时绑定",
   "gt_sftp_cancel": "A4/A5: 文件浏览与安全复制接入时绑定",
   "gt_sftp_chmod": "A4/A5: 文件浏览与安全复制接入时绑定",
   "gt_sftp_close": "A4/A5: 文件浏览与安全复制接入时绑定",
@@ -51,14 +50,7 @@
   "gt_tmux_list": "A8: 可选后台会话接入时绑定",
   "gt_tmux_open": "A8: 可选后台会话接入时绑定",
   "gt_transport_child_cwd": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_child_state": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_close": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_exited": "A2/A3: 原生终端 owner 接入时绑定",
   "gt_transport_kind": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_open_pty": "A2/A3: 原生终端 owner 接入时绑定",
   "gt_transport_open_ssh_command": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_open_ssh_shell": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_read": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_resize": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_write": "A2/A3: 原生终端 owner 接入时绑定"
+  "gt_transport_open_ssh_shell": "A2/A3: 原生终端 owner 接入时绑定"
 }

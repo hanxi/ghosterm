@@ -41,14 +41,18 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel()) {
+fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel()) {
     val runtime by runtimeModel.state.collectAsState()
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) hosts.readImport(uri) }
-    BackHandler(hosts.page != Page.HOSTS) { hosts.back() }
+    BackHandler(!sessions.visible && hosts.page != Page.HOSTS) { hosts.back() }
     val colors = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFFBACDFF),
         background = Color(0xFF171B20), surface = Color(0xFF21262D), onSurface = Color(0xFFE4E8EE))
         else lightColorScheme(primary = Color(0xFF425F96), background = Color(0xFFF7F8FC), surface = Color(0xFFF7F8FC))
     MaterialTheme(colorScheme = colors) {
+        if (sessions.visible && sessions.active != null) {
+            TerminalScreen(sessions)
+            return@MaterialTheme
+        }
         Scaffold(topBar = {
             TopAppBar(title = { Text(when (hosts.page) {
                 Page.HOSTS -> "主机"; Page.SETTINGS -> "设置"; Page.ABOUT -> "关于 Ghosterm"
@@ -66,12 +70,13 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         }, bottomBar = {
             if (hosts.page == Page.HOSTS) Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = hosts::notConnected, modifier = Modifier.weight(1f)) { Text("本地终端") }
+                OutlinedButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f)) { Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.isEmpty()) "本地终端" else "继续本地终端") }
                 Button(onClick = { hosts.edit() }, enabled = !hosts.busy && hosts.snapshot != null,
                     modifier = Modifier.weight(1f)) { Text("添加主机") }
             }
         }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
+                sessions.error?.let { Text(it, Modifier.padding(16.dp), color = colors.error) }
                 if (hosts.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 hosts.error?.let { error ->
                     if (hosts.imported == null)

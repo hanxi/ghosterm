@@ -24,4 +24,4 @@ patches/
 > 三份补丁按序叠加到锁定 pin 的隔离源码副本；`build-ghostty.sh` / 普通引擎构建器产生 SDK 和收据，`gate-ghostty-patch.sh` 验证补丁与导出符号。旧 session/replica 专用补丁已退役，不重新应用。
 > 每份补丁的理由、上游对照和撤除条件见 [WHY.md](libghostty/8159838/WHY.md)。
 
-Android VT 在研补丁另见 `libghostty/android-vt-8159838/`：`0001-link-android-libc.patch` 使 Android 无 SIMD 构建链接系统 libc，防止空 `calloc/free` 替身污染宿主 C 分配器。`build-android-native.py` 在隔离副本应用并记录补丁哈希；Apple 构建与打包仍只使用上方三份补丁。当前 A2 设备定向测试仍有 IME 失败，补丁检查的变异验收未完成，不能记为整个 Android 终端已交付。理由和撤除条件已写入该工作区目录的 `WHY.md`，随 A2 实施切片一并验收提交。
+Android VT 补丁另见 `libghostty/android-vt-8159838/`：`0001-link-android-libc.patch` 使 Android 无 SIMD 构建链接系统 libc，防止空 `calloc/free` 替身污染宿主 C 分配器。`build-android-native.py` 在隔离副本应用并记录补丁哈希；Apple 构建与打包仍只使用上方三份补丁。16 项终端定向测试、21 组终端变异及 2 组分配器符号守卫变异已通过；整个 A2 仍有文本操作、真实中文 IME 与性能待办。理由和撤除条件见 [WHY.md](libghostty/android-vt-8159838/WHY.md)。

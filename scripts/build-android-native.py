@@ -13,6 +13,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 PIN = '81598385d608dda4946093d6d6a234d204a2f225'
 NDK = '28.2.13676358'
+VT_PATCH = ROOT / 'patches/libghostty/android-vt-8159838/0001-link-android-libc.patch'
 SOURCES = {
     'openssl-3.5.4': ('https://www.openssl.org/source/openssl-3.5.4.tar.gz',
                       '967311f84955316969bdb1d8d4b983718ef42338639c621ec4c34fddef355e99'),
@@ -40,6 +41,12 @@ def source(name, work):
         with tarfile.open(archive) as handle:
             handle.extractall(work, filter='data')
     return path
+
+
+def verify_vt_libc(archive, nm):
+    symbols = subprocess.check_output([str(nm), '--defined-only', '--just-symbol-name', str(archive)], text=True)
+    if {'calloc', 'free'} & set(symbols.splitlines()):
+        raise RuntimeError('VT archive defines libc allocator stubs; Android must link system libc')
 
 
 def main():
@@ -70,7 +77,7 @@ def main():
     for key in ('SDKROOT', 'CPATH', 'LIBRARY_PATH', 'PKG_CONFIG_PATH', 'CFLAGS', 'LDFLAGS'):
         environment.pop(key, None)
     signature = {'ghostty': PIN, 'ndk': NDK, 'api': 29, 'abi': args.abi, 'zig': '0.16.0',
-                 'sources': SOURCES, 'builder': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+                 'sources': SOURCES, 'vt_patch': hashlib.sha256(VT_PATCH.read_bytes()).hexdigest(), 'builder': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
     receipt = prefix / 'receipt.json'
     licenses = ROOT / 'build/android-native/assets/licenses'
     licenses.mkdir(parents=True, exist_ok=True)
@@ -83,6 +90,7 @@ def main():
         saved = json.loads(receipt.read_text())
         if saved.get('inputs') == json.loads(json.dumps(signature)) and all(
             saved.get('sha256', {}).get(p.name) == hashlib.sha256(p.read_bytes()).hexdigest() for p in artifacts):
+            verify_vt_libc(prefix / 'lib/libghostty-vt.a', toolchain / 'bin/llvm-nm')
             print('Android native dependencies verified (cached)', flush=True)
             return
     openssl = source('openssl-3.5.4', work)
@@ -112,9 +120,11 @@ def main():
         run(['git', '-C', vendor, 'archive', PIN], stdout=output)
     with tarfile.open(archive) as handle:
         handle.extractall(engine, filter='data')
+    run(['patch', '--batch', '--forward', '-p1', '-i', VT_PATCH], cwd=engine)
     run([zig, 'build', '-Demit-lib-vt=true', '-Demit-xcframework=false', '-Demit-docs=false',
          '-Dtarget=aarch64-linux-android.29', '-Doptimize=ReleaseFast', '-Dsimd=false',
          '-p', prefix], cwd=engine, env=environment)
+    verify_vt_libc(prefix / 'lib/libghostty-vt.a', toolchain / 'bin/llvm-nm')
     receipt.write_text(json.dumps({'inputs': signature, 'sha256': {
         p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in artifacts}}, indent=2) + '\n')
     print('ANDROID NATIVE PASS:', prefix)

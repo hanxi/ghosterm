@@ -102,7 +102,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
 
-Android 已补齐三字段显式覆盖/恢复继承、主机别名重命名及配置错误恢复；SAF 预览/取消/失败路径与表单校验收尾后，47 项设备测试及 59 组配置/页面变异通过，A1 在 API 36 arm64 模拟器档完成，见[实现计划 §9.11](docs/reference/android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。A2 本地 PTY、Canvas 与输入桥已有未提交实现，定向设备测试 8/9 通过，IME 用例失败，尚未验收。macOS 配置事务、表单保真、终端设置读写、传输控制错误与未知结果继续列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)。
+Android 已补齐三字段显式覆盖/恢复继承、主机别名重命名及配置错误恢复；SAF 预览/取消/失败路径与表单校验收尾后，47 项设备测试及 59 组配置/页面变异通过，A1 在 API 36 arm64 模拟器档完成，见[实现计划 §9.11](docs/reference/android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。A2 首片已接本地 PTY、Canvas、输入桥与会话生命周期，16 项终端定向测试和 21 组变异通过；文本操作、真实中文 IME 与性能仍待完成，见实现计划 §9.13。macOS 配置事务、表单保真、终端设置读写、传输控制错误与未知结果继续列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 | 能力 | 状态 |
 |---|---|
@@ -111,7 +111,7 @@ Android 已补齐三字段显式覆盖/恢复继承、主机别名重命名及�
 | `ssh_config` 求值 | ✅ typed 视图 + 通用视图（`ssh -G` 等价）；42 键 × 6 host 全表语义对拍 |
 | `ssh_config` 编辑 API | 🟡 9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令已按实际匹配行编辑，已增加三字段来源与包含文件/重名块编辑保护；已接入仅替换目标别名 token 的重命名接口；全部字段视图仍待补齐 |
 | `ssh_config` `Include` 展开 | ✅ OpenSSH 同口径（相对路径基准 = ~/.ssh、glob、嵌套 + 深度上限 16）；6 组断言 + 变异 I1~I4 |
-| 本地 PTY transport（forkpty） | ✅ POSIX 实现（macOS/Linux 证据；Android 在研代码已有 API 36 模拟器定向证据，A2 未验收） |
+| 本地 PTY transport（forkpty） | ✅ POSIX 实现（macOS/Linux 证据；Android A2 首片已有 API 36 模拟器定向/变异证据，整个阶段未完成） |
 | SSH（libssh2）connect / auth / hostkey TOFU / ssh-shell | 🟡 普通条目、密码/密钥与可取消认证已有真 sshd 证据；known_hosts 标记被丢弃可能误信任，列为路线图 P0；Android 尚未绑定 |
 | SFTP（list / stat / 上传 / 下载 / job 三态） | ✅ libssh2_sftp 封装 + 真 sshd e2e + 变异验证 |
 | **macOS 原生宿主** | 🟡 已交付主要功能；配置写盘与私钥安全存储接线仍有缺口，见路线图 |
@@ -125,7 +125,7 @@ Android 已补齐三字段显式覆盖/恢复继承、主机别名重命名及�
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |
 | 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
-| Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地交互终端在研、IME 定向测试仍失败；SSH/文件仍待接入 |
+| Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地交互终端首片已验，文本操作/真实中文 IME/性能待补；SSH/文件仍待接入 |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。

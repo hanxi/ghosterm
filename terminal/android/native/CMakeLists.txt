@@ -11,7 +11,9 @@ add_library(ghostty_vt STATIC IMPORTED)
 set_target_properties(ghostty_vt PROPERTIES
     IMPORTED_LOCATION "${GHOSTERM_DEPS}/lib/libghostty-vt.a"
     INTERFACE_INCLUDE_DIRECTORIES "${GHOSTERM_ROOT}/vendor/ghostty/include")
-add_library(ghosterm_vt_android SHARED vt_jni.c)
+add_library(ghosterm_vt_android SHARED vt_jni.c surface.c)
 target_compile_options(ghosterm_vt_android PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(ghosterm_vt_android PRIVATE ghostty_vt m)
 target_link_options(ghosterm_vt_android PRIVATE -Wl,-z,max-page-size=16384 -Wl,--exclude-libs,ALL)
+
+target_include_directories(ghosterm_vt_android PUBLIC "${CMAKE_CURRENT_LIST_DIR}")
