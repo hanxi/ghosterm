@@ -18,6 +18,7 @@
 | `ssh_config` 无损往返（**未编辑**） | ✅ | 与原文**逐字节相同**（`test_config` 头号断言） |
 | `ssh_config` 求值（typed） | ✅ | `gt_config_resolve`：user/hostname/port/forwardagent/compression/serveraliveinterval/identityfile/proxyjump/setenv/localforward |
 | `ssh_config` 求值（通用视图 = `ssh -G`） | ✅ | `gt_config_effective`：**42 键 × 6 host = 252 项**全表语义对拍（布尔归一化）；支持集双向校验 |
+| 求值配置用于实际 SSH 连接 | 🟡 | macOS `HostListModel` 目前只保留 HostName/User/Port/IdentityFile；ProxyJump、ForwardAgent、Compression、ServerAliveInterval、SetEnv、LocalForward 的求值结果未接入连接，未统一报不支持。认证流程直接解析目标地址；42 键对拍不证明这些选项被执行。此为生产源码核对，连接前校验列为路线图 P0，Android A3 须独立接入 |
 | 默认 IdentityFile 候选链 | ✅ | `gt_identity_policy_t` 五档（9_6=7 / 10_3=5 / MASTER=6 / NONE / CUSTOM），每条链注明出处；回落机制有断言 |
 | `ssh_config` **编辑** API（改值后无损写回） | 🟡 | `gt_config_edit`：9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令替换/删除已按实际匹配行修复，未知行、注释、CRLF 和相邻块保留，B7/B8 变异护此行为。Android 另验实际保存与编辑器输出保护；来源查询与包含文件/重名块保护已接入；不代表表单已支持全部指令；改名接口另列下行 |
 | 配置字段来源与编辑归属 | 🟡 | `gt_config_inspect_host`、Swift/JNI 绑定及 8 组 C / 1 组 Swift 变异；Android 来源提示、只读保护及配置往返已接入。仅覆盖 HostName/User/Port，macOS 表单尚未消费，Android 显式覆盖/恢复继承已有 32 项设备/32 组配置变异证据，重命名在后续切片单独验收；见 [Android §9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30) |
@@ -91,7 +92,7 @@ A1 阶段验收为 2026-10-30 的 47 项测试与 59 组配置/页面变异；A2
 
 | 面 | 已实现与证据 | 未完成或证据边界 |
 |---|---|---|
-| SSH 与认证 | `AppModel` / `SSHAuthenticationFlow` 共用可取消认证；真实 sshd→shell→网格→resize；hostkey 未知/拒绝/变化分开 | 私钥材料生产路径仍从受限文件读取；共享 known_hosts 的 marker 被丢弃，可把撤销条目误认成已知密钥，见路线图 P0 |
+| SSH 与认证 | `AppModel` / `SSHAuthenticationFlow` 共用可取消认证；真实 sshd→shell→网格→resize；hostkey 未知/拒绝/变化分开 | 高级配置求值未传递到连接且缺少统一能力校验；私钥材料生产路径仍从受限文件读取；共享 known_hosts 的 marker 被丢弃，可把撤销条目误认成已知密钥，见路线图 P0 |
 | 本地 shell | 普通 PTY、登录语义、cwd、控制终端、背压、关闭与描述符隔离 | 普通会话不承诺跨 App 退出保活 |
 | 标签导航 | `TabWindowController` 单窗口；顶部/侧边切换、UUID 重排与关闭、唯一加号、搜索/菜单、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；无精简侧栏、无主机分组 | 跨重启标签持久化未做（偏好已持久化）；本机证据不能代替 macOS 15 CI |
 | 工作区 | `WorkspaceLayout` / `WorkspaceHostView` 为统一终端/文件布局；四边停靠、中央交换、隐藏、缩放与焦点 | 真拖动图像、逐帧零尺寸、跨标签最小尺寸等见工作区交接 |

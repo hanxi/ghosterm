@@ -47,6 +47,10 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 修复顺序与验收触发场景见[macOS 实施顺序](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。当前代码注释中的“安全写回”“原子写”等描述是目标契约，实际 `try?` 备份及 remove→move 路径尚未兑现，不能把注释当作通过证据。
 
+**配置求值不等于连接执行**：`GhostermCore.ResolvedHost` 已返回 ProxyJump、ForwardAgent、Compression、ServerAliveInterval、SetEnv、LocalForward；`HostListModel.reload` 只把地址、用户、端口和身份文件放入 `HostEntry`，后续 `SSHConnectionTarget` / `SSHOptions` 也没有承接这些高级选项。`SSHAuthenticationFlow.start` 直接解析目标地址，当前未统一拒绝这些未支持配置。因此配置中写了跳板也不能据此认为连接会经过跳板；42 键 `ssh -G` 对拍只验求值，不验连接行为。
+
+连接前能力校验已列入路线图 P0，需覆盖普通 SSH、独立/内嵌 SFTP 与远端 tmux；未支持的有效选项应列名报错，并在解析地址、建连和索取凭据前停止。本段依据生产代码调用链核对，尚未新增真实跳板或网络端点测试，不记为已修复。
+
 ### 与 Android 最终方案的差异
 
 | 操作 | macOS 当前实现 | Android 方案与实现边界 |
