@@ -30,10 +30,12 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     var discard by mutableStateOf(false); private set
     var imported by mutableStateOf<ByteArray?>(null); private set
     private var configReturn = Page.SETTINGS
+    private var reloadAfterDiscard = false
+    private var loadError: String? = null
     val filteredHosts: List<Host> get() = snapshot?.hosts.orEmpty().filter {
         query.isBlank() || it.alias.contains(query, true) || it.address.contains(query, true)
     }
-    val canEditDraft: Boolean get() = draft?.let { it.original == null || it.original.source?.editable == true } == true
+    val canEditDraft: Boolean get() = snapshot != null && draft?.let { it.original == null || it.original.source?.editable == true } == true
     val dirty: Boolean get() = when (page) {
         Page.CONFIG -> configText != snapshot?.text
         Page.EDIT_HOST -> draft?.dirty == true
@@ -45,16 +47,31 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         busy = true; error = null; notice = null
         viewModelScope.launch {
             try { action() }
-            catch (failure: Exception) { error = failure.message ?: "操作失败，请重试" }
+            catch (failure: Exception) {
+                error = failure.message ?: "操作失败，请重试"
+                if (failure is ConfigConflict) { snapshot = null; loadError = error }
+            }
             finally { busy = false }
         }
     }
-    fun reload() = work {
-        val loaded = withContext(Dispatchers.IO) { repository.load() }
+    fun reload() {
+        if (busy) return
+        if (dirty) { reloadAfterDiscard = true; discard = true; return }
+        loadConfiguration()
+    }
+    private fun loadConfiguration() = work {
+        val loaded = try { withContext(Dispatchers.IO) { repository.load() } }
+        catch (failure: Exception) {
+            snapshot = null
+            loadError = failure.message ?: "配置读取失败，请重试"
+            throw failure
+        }
+        loadError = null
         snapshot = loaded
         if (page == Page.CONFIG) configText = loaded.text
+        if (page == Page.EDIT_HOST) restoreDraftOrClear()
     }
-    fun settings() { if (!busy) { page = Page.SETTINGS; error = null } }
+    fun settings() { if (!busy) { page = Page.SETTINGS; error = loadError } }
     fun about() { page = Page.ABOUT }
     fun config() {
         if (busy || snapshot == null) return
@@ -67,10 +84,10 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         draft = HostDraft(host)
         error = null; page = Page.EDIT_HOST
     }
-    fun back() { if (!busy) { if (dirty) discard = true else leave() } }
+    fun back() { if (!busy) { reloadAfterDiscard = false; if (dirty) discard = true else leave() } }
     private fun leave() {
         page = when (page) { Page.ABOUT -> Page.SETTINGS; Page.CONFIG -> configReturn; else -> Page.HOSTS }
-        error = null; discard = false
+        error = loadError; discard = false
         restoreDraftOrClear()
     }
     private fun restoreDraftOrClear() {
@@ -80,8 +97,13 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         if (current == null) { draft = null; page = Page.HOSTS }
         else draft = HostDraft(current)
     }
-    fun confirmDiscard() = leave()
-    fun keepEditing() { discard = false }
+    fun confirmDiscard() {
+        if (reloadAfterDiscard) {
+            reloadAfterDiscard = false; discard = false
+            loadConfiguration()
+        } else leave()
+    }
+    fun keepEditing() { discard = false; reloadAfterDiscard = false }
     fun dismissNotice() { notice = null }
     fun notConnected() { notice = "终端连接正在接入，当前版本可管理主机与 SSH 配置" }
     fun saveHost() {

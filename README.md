@@ -102,7 +102,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
 
-Android 已补齐三字段显式覆盖/恢复继承和主机别名重命名；36 项设备测试及 36 组配置/页面变异通过，见[实现计划 §9.9](docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。A1 的 SAF UI 和其他错误页面验收仍未完成。macOS 配置事务、表单保真、传输控制错误与未知结果继续列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)。
+Android 已补齐三字段显式覆盖/恢复继承、主机别名重命名及配置错误恢复；40 项设备测试及 47 组配置/页面变异通过，见[实现计划 §9.10](docs/reference/android-implementation.md#910-配置错误恢复与重载确认2026-10-30)。A1 的 SAF UI 与其余表单校验验收仍未完成。macOS 配置事务、表单保真、传输控制错误与未知结果继续列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 | 能力 | 状态 |
 |---|---|

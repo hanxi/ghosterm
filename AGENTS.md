@@ -151,7 +151,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。
 样板见 `scripts/mutation-check-sshconfig.sh`（17 组变异：A1~A9 + B1~B8，另验基线与回滚）。A9 用真实目录触发 fread 错误，断言必须返回失败；同变异下合法配置 golden 对照仍须通过，不能把读取错误当成空配置。B7/B8 护非连续重复指令替换/删除，构建通过后逐字节写回目标红、同变异求值对照绿、恢复绿与 SHA256 一致。
-`config-metadata` 以 `python3 scripts/mutation-check-config-metadata.py --apple` 手工执行：8 组 C 变异护来源/块归属、包含与歧义块拒写和重解析路径，1 组 Swift 变异护来源转换。编译成功后目标断言红、独立 API/配置往返对照绿、恢复绿与 SHA256 一致；不计入 CI 20 份。Android 来源、只读页面、显式覆盖/恢复继承和别名重命名由 `mutation-check-android-config.py` 的 36 组设备变异覆盖（同 APK 独立对照）。`mutation-check-config-rename.py --apple` 另验 12 组 C / 1 组 Swift：目标 token 保真、名称/冲突、归属与重复别名拒绝、重解析错误与对象保留、来源路径、大小写和无操作保真；均编译成功后目标红、独立对照绿、复原绿与 SHA256 一致。均属手工证据，不计入 CI 20 份。
+`config-metadata` 以 `python3 scripts/mutation-check-config-metadata.py --apple` 手工执行：8 组 C 变异护来源/块归属、包含与歧义块拒写和重解析路径，1 组 Swift 变异护来源转换。编译成功后目标断言红、独立 API/配置往返对照绿、恢复绿与 SHA256 一致；不计入 CI 20 份。Android 来源、只读页面、显式覆盖/恢复继承、别名重命名及配置错误恢复由 `mutation-check-android-config.py` 的 47 组设备变异覆盖（同 APK 独立对照）；错误恢复另护快照失效、错误可见与跨页保留、重载放弃确认/动作路由、编辑目标刷新及无快照入口禁用。`mutation-check-config-rename.py --apple` 另验 12 组 C / 1 组 Swift：目标 token 保真、名称/冲突、归属与重复别名拒绝、重解析错误与对象保留、来源路径、大小写和无操作保真；均编译成功后目标红、独立对照绿、复原绿与 SHA256 一致。均属手工证据，不计入 CI 20 份。
 **基础与产品变异验证**（每份都必须能独立跑绿）：sshconfig / include / settings /
 settings-ui / tab-chrome / workspace / tabs / chrome / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /

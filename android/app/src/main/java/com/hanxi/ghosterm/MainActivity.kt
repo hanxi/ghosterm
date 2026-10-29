@@ -57,7 +57,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                 when (hosts.page) {
                     Page.HOSTS -> TextButton(onClick = hosts::settings, enabled = !hosts.busy) { Text("设置") }
                     Page.EDIT_HOST -> TextButton(onClick = hosts::saveHost, enabled = !hosts.busy && hosts.canEditDraft) { Text("保存") }
-                    Page.CONFIG -> TextButton(onClick = hosts::saveConfig, enabled = !hosts.busy && hosts.dirty) { Text("保存") }
+                    Page.CONFIG -> TextButton(onClick = hosts::saveConfig, enabled = !hosts.busy && hosts.snapshot != null && hosts.dirty) { Text("保存") }
                     else -> Unit
                 }
             })
@@ -75,7 +75,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     Card(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = colors.errorContainer)) {
                         Column(Modifier.padding(12.dp)) {
                             Text(error, color = colors.onErrorContainer)
-                            if (hosts.page == Page.HOSTS || hosts.page == Page.CONFIG)
+                            if (hosts.page == Page.HOSTS || hosts.page == Page.CONFIG || hosts.page == Page.EDIT_HOST)
                                 TextButton(onClick = hosts::reload, enabled = !hosts.busy) { Text("重新载入") }
                         }
                     }
@@ -164,7 +164,7 @@ private fun EditHostPage(model: HostsViewModel) {
         }
         if (!model.canEditDraft) {
             Text(source?.editRestriction ?: "无法确定主机配置归属，请重新载入", color = MaterialTheme.colorScheme.error)
-            OutlinedButton(onClick = model::config, enabled = !model.busy) { Text("查看与编辑 SSH 配置") }
+            OutlinedButton(onClick = model::config, enabled = !model.busy && model.snapshot != null) { Text("查看与编辑 SSH 配置") }
         }
         Text("开启“使用继承值”时由配置规则或默认值决定；关闭后为此主机设置。未改字段保留原文。", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(edit.alias, { model.draft = draft.copy(edit = edit.copy(alias = it)) }, label = { Text("别名") }, singleLine = true,

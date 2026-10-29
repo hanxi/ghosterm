@@ -35,6 +35,126 @@ class HostScreenTest {
         ui.runOnIdle { model.reload() }
         ui.waitUntil(10_000) { !model.busy && model.snapshot?.text == text }
     }
+    @Test fun loadFailureHidesEmptyAndStaleListsAndCanRetry() {
+        ui.onNodeWithText("还没有主机").assertIsDisplayed()
+        val file = File(directory, "home/.ssh/config")
+        assertTrue(file.mkdir())
+        ui.runOnIdle { model.reload() }
+        ui.waitUntil(10_000) { !model.busy }
+        ui.onNodeWithText("配置不是普通文件或超过 1 MiB").assertIsDisplayed()
+        ui.onNodeWithText("还没有主机").assertDoesNotExist()
+        ui.onNodeWithText("添加主机").assertIsNotEnabled()
+        ui.onNodeWithText("设置").performClick()
+        ui.onNodeWithText("关于 Ghosterm").performClick()
+        ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithText("管理主机").performClick()
+        ui.onNodeWithText("配置不是普通文件或超过 1 MiB").assertIsDisplayed()
+        assertTrue(file.delete())
+        file.writeText("Host recovered\n  User owner\n")
+        ui.onNodeWithText("重新载入").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        ui.onNodeWithText("recovered").assertIsDisplayed()
+        ui.onNodeWithText("添加主机").assertIsEnabled()
+        assertTrue(file.delete()); assertTrue(file.mkdir())
+        ui.runOnIdle { model.reload() }
+        ui.waitUntil(10_000) { !model.busy }
+        ui.onNodeWithText("recovered").assertDoesNotExist()
+        ui.onNodeWithText("还没有主机").assertDoesNotExist()
+    }
+    @Test fun invalidConfigurationRemainsErrorUntilReloaded() {
+        val file = File(directory, "home/.ssh/config")
+        file.writeBytes(byteArrayOf(0xc3.toByte(), 0x28))
+        ui.runOnIdle { model.reload() }
+        ui.waitUntil(10_000) { !model.busy }
+        ui.onNodeWithText("SSH 配置必须为 UTF-8 文本").assertIsDisplayed()
+        ui.onNodeWithText("还没有主机").assertDoesNotExist()
+        file.writeText("Include ${directory.path}/missing.conf\n")
+        ui.onNodeWithText("重新载入").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        ui.onNodeWithText("Configuration parse failed").assertIsDisplayed()
+        ui.onNodeWithText("添加主机").assertIsNotEnabled()
+        assertTrue(file.delete())
+        ui.onNodeWithText("重新载入").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        ui.onNodeWithText("还没有主机").assertIsDisplayed()
+        assertNull(model.snapshot!!.revision.identity)
+    }
+    @Test fun configReloadConfirmsDiscardAndKeepsDraftOnReadFailure() {
+        load("Host original\n")
+        val file = File(directory, "home/.ssh/config")
+        ui.onNodeWithText("设置").performClick()
+        ui.onNodeWithText("查看与编辑 SSH 配置").performClick()
+        ui.onNodeWithText("配置内容").performTextReplacement("Host draft\n")
+        closeSoftKeyboard()
+        file.writeText("Host external\n")
+        ui.onNodeWithText("保存").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        ui.onNodeWithText("配置内容").assertTextContains("Host draft\n")
+        ui.onNodeWithText("保存").assertIsNotEnabled()
+        ui.onNodeWithText("重新载入").performClick()
+        ui.onNodeWithText("放弃未保存的修改？").assertIsDisplayed()
+        ui.onNodeWithText("继续编辑").performClick()
+        ui.onNodeWithText("配置内容").assertTextContains("Host draft\n")
+        assertEquals("Host external\n", file.readText())
+        assertTrue(file.delete()); assertTrue(file.mkdir())
+        ui.onNodeWithText("重新载入").performClick()
+        ui.onNodeWithText("放弃修改").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        assertEquals(Page.CONFIG, model.page)
+        assertNull(model.snapshot)
+        ui.onNodeWithText("配置内容").assertTextContains("Host draft\n")
+        ui.onNodeWithText("保存").assertIsNotEnabled()
+        assertTrue(file.delete()); file.writeText("Host recovered\n")
+        ui.onNodeWithText("重新载入").performClick()
+        ui.onNodeWithText("放弃修改").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        assertEquals(Page.CONFIG, model.page)
+        ui.onNodeWithText("配置内容").assertTextContains("Host recovered\n")
+        ui.onNodeWithText("保存").assertIsNotEnabled()
+        ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithText("管理主机").performClick()
+        ui.onNodeWithText("recovered").assertIsDisplayed()
+    }
+    @Test fun hostConflictCanReloadOrDiscardDeletedTarget() {
+        load("Host demo\n  HostName original.test\n  User owner\n")
+        val file = File(directory, "home/.ssh/config")
+        ui.onNodeWithText("编辑").performClick()
+        ui.onNodeWithText("主机地址").performTextReplacement("draft.test")
+        closeSoftKeyboard()
+        file.writeText("Host demo\n  HostName external.test\n  User owner\n")
+        ui.onNodeWithText("保存").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        ui.onNodeWithText("主机地址").assertTextContains("draft.test")
+        ui.onNodeWithText("重新载入").performClick()
+        ui.onNodeWithText("继续编辑").performClick()
+        ui.onNodeWithText("主机地址").assertTextContains("draft.test")
+        ui.onNodeWithText("重新载入").performClick()
+        assertTrue(file.delete()); assertTrue(file.mkdir())
+        ui.onNodeWithText("放弃修改").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        ui.onNodeWithText("保存").assertIsNotEnabled()
+        ui.onNodeWithText("主机地址").assertIsNotEnabled()
+        ui.onNodeWithText("查看与编辑 SSH 配置").assertIsNotEnabled()
+        assertTrue(file.delete())
+        file.writeText("Host demo\n  HostName external.test\n  User owner\n")
+        ui.onNodeWithText("重新载入").performClick()
+        ui.onNodeWithText("放弃修改").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        assertEquals(Page.EDIT_HOST, model.page)
+        ui.onNodeWithText("主机地址").assertTextContains("external.test")
+        ui.onNodeWithText("主机地址").performTextReplacement("next-draft.test")
+        closeSoftKeyboard()
+        file.writeText("Host other\n")
+        ui.onNodeWithText("保存").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        ui.onNodeWithText("重新载入").performClick()
+        ui.onNodeWithText("放弃修改").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        assertEquals(Page.HOSTS, model.page)
+        ui.onNodeWithText("other").assertIsDisplayed()
+        ui.onNodeWithText("demo").assertDoesNotExist()
+        assertFalse(File(directory, "home/.ssh").listFiles()!!.any { it.name.startsWith("config.backup-") })
+    }
     @Test fun fieldSourcesAndSharedBlockWarningAreVisible() {
         load("User inherited\nHost demo sibling\n  HostName example.test\n  User explicit\n")
         ui.onAllNodesWithText("编辑")[0].performClick()
