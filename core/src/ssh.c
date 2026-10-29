@@ -322,9 +322,14 @@ static int kh_append(const char *path, const char *host, uint16_t port,
     gt__set_error("known_hosts 写入失败: %s", strerror(errno));
     return GT_ERR_IO;
   }
-  if (port == 22) fprintf(f, "%s %s %s\n", host, key_type, key_b64);
-  else fprintf(f, "[%s]:%u %s %s\n", host, (unsigned)port, key_type, key_b64);
-  fclose(f);
+  int written = port == 22 ? fprintf(f, "%s %s %s\n", host, key_type, key_b64)
+                          : fprintf(f, "[%s]:%u %s %s\n", host, (unsigned)port, key_type, key_b64);
+  int write_error = errno;
+  int closed = fclose(f); /* Flush may be the first operation that reports IO failure. */
+  if (written < 0 || closed != 0) {
+    gt__set_error("known_hosts 写入失败: %s", strerror(written < 0 ? write_error : errno));
+    return GT_ERR_IO;
+  }
   return GT_OK;
 }
 
@@ -535,8 +540,10 @@ int gt_ssh_handshake(gt_ssh_t *ssh) {
   } else if (ssh->decide) {
     decision = ssh->decide(ssh->decide_ud, ssh->host, port, ktype,
                            fingerprint ? fingerprint : "");
-    if (decision == GT_HOSTKEY_ACCEPT && kh == KH_UNKNOWN && b64)
-      kh_append(ssh->kh_path, ssh->host, port, ktype, b64);
+    if (decision == GT_HOSTKEY_ACCEPT && kh == KH_UNKNOWN && b64) {
+      int saved = kh_append(ssh->kh_path, ssh->host, port, ktype, b64);
+      if (saved != GT_OK) { free(b64); free(fingerprint); return saved; }
+    }
   } else {
     decision = GT_HOSTKEY_UNKNOWN;
   }

@@ -43,6 +43,15 @@ def main():
         ('K14-sync', 'if (kh == KH_REVOKED || kh == KH_UNSUPPORTED || kh == KH_IO)',
          'if (kh == KH_UNSUPPORTED || kh == KH_IO)', 'revoked-only sync'),
         ('K15-async', 'if(result==KH_REVOKED){', 'if(false && result==KH_REVOKED){', 'revoked-only async'),
+        ('K16-write-result', 'gt__set_error("known_hosts 写入失败: %s", strerror(written < 0 ? write_error : errno));\n    return GT_ERR_IO;',
+         'gt__set_error("known_hosts 写入失败: %s", strerror(written < 0 ? write_error : errno));\n    return GT_OK;', 'save-write-failure async'),
+        ('K17-flush-result', 'if (written < 0 || closed != 0)', '(void)closed; if (written < 0)', 'save-flush-failure'),
+        ('K18-sync-save', 'if (saved != GT_OK) { free(b64); free(fingerprint); return saved; }',
+         'if (false && saved != GT_OK) { free(b64); free(fingerprint); return saved; }', 'save-open-failure sync'),
+        ('K19-async-save', 'if(rc!=GT_OK){connector_fail(c,rc);return rc;}',
+         'if(false && rc!=GT_OK){connector_fail(c,rc);return rc;}', 'save-open-failure async'),
+        ('K20-open-result', 'gt__set_error("known_hosts 写入失败: %s", strerror(errno));\n    return GT_ERR_IO;',
+         'gt__set_error("known_hosts 写入失败: %s", strerror(errno));\n    return GT_OK;', 'save-open-failure'),
     ]
     with tempfile.TemporaryDirectory(prefix='kh-mutation-', dir=ROOT / 'tmp') as directory:
         work = Path(directory)
@@ -83,7 +92,7 @@ def main():
         finally:
             copy.write_bytes(original)
             if hashlib.sha256(source.read_bytes()).digest()!=digest: raise RuntimeError('production source changed')
-    print('KNOWN HOSTS MUTATIONS PASS: 15 groups',flush=True)
+    print(f'KNOWN HOSTS MUTATIONS PASS: {len(cases)} groups',flush=True)
 
 
 if __name__=='__main__':

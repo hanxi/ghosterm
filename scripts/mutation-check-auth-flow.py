@@ -39,6 +39,7 @@ def main():
             ('methods','SSHAuthenticationFlow.swift','self.prompts.methods(id, info.methods, info.error)','self.prompts.methods(id, 0, info.error)'),
             ('revoked-message','SSHAuthenticationFlow.swift','info.host == .revoked ?', 'false ?'),
             ('revoked-binding','../../../GhostermCore/Sources/GhostermCore/SSHAuthenticator.swift','mismatch, revoked }','mismatch, revoked = 99 }'),
+            ('trust-save-result','SSHAuthenticationFlow.swift','if status != 0 { self.fail(status, decision == .reject ?', 'if false { self.fail(status, decision == .reject ?'),
         ]
         try:
             for name,file,old,new in mutants:
@@ -52,5 +53,5 @@ def main():
             for file,b in original.items():
                 (folder/PREFIX/file).write_bytes(b)
                 assert hashlib.sha256((ROOT/PREFIX/file).read_bytes()).digest()==sha[file]
-    print('PASS shared product authentication mutations (5 groups)')
+    print(f'PASS shared product authentication mutations ({len(mutants)} groups)')
 if __name__=='__main__':main()

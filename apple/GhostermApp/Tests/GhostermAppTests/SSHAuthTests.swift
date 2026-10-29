@@ -194,6 +194,22 @@ final class SSHAuthTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testTrustSaveFailureStopsBeforeCredentialsAndReportsPersistence() throws {
+        guard let e = try sshEnv() else { throw XCTSkip("未设置 GHOSTERM_SSH_* —— 跳过") }
+        let known = try isolatedKnownHosts() + "-missing/known_hosts"
+        let cfg = try writeConfig(host: e.host, port: e.port, user: e.user, identity: e.keyPath)
+        let model = isolatedAppModel(configPath: cfg, knownHostsPath: known)
+        let interaction = RecordingInteraction(); model.interaction = interaction
+        model.openSFTP(for: "gatehost")
+        XCTAssertTrue(waitUntil(model, timeout: 10) { $0.status.contains("无法保存主机信任记录，连接已停止") }, model.status)
+        XCTAssertEqual(interaction.hostKeyPrompts, 1)
+        XCTAssertTrue(interaction.prompts.isEmpty)
+        XCTAssertNil(model.remoteFiles?.panel)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: known))
+        model.disconnectForTesting()
+    }
+
     /// 连一次之后**不该**往 Keychain 里塞「已解锁的 PEM」。
     ///
     /// 那一步（一个 generic-password 项被反复读）正是 macOS 弹

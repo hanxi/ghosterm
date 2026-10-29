@@ -77,7 +77,7 @@ final class SSHAuthenticationFlow {
                         self.prompting = false; scope.cancel()
                         if decision == .unknown { self.fail(8, "未确认主机密钥，SSH 连接已取消"); return }
                         let status = self.authenticator?.decide(decision) ?? 8
-                        if status != 0 { self.fail(status, decision == .reject ? "主机密钥已拒绝" : "无法保存主机密钥裁决") }
+                        if status != 0 { self.fail(status, decision == .reject ? "主机密钥已拒绝" : "无法保存主机信任记录，连接已停止") }
                     }
                 }
             }

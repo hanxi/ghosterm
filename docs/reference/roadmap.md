@@ -28,6 +28,7 @@ Android 已交付输入后短时取帧和模拟器 debug 性能基线，新增�
 - [x] `ssh_config` 解析、Include、42 键 × 6 host 求值对拍与未编辑逐字节往返；基本稀疏编辑和非连续重复指令修复已交付。14 个写回用例不扩大为全部配置形态已验证，已增加三个连接字段的来源与歧义编辑保护，完整块视图仍待补齐。
 - [x] 可取消的异步 SSH 认证、主机密钥确认、方法发现、凭据请求归属；普通 SSH/SFTP/tmux 复用 `SSHAuthenticationFlow`。
 - [x] 共享 known_hosts 保留标记、撤销优先且无关主机/密钥不误拒绝；同步与公开异步路径拒绝已撤销密钥，读取失败不降为未知。CA-only/未知标记/hashed 条目明确不支持，Swift 映射与 SFTP 产品入口已验。具体边界及本轮证据见 [Android 实现计划 §9.22](android-implementation.md#922-a3-共享主机信任前置2026-10-30)，不代表 Android SSH 已接线或主机证书已支持。
+- [x] TOFU 写入/关闭失败传播至同步/异步认证，并在凭据前停止；macOS SFTP 显示保存失败。真实文件限制与六组产品认证变异见 §9.23；全文件事务仍为后续项。
 - [x] macOS full libghostty + Metal；字节→网格、渲染层与自进程像素验证；中文等 IME 组合/提交链路。
 - [x] 有界输入写入、尾队列、异步关闭；PTY 控制终端、描述符隔离与退出状态未知不折叠。
 - [x] 本地 cwd 内核查询；OSC 133/7501 上报、程序状态与上一命令失败提示。
@@ -80,7 +81,7 @@ M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。i
 | P0 | macOS 主机表单保真 | `HostListModel.directives` 用 Swift 按空格扫描原文；`HostEditorSheet.save` 提交全部显示字段；`AppModel.applyEdits/addHost` 先改共享内存模型再写盘，失败路径未重建模型 | 用共享块/指令契约读取，正确处理 tab、`=`、引号与重复指令；仅改目标字段，未改保存字节不变；候选配置成功落盘后才发布，失败不污染后续编辑；真实表单回归与变异 |
 | P0 | SSH 配置求值与执行边界 | `ResolvedHost` 返回 ProxyJump/ForwardAgent/Compression/ServerAliveInterval/SetEnv/LocalForward，但 `HostListModel.reload` 仅保留地址、用户、端口、身份文件；`SSHConnectionTarget` 与 `SSHOptions` 未传递这些高级选项，认证直接解析目标地址，没有统一不支持校验 | 连接前按真实能力检查生效配置及来源；未实现且影响连接的显式选项列名报不支持，不绕过跳板直连。普通 SSH、独立/内嵌 SFTP、远端 tmux 共用判定；验证拒绝发生在 DNS/TCP/凭据请求前，普通支持配置对照仍可连接。支持能力可以分期补，拒绝遗漏不能作为转发功能一起延后；Android A3 同步执行 |
 | P0 | 私钥安全存储接线 | `SSHCredentialSelector.Storage.readKey` 每次读取受限磁盘 PEM；Keychain 实际保存口令/密码，旧 PEM helper 不等于生产接线 | 明确导入与存储所有权，平台安全存储承接私钥；取消/拒绝清理与既有认证回归；不得更改铁律 #5 迁就现状 |
-| P1 | 主机信任持久化失败 | `kh_append` 未检查 `fprintf` / `fclose`；同步握手忽略 helper 返回值，异步确认仅传播已报告的错误。标记/读取修复不覆盖写侧 | 写入与关闭失败必须返回错误，不能宣布已保存信任；同步/异步及 macOS 提示保留失败原因，Android A3 同步验收。注入打开失败、短写/关闭失败，验证不进入凭据阶段、原信任记录保留及正常 TOFU 对照；当前仅源码复核，尚无新增失败注入证据 |
+| P1 | 主机信任写入完整性 | 写入/关闭错误已传播，同步/异步均停止，macOS SFTP 已显示保存失败；当前仍直接追加，没有全文件事务 | 后续补部分写入/并发写入的提交策略及相应故障证据；不得把零追加预算下原记录不变，扩大为任意失败都完整回滚或断电持久性。Android A3 需保留保存失败与信任拒绝的不同提示，见 §9.23 |
 | P1 | macOS 终端配置读写 | `SettingsStore.rawConfig` 把读取失败折为空串；初始 stat 为空时不检测后来创建的文件；`merging` 只改首个同名键而 `value` 取最后一个；`applyTerminalSettings` 先写盘再验证引擎，全文替换的恢复错误被 `try?` 忽略 | 区分不存在/读取失败，外部创建也触发冲突；按引擎键语义处理重复项，保存后实际字号/主题符合用户意图；验证失败保留旧文件及 surface，提交/恢复失败明确报告；故障注入和变异见下文 |
 | P1 | macOS 终端系统剪贴板 | `CGhostty/shim.c` 读取回调返回不可用，写入/确认回调为空；`TerminalHostView` 无 `copy:` / `paste:` 接线；菜单项和 `sendText` 编码测试不构成用户复制粘贴功能 | 接通真实选区与系统剪贴板、菜单/快捷键、模式感知粘贴及确认/取消；中文/组合字符/软换行保真，取消零输入，确认使用原始快照；新增目标红、独立键入对照绿、复原绿与 SHA256 |
 | P1 | macOS 别名重命名 | 共享 `gt_config_rename_host` 与 Swift `SSHConfig.rename` 已实现并定向验证，`HostEditorSheet` 仍仅新建时显示别名输入框 | 配置事务/表单保真修复后接入；仅替换目标 token，多别名/Include/冲突明确处理；重新求值与活动连接快照分离，验证连接 UUID/PID 不变 |
@@ -178,6 +179,8 @@ macOS 新增核对 `FilesPanelModel.loadTreeChildren/runLocalSearch/setPermissio
 本轮 Core **34 项 CTest / 73 ABI**、Apple **71/2**、JNI **19/54** 对拍、macOS 增量构建及 Android debug/测试 APK 构建通过；30 份 Markdown 的 **225 个本地链接/锚点**、原型 **16 个偏好键**文档覆盖及 `git diff --check` 通过。四份既有 Android 实现/探针/脚本 SHA256 保持一致，仅提交文档；没有重跑设备、完整 macOS 宿主、变异或 CI。日志在 `tmp/docs-final-cross-platform/`。
 
 各阶段分别记账，不把同一天的多次验证合并成一次全平台验收：
+
+**信任保存失败阻断（2026-10-30）**：同步/异步认证传播写入与关闭错误，macOS SFTP 明确报告保存失败且不请求凭据。真实文件大小限制与缺失父目录验两类算法；known-hosts 全量 20 组、auth 全量六组变异通过。Core 34/73、Apple 71/2、JNI 19/54、两端原生构建及 Android 47 项定向设备回归（零失败/错误/跳过）通过。初次夹具错误、无效变异及未覆盖边界见 [§9.23](android-implementation.md#923-主机信任保存失败阻断2026-10-30)；不宣称全文件原子提交，也不新增 Android SSH 或完整客户端交付证据。
 
 **共享主机信任及跨端文档同步（2026-10-30，实现 `f5aaf18`，基于 `fdf2721`）**：撤销优先、标记保留、未知/CA/哈希显式拒绝及读取错误已修复；新增公开撤销枚举，Swift 消费并通过 SFTP 产品入口验证无信任/凭据提示。真实 ed25519/ECDSA 同步/公开异步测试、15 组 known-hosts、5 组 macOS auth、8 组公开认证桥变异通过；Core 34/73、Apple 71/2、JNI 19/54、两端原生构建及 Android 47 项定向设备回归（零失败/错误/跳过）通过。具体失败过程、日志与未覆盖范围见 §9.22；没有本轮完整 101 项设备、完整 macOS 宿主或 CI 新证据。
 

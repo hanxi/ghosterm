@@ -19,6 +19,9 @@
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 static int g_pass = 0, g_fail = 0;
 #define CHECK(c, ...)                                        \
@@ -39,11 +42,81 @@ static char *read_file(const char *path) {
 
 /* 记下 decider 是否被叫过（叫过 = 核心没认出已知主机）。 */
 static int g_decider_calls = 0;
+static bool g_limit_on_accept = false;
+static struct rlimit g_write_limit;
 static gt_hostkey_decision_t decider(void *ud, const char *host, uint16_t port,
                                      const char *kt, const char *fp) {
   (void)ud; (void)host; (void)port; (void)kt; (void)fp;
   g_decider_calls++;
+  if (g_limit_on_accept) CHECK(setrlimit(RLIMIT_FSIZE, &g_write_limit) == 0,
+                               "write failure limit installed in decider");
   return GT_HOSTKEY_ACCEPT;
+}
+
+/* Real filesystem failures, not mocked success codes. Limit is installed only
+ * after trust has been read, and restored before inspecting the result. */
+static void persistence_case(const char *label, const char *path,
+                             const char *original, const char *host,
+                             uint16_t port, const char *user,
+                             bool asynchronous, bool limited, bool long_identity) {
+  if (original) {
+    FILE *f=fopen(path,"wb");
+    CHECK(f != NULL,"%s fixture open",label);
+    if (!f) return;
+    CHECK(fputs(original,f)>=0,"%s fixture write",label);
+    CHECK(fclose(f)==0,"%s fixture close",label);
+  }
+  struct rlimit previous;
+  CHECK(getrlimit(RLIMIT_FSIZE,&previous)==0,"%s original limit",label);
+  g_write_limit=previous;
+  g_write_limit.rlim_cur=original ? strlen(original) : 0;
+  void (*old_signal)(int)=signal(SIGXFSZ,SIG_IGN);
+  char identity[16384]; memset(identity,'a',sizeof(identity)-1); identity[sizeof(identity)-1]='\0';
+  gt_ssh_opts_t opts={.host=long_identity?identity:host,.port=port,.username=user,
+                     .known_hosts_path=path,.connect_timeout_ms=3000};
+  gt_ssh_t *ssh=gt_ssh_new(&opts);
+  CHECK(ssh != NULL,"%s session",label);
+  if (!asynchronous) {
+    g_decider_calls=0; g_limit_on_accept=limited;
+    CHECK(gt_ssh_set_hostkey_policy(ssh,decider,NULL)==GT_OK,"%s policy",label);
+    int result=gt_ssh_handshake(ssh);
+    g_limit_on_accept=false;
+    CHECK(setrlimit(RLIMIT_FSIZE,&previous)==0,"%s restore limit",label);
+    CHECK(result==GT_ERR_IO,"%s sync: got %d expected IO",label,result);
+    CHECK(g_decider_calls==1,"%s explicit consent exactly once",label);
+    CHECK(gt_ssh_auth_methods(ssh)==0,"%s no method discovery after save failure",label);
+  } else {
+    gt_ssh_auth_options_t options={.family=4,.timeout_ms=3000,.defer_credentials=true};
+    CHECK(inet_pton(AF_INET,host,options.address)==1,"%s address",label);
+    gt_ssh_authenticator_t *auth=NULL;
+    CHECK(gt_ssh_authenticator_open(&ssh,&options,&auth)==GT_OK && !ssh,"%s open",label);
+    gt_ssh_auth_phase_t phase=GT_SSH_AUTH_PHASE_TCP;
+    for (int i=0;i<4000;i++) {
+      phase=gt_ssh_authenticator_step(auth);
+      if (phase==GT_SSH_AUTH_PHASE_HOSTKEY || phase==GT_SSH_AUTH_PHASE_FAILED) break;
+      struct timespec pause={0,1000000}; nanosleep(&pause,NULL);
+    }
+    CHECK(phase==GT_SSH_AUTH_PHASE_HOSTKEY,"%s unknown host before save",label);
+    if (limited) CHECK(setrlimit(RLIMIT_FSIZE,&g_write_limit)==0,"%s limit",label);
+    int result=gt_ssh_authenticator_decide(auth,GT_HOSTKEY_ACCEPT);
+    CHECK(setrlimit(RLIMIT_FSIZE,&previous)==0,"%s restore limit",label);
+    CHECK(result==GT_ERR_IO,"%s async: got %d expected IO",label,result);
+    gt_ssh_auth_info_t info={0};
+    CHECK(gt_ssh_authenticator_info(auth,&info),"%s info",label);
+    CHECK(info.phase==GT_SSH_AUTH_PHASE_FAILED && info.error==GT_ERR_IO &&
+          info.host==GT_SSH_AUTH_HOST_UNKNOWN && info.auth_methods==0,"%s failed before credentials",label);
+    CHECK(gt_ssh_authenticator_step(auth)==GT_SSH_AUTH_PHASE_FAILED,"%s failure remains terminal",label);
+    gt_ssh_t *taken=NULL;
+    CHECK(!gt_ssh_authenticator_take(auth,&taken) && !taken,"%s no session after failed save",label);
+    gt_ssh_authenticator_close(auth);
+  }
+  gt_ssh_close(ssh);
+  signal(SIGXFSZ,old_signal);
+  if (original) {
+    char *after=read_file(path);
+    CHECK(after && !strcmp(original,after),"%s existing records unchanged",label);
+    free(after);
+  } else CHECK(access(path,F_OK)!=0,"%s no file falsely saved",label);
 }
 
 /* Both public connection paths must reject before credentials or TOFU. */
@@ -257,7 +330,23 @@ int main(int argc, char **argv) {
 #undef MARKER_CASE
   }
 
-  /* 4. 密钥变更 → 绝不自动接受（三态不折叠）。 */
+  /* 4. 保存失败必须在方法发现/凭据请求前阻断连接。 */
+  {
+    char path[1200];
+    snprintf(path,sizeof path,"%s/missing-parent/known_hosts",argv[5]);
+    persistence_case("save-open-failure",path,NULL,host,(uint16_t)port,user,false,false,false);
+    persistence_case("save-open-failure",path,NULL,host,(uint16_t)port,user,true,false,false);
+    snprintf(path,sizeof path,"%s/known_hosts_write_limit",argv[5]);
+    char original[8192];
+    const char *key=saved ? strchr(saved,' ') : NULL;
+    CHECK(key != NULL,"existing trust record fixture");
+    snprintf(original,sizeof original,"unrelated.invalid%s",key ? key : "\n");
+    persistence_case("save-flush-failure",path,original,host,(uint16_t)port,user,false,true,false);
+    persistence_case("save-flush-failure",path,original,host,(uint16_t)port,user,true,true,false);
+    persistence_case("save-write-failure",path,original,host,(uint16_t)port,user,true,true,true);
+  }
+
+  /* 5. 密钥变更 → 绝不自动接受（三态不折叠）。 */
   {
     FILE *f = fopen(kh, "wb");
     if (f) { fputs("garbage-host ssh-ed25519 AAAAgarbage\n", f); fclose(f); }
