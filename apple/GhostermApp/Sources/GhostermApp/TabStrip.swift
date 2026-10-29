@@ -8,10 +8,10 @@ struct TabStrip: View {
 
     var body: some View {
         GlassBar {
-            NavigationControls()
+            Color.clear.frame(width: WindowChrome.trafficLightsWidth, height: 1)
             ScrollViewReader { scroller in
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) {
+                    HStack(spacing: 4) {
                         ForEach(tabs.tabs) { tab in
                             TabChip(tab: tab, isActive: tab.id == tabs.activeTabID)
                                 .id(tab.id)
@@ -26,6 +26,7 @@ struct TabStrip: View {
                 .onChange(of: tabs.activeTabID) { id in if let id { scroller.scrollTo(id) } }
                 .onAppear { if let id = tabs.activeTabID { scroller.scrollTo(id) } }
             }
+            NewConnectionButton().frame(width: DS.controlSize, height: DS.controlSize)
         }
     }
 }
@@ -37,9 +38,8 @@ struct TabChip: View {
 
     var body: some View {
         HStack(spacing: DS.Padding.xs) {
-            TabCloseButton(tab: tab, visible: hovering)
             StatusDot(status: tab.status)
-            Text(tab.title).lineLimit(1)
+            Text(tab.title).lineLimit(1).truncationMode(.middle)
                 .frame(maxWidth: .infinity)
             if let badge = ProgramStatusBadge(record: tab.programStatusSummary,
                                               terminalName: tab.title) {
@@ -65,12 +65,13 @@ struct TabChip: View {
                     .background(Capsule().fill(Color.secondary.opacity(0.2)))
                     .help("\(tab.workspacePanes.count) 个分屏窗格")
             }
+            TabCloseButton(tab: tab, visible: hovering)
         }
         .padding(.horizontal, DS.Padding.s)
         .padding(.vertical, DS.Padding.xs)
         .frame(minWidth: 120, idealWidth: 180, maxWidth: 200)
         .background(
-            RoundedRectangle(cornerRadius: DS.Radius.control)
+            Capsule()
                 .fill(isActive ? Color.primary.opacity(0.12)
                                : Color.clear)
         )

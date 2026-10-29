@@ -22,18 +22,12 @@ final class TabPresentationTests: XCTestCase {
         XCTAssertEqual(preferences.tabPlacement, .sidebar, "非法值使用侧边默认布局")
     }
 
-    func testCompactSidebarSurvivesTopPlacementAndUsesIndependentStore() throws {
+    func testPlacementUsesIndependentStore() throws {
         let store = try defaults()
         var preferences = AppPreferences(defaults: store)
-        XCTAssertFalse(preferences.compactSidebar)
-        preferences.compactSidebar = true
         preferences.tabPlacement = .top
-        XCTAssertTrue(AppPreferences(defaults: store).compactSidebar, "切到顶部不能丢掉精简偏好")
-        preferences.tabPlacement = .sidebar
-        XCTAssertTrue(preferences.compactSidebar)
-        let independent = AppPreferences(defaults: try defaults())
-        XCTAssertFalse(independent.compactSidebar, "测试和窗口应读取指定存储")
-        XCTAssertEqual(independent.tabPlacement, .sidebar)
+        XCTAssertEqual(AppPreferences(defaults: try defaults()).tabPlacement, .sidebar,
+                       "窗口应读取指定存储")
     }
 
     func testModelPublishesLayoutChangesWithoutChangingTabs() throws {
@@ -52,8 +46,7 @@ final class TabPresentationTests: XCTestCase {
         var changes = 0
         let observation = model.objectWillChange.sink { changes += 1 }
         model.preferences.tabPlacement = .top
-        model.preferences.compactSidebar = true
-        XCTAssertEqual(changes, 2, "布局设置必须立即通知已有视图")
+        XCTAssertEqual(changes, 1, "布局设置必须立即通知已有视图")
         XCTAssertEqual(model.preferences.tabPlacement, .top)
         model.toggleTabPlacement()
         XCTAssertEqual(model.preferences.tabPlacement, .sidebar, "布局命令写同一份偏好")

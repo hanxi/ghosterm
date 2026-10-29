@@ -124,7 +124,6 @@ enum DS {
     static let tabStripHeight: CGFloat = 38
     /// 侧边栏默认宽度与可拖拽范围。
     static let sidebarWidth: CGFloat = 240
-    static let compactSidebarWidth: CGFloat = 88
     static let sidebarMinWidth: CGFloat = 180
     static let sidebarMaxWidth: CGFloat = 360
     /// 设置窗口的内容宽度（所有页都按它排版，窗口高度随页高）。

@@ -153,7 +153,7 @@ settings-ui / tab-chrome / workspace / tabs / chrome / pane-chrome /
 auth / login-shell / transport / ssh / sftp / exec / files / transfers /
 dragdrop / terminal / pixel / focus / split-dim / occlusion / known-hosts /
 package-mac / icons / ghostty-patch / program-status / split-divider / public-headers / pty-inheritance / app-update / default-entry / ssh-auth / ssh-credentials / tmux / tmux-ui / tmux-ssh / install-macos / sidebar-hover。
-`tab-chrome` 验证单个原生窗口中的顶部 / 侧边导航、真实红绿灯避让、无顶部空带、唯一加号、
+`tab-chrome` 验证单个原生窗口中的顶部 / 侧边导航、真实红绿灯避让、无顶部空带、唯一加号（顶部固定右端 / 侧栏紧随最后一个标签）、
 标签 UUID 选择 / 关闭确认 / 重排 / 右键、唯一 sheet 与窗口关闭路由；用两个真实 shell
 验证布局切换保留宿主、surface、PID、窗格焦点状态与 AppKit firstResponder。旧 `native-*`
 五份脚本随多窗口标签组整体退役，等价业务断言迁入本脚本，不再读取 AppKit 私有 ivar。

@@ -47,7 +47,6 @@ struct WorkspaceView: NSViewRepresentable {
     let splitPreview = SplitPreview()
     private var placement: GhostermAppModel.TabPlacement?
     private var zoomedID: UUID?
-    private var compactSidebar = false
     private var isDraggingPane = false
     private var workspaceLayout: WorkspaceLayout?
     private var focusedPaneID: UUID?
@@ -104,11 +103,11 @@ struct WorkspaceView: NSViewRepresentable {
             window?.makeFirstResponder(nil)
         }
         if self.tab !== tab || !isActive || !opts.showsTitleBar || tab.isLocked ||
-            placement != model.preferences.tabPlacement || compactSidebar != model.preferences.compactSidebar || zoomedID != tab.zoomedPaneID ||
+            placement != model.preferences.tabPlacement || zoomedID != tab.zoomedPaneID ||
             workspaceLayout != tab.workspaceLayout || focusedPaneID != tab.activeWorkspacePaneID {
             splitPreview.clear()
         }
-        placement = model.preferences.tabPlacement; compactSidebar = model.preferences.compactSidebar
+        placement = model.preferences.tabPlacement
         zoomedID = tab.zoomedPaneID
         workspaceLayout = tab.workspaceLayout; focusedPaneID = tab.activeWorkspacePaneID
         self.tab = tab; self.opts = opts; self.isActive = isActive

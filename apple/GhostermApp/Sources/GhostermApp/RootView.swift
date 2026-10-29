@@ -51,7 +51,7 @@ struct RootView: View {
         HStack(spacing: 0) {
             if showsSidebar {
                 Sidebar(model: model, tabs: tabs)
-                    .frame(width: model.preferences.compactSidebar ? DS.compactSidebarWidth : DS.sidebarWidth)
+                    .frame(width: DS.sidebarWidth)
                 Divider()
             }
             VStack(spacing: 0) {

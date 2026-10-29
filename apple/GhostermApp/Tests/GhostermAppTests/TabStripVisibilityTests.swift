@@ -10,50 +10,71 @@ import XCTest
             f.model.tabs.removeAll()
             for _ in 0..<count { f.model.tabs.add(TerminalTab(kind: .localShell, pane: TerminalPane())) }
             for placement in TabPlacement.allCases {
-                for compact in [false, true] {
-                    f.model.preferences.tabPlacement = placement
-                    f.model.preferences.compactSidebar = compact
-                    f.settle()
-                    let plus = f.views(NSButton.self).filter { $0.identifier?.rawValue == "new-connection" }
-                    XCTAssertEqual(plus.count, 1, "每种布局、空态和多标签都只能有一个加号")
-                    let button = try XCTUnwrap(plus.first)
-                    let rect = button.convert(button.bounds, to: nil)
-                    for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                        let light = try XCTUnwrap(f.window.standardWindowButton(kind))
-                        XCTAssertFalse(rect.intersects(light.convert(light.bounds, to: nil)), "加号不能遮住系统窗口按钮")
+                f.model.preferences.tabPlacement = placement
+                f.settle()
+                let plus = f.views(NSButton.self).filter { $0.identifier?.rawValue == "new-connection" }
+                XCTAssertEqual(plus.count, 1, "每种布局、空态和多标签都只能有一个加号")
+                let button = try XCTUnwrap(plus.first)
+                let rect = button.convert(button.bounds, to: nil)
+                for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                    let light = try XCTUnwrap(f.window.standardWindowButton(kind))
+                    let lightRect = light.convert(light.bounds, to: nil)
+                    XCTAssertFalse(rect.intersects(lightRect), "加号不能遮住系统窗口按钮")
+                    if placement == .top, let first = f.model.tabs.tabs.first {
+                        let row = try f.tabView(first.id)
+                        XCTAssertFalse(row.convert(row.bounds, to: nil).intersects(lightRect), "顶部标签不能遮住系统窗口按钮")
                     }
-                    XCTAssertEqual(f.window.tabbingMode, .disallowed)
-                    XCTAssertNil(f.window.toolbar, "不保留会占位的旧原生 toolbar")
-                    XCTAssertFalse(f.window.tabGroup?.isTabBarVisible ?? false, "不能出现第二条系统标签栏")
-                    let navigation = navigationButtons(f, placement: placement, compact: compact)
-                    XCTAssertEqual(navigation.count, 1, "导航区只保留加号，不再放切换或搜索按钮")
-                    if count > 0 {
-                        let rootTop = f.root.convert(f.root.bounds, to: nil).maxY
-                        let workspace = try XCTUnwrap(f.views(WorkspaceHostView.self).first)
-                        let bounds = workspace.convert(workspace.bounds, to: nil)
-                        if placement == .sidebar {
-                            XCTAssertEqual(bounds.maxY, rootTop, accuracy: 1, "侧栏模式不能留下顶部空带")
-                            XCTAssertEqual(bounds.minX, compact ? DS.compactSidebarWidth : DS.sidebarWidth, accuracy: 2)
-                        } else {
-                            XCTAssertEqual(rootTop - bounds.maxY, WindowChrome.barHeight, accuracy: 2, "顶部模式只预留一行标签栏")
-                            XCTAssertEqual(bounds.minX, 0, accuracy: 1)
-                        }
+                }
+                XCTAssertEqual(f.window.tabbingMode, .disallowed)
+                XCTAssertNil(f.window.toolbar, "不保留会占位的旧原生 toolbar")
+                XCTAssertFalse(f.window.tabGroup?.isTabBarVisible ?? false, "不能出现第二条系统标签栏")
+                let navigation = navigationButtons(f, placement: placement)
+                XCTAssertEqual(navigation.count, 1, "导航区只保留加号，不再放切换或搜索按钮")
+                if count > 0 {
+                    let rootTop = f.root.convert(f.root.bounds, to: nil).maxY
+                    let workspace = try XCTUnwrap(f.views(WorkspaceHostView.self).first)
+                    let bounds = workspace.convert(workspace.bounds, to: nil)
+                    if placement == .sidebar {
+                        XCTAssertEqual(bounds.maxY, rootTop, accuracy: 1, "侧栏模式不能留下顶部空带")
+                        XCTAssertEqual(bounds.minX, DS.sidebarWidth, accuracy: 2)
+                    } else {
+                        XCTAssertEqual(rootTop - bounds.maxY, WindowChrome.barHeight, accuracy: 2, "顶部模式只预留一行标签栏")
+                        XCTAssertEqual(bounds.minX, 0, accuracy: 1)
                     }
                 }
             }
         }
     }
 
-    func testPlusStaysAtTheSamePositionInStandardLayoutsAndOpensChooser() throws {
+    func testPlusFollowsTheLastSidebarTabAndStaysAtTheTopRight() throws {
         let f = try TabWindowFixture(); defer { f.close() }
         func plus() throws -> NSButton { try XCTUnwrap(f.views(NSButton.self).first { $0.identifier?.rawValue == "new-connection" }) }
-        try f.capture("sidebar")
-        let first = try plus(), old = first.convert(first.bounds, to: nil)
-        f.model.preferences.tabPlacement = .top; f.settle()
-        let second = try plus(), current = second.convert(second.bounds, to: nil)
-        XCTAssertEqual(current.midX, old.midX, accuracy: 1, "两种标准布局的加号位置一致")
-        XCTAssertEqual(current.midY, old.midY, accuracy: 1)
-        try f.capture("top")
+        for count in [0, 1, 3] {
+            f.model.tabs.removeAll()
+            for _ in 0..<count { f.model.tabs.add(TerminalTab(kind: .localFiles)) }
+            for placement in TabPlacement.allCases {
+                f.model.preferences.tabPlacement = placement
+                for width in [780.0, 1200.0] {
+                    f.window.setContentSize(NSSize(width: width, height: 600)); f.settle()
+                    let button = try plus(), rect = button.convert(button.bounds, to: nil)
+                    if placement == .top {
+                        XCTAssertEqual(rect.maxX, f.root.bounds.maxX - DS.Padding.s, accuracy: 2,
+                                       "顶部加号必须固定在最右端")
+                    } else {
+                        XCTAssertLessThan(rect.maxX, DS.sidebarWidth, "侧栏加号必须位于侧栏内")
+                        if let last = f.model.tabs.tabs.last {
+                            let view = try f.tabView(last.id), lastRect = view.convert(view.bounds, to: nil)
+                            XCTAssertLessThanOrEqual(rect.maxY, lastRect.minY + 1, "侧栏加号必须位于最后一个标签下方")
+                            XCTAssertLessThan(lastRect.minY - rect.maxY, 24, "侧栏加号应紧随标签而不是钉在底部")
+                        } else {
+                            let top = f.root.convert(f.root.bounds, to: nil).maxY
+                            XCTAssertLessThanOrEqual(rect.maxY, top - WindowChrome.barHeight, "空侧栏加号应位于红绿灯下方")
+                        }
+                    }
+                }
+            }
+        }
+        let second = try plus()
         second.performClick(nil)
         XCTAssertTrue(f.until { f.window.attachedSheet != nil }, "唯一加号必须打开连接选择器")
     }
@@ -101,13 +122,13 @@ import XCTest
             XCTAssertGreaterThan(try orange(), plain + 1000, "终端配置错误必须显示可见警告")
             let after = button.convert(button.bounds, to: nil)
             XCTAssertEqual(after, before, "配置警告不能移动加号")
-            XCTAssertEqual(navigationButtons(f, placement: placement, compact: false).count, 1)
+            XCTAssertEqual(navigationButtons(f, placement: placement).count, 1)
         }
     }
 
-    private func navigationButtons(_ f: TabWindowFixture, placement: TabPlacement, compact: Bool) -> [CGRect] {
-        let height = WindowChrome.barHeight * (placement == .sidebar && compact ? 2 : 1)
-        let width = placement == .sidebar ? (compact ? DS.compactSidebarWidth : DS.sidebarWidth) : f.root.bounds.width
+    private func navigationButtons(_ f: TabWindowFixture, placement: TabPlacement) -> [CGRect] {
+        let height = placement == .sidebar ? f.root.bounds.height : WindowChrome.barHeight
+        let width = placement == .sidebar ? (DS.sidebarWidth) : f.root.bounds.width
         let top = f.root.convert(f.root.bounds, to: nil).maxY
         var frames: [CGRect] = []
         for view in f.views(NSView.self) {

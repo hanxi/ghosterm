@@ -1,0 +1,23 @@
+{
+  "recordedAt": "2026-10-29T11:37:02+08:00",
+  "macOS": "26.6.2",
+  "method": "Production TabWindowController / NSWindow, real local PTY and full libghostty; offscreen cacheDisplay. Surfaces explicitly made visible and drawn for the capture. Desktop locked; not evidence of real OS activation or fullscreen.",
+  "windowSize": [
+    1080,
+    675
+  ],
+  "layouts": [
+    "sidebar",
+    "top"
+  ],
+  "appearance": [
+    "light",
+    "dark"
+  ],
+  "probeSHA256": "2f787ae3259e9f058ad38cbcbc58d8d180177fb04dca94ff1e3b689c62af9f10",
+  "sourceSHA256": {
+    "apple/GhostermApp/Sources/GhostermApp/Sidebar.swift": "a814eaa738f95b6f92c3f8d3052eeb5eab8ef3702cd3ca59bf67f24478421ab8",
+    "apple/GhostermApp/Sources/GhostermApp/TabStrip.swift": "63aef60e64420c3f0c2de6e5871d76782afacf9c1a3923917cc122fb62e2b54e",
+    "apple/GhostermApp/Sources/GhostermApp/NavigationControls.swift": "db599605b6199ea0bdc76ed80d84c02b258e8518e8502c0795c98bc04aa954b2"
+  }
+}

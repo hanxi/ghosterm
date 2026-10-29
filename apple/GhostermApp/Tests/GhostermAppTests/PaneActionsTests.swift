@@ -103,9 +103,8 @@ import XCTest
             f.settle(1)
             for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
                 f.window.appearance = NSAppearance(named: appearance)
-                for (layout, placement, compact) in [("sidebar", TabPlacement.sidebar, false), ("top", .top, false), ("compact", .sidebar, true)] {
+                for (layout, placement) in [("sidebar", TabPlacement.sidebar), ("top", .top)] {
                     f.model.preferences.tabPlacement = placement
-                    f.model.preferences.compactSidebar = compact
                     f.settle()
                     try hover(f, second.id, enter: true)
                     try button(f, second.id, "split-right").mouseEntered(with: event(f, .mouseEntered))
@@ -156,7 +155,7 @@ import XCTest
         f.model.preferences.tabPlacement = .top; f.settle()
         XCTAssertNil(workspace.splitPreview.path, "切换导航必须取消预览")
         try show()
-        f.model.preferences.compactSidebar.toggle(); f.settle()
+        f.model.preferences.tabPlacement = .sidebar; f.settle()
         XCTAssertNil(workspace.splitPreview.path)
         try show()
         f.model.toggleZoom(tabID: tab.id, paneID: first.id); f.settle()

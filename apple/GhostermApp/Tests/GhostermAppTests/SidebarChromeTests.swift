@@ -129,59 +129,25 @@ final class SidebarChromeTests: XCTestCase {
         return render(view, size: NSSize(width: 900, height: 600))
     }
 
-    // MARK: - 1/2. 按钮组贴红绿灯左对齐，且**开合两态位置一样**
-
-    /// 侧栏展开时：红绿灯的地盘上不许有我们的控件（就是用户截图里那团蓝色
-    /// 高亮），按钮组紧跟在红绿灯右边，而侧栏顶带的**右端是空的**。
-    ///
-    /// 右端那条是这次改版的反向断言：按钮以前钉在那里（「按钮待在它要动的
-    /// 那条边上」），结果同一个按钮在侧栏开 / 关两态里隔着大半个侧栏宽，
-    /// 开合一次就得重新找它。现在整组贴着红绿灯，两态同一个 x。
+    // 顶带只留系统红绿灯；侧栏新建入口移到标签列表末尾。
     @MainActor
-    func testSidebarOpenKeepsControlsNextToTrafficLights() throws {
+    func testSidebarHeaderOnlyReservesTrafficLights() throws {
         let (frame, scale) = try renderWindow(sidebar: true)
         XCTAssertGreaterThan(frame.width, 0, "抓帧失败")
-
-        let underLights = frame.controlPixels(
-            x0: 0, x1: Int(WindowChrome.trafficLightsWidth * scale),
-            y0: 0, y1: Int(WindowChrome.barHeight * scale))
-        XCTAssertEqual(underLights, 0,
-                       "侧栏展开时红绿灯的地盘上不该有我们的控件"
-                       + "（共 \(underLights) 个控件像素）")
-
-        let rightOfLights = frame.controlPixels(
-            x0: Int(WindowChrome.trafficLightsWidth * scale),
-            x1: Int((WindowChrome.trafficLightsWidth + 90) * scale),
-            y0: 0, y1: Int(WindowChrome.barHeight * scale))
-        XCTAssertGreaterThan(rightOfLights, 20,
-                             "侧栏展开时按钮组应紧跟红绿灯右边，实际控件像素 "
-                             + "\(rightOfLights)")
-
-        let atSidebarEdge = frame.controlPixels(
-            x0: Int((DS.sidebarWidth - 60) * scale),
-            x1: Int((DS.sidebarWidth - 2) * scale),
-            y0: 0, y1: Int(WindowChrome.barHeight * scale))
-        XCTAssertEqual(atSidebarEdge, 0,
-                       "侧栏顶带右端不该再有按钮（按钮组已改为贴红绿灯左对齐，"
-                       + "这样开合两态位置不变）；实际控件像素 \(atSidebarEdge)")
+        let header = frame.controlPixels(x0: 0, x1: Int(DS.sidebarWidth * scale),
+                                         y0: 0, y1: Int(WindowChrome.barHeight * scale))
+        XCTAssertEqual(header, 0, "侧栏顶带只预留红绿灯，不再画新建按钮")
     }
 
-    /// 侧栏收起时：同一组按钮停在**同一个 x**，一样跳开红绿灯。
     @MainActor
-    func testCollapsedControlsSitAtTheSamePlace() throws {
+    func testTopBarShowsThePlusAtTheRightEdge() throws {
         let (frame, scale) = try renderWindow(sidebar: false)
-        let underLights = frame.controlPixels(
-            x0: 0, x1: Int(WindowChrome.trafficLightsWidth * scale),
-            y0: 0, y1: Int(WindowChrome.barHeight * scale))
-        XCTAssertEqual(underLights, 0, "收起时按钮也不能压在红绿灯上")
-
-        let rightOfLights = frame.controlPixels(
-            x0: Int(WindowChrome.trafficLightsWidth * scale),
-            x1: Int((WindowChrome.trafficLightsWidth + 90) * scale),
-            y0: 0, y1: Int(WindowChrome.barHeight * scale))
-        XCTAssertGreaterThan(rightOfLights, 20,
-                             "收起时按钮组应在顶栏最左端（红绿灯右侧），"
-                             + "实际控件像素 \(rightOfLights)")
+        let underLights = frame.controlPixels(x0: 0, x1: Int(WindowChrome.trafficLightsWidth * scale),
+                                               y0: 0, y1: Int(WindowChrome.barHeight * scale))
+        XCTAssertEqual(underLights, 0, "顶部标签不能压在红绿灯上")
+        let rightEdge = frame.controlPixels(x0: frame.width - Int(44 * scale), x1: frame.width,
+                                           y0: 0, y1: Int(WindowChrome.barHeight * scale))
+        XCTAssertGreaterThan(rightEdge, 10, "顶部加号应画在最右端")
     }
 
     /// 侧栏底部不再有那条 ⚙︎ footer。

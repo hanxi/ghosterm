@@ -20,7 +20,6 @@ import XCTest
         let pid = String(text[range]).replacingOccurrences(of: "GT_TAB_PID_", with: "")
         for placement in [TabPlacement.sidebar, .top, .sidebar, .top] {
             f.model.preferences.tabPlacement = placement
-            f.model.preferences.compactSidebar.toggle()
             f.model.tabs.activate(first)
             XCTAssertTrue(f.until { firstHost.paneFocused && !secondHost.paneFocused && window.firstResponder === firstHost },
                           "切到第一页时键盘应落在该页终端")
@@ -74,7 +73,7 @@ import XCTest
                                                               timestamp: 0, windowNumber: f.window.windowNumber, context: nil,
                                                               eventNumber: 0, trackingNumber: 0, userData: nil))
             view.mouseEntered(with: entered); f.settle()
-            let local = NSPoint(x: placement == .top ? 16 : view.bounds.maxX - 12, y: view.bounds.midY)
+            let local = NSPoint(x: view.bounds.maxX - 12, y: view.bounds.midY)
             try f.click(view.convert(local, to: nil))
             XCTAssertEqual(f.model.tabs.closeRequest?.id, target.id, "关闭必须询问被点击的标签")
             XCTAssertEqual(f.model.tabs.activeTabID, other.id, "关闭后台标签不能顺便激活它")

@@ -361,10 +361,6 @@ private struct AppearancePane: View {
                 .accessibilityLabel("标签位置")
                 .accessibilityValue(model.preferences.tabPlacement.title)
             }
-            SettingsRow("侧边标签") {
-                Checkbox("精简模式", isOn: $model.preferences.compactSidebar)
-                    .disabled(model.preferences.tabPlacement != .sidebar)
-            }
 
             Divider()
 

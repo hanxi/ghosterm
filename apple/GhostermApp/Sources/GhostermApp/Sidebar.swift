@@ -5,24 +5,23 @@ import SwiftUI
 struct Sidebar: View {
     @ObservedObject var model: AppModel
     @ObservedObject var tabs: TabManager
-    private var compact: Bool { model.preferences.compactSidebar }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                NavigationControls(compact: compact)
-                if !compact { Spacer(minLength: 0) }
-            }
-            .padding(.horizontal, compact ? 0 : DS.Padding.s)
-            .background(WindowDragArea())
+            Color.clear.frame(height: WindowChrome.barHeight)
+                .background(WindowDragArea())
             ScrollViewReader { scroller in
                 List {
                     ForEach(tabs.tabs) { tab in
-                        TabRow(tab: tab, isActive: tab.id == tabs.activeTabID, compact: compact)
+                        TabRow(tab: tab, isActive: tab.id == tabs.activeTabID)
                             .id(tab.id)
                             .modifier(TabInteraction(model: model, tabs: tabs, tab: tab))
                             .listRowInsets(EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 6))
                     }
+                    NewConnectionButton(showsTitle: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 32)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
                 }
                 .listStyle(.sidebar)
                 .onChange(of: tabs.activeTabID) { id in if let id { scroller.scrollTo(id) } }
@@ -36,39 +35,14 @@ struct Sidebar: View {
 struct TabRow: View {
     @ObservedObject var tab: TerminalTab
     let isActive: Bool
-    var compact = false
     @State private var hovering = false
 
     var body: some View {
-        Group {
-            if compact { compactBody } else { expandedBody }
-        }
+        expandedBody
         .background(HoverTracking(hovering: $hovering, identifier: "tab-\(tab.id)"))
         .help("\(tab.title) · \(tab.subtitle)\n\(tab.status.label)")
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(tab.title)，\(tab.subtitle)，\(tab.status.label)")
-    }
-
-    private var compactBody: some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 5) {
-                StatusDot(status: tab.status)
-                Image(systemName: tab.isLocked ? "lock.fill" : tab.kind.symbolName)
-                if tab.lastCommandSummary?.failed == true {
-                    Circle().fill(Color.red).frame(width: 5, height: 5)
-                }
-            }
-            Text(String(tab.title.prefix(6))).font(DS.Font.captionSmall).lineLimit(1)
-            if let badge = ProgramStatusBadge(record: tab.programStatusSummary, terminalName: tab.title) {
-                ProgramStatusBadgeView(badge: badge)
-            }
-        }
-        .frame(maxWidth: .infinity).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: DS.Radius.control)
-            .fill(isActive ? Color.primary.opacity(0.12) : Color.clear))
-        .overlay(alignment: .topTrailing) { TabCloseButton(tab: tab, visible: hovering) }
-        .contentShape(Rectangle())
-        .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 
     private var expandedBody: some View {
@@ -76,7 +50,11 @@ struct TabRow: View {
         // （iGhostVT 的 SidebarRow 同口径——中性 slab，不是强调色；
         // 强调色 slab 在终端底色上看起来像 bug 而不是选中）。
         HStack(spacing: DS.Padding.s) {
-            StatusDot(status: tab.status)
+            Image(systemName: tab.kind.symbolName)
+                .font(DS.Font.callout)
+                .foregroundStyle(isActive ? .primary : .secondary)
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.primary.opacity(0.06)))
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: DS.Padding.xs) {
                     Text(tab.title).lineLimit(1)
@@ -113,8 +91,7 @@ struct TabRow: View {
                                               terminalName: tab.title) {
                 ProgramStatusBadgeView(badge: badge)
             }
-            Image(systemName: tab.kind.symbolName)
-                .font(DS.Font.caption).foregroundStyle(.tertiary)
+            StatusDot(status: tab.status)
             TabCloseButton(tab: tab, visible: hovering)
         }
         .padding(.horizontal, DS.Padding.xs)
