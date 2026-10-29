@@ -4,7 +4,17 @@
 > 状态：**S1 ✅ / S2 ✅ / S3 ✅ / S4 ✅ / S5 ✅ / S6（macOS）✅ / S6-iOS ⏳ / S7 ✅（文档收口）**。
 > 相关：`roadmap.md`（M4.6）、`capability-matrix.md`（SFTP / exec / files 行）。
 
-## 目标形态（已定的设计）
+## 当前实现与后续替代（2026-10-29）
+
+M4.6 的 macOS S1–S7 已交付，iOS S6 未开始。后续[统一工作区](workspace-handoff.md)已将固定内嵌面板和 `DualPaneFilesView` / `DualPaneSession` 替换为 `WorkspaceLayout` / `WorkspaceHostView`；终端、本地文件、远端文件都是同一布局中的窗格。`FilesPanelView`、后端接缝与全局 `TransferManager` 继续使用。
+
+独立 SFTP 标签仍默认本地+远端两栏，但这由工作区组合生成，不再有独立双栏渲染组件。当前侧栏只列活动标签，主机管理在连接选择器与菜单中；界面入口以[标签界面计划](plan-tab-chrome-refactor.md)为准。
+
+队列、暂停/继续/取消/重试、目录父任务、拖放和 Quick Look 已实现；本地多选拖出 Finder、连接级活性、目录冲突窗口端到端等仍有缺口。路径式 SFTP job 不提供非覆盖独占创建，也没有可靠覆盖截断契约；不能将 UI 冲突选择当成并发写入安全保证。当前进度见[路线图](roadmap.md)。
+
+下文是 **M4.6 当时的设计与切片记录**：旧组件名、截图入口和测试数量仅用于追溯，不代表当前调用路径或当前测试总数。
+
+## M4.6 原始目标形态
 
 三层形态，共享同一套「文件浏览器」UI 与后端接缝：
 
@@ -21,8 +31,7 @@
   `SFTPFileBackend`（core `gt_sftp_*`）挂在同一面板后面——延伸铁律 #1。
 - **SSH 面板懒开独立第二会话**（不复用终端会话）：libssh2「一会话一线程」，
   复用会互抢通道；代价是多一次握手/认证。
-- **远端加速走 exec 通道**，不装常驻守护进程：SFTP v3 的 readdir 是**每条目
-  一次往返**，大目录/递归搜索慢到不可用；远端 `find`/`grep` 一次往返即可。
+- **远端加速走 exec 通道**，不装常驻守护进程：递归 SFTP 遍历包含多次目录/属性请求，远端 `find`/`grep` 可减少宿主发起的请求；实际收益依赖 RTT、目录结构与服务器。
   服务器禁 exec → `GT_ERR_UNSUPPORTED`，**显式回退** SFTP walk（档位在 UI 标注），
   绝不静默降级（铁律 #6）。不做 vscode-server 式常驻代理（另一套安全模型）。
 - **单会话串行**：每会话一把 I/O 锁 + 单条 I/O worker 线程驱动 SFTP job；
@@ -36,7 +45,7 @@
 ### 性能证据（exec vs walk）
 e2e 里造 300 文件宽目录，对比「远端 exec `find`」与「SFTP 逐层 walk」：两条路
 都找全；**环回上 exec 反而慢（~40ms vs ~3ms，起远端进程的开销）**，exec 的
-优势只在**真实 RTT** 链路显现（walk 每条目一次 RTT × 条目数）。故只断言正确性，
+优势需要在**真实 RTT** 链路另行测量，不能把每次 readdir 调用简单计为一次网络往返。故只断言正确性，
 耗时不设速度断言（环回会得出误导结论）。
 
 ### S1 ✅ core
@@ -74,7 +83,7 @@ Finder 拖入远程栏=上传）；本地条目拖出到 Finder；Quick Look（�
 iOS ⏳：底部抽屉 + 本地/远程分段——**未做**。根因（实测）：钉住的 libghostty
 **没有全量 iOS 构建路径**（`GhosttyLib.initMacOSUniversal` 只有 macOS；
 xcframework 只有 `macos-arm64` slice）；`swift build --triple ...-ios...-simulator`
-在 `GhostermTerminal` 就因 AppKit 失败。前置为独立上游里程碑。见 roadmap S6-iOS。
+在 `GhostermTerminal` 就因 AppKit 失败。前置为独立上游里程碑。当前排期见 roadmap 的 M6 及其他平台。
 
 ### 面板键盘（补齐）✅
 ⌘⇧E 唤出面板（菜单）；面板内 ⌘F（搜索）/⇧⌘N（新建文件夹）/⌘R（重命名）/

@@ -1,26 +1,27 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
-## 结构（规划）
+## 当前结构（2026-10-29）
 
-```
+```text
 apple/
-├── GhostermCore/        Swift 绑定：module map → core/include/ghosterm.h
-├── GhostermApp/         SwiftUI 宿主（macOS / iOS 共用）
-│   ├── Connections/     主机列表（读 ssh_config）
-│   ├── Terminal/        终端页（terminal/apple 的 surface）
-│   ├── Files/           SFTP 文件管理器
-│   └── Settings/
-└── Ghosterm.xcodeproj
+├── GhostermCore/       SwiftPM；module map → core/include/ghosterm.h
+├── GhostermTerminal/   SwiftPM；full libghostty + Metal、TerminalSurface/IME
+└── GhostermApp/        SwiftPM；当前仅 macOS
+    ├── Sources/GhostermApp/       SwiftUI/AppKit 页面与单窗口宿主
+    ├── Sources/GhostermAppModel/  会话、认证、工作区、文件、设置模型
+    ├── Tests/GhostermAppTests/
+    └── Resources/Info.plist.in
 ```
 
-## 要点
+没有 `Ghosterm.xcodeproj`；`.app` 由脚本组装。`Package.swift` 仅声明 macOS，iOS 尚无可用 target/引擎产物，不是已经共享的一套宿主。
 
-- 终端走 `terminal/apple`（full libghostty + Metal）；
-- SSH/本地 shell 走 `core` 的 transport（`gt_transport_open_ssh_shell` /
-  `gt_transport_open_pty`）；
-- iOS 与 macOS 共用 SwiftUI，差异用 `#if os(...)` 显式标注，不做隐式降级。
-- **UI 的已知坑**（AppKit 会静默吃掉 `Menu` 里的视图、抓帧取位图的顺序等）
-  见 `docs/reference/apple-ui-pitfalls.md`——动这块前先扫一眼，别重复踩。
+`TabWindowController` 管单窗口；顶部/侧边导航共用标签模型，只有一个新建按钮，侧栏只列活动标签。
+`WorkspaceLayout` / `WorkspaceHostView` 统一终端和文件窗格，旧独立双栏组件已退役。
+终端通过 `SessionController` 接 Transport，SFTP 使用专用 SSH owner；普通连接与 tmux 共用异步认证。
+
+已交付与遗留见[路线图](../docs/reference/roadmap.md)、[能力矩阵](../docs/reference/capability-matrix.md)。
+特别注意：`ConfigStore` 的强制备份/原子替换，以及私钥材料完整安全存储接线目前仍有实现缺口，不能把 helper 存在等同于生产能力完成。
+UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 ## 打包（macOS）
 

@@ -10,7 +10,7 @@ surface.resize(cols, rows)    ← 网格尺寸变化（要同时通知 transport
 
 | 子目录 | 引擎 | 渲染 | 状态 |
 |---|---|---|---|
-| `apple/` | full libghostty | Metal | 🟡 已接通（见 `apple/GhostermTerminal`；待办见 `terminal/apple/README.md`） |
+| `apple/` | full libghostty | Metal | ✅ macOS 已接通并有网格/像素/IME 证据；iOS 未交付（见 `terminal/apple/README.md`） |
 | `android/` | libghostty-vt + 自绘 | GLES/Canvas | ❌ |
 | `linux/`（规划） | full libghostty | OpenGL 4.3 core | ❌ |
 | `web/`（规划） | libghostty-vt + 自绘 | Canvas/WebGL（wasm） | ❌ |

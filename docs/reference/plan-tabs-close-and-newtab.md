@@ -1,6 +1,6 @@
 # 计划：关闭确认降噪 + ⌘T 继承当前标签页 + cwd 地基
 
-> 状态：**执行中**（决策见 §1）。范围：**S1–S5 实现**；**S6 只入 roadmap**。
+> 状态：**S1–S5 已交付**；S6 独立跳转与远端 cwd 仍延后。本文保留 2026-10-14 的设计/验收记录，当前单窗口导航与统一工作区见[标签界面计划](plan-tab-chrome-refactor.md)，可选后台保活见[tmux 计划](plan-optional-tmux.md)。
 > 进度：**S1–S5 全部落地（收口）**（前台判定 + 关闭确认降噪 + ⌘T 继承 & SFTP 每次新开 &
 > TabKind 统一 + cwd 地基的**本地**一半 + ⌘T 继承本地目录）；S6 只在 roadmap。
 > **S4 的诚实口径**：本地 cwd（内核 `gt_transport_child_cwd`）已交付且可靠；
@@ -178,7 +178,7 @@ cwd：本地 = 内核查询（可靠）；远端 = OSC 7（有则用、无则 ni
 
 ## 5. 闸门与变异
 
-- 闸门：`scripts/gate.sh`（含 `check-abi.sh` / `check-abi-apple.sh`）、`apple-gate.sh`、`terminal-gate.sh`、
+- 闸门：`scripts/gate.sh`（含 C `check-abi.sh`）、`check-abi-apple.sh`、`apple-app-gate.sh`、`terminal-gate.sh`、
   `gate-ghostty-patch.sh`（S4 动了 `shim.c`/头 → 必须）。
 - 变异脚本：
   - `scripts/mutation-check-tabs.sh`：**T2 / T6 / T8 锚点更新**，**新增 T9 / T10 / T11 / T12**。
@@ -189,7 +189,7 @@ cwd：本地 = 内核查询（可靠）；远端 = OSC 7（有则用、无则 ni
 
 ## 6. 明确不做 / 显式延后
 
-- daemon / 常驻 helper / 会话保活 / 标签页恢复。
+- 本历史切片不做 daemon / 常驻 helper / 会话保活 / 标签页恢复。后续可选 tmux 已交付，普通会话和标签跨重启恢复仍未提供。
 - **shell integration 注入（R2）**：给本地/远端 shell 注入 OSC 7/133 集成脚本，让 cwd 与语义提示符**无条件**可用。
   等于 Ghostty 的 shell-integration 整块（bash/zsh/fish/elvish/nushell + 远端传输 + 安全审慎），独立里程碑。
   （**OSC 133 透出**已做；缺的是**注入**。）

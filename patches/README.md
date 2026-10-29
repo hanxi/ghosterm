@@ -16,18 +16,10 @@ patches/
         └── WHY.md
 ```
 
-> 现状（`libghostty/8159838/`，2026-10-14）：
-> - `0001-host-io-backend.patch`（M1 落地）：给 surface 加 **host-managed IO**
->   后端（`ghostty_surface_config_s.host` + `host_write`/`host_resize` +
->   `ghostty_surface_process_output()`）。
-> - `0002-program-status.patch`：把 OSC 7501（Program Status Protocol）从
->   解析层接到嵌入者（`host_program_status` 同步回调 + 支持查询回包）。
->   上游当时只做到 libghostty-vt 层，full libghostty 的 app 路径是 no-op。
-> 两份补丁**叠加**（0002 改的是 0001 刚加的上下文），故 `gate-ghostty-patch.sh`
-> 按「在干净 pin 树上按序应用」的口径检查。
+> 当前补丁集（`libghostty/8159838/`，2026-10-29 核对）：
+> - `0001-host-io-backend.patch`：surface host-managed IO、输入/尺寸回调与输出 feed。
+> - `0002-program-status.patch`：OSC 7501 接到嵌入者与查询回包。
+> - `0003-semantic-prompt.patch`：OSC 133 语义提示符接到嵌入者。
 >
-> 历史：`libghostty/8159838/0001-host-io-backend.patch`（M1 落地）。给 surface 加
-> **host-managed IO** 后端：`ghostty_surface_config_s.host` 关掉子进程/pty，
-> `host_write` / `host_resize` 回调把输入与尺寸交给嵌入者，
-> `ghostty_surface_process_output()` 把 transport 读到的字节喂进网格。
-> 为什么、上游对照 commit 与可撤性见同目录 `WHY.md`。
+> 三份补丁按序叠加到锁定 pin 的隔离源码副本；`build-ghostty.sh` / 普通引擎构建器产生 SDK 和收据，`gate-ghostty-patch.sh` 验证补丁与导出符号。旧 session/replica 专用补丁已退役，不重新应用。
+> 每份补丁的理由、上游对照和撤除条件见 [WHY.md](libghostty/8159838/WHY.md)。

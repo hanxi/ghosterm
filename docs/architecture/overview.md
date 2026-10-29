@@ -19,12 +19,11 @@
 │ TerminalSurface —— 字节 ⇄ 屏幕（每端一个实现）           │
 │   Apple/Linux: full libghostty (Metal/GL4.3)             │
 │   Web/Android/HarmonyOS: libghostty-vt + 自绘            │
-│   Android/HarmonyOS: libghostty-vt + 自绘               │
 ├────────────────────────────────────────────────────────┤
 │ Transport —— 字节流（本地 PTY / SSH 同一接口）           │
 ├────────────────────────────────────────────────────────┤
 │ Core（C 共享库）—— ssh / sftp / ssh_config / known_hosts │
-│   / 端口转发 / POSIX+ConPTY PTY                          │
+│   POSIX PTY；端口转发 / ConPTY 待实现                    │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -35,7 +34,7 @@
 2. **字节流不过事件队列**：终端输出由会话线程 `transport_read → surface` 直连；
    事件队列只承载低频状态。这是性能红线。
 3. **C ABI 是唯一跨语言边界**：`core/include/ghosterm.h`。opaque handle + POD，
-   Swift module map / JNI / NAPI 三端绑定都从这里生成式对拍。
+   当前 Swift module map 与 C 符号引用已有对拍；JNI / NAPI 尚未实现，新增时必须纳入引用集合对拍并真实编译。
 
 ## 会话重构的当前进度
 
@@ -57,7 +56,7 @@ tmux session，采用普通 PTY 客户端；tmux 内部的 window/pane 不映射
 断线后由用户刷新列表并重新选择，不按旧名称自动创建或恢复，也不重放输入。
 
 自有 sessiond、私有恢复协议、快照/replica、安装与随包 runtime 已退役。
-共享管理模块与原生列表通过普通 Transport 接入；不存 session ID、不启动恢复轮询。实际支持范围见 [能力矩阵](../reference/capability-matrix.md)，
+共享管理模块与 macOS 原生列表通过普通 Transport 接入；不持久化 session ID、不启动恢复轮询。实际支持范围见 [能力矩阵](../reference/capability-matrix.md)，
 切片与验收见 [实施清单](../reference/optional-tmux-implementation.md)。
 
 ## 终端引擎分档（哪些端不能用 full libghostty）
@@ -68,7 +67,7 @@ OpenGL ES**，故 full libghostty 在 Android/HarmonyOS **没有可用渲染后�
 这就是 Chuchu / libghostty-ohos 都走 `libghostty-vt + 自绘` 的原因。
 
 Web 端同理：钉住的 libghostty 中 `renderer/WebGL.zig` 只是空 stub
-（`pub const WebGL = @This();`，上游 main 已无该文件），wasm 产物只有
+（`pub const WebGL = @This();`），wasm 产物只有
 libghostty-vt；[ghostty-web](https://github.com/coder/ghostty-web) 走的也正是
 `libghostty-vt`(wasm) + Canvas 2D 自绘。长期目标仍是 full libghostty
 （WebGL, wasm）——等上游补上该后端再评估切换。
@@ -81,7 +80,13 @@ libghostty-vt；[ghostty-web](https://github.com/coder/ghostty-web) 走的也正
 | Android / HarmonyOS | libghostty-vt + 自绘 |
 | Windows | 待验证（OpenGL on Windows 需 WGL/ANGLE） |
 
-## 参考实现（均为可复用蓝本）
+## 当前宿主状态与实现入口
+
+macOS 已由 `TabWindowController` 单窗口管理顶部/侧边标签；`WorkspaceLayout` 是终端与文件窗格唯一可写布局，`WorkspaceHostView` 保持宿主身份。旧多窗口标签组、独立双栏文件组件已退役。文件/配置等控制面经平台模型与绑定进入 Core，不经过终端字节通路。
+
+Android 与 `terminal/android` 目前仅有说明，没有 Gradle/JNI/renderer；实现以[最终原型](../design/android-prototype.html)和[详细计划](../reference/android-implementation.md)为基准。iOS 仍无可用宿主/引擎产物，不能把 macOS SwiftPM 包称为已跨 iOS。
+
+## 参考实现（技术对照）
 
 | 项目 | 平台 | 许可 | 借用点 |
 |---|---|---|---|

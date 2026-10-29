@@ -9,7 +9,7 @@
 
 - 输出：`ghostty_surface_process_output(surface, bytes, len)`
 - 输入：runtime callback `write_to_host_cb(userdata, bytes, len)`
-- 配置：font size/family setter（供 App 注入主题/字号）
+- 配置：宿主生成 Ghostty 配置并经 shim 的 app reload 下发已有 surface；不是只改 UI 字号
 - surface 以 `NSView` 为平台锚点；Metal 层由 libghostty 渲染
 
 `patches/libghostty/` 里必须记录每个补丁的**为什么**与**上游对照 commit**。
@@ -24,7 +24,7 @@
 | TerminalSurface（feed / onInput / onResize / sendKey / preedit / imePoint / sendCommittedText） | `Sources/GhostermTerminal/TerminalSurface.swift` |
 | SwiftUI 视图桥（NSViewRepresentable）+ 键盘/输入法（`NSTextInputClient`） | `Sources/GhostermTerminal/TerminalSurfaceView.swift` |
 | 上游补丁（host IO 后端） | `patches/libghostty/8159838/`（附 `WHY.md`） |
-| 构建产物 | `vendor/ghostty/macos/GhosttyKit.xcframework`（gitignore，由 `scripts/build-ghostty.sh` 生成） |
+| 构建产物 | `build/GhosttyKit.xcframework`（gitignore，由 `scripts/build-ghostty.sh` 生成） |
 
 接线（与 `core` 的 transport 对接）在 `apple/GhostermApp/Sources/GhostermAppModel/SessionController.swift`：
 
@@ -47,7 +47,7 @@ termio 线程：surface.onInput/onResize → 待办队列 → 会话线程执行
   **不是**粘贴——否则对端开了 bracketed paste 会把中文当成一次粘贴；
 - 候选窗锚点（`firstRect`）→ `ghostty_surface_ime_point`。
 
-观测与变异见 `TerminalIMETests` 与 `scripts/mutation-check-terminal.sh`（T5~T7）；
+观测与变异见 `TerminalIMETests` 与 `scripts/mutation-check-terminal.sh`（含 T5~T8）；
 坑与取舍记在 `docs/reference/apple-ui-pitfalls.md` 第 7 条。
 
 ### 渲染面注意
@@ -61,5 +61,5 @@ libghostty 的 Metal 渲染器要求 surface 的 NSView 是 **layer-hosting**：
 
 ## 待办
 
-- [ ] iOS 交叉编译（同一份 patch + `xcframework_target`）
-- [ ] 像素级渲染验证（需「屏幕录制」权限，当前闸门只到「渲染层已挂」）
+- [ ] iOS full libghostty 构建与 UIKit 宿主：当前 SwiftPM 依赖 AppKit，不能只加一个 `xcframework_target` 就交付 iOS。
+- [x] 自进程视图像素验证：`PixelRenderTests` 与 `mutation-check-pixel.sh` 已覆盖背景/前景颜色及对照，不需要屏幕录制权限；真实系统激活/全屏另见标签界面计划的桌面证据。

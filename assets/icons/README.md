@@ -41,8 +41,7 @@
 | Windows | `windows/` | `Ghosterm.ico`（16…256 多尺寸）；`Ghosterm-44/-150`、`StoreLogo`、`Ghosterm.png` 给 MSIX / Store 清单。**全部连续圆角 + 透明角**（Windows 不遮罩应用图标）|
 | 端侧只要「标记」 | `ghosterm-mark.svg` | 透明底、无投影、已居中放满画布；适合通知图标、内嵌 logo。注意幽灵本体是白的、眼睛是深色，**只适合深色底**，浅底请用整图 |
 
-> **尚未接入打包**：Apple 端当前是 SwiftPM 可执行（没有 `.xcodeproj` / `.app` bundle），
-> 所以图标先落在本目录、按上表在打包时接进去；其它端目录尚未开工，同理。
+> **macOS 已接入打包**：`scripts/package-mac.sh` 从 Apple appiconset 用 `iconutil` 生成 `AppIcon.icns`，放进脚本组装的 `.app`。源码仍是 SwiftPM，没有 `.xcodeproj`。iOS/Android 等端只有派生资源，尚无原生打包接线。
 
 ## 重新生成
 

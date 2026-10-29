@@ -1,8 +1,8 @@
 # runtime-payload — 按需下载的「环境包」
 
 运行时环境（Android 的 Termux bootstrap + proot、iOS 的 iSH）**不进 App 包**，
-用到时才下载。本目录只放**清单规范与下载/校验逻辑**；二进制与解压产物不入库
-（见 `.gitignore`）。
+用到时才下载。本目录当前只放**清单规范**，下载/校验/安装逻辑尚未实现；未来实现也限定在这一边界内。
+二进制与解压产物不入库（见 `.gitignore`）。
 
 ## 为什么不在包里
 
@@ -42,13 +42,12 @@
 2. 解压保留 symlink / 执行位 / 顺序；
 3. **原子激活**：解到临时目录 → 校验 → rename 到位；失败不破坏旧版本；
 4. 可回滚、可删除；
-5. **Android 额外注意**：app 数据目录内**不能直接 exec**（Android 10+ W^X）。
-   proot 方案下由 proot 负责挂载与执行，**proot 自身**仍须过这一关。
+5. **Android 执行限制**：面向 API 29+ 的普通 App 不能直接执行可写 App home 中的文件；不能把 proot 当成已证明的豁免。需在目标 SDK、系统和设备上验证整个启动链。见[官方执行限制说明](https://developer.android.com/about/versions/10/behavior-changes-10#execute-permission)。
 
-## Android proot 路线（已定）
+## Android proot 路线（待 PoC，不是已交付能力）
 
 - bootstrap 解到 App 私有目录；
 - 用 proot 把 `$PREFIX` 映射到目标路径（规避 Termux 官方 bootstrap 的
   `/data/data/com.termux/files/usr` 硬编码前缀）；
-- 以实现细节为准的 PoC 必须先验证：**proot 能起 + `apk`/`bash` 能跑 +
-  PTY 尺寸正确**，再谈 UI 接入。
+- PoC 必须验证 proot 本体与 bootstrap 中程序的合法启动、`bash` 和该 payload 实际包管理器、PTY 尺寸、目标 SDK/ABI/SELinux 行为；不把 Alpine 的 `apk` 当作 Termux 的包管理器。
+- PoC 未通过前不提供“已可安装”入口，不绕过 target SDK 约束宣称可用；普通 SSH 和系统 `/system/bin/sh` 先独立验证。阶段见 [Android 实现计划](../docs/reference/android-implementation.md)。
