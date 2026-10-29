@@ -7,7 +7,7 @@
 > 口径（铁律 #8）：**✅** 已实现且有闸门/实测证据 · **🟡** 已实现但只在某一档证据下成立
 > （必须写明哪档）· **⏳** 契约/占位在，无实现 · **❌** 未开始 · **⛔ WONTFIX** 不做并注明原因。
 >
-> 核对日期：**2026-10-29**。本轮 Core 32 项 CTest、71 个符号与 Apple 69 项引用/2 项登记未用对拍通过；macOS 原生构建通过。历史平台/像素/网络证据各自保留范围，未重跑的专项不算本轮结果。
+> 核对日期：**2026-10-29**，源码基线 `4ed1308`。C ABI 71 项、Apple 69 项引用/2 项登记未用、JNI 9 项引用/62 项待办；各次构建、设备测试与变异证据见[路线图验收记录](roadmap.md#验收记账与历史记录)。历史平台/像素/网络证据各自保留范围，未重跑的专项不算本轮结果。
 
 ## 核心（C）
 
@@ -21,7 +21,7 @@
 | 默认 IdentityFile 候选链 | ✅ | `gt_identity_policy_t` 五档（9_6=7 / 10_3=5 / MASTER=6 / NONE / CUSTOM），每条链注明出处；回落机制有断言 |
 | `ssh_config` **编辑** API（改值后无损写回） | 🟡 | `gt_config_edit`：`sshconfig_writeback` 9 用例逐字节对拍（`fixtures/writeback.json`）+ `=` 分隔符保留补充断言；B1~B6 变异有牙。A1 设备用例发现非连续重复指令会误删中间无关行；Android `ConfigRepository` 在保存前拒绝此类改动（C9 变异验证），Core 与 Apple 尚待修复 |
 | `Include` 展开 / glob | ✅ | `process_include`：相对路径基准 = **~/.ssh**（OpenSSH_10.3p1 实测 + 真 ssh `-G` 同口径对拍）、`~`/`~user`、glob 无匹配静默 / 具名缺失显式失败 / 嵌套 + 深度上限 16；被含内容不进写回（铁律 #4）；`test_config` 6 组断言 + 变异 I1~I4 有牙 |
-| 事件队列（低频、批量、非阻塞） | ✅ | `src/core.c` 环形缓冲 + 锁；`test_api`；SFTP job（PROGRESS ~16ms 合帧 / JOB_DONE 三态）经此上报 |
+| 事件队列（低频、批量轮询） | 🟡 | `src/core.c` 为加锁的 256 项环形缓冲；`test_api` 与 SFTP job 的 PROGRESS / JOB_DONE 证据已存在。队列满会覆盖最旧事件，尚无 job 终态查询 ABI，不能保证过载时终态不丢；需按路线图补保留/查询保障 |
 | Transport 接缝（本地 PTY） | ✅ | `gt_transport_open_pty`（POSIX forkpty）；`pty_transport` 行为断言（真 forkpty，离线）：EOF 前不丢最后一批 / 退出码 / 字节往返 / 超时不折叠 EOF / winsize / resize / TERM / close(NULL) 安全 / 前台作业四态 / 内核 cwd / **写绝不无限等**（第 13 节：pty 输入队列满时写要有界返回且积压字节随后补送——旧实现的 `poll(-1)` 会钉死会话线程 → 关标签页时 `queue.sync` 把主线程也钉死＝整个 app 无响应）；变异 `mutation-check-transport` P1~P4 有牙。**Swift 端** `StopBoundedTests` 断言 `SessionController.stop()` 只取消且有界返回，并等待弱引用证明 I/O owner 真正释放（当前 stop 不再同步等待队列）（走生产链路 `sendText → onInput → 会话线程 write`，子进程 `stty -icanon -echo` 才会真触发 EAGAIN 而非 canonical 丢弃），对 P4 验过牙（变异体挂起超时 / 干净 0.7s 绿） |
 | Transport 接缝（SSH shell） | ✅ | `gt_transport_open_ssh_shell`（libssh2 pty-req+shell）；`ssh_e2e` 真 sshd 回显/resize |
 | Transport：前台作业判定（关闭确认用） | ✅ | `gt_transport_child_state` **四态**（UNKNOWN/EXITED/IDLE/JOB）：POSIX 读内核 `tcgetpgrp(master) == shell 自己的进程组` 判「空闲提示符 vs 有作业」，SSH / ConPTY 报 `UNKNOWN`（**不猜**，铁律 #6）。`test_transport` 第 11 节（IDLE/JOB/EXITED/NULL→UNKNOWN）+ 变异 `mutation-check-transport` P1/P2 有牙。**前置修复**：本地 PTY 子进程曾拿不到控制终端（父进程抢跑 `setpgid` → 子进程 `setsid` 报 EPERM），已修 |
@@ -81,7 +81,7 @@
 | iOS | ❌ | ❌ | ❌ | ❌ | ❌ |
 | HarmonyOS / Windows / Linux / Web | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、冲突检查与原子替换。A1 继承/别名归属和 SAF UI 仍待补齐，终端、文件和完整设置未实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[实施记录](android-implementation.md#91-a0-实施记录2026-10-29)区分已验证与待办。
+Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、摘要复核与原子替换，按应用私有目录和协作锁约束工作，不承诺任意非协作写入者下的无竞态提交。A1 继承/别名归属和 SAF UI 仍待补齐，终端、文件和完整设置未实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[A1 实施记录](android-implementation.md#92-a1-主机与配置首片2026-10-29)区分已验证与待办。
 
 ### macOS 当前实现与限制
 
@@ -89,14 +89,14 @@ Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于
 |---|---|---|
 | SSH 与认证 | `AppModel` / `SSHAuthenticationFlow` 共用可取消认证；真实 sshd→shell→网格→resize；hostkey 未知/拒绝/变化分开 | 私钥材料生产路径仍从受限文件读取；见下方安全存储缺口 |
 | 本地 shell | 普通 PTY、登录语义、cwd、控制终端、背压、关闭与描述符隔离 | 普通会话不承诺跨 App 退出保活 |
-| 标签导航 | `TabWindowController` 单窗口；顶部/侧边切换、UUID 重排与关闭、唯一加号、搜索/菜单；无精简侧栏、无主机分组 | 跨重启标签持久化未做；本机证据不能代替 macOS 15 CI |
+| 标签导航 | `TabWindowController` 单窗口；顶部/侧边切换、UUID 重排与关闭、唯一加号、搜索/菜单、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；无精简侧栏、无主机分组 | 跨重启标签持久化未做（偏好已持久化）；本机证据不能代替 macOS 15 CI |
 | 工作区 | `WorkspaceLayout` / `WorkspaceHostView` 为统一终端/文件布局；四边停靠、中央交换、隐藏、缩放与焦点 | 真拖动图像、逐帧零尺寸、跨标签最小尺寸等见工作区交接 |
 | 窗格外观 | 跟随终端配色；当前分屏顶部蓝线；gap>0 细框，gap=0 共享分隔线；悬停/菜单分屏预览与 Shift | 离屏像素、可控窗口焦点、真实桌面激活/全屏是不同档证据 |
 | 文件浏览 | `FilesPanelView` 与本地/SFTP 后端；列表/树、搜索、操作、工具条折行、原生单击选择/双击打开与键盘归属 | 远端 cwd 未交付，不能声称与 SSH 当前目录同步 |
 | 独立文件标签 | SFTP 标签在同一工作区中创建本地+远端窗格；支持纯本地文件标签 | `SFTPBrowser`、`DualPaneFilesView`、`DualPaneSession` 均已退役，不能作为当前组件名 |
 | 文件传输 | `CoreEventPump` 唯一事件泵；`TransferManager` 父子任务、进度/速度/ETA、暂停继续取消重试；本地↔远端 | macOS 本地↔本地、远端↔远端统一队列未做；目录冲突 UI 等完整流程仍需补证据 |
 | 系统集成 | 栏间复制、Finder 拖入远端、本地代表条目拖出 Finder、Quick Look（远端临时下载） | 多选拖出 Finder 仍不完整；远端拖出 Finder 的文件承诺未做；iOS 无宿主 |
-| 配置 GUI | Host 编辑、通配规则、读取失败提示、稀疏无损编辑；`ConfigStoreTests` 覆盖正常备份和冲突 | 当前 `ConfigStore.save` 吞备份失败、先删后移，不满足强制备份与原子替换；不能标完整 ✅ |
+| 配置 GUI | Host 编辑、通配规则、读取失败提示、基本稀疏编辑；`ConfigStoreTests` 覆盖正常备份和冲突 | Core 非连续重复指令可能误删其他行；`ConfigStore.save` 吞备份失败、先删后移，不满足强制备份与原子替换；不能标完整 ✅ |
 | 终端设置与输入 | 配色/字号对已有 surface 生效，应用外观即时更新；macOS IME、辅助状态与焦点 | full 引擎配置机制不能自动套用于 Android vt 自绘 |
 
 **安全存储缺口**：当前 `SSHCredentialSelector.Storage.readKey` 从文件读取 PEM（限制 owner、权限、常规文件、大小且不跟随链接），Keychain 生产接线存口令/密码。`KeychainStore` 虽有 PEM helper，不能据此声称生产流程已做到私钥导入后只读安全存储。该缺口按 `AGENTS.md` 铁律 #5 继续修复，不修改规则来迁就代码。

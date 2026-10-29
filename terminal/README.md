@@ -11,10 +11,12 @@ surface.resize(cols, rows)    ← 网格尺寸变化（要同时通知 transport
 | 子目录 | 引擎 | 渲染 | 状态 |
 |---|---|---|---|
 | `apple/` | full libghostty | Metal | ✅ macOS 已接通并有网格/像素/IME 证据；iOS 未交付（见 `terminal/apple/README.md`） |
-| `android/` | libghostty-vt + 自绘 | GLES/Canvas | ❌ |
+| `android/` | libghostty-vt + 自绘 | GLES/Canvas（待实现） | 🟡 A0 交叉构建、JNI 装载和 VT 指令冒烟已验证；自绘、InputConnection、Transport 数据通路未实现 |
 | `linux/`（规划） | full libghostty | OpenGL 4.3 core | ❌ |
 | `web/`（规划） | libghostty-vt + 自绘 | Canvas/WebGL（wasm） | ❌ |
 | `harmony/`（规划） | libghostty-vt + 自绘 | ArkUI Canvas | ❌ |
 | `windows/`（规划） | 待定（OpenGL on Windows 需 WGL/ANGLE） | — | ❌ |
 
 **铁律**：surface **不得**知道背后是 SSH 还是本地 shell（铁律 #1）。
+
+Android 当前证据来自 API 36 arm64、4 KB 页模拟器，不代表真机或交互终端已交付；见 [Android 引擎说明](android/README.md)与[实现阶段](../docs/reference/android-implementation.md)。

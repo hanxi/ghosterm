@@ -141,7 +141,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 2. 跑 `scripts/check-abi.sh`：`nm` 静态库实际导出名 ↔ 头文件声明，**双向对拍**（漏导出与多泄漏都拦）。
 
 > **当前覆盖范围（诚实标注）**：`check-abi.sh` 对拍「`core/` 内部实现 ↔ 头文件」；
-> `check-abi-apple.sh` 另对拍 Swift 的引用名集合（69 项引用、2 项显式登记未用）。JNI / NAPI 尚无绑定。
+> `check-abi-apple.sh` 另对拍 Swift 的引用名集合（69 项引用、2 项显式登记未用）；
+> `check-abi-android.py` 对拍 Android JNI 引用（9 项引用、62 项按阶段显式登记待办）。
+> Android 目前只有组件/配置绑定，终端 Transport、SSH/SFTP 尚未接线；NAPI 尚无绑定。
 > 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
 
 ### 变异验证（新增闸门必须附）
@@ -199,7 +201,7 @@ full surface，断言内层任务 PID 不变；旧绑定不提供结束入口。
 （`tmux-ssh` 用 `python3 scripts/mutation-check-tmux-ssh.py` 配合隔离真 sshd 运行，六组变异护
 PTY、退出未知、变更结果未知、总 deadline、取消与背压尾队列；目标红、同变异下 lifecycle
 仍绿、回滚后目标绿并核对 SHA。TCP 代理以非阻塞双向缓冲保留密文，静默断网与恢复不丢
-中间字节；3 MiB 负载必须由远端任务回报完整 SHA256。属于手工证据，未计入 CI 17 份。）
+中间字节；3 MiB 负载必须由远端任务回报完整 SHA256。属于手工证据，未计入上述 CI 20 份。）
 （`ssh-auth` 保留公开非阻塞认证的八组翻译变异；`ssh-credentials` 保留方法表、取消、请求归属、
 拒绝凭据清理、服务端方法掩码与未知格式六组变异。它们独立于旧安装器和 daemon 探针运行。）
 （`app-update` 护 dev 版**更新检测**这条链——七组变异，每组都要让对应断言变红并带一条

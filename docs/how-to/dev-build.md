@@ -175,7 +175,7 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
 
 ## dev 包的边界（不是缺陷，是现状）
 
-- **只有 macOS**。Android / iOS 目前没有构建入口，不是 CI 漏了一条。
+- **此 dev 发布渠道只有 macOS**。Android 已有[本地 debug APK 构建入口](../../android/README.md)，但尚无 Android CI/发布渠道；iOS 仍无可用构建入口。
 - **`dev` 不能当自动更新通道**：每轮 ad-hoc 签名的 cdhash 都不同，而 `dev` tag 会被
   强删重建；做自动更新要等 Developer ID 签名 + 公证（见
   [roadmap](../reference/roadmap.md) 的遗留项）。「有没有新版」的检测不受此限制，

@@ -20,8 +20,34 @@ apple/
 终端通过 `SessionController` 接 Transport，SFTP 使用专用 SSH owner；普通连接与 tmux 共用异步认证。
 
 已交付与遗留见[路线图](../docs/reference/roadmap.md)、[能力矩阵](../docs/reference/capability-matrix.md)。
-特别注意：`ConfigStore` 的强制备份/原子替换，以及私钥材料完整安全存储接线目前仍有实现缺口，不能把 helper 存在等同于生产能力完成。
+特别注意：共享 `gt_config_edit` 的非连续重复指令编辑、`ConfigStore` 的强制备份/原子替换，以及私钥材料完整安全存储接线目前仍有实现缺口。Android 的写盘与原文检查只保护 Android 调用方，不能算作 macOS 已修复。
 UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
+
+## 当前功能与代码入口
+
+下表路径相对 `GhostermApp/Sources/`。页面名称与目录结构以生产代码为准，旧计划中的独立双栏和多窗口标签组仅用于历史追溯。
+
+| 功能 | 代码入口 | 当前边界 |
+|---|---|---|
+| 顶部/侧边标签、窗口与焦点 | `GhostermApp/TabWindowController.swift`、`TabStrip.swift`、`Sidebar.swift` | 同一窗口内切换，唯一新建入口；不跨启动恢复标签/布局 |
+| 终端与文件窗格 | `GhostermAppModel/WorkspaceLayout.swift`、`GhostermApp/WorkspaceView.swift` | 同一布局、身份与宿主；真实拖动等遗留见工作区交接 |
+| 连接与配置编辑 | `GhostermApp/ConnectionChooser.swift`、`GhostermAppModel/ConfigStore.swift` | 主机不放侧栏；表单/文本编辑已接入，配置事务仍有缺口 |
+| SSH 认证与凭据 | `GhostermAppModel/SSHAuthenticationFlow.swift`、`SSHCredentialSelector.swift` | 可取消认证；Keychain 存口令/密码，生产私钥仍读受限文件 |
+| 文件与传输 | `GhostermApp/FilesPanelView.swift`、`GhostermAppModel/TransferManager.swift` | 本地↔远端；尚无四方向统一复制队列 |
+| 菜单与偏好 | `GhostermApp/AppMenu.swift`、`GhostermAppModel/SettingsStore.swift`、`Shortcuts.swift` | 设置持久化、已有终端即时更新；Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签 |
+
+## 构建与验证
+
+在仓库根运行；full libghostty 产物须先由 `scripts/build-ghostty.sh` 生成：
+
+```bash
+bash scripts/gate.sh
+bash scripts/check-abi-apple.sh
+swift build --package-path apple/GhostermApp
+bash scripts/apple-app-gate.sh
+```
+
+原生编译、完整宿主测试、像素/系统交互、变异验证分别记账。`apple-app-gate.sh` 的 SSH 部分需隔离 sshd 成功启动；看到 SKIP 要保留原因。已接入 CI 不等于对应提交已在 macOS 15 运行通过；当前已知本机与历史结果见[路线图验收记录](../docs/reference/roadmap.md#验收记账与历史记录)。
 
 ## 打包（macOS）
 

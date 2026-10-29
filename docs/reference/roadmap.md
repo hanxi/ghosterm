@@ -1,6 +1,6 @@
 # 路线图
 
-更新：2026-10-29，按当前源码核对。当前按用户指令推进 **Android 原生竖切**；macOS 现有缺口继续独立记录，其余平台后续实施。
+更新：2026-10-29，源码核对基线 `4ed1308`。Android 已交付 A0 与 A1 首片；macOS 现有缺口独立记录，其余平台后续实施。本次为跨端文档校正，不改变实现状态。
 已交付、部分实现和待验证分开记账；历史切片的测试数量不能当作当前测试总量。
 能力与证据边界见[能力矩阵](capability-matrix.md)，验收规则以 [AGENTS.md](../../AGENTS.md) 为准。
 
@@ -16,7 +16,7 @@
 | 统一文件窗格工作区 | 已交付主要实现 | 真拖动、Finder 多选、目录冲突及尺寸证据补齐 |
 | 标签与窗格界面重构 | 本机 macOS 26 已交付并验收 | macOS 15 本轮 CI 证据仍需核验 |
 | 可选 tmux | macOS/真实 Linux SSH 已交付 | 仅已测版本/目标；普通入口不依赖 tmux |
-| M5 Android | A0 完成；A1 真实主机/配置首片已实现 | A0–A8、A10；环境包 A9 独立延后 |
+| M5 Android | A0 完成；A1 真实主机/配置首片已实现 | A1 收尾及 A2–A8、A10；环境包 A9 独立延后 |
 | M6+ 其余端 | 未交付 | iOS full 引擎/宿主前置，其他平台分别立项 |
 
 ## macOS 已交付范围
@@ -25,7 +25,7 @@
 
 - [x] 普通本地 PTY、SSH shell 的 Transport；输出直达 TerminalSurface，不经过 UI 事件队列。
 - [x] `ghosterm.h` 聚合 ABI、公开子头独立编译、符号双向对拍；当前 71 个公共符号，Apple 引用 69 个、2 个登记未用。接口尚未冻结。
-- [x] `ssh_config` 解析、Include、42 键 × 6 host 求值对拍、未编辑逐字节往返与编辑稀疏补丁。
+- [x] `ssh_config` 解析、Include、42 键 × 6 host 求值对拍与未编辑逐字节往返；基本稀疏编辑已交付，非连续重复指令仍有下表 P0 缺口，不记作完整无损编辑已验收。
 - [x] 可取消的异步 SSH 认证、主机密钥确认、方法发现、凭据请求归属；普通 SSH/SFTP/tmux 复用 `SSHAuthenticationFlow`。
 - [x] macOS full libghostty + Metal；字节→网格、渲染层与自进程像素验证；中文等 IME 组合/提交链路。
 - [x] 有界输入写入、尾队列、异步关闭；PTY 控制终端、描述符隔离与退出状态未知不折叠。
@@ -36,6 +36,7 @@
 - [x] 单个原生窗口 `TabWindowController`；顶部/侧边标签切换，宿主、surface、PID、焦点保持；旧多窗口原生标签组退役。
 - [x] 顶部胶囊标签、唯一加号固定右端；侧边纯标签列表、唯一新建入口紧随末尾；无工作/个人分组、无精简侧栏。
 - [x] 标签 UUID 选择、关闭、拖拽重排、右键落点、标签搜索与横向滚轮；主机管理、设置、文件、传输等主菜单入口可达。
+- [x] Ctrl+Tab / Ctrl+Shift+Tab 按当前显示顺序循环切换标签，重排后跟随新顺序；菜单与设置快捷键表已接入。
 - [x] `WorkspaceLayout` 为唯一可写布局，终端与文件窗格共用 `WorkspaceHostView`；四边停靠/中央交换、缩放、分隔拖动、隐藏文件窗格与纯文件标签。
 - [x] 当前分屏顶部贯穿蓝线；有间距时细边框，间距为 0 时共享分隔线；标题栏隐藏仍可操作。间距默认 0，保留用户已有值。
 - [x] 非当前窗格悬停动作、菜单与快捷键按 PaneID 路由；目标半区分屏预览不改变连接/焦点，Shift 动作可达。
@@ -105,7 +106,7 @@ M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。i
 - [ ] A10 设备矩阵、APK、CI 与发行验证。
 - [ ] A9 环境包独立 PoC（延后）：Termux/proot 执行限制、下载/哈希/原子激活/回滚；不阻塞普通 SSH。
 
-当前可构建 arm64 debug APK；首页读取真实配置并管理主机，设置有配置编辑/导入与组件版本。交互终端与 SSH 尚未实现。暂无 Android CI。min API 29、16 KB 页及真机均未验证。
+当前可构建 arm64 debug APK；首页读取真实配置并管理主机，设置有配置编辑/导入与组件版本。现有 A1 验收为 17 项设备测试与 11 组配置/页面变异，仍不满足整个 A1 的退出条件。下一片按[实现计划 §9.3](android-implementation.md#93-当前代码入口与-a1-退出清单)补齐来源/别名归属与 SAF UI，并先处理涉及的共享编辑 P0。交互终端与 SSH 尚未实现。暂无 Android CI。min API 29、16 KB 页及真机均未验证。
 普通本地入口拟为系统 `/system/bin/sh`，不是打包一个新 shell；不能用桌面 PTY 证据代替 Android 真机验证。
 旧 attachment ABI 已退役，Android 走现有 Transport + 可选 tmux；共享接口未冻结，缺口须同步各端后再使用。
 
@@ -119,12 +120,22 @@ M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。i
 
 ## 验收记账与历史记录
 
-2026-10-29 文档核对本轮运行：`scripts/gate.sh` 的 **32 项 CTest、71 个公共符号通过**；
-`check-abi-apple.sh` 的 **69 个引用、2 个登记未用通过**；`swift build --package-path apple/GhostermApp` 通过。
-本轮为文档变更，没有新增 Android 原生验证，也没有把过去 macOS 测试当作本轮重跑。
+各阶段分别记账，不把同一天的多次验证合并成一次全平台验收：
+
+| 记录 | 范围与结果 | 未覆盖 |
+|---|---|---|
+| `470c78b` 初始文档审计 | Core 32 项 CTest / 71 个符号、Apple 69 引用 / 2 登记、macOS 原生构建通过 | 无 Android 工程运行证据 |
+| `4d83ec6` Android A0 | API 36 arm64、4 KB 页模拟器；3 项 JNI 测试、3 组 JNI 变异、3 组 ABI 变异；Core 与 Include 回归通过 | 自绘/输入/PTY/SSH、真机与 API 29/16 KB 页 |
+| `4ed1308` Android A1 首片 | 同档模拟器 17 项设备测试；11 组配置/页面变异；C/Apple/JNI ABI 通过 | A1 完整收尾、交互终端/SSH/文件、Android CI |
+
+本次文档复核重跑：`bash scripts/gate.sh` **32 项 CTest / 71 个公共符号通过**；
+`check-abi-apple.sh` **69 项引用 / 2 项登记通过**；`check-abi-android.py` **9 项引用 / 62 项待办通过**；
+`swift build --package-path apple/GhostermApp` 通过。构建仍报告 libssh2 依赖的 macOS 26 minos 高于源码 macOS 13 声明，与上文发行下限缺口一致。
+修改文档的本地链接与 `git diff --check` 通过；日志在工程 `tmp/docs-audit/`，不入库。
+本次未重跑 Android 设备/变异、macOS 完整宿主/像素/变异或 CI；既有结果只按上表与原实施记录引用。
 
 最近一次完整 macOS 宿主记录见[标签界面重构末尾](plan-tab-chrome-refactor.md)：
-341 项测试、1 项开发态资源跳过、0 失败，以及相应变异/像素证据；此前真实系统激活与全屏的测试范围另列。
+341 项测试、1 项开发态资源跳过、0 失败，以及相应变异/像素证据；之后 Ctrl+Tab 切片另有六项定向测试和 menu 九组变异，未记为重跑完整 341 项。此前真实系统激活与全屏的测试范围另列。
 统一工作区变异目前 21 组，属于手工证据；full CI 目前接入 20 份脚本，准确清单以 AGENTS 与工作流为准。
 
 历史决策与当时测试规模分别保留在：

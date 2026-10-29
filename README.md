@@ -19,7 +19,7 @@
 ```
 core/           C 共享库（唯一跨语言边界：include/ghosterm.h）
 terminal/       各端 TerminalSurface（full libghostty 或 vt+自绘）
-apple/ android/ windows/ linux/ harmony/ web/    各端宿主 + UI
+apple/ android/  现有宿主 + UI（其余端 windows/linux/harmony/web 为规划）
 assets/         品牌资源：应用图标母版 SVG + 各端派生（scripts/build-icons.sh）
 runtime-payload/ 环境包清单与下载/校验（二进制不入库）
 patches/        上游补丁（每个带 WHY.md）
@@ -30,7 +30,7 @@ docs/           架构 · 能力矩阵 · 许可 · 路线 · Apple UI 已知坑
 ## 快速开始
 
 ```bash
-# 离线闸门（无网可跑；要求 cmake ≥3.19 与 C 编译器）
+# 离线闸门（依赖已安装；要求 cmake ≥3.19、C 编译器、Python 3）
 bash scripts/gate.sh                       # 核心：构建 + ssh_config 对拍 + ABI + 支持集双向校验
 
 # Apple 端（需要 zig 0.16.0 / Xcode / Metal toolchain）
@@ -38,6 +38,9 @@ bash scripts/build-ghostty.sh              # 隔离源码打补丁 → build/Gho
 bash scripts/gate-ghostty-patch.sh         # 补丁与树一致 + 补丁符号真的导出
 bash scripts/terminal-gate.sh              # TerminalSurface（字节 → libghostty 网格）
 bash scripts/apple-app-gate.sh             # 绑定 ABI 对拍 + 主机列表 + 真 sshd e2e
+
+# Android（SDK/NDK/JDK 等准备见 android/README.md）
+bash scripts/build-android.sh              # arm64 debug APK + 设备测试 APK
 
 # 变异验证：证明闸门有牙，不是空跑
 bash scripts/mutation-check-sshconfig.sh
@@ -57,8 +60,10 @@ bash scripts/package-mac.sh                    # 出包到 dist/
 bash scripts/package-mac.sh --help             # 全部选项（版本/签名/公证/最低系统）
 ```
 
-闸门要求本机有 `cmake`（≥3.19）与 C 编译器。**无网可跑**；Apple 端闸门
-在缺 zig/sshd 时显式 SKIP，不假装通过。
+核心闸门要求 `cmake`（≥3.19）、C 编译器与 Python 3。依赖已安装时**无网可跑**；
+要覆盖真实 SSH/SFTP，还需可探测的 libssh2、sshd 与 ssh-keygen。缺 libssh2 时核心返回
+`GT_ERR_UNSUPPORTED`，不等于 SSH 功能通过。Apple 宿主闸门缺 GhosttyKit 产物会失败，
+缺 Swift 或无法启动 sshd 时有显式 SKIP；验收必须检查实际覆盖，不能只看退出码。
 
 ## 跑起来（macOS）
 
@@ -74,11 +79,12 @@ curl -fsSL https://raw.githubusercontent.com/hanxi/ghosterm/main/scripts/install
 
 ```bash
 bash scripts/build-mac-app.sh        # 出包：tmp/Ghosterm.app（自包含的普通终端包）
-open tmp/Ghosterm.app                # 双击即用：主机列表 / 终端 / 编辑器 / SFTP
+open tmp/Ghosterm.app                # 普通终端；通过连接选择器进入 SSH/SFTP 与主机管理
 ```
 
 包是**自包含**的（core 与 libghostty 静态链接，libssh2 嵌入
-`Contents/Frameworks/`）——拷到别的 arm64 Mac 也能跑，不需要 Homebrew。
+`Contents/Frameworks/`）——目标 Mac 不需要 Homebrew。当前发行包为 arm64、最低 macOS 26；
+源码声明的 macOS 13 不等于包的运行下限，打包脚本按实际嵌入依赖计算并验证 minos。
 ad-hoc 签名；Developer ID + 公证是显式遗留项（待证书，见 roadmap）。
 
 可选后台会话从 `+ → 新建连接 → 打开为后台会话` 或已有终端标签右键菜单打开；目标需安装 tmux >=3.2a，
@@ -107,10 +113,10 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 | **macOS 原生宿主** | 🟡 已交付主要功能；配置写盘与私钥安全存储接线仍有缺口，见路线图 |
 | ├ TerminalSurface（full libghostty + Metal） | ✅ 上游补丁提供 host IO 后端（`patches/libghostty/`） |
 | ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；绑定 ABI 对拍 69/71（另 2 项显式登记） |
-| ├ 标签 / 窗格 / 设置 | ✅ 单窗口顶部或侧边标签、UUID 重排、唯一加号；统一终端/文件工作区、分屏预览、焦点与停画。**遗留**：跨重启持久化 |
+| ├ 标签 / 窗格 / 设置 | ✅ 单窗口顶部或侧边标签、UUID 重排、唯一加号、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；统一终端/文件工作区、分屏预览、焦点与停画。**遗留**：标签/布局跨重启持久化（设置偏好已持久化） |
 | ├ 配色集随包 + 主题选择 | ✅ Ghostty 配色集随包（`Contents/Resources/ghostty/themes`，数量由构建输出决定）+ 资源目录推导；出包包内配置检查验主题被引擎接受 |
 | ├ 终端的设置真的生效 | ✅ 写 Ghostty 语法的配置文件交给引擎解析（不自己维护配置子集）；`font-size` 改完网格密度真的变（11 项断言） |
-| ├ ssh_config 图形编辑（M3） | 🟡 编辑器、通配块和无损编辑已实现；当前备份错误被忽略、替换先删后移，事务保障待修复 |
+| ├ ssh_config 图形编辑（M3） | 🟡 编辑器、通配块与基本稀疏编辑已实现；非连续重复指令仍有共享缺陷，备份错误被忽略、替换先删后移，事务保障待修复 |
 | ├ 文件工作区与传输 | 🟡 本地/SFTP 统一窗格、队列、拖放与 Quick Look；独立文件连接。目录冲突 UI 等验收缺口见交接文档 |
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |

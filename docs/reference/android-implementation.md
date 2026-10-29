@@ -13,9 +13,9 @@
 |---|---|---|
 | 宿主 | Compose 主机列表/搜索/添加/编辑、配置页与导入入口；debug APK | A1 细节补齐、会话生命周期、终端/文件与完整设置 |
 | 终端 | `terminal/android` 已有 VT 交叉构建与 JNI 装载；vendor pin 为 `81598385d608dda4946093d6d6a234d204a2f225` | 真实 surface、渲染、输入法、字体与宽字符 |
-| Transport | `core/include/ghosterm/transport.h`；POSIX PTY 与 SSH shell 已有桌面证据 | NDK/Bionic 编译与真机 PTY、线程、退出和尺寸验证 |
+| Transport | `core/include/ghosterm/transport.h`；Core 已经 NDK/Bionic 编译，POSIX PTY 与 SSH shell 已有桌面运行证据 | Android JNI owner、真 PTY、线程、退出和尺寸验证；编译不等于设备运行 |
 | SSH 认证 | `ssh_auth.h` 有可取消、分步认证；Apple 已统一接线 | DNS、主机密钥确认、Keystore、请求归属和取消 |
-| 配置 | `config.h` 有解析、求值、稀疏编辑与序列化 | 私有配置目录、文件事务、导入、身份引用映射 |
+| 配置 | Core 解析/求值/序列化；A1 已接私有目录、保存事务与导入入口，非连续重复指令有拒绝写回保护 | 显式/继承来源、别名与 Include 编辑归属、SAF UI 验收、身份引用映射；共享编辑缺陷待修复 |
 | SFTP | `sftp.h` 有目录/属性/操作、路径式上传下载、暂停取消 | 本地/SAF 适配、四种复制方向、任务编排、非覆盖写入能力 |
 | tmux | `tmux.h` 与真实 macOS/SSH 验证已存在 | Android 管理 UI、专用 owner、列表与 attach 接线 |
 | 环境包 | `runtime-payload/` 只有规范，无安装器 | 独立后续 PoC；不作为首版 SSH/系统 shell 的依赖 |
@@ -43,7 +43,7 @@ Apple 的 `SessionController`、`SSHAuthenticationFlow`、`FilesPanelModel`、`T
 
 ## 3. 模块与线程设计
 
-模块目录（app/bridge/terminal/domain/data 已建）：
+模块目录（app/bridge/terminal/domain/data 已建；下列 owner、事件泵、会话/文件模型与 TerminalView 为目标职责，尚未全部实现）：
 
 ```text
 android/
@@ -79,6 +79,20 @@ JNI 只经 `core/include/ghosterm.h` 引入共享核心；VT C API 只在 termin
 
 编辑页至少包含别名、HostName、User、Port、身份选择及高级指令查看。别名/地址不能为空，端口为 1–65535；Android 不把进程 UID 用户名作为远端登录名默认值。显示继承值与当前块显式值，未触碰的字段不能回填覆盖全局规则。
 
+**当前表单限制**：别名只允许 1–128 位 ASCII 字母/数字及点、短横线、下划线，首位必须为字母或数字；已有别名只读，改名需配置文本页。User 求值缺省可以为空，但当前保存表单要求非空，不能把列表读到空用户名写成“连接时已自动选择用户名”。连接参数目前只有 HostName/User/Port，身份选择尚未接入。
+
+A1 收尾须明确编辑对象，不能仅以最终生效值反推原配置：
+
+| 情形 | 实现契约 | 验收结果 |
+|---|---|---|
+| 显式值与继承值 | Core 提供字段来源/目标块元数据，桥层转换；UI 显示“此主机设置”或继承来源，脏字段单独跟踪 | 未编辑的继承字段不生成新指令；设置为与继承值相同的显式覆盖也能准确表达 |
+| 多别名 `Host a b` | 编辑前列出同块别名，说明修改影响整块；不得在不提示时只展示 `a` 却修改 `b` | 保存后两者求值与确认范围一致，其他块逐字不变 |
+| 重名块与 Include | 来源必须能区分主文件/包含文件及块；首版只允许归属明确的主文件块表单编辑，包含文件显示来源和限制 | 不向错误块追加相同别名，不改 Include 外部源；无法安全定位时明确拒绝 |
+| 别名重命名 | 仅改目标 Host 行，检查大小写无关冲突，保留其他别名/行；主机引用与活动会话身份分别处理 | 原始地址/User/Port 与未知指令不变，活动连接不被重新创建；不能用 reset 整块重建替代改名 |
+| 复杂重复指令 | 先修共享编辑器按实际匹配行修改；Android 原文检查继续防止无关行变化 | 重复字段之间的注释、未知指令和其他字段原字节保留；同时回归 Apple 调用方 |
+
+当前 `config.h` 尚无完整字段来源/块归属查询契约；不得在 Kotlin 写第二份 SSH 配置求值器。需要新增 C 接口时，先定义所有权与失效规则，再同步 C/Apple/JNI 与 ABI 对拍。上述表格是待实现条件，不表示现有表单已经具备这些能力。
+
 只给真正接入的连接选项提供可用控件。C 的配置求值能返回 ProxyJump、转发、ServerAlive 等字段，不代表 SSH 执行层支持它们；检测到影响连接且未支持的显式配置时，列出指令并报不支持，不悄悄绕过。未知指令仍需无损保留。
 
 ### 4.2 配置写入事务
@@ -89,7 +103,9 @@ Android 新实现必须按以下顺序完成，不能照搬现有 Apple `ConfigS
 2. 保存前重新检查摘要/身份；发生外部变化则提示重载，不覆盖。
 3. 强制备份原字节；备份失败就停止。首次创建没有原文件时不伪造备份。
 4. 同目录独占临时文件写入、flush/fsync；用平台支持的原子替换提交，不能先删目标再移动；同步目录并清理失败临时文件。
-5. 成功后重新解析，更新列表与摘要；失败保留旧文件，并给出真实阶段。
+5. 提交前失败保留旧文件；提交成功后重新读取、解析并更新摘要。若替换已成功但目录同步或回读失败，必须说明“已提交但验证/持久化失败”，不能谎称原文件没变，也不能盲目回滚覆盖后来变化。
+
+当前锁保护同进程仓库及遵守 `.config.lock` 的协作写入者，摘要复核覆盖加载后和暂存期间的变化；它不是针对任意不遵守锁的写入者的文件系统 compare-and-swap。最后一次复核与 rename 之间仍有竞态窗口，不能把 API 36 模拟器故障注入结果扩大成任意并发写入都不会丢失。私有目录/单一写入入口是当前约束；将来开放其他写入入口须共享同一锁与事务协议。
 
 导入通过系统文件选择器读取授权文档，在私有目录保存被用户确认的副本；不承诺持续修改外部 provider 文档。`Include` 与 `~` 在 core 中有桌面路径语义，Android 需先验证私有 HOME 与 Include 基准；首片遇到不可访问的 Include 明确报错，不静默漏掉规则，也不重写用户配置为自造语义。
 
@@ -215,13 +231,13 @@ PasteRequest
 
 tmux 在 A8 接入，共享 `gt_tmux_*` 管理与普通 transport attach；用户显式打开列表才探测，缺失、版本不支持、拒绝与未知分开。HTML 的固定“未安装”只是演示分支，原生必须展示真实结果。关闭只断客户端，不结束后台 session；结束是单独确认动作。重新连接必须取新列表，禁止按旧 ID/名称恢复。手机本地 tmux 不因远端支持而自动成为可用能力。
 
-首版建议以 API 29 为最低验证起点，arm64-v8a 为首个设备 ABI；**最终 minSdk、targetSdk、NDK/AGP/Kotlin/Compose 版本由 A0 构建记录锁定**，不在没有工程时宣称兼容。x86_64 模拟器须有对应 native 库才可列支持。需额外验证 16 KB page size 装载与全 native 依赖，不能只调整 APK zip 对齐。[16 KB 页面支持](https://developer.android.com/guide/practices/page-sizes)
+A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.1）；现有运行证据仅为 API 36 arm64、4 KB 页模拟器。API 29 声明下限、真机与 16 KB page size 装载均须在 A10 验证；x86_64 须先提供对应 native 库。不能只调整 APK zip 对齐就声明全 native 依赖可运行。[16 KB 页面支持](https://developer.android.com/guide/practices/page-sizes)
 
 采用 Material 3 页面/面板/开关/选择控件，保持石墨色系；触点至少 48dp，字体响应系统缩放，危险动作有文字说明。320dp 窄屏、横屏、分屏、字体放大、TalkBack、硬件键盘和深浅色均纳入验收。状态栏/导航栏/IME insets 不得重复扣除或遮挡操作区。[触点与语义](https://developer.android.com/develop/ui/compose/accessibility/api-defaults)、[窗口 Insets](https://developer.android.com/develop/ui/compose/system/insets-ui)
 
 ## 9. 分阶段实施与依赖
 
-每片直接提交 main，原生构建与对应检查通过后才勾完成；C ABI 变化同步 Apple 绑定并真实编译。文档中的验收项是实现要求；A0 的设备冒烟与 ABI/原生变异已实现，后续业务验收尚未新增。
+每片直接提交 main，原生构建与对应检查通过后才勾完成；C ABI 变化同步 Apple 绑定并真实编译。A0 冒烟和 A1 配置/页面验收已实现；其余业务验收表仍是开发要求，不能当作运行结果。
 
 | 切片 | 依赖 | 可审阅交付与退出条件 | 状态 |
 |---|---|---|---|
@@ -262,6 +278,30 @@ A1 的视觉壳可与 A2 的底层实现解耦，但不能用演示终端代替 
 - API 36 arm64 模拟器：完整设备套件 17 项通过（13 项配置事务/解析、1 项 Compose 页面流、3 项 A0 JNI），配置/页面变异 11 组目标红、同 APK 独立对照绿、恢复绿且源码 SHA256 一致。Core 32 项、C/Apple/JNI ABI 与 JNI 对拍变异通过。
 - **A1 未完成项**：表单明确区分块内显式值与继承值、别名重命名/多别名及 Include 块的编辑归属、SAF 导入 UI 验收、配置错误状态的完整页面验证；身份选择依赖 A3。当前不可勾整个 A1。
 
+### 9.3 当前代码入口与 A1 退出清单
+
+实现基线：`4ed1308`。Android 路径均为相应模块下的实际源文件；它们只证明已接入的 A0/A1 能力。
+
+| 职责 | 代码入口 |
+|---|---|
+| 页面与表单、导入选择器 | `android/app/src/main/java/com/hanxi/ghosterm/MainActivity.kt` |
+| 导航状态、未保存确认、后台配置调用 | 同目录 `HostsViewModel.kt` |
+| App 私有 HOME | 同目录 `GhostermApplication.kt`，只改变 Android 应用进程环境 |
+| 主机派生模型与表单稀疏变化 | `android/domain/src/main/kotlin/com/hanxi/ghosterm/domain/Hosts.kt` |
+| 校验、摘要、备份、原子替换和原文保护 | `android/data/src/main/java/com/hanxi/ghosterm/data/ConfigRepository.kt` |
+| 配置求值与编辑桥 | `android/bridge/src/main/cpp/config_jni.c`、`core_jni.c`；同模块 `ConfigBridge.kt` / `CoreLibrary.kt` |
+| VT 装载/指令冒烟 | `terminal/android/native/vt_jni.c`；尚无生产 TerminalView |
+
+A1 完成前还须通过以下生产路径验收：
+
+- [ ] §4.1 的字段来源、别名与包含文件归属；既有表单校验错误显示在当前编辑页且草稿保留。
+- [ ] 系统文件选择器选中有效 UTF-8 配置→预览确认→保存→首页刷新；对外部 provider 不发生写回。
+- [ ] 选择器取消、预览取消均不修改配置；超过 1 MiB、无权限、无效编码、无效配置与私钥容器显示原因并保留旧文件。
+- [ ] 缺配置显示合法空态；读取失败、Include 缺失与保存冲突显示错误/重载入口，不显示空成功态；返回继续编辑/放弃走真实按钮。
+- [ ] 新增断言均有目标红、同变异独立对照绿、恢复绿及 SHA256；现有 17 项设备测试与 11 组配置变异保持通过。
+
+身份选择的完整验收留在 A3，不以一个无后端的下拉框计为完成。
+
 ## 10. 验收与变异清单
 
 | 面 | 必须观测的真实结果 | 新增断言的变异示例 |
@@ -281,20 +321,20 @@ A1 的视觉壳可与 A2 的底层实现解耦，但不能用演示终端代替 
 
 性能证据至少记录设备/API/ABI、持续输出吞吐、帧耗时、峰值内存、空闲后台 CPU、输入到回显延迟与取消耗时。先测 A2 基线再锁门限；不能用模拟器或静态截图冒充真机流畅度。真正的 UI 测试要驱动按钮、手势与系统 IME，数据模型测试不能代替触控命中与像素检查。
 
-现有可执行检查：`bash scripts/gate.sh`、`bash scripts/check-abi-apple.sh`；C 变化按实际面执行 SSH/SFTP/config/transport/tmux 变异与 Apple 构建。Android 构建入口为 `bash scripts/build-android.sh`；`check-abi-android.py`、`mutation-check-android-abi.py` 与 `mutation-check-android-native.py` 已实现。设备测试需显式选定设备；A10 再接入 CI，禁止把本机 Core 绿记为 Android 绿。
+现有可执行检查：`bash scripts/gate.sh`、`bash scripts/check-abi-apple.sh`；C 变化按实际面执行 SSH/SFTP/config/transport/tmux 变异与 Apple 构建。Android 构建入口为 `bash scripts/build-android.sh`；`check-abi-android.py`、`mutation-check-android-abi.py`、`mutation-check-android-native.py` 与 `mutation-check-android-config.py` 已实现。设备测试需显式选定设备；A10 再接入 CI，禁止把本机 Core 绿记为 Android 绿。
 
-## 11. 本轮代码核对与文档修正
+## 11. 初始文档审计与后续校正
 
-以下保留文档审计基线 `99b8b3c` 的结论；A0 后续变化记于 §9.1，macOS 缺口没有因此自动修复。
+以下保留初始文档审计基线 `99b8b3c` 的结论。涉及 Android 工程/绑定的历史结论已在表内注明后续变化，当前实现以 §9.1–§9.3 为准；macOS 缺口没有因此自动修复。
 
 | 旧说法 | 对照代码后的结论 |
 |---|---|
-| Android 只需接 UI、旧 attachment 契约仍待开发 | Android 无工程；旧协议已退役，普通 Transport + 可选 tmux；存在 NDK/输入/文件 ABI 缺口 |
+| Android 只需接 UI、旧 attachment 契约仍待开发 | 初始基线无 Android 工程；A0/A1 后已有构建与主机配置首片。旧协议已退役，使用普通 Transport + 可选 tmux；交互终端/输入/文件仍待开发 |
 | macOS 文件仍用 SFTPBrowser / DualPaneFilesView | 均已退役，使用 WorkspaceLayout/WorkspaceHostView 与统一文件窗格 |
 | 文件队列 S4/S5/S6 未动 | macOS 队列、拖放、预览已实现；iOS 和远端拖出 Finder 等仍未完成 |
 | macOS 标签重排尚无触发面 | 当前顶部/侧边按 UUID 重排，唯一加号；精简侧栏已移除 |
 | 64/70 个 ABI、68 个 Apple 引用 | 当前 71 个公共符号，Apple 69 个引用 + 2 个登记未用；数量以脚本实际输出为准 |
-| JNI/NAPI 已与 Swift 一起对拍 | 当前只有 C 与 Apple 对拍，其他端绑定未实现 |
+| JNI/NAPI 已与 Swift 一起对拍 | 初始基线仅 C/Apple；A1 后已有 JNI 9 项引用、62 项登记待办及对拍脚本。NAPI 尚未实现 |
 | ConfigStore 已保证强制备份与原子替换 | 备份异常被忽略、先删后移；能力降为部分实现，修复留在路线图 |
 | 私钥总是从 Keychain 导入后读取 | 当前 SSHCredentialSelector 从受限文件读 PEM，Keychain 主要保存口令/密码；完整私钥安全存储接入仍需补齐 |
 | 像素验证待屏幕录制权限 | 自进程视图像素验证已实现；真实系统激活/全屏证据单独记账 |
