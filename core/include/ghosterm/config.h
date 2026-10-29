@@ -33,6 +33,39 @@ char *gt_config_to_string(const gt_config_t *cfg);
 size_t gt_config_host_count(const gt_config_t *cfg);
 const char *gt_config_host_pattern(const gt_config_t *cfg, size_t index);
 
+/* Borrowed metadata: strings remain valid until cfg is edited/freed.
+ * source_path is empty for in-memory main text; source_line is 1-based,
+ * or 0 for a default. source_header is empty for global/default values.
+ * explicit_value is NULL unless the target main-file block sets this field;
+ * an earlier rule/Include may still win over that explicit value. */
+typedef struct {
+  const char *explicit_value;
+  const char *source_path;
+  const char *source_header;
+  size_t source_line;
+  bool source_included;
+  bool effective_is_explicit;
+} gt_config_field_info_t;
+
+typedef struct {
+  const char *header;
+  const char *source_path;
+  size_t source_line;
+  size_t pattern_count;
+  size_t matching_blocks; /* literal alias occurrences by block, case-insensitive */
+  bool included;
+  gt_config_field_info_t hostname;
+  gt_config_field_info_t user;
+  gt_config_field_info_t port;
+} gt_config_host_info_t;
+
+/* Inspect the first literal Host block for alias, including its shared patterns
+ * and the winning source for HostName/User/Port. Does not modify cfg.
+ * GT_ERR_NOT_FOUND for no literal block, GT_ERR_INVALID_ARG for invalid input.
+ * Only a single main-file block is editable by the alias-based edit API. */
+int gt_config_inspect_host(const gt_config_t *cfg, const char *alias,
+                           gt_config_host_info_t *out);
+
 /* ------------------------------------------------------------------ */
 /* 默认 IdentityFile 候选链策略                                        */
 /* ------------------------------------------------------------------ */
@@ -129,6 +162,7 @@ typedef struct {
  * 对 alias 对应的 Host 块做稀疏编辑：
  *   - reset=false：原地补丁；找不到 alias 对应块 → GT_ERR_NOT_FOUND；
  *   - reset=true ：先删除该 alias 的整块，再按 edits 在文件末尾新建块。
+ *   - alias 属于包含文件或多个同名块 → GT_ERR_UNSUPPORTED，不修改配置。
  * 除点名的目标行外，其余行**逐字节不变**（本函数的头号不变量）。
  * 成功返回 GT_OK，失败返回 GT_ERR_*（错误见 gt_last_error）。
  */

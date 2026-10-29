@@ -51,19 +51,39 @@ Java_com_hanxi_ghosterm_bridge_ConfigBridge_hostsBytes(JNIEnv *env, jobject self
     size_t count = gt_config_host_count(cfg);
     if (count > 4096) { gt_config_free(cfg); fail(env, "主机条目过多（最多 4096）"); return NULL; }
     jclass byte_array = (*env)->FindClass(env, "[B");
-    jobjectArray result = byte_array ? (*env)->NewObjectArray(env, (jsize)(count * 4), byte_array, NULL) : NULL;
+    enum { HOST_WIDTH = 31 };
+    jobjectArray result = byte_array ? (*env)->NewObjectArray(env, (jsize)(count * HOST_WIDTH), byte_array, NULL) : NULL;
     gt_resolve_opts_t opts = {.default_user = "", .identity_policy = GT_IDENTITY_POLICY_NONE};
     for (size_t i = 0; result && i < count && !(*env)->ExceptionCheck(env); ++i) {
         const char *alias = gt_config_host_pattern(cfg, i);
         gt_resolved_t *host = gt_config_resolve(cfg, alias, &opts);
         if (!host) { fail(env, "主机配置求值失败"); break; }
+        gt_config_host_info_t info = {0};
+        /* Negated patterns are not connectable; the repository excludes them. */
+        if (alias[0] != '!' && gt_config_inspect_host(cfg, alias, &info) != GT_OK) {
+            gt_resolved_free(host); fail(env, "无法确定主机配置来源"); break;
+        }
         char port[16];
         snprintf(port, sizeof port, "%d", host->port);
-        const char *fields[] = {alias, host->hostname, host->user, port};
-        for (int f = 0; f < 4 && !(*env)->ExceptionCheck(env); ++f) {
+        char numbers[6][24];
+        snprintf(numbers[0], sizeof numbers[0], "%zu", info.source_line);
+        snprintf(numbers[1], sizeof numbers[1], "%zu", info.pattern_count);
+        snprintf(numbers[2], sizeof numbers[2], "%zu", info.matching_blocks);
+        const char *fields[HOST_WIDTH] = {alias, host->hostname, host->user, port,
+            info.header, info.source_path, numbers[0], numbers[1], numbers[2], info.included ? "1" : "0"};
+        const gt_config_field_info_t *provenance[] = {&info.hostname, &info.user, &info.port};
+        for (int p = 0; p < 3; p++) {
+            const gt_config_field_info_t *field = provenance[p];
+            snprintf(numbers[p + 3], sizeof numbers[p + 3], "%zu", field->source_line);
+            const char *values[] = {field->explicit_value ? "1" : "0", field->explicit_value,
+                field->source_path, field->source_header, numbers[p + 3],
+                field->source_included ? "1" : "0", field->effective_is_explicit ? "1" : "0"};
+            for (int v = 0; v < 7; v++) fields[10 + p * 7 + v] = values[v];
+        }
+        for (int f = 0; f < HOST_WIDTH && !(*env)->ExceptionCheck(env); ++f) {
             jbyteArray field = bytes(env, fields[f] ? fields[f] : "");
             if (field) {
-                (*env)->SetObjectArrayElement(env, result, (jsize)(i * 4 + (size_t)f), field);
+                (*env)->SetObjectArrayElement(env, result, (jsize)(i * HOST_WIDTH + (size_t)f), field);
                 (*env)->DeleteLocalRef(env, field);
             }
         }

@@ -51,7 +51,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
             }, actions = {
                 when (hosts.page) {
                     Page.HOSTS -> TextButton(onClick = hosts::settings, enabled = !hosts.busy) { Text("设置") }
-                    Page.EDIT_HOST -> TextButton(onClick = hosts::saveHost, enabled = !hosts.busy) { Text("保存") }
+                    Page.EDIT_HOST -> TextButton(onClick = hosts::saveHost, enabled = !hosts.busy && hosts.canEditDraft) { Text("保存") }
                     Page.CONFIG -> TextButton(onClick = hosts::saveConfig, enabled = !hosts.busy && hosts.dirty) { Text("保存") }
                     else -> Unit
                 }
@@ -148,16 +148,28 @@ private fun HostsPage(model: HostsViewModel) {
 @Composable
 private fun EditHostPage(model: HostsViewModel) {
     val draft = model.draft ?: return
+    val source = draft.original?.source
+    val enabled = !model.busy && model.canEditDraft
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("显示配置求值后的生效值。未修改的字段不会写回；同一 Host 块的多个别名共享修改。", style = MaterialTheme.typography.bodySmall)
+        if (source != null) {
+            Text(source.header.trim(), style = MaterialTheme.typography.titleMedium)
+            Text("${source.path.ifEmpty { "应用内 SSH 配置" }} · 第 ${source.line} 行", style = MaterialTheme.typography.bodySmall)
+            if (source.patternCount > 1) Text("此 Host 块包含多个别名或规则；修改会同时影响上方列出的全部名称。", color = MaterialTheme.colorScheme.primary)
+        }
+        if (!model.canEditDraft) {
+            Text(source?.editRestriction ?: "无法确定主机配置归属，请重新载入", color = MaterialTheme.colorScheme.error)
+            OutlinedButton(onClick = model::config, enabled = !model.busy) { Text("查看与编辑 SSH 配置") }
+        }
+        Text("输入框显示当前生效值；未修改的字段不会写回。字段下方说明值来自哪里。", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(draft.alias, { model.draft = draft.copy(alias = it) }, label = { Text("别名") }, singleLine = true,
             enabled = !model.busy && draft.original == null, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(draft.hostname, { model.draft = draft.copy(hostname = it) }, label = { Text("主机地址") }, singleLine = true,
-            enabled = !model.busy, modifier = Modifier.fillMaxWidth())
+            supportingText = { source?.hostname?.let { Text(it.description) } }, enabled = enabled, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(draft.user, { model.draft = draft.copy(user = it) }, label = { Text("远端用户名") }, singleLine = true,
-            enabled = !model.busy, modifier = Modifier.fillMaxWidth())
+            supportingText = { source?.user?.let { Text(it.description) } }, enabled = enabled, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(draft.port, { model.draft = draft.copy(port = it) }, label = { Text("端口") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !model.busy, modifier = Modifier.fillMaxWidth())
+            supportingText = { source?.port?.let { Text(it.description) } },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = enabled, modifier = Modifier.fillMaxWidth())
         Text("身份与认证将在连接功能中接入。现有 IdentityFile 和其他指令保留。", style = MaterialTheme.typography.bodySmall)
     }
 }

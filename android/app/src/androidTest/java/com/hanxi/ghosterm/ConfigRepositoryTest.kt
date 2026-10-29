@@ -102,6 +102,48 @@ class ConfigRepositoryTest {
         File(directory, "config").writeText("Host demo\n  HostName example.test\n")
         assertEquals("", ConfigRepository(directory).load().hosts.single().user)
     }
+    @Test fun provenanceDistinguishesShadowedExplicitInheritedAndDefault() = fixture { directory ->
+        File(directory, "config").writeText("User inherited\nHost demo sibling\n  HostName example.test\n  User explicit\nHost *\n  Port 2222\n")
+        val host = ConfigRepository(directory).load().hosts.first()
+        assertEquals("inherited", host.user)
+        val source = host.source!!
+        assertEquals("Host demo sibling\n", source.header)
+        assertEquals(2, source.patternCount)
+        assertTrue(source.editable)
+        assertEquals("explicit", source.user.explicitValue)
+        assertFalse(source.user.effectiveIsExplicit)
+        assertEquals("继承自全局配置 · 第 1 行；此块设置的 explicit 未生效", source.user.description)
+        assertEquals("此主机显式设置 · 第 3 行", source.hostname.description)
+        assertEquals("继承自 Host * · 第 6 行", source.port.description)
+        File(directory, "config").writeText("Host demo\n")
+        val defaults = ConfigRepository(directory).load().hosts.single().source!!
+        assertEquals("默认值（未显式设置）", defaults.port.description)
+        assertNull(defaults.user.explicitValue)
+    }
+    @Test fun ambiguousAndIncludedHostsAreReadOnlyBeforeEditing() = fixture { directory ->
+        val child = File(directory, "included.conf").apply { writeText("Host remote\n  HostName remote.test\n  User me\n") }
+        val text = "Include ${child.path}\nHost dup\n  User first\nHost DUP\n  User second\n"
+        val file = File(directory, "config").apply { writeText(text) }
+        var edits = 0
+        val repo = ConfigRepository(directory, editConfig = { bytes, _, _, _ -> edits++; bytes })
+        val snapshot = repo.load()
+        assertEquals(listOf("remote", "dup"), snapshot.hosts.map { it.alias })
+        val remote = snapshot.hosts.first().source!!
+        assertTrue(remote.included)
+        assertEquals(child.path, remote.path)
+        assertEquals(1, remote.line)
+        assertEquals(child.path, remote.user.path)
+        assertEquals(3, remote.user.line)
+        assertFalse(remote.editable)
+        assertEquals(2, snapshot.hosts.last().source!!.matchingBlocks)
+        assertFalse(snapshot.hosts.last().source!!.editable)
+        for (alias in listOf("remote", "dup")) {
+            assertThrows(ConfigAccess::class.java) { repo.saveHost(snapshot, HostEdit(alias, alias, "changed.test", "me", "22")) }
+        }
+        assertEquals("read-only must be rejected before calling editor", 0, edits)
+        assertEquals(text, file.readText())
+        assertFalse(directory.listFiles()!!.any { it.name.startsWith("config.backup-") })
+    }
     @Test fun complexDuplicateEditPreservesOtherDirectives() = fixture { directory ->
         val original = "Host demo\n  HostName example.test\n  User alice\n  FutureOption preserve\n  User carol\n"
         val file = File(directory, "config").apply { writeText(original) }

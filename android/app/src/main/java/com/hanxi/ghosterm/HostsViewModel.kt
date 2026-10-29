@@ -35,6 +35,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     val filteredHosts: List<Host> get() = snapshot?.hosts.orEmpty().filter {
         query.isBlank() || it.alias.contains(query, true) || it.address.contains(query, true)
     }
+    val canEditDraft: Boolean get() = draft?.let { it.original == null || it.original.source?.editable == true } == true
     val dirty: Boolean get() = when (page) {
         Page.CONFIG -> configText != snapshot?.text
         Page.EDIT_HOST -> draft?.dirty == true
@@ -59,6 +60,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     fun about() { page = Page.ABOUT }
     fun config() {
         if (busy || snapshot == null) return
+        if (page == Page.EDIT_HOST && dirty) { error = "请先保存或放弃主机修改"; return }
         configReturn = page
         configText = snapshot!!.text; error = null; page = Page.CONFIG
     }
@@ -70,7 +72,15 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     fun back() { if (!busy) { if (dirty) discard = true else leave() } }
     private fun leave() {
         page = when (page) { Page.ABOUT -> Page.SETTINGS; Page.CONFIG -> configReturn; else -> Page.HOSTS }
-        error = null; draft = null; discard = false
+        error = null; discard = false
+        restoreDraftOrClear()
+    }
+    private fun restoreDraftOrClear() {
+        if (page != Page.EDIT_HOST) { draft = null; return }
+        val alias = draft?.original?.alias
+        val current = snapshot?.hosts?.firstOrNull { it.alias.equals(alias, ignoreCase = true) }
+        if (current == null) { draft = null; page = Page.HOSTS }
+        else draft = HostDraft(current, current.alias, current.hostname, current.user, current.port.toString())
     }
     fun confirmDiscard() = leave()
     fun keepEditing() { discard = false }
@@ -91,6 +101,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
             val saved = withContext(Dispatchers.IO) { repository.save(base, text.toByteArray(Charsets.UTF_8)) }
             snapshot = saved.snapshot; configText = saved.snapshot.text
             notice = saved.warning ?: "SSH 配置已保存"; page = configReturn
+            restoreDraftOrClear()
         }
     }
     fun readImport(uri: Uri) = work {

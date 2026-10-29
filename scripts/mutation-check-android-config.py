@@ -22,9 +22,10 @@ def main():
     repo = ROOT / 'android/data/src/main/java/com/hanxi/ghosterm/data/ConfigRepository.kt'
     domain = ROOT / 'android/domain/src/main/kotlin/com/hanxi/ghosterm/domain/Hosts.kt'
     screen = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm/MainActivity.kt'
+    model = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm/HostsViewModel.kt'
     native = ROOT / 'android/bridge/src/main/cpp/config_jni.c'
     core = ROOT / 'core/src/config.c'
-    originals = {p: p.read_bytes() for p in (repo, domain, screen, native, core)}
+    originals = {p: p.read_bytes() for p in (repo, domain, screen, model, native, core)}
     if any(MARK.encode() in text for text in originals.values()): raise RuntimeError('mutation marker present')
     hashes = {p: hashlib.sha256(data).digest() for p, data in originals.items()}
     work = ROOT / 'tmp/android-config-mutations'; work.mkdir(exist_ok=True)
@@ -35,7 +36,9 @@ def main():
         for apk in ('apk/debug/app-debug.apk', 'apk/androidTest/debug/app-debug-androidTest.apk'):
             require(run([*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs' / apk]))
     def test(method, green):
-        name = ('HostScreenTest' if method == 'addEditSearchAndDiscardUseRealConfiguration' else 'ConfigRepositoryTest') + '#' + method
+        ui_tests = {'addEditSearchAndDiscardUseRealConfiguration', 'fieldSourcesAndSharedBlockWarningAreVisible',
+                    'readOnlyHostCanInspectConfigAndReturnWithFreshOwnership'}
+        name = ('HostScreenTest' if method in ui_tests else 'ConfigRepositoryTest') + '#' + method
         result = run([*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
                       'com.hanxi.ghosterm.' + name,
                       'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
@@ -66,6 +69,23 @@ def main():
         (core, 'elist_remove_matches(&l, first + 1, e2, e->keyword);\n        if (elist_splice(&l, first, 1, rl, rn, e->keyword, blk) != 0)',
          '/* contiguous splice regression */\n        if (elist_splice(&l, first, nfound, rl, rn, e->keyword, blk) != 0)',
          'complexDuplicateEditPreservesOtherDirectives', control),
+        (core, 's->origin = n;', 's->origin = NULL;',
+         'provenanceDistinguishesShadowedExplicitInheritedAndDefault', control),
+        (native, 'info.included ? "1" : "0"', '"0"',
+         'ambiguousAndIncludedHostsAreReadOnlyBeforeEditing', control),
+        (repo, 'if (host != null && host.source?.editable != true)', 'if (host != null && host.source?.editable == null)',
+         'ambiguousAndIncludedHostsAreReadOnlyBeforeEditing', control),
+        (screen, 'source?.user?.let { Text(it.description) }', 'source?.user?.let { Text("") }',
+         'fieldSourcesAndSharedBlockWarningAreVisible', control),
+        (screen, 'if (source.patternCount > 1)', 'if (false && source.patternCount > 1)',
+         'fieldSourcesAndSharedBlockWarningAreVisible', control),
+        (screen, 'enabled = !hosts.busy && hosts.canEditDraft', 'enabled = !hosts.busy',
+         'readOnlyHostCanInspectConfigAndReturnWithFreshOwnership', control),
+        (model, 'error = null; discard = false\n        restoreDraftOrClear()', 'error = null; discard = false\n        draft = null',
+         'readOnlyHostCanInspectConfigAndReturnWithFreshOwnership', control),
+        (model, 'notice = saved.warning ?: "SSH 配置已保存"; page = configReturn\n            restoreDraftOrClear()',
+         'notice = saved.warning ?: "SSH 配置已保存"; page = configReturn',
+         'readOnlyHostCanInspectConfigAndReturnWithFreshOwnership', control),
     ]
     build()
     for name in dict.fromkeys([case[3] for case in cases] + [control]): test(name, True)

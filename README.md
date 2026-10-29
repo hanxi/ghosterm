@@ -100,21 +100,21 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 ## 当前状态（2026-10-29）
 
-下表交付状态以已提交源码 `adae205` 为基线。工作区中的配置来源接口草稿已通过 Core/引用对拍，但页面和新增变异尚未验收，单列于[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属草稿工作区复核2026-10-29)。不能把草稿的 72 个符号或历史测试数量当作完整客户端交付证据。
+字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
 
 | 能力 | 状态 |
 |---|---|
-| C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 71 符号，双向对拍；旧会话 ABI 已移除 |
+| C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 72 符号，双向对拍；旧会话 ABI 已移除 |
 | `ssh_config` 解析 / 无损往返（未编辑） | ✅ 与原文逐字节相同 |
 | `ssh_config` 求值 | ✅ typed 视图 + 通用视图（`ssh -G` 等价）；42 键 × 6 host 全表语义对拍 |
-| `ssh_config` 编辑 API | 🟡 9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令已按实际匹配行编辑，字段来源/包含文件编辑归属仍待补齐 |
+| `ssh_config` 编辑 API | 🟡 9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令已按实际匹配行编辑，已增加三字段来源与包含文件/重名块编辑保护；别名重命名和全部字段视图仍待补齐 |
 | `ssh_config` `Include` 展开 | ✅ OpenSSH 同口径（相对路径基准 = ~/.ssh、glob、嵌套 + 深度上限 16）；6 组断言 + 变异 I1~I4 |
 | 本地 PTY transport（forkpty） | ✅ POSIX 实现（macOS/Linux 证据；Android 尚待设备验证） |
 | SSH（libssh2）connect / auth / hostkey TOFU / ssh-shell | ✅ `ssh_e2e` 真 sshd；密码/密钥与可取消认证，Android 尚未绑定 |
 | SFTP（list / stat / 上传 / 下载 / job 三态） | ✅ libssh2_sftp 封装 + 真 sshd e2e + 变异验证 |
 | **macOS 原生宿主** | 🟡 已交付主要功能；配置写盘与私钥安全存储接线仍有缺口，见路线图 |
 | ├ TerminalSurface（full libghostty + Metal） | ✅ 上游补丁提供 host IO 后端（`patches/libghostty/`） |
-| ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；绑定 ABI 对拍 69/71（另 2 项显式登记） |
+| ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；绑定 ABI 对拍 70/72（另 2 项显式登记） |
 | ├ 标签 / 窗格 / 设置 | ✅ 单窗口顶部或侧边标签、UUID 重排、唯一加号、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；统一终端/文件工作区、分屏预览、焦点与停画。**遗留**：标签/布局跨重启持久化（设置偏好已持久化） |
 | ├ 配色集随包 + 主题选择 | ✅ Ghostty 配色集随包（`Contents/Resources/ghostty/themes`，数量由构建输出决定）+ 资源目录推导；出包包内配置检查验主题被引擎接受 |
 | ├ 终端的设置真的生效 | ✅ 写 Ghostty 语法的配置文件交给引擎解析（不自己维护配置子集）；`font-size` 改完网格密度真的变（11 项断言） |

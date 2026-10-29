@@ -124,11 +124,14 @@ typedef struct {
   int nargs;
   int block;
   int included;
+  char *source_path;
+  size_t source_line;
 } gt_node_t;
 
 typedef struct {
   char **patterns;
   int npatterns;
+  size_t header_node;
 } gt_block_t;
 
 struct gt_config {
@@ -136,6 +139,7 @@ struct gt_config {
   size_t nnodes, cap;
   gt_block_t *blocks;
   size_t nblocks, bcap;
+  char *source_path;
   int include_error; /* Include 展开失败（深度超限/具名文件缺失）→ parse 失败 */
 };
 
@@ -233,12 +237,12 @@ static gt_node_t *node_new(gt_config_t *cfg) {
 
 static char *read_file(const char *path, size_t *len_out);
 static void parse_depth(gt_config_t *cfg, const char *text, size_t len,
-                        int included, int depth);
+                        int included, int depth, const char *source_path);
 static void process_include(gt_config_t *cfg, const char *const *paths, int npaths,
                              int depth);
 
 static void parse_text(gt_config_t *cfg, const char *text, size_t len, int included) {
-  parse_depth(cfg, text, len, included, 0);
+  parse_depth(cfg, text, len, included, 0, cfg->source_path ? cfg->source_path : "");
 }
 
 /* ------------------------------------------------------------------ */
@@ -345,7 +349,7 @@ static void process_include(gt_config_t *cfg, const char *const *paths, int npat
         size_t flen = 0;
         char *ftext = read_file(g.gl_pathv[k], &flen);
         if (ftext) {
-          parse_depth(cfg, ftext, flen, 1, depth + 1);
+          parse_depth(cfg, ftext, flen, 1, depth + 1, g.gl_pathv[k]);
           free(ftext);
         } else if (!strpbrk(resolved, "*?")) {
           /* 具名文件读不了（glob 成功但 open 失败不会走到这——read_file
@@ -393,8 +397,9 @@ static char *read_file(const char *path, size_t *len_out) {
  * 展开出的节点带 included=1（不参与无损写回），Include 行本身保留。
  */
 static void parse_depth(gt_config_t *cfg, const char *text, size_t len,
-                        int included, int depth) {
+                        int included, int depth, const char *source_path) {
   const char *p = text, *end = text + len;
+  size_t source_line = 0;
   while (p < end) {
     const char *nl = memchr(p, '\n', (size_t)(end - p));
     const char *le = nl ? nl + 1 : end;
@@ -402,6 +407,13 @@ static void parse_depth(gt_config_t *cfg, const char *text, size_t len,
 
     gt_node_t *node = node_new(cfg);
     if (!node) return;
+    node->source_path = gt__strdup(source_path);
+    node->source_line = ++source_line;
+    if (!node->source_path) {
+      cfg->include_error = 1;
+      gt__set_error("config source metadata: out of memory");
+      return;
+    }
     node->raw = gt__alloc(raw_len + 1);
     memcpy(node->raw, p, raw_len);
     node->raw[raw_len] = '\0';
@@ -438,6 +450,7 @@ static void parse_depth(gt_config_t *cfg, const char *text, size_t len,
       memset(b, 0, sizeof *b);
       b->patterns = args;
       b->npatterns = nargs;
+      b->header_node = idx;
       cfg->nodes[idx].keyword = kw;
       cfg->nodes[idx].args = args;
       cfg->nodes[idx].nargs = nargs;
@@ -504,7 +517,9 @@ gt_config_t *gt_config_parse_file(const char *path) {
   /* 相对 include 解析相对 ~/.ssh（OpenSSH 用户级语义，见 process_include）。 */
   gt_config_t *cfg = gt__alloc(sizeof *cfg);
   if (cfg) {
-    parse_depth(cfg, buf, len, 0, 0);
+    cfg->source_path = gt__strdup(path);
+    if (cfg->source_path) parse_depth(cfg, buf, len, 0, 0, cfg->source_path);
+    else cfg->include_error = 1;
     if (cfg->include_error) {
       gt_config_free(cfg);
       cfg = NULL; /* 错误串已由 include 层设置 */
@@ -520,6 +535,7 @@ void gt_config_free(gt_config_t *cfg) {
     gt_node_t *n = &cfg->nodes[i];
     free(n->raw);
     free(n->keyword);
+    free(n->source_path);
     if (n->args) {
       for (int a = 0; a < n->nargs; a++) free(n->args[a]);
       free(n->args);
@@ -527,6 +543,7 @@ void gt_config_free(gt_config_t *cfg) {
   }
   free(cfg->nodes);
   free(cfg->blocks); /* patterns 与 node->args 共享所有权 */
+  free(cfg->source_path);
   free(cfg);
 }
 
@@ -572,6 +589,7 @@ typedef struct {
   char **vals;
   size_t n, cap;
   int set;
+  const gt_node_t *origin;
 } effslot_t;
 
 typedef struct {
@@ -663,7 +681,7 @@ static void effmap_build(effmap_t *m, const gt_config_t *cfg, const char *host,
     switch (k_keys[idx].kind) {
       case K_SCALAR:
         if (s->set) break; /* first-wins */
-        if (n->nargs > 0) { slot_push(s, n->args[0]); s->set = 1; }
+        if (n->nargs > 0) { slot_push(s, n->args[0]); s->set = 1; s->origin = n; }
         break;
       case K_LIST:
         if (strcmp(k_keys[idx].name, "localforward") == 0 ||
@@ -1040,6 +1058,56 @@ static int find_block_for_alias(const gt_config_t *cfg, const char *alias) {
   return -1;
 }
 
+int gt_config_inspect_host(const gt_config_t *cfg, const char *alias,
+                           gt_config_host_info_t *out) {
+  if (out) memset(out, 0, sizeof *out);
+  if (!cfg || !alias || !*alias || !out) {
+    gt__set_error("config_inspect_host: invalid arguments");
+    return GT_ERR_INVALID_ARG;
+  }
+  int block = find_block_for_alias(cfg, alias);
+  if (block < 0) {
+    gt__set_error("config_inspect_host: no literal Host block");
+    return GT_ERR_NOT_FOUND;
+  }
+  const gt_node_t *header = &cfg->nodes[cfg->blocks[block].header_node];
+  out->header = header->raw;
+  out->source_path = header->source_path;
+  out->source_line = header->source_line;
+  out->included = header->included != 0;
+  out->pattern_count = (size_t)cfg->blocks[block].npatterns;
+  for (size_t b = 0; b < cfg->nblocks; b++) {
+    for (int i = 0; i < cfg->blocks[b].npatterns; i++) {
+      const char *pattern = cfg->blocks[b].patterns[i];
+      if (*pattern != '!' && kw_eq(pattern, alias)) { out->matching_blocks++; break; }
+    }
+  }
+  /* Provenance comes from the evaluator's actual first-wins selection. */
+  effmap_t values;
+  gt_resolve_opts_t opts = {.default_user = "", .identity_policy = GT_IDENTITY_POLICY_NONE};
+  effmap_build(&values, cfg, alias, &opts);
+  const char *keys[] = {"hostname", "user", "port"};
+  gt_config_field_info_t *fields[] = {&out->hostname, &out->user, &out->port};
+  for (size_t f = 0; f < 3; f++) {
+    gt_config_field_info_t *field = fields[f];
+    const gt_node_t *explicit_node = NULL;
+    if (!out->included) for (size_t i = 0; i < cfg->nnodes; i++) {
+      const gt_node_t *node = &cfg->nodes[i];
+      if (node->block == block && !node->included && node->nargs > 0 && kw_eq(node->keyword, keys[f])) {
+        explicit_node = node; field->explicit_value = node->args[0]; break;
+      }
+    }
+    const gt_node_t *origin = values.slot[key_index(keys[f])].origin;
+    field->source_path = origin ? origin->source_path : "";
+    field->source_header = origin && origin->block >= 0 ? cfg->nodes[cfg->blocks[origin->block].header_node].raw : "";
+    field->source_line = origin ? origin->source_line : 0;
+    field->source_included = origin && origin->included;
+    field->effective_is_explicit = origin && origin == explicit_node;
+  }
+  effmap_free(&values);
+  return GT_OK;
+}
+
 static void block_range(const elist_t *l, int b, size_t *start, size_t *end) {
   size_t s = l->n, e = l->n;
   for (size_t i = 0; i < l->n; i++)
@@ -1088,6 +1156,7 @@ static int config_reparse(gt_config_t *cfg, const char *text) {
     gt_node_t *n = &cfg->nodes[i];
     free(n->raw);
     free(n->keyword);
+    free(n->source_path);
     if (n->args) {
       for (int a = 0; a < n->nargs; a++) free(n->args[a]);
       free(n->args);
@@ -1114,6 +1183,14 @@ int gt_config_edit(gt_config_t *cfg, const char *alias,
     return GT_ERR_INTERNAL;
   }
   int b = find_block_for_alias(cfg, alias);
+  if (b >= 0) {
+    gt_config_host_info_t info;
+    if (gt_config_inspect_host(cfg, alias, &info) != GT_OK || info.included || info.matching_blocks != 1) {
+      elist_free(&l);
+      gt__set_error("config_edit: alias belongs to an included file or multiple Host blocks");
+      return GT_ERR_UNSUPPORTED;
+    }
+  }
   if (b < 0 && !reset) {
     elist_free(&l);
     gt__set_error("config_edit: 找不到 Host 块 '%s'", alias);

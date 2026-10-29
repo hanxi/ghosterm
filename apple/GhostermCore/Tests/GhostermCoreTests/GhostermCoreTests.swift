@@ -41,6 +41,23 @@ final class GhostermCoreTests: XCTestCase {
         XCTAssertThrowsError(try cfg.edit(alias: "nope", [("User", ["y"])]))
     }
 
+    func testConfigMetadataCopiesValuesAcrossEdit() throws {
+        let cfg = try SSHConfig(contents: "User inherited\nHost web sibling\n  HostName old.test\n  User explicit\n")
+        let before = try cfg.inspect(alias: "web")
+        XCTAssertEqual(before.header, "Host web sibling\n")
+        XCTAssertEqual(before.patternCount, 2)
+        XCTAssertEqual(before.user.explicitValue, "explicit")
+        XCTAssertFalse(before.user.effectiveIsExplicit)
+        XCTAssertEqual(before.user.sourceLine, 1)
+        XCTAssertEqual(before.hostname.explicitValue, "old.test")
+        XCTAssertTrue(before.hostname.effectiveIsExplicit)
+        XCTAssertEqual(before.port.sourceLine, 0)
+        try cfg.edit(alias: "web", [("HostName", ["new.test"])])
+        XCTAssertEqual(try cfg.inspect(alias: "web").hostname.explicitValue, "new.test")
+        XCTAssertEqual(before.hostname.explicitValue, "old.test", "metadata must own copied strings across Core edits")
+        XCTAssertThrowsError(try cfg.inspect(alias: "missing"))
+    }
+
     func testLocalPTYReadWriteResize() throws {
         let t = try Transport.openPTY(executable: "/bin/sh", argv: ["-c", "printf BIND_OK"],
                                       kind: .direct, cols: 80, rows: 24)

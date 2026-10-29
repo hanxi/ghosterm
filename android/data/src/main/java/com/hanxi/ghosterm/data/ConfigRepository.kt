@@ -112,13 +112,20 @@ class ConfigRepository(
         val hosts = ConfigBridge.hosts(bytes).filter { fields ->
             val name = fields[0]
             name.isNotBlank() && name.none { it in "*?![]" || it.isWhitespace() }
-        }.distinctBy { it[0].lowercase() }.map { Host(it[0], it[1], it[2], it[3].toInt()) }
+        }.distinctBy { it[0].lowercase() }.map {
+            fun field(start: Int) = FieldSource(if (it[start] == "1") it[start + 1] else null,
+                it[start + 2], it[start + 3], it[start + 4].toInt(), it[start + 5] == "1", it[start + 6] == "1")
+            Host(it[0], it[1], it[2], it[3].toInt(), HostSource(it[4], it[5], it[6].toInt(), it[7].toInt(),
+                it[8].toInt(), it[9] == "1", field(10), field(17), field(24)))
+        }
         return ConfigSnapshot(bytes.copyOf(), revision, hosts)
     }
     fun load(): ConfigSnapshot = locked { val (bytes, revision) = raw(); snapshot(bytes, revision) }
 
     fun saveHost(previous: ConfigSnapshot, edit: HostEdit): ConfigSaved {
         val host = edit.originalAlias?.let { alias -> previous.hosts.singleOrNull { it.alias == alias } ?: throw ConfigConflict() }
+        if (host != null && host.source?.editable != true)
+            throw ConfigAccess(host.source?.editRestriction ?: "无法确定主机配置归属，请重新载入")
         if (host == null && previous.hosts.any { it.alias.equals(edit.alias, ignoreCase = true) })
             throw ConfigAccess("该主机别名已存在")
         val changes = edit.changes(host)

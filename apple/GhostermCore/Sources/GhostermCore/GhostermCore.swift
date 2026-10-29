@@ -65,6 +65,27 @@ private func check(_ rc: Int32) throws -> Int32 {
 
 // MARK: - ssh_config
 
+public struct ConfigFieldInfo: Equatable {
+    public let explicitValue: String?
+    public let sourcePath: String
+    public let sourceHeader: String
+    public let sourceLine: Int
+    public let sourceIncluded: Bool
+    public let effectiveIsExplicit: Bool
+}
+
+public struct ConfigHostInfo: Equatable {
+    public let header: String
+    public let sourcePath: String
+    public let sourceLine: Int
+    public let patternCount: Int
+    public let matchingBlocks: Int
+    public let included: Bool
+    public let hostname: ConfigFieldInfo
+    public let user: ConfigFieldInfo
+    public let port: ConfigFieldInfo
+}
+
 public struct ResolvedHost {
     public let user: String?
     public let hostname: String?
@@ -113,6 +134,23 @@ public final class SSHConfig {
         (0..<gt_config_host_count(handle)).compactMap { i in
             gt_config_host_pattern(handle, i).map { String(cString: $0) }
         }
+    }
+
+    /// Copies borrowed Core provenance before the snapshot can be edited/freed.
+    public func inspect(alias: String) throws -> ConfigHostInfo {
+        var info = gt_config_host_info_t()
+        try check(alias.withCString { gt_config_inspect_host(handle, $0, &info) })
+        func field(_ value: gt_config_field_info_t) -> ConfigFieldInfo {
+            ConfigFieldInfo(explicitValue: value.explicit_value.map { String(cString: $0) },
+                sourcePath: value.source_path.map { String(cString: $0) } ?? "",
+                sourceHeader: value.source_header.map { String(cString: $0) } ?? "",
+                sourceLine: Int(value.source_line), sourceIncluded: value.source_included,
+                effectiveIsExplicit: value.effective_is_explicit)
+        }
+        return ConfigHostInfo(header: info.header.map { String(cString: $0) } ?? "",
+            sourcePath: info.source_path.map { String(cString: $0) } ?? "", sourceLine: Int(info.source_line),
+            patternCount: Int(info.pattern_count), matchingBlocks: Int(info.matching_blocks), included: info.included,
+            hostname: field(info.hostname), user: field(info.user), port: field(info.port))
     }
 
     /// 稀疏编辑（除目标行外逐字节不变）；`values == nil` 表示删除该指令。

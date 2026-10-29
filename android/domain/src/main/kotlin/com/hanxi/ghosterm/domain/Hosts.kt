@@ -1,7 +1,31 @@
 package com.hanxi.ghosterm.domain
 
 /** A derived view of ssh_config. Never persisted as a second host database. */
-data class Host(val alias: String, val hostname: String, val user: String, val port: Int) {
+data class FieldSource(val explicitValue: String?, val path: String, val header: String, val line: Int,
+                       val included: Boolean, val effectiveIsExplicit: Boolean) {
+    val description: String get() {
+        val origin = when {
+            line == 0 -> "默认值（未显式设置）"
+            effectiveIsExplicit -> "此主机显式设置 · 第 $line 行"
+            included -> "继承自 $path · 第 $line 行"
+            header.isBlank() -> "继承自全局配置 · 第 $line 行"
+            else -> "继承自 ${header.trim()} · 第 $line 行"
+        }
+        return if (explicitValue != null && !effectiveIsExplicit) "$origin；此块设置的 $explicitValue 未生效" else origin
+    }
+}
+data class HostSource(val header: String, val path: String, val line: Int, val patternCount: Int,
+                      val matchingBlocks: Int, val included: Boolean,
+                      val hostname: FieldSource, val user: FieldSource, val port: FieldSource) {
+    val editable: Boolean get() = !included && matchingBlocks == 1
+    val editRestriction: String? get() = when {
+        included -> "此主机来自包含文件 $path，第 $line 行；当前表单不能修改包含文件。"
+        matchingBlocks != 1 -> "此别名出现在 $matchingBlocks 个 Host 块中，无法确定修改目标；请在 SSH 配置页编辑。"
+        else -> null
+    }
+}
+
+data class Host(val alias: String, val hostname: String, val user: String, val port: Int, val source: HostSource? = null) {
     val address: String get() = (if (user.isEmpty()) "" else "$user@") + hostname + ":$port"
 }
 
