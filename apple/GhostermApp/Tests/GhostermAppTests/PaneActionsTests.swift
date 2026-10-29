@@ -13,6 +13,10 @@ import XCTest
     }
     private func splitFixture() throws -> (TabWindowFixture, TerminalTab, TerminalPane, TerminalPane, WorkspaceHostView) {
         _ = NSApplication.shared
+        // 本组按 10pt 间距测预览与隐藏把手；默认贴边由 ChromePaletteTests 覆盖。
+        let oldGap = UserDefaults.standard.object(forKey: PaneGap.key)
+        UserDefaults.standard.set(10, forKey: PaneGap.key)
+        addTeardownBlock { UserDefaults.standard.set(oldGap, forKey: PaneGap.key) }
         let window = FocusWindow(contentRect: .zero, styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
         let f = try TabWindowFixture(window: window)
         let (tab, _) = try f.shell("Preview")

@@ -21,9 +21,9 @@ final class PaneAppearanceTests: XCTestCase {
             XCTAssertEqual(PaneGap.resolved(step), step, "合法档 \(step) 不该被改")
         }
         XCTAssertEqual(PaneGap.resolved(0), 0, "0 是「无间距」这一档，不是「没设置」")
-        XCTAssertEqual(PaneGap.resolved(7), PaneGap.standard, "越界值回到默认档")
-        XCTAssertEqual(PaneGap.resolved(-3), PaneGap.standard)
-        XCTAssertEqual(PaneGap.resolved(999), PaneGap.standard)
+        XCTAssertEqual(PaneGap.resolved(7), PaneGap.defaultValue, "越界值回到默认档")
+        XCTAssertEqual(PaneGap.resolved(-3), PaneGap.defaultValue)
+        XCTAssertEqual(PaneGap.resolved(999), PaneGap.defaultValue)
     }
 
     /// 四档各有自己的名字（设置页的弹出菜单照它画）。

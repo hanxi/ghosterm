@@ -1,7 +1,7 @@
 {
-  "recordedAt": "2026-10-29T11:37:02+08:00",
+  "recordedAt": "2026-10-29T13:17:14+08:00",
   "macOS": "26.6.2",
-  "method": "Production TabWindowController / NSWindow, real local PTY and full libghostty; offscreen cacheDisplay. Surfaces explicitly made visible and drawn for the capture. Desktop locked; not evidence of real OS activation or fullscreen.",
+  "method": "Production TabWindowController / NSWindow, real local PTY and full libghostty; offscreen cacheDisplay. Surfaces explicitly made visible and drawn. Desktop locked; not evidence of real OS activation or fullscreen.",
   "windowSize": [
     1080,
     675
@@ -10,14 +10,47 @@
     "sidebar",
     "top"
   ],
-  "appearance": [
-    "light",
-    "dark"
+  "paneGap": [
+    0,
+    10
   ],
-  "probeSHA256": "2f787ae3259e9f058ad38cbcbc58d8d180177fb04dca94ff1e3b689c62af9f10",
+  "terminalPalette": {
+    "dark": {
+      "background": "#252a33",
+      "foreground": "#d1d8e2"
+    },
+    "light": {
+      "background": "#f6f7f9",
+      "foreground": "#35404e"
+    }
+  },
+  "design": "Unified terminal-colored chrome, no pane outline or title separator, short focus marker. Existing pane gap control; no separate style selector.",
+  "probeSHA256": "5da69a7d968b2b08c11a7ea2fa136addbf384f7bea5a48e3d1e8617d1d44a17f",
   "sourceSHA256": {
-    "apple/GhostermApp/Sources/GhostermApp/Sidebar.swift": "a814eaa738f95b6f92c3f8d3052eeb5eab8ef3702cd3ca59bf67f24478421ab8",
-    "apple/GhostermApp/Sources/GhostermApp/TabStrip.swift": "63aef60e64420c3f0c2de6e5871d76782afacf9c1a3923917cc122fb62e2b54e",
-    "apple/GhostermApp/Sources/GhostermApp/NavigationControls.swift": "db599605b6199ea0bdc76ed80d84c02b258e8518e8502c0795c98bc04aa954b2"
+    "apple/GhostermApp/Sources/GhostermApp/ChromePalette.swift": "3263620d654f45983c5ee82c01af3f399f019edf4a26a97dc942237816471d2c",
+    "apple/GhostermApp/Sources/GhostermApp/Sidebar.swift": "66d48ce5b82d9128b50763834f2bbdfe3919748da67ea7409a3bcc9c95fb718c",
+    "apple/GhostermApp/Sources/GhostermApp/TabStrip.swift": "1a82239a9065c5dd8ea56c4d9c9d175912cee73df51138c62ea2d7f5ae1242e1",
+    "apple/GhostermApp/Sources/GhostermApp/PaneChrome.swift": "bf1ab2524fafb1ff5a485df69b8ff07cc9ea92d2a327a32ceedcde0f8c911043",
+    "apple/GhostermApp/Sources/GhostermApp/NavigationControls.swift": "c51a797cfd234d797997e4a20b920e5cd3a5d3d778c7d2d3be11e843cc04c36c",
+    "apple/GhostermApp/Sources/GhostermApp/WorkspaceView.swift": "6a21bf83631bdf447f301df2e9d5f12b8e333f987e75335fbd765b70c7fc7db7",
+    "apple/GhostermTerminal/Sources/CGhostty/shim.c": "9720db735222a3cfe354506ff11eb809fff677cb02ff6954170c6ced3993150b",
+    "apple/GhostermApp/Sources/GhostermApp/RootView.swift": "19ab475487683670c1f2e04bb2e1a58579d2d0b55fa7a346dcba6b040c733fc7",
+    "apple/GhostermApp/Sources/GhostermApp/WorkspaceFileView.swift": "b9a65fcf4ccd883360bb33529ccbb7937d8540be4f89a56787430fe9275580f3",
+    "apple/GhostermApp/Sources/GhostermApp/PaneActions.swift": "a68bdc76c5e432434a3804dee5b2960b3777ed9cd1dd1e11e1e3c1697317e1b7",
+    "apple/GhostermApp/Sources/GhostermApp/DesignSystem.swift": "89271985ca737718a2fdb03ebac06ed2c11e44c72ccb4ef4936b3cde44a942a9",
+    "apple/GhostermApp/Sources/GhostermApp/SettingsView.swift": "e45aa9c8d1be83b32275f7c71686d9505e668009d4ed81e46c4a3b0608d5daf0",
+    "apple/GhostermApp/Sources/GhostermAppModel/PaneAppearance.swift": "22d7e4ed108fa3719befa171e7991cf9e495d049ee724d464c14be9e0ed1e0ac",
+    "apple/GhostermApp/Sources/GhostermAppModel/AppModel.swift": "56db4209c6a519889cca87b0757bcad9c3e8ad0d867ce03d0bf67129cfb3d421"
+  },
+  "capturedAt": "2026-10-29T13:11:37+08:00",
+  "imageSHA256": {
+    "review-sidebar-dark-gap10.png": "8bbf3ed7d396350ef1efaf43927716f42adaca4e41fabdff197127c0930df539",
+    "review-sidebar-dark.png": "47593c40a387348415f7b757ff49cd6fe216579214b3f9798ba4c55ea2a96321",
+    "review-sidebar-light-gap10.png": "90b35c97b8d75caf3827cb7e1d163d3c3df9088fbdf399b49cdb8ea0e36b2666",
+    "review-sidebar-light.png": "3bf63a83bb0ea1ad6c959588677b6f124a1bff11b6c468c68f7fcb87547ca048",
+    "review-top-dark-gap10.png": "d91bc3b8a234f1b2c0e73b02fd642b55d29ccd9c8078d4740d7773df64bbe3a4",
+    "review-top-dark.png": "053547535609d5477f256a9d61fba8f915888596159df0c0b2ae77f555602985",
+    "review-top-light-gap10.png": "b682712072f070f6247570d16a3bafa537fa5f7622b51fc96d37bfc1747a110d",
+    "review-top-light.png": "c3cdba949b6a39424dcd7621c8adae3962a337431acada6d4af1562170c2bd0b"
   }
 }

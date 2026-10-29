@@ -125,7 +125,9 @@ final class TerminalStatusRenderTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
         let cfg = dir + "/config"
         try "Host web\n  HostName h\n".write(toFile: cfg, atomically: true, encoding: .utf8)
-        let model = isolatedAppModel(configPath: cfg, knownHostsPath: dir + "/known_hosts")
+        let model = isolatedAppModel(configPath: cfg, knownHostsPath: dir + "/known_hosts",
+                                     settings: SettingsStore(terminalConfigPath: dir + "/ghostty"))
+        try model.replaceTerminalConfig("background = #f6f6f6\nforeground = #242424\n")
 
         let pane = TerminalPane()
         let tab = TerminalTab(kind: .localShell, pane: pane)
@@ -219,7 +221,9 @@ final class TerminalStatusRenderTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
         let cfg = dir + "/config"
         try "Host web\n  HostName h\n".write(toFile: cfg, atomically: true, encoding: .utf8)
-        let model = isolatedAppModel(configPath: cfg, knownHostsPath: dir + "/known_hosts")
+        let model = isolatedAppModel(configPath: cfg, knownHostsPath: dir + "/known_hosts",
+                                     settings: SettingsStore(terminalConfigPath: dir + "/ghostty"))
+        try model.replaceTerminalConfig("background = #f6f6f6\nforeground = #242424\n")
         let pane = TerminalPane()
         let tab = TerminalTab(kind: .localShell, pane: pane)
         model.tabs.add(tab)

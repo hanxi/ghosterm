@@ -70,11 +70,11 @@ NAVIGATION = [
      "width: WindowChrome.trafficLightsWidth, height: 1", "width: 0, height: 1",
      GEOMETRY, ORDER, "顶部标签不能遮住系统窗口按钮"),
     ("顶部加号位置", "Sources/GhostermApp/TabStrip.swift",
-     "NewConnectionButton().frame(width: DS.controlSize, height: DS.controlSize)",
-     "NewConnectionButton().frame(width: DS.controlSize, height: DS.controlSize).offset(x: -80)",
+     "NewConnectionButton(tint: ChromePalette(model: model).foreground).frame(width: DS.controlSize, height: DS.controlSize)",
+     "NewConnectionButton(tint: ChromePalette(model: model).foreground).frame(width: DS.controlSize, height: DS.controlSize).offset(x: -80)",
      "TabStripVisibilityTests/testPlusFollowsTheLastSidebarTabAndStaysAtTheTopRight", ORDER, "顶部加号必须固定在最右端"),
     ("侧栏加号位置", "Sources/GhostermApp/Sidebar.swift",
-     "NewConnectionButton(showsTitle: true)", "NewConnectionButton(showsTitle: true).offset(y: -60)",
+     "NewConnectionButton(showsTitle: true, tint: ChromePalette(model: model).foreground)", "NewConnectionButton(showsTitle: true, tint: ChromePalette(model: model).foreground).offset(y: -60)",
      "TabStripVisibilityTests/testPlusFollowsTheLastSidebarTabAndStaysAtTheTopRight", ORDER, "侧栏加号必须位于最后一个标签下方"),
     ("配置警告", "Sources/GhostermApp/RootView.swift",
      "if let error = model.terminalConfigError {", "if let error = model.terminalConfigError, false {",
@@ -128,7 +128,7 @@ MENU = [
 ]
 SIDEBAR = [
     ("标签高亮", "Sources/GhostermApp/Sidebar.swift",
-     "                .fill(isActive ? Color.primary.opacity(0.12) : Color.clear)", "                .fill(Color.clear)",
+     "                .fill(isActive ? selection : Color.clear)", "                .fill(Color.clear)",
      "SidebarChromeTests/testActiveTabRowIsHighlighted", ORDER, "当前标签页那一行该有高亮块"),
     ("清除系统标题", "Sources/GhostermAppModel/WindowChrome.swift",
      'window.title = ""', 'window.title = "Ghosterm"',
@@ -263,9 +263,45 @@ PANES = [
      "文件刷新不得抢走非当前窗格按钮的键盘"),
 ]
 
+APPEARANCE = [
+    ("分隔线留白", "Sources/GhostermApp/WorkspaceView.swift",
+     "separatorColor = opts.gap == 0 ? ChromePalette(model: model).separator : .clear",
+     "separatorColor = .black",
+     "ChromePaletteTests/testGapOnlyChangesSpacingAndDividerInk",
+     "PaneChromeTests/testFocusedPaneTitleBarHasShortMarker", "留白时分隔区域必须透明"),
+    ("默认贴边", "Sources/GhostermAppModel/PaneAppearance.swift",
+     "public static let defaultValue = 0", "public static let defaultValue = 10",
+     "ChromePaletteTests/testNavigationTitleAndTerminalShareThemeAfterReload",
+     "PaneChromeTests/testFocusedPaneTitleBarHasShortMarker", "默认窗格必须贴边，不能有外留白"),
+    ("导航同色", "Sources/GhostermApp/Sidebar.swift",
+     ".modifier(ChromeSurface(palette: ChromePalette(model: model)))",
+     ".background(Color(nsColor: .windowBackgroundColor))",
+     "ChromePaletteTests/testNavigationTitleAndTerminalShareThemeAfterReload",
+     "PaneChromeTests/testFocusedPaneTitleBarHasShortMarker", "导航必须使用终端背景色"),
+    ("标题去线", "Sources/GhostermApp/PaneChrome.swift",
+     ".modifier(ChromeSurface(palette: palette))",
+     ".modifier(ChromeSurface(palette: palette)).overlay(alignment: .bottom) { Divider() }",
+     "ChromePaletteTests/testNavigationTitleAndTerminalShareThemeAfterReload",
+     "PaneChromeTests/testFocusedPaneTitleBarHasShortMarker", "窗格标题不能有底部描边"),
+    ("移除外框", "Sources/GhostermApp/PaneChrome.swift",
+     ".clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))",
+     ".clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous)).overlay(Rectangle().strokeBorder(Color.accentColor, lineWidth: 1))",
+     "ChromePaletteTests/testNavigationTitleAndTerminalShareThemeAfterReload",
+     "PaneChromeTests/testFocusedPaneTitleBarHasShortMarker", "窗格不能绘制整圈焦点描边"),
+    ("条件主题颜色", "../GhostermTerminal/Sources/CGhostty/shim.c",
+     "a->has_resolved_colors = true;", "a->has_resolved_colors = false;",
+     "ChromePaletteTests/testConditionalThemeUsesResolvedColors",
+     "ChromePaletteTests/testNavigationTitleAndTerminalShareThemeAfterReload", "条件主题切换必须更新导航底色"),
+    ("按钮前景色", "Sources/GhostermApp/NavigationControls.swift",
+     "        button.contentTintColor = tint\n        button.attributedTitle",
+     "        button.contentTintColor = .labelColor\n        button.attributedTitle",
+     "ChromePaletteTests/testNavigationTitleAndTerminalShareThemeAfterReload",
+     "PaneChromeTests/testFocusedPaneTitleBarHasShortMarker", "原生加号必须跟随终端前景色"),
+]
+
 GROUPS = {"preferences": PREFERENCES, "connections": CONNECTIONS,
           "navigation": NAVIGATION, "lifecycle": LIFECYCLE, "menu": MENU, "sidebar": SIDEBAR,
-          "search": SEARCH, "panes": PANES}
+          "search": SEARCH, "panes": PANES, "appearance": APPEARANCE}
 
 
 def main():

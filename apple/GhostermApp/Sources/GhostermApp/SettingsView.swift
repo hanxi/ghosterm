@@ -318,7 +318,7 @@ private struct AppearancePane: View {
 
     // 窗格外观两项。用 @AppStorage 而不是 @State + 手写回存：主窗口那边
     // 读的是同一批键，改完要**当场**生效（用户不该为了看效果重开窗口）。
-    @AppStorage(PaneGap.key) private var paneGap = PaneGap.standard
+    @AppStorage(PaneGap.key) private var paneGap = PaneGap.defaultValue
     @AppStorage(PaneTitleBar.visibleKey)
     private var paneTitleBarVisible = PaneTitleBar.visibleDefault
 
@@ -420,8 +420,7 @@ private struct AppearancePane: View {
                 .accessibilityLabel("窗格间距")
                 .accessibilityValue(PaneGap.title(of: PaneGap.resolved(paneGap)))
             } details: {
-                SettingsNote("格与格、格与窗口边之间留白。调到「无」就是贴边分屏："
-                             + "不画圆角，只剩分隔线。")
+                SettingsNote("调到「无」就是贴边分屏；增加间距可留出呼吸空间。配色保持一致。")
             }
 
             SettingsRow("窗格标题栏") {

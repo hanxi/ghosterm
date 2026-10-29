@@ -34,6 +34,10 @@ struct gt_ghostty_surface;
 struct gt_ghostty_app {
   ghostty_app_t app;
   ghostty_config_t config;
+  /* config 保留条件主题源；这里保存 CONFIG_CHANGE 提供的已解析颜色。 */
+  bool has_resolved_colors;
+  bool color_valid[3];
+  ghostty_config_color_s colors[3];
   /* 已创建的 surface 清单（动态数组）。
    * 为什么 app 要记着它们：浅/深色切换不只是 app 级条件状态的事——**每个
    * surface 各自持有一份 `config_conditional_state`（创建时从 app 拷贝）**，
@@ -61,6 +65,17 @@ static void cb_wakeup(void *ud) {
 
 static bool cb_action(ghostty_app_t app, ghostty_target_s target,
                       ghostty_action_s action) {
+  if (action.tag == GHOSTTY_ACTION_CONFIG_CHANGE && target.tag == GHOSTTY_TARGET_APP) {
+    struct gt_ghostty_app *a = ghostty_app_userdata(app);
+    if (!a) return false;
+    const char *keys[] = {"background", "foreground", "unfocused-split-fill"};
+    for (size_t i = 0; i < 3; i++) {
+      a->color_valid[i] = ghostty_config_get(action.action.config_change.config,
+          &a->colors[i], keys[i], (uintptr_t)strlen(keys[i]));
+    }
+    a->has_resolved_colors = true;
+    return true;
+  }
   /* `reload_config`：libghostty 改完条件状态（浅/深色）后发的动作，把
    * 「该重读配置」这件事**交给嵌入侧**（embedded apprt 自己不做；上游 macOS
    * 在 `Ghostty.App.swift` 的 `configReload` 里落成 `ghostty_app_update_config`）。
@@ -302,6 +317,15 @@ bool gt_ghostty_config_get_double(gt_ghostty_app_t *a, const char *key,
 bool gt_ghostty_config_get_color(gt_ghostty_app_t *a, const char *key,
                                  uint8_t *r, uint8_t *g, uint8_t *b) {
   if (!a || !a->config || !key || !r || !g || !b) return false;
+  if (a->has_resolved_colors) {
+    const char *keys[] = {"background", "foreground", "unfocused-split-fill"};
+    for (size_t i = 0; i < 3; i++) {
+      if (strcmp(key, keys[i]) != 0) continue;
+      if (!a->color_valid[i]) return false;
+      *r = a->colors[i].r; *g = a->colors[i].g; *b = a->colors[i].b;
+      return true;
+    }
+  }
   ghostty_config_color_s c = {0, 0, 0};
   if (!ghostty_config_get(a->config, &c, key, (uintptr_t)strlen(key)))
     return false;

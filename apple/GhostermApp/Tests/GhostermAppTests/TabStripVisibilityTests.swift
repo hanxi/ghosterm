@@ -98,6 +98,7 @@ import XCTest
 
     func testConfigurationWarningIsVisibleWithoutMovingThePlus() throws {
         let f = try TabWindowFixture(); defer { f.close() }
+        try f.model.replaceTerminalConfig("background = #f6f6f6\nforeground = #242424\n")
         f.model.tabs.add(TerminalTab(kind: .localShell, pane: TerminalPane()))
         for placement in TabPlacement.allCases {
             f.model.preferences.tabPlacement = placement
@@ -110,8 +111,9 @@ import XCTest
                 var count = 0
                 for y in 0..<image.pixelsHigh {
                     for x in stride(from: 0, to: image.pixelsWide, by: 2) {
-                        guard let c = image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-                        if c.redComponent > 0.7 && c.greenComponent > 0.2 && c.greenComponent < 0.8 && c.redComponent > c.greenComponent * 1.2 && c.blueComponent < c.greenComponent * 0.8 { count += 1 }
+                        var pixel = [UInt](repeating: 0, count: image.samplesPerPixel)
+                        image.getPixel(&pixel, atX: x, y: y)
+                        if Int(pixel[0]) - Int(pixel[1]) > 5 && Int(pixel[1]) - Int(pixel[2]) > 5 { count += 1 }
                     }
                 }
                 return count

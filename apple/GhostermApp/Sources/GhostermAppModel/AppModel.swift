@@ -58,6 +58,7 @@ public final class AppModel: ObservableObject {
     public func applyColorSchemeToTerminal() {
         let dark = AppearancePreference.isDarkNow(appearance)
         terminalApp?.setColorScheme(dark: dark)
+        objectWillChange.send() // 系统外观变化也会改变已解析的终端主题。
     }
 
     /// 非聚焦窗格的变暗遮罩（读引擎里**已生效**的配置；nil = 不变暗）。

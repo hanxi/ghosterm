@@ -1,16 +1,5 @@
-// SplitDividerTests — 分屏的分隔线不得画出来（拖拽手柄保留）。
-//
-// 来历：bug.md「窗口中间不要出现分割线，因为已经有边框了，再加上分割线
-// 好丑」。macOS 26 上逐像素实测（真上屏截窗对比）：这条 1pt 线既不是
-// `drawDivider(in:)` 画的、也不是 NSSplitDividerView 的 drawRect 画的——
-// 两个钩子动态 override 成空，线纹丝不动；它是 divider view 挂在自己
-// 背衬层上的 **CALayer 子层**（黑 @ 9.8%，宽 1pt）。SplitDividerHider
-// 清掉它，本测试断言其结构性结果。
-//
-// 为什么不用截屏做断言：CGWindowListCreateImage 依赖屏幕录制权限，无权限
-// 的机器上会**假绿**（截不到 ≠ 线没了）。像素级验证在修复当时做过一次
-// （中缝两列 (230,230,230) → (255,255,255)，强制重 layout 后不复现），
-// 结论记录在 SplitDivider.swift 的头注释里。
+// SplitDividerTests — 有留白时不再叠加分隔线，拖动命中与调比例始终保留。
+// 默认贴边时需要的 1pt 细线由 ChromePaletteTests 另验像素，不能套用旧卡片规则。
 import AppKit
 import GhostermTerminal
 import SwiftUI
@@ -31,8 +20,7 @@ final class SplitDividerTests: XCTestCase {
         try assertDividerCleared(axis: .horizontal)
     }
 
-    /// 竖分屏：同一机制，另一个分支（RootView 两处都挂了 hider，
-    /// 各自都得验——漏挂一处的回归靠对应轴的用例变红）。
+    /// 竖分屏采用同一策略，另一个轴也必须保留透明的拖动区域。
     func testVerticalDividerLineIsCleared() throws {
         try assertDividerCleared(axis: .vertical)
     }
@@ -40,6 +28,9 @@ final class SplitDividerTests: XCTestCase {
     // MARK: - 断言主体
 
     private func assertDividerCleared(axis: PaneLayout.Axis) throws {
+        let oldGap = UserDefaults.standard.object(forKey: PaneGap.key)
+        UserDefaults.standard.set(10, forKey: PaneGap.key)
+        defer { UserDefaults.standard.set(oldGap, forKey: PaneGap.key) }
         let model = try makeModel()
         let tab = TerminalTab(kind: .localShell, pane: TerminalPane())
         model.tabs.add(tab)
@@ -52,10 +43,10 @@ final class SplitDividerTests: XCTestCase {
         pump(30)
 
         guard let sv = findSplitView(host) else {
-            return XCTFail("找不到 \(axis == .vertical ? "竖" : "横")分屏的 NSSplitView")
+            return XCTFail("找不到 \(axis == .vertical ? "竖" : "横")分屏的 WorkspaceHostView")
         }
         let dividers = sv.dividerViews
-        XCTAssertFalse(dividers.isEmpty, "NSSplitView 里没有 divider view——前提不成立")
+        XCTAssertFalse(dividers.isEmpty, "WorkspaceHostView 里没有 divider view——前提不成立")
 
         let before = tab.workspaceLayout
         let first = try XCTUnwrap(dividers.first)
@@ -73,7 +64,7 @@ final class SplitDividerTests: XCTestCase {
             // 线不得画：背衬层里不许再有「可见且带背景色」的细线子层。
             for sl in d.layer?.sublayers ?? []
             where min(sl.frame.width, sl.frame.height) <= 1.5 {
-                let lineVisible = !sl.isHidden && sl.backgroundColor != nil
+                let lineVisible = !sl.isHidden && (sl.backgroundColor?.alpha ?? 0) > 0
                 XCTAssertFalse(lineVisible,
                                "分隔线子层还在画（frame=\(sl.frame)）——中间会看到一条 1pt 灰线")
             }

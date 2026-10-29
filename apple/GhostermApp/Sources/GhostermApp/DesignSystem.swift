@@ -175,9 +175,8 @@ private struct DSFontModifier: ViewModifier {
     }
 }
 
-/// 玻璃容器：macOS 13 用 `.ultraThinMaterial`（`glassEffect` 要 macOS 26）。
-/// iGhostVT 的做法也是「一处包起来，别处不提材质名」。
-struct GlassBar<Content: View>: View {
+/// 导航尺寸与拖动区域；底色由窗口风格统一提供。
+struct NavigationBar<Content: View>: View {
     var spacing: CGFloat = DS.Padding.s
     @ViewBuilder var content: Content
 
@@ -185,7 +184,6 @@ struct GlassBar<Content: View>: View {
         HStack(spacing: spacing) { content }
             .padding(.horizontal, DS.Padding.s)
             .frame(height: WindowChrome.barHeight)
-            .background(.ultraThinMaterial)
             // 空白处可拖动窗口（标题栏本职）——放在背景层，控件优先。
             .background(WindowDragArea())
     }

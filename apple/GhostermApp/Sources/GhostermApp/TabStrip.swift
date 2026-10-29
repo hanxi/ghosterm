@@ -7,13 +7,13 @@ struct TabStrip: View {
     @ObservedObject var tabs: TabManager
 
     var body: some View {
-        GlassBar {
+        NavigationBar {
             Color.clear.frame(width: WindowChrome.trafficLightsWidth, height: 1)
             ScrollViewReader { scroller in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 4) {
                         ForEach(tabs.tabs) { tab in
-                            TabChip(tab: tab, isActive: tab.id == tabs.activeTabID)
+                            TabChip(tab: tab, isActive: tab.id == tabs.activeTabID, selection: ChromePalette(model: model).selection)
                                 .id(tab.id)
                                 .modifier(TabInteraction(model: model, tabs: tabs, tab: tab))
                         }
@@ -26,14 +26,16 @@ struct TabStrip: View {
                 .onChange(of: tabs.activeTabID) { id in if let id { scroller.scrollTo(id) } }
                 .onAppear { if let id = tabs.activeTabID { scroller.scrollTo(id) } }
             }
-            NewConnectionButton().frame(width: DS.controlSize, height: DS.controlSize)
+            NewConnectionButton(tint: ChromePalette(model: model).foreground).frame(width: DS.controlSize, height: DS.controlSize)
         }
+        .modifier(ChromeSurface(palette: ChromePalette(model: model)))
     }
 }
 
 struct TabChip: View {
     @ObservedObject var tab: TerminalTab
     let isActive: Bool
+    var selection: Color = Color.primary.opacity(0.12)
     @State private var hovering = false
 
     var body: some View {
@@ -72,7 +74,7 @@ struct TabChip: View {
         .frame(minWidth: 120, idealWidth: 180, maxWidth: 200)
         .background(
             Capsule()
-                .fill(isActive ? Color.primary.opacity(0.12)
+                .fill(isActive ? selection
                                : Color.clear)
         )
         .contentShape(Rectangle())

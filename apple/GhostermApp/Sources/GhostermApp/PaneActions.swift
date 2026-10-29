@@ -65,7 +65,7 @@ struct PaneActionsView: View {
     }
 
     var body: some View {
-        PaneActionsRepresentable(items: items, paneID: paneID, revealed: revealed, preview: preview)
+        PaneActionsRepresentable(items: items, ink: ChromePalette(model: model).foreground, paneID: paneID, revealed: revealed, preview: preview)
             .frame(width: CGFloat(items.count * 21 - 1), height: 20)
     }
 }
@@ -82,12 +82,14 @@ struct PaneContextMenu: View {
 
 private struct PaneActionsRepresentable: NSViewRepresentable {
     let items: [PaneAction]
+    let ink: NSColor
     let paneID: UUID
     let revealed: Bool
     let preview: (PaneLayout.Axis?) -> Void
     func makeNSView(context: Context) -> PaneActionsHost { PaneActionsHost() }
     func updateNSView(_ view: PaneActionsHost, context: Context) {
         view.update(items: items, paneID: paneID, revealed: revealed, preview: preview)
+        view.buttons.forEach { $0.chromeInk = ink }
     }
 }
 
@@ -140,6 +142,7 @@ final class PaneActionsHost: NSView {
 }
 
 final class PaneActionButton: NSButton {
+    var chromeInk: NSColor = .labelColor { didSet { updateAppearance() } }
     var descriptor: PaneAction?
     var invoke: (() -> Void)?
     var activityChanged: (() -> Void)?
@@ -169,7 +172,7 @@ final class PaneActionButton: NSButton {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.backgroundColor = (hovered || keyboardFocused ? NSColor.controlAccentColor.withAlphaComponent(0.16) : .clear).cgColor
         }
-        contentTintColor = hovered || keyboardFocused ? .labelColor : .secondaryLabelColor
+        contentTintColor = chromeInk.withAlphaComponent(hovered || keyboardFocused ? 1 : 0.65)
     }
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()

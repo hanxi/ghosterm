@@ -41,6 +41,7 @@ struct WorkspaceView: NSViewRepresentable {
     private(set) var hosts: [UUID: NSHostingView<WorkspacePaneView>] = [:]
     private var tab: TerminalTab?
     private var opts = PaneChromeOptions()
+    private var separatorColor: NSColor = .separatorColor
     private var isActive = false
     private var mouseMonitor: Any?
     private var previewObservers: [NSObjectProtocol] = []
@@ -111,6 +112,7 @@ struct WorkspaceView: NSViewRepresentable {
         zoomedID = tab.zoomedPaneID
         workspaceLayout = tab.workspaceLayout; focusedPaneID = tab.activeWorkspacePaneID
         self.tab = tab; self.opts = opts; self.isActive = isActive
+        separatorColor = opts.gap == 0 ? ChromePalette(model: model).separator : .clear
         let live = Set(tab.workspacePanes.map(\.id))
         for id in Array(hosts.keys) where !live.contains(id) {
             hosts.removeValue(forKey: id)?.removeFromSuperview()
@@ -215,6 +217,7 @@ struct WorkspaceView: NSViewRepresentable {
             guard i < dividerGeometry.count else { continue }
             view.frame = dividerGeometry[i].rect
             view.axis = dividerGeometry[i].axis
+            view.lineColor = separatorColor
             view.onDrag = { [weak self] point in self?.resizeDivider(i, at: point) }
             addSubview(view, positioned: .above, relativeTo: nil)
         }
@@ -331,7 +334,11 @@ struct WorkspaceView: NSViewRepresentable {
 }
 
 @MainActor private final class WorkspaceDividerView: NSView {
-    var axis: PaneLayout.Axis = .horizontal
+    private let lineLayer = CALayer()
+    var lineColor: NSColor = .separatorColor {
+        didSet { lineLayer.backgroundColor = lineColor.cgColor }
+    }
+    var axis: PaneLayout.Axis = .horizontal { didSet { needsLayout = true } }
     var onDrag: ((NSPoint) -> Void)?
     /// 分隔条上沿可能进系统标题栏带（标题栏关闭形态 / gap=0）：拒绝窗口
     /// 拖动劫持，否则带内那截拖分隔条会变成移窗（mouseDown 的 nextEvent
@@ -341,8 +348,16 @@ struct WorkspaceView: NSViewRepresentable {
         super.init(frame: frame)
         wantsLayer = true
         layer?.backgroundColor = nil
+        layer?.addSublayer(lineLayer)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) 未实现") }
+    override func layout() {
+        super.layout()
+        // 命中区仍为 6pt；只画中间 1pt，间距开启时图层透明，保留拖动能力。
+        lineLayer.frame = axis == .horizontal
+            ? NSRect(x: bounds.midX - 0.5, y: 0, width: 1, height: bounds.height)
+            : NSRect(x: 0, y: bounds.midY - 0.5, width: bounds.width, height: 1)
+    }
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown)
     }
@@ -377,6 +392,7 @@ struct WorkspacePaneView: View {
                                   chromeChanged: fileChromeChanged, isVisible: isVisible, showsActions: hovering, preview: splitPreview)
             }
         }
+        .environment(\.colorScheme, ChromePalette(model: model).colorScheme)
         .background(HoverTracking(hovering: $hovering, identifier: "pane-hover-\(pane.id)"))
         .onDisappear { splitPreview(nil) }
     }

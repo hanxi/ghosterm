@@ -2,7 +2,7 @@
 # 变异验证：证明「分屏分隔线不画、拖拽手柄保留」这组断言有牙
 # （SplitDividerTests）。
 #
-# 工作区采用原生透明拖拽手柄；卡片已有边框，手柄不能再画一条背景线。
+# 工作区采用原生透明拖拽手柄；有间距时不叠加细线，默认贴边细线另验像素。
 #   D1 分隔位置命令被短路 → 拖动不改变布局比例；
 #   D2 给手柄设置灰色背景 → 中缝再次出现额外线；
 #   D3 藏掉手柄本体 → 拖拽命中和调比例失效。
@@ -56,12 +56,13 @@ for i in "${!FILES[@]}"; do
   cp "${FILES[$i]}" "${BACKUPS[$i]}"
 done
 
-run_divider()  { ( cd "$PKG" && gt_timeout 420 swift test --filter SplitDividerTests >/dev/null 2>&1 ); }
-run_geometry() { ( cd "$PKG" && gt_timeout 420 swift test --filter SplitPaneGeometryTests >/dev/null 2>&1 ); }
+run_divider()  { ( cd "$PKG" && gt_timeout 420 swift test --filter SplitDividerTests >"$TMP/split-divider-current.log" 2>&1 ); }
+run_geometry() { ( cd "$PKG" && gt_timeout 420 swift test --filter SplitPaneGeometryTests >"$TMP/split-divider-current.log" 2>&1 ); }
 expect() {
   if "$3"; then actual=green; else actual=red; fi
+  if ! grep -q "Executed [1-9]" "$TMP/split-divider-current.log"; then actual=invalid; fi
   if [ "${actual}" = "$1" ]; then echo "  ✓ ${2} → ${actual}"; PASS=$((PASS+1))
-  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"; FAIL=$((FAIL+1)); fi
+  else echo "  ✗ ${2} → 期望 ${1}，实际 ${actual}"; cat "$TMP/split-divider-current.log"; FAIL=$((FAIL+1)); fi
 }
 rollback() {
   local i now
@@ -103,6 +104,7 @@ assert old in s, "D2 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PYD2
 expect red "D2 手柄背景线被画出" run_divider
+expect green "D2 指向性（分屏几何不受影响）" run_geometry
 rollback
 
 # ---- D3：藏掉整个 divider view（拖拽一起死） ----
@@ -116,6 +118,7 @@ assert old in s, "D3 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PYD3
 expect red "D3 拖拽手柄被藏（断言不许）" run_divider
+expect green "D3 指向性（分屏几何不受影响）" run_geometry
 rollback
 
 echo "== 回滚复绿 =="

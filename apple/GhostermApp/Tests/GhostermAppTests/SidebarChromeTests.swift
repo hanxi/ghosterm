@@ -116,7 +116,10 @@ final class SidebarChromeTests: XCTestCase {
         let cfg = dir + "/config"
         try "Host web\n  HostName h\n".write(toFile: cfg, atomically: true,
                                             encoding: .utf8)
-        return isolatedAppModel(configPath: cfg, knownHostsPath: dir + "/known_hosts")
+        let model = isolatedAppModel(configPath: cfg, knownHostsPath: dir + "/known_hosts",
+                                     settings: SettingsStore(terminalConfigPath: dir + "/ghostty"))
+        try model.replaceTerminalConfig("background = #f6f6f6\nforeground = #242424\n")
+        return model
     }
 
     /// 整窗渲染（含侧栏 + 顶栏；终端面没挂 surface 时只画一块底色）。

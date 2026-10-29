@@ -142,7 +142,9 @@ final class PaneChromeTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
         try "Host web\n".write(toFile: dir + "/config", atomically: true, encoding: .utf8)
         let model = isolatedAppModel(configPath: dir + "/config",
-                             knownHostsPath: dir + "/known_hosts")
+                             knownHostsPath: dir + "/known_hosts",
+                             settings: SettingsStore(terminalConfigPath: dir + "/ghostty"))
+        try model.replaceTerminalConfig("background = #f6f6f6\nforeground = #242424\n")
         let tab = TerminalTab(kind: .localShell, pane: TerminalPane())
         model.tabs.add(tab)
         tab.split(axis: .horizontal, with: TerminalPane())
@@ -178,7 +180,9 @@ final class PaneChromeTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
         try "Host web\n".write(toFile: dir + "/config", atomically: true, encoding: .utf8)
         let model = isolatedAppModel(configPath: dir + "/config",
-                             knownHostsPath: dir + "/known_hosts")
+                             knownHostsPath: dir + "/known_hosts",
+                             settings: SettingsStore(terminalConfigPath: dir + "/ghostty"))
+        try model.replaceTerminalConfig("background = #f6f6f6\nforeground = #242424\n")
         let tab = TerminalTab(kind: .localShell, pane: TerminalPane())
         model.tabs.add(tab)
         tab.split(axis: .horizontal, with: TerminalPane())
@@ -298,13 +302,16 @@ final class PaneChromeTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(atPath: dir) }
         try "Host web\n".write(toFile: dir + "/config", atomically: true, encoding: .utf8)
         let model = isolatedAppModel(configPath: dir + "/config",
-                             knownHostsPath: dir + "/known_hosts")
+                             knownHostsPath: dir + "/known_hosts",
+                             settings: SettingsStore(terminalConfigPath: dir + "/ghostty"))
+        try model.replaceTerminalConfig("background = #f6f6f6\nforeground = #242424\n")
         let tab = TerminalTab(kind: .localShell, pane: TerminalPane())
         model.tabs.add(tab)
         if split {
             tab.split(axis: .horizontal, with: TerminalPane())
             tab.activePaneID = tab.panes[0].id
         }
+        try model.replaceTerminalConfig(dark ? "background = #242424\nforeground = #dddddd\n" : "background = #f6f6f6\nforeground = #242424\n")
         model.preferences.tabPlacement = .top
         return render(RootView(model: model),
                       size: Self.size)
@@ -314,55 +321,38 @@ final class PaneChromeTests: XCTestCase {
     private func titleBands(_ scale: Double) -> (y0: Int, y1: Int,
                                                  left: (Int, Int), right: (Int, Int)) {
         let gap = CGFloat(PaneGap.standard)
-        let y0 = Int((WindowChrome.barHeight + 1 + gap) * scale)
-        let y1 = Int((WindowChrome.barHeight + 1 + gap + PaneTitleBar.height) * scale)
+        let centerY = WindowChrome.barHeight + 1 + gap + PaneTitleBar.height / 2
+        let y0 = Int((centerY - 1) * scale), y1 = Int((centerY + 1) * scale)
         let half = Self.size.width / 2
         return (y0, y1,
-                (Int((gap + 60) * scale), Int((half - 30) * scale)),
-                (Int((half + 60) * scale), Int((Self.size.width - gap - 30) * scale)))
+                (Int((gap + 9) * scale), Int((gap + 23) * scale)),
+                (Int((half + gap / 2 + 9) * scale), Int((half + gap / 2 + 23) * scale)))
     }
 
-    // MARK: - 3. 分屏时「哪格是当前」
-
-    /// 聚焦那格的标题栏点着强调色，非聚焦那格不点——深浅两种外观下都成立。
-    ///
-    /// 用户实测报回来的：「深色背景下，非当前选中的窗格颜色不太行，不像未
-    /// 激活窗格」。终端面上那层 `unfocused-split-opacity` 遮罩盖的是**配置
-    /// 色**，默认就是终端背景色本身，同色盖同色只剩文字淡三成，深色主题下
-    /// 读不出来。遮罩是上游语义不动（见 SplitDim），区分放到 chrome 上。
-    ///
-    /// 量的是**色度**不是亮度：亮度随深浅外观整体平移（实测浅色下两条带只
-    /// 差 12，深色下差 29），拿亮度当判据必然要为两种外观各写一个阈值——
-    /// 那种阈值没人能说清是怎么来的。带色 vs 不带色与底色深浅无关。
+    // 标记只占标题前 16×2pt，深浅主题都应可见，未聚焦和单格不画。
     @MainActor
-    func testFocusedPaneTitleBarIsTinted() throws {
+    func testFocusedPaneTitleBarHasShortMarker() throws {
         defer { NSApp.appearance = nil }
         for dark in [true, false] {
             let (frame, scale) = try renderFocusSplit(dark: dark)
             let b = titleBands(scale)
-            let focused = frame.meanChroma(x0: b.left.0, x1: b.left.1,
-                                           y0: b.y0, y1: b.y1)
-            let unfocused = frame.meanChroma(x0: b.right.0, x1: b.right.1,
-                                             y0: b.y0, y1: b.y1)
-            XCTAssertGreaterThan(focused, 20,
-                                 "\(dark ? "深色" : "浅色")下聚焦那格的标题栏应点着"
-                                 + "强调色（实测色度 \(focused)）")
-            XCTAssertLessThan(unfocused, 8,
-                              "\(dark ? "深色" : "浅色")下非聚焦那格的标题栏应是"
-                              + "窗口底色（实测色度 \(unfocused)）")
+            let focused = frame.meanChroma(x0: b.left.0, x1: b.left.1, y0: b.y0, y1: b.y1)
+            let unfocused = frame.meanChroma(x0: b.right.0, x1: b.right.1, y0: b.y0, y1: b.y1)
+            XCTAssertGreaterThan(focused, 20, "聚焦窗格必须显示短焦点线")
+            XCTAssertLessThan(unfocused, 8, "非聚焦窗格不能显示焦点线")
+            // 标题空白处应保持中性底色，不能把短线又变回整块蓝底。
+            XCTAssertLessThan(frame.meanChroma(x0: Int(190 * scale), x1: Int(240 * scale),
+                                              y0: b.y0, y1: b.y1), 8, "标题不能整条染色")
         }
     }
 
-    /// 只有一格时**不点色**：那时「哪格是当前」不是个问题，点色只是噪音
-    /// （同 `PaneCard` 不画单格聚焦描边的口径）。
     @MainActor
-    func testLonePaneTitleBarIsNotTinted() throws {
+    func testLonePaneTitleBarHasNoFocusMarker() throws {
         defer { NSApp.appearance = nil }
         let (frame, scale) = try renderFocusSplit(dark: true, split: false)
         let b = titleBands(scale)
-        let lone = frame.meanChroma(x0: b.left.0, x1: b.left.1, y0: b.y0, y1: b.y1)
-        XCTAssertLessThan(lone, 8,
-                          "没分屏时标题栏不该点强调色（实测色度 \(lone)）")
+        XCTAssertLessThan(frame.meanChroma(x0: b.left.0, x1: b.left.1, y0: b.y0, y1: b.y1),
+                          8, "单窗格不能显示焦点线")
     }
 
     // MARK: - 4. 侧栏展开时窗格要顶到窗口顶

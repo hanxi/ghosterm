@@ -41,7 +41,7 @@ struct WorkspaceFileView: View {
         PaneActionsView(model: model, tab: tab, paneID: file.id, revealed: isFocused || showsActions, isAvailable: isVisible, preview: preview)
     }
     var body: some View {
-        PaneCard(gap: opts.gap, isFocused: isFocused, isSplit: tab.isSplit) {
+        PaneCard(gap: opts.gap) {
             VStack(spacing: 0) {
                 if opts.showsTitleBar { title }
                 else { WorkspaceHiddenHandle(tab: tab, paneID: file.id).contextMenu { PaneContextMenu(actions: actions) } }
@@ -68,6 +68,7 @@ struct WorkspaceFileView: View {
     }
     private var title: some View {
         HStack(spacing: 4) {
+            PaneFocusMarker(isFocused: isFocused, isSplit: tab.isSplit)
             HStack(spacing: 4) {
                 Image(systemName: file.remote ? "network" : "folder")
                 Text(file.remote ? file.panel?.backend.displayName ?? "远端文件" : "本地文件")
@@ -81,9 +82,7 @@ struct WorkspaceFileView: View {
         }
         .font(DS.Font.captionEmphasis).padding(.leading, 8).padding(.trailing, 4)
         .frame(height: PaneTitleBar.height)
-        .background(Color(nsColor: .windowBackgroundColor).overlay(Color.accentColor.opacity(
-            PaneFocusChrome.tintOpacity(isFocused: isFocused, isSplit: tab.isSplit))))
-        .overlay(alignment: .bottom) { Divider() }
+        .modifier(ChromeSurface(palette: ChromePalette(model: model)))
         .contextMenu { PaneContextMenu(actions: actions) }
     }
     private func download(_ entry: FileEntry) {

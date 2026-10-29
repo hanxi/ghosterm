@@ -5,12 +5,13 @@ import SwiftUI
 /// 使用标准 NSButton，保留原生键盘 / AX 操作和可观测的实际命中范围。
 struct NewConnectionButton: NSViewRepresentable {
     var showsTitle = false
+    var tint: NSColor = .labelColor
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: "新建连接")!,
                               target: context.coordinator, action: #selector(Coordinator.open(_:)))
         button.isBordered = false
-        button.contentTintColor = .labelColor
+        button.contentTintColor = tint
         button.title = showsTitle ? "新建标签页" : ""
         button.imagePosition = showsTitle ? .imageLeading : .imageOnly
         button.alignment = showsTitle ? .left : .center
@@ -20,7 +21,11 @@ struct NewConnectionButton: NSViewRepresentable {
         button.setAccessibilityLabel("新建连接")
         return button
     }
-    func updateNSView(_ button: NSButton, context: Context) {}
+    func updateNSView(_ button: NSButton, context: Context) {
+        button.contentTintColor = tint
+        button.attributedTitle = NSAttributedString(string: showsTitle ? "新建标签页" : "",
+                                                    attributes: [.foregroundColor: tint, .font: NSFont.systemFont(ofSize: 13)])
+    }
     final class Coordinator: NSObject {
         @objc func open(_ sender: Any?) {
             NotificationCenter.default.post(name: .ghostermNewConnection, object: nil)

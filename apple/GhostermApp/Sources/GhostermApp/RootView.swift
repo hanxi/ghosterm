@@ -52,12 +52,12 @@ struct RootView: View {
             if showsSidebar {
                 Sidebar(model: model, tabs: tabs)
                     .frame(width: DS.sidebarWidth)
-                Divider()
+                Rectangle().fill(Color(nsColor: ChromePalette(model: model).separator)).frame(width: 1)
             }
             VStack(spacing: 0) {
                 if model.preferences.tabPlacement == .top {
                     TabStrip(model: model, tabs: tabs)
-                    Divider()
+                    Rectangle().fill(Color(nsColor: ChromePalette(model: model).separator)).frame(height: 1)
                 }
                 if let error = model.terminalConfigError {
                     TerminalConfigurationError(message: error) { SettingsWindow.open(model: model) }
@@ -66,6 +66,7 @@ struct RootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .modifier(ChromeSurface(palette: ChromePalette(model: model)))
         .frame(minWidth: 720, minHeight: 420)
         // 顶栏要铺到窗口最顶上（红绿灯浮在它上面），所以**忽略上安全区**——
         // 否则 SwiftUI 会把内容压到系统标题栏以下，看起来就是「红绿灯
@@ -179,7 +180,7 @@ private struct TabContentView: View {
 
     // 窗格外观的两项偏好。读成 @AppStorage 而不是一次性快照：设置页一改，
     // 这里立刻重画（用户改完要能当场看见效果，不该要求重开窗口）。
-    @AppStorage(PaneGap.key) private var paneGap = PaneGap.standard
+    @AppStorage(PaneGap.key) private var paneGap = PaneGap.defaultValue
     @AppStorage(PaneTitleBar.visibleKey)
     private var titleBarVisible = PaneTitleBar.visibleDefault
 
@@ -211,7 +212,7 @@ struct PaneView: View {
     }
 
     var body: some View {
-        PaneCard(gap: opts.gap, isFocused: isFocused, isSplit: tab.isSplit) {
+        PaneCard(gap: opts.gap) {
             VStack(spacing: 0) {
                 if !opts.showsTitleBar {
                     WorkspaceHiddenHandle(tab: tab, paneID: pane.id)
@@ -220,6 +221,7 @@ struct PaneView: View {
                 if opts.showsTitleBar {
                     PaneTitleBarView(
                         pane: pane, fallbackTitle: tab.title,
+                        palette: ChromePalette(model: model),
                         isFocused: isFocused,
                         actions: actions, isSplit: tab.isSplit,
                         dragProvider: {
@@ -246,7 +248,7 @@ struct PaneView: View {
                     .id(ObjectIdentifier(surface))
                     .allowsHitTesting(!tab.isLocked)
             } else {
-                Color(nsColor: .textBackgroundColor)
+                ChromePalette(model: model).fill
             }
 
             // 非聚焦窗格盖一层**背景色**遮罩（上游 ghostty 的
@@ -283,8 +285,7 @@ struct PaneView: View {
             if tab.isLocked {
                 LockOverlay { tab.isLocked = false }
             }
-            // 分屏时「哪格是当前」由卡片的描边标出（见 PaneCard.borderColor）——
-            // 以前画在终端面上的那圈细线挪到卡片外沿，免得与标题栏打架。
+            // 当前窗格由标题前的短标记与非聚焦内容淡化共同区分。
         }
     }
 }

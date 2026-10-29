@@ -13,21 +13,22 @@ struct Sidebar: View {
             ScrollViewReader { scroller in
                 List {
                     ForEach(tabs.tabs) { tab in
-                        TabRow(tab: tab, isActive: tab.id == tabs.activeTabID)
+                        TabRow(tab: tab, isActive: tab.id == tabs.activeTabID, selection: ChromePalette(model: model).selection)
                             .id(tab.id)
                             .modifier(TabInteraction(model: model, tabs: tabs, tab: tab))
                             .listRowInsets(EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 6))
                     }
-                    NewConnectionButton(showsTitle: true)
+                    NewConnectionButton(showsTitle: true, tint: ChromePalette(model: model).foreground)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .frame(height: 32)
                         .listRowInsets(EdgeInsets(top: 4, leading: 14, bottom: 4, trailing: 14))
                 }
                 .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
                 .onChange(of: tabs.activeTabID) { id in if let id { scroller.scrollTo(id) } }
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .modifier(ChromeSurface(palette: ChromePalette(model: model)))
     }
 }
 
@@ -35,6 +36,7 @@ struct Sidebar: View {
 struct TabRow: View {
     @ObservedObject var tab: TerminalTab
     let isActive: Bool
+    var selection: Color = Color.primary.opacity(0.12)
     @State private var hovering = false
 
     var body: some View {
@@ -98,7 +100,7 @@ struct TabRow: View {
         .padding(.vertical, DS.Padding.xs)
         .background(
             RoundedRectangle(cornerRadius: DS.Radius.control)
-                .fill(isActive ? Color.primary.opacity(0.12) : Color.clear)
+                .fill(isActive ? selection : Color.clear)
         )
         .contentShape(Rectangle())
 

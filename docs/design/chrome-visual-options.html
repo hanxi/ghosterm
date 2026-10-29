@@ -14,7 +14,7 @@
 <div class="stage"><iframe id="preview" src="chrome-studies/window.html?variant=a&amp;mode=sidebar" title="方案 A 侧边标签外观示意"></iframe></div>
 <div class="caption"><p id="variant-description" aria-live="polite">A：中性的导航外壳，终端内部不画整圈边框；窗格标题沿用终端底色，当前窗格只在标题前保留一条短色线。</p><a id="open-preview" href="chrome-studies/window.html?variant=a&amp;mode=sidebar" target="_blank" rel="noopener">单独打开示意 ↗</a></div>
 <div class="specs"><div><b>导航与窗格标题</b><span id="spec-color">侧栏 / 顶栏共用导航底色；窗格标题跟随终端。</span></div><div><b>边界</b><span id="spec-edge">8 px 间距，无窗格整圈描边，无标题底线。</span></div><div><b>焦点</b><span id="spec-focus">标题前短竖线，辅以非聚焦内容轻微变暗。</span></div></div>
-<p class="notice">这些是 HTML/CSS 视觉示意，不是已经实现的新版本；示例输出用于对照，不执行命令。加号位置、标签功能和窗格分屏入口沿用已确认方案。B 的导航始终跟随终端颜色，使用「浅色终端」可检查其浅色版本。</p>
+<p class="notice"><strong>已决定：</strong>合并 A / B 的简化处理，导航与标题统一跟随终端配色；留白沿用现有间距设置，不新增风格开关。<a href="tabs-chrome-prototype.html#app">查看当前原生效果 →</a><br>这些是 HTML/CSS 视觉示意，不是已经实现的新版本；示例输出用于对照，不执行命令。加号位置、标签功能和窗格分屏入口沿用已确认方案。B 的导航始终跟随终端颜色，使用「浅色终端」可检查其浅色版本。</p>
 <div class="recommendation"><strong>建议先选 A。</strong>它能消除目前最明显的蓝色框线与明暗断层，同时保留终端和导航之间的层次。B 更适合偏爱终端整体感的人；C 改动更保守，适合经常混排终端与文件窗格。</div>
 <div class="downloads"><a id="download-a" href="chrome-studies/a-sidebar-light.png" target="_blank" rel="noopener">A · 高清示意图 ↗</a><a id="download-b" href="chrome-studies/b-sidebar-light.png" target="_blank" rel="noopener">B · 高清示意图 ↗</a><a id="download-c" href="chrome-studies/c-sidebar-light.png" target="_blank" rel="noopener">C · 高清示意图 ↗</a></div>
 <details><summary>展开当前原生截图，对照修改前的边框和颜色</summary><img id="baseline" src="tab-chrome-native/review-sidebar-light.png" width="1080" height="675" alt="当前 Ghosterm 原生窗口截图"><p>原图保留：来自上一轮真实终端与原生窗口的离屏采样。锁屏下窗口未激活导致文字及红绿灯偏灰；不把这一状态当成主题本身的配色。</p></details>

@@ -1,32 +1,13 @@
-// PaneAppearance — 窗格外观的两项偏好 + 窗格标题的取值规则。
-//
-// 为什么这几项是**偏好**而不是写死：改的是「每天盯 8 小时的那块地方」，
-// 审美分歧必然存在。它们各自都能调到**最保守的一端**，调满之后屏幕上
-// 就完全回到加这套卡片之前的样子（间距 0 + 不画标题栏）——
-// 于是「我不喜欢」有出路，不必靠赌一个默认值。
-//
-// 规则一律抽成**纯函数**：视图与测试走同一条路径，不各写一遍
-// （同 SplitDim / TerminalTab.worst 的口径）。
-//
-// 读写都用 `@AppStorage(key)` + 字面默认值：键不存在时 SwiftUI 用那个
-// 默认值。**不能**拿 `UserDefaults.integer(forKey:)` 当间距——它读不到时
-// 给 0，而 0 在这里是个合法档位（「无间距」），于是「没设置过」会被
-// 当成「用户选了无间距」。
+// PaneAppearance — 窗格间距、标题与焦点标记。
+// 默认贴边；已有的间距偏好继续有效，留白不影响配色。
 import Foundation
 
 // MARK: - 窗格间距
-
-/// 格与格、格与窗口边之间的留白。四个离散档位，不给连续滑块：
-/// 连续值既没人能说出 7 和 8 的区别，也没法在设计稿里复核。
 public enum PaneGap {
     public static let key = "Ghosterm.paneGap"
-
-    /// 默认档（「标准」）。
+    public static let defaultValue = 0
     public static let standard = 10
-
-    /// 全部档位（点）。
     public static let steps: [Int] = [0, 6, 10, 14]
-
     public static func title(of value: Int) -> String {
         switch value {
         case 0: return "无"
@@ -35,15 +16,9 @@ public enum PaneGap {
         default: return "标准"
         }
     }
-
-    /// 把存下来的值收回合法档位（手改 plist / 旧版本遗留值都可能越界）。
     public static func resolved(_ raw: Int) -> Int {
-        steps.contains(raw) ? raw : standard
+        steps.contains(raw) ? raw : defaultValue
     }
-
-    /// 间距为 0 时**退化形态**：不留圆角、不画卡片边框，只剩一条发丝
-    /// 分隔线（见 PaneChrome）。圆角跟着间距走，不单独给开关——
-    /// 贴边的卡片画圆角只会露出四个背景色的小缺口。
     public static func cornerRadius(gap: Int) -> CGFloat { gap == 0 ? 0 : 8 }
 }
 
@@ -65,31 +40,11 @@ public enum PaneTitleBar {
 
 // MARK: - 分屏时「哪格是当前」
 
-/// 分屏时把当前窗格画出来的口径。
-///
-/// 为什么要专门有这一档：终端面自己的区分来自 ghostty 的
-/// `unfocused-split-opacity`（见 `SplitDim`）——往非聚焦那格上盖一层**配置
-/// 色**。可默认配置里盖的就是终端背景色本身，同色盖同色只剩文字淡三成；
-/// 深色主题下这点淡化在一屏黑里基本读不出来。用户实测反馈「深色背景下非
-/// 当前窗格不像未激活」。
-///
-/// 遮罩本身不动——那是上游语义，用户在 ghostty 配置里设什么就该是什么。
-/// 区分改由 chrome 挑大梁：**聚焦那格**的标题栏点上强调色，非聚焦那格保持
-/// 窗口底色。chrome 不吃终端配置，深浅外观下都成立。
-///
-/// 为什么是「点亮聚焦那格」而不是「压暗非聚焦那格」：压暗在深色外观下根本
-/// 读不出来——标题栏底色本就接近黑（实测亮度 40），压 18% 只掉到 33，而同样
-/// 一笔在浅色下要掉 46。区分必须两种外观下同样成立，所以信号放在**有色**
-/// 这一侧：带色 vs 不带色与底色深浅无关。
+/// 只有分屏中的当前窗格显示短焦点标记；不再给整条标题或外框染色。
 public enum PaneFocusChrome {
-    /// 聚焦那格标题栏叠的强调色不透明度。
-    ///
-    /// 只在分屏时有意义：只有一格时「哪格是当前」不是个问题，点色只是噪音
-    /// （同 `PaneCard` 不画单格聚焦描边的口径）。
-    public static func tintOpacity(isFocused: Bool, isSplit: Bool) -> Double {
-        isFocused && isSplit ? 0.22 : 0
+    public static func showsMarker(isFocused: Bool, isSplit: Bool) -> Bool {
+        isFocused && isSplit
     }
-
 }
 
 // MARK: - 窗格标题的取值
