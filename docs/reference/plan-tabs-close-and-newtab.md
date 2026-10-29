@@ -11,6 +11,17 @@
 > 参照实现：iGhostVT（`owngoal-dev/iGhostVT`，核对于 1.6.11 / `860cbc4`）——
 > 本计划的关闭判据就是它的 `TerminalTab.hasRunningProgram` 同口径。
 
+## 当前行为与历史方案的差异（2026-10-29）
+
+下文保留 S1–S5 当时的接口形态与测试记录，当前代码以以下行为为准：
+
+- `TabKind` 已增加 `.localFiles`。`AppModel.newTabLikeActive()` 对没有终端叶子的标签创建对应文件工作区，本地文件标签不会因 ⌘T 启动 shell；有终端时仍按本地/SSH 类型新建。导航加号打开连接选择器，与 ⌘T 继承不是同一动作。
+- 布局由 `WorkspaceLayout` 统一终端和文件叶子，`PaneLayout` 是只读终端投影。关闭确认检查实际窗格和关联传输，不能仅按标签的 `.sftp` 类型判断；未完成连接的远端文件窗格也可能要求确认。
+- tmux 窗格关闭只断开客户端，不结束后台任务，也不沿用普通 SSH 的 UNKNOWN 作业确认。普通本地/SSH 的作业与未知判据继续有效；没有计划恢复自有 daemon。
+- 终端自行退出只移除该叶子，文件叶子仍在时保留标签；用户关闭整个标签与 shell 自行退出不是同一生命周期路径。
+
+当前入口见 `AppModel.newTabLikeActive`、`TerminalPane.closeNeedsConfirmation`、`TerminalTab.closeNeedsConfirmation`；后续实现与验收见[标签界面计划](plan-tab-chrome-refactor.md)、[工作区交接](workspace-handoff.md)及[tmux 使用说明](../how-to/tmux-sessions.md)。
+
 ## 0. 一句话
 
 关闭**只在该拦的时候拦**（前台有作业、或有在途传输才可能丢东西）；
@@ -39,7 +50,7 @@ cwd 只做**地基**（本地可靠查询 + 远端 OSC 7 plumbing），不做 sh
   `isShellInForeground` 来自 **`tcgetpgrp(master) == childPID`**（它就是"前台是不是 shell 自己"）。
 - 口径与铁律 #6 一致：**detached / 未知状态一律当"可能有事"**（iGhostVT 原话：*an unknown state reads as running*）。
 - **注意差异**：iGhostVT 关窗口/退出几乎不弹，是因为它**不杀**会话（shell 活在 daemon 里，关窗口 = detach）。
-  Ghosterm **没有 daemon**，关窗口/退出是**真杀**——所以 ④ 必须问一次。将来若上 daemon，这里改成 detach（不弹）。
+  本历史切片的普通 Ghosterm 会话**没有 daemon**，关闭会终止客户端；当前可选 tmux 已另行实现“只断客户端、保留后台任务”，见上方当前行为，不能将此段作为重引入 daemon 的计划。
 - 「空闲提示符 = 直接关」是 iGhostVT 的**默认行为，且无配置项**；本计划也不加配置项。
 
 ## 2. 键模型（`TabKind` 重构）

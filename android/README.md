@@ -4,6 +4,8 @@
 
 当前表单显示 HostName/User/Port 的默认、继承或显式来源；早期规则遮蔽本块设置时也会说明。只读主机可打开配置页调整，返回后刷新字段和编辑权限，详见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。这不代表身份选择或全部高级配置已实现。
 
+上述运行证据对应已提交版本 `169cc60`。2026-10-29 文档复核时，工作区有尚未完成页面接线的继承编辑草稿，`:app:compileDebugKotlin` 未通过；草稿不计入交付进度，详见[§9.6](../docs/reference/android-implementation.md#96-文档复核时的工作区草稿2026-10-29)。旧 APK 不代表当前工作区已构建成功。
+
 - [最终交互原型](../docs/design/android-prototype.html)：主机首页、终端、文件与完整设置，单一 HTML。
 - [详细实现计划](../docs/reference/android-implementation.md)：模块/线程、配置与认证、输入法、复制、设置默认值、A0–A10 与验收。
 - [跨端路线图](../docs/reference/roadmap.md)、[能力矩阵](../docs/reference/capability-matrix.md)。

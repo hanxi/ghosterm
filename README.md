@@ -102,6 +102,8 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
 
+最近已验证的 Android 版本为 `169cc60`；本轮文档复核发现，工作区继承编辑草稿尚未同步页面字段，Android 编译未通过，详见[§9.6](docs/reference/android-implementation.md#96-文档复核时的工作区草稿2026-10-29)。下表 Android 能力按已验证版本记账。macOS 配置事务、表单保真、传输控制错误与未知结果仍列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)。
+
 | 能力 | 状态 |
 |---|---|
 | C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 72 符号，双向对拍；旧会话 ABI 已移除 |
@@ -119,7 +121,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 | ├ 配色集随包 + 主题选择 | ✅ Ghostty 配色集随包（`Contents/Resources/ghostty/themes`，数量由构建输出决定）+ 资源目录推导；出包包内配置检查验主题被引擎接受 |
 | ├ 终端的设置真的生效 | ✅ 写 Ghostty 语法的配置文件交给引擎解析（不自己维护配置子集）；`font-size` 改完网格密度真的变（11 项断言） |
 | ├ ssh_config 图形编辑（M3） | 🟡 编辑器、通配块与 Core 稀疏 API 已实现；共享重复指令误删已修复。macOS 表单仍简化扫描/提交全部字段，备份错误被忽略、替换先删后移，保真与事务保障待修复 |
-| ├ 文件工作区与传输 | 🟡 本地/SFTP 统一窗格、队列、拖放与 Quick Look；独立文件连接。目录冲突 UI 等验收缺口见交接文档 |
+| ├ 文件工作区与传输 | 🟡 本地/SFTP 统一窗格、队列、拖放与 Quick Look；独立文件连接。控制异常/未知结果尚待修复，目录冲突 UI 等验收缺口见交接文档 |
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |
 | 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |

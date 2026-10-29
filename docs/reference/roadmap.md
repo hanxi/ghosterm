@@ -11,7 +11,7 @@
 | M1 macOS 终端竖切 | 已交付 | 普通本地 PTY/SSH、full libghostty + Metal |
 | M2 macOS 认证与分发 | 主要功能已交付，安全存储和发行仍有缺口 | 私钥材料接线、Developer ID/公证、降低发行包系统下限 |
 | M3 ssh_config 图形管理 | UI/Core 稀疏编辑及重复指令修复已交付，macOS 表单保真与写盘事务仍有缺口 | 表单读写使用共享语法和真实脏字段；备份失败阻断、原子替换与失败注入 |
-| M4/M4.6 文件管理 | macOS 队列/文件操作/系统集成已交付 | 统一工作区替代旧双栏组件；端点活性与 UI 验收仍有遗留 |
+| M4/M4.6 文件管理 | macOS 队列/文件操作/系统集成主流程已交付 | 统一工作区替代旧双栏组件；控制失败/未知终态、端点活性与 UI 验收仍有遗留 |
 | M4.5 终端 UX | 标签、分屏、设置、IME、焦点与停画已交付 | 布局/标签跨重启持久化未做 |
 | 统一文件窗格工作区 | 已交付主要实现 | 真拖动、Finder 多选、目录冲突及尺寸证据补齐 |
 | 标签与窗格界面重构 | 本机 macOS 26 已交付并验收 | macOS 15 本轮 CI 证据仍需核验 |
@@ -55,6 +55,7 @@
 - [x] 文件工具条折行、关闭入口、原生列表单击选择/双击打开、文件键盘归属；文件窗格关闭不销毁已入队传输。
 
 M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。iOS S6 未做。
+暂停/继续/取消的入口与正常路由已实现，但 `TransferManager` 用 `try?` 忽略控制错误后仍切换显示状态，且把未知 job 结果映射为失败；控制成功、控制拒绝和执行结果未知尚未完整区分。该缺口与目录冲突 UI 验收分开跟踪，不以历史主流程通过代替异常路径完成。
 最初设计及其替代关系见[文件管理器计划](plan-files-manager.md)。**macOS 尚无本地↔本地与远端↔远端的统一复制队列**；Android 原型四方向是新需求，不回填为 macOS 已交付。
 
 ### 可选 tmux 与分发
@@ -73,11 +74,13 @@ M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。i
 | 优先级 | 工作 | 当前源码事实 | 完成条件 |
 |---|---|---|---|
 | P0 | 配置保存事务 | `ConfigStore.save` 对备份异常 `try?`，再 remove 旧文件、move 新文件；mtime/size 检测不是完整事务 | 备份失败停止；同目录原子替换；故障/并发变化注入证明原文件始终保留；与 `AGENTS.md` 铁律 #4 对齐 |
-| P0 | macOS 主机表单保真 | `HostListModel.directives` 用 Swift 按空格扫描原文；`HostEditorSheet.save` 提交全部显示字段，未按初始值过滤；Core 稀疏 API 不等于 UI 只提交脏字段 | 用共享块/指令契约读取，正确处理 tab、`=`、引号与重复指令；仅改目标字段，未改保存字节不变；保存失败后模型与磁盘一致；真实表单回归与变异 |
+| P0 | macOS 主机表单保真 | `HostListModel.directives` 用 Swift 按空格扫描原文；`HostEditorSheet.save` 提交全部显示字段；`AppModel.applyEdits/addHost` 先改共享内存模型再写盘，失败路径未重建模型 | 用共享块/指令契约读取，正确处理 tab、`=`、引号与重复指令；仅改目标字段，未改保存字节不变；候选配置成功落盘后才发布，失败不污染后续编辑；真实表单回归与变异 |
 | P0 | 私钥安全存储接线 | `SSHCredentialSelector.Storage.readKey` 每次读取受限磁盘 PEM；Keychain 实际保存口令/密码，旧 PEM helper 不等于生产接线 | 明确导入与存储所有权，平台安全存储承接私钥；取消/拒绝清理与既有认证回归；不得更改铁律 #5 迁就现状 |
 | P1 | 配置来源与编辑归属 | Core/Swift/JNI 已增加三个连接字段的来源，Android 页面已消费并验只读保护；macOS `HostEditorSheet` 尚未消费 | 明确显示当前块/继承/默认及多别名影响；包含文件/重名块拒绝错误写入；两端定向验证与变异，不能只验符号存在；三字段查询不能替代完整块指令读取 |
 | P1 | 非覆盖文件复制与覆盖语义 | 公有 SFTP job API 无独占创建/非覆盖提交参数；上传 WRITE\|CREAT，无 TRUNC 契约 | 防并发重名覆盖与旧尾残留的共享契约、C/Apple/后续 JNI 绑定和真 sshd 变异；Android A5 依赖此项 |
 | P1 | 事件终态可靠性 | `core.c` 的 256 项队列溢出会覆盖最旧事件；没有 job 结果查询 ABI | 压力下终态可保留或可查询；不能以百分比推断成功；Android A6 与 macOS 队列共同回归 |
+| P1 | macOS 传输控制与未知结果 | `TransferManager.pause/resume/cancel` 忽略后端错误仍更新状态；`handle` 将 `.other` 结果折为 `.failed` | 区分用户请求、控制返回与任务终态；拒绝/未知可见，取消未确认不释放任务所有权；注入控制异常和未知事件，验证状态、回调与后端生命周期，另保留正常传输对照 |
+| P1 | macOS 可连接主机过滤 | `HostListModel.reload` 排除 `*`/`?`，未排除 `!secret` 这类否定模式；配置规则不等于连接目标 | 否定规则留在配置中，不生成可点击主机；混合别名块、通配块与普通别名分别验证，Core 求值和无损往返保持通过 |
 | P1 | 统一工作区验收缺口 | 真 NSDraggingSession 起拖/图像、多选 Finder 导出、端点连接级活性、目录冲突 UI、跨标签最小尺寸仍不完整 | 按交接文档逐项补生产路径证据和有指向性的变异 |
 | P1 | macOS 15 CI | 本机 macOS 26 有证据，不能代替另一系统本轮 CI | 核验当前提交的 workflow 运行与原生结果，不只看配置已接入 |
 | P2 | 发行签名/系统下限 | dev 为 ad-hoc；包依赖抬高到 macOS 26；源码声明 macOS 13 不等于发行包可运行 | Developer ID/公证的实际包证据；自建依赖降低 minos 后在目标系统验证 |
@@ -108,7 +111,9 @@ M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。i
 - [ ] A10 设备矩阵、APK、CI 与发行验证。
 - [ ] A9 环境包独立 PoC（延后）：Termux/proot 执行限制、下载/哈希/原子激活/回滚；不阻塞普通 SSH。
 
-当前可构建 arm64 debug APK；首页读取真实配置并管理主机，设置有配置编辑/导入与组件版本；共享重复指令编辑已修复。仍不满足整个 A1 的退出条件，下一片按[实现计划 §9.3](android-implementation.md#93-当前代码入口与-a1-退出清单)补齐编辑状态、别名重命名与 SAF UI，最新设备与变异证据见该文 §9.5。交互终端与 SSH 尚未实现。暂无 Android CI。min API 29、16 KB 页及真机均未验证。
+最近已验收版本 `169cc60` 可构建 arm64 debug APK；首页读取真实配置并管理主机，设置有配置编辑/导入与组件版本；共享重复指令编辑已修复。仍不满足整个 A1 的退出条件，下一片按[实现计划 §9.3](android-implementation.md#93-当前代码入口与-a1-退出清单)补齐编辑状态、别名重命名与 SAF UI，最新设备与变异证据见该文 §9.5。交互终端与 SSH 尚未实现。暂无 Android CI。min API 29、16 KB 页及真机均未验证。
+
+**本轮工作区状态**：继承编辑已有未提交的数据/JNI 草稿，但页面仍引用旧 `HostDraft` 字段，Android 构建在 `:app:compileDebugKotlin` 失败。该草稿尚未形成可运行交付，不新增 A1 完成项；详见[§9.6](android-implementation.md#96-文档复核时的工作区草稿2026-10-29)。后续完成接线后须用同一版源码重跑构建、设备与变异，不能复用旧 APK 记账。
 来源查询与只读归属的代码/页面边界见[§9.5](android-implementation.md#95-字段来源与编辑归属2026-10-29)，不能从共享 Core 测试通过推断 Android 已验收。
 普通本地入口拟为系统 `/system/bin/sh`，不是打包一个新 shell；不能用桌面 PTY 证据代替 Android 真机验证。
 旧 attachment ABI 已退役，Android 走现有 Transport + 可选 tmux；共享接口未冻结，缺口须同步各端后再使用。
@@ -133,8 +138,11 @@ M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。i
 | A1 共享重复指令修复（2026-10-29） | 同档模拟器 18 项设备测试、12 组配置变异；Core 写回 14 用例、配置 17 组变异、32 项 CTest；Swift 配置三项定向测试与 macOS 构建通过，C/Apple/JNI ABI 无漂移 | 字段来源/别名/Include 归属与 SAF UI；未重跑完整 Apple 宿主或 CI；日志 `tmp/android-a1-sparse/` |
 | `9c0217f` 跨端文档复核（当时为 `adae205` + 来源接口草稿） | 工作区 Core 33 项 CTest、72 个公共符号通过；Apple 70 项引用/2 项登记、JNI 10 项引用/62 项待办对拍通过；macOS App 原生构建通过 | 新增来源接口的变异、两端页面接线与设备运行未验；未重跑完整 Apple 宿主或 CI；不改变 A1 或 macOS GUI 的交付状态；日志 `tmp/docs-current-audit/` |
 | A1 字段来源与编辑归属（2026-10-29） | API 36 arm64 / 4 KB 页模拟器 22 项设备测试、20 组配置/页面变异；Core 33 项 CTest/72 ABI、17 组配置和 4 组 Include 变异；新增 8 组 C 元数据变异 + 1 组 Swift 绑定变异、Swift 配置 4 项测试与 macOS 原生构建通过；Apple 70/2、JNI 10/62 对拍及 JNI ABI 3 组变异通过 | A1 显式覆盖/恢复继承、重命名、SAF UI 仍待补；macOS 表单未消费来源；无真机/16 KB 页/Android CI 或本轮完整 Apple 宿主验收。日志 `tmp/android-a1-metadata/`、`tmp/config-metadata-mutations/` |
+| 最终方案与跨端文档复核（`169cc60` + 既有继承编辑草稿，2026-10-29） | Core 33 项 CTest/72 ABI、Apple 70/2 与 JNI 10/62 对拍、macOS 原生构建通过；新增记录 macOS 配置失败后内存状态、否定模式过滤和传输控制/未知结果缺口 | Android `:app:compileDebugKotlin` 失败：页面未同步草稿 `HostDraft`；未运行这份草稿的设备/变异或完整 Apple 宿主/CI。仅文档更新，未修复上述实现。日志 `tmp/docs-final-audit/` |
 
 文档复核的 macOS 编译仍有 Swift 并发检查警告及 libssh2 的 macOS 26 minos 警告；原生构建通过不记成零警告或发行下限已修复。文档修正只更新事实与证据边界，不改变 `AGENTS.md` 的验收要求。
+
+本轮最终文档复核还检查了 9 份修改文档的 75 个本地链接及锚点，`git diff --check` 通过；起跑时五份既有 Android 代码改动的 SHA256 保持一致。macOS 构建为增量编译通过，未重跑全部宿主测试，也不据此清除历史编译警告。Android 草稿构建失败独立记账，不将 ABI 对拍通过视为原生编译通过。
 
 字段来源切片的首轮设备变异在 C15 因变异写法破坏 Kotlin 空值推导而编译失败，未算目标红；修正变异后完整 20 组重跑通过，最后再跑完整 22 项设备套件。共享元数据变异使用隔离副本，Swift 新绑定用独立 scratch 构建；不以旧可执行文件冒充新增 ABI 证据。
 

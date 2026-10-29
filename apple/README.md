@@ -22,6 +22,7 @@ apple/
 已交付与遗留见[路线图](../docs/reference/roadmap.md)、[能力矩阵](../docs/reference/capability-matrix.md)。
 共享 `gt_config_edit` 已修复非连续重复指令误删中间行的问题，Apple 与 JNI 使用同一实现。`ConfigStore` 的强制备份/原子替换、私钥材料安全存储接线仍有缺口；Android 写盘事务不等于 macOS 写盘事务已修复。
 `HostListModel.directives` 目前仍以 Swift 简化行扫描提供表单初值，`HostEditorSheet.save` 提交全部显示字段；不能把 Core 的稀疏编辑保证扩大为整个表单的“只改脏字段”。tab、`=`、引号、重复指令与未改保存的保真须独立补齐，见路线图 P0。
+`AppModel.applyEdits/addHost` 先修改内存配置，再调用存储；写盘抛错时只向页面报错，尚未恢复内存模型。`HostListModel.reload` 也未过滤不含通配符的否定模式（如 `!secret`），不能把所有派生条目都视为可连接主机。
 `SSHConfig.inspect(alias:)` 已接入并有值复制/来源转换的定向测试与变异，尚未接入 `HostEditorSheet`；存在 Swift 绑定不表示 macOS 表单已提供继承值展示、别名重命名或完整包含文件编辑。新增接口状态见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。
 UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
@@ -35,7 +36,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 终端与文件窗格 | `GhostermAppModel/WorkspaceLayout.swift`、`GhostermApp/WorkspaceView.swift` | 同一布局、身份与宿主；真实拖动等遗留见工作区交接 |
 | 连接与配置编辑 | `GhostermApp/ConnectionChooser.swift`、`HostEditorSheet.swift`、`GhostermAppModel/ConfigStore.swift` | 主机不放侧栏；表单从块内指令取初值，已有别名不提供改名字段；尚无继承来源展示，配置事务仍有缺口 |
 | SSH 认证与凭据 | `GhostermAppModel/SSHAuthenticationFlow.swift`、`SSHCredentialSelector.swift` | 可取消认证；Keychain 存口令/密码，生产私钥仍读受限文件 |
-| 文件与传输 | `GhostermApp/FilesPanelView.swift`、`GhostermAppModel/TransferManager.swift` | 本地↔远端；尚无四方向统一复制队列 |
+| 文件与传输 | `GhostermApp/FilesPanelView.swift`、`GhostermAppModel/TransferManager.swift` | 本地↔远端；尚无四方向统一复制队列；暂停/继续/取消忽略后端错误仍改状态，未知结果映射尚待修复 |
 | 菜单与偏好 | `GhostermApp/AppMenu.swift`、`GhostermAppModel/SettingsStore.swift`、`Shortcuts.swift` | 设置持久化、已有终端即时更新；Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签 |
 
 设置窗口实际有通用、外观、键盘、配置文件四页。「配置文件」页的全文编辑框编辑 `ghostty.conf`，SSH/known_hosts 只显示路径和 Finder 入口，不是 SSH 全文编辑页。该页保存调用 `replaceTerminalConfig` 重载引擎；“只有新开的标签页会读到改动”的 UI 提示仍待修正，文档不沿用这条过时文案。
