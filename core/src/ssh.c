@@ -21,6 +21,7 @@
 #include "base/secure-random.h"
 
 #include <stdio.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -171,10 +172,10 @@ static const char *hostkey_type_name(int t) {
 }
 
 /* ------------------------------------------------------------------ */
-/* known_hosts（M1：明文主机名匹配；hashed 条目暂不匹配 → UNKNOWN）      */
+/* known_hosts：明文模式、撤销优先；hashed/未支持规则显式拒绝。          */
 /* ------------------------------------------------------------------ */
 
-typedef enum { KH_MATCH, KH_MISMATCH, KH_UNKNOWN } kh_result_t;
+typedef enum { KH_MATCH, KH_MISMATCH, KH_UNKNOWN, KH_REVOKED, KH_UNSUPPORTED, KH_IO } kh_result_t;
 
 /*
  * 逐行枚举 known_hosts 的公钥条目（供读侧与对拍闸门共用）。
@@ -190,12 +191,10 @@ typedef enum { KH_MATCH, KH_MISMATCH, KH_UNKNOWN } kh_result_t;
  *   @revoked；公钥条目的第 2 个字段是密钥算法名、第 3 个是 base64。
  * 前两个字段里都不会出现 '/'（base64 里有），也不会有 '='。
  */
-size_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud) {
-  if (!path || !cb) return 0;
+gt_status_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud) {
+  if (!path || !cb) return GT_ERR_INVALID_ARG;
   FILE *f = fopen(path, "rb");
-  if (!f) return 0;
-
-  size_t n = 0;
+  if (!f) return errno == ENOENT ? GT_OK : GT_ERR_IO;
   char *line = NULL;
   size_t cap = 0;
   ssize_t got;
@@ -206,9 +205,13 @@ size_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud) {
     char *nl = strpbrk(p, "\r\n");
     if (nl) *nl = '\0';
 
-    /* 可选 marker（@cert-authority / @revoked）→ 跳掉，它不是 host 字段。 */
+    /* Preserve markers: a CA or revoked key is never ordinary trust. */
+    const char *marker = "";
     if (*p == '@') {
+      marker = p;
       while (*p && *p != ' ' && *p != '\t') p++;
+      if (!*p) continue;
+      *p++ = '\0';
       while (*p == ' ' || *p == '\t') p++;
     }
     char *hosts = p;
@@ -231,12 +234,12 @@ size_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud) {
     if (strpbrk(kb64, "/=") == NULL && strncmp(ktype, "ssh-", 4) != 0)
       continue; /* 既不像 base64 也不像算法名 → 不是公钥条目 */
 
-    n++;
-    if (!cb(ud, hosts, ktype, kb64, 0)) break;
+    if (!cb(ud, hosts, ktype, kb64, marker)) break;
   }
+  bool failed = ferror(f) != 0 || (got < 0 && !feof(f));
   free(line);
-  fclose(f);
-  return n;
+  if (fclose(f) != 0) failed = true;
+  return failed ? GT_ERR_IO : GT_OK;
 }
 
 typedef struct {
@@ -246,33 +249,49 @@ typedef struct {
   const char *key_b64;
   bool saw_host;       /* 主机命中过（用于区分「没见过」与「密钥不同」） */
   bool matched;        /* 主机命中且密钥一致 */
+  bool revoked, authority, unsupported;
 } kh_lookup_t;
 
+/* OpenSSH host patterns use only * and ?, not fnmatch bracket classes.
+ * Work on spans so long comma-separated host lists are never truncated. */
+static bool kh_pattern(const char *pattern, size_t n, const char *host) {
+  size_t p=0, h=0, star=SIZE_MAX, retry=0;
+  while (host[h]) {
+    if (p<n && (pattern[p]=='?' || tolower((unsigned char)pattern[p])==tolower((unsigned char)host[h]))) { p++; h++; }
+    else if (p<n && pattern[p]=='*') { star=p++; retry=h; }
+    else if (star!=SIZE_MAX) { p=star+1; h=++retry; }
+    else return false;
+  }
+  while (p<n && pattern[p]=='*') p++;
+  return p==n;
+}
+static bool kh_host_matches(const char *hosts, const kh_lookup_t *q) {
+  bool positive=false;
+  for (const char *p=hosts; *p;) {
+    const char *end=strchr(p,','); size_t n=end?(size_t)(end-p):strlen(p);
+    bool negated=n && *p=='!'; const char *pattern=p+negated; n-=negated;
+    bool match=kh_pattern(pattern,n,q->want) || kh_pattern(pattern,n,q->host);
+    if (match && negated) return false;
+    if (match) positive=true;
+    if (!end) break;
+    p=end+1;
+  }
+  return positive;
+}
 static bool kh_lookup_cb(void *ud, const char *hosts, const char *key_type,
-                         const char *key_b64, uint16_t port_scope) {
-  (void)port_scope;
+                         const char *key_b64, const char *marker) {
   kh_lookup_t *q = ud;
-  /* host 字段可含逗号分隔的多个模式；支持裸名与 [host]:port。 */
-  int host_match = 0;
-  char pats[1024];
-  snprintf(pats, sizeof pats, "%s", hosts);
-  char *sp = NULL;
-  for (char *t = strtok_r(pats, ",", &sp); t; t = strtok_r(NULL, ",", &sp)) {
-    if (strcmp(t, q->want) == 0) { host_match = 1; break; }
-    /* 裸名条目匹配**任意端口**（OpenSSH 默认；只有 [host]:port 形态才限定
-     * 端口）。早先无条件拿裸名比也把这条吃掉了。 */
-    if (strcmp(t, q->host) == 0 && t[0] != '[') {
-      if (strncmp(q->want, "[", 1) != 0) { host_match = 1; break; }
-      if (strchr(q->want, ':') != NULL) { host_match = 1; break; }
-    }
-  }
-  if (!host_match) return true;      /* 继续找 */
-  q->saw_host = true;
-  if (strcmp(key_type, q->key_type) == 0 && strcmp(key_b64, q->key_b64) == 0) {
-    q->matched = true;
-    return false;                    /* 找到了，停 */
-  }
-  return true;                       /* 主机命中但密钥不同：继续找同名同型的 */
+  /* Hash matching is not implemented. We cannot prove this is unrelated;
+   * especially a hashed revocation must not be bypassed by ordinary trust. */
+  if (hosts[0]=='|') { q->unsupported=true; return true; }
+  if (!kh_host_matches(hosts,q)) return true;
+  bool same=strcmp(key_type,q->key_type)==0 && strcmp(key_b64,q->key_b64)==0;
+  if (!strcmp(marker,"@revoked")) { if (same) q->revoked=true; return true; }
+  if (!strcmp(marker,"@cert-authority")) { q->authority=true; return true; }
+  if (*marker) { q->unsupported=true; return true; }
+  q->saw_host=true;
+  if (same) q->matched=true;
+  return true; /* A later revocation always overrides ordinary trust. */
 }
 
 static kh_result_t kh_check(const char *path, const char *host, uint16_t port,
@@ -284,8 +303,11 @@ static kh_result_t kh_check(const char *path, const char *host, uint16_t port,
 
   kh_lookup_t q = {.want = want, .host = host, .key_type = key_type,
                    .key_b64 = key_b64, .saw_host = false, .matched = false};
-  gt__kh_visit(path, kh_lookup_cb, &q);
+  if (gt__kh_visit(path, kh_lookup_cb, &q) != GT_OK) return KH_IO;
+  if (q.revoked) return KH_REVOKED;
+  if (q.unsupported) return KH_UNSUPPORTED;
   if (q.matched) return KH_MATCH;
+  if (q.authority) return KH_UNSUPPORTED;
   /* 见过这台主机但没找到同型的同一条 → 可能是密钥变更，也可能只是
    * 换了算法（同型条目后来才追加）。保守判 MISMATCH：绝不自动接受。 */
   if (q.saw_host) return KH_MISMATCH;
@@ -497,6 +519,12 @@ int gt_ssh_handshake(gt_ssh_t *ssh) {
   kh_result_t kh = kh_check(ssh->kh_path, ssh->host, port, ktype,
                             b64 ? b64 : "");
 
+  if (kh == KH_REVOKED || kh == KH_UNSUPPORTED || kh == KH_IO) {
+    gt__set_error("ssh: %s", kh == KH_REVOKED ? "主机密钥已撤销，连接已拒绝" :
+                  kh == KH_UNSUPPORTED ? "known_hosts 包含尚不支持的信任规则" : "known_hosts 读取失败");
+    free(b64); free(fingerprint);
+    return kh == KH_REVOKED ? GT_ERR_HOST_KEY : kh == KH_UNSUPPORTED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;
+  }
   int decision;
   if (kh == KH_MISMATCH) {
     decision = GT_HOSTKEY_REJECT; /* 密钥已变更：绝不自动接受 */
@@ -652,6 +680,8 @@ static void connector_hostkey(gt_ssh_connector_t *c) {
   if(!fingerprint || !c->host_key){free(fingerprint);connector_fail(c,GT_ERR_INTERNAL);return;}
   snprintf(c->info.key_type,sizeof(c->info.key_type),"%s",name);snprintf(c->info.fingerprint,sizeof(c->info.fingerprint),"SHA256:%s",fingerprint);free(fingerprint);
   kh_result_t result=kh_check(s->kh_path,s->host,s->port,name,c->host_key);
+  if(result==KH_REVOKED){c->info.host=GT_SSH_HOST_REVOKED;connector_fail(c,GT_ERR_HOST_KEY);return;}
+  if(result==KH_UNSUPPORTED || result==KH_IO){connector_fail(c,result==KH_UNSUPPORTED?GT_ERR_UNSUPPORTED:GT_ERR_IO);return;}
   c->info.host=result==KH_MATCH?GT_SSH_HOST_KNOWN:result==KH_MISMATCH?GT_SSH_HOST_MISMATCH:GT_SSH_HOST_UNKNOWN;
   if(result==KH_MISMATCH){connector_fail(c,GT_ERR_HOST_KEY);return;}
   if(result==KH_MATCH){c->stage=CONNECT_METHODS;c->info.phase=GT_SSH_CONNECT_AUTHENTICATING;}

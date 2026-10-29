@@ -39,11 +39,12 @@ void gt__emit_event(gt_event_kind_t kind, uint64_t job_id, int code,
  *   2. **遍历必须覆盖所有密钥类型**：过滤键型和只用第一行都会漏。
  *
  * `cb` 收到的是**已切好的字段**（host 模式串、key type、base64 blob），
- * 返回 false 表示停止遍历。返回遍历的条目数。
+ * 返回 false 表示停止遍历；marker 原样传递（普通条目为空串）。
+ * 文件不存在视为空；其他打开/读取失败返回错误，不能当成无信任记录。
  */
 typedef bool (*gt__kh_visit_fn)(void *ud, const char *hosts, const char *key_type,
-                                const char *key_b64, uint16_t port_scope);
-size_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud);
+                                const char *key_b64, const char *marker);
+gt_status_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud);
 
 /* ------------------------------------------------------------------ */
 /* SSH shell 通道（libssh2 封装在 ssh.c，transport.c 只经此接缝）       */

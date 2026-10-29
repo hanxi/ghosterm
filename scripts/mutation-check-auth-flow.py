@@ -3,7 +3,7 @@
 import hashlib, os, pathlib, shutil, signal, subprocess, sys, tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MARK = 'GT_AUTH_FLOW_MUTATION_MARK'
-FILES = ['AppModel.swift', 'SSHCredentialSelector.swift', 'SSHAuthenticationFlow.swift']
+FILES = ['AppModel.swift', 'SSHCredentialSelector.swift', 'SSHAuthenticationFlow.swift', '../../../GhostermCore/Sources/GhostermCore/SSHAuthenticator.swift']
 PREFIX = pathlib.Path('apple/GhostermApp/Sources/GhostermAppModel')
 
 def run(args):
@@ -37,6 +37,8 @@ def main():
             ('tilde','AppModel.swift','home + p.dropFirst(1)','home + p.dropFirst(2)'),
             ('unencrypted','SSHCredentialSelector.swift','let requirement = Ghosterm.keyPassphraseRequirement(pem)','let requirement = PrivateKeyPassphraseRequirement.needed'),
             ('methods','SSHAuthenticationFlow.swift','self.prompts.methods(id, info.methods, info.error)','self.prompts.methods(id, 0, info.error)'),
+            ('revoked-message','SSHAuthenticationFlow.swift','info.host == .revoked ?', 'false ?'),
+            ('revoked-binding','../../../GhostermCore/Sources/GhostermCore/SSHAuthenticator.swift','mismatch, revoked }','mismatch, revoked = 99 }'),
         ]
         try:
             for name,file,old,new in mutants:
@@ -50,5 +52,5 @@ def main():
             for file,b in original.items():
                 (folder/PREFIX/file).write_bytes(b)
                 assert hashlib.sha256((ROOT/PREFIX/file).read_bytes()).digest()==sha[file]
-    print('PASS shared product authentication mutations (3 groups)')
+    print('PASS shared product authentication mutations (5 groups)')
 if __name__=='__main__':main()

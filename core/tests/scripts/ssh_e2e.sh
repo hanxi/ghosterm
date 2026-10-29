@@ -42,13 +42,14 @@ cp "$WORK/clientkey.pub" "$WORK/authorized_keys"
   echo "HostKey $WORK/hostkey"
   echo "PidFile $PIDFILE"
   echo "AuthorizedKeysFile $WORK/authorized_keys"
+  echo "MaxStartups 128:30:256"
   echo "PubkeyAuthentication yes"
   echo "PasswordAuthentication no"
   echo "UsePAM no"
   echo "StrictModes no"
   echo "LogLevel ERROR"
   # Repeated deliberate failures are fixture traffic, not a password attack.
-  if "$SSHD" -T -o PerSourcePenalties=no >/dev/null 2>&1; then
+  if "$SSHD" -T -h "$WORK/hostkey" -o PerSourcePenalties=no >/dev/null 2>&1; then
     echo "PerSourcePenalties no"
   fi
   # OpenSSH 自带实现，避免把 macOS 的外部程序路径带到 Linux runner。

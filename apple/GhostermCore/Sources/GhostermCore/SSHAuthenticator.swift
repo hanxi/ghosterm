@@ -19,7 +19,7 @@ public final class SSHCancellation {
 }
 public final class SSHAuthenticator {
     public enum Phase: UInt32 { case tcp, negotiating, hostkey, authenticating, ready, taken, failed, cancelled, credentials }
-    public enum Host: UInt32 { case unchecked, known, unknown, mismatch }
+    public enum Host: UInt32 { case unchecked, known, unknown, mismatch, revoked }
     public struct Info {
         public let phase: Phase
         public let host: Host

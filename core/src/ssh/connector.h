@@ -15,7 +15,7 @@ typedef struct {
 typedef enum {GT_SSH_CONNECT_TCP,GT_SSH_CONNECT_NEGOTIATING,GT_SSH_CONNECT_HOSTKEY,
   GT_SSH_CONNECT_AUTHENTICATING,GT_SSH_CONNECT_READY,GT_SSH_CONNECT_TAKEN,
   GT_SSH_CONNECT_FAILED,GT_SSH_CONNECT_CANCELLED,GT_SSH_CONNECT_CREDENTIALS} gt_ssh_connector_phase_t;
-typedef enum {GT_SSH_HOST_UNCHECKED,GT_SSH_HOST_KNOWN,GT_SSH_HOST_UNKNOWN,GT_SSH_HOST_MISMATCH} gt_ssh_host_state_t;
+typedef enum {GT_SSH_HOST_UNCHECKED,GT_SSH_HOST_KNOWN,GT_SSH_HOST_UNKNOWN,GT_SSH_HOST_MISMATCH,GT_SSH_HOST_REVOKED} gt_ssh_host_state_t;
 typedef struct {
   gt_ssh_connector_phase_t phase;gt_status_t error;gt_ssh_host_state_t host;
   bool deadline;int auth_methods;char key_type[32],fingerprint[80];

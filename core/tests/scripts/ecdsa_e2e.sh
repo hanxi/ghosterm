@@ -23,8 +23,12 @@ cp "$WORK/clientkey.pub" "$WORK/authorized_keys"
   echo "HostKey $WORK/hostkey_ecdsa"   # 只给 ecdsa
   echo "PidFile $WORK/sshd.pid"
   echo "AuthorizedKeysFile $WORK/authorized_keys"
+  echo "MaxStartups 128:30:256"
   echo "PubkeyAuthentication yes"; echo "PasswordAuthentication no"
   echo "UsePAM no"; echo "StrictModes no"; echo "LogLevel ERROR"
+  if /usr/sbin/sshd -T -h "$WORK/hostkey_ecdsa" -o PerSourcePenalties=no >/dev/null 2>&1; then
+    echo "PerSourcePenalties no"
+  fi
 } > "$WORK/sshd_config"
 /usr/sbin/sshd -f "$WORK/sshd_config" -D -e 2>"$WORK/sshd.log" &
 for _ in $(seq 1 50); do

@@ -167,6 +167,33 @@ final class SSHAuthTests: XCTestCase {
         model.disconnectForTesting()
     }
 
+    @MainActor
+    func testRevokedAndUnsupportedHostTrustNeverPromptsForAcceptanceOrCredentials() throws {
+        guard let e = try sshEnv() else { throw XCTSkip("未设置 GHOSTERM_SSH_* —— 跳过") }
+        let known = try isolatedKnownHosts()
+        // Obtain only the fixture's public host key through the real handshake.
+        let probe = try SSHSession(.init(host: e.host, port: e.port, username: e.user, knownHostsPath: known))
+        probe.setHostKeyDecider { _, _, _, _ in .accept }
+        try probe.handshake(); probe.close()
+        let trusted = try String(contentsOfFile: known, encoding: .utf8)
+        let cfg = try writeConfig(host: e.host, port: e.port, user: e.user, identity: e.keyPath)
+        for (contents, message) in [(trusted + "@revoked " + trusted, "已撤销"),
+                                    ("@revoked " + trusted + trusted, "已撤销"),
+                                    ("@cert-authority " + trusted, "尚不支持"),
+                                    ("@unknown " + trusted, "尚不支持")] {
+            try contents.write(toFile: known, atomically: true, encoding: .utf8)
+            let model = isolatedAppModel(configPath: cfg, knownHostsPath: known)
+            let interaction = RecordingInteraction(); model.interaction = interaction
+            model.openSFTP(for: "gatehost")
+            XCTAssertTrue(waitUntil(model, timeout: 10) { $0.status.contains(message) }, model.status)
+            XCTAssertNil(model.remoteFiles?.panel)
+            XCTAssertEqual(interaction.hostKeyPrompts, 0)
+            XCTAssertTrue(interaction.prompts.isEmpty)
+            XCTAssertEqual(try String(contentsOfFile: known, encoding: .utf8), contents)
+            model.disconnectForTesting()
+        }
+    }
+
     /// 连一次之后**不该**往 Keychain 里塞「已解锁的 PEM」。
     ///
     /// 那一步（一个 generic-password 项被反复读）正是 macOS 弹
@@ -261,8 +288,9 @@ final class SSHAuthTests: XCTestCase {
 final class RecordingInteraction: AppInteraction {
     var hostKeyAnswer: HostKeyDecision = .accept
     private(set) var prompts: [CredentialPrompt] = []
+    private(set) var hostKeyPrompts = 0
 
-    func confirmHostKey(_ prompt: HostKeyPrompt) -> HostKeyDecision { hostKeyAnswer }
+    func confirmHostKey(_ prompt: HostKeyPrompt) -> HostKeyDecision { hostKeyPrompts += 1; return hostKeyAnswer }
 
     /// 一律取消（返回 nil）——测试若真弹了框，调用方会立刻看到「被取消」，
     /// 于是断言能把「不该问却问了」抓出来。

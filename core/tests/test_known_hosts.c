@@ -1,5 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
 /*
- * test_known_hosts.c — known_hosts 读侧的语义（离线，不连真 sshd）。
+ * test_known_hosts.c — known_hosts 读侧的语义（隔离本机真 sshd）。
  *
  * 为什么单拎出来：这里踩过一个**只在特定密钥类型下才暴露**的真缺陷——
  * 过滤 `ss` 前缀是照抄 OpenSSH 对 **ssh-rsa** 的写法，而 ECDSA 的 key type
@@ -14,6 +15,8 @@
 #include "ghosterm.h"
 
 #include <stdio.h>
+#include <arpa/inet.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -41,6 +44,56 @@ static gt_hostkey_decision_t decider(void *ud, const char *host, uint16_t port,
   (void)ud; (void)host; (void)port; (void)kt; (void)fp;
   g_decider_calls++;
   return GT_HOSTKEY_ACCEPT;
+}
+
+/* Both public connection paths must reject before credentials or TOFU. */
+static void marker_case(const char *label, const char *contents, const char *path,
+                        const char *host, uint16_t port, const char *user,
+                        int expected, gt_ssh_auth_host_state_t state) {
+  FILE *f = contents ? fopen(path, "wb") : NULL;
+  if (contents) {
+  CHECK(f != NULL, "%s fixture open", label);
+  if (!f) return;
+  CHECK(fputs(contents, f) >= 0 && fclose(f) == 0, "%s fixture write", label);
+  }
+  gt_ssh_opts_t opts = {.host=host, .port=port, .username=user,
+                       .known_hosts_path=path, .connect_timeout_ms=3000};
+  gt_ssh_t *ssh = gt_ssh_new(&opts);
+  g_decider_calls = 0;
+  CHECK(ssh && gt_ssh_set_hostkey_policy(ssh, decider, NULL) == GT_OK, "%s policy", label);
+  int result = gt_ssh_handshake(ssh);
+  CHECK(result == expected, "%s sync: got %d expected %d", label, result, expected);
+  CHECK(g_decider_calls == 0, "%s must not ask TOFU", label);
+  gt_ssh_close(ssh);
+  ssh = gt_ssh_new(&opts);
+  gt_ssh_auth_options_t options = {.family=4, .timeout_ms=3000, .defer_credentials=true};
+  CHECK(inet_pton(AF_INET, host, options.address) == 1, "%s address", label);
+  gt_ssh_authenticator_t *auth = NULL;
+  CHECK(gt_ssh_authenticator_open(&ssh, &options, &auth) == GT_OK && !ssh, "%s async open", label);
+  gt_ssh_auth_phase_t phase = GT_SSH_AUTH_PHASE_TCP;
+  for (int i=0; i<4000; i++) {
+    phase = gt_ssh_authenticator_step(auth);
+    if (phase == GT_SSH_AUTH_PHASE_FAILED || phase == GT_SSH_AUTH_PHASE_CREDENTIALS ||
+        phase == GT_SSH_AUTH_PHASE_HOSTKEY) break;
+    struct timespec pause = {0,1000000}; nanosleep(&pause,NULL);
+  }
+  gt_ssh_auth_info_t info = {0};
+  CHECK(gt_ssh_authenticator_info(auth,&info), "%s async info", label);
+  CHECK(phase == (expected == GT_OK ? GT_SSH_AUTH_PHASE_CREDENTIALS : GT_SSH_AUTH_PHASE_FAILED),
+        "%s async phase %d",label,phase);
+  CHECK(info.error == expected && info.host == state, "%s async error %d host %d",label,info.error,info.host);
+  if (expected != GT_OK) {
+    CHECK(info.auth_methods == 0, "%s must stop before method discovery",label);
+    CHECK(gt_ssh_authenticator_decide(auth,GT_HOSTKEY_ACCEPT) == GT_ERR_INVALID_ARG,
+          "%s cannot override failure with accept",label);
+    gt_ssh_t *taken = NULL;
+    CHECK(!gt_ssh_authenticator_take(auth,&taken) && !taken, "%s no trusted session",label);
+  }
+  gt_ssh_authenticator_close(auth); gt_ssh_close(ssh);
+  if (!contents) return;
+  char *after=read_file(path);
+  CHECK(after && strcmp(after,contents)==0, "%s does not rewrite trust file",label);
+  free(after);
 }
 
 int main(int argc, char **argv) {
@@ -170,6 +223,38 @@ int main(int argc, char **argv) {
       CHECK(g_decider_calls == 0,
             "裸名（不带端口）条目应认出来（decider %d 次）", g_decider_calls);
     }
+  }
+
+  /* Marker precedence, unsupported trust and host-pattern scope. */
+  if (saved) {
+    char path[1200], text[16384], keytype[128], blob[4096], hosts[512];
+    snprintf(path,sizeof path,"%s/known_hosts_markers",argv[5]);
+    CHECK(sscanf(saved,"%511s %127s %4095s",hosts,keytype,blob)==3,"marker key fixture");
+#define MARKER_CASE(label, expected, state) marker_case(label,text,path,host,(uint16_t)port,user,expected,state)
+    snprintf(text,sizeof text,"@revoked %s",saved);
+    MARKER_CASE("revoked-only",GT_ERR_HOST_KEY,GT_SSH_AUTH_HOST_REVOKED);
+    snprintf(text,sizeof text,"%s@revoked %s",saved,saved);
+    MARKER_CASE("revoked-after-trusted",GT_ERR_HOST_KEY,GT_SSH_AUTH_HOST_REVOKED);
+    snprintf(text,sizeof text,"@revoked %s%s",saved,saved);
+    MARKER_CASE("revoked-before-trusted",GT_ERR_HOST_KEY,GT_SSH_AUTH_HOST_REVOKED);
+    snprintf(text,sizeof text,"@cert-authority %s",saved);
+    MARKER_CASE("authority-is-not-hostkey",GT_ERR_UNSUPPORTED,GT_SSH_AUTH_HOST_UNCHECKED);
+    snprintf(text,sizeof text,"@future-marker %s%s",saved,saved);
+    MARKER_CASE("unknown-marker",GT_ERR_UNSUPPORTED,GT_SSH_AUTH_HOST_UNCHECKED);
+    snprintf(text,sizeof text,"@revoked * %s %s\n%s",keytype,blob,saved);
+    MARKER_CASE("revoked-wildcard",GT_ERR_HOST_KEY,GT_SSH_AUTH_HOST_REVOKED);
+    snprintf(text,sizeof text,"@revoked *,!%s %s %s\n%s",host,keytype,blob,saved);
+    MARKER_CASE("revoked-negated-host",GT_OK,GT_SSH_AUTH_HOST_KNOWN);
+    snprintf(text,sizeof text,"@revoked unrelated.invalid %s %s\n%s",keytype,blob,saved);
+    MARKER_CASE("revoked-other-host",GT_OK,GT_SSH_AUTH_HOST_KNOWN);
+    snprintf(text,sizeof text,"@revoked %s %s AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIII\n%s",host,keytype,saved);
+    MARKER_CASE("revoked-other-key",GT_OK,GT_SSH_AUTH_HOST_KNOWN);
+    snprintf(text,sizeof text,"@cert-authority %s%s",saved,saved);
+    MARKER_CASE("explicit-plain-trust-with-ca",GT_OK,GT_SSH_AUTH_HOST_KNOWN);
+    snprintf(text,sizeof text,"@revoked |1|unsupported|hash %s %s\n%s",keytype,blob,saved);
+    MARKER_CASE("hashed-revocation-not-ignored",GT_ERR_UNSUPPORTED,GT_SSH_AUTH_HOST_UNCHECKED);
+    marker_case("trust-read-error",NULL,argv[5],host,(uint16_t)port,user,GT_ERR_IO,GT_SSH_AUTH_HOST_UNCHECKED);
+#undef MARKER_CASE
   }
 
   /* 4. 密钥变更 → 绝不自动接受（三态不折叠）。 */

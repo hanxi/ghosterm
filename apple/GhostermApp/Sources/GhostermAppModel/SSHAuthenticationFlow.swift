@@ -112,7 +112,7 @@ final class SSHAuthenticationFlow {
             let id = request, accepted = attempt
             DispatchQueue.main.async { [prompts] in prompts.accepted(id, accepted) }
             finish(.success(.init(connection: connection, attempt: accepted)))
-        case .failed: fail(info.error, info.host == .mismatch ? "SSH 主机密钥已改变，连接已拒绝" : "SSH 连接或认证失败（\(info.error)）")
+        case .failed: fail(info.error, info.host == .revoked ? "SSH 主机密钥已撤销，连接已拒绝" : info.host == .unchecked && info.error == 7 ? "SSH 主机验证能力尚不支持，连接已停止" : info.host == .mismatch ? "SSH 主机密钥已改变，连接已拒绝" : "SSH 连接或认证失败（\(info.error)）")
         case .cancelled: fail(8, "SSH 认证已取消")
         default: break
         }

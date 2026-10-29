@@ -21,7 +21,8 @@ typedef enum {
   GT_SSH_AUTH_HOST_UNCHECKED,
   GT_SSH_AUTH_HOST_KNOWN,
   GT_SSH_AUTH_HOST_UNKNOWN,
-  GT_SSH_AUTH_HOST_MISMATCH
+  GT_SSH_AUTH_HOST_MISMATCH,
+  GT_SSH_AUTH_HOST_REVOKED /* terminal rejection, never an unknown-host prompt */
 } gt_ssh_auth_host_state_t;
 typedef struct {
   uint8_t family, address[16];
@@ -41,7 +42,8 @@ typedef struct {
 /* One non-UI serial owner. Success takes/clears fresh unlocked SSH only.
  * Resolved binary address is separate from original SSH hostkey identity.
  * Nonblocking step, one total deadline through hostkey UI (default 60000ms).
- * Unknown host waits for explicit decide; mismatch is terminal. */
+ * Unknown host waits for explicit decide; mismatch/revocation is terminal.
+ * Unsupported known_hosts rules fail explicitly without a trust prompt. */
 gt_status_t gt_ssh_authenticator_open(gt_ssh_t **,
                                           const gt_ssh_auth_options_t *,
                                           gt_ssh_authenticator_t **);
