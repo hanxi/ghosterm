@@ -20,3 +20,5 @@ surface.resize(cols, rows)    ← 网格尺寸变化（要同时通知 transport
 **铁律**：surface **不得**知道背后是 SSH 还是本地 shell（铁律 #1）。
 
 Android 当前证据来自 API 36 arm64、4 KB 页模拟器，只覆盖当前本地交互终端切片，不代表真机、SSH 或完整 A2 验收；见 [Android 引擎说明](android/README.md)与[实现阶段](../docs/reference/android-implementation.md)。
+
+当前修饰键、数字键盘与组合音符扩展为未提交工作区，五项定向测试通过，变异与完整回归尚未收尾，不能加入上表已验收范围；具体进度见实现计划 §9.18。

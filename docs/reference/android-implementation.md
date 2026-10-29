@@ -9,6 +9,8 @@
 
 首版交付主机首页、普通 SSH 与本地系统 shell、单屏终端与会话切换、统一文件浏览与复制粘贴、五类设置。主机不分工作/个人组；文件默认点按打开、长按多选；终端不放常驻加号，只有一个键盘开关。应用不自动连接、不自动恢复、不安装远端 daemon。
 
+**当前工作区与已交付版本**：`237ea83` 的最近完整设备验收为 94 项（§9.17）。工作区另有修饰键、数字键盘与组合音符实现，五项定向测试通过，但选组变异基线中断、完整套件未收尾，见 §9.18。它不改变 A2 的部分完成状态，也不把既有完整验收更新成 99 项通过。
+
 | 能力 | 当前代码与证据 | Android 需要补齐 |
 |---|---|---|
 | 宿主 | Compose 主机列表/搜索/添加/编辑、配置页与导入入口；A2 本地会话导航/重建保留；debug APK | 文件、完整设置、后台服务与进程死亡策略 |
@@ -66,7 +68,7 @@ Gradle 模块引用 `terminal/android` 的 source/project，不把实现再复�
 - **主线程**：Compose 状态、输入事件、系统授权、IME、View 挂载；不执行 DNS、磁盘、大目录扫描或阻塞 JNI。
 - **终端 owner**：每条连接一个串行所有者，唯一调用 `gt_transport_read/write/resize/close`。输出直接送 VT，禁止转为 Kotlin `String`、Flow、UI 消息或逐字节 JNI 回调。
 - **渲染**：读取受控的 VT 渲染状态/快照，主线程最多收到合帧的“需刷新”信号。首片选 Canvas 验证正确性，生产自绘方案在 A2 的持续输出、滚动、内存验证后固定；不足时换 GLES，但保持同一 surface 接缝。
-- **文件 owner**：SFTP 使用独立 SSH 连接；目录调用不与其他线程同时使用同一会话，核心单 I/O worker 推进传输。传输任务持有后端租约，不依附文件页面。
+- **文件 owner**：SFTP 使用独立 SSH 连接；目录调用不与其他线程同时使用同一会话，每个核心 SSH 会话的单 I/O worker 推进其传输。传输任务持有后端租约，不依附文件页面；目录/冲突查询、入队、控制与释放均不能让主线程同步等待 owner。串行队列本身不提供 UI 响应性保证。
 - **全局事件泵**：只允许一个消费者调用 `gt_core_poll_events`，按 job ID 扇出；当前进度在 `message` 中编码为 `sftp done/total`，桥层集中解析与校验，页面不解析字符串。无法解析时显示进度未知，不能猜百分比。
 - **事件终态可靠性**：当前 Core 事件队列容量 256，满时覆盖最旧事件，没有 job 终态查询 ABI。A6 必须验证事件消费能力，并补足终态保留/查询等共享保障；不得通过百分比或超时猜测成功。
 - **关闭**：发取消、停止提交输入、owner 有界退出后释放 transport，再释放借用的 SSH，最后安全释放 surface。UI 不同步 join；JNI close 幂等，禁止裸指针反复使用。
@@ -240,6 +242,8 @@ PasteRequest
 
 macOS `TransferManager` 可作为正常路由对照，但目前仍忽略控制异常并把未知终态折为失败；Android 不照搬这两处行为。共享终态保障与 Apple 异常路径修复独立列在[路线图](roadmap.md#macos-下一步与共享缺口)。
 
+**目标查询和取消契约**：存在性查询必须保留“存在 / 明确不存在 / 无法查询”三种结果；权限错误或断线不能折为不存在，只有明确不存在才可尝试独占创建。macOS `SFTPFileBackend.exists` 当前使用 `try? lstat` 转 Bool，不能直接用作 Android 的接口模板。目录扫描或搜索取消必须传入 owner；页面 generation 只解决旧结果覆盖，不能代替取消正在执行的 I/O。若后续用 exec 搜索，须检查退出状态、保留错误与部分结果，只在明确不支持时显示可选的 walk 路径；macOS 这些行为仍有缺口，见 [Apple 说明](../../apple/README.md#文件查询与线程边界)。
+
 ## 7. 设置数据与作用域
 
 使用版本化、类型化持久偏好（拟采用 DataStore），不把 Activity 内存或 HTML 全局变量当存储。页面行显示当前值；读写失败可见且不虚报保存成功。首次值按下表；非法值回默认并记录不含隐私的诊断。更改立即更新预览；写入失败回滚或明确显示未保存状态。
@@ -287,8 +291,8 @@ A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.
 |---|---|---|---|
 | A0 工程与构建 | 无 | 原生空壳 APK；锁工具链/ABI/API；隔离 NDK sysroot 与宿主库；设备加载 core/vt；JNI 引用集合纳入 ABI 检查 | 已完成：API 36 arm64 模拟器，见 §9.1 |
 | A1 导航与主机 | A0 | 首页/设置/页面返回；配置读取、搜索、增改、备份失败阻断、冲突拒绝、原子提交；假数据只在调试 fixture | 已完成：API 36 arm64 / 4 KB 页模拟器；SAF 与表单收尾见 §9.11，其他设备档位仍属 A10 |
-| A2 本地终端 | A0 | `/system/bin/sh` 真 PTY→VT→像素；IME/辅助键/resize/暂停绘制/有界关闭；确认 renderer 方案 | 首片及文本操作已交付（§9.14）；选区/Ctrl 生命周期及 Ctrl 标点/Gboard 拼音基本路径已验（§9.15–§9.16），完整软硬键盘矩阵与性能尚待收尾 |
-| A3 SSH 与身份 | A1、A2、共享 known_hosts 标记修复 | DNS→hostkey→凭据→shell；Keystore 安全容器；取消归属、超时、失效身份、两会话隔离；真 sshd | 未开始 |
+| A2 本地终端 | A0 | `/system/bin/sh` 真 PTY→VT→像素；IME/辅助键/resize/暂停绘制/有界关闭；确认 renderer 方案 | 已交付至按键重复/释放与焦点归属（§9.14–§9.17）；§9.18 键盘扩展工作区仅五项定向通过，变异与完整回归未收尾；完整输入矩阵与性能仍待完成 |
+| A3 SSH 与身份 | A1、A2、共享 known_hosts 标记修复、连接前配置能力校验 | DNS→hostkey→凭据→shell；Keystore 安全容器；取消归属、超时、失效身份、两会话隔离；真 sshd | 未开始 |
 | A4 文件浏览 | A3 | 本机私有目录/SAF/远端；真实预览与路径；点按/长按、多选；位置 generation；独立 SFTP owner | 未开始 |
 | A5 复制基础 | A0、A4 | 先补共享非覆盖创建/提交契约与各端绑定；本地流与暂存；四种方向、冲突、空目录/链接规则、真实结果 | 未开始 |
 | A6 复制任务 | A5 | 全局事件泵与终态可靠性、父子进度、暂停取消、失败重试、断线、清单 UUID、关闭页面不丢任务 | 未开始 |
@@ -623,6 +627,22 @@ View 失焦、窗口失焦、卸载，以及切换 surface **之前**，向原 o
 
 本片在同一 API 36 arm64 / 4 KB 页模拟器完成。按键测试使用事件注入与真实 PTY 回读，生产 Activity 另经过当前 Gboard 拼音；不记为真实外接键盘或完整输入法矩阵验收。A2 仍缺独立修饰键/锁定键、死键/AltGr/数字键盘等矩阵及持续输出/内存/输入延迟；无新增真机、API 29、16 KB 页、Android CI 或 SSH 证据。
 
+### 9.18 修饰键、数字键盘与组合音符（2026-10-30）
+
+本节记录基于 `237ea83` 的**未提交工作区，尚未完成验收**。左右 Shift/Ctrl/Alt/Meta、Caps Lock/Num Lock/Scroll Lock、数字键盘数字/运算符/Enter，以及 Print Screen/Pause 已有 native 映射；JNI 接受 VT 定义的十位修饰状态（含 Caps/Num Lock 与左右侧位），范围外仍拒绝。单独按修饰键或锁定键不消耗软 Ctrl 的单次状态，下一次字符按下才消耗；释放/重复仍沿 §9.17 的归属规则。映射存在不等于每个键都已单独验收，Print Screen/Pause、全部运算符和其他物理布局仍需补证据。
+
+Num Lock 关闭时，数字键盘数字和小数点按导航键处理。View 在按下时保存数字键盘导航身份，通过私有 `TerminalKeys.KEYPAD_NAVIGATION` 扩展送 native；松开前改变 Num Lock 不把 End 的释放变成数字 1 的释放。VT 自行处理普通/application keypad 与 Kitty 编码。pin 的 DEC 1035 默认为开启，覆盖 application keypad 请求；定向测试分别验证默认数字模式、开启 application keypad 但保留 1035，以及显式关闭 1035 后的应用模式。
+
+组合音符遵循 Android [KeyCharacterMap](https://developer.android.com/reference/android/view/KeyCharacterMap#getDeadChar(int,%20int)) 的 `COMBINING_ACCENT` 标记与 `getDeadChar` 结果。每个输入设备分别保存待组合音符，只在 View 本地显示；下一字符成功组合后按普通文本发送。不支持的组合保留音符与原字符，同音符/空格可提交音符本身。Esc/退格取消而不向 PTY 写入；辅助 Tab 等先提交音符再发送按键。失焦、换 surface、IME 接管时清理，禁止串到其他设备或下次提交。布局自身生成的 Alt 字符（Virtual.kcm 的 Alt+C → ç）保留为文本；未改变字符的 Alt 组合仍由 VT 编码，Ctrl/Meta 组合保持快捷键语义，不把 Ctrl+Alt 直接猜为 AltGr。
+
+五项新增设备用例使用 Android 真实 Virtual.kcm、注入 KeyEvent 与真实 PTY 字节回读，覆盖左右修饰键、锁定状态、单次 Ctrl、Num Lock 导航、三种 keypad 模式、Key-up 身份、组合/取消/不支持的组合、设备/窗口/IME 隔离，以及辅助键混用。首次测试源码的 shell 转义写法导致 Kotlin 编译失败，修正后才开始设备验证；该失败不算设备或变异证据。
+
+首轮四项设备测试 **3 通过、1 失败**：keypad 用例只发 `ESC =` 就预期应用模式，实际为 `31 0d 2e …`（数字模式）。依据锁定上游 `modes.zig` / `key_encode.zig` 修正 1035 前置，补保留默认模式的对照；不修改引擎迎合预期。日志为 `tmp/android-keyboard-map-targeted-fixed.log`、`tmp/android-keyboard-map-keypad-diagnostic.log`。随后四项通过；补辅助键混用后最终五项定向通过（`tmp/android-keyboard-map-final-targeted.log`）。
+
+原 22 组选组变异在补充辅助键处理前主动中断，已按 SHA256 验证回滚，不记完整通过。后续 24 组选组运行在 `auxiliaryAndImeKeyTapsIncludeReleaseWhenRequested` 的基线阶段中断，日志只有 instrumentation 开始、没有完成结果（`tmp/android-keyboard-map-final-mutations.log`），不能计为目标红或通过。脚本工作区总量为 71 组（新增 16 组），计划选跑旧八组及新增十六组，尚未完成本轮验证。新增后的完整设备套件也未收尾，最近已交付的完整结果仍是 §9.17 的 94 项。
+
+后续须恢复设备，先验证干净基线，再完成 24 组选组的目标红/独立对照绿/复原绿与 SHA256，最后运行完整设备套件；不以五项定向结果替代这两项。仍没有真实外接键盘、其他布局/厂商 IME、API 29 或 16 KB 页证据；性能基线和整个 A2 继续推进。
+
 ## 10. 验收与变异清单
 
 | 面 | 必须观测的真实结果 | 新增断言的变异示例 |
@@ -654,6 +674,7 @@ View 失焦、窗口失焦、卸载，以及切换 surface **之前**，向原 o
 | macOS 文件仍用 SFTPBrowser / DualPaneFilesView | 均已退役，使用 WorkspaceLayout/WorkspaceHostView 与统一文件窗格 |
 | 文件队列 S4/S5/S6 未动 | macOS 队列、拖放、预览已实现；iOS 和远端拖出 Finder 等仍未完成 |
 | macOS 标签重排尚无触发面 | 当前顶部/侧边按 UUID 重排，唯一加号；精简侧栏已移除 |
+| SFTP 的串行后端已经保证界面不阻塞、搜索取消会停止远端命令 | `TransferManager` 在 MainActor 同步等后端；搜索 token 只撤下旧结果。存在性错误折叠、搜索退出状态与实际取消均待修，见路线图 P1 |
 | 64/70 个 ABI、68 个 Apple 引用 | 来源切片为 72 个公共符号、Apple 70 个引用 + 2 个登记未用；重命名切片当前为 73 / 71+2，见 §9.9；数量以对应检出的脚本输出为准 |
 | JNI/NAPI 已与 Swift 一起对拍 | 初始基线仅 C/Apple；A1 后已有 JNI 对拍脚本，来源接口接入后为 10 项引用、62 项待办；重命名切片增至 11/62；A2 首片为 19/54；整个终端阶段未完成。NAPI 尚未实现 |
 | ConfigStore 已保证强制备份与原子替换 | 备份异常被忽略、先删后移；能力降为部分实现，修复留在路线图 |

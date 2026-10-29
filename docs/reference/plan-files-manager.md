@@ -4,7 +4,7 @@
 > 状态：**S1 ✅ / S2 ✅ / S3 ✅ / S4 ✅ / S5 ✅ / S6（macOS）✅ / S6-iOS ⏳ / S7 ✅（文档收口）**。
 > 相关：`roadmap.md`（M4.6）、`capability-matrix.md`（SFTP / exec / files 行）。
 
-## 当前实现与后续替代（2026-10-29）
+## 当前实现与后续替代（2026-10-30）
 
 M4.6 的 macOS S1–S7 已交付，iOS S6 未开始。后续[统一工作区](workspace-handoff.md)已将固定内嵌面板和 `DualPaneFilesView` / `DualPaneSession` 替换为 `WorkspaceLayout` / `WorkspaceHostView`；终端、本地文件、远端文件都是同一布局中的窗格。`FilesPanelView`、后端接缝与全局 `TransferManager` 继续使用。
 
@@ -17,6 +17,8 @@ M4.6 的 macOS S1–S7 已交付，iOS S6 未开始。后续[统一工作区](wo
 目录复制当前排除内部符号链接：远端 walk 的链接不生成下载子任务，本地枚举的链接直接跳过。现有下载测试明确断言两个普通文件入队、链接不入队，但没有用户可见的排除明细或计数；仅包含链接的目录可按空文件集合报完成。下文“不创建符号链接”的范围约定仍有效，不能据此把未复制的条目记为完整成功；结果呈现与验收待办见路线图。
 
 macOS 保持原生列表单击选择、双击打开；Android 最终方案采用点按打开、长按选择与可见复制清单，两端手势不能混写。Android 的本地↔本地、跨远端复制属于新增 A5 契约，不代表这里的 macOS `TransferManager` 已具备四方向统一队列。两端共同依赖的非覆盖提交与事件终态可靠性仍列在路线图，原始 S1–S7 完成不消除这些新发现的缺口。
+
+当前搜索也未完全兑现下文原始设计的错误语义：`SFTPFileBackend.searchLocked` 对任意 exec 打开错误回退 walk，并非仅处理 `GT_ERR_UNSUPPORTED`；`readFind` 忽略 stderr、退出状态和单条 lstat 失败。页面取消只让旧 token 的结果不可见，后端搜索没有随之停止。与此同时，`exists` 将所有查询错误折为不存在，`TransferManager` 的主线程调用会同步等待后端串行队列。详细调用链见 [Apple 文件查询与线程边界](../../apple/README.md#文件查询与线程边界)，三项均在路线图 P1 中待修，历史正常路径测试不能代替失败/慢网络/取消验收。
 
 下文是 **M4.6 当时的设计与切片记录**：旧组件名、截图入口和测试数量仅用于追溯，不代表当前调用路径或当前测试总数。
 
