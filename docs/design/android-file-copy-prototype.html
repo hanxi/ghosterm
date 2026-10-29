@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Ghosterm Android 文件复制粘贴设计：勾选文件、保留来源清单、切换本机与远端、确认目标后粘贴。">
+<meta name="description" content="Ghosterm Android 文件复制粘贴设计：默认打开、长按多选、保留来源清单、切换本机与远端、确认目标后粘贴。">
 <title>Ghosterm Android · 文件复制与粘贴</title>
 <style>
 :root{--paper:#f5f5f0;--ink:#242c29;--muted:#68716a;--line:#d9ded5;--accent:#345d46;font-family:Roboto,"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:var(--ink);background:var(--paper);font-synthesis:none}
@@ -19,6 +19,10 @@
 .file-place-row{display:flex;align-items:center;gap:4px;padding:0 12px 8px}.file-place-row .file-scope{flex:1;margin:0;min-width:0}.file-scope button{display:flex;gap:8px;align-items:center;justify-content:center}.file-scope .icon{width:19px;height:19px}.file-content .file-row{min-height:62px}.file-content .file-open{min-height:60px}.file-content .file-open b{overflow-wrap:anywhere}.file-content .file-open>span{min-width:0}.file-content{padding-bottom:8px}.file-copy-hint{padding:12px 18px;color:var(--secondary);font-size:11px;line-height:1.7}.copy-selection{display:flex;align-items:center;justify-content:space-between;gap:5px;padding:8px 12px;background:var(--surface2);flex-wrap:wrap}.copy-selection>span{font-size:12px;white-space:nowrap}.copy-selection .primary,.copy-selection .secondary-btn{padding:0 12px;gap:6px;font-size:12px;min-height:48px}.copy-selection .icon{width:18px;height:18px}.clipboard-card{margin:7px 12px 10px;border:1px solid var(--outline);background:var(--surface2);border-radius:18px;padding:0 12px 10px}.clipboard-top{display:flex;align-items:center;justify-content:space-between;min-height:48px}.clipboard-top>span{display:flex;align-items:center;gap:7px;color:var(--primary);font-size:12px;font-weight:550}.clipboard-top .icon{width:18px;height:18px}.clipboard-top .icon-btn{margin-right:-10px}.clipboard-summary{background:transparent;text-align:left;display:block;width:100%;padding:0 0 9px;min-height:70px;position:relative;color:var(--text)}.clipboard-summary strong{display:block;font-size:12px;font-weight:500;overflow-wrap:anywhere;line-height:1.5;margin-bottom:5px}.clipboard-summary small{display:block;color:var(--secondary);font-size:10px;line-height:1.5}.clipboard-summary .clip-source-path{font-family:ui-monospace,monospace;max-width:calc(100% - 76px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.clip-details{position:absolute;right:0;bottom:10px;display:flex;align-items:center;gap:2px;font-size:10px;color:var(--primary)}.clip-details .icon{width:14px;height:14px}.clipboard-bottom{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid var(--outline);padding-top:9px}.clipboard-bottom>span{color:var(--secondary);font-size:10px;line-height:1.6;flex:1}.clipboard-bottom .primary{min-height:48px;padding:0 17px;font-size:12px;gap:7px;border-radius:14px}.clipboard-bottom .icon{width:18px;height:18px}.clip-file-list{background:var(--surface2);border-radius:14px;padding:3px 12px;margin:10px 0 14px}.clip-file-list>div{display:flex;gap:10px;align-items:center;min-height:56px;border-bottom:1px solid var(--outline)}.clip-file-list>div:last-child{border:0}.clip-file-list .icon{color:var(--primary);width:21px;height:21px}.clip-file-list b{font-size:12px;font-weight:500;display:block;overflow-wrap:anywhere}.clip-file-list small{font-size:10px;color:var(--secondary);display:block}.paste-route{padding:13px 14px;background:var(--surface2);border-radius:14px;margin:10px 0}.paste-route>div{display:flex;align-items:flex-start;gap:12px;padding:5px 0}.paste-route>div>span{font-size:10px;color:var(--secondary);border:1px solid var(--outline);padding:3px 5px;border-radius:5px}.paste-route p{margin:0;min-width:0}.paste-route b{display:block;font-size:12px;color:var(--text);font-weight:500}.paste-route small{display:block;font:10px/1.7 ui-monospace,monospace;overflow-wrap:anywhere;margin-top:3px;color:var(--secondary)}.paste-route .route-arrow{padding:0 0 0 7px;font-size:15px;color:var(--secondary)}.paste-route .route-target b{color:var(--primary)}.conflict-note{font-size:11px;color:#d9bc7e;display:flex;gap:8px;align-items:center;margin:14px 0 6px}.force-light .conflict-note{color:#806021}.conflict-note .icon{width:18px;height:18px}.paste-safe{font-size:11px;color:var(--secondary);padding:8px 2px}.clip-origin{padding:12px;border-radius:12px;background:var(--surface2);font-size:11px}.clip-origin span{display:block;color:var(--secondary);margin-bottom:5px}.clip-origin b{font-size:12px;display:block}.clip-origin small{display:block;overflow-wrap:anywhere;font:10px/1.7 ui-monospace,monospace;margin-top:5px;color:var(--secondary)}.copy-job-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;min-height:66px;background:var(--surface2);margin:5px 12px;border-radius:12px;text-align:left}.copy-job-bar>span{flex:1;min-width:0}.copy-job-bar b{font-size:11px;display:block;font-weight:500}.copy-job-bar small{display:block;font-size:10px;color:var(--secondary);overflow-wrap:anywhere}.copy-job-bar .icon{width:19px;height:19px}.job-error{color:#e4aaa3}.copy-study .phone{height:850px}.copy-study .sheet .form-actions{position:sticky;bottom:-24px;padding:12px 0 16px;background:var(--bg);margin-bottom:-8px}.copy-study .file-dock{min-height:58px}.copy-intro-note{margin:24px 0 0;border-left:3px solid #7392ba;padding:0 0 0 16px;font-size:12px;line-height:1.8;color:var(--muted)}.route-matrix{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0}.route-matrix>div{padding:15px;border-radius:12px;background:#e9edf3;font-size:12px;color:#405575}.route-matrix small{display:block;font-size:11px;color:var(--muted);margin-top:7px}.file-content .file-row.selected{border-bottom-color:transparent}.copy-study .variant-heading p{font-size:11px}
 @media(max-width:1100px){.route-matrix{grid-template-columns:1fr 1fr}.copy-study .phone{height:850px}.copy-selection .primary,.copy-selection .secondary-btn{padding:0 9px}.copy-study .toolbar{display:flex;align-items:center}.copy-study .toolbar .tools{margin:0}.clipboard-summary strong{font-size:11px}}
 
+
+/* Browsing is the default; checkboxes exist only in explicit selection mode. */
+.text-action{min-height:48px;min-width:48px;padding:0 12px;border-radius:12px;background:transparent;color:var(--primary);font-size:13px;white-space:nowrap}.text-action:hover{background:var(--surface2)}.selection-topbar{background:var(--tint)}.selection-topbar .title{font-size:17px}.file-open{touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.file-row>.icon-btn{color:var(--secondary)}.copy-selection .secondary-btn{min-width:64px}.research-note{border-top:1px solid var(--line);padding-top:20px;margin-top:22px;font-size:12px;line-height:1.9;color:var(--muted)}.research-note strong{color:var(--ink)}.research-note a{color:#46638c}.research-note p{margin:7px 0}.selection-guide{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.selection-guide span{padding:7px 11px;background:#e6edf5;border-radius:8px;font-size:11px;color:#465c7a}
+
 </style>
 </head>
 <body>
@@ -26,19 +30,20 @@
 
 <main class="board copy-study" id="board">
 <header class="mast"><div class="brand"><span class="brandmark" aria-hidden="true">&gt;_</span>Ghosterm <span style="font-weight:400;color:var(--muted)">/ Android</span></div><small>DESIGN STUDY 03 · COPY & PASTE</small><a href="android-b-hosts-prototype.html">回到 B 方案全流程 ↗</a></header>
-<section class="intro"><div><div class="eyebrow">COPY. GO SOMEWHERE. PASTE.</div><h1>复制什么，看得见。<br>粘贴到哪，自己选。</h1></div><p>勾选文件后复制，找到目标目录再粘贴。<br>待粘贴清单始终显示文件名与来源，切换位置也保留。<br>本机与远端使用相同的操作。</p></section>
+<section class="intro"><div><div class="eyebrow">COPY. GO SOMEWHERE. PASTE.</div><h1>复制什么，看得见。<br>粘贴到哪，自己选。</h1></div><p>默认点按打开，长按进入多选后复制。<br>待粘贴清单始终显示文件名与来源，切换位置也保留。<br>本机与远端使用相同的操作。</p></section>
 <div class="toolbar"><div class="tools"><label>体验场景 <select id="copy-route"><option value="remote-local">远端 → 本机</option><option value="local-remote">本机 → 远端</option><option value="local-local">本机 → 本机</option><option value="remote-remote">远端 → 远端</option></select></label><label>外观 <select id="theme"><option value="dark">石墨深色</option><option value="light">浅色界面</option></select></label><button class="reset-button" id="reset">重置演示</button></div><span class="hint">同一流程的三个独立状态 · 手机内可以继续操作</span></div>
-<div class="mobile-picker" role="group" aria-label="查看复制粘贴步骤"><button data-choice="home" aria-pressed="true">01 勾选复制</button><button data-choice="terminal" aria-pressed="false">02 选择目标</button><button data-choice="files" aria-pressed="false">03 确认粘贴</button></div>
+<div class="mobile-picker" role="group" aria-label="查看复制粘贴步骤"><button data-choice="home" aria-pressed="true">01 浏览与选择</button><button data-choice="terminal" aria-pressed="false">02 选择目标</button><button data-choice="files" aria-pressed="false">03 确认粘贴</button></div>
 <section class="variants" aria-label="复制粘贴交互流程">
-<article class="variant chosen" id="preview-home"><header class="variant-heading"><span class="letter">01</span><div><h2>勾选，然后复制</h2><p>选中项清楚高亮 · 底部出现操作</p></div></header><div class="phone" data-variant="b" data-preview="home" role="region" aria-label="勾选并复制文件示例"></div><p class="phone-note"><strong>选择和复制分开。</strong>勾选只选择当前目录中的文件；点击复制才放入待粘贴清单，同时结束选择。原文件保留。</p></article>
+<article class="variant chosen" id="preview-home"><header class="variant-heading"><span class="letter">01</span><div><h2>先浏览，需要时再选</h2><p>点按打开 · 长按进入多选</p></div></header><div class="phone" data-variant="b" data-preview="home" role="region" aria-label="默认浏览、长按选择文件示例"></div><p class="phone-note"><strong>默认是浏览模式。</strong>点按打开文件或目录，长按才显示选择框。多选时点整行切换勾选；点复制后回到浏览，保留待粘贴清单。</p></article>
 <article class="variant" id="preview-terminal"><header class="variant-heading"><span class="letter">02</span><div><h2>带着清单，找目标</h2><p>切换本机、远端、主机或目录，清单都在</p></div></header><div class="phone" data-variant="b" data-preview="terminal" role="region" aria-label="查看待粘贴内容并选择目标示例"></div><p class="phone-note"><strong>知道手里拿着什么。</strong>底部显示数量、文件名与来源路径；点「查看清单」展开全部内容。切到目标目录后，粘贴按钮可用。</p></article>
 <article class="variant" id="preview-files"><header class="variant-heading"><span class="letter">03</span><div><h2>确认位置，再粘贴</h2><p>明确来源和目标 · 同名文件单独处理</p></div></header><div class="phone" data-variant="b" data-preview="files" role="region" aria-label="粘贴确认和冲突处理示例"></div><p class="phone-note"><strong>开始之前再看一眼。</strong>确认清单和目标目录；同名文件可保留两者或跳过。确认后才出现复制任务与进度。</p></article>
 </section>
-<div class="copy-intro-note">试一试：第一台手机点击「复制」→ 切换「本机」→ 进入 Documents → 点击「粘贴」。第二台可查看或清空待粘贴内容；第三台已展开粘贴确认，选择同名处理后可演示任务完成。</div>
-<section class="review"><div><div class="eyebrow">ONE CLIPBOARD, EVERY LOCATION</div><h2>同一套操作，四种复制方向。</h2><p>文件清单保存在应用内，独立于当前目录。<strong>来源在复制时确定，目标在粘贴时确定。</strong>新复制会替换清单；粘贴完成后清单保留，便于粘贴到其他目录。</p></div><div class="table-wrap"><table><thead><tr><th>你正在做什么</th><th>页面如何反馈</th></tr></thead><tbody><tr><td>勾选文件</td><td>出现「复制」；没有可用清单时「粘贴」禁用。</td></tr><tr><td>已经复制</td><td>固定显示「待粘贴 N 项」、文件名和来源；可展开完整清单。</td></tr><tr><td>切换目录或主机</td><td>当前勾选清空，待粘贴清单保留；不会把来源误改成新位置。</td></tr><tr><td>点击粘贴</td><td>确认目标和同名处理；复制到原目录或子目录循环时明确阻止。</td></tr><tr><td>复制完成或失败</td><td>任务显示实际演示结果；失败不会显示完成，清单仍可再次使用。</td></tr></tbody></table></div></section>
+<div class="copy-intro-note">试一试：第一台手机长按 README.md（或点顶部「选择」）→ 点 build.log 加选 → 点「复制」→ 切换「本机」→ 进入 Documents → 点「粘贴」。第二台可查看或清空待粘贴内容；第三台已展开粘贴确认，选择同名处理后可演示任务完成。</div>
+<section class="review"><div><div class="eyebrow">ONE CLIPBOARD, EVERY LOCATION</div><h2>同一套操作，四种复制方向。</h2><p>文件清单保存在应用内，独立于当前目录。<strong>来源在复制时确定，目标在粘贴时确定。</strong>新复制会替换清单；粘贴完成后清单保留，便于粘贴到其他目录。</p></div><div class="table-wrap"><table><thead><tr><th>你正在做什么</th><th>页面如何反馈</th></tr></thead><tbody><tr><td>点按文件或目录</td><td>默认打开；不显示选择框，不自动选中。</td></tr><tr><td>长按或点「选择」</td><td>进入多选模式，顶部显示数量与全选，底部出现复制。</td></tr><tr><td>取消全部勾选</td><td>仍处于选择模式，复制禁用；返回或取消才退出。</td></tr><tr><td>已经复制</td><td>固定显示「待粘贴 N 项」、文件名和来源；可展开完整清单。</td></tr><tr><td>切换目录或主机</td><td>当前勾选清空，待粘贴清单保留；不会把来源误改成新位置。</td></tr><tr><td>点击粘贴</td><td>确认目标和同名处理；复制到原目录或子目录循环时明确阻止。</td></tr><tr><td>复制完成或失败</td><td>任务显示实际演示结果；失败不会显示完成，清单仍可再次使用。</td></tr></tbody></table></div></section>
 <div class="route-matrix"><div>本机 → 本机<small>Documents 复制到 Download</small></div><div>本机 → 远端<small>本机文件复制到服务器目录</small></div><div>远端 → 本机<small>服务器文件复制到本机目录</small></div><div>远端 → 远端<small>同主机换目录，或选择另一台主机</small></div></div>
-<section class="principles"><article><h3>01 / 清单常驻，详情可展开</h3><p>默认显示前两个文件名和来源路径；清单较长时显示总数，展开可看全部项目。关闭清单只清空待粘贴内容，不影响已开始的任务。</p></article><article><h3>02 / 复制保留原文件</h3><p>本轮只设计复制粘贴。同名处理默认逐项确认，支持保留两者或跳过；取消选择、切换页面都不会删除源文件。</p></article><article><h3>03 / 状态可理解</h3><p>未复制、原目录、来源断开、目录循环等状态都有明确提示。复制任务可暂停或取消，完成后在目标列表看到演示文件。</p></article></section>
-<footer><strong>原型范围：</strong>离线单文件 HTML。三个手机是独立演示状态，均可完整走完复制粘贴；复制完成只改变演示列表，不访问本机文件或远端主机。目录内容为示例，进度为模拟。清单属于应用内文件操作，不写入 Android 系统剪贴板。<br>本机与远端的复制语义统一；远端之间的传输路径、权限与服务端能力留待原生实现评估，本设计不代表 Android 已具备这些能力。保留 <a href="https://developer.android.com/design/ui/mobile/guides/layout-and-content/layout-and-nav-patterns" target="_blank" rel="noopener">Android 布局与导航约定</a>。</footer>
+<section class="principles"><article><h3>01 / 清单常驻，详情可展开</h3><p>默认显示前两个文件名和来源路径；清单较长时显示总数，展开可看全部项目。关闭清单只清空待粘贴内容，不影响已开始的任务。</p></article><article><h3>02 / 多选结束，再去找目标</h3><p>复制后自动退出多选；返回键先退出选择，不跳到上级目录。滚动不会触发长按，长按松手也不会误打开文件。</p></article><article><h3>03 / 状态可理解</h3><p>未复制、原目录、来源断开、目录循环等状态都有明确提示。复制任务可暂停或取消，完成后在目标列表看到演示文件。</p></article></section>
+<section class="research-note"><strong>参考其他文件管理器，再按 Ghosterm 的本机／远端场景调整。</strong><p><a href="https://www.samsung.com/us/support/answer/ANS10002531/" target="_blank" rel="noopener">Samsung My Files</a>：官方流程以长按选择文件或文件夹开始，再复制并导航到目标位置。<a href="https://support.google.com/files/answer/9808835?hl=en" target="_blank" rel="noopener">Files by Google</a>：官方说明区分网格与列表，提供长按选择或条目「更多」菜单，再进行多选与复制。</p><p><strong>本稿的选择：</strong>默认点按打开；长按或顶部「选择」进入多选。逐行菜单提供单项复制；已复制清单独立保留。原型用 500 ms 演示长按，移动超过 10 px 或开始滚动就取消；这是原型参数，原生端应使用 Android 系统手势与无障碍能力。</p><div class="selection-guide"><span>浏览：点按打开</span><span>多选：点按切换勾选</span><span>复制后：回到浏览</span><span>返回：先退出多选</span></div></section>
+<footer><strong>原型范围：</strong>离线单文件 HTML。三个手机是独立演示状态；第一屏默认浏览且无预选，第二、三屏展示已复制后的后续步骤。均可完整走完复制粘贴；复制完成只改变演示列表，不访问本机文件或远端主机。目录内容为示例，进度为模拟。清单属于应用内文件操作，不写入 Android 系统剪贴板。<br>本机与远端的复制语义统一；远端之间的传输路径、权限与服务端能力留待原生实现评估，本设计不代表 Android 已具备这些能力。保留 <a href="https://developer.android.com/design/ui/mobile/guides/layout-and-content/layout-and-nav-patterns" target="_blank" rel="noopener">Android 布局与导航约定</a>。</footer>
 </main>
 
 
@@ -56,7 +61,7 @@ const states={};
 function selectedHost(s){return hosts.find(h=>h.id===s.menuHost)||current(s);}
 const initialPages={home:'files',terminal:'files',files:'files'};
 let demoRoute='remote-local';
-function baseSeed(key,el){return {id:'b',key,el,page:initialPages[key],sheet:null,keyboard:false,scope:'remote',path:[],selected:new Set(),filter:'全部',search:'',host:'prod',menuHost:null,sessions:key==='home'?[]:key==='terminal'?['prod','dev']:['prod'],ctrl:false,output:[],closed:key==='home',history:key==='files'?['hosts','terminal']:[],outputs:{},typing:false,emptyHosts:false,fileHost:'prod',fileConnections:new Set(key==='home'?[]:['prod','dev']),fileStore:{},clipboard:null,pendingPaste:null,job:null,copyTimer:null};}
+function baseSeed(key,el){return {id:'b',key,el,page:initialPages[key],sheet:null,keyboard:false,scope:'remote',path:[],selected:new Set(),selecting:false,filter:'全部',search:'',host:'prod',menuHost:null,sessions:key==='home'?[]:key==='terminal'?['prod','dev']:['prod'],ctrl:false,output:[],closed:key==='home',history:key==='files'?['hosts','terminal']:[],outputs:{},typing:false,emptyHosts:false,fileHost:'prod',fileConnections:new Set(key==='home'?[]:['prod','dev']),fileStore:{},clipboard:null,pendingPaste:null,job:null,copyTimer:null};}
 function seed(key,el){
   const s=baseSeed(key,el);s.sessions=['prod','dev'];s.fileConnections=new Set(['prod','dev']);s.closed=false;
   const from=demoRoute.startsWith('local')?{scope:'local',host:null,path:['Documents']}:{scope:'remote',host:'prod',path:[]};
@@ -64,8 +69,7 @@ function seed(key,el){
   const items=structuredClone(listAt(s,from).filter(f=>!f.dir).slice(0,2));
   const loc=key==='home'?from:key==='terminal'?{...to,path:[]}:to;
   s.scope=loc.scope;s.fileHost=loc.host||'prod';s.path=[...loc.path];
-  if(key==='home')s.selected=new Set(items.map(f=>f.name));
-  else s.clipboard={from:structuredClone(from),items};
+  if(key!=='home')s.clipboard={from:structuredClone(from),items};
   if(key==='files'){s.pendingPaste={clip:structuredClone(s.clipboard),to:structuredClone(to),policy:'ask',choices:{}};s.sheet='paste';}
   return s;
 }
@@ -101,7 +105,7 @@ function fileItems(s){return listAt(s,fileLocation(s));}
 function filePath(s){return locationPath(fileLocation(s));}
 function isAvailable(s,loc){return loc.scope==='local'||s.fileConnections.has(loc.host);}
 function clipboardIssue(s,clip=s.clipboard,to=fileLocation(s)){
-  if(!clip)return '先勾选文件，再点复制';
+  if(!clip)return '长按选择文件，再点复制';
   if(!isAvailable(s,clip.from))return '来源主机已断开，请重新连接';
   if(!isAvailable(s,to))return '目标主机未连接，请先连接';
   if(locationKey(clip.from)===locationKey(to))return '请选择另一个目录后粘贴';
@@ -112,14 +116,15 @@ function clipboardIssue(s,clip=s.clipboard,to=fileLocation(s)){
 function clipboardList(clip){return `<div class="clip-file-list">${clip.items.map(f=>`<div>${icon(f.dir?'folder':'file')}<span><b>${esc(f.name)}</b><small>${esc(f.size)}</small></span></div>`).join('')}</div>`;}
 function clipboardBar(s){
   if(!s.clipboard)return '';
-  const c=s.clipboard,issue=s.selected.size?'先取消当前选择，再粘贴':clipboardIssue(s);
+  const c=s.clipboard,issue=s.selecting?'先退出选择模式，再粘贴':clipboardIssue(s);
   return `<section class="clipboard-card" aria-label="待粘贴内容"><div class="clipboard-top"><span>${icon('copy')}待粘贴 · ${c.items.length} 项</span>${ib('clear-clipboard','close','清空待粘贴内容')}</div><button class="clipboard-summary" data-action="clipboard" aria-label="查看待粘贴文件和来源"><strong>${esc(c.items.slice(0,2).map(f=>f.name).join('、'))}${c.items.length>2?' 等':''}</strong><small>来自 ${esc(locationName(c.from))}</small><small class="clip-source-path">${esc(locationPath(c.from))}</small><span class="clip-details">查看清单 ${icon('arrow')}</span></button><div class="clipboard-bottom"><span>${issue?esc(issue):'粘贴到当前目录'}</span><button class="primary" data-action="paste" ${issue?'disabled':''}>${icon('paste')}粘贴</button></div></section>`;
 }
 function jobLabel(job){return job.status==='running'?`正在复制 ${job.items.length} 项 · ${job.progress}%`:job.status==='paused'?'复制已暂停':job.status==='failed'?'复制失败':job.status==='cancelled'?'已取消复制':`已复制 ${job.copied} 项${job.skipped?' · 跳过 '+job.skipped+' 项':''}`;}
 function jobBar(s){if(!s.job)return '';return `<button class="copy-job-bar ${s.job.status==='failed'?'job-error':''}" data-action="transfers">${icon(s.job.status==='completed'?'check':'copy')}<span><b data-job-label>${esc(jobLabel(s.job))}</b><small>${esc(locationName(s.job.from))} → ${esc(locationName(s.job.to))}</small></span>${icon('arrow')}</button>`;}
+function fileHeader(s){return s.selecting?`<header class="topbar selection-topbar">${ib('clear-selection','close','退出选择模式')}<div class="title">已选 ${s.selected.size} 项<small>点按项目可切换选择</small></div><button class="text-action" data-action="select-all">${s.selected.size===fileItems(s).length?'取消全选':'全选'}</button></header>`:`<header class="topbar">${ib('back','back','返回上一页')}<div class="title">文件<small>${esc(locationName(fileLocation(s)))}</small></div><button class="text-action" data-action="select-mode">选择</button>${ib('menu','more','更多操作')}</header>`;}
 function filesPage(s){
   const here=fileLocation(s),available=isAvailable(s,here);
-  return `${header(s,'文件',esc(locationName(here)),true)}<div class="file-place-row"><div class="file-scope" role="group" aria-label="文件位置"><button data-action="scope" data-scope="remote" class="${s.scope==='remote'?'active':''}" aria-pressed="${s.scope==='remote'}">${icon('server')}远端</button><button data-action="scope" data-scope="local" class="${s.scope==='local'?'active':''}" aria-pressed="${s.scope==='local'}">${icon('home')}本机</button></div>${ib('file-hosts','server','选择远端主机')}</div><div class="file-path">${ib('up','back','上一级目录')}<span title="${esc(filePath(s))}">${esc(filePath(s))}</span>${ib('file-menu','more','文件夹操作')}</div><div class="file-heading"><span>${available?fileItems(s).length+' 个项目':'连接已断开'}</span><span>${s.selected.size?'已选 '+s.selected.size+' 项':'勾选后复制'}</span></div><div class="content file-content">${!available?'<div class="empty">连接后可浏览此主机的文件。<br><button class="secondary-btn" data-action="file-hosts">选择或连接主机</button></div>':fileItems(s).map(f=>`<div class="file-row ${s.selected.has(f.name)?'selected':''}"><button class="file-open" data-action="open-file" data-name="${esc(f.name)}" data-dir="${f.dir}">${icon(f.dir?'folder':'file')}<span><b>${esc(f.name)}</b><small>${esc(f.size)}</small></span></button><button class="file-select" data-action="select-file" data-name="${esc(f.name)}" aria-label="选择 ${esc(f.name)}" aria-pressed="${s.selected.has(f.name)}"><span class="check">${s.selected.has(f.name)?'✓':''}</span></button></div>`).join('')}</div>${s.selected.size?`<div class="copy-selection"><span>已选 ${s.selected.size} 项</span><button class="primary" data-action="copy-selection">${icon('copy')}复制</button><button class="secondary-btn" data-action="paste" disabled>${icon('paste')}粘贴</button>${ib('clear-selection','close','取消选择')}</div>`:''}${jobBar(s)}${clipboardBar(s)}${!s.clipboard&&!s.selected.size?'<p class="file-copy-hint">勾选文件并复制，再到目标目录粘贴。</p>':''}${nav(s)}`;
+  return `${fileHeader(s)}<div class="file-place-row"><div class="file-scope" role="group" aria-label="文件位置"><button data-action="scope" data-scope="remote" class="${s.scope==='remote'?'active':''}" aria-pressed="${s.scope==='remote'}" ${s.selecting?'disabled':''}>${icon('server')}远端</button><button data-action="scope" data-scope="local" class="${s.scope==='local'?'active':''}" aria-pressed="${s.scope==='local'}" ${s.selecting?'disabled':''}>${icon('home')}本机</button></div>${ib('file-hosts','server','选择远端主机',s.selecting?'disabled':'')}</div><div class="file-path">${ib('up','back','上一级目录',s.selecting?'disabled':'')}<span title="${esc(filePath(s))}">${esc(filePath(s))}</span>${s.selecting?'':ib('file-menu','more','文件夹操作')}</div><div class="file-heading"><span>${available?fileItems(s).length+' 个项目':'连接已断开'}</span><span>${s.selecting?'点按选择':'点按打开 · 长按多选'}</span></div><div class="content file-content">${!available?'<div class="empty">连接后可浏览此主机的文件。<br><button class="secondary-btn" data-action="file-hosts">选择或连接主机</button></div>':fileItems(s).map(f=>`<div class="file-row ${s.selected.has(f.name)?'selected':''}"><button class="file-open" data-action="open-file" data-name="${esc(f.name)}" data-dir="${f.dir}" aria-label="${s.selecting?(s.selected.has(f.name)?'取消选择 ':'选择 '):(f.dir?'打开文件夹 ':'打开文件 ')}${esc(f.name)}">${icon(f.dir?'folder':'file')}<span><b>${esc(f.name)}</b><small>${esc(f.size)}</small></span></button>${s.selecting?`<button class="file-select" data-action="select-file" data-name="${esc(f.name)}" aria-label="选择 ${esc(f.name)}" aria-pressed="${s.selected.has(f.name)}"><span class="check">${s.selected.has(f.name)?'✓':''}</span></button>`:ib('file-item','more',f.name+' 的操作',`data-name="${esc(f.name)}"`)}</div>`).join('')}</div>${s.selecting?`<div class="copy-selection"><span>${s.selected.size?'已选 '+s.selected.size+' 项':'请选择文件'}</span><button class="primary" data-action="copy-selection" ${s.selected.size?'':'disabled'}>${icon('copy')}复制</button><button class="secondary-btn" data-action="clear-selection">取消</button></div>`:''}${jobBar(s)}${clipboardBar(s)}${!s.clipboard&&!s.selecting?'<p class="file-copy-hint">长按进入多选，也可以点顶部「选择」。</p>':''}${nav(s)}`;
 }
 function copySelection(s){
   if(!isAvailable(s,fileLocation(s))){toast(s,'来源未连接，无法复制');return;}
@@ -127,11 +132,11 @@ function copySelection(s){
   if(!items.length){toast(s,'请先勾选文件');return;}
   const replaced=Boolean(s.clipboard);
   s.clipboard={from:fileLocation(s),items:structuredClone(items)};
-  s.selected.clear();s.preview=null;s.sheet=null;render(s);
+  s.selected.clear();s.selecting=false;s.preview=null;s.sheet=null;render(s);
   toast(s,`已复制 ${items.length} 项${replaced?'，待粘贴清单已更新':'，请选择目标目录'}`);
 }
 function openPaste(s){
-  const issue=s.selected.size?'请先取消当前选择':clipboardIssue(s);
+  const issue=s.selecting?'请先退出选择模式':clipboardIssue(s);
   if(issue){toast(s,issue);return;}
   s.pendingPaste={clip:structuredClone(s.clipboard),to:fileLocation(s),policy:'ask',choices:{}};
   show(s,'paste');
@@ -179,7 +184,8 @@ case 'config':return ['SSH 配置','只读示例；图形编辑与此配置保�
 case 'key-info':return ['密钥与身份','原生设计约定','<div class="notice">使用 Android 平台安全存储保护密钥；连接时解锁。原型不会收集密码、生成或保存真实密钥。</div><button class="primary" data-action="dismiss">知道了</button>'];
 case 'menu':if(s.page==='files')return ['文件操作','当前文件位置：'+esc(locationName(fileLocation(s))),actionRow('file-hosts','server','选择远端主机','本机与远端均可复制粘贴')+actionRow('clipboard','copy','待粘贴内容',s.clipboard?s.clipboard.items.length+' 项':'暂无内容')+actionRow('transfers','clock','复制任务','查看进度和结果')];return ['更多操作',s.page==='hosts'?'主机列表与应用设置。':'操作作用于当前会话。',s.page==='hosts'?(actionRow('sessions','terminal','活动会话',s.sessions.length?s.sessions.length+' 个会话':'暂无会话')+actionRow('config','file','SSH 配置','查看配置示例')+actionRow('key-info','key','密钥与身份','安全存储设计')):(actionRow('hosts','server','返回主机列表','保持当前连接')+actionRow('sessions','terminal','切换会话','查看已打开的终端')+actionRow('disconnect','disconnect','关闭当前连接','关闭前再次确认'))];
 case 'disconnect':return ['关闭当前连接？','关闭普通 SSH 可能中断前台任务；无法确认任务是否仍在运行。','<div class="notice">切换页面不会断开连接。如使用 tmux，关闭客户端通常保留后台任务，仍需以远端实际状态为准。</div><div class="form-actions"><button class="secondary-btn" data-action="dismiss">保留连接</button><button class="primary" data-action="confirm-disconnect">关闭连接</button></div>'];
-case 'file-menu':return ['文件夹操作',esc(filePath(s)),actionRow('up','back','上一级','返回父目录')+actionRow('select-all','check','选择全部','选择当前目录的项目')+(s.clipboard?actionRow('clipboard','copy','待粘贴清单',s.clipboard.items.length+' 项 · 查看来源和文件名'):'')+actionRow('file-hosts','server','切换远端主机','保留待粘贴内容')+actionRow('transfers','clock','复制任务','查看进度和结果')];
+case 'file-menu':return ['文件夹操作',esc(filePath(s)),actionRow('up','back','上一级','返回父目录')+actionRow('select-mode','check','选择文件','进入多选模式')+(s.clipboard?actionRow('clipboard','copy','待粘贴清单',s.clipboard.items.length+' 项 · 查看来源和文件名'):'')+actionRow('file-hosts','server','切换远端主机','保留待粘贴内容')+actionRow('transfers','clock','复制任务','查看进度和结果')];
+case 'file-item':return [esc(s.preview),'单个项目操作',actionRow('open-item','folder','打开','进入文件夹或预览文件')+actionRow('copy-preview','copy','复制','加入待粘贴清单，原文件保留')+actionRow('select-item','check','选择此项','进入多选模式')];
 case 'file-preview':return [esc(s.preview),'只读演示 · '+esc(locationName(fileLocation(s))),'<pre><code># Ghosterm\n\nYour terminal, everywhere.</code></pre><div class="form-actions"><button class="secondary-btn" data-action="dismiss">关闭</button><button class="primary" data-action="copy-preview">'+icon('copy')+'复制</button></div>'];
 case 'transfers':return copyTasks(s);
 case 'clipboard':return s.clipboard?['待粘贴内容',`${s.clipboard.items.length} 项 · 切换位置后仍保留`,`<div class="clip-origin"><span>复制自</span><b>${esc(locationName(s.clipboard.from))}</b><small>${esc(locationPath(s.clipboard.from))}</small></div>${clipboardList(s.clipboard)}<div class="notice">这里只记录待复制的文件。选择目标目录并粘贴后才开始复制，原文件保留。</div><div class="form-actions"><button class="secondary-btn" data-action="clear-clipboard">清空清单</button><button class="primary" data-action="dismiss">继续选择目标</button></div>`]:['待粘贴内容','','<div class="notice">还没有复制文件。</div>'];
@@ -189,33 +195,37 @@ case 'file-hosts':return ['选择远端主机','待粘贴内容保留；切换�
 default:return ['操作','',''];}}
 function render(s){const body=s.page==='hosts'?hostsPage(s):s.page==='files'?filesPage(s):terminalPage(s);s.el.innerHTML=`<div class="statusbar"><span>9:41</span><i class="camera" aria-hidden="true"></i><span class="status-right">${icon('signal')}${icon('wifi')}${icon('battery')}</span></div><div class="app">${body}</div><div class="systembar" aria-hidden="true"></div>`;if(s.font)s.el.querySelector('.terminal')?.style.setProperty('font-size',s.font+'px');if(s.sheet){const [title,desc,html]=sheetContent(s);s.el.querySelector('.app').inert=true;s.el.insertAdjacentHTML('beforeend',`<div class="overlay"><section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title-${s.key}" tabindex="-1"><div class="handle"></div><div class="sheet-head"><h3 id="sheet-title-${s.key}">${title}</h3>${ib('dismiss','close','关闭面板')}</div>${desc?`<p>${desc}</p>`:''}${html}</section></div>`);s.el.querySelector('.sheet').focus({preventScroll:true});}}
 function toast(s,msg){s.el.querySelector('.snackbar')?.remove();const n=document.createElement('div');n.className='snackbar';n.setAttribute('role','status');n.textContent=msg;s.el.append(n);setTimeout(()=>n.remove(),2800);}
-function go(s,page){if(page==='files'&&s.host==='local'){if(s.scope!=='local'){s.path=[];s.selected.clear();}s.scope='local';}else if(page==='files'&&(s.page==='terminal'||s.sheet==='host-menu')){if(s.fileHost!==s.host||s.scope!=='remote')s.path=[];s.fileHost=s.host;s.scope='remote';s.fileConnections.add(s.host);s.selected.clear();}if(s.page!==page)s.history.push(s.page);s.page=page;s.sheet=null;s.keyboard=false;s.preview=null;render(s);}
+function go(s,page){s.cancelHold?.();if(page!==s.page){s.selected.clear();s.selecting=false;}if(page==='files'&&s.host==='local'){if(s.scope!=='local'){s.path=[];s.selected.clear();s.selecting=false;}s.scope='local';}else if(page==='files'&&(s.page==='terminal'||s.sheet==='host-menu')){if(s.fileHost!==s.host||s.scope!=='remote')s.path=[];s.fileHost=s.host;s.scope='remote';s.fileConnections.add(s.host);s.selected.clear();s.selecting=false;}if(s.page!==page)s.history.push(s.page);s.page=page;s.sheet=null;s.keyboard=false;s.preview=null;render(s);}
 function show(s,sheet){s.returnAction=document.activeElement?.dataset.action;s.sheet=sheet;render(s);}
 function dismiss(s){s.sheet=null;render(s);const target=[...s.el.querySelectorAll('[data-action]')].find(el=>el.dataset.action===s.returnAction);target?.focus({preventScroll:true});}
-function back(s){if(s.sheet)return dismiss(s);if(s.keyboard){s.keyboard=false;render(s);return;}if(s.page==='files'&&s.path.length){s.path.pop();s.selected.clear();render(s);return;}if(s.page==='terminal'){go(s,'hosts');s.history=[];return;}if(s.page==='files'){s.page=s.history.pop()||'terminal';render(s);return;}toast(s,'已在主机首页');}
+function back(s){if(s.sheet)return dismiss(s);if(s.page==='files'&&s.selecting){s.selected.clear();s.selecting=false;render(s);return;}if(s.keyboard){s.keyboard=false;render(s);return;}if(s.page==='files'&&s.path.length){s.path.pop();s.selected.clear();s.selecting=false;render(s);return;}if(s.page==='terminal'){go(s,'hosts');s.history=[];return;}if(s.page==='files'){s.page=s.history.pop()||'terminal';render(s);return;}toast(s,'已在主机首页');}
 function act(s,a,b){switch(a){
-case 'hosts':case 'files':case 'terminal':if(a==='files'&&s.sheet==='host-menu'){setHost(s,s.menuHost);s.closed=false;if(!s.sessions.includes(s.host))s.sessions.push(s.host);s.scope='remote';s.path=[];s.selected.clear();}if(a==='terminal'&&!s.sessions.length){go(s,'hosts');toast(s,'请先选择主机或打开本地终端');break;}go(s,a);break;
+case 'hosts':case 'files':case 'terminal':if(a==='files'&&s.sheet==='host-menu'){setHost(s,s.menuHost);s.closed=false;if(!s.sessions.includes(s.host))s.sessions.push(s.host);s.scope='remote';s.path=[];s.selected.clear();s.selecting=false;}if(a==='terminal'&&!s.sessions.length){go(s,'hosts');toast(s,'请先选择主机或打开本地终端');break;}go(s,a);break;
 case 'back':back(s);break;
 case 'dismiss':dismiss(s);break;
 case 'new':case 'sessions':case 'settings':case 'menu':case 'add-host':case 'edit-host':case 'tmux':case 'config':case 'key-info':case 'disconnect':case 'file-menu':case 'transfers':case 'clipboard':case 'file-hosts':show(s,a);break;
 case 'host-menu':s.menuHost=b.dataset.host;show(s,'host-menu');break;
-case 'connect':setHost(s,b.dataset.host||s.host);s.scope='remote';s.path=[];s.selected.clear();s.closed=false;if(!s.sessions.includes(s.host))s.sessions.push(s.host);s.fileConnections.add(s.host);go(s,'terminal');toast(s,'演示：已打开 '+current(s).name);break;
+case 'connect':setHost(s,b.dataset.host||s.host);s.scope='remote';s.path=[];s.selected.clear();s.selecting=false;s.closed=false;if(!s.sessions.includes(s.host))s.sessions.push(s.host);s.fileConnections.add(s.host);go(s,'terminal');toast(s,'演示：已打开 '+current(s).name);break;
 case 'local':setHost(s,'local');s.closed=false;if(!s.sessions.includes('local'))s.sessions.push('local');go(s,'terminal');toast(s,'演示：本地 Android shell');break;
 case 'switch-session':setHost(s,b.dataset.host);s.closed=false;go(s,'terminal');break;
 case 'filter':s.filter=b.dataset.filter;render(s);break;
 case 'keyboard':s.keyboard=!s.keyboard;render(s);if(s.keyboard)s.el.querySelector('.terminal').scrollTop=10000;break;
-case 'scope':s.scope=b.dataset.scope;s.path=[];s.preview=null;s.selected.clear();render(s);break;
-case 'up':{const root=!s.path.length;if(!root)s.path.pop();s.selected.clear();s.sheet=null;render(s);if(root)toast(s,'已经在演示根目录');break;}
-case 'open-file':if(s.selected.size){s.selected.has(b.dataset.name)?s.selected.delete(b.dataset.name):s.selected.add(b.dataset.name);render(s);}else if(b.dataset.dir==='true'){s.path.push(b.dataset.name);s.selected.clear();render(s);}else{s.preview=b.dataset.name;show(s,'file-preview');}break;
-case 'select-file':s.selected.has(b.dataset.name)?s.selected.delete(b.dataset.name):s.selected.add(b.dataset.name);render(s);break;
-case 'select-all':if(isAvailable(s,fileLocation(s)))fileItems(s).forEach(f=>s.selected.add(f.name));s.sheet=null;render(s);break;
-case 'clear-selection':s.selected.clear();render(s);break;
+case 'scope':s.scope=b.dataset.scope;s.path=[];s.preview=null;s.selected.clear();s.selecting=false;render(s);break;
+case 'up':{const root=!s.path.length;if(!root)s.path.pop();s.selected.clear();s.selecting=false;s.sheet=null;render(s);if(root)toast(s,'已经在演示根目录');break;}
+case 'open-file':if(s.selecting)toggleFile(s,b.dataset.name);else openFile(s,b.dataset.name);break;
+case 'select-file':toggleFile(s,b.dataset.name);break;
+case 'select-all':if(isAvailable(s,fileLocation(s))){const all=fileItems(s);if(s.selected.size===all.length)s.selected.clear();else all.forEach(f=>s.selected.add(f.name));s.selecting=true;}s.sheet=null;render(s);break;
+case 'clear-selection':s.selected.clear();s.selecting=false;render(s);break;
+case 'select-mode':enterSelection(s);break;
+case 'file-item':s.preview=b.dataset.name;show(s,'file-item');break;
+case 'select-item':enterSelection(s,s.preview);break;
+case 'open-item':openFile(s,s.preview);break;
 case 'copy-selection':copySelection(s);break;
 case 'copy-preview':s.selected=new Set([s.preview]);copySelection(s);break;
 case 'paste':openPaste(s);break;
 case 'start-paste':startPaste(s);break;
 case 'clear-clipboard':s.clipboard=null;s.sheet=null;render(s);toast(s,'待粘贴清单已清空');break;
-case 'pick-file-host':s.fileHost=b.dataset.host;s.fileConnections.add(s.fileHost);s.scope='remote';s.path=[];s.selected.clear();s.sheet=null;render(s);toast(s,'已切换到 '+fileHostName(s.fileHost)+'（演示）');break;
+case 'pick-file-host':s.fileHost=b.dataset.host;s.fileConnections.add(s.fileHost);s.scope='remote';s.path=[];s.selected.clear();s.selecting=false;s.sheet=null;render(s);toast(s,'已切换到 '+fileHostName(s.fileHost)+'（演示）');break;
 
 case 'pause':if(s.job&&['paused','running'].includes(s.job.status)){s.job.status=s.job.status==='paused'?'running':'paused';clearTimeout(s.copyTimer);if(s.job.status==='running')scheduleCopy(s);render(s);}break;
 case 'cancel-transfer':clearTimeout(s.copyTimer);if(s.job)s.job.status='cancelled';s.sheet=null;render(s);toast(s,'任务已取消，待粘贴内容保留');break;
@@ -227,13 +237,61 @@ case 'enter':if(s.closed)break;s.output.push('（演示输入，未执行命令�
 case 'space':if(s.typing)s.output[s.output.length-1]+=' ';render(s);break;
 case 'symbols':toast(s,'符号由 Android 系统输入法提供；此处只演示布局');break;
 }}
-for(const s of Object.values(states)){render(s);s.el.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(b)act(s,b.dataset.action,b);else if(e.target.classList.contains('overlay'))dismiss(s);});s.el.addEventListener('input',e=>{if(e.target.matches('[data-search]')){s.search=e.target.value;s.el.querySelector('[data-host-list]').innerHTML=hostRows(s);}});s.el.addEventListener('change',e=>{if(e.target.matches('[data-copy-policy]')){s.pendingPaste.policy=e.target.value;render(s);}if(e.target.matches('[data-conflict-name]'))s.pendingPaste.choices[e.target.dataset.conflictName]=e.target.value;if(e.target.matches('[data-font]')){s.font=e.target.value;toast(s,'终端字号已设为 '+s.font);}});s.el.addEventListener('submit',e=>{e.preventDefault();const data=new FormData(e.target);const h={id:'custom-'+Date.now(),name:String(data.get('name')).trim(),address:String(data.get('user')).trim()+'@'+String(data.get('address')).trim(),group:'工作',status:'未连接',symbol:'server'};if(s.sheet==='edit-host'){Object.assign(selectedHost(s),{name:h.name,address:h.address});}else hosts.push(h);s.emptyHosts=false;go(s,'hosts');toast(s,'仅更新演示数据，未写入真实配置');});s.el.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();back(s);}if(e.key==='Tab'&&s.sheet){const nodes=[...s.el.querySelector('.sheet').querySelectorAll('button:not(:disabled),input,select,[tabindex="0"]')];if(!nodes.length)return;const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&(document.activeElement===first||document.activeElement.classList.contains('sheet'))){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});}
+function enterSelection(s,name){
+  if(!isAvailable(s,fileLocation(s)))return;
+  s.selecting=true;s.sheet=null;
+  if(name)s.selected.add(name);
+  render(s);
+  const focus=[...s.el.querySelectorAll('.file-select')].find(b=>b.dataset.name===name)||s.el.querySelector('.selection-topbar button');focus?.focus({preventScroll:true});
+}
+function toggleFile(s,name){s.selecting=true;s.selected.has(name)?s.selected.delete(name):s.selected.add(name);render(s);[...s.el.querySelectorAll('.file-select')].find(b=>b.dataset.name===name)?.focus({preventScroll:true});}
+function openFile(s,name){
+  const f=fileItems(s).find(item=>item.name===name);if(!f)return;
+  if(f.dir){s.path.push(f.name);s.selected.clear();s.selecting=false;s.sheet=null;render(s);}
+  else{s.preview=f.name;show(s,'file-preview');}
+}
+// Prototype threshold only; native implementation should use Android gesture APIs.
+function installFileGestures(s){
+  let hold=null,releaseUntil=0;
+  function cancel(){if(hold)clearTimeout(hold.timer);hold=null;}
+  s.cancelHold=cancel;
+  s.el.addEventListener('pointerdown',e=>{
+    cancel();releaseUntil=0;
+    const row=e.target.closest('.file-open');
+    if(!row||e.button!==0||!e.isPrimary||s.sheet)return;
+    const name=row.dataset.name,location=locationKey(fileLocation(s));
+    hold={id:e.pointerId,x:e.clientX,y:e.clientY,fired:false,timer:null};
+    hold.timer=setTimeout(()=>{
+      if(!hold||s.page!=='files'||s.sheet||locationKey(fileLocation(s))!==location)return;
+      hold.fired=true;enterSelection(s,name);
+    },500);
+  });
+  s.el.addEventListener('pointermove',e=>{if(hold&&hold.id===e.pointerId&&Math.hypot(e.clientX-hold.x,e.clientY-hold.y)>10)cancel();});
+  s.el.addEventListener('pointerup',()=>{if(hold?.fired)releaseUntil=performance.now()+180;cancel();});
+  s.el.addEventListener('pointercancel',cancel);
+  s.el.addEventListener('pointerleave',cancel);
+  s.el.addEventListener('scroll',cancel,true);
+  s.el.addEventListener('click',e=>{
+    if((hold?.fired||performance.now()<releaseUntil)&&e.detail!==0){e.preventDefault();e.stopImmediatePropagation();releaseUntil=0;}
+  },true);
+  s.el.addEventListener('contextmenu',e=>{
+    const row=e.target.closest('.file-open');if(!row)return;
+    e.preventDefault();
+    // Touch/pen long press must not also trigger the browser's context menu.
+    if(hold||e.pointerType==='touch'||e.pointerType==='pen'||performance.now()<releaseUntil)return;
+    if(!s.selecting){s.preview=row.dataset.name;show(s,'file-item');}
+  });
+  window.addEventListener('blur',cancel);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)cancel();});
+}
+
+for(const s of Object.values(states)){installFileGestures(s);render(s);s.el.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(b)act(s,b.dataset.action,b);else if(e.target.classList.contains('overlay'))dismiss(s);});s.el.addEventListener('input',e=>{if(e.target.matches('[data-search]')){s.search=e.target.value;s.el.querySelector('[data-host-list]').innerHTML=hostRows(s);}});s.el.addEventListener('change',e=>{if(e.target.matches('[data-copy-policy]')){s.pendingPaste.policy=e.target.value;render(s);}if(e.target.matches('[data-conflict-name]'))s.pendingPaste.choices[e.target.dataset.conflictName]=e.target.value;if(e.target.matches('[data-font]')){s.font=e.target.value;toast(s,'终端字号已设为 '+s.font);}});s.el.addEventListener('submit',e=>{e.preventDefault();const data=new FormData(e.target);const h={id:'custom-'+Date.now(),name:String(data.get('name')).trim(),address:String(data.get('user')).trim()+'@'+String(data.get('address')).trim(),group:'工作',status:'未连接',symbol:'server'};if(s.sheet==='edit-host'){Object.assign(selectedHost(s),{name:h.name,address:h.address});}else hosts.push(h);s.emptyHosts=false;go(s,'hosts');toast(s,'仅更新演示数据，未写入真实配置');});s.el.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();back(s);}if(e.key==='Tab'&&s.sheet){const nodes=[...s.el.querySelector('.sheet').querySelectorAll('button:not(:disabled),input,select,[tabindex="0"]')];if(!nodes.length)return;const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&(document.activeElement===first||document.activeElement.classList.contains('sheet'))){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});}
 
 document.querySelector('#theme').addEventListener('change',e=>Object.values(states).forEach(s=>s.el.classList.toggle('force-light',e.target.value==='light')));
 function choose(key){document.querySelectorAll('.variant').forEach(el=>el.classList.toggle('chosen',el.id==='preview-'+key));document.querySelectorAll('[data-choice]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.choice===key)));}
 document.querySelectorAll('[data-choice]').forEach(b=>b.addEventListener('click',()=>choose(b.dataset.choice)));
-document.querySelector('#home-state')?.addEventListener('change',e=>{const s=states.home;clearTimeout(s.copyTimer);Object.assign(s,seed('home',s.el));if(e.target.value==='active'){s.sessions=['prod','dev'];s.fileConnections=new Set(['prod','dev']);s.closed=false;}if(e.target.value==='empty')s.emptyHosts=true;render(s);choose('home');});
-document.querySelector('#copy-route').addEventListener('change',e=>{demoRoute=e.target.value;for(const s of Object.values(states)){clearTimeout(s.copyTimer);Object.assign(s,seed(s.key,s.el));render(s);}choose('home');});
+document.querySelector('#home-state')?.addEventListener('change',e=>{const s=states.home;s.cancelHold?.();clearTimeout(s.copyTimer);Object.assign(s,seed('home',s.el));if(e.target.value==='active'){s.sessions=['prod','dev'];s.fileConnections=new Set(['prod','dev']);s.closed=false;}if(e.target.value==='empty')s.emptyHosts=true;render(s);choose('home');});
+document.querySelector('#copy-route').addEventListener('change',e=>{demoRoute=e.target.value;for(const s of Object.values(states)){s.cancelHold?.();clearTimeout(s.copyTimer);Object.assign(s,seed(s.key,s.el));render(s);}choose('home');});
 document.querySelector('#reset').addEventListener('click',()=>location.reload());
 
 </script>
