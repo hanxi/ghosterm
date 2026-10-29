@@ -102,7 +102,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
 
-Android 已补齐三字段显式覆盖/恢复继承、主机别名重命名及配置错误恢复；SAF 预览/取消/失败路径与表单校验收尾后，47 项设备测试及 59 组配置/页面变异通过，A1 在 API 36 arm64 模拟器档完成，见[实现计划 §9.11](docs/reference/android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。A2 首片已交付本地 PTY、Canvas、输入桥与会话生命周期；文本操作切片已接入终端选择、复制粘贴和本地清屏，当前验证见[实现计划 §9.14](docs/reference/android-implementation.md#914-a2-文本操作工作区与文档复核2026-10-30)。选区边缘自动滚动与 Ctrl 生命周期切片已验，见[§9.15](docs/reference/android-implementation.md#915-选区与-ctrl-工作区进度2026-10-30)；本片另有 Ctrl 标点、Gboard 回车与拼音基本路径的验证，完整 90 项设备测试及选组变异见[§9.16](docs/reference/android-implementation.md#916-ctrl-标点与键盘协议2026-10-30)；按键重复/释放、焦点归属及辅助键成对事件已验（完整 94 项设备测试），见[§9.17](docs/reference/android-implementation.md#917-按键重复释放与焦点归属2026-10-30)。完整软硬键盘矩阵与性能仍待完成。macOS 配置事务、表单保真、终端设置读写、传输控制错误与未知结果继续列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)。
+Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付真实本地终端、文本选择/复制粘贴、键盘协议与闪烁文本绘制。最新完整设备结果为 **100 项通过**，见[实现计划 §9.19](docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；物理键盘/布局矩阵与性能仍未完成，工作区性能实验单列在 [§9.20](docs/reference/android-implementation.md#920-性能实验与待验收边界2026-10-30)。SSH、文件四方向复制和完整设置仍待实施。macOS 配置事务、认证安全、终端剪贴板、设置读写与文件异常处理独立列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)；Android 的验收不改变其状态。
 
 | 能力 | 状态 |
 |---|---|
@@ -123,18 +123,14 @@ Android 已补齐三字段显式覆盖/恢复继承、主机别名重命名及�
 | ├ 终端系统复制粘贴 | ⏳ 引擎文本输入已有证据；系统剪贴板读取/写入/确认与终端菜单路由尚未接通，见路线图 P1 |
 | ├ ssh_config 图形编辑（M3） | 🟡 编辑器、通配块与 Core 稀疏 API 已实现；共享重复指令误删已修复。macOS 表单仍简化扫描/提交全部字段，备份错误被忽略、替换先删后移，保真与事务保障待修复 |
 | ├ 文件工作区与传输 | 🟡 本地/SFTP 统一窗格、队列、拖放与 Quick Look；独立文件连接。控制异常/未知结果、目录内链接跳过明细尚待修复；目录冲突 UI 等验收缺口见交接文档 |
-| ├ 文件查询与搜索 | 🟡 正常浏览/搜索已有接线；存在性查询折叠错误，搜索未检查命令退出状态且取消未传入远端；传输入队/控制仍可能同步阻塞主线程，见 [Apple 说明](apple/README.md#文件查询与线程边界) |
+| ├ 文件查询与搜索 | 🟡 正常浏览/搜索已有接线；存在性查询折叠错误，树加载失败被缓存为空；搜索及递归权限遗漏部分遍历错误，远端搜索未检查退出状态且取消未传入后端；传输入队/控制仍可能同步阻塞主线程，见 [Apple 说明](apple/README.md#文件查询与线程边界) |
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |
 | 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
 | Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；完整软硬键盘矩阵/性能待补，SSH/文件仍待接入 |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
-静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。最新完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
-
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。
-
-Android 修饰键、数字键盘与组合音符切片已通过完整 **99 项设备测试**及 **24 组选组变异**，详见[§9.18](docs/reference/android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。A2 仍缺完整物理设备/布局矩阵和性能基线，不因本片通过而标为完成。
 
 ## 许可
 

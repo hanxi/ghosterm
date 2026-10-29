@@ -83,6 +83,10 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 [FilesPanelModel.search](GhostermApp/Sources/GhostermAppModel/FilesPanelModel.swift) 已提供搜索入口和 exec/walk 档位显示，但错误与取消尚不完整：exec 打开阶段任意异常都会回退 walk；`readFind` 忽略 stderr、没有调用现有 `SSHExec.exitStatus()`，条目 `lstat` 失败也被跳过，结束后仍返回 exec 档。远端命令失败可能显示零条或部分搜索结果为完成。页面 `cancelSearch` 只更新 token 并清列表，传给后端的回调仍返回 true；它阻止旧结果显示，尚未取消远端工作，无输出时的 read timeout 会继续循环。
 
+文件错误边界不限于 SFTP。`FilesPanelModel.loadTreeChildren` 把列目录异常转成空数组并缓存；后续展开因缓存已存在不再读取，失败节点会看起来像空目录。`runLocalSearch` 用 `try?` 忽略遍历错误，随后仍标完成；取消只改变结果 token，visitor 仍返回 true。`setPermissions` 虽记录子项 chmod 错误，却忽略 `walk` 自身抛出的错误，可能只改了根或部分条目便正常刷新。`FileBackend.swift` 中的本地后端还会跳过 lstat 失败的条目，枚举未接入逐项错误报告。普通列表导航的 catch 会显示错误，不能把树/搜索的缺口扩大成所有目录错误都被吞掉。
+
+后续需为树节点提供可重试的错误状态、搜索提供失败/部分结果、递归权限汇总扫描与修改结果；这与终端 I/O 和传输队列控制是不同验收面。当前只是源码核对，没有新增文件系统拒绝/扫描失败的运行证据。
+
 以上为当前源码调用链结论，尚无本轮慢网络/失败命令的端到端验收。修复顺序为查询三态与异步 owner、远端退出状态和取消，再回归传输冲突/控制与页面切换；具体退出条件列在[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 ## 构建与验证
