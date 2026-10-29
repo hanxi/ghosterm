@@ -1,0 +1,63 @@
+--- a/include/ghostty/vt/terminal.h
++++ b/include/ghostty/vt/terminal.h
+@@ -3016,6 +3016,13 @@
+  */
+ GHOSTTY_API void ghostty_terminal_reset(GhosttyTerminal terminal);
+-
++
++/** Ghosterm extension: erase the active screen and its history locally.
++ * Preserves modes, cursor position/style, pending wrap, and parser state.
++ * Does not write to the PTY. The inactive screen is not modified.
++ * Unlike RIS or feeding CSI, this is safe during a partial input sequence.
++ */
++GHOSTTY_API GhosttyResult ghostty_terminal_clear_local(GhosttyTerminal terminal);
++
+ /**
+  * Resize the terminal to the given dimensions.
+  *
+--- a/src/terminal/c/terminal.zig
++++ b/src/terminal/c/terminal.zig
+@@ -1744,6 +1744,22 @@
+     return .success;
+ }
+-
++
++// Ghosterm: UI-only erase, never a protocol reset or shell input.
++pub fn clearLocal(terminal_: Terminal) callconv(lib.calling_conv) Result {
++    const wrapper = terminal_ orelse return .invalid_value;
++    const t: *ZigTerminal = wrapper.terminal;
++    const screen = t.screens.active;
++    screen.clearSelection();
++    screen.clearRows(.{ .active = .{} }, null, false);
++    screen.eraseHistory(null);
++    if (comptime build_options.kitty_graphics) {
++        screen.kitty_images.delete(t.io(), screen.alloc, t, .{ .all = true });
++    }
++    t.flags.dirty.clear = true;
++    t.scrollViewport(.bottom);
++    return .success;
++}
++
+ pub fn reset(terminal_: Terminal) callconv(lib.calling_conv) void {
+     const wrapper = terminal_ orelse return;
+     const t: *ZigTerminal = wrapper.terminal;
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -184,6 +184,7 @@
+ pub const terminal_new = terminal.new;
+ pub const terminal_free = terminal.free;
+ pub const terminal_reset = terminal.reset;
++pub const terminal_clear_local = terminal.clearLocal;
+ pub const terminal_resize = terminal.resize;
+ pub const terminal_set = terminal.set;
+ pub const terminal_vt_write = terminal.vt_write;
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -321,6 +321,7 @@
+         @export(&c.terminal_new, .{ .name = "ghostty_terminal_new" });
+         @export(&c.terminal_free, .{ .name = "ghostty_terminal_free" });
+         @export(&c.terminal_reset, .{ .name = "ghostty_terminal_reset" });
++        @export(&c.terminal_clear_local, .{ .name = "ghostty_terminal_clear_local" });
+         @export(&c.terminal_resize, .{ .name = "ghostty_terminal_resize" });
+         @export(&c.terminal_set, .{ .name = "ghostty_terminal_set" });
+         @export(&c.terminal_vt_write, .{ .name = "ghostty_terminal_vt_write" });

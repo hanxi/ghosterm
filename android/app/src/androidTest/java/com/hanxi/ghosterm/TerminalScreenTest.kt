@@ -1,6 +1,17 @@
 package com.hanxi.ghosterm
 
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.view.KeyEvent
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
+import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.action.GeneralClickAction
+import androidx.test.espresso.action.Tap
+import androidx.test.espresso.action.Press
+import androidx.test.espresso.action.CoordinatesProvider
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -36,6 +47,9 @@ class TerminalScreenTest {
         ui.onNodeWithText("本地终端").performClick()
         ui.waitUntil(10_000) { sessions.active?.state?.connected == true }
         ui.waitUntil(10_000) { viewOrNull()?.currentFrame != null }
+        ui.runOnIdle { terminal().commitText("stty -echo; PS1=''; printf '\\033[2J\\033[HUI_SHELL_READY'\r") }
+        ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "UI_SHELL_READY" }
+
     }
     @After fun cleanup() {
         ui.runOnIdle { sessions.sessions.map { it.id }.forEach(sessions::close) }
@@ -170,5 +184,165 @@ class TerminalScreenTest {
         ui.onNodeWithText("关闭会话", useUnmergedTree = true).performClick()
         ui.waitUntil { sessions.sessions.size == 1 }
         assertEquals(original, sessions.active!!.id)
+    }
+
+    private fun clickSystemText(label: String, click: Boolean = true) {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        automation.serviceInfo = automation.serviceInfo.apply {
+            flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        }
+        val deadline = android.os.SystemClock.uptimeMillis() + 5_000
+        var labels = emptyList<String>()
+        while (android.os.SystemClock.uptimeMillis() < deadline) {
+            val nodes = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
+            fun visit(node: android.view.accessibility.AccessibilityNodeInfo?) {
+                if (node == null) return
+                nodes.add(node)
+                for (i in 0 until node.childCount) visit(node.getChild(i))
+            }
+            automation.windows.forEach { visit(it.root) }
+            labels = nodes.map { "${it.text}/${it.contentDescription}" }
+            nodes.firstOrNull { it.isVisibleToUser && (it.text?.toString() == label || it.contentDescription?.toString() == label) }?.let { match ->
+                if (!click) return
+                var node: android.view.accessibility.AccessibilityNodeInfo? = match
+                while (node != null) {
+                    if (node.isClickable && node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)) return
+                    node = node.parent
+                }
+            }
+            android.os.SystemClock.sleep(50)
+        }
+        var diagnostic = ""
+        ui.runOnIdle {
+            val view = terminal()
+            diagnostic = listOf("actionMode", "selecting", "dragging").joinToString { name ->
+                val field = view.javaClass.getDeclaredField(name).apply { isAccessible = true }
+                "$name=${field.get(view)}"
+            }
+        }
+        fail("System text action $label missing ($diagnostic): $labels")
+    }
+    private fun longPressCell(x: Int, y: Int) {
+        onView(withContentDescription("终端")).perform(GeneralClickAction(Tap.LONG, CoordinatesProvider { view ->
+            val terminal = view as TerminalView; val frame = terminal.currentFrame!!
+            val xy = IntArray(2); view.getLocationOnScreen(xy)
+            floatArrayOf(xy[0] + (x + 0.5f) * (view.width / frame.cols), xy[1] + (y + 0.5f) * (view.height / frame.rows))
+        }, Press.FINGER))
+    }
+    private fun clipboard(text: String) = ui.runOnIdle {
+        ui.activity.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("fixture", text))
+    }
+    private fun pasteKey() = ui.runOnIdle {
+        terminal().onKeyDown(KeyEvent.KEYCODE_V, KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_V, 0,
+            KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON))
+    }
+
+    @Test fun longPressPaintsSelectionAndCopiesRealTextToSystemClipboard() {
+        clipboard("clipboard-before-copy")
+        send("stty -echo; printf '\\033[2J\\033[HCOPY_THIS second'; sleep 30\r")
+        waitFor("COPY_THIS")
+        longPressCell(1, 0)
+        ui.waitUntil { terminal().currentFrame!!.cells.any { it.flags and 256 != 0 } }
+        ui.runOnIdle {
+            val view = terminal(); val image = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(image)); var selected = 0
+            for (y in 0 until image.height step 2) for (x in 0 until image.width step 2)
+                if (image.getPixel(x, y) == Color.rgb(68, 91, 125)) selected++
+            image.recycle(); assertTrue("selected cells must be visibly painted", selected > 50)
+        }
+        clickSystemText("复制")
+        ui.waitUntil {
+            ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() == "COPY_THIS"
+        }
+    }
+
+    @Test fun pasteConfirmationUsesCapturedTextAndCancelSendsNothing() {
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004lCLIP_READY\\r\\n'; dd bs=1 count=3 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nCLIP_DONE\\r\\n'\r")
+        waitFor("CLIP_READY")
+        clipboard("X\n"); pasteKey()
+        clickSystemText("粘贴可能执行命令", false)
+        onView(withText("取消")).perform(click())
+        clipboard("a\nb"); pasteKey()
+        clickSystemText("粘贴可能执行命令", false)
+        onView(withText("粘贴可能执行命令")).check(androidx.test.espresso.assertion.ViewAssertions.matches(androidx.test.espresso.matcher.ViewMatchers.isDisplayed()))
+        clipboard("changed")
+        onView(withText("仍然粘贴")).perform(click())
+        waitFor("CLIP_DONE")
+        ui.runOnIdle { assertTrue(text(), text().contains("61 0d 62")); assertFalse(text(), text().contains("58")) }
+    }
+
+    @Test fun fileClipboardIsNotCoercedIntoTerminalInput() {
+        send("stty raw -echo; printf '\\033[2J\\033[HFILE_READY\\r\\n'; dd bs=1 count=1 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nFILE_DONE\\r\\n'\r")
+        waitFor("FILE_READY")
+        ui.runOnIdle { ui.activity.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+            ClipData.newRawUri("file", android.net.Uri.parse("content://fixture/private-file"))) }
+        pasteKey()
+        ui.onNodeWithText("剪贴板中没有可粘贴的文本").assertIsDisplayed()
+        send("Z"); waitFor("FILE_DONE")
+        ui.runOnIdle { assertTrue(text(), text().contains("5a")) }
+    }
+
+    @Test fun clearMenuConfirmsLocalScopeAndKeepsRunningCommand() {
+        send("stty raw -echo; printf '\\033[2J\\033[HLOCAL_CLEAR_READY\\r\\n'; dd bs=1 count=1 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nLOCAL_CLEAR_DONE\\r\\n'\r")
+        waitFor("LOCAL_CLEAR_READY")
+        ui.onNodeWithTag("terminal-menu").performClick()
+        ui.onNodeWithText("清除本地显示").performClick()
+        ui.onNodeWithText("取消").performClick()
+        ui.runOnIdle { assertTrue(text().contains("LOCAL_CLEAR_READY")) }
+        ui.onNodeWithTag("terminal-menu").performClick()
+        ui.onNodeWithText("清除本地显示").performClick()
+        ui.onNodeWithText("清除").performClick()
+        ui.waitUntil { terminal().currentFrame!!.cells.all { it.text.isEmpty() } }
+        send("Z"); waitFor("LOCAL_CLEAR_DONE")
+        ui.runOnIdle { assertTrue(text(), text().contains("5a")); assertTrue(sessions.active!!.state.connected) }
+    }
+
+    @Test fun selectionEndHandleChangesCopiedRangeThroughRealTouch() {
+        clipboard("selection-before-copy")
+        send("stty -echo; printf '\\033[2J\\033[Halpha beta'; sleep 30\r")
+        waitFor("alpha beta"); longPressCell(1, 0)
+        ui.waitUntil { terminal().currentFrame!!.cells[4].flags and 256 != 0 }
+        var downX = 0f; var downY = 0f; var endX = 0f; var endY = 0f
+        ui.runOnIdle {
+            val view = terminal(); val f = view.currentFrame!!; val pos = IntArray(2); view.getLocationOnScreen(pos)
+            val cw = view.width / f.cols; val ch = view.height / f.rows
+            downX = pos[0] + cw * 5f; downY = pos[1] + ch.toFloat()
+            endX = pos[0] + cw * 8.5f; endY = pos[1] + ch * 0.5f
+        }
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val now = android.os.SystemClock.uptimeMillis()
+        fun touch(action: Int, x: Float, y: Float) {
+            val event = android.view.MotionEvent.obtain(now, android.os.SystemClock.uptimeMillis(), action, x, y, 0)
+            instrumentation.sendPointerSync(event); event.recycle()
+        }
+        touch(android.view.MotionEvent.ACTION_DOWN, downX, downY)
+        for (i in 1..8) {
+            touch(android.view.MotionEvent.ACTION_MOVE, downX + (endX - downX) * i / 8, downY + (endY - downY) * i / 8)
+            android.os.SystemClock.sleep(20)
+        }
+        touch(android.view.MotionEvent.ACTION_UP, endX, endY)
+        ui.waitUntil { terminal().currentFrame!!.cells[8].flags and 256 != 0 }
+        clickSystemText("复制")
+        ui.waitUntil { ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() == "alpha bet" }
+    }
+
+    @Test fun inputConnectionContextPasteUsesBracketedEncoding() {
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hCONTEXT_READY\\r\\n'; dd bs=1 count=15 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nCONTEXT_DONE\\r\\n'\r")
+        waitFor("CONTEXT_READY"); clipboard("abc")
+        ui.runOnIdle { assertTrue(terminal().onCreateInputConnection(EditorInfo()).performContextMenuAction(android.R.id.paste)) }
+        waitFor("CONTEXT_DONE")
+        ui.runOnIdle { assertTrue(text(), text().replace(Regex("\\s+"), " ").contains("1b 5b 32 30 30 7e 61 62 63 1b 5b 32 30 31 7e")) }
+    }
+
+    @Test fun accessibilityLongClickSelectsAndContextCopyUsesTheSelection() {
+        send("stty -echo; printf '\\033[2J\\033[HACCESSIBLE\\033[1;2H'; sleep 30\r")
+        waitFor("ACCESSIBLE"); clipboard("before-accessibility-copy")
+        ui.runOnIdle {
+            assertTrue("advertised accessibility action must actually work", terminal().performAccessibilityAction(
+                android.view.accessibility.AccessibilityNodeInfo.ACTION_LONG_CLICK, null))
+        }
+        ui.waitUntil { terminal().currentFrame!!.cells[0].flags and 256 != 0 }
+        ui.runOnIdle { assertTrue(terminal().onCreateInputConnection(EditorInfo()).performContextMenuAction(android.R.id.copy)) }
+        ui.waitUntil { ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() == "ACCESSIBLE" }
     }
 }

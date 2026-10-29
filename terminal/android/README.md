@@ -1,6 +1,6 @@
 # Android TerminalSurface
 
-状态（2026-10-30）：**A0 已验；A2 原生 surface、Canvas TerminalView、InputConnection 与生命周期首片已交付；文本操作在未提交工作区接入，整个 A2 未完成**。Gradle `:terminal` 指向本目录；native 子目录由 `:bridge` 的 CMake 统一构建，避免重复 Core。宿主设计见[最终 HTML](../../docs/design/android-prototype.html)，开发与验收见[Android 实现计划](../../docs/reference/android-implementation.md) A0/A2。
+状态（2026-10-30）：**A0 已验；A2 原生 surface、Canvas TerminalView、InputConnection 与生命周期首片已交付；文本操作切片已验，整个 A2 未完成**。Gradle `:terminal` 指向本目录；native 子目录由 `:bridge` 的 CMake 统一构建，避免重复 Core。宿主设计见[最终 HTML](../../docs/design/android-prototype.html)，开发与验收见[Android 实现计划](../../docs/reference/android-implementation.md) A0/A2。
 
 ## 已实现
 

@@ -27,10 +27,10 @@ def main():
     if not archive.is_file(): raise RuntimeError('build Android native dependencies first')
     with tempfile.TemporaryDirectory(prefix='android-vt-libc-', dir=ROOT / 'tmp') as directory:
         work = Path(directory)
-        def load(text):
+        def load(text, function="verify_vt_libc"):
             scope = {'__file__': str(source), '__name__': 'isolated_android_builder'}
             exec(compile(text, str(source), 'exec'), scope)
-            return scope['verify_vt_libc']
+            return scope[function]
         verify = load(original)
         verify(archive, nm)
         fixtures = {}
@@ -66,7 +66,33 @@ def main():
             reject(load(original), name)
             if hashlib.sha256(source.read_bytes()).digest() != digest: raise RuntimeError('source SHA256 changed')
             print(f'L{index}: independent green / restored green / SHA256 identical', flush=True)
-    print('ANDROID VT LIBC MUTATIONS PASS: 2 groups')
+        header = work / 'terminal.h'
+        header.write_bytes((ROOT / 'build/android-native/arm64-v8a/include/ghostty/vt/terminal.h').read_bytes())
+        artifacts = [fixtures['clean'], header]
+        signature = {'fixture': 'patched-header-and-archive'}
+        saved = {'inputs': signature, 'sha256': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in artifacts}}
+        cached = load(original, 'verified_artifacts')
+        assert cached(saved, signature, artifacts)
+        header.write_bytes(header.read_bytes() + b'\n/* corrupt cached header */\n')
+        def reject_header(function):
+            assert not function(saved, signature, artifacts), 'cached header SHA256 was ignored'
+        reject_header(cached)
+        before = "saved.get('sha256', {}).get(p.name) == hashlib.sha256(p.read_bytes()).hexdigest() for p in artifacts)"
+        text = original.decode()
+        if text.count(before) != 1: raise RuntimeError('header guard anchor missing/ambiguous')
+        changed = text.replace(before, before[:-1] + " if p.suffix != '.h')")
+        mutated = load(changed, 'verified_artifacts')
+        try: reject_header(mutated)
+        except AssertionError as error: print(f'L3 target red: {error}', flush=True)
+        else: raise RuntimeError('header mutation did not make target red')
+        clean = fixtures['clean'].read_bytes()
+        fixtures['clean'].write_bytes(clean + b'corrupt archive')
+        assert not mutated(saved, signature, artifacts), 'independent archive checksum must still reject corruption'
+        fixtures['clean'].write_bytes(clean)
+        reject_header(load(original, 'verified_artifacts'))
+        if hashlib.sha256(source.read_bytes()).digest() != digest: raise RuntimeError('source SHA256 changed')
+        print('L3: independent green / restored green / SHA256 identical', flush=True)
+    print('ANDROID VT LIBC MUTATIONS PASS: 3 groups')
 
 
 if __name__ == '__main__':

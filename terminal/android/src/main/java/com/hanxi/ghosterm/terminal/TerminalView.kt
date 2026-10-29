@@ -1,6 +1,15 @@
 package com.hanxi.ghosterm.terminal
 
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.app.AlertDialog
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
+import android.view.accessibility.AccessibilityNodeInfo
+import android.os.Bundle
+import kotlinx.coroutines.*
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
@@ -43,6 +52,15 @@ class TerminalView(context: Context) : View(context) {
     var composition: String = ""
         private set
     private var connection: TerminalInputConnection? = null
+    private var actionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var actionMode: ActionMode? = null
+    private var pasteDialog: AlertDialog? = null
+    private var selecting = false
+    private var dragging: SelectionOperation? = null
+    private var dragPoint: Pair<Int, Int>? = null
+    private var dragJob: Job? = null
+    private val clipboard get() = context.getSystemService(ClipboardManager::class.java)
+    private val handleRadius get() = 10f * resources.displayMetrics.density
     private val inputMethod get() = context.getSystemService(InputMethodManager::class.java)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.MONOSPACE }
     private val fill = Paint()
@@ -55,7 +73,15 @@ class TerminalView(context: Context) : View(context) {
     private var fractionalScroll = 0f
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(event: MotionEvent) = true
-        override fun onSingleTapUp(event: MotionEvent): Boolean { performClick(); return true }
+        override fun onSingleTapUp(event: MotionEvent): Boolean {
+            if (selecting) dismissSelection() else performClick()
+            return true
+        }
+        override fun onLongPress(event: MotionEvent) {
+            val frame = currentFrame ?: return
+            beginSelection((event.x / cellWidth).toInt().coerceIn(0, frame.cols - 1),
+                (event.y / cellHeight).toInt().coerceIn(0, frame.rows - 1))
+        }
         override fun onScroll(first: MotionEvent?, last: MotionEvent, dx: Float, dy: Float): Boolean {
             fractionalScroll += dy
             val lines = (fractionalScroll / cellHeight).toInt()
@@ -68,7 +94,7 @@ class TerminalView(context: Context) : View(context) {
             if (!running) return
             dispatch {
                 surface?.frame(currentFrame?.revision ?: 0)?.let {
-                    currentFrame = it; invalidate(); connection?.anchor()
+                    currentFrame = it; invalidate(); connection?.anchor(); actionMode?.invalidateContentRect()
                 }
             }
             val next = SystemClock.uptimeMillis() % 1000 < 500
@@ -78,6 +104,7 @@ class TerminalView(context: Context) : View(context) {
     }
     init {
         isFocusable = true; isFocusableInTouchMode = true
+        isLongClickable = true
         contentDescription = "终端"
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         setFontSize(14f)
@@ -107,12 +134,16 @@ class TerminalView(context: Context) : View(context) {
         if (running) post(tick) else removeCallbacks(tick)
     }
     override fun onAttachedToWindow() {
-        super.onAttachedToWindow(); rendering()
+        super.onAttachedToWindow(); actionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate); rendering()
+        textAction { it.select(SelectionOperation.CLEAR) }
         // AndroidView is created before it joins the focus tree. Request once
         // attached, without showing the IME or stealing focus from a later page.
         post { if (isAttachedToWindow && isShown) requestFocus() }
     }
     override fun onDetachedFromWindow() {
+        pasteDialog?.dismiss(); pasteDialog = null
+        actionMode?.finish(); actionMode = null; selecting = false; dragging = null
+        actionScope.cancel()
         running = false; removeCallbacks(tick); connection?.cancel(); connection = null
         super.onDetachedFromWindow()
     }
@@ -126,7 +157,140 @@ class TerminalView(context: Context) : View(context) {
     override fun performClick(): Boolean {
         super.performClick(); requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT); return true
     }
-    override fun onTouchEvent(event: MotionEvent): Boolean = gestures.onTouchEvent(event)
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && selecting) {
+            val bounds = selectionHandles()
+            dragging = bounds?.let { (start, end) ->
+                when {
+                    kotlin.math.hypot(event.x - start.first, event.y - start.second) < handleRadius * 2.4f -> SelectionOperation.START
+                    kotlin.math.hypot(event.x - end.first, event.y - end.second) < handleRadius * 2.4f -> SelectionOperation.END
+                    else -> null
+                }
+            }
+        }
+        if (dragging != null) {
+            if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+                val frame = currentFrame ?: return true
+                dragPoint = (event.x / cellWidth).toInt().coerceIn(0, frame.cols - 1) to
+                    (event.y / cellHeight).toInt().coerceIn(0, frame.rows - 1)
+                val operation = dragging!!
+                if (dragJob?.isActive != true) dragJob = textAction { target ->
+                    while (dragPoint != null) {
+                        val point = dragPoint!!; dragPoint = null
+                        target.select(operation, point.first, point.second)
+                    }
+                }
+            }
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) dragging = null
+            return true
+        }
+        return gestures.onTouchEvent(event)
+    }
+    private fun textAction(action: suspend (TerminalSurface) -> Unit): Job {
+        val target = surface
+        return actionScope.launch {
+            if (target == null) return@launch
+            try { action(target) }
+            catch (cancel: CancellationException) { throw cancel }
+            catch (failure: IllegalStateException) { onError(failure.message ?: "文本操作失败") }
+        }
+    }
+    private fun beginSelection(x: Int, y: Int) {
+        selecting = true; dragging = SelectionOperation.END
+        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        textAction { target -> target.select(SelectionOperation.WORD, x, y); showTextActions() }
+    }
+    fun dismissSelection(): Boolean {
+        if (!selecting) return false
+        selecting = false; dragging = null; dragPoint = null
+        actionMode?.finish(); actionMode = null
+        textAction { it.select(SelectionOperation.CLEAR) }
+        invalidate(); return true
+    }
+    private fun selectionHandles(): Pair<Pair<Float, Float>, Pair<Float, Float>>? {
+        val frame = currentFrame ?: return null
+        val first = frame.cells.indexOfFirst { it.flags and 256 != 0 }
+        val last = frame.cells.indexOfLast { it.flags and 256 != 0 }
+        if (first < 0) return null
+        fun position(index: Int, after: Boolean) =
+            ((index % frame.cols + if (after) 1 else 0) * cellWidth).toFloat().coerceIn(handleRadius, (width - handleRadius).coerceAtLeast(handleRadius)) to
+                ((index / frame.cols + 1) * cellHeight).toFloat().coerceIn(handleRadius, (height - handleRadius).coerceAtLeast(handleRadius))
+        return position(first, false) to position(last, true)
+    }
+    private fun showTextActions() {
+        if (!isAttachedToWindow || !selecting) return
+        if (actionMode != null) { actionMode?.invalidate(); return }
+        actionMode = startActionMode(object : ActionMode.Callback2() {
+            override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                menu.add(0, android.R.id.copy, 0, "复制").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add(0, android.R.id.paste, 1, "粘贴").setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add(0, android.R.id.selectAll, 2, "全选").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                return true
+            }
+            override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+            override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+                when (item.itemId) {
+                    android.R.id.copy -> copySelection()
+                    android.R.id.paste -> pasteClipboard()
+                    android.R.id.selectAll -> textAction { it.select(SelectionOperation.ALL) }
+                    else -> return false
+                }
+                return true
+            }
+            override fun onDestroyActionMode(mode: ActionMode) {
+                actionMode = null
+                if (selecting) dismissSelection()
+            }
+            override fun onGetContentRect(mode: ActionMode, view: View, out: Rect) {
+                val handles = selectionHandles()
+                if (handles == null) out.set(0, 0, width, cellHeight)
+                else out.set(handles.first.first.toInt(), (handles.first.second - cellHeight).toInt(),
+                    maxOf(handles.first.first.toInt() + cellWidth, handles.second.first.toInt()), handles.second.second.toInt())
+            }
+        }, ActionMode.TYPE_FLOATING)
+    }
+    fun copySelection() {
+        textAction { target ->
+            val text = target.copySelection()
+            if (text.isEmpty()) { onError("没有选中的文本"); return@textAction }
+            clipboard.setPrimaryClip(ClipData.newPlainText("终端文本", text))
+            dismissSelection()
+        }
+    }
+    fun clearLocal() { textAction { it.clearLocal(); dismissSelection() } }
+    fun pasteClipboard() {
+        val clip = clipboard.primaryClip
+        val text = if (clip?.itemCount == 1 && clip.description.hasMimeType("text/*")) clip.getItemAt(0).text?.toString() else null
+        if (text == null) { onError("剪贴板中没有可粘贴的文本"); return }
+        pasteSnapshot(text, false)
+    }
+    private fun pasteSnapshot(text: String, confirmed: Boolean) {
+        if (pasteDialog != null) return
+        textAction { target ->
+            if (target.paste(text, confirmed)) { dismissSelection(); return@textAction }
+            if (!isAttachedToWindow || surface !== target) return@textAction
+            pasteDialog = AlertDialog.Builder(context).setTitle("粘贴可能执行命令")
+                .setMessage("内容含换行或终端控制序列，可能直接执行命令。\n\n" + text.take(500))
+                .setNegativeButton("取消", null)
+                .setPositiveButton("仍然粘贴") { _, _ -> pasteDialog = null; pasteSnapshot(text, true) }
+                .create().also { dialog -> dialog.setOnDismissListener { if (pasteDialog === dialog) pasteDialog = null }; dialog.show() }
+        }
+    }
+    override fun performLongClick(): Boolean {
+        val frame = currentFrame ?: return false
+        beginSelection(frame.cursorX.coerceIn(0, frame.cols - 1), frame.cursorY.coerceIn(0, frame.rows - 1))
+        dragging = null
+        return true
+    }
+    override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, "选择终端文本"))
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction(android.R.id.paste, "粘贴文本"))
+    }
+    override fun performAccessibilityAction(action: Int, args: Bundle?): Boolean {
+        if (action == android.R.id.paste) { pasteClipboard(); return true }
+        return super.performAccessibilityAction(action, args)
+    }
     fun showKeyboard() { requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT) }
     fun hideKeyboard() { inputMethod.hideSoftInputFromWindow(windowToken, 0) }
     fun sendKey(code: Int, modifiers: Int = 0, text: String = ""): Boolean {
@@ -150,6 +314,11 @@ class TerminalView(context: Context) : View(context) {
         return TerminalInputConnection().also { connection = it }
     }
     override fun onKeyDown(code: Int, event: KeyEvent): Boolean {
+        if ((event.isCtrlPressed && event.isShiftPressed && code == KeyEvent.KEYCODE_V) ||
+            (event.isShiftPressed && code == KeyEvent.KEYCODE_INSERT)) { pasteClipboard(); return true }
+        if (event.isCtrlPressed && event.isShiftPressed && code == KeyEvent.KEYCODE_C) { copySelection(); return true }
+        if (selecting && code == KeyEvent.KEYCODE_ESCAPE) { dismissSelection(); return true }
+        if (selecting && event.isCtrlPressed && code == KeyEvent.KEYCODE_A) { textAction { it.select(SelectionOperation.ALL) }; return true }
         if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_UP)
             return super.onKeyDown(code, event)
         if (KeyEvent.isModifierKey(code)) return true
@@ -174,7 +343,7 @@ class TerminalView(context: Context) : View(context) {
         if (frame == null) return
         for (y in 0 until frame.rows) for (x in 0 until frame.cols) {
             val cell = frame.cells[y * frame.cols + x]
-            fill.color = cell.background
+            fill.color = if (cell.flags and 256 != 0) Color.rgb(68, 91, 125) else cell.background
             canvas.drawRect((x * cellWidth).toFloat(), (y * cellHeight).toFloat(), ((x + 1) * cellWidth).toFloat(), ((y + 1) * cellHeight).toFloat(), fill)
         }
         for (y in 0 until frame.rows) for (x in 0 until frame.cols) {
@@ -183,7 +352,7 @@ class TerminalView(context: Context) : View(context) {
             val left = (x * cellWidth).toFloat(); val top = (y * cellHeight).toFloat()
             val right = left + cellWidth * cell.width
             canvas.save(); canvas.clipRect(left, top, right, top + cellHeight)
-            paint.color = cell.foreground; paint.alpha = if (cell.flags and 4 != 0) 128 else 255
+            paint.color = if (cell.flags and 256 != 0) Color.WHITE else cell.foreground; paint.alpha = if (cell.flags and 4 != 0) 128 else 255
             paint.isFakeBoldText = cell.flags and 1 != 0; paint.textSkewX = if (cell.flags and 2 != 0) -0.2f else 0f
             paint.isStrikeThruText = cell.flags and 16 != 0; paint.isUnderlineText = cell.flags and 32 != 0
             canvas.drawText(cell.text, left, top + baseline, paint)
@@ -201,6 +370,11 @@ class TerminalView(context: Context) : View(context) {
             }
             fill.style = Paint.Style.FILL; fill.alpha = 255
         }
+        if (selecting) selectionHandles()?.let { (start, end) ->
+            fill.color = Color.rgb(120, 170, 255)
+            canvas.drawCircle(start.first, start.second, handleRadius, fill)
+            canvas.drawCircle(end.first, end.second, handleRadius, fill)
+        }
         if (composition.isNotEmpty() && frame.cursorX >= 0) {
             val x = (frame.cursorX * cellWidth).toFloat(); val y = (frame.cursorY * cellHeight).toFloat()
             paint.color = frame.foreground; paint.alpha = 255; paint.isUnderlineText = true
@@ -216,6 +390,19 @@ class TerminalView(context: Context) : View(context) {
         private var valid = true
         private var batches = 0
         private var cursorUpdates = false
+        override fun performContextMenuAction(id: Int): Boolean {
+            if (!valid) return false
+            when (id) {
+                android.R.id.paste -> this@TerminalView.pasteClipboard()
+                android.R.id.copy -> this@TerminalView.copySelection()
+                android.R.id.selectAll -> {
+                    selecting = true
+                    textAction { it.select(SelectionOperation.ALL); showTextActions() }
+                }
+                else -> return false
+            }
+            return true
+        }
         override fun getEditable(): Editable = pending
         init { Selection.setSelection(pending, 0) }
         fun cancel() { valid = false; pending.clear(); composition = ""; invalidate() }

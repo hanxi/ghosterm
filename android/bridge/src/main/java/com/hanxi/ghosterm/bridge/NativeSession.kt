@@ -3,9 +3,14 @@ package com.hanxi.ghosterm.bridge
 import com.hanxi.ghosterm.terminal.TerminalFrame
 import com.hanxi.ghosterm.terminal.TerminalSurface
 import java.io.Closeable
+import com.hanxi.ghosterm.terminal.SelectionOperation
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Control plane. Output and key encoding remain on the native IO owner. */
 class LocalSession(home: String) : TerminalSurface, Closeable {
+    private val actionMutex = Mutex()
     private var handle = NativeSession.create(home.toByteArray(Charsets.UTF_8))
     @Synchronized override fun frame(after: Long): TerminalFrame? =
         if (handle == 0L) null else NativeSession.readFrame(handle, after)?.let(TerminalFrame::decode)
@@ -20,6 +25,34 @@ class LocalSession(home: String) : TerminalSurface, Closeable {
         check(handle != 0L) { "终端会话已关闭" }
         NativeSession.enqueue(handle, kind, code, mods, text.toByteArray(Charsets.UTF_8))
     }
+    private suspend fun action(kind: Int, x: Int = 0, y: Int = 0, text: String = ""): ByteArray = actionMutex.withLock {
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        val (owner, request) = synchronized(this) {
+            check(handle != 0L) { "终端会话已关闭" }
+            handle to NativeSession.beginAction(handle, kind, x, y, bytes)
+        }
+        try {
+            var response: ByteArray? = null
+            while (response == null) {
+                response = synchronized(this) {
+                    check(handle == owner) { "终端会话已关闭" }
+                    NativeSession.readAction(owner, request)
+                }
+                if (response == null) delay(10)
+            }
+            check(response[0].toInt() != 3) { "终端文本操作失败，选区可能已失效或超过 1 MiB" }
+            response
+        } finally {
+            synchronized(this) { if (handle == owner) NativeSession.endAction(owner, request) }
+        }
+    }
+    override suspend fun paste(text: String, allowUnsafe: Boolean): Boolean =
+        action(1, if (allowUnsafe) 1 else 0, text = text)[0].toInt() == 1
+    override suspend fun select(operation: SelectionOperation, x: Int, y: Int) {
+        action(operation.code, x, y)
+    }
+    override suspend fun clearLocal() { action(8) }
+    override suspend fun copySelection(): String = action(7).let { it.copyOfRange(1, it.size).toString(Charsets.UTF_8) }
     @Synchronized fun state(): SessionState {
         if (handle == 0L) return SessionState(2, null, 1, "会话已关闭")
         val value = NativeSession.readState(handle)
@@ -53,5 +86,8 @@ internal object NativeSession {
     external fun readFrame(handle: Long, after: Long): IntArray?
     external fun readState(handle: Long): IntArray
     external fun readError(handle: Long): ByteArray
+    external fun beginAction(handle: Long, kind: Int, x: Int, y: Int, text: ByteArray): Long
+    external fun readAction(handle: Long, request: Long): ByteArray?
+    external fun endAction(handle: Long, request: Long)
     external fun ownerCount(): Int
 }

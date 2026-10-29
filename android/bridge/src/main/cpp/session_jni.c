@@ -22,6 +22,7 @@
 typedef struct command {
     struct command *next;
     int kind, key, mods;
+    uint64_t action_id;
     size_t length;
     uint8_t bytes[];
 } command;
@@ -37,6 +38,10 @@ typedef struct session {
     int state, exit_code, child;
     bool exit_known;
     char error[256];
+    uint64_t action_sequence, action_id;
+    int action_status; /* 0 pending, 1 success, 2 confirmation, 3 error */
+    uint8_t *action_result;
+    size_t action_length;
     int32_t *frame;
     size_t frame_length;
     uint64_t revision, frame_revision;
@@ -59,7 +64,7 @@ static void release(session *s) {
     if (!destroy) return;
     command *cmd = s->first;
     while (cmd) { command *next = cmd->next; free(cmd); cmd = next; }
-    free(s->frame); free(s->home); pthread_mutex_destroy(&s->mutex); free(s);
+    free(s->action_result); free(s->frame); free(s->home); pthread_mutex_destroy(&s->mutex); free(s);
 }
 static session *borrow(JNIEnv *env, jlong id) {
     if (id <= 0) { fail(env, "终端会话已关闭"); return NULL; }
@@ -126,7 +131,7 @@ static void *owner(void *context) {
         }
         pthread_mutex_unlock(&s->mutex);
         if (resize) {
-            if (gt_transport_resize(s->transport, cols, rows, (uint32_t)cols * cw, (uint32_t)rows * ch) != GT_OK ||
+            if ((s->transport && gt_transport_resize(s->transport, cols, rows, (uint32_t)cols * cw, (uint32_t)rows * ch) != GT_OK) ||
                 !gat_surface_resize(s->surface, cols, rows, cw, ch)) {
                 free(cmd); failed(s, "终端尺寸更新失败"); break;
             }
@@ -135,7 +140,21 @@ static void *owner(void *context) {
         bool had_input = cmd != NULL;
         if (cmd) {
             bool ok = true;
-            if (cmd->kind == 1) ok = gat_surface_text(s->surface, cmd->bytes, cmd->length);
+            if (cmd->action_id) {
+                pthread_mutex_lock(&s->mutex);
+                bool current = s->action_id == cmd->action_id;
+                pthread_mutex_unlock(&s->mutex);
+                uint8_t *result = NULL; size_t result_length = 0;
+                int status = 2;
+                if (current && (cmd->kind != 1 || s->transport))
+                    status = gat_surface_action(s->surface, cmd->kind, cmd->key, cmd->mods, cmd->bytes, cmd->length, &result, &result_length);
+                pthread_mutex_lock(&s->mutex);
+                if (s->action_id == cmd->action_id) {
+                    s->action_status = status + 1; s->action_result = result; s->action_length = result_length; result = NULL;
+                }
+                pthread_mutex_unlock(&s->mutex);
+                free(result);
+            } else if (cmd->kind == 1) ok = gat_surface_text(s->surface, cmd->bytes, cmd->length);
             else if (cmd->kind == 2) ok = gat_surface_key(s->surface, cmd->key, cmd->mods, cmd->bytes, cmd->length);
             else if (cmd->kind == 3) gat_surface_scroll(s->surface, cmd->key);
             else ok = false;
@@ -143,7 +162,9 @@ static void *owner(void *context) {
             if (!ok) { failed(s, "终端输入或按键编码失败"); break; }
             s->revision++;
         }
-        int length = gt_transport_read(s->transport, output, sizeof(output), had_input ? 0 : 20);
+        int length = GT_TRANSPORT_READ_TIMEOUT;
+        if (s->transport) length = gt_transport_read(s->transport, output, sizeof(output), had_input ? 0 : 20);
+        else { struct timespec delay = {.tv_nsec = 20 * 1000 * 1000}; nanosleep(&delay, NULL); }
         if (length > 0) { gat_surface_feed(s->surface, output, (size_t)length); s->revision++; }
         else if (length == GT_TRANSPORT_READ_ERROR) { failed(s, "终端读取失败"); break; }
         else if (length == GT_TRANSPORT_READ_EOF) {
@@ -158,9 +179,10 @@ static void *owner(void *context) {
             pthread_mutex_lock(&s->mutex);
             s->state = 2; s->exit_known = known; s->exit_code = code; s->child = GT_TRANSPORT_CHILD_EXITED;
             pthread_mutex_unlock(&s->mutex);
-            s->revision++; (void)publish(s); break;
+            gt_transport_close(s->transport); s->transport = NULL;
+            s->revision++; (void)publish(s);
         }
-        int child = gt_transport_child_state(s->transport);
+        int child = s->transport ? gt_transport_child_state(s->transport) : GT_TRANSPORT_CHILD_EXITED;
         pthread_mutex_lock(&s->mutex); s->child = child; pthread_mutex_unlock(&s->mutex);
         if (atomic_exchange(&s->frame_requested, false) && s->revision != s->frame_revision && !publish(s)) break;
     }
@@ -228,7 +250,7 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_enqueue(JNIE
     (*env)->GetByteArrayRegion(env, bytes, 0, length, (jbyte *)cmd->bytes);
     if ((*env)->ExceptionCheck(env)) { free(cmd); release(s); return; }
     pthread_mutex_lock(&s->mutex);
-    bool connected = s->state <= 1 && !atomic_load(&s->stop);
+    bool connected = (s->state <= 1 || (kind == 3 && s->state == 2)) && !atomic_load(&s->stop);
     bool room = s->queued_bytes + (size_t)length <= INPUT_LIMIT && s->queued_commands < COMMAND_LIMIT;
     if (connected && room) {
         if (s->last) s->last->next = cmd; else s->first = cmd;
@@ -284,4 +306,58 @@ JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_readEr
 }
 JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_ownerCount(JNIEnv *env, jobject self) {
     (void)env; (void)self; return atomic_load(&owners);
+}
+
+/* One acknowledged control request per session. A cancelled await removes the
+ * result slot; the owner discards stale completions without touching a newer one. */
+JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_beginAction(JNIEnv *env, jobject self, jlong id,
+        jint kind, jint x, jint y, jbyteArray bytes) {
+    (void)self;
+    if (!bytes || kind < 1 || kind > 8) { fail(env, "文本操作无效"); return 0; }
+    jsize length = (*env)->GetArrayLength(env, bytes);
+    if (length > INPUT_LIMIT) { fail(env, "文本超过 1 MiB 限制"); return 0; }
+    session *s = borrow(env, id); if (!s) return 0;
+    command *cmd = malloc(sizeof(*cmd) + (size_t)length);
+    if (!cmd) { release(s); fail(env, "无法准备文本操作"); return 0; }
+    *cmd = (command){.kind = kind, .key = x, .mods = y, .length = (size_t)length};
+    (*env)->GetByteArrayRegion(env, bytes, 0, length, (jbyte *)cmd->bytes);
+    if ((*env)->ExceptionCheck(env)) { free(cmd); release(s); return 0; }
+    pthread_mutex_lock(&s->mutex);
+    bool ready = !s->action_id && !atomic_load(&s->stop) && s->state != 3 && (kind != 1 || s->state <= 1);
+    bool room = s->queued_bytes + (size_t)length <= INPUT_LIMIT && s->queued_commands < COMMAND_LIMIT;
+    uint64_t request = 0;
+    if (ready && room) {
+        request = ++s->action_sequence; s->action_id = request; s->action_status = 0; cmd->action_id = request;
+        if (s->last) s->last->next = cmd; else s->first = cmd;
+        s->last = cmd; s->queued_bytes += (size_t)length; s->queued_commands++;
+    }
+    pthread_mutex_unlock(&s->mutex); release(s);
+    if (!request) { free(cmd); fail(env, "终端文本操作不可用或忙碌"); }
+    return (jlong)request;
+}
+JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_readAction(JNIEnv *env, jobject self, jlong id, jlong request) {
+    (void)self;
+    session *s = borrow(env, id); if (!s) return NULL;
+    jbyteArray result = NULL;
+    pthread_mutex_lock(&s->mutex);
+    if (s->action_id != (uint64_t)request) fail(env, "文本操作已失效");
+    else if (s->action_status || atomic_load(&s->stop)) {
+        jbyte status = s->action_status ? s->action_status : 3;
+        result = (*env)->NewByteArray(env, (jsize)s->action_length + 1);
+        if (result) {
+            (*env)->SetByteArrayRegion(env, result, 0, 1, &status);
+            if (s->action_length) (*env)->SetByteArrayRegion(env, result, 1, (jsize)s->action_length, (const jbyte *)s->action_result);
+        }
+    }
+    pthread_mutex_unlock(&s->mutex); release(s); return result;
+}
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_endAction(JNIEnv *env, jobject self, jlong id, jlong request) {
+    (void)self;
+    session *s = borrow(env, id); if (!s) return;
+    pthread_mutex_lock(&s->mutex);
+    if (s->action_id == (uint64_t)request) {
+        s->action_id = 0; s->action_status = 0;
+        free(s->action_result); s->action_result = NULL; s->action_length = 0;
+    }
+    pthread_mutex_unlock(&s->mutex); release(s);
 }

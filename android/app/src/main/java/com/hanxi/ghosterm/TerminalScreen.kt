@@ -24,9 +24,10 @@ fun TerminalScreen(model: SessionsViewModel) {
     var ctrl by remember(session.id) { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
     var list by remember { mutableStateOf(false) }
+    var confirmClear by remember(session.id) { mutableStateOf(false) }
     var confirmClose by remember(session.id) { mutableStateOf(false) }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    val back: () -> Unit = { if (imeVisible) terminal?.hideKeyboard() else model.home() }
+    val back: () -> Unit = { if (imeVisible) terminal?.hideKeyboard() else if (terminal?.dismissSelection() != true) model.home() }
     BackHandler(onBack = back)
     Scaffold(topBar = {
         TopAppBar(title = {
@@ -35,7 +36,7 @@ fun TerminalScreen(model: SessionsViewModel) {
             Box {
                 TextButton(onClick = { menu = true }, modifier = Modifier.testTag("terminal-menu")) { Text("更多") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("会话列表") }, onClick = { menu = false; list = true })
+                    DropdownMenuItem(text = { Text("清除本地显示") }, onClick = { menu = false; confirmClear = true })
                     DropdownMenuItem(text = { Text("关闭会话") }, onClick = { menu = false; confirmClose = true })
                 }
             }
@@ -94,6 +95,10 @@ fun TerminalScreen(model: SessionsViewModel) {
             Button(onClick = { list = false; model.newLocal() }, enabled = !model.creating, modifier = Modifier.fillMaxWidth()) { Text("新建本地会话") }
         }
     }
+    if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false }, title = { Text("清除本地显示？") },
+        text = { Text("清除此终端当前屏幕及其滚动历史。不会发送命令或中断正在运行的程序。") },
+        confirmButton = { TextButton(onClick = { confirmClear = false; terminal?.clearLocal() }) { Text("清除") } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("取消") } })
     if (confirmClose) AlertDialog(onDismissRequest = { confirmClose = false }, title = { Text("关闭 ${session.title}？") },
         text = { Text(if (session.state.terminal) "将移除此会话的终端画面。" else "将断开此终端，正在运行的本地程序可能终止。返回主机列表可保留连接。") },
         confirmButton = { TextButton(onClick = { confirmClose = false; model.close(session.id) }) { Text("关闭会话") } },

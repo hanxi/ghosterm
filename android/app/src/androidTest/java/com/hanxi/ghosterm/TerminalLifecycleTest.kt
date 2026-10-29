@@ -99,15 +99,19 @@ class TerminalLifecycleTest {
     @Test fun returningFromBackgroundConsumesOutputWithoutReplacingTheSession() {
         open()
         val original = model().active!!.id
-        ui.runOnIdle { terminal().commitText("stty -echo; printf '\\033[2J\\033[H'; sleep 1; i=0; while [ \"\u0024i\" -lt 3000 ]; do printf 'output-%04d\\r\\n' \"\u0024i\"; i=\u0024((i+1)); done; printf 'BACKGROUND_DONE\\r\\n'\r") }
+        // A separate foreground process remains JOB until every output byte is
+        // written. A builtin shell loop would misleadingly report IDLE while busy.
+        ui.runOnIdle { terminal().commitText("stty -echo; printf '\\033[2J\\033[H'; sh -c 'read token; seq 1 100000'; printf 'BACKGROUND_EXIT:%d\\r\\nBACKGROUND_DONE\\r\\n' \"\u0024?\"\r") }
         ui.waitUntil(10_000) { model().active?.state?.child == 3 }
         ui.onNodeWithText("主机", useUnmergedTree = true).performClick()
         ui.onNodeWithTag("terminal-surface").assertDoesNotExist()
-        // The shell must finish while no TerminalView is attached. Its child state
-        // becomes idle only after the > PTY-buffer output has been drained.
+        // Release the child's input barrier only after the View is gone. Its
+        // >400 KiB output exceeds the PTY buffer, so it cannot return without IO.
+        ui.runOnIdle { model().active!!.surface.commit("start\n") }
         ui.waitUntil(10_000) { model().active?.state?.child == 2 }
         ui.onNodeWithText("继续本地终端").performClick()
         waitFor("BACKGROUND_DONE")
+        ui.runOnIdle { assertTrue(text(), text().contains("BACKGROUND_EXIT:0")); assertTrue(text(), text().contains("100000")) }
         assertEquals(original, model().active!!.id)
     }
 }

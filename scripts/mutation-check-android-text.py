@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Android selection, clipboard and local-clear mutations on real PTY and UI."""
+import argparse
+import hashlib
+import importlib.util
+import os
+from pathlib import Path
+import signal
+
+ROOT = Path(__file__).resolve().parents[1]
+MARK = 'GT_ANDROID_TEXT_MUTATION'
+spec = importlib.util.spec_from_file_location('native_helper', ROOT / 'scripts/mutation-check-android-native.py')
+helper = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(helper)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--case', type=int, action='append', dest='selected')
+    args = parser.parse_args()
+    serial = os.environ.get('ANDROID_SERIAL')
+    if not serial: raise RuntimeError('Set ANDROID_SERIAL to a test device')
+    adb = ['adb', '-s', serial]
+    helper.require(helper.run([*adb, 'get-state']))
+    native = ROOT / 'android/bridge/src/main/cpp/session_jni.c'
+    surface = ROOT / 'terminal/android/native/surface.c'
+    view = ROOT / 'terminal/android/src/main/java/com/hanxi/ghosterm/terminal/TerminalView.kt'
+    screen = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm/TerminalScreen.kt'
+    clear_patch = ROOT / 'patches/libghostty/android-vt-8159838/0002-local-clear.patch'
+    originals = {p: p.read_bytes() for p in (native, surface, view, screen, clear_patch)}
+    if any(MARK.encode() in data for data in originals.values()): raise RuntimeError('mutation marker present')
+    hashes = {p: hashlib.sha256(data).digest() for p, data in originals.items()}
+    local = 'LocalTerminalTest#'
+    ui = 'TerminalScreenTest#'
+    selected_text = local + 'selectionCopiesGraphemesUnwrapsSoftLinesAndWorksAfterExit'
+    clear = local + 'localClearPreservesParserModesCursorAndDoesNotWriteInput'
+    copy = ui + 'longPressPaintsSelectionAndCopiesRealTextToSystemClipboard'
+    cases = [
+        (surface, 'GhosttyResult status = ghostty_terminal_paste(s->terminal, &paste, NULL);',
+         '(void)paste; GhosttyResult status = gat_surface_text(s, bytes, length) ? GHOSTTY_SUCCESS : GHOSTTY_IO_ERROR;',
+         local + 'pasteUsesVtBracketedModeAndPreservesUtf8'),
+        (surface, '.allow_unsafe = x != 0', '.allow_unsafe = true', local + 'rejectedPasteWritesNothingAndLeavesConnectionUsable'),
+        (surface, 'opts.unwrap = true;', 'opts.unwrap = false;', selected_text),
+        (surface, 'opts.trim = true;', 'opts.trim = false;', selected_text),
+        (surface, 'style.blink << 7 | selected << 8', 'style.blink << 7 | selected * 0', selected_text),
+        (surface, 'status = ghostty_terminal_select_word(s->terminal, &word, &selection);',
+         '(void)word; status = ghostty_terminal_select_all(s->terminal, &selection);', selected_text),
+        (surface, '.tag = GHOSTTY_POINT_TAG_VIEWPORT', '.tag = GHOSTTY_POINT_TAG_ACTIVE', local + 'selectionUsesScrolledViewportCoordinates'),
+        (surface, 'if (kind == 8) return ghostty_terminal_clear_local(s->terminal) == GHOSTTY_SUCCESS ? 0 : 2;',
+         'if (kind == 8) return 0;', clear),
+        (surface, 'if (kind == 8) return ghostty_terminal_clear_local(s->terminal) == GHOSTTY_SUCCESS ? 0 : 2;',
+         'if (kind == 8) return (ghostty_terminal_reset(s->terminal), 0);', clear),
+        (clear_patch, '+    screen.eraseHistory(null);', '+    screen.clearSelection();', local + 'localClearRemovesHistoryAndActiveSelection'),
+        (surface, 'if (kind == 8) return ghostty_terminal_clear_local(s->terminal) == GHOSTTY_SUCCESS ? 0 : 2;',
+         'if (kind == 8) { (void)s->write(s->context, (const uint8_t *)"\\f", 1); return ghostty_terminal_clear_local(s->terminal) == GHOSTTY_SUCCESS ? 0 : 2; }', clear),
+        (native, 's->action_id = 0; s->action_status = 0;', 's->action_id = (uint64_t)request; s->action_status = 0;',
+         local + 'cancelledTextAwaitDoesNotBlockTheNextRequest'),
+        (view, 'pasteSnapshot(text, true)', 'pasteSnapshot(clipboard.primaryClip!!.getItemAt(0).text.toString(), true)',
+         ui + 'pasteConfirmationUsesCapturedTextAndCancelSendsNothing'),
+        (view, 'val text = if (clip?.itemCount == 1 && clip.description.hasMimeType("text/*")) clip.getItemAt(0).text?.toString() else null',
+         'val text = clip?.getItemAt(0)?.coerceToText(context)?.toString()', ui + 'fileClipboardIsNotCoercedIntoTerminalInput'),
+        (view, 'clipboard.setPrimaryClip(ClipData.newPlainText("终端文本", text))', 'text.length', copy),
+        (view, 'Color.rgb(68, 91, 125) else cell.background', 'cell.background else cell.background', copy),
+        (screen, 'confirmClear = false; terminal?.clearLocal()', 'confirmClear = false', ui + 'clearMenuConfirmsLocalScopeAndKeepsRunningCommand'),
+        (screen, 'menu = false; confirmClear = true', 'menu = false; terminal?.clearLocal()', ui + 'clearMenuConfirmsLocalScopeAndKeepsRunningCommand'),
+        (view, 'target.select(operation, point.first, point.second)', 'target.select(SelectionOperation.WORD, point.first, point.second)',
+         ui + 'selectionEndHandleChangesCopiedRangeThroughRealTouch'),
+        (surface, 'if (status == GHOSTTY_NO_VALUE) return ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL) == GHOSTTY_SUCCESS ? 0 : 2;',
+         'if (status == GHOSTTY_NO_VALUE) return 0;', selected_text),
+        (view, 'android.R.id.paste -> this@TerminalView.pasteClipboard()', 'android.R.id.paste -> return false',
+         ui + 'inputConnectionContextPasteUsesBracketedEncoding'),
+        (view, 'isLongClickable = true', 'isLongClickable = false', ui + 'accessibilityLongClickSelectsAndContextCopyUsesTheSelection'),
+    ]
+    selected = args.selected or list(range(1, len(cases) + 1))
+    if any(n < 1 or n > len(cases) for n in selected): raise RuntimeError('case out of range')
+    work = ROOT / 'tmp/android-text-mutations'; work.mkdir(exist_ok=True)
+    def build(label):
+        result = helper.run(['bash', ROOT / 'scripts/build-android.sh'], 900)
+        (work / (label + '-build.log')).write_text(result.stdout + result.stderr)
+        helper.require(result)  # Compile failures never count as red.
+        for name in ('apk/debug/app-debug.apk', 'apk/androidTest/debug/app-debug-androidTest.apk'):
+            helper.require(helper.run([*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs' / name]))
+    def test(name, green, label):
+        result = helper.run([*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
+            'com.hanxi.ghosterm.' + name, 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], 120)
+        output = result.stdout + result.stderr
+        (work / (label + '.log')).write_text(output)
+        passed = result.returncode == 0 and 'OK (1 test)' in output
+        assertion = any(kind in output for kind in ('AssertionError', 'org.junit.ComparisonFailure', 'ComposeTimeoutException'))
+        if passed != green or (not green and (result.returncode != 0 or not assertion or 'FAILURES' not in output)):
+            raise RuntimeError(output)
+    build('baseline')
+    for name in dict.fromkeys(cases[n - 1][3] for n in selected): test(name, True, 'baseline-' + name)
+    try:
+        for number in selected:
+            path, before, after, target = cases[number - 1]
+            label = f'X{number}'
+            source = originals[path].decode()
+            if source.count(before) != 1: raise RuntimeError(f'{label}: mutation anchor missing/ambiguous')
+            suffix = ' // ' + MARK if path == clear_patch else ' /* ' + MARK + ' */'
+            path.write_text(source.replace(before, after + suffix))
+            build(label)
+            test(target, False, label + '-target')
+            test('NativeSmokeTest#corePreservesUtf8AndLineEndings', True, label + '-control')
+            path.write_bytes(originals[path])
+            if hashlib.sha256(path.read_bytes()).digest() != hashes[path]: raise RuntimeError('restore SHA256 mismatch')
+            build(label + '-restored')
+            test(target, True, label + '-restored')
+            print(f'{label}: target red / same APK control green / restored green / SHA256 identical', flush=True)
+    finally:
+        for path, content in originals.items():
+            if MARK.encode() in path.read_bytes(): path.write_bytes(content)
+        if any(hashlib.sha256(p.read_bytes()).digest() != h for p, h in hashes.items()):
+            raise RuntimeError('source changed during mutations')
+    print(f'ANDROID TEXT MUTATIONS PASS: {len(selected)} groups')
+
+
+if __name__ == '__main__':
+    def interrupted(signum, frame): raise KeyboardInterrupt(f'signal {signum}')
+    signal.signal(signal.SIGINT, interrupted)
+    signal.signal(signal.SIGTERM, interrupted)
+    main()

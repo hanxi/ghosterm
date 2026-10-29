@@ -13,4 +13,4 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 
-dependencies { implementation(project(":terminal")) }
+dependencies { implementation(project(":terminal")); implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0") }

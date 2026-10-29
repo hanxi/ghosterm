@@ -112,6 +112,69 @@ void gat_surface_scroll(gat_surface *s, int delta) {
         .tag = GHOSTTY_SCROLL_VIEWPORT_DELTA, .value.delta = delta});
 }
 
+typedef struct { const uint8_t *bytes; size_t length; } paste_data;
+static bool read_paste(void *context, GhosttyString mime, GhosttyWriter writer) {
+    (void)mime;
+    paste_data *data = context;
+    return !data->length || writer.write(writer.userdata, data->bytes, data->length);
+}
+
+int gat_surface_action(gat_surface *s, int kind, int x, int y,
+        const uint8_t *bytes, size_t length, uint8_t **result, size_t *result_length) {
+    *result = NULL; *result_length = 0;
+    if (kind == 1) {
+        paste_data data = {bytes, length};
+        const GhosttyString mime = {.ptr = (const uint8_t *)"text/plain", .len = 10};
+        GhosttyPaste paste = {.size = sizeof(paste), .location = GHOSTTY_CLIPBOARD_LOCATION_STANDARD,
+            .source = GHOSTTY_PASTE_SOURCE_CLIPBOARD, .mimes = &mime, .mimes_len = 1,
+            .reader = {.read = read_paste, .userdata = &data}, .allow_unsafe = x != 0};
+        GhosttyResult status = ghostty_terminal_paste(s->terminal, &paste, NULL);
+        if (status == GHOSTTY_REJECTED) return 1;
+        if (status != GHOSTTY_SUCCESS || !s->write_ok) return 2;
+        bottom(s); return 0;
+    }
+    if (kind == 8) return ghostty_terminal_clear_local(s->terminal) == GHOSTTY_SUCCESS ? 0 : 2;
+    if (kind == 6)
+        return ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL) == GHOSTTY_SUCCESS ? 0 : 2;
+    if (kind == 7) {
+        GhosttyTerminalSelectionFormatOptions opts = GHOSTTY_INIT_SIZED(GhosttyTerminalSelectionFormatOptions);
+        opts.emit = GHOSTTY_FORMATTER_FORMAT_PLAIN; opts.unwrap = true; opts.trim = true;
+        size_t required = 0;
+        GhosttyResult status = ghostty_terminal_selection_format_buf(s->terminal, opts, NULL, 0, &required);
+        if (status == GHOSTTY_NO_VALUE || (status == GHOSTTY_SUCCESS && !required)) return 0;
+        if (status != GHOSTTY_OUT_OF_SPACE || required > 1024 * 1024) return 2;
+        uint8_t *copy = malloc(required);
+        if (!copy) return 2;
+        status = ghostty_terminal_selection_format_buf(s->terminal, opts, copy, required, result_length);
+        if (status != GHOSTTY_SUCCESS) { free(copy); *result_length = 0; return 2; }
+        *result = copy; return 0;
+    }
+    GhosttySelection selection = GHOSTTY_INIT_SIZED(GhosttySelection);
+    GhosttyResult status;
+    if (kind == 5) {
+        status = ghostty_terminal_select_all(s->terminal, &selection);
+    } else {
+        if (x < 0 || y < 0 || x > 255 || y > 255) return 2;
+        GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+        GhosttyPoint point = {.tag = GHOSTTY_POINT_TAG_VIEWPORT, .value.coordinate = {.x = x, .y = y}};
+        if (ghostty_terminal_grid_ref(s->terminal, point, &ref) != GHOSTTY_SUCCESS) return 2;
+        if (kind == 2) {
+            GhosttyTerminalSelectWordOptions word = GHOSTTY_INIT_SIZED(GhosttyTerminalSelectWordOptions);
+            word.ref = ref;
+            status = ghostty_terminal_select_word(s->terminal, &word, &selection);
+        } else if (kind == 3 || kind == 4) {
+            GhosttySelection current = GHOSTTY_INIT_SIZED(GhosttySelection);
+            if (ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_SELECTION, &current) != GHOSTTY_SUCCESS) return 2;
+            status = ghostty_terminal_selection_ordered(s->terminal, &current, GHOSTTY_SELECTION_ORDER_FORWARD, &selection);
+            if (status != GHOSTTY_SUCCESS) return 2;
+            if (kind == 3) selection.start = ref; else selection.end = ref;
+        } else return 2;
+    }
+    if (status == GHOSTTY_NO_VALUE) return ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL) == GHOSTTY_SUCCESS ? 0 : 2;
+    if (status != GHOSTTY_SUCCESS) return 2;
+    return ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection) == GHOSTTY_SUCCESS ? 0 : 2;
+}
+
 static int32_t color(GhosttyColorRgb c) { return (int32_t)(0xff000000u | (uint32_t)c.r << 16 | (uint32_t)c.g << 8 | c.b); }
 
 /* Private packed frame v1: 10 header integers then (bg, fg, flags, width, n, codepoints...) per cell.
@@ -138,7 +201,7 @@ bool gat_surface_frame(gat_surface *s, int32_t **values, size_t *count) {
     while (ghostty_render_state_row_iterator_next(s->rows)) {
         if (ghostty_render_state_row_get(s->rows, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &s->cells) != GHOSTTY_SUCCESS) goto failed;
         while (ghostty_render_state_row_cells_next(s->cells)) {
-            GhosttyCell raw; GhosttyCellWide wide; uint32_t n = 0;
+            GhosttyCell raw; GhosttyCellWide wide; uint32_t n = 0; bool selected = false;
             GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
             GhosttyColorRgb bg = colors.background, fg = colors.foreground;
             if (ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW, &raw) != GHOSTTY_SUCCESS ||
@@ -152,9 +215,10 @@ bool gat_surface_frame(gat_surface *s, int32_t **values, size_t *count) {
                 cap = (used + 5 + n) * 2;
                 int32_t *grown = realloc(out, cap * sizeof(*out)); if (!grown) goto failed; out = grown;
             }
+            (void)ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_SELECTED, &selected);
             out[used++] = color(style.inverse ? fg : bg); out[used++] = color(style.inverse ? bg : fg);
             out[used++] = style.bold | style.italic << 1 | style.faint << 2 | style.invisible << 3 |
-                style.strikethrough << 4 | (style.underline != 0) << 5 | style.overline << 6 | style.blink << 7;
+                style.strikethrough << 4 | (style.underline != 0) << 5 | style.overline << 6 | style.blink << 7 | selected << 8;
             out[used++] = wide == GHOSTTY_CELL_WIDE_NARROW ? 1 : wide == GHOSTTY_CELL_WIDE_WIDE ? 2 : 0;
             out[used++] = (int32_t)n;
             if (n && ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, out + used) != GHOSTTY_SUCCESS) goto failed;

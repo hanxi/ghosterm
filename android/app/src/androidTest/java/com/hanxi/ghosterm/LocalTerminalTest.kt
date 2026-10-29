@@ -11,13 +11,20 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.*
+import com.hanxi.ghosterm.terminal.SelectionOperation
 
 @RunWith(AndroidJUnit4::class)
 class LocalTerminalTest {
     private fun terminal(test: (LocalSession) -> Unit) {
         val dir = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "pty-${UUID.randomUUID()}").apply { mkdirs() }
         val session = LocalSession(dir.absolutePath)
-        try { await { val state = session.state(); assertFalse(state.description, state.terminal); state.connected }; test(session) }
+        try {
+            await { val state = session.state(); assertFalse(state.description, state.terminal); state.connected }
+            session.commit("stty -echo; PS1=''; printf '\\033[2J\\033[HNATIVE_READY\\r\\n'\r")
+            frame(session) { it.line(0) == "NATIVE_READY" }
+            test(session)
+        }
         finally { session.close(); dir.deleteRecursively() }
     }
     private fun await(test: () -> Boolean) {
@@ -147,4 +154,116 @@ class LocalTerminalTest {
         } finally { session.close() }
     }
 
+
+    @Test fun pasteUsesVtBracketedModeAndPreservesUtf8() = terminal { session ->
+        session.commit("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hPASTE_READY\\r\\n'; dd bs=1 count=20 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nPASTE_DONE\\r\\n'\r")
+        frame(session) { text(it).contains("PASTE_READY") }
+        runBlocking { assertTrue(session.paste("中文\nx")) }
+        val output = text(frame(session) { text(it).contains("PASTE_DONE") }).replace("\n", " ").replace(Regex(" +"), " ")
+        assertTrue(output, output.contains("1b 5b 32 30 30 7e e4 b8 ad e6 96 87 0a 78 1b 5b 32 30 31 7e"))
+    }
+
+    @Test fun rejectedPasteWritesNothingAndLeavesConnectionUsable() = terminal { session ->
+        session.commit("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004lREJECT_READY\\r\\n'; dd bs=1 count=1 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nREJECT_DONE\\r\\n'\r")
+        frame(session) { text(it).contains("REJECT_READY") }
+        runBlocking { assertFalse(session.paste("X\n")) }
+        assertTrue(session.state().connected)
+        session.commit("Z")
+        val output = text(frame(session) { text(it).contains("REJECT_DONE") })
+        assertTrue(output, output.contains("5a"))
+        assertFalse(output, output.contains("58"))
+    }
+
+    @Test fun confirmedPasteConvertsNewlineUsingCurrentVtMode() = terminal { session ->
+        session.commit("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004lCONFIRM_READY\\r\\n'; dd bs=1 count=3 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nCONFIRM_DONE\\r\\n'\r")
+        frame(session) { text(it).contains("CONFIRM_READY") }
+        runBlocking { assertFalse(session.paste("a\nb")); assertTrue(session.paste("a\nb", true)) }
+        val output = text(frame(session) { text(it).contains("CONFIRM_DONE") })
+        assertTrue(output, output.contains("61 0d 62"))
+    }
+
+    @Test fun selectionCopiesGraphemesUnwrapsSoftLinesAndWorksAfterExit() = terminal { session ->
+        session.resize(12, 10, 8, 17)
+        frame(session) { it.cols == 12 }
+        session.commit("stty -echo; PS1=''; printf '\\033[2J\\033[Habc中é0123456789  \\r\\nsecond'; exit 0\r")
+        await { session.state().terminal }
+        runBlocking {
+            session.select(SelectionOperation.ALL)
+            assertEquals("abc中é0123456789\nsecond", session.copySelection())
+        }
+        val selected = frame(session) { it.cells.any { cell -> cell.flags and 256 != 0 } }
+        assertTrue(selected.cells.first().flags and 256 != 0)
+        runBlocking {
+            session.select(SelectionOperation.WORD, 1, 2)
+            assertEquals("second", session.copySelection())
+            session.select(SelectionOperation.START, 1, 2)
+            session.select(SelectionOperation.END, 3, 2)
+            assertEquals("eco", session.copySelection())
+            session.select(SelectionOperation.WORD, 10, 5)
+            assertEquals("blank word must clear the prior selection", "", session.copySelection())
+            session.select(SelectionOperation.ALL)
+            session.select(SelectionOperation.CLEAR)
+            assertEquals("", session.copySelection())
+        }
+        frame(session) { it.cells.none { cell -> cell.flags and 256 != 0 } }
+    }
+
+    @Test fun localClearPreservesParserModesCursorAndDoesNotWriteInput() = terminal { session ->
+        session.commit("stty raw -echo; printf '\\033[?1h\\033[2J\\033[HCLEAR_READY\\033[5;7H\\033]2;partial'; value=\u0024(dd bs=1 count=3 2>/dev/null | od -An -tx1); printf 'complete\\007\\r\\n%s\\r\\nCLEAR_DONE\\r\\n' \"\u0024value\"; stty sane\r")
+        val before = frame(session) { text(it).contains("CLEAR_READY") && it.cursorY == 4 }
+        runBlocking { session.clearLocal() }
+        val empty = frame(session) { it.cells.all { cell -> cell.text.isEmpty() } }
+        assertEquals(before.cursorX, empty.cursorX); assertEquals(before.cursorY, empty.cursorY)
+        session.key(KeyEvent.KEYCODE_DPAD_UP)
+        val output = text(frame(session) { text(it).contains("CLEAR_DONE") })
+        assertTrue(output, output.contains("1b 4f 41"))
+        assertFalse("partial OSC must remain in the parser: $output", output.contains("complete"))
+    }
+
+    @Test fun localClearRemovesHistoryAndActiveSelection() = terminal { session ->
+        session.commit("stty -echo; i=0; while [ \"\u0024i\" -lt 100 ]; do printf 'history-%s\\r\\n' \"\u0024i\"; i=\u0024((i+1)); done; printf 'HISTORY_DONE'; sleep 30\r")
+        frame(session) { (0 until it.rows).any { row -> it.line(row) == "HISTORY_DONE" } }
+        runBlocking {
+            session.select(SelectionOperation.ALL)
+            assertTrue(session.copySelection().contains("history-0"))
+            session.clearLocal()
+            assertEquals("", session.copySelection())
+            session.select(SelectionOperation.ALL)
+            assertEquals("", session.copySelection().trim())
+        }
+        session.scroll(-500)
+        frame(session) { it.cells.all { cell -> cell.text.isEmpty() } }
+    }
+
+    @Test fun cancelledTextAwaitDoesNotBlockTheNextRequest() = terminal { session ->
+        session.commit("stty -echo; printf '\\033[2J\\033[HCANCEL_TEXT_READY'; sleep 30\r")
+        frame(session) { it.line(0) == "CANCEL_TEXT_READY" }
+        runBlocking {
+            val abandoned = launch(start = CoroutineStart.UNDISPATCHED) { session.copySelection() }
+            abandoned.cancelAndJoin()
+            val result = runCatching { session.select(SelectionOperation.ALL); session.copySelection() }
+            assertTrue("cancelled request must release its native slot: $result", result.isSuccess)
+            assertEquals("CANCEL_TEXT_READY", result.getOrNull())
+        }
+    }
+
+    @Test fun clearingAlternateScreenDoesNotResetItsModeOrErasePrimary() = terminal { session ->
+        session.commit("stty -echo; PS1=''; printf '\\033[2J\\033[HPRIMARY_KEPT\\033[?1049h\\033[2J\\033[HALTERNATE_READY'\r")
+        frame(session) { it.line(0) == "ALTERNATE_READY" }
+        runBlocking { session.clearLocal() }
+        frame(session) { it.cells.all { cell -> cell.text.isEmpty() } }
+        session.commit("printf '\\033[?1049l'\r")
+        frame(session) { it.line(0) == "PRIMARY_KEPT" }
+    }
+
+    @Test fun selectionUsesScrolledViewportCoordinates() = terminal { session ->
+        session.commit("stty -echo; i=0; while [ \"\u0024i\" -lt 100 ]; do printf 'row%03d\\r\\n' \"\u0024i\"; i=\u0024((i+1)); done; printf 'VIEWPORT_DONE'; sleep 30\r")
+        frame(session) { (0 until it.rows).any { row -> it.line(row) == "VIEWPORT_DONE" } }
+        session.scroll(-50)
+        val scrolled = frame(session) { !text(it).contains("VIEWPORT_DONE") && it.line(0).startsWith("row") }
+        runBlocking {
+            session.select(SelectionOperation.WORD, 1, 0)
+            assertEquals(scrolled.line(0), session.copySelection())
+        }
+    }
 }
