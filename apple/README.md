@@ -43,6 +43,8 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 文件与传输 | `GhostermApp/FilesPanelView.swift`、`GhostermAppModel/TransferManager.swift` | 本地↔远端；尚无四方向统一复制队列；暂停/继续/取消忽略后端错误仍改状态，未知结果映射尚待修复 |
 | 菜单与偏好 | `GhostermApp/AppMenu.swift`、`GhostermAppModel/SettingsStore.swift`、`Shortcuts.swift` | 设置持久化、已有终端即时更新；Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签 |
 
+**终端系统剪贴板尚未接通**：`GhostermTerminal/Sources/CGhostty/shim.c` 的读取回调返回 `GHOSTTY_CLIPBOARD_READ_UNAVAILABLE`，写入和确认回调为空。`TerminalHostView` 尚无 `copy:` / `paste:` 响应方法；编辑菜单虽注册了这两个 selector，不能据此宣布终端复制粘贴可用。`TerminalSurface.sendText` 的粘贴编码测试只证明给定文本能送到程序，不包含系统剪贴板读取、选区复制或确认框。文件路径复制、标签信息复制及设置文本复制各有独立 `NSPasteboard` 接线，也不补全终端链路。此为源码核对结果，尚无本轮真实菜单操作复测；实现与验收列入路线图 P1。
+
 修复顺序与验收触发场景见[macOS 实施顺序](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。当前代码注释中的“安全写回”“原子写”等描述是目标契约，实际 `try?` 备份及 remove→move 路径尚未兑现，不能把注释当作通过证据。
 
 设置窗口实际有通用、外观、键盘、配置文件四页。「配置文件」页的全文编辑框编辑 `ghostty.conf`，SSH/known_hosts 只显示路径和 Finder 入口，不是 SSH 全文编辑页。该页保存调用 `replaceTerminalConfig` 重载引擎；“只有新开的标签页会读到改动”的 UI 提示仍待修正，文档不沿用这条过时文案。

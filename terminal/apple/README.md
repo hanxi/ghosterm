@@ -61,5 +61,6 @@ libghostty 的 Metal 渲染器要求 surface 的 NSView 是 **layer-hosting**：
 
 ## 待办
 
+- [ ] macOS 终端系统剪贴板：当前 shim 读取回调返回不可用，写入/确认回调为空；`TerminalHostView` 未实现编辑菜单的 `copy:` / `paste:` 路由。`sendText` 和 IME 测试不是系统复制粘贴证据。须接入选区→`NSPasteboard`→VT 粘贴及确认/取消，用真实菜单和快捷键验收；详见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 - [ ] iOS full libghostty 构建与 UIKit 宿主：当前 SwiftPM 依赖 AppKit，不能只加一个 `xcframework_target` 就交付 iOS。
 - [x] 自进程视图像素验证：`PixelRenderTests` 与 `mutation-check-pixel.sh` 已覆盖背景/前景颜色及对照，不需要屏幕录制权限；真实系统激活/全屏另见标签界面计划的桌面证据。
