@@ -31,6 +31,9 @@
 @media(max-width:640px){.reference-head{flex-direction:column}.reference-head h2{font-size:17px}.reference-meta{align-items:flex-start;flex-direction:column;gap:6px}.reference-choice{padding:8px 10px}.reference-frame{border-radius:9px}.reference-jump{font-size:11px}}
 
 @media(max-width:640px){.page{padding:20px 12px}.intro{align-items:flex-start;flex-direction:column}h1{font-size:25px}.native-frame{padding:4px}.masthead span{font-size:10px}}
+
+.layout-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.layout-card{display:block;text-decoration:none;padding:9px;border:1px solid var(--line);border-radius:10px;color:var(--ink);background:#fff}.layout-card:hover{border-color:var(--accent)}.layout-card strong{display:block;font-size:13px;margin:10px 0 5px}.layout-card small{display:block;font-size:11px;line-height:1.6;color:var(--muted)}.layout-thumbnail{display:block;position:relative;overflow:hidden;aspect-ratio:1080 / 300;border-radius:5px;background:#101319}.layout-thumbnail img{position:absolute;display:block;width:148.148148%;max-width:none;height:auto;left:-24.074074%;top:-157.765625%}.layout-overview-note{font-size:12px;color:var(--muted);line-height:1.8;margin:0 0 16px}
+@media(max-width:800px){.layout-overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
 <body>
@@ -43,8 +46,15 @@
  </section>
  <section id="tern-reference" class="tern-reference" aria-labelledby="tern-reference-title">
   <div class="reference-head"><div><div class="eyebrow">REFERENCE / TERN</div><h2 id="tern-reference-title">Tern，放在一起对照。</h2><p>官网演示 · 2× 高清截图。四种布局均使用 titanium 主题；默认显示窗口区域，可展开完整截图或点图查看原图。</p></div><a class="reference-jump" href="#app">返回 Ghosterm 实机 ↑</a></div>
+  <div class="layout-overview" aria-label="四种布局同时对照">
+   <a class="layout-card" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer"><span class="layout-thumbnail"><img src="tern-reference/tern-tiles.png" width="3200" height="2800" alt="Tiles 布局顶部与左侧区域"></span><strong>Tiles</strong><small>顶部标签与工具按钮；窗格有圆角和间距</small></a>
+   <a class="layout-card" href="tern-reference/tern-studio.png" target="_blank" rel="noopener noreferrer"><span class="layout-thumbnail"><img src="tern-reference/tern-studio.png" width="3200" height="2800" alt="Studio 布局顶部与左侧区域"></span><strong>Studio</strong><small>顶部胶囊标签；窗格贴合排列</small></a>
+   <a class="layout-card" href="tern-reference/tern-rail.png" target="_blank" rel="noopener noreferrer"><span class="layout-thumbnail"><img src="tern-reference/tern-rail.png" width="3200" height="2800" alt="Rail 布局顶部与左侧区域"></span><strong>Rail</strong><small>标签移到左侧；没有横向标签栏</small></a>
+   <a class="layout-card" href="tern-reference/tern-float.png" target="_blank" rel="noopener noreferrer"><span class="layout-thumbnail"><img src="tern-reference/tern-float.png" width="3200" height="2800" alt="Float 布局顶部与左侧区域"></span><strong>Float</strong><small>标签与工具按钮放在顶部中央悬浮条</small></a>
+  </div>
+  <p class="layout-overview-note">上面同时展示四种布局的顶部区域，点击可打开原图。它们使用相同终端内容；差异在标签位置、工具栏和窗格边界。下方可切换查看完整窗口。</p>
   <div class="reference-controls"><div class="reference-choices" role="group" aria-label="选择 Tern 的四种布局"><button class="reference-choice" data-reference="tiles" aria-pressed="true" aria-controls="tern-image">Tiles · 平铺</button><button class="reference-choice" data-reference="studio" aria-pressed="false" aria-controls="tern-image">Studio · 顶部标签</button><button class="reference-choice" data-reference="rail" aria-pressed="false" aria-controls="tern-image">Rail · 侧栏</button><button class="reference-choice" data-reference="float" aria-pressed="false" aria-controls="tern-image">Float · 悬浮工具栏</button></div><label class="reference-full-label"><input id="reference-full" type="checkbox" aria-controls="tern-image-frame">显示完整截图</label></div>
-  <figure class="reference-figure"><a id="tern-image-frame" class="reference-frame" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer" aria-label="打开 Tern 参考原图"><img id="tern-image" src="tern-reference/tern-tiles.png" width="3200" height="2800" alt="Tern Tiles 平铺布局官网演示截图" loading="lazy" decoding="async"></a><figcaption class="reference-meta"><p id="reference-caption" aria-live="polite">Tiles · 平铺：窗格并排铺满窗口，各自保留标题信息。</p><span><a id="tern-original" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer">打开原图 ↗</a> · <a href="https://stencil.so/tern#yours" target="_blank" rel="noopener noreferrer">Tern 官方介绍 ↗</a></span></figcaption></figure>
+  <figure class="reference-figure"><a id="tern-image-frame" class="reference-frame" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer" aria-label="打开 Tern 参考原图"><img id="tern-image" src="tern-reference/tern-tiles.png" width="3200" height="2800" alt="Tern Tiles 平铺布局官网演示截图" loading="lazy" decoding="async"></a><figcaption class="reference-meta"><p id="reference-caption" aria-live="polite">Tiles · 平铺：顶部保留标签和工具按钮，窗格有圆角边框与间距。</p><span><a id="tern-original" href="tern-reference/tern-tiles.png" target="_blank" rel="noopener noreferrer">打开原图 ↗</a> · <a href="https://stencil.so/tern#yours" target="_blank" rel="noopener noreferrer">Tern 官方介绍 ↗</a></span></figcaption></figure>
  </section>
  <footer class="footnote">Ghosterm：原生应用桌面测试截图。Tern：官方网站动画演示截图。两组均保留原始图像；可点击图片查看原图细节。</footer>
 </main>
@@ -69,7 +79,7 @@
 // 两组截图独立切换。
 (() => {
  const references = {
-  tiles:{alt:'Tern Tiles 平铺布局官网演示截图',caption:'Tiles · 平铺：窗格并排铺满窗口，各自保留标题信息。'},
+  tiles:{alt:'Tern Tiles 平铺布局官网演示截图',caption:'Tiles · 平铺：顶部保留标签和工具按钮，窗格有圆角边框与间距。'},
   studio:{alt:'Tern Studio 顶部标签布局官网演示截图',caption:'Studio · 顶部标签：顶部使用简洁的胶囊标签，右端保留加号，终端窗格紧接下方。'},
   rail:{alt:'Tern Rail 侧栏布局官网演示截图',caption:'Rail · 侧栏：标签列表移到左侧，终端直接从窗口上沿展开。'},
   float:{alt:'Tern Float 悬浮工具栏布局官网演示截图',caption:'Float · 悬浮工具栏：标签与窗口操作收进顶部中央的悬浮工具栏。'}
