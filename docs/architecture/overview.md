@@ -34,7 +34,7 @@
 2. **字节流不过事件队列**：终端输出由会话线程 `transport_read → surface` 直连；
    事件队列只承载低频状态。这是性能红线。
 3. **C ABI 是唯一跨语言边界**：`core/include/ghosterm.h`。opaque handle + POD，
-   当前 Swift 与 Android JNI 引用已有对拍；JNI 当前绑定 11 项（含三字段来源查询与别名重命名），其余显式登记待办。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
+   当前 Swift 与 Android JNI 引用已有对拍；A1 JNI 绑定 11 项；当前 A2 工作区为 19 项（新增 Transport 与错误读取），54 项显式登记待办，尚未完成 A2 验收。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
 
 ## 会话重构的当前进度
 
@@ -84,7 +84,7 @@ libghostty-vt；[ghostty-web](https://github.com/coder/ghostty-web) 走的也正
 
 macOS 已由 `TabWindowController` 单窗口管理顶部/侧边标签；`WorkspaceLayout` 是终端与文件窗格唯一可写布局，`WorkspaceHostView` 保持宿主身份。旧多窗口标签组、独立双栏文件组件已退役。文件/配置等控制面经平台模型与绑定进入 Core，不经过终端字节通路。
 
-Android 与 `terminal/android` 已有 A0 Gradle/JNI/VT 交叉构建和 API 36 arm64 模拟器装载证据，A1 主机/配置、来源/改名、导入预览与错误恢复已完成当前模拟器档验收，尚无 renderer/交互终端/SSH UI；实现以[最终原型](../design/android-prototype.html)和[详细计划](../reference/android-implementation.md)为基准。iOS 仍无可用宿主/引擎产物，不能把 macOS SwiftPM 包称为已跨 iOS。
+Android 与 `terminal/android` 已有 A0 Gradle/JNI/VT 交叉构建和 API 36 arm64 模拟器装载证据，A1 主机/配置、来源/改名、导入预览与错误恢复已完成当前模拟器档验收，当前未提交 A2 已接 `/system/bin/sh` → 原生 owner → VT → Canvas；JNI 读取网格快照，不搬运终端输出字节。`SessionsViewModel` 持有会话，页面返回保留 owner；IME 定向测试仍失败，A2 未验收，SSH UI 尚未接入；实现以[最终原型](../design/android-prototype.html)和[详细计划](../reference/android-implementation.md)为基准。iOS 仍无可用宿主/引擎产物，不能把 macOS SwiftPM 包称为已跨 iOS。
 
 ## 参考实现（技术对照）
 

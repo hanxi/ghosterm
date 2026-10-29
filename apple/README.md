@@ -47,6 +47,12 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 设置窗口实际有通用、外观、键盘、配置文件四页。「配置文件」页的全文编辑框编辑 `ghostty.conf`，SSH/known_hosts 只显示路径和 Finder 入口，不是 SSH 全文编辑页。该页保存调用 `replaceTerminalConfig` 重载引擎；“只有新开的标签页会读到改动”的 UI 提示仍待修正，文档不沿用这条过时文案。
 
+终端配置存储与 SSH 配置存储须分开核对：`SettingsStore.saveTerminalConfig` 的备份失败会抛错，提交使用 `replaceItemAt`；没有 `ConfigStore` 的先删后移流程。但 `rawConfig()` 将目录/读取错误折为空文本，加载时 stat 缺失后即使文件被外部创建也不报冲突。`merging` 只改首个同名键，而 `value` 读取最后一个：两行 `font-size = 10` / `font-size = 12` 改成 18 后，回读仍为 12。2026-10-30 直接编译生产 `SettingsStore.swift` 的隔离探针已复现这些结果；正常单键改为 18 和首次创建均成功。这是存储/文本处理证据，未替代真实引擎或页面验收。
+
+`AppModel.applyTerminalSettings` 写盘后才请求引擎重载，重载失败没有恢复旧文件；`replaceTerminalConfig` 尝试恢复旧文件但忽略恢复错误。因此“错误已提示”不等于“磁盘与已有 surface 都保持旧值”。修复与失败注入条件纳入[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+
+设置说明还有三类过时文案：外观页称已有终端保持旧字号；标题栏称动作仅在当前格显示（实际还有悬停/键盘入口）；通用页仍描述恢复会话及关闭必结束。当前普通启动不恢复会话，显式 tmux 关闭只断客户端。文档按真实代码说明，这些页面提示单列待修，不记作已经改好。
+
 关于窗口的更新检测只在用户点击时联网。`UpdateCheck.swift` 已处理缺字段、无本机 commit、渠道不符和网络错误，但远端 commit 的格式、摘要字符集及下载来源尚未严格校验；按 commit 不同提示“有新版”也不表示已经比较提交祖先关系。该缺口与安装脚本的 SHA256/签名校验分开，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 ## 构建与验证

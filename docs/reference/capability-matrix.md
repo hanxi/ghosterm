@@ -7,7 +7,7 @@
 > 口径（铁律 #8）：**✅** 已实现且有闸门/实测证据 · **🟡** 已实现但只在某一档证据下成立
 > （必须写明哪档）· **⏳** 契约/占位在，无实现 · **❌** 未开始 · **⛔ WONTFIX** 不做并注明原因。
 >
-> 核对日期：**2026-10-30**。当前 C ABI 73 项、Apple 71 项引用/2 项登记未用、JNI 11 项引用/62 项待办，含已验收的别名重命名共享接口与 Android 表单接线。字段来源与 Android 页面接线见 [Android 实施计划 §9.5](android-implementation.md#95-字段来源与编辑归属2026-10-29)，各次构建、设备测试与变异见[路线图验收记录](roadmap.md#验收记账与历史记录)。历史平台/像素/网络证据各自保留范围，未重跑的专项不算本轮结果。
+> 核对日期：**2026-10-30**。当前 C ABI 73 项、Apple 71 项引用/2 项登记未用、A1 JNI 11 项引用/62 项待办；当前 A2 工作区对拍为 19/54，尚未验收。别名重命名共享接口与 A1 Android 表单接线已独立验收。字段来源与 Android 页面接线见 [Android 实施计划 §9.5](android-implementation.md#95-字段来源与编辑归属2026-10-29)，各次构建、设备测试与变异见[路线图验收记录](roadmap.md#验收记账与历史记录)。历史平台/像素/网络证据各自保留范围，未重跑的专项不算本轮结果。
 
 ## 核心（C）
 
@@ -38,7 +38,7 @@
 | POSIX PTY 尺寸能力 | 🟡 | macOS 共享后端 `pty_dimensions` 三类基线随核心闸门通过；保留像素尺寸与默认值校验，非全平台证据。 |
 | 可选 tmux 后台会话 | 🟡 | 3.2a 已在 macOS 本机与 Ubuntu 22.04 SSH 验证真 PTY attach 和列表/管理；3.6a 另验证原生键鼠、任务保留、断网、背压、未知回复及受限账户。仅 POSIX 兼容远端 shell；其他版本与平台证据有限，不自动恢复，受用户 tmux 与系统清理策略影响。 |
 | 配色集随包 + 主题选择 | ✅ | `build-ghostty.sh` 从锁定的 `iterm2_themes` 依赖派生配色集（以本轮构建实际数量为准） → `Contents/Resources/ghostty/themes`；CGhostty 推导 `GHOSTTY_RESOURCES_DIR`（上游入口，未设置时兜底）；出包脚本的**包内**配置检查验随包主题被引擎接受（变异 A6 有牙） |
-| 终端配置下发（GUI → 引擎） | ✅ | `gt_ghostty_app_new_with_config` / `_app_reload_config` / `_config_get_{float,double,bool}`：设置页写 Ghostty 语法的配置文件，libghostty 自己解析；**判有效看诊断条数**（未知键只记诊断不丢配置）；`font-size` 改完网格密度真的变（`TerminalConfigTests` 11 项，含读回入口的键长度/类型）；数值键的 C 类型分 f32/f64（用错只得到 0）；变异 S1~S4 有牙 |
+| 终端配置下发（GUI → 引擎） | 🟡 | 正常配置及已有 surface 重载已有证据；存储读取错误、重复键与验证失败后的磁盘状态另有缺口，见下方 macOS 限制。 `gt_ghostty_app_new_with_config` / `_app_reload_config` / `_config_get_{float,double,bool}`：设置页写 Ghostty 语法的配置文件，libghostty 自己解析；**判有效看诊断条数**（未知键只记诊断不丢配置）；`font-size` 改完网格密度真的变（`TerminalConfigTests` 11 项，含读回入口的键长度/类型）；数值键的 C 类型分 f32/f64（用错只得到 0）；变异 S1~S4 有牙 |
 | 嵌入者自有字节流（host IO 后端） | ✅ | `patches/libghostty/8159838`：`ghostty_surface_process_output` + host 回调；`gate-ghostty-patch.sh` 对拍 4 个导出符号 + `mutation-check-ghostty-patch.sh` 证明有牙 |
 | OSC 7501 程序状态（Program Status Protocol） | 🟡 | pin `8159838` 带解析层；**app 路径由补丁 0002 接**（`host_program_status` 回调 + 支持查询回包），端侧 `ProgramStatusReport`/`ProgramStatusStore`/标签条+侧栏角标。**在哪档证据下成立**：无头测到「报告→回调→记录」（`TerminalSurfaceTests` 4 项 + `ProgramStatusStoreTests`/`ProgramStatusBadgeTests`/`ProgramStatusPaneTests`），**UI 角标已取证到像素**：`ProgramStatusBadgeRenderTests` 把侧栏装进 NSHostingView、进程内 `cacheDisplay` 抓帧，断言 blocked 画出橙色像素、error 画出红色像素，并各配**对照**（同布局无程序状态 → 这些颜色为 0；判据靠 `g<180` 把「连接中」的黄色点排除掉，否则对照会假橙）。变异 `program-status` M1~M4 有牙（M4 直接打像素断言）。记录生命周期**两半齐了**：提示符开始（OSC 133）清 working/blocked，程序退出（会话状态）同样清 |
 | OSC 133 shell 集成（semantic prompt） | 🟡 | **app 路径由补丁 0003 透出**（上游只转 `C`/`D` 两个事件，`prompt_start` 等没透）：`host_semantic_prompt` 回调带 kind/prompt_kind/exit_code/命令行，序数与上游 vt `GhosttySemanticPromptKind` 一致。**在哪档证据下成立**：`TerminalSurfaceTests` 2 项（四步循环 + 非 0 退出码）走真解析器；**已消费**：`prompt_start`（清 working/blocked）、`output_start`/`command_end`（侧栏显示**上一条命令**的命令行/耗时/退出码，标签胶囊对非 0 退出码画红点）；`input_start` 仍未消费。三态不折叠：没报退出码时不画失败记号、不编耗时。变异 `program-status` M3/M5 证明 kind 判别与失败记号有牙 |
@@ -51,7 +51,7 @@
 | iOS | full libghostty（Metal） | ❌ |
 | Linux | full libghostty（OpenGL 4.3） | ❌ |
 | Web | libghostty-vt + 自绘（wasm） | ❌ |
-| Android | libghostty-vt + 自绘 | 🟡 | 仅 A0 交叉构建/装载与真实 VT 指令；API 36 arm64 模拟器设备测试通过。自绘、InputConnection 与 Transport 数据链未实现 |
+| Android | libghostty-vt + 自绘 | 🟡 | A0 已验；A2 工作区已接真 PTY→VT→Canvas 与 InputConnection，API 36 arm64 模拟器 9 项定向测试 8 通过、IME 1 项失败；未提交、未验收，见实现计划 §9.12 |
 | HarmonyOS | libghostty-vt + ArkUI Canvas | ❌ |
 | Windows | 待定 | ❌ |
 
@@ -79,13 +79,13 @@
 | 端 | UI | SSH | SFTP | 本地 shell | ssh_config GUI |
 |---|---|---|---|---|---|
 | macOS | 🟡 | 🟡 | 🟡 | ✅ | 🟡 |
-| Android | 🟡 A1 主机/配置页面 | ❌ | ❌ | ❌ | 🟡 |
+| Android | 🟡 A1 已验、A2 在研 | ❌ | ❌ | 🟡 A2 模拟器定向证据、未验收 | 🟡 |
 | iOS | ❌ | ❌ | ❌ | ❌ | ❌ |
 | HarmonyOS / Windows / Linux / Web | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、摘要复核与原子替换，按应用私有目录和协作锁约束工作，不承诺任意非协作写入者下的无竞态提交。A1 已展示继承来源与共享别名影响，并支持同值显式覆盖、删除指令恢复继承；别名重命名与配置错误恢复已接入，SAF 选择/预览/取消、失败恢复和其余表单校验已完成 A1 验收；终端、文件和完整设置未实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[A1 实施记录](android-implementation.md#92-a1-主机与配置首片2026-10-29)区分已验证与待办。
+Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、摘要复核与原子替换，按应用私有目录和协作锁约束工作，不承诺任意非协作写入者下的无竞态提交。A1 已展示继承来源与共享别名影响，并支持同值显式覆盖、删除指令恢复继承；别名重命名与配置错误恢复已接入，SAF 选择/预览/取消、失败恢复和其余表单校验已完成 A1 验收；本地终端已在研但未验收，文件和完整设置未实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[A1 实施记录](android-implementation.md#92-a1-主机与配置首片2026-10-29)区分已验证与待办。
 
-最新设备证据为 2026-10-30 的 47 项测试与 59 组配置/页面变异，见[§9.11](android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。读取失败/保存冲突使旧快照失效；重载先确认草稿，错误跨页保留，成功刷新编辑目标，失败不报空成功态。§9.8 的错误恢复草稿已由 §9.10 补齐，SAF 与表单余项由 §9.11 完成；A1 只在当前设备档位收口，完整客户端仍在开发。此前工作区的继承编辑草稿已补齐接线，原 Kotlin 编译失败已解决；历史记录见[§9.6](android-implementation.md#96-文档复核时的工作区草稿2026-10-29)，当前实现与验证见[§9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30)。
+最近完整 A1 验收为 2026-10-30 的 47 项测试与 59 组配置/页面变异；当前 A2 的 9 项定向测试未全绿，不能相加宣称完整 56 项通过。A1 证据见[§9.11](android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。读取失败/保存冲突使旧快照失效；重载先确认草稿，错误跨页保留，成功刷新编辑目标，失败不报空成功态。§9.8 的错误恢复草稿已由 §9.10 补齐，SAF 与表单余项由 §9.11 完成；A1 只在当前设备档位收口，完整客户端仍在开发。此前工作区的继承编辑草稿已补齐接线，原 Kotlin 编译失败已解决；历史记录见[§9.6](android-implementation.md#96-文档复核时的工作区草稿2026-10-29)，当前实现与验证见[§9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30)。
 
 ### macOS 当前实现与限制
 
@@ -102,11 +102,11 @@ Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于
 | 系统集成 | 栏间复制、Finder 拖入远端、本地代表条目拖出 Finder、Quick Look（远端临时下载） | 多选拖出 Finder 仍不完整；远端拖出 Finder 的文件承诺未做；iOS 无宿主 |
 | 配置 GUI | Host 编辑、通配规则、读取失败提示与 Core 稀疏 API；共享重复指令误删已修复；`ConfigStoreTests` 覆盖正常备份和冲突 | 表单简化扫描并提交全部字段；内存先改、写盘失败未恢复；`ConfigStore.save` 吞备份失败、先删后移；可连接列表还未过滤否定模式，均见路线图待办 |
 | 配置来源与别名改名 | Swift 已有来源查询与改名绑定；共享契约与平台绑定分别验收 | macOS `HostEditorSheet` 未消费来源，也没有已有主机改名字段；不因共享 API 的测试通过而标 GUI 完成 |
-| 终端设置与输入 | 配色/字号对已有 surface 生效，应用外观即时更新；macOS IME、辅助状态与焦点 | full 引擎配置机制不能自动套用于 Android vt 自绘 |
+| 终端设置与输入 | 正常配置下配色/字号对已有 surface 生效，应用外观即时更新；macOS IME、辅助状态与焦点 | `SettingsStore` 读取错误折为空、外部新建文件不报冲突、重复键编辑与回读不一致；引擎拒绝后的磁盘/恢复状态待修。full 引擎配置机制不能自动套用于 Android vt 自绘 |
 
 **安全存储缺口**：当前 `SSHCredentialSelector.Storage.readKey` 从文件读取 PEM（限制 owner、权限、常规文件、大小且不跟随链接），Keychain 生产接线存口令/密码。`KeychainStore` 虽有 PEM helper，不能据此声称生产流程已做到私钥导入后只读安全存储。该缺口按 `AGENTS.md` 铁律 #5 继续修复，不修改规则来迁就代码。
 
-**设置页范围**：macOS 为通用、外观、键盘、配置文件四页；配置文件页展示 SSH/known_hosts 路径，文本编辑对象是 Ghostty 配置。保存走 `replaceTerminalConfig` 并重载引擎，页面“只有新标签读取”的提示已落后于代码，列为 UI 文案待修；Android 的五类/16 项设置是单独设计，不代表 macOS 当前分类。
+**设置页范围**：macOS 为通用、外观、键盘、配置文件四页；配置文件页展示 SSH/known_hosts 路径，文本编辑对象是 Ghostty 配置。保存走 `replaceTerminalConfig` 并重载引擎，外观字号/配置页的“只有新标签读取”、标题栏按钮只在当前格显示、通用页恢复/关闭会话的提示均已落后于代码，列为 UI 文案待修；Android 的五类/16 项设置是单独设计，不代表 macOS 当前分类。
 
 **复制原语缺口**：`gt_sftp_upload/download` 为路径式 job，没有独占创建/非覆盖提交参数；上传 WRITE|CREAT 未承诺截断旧尾。现有“先检查冲突再传”不能保证并发时不覆盖。Android 四方向复制需先补共享契约，macOS 现有覆盖/冲突行为也需对应回归，见[路线图](roadmap.md)。
 

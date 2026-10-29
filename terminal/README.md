@@ -11,7 +11,7 @@ surface.resize(cols, rows)    ← 网格尺寸变化（要同时通知 transport
 | 子目录 | 引擎 | 渲染 | 状态 |
 |---|---|---|---|
 | `apple/` | full libghostty | Metal | ✅ macOS 已接通并有网格/像素/IME 证据；iOS 未交付（见 `terminal/apple/README.md`） |
-| `android/` | libghostty-vt + 自绘 | GLES/Canvas（待实现） | 🟡 A0 交叉构建、JNI 装载和 VT 指令冒烟已验证；自绘、InputConnection、Transport 数据通路未实现 |
+| `android/` | libghostty-vt + 自绘 | Canvas（A2 在研） | 🟡 A0 已验；当前 A2 工作区已接 Transport→VT→Canvas 与 InputConnection，9 项定向测试 8 通过、IME 1 项失败，尚未验收 |
 | `linux/`（规划） | full libghostty | OpenGL 4.3 core | ❌ |
 | `web/`（规划） | libghostty-vt + 自绘 | Canvas/WebGL（wasm） | ❌ |
 | `harmony/`（规划） | libghostty-vt + 自绘 | ArkUI Canvas | ❌ |

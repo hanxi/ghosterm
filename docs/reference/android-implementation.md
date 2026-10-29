@@ -1,9 +1,9 @@
 # Android 最终方案实现计划
 
-日期：2026-10-30。状态：**设计已定，A0、A1 完成（API 36 arm64 模拟器档）；完整客户端仍在开发**。页面与操作基准为唯一的
+日期：2026-10-30。状态：**设计已定，A0、A1 完成（API 36 arm64 模拟器档）；A2 在研且未验收，完整客户端仍在开发**。页面与操作基准为唯一的
 [Android HTML 原型](../design/android-prototype.html)。本文定义原生实现的模块、状态、数据边界、实施依赖与验收；HTML 的模拟主机、文件、键盘和进度不构成 Android 能力证据。
 
-仓库约束以 [AGENTS.md](../../AGENTS.md) 为准；跨端进度见[路线图](roadmap.md)，已实现范围见[能力矩阵](capability-matrix.md)。A0、§9.2 的 A1 首片及 §9.4 的共享编辑修复已有验收记录；§9.5 交付字段来源、编辑归属和原生页面接线，§9.7 完成显式覆盖与恢复继承。§9.8 保留当时未提交草稿的复核边界；§9.9 已完成主机别名重命名切片，§9.10 补齐配置错误恢复和重载确认。§9.11 补齐 SAF 导入与表单校验，A1 退出清单在当前设备档位完成；其余阶段仍为拟实现，不能从设计表推断功能已经可用。
+仓库约束以 [AGENTS.md](../../AGENTS.md) 为准；跨端进度见[路线图](roadmap.md)，已实现范围见[能力矩阵](capability-matrix.md)。A0、§9.2 的 A1 首片及 §9.4 的共享编辑修复已有验收记录；§9.5 交付字段来源、编辑归属和原生页面接线，§9.7 完成显式覆盖与恢复继承。§9.8 保留当时未提交草稿的复核边界；§9.9 已完成主机别名重命名切片，§9.10 补齐配置错误恢复和重载确认。§9.11 补齐 SAF 导入与表单校验，A1 退出清单在当前设备档位完成；§9.12 记录当前 A2 未提交实现及失败测试；A3–A8/A10 仍待实施，不能从设计表推断功能已经可用。
 
 ## 1. 交付范围与当前基础
 
@@ -12,8 +12,8 @@
 | 能力 | 当前代码与证据 | Android 需要补齐 |
 |---|---|---|
 | 宿主 | Compose 主机列表/搜索/添加/编辑、配置页与导入入口；debug APK | 会话生命周期、终端/文件与完整设置 |
-| 终端 | `terminal/android` 已有 VT 交叉构建与 JNI 装载；vendor pin 为 `81598385d608dda4946093d6d6a234d204a2f225` | 真实 surface、渲染、输入法、字体与宽字符 |
-| Transport | `core/include/ghosterm/transport.h`；Core 已经 NDK/Bionic 编译，POSIX PTY 与 SSH shell 已有桌面运行证据 | Android JNI owner、真 PTY、线程、退出和尺寸验证；编译不等于设备运行 |
+| 终端 | 当前 A2 工作区已有原生 VT surface、Canvas 与 InputConnection；pin `81598385d608dda4946093d6d6a234d204a2f225`；9 项定向测试 8 通过、1 项 IME 失败 | 修复输入失败，补齐选区/复制粘贴、生命周期、变异及性能证据；尚未验收 |
+| Transport | `core/include/ghosterm/transport.h`；A2 工作区已有 JNI owner 和 API 36 模拟器真 PTY/尺寸/退出定向证据 | 代次句柄、背压与 owner 释放验收；SSH 接线属 A3，桌面证据不替代移动端 |
 | SSH 认证 | `ssh_auth.h` 有可取消、分步认证；Apple 已统一接线 | DNS、主机密钥确认、Keystore、请求归属和取消 |
 | 配置 | Core 解析/求值/序列化；A1 已接私有目录、保存事务与导入入口；共享重复指令编辑已修复，Android 原文保护保留 | 身份引用映射与后续设备矩阵验收 |
 | SFTP | `sftp.h` 有目录/属性/操作、路径式上传下载、暂停取消 | 本地/SAF 适配、四种复制方向、任务编排、非覆盖写入能力 |
@@ -91,7 +91,7 @@ A1 收尾须明确编辑对象，不能仅以最终生效值反推原配置：
 | 别名重命名 | 仅改目标 Host 行，检查大小写无关冲突，保留其他别名/行；主机引用与活动会话身份分别处理 | 只改名时保留地址/User/Port 指令原文与未知行；重新求值可能因默认 HostName 或通配匹配改变而得到不同结果。活动连接保持原快照和身份（A3 验）；不能用 reset 整块重建替代改名 |
 | 复杂重复指令 | 已修共享编辑器按实际匹配行修改；Android 原文检查继续防止无关行变化，见 §9.4 | 重复字段之间的注释、未知指令和其他字段原字节保留；同时回归 Apple 调用方 |
 
-`gt_config_inspect_host` 已提供 HostName/User/Port 来源与块归属，Swift/JNI 已同步；Android 表单已展示来源、多别名影响和只读原因，详见 §9.5。它只查询三个连接字段，不能代替完整块视图或改名操作；改名使用单独的 `gt_config_rename_host`，见 §9.9。未改字段继续不写回；§9.7 已交付“显式设置为与继承值相同”和“恢复继承”的独立编辑状态；不得在 Kotlin 写第二份 SSH 配置求值器，不能勾选整个 A1。
+`gt_config_inspect_host` 已提供 HostName/User/Port 来源与块归属，Swift/JNI 已同步；Android 表单已展示来源、多别名影响和只读原因，详见 §9.5。它只查询三个连接字段，不能代替完整块视图或改名操作；改名使用单独的 `gt_config_rename_host`，见 §9.9。未改字段继续不写回；§9.7 已交付“显式设置为与继承值相同”和“恢复继承”的独立编辑状态；不得在 Kotlin 写第二份 SSH 配置求值器；A1 完成状态以 §9.11 的退出验收为准，不由单一字段切片决定。
 
 只给真正接入的连接选项提供可用控件。C 的配置求值能返回 ProxyJump、转发、ServerAlive 等字段，不代表 SSH 执行层支持它们；检测到影响连接且未支持的显式配置时，列出指令并报不支持，不悄悄绕过。未知指令仍需无损保留。
 
@@ -265,7 +265,7 @@ A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.
 |---|---|---|---|
 | A0 工程与构建 | 无 | 原生空壳 APK；锁工具链/ABI/API；隔离 NDK sysroot 与宿主库；设备加载 core/vt；JNI 引用集合纳入 ABI 检查 | 已完成：API 36 arm64 模拟器，见 §9.1 |
 | A1 导航与主机 | A0 | 首页/设置/页面返回；配置读取、搜索、增改、备份失败阻断、冲突拒绝、原子提交；假数据只在调试 fixture | 已完成：API 36 arm64 / 4 KB 页模拟器；SAF 与表单收尾见 §9.11，其他设备档位仍属 A10 |
-| A2 本地终端 | A0 | `/system/bin/sh` 真 PTY→VT→像素；IME/辅助键/resize/暂停绘制/有界关闭；确认 renderer 方案 | 未开始 |
+| A2 本地终端 | A0 | `/system/bin/sh` 真 PTY→VT→像素；IME/辅助键/resize/暂停绘制/有界关闭；确认 renderer 方案 | 在研、未提交、未验收：9 项定向测试 8 通过、IME 1 项失败，见 §9.12 |
 | A3 SSH 与身份 | A1、A2、共享 known_hosts 标记修复 | DNS→hostkey→凭据→shell；Keystore 安全容器；取消归属、超时、失效身份、两会话隔离；真 sshd | 未开始 |
 | A4 文件浏览 | A3 | 本机私有目录/SAF/远端；真实预览与路径；点按/长按、多选；位置 generation；独立 SFTP owner | 未开始 |
 | A5 复制基础 | A0、A4 | 先补共享非覆盖创建/提交契约与各端绑定；本地流与暂存；四种方向、冲突、空目录/链接规则、真实结果 | 未开始 |
@@ -298,7 +298,7 @@ A1 的视觉壳可与 A2 的底层实现解耦，但不能用演示终端代替 
 - `HOME` 仅在 Android 应用进程内设置为私有 home；相对 Include 和 `~/.ssh` 仍走 Core 原有语义。配置缺失显示空态，目录/读取/无效 UTF-8/不可访问 Include 显示错误。
 - 系统文档选择器读取最多 1 MiB 的配置，确认后备份并替换私有副本，不写回外部 provider。已有测试验证存储与 Include；完整 SAF 选择器驱动与取消场景仍待补齐。
 - API 36 arm64 模拟器：完整设备套件 17 项通过（13 项配置事务/解析、1 项 Compose 页面流、3 项 A0 JNI），配置/页面变异 11 组目标红、同 APK 独立对照绿、恢复绿且源码 SHA256 一致。Core 32 项、C/Apple/JNI ABI 与 JNI 对拍变异通过。
-- **A1 未完成项**：表单明确区分块内显式值与继承值、别名重命名/多别名及 Include 块的编辑归属、SAF 导入 UI 验收、配置错误状态的完整页面验证；身份选择依赖 A3。当前不可勾整个 A1。
+- **该首片当时的 A1 未完成项（后续已由 §9.11 收尾）**：表单明确区分块内显式值与继承值、别名重命名/多别名及 Include 块的编辑归属、SAF 导入 UI 验收、配置错误状态的完整页面验证；身份选择依赖 A3。当时不可勾整个 A1；当前阶段状态见 §9.11。
 
 ### 9.3 当前代码入口与 A1 退出清单
 
@@ -312,9 +312,9 @@ A1 的视觉壳可与 A2 的底层实现解耦，但不能用演示终端代替 
 | 主机派生模型与表单稀疏变化 | `android/domain/src/main/kotlin/com/hanxi/ghosterm/domain/Hosts.kt` |
 | 校验、摘要、备份、原子替换和原文保护 | `android/data/src/main/java/com/hanxi/ghosterm/data/ConfigRepository.kt` |
 | 配置求值与编辑桥 | `android/bridge/src/main/cpp/config_jni.c`、`core_jni.c`；同模块 `ConfigBridge.kt` / `CoreLibrary.kt` |
-| VT 装载/指令冒烟 | `terminal/android/native/vt_jni.c`；尚无生产 TerminalView |
+| VT 装载/指令冒烟 | `terminal/android/native/vt_jni.c`；A2 在研的生产 TerminalView 与数据链见 §9.12 |
 
-A1 完成前还须通过以下生产路径验收：
+以下为 A1 退出清单，已由 §9.11 完成当前模拟器档验收：
 
 - [x] HostName/User/Port 来源、共享别名影响和包含文件/重名块只读归属；只读主机可进入配置页，返回/保存后重建表单和权限。
 - [x] 三字段显式覆盖/恢复继承、同值覆盖、空 User 继承；真实开关、保存、返回/放弃与用户名校验失败保留草稿，见 §9.7。
@@ -439,6 +439,33 @@ API 36 arm64 / 4 KB 页模拟器完整 **40 项设备测试、0 失败/跳过**�
 
 A1 的退出清单在本设备档位完成。终端/SSH/SFTP、身份、完整设置与发行仍须 A2–A8/A10；本片未改 Core/Apple 生产代码，没有新的 macOS 全量宿主/像素/变异或 CI 证据，也不扩大真机/API 29/16 KB 页的支持声明。
 
+### 9.12 A2 本地终端工作区状态（2026-10-30，未验收）
+
+基线为 `b028b38` 加当前未提交实现；本节区分源码接线与已通过的阶段。A0/A1 的交付记录不变，A2 未勾完成。
+
+| 职责 | 当前代码入口与行为 |
+|---|---|
+| 会话所有权 | `android/app/src/main/java/com/hanxi/ghosterm/SessionsViewModel.kt` 按 UUID 持有 `LocalSession`；返回首页只隐藏页面；会话面板选择/新建，关闭先确认 |
+| 原生 owner | `android/bridge/src/main/cpp/session_jni.c`：每会话一个 pthread、带代次句柄注册表；创建 `/system/bin/sh` 和私有 HOME，串行 read/write/resize/close；输出直接送 VT |
+| 类型化接缝 | bridge 的 `NativeSession.kt` 实现 `TerminalSurface`；View 不判断 SSH/本地类型；输入/尺寸入 owner 队列，UI 不同步 join |
+| 引擎与绘制 | `terminal/android/native/surface.c` 管 VT、render state、键编码与滚动；`TerminalSurface.kt` 解码网格快照，`TerminalView.kt` 用 Canvas 绘制颜色/字形/光标。JNI 返回网格，不返回终端输出原文 |
+| 输入与页面 | `TerminalView.kt` 包含 InputConnection、composition、提交和辅助键；`TerminalScreen.kt` 为真实终端页、唯一键盘开关与会话面板。当前底部为首页/会话/键盘，文件入口、清屏与完整菜单仍待最终契约收口 |
+| Native 组装 | `:bridge` 的 CMake 构建 Core 与 `terminal/android/native` 并打包两个共享库；`:terminal` 仍承载 View/接缝，已不单独通过 Gradle externalNativeBuild 重复编译 |
+
+A2 暴露了 A0 未覆盖的原生分配问题：关闭 SIMD 时上游 VT archive 带入 `calloc/free` 替身，C surface 分配失败。当前工作区在 `patches/libghostty/android-vt-8159838/` 增加独立 Android libc 补丁，构建器在隔离副本应用，将补丁哈希纳入收据，并检查 archive 不定义这两个替身。Apple 的三份 full 引擎补丁不变；新检查的变异验收尚待完成，不因构建成功就称已具备完整闸门证据。
+
+**现有定向设备记录**：API 36 arm64 / 4 KB 页模拟器，`LocalTerminalTest` 5 项通过：ANSI/宽字符与组合字符网格、application-cursor 编码和 UTF-8 输入、PTY 尺寸与退出码、备用屏幕/回滚、多会话隔离和幂等 close。`TerminalScreenTest` 4 项中 3 项通过：真实红/绿底 Canvas 像素与唯一键盘控件、返回首页后原 PID/尺寸保留、会话面板新建及关闭确认；`imeCompositionCancellationAndDeleteReachRealPtyCorrectly` 等待 `IME_DONE` 超时失败。合计 **8 通过 / 1 失败**，不是 A2 验收通过。
+
+以上设备日志为文档复核时已有的 `tmp/android-a2-device.log`，构建日志为 `tmp/android-a2-build.log`；本轮没有重跑设备套件。测试直接调用 InputConnection，尚不能代表真实中文输入法候选窗/系统输入全流程。此前 A1 完整 47 项与本次定向 9 项不得相加声称完整 56 项通过。当前 JNI 对拍为 **19 项引用 / 54 项待办**；公共 C ABI 仍为 73 项，Apple 为 71/2。
+
+**A2 剩余退出条件**：
+
+- 修复上述 IME 失败，验证 composition 不发送、commit/删除/特殊键字节准确；补真实系统 IME、硬件键盘与 Ctrl 状态。
+- 补选区、终端文本复制/粘贴与清屏；已有 surface 的字号/主题下发依 A7 完成，不把固定 Canvas 样式记作完整设置。
+- Activity 重建、旋转和 IME 出入保持 owner/PID；后台停画但继续读流；关闭最终释放、失效代次拒绝、持续输入背压有定向和变异证据。
+- 测持续输出、滚动、内存和输入延迟，决定 Canvas 生产适用范围；补 native 分配检查与新业务断言的目标红、独立对照绿、复原绿及 SHA256。
+- 定向全部通过后跑完整设备套件及对应 ABI/原生变异，再提交实施切片。真机、API 29、16 KB 页和 Android CI 仍属 A10；SSH 属 A3。
+
 ## 10. 验收与变异清单
 
 | 面 | 必须观测的真实结果 | 新增断言的变异示例 |
@@ -462,7 +489,7 @@ A1 的退出清单在本设备档位完成。终端/SSH/SFTP、身份、完整�
 
 ## 11. 初始文档审计与后续校正
 
-以下保留初始文档审计基线 `99b8b3c` 的结论。涉及 Android 工程/绑定的历史结论已在表内注明后续变化，已交付实现以 §9.1–§9.7 及 §9.9–§9.11 为准，§9.8 保留当时未提交草稿的复核记录；macOS 缺口没有因此自动修复。
+以下保留初始文档审计基线 `99b8b3c` 的结论。涉及 Android 工程/绑定的历史结论已在表内注明后续变化，已交付实现以 §9.1–§9.7 及 §9.9–§9.11 为准，§9.8 保留当时草稿复核，§9.12 记录当前 A2 未提交实现；macOS 缺口没有因此自动修复。
 
 | 旧说法 | 对照代码后的结论 |
 |---|---|
@@ -471,10 +498,11 @@ A1 的退出清单在本设备档位完成。终端/SSH/SFTP、身份、完整�
 | 文件队列 S4/S5/S6 未动 | macOS 队列、拖放、预览已实现；iOS 和远端拖出 Finder 等仍未完成 |
 | macOS 标签重排尚无触发面 | 当前顶部/侧边按 UUID 重排，唯一加号；精简侧栏已移除 |
 | 64/70 个 ABI、68 个 Apple 引用 | 来源切片为 72 个公共符号、Apple 70 个引用 + 2 个登记未用；重命名切片当前为 73 / 71+2，见 §9.9；数量以对应检出的脚本输出为准 |
-| JNI/NAPI 已与 Swift 一起对拍 | 初始基线仅 C/Apple；A1 后已有 JNI 对拍脚本，来源接口接入后为 10 项引用、62 项待办；重命名切片增至 11/62。NAPI 尚未实现 |
+| JNI/NAPI 已与 Swift 一起对拍 | 初始基线仅 C/Apple；A1 后已有 JNI 对拍脚本，来源接口接入后为 10 项引用、62 项待办；重命名切片增至 11/62；当前 A2 工作区为 19/54，未验收。NAPI 尚未实现 |
 | ConfigStore 已保证强制备份与原子替换 | 备份异常被忽略、先删后移；能力降为部分实现，修复留在路线图 |
 | macOS 主机表单已经只提交脏字段 | Core 提供稀疏 API，但 `HostEditorSheet` 仍提交全部显示字段，`HostListModel.directives` 仍使用简化行扫描；不能照搬到 Android，macOS 保真修复单列 P0 |
 | macOS 设置的文本框编辑 SSH 配置，且只对新终端生效 | 文本框编辑 Ghostty 配置，保存调用引擎重载；SSH/known_hosts 是路径展示。页面“只对新标签生效”的旧文案待修，不作为实现事实 |
+| macOS 终端设置读写已完全正确 | 正常单键/引擎重载已有证据；`SettingsStore` 重复键只改首项但读取末项、读取失败当空及初始缺失后的冲突检测仍有缺口；不能把 SSH ConfigStore 的问题与它混称，见路线图 |
 | 私钥总是从 Keychain 导入后读取 | 当前 SSHCredentialSelector 从受限文件读 PEM，Keychain 主要保存口令/密码；完整私钥安全存储接入仍需补齐 |
 | 像素验证待屏幕录制权限 | 自进程视图像素验证已实现；真实系统激活/全屏证据单独记账 |
 | Apple 图标尚无 .app 打包接线 | package-mac.sh 已生成 icns 并组装自包含 .app |

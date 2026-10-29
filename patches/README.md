@@ -16,10 +16,12 @@ patches/
         └── WHY.md
 ```
 
-> 当前补丁集（`libghostty/8159838/`，2026-10-29 核对）：
+> Apple full 引擎补丁集（`libghostty/8159838/`）：
 > - `0001-host-io-backend.patch`：surface host-managed IO、输入/尺寸回调与输出 feed。
 > - `0002-program-status.patch`：OSC 7501 接到嵌入者与查询回包。
 > - `0003-semantic-prompt.patch`：OSC 133 语义提示符接到嵌入者。
 >
 > 三份补丁按序叠加到锁定 pin 的隔离源码副本；`build-ghostty.sh` / 普通引擎构建器产生 SDK 和收据，`gate-ghostty-patch.sh` 验证补丁与导出符号。旧 session/replica 专用补丁已退役，不重新应用。
 > 每份补丁的理由、上游对照和撤除条件见 [WHY.md](libghostty/8159838/WHY.md)。
+
+Android VT 在研补丁另见 `libghostty/android-vt-8159838/`：`0001-link-android-libc.patch` 使 Android 无 SIMD 构建链接系统 libc，防止空 `calloc/free` 替身污染宿主 C 分配器。`build-android-native.py` 在隔离副本应用并记录补丁哈希；Apple 构建与打包仍只使用上方三份补丁。当前 A2 设备定向测试仍有 IME 失败，补丁检查的变异验收未完成，不能记为整个 Android 终端已交付。理由和撤除条件已写入该工作区目录的 `WHY.md`，随 A2 实施切片一并验收提交。
