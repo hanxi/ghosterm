@@ -143,3 +143,24 @@ done:
     free(alias); gt_config_free(cfg);
     return result;
 }
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_hanxi_ghosterm_bridge_ConfigBridge_renameBytes(JNIEnv *env, jobject self,
+        jbyteArray input, jbyteArray name, jbyteArray replacement) {
+    (void)self;
+    gt_config_t *cfg = parse(env, input);
+    if (!cfg) return NULL;
+    char *alias = utf8(env, name), *new_alias = utf8(env, replacement);
+    jbyteArray result = NULL;
+    if (!alias || !new_alias) goto done;
+    if (gt_config_rename_host(cfg, alias, new_alias) != GT_OK) {
+        fail(env, "无法重命名，请检查别名冲突、配置归属及 Include 文件"); goto done;
+    }
+    char *serialized = gt_config_to_string(cfg);
+    if (!serialized) { fail(env, "配置序列化失败"); goto done; }
+    result = bytes(env, serialized);
+    free(serialized);
+done:
+    free(alias); free(new_alias); gt_config_free(cfg);
+    return result;
+}

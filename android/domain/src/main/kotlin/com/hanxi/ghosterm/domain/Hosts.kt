@@ -73,7 +73,6 @@ data class HostEdit(val originalAlias: String?, val alias: String, val hostname:
         if (HostField.HOSTNAME !in inherited) require(validToken(hostname)) { "请填写有效的主机地址，或选择使用继承值" }
         if (HostField.USER !in inherited) require(validToken(user)) { "请填写远端用户名，或选择使用继承值" }
         if (HostField.PORT !in inherited) require(port.toIntOrNull() in 1..65535) { "端口必须为 1–65535，或选择使用继承值" }
-        require(originalAlias == null || originalAlias == alias) { "别名修改请使用 SSH 配置编辑器" }
     }
     fun changes(previous: Host?): Map<String, String?> {
         validate()

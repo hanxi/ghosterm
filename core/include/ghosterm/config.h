@@ -169,6 +169,19 @@ typedef struct {
 int gt_config_edit(gt_config_t *cfg, const char *alias,
                    const gt_config_edit_t *edits, size_t nedits, bool reset);
 
+/* Rename one positive literal token in one main-file Host header. New names:
+ * 1..128 ASCII letters/digits/._-, first character a letter/digit.
+ * Preserves every byte outside that token, including sibling patterns, comments,
+ * separators and line endings. Case-only changes are allowed. Other literal
+ * aliases (including included files) collide case-insensitively: INVALID_ARG.
+ * Missing alias: NOT_FOUND. Included blocks, duplicate blocks or repeated source
+ * tokens in one header: UNSUPPORTED. Invalid input/pattern: INVALID_ARG.
+ * A failed reparse (e.g. vanished Include) returns IO without changing cfg.
+ * Does not write files or update external references/active sessions. A new name
+ * may match different wildcard rules or change the default HostName.
+ * Success invalidates borrowed metadata, just like edit. */
+int gt_config_rename_host(gt_config_t *cfg, const char *alias, const char *new_alias);
+
 #ifdef __cplusplus
 }
 #endif

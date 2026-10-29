@@ -3,6 +3,7 @@ package com.hanxi.ghosterm
 import android.app.Application
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
@@ -54,6 +55,7 @@ class HostScreenTest {
         load("Host dup\n  User first\nHost DUP\n  User second\n")
         ui.onNodeWithText("编辑").performClick()
         ui.onNodeWithText("保存").assertIsNotEnabled()
+        ui.onNodeWithText("别名").assertIsNotEnabled()
         ui.onNodeWithText("主机地址").assertIsNotEnabled()
         ui.onNodeWithContentDescription("主机地址使用继承值").performScrollTo().assertIsNotEnabled()
         ui.onNodeWithText("此别名出现在 2 个 Host 块中，无法确定修改目标；请在 SSH 配置页编辑。").assertIsDisplayed()
@@ -94,7 +96,10 @@ class HostScreenTest {
         ui.onNodeWithText("添加主机").performClick()
         ui.onNodeWithText("别名").performTextInput("inherit-all")
         val fields = listOf("主机地址" to "example.test", "远端用户名" to "owner", "端口" to "2200")
-        for ((label, _) in fields) ui.onNodeWithContentDescription("${label}使用继承值").performScrollTo().performClick()
+        // Finish the IME transition before scrolling to the next touch target.
+        // Otherwise bring-into-view can move the switch after coordinates are sampled.
+        closeSoftKeyboard()
+        for ((label, _) in fields) ui.onNodeWithContentDescription("${label}使用继承值").performScrollTo().performClick().assertIsOn()
         ui.onNodeWithText("保存").performClick()
         ui.waitUntil(10_000) { !model.busy && model.page == Page.HOSTS }
         assertEquals("inherit-all:22", model.snapshot!!.hosts.single().address)
@@ -102,13 +107,15 @@ class HostScreenTest {
         ui.onNodeWithText("编辑").performClick()
         for ((label, value) in fields) {
             ui.onNodeWithContentDescription("${label}使用继承值").performScrollTo().assertIsOn().performClick()
+                .assertIsOff()
             ui.onNodeWithText(label).performScrollTo().performTextReplacement(value)
+            closeSoftKeyboard()
         }
         ui.onNodeWithText("保存").performClick()
         ui.waitUntil(10_000) { !model.busy && model.page == Page.HOSTS }
         assertEquals("owner@example.test:2200", model.snapshot!!.hosts.single().address)
         ui.onNodeWithText("编辑").performClick()
-        for ((label, _) in fields) ui.onNodeWithContentDescription("${label}使用继承值").performScrollTo().assertIsOff().performClick()
+        for ((label, _) in fields) ui.onNodeWithContentDescription("${label}使用继承值").performScrollTo().assertIsOff().performClick().assertIsOn()
         ui.onNodeWithText("保存").performClick()
         ui.waitUntil(10_000) { !model.busy }
         assertEquals("inherit-all:22", model.snapshot!!.hosts.single().address)
@@ -150,6 +157,32 @@ class HostScreenTest {
         ui.onNodeWithContentDescription("远端用户名使用继承值").performScrollTo().performClick()
         ui.onNodeWithText("返回").performClick()
         ui.onNodeWithText("添加主机").assertIsDisplayed()
+    }
+    @Test fun renameUsesRealFormAndCollisionKeepsDraft() {
+        val original = "Host demo sibling\n  HostName example.test\n  User me\nHost occupied\n"
+        load(original)
+        ui.onAllNodesWithText("编辑")[0].performClick()
+        ui.onNodeWithText("别名").performScrollTo().assertIsEnabled().performTextReplacement("OCCUPIED")
+        ui.onNodeWithText("保存").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        assertEquals(Page.EDIT_HOST, model.page)
+        ui.onNodeWithText("该主机别名已存在").assertIsDisplayed()
+        ui.onNodeWithText("别名").assertTextContains("OCCUPIED").performTextReplacement("renamed")
+        ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithText("放弃未保存的修改？").assertIsDisplayed()
+        ui.onNodeWithText("继续编辑").performClick()
+        ui.onNodeWithText("保存").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        assertEquals(Page.HOSTS, model.page)
+        ui.onNodeWithText("renamed").assertIsDisplayed()
+        ui.onNodeWithText("sibling").assertIsDisplayed()
+        assertEquals(original.replace("Host demo", "Host renamed"), File(directory, "home/.ssh/config").readText())
+        ui.onAllNodesWithText("编辑")[0].performClick()
+        ui.onNodeWithText("别名").performTextReplacement("discarded")
+        ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithText("放弃修改").performClick()
+        ui.onNodeWithText("renamed").assertIsDisplayed()
+        assertEquals(listOf("renamed", "sibling", "occupied"), model.snapshot!!.hosts.map { it.alias })
     }
     @Test fun addEditSearchAndDiscardUseRealConfiguration() {
         ui.onNodeWithText("添加主机").performClick()

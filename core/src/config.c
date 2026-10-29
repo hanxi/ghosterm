@@ -164,7 +164,11 @@ static char *lower_dup(const char *s, size_t n) {
   return p;
 }
 
-static int tokenize(const char *p, const char *end, char ***out_args, int *out_n) {
+typedef struct { int index; const char *start, *end; } token_range_t;
+
+/* Optional raw range uses the same quote/escape scanner as parsing. */
+static int tokenize(const char *p, const char *end, char ***out_args, int *out_n,
+                    token_range_t *range) {
   char **args = NULL;
   int n = 0;
   size_t cap = 0;
@@ -177,6 +181,7 @@ static int tokenize(const char *p, const char *end, char ***out_args, int *out_n
      * 把注释当 token 进 args：normalize_forward 取到的「最后一个 token」
      * 不含冒号 → 负差值算长度 → memchr 越界读（SIGBUS，闸门实证）。 */
     if (*p == '#') break;
+    const char *token_start = p;
     char buf[1024];
     size_t bl = 0;
     int quoted = 0;
@@ -189,6 +194,7 @@ static int tokenize(const char *p, const char *end, char ***out_args, int *out_n
       p++;
     }
     buf[bl] = '\0';
+    if (range && range->index == n) { range->start = token_start; range->end = p; }
     args = grow(args, &cap, (size_t)n + 2, sizeof *args);
     if (!args) return -1;
     args[n++] = gt__strdup(buf);
@@ -436,7 +442,7 @@ static void parse_depth(gt_config_t *cfg, const char *text, size_t len,
       while (q < le && !isspace((unsigned char)*q) && *q != '=') q++;
       kw = lower_dup(ks, (size_t)(q - ks));
       if (q < le && *q == '=') q++; /* 跳过 '='，值从其后 tokenize */
-      if (tokenize(q, le, &args, &nargs) != 0) {
+      if (tokenize(q, le, &args, &nargs, NULL) != 0) {
         free(kw);
         return;
       }
@@ -1309,4 +1315,90 @@ int gt_config_edit(gt_config_t *cfg, const char *alias,
   elist_free(&l);
   if (rc != GT_OK) gt__set_error("config_edit: 失败（rc=%d）", rc);
   return rc;
+}
+
+/* New names deliberately use the same conservative literal subset as the GUI. */
+static bool rename_name_valid(const char *name) {
+  if (!name || !*name || strlen(name) > 128) return false;
+  for (size_t i = 0; name[i]; i++) {
+    unsigned char c = (unsigned char)name[i];
+    bool alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+    if (!alnum && (i == 0 || (c != '.' && c != '-' && c != '_'))) return false;
+  }
+  return true;
+}
+
+int gt_config_rename_host(gt_config_t *cfg, const char *alias, const char *new_alias) {
+  if (!cfg || !alias || !*alias || strpbrk(alias, "*?![]") || !rename_name_valid(new_alias)) {
+    gt__set_error("config_rename_host: invalid literal alias");
+    return GT_ERR_INVALID_ARG;
+  }
+  gt_config_host_info_t ownership;
+  int rc = gt_config_inspect_host(cfg, alias, &ownership);
+  if (rc != GT_OK) return rc;
+  if (ownership.included || ownership.matching_blocks != 1) {
+    gt__set_error("config_rename_host: included or ambiguous Host block");
+    return GT_ERR_UNSUPPORTED;
+  }
+  int block = find_block_for_alias(cfg, alias), token = -1, matches = 0;
+  const gt_node_t *header = &cfg->nodes[cfg->blocks[block].header_node];
+  for (int i = 0; i < header->nargs; i++) {
+    if (kw_eq(header->args[i], alias)) { token = i; matches++; }
+  }
+  if (matches != 1) {
+    gt__set_error("config_rename_host: repeated alias within Host header");
+    return GT_ERR_UNSUPPORTED;
+  }
+  for (size_t b = 0; b < cfg->nblocks; b++) {
+    for (int i = 0; i < cfg->blocks[b].npatterns; i++) {
+      if ((int)b == block && i == token) continue;
+      if (kw_eq(cfg->blocks[b].patterns[i], new_alias)) {
+        gt__set_error("config_rename_host: target alias already exists");
+        return GT_ERR_INVALID_ARG;
+      }
+    }
+  }
+  if (strcmp(header->args[token], new_alias) == 0) return GT_OK;
+  const char *q = header->raw, *end = q + strlen(q);
+  while (q < end && (*q == ' ' || *q == '\t')) q++;
+  while (q < end && !isspace((unsigned char)*q) && *q != '=') q++;
+  if (q < end && *q == '=') q++;
+  token_range_t range = {.index = token};
+  char **args = NULL; int nargs = 0;
+  if (tokenize(q, end, &args, &nargs, &range) != 0) return GT_ERR_INTERNAL;
+  for (int i = 0; i < nargs; i++) free(args[i]);
+  free(args);
+  if (!range.start || !range.end) return GT_ERR_INTERNAL;
+  size_t start = (size_t)(range.start - header->raw);
+  for (size_t i = 0; i < cfg->blocks[block].header_node; i++)
+    if (!cfg->nodes[i].included) start += strlen(cfg->nodes[i].raw);
+  size_t removed = (size_t)(range.end - range.start);
+  char *original = gt_config_to_string(cfg);
+  if (!original) return GT_ERR_INTERNAL;
+  size_t length = strlen(original), added = strlen(new_alias);
+  char *text = gt__alloc(length - removed + added + 1);
+  if (!text) { free(original); return GT_ERR_INTERNAL; }
+  memcpy(text, original, start);
+  memcpy(text + start, new_alias, added);
+  memcpy(text + start + added, original + start + removed, length - start - removed + 1);
+  free(original);
+
+  /* Publish only after reparsing succeeds; missing Includes leave cfg intact. */
+  gt_config_t *candidate = gt__alloc(sizeof *candidate);
+  if (!candidate) { free(text); return GT_ERR_INTERNAL; }
+  if (cfg->source_path) {
+    candidate->source_path = gt__strdup(cfg->source_path);
+    if (!candidate->source_path) { free(text); gt_config_free(candidate); return GT_ERR_INTERNAL; }
+  }
+  parse_text(candidate, text, strlen(text), 0);
+  if (candidate->include_error) { free(text); gt_config_free(candidate); return GT_ERR_IO; }
+  char *roundtrip = gt_config_to_string(candidate);
+  bool complete = roundtrip && strcmp(roundtrip, text) == 0;
+  free(roundtrip); free(text);
+  if (!complete) { gt_config_free(candidate); return GT_ERR_INTERNAL; }
+  gt_config_t old = *cfg;
+  *cfg = *candidate;
+  *candidate = old;
+  gt_config_free(candidate);
+  return GT_OK;
 }

@@ -136,6 +136,13 @@ public final class SSHConfig {
         }
     }
 
+    /// Rename only the literal Host token; all sibling names and body bytes survive.
+    public func rename(alias: String, to newAlias: String) throws {
+        try check(alias.withCString { old in
+            newAlias.withCString { gt_config_rename_host(handle, old, $0) }
+        })
+    }
+
     /// Copies borrowed Core provenance before the snapshot can be edited/freed.
     public func inspect(alias: String) throws -> ConfigHostInfo {
         var info = gt_config_host_info_t()

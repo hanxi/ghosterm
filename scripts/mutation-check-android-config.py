@@ -41,7 +41,7 @@ def main():
                     'inheritanceSwitchSavesSameValueAndThenRemovesOverride',
                     'inheritanceChangesRequireDiscardAndRevertingIsClean',
                     'invalidExplicitValueKeepsDraftAndCanReturnToInheritance',
-                    'allFieldsCanInheritForNewAndExistingHost'}
+                    'allFieldsCanInheritForNewAndExistingHost', 'renameUsesRealFormAndCollisionKeepsDraft'}
         name = ('HostScreenTest' if method in ui_tests else 'ConfigRepositoryTest') + '#' + method
         result = run([*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
                       'com.hanxi.ghosterm.' + name,
@@ -61,8 +61,8 @@ def main():
         (repo, 'name.isNotBlank() && name.none { it in "*?![]" || it.isWhitespace() }', 'name.isNotBlank()', 'sparseEditAndBackupPreserveUnchangedBytes', control),
         (native, '.default_user = ""', '.default_user = "android_uid"', 'unspecifiedRemoteUserRemainsEmpty', control),
         (screen, 'model.edit(host)', 'model.edit()', 'addEditSearchAndDiscardUseRealConfiguration', control),
-        (repo, 'if (lines.replace(previous.text, "") != lines.replace(candidate.toString(Charsets.UTF_8), ""))',
-         'if (false && lines.replace(previous.text, "") != lines.replace(candidate.toString(Charsets.UTF_8), ""))',
+        (repo, 'if (lines.replace(renamed.toString(Charsets.UTF_8), "") != lines.replace(candidate.toString(Charsets.UTF_8), ""))',
+         'if (false && lines.replace(renamed.toString(Charsets.UTF_8), "") != lines.replace(candidate.toString(Charsets.UTF_8), ""))',
          'unrelatedLineChangeIsRejected', control),
         (repo, 'throw ConfigAccess("备份失败，原配置未修改", error)',
          'Files.deleteIfExists(backup); throw ConfigAccess("备份失败，原配置未修改", error)',
@@ -98,7 +98,7 @@ def main():
          'emptyInheritedUserCanBeKeptAndRestored', control),
         (domain, 'if (HostField.USER !in inherited) require(validToken(user))',
          'require(validToken(user))', 'emptyInheritedUserCanBeKeptAndRestored', control),
-        (repo, 'if (host != null && changes.isEmpty())', 'if (changes.isEmpty())',
+        (repo, 'if (host != null && changes.isEmpty() && !renaming)', 'if (changes.isEmpty() && !renaming)',
          'newHostMayInheritEveryConnectionField', control),
         (repo, 'if (requested != null && !declared.effectiveIsExplicit)',
          'if (false && requested != null && !declared.effectiveIsExplicit)',
@@ -119,6 +119,15 @@ def main():
          'allFieldsCanInheritForNewAndExistingHost', control),
         (screen, 'val enabled = !model.busy && model.canEditDraft', 'val enabled = !model.busy',
          'readOnlyHostCanInspectConfigAndReturnWithFreshOwnership', control),
+        (native, 'gt_config_rename_host(cfg, alias, new_alias)', 'gt_config_rename_host(cfg, alias, alias)',
+         'renamePreservesSiblingAndCanEditFieldsInSameSave', control),
+        (repo, 'if (host != null && changes.isEmpty() && !renaming)', 'if (host != null && changes.isEmpty())',
+         'renameOnlyAndCaseChangeKeepBodyBytes', control),
+        (repo, 'if (before != after)', 'if (false && before != after)',
+         'renameCollisionAndCorruptOutputNeverCommit', control),
+        (screen, 'enabled = enabled, modifier = Modifier.fillMaxWidth(),',
+         'enabled = enabled && draft.original == null, modifier = Modifier.fillMaxWidth(),',
+         'renameUsesRealFormAndCollisionKeepsDraft', control),
     ]
     build()
     for name in dict.fromkeys(name for case in cases for name in case[3:]): test(name, True)

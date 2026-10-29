@@ -125,7 +125,7 @@ golden.effective.tsv 的 # supported_key 元数据
 | 行内注释与 Forward 归一化 | token 开头 `#` 剥离、中间 `#` 保留（ssh -G 实证）/ 括号归一化 / 负差值防护（test_config 第 8 节，SIGBUS 根因回归） |
 | 非连续重复指令 | 已按实际匹配行删除，替换保留首条的位置/缩进/拼写/分隔符；其他指令、注释、CRLF 和相邻块保持原字节。B7/B8 回退连续 splice 验目标红、同变异求值对照绿、复原绿与 SHA256 |
 | 字段来源与归属 | `sshconfig_metadata` 覆盖显式/继承/默认、包含文件来源、同名块拒绝编辑及重解析后来源；`mutation-check-config-metadata.py` 用 8 组隔离 C 变异验证目标红/API 对照绿/恢复绿与 SHA256，`--apple` 另验 Swift 绑定转换；见 [Android §9.5](../../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29) |
-| 别名重命名（工作区草稿） | `sshconfig_rename` 覆盖仅替换目标 token、引号/转义/CRLF/无末尾换行、同块别名保留、大小写冲突、包含文件/歧义拒绝、重解析失败保留原对象。12 组 C 与 1 组 Swift 隔离变异已有通过记录；尚未完成整个 Android 切片验收，见 [§9.8](../../docs/reference/android-implementation.md#98-跨端文档复核与重命名草稿2026-10-30) |
+| 别名重命名 | `sshconfig_rename` 覆盖仅替换目标 token、引号/转义/CRLF/无末尾换行、同块别名保留、大小写冲突、包含文件/歧义拒绝、重解析失败保留原对象。12 组 C 与 1 组 Swift 隔离变异通过，Android 改名切片验收见 [§9.9](../../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30) |
 | **已知缺口** | 来源查询目前仅三个连接字段，macOS 表单尚未消费；完整块指令视图未接入，macOS GUI 尚无别名改名入口。Forward `bind:port` 完整解析仍未实现（OpenSSH 对 `8080:lh 9090` 输出 `8080 [lh]:9090`，我们原样返回） |
 
 ## 脚本
@@ -144,10 +144,11 @@ bash scripts/gate.sh                                  # 配置 / PTY / SSH / 公
 core/build/test_config core/tests/fixtures            # 单独跑对拍
 bash scripts/mutation-check-sshconfig.sh              # 17 组：A1–A9、B1–B8
 bash scripts/mutation-check-include.sh                # Include 四组变异
+python3 scripts/mutation-check-config-rename.py --apple # 重命名 12 C + 1 Swift 变异
 ```
 
 以上是宿主 C 测试，不能当作 Android 设备证据。Android A1 另有配置事务与页面测试、
-`mutation-check-android-config.py` 已提交切片有 32 组通过记录，当前重命名草稿扩展到 36 组但尚未完成整套复验；不能继续把最初十二组称为当前覆盖。跨端结果见[路线图](../../docs/reference/roadmap.md)。
+`mutation-check-android-config.py` 当前 36 组通过记录包含别名重命名，不能继续把最初十二组称为当前覆盖。跨端结果见[路线图](../../docs/reference/roadmap.md)。
 
 ## 可选 tmux
 

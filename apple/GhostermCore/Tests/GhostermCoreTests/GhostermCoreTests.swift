@@ -41,6 +41,16 @@ final class GhostermCoreTests: XCTestCase {
         XCTAssertThrowsError(try cfg.edit(alias: "nope", [("User", ["y"])]))
     }
 
+    func testConfigRenamePreservesSiblingAndRejectsCollision() throws {
+        let cfg = try SSHConfig(contents: "# header\r\nHost \"demo\" sibling # names\r\n  User me\r\nHost occupied\n")
+        try cfg.rename(alias: "demo", to: "new-host")
+        XCTAssertEqual(cfg.serialized(), "# header\r\nHost new-host sibling # names\r\n  User me\r\nHost occupied\n")
+        XCTAssertEqual(cfg.hostPatterns, ["new-host", "sibling", "occupied"])
+        let before = cfg.serialized()
+        XCTAssertThrowsError(try cfg.rename(alias: "new-host", to: "OCCUPIED"))
+        XCTAssertEqual(cfg.serialized(), before)
+    }
+
     func testConfigMetadataCopiesValuesAcrossEdit() throws {
         let cfg = try SSHConfig(contents: "User inherited\nHost web sibling\n  HostName old.test\n  User explicit\n")
         let before = try cfg.inspect(alias: "web")

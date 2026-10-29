@@ -168,7 +168,8 @@ private fun EditHostPage(model: HostsViewModel) {
         }
         Text("开启“使用继承值”时由配置规则或默认值决定；关闭后为此主机设置。未改字段保留原文。", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(edit.alias, { model.draft = draft.copy(edit = edit.copy(alias = it)) }, label = { Text("别名") }, singleLine = true,
-            enabled = !model.busy && draft.original == null, modifier = Modifier.fillMaxWidth())
+            enabled = enabled, modifier = Modifier.fillMaxWidth(),
+            supportingText = { Text("改名只修改此别名，同块其他名称保留；新名称可能匹配不同的继承规则。") })
         for (field in HostField.entries) {
             val provenance = field.source(draft.original)
             val inherits = field in edit.inherited

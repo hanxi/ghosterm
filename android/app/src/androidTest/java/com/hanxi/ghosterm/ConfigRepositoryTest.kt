@@ -261,6 +261,43 @@ class ConfigRepositoryTest {
         assertEquals(original, file.readText())
         assertFalse(directory.listFiles()!!.any { it.name.startsWith("config.backup-") })
     }
+    @Test fun renamePreservesSiblingAndCanEditFieldsInSameSave() = fixture { directory ->
+        val original = "# 注释 🔑\r\n\tHoSt=  \"demo\"\tsibling # shared\r\n  HostName example.test\r\n  User alice\r\n  FutureOption keep\r\n"
+        val file = File(directory, "config").apply { writeText(original) }
+        val repo = ConfigRepository(directory); val initial = repo.load()
+        val saved = runCatching { repo.saveHost(initial, HostEdit.from(initial.hosts.first()).copy(alias = "renamed", user = "bob")) }
+        assertTrue("Rename plus sparse edit must succeed: ${saved.exceptionOrNull()}", saved.isSuccess)
+        assertEquals(listOf("renamed", "sibling"), saved.getOrThrow().snapshot.hosts.map { it.alias })
+        assertTrue(saved.getOrThrow().snapshot.hosts.all { it.user == "bob" && it.hostname == "example.test" })
+        assertEquals(original.replace("\"demo\"", "renamed").replace("  User alice\r\n", "  User bob\n"), file.readText())
+        assertEquals(original, directory.listFiles()!!.single { it.name.startsWith("config.backup-") }.readText())
+        assertEquals(listOf("renamed", "sibling"), repo.load().hosts.map { it.alias })
+    }
+    @Test fun renameOnlyAndCaseChangeKeepBodyBytes() = fixture { directory ->
+        val original = "Host demo sibling\n  HostName explicit.test\n  User me\n  FutureOption value\n"
+        val file = File(directory, "config").apply { writeText(original) }
+        val repo = ConfigRepository(directory); val initial = repo.load()
+        val renamed = runCatching { repo.saveHost(initial, HostEdit.from(initial.hosts.first()).copy(alias = "new-host")) }
+        assertTrue("Rename-only must not be treated as a no-op: ${renamed.exceptionOrNull()}", renamed.isSuccess)
+        assertEquals(original.replace("Host demo", "Host new-host"), file.readText())
+        val state = renamed.getOrThrow().snapshot
+        val cased = repo.saveHost(state, HostEdit.from(state.hosts.first()).copy(alias = "NEW-HOST")).snapshot
+        assertEquals("NEW-HOST", cased.hosts.first().alias)
+        assertEquals(original.replace("Host demo", "Host NEW-HOST"), file.readText())
+    }
+    @Test fun renameCollisionAndCorruptOutputNeverCommit() = fixture { directory ->
+        val original = "Host demo sibling\n  User me\nHost occupied\n  Port 2200\n"
+        val file = File(directory, "config").apply { writeText(original) }
+        val repo = ConfigRepository(directory); val initial = repo.load()
+        for (alias in listOf("SIBLING", "OCCUPIED")) {
+            assertThrows(IllegalStateException::class.java) { repo.saveHost(initial, HostEdit.from(initial.hosts.first()).copy(alias = alias)) }
+            assertEquals(original, file.readText())
+        }
+        val broken = ConfigRepository(directory, renameConfig = { _, _, _ -> original.replace("demo", "new-host").replace("Port 2200", "Port 9999").toByteArray() })
+        assertThrows(ConfigAccess::class.java) { broken.saveHost(initial, HostEdit.from(initial.hosts.first()).copy(alias = "new-host")) }
+        assertEquals(original, file.readText())
+        assertFalse(directory.listFiles()!!.any { it.name.startsWith("config.backup-") })
+    }
     @Test fun missingIncludeAndInvalidUtf8RemainErrors() = fixture { directory ->
         val file = File(directory, "config")
         file.writeText("Include ${directory.path}/absent.conf\n")
