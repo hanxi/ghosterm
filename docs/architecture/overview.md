@@ -34,7 +34,7 @@
 2. **字节流不过事件队列**：终端输出由会话线程 `transport_read → surface` 直连；
    事件队列只承载低频状态。这是性能红线。
 3. **C ABI 是唯一跨语言边界**：`core/include/ghosterm.h`。opaque handle + POD，
-   当前 Swift 与 Android JNI 引用已有对拍；JNI 当前绑定 9 项，其余显式登记待办。NAPI 尚未实现；新增绑定须对拍并真实编译。
+   当前 Swift 与 Android JNI 引用已有对拍；JNI 已提交基线绑定 9 项，来源接口工作区草稿增加到 10 项，其余显式登记待办。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
 
 ## 会话重构的当前进度
 

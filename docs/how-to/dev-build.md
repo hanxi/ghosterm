@@ -166,7 +166,7 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
   不比 `version`/`build`——那两条跨轨不可比（见上面 [`BUILD-INFO.txt`](#确认这个包是怎么来的读-build-infotxt)）。
 - **没有「安装」按钮**：清单里 `signature=adhoc` + `notarized=false` 就是「装不上」
   的机器可读声明，界面照它说话，只给「打开下载页」这一条直链；有新版时另外写明
-  首次打开会被 Gatekeeper 拦、要怎么放行（口径同上面 [怎么装](#怎么装三条路差别只在谁贴了-quarantine-标记)）。
+  首次打开会被 Gatekeeper 拦、要怎么放行（口径同上面 [怎么装](#怎么装一键脚本手工解包homebrew-或浏览器)）。
 - 「本机」那行是**可复制**的：要用户自己核对 commit，报「查不出来」时才有的放矢。
 
 闸门：`bash scripts/mutation-check-app-update.sh`——七组变异（把「查不出来」折成
@@ -189,7 +189,7 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
 
 | 档位 | 怎么来 | 能公证吗 | 用户下载以后 |
 |---|---|---|---|
-| `adhoc` | `--adhoc`（默认；CI 的 dev 轨走这条） | ❌ | Gatekeeper 拦：`xattr -dr com.apple.quarantine` 或系统设置「仍要打开」（见 [怎么装](#怎么装三条路差别只在谁贴了-quarantine-标记)） |
+| `adhoc` | `--adhoc`（默认；CI 的 dev 轨走这条） | ❌ | Gatekeeper 拦：`xattr -dr com.apple.quarantine` 或系统设置「仍要打开」（见 [怎么装](#怎么装一键脚本手工解包homebrew-或浏览器)） |
 | `dev` | `--sign "Apple Development: …"`（免费个人账号，不花 $99） | ❌ Apple 不给这一档公证，脚本自己先拦 | 同上，仍要放行 |
 | `id` | `--sign "Developer ID Application: …"`（付费 Apple Developer Program） | ✅ `--notarize <profile>` | 双击即装 |
 | `none` | `--no-sign`（排障用） | ❌ | 未签名，macOS 直接拒开 |
@@ -197,7 +197,7 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
 - **决定「首次打开要不要放行」的是下载工具贴不贴 `com.apple.quarantine`，不是换渠道**：
   `brew install --cask` 也贴（Homebrew 自己调 LSQuarantine，agent 写 `Homebrew Cask`），
   所以 `adhoc` + brew **照样拦**，仍然不等于能自动安装（`signature=adhoc` 的判断不变）。
-  实测细节与免弹窗的 `curl` + `ditto` 装法见上面 [怎么装](#怎么装三条路差别只在谁贴了-quarantine-标记)。
+  实测细节与免弹窗的 `curl` + `ditto` 装法见上面 [怎么装](#怎么装一键脚本手工解包homebrew-或浏览器)。
 
 - **免费账号买到的只有「签名身份稳定」这一件事**：同一 Team ID、同一 designated
   requirement，覆盖安装不再因每轮 cdhash 变化被判成不同来源。它**不解决**「下载来能不能

@@ -124,7 +124,8 @@ golden.effective.tsv 的 # supported_key 元数据
 | `Include` 展开 | 相对路径以 **`~/.ssh`** 为基准，与包含者所在目录无关；glob / 嵌套 / 无损写回 / 自环深度上限（test_config 第 7 节）；Core 已先展开 tilde，再调用 POSIX glob，Android 也走同一语义 |
 | 行内注释与 Forward 归一化 | token 开头 `#` 剥离、中间 `#` 保留（ssh -G 实证）/ 括号归一化 / 负差值防护（test_config 第 8 节，SIGBUS 根因回归） |
 | 非连续重复指令 | 已按实际匹配行删除，替换保留首条的位置/缩进/拼写/分隔符；其他指令、注释、CRLF 和相邻块保持原字节。B7/B8 回退连续 splice 验目标红、同变异求值对照绿、复原绿与 SHA256 |
-| **已知缺口** | 字段来源和包含文件的编辑归属查询尚未补齐。Forward `bind:port` 完整解析仍未实现（OpenSSH 对 `8080:lh 9090` 输出 `8080 [lh]:9090`，我们原样返回） |
+| 字段来源草稿 | 未提交工作区新增 `sshconfig_metadata`，覆盖显式/继承/默认、包含文件来源、同名块拒绝编辑及重解析后来源。随本轮 33 项 Core CTest 通过，但新断言尚无变异证明，两端页面也未接入；不计作完成，见 [Android §9.5](../../docs/reference/android-implementation.md#95-字段来源与编辑归属草稿工作区复核2026-10-29) |
+| **已知缺口** | 字段来源与编辑归属仍需完成上述变异和平台接线验收；别名重命名未接入。Forward `bind:port` 完整解析仍未实现（OpenSSH 对 `8080:lh 9090` 输出 `8080 [lh]:9090`，我们原样返回） |
 
 ## 脚本
 

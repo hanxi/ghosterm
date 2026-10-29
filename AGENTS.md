@@ -141,8 +141,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 2. 跑 `scripts/check-abi.sh`：`nm` 静态库实际导出名 ↔ 头文件声明，**双向对拍**（漏导出与多泄漏都拦）。
 
 > **当前覆盖范围（诚实标注）**：`check-abi.sh` 对拍「`core/` 内部实现 ↔ 头文件」；
-> `check-abi-apple.sh` 另对拍 Swift 的引用名集合（69 项引用、2 项显式登记未用）；
-> `check-abi-android.py` 对拍 Android JNI 引用（9 项引用、62 项按阶段显式登记待办）。
+> `check-abi-apple.sh` 另对拍 Swift 的引用名集合；`check-abi-android.py` 对拍 Android JNI 引用。
+> `adae205` 基线分别为 Apple 69/2、JNI 9/62（引用/显式登记未用）；实际数量以当前检出的脚本输出为准，
+> 工作区新增接口与已交付基线的验收分别记在 `docs/reference/roadmap.md`，不得借旧结果记新接口通过。
 > Android 目前只有组件/配置绑定，终端 Transport、SSH/SFTP 尚未接线；NAPI 尚无绑定。
 > 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
 
