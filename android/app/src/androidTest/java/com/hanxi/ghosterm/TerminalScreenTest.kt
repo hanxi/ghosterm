@@ -356,9 +356,13 @@ class TerminalScreenTest {
             "stty sane; printf '\\033[<u\\033[>4;0m\\r\\nKEY_DONE_$token\\r\\n'\r")
         ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "KEY_READY_$token" }
         input(result)
-        ui.waitUntil(10_000) { terminal().currentFrame?.let { frame ->
-            (0 until frame.rows).any { frame.line(it) == "KEY_DONE_$token" }
-        } == true }
+        try {
+            ui.waitUntil(10_000) { terminal().currentFrame?.let { frame ->
+                (0 until frame.rows).any { frame.line(it) == "KEY_DONE_$token" }
+            } == true }
+        } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError("mode=$mode expected=${expected.joinToString { "%02x".format(it) }} actual=${result.takeIf { it.exists() }?.readBytes()?.joinToString { "%02x".format(it) }}", failure)
+        }
         assertArrayEquals("raw PTY input (${result.readBytes().joinToString { "%02x".format(it) }})", expected, result.readBytes())
     }
 
@@ -500,6 +504,134 @@ class TerminalScreenTest {
             ui.runOnIdle { assertTrue(terminal().onCreateInputConnection(EditorInfo()).performEditorAction(EditorInfo.IME_ACTION_NONE)) }
             ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("/").performClick()
             ui.runOnIdle { assertTrue(terminal().commitText("END")) }
+        }
+    }
+
+    private fun hardwareTap(code: Int, meta: Int = 0, releaseMeta: Int = meta, device: Int = -1) {
+        val down = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, code, 0, meta, device, 0, 0)
+        assertTrue(terminal().onKeyDown(code, down))
+        assertTrue(terminal().onKeyUp(code, KeyEvent(0, 1, KeyEvent.ACTION_UP, code, 0, releaseMeta, device, 0, 0)))
+    }
+
+    @Test fun modifierKeysLocksAndSoftCtrlKeepSeparateState() {
+        val modifiers = listOf(
+            Triple(KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON, 57441 to 2),
+            Triple(KeyEvent.KEYCODE_SHIFT_RIGHT, KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_RIGHT_ON, 57447 to 2),
+            Triple(KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON, 57442 to 5),
+            Triple(KeyEvent.KEYCODE_CTRL_RIGHT, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_RIGHT_ON, 57448 to 5),
+            Triple(KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.META_ALT_ON or KeyEvent.META_ALT_LEFT_ON, 57443 to 3),
+            Triple(KeyEvent.KEYCODE_ALT_RIGHT, KeyEvent.META_ALT_ON or KeyEvent.META_ALT_RIGHT_ON, 57449 to 3),
+            Triple(KeyEvent.KEYCODE_META_LEFT, KeyEvent.META_META_ON or KeyEvent.META_META_LEFT_ON, 57444 to 9),
+            Triple(KeyEvent.KEYCODE_META_RIGHT, KeyEvent.META_META_ON or KeyEvent.META_META_RIGHT_ON, 57450 to 9),
+        )
+        val keys = modifiers.joinToString("") { (_, _, protocol) -> "\u001b[${protocol.first};${protocol.second}u\u001b[${protocol.first};1:3u" }
+        val locks = "\u001b[57358;65u\u001b[57358;65:3u\u001b[57360;129u\u001b[57360;129:3u\u001b[97;193u\u001b[97;193:3u"
+        captureKeys("\\033[>11u", (keys + locks + "\u001b[97;5u\u001b[97;5:3uEND").toByteArray()) {
+            ui.runOnIdle {
+                terminal().ctrl = 1
+                modifiers.forEach { (code, meta, _) -> hardwareTap(code, meta, 0); assertEquals(1, terminal().ctrl) }
+                hardwareTap(KeyEvent.KEYCODE_CAPS_LOCK, KeyEvent.META_CAPS_LOCK_ON)
+                hardwareTap(KeyEvent.KEYCODE_NUM_LOCK, KeyEvent.META_NUM_LOCK_ON)
+                assertEquals(1, terminal().ctrl)
+                // Use physical lock-state reports separately from the armed soft Ctrl.
+                terminal().ctrl = 0
+                hardwareTap(KeyEvent.KEYCODE_A, KeyEvent.META_CAPS_LOCK_ON or KeyEvent.META_NUM_LOCK_ON)
+                terminal().ctrl = 1; hardwareTap(KeyEvent.KEYCODE_A)
+                assertEquals(0, terminal().ctrl); assertTrue(terminal().commitText("END"))
+            }
+        }
+        captureKeys("", "END".toByteArray()) {
+            ui.runOnIdle {
+                modifiers.forEach { (code, meta, _) -> hardwareTap(code, meta, 0) }
+                assertTrue(terminal().commitText("END"))
+            }
+        }
+    }
+
+    @Test fun numericKeypadRespectsNumLockApplicationModeAndReleaseIdentity() {
+        listOf("\\033>" to "1\r.\u001b[F\u001b[3~END",
+            "\\033=" to "1\r.\u001b[F\u001b[3~END",
+            "\\033[?1035l\\033=" to "\u001bOq\u001bOM\u001bOn\u001b[F\u001b[3~END").forEach { (mode, expected) ->
+            captureKeys(mode, expected.toByteArray()) {
+                ui.runOnIdle {
+                    for (key in listOf(KeyEvent.KEYCODE_NUMPAD_1, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_NUMPAD_DOT))
+                        hardwareTap(key, KeyEvent.META_NUM_LOCK_ON)
+                    hardwareTap(KeyEvent.KEYCODE_NUMPAD_1); hardwareTap(KeyEvent.KEYCODE_NUMPAD_DOT)
+                    assertTrue(terminal().commitText("END"))
+                }
+            }
+        }
+        captureKeys("\\033>\\033[>11u", "\u001b[57400;129u\u001b[57400;129:3u\u001b[57424u\u001b[57424;129:3uEND".toByteArray()) {
+            ui.runOnIdle {
+                hardwareTap(KeyEvent.KEYCODE_NUMPAD_1, KeyEvent.META_NUM_LOCK_ON)
+                // Changing Num Lock while held must not turn an End release into a digit release.
+                hardwareTap(KeyEvent.KEYCODE_NUMPAD_1, 0, KeyEvent.META_NUM_LOCK_ON)
+                assertTrue(terminal().commitText("END"))
+            }
+        }
+    }
+
+    private fun deadAcute(device: Int = -1) {
+        val dead = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_E, 0, KeyEvent.META_ALT_ON, device, 0, 0)
+        assertTrue("real Virtual.kcm must provide an acute dead key", dead.getUnicodeChar(dead.metaState) and android.view.KeyCharacterMap.COMBINING_ACCENT != 0)
+        hardwareTap(KeyEvent.KEYCODE_E, KeyEvent.META_ALT_ON, device = device)
+    }
+
+    @Test fun deadKeysComposeCancelAndPreserveLayoutText() {
+        captureKeys("\\033[?1036h", "é´´q´ç\u001bqeEND".toByteArray()) { bytes ->
+            ui.runOnIdle {
+                deadAcute(); assertTrue(terminal().composition.isNotEmpty()); assertEquals(0, bytes.length())
+                hardwareTap(KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.META_SHIFT_ON, 0)
+                assertTrue(terminal().composition.isNotEmpty())
+                hardwareTap(KeyEvent.KEYCODE_E); assertEquals("", terminal().composition)
+                deadAcute(); hardwareTap(KeyEvent.KEYCODE_SPACE)
+                deadAcute(); hardwareTap(KeyEvent.KEYCODE_Q)
+                deadAcute(); deadAcute()
+                hardwareTap(KeyEvent.KEYCODE_C, KeyEvent.META_ALT_ON)
+                hardwareTap(KeyEvent.KEYCODE_Q, KeyEvent.META_ALT_ON)
+                deadAcute(); hardwareTap(KeyEvent.KEYCODE_DEL); assertEquals("", terminal().composition)
+                deadAcute(); hardwareTap(KeyEvent.KEYCODE_ESCAPE); assertEquals("", terminal().composition)
+                hardwareTap(KeyEvent.KEYCODE_E); assertTrue(terminal().commitText("END"))
+            }
+        }
+        captureKeys("\\033[>11u", "é´qEND".toByteArray()) {
+            ui.runOnIdle {
+                deadAcute(); hardwareTap(KeyEvent.KEYCODE_E)
+                deadAcute(); hardwareTap(KeyEvent.KEYCODE_Q)
+                assertTrue(terminal().commitText("END"))
+            }
+        }
+    }
+
+    @Test fun deadKeyStateDoesNotCrossFocusDevicesOrImeCommits() {
+        captureKeys("", "eeé中文eEND".toByteArray()) { bytes ->
+            ui.runOnIdle {
+                deadAcute(); terminal().onWindowFocusChanged(false); terminal().onWindowFocusChanged(true)
+                assertEquals("", terminal().composition); assertEquals(0, bytes.length())
+                hardwareTap(KeyEvent.KEYCODE_E)
+                deadAcute(); hardwareTap(KeyEvent.KEYCODE_E, device = 42)
+                assertTrue(terminal().composition.isNotEmpty())
+                hardwareTap(KeyEvent.KEYCODE_E); assertEquals("", terminal().composition)
+                val ime = terminal().onCreateInputConnection(EditorInfo())
+                deadAcute(); assertTrue(ime.commitText("中文", 1))
+                hardwareTap(KeyEvent.KEYCODE_E); assertTrue(terminal().commitText("END"))
+            }
+        }
+    }
+
+    @Test fun auxiliaryKeysResolvePendingDeadCompositionBeforeSending() {
+        captureKeys("", "´\teEND".toByteArray()) {
+            ui.runOnIdle { deadAcute() }
+            ui.onNodeWithText("Esc").performClick()
+            ui.runOnIdle { assertEquals("", terminal().composition); deadAcute() }
+            ui.onNodeWithText("Tab").performClick()
+            ui.runOnIdle {
+                assertEquals("", terminal().composition)
+                val ime = terminal().onCreateInputConnection(EditorInfo())
+                deadAcute(); assertTrue(ime.deleteSurroundingText(1, 0))
+                assertEquals("", terminal().composition)
+                hardwareTap(KeyEvent.KEYCODE_E); assertTrue(terminal().commitText("END"))
+            }
         }
     }
 

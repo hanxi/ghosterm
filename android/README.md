@@ -14,7 +14,7 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 与最终原型的差距仍需保留：终端底栏目前是主机/会话/键盘，文件入口等 A4；字号当前为 14sp，原型的默认 12sp 与其余完整偏好等 A7。文本剪贴板不等于文件待粘贴清单，后者属于 A5/A6。
 
-当前工作区另有修饰键、数字键盘与组合音符扩展，五项定向设备测试已通过；24 组选组变异在基线阶段中断，完整设备回归未收尾，见[§9.18](../docs/reference/android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。不能把脚本增加到 71 组理解为 71 组已通过，也不能将最近已交付的 94 项完整设备结果更新为 99 项通过。
+修饰键、数字键盘与组合音符扩展已完成本片验收：完整 **99 项设备测试，0 失败/错误/跳过**；文本变异选跑 **24 组**通过，含新增 16 组与旧八组，见[§9.18](../docs/reference/android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。脚本总量 71 组不是本轮全量重跑；证据仍限 API 36 arm64 / 4 KB 页模拟器。
 
 ## 构建
 
@@ -50,7 +50,7 @@ python3 scripts/mutation-check-android-abi.py
 python3 scripts/mutation-check-android-native.py
 python3 scripts/mutation-check-android-config.py
 python3 scripts/mutation-check-android-terminal.py
-# A2 文本与按键切片验证，已交付范围见 §9.14–§9.17；工作区待验见 §9.18
+# A2 文本与按键切片验证，各轮完整/选组范围见 §9.14–§9.18
 python3 scripts/mutation-check-android-text.py
 python3 scripts/mutation-check-android-vt-libc.py
 bash scripts/gate.sh

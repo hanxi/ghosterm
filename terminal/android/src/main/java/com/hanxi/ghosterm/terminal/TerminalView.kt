@@ -22,6 +22,7 @@ import android.text.InputType
 import android.text.Selection
 import android.text.SpannableStringBuilder
 import android.view.GestureDetector
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -51,12 +52,16 @@ class TerminalView(context: Context) : View(context) {
         set(value) { field = value; onModifiersChanged(value) }
     var currentFrame: TerminalFrame? = null
         private set
-    var composition: String = ""
-        private set
+    private var imeComposition = ""
+    private val pendingAccents = mutableMapOf<Int, Int>()
+    val composition: String get() = imeComposition.ifEmpty {
+        pendingAccents.values.lastOrNull()?.let { String(Character.toChars(it)) } ?: ""
+    }
     private var connection: TerminalInputConnection? = null
     private data class HeldKey(val code: Int, val modifiers: Int, val unshifted: Int, val softCtrl: Int)
     private val heldKeys = mutableMapOf<Pair<Int, Int>, HeldKey>()
     private fun releaseHeldKeys() {
+        pendingAccents.clear(); invalidate()
         val pending = heldKeys.values.toList()
         heldKeys.clear()
         pending.forEach { key -> dispatch {
@@ -345,6 +350,14 @@ class TerminalView(context: Context) : View(context) {
     fun showKeyboard() { requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT) }
     fun hideKeyboard() { inputMethod.hideSoftInputFromWindow(windowToken, 0) }
     fun sendKey(code: Int, modifiers: Int = 0, text: String = "", unshiftedCodepoint: Int = 0): Boolean {
+        if (pendingAccents.isNotEmpty()) {
+            if (code == KeyEvent.KEYCODE_ESCAPE || code == KeyEvent.KEYCODE_DEL) {
+                pendingAccents.clear(); invalidate(); return true
+            }
+            val accents = pendingAccents.values.joinToString("") { String(Character.toChars(it)) }
+            if (!dispatch { surface?.commit(accents) }) return false
+            pendingAccents.clear(); invalidate()
+        }
         val effectiveMods = modifiers or if (ctrl != 0) 2 else 0
         val sent = dispatch { surface?.let { target ->
             target.key(code, effectiveMods, text, unshiftedCodepoint, KeyAction.PRESS)
@@ -354,6 +367,7 @@ class TerminalView(context: Context) : View(context) {
         return sent
     }
     fun commitText(text: String): Boolean {
+        pendingAccents.clear(); invalidate()
         if (ctrl != 0 && text.length == 1 && text[0] in ' '..'~') {
             // A soft keyboard commits characters, not physical key positions.
             // Let VT decide C0/CSI-u/modifyOtherKeys; never encode Ctrl bytes here.
@@ -381,28 +395,81 @@ class TerminalView(context: Context) : View(context) {
         if (selecting && event.isCtrlPressed && code == KeyEvent.KEYCODE_A) { textAction { it.select(SelectionOperation.ALL) }; return true }
         if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_UP)
             return super.onKeyDown(code, event)
-        if (KeyEvent.isModifierKey(code)) return true
+        val modifierKey = KeyEvent.isModifierKey(code) || code in setOf(
+            KeyEvent.KEYCODE_CAPS_LOCK, KeyEvent.KEYCODE_NUM_LOCK, KeyEvent.KEYCODE_SCROLL_LOCK)
         val unicode = event.getUnicodeChar(event.metaState and KeyEvent.META_CTRL_MASK.inv() and KeyEvent.META_META_MASK.inv())
-        if (unicode and android.view.KeyCharacterMap.COMBINING_ACCENT != 0) return super.onKeyDown(code, event)
-        val text = if (unicode > 0) String(Character.toChars(unicode)) else ""
+        if (!modifierKey) composeHardware(code, event, unicode)?.let { return it }
+        // Ctrl/Meta combinations are shortcuts even when Alt alone is a dead key.
+        val character = if (unicode and KeyCharacterMap.COMBINING_ACCENT != 0)
+            event.getUnicodeChar(event.metaState and KeyEvent.META_CTRL_MASK.inv() and KeyEvent.META_META_MASK.inv() and KeyEvent.META_ALT_MASK.inv()) else unicode
+        val text = if (character > 0) String(Character.toChars(character)) else ""
         val identity = event.deviceId to code
         val previous = heldKeys[identity]
-        val softCtrl = previous?.softCtrl ?: if (ctrl != 0) 2 else 0
+        val softCtrl = if (modifierKey) 0 else previous?.softCtrl ?: if (ctrl != 0) 2 else 0
         val modifiers = keyModifiers(event) or softCtrl
         val unshifted = event.getUnicodeChar(0).let {
             if (it and android.view.KeyCharacterMap.COMBINING_ACCENT == 0) it else 0
         }
         val action = if (previous != null && event.repeatCount > 0) KeyAction.REPEAT else KeyAction.PRESS
-        val sent = dispatch { surface?.key(code, modifiers, text, unshifted, action) }
+        // Freeze keypad navigation identity until release, even if Num Lock changes.
+        val terminalCode = previous?.code ?: if (!event.isNumLockOn &&
+            (code in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 || code == KeyEvent.KEYCODE_NUMPAD_DOT))
+            code or TerminalKeys.KEYPAD_NAVIGATION else code
+        val sent = dispatch { surface?.key(terminalCode, modifiers, text, unshifted, action) }
         if (sent) {
-            heldKeys[identity] = HeldKey(code, modifiers, unshifted, softCtrl)
-            if (ctrl == 1) ctrl = 0
+            heldKeys[identity] = HeldKey(terminalCode, modifiers, unshifted, softCtrl)
+            if (!modifierKey && ctrl == 1) ctrl = 0
         }
+        return sent
+    }
+    /** Android resolves layout text; VT resolves terminal key protocols. */
+    private fun composeHardware(code: Int, event: KeyEvent, unicode: Int): Boolean? {
+        val device = event.deviceId
+        val accent = pendingAccents[device]
+        if (accent != null && (code == KeyEvent.KEYCODE_ESCAPE || code == KeyEvent.KEYCODE_DEL)) {
+            pendingAccents.remove(device); invalidate(); return true
+        }
+        val dead = unicode and KeyCharacterMap.COMBINING_ACCENT != 0
+        if (dead && !event.isCtrlPressed && !event.isMetaPressed) {
+            val next = unicode and KeyCharacterMap.COMBINING_ACCENT_MASK
+            if (accent != null) {
+                val combined = KeyCharacterMap.getDeadChar(accent, next)
+                if (combined != 0) { pendingAccents.remove(device); return commitHardware(String(Character.toChars(combined))) }
+                if (!dispatch { surface?.commit(String(Character.toChars(accent))) }) return false
+            }
+            pendingAccents.remove(device); pendingAccents[device] = next; invalidate(); return true
+        }
+        if (accent != null) {
+            pendingAccents.remove(device); invalidate()
+            if (unicode >= 32 && unicode != 127 && !event.isCtrlPressed && !event.isMetaPressed) {
+                val combined = KeyCharacterMap.getDeadChar(accent, unicode)
+                val prefix = String(Character.toChars(accent))
+                return commitHardware(if (combined != 0) String(Character.toChars(combined)) else prefix + String(Character.toChars(unicode)))
+            }
+            if (!dispatch { surface?.commit(String(Character.toChars(accent))) }) return false
+        }
+        // A layout-specific Alt character is text (e.g. virtual Alt+C → ç),
+        // while an unchanged Alt character remains a terminal shortcut.
+        if (!dead && unicode >= 32 && unicode != 127 && event.isAltPressed && !event.isCtrlPressed && !event.isMetaPressed &&
+            unicode != event.getUnicodeChar(event.metaState and KeyEvent.META_ALT_MASK.inv())) {
+            return commitHardware(String(Character.toChars(unicode)))
+        }
+        return null
+    }
+    private fun commitHardware(text: String): Boolean {
+        invalidate()
+        val sent = dispatch { surface?.commit(text) }
+        if (sent && ctrl == 1) ctrl = 0
         return sent
     }
     private fun keyModifiers(event: KeyEvent): Int =
         (if (event.isShiftPressed) 1 else 0) or (if (event.isCtrlPressed) 2 else 0) or
-            (if (event.isAltPressed) 4 else 0) or (if (event.isMetaPressed) 8 else 0)
+            (if (event.isAltPressed) 4 else 0) or (if (event.isMetaPressed) 8 else 0) or
+            (if (event.isCapsLockOn) 16 else 0) or (if (event.isNumLockOn) 32 else 0) or
+            (if (event.isShiftPressed && event.metaState and KeyEvent.META_SHIFT_RIGHT_ON != 0) 64 else 0) or
+            (if (event.isCtrlPressed && event.metaState and KeyEvent.META_CTRL_RIGHT_ON != 0) 128 else 0) or
+            (if (event.isAltPressed && event.metaState and KeyEvent.META_ALT_RIGHT_ON != 0) 256 else 0) or
+            (if (event.isMetaPressed && event.metaState and KeyEvent.META_META_RIGHT_ON != 0) 512 else 0)
 
     override fun onKeyUp(code: Int, event: KeyEvent): Boolean {
         if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN)
@@ -485,9 +552,9 @@ class TerminalView(context: Context) : View(context) {
         }
         override fun getEditable(): Editable = pending
         init { Selection.setSelection(pending, 0) }
-        fun cancel() { valid = false; pending.clear(); composition = ""; invalidate() }
+        fun cancel() { valid = false; pending.clear(); imeComposition = ""; pendingAccents.clear(); invalidate() }
         private fun changed() {
-            composition = pending.toString(); invalidate()
+            imeComposition = pending.toString(); invalidate()
             if (batches == 0 && valid) {
                 inputMethod.updateSelection(this@TerminalView, Selection.getSelectionStart(pending), Selection.getSelectionEnd(pending),
                     getComposingSpanStart(pending), getComposingSpanEnd(pending))

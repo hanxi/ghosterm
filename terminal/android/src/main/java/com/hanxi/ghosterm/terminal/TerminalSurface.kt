@@ -20,6 +20,9 @@ interface TerminalSurface {
 /** Private VT event action, independent of Android KeyEvent numeric values. */
 enum class KeyAction(val code: Int) { RELEASE(0), PRESS(1), REPEAT(2) }
 
+/** Private surface code extension: preserve numpad navigation identity across key-up. */
+object TerminalKeys { const val KEYPAD_NAVIGATION = 0x10000 }
+
 enum class SelectionOperation(val code: Int) { WORD(2), START(3), END(4), ALL(5), CLEAR(6), ORDER(9) }
 
 data class TerminalCell(val background: Int, val foreground: Int, val flags: Int, val width: Int, val text: String)

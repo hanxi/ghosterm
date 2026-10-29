@@ -71,10 +71,32 @@ bool gat_surface_text(gat_surface *s, const uint8_t *text, size_t length) {
 
 /* Android physical key codes; text is supplied separately by the platform. */
 static GhosttyKey key_code(int key) {
+    /* Private TerminalKeys.KEYPAD_NAVIGATION extension, frozen by the View at down. */
+    if (key >= (0x10000 | 144) && key <= (0x10000 | 153)) {
+        static const GhosttyKey nav[] = { GHOSTTY_KEY_NUMPAD_INSERT, GHOSTTY_KEY_NUMPAD_END,
+            GHOSTTY_KEY_NUMPAD_DOWN, GHOSTTY_KEY_NUMPAD_PAGE_DOWN, GHOSTTY_KEY_NUMPAD_LEFT,
+            GHOSTTY_KEY_NUMPAD_BEGIN, GHOSTTY_KEY_NUMPAD_RIGHT, GHOSTTY_KEY_NUMPAD_HOME,
+            GHOSTTY_KEY_NUMPAD_UP, GHOSTTY_KEY_NUMPAD_PAGE_UP };
+        return nav[key - (0x10000 | 144)];
+    }
+    if (key == (0x10000 | 158)) return GHOSTTY_KEY_NUMPAD_DELETE;
+    if (key >= 144 && key <= 153) return GHOSTTY_KEY_NUMPAD_0 + key - 144;
     if (key >= 29 && key <= 54) return GHOSTTY_KEY_A + key - 29;
     if (key >= 7 && key <= 16) return GHOSTTY_KEY_DIGIT_0 + key - 7;
     if (key >= 131 && key <= 142) return GHOSTTY_KEY_F1 + key - 131;
     switch (key) {
+        case 57: return GHOSTTY_KEY_ALT_LEFT; case 58: return GHOSTTY_KEY_ALT_RIGHT;
+        case 59: return GHOSTTY_KEY_SHIFT_LEFT; case 60: return GHOSTTY_KEY_SHIFT_RIGHT;
+        case 113: return GHOSTTY_KEY_CONTROL_LEFT; case 114: return GHOSTTY_KEY_CONTROL_RIGHT;
+        case 115: return GHOSTTY_KEY_CAPS_LOCK; case 116: return GHOSTTY_KEY_SCROLL_LOCK;
+        case 117: return GHOSTTY_KEY_META_LEFT; case 118: return GHOSTTY_KEY_META_RIGHT;
+        case 120: return GHOSTTY_KEY_PRINT_SCREEN; case 121: return GHOSTTY_KEY_PAUSE;
+        case 143: return GHOSTTY_KEY_NUM_LOCK;
+        case 154: return GHOSTTY_KEY_NUMPAD_DIVIDE; case 155: return GHOSTTY_KEY_NUMPAD_MULTIPLY;
+        case 156: return GHOSTTY_KEY_NUMPAD_SUBTRACT; case 157: return GHOSTTY_KEY_NUMPAD_ADD;
+        case 158: return GHOSTTY_KEY_NUMPAD_DECIMAL; case 159: return GHOSTTY_KEY_NUMPAD_COMMA;
+        case 160: return GHOSTTY_KEY_NUMPAD_ENTER; case 161: return GHOSTTY_KEY_NUMPAD_EQUAL;
+        case 162: return GHOSTTY_KEY_NUMPAD_PAREN_LEFT; case 163: return GHOSTTY_KEY_NUMPAD_PAREN_RIGHT;
         case 19: return GHOSTTY_KEY_ARROW_UP; case 20: return GHOSTTY_KEY_ARROW_DOWN;
         case 21: return GHOSTTY_KEY_ARROW_LEFT; case 22: return GHOSTTY_KEY_ARROW_RIGHT;
         case 61: return GHOSTTY_KEY_TAB; case 62: return GHOSTTY_KEY_SPACE;

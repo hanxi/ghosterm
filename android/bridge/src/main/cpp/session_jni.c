@@ -241,7 +241,7 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_dispose(JNIE
 JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_enqueue(JNIEnv *env, jobject self, jlong id,
         jint kind, jint key, jint mods, jint unshifted, jint key_action, jbyteArray bytes) {
     (void)self;
-    if (!bytes || kind < 1 || kind > 3 || mods < 0 || mods > 15 || key_action < 0 || key_action > 2) { fail(env, "终端输入无效"); return; }
+    if (!bytes || kind < 1 || kind > 3 || mods < 0 || mods > 1023 || key_action < 0 || key_action > 2) { fail(env, "终端输入无效"); return; }
     if (unshifted < 0 || unshifted > 0x10ffff || (unshifted >= 0xd800 && unshifted <= 0xdfff)) {
         fail(env, "终端按键字符无效"); return;
     }

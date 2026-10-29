@@ -132,7 +132,7 @@ Android 已补齐三字段显式覆盖/恢复继承、主机别名重命名及�
 
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。
 
-Android 当前未提交的修饰键、数字键盘与组合音符切片，仅有五项定向测试通过，选组变异基线中断、完整回归待完成，详见[§9.18](docs/reference/android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。上表 A2 状态仍为部分完成；已交付完整设备证据保持 §9.17 的 94 项。
+Android 修饰键、数字键盘与组合音符切片已通过完整 **99 项设备测试**及 **24 组选组变异**，详见[§9.18](docs/reference/android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。A2 仍缺完整物理设备/布局矩阵和性能基线，不因本片通过而标为完成。
 
 ## 许可
 
