@@ -100,15 +100,15 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 ## 当前状态（2026-10-30）
 
-A4 本机/SAF 文件浏览首片在 §9.43 通过完整 214 项设备测试；后续 SFTP 草稿的最新完整回归有 1 项失败，部分 VERSION 后 EOF 协议用例也超时，当前尚未验收（[§9.44](docs/reference/android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)）；已交付范围、后续阶段和 macOS 待办见[路线图](docs/reference/roadmap.md#当前进度总览)。
+A4 本机/SAF 浏览已交付；最新 §9.45 完整 214 项设备回归通过，Android SFTP 依赖的 EOF/初始化清理已有修复和真实设备证据。受控接口与远端文件产品仍未验收，macOS 默认依赖未切换（[§9.45](docs/reference/android-implementation.md#945-android-sftp-依赖修复与设备复验2026-10-30)）；已交付范围、后续阶段和 macOS 待办见[路线图](docs/reference/roadmap.md#当前进度总览)。
 
 本机文件浏览、UTF-8 只读预览、点按打开/长按多选及 SAF 授权已接入，远端文件与复制任务尚未接；§9.42 的草稿构建问题已解决，当前证据见 [A4 实施记录](docs/reference/android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)。
 
 进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准；以下区分生产实现与历史验收，不把原型中的可交互演示记为已实现能力。
 
-- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档；A2 本地终端、A3 SSH 与 A7 身份/主机验证子页部分交付。最近完整通过记录为 §9.43 的 **214 项**，§9.44 最新完整回归有 1 项失败；A3 其余网络/取消收尾（候选推进已接）、A4 远端文件与 A5/A6 四方向复制、16 项设置、后台与发行矩阵仍待完成。
+- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档；A2 本地终端、A3 SSH 与 A7 身份/主机验证子页部分交付。最新 §9.45 完整 **214 项通过**，§9.44 的偶发失败保留追踪；A3 其余网络/取消收尾（候选推进已接）、A4 远端文件与 A5/A6 四方向复制、16 项设置、后台与发行矩阵仍待完成。
 - **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。macOS 尚无 TCP 失败后遍历 DNS 备用地址的实现；Android 已按 §9.40 接入候选推进。Android 普通 shell 已接剩余预算和取消；Swift 新接口已验，但 macOS 产品尚未改用，认证可取消不等于桌面通道打开已可取消，见 [通道边界](apple/README.md#ssh-认证后的通道打开边界)。
-- **共享核心**：工作区 SFTP 草稿为 **39 项 CTest / 82 ABI**，Apple 80/2、JNI 40/42；协议 EOF 失败尚未解决，两端文件产品未接新入口。已验收 §9.41 为 **38 项 CTest / 81 个 ABI**，Apple 引用 79/登记未用 2，JNI 引用 39/登记未用 42。主机信任 TOFU/移除共同事务已交付；Android 管理页面另在 §9.39 验收，macOS 尚无管理页面。共享修复不代表 macOS 的 SSH 配置、终端设置或传输写入事务已完成。
+- **共享核心**：工作区 SFTP 草稿为 **39 项 CTest / 82 ABI**，Apple 80/2、JNI 40/42；Android 依赖 EOF 已修复，macOS 默认库尚未切换，两端文件产品未接新入口。已验收 §9.41 为 **38 项 CTest / 81 个 ABI**，Apple 引用 79/登记未用 2，JNI 引用 39/登记未用 42。主机信任 TOFU/移除共同事务已交付；Android 管理页面另在 §9.39 验收，macOS 尚无管理页面。共享修复不代表 macOS 的 SSH 配置、终端设置或传输写入事务已完成。
 
 | 能力 | 状态 |
 |---|---|

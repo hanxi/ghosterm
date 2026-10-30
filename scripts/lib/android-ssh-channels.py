@@ -30,6 +30,7 @@ def fixture(work, enabled):
         def __init__(self, connection):
             self.record = None
             self.connection = connection
+            self.sftp_requested = threading.Event()
         def get_allowed_auths(self, username): return 'publickey'
         def check_auth_publickey(self, username, supplied):
             with lock: self.record = records.get(username)
@@ -50,6 +51,10 @@ def fixture(work, enabled):
         def check_channel_pty_request(self, channel, term, width, height, pixelwidth, pixelheight, modes):
             return self.phase('pty')
         def check_channel_shell_request(self, channel): return self.phase('shell')
+        def check_channel_subsystem_request(self, channel, name):
+            if name != 'sftp' or not self.phase('subsystem'): return False
+            self.sftp_requested.set()
+            return True
     class SSHHandler(socketserver.BaseRequestHandler):
         def handle(self):
             transport = paramiko.Transport(self.request)
@@ -57,11 +62,30 @@ def fixture(work, enabled):
             try:
                 transport.add_server_key(key)
                 transport.start_server(server=peer)
+                sftp_channel = None
+                init = bytearray()
+                version_sent = False
                 while transport.is_active() and not closing.is_set():
                     channel = transport.accept(0.05)
                     if channel:
                         # Retain accepted channels until this connection closes.
                         channels.append(channel)
+                        sftp_channel = channel
+                    if sftp_channel and peer.sftp_requested.is_set() and not version_sent and sftp_channel.recv_ready():
+                        init.extend(sftp_channel.recv(9-len(init)))
+                        if len(init) == 9:
+                            if init[:5] != b'\x00\x00\x00\x05\x01': raise ValueError('Expected SFTP INIT')
+                            version_sent = True
+                            if peer.phase('version'):
+                                if peer.record['stage'] == 'version' and peer.record['action'] in ('eof','partial','header-eof','queued-partial'):
+                                    if peer.record['action'] == 'queued-partial':
+                                        sftp_channel.sendall(b'\x00\x00\x00\x05\x65\x00\x00\x00\x00')
+                                    packet = b'\x00\x00\x40\x00\x02\x00\x00\x00\x03'
+                                    if peer.record['action'] == 'header-eof': packet = packet[:6]
+                                    sftp_channel.sendall(packet)
+                                    if peer.record['action'] not in ('partial','queued-partial'): sftp_channel.shutdown_write()
+                                else:
+                                    sftp_channel.sendall(b'\x00\x00\x00\x05\x02\x00\x00\x00\x03')
             except (EOFError, OSError, paramiko.SSHException): pass
             finally: transport.close()
     class Control(socketserver.StreamRequestHandler):
@@ -72,7 +96,7 @@ def fixture(work, enabled):
             with lock:
                 op = request['op']
                 if op == 'new':
-                    if request['stage'] not in ('channel','pty','shell') or request['action'] not in ('hold','deny','allow','disconnect'): raise ValueError('Invalid fixture mode')
+                    if request['stage'] not in ('channel','pty','shell','subsystem','version') or request['action'] not in ('hold','deny','allow','disconnect','eof','partial','header-eof','queued-partial'): raise ValueError('Invalid fixture mode')
                     name = 'channel-'+secrets.token_hex(12)
                     records[name] = dict(stage=request['stage'],action=request['action'],events=[],release=threading.Event())
                     result = dict(user=name)

@@ -15,6 +15,8 @@ PIN = '81598385d608dda4946093d6d6a234d204a2f225'
 NDK = '28.2.13676358'
 VT_PATCHES = [ROOT / 'patches/libghostty/android-vt-8159838' / name for name in
               ('0001-link-android-libc.patch', '0002-local-clear.patch')]
+SSH2_PATCHES = [ROOT / 'patches/libssh2/1.11.1' / name for name in
+                ('0001-sftp-eof.patch', '0002-sftp-init-cleanup.patch')]
 SOURCES = {
     'openssl-3.5.4': ('https://www.openssl.org/source/openssl-3.5.4.tar.gz',
                       '967311f84955316969bdb1d8d4b983718ef42338639c621ec4c34fddef355e99'),
@@ -41,6 +43,21 @@ def source(name, work):
     if not path.exists():
         with tarfile.open(archive) as handle:
             handle.extractall(work, filter='data')
+    return path
+
+
+def patched_ssh2_source(work):
+    # Always unpack from the verified archive; never re-patch a cached source tree.
+    source('libssh2-1.11.1', work)
+    stage = work / 'ssh2-patched'
+    if stage.exists():
+        shutil.rmtree(stage)
+    stage.mkdir()
+    with tarfile.open(work / 'libssh2-1.11.1.tar.gz') as archive:
+        archive.extractall(stage, filter='data')
+    path = stage / 'libssh2-1.11.1'
+    for patch in SSH2_PATCHES:
+        run(['patch', '--batch', '--forward', '-p1', '-i', patch], cwd=path)
     return path
 
 
@@ -83,7 +100,7 @@ def main():
     for key in ('SDKROOT', 'CPATH', 'LIBRARY_PATH', 'PKG_CONFIG_PATH', 'CFLAGS', 'LDFLAGS'):
         environment.pop(key, None)
     signature = {'ghostty': PIN, 'ndk': NDK, 'api': 29, 'abi': args.abi, 'zig': '0.16.0',
-                 'sources': SOURCES, 'vt_patches': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in VT_PATCHES}, 'builder': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+                 'sources': SOURCES, 'ssh2_patches': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in SSH2_PATCHES}, 'vt_patches': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in VT_PATCHES}, 'builder': hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
     receipt = prefix / 'receipt.json'
     licenses = ROOT / 'build/android-native/assets/licenses'
     licenses.mkdir(parents=True, exist_ok=True)
@@ -104,8 +121,10 @@ def main():
          'no-apps', 'no-docs', 'no-module', '--openssldir=/nonexistent/ghosterm', '--prefix=' + str(prefix), '--libdir=lib'], cwd=openssl, env=environment)
     run(['make', '-j4', 'build_libs'], cwd=openssl, env=environment)
     run(['make', 'install_dev'], cwd=openssl, env=environment)
-    ssh2 = source('libssh2-1.11.1', work)
-    run(['cmake', '-S', ssh2, '-B', work / 'ssh2-build',
+    ssh2 = patched_ssh2_source(work)
+    # A CMake cache from the old, unpatched source must not be reused.
+    ssh2_build = work / 'ssh2-patched-build'
+    run(['cmake', '-S', ssh2, '-B', ssh2_build,
          '-DCMAKE_TOOLCHAIN_FILE=' + str(ndk / 'build/cmake/android.toolchain.cmake'),
          '-DANDROID_ABI=' + args.abi, '-DANDROID_PLATFORM=android-29',
          '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_POSITION_INDEPENDENT_CODE=ON',
@@ -115,8 +134,8 @@ def main():
          '-DOPENSSL_INCLUDE_DIR=' + str(prefix / 'include'),
          '-DOPENSSL_CRYPTO_LIBRARY=' + str(prefix / 'lib/libcrypto.a'),
          '-DOPENSSL_SSL_LIBRARY=' + str(prefix / 'lib/libssl.a')], env=environment)
-    run(['cmake', '--build', work / 'ssh2-build', '-j', '4'], env=environment)
-    run(['cmake', '--install', work / 'ssh2-build'], env=environment)
+    run(['cmake', '--build', ssh2_build, '-j', '4'], env=environment)
+    run(['cmake', '--install', ssh2_build], env=environment)
     engine = work / 'ghostty'
     if engine.exists():
         shutil.rmtree(engine)

@@ -36,7 +36,7 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 SSH 身份设置已接通列表、详情、指纹、导入与移除，身份设置八项定向/十组变异通过，后续主机关联切片完整 160 项设备测试通过；早期清理/旋转观测失败保留在[§9.32](../docs/reference/android-implementation.md#932-身份设置工作区复核2026-10-30)，修正与当前证据见[§9.33](../docs/reference/android-implementation.md#933-ssh-身份设置与公钥信息2026-10-30)。A7 的五类/16 项偏好仍未实现。
 
-**当前工作区未全绿**：SFTP 打开 helper `gaj_ssh_open_sftp` 已有声明/定义，但未被文件 owner 或 Kotlin 产品调用；ABI 对拍变为 40 引用/42 待办（共 82 项），不能据此称远端浏览已实现。共享部分 VERSION 后 EOF 用例超时；最新完整设备运行 214 项有 1 项选区滚动失败，§9.43 的全绿保留为历史。详见 [§9.44](../docs/reference/android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。
+**最新依赖进度**：Android 已应用 libssh2 EOF/初始化清理补丁，真实设备六场景及最新完整 214 项回归通过；§9.44 的选区偶发失败尚未定位原因。SFTP helper 仍未被文件 owner 或 Kotlin 产品调用；40/42、82 ABI 是未验收草稿数量，macOS 默认依赖仍未切换，不表示远端浏览已实现。详见 [§9.45](../docs/reference/android-implementation.md#945-android-sftp-依赖修复与设备复验2026-10-30)。
 
 ## 本机与 SAF 文件验证
 
@@ -45,6 +45,17 @@ ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-files.py
 ```
 
 真实本地文件与系统树选择器；18 组目标红/同 APK 配置对照绿/恢复绿/SHA。无需 SSH 夹具即可定向跑；完整套件仍按下文使用 SSH/凭据/协议端夹具。首片只读浏览与有界 UTF-8 预览，远端文件/复制队列未接，详见 §9.43。
+
+## SFTP 依赖验证
+
+Android 构建器从校验后的 libssh2 1.11.1 源码应用 EOF/初始化清理补丁，补丁哈希纳入依赖收据；远端文件 owner 仍待接入。
+
+```bash
+python3 scripts/test-libssh2-sftp.py --fetch --mutate
+python3 scripts/test-libssh2-sftp.py --android emulator-5554
+```
+
+第一条在隔离主机库验证六场景与五组 native/两组收据变异；第二条从实际 Android archive 构建探针，在指定设备验证六场景。须先运行 `bootstrap-ssh-channel-tests.sh` 与 Android 构建，详见 [补丁说明](../patches/libssh2/1.11.1/WHY.md)。它们不替代 JNI owner、文件页面或完整设备回归。
 
 ## SSH 通道打开验证
 

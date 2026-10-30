@@ -36,7 +36,7 @@ S6 的 Quick Look 已接本地打开及远端下载完成后打开；远端副�
 
 目录浏览还须补最新请求归属、失败历史回滚与树缓存失效：`FilesPanelModel.navigate` 的每个完成回调都更新显示并清除加载状态，`goBack/goForward` 在读取前改历史，`refresh` 只更新列表而保留旧树缓存。普通导航与树懒加载的历史通过不覆盖这些交互；源码与退出条件见 [Apple 导航边界](../../apple/README.md#目录导航与缓存边界)和[路线图 P1](roadmap.md#macos-下一步与共享缺口)。本次仅文档核对，未修复或新增原生验收。
 
-共享 SFTP 打开前置仍未收口：未验收的 controlled API 在部分 VERSION 报文后 EOF 用例中超时；macOS 文件工厂仍调用旧 `ssh.sftp()`，Android 只有未接产品的 native helper。M4.6 原有正常打开/传输证据不等于打开取消和资源回收已验收，见 [Apple SFTP 边界](../../apple/README.md#sftp-打开与取消边界)及 [§9.44](android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。后续列表、预览和 job 的契约保持各自验收范围。
+共享 SFTP 打开前置仍未收口：未验收的 controlled API 曾在部分 VERSION 报文后 EOF 用例中超时；§9.45 已修复 Android 依赖并验真实设备六场景，默认 macOS 库仍未切换。macOS 文件工厂仍调用旧 `ssh.sftp()`，Android 只有未接产品的 native helper。M4.6 原有正常打开/传输证据不等于打开取消和资源回收已验收，见 [Apple SFTP 边界](../../apple/README.md#sftp-打开与取消边界)及 [§9.44](android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。后续列表、预览和 job 的契约保持各自验收范围。
 
 ## M4.6 原始目标形态
 

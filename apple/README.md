@@ -108,7 +108,7 @@ macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，�
 
 `AppModel.makeSFTPFileBackend` 完成认证后，在专用 owner 队列调用无参 `ssh.sftp()`，没有传递原认证的剩余 deadline 或取消回调。专用线程避免在主线程执行这一步，但不保证中途取消能打断 libssh2；晚到结果归属检查也不是底层请求取消。
 
-`2852d6c` 后工作区新增 `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 和 Core controlled API，当前产品没有调用该重载。初始真实 SSH/协议用例和 Swift 变异已通过，但新增“部分 SFTP VERSION 后 EOF”探针超过 12 秒仍未返回；该草稿未验收。Android 同样只有 native helper，尚无远端文件 owner。最新失败、依赖修复要求及接线退出条件见 [Android 计划 §9.44](../docs/reference/android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。
+`2852d6c` 后工作区新增 `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 和 Core controlled API，当前产品没有调用该重载。初始真实 SSH/协议用例和 Swift 变异已通过，但新增“部分 SFTP VERSION 后 EOF”探针超过 12 秒仍未返回；该草稿未验收。§9.45 后续补丁已接 Android 构建并通过实际设备六场景，但 macOS 默认构建仍使用 Homebrew 库，不能把隔离修复库上的通过记为桌面依赖已修复。Android 同样只有 native helper，尚无远端文件 owner。最新失败、依赖修复要求及接线退出条件见 [Android 计划 §9.44](../docs/reference/android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。
 
 后续需先保证 init 每次调用能返回、部分初始化资源可回收，再接两端产品的预算/取消。后续 list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界；macOS 的队列主线程等待与导航问题仍独立待修。本轮仅复核实际调用链，没有新增桌面 SFTP 关闭/取消或完整宿主验收。
 

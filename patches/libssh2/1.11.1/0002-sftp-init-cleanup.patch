@@ -1,0 +1,71 @@
+--- a/src/sftp.c
++++ b/src/sftp.c
+@@ -783,6 +783,19 @@
+     LIBSSH2_FREE(session, sftp);
+ }
+
++/* Dispose of an unfinished init, before its channel is freed. */
++void _libssh2_sftp_init_free(LIBSSH2_SESSION *session)
++{
++    LIBSSH2_SFTP *sftp = session->sftpInit_sftp;
++    if(!sftp)
++        return;
++    sftp_packet_flush(sftp);
++    if(sftp->partial_packet)
++        LIBSSH2_FREE(session, sftp->partial_packet);
++    LIBSSH2_FREE(session, sftp);
++    session->sftpInit_sftp = NULL;
++}
++
+ /* sftp_init
+  * Startup an SFTP session
+  */
+@@ -921,6 +934,7 @@
+     }
+
+     if(session->sftpInit_state == libssh2_NB_state_error_closing) {
++        _libssh2_sftp_init_free(session);
+         rc = _libssh2_channel_free(session->sftpInit_channel);
+         if(rc == LIBSSH2_ERROR_EAGAIN) {
+             _libssh2_error(session, LIBSSH2_ERROR_EAGAIN,
+@@ -928,10 +942,6 @@
+             return NULL;
+         }
+         session->sftpInit_channel = NULL;
+-        if(session->sftpInit_sftp) {
+-            LIBSSH2_FREE(session, session->sftpInit_sftp);
+-            session->sftpInit_sftp = NULL;
+-        }
+         session->sftpInit_state = libssh2_NB_state_idle;
+         return NULL;
+     }
+--- a/src/session.c
++++ b/src/session.c
+@@ -923,6 +923,7 @@
+     }
+
+     if(session->free_state == libssh2_NB_state_created) {
++        _libssh2_sftp_init_free(session);
+         /* !checksrc! disable EQUALSNULL 1 */
+         while((ch = _libssh2_list_first(&session->channels)) != NULL) {
+             rc = _libssh2_channel_free(ch);
+@@ -1115,9 +1116,6 @@
+     }
+     if(session->scpSend_command) {
+         LIBSSH2_FREE(session, session->scpSend_command);
+-    }
+-    if(session->sftpInit_sftp) {
+-        LIBSSH2_FREE(session, session->sftpInit_sftp);
+     }
+
+     /* Free payload buffer */
+--- a/src/libssh2_priv.h
++++ b/src/libssh2_priv.h
+@@ -1280,4 +1280,7 @@
+ #define FOPEN_APPENDTEXT "a"
+ #endif
+
++/* Free unfinished SFTP initialization before channel teardown. */
++void _libssh2_sftp_init_free(LIBSSH2_SESSION *session);
++
+ #endif /* LIBSSH2_PRIV_H */

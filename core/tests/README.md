@@ -19,7 +19,7 @@
 
 ## SFTP 打开草稿的失败边界
 
-`2852d6c` 后未提交工作区新增 `test_sftp_open` / `sftp_open_e2e`，后者只验证正常 OpenSSH 打开、预先取消、零预算与真实目录，Core CTest 数量为 39。独立 `scripts/test-sftp-open.py` 才包含故障协议矩阵；初始 13 项通过后新增部分 VERSION 后 EOF，第 14 项超时。因此 Core gate 通过不等于该草稿验收通过，也不能把此前十组新变异记为当前 14 项基线通过。
+`2852d6c` 后未提交工作区新增 `test_sftp_open` / `sftp_open_e2e`，后者只验证正常 OpenSSH 打开、预先取消、零预算与真实目录，Core CTest 数量为 39。独立 `scripts/test-sftp-open.py` 才包含故障协议矩阵；初始 13 项通过后新增部分 VERSION 后 EOF，第 14 项超时。后续 §9.45 的隔离修复库上 17 项通过、Android 依赖六场景通过，但 macOS 默认依赖尚未切换。因此 Core gate 通过不等于该草稿验收通过，也不能把此前十组新变异记为当前 14 项基线通过。
 
 当前公开 ABI 为 82 项，Apple 80/2、JNI 40/42；两端文件产品尚未消费该新入口。EOF 有界返回、部分初始化缓冲释放及后续阻塞操作仍待修复/验证。复现命令、既有八组 SFTP 变异和失败证据见 [实现计划 §9.44](../../docs/reference/android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。这些新增脚本仍属工作区草稿，不称为已提交的 CI 闸门。
 
