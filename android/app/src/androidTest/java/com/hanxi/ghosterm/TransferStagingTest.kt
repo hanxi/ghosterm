@@ -180,13 +180,21 @@ class TransferStagingTest {
         val queue=LinkedBlockingQueue<Runnable>()
         val dispatcher=object:CoroutineDispatcher() { override fun dispatch(context:CoroutineContext,block:Runnable) { queue.add(block) } }
         val file=File(home,"ready").apply { writeText("ready") }
+        val release=CountDownLatch(1)
         val job=launch(dispatcher,start=CoroutineStart.UNDISPATCHED) {
-            store.snapshot(5) { open(file) }.use { fail("cancelled delivery published") }
+            store.snapshot(5) {
+                check(release.await(5,TimeUnit.SECONDS)) { "caller did not release the source" }
+                open(file)
+            }.use { fail("cancelled delivery published") }
         }
+        // The caller must suspend before IO completes. Otherwise a fast copy can
+        // return inline from suspendCancellableCoroutine, before cancellation exists.
+        release.countDown()
         val delivery=withContext(Dispatchers.IO) { queue.poll(5,TimeUnit.SECONDS) }
-        assertNotNull("copy must finish and queue result before cancellation",delivery)
-        assertEquals(5L,store.reservedBytes)
-        job.cancel();delivery!!.run();job.join()
+        try {
+            assertNotNull("copy must finish and queue result before cancellation",delivery)
+            assertEquals(5L,store.reservedBytes)
+        } finally { job.cancel();delivery?.run();job.join() }
         assertEquals(0L,store.reservedBytes);assertTrue(openPaths().isEmpty())
     }
 

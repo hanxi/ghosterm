@@ -1,10 +1,10 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
-代码核对：2026-10-31，macOS 源码与 `72bfe1b` 一致；Android 进度同步至 §9.62。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+代码核对：2026-10-31，macOS 源码与 `72bfe1b` 一致；Android 进度同步至 §9.63。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 **共享接口与产品进度分开**：Swift 已绑定受控 SFTP 打开、浏览、预览、独占创建、读取到 fd 和非覆盖发布；桌面文件队列与 Quick Look 仍使用旧 job。当前为 88 个公共 ABI、Apple 86 项引用/2 项登记未用。实际调用链见下方[接线表](#共享文件接口与产品接线)，不能把 Android 私有目录提交或设备回归记为 macOS 功能完成。
 
-最近相关验证：§9.57 完成发布接口专项及五组 Swift 变异；§9.58–§9.62 分别完成 macOS 原生构建、ad-hoc 包及依赖/引擎校验。它们没有新增完整 macOS 宿主或系统交互证据；详细范围与失败记录分别保留在[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)、[§9.58](../docs/reference/android-implementation.md#958-a5-应用私有目录非覆盖发布2026-10-31)、[§9.59](../docs/reference/android-implementation.md#959-a5-saf-新文档写入2026-10-31)、[§9.60](../docs/reference/android-implementation.md#960-a5-复制来源清单与文件页面2026-10-31)、[§9.61](../docs/reference/android-implementation.md#961-a5-粘贴请求与来源树扫描2026-10-31)、[§9.62](../docs/reference/android-implementation.md#962-a5-目标预检与冲突元数据2026-10-31)及[工作区交接](../docs/reference/workspace-handoff.md)。
+最近相关验证：§9.57 完成发布接口专项及五组 Swift 变异；§9.58–§9.63 分别完成 macOS 原生构建、ad-hoc 包及依赖/引擎校验。它们没有新增完整 macOS 宿主或系统交互证据；详细范围与失败记录分别保留在[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)、[§9.58](../docs/reference/android-implementation.md#958-a5-应用私有目录非覆盖发布2026-10-31)、[§9.59](../docs/reference/android-implementation.md#959-a5-saf-新文档写入2026-10-31)、[§9.60](../docs/reference/android-implementation.md#960-a5-复制来源清单与文件页面2026-10-31)、[§9.61](../docs/reference/android-implementation.md#961-a5-粘贴请求与来源树扫描2026-10-31)、[§9.62](../docs/reference/android-implementation.md#962-a5-目标预检与冲突元数据2026-10-31)、[§9.63](../docs/reference/android-implementation.md#963-a5-请求内冲突决策与执行清单2026-10-31)及[工作区交接](../docs/reference/workspace-handoff.md)。
 
 ## 当前结构（2026-10-31）
 
@@ -225,7 +225,7 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.
 
 目录重试会移除旧父任务并再次调用 `expandDirectory`，重新枚举当前整棵目录；旧子任务不因此删除，已成功文件也没有从新一轮扫描中排除。因此当前“重试”不等同只重试失败子项，且冲突会继续受上述全局选择影响。单文件重试重置同一行的 job ID/进度再提交，也不提供字节断点续传。两项为本轮源码接线核对，未新增真实文件覆盖实验或原生 UI 测试；修复条件见路线图 P1。
 
-“保留两者”也还没有有界的名称分配契约。`TransferManager.uniqueName` 从 ` (1)` 开始，以 `while true` 逐个调用存在性查询，直到找到空名字；没有尝试次数、总时间或 UTF-8 名称长度限制。调用发生在 `@MainActor` 的 `start` 内，远端查询又经过 `SFTPFileBackend.queue.sync`，大量同名候选或慢网络会延长主线程等待。返回的名称没有被占用，后续仍是旧覆盖 job，查询后出现的同名文件可能被覆盖。修复需异步且可取消的有界查找、名称长度校验与最终非覆盖提交；达到预算应显示失败，不能无限编号。此为 `150ffd5` 源码核对，尚无对应故障行为验收；Android 的名称规划不能直接算作本端修复。
+“保留两者”也还没有有界的名称分配契约。`TransferManager.uniqueName` 从 ` (1)` 开始，以 `while true` 逐个调用存在性查询，直到找到空名字；没有尝试次数、总时间或 UTF-8 名称长度限制。调用发生在 `@MainActor` 的 `start` 内，远端查询又经过 `SFTPFileBackend.queue.sync`，大量同名候选或慢网络会延长主线程等待。返回的名称没有被占用，后续仍是旧覆盖 job，查询后出现的同名文件可能被覆盖。修复需异步且可取消的有界查找、名称长度校验与最终非覆盖提交；达到预算应显示失败，不能无限编号。此为 `150ffd5` 源码核对，尚无对应故障行为验收；Android §9.63 已交付请求内决策和有界名称规划，但没有改动本端调用方，不能直接算作本端修复。
 
 ### 递归权限与链接边界
 

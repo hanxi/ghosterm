@@ -104,6 +104,30 @@ class SafPublicationTest {
         return store.snapshot(bytes.size.toLong()) { AssetFileDescriptor(ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY),0,bytes.size.toLong()) }
     }
 
+    @Test fun conflictPlanPublishesLocalBytesUnderNewSafName() = runBlocking<Unit> {
+        val bytes="planned SAF bytes".toByteArray();File(root,"keep.txt").writeBytes(bytes)
+        val local=LocalFileBrowser(root,resolver);val source=FileLocation(FileEndpoint.APP)
+        val selected=local.list(source).single { it.name=="keep.txt" }
+        val intent=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"App",listOf(selected)),location,"SAF")
+        val access=FileDestinationAccess(root,resolver,local::browse)
+        val checked=FilePastePreflight(access::inspect,access::relation).check(FileTreeScanner(local::browse).scan(intent))
+        assertTrue(checked.failure.toString(),checked.checked)
+        val decisions=FilePasteDecisions.begin(checked)
+        decisions.choose(decisions.state().reference,"keep.txt",FilePasteChoice.KEEP_BOTH)
+        val plan=decisions.confirm(decisions.state().reference)
+        assertEquals("keep (2).txt",plan.roots.single().destinationName)
+        assertEquals("opaque:keep",plan.check.conflicts.single().destination.id)
+        assertEquals(0,state().getInt("creates"))
+        local.snapshot(source,selected,store).use { frozen ->
+            val operation=request(plan.roots.single().destinationName)
+            val result=operation.execute(frozen);operation.awaitClosed()
+            assertEquals(State.COMPLETE,result.state);assertEquals("keep (2).txt",result.actualName)
+            assertArrayEquals(bytes,state().getByteArray("bytes"));assertEquals(bytes.size.toLong(),result.bytesWritten)
+        }
+        assertEquals(0L,store.reservedBytes);assertEquals(1,state().getInt("creates"));preserved()
+        assertArrayEquals(bytes,File(root,"keep.txt").readBytes())
+    }
+
     @Test fun targetPreflightUsesRealGrantFlagsAndConflictMetadataWithoutCreating() = runBlocking {
         File(root,"keep.txt").writeText("new")
         val local=LocalFileBrowser(root,resolver)

@@ -93,6 +93,38 @@ class RemoteFilesTest {
         catch(cancelled: CancellationException) { throw cancelled }
         catch(failure: Exception) { throw AssertionError("publication outcome must reach caller",failure) }
 
+    @Test fun conflictPlanCopiesRealRemoteBytesToNewLocalName() = directory { root ->
+        val home=File(root,"home").apply { mkdir() };File(home,"文本.txt").writeText("local original")
+        val local=LocalFileBrowser(home,instrumentation.targetContext.contentResolver)
+        RemoteFileSession(connection(known(root))).use { files ->
+            supply(files)
+            FileBrowserRepository(local).use { repository -> runBlocking {
+                val endpoint=repository.attach(RemoteFileIdentity("copy",host,fixture.getString("user"),fixture.getInt("port")),files)
+                val remote=repository.browse(FileLocation(endpoint));val selected=remote.entries.single { it.name=="文本.txt" }
+                val request=FilePasteRequest.capture(FileClipboardSnapshot.capture(remote.location,"Remote",listOf(selected)),FileLocation(FileEndpoint.APP),"Local")
+                val access=FileDestinationAccess(home,instrumentation.targetContext.contentResolver,repository::browse)
+                val checked=FilePastePreflight(access::inspect,access::relation).check(FileTreeScanner(repository::browse).scan(request))
+                assertTrue(checked.failure.toString(),checked.checked)
+                val decisions=FilePasteDecisions.begin(checked)
+                decisions.choose(decisions.state().reference,selected.name,FilePasteChoice.KEEP_BOTH)
+                val plan=decisions.confirm(decisions.state().reference)
+                assertEquals("文本 (2).txt",plan.roots.single().destinationName)
+                assertEquals(selected.id,plan.entries.single().source.entry.id)
+                val publisher=com.hanxi.ghosterm.data.LocalFilePublisher(home,File(root,"publications"))
+                TransferStagingStore(File(root,"snapshots"),4096,8192,0).use { store ->
+                    store.receive(files,selected.id,selected.size!!.toLong()).use { snapshot ->
+                        assertEquals(com.hanxi.ghosterm.data.LocalFilePublisher.State.PUBLISHED,
+                            publisher.publish("",plan.roots.single().destinationName,snapshot).state)
+                    }
+                    assertEquals(0L,store.reservedBytes)
+                }
+                assertEquals("远端 UTF-8\nline two\n",File(home,"文本 (2).txt").readText())
+                assertEquals("local original",File(home,"文本.txt").readText())
+                assertEquals("远端 UTF-8\nline two\n",files.previewText(selected.id));assertTrue(files.state().ready)
+            } }
+        }
+    }
+
     @Test fun remoteTargetPreflightRetainsUnknownWritePermissionAndCanonicalConflicts() = directory { root ->
         val home=File(root,"home").apply { mkdir() };File(home,"文本.txt").writeText("local")
         val local=LocalFileBrowser(home,instrumentation.targetContext.contentResolver)
