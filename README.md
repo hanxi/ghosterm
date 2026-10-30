@@ -30,7 +30,11 @@ docs/           架构 · 能力矩阵 · 许可 · 路线 · Apple UI 已知坑
 ## 快速开始
 
 ```bash
-# 离线闸门（依赖已安装；要求 cmake ≥3.19、C 编译器、Python 3）
+# 当前工作区的主机 SSH 依赖：首次允许联网准备，之后可离线校验
+# macOS 先安装 cmake、pkg-config、openssl@3，准备 C 编译器与 Python 3.12+
+python3 scripts/build-host-ssh2.py --fetch
+
+# 离线闸门（依赖产物及收据已准备；要求 cmake ≥3.19）
 bash scripts/gate.sh                       # 核心：构建 + ssh_config 对拍 + ABI + 支持集双向校验
 
 # Apple 端（需要 zig 0.16.0 / Xcode / Metal toolchain）
@@ -60,10 +64,7 @@ bash scripts/package-mac.sh                    # 出包到 dist/
 bash scripts/package-mac.sh --help             # 全部选项（版本/签名/公证/最低系统）
 ```
 
-核心闸门要求 `cmake`（≥3.19）、C 编译器与 Python 3。依赖已安装时**无网可跑**；
-要覆盖真实 SSH/SFTP，还需可探测的 libssh2、sshd 与 ssh-keygen。缺 libssh2 时核心返回
-`GT_ERR_UNSUPPORTED`，不等于 SSH 功能通过。Apple 宿主闸门缺 GhosttyKit 产物会失败，
-缺 Swift 或无法启动 sshd 时有显式 SKIP；验收必须检查实际覆盖，不能只看退出码。
+当前工作区的核心默认构建要求已校验的 `build/host-native`，不再自动探测 Homebrew libssh2 或在缺库时退回 stub。`gate.sh` 只离线校验；`build-core.sh` 可以从已缓存源码重建依赖，下载仍需显式 `--fetch`。详细准备、无 SSH 构建和未验收边界见[主机依赖说明](docs/reference/host-ssh2-build.md)。真实 SSH/SFTP 测试另需 sshd 与 ssh-keygen；显式关闭 libssh2 的构建返回 `GT_ERR_UNSUPPORTED`，不等于 SSH 功能通过。Apple 宿主闸门缺 GhosttyKit 产物会失败，缺 Swift 或无法启动 sshd 时有显式 SKIP；验收必须检查实际覆盖，不能只看退出码。
 
 ## 跑起来（macOS）
 
@@ -100,7 +101,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 ## 当前状态（2026-10-30）
 
-A4 本机/SAF 浏览已交付；最新 §9.45 完整 214 项设备回归通过，Android SFTP 依赖的 EOF/初始化清理已有修复和真实设备证据。受控接口与远端文件产品仍未验收，macOS 默认依赖未切换（[§9.45](docs/reference/android-implementation.md#945-android-sftp-依赖修复与设备复验2026-10-30)）；已交付范围、后续阶段和 macOS 待办见[路线图](docs/reference/roadmap.md#当前进度总览)。
+A4 本机/SAF 浏览已交付，最新完整设备证据仍为 §9.45 的 214 项。当前未提交工作区已接入 macOS 补丁依赖，默认主机构建的 17 项 SFTP 打开协议用例及十组接口变异通过；依赖守卫变异仍失败，不能记为切片验收完成。两端文件产品尚未接新受控入口，详见[共享依赖与验收状态](docs/reference/host-ssh2-build.md)及[路线图](docs/reference/roadmap.md#当前进度总览)。
 
 本机文件浏览、UTF-8 只读预览、点按打开/长按多选及 SAF 授权已接入，远端文件与复制任务尚未接；§9.42 的草稿构建问题已解决，当前证据见 [A4 实施记录](docs/reference/android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)。
 
@@ -108,7 +109,7 @@ A4 本机/SAF 浏览已交付；最新 §9.45 完整 214 项设备回归通过�
 
 - **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档；A2 本地终端、A3 SSH 与 A7 身份/主机验证子页部分交付。最新 §9.45 完整 **214 项通过**，§9.44 的偶发失败保留追踪；A3 其余网络/取消收尾（候选推进已接）、A4 远端文件与 A5/A6 四方向复制、16 项设置、后台与发行矩阵仍待完成。
 - **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。macOS 尚无 TCP 失败后遍历 DNS 备用地址的实现；Android 已按 §9.40 接入候选推进。Android 普通 shell 已接剩余预算和取消；Swift 新接口已验，但 macOS 产品尚未改用，认证可取消不等于桌面通道打开已可取消，见 [通道边界](apple/README.md#ssh-认证后的通道打开边界)。
-- **共享核心**：工作区 SFTP 草稿为 **39 项 CTest / 82 ABI**，Apple 80/2、JNI 40/42；Android 依赖 EOF 已修复，macOS 默认库尚未切换，两端文件产品未接新入口。已验收 §9.41 为 **38 项 CTest / 81 个 ABI**，Apple 引用 79/登记未用 2，JNI 引用 39/登记未用 42。主机信任 TOFU/移除共同事务已交付；Android 管理页面另在 §9.39 验收，macOS 尚无管理页面。共享修复不代表 macOS 的 SSH 配置、终端设置或传输写入事务已完成。
+- **共享核心**：工作区 SFTP 草稿为 **39 项 CTest / 82 ABI**，Apple 80/2、JNI 40/42；Android 依赖 EOF 已修复，当前工作区的 macOS 默认库也已改为补丁版本；依赖守卫变异尚未通过，两端文件产品未接新入口。已验收 §9.41 为 **38 项 CTest / 81 个 ABI**，Apple 引用 79/登记未用 2，JNI 引用 39/登记未用 42。主机信任 TOFU/移除共同事务已交付；Android 管理页面另在 §9.39 验收，macOS 尚无管理页面。共享修复不代表 macOS 的 SSH 配置、终端设置或传输写入事务已完成。
 
 | 能力 | 状态 |
 |---|---|

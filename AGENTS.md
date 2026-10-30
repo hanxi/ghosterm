@@ -142,12 +142,12 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 > **当前覆盖范围（诚实标注）**：`check-abi.sh` 对拍「`core/` 内部实现 ↔ 头文件」；
 > `check-abi-apple.sh` 另对拍 Swift 的引用名集合；`check-abi-android.py` 对拍 Android JNI 引用。
-> A1 验收时为 Apple 71/2、JNI 11/62（引用/显式登记未用）；A2 本地终端首片 JNI 为 19/54，整个 A2 阶段尚未完成。连接检查接口加入后公共符号为 74 项，Apple 72/2；JNI 配置检查切片 20/54，SSH 后端切片为 32/42，身份容器首片加入后为 33/41；IdentityFile 来源查询切片为 75 个公共符号、Apple 73/2、JNI 34/41；主机信任记录快照切片为 79 个公共符号、Apple 77/2、JNI 38/41；共享信任写入与移除绑定为 80 个公共符号、Apple 78/2、JNI 39/41；已验通道取消切片为 81 个公共符号、Apple 79/2、JNI 39/42（新入口替换旧 shell 引用）；其后未验收 SFTP 工作区为 82 个公共符号、Apple 80/2、JNI 40/42，只有绑定/helper，无文件产品接线，§9.44 保留 EOF 失败；§9.45 的 Android 依赖补丁已验六场景及完整 214 项，默认 macOS 依赖尚未切换，共享草稿仍未收口。实际数量以当前检出的脚本输出为准；符号对拍不替代平台行为验收。
+> A1 验收时为 Apple 71/2、JNI 11/62（引用/显式登记未用）；A2 本地终端首片 JNI 为 19/54，整个 A2 阶段尚未完成。连接检查接口加入后公共符号为 74 项，Apple 72/2；JNI 配置检查切片 20/54，SSH 后端切片为 32/42，身份容器首片加入后为 33/41；IdentityFile 来源查询切片为 75 个公共符号、Apple 73/2、JNI 34/41；主机信任记录快照切片为 79 个公共符号、Apple 77/2、JNI 38/41；共享信任写入与移除绑定为 80 个公共符号、Apple 78/2、JNI 39/41；已验通道取消切片为 81 个公共符号、Apple 79/2、JNI 39/42（新入口替换旧 shell 引用）；其后未验收 SFTP 工作区为 82 个公共符号、Apple 80/2、JNI 40/42，只有绑定/helper，无文件产品接线，§9.44 保留 EOF 失败；§9.45 的 Android 依赖补丁已验六场景及完整 214 项；其后未提交工作区已切换默认主机依赖，17 项协议及十组接口变异通过，但新增依赖守卫变异失败，共享草稿仍未收口，详见 `docs/reference/host-ssh2-build.md`。实际数量以当前检出的脚本输出为准；符号对拍不替代平台行为验收。
 > 各次接口与平台验收分别记在 `docs/reference/roadmap.md`，不得借旧结果记新接口通过。
 > Android 已验收组件/配置绑定；A2 首片已接本地 Transport、Canvas/InputConnection 与会话生命周期，整个终端阶段未完成。连接配置检查已接两端；Android SSH native owner/认证桥及远端终端后端已接，产品 DNS/认证页面与 Keystore 容器首片已接（实现计划 §9.27），整个 A3 仍未完成；SFTP 文件产品与 NAPI 尚未接线（未验收 SFTP native helper 不计产品接线）。
 > 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
 
-`libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的六场景、五组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同六场景。Android 构建应用补丁，macOS 默认 Homebrew 依赖未切换；证据见 Android 实现计划 §9.45。手工证据，不增加 CI 20 份，此处仅登记范围。
+`libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的六场景、五组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同六场景。Android 构建应用补丁；其后未提交工作区的 macOS 默认构建也已接补丁库，新依赖守卫变异仍失败。已交付证据见 Android 实现计划 §9.45，工作区范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
 
 ### 变异验证（新增闸门必须附）
 

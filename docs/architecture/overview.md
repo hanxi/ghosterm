@@ -110,7 +110,7 @@ Android 身份设置已接通列表/详情、OpenSSH 公钥指纹、SAF 导入�
 
 Android 文件控制面已有 `FileBrowserSource` 与 `LocalFileBrowser`：本机 HOME 使用平台文件 API，SAF 保留系统文档 URI，经后台 IO 返回条目/预览。`FilesViewModel` 用代次隔离结果，文件页不持有或关闭终端连接；本地 fd 显式释放、SAF 流取消和旋转后 PID 保持已验（实现计划 §9.43）。这不是 SFTP 接线；远端仍须独立 owner，四方向复制与事件泵留在 A5/A6。
 
-SFTP 打开的工作区前置尚未验收：Core controlled opener、Swift 重载和 Android native helper 已存在，但 macOS 产品仍用无参 `sftp()`，Android 没有远端文件 owner。部分 VERSION 报文后 EOF 探针超时，说明仅在 libssh2 调用之间检查 deadline 不足以证明取消有界；§9.45 已补 Android 依赖并验真实设备六场景，macOS 默认依赖尚未切换，再接两端产品前仍须完成共享入口闭包。列表、预览及关闭仍须独立的 owner/预算/取消契约；失败和验收条件见 [§9.44](../reference/android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。
+SFTP 打开的工作区前置尚未完成整体验收：Core controlled opener、Swift 重载和 Android native helper 已存在，默认主机构建/SwiftPM 已切到仓库内补丁 libssh2，17 项协议用例与十组接口变异通过；新增依赖守卫变异失败，不能据打包成功勾选切片完成。macOS 产品仍用无参 `sftp()`，Android 没有远端文件 owner。列表、预览及关闭仍须独立的 owner/预算/取消契约；当前源码与证据边界见[主机依赖说明](../reference/host-ssh2-build.md)，历史 EOF 失败见 Android 计划 §9.44。
 
 ## 参考实现（技术对照）
 

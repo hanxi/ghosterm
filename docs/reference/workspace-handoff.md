@@ -20,7 +20,7 @@
 
 本次对 `526d24d` 的源码复核另确认：冲突“应用到全部”是全局值，任务完成/清空不重置；目录重试重新扫描整目录，未排除已成功子项。后续批次可能继承此前覆盖选择，不能把原工作区交付记作批次隔离已完成。详见[传输提交、调度与重试边界](../../apple/README.md#传输提交调度与重试边界)。只读信任快照切片的 37 项 CTest / 79 ABI 与 Swift 两项定向保留为历史证据；后续共享信任事务/移除绑定为 38 项 CTest / 80 ABI 与 Swift 四项定向（Android 实现计划 §9.37）。这些接口验证均不替代本工作区或完整 macOS 宿主验收，文件传输仍使用原 SFTP job 写入路径，未获得 known_hosts 的原子提交保障。
 
-未验收 SFTP 草稿新增 controlled API 与 Swift 重载，工作区为 82 ABI、Apple 80/2、JNI 40/42；部分 VERSION 后 EOF 探针超时。`AppModel.makeSFTPFileBackend` 仍调用无参 `ssh.sftp()`，本工作区未获得新取消/预算行为；文件 owner 关闭与资源回收仍需专门验收。后续 §9.45 已修复 Android 依赖并通过实际设备六场景及完整 214 项回归；macOS 默认依赖未切换，不能据此验收当前共享接口草稿，见 [§9.44](android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。
+SFTP 工作区为 82 ABI、Apple 80/2、JNI 40/42，仍未完成切片验收。当前默认主机构建及 SwiftPM 已消费补丁 libssh2，17 项协议用例、十组接口变异和本机 `.app` 打包通过；依赖守卫变异在 `source` 组失败。`AppModel.makeSFTPFileBackend` 仍调用无参 `ssh.sftp()`，工作区未获得产品级原 deadline/取消；Android 也尚无远端文件 owner。最新证据与剩余工作见[主机依赖说明](host-ssh2-build.md)，§9.44 的 EOF 失败保留为历史。
 
 已验收通道切片为 81 ABI、Apple 79/2、JNI 39/42；普通 shell 的受控准入与绑定已有定向/变异及 Android 完整 200 项设备验收，不改变本工作区的文件 owner、SFTP job 或失败处理。macOS 产品尚未使用新 shell 入口，见 [§9.41](android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)；原工作区 341 项宿主历史结果不能迁移为本次通过。
 
@@ -205,8 +205,8 @@
 
 ## 5. 环境限制与历史迁移说明
 
-- `build-mac-app.sh` 出的包为 ad-hoc 签名，`LSMinimumSystemVersion` 被 Homebrew
-  libssh2/OpenSSL 抬到 26.0；正式分发需自建依赖 + Developer ID + 公证。
+- `build-mac-app.sh` 出的包为 ad-hoc 签名，`LSMinimumSystemVersion` 仍按嵌入依赖计算。当前工作区虽已自建补丁 libssh2，
+  仍链接 Homebrew OpenSSL，不能据此声称发行下限已从 26.0 降低；正式分发的 Developer ID/公证仍待完成。
 - 第 2 节的 8 项跳过是当时记录；最近完整宿主记录只有 1 项开发态主题资源跳过。任何一轮的 SKIP 都须按该轮环境解释，不能算通过。
 - 当时工作区提交混入的旧 daemon/session 生命周期代码已在 2026-10-28 可选 tmux 重构中退役；`core/src/session/deploy.*`、`daemon/*` 和 `SessionSetupTransport` 不再是当前实现入口，追溯请看 git 历史。
 

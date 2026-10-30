@@ -11,7 +11,7 @@
 
 **文件首片边界**：A4 本机/SAF 只读浏览、UTF-8 预览与多选已通过 14 项定向、18 组变异和完整 214 项设备回归。此前草稿编译失败已修复；远端 SFTP、复制清单与队列未接，见 [§9.43](android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)。
 
-**当前验收边界**：§9.45 最新完整 214 项通过；§9.44 的选区偶发失败保留追踪。Android SFTP 依赖六场景及五组 native/两组收据变异通过，macOS 默认依赖和两端文件产品仍未接入修复后的受控链路，详见 [§9.45](android-implementation.md#945-android-sftp-依赖修复与设备复验2026-10-30)；§9.41 的 13 项通道定向及 13 组变异保持原证据范围。当前仍限 API 36 arm64 / 4 KB 页模拟器，整个 A3/A4 及 macOS 产品通道取消尚未完成。详见[当前进度](roadmap.md#当前进度总览)。
+**当前验收边界**：Android 最新完整设备证据为 §9.45 的 214 项，仍限 API 36 arm64 / 4 KB 页模拟器；§9.44 的选区偶发失败保留追踪。当前工作区已将 macOS 默认构建切到补丁 libssh2，17 项协议用例、十组接口变异和本机 `.app` 打包通过，但依赖守卫变异失败。两端文件产品未接受控入口，A3/A4 及 macOS 产品通道取消尚未完成，见[主机依赖证据](host-ssh2-build.md)和[当前进度](roadmap.md#当前进度总览)。
 
 ## 核心（C）
 
@@ -41,7 +41,7 @@
 | Transport：会话 cwd | 🟡 | **本地 PTY ✅**：`gt_transport_child_cwd` 内核查询（macOS `proc_pidinfo` / Linux `/proc/<pid>/cwd`），`test_transport` 第 12 节（继承 cwd + `cd` 后随之变）。**远端 cwd 未交付**：OSC 7 在我们钉的 embedded host-IO 下到不了宿主（无 `GHOSTTY_ACTION_PWD`），且 libghostty 要求 host `isLocal`——接线留为 seam，依赖上游支持 / roadmap R2 |
 | SSH（libssh2） | 🟡 | 普通条目的连接/认证已有以下证据，标记拒绝及未支持格式的边界见 known_hosts 行。connect / pubkey·password 认证 / 主机密钥三态 / TOFU；`ssh_e2e` 行为断言（真 sshd，环回离线）。**写绝不无限等**（§5b：远端不读 stdin 时 `gt__ssh_shell_write` 在 `GT_SSH_WRITE_GRACE_MS` 内有界返回、积压字节走 `wtail` 队列随后补送——与本地 PTY §13 同结构。`TIMEOUT`/`EAGAIN` 不再当硬错丢字节（旧实现把两者都算 `GT_ERR_IO` → 键入的字节就这么没了）。写路径自己设/还 session timeout，不打扰同 session 的 SFTP。e2e 限制：sshd 排空速率 ≈ 40 MiB/s，3 MiB payload 写完时队列**根本没形成**——flush 机制无法被真 sshd e2e 触发，由代码审阅 + PTY §13/P4 的变异覆盖保证同构正确性） |
 | SFTP | 🟡 | `gt_sftp_*`（libssh2_sftp 封装）：list / stat / lstat / readlink / realpath / mkdir / rmdir / remove / remove_all（递归）/ rename / chmod / walk（递归枚举，visitor 可取消）/ upload / download（job + 事件三态）/ cancel / pause；**每会话一把 I/O 锁 + 单条 I/O worker 线程**（修掉「每 job 一线程共用同一 libssh2 会话」竞态）。e2e 真 sshd 75 项断言 + 当前变异 `mutation-check-sftp` 八组 / `mutation-check-exec` 两组（历史断言数量不当作当前变异组数）；非覆盖创建、覆盖截断和过载下终态保障仍有下文所列缺口 |
-| SFTP 打开预算与取消 | 🟡 | controlled API、Swift 重载和 Android native helper 为未验收草稿；初始 13 协议用例及十组变异通过后，新增部分 VERSION 后 EOF 曾超时；§9.45 的 Android 依赖补丁及实际设备六场景已通过，默认 macOS 库尚未切换。macOS 产品仍走旧 opener，Android 没有远端文件 owner；见 [§9.44](android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收) |
+| SFTP 打开预算与取消 | 🟡 | 工作区 Core/Swift/helper 已有默认补丁库上的 17 项协议用例及十组接口变异；主机构建/打包已接线，新依赖守卫变异失败，仍未整体验收。macOS 产品仍走旧 opener，Android 无远端文件 owner；[详细范围](host-ssh2-build.md) |
 | SSH exec 通道 | ✅ | `gt_ssh_exec*`：远端单命令（stdout/stderr 分离 + 退出码）；把递归搜索/大树遍历放到远端本地算（减少宿主发起的目录/属性请求）。服务器禁 exec → `GT_ERR_UNSUPPORTED`（不静默降级）。e2e 含**性能对比**（300 文件：exec-find vs sftp-walk，两条路都找全；**环回上 exec 反而慢 ~14×**——起远端进程的开销，真实 RTT 链路收益仍须实测，不能由环回结果推定）。当前 `mutation-check-exec.sh` 两组变异；不与历史断言数混计 |
 | 端口转发 -L/-R/-D | ❌ | — |
 | known_hosts / TOFU | 🟡 | 明文条目/模式、TOFU、撤销优先及读取错误已有真 ed25519/ECDSA sshd 的同步/公开异步 API 证据，25 组隔离变异通过（K17/K20 为独立文件故障，其余经真实 SSH）；TOFU 与移除已共用锁、备份、原子替换与提交状态；17 C + 2 Swift 事务变异范围见 §9.37。非协作写者竞态/断电恢复不在已验范围；Android 管理页面已另按 §9.39 验收，macOS 无管理页面。已解析的 hashed 条目、当前主机的未知标记、无匹配普通记录的 CA 规则显式报不支持；未实现哈希匹配/主机证书验证，不称完整 OpenSSH 兼容。macOS SFTP 产品认证回归与 Swift 绑定已验，Android native 状态/拒绝路径已在 §9.25 验证，页面首片及未完成边界见 §9.27；见 [§9.22](android-implementation.md#922-a3-共享主机信任前置2026-10-30) |

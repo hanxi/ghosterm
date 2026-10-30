@@ -108,9 +108,9 @@ macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，�
 
 `AppModel.makeSFTPFileBackend` 完成认证后，在专用 owner 队列调用无参 `ssh.sftp()`，没有传递原认证的剩余 deadline 或取消回调。专用线程避免在主线程执行这一步，但不保证中途取消能打断 libssh2；晚到结果归属检查也不是底层请求取消。
 
-`2852d6c` 后工作区新增 `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 和 Core controlled API，当前产品没有调用该重载。初始真实 SSH/协议用例和 Swift 变异已通过，但新增“部分 SFTP VERSION 后 EOF”探针超过 12 秒仍未返回；该草稿未验收。§9.45 后续补丁已接 Android 构建并通过实际设备六场景，但 macOS 默认构建仍使用 Homebrew 库，不能把隔离修复库上的通过记为桌面依赖已修复。Android 同样只有 native helper，尚无远端文件 owner。最新失败、依赖修复要求及接线退出条件见 [Android 计划 §9.44](../docs/reference/android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。
+当前未提交工作区已提供 `SSHSession.sftp(timeoutMilliseconds:cancellation:)`，Core 默认主机构建与两个 SwiftPM 包已链接仓库内打补丁的 libssh2。默认库上的 17 项协议用例、十组接口变异及本机 `.app` 打包已通过；新增依赖守卫变异在 `source` 组失败，切片仍未完成验收。此前部分 VERSION 后 EOF 超时保留在 Android 计划 §9.44，不能继续描述成当前默认库尚未打补丁。完整范围见[主机依赖与 SFTP 打开](../docs/reference/host-ssh2-build.md)。
 
-后续需先保证 init 每次调用能返回、部分初始化资源可回收，再接两端产品的预算/取消。后续 list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界；macOS 的队列主线程等待与导航问题仍独立待修。本轮仅复核实际调用链，没有新增桌面 SFTP 关闭/取消或完整宿主验收。
+macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 同样只有未接文件产品的 native helper。两端后续需分别传递原请求预算与取消；list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮文档审计没有新增桌面产品关闭/取消或完整宿主验收。
 
 ### 与 Android 最终方案的差异
 
@@ -202,6 +202,9 @@ macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，�
 ```bash
 bash scripts/gate.sh
 bash scripts/check-abi-apple.sh
+# 下两行针对已有未提交的主机依赖工作区，范围见共享依赖说明
+python3 scripts/build-host-ssh2.py --fetch  # 首次准备；缓存齐备后省略 --fetch
+bash scripts/build-core.sh
 swift build --package-path apple/GhostermApp
 bash scripts/apple-app-gate.sh
 ```

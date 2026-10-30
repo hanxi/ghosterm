@@ -36,7 +36,7 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 SSH 身份设置已接通列表、详情、指纹、导入与移除，身份设置八项定向/十组变异通过，后续主机关联切片完整 160 项设备测试通过；早期清理/旋转观测失败保留在[§9.32](../docs/reference/android-implementation.md#932-身份设置工作区复核2026-10-30)，修正与当前证据见[§9.33](../docs/reference/android-implementation.md#933-ssh-身份设置与公钥信息2026-10-30)。A7 的五类/16 项偏好仍未实现。
 
-**最新依赖进度**：Android 已应用 libssh2 EOF/初始化清理补丁，真实设备六场景及最新完整 214 项回归通过；§9.44 的选区偶发失败尚未定位原因。SFTP helper 仍未被文件 owner 或 Kotlin 产品调用；40/42、82 ABI 是未验收草稿数量，macOS 默认依赖仍未切换，不表示远端浏览已实现。详见 [§9.45](../docs/reference/android-implementation.md#945-android-sftp-依赖修复与设备复验2026-10-30)。
+**最新依赖进度**：Android 已应用 libssh2 EOF/初始化清理补丁，真实设备六场景及最近完整 214 项回归通过；§9.44 的选区偶发原因尚未定位。当前工作区的主机构建也已切到补丁依赖，17 项协议用例与十组接口变异通过，但新依赖守卫变异失败。SFTP helper 仍未被文件 owner 或 Kotlin 产品调用；40/42、82 ABI 不表示远端浏览已实现。依赖交付见 [§9.45](../docs/reference/android-implementation.md#945-android-sftp-依赖修复与设备复验2026-10-30)，工作区现状见[共享依赖说明](../docs/reference/host-ssh2-build.md)。
 
 ## 本机与 SAF 文件验证
 
