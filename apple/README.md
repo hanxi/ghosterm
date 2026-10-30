@@ -112,9 +112,9 @@ macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，�
 
 macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 同样只有未接文件产品的 native helper。两端后续需分别传递原请求预算与取消；list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮接口/依赖验收没有新增桌面产品关闭/取消或完整宿主证据。
 
-### 目录浏览与元数据工作区
+### 目录浏览与元数据接线边界
 
-共享层新增 `SFTPSession.browse(path:timeoutMilliseconds:maxEntries:cancellation:)`，当前 83 ABI、Apple 81 引用/2 未用；真实 sshd 单项基线通过，三组 Swift 变异尚未完成（目标定位断言失败）。36 项主机协议、13 C + 2 依赖变异通过不等于桌面产品验收。当前 `SFTPFileBackend.list/realpath` 仍使用原有两个独立调用；`AppModel.makeSFTPFileBackend` 仍用旧 opener。完整记录见 [§9.48](../docs/reference/android-implementation.md#948-受控目录浏览工作区与跨端文档复核2026-10-30)。
+共享层新增 `SFTPSession.browse(path:timeoutMilliseconds:maxEntries:cancellation:)`，当前 83 ABI、Apple 81/2；36 项协议及 19 组浏览变异已通过，包含三组 Swift 与无库档。原 Swift 定位失败已修正，历史记录保留。`SFTPFileBackend.list/realpath` 和 `AppModel.makeSFTPFileBackend` 仍用旧入口，绑定验收不是桌面产品验收；见 [§9.49](../docs/reference/android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30)。
 
 新的 `SFTPEntry/SFTPStat` 带 `hasSize/isRegularFile`，C 转换保留真实标志；但 `SFTPFileBackend.entry` 创建 `FileEntry` 时丢弃它们，`kind` 将非目录/非链接一律映射为 `.file`。`FileEntry` 只有数值大小，`sizeText` 会将未知大小的零值显示成文件大小，特殊或未知类型也可能被当作普通文件。此为源码核对，尚无新增桌面故障实测。
 
@@ -174,6 +174,8 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 同样只有未�
 `goBack/goForward` 在读取目标目录之前就弹出历史并推入另一栈；目标读取失败时 catch 只显示错误，没有恢复历史。当前位置与旧列表保留，却已消耗历史项，不能承诺失败后后退/前进仍保持原序列。应为待导航目标与历史变更建立请求身份，成功后提交；失败保留可重试目标和原历史，并避免前一请求清除后一请求的加载状态。
 
 `refresh` 只重新列出 `currentPath`，不清理 `treeChildren`；`loadTreeChildren` 一旦已有缓存就不再查询。因此不仅失败缓存无法重试，成功加载过的树节点在新增/删除目录后也不会因为点击刷新而更新。须定义按目录失效的缓存和迟到结果保护；刷新、文件操作完成和重新展开应一致。此处是源码核对，未新增原生交互验收；后续需用可控制响应的后端验 A/B 连续导航、失败后历史不变、树节点外部增删后刷新，并保留普通导航对照和变异验证。
+
+共享底层的两项生命周期问题已在 §9.49 修复：任务提交在移交 worker 前保存 ID，防止返回前对象已被释放；exec 读取结束恢复原会话超时，不将 100 ms 片段泄漏给 SFTP。真实 SFTP/ASan 与三组 exec 变异有证据；不改变下面的文件原子提交、冲突、重试与产品主线程等待缺口。
 
 ### 传输提交、调度与重试边界
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build pinned libssh2 patches in isolation and verify EOF/abandoned-init cleanup."""
+"""Verify pinned libssh2 EOF/init cleanup and NAME bounds on host and Android."""
 import argparse
 import hashlib
 import importlib.util
@@ -24,12 +24,15 @@ VERSION = '1.11.1'
 SHA256 = 'd9ec76cbe34db98eec3539fe2c899d26b0c837cb3eb466a56b0f109cabf658f7'
 PATCHES = ROOT / 'patches/libssh2' / VERSION
 CASES = {
-    'normal': ('allow', 'admit'),
-    'header-eof': ('header-eof', 'io'),
-    'body-eof': ('eof', 'io'),
-    'partial-cancel': ('partial', 'cancel'),
-    'partial-timeout': ('partial', 'timeout'),
-    'queued-cancel': ('queued-partial', 'cancel'),
+    'normal': ('version', 'allow', 'admit'),
+    'header-eof': ('version', 'header-eof', 'io'),
+    'body-eof': ('version', 'eof', 'io'),
+    'partial-cancel': ('version', 'partial', 'cancel'),
+    'partial-timeout': ('version', 'partial', 'timeout'),
+    'queued-cancel': ('version', 'queued-partial', 'cancel'),
+    'name-path': ('realpath', 'malformed-path', 'raw-path'),
+    'name-empty': ('readdir', 'empty-name', 'raw-empty'),
+    'name-normal': ('realpath', 'allow', 'raw-normal'),
 }
 
 
@@ -45,8 +48,8 @@ def fixture(binary, case, args):
             with socket.create_connection(('127.0.0.1', peer['controlPort']), timeout=2) as sock:
                 sock.sendall((json.dumps(dict(token=peer['token'], **fields)) + '\n').encode())
                 return json.loads(sock.makefile().readline())
-        action, mode = CASES[case]
-        username = control(op='new', stage='version', action=action)['user']
+        stage, action, mode = CASES[case]
+        username = control(op='new', stage=stage, action=action)['user']
         device = os.environ.get('LIBSSH2_SFTP_SERIAL')
         adb = [str(ROOT / 'build/android-toolchain/sdk/platform-tools/adb'), '-s', device] if device else None
         if adb:
@@ -95,7 +98,10 @@ def fixture(binary, case, args):
                 return 1
             print(prefix + stdout + stderr, end='')
             events = control(op='state', user=username)['events']
-            if events != ['channel', 'subsystem', 'version']:
+            expected = ['channel', 'subsystem', 'version']
+            if mode == 'raw-empty': expected += ['opendir', 'readdir', 'closedir']
+            elif mode.startswith('raw-'): expected += ['realpath']
+            if events != expected:
                 raise RuntimeError('Unexpected protocol stage sequence: ' + repr(events))
             if process.returncode or 'SFTP OPEN PASS' not in stdout:
                 return process.returncode or 1
@@ -203,7 +209,7 @@ def android(serial):
                 print('PASS Android dependency ' + case, flush=True)
         finally:
             subprocess.run([*adb, 'shell', 'rm', '-rf', remote], check=True, capture_output=True)
-    print('ANDROID LIBSSH2 SFTP PATCH PASS: 6 scenarios')
+    print('ANDROID LIBSSH2 SFTP PATCH PASS: 9 scenarios')
 
 
 def main():
@@ -300,6 +306,10 @@ def main():
                      'FAIL: SFTP init leaked'),
                     ('queued', sftp, 'sftp_packet_flush(sftp);\n    if(sftp->partial_packet)',
                      '(void)sftp;\n    if(sftp->partial_packet)', 'queued-cancel', 'FAIL: SFTP init leaked'),
+                    ('path', sftp, 'if(link_len > data_len - 13)', 'if(0 && link_len > data_len - 13)',
+                     'name-path', 'FAIL: dependency NAME length was accepted'),
+                    ('empty-name', sftp, 'if(filename_len == 0 || filename_len >= buffer_maxlen)',
+                     'if(filename_len >= buffer_maxlen)', 'name-empty', 'FAIL: dependency empty name became EOF or entry'),
                     ('owner', session, '_libssh2_sftp_init_free(session);', '(void)session;',
                      'partial-timeout', 'FAIL: SFTP init leaked'),
                 ]
@@ -310,7 +320,7 @@ def main():
                         path.write_text(clean.decode().replace(old, new))
                         compile_probe(name)
                         test(case, name + '-red', failure)
-                        test('normal', name + '-control')
+                        test('name-normal' if name in ('path', 'empty-name') else 'normal', name + '-control')
                     finally:
                         path.write_bytes(clean)
                     compile_probe(name + '-restored')
@@ -322,7 +332,7 @@ def main():
         for path, digest in hashes.items():
             if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
                 raise RuntimeError('Production changed during isolated dependency tests: ' + str(path))
-    print('LIBSSH2 SFTP PATCH PASS: 6 scenarios' + (' / 5 native + 2 receipt mutations' if args.mutate else ''))
+    print('LIBSSH2 SFTP PATCH PASS: 9 scenarios' + (' / 7 native + 2 receipt mutations' if args.mutate else ''))
 
 
 if __name__ == '__main__':

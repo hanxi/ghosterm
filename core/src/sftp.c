@@ -255,7 +255,8 @@ void gt_sftp_close(gt_sftp_t *sftp) {
 static void attrs_to_stat(const LIBSSH2_SFTP_ATTRIBUTES *a, gt_sftp_stat_t *out) {
   memset(out, 0, sizeof *out);
   if (!a) return;
-  out->size = (a->flags & LIBSSH2_SFTP_ATTR_SIZE) ? a->filesize : 0;
+  out->has_size = (a->flags & LIBSSH2_SFTP_ATTR_SIZE) != 0;
+  out->size = out->has_size ? a->filesize : 0;
   out->mode = (a->flags & LIBSSH2_SFTP_ATTR_PERMISSIONS)
                   ? (uint32_t)(a->permissions & 07777) : 0;
   out->mtime_unix = (a->flags & LIBSSH2_SFTP_ATTR_ACMODTIME)
@@ -267,6 +268,174 @@ static void attrs_to_stat(const LIBSSH2_SFTP_ATTRIBUTES *a, gt_sftp_stat_t *out)
                            ? (a->permissions & LIBSSH2_SFTP_S_IFMT) : 0;
   out->is_dir = (type == LIBSSH2_SFTP_S_IFDIR);
   out->is_symlink = (type == LIBSSH2_SFTP_S_IFLNK);
+  out->is_regular = (type == LIBSSH2_SFTP_S_IFREG);
+}
+
+/* Controlled read-only directory transaction for a dedicated IO owner. */
+static int browse_wait(LIBSSH2_SESSION *session, int socket, int64_t deadline,
+                       bool (*cancelled)(void *), void *context) {
+  int status = open_status(deadline, cancelled, context);
+  if (status != GT_OK) return status;
+  int direction = libssh2_session_block_directions(session);
+  short events = 0;
+  if (direction & LIBSSH2_SESSION_BLOCK_INBOUND) events |= POLLIN;
+  if (direction & LIBSSH2_SESSION_BLOCK_OUTBOUND) events |= POLLOUT;
+  struct pollfd wait = {socket, events ? events : POLLIN, 0};
+  int result = poll(&wait, 1, 10);
+  if ((result < 0 && errno != EINTR) ||
+      (result > 0 && (wait.revents & (POLLERR | POLLNVAL)))) return GT_ERR_IO;
+  return open_status(deadline, cancelled, context);
+}
+
+static int browse_entry_compare(const void *a, const void *b) {
+  return strcmp(((const gt_sftp_entry_t *)a)->full_path,
+                ((const gt_sftp_entry_t *)b)->full_path);
+}
+
+int gt_sftp_browse_controlled(gt_sftp_t *sftp, const char *path,
+    char *resolved_path, size_t resolved_cap,
+    gt_sftp_entry_t **out, size_t *out_count,
+    uint32_t timeout_ms, size_t max_entries,
+    bool (*cancelled)(void *), void *context) {
+  if (out) *out = NULL;
+  if (out_count) *out_count = 0;
+  if (resolved_path && resolved_cap) resolved_path[0] = '\0';
+  if (!sftp || !path || !*path || !resolved_path || resolved_cap < 2 ||
+      resolved_cap > 65536 || strlen(path) >= 65536 || !out || !out_count ||
+      !timeout_ms || !max_entries || max_entries > GT_SFTP_MAX_ENTRIES) {
+    gt__set_error("sftp browse: invalid arguments or limits");
+    return GT_ERR_INVALID_ARG;
+  }
+  const int64_t deadline = mono_ms() + timeout_ms;
+  int status = open_status(deadline, cancelled, context);
+  if (status != GT_OK) return status;
+  pthread_mutex_lock(&sftp->qlock);
+  bool has_jobs = sftp->all_head != NULL;
+  pthread_mutex_unlock(&sftp->qlock);
+  if (has_jobs) {
+    gt__set_error("sftp browse: requires a dedicated owner without transfer jobs");
+    return GT_ERR_INVALID_ARG;
+  }
+  void *raw = NULL;
+  int socket = -1;
+  status = gt__ssh_borrow(sftp->ssh, &raw, &socket);
+  if (status != GT_OK) return status;
+  char *canonical = gt__alloc(resolved_cap);
+  if (!canonical) return GT_ERR_INTERNAL;
+  LIBSSH2_SESSION *session = raw;
+  LIBSSH2_SFTP_HANDLE *directory = NULL;
+  gt_sftp_entry_t *entries = NULL;
+  size_t count = 0, capacity = 0;
+  SFTP_LOCK(sftp);
+  int blocking = libssh2_session_get_blocking(session);
+  long timeout = libssh2_session_get_timeout(session);
+  libssh2_session_set_blocking(session, 0);
+  int result = LIBSSH2_ERROR_EAGAIN;
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    result = libssh2_sftp_realpath(sftp->sftp, path, canonical, (unsigned)resolved_cap);
+    if (result != LIBSSH2_ERROR_EAGAIN) break;
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  if (result <= 0 || (size_t)result >= resolved_cap || canonical[0] != '/' ||
+      memchr(canonical, '\0', (size_t)result)) {
+    status = GT_ERR_IO; goto finished;
+  }
+  canonical[result] = '\0';
+  size_t path_length = (size_t)result;
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    directory = libssh2_sftp_opendir(sftp->sftp, canonical);
+    if (directory) break;
+    if (libssh2_session_last_errno(session) != LIBSSH2_ERROR_EAGAIN) {
+      status = GT_ERR_IO; goto finished;
+    }
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    char name[4096];
+    LIBSSH2_SFTP_ATTRIBUTES attributes = {0};
+    result = libssh2_sftp_readdir_ex(directory, name, sizeof name, NULL, 0, &attributes);
+    if (result == LIBSSH2_ERROR_EAGAIN) {
+      status = browse_wait(session, socket, deadline, cancelled, context);
+      if (status != GT_OK) goto finished;
+      continue;
+    }
+    if (result == 0) break;
+    if (result < 0 || (size_t)result >= sizeof name ||
+        memchr(name, '\0', (size_t)result) || memchr(name, '/', (size_t)result)) {
+      status = GT_ERR_IO; goto finished;
+    }
+    name[result] = '\0';
+    if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+    if (count == max_entries || path_length + (size_t)result + 2 > 65536) {
+      status = GT_ERR_IO; goto finished;
+    }
+    if (count == capacity) {
+      size_t next = capacity ? capacity * 2 : 16;
+      if (next > max_entries) next = max_entries;
+      void *grown = gt__realloc(entries, next * sizeof *entries);
+      if (!grown) { status = GT_ERR_INTERNAL; goto finished; }
+      entries = grown; capacity = next;
+    }
+    gt_sftp_entry_t *entry = &entries[count];
+    memset(entry, 0, sizeof *entry);
+    entry->full_path = gt__alloc(path_length + (size_t)result + 2);
+    if (!entry->full_path) { status = GT_ERR_INTERNAL; goto finished; }
+    size_t offset = path_length;
+    memcpy(entry->full_path, canonical, path_length);
+    if (entry->full_path[offset - 1] != '/') entry->full_path[offset++] = '/';
+    memcpy(entry->full_path + offset, name, (size_t)result + 1);
+    attrs_to_stat(&attributes, &entry->stat);
+    count++;
+  }
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    result = libssh2_sftp_closedir(directory);
+    if (result != LIBSSH2_ERROR_EAGAIN) {
+      directory = NULL; /* libssh2 frees handles on every non-EAGAIN result. */
+      if (result != 0) status = GT_ERR_IO;
+      break;
+    }
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  if (status != GT_OK) goto finished;
+  if (count > 1) {
+    qsort(entries, count, sizeof *entries, browse_entry_compare);
+    for (size_t i = 1; i < count; i++) {
+      if (!strcmp(entries[i-1].full_path, entries[i].full_path)) {
+        status = GT_ERR_IO; goto finished;
+      }
+    }
+  }
+  status = open_status(deadline, cancelled, context);
+finished:
+  if (status != GT_OK) {
+    gt__ssh_abort(sftp->ssh);
+    /* Disconnect before cleanup; no waiting on a remote CLOSE acknowledgement. */
+    libssh2_session_set_blocking(session, 1);
+    libssh2_session_set_timeout(session, 50);
+    if (directory) libssh2_sftp_closedir(directory);
+    gt__set_error("sftp browse: cancelled, timed out, invalid directory or read/close failure");
+  } else {
+    libssh2_session_set_blocking(session, blocking);
+    libssh2_session_set_timeout(session, timeout);
+    memcpy(resolved_path, canonical, strlen(canonical) + 1);
+    *out = entries; *out_count = count;
+    entries = NULL;
+  }
+  SFTP_UNLOCK(sftp);
+  if (entries) gt_sftp_list_free(entries, count);
+  free(canonical);
+  return status;
 }
 
 static int stat_common(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out,
@@ -738,6 +907,9 @@ static uint64_t submit_job(gt_sftp_t *sftp, const char *a, const char *b,
     free(j);
     return 0;
   }
+  /* Publishing the queue transfers ownership to the worker. It may finish and
+   * free j immediately after unlock, before this caller resumes. */
+  const uint64_t job_id = j->job_id;
   pthread_mutex_lock(&sftp->qlock);
   j->next_pending = NULL;
   if (sftp->pending_tail) sftp->pending_tail->next_pending = j;
@@ -747,7 +919,7 @@ static uint64_t submit_job(gt_sftp_t *sftp, const char *a, const char *b,
   sftp->all_head = j;
   pthread_cond_signal(&sftp->qcond);
   pthread_mutex_unlock(&sftp->qlock);
-  return j->job_id;
+  return job_id;
 }
 
 uint64_t gt_sftp_download(gt_sftp_t *sftp, const char *remote, const char *local) {
@@ -786,6 +958,23 @@ int gt_sftp_pause(gt_sftp_t *sftp, uint64_t job_id, bool paused) {
 #else /* !GT_HAVE_LIBSSH2 —— 显式 UNSUPPORTED */
 
 struct gt_sftp { void *unused; };
+
+int gt_sftp_browse_controlled(gt_sftp_t *sftp, const char *path,
+    char *resolved_path, size_t resolved_cap,
+    gt_sftp_entry_t **out, size_t *out_count,
+    uint32_t timeout_ms, size_t max_entries,
+    bool (*cancelled)(void *), void *context) {
+  (void)cancelled; (void)context;
+  if (out) *out = NULL;
+  if (out_count) *out_count = 0;
+  if (resolved_path && resolved_cap) resolved_path[0] = '\0';
+  if (!sftp || !path || !*path || !resolved_path || resolved_cap < 2 ||
+      resolved_cap > 65536 || strlen(path) >= 65536 || !out || !out_count ||
+      !timeout_ms || !max_entries || max_entries > 65536) return GT_ERR_INVALID_ARG;
+  gt__set_error("sftp browse: libssh2 unavailable");
+  return GT_ERR_UNSUPPORTED;
+}
+
 
 gt_sftp_t *gt_ssh_sftp_controlled(gt_ssh_t *ssh, uint32_t timeout_ms,
     bool (*cancelled)(void *), void *context, gt_status_t *status) {

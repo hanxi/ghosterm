@@ -36,6 +36,8 @@ typedef struct {
   uint32_t uid;        /* has_owner=false 时无意义 */
   uint32_t gid;        /* has_owner=false 时无意义 */
   bool has_owner;      /* 服务器给了 UIDGID 属性 */
+  bool has_size;       /* false is unknown, not an empty file */
+  bool is_regular;     /* false for unknown type, links and special files */
 } gt_sftp_stat_t;
 
 typedef struct {
@@ -48,6 +50,24 @@ typedef struct {
 int gt_sftp_list(gt_sftp_t *sftp, const char *path,
                  gt_sftp_entry_t **out, size_t *out_count);
 void gt_sftp_list_free(gt_sftp_entry_t *entries, size_t count);
+
+/* Resolve a real directory and read its complete immediate children under one
+ * budget, including closing the directory handle. Dedicated SSH/SFTP IO owner
+ * only: no other channels, concurrent callers or transfer jobs on this owner.
+ * timeout_ms and max_entries must be nonzero; max_entries <= 65536. Paths and
+ * result buffers are limited to 65536 bytes; names must be single components.
+ * Success publishes resolved_path and entries together; free with list_free.
+ * Every failure clears all outputs; never publishes a partial/empty success.
+ * Preflight rejection leaves the connection usable. Failure after IO aborts
+ * the SSH connection: close SFTP, then SSH; retry requires a fresh connection.
+ * Cancellation is CANCELLED; timeout/server/protocol/limit failure is IO.
+ * The callback runs on the owner and must not reenter Core. Existing list,
+ * transfer and close contracts are unchanged; no lifetime ownership transfer. */
+int gt_sftp_browse_controlled(gt_sftp_t *sftp, const char *path,
+    char *resolved_path, size_t resolved_cap,
+    gt_sftp_entry_t **out, size_t *out_count,
+    uint32_t timeout_ms, size_t max_entries,
+    bool (*cancelled)(void *), void *context);
 
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out);
 

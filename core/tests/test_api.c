@@ -16,6 +16,14 @@ int main(void) {
   gt_hostkey_decision_t d = GT_HOSTKEY_UNKNOWN;
   CHECK(d == GT_HOSTKEY_UNKNOWN, "hostkey 三态不得折叠");
 
+  char browse_path[16] = "stale";
+  gt_sftp_entry_t *browse_entries = NULL;
+  size_t browse_count = 99;
+  CHECK(gt_sftp_browse_controlled(NULL, ".", browse_path, sizeof browse_path,
+      &browse_entries, &browse_count, 100, 100, NULL, NULL) == GT_ERR_INVALID_ARG &&
+      !browse_path[0] && !browse_entries && browse_count == 0,
+      "controlled browse rejects NULL and clears outputs");
+
   /* NULL 句柄的入口必须显式报错（铁律 #6：不静默成功）。
    * SFTP 已在 M4 实现：NULL 句柄是参数非法（INVALID_ARG），
    * 而不是 UNSUPPORTED——后者只属于「能力缺失」（libssh2 未编入）。 */

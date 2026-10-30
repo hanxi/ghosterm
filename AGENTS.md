@@ -147,7 +147,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 > Android 已验收组件/配置绑定；A2 首片已接本地 Transport、Canvas/InputConnection 与会话生命周期，整个终端阶段未完成。连接配置检查已接两端；Android SSH native owner/认证桥及远端终端后端已接，产品 DNS/认证页面与 Keystore 容器首片已接（实现计划 §9.27），整个 A3 仍未完成；SFTP 文件产品与 NAPI 尚未接线（SFTP native helper 不计产品接线）。
 > 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
 
-`libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的六场景、五组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同六场景。Android 与主机默认构建均应用补丁；`mutation-check-sftp-open.py` 另验 7 C + 2 Swift + 1 无库组，`mutation-check-host-ssh2.py --app 本轮.app` 验十一组依赖/包/CMake 守卫，目标红、独立对照绿、恢复绿与 SHA256。已交付证据见 Android 实现计划 §9.45/§9.47，范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
+`libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的九场景、七组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同九场景。Android 与主机默认构建均应用补丁；`mutation-check-sftp-open.py` 另验 7 C + 2 Swift + 1 无库组，`mutation-check-host-ssh2.py --app 本轮.app` 验十一组依赖/包/CMake 守卫，目标红、独立对照绿、恢复绿与 SHA256。已交付证据见 Android 实现计划 §9.45/§9.47/§9.49，范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
+
+`sftp-browse` 用 `python3 scripts/mutation-check-sftp-browse.py` 手工验证 13 Core + 2 依赖 + 3 Swift + 1 无库组，覆盖受控目录、实际分配器释放、NAME 边界和绑定；36 项协议矩阵独立执行。当前 83 ABI、Apple 81/2、JNI 40/43，产品尚未消费。`sftp-submit` 用真实 worker 提前释放与 ASan 验任务返回 ID 所有权，一组变异目标 UAF 红、独立 API 绿、恢复绿与 SHA；`exec` 增加会话超时恢复组，共三组。正常目录/提交回归进入 Core gate，手工脚本不增加 CI 20 份。范围与失败记录见 Android 实现计划 §9.49；此处登记现有覆盖，不改变既有验收规则。
 
 ### 变异验证（新增闸门必须附）
 

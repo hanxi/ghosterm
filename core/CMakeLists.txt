@@ -143,10 +143,32 @@ target_link_libraries(test_sftp_open PRIVATE ghosterm_core)
 target_compile_options(test_sftp_open PRIVATE -Wall -Wextra -Werror)
 if(SSH2_FOUND)
   add_test(NAME sftp_open_e2e COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/scripts/ssh_e2e.sh $<TARGET_FILE:test_sftp_open>)
+  add_executable(test_sftp_browse tests/test_sftp_browse.c)
+  target_include_directories(test_sftp_browse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_link_libraries(test_sftp_browse PRIVATE ghosterm_core ${CMAKE_DL_LIBS})
+  target_compile_options(test_sftp_browse PRIVATE -Wall -Wextra -Werror)
+  add_test(NAME sftp_browse_e2e COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/scripts/ssh_e2e.sh $<TARGET_FILE:test_sftp_browse>)
+  set_tests_properties(sftp_browse_e2e PROPERTIES TIMEOUT 30)
+  add_executable(test_sftp_submit tests/test_sftp_submit.c)
+  target_include_directories(test_sftp_submit PRIVATE src)
+  target_compile_definitions(test_sftp_submit PRIVATE GT_HAVE_LIBSSH2=1)
+  target_link_libraries(test_sftp_submit PRIVATE ghosterm_core)
+  target_compile_options(test_sftp_submit PRIVATE -Wall -Wextra -Werror -fsanitize=address -fno-omit-frame-pointer)
+  target_link_options(test_sftp_submit PRIVATE -fsanitize=address)
+  add_test(NAME sftp_submit_e2e COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/scripts/ssh_e2e.sh $<TARGET_FILE:test_sftp_submit>)
+  # libssh2's pre-SFTP handshake allocations are separately tracked; this test
+  # specifically checks use-after-free in submit_job, not whole-library leaks.
+  set_tests_properties(sftp_submit_e2e PROPERTIES TIMEOUT 30 ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0")
+
+
 endif()
 
 add_executable(test_ssh tests/test_ssh.c)
 target_link_libraries(test_ssh PRIVATE ghosterm_core)
+if(SSH2_FOUND)
+  target_include_directories(test_ssh PRIVATE src)
+  target_compile_definitions(test_ssh PRIVATE GT_HAVE_LIBSSH2=1)
+endif()
 add_test(NAME ssh_e2e
          COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/scripts/ssh_e2e.sh
                  $<TARGET_FILE:test_ssh>)

@@ -1322,6 +1322,7 @@ int gt_ssh_exec_read(gt_ssh_exec_t *e, uint8_t *buf, size_t cap,
   int64_t start = exec_mono_ms();
   for (;;) {
     gt__ssh_io_lock(e->ssh);
+    long previous_timeout = libssh2_session_get_timeout(e->sess);
     libssh2_session_set_timeout(e->sess, 100);
     ssize_t n = -1;
     bool fromerr = false;
@@ -1341,6 +1342,8 @@ int gt_ssh_exec_read(gt_ssh_exec_t *e, uint8_t *buf, size_t cap,
     bool both_eof = e->stdout_eof && e->stderr_eof;
     char *emsg = NULL;
     if (hard) libssh2_session_last_error(e->sess, &emsg, NULL, 0);
+    /* The polling slice belongs to this read, not sibling SFTP channels. */
+    libssh2_session_set_timeout(e->sess, previous_timeout);
     gt__ssh_io_unlock(e->ssh);
 
     if (n > 0) { if (is_stderr) *is_stderr = fromerr; return (int)n; }

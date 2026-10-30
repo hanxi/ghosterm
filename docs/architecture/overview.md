@@ -34,7 +34,7 @@
 2. **字节流不过事件队列**：终端输出由会话线程 `transport_read → surface` 直连；
    事件队列只承载低频状态。这是性能红线。
 3. **C ABI 是唯一跨语言边界**：`core/include/ghosterm.h`。opaque handle + POD，
-   当前 Swift 与 Android JNI 引用已有对拍；已验通道切片 C ABI 为 81 项、Apple 79/2；受控 SFTP 切片为 82 项、Apple 80/2、JNI 40/42（§9.47，仅接口/helper，文件产品待接）；SSH 后端切片 JNI 为 32/42，身份容器切片为 33/41，IdentityFile 来源查询切片为 34/41，主机信任快照切片为 38/41，事务/移除绑定为 39/41，通道取消入口替换旧引用后为 39/42（产品首片见 Android 计划 §9.27，来源查询见 §9.34，信任快照与绑定见 §9.36，写入事务见 §9.37）；整个 A2/A3 尚未完成。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
+   当前 Swift 与 Android JNI 引用已有对拍；已验通道切片 C ABI 为 81 项、Apple 79/2；受控 SFTP 切片为 82 项、Apple 80/2、JNI 40/42（§9.47）；最新受控浏览切片为 83 项、Apple 81/2、JNI 40/43（§9.49，文件产品待接）；SSH 后端切片 JNI 为 32/42，身份容器切片为 33/41，IdentityFile 来源查询切片为 34/41，主机信任快照切片为 38/41，事务/移除绑定为 39/41，通道取消入口替换旧引用后为 39/42（产品首片见 Android 计划 §9.27，来源查询见 §9.34，信任快照与绑定见 §9.36，写入事务见 §9.37）；整个 A2/A3 尚未完成。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
 
 ## 会话重构的当前进度
 
@@ -112,7 +112,7 @@ Android 文件控制面已有 `FileBrowserSource` 与 `LocalFileBrowser`：本�
 
 SFTP 受控打开与主机依赖前置已按 §9.47 验收：Core controlled opener、Swift 重载和 Android native helper 已存在，默认主机构建/SwiftPM 消费补丁 libssh2。17 项协议、十组接口变异、十一组依赖守卫及既有打包变异通过。macOS 产品仍用无参 `sftp()`，Android 没有远端文件 owner；列表、预览及关闭仍须独立的 owner/预算/取消契约，详见[主机依赖说明](../reference/host-ssh2-build.md)。
 
-工作区新增受控目录浏览（§9.48）：Core 与 Swift 将规范路径、全部条目和目录关闭合成一次结果，要求独占 SSH/SFTP 且不与传输 job 共用。当前 83 ABI、Apple 81/2、JNI 40/43，Swift 变异未完成；JNI 仅登记待接。它不能直接替换正在处理 job 的共享文件后端，也不提供有界预览或整个会话关闭保证。macOS 产品仍丢弃新的大小已知/普通文件标志，接口层修复不能当作 UI 语义修复；后续验收见[路线图](../reference/roadmap.md#macos-下一步与共享缺口)。
+受控目录浏览（§9.49）已通过协议与变异：Core/Swift 将规范路径、全部条目和目录关闭合成一次结果，要求独占 SSH/SFTP 且不与传输 job 共用。当前 83 ABI、Apple 81/2、JNI 40/43；JNI 仅登记待接，macOS 产品尚未消费新入口或元数据。任务 ID 在移交 worker 前保存，exec 的局部超时在解锁前恢复；两项不替代预览、会话关闭和文件提交契约。详见[路线图](../reference/roadmap.md#macos-下一步与共享缺口)。
 
 ## 参考实现（技术对照）
 

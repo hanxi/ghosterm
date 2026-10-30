@@ -8,7 +8,7 @@ import struct
 import sys
 
 SOURCE_SHA = 'd9ec76cbe34db98eec3539fe2c899d26b0c837cb3eb466a56b0f109cabf658f7'
-PATCH_NAMES = ('0001-sftp-eof.patch', '0002-sftp-init-cleanup.patch')
+PATCH_NAMES = ('0001-sftp-eof.patch', '0002-sftp-init-cleanup.patch', '0003-sftp-name-bounds.patch')
 
 
 def sha(path):

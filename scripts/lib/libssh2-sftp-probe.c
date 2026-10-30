@@ -83,6 +83,47 @@ static int fail(const char *why) {
     return 1;
 }
 
+static int directory_probe(LIBSSH2_SESSION *session, LIBSSH2_SFTP *sftp,
+                           const char *mode, int64_t start) {
+    int result;
+    if (!strcmp(mode, "raw-empty")) {
+        LIBSSH2_SFTP_HANDLE *directory;
+        while (!(directory = libssh2_sftp_opendir(sftp, "/fixture"))) {
+            if (libssh2_session_last_errno(session) != LIBSSH2_ERROR_EAGAIN ||
+                now() - start > 5000) return fail("dependency directory open");
+            tick();
+        }
+        char name[1024];
+        LIBSSH2_SFTP_ATTRIBUTES attrs = {0};
+        while ((result = libssh2_sftp_readdir(directory, name, sizeof name, &attrs)) == LIBSSH2_ERROR_EAGAIN) {
+            if (now() - start > 5000) return fail("dependency directory read bounded");
+            tick();
+        }
+        if (result >= 0) return fail("dependency empty name became EOF or entry");
+        while ((result = libssh2_sftp_closedir(directory)) == LIBSSH2_ERROR_EAGAIN) {
+            if (now() - start > 5000) return fail("dependency directory close bounded");
+            tick();
+        }
+        if (result) return fail("dependency directory close");
+    } else {
+        char path[1024];
+        memset(path, 'X', sizeof path);
+        while ((result = libssh2_sftp_realpath(sftp, ".", path, sizeof path)) == LIBSSH2_ERROR_EAGAIN) {
+            if (now() - start > 5000) return fail("dependency realpath bounded");
+            tick();
+        }
+        if (!strcmp(mode, "raw-path")) {
+            if (result != LIBSSH2_ERROR_SFTP_PROTOCOL)
+                return fail("dependency NAME length was accepted");
+            for (size_t i = 0; i < sizeof path; i++)
+                if (path[i] != 'X') return fail("dependency NAME copied before bounds check");
+        } else if (result != 8 || memcmp(path, "/fixture", 8)) {
+            return fail("dependency normal realpath");
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc != 7) return 2;
     setvbuf(stdout, NULL, _IONBF, 0);
@@ -123,7 +164,8 @@ int main(int argc, char **argv) {
     libssh2_session_set_blocking(session, 0);
     bool cancel = !strcmp(argv[6], "cancel");
     bool timeout = !strcmp(argv[6], "timeout");
-    bool normal = !strcmp(argv[6], "admit");
+    bool directory = !strncmp(argv[6], "raw-", 4);
+    bool normal = !strcmp(argv[6], "admit") || directory;
     printf("READY %ld\n", (long)getpid());
     int64_t start = now();
     LIBSSH2_SFTP *sftp = NULL;
@@ -148,6 +190,7 @@ int main(int argc, char **argv) {
     if (!normal && !cancel && !timeout && error != LIBSSH2_ERROR_SOCKET_RECV)
         return fail("EOF must report socket receive error");
     if (now() - start > 3000) return fail("dependency init exceeded bound");
+    if (directory && directory_probe(session, sftp, argv[6], start)) return 1;
     if (sftp) {
         int rc;
         while ((rc = libssh2_sftp_shutdown(sftp)) == LIBSSH2_ERROR_EAGAIN) {

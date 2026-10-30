@@ -26,9 +26,9 @@ channel destructor；原 session free 只释放 init 对象，遗漏 partial pac
 重复进入清理为空操作；成功初始化后 session 的 init 指针本来就会清空。
 没有新增公开 libssh2 API，也没有改变 Ghosterm C ABI。
 
-`0003-sftp-name-bounds.patch` 是当前目录浏览工作区的补丁：`sftp_symlink` 原先只将 NAME 中的路径长度与调用方缓冲大小比较，未验证实际报文是否包含这些字节；新增 payload 长度检查，在 memcpy 前返回协议错误。`sftp_readdir` 原先接受空名称并返回 0，调用方会误认为正常目录结束；现在拒绝空名称，不将畸形条目当作 EOF。未新增公开 libssh2 API，也未改正常有效名称路径。
+`0003-sftp-name-bounds.patch` 是受控目录浏览切片的补丁（§9.49 已验收）：`sftp_symlink` 原先只将 NAME 中的路径长度与调用方缓冲大小比较，未验证实际报文是否包含这些字节；新增 payload 长度检查，在 memcpy 前返回协议错误。`sftp_readdir` 原先接受空名称并返回 0，调用方会误认为正常目录结束；现在拒绝空名称，不将畸形条目当作 EOF。未新增公开 libssh2 API，也未改正常有效名称路径。
 
-第三份补丁已列入主机和 Android 构建/收据。36 项主机浏览协议及两组真实重编译补丁变异已有通过记录：分别撤去报文边界和空名称检查，目标红、正常路径对照绿、恢复绿及 SHA 一致。所属浏览变异脚本随后在 Swift 目标定位处失败，整片尚未完成验收；没有该补丁的新 NDK 设备边界用例证据，详见 [§9.48](../../../docs/reference/android-implementation.md#948-受控目录浏览工作区与跨端文档复核2026-10-30)。下述六场景和七组旧变异只覆盖前两份补丁。
+第三份补丁已列入主机/Android 构建和收据。主机与实际 NDK archive 的九场景分别通过；七组真实重编译 native 变异与两组收据变异通过。NAME 长度与空名称两组均用正常路径作独立对照，恢复绿及 SHA。所属 browse 变异的 Swift 定位问题已修正并完整通过，历史 §9.48 与最终 [§9.49](../../../docs/reference/android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30) 分别保留。
 
 ## 构建与当前范围
 
@@ -53,11 +53,11 @@ python3 scripts/test-libssh2-sftp.py \
 
 脚本校验锁定 SHA256，在独立目录构建真实静态库，并直接链接公共 libssh2 API
 探针。认证通过真实 SSH，协议故障端明确观测 channel/subsystem/VERSION 顺序。
-六个场景：正常 VERSION、头部 EOF、正文 EOF、部分报文后取消/超时、非 VERSION
-报文入队后取消。自定义分配器追踪初始化开始后的分配；必须在 session 释放后归零，
+九个场景：正常 VERSION、头部 EOF、正文 EOF、部分报文后取消/超时、非 VERSION
+报文入队后取消，以及超长 NAME 声明、空目录项、正常路径对照。自定义分配器追踪初始化开始后的分配；必须在 session 释放后归零，
 取消不能靠提前取消而绕过 partial allocation。正常成功及关闭是独立对照。
 
-五组变异分别撤去头部 EOF、正文 EOF、partial buffer 释放、报文队列清理和
+七组变异分别撤去 NAME 边界、空名称拒绝、头部 EOF、正文 EOF、partial buffer 释放、报文队列清理和
 session 释放时的 init 清理。每组重新编译，要求指定目标断言红（正文循环由外部
 8 秒超时明确判红）、同库正常连接绿、复原后目标绿与源码 SHA256 一致。
 另以两组隔离 Python 变异验证补丁记录和 archive 摘要守卫：目标拒绝断言红，另一种错误收据仍被拒绝、合法收据仍通过，恢复后复验。生产补丁/探针/协议夹具不被变异；临时构建清理，日志保留于
@@ -69,7 +69,7 @@ session 释放时的 init 清理。每组重新编译，要求指定目标断言
 同样不覆盖所有内存分配失败、后续 SFTP 操作取消、原子文件提交或完整断网矩阵。
 
 设备产物另外使用以下命令测试；它先核对实际 Android archive 与补丁收据，
-再用同一 NDK 将探针链接到这些 archive，经指定设备运行六个协议场景。
+再用同一 NDK 将探针链接到这些 archive，经指定设备运行九个协议场景。
 临时私钥只通过 adb 标准输入送入探针内存，不落设备文件或进程参数；测试二进制和
 本轮 adb reverse 在结束时清理。该测试不包含远端文件页面或 JNI owner 接线。
 

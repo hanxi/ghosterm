@@ -209,6 +209,41 @@ final class GhostermCoreTests: XCTestCase {
         return false
     }
 
+    func testSFTPBrowseEndToEnd() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],
+              let key = env["GHOSTERM_SSH_KEY"], let port = UInt16(env["GHOSTERM_SSH_PORT"] ?? "") else {
+            throw XCTSkip("SSH fixture required")
+        }
+        let session = try SSHSession(SSHOptions(host: host, port: port, username: user,
+            knownHostsPath: env["GHOSTERM_SSH_KNOWN_HOSTS"]))
+        session.setHostKeyDecider { _, _, _, _ in .accept }
+        try session.authenticate(privateKeyPEM: String(contentsOfFile: key, encoding: .utf8))
+        try session.connect()
+        defer { session.close() }
+        let files = try session.sftp(timeoutMilliseconds: 3000)
+        defer { files.close() }
+        let directory = (key as NSString).deletingLastPathComponent
+        let empty = URL(fileURLWithPath: directory).appendingPathComponent("browse-zero")
+        try Data().write(to: empty)
+        defer { try? FileManager.default.removeItem(at: empty) }
+        XCTAssertThrowsError(try files.browse(path: directory, timeoutMilliseconds: 0)) { error in
+            guard case GhostermError.status(1, _) = error else { return XCTFail("Browse zero budget must be INVALID_ARG") }
+        }
+        let cancelled = SSHCancellation(); cancelled.cancel()
+        XCTAssertThrowsError(try files.browse(path: directory, timeoutMilliseconds: 3000, cancellation: cancelled)) { error in
+            guard case GhostermError.status(8, _) = error else { return XCTFail("Browse cancellation must be CANCELLED") }
+        }
+        let result = try files.browse(path: directory, timeoutMilliseconds: 3000)
+        XCTAssertEqual(result.path, directory)
+        let entry = try XCTUnwrap(result.entries.first { $0.name == "browse-zero" })
+        XCTAssertTrue(entry.hasSize)
+        XCTAssertEqual(entry.size, 0)
+        XCTAssertTrue(entry.isRegularFile)
+        XCTAssertEqual(entry.fullPath, empty.path)
+        XCTAssertTrue(try files.realpath(".").hasPrefix("/"))
+    }
+
     func testSFTPControlledEndToEnd() throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],

@@ -15,6 +15,10 @@
  * 用法：test_ssh <host> <port> <user> <pem> <workdir>
  */
 #include "ghosterm.h"
+#ifdef GT_HAVE_LIBSSH2
+#include "internal.h"
+#include <libssh2.h>
+#endif
 
 #include <signal.h>
 #include <stdio.h>
@@ -42,6 +46,29 @@ static void poll_read_deadline(int sig) {
 
 static int pass = 0, fail = 0;
 #define CHECK(c, msg) do { if (c) pass++; else { fail++; printf("FAIL: %s\n", msg); } } while (0)
+
+/* Exec shares a session with SFTP. Its short polling timeout is local to a
+ * read call; observing the real session catches leakage before timing flakes. */
+static int read_exec_checked(gt_ssh_t *ssh, gt_ssh_exec_t *exec,
+                             uint8_t *buffer, size_t capacity, int timeout,
+                             bool *is_stderr) {
+#ifdef GT_HAVE_LIBSSH2
+  void *raw = NULL; int socket = -1;
+  if (gt__ssh_borrow(ssh, &raw, &socket) != GT_OK) {
+    CHECK(0, "exec fixture has authenticated session");
+    return GT_EXEC_READ_ERROR;
+  }
+  long previous = libssh2_session_get_timeout(raw);
+#else
+  (void)ssh;
+#endif
+  int result = gt_ssh_exec_read(exec, buffer, capacity, timeout, is_stderr);
+#ifdef GT_HAVE_LIBSSH2
+  CHECK(libssh2_session_get_timeout(raw) == previous,
+        "exec read restores shared SFTP timeout");
+#endif
+  return result;
+}
 
 static char *read_file(const char *path) {
   FILE *f = fopen(path, "rb");
@@ -506,7 +533,7 @@ int main(int argc, char **argv) {
             char ebuf[512]; size_t tot = 0; int ec = -1;
             while (tot + 1 < sizeof ebuf) {
               bool iserr = false;
-              int n = gt_ssh_exec_read(ex, (uint8_t *)ebuf + tot,
+              int n = read_exec_checked(s, ex, (uint8_t *)ebuf + tot,
                                        sizeof ebuf - tot - 1, 3000, &iserr);
               if (n > 0) { tot += (size_t)n; continue; }
               if (n == GT_EXEC_READ_TIMEOUT) continue;
@@ -526,7 +553,7 @@ int main(int argc, char **argv) {
             char nb[256]; size_t nt = 0;
             for (;;) {
               bool ie = false;
-              int n = gt_ssh_exec_read(exn, (uint8_t *)nb + nt, sizeof nb - nt - 1, 3000, &ie);
+              int n = read_exec_checked(s, exn, (uint8_t *)nb + nt, sizeof nb - nt - 1, 3000, &ie);
               if (n > 0) { nt += (size_t)n; if (nt >= sizeof nb - 1) break; continue; }
               if (n == GT_EXEC_READ_TIMEOUT) continue;
               break;
@@ -542,7 +569,7 @@ int main(int argc, char **argv) {
             size_t no = 0, ne = 0;
             for (;;) {
               uint8_t tmp[256]; bool iserr = false;
-              int n = gt_ssh_exec_read(ex2, tmp, sizeof tmp, 3000, &iserr);
+              int n = read_exec_checked(s, ex2, tmp, sizeof tmp, 3000, &iserr);
               if (n > 0) {
                 size_t un = (size_t)n;
                 if (iserr) { size_t c = sizeof er - 1 - ne; if (un > c) un = c;
@@ -599,7 +626,7 @@ int main(int argc, char **argv) {
             char fbuf[8192];
             for (;;) {
               bool ie = false;
-              int n = gt_ssh_exec_read(fx, (uint8_t *)fbuf, sizeof fbuf, 3000, &ie);
+              int n = read_exec_checked(s, fx, (uint8_t *)fbuf, sizeof fbuf, 3000, &ie);
               if (n > 0) {
                 if (!ie) for (int k = 0; k < n; k++) if (fbuf[k] == '\0') find_n++;
                 continue;

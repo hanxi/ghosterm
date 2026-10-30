@@ -6,7 +6,7 @@ is fault injection, not a production server design. Normal PTY/PID evidence stay
 with the separate OpenSSH fixture. Control and SSH listeners bind loopback only.
 """
 from contextlib import contextmanager
-import base64, hashlib, hmac, json, logging, secrets, socket, socketserver, threading, time
+import base64, hashlib, hmac, importlib.util, json, logging, secrets, socket, socketserver, threading, time
 
 @contextmanager
 def fixture(work, enabled):
@@ -23,6 +23,9 @@ def fixture(work, enabled):
     logger.disabled = True
     key = paramiko.Ed25519Key.from_private_key_file(str(Path(work)/'hostkey'))
     client = (Path(work)/'clientkey.pub').read_text().split()[1]
+    directory_spec = importlib.util.spec_from_file_location('sftp_directory_peer', Path(__file__).with_name('sftp-directory-peer.py'))
+    directory_peer = importlib.util.module_from_spec(directory_spec)
+    directory_spec.loader.exec_module(directory_peer)
     token = secrets.token_hex(32)
     lock = threading.Lock()
     records = {}
@@ -86,6 +89,8 @@ def fixture(work, enabled):
                                     if peer.record['action'] not in ('partial','queued-partial'): sftp_channel.shutdown_write()
                                 else:
                                     sftp_channel.sendall(b'\x00\x00\x00\x05\x02\x00\x00\x00\x03')
+                                    if peer.record['stage'] in directory_peer.STAGES:
+                                        directory_peer.serve(sftp_channel, peer, closing)
             except (EOFError, OSError, paramiko.SSHException): pass
             finally: transport.close()
     class Control(socketserver.StreamRequestHandler):
@@ -96,7 +101,7 @@ def fixture(work, enabled):
             with lock:
                 op = request['op']
                 if op == 'new':
-                    if request['stage'] not in ('channel','pty','shell','subsystem','version') or request['action'] not in ('hold','deny','allow','disconnect','eof','partial','header-eof','queued-partial'): raise ValueError('Invalid fixture mode')
+                    if request['stage'] not in ('channel','pty','shell','subsystem','version', *directory_peer.STAGES) or request['action'] not in ('hold','deny','allow','disconnect','eof','partial','header-eof','queued-partial', *directory_peer.ACTIONS): raise ValueError('Invalid fixture mode')
                     name = 'channel-'+secrets.token_hex(12)
                     records[name] = dict(stage=request['stage'],action=request['action'],events=[],release=threading.Event())
                     result = dict(user=name)

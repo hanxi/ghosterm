@@ -41,8 +41,9 @@ def main():
           ('success','if (status) *status = GT_OK;\n    return out;', 'if (status) *status = GT_ERR_IO;\n    return out;','normal'),
         ]
         for name,old,new,case in cases:
-          text=clean.decode();assert text.count(old)==1,(name,text.count(old))
-          source.write_text(text.replace(old,new)+'\n/* '+MARK+' */\n');compile_c()
+          text=clean.decode();start=text.index('static gt_status_t open_status(');end=text.index('static void attrs_to_stat(',start)
+          opener=text[start:end];assert opener.count(old)==1,(name,opener.count(old))
+          source.write_text(text[:start]+opener.replace(old,new)+text[end:]+'\n/* '+MARK+' */\n');compile_c()
           if case is None:run([build/'test_api'],name+'-red',True)
           else:protocol(name+'-red',case,True)
           control(name+'-control');source.write_bytes(clean);compile_c()

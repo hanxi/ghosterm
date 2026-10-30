@@ -539,10 +539,12 @@ public struct SFTPEntry: Equatable, Identifiable {
     public let uid: UInt32
     public let gid: UInt32
     public let hasOwner: Bool
+    public let hasSize: Bool
+    public let isRegularFile: Bool
 
     public init(name: String, fullPath: String, size: UInt64, mode: UInt32,
                 isDirectory: Bool, isSymlink: Bool, mtime: Date?,
-                uid: UInt32 = 0, gid: UInt32 = 0, hasOwner: Bool = false) {
+                uid: UInt32 = 0, gid: UInt32 = 0, hasOwner: Bool = false, hasSize: Bool = true, isRegularFile: Bool? = nil) {
         self.name = name
         self.fullPath = fullPath
         self.size = size
@@ -553,6 +555,8 @@ public struct SFTPEntry: Equatable, Identifiable {
         self.uid = uid
         self.gid = gid
         self.hasOwner = hasOwner
+        self.hasSize = hasSize
+        self.isRegularFile = isRegularFile ?? (!isDirectory && !isSymlink)
     }
 }
 
@@ -565,10 +569,12 @@ public struct SFTPStat {
     public let uid: UInt32
     public let gid: UInt32
     public let hasOwner: Bool
+    public let hasSize: Bool
+    public let isRegularFile: Bool
 
     public init(size: UInt64, mode: UInt32, isDirectory: Bool, isSymlink: Bool,
                 mtime: Date?, uid: UInt32 = 0, gid: UInt32 = 0,
-                hasOwner: Bool = false) {
+                hasOwner: Bool = false, hasSize: Bool = true, isRegularFile: Bool? = nil) {
         self.size = size
         self.mode = mode
         self.isDirectory = isDirectory
@@ -577,6 +583,8 @@ public struct SFTPStat {
         self.uid = uid
         self.gid = gid
         self.hasOwner = hasOwner
+        self.hasSize = hasSize
+        self.isRegularFile = isRegularFile ?? (!isDirectory && !isSymlink)
     }
 }
 
@@ -597,12 +605,18 @@ private func sftpStat(_ st: gt_sftp_stat_t) -> SFTPStat {
         isSymlink: st.is_symlink,
         mtime: st.mtime_unix >= 0
             ? Date(timeIntervalSince1970: TimeInterval(st.mtime_unix)) : nil,
-        uid: st.uid, gid: st.gid, hasOwner: st.has_owner
+        uid: st.uid, gid: st.gid, hasOwner: st.has_owner,
+        hasSize: st.has_size, isRegularFile: st.is_regular
     )
 }
 
 /// 一个 SFTP 会话。线程纪律同 SSH：全部调用放会话线程；job 的事件
 /// 经 `Ghosterm.pollEvents` 低频收取。
+public struct SFTPDirectory {
+    public let path: String
+    public let entries: [SFTPEntry]
+}
+
 public final class SFTPSession {
     nonisolated let handle: OpaquePointer
     private var closed = false
@@ -644,12 +658,58 @@ public final class SFTPSession {
                     mtime: e.stat.mtime_unix >= 0
                         ? Date(timeIntervalSince1970: TimeInterval(e.stat.mtime_unix))
                         : nil,
-                    uid: e.stat.uid, gid: e.stat.gid, hasOwner: e.stat.has_owner
+                    uid: e.stat.uid, gid: e.stat.gid, hasOwner: e.stat.has_owner,
+                    hasSize: e.stat.has_size, isRegularFile: e.stat.is_regular
                 ))
             }
         }
         out.sort { $0.name < $1.name }
         return out
+    }
+
+    /// Dedicated owner only. Core IO failure invalidates this SSH/SFTP pair.
+    /// UTF-8 conversion can throw after a successful Core operation without aborting it.
+    /// The budget includes realpath, the complete listing and directory close.
+    public func browse(path: String, timeoutMilliseconds: UInt32,
+                       maxEntries: Int = 65536, cancellation: SSHCancellation? = nil) throws -> SFTPDirectory {
+        guard !path.isEmpty, !path.utf8.contains(0), maxEntries > 0, maxEntries <= 65536 else {
+            throw GhostermError.status(Int32(GT_ERR_INVALID_ARG.rawValue), "Invalid browse path or limit")
+        }
+        var resolved = [CChar](repeating: 0, count: 65536)
+        var entries: UnsafeMutablePointer<gt_sftp_entry_t>?
+        var count = 0
+        let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let rc = withExtendedLifetime(cancellation) {
+            path.withCString { p in
+                gt_sftp_browse_controlled(handle, p, &resolved, resolved.count, &entries, &count,
+                    timeoutMilliseconds, maxEntries, { pointer in
+                        guard let pointer else { return false }
+                        return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+                    }, context)
+            }
+        }
+        defer { gt_sftp_list_free(entries, count) }
+        try check(rc)
+        guard let directory = String(validatingCString: resolved) else {
+            throw GhostermError.failed("Remote directory path is not UTF-8")
+        }
+        var result: [SFTPEntry] = []
+        if let entries {
+            for i in 0..<count {
+                let e = entries[i]
+                guard let raw = e.full_path, let full = String(validatingCString: raw) else {
+                    throw GhostermError.failed("Remote filename is not UTF-8")
+                }
+                let metadata = sftpStat(e.stat)
+                result.append(SFTPEntry(name: (full as NSString).lastPathComponent,
+                    fullPath: full, size: metadata.size, mode: metadata.mode,
+                    isDirectory: metadata.isDirectory, isSymlink: metadata.isSymlink,
+                    mtime: metadata.mtime, uid: metadata.uid, gid: metadata.gid,
+                    hasOwner: metadata.hasOwner, hasSize: metadata.hasSize,
+                    isRegularFile: metadata.isRegularFile))
+            }
+        }
+        return SFTPDirectory(path: directory, entries: result)
     }
 
     public func stat(path: String) throws -> SFTPStat {
@@ -665,7 +725,8 @@ public final class SFTPSession {
             isSymlink: st.is_symlink,
             mtime: st.mtime_unix >= 0
                 ? Date(timeIntervalSince1970: TimeInterval(st.mtime_unix)) : nil,
-            uid: st.uid, gid: st.gid, hasOwner: st.has_owner
+            uid: st.uid, gid: st.gid, hasOwner: st.has_owner,
+            hasSize: st.has_size, isRegularFile: st.is_regular
         )
     }
 

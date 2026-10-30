@@ -1,0 +1,23 @@
+--- a/src/sftp.c
++++ b/src/sftp.c
+@@ -1873,7 +1873,7 @@
+             }
+
+             filename_len = real_filename_len;
+-            if(filename_len >= buffer_maxlen) {
++            if(filename_len == 0 || filename_len >= buffer_maxlen) {
+                 filename_len = (size_t)LIBSSH2_ERROR_BUFFER_TOO_SMALL;
+                 goto end;
+             }
+@@ -3940,6 +3940,11 @@
+
+     /* this reads a u32 and stores it into a signed 32bit value */
+     link_len = _libssh2_ntohu32(data + 9);
++    if(link_len > data_len - 13) {
++        LIBSSH2_FREE(session, data);
++        return _libssh2_error(session, LIBSSH2_ERROR_SFTP_PROTOCOL,
++                              "READLINK/REALPATH name exceeds packet");
++    }
+     if(link_len < target_len) {
+         memcpy(target, data + 13, link_len);
+         target[link_len] = 0;
