@@ -19,9 +19,21 @@
 
 ## SFTP 受控打开的验证边界
 
-`test_sftp_open` / `sftp_open_e2e` 验证正常 OpenSSH 打开、预先取消、零预算与真实目录，默认主机构建 Core CTest 数量为 39。独立 `scripts/test-sftp-open.py` 覆盖 17 项协议矩阵，含部分 VERSION/头部 EOF；默认补丁库上的最终矩阵及十组接口变异通过。十一组依赖守卫与真实 CMake 接线变异亦通过，历史失败和修正见[主机依赖说明](../../docs/reference/host-ssh2-build.md)。
+`test_sftp_open` / `sftp_open_e2e` 验证正常 OpenSSH 打开、预先取消、零预算与真实目录，该 §9.47 基线的默认主机构建 Core CTest 数量为 39；当前目录浏览工作区为 40。独立 `scripts/test-sftp-open.py` 覆盖 17 项协议矩阵，含部分 VERSION/头部 EOF；默认补丁库上的最终矩阵及十组接口变异通过。十一组依赖守卫与真实 CMake 接线变异亦通过，历史失败和修正见[主机依赖说明](../../docs/reference/host-ssh2-build.md)。
 
-当前公开 ABI 为 82 项，Apple 80/2、JNI 40/42；两端文件产品尚未消费新入口。后续阻塞操作不受 opener 预算保护。构建、协议命令与验证日志见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增手工变异未加入 CI 20 份；默认缺依赖报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
+§9.47 已验基线为 82 ABI、Apple 80/2、JNI 40/42；当前工作区为 83 ABI、Apple 81/2、JNI 40/43；两端文件产品尚未消费新入口。后续阻塞操作不受 opener 预算保护。构建、协议命令与验证日志见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增手工变异未加入 CI 20 份；默认缺依赖报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
+
+## SFTP 受控目录浏览（工作区）
+
+`test_sftp_browse` 的正常真实 sshd 用例作为 `sftp_browse_e2e` 加入 CTest。独立协议矩阵通过以下入口运行：
+
+```bash
+PATH="$PWD/build/ssh-channel-toolchain/bin:$PATH" \
+  bash core/tests/scripts/ssh_e2e.sh "$PWD/scripts/test-sftp-browse.py"
+python3 scripts/mutation-check-sftp-browse.py
+```
+
+36 项协议用例已通过；分配器跟踪 SFTP 开始后的真实 libssh2 分配，不能扩大为整个连接零泄漏。变异脚本的 13 C + 2 依赖组通过，Swift 单项基线通过，但随后替换目标计数断言失败，三组 Swift 变异未完成，整份脚本不算通过。正常 gate 不包含这份完整协议/变异矩阵；新增测试不改变 CI 20 份范围。详情及日志见 [§9.48](../../docs/reference/android-implementation.md#948-受控目录浏览工作区与跨端文档复核2026-10-30)。
 
 ## 公共头依赖闸门
 

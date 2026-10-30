@@ -36,7 +36,9 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 SSH 身份设置已接通列表、详情、指纹、导入与移除，身份设置八项定向/十组变异通过，后续主机关联切片完整 160 项设备测试通过；早期清理/旋转观测失败保留在[§9.32](../docs/reference/android-implementation.md#932-身份设置工作区复核2026-10-30)，修正与当前证据见[§9.33](../docs/reference/android-implementation.md#933-ssh-身份设置与公钥信息2026-10-30)。A7 的五类/16 项偏好仍未实现。
 
-**最新依赖进度**：Android libssh2 EOF/初始化清理补丁、真实设备六场景及完整 214 项回归已验；选区偶发原因仍待定位。§9.47 已完成共享受控 SFTP 打开与主机补丁依赖，17 项协议、十组接口及十一组依赖守卫变异通过，Android 两 APK 构建通过且 debug APK 与 214 项运行时一致。SFTP helper 仍无文件 owner/Kotlin 调用方，40/42、82 ABI 不表示远端浏览已实现。详见[共享依赖说明](../docs/reference/host-ssh2-build.md)。
+**已验收依赖基线**：Android libssh2 EOF/初始化清理补丁、真实设备六场景及完整 214 项回归已验；选区偶发原因仍待定位。§9.47 已完成共享受控 SFTP 打开与主机补丁依赖，17 项协议、十组接口及十一组依赖守卫变异通过，Android 两 APK 构建通过且 debug APK 与 214 项运行时一致。SFTP helper 仍无文件 owner/Kotlin 调用方，40/42、82 ABI 不表示远端浏览已实现。详见[共享依赖说明](../docs/reference/host-ssh2-build.md)。
+
+**目录浏览工作区**：共享层已新增受控 browse 与元数据标志，当前 83 ABI、JNI 40 引用/43 待办；JNI 没有消费 browse，远端 owner/页面仍未接。36 项主机协议和 C/依赖变异有部分通过记录，Swift 变异脚本失败，整片未验收；新的三补丁 APK 已另行完整运行 214 项通过（0 失败/错误/跳过），不沿用上段 §9.47 的相同摘要结论；没有新增远端浏览页面或第三补丁的专用设备探针证据，详见 [§9.48](../docs/reference/android-implementation.md#948-受控目录浏览工作区与跨端文档复核2026-10-30)。
 
 ## 本机与 SAF 文件验证
 

@@ -112,6 +112,14 @@ macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，�
 
 macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 同样只有未接文件产品的 native helper。两端后续需分别传递原请求预算与取消；list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮接口/依赖验收没有新增桌面产品关闭/取消或完整宿主证据。
 
+### 目录浏览与元数据工作区
+
+共享层新增 `SFTPSession.browse(path:timeoutMilliseconds:maxEntries:cancellation:)`，当前 83 ABI、Apple 81 引用/2 未用；真实 sshd 单项基线通过，三组 Swift 变异尚未完成（目标定位断言失败）。36 项主机协议、13 C + 2 依赖变异通过不等于桌面产品验收。当前 `SFTPFileBackend.list/realpath` 仍使用原有两个独立调用；`AppModel.makeSFTPFileBackend` 仍用旧 opener。完整记录见 [§9.48](../docs/reference/android-implementation.md#948-受控目录浏览工作区与跨端文档复核2026-10-30)。
+
+新的 `SFTPEntry/SFTPStat` 带 `hasSize/isRegularFile`，C 转换保留真实标志；但 `SFTPFileBackend.entry` 创建 `FileEntry` 时丢弃它们，`kind` 将非目录/非链接一律映射为 `.file`。`FileEntry` 只有数值大小，`sizeText` 会将未知大小的零值显示成文件大小，特殊或未知类型也可能被当作普通文件。此为源码核对，尚无新增桌面故障实测。
+
+迁移时须把“未知大小”与“已知零字节”、普通文件与特殊/未知类型贯穿后端、列表、预览准入和任务规划；不能仅加绑定字段便宣称修复。分别以缺少 SIZE/权限属性、零字节普通文件、FIFO 和普通文件对照验收，并加变异证明产品适配层不会重新折叠语义。新浏览入口需要独占连接，不能直接套在同时承担传输 job 的现有后端上。
+
 ### 与 Android 最终方案的差异
 
 | 操作 | macOS 当前实现 | Android 方案与实现边界 |
@@ -200,11 +208,11 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 同样只有未�
 在仓库根运行；full libghostty 产物须先由 `scripts/build-ghostty.sh` 生成：
 
 ```bash
-bash scripts/gate.sh
-bash scripts/check-abi-apple.sh
 # 首次准备锁定的主机 SSH 依赖，再构建 Core 与 App
 python3 scripts/build-host-ssh2.py --fetch  # 首次准备；缓存齐备后省略 --fetch
 bash scripts/build-core.sh
+bash scripts/gate.sh
+bash scripts/check-abi-apple.sh
 swift build --package-path apple/GhostermApp
 bash scripts/apple-app-gate.sh
 ```
@@ -236,7 +244,7 @@ bash scripts/package-mac.sh --version 0.1.0 --sign "Developer ID Application: �
 - **图标**取自 `assets/icons/apple/AppIcon.appiconset/`（母版 SVG 的派生物），
   打包时用 `iconutil` 合成 `AppIcon.icns`——不在打包脚本里重画图标。
 - **自包含**由 `scripts/lib/embed-dylibs.py` 保证：递归收依赖闭包
-  （libssh2 → libssl/libcrypto）、改 install name、复验无绝对路径，并做
+  （libssh2 → libcrypto；其余依赖按实际 Mach-O 加载项递归收集）、改 install name、复验无绝对路径，并做
   运行时断言（`DYLD_PRINT_LIBRARIES` 里不得出现 Homebrew 路径）。
 - 签名顺序是「先内嵌库、再 .app」；BUILD-INFO.txt 必须在签名**之前**写进
   bundle，否则 code seal 失效（这条被 dmg 挂载复验抓到过）。

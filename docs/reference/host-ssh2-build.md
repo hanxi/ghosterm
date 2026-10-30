@@ -6,7 +6,7 @@
 
 | 路径 | 当前工作区行为 | 边界 |
 |---|---|---|
-| `scripts/build-host-ssh2.py` | 校验 libssh2 1.11.1 源码包，在 `tmp/host-ssh2` 解包并应用两份 SFTP 补丁，安装到 `build/host-native` | 默认不下载；首次缺源码需显式 `--fetch`。依赖 pkg-config 可发现的 OpenSSL libcrypto |
+| `scripts/build-host-ssh2.py` | 校验 libssh2 1.11.1 源码包，在 `tmp/host-ssh2` 解包并应用三份 SFTP 补丁（第三份属于 §9.48 工作区），安装到 `build/host-native` | 默认不下载；首次缺源码需显式 `--fetch`。依赖 pkg-config 可发现的 OpenSSL libcrypto |
 | `core/cmake/HostSSH2.cmake` | 默认 SSH 构建校验收据并链接上述共享库 | 缺失或校验失败直接停止；不再查找系统 libssh2 或自动降级 |
 | 两个 Apple `Package.swift` | 从仓库 `build/host-native/lib` 链接 libssh2 | SwiftPM 不负责准备库；CMake 自定义 prefix 不会自动同步到 SwiftPM |
 | `scripts/build-core.sh` / `scripts/gate.sh` | 前者先准备/验证本地依赖；后者只配置、构建和验证现有依赖 | gate 保持离线；缓存不足时应先准备依赖 |
@@ -66,11 +66,23 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 | Swift 绑定 | `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 已存在，定向/变异有通过记录 | macOS 产品工厂仍调用无参 `ssh.sftp()`；原认证预算未传入文件 owner |
 | Android native | `gaj_ssh_open_sftp` 从原认证取剩余预算并封顶 5000 ms，接停止信号 | helper 无文件调用方；没有文件 owner、JNI/Kotlin 文件 API 或远端浏览/预览 |
 
-当前公开 ABI 为 82 项，Apple 引用 80/登记未用 2，JNI 引用 40/登记未用 42。这些数量包含 helper 引用，不是产品可用功能数量。列表、realpath、预览、任务和关闭仍按各自旧契约运行；opener 测试不证明整个文件连接可取消。
+§9.47 已验收基线为 82 ABI、Apple 80/2、JNI 40/42；§9.48 当前目录浏览工作区为 83 ABI、Apple 81/2、JNI 40/43，整片尚未完成验收。这些数量包含 helper 引用，不是产品可用功能数量。列表、realpath、预览、任务和关闭仍按各自旧契约运行；opener 测试不证明整个文件连接可取消。
+
+## 目录浏览工作区与产品迁移
+
+当前新增 `gt_sftp_browse_controlled` 与 Swift `SFTPSession.browse`，将 realpath、完整列目录及 closedir 纳入同一次预算/取消检查。调用方必须独占已认证的 SSH/SFTP，不能与终端、其他通道或传输 job 共用；既有 job 记录也会被拒绝。成功才发布规范路径和全部条目；非法参数/预先取消不启动 I/O，开始 I/O 后的失败会中止专用 SSH，必须依次释放 SFTP/SSH 后重新连接。
+
+预算与条目上限必须大于零，条目上限不超过 65536；路径/输出缓冲限制见 `core/include/ghosterm/sftp.h`。此接口只关闭本次目录句柄，不替调用方关闭 SFTP 会话。旧 list、realpath、预览与传输没有自动获得新契约。
+
+`gt_sftp_stat_t` 追加大小已知和普通文件标志；Swift 已映射，Android 仅登记新函数待接。属于公开结构布局变更，所有绑定与原生消费者须重编译；符号对拍本身不检查旧结构布局。macOS 产品的 `FileEntry` 仍丢弃这些标志，未知大小/特殊类型的页面语义尚未修复。
+
+第三份补丁 `0003-sftp-name-bounds.patch` 校验 NAME 返回路径长度不超过实际 payload，并拒绝空目录项名称。当前主机构建及 Android 构建均应用三份补丁，历史两补丁的设备与打包变异证据不得自动移记为第三份通过。
+
+工作区 40 CTest/83 ABI、36 项协议、13 C + 2 依赖变异及 Swift 单项基线有通过日志；Swift 三组变异在替换目标计数断言处停止，因此整份脚本失败。新 macOS app-only 包通过，Android 当前 APK 的完整 214 项设备回归通过；没有新补丁专用设备探针、完整 macOS 宿主或 CI 结果。完整边界及后续任务见 [§9.48](android-implementation.md#948-受控目录浏览工作区与跨端文档复核2026-10-30)。以下保留 §9.47 已验收基线，不将其旧结果覆盖为工作区结果。
 
 ## 已有证据与失败记录
 
-本切片最终验证及其各自范围如下；已有设备结果沿用相同产物的 SHA256 证据，不把历史日志冒充本轮设备重跑。
+§9.47 已验收切片的最终验证及其各自范围如下；已有设备结果沿用相同产物的 SHA256 证据，不把历史日志冒充本轮设备重跑。
 
 | 检查 | 结果 | 日志与范围 |
 |---|---|---|
@@ -83,7 +95,7 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 | 新依赖守卫变异 | **11 组通过** | `tmp/host-ssh2-mutations-final.log`；源码/补丁/构建器/产物/crypto、包节/收据/许可/格式/路径及 CMake 错误传播；每组目标红、独立对照绿、恢复绿与 SHA256 |
 | 既有打包变异 | 63 项检查 + DMG 3 组通过，无 SKIP | `tmp/sftp-host-package-mutations.log`；真实依赖嵌入、签名、minos、主题及磁盘映像清理等原有保护 |
 | Android 当前构建 | debug/测试 APK 通过 | `tmp/sftp-controlled-final-android-build.log`；debug APK 与 §9.45 完整 214 项运行时 SHA256 相同 |
-| Android 最近完整设备 | §9.45 的 214 项通过 | API 36 arm64 / 4 KB 页模拟器；此次文档审计未重跑，不新增档位 |
+| §9.47 沿用的 Android 设备证据 | §9.45 的 214 项通过 | API 36 arm64 / 4 KB 页模拟器；§9.47 按相同产物摘要沿用。最新工作区另行完整回归见上节及 §9.48 |
 
 此前守卫失败是测试观测面错误：破坏 prefix 收据后，整包校验又比较包收据，因此撤去 prefix 守卫仍被另一道检查拦住。现在 prefix 变异直接执行生产 `verify`，包变异执行 `check_bundle`；两条路径都有合法产物和独立损坏对照。新增 CMake 组实际配置 Core，撤去失败传播后目标红，独立非法 target 对照仍绿，恢复后再次拒绝坏收据。初次 CMake 断言未处理错误输出折行，改为仅归一化空白后复验，不忽略退出码或错误原因；历史失败没有用放宽生产校验来消除。
 

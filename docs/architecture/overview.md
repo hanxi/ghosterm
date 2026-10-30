@@ -112,6 +112,8 @@ Android 文件控制面已有 `FileBrowserSource` 与 `LocalFileBrowser`：本�
 
 SFTP 受控打开与主机依赖前置已按 §9.47 验收：Core controlled opener、Swift 重载和 Android native helper 已存在，默认主机构建/SwiftPM 消费补丁 libssh2。17 项协议、十组接口变异、十一组依赖守卫及既有打包变异通过。macOS 产品仍用无参 `sftp()`，Android 没有远端文件 owner；列表、预览及关闭仍须独立的 owner/预算/取消契约，详见[主机依赖说明](../reference/host-ssh2-build.md)。
 
+工作区新增受控目录浏览（§9.48）：Core 与 Swift 将规范路径、全部条目和目录关闭合成一次结果，要求独占 SSH/SFTP 且不与传输 job 共用。当前 83 ABI、Apple 81/2、JNI 40/43，Swift 变异未完成；JNI 仅登记待接。它不能直接替换正在处理 job 的共享文件后端，也不提供有界预览或整个会话关闭保证。macOS 产品仍丢弃新的大小已知/普通文件标志，接口层修复不能当作 UI 语义修复；后续验收见[路线图](../reference/roadmap.md#macos-下一步与共享缺口)。
+
 ## 参考实现（技术对照）
 
 | 项目 | 平台 | 许可 | 借用点 |

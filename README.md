@@ -101,19 +101,21 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 ## 当前状态（2026-10-30）
 
-A4 本机/SAF 浏览已交付，最新完整设备证据仍为 §9.45 的 214 项。§9.47 已完成受控 SFTP 打开与主机补丁依赖接线：17 项协议用例、十组接口变异、十一组依赖守卫和既有打包变异通过。两端文件产品尚未接新入口；[共享依赖与验收状态](docs/reference/host-ssh2-build.md)、[路线图](docs/reference/roadmap.md#当前进度总览)列出后续工作。
+当前另有 **未验收目录浏览工作区**：40 CTest / 83 ABI、Apple 81/2、JNI 40/43；36 项主机协议和 13 C + 2 依赖变异通过，Swift 变异脚本中途失败。新浏览和元数据绑定尚未接两端文件产品，详情见 [§9.48](docs/reference/android-implementation.md#948-受控目录浏览工作区与跨端文档复核2026-10-30)。下述 §9.47 数字保留为最近已验收依赖基线。
+
+A4 本机/SAF 浏览已交付，最新完整设备证据为 §9.48 工作区的 214 项通过。§9.47 已完成受控 SFTP 打开与主机补丁依赖接线：17 项协议用例、十组接口变异、十一组依赖守卫和既有打包变异通过。两端文件产品尚未接新入口；[共享依赖与验收状态](docs/reference/host-ssh2-build.md)、[路线图](docs/reference/roadmap.md#当前进度总览)列出后续工作。
 
 本机文件浏览、UTF-8 只读预览、点按打开/长按多选及 SAF 授权已接入，远端文件与复制任务尚未接；§9.42 的草稿构建问题已解决，当前证据见 [A4 实施记录](docs/reference/android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)。
 
 进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准；以下区分生产实现与历史验收，不把原型中的可交互演示记为已实现能力。
 
-- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档；A2 本地终端、A3 SSH 与 A7 身份/主机验证子页部分交付。最新 §9.45 完整 **214 项通过**，§9.44 的偶发失败保留追踪；A3 其余网络/取消收尾（候选推进已接）、A4 远端文件与 A5/A6 四方向复制、16 项设置、后台与发行矩阵仍待完成。
+- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档；A2 本地终端、A3 SSH 与 A7 身份/主机验证子页部分交付。最新 §9.48 工作区完整 **214 项通过**，§9.44 的偶发失败保留追踪；A3 其余网络/取消收尾（候选推进已接）、A4 远端文件与 A5/A6 四方向复制、16 项设置、后台与发行矩阵仍待完成。
 - **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。macOS 尚无 TCP 失败后遍历 DNS 备用地址的实现；Android 已按 §9.40 接入候选推进。Android 普通 shell 已接剩余预算和取消；Swift 新接口已验，但 macOS 产品尚未改用，认证可取消不等于桌面通道打开已可取消，见 [通道边界](apple/README.md#ssh-认证后的通道打开边界)。
-- **共享核心**：当前 **39 项 CTest / 82 ABI**，Apple 80/2、JNI 40/42；受控 shell/SFTP 接口和主机补丁依赖已验。Android 已消费 shell 入口，SFTP 只有 native helper；macOS 产品尚未改用受控 shell/SFTP。TOFU/移除共同事务已交付，Android 管理页在 §9.39 验收，macOS 无管理页；共享修复不代表桌面配置、设置或文件提交事务已完成。
+- **共享核心**：最近已验收依赖基线为 **39 项 CTest / 82 ABI**，Apple 80/2、JNI 40/42；受控 shell/SFTP 接口和主机补丁依赖已验。Android 已消费 shell 入口，SFTP 只有 native helper；macOS 产品尚未改用受控 shell/SFTP。TOFU/移除共同事务已交付，Android 管理页在 §9.39 验收，macOS 无管理页；共享修复不代表桌面配置、设置或文件提交事务已完成。
 
 | 能力 | 状态 |
 |---|---|
-| C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 82 符号，双向对拍；受控打开接口已验，接口尚未冻结，旧会话 ABI 已移除 |
+| C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 当前工作区 83 符号对拍通过；受控打开已验，新浏览与 stat 布局变更未完成整片验收，接口尚未冻结，旧会话 ABI 已移除 |
 | `ssh_config` 解析 / 无损往返（未编辑） | ✅ 与原文逐字节相同 |
 | `ssh_config` 求值 | ✅ typed 视图 + 通用视图（`ssh -G` 等价）；42 键 × 6 host 全表语义对拍 |
 | `ssh_config` 编辑 API | 🟡 9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令已按实际匹配行编辑，已增加三字段来源与包含文件/重名块编辑保护；已接入仅替换目标别名 token 的重命名接口；全部字段视图仍待补齐 |
@@ -123,7 +125,7 @@ A4 本机/SAF 浏览已交付，最新完整设备证据仍为 §9.45 的 214 �
 | SFTP（list / stat / 上传 / 下载 / job 三态） | 🟡 基础原语有真 sshd e2e 与变异证据；非覆盖创建、覆盖截断及过载下终态保障仍待补齐 |
 | **macOS 原生宿主** | 🟡 已交付主要功能；配置写盘与私钥安全存储接线仍有缺口，见路线图 |
 | ├ TerminalSurface（full libghostty + Metal） | ✅ 上游补丁提供 host IO 后端（`patches/libghostty/`） |
-| ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；绑定 ABI 对拍 80/82（另 2 项显式登记），SFTP 新重载未接产品；改名绑定不等于 macOS 表单已接入 |
+| ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；当前绑定 ABI 对拍 81/83（另 2 项显式登记），SFTP 打开/浏览新入口未接产品；改名绑定不等于 macOS 表单已接入 |
 | ├ 标签 / 窗格 | ✅ 单窗口顶部或侧边标签、UUID 重排、唯一加号、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；统一终端/文件工作区、分屏预览、焦点与停画。**遗留**：标签/布局跨重启持久化（设置偏好已持久化） |
 | ├ 配色集随包 + 主题选择 | ✅ Ghostty 配色集随包（`Contents/Resources/ghostty/themes`，数量由构建输出决定）+ 资源目录推导；出包包内配置检查验主题被引擎接受 |
 | ├ 终端设置 | 🟡 配置由 Ghostty 解析，字号/配色已有真实 surface 证据；`SettingsStore` 重复键编辑、读取错误与冲突判定仍有缺口，不能把正常配置的测试扩大为全部保存路径正确 |
