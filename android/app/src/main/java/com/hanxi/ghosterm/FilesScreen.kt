@@ -64,6 +64,8 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 Text(remoteError,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(horizontal=16.dp).testTag("file-connect-error"))
             Text(if(model.location.endpoint.remoteAlias!=null) model.location.directoryId else model.crumbs.joinToString(" / ") { it.label },Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).testTag("file-breadcrumb"),
                 style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+            model.clipboardError?.let { Text(it,color=MaterialTheme.colorScheme.error,
+                modifier=Modifier.padding(horizontal=16.dp).testTag("file-clipboard-error")) }
             when {
                 model.loading -> LinearProgressIndicator(Modifier.fillMaxWidth())
                 model.error!=null -> Column(Modifier.padding(16.dp)) {
@@ -91,9 +93,30 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                     HorizontalDivider()
                 }
             }
-            if(model.selecting) Row(Modifier.fillMaxWidth().padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically) {
-                Text("${model.selected.size} 项",Modifier.weight(1f))
-                TextButton(onClick=model::all) { Text("全选") };TextButton(onClick=model::clearChecked) { Text("清除选择") }
+            if(model.selecting) Column(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                    Text("${model.selected.size} 项",Modifier.weight(1f))
+                    TextButton(onClick=model::all) { Text("全选") };TextButton(onClick=model::clearChecked) { Text("清除选择") }
+                }
+                Button(onClick=model::copySelected,enabled=model.selected.isNotEmpty() && !model.loading && model.error==null,
+                    modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("file-copy")) { Text("复制 ${model.selected.size} 项") }
+            }
+            model.clipboard?.let { snapshot ->
+                ElevatedCard(Modifier.fillMaxWidth().padding(12.dp).testTag("file-clipboard")) {
+                    Column(Modifier.padding(horizontal=12.dp,vertical=8.dp)) {
+                        Text("待粘贴 · ${snapshot.items.size} 项",style=MaterialTheme.typography.titleSmall)
+                        Text(clipboardSource(snapshot),maxLines=if(model.selecting) 1 else 2,overflow=TextOverflow.Ellipsis,
+                            modifier=Modifier.testTag("file-clipboard-source"),style=MaterialTheme.typography.bodySmall)
+                        if(!model.selecting) Text(snapshot.sourcePathLabel,maxLines=2,overflow=TextOverflow.Ellipsis,
+                            modifier=Modifier.testTag("file-clipboard-path"),style=MaterialTheme.typography.bodySmall)
+                        if(!model.selecting) Text(snapshot.items.take(3).joinToString("、") { it.name }+if(snapshot.items.size>3) "…" else "",
+                            maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("file-clipboard-names"))
+                        Row {
+                            TextButton(onClick=model::showClipboard,modifier=Modifier.heightIn(min=48.dp)) { Text("查看清单") }
+                            TextButton(onClick=model::requestClipboardClear,modifier=Modifier.heightIn(min=48.dp)) { Text("清空") }
+                        }
+                    }
+                }
             }
         }
     }
@@ -108,4 +131,37 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             OutlinedButton(onClick=pickFolder,enabled=!model.pickerPending,modifier=Modifier.fillMaxWidth()) { Text("选择设备文件夹") }
         }
     }
+    model.clipboardReplacement?.let { pending ->
+        AlertDialog(onDismissRequest=model::dismissClipboardReplacement,title={ Text("替换复制清单？") },
+            text={ Text("用 ${clipboardSource(pending.snapshot)} 的 ${pending.snapshot.items.size} 项替换现有清单。原文件不会改变。") },
+            confirmButton={ TextButton(onClick=model::confirmClipboardReplacement) { Text("替换清单") } },
+            dismissButton={ TextButton(onClick=model::dismissClipboardReplacement) { Text("保留原清单") } })
+    }
+    if(model.clipboardClearId!=null) AlertDialog(onDismissRequest=model::dismissClipboardClear,
+        title={ Text("清空复制清单？") },text={ Text("只清空待粘贴的清单，原文件不会删除。") },
+        confirmButton={ TextButton(onClick=model::confirmClipboardClear) { Text("确认清空") } },
+        dismissButton={ TextButton(onClick=model::dismissClipboardClear) { Text("取消") } })
+    val clipboard=model.clipboard
+    if(model.clipboardDetails && clipboard!=null) ModalBottomSheet(onDismissRequest=model::hideClipboard,
+        sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text("复制清单 · ${clipboard.items.size} 项",style=MaterialTheme.typography.titleLarge)
+            Text(clipboardSource(clipboard),modifier=Modifier.testTag("file-clipboard-detail-source"))
+            Text(clipboard.sourcePathLabel,modifier=Modifier.testTag("file-clipboard-detail-path"))
+            Text("清单保存的是来源位置；文件内容会在粘贴时读取。",style=MaterialTheme.typography.bodySmall)
+            LazyColumn(Modifier.weight(1f,fill=false).testTag("file-clipboard-items")) {
+                items(clipboard.items,key={ it.id }) { entry ->
+                    ListItem(headlineContent={ Text(entry.name) },supportingContent={ Text(when(entry.kind) {
+                        FileKind.DIRECTORY -> "文件夹";FileKind.LINK -> "符号链接 · 粘贴时需单独处理"
+                        FileKind.OTHER -> "特殊或未知类型 · 粘贴时需单独处理";FileKind.FILE -> "文件"
+                    }) },modifier=Modifier.testTag("file-clipboard-item:${entry.id}"))
+                }
+            }
+            TextButton(onClick=model::hideClipboard,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("返回文件") }
+        }
+    }
+}
+
+private fun clipboardSource(snapshot: FileClipboardSnapshot): String = snapshot.source.endpoint.let { endpoint ->
+    endpoint.remote?.let { "${it.alias} · ${it.user}@${it.host}:${it.port}" } ?: "本机 · ${endpoint.label}"
 }

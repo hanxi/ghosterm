@@ -150,13 +150,19 @@ class LocalPublicationTest {
         val dispatcher=object:CoroutineDispatcher() { override fun dispatch(context:CoroutineContext,block:Runnable) { queue.add(block) } }
         snapshot("published".toByteArray()).use { frozen ->
             val held=fds().size
+            val release=CompletableDeferred<Unit>()
             val job=launch(dispatcher,start=CoroutineStart.UNDISPATCHED) {
-                publisher.publish("","late-cancel",frozen);fail("cancelled acknowledgement delivered")
+                publisher.publish("","late-cancel",frozen) { copied,_ -> if(copied==0L)release.await() }
+                fail("cancelled acknowledgement delivered")
             }
+            // Force the caller to suspend before IO completes: withContext may otherwise
+            // return synchronously, leaving no queued acknowledgement to cancel.
+            release.complete(Unit)
             val delivery=withContext(Dispatchers.IO) { queue.poll(5,TimeUnit.SECONDS) }
             try {
                 assertNotNull(delivery);assertEquals("published",File(home,"late-cancel").readText())
             } finally { job.cancel();delivery?.run();job.join() }
+            assertTrue("late cancellation must retain the published file",File(home,"late-cancel").isFile)
             assertEquals("published",File(home,"late-cancel").readText());assertEquals(held,fds().size)
             assertEquals(LocalFilePublisher.State.CONFLICT,publisher.publish("","late-cancel",frozen).state)
         }

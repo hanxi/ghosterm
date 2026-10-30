@@ -77,7 +77,7 @@ def main():
         if passed!=green or (not green and ('FAILURES' not in output or not any(x in output for x in ('AssertionError','org.junit.ComparisonFailure')))):
             raise RuntimeError(output)
     build('baseline')
-    test('FileBrowserTest,FilesSafTest,'+lifecycle,True,'baseline',15)
+    test('FileBrowserTest,FilesSafTest,'+lifecycle,True,'baseline',16)
     test(control,True,'baseline-control')
     try:
         for index,(path,before,after,target) in enumerate(cases,1):

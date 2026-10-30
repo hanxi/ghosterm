@@ -102,6 +102,25 @@ class FilesSafTest {
         assertEquals(before,main { model().location });assertTrue(resolver.persistedUriPermissions.none { it.uri.authority=="com.hanxi.ghosterm.test.browser" })
         ui.onNodeWithText("文件位置").assertIsDisplayed()
     }
+    @Test fun copiedSafOriginKeepsOpaqueIdentityAcrossRotationLocalSwitchAndRevocation() {
+        grant()
+        ui.onNodeWithTag("file-entry:Folder").performClick();await { !model().loading }
+        ui.onNodeWithTag("file-entry:你好.txt").performTouchInput { longClick() }
+        ui.onNodeWithTag("file-copy").performClick()
+        val snapshot=main { model().clipboard!! }
+        assertEquals("opaque:folder",snapshot.source.directoryId)
+        assertEquals("你好.txt",snapshot.items.single().name)
+        assertEquals(main { model().entries.single().id },snapshot.items.single().id)
+        ui.activityRule.scenario.recreate();assertSame(snapshot,main { model().clipboard })
+        ui.onNodeWithTag("file-location").performClick();ui.onNodeWithText("应用文件").performClick();await { !model().loading }
+        revoke()
+        ui.onNodeWithTag("file-clipboard-path").assertTextContains("Folder",substring=true)
+        ui.onNodeWithText("查看清单").performClick()
+        ui.onNodeWithTag("file-clipboard-item:${snapshot.items.single().id}").assertIsDisplayed()
+        ui.onNodeWithText("返回文件").performClick()
+        assertSame(snapshot,main { model().clipboard });assertEquals("app",main { model().location.endpoint.id })
+        assertTrue(resolver.persistedUriPermissions.none { it.uri.toString()==snapshot.source.endpoint.treeUri })
+    }
     private fun awaitStreams(tree:String,expected:Int):Int {
         val uri=DocumentsContract.buildDocumentUriUsingTree(Uri.parse(tree),"opaque:slow")
         val end=SystemClock.elapsedRealtime()+2000

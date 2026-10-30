@@ -258,4 +258,24 @@ class RemoteFilesProductTest {
         assertNotEquals("reconnection must get a fresh endpoint identity",original,files().location.endpoint.id)
         entry("文本.txt").assertIsDisplayed()
     }
+    @Test fun copiedRemoteOriginSurvivesDisconnectAndConfigurationChanges() {
+        open();login()
+        entry("文本.txt").performTouchInput { longClick() };ui.onNodeWithTag("file-copy").performClick()
+        val snapshot=files().clipboard!!
+        assertEquals(fixture.getString("remoteRoot"),snapshot.source.directoryId)
+        assertEquals(fixture.getString("remoteRoot")+"/文本.txt",snapshot.items.single().id)
+        ui.activityRule.scenario.recreate();assertSame(snapshot,files().clipboard)
+        load(user="another-user")
+        ui.onNodeWithText("更多").performClick();ui.onNodeWithText("断开文件连接").performClick()
+        ui.waitUntil(10000) { owners()==0 && !files().loading }
+        assertSame(snapshot,files().clipboard);assertNull(files().location.endpoint.remote)
+        ui.onNodeWithTag("file-clipboard-source").assertTextEquals("$alias · ${fixture.getString("user")}@127.0.0.1:${fixture.getInt("port")}")
+        ui.onNodeWithTag("file-clipboard-path").assertTextEquals(fixture.getString("remoteRoot"))
+        ui.onNodeWithText("查看清单").performClick()
+        ui.onNodeWithTag("file-clipboard-item:${snapshot.items.single().id}").assertIsDisplayed()
+        ui.onNodeWithText("返回文件").performClick()
+        ui.onNodeWithText("返回").performClick();ui.onNodeWithText("本机文件").performClick()
+        ui.waitUntil { !files().loading };assertSame(snapshot,files().clipboard)
+        assertTrue(sessions().sessions.isEmpty())
+    }
 }

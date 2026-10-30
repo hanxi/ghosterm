@@ -15,6 +15,7 @@ import java.io.File
 
 data class FileCrumb(val location: FileLocation, val label: String)
 data class FilePreview(val entry: BrowserEntry, val text: String? = null, val error: String? = null)
+data class ClipboardReplacement(val expectedId: String, val snapshot: FileClipboardSnapshot)
 
 /** One process-local browser; navigation owns reads, never terminal connections. */
 class FilesViewModel @JvmOverloads constructor(application: Application,
@@ -34,6 +35,11 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     var showHidden by mutableStateOf(false); private set
     var preview by mutableStateOf<FilePreview?>(null); private set
     var pickerPending by mutableStateOf(false); private set
+    var clipboard by mutableStateOf<FileClipboardSnapshot?>(null); private set
+    var clipboardDetails by mutableStateOf(false); private set
+    var clipboardReplacement by mutableStateOf<ClipboardReplacement?>(null); private set
+    var clipboardClearId by mutableStateOf<String?>(null); private set
+    var clipboardError by mutableStateOf<String?>(null); private set
     val visibleEntries get() = entries.filter { showHidden || !it.name.startsWith(".") }
     private val remembered = mutableMapOf<String,List<FileCrumb>>()
     private var readJob: Job? = null
@@ -43,6 +49,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     fun enter() { visible=true; choosingLocation=false; refreshEndpoints(); reload() }
     fun leave() {
         visible=false;choosingLocation=false;pickerPending=false;rootsGeneration++;rootsJob?.cancel()
+        dismissClipboardDialogs();clipboardError=null
         cancelRead();preview=null;clearSelection();(source as? FileBrowserRepository)?.close()
     }
     private fun cancelRead(): Long { generation++;readJob?.cancel();readJob=null;loading=false;return generation }
@@ -50,8 +57,44 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     fun selectMode() { if(!loading && error==null) selecting=true }
     fun all() { if(selecting) selected=visibleEntries.map { it.id }.toSet() }
     fun clearChecked() { selected=emptySet() }
+    fun copySelected() {
+        if(!visible || loading || error!=null || !selecting || selected.isEmpty()) return
+        clipboardError=null
+        try {
+            val chosen=visibleEntries.filter { it.id in selected }
+            check(chosen.size==selected.size) { "选择已失效，请重新选择" }
+            val snapshot=FileClipboardSnapshot.capture(location,
+                if(location.endpoint.remote!=null) location.directoryId else crumbs.joinToString(" / ") { it.label },chosen)
+            val previous=clipboard
+            if(previous==null) installClipboard(snapshot)
+            else clipboardReplacement=ClipboardReplacement(previous.id,snapshot)
+        } catch(failure: Exception) { clipboardError=failure.message ?: "无法创建复制清单" }
+    }
+    private fun installClipboard(snapshot: FileClipboardSnapshot) {
+        clipboard=snapshot;clipboardError=null;dismissClipboardDialogs();clearSelection()
+    }
+    fun confirmClipboardReplacement() {
+        val pending=clipboardReplacement ?: return
+        clipboardReplacement=null
+        if(clipboard?.id!=pending.expectedId) { clipboardError="复制清单已更新，请重新操作";return }
+        installClipboard(pending.snapshot)
+    }
+    fun dismissClipboardReplacement() { clipboardReplacement=null }
+    fun showClipboard() { if(clipboard!=null) clipboardDetails=true }
+    fun hideClipboard() { clipboardDetails=false }
+    fun requestClipboardClear() { clipboardClearId=clipboard?.id }
+    fun dismissClipboardClear() { clipboardClearId=null }
+    fun confirmClipboardClear() {
+        val expected=clipboardClearId ?: return
+        clipboardClearId=null
+        if(clipboard?.id!=expected) { clipboardError="复制清单已更新，请重新操作";return }
+        clipboard=null;clipboardDetails=false;clipboardError=null
+    }
+    private fun dismissClipboardDialogs() {
+        clipboardDetails=false;clipboardReplacement=null;clipboardClearId=null
+    }
     fun toggleHidden() { showHidden=!showHidden;selected=selected.intersect(visibleEntries.map { it.id }.toSet()) }
-    fun chooseLocations() { choosingLocation=true;refreshEndpoints() }
+    fun chooseLocations() { dismissClipboardDialogs();choosingLocation=true;refreshEndpoints() }
     fun dismissLocations() { choosingLocation=false }
     private fun refreshEndpoints() {
         val token=++rootsGeneration;rootsJob?.cancel();endpointError=null
@@ -63,6 +106,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     }
     fun choose(endpoint: FileEndpoint) {
         if(endpoints.none { it.id==endpoint.id }) return
+        dismissClipboardDialogs()
         remembered[location.endpoint.id]=crumbs.toList()
         crumbs=remembered[endpoint.id] ?: listOf(FileCrumb(FileLocation(endpoint),endpoint.label))
         choosingLocation=false;reload()
@@ -109,6 +153,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     }
     fun reload() {
         val token=cancelRead();val requested=location
+        clipboardReplacement=null
         clearSelection();preview=null;entries=emptyList();error=null;loading=true
         readJob=viewModelScope.launch {
             try {
@@ -144,6 +189,9 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     fun closePreview() { cancelRead();preview=null }
     fun back() {
         when {
+            clipboardClearId!=null -> dismissClipboardClear()
+            clipboardReplacement!=null -> dismissClipboardReplacement()
+            clipboardDetails -> hideClipboard()
             choosingLocation -> dismissLocations()
             preview!=null -> closePreview()
             selecting -> clearSelection()
