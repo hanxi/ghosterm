@@ -26,6 +26,7 @@
 | 配置字段来源与编辑归属 | 🟡 | `gt_config_inspect_host`、Swift/JNI 绑定及 8 组 C / 1 组 Swift 变异；Android 来源提示、只读保护及配置往返已接入。仅覆盖 HostName/User/Port，macOS 表单尚未消费，Android 显式覆盖/恢复继承已有 32 项设备/32 组配置变异证据，重命名在后续切片单独验收；见 [Android §9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30) |
 | IdentityFile 来源查询 | 🟡 | `gt_config_identity_at`、Swift/JNI 已接；原顺序累积条目与本块/继承/Include 来源，不展开路径、不补默认身份；Match/非法参数拒绝，8 C + 1 Swift 和 3 组 Android 变异通过。来源接口证据见 [§9.34](android-implementation.md#934-identityfile-来源查询与平台绑定2026-10-30)；Android 主机身份选择与引用列表已接，见 §9.35，macOS 表单未接 |
 | 主机信任记录快照 | 🟡 | 只读 `gt_known_hosts_*` 与 Swift/JNI 已接；与认证复用词法读侧，保留 marker、畸形条目和原始字节范围。37 CTest、10 C + 1 Swift + 4 JNI/Kotlin 变异及既有 20 组真实 SSH 信任变异通过；不等于密钥验证、管理页面或安全移除，见 [§9.36](android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30) |
+| 主机信任写入事务 | 🟡 | TOFU 与 `gt_known_hosts_remove` 共用锁、备份、同目录原子替换及提交结果；§9.37 的 38 CTest / 80 ABI、17 C + 2 Swift 事务变异及两端绑定证据通过。Android 管理页另见 §9.39，macOS 仅有绑定和认证消费。协作写者以外的并发与断电恢复未验 |
 | 配置别名重命名 | 🟡 | `gt_config_rename_host`、Swift/JNI 与 Android 表单接线；34 项 Core CTest 中含 `sshconfig_rename`，12 C / 1 Swift 隔离变异和 Swift 定向证据通过；Android API 36 arm64 / 4 KB 页模拟器 36 项设备测试与 36 组配置/页面变异通过。只改目标 token，写盘由平台事务承担；macOS GUI 未接入，见 [§9.9](android-implementation.md#99-主机别名重命名2026-10-30) |
 | `Include` 展开 / glob | ✅ | `process_include`：相对路径基准 = **~/.ssh**（OpenSSH_10.3p1 实测 + 真 ssh `-G` 同口径对拍）、`~`/`~user`、glob 无匹配静默 / 具名缺失显式失败 / 嵌套 + 深度上限 16；被含内容不进写回（铁律 #4）；`test_config` 6 组断言 + 变异 I1~I4 有牙 |
 | 事件队列（低频、批量轮询） | 🟡 | `src/core.c` 为加锁的 256 项环形缓冲；`test_api` 与 SFTP job 的 PROGRESS / JOB_DONE 证据已存在。队列满会覆盖最旧事件，尚无 job 终态查询 ABI，不能保证过载时终态不丢；需按路线图补保留/查询保障 |
@@ -37,9 +38,9 @@
 | SFTP | 🟡 | `gt_sftp_*`（libssh2_sftp 封装）：list / stat / lstat / readlink / realpath / mkdir / rmdir / remove / remove_all（递归）/ rename / chmod / walk（递归枚举，visitor 可取消）/ upload / download（job + 事件三态）/ cancel / pause；**每会话一把 I/O 锁 + 单条 I/O worker 线程**（修掉「每 job 一线程共用同一 libssh2 会话」竞态）。e2e 真 sshd 75 项断言 + 变异 `mutation-check-sftp` 10 项 / `mutation-check-exec` 4 项；非覆盖创建、覆盖截断和过载下终态保障仍有下文所列缺口 |
 | SSH exec 通道 | ✅ | `gt_ssh_exec*`：远端单命令（stdout/stderr 分离 + 退出码）；把递归搜索/大树遍历放到远端本地算（减少宿主发起的目录/属性请求）。服务器禁 exec → `GT_ERR_UNSUPPORTED`（不静默降级）。e2e 含**性能对比**（300 文件：exec-find vs sftp-walk，两条路都找全；**环回上 exec 反而慢 ~14×**——起远端进程的开销，真实 RTT 链路收益仍须实测，不能由环回结果推定）。变异 4 项 |
 | 端口转发 -L/-R/-D | ❌ | — |
-| known_hosts / TOFU | 🟡 | 明文条目/模式、TOFU、撤销优先及读取错误已有真 ed25519/ECDSA sshd 的同步/公开异步 API 证据，25 组隔离变异通过（K17/K20 为独立文件故障，其余经真实 SSH）；TOFU 与移除已共用锁、备份、原子替换与提交状态；17 C + 2 Swift 事务变异范围见 §9.37。非协作写者竞态/断电恢复和页面仍不在已验范围。已解析的 hashed 条目、当前主机的未知标记、无匹配普通记录的 CA 规则显式报不支持；未实现哈希匹配/主机证书验证，不称完整 OpenSSH 兼容。macOS SFTP 产品认证回归与 Swift 绑定已验，Android native 状态/拒绝路径已在 §9.25 验证，页面首片及未完成边界见 §9.27；见 [§9.22](android-implementation.md#922-a3-共享主机信任前置2026-10-30) |
+| known_hosts / TOFU | 🟡 | 明文条目/模式、TOFU、撤销优先及读取错误已有真 ed25519/ECDSA sshd 的同步/公开异步 API 证据，25 组隔离变异通过（K17/K20 为独立文件故障，其余经真实 SSH）；TOFU 与移除已共用锁、备份、原子替换与提交状态；17 C + 2 Swift 事务变异范围见 §9.37。非协作写者竞态/断电恢复不在已验范围；Android 管理页面已另按 §9.39 验收，macOS 无管理页面。已解析的 hashed 条目、当前主机的未知标记、无匹配普通记录的 CA 规则显式报不支持；未实现哈希匹配/主机证书验证，不称完整 OpenSSH 兼容。macOS SFTP 产品认证回归与 Swift 绑定已验，Android native 状态/拒绝路径已在 §9.25 验证，页面首片及未完成边界见 §9.27；见 [§9.22](android-implementation.md#922-a3-共享主机信任前置2026-10-30) |
 | 本地 PTY | 🟡 | POSIX（macOS/Linux）forkpty ✅；Windows ConPTY ❌（只有规划，能力缺失显式报错） |
-| 可取消的 SSH 认证 | 🟡 | 通用公开 `ssh_auth.h` 与 Apple `SSHAuthenticator`/DNS 解析已从旧安装链拆出；C 连接器与公开翻译测试、8 组认证 ABI / 6 组凭据选择变异通过。Apple 普通 SSH、SFTP、tmux 管理/attach 已统一经 `SSHAuthenticationFlow`；Android/JNI 已在 §9.25 接入同一 native owner，信任/凭据等待的取消和超时已有真 sshd 证据；DNS 取消/预算、产品页面已有定向测试，真实域名/IPv6 SSH 与通道打开取消仍待补。 |
+| 可取消的 SSH 认证 | 🟡 | 通用公开 `ssh_auth.h` 与 Apple `SSHAuthenticator`/DNS 解析已从旧安装链拆出；C 连接器与公开翻译测试、8 组认证 ABI / 6 组凭据选择变异通过。Apple 普通 SSH、SFTP、tmux 管理/attach 已统一经 `SSHAuthenticationFlow`；Android/JNI 已在 §9.25 接入同一 native owner，信任/凭据等待的取消和超时已有真 sshd 证据；DNS 取消/预算、产品页面已有定向测试；两端均仅向认证器交付一个地址，TCP 失败不尝试其余候选。Android 真实域名/IPv6 SSH 与通道打开取消仍待补，详见 [网络收尾](android-implementation.md#46-a3-网络与取消收尾)。 |
 | POSIX PTY 尺寸能力 | 🟡 | macOS 共享后端 `pty_dimensions` 三类基线随核心闸门通过；`4924a2d` 另修复子进程继承信号屏蔽，真实窗口→本地 tmux / 本地 shell→系统 ssh→远端 tmux 无输入缩放与 PID 保留已有两条回归，PTY 继承三组变异通过。保留像素尺寸与默认值校验，非全平台证据；见 [实施记录](optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。 |
 | 可选 tmux 后台会话 | 🟡 | 3.2a 已在 macOS 本机与 Ubuntu 22.04 SSH 验证真 PTY attach 和列表/管理；3.6a 另验证原生键鼠、任务保留、断网、背压、未知回复及受限账户。仅 POSIX 兼容远端 shell；其他版本与平台证据有限，不自动恢复，受用户 tmux 与系统清理策略影响。 |
 | 配色集随包 + 主题选择 | ✅ | `build-ghostty.sh` 从锁定的 `iterm2_themes` 依赖派生配色集（以本轮构建实际数量为准） → `Contents/Resources/ghostty/themes`；CGhostty 推导 `GHOSTTY_RESOURCES_DIR`（上游入口，未设置时兜底）；出包脚本的**包内**配置检查验随包主题被引擎接受（变异 A6 有牙） |
@@ -134,6 +135,8 @@ Android 主机验证管理的 🟡 证据限 API 36 arm64 / 4 KB 页模拟器：
 **CI 触发范围**：dev 的 main push 有忽略路径，release 的 PR 有路径白名单；仅 `docs/` 或 `android/` 的改动不触发两者，`terminal/android/` 则不同。Markdown 在 dev push 被忽略，但 `apple/README.md` 等白名单内文档的 PR 仍会触发 release。dev 旧运行还可能因后续 push 被取消。不能把“有出包工作流”表述为“每个提交都有发布包”；准确范围见 [CI 说明](../how-to/dev-build.md#ci-是怎么串起来的)，这些过滤不改变合并前应执行的闸门。
 
 **三种保存路径分别记账**：known_hosts 的 TOFU/移除已使用共享锁、备份、原子替换和提交结果；SSH `ConfigStore` 仍先删后移且忽略备份失败；终端 `SettingsStore` 使用备份与 `replaceItemAt`，仍有重复键、读取错误、冲突和引擎恢复缺口。共享信任事务不等于 macOS 配置 GUI、设置或 SFTP 传输已经修复，见 [Apple 保存边界](../../apple/README.md#三种配置文件的保存边界)。
+
+**SSH 地址选择**：macOS 的异步 DNS 仅在所选族缺记录时换族，首个有效地址即完成解析；Android 产品取系统答案列表的第一项。两端都没有 TCP 失败后的候选遍历，不能将 IPv4/IPv6 地址解析或 DNS 取消证据写成完整双栈故障切换支持。实现边界与后续条件见 [Apple 网络说明](../../apple/README.md#ssh-地址选择与取消边界)和路线图 P1；未新增本轮网络实测。
 
 **安全存储缺口**：当前 `SSHCredentialSelector.Storage.readKey` 从文件读取 PEM（限制 owner、权限、常规文件、大小且不跟随链接），Keychain 生产接线存口令/密码。`KeychainStore` 虽有 PEM helper，不能据此声称生产流程已做到私钥导入后只读安全存储。该缺口按 `AGENTS.md` 铁律 #5 继续修复，不修改规则来迁就代码。
 

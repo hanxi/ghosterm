@@ -100,21 +100,11 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 ## 当前状态（2026-10-30）
 
-Android 主机验证记录管理已接入设置：真实列表/详情、公钥指纹、只读规则和确认移除；11 项定向、17 组变异及完整 **175 项设备回归**通过。删除后新连接重新核对，既有远端会话 PID/IO 保持。实现与剩余阶段见[§9.39](docs/reference/android-implementation.md#939-主机验证记录管理页面2026-10-30)。
+进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准；以下区分生产实现与历史验收，不把原型中的可交互演示记为已实现能力。
 
-最终 Android 方案的详细实现见[实现文档](docs/reference/android-implementation.md)：主机首页、点按打开/长按多选、跨本机与远端的待粘贴清单、五类设置及分阶段验收。文件页面交付顺序与设置存储/失败处理已补充至 §6.5、§7.1。跨端文档核对的历史基线为 `526d24d`；后续信任写入事务与删除绑定已按 §9.37 交付；管理页面已在后续 §9.39 交付，早期草稿保留在 §9.38。macOS 冲突选择跨批次保留、目录整批重试等源码行为已同步至 [roadmap 待办](docs/reference/roadmap.md#macos-下一步与共享缺口)，不以 Android 方案替代桌面实现状态。
-
-主机信任写入事务与删除绑定已接：TOFU 和移除共用锁、备份与原子替换，确认期间重新检查信任规则；Core 38 CTest / 80 ABI、Apple 78/2、JNI 39/41，该事务切片完整 Android **164 项通过**。事务 17 C + 2 Swift、信任 25 组、JNI/Kotlin 8 组及 macOS 认证 11 组变异通过；页面/指纹随后由 §9.39 单独验收，本句结果仍属共享事务切片，见[§9.37](docs/reference/android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)。
-
-主机信任只读切片（§9.36）的共享快照与 Swift/JNI 已接，Core 37 项 CTest / 79 ABI、Apple 77/2、JNI 38/41 及完整 162 项设备回归通过；新增 10 C + 1 Swift + 4 Android 变异及既有 20 组真实 SSH 信任变异通过。它提供真实记录与原始范围，该切片当时未接页面、安全移除和指纹，见[§9.36](docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)。
-
-进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准。SSH 身份设置的列表、指纹、导入与确认移除已接通，身份设置八项定向/十组变异及后续主机关联切片的完整 160 项设备回归通过；早期失败与修正见[实现记录](docs/reference/android-implementation.md#933-ssh-身份设置与公钥信息2026-10-30)。A7 已部分交付身份子页，主机身份引用与详情已接，主机信任记录管理已由 §9.39 交付，16 项偏好仍待完成；macOS 和共享文件传输缺口继续按路线图独立跟踪。
-
-字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
-
-IdentityFile 来源查询与 Swift/JNI 绑定已由 `854e473` 交付。后续 Android 已接主机身份选择、配置引用、认证候选和引用主机详情，完整 160 项设备回归通过；该切片验证范围见[§9.35](docs/reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)。Core 36 项 CTest / 75 ABI、Apple 73/2、JNI 34/41 对拍通过；此前 46 项配置定向不与完整套件相加。`ghosterm-identity:<UUID>` 只标识本安装的加密容器，导出配置不携带密钥，也不能直接供 macOS/OpenSSH 读取。
-
-Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付真实本地终端、文本选择/复制粘贴、键盘协议与闪烁文本绘制。最新完整设备结果为 **175 项通过**（含真实 SSH、SAF、凭据、信任读写桥与管理页面，见实现计划 §9.39）；输入后短时取帧与模拟器 debug 性能基线见[实现计划 §9.21](docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)。真机/release、长时间负载及物理键盘/布局矩阵仍未完成。SSH native 认证/远端终端后端已接；产品页面、Keystore 容器和多会话已有 27 项定向测试及 15 组产品变异证据，默认工厂已修复；SAF 私钥导入的旋转、取消与旧请求隔离已验，加密 OpenSSH ed25519 口令重试与成功密码流程已验；身份设置首片已验，主机验证管理已验（§9.39），A3 网络矩阵仍待收尾；文件四方向复制和完整设置仍待实施。macOS 配置事务、认证安全、剪贴板确认/引擎回调、设置读写、文件异常/递归权限/预览生命周期及宿主闸门失败传播独立列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)；Android 的验收不改变其状态。
+- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档；A2 本地终端、A3 SSH 与 A7 身份/主机验证子页部分交付。最新完整设备证据为 §9.39 的 **175 项通过**；A3 多地址/网络取消收尾、A4–A6 文件浏览与四方向复制、16 项设置、后台与发行矩阵仍待完成。
+- **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。两端均尚无 TCP 失败后遍历 DNS 备用地址的实现。
+- **共享核心**：最近已记录的 §9.37 验收为 **38 项 CTest / 80 个 ABI**，Apple 引用 78/登记未用 2，JNI 引用 39/登记未用 41。主机信任 TOFU/移除共同事务已交付；Android 管理页面另在 §9.39 验收，macOS 尚无管理页面。共享修复不代表 macOS 的 SSH 配置、终端设置或传输写入事务已完成。
 
 | 能力 | 状态 |
 |---|---|
@@ -142,9 +132,7 @@ Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付
 | Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；已有模拟器 debug 性能基线；真机/长负载性能和完整键盘矩阵待补；SSH 后端已验，产品、SAF 导入、凭据、身份设置与信任记录管理已通过完整 175 项设备回归，文件未接 |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
-SAF 私钥导入新增五项定向测试、七组变异已通过，完整回归为 135 项；历史选择器/旋转测试失败与修正分别保留，见[实现计划 §9.29](docs/reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)。macOS／共享 PTY 已补齐子进程 SIGWINCH 通知，修复本地 shell→系统 ssh→远端 tmux 的窗口尺寸同步，独立证据见[tmux 实施清单](docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。
-
-macOS 另已交付 Bash/Zsh 提示符鼠标残留清理脚本（`7939ef8`），须显式安装到实际运行 shell 的主机；本地/隔离 SSH 已验证，真实休眠和用户远端未验，见[使用说明](docs/how-to/mouse-report-recovery.md)。Android 加密私钥错误口令重试已修复，四项凭据测试、七组设备变异和完整 139 项设备回归通过；历史失败与修正见[实现计划 §9.31](docs/reference/android-implementation.md#931-加密私钥重试与密码产品流程2026-10-30)。
+macOS／共享 PTY 已修复 SIGWINCH 通知，真实本地 shell→系统 ssh→远端 tmux 的窗口尺寸同步证据见[tmux 实施记录](docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。Bash/Zsh 鼠标残留清理脚本须显式安装到实际 shell 所在主机；真实休眠和用户远端未验，见[使用说明](docs/how-to/mouse-report-recovery.md)。各次 Android 测试数量保留在[实现记录](docs/reference/android-implementation.md#9-分阶段实施与依赖)，不与最新完整套件相加。
 
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。
 

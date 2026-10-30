@@ -84,6 +84,14 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 校验遵守已知标量 first-wins、累积列表、Host 否定模式与 Include 来源；未知适用指令和任何 Match 条件保守拒绝，仍保留配置原字节，不执行 Match exec。普通字段只接受本档位实现的值，显式关闭部分未实现功能可通过；详细准入表、保守边界和实际验证见 [§9.24](../docs/reference/android-implementation.md#924-共享连接配置准入与两端接线2026-10-30)。检查不等于完整 OpenSSH 兼容，也不新增跳板/转发实现。非法端口可保留在配置编辑器中，转换为 UInt16 不再崩溃，其配置问题会阻止建连。
 
+### SSH 地址选择与取消边界
+
+macOS 的 [SSHAddressResolver](GhostermCore/Sources/GhostermCore/SSHAddressResolver.swift) 使用异步 DNSService，支持数字 IPv4、IPv6 和 IPv6 scope；默认先查询 IPv4。只有所选地址族返回 `kDNSServiceErr_NoSuchRecord` 才查询另一族，首个有效地址到达即完成并释放 DNS 查询。因此这是 DNS 缺记录时的换族，不是 TCP 失败后的备用地址重试，也没有并行竞速连接。
+
+[SSHAuthenticationFlow](GhostermApp/Sources/GhostermAppModel/SSHAuthenticationFlow.swift) 在 owner 队列建立 60 秒总预算，包含 DNS、主机验证与凭据等待；解析成功后仅将剩余预算交给一个认证器。取消撤销 DNS completion、提示请求及认证器，旧响应受请求 ID 和取消状态检查。普通 SSH、独立文件连接及 tmux 共用该认证流程；任一选中地址 TCP 失败就结束本次流程，不会继续尝试同一域名的其他地址。其后的 shell/SFTP/tmux 通道生命周期须分别验收，不能将认证预算扩大为连接全过程所有 I/O 都在 60 秒内结束。
+
+现有 `SSHAddressResolverTests` 覆盖数字地址/scope、真实 localhost DNS、非法参数及取消释放，不包含多地址 TCP 切换。Android 使用另一套平台 resolver，但产品同样只取第一个答案；两端的限制与后续完成条件已列入[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。后续保持原始 hostname/端口作为信任身份；自动换地址仅限尚未进入 SSH 协商的 TCP 阶段，不因密钥变化、撤销、拒绝或认证失败换一个地址继续。此段为源码核对，未新增网络故障实测。
+
 ### 与 Android 最终方案的差异
 
 | 操作 | macOS 当前实现 | Android 方案与实现边界 |
@@ -91,7 +99,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 文件打开与选择 | 原生列表单击选择、双击打开；右键“拷贝路径”只复制路径文本 | 方案为点按打开、长按勾选；文件页尚未实现 |
 | 文件复制 | 本地↔远端的传输队列、拖放与冲突对话框；无四方向统一复制清单 | 常驻待粘贴清单和四方向复制属于 A4–A6；终端文本剪贴板已接入，不等于文件复制完成 |
 | 普通 shell 退出 | `handlePaneExit` 移除终端叶子，其余文件/终端叶子保留；最后一片退出关闭标签 | 正常 EOF 后保留终端内容供浏览/复制，显式关闭再释放；错误退出不承诺保留 |
-| 设置 | 通用、外观、键盘、配置文件四页 | 最终设计五类、16 项偏好；已提交配置/关于入口，身份设置首片已验（§9.33），完整设置留给 A7 |
+| 设置 | 通用、外观、键盘、配置文件四页 | 最终设计五类、16 项偏好；已提交配置/关于入口，身份设置首片已验（§9.33），主机验证管理已验（§9.39），完整偏好留给 A7 |
 | 主机身份 | 表单仍按文本路径编辑，认证从受限文件读 PEM；来源绑定未接表单 | §9.35 已接本安装容器引用、配置候选和引用主机详情；不提供跨端密钥迁移 |
 | 后台会话 | 显式 tmux 入口已交付，关闭仅断开客户端 | A8 尚未开始；本地终端返回首页不等于进程死亡后保活 |
 

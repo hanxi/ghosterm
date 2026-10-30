@@ -2,6 +2,8 @@
 
 最终页面方案与开发顺序见[详细实现文档](../docs/reference/android-implementation.md)：§6.5 给出真实文件浏览、多选、待粘贴清单、冲突与任务的接入次序；§7.1 给出 16 项设置的存储、即时应用、失败恢复和验收。两节均为 A4–A7 后续交付契约，不表示这些页面已实现。当前信任管理已有共享读取快照、TOFU/移除事务和删除桥。repository、公钥指纹及设置管理页已通过 11 项定向、17 组变异及完整 175 项设备回归，见[§9.39](../docs/reference/android-implementation.md#939-主机验证记录管理页面2026-10-30)；A3 网络矩阵和 A7 完整偏好仍未完成。
 
+A3 网络收尾具体要求见[§4.6](../docs/reference/android-implementation.md#46-a3-网络与取消收尾)：当前产品只取 DNS 首地址，尚无 TCP 失败后的候选切换；数字 IPv6 解析与注入 resolver 取消测试不能替代真实域名/双栈 SSH、通道打开取消及断线矩阵。
+
 状态（2026-10-30）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有 SSH 身份、主机验证记录、配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话、SAF 导入、凭据、身份设置、主机关联与信任读写桥已通过完整 175 项回归（§9.39），SFTP、文件与完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
 
 当前表单显示 HostName/User/Port 的默认、继承或显式来源；早期规则遮蔽本块设置时也会说明。只读主机可打开配置页调整，返回后刷新字段和编辑权限，详见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。这些三字段来源不代表全部高级配置已支持；身份来源和容器关联另见 §9.34–§9.35。
@@ -142,7 +144,7 @@ ANDROID_SSH_HOST_IDENTITIES_MUTATE=1 bash scripts/test-android-ssh.sh
 
 新增十组变异及该切片完整 160 项设备回归通过；本轮其他专项范围见[§9.35](../docs/reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)。与其他设备测试、变异脚本串行执行，不能让两个 runner 同时改源码或操作同一模拟器。
 
-主机信任记录的只读桥已提供物理行号、原始字节区间和 marker 等字段；`recognized` 不代表信任或密钥合法，管理页面尚未接入；删除桥与共享事务见 §9.37。历史两项绑定用例与四组变异的范围见[§9.36](../docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)：
+主机信任记录的只读桥已提供物理行号、原始字节区间和 marker 等字段；`recognized` 不代表信任或密钥合法；该只读切片当时未接页面，删除桥/共享事务后来由 §9.37 交付，管理页面由 §9.39 交付。历史两项绑定用例与四组变异的范围见[§9.36](../docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)：
 
 ```bash
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-known-hosts.py

@@ -50,6 +50,8 @@
 
 POSIX PTY 在子进程 exec 前清空继承的信号屏蔽集合，调用线程的集合保持不变。仅更新 `TIOCSWINSZ` 不足以保证下游 ssh/tmux 重排：它们还须收到 SIGWINCH。`4924a2d` 已修复这条通知链，真实 macOS 窗口到本地 tmux、以及本地 shell→系统 ssh→远端 tmux 的无输入放大/缩小证据见[实施记录](../reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。
 
+连接编排仍有单地址限制：Android 平台解析后只取第一个答案，macOS DNS 缺少所选地址族记录时才换族，首个有效答案即交给认证器；两端均未实现 TCP 失败后遍历备用候选。Core 认证器消费一个已解析地址，主机验证继续使用原始 hostname。后续候选调度应由平台 owner 在同一总预算内完成，不让 TerminalSurface 感知地址或重试；边界见 [Apple 网络说明](../../apple/README.md#ssh-地址选择与取消边界)与 [Android §4.6](../reference/android-implementation.md#46-a3-网络与取消收尾)。
+
 ## 可选后台会话
 
 Shell 提示符集成是独立的用户安装脚本：`scripts/shell-integration/mouse-recovery.*` 在实际 Bash/Zsh 的提示符钩子中输出鼠标模式关闭序列，远端需在远端加载。App、Transport 与 TerminalSurface 不在系统唤醒时强制重置，也不自动安装脚本；它不提供远端 cwd 或新的后台会话机制。边界与已测范围见[鼠标残留恢复](../how-to/mouse-report-recovery.md)。
