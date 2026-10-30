@@ -132,6 +132,8 @@ Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付
 
 SAF 私钥导入新增五项定向测试、七组变异已通过，完整回归为 135 项；历史选择器/旋转测试失败与修正分别保留，见[实现计划 §9.29](docs/reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)。macOS／共享 PTY 已补齐子进程 SIGWINCH 通知，修复本地 shell→系统 ssh→远端 tmux 的窗口尺寸同步，独立证据见[tmux 实施清单](docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。
 
+macOS 另已交付 Bash/Zsh 提示符鼠标残留清理脚本（`7939ef8`），须显式安装到实际运行 shell 的主机；本地/隔离 SSH 已验证，真实休眠和用户远端未验，见[使用说明](docs/how-to/mouse-report-recovery.md)。Android 后续凭据测试草稿四项中一项失败：加密私钥错误口令未触发重试；不计入已交付或完整套件通过，见[实现计划 §9.30](docs/reference/android-implementation.md#930-凭据测试草稿复核2026-10-30未验收)。
+
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。
 
 ## 许可

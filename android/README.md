@@ -99,4 +99,6 @@ UI 经 ViewModel/controller/repository 使用桥；不直接调用 JNI。终端�
 
 普通 SSH 为主要远端入口。本地 A2 验证系统 `/system/bin/sh` 与 PTY，不把它称为随 App 内置的 shell。Termux/proot 环境包独立延后，按需下载且不进 APK。
 
-SSH 后端通过 `RemoteSession` 复用 native owner 和 VT；产品 DNS、主机确认/凭据页面与 Keystore 尚待 A3。真实 SSH 设备测试需上述隔离 sshd 夹具，不在设备落盘私钥；取消/通道预算与退出状态边界见[§9.25](../docs/reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。
+SSH 后端通过 `RemoteSession` 复用 native owner 和 VT；产品 DNS、主机确认/凭据页面与 Keystore 已由 §9.27 接入，SAF 导入生命周期由 §9.29 验收。真实 SSH 设备测试需上述隔离 sshd 夹具，不在设备落盘明文私钥；取消/通道预算与退出状态边界见[§9.25](../docs/reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。
+
+后续凭据测试草稿已有四项定向运行，三项通过、一项失败：加密私钥输入错误口令后连接失败，未进入新的凭据请求；不能将正确口令认证或完整 A3 记为通过。工作区夹具、Docker 依赖与待验收条件见[§9.30](../docs/reference/android-implementation.md#930-凭据测试草稿复核2026-10-30未验收)。135 项仍是 §9.29 的已提交完整套件结果，未新增完整 139 项通过记录。

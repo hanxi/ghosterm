@@ -52,6 +52,8 @@ POSIX PTY 在子进程 exec 前清空继承的信号屏蔽集合，调用线程�
 
 ## 可选后台会话
 
+Shell 提示符集成是独立的用户安装脚本：`scripts/shell-integration/mouse-recovery.*` 在实际 Bash/Zsh 的提示符钩子中输出鼠标模式关闭序列，远端需在远端加载。App、Transport 与 TerminalSurface 不在系统唤醒时强制重置，也不自动安装脚本；它不提供远端 cwd 或新的后台会话机制。边界与已测范围见[鼠标残留恢复](../how-to/mouse-report-recovery.md)。
+
 后台保活按 [可选 tmux 计划](../reference/plan-optional-tmux.md) 实施。每个格子连接一个
 tmux session，采用普通 PTY 客户端；tmux 内部的 window/pane 不映射到 Ghosterm 布局。
 管理命令由共享 C 模块执行，交互字节保持 Transport 与 TerminalSurface 直连。
