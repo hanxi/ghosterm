@@ -66,6 +66,30 @@ typedef struct {
 int gt_config_inspect_host(const gt_config_t *cfg, const char *alias,
                            gt_config_host_info_t *out);
 
+/* IdentityFile is cumulative, not first-wins. Enumerate parsed entries from
+ * matching rules and from the first literal Host block, in source order.
+ * Values are unquoted parser tokens, without tilde/token expansion or defaults.
+ * explicit_value means a main-file directive in that literal block; effective
+ * means its Host patterns match alias. An explicit entry may be ineffective
+ * (e.g. "Host demo !demo"); an inline Include is never an editable explicit entry.
+ * Host ownership/editability still comes from gt_config_inspect_host.
+ * All strings are borrowed until cfg is edited/freed. No IO or evaluation of Match.
+ * OK supplies one entry; NOT_FOUND means end or no literal Host block.
+ * Any Match, or a relevant IdentityFile with other than one argument, returns
+ * UNSUPPORTED before any entry is returned. INVALID_ARG for invalid input.
+ * out is zeroed on every non-OK result. */
+typedef struct {
+  const char *value;
+  const char *source_path;
+  const char *source_header;
+  size_t source_line;
+  bool included;
+  bool explicit_value;
+  bool effective;
+} gt_config_identity_info_t;
+int gt_config_identity_at(const gt_config_t *cfg, const char *alias,
+                          size_t index, gt_config_identity_info_t *out);
+
 /* Current ordinary SSH client profile, shared by native hosts. Enumerate from
  * index 0: UNSUPPORTED supplies one borrowed issue; OK means end (zeroed out).
  * No IO, DNS, commands, defaults or mutation. Strings expire on edit/free.

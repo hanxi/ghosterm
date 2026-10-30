@@ -74,6 +74,16 @@ public struct ConfigFieldInfo: Equatable {
     public let effectiveIsExplicit: Bool
 }
 
+public struct ConfigIdentityInfo: Equatable {
+    public let value: String
+    public let sourcePath: String
+    public let sourceHeader: String
+    public let sourceLine: Int
+    public let included: Bool
+    public let explicitValue: Bool
+    public let effective: Bool
+}
+
 public struct ConfigHostInfo: Equatable {
     public let header: String
     public let sourcePath: String
@@ -165,6 +175,25 @@ public final class SSHConfig {
             sourcePath: info.source_path.map { String(cString: $0) } ?? "", sourceLine: Int(info.source_line),
             patternCount: Int(info.pattern_count), matchingBlocks: Int(info.matching_blocks), included: info.included,
             hostname: field(info.hostname), user: field(info.user), port: field(info.port))
+    }
+
+    /// Copies cumulative IdentityFile entries and their ownership, without expansion/defaults.
+    /// Unsupported conditional/invalid directives throw; they never become an empty list.
+    public func identities(alias: String) throws -> [ConfigIdentityInfo] {
+        _ = try inspect(alias: alias)
+        var entries: [ConfigIdentityInfo] = []
+        for index in 0...4096 {
+            var item = gt_config_identity_info_t()
+            let rc = alias.withCString { gt_config_identity_at(handle, $0, index, &item) }
+            if rc == GT_ERR_NOT_FOUND.rawValue { return entries }
+            try check(rc)
+            guard index < 4096 else { throw GhostermError.failed("身份条目过多（最多 4096）") }
+            entries.append(ConfigIdentityInfo(value: String(cString: item.value),
+                sourcePath: String(cString: item.source_path), sourceHeader: String(cString: item.source_header),
+                sourceLine: Int(item.source_line), included: item.included,
+                explicitValue: item.explicit_value, effective: item.effective))
+        }
+        return entries
     }
 
     /// 稀疏编辑（除目标行外逐字节不变）；`values == nil` 表示删除该指令。

@@ -6,6 +6,35 @@ import XCTest
 @testable import GhostermCore
 
 final class GhostermCoreTests: XCTestCase {
+    func testIdentitySourcesCopyValuesAcrossEdit() throws {
+        let text = "IdentityFile global\nHost demo sibling\n IdentityFile \"/keys/中文 🔑\"\nHost *\n IdentityFile inherited\n"
+        let config = try SSHConfig(contents: text)
+        let entries = try config.identities(alias: "demo")
+        XCTAssertEqual(entries.map(\.value), ["global", "/keys/中文 🔑", "inherited"])
+        XCTAssertEqual(entries.map(\.explicitValue), [false, true, false])
+        XCTAssertEqual(entries.map(\.effective), [true, true, true])
+        XCTAssertEqual(entries.map(\.sourceLine), [1, 3, 5])
+        XCTAssertEqual(entries.map(\.sourcePath), ["", "", ""])
+        XCTAssertEqual(entries.map(\.sourceHeader), ["", "Host demo sibling\n", "Host *\n"])
+        XCTAssertEqual(entries.map(\.included), [false, false, false])
+        XCTAssertEqual(config.serialized(), text)
+        try config.edit(alias: "demo", [("IdentityFile", ["changed"])])
+        XCTAssertEqual(try config.identities(alias: "sibling")[1].value, "changed")
+        XCTAssertEqual(entries[1].value, "/keys/中文 🔑", "borrowed Core strings must be copied")
+        try config.edit(alias: "demo", [("IdentityFile", nil)])
+        XCTAssertEqual(try config.identities(alias: "demo").map(\.value), ["global", "inherited"])
+    }
+
+    func testIdentitySourcesUnsupportedIsNotEmpty() throws {
+        let config = try SSHConfig(contents: "Host demo\n IdentityFile valid\nMatch all\n IdentityFile conditional\n")
+        XCTAssertThrowsError(try config.identities(alias: "demo"))
+        let invalid = try SSHConfig(contents: "Host demo\n IdentityFile first second\n")
+        XCTAssertThrowsError(try invalid.identities(alias: "demo"))
+        let empty = try SSHConfig(contents: "Host demo\n")
+        XCTAssertEqual(try empty.identities(alias: "demo"), [])
+        XCTAssertThrowsError(try empty.identities(alias: "missing"))
+    }
+
     func testConnectionIssuesCopySourceAndPreserveEffectiveScope() throws {
         let cfg = try SSHConfig(contents: "Host web\n ProxyJump gateway\nHost other\n ProxyJump none\n")
         let issues = try cfg.connectionIssues(host: "web")

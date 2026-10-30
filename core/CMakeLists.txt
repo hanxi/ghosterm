@@ -89,6 +89,11 @@ target_link_libraries(test_config_metadata PRIVATE ghosterm_core)
 target_compile_options(test_config_metadata PRIVATE -Wall -Wextra -Werror)
 add_test(NAME sshconfig_metadata COMMAND test_config_metadata ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
 
+add_executable(test_config_identities tests/test_config_identities.c)
+target_link_libraries(test_config_identities PRIVATE ghosterm_core)
+target_compile_options(test_config_identities PRIVATE -Wall -Wextra -Werror)
+add_test(NAME sshconfig_identities COMMAND test_config_identities ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+
 add_executable(test_config_rename tests/test_config_rename.c)
 target_link_libraries(test_config_rename PRIVATE ghosterm_core)
 target_compile_options(test_config_rename PRIVATE -Wall -Wextra -Werror)

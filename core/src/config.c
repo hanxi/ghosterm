@@ -1167,6 +1167,49 @@ int gt_config_inspect_host(const gt_config_t *cfg, const char *alias,
   return GT_OK;
 }
 
+int gt_config_identity_at(const gt_config_t *cfg, const char *alias,
+                          size_t index, gt_config_identity_info_t *out) {
+  if (out) memset(out, 0, sizeof *out);
+  if (!cfg || !alias || !*alias || !out) {
+    gt__set_error("config_identity_at: invalid arguments");
+    return GT_ERR_INVALID_ARG;
+  }
+  int block = find_block_for_alias(cfg, alias);
+  if (block < 0) return GT_ERR_NOT_FOUND;
+  /* Validate the entire relevant view first: never publish a plausible prefix
+   * when later input needs a conditional evaluator or has invalid arity. */
+  for (size_t i = 0; i < cfg->nnodes; i++) {
+    const gt_node_t *node = &cfg->nodes[i];
+    if (kw_eq(node->keyword, "match")) {
+      gt__set_error("config_identity_at: Match is unsupported");
+      return GT_ERR_UNSUPPORTED;
+    }
+    if (!kw_eq(node->keyword, "identityfile")) continue;
+    bool applies = node->block < 0 || block_matches(&cfg->blocks[node->block], alias);
+    if ((applies || node->block == block) && node->nargs != 1) {
+      gt__set_error("config_identity_at: IdentityFile requires one argument");
+      return GT_ERR_UNSUPPORTED;
+    }
+  }
+  size_t found = 0;
+  for (size_t i = 0; i < cfg->nnodes; i++) {
+    const gt_node_t *node = &cfg->nodes[i];
+    if (!kw_eq(node->keyword, "identityfile")) continue;
+    bool applies = node->block < 0 || block_matches(&cfg->blocks[node->block], alias);
+    if (!applies && node->block != block) continue;
+    if (found++ != index) continue;
+    out->value = node->args[0];
+    out->source_path = node->source_path;
+    out->source_header = node->block < 0 ? "" : cfg->nodes[cfg->blocks[node->block].header_node].raw;
+    out->source_line = node->source_line;
+    out->included = node->included != 0;
+    out->explicit_value = node->block == block && !node->included;
+    out->effective = applies;
+    return GT_OK;
+  }
+  return GT_ERR_NOT_FOUND;
+}
+
 static void block_range(const elist_t *l, int b, size_t *start, size_t *end) {
   size_t s = l->n, e = l->n;
   for (size_t i = 0; i < l->n; i++)

@@ -11,6 +11,8 @@
 
 身份设置已通过八项定向、十组变异及完整 **147 项设备回归**；实现与当前范围见[§9.33](#933-ssh-身份设置与公钥信息2026-10-30)。§9.32 保留早期草稿与失败记录。
 
+身份关联前置现已增加共享 IdentityFile 来源查询及 Swift/JNI 绑定，§9.34 记录 46 项 Android 配置范围回归与新增变异；主机身份选择/引用列表尚未接入。完整 147 项仍是 §9.33 的历史完整结果，不与这次定向测试相加。
+
 ## 1. 交付范围与当前基础
 
 首版交付主机首页、普通 SSH 与本地系统 shell、单屏终端与会话切换、统一文件浏览与复制粘贴、五类设置。主机不分工作/个人组；文件默认点按打开、长按多选；终端不放常驻加号，只有一个键盘开关。应用不自动连接、不自动恢复、不安装远端 daemon。
@@ -1066,6 +1068,24 @@ ANDROID_SSH_IDENTITIES_MUTATE=1 bash scripts/test-android-ssh.sh
 最终定向日志 `tmp/android-identity-settings-evidence/targeted-8-settled.log`，十组变异日志 `tmp/android-identity-settings-evidence/mutations-10-settled.log`；早期日志独立保留。本片完整设备回归 **147 项通过，0 失败/错误/跳过**，按 class/test 去重核验；日志 `tmp/android-identity-settings-evidence/full-147.log`。设备范围仍为 API 36 arm64 / 4 KB 页模拟器。Core 35 项 CTest / 74 ABI、Apple 72/2 与 JNI 33/41 对拍通过；本轮 debug/测试 APK 经真实 Gradle 构建。同次完整运行后既有产品/容器 **15 组变异**全部重跑通过，均目标红、同 APK 配置对照绿、恢复绿与 SHA256；日志 `tmp/android-identity-settings-evidence/full-and-product-15.log`。临时密码容器已全部删除，生产源码没有残留变异标记。旧 native SSH 14 组、SAF 七组、凭据七组本次未另做变异重跑，其正常用例已随完整套件执行，历史变异证据各自保留。没有新增公共 ABI、修改 Core/Apple 或接入 CI。引用主机/身份路径映射、known_hosts 管理页面、网络矩阵与 A2 完整设备/输入性能仍待完成；A7 的 16 项偏好未实现，不把身份子页当整个设置阶段完成。
 
 最终 APK 的身份列表与详情已在同一模拟器纵向窗口目视检查，指纹可换行、操作没有被系统栏遮挡；截图位于 `tmp/android-identity-settings-evidence/identities.png` 和 `identity-detail.png`。这不替代 TalkBack、字号放大、更多屏幕/设备矩阵。文档本地链接/锚点与 `git diff --check` 通过。
+
+### 9.34 IdentityFile 来源查询与平台绑定（2026-10-30）
+
+主机身份关联先补共享配置读侧：`IdentityFile` 是跨匹配块累积的条目，不能复用 HostName/User/Port 的首值获胜字段模型，也不能由 Kotlin 扫描配置行猜归属。新增 `gt_config_identity_at`，Swift `SSHConfig.identities` 和 JNI `ConfigBridge.identities` 同步绑定；不改变现有解析、求值、编辑或写盘路径。
+
+接口按源码顺序返回适用规则与首个字面 Host 块的条目，分别给出解码后的值、来源路径/行号/Host 头、是否来自 Include、是否为该块的主文件指令、是否匹配当前别名。`Host demo !demo` 的本块指令可显示为显式但不生效；同名其他块仍独立记来源。可编辑性继续由 `gt_config_inspect_host` 判定，不能仅凭一个条目的显式位绕过包含文件或重名块保护。
+
+值不展开 `~`、百分号或环境变量，不补默认候选、不验证密钥文件、不触碰安全容器；`none` 也只是原始条目，不在此接口解释认证策略。任意 Match 或相关 IdentityFile 参数数量不为一时，先整体拒绝，再枚举；不能把可读取前缀或空数组当完整结果。无条目正常结束与不支持分开；平台包装还要求字面主机存在并限制最多 4096 条。借用字符串在 C 配置修改/释放前复制到平台值对象，JNI 使用标准 UTF-8。
+
+验证与证据：
+
+- 新增 `sshconfig_identities`：累积/否定规则、多个别名/重名块、引号/等号/中文/CRLF、行号、Include、无默认项、非法参数、查询字节不变、稀疏编辑和恢复继承后重新读取来源。
+- `mutation-check-config-identities.py --apple`：8 组隔离 C 变异及 1 组 Swift 变异通过；每组清洁构建后目标断言红、同变异 API 或配置往返对照绿、恢复绿与 SHA256。日志 `tmp/identity-config-mutations.log`。
+- `ConfigIdentityTest` 三项设备测试通过；新 JNI/Kotlin 三组变异分别打 Include 来源、错误折为空成功和显式归属，同 APK 配置保存对照绿、恢复绿与 SHA256。日志 `tmp/identity-config-device.log`、`tmp/identity-config-android-mutations-settled.log`。
+- API 36 arm64 / 4 KB 页模拟器另跑配置/主机页面/JNI 范围 **46 项通过**，不是完整客户端回归；日志 `tmp/identity-config-device-final.log`。Swift 配置与身份来源 **7 项定向通过**，日志 `tmp/identity-config-swift-regression.log`。
+- Core **36 项 CTest / 75 ABI**、Apple **73/2**、JNI **34/41** 对拍及两端原生构建通过。日志 `tmp/identity-config-gate.log`、`tmp/identity-config-android-build.log`、`tmp/identity-config-apple-build.log`。初次 C 测试构建因 Darwin 下 `mkdtemp` 声明受特性宏限制失败，补与既有测试一致的宏后重新构建、基线和变异全绿。复核时发现新 JNI 局部变量与旧配置变异锚点同名，已改名保持旧四处 JNI 锚点唯一；改名一度误改 C 类型名造成基线编译失败，修正后完整重跑新三组变异并恢复 APK。编译失败均未计为变异目标红。
+
+本片仅新增只读能力，不改变既有 ABI 签名或记录；未重跑完整 Apple 宿主、完整 Android SSH/终端设备套件或 CI，CI 仍为既有 20 份 macOS 变异。后续必须使用本接口接主机身份编辑、配置保存事务、连接候选与引用主机详情，并验证活动连接不受改名/身份移除影响；安全身份引用的编码和映射须明确后落地，不能再存一份主机身份数据库。A2/A3/A7 仍未完成。
 
 ## 10. 验收与变异清单
 

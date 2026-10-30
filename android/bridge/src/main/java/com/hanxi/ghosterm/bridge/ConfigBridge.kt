@@ -27,6 +27,11 @@ object ConfigBridge {
         return PreparedSSH(alias, fields[0], fields[1], fields[2].toInt(), fields.drop(3))
     }
     private external fun preparedConnectionBytes(configuration: ByteArray, alias: ByteArray): Array<ByteArray>
+    fun identities(configuration: ByteArray, alias: String): List<ConfigIdentityInfo> =
+        identityBytes(configuration, alias.toByteArray(Charsets.UTF_8)).map { it.toString(Charsets.UTF_8) }
+            .also { check(it.size % 7 == 0) { "身份来源记录不完整" } }
+            .chunked(7).map { ConfigIdentityInfo(it[0], it[1], it[2], it[3].toInt(), it[4] == "1", it[5] == "1", it[6] == "1") }
+    private external fun identityBytes(configuration: ByteArray, alias: ByteArray): Array<ByteArray>
     private external fun connectionIssueBytes(configuration: ByteArray, alias: ByteArray): Array<ByteArray>
     private external fun renameBytes(configuration: ByteArray, alias: ByteArray, replacement: ByteArray): ByteArray
     private external fun hostsBytes(configuration: ByteArray): Array<ByteArray>
@@ -39,3 +44,5 @@ data class ConnectionIssue(val keyword: String, val sourcePath: String, val sour
 }
 
 data class PreparedSSH(val alias: String, val host: String, val user: String, val port: Int, val identityFiles: List<String>)
+data class ConfigIdentityInfo(val value: String, val sourcePath: String, val sourceHeader: String,
+    val sourceLine: Int, val included: Boolean, val explicitValue: Boolean, val effective: Boolean)

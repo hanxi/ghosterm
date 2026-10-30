@@ -189,8 +189,9 @@ golden.effective.tsv 的 # supported_key 元数据
 | 行内注释与 Forward 归一化 | token 开头 `#` 剥离、中间 `#` 保留（ssh -G 实证）/ 括号归一化 / 负差值防护（test_config 第 8 节，SIGBUS 根因回归） |
 | 非连续重复指令 | 已按实际匹配行删除，替换保留首条的位置/缩进/拼写/分隔符；其他指令、注释、CRLF 和相邻块保持原字节。B7/B8 回退连续 splice 验目标红、同变异求值对照绿、复原绿与 SHA256 |
 | 字段来源与归属 | `sshconfig_metadata` 覆盖显式/继承/默认、包含文件来源、同名块拒绝编辑及重解析后来源；`mutation-check-config-metadata.py` 用 8 组隔离 C 变异验证目标红/API 对照绿/恢复绿与 SHA256，`--apple` 另验 Swift 绑定转换；见 [Android §9.5](../../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29) |
+| IdentityFile 累积来源 | `sshconfig_identities` 覆盖源码顺序、引号/UTF-8、显式/继承、否定匹配、共享块/重复块、Include、编辑后重解析和无默认项；Match/相关参数错误整体拒绝。`mutation-check-config-identities.py --apple` 验 8 C + 1 Swift 隔离变异；JNI/Kotlin 另有 3 组设备变异，见 [Android §9.34](../../docs/reference/android-implementation.md#934-identityfile-来源查询与平台绑定2026-10-30)。新增接口只读，不承担配置写盘或密钥选择 |
 | 别名重命名 | `sshconfig_rename` 覆盖仅替换目标 token、引号/转义/CRLF/无末尾换行、同块别名保留、大小写冲突、包含文件/歧义拒绝、重解析失败保留原对象。12 组 C 与 1 组 Swift 隔离变异通过，Android 改名切片验收见 [§9.9](../../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30) |
-| **已知缺口** | 来源查询目前仅三个连接字段，macOS 表单尚未消费；完整块指令视图未接入，macOS GUI 尚无别名改名入口。Forward `bind:port` 完整解析仍未实现（OpenSSH 对 `8080:lh 9090` 输出 `8080 [lh]:9090`，我们原样返回） |
+| **已知缺口** | 标量来源查询覆盖三个连接字段，IdentityFile 另有累积条目查询，macOS 表单均尚未消费；完整块指令视图未接入，macOS GUI 尚无别名改名入口。Forward `bind:port` 完整解析仍未实现（OpenSSH 对 `8080:lh 9090` 输出 `8080 [lh]:9090`，我们原样返回） |
 
 ## 脚本
 

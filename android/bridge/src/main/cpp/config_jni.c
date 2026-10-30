@@ -44,6 +44,49 @@ static gt_config_t *parse(JNIEnv *env, jbyteArray input) {
 }
 
 JNIEXPORT jobjectArray JNICALL
+Java_com_hanxi_ghosterm_bridge_ConfigBridge_identityBytes(JNIEnv *env, jobject self,
+        jbyteArray input, jbyteArray name) {
+    (void)self;
+    gt_config_t *cfg = parse(env, input);
+    if (!cfg) return NULL;
+    char *alias = utf8(env, name);
+    jobjectArray result = NULL;
+    gt_config_host_info_t ownership = {0};
+    gt_config_identity_info_t entry = {0};
+    if (!alias) goto done;
+    if (gt_config_inspect_host(cfg, alias, &ownership) != GT_OK) {
+        fail(env, "找不到主机身份配置来源"); goto done;
+    }
+    size_t count = 0;
+    int rc;
+    while ((rc = gt_config_identity_at(cfg, alias, count, &entry)) == GT_OK && count < 4096) count++;
+    if (rc != GT_ERR_NOT_FOUND) {
+        fail(env, rc == GT_OK ? "身份条目过多（最多 4096）" : "无法确定身份来源，请检查 Match 或 IdentityFile 参数");
+        goto done;
+    }
+    jclass type = (*env)->FindClass(env, "[B");
+    if (!type) goto done;
+    result = (*env)->NewObjectArray(env, (jsize)(count * 7), type, NULL);
+    for (size_t i = 0; result && i < count && !(*env)->ExceptionCheck(env); i++) {
+        if (gt_config_identity_at(cfg, alias, i, &entry) != GT_OK) {
+            fail(env, "身份来源记录不完整"); break;
+        }
+        char line[24]; snprintf(line, sizeof line, "%zu", entry.source_line);
+        const char *fields[] = {entry.value, entry.source_path, entry.source_header, line,
+            entry.included ? "1" : "0", entry.explicit_value ? "1" : "0", entry.effective ? "1" : "0"};
+        for (int f = 0; f < 7 && !(*env)->ExceptionCheck(env); f++) {
+            jbyteArray field = bytes(env, fields[f]);
+            if (field) {
+                (*env)->SetObjectArrayElement(env, result, (jsize)(i * 7 + (size_t)f), field);
+                (*env)->DeleteLocalRef(env, field);
+            }
+        }
+    }
+done:
+    free(alias); gt_config_free(cfg); return result;
+}
+
+JNIEXPORT jobjectArray JNICALL
 Java_com_hanxi_ghosterm_bridge_ConfigBridge_hostsBytes(JNIEnv *env, jobject self, jbyteArray input) {
     (void)self;
     gt_config_t *cfg = parse(env, input);
