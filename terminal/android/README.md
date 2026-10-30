@@ -30,3 +30,5 @@ Ctrl 标点与键盘协议切片见[§9.16](../../docs/reference/android-impleme
 静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
 
 输入后短时取帧已交付：键入/按键成功后唤醒 tick，120ms 内按显示帧取快照，随后恢复 32ms；隐藏仍停画，native owner 持续读流。完整 **101 项设备测试**、新增四组性能变异及终端四组/文本一组回归通过，见[§9.21](../../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)。性能证据仅限当前模拟器 debug 档；原持续按显示帧轮询的实验因 CPU/吞吐代价未采用。
+
+Android SSH 后端已在[§9.25](../../docs/reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)接入相同 native owner、VT 与 TerminalSurface 接口；认证状态是独立控制面，输出不经过 Kotlin。真实远端 PTY/网格不代表远端 UI/像素与 DNS 已验；产品接线仍待 A3。

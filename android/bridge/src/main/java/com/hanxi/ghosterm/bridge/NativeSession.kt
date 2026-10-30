@@ -10,9 +10,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** Control plane. Output and key encoding remain on the native IO owner. */
-class LocalSession(home: String) : TerminalSurface, Closeable {
+open class NativeTerminalSession internal constructor(private var handle: Long, private val remote: Boolean = false) : TerminalSurface, Closeable {
     private val actionMutex = Mutex()
-    private var handle = NativeSession.create(home.toByteArray(Charsets.UTF_8))
     @Synchronized override fun frame(after: Long): TerminalFrame? =
         if (handle == 0L) null else NativeSession.readFrame(handle, after)?.let(TerminalFrame::decode)
     @Synchronized override fun resize(cols: Int, rows: Int, cellWidth: Int, cellHeight: Int) {
@@ -63,7 +62,18 @@ class LocalSession(home: String) : TerminalSurface, Closeable {
         if (handle == 0L) return SessionState(2, null, 1, "会话已关闭")
         val value = NativeSession.readState(handle)
         return SessionState(value[0], if (value[1] != 0) value[2] else null, value[3],
-            if (value[0] == 3) NativeSession.readError(handle).toString(Charsets.UTF_8) else null)
+            if (value[0] == 3) NativeSession.readError(handle).toString(Charsets.UTF_8) else null,
+            if (remote) authentication().description else null)
+    }
+    @Synchronized fun authentication(): SSHAuthState {
+        check(remote && handle != 0L) { "SSH 会话已关闭或不可用" }
+        return SSHAuthState.decode(handle, NativeSession.readAuthentication(handle))
+    }
+    @Synchronized internal fun respond(prompt: SSHAuthState, kind: Int, first: ByteArray = byteArrayOf(), second: ByteArray = byteArrayOf()) {
+        try {
+            check(remote && handle != 0L && prompt.owner == handle) { "SSH 请求不属于此会话" }
+            NativeSession.respondAuthentication(handle, prompt.request, kind, first, second)
+        } finally { first.fill(0); second.fill(0) }
     }
     @Synchronized override fun close() {
         NativeSession.dispose(handle)
@@ -71,14 +81,16 @@ class LocalSession(home: String) : TerminalSurface, Closeable {
     }
 }
 
-data class SessionState(val phase: Int, val exitCode: Int?, val child: Int, val error: String?) {
+class LocalSession(home: String) : NativeTerminalSession(NativeSession.create(home.toByteArray(Charsets.UTF_8)))
+
+data class SessionState(val phase: Int, val exitCode: Int?, val child: Int, val error: String?, val remoteDescription: String? = null) {
     val connected: Boolean get() = phase == 1
     val terminal: Boolean get() = phase >= 2
     val description: String get() = when (phase) {
-        0 -> "正在启动系统 shell…"
-        1 -> "已连接 · 系统 shell"
+        0 -> remoteDescription ?: "正在启动系统 shell…"
+        1 -> if (remoteDescription == null) "已连接 · 系统 shell" else "已连接 · SSH"
         2 -> exitCode?.let { "已退出 · 状态码 $it" } ?: "连接已断开 · 退出状态未知"
-        else -> error ?: "终端连接失败"
+        else -> if (remoteDescription != null && remoteDescription != "正在打开远端终端…") remoteDescription else error ?: "终端连接失败"
     }
 }
 
@@ -86,6 +98,9 @@ data class SessionState(val phase: Int, val exitCode: Int?, val child: Int, val 
 internal object NativeSession {
     init { System.loadLibrary("ghosterm_android") }
     external fun create(home: ByteArray): Long
+    external fun createRemote(host: ByteArray, port: Int, user: ByteArray, knownHosts: ByteArray, address: ByteArray, scope: Int, timeout: Int): Long
+    external fun readAuthentication(handle: Long): Array<ByteArray>
+    external fun respondAuthentication(handle: Long, request: Long, kind: Int, first: ByteArray, second: ByteArray)
     external fun dispose(handle: Long)
     external fun enqueue(handle: Long, kind: Int, key: Int, mods: Int, unshiftedCodepoint: Int, action: Int, bytes: ByteArray)
     external fun setSize(handle: Long, cols: Int, rows: Int, cellWidth: Int, cellHeight: Int)

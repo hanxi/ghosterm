@@ -1,6 +1,6 @@
 # Android 宿主
 
-状态（2026-10-30）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH/SFTP、文件与完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
+状态（2026-10-30）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），产品 DNS/认证页面、SFTP、文件与完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
 
 当前表单显示 HostName/User/Port 的默认、继承或显式来源；早期规则遮蔽本块设置时也会说明。只读主机可打开配置页调整，返回后刷新字段和编辑权限，详见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。这不代表身份选择或全部高级配置已实现。
 
@@ -18,9 +18,9 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
 
-后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。最新完整设备结果 **103 项，0 失败/错误/跳过**（§9.24）；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
+后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。最新完整设备结果 **113 项，0 失败/错误/跳过**（含真实 SSH 夹具，§9.25）；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
 
-共享主机信任前置已修复撤销/CA 标记误信任，并新增公开撤销状态；信任写入/关闭失败现已阻断认证（实现计划 §9.23）。Core 与 macOS 证据见[§9.22](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。连接前配置检查已接主机按钮，有问题显示指令/来源；无问题仍提示 SSH 正在接入。Android 的 SSH JNI、认证页面及 Keystore 仍未接入，不能把共享修复记为 A3 完成；当前接线与证据见[§9.24](../docs/reference/android-implementation.md#924-共享连接配置准入与两端接线2026-10-30)。
+共享主机信任前置已修复撤销/CA 标记误信任，并新增公开撤销状态；信任写入/关闭失败现已阻断认证（实现计划 §9.23）。Core 与 macOS 证据见[§9.22](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。连接前配置检查已接主机按钮，有问题显示指令/来源；无问题仍提示 SSH 正在接入。Android 的 SSH JNI/远端终端后端已接；认证页面及 Keystore 仍未接入，不能把共享修复记为 A3 完成；当前后端接线与证据见[§9.25](../docs/reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。
 
 ## 构建
 
@@ -50,7 +50,7 @@ android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 
 ```bash
 export ANDROID_SERIAL=emulator-5554
-bash scripts/build-android.sh :app:connectedDebugAndroidTest
+ANDROID_SSH_ALL=1 bash scripts/test-android-ssh.sh
 python3 scripts/check-abi-android.py
 python3 scripts/mutation-check-android-abi.py
 python3 scripts/mutation-check-android-native.py
@@ -62,7 +62,7 @@ python3 scripts/mutation-check-android-vt-libc.py
 bash scripts/gate.sh
 ```
 
-A1 验收时 JNI 引用 11 项、其余 62 项；A2 首片引用 19 项（新增 Transport 与错误读取），其余 54 项在 `bridge/deferred-abi.json` 按阶段登记，新增连接检查后当前引用 20 项、待办 54 项；以当前检出的 `check-abi-android.py` 输出为准，不能把未绑定能力称为已实现。变异脚本会在指定设备重新安装 debug APK，仅用于测试设备。原生变异分别破坏 UTF-8 配置往返、NUL 拒绝与 VT feed，目标断言红、同一 APK 独立对照绿、恢复后绿并校验源码 SHA256；中断会恢复带标记的源码。
+A1 验收时 JNI 引用 11 项、其余 62 项；A2 首片引用 19 项（新增 Transport 与错误读取），其余 54 项在 `bridge/deferred-abi.json` 按阶段登记，连接检查切片引用 20 项、待办 54 项；SSH 后端加入后当前为 32/42；以当前检出的 `check-abi-android.py` 输出为准，不能把未绑定能力称为已实现。变异脚本会在指定设备重新安装 debug APK，仅用于测试设备。原生变异分别破坏 UTF-8 配置往返、NUL 拒绝与 VT feed，目标断言红、同一 APK 独立对照绿、恢复后绿并校验源码 SHA256；中断会恢复带标记的源码。
 
 A0 证据：API 36 / arm64 / 4 KB 页模拟器，3 项设备测试、3 组 JNI 变异、3 组 ABI 对拍变异通过。A1 首片为 17 项设备测试与 11 组配置变异；共享重复指令编辑修复后，该片为 **18 项设备测试、12 组配置/页面变异**。C9 验编辑器损坏输出仍被拒绝，C12 验设备使用真正的 Core 修复；均目标红、同 APK 独立对照绿、恢复绿且源码 SHA256 一致。真机、API 29、16 KB 页运行、性能与完整 UI 验收留在后续阶段，不将 ELF 对齐等同于设备验证。
 
@@ -91,3 +91,5 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-performance.
 UI 经 ViewModel/controller/repository 使用桥；不直接调用 JNI。终端实现位于 [terminal/android](../terminal/android/README.md)，使用 libghostty-vt + 自绘，不引用 Apple 代码。JNI 字符串经标准 UTF-8 byte array 传递，拒绝内嵌 NUL；A2 首片已建立原生 Transport→VT 数据通路，Canvas 读取网格快照；输出禁止通过 Compose/String/Flow 搬运，输入法契约和生命周期已有定向证据，真实 Gboard 拼音基本路径另有手工证据；完整输入矩阵与性能仍待补齐。
 
 普通 SSH 为主要远端入口。本地 A2 验证系统 `/system/bin/sh` 与 PTY，不把它称为随 App 内置的 shell。Termux/proot 环境包独立延后，按需下载且不进 APK。
+
+SSH 后端通过 `RemoteSession` 复用 native owner 和 VT；产品 DNS、主机确认/凭据页面与 Keystore 尚待 A3。真实 SSH 设备测试需上述隔离 sshd 夹具，不在设备落盘私钥；取消/通道预算与退出状态边界见[§9.25](../docs/reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。

@@ -1,6 +1,6 @@
 package com.hanxi.ghosterm
 
-import com.hanxi.ghosterm.bridge.LocalSession
+import com.hanxi.ghosterm.bridge.NativeTerminalSession
 import java.lang.reflect.InvocationTargetException
 
 /** Test-only access to lifetime diagnostics; never expose native IDs in application UI. */
@@ -8,7 +8,7 @@ internal object NativeTerminalProbe {
     private val type = Class.forName("com.hanxi.ghosterm.bridge.NativeSession")
     private val instance = type.getField("INSTANCE").get(null)
     fun owners() = type.getMethod("ownerCount").invoke(instance) as Int
-    fun handle(session: LocalSession): Long = LocalSession::class.java.getDeclaredField("handle").run {
+    fun handle(session: NativeTerminalSession): Long = NativeTerminalSession::class.java.getDeclaredField("handle").run {
         isAccessible = true; getLong(session)
     }
     fun readState(handle: Long): IntArray = try {

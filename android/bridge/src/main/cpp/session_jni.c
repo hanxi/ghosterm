@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include "ghosterm.h"
 #include "surface.h"
+#include "ssh_session.h"
 
 /* Each transport AND VT has one native owner. JNI never calls transport/VT.
  * The registry owns one reference; detached worker and JNI borrows own others.
@@ -32,6 +33,8 @@ typedef struct session {
     atomic_bool stop, frame_requested;
     pthread_mutex_t mutex;
     char *home;
+    gaj_ssh *remote;
+    gt_ssh_t *ssh; /* owner only; closed after transport */
     command *first, *last;
     size_t queued_bytes, queued_commands;
     bool size_pending;
@@ -65,7 +68,7 @@ static void release(session *s) {
     if (!destroy) return;
     command *cmd = s->first;
     while (cmd) { command *next = cmd->next; free(cmd); cmd = next; }
-    free(s->action_result); free(s->frame); free(s->home); pthread_mutex_destroy(&s->mutex); free(s);
+    gaj_ssh_free(s->remote); free(s->action_result); free(s->frame); free(s->home); pthread_mutex_destroy(&s->mutex); free(s);
 }
 static session *borrow(JNIEnv *env, jlong id) {
     if (id <= 0) { fail(env, "终端会话已关闭"); return NULL; }
@@ -101,6 +104,15 @@ static bool publish(session *s) {
 }
 static void *owner(void *context) {
     session *s = context;
+    if (s->remote) {
+        s->ssh=gaj_ssh_connect(s->remote,&s->stop);
+        if (!s->ssh) { if (!atomic_load(&s->stop)) failed(s,"SSH 认证失败，请查看连接状态"); goto finished; }
+        if (atomic_load(&s->stop)) goto finished;
+        gt_shell_opts_t shell={.term="xterm-256color",.cols=80,.rows=24};
+        s->transport=gt_transport_open_ssh_shell(s->ssh,&shell);
+        if (!s->transport) { failed(s,"无法打开远端 PTY/shell"); goto finished; }
+        if (atomic_load(&s->stop)) goto finished;
+    } else {
     struct stat home_stat;
     if (stat(s->home, &home_stat) != 0 || !S_ISDIR(home_stat.st_mode) || access(s->home, X_OK) != 0) {
         failed(s, "本地终端目录不存在或不可访问"); goto finished;
@@ -115,6 +127,7 @@ static void *owner(void *context) {
     if (!atomic_load(&s->stop)) s->transport = gt_transport_open_pty(&opts);
     free(home_env);
     if (!s->transport) { if (!atomic_load(&s->stop)) failed(s, gt_last_error()); goto finished; }
+    }
     const char *engine_error = NULL;
     s->surface = gat_surface_new(write_input, s, &engine_error);
     if (!s->surface) { failed(s, engine_error); goto finished; }
@@ -181,6 +194,7 @@ static void *owner(void *context) {
             s->state = 2; s->exit_known = known; s->exit_code = code; s->child = GT_TRANSPORT_CHILD_EXITED;
             pthread_mutex_unlock(&s->mutex);
             gt_transport_close(s->transport); s->transport = NULL;
+            gt_ssh_close(s->ssh); s->ssh = NULL;
             s->revision++; (void)publish(s);
         }
         int child = s->transport ? gt_transport_child_state(s->transport) : GT_TRANSPORT_CHILD_EXITED;
@@ -190,24 +204,13 @@ static void *owner(void *context) {
 finished:
     /* Never join or free on the UI thread. Registry close only cancels. */
     gt_transport_close(s->transport); s->transport = NULL;
+    gt_ssh_close(s->ssh); s->ssh = NULL;
     gat_surface_free(s->surface); s->surface = NULL;
     atomic_fetch_sub(&owners, 1); release(s); return NULL;
 }
 
-JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_create(JNIEnv *env, jobject self, jbyteArray home) {
-    (void)self;
-    if (!home) { fail(env, "终端目录缺失"); return 0; }
-    jsize n = (*env)->GetArrayLength(env, home);
-    if (n <= 0 || n > 4096) { fail(env, "终端目录无效"); return 0; }
-    session *s = calloc(1, sizeof(*s));
-    if (!s) { fail(env, "无法分配终端会话"); return 0; }
-    s->home = malloc((size_t)n + 1);
-    if (!s->home) { free(s); fail(env, "无法分配终端目录"); return 0; }
-    (*env)->GetByteArrayRegion(env, home, 0, n, (jbyte *)s->home); s->home[n] = 0;
-    if ((*env)->ExceptionCheck(env) || s->home[0] != '/' || memchr(s->home, 0, (size_t)n)) {
-        free(s->home); free(s); if (!(*env)->ExceptionCheck(env)) fail(env, "终端目录无效"); return 0;
-    }
-    if (pthread_mutex_init(&s->mutex, NULL)) { free(s->home); free(s); fail(env, "无法初始化终端锁"); return 0; }
+static jlong start_session(JNIEnv *env, session *s) {
+    if (pthread_mutex_init(&s->mutex, NULL)) { gaj_ssh_free(s->remote); free(s->home); free(s); fail(env, "无法初始化终端锁"); return 0; }
     atomic_init(&s->stop, false); atomic_init(&s->frame_requested, true);
     s->refs = 2;
     pthread_mutex_lock(&registry_mutex);
@@ -228,6 +231,41 @@ JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_create(JNIE
     }
     return id;
 }
+JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_create(JNIEnv *env, jobject self, jbyteArray home) {
+    (void)self;
+    if (!home) { fail(env, "终端目录缺失"); return 0; }
+    jsize n = (*env)->GetArrayLength(env, home);
+    if (n <= 0 || n > 4096) { fail(env, "终端目录无效"); return 0; }
+    session *s = calloc(1, sizeof(*s));
+    if (!s) { fail(env, "无法分配终端会话"); return 0; }
+    s->home = malloc((size_t)n + 1);
+    if (!s->home) { free(s); fail(env, "无法分配终端目录"); return 0; }
+    (*env)->GetByteArrayRegion(env, home, 0, n, (jbyte *)s->home); s->home[n] = 0;
+    if ((*env)->ExceptionCheck(env) || s->home[0] != '/' || memchr(s->home, 0, (size_t)n)) {
+        free(s->home); free(s); if (!(*env)->ExceptionCheck(env)) fail(env, "终端目录无效"); return 0;
+    }
+    return start_session(env,s);
+}
+JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_createRemote(JNIEnv *env, jobject self,
+        jbyteArray host, jint port, jbyteArray user, jbyteArray known_hosts, jbyteArray address, jint scope, jint timeout) {
+    (void)self;
+    gaj_ssh *remote=gaj_ssh_new(env,host,port,user,known_hosts,address,scope,timeout);
+    if (!remote) return 0;
+    session *s=calloc(1,sizeof(*s));
+    if (!s) { gaj_ssh_free(remote); fail(env,"无法分配 SSH 会话"); return 0; }
+    s->remote=remote;
+    return start_session(env,s);
+}
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_readAuthentication(JNIEnv *env, jobject self, jlong id) {
+    (void)self; session *s=borrow(env,id); if (!s) return NULL;
+    jobjectArray result=gaj_ssh_info(env,s->remote); release(s); return result;
+}
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_respondAuthentication(JNIEnv *env, jobject self,
+        jlong id, jlong request, jint kind, jbyteArray first, jbyteArray second) {
+    (void)self; session *s=borrow(env,id); if (!s) return;
+    gaj_ssh_respond(env,s->remote,request,kind,first,second); release(s);
+}
+
 JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_dispose(JNIEnv *env, jobject self, jlong id) {
     (void)env; (void)self;
     if (id <= 0) return;

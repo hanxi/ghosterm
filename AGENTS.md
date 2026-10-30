@@ -142,9 +142,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 > **当前覆盖范围（诚实标注）**：`check-abi.sh` 对拍「`core/` 内部实现 ↔ 头文件」；
 > `check-abi-apple.sh` 另对拍 Swift 的引用名集合；`check-abi-android.py` 对拍 Android JNI 引用。
-> A1 验收时为 Apple 71/2、JNI 11/62（引用/显式登记未用）；A2 本地终端首片 JNI 为 19/54，整个 A2 阶段尚未完成。连接检查接口加入后公共符号为 74 项，Apple 72/2、JNI 20/54。实际数量以当前检出的脚本输出为准；符号对拍不替代平台行为验收。
+> A1 验收时为 Apple 71/2、JNI 11/62（引用/显式登记未用）；A2 本地终端首片 JNI 为 19/54，整个 A2 阶段尚未完成。连接检查接口加入后公共符号为 74 项，Apple 72/2；JNI 配置检查切片 20/54，SSH 后端加入后当前 32/42。实际数量以当前检出的脚本输出为准；符号对拍不替代平台行为验收。
 > 各次接口与平台验收分别记在 `docs/reference/roadmap.md`，不得借旧结果记新接口通过。
-> Android 已验收组件/配置绑定；A2 首片已接本地 Transport、Canvas/InputConnection 与会话生命周期，整个终端阶段未完成。连接配置检查已接两端；Android SSH/SFTP 与 NAPI 尚未接线。
+> Android 已验收组件/配置绑定；A2 首片已接本地 Transport、Canvas/InputConnection 与会话生命周期，整个终端阶段未完成。连接配置检查已接两端；Android SSH native owner/认证桥及远端终端后端已接，产品 DNS/认证页面仍待 A3；SFTP 与 NAPI 尚未接线。
 > 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
 
 ### 变异验证（新增闸门必须附）
@@ -153,6 +153,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 样板见 `scripts/mutation-check-sshconfig.sh`（17 组变异：A1~A9 + B1~B8，另验基线与回滚）。A9 用真实目录触发 fread 错误，断言必须返回失败；同变异下合法配置 golden 对照仍须通过，不能把读取错误当成空配置。B7/B8 护非连续重复指令替换/删除，构建通过后逐字节写回目标红、同变异求值对照绿、恢复绿与 SHA256 一致。
 `config-metadata` 以 `python3 scripts/mutation-check-config-metadata.py --apple` 手工执行：8 组 C 变异护来源/块归属、包含与歧义块拒写和重解析路径，1 组 Swift 变异护来源转换。编译成功后目标断言红、独立 API/配置往返对照绿、恢复绿与 SHA256 一致；不计入 CI 20 份。Android 来源、只读页面、显式覆盖/恢复继承、别名重命名及配置错误恢复由 `mutation-check-android-config.py` 的 59 组设备变异覆盖（同 APK 独立对照）；错误恢复另护快照失效、错误可见与跨页保留、重载放弃确认/动作路由、编辑目标刷新及无快照入口禁用。SAF 通过真实系统选择器与测试 APK 专有 provider 验证预览/确认/取消、完整字节导入、错误/重载、外部文档不写入，另验别名/地址/端口校验。`mutation-check-config-rename.py --apple` 另验 12 组 C / 1 组 Swift：目标 token 保真、名称/冲突、归属与重复别名拒绝、重解析错误与对象保留、来源路径、大小写和无操作保真；均编译成功后目标红、独立对照绿、复原绿与 SHA256 一致。均属手工证据，不计入 CI 20 份。
 `connection-config` 用 `python3 scripts/mutation-check-connection-config.py` 手工执行 14 组隔离 C 变异，护连接准入、范围/首值/累积规则、条件、值与来源；`mutation-check-android-connection-config.py` 用五组设备变异护 JNI/Kotlin/页面接线。均先编译，再目标红、独立对照绿、恢复绿与 SHA256，未加入 CI 20 份；auth 当前 11 组包括 macOS 准入与来源接线，证据见 Android 实现计划 §9.24。此处登记现有验证范围，不改变原验收要求。
+`android-ssh` 用 `ANDROID_SERIAL=设备 ANDROID_SSH_MUTATE=1 bash scripts/test-android-ssh.sh` 手工执行 14 组：真实隔离 sshd 经 adb reverse 到设备，编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256，护认证请求/来源、信任/凭据结果、取消与远端 feed/resize。`ANDROID_SSH_ALL=1` 运行包含真实 SSH 的完整设备套件，缺夹具不跳过；本片证据与普通 shell 通道取消的限制见实现计划 §9.25，未新增 CI 覆盖。
 `android-terminal`（`python3 scripts/mutation-check-android-terminal.py`）当前有 24 组，按各轮记录在指定 arm64 设备运行：VT/PTY/输入法/Canvas/生命周期目标红，同 APK 独立 Core 配置对照绿，恢复绿与 SHA256。静止画面闪烁另有 T22–T24：真实窗口像素护重绘、闪烁相位与 native 标记，§9.19 与 T8/T19 共选跑五组；不称全量 24 组重跑。`android-text` 当前共 71 组，各轮按同设备/同 APK 对照执行，护 VT 粘贴、选区格式化/坐标/高亮、复制/确认/拖动与本地清屏（含上游隔离补丁），以及按下/重复/释放、失焦/换 surface 归属与辅助键成对点击，以及手柄边缘持续滚动/停止、跨越锚点/重新抓取、最近手柄命中与 Ctrl 单次/锁定/失焦/会话隔离；修饰键/锁定位、数字键盘导航身份和组合音符/设备/IME 隔离由 §9.18 的新增 16 组验证；其他新增组护 Ctrl 标点/Unicode、键盘协议模式与布局字符传递、非法字符显式拒绝、辅助键路由与输入法单独 LF 的 Enter 语义。`android-vt-libc` 用 NDK 真实 archive 验两组分配器替身守卫，再以缓存头损坏验第三组头文件收据守卫，archive 校验为独立对照。均是手工证据，未纳入上述 macOS CI 20 份。各轮完整或选组执行的数量与范围见 Android 实现计划 §9.13–§9.19，不能把切片通过当作整个 A2 完成。
 `android-performance` 用 `python3 scripts/mutation-check-android-performance.py` 在指定设备跑四组：延迟输入取帧、破坏实际背景像素、丢弃帧指标和丢弃 IME 提交均须目标红，同 APK Core 配置对照绿，恢复绿并核验 SHA256。第三组验证测量缺失不会被报告为零成本；它不替代 renderer 功能断言。输入像素超时按同负载 PixelCopy/轮询标定，保留绝对下限；吞吐/帧耗时/CPU/内存为设备档位数据，不设跨设备的固定 P95 承诺。均属手工证据，未纳入 macOS CI 20 份；执行范围见 Android 实现计划 §9.21。
 **基础与产品变异验证**（每份都必须能独立跑绿）：sshconfig / include / settings /

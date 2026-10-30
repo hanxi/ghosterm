@@ -92,7 +92,7 @@ Android 与 `terminal/android` 已有 A0 Gradle/JNI/VT 交叉构建和 API 36 ar
 
 Android 文本操作继续沿 TerminalSurface 接缝：带序号的控制请求由 native owner 执行，选区交给 VT 跟踪，复制结果按需返回；系统剪贴板由平台视图读取/写入，文件待粘贴清单保持独立。粘贴确认保留请求时的文本快照，清屏不向 transport 写入命令。已提交文本切片的验收见 Android 实现计划 §9.14，后续原子滚动/选区端点与 Ctrl 验证进度见 §9.15，不能以接口存在代替完整输入法/性能验收。
 
-共享认证的主机信任已保留 known_hosts 标记：撤销优先拒绝，读取失败与未支持规则分别报错；Swift 已消费新增撤销状态，Android SSH 绑定仍待 A3。哈希主机名/证书验证未实现，TOFU 写盘错误已阻断认证（§9.23），追加提交完整性仍有缺口；共享连接配置检查已接两端，macOS 在 DNS 前拒绝未支持的配置，Android 主机按钮显示来源但尚不建立 SSH 连接（§9.24）。实现与各端证据见 [Android §9.22](../reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)，不将共享 API 的进展当成所有原生端已交付。
+共享认证的主机信任已保留 known_hosts 标记：撤销优先拒绝，读取失败与未支持规则分别报错；Swift 已消费新增撤销状态，Android SSH native owner 与类型化认证桥已按 §9.25 接入，产品 DNS/页面仍待 A3。哈希主机名/证书验证未实现，TOFU 写盘错误已阻断认证（§9.23），追加提交完整性仍有缺口；共享连接配置检查已接两端，macOS 在 DNS 前拒绝未支持的配置，Android 主机按钮显示来源但尚不建立 SSH 连接（§9.24）。实现与各端证据见 [Android §9.22](../reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)，不将共享 API 的进展当成所有原生端已交付。
 
 ## 参考实现（技术对照）
 
@@ -105,3 +105,5 @@ Android 文本操作继续沿 TerminalSurface 接缝：带序号的控制请求�
 | [Chuchu](https://github.com/jossephus/chuchu) | Android | MIT | Kotlin + libghostty-vt + libssh2 + 本地 PTY（Zig JNI） |
 | [libghostty-ohos](https://github.com/wiedymi/libghostty-ohos) | HarmonyOS | MIT | XComponent + libghostty-vt |
 | [Ghostling](https://github.com/ghostty-org/ghostling) | macOS/Linux | MIT | libghostty(-vt) C API 最小用法（Raylib 2D 渲染，单文件 C） |
+
+Android SSH 与本地终端共用 `session_jni.c` owner，SSH 认证完成后仍由同一线程持有 Transport/VT；状态快照和一次性响应属于控制面。`RemoteSession` 接受已解析地址和原始 hostkey 身份，当前不提供 DNS 或 Keystore 页面。通道打开的 5 秒预算/取消边界见[§9.25](../reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。
