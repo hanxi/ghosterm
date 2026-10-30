@@ -60,6 +60,12 @@ tmux 客户端与内层窗格在放大/缩小时自动跟随，期间不敲键�
 `python3 scripts/mutation-check-ssh-credentials.py` 验证六组原生凭据选择变异。
 它们不依赖旧 daemon、安装器、记录或私有协议；临时文件均位于工程 `tmp/`。
 
+## SSH 零超时读取
+
+Transport 的 `timeout_ms=0` 表示轮询；libssh2 的 timeout 0 表示无限等待，不能直接转发。`gt__ssh_shell_read` 在零超时时暂时使用非阻塞模式，返回前恢复 blocking/timeout；TIMEOUT 与 EOF 仍分开。Android native owner 的输入后轮询触发了这条共享缺陷，页面旋转后再输入也可能表现为不刷新。
+
+`test_ssh` 用远端 `read` 屏障保持静默，零超时必须返回 TIMEOUT，随后输入可解除屏障并正常读取；10 秒 alarm 是阻塞故障的退出守卫，不是性能目标。`mutation-check-ssh.sh` 现在有五组隔离变异，新增 `zero-poll` 回到 libssh2 的无限等待时定向失败，同变异配置对照绿，恢复后绿与 SHA256 一致。TOFU 变异已随写入错误传播改为“跳过写入但返回成功”，不以编译错误作为目标红。
+
 ## 主机信任与撤销
 
 `known_hosts_e2e` / `known_hosts_ecdsa` 使用隔离的真实 sshd，分别以 ed25519 与 ECDSA

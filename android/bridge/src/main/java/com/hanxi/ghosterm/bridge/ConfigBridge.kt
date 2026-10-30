@@ -21,6 +21,12 @@ object ConfigBridge {
             .map { it.toString(Charsets.UTF_8) }.also { check(it.size % 4 == 0) }
             .chunked(4).map { ConnectionIssue(it[0], it[1], it[2].toInt(), it[3] == "1") }
 
+    fun prepareConnection(configuration: ByteArray, alias: String): PreparedSSH {
+        val fields = preparedConnectionBytes(configuration, alias.toByteArray(Charsets.UTF_8)).map { it.toString(Charsets.UTF_8) }
+        check(fields.size >= 3)
+        return PreparedSSH(alias, fields[0], fields[1], fields[2].toInt(), fields.drop(3))
+    }
+    private external fun preparedConnectionBytes(configuration: ByteArray, alias: ByteArray): Array<ByteArray>
     private external fun connectionIssueBytes(configuration: ByteArray, alias: ByteArray): Array<ByteArray>
     private external fun renameBytes(configuration: ByteArray, alias: ByteArray, replacement: ByteArray): ByteArray
     private external fun hostsBytes(configuration: ByteArray): Array<ByteArray>
@@ -31,3 +37,5 @@ object ConfigBridge {
 data class ConnectionIssue(val keyword: String, val sourcePath: String, val sourceLine: Int, val included: Boolean) {
     val description: String get() = "$keyword（${sourcePath.ifEmpty { "当前配置" }}:$sourceLine）"
 }
+
+data class PreparedSSH(val alias: String, val host: String, val user: String, val port: Int, val identityFiles: List<String>)

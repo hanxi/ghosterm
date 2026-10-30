@@ -198,3 +198,32 @@ Java_com_hanxi_ghosterm_bridge_ConfigBridge_connectionIssueBytes(JNIEnv *env, jo
 done:
     free(alias); gt_config_free(cfg); return result;
 }
+
+/* Recheck and resolve the actual connection target from ONE AST. Included files
+ * may change between list display and click; never connect using stale list fields. */
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_ConfigBridge_preparedConnectionBytes(JNIEnv *env, jobject self,
+        jbyteArray input, jbyteArray name) {
+    (void)self;
+    gt_config_t *cfg=parse(env,input); if (!cfg) return NULL;
+    char *alias=utf8(env,name); gt_resolved_t *host=NULL; jobjectArray result=NULL;
+    if (!alias) goto done;
+    gt_config_connection_issue_t issue={0};
+    if (gt_config_check_connection(cfg,alias,0,&issue)!=GT_OK) { fail(env,"SSH 配置不支持连接，请重新载入并检查指令来源"); goto done; }
+    gt_resolve_opts_t opts={.default_user="",.identity_policy=GT_IDENTITY_POLICY_NONE};
+    host=gt_config_resolve(cfg,alias,&opts);
+    if (!host) { fail(env,"无法求值 SSH 连接目标"); goto done; }
+    size_t identities=0;
+    while (host->identity_files && host->identity_files[identities]) {
+        if (++identities>256) { fail(env,"身份文件条目过多"); goto done; }
+    }
+    jclass type=(*env)->FindClass(env,"[B"); if (!type) goto done;
+    result=(*env)->NewObjectArray(env,(jsize)(3+identities),type,NULL);
+    char port[24]; snprintf(port,sizeof port,"%d",host->port);
+    for (size_t i=0;result && i<3+identities && !(*env)->ExceptionCheck(env);i++) {
+        const char *text=i==0?host->hostname:i==1?host->user:i==2?port:host->identity_files[i-3];
+        jbyteArray value=bytes(env,text?text:""); if (!value) break;
+        (*env)->SetObjectArrayElement(env,result,(jsize)i,value); (*env)->DeleteLocalRef(env,value);
+    }
+done:
+    gt_resolved_free(host); free(alias); gt_config_free(cfg); return result;
+}

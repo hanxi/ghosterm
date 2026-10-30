@@ -14,6 +14,12 @@ def main():
     if len(sys.argv)!=6: raise SystemExit('Use test-android-ssh.sh with the isolated sshd fixture')
     host,port,user,key,work=sys.argv[1:]
     serial=os.environ['ANDROID_SERIAL'];adb=['adb','-s',serial]
+    # Device shell tests must not run the developer's interactive shell rc/plugins.
+    # Restrict only this disposable authorized key, leaving the host account untouched.
+    locales=run(['locale','-a']).splitlines()
+    locale=next((x for x in ('en_US.UTF-8','C.UTF-8','C.utf8','en_US.utf8') if x in locales),None)
+    if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
+    Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
     token=secrets.token_hex(32)
     # No key text in instrumentation arguments, output logs, repository, or device files.
     payload=json.dumps(dict(user=user,port=int(port),pem=Path(key).read_text(),
@@ -49,11 +55,15 @@ def main():
                 if not good:print(output,flush=True);raise RuntimeError('Device assertion expected '+('green' if green else 'red'))
                 return output
             build('baseline')
-            selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else 'com.hanxi.ghosterm.RemoteTerminalTest'
+            selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else os.environ.get('ANDROID_SSH_TEST_CLASS','com.hanxi.ghosterm.RemoteTerminalTest')
             output=test('baseline',selection,True)
             (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
             if os.environ.get('ANDROID_SSH_MUTATE')=='1':
                 spec=importlib.util.spec_from_file_location('mutations',ROOT/'scripts/mutation-check-android-ssh.py')
+                module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                module.execute(ROOT,build,test)
+            if os.environ.get('ANDROID_SSH_PRODUCT_MUTATE')=='1':
+                spec=importlib.util.spec_from_file_location('product_mutations',ROOT/'scripts/mutation-check-android-ssh-product.py')
                 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                 module.execute(ROOT,build,test)
             print(output,flush=True);print('ANDROID SSH PASS',flush=True)

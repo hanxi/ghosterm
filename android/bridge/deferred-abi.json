@@ -29,7 +29,6 @@
   "gt_ssh_exec_exit_status": "A3/A4: SSH 认证与独立文件连接接入时绑定",
   "gt_ssh_exec_read": "A3/A4: SSH 认证与独立文件连接接入时绑定",
   "gt_ssh_handshake": "当前 SSH owner 使用 authenticator_step，不走同步 handshake",
-  "gt_ssh_key_needs_passphrase": "A3/A4: SSH 认证与独立文件连接接入时绑定",
   "gt_ssh_set_hostkey_policy": "当前异步认证通过 authenticator_decide 显式确认，不注册同步策略回调",
   "gt_ssh_sftp": "A3/A4: SSH 认证与独立文件连接接入时绑定",
   "gt_tmux_attach": "A8: 可选后台会话接入时绑定",

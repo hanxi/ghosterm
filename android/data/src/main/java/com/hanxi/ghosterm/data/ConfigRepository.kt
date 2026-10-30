@@ -167,6 +167,8 @@ class ConfigRepository(
         return save(previous, candidate)
     }
 
+    fun prepareConnection(snapshot: ConfigSnapshot, alias: String) = ConfigBridge.prepareConnection(snapshot.bytes, alias)
+
     fun connectionIssues(snapshot: ConfigSnapshot, alias: String) =
         ConfigBridge.connectionIssues(snapshot.bytes, alias)
 

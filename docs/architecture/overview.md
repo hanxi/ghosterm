@@ -34,7 +34,7 @@
 2. **字节流不过事件队列**：终端输出由会话线程 `transport_read → surface` 直连；
    事件队列只承载低频状态。这是性能红线。
 3. **C ABI 是唯一跨语言边界**：`core/include/ghosterm.h`。opaque handle + POD，
-   当前 Swift 与 Android JNI 引用已有对拍；公共 C ABI 当前 74 项，Apple 引用 72 项、2 项登记未用；SSH 后端切片 JNI 为 32/42，当前工作区身份容器接入后为 33/41（产品定向证据与完整回归失败见 Android 计划 §9.27）；整个 A2/A3 尚未完成。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
+   当前 Swift 与 Android JNI 引用已有对拍；公共 C ABI 当前 74 项，Apple 引用 72 项、2 项登记未用；SSH 后端切片 JNI 为 32/42，身份容器接入后当前为 33/41（产品首片与完整回归证据见 Android 计划 §9.27）；整个 A2/A3 尚未完成。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
 
 ## 会话重构的当前进度
 
@@ -88,11 +88,11 @@ macOS 已由 `TabWindowController` 单窗口管理顶部/侧边标签；`Workspa
 
 文件控制面应把网络工作和队列等待放在异步 owner，UI 只接收状态。macOS 当前 `SFTPFileBackend` 的 `queue.sync` 保证串行，却没有保证调用方不阻塞；`TransferManager` 在 MainActor 同步调用它，属于待修的响应性缺口。搜索 token 目前只防止旧结果覆盖页面，不等于后端任务取消；文件树把加载失败缓存为空、本地搜索和递归权限忽略遍历异常，也是控制面的待修缺口；详情与修复边界见 [Apple 文件查询与线程边界](../../apple/README.md#文件查询与线程边界)。
 
-Android 与 `terminal/android` 已有 A0 Gradle/JNI/VT 交叉构建和 API 36 arm64 模拟器装载证据，A1 主机/配置、来源/改名、导入预览与错误恢复已完成当前模拟器档验收，A2 首片已接 `/system/bin/sh` → 原生 owner → VT → Canvas；JNI 读取网格快照，不搬运终端输出字节。`SessionsViewModel` 持有会话，页面返回保留 owner；本地首片证据见实现计划 §9.13，已提交文本操作与验证见 §9.14，已交付的选区边缘滚动/Ctrl 生命周期验证见 §9.15；已验 Ctrl 标点、Gboard 回车及真实拼音基本路径（§9.16）；按键事件经私有 JNI 送 native owner，由 VT 处理重复/释放，失焦与换 surface 前清理按键归属（§9.17）。修饰键/数字键盘/组合音符切片已验（§9.18）；§9.21 已接输入后短时快照调度并取得模拟器 debug 性能基线，输出通路不变；真机/release/长负载与完整输入矩阵待补，整个 A2 未完成，SSH 产品首片已有定向证据，完整 130 项设备回归仍有 1 项本地终端页面失败（§9.27）；实现以[最终原型](../design/android-prototype.html)和[详细计划](../reference/android-implementation.md)为基准。iOS 仍无可用宿主/引擎产物，不能把 macOS SwiftPM 包称为已跨 iOS。
+Android 与 `terminal/android` 已有 A0 Gradle/JNI/VT 交叉构建和 API 36 arm64 模拟器装载证据，A1 主机/配置、来源/改名、导入预览与错误恢复已完成当前模拟器档验收，A2 首片已接 `/system/bin/sh` → 原生 owner → VT → Canvas；JNI 读取网格快照，不搬运终端输出字节。`SessionsViewModel` 持有会话，页面返回保留 owner；本地首片证据见实现计划 §9.13，已提交文本操作与验证见 §9.14，已交付的选区边缘滚动/Ctrl 生命周期验证见 §9.15；已验 Ctrl 标点、Gboard 回车及真实拼音基本路径（§9.16）；按键事件经私有 JNI 送 native owner，由 VT 处理重复/释放，失焦与换 surface 前清理按键归属（§9.17）。修饰键/数字键盘/组合音符切片已验（§9.18）；§9.21 已接输入后短时快照调度并取得模拟器 debug 性能基线，输出通路不变；真机/release/长负载与完整输入矩阵待补，整个 A2 未完成，SSH 产品首片已通过完整 130 项设备回归（§9.27）；实现以[最终原型](../design/android-prototype.html)和[详细计划](../reference/android-implementation.md)为基准。iOS 仍无可用宿主/引擎产物，不能把 macOS SwiftPM 包称为已跨 iOS。
 
 Android 文本操作继续沿 TerminalSurface 接缝：带序号的控制请求由 native owner 执行，选区交给 VT 跟踪，复制结果按需返回；系统剪贴板由平台视图读取/写入，文件待粘贴清单保持独立。粘贴确认保留请求时的文本快照，清屏不向 transport 写入命令。已提交文本切片的验收见 Android 实现计划 §9.14，后续原子滚动/选区端点与 Ctrl 验证进度见 §9.15，不能以接口存在代替完整输入法/性能验收。
 
-共享认证的主机信任已保留 known_hosts 标记：撤销优先拒绝，读取失败与未支持规则分别报错；Swift 已消费新增撤销状态，Android SSH native owner 与类型化认证桥已按 §9.25 接入，工作区产品 DNS/页面首片见 §9.27。哈希主机名/证书验证未实现，TOFU 写盘错误已阻断认证（§9.23），追加提交完整性仍有缺口；共享连接配置检查已接两端，macOS 在 DNS 前拒绝未支持的配置，已提交 Android 主机按钮显示来源但尚不建立 SSH 连接（§9.24）；工作区已修复默认工厂并有产品定向证据，但最新完整回归仍有失败（§9.27）。实现与各端证据见 [Android §9.22](../reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)，不将共享 API 的进展当成所有原生端已交付。
+共享认证的主机信任已保留 known_hosts 标记：撤销优先拒绝，读取失败与未支持规则分别报错；Swift 已消费新增撤销状态，Android SSH native owner 与类型化认证桥已按 §9.25 接入，产品 DNS/页面首片见 §9.27。哈希主机名/证书验证未实现，TOFU 写盘错误已阻断认证（§9.23），追加提交完整性仍有缺口；共享连接配置检查已接两端，macOS 在 DNS 前拒绝未支持的配置，Android 首页显示拒绝来源，并在重新检查实际目标后连接；默认工厂、产品页面与多会话已通过完整回归（§9.27）。实现与各端证据见 [Android §9.22](../reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)，不将共享 API 的进展当成所有原生端已交付。
 
 ## 参考实现（技术对照）
 

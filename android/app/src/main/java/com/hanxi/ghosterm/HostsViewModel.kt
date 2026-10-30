@@ -112,12 +112,12 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun keepEditing() { discard = false; reloadAfterDiscard = false }
     fun dismissNotice() { notice = null }
-    fun checkConnection(host: Host) {
+    fun checkConnection(host: Host, connect: (com.hanxi.ghosterm.bridge.PreparedSSH) -> Unit) {
         val base = snapshot ?: return
         work {
             val issues = withContext(Dispatchers.IO) { repository.connectionIssues(base, host.alias) }
             if (issues.isNotEmpty()) error = "不支持 SSH 配置：" + issues.joinToString("、") { it.description }
-            else notice = "SSH 连接正在接入，当前版本可管理主机与 SSH 配置"
+            else connect(withContext(Dispatchers.IO) { repository.prepareConnection(base, host.alias) })
         }
     }
     fun saveHost() {

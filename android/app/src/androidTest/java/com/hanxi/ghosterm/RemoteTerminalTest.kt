@@ -7,6 +7,7 @@ import com.hanxi.ghosterm.bridge.*
 import com.hanxi.ghosterm.terminal.TerminalFrame
 import org.json.JSONObject
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -58,9 +59,11 @@ class RemoteTerminalTest {
     }
     private fun frame(session: RemoteSession, test: (TerminalFrame) -> Boolean): TerminalFrame {
         var current: TerminalFrame? = null
-        await {
+        try { await {
             session.frame(current?.revision ?: 0)?.let { current = it }
             current?.let(test) == true
+        } } catch (failure: AssertionError) {
+            throw AssertionError("SSH frame timeout (${session.state().description}): " + current?.let { f -> (0 until f.rows).joinToString(" / ",transform = f::line) },failure)
         }
         return current!!
     }
@@ -68,6 +71,8 @@ class RemoteTerminalTest {
         val type = Class.forName("com.hanxi.ghosterm.bridge.NativeSession")
         return type.getDeclaredMethod("ownerCount").invoke(type.getField("INSTANCE").get(null)) as Int
     }
+
+    @Before fun previousOwnersHaveReleased() { await { ownerCount() == 0 } }
 
     @Test fun unknownHostTrustKeyAuthenticationAndRemotePtyReachVt() = inDirectory { dir ->
         val known = File(dir,"known_hosts")

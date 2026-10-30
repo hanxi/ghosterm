@@ -5,6 +5,7 @@ object CoreLibrary {
     init { System.loadLibrary("ghosterm_android") }
     val version: String get() = versionBytes().toString(Charsets.UTF_8)
     fun roundTrip(configuration: ByteArray): ByteArray = roundTripBytes(configuration)
+    external fun keyPassphraseRequirement(material: ByteArray): Int
     private external fun versionBytes(): ByteArray
     private external fun roundTripBytes(configuration: ByteArray): ByteArray
 }

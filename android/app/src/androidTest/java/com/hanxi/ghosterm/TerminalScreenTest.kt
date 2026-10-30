@@ -45,7 +45,7 @@ class TerminalScreenTest {
         sessions = SessionsViewModel(app)
         ui.setContent { GhostermApp(hosts, RuntimeInfoViewModel(), sessions) }
         ui.onNodeWithText("本地终端").performClick()
-        ui.waitUntil(10_000) { sessions.active?.state?.connected == true }
+        ui.waitUntil(10_000) { ui.runOnIdle { sessions.active?.state?.connected == true } }
         ui.waitUntil(10_000) { viewOrNull()?.currentFrame != null }
         ui.runOnIdle { terminal().commitText("stty -echo; PS1=''; printf '\\033[2J\\033[HUI_SHELL_READY'\r") }
         ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "UI_SHELL_READY" }
@@ -202,7 +202,12 @@ class TerminalScreenTest {
     @Test fun returningHomePreservesShellAndViewUsesActualSize() {
         val id = sessions.active!!.id
         send("stty -echo; printf '\\033[2J\\033[HPID:%s\\r\\n' \"\u0024\u0024\"; stty size\r")
-        waitFor("PID:")
+        // The interactive shell can echo the command containing "PID:" before
+        // executing its clear/printf. Capture only the actual complete PID row,
+        // never the previous frame plus a partially echoed command.
+        ui.waitUntil(10_000) {
+            viewOrNull()?.currentFrame?.line(0)?.matches(Regex("PID:[0-9]+")) == true
+        }
         val first = terminal().currentFrame!!
         val pid = first.line(0)
         waitFor("${first.rows} ${first.cols}")

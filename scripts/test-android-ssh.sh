@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real isolated host sshd reached through adb reverse; no private key is stored on Android.
+# Isolated sshd via adb reverse; test PEM stays in memory or the Keystore-encrypted container.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/scripts/lib/gt-timeout.sh"

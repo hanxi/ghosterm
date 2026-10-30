@@ -92,6 +92,7 @@ fun TerminalScreen(model: SessionsViewModel) {
                     Column(Modifier.fillMaxWidth()) { Text(item.title); Text(item.state.description, style = MaterialTheme.typography.bodySmall) }
                 }
             }
+            OutlinedButton(onClick = { list = false; model.selectNewRemote() }, modifier = Modifier.fillMaxWidth()) { Text("新建 SSH 会话") }
             Button(onClick = { list = false; model.newLocal() }, enabled = !model.creating, modifier = Modifier.fillMaxWidth()) { Text("新建本地会话") }
         }
     }
@@ -100,7 +101,7 @@ fun TerminalScreen(model: SessionsViewModel) {
         confirmButton = { TextButton(onClick = { confirmClear = false; terminal?.clearLocal() }) { Text("清除") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("取消") } })
     if (confirmClose) AlertDialog(onDismissRequest = { confirmClose = false }, title = { Text("关闭 ${session.title}？") },
-        text = { Text(if (session.state.terminal) "将移除此会话的终端画面。" else "将断开此终端，正在运行的本地程序可能终止。返回主机列表可保留连接。") },
+        text = { Text(if (session.state.terminal) "将移除此会话的终端画面。" else "将断开此终端，正在运行的程序可能终止。返回主机列表可保留连接。") },
         confirmButton = { TextButton(onClick = { confirmClose = false; model.close(session.id) }) { Text("关闭会话") } },
         dismissButton = { TextButton(onClick = { confirmClose = false }) { Text("取消") } })
 }

@@ -49,6 +49,8 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         background = Color(0xFF171B20), surface = Color(0xFF21262D), onSurface = Color(0xFFE4E8EE))
         else lightColorScheme(primary = Color(0xFF425F96), background = Color(0xFFF7F8FC), surface = Color(0xFFF7F8FC))
     MaterialTheme(colorScheme = colors) {
+        SSHConnectionDialog(sessions)
+        SSHSessionChoices(sessions)
         if (sessions.visible && sessions.active != null) {
             TerminalScreen(sessions)
             return@MaterialTheme
@@ -70,7 +72,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         }, bottomBar = {
             if (hosts.page == Page.HOSTS) Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f)) { Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.isEmpty()) "本地终端" else "继续本地终端") }
+                OutlinedButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f)) { Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.none { it.remoteAlias == null }) "本地终端" else "继续本地终端") }
                 Button(onClick = { hosts.edit() }, enabled = !hosts.busy && hosts.snapshot != null,
                     modifier = Modifier.weight(1f)) { Text("添加主机") }
             }
@@ -95,7 +97,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     }
                 }
                 when (hosts.page) {
-                    Page.HOSTS -> HostsPage(hosts)
+                    Page.HOSTS -> HostsPage(hosts, sessions)
                     Page.EDIT_HOST -> EditHostPage(hosts)
                     Page.CONFIG -> Column(Modifier.padding(horizontal = 16.dp).fillMaxSize()) {
                         Text("此副本保存在应用内。Include 相对应用私有 HOME/.ssh；保存前强制备份。", style = MaterialTheme.typography.bodySmall)
@@ -153,8 +155,11 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
 }
 
 @Composable
-private fun HostsPage(model: HostsViewModel) {
+private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (sessions.selectingNewRemote) item {
+            Row { Text("选择要新建会话的主机",Modifier.weight(1f)); TextButton(onClick = sessions::cancelNewRemote) { Text("取消") } }
+        }
         item { OutlinedTextField(model.query, { model.query = it }, modifier = Modifier.fillMaxWidth(),
             label = { Text("搜索名称或地址") }, singleLine = true) }
         if (model.snapshot != null && model.filteredHosts.isEmpty()) item {
@@ -166,7 +171,7 @@ private fun HostsPage(model: HostsViewModel) {
         items(model.filteredHosts, key = { it.alias }) { host ->
             Card(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { model.checkConnection(host) }, enabled = !model.busy, modifier = Modifier.weight(1f)) {
+                    TextButton(onClick = { model.checkConnection(host, sessions::connect) }, enabled = !model.busy, modifier = Modifier.weight(1f)) {
                         Column(Modifier.fillMaxWidth()) { Text(host.alias, style = MaterialTheme.typography.titleMedium); Text(host.address, style = MaterialTheme.typography.bodySmall) }
                     }
                     TextButton(onClick = { model.edit(host) }, enabled = !model.busy) { Text("编辑") }

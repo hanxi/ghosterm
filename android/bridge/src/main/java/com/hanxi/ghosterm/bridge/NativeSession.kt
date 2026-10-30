@@ -61,9 +61,11 @@ open class NativeTerminalSession internal constructor(private var handle: Long, 
     @Synchronized fun state(): SessionState {
         if (handle == 0L) return SessionState(2, null, 1, "会话已关闭")
         val value = NativeSession.readState(handle)
+        val auth = if (remote) authentication() else null
+        val authFailed = auth?.phase in listOf(SSHAuthPhase.FAILED, SSHAuthPhase.CANCELLED)
         return SessionState(value[0], if (value[1] != 0) value[2] else null, value[3],
-            if (value[0] == 3) NativeSession.readError(handle).toString(Charsets.UTF_8) else null,
-            if (remote) authentication().description else null)
+            if (value[0] == 3) { if (authFailed) auth?.description else NativeSession.readError(handle).toString(Charsets.UTF_8) } else null,
+            auth?.description)
     }
     @Synchronized fun authentication(): SSHAuthState {
         check(remote && handle != 0L) { "SSH 会话已关闭或不可用" }
@@ -90,7 +92,7 @@ data class SessionState(val phase: Int, val exitCode: Int?, val child: Int, val 
         0 -> remoteDescription ?: "正在启动系统 shell…"
         1 -> if (remoteDescription == null) "已连接 · 系统 shell" else "已连接 · SSH"
         2 -> exitCode?.let { "已退出 · 状态码 $it" } ?: "连接已断开 · 退出状态未知"
-        else -> if (remoteDescription != null && remoteDescription != "正在打开远端终端…") remoteDescription else error ?: "终端连接失败"
+        else -> error ?: "终端连接失败"
     }
 }
 

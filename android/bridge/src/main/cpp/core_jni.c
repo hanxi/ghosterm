@@ -47,3 +47,18 @@ Java_com_hanxi_ghosterm_bridge_CoreLibrary_roundTripBytes(JNIEnv *env, jobject s
     free(serialized);
     return result;
 }
+
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_CoreLibrary_keyPassphraseRequirement(JNIEnv *env, jobject self, jbyteArray input) {
+    (void)self;
+    if (!input) { fail(env,"缺少密钥材料"); return -1; }
+    jsize n=(*env)->GetArrayLength(env,input);
+    if (n<=0 || n>1024*1024) { fail(env,"密钥大小无效"); return -1; }
+    char *pem=calloc((size_t)n+1,1);
+    if (!pem) { fail(env,"无法读取密钥材料"); return -1; }
+    (*env)->GetByteArrayRegion(env,input,0,n,(jbyte *)pem);
+    int result=-1;
+    if (!(*env)->ExceptionCheck(env) && !memchr(pem,0,(size_t)n)) result=gt_ssh_key_needs_passphrase(pem);
+    volatile unsigned char *erase=(volatile unsigned char *)pem;
+    for (jsize i=0;i<n;i++) erase[i]=0;
+    free(pem); return result;
+}
