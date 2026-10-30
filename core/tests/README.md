@@ -14,18 +14,19 @@
 
 ## SFTP 现有验证的边界
 
-真实 sshd 的正常传输、文件操作、暂停/取消与既有变异不覆盖以下全部失败语义。2026-10-30 源码复核确认，仍须补实现和故障回归：
+2026-10-31 的 §9.53 修复下载打开顺序、上传截断与两侧关闭检查。`sftp_transfer_e2e` 用真实 OpenSSH 验内容、空文件、打开失败与排队取消；仅测试编译包装注入本地定位/打开错误，以及真实 libc 关闭前 fd 失效。`scripts/test-sftp-transfer.py` 另在真实 SSH 协议端验证 OPEN/READ/WRITE/CLOSE 拒绝。包装函数不进入生产库，写入返回 0 后仍重试相同内容，不将暂时无进展判作错误。
 
-- `job_download` 在打开远端文件前用 `wb` 打开本地目标；远端打开失败可能已经截断已有文件。暂存后提交和非覆盖创建尚无完整契约。
-- 上传/下载没有检查 `libssh2_sftp_close` 与本地 `fclose` 的结果；已读取/写入的字节数不证明缓冲关闭或目标提交成功。
+仍须补实现和故障回归：
+
+- 暂存后提交和非覆盖创建尚无完整契约；当前直接覆盖在后续 IO/关闭失败时可能留下部分文件，关闭成功不表示 fsync 或原子提交。
 - `gt_sftp_walk` 仅裁剪大于 64 的正深度，负深度的递归条件没有硬上限；头文件注释所称“仍有编译期护栏”不代表实现已兑现。`remove_all` 有独立深度检查，不能将两者混为一谈。
 - 单 worker/FIFO 是每个 `gt_sftp_t` 的约束，不是跨连接的全局限并发；暂停中的当前 job 仍占用该会话 worker。
 
-本节只是源码覆盖核对，不新增已通过的测试数量；失败场景、Apple 调用方与 Android A5/A6 前置见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+新传输结果回归与 13 组隔离变异见 Android 实现计划 §9.53；其余边界仍为源码核对。失败场景、Apple 调用方与 Android A5/A6 前置见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 ## SFTP 受控打开的验证边界
 
-`test_sftp_open` / `sftp_open_e2e` 验证正常 OpenSSH 打开、预先取消、零预算与真实目录，该 §9.47 基线的默认主机构建 Core CTest 数量为 39；目录浏览和提交所有权回归切片的 Core 为 41，新增预览后为 42。独立 `scripts/test-sftp-open.py` 覆盖 17 项协议矩阵，含部分 VERSION/头部 EOF；默认补丁库上的最终矩阵及十组接口变异通过。十一组依赖守卫与真实 CMake 接线变异亦通过，历史失败和修正见[主机依赖说明](../../docs/reference/host-ssh2-build.md)。
+`test_sftp_open` / `sftp_open_e2e` 验证正常 OpenSSH 打开、预先取消、零预算与真实目录，该 §9.47 基线的默认主机构建 Core CTest 数量为 39；目录浏览和提交所有权回归切片的 Core 为 41，新增预览后为 42，传输结果回归后为 43。独立 `scripts/test-sftp-open.py` 覆盖 17 项协议矩阵，含部分 VERSION/头部 EOF；默认补丁库上的最终矩阵及十组接口变异通过。十一组依赖守卫与真实 CMake 接线变异亦通过，历史失败和修正见[主机依赖说明](../../docs/reference/host-ssh2-build.md)。
 
 §9.47 已验基线为 82 ABI、Apple 80/2、JNI 40/42；目录浏览切片为 83 ABI、Apple 81/2、JNI 40/43；§9.50 预览切片为 84 ABI、Apple 82/2、JNI 40/44；§9.51 新增公开中止入口后为 85 ABI、Apple 83/2、JNI 45/40。Android 后端与只读页面已消费受控接口（§9.51/§9.52），macOS 产品尚未迁移。后续阻塞操作不受 opener 预算保护。构建、协议命令与验证日志见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增手工变异未加入 CI 20 份；默认缺依赖报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
 

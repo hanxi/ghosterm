@@ -149,6 +149,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 `libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的九场景、七组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同九场景。Android 与主机默认构建均应用补丁；`mutation-check-sftp-open.py` 另验 7 C + 2 Swift + 1 无库组，`mutation-check-host-ssh2.py --app 本轮.app` 验十一组依赖/包/CMake 守卫，目标红、独立对照绿、恢复绿与 SHA256。已交付证据见 Android 实现计划 §9.45/§9.47/§9.49，范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
 
+`sftp-transfer` 用 `python3 scripts/mutation-check-sftp-transfer.py` 手工验证 13 组：两侧关闭、两方向排队取消、覆盖截断、下载打开顺序、目标打开失败释放、源定位与合法零写后继续。每组隔离编译后目标红、同变异配置对照绿、恢复绿与 SHA256；基线 14 个真实 OpenSSH/本地故障场景＋5 个协议拒绝场景。正常/本地故障回归纳入 Core CTest（当前 43 项），协议故障与变异仍手工执行，不增加 CI 20 份。范围与失败记录见 Android 实现计划 §9.53；不将关闭检查当作非覆盖或原子提交。
 `sftp-browse` 用 `python3 scripts/mutation-check-sftp-browse.py` 手工验证 13 Core + 2 依赖 + 3 Swift + 1 无库组，覆盖受控目录、实际分配器释放、NAME 边界和绑定；36 项协议矩阵独立执行。该切片为 83 ABI、Apple 81/2、JNI 40/43，产品当时尚未消费。`sftp-submit` 用真实 worker 提前释放与 ASan 验任务返回 ID 所有权，一组变异目标 UAF 红、独立 API 绿、恢复绿与 SHA；`exec` 增加会话超时恢复组，共三组。正常目录/提交回归进入 Core gate，手工脚本不增加 CI 20 份。范围与失败记录见 Android 实现计划 §9.49；此处登记现有覆盖，不改变既有验收规则。
 
 `sftp-preview` 用 `python3 scripts/mutation-check-sftp-preview.py` 手工验证 15 Core + 1 无库 + 4 Swift 组，护预算/取消、只读打开、打开前后类型/大小、限额额外字节、EOF 完整性、关闭结果/释放、连接失效、发布与绑定；独立协议矩阵 46 项。该切片为 84 ABI、Apple 82/2、JNI 40/44，Android 预览当时登记待接。正常真实 SSH 预览进入 Core gate；20 组变异属手工证据，不增加 CI 20 份。首轮验证脚本文案失败及最终结果见 Android 实现计划 §9.50。

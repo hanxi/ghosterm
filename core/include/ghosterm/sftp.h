@@ -123,7 +123,13 @@ int gt_sftp_walk(gt_sftp_t *sftp, const char *root, int max_depth,
 
 /* ---- 传输 job ---- */
 
-/* 下载/上传：返回 job id（0 = 失败），进度经 GT_EVENT_PROGRESS 上报。 */
+/* 下载/上传：返回 job id（0 = 失败），进度经 GT_EVENT_PROGRESS 上报。
+ * Legacy overwrite API: upload uses CREATE|TRUNC; download opens the remote
+ * source before truncating the local target. Neither is an atomic/safe-copy
+ * commit: failure/cancellation can leave partial data. OK requires successful
+ * IO and both remote/local close; no fsync/durability guarantee. Queued jobs
+ * cancelled before execution open neither file. Event delivery can overflow;
+ * a missing completion event must never be inferred as success. */
 uint64_t gt_sftp_download(gt_sftp_t *sftp, const char *remote, const char *local);
 uint64_t gt_sftp_upload(gt_sftp_t *sftp, const char *local, const char *remote);
 

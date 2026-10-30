@@ -15,6 +15,8 @@
 
 **最新验证**：§9.52 接通 Android 远端文件页面，9 项新增产品设备用例、14 组产品与 18＋15 组既有变异、最终完整 236 项设备回归通过；42 CTest / 85 ABI、Apple 83/2、JNI 45/40 与两端构建通过。macOS 产品未迁移，见 [§9.52](android-implementation.md#952-android-远端文件页面接线2026-10-30)。
 
+**A5 共享前置（2026-10-31）**：传输打开顺序、覆盖截断、关闭结果与排队取消已修复；43 CTest / 85 ABI、13＋8 组变异、两端构建、Swift 1 项与 Android 22 项定向通过。非覆盖提交与复制产品仍待完成；未重跑完整设备/Apple 宿主/打包/CI。见 [§9.53](android-implementation.md#953-a5-共享传输结果前置2026-10-31)。
+
 ## 核心（C）
 
 共享写侧已按[§9.37](android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)接通 TOFU/移除共同事务与两端删除绑定；此前 `526d24d` 的 79 ABI 是只读切片历史结果。Android 管理页面、repository 与指纹已通过 11 项定向、17 组变异及完整 175 项设备回归（[§9.39](android-implementation.md#939-主机验证记录管理页面2026-10-30)）；A3 网络矩阵与 A7 的 16 项偏好仍待完成。macOS 仅有共享绑定与认证消费，尚无记录管理页面。
@@ -42,7 +44,7 @@
 | Transport：前台作业判定（关闭确认用） | ✅ | `gt_transport_child_state` **四态**（UNKNOWN/EXITED/IDLE/JOB）：POSIX 读内核 `tcgetpgrp(master) == shell 自己的进程组` 判「空闲提示符 vs 有作业」，SSH / ConPTY 报 `UNKNOWN`（**不猜**，铁律 #6）。`test_transport` 第 11 节（IDLE/JOB/EXITED/NULL→UNKNOWN）+ 变异 `mutation-check-transport` P1/P2 有牙。**前置修复**：本地 PTY 子进程曾拿不到控制终端（父进程抢跑 `setpgid` → 子进程 `setsid` 报 EPERM），已修 |
 | Transport：会话 cwd | 🟡 | **本地 PTY ✅**：`gt_transport_child_cwd` 内核查询（macOS `proc_pidinfo` / Linux `/proc/<pid>/cwd`），`test_transport` 第 12 节（继承 cwd + `cd` 后随之变）。**远端 cwd 未交付**：OSC 7 在我们钉的 embedded host-IO 下到不了宿主（无 `GHOSTTY_ACTION_PWD`），且 libghostty 要求 host `isLocal`——接线留为 seam，依赖上游支持 / roadmap R2 |
 | SSH（libssh2） | 🟡 | 普通条目的连接/认证已有以下证据，标记拒绝及未支持格式的边界见 known_hosts 行。connect / pubkey·password 认证 / 主机密钥三态 / TOFU；`ssh_e2e` 行为断言（真 sshd，环回离线）。**写绝不无限等**（§5b：远端不读 stdin 时 `gt__ssh_shell_write` 在 `GT_SSH_WRITE_GRACE_MS` 内有界返回、积压字节走 `wtail` 队列随后补送——与本地 PTY §13 同结构。`TIMEOUT`/`EAGAIN` 不再当硬错丢字节（旧实现把两者都算 `GT_ERR_IO` → 键入的字节就这么没了）。写路径自己设/还 session timeout，不打扰同 session 的 SFTP。e2e 限制：sshd 排空速率 ≈ 40 MiB/s，3 MiB payload 写完时队列**根本没形成**——flush 机制无法被真 sshd e2e 触发，由代码审阅 + PTY §13/P4 的变异覆盖保证同构正确性） |
-| SFTP | 🟡 | `gt_sftp_*`（libssh2_sftp 封装）：list / stat / lstat / readlink / realpath / mkdir / rmdir / remove / remove_all（递归）/ rename / chmod / walk（递归枚举，visitor 可取消）/ upload / download（job + 事件三态）/ cancel / pause；**每会话一把 I/O 锁 + 单条 I/O worker 线程**（修掉「每 job 一线程共用同一 libssh2 会话」竞态）。e2e 真 sshd 75 项断言 + 当前变异 `mutation-check-sftp` 八组 / `mutation-check-exec` 三组（新增超时恢复）（历史断言数量不当作当前变异组数）；非覆盖创建、覆盖截断和过载下终态保障仍有下文所列缺口 |
+| SFTP | 🟡 | `gt_sftp_*`（libssh2_sftp 封装）：list / stat / lstat / readlink / realpath / mkdir / rmdir / remove / remove_all（递归）/ rename / chmod / walk（递归枚举，visitor 可取消）/ upload / download（job + 事件三态）/ cancel / pause；**每会话一把 I/O 锁 + 单条 I/O worker 线程**（修掉「每 job 一线程共用同一 libssh2 会话」竞态）。e2e 真 sshd 75 项断言 + 当前变异 `mutation-check-sftp` 八组 / `mutation-check-exec` 三组（新增超时恢复）（历史断言数量不当作当前变异组数）；覆盖截断与关闭检查已由 §9.53 补齐；非覆盖提交和过载下终态保障仍有下文所列缺口 |
 | SFTP 打开预算与取消 | 🟡 | §9.47：Core/Swift/helper、默认补丁库 17 项协议、十组接口变异与十一组依赖守卫通过。macOS 产品仍用旧 opener，Android owner/页面已按 §9.51/§9.52 消费；后续操作不受打开预算保护，[详细范围](host-ssh2-build.md) |
 | SFTP 目录浏览预算与取消 | 🟡 | §9.49：Core/Swift 将规范路径、完整列表与成功关闭目录合并；36 项协议、19 组变异通过。专用连接，不能与传输 job 共用；Android owner/页面已由 §9.51/§9.52 接入，macOS 产品尚未接入 |
 | SFTP 只读预览预算与取消 | 🟡 | §9.50：Core/Swift 单预算覆盖 LSTAT/OPEN/FSTAT/READ/CLOSE，容量与实际 EOF 校验，46 项协议及 20 组变异通过。Android JNI/严格文本解码与专用 owner 关闭已按 §9.51 接入，页面与代次已由 §9.52 接入，缓存/外部打开待补；macOS Quick Look 未消费 |
@@ -159,9 +161,9 @@ Android 主机验证管理的 🟡 证据限 API 36 arm64 / 4 KB 页模拟器：
 
 **引擎配置不等于宿主能力**：`terminalSettingKeys` 中的 `copy-on-select` / `confirm-close-surface` 是元数据，当前设置页面不据此生成全部控件。full 引擎的剪贴板回调尚未接通（Cocoa 标准复制/粘贴已接），宿主关闭判据也不读取后一个键；引擎能解析配置不能作为产品功能证据，见 [Apple 接线边界](../../apple/README.md#引擎配置与宿主动作边界)。
 
-**复制原语缺口**：`gt_sftp_upload/download` 为路径式 job，没有独占创建/非覆盖提交参数；上传 WRITE|CREAT 未承诺截断旧尾。现有“先检查冲突再传”不能保证并发时不覆盖。Android 四方向复制需先补共享契约，macOS 现有覆盖/冲突行为也需对应回归，见[路线图](roadmap.md)。
+**复制原语缺口**：`gt_sftp_upload/download` 为路径式 job，没有独占创建/非覆盖提交参数；上传已按 §9.53 使用 WRITE|CREAT|TRUNC，不残留旧尾；失败可能留下部分内容，不保证原目标保留。现有“先检查冲突再传”不能保证并发时不覆盖。Android 四方向复制需先补共享契约，macOS 现有覆盖/冲突行为也需对应回归，见[路线图](roadmap.md)。
 
-**传输完成与调度边界**：共享下载在远端打开前就截断本地目标，且上传/下载未核验本地和远端关闭结果；正常 job 成功证据不覆盖提交失败。每 SFTP 会话 FIFO 不等于全局并发上限；macOS 重试仅复用弱引用仍可取得的原 backend，不自动重连或续传。`gt_sftp_walk` 的负深度模式没有实际硬深度护栏，macOS 无限递归调用方仍受此缺口影响。均为本轮源码核对，未新增故障实测或修复；调用链与后续条件见 [Apple 传输边界](../../apple/README.md#传输提交调度与重试边界)及路线图。
+**传输完成与调度边界**：共享下载打开顺序、覆盖截断和两侧关闭检查已按 §9.53 修复；尚无原子/非覆盖提交，后续失败仍可能留下部分文件。每 SFTP 会话 FIFO 不等于全局并发上限；macOS 重试仅复用弱引用仍可取得的原 backend，不自动重连或续传。`gt_sftp_walk` 的负深度模式没有实际硬深度护栏，macOS 无限递归调用方仍受此缺口影响。调度、重试和 walk 仍是源码核对的未完成项；传输结果修复的实际证据见 §9.53，调用链与后续条件见 [Apple 传输边界](../../apple/README.md#传输提交调度与重试边界)及路线图。
 
 **目录结果边界**：macOS `TransferManager.expandDirectory` 排除目录内符号链接，上传不递归链接、下载不给链接建子任务；当前没有排除明细/计数，空文件集合会完成父任务。既有目录下载测试验证普通文件入队且链接排除，不证明目录逐项完整复制。用户可见的跳过原因和汇总仍待实现，不能把普通文件成功扩大为整棵目录镜像成功。文件手势、剪贴板、正常退出与设置的两端差异见 [Apple 宿主说明](../../apple/README.md#与-android-最终方案的差异)。
 

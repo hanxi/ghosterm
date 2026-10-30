@@ -873,19 +873,23 @@ int gt_sftp_walk(gt_sftp_t *sftp, const char *root, int max_depth,
 
 static int job_download(sftp_job_t *j) {
   int rc = GT_JOB_FAILED;
-  FILE *f = fopen(j->local, "wb");
-  if (!f) {
-    emit_job_done(j->job_id, GT_JOB_FAILED, strerror(errno));
-    return GT_JOB_FAILED;
-  }
   gt_sftp_t *s = j->sftp;
   SFTP_LOCK(s);
   LIBSSH2_SFTP_HANDLE *h = libssh2_sftp_open(s->sftp, j->remote,
                                              LIBSSH2_FXF_READ, 0);
   SFTP_UNLOCK(s);
   if (!h) {
-    fclose(f);
     emit_job_done(j->job_id, GT_JOB_FAILED, "打开远端文件失败");
+    return GT_JOB_FAILED;
+  }
+  /* Do not truncate a local target until the source has actually opened. This
+   * legacy API still overwrites; safe copy needs an independent commit API. */
+  FILE *f = fopen(j->local, "wb");
+  if (!f) {
+    SFTP_LOCK(s);
+    libssh2_sftp_close(h);
+    SFTP_UNLOCK(s);
+    emit_job_done(j->job_id, GT_JOB_FAILED, "打开本地目标失败");
     return GT_JOB_FAILED;
   }
   LIBSSH2_SFTP_ATTRIBUTES a;
@@ -912,10 +916,15 @@ static int job_download(sftp_job_t *j) {
     if (now - last_emit >= 16) { emit_progress(j->job_id, done, total); last_emit = now; }
   }
   SFTP_LOCK(s);
-  libssh2_sftp_close(h);
+  int remote_close = libssh2_sftp_close(h);
   SFTP_UNLOCK(s);
-  fclose(f);
-  const char *detail =
+  int local_close = fclose(f);
+  bool close_failed = remote_close != 0 || local_close != 0;
+  if (close_failed && rc != GT_JOB_CANCELLED) rc = GT_JOB_FAILED;
+  const char *detail = close_failed
+      ? (rc == GT_JOB_CANCELLED ? "download cancelled; close failed（部分文件保留）"
+                                : "download close failed")
+      :
       rc == GT_JOB_OK ? "download done"
       : rc == GT_JOB_CANCELLED ? "download cancelled（已写部分保留）"
                                : "download failed";
@@ -930,15 +939,20 @@ static int job_upload(sftp_job_t *j) {
     emit_job_done(j->job_id, GT_JOB_FAILED, strerror(errno));
     return GT_JOB_FAILED;
   }
-  fseeko(f, 0, SEEK_END);
-  uint64_t total = (uint64_t)ftello(f);
-  fseeko(f, 0, SEEK_SET);
+  off_t length;
+  if (fseeko(f, 0, SEEK_END) != 0 || (length = ftello(f)) < 0 ||
+      fseeko(f, 0, SEEK_SET) != 0) {
+    fclose(f);
+    emit_job_done(j->job_id, GT_JOB_FAILED, "读取本地源尺寸或定位失败");
+    return GT_JOB_FAILED;
+  }
+  uint64_t total = (uint64_t)length;
 
   gt_sftp_t *s = j->sftp;
   SFTP_LOCK(s);
   LIBSSH2_SFTP_HANDLE *h = libssh2_sftp_open(s->sftp, j->remote,
                                              LIBSSH2_FXF_WRITE |
-                                                 LIBSSH2_FXF_CREAT,
+                                                 LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
                                              0644);
   SFTP_UNLOCK(s);
   if (!h) {
@@ -971,10 +985,15 @@ static int job_upload(sftp_job_t *j) {
   }
 out:
   SFTP_LOCK(s);
-  libssh2_sftp_close(h);
+  int remote_close = libssh2_sftp_close(h);
   SFTP_UNLOCK(s);
-  fclose(f);
-  const char *detail =
+  int local_close = fclose(f);
+  bool close_failed = remote_close != 0 || local_close != 0;
+  if (close_failed && rc != GT_JOB_CANCELLED) rc = GT_JOB_FAILED;
+  const char *detail = close_failed
+      ? (rc == GT_JOB_CANCELLED ? "upload cancelled; close failed（部分文件保留）"
+                                : "upload close failed")
+      :
       rc == GT_JOB_OK ? "upload done"
       : rc == GT_JOB_CANCELLED ? "upload cancelled（已传部分保留）"
                                : "upload failed";
@@ -994,7 +1013,9 @@ static void *worker_main(void *arg) {
     if (!sftp->pending_head) sftp->pending_tail = NULL;
     pthread_mutex_unlock(&sftp->qlock);
 
-    if (j->upload) job_upload(j);
+    if (atomic_load(&j->cancelled))
+      emit_job_done(j->job_id, GT_JOB_CANCELLED, "cancelled before opening files");
+    else if (j->upload) job_upload(j);
     else job_download(j);
 
     /* 从在途表摘除并释放。 */
