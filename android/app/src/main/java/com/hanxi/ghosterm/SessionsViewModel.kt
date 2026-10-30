@@ -9,7 +9,7 @@ import com.hanxi.ghosterm.data.IdentityVault
 import com.hanxi.ghosterm.data.StoredIdentity
 import android.net.Uri
 import android.os.SystemClock
-import android.provider.OpenableColumns
+import com.hanxi.ghosterm.data.IdentityDocumentReader
 import java.net.Inet6Address
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withTimeout
@@ -41,6 +41,7 @@ class SSHAttempt(val target: PreparedSSH) {
     var credentialError by mutableStateOf<String?>(null)
     internal var connection: RemoteSession? = null
     internal var job: Job? = null
+    internal var credentialJob: Job? = null
 }
 
 class SessionsViewModel @JvmOverloads constructor(application: Application, private val resolver: SSHResolver = AndroidSSHResolver,
@@ -55,6 +56,8 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     var selectingNewRemote by mutableStateOf(false); private set
     var choosingRemote by mutableStateOf<String?>(null); private set
     fun dismissRemoteChoices() { choosingRemote = null }
+    private var pendingIdentityImport: Pair<UUID,SSHAuthState>? = null
+    var identityPickerPending by mutableStateOf(false); private set
     private val vault = IdentityVault(File(application.filesDir, "identities"))
     val active: TerminalSession? get() = sessions.firstOrNull { it.id == selected }
     init {
@@ -169,12 +172,12 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
             } catch (cancel: CancellationException) { throw cancel }
             catch (failure: Exception) {
                 if (connecting === attempt) { attempt.message = failure.message ?: "SSH 连接失败"; attempt.failed = true }
-            } finally { owned?.close(); attempt.connection = null }
+            } finally { attempt.credentialJob?.cancel(); owned?.close(); attempt.connection = null }
         }
     }
     fun cancelConnection(id: UUID) {
         val attempt = connecting?.takeIf { it.id == id } ?: return
-        connecting = null; attempt.job?.cancel(); attempt.connection?.close(); attempt.connection = null
+        connecting = null; attempt.credentialJob?.cancel(); attempt.job?.cancel(); attempt.connection?.close(); attempt.connection = null
     }
     private fun current(id: UUID, prompt: SSHAuthState): SSHAttempt {
         val attempt = checkNotNull(connecting?.takeIf { it.id == id && !it.failed }) { "连接请求已失效" }
@@ -194,7 +197,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         val attempt = try { current(id,prompt) } catch (_: Exception) { passphrase.fill(0); return }
         if (attempt.credentialBusy) { passphrase.fill(0); return }
         attempt.credentialBusy = true; attempt.credentialError = null
-        viewModelScope.launch {
+        attempt.credentialJob = viewModelScope.launch {
             var material: ByteArray? = null
             try {
                 withContext(Dispatchers.IO) { material = vault.unlock(identity) }
@@ -204,31 +207,44 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
             finally { material?.fill(0); passphrase.fill(0); attempt.credentialBusy = false }
         }
     }
-    fun importIdentity(id: UUID, prompt: SSHAuthState, uri: Uri) {
+    fun beginIdentityImport(id: UUID, prompt: SSHAuthState): Boolean {
+        if (identityPickerPending) return false
+        val attempt = try { current(id,prompt) } catch (_: Exception) { return false }
+        if (attempt.credentialBusy || prompt.phase != SSHAuthPhase.CREDENTIALS) return false
+        pendingIdentityImport = id to prompt
+        identityPickerPending = true
+        return true
+    }
+    fun identityImportLaunchFailed() {
+        pendingIdentityImport?.first?.let { id ->
+            connecting?.takeIf { it.id == id }?.credentialError = "无法打开系统文件选择器"
+        }
+        pendingIdentityImport = null; identityPickerPending = false
+    }
+    fun completeIdentityImport(uri: Uri?) {
+        val pending = pendingIdentityImport
+        pendingIdentityImport = null; identityPickerPending = false
+        if (pending != null && uri != null) importIdentity(pending.first,pending.second,uri)
+    }
+    private fun importIdentity(id: UUID, prompt: SSHAuthState, uri: Uri) {
         val attempt = try { current(id,prompt) } catch (_: Exception) { return }
         if (attempt.credentialBusy) return
         attempt.credentialBusy = true; attempt.credentialError = null
-        viewModelScope.launch {
-            val buffer = ByteArray(1024*1024+1)
+        attempt.credentialJob = viewModelScope.launch {
             var material: ByteArray? = null
             try {
+                val document = IdentityDocumentReader.read(getApplication<Application>().contentResolver,uri)
+                material = document.bytes
+                current(id,prompt)
                 withContext(Dispatchers.IO) {
-                    val resolver = getApplication<Application>().contentResolver
-                    val name = resolver.query(uri,arrayOf(OpenableColumns.DISPLAY_NAME),null,null,null)?.use {
-                        if (it.moveToFirst()) it.getString(0) else null
-                    } ?: "导入的 SSH 密钥"
-                    var count = 0
-                    checkNotNull(resolver.openInputStream(uri)) { "无法读取所选密钥" }.use { input ->
-                        while (count < buffer.size) { val n = input.read(buffer,count,buffer.size-count); if (n < 0) break; if (n == 0) continue; count += n }
-                    }
-                    check(count in 1..1024*1024) { "密钥必须为 1 字节至 1 MiB" }
-                    material = buffer.copyOf(count)
-                    vault.import(name,checkNotNull(material))
+                    ensureActive()
+                    // Once the atomic vault transaction begins it completes or reports its commit state.
+                    vault.import(document.name,document.bytes)
                 }
                 if (connecting === attempt) attempt.identities = withContext(Dispatchers.IO) { vault.list() }
             } catch (cancel: CancellationException) { throw cancel }
             catch (failure: Exception) { if (connecting === attempt) attempt.credentialError = failure.message ?: "密钥导入失败" }
-            finally { buffer.fill(0); material?.fill(0); attempt.credentialBusy = false }
+            finally { material?.fill(0); attempt.credentialBusy = false }
         }
     }
     override fun onCleared() { connecting?.let { cancelConnection(it.id) }; sessions.forEach { it.connection.close() }; super.onCleared() }

@@ -66,6 +66,10 @@ def main():
                 spec=importlib.util.spec_from_file_location('product_mutations',ROOT/'scripts/mutation-check-android-ssh-product.py')
                 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                 module.execute(ROOT,build,test)
+            if os.environ.get('ANDROID_SSH_IMPORT_MUTATE')=='1':
+                spec=importlib.util.spec_from_file_location('import_mutations',ROOT/'scripts/mutation-check-android-identity-import.py')
+                module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                module.execute(ROOT,build,test)
             print(output,flush=True);print('ANDROID SSH PASS',flush=True)
         finally:
             for value in reversed(mappings):run([*adb,'reverse','--remove','tcp:'+str(value)])

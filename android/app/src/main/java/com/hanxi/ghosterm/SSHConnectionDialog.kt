@@ -17,19 +17,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import com.hanxi.ghosterm.bridge.SSHAuthPhase
-import com.hanxi.ghosterm.bridge.SSHAuthState
-import java.util.UUID
 
 /** Credentials remain in this non-saveable dialog, never in a route or saved-state bundle. */
 @Composable
 fun SSHConnectionDialog(model: SessionsViewModel) {
+    // Registration survives cancellation and stays in the same position after Activity recreation.
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(),model::completeIdentityImport)
     val attempt = model.connecting ?: return
     val prompt = attempt.auth
-    var pendingImport by remember(attempt.id) { mutableStateOf<Pair<UUID,SSHAuthState>?>(null) }
-    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        pendingImport?.let { (id,request) -> if (uri != null) model.importIdentity(id,request,uri) }
-        pendingImport = null
-    }
     var username by remember(attempt.id) { mutableStateOf(attempt.username) }
     var secret by remember(attempt.id, prompt?.request) { mutableStateOf("") }
     var identityId by remember(attempt.id, prompt?.request) { mutableStateOf<String?>(null) }
@@ -39,7 +34,7 @@ fun SSHConnectionDialog(model: SessionsViewModel) {
     val needsUser = attempt.username.isBlank() && !attempt.failed
     val hostkey = prompt?.phase == SSHAuthPhase.HOSTKEY && !attempt.failed
     val credentials = prompt?.phase == SSHAuthPhase.CREDENTIALS && !attempt.failed
-    val ready = prompt != null && prompt.request > 0 && !attempt.credentialBusy
+    val ready = prompt != null && prompt.request > 0 && !attempt.credentialBusy && !model.identityPickerPending
     AlertDialog(onDismissRequest = { model.cancelConnection(attempt.id) },
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
         title = { Text(when { needsUser -> "远端用户名"; hostkey -> "确认主机密钥"; credentials -> "SSH 认证"; else -> "连接 ${attempt.target.alias}" }) },
@@ -81,7 +76,10 @@ fun SSHConnectionDialog(model: SessionsViewModel) {
                                     Text((if (selected?.id == identity.id) "✓ " else "") + identity.name)
                                 }
                             }
-                            OutlinedButton(onClick = { pendingImport = attempt.id to prompt; importer.launch(arrayOf("*/*")) },enabled = ready) { Text("导入密钥") }
+                            OutlinedButton(onClick = { if (model.beginIdentityImport(attempt.id,prompt)) {
+                                try { importer.launch(arrayOf("*/*")) }
+                                catch (_: Exception) { model.identityImportLaunchFailed() }
+                            } },enabled = ready) { Text("导入密钥") }
                             if (selected?.needsPassphrase == true) OutlinedTextField(secret, { secret = it }, label = { Text("密钥口令") }, singleLine = true,
                                 visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                                 modifier = Modifier.testTag("ssh-secret"), enabled = ready)
@@ -90,7 +88,7 @@ fun SSHConnectionDialog(model: SessionsViewModel) {
                     }
                     else -> { Text(attempt.message); LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 }
-                attempt.credentialError?.let { Text(it,color = MaterialTheme.colorScheme.error) }
+                attempt.credentialError?.let { Text(it,color = MaterialTheme.colorScheme.error,modifier = Modifier.testTag("ssh-import-error")) }
             }
         },
         confirmButton = {

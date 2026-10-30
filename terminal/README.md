@@ -25,4 +25,4 @@ Android 当前证据来自 API 36 arm64、4 KB 页模拟器，已验本地终端
 
 修饰键、数字键盘与组合音符扩展已通过完整 99 项设备测试及 24 组选组变异，详见实现计划 §9.18；已有模拟器 debug 性能基线（§9.21）；实际物理设备、更多布局、release 与长负载性能仍未完成，A2 保持部分完成。
 
-以上完整 130 项是已提交 SSH 产品首片的结果。SAF 私钥导入生命周期工作区仍有定向失败，不能沿用该结果作为工作区全绿，见[§9.28](../docs/reference/android-implementation.md#928-saf-私钥导入工作区复核2026-10-30未验收)。macOS 的 `4924a2d` 另修复 PTY 子进程信号屏蔽，使尺寸通知到达 ssh/tmux；这属于 Transport 子进程边界，不在 surface 中加入 SSH/tmux 分支。
+以上完整 130 项为 SSH 产品首片历史结果；SAF 导入随后通过完整 135 项设备测试、五项定向与七组变异，见[§9.29](../docs/reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)。当前仍限 API 36 arm64 / 4 KB 页模拟器，整个 A2/A3 未完成。macOS 的 `4924a2d` 另修复 PTY 子进程信号屏蔽，使尺寸通知到达 ssh/tmux；这属于 Transport 子进程边界，不在 surface 中加入 SSH/tmux 分支。

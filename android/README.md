@@ -1,6 +1,6 @@
 # Android 宿主
 
-状态（2026-10-30）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话首片已通过完整 130 项回归（§9.27），SFTP、文件与完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
+状态（2026-10-30）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话首片及 SAF 导入已通过完整 135 项回归（§9.29），SFTP、文件与完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
 
 当前表单显示 HostName/User/Port 的默认、继承或显式来源；早期规则遮蔽本块设置时也会说明。只读主机可打开配置页调整，返回后刷新字段和编辑权限，详见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。这不代表配置表单已支持身份映射或全部高级配置；认证过程中的身份选择属于 §9.27 的产品首片。
 
@@ -18,11 +18,11 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
 
-后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。最新完整设备结果 **130 项，0 失败/错误/跳过**（含真实 SSH 与产品页面，§9.27）；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
+后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。最新完整设备结果 **135 项，0 失败/错误/跳过**（含真实 SSH、产品页面与 SAF 导入，§9.29）；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
 
 共享主机信任前置已修复撤销/CA 标记误信任，信任写入/关闭失败会阻断认证（§9.22–§9.23）。共享连接配置准入和 SSH native 后端分别见 §9.24–§9.25。当前首页在最终配置检查通过后进入 DNS/主机验证/凭据与远端终端；默认 ViewModel 工厂已修复。同主机多连接按 UUID 选择，明确新建保留旧连接；Keystore AES-GCM 容器只落盘密文。具体生产入口、定向证据与未完成项见[§9.27](../docs/reference/android-implementation.md#927-ssh-产品页面与加密身份容器2026-10-30)。
 
-产品首片的 **27 项定向设备测试、15 组产品变异**通过，修正本地终端测试的命令回显误判与跨线程读取后，完整 **130 项设备测试通过**；原失败及复验见 §9.27。工作区正在补 SAF 私钥导入的旋转、取消与旧结果归属：已有生产改动及五项真实选择器测试，但最新五项基线有一项失败，七组新变异尚未完整通过，不计为 A3 收尾；见[§9.28](../docs/reference/android-implementation.md#928-saf-私钥导入工作区复核2026-10-30未验收)。成功密码登录、加密密钥口令、身份设置及网络矩阵仍待完成。§9.26 保留此前工厂缺口的历史记录。
+产品首片的 27 项定向测试、15 组产品变异及完整 130 项回归见 §9.27。后续 SAF 私钥导入的旋转、取消、只读材料与旧请求归属已通过五项定向、七组新增变异及完整 **135 项设备测试**；历史失败与修正见[§9.29](../docs/reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)。成功密码登录、加密密钥口令、身份设置及网络矩阵仍待完成，整个 A2/A3 不勾选完成。
 
 ## 构建
 
@@ -55,6 +55,9 @@ export ANDROID_SERIAL=emulator-5554
 ANDROID_SSH_ALL=1 bash scripts/test-android-ssh.sh
 # 产品页面与身份容器变异（产品首片，范围见 §9.27）
 ANDROID_SSH_PRODUCT_MUTATE=1 bash scripts/test-android-ssh.sh
+# SAF 私钥导入：真实系统选择器与七组变异（§9.29）
+ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.SSHIdentityImportTest \
+ANDROID_SSH_IMPORT_MUTATE=1 bash scripts/test-android-ssh.sh
 python3 scripts/check-abi-android.py
 python3 scripts/mutation-check-android-abi.py
 python3 scripts/mutation-check-android-native.py
@@ -66,7 +69,7 @@ python3 scripts/mutation-check-android-vt-libc.py
 bash scripts/gate.sh
 ```
 
-A1 验收时 JNI 引用 11 项、其余 62 项；A2 首片引用 19 项（新增 Transport 与错误读取），其余 54 项在 `bridge/deferred-abi.json` 按阶段登记，连接检查切片引用 20 项、待办 54 项；已验 SSH 后端为 32/42，`c53cfb8` 已提交的身份容器首片为 33/41；当前 SAF 工作区未增加公共 ABI 引用。以当前检出的 `check-abi-android.py` 输出为准，不能把未绑定能力称为已实现。变异脚本会在指定设备重新安装 debug APK，仅用于测试设备。原生变异分别破坏 UTF-8 配置往返、NUL 拒绝与 VT feed，目标断言红、同一 APK 独立对照绿、恢复后绿并校验源码 SHA256；中断会恢复带标记的源码。
+A1 验收时 JNI 引用 11 项、其余 62 项；A2 首片引用 19 项（新增 Transport 与错误读取），其余 54 项在 `bridge/deferred-abi.json` 按阶段登记，连接检查切片引用 20 项、待办 54 项；已验 SSH 后端为 32/42，`c53cfb8` 已提交的身份容器首片为 33/41；SAF 导入切片未增加公共 ABI 引用。以当前检出的 `check-abi-android.py` 输出为准，不能把未绑定能力称为已实现。变异脚本会在指定设备重新安装 debug APK，仅用于测试设备。原生变异分别破坏 UTF-8 配置往返、NUL 拒绝与 VT feed，目标断言红、同一 APK 独立对照绿、恢复后绿并校验源码 SHA256；中断会恢复带标记的源码。
 
 A0 证据：API 36 / arm64 / 4 KB 页模拟器，3 项设备测试、3 组 JNI 变异、3 组 ABI 对拍变异通过。A1 首片为 17 项设备测试与 11 组配置变异；共享重复指令编辑修复后，该片为 **18 项设备测试、12 组配置/页面变异**。C9 验编辑器损坏输出仍被拒绝，C12 验设备使用真正的 Core 修复；均目标红、同 APK 独立对照绿、恢复绿且源码 SHA256 一致。真机、API 29、16 KB 页运行、性能与完整 UI 验收留在后续阶段，不将 ELF 对齐等同于设备验证。
 

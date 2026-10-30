@@ -8,5 +8,16 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+        <provider android:name="com.hanxi.ghosterm.IdentityDocumentsProvider"
+            android:authorities="com.hanxi.ghosterm.test.keys"
+            android:exported="true" android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+        <provider android:name="com.hanxi.ghosterm.IdentityFixtureControlProvider"
+            android:authorities="com.hanxi.ghosterm.test.keycontrol"
+            android:exported="true" />
     </application>
 </manifest>
