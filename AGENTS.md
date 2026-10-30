@@ -149,6 +149,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 `libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的九场景、七组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同九场景。Android 与主机默认构建均应用补丁；`mutation-check-sftp-open.py` 另验 7 C + 2 Swift + 1 无库组，`mutation-check-host-ssh2.py --app 本轮.app` 验十一组依赖/包/CMake 守卫，目标红、独立对照绿、恢复绿与 SHA256。已交付证据见 Android 实现计划 §9.45/§9.47/§9.49，范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
 
+`android-saf-publication` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-saf-publication.py` 手工执行 30 组：护持久读写授权、树/子目录、列表和冲突、新文档身份/能力、创建未知、实际名称、内容/源变化、关闭/回读/可靠管道、背压取消、进度挂起、结果保留和 fd 释放。编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；16 项设备定向及最终完整 292 项通过，仅 API 36 arm64 / 4 KB 页模拟器。范围及早期失败见 Android 实现计划 §9.59；不增加 CI 20 份，不将其记为复制任务、目录或进程恢复已完成。
+
 `android-publication` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-publication.py` 手工执行 24 组：护独占/非覆盖、路径/链接、权限/CLOEXEC、候选身份/长度、复制内容/源变化、取消、清理和 fd 释放。目标编译后断言红、同 APK 配置对照绿、恢复绿与 SHA256；既有暂存 23 组复验。本片最终完整 Android 276 项通过，仅限 API 36 arm64 / 4 KB 页模拟器。范围见 Android 实现计划 §9.58；仅登记覆盖，不增加 CI 20 份，不将私有文件提交记为 SAF/复制产品或进程恢复已完成。
 
 `android-staging` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-staging.py` 手工验证 23 组：匿名创建/权限/CLOEXEC/目录关闭、源变化与片段、容量/数量、读租约、取消和未交付结果回收；目标编译后断言红、同 APK 配置对照绿、恢复绿与 SHA256。范围见 Android 计划 §9.55；不增加 CI 20 份，也不将暂存快照记作复制产品或最终目标发布。

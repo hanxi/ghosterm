@@ -90,7 +90,11 @@ def main():
                 def test(label,selection,green):
                     args=[*adb,'shell','am','instrument','-w','-r','-e','fixturePort',str(fixture_port),'-e','fixtureToken',token,'-e','networkRulePrefix',rule_prefix]
                     if selection: args+=['-e','class',selection]
-                    output=run([*args,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
+                    # Full suite now includes real SAF destination picker/fault tests (~100 s
+                    # for the initial 14 cases, on top of the prior ~528 s suite).
+                    # Keep directed/mutation runs at their existing 600 s bound.
+                    output=run([*args,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],
+                               seconds=900 if selection is None else 600)
                     (logs/(label+'.log')).write_text(output)
                     if green:
                         good='OK (' in output and 'FAILURES' not in output and 'INSTRUMENTATION_FAILED' not in output

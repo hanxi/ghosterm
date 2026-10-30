@@ -27,5 +27,13 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+        <provider android:name="com.hanxi.ghosterm.PublicationDocumentsProvider"
+            android:authorities="com.hanxi.ghosterm.test.publication"
+            android:exported="true" android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+        </provider>
+        <provider android:name="com.hanxi.ghosterm.PublicationFixtureControlProvider"
+            android:authorities="com.hanxi.ghosterm.test.publicationcontrol" android:exported="true" />
     </application>
 </manifest>
