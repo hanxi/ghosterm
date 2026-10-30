@@ -1,16 +1,10 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
-**A5 应用私有目录发布（§9.58，2026-10-31）**：`LocalFilePublisher` 已接常规文件的独占候选、写端关闭及 NOREPLACE 提交；十项设备定向、24 组新增与 23 组既有暂存变异通过。来源快照仍匿名，命名目标候选位于 HOME 外的私有目录；SAF、目录树、任务预算/进程恢复和复制页面仍待接入。失败记录、完整设备及跨端验证见[§9.58](../docs/reference/android-implementation.md#958-a5-应用私有目录非覆盖发布2026-10-31)。
+代码核对：2026-10-31，基线 `72bfe1b`。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
-**共享发布接口记录（§9.57，2026-10-31）**：远端非覆盖发布、Swift/JNI/Kotlin 绑定及专项已验；46 项 CTest / 88 ABI、Apple 86/2、JNI 48/40。Android 32 项定向及十组发布变异通过，既有读取/创建/owner 13＋9＋18 组独立复验。两端原生构建通过；复制清单、任务、SAF 目标和 macOS 文件产品迁移仍未完成；应用私有目录文件发布由 §9.58 补齐。完整设备结果及协议/变异范围见[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)。
+**共享接口与产品进度分开**：Swift 已绑定受控 SFTP 打开、浏览、预览、独占创建、读取到 fd 和非覆盖发布；桌面文件队列与 Quick Look 仍使用旧 job。当前为 88 个公共 ABI、Apple 86 项引用/2 项登记未用。实际调用链见下方[接线表](#共享文件接口与产品接线)，不能把 Android 私有目录提交或设备回归记为 macOS 功能完成。
 
-**远端受控读取绑定（§9.56）**：新增 `SFTPSession.receive`，将远端普通文件写入调用方独占的空 fd；0 字节上限只接受空源，完整读取/源属性复核/关闭成功后才返回大小。45 CTest / 87 ABI、Apple 85/2；21 Core＋1 无库＋4 Swift 变异及原生 App 构建已通过。Android 最终完整 260 项回归通过，首轮失败与同步修正保留；各项结果见[§9.56](../docs/reference/android-implementation.md#956-a5-远端读取到匿名暂存2026-10-31)。当前文件队列和 Quick Look 尚未消费此接口，旧下载完整性、目标发布与产品取消待办仍有效。
-
-**阶段记录：A5 远端暂存创建（§9.54，2026-10-31）**：已接独占创建、源 fd 校验和分阶段结果，以及 Swift/JNI/Kotlin 绑定。44 CTest / 86 ABI、Apple 84/2、JNI 46/40；22 组 Core/无库/Swift、九组 Android 新变异及既有 owner 18 组通过，两端原生构建通过。该片当时最终目标发布、复制清单和任务队列仍待实现；macOS 文件产品尚未消费新接口。 设备范围与失败记录见 [§9.54](../docs/reference/android-implementation.md#954-a5-远端独占暂存创建2026-10-31)。
-
-**阶段记录：A5 共享前置（§9.53，2026-10-31）**：传输打开顺序、覆盖截断、关闭结果与排队取消已修复；43 CTest / 85 ABI、13＋8 组变异、两端构建、Swift 1 项与 Android 22 项定向通过。该片当时非覆盖提交与复制产品仍待完成；未重跑完整设备/Apple 宿主/打包/CI。见 [§9.53](../docs/reference/android-implementation.md#953-a5-共享传输结果前置2026-10-31)。
-
-**Android 远端文件页面（§9.52）**：位置选择、配置准入/认证、目录/文本预览和生命周期已接入，文件连接独立于终端。9 项新增设备、14 组新产品与 18＋15 组既有变异、最终完整 236 项设备回归通过。42 CTest / 85 ABI、Apple 83/2、JNI 45/40 与两端构建通过；macOS 产品未迁移，详见 [实施记录](../docs/reference/android-implementation.md#952-android-远端文件页面接线2026-10-30)。
+最近相关验证：§9.57 完成发布接口专项及五组 Swift 变异；§9.58 完成 macOS 原生构建、ad-hoc 包及依赖/引擎校验。它们没有新增完整 macOS 宿主或系统交互证据；详细范围与失败记录分别保留在[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)、[§9.58](../docs/reference/android-implementation.md#958-a5-应用私有目录非覆盖发布2026-10-31)及[工作区交接](../docs/reference/workspace-handoff.md)。
 
 ## 当前结构（2026-10-31）
 
@@ -73,7 +67,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 ## 共享文件接口与产品接线
 
-以 §9.57 的接口及当前生产调用方为准。共享 Core 已验接口、Swift 包装层和 macOS 产品各自有完成边界；Android 的页面或设备通过不能勾选 macOS 产品迁移。
+以 `72bfe1b` 的生产调用方及 §9.57 的接口验收为准。共享 Core 已验接口、Swift 包装层和 macOS 产品各自有完成边界；Android 的页面或设备通过不能勾选 macOS 产品迁移。
 
 | 操作 | Core / Swift 已交付 | macOS 实际消费者 | Android 实际消费者 |
 |---|---|---|---|
@@ -248,6 +242,10 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.
 在仓库根运行；full libghostty 产物须先由 `scripts/build-ghostty.sh` 生成：
 
 ```bash
+# 完整 Xcode 位于此路径时，在同一 shell 统一选择工具链；按实际安装路径调整
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+mkdir -p "$PWD/tmp"
+export TMPDIR="$PWD/tmp"
 # 首次准备锁定的主机 SSH 依赖，再构建 Core 与 App
 python3 scripts/build-host-ssh2.py --fetch  # 首次准备；缓存齐备后省略 --fetch
 bash scripts/build-core.sh
@@ -264,6 +262,8 @@ dev 的 main push 和 release 的 PR 都有路径过滤，连续 dev 运行还�
 当前 full workflow 尚未对 `apple-app-gate.sh` 的全部跳过输出统一判失败；sshd 启动失败时，该脚本可以只跑其余用例后返回成功。图标缺依赖失败及打包/认证变异的 SKIP 守卫不能替代这项检查，后续需按必跑项目收口。
 
 另一个独立缺口是失败传播：`apple-app-gate.sh` 使用 `set -uo pipefail`，没有 `-e`，调用 `check-abi-apple.sh` 后也没有检查返回值。因此 ABI 子检查失败本身不会终止这个脚本，后续构建/测试若成功，仍可能打印 `APPLE APP GATE PASS`。目前应单独核验上面的 ABI 命令结果；该源码结论不表示已复现某次 CI 假绿。修复需要隔离注入 ABI 失败并证明宿主闸门非零退出，保留正常本地构建对照，不能只补日志文字。
+
+构建 Core 与 App 时须使用一致的 Xcode 环境。此次文档核对中，系统 `xcode-select` 指向 Command Line Tools，默认 `gate.sh` 链接 Xcode 27 SDK 的 TBD 时失败（`unknown architecture`）；在同一命令设置完整 Xcode 的 `DEVELOPER_DIR` 后 46 项 Core 测试与 88 ABI 闸门通过。不能从脚本使用了 `xcrun` 推定编译器、链接器和缓存 SDK 已一致，也不固定假设 Xcode SDK 一定是 26.5。
 
 仅安装 Command Line Tools 时，`swift build` 成功不代表 XCTest 可用；本机曾在测试编译时报 `no such module 'XCTest'`。有完整 Xcode 时可对单次命令设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，临时目录设为工程 `tmp/`，无需更改全局 `xcode-select`。共享 C archive 更新后的绑定测试需确保重新链接；旧 SwiftPM 测试可执行文件不能作为新 C 实现的证据。
 

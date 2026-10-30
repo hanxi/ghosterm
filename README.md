@@ -38,6 +38,12 @@ docs/           架构 · 能力矩阵 · 许可 · 路线 · Apple UI 已知坑
 ## 快速开始
 
 ```bash
+# macOS：使用完整 Xcode 的一致工具链；按实际安装路径调整
+# 在同一 shell 运行后续 Core / Swift / 打包命令
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+mkdir -p "$PWD/tmp"
+export TMPDIR="$PWD/tmp"
+
 # 主机 SSH 依赖：首次允许联网准备，之后可离线校验
 # macOS 先安装 cmake、pkg-config、openssl@3，准备 C 编译器与 Python 3.12+
 python3 scripts/build-host-ssh2.py --fetch
