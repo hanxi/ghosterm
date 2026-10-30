@@ -53,10 +53,20 @@ object IdentityPublicInfoReader {
             val publicKey = field(buffer)
             skip(buffer) // encrypted private section; never copy it
             require(!buffer.hasRemaining())
+            return readPublicKey(publicKey)
+        } catch (_: Exception) {
+            return IdentityPublicInfo(null,null,"密钥公开信息损坏，无法读取类型与指纹。")
+        } finally { encoded?.fill(0); decoded?.fill(0) }
+    }
+    /** Public SSH wire blob, shared by identity and known_hosts details. */
+    fun readPublicKey(publicKey: ByteArray, expectedType: String? = null): IdentityPublicInfo {
+        try {
+            require(publicKey.size <= 1024 * 1024)
             val public = ByteBuffer.wrap(publicKey)
             val typeBytes = field(public)
             require(typeBytes.size in 1..64 && typeBytes.all { it.toInt() in 33..126 })
             val type = typeBytes.toString(Charsets.US_ASCII)
+            require(expectedType == null || type == expectedType)
             when (type) {
                 "ssh-ed25519" -> require(field(public).size == 32)
                 "ssh-rsa" -> repeat(2) { require(field(public).isNotEmpty()) }
@@ -73,7 +83,8 @@ object IdentityPublicInfoReader {
             val digest = MessageDigest.getInstance("SHA-256").digest(publicKey)
             return IdentityPublicInfo(type,"SHA256:"+Base64.getEncoder().withoutPadding().encodeToString(digest))
         } catch (_: Exception) {
-            return IdentityPublicInfo(null,null,"密钥公开信息损坏，无法读取类型与指纹。")
-        } finally { encoded?.fill(0); decoded?.fill(0) }
+            return IdentityPublicInfo(null,null,"公钥信息损坏或算法不匹配，无法计算指纹。")
+        }
     }
+
 }

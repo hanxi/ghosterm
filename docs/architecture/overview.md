@@ -102,7 +102,7 @@ Android 文本操作继续沿 TerminalSurface 接缝：带序号的控制请求�
 
 共享认证的主机信任已保留 known_hosts 标记：撤销优先拒绝，读取失败与未支持规则分别报错；Swift 已消费新增撤销状态，Android SSH native owner 与类型化认证桥已按 §9.25 接入，产品 DNS/页面首片见 §9.27。哈希主机名/证书验证未实现，TOFU 写盘错误已阻断认证（§9.23）；§9.37 已改为共享备份与原子替换事务，确认之后在锁内重新核对信任规则；共享连接配置检查已接两端，macOS 在 DNS 前拒绝未支持的配置，Android 首页显示拒绝来源，并在重新检查实际目标后连接；默认工厂、产品页面与多会话已通过完整回归（§9.27）。实现与各端证据见 [Android §9.22](../reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)，不将共享 API 的进展当成所有原生端已交付。
 
-Android 身份设置已接通列表/详情、OpenSSH 公钥指纹、SAF 导入与确认移除；请求由独立 ViewModel 持有，IO 在后台执行，详情只保留公开信息。身份设置的八项定向和十组变异已有证据；后续主机关联切片完整 160 项设备回归通过，见[§9.35](../reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)。主机身份引用写入同一 SSH 配置保存事务，引用详情从共享来源查询派生；`ghosterm-identity:<UUID>` 是本安装容器标识，不是跨端可用密钥路径。认证只按配置解析候选，其他身份需用户明确选择。主机信任记录管理与 A7 偏好尚未完成。
+Android 身份设置已接通列表/详情、OpenSSH 公钥指纹、SAF 导入与确认移除；请求由独立 ViewModel 持有，IO 在后台执行，详情只保留公开信息。身份设置的八项定向和十组变异已有证据；后续主机关联切片完整 160 项设备回归通过，见[§9.35](../reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)。主机身份引用写入同一 SSH 配置保存事务，引用详情从共享来源查询派生；`ghosterm-identity:<UUID>` 是本安装容器标识，不是跨端可用密钥路径。认证只按配置解析候选，其他身份需用户明确选择。主机信任记录管理已按 §9.39 接入；A7 的 16 项偏好尚未完成。
 
 ## 参考实现（技术对照）
 
@@ -118,4 +118,4 @@ Android 身份设置已接通列表/详情、OpenSSH 公钥指纹、SAF 导入�
 
 Android SSH 与本地终端共用 `session_jni.c` owner，SSH 认证完成后仍由同一线程持有 Transport/VT；状态快照和一次性响应属于控制面。`RemoteSession` 接受已解析地址和原始 hostkey 身份；DNS、认证页面与 Keystore 容器在平台控制面实现，已由 `c53cfb8` 交付并通过 §9.27 的完整 130 项设备回归。SAF 私钥导入已接原请求归属、旋转保留与可取消只读流，并通过五项定向、七组变异及完整 135 项设备测试，见[§9.29](../reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)。通道打开的 5 秒预算/取消边界见[§9.25](../reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。
 
-known_hosts 管理读侧使用共享 `gt_known_hosts_*` 不可变快照，两端仅转换值与所有权。`gt__kh_split_line` 同时服务既有认证枚举，快照的 `recognized` 仅是词法形态，不能替代撤销优先/能力拒绝等认证判定。管理写侧已由 `known_hosts_store.c` 将 TOFU 与 `gt_known_hosts_remove` 纳入同一进程内互斥、稳定文件锁、备份与原子替换；Swift/JNI 保留 status、committed 和 conflict。锁等待有界不等于整个文件系统操作有界；平台必须在后台调用，提交后核验失败不能报告“未改动”。只保证协作写者协调，不承诺任意外部写者或断电恢复。Android repository/指纹/页面已有未验收工作区草稿，macOS 没有管理页面；两者均不能由共享绑定验收代替。实现与草稿边界见[§4.5](../reference/android-implementation.md#45-主机信任记录管理)、[§9.38](../reference/android-implementation.md#938-主机验证管理页面工作区复核2026-10-30未验收)。
+known_hosts 管理读侧使用共享 `gt_known_hosts_*` 不可变快照，两端仅转换值与所有权。`gt__kh_split_line` 同时服务既有认证枚举，快照的 `recognized` 仅是词法形态，不能替代撤销优先/能力拒绝等认证判定。管理写侧已由 `known_hosts_store.c` 将 TOFU 与 `gt_known_hosts_remove` 纳入同一进程内互斥、稳定文件锁、备份与原子替换；Swift/JNI 保留 status、committed 和 conflict。锁等待有界不等于整个文件系统操作有界；平台必须在后台调用，提交后核验失败不能报告“未改动”。只保证协作写者协调，不承诺任意外部写者或断电恢复。Android repository/指纹/页面已有 11 项定向、17 组变异与完整 175 项设备回归，macOS 没有管理页面；平台证据不能由共享绑定验收代替。实现与历史草稿边界见[§4.5](../reference/android-implementation.md#45-主机信任记录管理)、[§9.39](../reference/android-implementation.md#939-主机验证记录管理页面2026-10-30)。

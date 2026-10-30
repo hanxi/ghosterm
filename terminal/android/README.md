@@ -1,6 +1,6 @@
 # Android TerminalSurface
 
-最近已验收的完整设备结果为 **164 项通过**，对应已提交的共享信任事务与删除绑定，见[§9.37](../../docs/reference/android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)。工作区另有未验收的管理页面/公钥解析草稿（§9.38），不在这份历史结果的证明范围内。native owner→Transport→VT 字节通路保持不变；不扩大 API 36 arm64 / 4 KB 页模拟器之外的设备、性能或完整 A2/A3 验收范围。下文数量保留各历史切片记录。
+最近已验收的完整设备结果为 **175 项通过**，包含主机验证管理页面的 11 项与身份设置八项；管理页面新增 17 组变异通过，见[§9.39](../../docs/reference/android-implementation.md#939-主机验证记录管理页面2026-10-30)。§9.38 保留早期草稿审计，native owner→Transport→VT 字节通路保持不变；不扩大 API 36 arm64 / 4 KB 页模拟器之外的设备、性能或完整 A2/A3 验收范围。下文数量保留各历史切片记录。
 
 状态（2026-10-30）：**A0 已验；A2 原生 surface、Canvas TerminalView、InputConnection 与生命周期首片已交付；文本操作切片已验，整个 A2 未完成**。Gradle `:terminal` 指向本目录；native 子目录由 `:bridge` 的 CMake 统一构建，避免重复 Core。宿主设计见[最终 HTML](../../docs/design/android-prototype.html)，开发与验收见[Android 实现计划](../../docs/reference/android-implementation.md) A0/A2。
 

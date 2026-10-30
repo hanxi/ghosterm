@@ -90,6 +90,10 @@ def main():
                     spec=importlib.util.spec_from_file_location('host_identity_mutations',ROOT/'scripts/mutation-check-android-host-identities.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_SSH_KNOWN_HOSTS_SETTINGS_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('known_host_settings_mutations',ROOT/'scripts/mutation-check-android-known-hosts-settings.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 print(output,flush=True);print('ANDROID SSH PASS',flush=True)
             finally:
                 for value in reversed(mappings):run([*adb,'reverse','--remove','tcp:'+str(value)])
