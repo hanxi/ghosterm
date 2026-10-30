@@ -100,6 +100,8 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 ## 当前状态（2026-10-30）
 
+最终 Android 方案的详细实现见[实现文档](docs/reference/android-implementation.md)：主机首页、点按打开/长按多选、跨本机与远端的待粘贴清单、五类设置及分阶段验收。文件页面交付顺序与设置存储/失败处理已补充至 §6.5、§7.1。跨端本次核对以 `526d24d` 为已提交基线；工作区信任移除草稿尚未验收。macOS 冲突选择跨批次保留、目录整批重试等源码行为已同步至 [roadmap 待办](docs/reference/roadmap.md#macos-下一步与共享缺口)，不以 Android 方案替代桌面实现状态。
+
 主机信任记录的共享只读快照与 Swift/JNI 已接，Core 37 项 CTest / 79 ABI、Apple 77/2、JNI 38/41 及完整 162 项设备回归通过；新增 10 C + 1 Swift + 4 Android 变异及既有 20 组真实 SSH 信任变异通过。它提供真实记录与原始范围，页面、安全移除和指纹仍待接，见[§9.36](docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)。
 
 进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准。SSH 身份设置的列表、指纹、导入与确认移除已接通，身份设置八项定向/十组变异及后续主机关联切片的完整 160 项设备回归通过；早期失败与修正见[实现记录](docs/reference/android-implementation.md#933-ssh-身份设置与公钥信息2026-10-30)。A7 已部分交付身份子页，主机身份引用与详情已接，主机信任记录管理与 16 项偏好仍待完成；macOS 和共享文件传输缺口继续按路线图独立跟踪。
