@@ -461,6 +461,13 @@ gt_io_backend_t *gt__pty_open_with_options(const gt_pty_opts_t *opts,const gt_al
      * ioctl(TIOCSCTTY) 才真正生效；某些 macOS 构建会静默失败，故显式补齐。 */
     setpgid(0, 0);
     close_child_fds(child_fd_limit);
+    /* A GUI/worker thread may block signals. fork + exec preserves that mask:
+     * TIOCSWINSZ then updates the kernel size but ssh/tmux never sees SIGWINCH.
+     * Give the terminal child an independent, unblocked signal mask; leave the
+     * host thread unchanged. These calls are async-signal-safe after fork. */
+    sigset_t child_signals;
+    sigemptyset(&child_signals);
+    if (sigprocmask(SIG_SETMASK, &child_signals, NULL) != 0) _exit(127);
     if (o->cwd && *o->cwd && chdir(o->cwd) != 0) _exit(127);
     execve(exe, argv, env);
     _exit(127);

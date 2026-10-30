@@ -17,7 +17,7 @@ python3 scripts/mutation-check-public-headers.py
 要求目标检查红而同一变异下独立 config 头仍绿。副本位于工程 `tmp/`，
 起跑前检查残留标记，INT/TERM 清理，回滚核验起跑前 SHA256 并复绿。
 
-## PTY 描述符隔离回归
+## PTY 描述符与信号屏蔽隔离回归
 
 `pty_inheritance` 纳入核心 ctest。先开一个 PTY，再真 exec 一个检测子进程，
 验证前一条会话的 master、两条 wakeup fd 和调用方故意未设置 CLOEXEC 的管道
@@ -25,13 +25,24 @@ python3 scripts/mutation-check-public-headers.py
 运行时，第一个 PTY 必须在两秒内关闭，避免继承 master 导致 hangup/收尸卡死。
 测试失败时先关检测子进程，避免回归用例自己永久挂起；CTest 另有十五秒硬超时。
 
+另在调用线程屏蔽 SIGWINCH/SIGUSR1 后启动真实 exec 子进程，验证子进程不继承
+屏蔽集合、调用线程的集合不变；连续放大/缩小后，由子进程的 SIGWINCH handler
+唤醒并回报新尺寸，不发送任何输入。只查 `stty size` 不能证明通知送达。
+
 ```bash
 python3 scripts/mutation-check-pty-inheritance.py
 ```
 
-脚本在工程 `tmp/` 的独立 core 副本编译，分别清掉 CLOEXEC、跳过子进程 fd 隔离，
+脚本在工程 `tmp/` 的独立 core 副本编译，三组分别清掉 CLOEXEC、跳过子进程 fd 隔离、保留继承的信号屏蔽，
 要求目标红而 API 冒烟对照仍绿，随后 SHA256 校验回滚并复绿。
 生产 fork/exec 间只使用 async-signal-safe 调用，描述符枚举上限在父进程确定。
+
+macOS `TmuxResizeTests` 另经真实窗口/full surface、本地 shell 和系统 ssh，验证
+tmux 客户端与内层窗格在放大/缩小时自动跟随，期间不敲键、不切窗口，内层 PID 保持。
+`bash scripts/apple-app-gate.sh` 会提供隔离 loopback sshd；未提供时 SSH 用例明确跳过。
+向变异脚本传 `--apple` 并提供同样的 `GHOSTERM_SSH_HOST=127.0.0.1`、PORT/USER/KEY
+环境，可在隔离 Swift/core 副本验证信号变异使这两条原生用例失败、HostListTests
+对照通过、恢复后通过；缺夹具不计通过。
 
 ## POSIX PTY 尺寸能力
 

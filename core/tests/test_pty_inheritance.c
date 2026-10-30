@@ -4,9 +4,12 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -40,9 +43,90 @@ static int child_check(int argc, char **argv) {
   return 0;
 }
 
+static volatile sig_atomic_t resized;
+static void resized_signal(int signal_number) {
+  (void)signal_number;
+  resized = 1;
+}
+
+static int signal_child(void) {
+  sigset_t inherited, blocked, empty;
+  if (sigprocmask(SIG_SETMASK, NULL, &inherited) != 0 ||
+      sigismember(&inherited, SIGWINCH) || sigismember(&inherited, SIGUSR1)) {
+    puts("SIGNAL_MASK_LEAKED");
+    return 1;
+  }
+  struct sigaction action = {0};
+  action.sa_handler = resized_signal;
+  sigemptyset(&action.sa_mask);
+  if (sigaction(SIGWINCH, &action, NULL) != 0) return 1;
+  sigemptyset(&empty);
+  sigemptyset(&blocked);
+  sigaddset(&blocked, SIGWINCH);
+  if (sigprocmask(SIG_BLOCK, &blocked, NULL) != 0) return 1;
+  puts("SIGNAL_READY");
+  fflush(stdout);
+  for (int i = 0; i < 2; i++) {
+    while (!resized) sigsuspend(&empty);
+    resized = 0;
+    struct winsize size;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &size) != 0) return 1;
+    printf("SIGNAL_SIZE %u %u\n", size.ws_col, size.ws_row);
+    fflush(stdout);
+  }
+  return 0;
+}
+
+static int await_output(gt_transport_t *transport, const char *expected) {
+  char output[1024] = {0};
+  size_t used = 0;
+  double deadline = now() + 3;
+  while (now() < deadline && used + 1 < sizeof output) {
+    int n = gt_transport_read(transport, (uint8_t *)output + used,
+                              sizeof output - used - 1, 20);
+    if (n > 0) {
+      used += (size_t)n;
+      output[used] = 0;
+      if (strstr(output, expected)) return 1;
+    } else if (n != GT_TRANSPORT_READ_TIMEOUT) break;
+  }
+  fprintf(stderr, "FAIL expected %s, received %s\n", expected, output);
+  return 0;
+}
+
+static void signal_inheritance(const char *executable) {
+  sigset_t blocked, original, after;
+  sigemptyset(&blocked);
+  sigaddset(&blocked, SIGWINCH);
+  sigaddset(&blocked, SIGUSR1);
+  CHECK(pthread_sigmask(SIG_BLOCK, &blocked, &original) == 0);
+  const char *args[] = {"--signal-child", NULL};
+  gt_pty_opts_t options = {.cmd_kind = GT_PTY_CMD_DIRECT,
+                          .executable = executable, .argv = args,
+                          .cols = 80, .rows = 24};
+  gt_transport_t *transport = gt_transport_open_pty(&options);
+  CHECK(pthread_sigmask(SIG_SETMASK, NULL, &after) == 0);
+  CHECK(sigismember(&after, SIGWINCH) == 1);
+  CHECK(sigismember(&after, SIGUSR1) == 1);
+  CHECK(pthread_sigmask(SIG_SETMASK, &original, NULL) == 0);
+  CHECK(transport != NULL);
+  if (!transport) return;
+  int ready = await_output(transport, "SIGNAL_READY");
+  CHECK(ready);
+  if (ready) {
+    CHECK(gt_transport_resize(transport, 120, 40, 0, 0) == GT_OK);
+    CHECK(await_output(transport, "SIGNAL_SIZE 120 40"));
+    CHECK(gt_transport_resize(transport, 70, 20, 0, 0) == GT_OK);
+    CHECK(await_output(transport, "SIGNAL_SIZE 70 20"));
+  }
+  gt_transport_close(transport);
+}
+
 int main(int argc, char **argv) {
   if (argc > 1 && strcmp(argv[1], "--child-check") == 0)
     return child_check(argc, argv);
+  if (argc > 1 && strcmp(argv[1], "--signal-child") == 0)
+    return signal_child();
 
   enum { MAX_FDS = 4096, MAX_OWNED = 32 };
   unsigned char before[MAX_FDS];
@@ -112,6 +196,7 @@ int main(int argc, char **argv) {
   gt_transport_close(first);
   close(sentinel[0]);
   close(sentinel[1]);
+  signal_inheritance(executable);
   printf("test_pty_inheritance: %s\n", failures ? "FAIL" : "PASS");
   return failures ? 1 : 0;
 }

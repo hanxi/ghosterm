@@ -228,7 +228,11 @@ NSView（SwiftUI 自绘，a11y 元素只走真 AX API），本机 macOS 26 上�
 护 master/唤醒管道的 CLOEXEC 以及 exec 前隔离调用方描述符：后开的 shell 若继承
 前一条会话的 master，父进程关 master 也无法触发 hangup，close 的 waiter join
 会卡死。回归用真 exec 子进程检查描述符，且第二个 PTY 活着时第一个必须秒关；
-两个变异在独立 core 副本中分别破坏 CLOEXEC 与子进程 close，API 对照仍绿。）
+三组变异在独立 core 副本中分别破坏 CLOEXEC、子进程 close 与信号屏蔽隔离，API 对照仍绿。
+信号回归验证调用线程屏蔽 SIGWINCH/SIGUSR1 时，exec 子进程收到两次尺寸变化通知，
+调用线程屏蔽状态不变；`--apple` 配隔离 loopback sshd 另验真实窗口 → 本地 shell →
+系统 ssh → tmux 的无输入缩放，原生目标红、主机列表对照绿、恢复绿与 SHA256。
+此项仍为手工证据，不增加 CI 20 份覆盖。）
 （`sftp` 护文件操作原语（stat 尺寸 / 列目录名 / 下载内容 / job 三态 /
 `remove_all` 递归 / `chmod` 模式位 / `walk` 深度 / `pause`）；`exec` 护远端
 命令通道（stdout-stderr 分离 / 退出码）——两者都跑真 sshd 的 `ssh_e2e`。
