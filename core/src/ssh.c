@@ -1116,8 +1116,15 @@ int gt__ssh_shell_read(void *ch, uint8_t *buf, size_t cap, int timeout_ms) {
   ssh_shell_t *sh = ch;
   if (!sh) return GT_TRANSPORT_READ_ERROR;
   ssh_flush_wtail(sh); /* 读是尾队列的泵：没有它，排队的输入只能等下一次写 */
-  libssh2_session_set_timeout(sh->sess, timeout_ms < 0 ? 0 : (long)timeout_ms);
+  /* Transport zero is a poll; libssh2 zero is an unlimited blocking wait.
+   * Restore both settings before another operation borrows this session. */
+  long previous_timeout = libssh2_session_get_timeout(sh->sess);
+  int previous_blocking = libssh2_session_get_blocking(sh->sess);
+  if (timeout_ms == 0) libssh2_session_set_blocking(sh->sess, 0);
+  else libssh2_session_set_timeout(sh->sess, timeout_ms < 0 ? 0 : (long)timeout_ms);
   ssize_t n = libssh2_channel_read(sh->chan, (char *)buf, cap);
+  libssh2_session_set_blocking(sh->sess, previous_blocking);
+  libssh2_session_set_timeout(sh->sess, previous_timeout);
   if (n > 0) return (int)n;
   if (n == 0) {
     if (libssh2_channel_eof(sh->chan)) return GT_TRANSPORT_READ_EOF;

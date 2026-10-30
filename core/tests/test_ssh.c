@@ -33,6 +33,13 @@ static int walk_count_cb(void *ud, const gt_sftp_walk_ent_t *e) {
   return 0;
 }
 
+static void poll_read_deadline(int sig) {
+  (void)sig;
+  static const char message[] = "FAIL: SSH zero-timeout read blocked instead of polling\n";
+  (void)write(STDOUT_FILENO, message, sizeof message - 1);
+  _exit(1);
+}
+
 static int pass = 0, fail = 0;
 #define CHECK(c, msg) do { if (c) pass++; else { fail++; printf("FAIL: %s\n", msg); } } while (0)
 
@@ -170,6 +177,21 @@ int main(int argc, char **argv) {
         gt_transport_write(t, (const uint8_t *)"stty size\n", 10);
         CHECK(read_until(t, "40 100", buf, sizeof buf, 15000),
               "resize 后 stty size 反映新尺寸（40 100）");
+
+        /* Zero means poll, not libssh2's zero (= infinite blocking). Keep the
+         * remote silent behind a read barrier; only a later input can release it. */
+        const char *poll_command = "stty -echo; PS1=''; printf 'POLL_%s\\n' READY; read ghosterm_poll; printf 'POLL_%s\\n' DONE\n";
+        CHECK(gt_transport_write(t, (const uint8_t *)poll_command, strlen(poll_command)) == GT_OK,
+              "poll barrier command accepted");
+        CHECK(read_until(t, "POLL_READY", buf, sizeof buf, 15000), "poll barrier reached");
+        void (*previous_alarm)(int) = signal(SIGALRM, poll_read_deadline);
+        alarm(10);
+        int polled = gt_transport_read(t, (uint8_t *)buf, sizeof buf, 0);
+        alarm(0); signal(SIGALRM, previous_alarm);
+        CHECK(polled == GT_TRANSPORT_READ_TIMEOUT, "silent zero-timeout read returns TIMEOUT, not EOF");
+        CHECK(gt_transport_write(t, (const uint8_t *)"continue\n", 9) == GT_OK, "input works after zero-timeout read");
+        CHECK(read_until(t, "POLL_DONE", buf, sizeof buf, 15000), "blocking reads work after polling");
+        gt_transport_write(t, (const uint8_t *)"stty echo\n", 10);
 
         /* §5b. 写有界 + 输入不丢（契约见 transport.h）。
          *   远端跑 sleep 5 但 stdin 不重定向 → sleep 占着 shell 的 stdin、
