@@ -1,8 +1,10 @@
 # 主机 libssh2 构建与 SFTP 打开状态
 
-**A5 远端暂存创建（2026-10-31）**：已接独占创建、源 fd 校验和分阶段结果，以及 Swift/JNI/Kotlin 绑定。44 CTest / 86 ABI、Apple 84/2、JNI 46/40；22 组 Core/无库/Swift、九组 Android 新变异及既有 owner 18 组通过，两端原生构建通过。最终目标发布、复制清单和任务队列仍待实现；macOS 文件产品尚未消费新接口。 设备范围与失败记录见 [§9.54](android-implementation.md#954-a5-远端独占暂存创建2026-10-31)。
+**当前接口进度（§9.57，2026-10-31）**：远端非覆盖发布、Swift/JNI/Kotlin 绑定及专项已验；46 项 CTest / 88 ABI、Apple 86/2、JNI 48/40。Android 32 项定向及十组发布变异通过，既有读取/创建/owner 13＋9＋18 组独立复验。两端原生构建通过；复制清单、任务、本机/SAF 目标和 macOS 文件产品迁移仍未完成。完整设备结果及协议/变异范围见[§9.57](android-implementation.md#957-a5-远端非覆盖发布2026-10-31)。
 
-**A5 共享前置（2026-10-31）**：传输打开顺序、覆盖截断、关闭结果与排队取消已修复；43 CTest / 85 ABI、13＋8 组变异、两端构建、Swift 1 项与 Android 22 项定向通过。非覆盖提交与复制产品仍待完成；未重跑完整设备/Apple 宿主/打包/CI。见 [§9.53](android-implementation.md#953-a5-共享传输结果前置2026-10-31)。
+**阶段记录：A5 远端暂存创建（§9.54，2026-10-31）**：已接独占创建、源 fd 校验和分阶段结果，以及 Swift/JNI/Kotlin 绑定。44 CTest / 86 ABI、Apple 84/2、JNI 46/40；22 组 Core/无库/Swift、九组 Android 新变异及既有 owner 18 组通过，两端原生构建通过。该片当时最终目标发布、复制清单和任务队列仍待实现；macOS 文件产品尚未消费新接口。 设备范围与失败记录见 [§9.54](android-implementation.md#954-a5-远端独占暂存创建2026-10-31)。
+
+**阶段记录：A5 共享前置（§9.53，2026-10-31）**：传输打开顺序、覆盖截断、关闭结果与排队取消已修复；43 CTest / 85 ABI、13＋8 组变异、两端构建、Swift 1 项与 Android 22 项定向通过。该片当时非覆盖提交与复制产品仍待完成；未重跑完整设备/Apple 宿主/打包/CI。见 [§9.53](android-implementation.md#953-a5-共享传输结果前置2026-10-31)。
 
 核对日期：2026-10-30。受控 SFTP 打开接口、主机补丁依赖与构建/打包接线已完成本机验收，见 Android 实现计划 §9.47。此前 `cef17ac` 记录的依赖守卫测试失败已修正并复验：十组直接守卫变异及一组真实 CMake 调用方变异通过。§9.49 已完成受控目录浏览与目录句柄关闭契约，§9.50 新增有界预览。§9.51 已接 Android 专用文件 owner/JNI/Kotlin 及中止后关闭；Android 远端页面已由 §9.52 接入，macOS 产品迁移仍待完成。
 
@@ -70,7 +72,7 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 | Swift 绑定 | `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 已存在，定向/变异有通过记录 | macOS 产品工厂仍调用无参 `ssh.sftp()`；原认证预算未传入文件 owner |
 | Android native | `files_jni.c` 的专用 owner 调用 `gaj_ssh_open_sftp`，从原认证取剩余预算并封顶 5000 ms；目录/预览各有请求预算和停止信号 | `RemoteFileSession` 后端与远端 repository、认证 UI、文件页已按 §9.51/§9.52 接入；复制与完整矩阵待补 |
 
-§9.47 已验收基线为 82 ABI、Apple 80/2、JNI 40/42；§9.49 受控目录浏览为 83 ABI、Apple 81/2、JNI 40/43。§9.51 为 85 ABI、Apple 83/2、JNI 45/40；§9.54 为 86 ABI、Apple 84/2、JNI 46/40；§9.56 为 87 ABI、Apple 85/2、JNI 47/40，新增受控读取到 fd。Android 后端已消费受控接口，新增读取专项和最终完整 260 项设备回归通过，首轮失败另有记录。这些数量不是产品可用功能数量。macOS 文件产品的列表、realpath、预览、任务和关闭仍按原契约运行；opener 测试不证明整个文件连接可取消。
+§9.47 已验收基线为 82 ABI、Apple 80/2、JNI 40/42；§9.49 受控目录浏览为 83 ABI、Apple 81/2、JNI 40/43。§9.51 为 85 ABI、Apple 83/2、JNI 45/40；§9.54 为 86 ABI、Apple 84/2、JNI 46/40；§9.56 为 87 ABI、Apple 85/2、JNI 47/40，新增受控读取到 fd；§9.57 为 88 ABI、Apple 86/2、JNI 48/40，新增非覆盖发布及绑定。Android 后端已消费受控接口，新增读取专项和最终完整 260 项设备回归通过，首轮失败另有记录。这些数量不是产品可用功能数量。macOS 文件产品的列表、realpath、预览、任务和关闭仍按原契约运行；opener 测试不证明整个文件连接可取消。
 
 ## 受控目录浏览与产品迁移
 

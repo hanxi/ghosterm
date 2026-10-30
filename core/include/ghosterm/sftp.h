@@ -133,6 +133,38 @@ int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
     uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
     bool (*cancelled)(void *), void *context);
 
+/* Publish a completed, caller-owned remote staging path WITHOUT overwrite.
+ * Dedicated owner only, no jobs/other channels. Source LSTAT, destination
+ * LSTAT, source recheck and RENAME share one positive budget. A regular source
+ * must have known expected_size (0..INT64_MAX); directory requires size 0 and
+ * a known directory type. Caller owns a complete tree and keeps it unchanged;
+ * this call neither scans directory contents nor provides an atomic snapshot.
+ * Only explicit NO_SUCH_FILE admits RENAME; query errors are not absence.
+ * CONFLICT means destination LSTAT succeeded; REJECTED means RENAME received
+ * a defined operation-error status (2..5 or 8..21). EOF, connection-loss and
+ * unknown status codes leave UNKNOWN, as does a missing usable acknowledgement. NOT_ATTEMPTED says only that RENAME was not attempted, not
+ * that destination is absent. remote_status is 0 unless a decoded server error
+ * is available; generic FAILURE must not be classified as "already exists".
+ * Successful RENAME wins over subsequent cancellation. No overwrite fallback,
+ * automatic retry, unlink, fsync or portable atomicity/durability promise.
+ * Metadata recheck cannot prevent source/path replacement races in SFTP v3.
+ * Any failure after attempted IO invalidates this owner; preserve the result
+ * even on error and reconnect before inspecting partial/unknown side effects. */
+typedef enum {
+  GT_SFTP_PUBLISH_NOT_ATTEMPTED = 0,
+  GT_SFTP_PUBLISH_CONFLICT = 1,
+  GT_SFTP_PUBLISH_UNKNOWN = 2,
+  GT_SFTP_PUBLISH_REJECTED = 3,
+  GT_SFTP_PUBLISH_PUBLISHED = 4,
+} gt_sftp_publish_state_t;
+typedef struct {
+  gt_sftp_publish_state_t state;
+  uint32_t remote_status;
+} gt_sftp_publish_result_t;
+int gt_sftp_publish_controlled(gt_sftp_t *sftp, const char *source, const char *destination,
+    bool directory, uint64_t expected_size, gt_sftp_publish_result_t *out,
+    uint32_t timeout_ms, bool (*cancelled)(void *), void *context);
+
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out);
 
 /* lstat：**不跟随**符号链接（报链接自身的属性）。 */

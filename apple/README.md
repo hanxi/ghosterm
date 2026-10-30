@@ -1,10 +1,12 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
+**当前接口进度（§9.57，2026-10-31）**：远端非覆盖发布、Swift/JNI/Kotlin 绑定及专项已验；46 项 CTest / 88 ABI、Apple 86/2、JNI 48/40。Android 32 项定向及十组发布变异通过，既有读取/创建/owner 13＋9＋18 组独立复验。两端原生构建通过；复制清单、任务、本机/SAF 目标和 macOS 文件产品迁移仍未完成。完整设备结果及协议/变异范围见[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)。
+
 **远端受控读取绑定（§9.56）**：新增 `SFTPSession.receive`，将远端普通文件写入调用方独占的空 fd；0 字节上限只接受空源，完整读取/源属性复核/关闭成功后才返回大小。45 CTest / 87 ABI、Apple 85/2；21 Core＋1 无库＋4 Swift 变异及原生 App 构建已通过。Android 最终完整 260 项回归通过，首轮失败与同步修正保留；各项结果见[§9.56](../docs/reference/android-implementation.md#956-a5-远端读取到匿名暂存2026-10-31)。当前文件队列和 Quick Look 尚未消费此接口，旧下载完整性、目标发布与产品取消待办仍有效。
 
-**A5 远端暂存创建（2026-10-31）**：已接独占创建、源 fd 校验和分阶段结果，以及 Swift/JNI/Kotlin 绑定。44 CTest / 86 ABI、Apple 84/2、JNI 46/40；22 组 Core/无库/Swift、九组 Android 新变异及既有 owner 18 组通过，两端原生构建通过。最终目标发布、复制清单和任务队列仍待实现；macOS 文件产品尚未消费新接口。 设备范围与失败记录见 [§9.54](../docs/reference/android-implementation.md#954-a5-远端独占暂存创建2026-10-31)。
+**阶段记录：A5 远端暂存创建（§9.54，2026-10-31）**：已接独占创建、源 fd 校验和分阶段结果，以及 Swift/JNI/Kotlin 绑定。44 CTest / 86 ABI、Apple 84/2、JNI 46/40；22 组 Core/无库/Swift、九组 Android 新变异及既有 owner 18 组通过，两端原生构建通过。该片当时最终目标发布、复制清单和任务队列仍待实现；macOS 文件产品尚未消费新接口。 设备范围与失败记录见 [§9.54](../docs/reference/android-implementation.md#954-a5-远端独占暂存创建2026-10-31)。
 
-**A5 共享前置（2026-10-31）**：传输打开顺序、覆盖截断、关闭结果与排队取消已修复；43 CTest / 85 ABI、13＋8 组变异、两端构建、Swift 1 项与 Android 22 项定向通过。非覆盖提交与复制产品仍待完成；未重跑完整设备/Apple 宿主/打包/CI。见 [§9.53](../docs/reference/android-implementation.md#953-a5-共享传输结果前置2026-10-31)。
+**阶段记录：A5 共享前置（§9.53，2026-10-31）**：传输打开顺序、覆盖截断、关闭结果与排队取消已修复；43 CTest / 85 ABI、13＋8 组变异、两端构建、Swift 1 项与 Android 22 项定向通过。该片当时非覆盖提交与复制产品仍待完成；未重跑完整设备/Apple 宿主/打包/CI。见 [§9.53](../docs/reference/android-implementation.md#953-a5-共享传输结果前置2026-10-31)。
 
 **Android 远端文件页面（§9.52）**：位置选择、配置准入/认证、目录/文本预览和生命周期已接入，文件连接独立于终端。9 项新增设备、14 组新产品与 18＋15 组既有变异、最终完整 236 项设备回归通过。42 CTest / 85 ABI、Apple 83/2、JNI 45/40 与两端构建通过；macOS 产品未迁移，详见 [实施记录](../docs/reference/android-implementation.md#952-android-远端文件页面接线2026-10-30)。
 
@@ -69,7 +71,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 ## 共享文件接口与产品接线
 
-以 `588fd4c` 的生产调用方为准。共享 Core 已验接口、Swift 包装层和 macOS 产品各自有完成边界；Android 的页面或设备通过不能勾选 macOS 产品迁移。
+以 §9.57 的接口及当前生产调用方为准。共享 Core 已验接口、Swift 包装层和 macOS 产品各自有完成边界；Android 的页面或设备通过不能勾选 macOS 产品迁移。
 
 | 操作 | Core / Swift 已交付 | macOS 实际消费者 | Android 实际消费者 |
 |---|---|---|---|
@@ -77,9 +79,9 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 目录浏览、文本预览 | `gt_sftp_browse_controlled` / `browse`；`gt_sftp_preview_controlled` / `preview` | `SFTPFileBackend` 仍拆分 list/realpath；Quick Look 经旧下载 job | `RemoteFileSession` → repository → 只读文件页面 |
 | 独占暂存创建 | `gt_sftp_create_controlled` / `createExclusive` | 尚无产品调用，原队列仍用路径式 upload | JNI/Kotlin 与匿名快照集成已验，复制任务未接 |
 | 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | `SFTPFileBackend.download` → `sftp.download` → 旧 job | `TransferStagingStore.receive` 已验，应用级任务 store 未接 |
-| 最终非覆盖发布 | 已提交基线无接口；工作区仅有 `gt_sftp_publish_controlled` C 草稿 | 无 Swift 绑定或产品迁移 | 无 JNI/Kotlin 绑定或产品接线 |
+| 最终非覆盖发布 | `gt_sftp_publish_controlled` / `publish`；状态、远端错误码、总预算与取消 | Swift 绑定已验；桌面队列仍无产品调用 | JNI/Kotlin `RemoteFileSession.publish` 已验；复制任务和页面未接 |
 
-当前发布草稿使 Apple/JNI ABI 对拍失败；基线的 85/2、47/40 只描述已提交 87 ABI。接入受控文件接口前，桌面需先建立专用 owner 和任务 fd 暂存，保证网络/队列等待不占主线程，再逐项迁移取消、进度、错误与最终发布。不得把新接口混入同一连接上仍运行旧 job 的流程。完成条件与优先级见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+§9.57 已补齐发布接口及两端绑定，验证范围见 [实施记录](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)；此前未绑定草稿的对拍失败只属于历史复核。接入受控文件接口前，桌面需先建立专用 owner 和任务 fd 暂存，保证网络/队列等待不占主线程，再逐项迁移取消、进度、错误与最终发布。不得把新接口混入同一连接上仍运行旧 job 的流程。完成条件与优先级见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 ## 当前功能与代码入口
 

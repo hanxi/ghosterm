@@ -861,6 +861,115 @@ finished:
   return status;
 }
 
+/* Only a decoded server status can establish absence or explicit rejection. */
+static uint32_t publish_remote_error(gt_sftp_t *sftp, int result) {
+  return result == LIBSSH2_ERROR_SFTP_PROTOCOL
+      ? (uint32_t)libssh2_sftp_last_error(sftp->sftp) : 0;
+}
+/* Only defined operation errors establish rejection. EOF, connection loss and
+ * unknown status values do not establish whether a mutating request ran. */
+static bool publish_rejected(uint32_t status) {
+  return (status >= LIBSSH2_FX_NO_SUCH_FILE && status <= LIBSSH2_FX_BAD_MESSAGE) ||
+      (status >= LIBSSH2_FX_OP_UNSUPPORTED && status <= LIBSSH2_FX_LINK_LOOP);
+}
+static int publish_lstat(gt_sftp_t *sftp, LIBSSH2_SESSION *session, int socket,
+    const char *path, LIBSSH2_SFTP_ATTRIBUTES *attributes, int64_t deadline,
+    bool (*cancelled)(void *), void *context, bool *io, int *result) {
+  for (;;) {
+    int status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) return status;
+    *io = true;
+    *result = libssh2_sftp_lstat(sftp->sftp, path, attributes);
+    if (*result != LIBSSH2_ERROR_EAGAIN) return GT_OK;
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) return status;
+  }
+}
+static int publish_source(const LIBSSH2_SFTP_ATTRIBUTES *attributes,
+    bool directory, uint64_t size, const LIBSSH2_SFTP_ATTRIBUTES *before) {
+  unsigned long kind = directory ? LIBSSH2_SFTP_S_IFDIR : LIBSSH2_SFTP_S_IFREG;
+  if (!(attributes->flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) ||
+      (attributes->permissions & LIBSSH2_SFTP_S_IFMT) != kind) return GT_ERR_UNSUPPORTED;
+  if (!directory && (!(attributes->flags & LIBSSH2_SFTP_ATTR_SIZE) || attributes->filesize != size))
+    return GT_ERR_IO;
+  if (before && (before->flags & LIBSSH2_SFTP_ATTR_ACMODTIME) &&
+      (!(attributes->flags & LIBSSH2_SFTP_ATTR_ACMODTIME) || before->mtime != attributes->mtime))
+    return GT_ERR_IO;
+  return GT_OK;
+}
+int gt_sftp_publish_controlled(gt_sftp_t *sftp, const char *source, const char *destination,
+    bool directory, uint64_t expected_size, gt_sftp_publish_result_t *out,
+    uint32_t timeout_ms, bool (*cancelled)(void *), void *context) {
+  if (out) *out = (gt_sftp_publish_result_t){GT_SFTP_PUBLISH_NOT_ATTEMPTED, 0};
+  if (!sftp || !source || !*source || strlen(source) >= 65536 ||
+      !destination || !*destination || strlen(destination) >= 65536 || !strcmp(source, destination) ||
+      !out || !timeout_ms || expected_size > INT64_MAX || (directory && expected_size != 0)) {
+    gt__set_error("sftp publish: invalid source, destination, size or budget");
+    return GT_ERR_INVALID_ARG;
+  }
+  int64_t deadline = mono_ms() + timeout_ms;
+  int status = open_status(deadline, cancelled, context);
+  if (status != GT_OK) return status;
+  pthread_mutex_lock(&sftp->qlock);
+  bool has_jobs = sftp->all_head != NULL;
+  pthread_mutex_unlock(&sftp->qlock);
+  if (has_jobs) return GT_ERR_INVALID_ARG;
+  void *raw = NULL; int socket = -1;
+  status = gt__ssh_borrow(sftp->ssh, &raw, &socket);
+  if (status != GT_OK) return status;
+  LIBSSH2_SESSION *session = raw;
+  LIBSSH2_SFTP_ATTRIBUTES initial = {0}, target = {0}, final = {0};
+  SFTP_LOCK(sftp);
+  int blocking = libssh2_session_get_blocking(session);
+  long timeout = libssh2_session_get_timeout(session);
+  libssh2_session_set_blocking(session, 0);
+  bool io = false; int result = 0;
+  status = publish_lstat(sftp, session, socket, source, &initial, deadline, cancelled, context, &io, &result);
+  if (status != GT_OK) goto finished;
+  if (result != 0) { out->remote_status = publish_remote_error(sftp, result); status = GT_ERR_IO; goto finished; }
+  status = publish_source(&initial, directory, expected_size, NULL);
+  if (status != GT_OK) goto finished;
+  status = publish_lstat(sftp, session, socket, destination, &target, deadline, cancelled, context, &io, &result);
+  if (status != GT_OK) goto finished;
+  if (result == 0) { out->state = GT_SFTP_PUBLISH_CONFLICT; status = GT_ERR_IO; goto finished; }
+  out->remote_status = publish_remote_error(sftp, result);
+  if (out->remote_status != LIBSSH2_FX_NO_SUCH_FILE) { status = GT_ERR_IO; goto finished; }
+  out->remote_status = 0;
+  status = publish_lstat(sftp, session, socket, source, &final, deadline, cancelled, context, &io, &result);
+  if (status != GT_OK) goto finished;
+  if (result != 0) { out->remote_status = publish_remote_error(sftp, result); status = GT_ERR_IO; goto finished; }
+  status = publish_source(&final, directory, expected_size, &initial);
+  if (status != GT_OK) goto finished;
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    out->state = GT_SFTP_PUBLISH_UNKNOWN;
+    result = libssh2_sftp_rename_ex(sftp->sftp, source, (unsigned)strlen(source),
+        destination, (unsigned)strlen(destination), 0);
+    if (result == 0) { out->state = GT_SFTP_PUBLISH_PUBLISHED; status = GT_OK; break; }
+    if (result != LIBSSH2_ERROR_EAGAIN) {
+      out->remote_status = publish_remote_error(sftp, result);
+      if (publish_rejected(out->remote_status)) out->state = GT_SFTP_PUBLISH_REJECTED;
+      status = out->remote_status == LIBSSH2_FX_OP_UNSUPPORTED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;
+      break;
+    }
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+finished:
+  if (status != GT_OK && io) {
+    gt__ssh_abort(sftp->ssh);
+    libssh2_session_set_blocking(session, 1);
+    libssh2_session_set_timeout(session, 50);
+    gt__set_error("sftp publish: failed; inspect outcome, do not blindly retry or remove paths");
+  } else {
+    libssh2_session_set_blocking(session, blocking);
+    libssh2_session_set_timeout(session, timeout);
+  }
+  SFTP_UNLOCK(sftp);
+  return status;
+}
+
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out) {
   return stat_common(sftp, path, out, true);
 }
@@ -1382,6 +1491,17 @@ int gt_sftp_pause(gt_sftp_t *sftp, uint64_t job_id, bool paused) {
 #else /* !GT_HAVE_LIBSSH2 —— 显式 UNSUPPORTED */
 
 struct gt_sftp { void *unused; };
+
+int gt_sftp_publish_controlled(gt_sftp_t *sftp, const char *source, const char *destination,
+    bool directory, uint64_t expected_size, gt_sftp_publish_result_t *out,
+    uint32_t timeout_ms, bool (*cancelled)(void *), void *context) {
+  (void)sftp; (void)source; (void)destination; (void)directory; (void)expected_size;
+  (void)timeout_ms; (void)cancelled; (void)context;
+  if (out) *out = (gt_sftp_publish_result_t){GT_SFTP_PUBLISH_NOT_ATTEMPTED, 0};
+  gt__set_error("sftp publish: libssh2 unavailable");
+  return GT_ERR_UNSUPPORTED;
+}
+
 
 int gt_sftp_receive_controlled(gt_sftp_t *sftp, const char *path, int destination_fd,
     uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,

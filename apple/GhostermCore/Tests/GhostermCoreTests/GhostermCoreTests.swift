@@ -232,6 +232,50 @@ final class GhostermCoreTests: XCTestCase {
         XCTAssertNoThrow(try session.abort())
     }
 
+    func testSFTPPublishEndToEnd() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],
+              let key = env["GHOSTERM_SSH_KEY"], let port = UInt16(env["GHOSTERM_SSH_PORT"] ?? "") else {
+            throw XCTSkip("SSH fixture required")
+        }
+        for mode in ["file", "empty", "directory", "conflict", "missing"] {
+            let session = try SSHSession(SSHOptions(host: host, port: port, username: user,
+                knownHostsPath: env["GHOSTERM_SSH_KNOWN_HOSTS"]))
+            session.setHostKeyDecider { _, _, _, _ in .accept }
+            try session.authenticate(privateKeyPEM: String(contentsOfFile: key, encoding: .utf8))
+            try session.connect(); defer { session.close() }
+            let files = try session.sftp(timeoutMilliseconds: 3000); defer { files.close() }
+            let source = (key as NSString).deletingLastPathComponent + "/publish-" + UUID().uuidString
+            let target = source + "-target", directory = mode == "directory"
+            let payload = Data((mode == "empty" ? "" : "data").utf8)
+            if directory { try FileManager.default.createDirectory(atPath: source, withIntermediateDirectories: false) }
+            else if mode != "missing" { try payload.write(to: URL(fileURLWithPath: source)) }
+            if mode == "conflict" { try Data("original".utf8).write(to: URL(fileURLWithPath: target)) }
+            defer { try? FileManager.default.removeItem(atPath: source); try? FileManager.default.removeItem(atPath: target) }
+            let size: UInt64 = directory ? 0 : UInt64(payload.count)
+            let invalid = try files.publish(source: source, destination: target, directory: directory,
+                expectedSize: size, timeoutMilliseconds: 0)
+            XCTAssertEqual(invalid.status, 1); XCTAssertEqual(invalid.state, .notAttempted)
+            let cancellation = SSHCancellation(); cancellation.cancel()
+            let cancelled = try files.publish(source: source, destination: target, directory: directory,
+                expectedSize: size, timeoutMilliseconds: 3000, cancellation: cancellation)
+            XCTAssertEqual(cancelled.status, 8); XCTAssertEqual(cancelled.state, .notAttempted)
+            let result = try files.publish(source: source, destination: target, directory: directory,
+                expectedSize: size, timeoutMilliseconds: 3000)
+            XCTAssertEqual(result.status, mode == "conflict" || mode == "missing" ? 3 : 0)
+            XCTAssertEqual(result.state, mode == "conflict" ? .conflict : mode == "missing" ? .notAttempted : .published)
+            XCTAssertEqual(result.remoteStatus, mode == "missing" ? 2 : 0)
+            if mode == "conflict" {
+                XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: target)), Data("original".utf8))
+                XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: source)), payload)
+            } else if mode != "missing" {
+                XCTAssertFalse(FileManager.default.fileExists(atPath: source))
+                if directory { XCTAssertEqual(try files.list(path: target).count, 0) }
+                else { XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: target)), payload) }
+            }
+        }
+    }
+
     func testSFTPReceiveEndToEnd() throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],

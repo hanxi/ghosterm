@@ -25,6 +25,9 @@ data class RemoteFileState(val phase: Int, val error: Int) {
 enum class RemoteCreationState { NOT_ATTEMPTED, UNKNOWN, REJECTED, CREATED, COMPLETE }
 data class RemoteCreationResult(val status: Int, val state: RemoteCreationState, val bytesAcknowledged: ULong)
 
+enum class RemotePublicationState { NOT_ATTEMPTED, CONFLICT, UNKNOWN, REJECTED, PUBLISHED }
+data class RemotePublicationResult(val status: Int, val state: RemotePublicationState, val remoteStatus: UInt)
+
 class RemoteFileException(val status: Int) : IllegalStateException(when(status) {
     7 -> "此文件类型或 SFTP 操作暂不支持"
     8 -> "文件请求已取消"
@@ -58,7 +61,7 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
     @Synchronized override fun close() {
         NativeFiles.dispose(handle); handle = 0L
     }
-    private suspend fun operation(kind: Int, path: String, timeoutMillis: Int, sourceFd: Int = -1, expectedSize: Long = 0): ByteArray = withContext(Dispatchers.IO) {
+    private suspend fun operation(kind: Int, path: String, timeoutMillis: Int, sourceFd: Int = -1, expectedSize: Long = 0, destination: String? = null, directory: Boolean = false): ByteArray = withContext(Dispatchers.IO) {
         require(path.isNotEmpty() && '\u0000' !in path && timeoutMillis in 1..60_000) { "文件路径或超时无效" }
         requests.withLock {
             // Native duplicates the write end and closes it only AFTER its data
@@ -72,6 +75,7 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
                 val bytes = ByteArray(encoded.remaining()); encoded.get(bytes)
                 handle to if(kind==3) NativeFiles.beginCreate(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd)
                     else if(kind==4) NativeFiles.beginReceive(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd)
+                    else if(kind==5) NativeFiles.beginPublish(handle,bytes,encodePath(checkNotNull(destination)),directory,expectedSize,timeoutMillis)
                     else NativeFiles.begin(handle, kind, bytes, timeoutMillis)
             }
             var completed = false
@@ -94,9 +98,9 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
                     check(handle == owner) { "文件连接已关闭" }
                     NativeFiles.finish(owner, request)
                 }
-                if(status != 0 && kind!=3) throw RemoteFileException(status)
+                if(status != 0 && kind!=3 && kind!=5) throw RemoteFileException(status)
                 completed = true
-                if(kind==3) {
+                if(kind==3 || kind==5) {
                     if(status!=0) close()
                     bytes
                 } else bytes.copyOfRange(8, bytes.size)
@@ -163,6 +167,27 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
         check((status==0)==(state==4) && count<=expectedSize.toULong()) { "创建结果不一致" }
         return RemoteCreationResult(status,RemoteCreationState.entries[state],count)
     }
+    /** Publish a completed task-owned path without overwrite. Cancellation or an
+     * exception without a result is UNKNOWN: retain both paths for inspection,
+     * never blindly retry or delete. A conflict/IO failure closes this owner. */
+    suspend fun publish(source: String, destination: String, directory: Boolean = false,
+                        expectedSize: Long, timeoutMillis: Int = 5000): RemotePublicationResult {
+        require(expectedSize>=0 && (!directory || expectedSize==0L)) { "发布源尺寸无效" }
+        val data=ByteBuffer.wrap(operation(5,source,timeoutMillis,expectedSize=expectedSize,
+            destination=destination,directory=directory)).order(ByteOrder.BIG_ENDIAN)
+        check(data.remaining()==16) { "发布结果无法确认，请保留源和目标路径" }
+        val status=data.int
+        check(data.int==5) { "发布结果归属无效" }
+        val state=data.int; val remote=data.int.toUInt()
+        check(state in 0..4 && (status==0)==(state==4)) { "发布结果不一致" }
+        return RemotePublicationResult(status,RemotePublicationState.entries[state],remote)
+    }
+    private fun encodePath(path: String): ByteArray {
+        require(path.isNotEmpty() && '\u0000' !in path) { "文件路径无效" }
+        val encoded=Charsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(path))
+        return ByteArray(encoded.remaining()).also { encoded.get(it) }
+    }
     /** Receive into an empty task-owned regular fd, never a final destination.
      * On error discard partial bytes. Return/cancellation waits for native fd
      * release, so a surrounding staging lease remains valid throughout IO. */
@@ -198,6 +223,7 @@ internal object NativeFiles {
     external fun begin(handle: Long, kind: Int, path: ByteArray, budget: Int): Long
     external fun beginCreate(handle: Long, path: ByteArray, sourceFd: Int, expectedSize: Long, budget: Int, releaseFd: Int): Long
     external fun beginReceive(handle: Long, path: ByteArray, destinationFd: Int, maxBytes: Long, budget: Int, releaseFd: Int): Long
+    external fun beginPublish(handle: Long, source: ByteArray, destination: ByteArray, directory: Boolean, expectedSize: Long, budget: Int): Long
     external fun result(handle: Long, request: Long): ByteArray?
     external fun finish(handle: Long, request: Long)
     external fun ownerCount(): Int

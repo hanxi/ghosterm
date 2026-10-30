@@ -6,7 +6,7 @@
 
 ## 当前实现与后续替代（2026-10-31）
 
-当前完成范围按已提交 `588fd4c` 记账。受控打开/浏览/预览/创建/读取虽已提供 Swift 绑定，macOS 文件产品仍待迁移；[两端接线表](../../apple/README.md#共享文件接口与产品接线)列出实际调用方。工作区非覆盖发布入口仅为未绑定、未验收的 C 草稿，不改变本计划的最终提交待办。
+当前完成范围按实际调用方记账。受控打开/浏览/预览/创建/读取和 §9.57 非覆盖发布均已提供 Swift 绑定，macOS 文件产品仍待迁移；[两端接线表](../../apple/README.md#共享文件接口与产品接线)列出实际消费者。新发布接口保留未尝试、冲突、未知、拒绝与成功；不等于旧队列已获得非覆盖提交，也不承诺所有服务器上的原子性。
 
 M4.6 的 macOS S1–S7 已交付，iOS S6 未开始。后续[统一工作区](workspace-handoff.md)已将固定内嵌面板和 `DualPaneFilesView` / `DualPaneSession` 替换为 `WorkspaceLayout` / `WorkspaceHostView`；终端、本地文件、远端文件都是同一布局中的窗格。`FilesPanelView`、后端接缝与全局 `TransferManager` 继续使用。
 

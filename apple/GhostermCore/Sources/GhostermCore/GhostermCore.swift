@@ -625,6 +625,13 @@ public struct SFTPDirectory {
 }
 
 /// Creation acknowledgement is independent of the operation error.
+public struct SFTPPublishResult: Equatable {
+    public enum State: UInt32 { case notAttempted = 0, conflict, unknown, rejected, published }
+    public let status: Int32
+    public let state: State
+    public let remoteStatus: UInt32
+}
+
 public struct SFTPCreateResult {
     public enum State: UInt32 { case notAttempted = 0, unknown, rejected, created, complete }
     public let status: Int32
@@ -680,6 +687,33 @@ public final class SFTPSession {
         }
         out.sort { $0.name < $1.name }
         return out
+    }
+
+    /// Publish a complete task-owned remote path without overwrite. Preserve the
+    /// outcome on failure; UNKNOWN must not trigger automatic retry or deletion.
+    public func publish(source: String, destination: String, directory: Bool = false,
+                        expectedSize: UInt64, timeoutMilliseconds: UInt32,
+                        cancellation: SSHCancellation? = nil) throws -> SFTPPublishResult {
+        guard !source.isEmpty, !destination.isEmpty, !source.utf8.contains(0),
+              !destination.utf8.contains(0) else {
+            throw GhostermError.status(Int32(GT_ERR_INVALID_ARG.rawValue), "Invalid publish path")
+        }
+        var outcome = gt_sftp_publish_result_t()
+        let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let status = withExtendedLifetime(cancellation) {
+            source.withCString { from in destination.withCString { to in
+                gt_sftp_publish_controlled(handle, from, to, directory, expectedSize, &outcome,
+                    timeoutMilliseconds, { pointer in
+                        guard let pointer else { return false }
+                        return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+                    }, context)
+            } }
+        }
+        guard let state = SFTPPublishResult.State(rawValue: outcome.state.rawValue),
+              (status == 0) == (state == .published) else {
+            throw GhostermError.status(Int32(GT_ERR_PROTOCOL.rawValue), "Uncertain publication outcome")
+        }
+        return SFTPPublishResult(status: status, state: state, remoteStatus: outcome.remote_status)
     }
 
     /// Receive into an exclusively owned empty regular fd. The offset is preserved.

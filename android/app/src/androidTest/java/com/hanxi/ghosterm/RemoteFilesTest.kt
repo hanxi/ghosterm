@@ -83,6 +83,120 @@ class RemoteFilesTest {
     }
     @Before fun priorOwnersReleased() { await { owners()==0 } }
 
+    private suspend fun publishFile(files: RemoteFileSession, source: String, target: String,
+                                    size: Long=4, directory: Boolean=false, budget: Int=5000): RemotePublicationResult =
+        try { files.publish(source,target,directory,size,budget) }
+        catch(cancelled: CancellationException) { throw cancelled }
+        catch(failure: Exception) { throw AssertionError("publication outcome must reach caller",failure) }
+
+    @Test fun publishFilesAndConflictsPreserveOriginalBytes() = directory { root ->
+        for(size in listOf(0,70001)) {
+            val path=fixture.getString("remoteRoot")+"-publish-"+UUID.randomUUID()
+            val content=ByteArray(size) { (it*31+7).toByte() }
+            val source=File(root,"publish-source").apply { writeBytes(content) }
+            android.os.ParcelFileDescriptor.open(source,android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                RemoteFileSession(connection(known(root))).use { files ->
+                    supply(files)
+                    runBlocking {
+                        assertEquals(RemoteCreationState.COMPLETE,createFile(files,path,fd.fd,size.toLong()).state)
+                        val result=publishFile(files,path,path+"-final",size.toLong())
+                        assertEquals(0,result.status);assertEquals(RemotePublicationState.PUBLISHED,result.state);assertEquals(0u,result.remoteStatus)
+                        assertArrayEquals(content,files.preview(path+"-final"))
+                        assertFalse(files.browse(path.substringBeforeLast('/')).entries.any { it.path==path })
+                        assertEquals(RemoteCreationState.COMPLETE,createFile(files,path,fd.fd,size.toLong()).state)
+                        val conflict=publishFile(files,path,path+"-final",size.toLong())
+                        assertEquals(3,conflict.status);assertEquals(RemotePublicationState.CONFLICT,conflict.state);assertEquals(0u,conflict.remoteStatus)
+                        assertTrue(files.state().finished)
+                    }
+                }
+                RemoteFileSession(connection(known(root))).use { files ->
+                    supply(files);runBlocking { assertArrayEquals(content,files.preview(path));assertArrayEquals(content,files.preview(path+"-final")) }
+                }
+            }
+        }
+    }
+    @Test fun publishDirectoryPreservesEmptyDirectory() = directory { root ->
+        val source=fixture.getString("remoteRoot")+"/folder";val target=fixture.getString("remoteRoot")+"-directory-"+UUID.randomUUID()
+        RemoteFileSession(connection(known(root))).use { files ->
+            supply(files)
+            runBlocking {
+                val result=publishFile(files,source,target,0,true)
+                assertEquals(RemotePublicationState.PUBLISHED,result.state);assertEquals(0,result.status)
+                try { assertTrue(files.browse(target).entries.isEmpty()) }
+                finally { assertEquals(RemotePublicationState.PUBLISHED,publishFile(files,target,source,0,true).state) }
+            }
+        }
+    }
+    @Test fun publishProtocolPreservesRejectedUnknownAndQueryFailure() = directory { root ->
+        for(stage in listOf("publish-target","publish-rename")) for(action in listOf("deny","publish-unknown","publish-connection-lost","publish-unsupported","publish-race","publish-malformed","publish-conflict")) {
+            if(action=="publish-conflict" && stage!="publish-target") continue
+            val user=control("new",stage=stage,action=action).getString("user")
+            try { RemoteFileSession(connection(known(root,true),true,user)).use { files ->
+                supply(files,true)
+                val result=runBlocking { publishFile(files,"/item-source","/item-target") }
+                val state=if(action=="publish-conflict") RemotePublicationState.CONFLICT
+                    else if(stage!="publish-rename") RemotePublicationState.NOT_ATTEMPTED
+                    else if(action in listOf("deny","publish-unsupported","publish-race")) RemotePublicationState.REJECTED
+                    else RemotePublicationState.UNKNOWN
+                val remote=when(action) { "deny"->3u;"publish-unknown"->0xdeadbeefu;"publish-connection-lost"->7u;"publish-unsupported"->8u;"publish-race"->4u;else->0u }
+                assertEquals(state,result.state);assertEquals(remote,result.remoteStatus)
+                assertEquals(if(stage=="publish-rename" && action=="publish-unsupported") 7 else 3,result.status)
+                assertTrue(files.state().finished);assertTrue(reached(user,stage))
+                if(stage!="publish-rename") assertFalse(reached(user,"publish-rename"))
+            } } finally { control("release",user) }
+        }
+    }
+    @Test fun publishTimeoutAndCancellationReleaseOwner() = directory { root ->
+        val bound=limit()
+        for(stage in listOf("publish-source","publish-target","publish-recheck","publish-rename")) {
+            for(cancel in listOf(false,true)) {
+                val user=control("new",stage=stage,action="hold").getString("user")
+                try { RemoteFileSession(connection(known(root,true),true,user)).use { files ->
+                    supply(files,true)
+                    runBlocking {
+                        val began=SystemClock.uptimeMillis()
+                        if(cancel) {
+                            val job=launch(Dispatchers.IO) { publishFile(files,"/item-source","/item-target",budget=10000) }
+                            await { reached(user,stage) };job.cancelAndJoin()
+                            assertTrue(job.isCancelled)
+                        } else {
+                            val result=publishFile(files,"/item-source","/item-target",budget=500)
+                            assertEquals(3,result.status);assertEquals(if(stage=="publish-rename") RemotePublicationState.UNKNOWN else RemotePublicationState.NOT_ATTEMPTED,result.state)
+                            assertTrue(SystemClock.uptimeMillis()-began>=498)
+                        }
+                        assertTrue(SystemClock.uptimeMillis()-began<bound)
+                        assertTrue(files.state().finished)
+                    }
+                } } finally { control("release",user) }
+                await { owners()==0 }
+            }
+        }
+    }
+    @Test fun publishInvalidArgumentsDoNotStartRemoteRequests() = directory { root ->
+        RemoteFileSession(connection(known(root))).use { files ->
+            supply(files)
+            runBlocking {
+                for(target in listOf("", "bad\u0000name", "bad\uD800name")) {
+                    val failure=runCatching { files.publish("/source",target,expectedSize=4) }.exceptionOrNull()
+                    assertTrue(failure is IllegalArgumentException || failure is CharacterCodingException)
+                    assertTrue(files.state().ready)
+                }
+                assertTrue(runCatching { files.publish("/source","/target",expectedSize=4,timeoutMillis=0) }.exceptionOrNull() is IllegalArgumentException)
+                assertTrue(runCatching { files.publish("/source","/target",true,4) }.exceptionOrNull() is IllegalArgumentException)
+                assertTrue(files.state().ready)
+            }
+        }
+    }
+    @Test fun publishMissingSourcePreservesServerStatus() = directory { root ->
+        RemoteFileSession(connection(known(root))).use { files ->
+            supply(files)
+            val path=fixture.getString("remoteRoot")+"-missing-"+UUID.randomUUID()
+            val result=runBlocking { publishFile(files,path,path+"-final") }
+            assertEquals(3,result.status);assertEquals(RemotePublicationState.NOT_ATTEMPTED,result.state);assertEquals(2u,result.remoteStatus)
+            assertTrue(files.state().finished)
+        }
+    }
+
     @Test fun realDirectoryAndPreviewPreserveMetadataAndBytes() = directory { root ->
         RemoteFileSession(connection(known(root))).use { files ->
             supply(files)

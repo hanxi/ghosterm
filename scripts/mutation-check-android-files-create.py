@@ -9,12 +9,12 @@ def execute(root,build,test):
     originals={p:p.read_bytes() for p in (native,kotlin)}
     if any(MARK.encode() in data for data in originals.values()):raise RuntimeError('Residual create mutation')
     cases=[
-        ('outcome',native,'if(status!=GT_OK && kind!=3)','if(status!=GT_OK)','exclusiveCreateProtocolOutcomesSurviveFailure'),
+        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5)','if(status!=GT_OK)','exclusiveCreateProtocolOutcomesSurviveFailure'),
         ('fd-offset',native,'int owned=fcntl(source_fd,F_DUPFD_CLOEXEC,0);','int owned=fcntl(source_fd,F_DUPFD_CLOEXEC,0);if(owned>=0)lseek(owned,0,SEEK_SET);','exclusiveCreatePreservesContentOffsetAndExistingTarget'),
         ('fd-close',native,'\n        free(path);if(source_fd>=0)close(source_fd);','\n        free(path);','exclusiveCreateCancellationReleasesSourceDuplicate'),
         ('cloexec',native,'int owned=fcntl(source_fd,F_DUPFD_CLOEXEC,0);','int owned=fcntl(source_fd,F_DUPFD,0);','exclusiveCreateCancellationReleasesSourceDuplicate'),
         ('size',native,'source_fd,expected_size,&outcome','source_fd,expected_size * 0,&outcome','exclusiveCreatePreservesContentOffsetAndExistingTarget'),
-        ('unknown',native,'u32(&p,(uint32_t)outcome.state);','u32(&p,(uint32_t)(outcome.state==GT_SFTP_CREATE_UNKNOWN?GT_SFTP_CREATE_REJECTED:outcome.state));','exclusiveCreateProtocolOutcomesSurviveFailure'),
+        ('unknown',native,'u32(&p,(uint32_t)outcome.state);u64(&p,outcome.bytes_acked);','u32(&p,(uint32_t)(outcome.state==GT_SFTP_CREATE_UNKNOWN?GT_SFTP_CREATE_REJECTED:outcome.state));u64(&p,outcome.bytes_acked);','exclusiveCreateProtocolOutcomesSurviveFailure'),
         ('status',kotlin,'return RemoteCreationResult(status,','return RemoteCreationResult(0,','exclusiveCreateProtocolOutcomesSurviveFailure'),
         ('bytes',kotlin,'RemoteCreationState.entries[state],count)','RemoteCreationState.entries[state],0uL)','exclusiveCreatePreservesContentOffsetAndExistingTarget'),
         ('cancel',kotlin,'if(!completed) close()','if(!completed) Unit','exclusiveCreateCancellationReleasesSourceDuplicate'),

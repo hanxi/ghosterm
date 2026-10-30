@@ -18,7 +18,7 @@ def execute(root,build,test):
         ('cloexec',native,'int owned=fcntl(destination_fd,F_DUPFD_CLOEXEC,0);','int owned=fcntl(destination_fd,F_DUPFD,0);',cancel),
         ('budget',native,'expected_size,&count,budget,stopped,s','expected_size,&count,50,stopped,s',failure),
         ('kotlin-count',kotlin,'return count\n    }\n    suspend fun preview','return 0\n    }\n    suspend fun preview',good),
-        ('status',kotlin,'if(status != 0 && kind!=3)','if(status != 0 && kind!=3 && kind!=4)',failure),
+        ('status',kotlin,'if(status != 0 && kind!=3 && kind!=5)','if(status != 0 && kind!=3 && kind!=5 && kind!=4)',failure),
         ('frozen-size',store,'check(expected == null || size == expected)','check(true)','receiveFrozenSizeMismatchDoesNotPublishSnapshot'),
         ('release-budget',store,'if(!transferred) release(reservation)','if(!transferred) Unit',failure),
         ('cancel-store',store,'pending.forEach { it.cancel() }','pending.forEach { }','storeCloseCancelsPendingReceiveAndReleasesReservation'),
