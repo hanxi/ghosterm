@@ -27,7 +27,9 @@ apple/
 
 共享 `gt_config_edit` 已修复非连续重复指令误删中间行的问题，Apple 与 JNI 使用同一实现。`ConfigStore` 的强制备份/原子替换、私钥材料安全存储接线仍有缺口；Android 写盘事务不等于 macOS 写盘事务已修复。
 `HostListModel.directives` 目前仍以 Swift 简化行扫描提供表单初值，`HostEditorSheet.save` 提交全部显示字段；不能把 Core 的稀疏编辑保证扩大为整个表单的“只改脏字段”。tab、`=`、引号、重复指令与未改保存的保真须独立补齐，见路线图 P0。
+多条身份路径有具体的表单缺口：`loadInitial` 对每条 `IdentityFile` 都重新赋值给同一个输入框，最后只显示最后一条；保存再提交这一列表。因此原有两行身份路径不能因输入框标着“逗号分隔多条”就视为会无损保留。新增的共享来源查询尚未替换此读取路径；修复需覆盖未改保存、多条身份顺序、继承/Include 和路径引用，不能只增加控件。
 `AppModel.applyEdits/addHost` 先修改内存配置，再调用存储；写盘抛错时只向页面报错，尚未恢复内存模型。`HostListModel.reload` 也未过滤不含通配符的否定模式（如 `!secret`），不能把所有派生条目都视为可连接主机。
+主机列表还没有去重：Core 的 `gt_config_host_pattern` 按块枚举每个模式，`HostListModel.reload` 逐项追加，`HostEntry.id` 又直接使用 pattern；两个同名 Host 块会生成相同 ID 的列表项，连接选择器和管理器均用这些 ID。应把连接目标列表与配置块列表分开：连接目标去重，配置块仍保留独立来源和歧义编辑保护。此处为源码核对，未新增重复行的原生 UI 实测。
 `SSHConfig.inspect(alias:)` 已接入并有值复制/来源转换的定向测试与变异，尚未接入 `HostEditorSheet`；存在 Swift 绑定不表示 macOS 表单已提供继承值展示、别名重命名或完整包含文件编辑。新增接口状态见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。
 已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查切片为 74 / 72+2；IdentityFile 来源查询加入后当前为 75 / 73+2。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
 
@@ -146,6 +148,8 @@ bash scripts/apple-app-gate.sh
 ```
 
 原生编译、完整宿主测试、像素/系统交互、变异验证分别记账。`apple-app-gate.sh` 的 SSH 部分需隔离 sshd 成功启动；看到 SKIP 要保留原因。已接入 CI 不等于对应提交已在 macOS 15 运行通过；当前已知本机与历史结果见[路线图验收记录](../docs/reference/roadmap.md#验收记账与历史记录)。
+
+dev 的 main push 和 release 的 PR 都有路径过滤，连续 dev 运行还可能被取消；本次纯文档提交不承诺自动生成新包。具体触发范围见 [CI 触发说明](../docs/how-to/dev-build.md#ci-是怎么串起来的)，验收规则仍以 AGENTS 为准。
 
 当前 full workflow 尚未对 `apple-app-gate.sh` 的全部跳过输出统一判失败；sshd 启动失败时，该脚本可以只跑其余用例后返回成功。图标缺依赖失败及打包/认证变异的 SKIP 守卫不能替代这项检查，后续需按必跑项目收口。
 

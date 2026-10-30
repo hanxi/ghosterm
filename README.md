@@ -104,6 +104,8 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
 
+最新代码基线 `854e473` 另增加只读 IdentityFile 来源查询及 Swift/JNI 绑定：Core 36 项 CTest / 75 ABI，Android 46 项配置范围回归、Swift 7 项配置定向通过，详见[§9.34](docs/reference/android-implementation.md#934-identityfile-来源查询与平台绑定2026-10-30)。主机身份选择、配置引用映射和引用主机详情仍待接入；完整 147 项仍对应此前身份设置切片，不能与这 46 项相加。
+
 Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付真实本地终端、文本选择/复制粘贴、键盘协议与闪烁文本绘制。最新完整设备结果为 **147 项通过**（含真实 SSH、SAF 导入与凭据流程，见实现计划 §9.33）；输入后短时取帧与模拟器 debug 性能基线见[实现计划 §9.21](docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)。真机/release、长时间负载及物理键盘/布局矩阵仍未完成。SSH native 认证/远端终端后端已接；产品页面、Keystore 容器和多会话已有 27 项定向测试及 15 组产品变异证据，默认工厂已修复；SAF 私钥导入的旋转、取消与旧请求隔离已验，加密 OpenSSH ed25519 口令重试与成功密码流程已验；身份设置首片已验，A3 的主机引用/主机验证管理和网络矩阵仍待收尾；文件四方向复制和完整设置仍待实施。macOS 配置事务、认证安全、剪贴板确认/引擎回调、设置读写、文件异常/递归权限/预览生命周期及宿主闸门失败传播独立列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)；Android 的验收不改变其状态。
 
 | 能力 | 状态 |
@@ -127,7 +129,7 @@ Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付
 | ├ 文件工作区与传输 | 🟡 本地/SFTP 统一窗格、队列、拖放与 Quick Look；独立文件连接。控制异常/未知结果、目录内链接跳过明细尚待修复；目录冲突 UI 等验收缺口见交接文档 |
 | ├ 文件查询与搜索 | 🟡 正常浏览/搜索已有接线；存在性查询折叠错误，树加载失败被缓存为空；搜索及递归权限遗漏部分遍历错误，远端搜索未检查退出状态且取消未传入后端；传输入队/控制仍可能同步阻塞主线程，见 [Apple 说明](apple/README.md#文件查询与线程边界) |
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
-| 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |
+| 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留）。工作流有路径过滤/取消，不保证每个提交出包，见 [CI 触发范围](docs/how-to/dev-build.md#ci-是怎么串起来的) |
 | 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
 | Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；已有模拟器 debug 性能基线；真机/长负载性能和完整键盘矩阵待补；SSH 后端已验，产品、SAF 导入、凭据与身份设置已通过完整 147 项设备回归，文件未接 |
 | iOS / 其余端 | ❌ 原生宿主未交付 |

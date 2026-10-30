@@ -1,6 +1,6 @@
 # 拿一份 dev 版 macOS 包
 
-每次 push 到 `main` 都会自动出一个 macOS 包，放在滚动 tag `dev` 的 prerelease 里。
+`main` 上命中 dev 工作流触发条件、且构建发布成功的提交会生成 macOS 包，放在滚动 tag `dev` 的 prerelease 里。纯文档或仅 `android/` 等被过滤路径的提交不会触发；连续 push 还可能取消上一轮构建，因此 `dev` 不保证与 `main` 最新提交一致。
 本页说明**怎么装、装了之后怎么确认它到底是怎么造出来的**，以及**怎么在本地自己出一份**。
 
 ## 怎么装：一键脚本、手工解包、Homebrew 或浏览器
@@ -245,12 +245,18 @@ bash scripts/package-mac.sh --adhoc --out dist
 ## CI 是怎么串起来的
 
 ```text
-push main → dev-build.yml
+push main（通过路径过滤）或手动 → dev-build.yml
               ├─ macos-package.yml → package-mac.sh → macOS artifact
               └─ release-dev → 复验字节与版本清单 → 滚动 dev prerelease
 ```
 
-tag `v*` / PR / 手动走 `macos-release.yml`，共用 `macos-package.yml` 与同一份打包脚本。
+触发条件以仓库的 [dev 工作流](../../.github/workflows/dev-build.yml)和 [release 工作流](../../.github/workflows/macos-release.yml)为准：
+
+- dev 的 push 忽略 `docs/**`、`**.md`、`android/**`、`LICENSE`、`.gitignore`；只有全部改动都在忽略范围内时不触发。`terminal/android/**` 不在这个忽略范围内，不能笼统称“Android 改动都不触发”。fork 的 dev 出包/发布 job 被显式禁用。
+- release 接收 `v*` tag、手动触发和命中路径白名单的 PR。PR 白名单为 `apple/**`、`terminal/**`、`core/**`、`assets/icons/**`、`scripts/**`、`patches/**` 及 release/package 两份 workflow；仅 `docs/**`、根 README 或 `android/**` 的 PR 不触发。它没有全局 Markdown 排除规则，例如仅改 `apple/README.md` 的 PR 仍会触发 full 档，不能笼统说“文档 PR 都不构建”。
+- dev 按分支取消尚未完成的旧运行；发布 job 另行串行化。发布失败或运行取消不能记为该提交已出包。安装后用随包 `BUILD-INFO.txt`，检测时用 `version.json` 的 commit 确认实际版本。
+
+两条轨共用 `macos-package.yml` 与同一份打包脚本；这些触发过滤不改变 [AGENTS.md](../../AGENTS.md) 的合并验收要求，也不提供 Android APK 的 CI 验收。
 release 的 full 档运行 Apple 原生与变异闸门；有证书时才走签名/公证。
 macOS 包只依赖普通引擎 SDK、共享 C 核心、原生 UI、图标和主题，不再依赖 Linux bundle job。
 
