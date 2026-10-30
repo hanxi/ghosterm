@@ -96,7 +96,7 @@ macOS 已由 `TabWindowController` 单窗口管理顶部/侧边标签；`Workspa
 
 平台接线须独立记账：macOS `TerminalHostView` 的标准 `copy:` / `paste:` 已经连接真实选区、系统剪贴板和模式感知粘贴；full 引擎剪贴板回调仍占位，标准菜单路径也未提供粘贴确认。配置事务、主机表单、私钥存储和传输异常也仍有缺口，详见[macOS 当前实现与限制](../reference/capability-matrix.md#macos-当前实现与限制)。Android 的原生实现不能作为这些 Apple 路径已完成的证据。
 
-文件控制面应把网络工作和队列等待放在异步 owner，UI 只接收状态。macOS 当前 `SFTPFileBackend` 的 `queue.sync` 保证串行，却没有保证调用方不阻塞；`TransferManager` 在 MainActor 同步调用它，属于待修的响应性缺口。搜索 token 目前只防止旧结果覆盖页面，不等于后端任务取消；文件树把加载失败缓存为空、本地搜索和递归权限忽略遍历异常，也是控制面的待修缺口；详情与修复边界见 [Apple 文件查询与线程边界](../../apple/README.md#文件查询与线程边界)。
+文件控制面应把网络工作和队列等待放在异步 owner，UI 只接收状态。异步读取还须绑定请求身份：macOS 当前目录导航没有代次，串行执行仍会发布已经被新意图替代的中间结果；历史栈应随成功导航提交，目录树缓存须在刷新时失效。实际缺口见 [Apple 导航边界](../../apple/README.md#目录导航与缓存边界)。macOS 当前 `SFTPFileBackend` 的 `queue.sync` 保证串行，却没有保证调用方不阻塞；`TransferManager` 在 MainActor 同步调用它，属于待修的响应性缺口。搜索 token 目前只防止旧结果覆盖页面，不等于后端任务取消；文件树把加载失败缓存为空、本地搜索和递归权限忽略遍历异常，也是控制面的待修缺口；详情与修复边界见 [Apple 文件查询与线程边界](../../apple/README.md#文件查询与线程边界)。
 
 SFTP 的单 worker 保证的是每个 `gt_sftp_t` 内 job 的 FIFO，事件泵统一消费不等于全局限并发。当前共享下载提前打开目标、未检查关闭结果和负深度遍历无硬护栏仍须修复；不能把 job OK 或百分比作为原子提交与完整扫描的保证。macOS 与 Android 四方向复制共用这些前置，见 [Apple 传输边界](../../apple/README.md#传输提交调度与重试边界)。
 
