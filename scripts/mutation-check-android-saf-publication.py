@@ -73,7 +73,7 @@ def main():
         okay=result.returncode==0 and f'OK ({count} '+('test)' if count==1 else 'tests)') in output
         if okay!=green or (not green and ('FAILURES' not in output or not any(s in output for s in ('AssertionError','ComparisonFailure')))):
             print(output,flush=True);raise RuntimeError('Expected compiled assertion '+('green' if green else 'red'))
-    build('baseline');test('baseline','SafPublicationTest',True,16)
+    build('baseline');test('baseline','SafPublicationTest',True,18)
     control='ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig'
     test('baseline-control',control,True)
     try:

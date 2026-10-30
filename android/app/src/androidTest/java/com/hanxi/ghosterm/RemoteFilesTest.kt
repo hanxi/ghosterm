@@ -7,6 +7,8 @@ import com.hanxi.ghosterm.bridge.*
 import com.hanxi.ghosterm.data.LocalFileBrowser
 import com.hanxi.ghosterm.data.FileBrowserRepository
 import com.hanxi.ghosterm.data.FileTreeScanner
+import com.hanxi.ghosterm.data.FileDestinationAccess
+import com.hanxi.ghosterm.data.FilePastePreflight
 import com.hanxi.ghosterm.data.TransferStagingStore
 import com.hanxi.ghosterm.domain.*
 import kotlinx.coroutines.*
@@ -90,6 +92,41 @@ class RemoteFilesTest {
         try { files.publish(source,target,directory,size,budget) }
         catch(cancelled: CancellationException) { throw cancelled }
         catch(failure: Exception) { throw AssertionError("publication outcome must reach caller",failure) }
+
+    @Test fun remoteTargetPreflightRetainsUnknownWritePermissionAndCanonicalConflicts() = directory { root ->
+        val home=File(root,"home").apply { mkdir() };File(home,"文本.txt").writeText("local")
+        val local=LocalFileBrowser(home,instrumentation.targetContext.contentResolver)
+        RemoteFileSession(connection(known(root))).use { files ->
+            supply(files)
+            FileBrowserRepository(local).use { repository -> runBlocking {
+                val endpoint=repository.attach(RemoteFileIdentity("check",host,fixture.getString("user"),fixture.getInt("port")),files)
+                val remote=repository.browse(FileLocation(endpoint))
+                val access=FileDestinationAccess(home,instrumentation.targetContext.contentResolver,repository::browse)
+                val service=FilePastePreflight(access::inspect,access::relation)
+                suspend fun check(source:FileLocation,target:FileLocation,items:List<BrowserEntry>):FilePasteCheck {
+                    val request=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"Source",items),target,"Target")
+                    return service.check(FileTreeScanner(repository::browse).scan(request))
+                }
+                val app=FileLocation(FileEndpoint.APP)
+                val checked=check(app,remote.location,local.list(app))
+                assertTrue(checked.failure.toString(),checked.checked)
+                assertEquals(FileCreateCapability.UNKNOWN,checked.create)
+                assertEquals(remote.location.directoryId+"/文本.txt",checked.conflicts.single().destination.id)
+                val text=remote.entries.filter { it.name=="文本.txt" }
+                assertEquals(FileCreateCapability.ALLOWED,check(remote.location,app,text).create)
+                assertEquals(FilePasteCheckFailureKind.SAME_DIRECTORY,check(remote.location,remote.location,text).failure?.kind)
+                val nested=remote.location.copy(directoryId=remote.entries.single { it.name=="folder" }.id)
+                val within=check(remote.location,nested,remote.entries.filter { it.name=="folder" })
+                assertEquals(FilePasteCheckFailureKind.INSIDE_SOURCE,within.failure?.kind)
+                assertTrue(check(remote.location,nested,text).checked)
+                assertEquals("远端 UTF-8\nline two\n",files.previewText(remote.location.directoryId+"/文本.txt"))
+                assertEquals("local",File(home,"文本.txt").readText());assertTrue(files.state().ready)
+                repository.disconnect(endpoint)
+                val disconnected=service.check(checked.scan)
+                assertEquals(FilePasteCheckFailureKind.TARGET_READ,disconnected.failure?.kind)
+            } }
+        }
+    }
 
     @Test fun realRemoteTreeScanPreservesCanonicalOriginEmptyDirectoryAndLink() = directory { root ->
         val local=LocalFileBrowser(root,instrumentation.targetContext.contentResolver)

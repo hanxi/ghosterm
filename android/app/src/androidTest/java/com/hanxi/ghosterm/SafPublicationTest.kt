@@ -18,7 +18,11 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.data.SafFilePublisher
 import com.hanxi.ghosterm.data.SafFilePublisher.State
 import com.hanxi.ghosterm.data.TransferStagingStore
-import com.hanxi.ghosterm.domain.FileLocation
+import com.hanxi.ghosterm.data.LocalFileBrowser
+import com.hanxi.ghosterm.data.FileDestinationAccess
+import com.hanxi.ghosterm.data.FilePastePreflight
+import com.hanxi.ghosterm.data.FileTreeScanner
+import com.hanxi.ghosterm.domain.*
 import kotlinx.coroutines.*
 import org.junit.*
 import org.junit.Assert.*
@@ -98,6 +102,56 @@ class SafPublicationTest {
     private suspend fun snapshot(bytes:ByteArray):TransferStagingStore.Snapshot {
         val file=File(root,"source").apply { writeBytes(bytes) }
         return store.snapshot(bytes.size.toLong()) { AssetFileDescriptor(ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY),0,bytes.size.toLong()) }
+    }
+
+    @Test fun targetPreflightUsesRealGrantFlagsAndConflictMetadataWithoutCreating() = runBlocking {
+        File(root,"keep.txt").writeText("new")
+        val local=LocalFileBrowser(root,resolver)
+        val source=FileLocation(FileEndpoint.APP)
+        val request=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"App",local.list(source).filter { it.name=="keep.txt" }),location,"SAF")
+        val scanned=FileTreeScanner(local::browse).scan(request)
+        val access=FileDestinationAccess(root,resolver,local::browse)
+        val service=FilePastePreflight(access::inspect,access::relation)
+        val checked=service.check(scanned)
+        assertTrue(checked.failure.toString(),checked.checked)
+        assertEquals(FileCreateCapability.ALLOWED,checked.create)
+        assertEquals("opaque:keep",checked.conflicts.single().destination.id)
+        assertEquals("keep.txt",checked.conflicts.single().source.name)
+        val nestedRequest=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"App",request.items),location.copy(directoryId="pub:folder"),"Nested")
+        val nestedCheck=service.check(FileTreeScanner(local::browse).scan(nestedRequest))
+        assertTrue(nestedCheck.failure.toString(),nestedCheck.checked)
+        assertEquals(0,state().getInt("creates"));assertEquals(0,state().getInt("writes"));assertEquals(0,state().getInt("reads"));assertEquals(0,state().getInt("deletes"))
+        assertArrayEquals("original".toByteArray(),state().getByteArray("keep"))
+        reset("no-create")
+        assertEquals(FilePasteCheckFailureKind.READ_ONLY,service.check(scanned).failure?.kind)
+        reset("list-fail")
+        assertEquals(FilePasteCheckFailureKind.TARGET_READ,service.check(scanned).failure?.kind)
+        reset("normal")
+        resolver.releasePersistableUriPermission(Uri.parse(location.endpoint.treeUri),Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        assertEquals(FilePasteCheckFailureKind.READ_ONLY,service.check(scanned).failure?.kind)
+        revoke()
+        assertEquals(FilePasteCheckFailureKind.TARGET_READ,service.check(scanned).failure?.kind)
+        assertEquals(0,state().getInt("creates"))
+    }
+
+    @Test fun targetPreflightSafRelationshipsUseOpaqueIdsAndRejectForeignTrees() = runBlocking {
+        val local=LocalFileBrowser(root,resolver)
+        val access=FileDestinationAccess(root,resolver,local::browse)
+        val nested=location.copy(directoryId="pub:folder")
+        assertEquals(FileLocationRelation.SAME,access.relation(location,location))
+        assertEquals(FileLocationRelation.DESCENDANT,access.relation(location,nested))
+        assertEquals(FileLocationRelation.SEPARATE,access.relation(nested,location))
+        assertEquals(FileCreateCapability.ALLOWED,access.inspect(nested).create)
+        val selected=local.list(location).filter { it.id=="pub:folder" }
+        val request=FilePasteRequest.capture(FileClipboardSnapshot.capture(location,"SAF",selected),nested,"Nested")
+        val scanned=FileTreeScanner(local::browse).scan(request)
+        assertTrue(scanned.complete)
+        val check=FilePastePreflight(access::inspect,access::relation).check(scanned)
+        assertEquals(FilePasteCheckFailureKind.INSIDE_SOURCE,check.failure?.kind)
+        for(invalid in listOf(location.copy(directoryId="outside"),location.copy(endpoint=location.endpoint.copy(rootId="pub:folder"),directoryId="pub:folder"),location.copy(directoryId="opaque:keep"))) {
+            var failed=false;try { access.inspect(invalid) } catch(_:Exception) { failed=true };assertTrue(failed)
+        }
+        assertEquals(0,state().getInt("creates"));assertEquals(0,state().getInt("writes"))
     }
     private fun request(name:String="new.bin",destination:FileLocation=location)=publisher.prepare(destination,name).also { requests+=it }
     private fun fds()=File("/proc/self/fd").listFiles()!!.count { try { Os.readlink(it.path).contains("/${root.name}/") } catch(_:Exception) { false } }
