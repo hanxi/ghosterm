@@ -35,6 +35,17 @@ class HostScreenTest {
         ui.runOnIdle { model.reload() }
         ui.waitUntil(10_000) { !model.busy && model.snapshot?.text == text }
     }
+    @Test fun hostClickReportsUnsupportedConfigurationAndLeavesEditorAvailable() {
+        val text = "Host gateway-target\n HostName 127.0.0.1\n ProxyJump gateway\n"
+        load(text)
+        ui.onNodeWithText("gateway-target").performClick()
+        ui.waitUntil(10_000) { !model.busy }
+        assertEquals("不支持 SSH 配置：proxyjump（当前配置:3）", model.error)
+        ui.onNodeWithText("不支持 SSH 配置：proxyjump（当前配置:3）").assertIsDisplayed()
+        assertEquals(text, File(directory, "home/.ssh/config").readText())
+        ui.onNodeWithText("编辑").performClick()
+        ui.onNodeWithText("主机地址").assertTextContains("127.0.0.1")
+    }
     @Test fun invalidAliasAddressAndPortPreserveDraftAndOriginal() {
         val original = "Host original\n  HostName original.test\n  User owner\n  Port 22\n"
         load(original)

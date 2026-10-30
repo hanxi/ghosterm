@@ -167,6 +167,9 @@ class ConfigRepository(
         return save(previous, candidate)
     }
 
+    fun connectionIssues(snapshot: ConfigSnapshot, alias: String) =
+        ConfigBridge.connectionIssues(snapshot.bytes, alias)
+
     fun save(previous: ConfigSnapshot, candidate: ByteArray): ConfigSaved {
         val proposed = candidate.copyOf()
         validate(proposed)

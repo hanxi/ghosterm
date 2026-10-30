@@ -22,6 +22,64 @@ final class SSHAuthTests: XCTestCase {
         NSApplication.shared.setActivationPolicy(.accessory)
     }
 
+    func testUnsupportedConfigurationStopsBeforeResolverAndPrompts() throws {
+        let issues = try SSHConfig(contents: "Host gatehost\n ProxyJump gateway\n").connectionIssues(host: "gatehost")
+        let owner = DispatchQueue(label: "test.config-admission")
+        var lookupCount = 0, result: SSHAuthenticationFlow.Failure?
+        let prompts = SSHAuthenticationPrompts(credential: { _, _, _ in XCTFail("credentials before admission") },
+            hostkey: { _, _, _, _ in XCTFail("hostkey before admission") })
+        let flow = SSHAuthenticationFlow(owner: owner, options: .init(host: "unreachable.invalid", username: "owner"),
+            configurationIssues: issues, lookup: { _, _, _, _ in lookupCount += 1; return nil }, prompts: prompts,
+            nextID: { XCTFail("request before admission"); return 1 }, completion: {
+                if case .failure(let failure) = $0 { result = failure } else { XCTFail("unexpected connection") }
+            })
+        let rejected = expectation(description: "rejected before lookup")
+        owner.async {
+            flow.start()
+            XCTAssertEqual(lookupCount, 0)
+            XCTAssertEqual(result?.status, 7)
+            XCTAssertTrue(result?.message.contains("proxyjump（当前配置:2）") == true)
+            flow.cancel(); rejected.fulfill()
+        }
+        wait(for: [rejected], timeout: 3)
+        let ordinary = SSHAuthenticationFlow(owner: owner, options: .init(host: "ordinary", username: "owner"),
+            lookup: { _, _, _, _ in lookupCount += 1; return nil }, prompts: prompts, nextID: { 1 }, completion: { _ in })
+        let admitted = expectation(description: "ordinary lookup reached")
+        owner.async { ordinary.start(); XCTAssertEqual(lookupCount, 1); ordinary.cancel(); admitted.fulfill() }
+        wait(for: [admitted], timeout: 3)
+    }
+
+    @MainActor
+    func testSFTPConfigurationAdmissionUsesAliasAndShowsSource() throws {
+        let dir = (try isolatedKnownHosts() as NSString).deletingLastPathComponent
+        let config = dir + "/ssh-config"
+        let text = "Host gatehost\n HostName 127.0.0.1\n ProxyJump gateway\n"
+        try text.write(toFile: config, atomically: true, encoding: .utf8)
+        let model = isolatedAppModel(configPath: config, knownHostsPath: dir + "/known_hosts")
+        let interaction = RecordingInteraction(); model.interaction = interaction
+        model.openSFTP(for: "gatehost")
+        XCTAssertTrue(waitUntil(model, timeout: 3) { $0.status.contains("proxyjump") }, model.status)
+        XCTAssertTrue(model.status.contains(config + ":3"), model.status)
+        XCTAssertEqual(interaction.hostKeyPrompts, 0)
+        XCTAssertTrue(interaction.prompts.isEmpty)
+        XCTAssertNil(model.remoteFiles?.panel)
+        XCTAssertEqual(model.sshTarget(for: "gatehost").connectionIssues.map(\.keyword), ["proxyjump"])
+        XCTAssertEqual(model.remoteTarget(for: "gatehost").connectionIssues.map(\.keyword), ["proxyjump"])
+        XCTAssertEqual(try String(contentsOfFile: config, encoding: .utf8), text)
+        model.connect(to: .host("gatehost"))
+        XCTAssertTrue(waitUntil(model, timeout: 3) { $0.tabs.activeTab?.status.isFailed == true })
+        let terminal = try XCTUnwrap(model.tabs.activeTab)
+        if case .failed(let message) = terminal.status { XCTAssertTrue(message.contains("proxyjump"), message) }
+        model.openFilesPanel(for: terminal)
+        XCTAssertTrue(waitUntil(model, timeout: 3) { $0.tabs.activeTab?.filesPanelError?.contains("proxyjump") == true })
+        model.showTmux(for: .host("gatehost"))
+        XCTAssertTrue(waitUntil(model, timeout: 3) { $0.tmuxChooser?.message.contains("proxyjump") == true })
+        XCTAssertEqual(interaction.hostKeyPrompts, 0)
+        XCTAssertTrue(interaction.prompts.isEmpty)
+        model.dismissTmux()
+        model.disconnectForTesting()
+    }
+
     // MARK: - 1. `~` 展开（纯函数，离线）
 
     /// `~/.ssh/id_rsa` 必须展开成 `<home>/.ssh/id_rsa`。

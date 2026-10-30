@@ -86,6 +86,13 @@ public struct ConfigHostInfo: Equatable {
     public let port: ConfigFieldInfo
 }
 
+public struct SSHConnectionIssue: Hashable, Sendable {
+    public let keyword, sourcePath: String
+    public let sourceLine: Int
+    public let included: Bool
+    public var description: String { "\(keyword)（\(sourcePath.isEmpty ? "当前配置" : sourcePath):\(sourceLine)）" }
+}
+
 public struct ResolvedHost {
     public let user: String?
     public let hostname: String?
@@ -195,6 +202,19 @@ public final class SSHConfig {
             }
         }
         try check(rc)
+    }
+
+    public func connectionIssues(host: String) throws -> [SSHConnectionIssue] {
+        var issues: [SSHConnectionIssue] = []
+        while issues.count < 256 {
+            var info = gt_config_connection_issue_t()
+            let code = host.withCString { gt_config_check_connection(handle, $0, issues.count, &info) }
+            if code == 0 { return issues }
+            guard code == 7 else { try check(code); return issues }
+            issues.append(.init(keyword: String(cString: info.keyword), sourcePath: String(cString: info.source_path),
+                                sourceLine: Int(info.source_line), included: info.included))
+        }
+        throw GhostermError.failed("不支持的连接配置过多（超过 255 项），连接已停止")
     }
 
     /// 求值（typed 视图）：单值字段 first-wins，IdentityFile 按策略回落。

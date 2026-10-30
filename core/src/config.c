@@ -630,6 +630,59 @@ static int block_matches(const gt_block_t *b, const char *host) {
   return positive;
 }
 
+/* The profile describes what BOTH native connection consumers actually execute.
+ * Do not infer support from k_keys (which describes evaluation, not transport). */
+static bool connection_value_supported(const gt_node_t *n) {
+  const char *key=n->keyword;
+  if (n->nargs != 1 || !*n->args[0]) return false;
+  const char *value=n->args[0];
+  if (!strcmp(key,"hostname") || !strcmp(key,"user") || !strcmp(key,"identityfile"))
+    return strchr(value,'%') == NULL && strstr(value,"${") == NULL;
+  if (!strcmp(key,"port")) {
+    unsigned port=0;
+    for (const unsigned char *p=(const unsigned char *)value; *p; p++) {
+      if (*p<'0' || *p>'9' || port>6553) return false;
+      port=port*10+(*p-'0');
+    }
+    return port>0 && port<=65535;
+  }
+  if (!strcmp(key,"proxyjump")) return !strcasecmp(value,"none");
+  if (!strcmp(key,"serveraliveinterval")) return !strcmp(value,"0");
+  if (!strcmp(key,"addressfamily")) return !strcasecmp(value,"any");
+  if (!strcmp(key,"stricthostkeychecking")) return !strcasecmp(value,"ask");
+  static const char *const disabled[]={"forwardagent","forwardx11","compression",
+    "addkeystoagent","canonicalizehostname","checkhostip","hashknownhosts",
+    "gssapiauthentication","hostbasedauthentication","permitlocalcommand",NULL};
+  for (size_t i=0;disabled[i];i++)
+    if (!strcmp(key,disabled[i])) return !strcasecmp(value,"no");
+  return false;
+}
+
+int gt_config_check_connection(const gt_config_t *cfg, const char *host,
+                               size_t index, gt_config_connection_issue_t *out) {
+  if (!cfg || !host || !*host || !out) return GT_ERR_INVALID_ARG;
+  memset(out,0,sizeof *out);
+  bool seen[K_COUNT]={false};
+  for (size_t i=0;i<cfg->nnodes;i++) {
+    const gt_node_t *n=&cfg->nodes[i];
+    if (!n->keyword || !strcmp(n->keyword,"host") || !strcmp(n->keyword,"include")) continue;
+    bool conditional=!strcmp(n->keyword,"match");
+    if (!conditional && n->block>=0 && !block_matches(&cfg->blocks[n->block],host)) continue;
+    int key=key_index(n->keyword);
+    bool shadowed=false;
+    if (key>=0 && k_keys[key].kind!=K_LIST && n->nargs>0) {
+      shadowed=seen[key]; seen[key]=true;
+    }
+    if (shadowed || (!conditional && connection_value_supported(n))) continue;
+    if (index-- != 0) continue;
+    out->keyword=n->keyword; out->source_path=n->source_path;
+    out->source_line=n->source_line; out->included=n->included;
+    gt__set_error("SSH connection: unsupported directive %s at line %zu",n->keyword,n->source_line);
+    return GT_ERR_UNSUPPORTED;
+  }
+  return GT_OK;
+}
+
 /* "8080 localhost:80" → "8080 [localhost]:80"（对齐 ssh -G 归一化） */
 static char *normalize_forward(char **args, int n) {
   size_t need = 1;

@@ -3,7 +3,7 @@
 import hashlib, os, pathlib, shutil, signal, subprocess, sys, tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MARK = 'GT_AUTH_FLOW_MUTATION_MARK'
-FILES = ['AppModel.swift', 'SSHCredentialSelector.swift', 'SSHAuthenticationFlow.swift', '../../../GhostermCore/Sources/GhostermCore/SSHAuthenticator.swift']
+FILES = ['AppModel.swift', 'SSHCredentialSelector.swift', 'SSHAuthenticationFlow.swift', 'HostListModel.swift', '../../../GhostermCore/Sources/GhostermCore/SSHAuthenticator.swift', '../../../GhostermCore/Sources/GhostermCore/GhostermCore.swift']
 PREFIX = pathlib.Path('apple/GhostermApp/Sources/GhostermAppModel')
 
 def run(args):
@@ -39,6 +39,11 @@ def main():
             ('methods','SSHAuthenticationFlow.swift','self.prompts.methods(id, info.methods, info.error)','self.prompts.methods(id, 0, info.error)'),
             ('revoked-message','SSHAuthenticationFlow.swift','info.host == .revoked ?', 'false ?'),
             ('revoked-binding','../../../GhostermCore/Sources/GhostermCore/SSHAuthenticator.swift','mismatch, revoked }','mismatch, revoked = 99 }'),
+            ('config-admission','SSHAuthenticationFlow.swift','guard configurationIssues.isEmpty else {','guard true else {'),
+            ('config-target','AppModel.swift','configurationIssues: target.connectionIssues, prompts:', 'configurationIssues: [], prompts:'),
+            ('config-host-list','HostListModel.swift','connectionIssues: try config.connectionIssues(host: pattern)', 'connectionIssues: []'),
+            ('config-sftp','AppModel.swift','identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID,\n                    connectionIssues: entry?.connectionIssues ?? [])', 'identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID,\n                    connectionIssues: [])'),
+            ('config-binding','../../../GhostermCore/Sources/GhostermCore/GhostermCore.swift','sourceLine: Int(info.source_line), included: info.included)', 'sourceLine: 0, included: info.included)'),
             ('trust-save-result','SSHAuthenticationFlow.swift','if status != 0 { self.fail(status, decision == .reject ?', 'if false { self.fail(status, decision == .reject ?'),
         ]
         try:

@@ -28,12 +28,14 @@ public struct RemoteTarget: Hashable, Sendable {
     public let user: String
     public let host: String
     public let port: UInt16
+    public let connectionIssues: [SSHConnectionIssue]
 
-    public init(pattern: String, user: String, host: String, port: UInt16) {
+    public init(pattern: String, user: String, host: String, port: UInt16, connectionIssues: [SSHConnectionIssue] = []) {
         self.pattern = pattern
         self.user = user
         self.host = host
         self.port = port
+        self.connectionIssues = connectionIssues
     }
 }
 

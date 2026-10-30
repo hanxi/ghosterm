@@ -112,7 +112,14 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun keepEditing() { discard = false; reloadAfterDiscard = false }
     fun dismissNotice() { notice = null }
-    fun notConnected() { notice = "终端连接正在接入，当前版本可管理主机与 SSH 配置" }
+    fun checkConnection(host: Host) {
+        val base = snapshot ?: return
+        work {
+            val issues = withContext(Dispatchers.IO) { repository.connectionIssues(base, host.alias) }
+            if (issues.isNotEmpty()) error = "不支持 SSH 配置：" + issues.joinToString("、") { it.description }
+            else notice = "SSH 连接正在接入，当前版本可管理主机与 SSH 配置"
+        }
+    }
     fun saveHost() {
         val base = snapshot ?: return
         val editing = draft ?: return

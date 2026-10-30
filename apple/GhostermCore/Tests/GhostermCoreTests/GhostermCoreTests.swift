@@ -6,6 +6,19 @@ import XCTest
 @testable import GhostermCore
 
 final class GhostermCoreTests: XCTestCase {
+    func testConnectionIssuesCopySourceAndPreserveEffectiveScope() throws {
+        let cfg = try SSHConfig(contents: "Host web\n ProxyJump gateway\nHost other\n ProxyJump none\n")
+        let issues = try cfg.connectionIssues(host: "web")
+        XCTAssertEqual(issues.map(\.keyword), ["proxyjump"])
+        XCTAssertEqual(issues.first?.sourceLine, 2)
+        XCTAssertEqual(issues.first?.sourcePath, "")
+        XCTAssertEqual(issues.first?.included, false)
+        XCTAssertTrue(try cfg.connectionIssues(host: "other").isEmpty)
+        try cfg.edit(alias: "web", [("ProxyJump", ["none"])])
+        XCTAssertTrue(try cfg.connectionIssues(host: "web").isEmpty)
+        XCTAssertEqual(issues.first?.keyword, "proxyjump")
+    }
+
     func testVersionAndError() {
         XCTAssertFalse(Ghosterm.version.isEmpty)
         XCTAssertNotNil(Ghosterm.lastError) // 线程局部错误串总可读

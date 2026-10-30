@@ -12,6 +12,9 @@ final class SSHAuthenticationFlow {
     private let owner: DispatchQueue
     private let options: SSHOptions
     private let preferIPv6: Bool
+    typealias AddressLookup = (String, Bool, DispatchQueue, @escaping (Result<SSHAddress, SSHAddressResolver.Failure>) -> Void) -> SSHAddressResolver?
+    private let lookup: AddressLookup
+    private let configurationIssues: [SSHConnectionIssue]
     private let prompts: SSHAuthenticationPrompts
     private let nextID: () -> UInt64?
     private let completion: (Result<Authenticated, Failure>) -> Void
@@ -26,18 +29,26 @@ final class SSHAuthenticationFlow {
     private var started = false
     private var finished = false
 
-    init(owner: DispatchQueue, options: SSHOptions, preferIPv6: Bool = false, prompts: SSHAuthenticationPrompts,
+    init(owner: DispatchQueue, options: SSHOptions, preferIPv6: Bool = false,
+         configurationIssues: [SSHConnectionIssue] = [],
+         lookup: @escaping AddressLookup = { host, ipv6, owner, completion in
+             SSHAddressResolver.resolve(host: host, preferIPv6: ipv6, owner: owner, completion: completion)
+         }, prompts: SSHAuthenticationPrompts,
          nextID: @escaping () -> UInt64?, completion: @escaping (Result<Authenticated, Failure>) -> Void) {
         self.owner = owner; self.options = options; self.preferIPv6 = preferIPv6; self.prompts = prompts; self.nextID = nextID; self.completion = completion
+        self.configurationIssues = configurationIssues; self.lookup = lookup
     }
     private func checkOwner() { dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread) }
     func start() {
         checkOwner(); guard !started, !finished else { return }; started = true
+        guard configurationIssues.isEmpty else {
+            fail(7, "不支持 SSH 配置：" + configurationIssues.map(\.description).joined(separator: "、")); return
+        }
         deadline = ProcessInfo.processInfo.systemUptime + 60
         let timer = DispatchSource.makeTimerSource(queue: owner)
         timer.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in self?.tick() }; self.timer = timer; timer.resume()
-        resolver = SSHAddressResolver.resolve(host: options.host, preferIPv6: preferIPv6, owner: owner) { [weak self] result in
+        resolver = lookup(options.host, preferIPv6, owner) { [weak self] result in
             guard let self, !self.finished else { return }; self.resolver = nil
             do {
                 let address = try result.get(), remaining = self.deadline - ProcessInfo.processInfo.systemUptime

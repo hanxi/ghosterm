@@ -201,7 +201,7 @@ extension AppModel {
             case .localShell: kind = .localShell
             case .host(let pattern):
                 let target = sshTarget(for: pattern)
-                kind = .ssh(.init(pattern: pattern, user: target.user, host: target.host, port: target.port))
+                kind = .ssh(.init(pattern: pattern, user: target.user, host: target.host, port: target.port, connectionIssues: target.connectionIssues))
             }
             let tab = TerminalTab(kind: kind, pane: pane); tab.title = "tmux · \(context.selectedName)"; tabs.add(tab)
         }

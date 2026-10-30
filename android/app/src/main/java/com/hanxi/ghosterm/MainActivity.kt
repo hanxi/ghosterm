@@ -166,7 +166,7 @@ private fun HostsPage(model: HostsViewModel) {
         items(model.filteredHosts, key = { it.alias }) { host ->
             Card(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = model::notConnected, modifier = Modifier.weight(1f)) {
+                    TextButton(onClick = { model.checkConnection(host) }, enabled = !model.busy, modifier = Modifier.weight(1f)) {
                         Column(Modifier.fillMaxWidth()) { Text(host.alias, style = MaterialTheme.typography.titleMedium); Text(host.address, style = MaterialTheme.typography.bodySmall) }
                     }
                     TextButton(onClick = { model.edit(host) }, enabled = !model.busy) { Text("编辑") }

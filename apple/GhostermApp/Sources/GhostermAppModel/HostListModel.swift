@@ -14,6 +14,7 @@ public struct HostEntry: Identifiable, Equatable {
     public let user: String?
     public let port: Int
     public let identityFiles: [String]
+    public var connectionIssues: [SSHConnectionIssue] = []
 
     public var displayName: String { pattern }
     /// `ssh user@host:port` 风格的一行摘要（UI 副标题）。
@@ -67,7 +68,8 @@ public final class HostListModel {
                 hostname: r.hostname ?? pattern,
                 user: r.user,
                 port: r.port,
-                identityFiles: r.identityFiles
+                identityFiles: r.identityFiles,
+                connectionIssues: try config.connectionIssues(host: pattern)
             ))
         }
         hosts = out

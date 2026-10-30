@@ -206,3 +206,9 @@ archive 与测试可执行再重链；回滚同样执行，并核对原始 SHA25
 
 `names` 同时验证 tmux 3.6a 与 3.7c 的实际名称行为：3.6a 规范化控制字符及点/冒号；
 3.7c 可拒绝控制字符并保留点/冒号。明确拒绝必须返回 REJECTED，且原会话名称不变。
+
+## 连接配置准入
+
+`connection_config` 是普通 SSH 连接的显式配置能力检查；与 42 键求值 golden 分开记账。`gt_config_check_connection` 只读 AST，保留来源/原字节，不执行 DNS 或 Match 命令；首值优先、累积列表、Host 否定与 Include 来源有独立断言。当前允许值、未知/Match 的保守拒绝及两端调用边界见[实现计划 §9.24](../../docs/reference/android-implementation.md#924-共享连接配置准入与两端接线2026-10-30)。通过不代表完整 OpenSSH 兼容或 Android SSH 已接通。
+
+本切片离线 gate 为 **35 项 CTest / 74 ABI**；`python3 scripts/mutation-check-connection-config.py` 在隔离副本运行 14 组，每组清洁构建后具体目标断言红、同变异 `test_api` 绿、恢复绿与 SHA256 一致。macOS 产品路由另由 auth 11 组验证，Android 配置桥/按钮另有五组设备变异；不是用 C 测试替代平台行为。本脚本为手工闸门，未新增 CI 脚本数量。

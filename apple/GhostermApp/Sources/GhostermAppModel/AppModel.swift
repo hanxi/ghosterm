@@ -255,10 +255,10 @@ public final class AppModel: ObservableObject {
         let entry = hosts.first { $0.pattern == pattern }
         let host = entry?.hostname ?? pattern
         let user = entry?.user ?? NSUserName()
-        let port = UInt16(entry?.port ?? 22)
+        let port = UInt16(clamping: entry?.port ?? 22)
         let identityFiles = expandTilde(entry?.identityFiles ?? [])
         let kind = TabKind.sftp(RemoteTarget(pattern: pattern, user: user,
-                                             host: host, port: port))
+                                             host: host, port: port, connectionIssues: entry?.connectionIssues ?? []))
 
         let tab = TerminalTab(kind: kind)
         let local = FilesPanelModel(backend: LocalFileBackend(initialPath: NSHomeDirectory()))
@@ -275,7 +275,8 @@ public final class AppModel: ObservableObject {
             do {
                 let backend = try await model.makeSFTPFileBackend(
                     user: user, host: host, port: port,
-                    identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID)
+                    identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID,
+                    connectionIssues: entry?.connectionIssues ?? [])
                 if model.cancelledConnects.take(paneID) { return }
                 guard let p = model.tab(withID: tabID)?.filePanes.first(where: { $0.id == paneID }) else { return }
                 let remotePanel = FilesPanelModel(backend: backend)
@@ -296,7 +297,7 @@ public final class AppModel: ObservableObject {
         return RemoteTarget(pattern: pattern,
                             user: entry?.user ?? NSUserName(),
                             host: entry?.hostname ?? pattern,
-                            port: UInt16(entry?.port ?? 22))
+                            port: UInt16(clamping: entry?.port ?? 22), connectionIssues: entry?.connectionIssues ?? [])
     }
 
     /// 关闭当前 SFTP 浏览（关掉那个标签页）。
@@ -361,7 +362,8 @@ public final class AppModel: ObservableObject {
             do {
                 let backend = try await model.makeSFTPFileBackend(
                     user: target.user, host: target.host, port: target.port,
-                    identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID)
+                    identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID,
+                    connectionIssues: target.connectionIssues)
                 if model.cancelledConnects.take(paneID) { return }
                 guard let t = model.tab(withID: tabID), t.remoteFiles?.id == paneID else { return }
                 let panelModel = FilesPanelModel(backend: backend)
@@ -380,10 +382,10 @@ public final class AppModel: ObservableObject {
     public nonisolated func makeSFTPFileBackend(user: String, host: String, port: UInt16,
                                                 identityFiles: [String],
                                                 knownHosts: String,
-                                                cancelID: UUID) async throws -> SFTPFileBackend {
+                                                cancelID: UUID, connectionIssues: [SSHConnectionIssue] = []) async throws -> SFTPFileBackend {
         let owner = DispatchQueue(label: "dev.ghosterm.files-connect")
         let target = SSHConnectionTarget(alias: host, host: host, user: user, port: port,
-            knownHosts: knownHosts, identityPaths: identityFiles)
+            knownHosts: knownHosts, identityPaths: identityFiles, connectionIssues: connectionIssues)
         let ssh = try await authenticate(target, id: cancelID, owner: owner)
         let sftp: SFTPSession = try await withCheckedThrowingContinuation { continuation in
             owner.async { do { continuation.resume(returning: try ssh.sftp()) } catch { continuation.resume(throwing: error) } }
@@ -659,7 +661,7 @@ public final class AppModel: ObservableObject {
             kind = .ssh(RemoteTarget(pattern: pattern,
                                      user: entry?.user ?? NSUserName(),
                                      host: entry?.hostname ?? pattern,
-                                     port: UInt16(entry?.port ?? 22)))
+                                     port: UInt16(clamping: entry?.port ?? 22), connectionIssues: entry?.connectionIssues ?? []))
         }
         // 两个分支都**不带身份**、且这里**没有去重**：一律新建标签页
         // （同一台主机 / 本地 shell 都允许开多个，见方法头注释）。
@@ -816,7 +818,7 @@ public final class AppModel: ObservableObject {
             var request: UInt64 = 0
             let flow = SSHAuthenticationFlow(owner: owner,
                 options: SSHOptions(host: target.host, port: target.port, username: target.user, knownHostsPath: target.knownHosts),
-                prompts: selector.prompts, nextID: { guard request < UInt64.max else { return nil }; request += 1; return request },
+                configurationIssues: target.connectionIssues, prompts: selector.prompts, nextID: { guard request < UInt64.max else { return nil }; request += 1; return request },
                 completion: { [weak self] result in
                     if case .success(let value) = result { value.connection.releaseOn(owner) }
                     DispatchQueue.main.async { self?.authentications.removeValue(forKey: id) }
@@ -834,8 +836,8 @@ public final class AppModel: ObservableObject {
     func sshTarget(for pattern: String) -> SSHConnectionTarget {
         let entry = hosts.first { $0.pattern == pattern }
         return SSHConnectionTarget(alias: pattern, host: entry?.hostname ?? pattern,
-            user: entry?.user ?? NSUserName(), port: UInt16(entry?.port ?? 22),
-            knownHosts: knownHostsPath, identityPaths: expandTilde(entry?.identityFiles ?? []))
+            user: entry?.user ?? NSUserName(), port: UInt16(clamping: entry?.port ?? 22),
+            knownHosts: knownHostsPath, identityPaths: expandTilde(entry?.identityFiles ?? []), connectionIssues: entry?.connectionIssues ?? [])
     }
 
 }

@@ -18,9 +18,9 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
 
-后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。最新完整设备结果 **101 项，0 失败/错误/跳过**，见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
+后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。最新完整设备结果 **103 项，0 失败/错误/跳过**（§9.24）；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
 
-共享主机信任前置已修复撤销/CA 标记误信任，并新增公开撤销状态；信任写入/关闭失败现已阻断认证（实现计划 §9.23）。Core 与 macOS 证据见[§9.22](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。Android 的 SSH JNI、连接前配置能力校验、认证页面及 Keystore 仍未接入，不能把共享修复记为 A3 完成。
+共享主机信任前置已修复撤销/CA 标记误信任，并新增公开撤销状态；信任写入/关闭失败现已阻断认证（实现计划 §9.23）。Core 与 macOS 证据见[§9.22](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。连接前配置检查已接主机按钮，有问题显示指令/来源；无问题仍提示 SSH 正在接入。Android 的 SSH JNI、认证页面及 Keystore 仍未接入，不能把共享修复记为 A3 完成；当前接线与证据见[§9.24](../docs/reference/android-implementation.md#924-共享连接配置准入与两端接线2026-10-30)。
 
 ## 构建
 
@@ -62,7 +62,7 @@ python3 scripts/mutation-check-android-vt-libc.py
 bash scripts/gate.sh
 ```
 
-A1 验收时 JNI 引用 11 项、其余 62 项；A2 首片引用 19 项（新增 Transport 与错误读取），其余 54 项在 `bridge/deferred-abi.json` 按阶段登记，以当前检出的 `check-abi-android.py` 输出为准，不能把未绑定能力称为已实现。变异脚本会在指定设备重新安装 debug APK，仅用于测试设备。原生变异分别破坏 UTF-8 配置往返、NUL 拒绝与 VT feed，目标断言红、同一 APK 独立对照绿、恢复后绿并校验源码 SHA256；中断会恢复带标记的源码。
+A1 验收时 JNI 引用 11 项、其余 62 项；A2 首片引用 19 项（新增 Transport 与错误读取），其余 54 项在 `bridge/deferred-abi.json` 按阶段登记，新增连接检查后当前引用 20 项、待办 54 项；以当前检出的 `check-abi-android.py` 输出为准，不能把未绑定能力称为已实现。变异脚本会在指定设备重新安装 debug APK，仅用于测试设备。原生变异分别破坏 UTF-8 配置往返、NUL 拒绝与 VT feed，目标断言红、同一 APK 独立对照绿、恢复后绿并校验源码 SHA256；中断会恢复带标记的源码。
 
 A0 证据：API 36 / arm64 / 4 KB 页模拟器，3 项设备测试、3 组 JNI 变异、3 组 ABI 对拍变异通过。A1 首片为 17 项设备测试与 11 组配置变异；共享重复指令编辑修复后，该片为 **18 项设备测试、12 组配置/页面变异**。C9 验编辑器损坏输出仍被拒绝，C12 验设备使用真正的 Core 修复；均目标红、同 APK 独立对照绿、恢复绿且源码 SHA256 一致。真机、API 29、16 KB 页运行、性能与完整 UI 验收留在后续阶段，不将 ELF 对齐等同于设备验证。
 

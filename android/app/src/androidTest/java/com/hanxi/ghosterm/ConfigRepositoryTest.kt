@@ -15,6 +15,18 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class ConfigRepositoryTest {
+    @Test fun connectionAdmissionReportsSharedSourcesWithoutEditing() {
+        val bytes = "Host web\n HostName 127.0.0.1\n ProxyJump gateway\nHost other\n ProxyJump none\n".toByteArray()
+        val saved = bytes.copyOf()
+        val issues = com.hanxi.ghosterm.bridge.ConfigBridge.connectionIssues(bytes, "web")
+        assertEquals(listOf("proxyjump"), issues.map { it.keyword })
+        assertEquals(3, issues.single().sourceLine)
+        assertEquals("", issues.single().sourcePath)
+        assertFalse(issues.single().included)
+        assertTrue(com.hanxi.ghosterm.bridge.ConfigBridge.connectionIssues(bytes, "other").isEmpty())
+        assertArrayEquals(saved, bytes)
+    }
+
     private fun fixture(test: (File) -> Unit) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.cacheDir, "config-test-${UUID.randomUUID()}").apply { mkdirs() }

@@ -164,3 +164,37 @@ done:
     free(alias); free(new_alias); gt_config_free(cfg);
     return result;
 }
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_hanxi_ghosterm_bridge_ConfigBridge_connectionIssueBytes(JNIEnv *env, jobject self,
+        jbyteArray input, jbyteArray name) {
+    (void)self;
+    gt_config_t *cfg=parse(env,input);
+    if (!cfg) return NULL;
+    char *alias=utf8(env,name);
+    jobjectArray result=NULL;
+    if (!alias) goto done;
+    size_t count=0;
+    gt_config_connection_issue_t info={0};
+    int status;
+    while ((status=gt_config_check_connection(cfg,alias,count,&info))==GT_ERR_UNSUPPORTED && count<256) count++;
+    if (status!=GT_OK || count>=256) { fail(env,"无法检查连接配置"); goto done; }
+    jclass type=(*env)->FindClass(env,"[B");
+    if (!type) goto done;
+    result=(*env)->NewObjectArray(env,(jsize)(count*4),type,NULL);
+    for (size_t i=0;result && i<count && !(*env)->ExceptionCheck(env);i++) {
+        if (gt_config_check_connection(cfg,alias,i,&info)!=GT_ERR_UNSUPPORTED) {
+            fail(env,"连接配置检查结果改变"); break;
+        }
+        char line[24]; snprintf(line,sizeof line,"%zu",info.source_line);
+        const char *fields[]={info.keyword,info.source_path,line,info.included?"1":"0"};
+        for (size_t f=0;f<4;f++) {
+            jbyteArray value=bytes(env,fields[f]);
+            if (!value) break;
+            (*env)->SetObjectArrayElement(env,result,(jsize)(i*4+f),value);
+            (*env)->DeleteLocalRef(env,value);
+        }
+    }
+done:
+    free(alias); gt_config_free(cfg); return result;
+}

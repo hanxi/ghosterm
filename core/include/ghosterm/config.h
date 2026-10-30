@@ -66,6 +66,23 @@ typedef struct {
 int gt_config_inspect_host(const gt_config_t *cfg, const char *alias,
                            gt_config_host_info_t *out);
 
+/* Current ordinary SSH client profile, shared by native hosts. Enumerate from
+ * index 0: UNSUPPORTED supplies one borrowed issue; OK means end (zeroed out).
+ * No IO, DNS, commands, defaults or mutation. Strings expire on edit/free.
+ * Only explicit winning directives are checked; known list directives accumulate.
+ * Unknown applicable directives and any Match block fail conservatively, since
+ * their execution/scope cannot be established. This is not an OpenSSH validator.
+ * INVALID_ARG for null/empty host or null output/config. A clear result does not
+ * establish platform availability, credentials, or remote capabilities. */
+typedef struct {
+  const char *keyword;
+  const char *source_path;
+  size_t source_line;
+  bool included;
+} gt_config_connection_issue_t;
+int gt_config_check_connection(const gt_config_t *cfg, const char *host,
+                               size_t index, gt_config_connection_issue_t *out);
+
 /* ------------------------------------------------------------------ */
 /* 默认 IdentityFile 候选链策略                                        */
 /* ------------------------------------------------------------------ */

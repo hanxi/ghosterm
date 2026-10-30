@@ -24,9 +24,9 @@ apple/
 `HostListModel.directives` 目前仍以 Swift 简化行扫描提供表单初值，`HostEditorSheet.save` 提交全部显示字段；不能把 Core 的稀疏编辑保证扩大为整个表单的“只改脏字段”。tab、`=`、引号、重复指令与未改保存的保真须独立补齐，见路线图 P0。
 `AppModel.applyEdits/addHost` 先修改内存配置，再调用存储；写盘抛错时只向页面报错，尚未恢复内存模型。`HostListModel.reload` 也未过滤不含通配符的否定模式（如 `!secret`），不能把所有派生条目都视为可连接主机。
 `SSHConfig.inspect(alias:)` 已接入并有值复制/来源转换的定向测试与变异，尚未接入 `HostEditorSheet`；存在 Swift 绑定不表示 macOS 表单已提供继承值展示、别名重命名或完整包含文件编辑。新增接口状态见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。
-已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。当前为 73 个公共符号、Apple 71 个引用/2 个登记未用，改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
+已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查接口新增后当前为 74 / 72+2。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
 
-共享主机信任已修复标记误信任：`core/src/ssh.c` 保留标记，匹配的撤销密钥优先于任何顺序的普通信任记录；读取错误明确失败。CA-only、作用于当前主机的未知标记和已解析的 hashed 条目显式报不支持。CA 与明确匹配的普通记录并存时仅依据普通记录信任；尚未实现主机证书验证或哈希匹配。Swift 已接 `.revoked` 状态与拒绝文案，SFTP 产品入口通过真实 sshd 验证不再弹信任/凭据框。普通 SSH、SFTP、tmux 共用此认证流程，但本片未分别重跑 SSH 终端及 tmux UI；详见[共享主机信任验收](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。连接前高级配置能力校验仍为 P0。
+共享主机信任已修复标记误信任：`core/src/ssh.c` 保留标记，匹配的撤销密钥优先于任何顺序的普通信任记录；读取错误明确失败。CA-only、作用于当前主机的未知标记和已解析的 hashed 条目显式报不支持。CA 与明确匹配的普通记录并存时仅依据普通记录信任；尚未实现主机证书验证或哈希匹配。Swift 已接 `.revoked` 状态与拒绝文案，SFTP 产品入口通过真实 sshd 验证不再弹信任/凭据框。普通 SSH、SFTP、tmux 共用此认证流程，但本片未分别重跑 SSH 终端及 tmux UI；详见[共享主机信任验收](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。连接前配置检查已接共享判定，见实现计划 §9.24。
 
 UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
@@ -44,16 +44,16 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | SSH 认证与凭据 | [SSHAuthenticationFlow](GhostermApp/Sources/GhostermAppModel/SSHAuthenticationFlow.swift)、[SSHCredentialSelector](GhostermApp/Sources/GhostermAppModel/SSHCredentialSelector.swift) | 可取消认证；Keychain 存口令/密码，生产私钥仍读受限文件 |
 | 文件与传输 | [FilesPanelView](GhostermApp/Sources/GhostermApp/FilesPanelView.swift)、[TransferManager](GhostermApp/Sources/GhostermAppModel/TransferManager.swift) | 本地↔远端；尚无四方向统一复制队列；暂停/继续/取消忽略后端错误仍改状态，未知结果映射尚待修复 |
 | 菜单与偏好 | [AppMenu](GhostermApp/Sources/GhostermApp/AppMenu.swift)、[SettingsStore](GhostermApp/Sources/GhostermAppModel/SettingsStore.swift)、[Shortcuts](GhostermApp/Sources/GhostermAppModel/Shortcuts.swift) | 正常设置已持久化并重载已有终端；存储异常/重复键及过时提示仍待修；Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签 |
-| 配置到连接 | [HostListModel](GhostermApp/Sources/GhostermAppModel/HostListModel.swift)、[SSHConnectionTarget](GhostermApp/Sources/GhostermAppModel/SSHConnectionTarget.swift) | 高级配置求值结果未传入连接，缺少连接前能力校验；列为 P0 |
+| 配置到连接 | [HostListModel](GhostermApp/Sources/GhostermAppModel/HostListModel.swift)、[SSHConnectionTarget](GhostermApp/Sources/GhostermAppModel/SSHConnectionTarget.swift) | 共享配置检查的拒绝原因随连接目标传递，在 DNS 前阻断；高级选项尚不执行 |
 | 终端文本与剪贴板 | [TerminalSurfaceView](GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift)、[shim](GhostermTerminal/Sources/CGhostty/shim.c) | IME 已接通；系统复制/粘贴和确认回调仍占位，列为 P1 |
 
 **终端系统剪贴板尚未接通**：`GhostermTerminal/Sources/CGhostty/shim.c` 的读取回调返回 `GHOSTTY_CLIPBOARD_READ_UNAVAILABLE`，写入和确认回调为空。`TerminalHostView` 尚无 `copy:` / `paste:` 响应方法；编辑菜单虽注册了这两个 selector，不能据此宣布终端复制粘贴可用。`TerminalSurface.sendText` 的粘贴编码测试只证明给定文本能送到程序，不包含系统剪贴板读取、选区复制或确认框。文件路径复制、标签信息复制及设置文本复制各有独立 `NSPasteboard` 接线，也不补全终端链路。此为源码核对结果，尚无本轮真实菜单操作复测；实现与验收列入路线图 P1。
 
 修复顺序与验收触发场景见[macOS 实施顺序](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。当前代码注释中的“安全写回”“原子写”等描述是目标契约，实际 `try?` 备份及 remove→move 路径尚未兑现，不能把注释当作通过证据。
 
-**配置求值不等于连接执行**：`GhostermCore.ResolvedHost` 已返回 ProxyJump、ForwardAgent、Compression、ServerAliveInterval、SetEnv、LocalForward；`HostListModel.reload` 只把地址、用户、端口和身份文件放入 `HostEntry`，后续 `SSHConnectionTarget` / `SSHOptions` 也没有承接这些高级选项。`SSHAuthenticationFlow.start` 直接解析目标地址，当前未统一拒绝这些未支持配置。因此配置中写了跳板也不能据此认为连接会经过跳板；42 键 `ssh -G` 对拍只验求值，不验连接行为。
+**配置求值不等于连接执行**：共享 `gt_config_check_connection` 检查当前普通 SSH 档位可执行的显式指令，并返回关键词及来源；`HostListModel` 在求值同一份配置时复制结果，`SSHConnectionTarget` / `RemoteTarget` 携带该快照。`SSHAuthenticationFlow.start` 在创建定时器及解析器前拒绝不支持项，普通 SSH、独立/内嵌 SFTP 和 tmux 共用。ProxyJump、转发、环境注入等能力仍未实现，不会因检查接口存在而变为支持。
 
-连接前能力校验已列入路线图 P0，需覆盖普通 SSH、独立/内嵌 SFTP 与远端 tmux；未支持的有效选项应列名报错，并在解析地址、建连和索取凭据前停止。本段依据生产代码调用链核对，尚未新增真实跳板或网络端点测试，不记为已修复。
+校验遵守已知标量 first-wins、累积列表、Host 否定模式与 Include 来源；未知适用指令和任何 Match 条件保守拒绝，仍保留配置原字节，不执行 Match exec。普通字段只接受本档位实现的值，显式关闭部分未实现功能可通过；详细准入表、保守边界和实际验证见 [§9.24](../docs/reference/android-implementation.md#924-共享连接配置准入与两端接线2026-10-30)。检查不等于完整 OpenSSH 兼容，也不新增跳板/转发实现。非法端口可保留在配置编辑器中，转换为 UInt16 不再崩溃，其配置问题会阻止建连。
 
 ### 与 Android 最终方案的差异
 
