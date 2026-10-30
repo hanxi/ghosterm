@@ -1,12 +1,12 @@
 # Android 宿主
 
-**远端文件 owner（§9.51）**：42 CTest / 85 ABI、Apple 83/2、JNI 45/40；Android 专用 owner/JNI/Kotlin 已接目录与预览，13 项设备/18 组变异及 52 项定向回归通过。Swift 新增 owner 中止绑定，macOS 文件产品与 Android 页面尚未接；详见 [实施记录](../docs/reference/android-implementation.md#951-android-远端文件-owner-与-jni2026-10-30)。
+**Android 远端文件页面（§9.52）**：位置选择、配置准入/认证、目录/文本预览和生命周期已接入，文件连接独立于终端。9 项新增设备、14 组新产品与 18＋15 组既有变异、最终完整 236 项设备回归通过。42 CTest / 85 ABI、Apple 83/2、JNI 45/40 与两端构建通过；macOS 产品未迁移，详见 [实施记录](../docs/reference/android-implementation.md#952-android-远端文件页面接线2026-10-30)。
 
-最终页面方案与开发顺序见[详细实现文档](../docs/reference/android-implementation.md)：§6.5 给出真实文件浏览、多选、待粘贴清单、冲突与任务的接入次序；§7.1 给出 16 项设置的存储、即时应用、失败恢复和验收。A4 本机/SAF 只读浏览与多选已由 §9.43 交付；远端文件、复制任务和完整偏好仍按这两节实施。当前信任管理已有共享读取快照、TOFU/移除事务和删除桥。repository、公钥指纹及设置管理页已通过 11 项定向、17 组变异及完整 175 项设备回归，见[§9.39](../docs/reference/android-implementation.md#939-主机验证记录管理页面2026-10-30)；A3 网络矩阵和 A7 完整偏好仍未完成。
+最终页面方案与开发顺序见[详细实现文档](../docs/reference/android-implementation.md)：§6.5 给出真实文件浏览、多选、待粘贴清单、冲突与任务的接入次序；§7.1 给出 16 项设置的存储、即时应用、失败恢复和验收。A4 本机/SAF 只读浏览与多选已由 §9.43 交付；远端只读页面已由 §9.52 接入，复制任务和完整偏好仍按这两节实施。当前信任管理已有共享读取快照、TOFU/移除事务和删除桥。repository、公钥指纹及设置管理页已通过 11 项定向、17 组变异及完整 175 项设备回归，见[§9.39](../docs/reference/android-implementation.md#939-主机验证记录管理页面2026-10-30)；A3 网络矩阵和 A7 完整偏好仍未完成。
 
 A3 网络收尾具体要求见[§4.6](../docs/reference/android-implementation.md#46-a3-网络与取消收尾)：候选地址推进已接入同一个 native owner，TCP 阶段尝试备用地址、共享剩余总预算，协商/信任失败不换地址。12 项真实 SSH/模拟器定向及 14 组变异见 §9.40；通道打开取消已由 §9.41 接入；真实域名 DNS 及断线/设备矩阵仍待完成。
 
-状态（2026-10-30）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有 SSH 身份、主机验证记录、配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话、SAF 导入、凭据、身份设置、主机关联、信任读写桥、候选地址与通道取消与本机/SAF 文件首片已通过完整 214 项回归（最新 §9.49）；远端文件页面与完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
+状态（2026-10-30）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有 SSH 身份、主机验证记录、配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话、SAF 导入、凭据、身份设置、主机关联、信任读写桥、候选地址与通道取消与本机/SAF 及远端文件页面已通过完整 236 项回归（最新 §9.52）；远端文件页面已由 §9.52 接入，完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
 
 §9.41 的 200 项对应通道切片 `6817bd8` 的源码；通道十三组、产品十五组及共享 SSH/exec/tmux 回归已收口。早期失败和未覆盖的真实网络/设备范围保留在 §9.41，不表示整个 A3 已完成。
 
@@ -40,7 +40,21 @@ SSH 身份设置已接通列表、详情、指纹、导入与移除，身份设�
 
 **已验收依赖基线**：Android libssh2 EOF/初始化清理补丁、真实设备六场景及完整 214 项回归已验；选区偶发原因仍待定位。§9.47 已完成共享受控 SFTP 打开与主机补丁依赖，17 项协议、十组接口及十一组依赖守卫变异通过，Android 两 APK 构建通过且 debug APK 与 214 项运行时一致。SFTP helper 仍无文件 owner/Kotlin 调用方，40/42、82 ABI 不表示远端浏览已实现。详见[共享依赖说明](../docs/reference/host-ssh2-build.md)。
 
-**受控浏览共享前置**：§9.49 的 36 项协议、19 组浏览变异、第三补丁实际 NDK 九场景已通过。83 ABI、JNI 40/43，当时 browse 登记待接；后续 owner/JNI 由 §9.51 交付，页面仍待接。该切片 APK 构建及完整 214 项设备回归通过，中间轮旋转观察失败与 600 秒终止如实保留，偶发根因尚未定位。详见 [§9.49](../docs/reference/android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30)。
+**受控浏览共享前置**：§9.49 的 36 项协议、19 组浏览变异、第三补丁实际 NDK 九场景已通过。83 ABI、JNI 40/43，当时 browse 登记待接；后续 owner/JNI 与页面由 §9.51/§9.52 交付。该切片 APK 构建及完整 214 项设备回归通过，中间轮旋转观察失败与 600 秒终止如实保留，偶发根因尚未定位。详见 [§9.49](../docs/reference/android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30)。
+
+## 远端文件页面
+
+位置面板从当前主机配置发起独立文件连接，共用既有 DNS、主机验证与身份认证；不借用终端连接。端点保留 UUID 和实际 host/user/port 快照，配置编辑不改写已连接端点。真实目录成功后显示规范路径，点按预览、长按选择；离页关闭浏览连接，重新进入须显式重连。
+
+实现入口为 [文件 repository](data/src/main/java/com/hanxi/ghosterm/data/FileBrowserRepository.kt)、[文件 ViewModel](app/src/main/java/com/hanxi/ghosterm/FilesViewModel.kt) 与 [真实产品设备测试](app/src/androidTest/java/com/hanxi/ghosterm/RemoteFilesProductTest.kt)。传输任务、复制清单与外部打开仍待开发；不得将浏览连接的离页关闭规则套到未来任务。
+
+```bash
+ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFilesProductTest bash scripts/test-android-ssh.sh
+ANDROID_SERIAL=设备 ANDROID_FILES_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFilesProductTest bash scripts/test-android-ssh.sh
+```
+
+第二条运行 14 组已编译的产品变异，每组配同 APK 独立配置对照及恢复验证；来源为 [变异脚本](../scripts/mutation-check-android-files-product.py)。完整验证结果与历史失败见实现计划 §9.52；需要先准备 SSH 协议夹具环境，见下文测试入口。
+
 
 ## 本机与 SAF 文件验证
 
@@ -48,11 +62,11 @@ SSH 身份设置已接通列表、详情、指纹、导入与移除，身份设�
 ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-files.py
 ```
 
-真实本地文件与系统树选择器；18 组目标红/同 APK 配置对照绿/恢复绿/SHA。无需 SSH 夹具即可定向跑；完整套件仍按下文使用 SSH/凭据/协议端夹具。首片只读浏览与有界 UTF-8 预览，远端文件/复制队列未接，详见 §9.43。
+真实本地文件与系统树选择器；18 组目标红/同 APK 配置对照绿/恢复绿/SHA。无需 SSH 夹具即可定向跑；完整套件仍按下文使用 SSH/凭据/协议端夹具。首片只读浏览与有界 UTF-8 预览；后续远端页面见 §9.52，复制队列未接，详见 §9.43。
 
 ## SFTP 依赖验证
 
-Android 构建器从校验后的 libssh2 1.11.1 源码应用 EOF/初始化清理/NAME 边界三份补丁，补丁哈希纳入依赖收据；远端文件 owner 已由 §9.51 接入，页面待接。
+Android 构建器从校验后的 libssh2 1.11.1 源码应用 EOF/初始化清理/NAME 边界三份补丁，补丁哈希纳入依赖收据；远端文件 owner 与页面已由 §9.51/§9.52 接入。
 
 ```bash
 python3 scripts/test-libssh2-sftp.py --fetch --mutate

@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hanxi.ghosterm.domain.*
 import com.hanxi.ghosterm.data.LocalFileBrowser
+import com.hanxi.ghosterm.data.FileBrowserRepository
+import com.hanxi.ghosterm.bridge.RemoteFileSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -16,7 +18,7 @@ data class FilePreview(val entry: BrowserEntry, val text: String? = null, val er
 
 /** One process-local browser; navigation owns reads, never terminal connections. */
 class FilesViewModel @JvmOverloads constructor(application: Application,
-    private val source: FileBrowserSource = LocalFileBrowser(File(application.filesDir,"home"),application.contentResolver)
+    private val source: FileBrowserSource = FileBrowserRepository(LocalFileBrowser(File(application.filesDir,"home"),application.contentResolver))
 ) : AndroidViewModel(application) {
     var visible by mutableStateOf(false); private set
     var endpoints by mutableStateOf(listOf(FileEndpoint.APP)); private set
@@ -41,7 +43,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     fun enter() { visible=true; choosingLocation=false; refreshEndpoints(); reload() }
     fun leave() {
         visible=false;choosingLocation=false;pickerPending=false;rootsGeneration++;rootsJob?.cancel()
-        cancelRead();preview=null;clearSelection()
+        cancelRead();preview=null;clearSelection();(source as? FileBrowserRepository)?.close()
     }
     private fun cancelRead(): Long { generation++;readJob?.cancel();readJob=null;loading=false;return generation }
     fun clearSelection() { selecting=false;selected=emptySet() }
@@ -65,6 +67,29 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
         crumbs=remembered[endpoint.id] ?: listOf(FileCrumb(FileLocation(endpoint),endpoint.label))
         choosingLocation=false;reload()
     }
+    fun beginRemoteConnection(): Long { endpointError=null;return cancelRead() }
+    fun acceptsRemoteConnection(token: Long) = visible && token==generation
+    fun remoteConnectionError(message: String) { endpointError=message;choosingLocation=true }
+    fun remoteConnected(identity: RemoteFileIdentity, connection: RemoteFileSession, token: Long) {
+        if(!acceptsRemoteConnection(token)) { connection.close();return }
+        val repository=source as? FileBrowserRepository
+        if(repository==null) { connection.close();error="远端文件服务不可用";return }
+        cancelRead()
+        val alias=identity.alias
+        // Reconnection replaces this browser endpoint only; terminal sessions are unrelated.
+        endpoints.filter { it.remoteAlias==alias }.forEach(repository::disconnect)
+        val endpoint=repository.attach(identity,connection)
+        endpoints=endpoints.filterNot { it.remoteAlias==alias }+endpoint
+        choose(endpoint)
+    }
+    fun disconnectRemote() {
+        val endpoint=location.endpoint
+        if(endpoint.remoteAlias==null) return
+        cancelRead();(source as? FileBrowserRepository)?.disconnect(endpoint)
+        endpoints=endpoints.filterNot { it.id==endpoint.id };remembered.remove(endpoint.id)
+        choose(FileEndpoint.APP)
+    }
+    override fun onCleared() { leave();(source as? FileBrowserRepository)?.close();super.onCleared() }
     fun beginPicker(): Boolean { if(pickerPending) return false;pickerPending=true;return true }
     fun pickerFailed() { pickerPending=false;endpointError="无法打开系统文件夹选择器";choosingLocation=true }
     fun picked(uri: String?, flags: Int) {
@@ -86,7 +111,14 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
         val token=cancelRead();val requested=location
         clearSelection();preview=null;entries=emptyList();error=null;loading=true
         readJob=viewModelScope.launch {
-            try { val found=source.list(requested);if(visible && token==generation) entries=found.toList() }
+            try {
+                val found=source.browse(requested)
+                if(visible && token==generation) {
+                    crumbs=crumbs.dropLast(1)+FileCrumb(found.location,
+                        if(found.location.endpoint.remoteAlias!=null) found.location.directoryId else crumbs.last().label)
+                    entries=found.entries.toList()
+                }
+            }
             catch(cancel: CancellationException) { throw cancel }
             catch(failure: Exception) { if(visible && token==generation) error=failure.message ?: "读取文件夹失败，请重试" }
             finally { if(token==generation) loading=false }

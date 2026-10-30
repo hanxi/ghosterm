@@ -76,7 +76,7 @@ class FileBrowserTest {
         assertTrue(entries.any { it.name==".hidden" })
         assertFalse(entries.any { it.name=="identities" })
         assertEquals(null,entries.first().size)
-        assertEquals(0L,entries.single { it.name=="空 文.txt" }.size)
+        assertEquals(0uL,entries.single { it.name=="空 文.txt" }.size)
         assertEquals("你好 🔑\nsecond line\n",runBlocking { source.preview(root(),entries.single { it.name=="notes.txt" }) })
         assertEquals("",runBlocking { source.preview(root(),entries.single { it.name=="空 文.txt" }) })
         assertEquals("private",File(directory,"identities/container").readText())
@@ -169,7 +169,7 @@ class FileBrowserTest {
     @Test fun navigationAndPreviewIgnoreCancelledLateResponses() {
         val lists=mutableListOf<Continuation<List<BrowserEntry>>>()
         val previews=mutableListOf<Continuation<String>>()
-        val file=BrowserEntry("note","note",FileKind.FILE,2,null)
+        val file=BrowserEntry("note","note",FileKind.FILE,2uL,null)
         val fake=object:FileBrowserSource {
             override suspend fun endpoints()=listOf(FileEndpoint.APP)
             override suspend fun grantTree(uri:String,flags:Int)=error("not used")

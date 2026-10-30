@@ -56,7 +56,7 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
         val name=checkNotNull(text(Document.COLUMN_DISPLAY_NAME)) { "文档缺少名称" }
         check(id.isNotEmpty() && name.isNotEmpty()) { "文档标识或名称为空" }
         val kind=if(text(Document.COLUMN_MIME_TYPE)==Document.MIME_TYPE_DIR) FileKind.DIRECTORY else FileKind.FILE
-        return BrowserEntry(id,name,kind,if(kind==FileKind.FILE) number(Document.COLUMN_SIZE) else null,number(Document.COLUMN_LAST_MODIFIED))
+        return BrowserEntry(id,name,kind,if(kind==FileKind.FILE) number(Document.COLUMN_SIZE)?.toULong() else null,number(Document.COLUMN_LAST_MODIFIED))
     }
     private fun info(uri: Uri, signal: CancellationSignal): BrowserEntry =
         checkNotNull(resolver.query(uri,columns,null,null,null,signal)) { "无法读取文档信息" }.use {
@@ -95,7 +95,7 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
         val stat=Os.lstat(file.path)
         val kind=when { OsConstants.S_ISDIR(stat.st_mode)->FileKind.DIRECTORY;OsConstants.S_ISREG(stat.st_mode)->FileKind.FILE
             OsConstants.S_ISLNK(stat.st_mode)->FileKind.LINK;else->FileKind.OTHER }
-        return BrowserEntry(id,file.name,kind,if(kind==FileKind.FILE) stat.st_size else null,stat.st_mtime*1000)
+        return BrowserEntry(id,file.name,kind,if(kind==FileKind.FILE) stat.st_size.toULong() else null,stat.st_mtime*1000)
     }
     override suspend fun list(location: FileLocation): List<BrowserEntry> = io { signal, active ->
         val entries=ArrayList<BrowserEntry>()
@@ -165,7 +165,7 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
             val uri=document(checkGrant(location.endpoint),entry.id)
             val current=info(uri,signal);check(current.kind==FileKind.FILE) { "该文档不是文件" }
             val size=current.size
-            check(size==null || size<=PREVIEW_LIMIT) { "只读预览最多支持 256 KiB 文本" }
+            check(size==null || size<=PREVIEW_LIMIT.toULong()) { "只读预览最多支持 256 KiB 文本" }
             checkNotNull(resolver.openAssetFileDescriptor(uri,"r",signal)) { "无法打开文档" }.use { asset ->
                 asset.createInputStream().use { read(it.fd,asset.declaredLength,active) }
             }

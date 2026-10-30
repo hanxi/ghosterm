@@ -25,7 +25,8 @@ import com.hanxi.ghosterm.domain.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit) {
+fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List<String> = emptyList(),
+    remoteError: String? = null, connectRemote: (String) -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     val context=LocalContext.current
     BackHandler { if(menu) menu=false else model.back() }
@@ -39,6 +40,8 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit) {
                 Box {
                     TextButton(onClick={ menu=true }) { Text("更多") }
                     DropdownMenu(expanded=menu,onDismissRequest={ menu=false }) {
+                        if(model.location.endpoint.remoteAlias!=null)
+                            DropdownMenuItem(text={ Text("断开文件连接") },onClick={ menu=false;model.disconnectRemote() })
                         DropdownMenuItem(text={ Text("刷新") },onClick={ menu=false;model.reload() })
                         DropdownMenuItem(text={ Text(if(model.showHidden) "隐藏点文件" else "显示隐藏文件") },onClick={ menu=false;model.toggleHidden() })
                     }
@@ -56,14 +59,18 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit) {
                 }
             }
         } else Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-            TextButton(onClick=model::chooseLocations,modifier=Modifier.fillMaxWidth().testTag("file-location")) { Text("本机 · ${model.location.endpoint.label}") }
-            Text(model.crumbs.joinToString(" / ") { it.label },Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).testTag("file-breadcrumb"),
+            TextButton(onClick=model::chooseLocations,modifier=Modifier.fillMaxWidth().testTag("file-location")) { Text("${if(model.location.endpoint.remoteAlias==null) "本机" else "远端"} · ${model.location.endpoint.label}") }
+            if(remoteError!=null && !model.choosingLocation)
+                Text(remoteError,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(horizontal=16.dp).testTag("file-connect-error"))
+            Text(if(model.location.endpoint.remoteAlias!=null) model.location.directoryId else model.crumbs.joinToString(" / ") { it.label },Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).testTag("file-breadcrumb"),
                 style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)
             when {
                 model.loading -> LinearProgressIndicator(Modifier.fillMaxWidth())
                 model.error!=null -> Column(Modifier.padding(16.dp)) {
                     Text(model.error!!,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-list-error"))
-                    TextButton(onClick=model::reload) { Text("重试") }
+                    if(model.location.endpoint.remoteAlias!=null)
+                        TextButton(onClick={ connectRemote(model.location.endpoint.remoteAlias!!) }) { Text("重新连接") }
+                    else TextButton(onClick=model::reload) { Text("重试") }
                     TextButton(onClick=model::chooseLocations) { Text("更换位置") }
                 }
                 model.visibleEntries.isEmpty() -> Text("此文件夹没有可见项目",Modifier.padding(24.dp).testTag("file-list-empty"))
@@ -78,8 +85,8 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit) {
                         supportingContent={ Text(when(entry.kind) {
                             FileKind.DIRECTORY -> "文件夹"
                             FileKind.LINK -> "符号链接"
-                            FileKind.OTHER -> "特殊文件"
-                            FileKind.FILE -> entry.size?.let { Formatter.formatShortFileSize(context,it) } ?: "大小未知"
+                            FileKind.OTHER -> "特殊或未知类型"
+                            FileKind.FILE -> entry.size?.let { if(it<=Long.MAX_VALUE.toULong()) Formatter.formatShortFileSize(context,it.toLong()) else "$it 字节" } ?: "大小未知"
                         }) },leadingContent={ if(model.selecting) Checkbox(checked=checked,onCheckedChange=null) else Text(if(entry.kind==FileKind.DIRECTORY) "▸" else "·") })
                     HorizontalDivider()
                 }
@@ -94,7 +101,10 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text("文件位置",style=MaterialTheme.typography.titleLarge)
             model.endpointError?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+            remoteError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-connect-error")) }
             model.endpoints.forEach { endpoint -> TextButton(onClick={ model.choose(endpoint) },modifier=Modifier.fillMaxWidth()) { Text(endpoint.label) } }
+            if(remoteHosts.isNotEmpty()) Text("远端主机",style=MaterialTheme.typography.titleMedium)
+            remoteHosts.forEach { alias -> TextButton(onClick={ connectRemote(alias) },modifier=Modifier.fillMaxWidth().testTag("file-connect:$alias")) { Text("连接 $alias") } }
             OutlinedButton(onClick=pickFolder,enabled=!model.pickerPending,modifier=Modifier.fillMaxWidth()) { Text("选择设备文件夹") }
         }
     }

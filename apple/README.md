@@ -1,6 +1,6 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
-**远端文件 owner（§9.51）**：42 CTest / 85 ABI、Apple 83/2、JNI 45/40；Android 专用 owner/JNI/Kotlin 已接目录与预览，13 项设备/18 组变异及 52 项定向回归通过。Swift 新增 owner 中止绑定，macOS 文件产品与 Android 页面尚未接；详见 [实施记录](../docs/reference/android-implementation.md#951-android-远端文件-owner-与-jni2026-10-30)。
+**Android 远端文件页面（§9.52）**：位置选择、配置准入/认证、目录/文本预览和生命周期已接入，文件连接独立于终端。9 项新增设备、14 组新产品与 18＋15 组既有变异、最终完整 236 项设备回归通过。42 CTest / 85 ABI、Apple 83/2、JNI 45/40 与两端构建通过；macOS 产品未迁移，详见 [实施记录](../docs/reference/android-implementation.md#952-android-远端文件页面接线2026-10-30)。
 
 ## 当前结构（2026-10-30）
 
@@ -112,7 +112,7 @@ macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，�
 
 `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 与主机补丁 libssh2 已完成本机验收，默认 Core 和两个 SwiftPM 包消费同一版本。17 项协议用例、十组接口变异、十一组依赖守卫及既有打包变异通过；此前测试观测面错误已修正。完整证据与构建准备见[主机依赖与 SFTP 打开](../docs/reference/host-ssh2-build.md)。
 
-macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.51 接入专用文件 owner/JNI，页面尚未接。Android 后端已传递预算和取消，文件页尚待消费；macOS 后续需传递原请求预算与取消，其 list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮接口/依赖验收没有新增桌面产品关闭/取消或完整宿主证据。
+macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.51/§9.52 接入专用文件 owner/JNI 与页面，已传递预算和取消；macOS 后续需传递原请求预算与取消，其 list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮接口/依赖验收没有新增桌面产品关闭/取消或完整宿主证据。
 
 ### 目录浏览与元数据接线边界
 
@@ -126,7 +126,7 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.
 
 | 操作 | macOS 当前实现 | Android 方案与实现边界 |
 |---|---|---|
-| 文件打开与选择 | 原生列表单击选择、双击打开；右键“拷贝路径”只复制路径文本 | 方案为点按打开、长按勾选；本机/SAF 浏览与文本预览已验，远端文件未接，见 Android §9.43 |
+| 文件打开与选择 | 原生列表单击选择、双击打开；右键“拷贝路径”只复制路径文本 | 方案为点按打开、长按勾选；本机/SAF 与远端浏览、文本预览已接，见 Android §9.43/§9.52 |
 | 文件复制 | 本地↔远端的传输队列、拖放与冲突对话框；无四方向统一复制清单 | 常驻待粘贴清单和四方向复制属于 A4–A6；终端文本剪贴板已接入，不等于文件复制完成 |
 | 普通 shell 退出 | `handlePaneExit` 移除终端叶子，其余文件/终端叶子保留；最后一片退出关闭标签 | 正常 EOF 后保留终端内容供浏览/复制，显式关闭再释放；错误退出不承诺保留 |
 | 设置 | 通用、外观、键盘、配置文件四页 | 最终设计五类、16 项偏好；已提交配置/关于入口，身份设置首片已验（§9.33），主机验证管理已验（§9.39），完整偏好留给 A7 |

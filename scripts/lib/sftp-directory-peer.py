@@ -4,7 +4,7 @@ import struct
 
 STAGES = ('realpath', 'opendir', 'readdir', 'closedir')
 ACTIONS = ('empty', 'empty-name', 'slash-name', 'nul-name', 'duplicate',
-           'malformed-path', 'relative-path', 'long-name', 'invalid-utf8-name')
+           'malformed-path', 'relative-path', 'long-name', 'invalid-utf8-name', 'huge-size')
 
 
 def serve(channel, peer, closing):
@@ -64,6 +64,7 @@ def serve(channel, peer, closing):
                 names = [entry(b'zero', 13, 0, 0o100644), entry(b'unknown'),
                          entry(b'folder', 4, mode=0o40755), entry(b'link', 4, mode=0o120777),
                          entry('数据.txt'.encode(), 13, 7, 0o100600)]
+                if action == 'huge-size': names.append(entry(b'huge', 13, 2**64-1, 0o100644))
                 if action == 'empty': status(request, 1); continue
                 bad = {'empty-name': b'', 'slash-name': b'../escape', 'nul-name': b'a\0b',
                        'long-name': b'x' * 5000, 'invalid-utf8-name': b'\xff'}.get(action)

@@ -43,7 +43,7 @@ def main():
         (model,'selected=visibleEntries.map { it.id }.toSet()','selected=entries.map { it.id }.toSet()',selection),
         (model,'selected=selected.intersect(visibleEntries.map { it.id }.toSet())','selected=selected',selection),
         (model,'error=failure.message ?: "读取文件夹失败，请重试"','error=null','FileBrowserTest#readFailureIsVisibleAndRetryDoesNotPretendEmpty'),
-        (model,'if(visible && token==generation) entries=found.toList()','if(visible) entries=found.toList()',late),
+        (model,'if(visible && token==generation) {\n                    crumbs=', 'if(visible) {\n                    crumbs=',late),
         (model,'if(visible && token==generation) preview=FilePreview(entry,text)','if(visible) preview=FilePreview(entry,text)',late),
         (source,'resolver.takePersistableUriPermission(selected,granted)','Unit',grant),
         (source,'check(resolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission })',

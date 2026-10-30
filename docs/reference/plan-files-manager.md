@@ -38,7 +38,7 @@ S6 的 Quick Look 已接本地打开及远端下载完成后打开；远端副�
 
 §9.50 新增有界只读预览：LSTAT/只读 OPEN/FSTAT/READ/CLOSE 共用预算，46 项协议与 20 组变异通过；只返回原始字节，macOS Quick Look 未消费，缓存与迟到结果保护仍待实现。共享受控目录浏览及大小/类型标志已按 §9.49 通过协议/变异。macOS `SFTPFileBackend` 仍用旧 list/realpath，未向 `FileEntry` 传递标志；须独立迁移 owner 和显示/预览/任务语义。提交 UAF 和 exec 超时泄漏已修复，不提高整个文件产品的完成度，见 [§9.49](android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30)。
 
-共享 SFTP 受控打开与主机依赖已按 §9.47 验收：17 项协议、十组接口变异、十一组依赖守卫和既有打包变异通过。macOS 文件工厂仍调用旧 `ssh.sftp()`，Android 已由 §9.51 接入专用文件 owner/JNI/Kotlin，页面尚未接。后续产品打开/列表/预览/关闭与资源回收仍独立验收，见[主机依赖状态](host-ssh2-build.md)及 [Apple SFTP 边界](../../apple/README.md#sftp-打开与取消边界)。
+共享 SFTP 受控打开与主机依赖已按 §9.47 验收：17 项协议、十组接口变异、十一组依赖守卫和既有打包变异通过。macOS 文件工厂仍调用旧 `ssh.sftp()`，Android 已由 §9.51/§9.52 接入专用文件 owner/JNI/Kotlin 与只读页面。后续产品打开/列表/预览/关闭与资源回收仍独立验收，见[主机依赖状态](host-ssh2-build.md)及 [Apple SFTP 边界](../../apple/README.md#sftp-打开与取消边界)。
 
 ## M4.6 原始目标形态
 

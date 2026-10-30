@@ -23,12 +23,20 @@ class ResolvedSSHConnection(val host: String, val port: Int, val user: String,
         candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis)
 }
 
+/** Shared authentication control only; terminal bytes never cross this interface. */
+interface AuthenticatedSSH : java.io.Closeable {
+    fun authentication(): SSHAuthState
+    fun decide(prompt: SSHAuthState, accept: Boolean)
+    fun password(prompt: SSHAuthState, password: ByteArray)
+    fun privateKey(prompt: SSHAuthState, pem: ByteArray, passphrase: ByteArray = byteArrayOf())
+}
+
 /** SSH authentication and terminal IO share one native owner. No terminal bytes enter Kotlin. */
-class RemoteSession(connection: ResolvedSSHConnection) : NativeTerminalSession(connection.open(), true) {
-    fun decide(prompt: SSHAuthState, accept: Boolean) = respond(prompt, if (accept) 1 else 2)
+class RemoteSession(connection: ResolvedSSHConnection) : NativeTerminalSession(connection.open(), true), AuthenticatedSSH {
+    override fun decide(prompt: SSHAuthState, accept: Boolean) = respond(prompt, if (accept) 1 else 2)
     /** Buffers are consumed and zeroed on success AND failure. Never pass an immutable password String. */
-    fun password(prompt: SSHAuthState, password: ByteArray) = respond(prompt, 3, password)
-    fun privateKey(prompt: SSHAuthState, pem: ByteArray, passphrase: ByteArray = byteArrayOf()) = respond(prompt, 4, pem, passphrase)
+    override fun password(prompt: SSHAuthState, password: ByteArray) = respond(prompt, 3, password)
+    override fun privateKey(prompt: SSHAuthState, pem: ByteArray, passphrase: ByteArray) = respond(prompt, 4, pem, passphrase)
 }
 enum class SSHAuthPhase { TCP, NEGOTIATING, HOSTKEY, AUTHENTICATING, READY, TAKEN, FAILED, CANCELLED, CREDENTIALS }
 enum class SSHHostState { UNCHECKED, KNOWN, UNKNOWN, MISMATCH, REVOKED }

@@ -30,7 +30,8 @@ class TerminalSession(val id: UUID, val title: String, internal val connection: 
 }
 
 /** Activity ViewModel lifetime survives rotation; navigating never closes a session. */
-class SSHAttempt(val target: PreparedSSH) {
+class SSHAttempt(val target: PreparedSSH, internal val filesReady: ((RemoteFileSession, String) -> Unit)? = null) {
+    val forFiles get() = filesReady != null
     val id: UUID = UUID.randomUUID()
     var username by mutableStateOf(target.user)
     var message by mutableStateOf("正在解析主机地址…")
@@ -39,7 +40,7 @@ class SSHAttempt(val target: PreparedSSH) {
     var identities by mutableStateOf<List<StoredIdentity>>(emptyList())
     var credentialBusy by mutableStateOf(false)
     var credentialError by mutableStateOf<String?>(null)
-    internal var connection: RemoteSession? = null
+    internal var connection: AuthenticatedSSH? = null
     internal var job: Job? = null
     internal var credentialJob: Job? = null
 }
@@ -114,6 +115,12 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         val attempt = SSHAttempt(target); connecting = attempt
         if (target.user.isNotBlank()) startConnection(attempt)
     }
+    /** File authentication uses the same policy and UI, but never creates a terminal. */
+    fun connectFiles(target: PreparedSSH, ready: (RemoteFileSession, String) -> Unit) {
+        if(connecting != null) return
+        val attempt = SSHAttempt(target,ready); connecting = attempt
+        if(target.user.isNotBlank()) startConnection(attempt)
+    }
     fun setConnectionUsername(id: UUID, value: String) {
         val attempt = connecting?.takeIf { it.id == id && it.job == null } ?: return
         val user = value.trim()
@@ -124,7 +131,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     }
     private fun startConnection(attempt: SSHAttempt) {
         attempt.job = viewModelScope.launch {
-            var owned: RemoteSession? = null
+            var owned: AuthenticatedSSH? = null
             try {
                 val deadline = SystemClock.elapsedRealtime() + connectionBudgetMillis
                 withTimeout(connectionBudgetMillis) {
@@ -137,8 +144,9 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                     withContext(Dispatchers.IO) {
                         val knownHosts = File(getApplication<Application>().filesDir, "home/.ssh/known_hosts")
                         check(knownHosts.parentFile!!.isDirectory || knownHosts.parentFile!!.mkdirs()) { "无法准备主机信任目录" }
-                        owned = RemoteSession(ResolvedSSHConnection(attempt.target.host, attempt.target.port, attempt.username,
-                            knownHosts.absolutePath, candidates, remaining.coerceAtMost(60_000).toInt()))
+                        val request = ResolvedSSHConnection(attempt.target.host, attempt.target.port, attempt.username,
+                            knownHosts.absolutePath, candidates, remaining.coerceAtMost(60_000).toInt())
+                        owned = if(attempt.forFiles) RemoteFileSession(request) else RemoteSession(request)
                     }
                     ensureActive()
                     check(connecting === attempt) { "连接请求已取消" }
@@ -148,15 +156,24 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                         ensureActive()
                         val connection = checkNotNull(owned)
                         val auth = connection.authentication(); attempt.auth = auth; attempt.message = auth.description
-                        val state = connection.state()
-                        if (state.connected) {
-                            val session = TerminalSession(UUID.randomUUID(), attempt.target.alias, connection, attempt.target.alias)
-                            session.state = state
-                            sessions.add(session); owned = null; attempt.connection = null; connecting = null; show(session.id)
+                        if(attempt.forFiles && auth.phase in listOf(SSHAuthPhase.READY,SSHAuthPhase.TAKEN))
+                            attempt.message = "正在打开远端文件…"
+                        val terminalState = (connection as? RemoteSession)?.state()
+                        val fileState = (connection as? RemoteFileSession)?.state()
+                        if (terminalState?.connected == true || fileState?.ready == true) {
+                            if(connection is RemoteFileSession) {
+                                checkNotNull(attempt.filesReady)(connection,attempt.username)
+                                owned = null; attempt.connection = null; connecting = null
+                            } else {
+                                val session = TerminalSession(UUID.randomUUID(), attempt.target.alias, connection as RemoteSession, attempt.target.alias)
+                                session.state = checkNotNull(terminalState)
+                                sessions.add(session); owned = null; attempt.connection = null; connecting = null; show(session.id)
+                            }
                             break
                         }
-                        if (state.terminal || auth.phase == SSHAuthPhase.FAILED || auth.phase == SSHAuthPhase.CANCELLED) {
-                            attempt.message = if (auth.phase == SSHAuthPhase.FAILED) auth.description else state.description
+                        if (terminalState?.terminal == true || fileState?.finished == true || auth.phase == SSHAuthPhase.FAILED || auth.phase == SSHAuthPhase.CANCELLED) {
+                            attempt.message = if (auth.phase == SSHAuthPhase.FAILED) auth.description else
+                                terminalState?.description ?: "无法打开远端文件（错误 ${fileState?.error}）"
                             attempt.failed = true; break
                         }
                         if (auth.phase == SSHAuthPhase.CREDENTIALS && !listed) {

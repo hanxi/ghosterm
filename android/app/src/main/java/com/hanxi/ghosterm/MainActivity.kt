@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.hanxi.ghosterm.domain.HostField
+import com.hanxi.ghosterm.domain.RemoteFileIdentity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -76,7 +77,21 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         SSHConnectionDialog(sessions)
         SSHSessionChoices(sessions)
         if (files.visible) {
-            FilesScreen(files, ::pickFolder)
+            FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error) { alias ->
+                val host=hosts.snapshot?.hosts?.firstOrNull { it.alias==alias }
+                if(host==null) files.remoteConnectionError("主机配置已不可用，请返回首页重新载入")
+                else {
+                    val token=files.beginRemoteConnection()
+                    hosts.checkConnection(host) { target ->
+                        if(files.acceptsRemoteConnection(token)) {
+                            files.dismissLocations()
+                            sessions.connectFiles(target) { connection,user ->
+                                files.remoteConnected(RemoteFileIdentity(target.alias,target.host,user,target.port),connection,token)
+                            }
+                        }
+                    }
+                }
+            }
             return@MaterialTheme
         }
         if (sessions.visible && sessions.active != null) {

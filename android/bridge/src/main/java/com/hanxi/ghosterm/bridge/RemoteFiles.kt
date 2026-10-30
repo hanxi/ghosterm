@@ -1,6 +1,5 @@
 package com.hanxi.ghosterm.bridge
 
-import java.io.Closeable
 import java.nio.CharBuffer
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -29,10 +28,10 @@ class RemoteFileException(val status: Int) : IllegalStateException(when(status) 
 
 /** A dedicated authenticated SSH/SFTP connection. A cancelled operation closes
  * this owner; retry creates a new connection. close() only signals native work. */
-class RemoteFileSession(connection: ResolvedSSHConnection) : Closeable {
+class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
     private var handle = connection.openFiles()
     private val requests = Mutex()
-    @Synchronized fun authentication(): SSHAuthState {
+    @Synchronized override fun authentication(): SSHAuthState {
         check(handle != 0L) { "文件连接已关闭" }
         return SSHAuthState.decode(handle, NativeFiles.authentication(handle), this)
     }
@@ -42,9 +41,9 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : Closeable {
         check(fields.size == 2 && fields[0] in 0..3) { "文件状态格式无效" }
         return RemoteFileState(fields[0], fields[1])
     }
-    fun decide(prompt: SSHAuthState, accept: Boolean) = respond(prompt, if(accept) 1 else 2)
-    fun password(prompt: SSHAuthState, password: ByteArray) = respond(prompt, 3, password)
-    fun privateKey(prompt: SSHAuthState, pem: ByteArray, passphrase: ByteArray = byteArrayOf()) = respond(prompt, 4, pem, passphrase)
+    override fun decide(prompt: SSHAuthState, accept: Boolean) = respond(prompt, if(accept) 1 else 2)
+    override fun password(prompt: SSHAuthState, password: ByteArray) = respond(prompt, 3, password)
+    override fun privateKey(prompt: SSHAuthState, pem: ByteArray, passphrase: ByteArray) = respond(prompt, 4, pem, passphrase)
     @Synchronized private fun respond(prompt: SSHAuthState, kind: Int, first: ByteArray = byteArrayOf(), second: ByteArray = byteArrayOf()) {
         try {
             check(handle != 0L && prompt.owner == handle && prompt.scope === this) { "SSH 请求不属于此文件连接" }

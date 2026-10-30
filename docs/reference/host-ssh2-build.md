@@ -1,6 +1,6 @@
 # 主机 libssh2 构建与 SFTP 打开状态
 
-核对日期：2026-10-30。受控 SFTP 打开接口、主机补丁依赖与构建/打包接线已完成本机验收，见 Android 实现计划 §9.47。此前 `cef17ac` 记录的依赖守卫测试失败已修正并复验：十组直接守卫变异及一组真实 CMake 调用方变异通过。§9.49 已完成受控目录浏览与目录句柄关闭契约，§9.50 新增有界预览。§9.51 已接 Android 专用文件 owner/JNI/Kotlin 及中止后关闭；远端页面与 macOS 产品迁移仍待完成。
+核对日期：2026-10-30。受控 SFTP 打开接口、主机补丁依赖与构建/打包接线已完成本机验收，见 Android 实现计划 §9.47。此前 `cef17ac` 记录的依赖守卫测试失败已修正并复验：十组直接守卫变异及一组真实 CMake 调用方变异通过。§9.49 已完成受控目录浏览与目录句柄关闭契约，§9.50 新增有界预览。§9.51 已接 Android 专用文件 owner/JNI/Kotlin 及中止后关闭；Android 远端页面已由 §9.52 接入，macOS 产品迁移仍待完成。
 
 ## 构建依赖的实际来源
 
@@ -64,7 +64,7 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 |---|---|---|
 | Core | 非阻塞 init 与 EAGAIN 等待中检查 deadline/取消；补丁修复库内部 EOF 循环与未完成 init 的清理 | 后续 SFTP 操作另立取消/预算契约；当前打开验证不扩大为整条连接有界 |
 | Swift 绑定 | `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 已存在，定向/变异有通过记录 | macOS 产品工厂仍调用无参 `ssh.sftp()`；原认证预算未传入文件 owner |
-| Android native | `files_jni.c` 的专用 owner 调用 `gaj_ssh_open_sftp`，从原认证取剩余预算并封顶 5000 ms；目录/预览各有请求预算和停止信号 | `RemoteFileSession` 后端已验，远端 repository、认证 UI 与文件页尚未接入 |
+| Android native | `files_jni.c` 的专用 owner 调用 `gaj_ssh_open_sftp`，从原认证取剩余预算并封顶 5000 ms；目录/预览各有请求预算和停止信号 | `RemoteFileSession` 后端与远端 repository、认证 UI、文件页已按 §9.51/§9.52 接入；复制与完整矩阵待补 |
 
 §9.47 已验收基线为 82 ABI、Apple 80/2、JNI 40/42；§9.49 受控目录浏览为 83 ABI、Apple 81/2、JNI 40/43。§9.51 当前为 85 ABI、Apple 83/2、JNI 45/40，Android 后端已消费受控接口。这些数量不是产品可用功能数量。macOS 文件产品的列表、realpath、预览、任务和关闭仍按原契约运行；opener 测试不证明整个文件连接可取消。
 
@@ -74,7 +74,7 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 
 预算与条目上限必须大于零，条目上限不超过 65536；路径/输出缓冲限制见 `core/include/ghosterm/sftp.h`。此接口只关闭本次目录句柄，不替调用方关闭 SFTP 会话。旧 list、realpath、预览与传输没有自动获得新契约。
 
-`gt_sftp_stat_t` 追加大小已知和普通文件标志；Swift 已映射，Android §9.51 的 JNI/Kotlin 后端也已保留这些信息，文件页尚未消费。属于公开结构布局变更，所有绑定与原生消费者须重编译；符号对拍本身不检查旧结构布局。macOS 产品的 `FileEntry` 仍丢弃这些标志，未知大小/特殊类型的页面语义尚未修复。
+`gt_sftp_stat_t` 追加大小已知和普通文件标志；Swift 已映射，Android §9.51 的 JNI/Kotlin 后端也已保留这些信息，文件页已在 §9.52 消费。属于公开结构布局变更，所有绑定与原生消费者须重编译；符号对拍本身不检查旧结构布局。macOS 产品的 `FileEntry` 仍丢弃这些标志，未知大小/特殊类型的页面语义尚未修复。
 
 第三份补丁 `0003-sftp-name-bounds.patch` 校验 NAME 返回路径长度不超过实际 payload，并拒绝空目录项名称。当前主机构建及 Android 构建均应用三份补丁，历史两补丁的设备与打包变异证据不得自动移记为第三份通过。
 
@@ -99,7 +99,7 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 
 此前守卫失败是测试观测面错误：破坏 prefix 收据后，整包校验又比较包收据，因此撤去 prefix 守卫仍被另一道检查拦住。现在 prefix 变异直接执行生产 `verify`，包变异执行 `check_bundle`；两条路径都有合法产物和独立损坏对照。新增 CMake 组实际配置 Core，撤去失败传播后目标红，独立非法 target 对照仍绿，恢复后再次拒绝坏收据。初次 CMake 断言未处理错误输出折行，改为仅归一化空白后复验，不忽略退出码或错误原因；历史失败没有用放宽生产校验来消除。
 
-两端产品接线另验原总预算、取消后停止后续请求、晚到结果隔离和 owner 释放。Android A4 远端浏览/预览后端已由 §9.51 接入，页面与 A5/A6 复制尚待开发；macOS 产品仍用旧 opener，配置、设置、剪贴板和传输错误处理的缺口继续见[路线图](roadmap.md#macos-下一步与共享缺口)。本轮不新增完整 Apple 宿主、其他设备档位或 CI 证据。
+两端产品接线另验原总预算、取消后停止后续请求、晚到结果隔离和 owner 释放。Android A4 远端浏览/预览后端已由 §9.51 接入，页面随后由 §9.52 接入，A5/A6 复制尚待开发；macOS 产品仍用旧 opener，配置、设置、剪贴板和传输错误处理的缺口继续见[路线图](roadmap.md#macos-下一步与共享缺口)。本轮不新增完整 Apple 宿主、其他设备档位或 CI 证据。
 
 
 ## 专用连接中止与 Android 消费边界

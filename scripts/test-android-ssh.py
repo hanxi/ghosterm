@@ -37,18 +37,20 @@ def main():
     if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
     file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or
-                'RemoteFilesTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
+                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1')
     file_data={}
     if file_tests:
         file_key=Path(work)/'file-clientkey'
         run(['ssh-keygen','-q','-t','ed25519','-N','','-f',file_key])
-        with Path(work,'authorized_keys').open('a') as allowed: allowed.write(Path(str(file_key)+'.pub').read_text())
         remote=Path(work)/'android-files';remote.mkdir()
         (remote/'文本.txt').write_text('远端 UTF-8\nline two\n')
         (remote/'zero').write_bytes(b'');(remote/'binary').write_bytes(b'hello\0world')
         (remote/'invalid').write_bytes(b'hello\xff')
         (remote/'large').write_bytes(b'x'*(256*1024+1))
         (remote/'folder').mkdir();(remote/'link').symlink_to('文本.txt')
+        command='internal-sftp -d '+shlex.quote(str(remote))
+        option=command.replace('\\','\\\\').replace('"','\\"')
+        with Path(work,'authorized_keys').open('a') as allowed: allowed.write('command="'+option+'" '+Path(str(file_key)+'.pub').read_text())
         file_data=dict(filePem=file_key.read_text(),remoteRoot=str(remote))
     spec=importlib.util.spec_from_file_location('credential_fixture',ROOT/'scripts/lib/android-ssh-credentials.py')
     credentials=importlib.util.module_from_spec(spec);spec.loader.exec_module(credentials)
@@ -100,6 +102,10 @@ def main():
                 selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else os.environ.get('ANDROID_SSH_TEST_CLASS','com.hanxi.ghosterm.RemoteTerminalTest')
                 output=test('baseline',selection,True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('files_product_mutations',ROOT/'scripts/mutation-check-android-files-product.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('files_owner_mutations',ROOT/'scripts/mutation-check-android-files-owner.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

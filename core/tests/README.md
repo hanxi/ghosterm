@@ -27,7 +27,7 @@
 
 `test_sftp_open` / `sftp_open_e2e` 验证正常 OpenSSH 打开、预先取消、零预算与真实目录，该 §9.47 基线的默认主机构建 Core CTest 数量为 39；目录浏览和提交所有权回归切片的 Core 为 41，新增预览后为 42。独立 `scripts/test-sftp-open.py` 覆盖 17 项协议矩阵，含部分 VERSION/头部 EOF；默认补丁库上的最终矩阵及十组接口变异通过。十一组依赖守卫与真实 CMake 接线变异亦通过，历史失败和修正见[主机依赖说明](../../docs/reference/host-ssh2-build.md)。
 
-§9.47 已验基线为 82 ABI、Apple 80/2、JNI 40/42；目录浏览切片为 83 ABI、Apple 81/2、JNI 40/43；§9.50 预览切片为 84 ABI、Apple 82/2、JNI 40/44；§9.51 新增公开中止入口后为 85 ABI、Apple 83/2、JNI 45/40。Android 后端已消费受控接口，远端页面与 macOS 产品尚未迁移。后续阻塞操作不受 opener 预算保护。构建、协议命令与验证日志见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增手工变异未加入 CI 20 份；默认缺依赖报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
+§9.47 已验基线为 82 ABI、Apple 80/2、JNI 40/42；目录浏览切片为 83 ABI、Apple 81/2、JNI 40/43；§9.50 预览切片为 84 ABI、Apple 82/2、JNI 40/44；§9.51 新增公开中止入口后为 85 ABI、Apple 83/2、JNI 45/40。Android 后端与只读页面已消费受控接口（§9.51/§9.52），macOS 产品尚未迁移。后续阻塞操作不受 opener 预算保护。构建、协议命令与验证日志见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增手工变异未加入 CI 20 份；默认缺依赖报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
 
 ## SFTP 受控目录浏览与提交所有权
 
