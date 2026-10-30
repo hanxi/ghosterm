@@ -8,6 +8,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hanxi.ghosterm.data.*
 import com.hanxi.ghosterm.domain.*
+import com.hanxi.ghosterm.bridge.ConfigBridge
+import com.hanxi.ghosterm.bridge.ConfigIdentityInfo
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -26,6 +30,13 @@ data class ConfigImport(val bytes: ByteArray, val name: String) {
 
 class HostsViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ConfigRepository(File(application.filesDir, "home/.ssh"))
+    private val vault = IdentityVault(File(application.filesDir, "identities"))
+    var identitySources by mutableStateOf<List<ConfigIdentityInfo>>(emptyList()); private set
+    var identityRecords by mutableStateOf<List<IdentityRecord>>(emptyList()); private set
+    var identityLoading by mutableStateOf(false); private set
+    var identityError by mutableStateOf<String?>(null); private set
+    private var identityGeneration = 0L
+    private var identityJob: Job? = null
     var snapshot by mutableStateOf<ConfigSnapshot?>(null); private set
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
@@ -91,6 +102,38 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         if (busy || snapshot == null) return
         draft = HostDraft(host)
         error = null; page = Page.EDIT_HOST
+        loadEditorIdentities()
+    }
+    fun loadEditorIdentities() {
+        val base = snapshot ?: return
+        val editing = draft ?: return
+        val token = ++identityGeneration
+        identityJob?.cancel(); identityLoading = true; identityError = null
+        identitySources = emptyList(); identityRecords = emptyList()
+        identityJob = viewModelScope.launch {
+            try {
+                val loaded = withContext(Dispatchers.IO) {
+                    val sources = editing.original?.let { ConfigBridge.identities(base.bytes, it.alias) }.orEmpty()
+                    sources to vault.inventory()
+                }
+                if (token == identityGeneration && page == Page.EDIT_HOST && snapshot?.revision == base.revision && draft?.original == editing.original) {
+                    identitySources = loaded.first; identityRecords = loaded.second
+                }
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (_: Exception) {
+                if (token == identityGeneration) identityError = "无法读取身份来源或身份列表，草稿已保留；可重试或查看 SSH 配置。"
+            } finally { if (token == identityGeneration) identityLoading = false }
+        }
+    }
+    fun setIdentityFiles(values: List<String>) {
+        val editing = draft ?: return
+        if (!canEditDraft || busy || identityLoading || identityError != null) return
+        val original = identitySources.filter { it.explicitValue }.map { it.value }
+        draft = editing.copy(edit = editing.edit.copy(identityFiles = values.takeUnless { it == original }?.toList()))
+    }
+    private fun clearEditorIdentities() {
+        identityGeneration++; identityJob?.cancel(); identityJob = null
+        identityLoading = false; identityError = null; identitySources = emptyList(); identityRecords = emptyList()
     }
     fun back() { if (!busy) { reloadAfterDiscard = false; if (dirty) discard = true else leave() } }
     private fun leave() {
@@ -99,11 +142,11 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         restoreDraftOrClear()
     }
     private fun restoreDraftOrClear() {
-        if (page != Page.EDIT_HOST) { draft = null; return }
+        if (page != Page.EDIT_HOST) { draft = null; clearEditorIdentities(); return }
         val alias = draft?.original?.alias
         val current = snapshot?.hosts?.firstOrNull { it.alias.equals(alias, ignoreCase = true) }
         if (current == null) { draft = null; page = Page.HOSTS }
-        else draft = HostDraft(current)
+        else { draft = HostDraft(current); loadEditorIdentities() }
     }
     fun confirmDiscard() {
         if (reloadAfterDiscard) {
@@ -127,6 +170,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
         work {
             val saved = withContext(Dispatchers.IO) { repository.saveHost(base, editing.edit.normalized()) }
             snapshot = saved.snapshot; notice = saved.warning ?: "主机已保存"; page = Page.HOSTS; draft = null
+            clearEditorIdentities()
         }
     }
     fun saveConfig() {

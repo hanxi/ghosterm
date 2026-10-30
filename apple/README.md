@@ -35,7 +35,9 @@ apple/
 
 共享主机信任已修复标记误信任：`core/src/ssh.c` 保留标记，匹配的撤销密钥优先于任何顺序的普通信任记录；读取错误明确失败。CA-only、作用于当前主机的未知标记和已解析的 hashed 条目显式报不支持。CA 与明确匹配的普通记录并存时仅依据普通记录信任；尚未实现主机证书验证或哈希匹配。Swift 已接 `.revoked` 状态与拒绝文案，SFTP 产品入口通过真实 sshd 验证不再弹信任/凭据框。普通 SSH、SFTP、tmux 共用此认证流程，但本片未分别重跑 SSH 终端及 tmux UI；详见[共享主机信任验收](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。连接前配置检查已接共享判定，见实现计划 §9.24。
 
-`SSHConfig.identities(alias:)` 已绑定共享 `gt_config_identity_at`，复制 IdentityFile 的原序条目及显式/继承/Include 来源，遇到 Match 或相关非法参数明确抛错。此为 Android 主机身份关联的共享前置；macOS 表单也尚未消费，不能将绑定记为 GUI 已支持。共享 8 C + 1 Swift 变异、Swift 7 项配置定向及两端构建证据见[§9.34](../docs/reference/android-implementation.md#934-identityfile-来源查询与平台绑定2026-10-30)。
+`SSHConfig.identities(alias:)` 已绑定共享 `gt_config_identity_at`，复制 IdentityFile 的原序条目及显式/继承/Include 来源，遇到 Match 或相关非法参数明确抛错。Android 已在其主机编辑/认证/详情使用此来源查询；macOS 表单尚未消费，不能将绑定记为 GUI 已支持。共享 8 C + 1 Swift 变异、Swift 7 项配置定向及两端构建证据见[§9.34](../docs/reference/android-implementation.md#934-identityfile-来源查询与平台绑定2026-10-30)。
+
+Android 主机关联写入的 `IdentityFile "ghosterm-identity:<UUID>"` 是该安装的加密容器引用。当前 `SSHCredentialSelector.Storage.readKey` 按文件路径读取，不解析这种引用；复制 Android 配置到 macOS 不会迁移密钥，不能承诺自动关联或直接登录。普通 IdentityFile 路径仍按现有 macOS 规则处理；后续跨端导入需明确重新关联及不支持提示，不把路径读取失败当成可用身份。Android 的选择、保存事务和引用列表验收见[§9.35](../docs/reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)，不改变本端配置/私钥待办。
 
 UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
@@ -76,6 +78,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 文件复制 | 本地↔远端的传输队列、拖放与冲突对话框；无四方向统一复制清单 | 常驻待粘贴清单和四方向复制属于 A4–A6；终端文本剪贴板已接入，不等于文件复制完成 |
 | 普通 shell 退出 | `handlePaneExit` 移除终端叶子，其余文件/终端叶子保留；最后一片退出关闭标签 | 正常 EOF 后保留终端内容供浏览/复制，显式关闭再释放；错误退出不承诺保留 |
 | 设置 | 通用、外观、键盘、配置文件四页 | 最终设计五类、16 项偏好；已提交配置/关于入口，身份设置首片已验（§9.33），完整设置留给 A7 |
+| 主机身份 | 表单仍按文本路径编辑，认证从受限文件读 PEM；来源绑定未接表单 | §9.35 已接本安装容器引用、配置候选和引用主机详情；不提供跨端密钥迁移 |
 | 后台会话 | 显式 tmux 入口已交付，关闭仅断开客户端 | A8 尚未开始；本地终端返回首页不等于进程死亡后保活 |
 
 目录传输也不等于完整目录镜像：`TransferManager.expandDirectory` 下载时排除符号链接，上传枚举遇到符号链接时跳过且不递归。被排除条目不生成子任务，也不进入父任务的跳过计数；只有链接的目录可能按空文件集合报完成。现有目录下载测试明确只提交两个普通文件、排除链接，2026-10-30 定向重跑通过；它使用 fake 后端，验证的是展开/汇总模型，不是真实 SSH 目录复制。需要补齐用户可见的跳过原因和汇总结果，不能将“完成”解释为原目录所有条目均已复制；见路线图的目录复制完整性项。

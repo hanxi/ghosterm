@@ -42,7 +42,9 @@ enum class HostField(val keyword: String, val label: String) {
 
 /** Explicit values and inheritance are independent of the currently effective value. */
 data class HostEdit(val originalAlias: String?, val alias: String, val hostname: String, val user: String,
-                    val port: String, val inherited: Set<HostField> = emptySet()) {
+                    val port: String, val inherited: Set<HostField> = emptySet(),
+                    // null leaves all identity lines untouched; empty removes only this block's lines.
+                    val identityFiles: List<String>? = null) {
     companion object {
         fun from(host: Host?): HostEdit {
             if (host == null) return HostEdit(null, "", "", "", "22")
@@ -61,6 +63,7 @@ data class HostEdit(val originalAlias: String?, val alias: String, val hostname:
         copy(inherited = if (enabled) inherited + field else inherited - field)
     fun normalized() = copy(alias = alias.trim(), hostname = hostname.trim(), user = user.trim(), port = port.trim())
     fun isDirty(previous: Host?): Boolean {
+        if (identityFiles != null) return true
         if (previous == null) return this != from(null)
         return alias != previous.alias || HostField.entries.any { field ->
             val explicit = field.source(previous)?.explicitValue
@@ -68,6 +71,10 @@ data class HostEdit(val originalAlias: String?, val alias: String, val hostname:
         }
     }
     fun validate() {
+        identityFiles?.let { values ->
+            require(values.size <= 256) { "最多设置 256 条身份" }
+            require(values.all { it.isNotEmpty() && it.none { c -> c == '\u0000' || c == '\r' || c == '\n' } }) { "身份引用不能为空或包含换行" }
+        }
         require(alias.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,127}"))) { "别名只能包含字母、数字、点、短横线与下划线" }
         fun validToken(value: String) = value.isNotBlank() && value.none { it.isWhitespace() || it in "\u0000\r\n#\"'\\" }
         if (HostField.HOSTNAME !in inherited) require(validToken(hostname)) { "请填写有效的主机地址，或选择使用继承值" }

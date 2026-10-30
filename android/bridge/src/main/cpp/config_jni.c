@@ -188,6 +188,53 @@ done:
 }
 
 JNIEXPORT jbyteArray JNICALL
+Java_com_hanxi_ghosterm_bridge_ConfigBridge_editIdentityBytes(JNIEnv *env, jobject self,
+        jbyteArray input, jbyteArray name, jobjectArray values) {
+    (void)self;
+    if (!values) { fail(env, "身份列表缺失"); return NULL; }
+    jsize count = (*env)->GetArrayLength(env, values);
+    if (count > 256) { fail(env, "最多设置 256 条身份"); return NULL; }
+    gt_config_t *cfg = parse(env, input);
+    if (!cfg) return NULL;
+    char *alias = utf8(env, name);
+    char *quoted[257] = {0};
+    jbyteArray result = NULL;
+    if (!alias) goto done;
+    for (jsize i = 0; i < count; i++) {
+        jbyteArray item = (*env)->GetObjectArrayElement(env, values, i);
+        char *value = utf8(env, item);
+        (*env)->DeleteLocalRef(env, item);
+        if (!value) goto done;
+        size_t length = strlen(value);
+        if (!length || length > 65536 || strpbrk(value, "\r\n")) {
+            free(value); fail(env, "身份引用为空、过长或包含换行"); goto done;
+        }
+        /* gt_config_edit takes rendered values, while identity_at returns decoded tokens. */
+        quoted[i] = malloc(length * 2 + 3);
+        if (!quoted[i]) { free(value); fail(env, "身份编辑内存不足"); goto done; }
+        size_t offset = 0;
+        quoted[i][offset++] = '"';
+        for (size_t n = 0; n < length; n++) {
+            if (value[n] == '"' || value[n] == '\\') quoted[i][offset++] = '\\';
+            quoted[i][offset++] = value[n];
+        }
+        quoted[i][offset++] = '"'; quoted[i][offset] = 0;
+        free(value);
+    }
+    gt_config_edit_t edit = {.keyword = "IdentityFile", .values = count ? (const char *const *)quoted : NULL};
+    if (gt_config_edit(cfg, alias, &edit, 1, false) != GT_OK) {
+        fail(env, "无法修改身份，请检查配置归属"); goto done;
+    }
+    char *serialized = gt_config_to_string(cfg);
+    if (!serialized) { fail(env, "身份配置序列化失败"); goto done; }
+    result = bytes(env, serialized); free(serialized);
+done:
+    for (jsize i = 0; i < count; i++) free(quoted[i]);
+    free(alias); gt_config_free(cfg);
+    return result;
+}
+
+JNIEXPORT jbyteArray JNICALL
 Java_com_hanxi_ghosterm_bridge_ConfigBridge_renameBytes(JNIEnv *env, jobject self,
         jbyteArray input, jbyteArray name, jbyteArray replacement) {
     (void)self;

@@ -63,6 +63,7 @@ class ConfigRepository(
         ConfigBridge.edit(bytes, alias, changes, create)
     },
     private val renameConfig: (ByteArray, String, String) -> ByteArray = ConfigBridge::rename,
+    private val editIdentityConfig: (ByteArray, String, List<String>) -> ByteArray = ConfigBridge::editIdentities,
 ) {
     private val target = directory.toPath().resolve("config")
     companion object {
@@ -130,8 +131,10 @@ class ConfigRepository(
         if (previous.hosts.any { it.alias != host?.alias && it.alias.equals(edit.alias, ignoreCase = true) })
             throw ConfigAccess("该主机别名已存在")
         val changes = edit.changes(host)
+        val oldIdentities = if (host != null && edit.identityFiles != null) ConfigBridge.identities(previous.bytes, host.alias) else emptyList()
+        val identityChanged = edit.identityFiles != null && edit.identityFiles != oldIdentities.filter { it.explicitValue }.map { it.value }
         val renaming = host != null && host.alias != edit.alias
-        if (host != null && changes.isEmpty() && !renaming) return ConfigSaved(load().also { if (it.revision != previous.revision) throw ConfigConflict() })
+        if (host != null && changes.isEmpty() && !renaming && !identityChanged) return ConfigSaved(load().also { if (it.revision != previous.revision) throw ConfigConflict() })
         val renamed = if (renaming) renameConfig(previous.bytes, host!!.alias, edit.alias) else previous.bytes
         if (renaming) {
             // The shared parser owns token semantics; this only checks other lines' bytes.
@@ -142,11 +145,23 @@ class ConfigRepository(
             before.removeAt(header); after.removeAt(header)
             if (before != after) throw ConfigAccess("重命名改变了其他配置行，已停止保存")
         }
-        val candidate = if (host != null && changes.isEmpty()) renamed else editConfig(renamed, edit.alias, changes, host == null)
+        val fieldsEdited = if (host != null && changes.isEmpty()) renamed else editConfig(renamed, edit.alias, changes, host == null)
+        val candidate = if (identityChanged) editIdentityConfig(fieldsEdited, edit.alias, edit.identityFiles!!) else fieldsEdited
+        if (identityChanged) {
+            // Only Core's exact own-block source lines may change, not every IdentityFile in the file.
+            fun withoutOwnIdentityLines(bytes: ByteArray): String {
+                val allowed = ConfigBridge.identities(bytes, edit.alias).filter { it.explicitValue }.map { it.sourceLine - 1 }.toSet()
+                val lines = bytes.toString(Charsets.UTF_8).split('\n')
+                return lines.mapIndexed { index, line -> if (index < lines.lastIndex) "$line\n" else line }
+                    .filterIndexed { index, _ -> index !in allowed }.joinToString("")
+            }
+            if (withoutOwnIdentityLines(fieldsEdited) != withoutOwnIdentityLines(candidate))
+                throw ConfigAccess("身份编辑改变了其他配置行，已停止保存")
+        }
         // Refuse an edit if the shared editor touched unrelated lines. This is a
         // byte-preservation guard, not a second evaluator of ssh_config semantics.
         if (host != null) {
-            val keys = changes.keys.joinToString("|") { Regex.escape(it) }
+            val keys = (changes.keys + if (identityChanged) setOf("IdentityFile") else emptySet()).joinToString("|") { Regex.escape(it) }
             val lines = Regex("(?im)^[\\t ]*(?:$keys)(?:[\\t =])[^\\n]*(?:\\n|$)")
             if (lines.replace(renamed.toString(Charsets.UTF_8), "") != lines.replace(candidate.toString(Charsets.UTF_8), ""))
                 throw ConfigAccess("配置编辑改变了其他指令，已停止保存；请使用 SSH 配置页")
@@ -155,6 +170,10 @@ class ConfigRepository(
         }
         val parsed = snapshot(candidate, previous.revision)
         val effective = parsed.hosts.firstOrNull { it.alias == edit.alias } ?: throw ConfigAccess("编辑后找不到主机")
+        if (identityChanged) {
+            val declared = ConfigBridge.identities(candidate, edit.alias).filter { it.explicitValue }.map { it.value }
+            if (declared != edit.identityFiles) throw ConfigAccess("身份未按请求写入或恢复继承，原配置未修改")
+        }
         for (field in HostField.entries) {
             if (field.keyword !in changes) continue
             val requested = changes[field.keyword]

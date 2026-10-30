@@ -244,6 +244,6 @@ private fun EditHostPage(model: HostsViewModel) {
                 }
             }
         }
-        Text("身份与认证将在连接功能中接入。现有 IdentityFile 和其他指令保留。", style = MaterialTheme.typography.bodySmall)
+        HostIdentityEditor(model)
     }
 }

@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import com.hanxi.ghosterm.bridge.SSHAuthPhase
+import com.hanxi.ghosterm.data.IdentityReferences
 
 /** Credentials remain in this non-saveable dialog, never in a route or saved-state bundle. */
 @Composable
@@ -28,6 +29,13 @@ fun SSHConnectionDialog(model: SessionsViewModel) {
     var username by remember(attempt.id) { mutableStateOf(attempt.username) }
     var secret by remember(attempt.id, prompt?.request) { mutableStateOf("") }
     var identityId by remember(attempt.id, prompt?.request) { mutableStateOf<String?>(null) }
+    var otherIdentity by remember(attempt.id, prompt?.request) { mutableStateOf(false) }
+    val candidates = remember(attempt.target.identityFiles, attempt.identities) {
+        IdentityReferences.candidates(attempt.target.identityFiles, attempt.identities)
+    }
+    LaunchedEffect(attempt.id, prompt?.request, candidates.identities) {
+        if (identityId == null && !otherIdentity) identityId = candidates.identities.firstOrNull()?.id
+    }
     var passwordMode by remember(attempt.id, prompt?.request) { mutableStateOf(prompt?.methods?.and(1) == 0) }
     DisposableEffect(attempt.id, prompt?.request) { onDispose { secret = "" } }
     val selected = attempt.identities.firstOrNull { it.id == identityId }
@@ -68,15 +76,24 @@ fun SSHConnectionDialog(model: SessionsViewModel) {
                                 visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                                 modifier = Modifier.testTag("ssh-secret"), enabled = ready)
                         } else if (keyAvailable) {
-                            if (attempt.target.identityFiles.isNotEmpty()) Text("配置身份路径：${attempt.target.identityFiles.joinToString()}。请选择已导入的对应密钥。",style = MaterialTheme.typography.bodySmall)
+                            if (attempt.target.identityFiles.isNotEmpty()) {
+                                Text("主机配置中的身份", style = MaterialTheme.typography.titleSmall)
+                                candidates.issues.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                TextButton(onClick = { otherIdentity = !otherIdentity; identityId = null; secret = "" }, enabled = ready,
+                                    modifier = Modifier.testTag("ssh-other-identity")) {
+                                    Text(if (otherIdentity) "返回配置身份" else "选择其他身份（仅本次）")
+                                }
+                            }
                             if (attempt.identities.isEmpty()) Text("还没有导入的密钥。导入会保存到本机加密容器，原文档不修改。")
-                            attempt.identities.forEach { identity ->
+                            val choices = if (attempt.target.identityFiles.isEmpty() || otherIdentity) attempt.identities else candidates.identities
+                            choices.forEach { identity ->
                                 TextButton(onClick = { identityId = identity.id; secret = "" }, enabled = ready,
                                     modifier = Modifier.fillMaxWidth().testTag("ssh-key-${identity.id}")) {
                                     Text((if (selected?.id == identity.id) "✓ " else "") + identity.name)
                                 }
                             }
                             OutlinedButton(onClick = { if (model.beginIdentityImport(attempt.id,prompt)) {
+                                otherIdentity = true; identityId = null; secret = ""
                                 try { importer.launch(arrayOf("*/*")) }
                                 catch (_: Exception) { model.identityImportLaunchFailed() }
                             } },enabled = ready) { Text("导入密钥") }

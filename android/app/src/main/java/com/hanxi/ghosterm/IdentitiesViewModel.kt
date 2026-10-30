@@ -12,6 +12,9 @@ import java.io.File
 /** Settings owns its own import request; it never reuses an SSH authentication request. */
 class IdentitiesViewModel(application: Application) : AndroidViewModel(application) {
     private val vault = IdentityVault(File(application.filesDir,"identities"))
+    private val repository = ConfigRepository(File(application.filesDir,"home/.ssh"))
+    var usages by mutableStateOf<List<IdentityUsage>>(emptyList()); private set
+    var usageError by mutableStateOf<String?>(null); private set
     var records by mutableStateOf<List<IdentityRecord>>(emptyList()); private set
     var selected by mutableStateOf<IdentityRecord?>(null); private set
     var info by mutableStateOf<IdentityPublicInfo?>(null); private set
@@ -25,7 +28,7 @@ class IdentitiesViewModel(application: Application) : AndroidViewModel(applicati
     private var pickerGeneration: Long? = null
     private var job: Job? = null
     fun enter() { present = true; reload() }
-    fun leave() { present = false; invalidate(); selected = null; info = null; confirmingRemoval = false }
+    fun leave() { present = false; invalidate(); selected = null; info = null; usages = emptyList(); usageError = null; confirmingRemoval = false }
     private fun invalidate() {
         generation++; job?.cancel(); job = null; busy = false
         pickerGeneration = null; pickerPending = false
@@ -44,6 +47,7 @@ class IdentitiesViewModel(application: Application) : AndroidViewModel(applicati
     private fun current(token: Long) = present && generation == token
     fun reload() {
         invalidate(); records = emptyList(); selected = null; info = null; confirmingRemoval = false
+        usages = emptyList(); usageError = null
         work { token ->
             val loaded = withContext(Dispatchers.IO) { vault.inventory() }
             if (current(token)) records = loaded
@@ -52,11 +56,25 @@ class IdentitiesViewModel(application: Application) : AndroidViewModel(applicati
     fun open(record: IdentityRecord) {
         if (busy || pickerPending || record !in records) return
         selected = record; info = null; error = record.problem; notice = null
-        if (record.identity == null) return
+        usages = emptyList(); usageError = null
         work { token ->
-            val loaded = withContext(Dispatchers.IO) { vault.details(record) }
-            if (current(token) && selected == record) info = loaded
+            val loaded = withContext(Dispatchers.IO) {
+                val publicInfo = runCatching { record.identity?.let { vault.details(record) } }
+                val references = try {
+                    Result.success(IdentityReferences.usages(repository.load(), record.id) { ensureActive() })
+                } catch (cancel: CancellationException) { throw cancel }
+                catch (failure: Exception) { Result.failure<List<IdentityUsage>>(failure) }
+                publicInfo to references
+            }
+            if (current(token) && selected == record) {
+                info = loaded.first.getOrNull()
+                error = loaded.first.exceptionOrNull()?.message ?: record.problem
+                usages = loaded.second.getOrDefault(emptyList())
+                usageError = if (loaded.second.isFailure) "无法确定引用主机，请检查 SSH 配置后重新载入；不能视为未被使用。" else null
+            }
         }
+        // Public metadata damage remains visible while the independent reference query runs.
+        error = record.problem
     }
     /** Detail back never leaves settings; cancelling a read invalidates late results. */
     fun backToList(): Boolean {
@@ -100,7 +118,7 @@ class IdentitiesViewModel(application: Application) : AndroidViewModel(applicati
         work { token ->
             withContext(Dispatchers.IO) { vault.removeRecord(record) }
             val loaded = withContext(Dispatchers.IO) { vault.inventory() }
-            if (current(token)) { records = loaded; selected = null; info = null; notice = "身份已移除" }
+            if (current(token)) { records = loaded; selected = null; info = null; usages = emptyList(); usageError = null; notice = "身份已移除" }
         }
     }
 }
