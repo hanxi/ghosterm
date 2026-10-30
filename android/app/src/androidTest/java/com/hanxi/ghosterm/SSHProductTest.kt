@@ -107,7 +107,7 @@ class SSHProductTest {
             val frame = terminal().currentFrame
             fail("remote PID after recreation, expected $pid: " + frame?.let { (0 until it.rows).joinToString(" / ",transform = it::line) })
         }
-        ui.onNodeWithText("主机",useUnmergedTree = true).performClick()
+        ui.onNodeWithTag("terminal-back").performClick()
         ui.onNodeWithText(alias).performClick()
         ui.runOnIdle { assertEquals(id,sessions().active!!.id); assertEquals(1,sessions().sessions.size) }
     }
@@ -139,12 +139,12 @@ class SSHProductTest {
         ui.onNodeWithText(alias).performClick()
         val second = login(trust = false)
         assertNotEquals(first,second); assertEquals(2,sessions().sessions.size)
-        ui.onNodeWithText("主机",useUnmergedTree = true).performClick()
+        ui.onNodeWithTag("terminal-back").performClick()
         ui.onNodeWithText(alias).performClick()
         ui.onNodeWithText("选择 $alias 的会话").assertIsDisplayed()
         ui.onNodeWithTag("ssh-session-$first").performClick()
         ui.runOnIdle { assertEquals(first,sessions().active!!.id); assertEquals(2,sessions().sessions.size) }
-        ui.onNodeWithText("主机",useUnmergedTree = true).performClick()
+        ui.onNodeWithTag("terminal-back").performClick()
         ui.onNodeWithText("本地终端").performClick()
         ui.waitUntil(10000) { sessions().active?.remoteAlias == null && sessions().active?.state?.connected == true }
         assertEquals(3,sessions().sessions.size)

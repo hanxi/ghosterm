@@ -1,6 +1,8 @@
 package com.hanxi.ghosterm
 
 import android.os.Bundle
+import android.content.Intent
+import android.app.Activity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -41,10 +43,20 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel()) {
+fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel()) {
     val runtime by runtimeModel.state.collectAsState()
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) hosts.readImport(uri) }
     val identityImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(),identities::completeImport)
+    val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data=result.data
+        files.picked(if(result.resultCode==Activity.RESULT_OK) data?.data?.toString() else null,data?.flags ?: 0)
+    }
+    fun pickFolder() {
+        if(files.beginPicker()) try { treePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)) }
+        catch (_: Exception) { files.pickerFailed() }
+    }
     fun back() {
         if (hosts.page == Page.KNOWN_HOSTS) {
             if (knownHosts.backToList()) return
@@ -56,15 +68,19 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         }
         hosts.back()
     }
-    BackHandler(!sessions.visible && hosts.page != Page.HOSTS) { back() }
+    BackHandler(!sessions.visible && !files.visible && hosts.page != Page.HOSTS) { back() }
     val colors = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFFBACDFF),
         background = Color(0xFF171B20), surface = Color(0xFF21262D), onSurface = Color(0xFFE4E8EE))
         else lightColorScheme(primary = Color(0xFF425F96), background = Color(0xFFF7F8FC), surface = Color(0xFFF7F8FC))
     MaterialTheme(colorScheme = colors) {
         SSHConnectionDialog(sessions)
         SSHSessionChoices(sessions)
+        if (files.visible) {
+            FilesScreen(files, ::pickFolder)
+            return@MaterialTheme
+        }
         if (sessions.visible && sessions.active != null) {
-            TerminalScreen(sessions)
+            TerminalScreen(sessions, files::enter)
             return@MaterialTheme
         }
         Scaffold(topBar = {
@@ -111,7 +127,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     }
                 }
                 when (hosts.page) {
-                    Page.HOSTS -> HostsPage(hosts, sessions)
+                    Page.HOSTS -> HostsPage(hosts, sessions, files::enter)
                     Page.EDIT_HOST -> EditHostPage(hosts)
                     Page.KNOWN_HOSTS -> KnownHostsScreen(knownHosts)
                     Page.IDENTITIES -> IdentitiesScreen(identities) {
@@ -177,11 +193,12 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
 }
 
 @Composable
-private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel) {
+private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFiles: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (sessions.selectingNewRemote) item {
             Row { Text("选择要新建会话的主机",Modifier.weight(1f)); TextButton(onClick = sessions::cancelNewRemote) { Text("取消") } }
         }
+        item { OutlinedButton(onClick=openFiles,modifier=Modifier.fillMaxWidth()) { Text("本机文件") } }
         item { OutlinedTextField(model.query, { model.query = it }, modifier = Modifier.fillMaxWidth(),
             label = { Text("搜索名称或地址") }, singleLine = true) }
         if (model.snapshot != null && model.filteredHosts.isEmpty()) item {

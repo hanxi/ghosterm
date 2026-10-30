@@ -102,6 +102,33 @@ class TerminalLifecycleTest {
         assertEquals(original, model().active!!.id)
     }
 
+    @Test fun filesNavigationPreservesOwnerPidAndResetsTerminalInputState() {
+        open()
+        val original=model().active!!
+        ui.runOnIdle { terminal().commitText("stty -echo; PS1=''; printf '\\033[2J\\033[HFILES_PID:%s\\r\\n' \"\u0024\u0024\"\r") }
+        ui.waitUntil(10_000) { ui.runOnIdle { terminal().currentFrame?.line(0)?.matches(Regex("FILES_PID:[0-9]+"))==true } }
+        val pid=ui.runOnIdle { terminal().currentFrame!!.line(0) }
+        ui.onAllNodesWithText("会话 · 1").assertCountEquals(1)
+        ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(1)
+        ui.onNodeWithText("Ctrl").performClick();ui.onNodeWithText("Ctrl ✓").performClick()
+        ui.onNodeWithTag("terminal-files").performClick()
+        ui.onNodeWithTag("terminal-surface").assertDoesNotExist()
+        ui.onNodeWithTag("file-location").assertIsDisplayed()
+        ui.runOnIdle { assertSame(original,model().active);assertTrue(original.state.connected) }
+        ui.activityRule.scenario.recreate()
+        ui.onNodeWithTag("file-location").assertIsDisplayed()
+        ui.onNodeWithText("返回").performClick()
+        ui.waitUntil { ui.runOnIdle { find(ui.activity.window.decorView)?.currentFrame!=null } }
+        ui.runOnIdle {
+            assertSame(original,model().active);assertEquals(1,model().sessions.size)
+            assertEquals(0,terminal().ctrl);assertTrue(terminal().hasFocus())
+            terminal().commitText("printf '\\033[2J\\033[HFILES_PID:%s\\r\\n' \"\u0024\u0024\"\r")
+        }
+        ui.waitUntil(10_000) { ui.runOnIdle { terminal().currentFrame?.line(0)==pid } }
+        ui.onNodeWithTag("terminal-back").performClick()
+        ui.onNodeWithText("继续本地终端").assertIsDisplayed()
+    }
+
     @Test fun returningFromBackgroundConsumesOutputWithoutReplacingTheSession() {
         open()
         val original = model().active!!.id
@@ -109,7 +136,7 @@ class TerminalLifecycleTest {
         // written. A builtin shell loop would misleadingly report IDLE while busy.
         ui.runOnIdle { terminal().commitText("stty -echo; printf '\\033[2J\\033[H'; sh -c 'read token; seq 1 100000'; printf 'BACKGROUND_EXIT:%d\\r\\nBACKGROUND_DONE\\r\\n' \"\u0024?\"\r") }
         ui.waitUntil(10_000) { model().active?.state?.child == 3 }
-        ui.onNodeWithText("主机", useUnmergedTree = true).performClick()
+        ui.onNodeWithTag("terminal-back").performClick()
         ui.onNodeWithTag("terminal-surface").assertDoesNotExist()
         // Release the child's input barrier only after the View is gone. Its
         // >400 KiB output exceeds the PTY buffer, so it cannot return without IO.

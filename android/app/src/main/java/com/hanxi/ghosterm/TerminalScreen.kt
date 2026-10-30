@@ -18,7 +18,7 @@ import com.hanxi.ghosterm.terminal.TerminalView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TerminalScreen(model: SessionsViewModel) {
+fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
     val session = model.active ?: return
     var terminal by remember(session.id) { mutableStateOf<TerminalView?>(null) }
     var ctrl by remember(session.id) { mutableIntStateOf(0) }
@@ -74,8 +74,8 @@ fun TerminalScreen(model: SessionsViewModel) {
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = model::home) { Text("主机") }
                 TextButton(onClick = { list = true }) { Text("会话 · ${model.sessions.size}") }
+                TextButton(onClick = { terminal?.hideKeyboard();openFiles() },modifier=Modifier.testTag("terminal-files")) { Text("文件") }
                 TextButton(onClick = { if (imeVisible) terminal?.hideKeyboard() else terminal?.showKeyboard() },
                     modifier = Modifier.testTag("terminal-keyboard"), enabled = !session.state.terminal) {
                     Text(if (imeVisible) "收起键盘" else "显示键盘")

@@ -211,7 +211,7 @@ class TerminalScreenTest {
         val first = terminal().currentFrame!!
         val pid = first.line(0)
         waitFor("${first.rows} ${first.cols}")
-        ui.onNodeWithText("主机", useUnmergedTree = true).performClick()
+        ui.onNodeWithTag("terminal-back").performClick()
         ui.onNodeWithText("继续本地终端").assertIsDisplayed()
         ui.onNodeWithTag("terminal-surface").assertDoesNotExist()
         assertEquals(id, sessions.active!!.id)
@@ -726,7 +726,7 @@ class TerminalScreenTest {
     @Test fun ctrlDoesNotCrossPagesSessionsOrNormalExit() {
         val original = sessions.active!!.id
         ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
-        ui.onNodeWithText("主机", useUnmergedTree = true).performClick()
+        ui.onNodeWithTag("terminal-back").performClick()
         ui.onNodeWithText("继续本地终端").performClick()
         ui.waitUntil { viewOrNull()?.currentFrame != null }
         ui.onNodeWithText("Ctrl").assertIsDisplayed()

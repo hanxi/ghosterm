@@ -19,5 +19,13 @@
         <provider android:name="com.hanxi.ghosterm.IdentityFixtureControlProvider"
             android:authorities="com.hanxi.ghosterm.test.keycontrol"
             android:exported="true" />
+        <provider android:name="com.hanxi.ghosterm.FilesDocumentsProvider"
+            android:authorities="com.hanxi.ghosterm.test.browser"
+            android:exported="true" android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
     </application>
 </manifest>
