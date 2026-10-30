@@ -118,6 +118,20 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 任务执行期间强持有 backend；`finish` 释放该引用，`retryBackend` 只保留弱引用。因此重试复用尚存活的原端点，不会自动重连、重新认证或从断点续传。端点已经释放时显示“原传输端点已关闭，无法重试”；端点仍在但已断线也可能再次失败。关闭文件窗格不取消在途任务，并不意味着任务结束后仍能无条件重试。Android A6 必须单独实现端点重新获取与冲突复核，不能照搬这一生命周期作为完整重试契约。
 
+### 递归权限与链接边界
+
+`FilesPanelModel.setPermissions` 对 walk 返回的每个条目调用 chmod，没有排除 `.symlink`。本地 `LocalFileBackend.chmod_` 先 lstat 再调用 `Darwin.chmod`，没有“不跟随链接”的修改路径；目录内链接因此可能把权限修改引向选中目录以外的目标。远端调用 `gt_sftp_chmod` → `libssh2_sftp_setstat`，也没有单独的链接处理契约。目录复制跳过链接的规则不适用于当前权限操作，不能把两者混称为“递归操作都不跟随链接”。
+
+这是源码核对，未执行权限修改探针。后续应明确链接跳过/不支持策略，汇总跳过与扫描失败，并以目录内链接指向隔离外部文件的场景验证外部目标权限不变；路径检查与实际修改之间的替换竞态也须独立处理。正常文件 chmod 作为对照，不能只增加一条 UI 提示便记为完成。
+
+### Quick Look 预览边界
+
+当前 `WorkspaceFileView` 将本地预览接到 `QuickLook.toggle`，远端接到 `QuickLook.previewRemote`。后者创建 `NSTemporaryDirectory()/ghosterm-preview/<UUID>/<文件名>`，经 `TransferManager` 下载，只有 `.done` 回调才打开预览；每次远端请求都会生成新副本。测试/开发时须将 `TMPDIR` 指向工程 `tmp/`，不能假定这条生产路径固定使用仓库目录。
+
+当前代码没有预览大小限额、应用层缓存回收或请求代次校验；关闭文件窗格不会撤销该回调，多次预览的完成顺序也没有保护。`QuickLookPanel` 替换 URL 或隐藏窗口时没有删除副本；目录创建错误被 `try?` 忽略，后续下载失败可进入传输队列错误状态。不能承诺关闭预览立即清理、过期下载不会再弹窗，或大文件已受限。`FilesDragDropTests.testQuickLookTempPath` 仅验证路径形状，真实 QLPreviewPanel 弹出与这些生命周期场景没有因此通过。
+
+修复须为预览建立请求身份、大小/磁盘预算和副本所有权，晚到结果不得覆盖当前预览；失败、取消及预览释放后的清理不能删除其他任务或原文件。Android A4 另按其受控缓存和只读打开契约实现，不直接复制 macOS 当前流程。待办统一见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+
 ## 构建与验证
 
 在仓库根运行；full libghostty 产物须先由 `scripts/build-ghostty.sh` 生成：
@@ -132,6 +146,8 @@ bash scripts/apple-app-gate.sh
 原生编译、完整宿主测试、像素/系统交互、变异验证分别记账。`apple-app-gate.sh` 的 SSH 部分需隔离 sshd 成功启动；看到 SKIP 要保留原因。已接入 CI 不等于对应提交已在 macOS 15 运行通过；当前已知本机与历史结果见[路线图验收记录](../docs/reference/roadmap.md#验收记账与历史记录)。
 
 当前 full workflow 尚未对 `apple-app-gate.sh` 的全部跳过输出统一判失败；sshd 启动失败时，该脚本可以只跑其余用例后返回成功。图标缺依赖失败及打包/认证变异的 SKIP 守卫不能替代这项检查，后续需按必跑项目收口。
+
+另一个独立缺口是失败传播：`apple-app-gate.sh` 使用 `set -uo pipefail`，没有 `-e`，调用 `check-abi-apple.sh` 后也没有检查返回值。因此 ABI 子检查失败本身不会终止这个脚本，后续构建/测试若成功，仍可能打印 `APPLE APP GATE PASS`。目前应单独核验上面的 ABI 命令结果；该源码结论不表示已复现某次 CI 假绿。修复需要隔离注入 ABI 失败并证明宿主闸门非零退出，保留正常本地构建对照，不能只补日志文字。
 
 仅安装 Command Line Tools 时，`swift build` 成功不代表 XCTest 可用；本机曾在测试编译时报 `no such module 'XCTest'`。有完整 Xcode 时可对单次命令设置 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，临时目录设为工程 `tmp/`，无需更改全局 `xcode-select`。共享 C archive 更新后的绑定测试需确保重新链接；旧 SwiftPM 测试可执行文件不能作为新 C 实现的证据。
 

@@ -256,6 +256,8 @@ macOS 包只依赖普通引擎 SDK、共享 C 核心、原生 UI、图标和主�
 
 当前图标脚本缺依赖直接失败；workflow 对打包/认证变异日志中的 `SKIP` 有显式拦截，并在 Apple 步骤起跑前检查 Swift；没有对所有宿主闸门输出统一拒绝跳过。`apple-app-gate.sh` 在 sshd 启动失败时仍会跳过 SSH e2e、运行其余用例后返回成功；CI 已接线不等于该条 SSH 证据已取得。统一覆盖审计仍是[路线图待办](../reference/roadmap.md#macos-下一步与共享缺口)。
 
+宿主脚本还未显式传播 `check-abi-apple.sh` 的失败返回值（未启用 `set -e`，该调用没有失败分支），后续成功可能覆盖 ABI 检查失败。复核构建记录时应单独核验 ABI 步骤和真实 SSH 覆盖，不能只取最后的 `APPLE APP GATE PASS`。这是源码核对发现的独立待修项，不代表已复现某次发布包或 CI 失败；详见 [Apple 构建与验证](../../apple/README.md#构建与验证)。
+
 ## 相关文档
 
 - [能力矩阵](../reference/capability-matrix.md)——构建与交付一行的状态口径
