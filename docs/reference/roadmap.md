@@ -8,7 +8,7 @@ Android 已交付输入后短时取帧和模拟器 debug 性能基线，新增�
 
 ## 当前进度总览
 
-本轮文档核对基线为 `b8e980c`。共享信任事务和 Android 管理页面已完成各自切片；macOS 尚无管理页面，SSH 配置与终端设置的保存缺口也未因此修复。该次核对记录两端单地址限制；后续 Android 已按 §9.40 接入 native 候选推进，macOS 仍为 P1 待办。文档核对与后续实现验收分别记账。
+当前源码核对基线为 `c9a5760`。Android 已按 §9.40 接入 native 候选推进，macOS 单地址连接仍为 P1 待办；普通 shell 通道的剩余预算与取消交接在两端都未完成，现独立列项。共享信任事务和 Android 管理页面已完成各自切片；macOS 尚无管理页面，SSH 配置与终端设置的保存缺口也未因此修复。历史 `b8e980c` 文档核对及后续实现验收分别记账。
 
 主机信任记录管理的共享读写侧已补齐：快照保留真实记录与原始字节范围，TOFU/移除共用锁、备份、原子替换，两端绑定保留已提交/冲突结果。Android repository、指纹和管理页面已由 §9.39 验收，macOS 没有管理页面，见[§4.5](android-implementation.md#45-主机信任记录管理)及[§9.37](android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)。
 
@@ -107,6 +107,7 @@ M4.6 的 S1–S7 与 macOS S6 已完成，不能再写“队列 UI 未接”。i
 | P0 | macOS 主机表单保真 | `HostListModel.directives` 用 Swift 按空格扫描原文；`HostEditorSheet.loadInitial` 对多行 IdentityFile 反复赋值，最终只显示最后一行；`save` 提交全部显示字段；`AppModel.applyEdits/addHost` 先改内存再写盘，失败路径未重建模型 | 用共享块/指令契约读取，正确处理 tab、`=`、引号、重复标量与累积身份；保留身份顺序和继承来源，仅改目标字段，未改保存字节不变；候选配置成功落盘后才发布，失败不污染后续编辑；真实表单回归与变异 |
 | P0 | 私钥安全存储接线 | `SSHCredentialSelector.Storage.readKey` 每次读取受限磁盘 PEM；Keychain 实际保存口令/密码，旧 PEM helper 不等于生产接线；Android 的 `ghosterm-identity:<UUID>` 不由本端解析 | 明确导入与存储所有权，平台安全存储承接私钥；跨端配置导入明确要求重新关联，不假定配置携带密钥；取消/拒绝清理与既有认证回归；不得更改铁律 #5 迁就现状 |
 | P1 | macOS SSH 多地址连接 | `SSHAddressResolver` 遇所选族 `NoSuchRecord` 才换族，首个成功答案即结束解析，`SSHAuthenticationFlow` 只创建一个地址的认证器；TCP 失败不遍历其余候选。Android 已按 §9.40 接入自己的 native owner，未改变 Apple 实现 | 保留原 hostname 的主机验证身份，在同一总预算及请求身份内尝试候选；仅在 TCP 阶段切换，不绕过协议/主机验证/凭据失败。验证首地址拒绝或无响应、备用可达、IPv4/IPv6、取消与晚到结果；macOS SSH/SFTP/tmux 分别验收，见 [Apple 网络边界](../../apple/README.md#ssh-地址选择与取消边界) |
+| P1 | 普通 SSH shell 打开预算与取消（共享/两端） | `gt__ssh_shell_open` 新建 5000 ms 准入预算、取消回调为空；macOS 认证成功即撤销其计时器，Android 外层超时不能中断该 Core 调用。两端的晚到结果保护不等于通道打开可取消 | 将原 deadline 余额和取消信号传入 owner；分别停滞 channel-open、PTY、shell，验证取消/超时/拒绝、后续请求停止、晚到结果隔离和 owner 释放。新增 ABI 同步 Swift/JNI 并真实编译；SFTP/tmux 独立验收，见 [源码边界](../../apple/README.md#ssh-认证后的通道打开边界)与 [实施契约](android-implementation.md#认证后打开-shell-的实施契约) |
 | P2 | 主机信任事务剩余边界 | TOFU 与移除已共用协调、备份和原子替换；Android 管理页已按 §9.39 验收，macOS 无管理页；锁等待有界，文件系统调用不承诺有界；备份暂不自动清理 | 管理页正确处理已提交后失败与快照冲突；备份保留/清理策略另行设计；非协作写者的检查到替换竞态与断电恢复未验，不扩大 §9.37 的证据 |
 | P1 | macOS 终端配置读写 | `SettingsStore.rawConfig` 把读取失败折为空串；初始 stat 为空时不检测后来创建的文件；`merging` 只改首个同名键而 `value` 取最后一个；`applyTerminalSettings` 先写盘再验证引擎，全文替换的恢复错误被 `try?` 忽略 | 区分不存在/读取失败，外部创建也触发冲突；按引擎键语义处理重复项，保存后实际字号/主题符合用户意图；验证失败保留旧文件及 surface，提交/恢复失败明确报告；故障注入和变异见下文 |
 | P1 | macOS 终端剪贴板收尾 | `beffb49` 已接标准 `copy:` / `paste:`、真实选区与系统剪贴板；专用菜单测试显式指定 firstResponder。shim 引擎读取回调仍不可用，写入/确认为空；菜单粘贴直接发送，无确认 | 补全局主菜单自动路由、引擎剪贴板请求、选中自动复制与确认/取消；中文/组合字符/软换行保真，取消零输入，确认使用原始快照；新增目标红、独立键入对照绿、复原绿与 SHA256 |
@@ -206,6 +207,10 @@ A2 首片普通本地入口为系统 `/system/bin/sh`，不是打包一个新 sh
 - [ ] Windows：渲染引擎/后端待验证，ConPTY 尚无实现。
 
 ## 验收记账与历史记录
+
+**跨端文档同步（基于 `c9a5760`，2026-10-30）**：统一当前基线；依据 `AppModel.startSSH`、`SSHAuthenticationFlow`、Android `SessionsViewModel`/native owner 与共享 `gt__ssh_shell_open` 的实际调用链，区分认证预算、通道准入与晚到结果保护，将两端普通 shell 打开取消列为未完成。补齐 Android 对应实施和验收契约；修正终端总览仍泛称“性能待补”的旧描述，保留已交付的模拟器 debug 基线；能力矩阵的 dev 分发条目按工作流路径过滤说明。仅更新文档，不记为代码修复或新增设备/网络/宿主验收，§9.40 的 187 项仍是最新完整设备记录。
+
+本轮 Core **38 项 CTest / 80 ABI**、Apple **78/2**、JNI **39/41** 对拍与 macOS 增量构建通过；31 份 Markdown 的 **383 个本地链接/锚点**、最终原型 16 项偏好键的文档覆盖及 `git diff --check` 通过。日志在 `tmp/docs-cross-platform-final/`；没有重跑完整 macOS 宿主、Android 设备、变异或 CI，也不以增量构建清除历史警告。
 
 **Android SSH 候选地址（2026-10-30）**：完整候选快照与私有 JNI 接入同一 native owner；TCP 有后继候选时 2 秒宽限，共享总 deadline，协商/信任失败不换地址。12 项真实 SSH/设备回环双栈/丢包/取消定向、新增 14 组网络变异、既有 native SSH 14 组和产品 15 组变异通过；另验本轮丢包规则清理的隔离变异与独立规则对照。完整 **187 项设备测试，0 失败/错误/跳过**，按 class/test 去重核验；Core **38 CTest / 80 ABI**、Apple **78/2**、JNI **39/41**、两端构建及文档校验通过。TCP 丢包要求当前 API 36 arm64 / 4 KB 页模拟器可 `su 0`，测试及 runner finally 清理本轮规则。失败修正、日志与未覆盖的真实域名/非零 scope/公网/通道打开取消见[§9.40](android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)。未改 macOS 网络实现、公共 C ABI 或 CI；A2/A3/A7 仍部分完成。
 

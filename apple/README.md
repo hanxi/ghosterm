@@ -92,6 +92,14 @@ macOS 的 [SSHAddressResolver](GhostermCore/Sources/GhostermCore/SSHAddressResol
 
 现有 `SSHAddressResolverTests` 覆盖数字地址/scope、真实 localhost DNS、非法参数及取消释放，不包含多地址 TCP 切换。Android 已由 native owner 接入候选推进，定向与变异范围见 [§9.40](../docs/reference/android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)，不改变本端单地址行为；macOS 的后续完成条件已列入[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。后续保持原始 hostname/端口作为信任身份；自动换地址仅限尚未进入 SSH 协商的 TCP 阶段，不因密钥变化、撤销、拒绝或认证失败换一个地址继续。此段为源码核对，未新增网络故障实测。
 
+### SSH 认证后的通道打开边界
+
+普通终端的生产入口是 `AppModel.startSSH`：先等待 `SSHAuthenticationFlow` 完成，再在连接 owner 队列调用 `Transport.openSSHShell`。认证完成时会撤销认证计时器；传给下一阶段的只是 `SSHSession`，没有剩余 deadline。共享 `gt__ssh_shell_open` 为 channel-open → PTY → shell 新建一个 5000 ms 的准入预算，取消回调传 `NULL`。这不是从 DNS 开始贯穿到 shell 可输入的单一 60 秒预算，也不能用已建立会话的 `SessionController.stop()` 证据证明打开阶段可立即取消。
+
+关闭连接中的窗格时，`cancelledConnects` 和窗格 ID 检查会阻止成功返回的旧 transport 挂到已关闭窗格；这项结果归属保护不等于中断正在执行的 Core 通道请求。现有预算在非阻塞请求的 EAGAIN 等待中检查，锁等待和清理不能据此承诺严格的五秒端到端上界。此处为源码核对，没有新增停滞服务器实测。
+
+后续需将原请求的剩余预算和取消信号传到通道 owner，分别验证 channel-open、PTY 和 shell 三个阶段停滞、拒绝、超时及取消；取消后不得继续发后续请求或挂载晚到会话，并验证 owner 释放和正常真实 shell 对照。若修改公开 ABI，同步 Swift/JNI 与真实平台构建。SFTP 子系统和 tmux 管理/attach 各有入口，须独立验收，不能从普通 shell 的修复推定它们已完成。跨端计划见 [Android 网络收尾](../docs/reference/android-implementation.md#46-a3-网络与取消收尾)及[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+
 ### 与 Android 最终方案的差异
 
 | 操作 | macOS 当前实现 | Android 方案与实现边界 |

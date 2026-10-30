@@ -52,6 +52,8 @@ POSIX PTY 在子进程 exec 前清空继承的信号屏蔽集合，调用线程�
 
 Android 连接编排已由 native owner 顺序推进候选地址：只在 TCP 阶段换地址，共用 DNS 后剩余总预算，协商开始后不因认证/信任失败换服务器。Core 认证器仍消费单个已解析地址，主机验证使用原始 hostname；TerminalSurface 不感知候选或重试。macOS DNS 仅在所选族缺记录时换族、首个有效答案即完成，TCP 备用地址推进仍待实现。两端分别记账，见 [Apple 网络说明](../../apple/README.md#ssh-地址选择与取消边界)与 [Android §9.40](../reference/android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)。
 
+认证完成和终端可输入是两个阶段。当前普通 `gt_transport_open_ssh_shell` 为 channel-open/PTY/shell 另建 5000 ms 准入预算，没有调用方取消回调；Android 外层连接超时与两端的晚到结果保护不代表 Core 请求可中断。macOS 认证定时器在成功后撤销，剩余预算未传入 shell 打开。后续须在 owner 与 C ABI 接缝完成预算/取消交接，不能让 TerminalSurface 感知认证或在 UI 线程直接关闭底层连接，见 [通道边界](../../apple/README.md#ssh-认证后的通道打开边界)及 [Android 实施契约](../reference/android-implementation.md#认证后打开-shell-的实施契约)。
+
 ## 可选后台会话
 
 Shell 提示符集成是独立的用户安装脚本：`scripts/shell-integration/mouse-recovery.*` 在实际 Bash/Zsh 的提示符钩子中输出鼠标模式关闭序列，远端需在远端加载。App、Transport 与 TerminalSurface 不在系统唤醒时强制重置，也不自动安装脚本；它不提供远端 cwd 或新的后台会话机制。边界与已测范围见[鼠标残留恢复](../how-to/mouse-report-recovery.md)。

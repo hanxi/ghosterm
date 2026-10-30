@@ -11,7 +11,7 @@ surface.resize(cols, rows)    ← 网格尺寸变化（要同时通知 transport
 | 子目录 | 引擎 | 渲染 | 状态 |
 |---|---|---|---|
 | `apple/` | full libghostty | Metal | ✅ macOS 已接通并有网格/像素/IME 证据；iOS 未交付（见 `terminal/apple/README.md`） |
-| `android/` | libghostty-vt + 自绘 | Canvas | 🟡 本地 Transport→VT→Canvas、InputConnection、文本操作、选区边缘滚动与 Ctrl 生命周期已交付；Ctrl 标点、Gboard 拼音基本路径及按键重复/释放已有模拟器证据（Android 计划 §9.16–§9.17）；完整软硬键盘矩阵与性能仍待补 |
+| `android/` | libghostty-vt + 自绘 | Canvas | 🟡 本地/SSH Transport→VT→Canvas、InputConnection、文本操作与键盘协议已有模拟器证据；输入后短时取帧及 debug 性能基线已验（Android 计划 §9.21）。物理键盘/布局矩阵、真机/release 和长时间负载性能仍待补 |
 | `linux/`（规划） | full libghostty | OpenGL 4.3 core | ❌ |
 | `web/`（规划） | libghostty-vt + 自绘 | Canvas/WebGL（wasm） | ❌ |
 | `harmony/`（规划） | libghostty-vt + 自绘 | ArkUI Canvas | ❌ |

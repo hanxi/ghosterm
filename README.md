@@ -103,7 +103,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准；以下区分生产实现与历史验收，不把原型中的可交互演示记为已实现能力。
 
 - **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档；A2 本地终端、A3 SSH 与 A7 身份/主机验证子页部分交付。最新完整设备证据为 §9.40 的 **187 项通过**；A3 其余网络/取消收尾（候选推进已接）、A4–A6 文件浏览与四方向复制、16 项设置、后台与发行矩阵仍待完成。
-- **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。macOS 尚无 TCP 失败后遍历 DNS 备用地址的实现；Android 已按 §9.40 接入候选推进。
+- **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。macOS 尚无 TCP 失败后遍历 DNS 备用地址的实现；Android 已按 §9.40 接入候选推进。两端普通 shell 打开仍需接入剩余连接预算与取消信号，认证可取消不等于通道打开已可取消，见 [通道边界](apple/README.md#ssh-认证后的通道打开边界)。
 - **共享核心**：最近已记录的 §9.37 验收为 **38 项 CTest / 80 个 ABI**，Apple 引用 78/登记未用 2，JNI 引用 39/登记未用 41。主机信任 TOFU/移除共同事务已交付；Android 管理页面另在 §9.39 验收，macOS 尚无管理页面。共享修复不代表 macOS 的 SSH 配置、终端设置或传输写入事务已完成。
 
 | 能力 | 状态 |
