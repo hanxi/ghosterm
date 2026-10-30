@@ -31,7 +31,7 @@ apple/
 `AppModel.applyEdits/addHost` 先修改内存配置，再调用存储；写盘抛错时只向页面报错，尚未恢复内存模型。`HostListModel.reload` 也未过滤不含通配符的否定模式（如 `!secret`），不能把所有派生条目都视为可连接主机。
 主机列表还没有去重：Core 的 `gt_config_host_pattern` 按块枚举每个模式，`HostListModel.reload` 逐项追加，`HostEntry.id` 又直接使用 pattern；两个同名 Host 块会生成相同 ID 的列表项，连接选择器和管理器均用这些 ID。应把连接目标列表与配置块列表分开：连接目标去重，配置块仍保留独立来源和歧义编辑保护。此处为源码核对，未新增重复行的原生 UI 实测。
 `SSHConfig.inspect(alias:)` 已接入并有值复制/来源转换的定向测试与变异，尚未接入 `HostEditorSheet`；存在 Swift 绑定不表示 macOS 表单已提供继承值展示、别名重命名或完整包含文件编辑。新增接口状态见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。
-已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查切片为 74 / 72+2；IdentityFile 来源查询切片为 75 / 73+2；主机信任快照切片为 79 / 77+2，事务/移除绑定为 80 / 78+2，通道取消入口加入后当前为 81 / 79+2。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
+已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查切片为 74 / 72+2；IdentityFile 来源查询切片为 75 / 73+2；主机信任快照切片为 79 / 77+2，事务/移除绑定为 80 / 78+2，已验通道取消切片为 81 / 79+2；未验收 SFTP 工作区新增重载后为 82 / 80+2，后者不表示产品接线或故障路径已完成。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
 
 共享 TOFU 写入现与 `KnownHosts.remove(path:expected:index:)` 使用同一事务；删除绑定返回 status、committed 与 conflict，提交后的 IO 错误不能解释为未改动。确认期间重新核对撤销/冲突，备份、锁、原子替换与故障验证见[§9.37](../docs/reference/android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)。本端仍没有信任记录管理页面；这项 shared known_hosts 事务不修复 `ConfigStore` 的 SSH 配置保存缺口。
 
@@ -103,6 +103,14 @@ macOS 的 [SSHAddressResolver](GhostermCore/Sources/GhostermCore/SSHAddressResol
 共享通道代码现仅把明确的 PTY/shell 请求拒绝映射为 UNSUPPORTED，断线保持 IO；原 exec/tmux 预算继续调用 `gt__command_expired`。最终 SSH 五组、exec 两组、真实 tmux SSH 六组及 C/Swift 绑定变异已通过；失败过程保留在[切片记录](../docs/reference/android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)。本轮没有新增完整 macOS 宿主或产品取消验收。
 
 macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，分别验证 channel-open、PTY 和 shell 三个阶段停滞、拒绝、超时及取消；取消后不得继续发后续请求或挂载晚到会话，并验证 owner 释放和正常真实 shell 对照。若修改公开 ABI，同步 Swift/JNI 与真实平台构建。SFTP 子系统和 tmux 管理/attach 各有入口，须独立验收，不能从普通 shell 的修复推定它们已完成。跨端计划见 [Android 网络收尾](../docs/reference/android-implementation.md#46-a3-网络与取消收尾)及[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+
+### SFTP 打开与取消边界
+
+`AppModel.makeSFTPFileBackend` 完成认证后，在专用 owner 队列调用无参 `ssh.sftp()`，没有传递原认证的剩余 deadline 或取消回调。专用线程避免在主线程执行这一步，但不保证中途取消能打断 libssh2；晚到结果归属检查也不是底层请求取消。
+
+`2852d6c` 后工作区新增 `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 和 Core controlled API，当前产品没有调用该重载。初始真实 SSH/协议用例和 Swift 变异已通过，但新增“部分 SFTP VERSION 后 EOF”探针超过 12 秒仍未返回；该草稿未验收。Android 同样只有 native helper，尚无远端文件 owner。最新失败、依赖修复要求及接线退出条件见 [Android 计划 §9.44](../docs/reference/android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。
+
+后续需先保证 init 每次调用能返回、部分初始化资源可回收，再接两端产品的预算/取消。后续 list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界；macOS 的队列主线程等待与导航问题仍独立待修。本轮仅复核实际调用链，没有新增桌面 SFTP 关闭/取消或完整宿主验收。
 
 ### 与 Android 最终方案的差异
 

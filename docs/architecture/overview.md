@@ -34,7 +34,7 @@
 2. **字节流不过事件队列**：终端输出由会话线程 `transport_read → surface` 直连；
    事件队列只承载低频状态。这是性能红线。
 3. **C ABI 是唯一跨语言边界**：`core/include/ghosterm.h`。opaque handle + POD，
-   当前 Swift 与 Android JNI 引用已有对拍；公共 C ABI 当前 81 项，Apple 引用 79 项、2 项登记未用；SSH 后端切片 JNI 为 32/42，身份容器切片为 33/41，IdentityFile 来源查询切片为 34/41，主机信任快照切片为 38/41，事务/移除绑定为 39/41，通道取消入口替换旧引用后当前为 39/42（产品首片见 Android 计划 §9.27，来源查询见 §9.34，信任快照与绑定见 §9.36，写入事务见 §9.37）；整个 A2/A3 尚未完成。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
+   当前 Swift 与 Android JNI 引用已有对拍；已验通道切片 C ABI 为 81 项、Apple 79/2；当前未验收 SFTP 草稿为 82 项、Apple 80/2、JNI 40/42（§9.44）；SSH 后端切片 JNI 为 32/42，身份容器切片为 33/41，IdentityFile 来源查询切片为 34/41，主机信任快照切片为 38/41，事务/移除绑定为 39/41，通道取消入口替换旧引用后为 39/42（产品首片见 Android 计划 §9.27，来源查询见 §9.34，信任快照与绑定见 §9.36，写入事务见 §9.37）；整个 A2/A3 尚未完成。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
 
 ## 会话重构的当前进度
 
@@ -109,6 +109,8 @@ Android 文本操作继续沿 TerminalSurface 接缝：带序号的控制请求�
 Android 身份设置已接通列表/详情、OpenSSH 公钥指纹、SAF 导入与确认移除；请求由独立 ViewModel 持有，IO 在后台执行，详情只保留公开信息。身份设置的八项定向和十组变异已有证据；后续主机关联切片完整 160 项设备回归通过，见[§9.35](../reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)。主机身份引用写入同一 SSH 配置保存事务，引用详情从共享来源查询派生；`ghosterm-identity:<UUID>` 是本安装容器标识，不是跨端可用密钥路径。认证只按配置解析候选，其他身份需用户明确选择。主机信任记录管理已按 §9.39 接入；A7 的 16 项偏好尚未完成。
 
 Android 文件控制面已有 `FileBrowserSource` 与 `LocalFileBrowser`：本机 HOME 使用平台文件 API，SAF 保留系统文档 URI，经后台 IO 返回条目/预览。`FilesViewModel` 用代次隔离结果，文件页不持有或关闭终端连接；本地 fd 显式释放、SAF 流取消和旋转后 PID 保持已验（实现计划 §9.43）。这不是 SFTP 接线；远端仍须独立 owner，四方向复制与事件泵留在 A5/A6。
+
+SFTP 打开的工作区前置尚未验收：Core controlled opener、Swift 重载和 Android native helper 已存在，但 macOS 产品仍用无参 `sftp()`，Android 没有远端文件 owner。部分 VERSION 报文后 EOF 探针超时，说明仅在 libssh2 调用之间检查 deadline 不足以证明取消有界；先补依赖读取/清理边界，再接两端产品。列表、预览及关闭仍须独立的 owner/预算/取消契约；失败和验收条件见 [§9.44](../reference/android-implementation.md#944-sftp-打开前置与跨端工作区复核2026-10-30未验收)。
 
 ## 参考实现（技术对照）
 
