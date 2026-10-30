@@ -11,7 +11,7 @@
 
 ## 核心（C）
 
-共享写侧已按[§9.37](android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)接通 TOFU/移除共同事务与两端删除绑定；此前 `526d24d` 的 79 ABI 是只读切片历史结果。Android 管理页面与指纹仍待接，不能将接口交付算成 A3/A7 完成。
+共享写侧已按[§9.37](android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)接通 TOFU/移除共同事务与两端删除绑定；此前 `526d24d` 的 79 ABI 是只读切片历史结果。Android 管理页面、repository 与指纹已有未验收工作区草稿（[§9.38](android-implementation.md#938-主机验证管理页面工作区复核2026-10-30未验收)），当前 164 项结果仍属于 `cf8cabb` 已提交基线；不能将草稿或接口交付算成 A3/A7 完成。macOS 仅有共享绑定与认证消费，尚无记录管理页面。
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
@@ -130,6 +130,8 @@ SAF 私钥导入的原请求归属、旋转保留、只读读取和取消已验�
 **宿主闸门失败传播**：`apple-app-gate.sh` 未启用 `set -e`，ABI 子检查也未显式检查返回值；后续成功可能掩盖该失败。它与 SSH e2e 可跳过的问题分别待修；单独 ABI 检查、实际测试结束状态及覆盖范围须分别核验，不以最后一行 PASS 代替。源码依据见 [Apple 构建说明](../../apple/README.md#构建与验证)，本次未新增故障注入或 CI 实测。
 
 **CI 触发范围**：dev 的 main push 有忽略路径，release 的 PR 有路径白名单；仅 `docs/` 或 `android/` 的改动不触发两者，`terminal/android/` 则不同。Markdown 在 dev push 被忽略，但 `apple/README.md` 等白名单内文档的 PR 仍会触发 release。dev 旧运行还可能因后续 push 被取消。不能把“有出包工作流”表述为“每个提交都有发布包”；准确范围见 [CI 说明](../how-to/dev-build.md#ci-是怎么串起来的)，这些过滤不改变合并前应执行的闸门。
+
+**三种保存路径分别记账**：known_hosts 的 TOFU/移除已使用共享锁、备份、原子替换和提交结果；SSH `ConfigStore` 仍先删后移且忽略备份失败；终端 `SettingsStore` 使用备份与 `replaceItemAt`，仍有重复键、读取错误、冲突和引擎恢复缺口。共享信任事务不等于 macOS 配置 GUI、设置或 SFTP 传输已经修复，见 [Apple 保存边界](../../apple/README.md#三种配置文件的保存边界)。
 
 **安全存储缺口**：当前 `SSHCredentialSelector.Storage.readKey` 从文件读取 PEM（限制 owner、权限、常规文件、大小且不跟随链接），Keychain 生产接线存口令/密码。`KeychainStore` 虽有 PEM helper，不能据此声称生产流程已做到私钥导入后只读安全存储。该缺口按 `AGENTS.md` 铁律 #5 继续修复，不修改规则来迁就代码。
 

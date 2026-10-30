@@ -100,9 +100,9 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 ## 当前状态（2026-10-30）
 
-最终 Android 方案的详细实现见[实现文档](docs/reference/android-implementation.md)：主机首页、点按打开/长按多选、跨本机与远端的待粘贴清单、五类设置及分阶段验收。文件页面交付顺序与设置存储/失败处理已补充至 §6.5、§7.1。跨端文档核对的历史基线为 `526d24d`；后续信任写入事务与删除绑定已按 §9.37 交付，管理页面仍待接。macOS 冲突选择跨批次保留、目录整批重试等源码行为已同步至 [roadmap 待办](docs/reference/roadmap.md#macos-下一步与共享缺口)，不以 Android 方案替代桌面实现状态。
+最终 Android 方案的详细实现见[实现文档](docs/reference/android-implementation.md)：主机首页、点按打开/长按多选、跨本机与远端的待粘贴清单、五类设置及分阶段验收。文件页面交付顺序与设置存储/失败处理已补充至 §6.5、§7.1。跨端文档核对的历史基线为 `526d24d`；后续信任写入事务与删除绑定已按 §9.37 交付；当前文档以 `cf8cabb` 为已提交基线，管理页面工作区草稿待验收（§9.38）。macOS 冲突选择跨批次保留、目录整批重试等源码行为已同步至 [roadmap 待办](docs/reference/roadmap.md#macos-下一步与共享缺口)，不以 Android 方案替代桌面实现状态。
 
-主机信任写入事务与删除绑定已接：TOFU 和移除共用锁、备份与原子替换，确认期间重新检查信任规则；Core 38 CTest / 80 ABI、Apple 78/2、JNI 39/41，最终完整 Android **164 项通过**。事务 17 C + 2 Swift、信任 25 组、JNI/Kotlin 8 组及 macOS 认证 11 组变异通过；页面/指纹仍待接，见[§9.37](docs/reference/android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)。
+主机信任写入事务与删除绑定已接：TOFU 和移除共用锁、备份与原子替换，确认期间重新检查信任规则；Core 38 CTest / 80 ABI、Apple 78/2、JNI 39/41，最终完整 Android **164 项通过**。事务 17 C + 2 Swift、信任 25 组、JNI/Kotlin 8 组及 macOS 认证 11 组变异通过；页面/指纹已有未验收草稿（§9.38），下述结果仍只证明已提交基线，见[§9.37](docs/reference/android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)。
 
 主机信任只读切片（§9.36）的共享快照与 Swift/JNI 已接，Core 37 项 CTest / 79 ABI、Apple 77/2、JNI 38/41 及完整 162 项设备回归通过；新增 10 C + 1 Swift + 4 Android 变异及既有 20 组真实 SSH 信任变异通过。它提供真实记录与原始范围，该切片当时未接页面、安全移除和指纹，见[§9.36](docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)。
 

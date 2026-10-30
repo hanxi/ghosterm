@@ -41,13 +41,23 @@ apple/
 
 Android 主机关联写入的 `IdentityFile "ghosterm-identity:<UUID>"` 是该安装的加密容器引用。当前 `SSHCredentialSelector.Storage.readKey` 按文件路径读取，不解析这种引用；复制 Android 配置到 macOS 不会迁移密钥，不能承诺自动关联或直接登录。普通 IdentityFile 路径仍按现有 macOS 规则处理；后续跨端导入需明确重新关联及不支持提示，不把路径读取失败当成可用身份。Android 的选择、保存事务和引用列表验收见[§9.35](../docs/reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)，不改变本端配置/私钥待办。
 
-`KnownHosts.records` 新增只读绑定，复制原始字节范围、marker 与字段形态，保留畸形记录；两项 Swift 定向和一组绑定变异通过。它不读取/写回文件，也未接本端管理页面，不修复 TOFU 写盘事务。认证枚举与快照已共用词法读取，原有 ed25519/ECDSA sshd 的 20 组信任变异重跑通过，范围见[§9.36](../docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)。
+`KnownHosts.records` 新增只读绑定，复制原始字节范围、marker 与字段形态，保留畸形记录；两项 Swift 定向和一组绑定变异通过。只读接口本身不读取/写回文件，也未接本端管理页面；写盘随后由 §9.37 的共享事务实现。认证枚举与快照已共用词法读取，原有 ed25519/ECDSA sshd 的 20 组信任变异重跑通过，范围见[§9.36](../docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)。
 
 UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 共享认证后续修复内存 OpenSSH 私钥的错误口令重试：libssh2/OpenSSL 返回 `FILE` 时，仅私钥认证路径按凭据失败请求替换材料，握手/协议错误仍保持原分类。共享真实 sshd 的加密 ed25519 回归及一组变异、连接器 18 组、macOS App 强制重新链接与既有 11 组产品认证变异通过；Android 另验实际密码/口令页面，不据此宣称已新增 Apple 加密密钥 UI 用例或完成私钥安全存储。记录见[§9.31](../docs/reference/android-implementation.md#931-加密私钥重试与密码产品流程2026-10-30)。
 
-主机信任写盘错误现已阻断连接：共享 `kh_append` 检查写入与关闭结果，同步/异步认证均传播错误；macOS SFTP 在接受未知主机但保存失败后明确提示“无法保存主机信任记录，连接已停止”，不请求凭据。真实文件错误及产品路径验收见[§9.23](../docs/reference/android-implementation.md#923-主机信任保存失败阻断2026-10-30)。当前追加没有全文件原子事务或部分写入回滚保证，不能把错误可见性扩大为这类能力已完成。
+主机信任保存失败会阻断连接：`ssh.c` 的 `kh_append` 当前调用 `gt__kh_transaction`，已替代 §9.23 当时的直接追加。同步/异步认证均传播失败，macOS SFTP 显示“无法保存主机信任记录，连接已停止”，不请求凭据。确认后还会重读规则：新增撤销、密钥变化或不支持规则会阻断；同一公钥被另一连接先保存时不重复追加。共享实现见[§9.37](../docs/reference/android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)，早期错误传播证据保留在[§9.23](../docs/reference/android-implementation.md#923-主机信任保存失败阻断2026-10-30)。原子替换成功后的同步/回读失败可能已经改变文件，不能将“认证停止”理解为“信任记录必定未保存”；不宣称任意外部写者安全或断电恢复已验。
+
+### 三种配置文件的保存边界
+
+| 文件 | 当前生产写入路径 | 尚未完成的保障 |
+|---|---|---|
+| SSH `config` | `ConfigStore.save`；备份错误被忽略，删除旧文件后移动新文件 | 强制备份、原子替换、冲突与失败后内存恢复；M3 仍未收口 |
+| `known_hosts` | `ssh.c` → `known_hosts_store.c`；TOFU 与删除绑定共用协调、备份和原子替换 | 本端管理 UI 未接；备份清理、任意非协作写者与断电边界未收口 |
+| Ghostty `ghostty.conf` | `SettingsStore.saveTerminalConfig`；备份失败抛错，已有文件经 `replaceItemAt` 替换 | 重复键、读取错误、外部新建冲突与引擎拒绝后的恢复仍待修 |
+
+这些路径的源码与专项证据分开记账；共享信任事务通过不改变 M3 配置编辑和 M4.5 终端设置的进度。macOS 设置页目前仅展示 known_hosts 路径和 Finder 入口，没有记录列表、指纹详情或删除确认。
 
 ## 当前功能与代码入口
 
