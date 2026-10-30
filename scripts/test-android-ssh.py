@@ -22,12 +22,15 @@ def main():
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
     spec=importlib.util.spec_from_file_location('credential_fixture',ROOT/'scripts/lib/android-ssh-credentials.py')
     credentials=importlib.util.module_from_spec(spec);spec.loader.exec_module(credentials)
-    credential_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_CREDENTIAL_MUTATE')=='1' or
-                      'SSHCredentialFlowTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
-    with credentials.fixture(ROOT,work,key,credential_tests) as credential_data:
+    credential_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_CREDENTIAL_MUTATE')=='1' or os.environ.get('ANDROID_SSH_IDENTITIES_MUTATE')=='1' or
+                      any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('SSHCredentialFlowTest','IdentitySettingsTest')))
+    identity_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_IDENTITIES_MUTATE')=='1' or
+                    'IdentitySettingsTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
+    with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data:
         token=secrets.token_hex(32)
         # No key text in instrumentation arguments, output logs, repository, or device files.
         payload=json.dumps(dict(user=user,port=int(port),pem=Path(key).read_text(),
+            clientFingerprint=run(['ssh-keygen','-lf',str(key)+'.pub','-E','sha256']).split()[1],
             fingerprint=os.environ['GT_TEST_HOSTKEY_SHA256'],public=Path(work,'hostkey.pub').read_text(),
             wrongPem=Path(work,'hostkey').read_text(),otherPublic=Path(work,'clientkey.pub').read_text(),**credential_data)).encode()
         class Handler(socketserver.StreamRequestHandler):
@@ -77,6 +80,10 @@ def main():
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_SSH_CREDENTIAL_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('credential_mutations',ROOT/'scripts/mutation-check-android-credentials.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_SSH_IDENTITIES_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('identity_mutations',ROOT/'scripts/mutation-check-android-identities.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
                 print(output,flush=True);print('ANDROID SSH PASS',flush=True)

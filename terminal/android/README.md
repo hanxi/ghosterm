@@ -1,6 +1,6 @@
 # Android TerminalSurface
 
-当前最新完整设备结果为 **139 项通过**，包含加密 OpenSSH ed25519 口令重试与成功密码流程；原 native SSH 14 组和新增凭据七组变异通过，见[§9.31](../../docs/reference/android-implementation.md#931-加密私钥重试与密码产品流程2026-10-30)。终端输出仍在 native owner→Transport→VT 通路内，本片不扩大设备/性能或完整 A2/A3 验收范围。下文数量按原切片保留。
+当前最新完整设备结果为 **147 项通过**，身份设置另有八项定向与十组新增变异，见[§9.33](../../docs/reference/android-implementation.md#933-ssh-身份设置与公钥信息2026-10-30)。本片不改 native owner→Transport→VT 字节通路，不扩大 API 36 arm64 / 4 KB 页模拟器之外的设备、性能或完整 A2/A3 验收范围。下文数量保留各历史切片记录。
 
 状态（2026-10-30）：**A0 已验；A2 原生 surface、Canvas TerminalView、InputConnection 与生命周期首片已交付；文本操作切片已验，整个 A2 未完成**。Gradle `:terminal` 指向本目录；native 子目录由 `:bridge` 的 CMake 统一构建，避免重复 Core。宿主设计见[最终 HTML](../../docs/design/android-prototype.html)，开发与验收见[Android 实现计划](../../docs/reference/android-implementation.md) A0/A2。
 

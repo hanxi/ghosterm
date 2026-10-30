@@ -41,10 +41,18 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel()) {
+fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel()) {
     val runtime by runtimeModel.state.collectAsState()
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) hosts.readImport(uri) }
-    BackHandler(!sessions.visible && hosts.page != Page.HOSTS) { hosts.back() }
+    val identityImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(),identities::completeImport)
+    fun back() {
+        if (hosts.page == Page.IDENTITIES) {
+            if (identities.backToList()) return
+            identities.leave()
+        }
+        hosts.back()
+    }
+    BackHandler(!sessions.visible && hosts.page != Page.HOSTS) { back() }
     val colors = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFFBACDFF),
         background = Color(0xFF171B20), surface = Color(0xFF21262D), onSurface = Color(0xFFE4E8EE))
         else lightColorScheme(primary = Color(0xFF425F96), background = Color(0xFFF7F8FC), surface = Color(0xFFF7F8FC))
@@ -58,9 +66,10 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         Scaffold(topBar = {
             TopAppBar(title = { Text(when (hosts.page) {
                 Page.HOSTS -> "主机"; Page.SETTINGS -> "设置"; Page.ABOUT -> "关于 Ghosterm"
+                Page.IDENTITIES -> "SSH 身份"
                 Page.CONFIG -> "SSH 配置"; Page.EDIT_HOST -> if (hosts.draft?.original == null) "添加主机" else "编辑主机"
             }) }, navigationIcon = {
-                if (hosts.page != Page.HOSTS) TextButton(onClick = hosts::back, enabled = !hosts.busy) { Text("返回") }
+                if (hosts.page != Page.HOSTS) TextButton(onClick = { back() }, enabled = !hosts.busy) { Text("返回") }
             }, actions = {
                 when (hosts.page) {
                     Page.HOSTS -> TextButton(onClick = hosts::settings, enabled = !hosts.busy) { Text("设置") }
@@ -99,6 +108,10 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                 when (hosts.page) {
                     Page.HOSTS -> HostsPage(hosts, sessions)
                     Page.EDIT_HOST -> EditHostPage(hosts)
+                    Page.IDENTITIES -> IdentitiesScreen(identities) {
+                        if (identities.beginImport()) try { identityImport.launch(arrayOf("*/*")) }
+                        catch (_: Exception) { identities.importLaunchFailed() }
+                    }
                     Page.CONFIG -> Column(Modifier.padding(horizontal = 16.dp).fillMaxSize()) {
                         Text("此副本保存在应用内。Include 相对应用私有 HOME/.ssh；保存前强制备份。", style = MaterialTheme.typography.bodySmall)
                         OutlinedTextField(hosts.configText, { hosts.configText = it }, enabled = !hosts.busy,
@@ -108,6 +121,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     Page.SETTINGS -> Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("会话与连接资料", style = MaterialTheme.typography.titleMedium)
                         OutlinedButton(onClick = hosts::back, modifier = Modifier.fillMaxWidth()) { Text("管理主机") }
+                        OutlinedButton(onClick = { hosts.identities(); identities.enter() },enabled = !hosts.busy, modifier = Modifier.fillMaxWidth()) { Text("SSH 身份") }
                         OutlinedButton(onClick = hosts::config, enabled = hosts.snapshot != null, modifier = Modifier.fillMaxWidth()) { Text("查看与编辑 SSH 配置") }
                         OutlinedButton(onClick = { import.launch(arrayOf("*/*")) }, enabled = !hosts.busy && hosts.snapshot != null, modifier = Modifier.fillMaxWidth()) { Text("导入 SSH 配置") }
                         Text("导入会替换应用内副本，原文档不修改。Include 所需文件必须先可访问。", style = MaterialTheme.typography.bodySmall)

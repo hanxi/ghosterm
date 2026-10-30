@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 @contextlib.contextmanager
-def fixture(root, work, key, enabled):
+def fixture(root, work, key, enabled, public_info=False):
     if not enabled:
         yield {}
         return
@@ -37,6 +37,18 @@ def fixture(root, work, key, enabled):
         encrypted.chmod(0o600)
         run(['ssh-keygen', '-p', '-q', '-f', str(encrypted), '-P', '', '-N', passphrase])
         fields = dict(encryptedPem=encrypted.read_text(), passphrase=passphrase)
+        if public_info:
+            fields['publicInfoFixtures'] = []
+            for algorithm, bits, expected in [('rsa',2048,'ssh-rsa'),('ecdsa',256,'ecdsa-sha2-nistp256'),
+                                              ('ecdsa',384,'ecdsa-sha2-nistp384'),('ecdsa',521,'ecdsa-sha2-nistp521')]:
+                path = Path(work)/('info-'+algorithm+'-'+str(bits))
+                try:
+                    run(['ssh-keygen','-q','-t',algorithm,'-b',str(bits),'-f',str(path),'-N',''])
+                    fingerprint = run(['ssh-keygen','-lf',str(path)+'.pub','-E','sha256']).split()[1]
+                    fields['publicInfoFixtures'].append(dict(pem=path.read_text(),algorithm=expected,fingerprint=fingerprint))
+                finally:
+                    path.unlink(missing_ok=True)
+                    Path(str(path)+'.pub').unlink(missing_ok=True)
         for label, public_key in [('password', False), ('mixed', True)]:
             name = 'ghosterm-android-auth-' + secrets.token_hex(6)
             containers.append(name)

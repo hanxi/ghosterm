@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-enum class Page { HOSTS, SETTINGS, ABOUT, CONFIG, EDIT_HOST }
+enum class Page { HOSTS, SETTINGS, ABOUT, CONFIG, EDIT_HOST, IDENTITIES }
 data class HostDraft(val original: Host?, val edit: HostEdit = HostEdit.from(original)) {
     val dirty: Boolean get() = edit.isDirty(original)
 }
@@ -80,6 +80,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun settings() { if (!busy) { page = Page.SETTINGS; error = loadError } }
     fun about() { page = Page.ABOUT }
+    fun identities() { if (!busy) page = Page.IDENTITIES }
     fun config() {
         if (busy || snapshot == null) return
         if (page == Page.EDIT_HOST && dirty) { error = "请先保存或放弃主机修改"; return }
@@ -93,7 +94,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun back() { if (!busy) { reloadAfterDiscard = false; if (dirty) discard = true else leave() } }
     private fun leave() {
-        page = when (page) { Page.ABOUT -> Page.SETTINGS; Page.CONFIG -> configReturn; else -> Page.HOSTS }
+        page = when (page) { Page.ABOUT, Page.IDENTITIES -> Page.SETTINGS; Page.CONFIG -> configReturn; else -> Page.HOSTS }
         error = loadError; discard = false
         restoreDraftOrClear()
     }

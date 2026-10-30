@@ -11,6 +11,7 @@ import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.StandardOpenOption.READ
 import java.nio.ByteBuffer
 import java.security.KeyStore
+import java.security.MessageDigest
 import java.util.Base64
 import java.util.UUID
 import javax.crypto.Cipher
@@ -19,6 +20,8 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 data class StoredIdentity(val id: String, val name: String, val needsPassphrase: Boolean)
+data class IdentityRecord(val id: String, val name: String, val identity: StoredIdentity?,
+                          val revision: String?, val problem: String?)
 
 /** Blocking private storage. AES key stays in AndroidKeyStore; SSH PEM is encrypted
  * at rest and only returned as a caller-owned, erasable buffer after explicit selection.
@@ -37,17 +40,45 @@ class IdentityVault(private val directory: File, private val ops: ConfigFileOps 
         return StoredIdentity(id,json.getString("name"),json.getBoolean("needsPassphrase"))
     }
     private fun aad(identity: StoredIdentity) = "ghosterm-identity-v1\n${identity.id}\n${identity.name}\n${identity.needsPassphrase}".toByteArray(Charsets.UTF_8)
-    private fun read(id: String): JSONObject {
+    private fun encoded(id: String): ByteArray {
         check(!Files.isSymbolicLink(directory.toPath())) { "身份目录不能是符号链接" }
         val path = file(id).toPath()
         check(!Files.isSymbolicLink(path) && Files.isRegularFile(path,NOFOLLOW_LINKS)) { "身份文件不可读取，请重新导入" }
-        val data = java.nio.channels.FileChannel.open(path,READ,NOFOLLOW_LINKS).use { channel ->
+        return java.nio.channels.FileChannel.open(path,READ,NOFOLLOW_LINKS).use { channel ->
             check(channel.size() in 1..(2L*1024*1024)) { "身份文件大小无效" }
             val out = ByteBuffer.allocate(channel.size().toInt())
             while (out.hasRemaining()) check(channel.read(out) > 0) { "身份文件读取不完整" }
             out.array()
         }
-        return JSONObject(data.toString(Charsets.UTF_8))
+    }
+    private fun read(id: String) = JSONObject(encoded(id).toString(Charsets.UTF_8))
+    private fun revision(bytes: ByteArray) = Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-256").digest(bytes))
+    /** One corrupt entry must not hide the other identities or its removal action. */
+    fun inventory(): List<IdentityRecord> = synchronized(lock) {
+        if (!directory.exists()) return@synchronized emptyList()
+        check(directory.isDirectory && !Files.isSymbolicLink(directory.toPath())) { "身份目录不可读取" }
+        checkNotNull(directory.listFiles()) { "身份目录不可读取" }.filter { it.extension == "json" }.map { entry ->
+            val id = entry.nameWithoutExtension
+            var stamp: String? = null
+            try {
+                val bytes = encoded(id); stamp = revision(bytes)
+                val identity = metadata(JSONObject(bytes.toString(Charsets.UTF_8)),id)
+                IdentityRecord(id,identity.name,identity,stamp,null)
+            } catch (_: Exception) {
+                IdentityRecord(id,"无法读取的身份",null,stamp,"身份资料不可读取，请移除后重新导入。")
+            }
+        }.sortedBy { it.name }
+    }
+    fun details(record: IdentityRecord): IdentityPublicInfo = synchronized(lock) {
+        check(record.revision != null && revision(encoded(record.id)) == record.revision) { "身份已变化，请重新载入" }
+        val bytes = unlock(checkNotNull(record.identity) { "身份资料不可读取" })
+        try { IdentityPublicInfoReader.read(bytes) } finally { bytes.fill(0) }
+    }
+    fun removeRecord(record: IdentityRecord) = synchronized(lock) {
+        check(record.revision != null && revision(encoded(record.id)) == record.revision) { "身份已变化，请重新载入后再移除" }
+        keystore().deleteEntry(keyAlias(record.id))
+        try { Files.delete(file(record.id).toPath()); ops.syncDirectory(directory.toPath()) }
+        catch (failure: Exception) { throw IllegalStateException("安全密钥已移除，但身份文件清理或同步失败，请重新载入",failure) }
     }
     fun list(): List<StoredIdentity> = synchronized(lock) {
         if (!directory.exists()) return@synchronized emptyList()
