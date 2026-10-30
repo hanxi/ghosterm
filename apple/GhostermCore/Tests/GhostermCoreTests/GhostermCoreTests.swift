@@ -209,6 +209,31 @@ final class GhostermCoreTests: XCTestCase {
         return false
     }
 
+    func testSFTPControlledEndToEnd() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],
+              let key = env["GHOSTERM_SSH_KEY"], let port = UInt16(env["GHOSTERM_SSH_PORT"] ?? "") else {
+            throw XCTSkip("SSH fixture required")
+        }
+        let session = try SSHSession(SSHOptions(host: host, port: port, username: user,
+            knownHostsPath: env["GHOSTERM_SSH_KNOWN_HOSTS"]))
+        session.setHostKeyDecider { _, _, _, _ in .accept }
+        try session.authenticate(privateKeyPEM: String(contentsOfFile: key, encoding: .utf8))
+        try session.connect()
+        XCTAssertThrowsError(try session.sftp(timeoutMilliseconds: 0)) { error in
+            guard case GhostermError.status(1, _) = error else { return XCTFail("Spent SFTP budget was not INVALID_ARG") }
+        }
+        let cancelled = SSHCancellation(); cancelled.cancel()
+        XCTAssertThrowsError(try session.sftp(timeoutMilliseconds: 3000, cancellation: cancelled)) { error in
+            guard case GhostermError.status(8, _) = error else { return XCTFail("SFTP cancellation was not CANCELLED") }
+        }
+        let files = try session.sftp(timeoutMilliseconds: 3000, cancellation: SSHCancellation())
+        defer { files.close() }
+        let directory = (key as NSString).deletingLastPathComponent
+        XCTAssertTrue(try files.realpath(".").hasPrefix("/"))
+        XCTAssertTrue(try files.list(path: directory).contains { $0.name == "clientkey.pub" })
+    }
+
     func testSSHControlledEndToEnd() throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],

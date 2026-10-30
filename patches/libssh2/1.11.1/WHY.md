@@ -31,9 +31,9 @@ channel destructor；原 session free 只释放 init 对象，遗漏 partial pac
 Android 的 `scripts/build-android-native.py` 从校验过的 tarball 重新解包后
 依序应用两份补丁，使用独立 CMake 构建目录，补丁 SHA256 纳入依赖收据。
 库产物 SHA256 仍由原缓存校验检查；原未打补丁的缓存不能命中新收据。
-当前未提交工作区另有 `scripts/build-host-ssh2.py`，默认 Core 与 SwiftPM 已消费
-`build/host-native` 中的同版补丁库，打包时嵌入它及收据。主机协议与普通打包
-已通过，新增依赖守卫变异失败，不能记成依赖切片验收完成；详见
+主机构建通过 `scripts/build-host-ssh2.py`，默认 Core 与 SwiftPM 已消费
+`build/host-native` 中的同版补丁库，打包时嵌入它及收据。主机 17 项协议、十组接口变异、十一组依赖守卫及既有打包变异
+通过；具体范围见
 [主机构建与证据](../../../docs/reference/host-ssh2-build.md)。
 两端产品取消接线、Android 文件 owner 与完整 A4 仍未交付。
 

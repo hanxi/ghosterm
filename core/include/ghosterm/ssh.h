@@ -112,6 +112,21 @@ void gt_ssh_close(gt_ssh_t *ssh);
 
 gt_sftp_t *gt_ssh_sftp(gt_ssh_t *ssh);
 
+/* Open SFTP on an exclusively owned, authenticated SSH connection. The calling
+ * IO owner must not share it with a terminal, exec or another SFTP handle.
+ * timeout_ms is the remaining total budget, including channel, subsystem and
+ * SFTP version negotiation; zero is INVALID_ARG, never a default timeout.
+ * cancelled is polled on that owner (no reentrant Core calls). status is optional.
+ * Cancellation is CANCELLED; timeout/protocol/transport failure is IO. libssh2
+ * does not expose enough information to classify all subsystem refusals as
+ * UNSUPPORTED; that status is guaranteed when libssh2 is not compiled in.
+ * Failure after starting IO invalidates this SSH connection: close it, do not
+ * retry on it. Preflight cancellation/invalid arguments leave it untouched.
+ * Success restores session IO settings and returns the ordinary SFTP handle;
+ * subsequent operations and close retain their existing blocking contracts. */
+gt_sftp_t *gt_ssh_sftp_controlled(gt_ssh_t *ssh, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context, gt_status_t *status);
+
 /* ------------------------------------------------------------------ */
 /* exec 通道（远端单命令，用于远端加速：find / grep / du 等）            */
 /* ------------------------------------------------------------------ */

@@ -117,12 +117,15 @@ jobs:
           # coreutils 是给变异验证的 `gt_timeout` 用的：runner 上没有 GNU
           # `timeout`（只有 brew 的 `gtimeout`），而变异脚本要靠超时才有界——
           # CI 实测踩过「命令不存在 = 非零 = 被当成断言变红」的假牙。
-          brew install librsvg imagemagick bash coreutils
+          brew install librsvg imagemagick bash coreutils pkg-config openssl@3
           if [ "${{ inputs.gates }}" = full ]; then brew install tmux; fi
           python3 -m venv tmp/venv-icons
           tmp/venv-icons/bin/python -m pip install --quiet --upgrade pip pillow
           tmp/venv-icons/bin/python -c 'import PIL; print("Pillow", PIL.__version__)'
           bash --version | head -1
+
+      - name: 构建锁定的 SSH 依赖
+        run: python3 scripts/build-host-ssh2.py --fetch
 
       - name: 装 zig ${{ env.ZIG_VERSION }}（仅重建引擎时）
         if: steps.ghostty.outputs.cache-hit != 'true'

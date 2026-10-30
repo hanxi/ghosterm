@@ -1,6 +1,6 @@
 # 主机 libssh2 构建与 SFTP 打开状态
 
-核对日期：2026-10-30；已提交基线为 `40f28c5`，下述主机构建、controlled API 和新增守卫来自已有未提交工作区。**构建接线已存在，切片尚未完成验收**：默认库的协议与接口变异通过，新依赖守卫变异失败。本次文档审计不提交或修改这些实现。
+核对日期：2026-10-30。受控 SFTP 打开接口、主机补丁依赖与构建/打包接线已完成本机验收，见 Android 实现计划 §9.47。此前 `cef17ac` 记录的依赖守卫测试失败已修正并复验：十组直接守卫变异及一组真实 CMake 调用方变异通过。两端文件产品尚未消费新接口，后续列表/预览/关闭仍需独立契约。
 
 ## 构建依赖的实际来源
 
@@ -10,8 +10,8 @@
 | `core/cmake/HostSSH2.cmake` | 默认 SSH 构建校验收据并链接上述共享库 | 缺失或校验失败直接停止；不再查找系统 libssh2 或自动降级 |
 | 两个 Apple `Package.swift` | 从仓库 `build/host-native/lib` 链接 libssh2 | SwiftPM 不负责准备库；CMake 自定义 prefix 不会自动同步到 SwiftPM |
 | `scripts/build-core.sh` / `scripts/gate.sh` | 前者先准备/验证本地依赖；后者只配置、构建和验证现有依赖 | gate 保持离线；缓存不足时应先准备依赖 |
-| `scripts/package-mac.sh` | 嵌入 libssh2 及递归依赖，放入收据和 libssh2 许可，再验证包内代码/数据节与已校验库一致 | 改写加载路径和签名会改变文件摘要，因此包校验比较 Mach-O 文件节；不代表所有新守卫已验收 |
-| `.github/workflows/macos-package.yml` | 已有准备锁定依赖的 `--fetch` 步骤 | 是工作区配置，不是 CI 已运行成功的证据；现有 20 份变异范围未增加 |
+| `scripts/package-mac.sh` | 嵌入 libssh2 及递归依赖，放入收据和 libssh2 许可，再验证包内代码/数据节与已校验库一致 | 改写加载路径和签名会改变文件摘要，因此包校验比较 Mach-O 文件节；十一组依赖守卫变异另有通过证据 |
+| `.github/workflows/macos-package.yml` | 已有准备锁定依赖的 `--fetch` 步骤 | 步骤已接线，尚无本轮 CI 成功证据；现有 20 份变异范围未增加 |
 | Android | 继续用 NDK 构建的显式 libssh2 target，应用同一组补丁 | 不使用主机共享库；§9.45 的设备证据不替代主机或产品接线验收 |
 
 收据记录源码、补丁、构建器、动态/静态库、三个公开头及 libssh2 许可的 SHA256，并核对实际 libcrypto 摘要。构建缓存另比较宿主平台/架构。包内收据去掉构建机 libcrypto 路径；这不是签名证书或可自动更新的授权。
@@ -44,7 +44,7 @@ bash scripts/package-mac.sh --out "$PWD/tmp/host-ssh2-package" --app-only --no-z
 python3 scripts/mutation-check-host-ssh2.py --app tmp/host-ssh2-package/Ghosterm.app
 ```
 
-最后一条目前有已知失败，不能把该命令清单理解为全部已经通过。`--fetch` 只用于依赖准备；协议测试还要求真实 sshd/ssh-keygen 与已准备的测试 Python 环境。
+上述命令对应本机验收入口，CI 与其他平台分别记账。`--fetch` 只用于依赖准备；协议测试还要求真实 sshd/ssh-keygen 与已准备的测试 Python 环境。
 
 只有明确需要验证无 SSH 能力时，另建隔离目录：
 
@@ -62,27 +62,29 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 
 | 调用层 | 当前实现 | 仍需实现/验收 |
 |---|---|---|
-| Core | 非阻塞 init 与 EAGAIN 等待中检查 deadline/取消；补丁修复库内部 EOF 循环与未完成 init 的清理 | 新依赖守卫完成有牙验证；后续 SFTP 操作另立取消/预算契约 |
+| Core | 非阻塞 init 与 EAGAIN 等待中检查 deadline/取消；补丁修复库内部 EOF 循环与未完成 init 的清理 | 后续 SFTP 操作另立取消/预算契约；当前打开验证不扩大为整条连接有界 |
 | Swift 绑定 | `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 已存在，定向/变异有通过记录 | macOS 产品工厂仍调用无参 `ssh.sftp()`；原认证预算未传入文件 owner |
 | Android native | `gaj_ssh_open_sftp` 从原认证取剩余预算并封顶 5000 ms，接停止信号 | helper 无文件调用方；没有文件 owner、JNI/Kotlin 文件 API 或远端浏览/预览 |
 
-公开 ABI 工作区为 82 项，Apple 引用 80/登记未用 2，JNI 引用 40/登记未用 42。这些数量包含 helper 引用，不是产品可用功能数量。列表、realpath、预览、任务和关闭仍按各自旧契约运行；opener 测试不证明整个文件连接可取消。
+当前公开 ABI 为 82 项，Apple 引用 80/登记未用 2，JNI 引用 40/登记未用 42。这些数量包含 helper 引用，不是产品可用功能数量。列表、realpath、预览、任务和关闭仍按各自旧契约运行；opener 测试不证明整个文件连接可取消。
 
 ## 已有证据与失败记录
 
-以下是本次审计读取的已有日志；本次重新执行的检查另记在 roadmap，不将历史日志冒充本轮重跑。
+本切片最终验证及其各自范围如下；已有设备结果沿用相同产物的 SHA256 证据，不把历史日志冒充本轮设备重跑。
 
 | 检查 | 结果 | 日志与范围 |
 |---|---|---|
-| 默认 Core | 39 项 CTest / 82 ABI 通过 | `tmp/sftp-controlled-gate.log`；不等于所有协议故障已覆盖 |
-| 默认补丁库的受控打开 | 17 项通过 | `tmp/sftp-controlled-protocol.log`；正常/明确拒绝，channel/subsystem/VERSION 的取消、超时、IO，部分报文取消/超时与头部/正文 EOF |
+| 默认 Core | 39 项 CTest / 82 ABI 通过 | `tmp/sftp-controlled-final-gate.log`；不等于所有协议故障已覆盖 |
+| 默认补丁库的受控打开 | 17 项通过 | `tmp/sftp-controlled-final-protocol.log`；正常/明确拒绝，channel/subsystem/VERSION 的取消、超时、IO，部分报文取消/超时与头部/正文 EOF |
 | 接口变异 | 7 C + 2 Swift + 1 无库组通过 | `tmp/sftp-controlled-mutations.log`；包含 17 项基线、目标红/独立对照绿/恢复与 SHA256 |
 | 既有回归 | SFTP 8、exec 2、SSH 5 组分别通过 | `tmp/sftp-controlled-legacy-sftp.log`、`tmp/sftp-controlled-legacy-exec.log`、`tmp/sftp-controlled-legacy-ssh.log` |
 | macOS 增量构建 | 通过，链接仓库补丁库 | `tmp/sftp-controlled-macos-build.log`；不是完整宿主测试 |
 | macOS 本机包 | `.app`、ad-hoc 签名、自包含依赖、网格/主题冒烟与新增普通依赖校验通过 | `tmp/sftp-host-package.log`；app-only，无本轮 ZIP/DMG、发布或 CI 证据 |
-| 新依赖守卫变异 | **失败**：`Mutation did not expose missing guard: source` | `tmp/host-ssh2-mutations.log`；第一个 source 组没有达到预期变异效果，后续组未完成，不能记“十组通过” |
+| 新依赖守卫变异 | **11 组通过** | `tmp/host-ssh2-mutations-final.log`；源码/补丁/构建器/产物/crypto、包节/收据/许可/格式/路径及 CMake 错误传播；每组目标红、独立对照绿、恢复绿与 SHA256 |
+| 既有打包变异 | 63 项检查 + DMG 3 组通过，无 SKIP | `tmp/sftp-host-package-mutations.log`；真实依赖嵌入、签名、minos、主题及磁盘映像清理等原有保护 |
+| Android 当前构建 | debug/测试 APK 通过 | `tmp/sftp-controlled-final-android-build.log`；debug APK 与 §9.45 完整 214 项运行时 SHA256 相同 |
 | Android 最近完整设备 | §9.45 的 214 项通过 | API 36 arm64 / 4 KB 页模拟器；此次文档审计未重跑，不新增档位 |
 
-守卫失败需要修正验证方法并复跑。源码显示变异目标先破坏 prefix 收据，`check_bundle` 随后还会比较整份包收据；第二道检查可能遮住被撤去的第一道守卫。这个源码解释不等于失败已经修好，也不说明实际坏库已被接受。
+此前守卫失败是测试观测面错误：破坏 prefix 收据后，整包校验又比较包收据，因此撤去 prefix 守卫仍被另一道检查拦住。现在 prefix 变异直接执行生产 `verify`，包变异执行 `check_bundle`；两条路径都有合法产物和独立损坏对照。新增 CMake 组实际配置 Core，撤去失败传播后目标红，独立非法 target 对照仍绿，恢复后再次拒绝坏收据。初次 CMake 断言未处理错误输出折行，改为仅归一化空白后复验，不忽略退出码或错误原因；历史失败没有用放宽生产校验来消除。
 
-整片退出前还需：新守卫的目标红/独立对照绿/恢复绿与 SHA；受影响的既有打包变异及当前平台编译；CI 实际结果独立记账。两端产品接线另验原总预算、取消后停止后续请求、晚到结果隔离和 owner 释放。Android A4 远端浏览/预览与 A5/A6 复制尚待开发；macOS 配置、设置、剪贴板和传输错误处理的既有缺口继续见[路线图](roadmap.md#macos-下一步与共享缺口)。
+两端产品接线另验原总预算、取消后停止后续请求、晚到结果隔离和 owner 释放。Android A4 远端浏览/预览与 A5/A6 复制尚待开发；macOS 产品仍用旧 opener，配置、设置、剪贴板和传输错误处理的缺口继续见[路线图](roadmap.md#macos-下一步与共享缺口)。本轮不新增完整 Apple 宿主、其他设备档位或 CI 证据。

@@ -17,5 +17,7 @@ SYSROOT_FLAG=()
 # 静态库对象标成 SDK 版本（26.5），Swift 链接时误以为库只支持 macOS 26.5。
 [ -n "$SYSROOT" ] && SYSROOT_FLAG=(-DCMAKE_OSX_SYSROOT="$SYSROOT" -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0)
 
+python3 "$ROOT/scripts/build-host-ssh2.py"
+
 cmake -S "$ROOT/core" -B "$ROOT/core/build" -DCMAKE_BUILD_TYPE=Debug "${SYSROOT_FLAG[@]}" >/dev/null
 cmake --build "$ROOT/core/build"

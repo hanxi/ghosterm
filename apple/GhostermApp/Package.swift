@@ -14,9 +14,15 @@ let repoRoot = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()   // apple
     .deletingLastPathComponent()   // repo root
 let coreBuild = repoRoot.appendingPathComponent("core/build").path
-let brewLibDirs = ["/opt/homebrew/lib", "/usr/local/lib"].filter {
-    FileManager.default.fileExists(atPath: $0)
+// Match Core's dependency lookup for isolated copies living under tmp/.
+var dependencyRoot = repoRoot
+while !FileManager.default.fileExists(atPath: dependencyRoot.appendingPathComponent("patches/libssh2/1.11.1/WHY.md").path) {
+    let parent = dependencyRoot.deletingLastPathComponent()
+    precondition(parent.path != dependencyRoot.path, "Pinned libssh2 dependency root missing")
+    dependencyRoot = parent
 }
+let ssh2Lib = dependencyRoot.appendingPathComponent("build/host-native/lib").path
+
 
 let package = Package(
     name: "GhostermApp",
@@ -36,8 +42,8 @@ let package = Package(
             ],
             path: "Sources/GhostermAppModel",
             linkerSettings: [
-                .unsafeFlags(["-L", coreBuild, "-lghosterm_core", "-lssh2"]
-                    + brewLibDirs.flatMap { ["-L", $0] }),
+                .unsafeFlags(["-L", coreBuild, "-lghosterm_core",
+                              "-L", ssh2Lib, "-lssh2"]),
             ]
         ),
         .executableTarget(

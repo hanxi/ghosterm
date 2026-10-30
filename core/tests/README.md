@@ -17,11 +17,11 @@
 
 本节只是源码覆盖核对，不新增已通过的测试数量；失败场景、Apple 调用方与 Android A5/A6 前置见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
-## SFTP 打开草稿的失败边界
+## SFTP 受控打开的验证边界
 
-当前工作区新增 `test_sftp_open` / `sftp_open_e2e`，后者只验证正常 OpenSSH 打开、预先取消、零预算与真实目录，默认主机构建 Core CTest 数量为 39。独立 `scripts/test-sftp-open.py` 才包含 17 项故障协议矩阵。§9.44 的部分 VERSION 后 EOF 超时为历史失败；默认主机构建已切到补丁依赖，当前 17 项与十组接口变异通过。新依赖守卫变异却在 `source` 组失败，因此仍不记为切片完整验收。
+`test_sftp_open` / `sftp_open_e2e` 验证正常 OpenSSH 打开、预先取消、零预算与真实目录，默认主机构建 Core CTest 数量为 39。独立 `scripts/test-sftp-open.py` 覆盖 17 项协议矩阵，含部分 VERSION/头部 EOF；默认补丁库上的最终矩阵及十组接口变异通过。十一组依赖守卫与真实 CMake 接线变异亦通过，历史失败和修正见[主机依赖说明](../../docs/reference/host-ssh2-build.md)。
 
-当前公开 ABI 为 82 项，Apple 80/2、JNI 40/42；两端文件产品尚未消费新入口。后续阻塞操作不受 opener 预算保护。构建准备、协议命令、通过日志和守卫失败见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增脚本仍属未提交工作区，不是已运行的 CI 闸门；默认缺依赖现在报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
+当前公开 ABI 为 82 项，Apple 80/2、JNI 40/42；两端文件产品尚未消费新入口。后续阻塞操作不受 opener 预算保护。构建、协议命令与验证日志见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增手工变异未加入 CI 20 份；默认缺依赖报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
 
 ## 公共头依赖闸门
 

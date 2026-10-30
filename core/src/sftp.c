@@ -27,6 +27,7 @@
 #include <libssh2.h>
 #include <libssh2_sftp.h>
 #include <pthread.h>
+#include <poll.h>
 #include <stdatomic.h>
 #include <time.h>
 #include <unistd.h>
@@ -98,6 +99,93 @@ static void emit_job_done(uint64_t job_id, int result, const char *detail) {
 /* ------------------------------------------------------------------ */
 
 static void *worker_main(void *arg);
+
+static gt_status_t open_status(int64_t deadline, bool (*cancelled)(void *), void *context) {
+  if (cancelled && cancelled(context)) return GT_ERR_CANCELLED;
+  if (mono_ms() >= deadline) return GT_ERR_IO;
+  return GT_OK;
+}
+
+gt_sftp_t *gt_ssh_sftp_controlled(gt_ssh_t *ssh, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context, gt_status_t *status) {
+  gt_status_t result = GT_ERR_INVALID_ARG;
+  if (status) *status = result;
+  if (!ssh || !timeout_ms) {
+    gt__set_error("sftp open: connection and remaining budget required");
+    return NULL;
+  }
+  const int64_t deadline = mono_ms() + timeout_ms;
+  result = open_status(deadline, cancelled, context);
+  if (result != GT_OK) {
+    if (status) *status = result;
+    gt__set_error("sftp open: cancelled or budget exhausted before IO");
+    return NULL;
+  }
+  void *raw = NULL;
+  int socket = -1;
+  result = (gt_status_t)gt__ssh_borrow(ssh, &raw, &socket);
+  if (result != GT_OK) {
+    if (status) *status = result;
+    gt__set_error("sftp open: authenticated connection unavailable");
+    return NULL;
+  }
+  gt_sftp_t *out = gt__alloc(sizeof *out);
+  if (!out) { if (status) *status = GT_ERR_INTERNAL; return NULL; }
+  out->ssh = ssh;
+  if (pthread_mutex_init(&out->qlock, NULL) != 0) {
+    free(out); if (status) *status = GT_ERR_INTERNAL; return NULL;
+  }
+  if (pthread_cond_init(&out->qcond, NULL) != 0) {
+    pthread_mutex_destroy(&out->qlock); free(out);
+    if (status) *status = GT_ERR_INTERNAL;
+    return NULL;
+  }
+  LIBSSH2_SESSION *session = raw;
+  SFTP_LOCK(out);
+  const int blocking = libssh2_session_get_blocking(session);
+  const long timeout = libssh2_session_get_timeout(session);
+  libssh2_session_set_blocking(session, 0);
+  for (;;) {
+    result = open_status(deadline, cancelled, context);
+    if (result != GT_OK) break;
+    out->sftp = libssh2_sftp_init(session);
+    if (out->sftp) { result = open_status(deadline, cancelled, context); break; }
+    if (libssh2_session_last_errno(session) != LIBSSH2_ERROR_EAGAIN) {
+      result = GT_ERR_IO; break;
+    }
+    int direction = libssh2_session_block_directions(session);
+    short events = 0;
+    if (direction & LIBSSH2_SESSION_BLOCK_INBOUND) events |= POLLIN;
+    if (direction & LIBSSH2_SESSION_BLOCK_OUTBOUND) events |= POLLOUT;
+    struct pollfd wait = {socket, events ? events : POLLIN, 0};
+    int rc = poll(&wait, 1, 10);
+    if ((rc < 0 && errno != EINTR) || (rc > 0 && (wait.revents & (POLLERR | POLLNVAL)))) {
+      result = GT_ERR_IO; break;
+    }
+  }
+  if (result == GT_OK && pthread_create(&out->worker, NULL, worker_main, out) != 0)
+    result = GT_ERR_INTERNAL;
+  if (result == GT_OK) {
+    out->worker_started = true;
+    libssh2_session_set_blocking(session, blocking);
+    libssh2_session_set_timeout(session, timeout);
+    SFTP_UNLOCK(out);
+    if (status) *status = GT_OK;
+    return out;
+  }
+  /* An in-flight libssh2 state machine cannot be abandoned and then reused.
+   * Abort before freeing a completed SFTP handle; unfinished init allocations
+   * remain owned by the SSH session and are released by gt_ssh_close. */
+  gt__ssh_abort(ssh);
+  libssh2_session_set_blocking(session, 1);
+  libssh2_session_set_timeout(session, 50);
+  if (out->sftp) libssh2_sftp_shutdown(out->sftp);
+  SFTP_UNLOCK(out);
+  pthread_cond_destroy(&out->qcond); pthread_mutex_destroy(&out->qlock); free(out);
+  if (status) *status = result;
+  gt__set_error("sftp open: cancelled, timed out or protocol/transport failure");
+  return NULL;
+}
 
 gt_sftp_t *gt__sftp_from_session(void *session, gt_ssh_t *ssh) {
   LIBSSH2_SESSION *sess = session;
@@ -698,6 +786,14 @@ int gt_sftp_pause(gt_sftp_t *sftp, uint64_t job_id, bool paused) {
 #else /* !GT_HAVE_LIBSSH2 —— 显式 UNSUPPORTED */
 
 struct gt_sftp { void *unused; };
+
+gt_sftp_t *gt_ssh_sftp_controlled(gt_ssh_t *ssh, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context, gt_status_t *status) {
+  (void)cancelled; (void)context;
+  if (status) *status = (!ssh || !timeout_ms) ? GT_ERR_INVALID_ARG : GT_ERR_UNSUPPORTED;
+  gt__set_error("sftp open: libssh2 unavailable");
+  return NULL;
+}
 
 gt_sftp_t *gt__sftp_from_session(void *session, gt_ssh_t *ssh) {
   (void)session; (void)ssh;

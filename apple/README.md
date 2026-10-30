@@ -31,7 +31,7 @@ apple/
 `AppModel.applyEdits/addHost` 先修改内存配置，再调用存储；写盘抛错时只向页面报错，尚未恢复内存模型。`HostListModel.reload` 也未过滤不含通配符的否定模式（如 `!secret`），不能把所有派生条目都视为可连接主机。
 主机列表还没有去重：Core 的 `gt_config_host_pattern` 按块枚举每个模式，`HostListModel.reload` 逐项追加，`HostEntry.id` 又直接使用 pattern；两个同名 Host 块会生成相同 ID 的列表项，连接选择器和管理器均用这些 ID。应把连接目标列表与配置块列表分开：连接目标去重，配置块仍保留独立来源和歧义编辑保护。此处为源码核对，未新增重复行的原生 UI 实测。
 `SSHConfig.inspect(alias:)` 已接入并有值复制/来源转换的定向测试与变异，尚未接入 `HostEditorSheet`；存在 Swift 绑定不表示 macOS 表单已提供继承值展示、别名重命名或完整包含文件编辑。新增接口状态见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。
-已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查切片为 74 / 72+2；IdentityFile 来源查询切片为 75 / 73+2；主机信任快照切片为 79 / 77+2，事务/移除绑定为 80 / 78+2，已验通道取消切片为 81 / 79+2；未验收 SFTP 工作区新增重载后为 82 / 80+2，后者不表示产品接线或故障路径已完成。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
+已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查切片为 74 / 72+2；IdentityFile 来源查询切片为 75 / 73+2；主机信任快照切片为 79 / 77+2，事务/移除绑定为 80 / 78+2，已验通道取消切片为 81 / 79+2；受控 SFTP 切片为 82 / 80+2（§9.47），接口协议验证不表示产品接线已完成。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
 
 共享 TOFU 写入现与 `KnownHosts.remove(path:expected:index:)` 使用同一事务；删除绑定返回 status、committed 与 conflict，提交后的 IO 错误不能解释为未改动。确认期间重新核对撤销/冲突，备份、锁、原子替换与故障验证见[§9.37](../docs/reference/android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)。本端仍没有信任记录管理页面；这项 shared known_hosts 事务不修复 `ConfigStore` 的 SSH 配置保存缺口。
 
@@ -108,9 +108,9 @@ macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，�
 
 `AppModel.makeSFTPFileBackend` 完成认证后，在专用 owner 队列调用无参 `ssh.sftp()`，没有传递原认证的剩余 deadline 或取消回调。专用线程避免在主线程执行这一步，但不保证中途取消能打断 libssh2；晚到结果归属检查也不是底层请求取消。
 
-当前未提交工作区已提供 `SSHSession.sftp(timeoutMilliseconds:cancellation:)`，Core 默认主机构建与两个 SwiftPM 包已链接仓库内打补丁的 libssh2。默认库上的 17 项协议用例、十组接口变异及本机 `.app` 打包已通过；新增依赖守卫变异在 `source` 组失败，切片仍未完成验收。此前部分 VERSION 后 EOF 超时保留在 Android 计划 §9.44，不能继续描述成当前默认库尚未打补丁。完整范围见[主机依赖与 SFTP 打开](../docs/reference/host-ssh2-build.md)。
+`SSHSession.sftp(timeoutMilliseconds:cancellation:)` 与主机补丁 libssh2 已完成本机验收，默认 Core 和两个 SwiftPM 包消费同一版本。17 项协议用例、十组接口变异、十一组依赖守卫及既有打包变异通过；此前测试观测面错误已修正。完整证据与构建准备见[主机依赖与 SFTP 打开](../docs/reference/host-ssh2-build.md)。
 
-macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 同样只有未接文件产品的 native helper。两端后续需分别传递原请求预算与取消；list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮文档审计没有新增桌面产品关闭/取消或完整宿主验收。
+macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 同样只有未接文件产品的 native helper。两端后续需分别传递原请求预算与取消；list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮接口/依赖验收没有新增桌面产品关闭/取消或完整宿主证据。
 
 ### 与 Android 最终方案的差异
 
@@ -202,7 +202,7 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 同样只有未�
 ```bash
 bash scripts/gate.sh
 bash scripts/check-abi-apple.sh
-# 下两行针对已有未提交的主机依赖工作区，范围见共享依赖说明
+# 首次准备锁定的主机 SSH 依赖，再构建 Core 与 App
 python3 scripts/build-host-ssh2.py --fetch  # 首次准备；缓存齐备后省略 --fetch
 bash scripts/build-core.sh
 swift build --package-path apple/GhostermApp

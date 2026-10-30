@@ -35,6 +35,15 @@ int main(void) {
   gt_ssh_close(shell_owner);
 
   gt_sftp_entry_t *entries = NULL;
+  gt_status_t sftp_status = GT_OK;
+  CHECK(gt_ssh_sftp_controlled(NULL, 100, NULL, NULL, &sftp_status) == NULL &&
+        sftp_status == GT_ERR_INVALID_ARG, "controlled SFTP rejects NULL with status");
+  gt_ssh_opts_t file_opts = {.host="localhost", .username="fixture"};
+  gt_ssh_t *file_owner = gt_ssh_new(&file_opts);
+  sftp_status = GT_OK;
+  CHECK(gt_ssh_sftp_controlled(file_owner, 0, NULL, NULL, &sftp_status) == NULL &&
+        sftp_status == GT_ERR_INVALID_ARG, "spent SFTP budget cannot become default timeout");
+  gt_ssh_close(file_owner);
   size_t count = 0;
   int rc = gt_sftp_list(NULL, "/", &entries, &count);
   CHECK(rc == GT_ERR_INVALID_ARG, "NULL 句柄的 sftp_list 必须返回 INVALID_ARG");

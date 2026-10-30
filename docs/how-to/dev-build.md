@@ -244,7 +244,7 @@ bash scripts/package-mac.sh --adhoc --out dist
 
 ## CI 是怎么串起来的
 
-当前未提交工作区在共享打包工作流中增加 `build-host-ssh2.py --fetch`，Core 与 SwiftPM 使用仓库自建补丁 libssh2，OpenSSL 仍由宿主提供。本机 `.app` 验证已有通过日志，新依赖守卫变异失败，尚无该工作区的 CI/Release 发布结果；不能把工作流步骤存在视为线上 dev 包已经换库。构建准备与证据见[主机依赖说明](../reference/host-ssh2-build.md)。
+共享打包工作流已增加 `build-host-ssh2.py --fetch`，Core/SwiftPM 消费仓库自建补丁 libssh2，OpenSSL 仍由宿主提供。本机 `.app`、既有打包变异和十一组依赖守卫通过，但尚无本轮 CI/Release 发布结果；工作流步骤存在不表示线上 dev 包已换库。构建准备与证据见[主机依赖说明](../reference/host-ssh2-build.md)。
 
 ```text
 push main（通过路径过滤）或手动 → dev-build.yml

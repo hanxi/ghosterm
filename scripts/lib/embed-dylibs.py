@@ -5,8 +5,8 @@
     embed-dylibs.py embed <Ghosterm.app>   # 收集 → 拷贝 → 改写 id/引用 → 自检
     embed-dylibs.py check <Ghosterm.app>   # 只自检（打包后复验）
 
-为什么需要它（真实缺陷，不是洁癖）：Apple 端的 libssh2 来自 Homebrew，而
-libssh2 自己又依赖 Homebrew 的 OpenSSL（libssl/libcrypto）。只拷 libssh2
+为什么需要它：Apple 端的 libssh2 由仓库锁定源码和补丁构建，
+它仍依赖宿主提供的 OpenSSL（当前为 Homebrew libcrypto）。只拷 libssh2
 是把「自包含」当口号——目标机器没有 Homebrew 时 dyld 直接找不到 libcrypto，
 App 起不来。本脚本保证：**bundle 里不再有任何指向 Homebrew 的路径**，且
 每一条 dependents 都能在 bundle 内解析到实际文件。

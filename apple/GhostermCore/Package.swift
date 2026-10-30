@@ -12,10 +12,16 @@ let repoRoot = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()   // apple
     .deletingLastPathComponent()   // repo root
 let coreBuild = repoRoot.appendingPathComponent("core/build").path
-// libssh2 由 core 静态库引入；SPM 不做 pkg-config，故附上 Homebrew 常见库目录。
-let brewLibDirs = ["/opt/homebrew/lib", "/usr/local/lib"].filter {
-    FileManager.default.fileExists(atPath: $0)
+// Use the same patched dependency as the shared Core; no Homebrew fallback.
+// Match Core's dependency lookup for isolated copies living under tmp/.
+var dependencyRoot = repoRoot
+while !FileManager.default.fileExists(atPath: dependencyRoot.appendingPathComponent("patches/libssh2/1.11.1/WHY.md").path) {
+    let parent = dependencyRoot.deletingLastPathComponent()
+    precondition(parent.path != dependencyRoot.path, "Pinned libssh2 dependency root missing")
+    dependencyRoot = parent
 }
+let ssh2Lib = dependencyRoot.appendingPathComponent("build/host-native/lib").path
+
 
 let package = Package(
     name: "GhostermCore",
@@ -29,8 +35,8 @@ let package = Package(
             path: "Sources/Cghosterm",
             publicHeadersPath: "include",
             linkerSettings: [
-                .unsafeFlags(["-L", coreBuild, "-lghosterm_core", "-lssh2"]
-                    + brewLibDirs.flatMap { ["-L", $0] }),
+                .unsafeFlags(["-L", coreBuild, "-lghosterm_core",
+                              "-L", ssh2Lib, "-lssh2"]),
             ]
         ),
         .target(

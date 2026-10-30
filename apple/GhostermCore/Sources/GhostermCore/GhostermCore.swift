@@ -446,6 +446,22 @@ public final class SSHSession {
         return SFTPSession(handle: h)
     }
 
+    /// Dedicated SSH owner only; failure after IO invalidates this connection.
+    /// This bounds subsystem admission, not subsequent SFTP operations or close.
+    public func sftp(timeoutMilliseconds: UInt32, cancellation: SSHCancellation? = nil) throws -> SFTPSession {
+        var status = GT_OK
+        let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let raw = withExtendedLifetime(cancellation) {
+            gt_ssh_sftp_controlled(handle, timeoutMilliseconds, { pointer in
+                guard let pointer else { return false }
+                let request = Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue()
+                return request.isCancelled
+            }, context, &status)
+        }
+        guard let raw else { throw GhostermError.status(Int32(status.rawValue), Ghosterm.lastError) }
+        return SFTPSession(handle: raw)
+    }
+
     /// 开一条 exec 通道跑单条远端命令（用于远端加速：find / grep / du）。
     /// 服务器禁 exec（纯 sftp 账号）时抛 GT_ERR_UNSUPPORTED（**不静默降级**）。
     public func exec(_ command: String) throws -> SSHExec {

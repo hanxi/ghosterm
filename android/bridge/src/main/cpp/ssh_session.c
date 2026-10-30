@@ -216,6 +216,18 @@ gt_transport_t *gaj_ssh_open_shell(gaj_ssh *s, gt_ssh_t *ssh,
     uint32_t budget=(uint32_t)(remaining<5000?remaining:5000);
     return gt_transport_open_ssh_shell_controlled(ssh,opts,budget,shell_cancelled,stop,status);
 }
+gt_sftp_t *gaj_ssh_open_sftp(gaj_ssh *s, gt_ssh_t *ssh, atomic_bool *stop, gt_status_t *status) {
+    uint64_t now=0;
+    *status=GT_ERR_CANCELLED;
+    if (atomic_load(stop)) return NULL;
+    *status=GT_ERR_INTERNAL;
+    if (!milliseconds(&now)) return NULL;
+    *status=GT_ERR_IO;
+    if (now>=s->deadline) return NULL;
+    uint64_t remaining=s->deadline-now;
+    const uint32_t budget=(uint32_t)(remaining > 5000 ? 5000 : remaining);
+    return gt_ssh_sftp_controlled(ssh,budget,shell_cancelled,stop,status);
+}
 void gaj_ssh_respond(JNIEnv *env, gaj_ssh *s, jlong request, jint kind, jbyteArray first, jbyteArray second) {
     if (!s || request<=0 || kind<1 || kind>4) { fail(env,"SSH 请求无效"); return; }
     char *a=NULL,*b=NULL;

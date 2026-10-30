@@ -36,7 +36,7 @@ S6 的 Quick Look 已接本地打开及远端下载完成后打开；远端副�
 
 目录浏览还须补最新请求归属、失败历史回滚与树缓存失效：`FilesPanelModel.navigate` 的每个完成回调都更新显示并清除加载状态，`goBack/goForward` 在读取前改历史，`refresh` 只更新列表而保留旧树缓存。普通导航与树懒加载的历史通过不覆盖这些交互；源码与退出条件见 [Apple 导航边界](../../apple/README.md#目录导航与缓存边界)和[路线图 P1](roadmap.md#macos-下一步与共享缺口)。本次仅文档核对，未修复或新增原生验收。
 
-共享 SFTP 打开前置仍未收口：当前工作区已将默认主机构建及 SwiftPM 接到补丁 libssh2，17 项协议用例与十组接口变异通过；依赖守卫变异尚失败。macOS 文件工厂仍调用旧 `ssh.sftp()`，Android 只有未接产品的 native helper。M4.6 正常传输不等于产品打开取消、后续操作或资源回收全链路完成，详见[主机依赖状态](host-ssh2-build.md)及 [Apple SFTP 边界](../../apple/README.md#sftp-打开与取消边界)。
+共享 SFTP 受控打开与主机依赖已按 §9.47 验收：17 项协议、十组接口变异、十一组依赖守卫和既有打包变异通过。macOS 文件工厂仍调用旧 `ssh.sftp()`，Android 只有未接产品的 native helper。后续产品打开/列表/预览/关闭与资源回收仍独立验收，见[主机依赖状态](host-ssh2-build.md)及 [Apple SFTP 边界](../../apple/README.md#sftp-打开与取消边界)。
 
 ## M4.6 原始目标形态
 

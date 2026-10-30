@@ -243,6 +243,10 @@ else
   fail "找不到 Ghostty 配色集（既不在 vendor/ghostty/zig-pkg，也不在 tmp/ghostty-resources 暂存目录）——跑一次 bash scripts/build-ghostty.sh 会把 zig-pkg 拉下来"
 fi
 
+# Record the verified patched SSH dependency before bundle relocation/signing.
+python3 "$ROOT/core/cmake/verify-ssh2.py" --root "$ROOT" --prefix "$ROOT/build/host-native" --stage-app "$APP" \
+  || fail "锁定 SSH 依赖校验失败"
+
 # ------------------------------------------------------------------ 5. 内嵌动态库
 step "5/9 内嵌依赖闭包（自包含）"
 EMBED_LOG="$WORK/embed.log"
@@ -264,7 +268,7 @@ if [ "$MIN_OS" = "auto" ]; then
   if [ "$MIN_OS" != "$APP_MIN_OS" ]; then
     echo "   ⚠️  依赖把最低系统从 ${APP_MIN_OS} 抬到 ${MIN_OS}（最高者：${MIN_OS_SRC}）"
     echo "      原因：内嵌的动态库来自 Homebrew，是按本机系统（minos ${REAL_MIN_OS}）构建的。"
-    echo "      要真正降到 ${APP_MIN_OS}：自建 libssh2/OpenSSL 并指定 MACOSX_DEPLOYMENT_TARGET，"
+    echo "      要真正降到 ${APP_MIN_OS}：自建 OpenSSL 并指定 MACOSX_DEPLOYMENT_TARGET，"
     echo "      或改用不依赖 Homebrew 的方案（见 docs/reference/roadmap.md 打包条目）。"
   fi
 else
@@ -350,6 +354,8 @@ fi
 # ------------------------------------------------------------------ 8. 校验
 step "8/9 校验（自包含 / 运行时 / 签名）"
 python3 "$ROOT/scripts/lib/embed-dylibs.py" check "$APP" || fail "自包含复验失败"
+python3 "$ROOT/core/cmake/verify-ssh2.py" --root "$ROOT" --prefix "$ROOT/build/host-native" --app "$APP" \
+  || fail "随包 SSH 依赖不是已校验的修复版本"
 for key in CFBundleExecutable CFBundleIdentifier CFBundleShortVersionString CFBundleVersion LSMinimumSystemVersion CFBundleIconFile; do
   plutil -extract "$key" raw "$APP/Contents/Info.plist" >/dev/null || fail "Info.plist 缺 $key"
 done
