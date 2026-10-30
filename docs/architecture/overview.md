@@ -108,6 +108,8 @@ Android 文本操作继续沿 TerminalSurface 接缝：带序号的控制请求�
 
 Android 身份设置已接通列表/详情、OpenSSH 公钥指纹、SAF 导入与确认移除；请求由独立 ViewModel 持有，IO 在后台执行，详情只保留公开信息。身份设置的八项定向和十组变异已有证据；后续主机关联切片完整 160 项设备回归通过，见[§9.35](../reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)。主机身份引用写入同一 SSH 配置保存事务，引用详情从共享来源查询派生；`ghosterm-identity:<UUID>` 是本安装容器标识，不是跨端可用密钥路径。认证只按配置解析候选，其他身份需用户明确选择。主机信任记录管理已按 §9.39 接入；A7 的 16 项偏好尚未完成。
 
+Android 文件控制面已有 `FileBrowserSource` 与 `LocalFileBrowser`：本机 HOME 使用平台文件 API，SAF 保留系统文档 URI，经后台 IO 返回条目/预览。`FilesViewModel` 用代次隔离结果，文件页不持有或关闭终端连接；本地 fd 显式释放、SAF 流取消和旋转后 PID 保持已验（实现计划 §9.43）。这不是 SFTP 接线；远端仍须独立 owner，四方向复制与事件泵留在 A5/A6。
+
 ## 参考实现（技术对照）
 
 | 项目 | 平台 | 许可 | 借用点 |

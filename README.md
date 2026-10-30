@@ -100,13 +100,13 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 ## 当前状态（2026-10-30）
 
-SSH 通道取消切片已通过当前模拟器档的完整 200 项设备测试；已交付范围、后续阶段和 macOS 待办见[路线图](docs/reference/roadmap.md#当前进度总览)。
+A4 本机/SAF 文件浏览首片已通过当前模拟器档的完整 214 项设备测试；已交付范围、后续阶段和 macOS 待办见[路线图](docs/reference/roadmap.md#当前进度总览)。
 
-上述结果对应已提交的 `6817bd8`。其后的工作区已有 A4 本机/SAF 文件浏览草稿，但当前 Android 构建失败，尚无该草稿的设备验收；不能将旧 APK 或 200 项结果作为当前工作区通过证据。阻塞与交付清单见 [A4 草稿记录](docs/reference/android-implementation.md#942-a4-文件浏览草稿与跨端复核2026-10-30未验收)。
+本机文件浏览、UTF-8 只读预览、点按打开/长按多选及 SAF 授权已接入，远端文件与复制任务尚未接；§9.42 的草稿构建问题已解决，当前证据见 [A4 实施记录](docs/reference/android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)。
 
 进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准；以下区分生产实现与历史验收，不把原型中的可交互演示记为已实现能力。
 
-- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档；A2 本地终端、A3 SSH 与 A7 身份/主机验证子页部分交付。最新完整设备证据为 §9.41 的 **200 项通过**；A3 其余网络/取消收尾（候选推进已接）、A4–A6 文件浏览与四方向复制、16 项设置、后台与发行矩阵仍待完成。
+- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档；A2 本地终端、A3 SSH 与 A7 身份/主机验证子页部分交付。最新完整设备证据为 §9.43 的 **214 项通过**；A3 其余网络/取消收尾（候选推进已接）、A4 远端文件与 A5/A6 四方向复制、16 项设置、后台与发行矩阵仍待完成。
 - **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。macOS 尚无 TCP 失败后遍历 DNS 备用地址的实现；Android 已按 §9.40 接入候选推进。Android 普通 shell 已接剩余预算和取消；Swift 新接口已验，但 macOS 产品尚未改用，认证可取消不等于桌面通道打开已可取消，见 [通道边界](apple/README.md#ssh-认证后的通道打开边界)。
 - **共享核心**：§9.41 为 **38 项 CTest / 81 个 ABI**，Apple 引用 79/登记未用 2，JNI 引用 39/登记未用 42。主机信任 TOFU/移除共同事务已交付；Android 管理页面另在 §9.39 验收，macOS 尚无管理页面。共享修复不代表 macOS 的 SSH 配置、终端设置或传输写入事务已完成。
 
@@ -118,7 +118,7 @@ SSH 通道取消切片已通过当前模拟器档的完整 200 项设备测试�
 | `ssh_config` 编辑 API | 🟡 9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令已按实际匹配行编辑，已增加三字段来源与包含文件/重名块编辑保护；已接入仅替换目标别名 token 的重命名接口；全部字段视图仍待补齐 |
 | `ssh_config` `Include` 展开 | ✅ OpenSSH 同口径（相对路径基准 = ~/.ssh、glob、嵌套 + 深度上限 16）；6 组断言 + 变异 I1~I4 |
 | 本地 PTY transport（forkpty） | ✅ POSIX 实现（macOS/Linux 证据；Android A2 首片已有 API 36 模拟器定向/变异证据，整个阶段未完成） |
-| SSH（libssh2）connect / auth / hostkey TOFU / ssh-shell | 🟡 密码/密钥、可取消认证与撤销优先的主机验证已有真 sshd 证据；CA-only、未知标记和 hashed 条目显式报不支持，见 [主机信任边界](core/tests/README.md#主机信任与撤销)。共享连接前配置检查已接两端；高级选项执行仍未实现，Android SSH 后端已绑定，产品、SAF 导入、凭据、身份设置与信任记录管理已有完整 200 项设备回归证据，A3 余项待收尾 |
+| SSH（libssh2）connect / auth / hostkey TOFU / ssh-shell | 🟡 密码/密钥、可取消认证与撤销优先的主机验证已有真 sshd 证据；CA-only、未知标记和 hashed 条目显式报不支持，见 [主机信任边界](core/tests/README.md#主机信任与撤销)。共享连接前配置检查已接两端；高级选项执行仍未实现，Android SSH 后端已绑定，产品、SAF 导入、凭据、身份设置与信任记录管理连同文件首片已有完整 214 项设备回归证据，A3 余项待收尾 |
 | SFTP（list / stat / 上传 / 下载 / job 三态） | 🟡 基础原语有真 sshd e2e 与变异证据；非覆盖创建、覆盖截断及过载下终态保障仍待补齐 |
 | **macOS 原生宿主** | 🟡 已交付主要功能；配置写盘与私钥安全存储接线仍有缺口，见路线图 |
 | ├ TerminalSurface（full libghostty + Metal） | ✅ 上游补丁提供 host IO 后端（`patches/libghostty/`） |
@@ -133,7 +133,7 @@ SSH 通道取消切片已通过当前模拟器档的完整 200 项设备测试�
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留）。工作流有路径过滤/取消，不保证每个提交出包，见 [CI 触发范围](docs/how-to/dev-build.md#ci-是怎么串起来的) |
 | 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
-| Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；已有模拟器 debug 性能基线；真机/长负载性能和完整键盘矩阵待补；SSH 后端已验，产品、SAF 导入、凭据、身份设置与信任记录管理已通过完整 200 项设备回归；A4 本机/SAF 文件草稿开发中、构建未通过，SFTP 与复制任务尚未接入 |
+| Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；已有模拟器 debug 性能基线；真机/长负载性能和完整键盘矩阵待补；SSH 后端已验，产品、SAF 导入、凭据、身份设置与信任记录管理连同本机/SAF 文件首片通过完整 214 项设备回归；远端 SFTP 与复制任务尚未接入 |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
 macOS／共享 PTY 已修复 SIGWINCH 通知，真实本地 shell→系统 ssh→远端 tmux 的窗口尺寸同步证据见[tmux 实施记录](docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。Bash/Zsh 鼠标残留清理脚本须显式安装到实际 shell 所在主机；真实休眠和用户远端未验，见[使用说明](docs/how-to/mouse-report-recovery.md)。各次 Android 测试数量保留在[实现记录](docs/reference/android-implementation.md#9-分阶段实施与依赖)，不与最新完整套件相加。
