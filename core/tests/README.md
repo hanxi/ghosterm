@@ -1,5 +1,13 @@
 # core/tests — 测试与黄金夹具
 
+## 有界接收到调用方暂存 fd
+
+`gt_sftp_receive_controlled` 将远端普通文件分块写入任务持有的空、可写普通 fd，保留调用方偏移与所有权，不发布最终目标。0 字节预算只接受空源；已知长度、额外越界字节、读取前后属性、短写/EINTR、关闭结果和取消均明确检查。失败输出计数为 0，fd 中可能已有部分内容，调用方必须丢弃；开始 I/O 后失败使独占连接失效。源元数据一致不证明原子内容快照，本地系统调用也不保证硬中断。
+
+`ctest sftp_receive_e2e` 使用真实 OpenSSH，包含 11 个正常/本地故障场景；测试将生产 `sftp.c` 编译进专用目标以替换 pwrite，注入短写、EINTR、零进展、磁盘写入错误和目标被其他写者增长，不向生产 API 加测试钩子。`scripts/test-sftp-receive.py` 经隔离 sshd 和钉版本 Python 执行 64 组场景（63 项模拟协议＋一组 11 个真实 OpenSSH 场景），覆盖六个协议阶段的取消、超时、拒绝、断线、坏包 EOF，以及类型/大小/mtime/属性丢失；与正常真实服务器证据分开记账。
+
+`python3 scripts/mutation-check-sftp-receive.py` 在隔离副本执行 21 Core + 1 无库 + 4 Swift 组：目标编译成功后断言红、独立配置对照绿、复原绿并核对 SHA256。无库组链接实际关闭 libssh2 的 archive；Swift 在真实 sshd 上验证空文件、分块内容、偏移、取消、预算、结果与错误传播。以上为手工变异，不新增 CI 20 份覆盖。Android 的 native fd 释放通知、暂存预算和页面状态须另行验收，Core/Swift 通过不代表 macOS 文件产品已迁移。
+
 ## 加密私钥认证重试
 
 `ssh_connector_e2e` 使用临时加密 OpenSSH 私钥，在真实 sshd 上验证错误口令返回凭据请求、替换正确口令后同一连接认证成功。夹具仅在工程 `tmp/`，结束后删除，不输出材料或口令。libssh2/OpenSSL 的内存私钥解析可能返回 `LIBSSH2_ERROR_FILE`，仅认证私钥路径将它作为 `GT_ERR_AUTH` 重试；握手/协议错误不因此降级。该回归随现有 Core 闸门执行，不增加公共 ABI。

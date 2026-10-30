@@ -70,7 +70,7 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 | Swift 绑定 | `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 已存在，定向/变异有通过记录 | macOS 产品工厂仍调用无参 `ssh.sftp()`；原认证预算未传入文件 owner |
 | Android native | `files_jni.c` 的专用 owner 调用 `gaj_ssh_open_sftp`，从原认证取剩余预算并封顶 5000 ms；目录/预览各有请求预算和停止信号 | `RemoteFileSession` 后端与远端 repository、认证 UI、文件页已按 §9.51/§9.52 接入；复制与完整矩阵待补 |
 
-§9.47 已验收基线为 82 ABI、Apple 80/2、JNI 40/42；§9.49 受控目录浏览为 83 ABI、Apple 81/2、JNI 40/43。§9.51 为 85 ABI、Apple 83/2、JNI 45/40；当前 §9.54 为 86 ABI、Apple 84/2、JNI 46/40，Android 后端已消费受控接口。这些数量不是产品可用功能数量。macOS 文件产品的列表、realpath、预览、任务和关闭仍按原契约运行；opener 测试不证明整个文件连接可取消。
+§9.47 已验收基线为 82 ABI、Apple 80/2、JNI 40/42；§9.49 受控目录浏览为 83 ABI、Apple 81/2、JNI 40/43。§9.51 为 85 ABI、Apple 83/2、JNI 45/40；§9.54 为 86 ABI、Apple 84/2、JNI 46/40；§9.56 当前工作区为 87 ABI、Apple 85/2、JNI 47/40，新增受控读取到 fd。Android 后端已消费受控接口，新增读取专项通过但完整设备运行有 1 项失败，整片未验收。这些数量不是产品可用功能数量。macOS 文件产品的列表、realpath、预览、任务和关闭仍按原契约运行；opener 测试不证明整个文件连接可取消。
 
 ## 受控目录浏览与产品迁移
 

@@ -77,8 +77,9 @@
   **F10**（`FlowLayout.rows` 永不折行）、**F11**（顶栏退回一行 `HStack`）、
   **F12**（去掉 ✕ 关闭按钮）三条**都变红**——新断言有牙。
 - `bash scripts/mutation-check-tabs.sh` → **33 passed / 0 failed**，其中新增
-  **T17**（右键分屏作用到当前标签页）、**T18**（右键开面板作用到当前标签页）
+  **T17**（故意让分屏误作用到当前标签页）、**T18**（故意让文件面板误作用到当前标签页）
   都变红，且同变异下对照（`TerminalConfigTests`）仍绿 = 红有指向性。
+  正确行为始终作用于被右键的标签；它可以与当前标签不同。
 - `mutation-check-sidebar-chrome.sh` 的 7 处锚点逐条核对**仍命中**
   （`if !showsSidebar { sidebarToggle }`、Sidebar 的两处 `sidebar.leading`、
   `.fill(isActive ? …)`、`window.title = ""`、`.background(WheelScrollsHorizontally())`、
