@@ -26,7 +26,7 @@ typedef struct file_session {
     int phase, error; /* 0 connecting, 1 ready, 2 failed, 3 stopped */
     uint64_t sequence, request;
     int kind, status;
-    int source_fd;
+    int source_fd, release_fd;
     uint64_t expected_size;
     uint32_t budget;
     bool complete;
@@ -46,6 +46,7 @@ static void release(file_session *s) {
     if(!destroy)return;
     gaj_ssh_free(s->auth);free(s->path);free(s->result);
     if(s->source_fd>=0)close(s->source_fd);
+    if(s->release_fd>=0)close(s->release_fd);
     pthread_cond_destroy(&s->wake);pthread_mutex_destroy(&s->mutex);free(s);
 }
 static file_session *borrow(JNIEnv *env,jlong id) {
@@ -94,8 +95,9 @@ static void *owner(void *context) {
         char *path=s->path;s->path=NULL;
         uint64_t request=s->request;int kind=s->kind;uint32_t budget=s->budget;
         int source_fd=s->source_fd;s->source_fd=-1;uint64_t expected_size=s->expected_size;
+        int release_fd=s->release_fd;s->release_fd=-1;
         pthread_mutex_unlock(&s->mutex);
-        if(stopped(s)){free(path);if(source_fd>=0)close(source_fd);break;}
+        if(stopped(s)){free(path);if(source_fd>=0)close(source_fd);if(release_fd>=0)close(release_fd);break;}
         uint8_t *result=NULL;size_t length=0;
         if(kind==1)status=directory(s,files,path,budget,&result,&length);
         else if(kind==3) {
@@ -105,11 +107,19 @@ static void *owner(void *context) {
                 status=gt_sftp_create_controlled(files,path,source_fd,expected_size,&outcome,budget,stopped,s);
                 uint8_t *p=result;u32(&p,(uint32_t)outcome.state);u64(&p,outcome.bytes_acked);length=12;
             } else status=GT_ERR_INTERNAL;
+        } else if(kind==4) {
+            uint64_t count=0;
+            status=gt_sftp_receive_controlled(files,path,source_fd,expected_size,&count,budget,stopped,s);
+            if(status==GT_OK) {
+                result=malloc(8);
+                if(result){uint8_t *p=result;u64(&p,count);length=8;}else status=GT_ERR_INTERNAL;
+            }
         } else {
             result=malloc(PREVIEW_LIMIT);
             status=result?gt_sftp_preview_controlled(files,path,result,PREVIEW_LIMIT,&length,budget,stopped,s):GT_ERR_INTERNAL;
         }
         free(path);if(source_fd>=0)close(source_fd);
+        if(release_fd>=0)close(release_fd); /* EOF releases the caller's fd lease. */
         if(status!=GT_OK && kind!=3){free(result);result=NULL;length=0;}
         pthread_mutex_lock(&s->mutex);
         if(s->request==request && !stopped(s)) {
@@ -119,6 +129,12 @@ static void *owner(void *context) {
         if(status!=GT_OK)break;
     }
 finished:
+    /* A stop can win before the loop dequeues its pending descriptors. Close the
+     * data duplicate BEFORE the completion pipe, even on this path. */
+    pthread_mutex_lock(&s->mutex);
+    if(s->source_fd>=0){close(s->source_fd);s->source_fd=-1;}
+    if(s->release_fd>=0){close(s->release_fd);s->release_fd=-1;}
+    pthread_mutex_unlock(&s->mutex);
     /* No terminal or transfer shares this socket. Abort before SFTP cleanup so
      * a peer withholding CHANNEL_CLOSE cannot keep this detached owner alive. */
     if(ssh)(void)gt_ssh_abort(ssh);
@@ -132,7 +148,7 @@ JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_create(JNIEnv
         jbyteArray host,jint port,jbyteArray user,jbyteArray known,jobjectArray addresses,jintArray scopes,jint timeout) {
     (void)self;gaj_ssh *auth=gaj_ssh_new(env,host,port,user,known,addresses,scopes,timeout);if(!auth)return 0;
     file_session *s=calloc(1,sizeof(*s));if(!s){gaj_ssh_free(auth);fail(env,"无法分配文件连接");return 0;}
-    s->source_fd=-1;s->auth=auth;atomic_init(&s->stop,false);
+    s->source_fd=-1;s->release_fd=-1;s->auth=auth;atomic_init(&s->stop,false);
     if(pthread_mutex_init(&s->mutex,NULL)){gaj_ssh_free(auth);free(s);fail(env,"无法初始化文件锁");return 0;}
     if(pthread_cond_init(&s->wake,NULL)){pthread_mutex_destroy(&s->mutex);gaj_ssh_free(auth);free(s);fail(env,"无法初始化文件队列");return 0;}
     s->refs=2;
@@ -169,8 +185,8 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_respond(JNIEnv
     (void)self;file_session *s=borrow(env,id);if(!s)return;
     gaj_ssh_respond(env,s->auth,request,kind,first,second);release(s);
 }
-static jlong begin(JNIEnv *env,jlong id,jint kind,jbyteArray path,jint budget,int source_fd,uint64_t expected_size) {
-    if(!path || (kind!=1 && kind!=2 && kind!=3) || budget<=0 || budget>60000){fail(env,"文件请求无效");return 0;}
+static jlong begin(JNIEnv *env,jlong id,jint kind,jbyteArray path,jint budget,int source_fd,uint64_t expected_size,int release_fd) {
+    if(!path || (kind!=1 && kind!=2 && kind!=3 && kind!=4) || budget<=0 || budget>60000){fail(env,"文件请求无效");return 0;}
     jsize n=(*env)->GetArrayLength(env,path);if(n<=0 || n>=65536){fail(env,"文件路径长度无效");return 0;}
     char *value=calloc((size_t)n+1,1);if(!value){fail(env,"无法分配文件路径");return 0;}
     (*env)->GetByteArrayRegion(env,path,0,n,(jbyte *)value);
@@ -178,7 +194,7 @@ static jlong begin(JNIEnv *env,jlong id,jint kind,jbyteArray path,jint budget,in
     file_session *s=borrow(env,id);if(!s){free(value);return 0;}
     pthread_mutex_lock(&s->mutex);jlong request=0;
     if(s->phase==1 && !stopped(s) && !s->request && s->sequence<INT64_MAX) {
-        s->request=++s->sequence;request=(jlong)s->request;s->kind=kind;s->budget=(uint32_t)budget;s->path=value;value=NULL;s->source_fd=source_fd;s->expected_size=expected_size;
+        s->request=++s->sequence;request=(jlong)s->request;s->kind=kind;s->budget=(uint32_t)budget;s->path=value;value=NULL;s->source_fd=source_fd;s->expected_size=expected_size;s->release_fd=release_fd;
         s->complete=false;s->status=GT_OK;pthread_cond_signal(&s->wake);
     }
     pthread_mutex_unlock(&s->mutex);release(s);free(value);
@@ -186,14 +202,26 @@ static jlong begin(JNIEnv *env,jlong id,jint kind,jbyteArray path,jint budget,in
 }
 JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_begin(JNIEnv *env,jobject self,jlong id,jint kind,jbyteArray path,jint budget) {
     (void)self;if(kind!=1 && kind!=2){fail(env,"文件请求无效");return 0;}
-    return begin(env,id,kind,path,budget,-1,0);
+    return begin(env,id,kind,path,budget,-1,0,-1);
 }
-JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginCreate(JNIEnv *env,jobject self,jlong id,jbyteArray path,jint source_fd,jlong expected_size,jint budget) {
+JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginCreate(JNIEnv *env,jobject self,jlong id,jbyteArray path,jint source_fd,jlong expected_size,jint budget,jint release_fd) {
     (void)self;if(source_fd<0 || expected_size<0){fail(env,"文件源描述符或尺寸无效");return 0;}
     int owned=fcntl(source_fd,F_DUPFD_CLOEXEC,0);
     if(owned<0){fail(env,"无法保留源文件描述符");return 0;}
-    jlong request=begin(env,id,3,path,budget,owned,(uint64_t)expected_size);
-    if(!request)close(owned);
+    int fence=fcntl(release_fd,F_DUPFD_CLOEXEC,0);
+    if(fence<0){close(owned);fail(env,"无法保留文件释放通知");return 0;}
+    jlong request=begin(env,id,3,path,budget,owned,(uint64_t)expected_size,fence);
+    if(!request){close(owned);close(fence);}
+    return request;
+}
+JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginReceive(JNIEnv *env,jobject self,jlong id,jbyteArray path,jint destination_fd,jlong max_bytes,jint budget,jint release_fd) {
+    (void)self;if(destination_fd<0 || max_bytes<0){fail(env,"文件目标描述符或限额无效");return 0;}
+    int owned=fcntl(destination_fd,F_DUPFD_CLOEXEC,0);
+    if(owned<0){fail(env,"无法保留目标文件描述符");return 0;}
+    int fence=fcntl(release_fd,F_DUPFD_CLOEXEC,0);
+    if(fence<0){close(owned);fail(env,"无法保留文件释放通知");return 0;}
+    jlong request=begin(env,id,4,path,budget,owned,(uint64_t)max_bytes,fence);
+    if(!request){close(owned);close(fence);}
     return request;
 }
 JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_result(JNIEnv *env,jobject self,jlong id,jlong request) {

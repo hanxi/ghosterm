@@ -351,7 +351,10 @@ class RemoteFilesTest {
                             val flags=File("/proc/self/fdinfo/"+handle.name).readLines().single { it.startsWith("flags:") }.substringAfter(':').trim().toLong(8)
                             assertTrue("source descriptors must be CLOEXEC",flags and 0x80000L != 0L)
                         }
+                        val cancelStarted=SystemClock.uptimeMillis()
                         job.cancelAndJoin()
+                        assertTrue("create cancellation must not wait for the request timeout",SystemClock.uptimeMillis()-cancelStarted<bound)
+                        assertEquals("create returned before source duplicate closed",1,sourceDescriptors())
                     }
                     await(timeout=bound,message="cancelled create owner must release within bound") { owners()==0 };assertEquals(1,sourceDescriptors())
                 }
@@ -384,6 +387,184 @@ class RemoteFilesTest {
                 }
             }
         }
+    }
+
+    @Test fun receiveRegularFilePreservesOffsetAndOwnedDescriptor() = directory { root ->
+        val path=fixture.getString("remoteRoot")+"-receive-"+UUID.randomUUID()
+        val bytes=ByteArray(70001) { (it*31+7).toByte() }
+        val source=File(root,"upload").apply { writeBytes(bytes) }
+        android.os.ParcelFileDescriptor.open(source,android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { input ->
+            RemoteFileSession(connection(known(root))).use { files ->
+                supply(files);assertEquals(0,runBlocking { files.createExclusive(path,input.fd,bytes.size.toLong()) }.status)
+                val target=File(root,"target").apply { writeBytes(byteArrayOf()) }
+                android.os.ParcelFileDescriptor.open(target,android.os.ParcelFileDescriptor.MODE_READ_WRITE).use { output ->
+                    android.system.Os.lseek(output.fileDescriptor,7,android.system.OsConstants.SEEK_SET)
+                    assertEquals(bytes.size.toLong(),runBlocking { files.receive(path,output.fd,bytes.size.toLong()) })
+                    assertEquals(7L,android.system.Os.lseek(output.fileDescriptor,0,android.system.OsConstants.SEEK_CUR))
+                    assertArrayEquals(bytes,target.readBytes());assertTrue(files.state().ready)
+                }
+            }
+        }
+    }
+    @Test fun receiveAnonymousSnapshotsSealBytesAndRetainBudget() = directory { root ->
+        val path=fixture.getString("remoteRoot")+"-snapshot-receive-"+UUID.randomUUID()
+        for(size in listOf(0,70001)) {
+            val bytes=ByteArray(size) { (it*31+7).toByte() }
+            val source=File(root,"source-$size").apply { writeBytes(bytes) }
+            android.os.ParcelFileDescriptor.open(source,android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { input ->
+                RemoteFileSession(connection(known(root))).use { files ->
+                    supply(files);assertEquals(0,runBlocking { files.createExclusive(path+size,input.fd,size.toLong()) }.status)
+                    for(expected in listOf(size.toLong(),null)) {
+                        val dir=File(root,"private-$size-$expected")
+                        TransferStagingStore(dir,80000,80000,0).use { store ->
+                            runBlocking {
+                                store.receive(files,path+size,expected).use { snapshot ->
+                                    assertEquals(size.toLong(),snapshot.size)
+                                    assertEquals(expected ?: 80000L,store.reservedBytes)
+                                    assertEquals(0,dir.listFiles().orEmpty().size)
+                                    snapshot.withDescriptor { fd,count ->
+                                        val descriptor=android.os.ParcelFileDescriptor.fromFd(fd)
+                                        assertEquals(0,android.system.Os.fcntlInt(descriptor.fileDescriptor,android.system.OsConstants.F_GETFL,0) and android.system.OsConstants.O_ACCMODE)
+                                        val got=android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes() }
+                                        assertEquals(size.toLong(),count);assertArrayEquals(bytes,got)
+                                    }
+                                }
+                            }
+                            assertEquals(0L,store.reservedBytes)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    @Test fun receiveProtocolFailuresNeverPublishSnapshot() = directory { root ->
+        val stages=listOf("receive-lstat","receive-open","receive-fstat","receive-read","receive-finalstat","receive-close")
+        val cases=stages.flatMap { listOf(it to "deny",it to "hold") } + listOf(
+            "receive-read" to "receive-shrink", "receive-read" to "receive-overflow",
+            "receive-finalstat" to "receive-changed-mtime", "receive-finalstat" to "receive-missing-size")
+        for((stage,action) in cases) {
+            val user=control("new",stage=stage,action=action).getString("user")
+            try { RemoteFileSession(connection(known(root,true),true,user)).use { files ->
+                supply(files,true)
+                TransferStagingStore(File(root,"failed"),300,300,0).use { store ->
+                    val started=SystemClock.uptimeMillis()
+                    val failed=runCatching { runBlocking { store.receive(files,"/file",timeoutMillis=500) } }.exceptionOrNull()
+                    if(action=="hold") assertTrue("receive must use its requested budget",SystemClock.uptimeMillis()-started>=498)
+                    assertTrue("receive failure must remain explicit: $failed",failed is RemoteFileException)
+                    await { store.reservedBytes==0L };assertTrue(files.state().finished)
+                    assertTrue(reached(user,stage));assertEquals(0,File(root,"failed").listFiles().orEmpty().size)
+                }
+            } } finally { control("release",user) }
+        }
+    }
+    @Test fun receiveCancellationWaitsForNativeDescriptorRelease() = directory { root ->
+        for(stage in listOf("receive-lstat","receive-open","receive-fstat","receive-read","receive-finalstat","receive-close")) {
+            val user=control("new",stage=stage,action="hold").getString("user")
+            try { RemoteFileSession(connection(known(root,true),true,user)).use { files ->
+                supply(files,true)
+                val target=File(root,"receive-cancel").apply { writeBytes(byteArrayOf()) }
+                fun handles()=File("/proc/self/fd").listFiles().orEmpty().count {
+                    runCatching { File(android.system.Os.readlink(it.path)).canonicalPath==target.canonicalPath }.getOrDefault(false)
+                }
+                android.os.ParcelFileDescriptor.open(target,android.os.ParcelFileDescriptor.MODE_READ_WRITE).use { descriptor ->
+                    runBlocking {
+                        val request=launch(Dispatchers.IO) { files.receive("/file",descriptor.fd,300) }
+                        await { reached(user,stage) };assertEquals(2,handles())
+                        File("/proc/self/fd").listFiles().orEmpty().filter {
+                            runCatching { File(android.system.Os.readlink(it.path)).canonicalPath==target.canonicalPath }.getOrDefault(false)
+                        }.forEach {
+                            val flags=File("/proc/self/fdinfo/"+it.name).readLines().single { line -> line.startsWith("flags:") }.substringAfter(':').trim().toLong(8)
+                            assertTrue("receive descriptors must be CLOEXEC",flags and 0x80000L != 0L)
+                        }
+                        request.cancelAndJoin()
+                        assertEquals("cancel returned while native still holds the target",1,handles())
+                    }
+                }
+                assertEquals(0,handles())
+            } } finally { control("release",user) }
+        }
+    }
+    @Test fun storeCloseCancelsPendingReceiveAndReleasesReservation() = directory { root ->
+        val user=control("new",stage="receive-read",action="hold").getString("user")
+        try { RemoteFileSession(connection(known(root,true),true,user)).use { files ->
+            supply(files,true)
+            val store=TransferStagingStore(File(root,"close-pending"),300,300,0)
+            runBlocking {
+                val request=async(Dispatchers.IO) { runCatching { store.receive(files,"/file") } }
+                await { reached(user,"receive-read") };assertEquals(300L,store.reservedBytes)
+                val bound=limit();val started=SystemClock.uptimeMillis()
+                store.close()
+                assertTrue(request.await().isFailure)
+                assertTrue("store close must cancel before request timeout",SystemClock.uptimeMillis()-started<bound)
+                await { store.reservedBytes==0L }
+                assertEquals(0,File(root,"close-pending").listFiles().orEmpty().size)
+            }
+        } } finally { control("release",user) }
+    }
+    @Test fun cancelledSnapshotUploadKeepsLeaseUntilNativeRelease() = directory { root ->
+        val source=File(root,"lease-source").apply { writeBytes(ByteArray(4096) { (it*31+7).toByte() }) }
+        val user=control("new",stage="create-write",action="hold").getString("user")
+        try { RemoteFileSession(connection(known(root,true),true,user)).use { files ->
+            supply(files,true)
+            TransferStagingStore(File(root,"lease"),4096,4096,0).use { store ->
+                runBlocking {
+                    val snapshot=store.snapshot(4096) {
+                        android.content.res.AssetFileDescriptor(android.os.ParcelFileDescriptor.open(source,android.os.ParcelFileDescriptor.MODE_READ_ONLY),0,4096)
+                    }
+                    var inode=0L
+                    val request=launch(Dispatchers.IO) {
+                        snapshot.withDescriptor { fd,size ->
+                            android.os.ParcelFileDescriptor.fromFd(fd).use { inode=android.system.Os.fstat(it.fileDescriptor).st_ino }
+                            files.createExclusive("/cancelled",fd,size)
+                        }
+                    }
+                    await { reached(user,"create-write") };snapshot.close()
+                    assertEquals(4096L,store.reservedBytes)
+                    request.cancelAndJoin()
+                    assertEquals(0L,store.reservedBytes)
+                    val remaining=File("/proc/self/fd").listFiles().orEmpty().count {
+                        runCatching { android.system.Os.stat(it.path).st_ino==inode }.getOrDefault(false)
+                    }
+                    assertEquals("snapshot capacity released while native still owns its inode",0,remaining)
+                }
+            }
+        } } finally { control("release",user) }
+    }
+
+    @Test fun receiveDeliveryCancellationClosesUnclaimedSnapshot() = directory { root ->
+        val user=control("new",stage="receive-read",action="allow").getString("user")
+        try { RemoteFileSession(connection(known(root,true),true,user)).use { files ->
+            supply(files,true)
+            TransferStagingStore(File(root,"delivery"),300,300,0).use { store ->
+                runBlocking {
+                    val queue=java.util.concurrent.LinkedBlockingQueue<Runnable>()
+                    val dispatcher=object:CoroutineDispatcher() {
+                        override fun dispatch(context:kotlin.coroutines.CoroutineContext,block:Runnable) { queue.add(block) }
+                    }
+                    val request=launch(dispatcher,start=CoroutineStart.UNDISPATCHED) {
+                        store.receive(files,"/file").use { fail("cancelled delivery published remote snapshot") }
+                    }
+                    val delivery=withContext(Dispatchers.IO) { queue.poll(5,java.util.concurrent.TimeUnit.SECONDS) }
+                    assertNotNull("remote snapshot must queue delivery",delivery)
+                    assertEquals(300L,store.reservedBytes)
+                    request.cancel();delivery!!.run();request.join()
+                    assertEquals(0L,store.reservedBytes)
+                }
+            }
+        } } finally { control("release",user) }
+    }
+
+    @Test fun receiveFrozenSizeMismatchDoesNotPublishSnapshot() = directory { root ->
+        val user=control("new",stage="receive-read",action="allow").getString("user")
+        try { RemoteFileSession(connection(known(root,true),true,user)).use { files ->
+            supply(files,true)
+            TransferStagingStore(File(root,"changed-size"),300,300,0).use { store ->
+                val failure=runCatching { runBlocking { store.receive(files,"/file",258) } }.exceptionOrNull()
+                assertTrue("frozen source length mismatch must fail",failure is IllegalStateException)
+                await { store.reservedBytes==0L }
+                assertTrue(files.state().ready)
+            }
+        } } finally { control("release",user) }
     }
 
 }

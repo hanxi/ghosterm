@@ -32,6 +32,9 @@ def fixture(work, enabled):
     transfer_spec = importlib.util.spec_from_file_location('sftp_transfer_peer', Path(__file__).with_name('sftp-transfer-peer.py'))
     transfer_peer = importlib.util.module_from_spec(transfer_spec)
     transfer_spec.loader.exec_module(transfer_peer)
+    receive_spec = importlib.util.spec_from_file_location('sftp_receive_peer', Path(__file__).with_name('sftp-receive-peer.py'))
+    receive_peer = importlib.util.module_from_spec(receive_spec)
+    receive_spec.loader.exec_module(receive_peer)
     create_spec = importlib.util.spec_from_file_location('sftp_create_peer', Path(__file__).with_name('sftp-create-peer.py'))
     create_peer = importlib.util.module_from_spec(create_spec)
     create_spec.loader.exec_module(create_peer)
@@ -105,6 +108,9 @@ def fixture(work, enabled):
                                     if peer.record['action'] not in ('partial','queued-partial'): sftp_channel.shutdown_write()
                                 else:
                                     sftp_channel.sendall(b'\x00\x00\x00\x05\x02\x00\x00\x00\x03')
+                                    if peer.record['stage'] in receive_peer.STAGES:
+                                        receive_peer.serve(sftp_channel, peer, closing)
+                                        return
                                     if peer.record['stage'] in create_peer.STAGES:
                                         create_peer.serve(sftp_channel, peer, closing)
                                     if peer.record['stage'] in transfer_peer.STAGES:
@@ -123,7 +129,7 @@ def fixture(work, enabled):
             with lock:
                 op = request['op']
                 if op == 'new':
-                    if request['stage'] not in ('channel','pty','shell','subsystem','version', *directory_peer.STAGES, *preview_peer.STAGES, *transfer_peer.STAGES, *create_peer.STAGES) or request['action'] not in ('hold','deny','allow','disconnect','eof','partial','header-eof','queued-partial', *directory_peer.ACTIONS, *preview_peer.ACTIONS, *create_peer.ACTIONS): raise ValueError('Invalid fixture mode')
+                    if request['stage'] not in ('channel','pty','shell','subsystem','version', *directory_peer.STAGES, *preview_peer.STAGES, *transfer_peer.STAGES, *create_peer.STAGES, *receive_peer.STAGES) or request['action'] not in ('hold','deny','allow','disconnect','eof','partial','header-eof','queued-partial', *directory_peer.ACTIONS, *preview_peer.ACTIONS, *create_peer.ACTIONS, *receive_peer.ACTIONS): raise ValueError('Invalid fixture mode')
                     name = 'channel-'+secrets.token_hex(12)
                     records[name] = dict(stage=request['stage'],action=request['action'],events=[],release=threading.Event())
                     result = dict(user=name)

@@ -1,5 +1,7 @@
 package com.hanxi.ghosterm.bridge
 
+import android.os.ParcelFileDescriptor
+import kotlinx.coroutines.NonCancellable
 import java.nio.CharBuffer
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -59,16 +61,22 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
     private suspend fun operation(kind: Int, path: String, timeoutMillis: Int, sourceFd: Int = -1, expectedSize: Long = 0): ByteArray = withContext(Dispatchers.IO) {
         require(path.isNotEmpty() && '\u0000' !in path && timeoutMillis in 1..60_000) { "文件路径或超时无效" }
         requests.withLock {
+            // Native duplicates the write end and closes it only AFTER its data
+            // fd. EOF survives dispose/recycled handles without a Java callback.
+            val released = if(kind==3 || kind==4) ParcelFileDescriptor.createPipe() else null
+            try {
             val (owner, request) = synchronized(this@RemoteFileSession) {
                 check(handle != 0L) { "文件连接已关闭" }
                 val encoded = Charsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(path))
                 val bytes = ByteArray(encoded.remaining()); encoded.get(bytes)
-                handle to if(kind==3) NativeFiles.beginCreate(handle,bytes,sourceFd,expectedSize,timeoutMillis)
+                handle to if(kind==3) NativeFiles.beginCreate(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd)
+                    else if(kind==4) NativeFiles.beginReceive(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd)
                     else NativeFiles.begin(handle, kind, bytes, timeoutMillis)
             }
             var completed = false
             try {
+                released?.get(1)?.close()
                 var response: ByteArray? = null
                 while(response == null) {
                     response = synchronized(this@RemoteFileSession) {
@@ -94,6 +102,18 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
                 } else bytes.copyOfRange(8, bytes.size)
             } finally {
                 if(!completed) close()
+            }
+            } finally {
+                if(released != null) {
+                    released[1].close()
+                    // Keep the caller's staging reservation until the duplicate
+                    // actually closes, including cancellation before execution.
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        ParcelFileDescriptor.AutoCloseInputStream(released[0]).use {
+                            check(it.read()==-1) { "文件释放通知格式无效" }
+                        }
+                    }
+                }
             }
         }
     }
@@ -143,6 +163,18 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
         check((status==0)==(state==4) && count<=expectedSize.toULong()) { "创建结果不一致" }
         return RemoteCreationResult(status,RemoteCreationState.entries[state],count)
     }
+    /** Receive into an empty task-owned regular fd, never a final destination.
+     * On error discard partial bytes. Return/cancellation waits for native fd
+     * release, so a surrounding staging lease remains valid throughout IO. */
+    suspend fun receive(path: String, destinationFd: Int, maxBytes: Long,
+                        timeoutMillis: Int = 5000): Long {
+        require(destinationFd>=0 && maxBytes>=0) { "文件目标描述符或限额无效" }
+        val data=ByteBuffer.wrap(operation(4,path,timeoutMillis,destinationFd,maxBytes)).order(ByteOrder.BIG_ENDIAN)
+        check(data.remaining()==8) { "接收结果格式无效" }
+        val count=data.long
+        check(count in 0..maxBytes) { "接收结果大小无效" }
+        return count
+    }
     suspend fun preview(path: String, timeoutMillis: Int = 5000): ByteArray = operation(2,path,timeoutMillis)
     suspend fun previewText(path: String, timeoutMillis: Int = 5000): String = withContext(Dispatchers.IO) {
         val bytes = preview(path,timeoutMillis)
@@ -164,7 +196,8 @@ internal object NativeFiles {
     external fun state(handle: Long): IntArray
     external fun dispose(handle: Long)
     external fun begin(handle: Long, kind: Int, path: ByteArray, budget: Int): Long
-    external fun beginCreate(handle: Long, path: ByteArray, sourceFd: Int, expectedSize: Long, budget: Int): Long
+    external fun beginCreate(handle: Long, path: ByteArray, sourceFd: Int, expectedSize: Long, budget: Int, releaseFd: Int): Long
+    external fun beginReceive(handle: Long, path: ByteArray, destinationFd: Int, maxBytes: Long, budget: Int, releaseFd: Int): Long
     external fun result(handle: Long, request: Long): ByteArray?
     external fun finish(handle: Long, request: Long)
     external fun ownerCount(): Int

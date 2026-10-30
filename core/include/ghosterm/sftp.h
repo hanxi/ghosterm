@@ -85,6 +85,24 @@ int gt_sftp_preview_controlled(gt_sftp_t *sftp, const char *path,
     uint8_t *buffer, size_t capacity, size_t *out_count, uint32_t timeout_ms,
     bool (*cancelled)(void *), void *context);
 
+/* Bounded remote regular file -> task-owned local staging fd. Dedicated owner
+ * only, with the same invalidation rules as preview_controlled. Caller retains
+ * an empty writable regular fd (no O_APPEND), exclusively owns it until return,
+ * then closes/discards it on failure. pwrite preserves offset; Core never closes
+ * or truncates the descriptor. Partial bytes may remain on failure; out_count
+ * stays zero. max_bytes is 0..INT64_MAX (zero accepts only an empty source).
+ * All network operations share timeout_ms:
+ * LSTAT/READ OPEN/FSTAT/READ through EOF/final FSTAT/CLOSE. Observed size/mtime
+ * changes, missing previously known attributes, premature EOF, limit and local
+ * write errors fail explicitly. Unknown size remains bounded by an extra byte
+ * probe. SFTP v3 cannot provide atomic no-follow or an atomic content snapshot.
+ * Successful CLOSE and final cancellation check precede count publication.
+ * No job/event, destination commit or fsync guarantee. Local syscalls are not
+ * hard-preemptible. Caller must not let native fd duplicates outlive its lease. */
+int gt_sftp_receive_controlled(gt_sftp_t *sftp, const char *path, int destination_fd,
+    uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context);
+
 /* Exclusive creation for task-owned remote staging paths. Does not overwrite,
  * rename, remove or publish a final destination. Dedicated owner only; no jobs
  * or other channels. Caller retains a readable regular fd and must keep its

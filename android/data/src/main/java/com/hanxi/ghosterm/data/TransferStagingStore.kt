@@ -8,6 +8,8 @@ import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.system.StructPollfd
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.Closeable
@@ -34,6 +36,7 @@ class TransferStagingStore(private val directory: File,
     private var reserved = 0L
     private var slots = 0
     private val snapshots = mutableSetOf<Snapshot>()
+    private val receivers = mutableSetOf<kotlinx.coroutines.Job>()
     val reservedBytes: Long get() = synchronized(lock) { reserved }
 
     private fun reserve(amount: Long) = synchronized(lock) {
@@ -150,6 +153,68 @@ class TransferStagingStore(private val directory: File,
         }
     }
 
+    /** Complete remote bytes into private staging. This owns a separate file
+     * connection operation, never a final target. Caller retains the connection. */
+    suspend fun receive(files: com.hanxi.ghosterm.bridge.RemoteFileSession, path: String,
+        expectedSize: Long? = null, timeoutMillis: Int = 5000): Snapshot = suspendCancellableCoroutine { waiting ->
+        val worker = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            try {
+                val result = receiveCopy(files,path,expectedSize,timeoutMillis)
+                waiting.resume(result,onCancellation = { _, value, _ -> value.close() })
+            } catch(failure: Exception) { if(waiting.isActive) waiting.resumeWithException(failure) }
+        }
+        worker.invokeOnCompletion { failure ->
+            synchronized(lock) { receivers.remove(worker) }
+            if(failure != null && waiting.isActive) waiting.resumeWithException(failure)
+        }
+        synchronized(lock) {
+            if(closed) worker.cancel()
+            else { receivers.add(worker);worker.start() }
+        }
+        waiting.invokeOnCancellation { worker.cancel() }
+    }
+
+    private suspend fun receiveCopy(files: com.hanxi.ghosterm.bridge.RemoteFileSession,
+        path: String, expected: Long?, timeoutMillis: Int): Snapshot {
+        require(expected == null || expected in 0..fileLimit) { "文件超过暂存上限或大小无效" }
+        val reservation = expected ?: fileLimit
+        reserve(reservation)
+        var writer: ParcelFileDescriptor? = null
+        var reader: ParcelFileDescriptor? = null
+        var transferred = false
+        try {
+            check(directory.isDirectory || directory.mkdirs()) { "无法创建文件暂存目录" }
+            check(OsConstants.S_ISDIR(Os.lstat(directory.path).st_mode)) { "文件暂存目录不能是符号链接" }
+            Os.chmod(directory.path,448)
+            val available = StatFs(directory.path).availableBytes
+            check(available >= freeSpaceReserve && reservedBytes <= available-freeSpaceReserve) { "设备可用空间不足，无法暂存文件" }
+            writer=AnonymousStagingFile.create(directory)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            // Zero reservation still probes remote EOF, but never writes a byte.
+            val size=files.receive(path,writer.fd,reservation,timeoutMillis)
+            check(expected == null || size == expected) { "源文件大小已改变，请重新复制" }
+            check(size <= reservation) { "远端文件超过暂存预算" }
+            val readonly=Os.open("/proc/self/fd/${writer.fd}",OsConstants.O_RDONLY or OsConstants.O_CLOEXEC,0)
+            try {
+                check(Os.fstat(readonly).st_size == size) { "远端暂存长度不一致" }
+                reader=ParcelFileDescriptor.dup(readonly)
+            } finally { Os.close(readonly) }
+            writer.close();writer=null
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            synchronized(lock) {
+                check(!closed) { "文件暂存已关闭" }
+                val result=Snapshot(checkNotNull(reader),size,reservation)
+                snapshots.add(result);transferred=true;reader=null
+                return result
+            }
+        } finally {
+            // RemoteFileSession awaits native fd release even when cancelled.
+            try { writer?.close() } finally {
+                try { reader?.close() } finally { if(!transferred) release(reservation) }
+            }
+        }
+    }
+
     /** Snapshot close prevents new readers. Existing readers keep their fd AND
      * capacity reservation until their block returns, even if store/page is closed. */
     inner class Snapshot internal constructor(private val descriptor: ParcelFileDescriptor,
@@ -171,8 +236,12 @@ class TransferStagingStore(private val directory: File,
             if(!disposed) { disposed=true;try { descriptor.close() } finally { finished() } }
         }
     }
-    override fun close() = synchronized(lock) {
-        closed=true
-        snapshots.toList().forEach { it.close() }
+    override fun close() {
+        val pending=synchronized(lock) {
+            closed=true
+            snapshots.toList().forEach { it.close() }
+            receivers.toList()
+        }
+        pending.forEach { it.cancel() }
     }
 }

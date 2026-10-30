@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.UiAutomation
 import android.content.res.Configuration
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
@@ -131,7 +132,14 @@ class SSHIdentityImportTest {
                 false
             }
         }
-        systemAwait { nodes().none { it.packageName?.toString()?.contains("documentsui")==true } }
+        // A missing accessibility tree during window recreation is not delivery.
+        // Observe the app window and then consumption of the Activity result.
+        systemAwait {
+            val tree = nodes()
+            tree.any { it.isVisibleToUser && it.packageName?.toString()=="com.hanxi.ghosterm" } &&
+                tree.none { it.packageName?.toString()?.contains("documentsui")==true }
+        }
+        await { !model.identityPickerPending }
     }
     private fun imported() = vault.list().filter { it.id !in oldIds }
     private fun authenticate() {
@@ -152,6 +160,13 @@ class SSHIdentityImportTest {
         val activity=ui.activity
         openPicker()
         assertTrue(automation.setRotation(UiAutomation.ROTATION_FREEZE_90))
+        // setRotation acknowledges the request before DocumentsUI rebuilds its
+        // window. Clicking the old tree can be accepted and lost on recreation.
+        systemAwait {
+            val root = automation.rootInActiveWindow
+            val bounds = Rect(); root?.getBoundsInScreen(bounds)
+            root?.packageName?.toString()?.contains("documentsui")==true && bounds.width()>bounds.height()
+        }
         select("ssh-key")
         // The picker can disappear before the stopped Activity processes its
         // pending configuration change. Observe destruction, not that timing gap.

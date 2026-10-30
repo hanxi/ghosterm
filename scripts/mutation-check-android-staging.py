@@ -69,8 +69,13 @@ def main():
     try:
         for label,path,before,after,method in cases:
             clean=originals[path].decode()
-            if clean.count(before)!=1:raise RuntimeError(label+': missing/ambiguous anchor '+str(clean.count(before)))
-            path.write_text(clean.replace(before,after)+'\n// '+MARK+'\n')
+            start,end=0,len(clean)
+            if path==store and clean.count(before)>1:
+                start=0 # local snapshot delivery and copy; remote path has independent mutations
+                end=clean.index('    /** Complete remote bytes',start)
+            piece=clean[start:end]
+            if piece.count(before)!=1:raise RuntimeError(label+': missing/ambiguous anchor '+str(piece.count(before)))
+            path.write_text(clean[:start]+piece.replace(before,after)+clean[end:]+'\n// '+MARK+'\n')
             target='TransferStagingTest#'+method
             build(label);test(label,target,False);test(label+'-control',control,True)
             path.write_bytes(originals[path]);assert hashlib.sha256(path.read_bytes()).digest()==hashes[path]

@@ -682,6 +682,29 @@ public final class SFTPSession {
         return out
     }
 
+    /// Receive into an exclusively owned empty regular fd. The offset is preserved.
+    /// Discard partial destination bytes on error; this does not publish a final path.
+    public func receive(path: String, destinationDescriptor: Int32, maxBytes: UInt64,
+                        timeoutMilliseconds: UInt32, cancellation: SSHCancellation? = nil) throws -> UInt64 {
+        guard !path.isEmpty, !path.utf8.contains(0), maxBytes <= UInt64(Int64.max) else {
+            throw GhostermError.status(Int32(GT_ERR_INVALID_ARG.rawValue), "Invalid receive path or limit")
+        }
+        var count: UInt64 = 0
+        let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let status = withExtendedLifetime(cancellation) {
+            path.withCString { p in
+                gt_sftp_receive_controlled(handle, p, destinationDescriptor, maxBytes, &count,
+                    timeoutMilliseconds, { pointer in
+                        guard let pointer else { return false }
+                        return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+                    }, context)
+            }
+        }
+        try check(status)
+        guard count <= maxBytes else { throw GhostermError.failed("Invalid receive count") }
+        return count
+    }
+
     /// Exclusive remote staging creation; does not commit a final destination.
     /// Keep the regular source descriptor open and unchanged; its offset is preserved.
     /// Errors after IO invalidate this dedicated owner. Never discard the outcome.

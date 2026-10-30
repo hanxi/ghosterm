@@ -588,6 +588,162 @@ finished:
   return status;
 }
 
+/* Metadata detects observable source changes; it is not an atomic snapshot. */
+static int receive_attributes(const LIBSSH2_SFTP_ATTRIBUTES *a, uint64_t limit,
+                              const LIBSSH2_SFTP_ATTRIBUTES *before) {
+  if (!(a->flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) ||
+      (a->permissions & LIBSSH2_SFTP_S_IFMT) != LIBSSH2_SFTP_S_IFREG)
+    return GT_ERR_UNSUPPORTED;
+  if ((a->flags & LIBSSH2_SFTP_ATTR_SIZE) && a->filesize > limit) return GT_ERR_IO;
+  if (before) {
+    if ((before->flags & LIBSSH2_SFTP_ATTR_SIZE) &&
+        (!(a->flags & LIBSSH2_SFTP_ATTR_SIZE) || before->filesize != a->filesize)) return GT_ERR_IO;
+    if ((before->flags & LIBSSH2_SFTP_ATTR_ACMODTIME) &&
+        (!(a->flags & LIBSSH2_SFTP_ATTR_ACMODTIME) || before->mtime != a->mtime)) return GT_ERR_IO;
+  }
+  return GT_OK;
+}
+
+int gt_sftp_receive_controlled(gt_sftp_t *sftp, const char *path, int destination_fd,
+    uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context) {
+  if (out_count) *out_count = 0;
+  if (!sftp || !path || !*path || strlen(path) >= 65536 || destination_fd < 0 ||
+      max_bytes > INT64_MAX || !out_count || !timeout_ms) {
+    gt__set_error("sftp receive: invalid arguments or limits");
+    return GT_ERR_INVALID_ARG;
+  }
+  const int64_t deadline = mono_ms() + timeout_ms;
+  int status = open_status(deadline, cancelled, context);
+  if (status != GT_OK) return status;
+  struct stat local_before;
+  int flags = fcntl(destination_fd, F_GETFL);
+  if (flags < 0 || (flags & O_ACCMODE) == O_RDONLY || (flags & O_APPEND) ||
+      fstat(destination_fd, &local_before) || !S_ISREG(local_before.st_mode) || local_before.st_size != 0) {
+    gt__set_error("sftp receive: requires an empty writable regular fd without append");
+    return GT_ERR_INVALID_ARG;
+  }
+  pthread_mutex_lock(&sftp->qlock);
+  bool has_jobs = sftp->all_head != NULL;
+  pthread_mutex_unlock(&sftp->qlock);
+  if (has_jobs) return GT_ERR_INVALID_ARG;
+  void *raw = NULL;
+  int socket = -1;
+  status = gt__ssh_borrow(sftp->ssh, &raw, &socket);
+  if (status != GT_OK) return status;
+  LIBSSH2_SESSION *session = raw;
+  LIBSSH2_SFTP_HANDLE *file = NULL;
+  LIBSSH2_SFTP_ATTRIBUTES path_attributes = {0}, initial = {0}, final = {0};
+  uint64_t count = 0;
+  char bytes[GT_SFTP_CHUNK];
+  SFTP_LOCK(sftp);
+  int blocking = libssh2_session_get_blocking(session);
+  long timeout = libssh2_session_get_timeout(session);
+  libssh2_session_set_blocking(session, 0);
+  int result;
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    result = libssh2_sftp_lstat(sftp->sftp, path, &path_attributes);
+    if (result != LIBSSH2_ERROR_EAGAIN) break;
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  if (result != 0) { status = GT_ERR_IO; goto finished; }
+  status = receive_attributes(&path_attributes, max_bytes, NULL);
+  if (status != GT_OK) goto finished;
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    file = libssh2_sftp_open(sftp->sftp, path, LIBSSH2_FXF_READ, 0);
+    if (file) break;
+    if (libssh2_session_last_errno(session) != LIBSSH2_ERROR_EAGAIN) { status = GT_ERR_IO; goto finished; }
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    result = libssh2_sftp_fstat(file, &initial);
+    if (result != LIBSSH2_ERROR_EAGAIN) break;
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  if (result != 0) { status = GT_ERR_IO; goto finished; }
+  status = receive_attributes(&initial, max_bytes, &path_attributes);
+  if (status != GT_OK) goto finished;
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    uint64_t remaining = max_bytes - count;
+    size_t wanted = remaining < sizeof bytes ? (size_t)remaining + 1 : sizeof bytes;
+    ssize_t length = libssh2_sftp_read(file, bytes, wanted);
+    if (length == LIBSSH2_ERROR_EAGAIN) {
+      status = browse_wait(session, socket, deadline, cancelled, context);
+      if (status != GT_OK) goto finished;
+      continue;
+    }
+    if (length < 0 || (uint64_t)length > remaining) { status = GT_ERR_IO; goto finished; }
+    if (!length) break;
+    size_t written = 0;
+    while (written < (size_t)length) {
+      status = open_status(deadline, cancelled, context);
+      if (status != GT_OK) goto finished;
+      ssize_t n = pwrite(destination_fd, bytes + written, (size_t)length - written, (off_t)(count + written));
+      if (n < 0 && errno == EINTR) continue;
+      if (n <= 0) { status = GT_ERR_IO; goto finished; }
+      written += (size_t)n;
+    }
+    count += (uint64_t)length;
+  }
+  if ((initial.flags & LIBSSH2_SFTP_ATTR_SIZE) && initial.filesize != count) { status = GT_ERR_IO; goto finished; }
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    result = libssh2_sftp_fstat(file, &final);
+    if (result != LIBSSH2_ERROR_EAGAIN) break;
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  if (result != 0) { status = GT_ERR_IO; goto finished; }
+  status = receive_attributes(&final, max_bytes, &initial);
+  if (status != GT_OK) goto finished;
+  if ((final.flags & LIBSSH2_SFTP_ATTR_SIZE) && final.filesize != count) { status = GT_ERR_IO; goto finished; }
+  struct stat local_after;
+  if (fstat(destination_fd, &local_after) || local_after.st_dev != local_before.st_dev ||
+      local_after.st_ino != local_before.st_ino || local_after.st_size < 0 || (uint64_t)local_after.st_size != count) {
+    status = GT_ERR_IO; goto finished;
+  }
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    result = libssh2_sftp_close(file);
+    if (result != LIBSSH2_ERROR_EAGAIN) {
+      file = NULL;
+      if (result != 0) status = GT_ERR_IO;
+      break;
+    }
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  /* Read-only completion may be discarded when cancellation arrives late. */
+  if (status == GT_OK) status = open_status(deadline, cancelled, context);
+finished:
+  if (status != GT_OK) {
+    gt__ssh_abort(sftp->ssh);
+    libssh2_session_set_blocking(session, 1);
+    libssh2_session_set_timeout(session, 50);
+    if (file) libssh2_sftp_close(file);
+    gt__set_error("sftp receive: cancelled, timed out, source changed, limit or read/write/close failure; discard partial destination");
+  } else {
+    libssh2_session_set_blocking(session, blocking);
+    libssh2_session_set_timeout(session, timeout);
+    *out_count = count;
+  }
+  SFTP_UNLOCK(sftp);
+  return status;
+}
+
 int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
     uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
     bool (*cancelled)(void *), void *context) {
@@ -1226,6 +1382,16 @@ int gt_sftp_pause(gt_sftp_t *sftp, uint64_t job_id, bool paused) {
 #else /* !GT_HAVE_LIBSSH2 —— 显式 UNSUPPORTED */
 
 struct gt_sftp { void *unused; };
+
+int gt_sftp_receive_controlled(gt_sftp_t *sftp, const char *path, int destination_fd,
+    uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context) {
+  (void)sftp; (void)path; (void)destination_fd; (void)max_bytes; (void)timeout_ms;
+  (void)cancelled; (void)context;
+  if (out_count) *out_count = 0;
+  gt__set_error("sftp receive: libssh2 unavailable");
+  return GT_ERR_UNSUPPORTED;
+}
 
 int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
     uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
