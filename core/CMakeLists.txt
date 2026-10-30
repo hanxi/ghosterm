@@ -20,6 +20,7 @@ add_library(ghosterm_core STATIC
   src/core.c
   src/config.c
   src/known_hosts.c
+  src/known_hosts_store.c
   src/transport.c
   src/io/pty_posix.c
   src/io/ssh_shell.c
@@ -79,6 +80,11 @@ add_executable(test_known_hosts_snapshot tests/test_known_hosts_snapshot.c)
 target_link_libraries(test_known_hosts_snapshot PRIVATE ghosterm_core)
 target_compile_options(test_known_hosts_snapshot PRIVATE -Wall -Wextra -Werror)
 add_test(NAME known_hosts_snapshot COMMAND test_known_hosts_snapshot)
+add_executable(test_known_hosts_store tests/test_known_hosts_store.c)
+target_link_libraries(test_known_hosts_store PRIVATE ghosterm_core)
+target_compile_options(test_known_hosts_store PRIVATE -Wall -Wextra -Werror)
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../tmp")
+add_test(NAME known_hosts_store COMMAND test_known_hosts_store "${CMAKE_CURRENT_SOURCE_DIR}/../tmp")
 
 add_executable(test_config tests/test_config.c)
 target_link_libraries(test_config PRIVATE ghosterm_core)

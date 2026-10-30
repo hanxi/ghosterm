@@ -19,7 +19,9 @@ def main():
     source = ROOT / 'core/src/ssh.c'
     original = source.read_bytes()
     digest = hashlib.sha256(original).digest()
-    if MARK.encode() in original or b'GT_MUTATION_MARK' in original:
+    store = ROOT / 'core/src/known_hosts_store.c'
+    store_original = store.read_bytes()
+    if any(MARK.encode() in data or b'GT_MUTATION_MARK' in data for data in (original, store_original)):
         raise RuntimeError('residual known-host mutation marker')
     logs = ROOT / 'tmp/known-hosts-mutations'; logs.mkdir(parents=True, exist_ok=True)
     cases = [
@@ -28,7 +30,7 @@ def main():
         ('K2-all-lines', 'if (!cb(ud, entry.hosts, entry.key_type, entry.key_base64, entry.marker)) break;',
          'cb(ud, entry.hosts, entry.key_type, entry.key_base64, entry.marker); break;', None),
         ('K3-bare-host', ' || kh_pattern(pattern,n,q->host)', '', None),
-        ('K4-marker', 'entry.key_base64, entry.marker)', 'entry.key_base64, "")', 'revoked-only'),
+        ('K4-marker', 'cb(ud, entry.hosts, entry.key_type, entry.key_base64, entry.marker)', 'cb(ud, entry.hosts, entry.key_type, entry.key_base64, "")', 'revoked-only'),
         ('K5-revoked', 'if (q.revoked) return KH_REVOKED;', 'if (false && q.revoked) return KH_REVOKED;', 'revoked-only'),
         ('K6-order', 'return true; /* A later revocation always overrides ordinary trust. */',
          'return !q->matched;', 'revoked-after-trusted'),
@@ -43,15 +45,27 @@ def main():
         ('K14-sync', 'if (kh == KH_REVOKED || kh == KH_UNSUPPORTED || kh == KH_IO)',
          'if (kh == KH_UNSUPPORTED || kh == KH_IO)', 'revoked-only sync'),
         ('K15-async', 'if(result==KH_REVOKED){', 'if(false && result==KH_REVOKED){', 'revoked-only async'),
-        ('K16-write-result', 'gt__set_error("known_hosts 写入失败: %s", strerror(written < 0 ? write_error : errno));\n    return GT_ERR_IO;',
-         'gt__set_error("known_hosts 写入失败: %s", strerror(written < 0 ? write_error : errno));\n    return GT_OK;', 'save-write-failure async'),
-        ('K17-flush-result', 'if (written < 0 || closed != 0)', '(void)closed; if (written < 0)', 'save-flush-failure'),
+        ('K16-write-result', 'free(want);\n  return status;',
+         'free(want);\n  (void)status; return GT_OK;', 'save-write-failure async'),
+        # Buffered fprintf/fclose was replaced by atomic file transactions. This
+        # now injects a real close error, not an RLIMIT write error called flush.
+        ('K17-flush-result', 'if (close(fd) && !failure) failure = errno;\n  if (failure) { unlinkat',
+         '(void)close(fd);\n  if (failure) { unlinkat', 'fault backup close'),
         ('K18-sync-save', 'if (saved != GT_OK) { free(b64); free(fingerprint); return saved; }',
          'if (false && saved != GT_OK) { free(b64); free(fingerprint); return saved; }', 'save-open-failure sync'),
         ('K19-async-save', 'if(rc!=GT_OK){connector_fail(c,rc);return rc;}',
          'if(false && rc!=GT_OK){connector_fail(c,rc);return rc;}', 'save-open-failure async'),
-        ('K20-open-result', 'gt__set_error("known_hosts 写入失败: %s", strerror(errno));\n    return GT_ERR_IO;',
-         'gt__set_error("known_hosts 写入失败: %s", strerror(errno));\n    return GT_OK;', 'save-open-failure'),
+        ('K20-open-result', 'if (fd < 0) { name[0] = 0; return -1; }',
+         'if (fd < 0) { name[0] = 0; return 0; }', 'fault backup open'),
+        ('K21-recheck', 'c->observed = kh_decision(c->lookup);',
+         'c->observed = KH_UNKNOWN;', 'consent-revoked'),
+        ('K22-deduplicate', 'if (c->observed == KH_MATCH) return GT_OK;',
+         'if (c->observed == KH_MATCH) c->observed = KH_UNKNOWN;', 'consent-already-saved'),
+        ('K23-refreshed-revoked', 'if (refreshed == KH_REVOKED) c->info.host = GT_SSH_HOST_REVOKED;',
+         'if (refreshed == KH_REVOKED) c->info.host = GT_SSH_HOST_UNKNOWN;', 'consent-revoked async state'),
+        ('K24-refreshed-mismatch', 'else if (refreshed == KH_MISMATCH) c->info.host = GT_SSH_HOST_MISMATCH;',
+         'else if (refreshed == KH_MISMATCH) c->info.host = GT_SSH_HOST_UNKNOWN;', 'consent-mismatch async state'),
+        ('K25-record-limit', 'if (records >= 4096)', 'if (records > 4096)', 'consent-record-limit'),
     ]
     with tempfile.TemporaryDirectory(prefix='kh-mutation-', dir=ROOT / 'tmp') as directory:
         work = Path(directory)
@@ -59,8 +73,15 @@ def main():
         copy = work / 'core/src/ssh.c'; build = work / 'core/build'
         helper.require(helper.run(['cmake', '-S', work / 'core', '-B', build, '-DCMAKE_BUILD_TYPE=Debug'], logs / 'configure.log'))
         def compile_core(label):
-            helper.require(helper.run(['cmake', '--build', build, '--clean-first', '--target', 'test_known_hosts', 'test_config'], logs / (label+'-build.log')))
+            helper.require(helper.run(['cmake', '--build', build, '--clean-first', '--target', 'test_known_hosts', 'test_known_hosts_store', 'test_config'], logs / (label+'-build.log')))
+        (work / 'tmp').mkdir(exist_ok=True)
         def target(label, reason=None):
+            if label.startswith(('K17-', 'K20-')):
+                result = helper.run([build/'test_known_hosts_store',work/'tmp'], logs/(label+'-store.log'))
+                out = result.stdout + result.stderr
+                if reason is None: helper.require(result)
+                elif result.returncode != 1 or 'FAIL store: '+reason not in out: raise RuntimeError('wrong store failure: '+out)
+                return
             failed = False
             for algorithm, harness in [('ed25519','ssh_e2e.sh'), ('ecdsa','ecdsa_e2e.sh')]:
                 result = helper.run(['bash', ROOT/'core/tests/scripts'/harness, build/'test_known_hosts'], logs/(label+'-'+algorithm+'.log'))
@@ -81,17 +102,20 @@ def main():
         try:
             compile_core('baseline'); target('baseline'); control('baseline')
             for label, old, new, reason in cases:
-                text=original.decode()
+                changed = work/'core/src/known_hosts_store.c' if label.startswith(('K17-', 'K20-')) else copy
+                before_bytes = store_original if changed != copy else original
+                text=before_bytes.decode()
                 if text.count(old)!=1: raise RuntimeError('mutation anchor drift: '+label)
-                copy.write_text(text.replace(old,new+' /* '+MARK+' */'))
+                changed.write_text(text.replace(old,new) + '\n/* '+MARK+' */\n')
                 compile_core(label); target(label,reason); control(label)
-                copy.write_bytes(original)
-                if hashlib.sha256(copy.read_bytes()).digest()!=digest: raise RuntimeError('copy restore SHA mismatch')
+                changed.write_bytes(before_bytes)
+                if hashlib.sha256(changed.read_bytes()).digest()!=hashlib.sha256(before_bytes).digest(): raise RuntimeError('copy restore SHA mismatch')
                 compile_core(label+'-restored'); target(label+'-restored')
                 print(label+': compiled target red / same-mutant config green / restored green / SHA256',flush=True)
         finally:
             copy.write_bytes(original)
-            if hashlib.sha256(source.read_bytes()).digest()!=digest: raise RuntimeError('production source changed')
+            (work/'core/src/known_hosts_store.c').write_bytes(store_original)
+            if store.read_bytes() != store_original or hashlib.sha256(source.read_bytes()).digest()!=digest: raise RuntimeError('production source changed')
     print(f'KNOWN HOSTS MUTATIONS PASS: {len(cases)} groups',flush=True)
 
 

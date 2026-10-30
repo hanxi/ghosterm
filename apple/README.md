@@ -31,7 +31,9 @@ apple/
 `AppModel.applyEdits/addHost` 先修改内存配置，再调用存储；写盘抛错时只向页面报错，尚未恢复内存模型。`HostListModel.reload` 也未过滤不含通配符的否定模式（如 `!secret`），不能把所有派生条目都视为可连接主机。
 主机列表还没有去重：Core 的 `gt_config_host_pattern` 按块枚举每个模式，`HostListModel.reload` 逐项追加，`HostEntry.id` 又直接使用 pattern；两个同名 Host 块会生成相同 ID 的列表项，连接选择器和管理器均用这些 ID。应把连接目标列表与配置块列表分开：连接目标去重，配置块仍保留独立来源和歧义编辑保护。此处为源码核对，未新增重复行的原生 UI 实测。
 `SSHConfig.inspect(alias:)` 已接入并有值复制/来源转换的定向测试与变异，尚未接入 `HostEditorSheet`；存在 Swift 绑定不表示 macOS 表单已提供继承值展示、别名重命名或完整包含文件编辑。新增接口状态见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。
-已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查切片为 74 / 72+2；IdentityFile 来源查询切片为 75 / 73+2；主机信任快照加入后当前为 79 / 77+2。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
+已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查切片为 74 / 72+2；IdentityFile 来源查询切片为 75 / 73+2；主机信任快照切片为 79 / 77+2，事务/移除绑定加入后当前为 80 / 78+2。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
+
+共享 TOFU 写入现与 `KnownHosts.remove(path:expected:index:)` 使用同一事务；删除绑定返回 status、committed 与 conflict，提交后的 IO 错误不能解释为未改动。确认期间重新核对撤销/冲突，备份、锁、原子替换与故障验证见[§9.37](../docs/reference/android-implementation.md#937-主机信任写入事务与移除绑定2026-10-30)。本端仍没有信任记录管理页面；这项 shared known_hosts 事务不修复 `ConfigStore` 的 SSH 配置保存缺口。
 
 共享主机信任已修复标记误信任：`core/src/ssh.c` 保留标记，匹配的撤销密钥优先于任何顺序的普通信任记录；读取错误明确失败。CA-only、作用于当前主机的未知标记和已解析的 hashed 条目显式报不支持。CA 与明确匹配的普通记录并存时仅依据普通记录信任；尚未实现主机证书验证或哈希匹配。Swift 已接 `.revoked` 状态与拒绝文案，SFTP 产品入口通过真实 sshd 验证不再弹信任/凭据框。普通 SSH、SFTP、tmux 共用此认证流程，但本片未分别重跑 SSH 终端及 tmux UI；详见[共享主机信任验收](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。连接前配置检查已接共享判定，见实现计划 §9.24。
 

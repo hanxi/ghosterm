@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <pthread.h>
 #include <sys/resource.h>
 #include <unistd.h>
 
@@ -44,10 +45,15 @@ static char *read_file(const char *path) {
 static int g_decider_calls = 0;
 static bool g_limit_on_accept = false;
 static struct rlimit g_write_limit;
+static const char *rewrite_path, *rewrite_text;
 static gt_hostkey_decision_t decider(void *ud, const char *host, uint16_t port,
                                      const char *kt, const char *fp) {
   (void)ud; (void)host; (void)port; (void)kt; (void)fp;
   g_decider_calls++;
+  if (rewrite_path) {
+    FILE *f = fopen(rewrite_path, "wb");
+    CHECK(f && fputs(rewrite_text, f) >= 0 && fclose(f) == 0, "consent rewrite fixture");
+  }
   if (g_limit_on_accept) CHECK(setrlimit(RLIMIT_FSIZE, &g_write_limit) == 0,
                                "write failure limit installed in decider");
   return GT_HOSTKEY_ACCEPT;
@@ -169,6 +175,101 @@ static void marker_case(const char *label, const char *contents, const char *pat
   free(after);
 }
 
+static void write_trust(const char *path, const char *bytes) {
+  FILE *f = fopen(path, "wb");
+  CHECK(f && fputs(bytes, f) >= 0 && fclose(f) == 0, "transaction trust fixture");
+}
+static gt_ssh_authenticator_t *pending_auth(const char *identity, const char *address,
+                                         uint16_t port, const char *user, const char *path) {
+  gt_ssh_opts_t opts = {.host=identity,.port=port,.username=user,.known_hosts_path=path,.connect_timeout_ms=3000};
+  gt_ssh_t *ssh = gt_ssh_new(&opts); gt_ssh_authenticator_t *auth = NULL;
+  gt_ssh_auth_options_t options = {.family=4,.timeout_ms=3000,.defer_credentials=true};
+  CHECK(inet_pton(AF_INET,address,options.address)==1,"transaction resolved address");
+  CHECK(gt_ssh_authenticator_open(&ssh,&options,&auth)==GT_OK && !ssh,"transaction auth owner");
+  gt_ssh_auth_phase_t phase = GT_SSH_AUTH_PHASE_TCP;
+  for (int i=0;i<3000;i++) {
+    phase=gt_ssh_authenticator_step(auth);
+    if(phase==GT_SSH_AUTH_PHASE_HOSTKEY || phase==GT_SSH_AUTH_PHASE_FAILED)break;
+    struct timespec pause={0,1000000};nanosleep(&pause,NULL);
+  }
+  CHECK(phase==GT_SSH_AUTH_PHASE_HOSTKEY,"transaction waits for explicit consent");
+  return auth;
+}
+typedef struct { gt_ssh_authenticator_t *auth; gt_status_t status; } acceptance;
+static void *accept_thread(void *context) {
+  acceptance *a=context; a->status=gt_ssh_authenticator_decide(a->auth,GT_HOSTKEY_ACCEPT);return NULL;
+}
+static void trust_transactions(const char *path,const char *saved,const char *host,uint16_t port,const char *user) {
+  char revoked[8192],mismatch[8192],unsupported[8192];
+  snprintf(revoked,sizeof revoked,"@revoked %s",saved);
+  snprintf(mismatch,sizeof mismatch,"[%s]:%u ssh-rsa BBBBBBBBBBBBBBBB\n",host,(unsigned)port);
+  snprintf(unsupported,sizeof unsupported,"@future %s",saved);
+  const char *revisions[]={revoked,mismatch,unsupported,saved};
+  int errors[]={GT_ERR_HOST_KEY,GT_ERR_HOST_KEY,GT_ERR_UNSUPPORTED,GT_OK};
+  gt_ssh_auth_host_state_t states[]={GT_SSH_AUTH_HOST_REVOKED,GT_SSH_AUTH_HOST_MISMATCH,GT_SSH_AUTH_HOST_UNKNOWN,GT_SSH_AUTH_HOST_UNKNOWN};
+  const char *labels[]={"consent-revoked","consent-mismatch","consent-unsupported","consent-already-saved"};
+  for(size_t i=0;i<4;i++) {
+    write_trust(path,"");
+    gt_ssh_authenticator_t *auth=pending_auth(host,host,port,user,path);
+    write_trust(path,revisions[i]);
+    int rc=gt_ssh_authenticator_decide(auth,GT_HOSTKEY_ACCEPT);
+    gt_ssh_auth_info_t info={0}; CHECK(gt_ssh_authenticator_info(auth,&info),"consent info");
+    CHECK(rc==errors[i],"%s async result",labels[i]);
+    if(errors[i]!=GT_OK)CHECK(info.phase==GT_SSH_AUTH_PHASE_FAILED && info.host==states[i] && info.auth_methods==0,"%s async state before credentials",labels[i]);
+    char *after=read_file(path);CHECK(after && !strcmp(after,revisions[i]),"%s no duplicate or override",labels[i]);free(after);
+    gt_ssh_authenticator_close(auth);
+    write_trust(path,"");
+    gt_ssh_opts_t opts={.host=host,.port=port,.username=user,.known_hosts_path=path,.connect_timeout_ms=3000};
+    gt_ssh_t *ssh=gt_ssh_new(&opts);gt_ssh_set_hostkey_policy(ssh,decider,NULL);
+    rewrite_path=path;rewrite_text=revisions[i];rc=gt_ssh_handshake(ssh);rewrite_path=NULL;
+    CHECK(rc==errors[i],"%s sync result",labels[i]);
+    if(errors[i]!=GT_OK)CHECK(gt_ssh_auth_methods(ssh)==0,"%s sync no credentials",labels[i]);
+    gt_ssh_close(ssh);
+  }
+  /* A successful append must remain readable by the bounded snapshot API. */
+  for (int byte_limit=0;byte_limit<2;byte_limit++) {
+    const char *line="other.invalid ssh-rsa AAAAAAAAAAAAAAAA\n";
+    size_t length=byte_limit?1024*1024:4096*strlen(line);
+    char *full=malloc(length+1); CHECK(full,"trust limit allocation");
+    if(!full)return;
+    if(byte_limit){memset(full,'a',length);full[0]='#';}
+    else for(size_t i=0;i<4096;i++)memcpy(full+i*strlen(line),line,strlen(line));
+    full[length]=0;write_trust(path,full);
+    gt_ssh_authenticator_t *auth=pending_auth(host,host,port,user,path);
+    CHECK(gt_ssh_authenticator_decide(auth,GT_HOSTKEY_ACCEPT)==GT_ERR_IO,
+          "consent-%s-limit stops append",byte_limit?"size":"record");
+    char *after=read_file(path);CHECK(after && !strcmp(after,full),"consent limit leaves readable original");
+    free(after);free(full);gt_ssh_authenticator_close(auth);
+  }
+  /* Two authenticated sockets independently awaiting consent, same file. */
+  for(int distinct=0;distinct<2;distinct++) {
+    write_trust(path,"# retained without newline");
+    acceptance a={.auth=pending_auth("first.invalid",host,port,user,path)};
+    acceptance b={.auth=pending_auth(distinct?"second.invalid":"first.invalid",host,port,user,path)};
+    pthread_t ta,tb;
+    CHECK(!pthread_create(&ta,NULL,accept_thread,&a) && !pthread_create(&tb,NULL,accept_thread,&b),"concurrent consent threads");
+    CHECK(!pthread_join(ta,NULL) && !pthread_join(tb,NULL),"concurrent consent joins");
+    CHECK(a.status==GT_OK && b.status==GT_OK,"concurrent consent saved");
+    char *after=read_file(path);gt_known_hosts_t *snapshot=after?gt_known_hosts_parse(after,strlen(after)):NULL;
+    CHECK(snapshot && gt_known_hosts_count(snapshot)==(size_t)(distinct?2:1),"concurrent consent no loss or duplicate");
+    CHECK(after && !strncmp(after,"# retained without newline\n",27),"consent preserves prefix and separates new record");
+    gt_known_hosts_free(snapshot);free(after);gt_ssh_authenticator_close(a.auth);gt_ssh_authenticator_close(b.auth);
+  }
+  /* Removal uses the exact prior revision while a real TOFU writer races it. */
+  const char *old="old.invalid ssh-rsa AAAAAAAAAAAAAAAA\n";
+  write_trust(path,old);
+  acceptance a={.auth=pending_auth(host,host,port,user,path)};pthread_t thread;
+  CHECK(!pthread_create(&thread,NULL,accept_thread,&a),"consent/removal thread");
+  gt_known_hosts_update_result_t removed;
+  gt_status_t status=gt_known_hosts_remove(path,old,strlen(old),0,&removed);
+  CHECK(!pthread_join(thread,NULL) && a.status==GT_OK,"consent/removal consent saved");
+  CHECK((status==GT_OK && removed.committed) || (status==GT_ERR_IO && removed.conflict && !removed.committed),"consent/removal revision result");
+  char *after=read_file(path);
+  CHECK(after && strstr(after,saved),"consent/removal never loses new trust");
+  CHECK(after && ((strstr(after,old)!=NULL)==!removed.committed),"consent/removal preserves refused revision");
+  free(after);gt_ssh_authenticator_close(a.auth);
+}
+
 int main(int argc, char **argv) {
   setvbuf(stdout, NULL, _IONBF, 0);
   if (argc != 6) {
@@ -199,6 +300,10 @@ int main(int argc, char **argv) {
 
   char *saved = read_file(kh);
   CHECK(saved != NULL, "TOFU 已写入 known_hosts");
+  if (saved) {
+    char transaction_path[1200];snprintf(transaction_path,sizeof transaction_path,"%s/trust-transactions",argv[5]);
+    trust_transactions(transaction_path,saved,host,(uint16_t)port,user);
+  }
   if (saved) {
     /* 2. **决定性断言**：落盘的 key type 必须能被读侧认出来。
      *    缺陷版本对 ecdsa 条目整条跳过——这里打印出来好定位。 */

@@ -5,9 +5,50 @@ import com.hanxi.ghosterm.bridge.KnownHostsBridge
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class KnownHostsBridgeTest {
+    @Test fun removalKeepsExactBytesAndRejectsStaleRevision() {
+        val directory = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
+            "known-hosts-${UUID.randomUUID()}").apply { mkdirs() }
+        try {
+            val file = File(directory, "中文 🔑")
+            val prefix = "# 保留\r\n"
+            val first = " a,b ssh-rsa AAAAAAAAAAAAAAAA comment\r\n"
+            val tail = "\t\nother ssh-rsa BBBBBBBBBBBBBBBB"
+            val original = (prefix + first + tail).toByteArray()
+            file.writeBytes(original)
+            val result = KnownHostsBridge.remove(file.absolutePath, original, 0)
+            assertTrue(result.succeeded); assertTrue(result.committed); assertFalse(result.conflict)
+            assertEquals("", result.message)
+            assertArrayEquals((prefix + tail).toByteArray(), file.readBytes())
+            assertArrayEquals(original, directory.listFiles()!!.single { it.extension == "bak" }.readBytes())
+            val stale = KnownHostsBridge.remove(file.absolutePath, original, 0)
+            assertFalse(stale.succeeded); assertFalse(stale.committed); assertTrue(stale.conflict)
+            assertTrue(stale.message.isNotBlank())
+            assertArrayEquals((prefix + tail).toByteArray(), file.readBytes())
+        } finally { directory.deleteRecursively() }
+    }
+    @Test fun removalCannotEraseReadonlyRulesOrHideIoFailures() {
+        val directory = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
+            "known-hosts-${UUID.randomUUID()}").apply { mkdirs() }
+        try {
+            val file = File(directory, "known_hosts")
+            for (line in listOf("@revoked a ssh-rsa AAAAAAAAAAAAAAAA\n", "broken\n",
+                "|1|salt|hash ssh-rsa AAAAAAAAAAAAAAAA\n")) {
+                file.writeText(line)
+                val result = KnownHostsBridge.remove(file.absolutePath, line.toByteArray(), 0)
+                assertEquals(7, result.status); assertFalse(result.committed); assertFalse(result.conflict)
+                assertEquals(line, file.readText())
+            }
+            val failed = KnownHostsBridge.remove(File(directory, "missing/known_hosts").absolutePath, byteArrayOf(), 0)
+            assertEquals(3, failed.status); assertFalse(failed.committed); assertFalse(failed.conflict)
+            assertTrue(failed.message.isNotBlank())
+        } finally { directory.deleteRecursively() }
+    }
     @Test fun sourceRecordsKeepMarkersMalformedRowsAndExactByteRanges() {
         val prefix = "# 中文\r\n\t\n"
         val revoked = " @revoked [host]:2222,other ssh-ed25519 AAAAAAAAAAAAAAAA\r\n"

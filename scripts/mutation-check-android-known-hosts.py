@@ -54,6 +54,14 @@ def main():
          'sourceRecordsKeepMarkersMalformedRowsAndExactByteRanges'),
         ('utf8', binding, 'CodingErrorAction.REPORT', 'CodingErrorAction.REPLACE',
          'invalidAndOverBudgetInputNeverBecomeAnEmptyList'),
+        ('committed', binding, 'fields[1] == "1"', 'false',
+         'removalKeepsExactBytesAndRejectsStaleRevision'),
+        ('conflict', binding, 'fields[2] == "1"', 'false',
+         'removalKeepsExactBytesAndRejectsStaleRevision'),
+        ('status', native, 'sizeof code, "%d", status', 'sizeof code, "%d", GT_OK',
+         'removalCannotEraseReadonlyRulesOrHideIoFailures'),
+        ('remove-index', native, '(size_t)index, &update', '(size_t)index + 1, &update',
+         'removalKeepsExactBytesAndRejectsStaleRevision'),
     ]
     control = 'ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig'
     try:

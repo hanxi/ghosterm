@@ -1,4 +1,4 @@
-/* Read-only known_hosts snapshots. Platform storage owns locking/backups/commit. */
+/* known_hosts snapshots and coordinated, source-preserving removal. */
 #ifndef GHOSTERM_KNOWN_HOSTS_H
 #define GHOSTERM_KNOWN_HOSTS_H
 #include "types.h"
@@ -26,6 +26,20 @@ size_t gt_known_hosts_count(const gt_known_hosts_t *snapshot);
 gt_status_t gt_known_hosts_entry_at(const gt_known_hosts_t *snapshot, size_t index,
                                    gt_known_host_entry_t *out);
 void gt_known_hosts_free(gt_known_hosts_t *snapshot);
+/* Result is meaningful even on IO error: committed means rename already happened.
+ * conflict requires reloading; failures after commit must not be called a rollback. */
+typedef struct { bool committed, conflict; } gt_known_hosts_update_result_t;
+/* Removes one ordinary, recognized, non-hashed record after whole-byte revision
+ * comparison. Shared with TOFU: process mutex + stable fcntl lock (250ms wait),
+ * required backup, fsync, same-directory rename and verification. Requires an
+ * absolute path, non-symlink final parent/file and owned single-link regular files.
+ * Cooperating writers are serialized; arbitrary noncooperating writers still have
+ * a check-to-rename race. Only lock acquisition is time-bounded; filesystem calls
+ * can block and must run off the UI thread. Does not disconnect established sessions.
+ * Backups and the stable lock remain beside the target; no automatic backup pruning. */
+gt_status_t gt_known_hosts_remove(const char *path, const char *expected, size_t length,
+    size_t index, gt_known_hosts_update_result_t *result);
+
 #ifdef __cplusplus
 }
 #endif

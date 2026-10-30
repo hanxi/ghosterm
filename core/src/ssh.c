@@ -261,43 +261,85 @@ static bool kh_lookup_cb(void *ud, const char *hosts, const char *key_type,
   return true; /* A later revocation always overrides ordinary trust. */
 }
 
+static kh_result_t kh_decision(kh_lookup_t q) {
+  if (q.revoked) return KH_REVOKED;
+  if (q.unsupported) return KH_UNSUPPORTED;
+  if (q.matched) return KH_MATCH;
+  if (q.authority) return KH_UNSUPPORTED;
+  if (q.saw_host) return KH_MISMATCH;
+  return KH_UNKNOWN;
+}
 static kh_result_t kh_check(const char *path, const char *host, uint16_t port,
                             const char *key_type, const char *key_b64) {
   if (!path) return KH_UNKNOWN;
   char want[512];
   if (port == 22) snprintf(want, sizeof want, "%s", host);
   else snprintf(want, sizeof want, "[%s]:%u", host, (unsigned)port);
-
-  kh_lookup_t q = {.want = want, .host = host, .key_type = key_type,
-                   .key_b64 = key_b64, .saw_host = false, .matched = false};
+  kh_lookup_t q = {.want = want, .host = host, .key_type = key_type, .key_b64 = key_b64};
   if (gt__kh_visit(path, kh_lookup_cb, &q) != GT_OK) return KH_IO;
-  if (q.revoked) return KH_REVOKED;
-  if (q.unsupported) return KH_UNSUPPORTED;
-  if (q.matched) return KH_MATCH;
-  if (q.authority) return KH_UNSUPPORTED;
-  /* 见过这台主机但没找到同型的同一条 → 可能是密钥变更，也可能只是
-   * 换了算法（同型条目后来才追加）。保守判 MISMATCH：绝不自动接受。 */
-  if (q.saw_host) return KH_MISMATCH;
-  return KH_UNKNOWN;
+  return kh_decision(q);
 }
 
-static int kh_append(const char *path, const char *host, uint16_t port,
-                     const char *key_type, const char *key_b64) {
-  if (!path) return GT_OK;
-  FILE *f = fopen(path, "ab");
-  if (!f) {
-    gt__set_error("known_hosts 写入失败: %s", strerror(errno));
-    return GT_ERR_IO;
+typedef struct { kh_lookup_t lookup; kh_result_t observed; } kh_append_context;
+static gt_status_t kh_prepare_append(const char *bytes, size_t length, char **candidate,
+                                     size_t *size, void *context) {
+  kh_append_context *c = context;
+  gt_known_hosts_t *snapshot = gt_known_hosts_parse(bytes, length);
+  if (!snapshot) return GT_ERR_IO;
+  size_t records = gt_known_hosts_count(snapshot);
+  for (size_t i = 0; i < records; i++) {
+    gt_known_host_entry_t entry;
+    if (gt_known_hosts_entry_at(snapshot, i, &entry) != GT_OK) {
+      gt_known_hosts_free(snapshot); return GT_ERR_IO;
+    }
+    if (entry.recognized) kh_lookup_cb(&c->lookup, entry.hosts, entry.key_type, entry.key_base64, entry.marker);
   }
-  int written = port == 22 ? fprintf(f, "%s %s %s\n", host, key_type, key_b64)
-                          : fprintf(f, "[%s]:%u %s %s\n", host, (unsigned)port, key_type, key_b64);
-  int write_error = errno;
-  int closed = fclose(f); /* Flush may be the first operation that reports IO failure. */
-  if (written < 0 || closed != 0) {
-    gt__set_error("known_hosts 写入失败: %s", strerror(written < 0 ? write_error : errno));
-    return GT_ERR_IO;
+  gt_known_hosts_free(snapshot);
+  c->observed = kh_decision(c->lookup);
+  if (c->observed == KH_MATCH) return GT_OK; /* Concurrent identical consent: no duplicate. */
+  if (c->observed != KH_UNKNOWN) {
+    gt__set_error("known_hosts changed while awaiting consent: %s",
+        c->observed == KH_REVOKED ? "revoked" : c->observed == KH_MISMATCH ? "key mismatch" : "unsupported trust rule");
+    return c->observed == KH_UNSUPPORTED ? GT_ERR_UNSUPPORTED : GT_ERR_HOST_KEY;
   }
+  if (records >= 4096) {
+    gt__set_error("known_hosts append exceeds record limit"); return GT_ERR_IO;
+  }
+  const kh_lookup_t *q = &c->lookup;
+  size_t record_size = strlen(q->want) + strlen(q->key_type) + strlen(q->key_b64) + 4;
+  bool newline = length && bytes[length - 1] != '\n';
+  if (length + newline >= 1024 * 1024 || record_size > 1024 * 1024 - (length + newline)) {
+    gt__set_error("known_hosts append exceeds size limit"); return GT_ERR_IO;
+  }
+  *candidate = gt__alloc(length + newline + record_size);
+  if (!*candidate) return GT_ERR_INTERNAL;
+  memcpy(*candidate, bytes, length);
+  if (newline) (*candidate)[length] = '\n';
+  int n = snprintf(*candidate + length + newline, record_size, "%s %s %s\n", q->want, q->key_type, q->key_b64);
+  *size = length + newline + (size_t)n;
   return GT_OK;
+}
+static int kh_append(const char *path, const char *host, uint16_t port,
+                     const char *key_type, const char *key_b64, kh_result_t *observed) {
+  *observed = KH_UNKNOWN;
+  /* Public host strings must not inject a second record or wildcard identity. */
+  if (!path || path[0] != '/' || !*host || strpbrk(host, " \t\r\n,*!?|@") ||
+      strpbrk(key_type, " \t\r\n") || strpbrk(key_b64, " \t\r\n")) {
+    gt__set_error("known_hosts requires an absolute path and a literal host identity");
+    return GT_ERR_INVALID_ARG;
+  }
+  size_t capacity = strlen(host) + 16;
+  char *want = gt__alloc(capacity);
+  if (!want) return GT_ERR_INTERNAL;
+  if (port == 22) snprintf(want, capacity, "%s", host);
+  else snprintf(want, capacity, "[%s]:%u", host, (unsigned)port);
+  kh_append_context context = {.lookup = {.want = want, .host = host,
+      .key_type = key_type, .key_b64 = key_b64}, .observed = KH_UNKNOWN};
+  gt_known_hosts_update_result_t result;
+  gt_status_t status = gt__kh_transaction(path, NULL, 0, kh_prepare_append, &context, &result);
+  *observed = context.observed;
+  free(want);
+  return status;
 }
 
 /* ------------------------------------------------------------------ */
@@ -508,7 +550,7 @@ int gt_ssh_handshake(gt_ssh_t *ssh) {
     decision = ssh->decide(ssh->decide_ud, ssh->host, port, ktype,
                            fingerprint ? fingerprint : "");
     if (decision == GT_HOSTKEY_ACCEPT && kh == KH_UNKNOWN && b64) {
-      int saved = kh_append(ssh->kh_path, ssh->host, port, ktype, b64);
+      int saved = kh_append(ssh->kh_path, ssh->host, port, ktype, b64, &kh);
       if (saved != GT_OK) { free(b64); free(fingerprint); return saved; }
     }
   } else {
@@ -667,7 +709,10 @@ gt_status_t gt__ssh_connector_decide(gt_ssh_connector_t *c,gt_hostkey_decision_t
   if(decision==GT_HOSTKEY_UNKNOWN)return GT_OK;
   if(decision==GT_HOSTKEY_REJECT){connector_fail(c,GT_ERR_HOST_KEY);return GT_ERR_HOST_KEY;}
   if(decision!=GT_HOSTKEY_ACCEPT)return GT_ERR_INVALID_ARG;
-  gt_status_t rc=kh_append(c->ssh->kh_path,c->ssh->host,c->ssh->port,c->info.key_type,c->host_key);
+  kh_result_t refreshed = KH_UNKNOWN;
+  gt_status_t rc=kh_append(c->ssh->kh_path,c->ssh->host,c->ssh->port,c->info.key_type,c->host_key,&refreshed);
+  if (refreshed == KH_REVOKED) c->info.host = GT_SSH_HOST_REVOKED;
+  else if (refreshed == KH_MISMATCH) c->info.host = GT_SSH_HOST_MISMATCH;
   if(rc!=GT_OK){connector_fail(c,rc);return rc;}
   c->stage=CONNECT_METHODS;c->info.phase=GT_SSH_CONNECT_AUTHENTICATING;return GT_OK;
 }

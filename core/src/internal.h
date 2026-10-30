@@ -28,6 +28,10 @@ void gt__emit_event(gt_event_kind_t kind, uint64_t job_id, int code,
 /* known_hosts 的枚举（真值来源是**文件**，不是 libssh2 的会话缓存）    */
 /* Mutates one line; false for comment/blank, malformed records remain visible. */
 bool gt__kh_split_line(char *line, gt_known_host_entry_t *out);
+typedef gt_status_t (*gt__kh_prepare_fn)(const char *, size_t, char **, size_t *, void *);
+gt_status_t gt__kh_transaction(const char *, const char *, size_t, gt__kh_prepare_fn,
+                               void *, gt_known_hosts_update_result_t *);
+
 /* ------------------------------------------------------------------ */
 
 /*

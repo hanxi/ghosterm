@@ -16,6 +16,20 @@ object KnownHostsBridge {
                 it[3], it[4], it[5], it[6], it[7] == "1", it[8] == "1") }
     }
     private external fun recordBytes(bytes: ByteArray): Array<ByteArray>
+
+    /** Must run off the UI thread. A failure can still mean the rename committed. */
+    fun remove(path: String, expected: ByteArray, index: Int): KnownHostsUpdate {
+        require(index >= 0 && '\u0000' !in path && expected.size <= 1024 * 1024)
+        val fields = removeBytes(path.toByteArray(Charsets.UTF_8), expected, index)
+            .map { it.toString(Charsets.UTF_8) }
+        check(fields.size == 4) { "主机验证记录写入结果不完整" }
+        return KnownHostsUpdate(fields[0].toInt(), fields[1] == "1", fields[2] == "1", fields[3])
+    }
+    private external fun removeBytes(path: ByteArray, expected: ByteArray, index: Int): Array<ByteArray>
+}
+
+data class KnownHostsUpdate(val status: Int, val committed: Boolean, val conflict: Boolean, val message: String) {
+    val succeeded: Boolean get() = status == 0
 }
 
 data class KnownHostRecord(val line: Int, val byteStart: Int, val byteEnd: Int,

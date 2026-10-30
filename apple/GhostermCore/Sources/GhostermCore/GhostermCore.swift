@@ -1020,6 +1020,29 @@ public struct KnownHostRecord: Equatable {
 }
 
 public enum KnownHosts {
+    /// Always inspect committed even on failure; a successful rename cannot be
+    /// represented as a rollback when later sync/readback fails.
+    public struct UpdateResult: Equatable {
+        public let status: Int32
+        public let committed, conflict: Bool
+        public let message: String
+        public var succeeded: Bool { status == 0 }
+    }
+
+    public static func remove(path: String, expected: String, index: Int) -> UpdateResult {
+        guard index >= 0, !path.utf8.contains(0) else {
+            return UpdateResult(status: 1, committed: false, conflict: false, message: "主机验证记录参数无效")
+        }
+        var result = gt_known_hosts_update_result_t()
+        let status = path.withCString { file in
+            expected.withCString { revision in
+                gt_known_hosts_remove(file, revision, expected.utf8.count, index, &result)
+            }
+        }
+        return UpdateResult(status: Int32(status.rawValue), committed: result.committed,
+            conflict: result.conflict, message: status == GT_OK ? "" : Ghosterm.lastError)
+    }
+
     public static func records(_ text: String) throws -> [KnownHostRecord] {
         let snapshot = text.withCString { gt_known_hosts_parse($0, text.utf8.count) }
         guard let snapshot else { throw GhostermError.failed(Ghosterm.lastError) }

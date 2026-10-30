@@ -5,6 +5,7 @@
 #include "base/secure-random.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <stdio.h>
@@ -123,7 +124,16 @@ static void real_flow(int argc,char **argv) {
   f=fopen(known,"wb");CHECK(f && fprintf(f,"[%s]:%u ssh-ed25519 AAAAAAAAAAAAAAAAAAAAAAAA\n",argv[1],port)>0 && !fclose(f));
   gt_ssh_opts_t legacy={.host=argv[1],.port=port,.username=argv[3],.known_hosts_path=known,.connect_timeout_ms=1000};owned=gt_ssh_new(&legacy);CHECK(owned && gt_ssh_auth_private_key(owned,key,NULL)==GT_OK);
   CHECK(gt_ssh_handshake(owned)==GT_ERR_HOST_KEY);CHECK(gt_ssh_handshake(owned)!=GT_OK && gt_ssh_authenticate(owned)==GT_ERR_PROTOCOL);cleanup();
-  memset(key,0,(size_t)n);free(key);CHECK(!unlink(known) && !rmdir(directory));
+  memset(key,0,(size_t)n);free(key);CHECK(!unlink(known));
+  /* Stable lock and required backup belong to this isolated fixture. */
+  DIR *files=opendir(directory);CHECK(files);struct dirent *entry;
+  while((entry=readdir(files))) {
+    if(!strcmp(entry->d_name,".") || !strcmp(entry->d_name,".."))continue;
+    CHECK(!strncmp(entry->d_name,".ghosterm-",10));
+    char extra[1400];CHECK(snprintf(extra,sizeof extra,"%s/%s",directory,entry->d_name)<(int)sizeof extra);
+    CHECK(!unlink(extra));
+  }
+  CHECK(!closedir(files) && !rmdir(directory));
 }
 int main(int argc,char **argv){if(argc==6){real_flow(argc,argv);puts("PASS nonblocking SSH real authentication");return 0;}CHECK(argc==2);
   if(!strcmp(argv[1],"unsupported")){CHECK(gt__ssh_connector_open(NULL,NULL,NULL,&active)==GT_ERR_UNSUPPORTED && !active);}

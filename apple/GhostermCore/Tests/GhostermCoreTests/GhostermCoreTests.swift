@@ -251,6 +251,46 @@ final class GhostermCoreTests: XCTestCase {
 }
 
 final class KnownHostsSnapshotTests: XCTestCase {
+    private func fixtureDirectory() throws -> URL {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let directory = root.appendingPathComponent("tmp/known-hosts-swift-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+    func testRemovalPreservesRevisionAndReportsConflict() throws {
+        let directory = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("中文 🔑")
+        let original = "# 保留\r\n a,b ssh-rsa AAAAAAAAAAAAAAAA\r\n\t\nother ssh-rsa BBBBBBBBBBBBBBBB"
+        let expected = "# 保留\r\n\t\nother ssh-rsa BBBBBBBBBBBBBBBB"
+        try Data(original.utf8).write(to: file)
+        let result = KnownHosts.remove(path: file.path, expected: original, index: 0)
+        XCTAssertTrue(result.succeeded); XCTAssertTrue(result.committed); XCTAssertFalse(result.conflict)
+        XCTAssertEqual(result.message, "")
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), expected)
+        let backup = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: directory,
+            includingPropertiesForKeys: nil).first { $0.pathExtension == "bak" })
+        XCTAssertEqual(try String(contentsOf: backup, encoding: .utf8), original)
+        let stale = KnownHosts.remove(path: file.path, expected: original, index: 0)
+        XCTAssertFalse(stale.succeeded); XCTAssertFalse(stale.committed); XCTAssertTrue(stale.conflict)
+        XCTAssertFalse(stale.message.isEmpty)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), expected)
+    }
+    func testRemovalRejectsRulesAndIoFailure() throws {
+        let directory = try fixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("known_hosts")
+        let original = "@revoked a ssh-rsa AAAAAAAAAAAAAAAA\n"
+        try Data(original.utf8).write(to: file)
+        let readonly = KnownHosts.remove(path: file.path, expected: original, index: 0)
+        XCTAssertEqual(readonly.status, 7); XCTAssertFalse(readonly.committed)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), original)
+        let failure = KnownHosts.remove(path: directory.appendingPathComponent("absent/known_hosts").path, expected: "", index: 0)
+        XCTAssertEqual(failure.status, 3); XCTAssertFalse(failure.committed); XCTAssertFalse(failure.conflict)
+        XCTAssertFalse(failure.message.isEmpty)
+    }
     func testRecordsCopyMarkersAndByteRanges() throws {
         let prefix = "# 中文\r\n"
         let line = " @revoked [host]:2222,other ssh-ed25519 AAAAAAAAAAAAAAAA\r\n"
