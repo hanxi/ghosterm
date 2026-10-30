@@ -48,6 +48,8 @@
 
 普通连接直接使用本地 PTY / SSH shell，不依赖后台进程或旧会话记录。
 
+POSIX PTY 在子进程 exec 前清空继承的信号屏蔽集合，调用线程的集合保持不变。仅更新 `TIOCSWINSZ` 不足以保证下游 ssh/tmux 重排：它们还须收到 SIGWINCH。`4924a2d` 已修复这条通知链，真实 macOS 窗口到本地 tmux、以及本地 shell→系统 ssh→远端 tmux 的无输入放大/缩小证据见[实施记录](../reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。
+
 ## 可选后台会话
 
 后台保活按 [可选 tmux 计划](../reference/plan-optional-tmux.md) 实施。每个格子连接一个
@@ -106,4 +108,4 @@ Android 文本操作继续沿 TerminalSurface 接缝：带序号的控制请求�
 | [libghostty-ohos](https://github.com/wiedymi/libghostty-ohos) | HarmonyOS | MIT | XComponent + libghostty-vt |
 | [Ghostling](https://github.com/ghostty-org/ghostling) | macOS/Linux | MIT | libghostty(-vt) C API 最小用法（Raylib 2D 渲染，单文件 C） |
 
-Android SSH 与本地终端共用 `session_jni.c` owner，SSH 认证完成后仍由同一线程持有 Transport/VT；状态快照和一次性响应属于控制面。`RemoteSession` 接受已解析地址和原始 hostkey 身份，已验后端不包含 DNS 或 Keystore 页面；工作区已有这些产品接线草稿，尚无产品验收。通道打开的 5 秒预算/取消边界见[§9.25](../reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。
+Android SSH 与本地终端共用 `session_jni.c` owner，SSH 认证完成后仍由同一线程持有 Transport/VT；状态快照和一次性响应属于控制面。`RemoteSession` 接受已解析地址和原始 hostkey 身份；DNS、认证页面与 Keystore 容器在平台控制面实现，已由 `c53cfb8` 交付并通过 §9.27 的完整 130 项设备回归。SAF 私钥导入的生命周期改动仍在工作区，最新定向基线失败，见[§9.28](../reference/android-implementation.md#928-saf-私钥导入工作区复核2026-10-30未验收)。通道打开的 5 秒预算/取消边界见[§9.25](../reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。

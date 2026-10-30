@@ -4,9 +4,17 @@
 
 ## 当前状态（2026-10-30）
 
-六个实施切片与最终验收已完成；交付范围是共享 C 与 macOS 宿主，Android 的列表与 attach 仍在 A8 待办。下方依赖表记录重构前的消费者及当时迁移决定，列出的 daemon/session/IPC 路径已退役，不是当前待删除清单。当前目录与接口以源码为准，后续配置接口使 Core 增至 34 项 CTest、73 个公共符号，不改写本次 tmux 验收当时的 30/70 记录。各次结果分别见[路线图](roadmap.md#验收记账与历史记录)。
+六个实施切片与最终验收已完成；交付范围是共享 C 与 macOS 宿主，Android 的列表与 attach 仍在 A8 待办。下方依赖表记录重构前的消费者及当时迁移决定，列出的 daemon/session/IPC 路径已退役，不是当前待删除清单。当前目录与接口以源码为准，连接配置检查加入后 Core 为 35 项 CTest、74 个公共符号，Apple 绑定为 72/2；不改写本次 tmux 验收当时的 30/70 记录。各次结果分别见[路线图](roadmap.md#验收记账与历史记录)。
 
-共享认证后续已修复 known_hosts 标记误信任，Swift 保留撤销状态，未支持规则在请求凭据前停止；本轮证据为共享 C 同步/异步及 macOS SFTP 入口，不是新的 tmux attach/UI 验收。当前 `auth` 脚本为六组（含后续保存失败路由），下面三组是重构当时的结果，详情见 [§9.22](android-implementation.md#922-a3-共享主机信任前置2026-10-30)。
+共享认证后续已修复 known_hosts 标记误信任，Swift 保留撤销状态，未支持规则在请求凭据前停止；该片证据为共享 C 同步/异步及 macOS SFTP 入口，不是新的 tmux attach/UI 验收。当前 `auth` 脚本为 11 组，包含主机信任、保存失败与连接配置准入；下面三组是重构当时的结果，后续见 [§9.22](android-implementation.md#922-a3-共享主机信任前置2026-10-30)至 [§9.24](android-implementation.md#924-共享连接配置准入与两端接线2026-10-30)。
+
+## 后续 PTY 尺寸通知修复（2026-10-30）
+
+`4924a2d` 修复从 GUI/工作线程继承信号屏蔽集合的问题：`core/src/io/pty_posix.c` 在终端子进程 exec 前执行 `sigprocmask(SIG_SETMASK, 空集合)`，不改变调用线程。之前内核 PTY 尺寸虽然已更新，系统 ssh/tmux 仍可能收不到 SIGWINCH，表现为拖动窗口后画面尺寸不更新。
+
+新增 `TmuxResizeTests` 两条离屏 AppKit 真实窗口回归分别覆盖本地 tmux，以及普通本地 shell 中运行系统 ssh 后进入远端 tmux；SSH 目标为隔离环回 sshd。放大、缩小均不依赖额外键入，内层任务保持同一 PID。这条系统 ssh 路径与 Ghosterm 直接使用 libssh2 的远端 attach 路径分别记账，不是新增真实桌面激活或 Linux 远端证据。
+
+该提交记录的验证为 Core 35 项 / 74 ABI、macOS 原生构建、真实 sshd 的两条原生缩放用例、PTY 继承三组隔离变异（含 `--apple`）和本地 tmux 八模式。变异旧信号屏蔽行为时，原生目标红、API/主机列表独立对照绿，恢复绿并核对 SHA256。本次文档同步核对源码与提交记录，没有重跑这些测试，不增加 Linux/Android 设备、完整宿主、发行包或 CI 证据。
 
 ## 重构时的依赖闭包与保留责任
 

@@ -36,7 +36,7 @@
 | known_hosts / TOFU | 🟡 | 明文条目/模式、TOFU、撤销优先及读取错误已有真 ed25519/ECDSA sshd 的同步/公开异步 API 证据，20 组隔离变异通过；TOFU 写入/关闭错误已检查并阻断认证，追加事务仍待补，见路线图 P1。已解析的 hashed 条目、当前主机的未知标记、无匹配普通记录的 CA 规则显式报不支持；未实现哈希匹配/主机证书验证，不称完整 OpenSSH 兼容。macOS SFTP 产品认证回归与 Swift 绑定已验，Android native 状态/拒绝路径已在 §9.25 验证，页面首片及未完成边界见 §9.27；见 [§9.22](android-implementation.md#922-a3-共享主机信任前置2026-10-30) |
 | 本地 PTY | 🟡 | POSIX（macOS/Linux）forkpty ✅；Windows ConPTY ❌（只有规划，能力缺失显式报错） |
 | 可取消的 SSH 认证 | 🟡 | 通用公开 `ssh_auth.h` 与 Apple `SSHAuthenticator`/DNS 解析已从旧安装链拆出；C 连接器与公开翻译测试、8 组认证 ABI / 6 组凭据选择变异通过。Apple 普通 SSH、SFTP、tmux 管理/attach 已统一经 `SSHAuthenticationFlow`；Android/JNI 已在 §9.25 接入同一 native owner，信任/凭据等待的取消和超时已有真 sshd 证据；DNS 取消/预算、产品页面已有定向测试，真实域名/IPv6 SSH 与通道打开取消仍待补。 |
-| POSIX PTY 尺寸能力 | 🟡 | macOS 共享后端 `pty_dimensions` 三类基线随核心闸门通过；保留像素尺寸与默认值校验，非全平台证据。 |
+| POSIX PTY 尺寸能力 | 🟡 | macOS 共享后端 `pty_dimensions` 三类基线随核心闸门通过；`4924a2d` 另修复子进程继承信号屏蔽，真实窗口→本地 tmux / 本地 shell→系统 ssh→远端 tmux 无输入缩放与 PID 保留已有两条回归，PTY 继承三组变异通过。保留像素尺寸与默认值校验，非全平台证据；见 [实施记录](optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。 |
 | 可选 tmux 后台会话 | 🟡 | 3.2a 已在 macOS 本机与 Ubuntu 22.04 SSH 验证真 PTY attach 和列表/管理；3.6a 另验证原生键鼠、任务保留、断网、背压、未知回复及受限账户。仅 POSIX 兼容远端 shell；其他版本与平台证据有限，不自动恢复，受用户 tmux 与系统清理策略影响。 |
 | 配色集随包 + 主题选择 | ✅ | `build-ghostty.sh` 从锁定的 `iterm2_themes` 依赖派生配色集（以本轮构建实际数量为准） → `Contents/Resources/ghostty/themes`；CGhostty 推导 `GHOSTTY_RESOURCES_DIR`（上游入口，未设置时兜底）；出包脚本的**包内**配置检查验随包主题被引擎接受（变异 A6 有牙） |
 | 终端配置下发（GUI → 引擎） | 🟡 | 正常配置及已有 surface 重载已有证据；存储读取错误、重复键与验证失败后的磁盘状态另有缺口，见下方 macOS 限制。 `gt_ghostty_app_new_with_config` / `_app_reload_config` / `_config_get_{float,double,bool}`：设置页写 Ghostty 语法的配置文件，libghostty 自己解析；**判有效看诊断条数**（未知键只记诊断不丢配置）；`font-size` 改完网格密度真的变（`TerminalConfigTests` 11 项，含读回入口的键长度/类型）；数值键的 C 类型分 f32/f64（用错只得到 0）；变异 S1~S4 有牙 |
@@ -92,12 +92,14 @@ Android 修饰键、数字键盘与组合音符切片已验收，该切片完整
 
 静止画面的闪烁文字随后已修复，实际窗口像素验证及五组渲染变异通过；该切片完整设备结果为 **100 项，0 失败/错误/跳过**，见[§9.19](android-implementation.md#919-静止画面的闪烁文本2026-10-30)。后续短时取帧与 debug 性能基线见[§9.21](android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)，完整 101 项设备测试通过；整个 A2 尚未完成。
 
+当前 SAF 私钥导入的工作区改动不在上述已提交完整结果内：最新五项定向基线有一项失败，新增七组变异未完整通过，A3 仍为 🟡。请求归属、取消与只读材料读取的代码现状和失败记录见[§9.28](android-implementation.md#928-saf-私钥导入工作区复核2026-10-30未验收)；A1 配置文档导入的既有验收不受此表述替代。
+
 ### macOS 当前实现与限制
 
 | 面 | 已实现与证据 | 未完成或证据边界 |
 |---|---|---|
 | SSH 与认证 | `AppModel` / `SSHAuthenticationFlow` 共用可取消认证；真实 sshd→shell→网格→resize；hostkey 未知/拒绝/变化/撤销分开。撤销及不支持规则经 SFTP 产品入口验证，不弹信任/凭据框 | 未支持配置已在解析地址前阻断，仍未执行跳板/转发等高级选项；私钥材料生产路径仍从受限文件读取，见路线图 P0。哈希主机名与主机证书未实现；本片验了 SSH/SFTP/tmux 配置拒绝入口，未新增终端网格或 tmux 成功会话证据 |
-| 本地 shell | 普通 PTY、登录语义、cwd、控制终端、背压、关闭与描述符隔离 | 普通会话不承诺跨 App 退出保活 |
+| 本地 shell | 普通 PTY、登录语义、cwd、控制终端、背压、关闭与描述符隔离；`4924a2d` 清空子进程继承的信号屏蔽，补齐 ssh/tmux 的尺寸通知 | 普通会话不承诺跨 App 退出保活；信号/真实窗口证据见上方 POSIX PTY 行，不扩大为全部平台 |
 | 标签导航 | `TabWindowController` 单窗口；顶部/侧边切换、UUID 重排与关闭、唯一加号、搜索/菜单、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；无精简侧栏、无主机分组 | 跨重启标签持久化未做（偏好已持久化）；本机证据不能代替 macOS 15 CI |
 | 工作区 | `WorkspaceLayout` / `WorkspaceHostView` 为统一终端/文件布局；四边停靠、中央交换、隐藏、缩放与焦点 | 真拖动图像、逐帧零尺寸、跨标签最小尺寸等见工作区交接 |
 | 窗格外观 | 跟随终端配色；当前分屏顶部蓝线；gap>0 细框，gap=0 共享分隔线；悬停/菜单分屏预览与 Shift | 离屏像素、可控窗口焦点、真实桌面激活/全屏是不同档证据 |

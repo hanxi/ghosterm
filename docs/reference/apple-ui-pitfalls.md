@@ -329,3 +329,11 @@ XCTest 中仅泵 RunLoop 不等于运行 NSApplication 的事件循环；同步�
 活动 Space，重新激活时等待 isOnActiveSpace，再测试退出全屏及按键落点；否则快速反向
 切换会使观察结果混入尚未完成的系统动画。本轮三种布局和独立跨应用往返均已通过，
 具体证据见 [标签重构计划](plan-tab-chrome-refactor.md)。
+
+## 14. PTY 尺寸更新不等于子进程收到 SIGWINCH
+
+窗口和引擎网格尺寸正确、`TIOCSWINSZ` 也成功时，下游系统 ssh/tmux 仍可能保持旧尺寸。`fork` / `exec` 会保留调用线程的信号屏蔽集合；如果宿主工作线程屏蔽 SIGWINCH，终端子进程也收不到这条通知，继续调整 UI 布局无法解决。
+
+`4924a2d` 在共享 `pty_posix.c` 的子进程 exec 前用空集合执行 `sigprocmask(SIG_SETMASK, ...)`，只清子进程的屏蔽，不更改宿主线程，fork 后仍只调用 async-signal-safe 函数。`TmuxResizeTests` 驱动真实窗口放大/缩小，分别检查本地 tmux，以及本地 shell→系统 ssh→远端 tmux；全程不靠键入触发刷新，并检查内层任务 PID 保持。
+
+PTY 继承变异回退该行为后，两条原生测试均须失败，同一变异下 API/主机列表对照须通过；恢复后再绿并核对 SHA256。提交证据与平台边界见[实施清单](optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。这属于子进程信号继承问题，不需要让 TerminalSurface 识别 SSH 或 tmux。

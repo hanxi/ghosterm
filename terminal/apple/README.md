@@ -39,6 +39,8 @@ termio 线程：surface.onInput/onResize → 待办队列 → 会话线程执行
 > core 的契约是 transport 由会话线程独占（libssh2 非线程安全），实测直接写会
 > 让 resize 回调发出后永不返回（termio 线程卡死）。故回调只压待办队列。
 
+尺寸写入 PTY 后还须让前台程序收到 SIGWINCH。`4924a2d` 在共享 PTY 子进程 exec 前清空继承的信号屏蔽，修复系统 ssh/tmux 无法收到通知的问题；它没有改变 surface 或回调的线程归属。两条真实窗口无输入缩放回归及三组 PTY 继承变异记录见[实施清单](../../docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。
+
 ### 键盘与输入法（macOS）
 
 `TerminalHostView` 实现 **`NSTextInputClient`**，`keyDown` 走 `interpretKeyEvents`——

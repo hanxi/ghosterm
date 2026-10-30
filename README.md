@@ -130,6 +130,8 @@ Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付
 | Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；已有模拟器 debug 性能基线；真机/长负载性能和完整键盘矩阵待补；SSH 后端已验，产品首片已通过完整 130 项设备回归，文件未接 |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
+工作区中的 SAF 私钥导入生命周期改动仍未验收，最新五项定向测试有一项失败；上面的 130 项是 `c53cfb8` 的完整结果，不能移用到工作区，见[实现计划 §9.28](docs/reference/android-implementation.md#928-saf-私钥导入工作区复核2026-10-30未验收)。macOS／共享 PTY 已补齐子进程 SIGWINCH 通知，修复本地 shell→系统 ssh→远端 tmux 的窗口尺寸同步，独立证据见[tmux 实施清单](docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。
+
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。
 
 ## 许可

@@ -24,3 +24,5 @@ surface.resize(cols, rows)    ← 网格尺寸变化（要同时通知 transport
 Android 当前证据来自 API 36 arm64、4 KB 页模拟器，已验本地终端及后续 SSH native owner→Transport→VT 路径（§9.25，完整 113 项设备测试），产品页面/容器随后已有 27 项定向测试与 15 组产品变异证据（§9.27）；修正本地页面测试判据后完整 130 项回归通过，仍不代表真机或完整 A2/A3 验收；见 [Android 引擎说明](android/README.md)与[实现阶段](../docs/reference/android-implementation.md)。
 
 修饰键、数字键盘与组合音符扩展已通过完整 99 项设备测试及 24 组选组变异，详见实现计划 §9.18；已有模拟器 debug 性能基线（§9.21）；实际物理设备、更多布局、release 与长负载性能仍未完成，A2 保持部分完成。
+
+以上完整 130 项是已提交 SSH 产品首片的结果。SAF 私钥导入生命周期工作区仍有定向失败，不能沿用该结果作为工作区全绿，见[§9.28](../docs/reference/android-implementation.md#928-saf-私钥导入工作区复核2026-10-30未验收)。macOS 的 `4924a2d` 另修复 PTY 子进程信号屏蔽，使尺寸通知到达 ssh/tmux；这属于 Transport 子进程边界，不在 surface 中加入 SSH/tmux 分支。

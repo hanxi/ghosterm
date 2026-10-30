@@ -32,3 +32,5 @@ Ctrl 标点与键盘协议切片见[§9.16](../../docs/reference/android-impleme
 输入后短时取帧已交付：键入/按键成功后唤醒 tick，120ms 内按显示帧取快照，随后恢复 32ms；隐藏仍停画，native owner 持续读流。完整 **101 项设备测试**、新增四组性能变异及终端四组/文本一组回归通过，见[§9.21](../../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)。性能证据仅限当前模拟器 debug 档；原持续按显示帧轮询的实验因 CPU/吞吐代价未采用。
 
 Android SSH 后端已在[§9.25](../../docs/reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)接入相同 native owner、VT 与 TerminalSurface 接口；认证状态是独立控制面，输出不经过 Kotlin。默认 ViewModel 工厂、认证页面、Keystore 容器、多会话选择与远端 Activity 重建已有定向证据，见[§9.27](../../docs/reference/android-implementation.md#927-ssh-产品页面与加密身份容器2026-10-30)。随后修正本地终端测试判据，完整 130 项回归通过；真实域名/IPv6 SSH、SAF 私钥导入与完整 A2/A3 仍待验收，不能据当前模拟器首片通过声称阶段完成。
+
+SAF 私钥导入生命周期的未提交改动另见[§9.28](../../docs/reference/android-implementation.md#928-saf-私钥导入工作区复核2026-10-30未验收)：最新五项定向基线有一项失败，新完整套件未跑；没有改变 terminal 输出接缝，也不能用前述 130 项记录声称当前工作区全部通过。

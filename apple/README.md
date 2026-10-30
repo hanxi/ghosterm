@@ -19,6 +19,8 @@ apple/
 `WorkspaceLayout` / `WorkspaceHostView` 统一终端和文件窗格，旧独立双栏组件已退役。
 终端通过 `SessionController` 接 Transport，SFTP 使用专用 SSH owner；普通连接与 tmux 共用异步认证。
 
+共享 PTY 已在 `4924a2d` 修复子进程继承信号屏蔽的问题。窗口尺寸经引擎、会话 owner 和 PTY 更新后，SIGWINCH 能通知本地 tmux，或由本地 shell 内的系统 ssh 转发至远端 tmux；放大/缩小不再依赖额外敲键，宿主线程屏蔽集合不变。两条真实窗口回归与三组 PTY 继承变异的记录见[tmux 实施清单](../docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)，不等于本轮完整宿主或 CI 重跑。
+
 已交付与遗留见[路线图](../docs/reference/roadmap.md)、[能力矩阵](../docs/reference/capability-matrix.md)。
 共享 `gt_config_edit` 已修复非连续重复指令误删中间行的问题，Apple 与 JNI 使用同一实现。`ConfigStore` 的强制备份/原子替换、私钥材料安全存储接线仍有缺口；Android 写盘事务不等于 macOS 写盘事务已修复。
 `HostListModel.directives` 目前仍以 Swift 简化行扫描提供表单初值，`HostEditorSheet.save` 提交全部显示字段；不能把 Core 的稀疏编辑保证扩大为整个表单的“只改脏字段”。tab、`=`、引号、重复指令与未改保存的保真须独立补齐，见路线图 P0。
