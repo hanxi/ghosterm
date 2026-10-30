@@ -1,6 +1,6 @@
 # Ghosterm
 
-**A5 远端暂存创建（2026-10-31）**：已接独占创建、源 fd 校验和分阶段结果，以及 Swift/JNI/Kotlin 绑定。44 CTest / 86 ABI、Apple 84/2、JNI 46/40；22 组 Core/无库/Swift、九组 Android 新变异及既有 owner 18 组通过，两端原生构建通过。最终目标发布、复制清单和任务队列仍待实现；macOS 文件产品尚未消费新接口。 设备范围与失败记录见 [§9.54](docs/reference/android-implementation.md#954-a5-远端独占暂存创建2026-10-31)。
+**当前进度（2026-10-31）**：Android 已交付主机/终端、只读文件页面和本机/SAF 匿名暂存前置，复制粘贴任务与完整设置仍待实现。macOS 主流程已交付，配置事务、受控文件接口迁移和异常处理继续单独收尾；[路线图](docs/reference/roadmap.md#当前进度总览)区分实现、专项证据与待办。
 
 **libghostty 驱动的多端终端** × **VS Code 式 `~/.ssh/config` 图形管理** × **WinSCP 式 SFTP 文件管理器**。
 
@@ -101,9 +101,9 @@ swift run GhostermApp --local                                 # 无窗口冒烟�
 swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 AppModel 全链路
 ```
 
-## 当前状态（2026-10-30）
+## 当前状态（2026-10-31）
 
-Android 已接远端文件位置、共用 SSH 认证、目录浏览、只读预览和长按选择；文件页与终端连接独立。最终完整 **236 项设备测试**、14 组新产品与 18＋15 组既有变异通过；复制清单与任务仍待实现。详见 [§9.52](docs/reference/android-implementation.md#952-android-远端文件页面接线2026-10-30)。
+Android 已接主机首页、本地/SSH 终端、本机/SAF/远端只读文件页面、点按打开和长按选择；文件连接独立于终端。最新已记录完整设备结果为 §9.55 的 **252 项通过**，仅限 API 36 arm64 / 4 KB 页模拟器；新增匿名暂存与来源快照属于数据层，复制卡片、粘贴任务、最终目标发布和 16 项偏好仍待实现。远端文件页面切片的 236 项保留为历史，详见 [实现计划](docs/reference/android-implementation.md#9-分阶段实施与依赖)。
 
 A4 本机/SAF 浏览已交付，§9.48 的完整 214 项保留为历史；§9.49 保留中间轮失败，最终产物已独立完整复验 214 项通过。§9.47 已完成受控 SFTP 打开与主机补丁依赖接线：17 项协议用例、十组接口变异、十一组依赖守卫和既有打包变异通过。Android 后端与页面已在 §9.51/§9.52 接入，macOS 文件产品尚未接新入口；[共享依赖与验收状态](docs/reference/host-ssh2-build.md)、[路线图](docs/reference/roadmap.md#当前进度总览)列出后续工作。
 
@@ -124,7 +124,7 @@ A4 本机/SAF 浏览已交付，§9.48 的完整 214 项保留为历史；§9.49
 | `ssh_config` `Include` 展开 | ✅ OpenSSH 同口径（相对路径基准 = ~/.ssh、glob、嵌套 + 深度上限 16）；6 组断言 + 变异 I1~I4 |
 | 本地 PTY transport（forkpty） | ✅ POSIX 实现（macOS/Linux 证据；Android A2 首片已有 API 36 模拟器定向/变异证据，整个阶段未完成） |
 | SSH（libssh2）connect / auth / hostkey TOFU / ssh-shell | 🟡 密码/密钥、可取消认证与撤销优先的主机验证已有真 sshd 证据；CA-only、未知标记和 hashed 条目显式报不支持，见 [主机信任边界](core/tests/README.md#主机信任与撤销)。共享连接前配置检查已接两端；高级选项执行仍未实现，Android SSH 后端已绑定，产品、SAF 导入、凭据、身份设置与信任记录管理连同文件首片已有完整 214 项设备回归证据，A3 余项待收尾 |
-| SFTP（list / stat / 上传 / 下载 / job 三态） | 🟡 基础原语有真 sshd e2e 与变异证据；覆盖截断与关闭结果检查已补齐（Android 计划 §9.53）；独占暂存创建已接（§9.54），最终发布及过载下终态保障仍待补齐 |
+| SFTP（list / stat / 上传 / 下载 / job 三态） | 🟡 基础原语有真 sshd e2e 与变异证据；覆盖截断与关闭结果检查已补齐（Android 计划 §9.53）；独占暂存创建已接（§9.54），最终发布、旧下载完整长度校验及过载下终态保障仍待补齐 |
 | **macOS 原生宿主** | 🟡 已交付主要功能；配置写盘与私钥安全存储接线仍有缺口，见路线图 |
 | ├ TerminalSurface（full libghostty + Metal） | ✅ 上游补丁提供 host IO 后端（`patches/libghostty/`） |
 | ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；当前绑定 ABI 对拍 84/86（另 2 项显式登记），SFTP 打开/浏览新入口未接产品；改名绑定不等于 macOS 表单已接入 |
