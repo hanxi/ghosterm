@@ -816,8 +816,13 @@ class TerminalScreenTest {
             val last = if (up) anchor else stopped.line(stopped.rows - 1).toInt()
             val expected = (first..last).joinToString("\n")
             clickSystemText("复制")
-            ui.waitUntil {
-                ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() == expected
+            try {
+                ui.waitUntil {
+                    ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() == expected
+                }
+            } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+                val actual = ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString()
+                throw AssertionError("edge copy up=$up expected=<$expected> actual=<$actual> rows=${stopped.rows}", failure)
             }
         }
     }

@@ -22,6 +22,7 @@ struct gaj_ssh {
     size_t address_count;
     gt_ssh_auth_info_t info;
     uint64_t request;
+    uint64_t deadline; /* Monotonic connection deadline; IO owner only. */
     bool waiting;
     int response;
     char *first, *second;
@@ -125,6 +126,7 @@ gt_ssh_t *gaj_ssh_connect(gaj_ssh *s, atomic_bool *stop) {
     size_t candidate=0;
     if (!milliseconds(&started)) { info.error=GT_ERR_INTERNAL; goto failed; }
     const uint64_t deadline=started+s->options.timeout_ms;
+    s->deadline=deadline;
 next_candidate:
     gt_ssh_authenticator_close(auth); auth=NULL; gt_ssh_close(ssh); ssh=NULL;
     if (atomic_load(stop)) goto cancelled;
@@ -197,6 +199,22 @@ done:
     erase(s->first); erase(s->second); s->first=NULL; s->second=NULL; s->response=0; s->waiting=false;
     pthread_mutex_unlock(&s->mutex);
     return result;
+}
+static bool shell_cancelled(void *context) {
+    return atomic_load((atomic_bool *)context);
+}
+gt_transport_t *gaj_ssh_open_shell(gaj_ssh *s, gt_ssh_t *ssh,
+        const gt_shell_opts_t *opts, atomic_bool *stop, gt_status_t *status) {
+    uint64_t now=0;
+    *status=GT_ERR_CANCELLED;
+    if (atomic_load(stop)) return NULL;
+    *status=GT_ERR_INTERNAL;
+    if (!milliseconds(&now)) return NULL;
+    *status=GT_ERR_IO;
+    if (now>=s->deadline) return NULL;
+    uint64_t remaining=s->deadline-now;
+    uint32_t budget=(uint32_t)(remaining<5000?remaining:5000);
+    return gt_transport_open_ssh_shell_controlled(ssh,opts,budget,shell_cancelled,stop,status);
 }
 void gaj_ssh_respond(JNIEnv *env, gaj_ssh *s, jlong request, jint kind, jbyteArray first, jbyteArray second) {
     if (!s || request<=0 || kind<1 || kind>4) { fail(env,"SSH 请求无效"); return; }

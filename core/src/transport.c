@@ -120,3 +120,20 @@ gt_transport_t *gt_transport_open_ssh_command(gt_ssh_t *ssh,const char *command,
   t->backend=gt__ssh_backend_command(ssh,command,opts,timeout,cancelled,context,out_status);
   if(!t->backend){free(t);return NULL;}return t;
 }
+
+
+gt_transport_t *gt_transport_open_ssh_shell_controlled(gt_ssh_t *ssh,
+    const gt_shell_opts_t *opts, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context, gt_status_t *out_status) {
+  if (out_status) *out_status = GT_ERR_INVALID_ARG;
+  if (!ssh || !timeout_ms) {
+    gt__set_error("ssh shell: connection and positive remaining budget required");
+    return NULL;
+  }
+  gt_transport_t *t = new_transport(GT_TRANSPORT_SSH_SHELL);
+  if (!t) { if (out_status) *out_status = GT_ERR_INTERNAL; return NULL; }
+  t->backend = gt__ssh_backend_shell_controlled(ssh, opts, timeout_ms,
+                                               cancelled, context, out_status);
+  if (!t->backend) { free(t); return NULL; }
+  return t;
+}

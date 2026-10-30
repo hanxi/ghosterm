@@ -59,6 +59,7 @@ gt_status_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud);
 /* 打开交互式 shell 通道（pty-req + shell）。失败返回 NULL。 */
 void *gt__ssh_shell_open(gt_ssh_t *ssh, const char *term, uint16_t cols,
                          uint16_t rows, uint32_t px_w, uint32_t px_h);
+void *gt__ssh_shell_open_controlled(gt_ssh_t *,const gt_shell_opts_t *,uint32_t,bool (*)(void *),void *,gt_status_t *);
 void *gt__ssh_command_open(gt_ssh_t *,const char *,const gt_shell_opts_t *,uint32_t,bool (*)(void *),void *,gt_status_t *);
 /* 返回 >0 字节数 / GT_TRANSPORT_READ_TIMEOUT / GT_TRANSPORT_READ_EOF /
  * GT_TRANSPORT_READ_ERROR；语义同 gt_transport_read。 */

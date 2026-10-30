@@ -109,9 +109,14 @@ static void *owner(void *context) {
         if (!s->ssh) { if (!atomic_load(&s->stop)) failed(s,"SSH 认证失败，请查看连接状态"); goto finished; }
         if (atomic_load(&s->stop)) goto finished;
         gt_shell_opts_t shell={.term="xterm-256color",.cols=80,.rows=24};
-        s->transport=gt_transport_open_ssh_shell(s->ssh,&shell);
-        if (!s->transport) { failed(s,"无法打开远端 PTY/shell"); goto finished; }
-        if (atomic_load(&s->stop)) goto finished;
+        gt_status_t opened=GT_OK;
+        s->transport=gaj_ssh_open_shell(s->remote,s->ssh,&shell,&s->stop,&opened);
+        if (atomic_load(&s->stop) || opened==GT_ERR_CANCELLED) goto finished;
+        if (!s->transport) {
+            failed(s,opened==GT_ERR_UNSUPPORTED?"服务器拒绝远端 PTY/shell":
+                opened==GT_ERR_IO?"打开远端 PTY/shell 失败或超时":"无法打开远端 PTY/shell");
+            goto finished;
+        }
     } else {
     struct stat home_stat;
     if (stat(s->home, &home_stat) != 0 || !S_ISDIR(home_stat.st_mode) || access(s->home, X_OK) != 0) {

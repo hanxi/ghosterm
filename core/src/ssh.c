@@ -854,9 +854,18 @@ typedef struct {
 /* Nonblocking command/channel admission on a dedicated SSH owner. Every wait
  * shares one monotonic budget; cancellation never borrows a terminal/SFTP link.
  */
-static int command_wait(gt_ssh_t *ssh, const gt_command_budget_t *b) {
-  if (gt__command_expired(b))
-    return GT_ERR_CANCELLED;
+static int channel_budget_status(const gt_command_budget_t *b, bool distinct_timeout) {
+  /* Keep exec/tmux on their existing budget and diagnostic contract. */
+  if (!distinct_timeout)
+    return gt__command_expired(b) ? GT_ERR_CANCELLED : GT_OK;
+  if (b->cancelled && b->cancelled(b->context)) return GT_ERR_CANCELLED;
+  if (gt__command_now() >= b->deadline)
+    return GT_ERR_IO;
+  return GT_OK;
+}
+static int command_wait(gt_ssh_t *ssh, const gt_command_budget_t *b, bool distinct_timeout) {
+  int status = channel_budget_status(b, distinct_timeout);
+  if (status != GT_OK) return status;
   int direction = libssh2_session_block_directions(ssh->session);
   short events = 0;
   if (direction & LIBSSH2_SESSION_BLOCK_INBOUND)
@@ -874,21 +883,23 @@ static int command_wait(gt_ssh_t *ssh, const gt_command_budget_t *b) {
 static LIBSSH2_CHANNEL *command_channel(gt_ssh_t *ssh, const char *command,
                                         const gt_shell_opts_t *pty,
                                         const gt_command_budget_t *b,
-                                        int *status) {
+                                        int *status, bool distinct_timeout) {
   LIBSSH2_CHANNEL *channel = NULL;
   *status = GT_ERR_IO;
   if (!ssh || !ssh->connected || !ssh->session) {
     gt__set_error("SSH: connection unavailable");
     return NULL;
   }
+  if ((*status = channel_budget_status(b, distinct_timeout)) != GT_OK) goto failed;
   libssh2_session_set_blocking(ssh->session, 0);
   while (!(channel = libssh2_channel_open_session(ssh->session))) {
     if (libssh2_session_last_errno(ssh->session) != LIBSSH2_ERROR_EAGAIN)
       goto failed;
-    if ((*status = command_wait(ssh, b)) != GT_OK)
+    if ((*status = command_wait(ssh, b, distinct_timeout)) != GT_OK)
       goto failed;
   }
   int rc;
+  if ((*status = channel_budget_status(b, distinct_timeout)) != GT_OK) goto failed;
   if (pty) {
     const char *term = pty->term ? pty->term : "xterm-256color";
     do {
@@ -897,26 +908,28 @@ static LIBSSH2_CHANNEL *command_channel(gt_ssh_t *ssh, const char *command,
                                           pty->rows ? pty->rows : 24,
                                           pty->px_width, pty->px_height);
       if (rc == LIBSSH2_ERROR_EAGAIN &&
-          (*status = command_wait(ssh, b)) != GT_OK)
+          (*status = command_wait(ssh, b, distinct_timeout)) != GT_OK)
         goto failed;
     } while (rc == LIBSSH2_ERROR_EAGAIN);
     if (rc) {
-      *status = GT_ERR_UNSUPPORTED;
+      *status = rc == LIBSSH2_ERROR_CHANNEL_REQUEST_DENIED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;
       gt__set_error("SSH: server refused PTY");
       goto failed;
     }
   }
+  if ((*status = channel_budget_status(b, distinct_timeout)) != GT_OK) goto failed;
   do {
     rc = command ? libssh2_channel_exec(channel, command)
                  : libssh2_channel_shell(channel);
-    if (rc == LIBSSH2_ERROR_EAGAIN && (*status = command_wait(ssh, b)) != GT_OK)
+    if (rc == LIBSSH2_ERROR_EAGAIN && (*status = command_wait(ssh, b, distinct_timeout)) != GT_OK)
       goto failed;
   } while (rc == LIBSSH2_ERROR_EAGAIN);
   if (rc) {
-    *status = GT_ERR_UNSUPPORTED;
+    *status = rc == LIBSSH2_ERROR_CHANNEL_REQUEST_DENIED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;
     gt__set_error("SSH: server refused exec/shell");
     goto failed;
   }
+  if ((*status = channel_budget_status(b, distinct_timeout)) != GT_OK) goto failed;
   *status = GT_OK;
   return channel;
 failed:
@@ -956,7 +969,7 @@ int gt__command_ssh(gt_ssh_t *ssh, const char *command,
       "set +e; %s; gt_tmux_rc=$?; printf '\\nGHOSTERM_TMUX_RC=%%d\\n' \"$gt_tmux_rc\"",
       command);
   r->started = true;
-  LIBSSH2_CHANNEL *ch = command_channel(ssh, wrapped, NULL, b, &rc);
+  LIBSSH2_CHANNEL *ch = command_channel(ssh, wrapped, NULL, b, &rc, false);
   free(wrapped);
   if (!ch)
     goto end;
@@ -979,7 +992,7 @@ int gt__command_ssh(gt_ssh_t *ssh, const char *command,
     }
     if (libssh2_channel_eof(ch) && !data)
       break;
-    if ((rc = command_wait(ssh, b)) != GT_OK)
+    if ((rc = command_wait(ssh, b, false)) != GT_OK)
       goto close;
   }
   if (r->out) {
@@ -1016,9 +1029,9 @@ end:
   gt__ssh_io_unlock(ssh);
   return rc;
 }
-void *gt__ssh_command_open(gt_ssh_t *ssh, const char *command,
+static void *ssh_interactive_open(gt_ssh_t *ssh, const char *command,
                            const gt_shell_opts_t *opts, uint32_t timeout_ms,
-                           bool (*cancelled)(void *), void *context, gt_status_t *out_status) {
+                           bool (*cancelled)(void *), void *context, gt_status_t *out_status, bool distinct_timeout) {
   if (out_status) *out_status = GT_ERR_INVALID_ARG;
   if (!ssh || !ssh->session)
     return NULL;
@@ -1028,7 +1041,7 @@ void *gt__ssh_command_open(gt_ssh_t *ssh, const char *command,
   long previous = libssh2_session_get_timeout(ssh->session);
   int status = GT_OK;
   LIBSSH2_CHANNEL *channel =
-      command_channel(ssh, command, opts, &budget, &status);
+      command_channel(ssh, command, opts, &budget, &status, distinct_timeout);
   libssh2_session_set_blocking(ssh->session, 1);
   libssh2_session_set_timeout(ssh->session, previous);
   ssh_shell_t *sh = NULL;
@@ -1122,6 +1135,16 @@ static int ssh_wtail_append(ssh_shell_t *sh, const uint8_t *data, size_t len) {
   sh->wtail = p;
   sh->wtail_len += len;
   return GT_OK;
+}
+
+void *gt__ssh_command_open(gt_ssh_t *ssh, const char *command,
+    const gt_shell_opts_t *opts, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context, gt_status_t *out_status) {
+  return ssh_interactive_open(ssh, command, opts, timeout_ms, cancelled, context, out_status, false);
+}
+void *gt__ssh_shell_open_controlled(gt_ssh_t *ssh, const gt_shell_opts_t *opts,
+    uint32_t timeout_ms, bool (*cancelled)(void *), void *context, gt_status_t *out_status) {
+  return ssh_interactive_open(ssh, NULL, opts, timeout_ms, cancelled, context, out_status, true);
 }
 
 void *gt__ssh_shell_open(gt_ssh_t *ssh, const char *term, uint16_t cols,
@@ -1261,7 +1284,7 @@ gt_ssh_exec_t *gt_ssh_exec(gt_ssh_t *ssh, const char *command,
   gt__ssh_io_lock(ssh);
   long previous = libssh2_session_get_timeout(ssh->session);
   int blocking = libssh2_session_get_blocking(ssh->session), status = GT_OK;
-  LIBSSH2_CHANNEL *chan = command_channel(ssh, cmd, NULL, &budget, &status);
+  LIBSSH2_CHANNEL *chan = command_channel(ssh, cmd, NULL, &budget, &status, false);
   libssh2_session_set_blocking(ssh->session, blocking);
   libssh2_session_set_timeout(ssh->session, previous);
   gt__ssh_io_unlock(ssh);
@@ -1450,6 +1473,13 @@ gt_sftp_t *gt_ssh_sftp(gt_ssh_t *ssh) {
   return NULL;
 }
 
+void *gt__ssh_shell_open_controlled(gt_ssh_t *s, const gt_shell_opts_t *o,
+    uint32_t t, bool (*f)(void *), void *u, gt_status_t *status) {
+  (void)s; (void)o; (void)t; (void)f; (void)u;
+  if (status) *status = GT_ERR_UNSUPPORTED;
+  gt__set_error("SSH shell: libssh2 unavailable");
+  return NULL;
+}
 void *gt__ssh_shell_open(gt_ssh_t *ssh, const char *term, uint16_t cols,
                          uint16_t rows, uint32_t px_w, uint32_t px_h) {
   (void)ssh; (void)term; (void)cols; (void)rows; (void)px_w; (void)px_h;

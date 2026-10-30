@@ -39,5 +39,6 @@
   "gt_tmux_open": "A8: 可选后台会话接入时绑定",
   "gt_transport_child_cwd": "A2/A3: 原生终端 owner 接入时绑定",
   "gt_transport_kind": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_open_ssh_command": "A2/A3: 原生终端 owner 接入时绑定"
+  "gt_transport_open_ssh_command": "A2/A3: 原生终端 owner 接入时绑定",
+  "gt_transport_open_ssh_shell": "A3: 普通远端终端已改用带剩余预算与取消的 controlled 入口"
 }

@@ -45,5 +45,6 @@ gt_io_backend_t *gt__pty_open_with_options(const gt_pty_opts_t *,const gt_alloca
 gt_status_t gt__pty_waiter_thread(const gt_io_backend_t *,pthread_t *);
 gt_io_backend_t *gt__ssh_backend_open(gt_ssh_t *ssh, const gt_shell_opts_t *opts);
 
+gt_io_backend_t *gt__ssh_backend_shell_controlled(gt_ssh_t *,const gt_shell_opts_t *,uint32_t,bool (*)(void *),void *,gt_status_t *);
 gt_io_backend_t *gt__ssh_backend_command(gt_ssh_t *,const char *,const gt_shell_opts_t *,uint32_t,bool (*)(void *),void *,gt_status_t *);
 #endif /* GHOSTERM_IO_BACKEND_H */

@@ -1,6 +1,6 @@
 # Android TerminalSurface
 
-最近已验收的完整设备结果为 **187 项通过**，候选地址切片新增 12 项真实 SSH/网络定向与 14 组变异，见[§9.40](../../docs/reference/android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)。终端字节仍为 native owner→Transport→VT；TCP 阶段可切换候选，SSH 协商后不换服务器。丢包测试要求可 root 的 API 36 arm64 / 4 KB 页模拟器；不扩大为公网双栈、真实域名、其他设备或完整 A2/A3 证据。下文数量保留各历史切片记录。
+最近一次完整设备运行为 **200 项通过**，通道取消切片新增 13 项协议阶段/生命周期定向与 13 组变异，见[§9.41](../../docs/reference/android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)。Android native owner 将认证后剩余预算与取消传入共享 controlled 入口；字节仍为 Transport→VT，不经 UI。候选推进的真实双栈 SSH 证据保留在 §9.40。当前完整套件仍要求可 root 的 API 36 arm64 / 4 KB 页模拟器及测试协议端依赖，不扩大为公网、真机或整个 A2/A3。首轮选区复制等待失败、产品变异掉线中断和 tmux SSH 失败后的调整及最终复验一并记在 §9.41；本通道切片已完成当前模拟器档验收，选区早期不稳定的根因仍未确定。下文保留各历史切片数量。
 
 状态（2026-10-30）：**A0 已验；A2 原生 surface、Canvas TerminalView、InputConnection 与生命周期首片已交付；文本操作切片已验，整个 A2 未完成**。Gradle `:terminal` 指向本目录；native 子目录由 `:bridge` 的 CMake 统一构建，避免重复 Core。宿主设计见[最终 HTML](../../docs/design/android-prototype.html)，开发与验收见[Android 实现计划](../../docs/reference/android-implementation.md) A0/A2。
 

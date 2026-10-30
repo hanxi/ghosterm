@@ -209,6 +209,42 @@ final class GhostermCoreTests: XCTestCase {
         return false
     }
 
+    func testSSHControlledEndToEnd() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],
+              let key = env["GHOSTERM_SSH_KEY"], let port = UInt16(env["GHOSTERM_SSH_PORT"] ?? "") else {
+            throw XCTSkip("SSH fixture required")
+        }
+        let pem = try String(contentsOfFile: key, encoding: .utf8)
+        func connected() throws -> SSHSession {
+            let value = try SSHSession(SSHOptions(host: host, port: port, username: user,
+                knownHostsPath: env["GHOSTERM_SSH_KNOWN_HOSTS"]))
+            value.setHostKeyDecider { _, _, _, _ in .accept }
+            try value.authenticate(privateKeyPEM: pem); try value.connect()
+            return value
+        }
+        let session = try connected()
+        XCTAssertThrowsError(try Transport.openSSHShell(session, timeoutMilliseconds: 0)) { error in
+            guard case GhostermError.status(1, _) = error else { return XCTFail("Spent budget did not return INVALID_ARG") }
+        }
+        let cancelled = SSHCancellation(); cancelled.cancel()
+        let cancelledSession = try connected()
+        XCTAssertThrowsError(try Transport.openSSHShell(cancelledSession, timeoutMilliseconds: 3000, cancellation: cancelled)) { error in
+            guard case GhostermError.status(8, _) = error else { return XCTFail("Cancellation did not return CANCELLED") }
+        }
+        let transport = try Transport.openSSHShell(session, cols: 71, rows: 23,
+            timeoutMilliseconds: 3000, cancellation: SSHCancellation())
+        try transport.write("stty -echo; PS1=''; stty size; printf 'CONTROL_%s\\n' READY\n")
+        var output = ""
+        for _ in 0..<60 {
+            if case .data(let bytes) = try transport.read(timeoutMilliseconds: 100) {
+                output += String(decoding: bytes, as: UTF8.self)
+                if output.contains("CONTROL_READY") { break }
+            }
+        }
+        XCTAssertTrue(output.contains("23 71") && output.contains("CONTROL_READY"), "Controlled shell lost PTY or stream")
+    }
+
     func testSSHEndToEnd() throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],

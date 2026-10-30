@@ -923,6 +923,29 @@ public final class Transport {
         return Transport(handle: handle, sshOwner: session)
     }
 
+    /// Remaining connection budget; cancellation is observed on the calling IO owner.
+    public static func openSSHShell(_ session: SSHSession, term: String = "xterm-256color",
+                                    cols: UInt16 = 80, rows: UInt16 = 24,
+                                    timeoutMilliseconds: UInt32,
+                                    cancellation: SSHCancellation? = nil) throws -> Transport {
+        guard !term.utf8.contains(0) else { throw GhostermError.failed("终端类型包含 NUL") }
+        var size = gt_shell_opts_t(); size.cols = cols; size.rows = rows
+        var status = GT_OK
+        let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let raw = withExtendedLifetime(cancellation) {
+            term.withCString { value in
+                size.term = value
+                return gt_transport_open_ssh_shell_controlled(session.handle, &size, timeoutMilliseconds,
+                    { pointer in
+                        guard let pointer else { return false }
+                        return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+                    }, context, &status)
+            }
+        }
+        guard let raw else { throw GhostermError.status(Int32(status.rawValue), Ghosterm.lastError) }
+        return Transport(handle: raw, sshOwner: session)
+    }
+
     public static func openSSHCommand(_ session: SSHSession, command: String,
                                       cols: UInt16 = 80, rows: UInt16 = 24,
                                       timeoutMilliseconds: UInt32 = 5000) throws -> Transport {

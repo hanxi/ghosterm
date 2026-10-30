@@ -264,3 +264,13 @@ archive 与测试可执行再重链；回滚同样执行，并核对原始 SHA25
 `known_hosts_snapshot` 验证共享只读 `gt_known_hosts_*`：保留 marker、原始 UTF-8 字节范围/CRLF/末行无换行、哈希标志和畸形记录；注释不成为记录，NUL/大小/条目限额错误不变成空列表。返回字段形态不是信任决定，也未验证 base64 中的公钥。认证的 `gt__kh_visit` 与快照共用词法读取，既有撤销/未知规则/错误传播继续由真实 sshd 套件验收。
 
 `python3 scripts/mutation-check-known-hosts-snapshot.py --apple` 跑十组隔离 C 与一组 Swift 变异，目标红、独立 API/配置往返对照绿、恢复绿与 SHA256。Android 的只读切片为四组 JNI/Kotlin 设备变异；后续删除绑定加入四组，当前 runner 共八组。它们不增加 CI 20 份覆盖，不能作为文件移除/并发提交或产品页面完成的证据；记录见[Android §9.36](../../docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)。
+
+## 可取消的普通 SSH shell 准入
+
+`gt_transport_open_ssh_shell_controlled` 使用正数剩余预算，零值不回落到默认超时；取消为 CANCELLED，超时/IO 为 IO，PTY/shell 明确拒绝为 UNSUPPORTED。既有 `gt_transport_open_ssh_shell` 和 exec 入口仍保留自身契约。调用方使用专有 IO owner，失败后丢弃连接；预算检查不构成对锁等待或清理的硬实时承诺。
+
+- `python3 scripts/mutation-check-ssh-shell.py`：隔离 C 参数状态与真实 sshd 的 Swift 取消/预算/PTY 尺寸，1 C + 3 Swift 变异，独立配置对照。
+- `python3 scripts/mutation-check-ssh-shell-unavailable.py`：真实无 libssh2 archive 的 UNSUPPORTED；变异状态码目标红、独立 API 对照绿、恢复绿与 SHA256。
+- Android 阶段停滞、明确拒绝/断线区别与 owner 生命周期用协议故障端验证，正常 PTY/PID 用 OpenSSH；入口和范围见 [Android §9.41](../../docs/reference/android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)。
+
+这些是手工验证，不新增 CI 覆盖。共享通道代码变更还需回归既有 SSH/exec/tmux，不能以新接口定向替代旧入口。

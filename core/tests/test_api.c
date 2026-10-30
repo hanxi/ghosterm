@@ -23,6 +23,17 @@ int main(void) {
   CHECK(sh == NULL, "NULL 会话的 ssh shell transport 必须返回 NULL");
   CHECK(strlen(gt_last_error()) > 0, "失败必须留下可读错误");
 
+  gt_status_t shell_status = GT_OK;
+  CHECK(gt_transport_open_ssh_shell_controlled(NULL, NULL, 100, NULL, NULL, &shell_status) == NULL &&
+        shell_status == GT_ERR_INVALID_ARG, "controlled shell rejects NULL with status");
+  gt_ssh_opts_t shell_options = {.host="localhost", .username="fixture"};
+  gt_ssh_t *shell_owner = gt_ssh_new(&shell_options);
+  CHECK(shell_owner != NULL, "controlled shell argument test owner");
+  shell_status = GT_OK;
+  CHECK(gt_transport_open_ssh_shell_controlled(shell_owner, NULL, 0, NULL, NULL, &shell_status) == NULL &&
+        shell_status == GT_ERR_INVALID_ARG, "spent shell budget cannot become default timeout");
+  gt_ssh_close(shell_owner);
+
   gt_sftp_entry_t *entries = NULL;
   size_t count = 0;
   int rc = gt_sftp_list(NULL, "/", &entries, &count);

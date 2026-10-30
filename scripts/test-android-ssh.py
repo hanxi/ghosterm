@@ -42,13 +42,17 @@ def main():
                       any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('SSHCredentialFlowTest','IdentitySettingsTest')))
     identity_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_IDENTITIES_MUTATE')=='1' or
                     'IdentitySettingsTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
-    with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data:
+    spec=importlib.util.spec_from_file_location('channels',ROOT/'scripts/lib/android-ssh-channels.py')
+    channels=importlib.util.module_from_spec(spec);spec.loader.exec_module(channels)
+    channel_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_CHANNEL_MUTATE')=='1' or
+                   'SSHChannelTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
+    with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data, channels.fixture(work,channel_tests) as channel_data:
         token=secrets.token_hex(32)
         # No key text in instrumentation arguments, output logs, repository, or device files.
         payload=json.dumps(dict(user=user,port=int(port),pem=Path(key).read_text(),
             clientFingerprint=run(['ssh-keygen','-lf',str(key)+'.pub','-E','sha256']).split()[1],
             fingerprint=os.environ['GT_TEST_HOSTKEY_SHA256'],public=Path(work,'hostkey.pub').read_text(),
-            wrongPem=Path(work,'hostkey').read_text(),otherPublic=Path(work,'clientkey.pub').read_text(),**credential_data)).encode()
+            wrongPem=Path(work,'hostkey').read_text(),otherPublic=Path(work,'clientkey.pub').read_text(),**credential_data,**channel_data)).encode()
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):
                 self.connection.settimeout(5)
@@ -60,7 +64,7 @@ def main():
             worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
             mappings=[]
             try:
-                for value in (port,fixture_port,*(credential_data[label]['port'] for label in ('password','mixed') if label in credential_data)):
+                for value in (port,fixture_port,*(credential_data[label]['port'] for label in ('password','mixed') if label in credential_data),*(channel_data['channels'][key] for key in ('port','controlPort') if channel_data)):
                     run([*adb,'reverse','tcp:'+str(value),'tcp:'+str(value)]);mappings.append(value)
                 logs=ROOT/'tmp/android-ssh-tests';logs.mkdir(exist_ok=True)
                 def build(label):
@@ -84,6 +88,10 @@ def main():
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
                 if os.environ.get('ANDROID_SSH_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('mutations',ROOT/'scripts/mutation-check-android-ssh.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_SSH_CHANNEL_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('channel_mutations',ROOT/'scripts/mutation-check-android-ssh-channel.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_SSH_NETWORK_MUTATE')=='1':

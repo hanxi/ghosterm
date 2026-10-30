@@ -7,7 +7,9 @@
 > 口径（铁律 #8）：**✅** 已实现且有闸门/实测证据 · **🟡** 已实现但只在某一档证据下成立
 > （必须写明哪档）· **⏳** 契约/占位在，无实现 · **❌** 未开始 · **⛔ WONTFIX** 不做并注明原因。
 >
-> 核对日期：**2026-10-30**。当前 C ABI 80 项、Apple 78 项引用/2 项登记未用、A1 JNI 11 项引用/62 项待办；A2 首片对拍为 19/54，A3 配置检查切片为 20/54，已提交 SSH 后端为 32/42；身份容器切片对拍为 33/41，身份来源查询切片为 34/41，主机信任记录快照切片为 38/41，事务/移除绑定加入后当前为 39/41，符号检查不代替产品验收。产品首片有 27 项定向测试及 15 组变异证据，候选地址切片最新完整 187 项回归通过，见 [§9.40](android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)，整个阶段尚未完成。别名重命名共享接口与 A1 Android 表单接线已独立验收。字段来源与 Android 页面接线见 [Android 实施计划 §9.5](android-implementation.md#95-字段来源与编辑归属2026-10-29)，各次构建、设备测试与变异见[路线图验收记录](roadmap.md#验收记账与历史记录)。历史平台/像素/网络证据各自保留范围，未重跑的专项不算本轮结果。
+> 核对日期：**2026-10-30**。当前 C ABI 81 项、Apple 79 项引用/2 项登记未用、A1 JNI 11 项引用/62 项待办；A2 首片对拍为 19/54，A3 配置检查切片为 20/54，已提交 SSH 后端为 32/42；身份容器切片对拍为 33/41，身份来源查询切片为 34/41，主机信任记录快照切片为 38/41，事务/移除绑定为 39/41，通道取消切片改为 39/42（新入口替换旧引用），符号检查不代替产品验收。产品首片有 27 项定向测试及 15 组变异证据，通道取消切片最新完整 200 项回归通过，见 [§9.41](android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)，整个阶段尚未完成。别名重命名共享接口与 A1 Android 表单接线已独立验收。字段来源与 Android 页面接线见 [Android 实施计划 §9.5](android-implementation.md#95-字段来源与编辑归属2026-10-29)，各次构建、设备测试与变异见[路线图验收记录](roadmap.md#验收记账与历史记录)。历史平台/像素/网络证据各自保留范围，未重跑的专项不算本轮结果。
+
+**当前验收边界**：§9.41 的 13 项通道定向、13 组变异和最终完整 200 项设备运行均已通过，范围限 API 36 arm64 / 4 KB 页模拟器；整个 A3 及 macOS 产品通道取消仍未完成。详见[当前进度](roadmap.md#当前进度总览)。
 
 ## 核心（C）
 
@@ -15,7 +17,7 @@
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
-| C ABI（`ghosterm.h` v0，未冻结） | 🟡 | 80 符号双向对拍通过（`scripts/check-abi.sh`），含别名重命名接口。接口未冻结；新增契约仍须独立行为/变异验收 |
+| C ABI（`ghosterm.h` v0，未冻结） | 🟡 | 81 符号双向对拍通过（`scripts/check-abi.sh`），含别名重命名接口。接口未冻结；新增契约仍须独立行为/变异验收 |
 | `ssh_config` 解析（AST + Host 块） | ✅ | `ctest sshconfig_golden`：4 个 Host 块 / 6 个模式 |
 | `ssh_config` 无损往返（**未编辑**） | ✅ | 与原文**逐字节相同**（`test_config` 头号断言） |
 | `ssh_config` 求值（typed） | ✅ | `gt_config_resolve`：user/hostname/port/forwardagent/compression/serveraliveinterval/identityfile/proxyjump/setenv/localforward |
@@ -32,7 +34,7 @@
 | 事件队列（低频、批量轮询） | 🟡 | `src/core.c` 为加锁的 256 项环形缓冲；`test_api` 与 SFTP job 的 PROGRESS / JOB_DONE 证据已存在。队列满会覆盖最旧事件，尚无 job 终态查询 ABI，不能保证过载时终态不丢；需按路线图补保留/查询保障 |
 | Transport 接缝（本地 PTY） | ✅ | `gt_transport_open_pty`（POSIX forkpty）；`pty_transport` 行为断言（真 forkpty，离线）：EOF 前不丢最后一批 / 退出码 / 字节往返 / 超时不折叠 EOF / winsize / resize / TERM / close(NULL) 安全 / 前台作业四态 / 内核 cwd / **写绝不无限等**（第 13 节：pty 输入队列满时写要有界返回且积压字节随后补送——旧实现的 `poll(-1)` 会钉死会话线程 → 关标签页时 `queue.sync` 把主线程也钉死＝整个 app 无响应）；变异 `mutation-check-transport` P1~P4 有牙。**Swift 端** `StopBoundedTests` 断言 `SessionController.stop()` 只取消且有界返回，并等待弱引用证明 I/O owner 真正释放（当前 stop 不再同步等待队列）（走生产链路 `sendText → onInput → 会话线程 write`，子进程 `stty -icanon -echo` 才会真触发 EAGAIN 而非 canonical 丢弃），对 P4 验过牙（变异体挂起超时 / 干净 0.7s 绿） |
 | Transport 接缝（SSH shell） | ✅ | `gt_transport_open_ssh_shell`（libssh2 pty-req+shell）；`ssh_e2e` 真 sshd 回显/resize；`b27c787` 修复零超时轮询（临时 nonblocking 后恢复会话设置），有真实远端屏障和五组 SSH 变异证据，见 §9.27；不扩大为所有通道打开/关闭均有界 |
-| 普通 SSH shell 打开取消与总预算 | 🟡 | 正常打开与回显已有上述真实 sshd 证据；共享 opener 另建 5000 ms 准入预算，未接调用方取消。macOS 认证定时器成功后撤销；Android 外层超时可以撤销页面请求，但不能中断通道打开。阶段停滞/取消/剩余预算与 owner 释放尚待验收，见 [两端边界](../../apple/README.md#ssh-认证后的通道打开边界)及 [实施契约](android-implementation.md#认证后打开-shell-的实施契约) |
+| 普通 SSH shell 打开取消与总预算 | 🟡 | §9.41 新增 controlled API，Android native owner 已接原连接余额和取消；三个阶段取消/预算、明确拒绝/断线及请求隔离共 13 项定向、13 组变异通过。Swift 新绑定验真实 sshd 和三组变异，macOS 产品仍使用旧 opener，尚未接入其原认证 deadline/取消，见 [两端边界](../../apple/README.md#ssh-认证后的通道打开边界)及 [实施契约](android-implementation.md#认证后打开-shell-的实施契约) |
 | Transport：前台作业判定（关闭确认用） | ✅ | `gt_transport_child_state` **四态**（UNKNOWN/EXITED/IDLE/JOB）：POSIX 读内核 `tcgetpgrp(master) == shell 自己的进程组` 判「空闲提示符 vs 有作业」，SSH / ConPTY 报 `UNKNOWN`（**不猜**，铁律 #6）。`test_transport` 第 11 节（IDLE/JOB/EXITED/NULL→UNKNOWN）+ 变异 `mutation-check-transport` P1/P2 有牙。**前置修复**：本地 PTY 子进程曾拿不到控制终端（父进程抢跑 `setpgid` → 子进程 `setsid` 报 EPERM），已修 |
 | Transport：会话 cwd | 🟡 | **本地 PTY ✅**：`gt_transport_child_cwd` 内核查询（macOS `proc_pidinfo` / Linux `/proc/<pid>/cwd`），`test_transport` 第 12 节（继承 cwd + `cd` 后随之变）。**远端 cwd 未交付**：OSC 7 在我们钉的 embedded host-IO 下到不了宿主（无 `GHOSTTY_ACTION_PWD`），且 libghostty 要求 host `isLocal`——接线留为 seam，依赖上游支持 / roadmap R2 |
 | SSH（libssh2） | 🟡 | 普通条目的连接/认证已有以下证据，标记拒绝及未支持格式的边界见 known_hosts 行。connect / pubkey·password 认证 / 主机密钥三态 / TOFU；`ssh_e2e` 行为断言（真 sshd，环回离线）。**写绝不无限等**（§5b：远端不读 stdin 时 `gt__ssh_shell_write` 在 `GT_SSH_WRITE_GRACE_MS` 内有界返回、积压字节走 `wtail` 队列随后补送——与本地 PTY §13 同结构。`TIMEOUT`/`EAGAIN` 不再当硬错丢字节（旧实现把两者都算 `GT_ERR_IO` → 键入的字节就这么没了）。写路径自己设/还 session timeout，不打扰同 session 的 SFTP。e2e 限制：sshd 排空速率 ≈ 40 MiB/s，3 MiB payload 写完时队列**根本没形成**——flush 机制无法被真 sshd e2e 触发，由代码审阅 + PTY §13/P4 的变异覆盖保证同构正确性） |
@@ -41,7 +43,7 @@
 | 端口转发 -L/-R/-D | ❌ | — |
 | known_hosts / TOFU | 🟡 | 明文条目/模式、TOFU、撤销优先及读取错误已有真 ed25519/ECDSA sshd 的同步/公开异步 API 证据，25 组隔离变异通过（K17/K20 为独立文件故障，其余经真实 SSH）；TOFU 与移除已共用锁、备份、原子替换与提交状态；17 C + 2 Swift 事务变异范围见 §9.37。非协作写者竞态/断电恢复不在已验范围；Android 管理页面已另按 §9.39 验收，macOS 无管理页面。已解析的 hashed 条目、当前主机的未知标记、无匹配普通记录的 CA 规则显式报不支持；未实现哈希匹配/主机证书验证，不称完整 OpenSSH 兼容。macOS SFTP 产品认证回归与 Swift 绑定已验，Android native 状态/拒绝路径已在 §9.25 验证，页面首片及未完成边界见 §9.27；见 [§9.22](android-implementation.md#922-a3-共享主机信任前置2026-10-30) |
 | 本地 PTY | 🟡 | POSIX（macOS/Linux）forkpty ✅；Windows ConPTY ❌（只有规划，能力缺失显式报错） |
-| 可取消的 SSH 认证 | 🟡 | 通用公开 `ssh_auth.h` 与 Apple `SSHAuthenticator`/DNS 解析已从旧安装链拆出；C 连接器与公开翻译测试、8 组认证 ABI / 6 组凭据选择变异通过。Apple 普通 SSH、SFTP、tmux 管理/attach 已统一经 `SSHAuthenticationFlow`；Android/JNI 已在 §9.25 接入同一 native owner，信任/凭据等待的取消和超时已有真 sshd 证据；DNS 取消/预算、产品页面已有定向测试；macOS 仍只交付单地址；Android 已接 TCP 候选推进和共用总预算，12 项真实双栈/丢包/取消定向与 14 组变异见 §9.40。Android 真实域名 DNS、通道打开取消和更多网络矩阵仍待补，详见 [网络收尾](android-implementation.md#46-a3-网络与取消收尾)。 |
+| 可取消的 SSH 认证 | 🟡 | 通用公开 `ssh_auth.h` 与 Apple `SSHAuthenticator`/DNS 解析已从旧安装链拆出；C 连接器与公开翻译测试、8 组认证 ABI / 6 组凭据选择变异通过。Apple 普通 SSH、SFTP、tmux 管理/attach 已统一经 `SSHAuthenticationFlow`；Android/JNI 已在 §9.25 接入同一 native owner，信任/凭据等待的取消和超时已有真 sshd 证据；DNS 取消/预算、产品页面已有定向测试；macOS 仍只交付单地址；Android 已接 TCP 候选推进和共用总预算，12 项真实双栈/丢包/取消定向与 14 组变异见 §9.40。Android 通道打开取消见 §9.41；真实域名 DNS 和更多网络/设备矩阵仍待补，详见 [网络收尾](android-implementation.md#46-a3-网络与取消收尾)。 |
 | POSIX PTY 尺寸能力 | 🟡 | macOS 共享后端 `pty_dimensions` 三类基线随核心闸门通过；`4924a2d` 另修复子进程继承信号屏蔽，真实窗口→本地 tmux / 本地 shell→系统 ssh→远端 tmux 无输入缩放与 PID 保留已有两条回归，PTY 继承三组变异通过。保留像素尺寸与默认值校验，非全平台证据；见 [实施记录](optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。 |
 | 可选 tmux 后台会话 | 🟡 | 3.2a 已在 macOS 本机与 Ubuntu 22.04 SSH 验证真 PTY attach 和列表/管理；3.6a 另验证原生键鼠、任务保留、断网、背压、未知回复及受限账户。仅 POSIX 兼容远端 shell；其他版本与平台证据有限，不自动恢复，受用户 tmux 与系统清理策略影响。 |
 | 配色集随包 + 主题选择 | ✅ | `build-ghostty.sh` 从锁定的 `iterm2_themes` 依赖派生配色集（以本轮构建实际数量为准） → `Contents/Resources/ghostty/themes`；CGhostty 推导 `GHOSTTY_RESOURCES_DIR`（上游入口，未设置时兜底）；出包脚本的**包内**配置检查验随包主题被引擎接受（变异 A6 有牙） |
@@ -92,7 +94,7 @@
 
 Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、摘要复核与原子替换，按应用私有目录和协作锁约束工作，不承诺任意非协作写入者下的无竞态提交。A1 已展示继承来源与共享别名影响，并支持同值显式覆盖、删除指令恢复继承；别名重命名与配置错误恢复已接入，SAF 选择/预览/取消、失败恢复和其余表单校验已完成 A1 验收；本地终端首片已验，整个 A2 尚未完成，文件和完整设置未实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[A1 实施记录](android-implementation.md#92-a1-主机与配置首片2026-10-29)区分已验证与待办。
 
-A1 阶段验收为 2026-10-30 的 47 项测试与 59 组配置/页面变异；A2 首片完整 63 项设备测试及 21 组终端变异为 §9.13 的历史证据。文本操作切片增加文本操作，最新完整设备结果为 **187 项通过**，数量与覆盖边界见[§9.40](android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)，不累加历史测试数量。产品/身份首片原先的完整套件失败已修正测试观测与线程归属后复验，失败记录保留在 §9.27。A1 证据见[§9.11](android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。读取失败/保存冲突使旧快照失效；重载先确认草稿，错误跨页保留，成功刷新编辑目标，失败不报空成功态。§9.8 的错误恢复草稿已由 §9.10 补齐，SAF 与表单余项由 §9.11 完成；A1 只在当前设备档位收口，完整客户端仍在开发。此前工作区的继承编辑草稿已补齐接线，原 Kotlin 编译失败已解决；历史记录见[§9.6](android-implementation.md#96-文档复核时的工作区草稿2026-10-29)，当前实现与验证见[§9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30)。
+A1 阶段验收为 2026-10-30 的 47 项测试与 59 组配置/页面变异；A2 首片完整 63 项设备测试及 21 组终端变异为 §9.13 的历史证据。文本操作切片增加文本操作，最新完整设备结果为 **200 项通过**，数量、首轮失败与覆盖边界见[§9.41](android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)，不累加历史测试数量。产品/身份首片原先的完整套件失败已修正测试观测与线程归属后复验，失败记录保留在 §9.27。A1 证据见[§9.11](android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。读取失败/保存冲突使旧快照失效；重载先确认草稿，错误跨页保留，成功刷新编辑目标，失败不报空成功态。§9.8 的错误恢复草稿已由 §9.10 补齐，SAF 与表单余项由 §9.11 完成；A1 只在当前设备档位收口，完整客户端仍在开发。此前工作区的继承编辑草稿已补齐接线，原 Kotlin 编译失败已解决；历史记录见[§9.6](android-implementation.md#96-文档复核时的工作区草稿2026-10-29)，当前实现与验证见[§9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30)。
 
 Android 修饰键、数字键盘与组合音符切片已验收，该切片完整结果为 **99 项设备测试，0 失败/错误/跳过**，文本变异选跑 24 组通过，见[§9.18](android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。本片仍限 API 36 arm64 / 4 KB 页模拟器，不改变整个 A2 或下表 macOS 的完成状态。
 
@@ -143,7 +145,7 @@ Android 主机验证管理的 🟡 证据限 API 36 arm64 / 4 KB 页模拟器：
 
 **设置页范围**：macOS 为通用、外观、键盘、配置文件四页；配置文件页展示 SSH/known_hosts 路径，文本编辑对象是 Ghostty 配置。保存走 `replaceTerminalConfig` 并重载引擎，外观字号/配置页的“只有新标签读取”、标题栏按钮只在当前格显示、通用页恢复/关闭会话的提示均已落后于代码，列为 UI 文案待修；Android 的五类/16 项设置是单独设计，不代表 macOS 当前分类。
 
-**引擎配置不等于宿主能力**：`terminalSettingKeys` 中的 `copy-on-select` / `confirm-close-surface` 是元数据，当前设置页面不据此生成全部控件。系统剪贴板回调尚未接通，宿主关闭判据也不读取后一个键；引擎能解析配置不能作为产品功能证据，见 [Apple 接线边界](../../apple/README.md#引擎配置与宿主动作边界)。
+**引擎配置不等于宿主能力**：`terminalSettingKeys` 中的 `copy-on-select` / `confirm-close-surface` 是元数据，当前设置页面不据此生成全部控件。full 引擎的剪贴板回调尚未接通（Cocoa 标准复制/粘贴已接），宿主关闭判据也不读取后一个键；引擎能解析配置不能作为产品功能证据，见 [Apple 接线边界](../../apple/README.md#引擎配置与宿主动作边界)。
 
 **复制原语缺口**：`gt_sftp_upload/download` 为路径式 job，没有独占创建/非覆盖提交参数；上传 WRITE|CREAT 未承诺截断旧尾。现有“先检查冲突再传”不能保证并发时不覆盖。Android 四方向复制需先补共享契约，macOS 现有覆盖/冲突行为也需对应回归，见[路线图](roadmap.md)。
 

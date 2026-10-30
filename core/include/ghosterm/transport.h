@@ -81,6 +81,19 @@ gt_transport_t *gt_transport_open_pty(const gt_pty_opts_t *opts);
 /* 在已连接的 SSH 会话上开交互式 shell（pty-req + shell）。 */
 gt_transport_t *gt_transport_open_ssh_shell(gt_ssh_t *ssh, const gt_shell_opts_t *opts);
 
+/* Open an interactive PTY + shell on a dedicated authenticated IO owner.
+ * timeout_ms must be positive and is the caller's REMAINING connection budget.
+ * cancelled is an optional nonblocking predicate, called only on that owner;
+ * its context must remain alive until this synchronous call returns.
+ * NULL on failure; optional out_status: INVALID_ARG, IO (including timeout),
+ * CANCELLED, UNSUPPORTED (PTY/shell refused), or INTERNAL. A channel-open
+ * rejection remains IO. Success is GT_OK. No fallback to exec or no-PTY shell.
+ * Cancellation/timeout may invalidate the SSH connection; discard it on failure.
+ * Calls must not race any other use of this SSH connection. */
+gt_transport_t *gt_transport_open_ssh_shell_controlled(gt_ssh_t *ssh,
+    const gt_shell_opts_t *opts, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context, gt_status_t *out_status);
+
 /* Dedicated authenticated owner; PTY request followed by exec, never shell injection.
  * timeout_ms=0 means 5000ms; cancelled may be NULL, invoked on the IO owner. */
 gt_transport_t *gt_transport_open_ssh_command(gt_ssh_t *ssh, const char *command,
