@@ -6,11 +6,20 @@
 #include <string.h>
 #include <time.h>
 
+#define GAJ_SSH_MAX_ADDRESSES 32
+#define GAJ_SSH_TCP_CANDIDATE_MS 2000
+typedef struct {
+    uint8_t bytes[16];
+    uint32_t scope;
+    uint8_t family;
+} ssh_address;
 struct gaj_ssh {
     pthread_mutex_t mutex;
     char *host, *user, *known_hosts;
     uint16_t port;
     gt_ssh_auth_options_t options;
+    ssh_address addresses[GAJ_SSH_MAX_ADDRESSES];
+    size_t address_count;
     gt_ssh_auth_info_t info;
     uint64_t request;
     bool waiting;
@@ -43,12 +52,14 @@ static char *copy(JNIEnv *env, jbyteArray input, size_t limit, bool empty) {
     return out;
 }
 gaj_ssh *gaj_ssh_new(JNIEnv *env, jbyteArray host, jint port, jbyteArray user,
-        jbyteArray known_hosts, jbyteArray address, jint scope, jint timeout) {
-    if (port<1 || port>65535 || timeout<1 || timeout>60000 || scope<0 || !address) {
+        jbyteArray known_hosts, jobjectArray addresses, jintArray scopes, jint timeout) {
+    if (port<1 || port>65535 || timeout<1 || timeout>60000 || !addresses || !scopes) {
         fail(env,"SSH 地址或超时无效"); return NULL;
     }
-    jsize n=(*env)->GetArrayLength(env,address);
-    if (n!=4 && n!=16) { fail(env,"SSH 二进制地址无效"); return NULL; }
+    jsize count=(*env)->GetArrayLength(env,addresses);
+    if (count<1 || count>GAJ_SSH_MAX_ADDRESSES || (*env)->GetArrayLength(env,scopes)!=count) {
+        fail(env,"SSH 候选地址数量无效（最多 32 个）"); return NULL;
+    }
     gaj_ssh *s=calloc(1,sizeof(*s));
     if (!s) { fail(env,"SSH 内存不足"); return NULL; }
     if (pthread_mutex_init(&s->mutex,NULL)) { free(s); fail(env,"SSH 锁初始化失败"); return NULL; }
@@ -56,10 +67,31 @@ gaj_ssh *gaj_ssh_new(JNIEnv *env, jbyteArray host, jint port, jbyteArray user,
     s->user=copy(env,user,4096,false); if (!s->user) goto invalid;
     s->known_hosts=copy(env,known_hosts,4096,false); if (!s->known_hosts) goto invalid;
     if (s->known_hosts[0]!='/') { fail(env,"主机信任路径必须为绝对路径"); goto invalid; }
-    s->port=(uint16_t)port; s->options.family=n==4?4:6; s->options.scope=(uint32_t)scope;
+    s->port=(uint16_t)port;
     s->options.timeout_ms=(uint32_t)timeout; s->options.defer_credentials=true;
-    (*env)->GetByteArrayRegion(env,address,0,n,(jbyte *)s->options.address);
-    if ((*env)->ExceptionCheck(env)) goto invalid;
+    for (jsize i=0;i<count;i++) {
+        jbyteArray address=(*env)->GetObjectArrayElement(env,addresses,i);
+        if ((*env)->ExceptionCheck(env)) goto invalid;
+        if (!address) { fail(env,"SSH 二进制地址缺失"); goto invalid; }
+        jsize n=(*env)->GetArrayLength(env,address);
+        jint scope=0;
+        (*env)->GetIntArrayRegion(env,scopes,i,1,&scope);
+        if ((*env)->ExceptionCheck(env)) { (*env)->DeleteLocalRef(env,address); goto invalid; }
+        if ((n!=4 && n!=16) || scope<0 || (n==4 && scope!=0)) {
+            (*env)->DeleteLocalRef(env,address); fail(env,"SSH 二进制地址或 scope 无效"); goto invalid;
+        }
+        ssh_address candidate={.family=n==4?4:6,.scope=(uint32_t)scope};
+        (*env)->GetByteArrayRegion(env,address,0,n,(jbyte *)candidate.bytes);
+        (*env)->DeleteLocalRef(env,address);
+        if ((*env)->ExceptionCheck(env)) goto invalid;
+        bool duplicate=false;
+        for (size_t j=0;j<s->address_count;j++) {
+            const ssh_address *prior=&s->addresses[j];
+            if (prior->family==candidate.family && prior->scope==candidate.scope &&
+                memcmp(prior->bytes,candidate.bytes,sizeof candidate.bytes)==0) { duplicate=true; break; }
+        }
+        if (!duplicate) s->addresses[s->address_count++]=candidate;
+    }
     return s;
 invalid:
     gaj_ssh_free(s); return NULL;
@@ -78,18 +110,49 @@ static void publish(gaj_ssh *s, const gt_ssh_auth_info_t *info) {
     s->info=*info;
     pthread_mutex_unlock(&s->mutex);
 }
+static bool milliseconds(uint64_t *value) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC,&now)!=0) return false;
+    *value=(uint64_t)now.tv_sec*1000+(uint64_t)now.tv_nsec/1000000;
+    return true;
+}
 gt_ssh_t *gaj_ssh_connect(gaj_ssh *s, atomic_bool *stop) {
     gt_ssh_opts_t opts={.host=s->host,.port=s->port,.username=s->user,.known_hosts_path=s->known_hosts};
     gt_ssh_t *ssh=NULL, *result=NULL;
     gt_ssh_authenticator_t *auth=NULL;
     gt_ssh_auth_info_t info={0};
+    uint64_t started=0, now=0, candidate_started=0;
+    size_t candidate=0;
+    if (!milliseconds(&started)) { info.error=GT_ERR_INTERNAL; goto failed; }
+    const uint64_t deadline=started+s->options.timeout_ms;
+next_candidate:
+    gt_ssh_authenticator_close(auth); auth=NULL; gt_ssh_close(ssh); ssh=NULL;
     if (atomic_load(stop)) goto cancelled;
+    if (!milliseconds(&now)) { info.error=GT_ERR_INTERNAL; goto failed; }
+    if (now>=deadline) { info.error=GT_ERR_IO; info.deadline=true; goto failed; }
+    candidate_started=now;
+    const ssh_address *address=&s->addresses[candidate];
+    gt_ssh_auth_options_t options=s->options;
+    options.family=address->family; options.scope=address->scope;
+    memcpy(options.address,address->bytes,sizeof options.address);
+    options.timeout_ms=(uint32_t)(deadline-now);
+    info=(gt_ssh_auth_info_t){.phase=GT_SSH_AUTH_PHASE_TCP};
+    publish(s,&info);
     ssh=gt_ssh_new(&opts);
-    gt_status_t status=ssh?gt_ssh_authenticator_open(&ssh,&s->options,&auth):GT_ERR_INTERNAL;
+    gt_status_t status=ssh?gt_ssh_authenticator_open(&ssh,&options,&auth):GT_ERR_INTERNAL;
     if (status!=GT_OK) { info.phase=GT_SSH_AUTH_PHASE_FAILED; info.error=status; publish(s,&info); goto done; }
     while (!atomic_load(stop)) {
+        const bool was_tcp=info.phase==GT_SSH_AUTH_PHASE_TCP;
         (void)gt_ssh_authenticator_step(auth);
         if (!gt_ssh_authenticator_info(auth,&info)) { info.phase=GT_SSH_AUTH_PHASE_FAILED; info.error=GT_ERR_INTERNAL; }
+        if (!milliseconds(&now)) { info.error=GT_ERR_INTERNAL; goto failed; }
+        /* Retry only before any SSH negotiation. Hostkey/credential rejection,
+         * trust-save IO and protocol failure must never try a different server. */
+        const bool tcp_failure=was_tcp && info.phase==GT_SSH_AUTH_PHASE_FAILED && info.error==GT_ERR_IO && !info.deadline;
+        const bool tcp_stalled=info.phase==GT_SSH_AUTH_PHASE_TCP && now-candidate_started>=GAJ_SSH_TCP_CANDIDATE_MS;
+        if (candidate+1<s->address_count && now<deadline && (tcp_failure || tcp_stalled)) {
+            candidate++; goto next_candidate;
+        }
         publish(s,&info);
         if (info.phase==GT_SSH_AUTH_PHASE_READY) {
             if (!gt_ssh_authenticator_take(auth,&result)) { info.phase=GT_SSH_AUTH_PHASE_FAILED; info.error=GT_ERR_INTERNAL; }
@@ -124,6 +187,9 @@ gt_ssh_t *gaj_ssh_connect(gaj_ssh *s, atomic_bool *stop) {
     }
 cancelled:
     info.phase=GT_SSH_AUTH_PHASE_CANCELLED; info.error=GT_ERR_CANCELLED; publish(s,&info);
+    goto done;
+failed:
+    info.phase=GT_SSH_AUTH_PHASE_FAILED; publish(s,&info);
 done:
     gt_ssh_authenticator_close(auth); gt_ssh_close(ssh);
     /* Pending credentials may race timeout/cancel; erase them on the owner now. */

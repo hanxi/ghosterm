@@ -247,9 +247,9 @@ JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_create(JNIE
     return start_session(env,s);
 }
 JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_createRemote(JNIEnv *env, jobject self,
-        jbyteArray host, jint port, jbyteArray user, jbyteArray known_hosts, jbyteArray address, jint scope, jint timeout) {
+        jbyteArray host, jint port, jbyteArray user, jbyteArray known_hosts, jobjectArray addresses, jintArray scopes, jint timeout) {
     (void)self;
-    gaj_ssh *remote=gaj_ssh_new(env,host,port,user,known_hosts,address,scope,timeout);
+    gaj_ssh *remote=gaj_ssh_new(env,host,port,user,known_hosts,addresses,scopes,timeout);
     if (!remote) return 0;
     session *s=calloc(1,sizeof(*s));
     if (!s) { gaj_ssh_free(remote); fail(env,"无法分配 SSH 会话"); return 0; }

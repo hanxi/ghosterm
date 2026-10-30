@@ -50,7 +50,7 @@
 
 POSIX PTY 在子进程 exec 前清空继承的信号屏蔽集合，调用线程的集合保持不变。仅更新 `TIOCSWINSZ` 不足以保证下游 ssh/tmux 重排：它们还须收到 SIGWINCH。`4924a2d` 已修复这条通知链，真实 macOS 窗口到本地 tmux、以及本地 shell→系统 ssh→远端 tmux 的无输入放大/缩小证据见[实施记录](../reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。
 
-连接编排仍有单地址限制：Android 平台解析后只取第一个答案，macOS DNS 缺少所选地址族记录时才换族，首个有效答案即交给认证器；两端均未实现 TCP 失败后遍历备用候选。Core 认证器消费一个已解析地址，主机验证继续使用原始 hostname。后续候选调度应由平台 owner 在同一总预算内完成，不让 TerminalSurface 感知地址或重试；边界见 [Apple 网络说明](../../apple/README.md#ssh-地址选择与取消边界)与 [Android §4.6](../reference/android-implementation.md#46-a3-网络与取消收尾)。
+Android 连接编排已由 native owner 顺序推进候选地址：只在 TCP 阶段换地址，共用 DNS 后剩余总预算，协商开始后不因认证/信任失败换服务器。Core 认证器仍消费单个已解析地址，主机验证使用原始 hostname；TerminalSurface 不感知候选或重试。macOS DNS 仅在所选族缺记录时换族、首个有效答案即完成，TCP 备用地址推进仍待实现。两端分别记账，见 [Apple 网络说明](../../apple/README.md#ssh-地址选择与取消边界)与 [Android §9.40](../reference/android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)。
 
 ## 可选后台会话
 
@@ -118,6 +118,6 @@ Android 身份设置已接通列表/详情、OpenSSH 公钥指纹、SAF 导入�
 | [libghostty-ohos](https://github.com/wiedymi/libghostty-ohos) | HarmonyOS | MIT | XComponent + libghostty-vt |
 | [Ghostling](https://github.com/ghostty-org/ghostling) | macOS/Linux | MIT | libghostty(-vt) C API 最小用法（Raylib 2D 渲染，单文件 C） |
 
-Android SSH 与本地终端共用 `session_jni.c` owner，SSH 认证完成后仍由同一线程持有 Transport/VT；状态快照和一次性响应属于控制面。`RemoteSession` 接受已解析地址和原始 hostkey 身份；DNS、认证页面与 Keystore 容器在平台控制面实现，已由 `c53cfb8` 交付并通过 §9.27 的完整 130 项设备回归。SAF 私钥导入已接原请求归属、旋转保留与可取消只读流，并通过五项定向、七组变异及完整 135 项设备测试，见[§9.29](../reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)。通道打开的 5 秒预算/取消边界见[§9.25](../reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。
+Android SSH 与本地终端共用 `session_jni.c` owner，SSH 认证完成后仍由同一线程持有 Transport/VT；状态快照和一次性响应属于控制面。`RemoteSession` 接受已解析候选地址集合和原始 hostkey 身份；DNS、认证页面与 Keystore 容器在平台控制面实现，已由 `c53cfb8` 交付并通过 §9.27 的完整 130 项设备回归。SAF 私钥导入已接原请求归属、旋转保留与可取消只读流，并通过五项定向、七组变异及完整 135 项设备测试，见[§9.29](../reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)。通道打开的 5 秒预算/取消边界见[§9.25](../reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。
 
 known_hosts 管理读侧使用共享 `gt_known_hosts_*` 不可变快照，两端仅转换值与所有权。`gt__kh_split_line` 同时服务既有认证枚举，快照的 `recognized` 仅是词法形态，不能替代撤销优先/能力拒绝等认证判定。管理写侧已由 `known_hosts_store.c` 将 TOFU 与 `gt_known_hosts_remove` 纳入同一进程内互斥、稳定文件锁、备份与原子替换；Swift/JNI 保留 status、committed 和 conflict。锁等待有界不等于整个文件系统操作有界；平台必须在后台调用，提交后核验失败不能报告“未改动”。只保证协作写者协调，不承诺任意外部写者或断电恢复。Android repository/指纹/页面已有 11 项定向、17 组变异与完整 175 项设备回归，macOS 没有管理页面；平台证据不能由共享绑定验收代替。实现与历史草稿边界见[§4.5](../reference/android-implementation.md#45-主机信任记录管理)、[§9.39](../reference/android-implementation.md#939-主机验证记录管理页面2026-10-30)。

@@ -1,14 +1,23 @@
 package com.hanxi.ghosterm.bridge
 
+/** Immutable resolved candidate; IPv6 scope belongs to the address identity. */
+class ResolvedSSHAddress(address: ByteArray, val scope: Int = 0) {
+    private val binaryAddress = address.copyOf()
+    internal fun bytes(): ByteArray = binaryAddress.copyOf()
+}
 /** An immutable connection request, with DNS already resolved off the UI thread.
  * host remains the original known_hosts identity; address never replaces it.
  * timeoutMillis is the REMAINING total authentication budget after DNS.
  */
 class ResolvedSSHConnection(val host: String, val port: Int, val user: String,
-    val knownHosts: String, address: ByteArray, val scope: Int = 0, val timeoutMillis: Int = 60_000) {
-    private val binaryAddress = address.copyOf()
+    val knownHosts: String, addresses: List<ResolvedSSHAddress>, val timeoutMillis: Int = 60_000) {
+    private val candidates = addresses.toList()
+    constructor(host: String, port: Int, user: String, knownHosts: String,
+        address: ByteArray, scope: Int = 0, timeoutMillis: Int = 60_000) :
+        this(host, port, user, knownHosts, listOf(ResolvedSSHAddress(address, scope)), timeoutMillis)
     internal fun open(): Long = NativeSession.createRemote(host.toByteArray(Charsets.UTF_8), port,
-        user.toByteArray(Charsets.UTF_8), knownHosts.toByteArray(Charsets.UTF_8), binaryAddress, scope, timeoutMillis)
+        user.toByteArray(Charsets.UTF_8), knownHosts.toByteArray(Charsets.UTF_8),
+        candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis)
 }
 
 /** SSH authentication and terminal IO share one native owner. No terminal bytes enter Kotlin. */

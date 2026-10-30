@@ -131,14 +131,14 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                     val addresses = withContext(Dispatchers.IO) { resolver.resolve(attempt.target.host) }
                     ensureActive()
                     check(connecting === attempt && addresses.isNotEmpty()) { "连接请求已取消或没有可用地址" }
-                    val address = addresses.first()
+                    val candidates = addresses.map { ResolvedSSHAddress(it.address, (it as? Inet6Address)?.scopeId ?: 0) }
                     val remaining = deadline - SystemClock.elapsedRealtime()
                     check(remaining > 0) { "SSH 连接超时" }
                     withContext(Dispatchers.IO) {
                         val knownHosts = File(getApplication<Application>().filesDir, "home/.ssh/known_hosts")
                         check(knownHosts.parentFile!!.isDirectory || knownHosts.parentFile!!.mkdirs()) { "无法准备主机信任目录" }
                         owned = RemoteSession(ResolvedSSHConnection(attempt.target.host, attempt.target.port, attempt.username,
-                            knownHosts.absolutePath, address.address, (address as? Inet6Address)?.scopeId ?: 0, remaining.coerceAtMost(60_000).toInt()))
+                            knownHosts.absolutePath, candidates, remaining.coerceAtMost(60_000).toInt()))
                     }
                     ensureActive()
                     check(connecting === attempt) { "连接请求已取消" }

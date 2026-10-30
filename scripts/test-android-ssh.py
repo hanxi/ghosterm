@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Private test fixture over adb loopback. Secrets only travel in memory to the test process."""
-import hmac,json,os,secrets,socketserver,subprocess,sys,threading,importlib.util,signal
+import hmac,json,os,secrets,socketserver,subprocess,sys,threading,importlib.util,signal,shlex
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -10,10 +10,26 @@ def run(args,seconds=600):
     if result.returncode: print(result.stdout+result.stderr,flush=True);raise RuntimeError('Android SSH command failed')
     return result.stdout+result.stderr
 
+def cleanup_network_rules(adb, prefix):
+    # Only rules from this invocation. Killing instrumentation cannot run its finally block.
+    rows=run([*adb,'shell','su','0','iptables','-S','OUTPUT']).splitlines()
+    for row in rows:
+        fields=shlex.split(row)
+        if '--comment' not in fields: continue
+        comment=fields[fields.index('--comment')+1]
+        if not comment.startswith(prefix+'-'): continue
+        if fields[:2]!=['-A','OUTPUT']: raise RuntimeError('Unexpected network fixture chain')
+        run([*adb,'shell','su','0','iptables','-D',*fields[1:]])
+    if prefix+'-' in run([*adb,'shell','su','0','iptables','-S','OUTPUT']):
+        raise RuntimeError('Network fixture rules survived cleanup')
+
 def main():
     if len(sys.argv)!=6: raise SystemExit('Use test-android-ssh.sh with the isolated sshd fixture')
     host,port,user,key,work=sys.argv[1:]
     serial=os.environ['ANDROID_SERIAL'];adb=['adb','-s',serial]
+    network_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_NETWORK_MUTATE')=='1' or
+                   'SSHNetworkTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
+    rule_prefix='ghosterm-network-'+secrets.token_hex(8)
     # Device shell tests must not run the developer's interactive shell rc/plugins.
     # Restrict only this disposable authorized key, leaving the host account untouched.
     locales=run(['locale','-a']).splitlines()
@@ -52,7 +68,7 @@ def main():
                     for path in ('apk/debug/app-debug.apk','apk/androidTest/debug/app-debug-androidTest.apk'):
                         run([*adb,'install','-r','-t',ROOT/'android/app/build/outputs'/path])
                 def test(label,selection,green):
-                    args=[*adb,'shell','am','instrument','-w','-r','-e','fixturePort',str(fixture_port),'-e','fixtureToken',token]
+                    args=[*adb,'shell','am','instrument','-w','-r','-e','fixturePort',str(fixture_port),'-e','fixtureToken',token,'-e','networkRulePrefix',rule_prefix]
                     if selection: args+=['-e','class',selection]
                     output=run([*args,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
                     (logs/(label+'.log')).write_text(output)
@@ -68,6 +84,10 @@ def main():
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
                 if os.environ.get('ANDROID_SSH_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('mutations',ROOT/'scripts/mutation-check-android-ssh.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_SSH_NETWORK_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('network_mutations',ROOT/'scripts/mutation-check-android-ssh-network.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_SSH_PRODUCT_MUTATE')=='1':
@@ -96,8 +116,14 @@ def main():
                     module.execute(ROOT,build,test)
                 print(output,flush=True);print('ANDROID SSH PASS',flush=True)
             finally:
-                for value in reversed(mappings):run([*adb,'reverse','--remove','tcp:'+str(value)])
-                server.shutdown();worker.join()
+                try:
+                    if network_tests:
+                        # Stop any timed-out instrumentation before removing its owned loopback rules.
+                        run([*adb,'shell','am','force-stop','com.hanxi.ghosterm'])
+                        cleanup_network_rules(adb,rule_prefix)
+                finally:
+                    for value in reversed(mappings):run([*adb,'reverse','--remove','tcp:'+str(value)])
+                    server.shutdown();worker.join()
 if __name__=='__main__':
     def interrupt(signum,frame):raise KeyboardInterrupt(signum)
     for sig in (signal.SIGINT,signal.SIGTERM):signal.signal(sig,interrupt)

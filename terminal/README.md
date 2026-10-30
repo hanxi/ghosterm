@@ -19,7 +19,7 @@ surface.resize(cols, rows)    ← 网格尺寸变化（要同时通知 transport
 
 **铁律**：surface **不得**知道背后是 SSH 还是本地 shell（铁律 #1）。
 
-最近已验收的完整设备结果为 **175 项通过**，包含主机验证管理页面的 11 项与身份设置八项；管理页面新增 17 组变异通过，见[§9.39](../docs/reference/android-implementation.md#939-主机验证记录管理页面2026-10-30)。§9.38 保留早期草稿审计，native owner→Transport→VT 字节通路保持不变；不扩大 API 36 arm64 / 4 KB 页模拟器之外的设备、性能或完整 A2/A3 验收范围。下文数量保留各历史切片记录。
+最近已验收的完整设备结果为 **187 项通过**，候选地址切片新增 12 项真实 SSH/网络定向与 14 组变异，见[§9.40](../docs/reference/android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)。终端字节仍为 native owner→Transport→VT；TCP 阶段可切换候选，SSH 协商后不换服务器。丢包测试要求可 root 的 API 36 arm64 / 4 KB 页模拟器；不扩大为公网双栈、真实域名、其他设备或完整 A2/A3 证据。下文数量保留各历史切片记录。
 
 静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
 

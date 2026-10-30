@@ -90,7 +90,7 @@ macOS 的 [SSHAddressResolver](GhostermCore/Sources/GhostermCore/SSHAddressResol
 
 [SSHAuthenticationFlow](GhostermApp/Sources/GhostermAppModel/SSHAuthenticationFlow.swift) 在 owner 队列建立 60 秒总预算，包含 DNS、主机验证与凭据等待；解析成功后仅将剩余预算交给一个认证器。取消撤销 DNS completion、提示请求及认证器，旧响应受请求 ID 和取消状态检查。普通 SSH、独立文件连接及 tmux 共用该认证流程；任一选中地址 TCP 失败就结束本次流程，不会继续尝试同一域名的其他地址。其后的 shell/SFTP/tmux 通道生命周期须分别验收，不能将认证预算扩大为连接全过程所有 I/O 都在 60 秒内结束。
 
-现有 `SSHAddressResolverTests` 覆盖数字地址/scope、真实 localhost DNS、非法参数及取消释放，不包含多地址 TCP 切换。Android 使用另一套平台 resolver，但产品同样只取第一个答案；两端的限制与后续完成条件已列入[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。后续保持原始 hostname/端口作为信任身份；自动换地址仅限尚未进入 SSH 协商的 TCP 阶段，不因密钥变化、撤销、拒绝或认证失败换一个地址继续。此段为源码核对，未新增网络故障实测。
+现有 `SSHAddressResolverTests` 覆盖数字地址/scope、真实 localhost DNS、非法参数及取消释放，不包含多地址 TCP 切换。Android 已由 native owner 接入候选推进，定向与变异范围见 [§9.40](../docs/reference/android-implementation.md#940-ssh-候选地址与-tcp-取消2026-10-30)，不改变本端单地址行为；macOS 的后续完成条件已列入[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。后续保持原始 hostname/端口作为信任身份；自动换地址仅限尚未进入 SSH 协商的 TCP 阶段，不因密钥变化、撤销、拒绝或认证失败换一个地址继续。此段为源码核对，未新增网络故障实测。
 
 ### 与 Android 最终方案的差异
 
