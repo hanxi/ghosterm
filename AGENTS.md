@@ -289,6 +289,14 @@ flush 一次 wtail，当尾队列的泵。契约见 `transport.h`：「输入不
 且 `keyDown` 走 `interpretKeyEvents`，组合串经 preedit 内联显示、提交走**键入**
 语义（`TerminalIMETests`，观测口径是 libghostty 的 `ime_point` 宽度与 transport
 字节）。变异 T1~T8 有牙，T8 另护输入法提交的控制字符原样到达 transport，避免吞掉 tmux 前缀。）
+`shell-mouse-recovery` 以 `python3 scripts/test-shell-mouse-recovery.py --mutate --codex --ssh`
+手工验证：真实 full libghostty / PTY / tmux 复现窗格内程序异常退出后的鼠标模式残留，
+Bash/Zsh 提示符集成自动清理，重连与新 surface 不再产生序列文本输入，正常 TUI 仍实际
+收到鼠标事件。八组隔离变异护清理、重复加载、原提示符钩子/退出码和启动文件备份/保真；
+目标红、同变异独立对照绿、恢复绿与 SHA256。系统 SSH 经隔离 loopback sshd 跑同组场景；
+Codex 使用本机真实 CLI 输入框，不提交测试草稿，未复现不得记为修复。
+通知注入及进程暂停不等于整机休眠；远端真实主机及硬件休眠另列证据。
+这是实际 shell 的集成（远端须在远端安装），不在唤醒时强制重置终端；不新增 CI 20 份覆盖。
 （`tab-chrome` 保留当前标签高亮与标签条普通鼠标横滚；`auth` 护「没口令的钥匙不被问口令」。
 `tabs` 另护**标签右键菜单的落点**（T17/T18）：菜单里的分屏 / 文件面板开关
 必须作用在**被右键的那条**标签上，不是「当前标签页」——右键的未必是当前的，
