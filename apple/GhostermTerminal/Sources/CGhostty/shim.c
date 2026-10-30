@@ -625,3 +625,16 @@ char *gt_ghostty_surface_read_text(gt_ghostty_surface_t *s) {
   ghostty_surface_free_text(s->surface, &txt);
   return out;
 }
+
+char *gt_ghostty_surface_read_selection(gt_ghostty_surface_t *s) {
+  if (!s || !s->surface) return NULL;
+  ghostty_text_s txt = {0};
+  if (!ghostty_surface_read_selection(s->surface, &txt)) return NULL;
+  char *out = malloc(txt.text_len + 1);
+  if (out) {
+    memcpy(out, txt.text, txt.text_len);
+    out[txt.text_len] = '\0';
+  }
+  ghostty_surface_free_text(s->surface, &txt);
+  return out;
+}

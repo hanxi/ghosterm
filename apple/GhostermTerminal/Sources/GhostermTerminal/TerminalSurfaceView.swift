@@ -199,6 +199,18 @@ public final class TerminalHostView: NSView, NSTextInputClient {
     /// （上沿可能顶进系统标题栏带，见 SurfaceAnchorView 的说明）。
     public override var mouseDownCanMoveWindow: Bool { false }
 
+    // 标准编辑菜单经 firstResponder 路由到当前终端，不向 shell 发送 ⌘C/⌘V。
+    @objc public func copy(_ sender: Any?) {
+        guard let text = surface.selectedText(), !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    @objc public func paste(_ sender: Any?) {
+        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        surface.sendText(text)
+    }
+
     // MARK: - 鼠标事件追踪区域
     //
     // libghostty 需要收到鼠标移动事件来支持程序鼠标捕获（vim / less / tmux

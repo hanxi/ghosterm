@@ -444,6 +444,13 @@ public final class TerminalSurface {
         return String(cString: p)
     }
 
+    /// 当前引擎选区；无选区时不以整屏文本冒充复制内容。
+    public func selectedText() -> String? {
+        guard let p = gt_ghostty_surface_read_selection(raw) else { return nil }
+        defer { free(p) }
+        return String(cString: p)
+    }
+
     /// 以**粘贴语义**注入文本（走终端输入编码路径）。App 层用于
     /// 「粘贴到会话」；测试用它验证输入方向真的通到 transport。
     ///

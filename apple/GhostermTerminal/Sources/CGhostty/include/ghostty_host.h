@@ -342,6 +342,9 @@ uint32_t gt_ghostty_config_diagnostics_count(gt_ghostty_app_t *app);
 /* 第 idx 条诊断的可读描述（失败返回 NULL）。宿主把它原样给用户看。 */
 const char *gt_ghostty_config_diagnostic(gt_ghostty_app_t *app, uint32_t idx);
 
+/* Current engine selection; malloc-owned UTF-8, NULL when absent. */
+char *gt_ghostty_surface_read_selection(gt_ghostty_surface_t *s);
+
 /* 最后一次错误（线程局部）。 */
 const char *gt_ghostty_last_error(void);
 
