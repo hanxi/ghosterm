@@ -1,10 +1,12 @@
 # 计划：SFTP → 统一文件浏览器（M4.6）
 
 > 决策记录 + 进度。**分阶段切片**，每片独立提交、闸门绿才提交（AGENTS.md）。
-> 状态：**S1 ✅ / S2 ✅ / S3 ✅ / S4 ✅ / S5 ✅ / S6（macOS）✅ / S6-iOS ⏳ / S7 ✅（文档收口）**。
+> 历史切片状态：**S1 ✅ / S2 ✅ / S3 ✅ / S4 ✅ / S5 ✅ / S6（macOS）✅ / S6-iOS ⏳ / S7 ✅（当时文档收口）**。这些标记记录正常路径交付，不代表当前 M4/M4.6 全部完成；下面列出的产品缺口与验收余项仍有效。
 > 相关：`roadmap.md`（M4.6）、`capability-matrix.md`（SFTP / exec / files 行）。
 
 ## 当前实现与后续替代（2026-10-31）
+
+当前完成范围按已提交 `588fd4c` 记账。受控打开/浏览/预览/创建/读取虽已提供 Swift 绑定，macOS 文件产品仍待迁移；[两端接线表](../../apple/README.md#共享文件接口与产品接线)列出实际调用方。工作区非覆盖发布入口仅为未绑定、未验收的 C 草稿，不改变本计划的最终提交待办。
 
 M4.6 的 macOS S1–S7 已交付，iOS S6 未开始。后续[统一工作区](workspace-handoff.md)已将固定内嵌面板和 `DualPaneFilesView` / `DualPaneSession` 替换为 `WorkspaceLayout` / `WorkspaceHostView`；终端、本地文件、远端文件都是同一布局中的窗格。`FilesPanelView`、后端接缝与全局 `TransferManager` 继续使用。
 

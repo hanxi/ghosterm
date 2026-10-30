@@ -67,9 +67,23 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 这些路径的源码与专项证据分开记账；共享信任事务通过不改变 M3 配置编辑和 M4.5 终端设置的进度。macOS 设置页目前仅展示 known_hosts 路径和 Finder 入口，没有记录列表、指纹详情或删除确认。
 
+## 共享文件接口与产品接线
+
+以 `588fd4c` 的生产调用方为准。共享 Core 已验接口、Swift 包装层和 macOS 产品各自有完成边界；Android 的页面或设备通过不能勾选 macOS 产品迁移。
+
+| 操作 | Core / Swift 已交付 | macOS 实际消费者 | Android 实际消费者 |
+|---|---|---|---|
+| SFTP 打开 | `gt_ssh_sftp_controlled` / 带预算及取消的 `sftp` 重载 | `AppModel` 文件工厂仍调无参 `ssh.sftp()` | `files_jni.c` 专用 owner，文件页面已接 |
+| 目录浏览、文本预览 | `gt_sftp_browse_controlled` / `browse`；`gt_sftp_preview_controlled` / `preview` | `SFTPFileBackend` 仍拆分 list/realpath；Quick Look 经旧下载 job | `RemoteFileSession` → repository → 只读文件页面 |
+| 独占暂存创建 | `gt_sftp_create_controlled` / `createExclusive` | 尚无产品调用，原队列仍用路径式 upload | JNI/Kotlin 与匿名快照集成已验，复制任务未接 |
+| 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | `SFTPFileBackend.download` → `sftp.download` → 旧 job | `TransferStagingStore.receive` 已验，应用级任务 store 未接 |
+| 最终非覆盖发布 | 已提交基线无接口；工作区仅有 `gt_sftp_publish_controlled` C 草稿 | 无 Swift 绑定或产品迁移 | 无 JNI/Kotlin 绑定或产品接线 |
+
+当前发布草稿使 Apple/JNI ABI 对拍失败；基线的 85/2、47/40 只描述已提交 87 ABI。接入受控文件接口前，桌面需先建立专用 owner 和任务 fd 暂存，保证网络/队列等待不占主线程，再逐项迁移取消、进度、错误与最终发布。不得把新接口混入同一连接上仍运行旧 job 的流程。完成条件与优先级见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+
 ## 当前功能与代码入口
 
-下表链接定位当前生产代码；2026-10-30 复核的是实际接线与限制。旧计划中的独立双栏和多窗口标签组仅用于历史追溯，新增 Android 证据不改变 macOS 完成状态。
+下表链接定位当前生产代码；2026-10-31 复核的是实际接线与限制。旧计划中的独立双栏和多窗口标签组仅用于历史追溯，新增 Android 证据不改变 macOS 完成状态。
 
 | 功能 | 代码入口 | 当前边界 |
 |---|---|---|

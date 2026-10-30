@@ -105,6 +105,8 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 ## 当前状态（2026-10-31）
 
+下列已交付状态以 `588fd4c` 为基线。复核时另有未提交的远端发布 C 草稿，尚未绑定 Swift/JNI，两端 ABI 对拍失败；不纳入 87 ABI 或设备通过记录。[路线图](docs/reference/roadmap.md#当前进度总览)分别记录已提交实现、工作区草稿和未完成产品。
+
 Android 已接主机首页、本地/SSH 终端、本机/SAF/远端只读文件页面、点按打开和长按选择；文件连接独立于终端。最近完整通过产物为 §9.56 的 **260 项通过**，仅限 API 36 arm64 / 4 KB 页模拟器；新增匿名暂存与来源快照属于数据层，复制卡片、粘贴任务、最终目标发布和 16 项偏好仍待实现。远端文件页面切片的 236 项保留为历史，详见 [实现计划](docs/reference/android-implementation.md#9-分阶段实施与依赖)。
 
 A4 本机/SAF 浏览已交付，§9.48 的完整 214 项保留为历史；§9.49 保留中间轮失败，最终产物已独立完整复验 214 项通过。§9.47 已完成受控 SFTP 打开与主机补丁依赖接线：17 项协议用例、十组接口变异、十一组依赖守卫和既有打包变异通过。Android 后端与页面已在 §9.51/§9.52 接入，macOS 文件产品尚未接新入口；[共享依赖与验收状态](docs/reference/host-ssh2-build.md)、[路线图](docs/reference/roadmap.md#当前进度总览)列出后续工作。
@@ -115,11 +117,11 @@ A4 本机/SAF 浏览已交付，§9.48 的完整 214 项保留为历史；§9.49
 
 - **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档；A2 本地终端、A3 SSH 与 A7 身份/主机验证子页部分交付。最新 §9.56 完整 **260 项通过**；本机/SAF/远端暂存与只读租约已接，复制任务尚未接入，§9.44 的偶发失败保留追踪；A3 其余网络/取消收尾（候选推进已接）、A4 预览缓存/外部打开与 A5/A6 四方向复制、16 项设置、后台与发行矩阵仍待完成。
 - **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。macOS 尚无 TCP 失败后遍历 DNS 备用地址的实现；Android 已按 §9.40 接入候选推进。Android 普通 shell 已接剩余预算和取消；Swift 新接口已验，但 macOS 产品尚未改用，认证可取消不等于桌面通道打开已可取消，见 [通道边界](apple/README.md#ssh-认证后的通道打开边界)。
-- **共享核心**：当前为 **45 项 CTest / 87 ABI**，Apple 85/2、JNI 47/40；受控 shell/SFTP 打开、目录浏览、有界预览、独占暂存创建、受控读取到 fd 与三份依赖补丁已验。Android 已消费 shell 入口，SFTP 已接专用 owner/JNI/Kotlin 后端，文件页面已接；macOS 产品尚未改用受控 shell/SFTP。TOFU/移除共同事务已交付，Android 管理页在 §9.39 验收，macOS 无管理页；共享修复不代表桌面配置、设置或文件提交事务已完成。
+- **共享核心**：已提交 `588fd4c` 的验收基线为 **45 项 CTest / 87 ABI**，Apple 85/2、JNI 47/40；受控 shell/SFTP 打开、目录浏览、有界预览、独占暂存创建、受控读取到 fd 与三份依赖补丁已验。Android 已消费 shell 入口，SFTP 已接专用 owner/JNI/Kotlin 后端，文件页面已接；macOS 产品尚未改用受控 shell/SFTP。TOFU/移除共同事务已交付，Android 管理页在 §9.39 验收，macOS 无管理页；共享修复不代表桌面配置、设置或文件提交事务已完成。
 
 | 能力 | 状态 |
 |---|---|
-| C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 当前 87 符号对拍通过；受控打开、浏览与 stat 标志已验，Android 只读文件页面已接，macOS 产品仍待迁移，接口尚未冻结，旧会话 ABI 已移除 |
+| C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 已提交基线 87 符号对拍通过；受控打开、浏览与 stat 标志已验，Android 只读文件页面已接，macOS 产品仍待迁移，接口尚未冻结，旧会话 ABI 已移除 |
 | `ssh_config` 解析 / 无损往返（未编辑） | ✅ 与原文逐字节相同 |
 | `ssh_config` 求值 | ✅ typed 视图 + 通用视图（`ssh -G` 等价）；42 键 × 6 host 全表语义对拍 |
 | `ssh_config` 编辑 API | 🟡 9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令已按实际匹配行编辑，已增加三字段来源与包含文件/重名块编辑保护；已接入仅替换目标别名 token 的重命名接口；全部字段视图仍待补齐 |

@@ -11,7 +11,7 @@
 > 口径（铁律 #8）：**✅** 已实现且有闸门/实测证据 · **🟡** 已实现但只在某一档证据下成立
 > （必须写明哪档）· **⏳** 契约/占位在，无实现 · **❌** 未开始 · **⛔ WONTFIX** 不做并注明原因。
 >
-> 核对日期：**2026-10-31**。已验通道切片 C ABI 81 项、Apple 79 项引用/2 项登记未用；已验受控 SFTP 打开切片为 82 项、Apple 80/2、JNI 40/42（§9.47）；受控目录浏览为 83 项、Apple 81/2、JNI 40/43，该切片时 Core/Swift 已验、产品待接（§9.49）；当前为 87 ABI、Apple 85/2、JNI 47/40；Android 页面已由 §9.52 接入，独占暂存创建见 §9.54。历史 A1 JNI 11 项引用/62 项待办；A2 首片对拍为 19/54，A3 配置检查切片为 20/54，已提交 SSH 后端为 32/42；身份容器切片对拍为 33/41，身份来源查询切片为 34/41，主机信任记录快照切片为 38/41，事务/移除绑定为 39/41，通道取消切片改为 39/42（新入口替换旧引用），符号检查不代替产品验收。产品首片有 27 项定向测试及 15 组变异证据，通道取消切片的完整 200 项回归通过（历史结果），见 [§9.41](android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)，整个阶段尚未完成。别名重命名共享接口与 A1 Android 表单接线已独立验收。字段来源与 Android 页面接线见 [Android 实施计划 §9.5](android-implementation.md#95-字段来源与编辑归属2026-10-29)，各次构建、设备测试与变异见[路线图验收记录](roadmap.md#验收记账与历史记录)。历史平台/像素/网络证据各自保留范围，未重跑的专项不算本轮结果。
+> 核对日期：**2026-10-31**。已验通道切片 C ABI 81 项、Apple 79 项引用/2 项登记未用；已验受控 SFTP 打开切片为 82 项、Apple 80/2、JNI 40/42（§9.47）；受控目录浏览为 83 项、Apple 81/2、JNI 40/43，该切片时 Core/Swift 已验、产品待接（§9.49）；最新已提交基线 `588fd4c` 为 87 ABI、Apple 85/2、JNI 47/40；Android 页面已由 §9.52 接入，独占暂存创建见 §9.54。历史 A1 JNI 11 项引用/62 项待办；A2 首片对拍为 19/54，A3 配置检查切片为 20/54，已提交 SSH 后端为 32/42；身份容器切片对拍为 33/41，身份来源查询切片为 34/41，主机信任记录快照切片为 38/41，事务/移除绑定为 39/41，通道取消切片改为 39/42（新入口替换旧引用），符号检查不代替产品验收。产品首片有 27 项定向测试及 15 组变异证据，通道取消切片的完整 200 项回归通过（历史结果），见 [§9.41](android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)，整个阶段尚未完成。别名重命名共享接口与 A1 Android 表单接线已独立验收。字段来源与 Android 页面接线见 [Android 实施计划 §9.5](android-implementation.md#95-字段来源与编辑归属2026-10-29)，各次构建、设备测试与变异见[路线图验收记录](roadmap.md#验收记账与历史记录)。历史平台/像素/网络证据各自保留范围，未重跑的专项不算本轮结果。
 
 **文件首片边界**：A4 本机/SAF 只读浏览、UTF-8 预览与多选已通过 14 项定向、18 组变异和完整 214 项设备回归。此前草稿编译失败已修复；远端 SFTP 页面随后由 §9.52 接入，复制清单与队列未接，见 [§9.43](android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)。
 
@@ -29,7 +29,7 @@
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
-| C ABI（`ghosterm.h` v0，未冻结） | 🟡 | 工作区 86 符号双向对拍通过；SFTP opener 已由 §9.47 验收，§9.44 是历史草稿。新浏览入口及 stat 标志已验（§9.49），有界预览前置见 §9.50，Android 页面已由 §9.52 接入，macOS 产品待接；接口未冻结，消费者须同步重编译 |
+| C ABI（`ghosterm.h` v0，未冻结） | 🟡 | 已提交 `588fd4c` 为 87 符号，Apple 85/2、JNI 47/40；§9.56 含受控读取到 fd。Android 只读文件页面与暂存层已消费，macOS 产品仍待迁移；工作区发布草稿未绑定，两端对拍失败，不纳入已验基线。接口未冻结，消费者须同步重编译 |
 | `ssh_config` 解析（AST + Host 块） | ✅ | `ctest sshconfig_golden`：4 个 Host 块 / 6 个模式 |
 | `ssh_config` 无损往返（**未编辑**） | ✅ | 与原文**逐字节相同**（`test_config` 头号断言） |
 | `ssh_config` 求值（typed） | ✅ | `gt_config_resolve`：user/hostname/port/forwardagent/compression/serveraliveinterval/identityfile/proxyjump/setenv/localforward |
@@ -52,6 +52,7 @@
 | SSH（libssh2） | 🟡 | 普通条目的连接/认证已有以下证据，标记拒绝及未支持格式的边界见 known_hosts 行。connect / pubkey·password 认证 / 主机密钥三态 / TOFU；`ssh_e2e` 行为断言（真 sshd，环回离线）。**写绝不无限等**（§5b：远端不读 stdin 时 `gt__ssh_shell_write` 在 `GT_SSH_WRITE_GRACE_MS` 内有界返回、积压字节走 `wtail` 队列随后补送——与本地 PTY §13 同结构。`TIMEOUT`/`EAGAIN` 不再当硬错丢字节（旧实现把两者都算 `GT_ERR_IO` → 键入的字节就这么没了）。写路径自己设/还 session timeout，不打扰同 session 的 SFTP。e2e 限制：sshd 排空速率 ≈ 40 MiB/s，3 MiB payload 写完时队列**根本没形成**——flush 机制无法被真 sshd e2e 触发，由代码审阅 + PTY §13/P4 的变异覆盖保证同构正确性） |
 | SFTP | 🟡 | `gt_sftp_*`（libssh2_sftp 封装）：list / stat / lstat / readlink / realpath / mkdir / rmdir / remove / remove_all（递归）/ rename / chmod / walk（递归枚举，visitor 可取消）/ upload / download（job + 事件三态）/ cancel / pause；**每会话一把 I/O 锁 + 单条 I/O worker 线程**（修掉「每 job 一线程共用同一 libssh2 会话」竞态）。e2e 真 sshd 75 项断言 + 当前变异 `mutation-check-sftp` 八组 / `mutation-check-exec` 三组（新增超时恢复）（历史断言数量不当作当前变异组数）；覆盖截断与关闭检查已由 §9.53 补齐；旧下载的完整长度/源变化校验、非覆盖提交和过载下终态保障仍有缺口，见 [Apple 下载边界](../../apple/README.md#旧下载的完整性边界) |
 | SFTP 受控读取到暂存 fd | 🟡 | §9.56：Core/Swift/JNI/Kotlin 与 Android 匿名暂存接通；21 Core＋1 无库＋4 Swift 及 13 组 Android 变异通过；零上限空源、长度/属性/关闭和 fd 释放已验。最终发布与复制产品未接，macOS 旧下载路径未迁移 |
+| SFTP 最终目标非覆盖发布 | ⏳ | 已有协议边界与真实 OpenSSH 可行性探针；工作区 `gt_sftp_publish_controlled` 仅为未验收 C 草稿，Swift/JNI 未绑定、产品未接。尚无发布成功/拒绝/未知及同名竞态的完整验收，不承诺通用原子提交 |
 | SFTP 独占暂存创建 | 🟡 | §9.54：Core/Swift/JNI/Kotlin 已接 EXCL、0600、普通 fd 与分阶段结果，22 组 Core/无库/Swift、九组 Android 变异通过；只创建任务暂存路径，不发布最终目标，macOS 产品未消费 |
 | 本机/SAF 匿名来源快照 | 🟡 | Android §9.55：容量/数量预算、来源片段、只读租约及真实 SAF/SFTP 集成；23 组变异与完整 252 项设备回归，仅 API 36 arm64 / 4 KB 页模拟器；应用级复制任务未接；取消上传跨层租约保持后续由 §9.56 接入，macOS 无此暂存实现 |
 | SFTP 打开预算与取消 | 🟡 | §9.47：Core/Swift/helper、默认补丁库 17 项协议、十组接口变异与十一组依赖守卫通过。macOS 产品仍用旧 opener，Android owner/页面已按 §9.51/§9.52 消费；后续操作不受打开预算保护，[详细范围](host-ssh2-build.md) |

@@ -98,7 +98,7 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 | macOS 本机包 | `.app`、ad-hoc 签名、自包含依赖、网格/主题冒烟与新增普通依赖校验通过 | `tmp/sftp-host-package.log`；app-only，无本轮 ZIP/DMG、发布或 CI 证据 |
 | 新依赖守卫变异 | **11 组通过** | `tmp/host-ssh2-mutations-final.log`；源码/补丁/构建器/产物/crypto、包节/收据/许可/格式/路径及 CMake 错误传播；每组目标红、独立对照绿、恢复绿与 SHA256 |
 | 既有打包变异 | 63 项检查 + DMG 3 组通过，无 SKIP | `tmp/sftp-host-package-mutations.log`；真实依赖嵌入、签名、minos、主题及磁盘映像清理等原有保护 |
-| Android 当前构建 | debug/测试 APK 通过 | `tmp/sftp-controlled-final-android-build.log`；debug APK 与 §9.45 完整 214 项运行时 SHA256 相同 |
+| §9.47 Android 构建（历史） | debug/测试 APK 通过 | `tmp/sftp-controlled-final-android-build.log`；debug APK 与 §9.45 完整 214 项运行时 SHA256 相同 |
 | §9.47 沿用的 Android 设备证据 | §9.45 的 214 项通过 | API 36 arm64 / 4 KB 页模拟器；§9.47 按相同产物摘要沿用。后续产物的独立完整回归见 §9.49/§9.52/§9.54 |
 
 此前守卫失败是测试观测面错误：破坏 prefix 收据后，整包校验又比较包收据，因此撤去 prefix 守卫仍被另一道检查拦住。现在 prefix 变异直接执行生产 `verify`，包变异执行 `check_bundle`；两条路径都有合法产物和独立损坏对照。新增 CMake 组实际配置 Core，撤去失败传播后目标红，独立非法 target 对照仍绿，恢复后再次拒绝坏收据。初次 CMake 断言未处理错误输出折行，改为仅归一化空白后复验，不忽略退出码或错误原因；历史失败没有用放宽生产校验来消除。
