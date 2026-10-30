@@ -16,7 +16,7 @@
 
 ## 当前实现（2026-10-30）
 
-M1 已交付的是 macOS 终端竖切。系统剪贴板仍未接通，iOS 没有可用引擎产物和宿主；不能把 full libghostty 的上游能力视为已完成的平台接线。当前缺口见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+M1 已交付的是 macOS 终端竖切。标准编辑菜单复制粘贴已由 `beffb49` 接通，平台引擎剪贴板回调和粘贴确认仍待补；iOS 没有可用引擎产物和宿主；不能把 full libghostty 的上游能力视为已完成的平台接线。当前缺口见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 实现落在 **`apple/GhostermTerminal`**（SPM 包），本目录只保留说明：
 
@@ -65,6 +65,6 @@ libghostty 的 Metal 渲染器要求 surface 的 NSView 是 **layer-hosting**：
 
 ## 待办
 
-- [ ] macOS 终端系统剪贴板：当前 shim 读取回调返回不可用，写入/确认回调为空；`TerminalHostView` 未实现编辑菜单的 `copy:` / `paste:` 路由。`sendText` 和 IME 测试不是系统复制粘贴证据。须接入选区→`NSPasteboard`→VT 粘贴及确认/取消，用真实菜单和快捷键验收；详见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+- [ ] macOS 终端剪贴板收尾：`TerminalHostView.copy:` / `paste:` 已连接真实选区、`NSPasteboard` 和模式感知粘贴；专用测试覆盖显式 firstResponder 目标的菜单快捷键。shim 读取回调仍返回不可用，写入/确认回调为空，当前菜单粘贴也无确认。须补全局菜单自动路由、引擎发起的复制粘贴、选中自动复制及确认/取消；本轮文档复核未重跑专用测试/四组变异。详见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 - [ ] iOS full libghostty 构建与 UIKit 宿主：当前 SwiftPM 依赖 AppKit，不能只加一个 `xcframework_target` 就交付 iOS。
 - [x] 自进程视图像素验证：`PixelRenderTests` 与 `mutation-check-pixel.sh` 已覆盖背景/前景颜色及对照，不需要屏幕录制权限；真实系统激活/全屏另见标签界面计划的桌面证据。

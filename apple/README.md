@@ -45,9 +45,11 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 文件与传输 | [FilesPanelView](GhostermApp/Sources/GhostermApp/FilesPanelView.swift)、[TransferManager](GhostermApp/Sources/GhostermAppModel/TransferManager.swift) | 本地↔远端；尚无四方向统一复制队列；暂停/继续/取消忽略后端错误仍改状态，未知结果映射尚待修复 |
 | 菜单与偏好 | [AppMenu](GhostermApp/Sources/GhostermApp/AppMenu.swift)、[SettingsStore](GhostermApp/Sources/GhostermAppModel/SettingsStore.swift)、[Shortcuts](GhostermApp/Sources/GhostermAppModel/Shortcuts.swift) | 正常设置已持久化并重载已有终端；存储异常/重复键及过时提示仍待修；Ctrl+Tab / Ctrl+Shift+Tab 循环切换标签 |
 | 配置到连接 | [HostListModel](GhostermApp/Sources/GhostermAppModel/HostListModel.swift)、[SSHConnectionTarget](GhostermApp/Sources/GhostermAppModel/SSHConnectionTarget.swift) | 共享配置检查的拒绝原因随连接目标传递，在 DNS 前阻断；高级选项尚不执行 |
-| 终端文本与剪贴板 | [TerminalSurfaceView](GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift)、[shim](GhostermTerminal/Sources/CGhostty/shim.c) | IME 已接通；系统复制/粘贴和确认回调仍占位，列为 P1 |
+| 终端文本与剪贴板 | [TerminalSurfaceView](GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift)、[shim](GhostermTerminal/Sources/CGhostty/shim.c) | IME、标准菜单 copy/paste 已接；引擎剪贴板回调与粘贴确认仍待补，列为 P1 |
 
-**终端系统剪贴板尚未接通**：`GhostermTerminal/Sources/CGhostty/shim.c` 的读取回调返回 `GHOSTTY_CLIPBOARD_READ_UNAVAILABLE`，写入和确认回调为空。`TerminalHostView` 尚无 `copy:` / `paste:` 响应方法；编辑菜单虽注册了这两个 selector，不能据此宣布终端复制粘贴可用。`TerminalSurface.sendText` 的粘贴编码测试只证明给定文本能送到程序，不包含系统剪贴板读取、选区复制或确认框。文件路径复制、标签信息复制及设置文本复制各有独立 `NSPasteboard` 接线，也不补全终端链路。此为源码核对结果，尚无本轮真实菜单操作复测；实现与验收列入路线图 P1。
+**终端标准复制粘贴已接通，完整剪贴板能力仍有余项**：`beffb49` 为 `TerminalHostView` 增加 `copy:` / `paste:`，复制读取 full 引擎真实选区并写入 `NSPasteboard.general`；无选区时保留剪贴板。粘贴读取系统字符串并经 `TerminalSurface.sendText` 使用引擎的粘贴编码。专用 `TerminalClipboardTests` 驱动离屏真实窗口、鼠标选区和 NSMenu 快捷键，覆盖无选区、复制范围以及中文/多行 bracketed paste；测试显式将菜单 target 设为窗口 firstResponder，不能据此宣称全局主菜单自动查找目标已实测。四组变异脚本已入库，仍属手工闸门；本次文档复核未重跑它们。
+
+`CGhostty/shim.c` 的引擎读取回调仍返回不可用，写入/确认回调为空；上述 Cocoa 菜单路径并未补齐 OSC 52、选中自动复制或粘贴确认。文件路径复制与文件传输也有各自的接线，不能互相替代验收。
 
 修复顺序与验收触发场景见[macOS 实施顺序](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。当前代码注释中的“安全写回”“原子写”等描述是目标契约，实际 `try?` 备份及 remove→move 路径尚未兑现，不能把注释当作通过证据。
 
@@ -81,9 +83,9 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 `SettingsStore.terminalSettingKeys` 是配置元数据，生产 `SettingsView` 没有遍历它生成全部控件。该目录中的 `copy-on-select`、`confirm-close-surface` 不应被描述成现有产品已经兑现的两个开关。Ghostty 配置页可以提交引擎语法，但语法被接受不代表平台回调已接通。
 
-当前 `CGhostty/shim.c` 的系统剪贴板读回调返回不可用，写入/确认回调为空；因此选中复制没有系统剪贴板落点。`close_surface_cb` 也为空，`TerminalPane.closeNeedsConfirmation` 按状态与前台作业判断，`TerminalTab` 再汇总文件连接与传输；tmux 客户端关闭另行处理。宿主没有读取 `confirm-close-surface` 来改变这些判据。不要从引擎配置声明推断该键控制标签、窗格或窗口关闭。
+当前 `CGhostty/shim.c` 的系统剪贴板读回调返回不可用，写入/确认回调为空；因此引擎的选中自动复制没有系统剪贴板落点。`close_surface_cb` 也为空，`TerminalPane.closeNeedsConfirmation` 按状态与前台作业判断，`TerminalTab` 再汇总文件连接与传输；tmux 客户端关闭另行处理。宿主没有读取 `confirm-close-surface` 来改变这些判据。不要从引擎配置声明推断该键控制标签、窗格或窗口关闭。
 
-这是源码接线核对，未新增开关行为测试。系统剪贴板仍按路线图 P1 实施；若将来提供关闭策略偏好，需要先明确其与未知作业、传输及 tmux 的关系并独立验收。
+这是源码接线核对，未新增开关行为测试。标准菜单复制粘贴已经接通，但 `paste:` 当前直接发送，不显示危险/多行粘贴确认；引擎发起的剪贴板请求、自动选中复制及确认/取消仍按路线图 P1 实施；若将来提供关闭策略偏好，需要先明确其与未知作业、传输及 tmux 的关系并独立验收。
 
 ### 文件查询与线程边界
 
