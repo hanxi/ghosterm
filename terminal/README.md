@@ -19,6 +19,8 @@ surface.resize(cols, rows)    ← 网格尺寸变化（要同时通知 transport
 
 **铁律**：surface **不得**知道背后是 SSH 还是本地 shell（铁律 #1）。
 
+当前最新完整设备结果为 **139 项通过**，包括加密 OpenSSH ed25519 错误口令重试与密码登录产品流程；七组新增凭据和 14 组既有 native SSH 变异通过。字节通路与 surface 接缝不变，仍限 API 36 arm64 / 4 KB 页模拟器，见[§9.31](../docs/reference/android-implementation.md#931-加密私钥重试与密码产品流程2026-10-30)。下文测试数量保留各历史切片范围。
+
 静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
 
 Android 当前证据来自 API 36 arm64、4 KB 页模拟器，已验本地终端及后续 SSH native owner→Transport→VT 路径（§9.25，完整 113 项设备测试），产品页面/容器随后已有 27 项定向测试与 15 组产品变异证据（§9.27）；修正本地页面测试判据后完整 130 项回归通过，仍不代表真机或完整 A2/A3 验收；见 [Android 引擎说明](android/README.md)与[实现阶段](../docs/reference/android-implementation.md)。

@@ -86,6 +86,8 @@ libghostty-vt；[ghostty-web](https://github.com/coder/ghostty-web) 走的也正
 
 ## 当前宿主状态与实现入口
 
+共享认证的内存私钥 `FILE` 错误分类已修复；Android 加密 OpenSSH ed25519 口令重试与密码产品流程通过完整 139 项设备回归。公共 ABI 与字节通路不变，macOS 另完成重新链接及认证专项回归；历史失败、设备与格式边界见[§9.31](../reference/android-implementation.md#931-加密私钥重试与密码产品流程2026-10-30)。
+
 macOS 已由 `TabWindowController` 单窗口管理顶部/侧边标签；`WorkspaceLayout` 是终端与文件窗格唯一可写布局，`WorkspaceHostView` 保持宿主身份。旧多窗口标签组、独立双栏文件组件已退役。文件/配置等控制面经平台模型与绑定进入 Core，不经过终端字节通路。
 
 平台接线须独立记账：macOS `TerminalHostView` 的标准 `copy:` / `paste:` 已经连接真实选区、系统剪贴板和模式感知粘贴；full 引擎剪贴板回调仍占位，标准菜单路径也未提供粘贴确认。配置事务、主机表单、私钥存储和传输异常也仍有缺口，详见[macOS 当前实现与限制](../reference/capability-matrix.md#macos-当前实现与限制)。Android 的原生实现不能作为这些 Apple 路径已完成的证据。

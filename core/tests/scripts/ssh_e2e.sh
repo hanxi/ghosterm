@@ -35,6 +35,13 @@ GT_TEST_HOSTKEY_SHA256="$(ssh-keygen -lf "$WORK/hostkey.pub" -E sha256 | awk '{p
 export GT_TEST_HOSTKEY_SHA256
 ssh-keygen -t ed25519 -f "$WORK/clientkey" -N '' -q </dev/null
 cp "$WORK/clientkey.pub" "$WORK/authorized_keys"
+if [ "$(basename "$BIN")" = test_ssh_connector ]; then
+  # Ephemeral test material only; never print private bytes or the passphrase.
+  export GT_CONNECT_ENCRYPTED_KEY="$WORK/encrypted-clientkey"
+  export GT_CONNECT_PASSPHRASE='fixture-口令-for-retry'
+  cp "$WORK/clientkey" "$GT_CONNECT_ENCRYPTED_KEY" || exit 1
+  ssh-keygen -p -q -f "$GT_CONNECT_ENCRYPTED_KEY" -P '' -N "$GT_CONNECT_PASSPHRASE" >/dev/null || exit 1
+fi
 
 {
   echo "Port $PORT"

@@ -17,6 +17,7 @@ wrapper.write_text('#!/bin/sh\nexec python3 '+shlex.quote(str(root/'scripts/test
 wrapper.chmod(0o700)
 PY
 export TMPDIR="$ROOT/tmp"
+export PYTHONPYCACHEPREFIX="$ROOT/tmp/android-python-cache"
 gt_timeout 1800 bash "$ROOT/core/tests/scripts/ssh_e2e.sh" "$WRAPPER" > "$ROOT/tmp/android-ssh-fixture.log" 2>&1 || {
     cat "$ROOT/tmp/android-ssh-fixture.log"; exit 1;
 }

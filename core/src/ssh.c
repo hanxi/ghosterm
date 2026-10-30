@@ -738,6 +738,12 @@ gt_ssh_connector_phase_t gt__ssh_connector_step(gt_ssh_connector_t *c) {
       if(!rc){s->connected=true;c->info.phase=GT_SSH_CONNECT_READY;}
       else if(rc!=LIBSSH2_ERROR_EAGAIN) {
         gt_status_t error=connector_error(rc);
+        /* libssh2's OpenSSL backend reports FILE when extracting the public
+         * key from an encrypted OpenSSH key with a wrong passphrase. This
+         * from-memory key failure permits replacement credentials; it is not
+         * a transport/file-system failure. Keep protocol/decrypt errors and
+         * password/handshake errors on their existing paths. */
+        if(s->pem && rc==LIBSSH2_ERROR_FILE)error=GT_ERR_AUTH;
         if(c->config.defer_credentials && error==GT_ERR_AUTH) {
           secret_free(s->pem);s->pem=NULL;secret_free(s->password);s->password=NULL;secret_free(s->passphrase);s->passphrase=NULL;
           c->info.error=GT_ERR_AUTH;c->stage=CONNECT_METHODS;c->info.phase=GT_SSH_CONNECT_AUTHENTICATING;

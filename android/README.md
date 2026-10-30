@@ -1,6 +1,6 @@
 # Android 宿主
 
-状态（2026-10-30）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话首片及 SAF 导入已通过完整 135 项回归（§9.29），SFTP、文件与完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
+状态（2026-10-30）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话、SAF 导入及凭据流程已通过完整 139 项回归（§9.31），SFTP、文件与完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
 
 当前表单显示 HostName/User/Port 的默认、继承或显式来源；早期规则遮蔽本块设置时也会说明。只读主机可打开配置页调整，返回后刷新字段和编辑权限，详见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。这不代表配置表单已支持身份映射或全部高级配置；认证过程中的身份选择属于 §9.27 的产品首片。
 
@@ -18,11 +18,11 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
 
-后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。最新完整设备结果 **135 项，0 失败/错误/跳过**（含真实 SSH、产品页面与 SAF 导入，§9.29）；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
+后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。最新完整设备结果 **139 项，0 失败/错误/跳过**（含真实 SSH、SAF 导入与凭据流程，§9.31）；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
 
 共享主机信任前置已修复撤销/CA 标记误信任，信任写入/关闭失败会阻断认证（§9.22–§9.23）。共享连接配置准入和 SSH native 后端分别见 §9.24–§9.25。当前首页在最终配置检查通过后进入 DNS/主机验证/凭据与远端终端；默认 ViewModel 工厂已修复。同主机多连接按 UUID 选择，明确新建保留旧连接；Keystore AES-GCM 容器只落盘密文。具体生产入口、定向证据与未完成项见[§9.27](../docs/reference/android-implementation.md#927-ssh-产品页面与加密身份容器2026-10-30)。
 
-产品首片的 27 项定向测试、15 组产品变异及完整 130 项回归见 §9.27。后续 SAF 私钥导入的旋转、取消、只读材料与旧请求归属已通过五项定向、七组新增变异及完整 **135 项设备测试**；历史失败与修正见[§9.29](../docs/reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)。成功密码登录、加密密钥口令、身份设置及网络矩阵仍待完成，整个 A2/A3 不勾选完成。
+产品首片的 27 项定向测试、15 组产品变异及完整 130 项回归见 §9.27。后续 SAF 私钥导入的旋转、取消、只读材料与旧请求归属已通过五项定向、七组新增变异及完整 **135 项设备测试**；历史失败与修正见[§9.29](../docs/reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)。成功密码登录和加密 OpenSSH ed25519 口令重试已在 §9.31 验证；身份设置及网络矩阵仍待完成，整个 A2/A3 不勾选完成。
 
 ## 构建
 
@@ -48,7 +48,7 @@ android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 
 ## 验证
 
-连接 arm64 设备/模拟器后，明确指定序列号：
+连接 arm64 设备/模拟器后，明确指定序列号。完整套件与凭据定向用例另需 Docker：一次性容器提供密码账户，首次构建需要网络；普通 native SSH 定向用例不需要容器。
 
 ```bash
 export ANDROID_SERIAL=emulator-5554
@@ -58,6 +58,9 @@ ANDROID_SSH_PRODUCT_MUTATE=1 bash scripts/test-android-ssh.sh
 # SAF 私钥导入：真实系统选择器与七组变异（§9.29）
 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.SSHIdentityImportTest \
 ANDROID_SSH_IMPORT_MUTATE=1 bash scripts/test-android-ssh.sh
+# 密码/加密私钥产品流程与七组变异（§9.31）
+ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.SSHCredentialFlowTest \
+ANDROID_SSH_CREDENTIAL_MUTATE=1 bash scripts/test-android-ssh.sh
 python3 scripts/check-abi-android.py
 python3 scripts/mutation-check-android-abi.py
 python3 scripts/mutation-check-android-native.py
@@ -101,4 +104,4 @@ UI 经 ViewModel/controller/repository 使用桥；不直接调用 JNI。终端�
 
 SSH 后端通过 `RemoteSession` 复用 native owner 和 VT；产品 DNS、主机确认/凭据页面与 Keystore 已由 §9.27 接入，SAF 导入生命周期由 §9.29 验收。真实 SSH 设备测试需上述隔离 sshd 夹具，不在设备落盘明文私钥；取消/通道预算与退出状态边界见[§9.25](../docs/reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。
 
-后续凭据测试草稿已有四项定向运行，三项通过、一项失败：加密私钥输入错误口令后连接失败，未进入新的凭据请求；不能将正确口令认证或完整 A3 记为通过。工作区夹具、Docker 依赖与待验收条件见[§9.30](../docs/reference/android-implementation.md#930-凭据测试草稿复核2026-10-30未验收)。135 项仍是 §9.29 的已提交完整套件结果，未新增完整 139 项通过记录。
+加密私钥错误口令被当作协议错误的问题已修复，四项凭据定向、七组设备变异及完整 **139 项设备测试**通过；密码重试、旋转/方式切换清理及取消晚到材料均验真实产品路径。旧失败保留在 §9.30，当前证据与 Docker 夹具见[§9.31](../docs/reference/android-implementation.md#931-加密私钥重试与密码产品流程2026-10-30)。整个 A3 仍未完成。

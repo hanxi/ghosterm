@@ -1,5 +1,11 @@
 # core/tests — 测试与黄金夹具
 
+## 加密私钥认证重试
+
+`ssh_connector_e2e` 使用临时加密 OpenSSH 私钥，在真实 sshd 上验证错误口令返回凭据请求、替换正确口令后同一连接认证成功。夹具仅在工程 `tmp/`，结束后删除，不输出材料或口令。libssh2/OpenSSL 的内存私钥解析可能返回 `LIBSSH2_ERROR_FILE`，仅认证私钥路径将它作为 `GT_ERR_AUTH` 重试；握手/协议错误不因此降级。该回归随现有 Core 闸门执行，不增加公共 ABI。
+
+`python3 scripts/mutation-check-ssh-core.py credentials` 在隔离副本撤去这一分类，真实认证目标红、配置对照绿、恢复绿并核对 SHA256。`mutation-check-ssh-connector.py` 的既有 18 组另保护取消、deadline、信任与所有权；Android 另有真实产品凭据路径和七组设备变异，证据及历史失败见[实现记录 §9.31](../../docs/reference/android-implementation.md#931-加密私钥重试与密码产品流程2026-10-30)。
+
 ## 公共头依赖闸门
 
 `public_headers` 经 `ctest` 纳入 `scripts/gate.sh`：所有公开头分别作为第一个 include，

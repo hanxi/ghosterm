@@ -10,7 +10,7 @@ def run(args):
 
 def main():
     group=sys.argv[1] if len(sys.argv)==2 else ''
-    if group not in ['ssh','exec','sftp']:raise SystemExit('group must be ssh, exec or sftp')
+    if group not in ['ssh','exec','sftp','credentials']:raise SystemExit('group must be ssh, exec, sftp or credentials')
     filename='sftp.c' if group=='sftp' else 'ssh.c'
     source=ROOT/'core/src'/filename;original=source.read_bytes();digest=hashlib.sha256(original).digest()
     if MARK.encode() in original or b'GT_MUTATION_MARK' in original:raise SystemExit(2)
@@ -18,6 +18,10 @@ def main():
     for sig in [signal.SIGINT,signal.SIGTERM]:signal.signal(sig,interrupt)
     replace=runpy.run_path(str(ROOT/'scripts/mutation-check-tmux.py'))['replacement']
     cases={
+      'credentials':[
+        ('key-retry','if(s->pem && rc==LIBSSH2_ERROR_FILE)error=GT_ERR_AUTH;',
+         'if(false && s->pem && rc==LIBSSH2_ERROR_FILE)error=GT_ERR_AUTH;'),
+      ],
       'ssh':[
         ('zero-poll','if (timeout_ms == 0) libssh2_session_set_blocking(sh->sess, 0);',
          'if (timeout_ms == 0) libssh2_session_set_timeout(sh->sess, 0);'),
@@ -39,14 +43,16 @@ def main():
             if code:print(out,flush=True);raise RuntimeError('SSH mutation build/tool failed')
         command(['cmake','-S',core,'-B',build]);command(['cmake','--build',build,'-j4'])
         def check(red=False,control=False):
-            args=[build/'test_config',ROOT/'core/tests/fixtures'] if control else ['bash',ROOT/'core/tests/scripts/ssh_e2e.sh',build/'test_ssh']
+            target='test_ssh_connector' if group=='credentials' else 'test_ssh'
+            args=[build/'test_config',ROOT/'core/tests/fixtures'] if control else ['bash',ROOT/'core/tests/scripts/ssh_e2e.sh',build/target]
             code,out=run(args)
-            valid=(code!=0 and 'FAIL:' in out) if red else code==0 and 'SKIP' not in out
+            marker='FAIL ' if group=='credentials' else 'FAIL:'
+            valid=(code!=0 and marker in out) if red else code==0 and 'SKIP' not in out
             if not valid:print(out,flush=True);raise RuntimeError(group+' expected '+('red' if red else 'green'))
         check();check(control=True)
         def rebuild():
             for obj in build.rglob(filename+'.o'):obj.unlink()
-            for file in ['libghosterm_core.a','test_ssh','test_config']:(build/file).unlink(missing_ok=True)
+            for file in ['libghosterm_core.a','test_ssh','test_ssh_connector','test_config']:(build/file).unlink(missing_ok=True)
             command(['cmake','--build',build,'-j4'])
         try:
             for name,old,new in cases[group]:

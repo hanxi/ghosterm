@@ -34,10 +34,10 @@ def main():
     def build():
         rc,out=run([*common,'-DGT_HAVE_LIBSSH2=1','-Dgt__secure_erase=gt_connect_test_erase','-c',copy,'-o',WORK/'ssh.o'])
         if rc:raise RuntimeError('connector compilation failed: '+out)
-        rc,out=run([*common,'-DGT_CONNECT_ERASE_TEST=1','core/tests/test_ssh_connector.c',WORK/'ssh.o','core/build/libghosterm_core.a',*shlex.split(lf),'-pthread','-o',WORK/'test'])
+        rc,out=run([*common,'-DGT_CONNECT_ERASE_TEST=1','core/tests/test_ssh_connector.c',WORK/'ssh.o','core/build/libghosterm_core.a',*shlex.split(lf),'-pthread','-o',WORK/'test_ssh_connector'])
         if rc:raise RuntimeError('driver compilation failed: '+out)
     def probe(mode,red=False):
-        args=['bash','core/tests/scripts/ssh_e2e.sh',WORK/'test'] if mode=='real' else [WORK/'test',mode]
+        args=['bash','core/tests/scripts/ssh_e2e.sh',WORK/'test_ssh_connector'] if mode=='real' else [WORK/'test_ssh_connector',mode]
         rc,out=run(args)
         if 'SKIP' in out:raise RuntimeError('real SSH evidence missing: '+out)
         if red:
@@ -49,7 +49,7 @@ def main():
       ('socket is blocking','fcntl(fd,F_SETFL,flags|O_NONBLOCK)','fcntl(fd,F_SETFL,flags)','cancel','allocation'),
       ('socket leaks across exec','fcntl(fd,F_SETFD,descriptor|FD_CLOEXEC)','fcntl(fd,F_SETFD,descriptor)','cancel','allocation'),
       ('resolved address ignored','memcpy(&address.sin_addr,c->config.address,4);','memset(&address.sin_addr,0x7f,4);','cancel','allocation'),
-      ('cancel ignored','if(!c || c->info.phase>=GT_SSH_CONNECT_TAKEN)return;','if(!c || c->info.phase>=GT_SSH_CONNECT_TAKEN || c->ssh)return;','cancel','allocation'),
+      ('cancel ignored','if(!c || (c->info.phase>=GT_SSH_CONNECT_TAKEN && c->info.phase!=GT_SSH_CONNECT_CREDENTIALS))return;','if(!c || c->ssh || (c->info.phase>=GT_SSH_CONNECT_TAKEN && c->info.phase!=GT_SSH_CONNECT_CREDENTIALS))return;','cancel','allocation'),
       ('unknown hostkey auto trusted','if(result==KH_MATCH){c->stage=CONNECT_METHODS;','if(result==KH_MATCH || result==KH_UNKNOWN){c->stage=CONNECT_METHODS;','real','allocation'),
       ('changed hostkey accepted','if(result==KH_MISMATCH){connector_fail','if(false && result==KH_MISMATCH){connector_fail','real','allocation'),
       ('trust identity changed to network address','kh_check(s->kh_path,s->host,s->port,name,c->host_key)','kh_check(s->kh_path,"127.0.0.1",s->port,name,c->host_key)','real','allocation'),

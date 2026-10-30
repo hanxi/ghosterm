@@ -96,6 +96,21 @@ static void real_flow(int argc,char **argv) {
   for(;;){bool stderr_stream=false;int rc=gt_ssh_exec_read(command,(uint8_t *)output+used,sizeof(output)-used-1,50,&stderr_stream);if(rc==GT_EXEC_READ_EOF)break;CHECK(rc!=GT_EXEC_READ_ERROR && !stderr_stream && now()<deadline);if(rc>0)used+=(size_t)rc;}
   CHECK(!strcmp(output,"connector-ok"));if(getenv("GT_CONNECT_TRACE"))fprintf(stderr,"connector exec close\n");gt_ssh_exec_close(command);cleanup();
   open_real(port,known,key,argv[1]);until(GT_SSH_CONNECT_READY);CHECK(info().host==GT_SSH_HOST_KNOWN);cleanup();
+  /* Wrong OpenSSH key passphrase must permit replacement on this connection.
+   * libssh2/OpenSSL reports FILE for this in-memory parse failure. */
+  const char *encrypted_path=getenv("GT_CONNECT_ENCRYPTED_KEY"),*phrase=getenv("GT_CONNECT_PASSPHRASE");
+  CHECK(encrypted_path && phrase);
+  f=fopen(encrypted_path,"rb");CHECK(f && !fseek(f,0,SEEK_END));long encrypted_size=ftell(f);
+  CHECK(encrypted_size>0 && !fseek(f,0,SEEK_SET));char *encrypted=calloc(1,(size_t)encrypted_size+1);
+  CHECK(encrypted && fread(encrypted,1,(size_t)encrypted_size,f)==(size_t)encrypted_size && !fclose(f));
+  setup(port,known,key);CHECK(gt_ssh_auth_private_key(owned,encrypted,"wrong-fixture-passphrase")==GT_OK);
+  gt_ssh_connector_config_t retry={.family=4,.timeout_ms=10000,.clock=real_clock,.defer_credentials=true};
+  CHECK(inet_pton(AF_INET,argv[1],retry.address)==1 && gt__ssh_connector_open(&owned,&retry,NULL,&active)==GT_OK);
+  until(GT_SSH_CONNECT_CREDENTIALS);CHECK(info().error==GT_ERR_AUTH && info().host==GT_SSH_HOST_KNOWN);
+  setup(port,known,key);CHECK(gt_ssh_auth_private_key(owned,encrypted,phrase)==GT_OK);
+  CHECK(gt__ssh_connector_supply(active,&owned)==GT_OK && !owned);
+  until(GT_SSH_CONNECT_READY);CHECK(gt__ssh_connector_take(active,&owned) && owned);cleanup();
+  gt__secure_erase(encrypted,(size_t)encrypted_size);free(encrypted);
   CHECK(!unlink(known));
   fixture expired={0};setup(port,known,key);gt_ssh_connector_config_t expires=config(&expired);CHECK(inet_pton(AF_INET,argv[1],expires.address)==1 && gt__ssh_connector_open(&owned,&expires,NULL,&active)==GT_OK);until(GT_SSH_CONNECT_HOSTKEY);expired.now=100;
   CHECK(gt__ssh_connector_decide(active,GT_HOSTKEY_UNKNOWN)==GT_ERR_IO && info().deadline && info().phase==GT_SSH_CONNECT_FAILED);cleanup();
