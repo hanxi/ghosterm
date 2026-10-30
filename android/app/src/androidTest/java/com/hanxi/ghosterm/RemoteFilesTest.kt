@@ -264,4 +264,97 @@ class RemoteFilesTest {
             await(allowance,"file SFTP open cancellation releases owner") { owners()==0 }
         } } finally { control("release",user) }
     }
+    private suspend fun createFile(files: RemoteFileSession, path: String, fd: Int, size: Long,
+                                   budget: Int = 5000): RemoteCreationResult =
+        try { files.createExclusive(path,fd,size,budget) }
+        catch(cancelled: CancellationException) { throw cancelled }
+        catch(failure: Exception) { throw AssertionError("creation outcome must reach caller",failure) }
+
+    @Test fun exclusiveCreatePreservesContentOffsetAndExistingTarget() = directory { root ->
+        val path=fixture.getString("remoteRoot")+"-created-"+UUID.randomUUID()
+        val content=ByteArray(100003) { (it*31+7).toByte() }
+        val source=File(root,"create-source").apply { writeBytes(content) }
+        android.os.ParcelFileDescriptor.open(source,android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            android.system.Os.lseek(descriptor.fileDescriptor,7,android.system.OsConstants.SEEK_SET)
+            RemoteFileSession(connection(known(root))).use { files ->
+                supply(files)
+                val result=runBlocking { createFile(files,path,descriptor.fd,source.length()) }
+                assertEquals(0,result.status);assertEquals(RemoteCreationState.COMPLETE,result.state)
+                assertEquals(content.size.toULong(),result.bytesAcknowledged)
+                assertEquals(7L,runCatching { android.system.Os.lseek(descriptor.fileDescriptor,0,android.system.OsConstants.SEEK_CUR) }.getOrDefault(-1L))
+                assertArrayEquals(content,runBlocking { files.preview(path) })
+                val denied=runBlocking { createFile(files,path,descriptor.fd,source.length()) }
+                assertEquals(3,denied.status);assertEquals(RemoteCreationState.REJECTED,denied.state)
+                assertEquals(0uL,denied.bytesAcknowledged);assertTrue(files.state().finished)
+            }
+            RemoteFileSession(connection(known(root))).use { files ->
+                supply(files);assertArrayEquals(content,runBlocking { files.preview(path) })
+            }
+        }
+    }
+    @Test fun exclusiveCreateEmptyAndInvalidSourceAreDistinct() = directory { root ->
+        val path=fixture.getString("remoteRoot")+"-created-empty-"+UUID.randomUUID()
+        val source=File(root,"empty-source").apply { writeBytes(byteArrayOf()) }
+        android.os.ParcelFileDescriptor.open(source,android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            RemoteFileSession(connection(known(root))).use { files ->
+                supply(files)
+                val result=runBlocking { createFile(files,path,descriptor.fd,0) }
+                assertEquals(RemoteCreationState.COMPLETE,result.state);assertEquals(0,result.status)
+                assertEquals(0,runBlocking { files.preview(path) }.size)
+                val invalid=runBlocking { createFile(files,path+"-bad",descriptor.fd,1) }
+                assertEquals(1,invalid.status);assertEquals(RemoteCreationState.NOT_ATTEMPTED,invalid.state)
+            }
+            RemoteFileSession(connection(known(root))).use { files ->
+                supply(files)
+                assertFalse(runBlocking { files.browse(path.substringBeforeLast('/')) }.entries.any { it.path==path+"-bad" })
+            }
+        }
+    }
+    @Test fun exclusiveCreateProtocolOutcomesSurviveFailure() = directory { root ->
+        val source=File(root,"source").apply { writeBytes(ByteArray(4096) { (it*31+7).toByte() }) }
+        android.os.ParcelFileDescriptor.open(source,android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            for(stage in listOf("create-open","create-write","create-close")) {
+                for(action in listOf("deny","hold")) {
+                    val user=control("new",stage=stage,action=action).getString("user")
+                    try { RemoteFileSession(connection(known(root,true),true,user)).use { files ->
+                        supply(files,true)
+                        val result=runBlocking { createFile(files,"/created",descriptor.fd,source.length(),1000) }
+                        assertEquals(3,result.status)
+                        val expected=if(stage!="create-open") RemoteCreationState.CREATED
+                            else if(action=="deny") RemoteCreationState.REJECTED else RemoteCreationState.UNKNOWN
+                        assertEquals(expected,result.state);assertTrue(files.state().finished)
+                        assertTrue(reached(user,stage))
+                    } } finally { control("release",user) }
+                }
+            }
+        }
+    }
+    @Test fun exclusiveCreateCancellationReleasesSourceDuplicate() = directory { root ->
+        val source=File(root,"source").apply { writeBytes(ByteArray(4096) { (it*31+7).toByte() }) }
+        fun sourceHandles()=File("/proc/self/fd").listFiles().orEmpty().filter {
+            runCatching { File(android.system.Os.readlink(it.absolutePath)).canonicalPath==source.canonicalPath }.getOrDefault(false)
+        }
+        fun sourceDescriptors()=sourceHandles().size
+        val bound=limit()
+        val user=control("new",stage="create-write",action="hold").getString("user")
+        try {
+            android.os.ParcelFileDescriptor.open(source,android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+                RemoteFileSession(connection(known(root,true),true,user)).use { files ->
+                    supply(files,true)
+                    runBlocking {
+                        val job=launch(Dispatchers.IO) { createFile(files,"/cancelled",descriptor.fd,source.length()) }
+                        await { reached(user,"create-write") };assertEquals(2,sourceDescriptors())
+                        sourceHandles().forEach { handle ->
+                            val flags=File("/proc/self/fdinfo/"+handle.name).readLines().single { it.startsWith("flags:") }.substringAfter(':').trim().toLong(8)
+                            assertTrue("source descriptors must be CLOEXEC",flags and 0x80000L != 0L)
+                        }
+                        job.cancelAndJoin()
+                    }
+                    await(timeout=bound,message="cancelled create owner must release within bound") { owners()==0 };assertEquals(1,sourceDescriptors())
+                }
+            }
+            assertEquals(0,sourceDescriptors())
+        } finally { control("release",user) }
+    }
+
 }

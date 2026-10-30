@@ -31,6 +31,8 @@
 #include <stdatomic.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "internal.h"
 
@@ -586,6 +588,123 @@ finished:
   return status;
 }
 
+int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
+    uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context) {
+  if (out) *out = (gt_sftp_create_result_t){GT_SFTP_CREATE_NOT_ATTEMPTED, 0};
+  if (!sftp || !path || !*path || strlen(path) >= 65536 || source_fd < 0 ||
+      !out || !timeout_ms || expected_size > INT64_MAX) {
+    gt__set_error("sftp create: invalid source, path or budget");
+    return GT_ERR_INVALID_ARG;
+  }
+  int64_t deadline = mono_ms() + timeout_ms;
+  int status = open_status(deadline, cancelled, context);
+  if (status != GT_OK) return status;
+  struct stat before, after;
+  int flags = fcntl(source_fd, F_GETFL);
+  if (flags < 0 || (flags & O_ACCMODE) == O_WRONLY ||
+      fstat(source_fd, &before) != 0 || !S_ISREG(before.st_mode) ||
+      before.st_size < 0 || (uint64_t)before.st_size != expected_size) {
+    gt__set_error("sftp create: source must be a stable regular file of expected size");
+    return GT_ERR_INVALID_ARG;
+  }
+  pthread_mutex_lock(&sftp->qlock);
+  bool has_jobs = sftp->all_head != NULL;
+  pthread_mutex_unlock(&sftp->qlock);
+  if (has_jobs) return GT_ERR_INVALID_ARG;
+  void *raw = NULL; int socket = -1;
+  status = gt__ssh_borrow(sftp->ssh, &raw, &socket);
+  if (status != GT_OK) return status;
+  LIBSSH2_SESSION *session = raw;
+  LIBSSH2_SFTP_HANDLE *file = NULL;
+  SFTP_LOCK(sftp);
+  int blocking = libssh2_session_get_blocking(session);
+  long timeout = libssh2_session_get_timeout(session);
+  libssh2_session_set_blocking(session, 0);
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    out->state = GT_SFTP_CREATE_UNKNOWN;
+    file = libssh2_sftp_open(sftp->sftp, path,
+        LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_EXCL, 0600);
+    if (file) { out->state = GT_SFTP_CREATE_CREATED; break; }
+    int error = libssh2_session_last_errno(session);
+    if (error != LIBSSH2_ERROR_EAGAIN) {
+      /* The library also uses SFTP_PROTOCOL for malformed HANDLE/STATUS.
+       * Only a decoded nonzero server status proves explicit rejection. */
+      if (error == LIBSSH2_ERROR_SFTP_PROTOCOL &&
+          libssh2_sftp_last_error(sftp->sftp) != LIBSSH2_FX_OK)
+        out->state = GT_SFTP_CREATE_REJECTED;
+      status = GT_ERR_IO; goto finished;
+    }
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  uint8_t buffer[GT_SFTP_CHUNK];
+  while (out->bytes_acked < expected_size) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    size_t wanted = expected_size - out->bytes_acked > sizeof buffer
+        ? sizeof buffer : (size_t)(expected_size - out->bytes_acked);
+    ssize_t count = pread(source_fd, buffer, wanted, (off_t)out->bytes_acked);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) { status = GT_ERR_IO; goto finished; }
+    size_t offset = 0;
+    while (offset < (size_t)count) {
+      status = open_status(deadline, cancelled, context);
+      if (status != GT_OK) goto finished;
+      ssize_t written = libssh2_sftp_write(file, (char *)buffer + offset, (size_t)count - offset);
+      if (written == 0 || written == LIBSSH2_ERROR_EAGAIN) {
+        status = browse_wait(session, socket, deadline, cancelled, context);
+        if (status != GT_OK) goto finished;
+        continue;
+      }
+      if (written < 0 || (size_t)written > (size_t)count - offset) { status = GT_ERR_IO; goto finished; }
+      offset += (size_t)written;
+      out->bytes_acked += (uint64_t)written;
+    }
+  }
+  if (fstat(source_fd, &after) != 0 || after.st_size != before.st_size ||
+      after.st_dev != before.st_dev || after.st_ino != before.st_ino ||
+      after.st_mtime != before.st_mtime || after.st_ctime != before.st_ctime
+#ifdef __APPLE__
+      || after.st_mtimespec.tv_nsec != before.st_mtimespec.tv_nsec
+      || after.st_ctimespec.tv_nsec != before.st_ctimespec.tv_nsec
+#else
+      || after.st_mtim.tv_nsec != before.st_mtim.tv_nsec
+      || after.st_ctim.tv_nsec != before.st_ctim.tv_nsec
+#endif
+      ) {
+    status = GT_ERR_IO; goto finished;
+  }
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    int result = libssh2_sftp_close(file);
+    if (result != LIBSSH2_ERROR_EAGAIN) {
+      file = NULL;
+      status = result == 0 ? GT_OK : GT_ERR_IO;
+      if (status == GT_OK) out->state = GT_SFTP_CREATE_COMPLETE;
+      break;
+    }
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+finished:
+  if (status != GT_OK && out->state != GT_SFTP_CREATE_NOT_ATTEMPTED) {
+    gt__ssh_abort(sftp->ssh);
+    libssh2_session_set_blocking(session, 1);
+    libssh2_session_set_timeout(session, 50);
+    if (file) libssh2_sftp_close(file);
+    gt__set_error("sftp create: failed; inspect creation state, retain partial/unknown path");
+  } else {
+    libssh2_session_set_blocking(session, blocking);
+    libssh2_session_set_timeout(session, timeout);
+  }
+  SFTP_UNLOCK(sftp);
+  return status;
+}
+
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out) {
   return stat_common(sftp, path, out, true);
 }
@@ -1107,6 +1226,18 @@ int gt_sftp_pause(gt_sftp_t *sftp, uint64_t job_id, bool paused) {
 #else /* !GT_HAVE_LIBSSH2 —— 显式 UNSUPPORTED */
 
 struct gt_sftp { void *unused; };
+
+int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
+    uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context) {
+  (void)cancelled; (void)context;
+  if (out) *out = (gt_sftp_create_result_t){GT_SFTP_CREATE_NOT_ATTEMPTED, 0};
+  if (!sftp || !path || !*path || strlen(path) >= 65536 || source_fd < 0 ||
+      !out || !timeout_ms || expected_size > INT64_MAX) return GT_ERR_INVALID_ARG;
+  gt__set_error("sftp create: libssh2 unavailable");
+  return GT_ERR_UNSUPPORTED;
+}
+
 
 int gt_sftp_browse_controlled(gt_sftp_t *sftp, const char *path,
     char *resolved_path, size_t resolved_cap,

@@ -624,6 +624,14 @@ public struct SFTPDirectory {
     public let entries: [SFTPEntry]
 }
 
+/// Creation acknowledgement is independent of the operation error.
+public struct SFTPCreateResult {
+    public enum State: UInt32 { case notAttempted = 0, unknown, rejected, created, complete }
+    public let status: Int32
+    public let state: State
+    public let bytesAcknowledged: UInt64
+}
+
 public final class SFTPSession {
     nonisolated let handle: OpaquePointer
     private var closed = false
@@ -672,6 +680,31 @@ public final class SFTPSession {
         }
         out.sort { $0.name < $1.name }
         return out
+    }
+
+    /// Exclusive remote staging creation; does not commit a final destination.
+    /// Keep the regular source descriptor open and unchanged; its offset is preserved.
+    /// Errors after IO invalidate this dedicated owner. Never discard the outcome.
+    public func createExclusive(path: String, sourceDescriptor: Int32, expectedSize: UInt64,
+                                timeoutMilliseconds: UInt32, cancellation: SSHCancellation? = nil) throws -> SFTPCreateResult {
+        guard !path.isEmpty, !path.utf8.contains(0) else {
+            throw GhostermError.status(Int32(GT_ERR_INVALID_ARG.rawValue), "Invalid create path")
+        }
+        var outcome = gt_sftp_create_result_t()
+        let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let status = withExtendedLifetime(cancellation) {
+            path.withCString { p in
+                gt_sftp_create_controlled(handle, p, sourceDescriptor, expectedSize, &outcome,
+                    timeoutMilliseconds, { pointer in
+                        guard let pointer else { return false }
+                        return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+                    }, context)
+            }
+        }
+        guard let state = SFTPCreateResult.State(rawValue: outcome.state.rawValue) else {
+            throw GhostermError.status(Int32(GT_ERR_PROTOCOL.rawValue), "Unknown creation outcome")
+        }
+        return SFTPCreateResult(status: status, state: state, bytesAcknowledged: outcome.bytes_acked)
     }
 
     /// Complete raw file bytes, bounded to 1 MiB; no partial preview on failure.

@@ -85,6 +85,36 @@ int gt_sftp_preview_controlled(gt_sftp_t *sftp, const char *path,
     uint8_t *buffer, size_t capacity, size_t *out_count, uint32_t timeout_ms,
     bool (*cancelled)(void *), void *context);
 
+/* Exclusive creation for task-owned remote staging paths. Does not overwrite,
+ * rename, remove or publish a final destination. Dedicated owner only; no jobs
+ * or other channels. Caller retains a readable regular fd and must keep its
+ * identity/content stable until return. pread preserves its offset; Core never
+ * closes it. expected_size must match fstat, checked before OPEN and after IO.
+ * Network OPEN/WRITE/CLOSE share timeout_ms; local filesystem syscalls cannot
+ * be preempted. The cancellation callback must not reenter Core.
+ * Rejected means an explicit server rejection, never "target absent"; UNKNOWN
+ * means OPEN may have succeeded without a usable reply. CREATED may contain
+ * partial data. COMPLETE requires all bytes and successful CLOSE; it wins over
+ * cancellation arriving after that acknowledgement. No fsync/durability claim.
+ * Any error after attempted IO invalidates this owner. No automatic unlink:
+ * path replacement races make deletion unsafe. Caller must retain outcome even
+ * on error. bytes_acked is a lower bound, not a partial-file size or progress
+ * guarantee (libssh2 may pipeline writes). No terminal/job events are emitted. */
+typedef enum {
+  GT_SFTP_CREATE_NOT_ATTEMPTED = 0,
+  GT_SFTP_CREATE_UNKNOWN = 1,
+  GT_SFTP_CREATE_REJECTED = 2,
+  GT_SFTP_CREATE_CREATED = 3,
+  GT_SFTP_CREATE_COMPLETE = 4,
+} gt_sftp_create_state_t;
+typedef struct {
+  gt_sftp_create_state_t state;
+  uint64_t bytes_acked;
+} gt_sftp_create_result_t;
+int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
+    uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context);
+
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out);
 
 /* lstat：**不跟随**符号链接（报链接自身的属性）。 */

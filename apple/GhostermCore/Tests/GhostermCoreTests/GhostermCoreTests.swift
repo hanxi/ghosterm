@@ -232,6 +232,49 @@ final class GhostermCoreTests: XCTestCase {
         XCTAssertNoThrow(try session.abort())
     }
 
+    func testSFTPExclusiveCreateEndToEnd() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],
+              let key = env["GHOSTERM_SSH_KEY"], let port = UInt16(env["GHOSTERM_SSH_PORT"] ?? "") else {
+            throw XCTSkip("SSH fixture required")
+        }
+        for size in [0, 70001] {
+            let session = try SSHSession(SSHOptions(host: host, port: port, username: user,
+                knownHostsPath: env["GHOSTERM_SSH_KNOWN_HOSTS"]))
+            session.setHostKeyDecider { _, _, _, _ in .accept }
+            try session.authenticate(privateKeyPEM: String(contentsOfFile: key, encoding: .utf8))
+            try session.connect()
+            defer { session.close() }
+            let files = try session.sftp(timeoutMilliseconds: 3000)
+            defer { files.close() }
+            let source = (key as NSString).deletingLastPathComponent + "/create-" + UUID().uuidString
+            let target = source + "-remote"
+            let payload = Data((0..<size).map { UInt8(truncatingIfNeeded: $0 * 31 + 7) })
+            try payload.write(to: URL(fileURLWithPath: source))
+            let input = try FileHandle(forReadingFrom: URL(fileURLWithPath: source))
+            defer { try? input.close(); try? FileManager.default.removeItem(atPath: source); try? FileManager.default.removeItem(atPath: target) }
+            try input.seek(toOffset: 7)
+            let zero = try files.createExclusive(path: target, sourceDescriptor: input.fileDescriptor,
+                expectedSize: UInt64(size), timeoutMilliseconds: 0)
+            XCTAssertEqual(zero.status, 1); XCTAssertEqual(zero.state, .notAttempted)
+            let cancellation = SSHCancellation(); cancellation.cancel()
+            let cancelled = try files.createExclusive(path: target, sourceDescriptor: input.fileDescriptor,
+                expectedSize: UInt64(size), timeoutMilliseconds: 3000, cancellation: cancellation)
+            XCTAssertEqual(cancelled.status, 8); XCTAssertEqual(cancelled.state, .notAttempted)
+            let created = try files.createExclusive(path: target, sourceDescriptor: input.fileDescriptor,
+                expectedSize: UInt64(size), timeoutMilliseconds: 3000)
+            XCTAssertEqual(created.status, 0); XCTAssertEqual(created.state, .complete)
+            XCTAssertEqual(created.bytesAcknowledged, UInt64(size))
+            XCTAssertEqual(try input.offset(), 7)
+            XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: target)), payload)
+            let conflict = try files.createExclusive(path: target, sourceDescriptor: input.fileDescriptor,
+                expectedSize: UInt64(size), timeoutMilliseconds: 3000)
+            XCTAssertEqual(conflict.status, 3); XCTAssertEqual(conflict.state, .rejected)
+            XCTAssertEqual(conflict.bytesAcknowledged, 0)
+            XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: target)), payload)
+        }
+    }
+
     func testSFTPPreviewEndToEnd() throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],

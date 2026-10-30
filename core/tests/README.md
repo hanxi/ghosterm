@@ -10,7 +10,13 @@
 
 `gt_ssh_abort` 只由独占连接的 IO owner 调用；它关闭 socket 双向通信并标记连接失效，不释放句柄，之后仍须先关 SFTP/通道再关 SSH。NULL 返回 INVALID_ARG，无 libssh2 的有效占位返回 UNSUPPORTED；禁止把它作为 UI 并发取消入口。
 
-`test_sftp_preview` 的真实 SSH 回归验证成功读取后 abort、连接不可再借用及重复 abort。`python3 scripts/mutation-check-ssh-abort.py` 在隔离副本运行 1 Core + 1 无库 + 1 Swift 组：编译后目标断言红、独立配置/API 绿、恢复绿与 SHA256。实际 socket shutdown 及等待服务器关闭的设备场景另由 Android 文件 owner 的 18 组变异验证。当前 42 CTest / 85 ABI、Apple 83/2、JNI 45/40，详细范围见[§9.51](../../docs/reference/android-implementation.md#951-android-远端文件-owner-与-jni2026-10-30)。这些手工变异未加入 CI 20 份。
+`test_sftp_preview` 的真实 SSH 回归验证成功读取后 abort、连接不可再借用及重复 abort。`python3 scripts/mutation-check-ssh-abort.py` 在隔离副本运行 1 Core + 1 无库 + 1 Swift 组：编译后目标断言红、独立配置/API 绿、恢复绿与 SHA256。实际 socket shutdown 及等待服务器关闭的设备场景另由 Android 文件 owner 的 18 组变异验证。该切片为 42 CTest / 85 ABI、Apple 83/2、JNI 45/40，详细范围见[§9.51](../../docs/reference/android-implementation.md#951-android-远端文件-owner-与-jni2026-10-30)。这些手工变异未加入 CI 20 份。
+
+## SFTP 独占暂存创建
+
+`test_sftp_create` / `sftp_create_e2e` 经真实 OpenSSH 验 3 MiB 多块内容、空文件、同名文件/目录/链接不覆盖、普通可读 fd、源尺寸改变、偏移与所有权、权限和会话选项恢复。单独 `scripts/test-sftp-create.py` 的 14 项协议场景覆盖 OPEN/WRITE/CLOSE 拒绝、断线、取消、超时及两种畸形回复。`python3 scripts/mutation-check-sftp-create.py` 运行基线及 Core/无库/Swift 变异；Android 对应 native owner 与结果转交另跑设备用例。
+
+创建结果不是 job 事件。COMPLETE 要求成功 CLOSE；UNKNOWN 不能折为 REJECTED，CREATED 失败保留可能的部分文件。不自动删除路径，不保证最终目标发布或磁盘持久性。接口与当前证据见 Android 实现计划 §9.54，旧传输 job 的覆盖语义仍见 §9.53。
 
 ## SFTP 现有验证的边界
 
@@ -18,7 +24,7 @@
 
 仍须补实现和故障回归：
 
-- 暂存后提交和非覆盖创建尚无完整契约；当前直接覆盖在后续 IO/关闭失败时可能留下部分文件，关闭成功不表示 fsync 或原子提交。
+- §9.54 已提供独占暂存创建，暂存后最终提交尚无完整契约；旧 job 直接覆盖在后续 IO/关闭失败时可能留下部分文件，关闭成功不表示 fsync 或原子提交。
 - `gt_sftp_walk` 仅裁剪大于 64 的正深度，负深度的递归条件没有硬上限；头文件注释所称“仍有编译期护栏”不代表实现已兑现。`remove_all` 有独立深度检查，不能将两者混为一谈。
 - 单 worker/FIFO 是每个 `gt_sftp_t` 的约束，不是跨连接的全局限并发；暂停中的当前 job 仍占用该会话 worker。
 

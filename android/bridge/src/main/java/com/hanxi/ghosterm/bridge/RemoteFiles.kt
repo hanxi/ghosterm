@@ -20,6 +20,9 @@ data class RemoteFileState(val phase: Int, val error: Int) {
     val ready get() = phase == 1
     val finished get() = phase >= 2
 }
+enum class RemoteCreationState { NOT_ATTEMPTED, UNKNOWN, REJECTED, CREATED, COMPLETE }
+data class RemoteCreationResult(val status: Int, val state: RemoteCreationState, val bytesAcknowledged: ULong)
+
 class RemoteFileException(val status: Int) : IllegalStateException(when(status) {
     7 -> "此文件类型或 SFTP 操作暂不支持"
     8 -> "文件请求已取消"
@@ -53,7 +56,7 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
     @Synchronized override fun close() {
         NativeFiles.dispose(handle); handle = 0L
     }
-    private suspend fun operation(kind: Int, path: String, timeoutMillis: Int): ByteArray = withContext(Dispatchers.IO) {
+    private suspend fun operation(kind: Int, path: String, timeoutMillis: Int, sourceFd: Int = -1, expectedSize: Long = 0): ByteArray = withContext(Dispatchers.IO) {
         require(path.isNotEmpty() && '\u0000' !in path && timeoutMillis in 1..60_000) { "文件路径或超时无效" }
         requests.withLock {
             val (owner, request) = synchronized(this@RemoteFileSession) {
@@ -61,7 +64,8 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
                 val encoded = Charsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(path))
                 val bytes = ByteArray(encoded.remaining()); encoded.get(bytes)
-                handle to NativeFiles.begin(handle, kind, bytes, timeoutMillis)
+                handle to if(kind==3) NativeFiles.beginCreate(handle,bytes,sourceFd,expectedSize,timeoutMillis)
+                    else NativeFiles.begin(handle, kind, bytes, timeoutMillis)
             }
             var completed = false
             try {
@@ -82,9 +86,12 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
                     check(handle == owner) { "文件连接已关闭" }
                     NativeFiles.finish(owner, request)
                 }
-                if(status != 0) throw RemoteFileException(status)
+                if(status != 0 && kind!=3) throw RemoteFileException(status)
                 completed = true
-                bytes.copyOfRange(8, bytes.size)
+                if(kind==3) {
+                    if(status!=0) close()
+                    bytes
+                } else bytes.copyOfRange(8, bytes.size)
             } finally {
                 if(!completed) close()
             }
@@ -119,6 +126,23 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
         check(!data.hasRemaining() && entries.map { it.path }.toSet().size == entries.size) { "目录结果重复或包含额外数据" }
         RemoteDirectory(canonical, entries)
     }
+    /** Create a task-owned staging file, never overwrite. Keep sourceFd open and
+     * content stable until return; JNI owns a CLOEXEC duplicate during IO.
+     * An exception/coroutine cancellation without a result means UNKNOWN: do
+     * not automatically retry or unlink. Final destination commit is separate. */
+    suspend fun createExclusive(path: String, sourceFd: Int, expectedSize: Long,
+                                timeoutMillis: Int = 5000): RemoteCreationResult {
+        require(sourceFd>=0 && expectedSize>=0) { "文件源描述符或尺寸无效" }
+        val data=ByteBuffer.wrap(operation(3,path,timeoutMillis,sourceFd,expectedSize)).order(ByteOrder.BIG_ENDIAN)
+        check(data.remaining()==20) { "创建结果无法确认，请保留目标路径" }
+        val status=data.int
+        check(data.int==3) { "创建结果归属无效" }
+        val state=data.int
+        check(state in 0..4) { "创建状态无法确认" }
+        val count=data.long.toULong()
+        check((status==0)==(state==4) && count<=expectedSize.toULong()) { "创建结果不一致" }
+        return RemoteCreationResult(status,RemoteCreationState.entries[state],count)
+    }
     suspend fun preview(path: String, timeoutMillis: Int = 5000): ByteArray = operation(2,path,timeoutMillis)
     suspend fun previewText(path: String, timeoutMillis: Int = 5000): String = withContext(Dispatchers.IO) {
         val bytes = preview(path,timeoutMillis)
@@ -140,6 +164,7 @@ internal object NativeFiles {
     external fun state(handle: Long): IntArray
     external fun dispose(handle: Long)
     external fun begin(handle: Long, kind: Int, path: ByteArray, budget: Int): Long
+    external fun beginCreate(handle: Long, path: ByteArray, sourceFd: Int, expectedSize: Long, budget: Int): Long
     external fun result(handle: Long, request: Long): ByteArray?
     external fun finish(handle: Long, request: Long)
     external fun ownerCount(): Int
