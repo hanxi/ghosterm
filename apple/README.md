@@ -31,13 +31,15 @@ apple/
 `AppModel.applyEdits/addHost` 先修改内存配置，再调用存储；写盘抛错时只向页面报错，尚未恢复内存模型。`HostListModel.reload` 也未过滤不含通配符的否定模式（如 `!secret`），不能把所有派生条目都视为可连接主机。
 主机列表还没有去重：Core 的 `gt_config_host_pattern` 按块枚举每个模式，`HostListModel.reload` 逐项追加，`HostEntry.id` 又直接使用 pattern；两个同名 Host 块会生成相同 ID 的列表项，连接选择器和管理器均用这些 ID。应把连接目标列表与配置块列表分开：连接目标去重，配置块仍保留独立来源和歧义编辑保护。此处为源码核对，未新增重复行的原生 UI 实测。
 `SSHConfig.inspect(alias:)` 已接入并有值复制/来源转换的定向测试与变异，尚未接入 `HostEditorSheet`；存在 Swift 绑定不表示 macOS 表单已提供继承值展示、别名重命名或完整包含文件编辑。新增接口状态见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。
-已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查切片为 74 / 72+2；IdentityFile 来源查询加入后当前为 75 / 73+2。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
+已新增 `SSHConfig.rename(alias:to:)` 绑定，配套 C 接口只修改内存配置，**不负责备份或写盘**；`HostEditorSheet` 仍仅在新建时显示别名输入框。共享改名能力不能抵消 macOS 的表单/事务缺口。改名切片为 73 个公共符号、Apple 71 个引用/2 个登记未用；连接检查切片为 74 / 72+2；IdentityFile 来源查询切片为 75 / 73+2；主机信任快照加入后当前为 79 / 77+2。改名的共享/绑定验收见[§9.9](../docs/reference/android-implementation.md#99-主机别名重命名2026-10-30)。
 
 共享主机信任已修复标记误信任：`core/src/ssh.c` 保留标记，匹配的撤销密钥优先于任何顺序的普通信任记录；读取错误明确失败。CA-only、作用于当前主机的未知标记和已解析的 hashed 条目显式报不支持。CA 与明确匹配的普通记录并存时仅依据普通记录信任；尚未实现主机证书验证或哈希匹配。Swift 已接 `.revoked` 状态与拒绝文案，SFTP 产品入口通过真实 sshd 验证不再弹信任/凭据框。普通 SSH、SFTP、tmux 共用此认证流程，但本片未分别重跑 SSH 终端及 tmux UI；详见[共享主机信任验收](../docs/reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)。连接前配置检查已接共享判定，见实现计划 §9.24。
 
 `SSHConfig.identities(alias:)` 已绑定共享 `gt_config_identity_at`，复制 IdentityFile 的原序条目及显式/继承/Include 来源，遇到 Match 或相关非法参数明确抛错。Android 已在其主机编辑/认证/详情使用此来源查询；macOS 表单尚未消费，不能将绑定记为 GUI 已支持。共享 8 C + 1 Swift 变异、Swift 7 项配置定向及两端构建证据见[§9.34](../docs/reference/android-implementation.md#934-identityfile-来源查询与平台绑定2026-10-30)。
 
 Android 主机关联写入的 `IdentityFile "ghosterm-identity:<UUID>"` 是该安装的加密容器引用。当前 `SSHCredentialSelector.Storage.readKey` 按文件路径读取，不解析这种引用；复制 Android 配置到 macOS 不会迁移密钥，不能承诺自动关联或直接登录。普通 IdentityFile 路径仍按现有 macOS 规则处理；后续跨端导入需明确重新关联及不支持提示，不把路径读取失败当成可用身份。Android 的选择、保存事务和引用列表验收见[§9.35](../docs/reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)，不改变本端配置/私钥待办。
+
+`KnownHosts.records` 新增只读绑定，复制原始字节范围、marker 与字段形态，保留畸形记录；两项 Swift 定向和一组绑定变异通过。它不读取/写回文件，也未接本端管理页面，不修复 TOFU 写盘事务。认证枚举与快照已共用词法读取，原有 ed25519/ECDSA sshd 的 20 组信任变异重跑通过，范围见[§9.36](../docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)。
 
 UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 

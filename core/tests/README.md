@@ -247,3 +247,9 @@ archive 与测试可执行再重链；回滚同样执行，并核对原始 SHA25
 `connection_config` 是普通 SSH 连接的显式配置能力检查；与 42 键求值 golden 分开记账。`gt_config_check_connection` 只读 AST，保留来源/原字节，不执行 DNS 或 Match 命令；首值优先、累积列表、Host 否定与 Include 来源有独立断言。当前允许值、未知/Match 的保守拒绝及两端调用边界见[实现计划 §9.24](../../docs/reference/android-implementation.md#924-共享连接配置准入与两端接线2026-10-30)。通过不代表完整 OpenSSH 兼容或 Android SSH 已接通。
 
 本切片离线 gate 为 **35 项 CTest / 74 ABI**；`python3 scripts/mutation-check-connection-config.py` 在隔离副本运行 14 组，每组清洁构建后具体目标断言红、同变异 `test_api` 绿、恢复绿与 SHA256 一致。macOS 产品路由另由 auth 11 组验证，Android 配置桥/按钮另有五组设备变异；不是用 C 测试替代平台行为。本脚本为手工闸门，未新增 CI 脚本数量。
+
+### 主机信任记录快照
+
+`known_hosts_snapshot` 验证共享只读 `gt_known_hosts_*`：保留 marker、原始 UTF-8 字节范围/CRLF/末行无换行、哈希标志和畸形记录；注释不成为记录，NUL/大小/条目限额错误不变成空列表。返回字段形态不是信任决定，也未验证 base64 中的公钥。认证的 `gt__kh_visit` 与快照共用词法读取，既有撤销/未知规则/错误传播继续由真实 sshd 套件验收。
+
+`python3 scripts/mutation-check-known-hosts-snapshot.py --apple` 跑十组隔离 C 与一组 Swift 变异，目标红、独立 API/配置往返对照绿、恢复绿与 SHA256。Android 另有四组 JNI/Kotlin 设备变异。它们不增加 CI 20 份覆盖，不能作为文件移除/并发提交或产品页面完成的证据；记录见[Android §9.36](../../docs/reference/android-implementation.md#936-主机信任记录快照与平台绑定2026-10-30)。

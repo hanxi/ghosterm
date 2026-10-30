@@ -249,3 +249,32 @@ final class GhostermCoreTests: XCTestCase {
         XCTAssertTrue(acc2.contains("40 100"), "resize 生效（得到: \(acc2.debugDescription)）")
     }
 }
+
+final class KnownHostsSnapshotTests: XCTestCase {
+    func testRecordsCopyMarkersAndByteRanges() throws {
+        let prefix = "# 中文\r\n"
+        let line = " @revoked [host]:2222,other ssh-ed25519 AAAAAAAAAAAAAAAA\r\n"
+        let text = prefix + line + "|1|salt|hash ssh-rsa AAAAAAAAAAAAAAAA\nbroken"
+        let rows = try KnownHosts.records(text)
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertEqual(rows[0].marker, "@revoked")
+        XCTAssertEqual(rows[0].hosts, "[host]:2222,other")
+        XCTAssertEqual(rows[0].keyType, "ssh-ed25519")
+        XCTAssertEqual(rows[0].keyBase64, "AAAAAAAAAAAAAAAA")
+        XCTAssertEqual(rows[0].sourceLine, 2)
+        XCTAssertEqual(rows[0].byteStart, prefix.utf8.count)
+        XCTAssertEqual(rows[0].byteEnd, (prefix + line).utf8.count)
+        XCTAssertTrue(rows[0].recognized)
+        XCTAssertFalse(rows[0].hashed)
+        XCTAssertTrue(rows[1].hashed)
+        XCTAssertFalse(rows[2].recognized)
+        XCTAssertEqual(rows[2].hosts, "broken")
+        XCTAssertEqual(rows[2].byteEnd, text.utf8.count)
+    }
+    func testEmptyAndInvalidAreDistinct() throws {
+        XCTAssertEqual(try KnownHosts.records("# nothing\n\t\n"), [])
+        XCTAssertThrowsError(try KnownHosts.records("a\0b"))
+        XCTAssertThrowsError(try KnownHosts.records(String(repeating: "x", count: 1024 * 1024 + 1)))
+        XCTAssertThrowsError(try KnownHosts.records(String(repeating: "broken\n", count: 4097)))
+    }
+}

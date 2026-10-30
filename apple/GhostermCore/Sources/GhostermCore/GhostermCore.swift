@@ -1011,3 +1011,26 @@ extension Optional where Wrapped == String {
         }
     }
 }
+
+/// Source records only. Recognition is field shape, never a trust decision.
+public struct KnownHostRecord: Equatable {
+    public let sourceLine, byteStart, byteEnd: Int
+    public let marker, hosts, keyType, keyBase64: String
+    public let recognized, hashed: Bool
+}
+
+public enum KnownHosts {
+    public static func records(_ text: String) throws -> [KnownHostRecord] {
+        let snapshot = text.withCString { gt_known_hosts_parse($0, text.utf8.count) }
+        guard let snapshot else { throw GhostermError.failed(Ghosterm.lastError) }
+        defer { gt_known_hosts_free(snapshot) }
+        return try (0..<gt_known_hosts_count(snapshot)).map { index in
+            var record = gt_known_host_entry_t()
+            try check(Int32(gt_known_hosts_entry_at(snapshot, index, &record).rawValue))
+            return KnownHostRecord(sourceLine: Int(record.source_line), byteStart: Int(record.byte_start),
+                byteEnd: Int(record.byte_end), marker: String(cString: record.marker), hosts: String(cString: record.hosts),
+                keyType: String(cString: record.key_type), keyBase64: String(cString: record.key_base64),
+                recognized: record.recognized, hashed: record.hashed)
+        }
+    }
+}

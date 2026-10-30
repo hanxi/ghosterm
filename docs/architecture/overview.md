@@ -34,7 +34,7 @@
 2. **字节流不过事件队列**：终端输出由会话线程 `transport_read → surface` 直连；
    事件队列只承载低频状态。这是性能红线。
 3. **C ABI 是唯一跨语言边界**：`core/include/ghosterm.h`。opaque handle + POD，
-   当前 Swift 与 Android JNI 引用已有对拍；公共 C ABI 当前 75 项，Apple 引用 73 项、2 项登记未用；SSH 后端切片 JNI 为 32/42，身份容器切片为 33/41，IdentityFile 来源查询加入后当前为 34/41（产品首片见 Android 计划 §9.27，来源查询与绑定证据见 §9.34）；整个 A2/A3 尚未完成。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
+   当前 Swift 与 Android JNI 引用已有对拍；公共 C ABI 当前 79 项，Apple 引用 77 项、2 项登记未用；SSH 后端切片 JNI 为 32/42，身份容器切片为 33/41，IdentityFile 来源查询切片为 34/41，主机信任快照加入后当前为 38/41（产品首片见 Android 计划 §9.27，来源查询见 §9.34，信任快照与绑定见 §9.36）；整个 A2/A3 尚未完成。引用数量以对应检出运行脚本为准；NAPI 尚未实现。新增绑定须对拍并真实编译，符号通过不等于页面功能完成。
 
 ## 会话重构的当前进度
 
@@ -117,3 +117,5 @@ Android 身份设置已接通列表/详情、OpenSSH 公钥指纹、SAF 导入�
 | [Ghostling](https://github.com/ghostty-org/ghostling) | macOS/Linux | MIT | libghostty(-vt) C API 最小用法（Raylib 2D 渲染，单文件 C） |
 
 Android SSH 与本地终端共用 `session_jni.c` owner，SSH 认证完成后仍由同一线程持有 Transport/VT；状态快照和一次性响应属于控制面。`RemoteSession` 接受已解析地址和原始 hostkey 身份；DNS、认证页面与 Keystore 容器在平台控制面实现，已由 `c53cfb8` 交付并通过 §9.27 的完整 130 项设备回归。SAF 私钥导入已接原请求归属、旋转保留与可取消只读流，并通过五项定向、七组变异及完整 135 项设备测试，见[§9.29](../reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)。通道打开的 5 秒预算/取消边界见[§9.25](../reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)。
+
+known_hosts 管理读侧使用共享 `gt_known_hosts_*` 不可变快照，两端仅转换值与所有权。`gt__kh_split_line` 同时服务既有认证枚举，快照的 `recognized` 仅是词法形态，不能替代撤销优先/能力拒绝等认证判定。管理写侧还须与 C 的 TOFU 写入共用稳定锁和提交契约，不能以平台 UI 自己的锁冒充并发协调；实施顺序见[§4.5](../reference/android-implementation.md#45-主机信任记录管理)。

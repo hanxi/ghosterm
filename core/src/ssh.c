@@ -199,42 +199,9 @@ gt_status_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud) {
   size_t cap = 0;
   ssize_t got;
   while ((got = getline(&line, &cap, f)) > 0) {
-    char *p = line;
-    while (*p == ' ' || *p == '\t') p++;
-    if (*p == '#' || *p == '\n' || *p == '\r' || *p == '\0') continue;
-    char *nl = strpbrk(p, "\r\n");
-    if (nl) *nl = '\0';
-
-    /* Preserve markers: a CA or revoked key is never ordinary trust. */
-    const char *marker = "";
-    if (*p == '@') {
-      marker = p;
-      while (*p && *p != ' ' && *p != '\t') p++;
-      if (!*p) continue;
-      *p++ = '\0';
-      while (*p == ' ' || *p == '\t') p++;
-    }
-    char *hosts = p;
-    while (*p && *p != ' ' && *p != '\t') p++;
-    if (!*p) continue;
-    *p++ = '\0';
-    while (*p == ' ' || *p == '\t') p++;
-    char *ktype = p;
-    while (*p && *p != ' ' && *p != '\t') p++;
-    if (!*p) continue;
-    *p++ = '\0';
-    while (*p == ' ' || *p == '\t') p++;
-    char *kb64 = p;
-    while (*p && *p != ' ' && *p != '\t') p++;
-    *p = '\0';
-
-    /* 字段形态检查：key type 是算法名，blob 是 base64（长度够且无 '/'）。 */
-    if (!*hosts || !*ktype || !*kb64) continue;
-    if (strlen(kb64) < 16) continue;
-    if (strpbrk(kb64, "/=") == NULL && strncmp(ktype, "ssh-", 4) != 0)
-      continue; /* 既不像 base64 也不像算法名 → 不是公钥条目 */
-
-    if (!cb(ud, hosts, ktype, kb64, marker)) break;
+    gt_known_host_entry_t entry;
+    if (!gt__kh_split_line(line, &entry) || !entry.recognized) continue;
+    if (!cb(ud, entry.hosts, entry.key_type, entry.key_base64, entry.marker)) break;
   }
   bool failed = ferror(f) != 0 || (got < 0 && !feof(f));
   free(line);

@@ -23,12 +23,12 @@ def main():
         raise RuntimeError('residual known-host mutation marker')
     logs = ROOT / 'tmp/known-hosts-mutations'; logs.mkdir(parents=True, exist_ok=True)
     cases = [
-        ('K1-ecdsa', 'if (!*hosts || !*ktype || !*kb64) continue;',
-         'if (!*hosts || !*ktype || !*kb64 || strncmp(ktype,"ssh-",4)) continue;', None),
-        ('K2-all-lines', 'if (!cb(ud, hosts, ktype, kb64, marker)) break;',
-         'cb(ud, hosts, ktype, kb64, marker); break;', None),
+        ('K1-ecdsa', 'if (!gt__kh_split_line(line, &entry) || !entry.recognized) continue;',
+         'if (!gt__kh_split_line(line, &entry) || !entry.recognized || strncmp(entry.key_type,"ssh-",4)) continue;', None),
+        ('K2-all-lines', 'if (!cb(ud, entry.hosts, entry.key_type, entry.key_base64, entry.marker)) break;',
+         'cb(ud, entry.hosts, entry.key_type, entry.key_base64, entry.marker); break;', None),
         ('K3-bare-host', ' || kh_pattern(pattern,n,q->host)', '', None),
-        ('K4-marker', "if (*p == '@') {\n      marker = p;", "if (*p == '@') {\n      marker = \"\";", 'revoked-only'),
+        ('K4-marker', 'entry.key_base64, entry.marker)', 'entry.key_base64, "")', 'revoked-only'),
         ('K5-revoked', 'if (q.revoked) return KH_REVOKED;', 'if (false && q.revoked) return KH_REVOKED;', 'revoked-only'),
         ('K6-order', 'return true; /* A later revocation always overrides ordinary trust. */',
          'return !q->matched;', 'revoked-after-trusted'),

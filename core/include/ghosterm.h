@@ -72,6 +72,7 @@ size_t gt_core_poll_events(gt_event_t *out, size_t cap);
 /* ------------------------------------------------------------------ */
 
 #include "ghosterm/config.h"
+#include "ghosterm/known_hosts.h"
 #include "ghosterm/transport.h"
 #include "ghosterm/ssh.h"
 #include "ghosterm/sftp.h"
