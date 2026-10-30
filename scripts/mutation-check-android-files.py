@@ -60,7 +60,7 @@ def main():
         (screen,'onLongClick={ model.longPress(entry) }','onLongClick={ model.tap(entry) }',ui),
         (source,'check(active()) { "预览已取消" }','check(true) { "预览已取消" }',
          'FilesSafTest#providerErrorsEmptyUnknownSizeAndCancelledStreamRemainDistinct'),
-        (source,'Os.close(fd)','Unit','FileBrowserTest#localPreviewClosesDescriptorsAfterSuccessAndDecodeFailure'),
+        (source,'// This owner opened it with Os.open, so it must also close it.\n                Os.close(fd)','// This owner opened it with Os.open, so it must also close it.\n                Unit','FileBrowserTest#localPreviewClosesDescriptorsAfterSuccessAndDecodeFailure'),
     ]
     if args.case and not 1<=args.case<=len(cases):raise RuntimeError('Invalid case')
     def build(label):
@@ -77,7 +77,7 @@ def main():
         if passed!=green or (not green and ('FAILURES' not in output or not any(x in output for x in ('AssertionError','org.junit.ComparisonFailure')))):
             raise RuntimeError(output)
     build('baseline')
-    test('FileBrowserTest,FilesSafTest,'+lifecycle,True,'baseline',14)
+    test('FileBrowserTest,FilesSafTest,'+lifecycle,True,'baseline',15)
     test(control,True,'baseline-control')
     try:
         for index,(path,before,after,target) in enumerate(cases,1):

@@ -12,7 +12,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.data.LocalFileBrowser
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
+import com.hanxi.ghosterm.data.TransferStagingStore
+import android.os.ParcelFileDescriptor
+import java.io.FileInputStream
+import java.util.UUID
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -131,4 +135,41 @@ class FilesSafTest {
         ui.onNodeWithTag("file-preview").assertTextEquals("provider notes 🔑\n")
         assertEquals("opaque:note",main { model().preview!!.entry.id })
     }
+    @Test fun grantedDocumentsStageCompleteBytesAndRevocationPreventsNewSnapshots() {
+        grant()
+        val location=main { model().location }
+        val directory=File(instrumentation.targetContext.cacheDir,"saf-stage-${UUID.randomUUID()}")
+        val source=LocalFileBrowser(File(instrumentation.targetContext.filesDir,"home"),resolver)
+        TransferStagingStore(directory,1024*1024,2*1024*1024,0).use { store ->
+            try { runBlocking {
+                val entries=source.list(location)
+                val note=entries.single { it.id=="opaque:note" }
+                source.snapshot(location,note,store).use { snapshot ->
+                    snapshot.withDescriptor { fd,size ->
+                        val bytes=ParcelFileDescriptor.fromFd(fd).use { FileInputStream(it.fileDescriptor).readBytes() }
+                        assertEquals("provider notes 🔑\n",bytes.toString(Charsets.UTF_8));assertEquals(bytes.size.toLong(),size)
+                    }
+                }
+                source.snapshot(location,entries.single { it.id=="opaque:large" },store).use { snapshot ->
+                    assertEquals(256*1024+1L,snapshot.size)
+                    snapshot.withDescriptor { fd,_ ->
+                        val bytes=ParcelFileDescriptor.fromFd(fd).use { FileInputStream(it.fileDescriptor).readBytes() }
+                        assertTrue(bytes.all { it==97.toByte() });assertEquals(256*1024+1,bytes.size)
+                    }
+                }
+                val job=launch { source.snapshot(location,entries.single { it.id=="opaque:slow" },store).use { fail("cancelled SAF source published") } }
+                yield()
+                val natural=withContext(Dispatchers.IO) { awaitStreams(location.endpoint.treeUri!!,1) }
+                job.cancelAndJoin()
+                assertEquals(natural,withContext(Dispatchers.IO) { awaitStreams(location.endpoint.treeUri!!,0) })
+                withTimeout(5000) { while(store.reservedBytes!=0L) delay(10) }
+                revoke()
+                var failed=false
+                try { source.snapshot(location,note,store).close() } catch(_:Exception) { failed=true }
+                assertTrue("revoked provider must not be read",failed)
+                assertEquals(0L,store.reservedBytes);assertTrue(directory.list()!!.isEmpty())
+            } } finally { directory.deleteRecursively() }
+        }
+    }
+
 }

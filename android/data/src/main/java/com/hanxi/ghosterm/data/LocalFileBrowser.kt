@@ -1,5 +1,7 @@
 package com.hanxi.ghosterm.data
 
+import android.content.res.AssetFileDescriptor
+import android.os.ParcelFileDescriptor
 import android.content.ContentResolver
 import android.content.Intent
 import android.database.Cursor
@@ -143,6 +145,29 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
             return try { Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(data,0,used)).toString() }
             catch (_: java.nio.charset.CharacterCodingException) { error("此文件不是可预览的 UTF-8 文本") }
         } finally { data.fill(0);Os.fcntlInt(fd,OsConstants.F_SETFL,flags) }
+    }
+    /** Freeze a selected local/SAF source into an anonymous task-owned snapshot.
+     * No destination is opened and no remote/browser connection is borrowed. */
+    suspend fun snapshot(location: FileLocation, entry: BrowserEntry, store: TransferStagingStore): TransferStagingStore.Snapshot {
+        check(entry.kind==FileKind.FILE) { "只能复制普通文件；符号链接不会自动跟随" }
+        val expected=entry.size?.let { check(it<=Long.MAX_VALUE.toULong()) { "文件大小不受支持" };it.toLong() }
+        return store.snapshot(expected) { signal ->
+            if(location.endpoint==FileEndpoint.APP) {
+                check(entry.id.substringBeforeLast('/',"")==location.directoryId) { "文件不属于当前文件夹" }
+                val file=appPath(entry.id)
+                val fd=Os.open(file.path,OsConstants.O_RDONLY or OsConstants.O_CLOEXEC or OsConstants.O_NONBLOCK or OsConstants.O_NOFOLLOW,0)
+                try {
+                    check(OsConstants.S_ISREG(Os.fstat(fd).st_mode)) { "只能复制普通文件" }
+                    AssetFileDescriptor(ParcelFileDescriptor.dup(fd),0,AssetFileDescriptor.UNKNOWN_LENGTH)
+                } finally { Os.close(fd) }
+            } else {
+                check(location.endpoint.remote==null) { "远端来源须使用独立任务连接" }
+                val tree=checkGrant(location.endpoint);val uri=document(tree,entry.id)
+                check(Documents.isChildDocument(resolver,document(tree,location.directoryId),uri)) { "文件不属于来源文件夹" }
+                check(info(uri,signal).kind==FileKind.FILE) { "该文档不是文件" }
+                checkNotNull(resolver.openAssetFileDescriptor(uri,"r",signal)) { "无法打开文档" }
+            }
+        }
     }
     override suspend fun preview(location: FileLocation, entry: BrowserEntry): String = io { signal, active ->
         check(entry.kind==FileKind.FILE) { "此条目不能预览；符号链接不会自动跟随" }

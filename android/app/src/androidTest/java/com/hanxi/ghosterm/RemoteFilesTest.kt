@@ -4,6 +4,9 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.*
+import com.hanxi.ghosterm.data.LocalFileBrowser
+import com.hanxi.ghosterm.data.TransferStagingStore
+import com.hanxi.ghosterm.domain.*
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -355,6 +358,32 @@ class RemoteFilesTest {
             }
             assertEquals(0,sourceDescriptors())
         } finally { control("release",user) }
+    }
+
+    @Test fun stagedLocalSourceUploadsFrozenBytesWithoutExposingPrivatePaths() = directory { root ->
+        val home=File(root,"home").apply { mkdir() }
+        val source=File(home,"snapshot.txt").apply { writeText("frozen 中文 content\n") }
+        val local=LocalFileBrowser(home,instrumentation.targetContext.contentResolver)
+        TransferStagingStore(File(root,"staging"),1024,2048,0).use { store ->
+            RemoteFileSession(connection(known(root))).use { files ->
+                supply(files)
+                runBlocking {
+                    val location=FileLocation(FileEndpoint.APP)
+                    val selected=local.list(location).single()
+                    local.snapshot(location,selected,store).use { snapshot ->
+                        source.writeText("changed after copy")
+                        val path=fixture.getString("remoteRoot")+"-stage-"+UUID.randomUUID()
+                        val created=snapshot.withDescriptor { fd,size -> files.createExclusive(path,fd,size) }
+                        assertEquals(0,created.status)
+                        assertEquals(RemoteCreationState.COMPLETE,created.state)
+                        assertEquals("frozen 中文 content\n",files.previewText(path))
+                        assertEquals(listOf("snapshot.txt"),local.list(location).map { it.name })
+                        assertEquals("changed after copy",source.readText())
+                    }
+                    assertEquals(0L,store.reservedBytes)
+                }
+            }
+        }
     }
 
 }
