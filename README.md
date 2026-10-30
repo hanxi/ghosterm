@@ -10,7 +10,7 @@
 | 终端引擎 | **full libghostty**（Apple/Linux，Metal/GL4.3）· **libghostty-vt + 自绘**（Web/Android/HarmonyOS） |
 | 共享核心 | **C11**（`core/`）：ssh(libssh2) · sftp · ssh_config · known_hosts · PTY（端口转发待实现） |
 | 接缝 | `UI → TerminalSurface → Transport(本地PTY/SSH) → Core` |
-| 环境包 | 按需下载：Android Termux/proot · iOS iSH（不进 App 包） |
+| 环境包 | 规划按需下载：Android Termux/proot · iOS iSH（当前仅规范，无安装器，不进 App 包） |
 
 **不用跨端 UI 框架，不用 Rust。** 决策记录见 [docs/architecture/overview.md](docs/architecture/overview.md)。
 
@@ -21,7 +21,7 @@ core/           C 共享库（唯一跨语言边界：include/ghosterm.h）
 terminal/       各端 TerminalSurface（full libghostty 或 vt+自绘）
 apple/ android/  现有宿主 + UI（其余端 windows/linux/harmony/web 为规划）
 assets/         品牌资源：应用图标母版 SVG + 各端派生（scripts/build-icons.sh）
-runtime-payload/ 环境包清单与下载/校验（二进制不入库）
+runtime-payload/ 环境包清单规范（下载/校验/安装器待实现，二进制不入库）
 patches/        上游补丁（每个带 WHY.md）
 scripts/        构建 / 闸门 / 变异验证
 docs/           架构 · 能力矩阵 · 许可 · 路线 · Apple UI 已知坑
@@ -99,6 +99,8 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 ```
 
 ## 当前状态（2026-10-30）
+
+进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准。未提交身份设置已有入口与详情草稿，但后续变异恢复失败，不能计为交付，见[工作区记录](docs/reference/android-implementation.md#932-身份设置工作区复核2026-10-30)。最新已提交 Android 完整回归仍为 139 项。macOS 与共享核心本轮另核出下载提前截断、关闭错误未核验及递归护栏缺口，已补入路线图；本次只更新文档，未修复这些代码。
 
 字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
 

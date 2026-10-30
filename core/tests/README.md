@@ -6,6 +6,17 @@
 
 `python3 scripts/mutation-check-ssh-core.py credentials` 在隔离副本撤去这一分类，真实认证目标红、配置对照绿、恢复绿并核对 SHA256。`mutation-check-ssh-connector.py` 的既有 18 组另保护取消、deadline、信任与所有权；Android 另有真实产品凭据路径和七组设备变异，证据及历史失败见[实现记录 §9.31](../../docs/reference/android-implementation.md#931-加密私钥重试与密码产品流程2026-10-30)。
 
+## SFTP 现有验证的边界
+
+真实 sshd 的正常传输、文件操作、暂停/取消与既有变异不覆盖以下全部失败语义。2026-10-30 源码复核确认，仍须补实现和故障回归：
+
+- `job_download` 在打开远端文件前用 `wb` 打开本地目标；远端打开失败可能已经截断已有文件。暂存后提交和非覆盖创建尚无完整契约。
+- 上传/下载没有检查 `libssh2_sftp_close` 与本地 `fclose` 的结果；已读取/写入的字节数不证明缓冲关闭或目标提交成功。
+- `gt_sftp_walk` 仅裁剪大于 64 的正深度，负深度的递归条件没有硬上限；头文件注释所称“仍有编译期护栏”不代表实现已兑现。`remove_all` 有独立深度检查，不能将两者混为一谈。
+- 单 worker/FIFO 是每个 `gt_sftp_t` 的约束，不是跨连接的全局限并发；暂停中的当前 job 仍占用该会话 worker。
+
+本节只是源码覆盖核对，不新增已通过的测试数量；失败场景、Apple 调用方与 Android A5/A6 前置见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+
 ## 公共头依赖闸门
 
 `public_headers` 经 `ctest` 纳入 `scripts/gate.sh`：所有公开头分别作为第一个 include，
