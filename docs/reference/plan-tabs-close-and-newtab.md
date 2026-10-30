@@ -11,12 +11,13 @@
 > 参照实现：iGhostVT（`owngoal-dev/iGhostVT`，核对于 1.6.11 / `860cbc4`）——
 > 本计划的关闭判据就是它的 `TerminalTab.hasRunningProgram` 同口径。
 
-## 当前行为与历史方案的差异（2026-10-29）
+## 当前行为与历史方案的差异（2026-10-30）
 
 下文保留 S1–S5 当时的接口形态与测试记录，当前代码以以下行为为准：
 
 - `TabKind` 已增加 `.localFiles`。`AppModel.newTabLikeActive()` 对没有终端叶子的标签创建对应文件工作区，本地文件标签不会因 ⌘T 启动 shell；有终端时仍按本地/SSH 类型新建。导航加号打开连接选择器，与 ⌘T 继承不是同一动作。
 - 布局由 `WorkspaceLayout` 统一终端和文件叶子，`PaneLayout` 是只读终端投影。关闭确认检查实际窗格和关联传输，不能仅按标签的 `.sftp` 类型判断；未完成连接的远端文件窗格也可能要求确认。
+- 当前关闭确认由 `TerminalPane` / `TerminalTab` 与窗口宿主判断，不读取 Ghostty 的 `confirm-close-surface` 来改变策略。该键的配置声明不是现有产品开关，详见 [Apple 接线边界](../../apple/README.md#引擎配置与宿主动作边界)。
 - tmux 窗格关闭只断开客户端，不结束后台任务，也不沿用普通 SSH 的 UNKNOWN 作业确认。普通本地/SSH 的作业与未知判据继续有效；没有计划恢复自有 daemon。
 - 终端自行退出只移除该叶子，文件叶子仍在时保留标签；用户关闭整个标签与 shell 自行退出不是同一生命周期路径。
 

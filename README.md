@@ -102,7 +102,7 @@ swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 Ap
 
 字段来源接口及 Android 主机表单接线已在[实现计划 §9.5](docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)记录。Core、平台绑定、设备与 UI 分别验收，不能把接口或历史测试数量当作完整客户端交付证据。
 
-Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付真实本地终端、文本选择/复制粘贴、键盘协议与闪烁文本绘制。最新完整设备结果为 **113 项通过**（含真实 SSH 夹具，见实现计划 §9.25）；输入后短时取帧与模拟器 debug 性能基线见[实现计划 §9.21](docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)。真机/release、长时间负载及物理键盘/布局矩阵仍未完成。SSH native 认证/远端终端后端已接；产品 DNS/认证页面、Keystore、文件四方向复制和完整设置仍待实施。macOS 配置事务、认证安全、终端剪贴板、设置读写与文件异常处理独立列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)；Android 的验收不改变其状态。
+Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付真实本地终端、文本选择/复制粘贴、键盘协议与闪烁文本绘制。最新完整设备结果为 **113 项通过**（含真实 SSH 夹具，见实现计划 §9.25）；输入后短时取帧与模拟器 debug 性能基线见[实现计划 §9.21](docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)。真机/release、长时间负载及物理键盘/布局矩阵仍未完成。SSH native 认证/远端终端后端已接；产品 DNS/认证页面与 Keystore 已有未验草稿（含默认 ViewModel 工厂阻塞，见实现计划 §9.26）；文件四方向复制和完整设置仍待实施。macOS 配置事务、认证安全、终端剪贴板、设置读写与文件异常处理独立列为[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)；Android 的验收不改变其状态。
 
 | 能力 | 状态 |
 |---|---|
@@ -112,7 +112,7 @@ Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付
 | `ssh_config` 编辑 API | 🟡 9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令已按实际匹配行编辑，已增加三字段来源与包含文件/重名块编辑保护；已接入仅替换目标别名 token 的重命名接口；全部字段视图仍待补齐 |
 | `ssh_config` `Include` 展开 | ✅ OpenSSH 同口径（相对路径基准 = ~/.ssh、glob、嵌套 + 深度上限 16）；6 组断言 + 变异 I1~I4 |
 | 本地 PTY transport（forkpty） | ✅ POSIX 实现（macOS/Linux 证据；Android A2 首片已有 API 36 模拟器定向/变异证据，整个阶段未完成） |
-| SSH（libssh2）connect / auth / hostkey TOFU / ssh-shell | 🟡 密码/密钥、可取消认证与撤销优先的主机验证已有真 sshd 证据；CA-only、未知标记和 hashed 条目显式报不支持，见 [主机信任边界](core/tests/README.md#主机信任与撤销)。共享连接前配置检查已接两端；高级选项执行仍未实现，Android SSH 后端已绑定，产品页面待接 |
+| SSH（libssh2）connect / auth / hostkey TOFU / ssh-shell | 🟡 密码/密钥、可取消认证与撤销优先的主机验证已有真 sshd 证据；CA-only、未知标记和 hashed 条目显式报不支持，见 [主机信任边界](core/tests/README.md#主机信任与撤销)。共享连接前配置检查已接两端；高级选项执行仍未实现，Android SSH 后端已绑定，产品页面草稿待验 |
 | SFTP（list / stat / 上传 / 下载 / job 三态） | 🟡 基础原语有真 sshd e2e 与变异证据；非覆盖创建、覆盖截断及过载下终态保障仍待补齐 |
 | **macOS 原生宿主** | 🟡 已交付主要功能；配置写盘与私钥安全存储接线仍有缺口，见路线图 |
 | ├ TerminalSurface（full libghostty + Metal） | ✅ 上游补丁提供 host IO 后端（`patches/libghostty/`） |
@@ -127,7 +127,7 @@ Android A0/A1 已完成 API 36 arm64 / 4 KB 页模拟器档验收；A2 已交付
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留） |
 | 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
-| Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；已有模拟器 debug 性能基线；真机/长负载性能和完整键盘矩阵待补，SSH/文件仍待接入 |
+| Android | 🟡 A0/A1 已在 API 36 arm64 模拟器档完成；[实现进度](docs/reference/android-implementation.md)，A2 本地终端首片已交付，文本操作切片已验；选区边缘滚动/Ctrl 生命周期切片已验；Gboard 拼音基本路径与按键重复/释放切片已验；已有模拟器 debug 性能基线；真机/长负载性能和完整键盘矩阵待补；SSH 后端已验、产品接线草稿待收口，文件未接 |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
 进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。

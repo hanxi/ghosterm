@@ -61,6 +61,8 @@ libghostty 的 Metal 渲染器要求 surface 的 NSView 是 **layer-hosting**：
 自己的 layer、再置 `wantsLayer`（见 `vendor/ghostty/src/renderer/Metal.zig`）。
 嵌入侧**不要**提前设 `view.wantsLayer = true`，否则它会走另一条分支。
 
+引擎配置与宿主关闭是不同路径：`close_surface_cb` 尚未绑定，标签/窗格/窗口关闭由 App 模型的作业和传输判据控制；不能把 `confirm-close-surface` 的配置声明写成已接通的产品开关。系统剪贴板同样依赖平台回调，`copy-on-select` 可被引擎解析不等于已经写入 `NSPasteboard`。详见 [Apple 接线说明](../../apple/README.md#引擎配置与宿主动作边界)。
+
 ## 待办
 
 - [ ] macOS 终端系统剪贴板：当前 shim 读取回调返回不可用，写入/确认回调为空；`TerminalHostView` 未实现编辑菜单的 `copy:` / `paste:` 路由。`sendText` 和 IME 测试不是系统复制粘贴证据。须接入选区→`NSPasteboard`→VT 粘贴及确认/取消，用真实菜单和快捷键验收；详见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。

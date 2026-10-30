@@ -77,6 +77,14 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 关于窗口的更新检测只在用户点击时联网。`UpdateCheck.swift` 已处理缺字段、无本机 commit、渠道不符和网络错误，但远端 commit 的格式、摘要字符集及下载来源尚未严格校验；按 commit 不同提示“有新版”也不表示已经比较提交祖先关系。该缺口与安装脚本的 SHA256/签名校验分开，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
+### 引擎配置与宿主动作边界
+
+`SettingsStore.terminalSettingKeys` 是配置元数据，生产 `SettingsView` 没有遍历它生成全部控件。该目录中的 `copy-on-select`、`confirm-close-surface` 不应被描述成现有产品已经兑现的两个开关。Ghostty 配置页可以提交引擎语法，但语法被接受不代表平台回调已接通。
+
+当前 `CGhostty/shim.c` 的系统剪贴板读回调返回不可用，写入/确认回调为空；因此选中复制没有系统剪贴板落点。`close_surface_cb` 也为空，`TerminalPane.closeNeedsConfirmation` 按状态与前台作业判断，`TerminalTab` 再汇总文件连接与传输；tmux 客户端关闭另行处理。宿主没有读取 `confirm-close-surface` 来改变这些判据。不要从引擎配置声明推断该键控制标签、窗格或窗口关闭。
+
+这是源码接线核对，未新增开关行为测试。系统剪贴板仍按路线图 P1 实施；若将来提供关闭策略偏好，需要先明确其与未知作业、传输及 tmux 的关系并独立验收。
+
 ### 文件查询与线程边界
 
 [SFTPFileBackend](GhostermApp/Sources/GhostermAppModel/SFTPFileBackend.swift) 使用串行队列保证同一后端调用保序，但公开方法是 `queue.sync`。`@MainActor TransferManager.start/pause/resume/cancel` 同步调用该后端，整次远端 walk/search 又占用同一队列。因此入队、冲突查询或控制操作可能等待网络或正在执行的遍历；不能将“有后台队列”解释为“主线程不会等待”。终端 `SessionController.stop` 的有界验证不覆盖这条文件路径。
