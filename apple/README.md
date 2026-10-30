@@ -1,6 +1,8 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
-**当前接口进度（§9.57，2026-10-31）**：远端非覆盖发布、Swift/JNI/Kotlin 绑定及专项已验；46 项 CTest / 88 ABI、Apple 86/2、JNI 48/40。Android 32 项定向及十组发布变异通过，既有读取/创建/owner 13＋9＋18 组独立复验。两端原生构建通过；复制清单、任务、本机/SAF 目标和 macOS 文件产品迁移仍未完成。完整设备结果及协议/变异范围见[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)。
+**A5 应用私有目录发布（§9.58，2026-10-31）**：`LocalFilePublisher` 已接常规文件的独占候选、写端关闭及 NOREPLACE 提交；十项设备定向、24 组新增与 23 组既有暂存变异通过。来源快照仍匿名，命名目标候选位于 HOME 外的私有目录；SAF、目录树、任务预算/进程恢复和复制页面仍待接入。失败记录、完整设备及跨端验证见[§9.58](../docs/reference/android-implementation.md#958-a5-应用私有目录非覆盖发布2026-10-31)。
+
+**共享发布接口记录（§9.57，2026-10-31）**：远端非覆盖发布、Swift/JNI/Kotlin 绑定及专项已验；46 项 CTest / 88 ABI、Apple 86/2、JNI 48/40。Android 32 项定向及十组发布变异通过，既有读取/创建/owner 13＋9＋18 组独立复验。两端原生构建通过；复制清单、任务、SAF 目标和 macOS 文件产品迁移仍未完成；应用私有目录文件发布由 §9.58 补齐。完整设备结果及协议/变异范围见[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)。
 
 **远端受控读取绑定（§9.56）**：新增 `SFTPSession.receive`，将远端普通文件写入调用方独占的空 fd；0 字节上限只接受空源，完整读取/源属性复核/关闭成功后才返回大小。45 CTest / 87 ABI、Apple 85/2；21 Core＋1 无库＋4 Swift 变异及原生 App 构建已通过。Android 最终完整 260 项回归通过，首轮失败与同步修正保留；各项结果见[§9.56](../docs/reference/android-implementation.md#956-a5-远端读取到匿名暂存2026-10-31)。当前文件队列和 Quick Look 尚未消费此接口，旧下载完整性、目标发布与产品取消待办仍有效。
 
