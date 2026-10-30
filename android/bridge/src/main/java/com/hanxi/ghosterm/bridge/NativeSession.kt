@@ -73,7 +73,7 @@ open class NativeTerminalSession internal constructor(private var handle: Long, 
     }
     @Synchronized internal fun respond(prompt: SSHAuthState, kind: Int, first: ByteArray = byteArrayOf(), second: ByteArray = byteArrayOf()) {
         try {
-            check(remote && handle != 0L && prompt.owner == handle) { "SSH 请求不属于此会话" }
+            check(remote && handle != 0L && prompt.owner == handle && prompt.scope == null) { "SSH 请求不属于此会话" }
             NativeSession.respondAuthentication(handle, prompt.request, kind, first, second)
         } finally { first.fill(0); second.fill(0) }
     }

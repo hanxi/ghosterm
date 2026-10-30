@@ -391,6 +391,13 @@ public final class SSHSession {
         try check(gt_ssh_authenticate(handle))
     }
 
+    /// Owner-only: interrupt the socket before releasing every channel and this session.
+    /// Never call concurrently with Core operations or use the connection afterwards.
+    public func abort() throws {
+        guard !closed else { throw GhostermError.failed("SSH session closed") }
+        try check(gt_ssh_abort(handle))
+    }
+
     /// 显式关闭（幂等）。libssh2 阻塞语义：调用方负责在会话线程上调用。
     public func close() {
         guard !closed else { return }

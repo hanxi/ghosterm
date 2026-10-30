@@ -797,9 +797,19 @@ int gt__ssh_borrow(gt_ssh_t *ssh,void **session,int *socket) {
   if(!ssh || !ssh->connected || !session || !socket)return GT_ERR_INVALID_ARG;
   *session=ssh->session;*socket=ssh->sock;return GT_OK;
 }
-void gt__ssh_abort(gt_ssh_t *ssh) {
-  if(ssh){(void)shutdown(ssh->sock,SHUT_RDWR);ssh->connected=false;}
+int gt_ssh_abort(gt_ssh_t *ssh) {
+  if (!ssh) return GT_ERR_INVALID_ARG;
+  int result = 0;
+  if (ssh->sock >= 0) {
+    do { result = shutdown(ssh->sock, SHUT_RDWR); } while (result < 0 && errno == EINTR);
+  }
+  ssh->connected = false;
+  if (result < 0 && errno != ENOTCONN) {
+    gt__set_error("ssh abort: socket shutdown failed"); return GT_ERR_IO;
+  }
+  return GT_OK;
 }
+void gt__ssh_abort(gt_ssh_t *ssh) { (void)gt_ssh_abort(ssh); }
 
 
 
@@ -1407,6 +1417,7 @@ void gt__ssh_connector_close(gt_ssh_connector_t *c){(void)c;}
 
 int gt__ssh_borrow(gt_ssh_t *s,void **p,int *fd){(void)s;if(p)*p=NULL;if(fd)*fd=-1;return GT_ERR_UNSUPPORTED;}
 void gt__ssh_abort(gt_ssh_t *s){(void)s;}
+int gt_ssh_abort(gt_ssh_t *ssh) { return ssh ? GT_ERR_UNSUPPORTED : GT_ERR_INVALID_ARG; }
 
 
 

@@ -15,6 +15,9 @@ class ResolvedSSHConnection(val host: String, val port: Int, val user: String,
     constructor(host: String, port: Int, user: String, knownHosts: String,
         address: ByteArray, scope: Int = 0, timeoutMillis: Int = 60_000) :
         this(host, port, user, knownHosts, listOf(ResolvedSSHAddress(address, scope)), timeoutMillis)
+    internal fun openFiles(): Long = NativeFiles.create(host.toByteArray(Charsets.UTF_8), port,
+        user.toByteArray(Charsets.UTF_8), knownHosts.toByteArray(Charsets.UTF_8),
+        candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis)
     internal fun open(): Long = NativeSession.createRemote(host.toByteArray(Charsets.UTF_8), port,
         user.toByteArray(Charsets.UTF_8), knownHosts.toByteArray(Charsets.UTF_8),
         candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis)
@@ -31,7 +34,7 @@ enum class SSHAuthPhase { TCP, NEGOTIATING, HOSTKEY, AUTHENTICATING, READY, TAKE
 enum class SSHHostState { UNCHECKED, KNOWN, UNKNOWN, MISMATCH, REVOKED }
 class SSHAuthState internal constructor(internal val owner: Long, val request: Long, val phase: SSHAuthPhase,
     val error: Int, val host: SSHHostState, val deadline: Boolean, val methods: Int,
-    val keyType: String, val fingerprint: String) {
+    val keyType: String, val fingerprint: String, internal val scope: Any? = null) {
     val description: String get() = when (phase) {
         SSHAuthPhase.TCP -> "正在连接 SSH…"
         SSHAuthPhase.NEGOTIATING -> "正在协商 SSH…"
@@ -52,11 +55,11 @@ class SSHAuthState internal constructor(internal val owner: Long, val request: L
         }
     }
     internal companion object {
-        fun decode(owner: Long, fields: Array<ByteArray>): SSHAuthState {
+        fun decode(owner: Long, fields: Array<ByteArray>, scope: Any? = null): SSHAuthState {
             check(fields.size == 8) { "SSH 状态格式无效" }
             val f = fields.map { it.toString(Charsets.UTF_8) }
             return SSHAuthState(owner, f[0].toLong(), SSHAuthPhase.entries[f[1].toInt()], f[2].toInt(),
-                SSHHostState.entries[f[3].toInt()], f[4] == "1", f[5].toInt(), f[6], f[7])
+                SSHHostState.entries[f[3].toInt()], f[4] == "1", f[5].toInt(), f[6], f[7], scope)
         }
     }
 }

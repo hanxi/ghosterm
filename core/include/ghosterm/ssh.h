@@ -108,6 +108,12 @@ int gt_ssh_authenticate(gt_ssh_t *ssh);
 
 /* 一步到位（= 握手 + 认证），保持既有契约；阻塞。 */
 int gt_ssh_connect(gt_ssh_t *ssh);
+/* IO-owner-only irreversible socket shutdown, without waiting for the peer.
+ * Invalidates every channel on this connection; does not free any handles.
+ * Stop all operations first, then abort, close channels/SFTP, and close SSH on
+ * that same owner. Not a concurrent UI-thread cancellation API. Idempotent;
+ * NULL is INVALID_ARG, unavailable backend is UNSUPPORTED. */
+int gt_ssh_abort(gt_ssh_t *ssh);
 void gt_ssh_close(gt_ssh_t *ssh);
 
 gt_sftp_t *gt_ssh_sftp(gt_ssh_t *ssh);

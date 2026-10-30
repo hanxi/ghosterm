@@ -144,14 +144,16 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 > `check-abi-apple.sh` 另对拍 Swift 的引用名集合；`check-abi-android.py` 对拍 Android JNI 引用。
 > A1 验收时为 Apple 71/2、JNI 11/62（引用/显式登记未用）；A2 本地终端首片 JNI 为 19/54，整个 A2 阶段尚未完成。连接检查接口加入后公共符号为 74 项，Apple 72/2；JNI 配置检查切片 20/54，SSH 后端切片为 32/42，身份容器首片加入后为 33/41；IdentityFile 来源查询切片为 75 个公共符号、Apple 73/2、JNI 34/41；主机信任记录快照切片为 79 个公共符号、Apple 77/2、JNI 38/41；共享信任写入与移除绑定为 80 个公共符号、Apple 78/2、JNI 39/41；已验通道取消切片为 81 个公共符号、Apple 79/2、JNI 39/42（新入口替换旧 shell 引用）；受控 SFTP 切片为 82 个公共符号、Apple 80/2、JNI 40/42（§9.47），只有绑定/helper，无文件产品接线。§9.45 Android 依赖补丁已验六场景及完整 214 项；§9.47 主机补丁依赖已接默认构建，17 项协议、十组接口变异、十一组依赖守卫与既有打包变异通过，详见 `docs/reference/host-ssh2-build.md`。实际数量以当前检出的脚本输出为准；符号对拍不替代平台行为验收。
 > 各次接口与平台验收分别记在 `docs/reference/roadmap.md`，不得借旧结果记新接口通过。
-> Android 已验收组件/配置绑定；A2 首片已接本地 Transport、Canvas/InputConnection 与会话生命周期，整个终端阶段未完成。连接配置检查已接两端；Android SSH native owner/认证桥及远端终端后端已接，产品 DNS/认证页面与 Keystore 容器首片已接（实现计划 §9.27），整个 A3 仍未完成；SFTP 文件产品与 NAPI 尚未接线（SFTP native helper 不计产品接线）。
+> Android 已验收组件/配置绑定；A2 首片已接本地 Transport、Canvas/InputConnection 与会话生命周期，整个终端阶段未完成。连接配置检查已接两端；Android SSH native owner/认证桥及远端终端后端已接，产品 DNS/认证页面与 Keystore 容器首片已接（实现计划 §9.27），整个 A3 仍未完成；SFTP 文件专用 owner/JNI/Kotlin 后端已由 §9.51 接入，远端页面与 NAPI 尚未接线（后端不计文件产品交付）。
 > 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
 
 `libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的九场景、七组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同九场景。Android 与主机默认构建均应用补丁；`mutation-check-sftp-open.py` 另验 7 C + 2 Swift + 1 无库组，`mutation-check-host-ssh2.py --app 本轮.app` 验十一组依赖/包/CMake 守卫，目标红、独立对照绿、恢复绿与 SHA256。已交付证据见 Android 实现计划 §9.45/§9.47/§9.49，范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
 
-`sftp-browse` 用 `python3 scripts/mutation-check-sftp-browse.py` 手工验证 13 Core + 2 依赖 + 3 Swift + 1 无库组，覆盖受控目录、实际分配器释放、NAME 边界和绑定；36 项协议矩阵独立执行。当前 83 ABI、Apple 81/2、JNI 40/43，产品尚未消费。`sftp-submit` 用真实 worker 提前释放与 ASan 验任务返回 ID 所有权，一组变异目标 UAF 红、独立 API 绿、恢复绿与 SHA；`exec` 增加会话超时恢复组，共三组。正常目录/提交回归进入 Core gate，手工脚本不增加 CI 20 份。范围与失败记录见 Android 实现计划 §9.49；此处登记现有覆盖，不改变既有验收规则。
+`sftp-browse` 用 `python3 scripts/mutation-check-sftp-browse.py` 手工验证 13 Core + 2 依赖 + 3 Swift + 1 无库组，覆盖受控目录、实际分配器释放、NAME 边界和绑定；36 项协议矩阵独立执行。该切片为 83 ABI、Apple 81/2、JNI 40/43，产品当时尚未消费。`sftp-submit` 用真实 worker 提前释放与 ASan 验任务返回 ID 所有权，一组变异目标 UAF 红、独立 API 绿、恢复绿与 SHA；`exec` 增加会话超时恢复组，共三组。正常目录/提交回归进入 Core gate，手工脚本不增加 CI 20 份。范围与失败记录见 Android 实现计划 §9.49；此处登记现有覆盖，不改变既有验收规则。
 
-`sftp-preview` 用 `python3 scripts/mutation-check-sftp-preview.py` 手工验证 15 Core + 1 无库 + 4 Swift 组，护预算/取消、只读打开、打开前后类型/大小、限额额外字节、EOF 完整性、关闭结果/释放、连接失效、发布与绑定；独立协议矩阵 46 项。当前 84 ABI、Apple 82/2、JNI 40/44，Android 预览仍登记待接。正常真实 SSH 预览进入 Core gate；20 组变异属手工证据，不增加 CI 20 份。首轮验证脚本文案失败及最终结果见 Android 实现计划 §9.50。
+`sftp-preview` 用 `python3 scripts/mutation-check-sftp-preview.py` 手工验证 15 Core + 1 无库 + 4 Swift 组，护预算/取消、只读打开、打开前后类型/大小、限额额外字节、EOF 完整性、关闭结果/释放、连接失效、发布与绑定；独立协议矩阵 46 项。该切片为 84 ABI、Apple 82/2、JNI 40/44，Android 预览当时登记待接。正常真实 SSH 预览进入 Core gate；20 组变异属手工证据，不增加 CI 20 份。首轮验证脚本文案失败及最终结果见 Android 实现计划 §9.50。
+
+`android-files-owner` 用 `python3 scripts/mutation-check-android-files-owner.py` 手工执行 18 组，护专用连接中止/取消/预算、目录/预览限额和内容、未知元数据/编码、认证作用域/凭据缓冲及请求/句柄代次；编译后目标红、同 APK 配置对照绿、恢复绿与 SHA256。`python3 scripts/mutation-check-ssh-abort.py` 另验 1 Core + 1 无库 + 1 Swift 组，独立配置/API 对照。§9.51 当前为 42 CTest / 85 ABI、Apple 83/2、JNI 45/40；13 项新增设备与最终 52 项定向回归通过，页面尚未接，不称完整客户端回归。此处登记已验证范围，不更改既有验收要求或增加 CI 20 份。
 
 ### 变异验证（新增闸门必须附）
 

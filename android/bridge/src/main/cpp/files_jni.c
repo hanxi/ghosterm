@@ -1,0 +1,192 @@
+#include <jni.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <limits.h>
+#include "ghosterm.h"
+#include "ssh_session.h"
+
+/* Dedicated read-only SSH/SFTP owner. JNI only copies control/results; no Core
+ * operation, blocking network call, join or destruction runs on a JNI caller. */
+#define FILE_SLOTS 16
+#define RESULT_LIMIT (4 * 1024 * 1024)
+#define PREVIEW_LIMIT (256 * 1024)
+typedef struct file_session {
+    size_t refs;
+    pthread_mutex_t mutex;
+    pthread_cond_t wake;
+    atomic_bool stop;
+    gaj_ssh *auth;
+    int phase, error; /* 0 connecting, 1 ready, 2 failed, 3 stopped */
+    uint64_t sequence, request;
+    int kind, status;
+    uint32_t budget;
+    bool complete;
+    char *path;
+    uint8_t *result;
+    size_t length;
+} file_session;
+static struct { file_session *value; uint64_t generation; } registry[FILE_SLOTS];
+static pthread_mutex_t registry_mutex=PTHREAD_MUTEX_INITIALIZER;
+static atomic_int owners;
+static void fail(JNIEnv *env,const char *message) {
+    jclass type=(*env)->FindClass(env,"java/lang/IllegalStateException");
+    if(type)(*env)->ThrowNew(env,type,message);
+}
+static void release(file_session *s) {
+    pthread_mutex_lock(&registry_mutex);bool destroy=--s->refs==0;pthread_mutex_unlock(&registry_mutex);
+    if(!destroy)return;
+    gaj_ssh_free(s->auth);free(s->path);free(s->result);
+    pthread_cond_destroy(&s->wake);pthread_mutex_destroy(&s->mutex);free(s);
+}
+static file_session *borrow(JNIEnv *env,jlong id) {
+    if(id<=0){fail(env,"文件连接已关闭");return NULL;}
+    size_t slot=(uint64_t)id%FILE_SLOTS;uint64_t generation=(uint64_t)id/FILE_SLOTS;
+    pthread_mutex_lock(&registry_mutex);
+    file_session *s=registry[slot].generation==generation?registry[slot].value:NULL;
+    if(s)s->refs++;
+    pthread_mutex_unlock(&registry_mutex);
+    if(!s)fail(env,"文件连接已关闭");return s;
+}
+static bool stopped(void *context){return atomic_load(&((file_session *)context)->stop);}
+static void u32(uint8_t **p,uint32_t value){for(int i=3;i>=0;i--)*(*p)++=(uint8_t)(value>>(i*8));}
+static void u64(uint8_t **p,uint64_t value){for(int i=7;i>=0;i--)*(*p)++=(uint8_t)(value>>(i*8));}
+static void string(uint8_t **p,const char *value){size_t n=strlen(value);u32(p,(uint32_t)n);memcpy(*p,value,n);*p+=n;}
+static int directory(file_session *s,gt_sftp_t *files,const char *path,uint32_t budget,uint8_t **out,size_t *length) {
+    char canonical[4096];gt_sftp_entry_t *entries=NULL;size_t count=0;
+    int status=gt_sftp_browse_controlled(files,path,canonical,sizeof canonical,&entries,&count,budget,4096,stopped,s);
+    if(status!=GT_OK)return status;
+    size_t total=8+strlen(canonical);
+    for(size_t i=0;i<count;i++) {
+        size_t n=strlen(entries[i].full_path);
+        if(n>RESULT_LIMIT || total>RESULT_LIMIT-24-n){gt_sftp_list_free(entries,count);return GT_ERR_IO;}
+        total+=24+n;
+    }
+    uint8_t *bytes=malloc(total);if(!bytes){gt_sftp_list_free(entries,count);return GT_ERR_INTERNAL;}
+    uint8_t *p=bytes;string(&p,canonical);u32(&p,(uint32_t)count);
+    for(size_t i=0;i<count;i++) {
+        const gt_sftp_stat_t *st=&entries[i].stat;
+        string(&p,entries[i].full_path);
+        u32(&p,(st->is_dir?1u:0u)|(st->is_symlink?2u:0u)|(st->is_regular?4u:0u)|(st->has_size?8u:0u));
+        u64(&p,st->size);u64(&p,(uint64_t)st->mtime_unix);
+    }
+    gt_sftp_list_free(entries,count);*out=bytes;*length=total;return GT_OK;
+}
+static void *owner(void *context) {
+    file_session *s=context;gt_ssh_t *ssh=gaj_ssh_connect(s->auth,&s->stop);gt_sftp_t *files=NULL;
+    int status=GT_ERR_IO;
+    if(!ssh || stopped(s))goto finished;
+    gt_status_t opened=GT_OK;files=gaj_ssh_open_sftp(s->auth,ssh,&s->stop,&opened);status=opened;
+    if(!files || stopped(s))goto finished;
+    pthread_mutex_lock(&s->mutex);s->phase=1;pthread_mutex_unlock(&s->mutex);
+    while(!stopped(s)) {
+        pthread_mutex_lock(&s->mutex);
+        while(!s->path && !stopped(s))pthread_cond_wait(&s->wake,&s->mutex);
+        char *path=s->path;s->path=NULL;
+        uint64_t request=s->request;int kind=s->kind;uint32_t budget=s->budget;
+        pthread_mutex_unlock(&s->mutex);
+        if(stopped(s)){free(path);break;}
+        uint8_t *result=NULL;size_t length=0;
+        if(kind==1)status=directory(s,files,path,budget,&result,&length);
+        else {
+            result=malloc(PREVIEW_LIMIT);
+            status=result?gt_sftp_preview_controlled(files,path,result,PREVIEW_LIMIT,&length,budget,stopped,s):GT_ERR_INTERNAL;
+        }
+        free(path);
+        if(status!=GT_OK){free(result);result=NULL;length=0;}
+        pthread_mutex_lock(&s->mutex);
+        if(s->request==request && !stopped(s)) {
+            s->result=result;s->length=length;s->status=status;s->complete=true;result=NULL;
+        }
+        pthread_mutex_unlock(&s->mutex);free(result);
+        if(status!=GT_OK)break;
+    }
+finished:
+    /* No terminal or transfer shares this socket. Abort before SFTP cleanup so
+     * a peer withholding CHANNEL_CLOSE cannot keep this detached owner alive. */
+    if(ssh)(void)gt_ssh_abort(ssh);
+    gt_sftp_close(files);gt_ssh_close(ssh);
+    pthread_mutex_lock(&s->mutex);
+    s->phase=stopped(s)?3:2;s->error=stopped(s)?GT_ERR_CANCELLED:status;
+    pthread_mutex_unlock(&s->mutex);
+    atomic_fetch_sub(&owners,1);release(s);return NULL;
+}
+JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_create(JNIEnv *env,jobject self,
+        jbyteArray host,jint port,jbyteArray user,jbyteArray known,jobjectArray addresses,jintArray scopes,jint timeout) {
+    (void)self;gaj_ssh *auth=gaj_ssh_new(env,host,port,user,known,addresses,scopes,timeout);if(!auth)return 0;
+    file_session *s=calloc(1,sizeof(*s));if(!s){gaj_ssh_free(auth);fail(env,"无法分配文件连接");return 0;}
+    s->auth=auth;atomic_init(&s->stop,false);
+    if(pthread_mutex_init(&s->mutex,NULL)){gaj_ssh_free(auth);free(s);fail(env,"无法初始化文件锁");return 0;}
+    if(pthread_cond_init(&s->wake,NULL)){pthread_mutex_destroy(&s->mutex);gaj_ssh_free(auth);free(s);fail(env,"无法初始化文件队列");return 0;}
+    s->refs=2;
+    pthread_mutex_lock(&registry_mutex);
+    size_t slot=0;while(slot<FILE_SLOTS && registry[slot].value)slot++;
+    if(slot==FILE_SLOTS || registry[slot].generation >= (uint64_t)INT64_MAX/FILE_SLOTS-1) {
+        pthread_mutex_unlock(&registry_mutex);s->refs=1;release(s);fail(env,"文件连接数量已达上限");return 0;
+    }
+    uint64_t generation=++registry[slot].generation;registry[slot].value=s;
+    jlong id=(jlong)(generation*FILE_SLOTS+slot);pthread_mutex_unlock(&registry_mutex);
+    pthread_t thread;pthread_attr_t attr;pthread_attr_init(&attr);pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_DETACHED);
+    atomic_fetch_add(&owners,1);int rc=pthread_create(&thread,&attr,owner,s);pthread_attr_destroy(&attr);
+    if(rc){atomic_fetch_sub(&owners,1);pthread_mutex_lock(&registry_mutex);registry[slot].value=NULL;pthread_mutex_unlock(&registry_mutex);release(s);release(s);fail(env,"无法启动文件线程");return 0;}
+    return id;
+}
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_dispose(JNIEnv *env,jobject self,jlong id) {
+    (void)env;(void)self;if(id<=0)return;
+    size_t slot=(uint64_t)id%FILE_SLOTS;uint64_t generation=(uint64_t)id/FILE_SLOTS;
+    pthread_mutex_lock(&registry_mutex);file_session *s=registry[slot].generation==generation?registry[slot].value:NULL;
+    if(s){registry[slot].value=NULL;atomic_store(&s->stop,true);}
+    pthread_mutex_unlock(&registry_mutex);
+    if(s){pthread_mutex_lock(&s->mutex);pthread_cond_broadcast(&s->wake);pthread_mutex_unlock(&s->mutex);release(s);}
+}
+JNIEXPORT jintArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_state(JNIEnv *env,jobject self,jlong id) {
+    (void)self;file_session *s=borrow(env,id);if(!s)return NULL;
+    pthread_mutex_lock(&s->mutex);jint values[2]={s->phase,s->error};pthread_mutex_unlock(&s->mutex);
+    jintArray out=(*env)->NewIntArray(env,2);if(out)(*env)->SetIntArrayRegion(env,out,0,2,values);release(s);return out;
+}
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_authentication(JNIEnv *env,jobject self,jlong id) {
+    (void)self;file_session *s=borrow(env,id);if(!s)return NULL;
+    jobjectArray out=gaj_ssh_info(env,s->auth);release(s);return out;
+}
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_respond(JNIEnv *env,jobject self,jlong id,jlong request,jint kind,jbyteArray first,jbyteArray second) {
+    (void)self;file_session *s=borrow(env,id);if(!s)return;
+    gaj_ssh_respond(env,s->auth,request,kind,first,second);release(s);
+}
+JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_begin(JNIEnv *env,jobject self,jlong id,jint kind,jbyteArray path,jint budget) {
+    (void)self;if(!path || (kind!=1 && kind!=2) || budget<=0 || budget>60000){fail(env,"文件请求无效");return 0;}
+    jsize n=(*env)->GetArrayLength(env,path);if(n<=0 || n>=65536){fail(env,"文件路径长度无效");return 0;}
+    char *value=calloc((size_t)n+1,1);if(!value){fail(env,"无法分配文件路径");return 0;}
+    (*env)->GetByteArrayRegion(env,path,0,n,(jbyte *)value);
+    if((*env)->ExceptionCheck(env) || memchr(value,0,(size_t)n)){free(value);if(!(*env)->ExceptionCheck(env))fail(env,"文件路径包含 NUL");return 0;}
+    file_session *s=borrow(env,id);if(!s){free(value);return 0;}
+    pthread_mutex_lock(&s->mutex);jlong request=0;
+    if(s->phase==1 && !stopped(s) && !s->request && s->sequence<INT64_MAX) {
+        s->request=++s->sequence;request=(jlong)s->request;s->kind=kind;s->budget=(uint32_t)budget;s->path=value;value=NULL;
+        s->complete=false;s->status=GT_OK;pthread_cond_signal(&s->wake);
+    }
+    pthread_mutex_unlock(&s->mutex);release(s);free(value);
+    if(!request)fail(env,"文件连接未就绪或请求仍在执行");return request;
+}
+JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_result(JNIEnv *env,jobject self,jlong id,jlong request) {
+    (void)self;file_session *s=borrow(env,id);if(!s)return NULL;jbyteArray out=NULL;
+    pthread_mutex_lock(&s->mutex);
+    if(s->request!=(uint64_t)request || !request)fail(env,"文件请求已失效");
+    else if(s->complete) {
+        uint8_t header[8],*p=header;u32(&p,(uint32_t)s->status);u32(&p,(uint32_t)s->kind);
+        out=(*env)->NewByteArray(env,(jsize)s->length+8);
+        if(out){(*env)->SetByteArrayRegion(env,out,0,8,(jbyte *)header);if(s->length)(*env)->SetByteArrayRegion(env,out,8,(jsize)s->length,(jbyte *)s->result);}
+    }
+    pthread_mutex_unlock(&s->mutex);release(s);return out;
+}
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_finish(JNIEnv *env,jobject self,jlong id,jlong request) {
+    (void)self;file_session *s=borrow(env,id);if(!s)return;
+    pthread_mutex_lock(&s->mutex);
+    if(s->request!=(uint64_t)request || !request || !s->complete)fail(env,"文件结果已失效或尚未完成");
+    else {free(s->result);s->result=NULL;s->length=0;s->request=0;s->complete=false;}
+    pthread_mutex_unlock(&s->mutex);release(s);
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_ownerCount(JNIEnv *env,jobject self){(void)env;(void)self;return atomic_load(&owners);}

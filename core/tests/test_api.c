@@ -16,6 +16,7 @@ int main(void) {
   gt_hostkey_decision_t d = GT_HOSTKEY_UNKNOWN;
   CHECK(d == GT_HOSTKEY_UNKNOWN, "hostkey 三态不得折叠");
 
+  CHECK(gt_ssh_abort(NULL) == GT_ERR_INVALID_ARG, "SSH abort rejects NULL");
   uint8_t preview[8] = {1}; size_t preview_size = 99;
   CHECK(gt_sftp_preview_controlled(NULL, ".", preview, sizeof preview, &preview_size,
       100, NULL, NULL) == GT_ERR_INVALID_ARG && !preview_size && !preview[0],

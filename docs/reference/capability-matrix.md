@@ -13,7 +13,7 @@
 
 **当前验收边界**：Android 最新完整设备证据为 §9.49 最终产物的 214 项通过，限 API 36 arm64 / 4 KB 页模拟器；选区偶发失败保留追踪。§9.47 已完成共享受控 SFTP/主机补丁依赖：17 项协议、十组接口变异、十一组依赖守卫及既有打包变异通过。两端文件产品未消费受控入口，整个 A3/A4 与 macOS 产品通道取消仍未完成，见[主机依赖证据](host-ssh2-build.md)和[当前进度](roadmap.md#当前进度总览)。
 
-**最新共享验证**：§9.50 为 42 CTest / 84 ABI、Apple 82/2、JNI 40/44，有界预览 46 项协议用例通过，20 组变异与 Android 39 项定向回归通过。目录浏览、三份依赖补丁及共享修复保留 §9.49 原证据；两端文件产品未消费新入口，见 [§9.50](android-implementation.md#950-受控只读预览前置2026-10-30)。
+**最新验证**：§9.51 为 42 CTest / 85 ABI、Apple 83/2、JNI 45/40。Android 文件 owner/JNI/Kotlin 已验，13 项新增设备/18 组变异、3 组公开 abort 变异及最终 52 项回归通过；页面/repository 未接，macOS 产品未改用新接口，见 [§9.51](android-implementation.md#951-android-远端文件-owner-与-jni2026-10-30)。
 
 ## 核心（C）
 
@@ -21,7 +21,7 @@
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
-| C ABI（`ghosterm.h` v0，未冻结） | 🟡 | 工作区 84 符号双向对拍通过；SFTP opener 已由 §9.47 验收，§9.44 是历史草稿。新浏览入口及 stat 标志已验（§9.49），有界预览前置见 §9.50，两端产品待接；接口未冻结，消费者须同步重编译 |
+| C ABI（`ghosterm.h` v0，未冻结） | 🟡 | 工作区 85 符号双向对拍通过；SFTP opener 已由 §9.47 验收，§9.44 是历史草稿。新浏览入口及 stat 标志已验（§9.49），有界预览前置见 §9.50，两端产品待接；接口未冻结，消费者须同步重编译 |
 | `ssh_config` 解析（AST + Host 块） | ✅ | `ctest sshconfig_golden`：4 个 Host 块 / 6 个模式 |
 | `ssh_config` 无损往返（**未编辑**） | ✅ | 与原文**逐字节相同**（`test_config` 头号断言） |
 | `ssh_config` 求值（typed） | ✅ | `gt_config_resolve`：user/hostname/port/forwardagent/compression/serveraliveinterval/identityfile/proxyjump/setenv/localforward |
@@ -43,9 +43,9 @@
 | Transport：会话 cwd | 🟡 | **本地 PTY ✅**：`gt_transport_child_cwd` 内核查询（macOS `proc_pidinfo` / Linux `/proc/<pid>/cwd`），`test_transport` 第 12 节（继承 cwd + `cd` 后随之变）。**远端 cwd 未交付**：OSC 7 在我们钉的 embedded host-IO 下到不了宿主（无 `GHOSTTY_ACTION_PWD`），且 libghostty 要求 host `isLocal`——接线留为 seam，依赖上游支持 / roadmap R2 |
 | SSH（libssh2） | 🟡 | 普通条目的连接/认证已有以下证据，标记拒绝及未支持格式的边界见 known_hosts 行。connect / pubkey·password 认证 / 主机密钥三态 / TOFU；`ssh_e2e` 行为断言（真 sshd，环回离线）。**写绝不无限等**（§5b：远端不读 stdin 时 `gt__ssh_shell_write` 在 `GT_SSH_WRITE_GRACE_MS` 内有界返回、积压字节走 `wtail` 队列随后补送——与本地 PTY §13 同结构。`TIMEOUT`/`EAGAIN` 不再当硬错丢字节（旧实现把两者都算 `GT_ERR_IO` → 键入的字节就这么没了）。写路径自己设/还 session timeout，不打扰同 session 的 SFTP。e2e 限制：sshd 排空速率 ≈ 40 MiB/s，3 MiB payload 写完时队列**根本没形成**——flush 机制无法被真 sshd e2e 触发，由代码审阅 + PTY §13/P4 的变异覆盖保证同构正确性） |
 | SFTP | 🟡 | `gt_sftp_*`（libssh2_sftp 封装）：list / stat / lstat / readlink / realpath / mkdir / rmdir / remove / remove_all（递归）/ rename / chmod / walk（递归枚举，visitor 可取消）/ upload / download（job + 事件三态）/ cancel / pause；**每会话一把 I/O 锁 + 单条 I/O worker 线程**（修掉「每 job 一线程共用同一 libssh2 会话」竞态）。e2e 真 sshd 75 项断言 + 当前变异 `mutation-check-sftp` 八组 / `mutation-check-exec` 三组（新增超时恢复）（历史断言数量不当作当前变异组数）；非覆盖创建、覆盖截断和过载下终态保障仍有下文所列缺口 |
-| SFTP 打开预算与取消 | 🟡 | §9.47：Core/Swift/helper、默认补丁库 17 项协议、十组接口变异与十一组依赖守卫通过。macOS 产品仍用旧 opener，Android 无远端 owner；后续操作不受打开预算保护，[详细范围](host-ssh2-build.md) |
+| SFTP 打开预算与取消 | 🟡 | §9.47：Core/Swift/helper、默认补丁库 17 项协议、十组接口变异与十一组依赖守卫通过。macOS 产品仍用旧 opener，Android owner 已按 §9.51 消费，页面未接；后续操作不受打开预算保护，[详细范围](host-ssh2-build.md) |
 | SFTP 目录浏览预算与取消 | 🟡 | §9.49：Core/Swift 将规范路径、完整列表与成功关闭目录合并；36 项协议、19 组变异通过。专用连接，不能与传输 job 共用，两端产品尚未接入 |
-| SFTP 只读预览预算与取消 | 🟡 | §9.50：Core/Swift 单预算覆盖 LSTAT/OPEN/FSTAT/READ/CLOSE，容量与实际 EOF 校验，46 项协议及 20 组变异通过。Android JNI 尚未绑定，macOS Quick Look 未消费；平台解码、缓存/代次与会话关闭仍待实现 |
+| SFTP 只读预览预算与取消 | 🟡 | §9.50：Core/Swift 单预算覆盖 LSTAT/OPEN/FSTAT/READ/CLOSE，容量与实际 EOF 校验，46 项协议及 20 组变异通过。Android JNI/严格文本解码与专用 owner 关闭已按 §9.51 接入，页面/缓存/代次待接；macOS Quick Look 未消费 |
 | SSH exec 通道 | ✅ | `gt_ssh_exec*`：远端单命令（stdout/stderr 分离 + 退出码）；把递归搜索/大树遍历放到远端本地算（减少宿主发起的目录/属性请求）。服务器禁 exec → `GT_ERR_UNSUPPORTED`（不静默降级）。e2e 含**性能对比**（300 文件：exec-find vs sftp-walk，两条路都找全；**环回上 exec 反而慢 ~14×**——起远端进程的开销，真实 RTT 链路收益仍须实测，不能由环回结果推定）。当前 `mutation-check-exec.sh` 三组变异（含恢复共享会话超时）；不与历史断言数混计 |
 | 端口转发 -L/-R/-D | ❌ | — |
 | known_hosts / TOFU | 🟡 | 明文条目/模式、TOFU、撤销优先及读取错误已有真 ed25519/ECDSA sshd 的同步/公开异步 API 证据，25 组隔离变异通过（K17/K20 为独立文件故障，其余经真实 SSH）；TOFU 与移除已共用锁、备份、原子替换与提交状态；17 C + 2 Swift 事务变异范围见 §9.37。非协作写者竞态/断电恢复不在已验范围；Android 管理页面已另按 §9.39 验收，macOS 无管理页面。已解析的 hashed 条目、当前主机的未知标记、无匹配普通记录的 CA 规则显式报不支持；未实现哈希匹配/主机证书验证，不称完整 OpenSSH 兼容。macOS SFTP 产品认证回归与 Swift 绑定已验，Android native 状态/拒绝路径已在 §9.25 验证，页面首片及未完成边界见 §9.27；见 [§9.22](android-implementation.md#922-a3-共享主机信任前置2026-10-30) |
@@ -99,7 +99,7 @@
 | iOS | ❌ | ❌ | ❌ | ❌ | ❌ |
 | HarmonyOS / Windows / Linux / Web | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、摘要复核与原子替换，按应用私有目录和协作锁约束工作，不承诺任意非协作写入者下的无竞态提交。A1 已展示继承来源与共享别名影响，并支持同值显式覆盖、删除指令恢复继承；别名重命名与配置错误恢复已接入，SAF 选择/预览/取消、失败恢复和其余表单校验已完成 A1 验收；本地终端首片已验，整个 A2 尚未完成，本机/SAF 文件浏览首片已验，远端文件与完整设置未实现。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[A1 实施记录](android-implementation.md#92-a1-主机与配置首片2026-10-29)区分已验证与待办。
+Android UI 的 🟡 指主机列表/搜索/增改、配置编辑和设置/关于已在 API 36 arm64 模拟器验证；配置保存有备份、摘要复核与原子替换，按应用私有目录和协作锁约束工作，不承诺任意非协作写入者下的无竞态提交。A1 已展示继承来源与共享别名影响，并支持同值显式覆盖、删除指令恢复继承；别名重命名与配置错误恢复已接入，SAF 选择/预览/取消、失败恢复和其余表单校验已完成 A1 验收；本地终端首片已验，整个 A2 尚未完成，本机/SAF 文件浏览首片已验，远端文件页面与完整设置未实现，专用远端后端见 §9.51。[最终 HTML](../design/android-prototype.html)继续作为页面基准，[A1 实施记录](android-implementation.md#92-a1-主机与配置首片2026-10-29)区分已验证与待办。
 
 A1 阶段验收为 2026-10-30 的 47 项测试与 59 组配置/页面变异；A2 首片完整 63 项设备测试及 21 组终端变异为 §9.13 的历史证据。文本操作切片增加文本操作，最新完整通过记录为 §9.49 最终产物的 **214 项**，§9.44 工作区曾有 1 项失败，偶发原因仍待定位，数量与覆盖边界见[§9.43](android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)；此前通道/选区早期失败保留在 §9.41，不累加历史测试数量。产品/身份首片原先的完整套件失败已修正测试观测与线程归属后复验，失败记录保留在 §9.27。A1 证据见[§9.11](android-implementation.md#911-saf-导入预览与-a1-收尾2026-10-30)。读取失败/保存冲突使旧快照失效；重载先确认草稿，错误跨页保留，成功刷新编辑目标，失败不报空成功态。§9.8 的错误恢复草稿已由 §9.10 补齐，SAF 与表单余项由 §9.11 完成；A1 只在当前设备档位收口，完整客户端仍在开发。此前工作区的继承编辑草稿已补齐接线，原 Kotlin 编译失败已解决；历史记录见[§9.6](android-implementation.md#96-文档复核时的工作区草稿2026-10-29)，当前实现与验证见[§9.7](android-implementation.md#97-显式覆盖与恢复继承2026-10-30)。
 
@@ -115,7 +115,7 @@ Android 主机验证管理的 🟡 证据限 API 36 arm64 / 4 KB 页模拟器：
 
 ### Android 文件首片
 
-本机 HOME 与持久授权 SAF 树的列表、只读 UTF-8 预览和多选为 🟡，仅在 §9.43 的 API 36 arm64 / 4 KB 页模拟器档成立。超过 4096 项报错，预览上限 256 KiB，未知流按实际读取限额；点按打开、长按进入勾选。SFTP 仍为 ❌，尚无远端位置、文件复制清单或粘贴队列；隐藏开关只是进程内状态，不代表 A7 持久设置完成。
+本机 HOME 与持久授权 SAF 树的列表、只读 UTF-8 预览和多选为 🟡，仅在 §9.43 的 API 36 arm64 / 4 KB 页模拟器档成立。超过 4096 项报错，预览上限 256 KiB，未知流按实际读取限额；点按打开、长按进入勾选。远端 SFTP 后端为 🟡（§9.51 的 13 项/18 组及 52 项同档设备证据），页面仍为 ❌，尚无远端位置、文件复制清单或粘贴队列；隐藏开关只是进程内状态，不代表 A7 持久设置完成。
 
 ### macOS 当前实现与限制
 

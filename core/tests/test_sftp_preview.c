@@ -153,6 +153,12 @@ int main(int argc, char **argv) {
     if (!strcmp(mode,"timeout")) CHECK(elapsed>=498, "preview total budget consumed");
   }
   CHECK(elapsed < limit, "preview bounded operation");
+  if (normal) {
+    CHECK(gt_ssh_abort(ssh)==GT_OK, "preview owner abort succeeds");
+    void *raw=NULL; int fd=-1;
+    CHECK(gt__ssh_borrow(ssh,&raw,&fd)!=GT_OK, "preview owner abort invalidates connection");
+    CHECK(gt_ssh_abort(ssh)==GT_OK, "preview owner abort is idempotent");
+  }
   begin=now(); gt_sftp_close(sftp); gt_ssh_close(ssh);
   CHECK(now()-begin < limit, "preview bounded owner release");
   check_allocations();

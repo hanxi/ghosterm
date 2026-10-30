@@ -36,6 +36,20 @@ def main():
     locale=next((x for x in ('en_US.UTF-8','C.UTF-8','C.utf8','en_US.utf8') if x in locales),None)
     if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
+    file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or
+                'RemoteFilesTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
+    file_data={}
+    if file_tests:
+        file_key=Path(work)/'file-clientkey'
+        run(['ssh-keygen','-q','-t','ed25519','-N','','-f',file_key])
+        with Path(work,'authorized_keys').open('a') as allowed: allowed.write(Path(str(file_key)+'.pub').read_text())
+        remote=Path(work)/'android-files';remote.mkdir()
+        (remote/'文本.txt').write_text('远端 UTF-8\nline two\n')
+        (remote/'zero').write_bytes(b'');(remote/'binary').write_bytes(b'hello\0world')
+        (remote/'invalid').write_bytes(b'hello\xff')
+        (remote/'large').write_bytes(b'x'*(256*1024+1))
+        (remote/'folder').mkdir();(remote/'link').symlink_to('文本.txt')
+        file_data=dict(filePem=file_key.read_text(),remoteRoot=str(remote))
     spec=importlib.util.spec_from_file_location('credential_fixture',ROOT/'scripts/lib/android-ssh-credentials.py')
     credentials=importlib.util.module_from_spec(spec);spec.loader.exec_module(credentials)
     credential_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_CREDENTIAL_MUTATE')=='1' or os.environ.get('ANDROID_SSH_IDENTITIES_MUTATE')=='1' or
@@ -45,14 +59,14 @@ def main():
     spec=importlib.util.spec_from_file_location('channels',ROOT/'scripts/lib/android-ssh-channels.py')
     channels=importlib.util.module_from_spec(spec);spec.loader.exec_module(channels)
     channel_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_CHANNEL_MUTATE')=='1' or
-                   'SSHChannelTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
+                   'SSHChannelTest' in os.environ.get('ANDROID_SSH_TEST_CLASS','') or file_tests)
     with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data, channels.fixture(work,channel_tests) as channel_data:
         token=secrets.token_hex(32)
         # No key text in instrumentation arguments, output logs, repository, or device files.
         payload=json.dumps(dict(user=user,port=int(port),pem=Path(key).read_text(),
             clientFingerprint=run(['ssh-keygen','-lf',str(key)+'.pub','-E','sha256']).split()[1],
             fingerprint=os.environ['GT_TEST_HOSTKEY_SHA256'],public=Path(work,'hostkey.pub').read_text(),
-            wrongPem=Path(work,'hostkey').read_text(),otherPublic=Path(work,'clientkey.pub').read_text(),**credential_data,**channel_data)).encode()
+            wrongPem=Path(work,'hostkey').read_text(),otherPublic=Path(work,'clientkey.pub').read_text(),**credential_data,**channel_data,**file_data)).encode()
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):
                 self.connection.settimeout(5)
@@ -86,6 +100,10 @@ def main():
                 selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else os.environ.get('ANDROID_SSH_TEST_CLASS','com.hanxi.ghosterm.RemoteTerminalTest')
                 output=test('baseline',selection,True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('files_owner_mutations',ROOT/'scripts/mutation-check-android-files-owner.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_SSH_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('mutations',ROOT/'scripts/mutation-check-android-ssh.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

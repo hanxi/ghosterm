@@ -65,6 +65,13 @@ def fixture(work, enabled):
         def handle(self):
             transport = paramiko.Transport(self.request)
             peer = Peer(self.request)
+            read_message = transport.packetizer.read_message
+            def delayed_message():
+                message = read_message()
+                record = peer.record
+                if record and record.get('frozen'): record['release'].wait(15)
+                return message
+            transport.packetizer.read_message = delayed_message
             try:
                 transport.add_server_key(key)
                 transport.start_server(server=peer)
@@ -112,7 +119,8 @@ def fixture(work, enabled):
                     result = dict(user=name)
                 else:
                     record = records[request['user']]
-                    if op == 'release': record['release'].set()
+                    if op == 'freeze': record['frozen'] = True; record['events'].append('frozen')
+                    elif op == 'release': record['release'].set()
                     elif op != 'state': raise ValueError('Unknown fixture operation')
                     result = dict(events=list(record['events']))
             self.wfile.write(json.dumps(result).encode()+b'\n')

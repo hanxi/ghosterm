@@ -4,7 +4,7 @@ import struct
 
 STAGES = ('realpath', 'opendir', 'readdir', 'closedir')
 ACTIONS = ('empty', 'empty-name', 'slash-name', 'nul-name', 'duplicate',
-           'malformed-path', 'relative-path', 'long-name')
+           'malformed-path', 'relative-path', 'long-name', 'invalid-utf8-name')
 
 
 def serve(channel, peer, closing):
@@ -66,7 +66,7 @@ def serve(channel, peer, closing):
                          entry('数据.txt'.encode(), 13, 7, 0o100600)]
                 if action == 'empty': status(request, 1); continue
                 bad = {'empty-name': b'', 'slash-name': b'../escape', 'nul-name': b'a\0b',
-                       'long-name': b'x' * 5000}.get(action)
+                       'long-name': b'x' * 5000, 'invalid-utf8-name': b'\xff'}.get(action)
                 if bad is not None: names = [entry(bad)]
                 if action == 'duplicate': names = [entry(b'same'), entry(b'same')]
                 send(b'\x68' + request + u32(len(names)) + b''.join(names))

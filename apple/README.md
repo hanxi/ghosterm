@@ -1,6 +1,6 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
-**有界预览前置（§9.50）**：42 CTest / 84 ABI、Apple 82/2、JNI 40/44；Core 与 Swift 已实现完整有界读取，46 项协议用例通过，20 组变异与 Android 39 项定向回归通过。Android 尚未绑定文件 owner，macOS Quick Look 未改用此接口；详见 [实施记录](../docs/reference/android-implementation.md#950-受控只读预览前置2026-10-30)。
+**远端文件 owner（§9.51）**：42 CTest / 85 ABI、Apple 83/2、JNI 45/40；Android 专用 owner/JNI/Kotlin 已接目录与预览，13 项设备/18 组变异及 52 项定向回归通过。Swift 新增 owner 中止绑定，macOS 文件产品与 Android 页面尚未接；详见 [实施记录](../docs/reference/android-implementation.md#951-android-远端文件-owner-与-jni2026-10-30)。
 
 ## 当前结构（2026-10-30）
 
@@ -112,7 +112,7 @@ macOS 后续需将原请求的剩余预算和取消信号传到通道 owner，�
 
 `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 与主机补丁 libssh2 已完成本机验收，默认 Core 和两个 SwiftPM 包消费同一版本。17 项协议用例、十组接口变异、十一组依赖守卫及既有打包变异通过；此前测试观测面错误已修正。完整证据与构建准备见[主机依赖与 SFTP 打开](../docs/reference/host-ssh2-build.md)。
 
-macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 同样只有未接文件产品的 native helper。两端后续需分别传递原请求预算与取消；list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮接口/依赖验收没有新增桌面产品关闭/取消或完整宿主证据。
+macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.51 接入专用文件 owner/JNI，页面尚未接。Android 后端已传递预算和取消，文件页尚待消费；macOS 后续需传递原请求预算与取消，其 list/realpath/预览/关闭仍使用原有阻塞契约，不能从 opener 测试推定整条文件连接有界。macOS 的队列主线程等待与导航问题仍独立待修；本轮接口/依赖验收没有新增桌面产品关闭/取消或完整宿主证据。
 
 ### 目录浏览与元数据接线边界
 

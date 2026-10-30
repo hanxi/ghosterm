@@ -209,6 +209,29 @@ final class GhostermCoreTests: XCTestCase {
         return false
     }
 
+    func testSSHAbortStopsOwnedSFTP() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],
+              let key = env["GHOSTERM_SSH_KEY"], let port = UInt16(env["GHOSTERM_SSH_PORT"] ?? "") else {
+            throw XCTSkip("SSH fixture required")
+        }
+        let session = try SSHSession(SSHOptions(host: host, port: port, username: user,
+            knownHostsPath: env["GHOSTERM_SSH_KNOWN_HOSTS"]))
+        session.setHostKeyDecider { _, _, _, _ in .accept }
+        try session.authenticate(privateKeyPEM: String(contentsOfFile: key, encoding: .utf8))
+        try session.connect()
+        defer { session.close() }
+        let files = try session.sftp(timeoutMilliseconds: 3000)
+        defer { files.close() }
+        let directory = (key as NSString).deletingLastPathComponent
+        XCTAssertEqual(try files.browse(path: directory, timeoutMilliseconds: 3000).path, directory)
+        try session.abort()
+        XCTAssertThrowsError(try files.browse(path: directory, timeoutMilliseconds: 3000)) { error in
+            guard case GhostermError.status(1, _) = error else { return XCTFail("Aborted owner must be unavailable") }
+        }
+        XCTAssertNoThrow(try session.abort())
+    }
+
     func testSFTPPreviewEndToEnd() throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],
@@ -240,6 +263,8 @@ final class GhostermCoreTests: XCTestCase {
         XCTAssertThrowsError(try files.preview(path: path, timeoutMilliseconds: 3000, maxBytes: 3)) { error in
             guard case GhostermError.status(3, _) = error else { return XCTFail("Preview size limit must fail with IO") }
         }
+        XCTAssertNoThrow(try session.abort())
+        XCTAssertNoThrow(try session.abort())
     }
 
     func testSFTPBrowseEndToEnd() throws {

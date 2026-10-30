@@ -52,8 +52,11 @@ def main():
             ]
             for name,old,new in cases:
                 clean=originals[paths[1]].decode()
-                if clean.count(old)!=1:raise RuntimeError('Ambiguous Swift anchor '+name)
-                binding.write_text(clean.replace(old,new)+'\n// '+MARK+'\n')
+                start=clean.index('    /// Remaining connection budget; cancellation is observed on the calling IO owner.')
+                end=clean.index('    public static func openSSHCommand(',start)
+                shell=clean[start:end]
+                if shell.count(old)!=1:raise RuntimeError('Ambiguous Swift shell anchor '+name)
+                binding.write_text(clean[:start]+shell.replace(old,new)+clean[end:]+'\n// '+MARK+'\n')
                 compile_swift();target('swift-'+name,True)
                 run([*swift,'--filter','GhostermCoreTests.testConfigRoundTripIsByteIdentical'],'swift-'+name+'-control')
                 binding.write_bytes(originals[paths[1]])

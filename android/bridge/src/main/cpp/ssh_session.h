@@ -4,7 +4,7 @@
 #include <stdatomic.h>
 #include "ghosterm.h"
 typedef struct gaj_ssh gaj_ssh;
-/* Control-plane copies only. Connect and all Core access run on the terminal owner. */
+/* Control-plane copies only. Connect and all Core access run on the connection owner. */
 gaj_ssh *gaj_ssh_new(JNIEnv *, jbyteArray host, jint port, jbyteArray user,
     jbyteArray known_hosts, jobjectArray addresses, jintArray scopes, jint timeout);
 void gaj_ssh_free(gaj_ssh *);

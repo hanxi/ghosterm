@@ -6,6 +6,12 @@
 
 `python3 scripts/mutation-check-ssh-core.py credentials` 在隔离副本撤去这一分类，真实认证目标红、配置对照绿、恢复绿并核对 SHA256。`mutation-check-ssh-connector.py` 的既有 18 组另保护取消、deadline、信任与所有权；Android 另有真实产品凭据路径和七组设备变异，证据及历史失败见[实现记录 §9.31](../../docs/reference/android-implementation.md#931-加密私钥重试与密码产品流程2026-10-30)。
 
+## 专用 SSH 连接中止
+
+`gt_ssh_abort` 只由独占连接的 IO owner 调用；它关闭 socket 双向通信并标记连接失效，不释放句柄，之后仍须先关 SFTP/通道再关 SSH。NULL 返回 INVALID_ARG，无 libssh2 的有效占位返回 UNSUPPORTED；禁止把它作为 UI 并发取消入口。
+
+`test_sftp_preview` 的真实 SSH 回归验证成功读取后 abort、连接不可再借用及重复 abort。`python3 scripts/mutation-check-ssh-abort.py` 在隔离副本运行 1 Core + 1 无库 + 1 Swift 组：编译后目标断言红、独立配置/API 绿、恢复绿与 SHA256。实际 socket shutdown 及等待服务器关闭的设备场景另由 Android 文件 owner 的 18 组变异验证。当前 42 CTest / 85 ABI、Apple 83/2、JNI 45/40，详细范围见[§9.51](../../docs/reference/android-implementation.md#951-android-远端文件-owner-与-jni2026-10-30)。这些手工变异未加入 CI 20 份。
+
 ## SFTP 现有验证的边界
 
 真实 sshd 的正常传输、文件操作、暂停/取消与既有变异不覆盖以下全部失败语义。2026-10-30 源码复核确认，仍须补实现和故障回归：
@@ -21,7 +27,7 @@
 
 `test_sftp_open` / `sftp_open_e2e` 验证正常 OpenSSH 打开、预先取消、零预算与真实目录，该 §9.47 基线的默认主机构建 Core CTest 数量为 39；目录浏览和提交所有权回归切片的 Core 为 41，新增预览后为 42。独立 `scripts/test-sftp-open.py` 覆盖 17 项协议矩阵，含部分 VERSION/头部 EOF；默认补丁库上的最终矩阵及十组接口变异通过。十一组依赖守卫与真实 CMake 接线变异亦通过，历史失败和修正见[主机依赖说明](../../docs/reference/host-ssh2-build.md)。
 
-§9.47 已验基线为 82 ABI、Apple 80/2、JNI 40/42；目录浏览切片为 83 ABI、Apple 81/2、JNI 40/43；当前预览切片为 84 ABI、Apple 82/2、JNI 40/44；两端文件产品尚未消费新入口。后续阻塞操作不受 opener 预算保护。构建、协议命令与验证日志见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增手工变异未加入 CI 20 份；默认缺依赖报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
+§9.47 已验基线为 82 ABI、Apple 80/2、JNI 40/42；目录浏览切片为 83 ABI、Apple 81/2、JNI 40/43；§9.50 预览切片为 84 ABI、Apple 82/2、JNI 40/44；§9.51 新增公开中止入口后为 85 ABI、Apple 83/2、JNI 45/40。Android 后端已消费受控接口，远端页面与 macOS 产品尚未迁移。后续阻塞操作不受 opener 预算保护。构建、协议命令与验证日志见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增手工变异未加入 CI 20 份；默认缺依赖报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
 
 ## SFTP 受控目录浏览与提交所有权
 
