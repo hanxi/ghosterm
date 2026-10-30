@@ -1,10 +1,10 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
-代码核对：2026-10-31，macOS 源码与 `72bfe1b` 一致；Android 进度同步至 §9.60。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+代码核对：2026-10-31，macOS 源码与 `72bfe1b` 一致；Android 进度同步至 §9.61。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 **共享接口与产品进度分开**：Swift 已绑定受控 SFTP 打开、浏览、预览、独占创建、读取到 fd 和非覆盖发布；桌面文件队列与 Quick Look 仍使用旧 job。当前为 88 个公共 ABI、Apple 86 项引用/2 项登记未用。实际调用链见下方[接线表](#共享文件接口与产品接线)，不能把 Android 私有目录提交或设备回归记为 macOS 功能完成。
 
-最近相关验证：§9.57 完成发布接口专项及五组 Swift 变异；§9.58–§9.60 分别完成 macOS 原生构建、ad-hoc 包及依赖/引擎校验。它们没有新增完整 macOS 宿主或系统交互证据；详细范围与失败记录分别保留在[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)、[§9.58](../docs/reference/android-implementation.md#958-a5-应用私有目录非覆盖发布2026-10-31)、[§9.59](../docs/reference/android-implementation.md#959-a5-saf-新文档写入2026-10-31)、[§9.60](../docs/reference/android-implementation.md#960-a5-复制来源清单与文件页面2026-10-31)及[工作区交接](../docs/reference/workspace-handoff.md)。
+最近相关验证：§9.57 完成发布接口专项及五组 Swift 变异；§9.58–§9.61 分别完成 macOS 原生构建、ad-hoc 包及依赖/引擎校验。它们没有新增完整 macOS 宿主或系统交互证据；详细范围与失败记录分别保留在[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)、[§9.58](../docs/reference/android-implementation.md#958-a5-应用私有目录非覆盖发布2026-10-31)、[§9.59](../docs/reference/android-implementation.md#959-a5-saf-新文档写入2026-10-31)、[§9.60](../docs/reference/android-implementation.md#960-a5-复制来源清单与文件页面2026-10-31)、[§9.61](../docs/reference/android-implementation.md#961-a5-粘贴请求与来源树扫描2026-10-31)及[工作区交接](../docs/reference/workspace-handoff.md)。
 
 ## 当前结构（2026-10-31）
 
@@ -77,7 +77,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | `SFTPFileBackend.download` → `sftp.download` → 旧 job | `TransferStagingStore.receive` 已验，应用级任务 store 未接 |
 | 最终非覆盖发布 | `gt_sftp_publish_controlled` / `publish`；状态、远端错误码、总预算与取消 | Swift 绑定已验；桌面队列仍无产品调用 | JNI/Kotlin `RemoteFileSession.publish` 已验；粘贴任务和执行页面未接 |
 
-Android §9.59 另新增平台数据层 SafFilePublisher，经 ContentResolver 创建并回读新文档；不提供 Swift 绑定，也没有改变桌面队列、Quick Look 或文件复制交互。Android §9.60 已接文件清单产品页面，但不调用 Swift 或旧 job；本端四方向统一队列仍未交付。
+Android §9.59 另新增平台数据层 SafFilePublisher，经 ContentResolver 创建并回读新文档；不提供 Swift 绑定，也没有改变桌面队列、Quick Look 或文件复制交互。Android §9.60 已接文件清单产品页面，但不调用 Swift 或旧 job；本端四方向统一队列仍未交付。Android §9.61 的粘贴请求与来源扫描只消费平台目录读取函数，不改变 macOS 的 walk、旧 job、取消或提交保证；本端仍须独立迁移与验收。
 
 §9.57 已补齐发布接口及两端绑定，验证范围见 [实施记录](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)；此前未绑定草稿的对拍失败只属于历史复核。接入受控文件接口前，桌面需先建立专用 owner 和任务 fd 暂存，保证网络/队列等待不占主线程，再逐项迁移取消、进度、错误与最终发布。不得把新接口混入同一连接上仍运行旧 job 的流程。完成条件与优先级见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
@@ -147,7 +147,7 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.
 | 操作 | macOS 当前实现 | Android 方案与实现边界 |
 |---|---|---|
 | 文件打开与选择 | 原生列表单击选择、双击打开；右键“拷贝路径”只复制路径文本 | 方案为点按打开、长按勾选；本机/SAF 与远端浏览、文本预览已接，见 Android §9.43/§9.52 |
-| 文件复制 | 本地↔远端的传输队列、拖放与冲突对话框；无四方向统一复制清单 | §9.60 已接常驻来源清单/详情/替换与清空；四方向粘贴执行仍属 A5/A6 待办。终端文本剪贴板独立，不等于文件复制完成 |
+| 文件复制 | 本地↔远端的传输队列、拖放与冲突对话框；无四方向统一复制清单 | §9.60 已接常驻来源清单/详情/替换与清空，§9.61 已接请求与来源扫描；四方向粘贴执行仍属 A5/A6 待办。终端文本剪贴板独立，不等于文件复制完成 |
 | 普通 shell 退出 | `handlePaneExit` 移除终端叶子，其余文件/终端叶子保留；最后一片退出关闭标签 | 正常 EOF 后保留终端内容供浏览/复制，显式关闭再释放；错误退出不承诺保留 |
 | 设置 | 通用、外观、键盘、配置文件四页 | 最终设计五类、16 项偏好；已提交配置/关于入口，身份设置首片已验（§9.33），主机验证管理已验（§9.39），完整偏好留给 A7 |
 | 主机身份 | 表单仍按文本路径编辑，认证从受限文件读 PEM；来源绑定未接表单 | §9.35 已接本安装容器引用、配置候选和引用主机详情；不提供跨端密钥迁移 |

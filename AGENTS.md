@@ -149,6 +149,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 `libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的九场景、七组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同九场景。Android 与主机默认构建均应用补丁；`mutation-check-sftp-open.py` 另验 7 C + 2 Swift + 1 无库组，`mutation-check-host-ssh2.py --app 本轮.app` 验十一组依赖/包/CMake 守卫，目标红、独立对照绿、恢复绿与 SHA256。已交付证据见 Android 实现计划 §9.45/§9.47/§9.49，范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
 
+`android-scan` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-scan.py` 手工执行 34 组，护粘贴请求身份/只读快照、来源属性、目录/路径/名称、空目录、未知与溢出、扫描预算、错误、复核与取消。真实编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；13 项定向与完整 314 项通过，仅 API 36 arm64 / 4 KB 页模拟器。范围见 Android 计划 §9.61；不增加 CI 20 份，不把来源枚举记作目标授权或粘贴任务交付。
+
 `android-clipboard` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-clipboard.py` 手工执行 16 组，护清单独立/只读、UUID、来源、选择、离页、确认、卡片及完整详情。编译后目标红、同 APK 配置对照绿、恢复绿与 SHA256；9 项设备定向与完整 301 项通过，仅 API 36 arm64 / 4 KB 页模拟器。既有浏览 18 / 远端产品 14 组复验。范围和中断/编译失败见 Android 计划 §9.60；仅登记覆盖，不增加 CI 20 份，不将来源清单记作粘贴执行或任务已交付。
 
 `android-saf-publication` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-saf-publication.py` 手工执行 30 组：护持久读写授权、树/子目录、列表和冲突、新文档身份/能力、创建未知、实际名称、内容/源变化、关闭/回读/可靠管道、背压取消、进度挂起、结果保留和 fd 释放。编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；16 项设备定向及最终完整 292 项通过，仅 API 36 arm64 / 4 KB 页模拟器。范围及早期失败见 Android 实现计划 §9.59；不增加 CI 20 份，不将其记为复制任务、目录或进程恢复已完成。

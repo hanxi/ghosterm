@@ -222,28 +222,25 @@ class TransferStagingTest {
     }
 
     @Test fun sourceMetadataChangeDuringReadRejectsTheSnapshot() = runBlocking {
-        store.close();store=TransferStagingStore(staging,64L*1024*1024,64L*1024*1024,0)
-        val file=File(home,"changing").apply { outputStream().use { output ->
-            val bytes=ByteArray(1024*1024){65};repeat(64) { output.write(bytes) }
-        } }
-        val source=ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY)
-        val changed=CountDownLatch(1);val error=AtomicReference<Throwable?>()
-        val mutator=Thread {
-            try {
-                val deadline=SystemClock.uptimeMillis()+5000
-                while(Os.lseek(source.fileDescriptor,0,OsConstants.SEEK_CUR)==0L) {
-                    check(SystemClock.uptimeMillis()<deadline);Thread.yield()
-                }
-                Os.fchmod(source.fileDescriptor,448);changed.countDown()
-            } catch(e:Throwable) { error.set(e) }
-        }.apply { start() }
+        val file=File(home,"changing").apply { writeBytes(ByteArray(65536){65}) }
+        var changed=false
+        val source=object:ParcelFileDescriptor(ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY)) {
+            override fun checkError() {
+                super.checkError()
+                // This existing provider-error checkpoint runs after reading and before
+                // the final fstat. Mutate deterministically, without a racing thread.
+                assertEquals(file.length(),Os.lseek(fileDescriptor,0,OsConstants.SEEK_CUR))
+                val before=Os.fstat(fileDescriptor)
+                assertTrue(file.setLastModified(file.lastModified()-2000))
+                assertNotEquals(before.st_mtim.tv_sec,Os.fstat(fileDescriptor).st_mtim.tv_sec)
+                changed=true
+            }
+        }
         try {
-            rejects { store.snapshot(file.length()) { AssetFileDescriptor(source,0,-1) } }
-            withContext(Dispatchers.IO) { mutator.join(5000) }
-            assertNull("metadata mutation must happen on the open source",error.get())
-            assertEquals(0L,changed.count)
+            rejects { store.snapshot(file.length()) { AssetFileDescriptor(source,0,-1) }.close() }
+            assertTrue("metadata mutation must happen on the open source",changed)
             assertEquals(0L,store.reservedBytes);assertTrue(openPaths().isEmpty())
-        } finally { source.close();mutator.interrupt() }
+        } finally { source.close() }
     }
 
 }

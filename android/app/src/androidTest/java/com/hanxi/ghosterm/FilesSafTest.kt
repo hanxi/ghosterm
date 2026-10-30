@@ -12,6 +12,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.data.LocalFileBrowser
+import com.hanxi.ghosterm.data.FileTreeScanner
+import com.hanxi.ghosterm.domain.*
 import kotlinx.coroutines.*
 import com.hanxi.ghosterm.data.TransferStagingStore
 import android.os.ParcelFileDescriptor
@@ -120,6 +122,26 @@ class FilesSafTest {
         ui.onNodeWithText("返回文件").performClick()
         assertSame(snapshot,main { model().clipboard });assertEquals("app",main { model().location.endpoint.id })
         assertTrue(resolver.persistedUriPermissions.none { it.uri.toString()==snapshot.source.endpoint.treeUri })
+    }
+    @Test fun realSafTreeScanKeepsOpaqueIdsEmptyDirectoriesAndUnknownSizes() {
+        grant()
+        val from=main { model().location }
+        val source=LocalFileBrowser(File(instrumentation.targetContext.filesDir,"home"),resolver)
+        runBlocking {
+            val items=source.list(from).filter { it.id in setOf("opaque:folder","opaque:empty","opaque:large") }
+            val intent=FilePasteRequest.capture(FileClipboardSnapshot.capture(from,"SAF",items),FileLocation(FileEndpoint.APP),"App")
+            val scan=FileTreeScanner(source::browse).scan(intent)
+            assertTrue(scan.failure.toString(),scan.complete)
+            assertEquals(setOf("Folder","Folder/你好.txt","Empty","unknown-large.txt"),scan.entries.map { it.relativePath }.toSet())
+            assertEquals("opaque:child",scan.entries.single { it.relativePath=="Folder/你好.txt" }.entry.id)
+            assertEquals("opaque:folder",scan.entries.single { it.relativePath=="Folder/你好.txt" }.parent.directoryId)
+            assertEquals(0,scan.entries.single { it.relativePath=="Empty" }.childCount)
+            assertEquals(2,scan.files);assertEquals(2,scan.directories);assertEquals(1,scan.unknownSizeFiles);assertNull(scan.totalBytes)
+            revoke()
+            val denied=FileTreeScanner(source::browse).scan(intent)
+            assertFalse(denied.complete);assertEquals(FileScanFailureKind.READ,denied.failure?.kind)
+            assertTrue(denied.entries.isEmpty())
+        }
     }
     private fun awaitStreams(tree:String,expected:Int):Int {
         val uri=DocumentsContract.buildDocumentUriUsingTree(Uri.parse(tree),"opaque:slow")

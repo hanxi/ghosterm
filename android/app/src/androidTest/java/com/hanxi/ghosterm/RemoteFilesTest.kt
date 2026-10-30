@@ -5,6 +5,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.*
 import com.hanxi.ghosterm.data.LocalFileBrowser
+import com.hanxi.ghosterm.data.FileBrowserRepository
+import com.hanxi.ghosterm.data.FileTreeScanner
 import com.hanxi.ghosterm.data.TransferStagingStore
 import com.hanxi.ghosterm.domain.*
 import kotlinx.coroutines.*
@@ -89,6 +91,29 @@ class RemoteFilesTest {
         catch(cancelled: CancellationException) { throw cancelled }
         catch(failure: Exception) { throw AssertionError("publication outcome must reach caller",failure) }
 
+    @Test fun realRemoteTreeScanPreservesCanonicalOriginEmptyDirectoryAndLink() = directory { root ->
+        val local=LocalFileBrowser(root,instrumentation.targetContext.contentResolver)
+        RemoteFileSession(connection(known(root))).use { files ->
+            supply(files)
+            FileBrowserRepository(local).use { source -> runBlocking {
+                val endpoint=source.attach(RemoteFileIdentity("scan",host,fixture.getString("user"),fixture.getInt("port")),files)
+                val directory=source.browse(FileLocation(endpoint))
+                val chosen=directory.entries.filter { it.name in setOf("文本.txt","zero","folder","link") }
+                val intent=FilePasteRequest.capture(FileClipboardSnapshot.capture(directory.location,directory.location.directoryId,chosen),
+                    FileLocation(FileEndpoint.APP),"App")
+                val scan=FileTreeScanner(source::browse).scan(intent)
+                assertTrue(scan.failure.toString(),scan.complete)
+                assertEquals(setOf("文本.txt","zero","folder","link"),scan.entries.map { it.relativePath }.toSet())
+                assertEquals(0,scan.entries.single { it.relativePath=="folder" }.childCount)
+                assertEquals(2,scan.files);assertEquals(1,scan.directories);assertEquals(1,scan.unsupported)
+                assertEquals("远端 UTF-8\nline two\n".toByteArray().size.toULong(),scan.knownBytes);assertNull(scan.totalBytes)
+                assertEquals(fixture.getString("remoteRoot"),scan.entries.single { it.relativePath=="文本.txt" }.parent.directoryId)
+                assertEquals(FileKind.LINK,scan.entries.single { it.relativePath=="link" }.entry.kind)
+                assertTrue(files.state().ready)
+                assertEquals("远端 UTF-8\nline two\n",files.previewText(fixture.getString("remoteRoot")+"/文本.txt"))
+            } }
+        }
+    }
     @Test fun publishFilesAndConflictsPreserveOriginalBytes() = directory { root ->
         for(size in listOf(0,70001)) {
             val path=fixture.getString("remoteRoot")+"-publish-"+UUID.randomUUID()
