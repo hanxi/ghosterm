@@ -667,6 +667,29 @@ public final class SFTPSession {
         return out
     }
 
+    /// Complete raw file bytes, bounded to 1 MiB; no partial preview on failure.
+    /// Dedicated owner only. The caller decides encoding and owns preview lifetime.
+    public func preview(path: String, timeoutMilliseconds: UInt32,
+                        maxBytes: Int = 256 * 1024, cancellation: SSHCancellation? = nil) throws -> Data {
+        guard !path.isEmpty, !path.utf8.contains(0), maxBytes > 0, maxBytes <= 1048576 else {
+            throw GhostermError.status(Int32(GT_ERR_INVALID_ARG.rawValue), "Invalid preview path or limit")
+        }
+        var bytes = [UInt8](repeating: 0, count: maxBytes)
+        var count = 0
+        let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let rc = withExtendedLifetime(cancellation) {
+            path.withCString { p in
+                gt_sftp_preview_controlled(handle, p, &bytes, bytes.count, &count,
+                    timeoutMilliseconds, { pointer in
+                        guard let pointer else { return false }
+                        return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+                    }, context)
+            }
+        }
+        try check(rc)
+        return Data(bytes.prefix(count))
+    }
+
     /// Dedicated owner only. Core IO failure invalidates this SSH/SFTP pair.
     /// UTF-8 conversion can throw after a successful Core operation without aborting it.
     /// The budget includes realpath, the complete listing and directory close.

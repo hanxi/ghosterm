@@ -458,6 +458,134 @@ static int stat_common(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out,
   return GT_OK;
 }
 
+int gt_sftp_preview_controlled(gt_sftp_t *sftp, const char *path,
+    uint8_t *buffer, size_t capacity, size_t *out_count, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context) {
+  if (out_count) *out_count = 0;
+  if (buffer && capacity <= 1048576) memset(buffer, 0, capacity);
+  if (!sftp || !path || !*path || strlen(path) >= 65536 || !buffer ||
+      !capacity || capacity > 1048576 || !out_count || !timeout_ms) {
+    gt__set_error("sftp preview: invalid arguments or limits");
+    return GT_ERR_INVALID_ARG;
+  }
+  const int64_t deadline = mono_ms() + timeout_ms;
+  int status = open_status(deadline, cancelled, context);
+  if (status != GT_OK) return status;
+  pthread_mutex_lock(&sftp->qlock);
+  bool has_jobs = sftp->all_head != NULL;
+  pthread_mutex_unlock(&sftp->qlock);
+  if (has_jobs) {
+    gt__set_error("sftp preview: requires a dedicated owner without transfer jobs");
+    return GT_ERR_INVALID_ARG;
+  }
+  void *raw = NULL;
+  int socket = -1;
+  status = gt__ssh_borrow(sftp->ssh, &raw, &socket);
+  if (status != GT_OK) return status;
+  uint8_t *bytes = gt__alloc(capacity + 1);
+  if (!bytes) return GT_ERR_INTERNAL;
+  LIBSSH2_SESSION *session = raw;
+  LIBSSH2_SFTP_HANDLE *file = NULL;
+  LIBSSH2_SFTP_ATTRIBUTES attributes = {0};
+  size_t count = 0;
+  SFTP_LOCK(sftp);
+  int blocking = libssh2_session_get_blocking(session);
+  long timeout = libssh2_session_get_timeout(session);
+  libssh2_session_set_blocking(session, 0);
+  int result;
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    result = libssh2_sftp_lstat(sftp->sftp, path, &attributes);
+    if (result != LIBSSH2_ERROR_EAGAIN) break;
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  if (result != 0) { status = GT_ERR_IO; goto finished; }
+  if (!(attributes.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) ||
+      (attributes.permissions & LIBSSH2_SFTP_S_IFMT) != LIBSSH2_SFTP_S_IFREG) {
+    status = GT_ERR_UNSUPPORTED; goto finished;
+  }
+  if ((attributes.flags & LIBSSH2_SFTP_ATTR_SIZE) && attributes.filesize > capacity) {
+    status = GT_ERR_IO; goto finished;
+  }
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    file = libssh2_sftp_open(sftp->sftp, path, LIBSSH2_FXF_READ, 0);
+    if (file) break;
+    if (libssh2_session_last_errno(session) != LIBSSH2_ERROR_EAGAIN) {
+      status = GT_ERR_IO; goto finished;
+    }
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  memset(&attributes, 0, sizeof attributes);
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    result = libssh2_sftp_fstat(file, &attributes);
+    if (result != LIBSSH2_ERROR_EAGAIN) break;
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  if (result != 0) { status = GT_ERR_IO; goto finished; }
+  if (!(attributes.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) ||
+      (attributes.permissions & LIBSSH2_SFTP_S_IFMT) != LIBSSH2_SFTP_S_IFREG) {
+    status = GT_ERR_UNSUPPORTED; goto finished;
+  }
+  if ((attributes.flags & LIBSSH2_SFTP_ATTR_SIZE) && attributes.filesize > capacity) {
+    status = GT_ERR_IO; goto finished;
+  }
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    ssize_t length = libssh2_sftp_read(file, (char *)bytes + count, capacity + 1 - count);
+    if (length == LIBSSH2_ERROR_EAGAIN) {
+      status = browse_wait(session, socket, deadline, cancelled, context);
+      if (status != GT_OK) goto finished;
+      continue;
+    }
+    if (length < 0 || (size_t)length > capacity - count) {
+      status = GT_ERR_IO; goto finished;
+    }
+    if (!length) break;
+    count += (size_t)length;
+  }
+  if ((attributes.flags & LIBSSH2_SFTP_ATTR_SIZE) && attributes.filesize != count) {
+    status = GT_ERR_IO; goto finished;
+  }
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    result = libssh2_sftp_close(file);
+    if (result != LIBSSH2_ERROR_EAGAIN) {
+      file = NULL; /* Every non-EAGAIN close result consumes the handle. */
+      if (result != 0) status = GT_ERR_IO;
+      break;
+    }
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+  if (status == GT_OK) status = open_status(deadline, cancelled, context);
+finished:
+  if (status != GT_OK) {
+    gt__ssh_abort(sftp->ssh);
+    libssh2_session_set_blocking(session, 1);
+    libssh2_session_set_timeout(session, 50);
+    if (file) libssh2_sftp_close(file);
+    gt__set_error("sftp preview: cancelled, timed out, unsupported type, size limit or read/close failure");
+  } else {
+    libssh2_session_set_blocking(session, blocking);
+    libssh2_session_set_timeout(session, timeout);
+    memcpy(buffer, bytes, count);
+    *out_count = count;
+  }
+  SFTP_UNLOCK(sftp);
+  free(bytes);
+  return status;
+}
+
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out) {
   return stat_common(sftp, path, out, true);
 }
@@ -1004,6 +1132,18 @@ void gt_sftp_list_free(gt_sftp_entry_t *entries, size_t count) {
   if (!entries) return;
   for (size_t i = 0; i < count; i++) free(entries[i].full_path);
   free(entries);
+}
+
+int gt_sftp_preview_controlled(gt_sftp_t *sftp, const char *path,
+    uint8_t *buffer, size_t capacity, size_t *out_count, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context) {
+  (void)cancelled; (void)context;
+  if (out_count) *out_count = 0;
+  if (buffer && capacity <= 1048576) memset(buffer, 0, capacity);
+  if (!sftp || !path || !*path || strlen(path) >= 65536 || !buffer ||
+      !capacity || capacity > 1048576 || !out_count || !timeout_ms) return GT_ERR_INVALID_ARG;
+  gt__set_error("sftp preview: libssh2 unavailable");
+  return GT_ERR_UNSUPPORTED;
 }
 
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out) {

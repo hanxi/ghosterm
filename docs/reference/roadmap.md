@@ -8,7 +8,7 @@ Android 已交付输入后短时取帧和模拟器 debug 性能基线，新增�
 
 ## 当前进度总览
 
-**最新共享实现**：受控目录浏览、NAME 依赖补丁、任务提交 UAF 与 exec 超时恢复已验证；41 CTest / 83 ABI、Apple 81/2、JNI 40/43，36 项目录协议与 19 组浏览变异通过。Android 远端 owner/页面仍未接，最终完整 214 项设备回归通过；macOS 产品仍用旧 opener/list/realpath。详见 [§9.49](android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30)。
+**最新共享实现**：§9.50 新增有界只读预览，42 CTest / 84 ABI、Apple 82/2、JNI 40/44，46 项协议用例通过，20 组变异与 Android 39 项定向回归通过。目录浏览与共享修复保留 §9.49 的验收范围；两端远端文件产品仍未接，macOS 仍用旧 opener/list/realpath/下载预览。详见 [§9.50](android-implementation.md#950-受控只读预览前置2026-10-30)。
 
 **最近已验收依赖基线**：§9.47 已完成共享受控 SFTP 打开与主机补丁依赖：17 项协议、十组接口变异、十一组依赖守卫、既有 SFTP/exec/SSH 和打包变异通过。该基线为 39 CTest / 82 ABI，Apple 80/2、JNI 40/42；macOS 产品仍用旧 opener，Android 尚无远端文件 owner。该基线沿用 §9.45 的 214 项及相同 APK 摘要；§9.48 与最新 §9.49 产物各自另行完整运行 214 项通过，不沿用旧摘要结论。详见[共享依赖与证据](host-ssh2-build.md)。
 
@@ -24,6 +24,7 @@ A4 本机/SAF 文件首片已接真实列表、只读预览与多选，14 项定
 
 | 验收面 | 最近一次已记录结果 | 能说明什么 |
 |---|---|---|
+| 受控只读预览 | §9.50：42 CTest / 84 ABI，46 项协议、20 组变异与 Android 39 项定向通过 | 新增 Core/Swift 接口，两端产品仍待接；不是完整 A4 或 macOS Quick Look 验收 |
 | 受控目录浏览与共享修复 | §9.49：41 CTest / 83 ABI；36 项协议、19 组浏览变异、提交 ASan 变异通过 | Core/Swift 已验，两端产品未接；Android 最终完整 214 项设备回归通过，详见 [§9.49](android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30) |
 | 已验收共享 Core 与绑定 | §9.47：39 项 CTest、82 个 ABI；Apple 80/2、JNI 40/42 | 受控 shell/SFTP 接口及主机补丁依赖已验；Android 仅 shell 接产品，SFTP helper 无远端文件调用方；macOS 产品仍待接受控入口 |
 | Android 最近完整设备运行 | §9.49 最终 APK：214 项通过，0 失败/错误/跳过，585.454 秒 | API 36 arm64 / 4 KB 页模拟器；中间轮导入旋转观察失败及 600 秒超时保留，偶发根因未定位；不扩大为真机/API 29/16 KB 页证据 |
@@ -47,7 +48,7 @@ A4 本机/SAF 文件首片已接真实列表、只读预览与多选，14 项定
 | 统一文件窗格工作区 | 已交付主要实现 | 真拖动、Finder 多选、目录冲突及尺寸证据补齐 |
 | 标签与窗格界面重构 | 本机 macOS 26 已交付并验收 | macOS 15 本轮 CI 证据仍需核验 |
 | 可选 tmux | macOS/真实 Linux SSH 已交付 | 仅已测版本/目标；普通入口不依赖 tmux |
-| M5 Android | A0/A1 完成；A2 部分交付；A3 产品与 A4 本机/SAF 浏览部分交付；§9.49 最终产物完整 214 项通过，Core/Swift 浏览接口已验；远端文件 owner 仍未接 | A2 输入/性能与 A3 网络收尾；A4 远端文件 owner/浏览/预览接线；A5–A8、A10；环境包 A9 独立延后 |
+| M5 Android | A0/A1 完成；A2 部分交付；A3 产品与 A4 本机/SAF 浏览部分交付；§9.49 最终产物完整 214 项通过，Core/Swift 浏览接口已验，预览前置见 §9.50；远端文件 owner 仍未接 | A2 输入/性能与 A3 网络收尾；A4 远端文件 owner/浏览/预览接线；A5–A8、A10；环境包 A9 独立延后 |
 | M6+ 其余端 | 未交付 | iOS full 引擎/宿主前置，其他平台分别立项 |
 
 ## macOS 已交付范围
@@ -394,6 +395,7 @@ macOS 复核确认现有配置事务、主机表单、凭据、设置、剪贴�
 
 | 记录 | 范围与结果 | 未覆盖 |
 |---|---|---|
+| 受控只读预览前置（2026-10-30，§9.50） | 42 CTest / 84 ABI、Apple 82/2、JNI 40/44；46 项预览协议、20 组变异、原目录 36 项/打开 17 项回归；两端原生构建与 Android 39 项定向通过，详见 [§9.50](android-implementation.md#950-受控只读预览前置2026-10-30) | 新预览尚无 Android owner/JNI/页面，macOS Quick Look 未接；未重跑完整 214 项、完整 Apple 宿主/打包/CI，缓存与会话关闭仍待补；首轮 Swift 文案匹配失败保留 |
 | 受控浏览与跨端状态同步（2026-10-30，§9.49） | Core 41 CTest / 83 ABI、Apple 81/2、JNI 40/43；36 项协议、19 组浏览变异及提交 UAF、exec 超时恢复变异；macOS 原生构建/app-only 包、Android 最终 APK 完整 214 项通过。Android 计划、Apple 文件接线边界、架构、能力矩阵及本表同步当前事实，详细日志见 [§9.49](android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30) | 两端远端文件产品未消费新入口；未重跑完整 Apple 宿主、ZIP/DMG 变异或 CI。Android 中间轮旋转失败及超时保留；真机/API 29/16 KB 页未验 |
 | `470c78b` 初始文档审计 | Core 32 项 CTest / 71 个符号、Apple 69 引用 / 2 登记、macOS 原生构建通过 | 无 Android 工程运行证据 |
 | `4d83ec6` Android A0 | API 36 arm64、4 KB 页模拟器；3 项 JNI 测试、3 组 JNI 变异、3 组 ABI 变异；Core 与 Include 回归通过 | 自绘/输入/PTY/SSH、真机与 API 29/16 KB 页 |

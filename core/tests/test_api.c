@@ -16,6 +16,10 @@ int main(void) {
   gt_hostkey_decision_t d = GT_HOSTKEY_UNKNOWN;
   CHECK(d == GT_HOSTKEY_UNKNOWN, "hostkey 三态不得折叠");
 
+  uint8_t preview[8] = {1}; size_t preview_size = 99;
+  CHECK(gt_sftp_preview_controlled(NULL, ".", preview, sizeof preview, &preview_size,
+      100, NULL, NULL) == GT_ERR_INVALID_ARG && !preview_size && !preview[0],
+      "controlled preview rejects NULL and clears outputs");
   char browse_path[16] = "stale";
   gt_sftp_entry_t *browse_entries = NULL;
   size_t browse_count = 99;

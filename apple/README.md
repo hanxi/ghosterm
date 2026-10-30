@@ -1,5 +1,7 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
+**有界预览前置（§9.50）**：42 CTest / 84 ABI、Apple 82/2、JNI 40/44；Core 与 Swift 已实现完整有界读取，46 项协议用例通过，20 组变异与 Android 39 项定向回归通过。Android 尚未绑定文件 owner，macOS Quick Look 未改用此接口；详见 [实施记录](../docs/reference/android-implementation.md#950-受控只读预览前置2026-10-30)。
+
 ## 当前结构（2026-10-30）
 
 ```text
@@ -114,7 +116,7 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 同样只有未�
 
 ### 目录浏览与元数据接线边界
 
-共享层新增 `SFTPSession.browse(path:timeoutMilliseconds:maxEntries:cancellation:)`，当前 83 ABI、Apple 81/2；36 项协议及 19 组浏览变异已通过，包含三组 Swift 与无库档。原 Swift 定位失败已修正，历史记录保留。`SFTPFileBackend.list/realpath` 和 `AppModel.makeSFTPFileBackend` 仍用旧入口，绑定验收不是桌面产品验收；见 [§9.49](../docs/reference/android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30)。
+共享层新增 `SFTPSession.browse(path:timeoutMilliseconds:maxEntries:cancellation:)`，该切片为 83 ABI、Apple 81/2；36 项协议及 19 组浏览变异已通过，包含三组 Swift 与无库档。原 Swift 定位失败已修正，历史记录保留。`SFTPFileBackend.list/realpath` 和 `AppModel.makeSFTPFileBackend` 仍用旧入口，绑定验收不是桌面产品验收；见 [§9.49](../docs/reference/android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30)。
 
 新的 `SFTPEntry/SFTPStat` 带 `hasSize/isRegularFile`，C 转换保留真实标志；但 `SFTPFileBackend.entry` 创建 `FileEntry` 时丢弃它们，`kind` 将非目录/非链接一律映射为 `.file`。`FileEntry` 只有数值大小，`sizeText` 会将未知大小的零值显示成文件大小，特殊或未知类型也可能被当作普通文件。此为源码核对，尚无新增桌面故障实测。
 

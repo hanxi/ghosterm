@@ -151,6 +151,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 `sftp-browse` 用 `python3 scripts/mutation-check-sftp-browse.py` 手工验证 13 Core + 2 依赖 + 3 Swift + 1 无库组，覆盖受控目录、实际分配器释放、NAME 边界和绑定；36 项协议矩阵独立执行。当前 83 ABI、Apple 81/2、JNI 40/43，产品尚未消费。`sftp-submit` 用真实 worker 提前释放与 ASan 验任务返回 ID 所有权，一组变异目标 UAF 红、独立 API 绿、恢复绿与 SHA；`exec` 增加会话超时恢复组，共三组。正常目录/提交回归进入 Core gate，手工脚本不增加 CI 20 份。范围与失败记录见 Android 实现计划 §9.49；此处登记现有覆盖，不改变既有验收规则。
 
+`sftp-preview` 用 `python3 scripts/mutation-check-sftp-preview.py` 手工验证 15 Core + 1 无库 + 4 Swift 组，护预算/取消、只读打开、打开前后类型/大小、限额额外字节、EOF 完整性、关闭结果/释放、连接失效、发布与绑定；独立协议矩阵 46 项。当前 84 ABI、Apple 82/2、JNI 40/44，Android 预览仍登记待接。正常真实 SSH 预览进入 Core gate；20 组变异属手工证据，不增加 CI 20 份。首轮验证脚本文案失败及最终结果见 Android 实现计划 §9.50。
+
 ### 变异验证（新增闸门必须附）
 
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。

@@ -112,7 +112,7 @@ Android 文件控制面已有 `FileBrowserSource` 与 `LocalFileBrowser`：本�
 
 SFTP 受控打开与主机依赖前置已按 §9.47 验收：Core controlled opener、Swift 重载和 Android native helper 已存在，默认主机构建/SwiftPM 消费补丁 libssh2。17 项协议、十组接口变异、十一组依赖守卫及既有打包变异通过。macOS 产品仍用无参 `sftp()`，Android 没有远端文件 owner；列表、预览及关闭仍须独立的 owner/预算/取消契约，详见[主机依赖说明](../reference/host-ssh2-build.md)。
 
-受控目录浏览（§9.49）已通过协议与变异：Core/Swift 将规范路径、全部条目和目录关闭合成一次结果，要求独占 SSH/SFTP 且不与传输 job 共用。当前 83 ABI、Apple 81/2、JNI 40/43；JNI 仅登记待接，macOS 产品尚未消费新入口或元数据。任务 ID 在移交 worker 前保存，exec 的局部超时在解锁前恢复；两项不替代预览、会话关闭和文件提交契约。详见[路线图](../reference/roadmap.md#macos-下一步与共享缺口)。
+受控目录浏览（§9.49）已通过协议与变异：Core/Swift 将规范路径、全部条目和目录关闭合成一次结果，要求独占 SSH/SFTP 且不与传输 job 共用。该切片为 83 ABI、Apple 81/2、JNI 40/43；JNI 仅登记待接，macOS 产品尚未消费新入口或元数据。任务 ID 在移交 worker 前保存，exec 的局部超时在解锁前恢复；两项不替代预览、会话关闭和文件提交契约。§9.50 新增单预算的 LSTAT/只读 OPEN/FSTAT/READ/CLOSE 预览接口，当前 84 ABI、Apple 82/2、JNI 40/44；返回有界原始字节，平台仍负责解码、缓存和请求代次，两端产品未消费。详见[路线图](../reference/roadmap.md#macos-下一步与共享缺口)。
 
 ## 参考实现（技术对照）
 

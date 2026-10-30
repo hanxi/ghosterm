@@ -3,6 +3,7 @@
   "gt_config_parse_file": "当前配置事务读取快照后调用 parse；不直接让 Core 读取主配置文件",
   "gt_config_supported_keys": "当前原文编辑器保留未知指令，不依赖支持键枚举；后续字段目录需要时绑定",
   "gt_core_poll_events": "A6: 单消费者事件泵与任务控制接入时绑定",
+  "gt_sftp_preview_controlled": "A4: 专用远端文件 owner 接线时使用有界只读预览",
   "gt_sftp_browse_controlled": "A4: 专用远端文件 owner 接线时使用受控路径查询与完整目录读取",
   "gt_sftp_cancel": "A4/A5: 文件浏览与安全复制接入时绑定",
   "gt_sftp_chmod": "A4/A5: 文件浏览与安全复制接入时绑定",

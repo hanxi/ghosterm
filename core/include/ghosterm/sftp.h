@@ -69,6 +69,22 @@ int gt_sftp_browse_controlled(gt_sftp_t *sftp, const char *path,
     uint32_t timeout_ms, size_t max_entries,
     bool (*cancelled)(void *), void *context);
 
+/* Read-only, bounded regular-file preview. Dedicated owner rules and failure
+ * invalidation are identical to browse_controlled. One budget covers lstat,
+ * read-only open, fstat, reads through EOF and successful close. Symlinks,
+ * special files and unknown types are UNSUPPORTED; SFTP v3 cannot guarantee
+ * atomic no-follow against a concurrent path replacement. Open-handle fstat
+ * checks the actual file type and size again. Unknown size is allowed, but
+ * reads never publish more than capacity bytes; known size must match EOF.
+ * capacity is 1..1048576 bytes, timeout_ms is nonzero. Caller owns buffer.
+ * No partial result: valid-sized buffer is zeroed and out_count is zero on
+ * failure; bytes are published only after close succeeds. Empty file is OK.
+ * Core returns raw bytes; decoding, binary rejection and preview lifetime
+ * belong to the platform. No local file or transfer job is created. */
+int gt_sftp_preview_controlled(gt_sftp_t *sftp, const char *path,
+    uint8_t *buffer, size_t capacity, size_t *out_count, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context);
+
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out);
 
 /* lstat：**不跟随**符号链接（报链接自身的属性）。 */

@@ -209,6 +209,39 @@ final class GhostermCoreTests: XCTestCase {
         return false
     }
 
+    func testSFTPPreviewEndToEnd() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],
+              let key = env["GHOSTERM_SSH_KEY"], let port = UInt16(env["GHOSTERM_SSH_PORT"] ?? "") else {
+            throw XCTSkip("SSH fixture required")
+        }
+        let session = try SSHSession(SSHOptions(host: host, port: port, username: user,
+            knownHostsPath: env["GHOSTERM_SSH_KNOWN_HOSTS"]))
+        session.setHostKeyDecider { _, _, _, _ in .accept }
+        try session.authenticate(privateKeyPEM: String(contentsOfFile: key, encoding: .utf8))
+        try session.connect()
+        defer { session.close() }
+        let files = try session.sftp(timeoutMilliseconds: 3000)
+        defer { files.close() }
+        let path = (key as NSString).deletingLastPathComponent + "/preview-数据"
+        let payload = Data([0, 255, 65, 10])
+        try payload.write(to: URL(fileURLWithPath: path))
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        XCTAssertThrowsError(try files.preview(path: path, timeoutMilliseconds: 0)) { error in
+            guard case GhostermError.status(1, _) = error else { return XCTFail("Preview zero budget must be INVALID_ARG") }
+        }
+        XCTAssertThrowsError(try files.preview(path: path + "\0ignored", timeoutMilliseconds: 3000))
+        let cancelled = SSHCancellation(); cancelled.cancel()
+        XCTAssertThrowsError(try files.preview(path: path, timeoutMilliseconds: 3000, cancellation: cancelled)) { error in
+            guard case GhostermError.status(8, _) = error else { return XCTFail("Preview cancellation must be CANCELLED") }
+        }
+        XCTAssertEqual(try files.preview(path: path, timeoutMilliseconds: 3000, maxBytes: 4), payload)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), payload)
+        XCTAssertThrowsError(try files.preview(path: path, timeoutMilliseconds: 3000, maxBytes: 3)) { error in
+            guard case GhostermError.status(3, _) = error else { return XCTFail("Preview size limit must fail with IO") }
+        }
+    }
+
     func testSFTPBrowseEndToEnd() throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],

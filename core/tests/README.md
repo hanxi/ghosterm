@@ -19,9 +19,9 @@
 
 ## SFTP 受控打开的验证边界
 
-`test_sftp_open` / `sftp_open_e2e` 验证正常 OpenSSH 打开、预先取消、零预算与真实目录，该 §9.47 基线的默认主机构建 Core CTest 数量为 39；当前含目录浏览和提交所有权回归的 Core 为 41。独立 `scripts/test-sftp-open.py` 覆盖 17 项协议矩阵，含部分 VERSION/头部 EOF；默认补丁库上的最终矩阵及十组接口变异通过。十一组依赖守卫与真实 CMake 接线变异亦通过，历史失败和修正见[主机依赖说明](../../docs/reference/host-ssh2-build.md)。
+`test_sftp_open` / `sftp_open_e2e` 验证正常 OpenSSH 打开、预先取消、零预算与真实目录，该 §9.47 基线的默认主机构建 Core CTest 数量为 39；目录浏览和提交所有权回归切片的 Core 为 41，新增预览后为 42。独立 `scripts/test-sftp-open.py` 覆盖 17 项协议矩阵，含部分 VERSION/头部 EOF；默认补丁库上的最终矩阵及十组接口变异通过。十一组依赖守卫与真实 CMake 接线变异亦通过，历史失败和修正见[主机依赖说明](../../docs/reference/host-ssh2-build.md)。
 
-§9.47 已验基线为 82 ABI、Apple 80/2、JNI 40/42；当前工作区为 83 ABI、Apple 81/2、JNI 40/43；两端文件产品尚未消费新入口。后续阻塞操作不受 opener 预算保护。构建、协议命令与验证日志见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增手工变异未加入 CI 20 份；默认缺依赖报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
+§9.47 已验基线为 82 ABI、Apple 80/2、JNI 40/42；目录浏览切片为 83 ABI、Apple 81/2、JNI 40/43；当前预览切片为 84 ABI、Apple 82/2、JNI 40/44；两端文件产品尚未消费新入口。后续阻塞操作不受 opener 预算保护。构建、协议命令与验证日志见[主机依赖与 SFTP 打开](../../docs/reference/host-ssh2-build.md)。新增手工变异未加入 CI 20 份；默认缺依赖报配置失败，只有显式关闭 SSH 的构建才使用 unsupported stub。
 
 ## SFTP 受控目录浏览与提交所有权
 
@@ -38,6 +38,18 @@ python3 scripts/mutation-check-sftp-browse.py
 `sftp_submit_e2e` 编译生产 SFTP 实现，并通过仅测试编译使用的分配/解锁包装让真实 worker 先释放任务，再让提交调用返回；ASan 防止解锁后读取已释放对象。正常上传/下载必须返回与完成事件一致的 ID，实际远端字节也须相同。`python3 scripts/mutation-check-sftp-submit.py` 撤回到解锁后读任务 ID，目标必须报告 `submit_job` 的 heap-use-after-free，独立 API 通过，恢复绿及 SHA。测试关闭 LeakSanitizer，只验证 UAF，不掩盖前述已知握手分配问题。
 
 `test_ssh` 的 exec 读取另外检查真实 session 超时在返回前恢复；`mutation-check-ssh-core.py exec` 现为三组（超时恢复、stderr 分离、退出码），保留真 sshd 与配置对照。
+
+## SFTP 有界只读预览
+
+`test_sftp_preview` / `sftp_preview_e2e` 验真实 OpenSSH 的原始字节与成功关闭，46 项独立协议用例覆盖五个阶段的故障、大小/类型和读取后取消。通过以下入口运行：
+
+```bash
+PATH="$PWD/build/ssh-channel-toolchain/bin:$PATH" \
+  bash core/tests/scripts/ssh_e2e.sh "$PWD/scripts/test-sftp-preview.py"
+python3 scripts/mutation-check-sftp-preview.py
+```
+
+15 Core + 1 无库 + 4 Swift 变异最终全部通过；首轮 Swift 验证脚本文案不匹配的失败仍保留，记录见 [§9.50](../../docs/reference/android-implementation.md#950-受控只读预览前置2026-10-30)。正常预览已加入 Core gate，完整协议/变异仍为手工范围；不增加 CI 20 份。
 
 ## 公共头依赖闸门
 

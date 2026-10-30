@@ -26,6 +26,9 @@ def fixture(work, enabled):
     directory_spec = importlib.util.spec_from_file_location('sftp_directory_peer', Path(__file__).with_name('sftp-directory-peer.py'))
     directory_peer = importlib.util.module_from_spec(directory_spec)
     directory_spec.loader.exec_module(directory_peer)
+    preview_spec = importlib.util.spec_from_file_location('sftp_preview_peer', Path(__file__).with_name('sftp-preview-peer.py'))
+    preview_peer = importlib.util.module_from_spec(preview_spec)
+    preview_spec.loader.exec_module(preview_peer)
     token = secrets.token_hex(32)
     lock = threading.Lock()
     records = {}
@@ -89,6 +92,8 @@ def fixture(work, enabled):
                                     if peer.record['action'] not in ('partial','queued-partial'): sftp_channel.shutdown_write()
                                 else:
                                     sftp_channel.sendall(b'\x00\x00\x00\x05\x02\x00\x00\x00\x03')
+                                    if peer.record['stage'] in preview_peer.STAGES:
+                                        preview_peer.serve(sftp_channel, peer, closing)
                                     if peer.record['stage'] in directory_peer.STAGES:
                                         directory_peer.serve(sftp_channel, peer, closing)
             except (EOFError, OSError, paramiko.SSHException): pass
@@ -101,7 +106,7 @@ def fixture(work, enabled):
             with lock:
                 op = request['op']
                 if op == 'new':
-                    if request['stage'] not in ('channel','pty','shell','subsystem','version', *directory_peer.STAGES) or request['action'] not in ('hold','deny','allow','disconnect','eof','partial','header-eof','queued-partial', *directory_peer.ACTIONS): raise ValueError('Invalid fixture mode')
+                    if request['stage'] not in ('channel','pty','shell','subsystem','version', *directory_peer.STAGES, *preview_peer.STAGES) or request['action'] not in ('hold','deny','allow','disconnect','eof','partial','header-eof','queued-partial', *directory_peer.ACTIONS, *preview_peer.ACTIONS): raise ValueError('Invalid fixture mode')
                     name = 'channel-'+secrets.token_hex(12)
                     records[name] = dict(stage=request['stage'],action=request['action'],events=[],release=threading.Event())
                     result = dict(user=name)
