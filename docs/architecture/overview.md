@@ -91,7 +91,7 @@ libghostty-vt；[ghostty-web](https://github.com/coder/ghostty-web) 走的也正
 
 ## 当前宿主状态与实现入口
 
-任务记录属于各端控制面。macOS `TransferManager` 当前只有内存队列；Android 已提交的 §9.72 也只有进程内队列，§9.73 工作区另外接入私有 SQLite 观察记录。记录不含凭据、fd、连接或可复用冲突授权，重启只读展示，不生成可执行请求；不经过终端输出通路，也不新增共享 C ABI。其专项证据与剩余验收见 [持久记录契约](../reference/android-implementation.md#82-a6-持久任务记录与中断核对工作区接线待验收)，不代表后台服务或两端恢复能力已经交付。
+任务记录属于各端控制面。macOS `TransferManager` 当前只有内存队列；Android §9.72 接进程内队列，§9.73 另外接入并验收私有 SQLite 观察记录。记录不含凭据、fd、连接或可复用冲突授权，重启只读展示，不生成可执行请求；不经过终端输出通路，也不新增共享 C ABI。其完整 475 项与专项证据、剩余阶段边界见 [持久记录契约](../reference/android-implementation.md#82-a6-持久任务记录与中断核对)，不代表后台服务或两端恢复能力已经交付。
 
 macOS 的功能键由 full libghostty 根据普通光标、应用光标或 Kitty 协议编码；宿主在发送按键前排除 AppKit 的 U+F700…U+F8FF 功能键占位文本，普通字符与输入法路径保持各自处理。`124edb6` 的专项验收见[功能键编码记录](../reference/optional-tmux-implementation.md#功能键编码修复2026-10-31)，不代表完整宿主 UI 已通过。
 
