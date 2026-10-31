@@ -71,9 +71,9 @@ class LocalFilePublisher(private val home: File, private val staging: File,
                                 val written=try { Os.write(writer.fileDescriptor,buffer,offset,read-offset) }
                                 catch(e:ErrnoException) { if(e.errno==OsConstants.EINTR) continue;throw e }
                                 check(written>0) { "目标写入没有进展" };offset+=written
+                                checkpoint(copied+offset,size)
                             }
                             copied+=read
-                            checkpoint(copied,size)
                         }
                         val after=Os.fstat(input.fileDescriptor)
                         check(before.st_size==after.st_size && before.st_mtim.tv_sec==after.st_mtim.tv_sec &&

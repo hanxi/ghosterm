@@ -61,6 +61,7 @@ class TransferStagingStore(private val directory: File,
      * A returned snapshot is a complete byte copy, not a promise of remote publication.
      */
     suspend fun snapshot(expectedSize: Long? = null,
+        progress: (Long, Long?) -> Unit = { _, _ -> },
         open: (CancellationSignal) -> AssetFileDescriptor): Snapshot = suspendCancellableCoroutine { waiting ->
         val signal = CancellationSignal()
         synchronized(lock) {
@@ -70,7 +71,7 @@ class TransferStagingStore(private val directory: File,
         waiting.invokeOnCancellation { Dispatchers.IO.dispatch(EmptyCoroutineContext) { signal.cancel() } }
         Dispatchers.IO.dispatch(EmptyCoroutineContext) {
             try {
-                val result = copy(expectedSize, signal, { waiting.isActive && active() }, open)
+                val result = copy(expectedSize, signal, { waiting.isActive && active() }, progress, open)
                 waiting.resume(result, onCancellation = { _, value, _ -> value.close() })
             } catch (failure: Exception) { if (waiting.isActive) waiting.resumeWithException(failure) }
             finally { synchronized(lock) { sourceReads.remove(signal);completeClose() } }
@@ -78,6 +79,7 @@ class TransferStagingStore(private val directory: File,
     }
 
     private fun copy(expected: Long?, signal: CancellationSignal, active: () -> Boolean,
+        progress: (Long, Long?) -> Unit,
         open: (CancellationSignal) -> AssetFileDescriptor): Snapshot {
         require(expected == null || expected in 0..fileLimit) { "文件超过暂存上限或大小无效" }
         val reservation = expected ?: fileLimit
@@ -111,6 +113,8 @@ class TransferStagingStore(private val directory: File,
                     val poll = StructPollfd().apply { this.fd=source;events=OsConstants.POLLIN.toShort() }
                     val buffer = ByteArray(32 * 1024)
                     try {
+                        val total=if(length>=0) length else expected
+                        progress(0,total)
                         while (length < 0 || size < length) {
                             check(active()) { "文件暂存已取消" }
                             // Probe one byte beyond the budget even when metadata omitted size.
@@ -133,6 +137,7 @@ class TransferStagingStore(private val directory: File,
                                 check(written>0) { "文件暂存写入没有进展" };offset+=written
                             }
                             size += read
+                            progress(size,total)
                         }
                         asset.parcelFileDescriptor.checkError()
                         check(length < 0 || size == length) { "源文件提前结束" }
@@ -167,10 +172,11 @@ class TransferStagingStore(private val directory: File,
     /** Complete remote bytes into private staging. This owns a separate file
      * connection operation, never a final target. Caller retains the connection. */
     suspend fun receive(files: com.hanxi.ghosterm.bridge.RemoteFileSession, path: String,
-        expectedSize: Long? = null, timeoutMillis: Int = 5000): Snapshot = suspendCancellableCoroutine { waiting ->
+        expectedSize: Long? = null, timeoutMillis: Int = 5000,
+        progress: ((com.hanxi.ghosterm.bridge.RemoteTransferProgress) -> Unit)? = null): Snapshot = suspendCancellableCoroutine { waiting ->
         val worker = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             try {
-                val result = receiveCopy(files,path,expectedSize,timeoutMillis)
+                val result = receiveCopy(files,path,expectedSize,timeoutMillis,progress)
                 waiting.resume(result,onCancellation = { _, value, _ -> value.close() })
             } catch(failure: Exception) { if(waiting.isActive) waiting.resumeWithException(failure) }
         }
@@ -186,7 +192,8 @@ class TransferStagingStore(private val directory: File,
     }
 
     private suspend fun receiveCopy(files: com.hanxi.ghosterm.bridge.RemoteFileSession,
-        path: String, expected: Long?, timeoutMillis: Int): Snapshot {
+        path: String, expected: Long?, timeoutMillis: Int,
+        progress: ((com.hanxi.ghosterm.bridge.RemoteTransferProgress) -> Unit)?): Snapshot {
         require(expected == null || expected in 0..fileLimit) { "文件超过暂存上限或大小无效" }
         val reservation = expected ?: fileLimit
         reserve(reservation)
@@ -202,7 +209,7 @@ class TransferStagingStore(private val directory: File,
             writer=AnonymousStagingFile.create(directory)
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             // Zero reservation still probes remote EOF, but never writes a byte.
-            val size=files.receive(path,writer.fd,reservation,timeoutMillis)
+            val size=files.receive(path,writer.fd,reservation,timeoutMillis,progress)
             check(expected == null || size == expected) { "源文件大小已改变，请重新复制" }
             check(size <= reservation) { "远端文件超过暂存预算" }
             val readonly=Os.open("/proc/self/fd/${writer.fd}",OsConstants.O_RDONLY or OsConstants.O_CLOEXEC,0)

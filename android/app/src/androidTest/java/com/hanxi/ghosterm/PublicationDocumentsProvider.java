@@ -38,7 +38,7 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         release.countDown();mode=next;release=new CountDownLatch(1);entries.clear();latest=null;
         for(File f:Objects.requireNonNull(directory.listFiles()))f.delete();
         creates.set(0);writes.set(0);reads.set(0);deletes.set(0);closedWrites.set(0);writeErrors.set(0);
-        try { Entry keep=new Entry("opaque:keep","keep.txt","pub:root","normal",new File(directory,"keep"));
+        try { Entry keep=new Entry("opaque:keep","keep.txt","pub:root",next.equals("source-read-stall")?"read-stall":next.equals("source-pipe-stall")?"pipe-read-stall":"normal",new File(directory,"keep"));
             try(FileOutputStream out=new FileOutputStream(keep.file)) { out.write("original".getBytes(java.nio.charset.StandardCharsets.UTF_8)); }
             entries.put(keep.id,keep);
         } catch(IOException error) { throw new IllegalStateException(error); }
@@ -172,6 +172,16 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
             catch(InterruptedException error) { Thread.currentThread().interrupt();throw new FileNotFoundException("Interrupted"); }
             if(e.mode.equals("read-denied"))throw new FileNotFoundException("Readback denied");
             if(e.mode.equals("read-stall"))waitGate();
+            if(e.mode.equals("pipe-read-stall")) {
+                ParcelFileDescriptor[] pair=ParcelFileDescriptor.createReliablePipe();
+                new Thread(()-> {
+                    try(ParcelFileDescriptor.AutoCloseOutputStream out=new ParcelFileDescriptor.AutoCloseOutputStream(pair[1])) {
+                        byte[] bytes=java.nio.file.Files.readAllBytes(e.file.toPath());
+                        int prefix=bytes.length/2;out.write(bytes,0,prefix);out.flush();
+                        waitGate();out.write(bytes,prefix,bytes.length-prefix);
+                    } catch(IOException ignored) { try { pair[1].close(); } catch(IOException ignoredAgain) {} }
+                },"publication-source-prefix").start();return pair[0];
+            }
             if(e.mode.equals("pipe-error")) {
                 ParcelFileDescriptor[] pair=ParcelFileDescriptor.createReliablePipe();
                 new Thread(()-> { try { byte[] bytes=java.nio.file.Files.readAllBytes(e.file.toPath());

@@ -311,7 +311,8 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 mkdir -p "$PWD/tmp"
 export TMPDIR="$PWD/tmp"
-# 首次准备锁定的主机 SSH 依赖，再构建 Core 与 App
+# 首次准备锁定的主机 SSH 依赖，再构建 Core 与 App；显式选择 OpenSSL 3
+export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}"
 python3 scripts/build-host-ssh2.py --fetch  # 首次准备；缓存齐备后省略 --fetch
 bash scripts/build-core.sh
 bash scripts/gate.sh

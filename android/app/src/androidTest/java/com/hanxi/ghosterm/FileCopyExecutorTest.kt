@@ -60,6 +60,41 @@ class FileCopyExecutorTest {
         val request=request(plan,executor);val outcome=withTimeout(15000) { request.execute() };request.awaitClosed()
         assertTrue(request.finished);assertSame(outcome,request.outcome);return outcome
     }
+    @Test fun phaseAverageUsesElapsedTimeWithoutInventingUnknownTotals() {
+        val activity=FileCopyActivity("file",FileCopyStage.READING,1000uL,null,100,200)
+        assertNull("speed needs a time window",activity.averageBytesPerSecond(1099))
+        assertEquals("phase speed uses real elapsed time",500.0,activity.averageBytesPerSecond(2100)!!,0.001)
+        assertNull("unknown total stays unknown",activity.totalBytes)
+        assertNull("no bytes means no speed estimate",activity.copy(bytes=0uL).averageBytesPerSecond(2100))
+        assertNull("verification is not byte transfer",activity.copy(stage=FileCopyStage.VERIFYING).averageBytesPerSecond(2100))
+        assertNull("unknown size has no time estimate",activity.estimatedSeconds(2100))
+        val known=activity.copy(totalBytes=2000uL,observedMillis=2000)
+        assertEquals("remaining time is for this phase",2L,known.estimatedSeconds(2100))
+        assertNull("reached byte total is not zero seconds to completion",known.copy(totalBytes=1000uL).estimatedSeconds(2100))
+        assertNull("stalled IO has no remaining-time estimate",known.estimatedSeconds(4101))
+        assertNull("verification duration is unknown",known.copy(stage=FileCopyStage.VERIFYING).estimatedSeconds(2100))
+    }
+    @Test fun localWriteBytesStayUncommittedUntilPublication()=runBlocking<Unit> {
+        val source=File(home,"source/file").apply { writeBytes(ByteArray(100003) { (it%251).toByte() }) }
+        lateinit var copy:FileCopyExecutor.Request
+        var before:FileCopyProgress?=null
+        val executor=FileCopyExecutor(home,context.contentResolver,File(root,"tasks"),{
+            FileTaskConnections(it.source.endpoint,it.destination.endpoint,{ _,_->error("unexpected remote") },{ _,_,_->error("unexpected auth") })
+        },record={ _,point -> if(point==FileCopyCheckpoint.PUBLISH) {
+            before=copy.outcome
+        } })
+        copy=request(plan(),executor)
+        val out=copy.execute();copy.awaitClosed()
+        assertNotNull("local publication checkpoint executed",before)
+        val progress=checkNotNull(before)
+        assertEquals("local final bytes await publication",FileCopyStage.VERIFYING,progress.activity?.stage)
+        assertEquals("local observed write byte count",source.length().toULong(),progress.activity?.bytes)
+        assertEquals("local write has not committed",0uL,progress.committedBytes)
+        assertEquals(FileCopyState.RUNNING,progress.state)
+        assertEquals(FileCopyState.COMPLETE,out.state)
+        assertEquals(source.length().toULong(),out.committedBytes)
+        assertArrayEquals(source.readBytes(),File(home,"target/file").readBytes())
+    }
     @Test fun localTreeCopiesRealBytesEmptyHiddenAndUnicodeAndKeepsSource()=runBlocking<Unit> {
         File(home,"source/目录 ☃/empty").mkdirs();File(home,"source/目录 ☃/.hidden").writeText("内容\n".repeat(50))
         File(home,"source/zero").writeBytes(byteArrayOf())

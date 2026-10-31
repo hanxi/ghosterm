@@ -39,7 +39,7 @@ def main():
     if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
     file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1' or
-                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest','RemoteFileTaskTest','FileCopyExecutorTest','RemoteFileJournalTest','RemoteFileTasksProductTest','ProcessFileWorkTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PROGRESS_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
+                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest','RemoteFileTaskTest','FileCopyExecutorTest','RemoteFileJournalTest','RemoteFileTasksProductTest','ProcessFileWorkTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_COPY_PROGRESS_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PROGRESS_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
     file_data={}
     if file_tests:
         file_key=Path(work)/'file-clientkey'
@@ -130,7 +130,7 @@ def main():
                     if not good:print(output,flush=True);raise RuntimeError('Device assertion expected '+('green' if green else 'red'))
                     return output
                 build('baseline')
-                selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else os.environ.get('ANDROID_SSH_TEST_CLASS','com.hanxi.ghosterm.RemoteFilesTest' if os.environ.get('ANDROID_FILES_PROGRESS_MUTATE')=='1' else 'com.hanxi.ghosterm.RemoteTerminalTest')
+                selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else os.environ.get('ANDROID_SSH_TEST_CLASS','com.hanxi.ghosterm.FileCopyExecutorTest,com.hanxi.ghosterm.TransferStagingTest,com.hanxi.ghosterm.SafCopyExecutorTest,com.hanxi.ghosterm.SafFileTasksProductTest' if os.environ.get('ANDROID_COPY_PROGRESS_MUTATE')=='1' else 'com.hanxi.ghosterm.RemoteFilesTest' if os.environ.get('ANDROID_FILES_PROGRESS_MUTATE')=='1' else 'com.hanxi.ghosterm.RemoteTerminalTest')
                 discovered_names=None
                 if selection is None:
                     spec=importlib.util.spec_from_file_location('journal_discovery',ROOT/'scripts/test-android-file-journal-discovery.py')
@@ -217,6 +217,10 @@ def main():
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('files_receive_mutations',ROOT/'scripts/mutation-check-android-files-receive.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_COPY_PROGRESS_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('copy_progress_mutations',ROOT/'scripts/mutation-check-android-copy-progress.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILES_PROGRESS_MUTATE')=='1':

@@ -79,9 +79,11 @@ tap 在 [`hanxi/homebrew-ghosterm`](https://github.com/hanxi/homebrew-ghosterm)�
 cask 指向 `dev` 滚动直链、写的是 `sha256 :no_check`——**因为 dev 资产每轮强删重建，
 字节钉不住，所以这里故意不校验**，不是漏了。要验字节就照上面 `shasum -a 256 -c
 SHA256SUMS` 那一步手工对（包内 `BUILD-INFO.txt` 与 release 上那份同源）。
-cask 里的 `depends_on arch: :arm64` / `depends_on macos: :tahoe` 是显式下限（只有
-arm64 切片；最低系统被内嵌的 Homebrew `libcrypto` 抬到 26.0），不满足会当场报错而不是
-装上一个跑不动的包。**首次打开照样会被 Gatekeeper 拦**（见上表），brew 换来的是安装与
+cask 里的 `depends_on arch: :arm64` / `depends_on macos: :tahoe` 是显式安装下限，
+不满足会当场报错。该下限保留此前本机打包时内嵌 Homebrew `libcrypto` 要求 macOS 26.0
+的限制；`010c251` 的 CI dev 包机读清单实际记录 `min_macos=15.0`，两者须分开看。
+打包脚本按每轮实际依赖核算二进制下限，cask 尚未降低系统要求；15.0 的包元数据
+不表示 macOS 15 全量 UI 与发行矩阵已验收。**首次打开照样会被 Gatekeeper 拦**（见上表），brew 换来的是安装与
 升级省事，不是免弹窗。
 
 ### 被拦之后怎么放行
@@ -244,7 +246,7 @@ bash scripts/package-mac.sh --adhoc --out dist
 
 ## CI 是怎么串起来的
 
-共享打包工作流已增加 `build-host-ssh2.py --fetch`，Core/SwiftPM 消费仓库自建补丁 libssh2，OpenSSL 仍由宿主提供。本机 `.app`、既有打包变异和十一组依赖守卫通过，但尚无本轮 CI/Release 发布结果；工作流步骤存在不表示线上 dev 包已换库。构建准备与证据见[主机依赖说明](../reference/host-ssh2-build.md)。
+共享打包工作流运行 `build-host-ssh2.py --fetch`，Core/SwiftPM 消费仓库自建补丁 libssh2，OpenSSL 仍由宿主提供。`010c251` 显式将 Homebrew OpenSSL 3 的 pkg-config 路径放在前面，修复 runner 默认选中 OpenSSL 4 后准备依赖失败的问题。[dev CI 41235795612](https://github.com/hanxi/ghosterm/actions/runs/41235795612) 已通过主机依赖准备、47 CTest / 91 ABI、普通引擎打包与滚动 dev 发布；发布后的 `version.json` 已核对提交号 `010c251d246b42f582322f4c5d7af95bead7ec92`、arm64、最低系统 15.0、ad-hoc 与未公证状态。这是轻闸门结果，不替代完整 macOS UI 验收，既有设置页像素失败仍待修。构建准备与证据见[主机依赖说明](../reference/host-ssh2-build.md)。
 
 ```text
 push main（通过路径过滤）或手动 → dev-build.yml

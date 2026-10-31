@@ -150,10 +150,11 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
     }
     /** Freeze a selected local/SAF source into an anonymous task-owned snapshot.
      * No destination is opened and no remote/browser connection is borrowed. */
-    suspend fun snapshot(location: FileLocation, entry: BrowserEntry, store: TransferStagingStore): TransferStagingStore.Snapshot {
+    suspend fun snapshot(location: FileLocation, entry: BrowserEntry, store: TransferStagingStore,
+        progress: (Long, Long?) -> Unit = { _, _ -> }): TransferStagingStore.Snapshot {
         check(entry.kind==FileKind.FILE) { "只能复制普通文件；符号链接不会自动跟随" }
         val expected=entry.size?.let { check(it<=Long.MAX_VALUE.toULong()) { "文件大小不受支持" };it.toLong() }
-        return store.snapshot(expected) { signal ->
+        return store.snapshot(expected,progress) { signal ->
             if(location.endpoint==FileEndpoint.APP) {
                 check(entry.id.substringBeforeLast('/',"")==location.directoryId) { "文件不属于当前文件夹" }
                 val file=appPath(entry.id)

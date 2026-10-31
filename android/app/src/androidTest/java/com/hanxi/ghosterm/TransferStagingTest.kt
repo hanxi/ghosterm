@@ -59,6 +59,27 @@ class TransferStagingTest {
         withTimeout(10000) { while(!test()) delay(10) }
     }
 
+    @Test fun sourceProgressReportsActualBytesAndKeepsUnknownSizeDistinct() = runBlocking {
+        for(size in listOf(0,100003)) for(known in listOf(false,true)) {
+            val bytes=ByteArray(size) { (it%251).toByte() }
+            val file=File(home,"progress").apply { writeBytes(bytes) }
+            val values=mutableListOf<Pair<Long,Long?>>()
+            var onMain=false
+            store.snapshot(if(known) size.toLong() else null,progress={ copied,total ->
+                onMain=onMain || android.os.Looper.getMainLooper().thread==Thread.currentThread()
+                values.add(copied to total)
+            }) { open(file) }.use { snapshot ->
+                assertFalse("source progress belongs to IO",onMain)
+                assertArrayEquals(bytes,content(snapshot))
+                assertEquals("source progress initial zero",0L,values.first().first)
+                assertEquals("source progress real final bytes",size.toLong(),values.last().first)
+                assertTrue("source progress positive monotonic IO",values.zipWithNext().all { (a,b)->b.first>a.first })
+                assertTrue("source progress preserves unknown total",values.all { it.second==if(known) size.toLong() else null })
+            }
+            assertEquals(0L,store.reservedBytes)
+        }
+    }
+
     @Test fun localSnapshotIsAnonymousReadOnlyStableAndHasIndependentReaders() = runBlocking {
         val original=ByteArray(100003) { (it%251).toByte() };val file=File(home,"源.bin").apply { writeBytes(original) }
         val before=openPaths().size

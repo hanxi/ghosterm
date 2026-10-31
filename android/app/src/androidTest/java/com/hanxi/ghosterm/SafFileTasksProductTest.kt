@@ -100,6 +100,42 @@ class SafFileTasksProductTest {
         val snapshot=FileClipboardSnapshot.capture(source,source.directoryId,entries)
         main { tasks().start(snapshot,target,target.directoryId,::connections) }
     }
+    @Test fun writeProgressStaysVerifyingUntilRealProviderReadbackCompletes() {
+        reset("read-stall")
+        val bytes=File(root,"source/new.txt").length()
+        try {
+            start(FileLocation(FileEndpoint.APP,"$unique/source"),location)
+            await { latest.phase==FileTaskPhase.CONFIRMING }
+            ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
+            await { state().getInt("reads")>0 && latest.result?.activity!=null }
+            ui.onNodeWithTag("file-task-byte-stage").performScrollTo().assertTextEquals("正在核对并提交")
+            ui.onNodeWithTag("file-task-byte-count").performScrollTo().assertTextEquals("$bytes / $bytes 字节")
+            ui.onNodeWithTag("file-task-status").performScrollTo().assertTextEquals("正在复制")
+            assertEquals("UI progress is not committed result",0uL,latest.result!!.committedBytes)
+        } finally { state("release") }
+        await { !tasks().busy }
+        assertEquals(FileCopyState.COMPLETE,latest.result?.state)
+        ui.onNodeWithTag("file-task-byte-progress").assertDoesNotExist()
+    }
+    @Test fun partialReadShowsActualBytesAndPhaseAverageOnTheTaskPage() {
+        reset("source-pipe-stall")
+        try {
+            start(location,FileLocation(FileEndpoint.APP,"$unique/target"))
+            await { latest.phase==FileTaskPhase.CONFIRMING }
+            ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
+            await { latest.result?.activity?.bytes==4uL }
+            ui.onNodeWithTag("file-task-byte-stage").performScrollTo().assertTextEquals("正在读取来源")
+            ui.onNodeWithTag("file-task-byte-count").performScrollTo().assertTextEquals("4 / 8 字节")
+            await { latest.result?.activity?.let { SystemClock.elapsedRealtime()-it.startedMillis>=1100 }==true }
+            // LaunchedEffect delay is driven by Compose's test scheduler;
+            // elapsedRealtime still uses real monotonic time above.
+            ui.mainClock.advanceTimeBy(1100)
+            ui.onNodeWithTag("file-task-byte-speed").performScrollTo().assertTextContains("本阶段平均",substring=true)
+            assertEquals(0uL,latest.result!!.committedBytes)
+        } finally { state("release") }
+        await { !tasks().busy };assertEquals(FileCopyState.COMPLETE,latest.result?.state)
+        assertEquals("original",File(root,"target/keep.txt").readText())
+    }
     @Test fun realGrantedFolderCopyRetainsActualDocumentAndReadsBackToHome() {
         reset("rename")
         start(FileLocation(FileEndpoint.APP,"$unique/source"),location)

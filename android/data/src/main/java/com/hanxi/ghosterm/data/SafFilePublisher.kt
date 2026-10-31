@@ -165,10 +165,10 @@ class SafFilePublisher(private val resolver: ContentResolver,
                                 check(written > 0) { "文档写入没有进展" }
                                 offset += written
                                 outcome = outcome.copy(bytesWritten = copied + offset)
+                                checkpoint(copied+offset,size)
                             }
                             expectedHash.update(buffer, 0, count)
                             copied += count
-                            checkpoint(copied, size)
                         }
                     } finally { buffer.fill(0) }
                 }

@@ -116,6 +116,9 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                         task.result?.let { result ->
                             val skips=result.items.count { it.state==FileCopyItemState.SKIPPED }
                             Text("已完成 ${result.completed} 项 · 已跳过 $skips 项 · 已提交 ${result.committedBytes} 字节")
+                            result.activity?.takeIf { result.state!=FileCopyState.COMPLETE && result.state!=FileCopyState.WITH_SKIPS }?.let { activity ->
+                                FileTaskByteProgress(activity,result.state==FileCopyState.RUNNING && task.active)
+                            }
                             result.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
                             var details by remember(task.request.id) { mutableStateOf(false) }
                             TextButton(onClick={ details=!details },modifier=Modifier.testTag("file-task-details")) { Text(if(details) "收起结果" else "查看逐项结果") }
@@ -143,6 +146,39 @@ fun FileTasksScreen(model: FileTasksViewModel) {
             items(model.history,key={ "history:${it.intent.id}" }) { record ->
                 FileHistoryCard(record,onRemove={ model.removeHistory(record) },canRemove=!model.busy && !model.journalLoading)
             }
+        }
+    }
+}
+
+@Composable
+private fun FileTaskByteProgress(activity: FileCopyActivity, running: Boolean) {
+    var now by remember(activity.startedMillis) { mutableLongStateOf(activity.observedMillis) }
+    LaunchedEffect(activity.startedMillis,running) {
+        while(running) {
+            now=android.os.SystemClock.elapsedRealtime()
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    Column(Modifier.fillMaxWidth().testTag("file-task-byte-progress"),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        Text(activity.relativePath,maxLines=2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        val stage=when(activity.stage) {
+            FileCopyStage.READING -> "读取来源"
+            FileCopyStage.WRITING -> "写入目标"
+            FileCopyStage.VERIFYING -> "核对并提交"
+        }
+        Text(if(running) "正在$stage" else "最后进度：$stage",Modifier.testTag("file-task-byte-stage"))
+        Text("${activity.bytes} / ${activity.totalBytes?.let { "$it 字节" } ?: "总大小未知"}",Modifier.testTag("file-task-byte-count"))
+        if(running) {
+            val total=activity.totalBytes
+            if(activity.stage==FileCopyStage.VERIFYING || total==null || total==0uL) LinearProgressIndicator(Modifier.fillMaxWidth())
+            else LinearProgressIndicator(progress={ (activity.bytes.toDouble()/total.toDouble()).coerceIn(0.0,1.0).toFloat() },modifier=Modifier.fillMaxWidth())
+            activity.averageBytesPerSecond(maxOf(now,activity.observedMillis))?.let { rate ->
+                Text("本阶段平均 ${String.format(java.util.Locale.ROOT,"%.0f",rate)} 字节/秒",Modifier.testTag("file-task-byte-speed"))
+            }
+            activity.estimatedSeconds(maxOf(now,activity.observedMillis))?.let { seconds ->
+                Text("本阶段预计还需约 $seconds 秒",Modifier.testTag("file-task-byte-estimate"))
+            }
+            if(activity.stage!=FileCopyStage.READING) Text("写入字节不代表复制完成，正在等待核验结果",style=MaterialTheme.typography.bodySmall)
         }
     }
 }

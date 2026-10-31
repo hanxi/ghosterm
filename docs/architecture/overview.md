@@ -37,7 +37,7 @@
 
 共享受控文件接口已经提供 Swift/JNI 绑定。Android 已由复制执行器和任务页面消费，macOS 文件队列仍待迁移；绑定通过不能代替产品接线与行为验收。当前调用方见 [Apple 接线表](../../apple/README.md#共享文件接口与产品接线)和 [Android 实施映射](../reference/android-implementation.md#69-后续实现入口与跨端依赖)，历次接口数量及验证范围见[路线图](../reference/roadmap.md)。
 
-§9.76 新增每次 SFTP 收发独立的同步进度观察：Core 在 IO owner 返回 POD，Android 只在专用请求内保存数字快照，由 IO 协程低频采样；不进入终端字节流或事件队列。到达总字节数不是关闭/发布成功，未知大小不折为零。Swift/JNI/Kotlin 绑定已接，任务执行器/页面与 macOS 产品尚未消费；详见 [接口切片](../reference/android-implementation.md#976-a6-实时进度的共享读写观察接口2026-11-01进行中)。
+§9.76 新增每次 SFTP 收发独立的同步进度观察：Core 在 IO owner 返回 POD，Android 只在专用请求内保存数字快照，由 IO 协程低频采样；不进入终端字节流或事件队列。到达总字节数不是关闭/发布成功，未知大小不折为零。Swift/JNI/Kotlin 绑定已接，任务执行器/页面与 macOS 产品尚未消费；详见 [接口切片](../reference/android-implementation.md#976-a6-实时进度的共享读写观察接口2026-11-01)。
 
 ## 会话重构的当前进度
 

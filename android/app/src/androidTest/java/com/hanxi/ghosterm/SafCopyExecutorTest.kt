@@ -86,8 +86,8 @@ class SafCopyExecutorTest {
         while(SystemClock.elapsedRealtime()<end) { if(main(check))return;SystemClock.sleep(30) }
         fail("Timed out: "+nodes().take(30).joinToString { "${it.text}/${it.contentDescription}" })
     }
-    private suspend fun until(check:()->Boolean) {
-        assertTrue("expected provider/worker progress",withTimeoutOrNull(6000) { while(!check())delay(10);true } == true)
+    private suspend fun until(message:String="expected provider/worker progress",check:()->Boolean) {
+        assertTrue(message,withTimeoutOrNull(6000) { while(!check())delay(10);true } == true)
     }
     private val origin get()=FileLocation(FileEndpoint.APP,"source")
     private suspend fun plan(source:FileLocation=origin,destination:FileLocation=location,names:List<String>?=null):FileCopyPlan {
@@ -123,6 +123,49 @@ class SafCopyExecutorTest {
         assertEquals(FileCopyState.COMPLETE,out.state);assertEquals("original",File(home,"target/keep.txt").readText())
         assertEquals(8uL,out.committedBytes);assertEquals(0,state().getInt("writes"));assertEquals(0,state().getInt("creates"))
     }
+    @Test fun sourceReadProgressStaysZeroUntilProviderReturnsBytes()=runBlocking<Unit> {
+        reset("source-read-stall")
+        val request=copy(plan(location,FileLocation(FileEndpoint.APP,"target"),listOf("keep.txt")))
+        val waiting=async { request.execute() }
+        try {
+            until { state().getInt("reads")>0 }
+            val before=request.outcome
+            assertEquals("source phase while provider is blocked",FileCopyStage.READING,before.activity?.stage)
+            assertEquals("blocked provider has returned no bytes",0uL,before.activity?.bytes)
+            assertEquals("reading is not destination commit",0uL,before.committedBytes)
+        } finally { state("release") }
+        val out=withTimeout(10000) { waiting.await() };request.awaitClosed()
+        assertEquals(FileCopyState.COMPLETE,out.state);assertEquals("original",File(home,"target/keep.txt").readText())
+    }
+    @Test fun partialWriteProgressIsVisibleWhileProviderIsStalled()=runBlocking<Unit> {
+        reset("pipe-stall")
+        val file=File(home,"source/file").apply { writeBytes(ByteArray(100003) { (it%251).toByte() }) }
+        val request=copy(plan());val waiting=async { request.execute() }
+        try {
+            until("partial write bytes become visible while stalled") { request.outcome.activity?.let { it.stage==FileCopyStage.WRITING && it.bytes>0uL }==true }
+            val progress=request.outcome
+            assertTrue("partial writes are real and smaller than total",progress.activity!!.bytes<file.length().toULong())
+            assertEquals("partial writes are not committed",0uL,progress.committedBytes)
+            assertFalse("blocked write is still running",request.finished)
+            request.cancel()
+        } finally { state("release") }
+        withTimeout(10000) { waiting.await();request.awaitClosed() }
+        assertEquals(FileCopyState.CANCELLED,request.outcome.state)
+    }
+    @Test fun partialSourceProgressSurvivesTheCoalescingWindow()=runBlocking<Unit> {
+        reset("source-pipe-stall")
+        val request=copy(plan(location,FileLocation(FileEndpoint.APP,"target"),listOf("keep.txt")))
+        val waiting=async { request.execute() }
+        try {
+            until("source bytes become visible during stall") { request.outcome.activity?.bytes==4uL }
+            val progress=request.outcome
+            assertEquals("partial source phase",FileCopyStage.READING,progress.activity?.stage)
+            assertEquals("partial source total",8uL,progress.activity?.totalBytes)
+            assertEquals("partial source bytes are not committed",0uL,progress.committedBytes)
+        } finally { state("release") }
+        val out=withTimeout(10000) { waiting.await() };request.awaitClosed()
+        assertEquals(FileCopyState.COMPLETE,out.state);assertEquals("original",File(home,"target/keep.txt").readText())
+    }
     @Test fun cancellationWaitsForLateCreatedDirectoryAndKeepsItsIdentity()=runBlocking<Unit> {
         reset("late-create");File(home,"source/folder/child").mkdirs()
         val request=copy(plan());val waiting=async { request.execute() }
@@ -146,7 +189,11 @@ class SafCopyExecutorTest {
     @Test fun cancelledCallerCannotDiscardReadbackSideEffectsOrReleaseEarly()=runBlocking<Unit> {
         reset("read-stall");File(home,"source/file").writeText("written before cancel")
         val request=copy(plan());val waiting=launch { request.execute() }
-        until { state().getInt("reads")>0 };waiting.cancelAndJoin();delay(100)
+        until { state().getInt("reads")>0 }
+        assertEquals("SAF write awaits verification",FileCopyStage.VERIFYING,request.outcome.activity?.stage)
+        assertEquals("SAF observed written bytes",21uL,request.outcome.activity?.bytes)
+        assertEquals("SAF readback has not committed bytes",0uL,request.outcome.committedBytes)
+        waiting.cancelAndJoin();delay(100)
         assertFalse("provider still holds the readback request",request.finished)
         state("release");withTimeout(10000) { request.awaitClosed() }
         val out=request.outcome;assertEquals(FileCopyState.CANCELLED,out.state)

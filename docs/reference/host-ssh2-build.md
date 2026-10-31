@@ -1,6 +1,6 @@
 # 主机 libssh2 构建与 SFTP 打开状态
 
-**macOS CI 搜索路径修复（2026-11-01）**：`2fbf4cc` 的 [dev run 41233655948](https://github.com/hanxi/ghosterm/actions/runs/41233655948) 在准备依赖时失败：runner 已安装 OpenSSL 3.5.9，但默认 pkg-config 指向 OpenSSL 4.1.0，builder 因而在 4.x 目录中查找预期的 `libcrypto.3.dylib`。共享 macOS 工作流现将 `brew --prefix openssl@3` 下的 pkgconfig 目录置于已有搜索路径之前，并通过 GITHUB_ENV 传给后续构建。没有改为使用未经本项目验证的 OpenSSL 4，也没有修改已锁定的 libssh2 来源或补丁。用工作流实际环境代码配合隔离的 4.x 元数据验证了空/已有搜索路径两种入口：均选择本机真实 3.x，并找到所需 dylib，保留已有路径；这只是环境选择验证，修复版云端打包仍待运行。Android 的独立 NDK 依赖与成功的 release run 41233655896 不受此环境问题影响。
+**macOS CI 搜索路径修复（2026-11-01）**：`2fbf4cc` 的 [dev run 41233655948](https://github.com/hanxi/ghosterm/actions/runs/41233655948) 在准备依赖时失败：runner 已安装 OpenSSL 3.5.9，但默认 pkg-config 指向 OpenSSL 4.1.0，builder 因而在 4.x 目录中查找预期的 `libcrypto.3.dylib`。共享 macOS 工作流现将 `brew --prefix openssl@3` 下的 pkgconfig 目录置于已有搜索路径之前，并通过 GITHUB_ENV 传给后续构建。没有改为使用未经本项目验证的 OpenSSL 4，也没有修改已锁定的 libssh2 来源或补丁。用工作流实际环境代码配合隔离的 4.x 元数据验证了空/已有搜索路径两种入口：均选择本机真实 3.x，并找到所需 dylib，保留已有路径；环境选择探针不替代打包；随后修复提交 `010c251` 的 [dev run 41235795612](https://github.com/hanxi/ghosterm/actions/runs/41235795612) 已成功，日志确认选择 OpenSSL 3 的 pkgconfig 目录、主机依赖构建通过、47 项 CTest / 91 ABI 与 dev 包通过。此轨为轻闸门，不覆盖完整宿主，既有设置页像素失败不变。Android 的独立 NDK 依赖与成功的 release run 41233655896 不受此环境问题影响。
 
 核对日期：2026-10-31。受控 SFTP 打开接口、主机补丁依赖与构建/打包接线已完成本机验收，见 Android 实现计划 §9.47。此前 `cef17ac` 记录的依赖守卫测试失败已修正并复验：十组直接守卫变异及一组真实 CMake 调用方变异通过。§9.49 已完成受控目录浏览与目录句柄关闭契约，§9.50 新增有界预览。§9.51 已接 Android 专用文件 owner/JNI/Kotlin 及中止后关闭；Android 远端页面已由 §9.52 接入，macOS 产品迁移仍待完成。
 
@@ -15,7 +15,7 @@ macOS 的 Core、Swift 和打包命令应在同一 Xcode 工具链环境执行�
 | 两个 Apple `Package.swift` | 从仓库 `build/host-native/lib` 链接 libssh2 | SwiftPM 不负责准备库；CMake 自定义 prefix 不会自动同步到 SwiftPM |
 | `scripts/build-core.sh` / `scripts/gate.sh` | 前者先准备/验证本地依赖；后者只配置、构建和验证现有依赖 | gate 保持离线；缓存不足时应先准备依赖 |
 | `scripts/package-mac.sh` | 嵌入 libssh2 及递归依赖，放入收据和 libssh2 许可，再验证包内代码/数据节与已校验库一致 | 改写加载路径和签名会改变文件摘要，因此包校验比较 Mach-O 文件节；十一组依赖守卫变异另有通过证据 |
-| `.github/workflows/macos-package.yml` | 已有准备锁定依赖的 `--fetch` 步骤 | 步骤已接线，尚无本轮 CI 成功证据；现有 20 份变异范围未增加 |
+| `.github/workflows/macos-package.yml` | 已有准备锁定依赖的 `--fetch` 步骤 | `010c251` 的 dev 轻闸门、主机依赖与打包已通过（run 41235795612）；现有 full 档 20 份变异范围未增加，不据此声称完整宿主通过 |
 | Android | 继续用 NDK 构建的显式 libssh2 target，应用同一组补丁 | 不使用主机共享库；§9.45 的设备证据不替代主机或产品接线验收 |
 
 收据记录源码、补丁、构建器、动态/静态库、三个公开头及 libssh2 许可的 SHA256，并核对实际 libcrypto 摘要。构建缓存另比较宿主平台/架构。包内收据去掉构建机 libcrypto 路径；这不是签名证书或可自动更新的授权。
@@ -24,11 +24,12 @@ macOS 当前仍链接 Homebrew OpenSSL。自建 libssh2 不等于发行系统下
 
 ## 准备与验证命令
 
-以下命令在仓库根运行，临时内容只使用工程 `tmp/`。准备 C 编译器、CMake ≥3.19、Python 3.12+、pkg-config、OpenSSL 3；macOS 另需完整 Xcode。Python 下限保证构建器使用的 `tarfile.extractall(filter='data')` 可用。本机若 pkg-config 无法发现 libcrypto，先将实际 OpenSSL 安装目录的 `lib/pkgconfig` 加入 `PKG_CONFIG_PATH`。
+以下命令在仓库根运行，临时内容只使用工程 `tmp/`。准备 C 编译器、CMake ≥3.19、Python 3.12+、pkg-config、OpenSSL 3；macOS 另需完整 Xcode。Python 下限保证构建器使用的 `tarfile.extractall(filter='data')` 可用。macOS 显式选择 OpenSSL 3 的 pkgconfig 目录，避免系统默认的其他主版本抢先匹配；自定义安装目录也应指向所需 3.x 的 `lib/pkgconfig`。
 
 ```bash
 # macOS 工具依赖（已有则省略）
 brew install cmake pkg-config openssl@3
+export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}"
 
 # 首次准备允许下载；缓存源码/产物齐备后不必加 --fetch
 python3 scripts/build-host-ssh2.py --fetch
