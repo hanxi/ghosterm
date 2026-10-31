@@ -1,5 +1,7 @@
 # terminal/apple — full libghostty（Metal）
 
+**macOS 功能键修复（`124edb6`）**：排除 AppKit 功能键占位符文本，由 full libghostty 按协商协议编码。该提交记录普通/应用光标/Kitty 共 90 个场景、1 组变异、Terminal 29 项及真实 SSH → Codex 左右键验证通过，原生 release 与打包通过；未重跑完整宿主 UI，既有设置页像素失败仍保留。详见[功能键编码记录](../../docs/reference/optional-tmux-implementation.md#功能键编码修复2026-10-31)。
+
 ## 依赖
 
 - `libghostty`（vendored 于 `vendor/ghostty`，锁 pin）
