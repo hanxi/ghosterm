@@ -17,7 +17,7 @@ def execute(root,build,test):
       ('stale-result',model,'importIdentity(pending.first,pending.second,uri)',
        'connecting?.let { importIdentity(it.id,checkNotNull(it.auth),uri) }','oldPickerResultCannotImportIntoANewConnection',1),
       ('job-cancel',model,'attempt.credentialJob?.cancel();','Unit;',
-       'cancelledImportClosesBlockedProviderPipeWithoutSaving',2),
+       'cancelledImportClosesBlockedProviderPipeWithoutSaving',3),
       ('pipe-cancel',reader,'if (!waiting.isActive) return@dispatch\n                                try',
        'if (false && !waiting.isActive) return@dispatch\n                                try',
        'cancelledImportClosesBlockedProviderPipeWithoutSaving',1),
@@ -25,8 +25,8 @@ def execute(root,build,test):
        'realPickerImportSurvivesActivityRecreationAndAuthenticates',1),
       ('oversize',reader,'check(used in 1..1024*1024)','check(used >= 0)',
        'invalidDeniedAndOversizedDocumentsStayVisibleAndDoNotSave',1),
-      ('cancel-result',model,'pendingIdentityImport = null; identityPickerPending = false',
-       'pendingIdentityImport = null; identityPickerPending = true','pickerCancelDoesNotSaveAndAllowsAnotherImport',2),
+      ('cancel-result',model,'pendingIdentityImport = null; pendingIdentityPresenter = null; identityPickerPending = false',
+       'pendingIdentityImport = null; pendingIdentityPresenter = null; identityPickerPending = true','pickerCancelDoesNotSaveAndAllowsAnotherImport',3),
     ]
     try:
         for label,path,old,new,method,count in cases:

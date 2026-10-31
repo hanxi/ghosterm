@@ -35,6 +35,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
+    private val fileTaskPage get() = androidx.lifecycle.ViewModelProvider(this)[FileTasksViewModel::class.java]
+    override fun onResume() { super.onResume();fileTaskPage.resumed() }
+    override fun onPause() { fileTaskPage.paused();super.onPause() }
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if(hasFocus) fileTaskPage.focused()
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -75,15 +82,15 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         else lightColorScheme(primary = Color(0xFF425F96), background = Color(0xFFF7F8FC), surface = Color(0xFFF7F8FC))
     MaterialTheme(colorScheme = colors) {
         SSHConnectionDialog(sessions)
+        SSHConnectionDialog(fileTasks.authentication,fileTasks.presenterId,
+            visible=fileTasks.presentsAuthentication && sessions.connecting==null)
         SSHSessionChoices(sessions)
         if(fileTasks.visible) { FileTasksScreen(fileTasks);return@MaterialTheme }
         if (files.visible) {
             FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error,
                 onPaste={ files.clipboard?.let { snapshot ->
                     fileTasks.start(snapshot,files.location,
-                        if(files.location.endpoint.remote!=null) files.location.directoryId else files.crumbs.joinToString(" / ") { it.label },
-                        { request -> sessions.fileTaskConnections(request) { fileTasks.cancelRequest(request.id) } },
-                        { result -> files.copyCompleted(result) })
+                        if(files.location.endpoint.remote!=null) files.location.directoryId else files.crumbs.joinToString(" / ") { it.label })
                 } },showTasks=fileTasks::show) { alias ->
                 val host=hosts.snapshot?.hosts?.firstOrNull { it.alias==alias }
                 if(host==null) files.remoteConnectionError("主机配置已不可用，请返回首页重新载入")

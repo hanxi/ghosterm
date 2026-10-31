@@ -17,9 +17,10 @@ data class FileCrumb(val location: FileLocation, val label: String)
 data class FilePreview(val entry: BrowserEntry, val text: String? = null, val error: String? = null)
 data class ClipboardReplacement(val expectedId: String, val snapshot: FileClipboardSnapshot)
 
-/** One process-local browser; navigation owns reads, never terminal connections. */
+/** Activity-local browser over the shared file clipboard; navigation owns only its reads. */
 class FilesViewModel @JvmOverloads constructor(application: Application,
-    private val source: FileBrowserSource = FileBrowserRepository(LocalFileBrowser(File(application.filesDir,"home"),application.contentResolver))
+    private val source: FileBrowserSource = FileBrowserRepository(LocalFileBrowser(File(application.filesDir,"home"),application.contentResolver)),
+    private val work: FileWorkRuntime = (application as? GhostermApplication)?.fileWork ?: FileWorkRuntime(application)
 ) : AndroidViewModel(application) {
     var visible by mutableStateOf(false); private set
     var endpoints by mutableStateOf(listOf(FileEndpoint.APP)); private set
@@ -35,12 +36,18 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     var showHidden by mutableStateOf(false); private set
     var preview by mutableStateOf<FilePreview?>(null); private set
     var pickerPending by mutableStateOf(false); private set
-    var clipboard by mutableStateOf<FileClipboardSnapshot?>(null); private set
+    private val clipboardStore = work.clipboard
+    var clipboard: FileClipboardSnapshot?
+        get() = clipboardStore.snapshot
+        private set(value) { clipboardStore.snapshot=value }
     var clipboardDetails by mutableStateOf(false); private set
     var clipboardReplacement by mutableStateOf<ClipboardReplacement?>(null); private set
     var clipboardClearId by mutableStateOf<String?>(null); private set
     var clipboardError by mutableStateOf<String?>(null); private set
     val visibleEntries get() = entries.filter { showHidden || !it.name.startsWith(".") }
+    init {
+        viewModelScope.launch { work.tasks.completed.collect { result -> result?.let { copyCompleted(it) } } }
+    }
     private val remembered = mutableMapOf<String,List<FileCrumb>>()
     private var readJob: Job? = null
     private var rootsJob: Job? = null

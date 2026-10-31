@@ -1,10 +1,10 @@
 # Android 宿主
 
-**当前实现（2026-10-31，工作区 §9.71）**：Android 已有复制清单、粘贴预检/冲突确认、任务认证与逐项结果页；`FileWorkRuntime` 在进程内共享任务、清单及任务认证，页面只持有浏览和导航状态。关闭 Activity 不取消文件任务，全进程只接受一个活动请求，取消后等待实际资源释放。排队、前台服务/通知、暂停/重试、进程恢复与完整偏好尚未实现。不同远端命名空间关系未知时阻断，不能据同服务器测试宣称跨主机复制已完成。8 项跨 Activity 定向与 15 组进程所有权变异通过；完整回归仍以 §9.70 为最近已完成记录，当前验收见[实现记录](../docs/reference/android-implementation.md#971-a6-进程任务与共享清单2026-10-31验收中)。
+**当前实现（2026-10-31，§9.71 当前模拟器档已验）**：Android 文件任务、复制清单和任务认证现由 `FileWorkRuntime` 在进程内共享；关闭发起 Activity 后，另一页面仍可继续确认、认证或查看结果。全进程只接受一个活动请求，取消等待实际资源释放。排队、前台服务/通知、暂停/重试、进程恢复与完整偏好仍未实现；不同远端命名空间关系未知时阻断。 实现与证据见[Android 记录](../docs/reference/android-implementation.md#971-a6-进程任务与共享清单2026-10-31)。
 
-**最近完整验收（§9.70，不覆盖 §9.71 工作区变更）**：§9.70 的 18 项产品定向、24 组新增变异及既有 97 组回归通过；最终完整设备 **437 项通过，零失败/错误/跳过**（1105.73 秒），仅 API 36 arm64 / 4 KB 页模拟器。714 份非 Markdown 源码摘要未变，安装主/测试 APK 与构建一致。Core 47 CTest / 89 ABI、Apple 87/2、JNI 49/40 和两端原生构建通过；未新增真机、API 29、16 KB 页、发行或 CI 证据。
+**验收边界（§9.71）**：8 项跨 Activity 定向、15 组新增变异与既有 94 组回归通过；完整设备 **445 项通过，零失败/错误/跳过**（1504.245 秒），仅 API 36 arm64 / 4 KB 页模拟器；719 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致。 Android debug/测试 APK 构建通过。Core 47 CTest / 89 ABI、Apple 87/2、JNI 49/40 和 macOS 增量构建为此前 `254ce8e` 基线的复核结果；新 macOS 键盘代码的专项证据单独记账。未新增 Android 真机、API 29、16 KB 页、发行或 CI 证据。
 
-状态（2026-10-31）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有 SSH 身份、主机验证记录、配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话、SAF 导入、凭据、身份设置、主机关联、信任读写桥、候选地址与通道取消与本机/SAF 及远端文件页面已有设备回归记录（最新结果见页首及 §9.70）；远端文件页面已由 §9.52 接入，完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
+状态（2026-10-31）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有 SSH 身份、主机验证记录、配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话、SAF 导入、凭据、身份设置、主机关联、信任读写桥、候选地址与通道取消与本机/SAF 及远端文件页面已有设备回归记录（最新结果见页首及 §9.71）；远端文件页面已由 §9.52 接入，完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
 
 §9.41 的 200 项对应通道切片 `6817bd8` 的源码；通道十三组、产品十五组及共享 SSH/exec/tmux 回归已收口。早期失败和未覆盖的真实网络/设备范围保留在 §9.41，不表示整个 A3 已完成。
 
@@ -28,7 +28,7 @@ A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnecti
 
 静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
 
-后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。§9.49 的完整 **214 项，0 失败/错误/跳过**为历史记录（含文件浏览与既有真实 SSH/凭据/通道夹具）；最近完整设备结果见页首与 §9.70，仍限同一模拟器档，§9.41 的选区早期失败及复验记录继续保留；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
+后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。§9.49 的完整 **214 项，0 失败/错误/跳过**为历史记录（含文件浏览与既有真实 SSH/凭据/通道夹具）；最近完整设备结果见页首与 §9.71，仍限同一模拟器档，§9.41 的选区早期失败及复验记录继续保留；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
 
 共享主机信任前置已修复撤销/CA 标记误信任，信任写入/关闭失败会阻断认证（§9.22–§9.23）。共享连接配置准入和 SSH native 后端分别见 §9.24–§9.25。当前首页在最终配置检查通过后进入 DNS/主机验证/凭据与远端终端；默认 ViewModel 工厂已修复。同主机多连接按 UUID 选择，明确新建保留旧连接；Keystore AES-GCM 容器只落盘密文。具体生产入口、定向证据与未完成项见[§9.27](../docs/reference/android-implementation.md#927-ssh-产品页面与加密身份容器2026-10-30)。
 
@@ -56,14 +56,14 @@ ANDROID_SERIAL=设备 ANDROID_FILES_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.
 
 ## 粘贴确认与任务页面
 
-进程所有权入口为 工作区的 `app/src/main/java/com/hanxi/ghosterm/FileWorkRuntime.kt`，任务状态机 `FileTaskStore` 与页面 facade 同在 `FileTasksViewModel.kt`。§9.70 新增 [FileTasksViewModel](app/src/main/java/com/hanxi/ghosterm/FileTasksViewModel.kt) 和 [FileTasksScreen](app/src/main/java/com/hanxi/ghosterm/FileTasksScreen.kt)。文件来源卡片提供粘贴入口；任务固定源/目标，预检后确认冲突，独立认证后执行，保留实际位置与逐项错误。默认保留复制清单；取消要等待实际 provider/原生资源释放，不立即释放名额。完整实现及尚未完成范围见[任务契约](../docs/reference/android-implementation.md#619-当前任务页面与-a6-后续实现)。
+进程所有权入口为 [FileWorkRuntime](app/src/main/java/com/hanxi/ghosterm/FileWorkRuntime.kt)，任务状态机 `FileTaskStore` 与页面 facade 同在 `FileTasksViewModel.kt`。§9.70 新增 [FileTasksViewModel](app/src/main/java/com/hanxi/ghosterm/FileTasksViewModel.kt) 和 [FileTasksScreen](app/src/main/java/com/hanxi/ghosterm/FileTasksScreen.kt)。文件来源卡片提供粘贴入口；任务固定源/目标，预检后确认冲突，独立认证后执行，保留实际位置与逐项错误。默认保留复制清单；取消要等待实际 provider/原生资源释放，不立即释放名额。完整实现及尚未完成范围见[任务契约](../docs/reference/android-implementation.md#619-当前任务页面与-a6-后续实现)。
 
 ```bash
 ANDROID_SERIAL=emulator-5554 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileTasksProductTest,com.hanxi.ghosterm.RemoteFileTasksProductTest,com.hanxi.ghosterm.SafFileTasksProductTest bash scripts/test-android-ssh.sh
 ANDROID_SERIAL=emulator-5554 ANDROID_FILE_TASK_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileTasksProductTest,com.hanxi.ghosterm.RemoteFileTasksProductTest,com.hanxi.ghosterm.SafFileTasksProductTest bash scripts/test-android-ssh.sh
 ```
 
-18 项定向使用真实 HOME、系统 DocumentsUI/独立 provider 与 SSH。24 组产品变异覆盖路由、请求身份、取消名额、结果/清单和认证归属；失败过程与最终证据统一记在 §9.70。§9.71 工作区改由进程级 `FileWorkRuntime` 持有任务、清单和独立认证，`FileTasksViewModel` 仅保留页面路由与 presenter UUID；显式结束 Activity 只解除呈现归属。单活动请求仍不等于排队，后台通知/暂停/重试/进程恢复未实现。主机顶栏新增任务快捷入口，与 HTML 顶栏仅设置的差异仍待导航收口。
+18 项定向使用真实 HOME、系统 DocumentsUI/独立 provider 与 SSH。24 组产品变异覆盖路由、请求身份、取消名额、结果/清单和认证归属；失败过程与最终证据统一记在 §9.70。§9.71 改由进程级 `FileWorkRuntime` 持有任务、清单和独立认证，`FileTasksViewModel` 仅保留页面路由与 presenter UUID；显式结束 Activity 只解除呈现归属。单活动请求仍不等于排队，后台通知/暂停/重试/进程恢复未实现。主机顶栏新增任务快捷入口，与 HTML 顶栏仅设置的差异仍待导航收口。
 
 ## 冲突决策与执行清单验证
 
@@ -95,7 +95,7 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-scan.py
 
 ## 复制来源清单验证
 
-已接选中后复制、跨位置来源卡片、完整清单与确认替换/清空。复制只冻结选择元数据；§9.61 已接来源扫描；§9.70 已接粘贴执行、授权重验与任务页面。清单随 Activity 的 ViewModel 存活，旋转保留，结束 Activity 或进程死亡不恢复；不写系统文本剪贴板，也不持有文件连接。
+已接选中后复制、跨位置来源卡片、完整清单与确认替换/清空。复制只冻结选择元数据；§9.61 已接来源扫描；§9.70 已接粘贴执行、授权重验与任务页面。§9.71 的清单由进程级 `FileClipboardStore` 持有，旋转、退出页面和显式结束 Activity 后仍保留；进程死亡尚不恢复；不写系统文本剪贴板，也不持有文件连接。
 
 ```bash
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-clipboard.py

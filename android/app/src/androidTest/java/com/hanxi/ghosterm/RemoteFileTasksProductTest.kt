@@ -25,6 +25,7 @@ class RemoteFileTasksProductTest {
     private fun files()=ViewModelProvider(ui.activity)[FilesViewModel::class.java]
     private fun sessions()=ViewModelProvider(ui.activity)[SessionsViewModel::class.java]
     private fun tasks()=ViewModelProvider(ui.activity)[FileTasksViewModel::class.java]
+    private fun auth()=tasks().authentication
     private fun hosts()=ViewModelProvider(ui.activity)[HostsViewModel::class.java]
     private val latest get()=tasks().tasks.first()
     private val unique="task-${UUID.randomUUID().toString().take(8)}"
@@ -54,6 +55,7 @@ class RemoteFileTasksProductTest {
             files().leave();sessions().sessions.map { it.id }.forEach(sessions()::close)
         }
         ui.waitUntil(15000) { !tasks().busy && owners()==0 }
+        ui.runOnIdle { tasks().tasks.toList().forEach(tasks()::remove);files().requestClipboardClear();files().confirmClipboardClear() }
         vault.remove(key)
         configBefore?.let(config::writeBytes) ?: config.delete();knownBefore?.let(known::writeBytes) ?: known.delete()
         File(home,"$unique.txt").delete();File(home,unique).deleteRecursively()
@@ -66,7 +68,7 @@ class RemoteFileTasksProductTest {
     private fun loginUntil(done:()->Boolean) {
         val until=SystemClock.uptimeMillis()+20000
         while(!done() && SystemClock.uptimeMillis()<until) {
-            val attempt=sessions().connecting
+            val attempt=auth().connecting ?: sessions().connecting
             if(attempt!=null) {
                 assertFalse("authentication failed: ${attempt.message}",attempt.failed)
                 when(attempt.auth?.phase) {
@@ -82,7 +84,7 @@ class RemoteFileTasksProductTest {
             }
             SystemClock.sleep(40)
         }
-        assertTrue("flow did not finish: ${sessions().connecting?.message} / ${tasks().tasks.firstOrNull()?.error}",done())
+        assertTrue("flow did not finish: ${(auth().connecting ?: sessions().connecting)?.message} / ${tasks().tasks.firstOrNull()?.error}",done())
     }
     private fun openRemote() {
         if(!files().visible) ui.onNodeWithText("本机文件").performClick()
@@ -100,8 +102,7 @@ class RemoteFileTasksProductTest {
         ui.onNodeWithTag("file-copy").performClick()
     }
     private fun start(snapshot:FileClipboardSnapshot, target:FileLocation) {
-        ui.runOnIdle { tasks().start(snapshot,target,target.directoryId,
-            { request -> sessions().fileTaskConnections(request) { tasks().cancelRequest(request.id) } }, { files().copyCompleted(it) }) }
+        ui.runOnIdle { tasks().start(snapshot,target,target.directoryId) }
     }
     private fun ready() {
         loginUntil { latest.phase!=FileTaskPhase.SCANNING }
@@ -122,10 +123,10 @@ class RemoteFileTasksProductTest {
         File(ui.activity.cacheDir,"file-task-confirmation.png").outputStream().use { picture.compress(Bitmap.CompressFormat.PNG,100,it) }
         val task=latest
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
-        ui.waitUntil(10000) { sessions().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
-        val attempt=sessions().connecting!!.id
+        ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
+        val attempt=auth().connecting!!.id
         ui.activityRule.scenario.recreate();ui.waitForIdle()
-        assertSame(task,latest);assertEquals(attempt,sessions().connecting!!.id)
+        assertSame(task,latest);assertEquals(attempt,auth().connecting!!.id)
         ui.onNodeWithTag("ssh-task-role").assertTextEquals("复制任务 · 写入目标")
         loginUntil { !tasks().busy };assertEquals(FileCopyState.COMPLETE,task.result?.state)
         assertEquals(clipboard,files().clipboard!!.id)
@@ -142,7 +143,7 @@ class RemoteFileTasksProductTest {
         entry(unique).performClick();loaded()
         ui.onNodeWithTag("file-paste").performClick();ready()
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
-        ui.waitUntil(10000) { sessions().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
+        ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
         ui.onNodeWithTag("ssh-task-role").assertTextEquals("复制任务 · 读取来源")
         ui.runOnIdle { files().leave() }
         loginUntil { !tasks().busy }
@@ -176,7 +177,7 @@ class RemoteFileTasksProductTest {
         var found:BrowserEntry?=null
         var failure:Throwable?=null
         val job=kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            try { sessions().fileTaskConnections(connectionRequest).use { scope ->
+            try { auth().fileTaskConnections(connectionRequest).use { scope ->
                 val dir=scope.remote(FileTaskConnections.Role.SOURCE,downSource.endpoint)!!.session.browse(downSource.directoryId)
                 val e=dir.entries.single { it.name=="$unique.txt" }
                 found=BrowserEntry(e.path,e.name,FileKind.FILE,e.size,e.modifiedSeconds?.times(1000))
@@ -191,20 +192,20 @@ class RemoteFileTasksProductTest {
         openRemote();val source=files().location
         val snapshot=FileClipboardSnapshot.capture(source,source.directoryId,listOf(files().entries.single { it.name=="文本.txt" }))
         start(snapshot,FileLocation(FileEndpoint.APP,unique))
-        ui.waitUntil(10000) { sessions().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
-        val old=sessions().connecting!!;val prompt=old.auth!!
+        ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
+        val old=auth().connecting!!;val prompt=old.auth!!
         ui.onNodeWithText("取消连接").performClick()
         ui.waitUntil(10000) { !tasks().busy && owners()==1 }
         assertTrue(latest.cancelled);assertNull(latest.result);assertFalse(File(home,"$unique/文本.txt").exists())
         start(snapshot,FileLocation(FileEndpoint.APP,unique))
-        ui.waitUntil(10000) { sessions().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
-        val fresh=sessions().connecting!!;val secret="must be wiped".toByteArray()
-        ui.runOnIdle { sessions().password(old.id,prompt,secret) }
+        ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
+        val fresh=auth().connecting!!;val secret="must be wiped".toByteArray()
+        ui.runOnIdle { auth().password(old.id,prompt,secret) }
         assertTrue(secret.all { it==0.toByte() });assertNotEquals(old.id,fresh.id)
-        assertEquals(SSHAuthPhase.CREDENTIALS,sessions().connecting!!.auth!!.phase)
+        assertEquals(SSHAuthPhase.CREDENTIALS,auth().connecting!!.auth!!.phase)
         ready()
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
-        ui.waitUntil(10000) { sessions().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
+        ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
         ui.onNodeWithText("取消连接").performClick()
         ui.waitUntil(10000) { !tasks().busy && owners()==1 }
         assertEquals(FileCopyState.CANCELLED,latest.result?.state)
@@ -223,7 +224,7 @@ class RemoteFileTasksProductTest {
             config.writeText(changed);start(snapshot,FileLocation(FileEndpoint.APP,unique))
             ui.waitUntil(10000) { !tasks().busy }
             assertTrue("configuration error must preserve its reason: ${latest.error}",latest.error?.contains(reason,ignoreCase=true)==true)
-            assertNull(latest.decisions);assertNull(sessions().connecting)
+            assertNull(latest.decisions);assertNull(auth().connecting)
             assertEquals(1,owners());assertFalse(File(home,"$unique/文本.txt").exists())
         }
         config.writeText(original);start(snapshot,FileLocation(FileEndpoint.APP,unique));ready();finish()

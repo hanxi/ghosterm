@@ -3,14 +3,12 @@ package com.hanxi.ghosterm
 import android.app.Application
 import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
 import com.hanxi.ghosterm.data.*
 import com.hanxi.ghosterm.domain.*
 import kotlinx.coroutines.*
 import java.io.File
 
-/** Process-local task owner. A single active request reserves the slot through cleanup.
- * Activity recreation and leaving the file page do not cancel confirmed work. */
+/** Application-owned execution; pages never own the task job or its authentication. */
 enum class FileTaskPhase { SCANNING, CONFIRMING, RUNNING, CANCELLING, FINISHED }
 class FileTask(val request: FilePasteRequest) {
     var phase by mutableStateOf(FileTaskPhase.SCANNING); internal set
@@ -23,27 +21,25 @@ class FileTask(val request: FilePasteRequest) {
     internal var execution: FileCopyExecutor.Request? = null
     internal var job: Job? = null
     internal lateinit var connections: (FilePasteRequest) -> FileTaskConnections
-    internal var complete: ((FileCopyProgress) -> Unit)? = null
     val active get() = phase != FileTaskPhase.FINISHED
 }
 
-class FileTasksViewModel(application: Application) : AndroidViewModel(application) {
+class FileTaskStore(application: Application, private val scope: CoroutineScope) {
     val tasks = mutableStateListOf<FileTask>()
-    var visible by mutableStateOf(false); private set
     var notice by mutableStateOf<String?>(null); private set
     val busy get() = tasks.any { it.active }
     private val home = File(application.filesDir,"home")
     private val staging = File(application.filesDir,"file-tasks")
     private val resolver = application.contentResolver
-    fun show() { visible=true }
-    fun hide() { visible=false }
+    private val completedState = kotlinx.coroutines.flow.MutableStateFlow<FileCopyProgress?>(null)
+    val completed: kotlinx.coroutines.flow.StateFlow<FileCopyProgress?> = completedState
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
-        connections: (FilePasteRequest) -> FileTaskConnections, complete: (FileCopyProgress) -> Unit) {
-        if(busy) { notice="已有复制请求，请先完成或取消当前任务";visible=true;return }
+        connections: (FilePasteRequest) -> FileTaskConnections) {
+        if(busy) { notice="已有复制请求，请先完成或取消当前任务";return }
         val request=FilePasteRequest.capture(snapshot,destination,label)
-        val task=FileTask(request).also { it.connections=connections;it.complete=complete }
-        notice=null;tasks.add(0,task);visible=true
-        task.job=viewModelScope.launch(start=CoroutineStart.LAZY) {
+        val task=FileTask(request).also { it.connections=connections }
+        notice=null;tasks.add(0,task)
+        task.job=scope.launch(start=CoroutineStart.LAZY) {
             try {
                 val check=withContext(Dispatchers.IO) {
                     connections(request).use { scope ->
@@ -91,7 +87,7 @@ class FileTasksViewModel(application: Application) : AndroidViewModel(applicatio
             val plan=checkNotNull(task.decisionOwner).confirm(ref)
             val execution=FileCopyExecutor(home,resolver,staging,task.connections).prepare(plan)
             task.execution=execution;task.decisions=null;task.error=null;task.phase=FileTaskPhase.RUNNING
-            task.job=viewModelScope.launch(start=CoroutineStart.LAZY) {
+            task.job=scope.launch(start=CoroutineStart.LAZY) {
                 val observer=launch { execution.updates.collect { task.result=it } }
                 try { execution.execute() }
                 catch(cancel: CancellationException) { execution.cancel() }
@@ -100,7 +96,7 @@ class FileTasksViewModel(application: Application) : AndroidViewModel(applicatio
                     withContext(NonCancellable) { execution.awaitClosed() }
                     observer.cancel();task.result=execution.outcome
                     task.phase=FileTaskPhase.FINISHED;task.job=null
-                    task.complete?.invoke(execution.outcome);task.complete=null
+                    completedState.value=execution.outcome
                 }
             }.also { it.start() }
         } catch(failure: Exception) { task.error=failure.message ?: "无法开始复制" }
@@ -111,12 +107,41 @@ class FileTasksViewModel(application: Application) : AndroidViewModel(applicatio
         task.cancelled=true
         if(task.phase==FileTaskPhase.CONFIRMING) {
             task.decisions?.let { task.decisionOwner?.cancel(it.reference) }
-            task.decisions=null;task.phase=FileTaskPhase.FINISHED;task.error="复制已取消，尚未写入目标";task.complete=null
+            task.decisions=null;task.phase=FileTaskPhase.FINISHED;task.error="复制已取消，尚未写入目标"
         } else {
             task.phase=FileTaskPhase.CANCELLING
             task.execution?.cancel() ?: task.job?.cancel()
         }
     }
     fun remove(task: FileTask) { if(!task.active) tasks.remove(task) }
-    override fun onCleared() { tasks.toList().forEach(::cancel);super.onCleared() }
+}
+
+/** Activity-local navigation over the one application task owner. */
+class FileTasksViewModel @JvmOverloads constructor(application: Application,
+    internal val work: FileWorkRuntime = (application as? GhostermApplication)?.fileWork ?: FileWorkRuntime(application)
+) : AndroidViewModel(application) {
+    val presenterId = java.util.UUID.randomUUID()
+    val tasks get() = work.tasks.tasks
+    val busy get() = work.tasks.busy
+    val notice get() = work.tasks.notice
+    val authentication get() = work.authentication
+    val presentsAuthentication get() = work.presenter == presenterId
+    var visible by mutableStateOf(false); private set
+    fun show() { visible=true }
+    fun hide() { visible=false }
+    fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
+        connections: (FilePasteRequest) -> FileTaskConnections = work::connections) {
+        visible=true
+        work.tasks.start(snapshot,destination,label,connections)
+    }
+    fun choose(task: FileTask, ref: FilePasteDecisionRef, path: String, choice: FilePasteChoice, all: Boolean) =
+        work.tasks.choose(task,ref,path,choice,all)
+    fun confirm(task: FileTask, ref: FilePasteDecisionRef) = work.tasks.confirm(task,ref)
+    fun cancelRequest(id: String) = work.tasks.cancelRequest(id)
+    fun cancel(task: FileTask) = work.tasks.cancel(task)
+    fun remove(task: FileTask) = work.tasks.remove(task)
+    fun resumed() = work.resume(presenterId)
+    fun paused() = work.pause(presenterId)
+    fun focused() = work.focus(presenterId)
+    override fun onCleared() { work.release(presenterId);super.onCleared() }
 }

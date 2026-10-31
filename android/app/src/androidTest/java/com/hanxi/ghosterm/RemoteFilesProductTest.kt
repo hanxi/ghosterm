@@ -50,7 +50,7 @@ class RemoteFilesProductTest {
     }
     @After fun cleanup() {
         ui.runOnIdle {
-            sessions().connecting?.let { sessions().cancelConnection(it.id) };files().disconnectRemote();files().leave()
+            sessions().connecting?.let { sessions().cancelConnection(it.id) };files().requestClipboardClear();files().confirmClipboardClear();files().disconnectRemote();files().leave()
             sessions().sessions.map { it.id }.forEach(sessions()::close)
         }
         val end=SystemClock.uptimeMillis()+10000

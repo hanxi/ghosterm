@@ -5,6 +5,7 @@ import android.system.Os
 import java.io.File
 
 class GhostermApplication : Application() {
+    val fileWork by lazy { FileWorkRuntime(this) }
     override fun onCreate() {
         super.onCreate()
         // Native OpenSSH-compatible Include/~ resolution uses this app-private home.

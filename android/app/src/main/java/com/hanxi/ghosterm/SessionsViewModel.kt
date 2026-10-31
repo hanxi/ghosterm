@@ -44,7 +44,7 @@ class SSHAttempt(val target: PreparedSSH, internal val filesReady: ((RemoteFileS
 }
 
 class SessionsViewModel @JvmOverloads constructor(application: Application, private val resolver: SSHResolver = AndroidSSHResolver,
-    private val connectionBudgetMillis: Long = 60_000) : AndroidViewModel(application) {
+    private val connectionBudgetMillis: Long = 60_000, private val monitorSessions: Boolean = true) : AndroidViewModel(application) {
     val sessions = mutableStateListOf<TerminalSession>()
     var selected by mutableStateOf<UUID?>(null); private set
     var visible by mutableStateOf(false); private set
@@ -56,11 +56,12 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     var choosingRemote by mutableStateOf<String?>(null); private set
     fun dismissRemoteChoices() { choosingRemote = null }
     private var pendingIdentityImport: Pair<UUID,SSHAuthState>? = null
+    private var pendingIdentityPresenter: UUID? = null
     var identityPickerPending by mutableStateOf(false); private set
     private val vault = IdentityVault(File(application.filesDir, "identities"))
     val active: TerminalSession? get() = sessions.firstOrNull { it.id == selected }
     init {
-        viewModelScope.launch {
+        if(monitorSessions) viewModelScope.launch {
             while (true) {
                 sessions.forEach { it.state = it.connection.state() }
                 delay(250)
@@ -303,24 +304,34 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
             finally { material?.fill(0); passphrase.fill(0); attempt.credentialBusy = false }
         }
     }
-    fun beginIdentityImport(id: UUID, prompt: SSHAuthState): Boolean {
+    fun beginIdentityImport(id: UUID, prompt: SSHAuthState, presenter: UUID? = null): Boolean {
         if (identityPickerPending) return false
         val attempt = try { current(id,prompt) } catch (_: Exception) { return false }
         if (attempt.credentialBusy || prompt.phase != SSHAuthPhase.CREDENTIALS) return false
         pendingIdentityImport = id to prompt
+        pendingIdentityPresenter = presenter
         identityPickerPending = true
         return true
     }
-    fun identityImportLaunchFailed() {
+    fun identityImportLaunchFailed(presenter: UUID? = null) {
+        if(pendingIdentityPresenter != presenter) return
         pendingIdentityImport?.first?.let { id ->
             connecting?.takeIf { it.id == id }?.credentialError = "无法打开系统文件选择器"
         }
-        pendingIdentityImport = null; identityPickerPending = false
+        pendingIdentityImport = null; pendingIdentityPresenter = null; identityPickerPending = false
     }
-    fun completeIdentityImport(uri: Uri?) {
+    fun completeIdentityImport(uri: Uri?, presenter: UUID? = null) {
+        if(pendingIdentityPresenter != presenter) return
         val pending = pendingIdentityImport
-        pendingIdentityImport = null; identityPickerPending = false
+        pendingIdentityImport = null; pendingIdentityPresenter = null; identityPickerPending = false
         if (pending != null && uri != null) importIdentity(pending.first,pending.second,uri)
+    }
+    fun releaseIdentityPresenter(presenter: UUID) {
+        if(pendingIdentityPresenter != presenter) return
+        pendingIdentityImport?.first?.let { id ->
+            connecting?.takeIf { it.id == id }?.credentialError = "原页面已关闭，请重新选择密钥"
+        }
+        pendingIdentityImport = null; pendingIdentityPresenter = null; identityPickerPending = false
     }
     private fun importIdentity(id: UUID, prompt: SSHAuthState, uri: Uri) {
         val attempt = try { current(id,prompt) } catch (_: Exception) { return }

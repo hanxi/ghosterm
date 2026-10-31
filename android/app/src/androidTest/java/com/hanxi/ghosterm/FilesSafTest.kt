@@ -37,7 +37,10 @@ class FilesSafTest {
     private fun model()=ViewModelProvider(ui.activity)[FilesViewModel::class.java]
     private fun <T> main(block:()->T):T=ui.runOnIdle(block)
     @Before fun setup() { revoke();ui.onNodeWithText("本机文件").performClick();await { !model().loading } }
-    @After fun cleanup() { main { model().leave() };revoke() }
+    @After fun cleanup() {
+        main { model().requestClipboardClear();model().confirmClipboardClear();model().leave() }
+        revoke()
+    }
     private fun revoke() {
         resolver.persistedUriPermissions.filter { it.uri.authority=="com.hanxi.ghosterm.test.browser" }.forEach {
             resolver.releasePersistableUriPermission(it.uri,(if(it.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or

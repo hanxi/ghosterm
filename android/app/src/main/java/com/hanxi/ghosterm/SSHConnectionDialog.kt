@@ -21,9 +21,10 @@ import com.hanxi.ghosterm.data.IdentityReferences
 
 /** Credentials remain in this non-saveable dialog, never in a route or saved-state bundle. */
 @Composable
-fun SSHConnectionDialog(model: SessionsViewModel) {
+fun SSHConnectionDialog(model: SessionsViewModel, presenter: java.util.UUID? = null, visible: Boolean = true) {
     // Registration survives cancellation and stays in the same position after Activity recreation.
-    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(),model::completeIdentityImport)
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> model.completeIdentityImport(uri,presenter) }
+    if(!visible) return
     val attempt = model.connecting ?: return
     val prompt = attempt.auth
     var username by remember(attempt.id) { mutableStateOf(attempt.username) }
@@ -93,10 +94,10 @@ fun SSHConnectionDialog(model: SessionsViewModel) {
                                     Text((if (selected?.id == identity.id) "✓ " else "") + identity.name)
                                 }
                             }
-                            OutlinedButton(onClick = { if (model.beginIdentityImport(attempt.id,prompt)) {
+                            OutlinedButton(onClick = { if (model.beginIdentityImport(attempt.id,prompt,presenter)) {
                                 otherIdentity = true; identityId = null; secret = ""
                                 try { importer.launch(arrayOf("*/*")) }
-                                catch (_: Exception) { model.identityImportLaunchFailed() }
+                                catch (_: Exception) { model.identityImportLaunchFailed(presenter) }
                             } },enabled = ready) { Text("导入密钥") }
                             if (selected?.needsPassphrase == true) OutlinedTextField(secret, { secret = it }, label = { Text("密钥口令") }, singleLine = true,
                                 visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),

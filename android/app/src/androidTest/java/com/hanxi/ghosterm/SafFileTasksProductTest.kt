@@ -71,7 +71,7 @@ class SafFileTasksProductTest {
     @After fun cleanup() {
         state("release")
         main { tasks().tasks.toList().forEach(tasks()::cancel) };await { !tasks().busy }
-        main { model().leave() };revoke();root.deleteRecursively()
+        main { tasks().tasks.toList().forEach(tasks()::remove);model().requestClipboardClear();model().confirmClipboardClear();model().leave() };revoke();root.deleteRecursively()
     }
     private fun nodes():List<AccessibilityNodeInfo> {
         val list=mutableListOf<AccessibilityNodeInfo>()
@@ -98,7 +98,7 @@ class SafFileTasksProductTest {
         val browser=LocalFileBrowser(home,resolver)
         val entries=runBlocking { browser.browse(source).entries }.filter { it.kind==FileKind.FILE }
         val snapshot=FileClipboardSnapshot.capture(source,source.directoryId,entries)
-        main { tasks().start(snapshot,target,target.directoryId,::connections) { model().copyCompleted(it) } }
+        main { tasks().start(snapshot,target,target.directoryId,::connections) }
     }
     @Test fun realGrantedFolderCopyRetainsActualDocumentAndReadsBackToHome() {
         reset("rename")
@@ -135,7 +135,7 @@ class SafFileTasksProductTest {
         val snapshot=FileClipboardSnapshot.capture(location,"SAF",runBlocking { browser.browse(location).entries }.filter { it.kind==FileKind.FILE })
         reset("list-stall")
         try {
-            main { tasks().start(snapshot,FileLocation(FileEndpoint.APP,"$unique/target"),"target",::connections,{}) }
+            main { tasks().start(snapshot,FileLocation(FileEndpoint.APP,"$unique/target"),"target",::connections) }
             await { state().getInt("active")==1 }
             ui.onNodeWithTag("file-task-cancel").performScrollTo().performClick()
             SystemClock.sleep(200)

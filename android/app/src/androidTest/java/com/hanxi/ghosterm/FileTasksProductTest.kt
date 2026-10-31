@@ -36,11 +36,12 @@ class FileTasksProductTest {
         File(home,"source").mkdir();File(home,"target").mkdir();File(home,"other").mkdir()
         File(home,"source/a.txt").writeText("真实复制 ☃\n");File(home,"source/b.txt").writeText("second")
         val app=object:Application() { init { attachBaseContext(context) };override fun getFilesDir()=root }
-        files=FilesViewModel(app);tasks=FileTasksViewModel(app);local=LocalFileBrowser(home,context.contentResolver)
+        val work=FileWorkRuntime(app)
+        files=FilesViewModel(app,work=work);tasks=FileTasksViewModel(app,work);local=LocalFileBrowser(home,context.contentResolver)
         ui.setContent { MaterialTheme {
             if(tasks.visible) FileTasksScreen(tasks)
             else FilesScreen(files,{},onPaste={
-                tasks.start(files.clipboard!!,files.location,files.location.directoryId,::connections) { files.copyCompleted(it) }
+                tasks.start(files.clipboard!!,files.location,files.location.directoryId,::connections)
             },showTasks=tasks::show)
         } }
         ui.runOnIdle { files.enter() };loaded()
@@ -148,9 +149,9 @@ class FileTasksProductTest {
         try {
             ui.runOnIdle { tasks.start(snapshot,FileLocation(FileEndpoint.APP,"target"),"target",{
                 entered.countDown();check(release.await(10,TimeUnit.SECONDS));connections(it)
-            },{}) }
+            }) }
             assertTrue(entered.await(5,TimeUnit.SECONDS));val first=latest
-            ui.runOnIdle { tasks.cancel(first);tasks.start(snapshot,FileLocation(FileEndpoint.APP,"other"),"other",::connections,{}) }
+            ui.runOnIdle { tasks.cancel(first);tasks.start(snapshot,FileLocation(FileEndpoint.APP,"other"),"other",::connections) }
             assertSame(first,latest);assertEquals(1,tasks.tasks.size)
             assertTrue(tasks.busy);assertEquals(FileTaskPhase.CANCELLING,first.phase);assertNotNull(tasks.notice)
             ui.runOnIdle { tasks.remove(first) };assertEquals(1,tasks.tasks.size)
@@ -181,7 +182,7 @@ class FileTasksProductTest {
             tasks.start(snapshot,FileLocation(FileEndpoint.APP,"target"),"target",{ request ->
                 FileTaskConnections(request.source.endpoint,request.destination.endpoint,
                     { _,_->withTimeout(20) { delay(1000);error("DNS must time out") } },{ _,_,_->error("No connection may be created") })
-            },{})
+            })
         }
         finished();assertFalse("deadline is not a user cancellation",latest.cancelled)
         assertTrue(latest.error?.contains("超时")==true);assertNull(latest.decisions);assertNull(latest.result)

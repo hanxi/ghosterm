@@ -22,7 +22,7 @@ class FileClipboardLifecycleTest {
         file.parentFile!!.mkdirs();file.writeText("clipboard lifecycle")
     }
     @After fun cleanup() {
-        ui.runOnIdle { files().leave();sessions().sessions.map { it.id }.forEach(sessions()::close) };file.delete()
+        ui.runOnIdle { files().requestClipboardClear();files().confirmClipboardClear();files().leave();sessions().sessions.map { it.id }.forEach(sessions()::close) };file.delete()
     }
     @Test fun clipboardSurvivesSettingsTerminalAndActivityRecreationWithoutOwningShell() {
         ui.onNodeWithText("本机文件").performClick();ui.waitUntil { !files().loading }
