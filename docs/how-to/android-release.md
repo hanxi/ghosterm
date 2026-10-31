@@ -2,17 +2,24 @@
 
 工作流为 `.github/workflows/android-release.yml`，监听 main push、PR 和手动触发。
 main 与手动构建使用固定 release 密钥签名；PR 只验证优化后的未签名 release 构建。
-当前已验证包来自 [run 41230615030](https://github.com/hanxi/ghosterm/actions/runs/41230615030)，
-源码 `6bed87f`（含通知修复 `50e4829`），APK **5,889,501 字节**。
-[下载签名 release APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41230615030/artifacts/13053682415)。
-SHA256 为 `753822e77c626a3852a64d4bac7d587c40a52ba7b700d7df8940316f67c20496`；下载及已安装 APK、
-`build-info.json`/`SHA256SUMS`、固定证书、对齐和三份 native 库压缩均已核对。
+当前签名包来自 [run 41241009189](https://github.com/hanxi/ghosterm/actions/runs/41241009189)，
+源码 `ab7c53f`，包含文件阶段进度，APK **5,903,009 字节**。
+[下载签名 release APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41241009189/artifacts/13057377405)。
+SHA256 为 `95f9ff833beedca262f98557ba76c92379881a9f15da74b23157b4f555fdbfb1`；
+下载/安装摘要、清单、固定证书、ZIP/ELF 对齐及三份 native 库压缩已核对。
 
-同一云端包已在独立 API 36 arm64 / 4 KB 页模拟器完成实际覆盖安装、原文件保留、
-通知权限恢复后的通知跳转、28 字节复制及目标预览、通知取消和服务退出验证。
-这不是完整 release 设备套件，也不覆盖真机、API 29、16 KB 页或长负载性能。
-详细证据见[实现计划 §9.75](../reference/android-implementation.md#975-通知恢复后补发当前任务2026-11-01)。
-`5441c5d` 的上一份包（run `41226924788`）曾在真实运行中暴露通知恢复不补发，已由此包修复。
+同一云端包已在 API 36 arm64 / **16 KB 页**模拟器完成覆盖升级、原文件保留、
+本地终端提示符、真实长按复制/粘贴/确认、28 字节提交及目标预览验证。
+该档没有跑完整设备套件或 SSH/SFTP；源码的完整 **491 项**仅在 API 36 / 4 KB 页
+的 debug/测试 APK 上通过。API 29 的旧签名包虽能安装启动，实际 Gboard 输入缺字问题仍待修，
+不记最低系统兼容通过；真机与其他发行矩阵也未完成。详见[§9.78](../reference/android-implementation.md#978-a10-签名-release-与-16-kb-页实际运行2026-11-01)。
+
+历史通知修复包 `6bed87f`（含 `50e4829`）来自
+[run 41230615030](https://github.com/hanxi/ghosterm/actions/runs/41230615030)，APK 5,889,501 字节，
+SHA256 `753822e77c626a3852a64d4bac7d587c40a52ba7b700d7df8940316f67c20496`。
+该包已在独立 API 36 / 4 KB 页模拟器验证升级、通知恢复/跳转、28 字节复制、取消和服务退出，
+范围见[§9.75](../reference/android-implementation.md#975-通知恢复后补发当前任务2026-11-01)；
+这些专项不借给新包。此前 `5441c5d` 的包曾暴露通知恢复不补发，已由历史修复包解决。
 
 首次云端运行已通过：[run 41207714115](https://github.com/hanxi/ghosterm/actions/runs/41207714115)，
 源码为 `d585f0b`。签名 APK 为 **5,826,065 字节**；下载后 SHA256、固定 release 证书

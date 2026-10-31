@@ -1,6 +1,6 @@
 # Android 最终方案实现计划
 
-**最新验收（§9.77，2026-11-01）**：文件任务已显示当前文件的读取/写入/核验、实际字节、本阶段平均速度与保守的阶段剩余时间。25 组新增变异与 114 组相关旧变异分轮通过；新完整 **491 项通过，零失败/错误/跳过**（1250.863 秒），746 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；整体剩余时间、暂停/重试、完整偏好和发行矩阵仍待完成，A6 保持部分交付。该源码的云端 release 包另行验收。
+**最新验收（§9.77，2026-11-01）**：文件任务已显示当前文件的读取/写入/核验、实际字节、本阶段平均速度与保守的阶段剩余时间。25 组新增变异与 114 组相关旧变异分轮通过；新完整 **491 项通过，零失败/错误/跳过**（1250.863 秒），746 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；整体剩余时间、暂停/重试、完整偏好和发行矩阵仍待完成，A6 保持部分交付。同源码云端签名 release 为 5,903,009 字节，16 KB 页启动/升级与 28 字节复制专项已验（§9.78），不代表完整发行矩阵。
 
 **历史验收（§9.75，2026-11-01）**：开启通知后当前任务不补发的问题已修复；两组新增变异、七组通知相关旧变异及五个系统场景通过。新完整 **483 项通过，零失败/错误/跳过**（1143.045 秒），742 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；同一云端签名 release 已验升级、通知恢复/跳转/取消及 28 字节复制预览；A6 其他能力和完整发行矩阵仍待完成。
 
@@ -765,7 +765,7 @@ A7 的验收分三层：存储验证往返/迁移/损坏/写入失败及快速�
 
 tmux 在 A8 接入，共享 `gt_tmux_*` 管理与普通 transport attach；用户显式打开列表才探测，缺失、版本不支持、拒绝与未知分开。HTML 的固定“未安装”只是演示分支，原生必须展示真实结果。关闭只断客户端，不结束后台 session；结束是单独确认动作。重新连接必须取新列表，禁止按旧 ID/名称恢复。手机本地 tmux 不因远端支持而自动成为可用能力。
 
-A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.1）；现有运行证据仅为 API 36 arm64、4 KB 页模拟器。API 29 声明下限、真机与 16 KB page size 装载均须在 A10 验证；x86_64 须先提供对应 native 库。不能只调整 APK zip 对齐就声明全 native 依赖可运行。[16 KB 页面支持](https://developer.android.com/guide/practices/page-sizes)
+A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.1）；完整设备回归仍仅为 API 36 arm64、4 KB 页模拟器；§9.78 另已验证 API 36 / 16 KB 页签名 release 的启动、升级与小文件复制。API 29 实测发现输入问题，真机和完整 16 KB 矩阵仍须在 A10 验证；x86_64 须先提供对应 native 库。不能只调整 APK zip 对齐就声明全 native 依赖可运行。[16 KB 页面支持](https://developer.android.com/guide/practices/page-sizes)
 
 采用 Material 3 页面/面板/开关/选择控件，保持石墨色系；触点至少 48dp，字体响应系统缩放，危险动作有文字说明。320dp 窄屏、横屏、分屏、字体放大、TalkBack、硬件键盘和深浅色均纳入验收。状态栏/导航栏/IME insets 不得重复扣除或遮挡操作区。[触点与语义](https://developer.android.com/develop/ui/compose/accessibility/api-defaults)、[窗口 Insets](https://developer.android.com/develop/ui/compose/system/insets-ui)
 
@@ -835,7 +835,7 @@ A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.
 | A7 完整设置 | A1、A2、A6；身份子页可随 A3 先行 | 16 项偏好持久化、即时应用与重启读取；身份/主机验证详情；恢复不误删会话资料 | 部分交付：身份列表/详情/导入/移除已由 §9.33 验收；主机引用接线见 §9.35；信任记录管理已验收（§9.39）；16 项偏好与完整分类未实现 |
 | A8 可选 tmux | A3 | 真能力探测/列表/管理/attach；任务 PID 保留、未知结果、断线重新选择；不影响普通入口 | 未开始 |
 | A9 环境包 PoC | A2，独立后续 | 系统执行限制验证；Termux/proot 来源/哈希/启动/PTY；成功后才排安装 UI，不默认为可交付 | 延后 |
-| A10 验收与发行 | A1–A8 | 真机与模拟器矩阵、APK 自包含、安全与隐私检查、清单/许可、CI 实际运行；失败项不记绿 | release/CI 基础已接（§8.3），本地签名包及基础运行通过；云端首轮签名 APK 构建/下载校验通过，完整发行与设备矩阵未完成 |
+| A10 验收与发行 | A1–A8 | 真机与模拟器矩阵、APK 自包含、安全与隐私检查、清单/许可、CI 实际运行；失败项不记绿 | release/CI 已接（§8.3），§9.78 已验实际签名包在 API 36 / 16 KB 页的启动、升级与小文件复制；API 29 输入失败待修，完整发行与设备矩阵未完成 |
 
 A1 的视觉壳可与 A2 的底层实现解耦，但不能用演示终端代替 A2 完成条件。A5 是数据安全前置，不应先做“看起来完成”的粘贴按钮再补防覆盖。
 
@@ -2539,6 +2539,16 @@ Swift 使用调用内持有的观察者盒子复制 POD；JNI 在当前连接/�
 另检查同提交 [macOS dev CI 41233655948](https://github.com/hanxi/ghosterm/actions/runs/41233655948)：失败在主机依赖准备，runner 已安装 OpenSSL 3.5.9，但 pkg-config 默认解析到 OpenSSL 4.1.0，现有 builder 按 3.x 名称查找 dylib 后失败；未进入新的 macOS 原生编译或打包验收，不能把本机构建绿记为云端绿。日志 `tmp/progress-macos-ci-failure.log`。变异结束、核对 746 份源码后，单独以 `010c251` 修复共享工作流的 pkg-config 搜索路径，并保留已有目录。用工作流实际环境代码和隔离的 4.x 元数据验证空/已有搜索路径均选中本机真实 3.6.2；随后修复版 [macOS dev CI 41235795612](https://github.com/hanxi/ghosterm/actions/runs/41235795612) 成功，日志确认主机依赖选 OpenSSL 3、47 CTest / 91 ABI 与 dev 打包通过；这是轻闸门，不替代完整宿主或既有设置页像素失败，日志 `tmp/progress-macos-ci-fixed.log`。
 
 接口提交 `2fbf4cc` 的 [release CI 41233655896](https://github.com/hanxi/ghosterm/actions/runs/41233655896) 已成功；[artifact 13054258471](https://github.com/hanxi/ghosterm/actions/runs/41233655896/artifacts/13054258471) 取回后为 **5,892,537 字节**，SHA256 `61b765e0a8cd6be2375e8e442f99176efcbbf254725d10e753e998d9c39baddb`。提交号、清单摘要、固定证书、zipalign 的 16 KB 对齐检查、三份压缩 arm64 native 库及包内无签名备份检查均通过；未将静态对齐检查记为 16 KB 设备运行。该包仅含 §9.76 接口，不含本节未提交的任务执行器/页面草稿，尚未新增该包的设备 smoke。实际云端包证据保存在 `tmp/android-ci-release-41233655896/`。
+
+### 9.78 A10 签名 release 与 16 KB 页实际运行（2026-11-01）
+
+阶段进度提交 `ab7c53f` 的 [Android CI 41241009189](https://github.com/hanxi/ghosterm/actions/runs/41241009189) 已成功；[签名 APK artifact 13057377405](https://github.com/hanxi/ghosterm/actions/runs/41241009189/artifacts/13057377405) 为 **5,903,009 字节**，SHA256 `95f9ff833beedca262f98557ba76c92379881a9f15da74b23157b4f555fdbfb1`。实际下载文件的提交/清单摘要、固定证书、非 debuggable/minSdk 29/仅 arm64 清单、zipalign、三份压缩 native 库及其 ELF LOAD 16 KB 对齐、包内无签名备份检查通过。APK 证据 `tmp/android-ci-release-41241009189/`。同提交 [macOS dev CI 41241009183](https://github.com/hanxi/ghosterm/actions/runs/41241009183) 的打包与滚动发布均成功，仍是轻闸门；不替代 `4cbfcf4` 的完整宿主结果或修复设置页像素失败。
+
+实际运行使用官方 `system-images;android-36;google_apis_ps16k;arm64-v8a` 修订 7、API 36 / extension 17、arm64、320×640 / 160 dpi 模拟器；`getconf PAGE_SIZE` 返回 **16384**，不是仅根据 ZIP/ELF 对齐推测。先安装 `010c251` 的固定密钥 release，经真实本地 PTY 创建 28 字节来源与目标目录，文件页及 UTF-8 预览核对内容；随后以同密钥 `ab7c53f` release 覆盖安装，原文件保持。经真实长按、复制、进入目标目录、粘贴和确认，任务页显示完成 1 项/已提交 28 字节，目标预览逐字一致，返回来源仍保留文件。新包另创建本地终端并检查真实提示符像素。已安装 APK SHA256 与下载包一致，记录 `tmp/a10-research/new-release-16k.json`，UI XML/截图位于 `tmp/a10-research/release-smoke/` 及同级目录。首次立即截取的空白帧不作为渲染失败；已等待页面稳定并检查实际提示符截图。
+
+这只证明该签名包在受测 16 KB 模拟器上的装载、本地终端、升级与小文件复制；**没有**在该档运行完整 491 项，也没有新增 SSH/SFTP、真实手机、长负载或完整输入法矩阵证据。§9.77 的完整 491 项仍仅属于 API 36 / 4 KB 页 debug/测试 APK。
+
+另尝试官方 API 29 / arm64 修订 13、实测 4 KB 页镜像：`010c251` 的签名 release 能安装、启动和显示真实终端提示符，但系统 Gboard 输入命令时出现缺字/组合串未提交，未按预期生成文件，**不记 API 29 通过**。截图/XML 保留在 `tmp/a10-research/api29-release-smoke/` 与同级 `api29-*.png`。源码发现 `finishComposingText()` 直接清空本地组合串；旧终端用例也把 finish 当作取消。Android [InputConnection 契约](https://developer.android.com/reference/android/view/inputmethod/InputConnection#finishComposingText()) 要求保留文本并结束组合样式，须补真实 PTY 定向断言、区分显式取消与结束组合后修复，不能沿用旧断言宣告兼容。该问题仍待修复，不因此将 A2/A10 勾选完成。
 
 ## 10. 验收与变异清单
 
