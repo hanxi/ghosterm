@@ -79,25 +79,28 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 ## 本次跨端进度复核（2026-10-31）
 
-本次按生产调用方复核以下边界；Android 任务页面的接线没有改变这些 macOS 路径。对应修复及验收触发场景已列入[路线图](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。
+本次以 `8dc753f` 再次核对生产调用方；Android 的进程持有与 FIFO 调度没有改变这些 macOS 路径。对应修复及验收触发场景已列入[路线图](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。
 
 | 复核项 | 代码现状 | 进度结论 |
 |---|---|---|
 | SSH 配置保存 | `ConfigStore.save` 忽略备份失败，随后删除旧文件再移动新文件 | 强制备份和原子替换仍未完成，不能沿用 Android 的事务保证 |
 | 认证后的 shell/SFTP 打开 | `AppModel` 仍调用不带取消和剩余预算的 `openSSHShell(ssh)` / `ssh.sftp()` | 受控 Swift 重载可用，桌面生产接线仍待迁移 |
 | 传输控制 | `TransferManager.pause/resume/cancel` 仍以 `try?` 忽略后端控制错误 | 正常路径已接；错误确认、迟到结果与资源释放仍需单独修复 |
-| 构建与宿主验收 | `124edb6` 已记录 Core 47 / ABI 89、Terminal 29 项、原生 release 与打包专项；Apple 87/2 对拍另见 §9.70 基线 | 最近完整宿主仍为 `4cbfcf4`，保留设置页像素失败；后续专项没有重跑完整宿主 |
+| 目录导航 | `FilesPanelModel.navigate` 不校验请求代次；后退/前进先改历史，失败不恢复；刷新不失效树缓存 | 仍需导航结果隔离、成功后提交历史与缓存失效；源码复核不作为交互验收 |
+| 冲突与重试 | `TransferManager.applyToAll` 仍是全局属性；目录重试重新展开整棵目录，重试端点为弱引用 | 请求内决策、仅失败项重试和重新认证尚未迁移；Android 队列不改变桌面行为 |
+| 引擎剪贴板 | `CGhostty/shim.c` 读回调返回不可用，写入/确认为空；标准菜单已有独立路径 | 菜单复制粘贴已交付，引擎回调与确认仍待完成 |
+| 构建与宿主验收 | `124edb6` 已记录 Core 47 / ABI 89、Terminal 29 项、原生 release 与打包专项；本轮静态 Apple 绑定对拍为 87/2 | 最近完整宿主仍为 `4cbfcf4`，保留设置页像素失败；本轮未重跑完整宿主、原生构建或打包 |
 
 ## 共享文件接口与产品接线
 
-生产调用方在 §9.70 再次核对；共享接口新增受控单目录创建与 Swift 包装。共享 Core 已验接口、Swift 包装层和 macOS 产品各自有完成边界；Android 的页面或设备通过不能勾选 macOS 产品迁移。
+生产调用方在 §9.72 队列切片再次核对；共享受控单目录创建及 Swift 包装已交付，本片不新增 Core ABI。共享 Core 已验接口、Swift 包装层和 macOS 产品各自有完成边界；Android 的页面或设备通过不能勾选 macOS 产品迁移。
 
 | 操作 | Core / Swift 已交付 | macOS 实际消费者 | Android 实际消费者 |
 |---|---|---|---|
 | SFTP 打开 | `gt_ssh_sftp_controlled` / 带预算及取消的 `sftp` 重载 | `AppModel` 文件工厂仍调无参 `ssh.sftp()` | `files_jni.c` 专用 owner，文件页面已接 |
 | 目录浏览、文本预览 | `gt_sftp_browse_controlled` / `browse`；`gt_sftp_preview_controlled` / `preview` | `SFTPFileBackend` 仍拆分 list/realpath；Quick Look 经旧下载 job | `RemoteFileSession` → repository → 只读文件页面 |
 | 独占暂存创建 | `gt_sftp_create_controlled` / `createExclusive` | 尚无产品调用，原队列仍用路径式 upload | JNI/Kotlin 与匿名快照集成已验，§9.69 执行器已消费，§9.70 由任务页驱动 |
-| 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | `SFTPFileBackend.download` → `sftp.download` → 旧 job | `TransferStagingStore.receive` 已由 §9.69 执行器消费，§9.70 已接任务页；§9.71 改为进程共享单活动请求，排队与恢复未接 |
+| 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | `SFTPFileBackend.download` → `sftp.download` → 旧 job | `TransferStagingStore.receive` 已由 §9.69 执行器消费，§9.70 已接任务页；§9.71 改为进程共享单活动请求，队列由 §9.72 接入，恢复未接 |
 | 最终非覆盖发布 | `gt_sftp_publish_controlled` / `publish`；状态、远端错误码、总预算与取消 | Swift 绑定已验；桌面队列仍无产品调用 | JNI/Kotlin `RemoteFileSession.publish` 已由 §9.69 执行器消费；§9.70 已接任务认证与粘贴页面 |
 | 目录创建 | §9.65 新增 `gt_sftp_mkdir_controlled` / `createDirectory`；保留创建状态、服务器错误码、总预算与取消 | `SFTPFileBackend.mkdir` 仍经同步队列调用旧 `mkdir`；目录展开会复用已存在目标 | `RemoteFileSession.prepareDirectory` / `DirectoryRequest` 已接；§9.66 的 `FileDirectoryCreator` 经固定 `RemoteFileBinding` 统一三类目录；§9.67 已接独立任务连接作用域，§9.69 已接执行器，§9.70 已接任务页面 |
 

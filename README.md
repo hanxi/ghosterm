@@ -2,9 +2,9 @@
 
 **macOS 功能键修复（`124edb6`）**：排除 AppKit 功能键占位符文本，由 full libghostty 按协商协议编码。该提交记录普通/应用光标/Kitty 共 90 个场景、1 组变异、Terminal 29 项及真实 SSH → Codex 左右键验证通过，原生 release 与打包通过；未重跑完整宿主 UI，既有设置页像素失败仍保留。详见[功能键编码记录](docs/reference/optional-tmux-implementation.md#功能键编码修复2026-10-31)。
 
-**当前实现（2026-10-31，§9.71 当前模拟器档已验）**：Android 文件任务、复制清单和任务认证现由 `FileWorkRuntime` 在进程内共享；关闭发起 Activity 后，另一页面仍可继续确认、认证或查看结果。全进程只接受一个活动请求，取消等待实际资源释放。排队、前台服务/通知、暂停/重试、进程恢复与完整偏好仍未实现；不同远端命名空间关系未知时阻断。 实现与证据见[Android 记录](docs/reference/android-implementation.md#971-a6-进程任务与共享清单2026-10-31)。
+**当前实现（2026-10-31，§9.72 当前模拟器档已验）**：§9.72 已接 FIFO 文件队列，最多 32 个未结束请求；扫描、确认、执行和取消清理共用一个执行名额。8 项队列定向、14 组新增及既有 39 组变异通过；完整设备 453 项通过。前台服务/通知、持久恢复、暂停/重试和完整偏好仍未实现，A6 保持部分完成。 详见[队列记录](docs/reference/android-implementation.md#972-a6-fifo-文件任务队列2026-10-31)。
 
-**验收边界（§9.71）**：8 项跨 Activity 定向、15 组新增变异与既有 94 组回归通过；完整设备 **445 项通过，零失败/错误/跳过**（1504.245 秒），仅 API 36 arm64 / 4 KB 页模拟器；719 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致。 Android debug/测试 APK 构建通过。Core 47 CTest / 89 ABI、Apple 87/2、JNI 49/40 和 macOS 增量构建为此前 `254ce8e` 基线的复核结果；新 macOS 键盘代码的专项证据单独记账。未新增 Android 真机、API 29、16 KB 页、发行或 CI 证据。
+**验收边界（§9.72）**：完整设备 **453 项通过，零失败/错误/跳过**（1216.568 秒），仅 API 36 arm64 / 4 KB 页模拟器；722 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致。 Android debug/测试 APK 构建、Core 47 CTest / 89 ABI、Apple 87/2 与 JNI 49/40 绑定对拍通过。本轮未重跑完整 macOS 宿主或打包；macOS 键盘专项与既有设置页像素失败分别保留。未新增 Android 真机、API 29、16 KB 页、发行或 CI 证据。
 
 **libghostty 驱动的多端终端** × **VS Code 式 `~/.ssh/config` 图形管理** × **WinSCP 式 SFTP 文件管理器**。
 
@@ -148,7 +148,7 @@ Android 已接主机首页、本地/SSH 终端、本机/SAF/远端文件浏览�
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留）。工作流有路径过滤/取消，不保证每个提交出包，见 [CI 触发范围](docs/how-to/dev-build.md#ci-是怎么串起来的) |
 | 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
-| Android | 🟡 A0/A1 当前模拟器档完成；主机、终端、文件浏览/复制任务和身份/信任管理已接，§9.70 当前模拟器档已验。输入/性能、网络/预览收尾、跨远端命名空间、进程级调度/后台恢复、完整设置及发行矩阵仍待完成；见[实现进度](docs/reference/android-implementation.md#9-分阶段实施与依赖) |
+| Android | 🟡 A0/A1 当前模拟器档完成；主机、终端、文件浏览/复制任务和身份/信任管理已接，§9.71 已接进程共享任务，§9.72 已接 FIFO 队列。输入/性能、网络/预览收尾、跨远端命名空间、后台恢复、完整设置及发行矩阵仍待完成；见[实现进度](docs/reference/android-implementation.md#9-分阶段实施与依赖) |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
 macOS／共享 PTY 已修复 SIGWINCH 通知，真实本地 shell→系统 ssh→远端 tmux 的窗口尺寸同步证据见[tmux 实施记录](docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。Bash/Zsh 鼠标残留清理脚本须显式安装到实际 shell 所在主机；真实休眠和用户远端未验，见[使用说明](docs/how-to/mouse-report-recovery.md)。各次 Android 测试数量保留在[实现记录](docs/reference/android-implementation.md#9-分阶段实施与依赖)，不与最新完整套件相加。
