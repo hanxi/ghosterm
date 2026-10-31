@@ -14,7 +14,7 @@
 
 `patches/libghostty/` 里必须记录每个补丁的**为什么**与**上游对照 commit**。
 
-## 当前实现（2026-10-30）
+## 当前实现（2026-10-31）
 
 M1 已交付的是 macOS 终端竖切。标准编辑菜单复制粘贴已由 `beffb49` 接通，平台引擎剪贴板回调和粘贴确认仍待补；iOS 没有可用引擎产物和宿主；不能把 full libghostty 的上游能力视为已完成的平台接线。当前缺口见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
@@ -40,6 +40,8 @@ termio 线程：surface.onInput/onResize → 待办队列 → 会话线程执行
 > 让 resize 回调发出后永不返回（termio 线程卡死）。故回调只压待办队列。
 
 尺寸写入 PTY 后还须让前台程序收到 SIGWINCH。`4924a2d` 在共享 PTY 子进程 exec 前清空继承的信号屏蔽，修复系统 ssh/tmux 无法收到通知的问题；它没有改变 surface 或回调的线程归属。两条真实窗口无输入缩放回归及三组 PTY 继承变异记录见[实施清单](../../docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。
+
+跨屏缩放随后由 `4cbfcf4` 接通：`TerminalHostView.viewDidChangeBackingProperties` 和换屏通知重同步比例，`TerminalSurface` 更新引擎 DPI、Metal `contentsScale` 与像素尺寸，未上屏时保留回落比例。这是宿主渲染同步，与上面的 PTY 信号修复分别验收。已有三项原生回归、六组变异、Terminal 28 项及 release 构建记录；真实双屏移动/拔插仍待复验。完整 App 349 项中的一项设置页像素失败和一项开发态资源跳过仍保留，不能把 Terminal 专项通过写成完整宿主全绿，见[跨屏验收记录](../../docs/reference/optional-tmux-implementation.md#后续跨显示器缩放修复2026-10-31)。
 
 ### 键盘与输入法（macOS）
 
