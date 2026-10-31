@@ -489,7 +489,12 @@ class RemoteFilesTest {
             android.system.Os.lseek(descriptor.fileDescriptor,7,android.system.OsConstants.SEEK_SET)
             RemoteFileSession(connection(known(root))).use { files ->
                 supply(files)
-                val result=runBlocking { createFile(files,path,descriptor.fd,source.length()) }
+                val observations=mutableListOf<RemoteTransferProgress>()
+                val result=runBlocking { files.createExclusive(path,descriptor.fd,source.length(),progress={ observations.add(it) }) }
+                assertTrue("create progress delivered",observations.isNotEmpty())
+                assertEquals("create final observed bytes",content.size.toULong(),observations.last().bytes)
+                assertTrue("create direction and total",observations.all { it.direction==RemoteTransferDirection.CREATE && it.totalBytes==content.size.toULong() })
+                assertTrue("create monotonic observations",observations.zipWithNext().all { (a,b)->a.bytes<=b.bytes })
                 assertEquals(0,result.status);assertEquals(RemoteCreationState.COMPLETE,result.state)
                 assertEquals(content.size.toULong(),result.bytesAcknowledged)
                 assertEquals(7L,runCatching { android.system.Os.lseek(descriptor.fileDescriptor,0,android.system.OsConstants.SEEK_CUR) }.getOrDefault(-1L))
@@ -607,7 +612,12 @@ class RemoteFilesTest {
                 val target=File(root,"target").apply { writeBytes(byteArrayOf()) }
                 android.os.ParcelFileDescriptor.open(target,android.os.ParcelFileDescriptor.MODE_READ_WRITE).use { output ->
                     android.system.Os.lseek(output.fileDescriptor,7,android.system.OsConstants.SEEK_SET)
-                    assertEquals(bytes.size.toLong(),runBlocking { files.receive(path,output.fd,bytes.size.toLong()) })
+                    val observations=mutableListOf<RemoteTransferProgress>()
+                    assertEquals(bytes.size.toLong(),runBlocking { files.receive(path,output.fd,bytes.size.toLong(),progress={ observations.add(it) }) })
+                    assertTrue("receive progress delivered",observations.isNotEmpty())
+                    assertEquals("receive final observed bytes",bytes.size.toULong(),observations.last().bytes)
+                    assertTrue("receive direction and total",observations.all { it.direction==RemoteTransferDirection.RECEIVE && it.totalBytes==bytes.size.toULong() })
+                    assertTrue("receive monotonic observations",observations.zipWithNext().all { (a,b)->a.bytes<=b.bytes })
                     assertEquals(7L,android.system.Os.lseek(output.fileDescriptor,0,android.system.OsConstants.SEEK_CUR))
                     assertArrayEquals(bytes,target.readBytes());assertTrue(files.state().ready)
                 }

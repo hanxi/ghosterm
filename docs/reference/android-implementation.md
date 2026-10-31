@@ -2510,6 +2510,18 @@ Core **47 项 CTest / 89 ABI**、Apple **87/2**、JNI **49/40** 对拍通过；A
 
 运行参数实测 API 36、arm64-v8a、4096 字节页；本片仅为该云端 release 的功能烟测，未把 debug 483 项记为 release 全套，也不扩大至真机/API 29/16 KB 页/性能矩阵。release AVD 已正常停止并保留数据，原测试 AVD 恢复。§9.74 的 483 项保留为历史，不替代本轮结果。
 
+### 9.76 A6 实时进度的共享读写观察接口（2026-11-01，进行中）
+
+下一片先补真实读写数值来源，尚未接 `FileCopyExecutor` 或任务页面。新增 `gt_sftp_receive_observed` / `gt_sftp_create_observed`；每次同步请求独立持有观察者与 context，只回传方向、实际字节、总量及总量是否已知。接收量来自写入任务暂存 fd 的字节；创建量是 libssh2 报告的已确认下界，流水写可能已发送更多字节。未知大小不折为零；达到总量也不表示 CLOSE、最终核验或目标发布完成。回调在 IO owner 上执行，不进入终端字节或 Core 事件队列；不得重入 Core，回调耗时计入原操作预算。既有 controlled 入口复用同一实现，NULL 观察者不保留全局回调。
+
+Swift 使用调用内持有的观察者盒子复制 POD；JNI 在当前连接/请求代次内保存数字快照，不从 IO owner 调 Java。Kotlin 在 IO 协程合并相同值，约每 250 毫秒采样并在结果返回前补取最终观察；没有观察者的既有调用保持原路径。当前 91 个公共符号，Apple 89/2、JNI 51/40 对拍通过；两端绑定不等于两端产品已消费。
+
+已执行：Core 离线闸门 **47 CTest / 91 ABI** 通过，macOS 宿主重新链接、Android debug/测试 APK 构建通过。新增进度断言的 Core 13 组隔离变异通过，含初始零、方向、实际计数、观察交付、未知总量与发布/完成分离；每组真实编译后目标断言红、独立配置对照绿、复原绿与 SHA256。无 libssh2 的真实 archive 两组及 Swift 数值转换四组变异也通过。Android 文件连接 **35 项定向通过，33.605 秒**，包括实际收发的最终进度、方向/总量与单调性；Swift 离线 32 项中 11 项需 fixture 而跳过，随后真实 sshd 专项 **10 项全部通过**，含收发进度；不合并成无跳过的全套结果。证据 `tmp/progress-gate.log`、`tmp/progress-android-files.log`、`tmp/progress-apple-gate2.log`、`tmp/progress-mutations3.log`、`tmp/progress-bindings-mutations.log` 及对应变异目录。既有 Core/Swift 收发变异 **48 组全部通过**（读取 21 Core/1 无库/4 Swift，创建 17 Core/1 无库/4 Swift），日志 `tmp/progress-receive-regressions.log` 与 `tmp/progress-create-regressions.log`。Android 新转换 **4 组**与既有收发 **22 组**随后全部通过，均真实编译后目标断言红、同 APK 配置对照绿、恢复绿及 SHA256 一致；最后两项收发恢复基线通过（1.059 秒），总 runner 终态成功。日志 `tmp/progress-android-mutations.log`，逐组收据已保留在 `tmp/progress-evidence/android-mutations/`，避免后续设备运行覆盖。新增 23 组与相关既有 70 组是分轮证据，不称一次完整设备回归。
+
+初轮协议验证脚本遗漏 overflow 夹具同样没有 SIZE 元数据，错误断言“已知”；修正场景标记后全协议基线通过。第二轮脚本只识别单个 C 探针的 PASS，未接受协议 runner 的 PROTOCOL PASS，未进入变异；修正后才完成 13 组。首次 Apple 测试未显式选 Xcode 工具链，因 XCTest 模块不可用而失败；设置 `DEVELOPER_DIR` 后上述真实测试通过。这些失败不记目标红证据。
+
+**边界**：没有把本片记为实时进度产品交付。任务页仍按 `committedBytes` 显示已完成文件的字节，不显示网络速度；来源快照、本机/SAF 写入、阶段进度/速度与页面接线、观察取消/请求隔离补充验证仍待完成。没有新的完整 483 项、release 包或发行矩阵证据，§9.75 的完整结果保持原提交范围。macOS 只同步绑定，旧产品队列和既有设置页像素失败均未改变；A6 仍为部分完成。
+
 ## 10. 验收与变异清单
 
 | 面 | 必须观测的真实结果 | 新增断言的变异示例 |

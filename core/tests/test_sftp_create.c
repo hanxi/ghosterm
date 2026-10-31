@@ -37,6 +37,18 @@ static gt_ssh_t *connect_fixture(char **argv){
     int rc=gt_ssh_auth_private_key(ssh,key,NULL);volatile char *wipe=key;for(size_t i=0;i<sizeof key;i++)wipe[i]=0;
     if(rc)abort();gt_ssh_set_hostkey_policy(ssh,trust,NULL);if(gt_ssh_connect(ssh))abort();return ssh;
 }
+typedef struct { int calls; uint64_t last, total; gt_sftp_create_result_t *result; } create_progress;
+static void observed(const gt_sftp_progress_t *value, void *context) {
+    create_progress *p=context;
+    CHECK(p && value,"create progress borrowed context and value");
+    if(!p || !value)return;
+    CHECK(value->kind==GT_SFTP_PROGRESS_CREATE,"create progress kind");
+    CHECK(!p->calls ? value->bytes==0 : value->bytes>p->last,"create progress initial zero and positive monotonic bytes");
+    CHECK(value->total_known && value->total_bytes==p->total,"create progress exact known source total");
+    CHECK(p->result->state==GT_SFTP_CREATE_CREATED,"create progress is not completion");
+    CHECK(value->bytes==p->result->bytes_acked,"create progress acknowledged bytes");
+    p->last=value->bytes;p->calls++;
+}
 static void run_case(char **argv,const char *mode,bool peer){
     cancel_after_complete=!strcmp(mode,"normal") || !strcmp(mode,"empty");
     bool empty=!strcmp(mode,"empty");size_t size=empty?0:peer?4096:3*1024*1024+17;
@@ -70,11 +82,14 @@ static void run_case(char **argv,const char *mode,bool peer){
     printf("READY %ld\n",(long)getpid());
     int64_t begin=now();
     uint32_t budget=strstr(mode,"timeout")?400:10000;
-    int status=gt_sftp_create_controlled(sftp,remote,fd,size,&out,budget,cancelled,NULL);
+    create_progress progress={.total=size,.result=&out};
+    int status=gt_sftp_create_observed(sftp,remote,fd,size,&out,budget,cancelled,NULL,observed,&progress);
     int64_t elapsed=now()-begin;
     bool good=!strcmp(mode,"normal")||empty;
     if(good){
         CHECK(status==GT_OK && out.state==GT_SFTP_CREATE_COMPLETE && out.bytes_acked==size,"create complete after all bytes and close");
+        CHECK(progress.calls>0 && progress.last==size,"create progress successful final bytes including empty files");
+        CHECK(size==0 || progress.calls>1,"create progress positive IO observations delivered");
         CHECK(gt__ssh_borrow(ssh,&raw,&socket)==GT_OK,"create success retains owner");
         CHECK(libssh2_session_get_timeout(raw)==2345 && libssh2_session_get_blocking(raw)==1,"create restores session options");
         struct stat st;CHECK(!stat(remote,&st)&&(st.st_mode&0777)==0600,"create private mode");

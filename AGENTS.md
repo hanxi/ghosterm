@@ -149,6 +149,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 `libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的九场景、七组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同九场景。Android 与主机默认构建均应用补丁；`mutation-check-sftp-open.py` 另验 7 C + 2 Swift + 1 无库组，`mutation-check-host-ssh2.py --app 本轮.app` 验十一组依赖/包/CMake 守卫，目标红、独立对照绿、恢复绿与 SHA256。已交付证据见 Android 实现计划 §9.45/§9.47/§9.49，范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
 
+`sftp-progress` 以 `python3 scripts/mutation-check-sftp-progress.py` 手工验 13 组隔离 Core 变异，`mutation-check-sftp-progress-bindings.py` 另验 2 组真实无库 archive 与 4 组 Swift 转换。Android 以 `ANDROID_SERIAL=设备 ANDROID_FILES_PROGRESS_MUTATE=1 bash scripts/test-android-ssh.sh` 验 4 组；每组须真实编译后目标断言红、同变异独立配置对照绿、恢复绿与 SHA256。当前为 91 公共符号、Apple 89/2、JNI 51/40；只接每次收发的数字观察及绑定，任务执行器/页面仍未消费，不能将接口验收记为实时进度产品完成。范围见 Android 计划 §9.76，不增加 CI 20 份覆盖。
+
 `sftp-mkdir` 以 `python3 scripts/mutation-check-sftp-mkdir.py` 手工执行 26 Core＋1 无库 archive＋5 Swift 组；真实 SSH 与协议矩阵为 81 组，护单次预算、取消、规范路径/名称、冲突/错误/副作用、空目录核验与连接失效。Android 另以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteDirectoryTest ANDROID_MKDIR_MUTATE=1 bash scripts/test-android-ssh.sh` 执行 20 组，护结果保留、一次性请求、排队/迟到取消、请求与连接代次隔离、失败连接释放及完成管道。目标须真实编译后红、独立配置对照绿、恢复绿与 SHA256；12 项设备基线通过，仅 API 36 arm64 / 4 KB 页模拟器。范围及失败记录见 Android 计划 §9.65，不增加 CI 20 份，不将原语记为任务/页面或 macOS 产品迁移完成。
 
 `terminal-backing-scale` 以 `python3 scripts/mutation-check-terminal-backing-scale.py` 手工执行六组，护引擎 DPI、Metal 比例、backing 回调、换屏通知、像素换算与未上屏同步；真实编译后目标红、同变异字节入网格对照绿、恢复绿及 SHA256。`4cbfcf4` 的三项原生回归与六组变异已有记录，自动注入比例不等于真实双屏视觉验收；完整宿主仍保留一项既有设置页像素失败，不记全绿。范围见 `docs/reference/optional-tmux-implementation.md` 的跨显示器缩放记录，不增加 CI 20 份覆盖。

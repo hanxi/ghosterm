@@ -21,7 +21,7 @@ def execute(root,build,test):
     ]
     try:
         for label,path,old,new,method in cases:
-            text=originals[path].decode();assert text.count(old)==1,(label,text.count(old))
+            text=originals[path].decode();assert text.count(old)==(2 if label=="size" else 1),(label,text.count(old))
             path.write_text(text.replace(old,new)+'\n// '+MARK+'\n');label='files-create-'+label
             selection='com.hanxi.ghosterm.RemoteFilesTest#'+method
             build(label);output=test(label,selection,False)

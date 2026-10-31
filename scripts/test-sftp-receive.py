@@ -53,7 +53,7 @@ def main():
             directory = Path(work) / name; directory.mkdir()
             username = control(op='new', stage=stage, action=action)['user'] if stage else user
             arguments = ['127.0.0.1', str(peer['port']), username, key, str(directory), mode] if stage else [host, port, user, key, str(directory)]
-            process = subprocess.Popen(command(arguments), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            process = subprocess.Popen(command(arguments), env=dict(os.environ, **({"SFTP_RECEIVE_EXPECT_UNKNOWN":"1"} if name in ("unknown-size","overflow") else {})), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             prefix = ''
             try:
                 if mode == 'cancel':

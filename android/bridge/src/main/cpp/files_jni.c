@@ -29,7 +29,8 @@ typedef struct file_session {
     int source_fd, release_fd, owner_fence;
     uint64_t expected_size;
     uint32_t budget;
-    bool complete;
+    bool complete, progress_enabled, progress_present;
+    gt_sftp_progress_t progress;
     char *path, *destination;
     bool publish_directory;
     uint8_t *result;
@@ -65,6 +66,15 @@ static file_session *borrow(JNIEnv *env,jlong id) {
 }
 static bool stopped(void *context){return atomic_load(&((file_session *)context)->stop);}
 static bool mkdir_stopped(void *context){file_session *s=context;return stopped(s)||atomic_load(&s->mkdir_cancel);}
+typedef struct { file_session *session; uint64_t request; } progress_context;
+static void transfer_progress(const gt_sftp_progress_t *value, void *context) {
+    progress_context *owner=context;file_session *s=owner->session;
+    pthread_mutex_lock(&s->mutex);
+    if(s->request==owner->request && !stopped(s) && !s->complete && s->progress_enabled) {
+        s->progress=*value;s->progress_present=true;
+    }
+    pthread_mutex_unlock(&s->mutex);
+}
 static void u32(uint8_t **p,uint32_t value){for(int i=3;i>=0;i--)*(*p)++=(uint8_t)(value>>(i*8));}
 static void u64(uint8_t **p,uint64_t value){for(int i=7;i>=0;i--)*(*p)++=(uint8_t)(value>>(i*8));}
 static void string(uint8_t **p,const char *value){size_t n=strlen(value);u32(p,(uint32_t)n);memcpy(*p,value,n);*p+=n;}
@@ -100,19 +110,20 @@ static void *owner(void *context) {
         while(!s->path && !stopped(s))pthread_cond_wait(&s->wake,&s->mutex);
         char *path=s->path;s->path=NULL;
         char *destination=s->destination;s->destination=NULL;bool publish_directory=s->publish_directory;
-        uint64_t request=s->request;int kind=s->kind;uint32_t budget=s->budget;
+        uint64_t request=s->request;int kind=s->kind;uint32_t budget=s->budget;bool observe=s->progress_enabled;
         int source_fd=s->source_fd;s->source_fd=-1;uint64_t expected_size=s->expected_size;
         int release_fd=s->release_fd;s->release_fd=-1;
         pthread_mutex_unlock(&s->mutex);
         if(kind==6){directory_fence=release_fd;release_fd=-1;}
         if(stopped(s)){free(path);free(destination);if(source_fd>=0)close(source_fd);if(release_fd>=0)close(release_fd);break;}
-        uint8_t *result=NULL;size_t length=0;
+        uint8_t *result=NULL;size_t length=0;progress_context observation={s,request};
         if(kind==1)status=directory(s,files,path,budget,&result,&length);
         else if(kind==3) {
             result=malloc(12);
             if(result) {
                 gt_sftp_create_result_t outcome;
-                status=gt_sftp_create_controlled(files,path,source_fd,expected_size,&outcome,budget,stopped,s);
+                if(observe) status=gt_sftp_create_observed(files,path,source_fd,expected_size,&outcome,budget,stopped,s,transfer_progress,&observation);
+                else status=gt_sftp_create_controlled(files,path,source_fd,expected_size,&outcome,budget,stopped,s);
                 uint8_t *p=result;u32(&p,(uint32_t)outcome.state);u64(&p,outcome.bytes_acked);length=12;
             } else status=GT_ERR_INTERNAL;
         } else if(kind==5) {
@@ -131,7 +142,8 @@ static void *owner(void *context) {
             } else status=GT_ERR_INTERNAL;
         } else if(kind==4) {
             uint64_t count=0;
-            status=gt_sftp_receive_controlled(files,path,source_fd,expected_size,&count,budget,stopped,s);
+            if(observe) status=gt_sftp_receive_observed(files,path,source_fd,expected_size,&count,budget,stopped,s,transfer_progress,&observation);
+            else status=gt_sftp_receive_controlled(files,path,source_fd,expected_size,&count,budget,stopped,s);
             if(status==GT_OK) {
                 result=malloc(8);
                 if(result){uint8_t *p=result;u64(&p,count);length=8;}else status=GT_ERR_INTERNAL;
@@ -218,7 +230,7 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_respond(JNIEnv
     (void)self;file_session *s=borrow(env,id);if(!s)return;
     gaj_ssh_respond(env,s->auth,request,kind,first,second);release(s);
 }
-static jlong begin(JNIEnv *env,jlong id,jint kind,jbyteArray path,jint budget,int source_fd,uint64_t expected_size,int release_fd,jbyteArray destination,bool publish_directory) {
+static jlong begin(JNIEnv *env,jlong id,jint kind,jbyteArray path,jint budget,int source_fd,uint64_t expected_size,int release_fd,jbyteArray destination,bool publish_directory,bool observe) {
     if(!path || (kind!=1 && kind!=2 && kind!=3 && kind!=4 && kind!=5 && kind!=6) || budget<=0 || budget>60000){fail(env,"文件请求无效");return 0;}
     jsize n=(*env)->GetArrayLength(env,path);if(n<=0 || n>=65536){fail(env,"文件路径长度无效");return 0;}
     char *value=calloc((size_t)n+1,1);if(!value){fail(env,"无法分配文件路径");return 0;}
@@ -240,6 +252,7 @@ static jlong begin(JNIEnv *env,jlong id,jint kind,jbyteArray path,jint budget,in
     if(s->phase==1 && !stopped(s) && !s->request && s->sequence<INT64_MAX) {
         s->request=++s->sequence;request=(jlong)s->request;s->kind=kind;s->budget=(uint32_t)budget;s->path=value;value=NULL;s->source_fd=source_fd;s->expected_size=expected_size;s->release_fd=release_fd;
         s->destination=target;target=NULL;s->publish_directory=publish_directory;
+        s->progress_enabled=observe;s->progress_present=false;s->progress=(gt_sftp_progress_t){0};
         atomic_store(&s->mkdir_cancel,false);s->complete=false;s->status=GT_OK;pthread_cond_signal(&s->wake);
     }
     pthread_mutex_unlock(&s->mutex);release(s);free(value);free(target);
@@ -247,38 +260,38 @@ static jlong begin(JNIEnv *env,jlong id,jint kind,jbyteArray path,jint budget,in
 }
 JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_begin(JNIEnv *env,jobject self,jlong id,jint kind,jbyteArray path,jint budget) {
     (void)self;if(kind!=1 && kind!=2){fail(env,"文件请求无效");return 0;}
-    return begin(env,id,kind,path,budget,-1,0,-1,NULL,false);
+    return begin(env,id,kind,path,budget,-1,0,-1,NULL,false,false);
 }
-JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginCreate(JNIEnv *env,jobject self,jlong id,jbyteArray path,jint source_fd,jlong expected_size,jint budget,jint release_fd) {
+JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginCreate(JNIEnv *env,jobject self,jlong id,jbyteArray path,jint source_fd,jlong expected_size,jint budget,jint release_fd,jboolean observe) {
     (void)self;if(source_fd<0 || expected_size<0){fail(env,"文件源描述符或尺寸无效");return 0;}
     int owned=fcntl(source_fd,F_DUPFD_CLOEXEC,0);
     if(owned<0){fail(env,"无法保留源文件描述符");return 0;}
     int fence=fcntl(release_fd,F_DUPFD_CLOEXEC,0);
     if(fence<0){close(owned);fail(env,"无法保留文件释放通知");return 0;}
-    jlong request=begin(env,id,3,path,budget,owned,(uint64_t)expected_size,fence,NULL,false);
+    jlong request=begin(env,id,3,path,budget,owned,(uint64_t)expected_size,fence,NULL,false,observe);
     if(!request){close(owned);close(fence);}
     return request;
 }
-JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginReceive(JNIEnv *env,jobject self,jlong id,jbyteArray path,jint destination_fd,jlong max_bytes,jint budget,jint release_fd) {
+JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginReceive(JNIEnv *env,jobject self,jlong id,jbyteArray path,jint destination_fd,jlong max_bytes,jint budget,jint release_fd,jboolean observe) {
     (void)self;if(destination_fd<0 || max_bytes<0){fail(env,"文件目标描述符或限额无效");return 0;}
     int owned=fcntl(destination_fd,F_DUPFD_CLOEXEC,0);
     if(owned<0){fail(env,"无法保留目标文件描述符");return 0;}
     int fence=fcntl(release_fd,F_DUPFD_CLOEXEC,0);
     if(fence<0){close(owned);fail(env,"无法保留文件释放通知");return 0;}
-    jlong request=begin(env,id,4,path,budget,owned,(uint64_t)max_bytes,fence,NULL,false);
+    jlong request=begin(env,id,4,path,budget,owned,(uint64_t)max_bytes,fence,NULL,false,observe);
     if(!request){close(owned);close(fence);}
     return request;
 }
 JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginPublish(JNIEnv *env,jobject self,jlong id,jbyteArray source,jbyteArray destination,jboolean directory,jlong expected_size,jint budget) {
     (void)self;
     if(expected_size<0 || (directory && expected_size!=0)){fail(env,"发布源尺寸无效");return 0;}
-    return begin(env,id,5,source,budget,-1,(uint64_t)expected_size,-1,destination,directory);
+    return begin(env,id,5,source,budget,-1,(uint64_t)expected_size,-1,destination,directory,false);
 }
 JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginMkdir(JNIEnv *env,jobject self,jlong id,jbyteArray parent,jbyteArray name,jint budget,jint release_fd) {
     (void)self;
     int fence=fcntl(release_fd,F_DUPFD_CLOEXEC,0);
     if(fence<0){fail(env,"无法保留目录完成通知");return 0;}
-    jlong request=begin(env,id,6,parent,budget,-1,0,fence,name,false);
+    jlong request=begin(env,id,6,parent,budget,-1,0,fence,name,false,false);
     if(!request)close(fence);
     return request;
 }
@@ -293,6 +306,21 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_cancelMkdir(JN
     pthread_mutex_lock(&s->mutex);
     if(s->request==(uint64_t)request && s->kind==6 && !s->complete)atomic_store(&s->mkdir_cancel,true);
     pthread_mutex_unlock(&s->mutex);release(s);
+}
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_progress(JNIEnv *env,jobject self,jlong id,jlong request) {
+    (void)self;file_session *s=borrow(env,id);if(!s)return NULL;
+    jlong values[5]={0,0,0,0,request};bool valid;
+    pthread_mutex_lock(&s->mutex);
+    valid=request>0 && s->request==(uint64_t)request && s->progress_enabled && (s->kind==3 || s->kind==4);
+    if(valid && s->progress_present) {
+        values[0]=(jlong)s->progress.kind;values[1]=(jlong)s->progress.bytes;
+        values[2]=s->progress.total_known?1:0;values[3]=(jlong)s->progress.total_bytes;
+    }
+    pthread_mutex_unlock(&s->mutex);release(s);
+    if(!valid){fail(env,"传输进度请求已失效或不属于当前操作");return NULL;}
+    jlongArray out=(*env)->NewLongArray(env,5);
+    if(out)(*env)->SetLongArrayRegion(env,out,0,5,values);
+    return out;
 }
 JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_result(JNIEnv *env,jobject self,jlong id,jlong request) {
     (void)self;file_session *s=borrow(env,id);if(!s)return NULL;jbyteArray out=NULL;

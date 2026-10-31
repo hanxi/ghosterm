@@ -41,6 +41,24 @@ static gt_ssh_t *connect_fixture(char **argv){
     int rc=gt_ssh_auth_private_key(ssh,key,NULL);volatile char *wipe=key;for(size_t i=0;i<sizeof key;i++)wipe[i]=0;
     if(rc)abort();gt_ssh_set_hostkey_policy(ssh,trust,NULL);if(gt_ssh_connect(ssh))abort();return ssh;
 }
+typedef struct {
+    int fd, calls;
+    uint64_t last, *published;
+    bool unknown;
+} receive_progress;
+static void observed(const gt_sftp_progress_t *value, void *context) {
+    receive_progress *p=context;
+    CHECK(p && value,"progress borrowed context and value");
+    if(!p || !value)return;
+    CHECK(value->kind==GT_SFTP_PROGRESS_RECEIVE,"progress receive kind");
+    CHECK(!p->calls ? value->bytes==0 : value->bytes>p->last,"progress initial zero and positive monotonic bytes");
+    CHECK(*p->published==0,"progress is not publication");
+    CHECK(value->total_known==!p->unknown,"progress known and unknown totals distinct");
+    CHECK(value->total_known || value->total_bytes==0,"progress unknown total has no fabricated size");
+    struct stat st;
+    CHECK(!fstat(p->fd,&st) && st.st_size>=0 && (uint64_t)st.st_size>=value->bytes,"progress follows real destination writes");
+    p->last=value->bytes;p->calls++;
+}
 static void run_case(char **argv,const char *mode,bool peer){
     size_t size=!strcmp(mode,"empty")?0:!strcmp(mode,"exact")?300:peer?257:70001;
     unsigned char *content=malloc(size+1);if(!content)abort();for(size_t i=0;i<size;i++)content[i]=(unsigned char)(i*31+7);
@@ -67,11 +85,14 @@ static void run_case(char **argv,const char *mode,bool peer){
     int64_t bound=calibration*3/2+500;if(bound<3000)bound=3000;
     write_mode=mode;write_calls=0;count=99;
     printf("READY %ld\n",(long)getpid());int64_t began=now();
-    int status=gt_sftp_receive_controlled(sftp,remote,fd,zero||!strcmp(mode,"empty")?0:limited?1:peer?300:size+1,&count,!strcmp(mode,"timeout")?400:10000,cancelled,NULL);
+    receive_progress progress={.fd=fd,.published=&count,.unknown=getenv("SFTP_RECEIVE_EXPECT_UNKNOWN")!=NULL};
+    int status=gt_sftp_receive_observed(sftp,remote,fd,zero||!strcmp(mode,"empty")?0:limited?1:peer?300:size+1,&count,!strcmp(mode,"timeout")?400:10000,cancelled,NULL,observed,&progress);
     int64_t elapsed=now()-began;
     bool good=!strcmp(mode,"normal")||!strcmp(mode,"allow")||!strcmp(mode,"empty")||!strcmp(mode,"exact")||!strcmp(mode,"short")||!strcmp(mode,"eintr");
     if(good){
         CHECK(status==GT_OK && count==size,"complete bytes after close");
+        CHECK(progress.calls>0 && progress.last==size,"progress successful final bytes including empty files");
+        CHECK(size==0 || progress.calls>1,"progress positive IO observations delivered");
         unsigned char *actual=malloc(size+1);if(!actual)abort();CHECK(pread(fd,actual,size+1,0)==(ssize_t)size&&!memcmp(actual,content,size),"exact destination bytes");free(actual);
         CHECK(gt__ssh_borrow(ssh,&raw,&socket)==GT_OK,"successful owner reusable");
         CHECK(libssh2_session_get_timeout(raw)==2345&&libssh2_session_get_blocking(raw)==1,"session options restored");

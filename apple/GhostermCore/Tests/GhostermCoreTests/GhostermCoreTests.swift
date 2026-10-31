@@ -5,6 +5,13 @@
 import XCTest
 @testable import GhostermCore
 
+private final class ProgressSamples: @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [SFTPTransferProgress] = []
+    func append(_ value: SFTPTransferProgress) { lock.lock(); defer { lock.unlock() }; samples.append(value) }
+    var values: [SFTPTransferProgress] { lock.lock(); defer { lock.unlock() }; return samples }
+}
+
 final class GhostermCoreTests: XCTestCase {
     func testIdentitySourcesCopyValuesAcrossEdit() throws {
         let text = "IdentityFile global\nHost demo sibling\n IdentityFile \"/keys/中文 🔑\"\nHost *\n IdentityFile inherited\n"
@@ -342,8 +349,14 @@ final class GhostermCoreTests: XCTestCase {
             let cancellation = SSHCancellation(); cancellation.cancel()
             XCTAssertThrowsError(try files.receive(path: source, destinationDescriptor: output.fileDescriptor,
                 maxBytes: UInt64(size), timeoutMilliseconds: 3000, cancellation: cancellation))
+            let observations = ProgressSamples()
             let count = try files.receive(path: source, destinationDescriptor: output.fileDescriptor,
-                maxBytes: UInt64(size), timeoutMilliseconds: 3000)
+                maxBytes: UInt64(size), timeoutMilliseconds: 3000, progress: { observations.append($0) })
+            let samples = observations.values
+            XCTAssertEqual(samples.first?.bytes, 0, "receive progress initial zero")
+            XCTAssertEqual(samples.last?.bytes, UInt64(size), "receive progress actual bytes")
+            XCTAssertTrue(samples.allSatisfy { $0.direction == .receive && $0.totalBytes == UInt64(size) }, "receive progress direction and total")
+            XCTAssertTrue(zip(samples, samples.dropFirst()).allSatisfy { $0.bytes < $1.bytes }, "receive progress monotonic")
             XCTAssertEqual(count, UInt64(size))
             XCTAssertEqual(try output.offset(), 7)
             XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: target)), payload)
@@ -381,8 +394,14 @@ final class GhostermCoreTests: XCTestCase {
             let cancelled = try files.createExclusive(path: target, sourceDescriptor: input.fileDescriptor,
                 expectedSize: UInt64(size), timeoutMilliseconds: 3000, cancellation: cancellation)
             XCTAssertEqual(cancelled.status, 8); XCTAssertEqual(cancelled.state, .notAttempted)
+            let observations = ProgressSamples()
             let created = try files.createExclusive(path: target, sourceDescriptor: input.fileDescriptor,
-                expectedSize: UInt64(size), timeoutMilliseconds: 3000)
+                expectedSize: UInt64(size), timeoutMilliseconds: 3000, progress: { observations.append($0) })
+            let samples = observations.values
+            XCTAssertEqual(samples.first?.bytes, 0, "create progress initial zero")
+            XCTAssertEqual(samples.last?.bytes, UInt64(size), "create progress actual bytes")
+            XCTAssertTrue(samples.allSatisfy { $0.direction == .create && $0.totalBytes == UInt64(size) }, "create progress direction and total")
+            XCTAssertTrue(zip(samples, samples.dropFirst()).allSatisfy { $0.bytes < $1.bytes }, "create progress monotonic")
             XCTAssertEqual(created.status, 0); XCTAssertEqual(created.state, .complete)
             XCTAssertEqual(created.bytesAcknowledged, UInt64(size))
             XCTAssertEqual(try input.offset(), 7)

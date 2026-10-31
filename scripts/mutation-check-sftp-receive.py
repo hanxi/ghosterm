@@ -29,7 +29,7 @@ def main():
                 out=run(['bash',ROOT/'core/tests/scripts/ssh_e2e.sh',wrapper],label,red,dict(SFTP_RECEIVE_CASE=case,GHOSTERM_SFTP_RECEIVE_BIN=str(build/'test_sftp_receive')))
                 if not red and 'SFTP RECEIVE ' not in out:raise RuntimeError('Receive tests did not execute')
             compile_core();protocol('','baseline')
-            start=clean.index('static int receive_attributes(');end=clean.index('int gt_sftp_create_controlled(',start);piece=clean[start:end]
+            start=clean.index('static int receive_attributes(');end=clean.index('int gt_sftp_create_observed(',start);piece=clean[start:end]
             cases=[
                 ('zero-budget','!out_count || !timeout_ms','!out_count','normal'),
                 ('empty-limit','max_bytes > INT64_MAX || !out_count','!max_bytes || max_bytes > INT64_MAX || !out_count','normal'),
@@ -86,7 +86,7 @@ def main():
             swift_build();swift_test('swift-baseline')
             start=swift_clean.index('    public func receive(');end=swift_clean.index('    /// Exclusive remote staging creation',start);piece=swift_clean[start:end]
             for name,old,new in [('cancel','return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled','return false'),('budget','timeoutMilliseconds, { pointer in','3000, { pointer in'),('count','return count','return 0'),('status','try check(status)','_ = status')]:
-                assert piece.count(old)==1
+                assert piece.count(old)==(2 if name in ("cancel","budget") else 1)
                 binding.write_text(swift_clean[:start]+piece.replace(old,new)+swift_clean[end:]+'\n// '+MARK+'\n');swift_build();swift_test('swift-'+name+'-red','failed')
                 run([*swift,'--filter','GhostermCoreTests.testConfigRoundTripIsByteIdentical'],'swift-'+name+'-control')
                 binding.write_text(swift_clean);swift_build();swift_test('swift-'+name+'-restored');assert binding.read_bytes()==snapshots[paths[1]]

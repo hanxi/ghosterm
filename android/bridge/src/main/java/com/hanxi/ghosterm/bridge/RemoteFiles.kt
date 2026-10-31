@@ -27,6 +27,11 @@ data class RemoteFileState(val phase: Int, val error: Int) {
     val ready get() = phase == 1
     val finished get() = phase >= 2
 }
+enum class RemoteTransferDirection { RECEIVE, CREATE }
+/** Byte observations only; reaching total does not acknowledge close or publication.
+ * CREATE bytes are a server-acknowledged lower bound (SFTP write ahead). */
+data class RemoteTransferProgress(val direction: RemoteTransferDirection, val bytes: ULong, val totalBytes: ULong?)
+
 enum class RemoteCreationState { NOT_ATTEMPTED, UNKNOWN, REJECTED, CREATED, COMPLETE }
 data class RemoteCreationResult(val status: Int, val state: RemoteCreationState, val bytesAcknowledged: ULong)
 
@@ -96,7 +101,7 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
     /** Cancelling a waiter does not cancel native cleanup. Task finally blocks
      * must wait in NonCancellable before releasing their connection capacity. */
     suspend fun closeAndAwait() { close(); closed.await() }
-    private suspend fun operation(kind: Int, path: String, timeoutMillis: Int, sourceFd: Int = -1, expectedSize: Long = 0, destination: String? = null, directory: Boolean = false): ByteArray = withContext(Dispatchers.IO) {
+    private suspend fun operation(kind: Int, path: String, timeoutMillis: Int, sourceFd: Int = -1, expectedSize: Long = 0, destination: String? = null, directory: Boolean = false, progress: ((RemoteTransferProgress) -> Unit)? = null): ByteArray = withContext(Dispatchers.IO) {
         require(path.isNotEmpty() && '\u0000' !in path && timeoutMillis in 1..60_000) { "文件路径或超时无效" }
         requests.withLock {
             // Native duplicates the write end and closes it only AFTER its data
@@ -108,8 +113,8 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
                 val encoded = Charsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(path))
                 val bytes = ByteArray(encoded.remaining()); encoded.get(bytes)
-                handle to if(kind==3) NativeFiles.beginCreate(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd)
-                    else if(kind==4) NativeFiles.beginReceive(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd)
+                handle to if(kind==3) NativeFiles.beginCreate(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd,progress!=null)
+                    else if(kind==4) NativeFiles.beginReceive(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd,progress!=null)
                     else if(kind==5) NativeFiles.beginPublish(handle,bytes,encodePath(checkNotNull(destination)),directory,expectedSize,timeoutMillis)
                     else NativeFiles.begin(handle, kind, bytes, timeoutMillis)
             }
@@ -117,10 +122,29 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
             try {
                 released?.get(1)?.close()
                 var response: ByteArray? = null
+                var lastProgress: RemoteTransferProgress? = null
+                var sampledAt = Long.MIN_VALUE
                 while(response == null) {
                     response = synchronized(this@RemoteFileSession) {
                         check(handle == owner) { "文件连接已关闭" }
                         NativeFiles.result(owner, request)
+                    }
+                    val now=android.os.SystemClock.elapsedRealtime()
+                    if(progress!=null && (response!=null || sampledAt==Long.MIN_VALUE || now-sampledAt>=250)) {
+                        val fields=synchronized(this@RemoteFileSession) {
+                            check(handle==owner) { "文件连接已关闭" }
+                            NativeFiles.progress(owner,request)
+                        }
+                        check(fields.size==5 && fields[4]==request) { "传输进度请求归属无效" }
+                        if(fields[0]!=0L) {
+                            check(fields[0]==(if(kind==3) 2L else 1L) && fields[1]>=0 && fields[2] in 0L..1L && fields[3]>=0 &&
+                                (fields[2]!=0L || fields[3]==0L)) { "传输进度格式无效" }
+                            val value=RemoteTransferProgress(if(kind==3) RemoteTransferDirection.CREATE else RemoteTransferDirection.RECEIVE,
+                                fields[1].toULong(),fields[3].toULong().takeIf { fields[2]==1L })
+                            check(lastProgress==null || value.bytes>=lastProgress.bytes) { "传输进度发生倒退" }
+                            if(value!=lastProgress) { progress(value);lastProgress=value }
+                        } else check(fields[1]==0L && fields[2]==0L && fields[3]==0L) { "尚无进度时不能包含字节数据" }
+                        sampledAt=now
                     }
                     if(response == null) delay(10)
                 }
@@ -190,9 +214,9 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
      * An exception/coroutine cancellation without a result means UNKNOWN: do
      * not automatically retry or unlink. Final destination commit is separate. */
     suspend fun createExclusive(path: String, sourceFd: Int, expectedSize: Long,
-                                timeoutMillis: Int = 5000): RemoteCreationResult {
+                                timeoutMillis: Int = 5000, progress: ((RemoteTransferProgress) -> Unit)? = null): RemoteCreationResult {
         require(sourceFd>=0 && expectedSize>=0) { "文件源描述符或尺寸无效" }
-        val data=ByteBuffer.wrap(operation(3,path,timeoutMillis,sourceFd,expectedSize)).order(ByteOrder.BIG_ENDIAN)
+        val data=ByteBuffer.wrap(operation(3,path,timeoutMillis,sourceFd,expectedSize,progress=progress)).order(ByteOrder.BIG_ENDIAN)
         check(data.remaining()==20) { "创建结果无法确认，请保留目标路径" }
         val status=data.int
         check(data.int==3) { "创建结果归属无效" }
@@ -331,9 +355,9 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
      * On error discard partial bytes. Return/cancellation waits for native fd
      * release, so a surrounding staging lease remains valid throughout IO. */
     suspend fun receive(path: String, destinationFd: Int, maxBytes: Long,
-                        timeoutMillis: Int = 5000): Long {
+                        timeoutMillis: Int = 5000, progress: ((RemoteTransferProgress) -> Unit)? = null): Long {
         require(destinationFd>=0 && maxBytes>=0) { "文件目标描述符或限额无效" }
-        val data=ByteBuffer.wrap(operation(4,path,timeoutMillis,destinationFd,maxBytes)).order(ByteOrder.BIG_ENDIAN)
+        val data=ByteBuffer.wrap(operation(4,path,timeoutMillis,destinationFd,maxBytes,progress=progress)).order(ByteOrder.BIG_ENDIAN)
         check(data.remaining()==8) { "接收结果格式无效" }
         val count=data.long
         check(count in 0..maxBytes) { "接收结果大小无效" }
@@ -360,11 +384,12 @@ internal object NativeFiles {
     external fun state(handle: Long): IntArray
     external fun dispose(handle: Long)
     external fun begin(handle: Long, kind: Int, path: ByteArray, budget: Int): Long
-    external fun beginCreate(handle: Long, path: ByteArray, sourceFd: Int, expectedSize: Long, budget: Int, releaseFd: Int): Long
-    external fun beginReceive(handle: Long, path: ByteArray, destinationFd: Int, maxBytes: Long, budget: Int, releaseFd: Int): Long
+    external fun beginCreate(handle: Long, path: ByteArray, sourceFd: Int, expectedSize: Long, budget: Int, releaseFd: Int, observe: Boolean = false): Long
+    external fun beginReceive(handle: Long, path: ByteArray, destinationFd: Int, maxBytes: Long, budget: Int, releaseFd: Int, observe: Boolean = false): Long
     external fun beginPublish(handle: Long, source: ByteArray, destination: ByteArray, directory: Boolean, expectedSize: Long, budget: Int): Long
     external fun beginMkdir(handle: Long, parent: ByteArray, name: ByteArray, budget: Int, releaseFd: Int): Long
     external fun cancelMkdir(handle: Long, request: Long)
+    external fun progress(handle: Long, request: Long): LongArray
     external fun result(handle: Long, request: Long): ByteArray?
     external fun finish(handle: Long, request: Long)
     external fun ownerCount(): Int

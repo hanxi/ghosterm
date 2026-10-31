@@ -29,7 +29,7 @@ def main():
                 out=run(['bash',ROOT/'core/tests/scripts/ssh_e2e.sh',wrapper],label,red,dict(SFTP_CREATE_CASE=case,GHOSTERM_SFTP_CREATE_BIN=str(build/'test_sftp_create')))
                 if not red and 'SFTP CREATE ' not in out:raise RuntimeError('Create tests did not execute')
             compile_core();protocol('','baseline')
-            start=clean.index('int gt_sftp_create_controlled(');end=clean.index('int gt_sftp_stat(',start);piece=clean[start:end]
+            start=clean.index('int gt_sftp_create_observed(');end=clean.index('int gt_sftp_receive_controlled(',start);piece=clean[start:end]
             cases=[
                 ('exclusive','LIBSSH2_FXF_CREAT | LIBSSH2_FXF_EXCL','LIBSSH2_FXF_CREAT','normal'),
                 ('private-mode','LIBSSH2_FXF_EXCL, 0600','LIBSSH2_FXF_EXCL, 0644','normal'),
@@ -82,7 +82,7 @@ def main():
             swift_build();swift_test('swift-baseline')
             start=swift_clean.index('    public func createExclusive(');end=swift_clean.index('    /// Complete raw file bytes',start);piece=swift_clean[start:end]
             for name,old,new in [('cancel','return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled','return false'),('budget','timeoutMilliseconds, { pointer in','3000, { pointer in'),('count','bytesAcknowledged: outcome.bytes_acked','bytesAcknowledged: 0'),('outcome','state: state,','state: state == .rejected ? .unknown : state,')]:
-                assert piece.count(old)==1
+                assert piece.count(old)==(2 if name in ("cancel","budget") else 1)
                 binding.write_text(swift_clean[:start]+piece.replace(old,new)+swift_clean[end:]+'\n// '+MARK+'\n');swift_build();swift_test('swift-'+name+'-red','XCTAssertEqual failed')
                 run([*swift,'--filter','GhostermCoreTests.testConfigRoundTripIsByteIdentical'],'swift-'+name+'-control')
                 binding.write_text(swift_clean);swift_build();swift_test('swift-'+name+'-restored');assert binding.read_bytes()==snapshots[paths[1]]

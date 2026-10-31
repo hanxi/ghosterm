@@ -639,6 +639,31 @@ public struct SFTPDirectoryCreationResult: Equatable {
     public let remoteStatus: UInt32
 }
 
+/// IO observations are not CLOSE, verification or destination-publication results.
+public struct SFTPTransferProgress: Sendable {
+    public enum Direction: Sendable, Equatable { case receive, create, unknown(UInt32) }
+    public let direction: Direction
+    public let bytes: UInt64
+    public let totalBytes: UInt64?
+}
+private final class SFTPProgressObserver {
+    let observe: @Sendable (SFTPTransferProgress) -> Void
+    init(_ observe: @escaping @Sendable (SFTPTransferProgress) -> Void) { self.observe = observe }
+}
+private func deliverSFTPProgress(_ pointer: UnsafePointer<gt_sftp_progress_t>?, _ context: UnsafeMutableRawPointer?) {
+    guard let pointer, let context else { return }
+    let value = pointer.pointee
+    let direction: SFTPTransferProgress.Direction
+    switch value.kind.rawValue {
+    case 1: direction = .receive
+    case 2: direction = .create
+    default: direction = .unknown(value.kind.rawValue)
+    }
+    Unmanaged<SFTPProgressObserver>.fromOpaque(context).takeUnretainedValue().observe(
+        SFTPTransferProgress(direction: direction, bytes: value.bytes,
+                             totalBytes: value.total_known ? value.total_bytes : nil))
+}
+
 public struct SFTPCreateResult {
     public enum State: UInt32 { case notAttempted = 0, unknown, rejected, created, complete }
     public let status: Int32
@@ -750,15 +775,25 @@ public final class SFTPSession {
     /// Receive into an exclusively owned empty regular fd. The offset is preserved.
     /// Discard partial destination bytes on error; this does not publish a final path.
     public func receive(path: String, destinationDescriptor: Int32, maxBytes: UInt64,
-                        timeoutMilliseconds: UInt32, cancellation: SSHCancellation? = nil) throws -> UInt64 {
+                        timeoutMilliseconds: UInt32, cancellation: SSHCancellation? = nil,
+                        progress: (@Sendable (SFTPTransferProgress) -> Void)? = nil) throws -> UInt64 {
         guard !path.isEmpty, !path.utf8.contains(0), maxBytes <= UInt64(Int64.max) else {
             throw GhostermError.status(Int32(GT_ERR_INVALID_ARG.rawValue), "Invalid receive path or limit")
         }
         var count: UInt64 = 0
         let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
-        let status = withExtendedLifetime(cancellation) {
+        let observation = progress.map(SFTPProgressObserver.init)
+        let observationContext = observation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let status = withExtendedLifetime((cancellation, observation)) {
             path.withCString { p in
-                gt_sftp_receive_controlled(handle, p, destinationDescriptor, maxBytes, &count,
+                if observation != nil {
+                    return gt_sftp_receive_observed(handle, p, destinationDescriptor, maxBytes, &count,
+                        timeoutMilliseconds, { pointer in
+                            guard let pointer else { return false }
+                            return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+                        }, context, deliverSFTPProgress, observationContext)
+                }
+                return gt_sftp_receive_controlled(handle, p, destinationDescriptor, maxBytes, &count,
                     timeoutMilliseconds, { pointer in
                         guard let pointer else { return false }
                         return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
@@ -774,15 +809,25 @@ public final class SFTPSession {
     /// Keep the regular source descriptor open and unchanged; its offset is preserved.
     /// Errors after IO invalidate this dedicated owner. Never discard the outcome.
     public func createExclusive(path: String, sourceDescriptor: Int32, expectedSize: UInt64,
-                                timeoutMilliseconds: UInt32, cancellation: SSHCancellation? = nil) throws -> SFTPCreateResult {
+                                timeoutMilliseconds: UInt32, cancellation: SSHCancellation? = nil,
+                                progress: (@Sendable (SFTPTransferProgress) -> Void)? = nil) throws -> SFTPCreateResult {
         guard !path.isEmpty, !path.utf8.contains(0) else {
             throw GhostermError.status(Int32(GT_ERR_INVALID_ARG.rawValue), "Invalid create path")
         }
         var outcome = gt_sftp_create_result_t()
         let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
-        let status = withExtendedLifetime(cancellation) {
+        let observation = progress.map(SFTPProgressObserver.init)
+        let observationContext = observation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let status = withExtendedLifetime((cancellation, observation)) {
             path.withCString { p in
-                gt_sftp_create_controlled(handle, p, sourceDescriptor, expectedSize, &outcome,
+                if observation != nil {
+                    return gt_sftp_create_observed(handle, p, sourceDescriptor, expectedSize, &outcome,
+                        timeoutMilliseconds, { pointer in
+                            guard let pointer else { return false }
+                            return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+                        }, context, deliverSFTPProgress, observationContext)
+                }
+                return gt_sftp_create_controlled(handle, p, sourceDescriptor, expectedSize, &outcome,
                     timeoutMilliseconds, { pointer in
                         guard let pointer else { return false }
                         return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled

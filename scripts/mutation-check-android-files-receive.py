@@ -31,7 +31,7 @@ def execute(root,build,test):
             clean=originals[path].decode();start,end=0,len(clean)
             if path==store and label in ('frozen-size','release-budget','cancel-delivery'):
                 start=clean.index('    /** Complete remote bytes');end=clean.index('    /** Snapshot close',start)
-            piece=clean[start:end];assert piece.count(old)==1,(label,piece.count(old))
+            piece=clean[start:end];assert piece.count(old)==(2 if label=="budget" else 1),(label,piece.count(old))
             path.write_text(clean[:start]+piece.replace(old,new)+clean[end:]+'\n// '+MARK+'\n')
             label='files-receive-'+label
             build(label);test(label,selection(method),False);test(label+'-control',control,True)

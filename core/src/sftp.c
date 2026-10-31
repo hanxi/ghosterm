@@ -604,9 +604,10 @@ static int receive_attributes(const LIBSSH2_SFTP_ATTRIBUTES *a, uint64_t limit,
   return GT_OK;
 }
 
-int gt_sftp_receive_controlled(gt_sftp_t *sftp, const char *path, int destination_fd,
+int gt_sftp_receive_observed(gt_sftp_t *sftp, const char *path, int destination_fd,
     uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context) {
+    bool (*cancelled)(void *), void *context,
+    gt_sftp_progress_fn observer, void *observer_context) {
   if (out_count) *out_count = 0;
   if (!sftp || !path || !*path || strlen(path) >= 65536 || destination_fd < 0 ||
       max_bytes > INT64_MAX || !out_count || !timeout_ms) {
@@ -672,6 +673,12 @@ int gt_sftp_receive_controlled(gt_sftp_t *sftp, const char *path, int destinatio
   if (result != 0) { status = GT_ERR_IO; goto finished; }
   status = receive_attributes(&initial, max_bytes, &path_attributes);
   if (status != GT_OK) goto finished;
+  bool total_known = (initial.flags & LIBSSH2_SFTP_ATTR_SIZE) != 0;
+  uint64_t total_bytes = total_known ? initial.filesize : 0;
+  if (observer) {
+    const gt_sftp_progress_t value = {GT_SFTP_PROGRESS_RECEIVE, 0, total_bytes, total_known};
+    observer(&value, observer_context);
+  }
   for (;;) {
     status = open_status(deadline, cancelled, context);
     if (status != GT_OK) goto finished;
@@ -695,6 +702,10 @@ int gt_sftp_receive_controlled(gt_sftp_t *sftp, const char *path, int destinatio
       written += (size_t)n;
     }
     count += (uint64_t)length;
+    if (observer) {
+      const gt_sftp_progress_t value = {GT_SFTP_PROGRESS_RECEIVE, count, total_bytes, total_known};
+      observer(&value, observer_context);
+    }
   }
   if ((initial.flags & LIBSSH2_SFTP_ATTR_SIZE) && initial.filesize != count) { status = GT_ERR_IO; goto finished; }
   for (;;) {
@@ -744,9 +755,10 @@ finished:
   return status;
 }
 
-int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
+int gt_sftp_create_observed(gt_sftp_t *sftp, const char *path, int source_fd,
     uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context) {
+    bool (*cancelled)(void *), void *context,
+    gt_sftp_progress_fn observer, void *observer_context) {
   if (out) *out = (gt_sftp_create_result_t){GT_SFTP_CREATE_NOT_ATTEMPTED, 0};
   if (!sftp || !path || !*path || strlen(path) >= 65536 || source_fd < 0 ||
       !out || !timeout_ms || expected_size > INT64_MAX) {
@@ -796,6 +808,10 @@ int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
     status = browse_wait(session, socket, deadline, cancelled, context);
     if (status != GT_OK) goto finished;
   }
+  if (observer) {
+    const gt_sftp_progress_t value = {GT_SFTP_PROGRESS_CREATE, 0, expected_size, true};
+    observer(&value, observer_context);
+  }
   uint8_t buffer[GT_SFTP_CHUNK];
   while (out->bytes_acked < expected_size) {
     status = open_status(deadline, cancelled, context);
@@ -818,6 +834,10 @@ int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
       if (written < 0 || (size_t)written > (size_t)count - offset) { status = GT_ERR_IO; goto finished; }
       offset += (size_t)written;
       out->bytes_acked += (uint64_t)written;
+      if (observer) {
+        const gt_sftp_progress_t value = {GT_SFTP_PROGRESS_CREATE, out->bytes_acked, expected_size, true};
+        observer(&value, observer_context);
+      }
     }
   }
   if (fstat(source_fd, &after) != 0 || after.st_size != before.st_size ||
@@ -859,6 +879,20 @@ finished:
   }
   SFTP_UNLOCK(sftp);
   return status;
+}
+
+int gt_sftp_receive_controlled(gt_sftp_t *sftp, const char *path, int destination_fd,
+    uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context) {
+  return gt_sftp_receive_observed(sftp, path, destination_fd, max_bytes, out_count,
+      timeout_ms, cancelled, context, NULL, NULL);
+}
+
+int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
+    uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context) {
+  return gt_sftp_create_observed(sftp, path, source_fd, expected_size, out, timeout_ms,
+      cancelled, context, NULL, NULL);
 }
 
 /* Only a decoded server status can establish absence or explicit rejection. */
@@ -1666,6 +1700,23 @@ int gt_sftp_publish_controlled(gt_sftp_t *sftp, const char *source, const char *
   return GT_ERR_UNSUPPORTED;
 }
 
+
+int gt_sftp_receive_observed(gt_sftp_t *sftp, const char *path, int destination_fd,
+    uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context,
+    gt_sftp_progress_fn observer, void *observer_context) {
+  (void)observer; (void)observer_context;
+  return gt_sftp_receive_controlled(sftp, path, destination_fd, max_bytes, out_count,
+      timeout_ms, cancelled, context);
+}
+int gt_sftp_create_observed(gt_sftp_t *sftp, const char *path, int source_fd,
+    uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context,
+    gt_sftp_progress_fn observer, void *observer_context) {
+  (void)observer; (void)observer_context;
+  return gt_sftp_create_controlled(sftp, path, source_fd, expected_size, out, timeout_ms,
+      cancelled, context);
+}
 
 int gt_sftp_receive_controlled(gt_sftp_t *sftp, const char *path, int destination_fd,
     uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
