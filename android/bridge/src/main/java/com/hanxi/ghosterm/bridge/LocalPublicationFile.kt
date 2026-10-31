@@ -21,6 +21,9 @@ object LocalPublicationFile {
         ParcelFileDescriptor.adoptFd(openDirectory(bytes(root.absolutePath),bytes(relative)))
     fun candidate(directory: Int, name: String): ParcelFileDescriptor =
         ParcelFileDescriptor.adoptFd(openCandidate(directory,bytes(name)))
+    /** Creates one private directory relative to a pinned parent. Existing objects
+     * are conflicts, including directories and dangling links. Returns errno. */
+    fun mkdir(directory: Int, name: String): Int = createDirectory(directory,bytes(name))
     /** errno (zero on success); no overwrite fallback, retry, or borrowed-fd close.
      * Requires a complete read-only candidate with its writer already closed. */
     fun publish(destination: Int, staging: Int, candidate: Int, source: String, name: String, size: Long): Int =
@@ -28,6 +31,7 @@ object LocalPublicationFile {
     fun remove(staging: Int, candidate: Int, source: String): Int = removeCandidate(staging,candidate,bytes(source))
     private external fun openDirectory(root: ByteArray, relative: ByteArray): Int
     private external fun openCandidate(directory: Int, name: ByteArray): Int
+    private external fun createDirectory(directory: Int, name: ByteArray): Int
     private external fun publishCandidate(destination: Int, staging: Int, candidate: Int, source: ByteArray, name: ByteArray, size: Long): Int
     private external fun removeCandidate(staging: Int, candidate: Int, name: ByteArray): Int
 }

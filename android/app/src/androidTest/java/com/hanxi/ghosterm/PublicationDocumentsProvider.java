@@ -25,7 +25,7 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
     private final AtomicInteger creates=new AtomicInteger(),writes=new AtomicInteger(),reads=new AtomicInteger(),deletes=new AtomicInteger(),active=new AtomicInteger(),closedWrites=new AtomicInteger(),writeErrors=new AtomicInteger();
     private Handler handler;
     private static final class Entry {
-        final String id,name,parent,mode;final File file;
+        final String id,name,parent,mode;final File file;boolean directory;
         volatile CountDownLatch closed=new CountDownLatch(0);
         Entry(String id,String name,String parent,String mode,File file) { this.id=id;this.name=name;this.parent=parent;this.mode=mode;this.file=file; }
     }
@@ -53,7 +53,7 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         result.putInt("deletes",self.deletes.get());result.putInt("active",self.active.get());result.putInt("closed",self.closedWrites.get());result.putInt("writeErrors",self.writeErrors.get());result.putString("latest",self.latest);
         try {
             result.putByteArray("keep",java.nio.file.Files.readAllBytes(self.entries.get("opaque:keep").file.toPath()));
-            Entry e=self.entries.get(self.latest==null?"":self.latest);if(e!=null)result.putByteArray("bytes",java.nio.file.Files.readAllBytes(e.file.toPath()));
+            Entry e=self.entries.get(self.latest==null?"":self.latest);if(e!=null&&!e.directory)result.putByteArray("bytes",java.nio.file.Files.readAllBytes(e.file.toPath()));
         } catch(IOException error) { throw new IllegalStateException(error); }
         return result;
     }
@@ -66,11 +66,11 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         v.put(Root.COLUMN_FLAGS,Root.FLAG_SUPPORTS_CREATE|Root.FLAG_SUPPORTS_IS_CHILD);v.put(Root.COLUMN_MIME_TYPES,"*/*");row(c,v);return c;
     }
     private MatrixCursor cursor(String[] projection) { return new MatrixCursor(projection!=null?projection:new String[]{Document.COLUMN_DOCUMENT_ID,Document.COLUMN_DISPLAY_NAME,Document.COLUMN_MIME_TYPE,Document.COLUMN_FLAGS,Document.COLUMN_SIZE,Document.COLUMN_LAST_MODIFIED}); }
-    private boolean folder(String id) { return id.equals("pub:root")||id.equals("pub:folder")||id.equals("outside"); }
+    private boolean folder(String id) { Entry e=entries.get(id);return id.equals("pub:root")||id.equals("pub:folder")||id.equals("outside")||e!=null&&e.directory; }
     private void document(MatrixCursor c,String id) throws FileNotFoundException {
         Entry e=entries.get(id);if(!folder(id)&&e==null)throw new FileNotFoundException(id);
         Map<String,Object> v=new HashMap<>();v.put(Document.COLUMN_DOCUMENT_ID,mode.equals("wrong-metadata")&&id.startsWith("opaque:new:")?"wrong-id":id);
-        v.put(Document.COLUMN_DISPLAY_NAME,folder(id)?(id.equals("pub:root")?"Ghosterm Copy Destination":"Nested"):e.name);
+        v.put(Document.COLUMN_DISPLAY_NAME,e!=null?e.name:(id.equals("pub:root")?"Ghosterm Copy Destination":"Nested"));
         v.put(Document.COLUMN_MIME_TYPE,folder(id)?Document.MIME_TYPE_DIR:"application/octet-stream");
         v.put(Document.COLUMN_FLAGS,folder(id)?(mode.equals("no-create")?0:Document.FLAG_DIR_SUPPORTS_CREATE):(mode.equals("no-write")?0:Document.FLAG_SUPPORTS_WRITE|(mode.equals("virtual")?Document.FLAG_VIRTUAL_DOCUMENT:0)));
         v.put(Document.COLUMN_SIZE,folder(id)||mode.equals("short")||mode.equals("extra")||mode.startsWith("pipe")?null:e.file.length());
@@ -88,9 +88,14 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         if(mode.equals("too-many"))for(int i=0;i<4097;i++) {
             Map<String,Object> v=new HashMap<>();v.put(Document.COLUMN_DOCUMENT_ID,"extra:"+i);v.put(Document.COLUMN_DISPLAY_NAME,"extra-"+i);row(c,v);
         }
+        if(mode.equals("directory-metadata")&&parent.equals("pub:root"))for(int i=0;i<1100;i++) {
+            Map<String,Object> v=new HashMap<>();v.put(Document.COLUMN_DOCUMENT_ID,"large:"+i+":"+String.join("",Collections.nCopies(4096,"x")));
+            v.put(Document.COLUMN_DISPLAY_NAME,"large-"+i);row(c,v);
+        }
         return c;
     }
     @Override public boolean isChildDocument(String parent,String id) {
+        if(mode.equals("directory-outside")&&id.startsWith("opaque:new:"))return false;
         Entry e=entries.get(id);
         return parent.equals("pub:root")&&(id.equals("pub:folder")||e!=null) || e!=null&&e.parent.equals(parent);
     }
@@ -100,9 +105,15 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         if(mode.equals("return-parent"))return parent;
         if(mode.equals("create-denied"))throw new FileNotFoundException("Create denied");
         String id="opaque:new:"+UUID.randomUUID();String actual=mode.equals("rename")?"provider-"+name:name;
-        Entry e=new Entry(id,actual,parent,mode,new File(directory,UUID.randomUUID().toString()));
-        try { if(!e.file.createNewFile())throw new IOException(); } catch(IOException error) { throw new FileNotFoundException(error.toString()); }
+        Entry e=new Entry(id,actual,mode.equals("directory-indirect")?"pub:folder":parent,mode,new File(directory,UUID.randomUUID().toString()));
+        e.directory=mime.equals(Document.MIME_TYPE_DIR)&&!mode.equals("directory-file");
+        try { if(!(e.directory?e.file.mkdir():e.file.createNewFile()))throw new IOException(); } catch(IOException error) { throw new FileNotFoundException(error.toString()); }
         entries.put(id,e);latest=id;
+        if(mode.equals("directory-nonempty")) {
+            Entry nested=new Entry("opaque:unexpected","unexpected.txt",id,mode,new File(directory,UUID.randomUUID().toString()));
+            try { if(!nested.file.createNewFile())throw new IOException(); } catch(IOException error) { throw new FileNotFoundException(error.toString()); }
+            entries.put(nested.id,nested);
+        }
         if(mode.equals("new-nonempty"))try(FileOutputStream out=new FileOutputStream(e.file)) { out.write(9); }
         catch(IOException error) { throw new FileNotFoundException(error.toString()); }
         if(mode.equals("late-create"))waitGate();

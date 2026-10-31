@@ -149,6 +149,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 `libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的九场景、七组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同九场景。Android 与主机默认构建均应用补丁；`mutation-check-sftp-open.py` 另验 7 C + 2 Swift + 1 无库组，`mutation-check-host-ssh2.py --app 本轮.app` 验十一组依赖/包/CMake 守卫，目标红、独立对照绿、恢复绿与 SHA256。已交付证据见 Android 实现计划 §9.45/§9.47/§9.49，范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
 
+`android-directories` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-directories.py` 手工执行 26 组，护本机非覆盖/路径/权限与 SAF 授权、创建结果、父子归属、列表预算、一次性请求及取消晚到结果。真实编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；16 项目录基线及完整 358 项通过，仅 API 36 arm64 / 4 KB 页模拟器。初轮测试盲区及完整重跑见 Android 计划 §9.64；不增加 CI 20 份，不将单目录创建记为任务/页面或远端已完成。
+
 `android-decisions` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-decisions.py` 手工执行 42 组，护请求/修订隔离、确认/取消、本次全部、不支持项/目录跳过、不可变清单及名称/元数据预算。真实编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；15 项定向与最终完整 342 项通过，仅 API 36 arm64 / 4 KB 页模拟器。首轮选择顺序盲区与重跑范围见 Android 计划 §9.63；不增加 CI 20 份，不将逻辑清单记为名称预留、任务或页面完成。
 
 `android-preflight` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-preflight.py` 手工执行 34 组，护目标创建三态、目录关系、来源完整性、目标身份/列表/预算、只读冲突和取消。真实编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；13 项定向及完整 327 项通过，仅 API 36 arm64 / 4 KB 页模拟器。范围见 Android 计划 §9.62；不同远端身份关系仍未知，不把预检记作写入授权/任务完成，不增加 CI 20 份。

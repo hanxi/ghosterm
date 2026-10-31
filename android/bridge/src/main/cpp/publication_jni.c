@@ -66,6 +66,15 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_LocalPublicationFile_openC
     if(fd<0)failure(env,error);
     return fd;
 }
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_LocalPublicationFile_createDirectory(
+    JNIEnv *env,jobject self,jint directory,jbyteArray name) {
+    (void)self;
+    char *value=text(env,name);if(!value)return EINVAL;
+    int error=0;
+    if(!component(value))error=EINVAL;
+    else if(mkdirat(directory,value,0700)<0)error=errno;
+    free(value);return error;
+}
 /* A named task candidate is kept outside browsable HOME. Check identity before
  * rename/cleanup; this is not protection against arbitrary same-UID writers
  * racing inside the application's private staging directory. */

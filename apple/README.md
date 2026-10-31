@@ -1,10 +1,12 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
-代码核对：2026-10-31，macOS 源码与 `72bfe1b` 一致；Android 进度同步至 §9.63。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+代码核对：2026-10-31，macOS 源码与 `72bfe1b` 一致；Android 进度同步至 §9.64。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 **共享接口与产品进度分开**：Swift 已绑定受控 SFTP 打开、浏览、预览、独占创建、读取到 fd 和非覆盖发布；桌面文件队列与 Quick Look 仍使用旧 job。当前为 88 个公共 ABI、Apple 86 项引用/2 项登记未用。实际调用链见下方[接线表](#共享文件接口与产品接线)，不能把 Android 私有目录提交或设备回归记为 macOS 功能完成。
 
-最近相关验证：§9.57 完成发布接口专项及五组 Swift 变异；§9.58–§9.63 分别完成 macOS 原生构建、ad-hoc 包及依赖/引擎校验。它们没有新增完整 macOS 宿主或系统交互证据；详细范围与失败记录分别保留在[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)、[§9.58](../docs/reference/android-implementation.md#958-a5-应用私有目录非覆盖发布2026-10-31)、[§9.59](../docs/reference/android-implementation.md#959-a5-saf-新文档写入2026-10-31)、[§9.60](../docs/reference/android-implementation.md#960-a5-复制来源清单与文件页面2026-10-31)、[§9.61](../docs/reference/android-implementation.md#961-a5-粘贴请求与来源树扫描2026-10-31)、[§9.62](../docs/reference/android-implementation.md#962-a5-目标预检与冲突元数据2026-10-31)、[§9.63](../docs/reference/android-implementation.md#963-a5-请求内冲突决策与执行清单2026-10-31)及[工作区交接](../docs/reference/workspace-handoff.md)。
+Android §9.64 的本机/SAF 单目录创建为平台数据层能力，不改变 macOS `mkdir` 调用、目录重试或旧传输队列。桌面异常处理与迁移仍按本页边界验收。
+
+最近相关验证：§9.57 完成发布接口专项及五组 Swift 变异；§9.58–§9.64 分别完成 macOS 原生构建、ad-hoc 包及依赖/引擎校验。它们没有新增完整 macOS 宿主或系统交互证据；详细范围与失败记录分别保留在[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)、[§9.58](../docs/reference/android-implementation.md#958-a5-应用私有目录非覆盖发布2026-10-31)、[§9.59](../docs/reference/android-implementation.md#959-a5-saf-新文档写入2026-10-31)、[§9.60](../docs/reference/android-implementation.md#960-a5-复制来源清单与文件页面2026-10-31)、[§9.61](../docs/reference/android-implementation.md#961-a5-粘贴请求与来源树扫描2026-10-31)、[§9.62](../docs/reference/android-implementation.md#962-a5-目标预检与冲突元数据2026-10-31)、[§9.63](../docs/reference/android-implementation.md#963-a5-请求内冲突决策与执行清单2026-10-31)、[§9.64](../docs/reference/android-implementation.md#964-a5-本机与-saf-目录创建2026-10-31)及[工作区交接](../docs/reference/workspace-handoff.md)。
 
 ## 当前结构（2026-10-31）
 
