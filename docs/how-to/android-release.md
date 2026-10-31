@@ -2,6 +2,18 @@
 
 工作流为 `.github/workflows/android-release.yml`，监听 main push、PR 和手动触发。
 main 与手动构建使用固定 release 密钥签名；PR 只验证优化后的未签名 release 构建。
+当前已验证包来自 [run 41230615030](https://github.com/hanxi/ghosterm/actions/runs/41230615030)，
+源码 `6bed87f`（含通知修复 `50e4829`），APK **5,889,501 字节**。
+[下载签名 release APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41230615030/artifacts/13053682415)。
+SHA256 为 `753822e77c626a3852a64d4bac7d587c40a52ba7b700d7df8940316f67c20496`；下载及已安装 APK、
+`build-info.json`/`SHA256SUMS`、固定证书、对齐和三份 native 库压缩均已核对。
+
+同一云端包已在独立 API 36 arm64 / 4 KB 页模拟器完成实际覆盖安装、原文件保留、
+通知权限恢复后的通知跳转、28 字节复制及目标预览、通知取消和服务退出验证。
+这不是完整 release 设备套件，也不覆盖真机、API 29、16 KB 页或长负载性能。
+详细证据见[实现计划 §9.75](../reference/android-implementation.md#975-通知恢复后补发当前任务2026-11-01)。
+`5441c5d` 的上一份包（run `41226924788`）曾在真实运行中暴露通知恢复不补发，已由此包修复。
+
 首次云端运行已通过：[run 41207714115](https://github.com/hanxi/ghosterm/actions/runs/41207714115)，
 源码为 `d585f0b`。签名 APK 为 **5,826,065 字节**；下载后 SHA256、固定 release 证书
 与 16 KB 对齐检查通过。尚未对该云端 APK 单独完成设备运行验证。
@@ -9,7 +21,7 @@ main 与手动构建使用固定 release 密钥签名；PR 只验证优化后的
 后续持久历史版本也已出包：[run 41215129237](https://github.com/hanxi/ghosterm/actions/runs/41215129237)，
 源码 `b0bae1b`，APK 为 **5,876,361 字节**，下载后的 SHA256、固定签名证书与对齐检查通过。
 [下载该次 artifact](https://github.com/hanxi/ghosterm/actions/runs/41215129237/artifacts/13047709240)。
-该包包含 §9.73 的任务历史，不含尚待完整回归的 §9.74 前台服务；云端包仍未单独完成设备运行验证。
+该历史包包含 §9.73 的任务历史，不含 §9.74 前台服务；随后已在 API 36 模拟器实测本地终端创建文件及只读预览，不代表完整发行矩阵通过。
 
 在 GitHub Actions 中打开 **Android Release APK** 的成功运行，下载
 `Ghosterm-android-release-<commit>` artifact。解压后包含安装 APK、`SHA256SUMS`
