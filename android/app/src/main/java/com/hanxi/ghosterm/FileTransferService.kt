@@ -37,8 +37,11 @@ class FileTransferBackground(private val application: Application, private val w
     fun refreshNotifications() {
         if(!enabled) return
         val manager=application.getSystemService(NotificationManager::class.java)
+        val previouslyVisible=notificationsVisible
         notificationsVisible=manager.areNotificationsEnabled() &&
             manager.getNotificationChannel(FileTransferService.CHANNEL)?.importance!=NotificationManager.IMPORTANCE_NONE
+        // Reissue the current notification when it becomes visible; permission changes do not replay it.
+        if(!previouslyVisible && notificationsVisible && state==FileBackgroundState.ACTIVE) render()
     }
     fun submitFromUser(presenter: UUID, submit: () -> Unit) {
         if(!enabled) { submit();return }

@@ -31,7 +31,7 @@ def main():
         (work/(label+'.log')).write_text(result.stdout+result.stderr)
         folders=set((ROOT/'tmp/android-foreground-system').glob('*'))-before
         if len(folders)!=1:raise RuntimeError('Ambiguous system evidence directory')
-        folder=folders.pop();output=(folder/(mode+'.log' if mode in ('notifications-denied','channel-closed') else 'timeout-stage.log')).read_text()
+        folder=folders.pop();output=(folder/(mode+'.log' if mode in ('notifications-denied','channel-closed','notifications-restored') else 'timeout-stage.log')).read_text()
         (work/(label+'-assertion.log')).write_text(output)
         if green:
             if result.returncode!=0 or ('FOREGROUND SYSTEM PASS '+mode) not in result.stdout:raise RuntimeError(result.stdout+result.stderr)
@@ -48,6 +48,9 @@ def main():
     def checked(argv):
         result=fg.helper.run(argv);fg.helper.require(result);return result.stdout
     cases=[
+        ('channel-restored-status',source,'.setContentText(text)','.setContentText("Invalid restored status")','channel-closed'),
+        ('notification-restored-repost',source,'if(!previouslyVisible && notificationsVisible && state==FileBackgroundState.ACTIVE) render()',
+         'Unit','notifications-restored'),
         ('channel-visibility',source,'manager.getNotificationChannel(FileTransferService.CHANNEL)?.importance!=NotificationManager.IMPORTANCE_NONE','true','channel-closed'),
         ('timeout-classification',source,'owner.ended(this,token,true)','owner.ended(this,token,false)','timeout'),
         ('timeout-cancel',source,'work.tasks.stopForBackground(error!!)','work.tasks.holdForBackground(error!!)','timeout'),
@@ -66,15 +69,18 @@ def main():
         for path,data in originals.items():
             path.write_bytes(data)
             if hashlib.sha256(path.read_bytes()).digest()!=hashlib.sha256(data).digest():raise RuntimeError('Restore SHA mismatch')
+    def modes(value):return (value,) if isinstance(value,str) else value
     build('baseline')
-    for mode in sorted({case[-1] for case in cases}):system('baseline-'+mode,True,mode)
+    for mode in sorted({mode for case in cases for mode in modes(case[-1])}):system('baseline-'+mode,True,mode)
     try:
         for name,path,before,after,mode in cases:
             text=originals[path].decode()
             if text.count(before)!=1:raise RuntimeError('Missing mutation anchor '+name)
             path.write_text(text.replace(before,after)+'\n// '+MARK+'\n')
-            build(name);system(name,False,mode);control(name)
-            restore();build(name+'-restored');system(name+'-restored',True,mode)
+            build(name)
+            for actual in modes(mode):system(name+'-'+actual,False,actual);control(name+'-'+actual)
+            restore();build(name+'-restored')
+            for actual in modes(mode):system(name+'-'+actual+'-restored',True,actual)
             print('PASS '+name+': actual system behavior, compiled assertion red / same APK config green / restored green / SHA256',flush=True)
     finally:restore()
     print(f'ANDROID FOREGROUND SYSTEM MUTATIONS PASS: {len(cases)} groups; evidence '+str(work),flush=True)

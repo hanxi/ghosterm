@@ -254,6 +254,14 @@ class FileForegroundServiceTest {
             val task=begin();prepared(task)
             assertFalse("closed channel must be visible independently of permission",model.background.notificationsVisible)
             awaitText("后台传输已启动");awaitText("通知已关闭，可在任务页查看状态和取消任务。")
+            val generation=model.background.generation
+            toggleChannel(true)
+            waitFor { model.background.notificationsVisible }
+            await("reopening the channel must repost the same task notification") {
+                notification()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()=="等待在任务页面确认"
+            }
+            assertEquals(generation,model.background.generation)
+            assertSame(task,model.tasks.single { it.request.id==task.request.id })
             main { model.confirm(task,task.decisions!!.reference) }
             waitFor { task.phase==FileTaskPhase.FINISHED && !servicePresent() }
             assertEquals("foreground actual bytes",File(root,"target/a.txt").readText())
@@ -264,9 +272,38 @@ class FileForegroundServiceTest {
         }
         instrumentation.sendStatus(0,Bundle().apply { putString("stream","FOREGROUND_SYSTEM_VERIFIED mode=channel-closed\n") })
     }
+    private fun restoredNotificationsProbe() {
+        val manager=context.getSystemService(NotificationManager::class.java)
+        assertFalse("host must revoke before starting instrumentation",manager.areNotificationsEnabled())
+        val task=begin();prepared(task)
+        assertFalse(model.background.notificationsVisible)
+        assertNull("permission-denied service has no posted notification",notification())
+        val generation=model.background.generation
+        clickText("通知设置")
+        clickText("All Ghosterm notifications","允许通知","允许通知消息")
+        uiWait("system settings must actually grant app notifications") { manager.areNotificationsEnabled() }
+        clickText("Navigate up","向上导航")
+        waitFor(message="same Activity must resume with actual permission visible") {
+            activity?.lifecycle?.currentState==Lifecycle.State.RESUMED && model.background.notificationsVisible
+        }
+        assertEquals(generation,model.background.generation);assertTrue(running())
+        assertSame(task,model.tasks.single { it.request.id==task.request.id })
+        assertEquals(FileTaskPhase.CONFIRMING,task.phase)
+        await("returning from Settings must repost the existing task notification") {
+            notification()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()=="等待在任务页面确认"
+        }
+        main { model.hide() };awaitText("主机")
+        send(notification()!!.contentIntent);awaitText("文件任务")
+        assertSame(task,model.tasks.single { it.request.id==task.request.id });assertEquals(generation,model.background.generation)
+        send(notification()!!.actions.single().actionIntent)
+        await("restored notification must cancel its original request") { task.phase==FileTaskPhase.FINISHED && !running() }
+        assertTrue(task.cancelled);assertFalse(File(root,"target/a.txt").exists())
+        instrumentation.sendStatus(0,Bundle().apply { putString("stream","FOREGROUND_SYSTEM_VERIFIED mode=notifications-restored\n") })
+    }
     private fun systemProbe(mode:String) {
-        require(mode in listOf("timeout","stop-app","notifications-denied","channel-closed"))
+        require(mode in listOf("timeout","stop-app","notifications-denied","channel-closed","notifications-restored"))
         if(mode=="channel-closed") { closedChannelProbe();return }
+        if(mode=="notifications-restored") { restoredNotificationsProbe();return }
         if(mode=="notifications-denied") {
             assertEquals(PackageManager.PERMISSION_DENIED,context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS))
             assertFalse(context.getSystemService(NotificationManager::class.java).areNotificationsEnabled())

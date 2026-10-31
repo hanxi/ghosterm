@@ -18,7 +18,7 @@ fg=importlib.util.module_from_spec(spec);spec.loader.exec_module(fg)
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--skip-build',action='store_true')
-    parser.add_argument('--mode',choices=('timeout','stop-app','notifications-denied','channel-closed'));args=parser.parse_args()
+    parser.add_argument('--mode',choices=('timeout','stop-app','notifications-denied','channel-closed','notifications-restored'));args=parser.parse_args()
     serial=os.environ.get('ANDROID_SERIAL')
     if not serial:raise RuntimeError('Set ANDROID_SERIAL')
     adb=[str(ROOT/'build/android-toolchain/sdk/platform-tools/adb'),'-s',serial]
@@ -50,20 +50,21 @@ def main():
             if process.poll() is not None:raise RuntimeError('Instrumentation exited before '+phase)
             time.sleep(.1)
         raise RuntimeError('Missing actual system checkpoint '+phase)
-    if args.mode in (None,'notifications-denied'):
+    permission_modes=([args.mode] if args.mode in ('notifications-denied','notifications-restored') else ['notifications-denied','notifications-restored'] if args.mode is None else [])
+    for permission_mode in permission_modes:
         permission='android.permission.POST_NOTIFICATIONS'
         initial='granted=true' in next(line for line in command([*adb,'shell','dumpsys','package','com.hanxi.ghosterm']).splitlines() if 'android.permission.POST_NOTIFICATIONS: granted=' in line)
         try:
             command([*adb,'shell','pm','revoke','com.hanxi.ghosterm',permission])
-            result=fg.helper.run(probe('notifications-denied','stage',str(uuid.uuid4())),seconds=60)
-            output=result.stdout+result.stderr;(work/'notifications-denied.log').write_text(output);fg.helper.require(result)
-            if 'OK (1 test)' not in output or 'FOREGROUND_SYSTEM_VERIFIED mode=notifications-denied' not in output:raise RuntimeError(output)
+            result=fg.helper.run(probe(permission_mode,'stage',str(uuid.uuid4())),seconds=60)
+            output=result.stdout+result.stderr;(work/(permission_mode+'.log')).write_text(output);fg.helper.require(result)
+            if 'OK (1 test)' not in output or ('FOREGROUND_SYSTEM_VERIFIED mode='+permission_mode) not in output:raise RuntimeError(output)
         finally:
             command([*adb,'shell','pm','grant' if initial else 'revoke','com.hanxi.ghosterm',permission])
             restored='granted=true' in next(line for line in command([*adb,'shell','dumpsys','package','com.hanxi.ghosterm']).splitlines() if 'android.permission.POST_NOTIFICATIONS: granted=' in line)
             if restored!=initial:raise RuntimeError('Notification permission was not restored')
-        print('FOREGROUND SYSTEM PASS notifications-denied: actual revoked permission, active service, visible warning and real copy; permission restored',flush=True)
-        if args.mode=='notifications-denied':
+        print('FOREGROUND SYSTEM PASS '+permission_mode+': actual permission state, active service and task behavior checked; permission restored',flush=True)
+        if args.mode in ('notifications-denied','notifications-restored'):
             print('Evidence: '+str(work),flush=True);return
     if args.mode in (None,'channel-closed'):
         with fg.notification_access(adb,command):
