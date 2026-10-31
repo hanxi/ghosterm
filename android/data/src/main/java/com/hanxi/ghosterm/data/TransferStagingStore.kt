@@ -11,6 +11,7 @@ import android.system.StructPollfd
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.Closeable
 import java.io.File
@@ -37,6 +38,11 @@ class TransferStagingStore(private val directory: File,
     private var slots = 0
     private val snapshots = mutableSetOf<Snapshot>()
     private val receivers = mutableSetOf<kotlinx.coroutines.Job>()
+    private val sourceReads = mutableSetOf<CancellationSignal>()
+    private val released = CompletableDeferred<Unit>()
+    private fun completeClose() {
+        if(closed && slots==0 && receivers.isEmpty() && sourceReads.isEmpty()) released.complete(Unit)
+    }
     val reservedBytes: Long get() = synchronized(lock) { reserved }
 
     private fun reserve(amount: Long) = synchronized(lock) {
@@ -45,7 +51,7 @@ class TransferStagingStore(private val directory: File,
         check(slots < snapshotLimit) { "暂存文件数量已达上限，请等待其他任务完成" }
         reserved += amount;slots++
     }
-    private fun release(amount: Long) = synchronized(lock) { reserved -= amount;slots--;check(reserved >= 0 && slots >= 0) }
+    private fun release(amount: Long) = synchronized(lock) { reserved -= amount;slots--;check(reserved >= 0 && slots >= 0);completeClose() }
     private fun active() = synchronized(lock) { !closed }
 
     /** open must return a NEW, exclusively owned source descriptor; never a borrowed
@@ -57,12 +63,17 @@ class TransferStagingStore(private val directory: File,
     suspend fun snapshot(expectedSize: Long? = null,
         open: (CancellationSignal) -> AssetFileDescriptor): Snapshot = suspendCancellableCoroutine { waiting ->
         val signal = CancellationSignal()
+        synchronized(lock) {
+            if(closed) { waiting.resumeWithException(IllegalStateException("文件暂存已关闭"));return@suspendCancellableCoroutine }
+            sourceReads.add(signal)
+        }
         waiting.invokeOnCancellation { Dispatchers.IO.dispatch(EmptyCoroutineContext) { signal.cancel() } }
         Dispatchers.IO.dispatch(EmptyCoroutineContext) {
             try {
                 val result = copy(expectedSize, signal, { waiting.isActive && active() }, open)
                 waiting.resume(result, onCancellation = { _, value, _ -> value.close() })
             } catch (failure: Exception) { if (waiting.isActive) waiting.resumeWithException(failure) }
+            finally { synchronized(lock) { sourceReads.remove(signal);completeClose() } }
         }
     }
 
@@ -164,7 +175,7 @@ class TransferStagingStore(private val directory: File,
             } catch(failure: Exception) { if(waiting.isActive) waiting.resumeWithException(failure) }
         }
         worker.invokeOnCompletion { failure ->
-            synchronized(lock) { receivers.remove(worker) }
+            synchronized(lock) { receivers.remove(worker);completeClose() }
             if(failure != null && waiting.isActive) waiting.resumeWithException(failure)
         }
         synchronized(lock) {
@@ -240,8 +251,13 @@ class TransferStagingStore(private val directory: File,
         val pending=synchronized(lock) {
             closed=true
             snapshots.toList().forEach { it.close() }
-            receivers.toList()
+            completeClose()
+            receivers.toList() to sourceReads.toList()
         }
-        pending.forEach { it.cancel() }
+        pending.first.forEach { it.cancel() }
+        pending.second.forEach { signal -> Dispatchers.IO.dispatch(EmptyCoroutineContext) { signal.cancel() } }
     }
+    /** Includes blocked source providers, anonymous writers and outstanding leases.
+     * A cancelled waiter does not release capacity or terminate the actual workers. */
+    suspend fun closeAndAwait() { close();released.await() }
 }

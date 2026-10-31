@@ -1,6 +1,6 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
-代码核对：2026-10-31，macOS 产品调用方未迁移，Swift 绑定随 §9.65 增加受控目录接口；Android 进度同步至 §9.67。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+代码核对：2026-10-31，macOS 产品调用方未迁移，Swift 绑定随 §9.65 增加受控目录接口；Android 进度同步至 §9.69。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 **共享接口与产品进度分开**：Swift 已绑定受控 SFTP 打开、浏览、预览、独占创建、读取到 fd、非覆盖发布和受控单目录创建；桌面文件队列与 Quick Look 仍使用旧 job。当前为 89 个公共 ABI、Apple 87 项引用/2 项登记未用。实际调用链见下方[接线表](#共享文件接口与产品接线)，不能把 Android 私有目录提交或设备回归记为 macOS 功能完成。
 
@@ -10,7 +10,7 @@
 
 **最新 macOS 宿主记录（`4cbfcf4`）**：跨显示器缩放已同步引擎 DPI、Metal `contentsScale` 与像素尺寸，三项原生回归、六组隔离变异、Terminal 28 项和 release 构建通过。完整 App 349 项中 347 通过、1 项开发态主题资源跳过、1 项键盘设置页像素失败；恢复旧终端源码仍复现该失败，尚未修复，不记完整闸门全绿。真实双屏移动/拔插仍待用户复验；详情见[跨显示器缩放记录](../docs/reference/optional-tmux-implementation.md#后续跨显示器缩放修复2026-10-31)。这组既有证据由该提交记录，本次文档同步未重跑。
 
-Android 工作区另有复制执行器草稿，已有 19 项定向日志，但尚未完成变异/完整回归或产品页面接线，见 [§9.68](../docs/reference/android-implementation.md#968-a5-复制执行器工作区复核2026-10-31未验收)。它不改变下表 macOS 的实际消费者；本轮另核对目录终态汇总，补明[回调顺序限制](#目录终态与回调顺序)，未改动桌面实现。
+Android §9.69 已验数据层复制执行器，24 项定向、33 组新变异与完整 419 项设备回归通过，见[实施记录](../docs/reference/android-implementation.md#969-a5-复制执行器与逐项结果2026-10-31)。没有迁移下表 macOS 的实际消费者；桌面[回调顺序限制](#目录终态与回调顺序)及其余缺口仍有效，不增加本端完整宿主验收。
 
 ## 当前结构（2026-10-31）
 
@@ -71,6 +71,17 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 
 这些路径的源码与专项证据分开记账；共享信任事务通过不改变 M3 配置编辑和 M4.5 终端设置的进度。macOS 设置页目前仅展示 known_hosts 路径和 Finder 入口，没有记录列表、指纹详情或删除确认。
 
+## 本次跨端进度复核（2026-10-31）
+
+本次按生产调用方复核以下边界；Android 执行器的交付没有改变这些 macOS 路径。对应修复及验收触发场景已列入[路线图](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。
+
+| 复核项 | 代码现状 | 进度结论 |
+|---|---|---|
+| SSH 配置保存 | `ConfigStore.save` 忽略备份失败，随后删除旧文件再移动新文件 | 强制备份和原子替换仍未完成，不能沿用 Android 的事务保证 |
+| 认证后的 shell/SFTP 打开 | `AppModel` 仍调用不带取消和剩余预算的 `openSSHShell(ssh)` / `ssh.sftp()` | 受控 Swift 重载可用，桌面生产接线仍待迁移 |
+| 传输控制 | `TransferManager.pause/resume/cancel` 仍以 `try?` 忽略后端控制错误 | 正常路径已接；错误确认、迟到结果与资源释放仍需单独修复 |
+| 构建与宿主验收 | 本片 Core gate、Apple ABI 和原生增量构建通过；未重跑完整宿主 | 最新完整宿主仍保留 `4cbfcf4` 的设置页像素失败，不能标为全绿 |
+
 ## 共享文件接口与产品接线
 
 生产调用方在 §9.65 再次核对；共享接口新增受控单目录创建与 Swift 包装。共享 Core 已验接口、Swift 包装层和 macOS 产品各自有完成边界；Android 的页面或设备通过不能勾选 macOS 产品迁移。
@@ -79,10 +90,10 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 |---|---|---|---|
 | SFTP 打开 | `gt_ssh_sftp_controlled` / 带预算及取消的 `sftp` 重载 | `AppModel` 文件工厂仍调无参 `ssh.sftp()` | `files_jni.c` 专用 owner，文件页面已接 |
 | 目录浏览、文本预览 | `gt_sftp_browse_controlled` / `browse`；`gt_sftp_preview_controlled` / `preview` | `SFTPFileBackend` 仍拆分 list/realpath；Quick Look 经旧下载 job | `RemoteFileSession` → repository → 只读文件页面 |
-| 独占暂存创建 | `gt_sftp_create_controlled` / `createExclusive` | 尚无产品调用，原队列仍用路径式 upload | JNI/Kotlin 与匿名快照集成已验，复制任务未接 |
-| 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | `SFTPFileBackend.download` → `sftp.download` → 旧 job | `TransferStagingStore.receive` 已验，应用级任务 store 未接 |
-| 最终非覆盖发布 | `gt_sftp_publish_controlled` / `publish`；状态、远端错误码、总预算与取消 | Swift 绑定已验；桌面队列仍无产品调用 | JNI/Kotlin `RemoteFileSession.publish` 已验；粘贴任务和执行页面未接 |
-| 目录创建 | §9.65 新增 `gt_sftp_mkdir_controlled` / `createDirectory`；保留创建状态、服务器错误码、总预算与取消 | `SFTPFileBackend.mkdir` 仍经同步队列调用旧 `mkdir`；目录展开会复用已存在目标 | `RemoteFileSession.prepareDirectory` / `DirectoryRequest` 已接；§9.66 的 `FileDirectoryCreator` 经固定 `RemoteFileBinding` 统一三类目录；§9.67 已接独立任务连接作用域，执行器与页面未接 |
+| 独占暂存创建 | `gt_sftp_create_controlled` / `createExclusive` | 尚无产品调用，原队列仍用路径式 upload | JNI/Kotlin 与匿名快照集成已验，§9.69 执行器已消费；任务页面未接 |
+| 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | `SFTPFileBackend.download` → `sftp.download` → 旧 job | `TransferStagingStore.receive` 已由 §9.69 执行器消费，应用级任务 store 未接 |
+| 最终非覆盖发布 | `gt_sftp_publish_controlled` / `publish`；状态、远端错误码、总预算与取消 | Swift 绑定已验；桌面队列仍无产品调用 | JNI/Kotlin `RemoteFileSession.publish` 已由 §9.69 执行器消费；任务认证与粘贴页面未接 |
+| 目录创建 | §9.65 新增 `gt_sftp_mkdir_controlled` / `createDirectory`；保留创建状态、服务器错误码、总预算与取消 | `SFTPFileBackend.mkdir` 仍经同步队列调用旧 `mkdir`；目录展开会复用已存在目标 | `RemoteFileSession.prepareDirectory` / `DirectoryRequest` 已接；§9.66 的 `FileDirectoryCreator` 经固定 `RemoteFileBinding` 统一三类目录；§9.67 已接独立任务连接作用域，§9.69 已接执行器；页面未接 |
 
 Android §9.67 的连接完成通知与任务作用域只在 JNI/Kotlin/data 层实现，不新增共享 ABI，也不改变 macOS `TransferManager` 的取消确认、后端持有或目录暂停语义；桌面仍须按下文单独迁移。
 
@@ -156,7 +167,7 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.
 | 操作 | macOS 当前实现 | Android 方案与实现边界 |
 |---|---|---|
 | 文件打开与选择 | 原生列表单击选择、双击打开；右键“拷贝路径”只复制路径文本 | 方案为点按打开、长按勾选；本机/SAF 与远端浏览、文本预览已接，见 Android §9.43/§9.52 |
-| 文件复制 | 本地↔远端的传输队列、拖放与冲突对话框；无四方向统一复制清单 | §9.60 已接常驻来源清单/详情/替换与清空，§9.61 已接请求与来源扫描；四方向粘贴执行仍属 A5/A6 待办。终端文本剪贴板独立，不等于文件复制完成 |
+| 文件复制 | 本地↔远端的传输队列、拖放与冲突对话框；无四方向统一复制清单 | §9.60 已接常驻来源清单/详情/替换与清空，§9.61 已接请求与来源扫描；§9.69 已接复制执行器数据层，跨远端关系及粘贴产品流程仍属 A5/A6 待办。终端文本剪贴板独立，不等于文件复制完成 |
 | 普通 shell 退出 | `handlePaneExit` 移除终端叶子，其余文件/终端叶子保留；最后一片退出关闭标签 | 正常 EOF 后保留终端内容供浏览/复制，显式关闭再释放；错误退出不承诺保留 |
 | 设置 | 通用、外观、键盘、配置文件四页 | 最终设计五类、16 项偏好；已提交配置/关于入口，身份设置首片已验（§9.33），主机验证管理已验（§9.39），完整偏好留给 A7 |
 | 主机身份 | 表单仍按文本路径编辑，认证从受限文件读 PEM；来源绑定未接表单 | §9.35 已接本安装容器引用、配置候选和引用主机详情；不提供跨端密钥迁移 |

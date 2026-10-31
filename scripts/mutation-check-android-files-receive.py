@@ -21,7 +21,7 @@ def execute(root,build,test):
         ('status',kotlin,'if(status != 0 && kind!=3 && kind!=5)','if(status != 0 && kind!=3 && kind!=5 && kind!=4)',failure),
         ('frozen-size',store,'check(expected == null || size == expected)','check(true)','receiveFrozenSizeMismatchDoesNotPublishSnapshot'),
         ('release-budget',store,'if(!transferred) release(reservation)','if(!transferred) Unit',failure),
-        ('cancel-store',store,'pending.forEach { it.cancel() }','pending.forEach { }','storeCloseCancelsPendingReceiveAndReleasesReservation'),
+        ('cancel-store',store,'pending.first.forEach { it.cancel() }','pending.first.forEach { }','storeCloseCancelsPendingReceiveAndReleasesReservation'),
         ('cancel-delivery',store,'onCancellation = { _, value, _ -> value.close() }','onCancellation = { _, _, _ -> Unit }','receiveDeliveryCancellationClosesUnclaimedSnapshot'),
     ]
     def selection(method):return 'com.hanxi.ghosterm.RemoteFilesTest#'+method

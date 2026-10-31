@@ -37,13 +37,14 @@ def main():
     if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
     file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or
-                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest','RemoteFileTaskTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
+                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest','RemoteFileTaskTest','FileCopyExecutorTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
     file_data={}
     if file_tests:
         file_key=Path(work)/'file-clientkey'
         run(['ssh-keygen','-q','-t','ed25519','-N','','-f',file_key])
         remote=Path(work)/'android-files';remote.mkdir()
         scratch=Path(work)/'android-file-writes';scratch.mkdir()
+        readonly=Path(work)/'android-file-readonly';readonly.mkdir(mode=0o500)
         (remote/'文本.txt').write_text('远端 UTF-8\nline two\n')
         (remote/'zero').write_bytes(b'');(remote/'binary').write_bytes(b'hello\0world')
         (remote/'invalid').write_bytes(b'hello\xff')
@@ -52,7 +53,7 @@ def main():
         command='internal-sftp -d '+shlex.quote(str(remote))
         option=command.replace('\\','\\\\').replace('"','\\"')
         with Path(work,'authorized_keys').open('a') as allowed: allowed.write('command="'+option+'" '+Path(str(file_key)+'.pub').read_text())
-        file_data=dict(filePem=file_key.read_text(),remoteRoot=str(remote),remoteScratch=str(scratch))
+        file_data=dict(filePem=file_key.read_text(),remoteRoot=str(remote),remoteScratch=str(scratch),remoteReadOnly=str(readonly))
     spec=importlib.util.spec_from_file_location('credential_fixture',ROOT/'scripts/lib/android-ssh-credentials.py')
     credentials=importlib.util.module_from_spec(spec);spec.loader.exec_module(credentials)
     credential_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_CREDENTIAL_MUTATE')=='1' or os.environ.get('ANDROID_SSH_IDENTITIES_MUTATE')=='1' or
@@ -108,6 +109,10 @@ def main():
                 selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else os.environ.get('ANDROID_SSH_TEST_CLASS','com.hanxi.ghosterm.RemoteTerminalTest')
                 output=test('baseline',selection,True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_COPY_EXECUTOR_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('copy_executor_mutations',ROOT/'scripts/mutation-check-android-copy-executor.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILE_TASK_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('file_task_mutations',ROOT/'scripts/mutation-check-android-file-tasks.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
