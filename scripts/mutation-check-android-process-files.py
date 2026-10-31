@@ -31,7 +31,7 @@ def execute(root,build,test):
          'override fun onCleared() { tasks.toList().forEach(::cancel);work.release(presenterId);super.onCleared() }',shared),
         ('background-cancel',tasks,'fun paused() = work.pause(presenterId)',
          'fun paused() { tasks.toList().forEach(::cancel);work.pause(presenterId) }',background),
-        ('global-slot',tasks,'if(busy) { notice=','if(false) { notice=',prefix+'closedOriginDoesNotCancelScanAndCancelledGlobalSlotWaitsForActualRelease'),
+        ('global-slot',tasks,'if(tasks.any { it.active && it.phase!=FileTaskPhase.QUEUED }) return','if(false) return',prefix+'closedOriginDoesNotCancelScanAndCancelledGlobalSlotWaitsForActualRelease'),
         ('completion-stream',files,'result?.let { copyCompleted(it) }','Unit',prefix+'completionRefreshesEveryLiveBrowserWithoutOwningItsViewModel'),
         ('authentication-dispose',runtime,'pause(id)\n        if(authenticationOwner.isInitialized()) authentication.releaseIdentityPresenter(id)',
          'pause(id)\n        if(authenticationOwner.isInitialized()) { authentication.connecting?.let { authentication.cancelConnection(it.id) };authentication.releaseIdentityPresenter(id) }',login),

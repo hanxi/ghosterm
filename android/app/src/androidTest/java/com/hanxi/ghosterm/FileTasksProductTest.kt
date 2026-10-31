@@ -152,12 +152,14 @@ class FileTasksProductTest {
             }) }
             assertTrue(entered.await(5,TimeUnit.SECONDS));val first=latest
             ui.runOnIdle { tasks.cancel(first);tasks.start(snapshot,FileLocation(FileEndpoint.APP,"other"),"other",::connections) }
-            assertSame(first,latest);assertEquals(1,tasks.tasks.size)
-            assertTrue(tasks.busy);assertEquals(FileTaskPhase.CANCELLING,first.phase);assertNotNull(tasks.notice)
-            ui.runOnIdle { tasks.remove(first) };assertEquals(1,tasks.tasks.size)
-            release.countDown();finished();assertTrue(first.cancelled)
-            assertFalse(File(home,"target/a.txt").exists())
-            ui.runOnIdle { tasks.remove(first) };assertTrue(tasks.tasks.isEmpty())
+            val queued=latest;assertNotSame(first,queued);assertEquals(2,tasks.tasks.size)
+            assertEquals(FileTaskPhase.QUEUED,queued.phase)
+            assertTrue(tasks.busy);assertEquals(FileTaskPhase.CANCELLING,first.phase);assertNull(tasks.notice)
+            ui.runOnIdle { tasks.remove(first) };assertEquals(2,tasks.tasks.size)
+            release.countDown();ui.waitUntil(15000) { queued.phase==FileTaskPhase.CONFIRMING }
+            assertTrue(first.cancelled);assertEquals(FileTaskPhase.FINISHED,first.phase)
+            assertFalse(File(home,"target/a.txt").exists());assertFalse(File(home,"other/a.txt").exists())
+            ui.runOnIdle { tasks.cancel(queued);tasks.remove(first);tasks.remove(queued) };assertTrue(tasks.tasks.isEmpty())
         } finally { release.countDown() }
     }
     @Test fun completionDoesNotClearSelectionOrPreviewInAnotherDirectory() {

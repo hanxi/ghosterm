@@ -1,8 +1,8 @@
 # Android 宿主
 
-**当前实现（2026-10-31，§9.71 当前模拟器档已验）**：Android 文件任务、复制清单和任务认证现由 `FileWorkRuntime` 在进程内共享；关闭发起 Activity 后，另一页面仍可继续确认、认证或查看结果。全进程只接受一个活动请求，取消等待实际资源释放。排队、前台服务/通知、暂停/重试、进程恢复与完整偏好仍未实现；不同远端命名空间关系未知时阻断。 实现与证据见[Android 记录](../docs/reference/android-implementation.md#971-a6-进程任务与共享清单2026-10-31)。
+**当前实现（2026-10-31，§9.72 当前模拟器档已验）**：§9.72 已接 FIFO 文件队列，最多 32 个未结束请求；扫描、确认、执行和取消清理共用一个执行名额。8 项队列定向、14 组新增及既有 39 组变异通过；完整设备 453 项通过。前台服务/通知、持久恢复、暂停/重试和完整偏好仍未实现，A6 保持部分完成。 详见[队列记录](../docs/reference/android-implementation.md#972-a6-fifo-文件任务队列2026-10-31)。
 
-**验收边界（§9.71）**：8 项跨 Activity 定向、15 组新增变异与既有 94 组回归通过；完整设备 **445 项通过，零失败/错误/跳过**（1504.245 秒），仅 API 36 arm64 / 4 KB 页模拟器；719 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致。 Android debug/测试 APK 构建通过。Core 47 CTest / 89 ABI、Apple 87/2、JNI 49/40 和 macOS 增量构建为此前 `254ce8e` 基线的复核结果；新 macOS 键盘代码的专项证据单独记账。未新增 Android 真机、API 29、16 KB 页、发行或 CI 证据。
+**验收边界（§9.72）**：完整设备 **453 项通过，零失败/错误/跳过**（1216.568 秒），仅 API 36 arm64 / 4 KB 页模拟器；722 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致。 Android debug/测试 APK 构建、Core 47 CTest / 89 ABI、Apple 87/2 与 JNI 49/40 绑定对拍通过。本轮未重跑完整 macOS 宿主或打包；macOS 键盘专项与既有设置页像素失败分别保留。未新增 Android 真机、API 29、16 KB 页、发行或 CI 证据。
 
 状态（2026-10-31）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有 SSH 身份、主机验证记录、配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话、SAF 导入、凭据、身份设置、主机关联、信任读写桥、候选地址与通道取消与本机/SAF 及远端文件页面已有设备回归记录（最新结果见页首及 §9.71）；远端文件页面已由 §9.52 接入，完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
 
@@ -63,7 +63,17 @@ ANDROID_SERIAL=emulator-5554 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileTasks
 ANDROID_SERIAL=emulator-5554 ANDROID_FILE_TASK_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileTasksProductTest,com.hanxi.ghosterm.RemoteFileTasksProductTest,com.hanxi.ghosterm.SafFileTasksProductTest bash scripts/test-android-ssh.sh
 ```
 
-18 项定向使用真实 HOME、系统 DocumentsUI/独立 provider 与 SSH。24 组产品变异覆盖路由、请求身份、取消名额、结果/清单和认证归属；失败过程与最终证据统一记在 §9.70。§9.71 改由进程级 `FileWorkRuntime` 持有任务、清单和独立认证，`FileTasksViewModel` 仅保留页面路由与 presenter UUID；显式结束 Activity 只解除呈现归属。单活动请求仍不等于排队，后台通知/暂停/重试/进程恢复未实现。主机顶栏新增任务快捷入口，与 HTML 顶栏仅设置的差异仍待导航收口。
+18 项定向使用真实 HOME、系统 DocumentsUI/独立 provider 与 SSH。24 组产品变异覆盖路由、请求身份、取消名额、结果/清单和认证归属；失败过程与最终证据统一记在 §9.70。§9.71 改由进程级 `FileWorkRuntime` 持有任务、清单和独立认证，`FileTasksViewModel` 仅保留页面路由与 presenter UUID；显式结束 Activity 只解除呈现归属。§9.72 已接 FIFO 等待请求，扫描/确认/执行仍串行；后台通知/暂停/重试/进程恢复未实现。主机顶栏新增任务快捷入口，与 HTML 顶栏仅设置的差异仍待导航收口。
+
+## 文件任务排队（§9.72）
+
+队列按 FIFO 接纳最多 32 个未结束请求；等待时仅保存固定来源/目标，不读取文件或建立连接。轮到后扫描、独立认证并再次确认；等待项可直接取消，运行项取消后须等真实资源释放才推进下一项。页面显示前方任务数，旧冲突决定不传给后续请求。当前模拟器档完整 453 项通过；阶段仍为部分 A6，后台服务与持久恢复未实现。
+
+```bash
+ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileQueueProductTest ANDROID_FILE_QUEUE_MUTATE=1 bash scripts/test-android-ssh.sh
+```
+
+[队列产品测试](app/src/androidTest/java/com/hanxi/ghosterm/FileQueueProductTest.kt)与真实双端点测试合计 8 项定向；[队列变异脚本](../scripts/mutation-check-android-file-queue.py)执行 14 组，最终联合 8 项复验通过。runner 自动在工程临时目录启动两个不同端口/主机密钥/目录的 OpenSSH 服务，全部流量经 adb loopback；这是同宿主双服务证据，不能冒充公网、物理双机或完整四方向复制矩阵。失败与复验记录见[§9.72](../docs/reference/android-implementation.md#972-a6-fifo-文件任务队列2026-10-31)。
 
 ## 冲突决策与执行清单验证
 

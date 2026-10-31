@@ -37,6 +37,7 @@ class RemoteFileTasksProductTest {
     private lateinit var vault:IdentityVault
     private lateinit var key:StoredIdentity
     private val authIds=mutableSetOf<UUID>()
+    private val trustedAttempts=mutableSetOf<UUID>()
     @Before fun setup() {
         home=File(ui.activity.filesDir,"home")
         config=File(home,".ssh/config");known=File(home,".ssh/known_hosts")
@@ -72,7 +73,7 @@ class RemoteFileTasksProductTest {
             if(attempt!=null) {
                 assertFalse("authentication failed: ${attempt.message}",attempt.failed)
                 when(attempt.auth?.phase) {
-                    SSHAuthPhase.HOSTKEY -> ui.onNodeWithText("信任并连接").performClick()
+                    SSHAuthPhase.HOSTKEY -> if(trustedAttempts.add(attempt.id)) ui.onNodeWithText("信任并连接").performClick()
                     SSHAuthPhase.CREDENTIALS -> if(attempt.identities.any { it.id==key.id } && !attempt.credentialBusy) {
                         if(authIds.add(attempt.id)) {
                             ui.onNodeWithTag("ssh-key-${key.id}").performScrollTo().performClick()
@@ -86,11 +87,11 @@ class RemoteFileTasksProductTest {
         }
         assertTrue("flow did not finish: ${(auth().connecting ?: sessions().connecting)?.message} / ${tasks().tasks.firstOrNull()?.error}",done())
     }
-    private fun openRemote() {
+    private fun openRemote(alias:String=unique) {
         if(!files().visible) ui.onNodeWithText("本机文件").performClick()
         ui.onNodeWithTag("file-location").performClick()
-        ui.onNodeWithTag("file-connect:$unique").performScrollTo().performClick()
-        loginUntil { sessions().connecting==null && files().location.endpoint.remoteAlias==unique && !files().loading }
+        ui.onNodeWithTag("file-connect:$alias").performScrollTo().performClick()
+        loginUntil { sessions().connecting==null && files().location.endpoint.remoteAlias==alias && !files().loading }
         assertNull(files().error)
     }
     private fun entry(name:String):SemanticsNodeInteraction {
@@ -212,6 +213,57 @@ class RemoteFileTasksProductTest {
         assertTrue(latest.cancelled);assertFalse(File(home,"$unique/文本.txt").exists())
         start(snapshot,FileLocation(FileEndpoint.APP,unique));ready();finish()
         assertEquals("远端 UTF-8\nline two\n",File(home,"$unique/文本.txt").readText())
+    }
+    @Test fun queuedRemoteEndpointsWaitForTheirOwnAuthenticationAndKeepIndependentBytes() {
+        openRemote();val sourceOne=files().location
+        assertTrue("first endpoint fixture text missing",files().entries.any { it.name=="文本.txt" })
+        val snapshotOne=FileClipboardSnapshot.capture(sourceOne,"first endpoint",listOf(files().entries.single { it.name=="文本.txt" }))
+        val secondAlias="$unique-second"
+        val peer=fixture.getJSONObject("queuePeer")
+        config.appendText("Host $secondAlias\n HostName 127.0.0.1\n Port ${peer.getInt("port")}\n User ${fixture.getString("user")}\n IdentityFile ghosterm-identity:${key.id}\n")
+        ui.runOnIdle { hosts().reload();files().leave() }
+        ui.waitUntil(10000) { !hosts().busy && hosts().snapshot?.text==config.readText() }
+        openRemote(secondAlias);val sourceTwo=files().location
+        assertEquals("second endpoint initial directory",peer.getString("root"),sourceTwo.directoryId)
+        assertTrue("second endpoint fixture text missing",files().entries.any { it.name=="文本.txt" })
+        val snapshotTwo=FileClipboardSnapshot.capture(sourceTwo,"second endpoint",listOf(files().entries.single { it.name=="文本.txt" }))
+        assertNotEquals(sourceOne.endpoint.remote,sourceTwo.endpoint.remote)
+        assertEquals(peer.getString("root"),sourceTwo.directoryId)
+        for(name in listOf("first","second","cancelled","block")) File(home,"$unique/$name").mkdir()
+        val local=FileLocation(FileEndpoint.APP,"")
+        assertTrue("local source missing",File(home,"$unique.txt").isFile)
+        val item=kotlinx.coroutines.runBlocking { LocalFileBrowser(home,ui.activity.contentResolver).browse(local).entries.single { it.name=="$unique.txt" } }
+        start(FileClipboardSnapshot.capture(local,"local blocker",listOf(item)),FileLocation(FileEndpoint.APP,"$unique/block"));ready()
+        val blocker=latest
+        start(snapshotOne,FileLocation(FileEndpoint.APP,"$unique/first"));val first=latest
+        start(snapshotTwo,FileLocation(FileEndpoint.APP,"$unique/second"));val second=latest
+        start(snapshotTwo,FileLocation(FileEndpoint.APP,"$unique/cancelled"));val cancelled=latest
+        val attemptsBefore=authIds.size
+        ui.runOnIdle {
+            assertEquals(FileTaskPhase.QUEUED,first.phase);assertEquals(FileTaskPhase.QUEUED,second.phase)
+            assertNull(auth().connecting);assertEquals(1,owners())
+            tasks().cancel(cancelled);assertEquals(FileTaskPhase.FINISHED,cancelled.phase)
+            tasks().cancel(blocker)
+        }
+        loginUntil { first.phase==FileTaskPhase.CONFIRMING || first.phase==FileTaskPhase.FINISHED }
+        assertEquals("first: ${first.error}",FileTaskPhase.CONFIRMING,first.phase)
+        assertEquals(FileTaskPhase.QUEUED,second.phase)
+        val old=first.decisions!!.reference
+        ui.runOnIdle { tasks().confirm(first,old) }
+        loginUntil { first.phase==FileTaskPhase.FINISHED && (second.phase==FileTaskPhase.CONFIRMING || second.phase==FileTaskPhase.FINISHED) }
+        assertEquals(FileCopyState.COMPLETE,first.result?.state)
+        assertEquals("远端 UTF-8\nline two\n",File(home,"$unique/first/文本.txt").readText())
+        assertEquals("second: ${second.error}",FileTaskPhase.CONFIRMING,second.phase)
+        ui.runOnIdle { tasks().confirm(second,old) }
+        assertEquals(FileTaskPhase.CONFIRMING,second.phase);assertNotNull(second.error)
+        ui.runOnIdle { tasks().confirm(second,second.decisions!!.reference) }
+        loginUntil { !tasks().busy }
+        assertEquals(FileCopyState.COMPLETE,second.result?.state)
+        assertEquals("第二端点的独立内容 ☃\n",File(home,"$unique/second/文本.txt").readText())
+        assertFalse(File(home,"$unique/cancelled/文本.txt").exists())
+        assertFalse(File(home,"$unique/block/$unique.txt").exists())
+        assertEquals(attemptsBefore+4,authIds.size)
+        assertEquals(sourceTwo,files().location);ui.waitUntil(10000) { owners()==1 }
     }
     @Test fun changedConfigurationAndUnsupportedOptionsCannotRedirectFrozenTask() {
         openRemote();val source=files().location

@@ -38,7 +38,7 @@ def main():
     locale=next((x for x in ('en_US.UTF-8','C.UTF-8','C.utf8','en_US.utf8') if x in locales),None)
     if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
-    file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or
+    file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1' or
                 any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest','RemoteFileTaskTest','FileCopyExecutorTest','RemoteFileTasksProductTest','ProcessFileWorkTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
     file_data={}
     if file_tests:
@@ -77,13 +77,17 @@ def main():
     channels=importlib.util.module_from_spec(spec);spec.loader.exec_module(channels)
     channel_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_CHANNEL_MUTATE')=='1' or
                    'SSHChannelTest' in os.environ.get('ANDROID_SSH_TEST_CLASS','') or file_tests)
-    with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data, channels.fixture(work,channel_tests) as channel_data:
+    spec=importlib.util.spec_from_file_location('queue_peer',ROOT/'scripts/lib/android-file-queue-peer.py')
+    queue_peer=importlib.util.module_from_spec(spec);spec.loader.exec_module(queue_peer)
+    queue_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1' or
+                 'RemoteFileTasksProductTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
+    with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data, channels.fixture(work,channel_tests) as channel_data, queue_peer.fixture(work,queue_tests) as queue_data:
         token=secrets.token_hex(32)
         # No key text in instrumentation arguments, output logs, repository, or device files.
         payload=json.dumps(dict(user=user,port=int(port),pem=Path(key).read_text(),
             clientFingerprint=run(['ssh-keygen','-lf',str(key)+'.pub','-E','sha256']).split()[1],
             fingerprint=os.environ['GT_TEST_HOSTKEY_SHA256'],public=Path(work,'hostkey.pub').read_text(),
-            wrongPem=Path(work,'hostkey').read_text(),otherPublic=Path(work,'clientkey.pub').read_text(),**credential_data,**channel_data,**file_data)).encode()
+            wrongPem=Path(work,'hostkey').read_text(),otherPublic=Path(work,'clientkey.pub').read_text(),**credential_data,**channel_data,**file_data,**queue_data)).encode()
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):
                 self.connection.settimeout(5)
@@ -95,7 +99,7 @@ def main():
             worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
             mappings=[]
             try:
-                for value in (port,fixture_port,*(credential_data[label]['port'] for label in ('password','mixed') if label in credential_data),*(channel_data['channels'][key] for key in ('port','controlPort') if channel_data)):
+                for value in (port,fixture_port,*(credential_data[label]['port'] for label in ('password','mixed') if label in credential_data),*(channel_data['channels'][key] for key in ('port','controlPort') if channel_data),*( [queue_data['queuePeer']['port']] if queue_data else [])):
                     run([*adb,'reverse','tcp:'+str(value),'tcp:'+str(value)]);mappings.append(value)
                 logs=ROOT/'tmp/android-ssh-tests';logs.mkdir(exist_ok=True)
                 def build(label):
@@ -122,6 +126,10 @@ def main():
                 selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else os.environ.get('ANDROID_SSH_TEST_CLASS','com.hanxi.ghosterm.RemoteTerminalTest')
                 output=test('baseline',selection,True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('file_queue_mutations',ROOT/'scripts/mutation-check-android-file-queue.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_PROCESS_FILES_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('process_file_mutations',ROOT/'scripts/mutation-check-android-process-files.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

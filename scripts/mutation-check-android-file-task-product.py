@@ -32,7 +32,7 @@ def execute(root,build,test):
         ('paste-button',browser,'Button(onClick=onPaste,enabled=','Button(onClick={},enabled=',copy),
         ('task-route',main,'if(fileTasks.visible) { FileTasksScreen(fileTasks);return@MaterialTheme }','if(false) { FileTasksScreen(fileTasks);return@MaterialTheme }',r+'uploadThroughPasteButtonSurvivesRotationAndKeepsBrowserAndClipboard'),
         ('destination',tasks,'FilePasteRequest.capture(snapshot,destination,label)','FilePasteRequest.capture(snapshot,FileLocation(FileEndpoint.APP),label)',copy),
-        ('slot',tasks,'if(busy) { notice=','if(false) { notice=',slot),
+        ('slot',tasks,'if(tasks.any { it.active && it.phase!=FileTaskPhase.QUEUED }) return','if(false) return',slot),
         ('cancel-slot',tasks,'task.phase=FileTaskPhase.CANCELLING','task.phase=FileTaskPhase.FINISHED',slot),
         ('remove-running',tasks,'if(!task.active) tasks.remove(task)','tasks.remove(task)',slot),
         ('confirm-route',screen,'model.confirm(task,decision.reference)','Unit',copy),

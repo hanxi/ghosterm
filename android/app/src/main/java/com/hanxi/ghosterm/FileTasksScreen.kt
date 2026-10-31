@@ -30,6 +30,10 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                 ElevatedCard(Modifier.fillMaxWidth().testTag("file-task:${task.request.id}")) {
                     Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                         Text(taskStatus(task),style=MaterialTheme.typography.titleMedium,modifier=Modifier.testTag("file-task-status"))
+                        if(task.phase==FileTaskPhase.QUEUED) {
+                            Text("前方还有 ${model.queuedAhead(task) ?: 0} 个任务",modifier=Modifier.testTag("file-task-queue-position"))
+                            Text("尚未检查来源与目标，轮到本任务后再确认复制。",style=MaterialTheme.typography.bodySmall)
+                        }
                         Text("已选 ${task.request.items.size} 项",style=MaterialTheme.typography.labelLarge)
                         var sourceDetails by remember(task.request.id) { mutableStateOf(false) }
                         TextButton(onClick={ sourceDetails=true }) { Text("查看本次来源清单") }
@@ -108,6 +112,7 @@ fun FileTasksScreen(model: FileTasksViewModel) {
 }
 
 internal fun taskStatus(task: FileTask): String = when(task.phase) {
+    FileTaskPhase.QUEUED -> "排队等待"
     FileTaskPhase.SCANNING -> "正在检查来源与目标"
     FileTaskPhase.CONFIRMING -> "确认粘贴"
     FileTaskPhase.RUNNING -> "正在复制"

@@ -9,9 +9,9 @@ import kotlinx.coroutines.*
 import java.io.File
 
 /** Application-owned execution; pages never own the task job or its authentication. */
-enum class FileTaskPhase { SCANNING, CONFIRMING, RUNNING, CANCELLING, FINISHED }
+enum class FileTaskPhase { QUEUED, SCANNING, CONFIRMING, RUNNING, CANCELLING, FINISHED }
 class FileTask(val request: FilePasteRequest) {
-    var phase by mutableStateOf(FileTaskPhase.SCANNING); internal set
+    var phase by mutableStateOf(FileTaskPhase.QUEUED); internal set
     var decisions by mutableStateOf<FilePasteDecisionState?>(null); internal set
     var createCapability by mutableStateOf(FileCreateCapability.UNKNOWN); internal set
     var result by mutableStateOf<FileCopyProgress?>(null); internal set
@@ -25,6 +25,7 @@ class FileTask(val request: FilePasteRequest) {
 }
 
 class FileTaskStore(application: Application, private val scope: CoroutineScope) {
+    companion object { internal const val MAX_REQUESTS = 32 }
     val tasks = mutableStateListOf<FileTask>()
     var notice by mutableStateOf<String?>(null); private set
     val busy get() = tasks.any { it.active }
@@ -35,10 +36,28 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope)
     val completed: kotlinx.coroutines.flow.StateFlow<FileCopyProgress?> = completedState
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
         connections: (FilePasteRequest) -> FileTaskConnections) {
-        if(busy) { notice="已有复制请求，请先完成或取消当前任务";return }
+        if(tasks.count { it.active } >= MAX_REQUESTS) {
+            notice="待处理请求已达 $MAX_REQUESTS 个，请先完成或取消已有任务";return
+        }
         val request=FilePasteRequest.capture(snapshot,destination,label)
         val task=FileTask(request).also { it.connections=connections }
         notice=null;tasks.add(0,task)
+        advance()
+    }
+    fun queuedAhead(task: FileTask): Int? {
+        if(task !in tasks || task.phase!=FileTaskPhase.QUEUED) return null
+        return tasks.asReversed().filter { it.active }.indexOf(task).takeIf { it>=0 }
+    }
+    private fun advance() {
+        // Scanning, confirmation, execution and actual cancellation cleanup share one slot.
+        if(tasks.any { it.active && it.phase!=FileTaskPhase.QUEUED }) return
+        val task=tasks.lastOrNull { it.phase==FileTaskPhase.QUEUED } ?: return
+        task.phase=FileTaskPhase.SCANNING
+        scan(task)
+    }
+    private fun scan(task: FileTask) {
+        val request=task.request
+        val connections=task.connections
         task.job=scope.launch(start=CoroutineStart.LAZY) {
             try {
                 val check=withContext(Dispatchers.IO) {
@@ -73,6 +92,7 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope)
             finally {
                 task.job=null
                 if(task.phase!=FileTaskPhase.CONFIRMING) task.phase=FileTaskPhase.FINISHED
+                advance()
             }
         }.also { it.start() }
     }
@@ -97,6 +117,7 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope)
                     observer.cancel();task.result=execution.outcome
                     task.phase=FileTaskPhase.FINISHED;task.job=null
                     completedState.value=execution.outcome
+                    advance()
                 }
             }.also { it.start() }
         } catch(failure: Exception) { task.error=failure.message ?: "无法开始复制" }
@@ -105,9 +126,13 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope)
     fun cancel(task: FileTask) {
         if(task !in tasks || !task.active || task.phase==FileTaskPhase.CANCELLING) return
         task.cancelled=true
-        if(task.phase==FileTaskPhase.CONFIRMING) {
+        if(task.phase==FileTaskPhase.QUEUED) {
+            task.phase=FileTaskPhase.FINISHED;task.error="排队任务已取消，尚未读取或写入"
+            advance()
+        } else if(task.phase==FileTaskPhase.CONFIRMING) {
             task.decisions?.let { task.decisionOwner?.cancel(it.reference) }
             task.decisions=null;task.phase=FileTaskPhase.FINISHED;task.error="复制已取消，尚未写入目标"
+            advance()
         } else {
             task.phase=FileTaskPhase.CANCELLING
             task.execution?.cancel() ?: task.job?.cancel()
@@ -140,6 +165,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     fun cancelRequest(id: String) = work.tasks.cancelRequest(id)
     fun cancel(task: FileTask) = work.tasks.cancel(task)
     fun remove(task: FileTask) = work.tasks.remove(task)
+    fun queuedAhead(task: FileTask) = work.tasks.queuedAhead(task)
     fun resumed() = work.resume(presenterId)
     fun paused() = work.pause(presenterId)
     fun focused() = work.focus(presenterId)

@@ -3,6 +3,8 @@ package com.hanxi.ghosterm
 import android.accessibilityservice.AccessibilityService
 import androidx.lifecycle.Lifecycle
 import android.app.UiAutomation
+import android.app.Activity
+import android.app.Application
 import android.graphics.Rect
 import android.provider.Settings
 import android.content.Intent
@@ -11,7 +13,6 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.lifecycle.ViewModelProvider
-import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.*
@@ -48,15 +49,29 @@ class ProcessFileWorkTest {
     private val vault get()=IdentityVault(File(context.filesDir,"identities"))
     private var oldIds=emptySet<String>()
     private lateinit var key:StoredIdentity
-    private class Holder(val scenario:ActivityScenario<MainActivity>) {
-        lateinit var activity:MainActivity
+    private class Holder(val token:String) {
+        var current:MainActivity?=null
+        val activity get()=checkNotNull(current)
         lateinit var files:FilesViewModel
         lateinit var tasks:FileTasksViewModel
         lateinit var sessions:SessionsViewModel
-        fun refresh() { scenario.onActivity {
-            activity=it;val models=ViewModelProvider(it)
+        fun bind(value:MainActivity) {
+            current=value;val models=ViewModelProvider(value)
             files=models[FilesViewModel::class.java];tasks=models[FileTasksViewModel::class.java];sessions=models[SessionsViewModel::class.java]
-        } }
+        }
+        fun refresh() { check(!activity.isDestroyed);bind(activity) }
+    }
+    private val holderExtra="com.hanxi.ghosterm.test.PROCESS_HOLDER"
+    private val lifecycle=object:Application.ActivityLifecycleCallbacks {
+        override fun onActivityCreated(activity:Activity,state:Bundle?) {
+            if(activity is MainActivity) holders.firstOrNull { it.token==activity.intent.getStringExtra(holderExtra) }?.bind(activity)
+        }
+        override fun onActivityStarted(activity:Activity) {}
+        override fun onActivityResumed(activity:Activity) {}
+        override fun onActivityPaused(activity:Activity) {}
+        override fun onActivityStopped(activity:Activity) {}
+        override fun onActivitySaveInstanceState(activity:Activity,state:Bundle) {}
+        override fun onActivityDestroyed(activity:Activity) {}
     }
     private fun <T> main(block:()->T):T {
         var result:T?=null
@@ -70,20 +85,34 @@ class ProcessFileWorkTest {
             "; tasks="+main { work.tasks.tasks.map { "${it.phase}: ${it.error}" } })
     }
     private fun launch():Holder {
-        val intent=Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-        val h=Holder(ActivityScenario.launch(intent));h.refresh();holders+=h
+        // ActivityScenario waits for global UI idleness before launch/close. A live
+        // authentication sheet can keep animating until its real budget expires.
+        // Launch the real Activity directly and observe its actual lifecycle instead.
+        val h=Holder(UUID.randomUUID().toString())
+        main {
+            holders+=h
+            context.startActivity(Intent(context,MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+                .putExtra(holderExtra,h.token))
+        }
+        await("real Activity resumed") { h.current?.lifecycle?.currentState==Lifecycle.State.RESUMED }
         main { assertSame("all Activity pages must use the application task owner",work.tasks.tasks,h.tasks.tasks) }
         await("foreground file presenter") { h.tasks.presentsAuthentication }
         return h
     }
-    private fun close(h:Holder) { h.scenario.close();holders.remove(h);assertTrue(h.activity.isDestroyed) }
+    private fun close(h:Holder) {
+        val activity=main { h.current?.also { it.finishAndRemoveTask() } }
+        if(activity!=null) await("real Activity destroyed") { activity.isDestroyed }
+        main { holders.remove(h) }
+    }
     @Before fun setup() {
-        main { assertFalse("previous test left an active task",work.tasks.busy) }
+        main { application.registerActivityLifecycleCallbacks(lifecycle);assertFalse("previous test left an active task",work.tasks.busy) }
         File(root,"source").mkdirs();File(root,"target").mkdirs();File(root,"other").mkdirs()
         File(root,"source/a.txt").writeText("process-owned bytes ☃\n")
         File(root,"source/b.txt").writeText("second source\n")
     }
     @After fun cleanup() {
+        try {
         releases.forEach { it.countDown() }
         main { work.tasks.tasks.toList().forEach(work.tasks::cancel) }
         await("task cleanup") { !work.tasks.busy }
@@ -96,6 +125,7 @@ class ProcessFileWorkTest {
         }
         root.deleteRecursively()
         rotationToRestore?.let { instrumentation.uiAutomation.setRotation(if(autoRotation) UiAutomation.ROTATION_UNFREEZE else it) }
+        } finally { main { application.unregisterActivityLifecycleCallbacks(lifecycle) } }
     }
     private fun browse(h:Holder,path:String) {
         main { h.files.enter();while(h.files.crumbs.size>1) h.files.back() };await { !h.files.loading }
@@ -155,17 +185,24 @@ class ProcessFileWorkTest {
         }) }
         assertTrue(entered.await(5,TimeUnit.SECONDS));val task=main { work.tasks.tasks.first() }
         close(a);val b=launch()
-        main {
+        val next=main {
             assertEquals(FileTaskPhase.SCANNING,task.phase);assertFalse(task.cancelled)
-            b.tasks.start(snapshot,target("other"),"other");assertEquals(1,b.tasks.tasks.size);assertSame(task,b.tasks.tasks.first())
+            b.tasks.start(snapshot,target("other"),"other");assertEquals(2,b.tasks.tasks.size)
+            b.tasks.tasks.first().also { assertEquals(FileTaskPhase.QUEUED,it.phase) }
+        }
+        val later=main {
             b.tasks.cancel(task);assertEquals(FileTaskPhase.CANCELLING,task.phase);assertTrue(b.tasks.busy)
             b.tasks.remove(task);assertTrue(task in b.tasks.tasks)
-            b.tasks.start(snapshot,target("other"),"other");assertEquals(1,b.tasks.tasks.size)
+            b.tasks.start(snapshot,target(),"target");assertEquals(3,b.tasks.tasks.size)
+            b.tasks.tasks.first().also { assertEquals(FileTaskPhase.QUEUED,it.phase) }
         }
-        release.countDown();await { !work.tasks.busy };assertFalse(File(root,"target/a.txt").exists())
-        main { b.tasks.start(snapshot,target("other"),"other") }
-        await { work.tasks.tasks.first().phase==FileTaskPhase.CONFIRMING }
-        main { val next=b.tasks.tasks.first();assertNotEquals(task.request.id,next.request.id);b.tasks.confirm(next,next.decisions!!.reference) }
+        release.countDown();await { next.phase==FileTaskPhase.CONFIRMING }
+        assertFalse(File(root,"target/a.txt").exists())
+        main {
+            assertEquals(FileTaskPhase.FINISHED,task.phase);assertEquals(FileTaskPhase.QUEUED,later.phase)
+            b.tasks.cancel(later);assertNotEquals(task.request.id,next.request.id)
+            b.tasks.confirm(next,next.decisions!!.reference)
+        }
         await { !work.tasks.busy };assertEquals("process-owned bytes ☃\n",File(root,"other/a.txt").readText())
     }
     @Test fun completionRefreshesEveryLiveBrowserWithoutOwningItsViewModel() {
@@ -268,7 +305,8 @@ class ProcessFileWorkTest {
         autoRotation=Settings.System.getInt(context.contentResolver,Settings.System.ACCELEROMETER_ROTATION,0)==1
         assertTrue(instrumentation.uiAutomation.setRotation(UiAutomation.ROTATION_FREEZE_0))
         systemAwait { val bounds=Rect();instrumentation.uiAutomation.rootInActiveWindow?.getBoundsInScreen(bounds);bounds.height()>bounds.width() }
-        a.refresh();val task=startRemote(a);val auth=main { work.authentication }
+        await("portrait Activity recreated") { a.current?.isDestroyed==false && a.activity.lifecycle.currentState==Lifecycle.State.RESUMED }
+        main { a.refresh() };val task=startRemote(a);val auth=main { work.authentication }
         val page=a.tasks;val owner=page.presenterId;val attempt=main { auth.connecting!!.id }
         systemAwait {
             if(click("导入密钥")) true else {
@@ -302,7 +340,8 @@ class ProcessFileWorkTest {
             }
         }
         systemAwait { val tree=nodes();tree.any { it.isVisibleToUser && it.packageName?.toString()=="com.hanxi.ghosterm" } && tree.none { it.packageName?.toString()?.contains("documentsui")==true } }
-        await("origin Activity recreated") { activity.isDestroyed };a.refresh()
+        await("origin Activity recreated") { activity.isDestroyed && a.current!=null && a.activity!==activity && !a.activity.isDestroyed }
+        main { a.refresh() }
         assertNotSame(activity,a.activity);assertSame(page,a.tasks);assertEquals(owner,a.tasks.presenterId)
         await("task picker result after recreation") { !auth.identityPickerPending && auth.connecting?.identities?.any { it.id!=key.id && it.id !in oldIds }==true }
         main { assertEquals(attempt,auth.connecting!!.id);assertSame(task,a.tasks.tasks.first()) }
