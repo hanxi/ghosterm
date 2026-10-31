@@ -6,6 +6,9 @@
 
 ## 当前实现与后续替代（2026-10-31）
 
+当前还需区分目录子项结果与父行摘要：`DirectoryCompletion` 在没有失败时按后到结果覆盖取消/跳过，混合结果的父状态依赖完成顺序，未提供部分成功汇总。实现与退出条件见 [Apple 目录结果说明](../../apple/README.md#目录终态与回调顺序)及[路线图](roadmap.md#macos-下一步与共享缺口)。这是源码复核发现，未修复或新增桌面行为验收。Android §9.68 的复制执行器草稿只有定向日志，不改变此处桌面队列。
+
+
 当前完成范围按实际调用方记账。受控打开/浏览/预览/创建/读取和 §9.57 非覆盖发布均已提供 Swift 绑定，macOS 文件产品仍待迁移；[两端接线表](../../apple/README.md#共享文件接口与产品接线)列出实际消费者。新发布接口保留未尝试、冲突、未知、拒绝与成功；不等于旧队列已获得非覆盖提交，也不承诺所有服务器上的原子性。
 
 M4.6 的 macOS S1–S7 已交付，iOS S6 未开始。后续[统一工作区](workspace-handoff.md)已将固定内嵌面板和 `DualPaneFilesView` / `DualPaneSession` 替换为 `WorkspaceLayout` / `WorkspaceHostView`；终端、本地文件、远端文件都是同一布局中的窗格。`FilesPanelView`、后端接缝与全局 `TransferManager` 继续使用。

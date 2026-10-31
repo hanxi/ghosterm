@@ -1,5 +1,7 @@
 # Ghosterm
 
+**当前工作区（未验收）**：Android 复制执行器和逐项结果已有草稿及 19 项定向通过日志，尚无生产粘贴/任务页面调用，新增变异和完整回归待补。已交付基线仍为 §9.67；详见 [工作区记录](docs/reference/android-implementation.md#968-a5-复制执行器工作区复核2026-10-31未验收)。macOS 的当前实现和剩余工作单独记在[跨端路线图](docs/reference/roadmap.md)。
+
 **A5 独立任务连接（§9.67，2026-10-31）**：`FileTaskConnections` 已固定源/目标角色并分别建立连接；`closeAndAwait` 等待真实 native 资源释放，第二端失败和取消也回收已取得的连接。16 项真实 SSH/协议定向与 23 组新增变异通过；应用级认证、复制执行器和粘贴页面仍待接，见[实施记录](docs/reference/android-implementation.md#967-a5-独立任务连接与可等待关闭2026-10-31)。
 
 **历史切片：A5 统一目录数据层（§9.66，2026-10-31）**：`FileDirectoryCreator` 已通过冻结身份的 `RemoteFileBinding` 接受远端请求，统一三类目录结果与请求结束等待（不提供通用连接关闭等待）；9 项真实 SSH/协议设备用例、23 组新变异通过。应用级任务连接、四方向编排和粘贴页面仍待接，详见[实施记录](docs/reference/android-implementation.md#966-a5-统一远端目录数据层2026-10-31)。

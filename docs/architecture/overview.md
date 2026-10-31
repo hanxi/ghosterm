@@ -124,6 +124,8 @@ Android 当前 `RemoteFileSession.close()` 仅撤销句柄并通知停止；fd �
 
 macOS 当前 `TransferManager.jobs` 同时承担显示列表和字节汇总来源，清除终态子行会影响活动父任务的后续汇总；目录暂停也尚未覆盖后台扫描/创建。任务结果账目、资源生命周期和可清除历史须分别建模，不能把正常路由的 UI 状态当作底层已暂停/释放的证据；实际限制见 [Apple 说明](../../apple/README.md#目录暂停与汇总边界)。
 
+Android §9.68 工作区已在 data 层组合这些连接、快照和发布操作，并在 domain 层保留逐项结果；只有测试调用，尚未接应用级任务持有者。应用页面仍按 [§6.18](../reference/android-implementation.md#618-复制执行器结果与页面接入契约)实施。macOS `DirectoryCompletion` 另有混合取消/跳过依赖回调顺序的问题；两端任务模型及验收各自独立，不能从 Android 草稿推定桌面已迁移。
+
 ## 参考实现（技术对照）
 
 | 项目 | 平台 | 许可 | 借用点 |
