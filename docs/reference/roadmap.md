@@ -253,6 +253,12 @@ A2 首片普通本地入口为系统 `/system/bin/sh`，不是打包一个新 sh
 - [ ] Web：libghostty-vt wasm + 自绘；full 引擎等待上游 WebGL 后端。
 - [ ] Windows：渲染引擎/后端待验证，ConPTY 尚无实现。
 
+## 跨端文档一致性补查（2026-10-31）
+
+基于 `db23a94` 再核对实际生产调用方，修正 Android 实现计划、Apple/Android/终端说明、能力矩阵及文件计划中残留的“任务/排队未接”和旧验收入口；路线图末尾的 341 项改为历史记录，与页首的 macOS 349 项（含一项像素失败）保持一致。Android 的进程持有和 FIFO 不扩大为持久恢复，macOS 旧 job 的每连接 FIFO 不扩大为全局并发上限。
+
+本次 Core **47 项 CTest / 89 ABI**、Apple **87/2**、JNI **49/40**、macOS 原生构建与 Android debug/测试 APK 构建通过；macOS 仍有 Swift 并发警告。33 份 Markdown 的 598 个本地链接/锚点与 `git diff --check` 通过。仅提交文档，未重跑设备、完整 macOS 宿主、变异、打包或 CI，不增加阶段完成项；日志在 `tmp/docs-status-reconcile/`，macOS 构建日志为 `tmp/docs-status-reconcile-apple-build.log`。
+
 ## FIFO 文件队列验收（2026-10-31，§9.72）
 
 完整设备 **453 项通过，零失败/错误/跳过**（1216.568 秒），仅 API 36 arm64 / 4 KB 页模拟器；722 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致。 新增 14 组与既有进程 15 组、任务产品 24 组变异分别通过；两独立 OpenSSH 服务验证排队认证和真实内容，仍为同宿主模拟器证据。夹具初始目录、重复信任点击及 ActivityScenario 全局空闲等待的失败与修正保留于 [§9.72](android-implementation.md#972-a6-fifo-文件任务队列2026-10-31)。队列完成不代表前台服务、持久恢复或整个 A6 完成。
@@ -573,8 +579,7 @@ A2 本地终端首片（2026-10-30）：API 36 arm64 / 4 KB 页模拟器完整 *
 修改文档的本地链接与 `git diff --check` 通过；日志在工程 `tmp/docs-audit/`，不入库。
 该文档提交未重跑 Android 设备/变异、macOS 完整宿主/像素/变异或 CI；既有结果只按上表与原实施记录引用。
 
-最近一次完整 macOS 宿主记录见[标签界面重构末尾](plan-tab-chrome-refactor.md)：
-341 项测试、1 项开发态资源跳过、0 失败，以及相应变异/像素证据；之后 Ctrl+Tab 切片另有六项定向测试和 menu 九组变异，未记为重跑完整 341 项。此前真实系统激活与全屏的测试范围另列。
+[标签界面重构末尾](plan-tab-chrome-refactor.md)的 341 项测试、1 项开发态资源跳过、0 失败为历史记录；之后 Ctrl+Tab 切片另有六项定向测试和 menu 九组变异，未重跑该完整套件。最近完整 macOS 宿主仍为 `4cbfcf4` 的 349 项：347 通过、1 跳过、1 设置页像素失败，见[跨屏记录](optional-tmux-implementation.md#后续跨显示器缩放修复2026-10-31)。`124edb6` 的功能键专项通过不清除这个失败，也不替代完整宿主验收。真实系统激活与全屏的测试范围另列。
 统一工作区变异目前 21 组，属于手工证据；full CI 目前接入 20 份脚本，准确清单以 AGENTS 与工作流为准。
 
 历史决策与当时测试规模分别保留在：

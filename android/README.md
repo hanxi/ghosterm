@@ -128,7 +128,7 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-saf-publicat
 ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-files.py
 ```
 
-真实本地文件与系统树选择器；18 组目标红/同 APK 配置对照绿/恢复绿/SHA。无需 SSH 夹具即可定向跑；完整套件仍按下文使用 SSH/凭据/协议端夹具。首片只读浏览与有界 UTF-8 预览；后续远端页面见 §9.52，Activity 任务页面见 §9.70，进程级队列未接，详见 §9.43。
+真实本地文件与系统树选择器；18 组目标红/同 APK 配置对照绿/恢复绿/SHA。无需 SSH 夹具即可定向跑；完整套件仍按下文使用 SSH/凭据/协议端夹具。首片只读浏览与有界 UTF-8 预览；该首片范围见 §9.43；后续远端页面见 §9.52，任务页面见 §9.70，进程持有与 FIFO 队列分别见 §9.71/§9.72。
 
 ## SFTP 依赖验证
 
