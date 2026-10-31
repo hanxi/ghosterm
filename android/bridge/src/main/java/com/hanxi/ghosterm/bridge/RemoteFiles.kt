@@ -36,6 +36,7 @@ enum class RemoteDirectoryCreationState { NOT_ATTEMPTED, CONFLICT, UNKNOWN, REJE
  * retains any possible side effect. COMPLETE is only a verified native result. */
 data class RemoteDirectoryCreationResult(val status: Int?, val state: RemoteDirectoryCreationState,
     val remoteStatus: UInt = 0u, val error: String? = null)
+data class RemoteFilePeer(val host: String, val port: Int, val user: String)
 
 class RemoteFileException(val status: Int) : IllegalStateException(when(status) {
     7 -> "此文件类型或 SFTP 操作暂不支持"
@@ -46,6 +47,8 @@ class RemoteFileException(val status: Int) : IllegalStateException(when(status) 
 /** A dedicated authenticated SSH/SFTP connection. A cancelled operation closes
  * this owner; retry creates a new connection. close() only signals native work. */
 class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
+    /** Frozen authentication identity, never an alias looked up again from config. */
+    val peer = RemoteFilePeer(connection.host, connection.port, connection.user)
     private var handle = connection.openFiles()
     private val requests = Mutex()
     @Synchronized override fun authentication(): SSHAuthState {

@@ -151,6 +151,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 `sftp-mkdir` 以 `python3 scripts/mutation-check-sftp-mkdir.py` 手工执行 26 Core＋1 无库 archive＋5 Swift 组；真实 SSH 与协议矩阵为 81 组，护单次预算、取消、规范路径/名称、冲突/错误/副作用、空目录核验与连接失效。Android 另以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteDirectoryTest ANDROID_MKDIR_MUTATE=1 bash scripts/test-android-ssh.sh` 执行 20 组，护结果保留、一次性请求、排队/迟到取消、请求与连接代次隔离、失败连接释放及完成管道。目标须真实编译后红、独立配置对照绿、恢复绿与 SHA256；12 项设备基线通过，仅 API 36 arm64 / 4 KB 页模拟器。范围及失败记录见 Android 计划 §9.65，不增加 CI 20 份，不将原语记为任务/页面或 macOS 产品迁移完成。
 
+`android-mkdir-data` 以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteDirectoryDataTest ANDROID_MKDIR_DATA_MUTATE=1 bash scripts/test-android-ssh.sh` 手工执行 23 组，护实际连接身份、完整端点、冻结绑定、预算、六态/原始错误码、实际位置与取消释放。两组另编译 native 延迟清理/完成管道，先验延迟基线绿，再验目标红、同 APK 配置对照绿、恢复绿及 SHA256；最后移除延迟并复验九项真实 SSH/协议用例。范围见 Android 计划 §9.66，不增加 CI 20 份，不将数据层适配记为应用级任务或 macOS 产品迁移完成。
+
 `android-directories` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-directories.py` 手工执行 26 组，护本机非覆盖/路径/权限与 SAF 授权、创建结果、父子归属、列表预算、一次性请求及取消晚到结果。真实编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；16 项目录基线及完整 358 项通过，仅 API 36 arm64 / 4 KB 页模拟器。初轮测试盲区及完整重跑见 Android 计划 §9.64；不增加 CI 20 份，不将单目录创建记为任务/页面或远端已完成。
 
 `android-decisions` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-decisions.py` 手工执行 42 组，护请求/修订隔离、确认/取消、本次全部、不支持项/目录跳过、不可变清单及名称/元数据预算。真实编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；15 项定向与最终完整 342 项通过，仅 API 36 arm64 / 4 KB 页模拟器。首轮选择顺序盲区与重跑范围见 Android 计划 §9.63；不增加 CI 20 份，不将逻辑清单记为名称预留、任务或页面完成。

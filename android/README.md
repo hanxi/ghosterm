@@ -1,6 +1,8 @@
 # Android 宿主
 
-**A5 受控远端单目录创建（§9.65，2026-10-31）**：Core/Swift/JNI/Kotlin 请求已接，共用预算、取消与六种副作用结果；12 项设备定向、20 组 Android 新变异和 26 Core＋1 无库＋5 Swift 变异通过。仅为后端接口，远端数据层适配、目录任务与页面仍待接，详见[实施记录](../docs/reference/android-implementation.md#965-a5-受控远端单目录创建2026-10-31)。
+**A5 统一目录数据层（§9.66，2026-10-31）**：`FileDirectoryCreator` 已通过冻结身份的 `RemoteFileBinding` 接受远端请求，统一三类目录结果与实际释放；9 项真实 SSH/协议设备用例、23 组新变异通过。应用级任务连接、四方向编排和粘贴页面仍待接，详见[实施记录](../docs/reference/android-implementation.md#966-a5-统一远端目录数据层2026-10-31)。
+
+**历史切片：A5 受控远端单目录创建（§9.65，2026-10-31）**：Core/Swift/JNI/Kotlin 请求已接，共用预算、取消与六种副作用结果；12 项设备定向、20 组 Android 新变异和 26 Core＋1 无库＋5 Swift 变异通过。该片仅为后端接口，统一服务后由 §9.66 接入；目录任务与页面仍待接，详见[实施记录](../docs/reference/android-implementation.md#965-a5-受控远端单目录创建2026-10-31)。
 
 **历史切片：A5 本机与 SAF 目录创建（§9.64，2026-10-31）**：私有目录 mkdirat、SAF 新目录、实际名称/不透明 ID、非覆盖与晚到取消结果已接；16 项目录基线与 26 组变异通过，真实后续文件写入已验。仅为单目录原语，远端与任务/页面未接，见[实施记录](../docs/reference/android-implementation.md#964-a5-本机与-saf-目录创建2026-10-31)。
 
@@ -16,7 +18,7 @@
 
 **历史切片：共享发布接口（§9.57，2026-10-31）**：远端非覆盖发布、Swift/JNI/Kotlin 绑定及专项已验；46 项 CTest / 88 ABI、Apple 86/2、JNI 48/40。Android 32 项定向及十组发布变异通过，既有读取/创建/owner 13＋9＋18 组独立复验。两端原生构建通过；该片当时复制清单、任务、SAF 目标和 macOS 文件产品迁移未完成；私有目录发布和 SAF 新文档写入后由 §9.58/§9.59 补齐，任务与桌面迁移仍待完成。完整设备结果及协议/变异范围见[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)。
 
-**最近完整设备记录（§9.64 历史产物）**：358 项通过，零失败/错误/跳过，851.653 秒；仅 API 36 arm64 / 4 KB 页模拟器。该轮 689 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建摘要一致。§9.65 新增受控远端单目录请求，12 项设备定向和 20 组新增变异通过，未重跑完整设备套件；不将旧 358 项作为新产物证据。远端数据层适配、跨远端关系、任务与粘贴页面仍待完成。
+**最近完整设备记录（§9.64 历史产物）**：358 项通过，零失败/错误/跳过，851.653 秒；仅 API 36 arm64 / 4 KB 页模拟器。该轮 689 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建摘要一致。§9.65 新增受控远端单目录请求，12 项设备定向和 20 组新增变异通过，未重跑完整设备套件；不将旧 358 项作为新产物证据。§9.66 已接统一目录服务，独立任务连接、跨远端关系、任务与粘贴页面仍待完成。
 
 **历史切片：A5 远端读取暂存（§9.56，2026-10-31）**：已接受控远端读取、匿名目标封装，以及取消上传/下载时的 native fd 释放通知。共享与平台变异通过；该片当时应用级任务 store、SAF 目标写入和复制页面未接入；远端发布与 SAF 新文档写入后由 §9.57/§9.59 补齐，§9.60 已接来源清单页面，粘贴任务仍待接入。证据与边界见 [§9.56](../docs/reference/android-implementation.md#956-a5-远端读取到匿名暂存2026-10-31)。
 
@@ -221,6 +223,9 @@ ANDROID_SSH_CREDENTIAL_MUTATE=1 bash scripts/test-android-ssh.sh
 # 远端单目录请求：12 项设备基线与 20 组变异（§9.65）
 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteDirectoryTest \
 ANDROID_MKDIR_MUTATE=1 bash scripts/test-android-ssh.sh
+# 统一目录数据层：真实 SSH/协议与 23 组变异（§9.66）
+ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteDirectoryDataTest \
+ANDROID_MKDIR_DATA_MUTATE=1 bash scripts/test-android-ssh.sh
 python3 scripts/check-abi-android.py
 python3 scripts/mutation-check-android-abi.py
 python3 scripts/mutation-check-android-native.py

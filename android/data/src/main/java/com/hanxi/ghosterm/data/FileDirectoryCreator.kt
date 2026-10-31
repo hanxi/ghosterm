@@ -7,6 +7,8 @@ import android.provider.DocumentsContract as Documents
 import android.provider.DocumentsContract.Document
 import android.system.OsConstants
 import com.hanxi.ghosterm.bridge.LocalPublicationFile
+import com.hanxi.ghosterm.bridge.RemoteDirectoryCreationState
+import com.hanxi.ghosterm.bridge.RemoteFileSession
 import com.hanxi.ghosterm.domain.*
 import kotlinx.coroutines.*
 import java.io.File
@@ -18,14 +20,23 @@ import kotlin.coroutines.resumeWithException
 
 /** Creates exactly one new directory. No merge, recursive mkdirs, removal or retry.
  * A result is process-local evidence, not a durable task journal or a directory lease.
- * Remote directories require a controlled SFTP primitive and are not accepted here. */
-class FileDirectoryCreator(private val home: File, private val resolver: ContentResolver) {
+ * Remote requests capture a caller-owned binding at preparation, never resolve an
+ * alias or switch a connection during execution. Local/provider IO is not bounded
+ * by remoteTimeoutMillis, which applies only to the controlled SFTP operation. */
+class FileDirectoryCreator(private val home: File, private val resolver: ContentResolver,
+    private val remote: ((FileEndpoint) -> RemoteFileBinding)? = null) {
     enum class State { NOT_ATTEMPTED, CONFLICT, REJECTED, UNKNOWN, CREATED, COMPLETE }
     data class Outcome(val state: State = State.NOT_ATTEMPTED, val location: FileLocation? = null,
-        val documentUri: String? = null, val actualName: String? = null, val error: String? = null)
+        val documentUri: String? = null, val actualName: String? = null, val error: String? = null,
+        val coreStatus: Int? = null, val remoteStatus: UInt? = null)
 
-    fun prepare(parent: FileLocation, name: String): Request {
+    fun prepare(parent: FileLocation, name: String, remoteTimeoutMillis: Int = 5000): Request {
         validName(name)
+        if(parent.endpoint.remote!=null) {
+            val binding=checkNotNull(remote) { "此端点尚不支持受控目录创建" }.invoke(parent.endpoint)
+            val request=binding.prepareDirectory(parent,name,remoteTimeoutMillis)
+            return Request(parent,name,request)
+        }
         require(parent.endpoint==FileEndpoint.APP || (parent.endpoint.treeUri!=null && parent.endpoint.remote==null)) {
             "此端点尚不支持受控目录创建"
         }
@@ -34,7 +45,8 @@ class FileDirectoryCreator(private val home: File, private val resolver: Content
 
     /** Cancellation may precede a provider's reply. Always retain this request and
      * awaitClosed before releasing the task slot; a late side effect remains visible. */
-    inner class Request internal constructor(val parent: FileLocation, val requestedName: String) {
+    inner class Request internal constructor(val parent: FileLocation, val requestedName: String,
+        private val remoteRequest: RemoteFileSession.DirectoryRequest? = null) {
         @Volatile var outcome = Outcome(); private set
         private val started=AtomicBoolean()
         private val cancelled=AtomicBoolean()
@@ -44,6 +56,7 @@ class FileDirectoryCreator(private val home: File, private val resolver: Content
         val finished get()=closed.isCompleted
         fun cancel() {
             cancelled.set(true)
+            remoteRequest?.cancel()
             if(!started.get()) closed.complete(Unit)
             worker?.cancel()
             Dispatchers.IO.dispatch(EmptyCoroutineContext) { signal.cancel() }
@@ -55,7 +68,7 @@ class FileDirectoryCreator(private val home: File, private val resolver: Content
                 val owner=CoroutineScope(Dispatchers.IO).launch(start=CoroutineStart.LAZY) {
                     try {
                         active()
-                        if(parent.endpoint==FileEndpoint.APP) local() else saf()
+                        if(remoteRequest!=null) remoteDirectory() else if(parent.endpoint==FileEndpoint.APP) local() else saf()
                     } catch(failure: Exception) {
                         failed(failure)
                         if(failure is CancellationException) throw failure
@@ -79,6 +92,28 @@ class FileDirectoryCreator(private val home: File, private val resolver: Content
                 if(failure is CancellationException) "创建已取消；请核对目标目录" else failure.message ?: "目录创建失败")
         }
         private suspend fun active() { currentCoroutineContext().ensureActive();signal.throwIfCanceled() }
+        private suspend fun remoteDirectory() {
+            val request=checkNotNull(remoteRequest)
+            try { request.execute() }
+            finally {
+                // Cancellation of this worker must not discard the native reply
+                // or release a task slot while the native owner is still cleaning up.
+                withContext(NonCancellable) { request.awaitClosed() }
+                val result=request.outcome
+                val state=when(result.state) {
+                    RemoteDirectoryCreationState.NOT_ATTEMPTED -> State.NOT_ATTEMPTED
+                    RemoteDirectoryCreationState.CONFLICT -> State.CONFLICT
+                    RemoteDirectoryCreationState.UNKNOWN -> State.UNKNOWN
+                    RemoteDirectoryCreationState.REJECTED -> State.REJECTED
+                    RemoteDirectoryCreationState.CREATED -> State.CREATED
+                    RemoteDirectoryCreationState.COMPLETE -> State.COMPLETE
+                }
+                val created=state==State.CREATED || state==State.COMPLETE
+                outcome=Outcome(state,if(created) parent.copy(directoryId=request.path) else null,
+                    actualName=if(created) requestedName else null,error=result.error,
+                    coreStatus=result.status,remoteStatus=result.remoteStatus)
+            }
+        }
         private suspend fun local() {
             LocalPublicationFile.directory(home,parent.directoryId).use { pinned ->
                 active()

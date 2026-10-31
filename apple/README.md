@@ -1,6 +1,6 @@
 # apple — macOS / iOS 宿主（SwiftUI）
 
-代码核对：2026-10-31，macOS 产品调用方未迁移，Swift 绑定随 §9.65 增加受控目录接口；Android 进度同步至 §9.65。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
+代码核对：2026-10-31，macOS 产品调用方未迁移，Swift 绑定随 §9.65 增加受控目录接口；Android 进度同步至 §9.66。当前产品是 **macOS 原生终端与文件工作区**；iOS 尚无可用 target。普通 PTY/SSH、标签/分屏、SFTP 主流程与显式 tmux 已交付；配置保存、私钥存储、文件异常处理和发行仍有具体缺口，见[路线图](../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 
 **共享接口与产品进度分开**：Swift 已绑定受控 SFTP 打开、浏览、预览、独占创建、读取到 fd、非覆盖发布和受控单目录创建；桌面文件队列与 Quick Look 仍使用旧 job。当前为 89 个公共 ABI、Apple 87 项引用/2 项登记未用。实际调用链见下方[接线表](#共享文件接口与产品接线)，不能把 Android 私有目录提交或设备回归记为 macOS 功能完成。
 
@@ -78,7 +78,7 @@ UI 已知坑见 [Apple UI 记录](../docs/reference/apple-ui-pitfalls.md)。
 | 独占暂存创建 | `gt_sftp_create_controlled` / `createExclusive` | 尚无产品调用，原队列仍用路径式 upload | JNI/Kotlin 与匿名快照集成已验，复制任务未接 |
 | 远端读取到 fd | `gt_sftp_receive_controlled` / `receive` | `SFTPFileBackend.download` → `sftp.download` → 旧 job | `TransferStagingStore.receive` 已验，应用级任务 store 未接 |
 | 最终非覆盖发布 | `gt_sftp_publish_controlled` / `publish`；状态、远端错误码、总预算与取消 | Swift 绑定已验；桌面队列仍无产品调用 | JNI/Kotlin `RemoteFileSession.publish` 已验；粘贴任务和执行页面未接 |
-| 目录创建 | §9.65 新增 `gt_sftp_mkdir_controlled` / `createDirectory`；保留创建状态、服务器错误码、总预算与取消 | `SFTPFileBackend.mkdir` 仍经同步队列调用旧 `mkdir`；目录展开会复用已存在目标 | `RemoteFileSession.prepareDirectory` / `DirectoryRequest` 已接；`FileDirectoryCreator` 仍只支持 HOME/SAF，远端数据层适配、任务与页面未接 |
+| 目录创建 | §9.65 新增 `gt_sftp_mkdir_controlled` / `createDirectory`；保留创建状态、服务器错误码、总预算与取消 | `SFTPFileBackend.mkdir` 仍经同步队列调用旧 `mkdir`；目录展开会复用已存在目标 | `RemoteFileSession.prepareDirectory` / `DirectoryRequest` 已接；§9.66 的 `FileDirectoryCreator` 经固定 `RemoteFileBinding` 统一三类目录，独立任务连接与页面未接 |
 
 Android §9.59 另新增平台数据层 SafFilePublisher，经 ContentResolver 创建并回读新文档；不提供 Swift 绑定，也没有改变桌面队列、Quick Look 或文件复制交互。Android §9.60 已接文件清单产品页面，但不调用 Swift 或旧 job；本端四方向统一队列仍未交付。Android §9.61 的粘贴请求与来源扫描只消费平台目录读取函数，不改变 macOS 的 walk、旧 job、取消或提交保证；本端仍须独立迁移与验收。§9.62 的 Android 目标预检也不替换本端 `exists`、冲突全局策略或同步队列；创建权限未知与查询失败仍需本端独立修复。
 

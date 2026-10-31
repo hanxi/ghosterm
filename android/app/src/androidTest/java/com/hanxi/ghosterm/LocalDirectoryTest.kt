@@ -85,6 +85,7 @@ class LocalDirectoryTest {
             rejected { creator.prepare(location,name) }
         val remote=FileEndpoint("remote:test","server","/",remote=RemoteFileIdentity("server","example","user",22))
         rejected { creator.prepare(FileLocation(remote),"new") }
+        rejected { creator.prepare(FileLocation(FileEndpoint("unsupported","unsupported","")),"new") }
         assertEquals(State.COMPLETE,creator.prepare(location,"界".repeat(85)).execute().state)
         assertEquals(1,home.list()!!.size);assertTrue(fds().isEmpty())
     }

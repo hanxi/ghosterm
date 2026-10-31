@@ -37,7 +37,7 @@ def main():
     if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
     file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or
-                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
+                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
     file_data={}
     if file_tests:
         file_key=Path(work)/'file-clientkey'
@@ -107,6 +107,10 @@ def main():
                 selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else os.environ.get('ANDROID_SSH_TEST_CLASS','com.hanxi.ghosterm.RemoteTerminalTest')
                 output=test('baseline',selection,True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_MKDIR_DATA_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('mkdir_data_mutations',ROOT/'scripts/mutation-check-android-mkdir-data.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_MKDIR_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('mkdir_mutations',ROOT/'scripts/mutation-check-android-mkdir.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
