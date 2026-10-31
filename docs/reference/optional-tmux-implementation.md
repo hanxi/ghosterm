@@ -115,3 +115,29 @@ backing 回调兜住，目标未红；改为实际漏同步未上屏窗口的变
 2026-10-28 CI 复验：Homebrew 提供的 tmux 3.7c 对 Tab/LF 名称明确拒绝，点与冒号则保留；
 3.6a 将前者转义、后者替换为下划线。两种结果都由真实 tmux 对拍，拒绝时验证原名称不变；
 不得把拒绝折成未知或成功。
+
+## 功能键编码修复（2026-10-31）
+
+用户报告本地 shell 经系统 SSH 启动远端 Codex 时方向键插入乱码，经 tmux 则正常。
+根因在 macOS 事件接线：`NSEvent.characters` 的 U+F700…U+F8FF 是功能键占位符，
+`sendKeyEvent` 却把它当成可输入文本交给引擎。普通模式先匹配功能键，原测试因此通过；
+Kitty 模式优先输出文本，“上”实际发出 `EF 9C 80`（U+F700）。
+修复按锁定上游 `NSEvent.ghosttyCharacters` 的口径排除该范围，保留物理键和修饰键，
+继续由 full libghostty 按协商模式编码。未修改 SSH、远端配置或 vendor。
+
+- `TerminalKeyboardProtocolTests` 经真实 AppKit keyDown/输入法链和 full libghostty，
+  逐字节验证四方向、Home/End、PageUp/PageDown、Delete、F1：普通模式、应用光标模式、
+  Kitty flags 1/3/5/9/17/31 和退出协议后恢复普通模式，共 90 个场景。
+  首轮复现了 PUA 输出；测试初版对报告事件模式省略 press 字段的预期不完整，
+  对照锁定引擎的特殊键/tilde 键编码分别修正后再执行完整验证。
+- `python3 scripts/mutation-check-terminal-keyboard.py`：隔离副本移除 PUA 过滤，
+  编译后目标断言红；同变异中文提交对照绿、恢复绿与生产/副本 SHA256 一致。
+  此脚本手工执行，不增加 CI 20 份。
+- 真实本地 PTY → 系统 SSH → 用户报告主机上的 Codex 0.163.0，不经过 tmux：
+  输入 `GHOSTERM_abcdef`，左移三格后插入 X 得到 `GHOSTERM_abcXdef`，
+  右移两格后插入 Y 得到 `GHOSTERM_abcXdeYf`，读取真实引擎网格确认。
+  测试随后清空草稿并退出独立 CLI，没有提交提示词。真实远端产品证据限于左右键，
+  其余功能键由上述协议字节矩阵覆盖；本轮未重跑远端 tmux 产品用例。
+- 本轮 `scripts/gate.sh`：47 项 CTest、89 个公共 ABI 通过；
+  `scripts/terminal-gate.sh`：29 项通过；原生 release 构建和 `scripts/build-mac-app.sh`
+  打包、签名/自包含检查、真实网格及随包主题冒烟通过。没有将这些结果记作完整宿主 UI 套件通过。

@@ -530,8 +530,11 @@ public final class TerminalSurface {
                              codepoint: UInt32 = 0,
                              modifiers: NSEvent.ModifierFlags = []) {
         let mods = TerminalModifiers(modifiers)
+        // NSEvent 用 U+F700…U+F8FF 表示方向键和功能键，并非可输入文本。
+        // 与上游 NSEvent.ghosttyCharacters 一致，让物理键交给引擎按模式编码；
+        // 否则 Kitty 模式会优先输出这些 PUA 字符（普通模式恰好先匹配功能键）。
         let hasText = !text.isEmpty && !text.unicodeScalars.contains {
-            $0.value < 0x20 || $0.value == 0x7F
+            $0.value < 0x20 || $0.value == 0x7F || (0xF700...0xF8FF).contains($0.value)
         }
         if hasText {
             text.withCString { p in
