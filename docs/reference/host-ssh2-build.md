@@ -1,5 +1,7 @@
 # 主机 libssh2 构建与 SFTP 打开状态
 
+**macOS CI 搜索路径修复（2026-11-01）**：`2fbf4cc` 的 [dev run 41233655948](https://github.com/hanxi/ghosterm/actions/runs/41233655948) 在准备依赖时失败：runner 已安装 OpenSSL 3.5.9，但默认 pkg-config 指向 OpenSSL 4.1.0，builder 因而在 4.x 目录中查找预期的 `libcrypto.3.dylib`。共享 macOS 工作流现将 `brew --prefix openssl@3` 下的 pkgconfig 目录置于已有搜索路径之前，并通过 GITHUB_ENV 传给后续构建。没有改为使用未经本项目验证的 OpenSSL 4，也没有修改已锁定的 libssh2 来源或补丁。用工作流实际环境代码配合隔离的 4.x 元数据验证了空/已有搜索路径两种入口：均选择本机真实 3.x，并找到所需 dylib，保留已有路径；这只是环境选择验证，修复版云端打包仍待运行。Android 的独立 NDK 依赖与成功的 release run 41233655896 不受此环境问题影响。
+
 核对日期：2026-10-31。受控 SFTP 打开接口、主机补丁依赖与构建/打包接线已完成本机验收，见 Android 实现计划 §9.47。此前 `cef17ac` 记录的依赖守卫测试失败已修正并复验：十组直接守卫变异及一组真实 CMake 调用方变异通过。§9.49 已完成受控目录浏览与目录句柄关闭契约，§9.50 新增有界预览。§9.51 已接 Android 专用文件 owner/JNI/Kotlin 及中止后关闭；Android 远端页面已由 §9.52 接入，macOS 产品迁移仍待完成。
 
 macOS 的 Core、Swift 和打包命令应在同一 Xcode 工具链环境执行；设置方式及本次默认 Command Line Tools 与 SDK 链接失败记录见 [Apple 构建与验证](../../apple/README.md#构建与验证)。依赖收据通过只证明库产物及其输入一致，不证明当前链接器能解析选中的 SDK。

@@ -118,6 +118,9 @@ jobs:
           # `timeout`（只有 brew 的 `gtimeout`），而变异脚本要靠超时才有界——
           # CI 实测踩过「命令不存在 = 非零 = 被当成断言变红」的假牙。
           brew install librsvg imagemagick bash coreutils pkg-config openssl@3
+          # openssl@3 is keg-only; runner's default pkg-config may select OpenSSL 4.
+          HOST_OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+          echo "PKG_CONFIG_PATH=${HOST_OPENSSL_PREFIX}/lib/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}" >> "$GITHUB_ENV"
           if [ "${{ inputs.gates }}" = full ]; then brew install tmux; fi
           python3 -m venv tmp/venv-icons
           tmp/venv-icons/bin/python -m pip install --quiet --upgrade pip pillow
