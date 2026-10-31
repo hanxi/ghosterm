@@ -476,6 +476,11 @@ void gt_ghostty_surface_set_size(gt_ghostty_surface_t *s, uint32_t w, uint32_t h
   ghostty_surface_set_size(s->surface, w, h);
 }
 
+void gt_ghostty_surface_set_content_scale(gt_ghostty_surface_t *s, double scale) {
+  if (!s || !s->surface) return;
+  ghostty_surface_set_content_scale(s->surface, scale, scale);
+}
+
 void gt_ghostty_surface_draw(gt_ghostty_surface_t *s) {
   if (!s || !s->surface) return;
   ghostty_surface_draw(s->surface);

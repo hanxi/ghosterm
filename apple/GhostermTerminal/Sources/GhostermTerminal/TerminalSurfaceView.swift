@@ -119,6 +119,14 @@ public final class TerminalHostView: NSView, NSTextInputClient {
                 [weak self] _ in self?.applyVisible()
             }
         }
+        observers.append(center.addObserver(forName: NSWindow.didChangeScreenNotification,
+                                             object: nil, queue: .main) { [weak self] note in
+            guard let self, let window = self.window,
+                  note.object as? NSWindow === window else { return }
+            // 换屏通知时 backing 属性可能还没更新，下一轮读取最终比例。
+            // 同比例换屏也走这里，不依赖窗口点尺寸变化触发 layout。
+            DispatchQueue.main.async { [weak self] in self?.syncSurfaceGeometry() }
+        })
         applyFocus()
         applyVisible()
     }
@@ -132,6 +140,7 @@ public final class TerminalHostView: NSView, NSTextInputClient {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        syncSurfaceGeometry()
         applyFocus()
         applyVisible()
         // 新建标签页 / 分屏时，`paneFocused` 是在视图**进树之前**被置上的
@@ -185,10 +194,22 @@ public final class TerminalHostView: NSView, NSTextInputClient {
 
     public override func layout() {
         super.layout()
+        syncSurfaceGeometry()
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        syncSurfaceGeometry()
+    }
+
+    private func syncSurfaceGeometry() {
         surface.view.frame = bounds
+        guard let window, bounds.width > 0, bounds.height > 0 else { return }
         // 视图尺寸 → libghostty 网格 → onResize → transport.resize。
-        // 必须用像素（backing scale 后的尺寸），否则 Retina 上网格偏大。
-        let scale = window?.backingScaleFactor ?? 2.0
+        // 换屏必须先同步字体与合成比例，再更新像素尺寸；只更新尺寸会
+        // 让网格和 Metal 层各用一套比例，画面被放大、裁到左上角。
+        let scale = window.backingScaleFactor
+        surface.setContentScale(scale)
         surface.setSize(width: UInt32(bounds.width * scale),
                         height: UInt32(bounds.height * scale))
     }

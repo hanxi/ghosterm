@@ -9,6 +9,7 @@
 import AppKit
 import CGhostty
 import Foundation
+import QuartzCore
 
 public enum TerminalSurfaceError: Error, CustomStringConvertible {
     case appInit(String)
@@ -394,6 +395,16 @@ public final class TerminalSurface {
     }
 
     // MARK: - 视图尺寸 → 网格
+
+    /// 换屏时必须同时更新字体 DPI 与 Metal 层的合成比例。
+    /// layer 由 libghostty 持有；只改比例，不替换 layer 或 wantsLayer。
+    func setContentScale(_ scale: CGFloat) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        view.layer?.contentsScale = scale
+        CATransaction.commit()
+        gt_ghostty_surface_set_content_scale(raw, Double(scale))
+    }
 
     /// 视图（像素）尺寸变化；libghostty 会重算网格并回调 onResize。
     public func setSize(width: UInt32, height: UInt32) {

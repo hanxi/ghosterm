@@ -130,6 +130,9 @@ void gt_ghostty_surface_process_output(gt_ghostty_surface_t *s, const uint8_t *d
 /* 屏幕尺寸（像素）变化 → 重算网格并触发 resize 回调。主线程。 */
 void gt_ghostty_surface_set_size(gt_ghostty_surface_t *s, uint32_t w, uint32_t h);
 
+/* 显示器 backing scale 变化；先更新字体 DPI，再下发新的像素尺寸。主线程。 */
+void gt_ghostty_surface_set_content_scale(gt_ghostty_surface_t *s, double scale);
+
 /* 强制重绘。主线程。 */
 void gt_ghostty_surface_draw(gt_ghostty_surface_t *s);
 
