@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.hanxi.ghosterm.domain.*
 
@@ -18,6 +19,7 @@ import com.hanxi.ghosterm.domain.*
 fun FileTasksScreen(model: FileTasksViewModel) {
     BackHandler { model.hide() }
     val list=rememberLazyListState()
+    val context=LocalContext.current
     LaunchedEffect(model.tasks.firstOrNull()?.request?.id) { list.scrollToItem(0) }
     Scaffold(topBar={ TopAppBar(title={ Text("文件任务") },navigationIcon={
         TextButton(onClick=model::hide) { Text("返回") }
@@ -25,6 +27,27 @@ fun FileTasksScreen(model: FileTasksViewModel) {
         LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).testTag("file-tasks"),
             state=list,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             model.notice?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
+            if(model.background.enabled && (model.background.state!=FileBackgroundState.IDLE || model.background.error!=null)) item {
+                Card(Modifier.fillMaxWidth().testTag("file-background-status")) {
+                    Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                        Text(when(model.background.state) {
+                            FileBackgroundState.STARTING -> "正在启动后台传输"
+                            FileBackgroundState.ACTIVE -> "后台传输已启动"
+                            FileBackgroundState.STOPPING -> "后台传输正在结束"
+                            FileBackgroundState.TIMED_OUT -> "后台传输已达系统时限"
+                            else -> "后台传输未启动"
+                        })
+                        model.background.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+                        if(model.background.state==FileBackgroundState.FAILED || model.background.state==FileBackgroundState.TIMED_OUT)
+                            TextButton(onClick={ model.retryBackground() },enabled=model.busy) { Text("重试后台传输") }
+                        if(!model.background.notificationsVisible) {
+                            Text("通知已关闭，可在任务页查看状态和取消任务。")
+                            TextButton(onClick={ context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,context.packageName)) }) { Text("通知设置") }
+                        }
+                    }
+                }
+            }
             if(model.journalLoading) item { Text("正在读取任务记录…") }
             model.journalError?.let { error -> item {
                 Column(verticalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.testTag("file-journal-error")) {

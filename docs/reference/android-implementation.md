@@ -1,10 +1,12 @@
 # Android 最终方案实现计划
 
-日期：2026-10-31。页面与操作基准为唯一的 [Android HTML 原型](../design/android-prototype.html)。本文定义原生模块、线程与资源所有权、页面状态、数据边界、实施依赖和验收；HTML 的模拟主机、文件、键盘及定时进度不构成 Android 能力证据。
+日期：2026-11-01。页面与操作基准为唯一的 [Android HTML 原型](../design/android-prototype.html)。本文定义原生模块、线程与资源所有权、页面状态、数据边界、实施依赖和验收；HTML 的模拟主机、文件、键盘及定时进度不构成 Android 能力证据。
 
-**当前实现**：A0/A1 已完成当前模拟器档；A2/A3/A4/A5/A6/A7 部分实现。§9.72 已接最多 32 个未结束请求的 FIFO 队列；§9.73 已验持久记录、只读历史与完整 475 项。扫描、确认、执行和取消清理共用一个执行名额。前台服务/通知、自动恢复、暂停/重试和完整偏好仍未实现，A6 保持部分完成。 A5 跨远端命名空间关系、设备与发行矩阵未完成，A8 tmux 未接，A9 环境包独立延后。
+**当前实现**：A0/A1 已完成当前模拟器档；A2/A3/A4/A5/A6/A7 部分实现。§9.72 已接最多 32 个未结束请求的 FIFO 队列；§9.73 已验持久记录、只读历史与完整 475 项。扫描、确认、执行和取消清理共用一个执行名额。§9.74 已验前台服务/通知与完整 483 项；自动恢复、暂停/重试、真实进度和完整偏好仍待完成，A6 保持部分完成。 A5 跨远端命名空间关系、设备与发行矩阵未完成，A8 tmux 未接，A9 环境包独立延后。
 
 仓库约束以 [AGENTS.md](../../AGENTS.md) 为准；持久记录、只读历史和当前验收证据单列于 §8.2/§9.73，完整 475 项已通过；§9.72 的完整结果只属于其对应 APK。全端进度见[路线图](roadmap.md)，能力与证据档位见[能力矩阵](capability-matrix.md)。§2–§8 是实现契约，§9 保存逐片交付、失败与复验历史，§10 是验收要求，不能把计划或旧产物的通过当成当前客户端已经全部完成。具体源码与消费者见 §6.9，任务当前状态机与 A6 后续顺序见 §6.19；macOS 按自己的生产调用方单独记账。
+
+**最新验收（§9.74，2026-11-01）**：文件传输前台服务、通知跳转/取消及系统超时、stop-app、通知拒绝/渠道关闭专项已验；30 组新增变异与 73 组相关既有变异分轮通过。完整 **483 项通过，零失败/错误/跳过**（1178.324 秒），742 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；暂停/重试、真实进度与完整偏好仍待完成，A6 保持部分交付。
 
 ## 1. 交付范围与当前基础
 
@@ -12,13 +14,13 @@
 
 **当前验收边界（2026-10-31）**：A4 本机/SAF 浏览首片已有 14 项定向、18 组变异和完整 214 项设备回归，见 §9.43。范围仍限 API 36 arm64 / 4 KB 页模拟器；远端文件页面已由 §9.52 接入，来源清单已由 §9.60 接入，§9.70 已接粘贴页面，本片当前模拟器档验证通过，不能勾选整个 A4–A6。§9.42 的草稿编译阻塞已修复，作为历史保留。
 
-**最近完整设备记录（§9.73）**：完整设备 **475 项通过，零失败/错误/跳过**（1200.707 秒），仅 API 36 arm64 / 4 KB 页模拟器；735 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致。§9.72 的 453 项和更早完整结果保留为历史；A6 仍为部分交付。
+**最近完整设备记录（§9.74）**：完整 **483 项通过，零失败/错误/跳过**（1178.324 秒）；742 份非 Markdown 源码集合/SHA256 不变，两份安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器。§9.73 的 475 项与更早完整结果保留为历史，A6 仍为部分交付。
 
 **历史证据**：§9.56 最终 260 项、§9.57 最终 266 项及更早各轮完整结果只证明对应产物。§9.56 首轮旋转失败与同步修正、§9.44 选区偶发失败，以及其他切片的中间失败仍保留在各自实施记录，不由最近通过结果抹去。API 36 模拟器已有 debug 性能基线；真机/release、长时间负载、物理键盘/布局、API 29 和 16 KB 页仍待验证。
 
 | 能力 | 当前代码与证据 | Android 需要补齐 |
 |---|---|---|
-| 宿主 | Compose 主机列表/搜索/添加/编辑、配置页与导入入口；A2 本地会话导航/重建保留；debug APK | 完整设置、后台服务与进程死亡策略 |
+| 宿主 | Compose 主机列表/搜索/添加/编辑、配置页与导入入口；A2 本地会话导航/重建保留；debug 测试与固定密钥签名 release CI APK | 完整设置；§9.73 只读持久历史已验，§9.74 后台服务已验当前模拟器档 |
 | 终端 | 原生 VT surface、Canvas、InputConnection 与生命周期已交付；已提交选区、文本复制粘贴和本地清屏，验证见 §9.14；pin `81598385d608dda4946093d6d6a234d204a2f225` | 选区/Ctrl 生命周期已验；Ctrl 标点与 Gboard 拼音基本路径已验（§9.16）；完整软硬键盘矩阵和性能仍待补齐 |
 | Transport | `core/include/ghosterm/transport.h`；A2 首片已有 JNI owner 和 API 36 模拟器真 PTY/尺寸/退出、代次与关闭定向证据 | 扩展持续负载与设备证据；SSH 后端接线见 §9.25，产品页面仍属 A3，桌面证据不替代移动端 |
 | SSH 认证 | `ssh_auth.h` 可取消、分步认证；Android native owner/类型化桥、请求归属及真实 SSH→VT 后端见 §9.25；Apple 已统一接线 | 产品首片见 §9.27，SAF 导入及完整设备证据见 §9.29；主机身份关联见 §9.35；主机验证管理已交付（§9.39）；网络/取消矩阵仍待收尾 |
@@ -693,9 +695,9 @@ macOS 当前全局队列采用不同的旧 job 路径，不能以其正常暂停
 
 系统密钥选择器另绑定 presenter UUID：旋转保留原 UUID，结果可返回原请求；显式销毁发起页面会释放其 pending picker。旧页面迟到结果不能清除另一页面的新 pending 状态，也不能读取或导入其材料。私钥及口令不进入任务记录、页面保存状态或日志。
 
-**当前边界**：§9.72 已接进程内 FIFO 队列，最多 32 个未结束请求，共用一个执行名额；队列定向、变异与完整设备回归通过。后台期间进程若仍存活，执行与确认状态保留；没有前台服务，不承诺 Android 不杀进程。§9.72 的任务、结果和清单均为进程内状态；§9.73 工作区已接任务观察记录与只读历史，清单仍只在内存中，进程死亡不自动恢复执行或假装完成。
+**当前边界**：§9.72 已接进程内 FIFO 队列，最多 32 个未结束请求，共用一个执行名额；队列定向、变异与完整设备回归通过。§9.72 当时没有前台服务，只在进程存活期间保留执行与确认状态。§9.73 已交付并验收任务观察记录与只读历史；清单仍只在内存中，进程死亡不自动恢复执行或假装完成。§9.74 已接前台服务并通过系统专项及完整 483 项回归；前台服务也不承诺 Android 不杀进程。
 
-A6 当前先完成 §8.2/§9.73 持久意图/结果记录与进程死亡核对的剩余验收，再完成前台服务/通知、真实进度、可确认暂停与失败项重试；服务正式验收依赖账本，系统约束见 §8.1。重试创建新请求、重新扫描/确认，不重放旧冲突授权，不默认重复成功项。持久记录只保存必要端点、结果及任务自有候选；不得保存凭据。多个 Activity、后台、provider 拒绝取消、进程死亡与新旧清单隔离都必须分别验收；进程共享证据见 §9.71，队列见 §9.72，未验收持久记录见 §9.73。
+A6 的 §8.2/§9.73 持久意图/结果记录与进程死亡核对已验收；§9.74 前台服务/通知已验当前模拟器档，后续接真实进度、可确认暂停与失败项重试。服务正式验收依赖已验账本，系统约束见 §8.1。重试创建新请求、重新扫描/确认，不重放旧冲突授权，不默认重复成功项。持久记录只保存必要端点、结果及任务自有候选；不得保存凭据。多个 Activity、后台、provider 拒绝取消、进程死亡与新旧清单隔离都必须分别验收；进程共享证据见 §9.71，队列见 §9.72，已验持久记录见 §9.73，前台服务验收见 §9.74。
 
 ### 6.20 FIFO 调度与排队取消（§9.72）
 
@@ -763,7 +765,7 @@ A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.
 
 采用 Material 3 页面/面板/开关/选择控件，保持石墨色系；触点至少 48dp，字体响应系统缩放，危险动作有文字说明。320dp 窄屏、横屏、分屏、字体放大、TalkBack、硬件键盘和深浅色均纳入验收。状态栏/导航栏/IME insets 不得重复扣除或遮挡操作区。[触点与语义](https://developer.android.com/develop/ui/compose/accessibility/api-defaults)、[窗口 Insets](https://developer.android.com/develop/ui/compose/system/insets-ui)
 
-### 8.1 A6 后台执行的系统约束（待实现）
+### 8.1 A6 后台执行的系统约束（§9.74 当前模拟器档已验）
 
 按当前 minSdk 29、target 36 的范围，复制服务拟使用 `dataSync`，清单须声明普通前台服务权限、该类型权限及服务类型；此类型覆盖网络传输和本地文件处理，不能扩展成普通 SSH 保活。长时间网络任务另可使用 API 34 起的 UIDT，但它也要求用户发起、调度条件和通知，不自动提供 Ghosterm 的副作用恢复；不得让两种调度器重复启动同一请求。[服务类型](https://developer.android.com/develop/background-work/services/fgs/service-types#data-sync)、[UIDT](https://developer.android.com/develop/background-work/background-tasks/uidt)
 
@@ -776,7 +778,7 @@ A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.
 
 前两项依据[后台启动限制](https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start)和[通知权限](https://developer.android.com/develop/ui/compose/notifications/notification-permission)；后两项依据[服务时限](https://developer.android.com/develop/background-work/services/fgs/timeout)及[系统停止行为](https://developer.android.com/develop/background-work/services/fgs/handle-user-stopping)。`dataSync` 的后台预算按应用同类型服务累计，当前规则为 24 小时内 6 小时，用户将应用带回前台时按系统规则重置，不能通过换任务或新建服务规避。
 
-这些约束决定持久意图/结果账本须在后台服务正式验收前接入，不能留到保活宣告完成之后。服务启动失败、拒绝通知、系统超时、真实进程停止与重启分别取证；系统设置的临时超时值须在测试后恢复。停止进程测试由宿主 runner 驱动，再重启 APK 核对持久记录，不能只在应用内直接调用回调模拟。系统“活动应用”的停止路径另用 `adb shell cmd activity stop-app com.hanxi.ghosterm` 验证；它不发送应用回调，已排程的 job/闹钟仍可能触发，因此不得仅用 force-stop 代替该场景，也不得让后续调度自动重放中断任务。[系统停止测试方法](https://developer.android.com/develop/background-work/services/fgs/handle-user-stopping) 此节为服务实施要求，尚无服务/通知或系统 stop-app 路径通过证据；§9.73 已有 SIGKILL 后只读历史的专项记录，不能代替这些服务场景。
+这些约束决定持久意图/结果账本须在后台服务正式验收前接入，不能留到保活宣告完成之后。服务启动失败、拒绝通知、系统超时、真实进程停止与重启分别取证；系统设置的临时超时值须在测试后恢复。停止进程测试由宿主 runner 驱动，再重启 APK 核对持久记录，不能只在应用内直接调用回调模拟。系统“活动应用”的停止路径另用 `adb shell cmd activity stop-app com.hanxi.ghosterm` 验证；它不发送应用回调，已排程的 job/闹钟仍可能触发，因此不得仅用 force-stop 代替该场景，也不得让后续调度自动重放中断任务。[系统停止测试方法](https://developer.android.com/develop/background-work/services/fgs/handle-user-stopping) 此节为服务实施要求；工作区服务首片、八项定向、通知交互、23 组不同变异及真实系统超时/stop-app 专项见 §9.74，通知拒绝/渠道关闭专项及完整 483 项回归也已通过；其余设备/发行矩阵仍待完成；§9.73 已有 SIGKILL 后只读历史的专项记录，不能代替这些服务场景。
 
 ### 8.2 A6 持久任务记录与中断核对
 
@@ -2465,6 +2467,30 @@ Core **47 项 CTest / 89 ABI**、Apple **87/2**、JNI **49/40** 对拍通过；A
 最终完整设备 **475 项全部通过，零失败/错误/跳过，1200.707 秒**；默认发现与实际开始/成功结束的具名集合逐项一致，没有把禁用的宿主探针计作测试。735 份非 Markdown 源码及文件集合不变，安装主/测试 APK 与构建 SHA256 一致（`full-1793455568851505000/`）。仅 API 36 arm64 / 4 KB 页模拟器，使用 `d585f0b` 的 NDK/压缩打包配置；没有新增真机/API 29/16 KB 页、完整 release 功能矩阵或完整 macOS 宿主证据。独立 release CI 及基础运行记录见 §8.3，不将其扩大为这些范围通过。
 
 日志在 `tmp/file-journal-evidence/` 和 `tmp/android-file-journal-crash/`；§9.72 的完整 453 项只归属旧 APK。前台服务、暂停/重试、候选清理与跨远端命名空间关系仍待完成，不改变 macOS 产品接口迁移或既有像素失败状态。
+
+### 9.74 A6 文件传输前台服务（2026-11-01）
+
+在 `b0bae1b` 后新增 `FileTransferBackground`、私有 `FileTransferService`/取消接收器、通知图标、清单权限/类型和页面状态。生产粘贴入口从可见页面发起服务，记录队列仍由唯一 `FileWorkRuntime` 持有；启动请求和实际进入 foreground 分开记账，启动成功前暂停队列推进，失败保留原请求供可见页面重试或取消。通知只包含汇总及 UUID，不带主机路径或凭据；点通知打开原任务页，取消核对注册代次与任务 UUID。服务不粘性重启，不把持久历史转换为请求。
+
+系统超时/意外退出先阻断推进并发出取消，服务及时停止，provider/native 释放和账本结果仍异步等待；真实系统超时和 stop-app、通知权限与渠道专项及完整回归已补证据，范围限当前模拟器档。通知不可见单独显示，不折叠为服务不可启动。已有前台模型测试入口保留，生产页面使用新的 `startUserTask` 服务接缝；整个 A6 不勾完成。
+
+首轮 debug/测试 APK 构建通过。真实设备四项初轮 **3 通过、1 失败，21.987 秒**：过期/空启动 intent 虽然被业务忽略，Android 仍增加 startId；旧 `stopSelfResult` 使用最后一次有效命令的旧序号，服务未完全退出。现为每个 onStartCommand 都记录最新 startId，同时保留有效注册代次。修正后 **4 项通过，7.483 秒**，同 APK 独立配置对照通过（`tmp/android-foreground-stop-id-fixed-device.log` / `config-control.log`）。范围为真实 foreground 标记、实际复制内容/完成后停止、平台拒绝与同请求重试、代次/UUID 取消、过期/空服务命令不打断或重放任务；不记为通知真实点击或系统超时验证。
+
+后续已从系统实际投递的通知取得 PendingIntent，验证打开任务页、取消原请求及旧通知不取消新请求，并加入真实 Activity 重建/结束和外部停止服务。首轮通知测试发生 ActivityScenario 的销毁等待失败（最后为 PAUSED）；检查实际 AndroidX core 1.7.0 字节码确认其按初始 Intent 与当前 Activity Intent 匹配，通知处理的 setIntent 改变 action 后使其丢失生命周期跟踪。测试改为 Application 生命周期回调，按真实实例与 taskId 跟踪，保留原 10/15 秒时限；未删除生产 setIntent 或业务断言。7 项设备基线通过（10.144 秒）。取消广播使用有序投递，PendingIntent 使用 OnFinished 确认投递完成，再检查代次/请求隔离；权限由宿主在 instrumentation 前授予，结束后恢复，不在测试进程内撤权导致进程中止。
+
+新增 20 组变异的首轮暴露夹具清理问题：断言发生前尚未登记新请求，或清理依赖被故意破坏的服务自行停止，产生双重失败；初轮在子任务结束边界主动中止（退出 130），后续双重失败也被严格守卫拒绝，不计整组通过。现先登记清理对象，正文保留自主停止断言，清理独立调用系统停止服务；变异必须恰有一条 JUnit 断言失败，进程崩溃和清理叠加失败均拒收。
+
+服务类型变异另复现 Android 在“等待 foreground 时停止服务”的进程崩溃；单改失败分支的 stopSelf 仍未消除，未将其冒充断言红。现启动前查询已安装服务类型与必要权限，已知配置不满足时在请求 FGS 前显式失败并保留队列，不把通知权限当作 FGS 启动资格。单组先通过后，完整 **20 组全部复验通过**：每组真实编译后目标单条断言红、同 APK 独立配置对照绿、恢复绿与 SHA256；最终恢复后 **7 项通过，11.413 秒**，配置对照通过，通知权限回到原拒绝状态。日志为 `tmp/android-foreground-mutations-preflight-all.log` 及 `tmp/android-foreground-mutations/`；前面中止、双重失败和类型崩溃各轮分别保留。
+
+页面收尾先在原实现上复现通知导航重放：返回首页再重建 Activity 会被旧 OPEN_TASKS Intent 强制带回任务页，7 项中此项断言失败（11.065 秒），日志 `tmp/android-foreground-nav-before-fix-device.log`。onCreate 现仅在首次创建时处理该 Intent，onNewIntent 仍处理每次新的通知点击；可见任务页重建仍保留同一 ViewModel/任务/服务代次，返回首页后重建则保持首页。新增从实际 FilesScreen 粘贴按钮的可访问性点击发起任务，验证真实 foreground 标记、固定目标目录和复制清单 UUID。页面检查通过真实可见的无障碍节点，不仅检查 visible 字段。
+
+8 项设备基线通过（12.621 秒）；新增 notification-page / notification-replay / paste-service-entry 三组，并复验此前四组通知变异，合计本轮 **7 组通过**，每组编译后单条目标断言红、同 APK 配置对照绿、恢复绿与 SHA256。恢复后 **8 项通过，12.703 秒**，日志 `tmp/android-foreground-ui-mutations.log`。当前共 **23 组不同变异**分轮通过，重复四组不累计，也不表述为同一轮 23 组重跑。旧 20 组原始恢复日志保存在 `tmp/file-journal-evidence/foreground-twenty-pre-nav/`。
+
+新增宿主 `test-android-foreground-system.py` 使用同一安装 APK，真实 DocumentsUI 授予写树权限，provider 创建空文件后阻塞返回。`data_sync_fgs_timeout_duration=2000` 后将 Activity 置于后台，系统真实调用 onTimeout；服务记录消失时任务仍处于 CANCELLING/资源占用，宿主确认后才释放 provider。最终持久记录保存实际文档 URI，目标仍为空且未写入，源文件字节不变。另一条使用 `cmd activity stop-app` 杀死运行中的真实 FGS 进程，旧 PID 退出；新 PID 只读原 RUNNING/DOCUMENT_CREATE 记录，不重放任务、不启动服务，清除历史后原空文档仍保留。两条均有同 APK 配置对照，运行后超时配置与通知权限恢复。证据 `tmp/android-foreground-system/1793465627289268000/`：timeout 及 stop-app 均通过；stop-app 中断的 staging 进程不计为通过，新进程验证 1 项通过（1.434 秒）。首轮选择器同名标题命中问题修正；随后 timeout 正文通过但 println 未发到 instrumentation stream，宿主严格拒收，改为 sendStatus 后重跑两条通过。真实超时分类、取消及及时停止三组变异随后全部通过：目标单条 JUnit 断言红、同 APK 配置对照绿、恢复绿和 SHA256 一致，日志 `tmp/android-foreground-system-mutations.log` / `tmp/android-foreground-system-mutations/1793465680532912000/`。其中停止变异把 stopSelf 延后 4 秒，目标须在 2 秒内观察服务记录消失；不等待系统 ANR/崩溃冒充断言失败。合计当前 26 组不同变异分轮通过，未声称同一轮全量重跑。
+
+通知权限实际撤销后另跑真实 Application/Activity：确认权限拒绝、系统通知关闭，实际 FGS 仍启动，任务页显示后台已启动、通知关闭提示和设置入口；确认后真实文件内容复制成功、服务退出。证据 `tmp/android-foreground-system/1793465815758629000/notifications-denied.log`，宿主运行后恢复原权限。通知拒绝的可见性、资格及提示三组变异随后全部通过，每组目标单条 JUnit 断言红、同 APK 配置对照绿、恢复绿及 SHA256 一致，日志 `tmp/android-foreground-denied-mutations.log` / `tmp/android-foreground-system-mutations/1793465840154461000/`。当前共有 29 组不同变异分轮通过；两轮系统专项各执行三组，未声称同一轮全六组重跑。
+
+系统专项与六组变异完成后，原八项服务定向重跑全部通过（12.347 秒），日志 `tmp/android-foreground-after-system-device.log` / `tmp/android-foreground-tests/device.log`，通知权限恢复。默认发现数量仍是 483（475+8）；系统专项复用有实际默认测试正文的既有方法，通过显式宿主参数运行，不新增空跑测试，也不把 stop-app 中断阶段计作测试通过。渠道关闭另以真实 Android 设置页开关验证：POST_NOTIFICATIONS 仍授予、全应用通知仍开启，仅文件任务渠道为 IMPORTANCE_NONE；真实 FGS 可启动并完成实际复制，任务页正确提示，最后通过同一系统设置页恢复原 importance。宿主先运行真实服务建立渠道，不以创建假渠道替代用户开关。证据 `tmp/android-foreground-system/1793466048222430000/channel-closed.log`，渠道、权限均恢复；渠道可见性变异通过：忽略渠道 importance 后目标单条 JUnit 断言红，同 APK 配置对照绿，恢复绿及 SHA256 一致，证据 `tmp/android-foreground-channel-mutations-fixed.log` / `tmp/android-foreground-system-mutations/1793466074281862000/`。编排脚本初次插入同时误改列表推导式而出现 SyntaxError，未构建/运行变异，不计通过；修正后才执行此组。累计 30 组不同变异分轮通过。相关回归现按八项服务定向、队列 14 组、持久记录 20 组、进程持有 15 组、任务页面 24 组及完整 483 项顺序运行；八项服务基线随后通过（含安装 14.1 秒）；队列 14 组完整通过（361.2 秒），每组目标红、同 APK 配置对照绿、恢复绿，运行前后非 Markdown 源码集合及 SHA256 一致。证据 `tmp/foreground-service-evidence/regressions-1793466131206016000/`；持久记录 20 组随后全部通过（271.4 秒），同样核对目标红、同 APK 对照绿、恢复绿及 742 份非 Markdown 源码集合/SHA256 一致；进程持有 15 组随后全部通过（406.3 秒），源码集合/SHA256 同样不变；覆盖应用/页面/清单 owner、关闭和后台、执行名额、结果流、任务认证与 picker/presenter/确认归属。任务页面 24 组随后全部通过（803.1 秒），运行前后 742 份非 Markdown 源码集合/SHA256 不变；原始 19 项定向通过（123.786 秒），恢复后的 19 项也通过（121.489 秒）。本轮相关既有变异合计 73 组（队列 14、持久记录 20、进程持有 15、任务页面 24），各自有目标红、同 APK 对照绿、恢复绿及源码摘要证据。核心离线闸门随后通过（47 CTest、89 公共符号，48.4 秒），Apple 87/2 与 JNI 49/40 对拍通过；源码集合/SHA256 仍不变。完整设备最终 **483 项全部通过，零失败/错误/跳过，1178.324 秒**；默认发现与实际执行具名集合及开始/结束逐项一致，742 份非 Markdown 源码集合/SHA256 不变，安装主 APK `33d19451…`、测试 APK `525661fd…` 与构建摘要一致。证据目录 `tmp/foreground-service-evidence/full-1793468036172881000/`；总编排终态为成功。§9.73 的 475 项保留为历史。本片只完成 API 36 arm64 / 4 KB 页模拟器档；本地签名 release 构建通过（R8/资源裁剪/三份 native 库压缩、5,889,745 字节），固定证书、对齐与包内无签名备份检查通过；release 服务烟测和 CI 新产物仍待执行，A6 真实进度、暂停/重试及其余阶段不勾完成。新 release CI run `41215129237` 对应 `b0bae1b`，包含持久历史但不含此服务草稿：5,876,361 字节，签名、校验和与对齐检查通过，云端 APK 仍待独立设备验证。
 
 ## 10. 验收与变异清单
 

@@ -118,12 +118,12 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         }
         if(mode.equals("new-nonempty"))try(FileOutputStream out=new FileOutputStream(e.file)) { out.write(9); }
         catch(IOException error) { throw new FileNotFoundException(error.toString()); }
-        if(mode.equals("late-create"))waitGate();
+        if(mode.equals("late-create")||mode.equals("foreground-late-create"))waitGate();
         if(mode.equals("create-lost"))throw new FileNotFoundException("Reply lost after create");
         return id;
     }
     private void waitGate() throws FileNotFoundException {
-        try { if(!release.await(10,TimeUnit.SECONDS))throw new FileNotFoundException("Fixture release timed out"); }
+        try { if(!release.await(mode.equals("foreground-late-create")?60:10,TimeUnit.SECONDS))throw new FileNotFoundException("Fixture release timed out"); }
         catch(InterruptedException error) { Thread.currentThread().interrupt();throw new FileNotFoundException("Interrupted"); }
     }
     /** Fill the pipe then free only PIPE_BUF (4 KiB on the tested Linux device).

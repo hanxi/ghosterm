@@ -44,7 +44,7 @@ def main():
         ('saf-uri',saf,'outcome = outcome.copy(documentUri = created.toString())\n            withContext(NonCancellable) { observed(outcome) }','outcome = outcome.copy(documentUri = created.toString())','SafPublicationTest#journalUriIsPersistedBeforeContentWrite'),
         ('finish-record',store,'journal.finish(task.request.id,task.result,task.cancelled,task.error ?: task.persistenceError)','Unit',p+'finishedProductPersistsResultsAndNewRuntimeDoesNotReplayCopy'),
         ('load-history',store,'history.addAll(journal.load())','journal.load()',p+'reopenedQueuedIntentIsReadOnlyAndClearingHistoryNeverStartsIt'),
-        ('stop-queue',store,'if(journalLoading || journalError!=null) return','if(journalLoading) return',p+'completionRecordFailureStopsAlreadyQueuedNextRequest'),
+        ('stop-queue',store,'if(journalLoading || journalError!=null || backgroundHold!=null) return','if(journalLoading || backgroundHold!=null) return',p+'completionRecordFailureStopsAlreadyQueuedNextRequest'),
         ('remove-after-commit',store,'journal.remove(record.intent.id);history.remove(record)','history.remove(record);journal.remove(record.intent.id)',p+'failedHistoryRemovalKeepsVisibleRecordAndOriginalDatabase'),
         ('interrupted-label',screen,'"已中断 · 结果待核对"','"全部复制完成"',p+'reopenedQueuedIntentIsReadOnlyAndClearingHistoryNeverStartsIt'),
     ]

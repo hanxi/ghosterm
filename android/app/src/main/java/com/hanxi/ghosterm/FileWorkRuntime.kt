@@ -18,6 +18,7 @@ class FileWorkRuntime(application: Application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val clipboard = FileClipboardStore()
     val tasks = FileTaskStore(application,scope)
+    val background = FileTransferBackground(application,this,scope)
     // This controller owns credentials for file tasks only. It creates no terminal/browser.
     private val authenticationOwner = lazy { SessionsViewModel(application,monitorSessions=false) }
     val authentication get() = authenticationOwner.value
@@ -26,7 +27,7 @@ class FileWorkRuntime(application: Application) {
 
     fun connections(request: FilePasteRequest): FileTaskConnections =
         authentication.fileTaskConnections(request) { tasks.cancelRequest(request.id) }
-    fun resume(id: UUID) { resumed.remove(id);resumed.add(id);presenter=id }
+    fun resume(id: UUID) { resumed.remove(id);resumed.add(id);presenter=id;background.refreshNotifications() }
     fun pause(id: UUID) { resumed.remove(id);if(presenter==id) presenter=resumed.lastOrNull() }
     fun focus(id: UUID) { if(id in resumed) { resumed.remove(id);resumed.add(id);presenter=id } }
     fun release(id: UUID) {

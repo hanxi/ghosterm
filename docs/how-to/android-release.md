@@ -6,6 +6,11 @@ main 与手动构建使用固定 release 密钥签名；PR 只验证优化后的
 源码为 `d585f0b`。签名 APK 为 **5,826,065 字节**；下载后 SHA256、固定 release 证书
 与 16 KB 对齐检查通过。尚未对该云端 APK 单独完成设备运行验证。
 
+后续持久历史版本也已出包：[run 41215129237](https://github.com/hanxi/ghosterm/actions/runs/41215129237)，
+源码 `b0bae1b`，APK 为 **5,876,361 字节**，下载后的 SHA256、固定签名证书与对齐检查通过。
+[下载该次 artifact](https://github.com/hanxi/ghosterm/actions/runs/41215129237/artifacts/13047709240)。
+该包包含 §9.73 的任务历史，不含尚待完整回归的 §9.74 前台服务；云端包仍未单独完成设备运行验证。
+
 在 GitHub Actions 中打开 **Android Release APK** 的成功运行，下载
 `Ghosterm-android-release-<commit>` artifact。解压后包含安装 APK、`SHA256SUMS`
 和 `build-info.json`。诊断 artifact 单独保存 R8 映射与 native 符号，均保留 14 天。

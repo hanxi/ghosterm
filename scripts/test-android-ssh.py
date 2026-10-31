@@ -113,8 +113,15 @@ def main():
                     # its remaining classes passed 41 directed tests in 143.255 s.
                     # Budget the full aggregate at 1800 s. Per-operation timing
                     # assertions and directed/mutation 600 s bounds stay unchanged.
-                    output=run([*args,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],
-                               seconds=1800 if selection is None else 600)
+                    import contextlib
+                    access=contextlib.nullcontext()
+                    if selection is None or 'FileForegroundServiceTest' in selection:
+                        spec=importlib.util.spec_from_file_location('foreground_access',ROOT/'scripts/test-android-foreground.py')
+                        foreground_module=importlib.util.module_from_spec(spec);spec.loader.exec_module(foreground_module)
+                        access=foreground_module.notification_access(adb,run)
+                    with access:
+                        output=run([*args,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],
+                                   seconds=1800 if selection is None else 600)
                     (logs/(label+'.log')).write_text(output)
                     if green:
                         good='OK (' in output and 'FAILURES' not in output and 'INSTRUMENTATION_FAILED' not in output

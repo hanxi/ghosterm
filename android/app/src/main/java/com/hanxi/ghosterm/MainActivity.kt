@@ -45,7 +45,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if(savedInstanceState==null && intent.action==FileTransferService.OPEN_TASKS) fileTaskPage.show()
         setContent { GhostermApp() }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent);setIntent(intent)
+        if(intent.action==FileTransferService.OPEN_TASKS) fileTaskPage.show()
     }
 }
 
@@ -89,7 +94,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         if (files.visible) {
             FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error,
                 onPaste={ files.clipboard?.let { snapshot ->
-                    fileTasks.start(snapshot,files.location,
+                    fileTasks.startUserTask(snapshot,files.location,
                         if(files.location.endpoint.remote!=null) files.location.directoryId else files.crumbs.joinToString(" / ") { it.label })
                 } },showTasks=fileTasks::show) { alias ->
                 val host=hosts.snapshot?.hosts?.firstOrNull { it.alias==alias }

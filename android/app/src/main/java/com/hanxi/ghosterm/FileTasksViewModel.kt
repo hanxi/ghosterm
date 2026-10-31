@@ -33,6 +33,13 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope)
     var notice by mutableStateOf<String?>(null); private set
     val busy get() = tasks.any { it.active || it.recording }
     val history = mutableStateListOf<FileJournalRecord>()
+    var backgroundHold by mutableStateOf<String?>(null); private set
+    internal fun holdForBackground(reason: String) { backgroundHold=reason }
+    internal fun allowBackgroundScheduling() { backgroundHold=null;advance() }
+    internal fun stopForBackground(reason: String) {
+        holdForBackground(reason)
+        tasks.filter { it.active }.toList().forEach(::cancel)
+    }
     var journalLoading by mutableStateOf(true); private set
     var journalError by mutableStateOf<String?>(null); private set
     private val journal = FileTaskJournal(File(application.filesDir,"file-history/tasks.db"))
@@ -97,7 +104,7 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope)
     }
     private fun advance() {
         // Scanning, confirmation, execution and actual cancellation cleanup share one slot.
-        if(journalLoading || journalError!=null) return
+        if(journalLoading || journalError!=null || backgroundHold!=null) return
         if(tasks.any { it.active && it.phase!=FileTaskPhase.QUEUED }) return
         val task=tasks.lastOrNull { it.phase==FileTaskPhase.QUEUED } ?: return
         if(!task.recorded || task.recording) return
@@ -233,6 +240,8 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val history get() = work.tasks.history
     val journalLoading get() = work.tasks.journalLoading
     val journalError get() = work.tasks.journalError
+    val background get() = work.background
+    fun retryBackground() = work.background.requestFromUser(presenterId)
     fun reloadHistory() = work.tasks.reloadHistory()
     fun removeHistory(record: FileJournalRecord) = work.tasks.removeHistory(record)
     val authentication get() = work.authentication
@@ -244,6 +253,10 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
         connections: (FilePasteRequest) -> FileTaskConnections = work::connections) {
         visible=true
         work.tasks.start(snapshot,destination,label,connections)
+    }
+    fun startUserTask(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String) {
+        visible=true
+        work.background.submitFromUser(presenterId) { work.tasks.start(snapshot,destination,label,work::connections) }
     }
     fun choose(task: FileTask, ref: FilePasteDecisionRef, path: String, choice: FilePasteChoice, all: Boolean) =
         work.tasks.choose(task,ref,path,choice,all)
