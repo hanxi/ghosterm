@@ -9,7 +9,7 @@ def execute(root,build,test):
     originals={p:p.read_bytes() for p in (native,kotlin)}
     if any(MARK.encode() in data for data in originals.values()):raise RuntimeError('Residual create mutation')
     cases=[
-        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5)','if(status!=GT_OK)','exclusiveCreateProtocolOutcomesSurviveFailure'),
+        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5 && kind!=6)','if(status!=GT_OK)','exclusiveCreateProtocolOutcomesSurviveFailure'),
         ('fd-offset',native,'int owned=fcntl(source_fd,F_DUPFD_CLOEXEC,0);','int owned=fcntl(source_fd,F_DUPFD_CLOEXEC,0);if(owned>=0)lseek(owned,0,SEEK_SET);','exclusiveCreatePreservesContentOffsetAndExistingTarget'),
         ('fd-close',native,'\n        free(path);if(source_fd>=0)close(source_fd);','\n        free(path);','exclusiveCreateCancellationReleasesSourceDuplicate'),
         ('cloexec',native,'int owned=fcntl(source_fd,F_DUPFD_CLOEXEC,0);','int owned=fcntl(source_fd,F_DUPFD,0);','exclusiveCreateCancellationReleasesSourceDuplicate'),

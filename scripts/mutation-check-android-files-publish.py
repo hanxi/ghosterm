@@ -12,7 +12,7 @@ def execute(root,build,test):
     protocol='publishProtocolPreservesRejectedUnknownAndQueryFailure'
     cancel='publishTimeoutAndCancellationReleaseOwner'
     cases=[
-        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5)','if(status!=GT_OK && kind!=3)',protocol),
+        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5 && kind!=6)','if(status!=GT_OK && kind!=3 && kind!=6)',protocol),
         ('paths',native,'files,path,destination,publish_directory','files,destination,path,publish_directory',good),
         ('directory',native,'files,path,destination,publish_directory','files,path,destination,(publish_directory && false)','publishDirectoryPreservesEmptyDirectory'),
         ('size',native,'publish_directory,expected_size,&outcome','publish_directory,0,&outcome',good),

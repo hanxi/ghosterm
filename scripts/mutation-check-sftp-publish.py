@@ -29,7 +29,7 @@ def main():
                 out=run(['bash',ROOT/'core/tests/scripts/ssh_e2e.sh',wrapper],label,red,dict(SFTP_PUBLISH_CASE=case,GHOSTERM_SFTP_PUBLISH_BIN=str(build/'test_sftp_publish')))
                 if not red and 'SFTP PUBLISH ' not in out:raise RuntimeError('Publish tests did not execute')
             compile_core();protocol('','baseline')
-            start=clean.index('static uint32_t publish_remote_error(');end=clean.index('int gt_sftp_stat(',start);piece=clean[start:end]
+            start=clean.index('static uint32_t publish_remote_error(');end=clean.index('/* Validate before any IO;',start);piece=clean[start:end]
             cases=[
                 ('zero-budget','!out || !timeout_ms','!out','normal'),
                 ('jobs','if (has_jobs) return GT_ERR_INVALID_ARG;','if (has_jobs && false) return GT_ERR_INVALID_ARG;','normal'),

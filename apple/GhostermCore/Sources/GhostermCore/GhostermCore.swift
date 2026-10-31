@@ -632,6 +632,13 @@ public struct SFTPPublishResult: Equatable {
     public let remoteStatus: UInt32
 }
 
+public struct SFTPDirectoryCreationResult: Equatable {
+    public enum State: UInt32 { case notAttempted = 0, conflict, unknown, rejected, created, complete }
+    public let status: Int32
+    public let state: State
+    public let remoteStatus: UInt32
+}
+
 public struct SFTPCreateResult {
     public enum State: UInt32 { case notAttempted = 0, unknown, rejected, created, complete }
     public let status: Int32
@@ -687,6 +694,30 @@ public final class SFTPSession {
         }
         out.sort { $0.name < $1.name }
         return out
+    }
+
+    /// One empty remote directory; dedicated owner only. Preserve the result on
+    /// failure/cancellation: acknowledged creation is not rolled back or retried.
+    public func createDirectory(parent: String, name: String, timeoutMilliseconds: UInt32,
+                                cancellation: SSHCancellation? = nil) throws -> SFTPDirectoryCreationResult {
+        guard !parent.isEmpty, !name.isEmpty, !parent.utf8.contains(0), !name.utf8.contains(0) else {
+            throw GhostermError.status(Int32(GT_ERR_INVALID_ARG.rawValue), "Invalid directory path")
+        }
+        var outcome = gt_sftp_mkdir_result_t()
+        let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let status = withExtendedLifetime(cancellation) {
+            parent.withCString { directory in name.withCString { leaf in
+                gt_sftp_mkdir_controlled(handle, directory, leaf, &outcome, timeoutMilliseconds, { pointer in
+                    guard let pointer else { return false }
+                    return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+                }, context)
+            } }
+        }
+        guard let state = SFTPDirectoryCreationResult.State(rawValue: outcome.state.rawValue),
+              (status == 0) == (state == .complete) else {
+            throw GhostermError.status(Int32(GT_ERR_PROTOCOL.rawValue), "Uncertain directory creation outcome")
+        }
+        return SFTPDirectoryCreationResult(status: status, state: state, remoteStatus: outcome.remote_status)
     }
 
     /// Publish a complete task-owned remote path without overwrite. Preserve the

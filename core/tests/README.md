@@ -1,5 +1,13 @@
 # core/tests — 测试与黄金夹具
 
+## 受控远端单目录创建
+
+`gt_sftp_mkdir_controlled` 在专用 owner 上用一个正预算完成父目录 LSTAT/REALPATH、目标不存在检查、0700 MKDIR、子目录 LSTAT/REALPATH 和空目录 OPEN/READ/CLOSE。只有服务器明确返回不存在才尝试创建；未尝试、冲突、未知、明确拒绝、已创建但未核验、核验完成分别保留。创建确认后的取消不会抹掉副作用，最终成功也不被迟到取消改写；不自动重试、合并或删除。SFTP v3 的元数据核验不是父目录 inode 固定或任意远端写者下的原子保证。
+
+`ctest -R sftp_mkdir_e2e` 经真实 OpenSSH 验证 13 个场景，包括 Unicode、嵌套空目录与随后真实文件创建/发布、文件/目录/链接冲突、父目录类型与权限、job owner 拒绝、创建后及完成后的取消。测试单独编译生产 `sftp.c`，包装 mkdir/close 观察请求权限与注入迟到取消，不增加生产测试钩子。
+
+`scripts/test-sftp-mkdir.py` 须经 `core/tests/scripts/ssh_e2e.sh` 和 `build/ssh-channel-toolchain/bin/python` 运行：81 组中一组为上述真实套件，80 组为根路径、协议阶段、总预算、取消、断线、错误码和元数据/空目录故障。`python3 scripts/mutation-check-sftp-mkdir.py` 执行 26 Core＋1 无库＋5 Swift 组；目标须真实编译后断言红、同变异配置对照绿、恢复绿与 SHA256 相同。Android 请求/资源生命周期另由 `scripts/mutation-check-android-mkdir.py` 验证；这些手工脚本不增加 macOS CI 的 20 份覆盖。具体交付结果记录在 Android 实现计划，脚本存在不等于本轮运行通过。
+
 ## 受控远端非覆盖发布
 
 `gt_sftp_publish_controlled` 使用专用 SSH/SFTP owner，共享一个正网络预算完成源/目标 LSTAT、源复核与 flags=0 的 rename。只有明确 NO_SUCH_FILE 才尝试发布；冲突、未尝试、拒绝、未知与成功分别返回，未知不能自动重试或盲删路径。真实服务器行为与协议故障证据分开，不承诺所有服务器上的原子提交或目录内容快照。

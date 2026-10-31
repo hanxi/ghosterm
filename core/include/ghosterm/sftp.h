@@ -165,6 +165,38 @@ int gt_sftp_publish_controlled(gt_sftp_t *sftp, const char *source, const char *
     bool directory, uint64_t expected_size, gt_sftp_publish_result_t *out,
     uint32_t timeout_ms, bool (*cancelled)(void *), void *context);
 
+/* Create one empty directory with requested mode 0700, never merge or retry.
+ * Dedicated SSH/SFTP owner, no jobs/other channels. parent must be the frozen
+ * canonical absolute path (no empty/dot/dot-dot components or trailing slash,
+ * except root); name is one non-dot component, 1..255 bytes. Joined path <64KiB.
+ * Parent LSTAT/REALPATH, target absence, MKDIR, child LSTAT/REALPATH and empty
+ * directory OPEN/READ/CLOSE share one positive budget and cancellation signal.
+ * Only explicit NO_SUCH_FILE admits MKDIR. CONFLICT means target LSTAT succeeded;
+ * REJECTED means MKDIR received a defined operation error, not inferred absence.
+ * UNKNOWN preserves a possible side effect without a usable acknowledgement;
+ * CREATED preserves acknowledged creation even if verification fails/cancels.
+ * COMPLETE means directory/observed path/emptiness and CLOSE were verified; a
+ * subsequent cancellation does not undo it. remote_status retains decoded
+ * server errors; generic FAILURE is not "already exists". No automatic remove,
+ * rollback, fsync, durable journal or protection against arbitrary path writers:
+ * SFTP v3 metadata/REALPATH checks cannot pin a parent inode. Preserve out even
+ * on error; any failure after IO invalidates this owner, reconnect to inspect. */
+typedef enum {
+  GT_SFTP_MKDIR_NOT_ATTEMPTED = 0,
+  GT_SFTP_MKDIR_CONFLICT = 1,
+  GT_SFTP_MKDIR_UNKNOWN = 2,
+  GT_SFTP_MKDIR_REJECTED = 3,
+  GT_SFTP_MKDIR_CREATED = 4,
+  GT_SFTP_MKDIR_COMPLETE = 5,
+} gt_sftp_mkdir_state_t;
+typedef struct {
+  gt_sftp_mkdir_state_t state;
+  uint32_t remote_status;
+} gt_sftp_mkdir_result_t;
+int gt_sftp_mkdir_controlled(gt_sftp_t *sftp, const char *parent, const char *name,
+    gt_sftp_mkdir_result_t *out, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context);
+
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out);
 
 /* lstat：**不跟随**符号链接（报链接自身的属性）。 */

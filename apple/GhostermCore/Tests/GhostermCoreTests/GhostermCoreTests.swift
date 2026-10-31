@@ -232,6 +232,44 @@ final class GhostermCoreTests: XCTestCase {
         XCTAssertNoThrow(try session.abort())
     }
 
+    func testSFTPDirectoryCreationEndToEnd() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],
+              let key = env["GHOSTERM_SSH_KEY"], let port = UInt16(env["GHOSTERM_SSH_PORT"] ?? "") else {
+            throw XCTSkip("SSH fixture required")
+        }
+        for mode in ["normal", "conflict", "missing"] {
+            let session = try SSHSession(SSHOptions(host: host, port: port, username: user,
+                knownHostsPath: env["GHOSTERM_SSH_KNOWN_HOSTS"]))
+            session.setHostKeyDecider { _, _, _, _ in .accept }
+            try session.authenticate(privateKeyPEM: String(contentsOfFile: key, encoding: .utf8))
+            try session.connect(); defer { session.close() }
+            let files = try session.sftp(timeoutMilliseconds: 3000); defer { files.close() }
+            let parent = (key as NSString).deletingLastPathComponent + "/mkdir-" + UUID().uuidString
+            let name = "目录 ☃", target = parent + "/" + name
+            if mode != "missing" { try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: false) }
+            defer { try? FileManager.default.removeItem(atPath: parent) }
+            if mode == "conflict" { try Data("original".utf8).write(to: URL(fileURLWithPath: target)) }
+            XCTAssertThrowsError(try files.createDirectory(parent: parent, name: "bad\0name", timeoutMilliseconds: 3000))
+            let invalid = try files.createDirectory(parent: parent, name: name, timeoutMilliseconds: 0)
+            XCTAssertEqual(invalid.status, 1); XCTAssertEqual(invalid.state, .notAttempted)
+            let cancellation = SSHCancellation(); cancellation.cancel()
+            let cancelled = try files.createDirectory(parent: parent, name: name, timeoutMilliseconds: 3000, cancellation: cancellation)
+            XCTAssertEqual(cancelled.status, 8); XCTAssertEqual(cancelled.state, .notAttempted)
+            let result = try files.createDirectory(parent: parent, name: name, timeoutMilliseconds: 3000)
+            XCTAssertEqual(result.status, mode == "normal" ? 0 : 3)
+            XCTAssertEqual(result.state, mode == "normal" ? .complete : mode == "conflict" ? .conflict : .notAttempted)
+            XCTAssertEqual(result.remoteStatus, mode == "missing" ? 2 : 0)
+            if mode == "normal" {
+                XCTAssertEqual(try files.list(path: target).count, 0)
+                XCTAssertEqual(try files.createDirectory(parent: target, name: "nested", timeoutMilliseconds: 3000).state, .complete)
+                XCTAssertEqual(try files.list(path: target).map(\.fullPath), [target + "/nested"])
+            } else if mode == "conflict" {
+                XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: target)), Data("original".utf8))
+            }
+        }
+    }
+
     func testSFTPPublishEndToEnd() throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],

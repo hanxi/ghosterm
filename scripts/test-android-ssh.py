@@ -37,7 +37,7 @@ def main():
     if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
     file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or
-                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
+                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
     file_data={}
     if file_tests:
         file_key=Path(work)/'file-clientkey'
@@ -90,11 +90,12 @@ def main():
                 def test(label,selection,green):
                     args=[*adb,'shell','am','instrument','-w','-r','-e','fixturePort',str(fixture_port),'-e','fixtureToken',token,'-e','networkRulePrefix',rule_prefix]
                     if selection: args+=['-e','class',selection]
-                    # Full suite now includes real SAF destination picker/fault tests (~100 s
-                    # for the initial 14 cases, on top of the prior ~528 s suite).
-                    # Keep directed/mutation runs at their existing 600 s bound.
+                    # The 358-test baseline took 851.653 s; remote-directory cases
+                    # add protocol cancellation/deadline and resource checks.
+                    # Budget the full aggregate at 1200 s. Per-operation timing
+                    # assertions and directed/mutation 600 s bounds stay unchanged.
                     output=run([*args,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],
-                               seconds=900 if selection is None else 600)
+                               seconds=1200 if selection is None else 600)
                     (logs/(label+'.log')).write_text(output)
                     if green:
                         good='OK (' in output and 'FAILURES' not in output and 'INSTRUMENTATION_FAILED' not in output
@@ -106,6 +107,10 @@ def main():
                 selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else os.environ.get('ANDROID_SSH_TEST_CLASS','com.hanxi.ghosterm.RemoteTerminalTest')
                 output=test('baseline',selection,True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_MKDIR_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('mkdir_mutations',ROOT/'scripts/mutation-check-android-mkdir.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('files_product_mutations',ROOT/'scripts/mutation-check-android-files-product.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
