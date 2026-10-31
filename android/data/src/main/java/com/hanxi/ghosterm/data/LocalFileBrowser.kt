@@ -14,6 +14,8 @@ import android.system.Os
 import android.system.OsConstants
 import android.system.StructPollfd
 import com.hanxi.ghosterm.domain.*
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
@@ -34,14 +36,14 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
         private val columns = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME,
             Document.COLUMN_MIME_TYPE, Document.COLUMN_SIZE, Document.COLUMN_LAST_MODIFIED)
     }
-    private suspend fun <T> io(block: (CancellationSignal, () -> Boolean) -> T): T = suspendCancellableCoroutine { waiting ->
+    private suspend fun <T> io(block: (CancellationSignal, () -> Boolean) -> T): T = coroutineScope { suspendCancellableCoroutine { waiting ->
         val signal = CancellationSignal()
         waiting.invokeOnCancellation { Dispatchers.IO.dispatch(EmptyCoroutineContext) { signal.cancel() } }
-        Dispatchers.IO.dispatch(EmptyCoroutineContext) {
+        launch(Dispatchers.IO) {
             try { if (waiting.isActive) { val result = block(signal) { waiting.isActive }; if (waiting.isActive) waiting.resume(result) } }
             catch (failure: Exception) { if (waiting.isActive) waiting.resumeWithException(failure) }
         }
-    }
+    } }
     private fun tree(value: String): Uri = Uri.parse(value).also {
         require(it.scheme == "content" && Documents.isTreeUri(it)) { "请选择系统授权的文件夹" }
     }

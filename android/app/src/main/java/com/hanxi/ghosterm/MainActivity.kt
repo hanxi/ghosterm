@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel()) {
+fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel()) {
     val runtime by runtimeModel.state.collectAsState()
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) hosts.readImport(uri) }
     val identityImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(),identities::completeImport)
@@ -69,15 +69,22 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         }
         hosts.back()
     }
-    BackHandler(!sessions.visible && !files.visible && hosts.page != Page.HOSTS) { back() }
+    BackHandler(!sessions.visible && !files.visible && !fileTasks.visible && hosts.page != Page.HOSTS) { back() }
     val colors = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFFBACDFF),
         background = Color(0xFF171B20), surface = Color(0xFF21262D), onSurface = Color(0xFFE4E8EE))
         else lightColorScheme(primary = Color(0xFF425F96), background = Color(0xFFF7F8FC), surface = Color(0xFFF7F8FC))
     MaterialTheme(colorScheme = colors) {
         SSHConnectionDialog(sessions)
         SSHSessionChoices(sessions)
+        if(fileTasks.visible) { FileTasksScreen(fileTasks);return@MaterialTheme }
         if (files.visible) {
-            FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error) { alias ->
+            FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error,
+                onPaste={ files.clipboard?.let { snapshot ->
+                    fileTasks.start(snapshot,files.location,
+                        if(files.location.endpoint.remote!=null) files.location.directoryId else files.crumbs.joinToString(" / ") { it.label },
+                        { request -> sessions.fileTaskConnections(request) { fileTasks.cancelRequest(request.id) } },
+                        { result -> files.copyCompleted(result) })
+                } },showTasks=fileTasks::show) { alias ->
                 val host=hosts.snapshot?.hosts?.firstOrNull { it.alias==alias }
                 if(host==null) files.remoteConnectionError("主机配置已不可用，请返回首页重新载入")
                 else {
@@ -108,7 +115,10 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                 if (hosts.page != Page.HOSTS) TextButton(onClick = { back() }, enabled = !hosts.busy) { Text("返回") }
             }, actions = {
                 when (hosts.page) {
-                    Page.HOSTS -> TextButton(onClick = hosts::settings, enabled = !hosts.busy) { Text("设置") }
+                    Page.HOSTS -> {
+                        TextButton(onClick=fileTasks::show) { Text("任务") }
+                        TextButton(onClick = hosts::settings, enabled = !hosts.busy) { Text("设置") }
+                    }
                     Page.EDIT_HOST -> TextButton(onClick = hosts::saveHost, enabled = !hosts.busy && hosts.canEditDraft) { Text("保存") }
                     Page.CONFIG -> TextButton(onClick = hosts::saveConfig, enabled = !hosts.busy && hosts.snapshot != null && hosts.dirty) { Text("保存") }
                     else -> Unit

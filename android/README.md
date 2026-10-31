@@ -1,46 +1,14 @@
 # Android 宿主
 
-**A5 复制执行器（§9.69，2026-10-31）**：`FileCopyExecutor` 已组合 HOME/SAF/远端目录和文件操作，保留逐项结果、实际位置、错误码和候选路径；取消后等待连接与暂存租约结束。24 项定向、33 组新增及既有暂存/读取 36 组变异通过。仅数据层交付，应用认证、冲突/粘贴和任务页面仍待接。见[实施记录](../docs/reference/android-implementation.md#969-a5-复制执行器与逐项结果2026-10-31)。
+**当前实现（2026-10-31，§9.70 当前模拟器档已验）**：Android 已接可见复制清单、粘贴预检/冲突确认、独立任务认证和逐项结果页面。任务由 Activity ViewModel 持有，跨页/旋转保留，取消后等待实际资源释放；进程级调度、后台通知、暂停/重试、进程恢复与完整偏好仍待完成。不同远端命名空间关系未知时阻断，不能据同服务器测试宣称跨主机复制已完成。 详细设计与验证见[Android 实现文档](../docs/reference/android-implementation.md#970-a5-粘贴确认任务认证与结果页面2026-10-31)。
 
-**历史切片：A5 独立任务连接（§9.67，2026-10-31）**：`FileTaskConnections` 已固定源/目标角色并分别建立连接；`closeAndAwait` 等待真实 native 资源释放，第二端失败和取消也回收已取得的连接。16 项真实 SSH/协议定向与 23 组新增变异通过；应用级认证、复制执行器和粘贴页面仍待接，见[实施记录](../docs/reference/android-implementation.md#967-a5-独立任务连接与可等待关闭2026-10-31)。
+**验收边界**：§9.70 的 18 项产品定向、24 组新增变异及既有 97 组回归通过；最终完整设备 **437 项通过，零失败/错误/跳过**（1105.73 秒），仅 API 36 arm64 / 4 KB 页模拟器。714 份非 Markdown 源码摘要未变，安装主/测试 APK 与构建一致。Core 47 CTest / 89 ABI、Apple 87/2、JNI 49/40 和两端原生构建通过；未新增真机、API 29、16 KB 页、发行或 CI 证据。
 
-**历史切片：A5 统一目录数据层（§9.66，2026-10-31）**：`FileDirectoryCreator` 已通过冻结身份的 `RemoteFileBinding` 接受远端请求，统一三类目录结果与请求结束等待（不提供通用连接关闭等待）；9 项真实 SSH/协议设备用例、23 组新变异通过。应用级任务连接、四方向编排和粘贴页面仍待接，详见[实施记录](../docs/reference/android-implementation.md#966-a5-统一远端目录数据层2026-10-31)。
-
-**历史切片：A5 受控远端单目录创建（§9.65，2026-10-31）**：Core/Swift/JNI/Kotlin 请求已接，共用预算、取消与六种副作用结果；12 项设备定向、20 组 Android 新变异和 26 Core＋1 无库＋5 Swift 变异通过。该片仅为后端接口，统一服务后由 §9.66 接入；目录任务与页面仍待接，详见[实施记录](../docs/reference/android-implementation.md#965-a5-受控远端单目录创建2026-10-31)。
-
-**历史切片：A5 本机与 SAF 目录创建（§9.64，2026-10-31）**：私有目录 mkdirat、SAF 新目录、实际名称/不透明 ID、非覆盖与晚到取消结果已接；16 项目录基线与 26 组变异通过，真实后续文件写入已验。仅为单目录原语，远端与任务/页面未接，见[实施记录](../docs/reference/android-implementation.md#964-a5-本机与-saf-目录创建2026-10-31)。
-
-当前实现到 §9.69：复制清单已有页面，扫描、预检、决策、三类目录和文件写入已有数据层；§9.67 补独立任务连接，§9.69 补数据层执行器。任务认证页面、冲突与粘贴入口仍待接，见[实施契约](../docs/reference/android-implementation.md#617-独立任务连接与执行器实施顺序)。
-
-**历史切片：A5 冲突决策与执行清单（§9.63，2026-10-31）**：请求/修订归属、保留两者/跳过、本次全部、不可变清单及有界名称规划已接；15 项定向、42 组变异通过。真实本机竞态、远端→本机及 SAF 新文档集成已验，尚无任务/页面消费者，见[实施记录](../docs/reference/android-implementation.md#963-a5-请求内冲突决策与执行清单2026-10-31)。
-
-**历史切片：A5 复制来源清单（§9.60，2026-10-31）**：选中后复制、原来源卡片、完整清单、替换/清空确认已接。9 项设备定向、16 组新变异及既有浏览 18 / 远端产品 14 组复验通过；不读文件内容、不写系统文本剪贴板，跨页/旋转保留元数据。粘贴执行和目录任务仍待接，见[实施记录](../docs/reference/android-implementation.md#960-a5-复制来源清单与文件页面2026-10-31)。
-
-**历史切片：A5 SAF 文档写入（§9.59，2026-10-31）**：`SafFilePublisher` 已接真实树授权下的新文档创建、写端关闭及内容回读核验；16 项设备定向、30 组变异通过。请求保留未知/已创建/完成与 URI，取消后租约等实际 worker 结束再释放；没有通用 SAF 原子提交或自动删除。该片当时复制页面未接；§9.60/§9.61 已补来源清单与扫描，目标预检后由 §9.62 接入，跨远端关系和粘贴任务仍待接，见[实施记录](../docs/reference/android-implementation.md#959-a5-saf-新文档写入2026-10-31)。
-
-**历史切片：A5 应用私有目录发布（§9.58，2026-10-31）**：`LocalFilePublisher` 已接常规文件的独占候选、写端关闭及 NOREPLACE 提交；十项设备定向、24 组新增与 23 组既有暂存变异通过。来源快照仍匿名，命名目标候选位于 HOME 外的私有目录。该片当时 SAF 写入尚未接入，后由 §9.59 补齐；来源扫描后由 §9.61 补齐；本机/SAF 单目录创建后由 §9.64 接入，远端目录接口后由 §9.65 补齐；任务预算/进程恢复和粘贴执行仍待接入。失败记录、完整设备及跨端验证见[§9.58](../docs/reference/android-implementation.md#958-a5-应用私有目录非覆盖发布2026-10-31)。
-
-**历史切片：共享发布接口（§9.57，2026-10-31）**：远端非覆盖发布、Swift/JNI/Kotlin 绑定及专项已验；46 项 CTest / 88 ABI、Apple 86/2、JNI 48/40。Android 32 项定向及十组发布变异通过，既有读取/创建/owner 13＋9＋18 组独立复验。两端原生构建通过；该片当时复制清单、任务、SAF 目标和 macOS 文件产品迁移未完成；私有目录发布和 SAF 新文档写入后由 §9.58/§9.59 补齐，任务与桌面迁移仍待完成。完整设备结果及协议/变异范围见[§9.57](../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)。
-
-**最近完整设备记录（§9.69）**：419 项通过，零失败/错误/跳过，965.746 秒；仅 API 36 arm64 / 4 KB 页模拟器。708 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建摘要一致。§9.67 的 395 项保留为历史产物；复制执行器已接数据层，跨远端关系、任务认证产品接线、冲突与粘贴页面仍待完成。
-
-**历史切片：A5 远端读取暂存（§9.56，2026-10-31）**：已接受控远端读取、匿名目标封装，以及取消上传/下载时的 native fd 释放通知。共享与平台变异通过；该片当时应用级任务 store、SAF 目标写入和复制页面未接入；远端发布与 SAF 新文档写入后由 §9.57/§9.59 补齐，§9.60 已接来源清单页面，粘贴任务仍待接入。证据与边界见 [§9.56](../docs/reference/android-implementation.md#956-a5-远端读取到匿名暂存2026-10-31)。
-
-**阶段记录：A5 远端暂存创建（§9.54，2026-10-31）**：已接独占创建、源 fd 校验和分阶段结果，以及 Swift/JNI/Kotlin 绑定。44 CTest / 86 ABI、Apple 84/2、JNI 46/40；22 组 Core/无库/Swift、九组 Android 新变异及既有 owner 18 组通过，两端原生构建通过。该片当时最终目标发布、复制清单和任务队列仍待实现；macOS 文件产品尚未消费新接口。 设备范围与失败记录见 [§9.54](../docs/reference/android-implementation.md#954-a5-远端独占暂存创建2026-10-31)。
-
-**阶段记录：A5 共享前置（§9.53，2026-10-31）**：传输打开顺序、覆盖截断、关闭结果与排队取消已修复；43 CTest / 85 ABI、13＋8 组变异、两端构建、Swift 1 项与 Android 22 项定向通过。该片当时非覆盖提交与复制产品仍待完成；未重跑完整设备/Apple 宿主/打包/CI。见 [§9.53](../docs/reference/android-implementation.md#953-a5-共享传输结果前置2026-10-31)。
-
-**Android 远端文件页面（§9.52）**：位置选择、配置准入/认证、目录/文本预览和生命周期已接入，文件连接独立于终端。9 项新增设备、14 组新产品与 18＋15 组既有变异、最终完整 236 项设备回归通过。42 CTest / 85 ABI、Apple 83/2、JNI 45/40 与两端构建通过；macOS 产品未迁移，详见 [实施记录](../docs/reference/android-implementation.md#952-android-远端文件页面接线2026-10-30)。
-
-最终页面方案与开发顺序见[详细实现文档](../docs/reference/android-implementation.md)：§6.5 给出真实文件浏览、多选、待粘贴清单、冲突与任务的接入次序；§7.1 给出 16 项设置的存储、即时应用、失败恢复和验收。A4 本机/SAF 只读浏览与多选已由 §9.43 交付；远端只读页面已由 §9.52 接入，复制任务和完整偏好仍按这两节实施。当前信任管理已有共享读取快照、TOFU/移除事务和删除桥。repository、公钥指纹及设置管理页已通过 11 项定向、17 组变异及完整 175 项设备回归，见[§9.39](../docs/reference/android-implementation.md#939-主机验证记录管理页面2026-10-30)；A3 网络矩阵和 A7 完整偏好仍未完成。
-
-A3 网络收尾具体要求见[§4.6](../docs/reference/android-implementation.md#46-a3-网络与取消收尾)：候选地址推进已接入同一个 native owner，TCP 阶段尝试备用地址、共享剩余总预算，协商/信任失败不换地址。12 项真实 SSH/模拟器定向及 14 组变异见 §9.40；通道打开取消已由 §9.41 接入；真实域名 DNS 及断线/设备矩阵仍待完成。
-
-状态（2026-10-31）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有 SSH 身份、主机验证记录、配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话、SAF 导入、凭据、身份设置、主机关联、信任读写桥、候选地址与通道取消与本机/SAF 及远端文件页面已通过 §9.69 最终产物的完整 419 项回归；远端文件页面已由 §9.52 接入，完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
+状态（2026-10-31）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有 SSH 身份、主机验证记录、配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话、SAF 导入、凭据、身份设置、主机关联、信任读写桥、候选地址与通道取消与本机/SAF 及远端文件页面已有设备回归记录（最新结果见页首及 §9.70）；远端文件页面已由 §9.52 接入，完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
 
 §9.41 的 200 项对应通道切片 `6817bd8` 的源码；通道十三组、产品十五组及共享 SSH/exec/tmux 回归已收口。早期失败和未覆盖的真实网络/设备范围保留在 §9.41，不表示整个 A3 已完成。
 
-**文件浏览首片**：`FilesScreen` / `FilesViewModel`、domain 模型和 `LocalFileBrowser` 已接应用 HOME、系统授权树、只读 UTF-8 预览与多选。14 项定向、18 组变异和完整 214 项设备回归通过；终端会话/文件/键盘导航已对齐，原有编译和 fd 泄漏问题已修复。远端位置后来由 §9.52 接入，§9.60 已接文件复制来源清单；粘贴任务和 16 项持久偏好仍待接入，见 [§9.43](../docs/reference/android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)。
+**文件浏览首片**：`FilesScreen` / `FilesViewModel`、domain 模型和 `LocalFileBrowser` 已接应用 HOME、系统授权树、只读 UTF-8 预览与多选。14 项定向、18 组变异和完整 214 项设备回归通过；终端会话/文件/键盘导航已对齐，原有编译和 fd 泄漏问题已修复。远端位置后来由 §9.52 接入，§9.60 已接文件复制来源清单；§9.70 已接粘贴任务，16 项持久偏好仍待接入，见 [§9.43](../docs/reference/android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)。
 
 当前表单显示 HostName/User/Port 的默认、继承或显式来源；早期规则遮蔽本块设置时也会说明。只读主机可打开配置页调整，返回后刷新字段和编辑权限，详见[实现计划 §9.5](../docs/reference/android-implementation.md#95-字段来源与编辑归属2026-10-29)。这些三字段来源不代表全部高级配置已支持；身份来源和容器关联另见 §9.34–§9.35。
 
@@ -54,13 +22,13 @@ A3 网络收尾具体要求见[§4.6](../docs/reference/android-implementation.m
 
 A2 首片接入系统 shell、原生 owner、VT 网格与 Canvas、InputConnection、会话切换和关闭确认；Activity 重建与系统键盘尺寸已有真实路径证据。首片完整 63 项设备测试与 21 组终端变异的历史记录见[§9.13](../docs/reference/android-implementation.md#913-a2-真本地终端与生命周期首片2026-10-30)。文本操作切片另接长按选词、选区手柄、系统复制粘贴及确认、本地清屏、正常 shell 退出后的浏览/复制；该片验证集中记录在[§9.14](../docs/reference/android-implementation.md#914-a2-文本操作工作区与文档复核2026-10-30)。选区边缘自动滚动、锚点跨越与 Ctrl 状态清理已交付，85 项完整设备测试及 35 组文本/21 组终端变异见[§9.15](../docs/reference/android-implementation.md#915-选区与-ctrl-工作区进度2026-10-30)；本片已验 Ctrl 标点、模式感知 Enter 与真实 Gboard 拼音基本路径，完整 90 项设备测试和本轮选组变异见[§9.16](../docs/reference/android-implementation.md#916-ctrl-标点与键盘协议2026-10-30)；后续按键重复/释放、焦点归属与辅助键成对事件已通过完整 94 项设备测试和 18+2 组选组变异，见[§9.17](../docs/reference/android-implementation.md#917-按键重复释放与焦点归属2026-10-30)。完整软硬键盘矩阵与性能仍待完成。
 
-与最终原型的差距仍需保留：终端底栏已按 §9.43 改为会话/文件/唯一键盘入口；字号当前为 14sp，原型的默认 12sp 与其余完整偏好等 A7。文本剪贴板不等于文件待粘贴清单，后者属于 A5/A6。
+与最终原型的差距仍需保留：终端底栏已按 §9.43 改为会话/文件/唯一键盘入口；字号当前为 14sp，原型的默认 12sp 与其余完整偏好等 A7。文件待粘贴清单已由 §9.60 接入，§9.70 任务默认保留它；两者与终端文本剪贴板分别管理。
 
 修饰键、数字键盘与组合音符扩展已完成本片验收：完整 **99 项设备测试，0 失败/错误/跳过**；文本变异选跑 **24 组**通过，含新增 16 组与旧八组，见[§9.18](../docs/reference/android-implementation.md#918-修饰键数字键盘与组合音符2026-10-30)。脚本总量 71 组不是本轮全量重跑；证据仍限 API 36 arm64 / 4 KB 页模拟器。
 
 静止画面的闪烁文字已修复：隐藏光标且没有新输出时仍自动重绘，普通文字保持可见。该切片完整设备测试 **100 项全通过**，五组渲染变异通过，证据见[§9.19](../docs/reference/android-implementation.md#919-静止画面的闪烁文本2026-10-30)；不替代 A2 性能与真机验收。
 
-后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。§9.49 的完整 **214 项，0 失败/错误/跳过**为历史记录（含文件浏览与既有真实 SSH/凭据/通道夹具）；最近完整设备结果为 §9.69 的 419 项，仍限同一模拟器档，§9.41 的选区早期失败及复验记录继续保留；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
+后续已接入输入后 120ms 内按显示帧取快照、随后回到 32ms 轮询；模拟器 debug 性能基线、四组性能变异和五组选组回归通过。§9.49 的完整 **214 项，0 失败/错误/跳过**为历史记录（含文件浏览与既有真实 SSH/凭据/通道夹具）；最近完整设备结果见页首与 §9.70，仍限同一模拟器档，§9.41 的选区早期失败及复验记录继续保留；性能基线见[§9.21](../docs/reference/android-implementation.md#921-输入后短时取帧与性能基线2026-10-30)；真机/release、长负载与完整输入矩阵仍待验收。
 
 共享主机信任前置已修复撤销/CA 标记误信任，信任写入/关闭失败会阻断认证（§9.22–§9.23）。共享连接配置准入和 SSH native 后端分别见 §9.24–§9.25。当前首页在最终配置检查通过后进入 DNS/主机验证/凭据与远端终端；默认 ViewModel 工厂已修复。同主机多连接按 UUID 选择，明确新建保留旧连接；Keystore AES-GCM 容器只落盘密文。具体生产入口、定向证据与未完成项见[§9.27](../docs/reference/android-implementation.md#927-ssh-产品页面与加密身份容器2026-10-30)。
 
@@ -76,7 +44,7 @@ SSH 身份设置已接通列表、详情、指纹、导入与移除，身份设�
 
 位置面板从当前主机配置发起独立文件连接，共用既有 DNS、主机验证与身份认证；不借用终端连接。端点保留 UUID 和实际 host/user/port 快照，配置编辑不改写已连接端点。真实目录成功后显示规范路径，点按预览、长按选择；离页关闭浏览连接，重新进入须显式重连。
 
-实现入口为 [文件 repository](data/src/main/java/com/hanxi/ghosterm/data/FileBrowserRepository.kt)、[文件 ViewModel](app/src/main/java/com/hanxi/ghosterm/FilesViewModel.kt) 与 [真实产品设备测试](app/src/androidTest/java/com/hanxi/ghosterm/RemoteFilesProductTest.kt)。§9.60 已接复制来源清单；传输任务与外部打开仍待开发；不得将浏览连接的离页关闭规则套到未来任务。
+实现入口为 [文件 repository](data/src/main/java/com/hanxi/ghosterm/data/FileBrowserRepository.kt)、[文件 ViewModel](app/src/main/java/com/hanxi/ghosterm/FilesViewModel.kt) 与 [真实产品设备测试](app/src/androidTest/java/com/hanxi/ghosterm/RemoteFilesProductTest.kt)。§9.60 已接复制来源清单；§9.70 已接粘贴任务，外部打开仍待开发；浏览连接离页关闭，独立任务连接由任务持有者管理。
 
 ```bash
 ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFilesProductTest bash scripts/test-android-ssh.sh
@@ -86,9 +54,20 @@ ANDROID_SERIAL=设备 ANDROID_FILES_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.
 第二条运行 14 组已编译的产品变异，每组配同 APK 独立配置对照及恢复验证；来源为 [变异脚本](../scripts/mutation-check-android-files-product.py)。完整验证结果与历史失败见实现计划 §9.52；需要先准备 SSH 协议夹具环境，见下文测试入口。
 
 
+## 粘贴确认与任务页面
+
+§9.70 新增 [FileTasksViewModel](app/src/main/java/com/hanxi/ghosterm/FileTasksViewModel.kt) 和 [FileTasksScreen](app/src/main/java/com/hanxi/ghosterm/FileTasksScreen.kt)。文件来源卡片提供粘贴入口；任务固定源/目标，预检后确认冲突，独立认证后执行，保留实际位置与逐项错误。默认保留复制清单；取消要等待实际 provider/原生资源释放，不立即释放名额。完整实现及尚未完成范围见[任务契约](../docs/reference/android-implementation.md#619-当前任务页面与-a6-后续实现)。
+
+```bash
+ANDROID_SERIAL=emulator-5554 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileTasksProductTest,com.hanxi.ghosterm.RemoteFileTasksProductTest,com.hanxi.ghosterm.SafFileTasksProductTest bash scripts/test-android-ssh.sh
+ANDROID_SERIAL=emulator-5554 ANDROID_FILE_TASK_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileTasksProductTest,com.hanxi.ghosterm.RemoteFileTasksProductTest,com.hanxi.ghosterm.SafFileTasksProductTest bash scripts/test-android-ssh.sh
+```
+
+18 项定向使用真实 HOME、系统 DocumentsUI/独立 provider 与 SSH。24 组产品变异覆盖路由、请求身份、取消名额、结果/清单和认证归属；失败过程与最终证据统一记在 §9.70。当前 owner 属于 Activity，不是进程级队列；离页/旋转保留，显式结束 Activity 会取消，后台通知/暂停/重试/进程恢复未实现。主机顶栏新增任务快捷入口，与 HTML 顶栏仅设置的差异仍待导航收口。
+
 ## 冲突决策与执行清单验证
 
-`FilePasteDecisions` 绑定请求与确认修订，`FileCopyPlan` 冻结来源、目标名称、跳过原因与大小已知性。`FileCopyNames` 只产生有界候选，名称最终仍须独占创建/非覆盖发布。15 项定向与 42 组变异证据见 §9.63；不等于粘贴任务或冲突页面已经完成。
+`FilePasteDecisions` 绑定请求与确认修订，`FileCopyPlan` 冻结来源、目标名称、跳过原因与大小已知性。`FileCopyNames` 只产生有界候选，名称最终仍须独占创建/非覆盖发布。15 项定向与 42 组变异证据见 §9.63；是该数据层的历史证据；§9.70 已接任务和冲突页面，本片当前模拟器档验证通过。
 
 ```bash
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-decisions.py
@@ -96,7 +75,7 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-decisions.py
 
 ## 目标预检验证
 
-`FileDestinationAccess` 读取真实目标，`FilePastePreflight` 保留请求身份、创建能力三态与只读冲突数据。相同目录/目录自身后代被拒绝，读取错误不当作空目录；不同远端命名空间关系仍未知。仅元数据预检，尚无任务/页面消费者，不能代替写前重验和非覆盖提交。
+`FileDestinationAccess` 读取真实目标，`FilePastePreflight` 保留请求身份、创建能力三态与只读冲突数据。相同目录/目录自身后代被拒绝，读取错误不当作空目录；不同远端命名空间关系仍未知。仅元数据预检，§9.70 已有任务/页面消费者，不能代替写前重验和非覆盖提交。
 
 ```bash
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-preflight.py
@@ -106,7 +85,7 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-preflight.py
 
 ## 来源树扫描验证
 
-`FilePasteRequest` 固定源/目标和请求身份；`FileTreeScanner` 仅枚举、复核来源元数据。默认深度 32、16384 节点、4 MiB 结果文本和 30 秒预算；失败/超限不发布完整计划，链接与特殊类型等待显式决策。扫描成功不代表目标授权或允许写入，任务连接与粘贴执行仍待接。
+`FilePasteRequest` 固定源/目标和请求身份；`FileTreeScanner` 仅枚举、复核来源元数据。默认深度 32、16384 节点、4 MiB 结果文本和 30 秒预算；失败/超限不发布完整计划，链接与特殊类型等待显式决策。扫描成功不代表目标授权或允许写入，任务连接由 §9.67、执行器由 §9.69、页面由 §9.70 接入。
 
 ```bash
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-scan.py
@@ -116,7 +95,7 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-scan.py
 
 ## 复制来源清单验证
 
-已接选中后复制、跨位置来源卡片、完整清单与确认替换/清空。复制只冻结选择元数据；§9.61 已接来源扫描；粘贴执行、授权重验与任务仍待实现。清单随 Activity 的 ViewModel 存活，旋转保留，结束 Activity 或进程死亡不恢复；不写系统文本剪贴板，也不持有文件连接。
+已接选中后复制、跨位置来源卡片、完整清单与确认替换/清空。复制只冻结选择元数据；§9.61 已接来源扫描；§9.70 已接粘贴执行、授权重验与任务页面。清单随 Activity 的 ViewModel 存活，旋转保留，结束 Activity 或进程死亡不恢复；不写系统文本剪贴板，也不持有文件连接。
 
 ```bash
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-clipboard.py
@@ -139,7 +118,7 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-saf-publicat
 ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-files.py
 ```
 
-真实本地文件与系统树选择器；18 组目标红/同 APK 配置对照绿/恢复绿/SHA。无需 SSH 夹具即可定向跑；完整套件仍按下文使用 SSH/凭据/协议端夹具。首片只读浏览与有界 UTF-8 预览；后续远端页面见 §9.52，复制队列未接，详见 §9.43。
+真实本地文件与系统树选择器；18 组目标红/同 APK 配置对照绿/恢复绿/SHA。无需 SSH 夹具即可定向跑；完整套件仍按下文使用 SSH/凭据/协议端夹具。首片只读浏览与有界 UTF-8 预览；后续远端页面见 §9.52，Activity 任务页面见 §9.70，进程级队列未接，详见 §9.43。
 
 ## SFTP 依赖验证
 

@@ -14,7 +14,7 @@
 
 `ctest -R sftp_publish_e2e` 经真实 OpenSSH 验 11 个场景。测试独立编译生产 `sftp.c`，仅包装 rename 检查 flags 和注入成功后的迟到取消，不向生产库添加钩子。`scripts/test-sftp-publish.py` 在隔离 sshd/钉版本 Python 下执行 46 组，其中一组为上述真实套件，45 项为协议响应、请求阶段、预算、取消和错误分类验证。`python3 scripts/mutation-check-sftp-publish.py` 为 20 Core＋1 无库＋5 Swift，均要求编译后目标红、独立配置对照绿、复原绿和 SHA256；无库组链接实际 archive。属于手工证据，不增加 CI 20 份。
 
-状态表、两端绑定、Android 设备变异、首轮无效变异及产品未接边界见 [§9.57](../../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)。Swift 通过不意味着桌面旧传输队列已改用该接口。
+状态表、两端绑定、Android 设备变异、首轮无效变异及当时产品未接边界见 [§9.57](../../docs/reference/android-implementation.md#957-a5-远端非覆盖发布2026-10-31)。Android 已由 §9.69 执行器和 §9.70 任务页面消费该接口，产品证据见对应实施记录；Swift 通过不意味着桌面旧传输队列已改用该接口。
 
 ## 有界接收到调用方暂存 fd
 

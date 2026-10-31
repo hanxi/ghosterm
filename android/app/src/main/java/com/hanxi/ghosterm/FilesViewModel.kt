@@ -90,6 +90,12 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
         if(clipboard?.id!=expected) { clipboardError="复制清单已更新，请重新操作";return }
         clipboard=null;clipboardDetails=false;clipboardError=null
     }
+    fun copyCompleted(result: FileCopyProgress, clearUsed: Boolean = false) {
+        if(clearUsed && result.mayClearClipboard && clipboard?.id==result.clipboardId) {
+            clipboard=null;dismissClipboardDialogs();clipboardError=null
+        }
+        if(visible && preview==null && !selecting && result.items.any { it.targetParent==location }) reload()
+    }
     private fun dismissClipboardDialogs() {
         clipboardDetails=false;clipboardReplacement=null;clipboardClearId=null
     }

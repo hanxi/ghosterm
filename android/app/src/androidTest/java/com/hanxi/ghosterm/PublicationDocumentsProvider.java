@@ -77,9 +77,11 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         v.put(Document.COLUMN_LAST_MODIFIED,null);row(c,v);
     }
     @Override public Cursor queryDocument(String id,String[] projection) throws FileNotFoundException {
+        if(mode.equals("metadata-stall")) { active.incrementAndGet();try { waitGate(); } finally { active.decrementAndGet(); } }
         MatrixCursor c=cursor(projection);document(c,id);return c;
     }
     @Override public Cursor queryChildDocuments(String parent,String[] projection,String sort) throws FileNotFoundException {
+        if(mode.equals("list-stall")) { active.incrementAndGet();try { waitGate(); } finally { active.decrementAndGet(); } }
         if(mode.equals("list-fail"))throw new FileNotFoundException("Listing denied");
         MatrixCursor c=cursor(projection);
         if(parent.equals("pub:root"))document(c,"pub:folder");

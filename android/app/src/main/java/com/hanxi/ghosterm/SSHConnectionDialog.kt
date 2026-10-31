@@ -49,6 +49,7 @@ fun SSHConnectionDialog(model: SessionsViewModel) {
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                attempt.taskLabel?.let { Text(it, modifier = Modifier.testTag("ssh-task-role")) }
                 Text("${attempt.target.alias} · ${attempt.target.host}:${attempt.target.port}")
                 if (attempt.username.isNotBlank()) Text("用户：${attempt.username}")
                 when {

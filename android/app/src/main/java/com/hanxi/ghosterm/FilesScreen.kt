@@ -26,7 +26,7 @@ import com.hanxi.ghosterm.domain.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List<String> = emptyList(),
-    remoteError: String? = null, connectRemote: (String) -> Unit = {}) {
+    remoteError: String? = null, onPaste: () -> Unit = {}, showTasks: () -> Unit = {}, connectRemote: (String) -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     val context=LocalContext.current
     BackHandler { if(menu) menu=false else model.back() }
@@ -40,6 +40,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 Box {
                     TextButton(onClick={ menu=true }) { Text("更多") }
                     DropdownMenu(expanded=menu,onDismissRequest={ menu=false }) {
+                        DropdownMenuItem(text={ Text("文件任务") },onClick={ menu=false;showTasks() })
                         if(model.location.endpoint.remoteAlias!=null)
                             DropdownMenuItem(text={ Text("断开文件连接") },onClick={ menu=false;model.disconnectRemote() })
                         DropdownMenuItem(text={ Text("刷新") },onClick={ menu=false;model.reload() })
@@ -111,6 +112,8 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                             modifier=Modifier.testTag("file-clipboard-path"),style=MaterialTheme.typography.bodySmall)
                         if(!model.selecting) Text(snapshot.items.take(3).joinToString("、") { it.name }+if(snapshot.items.size>3) "…" else "",
                             maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("file-clipboard-names"))
+                        if(!model.selecting) Button(onClick=onPaste,enabled=!model.loading && model.error==null,
+                            modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("file-paste")) { Text("粘贴到当前目录") }
                         Row {
                             TextButton(onClick=model::showClipboard,modifier=Modifier.heightIn(min=48.dp)) { Text("查看清单") }
                             TextButton(onClick=model::requestClipboardClear,modifier=Modifier.heightIn(min=48.dp)) { Text("清空") }

@@ -24,7 +24,7 @@ def execute(root,build,test):
       ('missing-key',vault,'?: error("安全密钥不可用，请重新导入身份")','?: return@synchronized Base64.getDecoder().decode(json.getString("ciphertext"))',v('missingKeystoreKeyNeverRegeneratesOrFallsBack'),1),
       ('format',vault,'check(requirement in 0..1)','check(requirement in -1..1)',v('invalidOrNulMaterialIsRejectedAndCleared'),1),
       ('prepare',config,'gt_config_check_connection(cfg,alias,0,&issue)!=GT_OK','gt_config_check_connection(cfg,alias,0,&issue)==GT_ERR_INVALID_ARG','SSHConnectionModelTest#preparationRechecksIncludedConfigurationAndPreservesRawBytes',1),
-      ('budget',model,'withTimeout(connectionBudgetMillis)','withTimeout(60000)','SSHConnectionModelTest#timeoutCancelsDnsAndShowsFailure',1),
+      ('budget',model,'withTimeout(connectionBudgetMillis) {\n                    val addresses =','withTimeout(60000) {\n                    val addresses =','SSHConnectionModelTest#timeoutCancelsDnsAndShowsFailure',1),
       ('username',model,'if (target.user.isNotBlank()) startConnection(attempt)','startConnection(attempt)','SSHConnectionModelTest#missingUsernameDoesNotResolveUntilValidInputAndDoesNotMutateTarget',1),
       ('host-route',screen,'model.checkConnection(host, sessions::connect)','model.checkConnection(host) { _ -> }',p('homeTrustKeyAuthenticationAndRotationKeepOneRemoteShell'),1),
       ('reject-button',dialog,'model.decide(attempt.id,prompt!!,false)','model.decide(attempt.id,prompt!!,true)',p('refusalNeverRequestsCredentialsOrWritesTrust'),1),

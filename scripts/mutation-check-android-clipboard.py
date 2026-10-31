@@ -33,7 +33,7 @@ def main():
         ('source-identity',store,'UUID.randomUUID().toString(), source, sourcePathLabel','UUID.randomUUID().toString(), FileLocation(FileEndpoint.APP), sourcePathLabel',snapshot),
         ('selected-only',model,'visibleEntries.filter { it.id in selected }','visibleEntries',copy),
         ('exit-selection',model,'clipboard=snapshot;clipboardError=null;dismissClipboardDialogs();clearSelection()','clipboard=snapshot;clipboardError=null;dismissClipboardDialogs()',copy),
-        ('leave-preserves',model,'dismissClipboardDialogs();clipboardError=null','dismissClipboardDialogs();clipboardError=null;clipboard=null','navigationLeaveAndReloadKeepFrozenOriginAndCancelOldReplacement'),
+        ('leave-preserves',model,'dismissClipboardDialogs();clipboardError=null\n        cancelRead()', 'dismissClipboardDialogs();clipboardError=null;clipboard=null\n        cancelRead()','navigationLeaveAndReloadKeepFrozenOriginAndCancelOldReplacement'),
         ('replace-confirmation',model,'else clipboardReplacement=ClipboardReplacement(previous.id,snapshot)','else installClipboard(snapshot)',replace),
         ('clear',model,'clipboard=null;clipboardDetails=false;clipboardError=null','clipboard=clipboard;clipboardDetails=false;clipboardError=null',replace),
         ('card-source',screen,'Text(clipboardSource(snapshot),maxLines=','Text("wrong source",maxLines=',copy),

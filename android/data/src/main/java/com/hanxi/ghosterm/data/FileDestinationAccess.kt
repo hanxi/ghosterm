@@ -20,14 +20,14 @@ import kotlin.coroutines.resumeWithException
  * Namespace checks do not prove that different providers/servers never alias storage. */
 class FileDestinationAccess(private val home: File, private val resolver: ContentResolver,
     private val browse: suspend (FileLocation) -> BrowserDirectory) {
-    private suspend fun <T> io(block: (CancellationSignal) -> T): T = suspendCancellableCoroutine { waiting ->
+    private suspend fun <T> io(block: (CancellationSignal) -> T): T = coroutineScope { suspendCancellableCoroutine { waiting ->
         val signal=CancellationSignal()
         waiting.invokeOnCancellation { Dispatchers.IO.dispatch(EmptyCoroutineContext) { signal.cancel() } }
-        Dispatchers.IO.dispatch(EmptyCoroutineContext) {
+        launch(Dispatchers.IO) {
             try { if(waiting.isActive) { val result=block(signal);if(waiting.isActive) waiting.resume(result) } }
             catch(error: Exception) { if(waiting.isActive) waiting.resumeWithException(error) }
         }
-    }
+    } }
     private fun tree(location: FileLocation, write: Boolean): Uri {
         val endpoint=location.endpoint
         require(endpoint.remote==null)

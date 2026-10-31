@@ -11,16 +11,12 @@ import android.net.Uri
 import android.os.SystemClock
 import com.hanxi.ghosterm.data.IdentityDocumentReader
 import java.net.Inet6Address
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.*
+import com.hanxi.ghosterm.data.ConfigRepository
+import com.hanxi.ghosterm.data.FileTaskConnections
+import com.hanxi.ghosterm.domain.FilePasteRequest
+import com.hanxi.ghosterm.domain.FileEndpoint
 import com.hanxi.ghosterm.terminal.TerminalSurface
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -31,7 +27,9 @@ class TerminalSession(val id: UUID, val title: String, internal val connection: 
 
 /** Activity ViewModel lifetime survives rotation; navigating never closes a session. */
 class SSHAttempt(val target: PreparedSSH, internal val filesReady: ((RemoteFileSession, String) -> Unit)? = null) {
-    val forFiles get() = filesReady != null
+    internal var taskLabel: String? = null
+    internal var taskCancelled: (() -> Unit)? = null
+    val forFiles get() = filesReady != null || taskLabel != null
     val id: UUID = UUID.randomUUID()
     var username by mutableStateOf(target.user)
     var message by mutableStateOf("正在解析主机地址…")
@@ -121,6 +119,87 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         val attempt = SSHAttempt(target,ready); connecting = attempt
         if(target.user.isNotBlank()) startConnection(attempt)
     }
+    /** The task owns these sessions. Authentication only lends the existing credential UI;
+     * it never adopts the session into the browser or terminal collection. */
+    fun fileTaskConnections(request: FilePasteRequest, cancelled: () -> Unit = {}): FileTaskConnections {
+        val targets = mutableMapOf<FileTaskConnections.Role, PreparedSSH>()
+        return FileTaskConnections(request.source.endpoint, request.destination.endpoint,
+            resolve = { role, endpoint ->
+                val deadline = SystemClock.elapsedRealtime() + connectionBudgetMillis
+                withTimeout(connectionBudgetMillis) {
+                    val identity = checkNotNull(endpoint.remote)
+                    val target = withContext(Dispatchers.IO) {
+                        val repository = ConfigRepository(File(getApplication<Application>().filesDir, "home/.ssh"))
+                        val snapshot = repository.load()
+                        check(snapshot.hosts.any { it.alias == identity.alias }) { "来源主机配置已移除，请重新选择位置" }
+                        val issues = repository.connectionIssues(snapshot, identity.alias)
+                        check(issues.isEmpty()) { "不支持 SSH 配置：" + issues.joinToString("、") { it.description } }
+                        val prepared = repository.prepareConnection(snapshot, identity.alias)
+                        check(prepared.host == identity.host && prepared.port == identity.port &&
+                            (prepared.user.isBlank() || prepared.user == identity.user)) { "主机地址或用户已改变，请重新选择位置" }
+                        prepared.copy(user = identity.user, identityFiles = prepared.identityFiles.toList())
+                    }
+                    val addresses = withContext(Dispatchers.IO) { resolver.resolve(target.host) }
+                    ensureActive()
+                    check(addresses.isNotEmpty()) { "没有可用的主机地址" }
+                    val known = withContext(Dispatchers.IO) {
+                        File(getApplication<Application>().filesDir, "home/.ssh/known_hosts").also {
+                            check(it.parentFile!!.isDirectory || it.parentFile!!.mkdirs()) { "无法准备主机信任目录" }
+                        }
+                    }
+                    val remaining = deadline - SystemClock.elapsedRealtime()
+                    check(remaining > 0) { "任务连接超时" }
+                    targets[role] = target
+                    ResolvedSSHConnection(target.host,target.port,target.user,known.absolutePath,
+                        addresses.map { ResolvedSSHAddress(it.address,(it as? Inet6Address)?.scopeId ?: 0) },
+                        remaining.coerceAtMost(60_000).toInt())
+                }
+            }, authenticate = { role, endpoint, connection ->
+                authenticateFileTask(request.id,role,endpoint,targets.getValue(role),connection,cancelled)
+            })
+    }
+    private suspend fun authenticateFileTask(requestId: String, role: FileTaskConnections.Role,
+        endpoint: FileEndpoint, target: PreparedSSH, connection: RemoteFileSession, cancelled: () -> Unit) = withContext(Dispatchers.Main.immediate) {
+        coroutineScope {
+            check(connecting == null) { "另一个连接正在等待认证，请完成后重新粘贴" }
+            val identity = checkNotNull(endpoint.remote)
+            check(connection.peer.host == identity.host && connection.peer.port == identity.port && connection.peer.user == identity.user) {
+                "任务认证连接身份不匹配"
+            }
+            val attempt = SSHAttempt(target).also {
+                it.taskLabel = "复制任务 · " + if(role == FileTaskConnections.Role.SOURCE) "读取来源" else "写入目标"
+                it.taskCancelled = cancelled
+                it.connection = connection; it.job = coroutineContext[Job]
+            }
+            // Each invocation has a fresh attempt UUID, even for the other role on the same host.
+            connecting = attempt
+            try {
+                withTimeout(connectionBudgetMillis) {
+                    var listed = false
+                    while(true) {
+                        ensureActive()
+                        check(connecting === attempt) { "任务认证请求已失效：$requestId" }
+                        val auth = connection.authentication()
+                        attempt.auth = auth; attempt.message = auth.description
+                        val state = connection.state()
+                        if(state.ready) break
+                        check(!state.finished && auth.phase != SSHAuthPhase.FAILED && auth.phase != SSHAuthPhase.CANCELLED) {
+                            if(auth.phase == SSHAuthPhase.FAILED) auth.description else "任务文件连接未完成（${state.error}）"
+                        }
+                        if(auth.phase == SSHAuthPhase.CREDENTIALS && !listed) {
+                            try { attempt.identities = withContext(Dispatchers.IO) { vault.list() } }
+                            catch(_: Exception) { attempt.credentialError = "无法读取身份容器，请检查或重新导入密钥" }
+                            listed = true
+                        }
+                        delay(50)
+                    }
+                }
+            } finally {
+                attempt.credentialJob?.cancel(); attempt.connection = null
+                if(connecting === attempt) connecting = null
+            }
+        }
+    }
     fun setConnectionUsername(id: UUID, value: String) {
         val attempt = connecting?.takeIf { it.id == id && it.job == null } ?: return
         val user = value.trim()
@@ -194,7 +273,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     }
     fun cancelConnection(id: UUID) {
         val attempt = connecting?.takeIf { it.id == id } ?: return
-        connecting = null; attempt.credentialJob?.cancel(); attempt.job?.cancel(); attempt.connection?.close(); attempt.connection = null
+        connecting = null; attempt.taskCancelled?.invoke(); attempt.credentialJob?.cancel(); attempt.job?.cancel(); attempt.connection?.close(); attempt.connection = null
     }
     private fun current(id: UUID, prompt: SSHAuthState): SSHAttempt {
         val attempt = checkNotNull(connecting?.takeIf { it.id == id && !it.failed }) { "连接请求已失效" }
