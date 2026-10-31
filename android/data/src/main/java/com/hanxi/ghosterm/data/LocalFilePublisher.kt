@@ -20,7 +20,9 @@ import java.util.UUID
  * lose the acknowledgement, so callers must inspect the target before retrying.
  * Blocking filesystem calls are not hard-preemptible. No fsync/durability promise.
  */
-class LocalFilePublisher(private val home: File, private val staging: File) {
+class LocalFilePublisher(private val home: File, private val staging: File,
+    private val beforeCreate: suspend (String) -> Unit = {},
+    private val beforePublish: suspend () -> Unit = {}) {
     enum class State { PUBLISHED, CONFLICT, REJECTED }
     data class Result(val state: State, val error: Int, val cleanupError: String? = null)
 
@@ -46,6 +48,8 @@ class LocalFilePublisher(private val home: File, private val staging: File) {
                 check(OsConstants.S_ISDIR(Os.lstat(staging.path).st_mode)) { "目标暂存目录不能是符号链接" }
                 Os.chmod(staging.path,448)
                 stage=LocalPublicationFile.directory(staging,"")
+                beforeCreate(File(staging,candidateName).absolutePath)
+                cancellation.ensureActive()
                 writer=LocalPublicationFile.candidate(stage.fd,candidateName)
                 val readonly=Os.open("/proc/self/fd/${writer.fd}",OsConstants.O_RDONLY or OsConstants.O_CLOEXEC,0)
                 try { reader=ParcelFileDescriptor.dup(readonly) } finally { Os.close(readonly) }
@@ -79,6 +83,8 @@ class LocalFilePublisher(private val home: File, private val staging: File) {
                 }
                 check(Os.fstat(writer.fileDescriptor).st_size==size) { "目标长度不完整" }
                 writer.close();writer=null
+                cancellation.ensureActive()
+                beforePublish()
                 cancellation.ensureActive()
                 val error=LocalPublicationFile.publish(directory.fd,stage.fd,reader.fd,candidateName,name,size)
                 result=Result(when(error) { 0->State.PUBLISHED;OsConstants.EEXIST->State.CONFLICT;else->State.REJECTED },error)

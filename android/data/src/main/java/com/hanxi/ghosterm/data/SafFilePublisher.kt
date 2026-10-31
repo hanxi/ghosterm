@@ -26,7 +26,8 @@ import kotlin.coroutines.resumeWithException
  * The created document can be visible while incomplete. Retain its URI on failure;
  * do not automatically delete or retry a provider operation with unknown effects.
  */
-class SafFilePublisher(private val resolver: ContentResolver) {
+class SafFilePublisher(private val resolver: ContentResolver,
+    private val observed: suspend (Outcome) -> Unit = {}) {
     enum class State { NOT_ATTEMPTED, CONFLICT, UNKNOWN, CREATED, COMPLETE }
     data class Outcome(val state: State = State.NOT_ATTEMPTED, val documentUri: String? = null,
         val actualName: String? = null, val bytesWritten: Long = 0, val error: String? = null)
@@ -116,12 +117,14 @@ class SafFilePublisher(private val resolver: ContentResolver) {
             val created = Documents.createDocument(resolver, parent, "application/octet-stream", requestedName)
                 ?: error("创建结果未知；请检查目标目录后再操作")
             outcome = outcome.copy(documentUri = created.toString())
+            withContext(NonCancellable) { observed(outcome) }
             check(created.scheme == "content" && created.authority == tree.authority && Documents.isTreeUri(created) &&
                 Documents.getTreeDocumentId(created) == endpoint.rootId) { "提供方返回了其他文档树" }
             val id = Documents.getDocumentId(created)
             check(id !in existing && id != endpoint.rootId && id != location.directoryId) { "提供方没有返回新文档，已停止写入" }
             // Preserve the known side effect before checking cancellation of a delayed reply.
             outcome = outcome.copy(state = State.CREATED)
+            withContext(NonCancellable) { observed(outcome) }
             active()
             check(Documents.isChildDocument(resolver, parent, created)) { "新文档不在目标目录内" }
             val target = info(created)
@@ -129,6 +132,7 @@ class SafFilePublisher(private val resolver: ContentResolver) {
             check(target.flags and Document.FLAG_SUPPORTS_WRITE != 0) { "新文档不支持写入" }
             check(target.size == null || target.size == 0L) { "新文档已有内容，已停止写入" }
             outcome = outcome.copy(actualName = target.name)
+            withContext(NonCancellable) { observed(outcome) }
             val expectedHash = MessageDigest.getInstance("SHA-256")
             active()
             val writer = resolver.openFileDescriptor(created, "w", signal) ?: error("无法打开新文档")

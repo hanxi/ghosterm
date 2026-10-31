@@ -57,6 +57,7 @@ class RemoteFileTasksProductTest {
         }
         ui.waitUntil(15000) { !tasks().busy && owners()==0 }
         ui.runOnIdle { tasks().tasks.toList().forEach(tasks()::remove);files().requestClipboardClear();files().confirmClipboardClear() }
+        ui.waitUntil(10000) { tasks().tasks.isEmpty() }
         vault.remove(key)
         configBefore?.let(config::writeBytes) ?: config.delete();knownBefore?.let(known::writeBytes) ?: known.delete()
         File(home,"$unique.txt").delete();File(home,unique).deleteRecursively()
@@ -106,7 +107,7 @@ class RemoteFileTasksProductTest {
         ui.runOnIdle { tasks().start(snapshot,target,target.directoryId) }
     }
     private fun ready() {
-        loginUntil { latest.phase!=FileTaskPhase.SCANNING }
+        loginUntil { latest.phase==FileTaskPhase.CONFIRMING || latest.phase==FileTaskPhase.FINISHED }
         assertEquals("preflight: ${latest.error}",FileTaskPhase.CONFIRMING,latest.phase)
     }
     private fun finish() {
@@ -242,10 +243,11 @@ class RemoteFileTasksProductTest {
         ui.runOnIdle {
             assertEquals(FileTaskPhase.QUEUED,first.phase);assertEquals(FileTaskPhase.QUEUED,second.phase)
             assertNull(auth().connecting);assertEquals(1,owners())
-            tasks().cancel(cancelled);assertEquals(FileTaskPhase.FINISHED,cancelled.phase)
+            tasks().cancel(cancelled)
             tasks().cancel(blocker)
         }
         loginUntil { first.phase==FileTaskPhase.CONFIRMING || first.phase==FileTaskPhase.FINISHED }
+        assertEquals(FileTaskPhase.FINISHED,cancelled.phase)
         assertEquals("first: ${first.error}",FileTaskPhase.CONFIRMING,first.phase)
         assertEquals(FileTaskPhase.QUEUED,second.phase)
         val old=first.decisions!!.reference

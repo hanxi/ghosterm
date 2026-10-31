@@ -64,7 +64,7 @@ class FileTasksProductTest {
         ui.runOnIdle { files.back() };loaded();enter("target")
         ui.onNodeWithTag("file-paste").performClick()
         assertEquals("paste button creates a task",1,tasks.tasks.size)
-        ui.waitUntil(10000) { latest.phase!=FileTaskPhase.SCANNING }
+        ui.waitUntil(10000) { latest.phase==FileTaskPhase.CONFIRMING || latest.phase==FileTaskPhase.FINISHED }
         assertEquals("preflight must reach confirmation: ${latest.error}",FileTaskPhase.CONFIRMING,latest.phase)
     }
     private fun confirm() {
@@ -112,7 +112,7 @@ class FileTasksProductTest {
         ui.onNodeWithTag("file-paste").performClick();ui.waitUntil { latest.phase==FileTaskPhase.CONFIRMING }
         assertEquals(1,latest.decisions!!.pending.size) // Previous choice was request-local.
         ui.onAllNodesWithTag("file-task-cancel").onFirst().performScrollTo().performClick()
-        assertFalse(tasks.busy);assertTrue(latest.cancelled);assertNull(latest.result);assertNotNull(files.clipboard)
+        finished();assertFalse(tasks.busy);assertTrue(latest.cancelled);assertNull(latest.result);assertNotNull(files.clipboard)
         assertEquals("original",File(home,"target/a.txt").readText())
     }
     @Test fun changedSourceFailsAndFinishedTaskCannotClearNewClipboard() {
@@ -155,11 +155,13 @@ class FileTasksProductTest {
             val queued=latest;assertNotSame(first,queued);assertEquals(2,tasks.tasks.size)
             assertEquals(FileTaskPhase.QUEUED,queued.phase)
             assertTrue(tasks.busy);assertEquals(FileTaskPhase.CANCELLING,first.phase);assertNull(tasks.notice)
-            ui.runOnIdle { tasks.remove(first) };assertEquals(2,tasks.tasks.size)
+            ui.runOnIdle { tasks.remove(first) };ui.waitUntil(10000) { !first.recording };assertEquals(2,tasks.tasks.size)
             release.countDown();ui.waitUntil(15000) { queued.phase==FileTaskPhase.CONFIRMING }
             assertTrue(first.cancelled);assertEquals(FileTaskPhase.FINISHED,first.phase)
             assertFalse(File(home,"target/a.txt").exists());assertFalse(File(home,"other/a.txt").exists())
-            ui.runOnIdle { tasks.cancel(queued);tasks.remove(first);tasks.remove(queued) };assertTrue(tasks.tasks.isEmpty())
+            ui.runOnIdle { tasks.cancel(queued) };finished()
+            ui.runOnIdle { tasks.remove(first);tasks.remove(queued) }
+            ui.waitUntil(10000) { tasks.tasks.isEmpty() };assertTrue(tasks.tasks.isEmpty())
         } finally { release.countDown() }
     }
     @Test fun completionDoesNotClearSelectionOrPreviewInAnotherDirectory() {

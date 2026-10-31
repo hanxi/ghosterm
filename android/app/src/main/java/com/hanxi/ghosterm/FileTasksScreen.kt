@@ -25,7 +25,16 @@ fun FileTasksScreen(model: FileTasksViewModel) {
         LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).testTag("file-tasks"),
             state=list,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             model.notice?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
-            if(model.tasks.isEmpty()) item { Text("还没有复制任务。选择文件并复制后，到目标文件夹粘贴。") }
+            if(model.journalLoading) item { Text("正在读取任务记录…") }
+            model.journalError?.let { error -> item {
+                Column(verticalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.testTag("file-journal-error")) {
+                    Text(error,color=MaterialTheme.colorScheme.error)
+                    Text("已停止新任务。请先取消等待中的任务，再重新读取记录；原记录不会自动清空。")
+                    TextButton(onClick=model::reloadHistory,enabled=!model.busy && !model.journalLoading) { Text("重新读取记录") }
+                }
+            } }
+            if(model.tasks.isEmpty() && model.history.isEmpty() && !model.journalLoading && model.journalError==null)
+                item { Text("还没有复制任务。选择文件并复制后，到目标文件夹粘贴。") }
             items(model.tasks,key={ it.request.id }) { task ->
                 ElevatedCard(Modifier.fillMaxWidth().testTag("file-task:${task.request.id}")) {
                     Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -53,6 +62,7 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                         if(task.phase==FileTaskPhase.SCANNING || task.phase==FileTaskPhase.CANCELLING)
                             LinearProgressIndicator(Modifier.fillMaxWidth())
                         task.error?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-task-error")) }
+                        task.persistenceError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-task-record-error")) }
                         val decision=task.decisions
                         if(task.phase==FileTaskPhase.CONFIRMING && decision!=null) {
                             Text("原文件保留；同名项目不会覆盖。",style=MaterialTheme.typography.bodySmall)
@@ -107,8 +117,60 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                     }
                 }
             }
+            items(model.history,key={ "history:${it.intent.id}" }) { record ->
+                FileHistoryCard(record,onRemove={ model.removeHistory(record) },canRemove=!model.busy && !model.journalLoading)
+            }
         }
     }
+}
+
+@Composable
+private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRemove: Boolean) {
+    ElevatedCard(Modifier.fillMaxWidth().testTag("file-history:${record.intent.id}")) {
+        Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Text(if(record.interrupted) "已中断 · 结果待核对" else "历史任务 · ${historyStatus(record)}",
+                style=MaterialTheme.typography.titleMedium,modifier=Modifier.testTag("file-history-status"))
+            Text("来源：${record.intent.source.endpoint.label}\n${record.intent.sourceLabel}")
+            Text("目标：${record.intent.destination.endpoint.label}\n${record.intent.destinationLabel}")
+            Text("${record.intent.selected.size} 项来源 · 已记录 ${record.items.count { it.value.state==FileCopyItemState.COMPLETE }} 项完成")
+            Text(if(record.interrupted) "任务未自动继续。记录后的操作可能尚未确认，请核对目标和暂存位置后再发起新的复制。"
+                else "这是上次运行保存的结果；未重新检查文件。",style=MaterialTheme.typography.bodySmall)
+            record.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+            var details by remember(record.intent.id) { mutableStateOf(false) }
+            TextButton(onClick={ details=true },modifier=Modifier.testTag("file-history-details")) { Text("查看来源与结果") }
+            if(details) AlertDialog(onDismissRequest={ details=false },title={ Text("任务记录") },text={
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max=480.dp)) {
+                    items(record.intent.selected,key={ "source:${it.id}" }) { Text("来源：${it.name}") }
+                    items(record.items,key={ it.value.source.relativePath }) { item ->
+                        val value=item.value
+                        Column(Modifier.fillMaxWidth().padding(vertical=8.dp)) {
+                            Text("${value.source.relativePath} · ${itemStatus(value.state)}")
+                            if(record.interrupted && value.state in setOf(FileCopyItemState.RUNNING,FileCopyItemState.CREATED,FileCopyItemState.UNKNOWN))
+                                Text("此项最终结果待核对")
+                            value.targetParent?.let { Text("目标目录：${it.directoryId}") }
+                            value.targetName?.let { Text("目标名称：$it") }
+                            (value.documentUri ?: value.createdId)?.let { Text("已记录位置：$it") }
+                            value.candidatePath?.let { Text("未确认的暂存位置：$it") }
+                            value.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+                        }
+                        HorizontalDivider()
+                    }
+                }
+            },confirmButton={ TextButton(onClick={ details=false }) { Text("返回任务") } })
+            var clearing by remember(record.intent.id) { mutableStateOf(false) }
+            TextButton(onClick={ clearing=true },enabled=canRemove,modifier=Modifier.testTag("file-history-remove")) { Text("清除这条记录") }
+            if(clearing) AlertDialog(onDismissRequest={ clearing=false },title={ Text("清除任务记录？") },
+                text={ Text("只移除这条历史记录。目标文件和未确认的暂存文件都会保留。") },
+                confirmButton={ TextButton(onClick={ clearing=false;onRemove() }) { Text("清除记录") } },
+                dismissButton={ TextButton(onClick={ clearing=false }) { Text("保留记录") } })
+        }
+    }
+}
+
+private fun historyStatus(record: FileJournalRecord): String = when(record.outcome) {
+    FileCopyState.COMPLETE->"全部复制完成";FileCopyState.WITH_SKIPS->"完成，部分跳过"
+    FileCopyState.ALL_SKIPPED->"全部跳过";FileCopyState.CANCELLED->"已取消"
+    FileCopyState.UNKNOWN->"结果未知";else->if(record.cancelled) "已取消" else "未完成"
 }
 
 internal fun taskStatus(task: FileTask): String = when(task.phase) {

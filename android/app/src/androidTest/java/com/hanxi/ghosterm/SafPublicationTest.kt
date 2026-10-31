@@ -15,6 +15,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.hanxi.ghosterm.data.*
 import com.hanxi.ghosterm.data.SafFilePublisher
 import com.hanxi.ghosterm.data.SafFilePublisher.State
 import com.hanxi.ghosterm.data.TransferStagingStore
@@ -180,6 +181,56 @@ class SafPublicationTest {
     private fun request(name:String="new.bin",destination:FileLocation=location)=publisher.prepare(destination,name).also { requests+=it }
     private fun fds()=File("/proc/self/fd").listFiles()!!.count { try { Os.readlink(it.path).contains("/${root.name}/") } catch(_:Exception) { false } }
     private fun preserved() { assertArrayEquals("original".toByteArray(),state().getByteArray("keep"));assertEquals(0,state().getInt("deletes")) }
+
+    @Test fun journalUriIsPersistedBeforeContentWrite() = runBlocking<Unit> {
+        val args=InstrumentationRegistry.getArguments()
+        val crash=args.getString("journalCrash")=="true"
+        val token=args.getString("token")
+        if(crash) require(token!=null && token.matches(Regex("[a-z0-9-]{1,60}")))
+        val taskRoot=if(crash) File(context.filesDir,"journal-crash-$token") else File(root,"journal-task")
+        check(!taskRoot.exists());val home=File(taskRoot,"home")
+        File(home,"source").mkdirs();File(home,"target").mkdir()
+        File(home,"source/a.txt").writeText("process death bytes ☃\n")
+        val source=FileLocation(FileEndpoint.APP,"source");val browser=LocalFileBrowser(home,resolver)
+        val intent=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"source",browser.browse(source).entries),location,"SAF destination")
+        val scan=FileTreeScanner(browser::browse).scan(intent)
+        val access=FileDestinationAccess(home,resolver,browser::browse)
+        val decisions=FilePasteDecisions.begin(FilePastePreflight(access::inspect,access::relation).check(scan))
+        val plan=decisions.confirm(decisions.state().reference)
+        val journal=FileTaskJournal(File(taskRoot,"file-history/tasks.db"))
+        journal.load();journal.accept(intent);journal.phase(intent.id,FileJournalPhase.CONFIRMING)
+        var observedUri:String?=null
+        val operation=FileCopyExecutor(home,resolver,File(taskRoot,"staging"),{ r ->
+            FileTaskConnections(r.source.endpoint,r.destination.endpoint,{ _,_->error("no remote") },{ _,_,_->error("no auth") })
+        },record={ value,point ->
+            journal.checkpoint(intent.id,value,point)
+            if(point==FileCopyCheckpoint.DOCUMENT_CREATED) observedUri=value.documentUri
+            val boundary=if(args.getString("point")=="saf-create-intent") FileCopyCheckpoint.DOCUMENT_CREATE else FileCopyCheckpoint.DOCUMENT_CREATED
+            if(crash && point==boundary) {
+                val pending=File(taskRoot,"ready.pending")
+                java.io.FileOutputStream(pending).use {
+                    it.write("${android.os.Process.myPid()}\n${intent.id}\n${args.getString("point")}\n".toByteArray());it.fd.sync()
+                }
+                check(pending.renameTo(File(taskRoot,"ready")))
+                CompletableDeferred<Unit>().await()
+            }
+            if(!crash && point==FileCopyCheckpoint.DOCUMENT_CREATED) throw java.io.IOException("stop before SAF content write")
+        }).prepare(plan)
+        journal.begin(intent.id,operation.outcome.items)
+        try {
+            val result=withTimeout(15000) { operation.execute() };operation.awaitClosed()
+            assertNotNull("URI checkpoint must be observed",observedUri)
+            assertNotNull("checkpoint failure must stop copying",operation.recordingError)
+            assertNotEquals(FileCopyState.COMPLETE,result.state)
+            val saved=FileTaskJournal(File(taskRoot,"file-history/tasks.db")).load().single()
+            assertTrue(saved.interrupted);assertEquals(observedUri,saved.items.single().value.documentUri)
+            assertEquals(FileCopyCheckpoint.DOCUMENT_CREATED,saved.items.single().checkpoint)
+            assertEquals("URI must be recorded before provider identity validation",FileCopyItemState.UNKNOWN,saved.items.single().value.state)
+            assertEquals(state().getString("latest"),DocumentsContract.getDocumentId(Uri.parse(observedUri)))
+            assertEquals(1,state().getInt("creates"));assertEquals(0,state().getInt("writes"))
+            assertArrayEquals(byteArrayOf(),state().getByteArray("bytes"));preserved()
+        } finally { operation.cancel();withContext(NonCancellable) { operation.awaitClosed() } }
+    }
 
     @Test fun completeBytesAndEmptyNestedDocumentCloseAndVerify() = runBlocking {
         val bytes=ByteArray(100003){(it%251).toByte()};val progress=mutableListOf<Long>()

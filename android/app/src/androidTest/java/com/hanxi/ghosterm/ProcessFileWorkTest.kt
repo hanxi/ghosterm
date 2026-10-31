@@ -118,6 +118,7 @@ class ProcessFileWorkTest {
         await("task cleanup") { !work.tasks.busy }
         holders.toList().forEach(::close)
         main { work.tasks.tasks.toList().forEach(work.tasks::remove);work.clipboard.snapshot=null }
+        await("durable history cleanup") { work.tasks.tasks.isEmpty() }
         if(remoteConfigured) {
             vault.list().filter { it.id !in oldIds }.forEach(vault::remove)
             configBefore?.let(config::writeBytes) ?: config.delete();knownBefore?.let(known::writeBytes) ?: known.delete()
@@ -174,6 +175,7 @@ class ProcessFileWorkTest {
         assertEquals("process-owned bytes ☃\n",File(root,"target/a.txt").readText())
         close(b);val c=launch()
         main { assertSame(task,c.tasks.tasks.first());assertSame(snapshot,c.files.clipboard);c.tasks.remove(task) }
+        await("durable history removal") { c.tasks.tasks.isEmpty() }
         assertTrue(main { c.tasks.tasks.isEmpty() });assertTrue(File(root,"target/a.txt").isFile)
     }
     @Test fun closedOriginDoesNotCancelScanAndCancelledGlobalSlotWaitsForActualRelease() {
@@ -274,7 +276,7 @@ class ProcessFileWorkTest {
         main { assertSame(a.tasks.authentication,b.tasks.authentication);assertEquals(attempt,b.tasks.authentication.connecting!!.id) }
         close(a)
         systemAwait { nodes().any { it.isVisibleToUser && it.text?.toString()=="复制任务 · 读取来源" } }
-        authenticate(b.tasks.authentication) { task.phase!=FileTaskPhase.SCANNING }
+        authenticate(b.tasks.authentication) { task.phase==FileTaskPhase.CONFIRMING || task.phase==FileTaskPhase.FINISHED }
         main { assertEquals(FileTaskPhase.CONFIRMING,task.phase);b.tasks.show();b.tasks.confirm(task,task.decisions!!.reference) }
         await { work.authentication.connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
         val second=main { work.authentication.connecting!!.id };assertNotEquals(attempt,second)
@@ -296,7 +298,7 @@ class ProcessFileWorkTest {
             auth.completeIdentityImport(null,b.tasks.presenterId);assertFalse(auth.identityPickerPending)
             assertEquals(FileTaskPhase.SCANNING,task.phase)
         }
-        authenticate(auth) { task.phase!=FileTaskPhase.SCANNING }
+        authenticate(auth) { task.phase==FileTaskPhase.CONFIRMING || task.phase==FileTaskPhase.FINISHED }
         assertEquals(FileTaskPhase.CONFIRMING,main { task.phase })
     }
     @Test fun realTaskIdentityPickerSurvivesActivityRecreationAndAuthenticates() {
@@ -349,7 +351,7 @@ class ProcessFileWorkTest {
         val actual=vault.unlock(imported);val expected=fixture.getString("taskFilePem").toByteArray()
         try { assertTrue(expected.contentEquals(actual)) } finally { expected.fill(0);actual.fill(0) }
         key=imported
-        authenticate(auth) { task.phase!=FileTaskPhase.SCANNING }
+        authenticate(auth) { task.phase==FileTaskPhase.CONFIRMING || task.phase==FileTaskPhase.FINISHED }
         main { assertEquals(FileTaskPhase.CONFIRMING,task.phase);a.tasks.confirm(task,task.decisions!!.reference) }
         authenticate(auth) { !work.tasks.busy }
         assertEquals(FileCopyState.COMPLETE,main { task.result?.state })

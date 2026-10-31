@@ -67,6 +67,7 @@ class FileQueueProductTest {
     @Test fun fifoWaitsForEachConfirmationAndKeepsIndependentDestinations() {
         val first=add("one");ready(first)
         val second=add("two");val third=add("three")
+        await("waiting intents durably admitted") { second.recorded && third.recorded && !second.recording && !third.recording }
         ui.runOnIdle {
             assertEquals(FileTaskPhase.QUEUED,second.phase);assertEquals(FileTaskPhase.QUEUED,third.phase)
             assertEquals(1,page.queuedAhead(second));assertEquals(2,page.queuedAhead(third))
@@ -86,7 +87,8 @@ class FileQueueProductTest {
         val calls=AtomicInteger()
         val second=add("two") { calls.incrementAndGet();connections(it) }
         val third=add("three")
-        ui.runOnIdle { page.cancel(second);assertEquals(FileTaskPhase.FINISHED,second.phase);assertTrue(second.cancelled) }
+        ui.runOnIdle { page.cancel(second) };done(second)
+        assertEquals(FileTaskPhase.FINISHED,second.phase);assertTrue(second.cancelled)
         assertEquals(0,calls.get());assertFalse(File(home,"two/a.txt").exists())
         confirm(first);done(first);ready(third)
         assertEquals(0,calls.get());confirm(third);done(third);copied("three")
@@ -95,6 +97,7 @@ class FileQueueProductTest {
     @Test fun failedQueuedTargetIsRecheckedAndDoesNotStrandFollowingRequest() {
         val first=add("one");ready(first)
         val second=add("two");val third=add("three")
+        await("waiting intents durably admitted") { second.recorded && third.recorded && !second.recording && !third.recording }
         assertTrue(File(home,"two").delete())
         ui.runOnIdle { page.cancel(first) }
         done(second);assertNotNull(second.error);assertNull(second.decisions);assertNull(second.result)
@@ -124,7 +127,7 @@ class FileQueueProductTest {
         add("three")
         assertEquals(32,page.tasks.size);assertEquals(ids,page.tasks.map { it.request.id });assertNotNull(page.notice)
         val cancelled=page.tasks.first()
-        ui.runOnIdle { page.cancel(cancelled) }
+        ui.runOnIdle { page.cancel(cancelled) };done(cancelled)
         val admitted=add("three")
         assertNotEquals(cancelled.request.id,admitted.request.id);assertEquals(33,page.tasks.size)
         assertEquals(FileTaskPhase.QUEUED,admitted.phase);assertNull(page.notice)
@@ -135,7 +138,7 @@ class FileQueueProductTest {
         node(second,"file-task-status").performScrollTo().assertTextEquals("排队等待")
         node(second,"file-task-queue-position").assertTextEquals("前方还有 1 个任务")
         node(second,"file-task-confirm").assertDoesNotExist()
-        node(second,"file-task-cancel").performScrollTo().performClick()
+        node(second,"file-task-cancel").performScrollTo().performClick();done(second)
         assertEquals(FileTaskPhase.FINISHED,second.phase);assertTrue(second.cancelled)
         node(second,"file-task-error").assertTextEquals("排队任务已取消，尚未读取或写入")
         assertEquals(FileTaskPhase.CONFIRMING,first.phase);assertFalse(File(home,"two/a.txt").exists())

@@ -22,7 +22,8 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
     private val stagingRoot: File,
     private val connections: (FilePasteRequest) -> FileTaskConnections,
     private val fileLimit: Long = 256L*1024*1024,
-    private val renameAttempts: Int = 10000) {
+    private val renameAttempts: Int = 10000,
+    private val record: suspend (FileCopyItemResult, FileCopyCheckpoint) -> Unit = { _,_ -> }) {
     init { require(fileLimit>0 && renameAttempts in 1..10000) }
     fun prepare(plan: FileCopyPlan) = Request(plan)
 
@@ -50,7 +51,17 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
         val outcome get()=updates.value
         val finished get()=closed.isCompleted
         private fun progress(state: FileCopyState)=FileCopyProgress(plan.request.id,plan.request.clipboardId,state,results.values,failure)
-        private fun report(value: FileCopyItemResult) { results[value.source.relativePath]=value;mutable.value=progress(FileCopyState.RUNNING) }
+        @Volatile var recordingError: String?=null; private set
+        private suspend fun report(value: FileCopyItemResult, point: FileCopyCheckpoint = FileCopyCheckpoint.RESULT) {
+            // Memory keeps the actual observation even if its durable write fails.
+            results[value.source.relativePath]=value;mutable.value=progress(FileCopyState.RUNNING)
+            recordingError?.let { error(it) }
+            try { withContext(NonCancellable) { record(value,point) } }
+            catch(error: Exception) {
+                recordingError="任务记录保存失败：${error.message ?: "未知原因"}；请核对实际位置后再操作"
+                throw error
+            }
+        }
         private fun active() { if(cancelled.get()) throw CancellationException("复制已取消") }
         fun cancel() {
             synchronized(lifecycle) {
@@ -185,7 +196,13 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                     }
                     active()
                     if(source.entry.kind==FileKind.DIRECTORY) {
-                        val request=directoryCreator.prepare(parent,name)
+                        report(result,FileCopyCheckpoint.DIRECTORY_CREATE)
+                        active()
+                        val request=directoryCreator.prepare(parent,name,observed={ out ->
+                            result=result.copy(state=if(out.state==FileDirectoryCreator.State.CREATED) FileCopyItemState.CREATED else FileCopyItemState.UNKNOWN,
+                                createdId=out.location?.directoryId,documentUri=out.documentUri,targetName=out.actualName ?: name)
+                            report(result,FileCopyCheckpoint.DIRECTORY_CREATED)
+                        })
                         operation(request::cancel) {
                             try { request.execute() } catch(_: CancellationException) { /* retained outcome below */ }
                             finally { withContext(NonCancellable) { request.awaitClosed() } }
@@ -223,7 +240,7 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                         result=when {
                             destination!=null -> {
                                 val candidate=parent.directoryId.trimEnd('/')+"/.ghosterm-copy-"+UUID.randomUUID()
-                                result=result.copy(candidatePath=candidate);report(result)
+                                result=result.copy(candidatePath=candidate);report(result,FileCopyCheckpoint.REMOTE_CREATE)
                                 operation(destination::close) {
                                     snapshot.withDescriptor { fd,size ->
                                         val staged=destination.createExclusive(candidate,fd,size)
@@ -237,6 +254,8 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                                         else {
                                             active()
                                             val targetId=parent.directoryId.trimEnd('/')+"/"+name
+                                            report(result.copy(state=FileCopyItemState.CREATED,bytes=staged.bytesAcknowledged),FileCopyCheckpoint.PUBLISH)
+                                            active()
                                             val published=destination.publish(candidate,targetId,expectedSize=size)
                                             result.copy(state=when(published.state) {
                                                 RemotePublicationState.PUBLISHED->FileCopyItemState.COMPLETE
@@ -251,16 +270,27 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                                 }
                             }
                             parent.endpoint==FileEndpoint.APP -> {
-                                val out=LocalFilePublisher(home,localStage).publish(parent.directoryId,name,snapshot) { _,_->active() }
+                                val out=LocalFilePublisher(home,localStage,
+                                    beforeCreate={ path ->
+                                        result=result.copy(candidatePath=path);report(result,FileCopyCheckpoint.LOCAL_CREATE);active()
+                                    },beforePublish={ report(result,FileCopyCheckpoint.PUBLISH);active() }
+                                ).publish(parent.directoryId,name,snapshot) { _,_->active() }
                                 result.copy(state=when(out.state) {
                                     LocalFilePublisher.State.PUBLISHED->FileCopyItemState.COMPLETE
                                     LocalFilePublisher.State.CONFLICT->FileCopyItemState.CONFLICT
                                     LocalFilePublisher.State.REJECTED->FileCopyItemState.FAILED
                                 },createdId=if(out.state==LocalFilePublisher.State.PUBLISHED) parent.directoryId.trimEnd('/').let { if(it.isEmpty()) name else "$it/$name" } else null,
+                                    candidatePath=if(out.state==LocalFilePublisher.State.PUBLISHED || out.cleanupError==null) null else result.candidatePath,
                                     bytes=snapshot.size.toULong(),error=out.cleanupError ?: if(out.error!=0) "本机发布失败（${out.error}）" else null)
                             }
                             else -> {
-                                val request=SafFilePublisher(resolver).prepare(parent,name)
+                                report(result,FileCopyCheckpoint.DOCUMENT_CREATE)
+                                active()
+                                val request=SafFilePublisher(resolver) { out ->
+                                    result=result.copy(state=if(out.state==SafFilePublisher.State.CREATED) FileCopyItemState.CREATED else FileCopyItemState.UNKNOWN,
+                                        documentUri=out.documentUri,targetName=out.actualName ?: name)
+                                    report(result,FileCopyCheckpoint.DOCUMENT_CREATED)
+                                }.prepare(parent,name)
                                 operation(request::cancel) {
                                     try { request.execute(snapshot) } catch(_: CancellationException) { /* retained outcome below */ }
                                     finally { withContext(NonCancellable) { request.awaitClosed() } }
@@ -273,7 +303,7 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                                     SafFilePublisher.State.CREATED->FileCopyItemState.CREATED
                                     SafFilePublisher.State.COMPLETE->FileCopyItemState.COMPLETE
                                 },targetName=out.actualName ?: name,documentUri=out.documentUri,
-                                    createdId=out.documentUri?.let { DocumentsContract.getDocumentId(Uri.parse(it)) },
+                                    createdId=out.documentUri?.let { runCatching { DocumentsContract.getDocumentId(Uri.parse(it)) }.getOrNull() },
                                     bytes=out.bytesWritten.toULong(),error=out.error)
                             }
                         }
@@ -283,6 +313,7 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                         }
                     }
                 } catch(error: Exception) {
+                    if(recordingError!=null) { failure=recordingError;return }
                     report(result.copy(state=if(writing) FileCopyItemState.UNKNOWN else if(cancelled.get()) FileCopyItemState.NOT_ATTEMPTED else FileCopyItemState.FAILED,
                         error=error.message ?: "复制失败"))
                     return

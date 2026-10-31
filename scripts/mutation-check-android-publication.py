@@ -47,7 +47,7 @@ def main():
         ('target-size',store,'check(Os.fstat(writer.fileDescriptor).st_size==size)','check(true)',changed),
         ('writer-close',store,'writer.close();writer=null','writer=null',complete),
         ('cleanup',store,'val error=LocalPublicationFile.remove(stage.fd,owned.fd,candidateName)','val error=0',cancel),
-        ('cancel-before-rename',store,'writer.close();writer=null\n                cancellation.ensureActive()','writer.close();writer=null',cancel),
+        ('cancel-before-rename',store,'writer.close();writer=null\n                cancellation.ensureActive()\n                beforePublish()\n                cancellation.ensureActive()','writer.close();writer=null\n                beforePublish()',cancel),
         ('conflict',store,'OsConstants.EEXIST->State.CONFLICT','OsConstants.EEXIST->State.PUBLISHED',conflict),
         ('rejection',store,'else->State.REJECTED','else->State.PUBLISHED',rejected),
         ('reader-close',store,'listOf(writer,reader,stage,directory)','listOf(writer,stage,directory)',complete),

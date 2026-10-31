@@ -71,7 +71,7 @@ class SafFileTasksProductTest {
     @After fun cleanup() {
         state("release")
         main { tasks().tasks.toList().forEach(tasks()::cancel) };await { !tasks().busy }
-        main { tasks().tasks.toList().forEach(tasks()::remove);model().requestClipboardClear();model().confirmClipboardClear();model().leave() };revoke();root.deleteRecursively()
+        main { tasks().tasks.toList().forEach(tasks()::remove);model().requestClipboardClear();model().confirmClipboardClear();model().leave() };await { tasks().tasks.isEmpty() };revoke();root.deleteRecursively()
     }
     private fun nodes():List<AccessibilityNodeInfo> {
         val list=mutableListOf<AccessibilityNodeInfo>()
@@ -103,7 +103,7 @@ class SafFileTasksProductTest {
     @Test fun realGrantedFolderCopyRetainsActualDocumentAndReadsBackToHome() {
         reset("rename")
         start(FileLocation(FileEndpoint.APP,"$unique/source"),location)
-        await { latest.phase!=FileTaskPhase.SCANNING };assertEquals(FileTaskPhase.CONFIRMING,latest.phase)
+        await { latest.phase==FileTaskPhase.CONFIRMING || latest.phase==FileTaskPhase.FINISHED };assertEquals(FileTaskPhase.CONFIRMING,latest.phase)
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick();await { !tasks().busy }
         val result=latest.result!!;assertEquals(FileCopyState.COMPLETE,result.state)
         val item=result.items.single();assertNotNull(item.documentUri)
@@ -113,7 +113,7 @@ class SafFileTasksProductTest {
         ui.onNodeWithText("实际位置：${item.documentUri}").performScrollTo().assertIsDisplayed()
         ui.onNodeWithText("关闭结果").performClick()
         start(location,FileLocation(FileEndpoint.APP,"$unique/target"))
-        await { latest.phase!=FileTaskPhase.SCANNING };assertEquals(FileTaskPhase.CONFIRMING,latest.phase)
+        await { latest.phase==FileTaskPhase.CONFIRMING || latest.phase==FileTaskPhase.FINISHED };assertEquals(FileTaskPhase.CONFIRMING,latest.phase)
         ui.onAllNodesWithTag("file-task-confirm").onFirst().performScrollTo().performClick();await { !tasks().busy }
         assertEquals(FileCopyState.COMPLETE,latest.result?.state)
         assertEquals("通过 SAF 页面复制 ☃",File(root,"target/${item.targetName}").readText())
@@ -122,7 +122,7 @@ class SafFileTasksProductTest {
     @Test fun lostCreationReplyStaysUnknownAndShowsTheUnconfirmedResult() {
         reset("create-lost")
         start(FileLocation(FileEndpoint.APP,"$unique/source"),location)
-        await { latest.phase!=FileTaskPhase.SCANNING };assertEquals(FileTaskPhase.CONFIRMING,latest.phase)
+        await { latest.phase==FileTaskPhase.CONFIRMING || latest.phase==FileTaskPhase.FINISHED };assertEquals(FileTaskPhase.CONFIRMING,latest.phase)
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick();await { !tasks().busy }
         assertEquals(FileCopyState.UNKNOWN,latest.result?.state)
         ui.onNodeWithTag("file-task-status").assertTextEquals("复制结果未知，请核对实际位置")

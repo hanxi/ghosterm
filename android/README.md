@@ -1,10 +1,10 @@
 # Android 宿主
 
-**最近已提交实现（2026-10-31，§9.72 当前模拟器档已验）**：§9.72 已接 FIFO 文件队列，最多 32 个未结束请求；扫描、确认、执行和取消清理共用一个执行名额。8 项队列定向、14 组新增及既有 39 组变异通过；完整设备 453 项通过。前台服务/通知、持久恢复、暂停/重试和完整偏好仍未实现，A6 保持部分完成。 详见[队列记录](../docs/reference/android-implementation.md#972-a6-fifo-文件任务队列2026-10-31)。
+**上一阶段实现（2026-10-31，§9.72 当前模拟器档已验）**：§9.72 已接 FIFO 文件队列，最多 32 个未结束请求；扫描、确认、执行和取消清理共用一个执行名额。8 项队列定向、14 组新增及既有 39 组变异通过；完整设备 453 项通过。前台服务/通知、持久恢复、暂停/重试和完整偏好仍未实现，A6 保持部分完成。 详见[队列记录](../docs/reference/android-implementation.md#972-a6-fifo-文件任务队列2026-10-31)。
 
-**未验收工作区（§9.73）**：已接 SQLite 任务记录、执行检查点和重启后的只读历史；18 项本机/SAF 定向和 4 项远端定向、19＋4 组记录变异、九种真实进程中断场景及两组中断变异已有通过记录；既有队列 14 组和生命周期 15 组变异也已复验。其余受影响变异、宿主探针的普通套件发现计数与最终完整设备回归仍待收口；453 项属于 §9.72 的旧 APK。历史记录不自动重放复制，也不恢复待粘贴清单，不能记作后台服务或自动续传完成。详见[工作区记录](../docs/reference/android-implementation.md#973-a6-持久任务记录工作区2026-10-31未验收)。
+**最新验收（§9.73）**：SQLite 任务记录、执行检查点和重启后的只读历史已接通；27 组新增记录/中断/发现变异、九种真实进程中断及受影响的既有变异通过。完整 **475 项通过，零失败/错误/跳过**（1200.707 秒），735 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致；仅 API 36 arm64 / 4 KB 页模拟器。历史不自动重放复制或恢复清单；前台服务、暂停和失败重试仍未实现，A6 保持部分完成。详见[持久记录验收](../docs/reference/android-implementation.md#973-a6-持久任务记录与只读历史2026-10-31)。
 
-**验收边界（§9.72）**：完整设备 **453 项通过，零失败/错误/跳过**（1216.568 秒），仅 API 36 arm64 / 4 KB 页模拟器；722 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致。 Android debug/测试 APK 构建、Core 47 CTest / 89 ABI、Apple 87/2 与 JNI 49/40 绑定对拍通过。本轮未重跑完整 macOS 宿主或打包；macOS 键盘专项与既有设置页像素失败分别保留。未新增 Android 真机、API 29、16 KB 页、发行或 CI 证据。
+**历史验收边界（§9.72）**：完整设备 **453 项通过，零失败/错误/跳过**（1216.568 秒），仅 API 36 arm64 / 4 KB 页模拟器；722 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致。 Android debug/测试 APK 构建、Core 47 CTest / 89 ABI、Apple 87/2 与 JNI 49/40 绑定对拍通过。本轮未重跑完整 macOS 宿主或打包；macOS 键盘专项与既有设置页像素失败分别保留。该轮未新增 Android 真机、API 29、16 KB 页、发行或 CI 证据；新的独立 release CI 见 [出包说明](../docs/how-to/android-release.md)。
 
 状态（2026-10-31）：**A0、A1 已在 API 36 arm64 模拟器档完成**。首页读取真实 SSH 配置，支持搜索、添加、稀疏编辑和配置文本编辑；设置页有 SSH 身份、主机验证记录、配置导入与关于入口。**A2 本地终端首片已验、整个阶段尚未完成；SSH native 认证/远端终端后端已接（§9.25），DNS/认证页面、Keystore 容器与多会话、SAF 导入、凭据、身份设置、主机关联、信任读写桥、候选地址与通道取消与本机/SAF 及远端文件页面已有设备回归记录（最新已提交完整结果见页首及 §9.72）；远端文件页面已由 §9.52 接入，完整设置尚未接入**，没有 Android CI。来源展示、共享别名提示及包含文件/重名块只读保护已接入；显式覆盖/恢复继承已完成；主机别名重命名、配置读取/冲突错误恢复已接入；SAF 导入预览、取消、错误恢复及表单校验已完成 A1 验收。
 
@@ -57,7 +57,7 @@ ANDROID_SERIAL=设备 ANDROID_FILES_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.
 
 ## 粘贴确认与任务页面
 
-本节的 §9.70–§9.72 为已提交交付记录。§9.73 工作区在相同页面上新增历史区和记录错误状态：接纳、取消及清除可能需要等待 SQLite 事务；重启显示只读记录，不恢复清单或执行。详细状态、容量和失败契约见 [§8.2](../docs/reference/android-implementation.md#82-a6-持久任务记录与中断核对工作区接线待验收)；旧 APK 的完整结果不能用于验收这些修改。
+本节的 §9.70–§9.73 为交付记录。§9.73 在相同页面上新增历史区和记录错误状态：接纳、取消及清除可能需要等待 SQLite 事务；重启显示只读记录，不恢复清单或执行。详细状态、容量和失败契约见 [§8.2](../docs/reference/android-implementation.md#82-a6-持久任务记录与中断核对)；当前完整 475 项已通过，旧 APK 的通过数量仍保留为历史。
 
 进程所有权入口为 [FileWorkRuntime](app/src/main/java/com/hanxi/ghosterm/FileWorkRuntime.kt)，任务状态机 `FileTaskStore` 与页面 facade 同在 `FileTasksViewModel.kt`。§9.70 新增 [FileTasksViewModel](app/src/main/java/com/hanxi/ghosterm/FileTasksViewModel.kt) 和 [FileTasksScreen](app/src/main/java/com/hanxi/ghosterm/FileTasksScreen.kt)。文件来源卡片提供粘贴入口；任务固定源/目标，预检后确认冲突，独立认证后执行，保留实际位置与逐项错误。默认保留复制清单；取消要等待实际 provider/原生资源释放，不立即释放名额。完整实现及尚未完成范围见[任务契约](../docs/reference/android-implementation.md#619-当前任务页面与-a6-后续实现)。
 
@@ -292,3 +292,5 @@ ANDROID_SSH_HOST_IDENTITIES_MUTATE=1 bash scripts/test-android-ssh.sh
 ```bash
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-known-hosts.py
 ```
+
+CI 已产出签名且压缩的 release APK，下载与签名说明见 [Android release](../docs/how-to/android-release.md)。首次云端包对应 `d585f0b`；持久记录切片提交后的产物须按新 commit 另行验证。

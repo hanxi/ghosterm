@@ -39,7 +39,7 @@ def main():
     if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
     file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1' or
-                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest','RemoteFileTaskTest','FileCopyExecutorTest','RemoteFileTasksProductTest','ProcessFileWorkTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
+                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest','RemoteFileTaskTest','FileCopyExecutorTest','RemoteFileJournalTest','RemoteFileTasksProductTest','ProcessFileWorkTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1')
     file_data={}
     if file_tests:
         file_key=Path(work)/'file-clientkey'
@@ -124,8 +124,54 @@ def main():
                     return output
                 build('baseline')
                 selection=None if os.environ.get('ANDROID_SSH_ALL')=='1' else os.environ.get('ANDROID_SSH_TEST_CLASS','com.hanxi.ghosterm.RemoteTerminalTest')
+                discovered_names=None
+                if selection is None:
+                    spec=importlib.util.spec_from_file_location('journal_discovery',ROOT/'scripts/test-android-file-journal-discovery.py')
+                    discovery_module=importlib.util.module_from_spec(spec);spec.loader.exec_module(discovery_module)
+                    discovery=run([*adb,'shell','am','instrument','-w','-r','-e','log','true',
+                        'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],120)
+                    (logs/'full-discovery.log').write_text(discovery)
+                    try: discovered_names=discovery_module.discovered(discovery)
+                    except Exception:
+                        print(discovery,flush=True)
+                        raise
+                    (logs/'full-discovery.json').write_text(json.dumps(discovered_names,ensure_ascii=False,indent=2)+'\n')
+                    print(f'DISCOVERY: {len(discovered_names)} named tests; execution still required',flush=True)
                 output=test('baseline',selection,True)
+                if discovered_names is not None:
+                    # Check real start/end events, zero skips and the final count,
+                    # not only the runner's OK summary or an empty custom runner.
+                    try:
+                        if discovery_module.discovered(output)!=discovered_names:
+                            raise RuntimeError('Executed test identities differ from default discovery')
+                    except Exception:
+                        print(output,flush=True)
+                        raise
+                    print(f'EXECUTION: all {len(discovered_names)} discovered tests completed successfully',flush=True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_FILE_JOURNAL_REMOTE_CRASH')=='1' or os.environ.get('ANDROID_FILE_JOURNAL_REMOTE_MUTATE')=='1':
+                    import contextlib,io
+                    spec=importlib.util.spec_from_file_location('journal_crash',ROOT/'scripts/test-android-file-journal-crash.py')
+                    crash_module=importlib.util.module_from_spec(spec);spec.loader.exec_module(crash_module)
+                    def crash(label,point=None,green=True):
+                        capture=io.StringIO();success=True
+                        try:
+                            with contextlib.redirect_stdout(capture):
+                                crash_module.main(['--skip-build','--point',point] if point else ['--skip-build','--remote'],(fixture_port,token))
+                        except Exception as error:
+                            success=False;capture.write(str(error))
+                        text=capture.getvalue();(logs/(label+'.log')).write_text(text)
+                        if green:
+                            good=success and 'ANDROID FILE JOURNAL CRASH PASS' in text
+                        else:
+                            good=not success and 'JOURNAL_CRASH_TARGET_FAIL' in text and 'FAILURES!!!' in text and 'restored history must be visible' in text
+                        if not good:raise RuntimeError(text)
+                        print('PASS '+label+': real SSH / host kill and restart '+('green' if green else 'target red'),flush=True)
+                    crash('remote-journal-crash-baseline')
+                    if os.environ.get('ANDROID_FILE_JOURNAL_REMOTE_MUTATE')=='1':
+                        spec=importlib.util.spec_from_file_location('remote_journal_mutations',ROOT/'scripts/mutation-check-android-remote-journal.py')
+                        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                        module.execute(ROOT,build,test,crash)
                 if os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('file_queue_mutations',ROOT/'scripts/mutation-check-android-file-queue.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

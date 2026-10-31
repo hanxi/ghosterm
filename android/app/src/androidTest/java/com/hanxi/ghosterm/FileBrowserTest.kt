@@ -34,6 +34,7 @@ class FileBrowserTest {
     private lateinit var app:Application
     private lateinit var source:LocalFileBrowser
     private lateinit var model:FilesViewModel
+    private lateinit var work:FileWorkRuntime
     private var sessions:SessionsViewModel?=null
     @Before fun setup() {
         val context=InstrumentationRegistry.getInstrumentation().targetContext
@@ -46,7 +47,9 @@ class FileBrowserTest {
         File(directory,"identities").mkdir(); File(directory,"identities/container").writeText("private")
         app=object:Application() { init { attachBaseContext(context) }; override fun getFilesDir()=directory }
         source=LocalFileBrowser(home,context.contentResolver)
-        model=FilesViewModel(app,source)
+        work=FileWorkRuntime(app)
+        ui.waitUntil(10_000) { ui.runOnIdle { !work.tasks.journalLoading } }
+        model=FilesViewModel(app,source,work)
     }
     @After fun cleanup() {
         ui.runOnIdle { model.leave();sessions?.let { s -> s.sessions.map { it.id }.forEach(s::close) } }
@@ -129,7 +132,7 @@ class FileBrowserTest {
         }
         val exact=ByteArray(LocalFileBrowser.PREVIEW_LIMIT){65};File(home,"exact.txt").writeBytes(exact)
         assertEquals(exact.size,runBlocking { source.preview(root(),listed().single { it.name=="exact.txt" }) }.length)
-        assertEquals(setOf("home","identities"),directory.list()!!.toSet())
+        assertEquals(setOf("home","identities","file-history"),directory.list()!!.toSet())
     }
     @Test fun linksTraversalAndSpecialFilesAreExplicitlyRejected() {
         val outside=File(directory,"outside").apply { mkdir() };File(outside,"secret").writeText("outside")
@@ -176,7 +179,7 @@ class FileBrowserTest {
             override suspend fun list(location:FileLocation)=suspendCoroutine<List<BrowserEntry>> { lists.add(it) }
             override suspend fun preview(location:FileLocation,entry:BrowserEntry)=suspendCoroutine<String> { previews.add(it) }
         }
-        model=FilesViewModel(app,fake)
+        model=FilesViewModel(app,fake,work)
         ui.setContent { MaterialTheme { if(model.visible) FilesScreen(model,{}) } }
         ui.runOnIdle { model.enter() };ui.waitUntil { lists.size==1 }
         ui.runOnIdle { model.reload() };ui.waitUntil { lists.size==2 }
@@ -199,7 +202,7 @@ class FileBrowserTest {
             override suspend fun grantTree(uri:String,flags:Int)=other
             override suspend fun list(location:FileLocation)=if(location.directoryId=="") listOf(folder) else listOf(folder.copy(id="child",name="child"))
             override suspend fun preview(location:FileLocation,entry:BrowserEntry)=""
-        })
+        },work)
         show();entry("sub").performClick();loaded();entry("child").performTouchInput { longClick() }
         ui.runOnIdle { model.choose(other) };loaded();assertTrue(model.selected.isEmpty());assertFalse(model.selecting)
         assertEquals("root",model.location.directoryId)
