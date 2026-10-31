@@ -91,7 +91,7 @@ libghostty-vt；[ghostty-web](https://github.com/coder/ghostty-web) 走的也正
 
 ## 当前宿主状态与实现入口
 
-任务记录属于各端控制面。macOS `TransferManager` 当前只有内存队列；Android §9.72 接进程内队列，§9.73 另外接入并验收私有 SQLite 观察记录。记录不含凭据、fd、连接或可复用冲突授权，重启只读展示，不生成可执行请求；不经过终端输出通路，也不新增共享 C ABI。其完整 475 项与专项证据、剩余阶段边界见 [持久记录契约](../reference/android-implementation.md#82-a6-持久任务记录与中断核对)，不代表后台服务或两端恢复能力已经交付。
+任务记录属于各端控制面。macOS `TransferManager` 当前只有内存队列；Android §9.72 接进程内队列，§9.73 另外接入并验收私有 SQLite 观察记录。记录不含凭据、fd、连接或可复用冲突授权，重启只读展示，不生成可执行请求；不经过终端输出通路，也不新增共享 C ABI。持久记录的完整 475 项与专项证据见 [持久记录契约](../reference/android-implementation.md#82-a6-持久任务记录与中断核对)，§9.74 另接文件前台服务并通过完整 483 项（API 36 arm64 / 4 KB 页模拟器）；不代表两端自动恢复能力已经交付。
 
 macOS 的功能键由 full libghostty 根据普通光标、应用光标或 Kitty 协议编码；宿主在发送按键前排除 AppKit 的 U+F700…U+F8FF 功能键占位文本，普通字符与输入法路径保持各自处理。`124edb6` 的专项验收见[功能键编码记录](../reference/optional-tmux-implementation.md#功能键编码修复2026-10-31)，不代表完整宿主 UI 已通过。
 
@@ -107,7 +107,7 @@ macOS 已由 `TabWindowController` 单窗口管理顶部/侧边标签；`Workspa
 
 SFTP 的单 worker 保证的是每个 `gt_sftp_t` 内 job 的 FIFO，事件泵统一消费不等于全局限并发。§9.53 已修复共享下载打开顺序、上传截断和关闭结果；§9.54 新增专用 owner 的 fd→远端独占暂存创建，§9.57 已补远端非覆盖发布接口，但桌面产品提交事务与负深度遍历硬护栏仍须补齐；不能把 job OK 或百分比作为原子提交与完整扫描的保证。macOS 与 Android 四方向复制共用这些前置，见 [Apple 传输边界](../../apple/README.md#传输提交调度与重试边界)。
 
-Android §9.55 的匿名来源快照是平台数据层设施：本机/SAF 流先写入 O_TMPFILE，再封成只读租约；它不属于终端字节流，也没有新增共享 C ABI。§9.56 已补受控远端读取和 fd 释放通知，该切片专项及完整 260 项设备回归通过；§9.57/§9.58 后续补齐远端非覆盖发布与应用私有目录常规文件提交。§9.59 已补 SAF 新文档写入；不可变 FileClipboardSnapshot 的页面由 §9.60 接入，§9.71 改由进程级 FileClipboardStore 持有，只保存元数据，FilesViewModel 代理访问并保护替换/清空的快照 ID。§9.61 的 FilePasteRequest 固定源/目标意图，FileTreeScanner 经注入的目录读取函数枚举并复核来源元数据，不持有连接或写目标。§9.62 已接平台目标读取、关系检查与冲突元数据；不同远端命名空间关系仍未知。§9.63 已接纯 Kotlin 的请求内冲突决策和只读执行清单，不持有连接或预留名称。§9.64 已接本机/SAF 单目录创建；§9.65 已补受控远端单目录请求；§9.70 已接冲突页面、任务认证与粘贴入口；§9.71 改为进程持有，队列由 §9.72 接入，后台服务及恢复仍未实现；§9.66 已接统一目录服务，§9.67 已接独立任务连接作用域，§9.69 已接复制执行器。macOS 旧下载 job 的 FSTAT 仅供进度，EOF 成功不校验完整源长度；关闭结果修复不等于源一致性已验证，见 [下载边界](../../apple/README.md#旧下载的完整性边界)。两端任务实现须分别确认取消完成和 fd/连接实际释放，不能把协程返回或 UI 终态作为资源已经回收的凭据。
+Android §9.55 的匿名来源快照是平台数据层设施：本机/SAF 流先写入 O_TMPFILE，再封成只读租约；它不属于终端字节流，也没有新增共享 C ABI。§9.56 已补受控远端读取和 fd 释放通知，该切片专项及完整 260 项设备回归通过；§9.57/§9.58 后续补齐远端非覆盖发布与应用私有目录常规文件提交。§9.59 已补 SAF 新文档写入；不可变 FileClipboardSnapshot 的页面由 §9.60 接入，§9.71 改由进程级 FileClipboardStore 持有，只保存元数据，FilesViewModel 代理访问并保护替换/清空的快照 ID。§9.61 的 FilePasteRequest 固定源/目标意图，FileTreeScanner 经注入的目录读取函数枚举并复核来源元数据，不持有连接或写目标。§9.62 已接平台目标读取、关系检查与冲突元数据；不同远端命名空间关系仍未知。§9.63 已接纯 Kotlin 的请求内冲突决策和只读执行清单，不持有连接或预留名称。§9.64 已接本机/SAF 单目录创建；§9.65 已补受控远端单目录请求；§9.70 已接冲突页面、任务认证与粘贴入口；§9.71 改为进程持有，队列由 §9.72 接入，§9.74 已验前台服务/通知，自动恢复仍未实现；§9.66 已接统一目录服务，§9.67 已接独立任务连接作用域，§9.69 已接复制执行器。macOS 旧下载 job 的 FSTAT 仅供进度，EOF 成功不校验完整源长度；关闭结果修复不等于源一致性已验证，见 [下载边界](../../apple/README.md#旧下载的完整性边界)。两端任务实现须分别确认取消完成和 fd/连接实际释放，不能把协程返回或 UI 终态作为资源已经回收的凭据。
 
 Android 与 `terminal/android` 已有 A0 Gradle/JNI/VT 交叉构建和 API 36 arm64 模拟器装载证据，A1 主机/配置、来源/改名、导入预览与错误恢复已完成当前模拟器档验收，A2 首片已接 `/system/bin/sh` → 原生 owner → VT → Canvas；JNI 读取网格快照，不搬运终端输出字节。`SessionsViewModel` 持有会话，页面返回保留 owner；本地首片证据见实现计划 §9.13，已提交文本操作与验证见 §9.14，已交付的选区边缘滚动/Ctrl 生命周期验证见 §9.15；已验 Ctrl 标点、Gboard 回车及真实拼音基本路径（§9.16）；按键事件经私有 JNI 送 native owner，由 VT 处理重复/释放，失焦与换 surface 前清理按键归属（§9.17）。修饰键/数字键盘/组合音符切片已验（§9.18）；§9.21 已接输入后短时快照调度并取得模拟器 debug 性能基线，输出通路不变；真机/release/长负载与完整输入矩阵待补，整个 A2 未完成，SSH 产品首片已通过完整 130 项设备回归（§9.27）；实现以[最终原型](../design/android-prototype.html)和[详细计划](../reference/android-implementation.md)为基准。iOS 仍无可用宿主/引擎产物，不能把 macOS SwiftPM 包称为已跨 iOS。
 
@@ -129,7 +129,7 @@ Android 当前 `RemoteFileSession.close()` 仅撤销句柄并通知停止；fd �
 
 macOS 当前 `TransferManager.jobs` 同时承担显示列表和字节汇总来源，清除终态子行会影响活动父任务的后续汇总；目录暂停也尚未覆盖后台扫描/创建。任务结果账目、资源生命周期和可清除历史须分别建模，不能把正常路由的 UI 状态当作底层已暂停/释放的证据；实际限制见 [Apple 说明](../../apple/README.md#目录暂停与汇总边界)。
 
-Android §9.69 已在 data 层组合连接、快照和发布操作，在 domain 层保留逐项结果并通过本片验收；§9.70 新增 `FileTasksViewModel` / `FileTasksScreen` 生产消费者与 `SessionsViewModel.fileTaskConnections` 认证适配器。§9.71 由 `GhostermApplication.fileWork` 持有 `FileWorkRuntime`，其 `FileTaskStore` 持有请求；§9.72 接入最多 32 个未结束请求的 FIFO 队列，扫描、确认及取消清理仍共用一个执行名额；关闭 Activity 只解除呈现归属，不取消任务。任务认证独立于普通终端/浏览认证，恢复显示时按 presenter UUID 接管。后台进程仍存活时保留任务，进程死亡不恢复。确认前的预检连接关闭后，执行另建连接并重新认证。复制清单默认保留，结果仅按原清单 ID 有条件清空；完整偏好尚未接。队列当前模拟器档已验，后台服务和重试仍按 [§6.18](../reference/android-implementation.md#618-复制执行器结果与页面接入契约)实施。macOS `DirectoryCompletion` 另有混合取消/跳过依赖回调顺序的问题；两端任务模型及验收各自独立，不能从 Android 数据层验收推定桌面已迁移。
+Android §9.69 已在 data 层组合连接、快照和发布操作，在 domain 层保留逐项结果并通过本片验收；§9.70 新增 `FileTasksViewModel` / `FileTasksScreen` 生产消费者与 `SessionsViewModel.fileTaskConnections` 认证适配器。§9.71 由 `GhostermApplication.fileWork` 持有 `FileWorkRuntime`，其 `FileTaskStore` 持有请求；§9.72 接入最多 32 个未结束请求的 FIFO 队列，扫描、确认及取消清理仍共用一个执行名额；关闭 Activity 只解除呈现归属，不取消任务。任务认证独立于普通终端/浏览认证，恢复显示时按 presenter UUID 接管。后台进程仍存活时保留任务，进程死亡不恢复。确认前的预检连接关闭后，执行另建连接并重新认证。复制清单默认保留，结果仅按原清单 ID 有条件清空；完整偏好尚未接。队列和 §9.74 前台服务已验当前模拟器档，真实进度、暂停和重试继续按 [§6.18](../reference/android-implementation.md#618-复制执行器结果与页面接入契约)实施。macOS `DirectoryCompletion` 另有混合取消/跳过依赖回调顺序的问题；两端任务模型及验收各自独立，不能从 Android 数据层验收推定桌面已迁移。
 
 ## 参考实现（技术对照）
 
