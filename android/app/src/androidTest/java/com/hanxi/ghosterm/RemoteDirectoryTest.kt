@@ -100,7 +100,7 @@ class RemoteDirectoryTest {
         try {
             supply(files)
             runBlocking {
-                val parent=fixture.getString("remoteRoot")
+                val parent=fixture.getString("remoteScratch")
                 val request=files.prepareDirectory(parent,"目录 ☃-${UUID.randomUUID()}")
                 assertNull(request.outcome.status)
                 assertEquals(RemoteDirectoryCreationState.COMPLETE,request.execute().state)
@@ -155,7 +155,7 @@ class RemoteDirectoryTest {
             assertTrue(runCatching { files.prepareDirectory("/","child",0) }.isFailure)
             assertTrue(runCatching { files.prepareDirectory("/","child",60001) }.isFailure)
             runBlocking {
-                val request=files.prepareDirectory(fixture.getString("remoteRoot"),"cancel-before-${UUID.randomUUID()}")
+                val request=files.prepareDirectory(fixture.getString("remoteScratch"),"cancel-before-${UUID.randomUUID()}")
                 request.cancel();assertTrue(runCatching { request.execute() }.exceptionOrNull() is CancellationException)
                 request.awaitClosed();assertEquals(RemoteDirectoryCreationState.NOT_ATTEMPTED,request.outcome.state)
                 assertEquals(8,request.outcome.status)
@@ -241,7 +241,12 @@ class RemoteDirectoryTest {
             request.awaitClosed()
             assertEquals(RemoteDirectoryCreationState.COMPLETE,request.outcome.state);assertEquals(0,request.outcome.status)
             assertFalse(caller.isCompleted)
-            caller.cancel();while(pending.isNotEmpty())pending.poll()?.run();caller.join()
+            // Completion can be published just before the suspended caller's
+            // continuation is enqueued. Freeze that boundary before cancelling.
+            await { pending.isNotEmpty() }
+            caller.cancel()
+            await { while(pending.isNotEmpty()) pending.poll()?.run();caller.isCompleted }
+            caller.join()
             assertEquals(RemoteDirectoryCreationState.COMPLETE,request.outcome.state)
             assertTrue(runCatching { request.execute() }.isFailure)
         } }

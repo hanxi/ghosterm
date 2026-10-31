@@ -26,7 +26,7 @@ typedef struct file_session {
     int phase, error; /* 0 connecting, 1 ready, 2 failed, 3 stopped */
     uint64_t sequence, request;
     int kind, status;
-    int source_fd, release_fd;
+    int source_fd, release_fd, owner_fence;
     uint64_t expected_size;
     uint32_t budget;
     bool complete;
@@ -48,7 +48,11 @@ static void release(file_session *s) {
     gaj_ssh_free(s->auth);free(s->path);free(s->destination);free(s->result);
     if(s->source_fd>=0)close(s->source_fd);
     if(s->release_fd>=0)close(s->release_fd);
+    int owner_fence=s->owner_fence;
     pthread_cond_destroy(&s->wake);pthread_mutex_destroy(&s->mutex);free(s);
+    /* Last reference: owner IO, authentication and pending descriptors are gone.
+     * Unlike request/fd fences this also covers setup failure and idle close. */
+    if(owner_fence>=0)close(owner_fence);
 }
 static file_session *borrow(JNIEnv *env,jlong id) {
     if(id<=0){fail(env,"文件连接已关闭");return NULL;}
@@ -165,17 +169,21 @@ finished:
     pthread_mutex_lock(&s->mutex);
     s->phase=stopped(s)?3:2;s->error=stopped(s)?GT_ERR_CANCELLED:status;
     pthread_mutex_unlock(&s->mutex);
-    atomic_fetch_sub(&owners,1);release(s);
+    atomic_fetch_sub(&owners,1);
     if(directory_fence>=0)close(directory_fence);
+    /* The connection fence in release must follow every request-local fd. */
+    release(s);
     return NULL;
 }
 JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_create(JNIEnv *env,jobject self,
-        jbyteArray host,jint port,jbyteArray user,jbyteArray known,jobjectArray addresses,jintArray scopes,jint timeout) {
+        jbyteArray host,jint port,jbyteArray user,jbyteArray known,jobjectArray addresses,jintArray scopes,jint timeout,jint completion_fd) {
     (void)self;gaj_ssh *auth=gaj_ssh_new(env,host,port,user,known,addresses,scopes,timeout);if(!auth)return 0;
     file_session *s=calloc(1,sizeof(*s));if(!s){gaj_ssh_free(auth);fail(env,"无法分配文件连接");return 0;}
-    s->source_fd=-1;s->release_fd=-1;s->auth=auth;atomic_init(&s->stop,false);atomic_init(&s->mkdir_cancel,false);
+    s->source_fd=-1;s->release_fd=-1;s->owner_fence=-1;s->auth=auth;atomic_init(&s->stop,false);atomic_init(&s->mkdir_cancel,false);
     if(pthread_mutex_init(&s->mutex,NULL)){gaj_ssh_free(auth);free(s);fail(env,"无法初始化文件锁");return 0;}
     if(pthread_cond_init(&s->wake,NULL)){pthread_mutex_destroy(&s->mutex);gaj_ssh_free(auth);free(s);fail(env,"无法初始化文件队列");return 0;}
+    s->refs=1;s->owner_fence=fcntl(completion_fd,F_DUPFD_CLOEXEC,0);
+    if(s->owner_fence<0){release(s);fail(env,"无法保留连接释放通知");return 0;}
     s->refs=2;
     pthread_mutex_lock(&registry_mutex);
     size_t slot=0;while(slot<FILE_SLOTS && registry[slot].value)slot++;

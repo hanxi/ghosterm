@@ -2,6 +2,8 @@ package com.hanxi.ghosterm.bridge
 
 import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import java.nio.CharBuffer
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -49,7 +51,14 @@ class RemoteFileException(val status: Int) : IllegalStateException(when(status) 
 class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
     /** Frozen authentication identity, never an alias looked up again from config. */
     val peer = RemoteFilePeer(connection.host, connection.port, connection.user)
-    private var handle = connection.openFiles()
+    private val completion = ParcelFileDescriptor.createPipe()
+    private val closed = CompletableDeferred<Unit>()
+    private var handle = try {
+        connection.openFiles(completion[1].fd).also { check(it != 0L) { "无法创建文件连接" } }
+    } catch(failure: Throwable) {
+        completion[0].close()
+        throw failure
+    } finally { completion[1].close() }
     private val requests = Mutex()
     @Synchronized override fun authentication(): SSHAuthState {
         check(handle != 0L) { "文件连接已关闭" }
@@ -71,8 +80,22 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
         } finally { first.fill(0); second.fill(0) }
     }
     @Synchronized override fun close() {
+        if(handle == 0L) return
         NativeFiles.dispose(handle); handle = 0L
+        // Start the blocking EOF reader only on close, not for every live
+        // connection. It outlives cancelled waiters and drains even without one.
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                ParcelFileDescriptor.AutoCloseInputStream(completion[0]).use {
+                    check(it.read() == -1) { "连接释放通知格式无效" }
+                }
+                closed.complete(Unit)
+            } catch(failure: Throwable) { closed.completeExceptionally(failure) }
+        }
     }
+    /** Cancelling a waiter does not cancel native cleanup. Task finally blocks
+     * must wait in NonCancellable before releasing their connection capacity. */
+    suspend fun closeAndAwait() { close(); closed.await() }
     private suspend fun operation(kind: Int, path: String, timeoutMillis: Int, sourceFd: Int = -1, expectedSize: Long = 0, destination: String? = null, directory: Boolean = false): ByteArray = withContext(Dispatchers.IO) {
         require(path.isNotEmpty() && '\u0000' !in path && timeoutMillis in 1..60_000) { "文件路径或超时无效" }
         requests.withLock {
@@ -331,7 +354,7 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
 
 internal object NativeFiles {
     init { System.loadLibrary("ghosterm_android") }
-    external fun create(host: ByteArray, port: Int, user: ByteArray, known: ByteArray, addresses: Array<ByteArray>, scopes: IntArray, timeout: Int): Long
+    external fun create(host: ByteArray, port: Int, user: ByteArray, known: ByteArray, addresses: Array<ByteArray>, scopes: IntArray, timeout: Int, completionFd: Int): Long
     external fun authentication(handle: Long): Array<ByteArray>
     external fun respond(handle: Long, request: Long, kind: Int, first: ByteArray, second: ByteArray)
     external fun state(handle: Long): IntArray

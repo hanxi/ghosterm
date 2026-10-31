@@ -151,6 +151,10 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 `sftp-mkdir` 以 `python3 scripts/mutation-check-sftp-mkdir.py` 手工执行 26 Core＋1 无库 archive＋5 Swift 组；真实 SSH 与协议矩阵为 81 组，护单次预算、取消、规范路径/名称、冲突/错误/副作用、空目录核验与连接失效。Android 另以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteDirectoryTest ANDROID_MKDIR_MUTATE=1 bash scripts/test-android-ssh.sh` 执行 20 组，护结果保留、一次性请求、排队/迟到取消、请求与连接代次隔离、失败连接释放及完成管道。目标须真实编译后红、独立配置对照绿、恢复绿与 SHA256；12 项设备基线通过，仅 API 36 arm64 / 4 KB 页模拟器。范围及失败记录见 Android 计划 §9.65，不增加 CI 20 份，不将原语记为任务/页面或 macOS 产品迁移完成。
 
+`terminal-backing-scale` 以 `python3 scripts/mutation-check-terminal-backing-scale.py` 手工执行六组，护引擎 DPI、Metal 比例、backing 回调、换屏通知、像素换算与未上屏同步；真实编译后目标红、同变异字节入网格对照绿、恢复绿及 SHA256。`4cbfcf4` 的三项原生回归与六组变异已有记录，自动注入比例不等于真实双屏视觉验收；完整宿主仍保留一项既有设置页像素失败，不记全绿。范围见 `docs/reference/optional-tmux-implementation.md` 的跨显示器缩放记录，不增加 CI 20 份覆盖。
+
+`android-file-tasks` 以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFileTaskTest ANDROID_FILE_TASK_MUTATE=1 bash scripts/test-android-ssh.sh` 手工执行 23 组，护每连接完成通知、目录通知顺序、CLOEXEC/构造失败回收、两角色独立连接、固定身份、作用域/一次性使用与迟到取消。六组先编译 native 延迟清理并验基线，再验目标红、同 APK 配置对照绿、恢复绿及 SHA256；最终移除延迟复验。设备档位与记录见 Android 计划 §9.67，不增加 macOS CI 20 份，不将数据层作用域记为粘贴执行器或任务认证页面完成。
+
 `android-mkdir-data` 以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteDirectoryDataTest ANDROID_MKDIR_DATA_MUTATE=1 bash scripts/test-android-ssh.sh` 手工执行 23 组，护实际连接身份、完整端点、冻结绑定、预算、六态/原始错误码、实际位置与取消释放。两组另编译 native 延迟清理/完成管道，先验延迟基线绿，再验目标红、同 APK 配置对照绿、恢复绿及 SHA256；最后移除延迟并复验九项真实 SSH/协议用例。范围见 Android 计划 §9.66，不增加 CI 20 份，不将数据层适配记为应用级任务或 macOS 产品迁移完成。
 
 `android-directories` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-directories.py` 手工执行 26 组，护本机非覆盖/路径/权限与 SAF 授权、创建结果、父子归属、列表预算、一次性请求及取消晚到结果。真实编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；16 项目录基线及完整 358 项通过，仅 API 36 arm64 / 4 KB 页模拟器。初轮测试盲区及完整重跑见 Android 计划 §9.64；不增加 CI 20 份，不将单目录创建记为任务/页面或远端已完成。

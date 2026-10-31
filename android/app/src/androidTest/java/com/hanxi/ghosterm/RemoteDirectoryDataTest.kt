@@ -108,7 +108,7 @@ class RemoteDirectoryDataTest {
         val files=RemoteFileSession(connection(known(root)))
         try { supply(files);runBlocking {
             val endpoint=endpoint(files);val binding=RemoteFileBinding(endpoint,files);val create=creator(root,binding)
-            val parent=FileLocation(endpoint,fixture.getString("remoteRoot"))
+            val parent=FileLocation(endpoint,fixture.getString("remoteScratch"))
             val name="统一目录 ☃-${UUID.randomUUID()}"
             val request=create.prepare(parent,name)
             val result=request.execute();request.awaitClosed()
@@ -145,8 +145,8 @@ class RemoteDirectoryDataTest {
             val create=creator(root,RemoteFileBinding(original,files))
             for(changed in listOf(original.copy(id="remote:other"),original.copy(label="changed"),original.copy(rootId="/other"),
                 original.copy(remote=identity.copy(alias="changed"))))
-                rejected { create.prepare(FileLocation(changed,fixture.getString("remoteRoot")),"not-created") }
-            assertFalse(files.browse(fixture.getString("remoteRoot")).entries.any { it.name=="not-created" })
+                rejected { create.prepare(FileLocation(changed,fixture.getString("remoteScratch")),"not-created") }
+            assertFalse(files.browse(fixture.getString("remoteScratch")).entries.any { it.name=="not-created" })
             files.close()
             rejected { create.prepare(FileLocation(original,"/parent"),"not-created") }
         } } finally { files.close() }
@@ -154,7 +154,7 @@ class RemoteDirectoryDataTest {
     @Test fun invalidRemoteInputsAndPreCancellationNeverCreateOrCloseTheConnection()=directory { root ->
         val files=RemoteFileSession(connection(known(root)))
         try { supply(files);runBlocking {
-            val endpoint=endpoint(files);val location=FileLocation(endpoint,fixture.getString("remoteRoot"));val create=creator(root,RemoteFileBinding(endpoint,files))
+            val endpoint=endpoint(files);val location=FileLocation(endpoint,fixture.getString("remoteScratch"));val create=creator(root,RemoteFileBinding(endpoint,files))
             rejected { FileDirectoryCreator(root,instrumentation.targetContext.contentResolver).prepare(location,"absent") }
             for(path in listOf("relative","//bad","/parent/..","/parent/","/parent/./child"))
                 rejected { create.prepare(location.copy(directoryId=path),"absent") }
@@ -215,7 +215,12 @@ class RemoteDirectoryDataTest {
             val caller=async(dispatcher,start=CoroutineStart.UNDISPATCHED) { request.execute() }
             await { reached(user,"mkdir-close") };control("release",user)
             request.awaitClosed();assertEquals(State.COMPLETE,request.outcome.state);assertFalse(caller.isCompleted)
-            caller.cancel();while(pending.isNotEmpty())pending.poll()?.run();caller.join()
+            // Completion can be published just before the suspended caller's
+            // continuation is enqueued. Freeze that boundary before cancelling.
+            await { pending.isNotEmpty() }
+            caller.cancel()
+            await { while(pending.isNotEmpty()) pending.poll()?.run();caller.isCompleted }
+            caller.join()
             assertEquals(State.COMPLETE,request.outcome.state);assertEquals(0,request.outcome.coreStatus)
             assertEquals(parent.copy(directoryId="/parent/child"),request.outcome.location);assertNull(request.outcome.error)
         } }
@@ -228,7 +233,7 @@ class RemoteDirectoryDataTest {
             val endpoint=repository.attach(identity,browser)
             var current=RemoteFileBinding(endpoint,files);var lookups=0
             val create=FileDirectoryCreator(root,instrumentation.targetContext.contentResolver) { lookups++;current }
-            val location=FileLocation(endpoint,fixture.getString("remoteRoot"))
+            val location=FileLocation(endpoint,fixture.getString("remoteScratch"))
             val request=create.prepare(location,"frozen-${UUID.randomUUID()}")
             current=RemoteFileBinding(endpoint.copy(id="replacement",label="replacement"),browser)
             repository.close()

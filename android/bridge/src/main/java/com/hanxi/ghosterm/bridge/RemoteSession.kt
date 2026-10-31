@@ -15,9 +15,9 @@ class ResolvedSSHConnection(val host: String, val port: Int, val user: String,
     constructor(host: String, port: Int, user: String, knownHosts: String,
         address: ByteArray, scope: Int = 0, timeoutMillis: Int = 60_000) :
         this(host, port, user, knownHosts, listOf(ResolvedSSHAddress(address, scope)), timeoutMillis)
-    internal fun openFiles(): Long = NativeFiles.create(host.toByteArray(Charsets.UTF_8), port,
+    internal fun openFiles(completionFd: Int): Long = NativeFiles.create(host.toByteArray(Charsets.UTF_8), port,
         user.toByteArray(Charsets.UTF_8), knownHosts.toByteArray(Charsets.UTF_8),
-        candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis)
+        candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis, completionFd)
     internal fun open(): Long = NativeSession.createRemote(host.toByteArray(Charsets.UTF_8), port,
         user.toByteArray(Charsets.UTF_8), knownHosts.toByteArray(Charsets.UTF_8),
         candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis)
