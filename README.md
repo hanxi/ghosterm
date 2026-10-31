@@ -1,6 +1,6 @@
 # Ghosterm
 
-**A5 统一目录数据层（§9.66，2026-10-31）**：`FileDirectoryCreator` 已通过冻结身份的 `RemoteFileBinding` 接受远端请求，统一三类目录结果与实际释放；9 项真实 SSH/协议设备用例、23 组新变异通过。应用级任务连接、四方向编排和粘贴页面仍待接，详见[实施记录](docs/reference/android-implementation.md#966-a5-统一远端目录数据层2026-10-31)。
+**A5 统一目录数据层（§9.66，2026-10-31）**：`FileDirectoryCreator` 已通过冻结身份的 `RemoteFileBinding` 接受远端请求，统一三类目录结果与请求结束等待（不提供通用连接关闭等待）；9 项真实 SSH/协议设备用例、23 组新变异通过。应用级任务连接、四方向编排和粘贴页面仍待接，详见[实施记录](docs/reference/android-implementation.md#966-a5-统一远端目录数据层2026-10-31)。
 
 **历史切片：A5 受控远端单目录创建（§9.65，2026-10-31）**：Core/Swift/JNI/Kotlin 请求已接，共用预算、取消与六种副作用结果；12 项设备定向、20 组 Android 新变异和 26 Core＋1 无库＋5 Swift 变异通过。该片仅为后端接口，统一服务后由 §9.66 接入；目录任务与页面仍待接，详见[实施记录](docs/reference/android-implementation.md#965-a5-受控远端单目录创建2026-10-31)。
 

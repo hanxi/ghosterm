@@ -230,6 +230,16 @@ macOS `makeSFTPFileBackend` 仍调用无参 `sftp()`，Android 后续已由 §9.
 
 “保留两者”也还没有有界的名称分配契约。`TransferManager.uniqueName` 从 ` (1)` 开始，以 `while true` 逐个调用存在性查询，直到找到空名字；没有尝试次数、总时间或 UTF-8 名称长度限制。调用发生在 `@MainActor` 的 `start` 内，远端查询又经过 `SFTPFileBackend.queue.sync`，大量同名候选或慢网络会延长主线程等待。返回的名称没有被占用，后续仍是旧覆盖 job，查询后出现的同名文件可能被覆盖。修复需异步且可取消的有界查找、名称长度校验与最终非覆盖提交；达到预算应显示失败，不能无限编号。此为 `150ffd5` 源码核对，尚无对应故障行为验收；Android §9.63 已交付请求内决策和有界名称规划，但没有改动本端调用方，不能直接算作本端修复。
 
+### 目录暂停与汇总边界
+
+按 `b07005b` 的 [TransferManager](GhostermApp/Sources/GhostermAppModel/TransferManager.swift) 与 [TransferQueueView](GhostermApp/Sources/GhostermApp/TransferQueueView.swift) 核对，扫描阶段父行保持 queued，页面只显示取消，没有暂停入口。模型的目录 `pause` 只修改父行状态并向已有文件 job 转发暂停；即使调用方在扫描期间调用它，后台 `expandDirectory` 检查取消标记，不检查暂停；遍历和 mkdir 因而仍会继续。展开完成后先调用 `addAndStart` 提交各文件，再按父行状态暂停子项，不能承诺暂停期间没有新的提交或写入。空目录展开结束会直接完成，即使父行此前被标为暂停。
+
+“清除已完成”实际删除所有终态行，包括失败、取消和跳过；父目录仍运行时也能清除已结束的子行。后续 progress 从当前 `jobs` 中重算父任务 done/total，已清除子项因此不再计入，汇总可能回退或缩小。终态计数另由 `DirectoryCompletion` 保持，并非随行一起清除，所以此处是进度/结果明细保留缺口，不能直接描述成父任务一定无法结束。“进行中”还同时计父行和子行，表示活动记录数，不是独立复制批次数或实际网络并发数。
+
+后续须把扫描/目录创建/文件提交纳入同一可暂停调度状态，显示尚未到达暂停点的状态；已发出的远端副作用不能靠本地暂停撤销。任务结果账目与可清除的显示历史分离，在父任务结束前保留子项计数、字节、跳过/失败原因；清除列表不改变汇总。用扫描中暂停、暂停后空目录完成、一个子项结束后清除再继续传另一个子项分别验收。
+
+现有 [TransferManagerTests](GhostermApp/Tests/GhostermAppTests/TransferManagerTests.swift) 覆盖单文件控制路由、普通目录展开、空目录和取消晚到状态；这些测试不覆盖上述暂停/清除交互。本节仅源码核对，没有新增或执行桌面故障测试，不能据此记为已修复。
+
 ### 目录创建与合并边界
 
 §9.65 已新增受控 `createDirectory` 绑定，六种创建状态区分冲突、明确拒绝、结果未知、已创建与最终核验完成；不自动合并或重试。真实 sshd 专项及五组 Swift 变异通过，但下述生产调用方仍使用旧入口。原生构建通过不等于目录任务已迁移。

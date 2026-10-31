@@ -118,6 +118,12 @@ SFTP 受控打开与主机依赖前置已按 §9.47 验收：Core controlled ope
 
 受控目录浏览（§9.49）已通过协议与变异：Core/Swift 将规范路径、全部条目和目录关闭合成一次结果，要求独占 SSH/SFTP 且不与传输 job 共用。该切片为 83 ABI、Apple 81/2、JNI 40/43；当时 JNI 登记待接，后续 owner 由 §9.51 接入；macOS 产品尚未消费新入口或元数据。任务 ID 在移交 worker 前保存，exec 的局部超时在解锁前恢复；两项不替代预览、会话关闭和文件提交契约。§9.50 新增单预算的 LSTAT/只读 OPEN/FSTAT/READ/CLOSE 预览接口，该切片为 84 ABI、Apple 82/2、JNI 40/44；§9.51 新增 owner-only abort 后为 85 ABI、Apple 83/2、JNI 45/40；返回有界原始字节，Android 平台已接解码、页面代次和只读预览；缓存/外部打开待补，macOS 产品未消费。详见[路线图](../reference/roadmap.md#macos-下一步与共享缺口)。
 
+### 任务资源与显示状态的边界
+
+Android 当前 `RemoteFileSession.close()` 仅撤销句柄并通知停止；fd 完成管道保护快照租约，目录请求完成管道保护该次操作，两者都不提供所有场景通用的连接关闭等待。独立任务作用域仍待实现，应先提供每连接的实际清理通知，再释放任务连接名额，详见 [实施顺序](../reference/android-implementation.md#617-独立任务连接与执行器实施顺序)。
+
+macOS 当前 `TransferManager.jobs` 同时承担显示列表和字节汇总来源，清除终态子行会影响活动父任务的后续汇总；目录暂停也尚未覆盖后台扫描/创建。任务结果账目、资源生命周期和可清除历史须分别建模，不能把正常路由的 UI 状态当作底层已暂停/释放的证据；实际限制见 [Apple 说明](../../apple/README.md#目录暂停与汇总边界)。
+
 ## 参考实现（技术对照）
 
 | 项目 | 平台 | 许可 | 借用点 |
