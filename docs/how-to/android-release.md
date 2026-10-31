@@ -2,7 +2,9 @@
 
 工作流为 `.github/workflows/android-release.yml`，监听 main push、PR 和手动触发。
 main 与手动构建使用固定 release 密钥签名；PR 只验证优化后的未签名 release 构建。
-工作流尚待云端实际运行验收，不能将本文件或本地构建通过当作已发布。
+首次云端运行已通过：[run 41207714115](https://github.com/hanxi/ghosterm/actions/runs/41207714115)，
+源码为 `d585f0b`。签名 APK 为 **5,826,065 字节**；下载后 SHA256、固定 release 证书
+与 16 KB 对齐检查通过。尚未对该云端 APK 单独完成设备运行验证。
 
 在 GitHub Actions 中打开 **Android Release APK** 的成功运行，下载
 `Ghosterm-android-release-<commit>` artifact。解压后包含安装 APK、`SHA256SUMS`
