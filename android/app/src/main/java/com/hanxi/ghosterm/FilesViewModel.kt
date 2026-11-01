@@ -72,6 +72,25 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     var externalError by mutableStateOf<String?>(null); private set
     var externalCacheError by mutableStateOf<String?>(null); private set
     var externalReady by mutableStateOf<ExternalPreviewCache.Ready?>(null); private set
+    var externalClearConfirm by mutableStateOf(false); private set
+    var externalClearing by mutableStateOf(false); private set
+    var externalClearResult by mutableStateOf<ExternalPreviewCache.ClearResult?>(null); private set
+    var externalClearError by mutableStateOf<String?>(null); private set
+    fun requestExternalClear() {
+        if(!visible || externalClearing) return
+        externalClearResult=null;externalClearError=null;externalClearConfirm=true
+    }
+    fun dismissExternalClear() { externalClearConfirm=false }
+    fun confirmExternalClear() {
+        if(!visible || !externalClearConfirm || externalClearing) return
+        externalClearConfirm=false;externalClearing=true
+        viewModelScope.launch {
+            try { externalClearResult=externalCache.clearCopies() }
+            catch(cancel: CancellationException) { throw cancel }
+            catch(error: Exception) { externalClearError=error.message ?: "无法清理预览副本" }
+            finally { externalClearing=false }
+        }
+    }
     private var externalJob: Job? = null
     private var externalGeneration=0L
     init { viewModelScope.launch { externalCache.cleanupError.collect { externalCacheError=it } } }
@@ -110,7 +129,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     fun launchExternal(ready: ExternalPreviewCache.Ready, launch: (ExternalPreviewCache.Ready) -> Unit) {
         if(!visible || externalReady!==ready || preview==null) return
         externalReady=null
-        try { launch(ready) }
+        try { launch(ready);externalCache.handedOff(ready) }
         catch(error: Exception) {
             externalCache.discardLater(ready)
             externalError=if(error is android.content.ActivityNotFoundException) "没有可打开此类型文件的应用，请先复制到设备文件夹"
@@ -123,6 +142,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     private var rootsGeneration = 0L
     fun enter() { externalCache.sweepLater();visible=true; choosingLocation=false; refreshEndpoints(); reload() }
     fun leave() {
+        externalClearConfirm=false
         visible=false;choosingLocation=false;pickerPending=false;rootsGeneration++;rootsJob?.cancel()
         dismissClipboardDialogs();clipboardError=null
         cancelRead();preview=null;clearSelection();(source as? FileBrowserRepository)?.close()

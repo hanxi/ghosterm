@@ -1,6 +1,8 @@
 # Android 最终方案实现计划
 
-**最新已出包（2026-11-01，`a70a0d0`）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程首次完整 626 项在 1,800 秒总时限处终止（563 项成功结束、未见失败事件），未计完整通过，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口仍在隔离验证；最终按用户要求共用 dev Release，固定渠道文件名和平台间保留校验正在主工程验收；整个 Android 目标、设备与输入法矩阵尚未完成。
+**当前进度（2026-11-01）**：预览副本清理已整合，主工程 API 36 的 36 项定向测试通过；隔离 API 29/36 各 72 项及十一组新变异证据见 §9.95。按用户要求改为批量开发、编译/关键路径冒烟随批次执行、完整回归与变异集中到阶段末；634 项完整运行主动中断，不计通过。最新共享 dev 已由 `51ac0fa` 的 Android CI 41296547661 和 macOS CI 41296547712 发布，旧 android-dev Release/tag 已移除。当前优先排查用户反馈的 SSH 连接失败；API 29/36 实际系统 DNS 数字地址/域名专项均通过，尚未确认故障原因。
+
+**上一已验包（2026-11-01，`a70a0d0`，保留原专项证据）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程首次完整 626 项在 1,800 秒总时限处终止（563 项成功结束、未见失败事件），未计完整通过，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口仍在隔离验证；最终按用户要求共用 dev Release，固定渠道文件名和平台间保留校验正在主工程验收；整个 Android 目标、设备与输入法矩阵尚未完成。
 
 **历史已发行验收（§9.79，2026-11-01，ca6f104）**：API 29 文件访问的高版本 API 崩溃已修复，组合接受和单 LF 回车顺序已修正；相关新增/既有变异分轮通过。新完整 **498 项通过，零失败/错误/跳过**（1350.909 秒），实际具名开始/结束与 498 项默认发现集合一致；753 份非 Markdown 输入集合/SHA256 不变，两份已安装 APK 与构建摘要匹配。完整套件只覆盖 API 36 arm64 / 4 KB 页模拟器；API 29 的 86 项文件/导入专项另行通过，raw 终端、旧版 Gboard 坐标同步、真实设备和完整发行矩阵仍未完成。同提交云端签名 release 已下载验包：5,903,897 字节，固定证书、非 debuggable/minSdk 29/仅 arm64、三份压缩 native 库、ELF/ZIP 16 KB 对齐均通过；API 36 / 16 KB 页已验保留数据升级、28 字节复制/保留两者/预览与真实本地终端提示符。API 29 的本地包（5,904,217 字节）另验预览和 27 字节复制，但 Gboard 输入仍失败。云端链接和分档证据见本节末；§9.81 工作区已修正输入窗口与编辑提交边界，API 36 的 14 项/API 29 的 3 项专项通过；新变异及最终完整回归仍待完成，不能借用这份已发行完整结果。
 
@@ -2810,17 +2812,19 @@ Android CI 在 main 的签名构建后自动上传上述三个 Android 专用附
 
 跨轨核对发现 macOS dev workflow 会删除重建整个 dev Release，并严格要求五个 Mac 附件，原来的共用目标不能保留 Android。现已创建独立 android-dev Release，将实际 a70 云端包与 Android 专用摘要/清单上传并重新下载验证，tag 和 Release 目标均指 a70。随后只删除 Mac dev 中已独立发布、摘要匹配的三个 Android 重复附件，保留 Mac 五个附件；没有删除 Mac 包。自动化改投 android-dev、首次 404 创建/其他错误失败、更新独立 tag 与 Mac 正文链接的两份 workflow 在 `tmp/android-release-routing/` 隔离稿通过 actionlint，尚待当前冻结运行结束后整合。Mac dev CI 41293452099 的轻闸门/打包/发布亦成功，但不替代既有完整宿主 349 项的设置页像素失败。
 
-### 9.95 后续预览清理隔离稿（2026-11-01，未合入）
+### 9.95 预览副本清理（2026-11-01，已整合）
 
 `tmp/android-a4-text/` 已接文件/预览“更多 → 清理预览副本”确认入口，统计已清理/保留/失败；保护真实 reader、准备 worker 和待交接副本，原文件不在清理范围。首次将 discard 的推导返回类型变成 Boolean，旧 JUnit 方法不再是 void，整类初始化失败，已拒收并显式恢复 Unit。随后 36 项、十组新变异、原有 24 组外部预览变异、四模块 lint 与 API 29 的 71 项组合分轮通过；旧 C13 单次消费变异锚点随交接语句调整，预检拒绝记录保留。
 
 后续增加实际 reader 仍在使用时 discard 失败的反例：旧隔离稿留下无主 presenter pin，reader 关闭后不能手动清理，目标单条断言红、同包 Core/限额两控制绿（`phase-1793526252591688000`）。改为先解除已放弃的 presenter pin、仅保留真实 reader pin；十一组新变异、四模块 lint 和 API 29 最终 72 项通过（`phase-1793526382285868000`），API 36 72 项亦通过（`phase-1793527548319934000`）；801 份输入集合/SHA256 均一致。该稿未进入当前 a70 云端 APK，不借用已发布 APK 的专项结果。
 
+主工程整合后的 806 份输入与先前构建/lint 完全一致；API 36 缓存/产品 36 项通过（16.831 秒，`phase-1793529532510676000`）。634 项完整运行因用户要求提速、优先处理 SSH 问题而主动中断（`phase-1793528164183384000`），不算通过；完整回归留到阶段末。当前已接确认、清理结果、失败重试及 reader/worker/presenter 保护，不再是仅隔离稿。
+
 ### 9.96 最终共享 dev 命名与完整运行记录（2026-11-01）
 
 用户最终指定 **Ghosterm-android-arm64-dev.apk / Ghosterm-macos-arm64-dev.dmg / Ghosterm-macos-arm64-dev.zip**，共同放在 dev Release；前节独立 android-dev 方案取消。实际 a70 云端 APK 仅改外层文件名，仍是同一固定证书签名 release；Mac 两归档亦只改外层文件名，字节摘要不变。Mac SHA256SUMS、version.json 资产名/摘要键同步，Homebrew tap 提交 `52dc3433b1a7c105ba72f86f7ad2936969a9dc9f` 更新为稳定的新 ZIP 链接，cask 对拍及真实直链通过。8 个共享附件已下载逐一比对；只删除了旧 Mac 归档名，Android 资产 ID/摘要保留。dev Release ID 未改变；android-dev Release 与同名 tag 已删除并分别验证 404/无远端 ref，旧独立路由工作树也已清理。
 
-自动化改为两端发布共用 dev-release 互斥组。Mac 原位上传和编辑，保留 Release ID、Android 资产 ID/摘要/大小，仅清理明确归属 Mac 的旧归档；不再删除整个 Release。Android 在签名构建后的独立发布 job 写入自己的三份附件，不改 Mac tag/正文/清单。共享资产清点与另外平台保留守卫的 22 组损坏反例通过，Android 原有十组真实 APK 资产反例随新文件名再通过；新 workflow actionlint 通过，本地 Mac 打包已实际产出固定 dev ZIP，完整打包变异和新 CI 正在收尾。全新渠道文件名由 --channel dev/release 决定，版本仍写入构建清单。
+自动化改为两端发布共用 dev-release 互斥组。Mac 原位上传和编辑，保留 Release ID、Android 资产 ID/摘要/大小，仅清理明确归属 Mac 的旧归档；不再删除整个 Release。Android 在签名构建后的独立发布 job 写入自己的三份附件，不改 Mac tag/正文/清单。共享资产清点与另外平台保留守卫的 22 组损坏反例通过，Android 原有十组真实 APK 资产反例随新文件名再通过；新 workflow actionlint 通过，本地 Mac 打包已实际产出固定 dev ZIP，完整 Mac 打包 63 项及真实 DMG 三组通过；51ac0fa 的 Android CI 41296547661 和 Mac CI 41296547712 均成功，共享发布前后另外平台附件 ID/摘要/大小保持不变。全新渠道文件名由 --channel dev/release 决定，版本仍写入构建清单。
 
 原主工程完整 626 项运行在旧 **1,800 秒**主机预算处终止：具名成功结束 563 项，未见失败/跳过事件，第 564 项已开始；不能算完整通过。803 份输入集合/SHA256 前后一致，发现集合/日志/两安装 APK 摘要/源码收据已归档 `tmp/a4-preview-evidence/full-626-timeout/`。实际速度外推完整约 2,001 秒，加约 20% 余量后集合预算改为 2,400 秒、夹具外层 2,700 秒；定向/变异 600 秒及每项实际超时/性能断言不变。新的完整运行仍待完成，不以云端签名或 16 KB 专项代替。
 

@@ -59,6 +59,7 @@ class ExternalPreviewCache(private val context: Context, private val root: File,
     } }
     private val lock=Any()
     private val writing=mutableSetOf<String>()
+    private val awaitingHandoff=mutableSetOf<String>()
     private val readers=mutableMapOf<String,Int>()
     private val readerBytes=mutableMapOf<String,Long>()
     private val staging=TransferStagingStore(File(root,"staging"),fileLimit,totalLimit,snapshotLimit=4)
@@ -82,6 +83,7 @@ class ExternalPreviewCache(private val context: Context, private val root: File,
             if(token !in writing && readers[token]==null &&
                 (file.name.endsWith(".part") || time-file.lastModified()>=retentionMillis)) {
                 check(deleteCopy(file)) { "无法清理过期预览缓存，请检查设备存储空间" }
+                awaitingHandoff.remove(token)
             }
         }
     }
@@ -109,7 +111,7 @@ class ExternalPreviewCache(private val context: Context, private val root: File,
             val missingPins=readerBytes.filterKeys { it !in named }
             val used=files.filter { it.name !in writing && it.name.removeSuffix(".part") !in writing }.sumOf { it.length() }+missingPins.values.sum()
             check(files.count { !it.name.endsWith(".part") }+writing.size+missingPins.size<16 &&
-                used+writing.size*fileLimit<=totalLimit-fileLimit) { "预览缓存已满，请等待过期副本释放" }
+                used+writing.size*fileLimit<=totalLimit-fileLimit) { "预览缓存已满，请在“更多”中清理预览副本" }
             writing.add(token)
         }
         val part=File(root,"$token.part");val published=File(root,token)
@@ -146,6 +148,7 @@ class ExternalPreviewCache(private val context: Context, private val root: File,
                 Os.chmod(part.path,256) // 0400; consumers get a separate O_RDONLY descriptor.
                 Os.rename(part.path,published.path)
                 check(published.setLastModified(now())) { "无法记录预览副本期限" }
+                awaitingHandoff.add(token)
                 complete=true
             }
             val extension=display.substringAfterLast('.',"").lowercase(Locale.ROOT)
@@ -164,6 +167,31 @@ class ExternalPreviewCache(private val context: Context, private val root: File,
                     }
                 }
             }
+        }
+    }
+    /** Called after startActivity returns. Until then a prepared URI belongs to
+     * its presenter and an unrelated clear request must preserve it. */
+    fun handedOff(ready: Ready) = synchronized(lock) { awaitingHandoff.remove(token(ready.uri));Unit }
+    data class ClearResult(val removed: Int, val bytes: Long, val retained: Int, val failed: Int)
+    /** Explicit user cleanup only. Active readers, pending handoffs and actual
+     * writers retain their bytes and quotas; unnamed staging is untouched. */
+    suspend fun clearCopies(): ClearResult = withContext(Dispatchers.IO) {
+        try {
+            synchronized(lock) {
+                val protected=writing+awaitingHandoff+readers.keys
+                var removed=0;var bytes=0L;var failed=0
+                copies().forEach { copy ->
+                    if(copy.name.removeSuffix(".part") !in protected) {
+                        val length=copy.length()
+                        if(deleteCopy(copy)) { removed++;bytes+=length } else failed++
+                    }
+                }
+                cleanupFailure.value=if(failed==0) null else "有 ${failed} 个预览副本清理失败，请重试"
+                ClearResult(removed,bytes,protected.size,failed)
+            }
+        } catch(error: Exception) {
+            cleanupFailure.value="预览缓存清理失败：${error.message ?: "未知原因"}"
+            throw error
         }
     }
     private fun token(uri: Uri): String {
@@ -231,8 +259,12 @@ class ExternalPreviewCache(private val context: Context, private val root: File,
     suspend fun discard(ready: Ready) = withContext(Dispatchers.IO) {
         synchronized(lock) {
             val copy=File(root,token(ready.uri))
+            // The presenter has abandoned this URI even if unlink must wait
+            // for a consumer; only actual readers should retain it now.
+            awaitingHandoff.remove(copy.name)
             check(readers[copy.name]==null) { "预览副本正在使用" }
             check(!copy.exists() || copy.delete()) { "无法删除预览副本" }
+            Unit
         }
     }
 }

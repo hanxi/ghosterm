@@ -52,16 +52,20 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             if(preview==null) {
                 if(model.selecting) TextButton(onClick=model::clearSelection) { Text("取消选择") }
                 else TextButton(onClick=model::selectMode,enabled=!model.loading && model.error==null) { Text("选择") }
-                Box {
-                    TextButton(onClick={ menu=true }) { Text("更多") }
-                    DropdownMenu(expanded=menu,onDismissRequest={ menu=false }) {
+            }
+            Box {
+                TextButton(onClick={ menu=true }) { Text("更多") }
+                DropdownMenu(expanded=menu,onDismissRequest={ menu=false }) {
+                    if(preview==null) {
                         DropdownMenuItem(text={ Text("文件任务") },onClick={ menu=false;showTasks() })
                         if(model.location.endpoint.remoteAlias!=null)
                             DropdownMenuItem(text={ Text("断开文件连接") },onClick={ menu=false;model.disconnectRemote() })
                         DropdownMenuItem(text={ Text("刷新") },onClick={ menu=false;model.reload() })
                         DropdownMenuItem(text={ Text(if(model.showHidden) "隐藏点文件" else "显示隐藏文件") },
-                            enabled = model.preferencesAvailable && !model.hiddenSaving, onClick={ menu=false;model.toggleHidden() })
+                            enabled=model.preferencesAvailable && !model.hiddenSaving,onClick={ menu=false;model.toggleHidden() })
                     }
+                    DropdownMenuItem(text={ Text("清理预览副本") },enabled=!model.externalClearing,
+                        onClick={ menu=false;model.requestExternalClear() },modifier=Modifier.testTag("file-preview-cache-clear"))
                 }
             }
         })
@@ -77,6 +81,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 }
                 model.externalError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-external-error")) }
                 model.externalCacheError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-preview-cache-error")) }
+                PreviewCacheStatus(model)
                 if(preview.error!=null) Text(preview.error,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(top=16.dp).testTag("file-preview-error"))
                 else if(preview.text==null) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top=16.dp))
                 else SelectionContainer(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
@@ -90,6 +95,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             Text(if(model.location.endpoint.remoteAlias!=null) model.location.directoryId else model.crumbs.joinToString(" / ") { it.label },Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).testTag("file-breadcrumb"),
                 style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)
             model.externalCacheError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-preview-cache-error")) }
+            PreviewCacheStatus(model)
             model.preferenceError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("file-preference-error")) }
             model.clipboardError?.let { Text(it,color=MaterialTheme.colorScheme.error,
                 modifier=Modifier.padding(horizontal=16.dp).testTag("file-clipboard-error")) }
@@ -160,6 +166,11 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             OutlinedButton(onClick=pickFolder,enabled=!model.pickerPending,modifier=Modifier.fillMaxWidth()) { Text("选择设备文件夹") }
         }
     }
+    if(model.externalClearConfirm) AlertDialog(onDismissRequest=model::dismissExternalClear,
+        title={ Text("清理预览副本？") },
+        text={ Text("释放临时预览占用的空间，原文件会保留。已打开或正在准备的副本会保留；其他应用尚未打开的旧链接可能失效。") },
+        confirmButton={ TextButton(onClick=model::confirmExternalClear,modifier=Modifier.testTag("file-preview-cache-clear-confirm")) { Text("确认清理") } },
+        dismissButton={ TextButton(onClick=model::dismissExternalClear) { Text("取消") } })
     model.clipboardReplacement?.let { pending ->
         AlertDialog(onDismissRequest=model::dismissClipboardReplacement,title={ Text("替换复制清单？") },
             text={ Text("用 ${clipboardSource(pending.snapshot)} 的 ${pending.snapshot.items.size} 项替换现有清单。原文件不会改变。") },
@@ -189,6 +200,18 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             TextButton(onClick=model::hideClipboard,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("返回文件") }
         }
     }
+}
+
+@Composable
+private fun PreviewCacheStatus(model: FilesViewModel) {
+    val context=LocalContext.current
+    if(model.externalClearing) Text("正在清理预览副本…",modifier=Modifier.testTag("file-preview-cache-clearing"))
+    model.externalClearResult?.let { result ->
+        Text("已清理 ${result.removed} 个副本，释放 ${Formatter.formatShortFileSize(context,result.bytes)}；保留 ${result.retained} 个正在使用或准备的副本。"+
+            if(result.failed>0) "${result.failed} 个清理失败，请重试。" else "",
+            modifier=Modifier.testTag("file-preview-cache-clear-result"),style=MaterialTheme.typography.bodySmall)
+    }
+    model.externalClearError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-preview-cache-clear-error")) }
 }
 
 private fun clipboardSource(snapshot: FileClipboardSnapshot): String = snapshot.source.endpoint.let { endpoint ->

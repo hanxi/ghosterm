@@ -147,4 +147,44 @@ class ExternalPreviewProductTest {
         ui.onNodeWithTag("file-open-external").assertIsEnabled()
     }
 
+    @Test fun explicitCacheClearRequiresConfirmationAndKeepsOriginalFiles() {
+        preview("first.bin");ui.runOnIdle { model.openExternal() };waitFor { model.externalReady!=null }
+        val copy=ui.runOnIdle { model.externalReady!! }
+        ui.runOnIdle { model.launchExternal(copy) {};model.confirmExternalClear() }
+        waitFor { !model.externalClearing };assertEquals("unconfirmed cleanup must retain the copy",3L,runCatching { cache.info(copy.uri).second }.getOrNull())
+        ui.runOnIdle { showScreen=true }
+        ui.onNodeWithText("更多").performClick();ui.onNodeWithTag("file-preview-cache-clear").performClick()
+        ui.onNodeWithText("清理预览副本？").assertIsDisplayed();assertEquals(3L,cache.info(copy.uri).second)
+        ui.onNodeWithText("取消").performClick();assertEquals(3L,cache.info(copy.uri).second)
+        ui.onNodeWithText("更多").performClick();ui.onNodeWithTag("file-preview-cache-clear").performClick()
+        ui.onNodeWithTag("file-preview-cache-clear-confirm").performClick()
+        waitFor { !model.externalClearing && model.externalClearResult!=null }
+        assertEquals(1,ui.runOnIdle { model.externalClearResult!!.removed })
+        ui.onNodeWithTag("file-preview-cache-clear-result").assertTextContains("已清理 1 个副本",substring=true)
+        assertTrue(runCatching { cache.info(copy.uri) }.isFailure)
+        assertArrayEquals(byteArrayOf(0,1,2),File(root,"home/first.bin").readBytes())
+    }
+    @Test fun cacheClearPreservesPreparedCopyUntilPresenterActuallyHandsItOff() {
+        preview("first.bin");ui.runOnIdle { model.openExternal() };waitFor { model.externalReady!=null }
+        val copy=ui.runOnIdle { model.externalReady!! }
+        ui.runOnIdle { model.requestExternalClear();model.confirmExternalClear() }
+        waitFor { !model.externalClearing && model.externalClearResult!=null }
+        assertEquals(0,ui.runOnIdle { model.externalClearResult!!.removed })
+        assertEquals(1,ui.runOnIdle { model.externalClearResult!!.retained });assertEquals(3L,cache.info(copy.uri).second)
+        ui.runOnIdle { model.launchExternal(copy) {};model.requestExternalClear();model.confirmExternalClear() }
+        waitFor { !model.externalClearing && model.externalClearResult!=null }
+        assertEquals(1,ui.runOnIdle { model.externalClearResult!!.removed });assertTrue(runCatching { cache.info(copy.uri) }.isFailure)
+    }
+
+    @Test fun cacheClearOwnershipFailureIsVisibleAndDoesNotDeleteTheCopy() {
+        preview("first.bin");ui.runOnIdle { model.openExternal() };waitFor { model.externalReady!=null }
+        val copy=ui.runOnIdle { model.externalReady!! }
+        val unowned=File(root,"previews/unowned.txt").apply { writeText("keep") }
+        ui.runOnIdle { model.launchExternal(copy) {};showScreen=true;model.requestExternalClear();model.confirmExternalClear() }
+        waitFor { !model.externalClearing }
+        assertNotNull(ui.runOnIdle { model.externalClearError });assertNull(ui.runOnIdle { model.externalClearResult })
+        ui.onNodeWithTag("file-preview-cache-clear-error").assertIsDisplayed()
+        assertEquals(3L,cache.info(copy.uri).second);assertEquals("keep",unowned.readText())
+    }
+
 }

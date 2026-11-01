@@ -262,4 +262,68 @@ class ExternalPreviewCacheTest {
         assertEquals(16,copies().size)
     }
 
+    @Test fun explicitClearReclaimsRetiredSlotsAndAllowsAnotherOpen()=runBlocking {
+        repeat(16) { cache.handedOff(prepare(ByteArray(0))) }
+        rejects { prepare(ByteArray(0)) }
+        val result=cache.clearCopies()
+        assertEquals(16,result.removed);assertEquals(0L,result.bytes);assertEquals(0,result.retained);assertEquals(0,result.failed)
+        assertTrue(copies().isEmpty());assertEquals(1L,prepare(byteArrayOf(7)).bytes)
+        assertEquals(18,directory.listFiles()!!.count { it.name.startsWith("source-") })
+    }
+    @Test fun explicitClearPreservesReadersPendingHandoffsAndActualWriters()=runBlocking {
+        val active=prepare();cache.handedOff(active)
+        val pending=prepare(byteArrayOf(3))
+        val fd=cache.open(active.uri,"r")
+        val began=CompletableDeferred<Unit>();val gate=CompletableDeferred<Unit>()
+        val input=File(directory,"writer-source").apply { writeBytes(byteArrayOf(4)) }
+        val worker=async { cache.prepare("writer.txt",1u) { store ->
+            began.complete(Unit);gate.await()
+            store.snapshot(1) { AssetFileDescriptor(ParcelFileDescriptor.open(input,ParcelFileDescriptor.MODE_READ_ONLY),0,-1) }
+        } }
+        try {
+            began.await()
+            val held=cache.clearCopies();assertEquals(0,held.removed);assertEquals(3,held.retained)
+            assertEquals(1L,cache.info(pending.uri).second)
+            gate.complete(Unit);val finished=worker.await()
+            cache.handedOff(pending);cache.handedOff(finished)
+            val cleared=cache.clearCopies();assertEquals(2,cleared.removed);assertEquals(1,cleared.retained)
+            ParcelFileDescriptor.AutoCloseInputStream(fd).use { assertEquals("hello",it.readBytes().toString(Charsets.UTF_8)) }
+            var removed=0
+            withTimeout(5000) { while(true) { val result=cache.clearCopies();removed+=result.removed;if(result.retained==0)break;delay(10) } }
+            assertEquals(1,removed);assertTrue(copies().isEmpty());assertArrayEquals(byteArrayOf(4),input.readBytes())
+        } finally { fd.close();gate.complete(Unit);worker.cancelAndJoin() }
+    }
+    @Test fun explicitClearReportsPartialFailureAndCanRetry()=runBlocking {
+        var refuse=true;var protected=""
+        cache=ExternalPreviewCache(context,File(directory,"copies"),"com.hanxi.ghosterm.previews",{clock},64,128,1000,
+            deleteCopy={ if(refuse && it.name==protected) false else it.delete() })
+        val first=prepare();protected=first.uri.pathSegments[0];cache.handedOff(first)
+        val second=prepare();cache.handedOff(second)
+        val result=cache.clearCopies()
+        assertEquals(1,result.removed);assertEquals(1,result.failed);assertNotNull(cache.cleanupError.value)
+        assertEquals(5L,cache.info(first.uri).second);rejects { cache.info(second.uri) }
+        refuse=false;val retried=cache.clearCopies()
+        assertEquals(1,retried.removed);assertEquals(0,retried.failed);assertNull(cache.cleanupError.value);assertTrue(copies().isEmpty())
+    }
+    @Test fun explicitClearRejectsUnknownOwnershipBeforeDeletingAnyCopy()=runBlocking {
+        val ready=prepare();cache.handedOff(ready)
+        val unknown=File(directory,"copies/unowned.txt").apply { writeText("keep") }
+        assertTrue(rejects { cache.clearCopies() }.message!!.contains("无法确认"))
+        assertNotNull(cache.cleanupError.value);assertEquals(5L,cache.info(ready.uri).second);assertEquals("keep",unknown.readText())
+    }
+
+    @Test fun failedDiscardDoesNotLeaveAnAbandonedPresenterPin()=runBlocking {
+        val ready=prepare();val reader=cache.open(ready.uri,"r")
+        try {
+            assertTrue(rejects { cache.discard(ready) }.message!!.contains("正在使用"))
+        } finally { reader.close() }
+        var removed=0
+        val finished=withTimeoutOrNull(5000) {
+            while(true) { val result=cache.clearCopies();removed+=result.removed;if(result.retained==0)break;delay(20) }
+            true
+        }
+        assertTrue("abandoned presenter must not pin the copy after its real reader closes",finished==true)
+        assertEquals(1,removed);assertTrue(copies().isEmpty())
+    }
+
 }
