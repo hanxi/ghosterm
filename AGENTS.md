@@ -167,6 +167,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 **Android 外部预览整合（2026-11-01，§9.92，已提交 ab2f008）**：API 29 最终 30 项、24 组编译后变异与一组真实进程中断反例通过；Core 77 份源文件仍与先前 47 CTest / 91 符号闸门相同，未修改 Apple 源码。主工程四模块 release lint、本地固定证书 release 构建与 API 36 / arm64 / 4 KB 页完整 609 项通过（1,551.598 秒），零失败/错误/跳过，具名发现/开始结束、两安装 APK 摘要及 798 份输入前后与最终审计一致。带正式图标的本地 R8 release 为 6,146,497 字节，验签/压缩/16 KB 对齐通过；包内是 a0328da + dirty，不冒充云端包。随后 ab2f008 的 release CI 41288109410 成功，实际云端包 6,146,193 字节，提交/clean、固定证书、压缩/对齐与实际 R8/资源优化已核验；同包 16 KB 页升级/九文件/设置/ASCII 与跨 UID 外部只读打开专项通过。SAF 文本修复仍在隔离工作树，不在此完整 APK；完整设备、输入法、发行矩阵及整个 Android 目标仍未完成。
 
+Android Release 资产以 `python3 scripts/check-android-release-assets.py 目录 --expect-commit 提交` 检查 APK/Android 专用摘要/构建清单及内置源码收据一致；`mutation-check-android-release-assets.py` 对实际包做十组输入损坏反例，同包代码/源码独立对照绿、原件和 SHA256 不变。只证明发布完整性，不代替真实签名、优化或原生对齐验收；Android workflow main 发布前/回读后复用检查，PR 不发布，不增加 macOS CI 20 份。新 workflow 的实际执行进度见 Android 实施计划 §9.94。
+
 `android-file-queue` 以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileQueueProductTest ANDROID_FILE_QUEUE_MUTATE=1 bash scripts/test-android-ssh.sh` 手工执行 14 组，护 FIFO、请求容量、取消等待项、实际释放前不推进、各终态推进、队列位置/页面和请求内决策。另启动独立 OpenSSH 服务验两个端点的排队认证与真实内容；同宿主双服务不等于公网或物理双机矩阵。每组真实编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；实际通过范围见 Android 实现计划 §9.72。属于手工覆盖，不增加 CI 20 份。
 
 `android-process-files` 以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.ProcessFileWorkTest ANDROID_PROCESS_FILES_MUTATE=1 bash scripts/test-android-ssh.sh` 手工执行 15 组，护进程任务/清单唯一持有、页面结束/后台、全局名额、结果订阅、认证接管及系统选择器/旧确认归属。编译后目标红、同 APK 配置对照绿、恢复绿与 SHA256；设备与实际运行范围见 Android 实现计划 §9.71/§9.72。不增加 CI 20 份，不将进程内存活记为前台服务或进程恢复完成；排队另见 §9.72。

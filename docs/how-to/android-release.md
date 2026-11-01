@@ -2,7 +2,8 @@
 
 当前签名包来自 [run 41288109410](https://github.com/hanxi/ghosterm/actions/runs/41288109410)，
 源码 `ab2f008`，APK **6,146,193 字节（约 5.86 MiB）**，含正式图标、五类设置及外部只读打开。
-[下载签名 release APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41288109410/artifacts/13076715009)。
+[直接下载 release APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-release.apk)（[本次构建 artifact](https://github.com/hanxi/ghosterm/actions/runs/41288109410/artifacts/13076715009) 保留用于审计）。
+dev Release 已挂 Android 专用摘要和构建清单，现有附件已回读核对。缩小图标及 CI 自动发布正在工作区验收，尚未替换成新包。
 SHA256 为 `c157ec5e908078b73292baabb7f6f2c9e8aec72b59f61123cca5bd7fa46fbeda`。
 实际提交/clean 收据、固定证书、非 debuggable/minSdk 29/仅 arm64、R8/资源裁剪、三份 native 库压缩及 ELF/ZIP 16 KB 对齐已核对。
 
