@@ -163,6 +163,22 @@ class FileJournalProductTest {
         assertEquals(queued.error,FileTaskPhase.CONFIRMING,queued.phase)
         assertEquals(old.id,runBlocking { journal.load().single { it.intent.id==queued.request.id }.intent.retryOf })
     }
+    @Test fun destinationQuotaCountsResidueFromAnotherTaskAndReportsZeroWrittenBytes() {
+        val previous=File(root,"file-tasks/${UUID.randomUUID()}/destination").apply { mkdirs() }
+        android.system.Os.chmod(previous.parentFile!!.path,448);android.system.Os.chmod(previous.path,448)
+        val leftover=File(previous,UUID.randomUUID().toString())
+        java.io.RandomAccessFile(leftover,"rw").use { it.setLength(512L*1024*1024) }
+        android.system.Os.chmod(leftover.path,384)
+        val model=open()
+        val task=ui.runOnIdle { model.start(snapshot,target,"target",::connections);model.tasks.single() }
+        ui.waitUntil(10000) { task.phase==FileTaskPhase.CONFIRMING }
+        ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick();waitDone(task)
+        val result=task.result!!.items.single()
+        assertEquals(FileCopyItemState.FAILED,result.state);assertEquals(0uL,result.bytes)
+        assertTrue(result.error.orEmpty().contains("暂存容量不足"));assertNull(result.candidatePath)
+        assertTrue(File(home,"target").list()!!.isEmpty());assertEquals(512L*1024*1024,leftover.length())
+        assertEquals(result,runBlocking { journal.load().single().items.single().value })
+    }
     @Test fun admissionFailureNeverScansAndDoesNotErasePreviousHistory() {
         val previous=FilePasteRequest.capture(snapshot,target,"target")
         runBlocking { journal.load();journal.accept(previous) }

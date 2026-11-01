@@ -376,7 +376,7 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                                 val out=LocalFilePublisher(home,localStage,
                                     beforeCreate={ path ->
                                         result=result.copy(candidatePath=path);report(result,FileCopyCheckpoint.LOCAL_CREATE);active()
-                                    },beforePublish={ report(result,FileCopyCheckpoint.PUBLISH);active() }
+                                    },beforePublish={ report(result,FileCopyCheckpoint.PUBLISH);active() },budgetRoot=stagingRoot
                                 ).publish(parent.directoryId,name,snapshot) { bytes,total -> writingProgress(bytes.toULong(),total.toULong());active() }
                                 result.copy(state=when(out.state) {
                                     LocalFilePublisher.State.PUBLISHED->FileCopyItemState.COMPLETE
@@ -384,7 +384,7 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                                     LocalFilePublisher.State.REJECTED->FileCopyItemState.FAILED
                                 },createdId=if(out.state==LocalFilePublisher.State.PUBLISHED) parent.directoryId.trimEnd('/').let { if(it.isEmpty()) name else "$it/$name" } else null,
                                     candidatePath=if(out.state==LocalFilePublisher.State.PUBLISHED || out.cleanupError==null) null else result.candidatePath,
-                                    bytes=snapshot.size.toULong(),error=out.cleanupError ?: if(out.error!=0) "本机发布失败（${out.error}）" else null)
+                                    bytes=out.bytesWritten.toULong(),error=out.cleanupError ?: out.rejectionReason ?: if(out.error!=0) "本机发布失败（${out.error}）" else null)
                             }
                             else -> {
                                 report(result,FileCopyCheckpoint.DOCUMENT_CREATE)

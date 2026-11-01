@@ -71,7 +71,7 @@ def main():
         if passed!=green or (not green and ('FAILURES!!!' not in output or not any(x in output for x in ('AssertionError','org.junit.ComparisonFailure')))):
             raise RuntimeError(output)
     baseline='FileJournalTest,FileJournalProductTest,SafPublicationTest#journalUriIsPersistedBeforeContentWrite'
-    build('baseline');test('baseline',baseline,True,23)
+    build('baseline');test('baseline',baseline,True,24)
     test('baseline-control','ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig',True)
     try:
         for name,path,before,after,target in cases:
@@ -83,7 +83,7 @@ def main():
             restore();build(name+'-restored');test(name+'-restored',target,True)
             print(f'PASS {name}: compiled target red / same APK config green / restored green / SHA256',flush=True)
     finally:restore()
-    build('final');test('final',baseline,True,23)
+    build('final');test('final',baseline,True,24)
     print(f'ANDROID FILE JOURNAL MUTATIONS PASS: {len(cases)} groups',flush=True)
 
 

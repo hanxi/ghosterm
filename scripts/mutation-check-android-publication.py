@@ -50,7 +50,7 @@ def main():
         ('cancel-before-rename',store,'writer.close();writer=null\n                cancellation.ensureActive()\n                beforePublish()\n                cancellation.ensureActive()','writer.close();writer=null\n                beforePublish()',cancel),
         ('conflict',store,'OsConstants.EEXIST->State.CONFLICT','OsConstants.EEXIST->State.PUBLISHED',conflict),
         ('rejection',store,'else->State.REJECTED','else->State.PUBLISHED',rejected),
-        ('reader-close',store,'listOf(writer,reader,stage,directory)','listOf(writer,stage,directory)',complete),
+        ('reader-close',store,'listOf(writer,reader,reservation,scope,stage,directory)','listOf(writer,reservation,scope,stage,directory)',complete),
         ('private-staging',store,'check(staging.canonicalFile!=home.canonicalFile && !staging.canonicalPath.startsWith(home.canonicalPath+File.separator))','check(true)',rejected),
         ('late-cancel-preserves',store,'return snapshot.withDescriptor',
          'currentCoroutineContext()[kotlinx.coroutines.Job]?.invokeOnCompletion { cause -> if(cause!=null) File(File(home,directoryId),name).delete() }\n        return snapshot.withDescriptor',

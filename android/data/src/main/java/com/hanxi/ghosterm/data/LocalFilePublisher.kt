@@ -22,9 +22,10 @@ import java.util.UUID
  */
 class LocalFilePublisher(private val home: File, private val staging: File,
     private val beforeCreate: suspend (String) -> Unit = {},
-    private val beforePublish: suspend () -> Unit = {}) {
+    private val beforePublish: suspend () -> Unit = {},
+    private val budget: LocalPublicationBudget = LocalPublicationBudget.SHARED, private val budgetRoot: File? = null) {
     enum class State { PUBLISHED, CONFLICT, REJECTED }
-    data class Result(val state: State, val error: Int, val cleanupError: String? = null)
+    data class Result(val state: State, val error: Int, val cleanupError: String? = null, val rejectionReason: String? = null, val bytesWritten: Long = 0)
 
     /** checkpoint reports copied bytes, not completion, and may suspend for task pause. */
     suspend fun publish(directoryId: String, name: String, snapshot: TransferStagingStore.Snapshot,
@@ -38,6 +39,9 @@ class LocalFilePublisher(private val home: File, private val staging: File,
             val candidateName=UUID.randomUUID().toString()
             var writer: ParcelFileDescriptor?=null
             var reader: ParcelFileDescriptor?=null
+            var reservation: java.io.Closeable?=null
+            var scope: ParcelFileDescriptor?=null
+            var targetBytes=0L
             var result: Result?=null
             var cleanup: Exception?=null
             var primary: Throwable?=null
@@ -48,6 +52,8 @@ class LocalFilePublisher(private val home: File, private val staging: File,
                 check(OsConstants.S_ISDIR(Os.lstat(staging.path).st_mode)) { "目标暂存目录不能是符号链接" }
                 Os.chmod(staging.path,448)
                 stage=LocalPublicationFile.directory(staging,"")
+                scope=budgetRoot?.let { LocalPublicationFile.directory(it,"") }
+                reservation=budget.reserve(stage,candidateName,size,scope)
                 beforeCreate(File(staging,candidateName).absolutePath)
                 cancellation.ensureActive()
                 writer=LocalPublicationFile.candidate(stage.fd,candidateName)
@@ -70,7 +76,7 @@ class LocalFilePublisher(private val home: File, private val staging: File,
                                 cancellation.ensureActive()
                                 val written=try { Os.write(writer.fileDescriptor,buffer,offset,read-offset) }
                                 catch(e:ErrnoException) { if(e.errno==OsConstants.EINTR) continue;throw e }
-                                check(written>0) { "目标写入没有进展" };offset+=written
+                                check(written>0) { "目标写入没有进展" };offset+=written;targetBytes+=written
                                 checkpoint(copied+offset,size)
                             }
                             copied+=read
@@ -87,15 +93,17 @@ class LocalFilePublisher(private val home: File, private val staging: File,
                 beforePublish()
                 cancellation.ensureActive()
                 val error=LocalPublicationFile.publish(directory.fd,stage.fd,reader.fd,candidateName,name,size)
-                result=Result(when(error) { 0->State.PUBLISHED;OsConstants.EEXIST->State.CONFLICT;else->State.REJECTED },error)
+                result=Result(when(error) { 0->State.PUBLISHED;OsConstants.EEXIST->State.CONFLICT;else->State.REJECTED },error,bytesWritten=targetBytes)
                 // Do not turn an acknowledged rename into failure on late cancellation.
+            } catch(rejected: LocalPublicationBudget.Rejected) {
+                result=Result(State.REJECTED,rejected.systemError,rejectionReason=rejected.message)
             } catch(failure: Throwable) { primary=failure;throw failure } finally {
                 val owned=reader?:writer
                 if(stage!=null && owned!=null && result?.state!=State.PUBLISHED) try {
                     val error=LocalPublicationFile.remove(stage.fd,owned.fd,candidateName)
                     if(error!=0)cleanup=IOException("目标暂存清理失败（系统错误 $error）")
                 } catch(e:Exception) { cleanup=e }
-                for(fd in listOf(writer,reader,stage,directory)) try { fd?.close() } catch(e:Exception) { if(cleanup==null)cleanup=e }
+                for(fd in listOf(writer,reader,reservation,scope,stage,directory)) try { fd?.close() } catch(e:Exception) { if(cleanup==null)cleanup=e }
                 if(cleanup!=null) {
                     if(primary!=null) primary.addSuppressed(cleanup!!)
                     else if(result==null) throw cleanup!!
