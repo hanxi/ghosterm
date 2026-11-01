@@ -96,6 +96,21 @@ internal class RemoteJournalScenario(private val context:Context, val root:File)
         val destination=record.intent.destination
         assertEquals("journal.ghosterm.test",destination.endpoint.remote!!.host)
         connected { checking ->
+            val before=record.copy(items=record.items.toList())
+            val observations=FileHistoryInspector { location ->
+                val found=checking.browse(location.directoryId)
+                BrowserDirectory(location.copy(directoryId=found.path),found.entries.map {
+                    BrowserEntry(it.path,it.name,when {
+                        it.symbolicLink->FileKind.LINK;it.directory->FileKind.DIRECTORY
+                        it.regularFile->FileKind.FILE;else->FileKind.OTHER
+                    },it.size,null)
+                })
+            }.inspect(record).observations.filter { it.relativePath==item.value.source.relativePath }
+            assertEquals(before,record)
+            assertEquals(if(point in listOf("remote-published","remote-directory")) FileHistoryPresence.PRESENT else FileHistoryPresence.ABSENT,
+                observations.first().presence)
+            if(point!="remote-directory") assertEquals(if(point=="remote-publish") FileHistoryPresence.PRESENT else FileHistoryPresence.ABSENT,
+                observations.last().presence)
             val entries=checking.browse(destination.directoryId).entries
             when(point) {
                 "remote-create"->{

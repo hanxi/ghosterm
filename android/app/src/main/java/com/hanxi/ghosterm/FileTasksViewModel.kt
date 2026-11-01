@@ -3,6 +3,7 @@ package com.hanxi.ghosterm
 import android.app.Application
 import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.hanxi.ghosterm.data.*
 import com.hanxi.ghosterm.domain.*
 import kotlinx.coroutines.*
@@ -266,13 +267,49 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val journalError get() = work.tasks.journalError
     val background get() = work.background
     fun retryBackground() = work.background.requestFromUser(presenterId)
-    fun reloadHistory() = work.tasks.reloadHistory()
-    fun removeHistory(record: FileJournalRecord) = work.tasks.removeHistory(record)
+    fun reloadHistory() { cancelInspection();inspections.clear();work.tasks.reloadHistory() }
+    fun removeHistory(record: FileJournalRecord) { cancelInspection();inspections.remove(record.intent.id);work.tasks.removeHistory(record) }
+    val inspections = mutableStateMapOf<String,FileHistoryInspection>()
+    var inspectingId by mutableStateOf<String?>(null); private set
+    var inspectionError by mutableStateOf<String?>(null); private set
+    private var inspectionJob: Job? = null
+    fun cancelInspection() { inspectionJob?.cancel() }
+    fun inspectHistory(record: FileJournalRecord) {
+        if(busy || journalLoading || inspectingId!=null || record !in history) return
+        inspectingId=record.intent.id;inspectionError=null;inspections.remove(record.intent.id)
+        inspectionJob=viewModelScope.launch {
+            try {
+                val app=getApplication<Application>()
+                val result=withContext(Dispatchers.IO) {
+                    work.authentication.fileHistoryConnections(record.intent.id,record.intent.destination.endpoint,::cancelInspection).use { scope ->
+                        val local=LocalFileBrowser(File(app.filesDir,"home"),app.contentResolver)
+                        FileHistoryInspector { location ->
+                            val remote=scope.remote(FileTaskConnections.Role.DESTINATION,location.endpoint)?.session
+                            if(remote==null) local.browse(location) else {
+                                val found=remote.browse(location.directoryId)
+                                BrowserDirectory(location.copy(directoryId=found.path),found.entries.map { entry ->
+                                    BrowserEntry(entry.path,entry.name,when {
+                                        entry.symbolicLink->FileKind.LINK;entry.directory->FileKind.DIRECTORY
+                                        entry.regularFile->FileKind.FILE;else->FileKind.OTHER
+                                    },entry.size,entry.modifiedSeconds?.takeIf { it<=Long.MAX_VALUE/1000 }?.times(1000))
+                                })
+                            }
+                        }.inspect(record)
+                    }
+                }
+                ensureActive()
+                if(record in history) inspections[record.intent.id]=result
+            } catch(timeout: TimeoutCancellationException) { inspectionError="核对连接超时，请重新发起核对" }
+            catch(cancel: CancellationException) { throw cancel }
+            catch(error: Exception) { inspectionError=error.message ?: "无法核对历史位置" }
+            finally { if(inspectingId==record.intent.id) { inspectingId=null;inspectionJob=null } }
+        }
+    }
     val authentication get() = work.authentication
     val presentsAuthentication get() = work.presenter == presenterId
     var visible by mutableStateOf(false); private set
     fun show() { visible=true }
-    fun hide() { retryTask=null;visible=false }
+    fun hide() { cancelInspection();retryTask=null;visible=false }
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
         connections: (FilePasteRequest) -> FileTaskConnections = work::connections) {
         visible=true

@@ -1,5 +1,7 @@
 # Android 最终方案实现计划
 
+**当前 A6 增量（§9.104）**：历史记录已接显式只读位置核对，原未知结果保持不变；API 29 / API 36 各 33 项组合、十组变异、签名 release 与四模块 lint 通过。云端发行待验；内容比对、残留归属/清理、历史重新发起和完整客户端目标未完成，见[核对记录](#android-history-inspection)。
+
 **当前工作区（2026-11-01，A8）**：远端 tmux 后台会话已接主机入口、真实探测/列表/新建/重命名/结束和独立 SSH attach；普通 SSH 入口保持独立。`ee2a83f` 基线的 API 29 / API 36 各 45 项组合和十二组 Android 变异通过；选择器补丁两端各三项、入口/选择器两组增量通过，累计十三个不同保护组分轮取证。共享核心 47 项与 27 组 tmux 变异、macOS 原生构建及九项 tmux UI 回归通过。最新云端签名 APK 已在 16 KB 页模拟器验证实际 SSH/tmux 任务跨客户端与升级保留、重命名、取消/确认结束及旧文件保留，完整设备矩阵仍未完成，见[后台会话记录](android-implementation.md#android-tmux)。此前 Kitty 图形/动画、48dp 正式图标与 Nerd Fonts 均已发布；当前最新已验云端包为 `a63ec46`（7,899,063 字节）。A2 真机/完整输入性能、A3 网络、A5 跨远端命名空间、A6 历史核对/残留清理和 A10 全矩阵仍未完成，整个客户端目标保持进行中。
 
 **历史 A6 切片（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](android-implementation.md#android-kitty)，不扩大为整个 A2 完成。Nerd Fonts 符号回退已随 `de1fd4a` 发布，设备与签名包范围见[字体记录](#android-nerd-fonts)。
@@ -3071,3 +3073,19 @@ API 29 arm64 / 4 KB 页与 API 36 arm64 / 4 KB 页各 **15 项组合专项通过
 设备驱动的早期错误单独保留：`adb exec-out cat` 对缺失文件的诊断曾被误当成文件字节，应用正确拒绝了夹具产生的 `cat:` 指令；核对精确诊断后改用独立存在检查，恢复原缺失状态。驱动脚本名 `inspect.py` 曾遮蔽 Python 标准库，已改名；人工分步认证曾耗尽 60 秒窗口，改为单次有界登录编排；ADB `input text` 把 printf 的 `%s` 当空格，改用不含格式占位符的命令后重新核对真实 PID/变量。均不计产品失败或通过，也未改应用断言/预算掩盖这些驱动问题。
 
 实际包证据在 `tmp/a8-cloud/`：`picker-inspection/result.json`、`picker-ci.log`、`latest-result.json`、`first-client-result.json`、`reconnected-client-result.json`、`rename-result.json`、`latest-reconnected-screen.png`、`preserved-old-file.xml`、`cleanup-result.json` 和 `release-assets.json`。本轮没有新的完整客户端回归、真机/完整 IME/硬件键盘、完整 3.2a Android 矩阵或 macOS 全量宿主证据；A2/A3/A5/A6/A10 的剩余目标保留。
+
+
+<a id="android-history-inspection"></a>
+### 9.104 A6 历史位置的显式只读核对（2026-11-01）
+
+历史卡片增加「核对当前位置」，分别检查已记录的目标和远端暂存位置，结果显示存在、当次目录读取未找到或无法核对，并记录观察时间、当前类型/大小和读取错误。观察仅在当前页面模型内保留，原数据库、检查点和未知结果不改写；存在不证明内容一致或任务归属，未找到也不证明操作从未发生。逐项结果在原「查看来源与结果」中显示，重新读取记录会清除旧观察。
+
+`FileHistoryInspector` 只接只读目录服务，不接写入、删除或重试接口。SAF 必须有实际返回的文档 ID，缺少 ID 时不按显示名称猜测；已记录 ID 缺失也不回落同名替代物。重名/重复 ID、目录身份变化、端点不一致、读取失败均保持未知。暂存路径必须是已记录父目录下的直接子项。读取每次最多 256 个目录、每目录 4096 项、累计 16384 项；达到上限的后续位置显示无法核对，不当作不存在。同一目录本次只读取一次，包括失败；不是整个远端文件系统的原子快照。
+
+远端入口经 `SessionsViewModel.fileHistoryConnections` 建立全新的、仅目标角色的独立 SSH/SFTP owner，重新读取配置、DNS、主机信任与认证；历史来源不再可用也不影响只读核对目标。不借用浏览/终端连接，不重建 `FilePasteRequest`，不恢复旧冲突授权。界面注明「核对历史位置 · 只读目标」；取消或离开页面取消操作，关闭完成后才释放核对状态，晚到结果不发布。核对期间不能再次核对或清除该记录。
+
+**验证**：API 29 和 API 36 arm64 / 4 KB 页各 33 项组合通过（43.749 / 107.346 秒），覆盖 15 项核对数据层、7 项历史页面、4 项真实远端中断与7项远端任务产品测试。真实 MainActivity/Keystore/sshd 场景证明来源配置已移除时，只出现一次目标认证，核对后 owner 归零，原未知记录保持逐字段不变，且没有任务/终端产生。远端四种边界分别核对创建前空目录、发布前暂存、已发布但记录未确认、目录创建结果丢失；不将观察升级为完成。
+
+`ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-history-inspection.py` 的十组设备变异通过：读取失败折成不存在、SAF 无 ID 按名称猜测、ID 丢失回落同名、暂存路径越界、目录/端点身份、吞取消、目录数量/单目录/累计条目预算。每组真实编译后单条目标断言红、同 APK 独立 Core 配置对照绿、恢复目标绿与 SHA256 一致。手工证据，不增加 macOS CI 20 份。
+
+证据：`tmp/a7-primary-evidence/phase-1793546394920055000/`（API 29 的 33 项），`phase-1793546299014115000/` / `tmp/android-history-inspection-mutations/1793546299273630000/`（十组），`tmp/history-core-gate.log`（47 CTest / 93 ABI）。API 36 的组合证据为 `phase-1793546454869841000/`；本地固定证书 release 和四模块 lint 为 `phase-1793546466913251000/`。本地 APK 为 7,919,139 字节，保留 dirty 来源；固定证书、非 debuggable/minSdk 29、压缩 arm64 SO 与 ELF/ZIP 16 KB 对齐通过（`tmp/history-inspection-evidence/local-release/`）。云端发行另记；旧完整 609 项不归属本片。此片只交付位置核对，内容比对、持久归属证明、残留清理及历史任务重新发起仍未完成，A6 保持部分完成。

@@ -40,6 +40,7 @@ fun FileTasksScreen(model: FileTasksViewModel) {
         LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).testTag("file-tasks"),
             state=list,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             model.notice?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
+            model.inspectionError?.let { item { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-history-inspection-error")) } }
             if(model.background.enabled && (model.background.state!=FileBackgroundState.IDLE || model.background.error!=null)) item {
                 Card(Modifier.fillMaxWidth().testTag("file-background-status")) {
                     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -174,7 +175,10 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                 }
             }
             items(model.history,key={ "history:${it.intent.id}" }) { record ->
-                FileHistoryCard(record,onRemove={ model.removeHistory(record) },canRemove=!model.busy && !model.journalLoading)
+                FileHistoryCard(record,onRemove={ model.removeHistory(record) },canRemove=!model.busy && !model.journalLoading && model.inspectingId==null,
+                    inspection=model.inspections[record.intent.id],inspecting=model.inspectingId==record.intent.id,
+                    canInspect=!model.busy && !model.journalLoading && model.inspectingId==null,
+                    onInspect={ model.inspectHistory(record) },onCancel=model::cancelInspection)
             }
         }
     }
@@ -221,7 +225,9 @@ private fun FileTaskByteProgress(activity: FileCopyActivity, running: Boolean, w
 }
 
 @Composable
-private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRemove: Boolean) {
+private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRemove: Boolean,
+    inspection: FileHistoryInspection?, inspecting: Boolean, canInspect: Boolean, onInspect: () -> Unit, onCancel: () -> Unit) {
+    val observations=remember(inspection) { inspection?.observations?.groupBy { it.relativePath }.orEmpty() }
     ElevatedCard(Modifier.fillMaxWidth().testTag("file-history:${record.intent.id}")) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(if(record.interrupted) "已中断 · 结果待核对" else "历史任务 · ${historyStatus(record)}",
@@ -232,6 +238,19 @@ private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRe
             Text(if(record.interrupted) "任务未自动继续。记录后的操作可能尚未确认，请核对目标和暂存位置后再发起新的复制。"
                 else "这是上次运行保存的结果；未重新检查文件。",style=MaterialTheme.typography.bodySmall)
             record.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+            TextButton(onClick=onInspect,enabled=canInspect && record.items.isNotEmpty(),modifier=Modifier.testTag("file-history-inspect")) { Text("核对当前位置") }
+            if(inspecting) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text("正在只读核对目标与暂存位置…")
+                TextButton(onClick=onCancel,modifier=Modifier.testTag("file-history-inspect-cancel")) { Text("取消核对") }
+            }
+            if(record.items.isEmpty()) Text("尚未记录逐项位置，请到目标文件夹检查。",style=MaterialTheme.typography.bodySmall)
+            inspection?.let { observed ->
+                Text("核对时间：${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(observed.observedMillis))}")
+                Text("存在 ${observed.observations.count { it.presence==FileHistoryPresence.PRESENT }} · 未找到 ${observed.observations.count { it.presence==FileHistoryPresence.ABSENT }} · 无法核对 ${observed.observations.count { it.presence==FileHistoryPresence.UNKNOWN }}",
+                    modifier=Modifier.testTag("file-history-inspection-summary"))
+                Text("仅为当时的位置观察；存在不代表复制成功或归属本任务，未找到不代表操作从未发生。原始结果保持不变。",style=MaterialTheme.typography.bodySmall)
+            }
             var details by remember(record.intent.id) { mutableStateOf(false) }
             TextButton(onClick={ details=true },modifier=Modifier.testTag("file-history-details")) { Text("查看来源与结果") }
             if(details) AlertDialog(onDismissRequest={ details=false },title={ Text("任务记录") },text={
@@ -248,6 +267,15 @@ private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRe
                             (value.documentUri ?: value.createdId)?.let { Text("已记录位置：$it") }
                             value.candidatePath?.let { Text("未确认的暂存位置：$it") }
                             value.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+                            observations[value.source.relativePath]?.forEach { observation ->
+                                Text((if(observation.candidate) "暂存位置" else "目标位置")+"："+when(observation.presence) {
+                                    FileHistoryPresence.PRESENT->"存在（未验证内容与归属）"
+                                    FileHistoryPresence.ABSENT->"本次目录读取未找到"
+                                    FileHistoryPresence.UNKNOWN->"无法核对"
+                                })
+                                observation.entry?.let { Text("当前类型：${it.kind} · ${it.size?.let { size -> "$size 字节" } ?: "大小未知"}") }
+                                observation.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+                            }
                         }
                         HorizontalDivider()
                     }

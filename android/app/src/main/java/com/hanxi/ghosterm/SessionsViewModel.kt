@@ -180,8 +180,15 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     /** The task owns these sessions. Authentication only lends the existing credential UI;
      * it never adopts the session into the browser or terminal collection. */
     fun fileTaskConnections(request: FilePasteRequest, cancelled: () -> Unit = {}): FileTaskConnections {
+        return fileConnections(request.id,request.source.endpoint,request.destination.endpoint,"复制任务",cancelled)
+    }
+    /** Fresh destination-only owner; history never becomes an executable paste request. */
+    fun fileHistoryConnections(id: String, destination: FileEndpoint, cancelled: () -> Unit): FileTaskConnections =
+        fileConnections(id,FileEndpoint.APP,destination,"核对历史位置",cancelled)
+    private fun fileConnections(id: String, source: FileEndpoint, destination: FileEndpoint,
+        label: String, cancelled: () -> Unit): FileTaskConnections {
         val targets = mutableMapOf<FileTaskConnections.Role, PreparedSSH>()
-        return FileTaskConnections(request.source.endpoint, request.destination.endpoint,
+        return FileTaskConnections(source, destination,
             resolve = { role, endpoint ->
                 val deadline = SystemClock.elapsedRealtime() + connectionBudgetMillis
                 withTimeout(connectionBudgetMillis) {
@@ -213,11 +220,11 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                         remaining.coerceAtMost(60_000).toInt())
                 }
             }, authenticate = { role, endpoint, connection ->
-                authenticateFileTask(request.id,role,endpoint,targets.getValue(role),connection,cancelled)
+                authenticateFileTask(id,role,endpoint,targets.getValue(role),connection,label,cancelled)
             })
     }
     private suspend fun authenticateFileTask(requestId: String, role: FileTaskConnections.Role,
-        endpoint: FileEndpoint, target: PreparedSSH, connection: RemoteFileSession, cancelled: () -> Unit) = withContext(Dispatchers.Main.immediate) {
+        endpoint: FileEndpoint, target: PreparedSSH, connection: RemoteFileSession, label: String, cancelled: () -> Unit) = withContext(Dispatchers.Main.immediate) {
         coroutineScope {
             check(connecting == null) { "另一个连接正在等待认证，请完成后重新粘贴" }
             val identity = checkNotNull(endpoint.remote)
@@ -225,7 +232,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                 "任务认证连接身份不匹配"
             }
             val attempt = SSHAttempt(target).also {
-                it.taskLabel = "复制任务 · " + if(role == FileTaskConnections.Role.SOURCE) "读取来源" else "写入目标"
+                it.taskLabel = label + " · " + if(role == FileTaskConnections.Role.SOURCE) "读取来源" else if(label=="复制任务") "写入目标" else "只读目标"
                 it.taskCancelled = cancelled
                 it.connection = connection; it.job = coroutineContext[Job]
             }

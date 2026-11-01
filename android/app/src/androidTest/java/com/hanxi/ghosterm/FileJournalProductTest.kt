@@ -68,6 +68,27 @@ class FileJournalProductTest {
         ui.waitUntil(10000) { model.history.isEmpty() && !model.journalLoading }
         assertTrue(runBlocking { journal.load().isEmpty() });assertTrue(File(home,"source/a.txt").isFile)
     }
+    @Test fun explicitHistoryInspectionPreservesOriginalUnknownAndJournal() {
+        val request=FilePasteRequest.capture(snapshot,target,"target")
+        val item=FileCopyItemResult(FileScanEntry(snapshot.source,snapshot.items.single(),"a.txt"),
+            FileCopyItemState.UNKNOWN,target,"a.txt",candidatePath="target/.candidate")
+        runBlocking {
+            journal.load();journal.accept(request)
+            journal.phase(request.id,FileJournalPhase.CONFIRMING);journal.begin(request.id,listOf(item))
+        }
+        File(home,"target/a.txt").writeText("unrelated current bytes")
+        File(home,"target/.candidate").writeText("partial")
+        val before=runBlocking { journal.load() }
+        val model=open()
+        assertTrue(model.inspections.isEmpty());assertEquals(0,calls.get())
+        ui.onNodeWithTag("file-history-inspect").performScrollTo().performClick()
+        ui.waitUntil(10000) { model.inspectingId==null && model.inspections.isNotEmpty() }
+        assertEquals(listOf(FileHistoryPresence.PRESENT,FileHistoryPresence.PRESENT),model.inspections.values.single().observations.map { it.presence })
+        ui.onNodeWithTag("file-history-inspection-summary").assertTextEquals("存在 2 · 未找到 0 · 无法核对 0")
+        assertEquals(before,runBlocking { journal.load() })
+        assertEquals("unrelated current bytes",File(home,"target/a.txt").readText())
+        assertEquals("partial",File(home,"target/.candidate").readText())
+    }
     @Test fun admissionFailureNeverScansAndDoesNotErasePreviousHistory() {
         val previous=FilePasteRequest.capture(snapshot,target,"target")
         runBlocking { journal.load();journal.accept(previous) }

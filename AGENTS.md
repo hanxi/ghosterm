@@ -135,6 +135,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 **Android 设置与正式图标（2026-11-01，已提交 29d3f3d）**：五类设置、16 项已提交偏好的生产消费者、恢复保护与关于已接。功能代码完整 576 项在 API 36 / arm64 / 4 KB 页通过（1,587.573 秒），零失败/错误/跳过，785 份输入及两安装 APK 摘要一致；之后的正式 SVG 派生图标接线由独立 PackageManager/位图断言和误绑默认图标变异验收，不能称完整 577 项重跑。新增 settings 16＋6＋2、terminal-style 29、terminal-controls 18、file-preferences 16、settings-protection 7、about 12、APK build-info 7、icon-binding 1 组分轮手工证据见 Android 实施计划 §9.83–§9.91；不计入上述 macOS CI 20 份。主工程 Core 47/91、Android JNI 51/40、平台 release lint 与带图标的本地固定证书 release 构建通过；16 KB 页已验旧云端包覆盖升级、五文件保留、设置重启及两条 ASCII 系统键盘命令。该本地包保留 dirty 来源；随后 `29d3f3d` 的 release CI 41282597767 成功，实际云端包为 6,129,125 字节，提交/clean 收据、固定证书、压缩/对齐及实际 R8/资源裁剪步骤已核验。同一云端包的 16 KB 页升级、七文件保留、设置重启、关于 clean 提交及两条 ASCII 命令专项通过；完整设备/输入法/性能/功能矩阵仍未完成，证据见 §9.91。
 
+**Android 历史位置核对（§9.104）**：新增显式只读目标/候选位置观察，结果与持久任务结果分开；不因存在而升级成功或授予删除。远端重开独立目标 owner，不连接已失效来源。API 29 / API 36 各 33 项组合、签名 release / 四模块 lint 和 `mutation-check-android-history-inspection.py` 十组设备变异通过（目标红、同 APK Core 绿、复原绿与 SHA256）；不增加 macOS CI 20 份。内容/归属核验、残留清理、历史重新发起与完整客户端仍未完成。
+
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
 `ghosterm.h` 是**单一事实来源**。新增/删除/改签名后必须：

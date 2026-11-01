@@ -116,6 +116,40 @@ class RemoteFileTasksProductTest {
         assertEquals("copy: ${latest.result?.error}",FileCopyState.COMPLETE,latest.result?.state)
         ui.waitUntil(10000) { owners()==1 } // Browser is still independent and usable.
     }
+    @Test fun historicalInspectionUsesFreshDestinationAuthenticationWithoutSourceOrReplay() {
+        val destination=FileLocation(FileEndpoint("history-$unique",unique,fixture.getString("taskRemoteScratch"),
+            remote=RemoteFileIdentity(unique,"127.0.0.1",fixture.getString("user"),fixture.getInt("port"))))
+        // This old source no longer has any configuration. Inspection only reads the destination.
+        val source=FileLocation(FileEndpoint("gone-$unique","gone","/",remote=RemoteFileIdentity("gone-$unique","missing.invalid","nobody",22)))
+        val entry=BrowserEntry("/gone.txt","gone.txt",FileKind.FILE,3u,null)
+        val request=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"gone",listOf(entry)),destination,"history target")
+        val item=FileCopyItemResult(FileScanEntry(source,entry,"gone.txt"),FileCopyItemState.UNKNOWN,
+            destination,"$unique-missing",candidatePath=destination.directoryId+"/.$unique-candidate")
+        val journal=FileTaskJournal(File(ui.activity.filesDir,"file-history/tasks.db"))
+        kotlinx.coroutines.runBlocking {
+            journal.load();journal.accept(request);journal.phase(request.id,FileJournalPhase.CONFIRMING);journal.begin(request.id,listOf(item))
+        }
+        try {
+            ui.runOnIdle { tasks().reloadHistory();tasks().show() }
+            ui.waitUntil(10000) { !tasks().journalLoading && tasks().history.any { it.intent.id==request.id } }
+            val before=kotlinx.coroutines.runBlocking { journal.load().single { it.intent.id==request.id } }
+            assertTrue(tasks().inspections.isEmpty());assertEquals(0,owners())
+            ui.onNode(hasTestTag("file-history-inspect") and hasAnyAncestor(hasTestTag("file-history:${request.id}")))
+                .performScrollTo().performClick()
+            loginUntil { tasks().inspections.containsKey(request.id) }
+            assertNull(tasks().inspectionError);assertEquals(1,authIds.size)
+            assertEquals(listOf(FileHistoryPresence.ABSENT,FileHistoryPresence.ABSENT),
+                tasks().inspections.getValue(request.id).observations.map { it.presence })
+            assertEquals(before,kotlinx.coroutines.runBlocking { journal.load().single { it.intent.id==request.id } })
+            assertTrue(tasks().tasks.isEmpty());assertTrue(sessions().sessions.isEmpty());assertEquals(0,owners())
+        } finally {
+            ui.runOnIdle { tasks().cancelInspection() }
+            ui.waitUntil(15000) { tasks().inspectingId==null }
+            val record=tasks().history.single { it.intent.id==request.id }
+            ui.runOnIdle { tasks().removeHistory(record) }
+            ui.waitUntil(10000) { !tasks().journalLoading }
+        }
+    }
     @Test fun uploadThroughPasteButtonSurvivesRotationAndKeepsBrowserAndClipboard() {
         ui.onNodeWithText("本机文件").performClick();loaded();copy("$unique.txt")
         val clipboard=files().clipboard!!.id
