@@ -48,7 +48,7 @@ def main():
         (source,'resolver.takePersistableUriPermission(selected,granted)','Unit',grant),
         (source,'check(resolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission })',
          'check(true || resolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission })',grant),
-        (source,'check(used<=PREVIEW_LIMIT)','check(true)','FilesSafTest#providerErrorsEmptyUnknownSizeAndCancelledStreamRemainDistinct'),
+        (source,'check(used<=PREVIEW_LIMIT)','check(true)','FilesSafTest#unknownSizePreviewEnforcesByteLimitBeforePublishingTextToTheUi'),
         (source,'.onMalformedInput(CodingErrorAction.REPORT)','.onMalformedInput(CodingErrorAction.REPLACE)',preview),
         (source,'check((0 until used).none { data[it]==0.toByte() })','check(true)',preview),
         (source,'if(index<parts.lastIndex) check(OsConstants.S_ISDIR(Os.lstat(path.path).st_mode))',
@@ -58,7 +58,7 @@ def main():
         (app,'TerminalScreen(sessions, files::enter)',
          'TerminalScreen(sessions) { sessions.active?.let { sessions.close(it.id) }; files.enter() }',lifecycle),
         (screen,'onLongClick={ model.longPress(entry) }','onLongClick={ model.tap(entry) }',ui),
-        (source,'check(active()) { "预览已取消" }','check(true) { "预览已取消" }',
+        (source,'while(true) {\n                    check(active()) { "预览已取消" }','while(true) {\n                    check(true) { "预览已取消" }',
          'FilesSafTest#providerErrorsEmptyUnknownSizeAndCancelledStreamRemainDistinct'),
         (source,'// This owner opened it with Os.open, so it must also close it.\n                Os.close(fd)','// This owner opened it with Os.open, so it must also close it.\n                Unit','FileBrowserTest#localPreviewClosesDescriptorsAfterSuccessAndDecodeFailure'),
     ]
@@ -77,7 +77,7 @@ def main():
         if passed!=green or (not green and ('FAILURES' not in output or not any(x in output for x in ('AssertionError','org.junit.ComparisonFailure')))):
             raise RuntimeError(output)
     build('baseline')
-    test('FileBrowserTest,FilesSafTest,'+lifecycle,True,'baseline',17)
+    test('FileBrowserTest,FilesSafTest,'+lifecycle,True,'baseline',19)
     test(control,True,'baseline-control')
     try:
         for index,(path,before,after,target) in enumerate(cases,1):

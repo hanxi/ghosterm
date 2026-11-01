@@ -101,6 +101,7 @@ class TransferStagingStore(private val directory: File,
             check(active()) { "文件暂存已取消" }
             open(signal).use { asset ->
                 val length = asset.declaredLength
+                check(length>=-1 && asset.startOffset>=0) { "文档片段范围无效" }
                 check(length < 0 || length <= fileLimit) { "文件超过暂存上限" }
                 check(expected == null || length < 0 || length == expected) { "源文件大小已改变，请重新复制" }
                 run {
@@ -139,6 +140,23 @@ class TransferStagingStore(private val directory: File,
                             }
                             size += read
                             progress(size,total)
+                        }
+                        // A file segment may stop before the backing inode ends. A
+                        // finite pipe must acknowledge real EOF (including length 0),
+                        // otherwise a delayed reliable producer failure is lost.
+                        if(OsConstants.S_ISFIFO(before.st_mode) && length>=0) {
+                            while(true) {
+                                check(active()) { "文件暂存已取消" }
+                                val tail=try {
+                                    if(Os.poll(arrayOf(poll),100)==0) continue
+                                    Os.read(source,buffer,0,1)
+                                } catch(failure:ErrnoException) {
+                                    if(failure.errno==OsConstants.EINTR || failure.errno==OsConstants.EAGAIN) continue
+                                    throw failure
+                                }
+                                check(tail==0) { "源文件返回超过声明长度的数据" }
+                                break
+                            }
                         }
                         asset.parcelFileDescriptor.checkError()
                         check(length < 0 || size == length) { "源文件提前结束" }

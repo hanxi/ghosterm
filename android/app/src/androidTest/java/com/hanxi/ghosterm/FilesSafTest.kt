@@ -237,4 +237,19 @@ class FilesSafTest {
         } } finally { directory.deleteRecursively() }
     }
 
+    @Test fun unknownSizePreviewEnforcesByteLimitBeforePublishingTextToTheUi() {
+        grant()
+        val location=main { model().location }
+        val source=LocalFileBrowser(File(instrumentation.targetContext.filesDir,"home"),resolver)
+        val entries=runBlocking { source.list(location) }
+        var text:String?=null;var failure:Exception?=null
+        runBlocking {
+            try { text=source.preview(location,entries.single { it.id=="opaque:large" }) }
+            catch(error:Exception) { failure=error }
+        }
+        assertNotNull("oversize bytes must be rejected before a Text layout receives them",failure)
+        assertNull(text)
+        assertEquals("provider notes 🔑\n",runBlocking { source.preview(location,entries.single { it.id=="opaque:note" }) })
+    }
+
 }

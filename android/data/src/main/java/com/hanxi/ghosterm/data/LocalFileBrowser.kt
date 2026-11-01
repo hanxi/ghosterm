@@ -126,24 +126,36 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
         entries.sortedWith(compareBy<BrowserEntry> { it.kind!=FileKind.DIRECTORY }
             .thenBy { it.name.lowercase(Locale.ROOT) }.thenBy { it.name }.thenBy { it.id })
     }
-    private fun read(fd: FileDescriptor, length: Long, active: () -> Boolean): String {
+    private fun read(fd: FileDescriptor, length: Long, active: () -> Boolean,
+        expected: Long? = null, pipe: Boolean = false): String {
         check(length<=PREVIEW_LIMIT) { "只读预览最多支持 256 KiB 文本" }
         val data=ByteArray(PREVIEW_LIMIT+1)
         val flags=FileDescriptorFlags.status(fd)
         FileDescriptorFlags.status(fd,flags or OsConstants.O_NONBLOCK)
         try {
-            var used=0;val cap=if(length>=0) minOf(length, data.size.toLong()).toInt() else data.size
+            var used=0;val cap=if(length>=0) length.toInt() else data.size
             val poll=StructPollfd().apply { this.fd=fd;events=OsConstants.POLLIN.toShort() }
-            while(used<cap) {
-                check(active()) { "预览已取消" }
-                try {
-                    if(Os.poll(arrayOf(poll),100)==0) continue
-                    val count=Os.read(fd,data,used,cap-used);if(count==0) break;used+=count
-                } catch(failure: ErrnoException) {
-                    if(failure.errno!=OsConstants.EINTR && failure.errno!=OsConstants.EAGAIN) throw failure
+            fun receive(offset: Int, count: Int): Int {
+                while(true) {
+                    check(active()) { "预览已取消" }
+                    try {
+                        if(Os.poll(arrayOf(poll),100)==0) continue
+                        return Os.read(fd,data,offset,count)
+                    } catch(failure: ErrnoException) {
+                        if(failure.errno!=OsConstants.EINTR && failure.errno!=OsConstants.EAGAIN) throw failure
+                    }
                 }
             }
+            while(used<cap) {
+                val count=receive(used,cap-used);if(count==0) break;used+=count
+            }
             check(used<=PREVIEW_LIMIT) { "只读预览最多支持 256 KiB 文本" }
+            check(length<0 || used.toLong()==length) { "文档片段提前结束，请重新打开" }
+            check(expected==null || used.toLong()==expected) { "文档大小已改变，请重新打开" }
+            // A finite regular-file segment may end before its backing file. A pipe
+            // must instead acknowledge EOF, so a delayed reliable error is observable.
+            if(pipe && length>=0) check(receive(used,1)==0) { "文档返回超过声明长度的数据" }
+            check(active()) { "预览已取消" }
             check((0 until used).none { data[it]==0.toByte() }) { "此文件不是可预览的 UTF-8 文本" }
             return try { Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(data,0,used)).toString() }
             catch (_: java.nio.charset.CharacterCodingException) { error("此文件不是可预览的 UTF-8 文本") }
@@ -196,7 +208,19 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
             val size=current.size
             check(size==null || size<=PREVIEW_LIMIT.toULong()) { "只读预览最多支持 256 KiB 文本" }
             checkNotNull(resolver.openAssetFileDescriptor(uri,"r",signal)) { "无法打开文档" }.use { asset ->
-                asset.createInputStream().use { read(it.fd,asset.declaredLength,active) }
+                val fd=asset.parcelFileDescriptor.fileDescriptor
+                val mode=Os.fstat(fd).st_mode
+                val regular=OsConstants.S_ISREG(mode);val pipe=OsConstants.S_ISFIFO(mode)
+                check(regular || pipe) { "文档未提供普通文件或管道，无法预览此类型" }
+                val length=asset.declaredLength;val offset=asset.startOffset
+                check(length>=-1 && offset>=0) { "文档片段范围无效" }
+                val expected=size?.toLong()
+                check(length<0 || expected==null || length==expected) { "文档大小与片段长度不一致，请重新打开" }
+                if(regular) Os.lseek(fd,offset,OsConstants.SEEK_SET)
+                else check(offset==0L) { "管道文档不能带文件偏移" }
+                val text=read(fd,length,active,expected,pipe)
+                asset.parcelFileDescriptor.checkError()
+                text
             }
         }
     }

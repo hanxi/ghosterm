@@ -1,5 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <provider android:name="com.hanxi.ghosterm.PreviewAssetsProvider"
+            android:authorities="com.hanxi.ghosterm.test.previewassets"
+            android:exported="true" android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+        </provider>
         <activity android:name="com.hanxi.ghosterm.PreviewReceiverActivity" android:exported="true" android:label="Ghosterm Preview Test">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
