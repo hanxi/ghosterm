@@ -133,7 +133,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 > 它依赖公开 tap 里那份手写的 `.rb`，所以只能在 dev 轨跑）——tap 改了没改、版本号 bump 忘
 > 跟着改，都由这一步红。
 
-**Android 设置与正式图标（2026-11-01，本轮主工程待提交/CI）**：五类设置、16 项已提交偏好的生产消费者、恢复保护与关于已接。功能代码完整 576 项在 API 36 / arm64 / 4 KB 页通过（1,587.573 秒），零失败/错误/跳过，785 份输入及两安装 APK 摘要一致；之后的正式 SVG 派生图标接线由独立 PackageManager/位图断言和误绑默认图标变异验收，不能称完整 577 项重跑。新增 settings 16＋6＋2、terminal-style 29、terminal-controls 18、file-preferences 16、settings-protection 7、about 12、APK build-info 7、icon-binding 1 组分轮手工证据见 Android 实施计划 §9.83–§9.91；不计入上述 macOS CI 20 份。主工程 Core 47/91、Android JNI 51/40、平台 release lint 与带图标的本地固定证书 release 构建通过；16 KB 页已验旧云端包覆盖升级、五文件保留、设置重启及两条 ASCII 系统键盘命令。该包为本地 dirty 源码，不冒充新云端包；完整设备/输入法/性能/功能矩阵与新 release CI 仍未完成。
+**Android 设置与正式图标（2026-11-01，已提交 29d3f3d）**：五类设置、16 项已提交偏好的生产消费者、恢复保护与关于已接。功能代码完整 576 项在 API 36 / arm64 / 4 KB 页通过（1,587.573 秒），零失败/错误/跳过，785 份输入及两安装 APK 摘要一致；之后的正式 SVG 派生图标接线由独立 PackageManager/位图断言和误绑默认图标变异验收，不能称完整 577 项重跑。新增 settings 16＋6＋2、terminal-style 29、terminal-controls 18、file-preferences 16、settings-protection 7、about 12、APK build-info 7、icon-binding 1 组分轮手工证据见 Android 实施计划 §9.83–§9.91；不计入上述 macOS CI 20 份。主工程 Core 47/91、Android JNI 51/40、平台 release lint 与带图标的本地固定证书 release 构建通过；16 KB 页已验旧云端包覆盖升级、五文件保留、设置重启及两条 ASCII 系统键盘命令。该本地包保留 dirty 来源；随后 `29d3f3d` 的 release CI 41282597767 成功，实际云端包为 6,129,125 字节，提交/clean 收据、固定证书、压缩/对齐及实际 R8/资源裁剪步骤已核验。同一云端包的 16 KB 页升级、七文件保留、设置重启、关于 clean 提交及两条 ASCII 命令专项通过；完整设备/输入法/性能/功能矩阵仍未完成，证据见 §9.91。
 
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 

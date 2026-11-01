@@ -1,20 +1,17 @@
 # Android release APK
 
-当前签名包来自 [run 41269551404](https://github.com/hanxi/ghosterm/actions/runs/41269551404)，
-源码 `272d140`，APK **5,906,513 字节**。
-[下载签名 release APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41269551404/artifacts/13068961740)。
-SHA256 为 `e6a44773eca90fa15b7f2affcb6e47d8d346a74af4fdbb9e8bf575535c0e3076`；
+当前签名包来自 [run 41282597767](https://github.com/hanxi/ghosterm/actions/runs/41282597767)，
+源码 `29d3f3d`，APK **6,129,125 字节（约 5.85 MiB）**，包含正式 Android 图标与五类设置。
+[下载签名 release APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41282597767/artifacts/13074167376)。
+SHA256 为 `4233f15a2b816169a8b3aa4f5221924505106604c3d45c8c25d03d882f35577b`；
 下载文件的提交/清单摘要、固定证书、非 debuggable/minSdk 29/仅 arm64、ZIP/ELF 16 KB 对齐及三份 native 库压缩均已核对。
 
-同一云端包已在 API 36 arm64 / **16 KB 页**模拟器完成同证书覆盖升级，
-原 28 字节来源及两个既有文件的真实页面预览保留；系统英文键盘显示时连续两条 ASCII 命令，
-各自文件名和内容均通过页面读回验证，安装 APK 摘要与下载文件一致。
-此专项由 Android 系统输入事件驱动，不代表组合输入法或完整 release 功能验收。
-源码完整 **523 项**仅在 API 36 / 4 KB 页的 debug/测试 APK 上通过。
+同一实际云端包已在 API 36 arm64 / 16 KB 页模拟器验证同证书覆盖升级、七个旧文件预览保留、外观保存/进程重启、关于页 clean 提交，以及系统英文键盘显示时连续两条 ASCII 命令的文件读回；输入法方法/选中子类型前后不变。此专项不代表组合输入法、真机或完整发行矩阵。
+独立收据与范围见实现计划 §9.91。
+功能组合完整 **576 项**仅在 API 36 / 4 KB 页的 debug/测试 APK 上通过；随后接入正式图标的独立设备专项和一组误绑变异通过，未重跑完整 577 项。
 API 29 的三项当前输入专项另行通过，不包含 raw 字节夹具；真实设备与完整发行矩阵仍未完成。
-该源码提交已含设置存储基础，生产页面尚未接入；未使用的实现可被 R8 裁剪。
-五类新设置页仍在隔离工作树，不在此 APK，也不能把存储专项当作发行设置功能。
-详见实现计划 §9.81–§9.83。
+该源码提交已接五类设置、已有/新终端与文件偏好消费者、恢复保护、关于及正式图标。
+当前功能、分轮变异和发行验证见实现计划 §9.83–§9.91；完整 Android 目标仍未完成。
 
 前次 `ca6f104` 来自 [run 41257144722](https://github.com/hanxi/ghosterm/actions/runs/41257144722)，
 APK 5,903,897 字节，SHA256 `2ad94cd1764c72a4e7c2bb0536a6573e1f7f4a449a6c8d88c7666180abea39bf`。
