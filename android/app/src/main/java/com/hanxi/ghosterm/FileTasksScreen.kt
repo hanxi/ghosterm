@@ -142,10 +142,22 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                         task.error?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-task-error")) }
                         task.persistenceError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-task-record-error")) }
                         val decision=task.decisions
+                        task.namespaceReview?.takeIf { task.phase==FileTaskPhase.CONFIRMING }?.let { review ->
+                            Text("请核对两端位置",style=MaterialTheme.typography.titleSmall,
+                                modifier=Modifier.testTag("file-task-namespace-review"))
+                            Text("不同主机地址或用户也可能指向同一存储。应用无法确认两端的包含关系，请确认目标不在所选目录内。")
+                            Text("继续后会重新检查来源与目标，再确认复制；原文件不会覆盖。此确认只用于本次请求。")
+                            OutlinedButton(onClick={ model.confirmNamespace(task,review) },
+                                modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("file-task-namespace-confirm")) {
+                                Text("已核对位置，继续本次检查")
+                            }
+                        }
                         if(task.phase==FileTaskPhase.CONFIRMING && decision!=null) {
                             Text("原文件保留；同名项目不会覆盖。",style=MaterialTheme.typography.bodySmall)
                             if(task.createCapability==FileCreateCapability.UNKNOWN)
                                 Text("目标写入权限尚未确认，执行时会核验。",style=MaterialTheme.typography.bodySmall)
+                            if(task.namespaceAcknowledged)
+                                Text("两端存储关系以本次核对为准；复制经本机中转。",style=MaterialTheme.typography.bodySmall)
                             val question=decision.pending.firstOrNull()
                             if(question!=null) {
                                 var all by remember(decision.reference) { mutableStateOf(false) }

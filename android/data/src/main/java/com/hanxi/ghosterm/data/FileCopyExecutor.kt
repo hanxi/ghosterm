@@ -258,7 +258,7 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                 return scan
             }
             val scan=rescan()
-            val check=FilePastePreflight(access::inspect,access::relation).check(scan)
+            val check=FilePastePreflight(access::inspect,access::relation).check(scan,namespaceConsent=plan.check.namespaceConsent)
             check(check.checked) { check.failure?.message ?: "无法重新确认目标" }
             active()
             val directoryCreator=FileDirectoryCreator(home,resolver) { endpoint -> checkNotNull(scope.remote(Role.DESTINATION,endpoint)) }

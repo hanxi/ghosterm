@@ -34,8 +34,8 @@ def main():
         ('incomplete',scanner,'if(!scan.complete)','if(false && !scan.complete)',unknown),
         ('same-parent',scanner,'FileLocationRelation.SAME -> stop(FilePasteCheckFailureKind.SAME_DIRECTORY','FileLocationRelation.SAME -> if(false) stop(FilePasteCheckFailureKind.SAME_DIRECTORY',subtree),
         ('inside-source',scanner,'stop(FilePasteCheckFailureKind.INSIDE_SOURCE','if(false) stop(FilePasteCheckFailureKind.INSIDE_SOURCE',subtree),
-        ('parent-unknown',scanner,'FileLocationRelation.UNKNOWN -> stop(FilePasteCheckFailureKind.RELATION_UNKNOWN,"无法确认来源与目标','FileLocationRelation.UNKNOWN -> if(false) stop(FilePasteCheckFailureKind.RELATION_UNKNOWN,"无法确认来源与目标',unknown),
-        ('child-unknown',scanner,'FileLocationRelation.UNKNOWN -> stop(FilePasteCheckFailureKind.RELATION_UNKNOWN,"无法确认目录包含关系','FileLocationRelation.UNKNOWN -> if(false) stop(FilePasteCheckFailureKind.RELATION_UNKNOWN,"无法确认目录包含关系',unknown),
+        ('parent-unknown',scanner,'FileLocationRelation.UNKNOWN -> unknown("无法确认来源与目标','FileLocationRelation.UNKNOWN -> if(false) unknown("无法确认来源与目标',unknown),
+        ('child-unknown',scanner,'FileLocationRelation.UNKNOWN -> unknown("无法确认目录包含关系','FileLocationRelation.UNKNOWN -> if(false) unknown("无法确认目录包含关系',unknown),
         ('target-location',scanner,'if(target.directory.location!=request.destination)','if(false && target.directory.location!=request.destination)',read),
         ('denial',scanner,'if(target.create==FileCreateCapability.DENIED)','if(false && target.create==FileCreateCapability.DENIED)',read),
         ('capability',scanner,'capability=target.create','capability=FileCreateCapability.ALLOWED','FilePastePreflightTest#conflictsStayBoundToRequestAndUnknownWritePermissionIsPreserved'),
@@ -80,7 +80,7 @@ def main():
         okay=result.returncode==0 and f'OK ({count} '+('test)' if count==1 else 'tests)') in output
         if okay!=green or (not green and ('FAILURES' not in output or not any(s in output for s in ('AssertionError','ComparisonFailure')))):
             print(output,flush=True);raise RuntimeError('Expected compiled assertion '+('green' if green else 'red'))
-    build('baseline');test('baseline','FilePastePreflightTest,SafPublicationTest#targetPreflightUsesRealGrantFlagsAndConflictMetadataWithoutCreating,SafPublicationTest#targetPreflightSafRelationshipsUseOpaqueIdsAndRejectForeignTrees',True,12)
+    build('baseline');test('baseline','FilePastePreflightTest,SafPublicationTest#targetPreflightUsesRealGrantFlagsAndConflictMetadataWithoutCreating,SafPublicationTest#targetPreflightSafRelationshipsUseOpaqueIdsAndRejectForeignTrees',True,14)
     control='ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig'
     test('baseline-control',control,True)
     try:

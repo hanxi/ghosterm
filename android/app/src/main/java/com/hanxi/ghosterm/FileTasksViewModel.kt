@@ -15,6 +15,8 @@ class FileTask(val request: FilePasteRequest, val clearClipboardAfterSuccess: Bo
     var phase by mutableStateOf(FileTaskPhase.QUEUED); internal set
     var decisions by mutableStateOf<FilePasteDecisionState?>(null); internal set
     var createCapability by mutableStateOf(FileCreateCapability.UNKNOWN); internal set
+    var namespaceReview by mutableStateOf<FilePasteCheck?>(null); internal set
+    var namespaceAcknowledged by mutableStateOf(false); internal set
     var result by mutableStateOf<FileCopyProgress?>(null); internal set
     var error by mutableStateOf<String?>(null); internal set
     var cancelled by mutableStateOf(false); internal set
@@ -113,7 +115,7 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
         task.phase=FileTaskPhase.SCANNING
         scan(task)
     }
-    private fun scan(task: FileTask) {
+    private fun scan(task: FileTask, namespaceConsent: FileNamespaceConsent? = null) {
         val request=task.request
         val connections=task.connections
         task.job=scope.launch(start=CoroutineStart.LAZY) {
@@ -136,15 +138,24 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
                         val scan=FileTreeScanner { browse(FileTaskConnections.Role.SOURCE,it) }.scan(request)
                         check(scan.complete) { scan.failure?.message ?: "来源扫描不完整" }
                         val access=FileDestinationAccess(home,resolver) { browse(FileTaskConnections.Role.DESTINATION,it) }
-                        FilePastePreflight(access::inspect,access::relation).check(scan)
+                        FilePastePreflight(access::inspect,access::relation).check(scan,namespaceConsent=namespaceConsent)
                     }
                 }
                 ensureActive()
+                if(check.failure?.kind==FilePasteCheckFailureKind.RELATION_UNKNOWN &&
+                    request.source.endpoint.remote!=null && request.destination.endpoint.remote!=null) {
+                    try { journal.phase(request.id,FileJournalPhase.CONFIRMING) }
+                    catch(error: Exception) { if(error !is CancellationException) recordFailure(task,error);throw error }
+                    ensureActive()
+                    task.namespaceReview=check;task.phase=FileTaskPhase.CONFIRMING
+                    return@launch
+                }
                 check(check.checked) { check.failure?.message ?: "无法确认复制目标" }
                 try { journal.phase(request.id,FileJournalPhase.CONFIRMING) }
                 catch(error: Exception) { if(error !is CancellationException) recordFailure(task,error);throw error }
                 ensureActive()
                 task.createCapability=check.create
+                task.namespaceAcknowledged=check.namespaceConsent!=null
                 task.decisionOwner=FilePasteDecisions.begin(check)
                 task.decisions=task.decisionOwner!!.state();task.phase=FileTaskPhase.CONFIRMING
             } catch(timeout: TimeoutCancellationException) {
@@ -158,6 +169,13 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
                 advance()
             }
         }.also { it.start() }
+    }
+    fun confirmNamespace(task: FileTask, review: FilePasteCheck) {
+        if(task !in tasks || task.phase!=FileTaskPhase.CONFIRMING || task.namespaceReview!==review ||
+            task.cancelled || task.job!=null || journalError!=null) return
+        val consent=FileNamespaceConsent.confirm(review)
+        task.namespaceReview=null;task.error=null;task.phase=FileTaskPhase.SCANNING
+        scan(task,consent)
     }
     fun choose(task: FileTask, ref: FilePasteDecisionRef, path: String, choice: FilePasteChoice, all: Boolean) {
         if(task !in tasks || task.phase!=FileTaskPhase.CONFIRMING) return
@@ -236,7 +254,7 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
         if(task.phase==FileTaskPhase.QUEUED || task.phase==FileTaskPhase.CONFIRMING) {
             val queued=task.phase==FileTaskPhase.QUEUED
             task.decisions?.let { task.decisionOwner?.cancel(it.reference) }
-            task.decisions=null;task.phase=FileTaskPhase.CANCELLING
+            task.decisions=null;task.namespaceReview=null;task.phase=FileTaskPhase.CANCELLING
             task.error=if(queued) "排队任务已取消，尚未读取或写入" else "复制已取消，尚未写入目标"
             // An in-flight admission must finish (or fail) before its cancellation is recorded.
             if(!task.recording) task.job=scope.launch(start=CoroutineStart.LAZY) {
@@ -480,6 +498,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     fun choose(task: FileTask, ref: FilePasteDecisionRef, path: String, choice: FilePasteChoice, all: Boolean) =
         work.tasks.choose(task,ref,path,choice,all)
     fun confirm(task: FileTask, ref: FilePasteDecisionRef) = work.tasks.confirm(task,ref)
+    fun confirmNamespace(task: FileTask, review: FilePasteCheck) = work.tasks.confirmNamespace(task,review)
     fun cancelRequest(id: String) = work.tasks.cancelRequest(id)
     fun pause(task: FileTask) = work.tasks.pause(task)
     fun continueTask(task: FileTask) = work.tasks.continueTask(task)

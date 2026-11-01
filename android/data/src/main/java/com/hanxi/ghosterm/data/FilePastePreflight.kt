@@ -10,29 +10,36 @@ class FilePastePreflight(
     private val relation: suspend (FileLocation, FileLocation) -> FileLocationRelation
 ) {
     private class Abort(val failure: FilePasteCheckFailure): Exception(failure.message)
-    suspend fun check(scan: FileTreeScan, timeoutMillis: Long = 30000, maxMetadataBytes: Int = 4*1024*1024): FilePasteCheck {
+    suspend fun check(scan: FileTreeScan, timeoutMillis: Long = 30000, maxMetadataBytes: Int = 4*1024*1024,
+        namespaceConsent: FileNamespaceConsent? = null): FilePasteCheck {
         require(timeoutMillis in 1..120000)
         require(maxMetadataBytes in 1..16*1024*1024)
         var entries = emptyList<BrowserEntry>()
         var conflicts = emptyList<FilePasteConflict>()
         var capability = FileCreateCapability.UNKNOWN
         var failure: FilePasteCheckFailure? = null
+        var acceptedUnknown = false
         fun stop(kind: FilePasteCheckFailureKind, message: String): Nothing = throw Abort(FilePasteCheckFailure(kind,message))
         try {
             val done=withTimeoutOrNull(timeoutMillis) {
                 currentCoroutineContext().ensureActive()
                 if(!scan.complete) stop(FilePasteCheckFailureKind.INCOMPLETE_SOURCE,"来源扫描不完整，请重新扫描")
                 val request=scan.request
+                fun unknown(message: String) {
+                    if(namespaceConsent?.appliesTo(request)!=true)
+                        stop(FilePasteCheckFailureKind.RELATION_UNKNOWN,message)
+                    acceptedUnknown=true
+                }
                 when(relation(request.source,request.destination)) {
                     FileLocationRelation.SAME -> stop(FilePasteCheckFailureKind.SAME_DIRECTORY,"来源和目标是同一文件夹")
-                    FileLocationRelation.UNKNOWN -> stop(FilePasteCheckFailureKind.RELATION_UNKNOWN,"无法确认来源与目标的关系，尚不能开始复制")
+                    FileLocationRelation.UNKNOWN -> unknown("无法确认来源与目标的关系，请核对两端位置")
                     else -> Unit // A descendant of the source parent may be a different sibling folder.
                 }
                 for(item in request.items.filter { it.kind==FileKind.DIRECTORY }) {
                     when(relation(FileLocation(request.source.endpoint,item.id),request.destination)) {
                         FileLocationRelation.SAME,FileLocationRelation.DESCENDANT ->
                             stop(FilePasteCheckFailureKind.INSIDE_SOURCE,"不能将目录复制到自身或其子目录")
-                        FileLocationRelation.UNKNOWN -> stop(FilePasteCheckFailureKind.RELATION_UNKNOWN,"无法确认目录包含关系，尚不能开始复制")
+                        FileLocationRelation.UNKNOWN -> unknown("无法确认目录包含关系，请核对目标不在所选目录内")
                         FileLocationRelation.SEPARATE -> Unit
                     }
                     yield()
@@ -76,7 +83,7 @@ class FilePastePreflight(
         catch(abort: Abort) { failure=abort.failure }
         catch(error: Exception) { failure=FilePasteCheckFailure(FilePasteCheckFailureKind.TARGET_READ,error.message ?: "无法检查目标文件夹") }
         currentCoroutineContext().ensureActive()
-        return FilePasteCheck(scan,entries,conflicts,capability,failure)
+        return FilePasteCheck(scan,entries,conflicts,capability,failure,namespaceConsent.takeIf { acceptedUnknown })
     }
     private fun validName(name: String) = name.isNotEmpty() && name!="." && name!=".." && '/' !in name && validText(name)
     private fun validText(value: String): Boolean {

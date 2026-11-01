@@ -235,7 +235,9 @@ class RemoteFileTasksProductTest {
         assertEquals("远端 UTF-8\nline two\n",File(home,"$unique/文本.txt").readText())
         ui.waitUntil(10000) { owners()==0 };assertNotNull(files().clipboard)
     }
-    @Test fun remoteToRemoteUsesFourDistinctAuthenticationAttemptsThenDownloadsRealResult() {
+    @Test fun remoteToRemoteUsesFourDistinctAuthenticationAttemptsThenDownloadsRealResult() = remoteCopy(false)
+    @Test fun differentRemoteIdentityRequiresFreshAcknowledgementBeforeRealCopy() = remoteCopy(true)
+    private fun remoteCopy(crossHost: Boolean) {
         openRemote();val source=files().location
         val entry=files().entries.single { it.name=="文本.txt" }
         val snapshot=FileClipboardSnapshot.capture(source,source.directoryId,listOf(entry))
@@ -246,9 +248,30 @@ class RemoteFileTasksProductTest {
         ui.runOnIdle { files().reload() };loaded()
         val uploaded=files().entries.single { it.name=="$unique.txt" }
         val before=authIds.size
-        val target=FileLocation(source.endpoint.copy(id="second-$unique"),fixture.getString("taskRemoteScratch"))
-        start(FileClipboardSnapshot.capture(source,source.directoryId,listOf(uploaded)),target);ready();finish()
-        assertEquals(4,authIds.size-before)
+        val alias="$unique-other"
+        if(crossHost) config.appendText("Host $alias\n HostName localhost\n Port ${fixture.getInt("port")}\n User ${fixture.getString("user")}\n IdentityFile ghosterm-identity:${key.id}\n")
+        val endpoint=source.endpoint.copy(id="second-$unique",remote=if(crossHost)
+            source.endpoint.remote!!.copy(alias=alias,host="localhost") else source.endpoint.remote)
+        val target=FileLocation(endpoint,fixture.getString("taskRemoteScratch"))
+        val clipboard=FileClipboardSnapshot.capture(source,source.directoryId,listOf(uploaded))
+        start(clipboard,target);ready()
+        if(crossHost) {
+            val cancelled=latest;val old=checkNotNull(cancelled.namespaceReview)
+            assertNull(cancelled.decisions);assertNull(cancelled.result)
+            ui.onNodeWithTag("file-task-namespace-review").performScrollTo().assertIsDisplayed()
+            ui.onNodeWithTag("file-task-confirm").assertDoesNotExist()
+            ui.runOnIdle { tasks().cancel(cancelled) };ui.waitUntil(10000) { !cancelled.active }
+            start(clipboard,target);ready();val current=latest
+            ui.runOnIdle { tasks().confirmNamespace(current,old);tasks().confirmNamespace(cancelled,old) }
+            assertNotNull(current.namespaceReview);assertNull(current.decisions)
+            ui.activityRule.scenario.recreate();ui.waitForIdle()
+            ui.onNodeWithTag("file-task-namespace-confirm").performScrollTo().performClick()
+            ready();assertNull(latest.namespaceReview);assertTrue(latest.namespaceAcknowledged)
+            assertNotNull(latest.decisions);assertNull(latest.result)
+        }
+        finish()
+        // Cancelled scan, new scan, acknowledged rescan and execution each own two connections.
+        assertEquals(if(crossHost)8 else 4,authIds.size-before)
         val copied=latest.result!!.items.single();assertEquals(target.directoryId+"/$unique.txt",copied.createdId)
         // Read back via the same production task path, without changing the browser endpoint.
         val remoteItem=uploaded.copy(id=copied.createdId!!,modifiedMillis=null)

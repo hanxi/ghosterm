@@ -37,6 +37,43 @@ class FilePastePreflightTest {
         target:FileLocation=destination, relation:FileLocationRelation=FileLocationRelation.SEPARATE)=FilePastePreflight(
         { FileTargetDirectory(BrowserDirectory(target,entries),capability) },{ _,_ -> relation })
 
+    @Test fun unknownRemoteConsentIsBoundToOneIntentAndRemainsExplicit() = runBlocking<Unit> {
+        val left=FileEndpoint("left","left","/",remote=RemoteFileIdentity("left","left.example","u",22))
+        val right=FileEndpoint("right","right","/",remote=RemoteFileIdentity("right","right.example","u",22))
+        val source=FileLocation(left,"/source");val target=FileLocation(right,"/target")
+        val input=scan(listOf(file("/source/a")),target,source)
+        var reads=0
+        val service=FilePastePreflight({ reads++;FileTargetDirectory(BrowserDirectory(it,emptyList()),FileCreateCapability.UNKNOWN) },
+            { _,_ -> FileLocationRelation.UNKNOWN })
+        val review=service.check(input)
+        assertEquals(FilePasteCheckFailureKind.RELATION_UNKNOWN,review.failure?.kind);assertEquals(0,reads)
+        val consent=FileNamespaceConsent.confirm(review)
+        val checked=service.check(input,namespaceConsent=consent)
+        assertTrue(checked.failure.toString(),checked.checked);assertSame(consent,checked.namespaceConsent)
+        assertEquals(FileCreateCapability.UNKNOWN,checked.create);assertEquals(1,reads)
+        val next=scan(input.request.items,target,source)
+        assertEquals(FilePasteCheckFailureKind.RELATION_UNKNOWN,service.check(next,namespaceConsent=consent).failure?.kind)
+        assertEquals(1,reads)
+        // Even after acknowledgement, a newly known same-directory relationship must reject.
+        val same=FilePastePreflight({ error("must not inspect") },{ _,_ -> FileLocationRelation.SAME })
+        assertEquals(FilePasteCheckFailureKind.SAME_DIRECTORY,same.check(input,namespaceConsent=consent).failure?.kind)
+    }
+    @Test fun namespaceConsentCannotAuthorizeKnownDescendantOrLocalUnknown() = runBlocking<Unit> {
+        val left=FileEndpoint("a","a","/",remote=RemoteFileIdentity("a","a.example","u",22))
+        val right=FileEndpoint("b","b","/",remote=RemoteFileIdentity("b","b.example","u",22))
+        val source=FileLocation(left,"/source");val target=FileLocation(right,"/target")
+        val item=file("/source/folder",kind=FileKind.DIRECTORY)
+        val request=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"source",listOf(item)),target,"target")
+        val input=FileTreeScan(request,listOf(FileScanEntry(source,item,"folder",0)),null,0uL,0)
+        val unknown=FilePastePreflight({ error("must not inspect") },{ _,_ -> FileLocationRelation.UNKNOWN }).check(input)
+        val consent=FileNamespaceConsent.confirm(unknown)
+        val child=FilePastePreflight({ error("must not inspect") },{ a,_ -> if(a==source) FileLocationRelation.UNKNOWN else FileLocationRelation.DESCENDANT })
+        assertEquals(FilePasteCheckFailureKind.INSIDE_SOURCE,child.check(input,namespaceConsent=consent).failure?.kind)
+        val localUnknown=preflight(relation=FileLocationRelation.UNKNOWN).check(scan())
+        assertThrows(IllegalArgumentException::class.java) { FileNamespaceConsent.confirm(localUnknown) }
+        val separate=preflight().check(scan())
+        assertThrows(IllegalArgumentException::class.java) { FileNamespaceConsent.confirm(separate) }
+    }
     @Test fun realPrivateDirectoriesReportConflictsWithoutChangingFiles() = runBlocking<Unit> {
         File(root,"source/a").writeText("new");File(root,"source/folder").mkdir()
         File(root,"target/a").writeText("old");File(root,"target/folder").writeText("kept")

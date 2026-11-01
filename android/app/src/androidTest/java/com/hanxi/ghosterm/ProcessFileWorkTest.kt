@@ -331,7 +331,7 @@ class ProcessFileWorkTest {
                 if(row!=null) {
                     var target:AccessibilityNodeInfo?=row
                     while(target!=null && !target.isClickable) target=target.parent
-                    target?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if(target?.performAction(AccessibilityNodeInfo.ACTION_CLICK)!=true) tapLegacyDocumentRow(instrumentation,row)
                 } else roots.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
                 false
             } else if(click("ssh-key.pem")) true else {
@@ -341,7 +341,12 @@ class ProcessFileWorkTest {
                 false
             }
         }
-        systemAwait { val tree=nodes();tree.any { it.isVisibleToUser && it.packageName?.toString()=="com.hanxi.ghosterm" } && tree.none { it.packageName?.toString()?.contains("documentsui")==true } }
+        systemAwait {
+            val tree=nodes()
+            if(tree.any { it.isVisibleToUser && it.packageName?.toString()?.contains("documentsui")==true })
+                click("SELECT","Select","选择")
+            tree.any { it.isVisibleToUser && it.packageName?.toString()=="com.hanxi.ghosterm" } && tree.none { it.packageName?.toString()?.contains("documentsui")==true }
+        }
         await("origin Activity recreated") { activity.isDestroyed && a.current!=null && a.activity!==activity && !a.activity.isDestroyed }
         main { a.refresh() }
         assertNotSame(activity,a.activity);assertSame(page,a.tasks);assertEquals(owner,a.tasks.presenterId)
@@ -360,6 +365,7 @@ class ProcessFileWorkTest {
     }
     private fun click(vararg labels:String):Boolean {
         for(match in nodes().filter { it.isVisibleToUser && (it.text?.toString() in labels || it.contentDescription?.toString() in labels) }) {
+            when(tapLegacyDocumentRow(instrumentation,match)) { true -> return true; false -> continue; null -> Unit }
             var target:AccessibilityNodeInfo?=match
             while(target!=null) { if(target.isClickable && target.performAction(AccessibilityNodeInfo.ACTION_CLICK))return true;target=target.parent }
         }

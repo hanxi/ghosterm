@@ -178,6 +178,10 @@ def main():
                         raise
                     print(f'EXECUTION: all {len(discovered_names)} discovered tests completed successfully',flush=True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_FILE_NAMESPACE_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('namespace_mutations',ROOT/'scripts/mutation-check-android-namespace.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_SSH_DNS_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('dns_mutations',ROOT/'scripts/mutation-check-android-dns.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
