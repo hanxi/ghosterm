@@ -1,17 +1,17 @@
 # Android release APK
 
-当前签名包来自 [run 41288109410](https://github.com/hanxi/ghosterm/actions/runs/41288109410)，
-源码 `ab2f008`，APK **6,146,193 字节（约 5.86 MiB）**，含正式图标、五类设置及外部只读打开。
-[直接下载 release APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-release.apk)（[本次构建 artifact](https://github.com/hanxi/ghosterm/actions/runs/41288109410/artifacts/13076715009) 保留用于审计）。
-dev Release 已挂 Android 专用摘要和构建清单，现有附件已回读核对。缩小图标及 CI 自动发布正在工作区验收，尚未替换成新包。
-SHA256 为 `c157ec5e908078b73292baabb7f6f2c9e8aec72b59f61123cca5bd7fa46fbeda`。
-实际提交/clean 收据、固定证书、非 debuggable/minSdk 29/仅 arm64、R8/资源裁剪、三份 native 库压缩及 ELF/ZIP 16 KB 对齐已核对。
+当前签名包来自 [run 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143)，源码 `a70a0d0`。
+[直接下载签名 release APK](https://github.com/hanxi/ghosterm/releases/download/android-dev/Ghosterm-android-arm64-release.apk)（[Android Release 页面](https://github.com/hanxi/ghosterm/releases/tag/android-dev)）。
+APK **6,154,369 字节（约 5.87 MiB）**，幽灵标记缩小约 15%；含五类设置、外部只读打开和 SAF 文本/raw 完成边界修复。
+SHA256 为 `44636ad8fdaf0428caf1b18a454575c8bd4cf7ea95df47f87adb6fea6f7d9eb3`；同页 `android-SHA256SUMS` 和 `android-build-info.json` 可核对实际构建。
+提交/clean 收据、固定证书、非 debuggable/minSdk 29/仅 arm64、实际 R8/资源优化、native 压缩及 ELF/ZIP 16 KB 对齐已核验，发布后实际下载通过一致性检查。
 
-同一云端包已在 API 36 arm64 / 16 KB 页模拟器验证同证书覆盖升级、九个旧文件预览保留、外观保存/重启、关于提交及两条连续 ASCII 系统键盘命令。
-通过正式页面 ACTION_VIEW 和真实系统选择器，独立 UID 接收应用读回完整文件摘要，写入被拒绝。
-功能代码完整 **609 项**仅在 API 36 / 4 KB 页的 debug/测试 APK 通过（1,551.598 秒）；API 29 最终 30 项另验。
-文本片段/可靠管道完成边界仍在 §9.93 隔离修复，不属于这个 APK；真实设备、CJK 输入法、完整功能与发行矩阵仍未完成。
-证据与失败重试范围见实现计划 §9.92。
+同一云端包已在 API 36 / arm64 / 16 KB 页验证覆盖升级、十一旧文件预览保留、外观保存/重启、关于提交和两条连续 ASCII 系统键盘命令；正式 ACTION_VIEW 的独立 UID 接收者读回完整摘要，写入被拒绝。
+API 29 / API 36 各 64 项 SAF/暂存/浏览/外部预览组合另行通过；主工程 626 项完整运行仍在执行。
+最近完整 609 项只属于旧 ab2f008，不能借作此包完整验收；真机、CJK 输入法与完整设备/发行矩阵未完成。
+
+Android 附件使用独立的 `android-dev` Release，避免 macOS 的 `dev` 删除重建清空 APK。首轮 a70 CI 已自动投递 dev 并回读，随后实际包移至 android-dev 并回读；自动发布改投独立通道的两份 workflow 修正已在隔离稿通过 actionlint，待当前完整运行结束后整合。当前附件已可直接下载，不要求登录下载 Actions artifact。
+证据与分轮范围见实施计划 §9.93–§9.94。
 
 前次 `29d3f3d` 的 [CI 41282597767](https://github.com/hanxi/ghosterm/actions/runs/41282597767) 产出 6,129,125 字节签名包；五类设置与正式图标的完整/专项证据保留于 §9.91。
 

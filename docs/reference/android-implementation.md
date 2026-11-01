@@ -1,6 +1,6 @@
 # Android 最终方案实现计划
 
-**最新已出包（2026-11-01，`ab2f008`）**：正式图标、五类设置和有界外部只读打开已进入签名 release。完整 **609 项通过，零失败/错误/跳过**（1,551.598 秒，仅 API 36 / arm64 / 4 KB 页），两安装 APK 摘要、具名发现/开始结束及 798 份输入一致；API 29 最终 30 项、24 组新变异与一组真实中断反例另行通过。云端 [CI 41288109410](https://github.com/hanxi/ghosterm/actions/runs/41288109410) 成功，[Release 直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-release.apk)，实际 APK **6,146,193 字节（约 5.86 MiB）**；提交/clean 收据、摘要、固定证书、R8/资源裁剪、压缩 arm64 库及 ELF/ZIP 16 KB 对齐均核验。同一云端包已在 16 KB 页验证旧版覆盖升级、九文件保留、外观保存/重启、关于提交、两条系统键盘 ASCII 命令及正式 ACTION_VIEW：独立 UID 接收者读取匹配 SHA256，写入拒绝。SAF 文本片段/完成边界仍在 §9.93 工作区验收，不属于此 APK；完整设备/输入法/功能目标仍未完成。
+**最新已出包（2026-11-01，`a70a0d0`）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/android-dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/android-dev/Ghosterm-android-arm64-release.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程 **626 项完整运行仍在执行**，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口及自动发布改投独立 `android-dev` 的后续稿仍在隔离验证；整个 Android 目标、设备与输入法矩阵尚未完成。
 
 **历史已发行验收（§9.79，2026-11-01，ca6f104）**：API 29 文件访问的高版本 API 崩溃已修复，组合接受和单 LF 回车顺序已修正；相关新增/既有变异分轮通过。新完整 **498 项通过，零失败/错误/跳过**（1350.909 秒），实际具名开始/结束与 498 项默认发现集合一致；753 份非 Markdown 输入集合/SHA256 不变，两份已安装 APK 与构建摘要匹配。完整套件只覆盖 API 36 arm64 / 4 KB 页模拟器；API 29 的 86 项文件/导入专项另行通过，raw 终端、旧版 Gboard 坐标同步、真实设备和完整发行矩阵仍未完成。同提交云端签名 release 已下载验包：5,903,897 字节，固定证书、非 debuggable/minSdk 29/仅 arm64、三份压缩 native 库、ELF/ZIP 16 KB 对齐均通过；API 36 / 16 KB 页已验保留数据升级、28 字节复制/保留两者/预览与真实本地终端提示符。API 29 的本地包（5,904,217 字节）另验预览和 27 字节复制，但 Gboard 输入仍失败。云端链接和分档证据见本节末；§9.81 工作区已修正输入窗口与编辑提交边界，API 36 的 14 项/API 29 的 3 项专项通过；新变异及最终完整回归仍待完成，不能借用这份已发行完整结果。
 
@@ -2805,6 +2805,10 @@ API 36 / arm64 / 4 KB 页的完整 576 项仍在规范真 SSH 夹具中执行（
 `b08e2e1` 将 adaptive 前景从 66dp 缩到 56dp（约 15%），legacy 普通/圆形图标的 mark 同步缩小 15%，背景与 SVG 母版不变。变换由 `build-icons.sh android` 从母版派生，未手改生成资源，也未改变其他平台图标。首次裸 python 缺 Pillow，生成校验失败，未计通过；复用工程 `tmp/venv-icons` 后几何为 `(30,26,78,82)dp`、落在 72dp 安全区，生成/漂移/越界/外环变异检查通过，日志 `tmp/a4-preview-evidence/icons-smaller-mutations.log`。变异脚本同步 56dp 锚点，补上仓库 timeout、失败日志和恢复失败状态；不是拿工具缺失冒充目标红。
 
 Android CI 在 main 的签名构建后自动上传上述三个 Android 专用附件，保留 macOS 附件；PR 和其他分支不发布。上传前与实际下载后均检查 APK 源码收据、预期提交/clean、摘要及外部构建清单一致；新增十组资产损坏反例通过，同 APK DEX/native/manifest 与源码收据保持独立对照，原件与 SHA256 不变。该检查只证明发布完整性/源码身份，签名、实际 R8/资源优化和 ELF/ZIP 对齐仍由构建及发行专项另验。工作流 actionlint 通过；主工程 Core 47 项 / ABI 91、JNI 51/40、四模块 lint、平台构建和实际安装图标测试通过。新的 626 项完整运行已开始，803 份非 Markdown 输入在提交前后哈希相同，测试 APK 和源代码未改；完整结果、签名 APK 与这段自动发布的实际 CI 尚待完成。
+
+§9.94 后续实际发行：a70a0d0 的 CI 41293452143 成功，artifact 13078985888 实际 APK 为 **6,154,369 字节**，SHA256 `44636ad8fdaf0428caf1b18a454575c8bd4cf7ea95df47f87adb6fea6f7d9eb3`。签名固定证书、clean/提交、三份压缩 arm64 SO、16 KB 对齐与实际 R8/资源优化通过；收据 `tmp/a4-cloud-a70a0d0/inspection/result.json`。同一 APK 在 16 KB 页从 ab2f008 覆盖升级，十一旧文件/外观持久化/关于/两条连续 ASCII/跨 UID 只读打开专项一次通过，见 `smoke16k/result.json`，不代表完整设备矩阵。
+
+跨轨核对发现 macOS dev workflow 会删除重建整个 dev Release，并严格要求五个 Mac 附件，原来的共用目标不能保留 Android。现已创建独立 android-dev Release，将实际 a70 云端包与 Android 专用摘要/清单上传并重新下载验证，tag 和 Release 目标均指 a70。随后只删除 Mac dev 中已独立发布、摘要匹配的三个 Android 重复附件，保留 Mac 五个附件；没有删除 Mac 包。自动化改投 android-dev、首次 404 创建/其他错误失败、更新独立 tag 与 Mac 正文链接的两份 workflow 在 `tmp/android-release-routing/` 隔离稿通过 actionlint，尚待当前冻结运行结束后整合。Mac dev CI 41293452099 的轻闸门/打包/发布亦成功，但不替代既有完整宿主 349 项的设置页像素失败。
 
 ## 10. 验收与变异清单
 
