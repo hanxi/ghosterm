@@ -29,7 +29,9 @@ class LocalRetainedFiles(private val root: File, private val budget: LocalPublic
     private val entryLimit: Int = 4096, private val taskLimit: Int = 4096) {
     class Ref internal constructor(internal val owner: UUID, internal val epoch: Long, internal val id: UUID)
     data class Item(val ref: Ref, val referencePath: String, val size: Long, val modifiedMillis: Long)
-    data class Snapshot(val items: List<Item>, val complete: Boolean, val error: String?)
+    data class Snapshot(val items: List<Item>, val complete: Boolean, val error: String?, val emptyRequestCount: Int = 0)
+    class EmptyReview internal constructor(val count: Int)
+    data class EmptyResult(val removed: Int, val missing: Int, val issues: List<String>)
     data class Review(val item: Item, val preview: String?, val truncated: Boolean)
     enum class Outcome { CLEARED, ABSENT }
     private data class Identity(val device: Long, val inode: Long)
@@ -37,6 +39,10 @@ class LocalRetainedFiles(private val root: File, private val budget: LocalPublic
         val modifiedNanos: Long, val changedSeconds: Long, val changedNanos: Long)
     private data class Record(val item: Item, val task: String, val candidate: String,
         val root: Identity, val owner: Identity, val directory: Identity, val file: Fingerprint)
+    private data class DirectoryStamp(val identity: Identity, val modifiedSeconds: Long, val modifiedNanos: Long,
+        val changedSeconds: Long, val changedNanos: Long)
+    private data class EmptyRecord(val name: String, val root: Identity, val stamp: DirectoryStamp, val children: Map<String,DirectoryStamp>)
+    private data class HeldEmpty(val review: EmptyReview, val root: ParcelFileDescriptor, val records: List<EmptyRecord>)
     private class Held(val record: Record, val root: ParcelFileDescriptor, val owner: ParcelFileDescriptor,
         val directory: ParcelFileDescriptor, val file: ParcelFileDescriptor) {
         fun close() {
@@ -50,12 +56,18 @@ class LocalRetainedFiles(private val root: File, private val budget: LocalPublic
     private val records=mutableMapOf<UUID,Record>()
     private val mutex=Mutex()
     private var held: Held?=null
+    private val emptyRecords=ArrayList<EmptyRecord>()
+    private var preparedEmpty: HeldEmpty?=null
     init { require(entryLimit>0 && taskLimit>0) }
     private fun canonical(value: String)=try { UUID.fromString(value).toString()==value } catch(_:IllegalArgumentException) { false }
     private fun directory(fd: ParcelFileDescriptor):Identity {
         val st=Os.fstat(fd.fileDescriptor)
         check(OsConstants.S_ISDIR(st.st_mode) && st.st_uid==Process.myUid() && (st.st_mode and 511)==448) { "暂存目录归属或权限已改变" }
         return Identity(st.st_dev,st.st_ino)
+    }
+    private fun stamp(fd: ParcelFileDescriptor): DirectoryStamp {
+        val identity=directory(fd);val st=Os.fstat(fd.fileDescriptor)
+        return DirectoryStamp(identity,st.st_mtim.tv_sec,st.st_mtim.tv_nsec,st.st_ctim.tv_sec,st.st_ctim.tv_nsec)
     }
     private fun fingerprint(st: StructStat): Fingerprint {
         check(OsConstants.S_ISREG(st.st_mode) && st.st_uid==Process.myUid() && st.st_nlink==1L &&
@@ -65,13 +77,16 @@ class LocalRetainedFiles(private val root: File, private val budget: LocalPublic
     private fun present(): Boolean = try {
         val st=Os.lstat(root.path);check(OsConstants.S_ISDIR(st.st_mode)) { "暂存根目录不是普通目录" };true
     } catch(error:ErrnoException) { if(error.errno==OsConstants.ENOENT)false else throw error }
-    private fun closeHeld() { val old=held;held=null;old?.close() }
+    private fun closeHeld() {
+        val old=held;val empty=preparedEmpty;held=null;preparedEmpty=null
+        try { old?.close() } finally { empty?.root?.close() }
+    }
     private fun record(ref: Ref): Record {
         require(ref.owner==ownerId && ref.epoch==epoch) { "暂存列表已失效，请刷新" }
         return checkNotNull(records[ref.id]?.takeIf { it.item.ref===ref }) { "暂存选择不属于当前列表" }
     }
     suspend fun load(): Snapshot = withContext(Dispatchers.IO) { mutex.withLock {
-        closeHeld();epoch++;records.clear()
+        closeHeld();epoch++;records.clear();emptyRecords.clear()
         val rows=ArrayList<Item>();var failureReason: String?=null
         if(!present())return@withLock Snapshot(emptyList(),true,null)
         LocalPublicationFile.directory(root,"").use { rootFd -> budget.whileIdle(rootFd) {
@@ -85,20 +100,24 @@ class LocalRetainedFiles(private val root: File, private val budget: LocalPublic
                         val task=entry.fileName.toString()
                         check(canonical(task)) { "暂存区包含未知任务条目，列表不完整" }
                         LocalPublicationFile.childDirectory(rootFd.fd,task).use { owner ->
-                            val ownerIdentity=directory(owner)
+                            val ownerIdentity=directory(owner);val ownerStamp=stamp(owner)
+                            val emptyChildren=linkedMapOf<String,DirectoryStamp>();var empty=true
                             Files.newDirectoryStream(Paths.get("/proc/self/fd/${owner.fd}")).use { parts ->
                                 for(part in parts) {
                                     when(val name=part.fileName.toString()) {
                                         "source" -> LocalPublicationFile.childDirectory(owner.fd,name).use { source ->
-                                            directory(source)
+                                            val sourceStamp=stamp(source)
                                             Files.newDirectoryStream(Paths.get("/proc/self/fd/${source.fd}")).use { visible ->
                                                 check(!visible.iterator().hasNext()) { "来源暂存包含未知条目，列表不完整" }
                                             }
+                                            check(stamp(source)==sourceStamp) { "来源暂存目录读取时变化，列表不完整" }
+                                            emptyChildren[name]=sourceStamp
                                         }
                                         "destination" -> LocalPublicationFile.childDirectory(owner.fd,name).use { destination ->
-                                            val destinationIdentity=directory(destination)
+                                            val destinationIdentity=directory(destination);val destinationStamp=stamp(destination)
                                             Files.newDirectoryStream(Paths.get("/proc/self/fd/${destination.fd}")).use { candidates ->
                                                 for(candidate in candidates) {
+                                                    empty=false
                                                     ensureActive();check(++entries<=entryLimit) { "本次读取的暂存文件已达上限，列表不完整" }
                                                     val filename=candidate.fileName.toString()
                                                     check(canonical(filename)) { "暂存区包含未知文件名，列表不完整" }
@@ -109,11 +128,15 @@ class LocalRetainedFiles(private val root: File, private val budget: LocalPublic
                                                     records[ref.id]=Record(item,task,filename,rootIdentity,ownerIdentity,destinationIdentity,stamp);rows+=item
                                                 }
                                             }
+                                            check(stamp(destination)==destinationStamp) { "目标暂存目录读取时变化，列表不完整" }
+                                            emptyChildren[name]=destinationStamp
                                         }
                                         else -> error("暂存区包含未知结构，列表不完整")
                                     }
                                 }
                             }
+                            check(stamp(owner)==ownerStamp) { "请求暂存目录读取时变化，列表不完整" }
+                            if(empty)emptyRecords+=EmptyRecord(task,rootIdentity,ownerStamp,emptyChildren.toMap())
                         }
                     }
                 }
@@ -121,7 +144,7 @@ class LocalRetainedFiles(private val root: File, private val budget: LocalPublic
             catch(failure:Exception) { failureReason=failure.message ?: "未能完整读取暂存" }
         } }
         ensureActive()
-        Snapshot(Collections.unmodifiableList(rows.sortedByDescending { it.modifiedMillis }),failureReason==null,failureReason)
+        Snapshot(Collections.unmodifiableList(rows.sortedByDescending { it.modifiedMillis }),failureReason==null,failureReason,emptyRecords.size)
     } }
     suspend fun prepare(ref: Ref): Review = withContext(Dispatchers.IO) { mutex.withLock {
         closeHeld();val selected=record(ref)
@@ -197,4 +220,74 @@ class LocalRetainedFiles(private val root: File, private val budget: LocalPublic
             }
         } finally { closeHeld();records.remove(ref.id) }
     } }
+    /** Publish the ownership token before returning across the IO dispatcher.
+     * The observer must only capture the token; it must not reenter this service. */
+    suspend fun prepareEmpty(onPrepared: (EmptyReview) -> Unit = {}): EmptyReview = withContext(Dispatchers.IO) { mutex.withLock {
+        closeHeld()
+        check(emptyRecords.isNotEmpty()) { "没有已核对的空暂存目录，请刷新" }
+        val rootFd=LocalPublicationFile.directory(root,"")
+        try {
+            budget.whileIdle(rootFd) {
+                check(directory(rootFd)==emptyRecords.first().root) { "暂存根目录已改变，请刷新" }
+                ensureActive()
+                EmptyReview(emptyRecords.size).also { preparedEmpty=HeldEmpty(it,rootFd,emptyRecords.toList());onPrepared(it) }
+            }
+        } catch(error:Throwable) { if(preparedEmpty?.root===rootFd)preparedEmpty=null;rootFd.close();throw error }
+    } }
+    suspend fun dismissEmpty(review: EmptyReview) = withContext(NonCancellable+Dispatchers.IO) { mutex.withLock {
+        if(preparedEmpty?.review===review)closeHeld()
+    } }
+    /** A confirmed bounded batch, never recursive. Changes after listing refuse that
+     * request; a partial batch is reported and never rewrites transfer history. */
+    suspend fun clearEmpty(review: EmptyReview): EmptyResult = withContext(NonCancellable+Dispatchers.IO) { mutex.withLock {
+        val current=checkNotNull(preparedEmpty?.takeIf { it.review===review }) { "空目录确认已失效，请刷新" }
+        var removed=0;var missing=0;val issues=ArrayList<String>()
+        try {
+            budget.whileIdle(current.root) {
+                LocalPublicationFile.directory(root,"").use { freshRoot ->
+                    check(directory(freshRoot)==directory(current.root)) { "暂存根目录已改变，未执行整理" }
+                    for(selected in current.records) {
+                        try {
+                            val named=try { Os.lstat("/proc/self/fd/${freshRoot.fd}/${selected.name}") }
+                            catch(error:ErrnoException) { if(error.errno==OsConstants.ENOENT)null else throw error }
+                            if(named==null) { missing++;continue }
+                            LocalPublicationFile.childDirectory(freshRoot.fd,selected.name).use { owner ->
+                                check(stamp(owner)==selected.stamp) { "请求暂存目录已变化，未执行整理" }
+                                val names=Files.newDirectoryStream(Paths.get("/proc/self/fd/${owner.fd}")).use { children ->
+                                    val names=linkedSetOf<String>()
+                                    for(child in children) { check(names.size<2) { "暂存结构超过核对上限" };names+=child.fileName.toString() }
+                                    names
+
+                                }
+                                check(names==selected.children.keys) { "暂存结构已变化，未执行整理" }
+                                val children=linkedMapOf<String,ParcelFileDescriptor>()
+                                try {
+                                    for((name,expected) in selected.children) {
+                                        val child=LocalPublicationFile.childDirectory(owner.fd,name);children[name]=child
+                                        check(stamp(child)==expected) { "暂存子目录已变化，未执行整理" }
+                                        Files.newDirectoryStream(Paths.get("/proc/self/fd/${child.fd}")).use { entries ->
+                                            check(!entries.iterator().hasNext()) { "暂存目录不再为空，未执行整理" }
+                                        }
+                                    }
+                                    for((name,child) in children) {
+                                        val code=LocalPublicationFile.rmdir(owner.fd,child.fd,name)
+                                        check(code==0 && Os.fstat(child.fileDescriptor).st_nlink==0L) { "空子目录整理未确认（系统错误 $code）" }
+                                    }
+                                    val code=LocalPublicationFile.rmdir(freshRoot.fd,owner.fd,selected.name)
+                                    check(code==0 && Os.fstat(owner.fileDescriptor).st_nlink==0L) { "空请求目录整理未确认（系统错误 $code）" }
+                                    removed++
+                                } finally {
+                                    var error:Exception?=null
+                                    for(fd in children.values)try { fd.close() } catch(e:Exception) { if(error==null)error=e else error.addSuppressed(e) }
+                                    error?.let { throw it }
+                                }
+                            }
+                        } catch(error:Exception) { issues+="${selected.name.take(8)}：${error.message ?: "未能确认整理结果"}" }
+                    }
+                }
+            }
+            EmptyResult(removed,missing,Collections.unmodifiableList(issues))
+        } finally { closeHeld();emptyRecords.clear() }
+    } }
+
 }

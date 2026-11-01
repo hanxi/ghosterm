@@ -35,9 +35,13 @@ object LocalPublicationFile {
     fun publish(destination: Int, staging: Int, candidate: Int, source: String, name: String, size: Long): Int =
         publishCandidate(destination,staging,candidate,bytes(source),bytes(name),size)
     fun remove(staging: Int, candidate: Int, source: String): Int = removeCandidate(staging,candidate,bytes(source))
+    /** Non-recursive rmdir only. Rechecks the pinned directory against its name;
+     * missing and non-empty remain errno, never success. Borrowed fds stay open. */
+    fun rmdir(parent: Int, directory: Int, name: String): Int = removeEmptyDirectory(parent,directory,bytes(name))
     private external fun openDirectory(root: ByteArray, relative: ByteArray): Int
     private external fun openCandidate(directory: Int, name: ByteArray): Int
     private external fun createDirectory(directory: Int, name: ByteArray): Int
     private external fun publishCandidate(destination: Int, staging: Int, candidate: Int, source: ByteArray, name: ByteArray, size: Long): Int
     private external fun removeCandidate(staging: Int, candidate: Int, name: ByteArray): Int
+    private external fun removeEmptyDirectory(parent: Int, directory: Int, name: ByteArray): Int
 }

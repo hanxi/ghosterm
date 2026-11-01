@@ -16,10 +16,10 @@ import java.util.Date
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RetainedFilesScreen(model: FileTasksViewModel) {
-    BackHandler { if(model.retainedReview!=null && !model.retainedLoading)model.dismissRetained() else model.hideRetained() }
+    BackHandler { if((model.retainedReview!=null || model.emptyRetainedReview!=null) && !model.retainedLoading)model.dismissRetained() else model.hideRetained() }
     Scaffold(topBar={ TopAppBar(title={ Text("保留的本机暂存") },navigationIcon={
         TextButton(onClick=model::hideRetained) { Text("返回任务") }
-    },actions={ TextButton(onClick=model::refreshRetained,enabled=!model.busy && !model.retainedLoading && model.retainedReview==null,
+    },actions={ TextButton(onClick=model::refreshRetained,enabled=!model.busy && !model.retainedLoading && model.retainedReview==null && model.emptyRetainedReview==null,
         modifier=Modifier.testTag("retained-refresh")) { Text("刷新") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("retained-list"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             item { Text("仅列出本应用私有目录里的当前本机暂存。记录引用不证明文件属于原任务；远端和设备文件夹中的未确认结果请到原位置核对。") }
@@ -30,9 +30,13 @@ fun RetainedFilesScreen(model: FileTasksViewModel) {
             val snapshot=model.retainedSnapshot
             snapshot?.error?.let { item { Text("列表未完整读取：$it",color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("retained-incomplete")) } }
             if(snapshot!=null) item { Text("本次读取 ${snapshot.items.size} 项",Modifier.testTag("retained-count")) }
+            if((snapshot?.emptyRequestCount ?: 0)>0) item {
+                TextButton(onClick=model::requestEmptyRetained,enabled=!model.busy && !model.retainedLoading && model.retainedReview==null && model.emptyRetainedReview==null,
+                    modifier=Modifier.testTag("retained-empty-directories")) { Text("整理已核对的空目录（${snapshot!!.emptyRequestCount}）") }
+            }
             if(snapshot?.complete==true && snapshot.items.isEmpty()) item { Text("没有保留的本机暂存",Modifier.testTag("retained-empty")) }
             items(snapshot?.items.orEmpty(),key={ it.referencePath }) { item ->
-                ElevatedCard(Modifier.fillMaxWidth().testTag("retained-item").clickable(enabled=!model.busy && !model.retainedLoading) { model.openRetained(item) }) {
+                ElevatedCard(Modifier.fillMaxWidth().testTag("retained-item").clickable(enabled=!model.busy && !model.retainedLoading && model.emptyRetainedReview==null) { model.openRetained(item) }) {
                     Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                         Text(model.retainedLabel(item),style=MaterialTheme.typography.titleMedium)
                         Text("${item.size} 字节 · ${DateFormat.getDateTimeInstance().format(Date(item.modifiedMillis))}")
@@ -41,6 +45,13 @@ fun RetainedFilesScreen(model: FileTasksViewModel) {
                 }
             }
         }
+    }
+    model.emptyRetainedReview?.let { review ->
+        AlertDialog(onDismissRequest={ if(!model.retainedLoading)model.dismissRetained() },title={ Text("整理空暂存目录？") },text={
+            Text("重新核对并整理本次列出的 ${review.count} 个空暂存目录，释放后续复制的核对名额。仅移除仍为空的目录；文件、来源、目标和原任务记录保持不变。变化或无法确认的条目会保留并报告。")
+        },confirmButton={ TextButton(onClick=model::clearEmptyRetained,enabled=!model.busy && !model.retainedLoading,
+            modifier=Modifier.testTag("retained-empty-confirm")) { Text(if(model.retainedLoading) "正在整理…" else "整理空目录") } },
+            dismissButton={ TextButton(onClick=model::dismissRetained,enabled=!model.retainedLoading,modifier=Modifier.testTag("retained-empty-cancel")) { Text("保留目录") } })
     }
     model.retainedReview?.let { review ->
         val preview=review.preview

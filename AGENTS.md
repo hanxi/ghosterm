@@ -143,6 +143,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 **Android 显式本机暂存维护（§9.107）**：`ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-retained-files.py` 的二十组 API 29 手工设备变异通过，护旧列表、文件变化、活动预约、列表/预览限额、不完整/二进制预览、fd 释放、原生只读/不跟链接/CLOEXEC/普通文件/借用父 fd、实际删除与确认/保留按钮、错误可见性和确认前重新打开根目录。每组真实编译后单条断言红、同 APK Core 配置对照绿、恢复绿与 SHA256；不增加 macOS CI 20 份。API 29 / API 36 各 158 项最终组合、Core 47/93、固定证书 release 与四模块 lint 通过；本地签名包的 16 KB 页实际 UI 范围见实现计划，不以专项代替客户端全量验收。
 
+**Android 空请求目录维护（§9.108）**：`ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-empty-requests.py` 首二十一组完整与取消交接/晚到释放两组增量通过，共二十三个不同保护组分轮证据；每组真实编译后单条目标红、同 APK Core 配置对照绿、复原绿与 SHA256。不递归删除文件，任务从来源阶段到资源退出期间阻止维护。原文件清理二十组复验通过；两设备各 178 项前置组合、交接收紧后各 68 项相关复验、Core 47/93、release 与四模块 lint 通过。本地签名包 16 KB 页实际 UI 与一次 QEMU 离线后恢复记录在实现计划单列，不冒充云端/真机/全客户端验收，不增加 macOS CI 20 份。
+
+
 
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 

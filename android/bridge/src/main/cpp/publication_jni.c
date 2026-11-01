@@ -138,3 +138,18 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_LocalPublicationFile_remov
     else if(!error && unlinkat(directory,value,0)<0)error=errno;
     free(value);return error;
 }
+/* Only an empty, currently named directory may be removed. Never recurse or
+ * unlink a file. As above, private directories exclude hostile same-UID races. */
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_LocalPublicationFile_removeEmptyDirectory(
+    JNIEnv *env,jobject self,jint parent,jint directory,jbyteArray name) {
+    (void)self;
+    char *value=text(env,name);if(!value)return EINVAL;
+    struct stat selected,named;
+    int error=0;
+    if(!component(value))error=EINVAL;
+    else if(fstat(directory,&selected)<0 || fstatat(parent,value,&named,AT_SYMLINK_NOFOLLOW)<0)error=errno;
+    else if(!S_ISDIR(selected.st_mode) || !S_ISDIR(named.st_mode) ||
+            selected.st_dev!=named.st_dev || selected.st_ino!=named.st_ino)error=EINVAL;
+    else if(unlinkat(parent,value,AT_REMOVEDIR)<0)error=errno;
+    free(value);return error;
+}

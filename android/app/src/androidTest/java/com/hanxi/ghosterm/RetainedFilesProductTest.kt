@@ -127,4 +127,47 @@ class RetainedFilesProductTest {
         } }
         assertEquals("keep original",original.readText())
     }
+    private fun emptyRequest():File {
+        val owner=privateDir(File(tasks,UUID.randomUUID().toString()))
+        privateDir(File(owner,"source"));privateDir(File(owner,"destination"));return owner
+    }
+    @Test fun emptyDirectoryCleanupNeedsConfirmationAndPreservesHistoryAndFiles() {
+        val owner=emptyRequest();val before=runBlocking { journal.load() };openList()
+        ui.onNodeWithTag("retained-empty-directories").performScrollTo().performClick()
+        ui.waitUntil(10000) { !model.retainedLoading }
+        assertTrue(owner.isDirectory);ui.onNodeWithTag("retained-empty-cancel").performClick()
+        ui.waitUntil(10000) { !model.retainedLoading && model.emptyRetainedReview==null && descriptors()==0 }
+        assertTrue(owner.isDirectory)
+        ui.onNodeWithTag("retained-empty-directories").performScrollTo().performClick()
+        ui.waitUntil(10000) { !model.retainedLoading }
+        ui.onNodeWithTag("retained-empty-confirm").performClick()
+        ui.waitUntil(10000) { !model.retainedLoading && model.emptyRetainedReview==null }
+        assertFalse(owner.exists());assertEquals("preview bytes",candidate.readText());assertEquals("keep original",original.readText())
+        assertEquals(before,runBlocking { journal.load() });assertEquals(0,descriptors())
+        ui.onNodeWithTag("retained-notice").assertTextEquals("已整理 1 个空目录 · 0 个位置已不存在")
+    }
+    @Test fun changedEmptyDirectoryShowsFailureAfterRefreshAndKeepsNewFile() {
+        val owner=emptyRequest();val before=runBlocking { journal.load() };openList()
+        ui.onNodeWithTag("retained-empty-directories").performScrollTo().performClick()
+        ui.waitUntil(10000) { !model.retainedLoading }
+        val newFile=File(owner,"destination/new.txt").apply { writeText("new bytes") }
+        ui.onNodeWithTag("retained-empty-confirm").performClick()
+        ui.waitUntil(10000) { !model.retainedLoading && model.emptyRetainedReview==null }
+        ui.onNodeWithTag("retained-error").assertTextContains("1 项整理未确认",substring=true)
+        assertEquals("new bytes",newFile.readText());assertEquals("preview bytes",candidate.readText())
+        assertEquals(before,runBlocking { journal.load() });assertEquals(0,descriptors())
+    }
+    @Test fun clearingPageModelReleasesEmptyReviewWithoutDeletingDirectories() {
+        val owner=emptyRequest();openList()
+        ui.onNodeWithTag("retained-empty-directories").performScrollTo().performClick()
+        ui.waitUntil(10000) { !model.retainedLoading }
+        assertEquals(1,descriptors())
+        ui.runOnIdle {
+            val store=androidx.lifecycle.ViewModelStore();store.put("tasks",model);page=null;store.clear()
+        }
+        val released=runCatching { ui.waitUntil(5000) { descriptors()==0 } }
+        assertTrue("cleared page must release the prepared root",released.isSuccess)
+        assertTrue(owner.isDirectory);assertEquals("preview bytes",candidate.readText())
+    }
+
 }

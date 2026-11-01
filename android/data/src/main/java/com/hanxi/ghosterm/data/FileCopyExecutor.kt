@@ -184,9 +184,11 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                         }
                     }
                     var store: TransferStagingStore?=null
+                    var maintenanceLease: java.io.Closeable?=null
                     try {
                         active()
                         if(!plan.hasWork) return@launch
+                        maintenanceLease=LocalPublicationBudget.SHARED.beginTask()
                         val privateRoot=File(stagingRoot,plan.id)
                         check(privateRoot.canonicalFile!=home.canonicalFile && !privateRoot.canonicalPath.startsWith(home.canonicalPath+File.separator)) { "任务暂存不能位于浏览目录内" }
                         val snapshots=TransferStagingStore(File(privateRoot,"source"),fileLimit,fileLimit)
@@ -201,7 +203,10 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                     finally {
                         withContext(NonCancellable) {
                             try { store?.closeAndAwait() } catch(error: Exception) { failure=failure ?: error.message ?: "暂存释放失败" }
-                            finally { ticker.cancelAndJoin() }
+                            finally {
+                                try { maintenanceLease?.close() }
+                                finally { ticker.cancelAndJoin() }
+                            }
                         }
                     }
                 }

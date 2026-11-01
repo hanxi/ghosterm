@@ -276,6 +276,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     var retainedLoading by mutableStateOf(false); private set
     var retainedSnapshot by mutableStateOf<LocalRetainedFiles.Snapshot?>(null); private set
     var retainedReview by mutableStateOf<LocalRetainedFiles.Review?>(null); private set
+    var emptyRetainedReview by mutableStateOf<LocalRetainedFiles.EmptyReview?>(null); private set
     var retainedError by mutableStateOf<String?>(null); private set
     var retainedNotice by mutableStateOf<String?>(null); private set
     private var retainedRef: LocalRetainedFiles.Ref?=null
@@ -288,7 +289,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     }
     fun refreshRetained() = loadRetained(clearError=true)
     private fun loadRetained(clearError:Boolean) {
-        if(!retainedVisible || busy || retainedLoading || retainedReview!=null) return
+        if(!retainedVisible || busy || retainedLoading || retainedReview!=null || emptyRetainedReview!=null) return
         val ticket=++retainedEpoch;retainedLoading=true;if(clearError)retainedError=null;retainedSnapshot=null
         retainedJob=viewModelScope.launch {
             try {
@@ -305,7 +306,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
         return when(matches.size) { 0->"未关联记录的暂存";1->"记录引用：${matches.single()}";else->"多条记录引用的暂存位置" }
     }
     fun openRetained(item: LocalRetainedFiles.Item) {
-        if(!retainedVisible || busy || retainedLoading) return
+        if(!retainedVisible || busy || retainedLoading || emptyRetainedReview!=null) return
         val ticket=++retainedEpoch;retainedRef=item.ref;retainedLoading=true;retainedError=null;retainedNotice=null
         retainedJob=viewModelScope.launch {
             var delivered=false
@@ -323,7 +324,8 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     fun dismissRetained() {
         retainedEpoch++;retainedJob?.cancel();retainedJob=null
         retainedRef?.let { work.releaseRetained(retainedOwner.value,it) }
-        retainedRef=null;retainedReview=null;retainedLoading=false
+        emptyRetainedReview?.let { work.releaseEmptyRetained(retainedOwner.value,it) }
+        emptyRetainedReview=null;retainedRef=null;retainedReview=null;retainedLoading=false
     }
     fun hideRetained() { dismissRetained();retainedVisible=false;retainedSnapshot=null }
     fun clearRetained() {
@@ -338,6 +340,46 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
             finally {
                 if(ticket==retainedEpoch) {
                     retainedRef=null;retainedReview=null;retainedLoading=false;retainedJob=null
+                    loadRetained(clearError=false)
+                }
+            }
+        }
+    }
+    fun requestEmptyRetained() {
+        if(!retainedVisible || busy || retainedLoading || retainedReview!=null || emptyRetainedReview!=null ||
+            (retainedSnapshot?.emptyRequestCount ?: 0)==0) return
+        val ticket=++retainedEpoch;retainedLoading=true;retainedError=null;retainedNotice=null
+        val prepared=java.util.concurrent.atomic.AtomicReference<LocalRetainedFiles.EmptyReview?>()
+        retainedJob=viewModelScope.launch {
+            var delivered=false
+            try {
+                val review=retainedOwner.value.prepareEmpty { prepared.set(it) }
+                ensureActive()
+                if(ticket==retainedEpoch) { emptyRetainedReview=review;delivered=true }
+            } catch(cancel:CancellationException) { throw cancel }
+            catch(error:Exception) { if(ticket==retainedEpoch)retainedError=error.message ?: "无法核对空暂存目录" }
+            finally {
+                if(!delivered)prepared.get()?.let { work.releaseEmptyRetained(retainedOwner.value,it) }
+                if(ticket==retainedEpoch) { retainedLoading=false;retainedJob=null }
+            }
+        }
+    }
+    fun clearEmptyRetained() {
+        val review=emptyRetainedReview ?: return
+        if(!retainedVisible || busy || retainedLoading) return
+        val ticket=++retainedEpoch;retainedLoading=true;retainedError=null
+        retainedJob=viewModelScope.launch {
+            try {
+                val result=retainedOwner.value.clearEmpty(review)
+                if(ticket==retainedEpoch) {
+                    retainedNotice="已整理 ${result.removed} 个空目录 · ${result.missing} 个位置已不存在"
+                    if(result.issues.isNotEmpty())retainedError="${result.issues.size} 项整理未确认，部分空子目录可能已移除；请刷新核对。"+
+                        result.issues.take(3).joinToString("\n",prefix="\n")
+                }
+            } catch(error:Exception) { if(ticket==retainedEpoch)retainedError=error.message ?: "无法确认空目录整理结果，请刷新" }
+            finally {
+                if(ticket==retainedEpoch) {
+                    emptyRetainedReview=null;retainedLoading=false;retainedJob=null
                     loadRetained(clearError=false)
                 }
             }
@@ -449,5 +491,6 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     fun focused() = work.focus(presenterId)
     override fun onCleared() {
         retainedRef?.let { if(retainedOwner.isInitialized())work.releaseRetained(retainedOwner.value,it) }
+        emptyRetainedReview?.let { if(retainedOwner.isInitialized())work.releaseEmptyRetained(retainedOwner.value,it) }
         work.release(presenterId);super.onCleared() }
 }

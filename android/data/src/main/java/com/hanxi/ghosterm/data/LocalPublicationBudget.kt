@@ -35,10 +35,18 @@ class LocalPublicationBudget(private val byteLimit: Long = 512L*1024*1024,
         com.hanxi.ghosterm.bridge.LocalPublicationFile.childDirectory(directory.fd,name)
     private val lock=Any()
     private val active=mutableMapOf<Directory,MutableMap<Candidate,Long>>()
+    private val tasks=mutableSetOf<UUID>()
+    /** Protects anonymous-source work as well as target publication. */
+    fun beginTask(): Closeable = synchronized(lock) {
+        val token=UUID.randomUUID();check(tasks.add(token))
+        var closed=false
+        Closeable { synchronized(lock) { if(!closed) { check(tasks.remove(token));closed=true } } }
+    }
     /** Explicit maintenance never races a cooperating publication reservation. */
     fun <T> whileIdle(root: ParcelFileDescriptor, block: () -> T): T = synchronized(lock) {
         identity(root)
         check(active.values.all { it.isEmpty() }) { "有文件正在复制，请结束后再查看或清理暂存" }
+        check(tasks.isEmpty()) { "复制任务仍在读取或释放暂存，请结束后再整理" }
         block()
     }
     fun reserve(directory: ParcelFileDescriptor, name: String, bytes: Long,
