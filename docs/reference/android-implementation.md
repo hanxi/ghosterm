@@ -1,6 +1,6 @@
 # Android 最终方案实现计划
 
-**当前验收（§9.79，2026-11-01，云端发行待验证）**：API 29 文件访问的高版本 API 崩溃已修复，组合接受和单 LF 回车顺序已修正；相关新增/既有变异分轮通过。新完整 **498 项通过，零失败/错误/跳过**（1350.909 秒），实际具名开始/结束与 498 项默认发现集合一致；753 份非 Markdown 输入集合/SHA256 不变，两份已安装 APK 与构建摘要匹配。完整套件只覆盖 API 36 arm64 / 4 KB 页模拟器；API 29 的 86 项文件/导入专项另行通过，raw 终端、旧版 Gboard 坐标同步、真实设备和完整发行矩阵仍未完成。新的本地签名 release 已构建并验包：5,904,217 字节，固定证书、非 debuggable/minSdk 29/仅 arm64、三份压缩 native 库、ELF/ZIP 16 KB 对齐均通过；API 29 已验实际预览、27 字节复制和来源保留，但测试输入仍复现 Gboard 错误。最新云端包仍为 §9.78 的 ab7c53f。
+**已发行验收（§9.79，2026-11-01，ca6f104）**：API 29 文件访问的高版本 API 崩溃已修复，组合接受和单 LF 回车顺序已修正；相关新增/既有变异分轮通过。新完整 **498 项通过，零失败/错误/跳过**（1350.909 秒），实际具名开始/结束与 498 项默认发现集合一致；753 份非 Markdown 输入集合/SHA256 不变，两份已安装 APK 与构建摘要匹配。完整套件只覆盖 API 36 arm64 / 4 KB 页模拟器；API 29 的 86 项文件/导入专项另行通过，raw 终端、旧版 Gboard 坐标同步、真实设备和完整发行矩阵仍未完成。同提交云端签名 release 已下载验包：5,903,897 字节，固定证书、非 debuggable/minSdk 29/仅 arm64、三份压缩 native 库、ELF/ZIP 16 KB 对齐均通过；API 36 / 16 KB 页已验保留数据升级、28 字节复制/保留两者/预览与真实本地终端提示符。API 29 的本地包（5,904,217 字节）另验预览和 27 字节复制，但 Gboard 输入仍失败。云端链接和分档证据见本节末；§9.80 新系统键盘测试仍为未提交草稿，不借用这份完整回归。
 
 **前次已发行验收（§9.77，2026-11-01）**：文件任务已显示当前文件的读取/写入/核验、实际字节、本阶段平均速度与保守的阶段剩余时间。25 组新增变异与 114 组相关旧变异分轮通过；新完整 **491 项通过，零失败/错误/跳过**（1250.863 秒），746 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；整体剩余时间、暂停/重试、完整偏好和发行矩阵仍待完成，A6 保持部分交付。同源码云端签名 release 为 5,903,009 字节，16 KB 页启动/升级与 28 字节复制专项已验（§9.78），不代表完整发行矩阵。
 
@@ -2566,7 +2566,7 @@ Swift 使用调用内持有的观察者盒子复制 POD；JNI 在当前连接/�
 
 本片补充 fd 控制的四项实际设备测试，在 API 29 上 **4 项通过（0.169 秒）**：共享 open file description 的非阻塞与恢复、实际追加写入、临时 fd 关闭、原槽位 CLOEXEC/dup2 隔离及 EBADF。`mutation-check-android-fd-flags.py` 新增 **9 组分轮通过**（7＋1＋1）：每组真实编译后单条目标断言红、同 APK 配置对照绿、恢复绿与 SHA256。首轮七组的 750 份非 Markdown 输入集合/摘要前后一致；补充与随后串行验证使用 752 份集合。第九组初版替换错误码后导致 C 参数未使用，编译被 `-Werror` 拦下，未计为有效目标红；保留参数并只改错误码后独立重跑通过。日志 `tmp/ime-finish-evidence/fd-tests-api29.log`、`fd-mutations-api29.log`、`checks-1793483121316514000/fd-extra.log`、`checks-1793483156968613000/fd-error-extra.log`；首轮逐组收据 `tmp/android-fd-flags-mutations/1793482757573774000/`。
 
-工作区 CI 新增 `check-android-api.sh`，在恢复签名材料之前分别运行 app/bridge/data/terminal 的 release lint；只运行 app lint 不足以检查依赖模块源码。`mutation-check-android-api.py` 已验一组：向 data 的预览路径重新引入 API 30 调用，实际 APK 编译成功后该 CI 入口被 NewApi 精确拦下，同一变异下独立 terminal lint 仍绿，恢复后全入口与编译绿、752 份输入集合/SHA256 一致。收据 `tmp/android-api-mutations/1793482875572451000/`。该入口尚未随提交在云端执行，不借旧 CI 记录声称线上已有守卫；也不增加 macOS full 的 20 份变异覆盖。
+工作区 CI 新增 `check-android-api.sh`，在恢复签名材料之前分别运行 app/bridge/data/terminal 的 release lint；只运行 app lint 不足以检查依赖模块源码。`mutation-check-android-api.py` 已验一组：向 data 的预览路径重新引入 API 30 调用，实际 APK 编译成功后该 CI 入口被 NewApi 精确拦下，同一变异下独立 terminal lint 仍绿，恢复后全入口与编译绿、752 份输入集合/SHA256 一致。收据 `tmp/android-api-mutations/1793482875572451000/`。该入口当时尚未随提交在云端执行，提交后的实际结果见本节末，不借旧 CI 记录声称线上已有守卫；也不增加 macOS full 的 20 份变异覆盖。
 
 API 29 联合专项初轮在系统选择器反复等待，已主动停止，不记完整通过。系统按钮实际文字为 `ALLOW ACCESS TO "GHOSTERM COPY DESTINATION"`，其位置列表旧 ListView 行又没有 clickable 标记；测试先前只按新系统文字和可点击祖先定位。已按实际控件树补旧系统文字，对这些可见且启用的 DocumentsUI ListView 行注入真实触摸，授权后的 URI/持久权限与内容断言保持。原 helper 的语义点击仍用于其他控件，没有伪造授权或绕过系统选择器。修正后实际授权/旋转/撤权与 SAF 发布/回读的两项通过（21.135 秒，`picker-touch-api29.log`）；后续联测 `checks-1793484160129137000/` 正常结束，执行 80 项、8 项失败；失败均在身份导入类的系统选择器定位，不能记整轮通过。身份导入与配置导入测试同样补真实触摸，并将定位边界限定为 DocumentsUI 的列表容器（含旧 ListView、dir_list 与 roots_list）。随后在 API 29 重跑包含配置导入的联合专项，收据目录 `checks-1793484632883207000/`；结果尚待结束。此前文字引号和位置列表定位失败保留在 `picker-api29-smoke.log`、`picker-navigation-api29.log`，不算产品失败或变异目标红。生产 fd/JNI 实现未因这些测试定位修正而变动。
 
@@ -2595,6 +2595,16 @@ API 29 联合专项初轮在系统选择器反复等待，已主动停止，不�
 本片随后构建同一份受测源码的 R8/资源裁剪签名 release，实际构建 35 秒；753 份非 Markdown 输入集合/SHA256 与完整设备测试完全一致。APK **5,904,217 字节**，SHA256 `d97e85236a6af25212821fbc4d3ac343cfd56371fd7afd6100e61df68bf8721b`。首次验签工具因临时脚本未传 JDK 而未启动；补齐执行环境后直接对同一 APK 验证，无重新构建。固定证书、minSdk 29/仅 arm64/非 debuggable、压缩 native 库、ELF LOAD/ZIP 16 KB 对齐及包内无签名备份均通过，收据 `tmp/ime-finish-evidence/fd-release-1793492871107832000/`。这是本地未提交源码产物，不是新 CI 包，也没有新增真实 16 KB 页启动证据。
 
 安装到 API 29 arm64 / 4 KB 页模拟器后，确认安装 APK 摘要、实际 untrusted_app 进程域与 Enforcing。创建夹具时仍复现 Gboard 多字和目录名错误：期望 fd-target，实际 mfd-，因此输入专项失败；错误原文和来源预览快照保留。随后独立按实际来源快照验文件路径：预览未再崩溃，真实长按/复制/切目录/确认后任务提交 27 字节，目标预览与预先记录的来源完全一致，原来源仍在且内容未变。没有把输入错误后的对象改名后冒充原输入正确；这仅证明当前 signed release 的文件预览/复制修复，不替代 Gboard、中文软键盘、SSH/SFTP、API 29 raw 或完整发行矩阵。机读结果 `api29-smoke/result.json` 将 copy_verified=true 与 soft_ime_passed=false 分开记录，专项前后 753 份源码集合/SHA256 不变。
+
+本片已提交为 ca6f104；[Android release CI 41257144722](https://github.com/hanxi/ghosterm/actions/runs/41257144722) 成功，新增四模块平台 API lint 已在云端实际通过。下载的 [release artifact 13063843306](https://github.com/hanxi/ghosterm/actions/runs/41257144722/artifacts/13063843306) 为 **5,903,897 字节**，SHA256 `2ad94cd1764c72a4e7c2bb0536a6573e1f7f4a449a6c8d88c7666180abea39bf`。实际文件的 ca6f104 提交、机读清单/摘要、固定证书、minSdk 29/仅 arm64/非 debuggable、三份压缩 native 库和 ELF/ZIP 16 KB 对齐均已验证。云端字节与上面的本地包不同，分别保留收据，没有混用摘要。目录 `tmp/android-ci-release-41257144722/`。
+
+该 CI 包另在 API 36 arm64 / 16 KB 页镜像完成从 ab7c53f 的同证书覆盖升级，升级前记录的 28 字节来源文件保留且预览相同。真实长按/复制/进入已有目标/粘贴后，确认同名冲突并选“保留两者”，任务提交 28 字节，新生成 before-upgrade (2).txt，与原来源预览一致；已有同名目标仍在，根目录来源仍在且预览不变。新本地 PTY 显示真实 shell 提示符，截图已检查；安装后的 APK SHA256 与下载文件完全匹配。机读收据 `smoke16k/result.json`。这不是 16 KB 页完整套件、SSH/SFTP 或系统 IME 专项，也没有对新云端包补记 API 29 本地包的专项。同提交 [macOS dev CI 41257144796](https://github.com/hanxi/ghosterm/actions/runs/41257144796) 成功，范围仍为轻闸门，不修复或替代旧 macOS full 的设置页像素失败。
+
+### 9.80 A2 系统键盘产品测试准备（2026-11-01，工作区草稿）
+
+新增未提交的 SystemImeProductTest，通过设备实际启用的系统 IME 输入固定命令，再检查真实本地 shell 创建的文件。它不手动调用 InputConnection 来冒充系统输入。最初按测试 Activity 的按钮文字判断键盘是否显示，两轮超时未执行输入；加入真实触摸及系统状态后发现 mInputShown=true、输入连接已激活，但该测试 Activity 的文字未更新。这些前置失败不算输入错误或有效变异。随后按系统键盘状态确认前提。
+
+首次实际输入又暴露驱动问题：API 29 官方 UiAutomationConnection 使用 Runtime.exec，不能沿用 adb shell 的引号处理；单引号会成为输入本身，文件未生成不能归因于产品。修正驱动，加入相同键盘、相同字符事件的原生 EditText 对照。最终 API 29 实际 Gboard 下，对照逐字正确，产品终端却出现重复文字并生成 ime-proof.tx，而不是 ime-proof.txt；单条 JUnit 精确在目标文件断言失败，同 APK 独立 Core 配置对照通过，754 份非 Markdown 输入集合/SHA256 前后一致。目标运行 12.442 秒，收据 `tmp/ime-window-evidence/system-old-1793493617926320000/` 含被测测试/终端源码、原始输出及 result.json。生产 TerminalView 坐标逻辑尚未修改，也没有恢复绿，因此只记真实缺陷基线，不记完整变异证明或输入法修复；已发行 ca6f104 的 498 项不包含这项新测试。
 
 ## 10. 验收与变异清单
 

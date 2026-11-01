@@ -231,7 +231,7 @@ Android API 29 兼容入口为 `bash scripts/check-android-api.sh`：app/bridge/
 非阻塞/恢复、追加、访问模式、原槽位 CLOEXEC、临时 fd 释放与 errno；设备档为 API 29 / arm64。
 `mutation-check-android-ime-finish.py` 当前七组手工证据护接受组合、关闭取消、Enter/编辑器动作、
 失效连接与键入语义，第七组护单 LF 回车前接受组合；七组完整复验已通过，raw PTY 证据属于 API 36 / 4 KB 页，不能借给 API 29。
-这三份变异不计入 macOS CI 20 份；新增 API lint 的云端执行仍待当前工作区提交后验收，
+这三份变异不计入 macOS CI 20 份；新增 API lint 已在 ca6f104 的 Android release CI 实际运行通过；
 本轮旧终端 24 组已完整复验通过；文本回归第 30 组恢复态失败已归档，已修正选区观测阶段并用新 X72 证明行断言有牙；相关六组（含原失败 X30、新 X72）已复验通过，其余 41 组文本也已通过（共 72 个不同变异分轮通过），暂存 23 组、本机发布 25 组、SAF 发布 30 组及实时复制进度 25 组已复验；身份导入 7 组和四模块 release lint 也通过。新完整设备回归 498 项全部通过、零失败/错误/跳过，默认发现与实际具名开始/结束集合一致，两份安装 APK 摘要匹配，753 份输入集合/SHA256 不变；仅 API 36 arm64 / 4 KB 页，不借给 API 29 输入法或整个发行矩阵。范围和未通过的历史轮次见 Android 实现计划 §9.79。
 
 **基础与产品变异验证**（每份都必须能独立跑绿）：sshconfig / include / settings /

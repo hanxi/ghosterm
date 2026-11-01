@@ -1,20 +1,27 @@
 # Android release APK
 
-当前工作区 §9.79 已有本地签名 release（5,904,217 字节），完整 498 项仅在 API 36 / 4 KB 页模拟器通过；API 29 的 signed release 预览/27 字节复制已验，但 Gboard 输入仍失败。该本地产物尚未作为新 CI 包发布；下方云端链接和 16 KB 页证据仍属于 ab7c53f，不混用验证范围。
+当前签名包来自 [run 41257144722](https://github.com/hanxi/ghosterm/actions/runs/41257144722)，
+源码 `ca6f104`，APK **5,903,897 字节**。
+[下载签名 release APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41257144722/artifacts/13063843306)。
+SHA256 为 `2ad94cd1764c72a4e7c2bb0536a6573e1f7f4a449a6c8d88c7666180abea39bf`；
+下载文件的提交/清单摘要、固定证书、非 debuggable/minSdk 29/仅 arm64、ZIP/ELF 16 KB 对齐及三份 native 库压缩均已核对。
+
+同一云端包已在 API 36 arm64 / **16 KB 页**模拟器完成同证书覆盖升级、原 28 字节文件保留、
+真实长按/复制/粘贴/同名冲突选择“保留两者”/确认、28 字节提交、新副本与来源预览相同，
+并显示真实本地终端提示符。该档未跑完整设备套件、SSH/SFTP 或系统 IME；
+源码完整 **498 项**仅在 API 36 / 4 KB 页的 debug/测试 APK 上通过。
+API 29 的本地签名包（5,904,217 字节）另验预览/27 字节复制，Gboard 输入仍失败，
+不能把本地包的设备结果自动借给 CI 文件，也不记最低系统或整个发行矩阵完成。
+详见[§9.79](../reference/android-implementation.md#979-a2-输入组合接受与-api-29-兼容复核2026-11-01)。
 
 工作流为 `.github/workflows/android-release.yml`，监听 main push、PR 和手动触发。
 main 与手动构建使用固定 release 密钥签名；PR 只验证优化后的未签名 release 构建。
-当前签名包来自 [run 41241009189](https://github.com/hanxi/ghosterm/actions/runs/41241009189)，
-源码 `ab7c53f`，包含文件阶段进度，APK **5,903,009 字节**。
-[下载签名 release APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41241009189/artifacts/13057377405)。
-SHA256 为 `95f9ff833beedca262f98557ba76c92379881a9f15da74b23157b4f555fdbfb1`；
-下载/安装摘要、清单、固定证书、ZIP/ELF 对齐及三份 native 库压缩已核对。
 
-同一云端包已在 API 36 arm64 / **16 KB 页**模拟器完成覆盖升级、原文件保留、
-本地终端提示符、真实长按复制/粘贴/确认、28 字节提交及目标预览验证。
-该档没有跑完整设备套件或 SSH/SFTP；源码的完整 **491 项**仅在 API 36 / 4 KB 页
-的 debug/测试 APK 上通过。API 29 的旧签名包虽能安装启动，实际 Gboard 输入缺字问题仍待修，
-不记最低系统兼容通过；真机与其他发行矩阵也未完成。详见[§9.78](../reference/android-implementation.md#978-a10-签名-release-与-16-kb-页实际运行2026-11-01)。
+前次文件进度包 `ab7c53f` 来自
+[run 41241009189](https://github.com/hanxi/ghosterm/actions/runs/41241009189)，APK 5,903,009 字节，
+SHA256 `95f9ff833beedca262f98557ba76c92379881a9f15da74b23157b4f555fdbfb1`。
+该包的 491 项完整测试与 16 KB 页专项保留原范围，见
+[§9.78](../reference/android-implementation.md#978-a10-签名-release-与-16-kb-页实际运行2026-11-01)。
 
 历史通知修复包 `6bed87f`（含 `50e4829`）来自
 [run 41230615030](https://github.com/hanxi/ghosterm/actions/runs/41230615030)，APK 5,889,501 字节，
@@ -38,7 +45,7 @@ SHA256 `753822e77c626a3852a64d4bac7d587c40a52ba7b700d7df8940316f67c20496`。
 
 工作流在恢复签名材料之前运行 `bash scripts/check-android-api.sh`，分别检查
 app、bridge、data、terminal 的 release lint；app 单独 lint 不覆盖依赖模块源码。
-新增入口在本地已通过 API 30 调用的编译后变异验证，当前工作区尚未提交，云端执行待验。
+新增入口在本地已通过 API 30 调用的编译后变异验证，并在 ca6f104 的上述成功 CI 中实际执行通过。
 
 当前仅 arm64-v8a，声明最低 API 29；设备验证范围仍见
 [Android 实现计划](../reference/android-implementation.md)。release 构建不代表完整功能或发行矩阵已验收。
