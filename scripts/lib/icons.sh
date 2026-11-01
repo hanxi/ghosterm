@@ -33,7 +33,7 @@ _icons_workdir() {
 }
 
 # 母版（可选圆角）→ 目标尺寸 PNG。
-# 参数：<边长> <输出> [圆角比例|""] [require_opaque:0/1]
+# 参数：<边长> <输出> [圆角比例|""] [require_opaque:0/1] [源 SVG]
 #
 # 关键实现约束：**全部像素由 rsvg-convert 直接按目标边长渲染**。
 #   · 圆角不用位图蒙版，而是先把连续圆角写进 SVG 的 clipPath，再渲染；
@@ -47,9 +47,9 @@ icons_png() {
   case "$size" in ''|*[!0-9]*) die "icons_png: 非法边长 '$size'";; esac
   local work; work=$(_icons_workdir)
   mkdir -p "$(dirname "$out")"
-  local svg="$ICONS_MASTER"
+  local svg="${5:-$ICONS_MASTER}"
   if [ -n "$ratio" ]; then
-    python3 "$ICONS_ROOT/scripts/lib/icons_clip.py" "$ICONS_MASTER" "$work/clip.svg" "$ratio"
+    python3 "$ICONS_ROOT/scripts/lib/icons_clip.py" "$svg" "$work/clip.svg" "$ratio"
     svg="$work/clip.svg"
   fi
   rsvg-convert -w "$size" -h "$size" "$svg" -o "$out"

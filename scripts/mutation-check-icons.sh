@@ -12,6 +12,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p "$ROOT/tmp"
+. "$ROOT/scripts/lib/gt-timeout.sh"
+gt_timeout_require icons-mutations
+WORK=$(mktemp -d "$ROOT/tmp/icons-mutations.XXXXXX")
+echo "图标变异日志：${WORK}"
 
 MASTER="assets/icons/ghosterm.svg"
 BUILDER="scripts/build-icons.sh"
@@ -46,7 +50,7 @@ t = "".join(line for line in t.splitlines(True)
 open(master, "w", encoding="utf-8").write(t)
 
 b = open(builder, encoding="utf-8").read()
-b = b.replace('"$bbox" 108 80', '"$bbox" 108 66')
+b = b.replace('"$bbox" 108 80', '"$bbox" 108 56')
 open(builder, "w", encoding="utf-8").write(b)
 
 s = open(squircle, encoding="utf-8").read()
@@ -69,7 +73,7 @@ PY
 }
 on_exit() {
   local st=$?
-  restore || echo "MUTATION FAIL: 现场未完全复原" >&2
+  restore || { echo "MUTATION FAIL: 现场未完全复原" >&2; st=1; }
   exit "$st"
 }
 trap on_exit EXIT
@@ -78,19 +82,28 @@ trap 'echo "中断，正在复原" >&2; exit 130' INT TERM
 PASS=0
 expect_red() {
   local desc=$1; shift
-  if "$@" >/dev/null 2>&1; then fail "${desc}：预期红，实际绿（断言没牙）"; fi
+  local log="$WORK/red-${PASS}.log" code
+  if gt_timeout 600 "$@" >"$log" 2>&1; then
+    cat "$log"; fail "${desc}：预期红，实际绿（断言没牙）"
+  else code=$?; fi
+  if [ "$code" -eq 124 ] || [ "$code" -eq 127 ]; then
+    cat "$log"; fail "${desc}：超时或命令缺失，不能当成断言红"
+  fi
   echo "   ok  ${desc} 红"
   PASS=$((PASS + 1))
 }
 expect_green() {
   local desc=$1; shift
-  if ! "$@" >/dev/null 2>&1; then fail "${desc}：预期绿，实际红"; fi
+  local log="$WORK/green-${PASS}.log"
+  if ! gt_timeout 600 "$@" >"$log" 2>&1; then
+    cat "$log"; fail "${desc}：预期绿，实际红"
+  fi
   echo "   ok  ${desc} 绿"
   PASS=$((PASS + 1))
 }
 
 echo "== 基线：产物与母版一致 =="
-bash scripts/build-icons.sh >/dev/null 2>&1
+expect_green "生成图标" bash scripts/build-icons.sh
 expect_green "基线 check" bash scripts/build-icons.sh check
 
 echo "== A1：母版配色改 1/255 → 产物哈希对拍必须红 =="
@@ -115,8 +128,8 @@ python3 - "$BUILDER" <<'PY'
 import sys
 p = sys.argv[1]
 t = open(p, encoding="utf-8").read()
-assert '"$bbox" 108 66' in t, "生成脚本结构变了，变异脚本要跟着改"
-open(p, "w", encoding="utf-8").write(t.replace('"$bbox" 108 66', '"$bbox" 108 80', 1))
+assert '"$bbox" 108 56' in t, "生成脚本结构变了，变异脚本要跟着改"
+open(p, "w", encoding="utf-8").write(t.replace('"$bbox" 108 56', '"$bbox" 108 80', 1))
 PY
 expect_red "Android 前景越出 72dp 安全区" bash scripts/build-icons.sh android
 expect_green "同一变异下 harmonyos 不受影响（红有指向性）" bash scripts/build-icons.sh harmonyos
@@ -136,7 +149,7 @@ restore
 
 echo "== 回滚：全部复原 =="
 restore
-bash scripts/build-icons.sh >/dev/null 2>&1
+expect_green "生成图标" bash scripts/build-icons.sh
 expect_green "回滚后 check 复绿" bash scripts/build-icons.sh check
 
 echo "MUTATION PASS（$PASS 项）"

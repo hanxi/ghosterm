@@ -4,7 +4,7 @@
 用法: icons_check_android.py <ic_launcher_foreground.xml>
 
 为什么要有这条断言：真机裁切只有上机才知道，但「前景是否落在安全区」是纯几何问题，
-可以在生成时就判定。安全区取官方口径：108dp 画布中心 72dp 见方（内容再留余量缩到 66dp）。
+可以在生成时就判定。安全区取官方口径：108dp 画布中心 72dp 见方（内容再留余量缩到 56dp）。
 """
 import os
 import subprocess
