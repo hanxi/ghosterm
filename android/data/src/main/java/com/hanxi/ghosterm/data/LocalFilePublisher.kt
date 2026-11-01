@@ -23,7 +23,8 @@ import java.util.UUID
 class LocalFilePublisher(private val home: File, private val staging: File,
     private val beforeCreate: suspend (String) -> Unit = {},
     private val beforePublish: suspend () -> Unit = {},
-    private val budget: LocalPublicationBudget = LocalPublicationBudget.SHARED, private val budgetRoot: File? = null) {
+    private val budget: LocalPublicationBudget = LocalPublicationBudget.SHARED, private val budgetRoot: File? = null,
+    private val created: suspend (com.hanxi.ghosterm.domain.LocalFileIdentityReference) -> Unit = {}) {
     enum class State { PUBLISHED, CONFLICT, REJECTED }
     data class Result(val state: State, val error: Int, val cleanupError: String? = null, val rejectionReason: String? = null, val bytesWritten: Long = 0)
 
@@ -57,6 +58,9 @@ class LocalFilePublisher(private val home: File, private val staging: File,
                 beforeCreate(File(staging,candidateName).absolutePath)
                 cancellation.ensureActive()
                 writer=LocalPublicationFile.candidate(stage.fd,candidateName)
+                val identity=LocalCreationMarker.create(writer.fileDescriptor,stage.fileDescriptor,directory.fileDescriptor,candidateName)
+                created(identity)
+                cancellation.ensureActive()
                 val readonly=Os.open("/proc/self/fd/${writer.fd}",OsConstants.O_RDONLY or OsConstants.O_CLOEXEC,0)
                 try { reader=ParcelFileDescriptor.dup(readonly) } finally { Os.close(readonly) }
                 ParcelFileDescriptor.fromFd(source).use { input ->

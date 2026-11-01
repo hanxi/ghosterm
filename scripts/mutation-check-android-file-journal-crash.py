@@ -19,9 +19,13 @@ def main():
     adb=[str(ROOT/'build/android-toolchain/sdk/platform-tools/adb'),'-s',serial];require(run([*adb,'get-state']))
     domain=ROOT/'android/domain/src/main/kotlin/com/hanxi/ghosterm/domain/FileJournal.kt'
     store=ROOT/'android/app/src/main/java/com/hanxi/ghosterm/FileTasksViewModel.kt'
+    reader=ROOT/'android/data/src/main/java/com/hanxi/ghosterm/data/LocalFileIdentityReader.kt'
+    runner=ROOT/'android/app/src/androidTest/java/com/hanxi/ghosterm/FileJournalCrashRunner.kt'
     cases=[('interruption',domain,'phase != FileJournalPhase.FINISHED','phase == FileJournalPhase.FINISHED','published','restarted record must retain identity and interruption'),
-        ('history',store,'history.addAll(journal.load())','journal.load()','saf-created','restored history must be visible')]
-    originals={p:p.read_bytes() for p in (domain,store)}
+        ('history',store,'history.addAll(journal.load())','journal.load()','saf-created','restored history must be visible'),
+        ('creation-identity',reader,'if(token!=null && token.contentEquals(reference.token.toByteArray(Charsets.US_ASCII)))','if(false)','origin-created','Creation identity must survive process death'),
+        ('real-sigkill',runner,'Process.killProcess(Process.myPid())','Unit','published','Stage completed instead of self-SIGKILL')]
+    originals={p:p.read_bytes() for p in (domain,store,reader,runner)}
     if any(MARK.encode() in value for value in originals.values()):raise RuntimeError('Residual crash mutation')
     work=ROOT/'tmp/android-file-journal-crash-mutations';work.mkdir(exist_ok=True)
     def restore():
@@ -36,6 +40,9 @@ def main():
         text=output.stdout+output.stderr;(work/f'{label}.log').write_text(text)
         if green:
             if output.returncode or 'ANDROID FILE JOURNAL CRASH PASS' not in text:raise RuntimeError(text)
+        elif reason=='Stage completed instead of self-SIGKILL':
+            if output.returncode==0 or reason not in text or 'FAILURES!!!' not in text or 'required crash checkpoint was not reached' not in text or 'JOURNAL_CRASH_TARGET_FAIL' in text:
+                raise RuntimeError('No-op SIGKILL was not rejected at the death boundary: '+text)
         elif output.returncode==0 or 'JOURNAL_CRASH_TARGET_FAIL' not in text or 'FAILURES!!!' not in text or reason not in text:
             raise RuntimeError('Not the expected post-kill assertion: '+text)
     build('baseline')
@@ -53,7 +60,7 @@ def main():
             restore();build(name+'-restored');probe(name+'-restored',point,True)
             print(f'PASS {name}: real process death target red / same APK config green / restored green / SHA256',flush=True)
     finally:restore()
-    print('ANDROID FILE JOURNAL CRASH MUTATIONS PASS: 2 groups',flush=True)
+    print(f'ANDROID FILE JOURNAL CRASH MUTATIONS PASS: {len(cases)} groups',flush=True)
 
 
 if __name__=='__main__':

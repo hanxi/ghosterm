@@ -429,8 +429,8 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val journalError get() = work.tasks.journalError
     val background get() = work.background
     fun retryBackground() = work.background.requestFromUser(presenterId)
-    fun reloadHistory() { cancelInspection();inspections.clear();contentInspections.clear();inspectionError=null;historyRetryError=null;work.tasks.reloadHistory() }
-    fun removeHistory(record: FileJournalRecord) { cancelInspection();inspections.remove(record.intent.id);contentInspections.keys.filter { it.requestId==record.intent.id }.forEach(contentInspections::remove);work.tasks.removeHistory(record) }
+    fun reloadHistory() { cancelInspection();inspections.clear();contentInspections.clear();identityInspections.clear();inspectionError=null;historyRetryError=null;work.tasks.reloadHistory() }
+    fun removeHistory(record: FileJournalRecord) { cancelInspection();inspections.remove(record.intent.id);contentInspections.keys.filter { it.requestId==record.intent.id }.forEach(contentInspections::remove);identityInspections.keys.filter { it.requestId==record.intent.id }.forEach(identityInspections::remove);work.tasks.removeHistory(record) }
     val inspections = mutableStateMapOf<String,FileHistoryInspection>()
     var inspectingId by mutableStateOf<String?>(null); private set
     var inspectionError by mutableStateOf<String?>(null); private set
@@ -468,6 +468,42 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
         }
     }
     val contentReading get() = work.tasks.contentReading
+    val identityInspections=mutableStateMapOf<FileHistoryContentKey,LocalFileIdentityResult>()
+    var inspectingIdentity by mutableStateOf<FileHistoryContentKey?>(null); private set
+    fun inspectIdentity(record:FileJournalRecord,item:FileJournalItem,candidate:Boolean) {
+        if(!viewModelScope.isActive || busy || journalLoading || inspectingId!=null || record !in history || item !in record.items) return
+        val key=FileHistoryContentKey(record.intent.id,item.value.source.relativePath,candidate)
+        if(item.value.localIdentity==null) {
+            identityInspections[key]=LocalFileIdentityResult(key,LocalFileIdentityState.NO_REFERENCE,error="这条记录没有本机文件创建身份参考")
+            return
+        }
+        val identityReference=work.tasks.beginContentRead()
+        if(identityReference==null) {
+            identityInspections[key]=LocalFileIdentityResult(key,LocalFileIdentityState.UNKNOWN,error="另一个页面正在核验文件，或复制尚未结束，请稍后重试")
+            return
+        }
+        inspectingId=record.intent.id;inspectingIdentity=key;inspectionError=null;identityInspections.remove(key)
+        inspectionJob=viewModelScope.launch(start=CoroutineStart.UNDISPATCHED) {
+            try {
+                val app=getApplication<Application>()
+                val observed=withTimeout(15_000) {
+                    LocalFileIdentityReader(File(app.filesDir,"home"),File(app.filesDir,"file-tasks")).inspect(record,item,candidate)
+                }
+                ensureActive()
+                if(record in history)identityInspections[key]=observed
+            } catch(timeout:TimeoutCancellationException) {
+                ensureActive()
+                identityInspections[key]=LocalFileIdentityResult(key,LocalFileIdentityState.UNKNOWN,error="文件身份核对超时，请重新核对")
+            } catch(cancel:CancellationException) { throw cancel }
+            catch(error:Exception) {
+                ensureActive()
+                identityInspections[key]=LocalFileIdentityResult(key,LocalFileIdentityState.UNKNOWN,error=error.message ?: "文件身份无法确认")
+            } finally {
+                work.tasks.endContentRead(identityReference)
+                if(inspectingIdentity==key) { inspectingIdentity=null;inspectingId=null;inspectionJob=null }
+            }
+        }
+    }
     val contentInspections=mutableStateMapOf<FileHistoryContentKey,FileHistoryContentResult>()
     var inspectingContent by mutableStateOf<FileHistoryContentKey?>(null); private set
     fun inspectContent(record: FileJournalRecord, item: FileJournalItem, candidate: Boolean) {

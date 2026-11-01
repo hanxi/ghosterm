@@ -15,6 +15,20 @@ import java.io.FileOutputStream
 @org.junit.runner.RunWith(FileJournalProbeRunner::class)
 class FileJournalCrashProbe
 
+/** Explicit host-only probe: a PID/checkpoint-bound request, then real SIGKILL. */
+internal suspend fun awaitJournalCrashSignal(root:File,text:String):Nothing {
+    val requested=File(root,"kill.request")
+    while(true) {
+        if(requested.exists()) {
+            check(requested.readText()==text) { "kill request does not match this PID/checkpoint" }
+            FileOutputStream(File(root,"kill.ack")).use { it.write(text.toByteArray());it.fd.sync() }
+            Process.killProcess(Process.myPid())
+            error("self SIGKILL unexpectedly returned")
+        }
+        delay(10)
+    }
+}
+
 class FileJournalProbeRunner(@Suppress("UNUSED_PARAMETER") type: Class<*>): org.junit.runner.Runner(),
     org.junit.runner.manipulation.Filterable {
     private val arguments=androidx.test.platform.app.InstrumentationRegistry.getArguments()
@@ -40,7 +54,7 @@ class FileJournalProbeRunner(@Suppress("UNUSED_PARAMETER") type: Class<*>): org.
     }
     private suspend fun runProbe() {
         val token=checkNotNull(arguments.getString("token"));require(token.matches(Regex("[a-z0-9-]{1,60}")))
-        val point=checkNotNull(arguments.getString("point"));require(point in listOf("intent","candidate","published","saf-create-intent","saf-created")+RemoteJournalScenario.points)
+        val point=checkNotNull(arguments.getString("point"));require(point in listOf("intent","candidate","origin-created","published","saf-create-intent","saf-created")+RemoteJournalScenario.points)
         val action=checkNotNull(arguments.getString("action"))
         val root=File(targetContext.filesDir,"journal-crash-$token")
         val home=File(root,"home");val path=File(root,"file-history/tasks.db")
@@ -51,7 +65,7 @@ class FileJournalProbeRunner(@Suppress("UNUSED_PARAMETER") type: Class<*>): org.
             val pending=File(root,"ready.pending")
             FileOutputStream(pending).use { it.write(text.toByteArray());it.fd.sync() }
             check(pending.renameTo(File(root,"ready")))
-            CompletableDeferred<Unit>().await()
+            awaitJournalCrashSignal(root,text)
         }
         when(action) {
             "stage"->{
@@ -78,8 +92,9 @@ class FileJournalProbeRunner(@Suppress("UNUSED_PARAMETER") type: Class<*>): org.
                     if(point=="published" && value.state==FileCopyItemState.COMPLETE) stopAtBoundary(request.id)
                     journal.checkpoint(request.id,value,checkpoint)
                     if(point=="candidate" && checkpoint==FileCopyCheckpoint.LOCAL_CREATE) stopAtBoundary(request.id)
+                    if(point=="origin-created" && checkpoint==FileCopyCheckpoint.LOCAL_CREATED) stopAtBoundary(request.id)
                 }).prepare(plan)
-                journal.begin(request.id,run.outcome.items)
+                journal.begin(request.id,run.outcome.items,plan.id)
                 run.execute();error("required crash checkpoint was not reached")
             }
             "verify"->{
@@ -120,10 +135,37 @@ class FileJournalProbeRunner(@Suppress("UNUSED_PARAMETER") type: Class<*>): org.
                             check(state.getInt("creates")==0 && state.getString("latest")==null)
                         }
                     }
+                    "origin-created"->{
+                        val item=record.items.single()
+                        org.junit.Assert.assertEquals(FileCopyCheckpoint.LOCAL_CREATED,item.checkpoint)
+                        org.junit.Assert.assertNotNull(item.value.localIdentity)
+                        val candidate=File(checkNotNull(item.value.candidatePath))
+                        org.junit.Assert.assertTrue(candidate.isFile)
+                        org.junit.Assert.assertEquals(0L,candidate.length())
+                        org.junit.Assert.assertFalse(target.exists())
+                        org.junit.Assert.assertEquals("Creation identity must survive process death",LocalFileIdentityState.SAME,
+                            LocalFileIdentityReader(home,File(root,"staging")).inspect(record,item,true).state)
+                        org.junit.Assert.assertEquals(LocalFileIdentityState.MISSING,
+                            LocalFileIdentityReader(home,File(root,"staging")).inspect(record,item,false).state)
+                        org.junit.Assert.assertTrue(FileCopyRetry.plan(record).groups.isEmpty())
+                    }
                     "published"->{
                         check(record.items.single().checkpoint==FileCopyCheckpoint.PUBLISH)
                         check(record.items.single().value.state!=FileCopyItemState.COMPLETE)
                         check(target.readText()=="process death bytes ☃\n")
+                        org.junit.Assert.assertEquals("Published identity must survive lost acknowledgement",LocalFileIdentityState.SAME,
+                            LocalFileIdentityReader(home,File(root,"staging")).inspect(record,record.items.single()).state)
+                        org.junit.Assert.assertEquals(LocalFileIdentityState.MISSING,
+                            LocalFileIdentityReader(home,File(root,"staging")).inspect(record,record.items.single(),true).state)
+                        val browser=LocalFileBrowser(home,targetContext.contentResolver)
+                        val snapshots=TransferStagingStore(File(root,"identity-content"),freeSpaceReserve=0)
+                        try {
+                            val content=FileHistoryContentInspector(browser::browse) { location,entry ->
+                                browser.snapshot(location,entry,snapshots).use { it.contentDigest() }
+                            }.inspect(record,record.items.single())
+                            org.junit.Assert.assertEquals(FileHistoryContentState.MATCH,content.state)
+                        } finally { snapshots.closeAndAwait() }
+                        org.junit.Assert.assertTrue(FileCopyRetry.plan(record).groups.isEmpty())
                     }
                 }
                 check(File(home,"source/a.txt").readText()=="process death bytes ☃\n")

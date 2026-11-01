@@ -88,6 +88,34 @@ class FileJournalProductTest {
             }
         } finally { ui.runOnIdle { references.asReversed().forEach { store.endContentRead(it) } } }
     }
+    @Test fun identityVerificationDistinguishesIdenticalReplacementWithoutChangingCopyResult() {
+        val initial=open()
+        val task=ui.runOnIdle { initial.start(snapshot,target,"target",::connections);initial.tasks.single() }
+        ui.waitUntil(10000) { task.phase==FileTaskPhase.CONFIRMING }
+        ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick();waitDone(task)
+        assertEquals(FileCopyState.COMPLETE,task.result!!.state)
+        val before=runBlocking { journal.load() };assertNotNull(before.single().items.single().value.localIdentity)
+        val model=open();val count=calls.get()
+        ui.onNodeWithTag("file-history-details").performScrollTo().performClick()
+        ui.onNodeWithTag("file-history-identity:a.txt:false").performScrollTo().performClick()
+        ui.runOnIdle { assertTrue("Identity button must dispatch this record",model.inspectingIdentity!=null || model.identityInspections.isNotEmpty()) }
+        ui.waitUntil(10000) { model.inspectingId==null && model.identityInspections.isNotEmpty() }
+        assertEquals(LocalFileIdentityState.SAME,model.identityInspections.values.single().state)
+        ui.onNodeWithTag("file-history-identity-result").assertTextEquals("仍是本次创建的文件")
+        ui.runOnIdle { assertFalse("Identity descriptors must close before releasing the shared reader",model.contentReading) }
+        val replacement=File(home,"replacement").apply { writeBytes(File(home,"target/a.txt").readBytes()) }
+        android.system.Os.rename(replacement.path,File(home,"target/a.txt").path)
+        ui.onNodeWithTag("file-history-identity:a.txt:false").performScrollTo().performClick()
+        ui.waitUntil(10000) { model.inspectingId==null && model.identityInspections.isNotEmpty() }
+        assertEquals(LocalFileIdentityState.DIFFERENT,model.identityInspections.values.single().state)
+        ui.onNodeWithTag("file-history-identity-result").assertTextEquals("条目或位置与创建记录不同")
+        ui.onNodeWithTag("file-history-content:a.txt:false").performScrollTo().performClick()
+        ui.waitUntil(10000) { model.inspectingId==null && model.contentInspections.isNotEmpty() }
+        ui.onNodeWithTag("file-history-content-result").assertTextEquals("内容与复制时的来源一致")
+        assertEquals(before,runBlocking { journal.load() });assertEquals(count,calls.get())
+        assertEquals(FileCopyState.COMPLETE,model.history.single().outcome)
+        ui.runOnIdle { assertFalse(model.contentReading) }
+    }
     @Test fun privateCandidateContentUsesReadonlyNamespaceAndDoesNotChangeUnknownHistory() {
         val request=FilePasteRequest.capture(snapshot,target,"target")
         val plan=File(root,"file-tasks/${UUID.randomUUID()}")
@@ -102,6 +130,7 @@ class FileJournalProductTest {
         runBlocking { journal.load();journal.accept(request);journal.phase(request.id,FileJournalPhase.CONFIRMING);journal.begin(request.id,listOf(item)) }
         val before=runBlocking { journal.load() };val model=open()
         ui.onNodeWithTag("file-history-details").performScrollTo().performClick()
+        ui.onNodeWithTag("file-history-identity:a.txt:true").assertDoesNotExist()
         ui.onNodeWithTag("file-history-content:a.txt:true").performScrollTo().performClick()
         ui.waitUntil(10000) { model.inspectingId==null && model.contentInspections.isNotEmpty() }
         ui.onNodeWithTag("file-history-content-result").assertTextEquals("内容与复制时的来源一致")

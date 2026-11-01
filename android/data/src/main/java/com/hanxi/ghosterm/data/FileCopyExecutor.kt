@@ -384,7 +384,11 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                                 val out=LocalFilePublisher(home,localStage,
                                     beforeCreate={ path ->
                                         result=result.copy(candidatePath=path);report(result,FileCopyCheckpoint.LOCAL_CREATE);active()
-                                    },beforePublish={ report(result,FileCopyCheckpoint.PUBLISH);active() },budgetRoot=stagingRoot
+                                    },beforePublish={ report(result,FileCopyCheckpoint.PUBLISH);active() },budgetRoot=stagingRoot,
+                                    created={ identity ->
+                                        result=result.copy(state=FileCopyItemState.CREATED,localIdentity=identity)
+                                        report(result,FileCopyCheckpoint.LOCAL_CREATED);active()
+                                    }
                                 ).publish(parent.directoryId,name,snapshot) { bytes,total -> writingProgress(bytes.toULong(),total.toULong());active() }
                                 result.copy(state=when(out.state) {
                                     LocalFilePublisher.State.PUBLISHED->FileCopyItemState.COMPLETE

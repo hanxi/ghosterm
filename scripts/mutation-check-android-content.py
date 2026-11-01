@@ -17,7 +17,11 @@ def execute(root,build,test):
     private=root/'android/data/src/main/java/com/hanxi/ghosterm/data/LocalRetainedFiles.kt'
     budget=root/'android/data/src/main/java/com/hanxi/ghosterm/data/LocalPublicationBudget.kt'
     journal=root/'android/data/src/main/java/com/hanxi/ghosterm/data/FileTaskJournal.kt'
-    originals={p:p.read_bytes() for p in (digest,snapshot,executor,codec,inspector,model,screen,private,budget,journal)}
+    local_origin=root/'android/domain/src/main/kotlin/com/hanxi/ghosterm/domain/LocalFileIdentity.kt'
+    creator=root/'android/data/src/main/java/com/hanxi/ghosterm/data/LocalCreationMarker.kt'
+    publisher=root/'android/data/src/main/java/com/hanxi/ghosterm/data/LocalFilePublisher.kt'
+    identity_reader=root/'android/data/src/main/java/com/hanxi/ghosterm/data/LocalFileIdentityReader.kt'
+    originals={p:p.read_bytes() for p in (digest,snapshot,executor,codec,inspector,model,screen,private,budget,journal,local_origin,creator,publisher,identity_reader)}
     hashes={p:hashlib.sha256(data).digest() for p,data in originals.items()}
     if any(MARK.encode() in data for data in originals.values()):raise RuntimeError('Residual content mutation')
     data='FileContentTest#'
@@ -25,7 +29,7 @@ def execute(root,build,test):
         ('hash-bytes',snapshot,'hash.update(buffer,0,count)','Unit',data+'realSnapshotDigestKeepsPublisherOffsetAndCapacityLease'),
         ('hash-cancel',snapshot,'checkpoint()','Unit',data+'digestCheckpointCancellationReleasesReaderWithoutDestroyingSnapshot'),
         ('digest-before-write',executor,'result=result.copy(sourceDigest=snapshot.contentDigest { active() })','snapshot.contentDigest { active() }',data+'digestIsDurableBeforeCreationAndRetainedAcrossNewJournal'),
-        ('codec-digest',codec,'val digest=if(version=="2")','val digest=if(false)',data+'digestIsDurableBeforeCreationAndRetainedAcrossNewJournal'),
+        ('codec-digest',codec,'val digest=if(version=="2" || version=="3")','val digest=if(false)',data+'digestIsDurableBeforeCreationAndRetainedAcrossNewJournal'),
         ('comparison',inspector,'if(actual==expected)','if(actual!=expected)',data+'historicalMatchMismatchAndMissingNeverPromoteUnknownResult'),
         ('no-reference',inspector,'if(expected==null) return result','if(false) return result',data+'legacyWithoutReferenceDoesNotReadOrGuess'),
         ('metadata-change',inspector,'check(after.location==parent && after.entries.singleOrNull { it.id==entry.id }==entry)','check(true)',data+'changedMetadataAndReadFailureCannotReportMatchingBytes'),
@@ -76,6 +80,43 @@ def execute(root,build,test):
         ('plan-vm',model,'journal.begin(task.request.id,execution.outcome.items,plan.id)','journal.begin(task.request.id,execution.outcome.items,null)','FileJournalProductTest#finishedProductPersistsResultsAndNewRuntimeDoesNotReplayCopy'),
         ('plan-item',private,'stamp.size,millis,task)','stamp.size,millis,"")','RetainedFilesProductTest#registeredPlanFindsItsRetainedCandidateWithoutACompletedItemCheckpoint'),
         ('plan-label',model,'history.filter { it.executionPlanId==item.executionPlanId }','history.filter { false }','RetainedFilesProductTest#registeredPlanFindsItsRetainedCandidateWithoutACompletedItemCheckpoint'),
+    ]
+    identity='LocalFileIdentityTest#'
+    producer=identity+'creationReferenceCommitsBeforePayloadAndSurvivesPublication'
+    ui_identity='FileJournalProductTest#identityVerificationDistinguishesIdenticalReplacementWithoutChangingCopyResult'
+    order=originals[publisher].decode()
+    order=order[order.index('                created(identity)'):order.index('                writer.close();writer=null')+len('                writer.close();writer=null')]
+    fresh=originals[identity_reader].decode()
+    fresh=fresh[fresh.index('                        val fresh=openParent()'):]
+    fresh=fresh[:fresh.index('                        ensureActive()')]
+    cases += [
+        ('origin-marker',creator,'Os.setxattr(pinned,NAME,bytes,CREATE_ONLY)','Unit',producer),
+        ('origin-exclusive',creator,'private const val CREATE_ONLY=1','private const val CREATE_ONLY=0',identity+'createOnlyMarkerCannotReplaceAnExistingReference'),
+        ('origin-order',publisher,order,order.replace('created(identity)','Unit')+'\n                created(identity)',producer),
+        ('origin-record',executor,'report(result,FileCopyCheckpoint.LOCAL_CREATED);active()','active()',identity+'refusedCreationReferenceStopsBeforePayloadOrPublication'),
+        ('origin-encode',codec,'i.localIdentity?.let { r -> body.put("local",obj','i.localIdentity?.takeIf { false }?.let { r -> body.put("local",obj',producer),
+        ('origin-decode',codec,'?.toUInt(),digest,identity)','?.toUInt(),digest,null)',producer),
+        ('origin-token-shape',local_origin,'UUID.fromString(token).toString()==token','true',identity+'strictCodecRejectsChangedCreationReferenceWithoutRewritingIt'),
+        ('origin-name-shape',local_origin,'UUID.fromString(candidateName).toString()==candidateName','true',identity+'strictCodecRejectsChangedCreationReferenceWithoutRewritingIt'),
+        ('origin-uid-shape',local_origin,'uid>=0','true',identity+'strictCodecRejectsChangedCreationReferenceWithoutRewritingIt'),
+        ('origin-fields',codec,'r.fields("token","candidate","device","inode","uid","candidateDevice","candidateInode","destinationDevice","destinationInode")','Unit',identity+'strictCodecRejectsChangedCreationReferenceWithoutRewritingIt'),
+        ('origin-endpoint',codec,'o.optionalObject("parent")?.let(::location)?.endpoint==FileEndpoint.APP','true',identity+'codecCannotAttachCreationReferencesToForeignOrUnattemptedItems'),
+        ('origin-state',codec,'FileCopyItemState.valueOf(o.text("state")) !in setOf(FileCopyItemState.NOT_ATTEMPTED,FileCopyItemState.SKIPPED)','true',identity+'codecCannotAttachCreationReferencesToForeignOrUnattemptedItems'),
+        ('origin-file-id',identity_reader,'initial.st_dev!=reference.device || initial.st_ino!=reference.inode','false',identity+'copiedMarkerAndIdenticalBytesCannotIdentifyAnotherInode'),
+        ('origin-token',identity_reader,'if(token!=null && token.contentEquals(reference.token.toByteArray(Charsets.US_ASCII)))','if(true)',identity+'absentOrDifferentMarkerIsNotTheRecordedCreation'),
+        ('origin-parent',identity_reader,'return s.st_dev==expectedDevice && s.st_ino==expectedInode','return true',identity+'sameObjectMovedIntoAReplacementDirectoryDoesNotMatchTheOldPosition'),
+        ('origin-fresh',identity_reader,fresh,'',identity+'parentReplacementWhileReadingCannotUseTheOldPinnedObject'),
+        ('origin-cancel',identity_reader,'catch(cancel:CancellationException) { throw cancel }','catch(cancel:CancellationException) { result(LocalFileIdentityState.UNKNOWN) }',identity+'linksAreNeverFollowedAndCancellationReleasesEveryHandle'),
+        ('origin-unknown',identity_reader,'result(LocalFileIdentityState.UNKNOWN,error.message','result(LocalFileIdentityState.DIFFERENT,error.message',identity+'unreadableObjectsRemainUnknownInsteadOfMatchingOrMissing'),
+        ('origin-no-reference',identity_reader,'result(LocalFileIdentityState.NO_REFERENCE,','result(LocalFileIdentityState.SAME,',identity+'legacyAndInvalidPathsNeverReadAnotherPrivateNamespace'),
+        ('origin-app-uid',identity_reader,'require(reference.uid==Process.myUid())','require(true)',identity+'legacyAndInvalidPathsNeverReadAnotherPrivateNamespace'),
+        ('origin-plan',identity_reader,'require(record.executionPlanId==null || record.executionPlanId==parts[0])','require(true)',identity+'legacyAndInvalidPathsNeverReadAnotherPrivateNamespace'),
+        ('origin-record-endpoint',identity_reader,'parent.endpoint==FileEndpoint.APP && record.intent.destination.endpoint==FileEndpoint.APP','true',identity+'legacyAndInvalidPathsNeverReadAnotherPrivateNamespace'),
+        ('origin-created-id',identity_reader,'require(item.value.createdId==null || item.value.createdId==id)','require(true)',identity+'legacyAndInvalidPathsNeverReadAnotherPrivateNamespace'),
+        ('origin-screen',screen,'onIdentity(item,candidate)','Unit',ui_identity),
+        ('origin-vm-release',model,'work.tasks.endContentRead(identityReference)','Unit',ui_identity),
+        ('origin-vm-route',model,'LocalFileIdentityReader(File(app.filesDir,"home"),File(app.filesDir,"file-tasks")).inspect(record,item,candidate)','LocalFileIdentityReader(File(app.filesDir,"missing-home"),File(app.filesDir,"file-tasks")).inspect(record,item,candidate)',ui_identity),
+        ('origin-legacy-screen',screen,'if(value.localIdentity==null)','if(false)','FileJournalProductTest#privateCandidateContentUsesReadonlyNamespaceAndDoesNotChangeUnknownHistory'),
     ]
     selected=os.environ.get('ANDROID_FILE_CONTENT_CASES','').split(',')
     if selected!=['']:

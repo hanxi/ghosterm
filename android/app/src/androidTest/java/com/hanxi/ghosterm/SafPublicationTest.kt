@@ -205,11 +205,10 @@ class SafPublicationTest {
             val boundary=if(args.getString("point")=="saf-create-intent") FileCopyCheckpoint.DOCUMENT_CREATE else FileCopyCheckpoint.DOCUMENT_CREATED
             if(crash && point==boundary) {
                 val pending=File(taskRoot,"ready.pending")
-                java.io.FileOutputStream(pending).use {
-                    it.write("${android.os.Process.myPid()}\n${intent.id}\n${args.getString("point")}\n".toByteArray());it.fd.sync()
-                }
+                val text="${android.os.Process.myPid()}\n${intent.id}\n${args.getString("point")}\n"
+                java.io.FileOutputStream(pending).use { it.write(text.toByteArray());it.fd.sync() }
                 check(pending.renameTo(File(taskRoot,"ready")))
-                CompletableDeferred<Unit>().await()
+                awaitJournalCrashSignal(taskRoot,text)
             }
             if(!crash && point==FileCopyCheckpoint.DOCUMENT_CREATED) throw java.io.IOException("stop before SAF content write")
         }).prepare(plan)

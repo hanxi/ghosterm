@@ -103,7 +103,7 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                 }
             }
             if(model.contentReading) item {
-                Text("正在核验文件内容；新复制请求将在核验与资源释放结束后开始检查。")
+                Text("正在核验文件；新复制请求将在核验与资源释放结束后开始检查。")
             }
             if(model.journalLoading) item { Text("正在读取任务记录…") }
             model.journalError?.let { error -> item {
@@ -238,6 +238,8 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                     canRetry=!model.journalLoading && model.journalError==null && model.inspectingId==null,
                     onRetry={ model.requestHistoryRetry(record) },onOrigin={ record.intent.retryOf?.let(model::showOrigin) },
                     content=model.contentInspections,checkingContent=model.inspectingContent,
+                    identities=model.identityInspections,checkingIdentity=model.inspectingIdentity,
+                    onIdentity={ item,candidate -> model.inspectIdentity(record,item,candidate) },
                     onContent={ item,candidate -> model.inspectContent(record,item,candidate) })
             }
         }
@@ -288,6 +290,8 @@ private fun FileTaskByteProgress(activity: FileCopyActivity, running: Boolean, w
 private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRemove: Boolean,
     inspection: FileHistoryInspection?, inspecting: Boolean, canInspect: Boolean, onInspect: () -> Unit, onCancel: () -> Unit, canRetry: Boolean, onRetry: () -> Unit, onOrigin: () -> Unit,
     content: Map<FileHistoryContentKey,FileHistoryContentResult>,checkingContent: FileHistoryContentKey?,
+    identities: Map<FileHistoryContentKey,LocalFileIdentityResult>,checkingIdentity:FileHistoryContentKey?,
+    onIdentity:(FileJournalItem,Boolean)->Unit,
     onContent: (FileJournalItem,Boolean) -> Unit) {
     val observations=remember(inspection) { inspection?.observations?.groupBy { it.relativePath }.orEmpty() }
     ElevatedCard(Modifier.fillMaxWidth().testTag("file-history:${record.intent.id}")) {
@@ -328,6 +332,32 @@ private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRe
                                 Text("此项最终结果待核对")
                             value.targetParent?.let { Text("目标目录：${it.directoryId}") }
                             value.targetName?.let { Text("目标名称：$it") }
+                            if(value.targetParent?.endpoint==FileEndpoint.APP && value.source.entry.kind==FileKind.FILE) {
+                                if(value.localIdentity==null) Text("这条记录没有本机文件创建身份参考",style=MaterialTheme.typography.bodySmall)
+                                else for(candidate in if(value.candidatePath!=null) listOf(false,true) else listOf(false)) {
+                                    val identityKey=FileHistoryContentKey(record.intent.id,value.source.relativePath,candidate)
+                                    TextButton(onClick={ onIdentity(item,candidate) },enabled=canInspect,
+                                        modifier=Modifier.testTag("file-history-identity:${value.source.relativePath}:$candidate")) {
+                                        Text(if(candidate) "核对暂存文件身份" else "核对目标文件身份")
+                                    }
+                                    if(checkingIdentity==identityKey) {
+                                        Text("正在核对文件身份…")
+                                        TextButton(onClick=onCancel) { Text("取消身份核对") }
+                                    }
+                                    identities[identityKey]?.let { observed ->
+                                        Text("身份核对时间：${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(observed.observedMillis))}")
+                                        Text(when(observed.state) {
+                                            LocalFileIdentityState.SAME->"仍是本次创建的文件"
+                                            LocalFileIdentityState.DIFFERENT->"条目或位置与创建记录不同"
+                                            LocalFileIdentityState.MISSING->"本次未找到该文件"
+                                            LocalFileIdentityState.NO_REFERENCE->"没有本机文件身份参考"
+                                            LocalFileIdentityState.UNKNOWN->"文件身份无法确认"
+                                        },modifier=Modifier.testTag("file-history-identity-result"))
+                                        observed.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+                                        Text("文件身份与内容分开核对；不赋予删除权，原任务结果保持不变。",style=MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
                             (value.documentUri ?: value.createdId)?.let { Text("已记录位置：$it") }
                             value.candidatePath?.let { Text("未确认的暂存位置：$it") }
                             value.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }

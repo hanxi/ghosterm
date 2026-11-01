@@ -103,14 +103,16 @@ class FileContentTest {
         }).prepare(plan)
         journal.begin(plan.request.id,run.outcome.items)
         assertNull(journal.load().single().items.single().value.sourceDigest)
-        val outcome=run.execute();run.awaitClosed();journal.finish(plan.request.id,outcome,false,null)
+        val outcome=run.execute();run.awaitClosed()
+        val finished=runCatching { journal.finish(plan.request.id,outcome,false,null) }
+        assertTrue("Acknowledged result must be durably recorded: ${finished.exceptionOrNull()}",finished.isSuccess)
         assertTrue(checked && emptyBeforeCreate);assertEquals(abc,digestBeforeCreate.get())
         assertEquals(FileCopyState.COMPLETE,outcome.state)
         assertEquals(abc,FileTaskJournal(path).load().single().items.single().value.sourceDigest)
         assertEquals("abc",File(home,"target/a").readText())
         SQLiteDatabase.openDatabase(path.path,null,SQLiteDatabase.OPEN_READWRITE).use { db ->
             val payload=db.rawQuery("SELECT payload FROM items",null).use { it.moveToFirst();JSONObject(it.getBlob(0).toString(Charsets.UTF_8)) }
-            assertEquals("2",payload.getString("version"))
+            assertEquals("3",payload.getString("version"))
             payload.getJSONObject("digest").put("sha256","invalid")
             val values=android.content.ContentValues().apply { put("payload",payload.toString().toByteArray()) };db.update("items",values,null,null)
         }

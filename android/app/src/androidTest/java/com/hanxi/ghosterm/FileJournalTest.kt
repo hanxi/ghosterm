@@ -105,7 +105,7 @@ class FileJournalTest {
         assertFalse("failed journal commit must prevent publication",File(home,"target/a.txt").exists())
         assertNotEquals(FileCopyState.COMPLETE,result.state)
         val saved=FileTaskJournal(path).load().single()
-        assertTrue(saved.interrupted);assertEquals(FileCopyCheckpoint.LOCAL_CREATE,saved.items.single().checkpoint)
+        assertTrue(saved.interrupted);assertEquals(FileCopyCheckpoint.LOCAL_CREATED,saved.items.single().checkpoint)
         assertEquals("journal bytes 中文\n",File(home,"source/a.txt").readText())
     }
     @Test fun failedCompletionRecordPreservesActualPublishedResultWithoutRetrying()=runBlocking<Unit> {

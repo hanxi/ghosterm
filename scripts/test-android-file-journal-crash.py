@@ -18,11 +18,11 @@ run,require=helper.run,helper.require
 
 def main(argv=None,fixture=None):
     parser=argparse.ArgumentParser()
-    parser.add_argument('--point',choices=('intent','candidate','published','saf-create-intent','saf-created','remote-create','remote-publish','remote-published','remote-directory'))
+    parser.add_argument('--point',choices=('intent','candidate','origin-created','published','saf-create-intent','saf-created','remote-create','remote-publish','remote-published','remote-directory'))
     parser.add_argument('--skip-build',action='store_true',help='Use the already built APK pair, still install and verify hashes')
     parser.add_argument('--remote',action='store_true',help='Run real SSH points inside test-android-ssh.sh fixture')
     args=parser.parse_args(argv)
-    points=([args.point] if args.point else ['remote-create','remote-publish','remote-published','remote-directory'] if args.remote else ['intent','candidate','published','saf-create-intent','saf-created'])
+    points=([args.point] if args.point else ['remote-create','remote-publish','remote-published','remote-directory'] if args.remote else ['intent','candidate','origin-created','published','saf-create-intent','saf-created'])
     if any(point.startswith('remote-') for point in points) and fixture is None:
         raise RuntimeError('Use ANDROID_FILE_JOURNAL_REMOTE_CRASH=1 with test-android-ssh.sh and RemoteFileJournalTest')
     serial=os.environ.get('ANDROID_SERIAL')
@@ -68,10 +68,22 @@ def main(argv=None,fixture=None):
             if pid is None:raise RuntimeError('Checkpoint not reached before host deadline: '+stage_path.read_text())
             current=run([*adb,'shell','pidof','com.hanxi.ghosterm']);require(current)
             if pid not in current.stdout.split():raise RuntimeError('Acknowledged process is not alive')
-            require(run([*adb,'shell','run-as','com.hanxi.ghosterm','kill','-9',pid]))
+            # Request a real self-SIGKILL. runas_app -> untrusted_app signals are
+            # denied on API 29; copying a nonce/PID-bound request needs no root
+            # or SELinux change. Atomic rename prevents a partial command read.
+            pending=f'files/journal-crash-{token}/kill.pending'
+            requested=f'files/journal-crash-{token}/kill.request'
+            require(run([*adb,'shell','run-as','com.hanxi.ghosterm','cp',ready,pending]))
+            require(run([*adb,'shell','run-as','com.hanxi.ghosterm','mv',pending,requested]))
             process.wait(timeout=15)
             current=run([*adb,'shell','pidof','com.hanxi.ghosterm'])
             if pid in current.stdout.split():raise RuntimeError('Target process did not exit')
+            acknowledged=run([*adb,'shell','run-as','com.hanxi.ghosterm','cat',f'files/journal-crash-{token}/kill.ack'])
+            require(acknowledged)
+            if acknowledged.stdout.splitlines()!=lines:raise RuntimeError('Self-SIGKILL request was not acknowledged by this PID')
+            stage_text=stage_path.read_text()
+            if 'FAILURES!!!' in stage_text or 'OK (1 test)' in stage_text:
+                raise RuntimeError('Stage completed instead of self-SIGKILL: '+stage_text)
             verified=run(probe('verify',point,token),seconds=30)
             output=verified.stdout+verified.stderr;(work/f'{point}-verify.log').write_text(output)
             require(verified)
@@ -87,7 +99,7 @@ def main(argv=None,fixture=None):
             print(f'PASS {point}: live PID {pid} killed, new process read original record, actual files checked; same APK config control green',flush=True)
         finally:
             if process.poll() is None:
-                if pid:run([*adb,'shell','run-as','com.hanxi.ghosterm','kill','-9',pid])
+                if pid:run([*adb,'shell','am','force-stop','com.hanxi.ghosterm'])
                 process.terminate();process.wait(timeout=15)
             stage_log.close()
     if any(hashlib.sha256(p.read_bytes()).hexdigest()!=digest for p,digest in hashes.items()):raise RuntimeError('APKs changed during crash probes')

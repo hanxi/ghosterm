@@ -54,12 +54,16 @@ internal object FileJournalCodec {
     }
     fun item(v: FileJournalItem): ByteArray {
         val i=v.value
-        val body=obj("version" to if(i.sourceDigest==null) "1" else "2","source" to source(i.source),"state" to i.state.name,
+        val body=obj("version" to if(i.localIdentity!=null) "3" else if(i.sourceDigest==null) "1" else "2","source" to source(i.source),"state" to i.state.name,
             "parent" to i.targetParent?.let(::location),"name" to i.targetName,"created" to i.createdId,
             "uri" to i.documentUri,"candidate" to i.candidatePath,"bytes" to i.bytes.toString(),
             "error" to i.error,"core" to i.coreStatus?.toString(),"remote" to i.remoteStatus?.toString(),
             "checkpoint" to v.checkpoint.name)
         i.sourceDigest?.let { body.put("digest",obj("bytes" to it.bytes.toString(),"sha256" to it.sha256)) }
+        i.localIdentity?.let { r -> body.put("local",obj("token" to r.token,"candidate" to r.candidateName,
+            "device" to r.device.toString(),"inode" to r.inode.toString(),"uid" to r.uid.toString(),
+            "candidateDevice" to r.candidateDevice.toString(),"candidateInode" to r.candidateInode.toString(),
+            "destinationDevice" to r.destinationDevice.toString(),"destinationInode" to r.destinationInode.toString())) }
         return bytes(body,ITEM_LIMIT).also { readItem(it) }
     }
     private fun parse(bytes: ByteArray, limit: Int): JSONObject {
@@ -138,20 +142,27 @@ internal object FileJournalCodec {
     }
     fun readItem(bytes: ByteArray): FileJournalItem {
         val o=parse(bytes,ITEM_LIMIT)
-        val version=o.text("version");require(version=="1" || version=="2")
+        val version=o.text("version");require(version=="1" || version=="2" || version=="3")
         val fields=arrayOf("version","source","state","parent","name","created","uri","candidate","bytes","error","core","remote","checkpoint")
-        o.fields(*(if(version=="2") fields+"digest" else fields))
-        val digest=if(version=="2") o.objectAt("digest").let { d ->
+        o.fields(*(when(version) { "3"->fields+arrayOf("digest","local");"2"->fields+"digest";else->fields }))
+        val digest=if(version=="2" || version=="3") o.objectAt("digest").let { d ->
             d.fields("bytes","sha256");FileContentDigest(long(d.text("bytes")),d.text("sha256"))
         } else null
         val s=o.objectAt("source");s.fields("parent","entry","path","children")
         val sourceEntry=entry(s.objectAt("entry"))
         require(digest==null || (sourceEntry.kind==FileKind.FILE && (sourceEntry.size==null || sourceEntry.size==digest.bytes.toULong()))) { "内容摘要与来源信息不一致" }
+        val identity=if(version=="3") o.objectAt("local").let { r ->
+            r.fields("token","candidate","device","inode","uid","candidateDevice","candidateInode","destinationDevice","destinationInode")
+            require(digest!=null && o.optionalObject("parent")?.let(::location)?.endpoint==FileEndpoint.APP &&
+                FileCopyItemState.valueOf(o.text("state")) !in setOf(FileCopyItemState.NOT_ATTEMPTED,FileCopyItemState.SKIPPED)) { "文件创建身份与条目不一致" }
+            LocalFileIdentityReference(r.text("token"),r.text("candidate"),long(r.text("device")),long(r.text("inode")),int(r.text("uid")),
+                long(r.text("candidateDevice")),long(r.text("candidateInode")),long(r.text("destinationDevice")),long(r.text("destinationInode")))
+        } else null
         val path=s.text("path");require(path.isNotEmpty() && path.split('/').all { it.isNotEmpty() && it!="." && it!=".." })
         return FileJournalItem(FileCopyItemResult(FileScanEntry(location(s.objectAt("parent")),sourceEntry,path,
             s.optional("children")?.let(::int)?.also { require(it>=0) }),FileCopyItemState.valueOf(o.text("state")),
             o.optionalObject("parent")?.let(::location),o.optional("name"),o.optional("created"),o.optional("uri"),
             o.optional("candidate"),ulong(o.text("bytes")),o.optional("error"),o.optional("core")?.let(::int),
-            o.optional("remote")?.let(::ulong)?.also { require(it<=UInt.MAX_VALUE) }?.toUInt(),digest),FileCopyCheckpoint.valueOf(o.text("checkpoint")))
+            o.optional("remote")?.let(::ulong)?.also { require(it<=UInt.MAX_VALUE) }?.toUInt(),digest,identity),FileCopyCheckpoint.valueOf(o.text("checkpoint")))
     }
 }
