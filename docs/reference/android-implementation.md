@@ -3484,3 +3484,12 @@ API 29 arm64 / 4 KB 页按 background-layer、erased-background 两组真实变�
 正式主机入口连接该域名后，VPN 实际观察 A/AAAA 各一次，应用进入真实 SSH 主机密钥确认页，显示原始域名、端口及与隔离服务器独立计算一致的 SHA256 指纹。取消连接，未接受主机信任、未输入凭据；这证明本场景 DNS 到主机验证可达，不称完整认证/终端会话通过。实际完整 DNS→认证→输出证据仍以 §9.116 的设备专项为准，不把单场景扩大成全部 VPN/私人 DNS、物理 Wi-Fi/移动网络或用户手机已验。
 
 夹具起跑先确认没有活动 VPN NetworkAgent、always-on 未启用；未替换已有 VPN。首次应用 UID 配置探针发现原配置文件不存在而正常失败，未计业务通过；随后独占创建随机测试配置，保存其摘要。清理先核对配置摘要才删除本次文件，恢复原先不存在状态；正式首页重新加载后回到“还没有主机”。停止并卸载临时 VPN 应用、撤销本次 reverse、结束宿主 SSH 服务，实际 connectivity 中无 VPN NetworkAgent。测试应用 Stop 按钮的 stopService 未立即解除系统持有的服务绑定，最终通过 force-stop 本次临时应用关闭 TUN，并以实际网络消失验收；该夹具问题不算产品失败或成功证据。正式 APK、全局 DNS/私人 DNS设置、用户文件与原有历史均未由夹具改写。证据 `tmp/dns-vpn-fixture/fixture.json`、`vpn-management-active.txt`、`vpn-hostkey-verified.xml`、`vpn-query-counts.xml` 与 `connectivity-after-stop.txt`；正式首页清理收据 `tmp/dns-probe-cloud/vpn-clean-home.xml`。默认 860 项完整回归仍由独立设备继续运行，当前不记完成。
+
+
+### 9.119 实际签名包 16 KB 页持续输出观察（2026-11-02）
+
+A2/A10 增量观察使用已下载并核验的正式 APK `66d1bd9`，API 36 / arm64 / 16 KB 页模拟器（同 §9.116）。通过正式首页新建普通本地 PTY，执行 180 轮、每轮 256 行的 ANSI 绿色文本，每行 128 个数字及颜色/复位/换行共 138 字节，轮间 sleep 1；合计 6,359,040 字节，不包含最终标记。Canvas 最终实际显示 `RELEASE16K_LOAD_DONE_180`，进程正常退出码 0；应用 PID 始终 16721，没有重启命令或应用。完成后关闭本次会话并返回首页，无负载文件需要删除。
+
+采样 PSS 初始 41,886 KiB、峰值 59,062 KiB、最后一次 56,995 KiB；native PSS 初始 12,512 KiB、峰值/末次 13,024 KiB。数字来自实际 dumpsys meminfo，包含应用及主动 UI/内存采样的影响，不是纯 VT 内存，也不证明无泄漏、长时间稳定或真机流畅。原宿主监视器的 24 次采样窗口先到期（错误文案写 240 秒，实际还包含 UI dump/采样耗时）；设备上的同一负载仍在进行，之后继续观察原进程至正常结束，没有重跑或缩减 180 轮工作量，不将其记为规定时间内通过。每轮大量 shell printf 与模拟器调度也属于该负载成本，不能把它当作终端最大吞吐或输入延迟指标。
+
+证据 `tmp/release16k-load/command.txt`、`samples.json`、`extended-samples.json`、逐次 `.meminfo`、`final.png` 与 `result.json`。这补充正式包/16 KB 页持续输出的单场景证据；真机、完整软硬输入法、滚动/动画组合、长时性能和完整 A2/A10 仍待验。独立 API 36 / 4 KB 页设备上的默认 860 项完整回归仍在运行。
