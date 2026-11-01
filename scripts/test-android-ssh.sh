@@ -26,7 +26,7 @@ PY
 export TMPDIR="$ROOT/tmp"
 export PYTHONPYCACHEPREFIX="$ROOT/tmp/android-python-cache"
 FIXTURE_BUDGET=1800
-if [[ "${ANDROID_SSH_ALL:-0}" == 1 ]]; then FIXTURE_BUDGET=2100; fi
+if [[ "${ANDROID_SSH_ALL:-0}" == 1 ]]; then FIXTURE_BUDGET=2700; fi
 gt_timeout "$FIXTURE_BUDGET" bash "$ROOT/core/tests/scripts/ssh_e2e.sh" "$WRAPPER" > "$ROOT/tmp/android-ssh-fixture.log" 2>&1 || {
     cat "$ROOT/tmp/android-ssh-fixture.log"; exit 1;
 }

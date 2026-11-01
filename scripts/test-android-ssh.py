@@ -109,10 +109,11 @@ def main():
                 def test(label,selection,green):
                     args=[*adb,'shell','am','instrument','-w','-r','-e','fixturePort',str(fixture_port),'-e','fixtureToken',token,'-e','networkRulePrefix',rule_prefix]
                     if selection: args+=['-e','class',selection]
-                    # The 445-test suite reached 406 passes at the 1500 s limit;
-                    # its remaining classes passed 41 directed tests in 143.255 s.
-                    # Budget the full aggregate at 1800 s. Per-operation timing
-                    # assertions and directed/mutation 600 s bounds stay unchanged.
+                    # The 626-test aggregate completed 563 named tests with no
+                    # failure events before the old 1800 s host budget expired.
+                    # Its measured rate projects ~2001 s; allow ~20% aggregate
+                    # headroom (2400 s). Individual operation/timing assertions
+                    # and directed/mutation 600 s bounds remain unchanged.
                     import contextlib
                     access=contextlib.nullcontext()
                     if selection is None or 'FileForegroundServiceTest' in selection:
@@ -121,7 +122,7 @@ def main():
                         access=foreground_module.notification_access(adb,run)
                     with access:
                         output=run([*args,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],
-                                   seconds=1800 if selection is None else 600)
+                                   seconds=2400 if selection is None else 600)
                     (logs/(label+'.log')).write_text(output)
                     if green:
                         good='OK (' in output and 'FAILURES' not in output and 'INSTRUMENTATION_FAILED' not in output
