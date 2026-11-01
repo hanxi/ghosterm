@@ -1,18 +1,23 @@
 # Android release APK
 
-当前签名包来自 [run 41257144722](https://github.com/hanxi/ghosterm/actions/runs/41257144722)，
-源码 `ca6f104`，APK **5,903,897 字节**。
-[下载签名 release APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41257144722/artifacts/13063843306)。
-SHA256 为 `2ad94cd1764c72a4e7c2bb0536a6573e1f7f4a449a6c8d88c7666180abea39bf`；
+当前签名包来自 [run 41269551404](https://github.com/hanxi/ghosterm/actions/runs/41269551404)，
+源码 `272d140`，APK **5,906,513 字节**。
+[下载签名 release APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41269551404/artifacts/13068961740)。
+SHA256 为 `e6a44773eca90fa15b7f2affcb6e47d8d346a74af4fdbb9e8bf575535c0e3076`；
 下载文件的提交/清单摘要、固定证书、非 debuggable/minSdk 29/仅 arm64、ZIP/ELF 16 KB 对齐及三份 native 库压缩均已核对。
 
-同一云端包已在 API 36 arm64 / **16 KB 页**模拟器完成同证书覆盖升级、原 28 字节文件保留、
-真实长按/复制/粘贴/同名冲突选择“保留两者”/确认、28 字节提交、新副本与来源预览相同，
-并显示真实本地终端提示符。该档未跑完整设备套件、SSH/SFTP 或系统 IME；
-源码完整 **498 项**仅在 API 36 / 4 KB 页的 debug/测试 APK 上通过。
-API 29 的本地签名包（5,904,217 字节）另验预览/27 字节复制，Gboard 输入仍失败，
-不能把本地包的设备结果自动借给 CI 文件，也不记最低系统或整个发行矩阵完成。
-详见[§9.79](../reference/android-implementation.md#979-a2-输入组合接受与-api-29-兼容复核2026-11-01)。
+同一云端包已在 API 36 arm64 / **16 KB 页**模拟器完成同证书覆盖升级，
+原 28 字节来源及两个既有文件的真实页面预览保留；系统英文键盘显示时连续两条 ASCII 命令，
+各自文件名和内容均通过页面读回验证，安装 APK 摘要与下载文件一致。
+此专项由 Android 系统输入事件驱动，不代表组合输入法或完整 release 功能验收。
+源码完整 **523 项**仅在 API 36 / 4 KB 页的 debug/测试 APK 上通过。
+API 29 的三项当前输入专项另行通过，不包含 raw 字节夹具；真实设备与完整发行矩阵仍未完成。
+设置存储已包含，五类新设置页仍在隔离工作树，不在此 APK。
+详见实现计划 §9.81–§9.83。
+
+前次 `ca6f104` 来自 [run 41257144722](https://github.com/hanxi/ghosterm/actions/runs/41257144722)，
+APK 5,903,897 字节，SHA256 `2ad94cd1764c72a4e7c2bb0536a6573e1f7f4a449a6c8d88c7666180abea39bf`。
+其完整 498 项及 16 KB 页复制专项保留于[§9.79](../reference/android-implementation.md#979-a2-输入组合接受与-api-29-兼容复核2026-11-01)，不借给新包。
 
 工作流为 `.github/workflows/android-release.yml`，监听 main push、PR 和手动触发。
 main 与手动构建使用固定 release 密钥签名；PR 只验证优化后的未签名 release 构建。
