@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.hanxi.ghosterm.domain.*
 import com.hanxi.ghosterm.data.LocalFileBrowser
 import com.hanxi.ghosterm.data.FileBrowserRepository
+import com.hanxi.ghosterm.data.PreferencesState
+import com.hanxi.ghosterm.data.PreferenceUpdate
 import com.hanxi.ghosterm.bridge.RemoteFileSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -33,7 +35,11 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     var choosingLocation by mutableStateOf(false); private set
     var selecting by mutableStateOf(false); private set
     var selected by mutableStateOf<Set<String>>(emptySet()); private set
-    var showHidden by mutableStateOf(false); private set
+    private var listing by mutableStateOf(work.preferences)
+    val showHidden get() = listing.showHidden
+    var hiddenSaving by mutableStateOf(false); private set
+    var preferencesAvailable by mutableStateOf(work.settings == null); private set
+    var preferenceError by mutableStateOf<String?>(null); private set
     var preview by mutableStateOf<FilePreview?>(null); private set
     var pickerPending by mutableStateOf(false); private set
     private val clipboardStore = work.clipboard
@@ -44,9 +50,19 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     var clipboardReplacement by mutableStateOf<ClipboardReplacement?>(null); private set
     var clipboardClearId by mutableStateOf<String?>(null); private set
     var clipboardError by mutableStateOf<String?>(null); private set
-    val visibleEntries get() = entries.filter { showHidden || !it.name.startsWith(".") }
+    val visibleEntries get() = listing.orderFiles(entries)
     init {
         viewModelScope.launch { work.tasks.completed.collect { result -> result?.let { copyCompleted(it) } } }
+        work.settings?.let { settings -> viewModelScope.launch {
+            settings.state.collect { state ->
+                listing = state.committed
+                preferencesAvailable = state.storage is PreferencesState.Ready
+                preferenceError = (state.storage as? PreferencesState.Unavailable)?.let {
+                    "文件偏好读取或保存结果无法确认，请在设置中重新载入。"
+                }
+                selected = selected.intersect(visibleEntries.map { it.id }.toSet())
+            }
+        } }
     }
     private val remembered = mutableMapOf<String,List<FileCrumb>>()
     private var readJob: Job? = null
@@ -106,7 +122,23 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     private fun dismissClipboardDialogs() {
         clipboardDetails=false;clipboardReplacement=null;clipboardClearId=null
     }
-    fun toggleHidden() { showHidden=!showHidden;selected=selected.intersect(visibleEntries.map { it.id }.toSet()) }
+    fun toggleHidden() {
+        if (hiddenSaving || !preferencesAvailable) return
+        val settings = work.settings
+        if (settings == null) {
+            listing = listing.copy(showHidden = !showHidden)
+            selected = selected.intersect(visibleEntries.map { it.id }.toSet())
+            return
+        }
+        val desired = !showHidden
+        hiddenSaving = true; preferenceError = null
+        viewModelScope.launch {
+            try {
+                val result = settings.save(java.util.UUID.randomUUID(), listOf(PreferenceEdit.ShowHidden(desired)))
+                if (result is PreferenceUpdate.Failed) preferenceError = result.message
+            } finally { hiddenSaving = false }
+        }
+    }
     fun chooseLocations() { dismissClipboardDialogs();choosingLocation=true;refreshEndpoints() }
     fun dismissLocations() { choosingLocation=false }
     private fun refreshEndpoints() {

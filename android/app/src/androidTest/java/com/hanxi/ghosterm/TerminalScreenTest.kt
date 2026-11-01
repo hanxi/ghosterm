@@ -32,18 +32,23 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.UUID
+import com.hanxi.ghosterm.data.*
+import com.hanxi.ghosterm.domain.CtrlBehavior
+import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
 class TerminalScreenTest {
     @get:Rule val ui = createAndroidComposeRule<ComponentActivity>()
     private lateinit var directory: File
     private lateinit var sessions: SessionsViewModel
+    private lateinit var preferences: AppSettings
     @Before fun setup() {
         directory = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "terminal-ui-${UUID.randomUUID()}").apply { mkdirs() }
         val app = object : Application() { override fun getFilesDir() = directory }
         val hosts = HostsViewModel(app)
         val runtime = RuntimeInfoViewModel()
-        sessions = SessionsViewModel(app)
+        preferences = AppSettings(PreferencesRepository(PreferencesFile(File(directory, "preferences"))))
+        sessions = SessionsViewModel(app, settings = preferences)
         ui.setContent { GhostermApp(hosts, runtime, sessions) }
         ui.onNodeWithText("本地终端").performClick()
         ui.waitUntil(10_000) { ui.runOnIdle { sessions.active?.state?.connected == true } }
@@ -54,7 +59,14 @@ class TerminalScreenTest {
     }
     @After fun cleanup() {
         ui.runOnIdle { sessions.sessions.map { it.id }.forEach(sessions::close) }
+        preferences.close()
+        runBlocking { preferences.awaitClosed() }
         directory.deleteRecursively()
+    }
+    private fun lockCtrlMode() {
+        val result = runBlocking { preferences.save(UUID.randomUUID(), listOf(PreferenceEdit.CtrlMode(CtrlBehavior.LOCKED))) }
+        assertTrue(result is PreferenceUpdate.Saved)
+        ui.waitUntil { ui.runOnIdle { sessions.terminalControls.lockedCtrl } }
     }
     private fun find(view: View): TerminalView? {
         if (view is TerminalView) return view
@@ -111,7 +123,11 @@ class TerminalScreenTest {
 
     @Test fun blinkingTextRepaintsWithoutCursorOrNewOutput() {
         send("printf '\\033[0m\\033[40;97m\\033[2J\\033[H\\033[?25l\\033[2 q\\033[5mFLASH\\033[0m\\033[40;97m\\r\\nSTEADY'\r")
-        waitFor("STEADY")
+        // Wait for complete output, not the same word in an echoed printf command.
+        ui.waitUntil(10_000) {
+            val frame = terminal().currentFrame
+            frame?.line(0) == "FLASH" && frame.line(1) == "STEADY"
+        }
         ui.runOnIdle {
             val frame = terminal().currentFrame!!
             assertFalse(frame.cursorVisible)
@@ -515,7 +531,7 @@ class TerminalScreenTest {
         assertEquals(original, sessions.active!!.id)
         ui.onNodeWithText("会话 · 1").performClick()
         ui.onNodeWithText("新建本地会话").performClick()
-        ui.waitUntil(10_000) { sessions.sessions.size == 2 && sessions.active?.state?.connected == true }
+        ui.waitUntil(10_000) { !sessions.creating && sessions.sessions.size == 2 && sessions.active?.id != original && sessions.active?.state?.connected == true }
         assertNotEquals(original, sessions.active!!.id)
         ui.onNodeWithTag("terminal-menu").performClick()
         ui.onNodeWithText("关闭会话").performClick()
@@ -672,8 +688,8 @@ class TerminalScreenTest {
         ui.runOnIdle { assertTrue(terminal().onCreateInputConnection(EditorInfo()).commitText("a", 1)) }
         ui.onNodeWithText("Ctrl").assertIsDisplayed()
         send("b")
+        lockCtrlMode()
         ui.onNodeWithText("Ctrl").performClick()
-        ui.onNodeWithText("Ctrl ✓").performClick()
         ui.onNodeWithText("Ctrl 锁定").assertIsDisplayed()
         ui.runOnIdle {
             val ime = terminal().onCreateInputConnection(EditorInfo())
@@ -712,7 +728,8 @@ class TerminalScreenTest {
             ui.onNodeWithText("Ctrl").performClick()
             ui.onNodeWithText("/").performClick()
             ui.onNodeWithText("Ctrl").assertIsDisplayed()
-            ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
+            lockCtrlMode()
+            ui.onNodeWithText("Ctrl").performClick()
             ui.runOnIdle {
                 val ime = terminal().onCreateInputConnection(EditorInfo())
                 "@[\\]^_?2345678 ".forEach { assertTrue(ime.commitText(it.toString(), 1)) }

@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application android:name=".GhostermApplication" android:allowBackup="false" android:label="Ghosterm"
+        android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true" android:theme="@style/Theme.Ghosterm"
         android:usesCleartextTraffic="false">
         <service android:name=".FileTransferService" android:exported="false"

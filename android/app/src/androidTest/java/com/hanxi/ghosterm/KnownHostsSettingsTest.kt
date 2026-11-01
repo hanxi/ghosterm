@@ -84,6 +84,7 @@ class KnownHostsSettingsTest {
     }
     private fun settings() {
         ui.onNodeWithText("设置").performClick()
+        ui.onNodeWithTag("settings-section-SECURITY").performScrollTo().performClick()
         ui.onNodeWithText("主机验证记录").performScrollTo().performClick()
         await { hosts.page == Page.KNOWN_HOSTS && !model.busy && (model.snapshot != null || model.error != null) }
     }
@@ -208,6 +209,7 @@ class KnownHostsSettingsTest {
             main { hosts.knownHosts(); model.enter() }
             assertTrue(entered.await(5,TimeUnit.SECONDS))
             ui.onNodeWithText("返回").performClick()
+            ui.onNodeWithTag("settings-section-SECURITY").performScrollTo().performClick()
             ui.onNodeWithText("主机验证记录").performScrollTo().performClick()
             await { !model.busy && model.snapshot?.revision=="new" }
             release.countDown(); assertTrue(ended.await(5,TimeUnit.SECONDS))
@@ -289,7 +291,7 @@ class KnownHostsSettingsTest {
         request(); confirm(); assertEquals("",known.readText())
         assertArrayEquals(savedConfig,config.readBytes()); assertTrue(vault.list().any { it.id==key.id })
         assertSame(connected,main { sessions.active }); assertTrue(main { connected.state.connected })
-        ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick()
         main { sessions.selectNewRemote() }
         ui.onNodeWithText(alias).performClick(); await("new connection asks for host verification") { sessions.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY }
         main { sessions.cancelConnection(sessions.connecting!!.id); sessions.show(connected.id) }

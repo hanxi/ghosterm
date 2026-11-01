@@ -12,17 +12,26 @@ import android.os.SystemClock
 import com.hanxi.ghosterm.data.IdentityDocumentReader
 import java.net.Inet6Address
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.hanxi.ghosterm.data.ConfigRepository
 import com.hanxi.ghosterm.data.FileTaskConnections
 import com.hanxi.ghosterm.domain.FilePasteRequest
 import com.hanxi.ghosterm.domain.FileEndpoint
 import com.hanxi.ghosterm.terminal.TerminalSurface
+import com.hanxi.ghosterm.terminal.TerminalAppearance
+import com.hanxi.ghosterm.domain.AppPreferences
 import java.io.File
 import java.util.UUID
 
 class TerminalSession(val id: UUID, val title: String, internal val connection: NativeTerminalSession, val remoteAlias: String? = null) {
     val surface: TerminalSurface get() = connection
     var state by mutableStateOf(SessionState(0, null, 0, null)); internal set
+    internal var appliedAppearance: TerminalAppearance? = null
+    internal var keyboardOffered = false
 }
 
 /** Activity ViewModel lifetime survives rotation; navigating never closes a session. */
@@ -44,8 +53,10 @@ class SSHAttempt(val target: PreparedSSH, internal val filesReady: ((RemoteFileS
 }
 
 class SessionsViewModel @JvmOverloads constructor(application: Application, private val resolver: SSHResolver = AndroidSSHResolver,
-    private val connectionBudgetMillis: Long = 60_000, private val monitorSessions: Boolean = true) : AndroidViewModel(application) {
+    private val connectionBudgetMillis: Long = 60_000, private val monitorSessions: Boolean = true,
+    settings: AppSettings? = (application as? GhostermApplication)?.settings) : AndroidViewModel(application) {
     val sessions = mutableStateListOf<TerminalSession>()
+    private val surfaceTargets = MutableStateFlow<List<TerminalSession>>(emptyList())
     var selected by mutableStateOf<UUID?>(null); private set
     var visible by mutableStateOf(false); private set
     var creating by mutableStateOf(false); private set
@@ -60,7 +71,30 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     var identityPickerPending by mutableStateOf(false); private set
     private val vault = IdentityVault(File(application.filesDir, "identities"))
     val active: TerminalSession? get() = sessions.firstOrNull { it.id == selected }
+    var terminalStyle by mutableStateOf((settings?.state?.value?.committed ?: AppPreferences()).terminalStyle()); private set
+    var terminalControls by mutableStateOf((settings?.state?.value?.committed ?: AppPreferences()).terminalControls()); private set
     init {
+        if (settings != null) viewModelScope.launch {
+            settings.state.collect { terminalControls = it.committed.terminalControls() }
+        }
+        viewModelScope.launch {
+            val styles = settings?.state?.map { it.committed.terminalStyle() }?.distinctUntilChanged()
+                ?: flowOf(AppPreferences().terminalStyle())
+            combine(styles, surfaceTargets) { style, targets -> style to targets }
+                .collect { (style, targets) ->
+                    terminalStyle = style
+                    for (session in targets) {
+                        if (session.appliedAppearance == style.appearance) continue
+                        try {
+                            session.surface.configure(style.appearance)
+                            session.appliedAppearance = style.appearance
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (failure: Exception) {
+                            if (session in sessions) reportError("终端设置未能应用：${failure.message ?: "未知原因"}")
+                        }
+                    }
+                }
+        }
         if(monitorSessions) viewModelScope.launch {
             while (true) {
                 sessions.forEach { it.state = it.connection.state() }
@@ -84,7 +118,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                     created = LocalSession(home.absolutePath)
                 }
                 val session = TerminalSession(UUID.randomUUID(), "本地终端 ${++sequence}", checkNotNull(created))
-                sessions.add(session); created = null
+                register(session); created = null
                 show(session.id)
             } catch (cancel: CancellationException) { throw cancel }
             catch (failure: Exception) { error = failure.message ?: "无法创建本地终端" }
@@ -95,9 +129,14 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     fun home() { visible = false }
     fun reportError(message: String) { error = message }
     fun dismissError() { error = null }
+    private fun register(session: TerminalSession) {
+        sessions.add(session)
+        surfaceTargets.value = sessions.toList()
+    }
     fun close(id: UUID) {
         val session = sessions.firstOrNull { it.id == id } ?: return
         session.connection.close(); sessions.remove(session)
+        surfaceTargets.value = sessions.toList()
         if (selected == id) selected = sessions.lastOrNull()?.id
         if (sessions.isEmpty()) visible = false
     }
@@ -247,7 +286,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                             } else {
                                 val session = TerminalSession(UUID.randomUUID(), attempt.target.alias, connection as RemoteSession, attempt.target.alias)
                                 session.state = checkNotNull(terminalState)
-                                sessions.add(session); owned = null; attempt.connection = null; connecting = null; show(session.id)
+                                register(session); owned = null; attempt.connection = null; connecting = null; show(session.id)
                             }
                             break
                         }

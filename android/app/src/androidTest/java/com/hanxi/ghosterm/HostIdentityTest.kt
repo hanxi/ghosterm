@@ -103,6 +103,7 @@ class HostIdentityTest {
     }
     private fun settingsDetail() {
         ui.onNodeWithText("设置").performClick()
+        ui.onNodeWithTag("settings-section-SECURITY").performScrollTo().performClick()
         ui.onNodeWithText("SSH 身份").performScrollTo().performClick()
         await("identity inventory") { !identities.busy }
         ui.onNodeWithTag("identity-row-${key.id}").performScrollTo().performClick()
@@ -223,6 +224,7 @@ class HostIdentityTest {
     @Test fun malformedInventoryIdShowsAnErrorInsteadOfCrashingReferenceDetails() {
         File(directory,"not-a-uuid.json").writeText("damaged fixture")
         ui.onNodeWithText("设置").performClick()
+        ui.onNodeWithTag("settings-section-SECURITY").performScrollTo().performClick()
         ui.onNodeWithText("SSH 身份").performScrollTo().performClick()
         await("damaged inventory") { !identities.busy }
         ui.onNodeWithTag("identity-row-not-a-uuid").performScrollTo().performClick()

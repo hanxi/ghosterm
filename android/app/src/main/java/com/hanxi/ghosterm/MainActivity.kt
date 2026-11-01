@@ -3,8 +3,12 @@ package com.hanxi.ghosterm
 import android.os.Bundle
 import android.content.Intent
 import android.app.Activity
+import androidx.core.view.WindowCompat
+import androidx.compose.ui.platform.LocalContext
+import com.hanxi.ghosterm.domain.AppAppearance
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -30,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import com.hanxi.ghosterm.domain.HostField
 import com.hanxi.ghosterm.domain.RemoteFileIdentity
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -56,7 +61,8 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel()) {
+fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel(), settings: SettingsViewModel = viewModel(), about: AboutViewModel = viewModel()) {
+    val applied by settings.settings.state.collectAsState()
     val runtime by runtimeModel.state.collectAsState()
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) hosts.readImport(uri) }
     val identityImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(),identities::completeImport)
@@ -71,6 +77,8 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         catch (_: Exception) { files.pickerFailed() }
     }
     fun back() {
+        if (hosts.page == Page.ABOUT && about.back()) return
+        if (hosts.page == Page.SETTINGS && settings.back()) return
         if (hosts.page == Page.KNOWN_HOSTS) {
             if (knownHosts.backToList()) return
             knownHosts.leave()
@@ -82,7 +90,15 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         hosts.back()
     }
     BackHandler(!sessions.visible && !files.visible && !fileTasks.visible && hosts.page != Page.HOSTS) { back() }
-    val colors = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFFBACDFF),
+    LaunchedEffect(settings.leaveRequested) { if (settings.consumeLeave() && hosts.page == Page.SETTINGS) hosts.back() }
+    val dark = when (applied.committed.appearance) {
+        AppAppearance.SYSTEM -> isSystemInDarkTheme(); AppAppearance.LIGHT -> false; AppAppearance.DARK -> true
+    }
+    val activity = LocalActivity.current
+    SideEffect { activity?.let { WindowCompat.getInsetsController(it.window, it.window.decorView).apply {
+        isAppearanceLightStatusBars = !dark; isAppearanceLightNavigationBars = !dark
+    } } }
+    val colors = if (dark) darkColorScheme(primary = Color(0xFFBACDFF),
         background = Color(0xFF171B20), surface = Color(0xFF21262D), onSurface = Color(0xFFE4E8EE))
         else lightColorScheme(primary = Color(0xFF425F96), background = Color(0xFFF7F8FC), surface = Color(0xFFF7F8FC))
     MaterialTheme(colorScheme = colors) {
@@ -119,11 +135,11 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         }
         Scaffold(topBar = {
             TopAppBar(title = { Text(when (hosts.page) {
-                Page.HOSTS -> "主机"; Page.SETTINGS -> "设置"; Page.ABOUT -> "关于 Ghosterm"
+                Page.HOSTS -> "主机"; Page.SETTINGS -> settings.section?.title ?: "设置"; Page.ABOUT -> about.selected?.title ?: "关于 Ghosterm"
                 Page.IDENTITIES -> "SSH 身份"
                 Page.KNOWN_HOSTS -> "主机验证记录"
                 Page.CONFIG -> "SSH 配置"; Page.EDIT_HOST -> if (hosts.draft?.original == null) "添加主机" else "编辑主机"
-            }) }, navigationIcon = {
+            }, maxLines = 1, overflow = TextOverflow.Ellipsis) }, navigationIcon = {
                 if (hosts.page != Page.HOSTS) TextButton(onClick = { back() }, enabled = !hosts.busy) { Text("返回") }
             }, actions = {
                 when (hosts.page) {
@@ -177,26 +193,12 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                             modifier = Modifier.fillMaxWidth().weight(1f).padding(vertical = 12.dp),
                             label = { Text("配置内容") }, textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace))
                     }
-                    Page.SETTINGS -> Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("会话与连接资料", style = MaterialTheme.typography.titleMedium)
-                        OutlinedButton(onClick = hosts::back, modifier = Modifier.fillMaxWidth()) { Text("管理主机") }
-                        OutlinedButton(onClick = { hosts.identities(); identities.enter() },enabled = !hosts.busy, modifier = Modifier.fillMaxWidth()) { Text("SSH 身份") }
-                        OutlinedButton(onClick = { hosts.knownHosts(); knownHosts.enter() }, enabled = !hosts.busy,
-                            modifier = Modifier.fillMaxWidth()) { Text("主机验证记录") }
-                        OutlinedButton(onClick = hosts::config, enabled = hosts.snapshot != null, modifier = Modifier.fillMaxWidth()) { Text("查看与编辑 SSH 配置") }
-                        OutlinedButton(onClick = { import.launch(arrayOf("*/*")) }, enabled = !hosts.busy && hosts.snapshot != null, modifier = Modifier.fillMaxWidth()) { Text("导入 SSH 配置") }
-                        Text("导入会替换应用内副本，原文档不修改。Include 所需文件必须先可访问。", style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = hosts::about) { Text("关于 Ghosterm") }
-                    }
-                    Page.ABOUT -> Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Text("版本 ${BuildConfig.VERSION_NAME}")
-                        when (val info = runtime) {
-                            RuntimeInfo.Loading -> Text("正在加载终端组件…")
-                            RuntimeInfo.Failed -> Text("终端组件加载失败", color = colors.error)
-                            is RuntimeInfo.Ready -> { Text("Core ${info.core}"); Text("libghostty-vt ${info.terminal}") }
-                        }
-                        Text("原生 Android 客户端 · MIT License")
-                    }
+                    Page.SETTINGS -> SettingsContent(settings, hosts.snapshot != null, hosts.busy,
+                        onHosts = hosts::back, onConfig = hosts::config,
+                        onImport = { import.launch(arrayOf("*/*")) },
+                        onIdentities = { hosts.identities(); identities.enter() },
+                        onKnownHosts = { hosts.knownHosts(); knownHosts.enter() }, onAbout = hosts::about)
+                    Page.ABOUT -> AboutContent(about, runtime)
                 }
             }
         }

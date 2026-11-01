@@ -45,6 +45,7 @@ class SafImportTest {
         ui.setContent { GhostermApp(model, runtime) }
         await { !model.busy && model.snapshot != null }
         ui.onNodeWithText("设置").performClick()
+        ui.onNodeWithTag("settings-section-SESSIONS").performScrollTo().performClick()
     }
     @After fun cleanup() { directory.deleteRecursively() }
     private fun await(predicate: () -> Boolean) {

@@ -17,6 +17,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.SystemClock
+import android.util.TypedValue
 import android.text.Editable
 import android.text.InputType
 import android.text.Selection
@@ -51,6 +52,38 @@ class TerminalView(context: Context) : View(context) {
     /** 0 off, 1 one-shot, 2 locked. */
     var ctrl: Int = 0
         set(value) { field = value; onModifiersChanged(value) }
+    private var auxiliaryKeys = true
+    private var lockedCtrl = false
+    private var awakeRequested = false
+    private var automaticKeyboardUntil = 0L
+    private val automaticKeyboard = object : Runnable {
+        override fun run() {
+            if (automaticKeyboardUntil == 0L || SystemClock.uptimeMillis() > automaticKeyboardUntil) {
+                automaticKeyboardUntil = 0L; return
+            }
+            if (!isAttachedToWindow || !isShown || windowVisibility != VISIBLE) {
+                cancelAutomaticKeyboard(); return
+            }
+            if (hasWindowFocus()) { automaticKeyboardUntil = 0L; showKeyboardNow() }
+            else postDelayed(this, 25)
+        }
+    }
+    fun applyAuxiliaryPolicy(visible: Boolean, locked: Boolean) {
+        if (auxiliaryKeys == visible && lockedCtrl == locked) return
+        auxiliaryKeys = visible; lockedCtrl = locked; ctrl = 0
+    }
+    fun toggleCtrl() {
+        ctrl = if (!auxiliaryKeys || ctrl != 0) 0 else if (lockedCtrl) 2 else 1
+    }
+    fun requestKeepAwake(enabled: Boolean) { awakeRequested = enabled; updateKeepAwake() }
+    private fun updateKeepAwake() {
+        keepScreenOn = awakeRequested && isAttachedToWindow && isShown && windowVisibility == VISIBLE && hasWindowFocus()
+    }
+    fun requestAutomaticKeyboard() {
+        automaticKeyboardUntil = SystemClock.uptimeMillis() + 1_000
+        removeCallbacks(automaticKeyboard); post(automaticKeyboard)
+    }
+    private fun cancelAutomaticKeyboard() { automaticKeyboardUntil = 0L; removeCallbacks(automaticKeyboard) }
     var currentFrame: TerminalFrame? = null
         private set
     private var imeComposition = ""
@@ -87,6 +120,9 @@ class TerminalView(context: Context) : View(context) {
     private var cellWidth = 1
     private var cellHeight = 1
     private var baseline = 1f
+    private var metricsReady = false
+    var style: TerminalStyle = TerminalStyle()
+        private set
     private var lastSize: List<Int>? = null
     private var running = false
     private var inputFrameDeadline = 0L
@@ -121,7 +157,7 @@ class TerminalView(context: Context) : View(context) {
             val next = SystemClock.uptimeMillis() % 1000 < 500
             if (next != blink) {
                 blink = next
-                if (currentFrame?.cursorBlink == true || currentFrame?.hasBlinkingText == true) invalidate()
+                if ((style.appearance.blink && hasFocus() && hasWindowFocus() && currentFrame?.cursorBlink == true) || currentFrame?.hasBlinkingText == true) invalidate()
             }
             // Input needs a prompt echo; sustained output and idle retain the
             // lower polling rate to avoid rebuilding snapshots every display frame.
@@ -134,15 +170,26 @@ class TerminalView(context: Context) : View(context) {
         isLongClickable = true
         contentDescription = "终端"
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
-        setFontSize(14f)
+        updateStyle(style)
     }
     fun setFontSize(sp: Float) {
         require(sp in 8f..32f)
-        paint.textSize = sp * resources.displayMetrics.scaledDensity
-        cellWidth = ceil(paint.measureText("M")).toInt().coerceAtLeast(1)
-        cellHeight = ceil(paint.fontMetrics.descent - paint.fontMetrics.ascent).toInt().coerceAtLeast(1)
-        baseline = -paint.fontMetrics.ascent
-        lastSize = null; updateSize(); invalidate()
+        updateStyle(style.copy(fontSize = sp))
+    }
+    fun updateStyle(value: TerminalStyle) {
+        val pixels = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value.fontSize, resources.displayMetrics)
+        val changedMetrics = !metricsReady || style.fontSize != value.fontSize || style.lineHeight != value.lineHeight || paint.textSize != pixels
+        if (style == value && !changedMetrics) return
+        style = value
+        if (changedMetrics) {
+            paint.textSize = pixels
+            cellWidth = ceil(paint.measureText("M")).toInt().coerceAtLeast(1)
+            cellHeight = ceil(paint.textSize * value.lineHeight).toInt().coerceAtLeast(1)
+            baseline = (cellHeight - (paint.fontMetrics.descent - paint.fontMetrics.ascent)) / 2 - paint.fontMetrics.ascent
+            metricsReady = true
+            lastSize = null; updateSize()
+        }
+        invalidate()
     }
     private fun updateSize() {
         val target = surface ?: return
@@ -162,6 +209,7 @@ class TerminalView(context: Context) : View(context) {
         }
     }
     private fun rendering() {
+        updateKeepAwake()
         val next = isAttachedToWindow && isShown && windowVisibility == VISIBLE
         if (next == running) return
         running = next
@@ -175,6 +223,7 @@ class TerminalView(context: Context) : View(context) {
         post { if (isAttachedToWindow && isShown) requestFocus() }
     }
     override fun onDetachedFromWindow() {
+        cancelAutomaticKeyboard(); keepScreenOn = false
         releaseHeldKeys()
         resetTextActions()
         ctrl = 0
@@ -193,9 +242,11 @@ class TerminalView(context: Context) : View(context) {
         super.onWindowFocusChanged(hasWindowFocus)
         if (!hasWindowFocus) releaseHeldKeys()
         if (!hasWindowFocus) { stopDrag(); ctrl = 0 }
+        updateKeepAwake()
+        invalidate()
     }
     override fun performClick(): Boolean {
-        super.performClick(); requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT); return true
+        super.performClick(); showKeyboard(); return true
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN && selecting) {
@@ -363,8 +414,9 @@ class TerminalView(context: Context) : View(context) {
         if (action == android.R.id.paste) { pasteClipboard(); return true }
         return super.performAccessibilityAction(action, args)
     }
-    fun showKeyboard() { requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT) }
-    fun hideKeyboard() { inputMethod.hideSoftInputFromWindow(windowToken, 0) }
+    private fun showKeyboardNow() { requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT) }
+    fun showKeyboard() { cancelAutomaticKeyboard(); showKeyboardNow() }
+    fun hideKeyboard() { cancelAutomaticKeyboard(); inputMethod.hideSoftInputFromWindow(windowToken, 0) }
     fun sendKey(code: Int, modifiers: Int = 0, text: String = "", unshiftedCodepoint: Int = 0): Boolean {
         if (pendingAccents.isNotEmpty()) {
             if (code == KeyEvent.KEYCODE_ESCAPE || code == KeyEvent.KEYCODE_DEL) {
@@ -517,7 +569,7 @@ class TerminalView(context: Context) : View(context) {
     }
     private fun drawTerminal(canvas: Canvas) {
         val frame = currentFrame
-        canvas.drawColor(frame?.background ?: Color.rgb(23, 27, 32))
+        canvas.drawColor(frame?.background ?: (0xff000000.toInt() or style.appearance.background))
         if (frame == null) return
         for (y in 0 until frame.rows) for (x in 0 until frame.cols) {
             val cell = frame.cells[y * frame.cols + x]
@@ -537,10 +589,11 @@ class TerminalView(context: Context) : View(context) {
             if (cell.flags and 64 != 0) canvas.drawLine(left, top + 1, right, top + 1, paint)
             canvas.restore()
         }
-        if (frame.cursorVisible && (!frame.cursorBlink || blink || !hasFocus())) {
+        val cursorFocused = hasFocus() && hasWindowFocus()
+        if (frame.cursorVisible && (!style.appearance.blink || !frame.cursorBlink || blink || !cursorFocused)) {
             val x = (frame.cursorX * cellWidth).toFloat(); val y = (frame.cursorY * cellHeight).toFloat()
-            fill.color = frame.foreground; fill.alpha = if (hasFocus()) 150 else 255
-            fill.style = if (hasFocus()) Paint.Style.FILL else Paint.Style.STROKE
+            fill.color = frame.foreground; fill.alpha = if (cursorFocused) 150 else 255
+            fill.style = if (cursorFocused) Paint.Style.FILL else Paint.Style.STROKE
             when (frame.cursorStyle) {
                 0 -> canvas.drawRect(x, y, x + 2, y + cellHeight, fill)
                 2 -> canvas.drawRect(x, y + cellHeight - 2, x + cellWidth, y + cellHeight, fill)

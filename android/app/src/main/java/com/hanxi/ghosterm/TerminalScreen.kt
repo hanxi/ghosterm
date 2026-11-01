@@ -14,12 +14,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.text.style.TextOverflow
 import com.hanxi.ghosterm.terminal.TerminalView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
     val session = model.active ?: return
+    val controls = model.terminalControls
     var terminal by remember(session.id) { mutableStateOf<TerminalView?>(null) }
     var ctrl by remember(session.id) { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
@@ -31,7 +33,8 @@ fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
     BackHandler(onBack = back)
     Scaffold(topBar = {
         TopAppBar(title = {
-            Column { Text(session.title); Text(session.state.description, style = MaterialTheme.typography.labelSmall) }
+            Column { Text(session.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(session.state.description, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }, navigationIcon = { TextButton(onClick = back, modifier = Modifier.testTag("terminal-back")) { Text("返回") } }, actions = {
             Box {
                 TextButton(onClick = { menu = true }, modifier = Modifier.testTag("terminal-menu")) { Text("更多") }
@@ -51,22 +54,29 @@ fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
             }
             key(session.id) {
                 AndroidView(factory = { context -> TerminalView(context).also {
+                    it.updateStyle(model.terminalStyle)
+                    it.applyAuxiliaryPolicy(controls.auxiliaryKeys, controls.lockedCtrl)
+                    it.requestKeepAwake(controls.keepAwake)
                     it.surface = session.surface; it.onError = model::reportError
                     it.onModifiersChanged = { value -> ctrl = value }; terminal = it
                     it.requestFocus()
-                } }, modifier = Modifier.fillMaxWidth().weight(1f).testTag("terminal-surface"))
+                } }, update = { view ->
+                    view.updateStyle(model.terminalStyle)
+                    view.applyAuxiliaryPolicy(controls.auxiliaryKeys, controls.lockedCtrl)
+                    view.requestKeepAwake(controls.keepAwake)
+                }, modifier = Modifier.fillMaxWidth().weight(1f).testTag("terminal-surface"))
             }
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            if (controls.auxiliaryKeys) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("terminal-auxiliary-keys"), verticalAlignment = Alignment.CenterVertically) {
                 val keys = listOf("Esc" to KeyEvent.KEYCODE_ESCAPE, "Tab" to KeyEvent.KEYCODE_TAB,
                     "↑" to KeyEvent.KEYCODE_DPAD_UP, "↓" to KeyEvent.KEYCODE_DPAD_DOWN,
                     "←" to KeyEvent.KEYCODE_DPAD_LEFT, "→" to KeyEvent.KEYCODE_DPAD_RIGHT)
-                TextButton(onClick = { terminal?.ctrl = (ctrl + 1) % 3 }, enabled = session.state.connected,
+                TextButton(onClick = { terminal?.toggleCtrl() }, enabled = session.state.connected,
                     modifier = Modifier.heightIn(min = 48.dp)) { Text(when(ctrl) { 1 -> "Ctrl ✓"; 2 -> "Ctrl 锁定"; else -> "Ctrl" }) }
                 keys.forEach { (label, code) -> TextButton(onClick = { terminal?.sendKey(code) }, enabled = session.state.connected,
                     modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text(label) } }
                 listOf("/", "-").forEach { value -> TextButton(onClick = { terminal?.commitText(value) }, enabled = session.state.connected,
                     modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text(value) } }
-                listOf("Home" to KeyEvent.KEYCODE_MOVE_HOME, "End" to KeyEvent.KEYCODE_MOVE_END,
+                if (controls.extendedKeys) listOf("Home" to KeyEvent.KEYCODE_MOVE_HOME, "End" to KeyEvent.KEYCODE_MOVE_END,
                     "PgUp" to KeyEvent.KEYCODE_PAGE_UP, "PgDn" to KeyEvent.KEYCODE_PAGE_DOWN).forEach { (label, code) ->
                     TextButton(onClick = { terminal?.sendKey(code) }, enabled = session.state.connected,
                         modifier = Modifier.heightIn(min = 48.dp)) { Text(label) }
@@ -84,6 +94,13 @@ fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
         }
     }
     LaunchedEffect(session.state.terminal) { if (session.state.terminal) { terminal?.ctrl = 0; terminal?.hideKeyboard() } }
+    DisposableEffect(session.id) { onDispose { session.keyboardOffered = true } }
+    LaunchedEffect(session.id, session.state.connected, terminal, controls.autoKeyboard) {
+        if (session.state.connected && terminal != null && !session.keyboardOffered) {
+            session.keyboardOffered = true
+            if (controls.autoKeyboard) terminal?.requestAutomaticKeyboard()
+        }
+    }
     if (list) ModalBottomSheet(onDismissRequest = { list = false }) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text("会话", style = MaterialTheme.typography.titleLarge)

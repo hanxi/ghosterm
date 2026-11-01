@@ -2,6 +2,8 @@ package com.hanxi.ghosterm.terminal
 
 /** The renderer knows only this seam, never connection kinds or native handles. */
 interface TerminalSurface {
+    /** Acknowledged on the VT owner; never injected into the terminal byte stream. */
+    suspend fun configure(appearance: TerminalAppearance)
     fun frame(after: Long): TerminalFrame?
     fun resize(cols: Int, rows: Int, cellWidth: Int, cellHeight: Int)
     fun commit(text: String)

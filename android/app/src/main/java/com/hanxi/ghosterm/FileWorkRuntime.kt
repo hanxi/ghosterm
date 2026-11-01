@@ -5,6 +5,7 @@ import androidx.compose.runtime.*
 import com.hanxi.ghosterm.data.FileTaskConnections
 import com.hanxi.ghosterm.domain.FileClipboardSnapshot
 import com.hanxi.ghosterm.domain.FilePasteRequest
+import com.hanxi.ghosterm.domain.AppPreferences
 import kotlinx.coroutines.*
 import java.util.UUID
 
@@ -14,10 +15,15 @@ class FileClipboardStore {
         internal set
 }
 
-class FileWorkRuntime(application: Application) {
+class FileWorkRuntime(application: Application,
+    val settings: AppSettings? = (application as? GhostermApplication)?.settings) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val clipboard = FileClipboardStore()
-    val tasks = FileTaskStore(application,scope)
+    val preferences get() = settings?.state?.value?.committed ?: AppPreferences()
+    val tasks = FileTaskStore(application,scope) { task, result ->
+        if (task.clearClipboardAfterSuccess && !task.cancelled && task.error == null && task.persistenceError == null &&
+            result.mayClearClipboard && clipboard.snapshot?.id == result.clipboardId) clipboard.snapshot = null
+    }
     val background = FileTransferBackground(application,this,scope)
     // This controller owns credentials for file tasks only. It creates no terminal/browser.
     private val authenticationOwner = lazy { SessionsViewModel(application,monitorSessions=false) }

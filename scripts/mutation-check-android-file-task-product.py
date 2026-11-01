@@ -31,7 +31,7 @@ def execute(root,build,test):
             '} catch(cancel: CancellationException)',l+'connectionTimeoutIsFailureRatherThanUserCancellation'),
         ('paste-button',browser,'Button(onClick=onPaste,enabled=','Button(onClick={},enabled=',copy),
         ('task-route',main,'if(fileTasks.visible) { FileTasksScreen(fileTasks);return@MaterialTheme }','if(false) { FileTasksScreen(fileTasks);return@MaterialTheme }',r+'uploadThroughPasteButtonSurvivesRotationAndKeepsBrowserAndClipboard'),
-        ('destination',tasks,'FilePasteRequest.capture(snapshot,destination,label)','FilePasteRequest.capture(snapshot,FileLocation(FileEndpoint.APP),label)',copy),
+        ('destination',tasks,'FilePasteRequest.capture(snapshot,destination,label,preferences.conflict)','FilePasteRequest.capture(snapshot,FileLocation(FileEndpoint.APP),label,preferences.conflict)',copy),
         ('slot',tasks,'if(tasks.any { it.active && it.phase!=FileTaskPhase.QUEUED }) return','if(false) return',slot),
         ('cancel-slot',tasks,'} else {\n            task.phase=FileTaskPhase.CANCELLING','} else {\n            task.phase=FileTaskPhase.FINISHED',slot),
         ('remove-running',tasks,'if(task.active || task.recording) return','if(false) return',slot),

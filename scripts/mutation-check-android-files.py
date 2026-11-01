@@ -41,7 +41,7 @@ def main():
         (model,'if(selecting) { selected=','if(true) { selected=',ui),
         (model,'selecting=true;selected=selected+entry.id','selecting=false;selected=selected+entry.id',ui),
         (model,'selected=visibleEntries.map { it.id }.toSet()','selected=entries.map { it.id }.toSet()',selection),
-        (model,'selected=selected.intersect(visibleEntries.map { it.id }.toSet())','selected=selected',selection),
+        (model,'selected = selected.intersect(visibleEntries.map { it.id }.toSet())\n            return','selected = selected\n            return',selection),
         (model,'error=failure.message ?: "读取文件夹失败，请重试"','error=null','FileBrowserTest#readFailureIsVisibleAndRetryDoesNotPretendEmpty'),
         (model,'if(visible && token==generation) {\n                    crumbs=', 'if(visible) {\n                    crumbs=',late),
         (model,'if(visible && token==generation) preview=FilePreview(entry,text)','if(visible) preview=FilePreview(entry,text)',late),

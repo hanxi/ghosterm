@@ -86,6 +86,7 @@ class IdentitySettingsTest {
     }
     private fun settings() {
         ui.onNodeWithText("设置").performClick()
+        ui.onNodeWithTag("settings-section-SECURITY").performScrollTo().performClick()
         ui.onNodeWithText("SSH 身份").performScrollTo().performClick()
         await { !model.busy && hosts.page==Page.IDENTITIES }
     }
@@ -183,7 +184,7 @@ class IdentitySettingsTest {
         await("Exactly one settings identity must be imported") { !model.busy && added().size==1 }
         assertNotSame(old,ui.activity); assertSame(model,main { ViewModelProvider(ui.activity)[IdentitiesViewModel::class.java] })
         val identity=added().single(); row(identity.id).performScrollTo().performClick(); await { !model.busy }; fingerprint()
-        ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick()
         val config=File(ui.activity.filesDir,"home/.ssh/config"); val known=File(ui.activity.filesDir,"home/.ssh/known_hosts")
         val before=config.takeIf(File::exists)?.readBytes(); val previousKnown=known.takeIf(File::exists)?.readBytes()
         try {

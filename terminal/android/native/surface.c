@@ -145,6 +145,18 @@ static bool read_paste(void *context, GhosttyString mime, GhosttyWriter writer) 
 int gat_surface_action(gat_surface *s, int kind, int x, int y,
         const uint8_t *bytes, size_t length, uint8_t **result, size_t *result_length) {
     *result = NULL; *result_length = 0;
+    if (kind == 12) {
+        if (length != 6 || x < 0 || x > 2 || y < 0 || y > 1) return 2;
+        GhosttyColorRgb background = {bytes[0], bytes[1], bytes[2]};
+        GhosttyColorRgb foreground = {bytes[3], bytes[4], bytes[5]};
+        GhosttyTerminalCursorStyle cursor = (GhosttyTerminalCursorStyle)x;
+        bool blink = y != 0;
+        /* Default setters preserve explicit OSC/DECSCUSR overrides. No PTY bytes. */
+        return ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &background) == GHOSTTY_SUCCESS &&
+            ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, &foreground) == GHOSTTY_SUCCESS &&
+            ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE, &cursor) == GHOSTTY_SUCCESS &&
+            ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK, &blink) == GHOSTTY_SUCCESS ? 0 : 2;
+    }
     if (kind == 1) {
         paste_data data = {bytes, length};
         const GhosttyString mime = {.ptr = (const uint8_t *)"text/plain", .len = 10};

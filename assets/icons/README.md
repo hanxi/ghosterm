@@ -34,14 +34,14 @@
 | 端 | 产物 | 怎么用 |
 |---|---|---|
 | macOS / iOS | `apple/AppIcon.appiconset/` | 把整个目录放进 Xcode 的 `Assets.xcassets`（`Contents.json` 已含 `mac` 与 `iphone/ipad/ios-marketing` 两组 idiom）。**两边都是满画布直角 + 无 alpha**：圆角都交给系统裁（macOS 26 / iOS；见下「Tahoe 的底座」） |
-| Android | `android/` | `mipmap-*/` 是 legacy 图标（含圆形）；`mipmap-anydpi-v26/` + `drawable/ic_launcher_foreground.xml` + `values/ic_launcher_background.xml` 是 adaptive icon 三件套。整目录内容对应 `app/src/main/res/` 下的同名路径 |
+| Android | `android/` | `mipmap-*/` 是 legacy 图标（含圆形）；`mipmap-anydpi-v26/` + `drawable/ic_launcher_foreground.xml` + `values/ic_launcher_background.xml` 是 adaptive icon 三件套。Gradle 的 main 资源目录直接引用此目录；清单 `icon` / `roundIcon` 指向生成的 mipmap，不复制或手改派生产物 |
 | HarmonyOS | `harmonyos/app_icon.svg` | 圆角独立 SVG（圆角外透明），可直接作为应用图标；`icon.svg` 是同内容副本 |
 | Linux | `linux/` | `hicolor/` 就是 FHS 布局，装到 `/usr/share/icons/hicolor/`（或 `~/.local/share/icons/`）；`io.github.ghosterm.Ghosterm.svg` 作矢量兜底 |
 | Web | `web/` | `favicon.ico`（16/32/48）、`favicon-32.png`、`icon.svg`、`icon-192.png`、`icon-512.png`、`apple-touch-icon.png`（180，不透明） |
 | Windows | `windows/` | `Ghosterm.ico`（16…256 多尺寸）；`Ghosterm-44/-150`、`StoreLogo`、`Ghosterm.png` 给 MSIX / Store 清单。**全部连续圆角 + 透明角**（Windows 不遮罩应用图标）|
 | 端侧只要「标记」 | `ghosterm-mark.svg` | 透明底、无投影、已居中放满画布；适合通知图标、内嵌 logo。注意幽灵本体是白的、眼睛是深色，**只适合深色底**，浅底请用整图 |
 
-> **macOS 已接入打包**：`scripts/package-mac.sh` 从 Apple appiconset 用 `iconutil` 生成 `AppIcon.icns`，放进脚本组装的 `.app`。源码仍是 SwiftPM，没有 `.xcodeproj`。iOS/Android 等端只有派生资源，尚无原生打包接线。
+> **macOS 已接入打包**：`scripts/package-mac.sh` 从 Apple appiconset 用 `iconutil` 生成 `AppIcon.icns`，放进脚本组装的 `.app`。源码仍是 SwiftPM，没有 `.xcodeproj`。Android 已由 `android/app/build.gradle.kts` 将派生目录接为资源源目录，清单声明普通/圆形图标；已验证安装后 PackageManager 加载正式自适应幽灵图标，见 Android 实施计划 §9.91。iOS 等其余端只有派生资源，尚无原生打包接线。
 
 ## 重新生成
 

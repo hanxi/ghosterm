@@ -4,6 +4,33 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 val releaseStore = providers.environmentVariable("ANDROID_RELEASE_STORE_FILE")
+fun sourceGit(vararg arguments: String): String? = try {
+    val command = providers.exec {
+        commandLine(listOf("git", "-C", rootProject.projectDir.parentFile.absolutePath) + arguments)
+        isIgnoreExitValue = true
+    }
+    if (command.result.get().exitValue == 0) command.standardOutput.asText.get().trim() else null
+} catch (_: Exception) { null }
+val sourceCommit = sourceGit("rev-parse", "--verify", "HEAD")
+    ?.takeIf { it.matches(Regex("[0-9a-f]{40}|[0-9a-f]{64}")) }
+val sourceChanges = sourceGit("status", "--porcelain", "--untracked-files=normal")
+val sourceState = when {
+    sourceCommit == null || sourceChanges == null -> "unknown"
+    sourceChanges.isEmpty() -> "clean"
+    else -> "dirty"
+}
+val sourceAssets = layout.buildDirectory.dir("generated/source-metadata-assets")
+val writeSourceMetadata = tasks.register("writeSourceMetadata") {
+    inputs.property("gitCommit", sourceCommit ?: "unknown")
+    inputs.property("sourceState", sourceState)
+    outputs.dir(sourceAssets)
+    doLast {
+        val output = sourceAssets.get().file("ghosterm-build.json").asFile
+        output.parentFile.mkdirs()
+        val commit = sourceCommit?.let { "\"$it\"" } ?: "null"
+        output.writeText("{\"schema\":1,\"git_commit\":$commit,\"source_state\":\"$sourceState\"}\n")
+    }
+}
 android {
     namespace = "com.hanxi.ghosterm"
     compileSdk = 36
@@ -38,11 +65,14 @@ android {
         }
     }
     sourceSets["main"].assets.srcDir("../../build/android-native/assets")
+    sourceSets["main"].assets.srcDir(sourceAssets)
+    sourceSets["main"].res.srcDir("../../assets/icons/android")
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     // Compress native libraries in the APK; Android extracts them at installation.
     packaging { jniLibs.useLegacyPackaging = true }
 }
+tasks.named("preBuild").configure { dependsOn(writeSourceMetadata) }
 dependencies {
     implementation(project(":bridge"))
     implementation(project(":data"))

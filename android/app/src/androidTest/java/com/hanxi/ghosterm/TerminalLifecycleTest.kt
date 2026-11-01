@@ -8,6 +8,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hanxi.ghosterm.terminal.TerminalView
+import com.hanxi.ghosterm.terminal.SelectionOperation
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -18,6 +20,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class TerminalLifecycleTest {
     @get:Rule val ui = createAndroidComposeRule<MainActivity>()
+    private var restoreCtrl: com.hanxi.ghosterm.domain.CtrlBehavior? = null
     private fun model() = ViewModelProvider(ui.activity)[SessionsViewModel::class.java]
     private fun find(view: View): TerminalView? {
         if (view is TerminalView) return view
@@ -36,12 +39,33 @@ class TerminalLifecycleTest {
         }
         ui.runOnIdle { fail("等待 $value: ${text()}") }
     }
+    private fun waitForUnwrapped(value: String) {
+        val surface = ui.runOnIdle { checkNotNull(model().active).surface }
+        val end = SystemClock.uptimeMillis() + 10_000
+        var copied = ""
+        while (SystemClock.uptimeMillis() < end) {
+            copied = runBlocking {
+                surface.select(SelectionOperation.ALL)
+                try { surface.copySelection() } finally { surface.select(SelectionOperation.CLEAR) }
+            }
+            if (copied.contains(value)) return
+            SystemClock.sleep(20)
+        }
+        fail("等待真实 VT 解卷文本 $value: $copied")
+    }
     private fun open() {
         ui.onNodeWithText("本地终端").performClick()
         ui.waitUntil(10_000) { model().active?.state?.connected == true }
         ui.waitUntil { find(ui.activity.window.decorView)?.currentFrame != null }
     }
-    @After fun close() { ui.runOnIdle { model().sessions.map { it.id }.forEach(model()::close) } }
+    @After fun close() {
+        ui.runOnIdle { model().sessions.map { it.id }.forEach(model()::close) }
+        restoreCtrl?.let { previous ->
+            val settings = (ui.activity.application as GhostermApplication).settings
+            val result = runBlocking { settings.save(java.util.UUID.randomUUID(), listOf(PreferenceEdit.CtrlMode(previous))) }
+            assertTrue(result is com.hanxi.ghosterm.data.PreferenceUpdate.Saved)
+        }
+    }
 
     @Test fun activityRecreationRetainsOwnerPidAndKeyboardResizesTheSamePty() {
         open()
@@ -78,6 +102,9 @@ class TerminalLifecycleTest {
     @Test fun newTerminalReceivesPhysicalKeysAndTopBackHidesImeBeforeLeaving() {
         open()
         val original = model().active!!.id
+        // Remove the initial prompt/path, so a stale prompt cannot satisfy pwd.
+        ui.runOnIdle { model().active!!.connection.commit("stty echo; PS1=''; printf '\\033[3J\\033[2J\\033[HFOCUS_READY\\r\\n'\r") }
+        waitFor("FOCUS_READY")
         // No terminal tap or showKeyboard call before physical input.
         ui.runOnIdle { assertTrue("new terminal owns keyboard focus", terminal().hasFocus()) }
         val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
@@ -89,7 +116,7 @@ class TerminalLifecycleTest {
         // The next Enter executes; direct single-Enter encoding has separate tests.
         waitFor("pwd")
         instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_ENTER)
-        waitFor("/files/home")
+        waitForUnwrapped("/files/home")
         if (ui.onAllNodesWithText("显示键盘").fetchSemanticsNodes().isNotEmpty())
             ui.onNodeWithTag("terminal-keyboard").performClick()
         ui.waitUntil(10_000) { ui.onAllNodesWithText("收起键盘").fetchSemanticsNodes().isNotEmpty() }
@@ -110,7 +137,13 @@ class TerminalLifecycleTest {
         val pid=ui.runOnIdle { terminal().currentFrame!!.line(0) }
         ui.onAllNodesWithText("会话 · 1").assertCountEquals(1)
         ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(1)
-        ui.onNodeWithText("Ctrl").performClick();ui.onNodeWithText("Ctrl ✓").performClick()
+        val settings = (ui.activity.application as GhostermApplication).settings
+        restoreCtrl = settings.state.value.committed.ctrlMode
+        val saved = runBlocking { settings.save(java.util.UUID.randomUUID(), listOf(PreferenceEdit.CtrlMode(com.hanxi.ghosterm.domain.CtrlBehavior.LOCKED))) }
+        assertTrue(saved is com.hanxi.ghosterm.data.PreferenceUpdate.Saved)
+        ui.waitUntil { ui.runOnIdle { model().terminalControls.lockedCtrl } }
+        ui.onNodeWithText("Ctrl").performClick()
+        ui.onNodeWithText("Ctrl 锁定").assertIsDisplayed()
         ui.onNodeWithTag("terminal-files").performClick()
         ui.onNodeWithTag("terminal-surface").assertDoesNotExist()
         ui.onNodeWithTag("file-location").assertIsDisplayed()

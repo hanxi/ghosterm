@@ -10,7 +10,7 @@ import java.io.File
 
 /** Application-owned execution; pages never own the task job or its authentication. */
 enum class FileTaskPhase { QUEUED, SCANNING, CONFIRMING, RUNNING, CANCELLING, FINISHED }
-class FileTask(val request: FilePasteRequest) {
+class FileTask(val request: FilePasteRequest, val clearClipboardAfterSuccess: Boolean = false) {
     var phase by mutableStateOf(FileTaskPhase.QUEUED); internal set
     var decisions by mutableStateOf<FilePasteDecisionState?>(null); internal set
     var createCapability by mutableStateOf(FileCreateCapability.UNKNOWN); internal set
@@ -27,7 +27,8 @@ class FileTask(val request: FilePasteRequest) {
     val active get() = phase != FileTaskPhase.FINISHED
 }
 
-class FileTaskStore(application: Application, private val scope: CoroutineScope) {
+class FileTaskStore(application: Application, private val scope: CoroutineScope,
+    private val onCompleted: (FileTask, FileCopyProgress) -> Unit = { _, _ -> }) {
     companion object { internal const val MAX_REQUESTS = 32 }
     val tasks = mutableStateListOf<FileTask>()
     var notice by mutableStateOf<String?>(null); private set
@@ -77,13 +78,13 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope)
     private val completedState = kotlinx.coroutines.flow.MutableStateFlow<FileCopyProgress?>(null)
     val completed: kotlinx.coroutines.flow.StateFlow<FileCopyProgress?> = completedState
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
-        connections: (FilePasteRequest) -> FileTaskConnections) {
+        connections: (FilePasteRequest) -> FileTaskConnections, preferences: AppPreferences = AppPreferences()) {
         if(journalError!=null) { notice="任务记录不可用，请先在文件任务中核对记录错误";return }
         if(tasks.count { it.active } >= MAX_REQUESTS) {
             notice="待处理请求已达 $MAX_REQUESTS 个，请先完成或取消已有任务";return
         }
-        val request=FilePasteRequest.capture(snapshot,destination,label)
-        val task=FileTask(request).also { it.connections=connections }
+        val request=FilePasteRequest.capture(snapshot,destination,label,preferences.conflict)
+        val task=FileTask(request, preferences.clipboardAfterPaste == ClipboardAfterPaste.CLEAR).also { it.connections=connections }
         notice=null;tasks.add(0,task);task.recording=true
         task.job=scope.launch(start=CoroutineStart.LAZY) {
             try {
@@ -185,6 +186,7 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope)
                     observer.cancel();task.result=execution.outcome.takeIf { began }
                     execution.recordingError?.let { task.persistenceError=it;journalError=it }
                     finish(task)
+                    task.result?.let { onCompleted(task, it) }
                     completedState.value=task.result
                     advance()
                 }
@@ -252,11 +254,12 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
         connections: (FilePasteRequest) -> FileTaskConnections = work::connections) {
         visible=true
-        work.tasks.start(snapshot,destination,label,connections)
+        work.tasks.start(snapshot,destination,label,connections,work.preferences)
     }
     fun startUserTask(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String) {
         visible=true
-        work.background.submitFromUser(presenterId) { work.tasks.start(snapshot,destination,label,work::connections) }
+        val preferences = work.preferences
+        work.background.submitFromUser(presenterId) { work.tasks.start(snapshot,destination,label,work::connections,preferences) }
     }
     fun choose(task: FileTask, ref: FilePasteDecisionRef, path: String, choice: FilePasteChoice, all: Boolean) =
         work.tasks.choose(task,ref,path,choice,all)

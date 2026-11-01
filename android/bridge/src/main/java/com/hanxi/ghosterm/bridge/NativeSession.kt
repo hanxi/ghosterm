@@ -3,6 +3,7 @@ package com.hanxi.ghosterm.bridge
 import com.hanxi.ghosterm.terminal.KeyAction
 import com.hanxi.ghosterm.terminal.TerminalFrame
 import com.hanxi.ghosterm.terminal.TerminalSurface
+import com.hanxi.ghosterm.terminal.TerminalAppearance
 import java.io.Closeable
 import com.hanxi.ghosterm.terminal.SelectionOperation
 import kotlinx.coroutines.delay
@@ -57,6 +58,12 @@ open class NativeTerminalSession internal constructor(private var handle: Long, 
         action(if (operation == SelectionOperation.START) 10 else 11, x, y, byteArrayOf(scrollLines.toByte()))
     }
     override suspend fun clearLocal() { action(8) }
+    override suspend fun configure(appearance: TerminalAppearance) {
+        val colors = listOf(appearance.background, appearance.foreground).flatMap { rgb ->
+            listOf((rgb ushr 16).toByte(), (rgb ushr 8).toByte(), rgb.toByte())
+        }.toByteArray()
+        action(12, appearance.cursor.code, if (appearance.blink) 1 else 0, colors)
+    }
     override suspend fun copySelection(): String = action(7).let { it.copyOfRange(1, it.size).toString(Charsets.UTF_8) }
     @Synchronized fun state(): SessionState {
         if (handle == 0L) return SessionState(2, null, 1, "会话已关闭")

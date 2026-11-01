@@ -35,6 +35,11 @@ class HostScreenTest {
         ui.runOnIdle { model.reload() }
         ui.waitUntil(10_000) { !model.busy && model.snapshot?.text == text }
     }
+    private fun openConnectionCategory() {
+        // Settings returns to its category; the read-only host editor also links directly to config.
+        if (ui.onAllNodesWithTag("settings-section-SESSIONS").fetchSemanticsNodes().isNotEmpty())
+            ui.onNodeWithTag("settings-section-SESSIONS").performScrollTo().performClick()
+    }
     @Test fun hostClickReportsUnsupportedConfigurationAndLeavesEditorAvailable() {
         val text = "Host gateway-target\n HostName 127.0.0.1\n ProxyJump gateway\n"
         load(text)
@@ -88,7 +93,8 @@ class HostScreenTest {
         ui.onNodeWithText("设置").performClick()
         ui.onNodeWithText("关于 Ghosterm").performClick()
         ui.onNodeWithText("返回").performClick()
-        ui.onNodeWithText("管理主机").performClick()
+        openConnectionCategory()
+        ui.onNodeWithText("管理主机").performScrollTo().performClick()
         ui.onNodeWithText("配置不是普通文件或超过 1 MiB").assertIsDisplayed()
         assertTrue(file.delete())
         file.writeText("Host recovered\n  User owner\n")
@@ -124,7 +130,8 @@ class HostScreenTest {
         load("Host original\n")
         val file = File(directory, "home/.ssh/config")
         ui.onNodeWithText("设置").performClick()
-        ui.onNodeWithText("查看与编辑 SSH 配置").performClick()
+        openConnectionCategory()
+        ui.onNodeWithText("查看与编辑 SSH 配置").performScrollTo().performClick()
         ui.onNodeWithText("配置内容").performTextReplacement("Host draft\n")
         closeSoftKeyboard()
         file.writeText("Host external\n")
@@ -153,7 +160,8 @@ class HostScreenTest {
         ui.onNodeWithText("配置内容").assertTextContains("Host recovered\n")
         ui.onNodeWithText("保存").assertIsNotEnabled()
         ui.onNodeWithText("返回").performClick()
-        ui.onNodeWithText("管理主机").performClick()
+        openConnectionCategory()
+        ui.onNodeWithText("管理主机").performScrollTo().performClick()
         ui.onNodeWithText("recovered").assertIsDisplayed()
     }
     @Test fun hostConflictCanReloadOrDiscardDeletedTarget() {
@@ -220,11 +228,13 @@ class HostScreenTest {
         ui.onNodeWithText("主机地址").assertIsNotEnabled()
         ui.onNodeWithContentDescription("主机地址使用继承值").performScrollTo().assertIsNotEnabled()
         ui.onNodeWithText("此别名出现在 2 个 Host 块中，无法确定修改目标；请在 SSH 配置页编辑。").assertIsDisplayed()
-        ui.onNodeWithText("查看与编辑 SSH 配置").performClick()
+        openConnectionCategory()
+        ui.onNodeWithText("查看与编辑 SSH 配置").performScrollTo().performClick()
         ui.onNodeWithText("返回").performClick()
         ui.onNodeWithText("别名").assertExists()
         ui.onNodeWithText("保存").assertIsNotEnabled()
-        ui.onNodeWithText("查看与编辑 SSH 配置").performClick()
+        openConnectionCategory()
+        ui.onNodeWithText("查看与编辑 SSH 配置").performScrollTo().performClick()
         ui.onNodeWithText("配置内容").performTextReplacement("Host dup\n  HostName fixed.test\n  User owner\n")
         ui.onNodeWithText("保存").performClick()
         ui.waitUntil(10_000) { !model.busy && model.page == Page.EDIT_HOST }
@@ -368,8 +378,10 @@ class HostScreenTest {
         ui.waitUntil(10_000) { model.page == Page.HOSTS && !model.busy }
         assertTrue(file.readText().contains("User bob"))
         ui.onNodeWithText("设置").performClick()
-        ui.onNodeWithText("查看与编辑 SSH 配置").performClick()
+        openConnectionCategory()
+        ui.onNodeWithText("查看与编辑 SSH 配置").performScrollTo().performClick()
         ui.onNodeWithText("返回").performClick()
-        ui.onNodeWithText("关于 Ghosterm").assertIsDisplayed()
+        ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithText("关于 Ghosterm").performScrollTo().assertIsDisplayed()
     }
 }
