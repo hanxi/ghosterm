@@ -102,6 +102,9 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                     }
                 }
             }
+            if(model.contentReading) item {
+                Text("正在核验文件内容；新复制请求将在核验与资源释放结束后开始检查。")
+            }
             if(model.journalLoading) item { Text("正在读取任务记录…") }
             model.journalError?.let { error -> item {
                 Column(verticalArrangement=Arrangement.spacedBy(8.dp),modifier=Modifier.testTag("file-journal-error")) {
@@ -228,12 +231,14 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                 }
             }
             items(model.history,key={ "history:${it.intent.id}" }) { record ->
-                FileHistoryCard(record,onRemove={ model.removeHistory(record) },canRemove=!model.busy && !model.journalLoading && model.inspectingId==null,
+                FileHistoryCard(record,onRemove={ model.removeHistory(record) },canRemove=!model.busy && !model.journalLoading && model.inspectingId==null && !model.contentReading,
                     inspection=model.inspections[record.intent.id],inspecting=model.inspectingId==record.intent.id,
-                    canInspect=!model.busy && !model.journalLoading && model.inspectingId==null,
+                    canInspect=!model.busy && !model.journalLoading && model.inspectingId==null && !model.contentReading,
                     onInspect={ model.inspectHistory(record) },onCancel=model::cancelInspection,
                     canRetry=!model.journalLoading && model.journalError==null && model.inspectingId==null,
-                    onRetry={ model.requestHistoryRetry(record) },onOrigin={ record.intent.retryOf?.let(model::showOrigin) })
+                    onRetry={ model.requestHistoryRetry(record) },onOrigin={ record.intent.retryOf?.let(model::showOrigin) },
+                    content=model.contentInspections,checkingContent=model.inspectingContent,
+                    onContent={ item,candidate -> model.inspectContent(record,item,candidate) })
             }
         }
     }
@@ -281,7 +286,9 @@ private fun FileTaskByteProgress(activity: FileCopyActivity, running: Boolean, w
 
 @Composable
 private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRemove: Boolean,
-    inspection: FileHistoryInspection?, inspecting: Boolean, canInspect: Boolean, onInspect: () -> Unit, onCancel: () -> Unit, canRetry: Boolean, onRetry: () -> Unit, onOrigin: () -> Unit) {
+    inspection: FileHistoryInspection?, inspecting: Boolean, canInspect: Boolean, onInspect: () -> Unit, onCancel: () -> Unit, canRetry: Boolean, onRetry: () -> Unit, onOrigin: () -> Unit,
+    content: Map<FileHistoryContentKey,FileHistoryContentResult>,checkingContent: FileHistoryContentKey?,
+    onContent: (FileJournalItem,Boolean) -> Unit) {
     val observations=remember(inspection) { inspection?.observations?.groupBy { it.relativePath }.orEmpty() }
     ElevatedCard(Modifier.fillMaxWidth().testTag("file-history:${record.intent.id}")) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -324,9 +331,36 @@ private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRe
                             (value.documentUri ?: value.createdId)?.let { Text("已记录位置：$it") }
                             value.candidatePath?.let { Text("未确认的暂存位置：$it") }
                             value.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+                            if(value.sourceDigest==null && value.source.entry.kind==FileKind.FILE)
+                                Text("未记录来源内容摘要，无法比较历史内容。",style=MaterialTheme.typography.bodySmall)
+                            if(value.sourceDigest!=null) {
+                                for(candidate in listOf(false,true).filter { !it || value.candidatePath!=null }) {
+                                    val key=FileHistoryContentKey(record.intent.id,value.source.relativePath,candidate)
+                                    TextButton(onClick={ onContent(item,candidate) },enabled=canInspect,
+                                        modifier=Modifier.testTag("file-history-content:${value.source.relativePath}:$candidate")) {
+                                        Text(if(candidate) "核验暂存文件内容" else "核验目标文件内容")
+                                    }
+                                    if(checkingContent==key) {
+                                        Text("正在读取并核验内容（最多 256 MiB）…")
+                                        TextButton(onClick=onCancel) { Text("取消内容核验") }
+                                    }
+                                    content[key]?.let { result ->
+                                        Text("内容核验时间：${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(result.observedMillis))}")
+                                        Text(when(result.state) {
+                                            FileHistoryContentState.MATCH->"内容与复制时的来源一致"
+                                            FileHistoryContentState.DIFFERENT->"内容与复制时的来源不一致"
+                                            FileHistoryContentState.MISSING->"本次读取未找到该文件"
+                                            FileHistoryContentState.NO_REFERENCE->"没有来源内容摘要，无法比较"
+                                            FileHistoryContentState.UNKNOWN->"内容无法确认"
+                                        },modifier=Modifier.testTag("file-history-content-result"))
+                                        result.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+                                        Text("仅核验本次读取的字节，不证明文件归属或复制已成功；原任务结果保持不变。",style=MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
                             observations[value.source.relativePath]?.forEach { observation ->
                                 Text((if(observation.candidate) "暂存位置" else "目标位置")+"："+when(observation.presence) {
-                                    FileHistoryPresence.PRESENT->"存在（未验证内容与归属）"
+                                    FileHistoryPresence.PRESENT->"存在（仅位置观察）"
                                     FileHistoryPresence.ABSENT->"本次目录读取未找到"
                                     FileHistoryPresence.UNKNOWN->"无法核对"
                                 })

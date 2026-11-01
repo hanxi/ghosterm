@@ -342,6 +342,9 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                         active()
                         val after=browse(Role.SOURCE,source.parent)
                         check(after.location==source.parent && after.entries.singleOrNull { it.id==source.entry.id }==source.entry) { "读取期间来源已改变" }
+                        active();observe(source,FileCopyStage.VERIFYING,snapshot.size.toULong())
+                        result=result.copy(sourceDigest=snapshot.contentDigest { active() })
+                        report(result,FileCopyCheckpoint.PREPARING)
                         active();writing=true
                         val destination=scope.remote(Role.DESTINATION,parent.endpoint)?.session
                         val writingProgress=observe(source,FileCopyStage.WRITING,snapshot.size.toULong(),remote=destination!=null)

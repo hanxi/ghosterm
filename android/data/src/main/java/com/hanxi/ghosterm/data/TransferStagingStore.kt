@@ -271,6 +271,26 @@ class TransferStagingStore(private val directory: File,
             try { return block(loan.fd,size) }
             finally { try { loan.close() } finally { synchronized(lock) { readers--;finished() } } }
         }
+        /** A separate read-only lease; explicit offsets leave publisher offsets untouched. */
+        suspend fun contentDigest(checkpoint: () -> Unit = {}): com.hanxi.ghosterm.domain.FileContentDigest = kotlinx.coroutines.withContext(Dispatchers.IO) {
+            withDescriptor { fd,size ->
+                ParcelFileDescriptor.fromFd(fd).use { copy ->
+                    val hash=java.security.MessageDigest.getInstance("SHA-256")
+                    val buffer=ByteArray(64*1024);var offset=0L
+                    try {
+                        while(offset<size) {
+                            kotlinx.coroutines.currentCoroutineContext().ensureActive();checkpoint()
+                            val count=Os.pread(copy.fileDescriptor,buffer,0,minOf(buffer.size.toLong(),size-offset).toInt(),offset)
+                            check(count>0) { "内容快照长度不足，未取得完整摘要" }
+                            hash.update(buffer,0,count);offset+=count
+                        }
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive();checkpoint()
+                        check(Os.pread(copy.fileDescriptor,buffer,0,1,offset)==0) { "内容快照长度已改变" }
+                        com.hanxi.ghosterm.domain.FileContentDigest(offset,hash.digest().joinToString("") { "%02x".format(it.toInt() and 255) })
+                    } finally { buffer.fill(0) }
+                }
+            }
+        }
         override fun close() = synchronized(lock) {
             if(!disposed) { disposed=true;try { descriptor.close() } finally { finished() } }
         }

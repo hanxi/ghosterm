@@ -52,11 +52,13 @@ internal object FileJournalCodec {
     }
     fun item(v: FileJournalItem): ByteArray {
         val i=v.value
-        return bytes(obj("version" to "1","source" to source(i.source),"state" to i.state.name,
+        val body=obj("version" to if(i.sourceDigest==null) "1" else "2","source" to source(i.source),"state" to i.state.name,
             "parent" to i.targetParent?.let(::location),"name" to i.targetName,"created" to i.createdId,
             "uri" to i.documentUri,"candidate" to i.candidatePath,"bytes" to i.bytes.toString(),
             "error" to i.error,"core" to i.coreStatus?.toString(),"remote" to i.remoteStatus?.toString(),
-            "checkpoint" to v.checkpoint.name),ITEM_LIMIT).also { readItem(it) }
+            "checkpoint" to v.checkpoint.name)
+        i.sourceDigest?.let { body.put("digest",obj("bytes" to it.bytes.toString(),"sha256" to it.sha256)) }
+        return bytes(body,ITEM_LIMIT).also { readItem(it) }
     }
     private fun parse(bytes: ByteArray, limit: Int): JSONObject {
         require(bytes.size in 1..limit) { "任务记录大小无效" }
@@ -130,14 +132,20 @@ internal object FileJournalCodec {
     }
     fun readItem(bytes: ByteArray): FileJournalItem {
         val o=parse(bytes,ITEM_LIMIT)
-        o.fields("version","source","state","parent","name","created","uri","candidate","bytes","error","core","remote","checkpoint")
-        require(o.text("version")=="1")
+        val version=o.text("version");require(version=="1" || version=="2")
+        val fields=arrayOf("version","source","state","parent","name","created","uri","candidate","bytes","error","core","remote","checkpoint")
+        o.fields(*(if(version=="2") fields+"digest" else fields))
+        val digest=if(version=="2") o.objectAt("digest").let { d ->
+            d.fields("bytes","sha256");FileContentDigest(long(d.text("bytes")),d.text("sha256"))
+        } else null
         val s=o.objectAt("source");s.fields("parent","entry","path","children")
+        val sourceEntry=entry(s.objectAt("entry"))
+        require(digest==null || (sourceEntry.kind==FileKind.FILE && (sourceEntry.size==null || sourceEntry.size==digest.bytes.toULong()))) { "内容摘要与来源信息不一致" }
         val path=s.text("path");require(path.isNotEmpty() && path.split('/').all { it.isNotEmpty() && it!="." && it!=".." })
-        return FileJournalItem(FileCopyItemResult(FileScanEntry(location(s.objectAt("parent")),entry(s.objectAt("entry")),path,
+        return FileJournalItem(FileCopyItemResult(FileScanEntry(location(s.objectAt("parent")),sourceEntry,path,
             s.optional("children")?.let(::int)?.also { require(it>=0) }),FileCopyItemState.valueOf(o.text("state")),
             o.optionalObject("parent")?.let(::location),o.optional("name"),o.optional("created"),o.optional("uri"),
             o.optional("candidate"),ulong(o.text("bytes")),o.optional("error"),o.optional("core")?.let(::int),
-            o.optional("remote")?.let(::ulong)?.also { require(it<=UInt.MAX_VALUE) }?.toUInt()),FileCopyCheckpoint.valueOf(o.text("checkpoint")))
+            o.optional("remote")?.let(::ulong)?.also { require(it<=UInt.MAX_VALUE) }?.toUInt(),digest),FileCopyCheckpoint.valueOf(o.text("checkpoint")))
     }
 }

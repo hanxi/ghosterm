@@ -46,6 +46,16 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
     }
     var journalLoading by mutableStateOf(true); private set
     var journalError by mutableStateOf<String?>(null); private set
+    private var contentReadOwner by mutableStateOf<Any?>(null)
+    val contentReading get() = contentReadOwner!=null
+    internal fun beginContentRead(): Any? {
+        if(busy || journalLoading || contentReadOwner!=null) return null
+        return Any().also { contentReadOwner=it }
+    }
+    internal fun endContentRead(reference: Any): Boolean {
+        if(contentReadOwner!==reference) return false
+        contentReadOwner=null;advance();return true
+    }
     private val journal = FileTaskJournal(File(application.filesDir,"file-history/tasks.db"))
     private val initialized = scope.async {
         try { history.addAll(journal.load()) }
@@ -109,6 +119,7 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
     private fun advance() {
         // Scanning, confirmation, execution and actual cancellation cleanup share one slot.
         if(journalLoading || journalError!=null || backgroundHold!=null) return
+        if(contentReadOwner!=null) return
         if(tasks.any { it.active && it.phase!=FileTaskPhase.QUEUED }) return
         val task=tasks.lastOrNull { it.phase==FileTaskPhase.QUEUED } ?: return
         if(!task.recorded || task.recording) return
@@ -275,7 +286,7 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
         }
     }
     fun removeHistory(record: FileJournalRecord) {
-        if(record !in history || journalLoading || busy) return
+        if(record !in history || journalLoading || busy || contentReadOwner!=null) return
         journalLoading=true
         scope.launch {
             try { journal.remove(record.intent.id);history.remove(record) }
@@ -412,8 +423,8 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val journalError get() = work.tasks.journalError
     val background get() = work.background
     fun retryBackground() = work.background.requestFromUser(presenterId)
-    fun reloadHistory() { cancelInspection();inspections.clear();inspectionError=null;historyRetryError=null;work.tasks.reloadHistory() }
-    fun removeHistory(record: FileJournalRecord) { cancelInspection();inspections.remove(record.intent.id);work.tasks.removeHistory(record) }
+    fun reloadHistory() { cancelInspection();inspections.clear();contentInspections.clear();inspectionError=null;historyRetryError=null;work.tasks.reloadHistory() }
+    fun removeHistory(record: FileJournalRecord) { cancelInspection();inspections.remove(record.intent.id);contentInspections.keys.filter { it.requestId==record.intent.id }.forEach(contentInspections::remove);work.tasks.removeHistory(record) }
     val inspections = mutableStateMapOf<String,FileHistoryInspection>()
     var inspectingId by mutableStateOf<String?>(null); private set
     var inspectionError by mutableStateOf<String?>(null); private set
@@ -448,6 +459,65 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
             catch(cancel: CancellationException) { throw cancel }
             catch(error: Exception) { inspectionError=error.message ?: "无法核对历史位置" }
             finally { if(inspectingId==record.intent.id) { inspectingId=null;inspectionJob=null } }
+        }
+    }
+    val contentReading get() = work.tasks.contentReading
+    val contentInspections=mutableStateMapOf<FileHistoryContentKey,FileHistoryContentResult>()
+    var inspectingContent by mutableStateOf<FileHistoryContentKey?>(null); private set
+    fun inspectContent(record: FileJournalRecord, item: FileJournalItem, candidate: Boolean) {
+        if(!viewModelScope.isActive || busy || journalLoading || inspectingId!=null || record !in history || item !in record.items) return
+        val key=FileHistoryContentKey(record.intent.id,item.value.source.relativePath,candidate)
+        if(item.value.sourceDigest==null) {
+            contentInspections[key]=FileHistoryContentResult(key,FileHistoryContentState.NO_REFERENCE,null,error="这条历史记录没有来源内容摘要，无法比较")
+            return
+        }
+        val readReference=work.tasks.beginContentRead()
+        if(readReference==null) {
+            contentInspections[key]=FileHistoryContentResult(key,FileHistoryContentState.UNKNOWN,item.value.sourceDigest,error="另一个页面正在核验内容，或复制尚未结束，请稍后重试")
+            return
+        }
+        inspectingId=record.intent.id;inspectingContent=key;inspectionError=null;contentInspections.remove(key)
+        inspectionJob=viewModelScope.launch(start=CoroutineStart.UNDISPATCHED) {
+            try {
+                val app=getApplication<Application>()
+                val observed=withTimeout(60_000) { withContext(Dispatchers.IO) {
+                    work.authentication.fileHistoryConnections(record.intent.id,record.intent.destination.endpoint,::cancelInspection).use { scope ->
+                        val local=LocalFileBrowser(File(app.filesDir,"home"),app.contentResolver)
+                        val store=TransferStagingStore(File(app.filesDir,"file-content-inspection"))
+                        suspend fun browse(location: FileLocation): BrowserDirectory {
+                            val remote=scope.remote(FileTaskConnections.Role.DESTINATION,location.endpoint)?.session ?: return local.browse(location)
+                            val found=remote.browse(location.directoryId)
+                            return BrowserDirectory(location.copy(directoryId=found.path),found.entries.map { entry ->
+                                BrowserEntry(entry.path,entry.name,when {
+                                    entry.symbolicLink->FileKind.LINK;entry.directory->FileKind.DIRECTORY
+                                    entry.regularFile->FileKind.FILE;else->FileKind.OTHER
+                                },entry.size,entry.modifiedSeconds?.takeIf { it<=Long.MAX_VALUE/1000 }?.times(1000))
+                            })
+                        }
+                        try {
+                            FileHistoryContentInspector(::browse) { location,entry ->
+                                val remote=scope.remote(FileTaskConnections.Role.DESTINATION,location.endpoint)?.session
+                                val snapshot=if(remote==null) local.snapshot(location,entry,store) else store.receive(remote,entry.id,
+                                    entry.size?.let { check(it<=Long.MAX_VALUE.toULong());it.toLong() })
+                                snapshot.use { it.contentDigest() }
+                            }.inspect(record,item,candidate)
+                        } finally { withContext(NonCancellable) { store.closeAndAwait() } }
+                    }
+                } }
+                ensureActive()
+                if(record in history) contentInspections[key]=observed
+            } catch(timeout:TimeoutCancellationException) {
+                ensureActive()
+                contentInspections[key]=FileHistoryContentResult(key,FileHistoryContentState.UNKNOWN,item.value.sourceDigest,error="内容核验超时，请重新发起")
+            } catch(cancel:CancellationException) { throw cancel }
+            catch(error:Exception) {
+                ensureActive()
+                contentInspections[key]=FileHistoryContentResult(key,FileHistoryContentState.UNKNOWN,item.value.sourceDigest,error=error.message ?: "内容核验失败")
+            } finally {
+                // IO owners and the snapshot store have already finished their NonCancellable cleanup.
+                work.tasks.endContentRead(readReference)
+                if(inspectingContent==key) { inspectingContent=null;inspectingId=null;inspectionJob=null }
+            }
         }
     }
     val authentication get() = work.authentication

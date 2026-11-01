@@ -49,7 +49,7 @@ data class FileCopyItemResult(val source: FileScanEntry, val state: FileCopyItem
     val targetParent: FileLocation? = null, val targetName: String? = null,
     val createdId: String? = null, val documentUri: String? = null,
     val candidatePath: String? = null, val bytes: ULong = 0u, val error: String? = null,
-    val coreStatus: Int? = null, val remoteStatus: UInt? = null)
+    val coreStatus: Int? = null, val remoteStatus: UInt? = null, val sourceDigest: FileContentDigest? = null)
 
 class FileCopyProgress(val requestId: String, val clipboardId: String, val state: FileCopyState,
     items: Collection<FileCopyItemResult>, val error: String? = null, val activity: FileCopyActivity? = null, val pause: FileCopyPause = FileCopyPause.RUNNING, val work: FileCopyWork? = null) {

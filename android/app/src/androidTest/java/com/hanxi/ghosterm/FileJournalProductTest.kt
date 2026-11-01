@@ -55,6 +55,62 @@ class FileJournalProductTest {
         return FileTaskConnections(request.source.endpoint,request.destination.endpoint,{ _,_->error("local only") },{ _,_,_->error("no auth") })
     }
     private fun waitDone(task:FileTask) { ui.waitUntil(15000) { task.phase==FileTaskPhase.FINISHED } }
+    @Test fun sharedContentLeaseQueuesCopiesAndRejectsAnotherReaderOrLateRelease() {
+        val old=FilePasteRequest.capture(snapshot,target,"old target")
+        runBlocking { journal.load();journal.accept(old) }
+        val model=open();val store=model.work.tasks
+        val oldRecord=model.history.single()
+        val references=mutableListOf<Any>()
+        try {
+            val first=ui.runOnIdle { checkNotNull(store.beginContentRead()).also(references::add) }
+            val second=ui.runOnIdle { store.beginContentRead()?.also(references::add) }
+            assertNull("only one reader may reserve the app's temporary budget",second)
+            ui.runOnIdle { model.removeHistory(oldRecord) }
+            ui.waitUntil(10000) { !model.journalLoading }
+            assertTrue(model.history.contains(oldRecord))
+            assertTrue(runBlocking { journal.load().any { it.intent.id==old.id } })
+            ui.runOnIdle { model.start(snapshot,target,"target",::connections) }
+            val task=model.tasks.single()
+            ui.waitUntil(10000) { !task.recording }
+            ui.runOnIdle {
+                assertEquals(FileTaskPhase.QUEUED,task.phase);assertEquals(0,calls.get())
+                assertTrue(File(home,"target").list()!!.isEmpty())
+                assertFalse(store.endContentRead(Any()));assertTrue(store.contentReading)
+                assertTrue(store.endContentRead(first))
+            }
+            ui.waitUntil(10000) { task.phase==FileTaskPhase.CONFIRMING }
+            assertEquals(1,calls.get());assertTrue(File(home,"target").list()!!.isEmpty())
+            ui.runOnIdle { model.cancel(task) };waitDone(task)
+            ui.runOnIdle {
+                val next=checkNotNull(store.beginContentRead()).also(references::add)
+                assertFalse(store.endContentRead(first));assertTrue(store.contentReading)
+                assertTrue(store.endContentRead(next));assertFalse(store.contentReading)
+            }
+        } finally { ui.runOnIdle { references.asReversed().forEach { store.endContentRead(it) } } }
+    }
+    @Test fun explicitContentVerificationShowsMatchAndDifferenceWithoutChangingOldResult() {
+        val request=FilePasteRequest.capture(snapshot,target,"target")
+        val bytes=File(home,"source/a.txt").readBytes()
+        val digest=FileContentDigest(bytes.size.toLong(),java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) })
+        val item=FileCopyItemResult(FileScanEntry(snapshot.source,snapshot.items.single(),"a.txt"),FileCopyItemState.UNKNOWN,
+            target,"a.txt",createdId="target/a.txt",sourceDigest=digest)
+        runBlocking { journal.load();journal.accept(request);journal.phase(request.id,FileJournalPhase.CONFIRMING);journal.begin(request.id,listOf(item)) }
+        File(home,"target/a.txt").writeBytes(bytes)
+        val before=runBlocking { journal.load() };val model=open()
+        ui.onNodeWithTag("file-history-details").performScrollTo().performClick()
+        ui.onNodeWithTag("file-history-content:a.txt:false").performScrollTo().performClick()
+        ui.runOnIdle { assertTrue("核验按钮必须启动本条记录的检查",model.inspectingId==request.id || model.contentInspections.keys.any { it.requestId==request.id }) }
+        ui.waitUntil(10000) { model.inspectingId==null && model.contentInspections.isNotEmpty() }
+        ui.onNodeWithTag("file-history-content-result").assertTextEquals("内容与复制时的来源一致")
+        assertEquals(FileHistoryContentState.MATCH,model.contentInspections.values.single().state)
+        ui.runOnIdle { assertFalse("completed IO must release the shared reader slot",model.contentReading) }
+        File(home,"target/a.txt").writeText("different bytes")
+        ui.onNodeWithTag("file-history-content:a.txt:false").performScrollTo().performClick()
+        ui.waitUntil(10000) { model.inspectingId==null && model.contentInspections.values.singleOrNull()?.state==FileHistoryContentState.DIFFERENT }
+        ui.onNodeWithTag("file-history-content-result").assertTextEquals("内容与复制时的来源不一致")
+        assertEquals(before,runBlocking { journal.load() });assertEquals(FileCopyItemState.UNKNOWN,model.history.single().items.single().value.state)
+        assertEquals("different bytes",File(home,"target/a.txt").readText());assertEquals(0,calls.get())
+    }
     @Test fun reopenedQueuedIntentIsReadOnlyAndClearingHistoryNeverStartsIt() {
         val request=FilePasteRequest.capture(snapshot,target,"target")
         runBlocking { journal.load();journal.accept(request) }

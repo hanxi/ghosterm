@@ -116,6 +116,37 @@ class RemoteFileTasksProductTest {
         assertEquals("copy: ${latest.result?.error}",FileCopyState.COMPLETE,latest.result?.state)
         ui.waitUntil(10000) { owners()==1 } // Browser is still independent and usable.
     }
+    @Test fun historicalContentUsesFreshDestinationAndStoredDigestAfterSourceDisappears() {
+        openRemote();val destination=files().location
+        val local=FileLocation(FileEndpoint.APP)
+        val entry=kotlinx.coroutines.runBlocking { LocalFileBrowser(home,ui.activity.contentResolver).browse(local).entries.single { it.name=="$unique.txt" } }
+        val clipboard=FileClipboardSnapshot.capture(local,"local",listOf(entry))
+        start(clipboard,destination);ready();finish()
+        val written=latest.result!!.items.single();assertNotNull(written.sourceDigest)
+        val request=FilePasteRequest.capture(clipboard,destination,"history target")
+        val item=written.copy(state=FileCopyItemState.UNKNOWN)
+        val journal=FileTaskJournal(File(ui.activity.filesDir,"file-history/tasks.db"))
+        kotlinx.coroutines.runBlocking { journal.accept(request);journal.phase(request.id,FileJournalPhase.CONFIRMING);journal.begin(request.id,listOf(item)) }
+        assertTrue(File(home,"$unique.txt").delete())
+        try {
+            ui.runOnIdle { tasks().reloadHistory();tasks().show() }
+            ui.waitUntil(10000) { !tasks().journalLoading && tasks().history.any { it.intent.id==request.id } }
+            val before=kotlinx.coroutines.runBlocking { journal.load().single { it.intent.id==request.id } }
+            val authBefore=authIds.size
+            ui.onNode(hasTestTag("file-history-details") and hasAnyAncestor(hasTestTag("file-history:${request.id}"))).performScrollTo().performClick()
+            ui.onNodeWithTag("file-history-content:$unique.txt:false").performScrollTo().performClick()
+            loginUntil { tasks().inspectingId==null && tasks().contentInspections.keys.any { it.requestId==request.id } }
+            assertEquals(FileHistoryContentState.MATCH,tasks().contentInspections.values.single().state)
+            ui.onNodeWithTag("file-history-content-result").assertTextEquals("内容与复制时的来源一致")
+            assertEquals(authBefore+1,authIds.size);assertEquals(1,owners())
+            assertEquals(before,kotlinx.coroutines.runBlocking { journal.load().single { it.intent.id==request.id } })
+            assertEquals(FileCopyItemState.UNKNOWN,before.items.single().value.state)
+        } finally {
+            ui.runOnIdle { tasks().cancelInspection() };ui.waitUntil(15000) { tasks().inspectingId==null }
+            val record=tasks().history.single { it.intent.id==request.id }
+            ui.runOnIdle { tasks().removeHistory(record) };ui.waitUntil(10000) { !tasks().journalLoading }
+        }
+    }
     @Test fun historicalInspectionUsesFreshDestinationAuthenticationWithoutSourceOrReplay() {
         val destination=FileLocation(FileEndpoint("history-$unique",unique,fixture.getString("taskRemoteScratch"),
             remote=RemoteFileIdentity(unique,"127.0.0.1",fixture.getString("user"),fixture.getInt("port"))))
