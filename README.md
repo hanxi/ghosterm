@@ -1,6 +1,6 @@
 # Ghosterm
 
-**当前 Android**：共用 dev 已发布正式签名 release APK，包含主机首页、SSH/SFTP、本机/SAF 文件复制、五类设置、Kitty 图形/动画、Nerd Fonts 与可选远端 tmux。最新已验云端包来源 `50d62e2`，7,918,947 字节；已接历史位置核对，历史重新发起已发布，当前工作区正完善跨任务暂存预算与残留处理。完整客户端与设备矩阵仍未完成，逐片范围见 [Android 实现计划](docs/reference/android-implementation.md)，下载见 [dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev)。
+**当前 Android**：共用 dev 已发布正式签名 release APK，包含主机首页、SSH/SFTP、本机/SAF 文件复制、五类设置、Kitty 图形/动画、Nerd Fonts 与可选远端 tmux。最新已验云端包来源 `707d6d3`，8,033,591 字节；已接暂停/继续、安全重试、持久历史/计划引用、显式内容与本机创建身份核对、本机暂存维护。两端各 182 项最终相关组合通过；848 项完整设备回归正在运行。完整客户端、未知副作用处理与设备矩阵仍未完成，逐片证据见 [Android 实现计划](docs/reference/android-implementation.md#android-local-file-identity)，下载见 [dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev)。
 
 **历史验收（§9.77，2026-11-01）**：文件任务已显示当前文件的读取/写入/核验、实际字节、本阶段平均速度与保守的阶段剩余时间。25 组新增变异与 114 组相关旧变异分轮通过；新完整 **491 项通过，零失败/错误/跳过**（1250.863 秒），746 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；整体剩余时间、暂停/重试、完整偏好和发行矩阵仍待完成，A6 保持部分交付。同源码云端签名 release 为 5,903,009 字节，16 KB 页启动/升级与 28 字节复制专项已验（§9.78），不代表完整发行矩阵。
 
@@ -126,17 +126,17 @@ swift run GhostermApp --local                                 # 无窗口冒烟�
 swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 AppModel 全链路
 ```
 
-## 当前状态（2026-10-31）
+## 当前状态（2026-11-02）
 
 下列状态按当前产品调用方记账。Android §9.70 已接任务认证与粘贴页面，本片当前模拟器档验证通过；macOS 受控文件接口迁移仍待完成。[路线图](docs/reference/roadmap.md#当前进度总览)分别记录底层接口、实际产品和各轮验收结果。
 
-Android 已接主机首页、本地/SSH 终端、本机/SAF/远端文件浏览、点按打开和长按选择；§9.70 接通复制清单到粘贴确认、执行与结果页面，文件任务连接独立于浏览和终端。A5/A6 仍部分完成，完整设置和发行矩阵待补；历史测试数量集中保留在[实现记录](docs/reference/android-implementation.md#9-分阶段实施与依赖)。
+Android 已接主机首页、本地/SSH 终端、本机/SAF/远端文件浏览、点按打开和长按选择；§9.70 接通复制清单到粘贴确认、执行与结果页面，文件任务连接独立于浏览和终端。五类设置与 16 项偏好生产消费者已接；A5/A6 的完整行为、设备和发行矩阵待补；历史测试数量集中保留在[实现记录](docs/reference/android-implementation.md#9-分阶段实施与依赖)。
 
 进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准；以下区分生产实现与历史验收，不把原型中的可交互演示记为已实现能力。
 
-- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成当前模拟器档；A2/A3/A4/A5/A6/A7 部分交付。任务页已接独立认证、冲突确认、取消等待和实际结果；跨远端命名空间判定、FIFO 调度和前台服务已接；跨进程恢复/暂停/重试、16 项设置生产接线与设备/发行矩阵仍待完成。§9.44 的选区偶发失败继续追踪。
+- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成当前模拟器档；A2/A3/A4/A5/A6/A7 部分交付。任务页已接独立认证、冲突确认、取消等待和实际结果；跨远端命名空间判定、FIFO 调度和前台服务已接；暂停/继续、安全失败项重试、16 项设置生产接线及显式 tmux 已发行。历史位置/摘要、本机创建身份核对和暂存维护已接；远端/SAF 未知副作用处理、完整恢复/清理与设备/发行矩阵仍待完成。选区历史失败及后续修正、保护证据保留在实现记录。
 - **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。macOS 尚无 TCP 失败后遍历 DNS 备用地址的实现；Android 已按 §9.40 接入候选推进。Android 普通 shell 已接剩余预算和取消；Swift 新接口已验，但 macOS 产品尚未改用，认证可取消不等于桌面通道打开已可取消，见 [通道边界](apple/README.md#ssh-认证后的通道打开边界)。
-- **共享核心**：§9.65 验收基线为 **47 项 CTest / 89 ABI**，Apple 87/2、JNI 49/40；受控 shell/SFTP 打开、目录浏览、有界预览、独占暂存创建、受控读取到 fd 与三份依赖补丁已验。Android 已消费 shell 入口，SFTP 已接专用 owner/JNI/Kotlin 后端，文件页面已接；macOS 产品尚未改用受控 shell/SFTP。TOFU/移除共同事务已交付，Android 管理页在 §9.39 验收，macOS 无管理页；共享修复不代表桌面配置、设置或文件提交事务已完成。
+- **共享核心**：最新本地闸门为 **47 项 CTest / 93 ABI**，Android JNI 为 55 引用 / 38 显式未用（§9.114）；§9.65 的历史验收基线为 **47 项 CTest / 89 ABI**，Apple 87/2、JNI 49/40；受控 shell/SFTP 打开、目录浏览、有界预览、独占暂存创建、受控读取到 fd 与三份依赖补丁已验。Android 已消费 shell 入口，SFTP 已接专用 owner/JNI/Kotlin 后端，文件页面已接；macOS 产品尚未改用受控 shell/SFTP。TOFU/移除共同事务已交付，Android 管理页在 §9.39 验收，macOS 无管理页；共享修复不代表桌面配置、设置或文件提交事务已完成。
 
 | 能力 | 状态 |
 |---|---|
