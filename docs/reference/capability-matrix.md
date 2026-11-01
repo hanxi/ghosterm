@@ -106,7 +106,7 @@
 | Web | libghostty-vt + 自绘（wasm） | ❌ |
 | Android | libghostty-vt + 自绘 | 🟡 | A0 已验；A2 本地 PTY→VT→Canvas 与 InputConnection 首片已交付，文本操作切片接入文本选择/复制粘贴/本地清屏；API 36 arm64 / 4 KB 页模拟器验证见实现计划 §9.14。选区边缘滚动/Ctrl 生命周期切片已验（§9.15）；Ctrl 标点、模式感知 Enter 与真实 Gboard 拼音基本路径已验（§9.16）；后续按键重复/释放与焦点归属已验（§9.17，94 项完整设备测试、18+2 组选组变异）；后续修饰键/数字键盘/组合音符及静止文本闪烁已验（§9.18–§9.19），§9.21 短时取帧与性能探针通过完整 101 项、四组性能变异及五组回归；已有模拟器 debug 基线，真机/release/长负载及物理键盘/布局矩阵未完成 |
 | Android Kitty 图形/动画 | libghostty-vt + 系统 PNG + Canvas | 🟡 | 已接通静态、Unicode、帧传输/播放/停止/合成及隐藏停 tick；API 29 图形 21 项、API 36 图形与既有终端 50 项、十组变异通过；云端签名 R8 APK 已在 16 KB 页模拟器验证实际动画/删除，范围见[当前证据](android-implementation.md#android-kitty) |
-| Android Nerd Fonts 符号 | 内置 Symbols Nerd Font Mono + 系统等宽回退 | 🟡 | API 29 / API 36 各 15 项组合专项通过；八类图标（含补充私用区）真实 PTY→VT→Canvas 像素、ASCII 字宽、中文/Emoji 和包内许可已验；完整设备/发行与 A2 验收分开记账，见[字体记录](android-implementation.md#android-nerd-fonts) |
+| Android Nerd Fonts 符号 | 内置 Symbols Nerd Font Mono + 系统等宽回退 | 🟡 | API 29 / API 36 各 15 项组合专项通过；八类图标（含补充私用区）真实 PTY→VT→Canvas 像素、ASCII 字宽、中文/Emoji 和包内许可已验；云端签名 R8 包已验 16 KB 页升级、旧文件与实际图标/CJK/Emoji 显示；完整设备与 A2 验收分开记账，见[字体记录](android-implementation.md#android-nerd-fonts) |
 | HarmonyOS | libghostty-vt + ArkUI Canvas | ❌ |
 | Windows | 待定 | ❌ |
 

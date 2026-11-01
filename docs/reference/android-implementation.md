@@ -1,6 +1,6 @@
 # Android 最终方案实现计划
 
-**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](android-implementation.md#android-kitty)，不扩大为整个 A2 完成。Nerd Fonts 符号回退的设备范围见[字体记录](#android-nerd-fonts)。
+**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](android-implementation.md#android-kitty)，不扩大为整个 A2 完成。Nerd Fonts 符号回退已随 `de1fd4a` 发布，设备与签名包范围见[字体记录](#android-nerd-fonts)。
 
 **上一已验包（2026-11-01，`a70a0d0`，保留原专项证据）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程首次完整 626 项在 1,800 秒总时限处终止（563 项成功结束、未见失败事件），未计完整通过，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口仍在隔离验证；最终按用户要求共用 dev Release，固定渠道文件名和平台间保留校验正在主工程验收；整个 Android 目标、设备与输入法矩阵尚未完成。
 
@@ -3021,3 +3021,8 @@ macOS 核对 `ConfigStore`、`SettingsStore`、`TransferManager`、`AppModel.sta
 API 29 arm64 / 4 KB 页与 API 36 arm64 / 4 KB 页各 **15 项组合专项通过，零失败**（10.131 秒、24.066 秒），包含字体两项、既有终端偏好十一项、正式图标与关于页各一项。八类真实字形样本覆盖 Powerline/Seti/Devicons/Codicons/Font Awesome/Linux/Octicons/Material Design（含补充私用区），另验证 ASCII 字宽、中文和 Emoji。真实 PTY 输出经 VT 到生产 Canvas，检查单元宽度、后续字母位置、可见且互不相同的图标像素；关于页逐份读取实际许可证并重建 Activity。837 份非 Markdown 输入集合与 SHA256 在两轮前后不变。
 
 初轮 14 项有一项失败：直接把补充私用区字符放进 shell 命令行时被系统行编辑器改写，VT 得到的是后续 X；该轮不计通过。夹具改以八进制转义输出原始 UTF-8 字节后，保留补充区及所有像素/宽度断言，两设备最终组合通过。证据 `tmp/android-font-evidence/`、`tmp/a7-primary-evidence/phase-1793540668016162000/` 与 `phase-1793540695533718000/`。新增字体变异一组已通过：退回系统等宽字体后对应字形断言红、同 APK Core 配置对照绿、复原后目标绿，837 份输入集合与 SHA256 不变（`phase-1793540727130923000/`）。云端发行另记结果；不替代 A2 完整输入法、真机/性能或完整客户端验收。
+
+
+**字体发行验收**：`0164d4b` 接入字体后，`de1fd4a` 仅统一许可文本换行。[Android CI 41312899794](https://github.com/hanxi/ghosterm/actions/runs/41312899794) 与 [macOS CI 41312899824](https://github.com/hanxi/ghosterm/actions/runs/41312899824) 均成功；前一 `0164d4b` Android 构建被后续提交取消，不计成功。共用 dev Release 实际下载 APK 为 **7,826,823 字节**，SHA256 `9fb0c66fdee5bf05a84b80f68ff4a0c307d011a0d9c26eae8f3082259c1ae833`，源码收据为 `de1fd4a` / clean。固定证书、非 debuggable/minSdk 29、三份压缩 arm64 SO、ELF/ZIP 16 KB 对齐、R8 与资源优化均核验通过；实际包仅一份 TTF，字体 SHA256 与上游文件一致，压缩 1,611,835 字节，许可与当前归档逐字节相同。
+
+实际同一云端 APK 在 API 36 / 16 KB 页设备覆盖安装、冷启动和旧 `before-upgrade.txt` 内容预览通过；实际本地终端显示八类 Nerd 字形、中文、彩色 Emoji 和 `FONT_RELEASE_READY` 标记，截图人工复核通过。此处为签名包的视觉专项，不称为完整设备回归或全字体映射逐一验收。证据 `tmp/android-font-cloud/inspection/result.json`、`android-ci.log`、`device-result.json`、`release-font-screen.png`；不包含未提交的 Android tmux 草稿。

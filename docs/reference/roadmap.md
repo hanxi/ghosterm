@@ -640,3 +640,4 @@ A2 本地终端首片（2026-10-30）：API 36 arm64 / 4 KB 页模拟器完整 *
 
 
 Android Nerd Fonts 符号回退（2026-11-01）：内置未修改的 Symbols Nerd Font Mono 3.5.1；普通文字保留系统等宽回退与原网格指标，本地/SSH 共用 Canvas。API 29 / API 36 各 15 项组合专项通过，覆盖真实 Nerd 图标像素、补充私用区、中文/Emoji、既有字号/会话身份和许可页面；新变异与实际发行范围见 [Android 字体记录](android-implementation.md#android-nerd-fonts)，不据此勾选整个 A2 或客户端。
+字体已随 `de1fd4a` 发布到共用 dev Release，Android/macOS CI 均成功。实际 Android 签名 R8 APK 7,826,823 字节，字体摘要与上游一致；16 KB 页覆盖安装、旧文件预览和终端八类图标/中文/Emoji 显示已验。具体摘要、设备档位与未覆盖范围见上述字体记录。
