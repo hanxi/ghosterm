@@ -1,6 +1,6 @@
 # Android 最终方案实现计划
 
-**当前 A3 DNS 可达性兼容修复（2026-11-02，已随 `66d1bd9` 发行）**：针对 IP 可连、域名误报网络不可用，保留正常系统 DNS 路径，只在组合接口的网络错误时改用同一系统解析器的显式 A/AAAA 查询；不切换 DNS 服务、不重写 SSH 主机身份。真实网络用例复现旧接口在发出 DNS 前报 ENONET，修复后完成 DNS→SSH 认证/输出；API 29 / 36 各 50 项通过，13 个新增与两个受影响旧保护同轮通过，签名 release / 四模块 lint 通过。用户手机、VPN/私人 DNS 完整矩阵仍待验，见[可达性兼容修复](android-implementation.md#android-dns-probe-compatibility)。
+**当前 A3 DNS 可达性兼容修复（2026-11-02，已随 `66d1bd9` 发行）**：针对 IP 可连、域名误报网络不可用，保留正常系统 DNS 路径，只在组合接口的网络错误时改用同一系统解析器的显式 A/AAAA 查询；不切换 DNS 服务、不重写 SSH 主机身份。真实网络用例复现旧接口在发出 DNS 前报 ENONET，修复后完成 DNS→SSH 认证/输出；API 29 / 36 各 50 项通过，13 个新增与两个受影响旧保护同轮通过，签名 release / 四模块 lint 通过。实际签名包另在 16 KB 页模拟器经真实分流 VPN DNS 到达 SSH 主机验证（§9.118）；用户手机、VPN/私人 DNS 完整矩阵仍待验，见[可达性兼容修复](android-implementation.md#android-dns-probe-compatibility)。
 
 **当前 A6 本机文件身份（2026-11-02，已随 `707d6d3` 发行）**：独占创建后、写入内容前持久化创建标记与 inode/UID/父目录参考；历史可分别核对身份和内容，不能把同字节的新文件当作原对象，不改旧任务结果或授予删除/重放权。API 29 / 36 各 182 项最终组合、新身份 27 组、受影响旧摘要四组、原发布 25 组/账本 20 组、死亡四组保护通过；API 29 / 36 各六个真实进程死亡边界、签名 release / 四模块 lint 与本地签名包 16 KB 页身份 SAME→DIFFERENT/内容一致专项通过。最终设备/构建的 869 份非 Markdown 输入完全一致；远端/SAF 未知结果恢复、用户确认恢复/清理和完整客户端设备矩阵仍待完成，见[本机文件身份](android-implementation.md#android-local-file-identity)。
 
@@ -3474,3 +3474,13 @@ API 29 arm64 / 4 KB 页按 background-layer、erased-background 两组真实变�
 **§9.116 实际云端发行补记**：[Android CI 41362651987](https://github.com/hanxi/ghosterm/actions/runs/41362651987) 与 [macOS CI 41362652167](https://github.com/hanxi/ghosterm/actions/runs/41362652167) 均成功。共用 dev 实际下载 APK 为 `66d1bd9` / clean，包含 DNS 修复 `450d0ff` 与背景修复 `cf3904e`，8,038,551 字节，SHA256 `fa81f25798f750d3b2e2b98ecd0559e0dd91e8d71b0d9681fb512f9de361f709`。固定发行证书、minSdk 29、非 debuggable、三个压缩 arm64 SO、ELF/ZIP 16 KB 对齐、完整 Nerd Fonts/许可、外部构建清单/摘要与实际 CI R8/资源优化任务核对通过；共用 dev 八份附件的名称检查通过。实际签名 APK 已覆盖安装到 API 36 / 16 KB 页模拟器，安装后 SHA256 与下载包相同，首页/关于显示来源 `66d1bd9` 与干净状态。证据 `tmp/dns-probe-cloud/published/`、`inspection/`、`ci.log`、`dev-assets.json`、`device-result.json` 与 `release-about.xml`。这不替代用户手机或完整 VPN/私人 DNS 验证。新的默认 860 项完整回归正在独立 API 36 / 4 KB 页设备运行，完成前不记全绿。
 
 **§9.117 实际 CI 补记**：上述 Android CI 的 setup-java 收尾明确记录缓存已保存（`setup-java-Linux-x64-gradle-e83e41b19a90021f3e9799a60996681ffd02dbf53b0b62313dd331c5e1c17377`）；构建与发布成功。尚未取证后续构建的热缓存命中，因此不宣称提速比例。
+
+
+<a id="android-vpn-dns-release"></a>
+### 9.118 实际签名包的分流 VPN DNS（2026-11-02）
+
+继续 A3 网络矩阵：实际 dev 签名 APK `66d1bd9`（SHA256 `fa81f25798f750d3b2e2b98ecd0559e0dd91e8d71b0d9681fb512f9de361f709`）在 API 36 / arm64 / 16 KB 页模拟器，以普通应用 UID 验证真实 VpnService DNS。独立临时测试应用先经系统 VPN 同意界面，限定仅 Ghosterm UID，配置 10.123.45.1 DNS 与其单条 /32 路由，不配置 IPv6 或公网默认路由。TUN 只响应随机 `.ghosterm.test` 域名，A 返回 127.0.0.1、AAAA 返回成功空集，TTL 为零；其他域名返回 NXDOMAIN。SSH 通过专用 adb reverse 到隔离服务，临时服务器私钥仅在宿主内存，未导入应用。
+
+正式主机入口连接该域名后，VPN 实际观察 A/AAAA 各一次，应用进入真实 SSH 主机密钥确认页，显示原始域名、端口及与隔离服务器独立计算一致的 SHA256 指纹。取消连接，未接受主机信任、未输入凭据；这证明本场景 DNS 到主机验证可达，不称完整认证/终端会话通过。实际完整 DNS→认证→输出证据仍以 §9.116 的设备专项为准，不把单场景扩大成全部 VPN/私人 DNS、物理 Wi-Fi/移动网络或用户手机已验。
+
+夹具起跑先确认没有活动 VPN NetworkAgent、always-on 未启用；未替换已有 VPN。首次应用 UID 配置探针发现原配置文件不存在而正常失败，未计业务通过；随后独占创建随机测试配置，保存其摘要。清理先核对配置摘要才删除本次文件，恢复原先不存在状态；正式首页重新加载后回到“还没有主机”。停止并卸载临时 VPN 应用、撤销本次 reverse、结束宿主 SSH 服务，实际 connectivity 中无 VPN NetworkAgent。测试应用 Stop 按钮的 stopService 未立即解除系统持有的服务绑定，最终通过 force-stop 本次临时应用关闭 TUN，并以实际网络消失验收；该夹具问题不算产品失败或成功证据。正式 APK、全局 DNS/私人 DNS设置、用户文件与原有历史均未由夹具改写。证据 `tmp/dns-vpn-fixture/fixture.json`、`vpn-management-active.txt`、`vpn-hostkey-verified.xml`、`vpn-query-counts.xml` 与 `connectivity-after-stop.txt`；正式首页清理收据 `tmp/dns-probe-cloud/vpn-clean-home.xml`。默认 860 项完整回归仍由独立设备继续运行，当前不记完成。
