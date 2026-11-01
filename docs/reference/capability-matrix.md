@@ -1,8 +1,8 @@
 # 能力矩阵
 
-**后续验收（§9.93–§9.94）**：SAF 与缩小图标已随 a70a0d0 发行；626 项完整运行仍在执行。独立 android-dev 自动发布路由修正和预览副本清理尚未合入，分开记录。
+**后续验收（§9.93–§9.94）**：SAF 与缩小图标已随 a70a0d0 发行；626 项完整运行仍在执行。独立通道方案已取消，改为共用 dev；预览副本清理仍未合入，分开记录。
 
-**最新已出包（2026-11-01，`a70a0d0`）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/android-dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/android-dev/Ghosterm-android-arm64-release.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程 **626 项完整运行仍在执行**，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口及自动发布改投独立 `android-dev` 的后续稿仍在隔离验证；整个 Android 目标、设备与输入法矩阵尚未完成。
+**最新已出包（2026-11-01，`a70a0d0`）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程首次完整 626 项在 1,800 秒总时限处终止（563 项成功结束、未见失败事件），未计完整通过，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口仍在隔离验证；最终按用户要求共用 dev Release，固定渠道文件名和平台间保留校验正在主工程验收；整个 Android 目标、设备与输入法矩阵尚未完成。
 
 **历史验收（§9.77，2026-11-01）**：文件任务已显示当前文件的读取/写入/核验、实际字节、本阶段平均速度与保守的阶段剩余时间。25 组新增变异与 114 组相关旧变异分轮通过；新完整 **491 项通过，零失败/错误/跳过**（1250.863 秒），746 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；整体剩余时间、暂停/重试、完整偏好和发行矩阵仍待完成，A6 保持部分交付。同源码云端签名 release 为 5,903,009 字节，16 KB 页启动/升级与 28 字节复制专项已验（§9.78），不代表完整发行矩阵。
 

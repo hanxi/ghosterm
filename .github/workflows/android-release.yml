@@ -17,8 +17,6 @@ concurrency:
 
 jobs:
   apk:
-    permissions:
-      contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -81,10 +79,10 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
           python3 scripts/check-android-build-info.py "$apk" --expect-commit "$GITHUB_SHA" --expect-state clean
           python3 scripts/mutation-check-android-build-info.py "$apk"
-          cp "$apk" dist/android/Ghosterm-android-arm64-release.apk
+          cp "$apk" dist/android/Ghosterm-android-arm64-dev.apk
           python3 - <<'PY'
           import hashlib,json,os,pathlib
-          folder=pathlib.Path('dist/android'); apk=folder/'Ghosterm-android-arm64-release.apk'
+          folder=pathlib.Path('dist/android'); apk=folder/'Ghosterm-android-arm64-dev.apk'
           import zipfile
           with zipfile.ZipFile(apk) as archive:
               metadata=json.loads(archive.read('assets/ghosterm-build.json'))
@@ -111,22 +109,49 @@ jobs:
             android/app/build/outputs/native-debug-symbols/release/
           if-no-files-found: error
           retention-days: 14
-      - name: Publish and verify dev Release APK
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Remove signing material
+        if: always()
+        run: rm -f tmp/android-ci/release.p12
+
+  publish-dev:
+    name: Publish Android dev Release
+    needs: apk
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: dev-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/download-artifact@v4
+        with:
+          name: Ghosterm-android-release-${{ github.sha }}
+          path: dist/android
+      - name: Publish and verify shared dev Release
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p tmp/android-ci/release-assets tmp/android-ci/published
-          cp dist/android/Ghosterm-android-arm64-release.apk tmp/android-ci/release-assets/
+          cp dist/android/Ghosterm-android-arm64-dev.apk tmp/android-ci/release-assets/
           cp dist/android/SHA256SUMS tmp/android-ci/release-assets/android-SHA256SUMS
           cp dist/android/build-info.json tmp/android-ci/release-assets/android-build-info.json
           python3 scripts/check-android-release-assets.py tmp/android-ci/release-assets --expect-commit "$GITHUB_SHA"
           python3 scripts/mutation-check-android-release-assets.py tmp/android-ci/release-assets --expect-commit "$GITHUB_SHA"
+          python3 scripts/mutation-check-dev-release-assets.py
+          if ! gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" > tmp/android-ci/before.json 2>tmp/android-ci/view.err; then
+            if grep -qiE 'HTTP 404|Not Found' tmp/android-ci/view.err; then
+              printf '{"id":null,"assets":[]}\n' > tmp/android-ci/before.json
+              gh release create dev --prerelease --target "$GITHUB_SHA" --title 'Ghosterm dev' --notes '开发包按平台命名；版本、源码和校验和见各平台清单。'
+            else
+              cat tmp/android-ci/view.err >&2; exit 1
+            fi
+          fi
           gh release upload dev tmp/android-ci/release-assets/* --clobber
-          gh release download dev --pattern Ghosterm-android-arm64-release.apk --pattern android-SHA256SUMS --pattern android-build-info.json --dir tmp/android-ci/published
+          gh release download dev --pattern Ghosterm-android-arm64-dev.apk --pattern android-SHA256SUMS --pattern android-build-info.json --dir tmp/android-ci/published
           python3 scripts/check-android-release-assets.py tmp/android-ci/published --expect-commit "$GITHUB_SHA"
-      - name: Remove signing material
-        if: always()
-        run: rm -f tmp/android-ci/release.p12
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" > tmp/android-ci/after.json
+          python3 scripts/check-dev-release-assets.py --platform android --dist tmp/android-ci/release-assets --assets-file tmp/android-ci/after.json --before-file tmp/android-ci/before.json

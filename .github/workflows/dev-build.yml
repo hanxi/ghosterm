@@ -49,7 +49,7 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      # 删旧 + 建新必须串行：连续 push 时两轮交错会把 dev 删成半态（没得下）。
+      # 两端发布共用互斥组；只更新各自资产，不删除共享 Release。
       group: dev-release
       cancel-in-progress: false
     env:
@@ -122,30 +122,20 @@ jobs:
           print(json.dumps(out,ensure_ascii=False))
           PY
 
-      - name: 替换 dev Release
+      - name: 原位更新 dev Release
         run: |
           set -euo pipefail
           VERSION="$(sed -n 's/^版本: *\([^ ]*\).*/\1/p' dist/BUILD-INFO.txt)"
           BUILD="$(sed -n 's/^版本: *[^ ]* (build *\([0-9]*\)).*/\1/p' dist/BUILD-INFO.txt)"
 
-          # 404（不存在）与真错误必须分开：后者不许 || true 吞掉。
-          if ! gh release view dev >/dev/null 2>"$RUNNER_TEMP/gh-view.err"; then
-            if grep -qiE 'HTTP 404|Not Found' "$RUNNER_TEMP/gh-view.err"; then
-              echo "dev Release 不存在 → 首次发布"
+          mkdir -p tmp
+          EXISTS=yes
+          if ! gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" > tmp/dev-before.json 2>tmp/gh-view.err; then
+            if grep -qiE 'HTTP 404|Not Found' tmp/gh-view.err; then
+              EXISTS=no
+              printf '{"id":null,"assets":[]}\n' > tmp/dev-before.json
             else
-              cat "$RUNNER_TEMP/gh-view.err" >&2; exit 1
-            fi
-          else
-            deleted=""
-            for attempt in 1 2 3; do
-              if gh release delete dev --yes --cleanup-tag; then deleted=yes; break; fi
-              echo "第 ${attempt} 次删除 dev Release 失败，退避 $((attempt * 15))s" >&2
-              sleep $((attempt * 15))
-            done
-            # 兜底只处理「Release 已没、tag 卡着」这一种半途态。真删不掉就让
-            # 下一步的 gh release create 当场红——不许 || true 把失败糊成成功。
-            if [ -z "$deleted" ]; then
-              git push --force-with-lease origin :refs/tags/dev
+              cat tmp/gh-view.err >&2; exit 1
             fi
           fi
 
@@ -163,16 +153,24 @@ jobs:
             `xattr -dr com.apple.quarantine /Applications/Ghosterm.app`。
             用 `curl` 取 zip + `ditto -x -k` 解出来则不贴标记（实测），但要自己核对
             下面的 `SHA256SUMS`。口径见 `docs/how-to/dev-build.md`。
-          - **仅 macOS arm64**。Android release APK 从独立的 Android Release APK 工作流下载；iOS 暂无构建入口。
-          - **别把 `dev` 当自动更新通道**：每轮 ad-hoc 签名的 cdhash 都不同，且 tag 会被强删重建。
+          - **仅 macOS arm64**。Android 的签名 release 构建也在本页，文件名为 `Ghosterm-android-arm64-dev.apk`；iOS 暂无构建入口。
+          - **别把 `dev` 当自动更新通道**：每轮 ad-hoc 签名的 cdhash 都不同，tag 会滚动指向 macOS 构建提交，Android 提交以 android-build-info.json 为准。
           - 想一条命令装/升级：`brew tap hanxi/ghosterm && brew trust hanxi/homebrew-ghosterm
             && brew install --cask ghosterm-dev`（升级 `brew upgrade --cask --greedy ghosterm-dev`）。
             cask 走 `sha256 :no_check`——滚动资产字节钉不住，要验字节请对 `SHA256SUMS`。
           MD
           )"
-          gh release create dev --prerelease --target "$GITHUB_SHA" \
-            --title "Ghosterm dev（${VERSION} build ${BUILD}）" --notes "$NOTES" \
-            dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json
+          printf '%s\n' "$NOTES" > tmp/dev-notes.md
+          if [ "$EXISTS" = yes ]; then
+            gh release upload dev dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json --clobber
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" > tmp/dev-uploaded.json
+            python3 scripts/check-dev-release-assets.py --platform macos --assets-file tmp/dev-uploaded.json --obsolete-macos > tmp/obsolete-macos.txt
+            while IFS= read -r asset; do gh release delete-asset dev "$asset" --yes; done < tmp/obsolete-macos.txt
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/dev" -f sha="$GITHUB_SHA" -F force=true
+            gh release edit dev --prerelease --target "$GITHUB_SHA" --title "Ghosterm dev（${VERSION} build ${BUILD}）" --notes-file tmp/dev-notes.md
+          else
+            gh release create dev --prerelease --target "$GITHUB_SHA" --title "Ghosterm dev（${VERSION} build ${BUILD}）" --notes-file tmp/dev-notes.md dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json
+          fi
 
       - name: 复验 dev Release 指向本轮
         run: |
@@ -188,11 +186,9 @@ jobs:
           [ "$prerelease" = "true" ] || { echo "dev Release 不是 prerelease" >&2; exit 1; }
           assets="$(gh release view dev --json assets -q '[.assets[].name]|join(" ")')"
           echo "dev Release → $target · 资产 $assets"
-          # 滚动替换必须「只有一份、旧资产不残留」：资产名不含短 sha，所以
-          # 数量必须正好是本轮那 5 个（多了就是旧的没删干净，少了就是没挂上）。
-          n="$(gh release view dev --json assets -q '.assets | length')"
-          [ "$n" = "5" ] || { echo "dev Release 有 $n 个资产，预期 5（旧资产残留或 version.json 没挂上）" >&2; exit 1; }
-          case " $assets " in *" version.json "*) ;; *) echo "dev Release 资产里没有 version.json：$assets" >&2; exit 1;; esac
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" > tmp/dev-after.json
+          python3 scripts/mutation-check-dev-release-assets.py
+          python3 scripts/check-dev-release-assets.py --platform macos --dist dist --assets-file tmp/dev-after.json --before-file tmp/dev-before.json
 
           # 检测口径的最后一环：客户端用的是**固定 URL**（不走 API），所以这一步
           # 直接从那个 URL 取回来对答案。取不到、或里面的 commit 不是本轮，就等于

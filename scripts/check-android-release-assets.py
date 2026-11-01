@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-APK = 'Ghosterm-android-arm64-release.apk'
+APK = 'Ghosterm-android-arm64-dev.apk'
 spec = importlib.util.spec_from_file_location('apk_source', ROOT / 'scripts/check-android-build-info.py')
 source = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(source)

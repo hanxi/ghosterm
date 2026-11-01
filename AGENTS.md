@@ -169,6 +169,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 Android Release 资产以 `python3 scripts/check-android-release-assets.py 目录 --expect-commit 提交` 检查 APK/Android 专用摘要/构建清单及内置源码收据一致；`mutation-check-android-release-assets.py` 对实际包做十组输入损坏反例，同包代码/源码独立对照绿、原件和 SHA256 不变。只证明发布完整性，不代替真实签名、优化或原生对齐验收；Android workflow main 发布前/回读后复用检查，PR 不发布，不增加 macOS CI 20 份。新 workflow 的实际执行进度见 Android 实施计划 §9.94。
 
+共享 dev Release 最终命名为 Ghosterm-macos-arm64-dev.dmg / .zip 与 Ghosterm-android-arm64-dev.apk；版本在清单里，dev 不代表 Android debug 构建。两端发布 job 共用 dev-release 互斥组；Mac 原位更新并仅删除明确属于 Mac 的旧归档，严禁删整个共享 Release。check-dev-release-assets.py 检查各自附件字节、完整另一平台集合及 Release/另一平台资产 ID 保留；mutation-check-dev-release-assets.py 的二十二组反例护丢失、替换、错字节/大小与陈旧归档。独立 android-dev Release/tag 已按用户要求删除；记录见 Android 实施计划 §9.96。
+
 `android-file-queue` 以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileQueueProductTest ANDROID_FILE_QUEUE_MUTATE=1 bash scripts/test-android-ssh.sh` 手工执行 14 组，护 FIFO、请求容量、取消等待项、实际释放前不推进、各终态推进、队列位置/页面和请求内决策。另启动独立 OpenSSH 服务验两个端点的排队认证与真实内容；同宿主双服务不等于公网或物理双机矩阵。每组真实编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；实际通过范围见 Android 实现计划 §9.72。属于手工覆盖，不增加 CI 20 份。
 
 `android-process-files` 以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.ProcessFileWorkTest ANDROID_PROCESS_FILES_MUTATE=1 bash scripts/test-android-ssh.sh` 手工执行 15 组，护进程任务/清单唯一持有、页面结束/后台、全局名额、结果订阅、认证接管及系统选择器/旧确认归属。编译后目标红、同 APK 配置对照绿、恢复绿与 SHA256；设备与实际运行范围见 Android 实现计划 §9.71/§9.72。不增加 CI 20 份，不将进程内存活记为前台服务或进程恢复完成；排队另见 §9.72。
@@ -265,7 +267,7 @@ Apple Development **能签但不能公证**，与 ad-hoc 一样被 Gatekeeper �
 三类红用退出码分不出来，故新增 `expect_red_saying`；同一轮补齐了起跑前的变异标记扫描
 与 `gt_timeout`（原先这份脚本既没扫标记也没用超时）。
 A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi/homebrew-ghosterm`）声明的
-资产名必须追得上 `package-mac.sh` 的改名——版本号 bump 而 tap 忘改，用户拿到的是 404，
+资产名必须追得上 `package-mac.sh` 的改名——平台/架构/渠道命名变动而 tap 忘改，用户拿到的是 404，
 不报错、只在装机时才发现。判据落在 `scripts/check-dev-cask.sh`（对拍 zip 名 / `:latest` /
 `sha256 :no_check` / dev 直链 / arm64 与 macOS 26 下限），变异打的是打包脚本里的资产名常量；
 指向性对照是「同一轮 `SHA256SUMS` 仍自洽」（那份清单是现算的，自适应改名——红的必须是新

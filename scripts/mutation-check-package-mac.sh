@@ -388,7 +388,7 @@ cask "ghosterm-dev" do
   version :latest
   sha256 :no_check
 
-  url "https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-0.0.0-mut-arm64.zip"
+  url "https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-macos-arm64-dev.zip"
   name "Ghosterm (dev channel)"
   desc "Libghostty 驱动的多端终端（dev 滚动渠道，未公证）"
   homepage "https://github.com/hanxi/ghosterm"
@@ -412,9 +412,9 @@ python3 - scripts/package-mac.sh <<'PY'
 import sys
 p = sys.argv[1]
 t = open(p, encoding="utf-8").read()
-needle = 'BASE="Ghosterm-${VERSION}-${ARCH}"'
+needle = 'BASE="Ghosterm-macos-${ARCH}-${PACKAGE_CHANNEL}"'
 assert needle in t, "资产命名实现变了，A10 的变异要跟着改"
-t = t.replace(needle, 'BASE="ghosterm-${VERSION}-${ARCH}"  # MUTATION: 改名（模拟版本/命名漂移）', 1)
+t = t.replace(needle, 'BASE="ghosterm-macos-${ARCH}-${PACKAGE_CHANNEL}"  # MUTATION: 改名（模拟版本/命名漂移）', 1)
 open(p, "w", encoding="utf-8").write(t)
 PY
 expect_green "改名后打包本身仍然成功（A10 前置：红不该来自打包）" \

@@ -2,12 +2,12 @@
 # 对拍：Homebrew cask（dev 轨）声明的下载入口 ↔ 本轮 macOS 打包的真实资产。
 #
 # 为什么需要这一道：tap 是**另一个仓库**，cask 里的 URL 是手写的。dev 轨的资产名带版本号
-# （Ghosterm-<version>-<arch>.zip），源码 bump 版本号就会让那条 URL 指到不存在的东西——
+# （Ghosterm-macos-<arch>-dev.zip），平台/架构/渠道命名变动可能让那条 URL 指向不存在的资产——
 # 用户侧的表现是 `brew install --cask` 当场 404，而 dev 轨自己**全绿**（SHA256SUMS 与
 # version.json 都是从本轮产物现算的，它们跟着改名，只有 cask 跟不上）。这条断言就是把
 # 「跟不上」变成红。
 #
-# cask 里刻意写 `version :latest` + `sha256 :no_check`：滚动 tag `dev` 每轮强删重建、
+# cask 里刻意写 `version :latest` + `sha256 :no_check`：滚动 tag `dev` 原位更新、
 # 每轮 ad-hoc 签名的 cdhash 都不同，钉不住校验和。所以这里反过来守——**不许有人把它改成
 # 一个钉死的 sha256**（那会造出「装到一半校验失败」的假象，或更糟：钉住一个旧 sha 让新包
 # 永远装不上）。brew 这条路不校验字节，口径与自查口子见 docs/how-to/dev-build.md。

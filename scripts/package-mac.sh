@@ -12,6 +12,7 @@
 #
 # 选项：
 #   --version V        版本号（默认 git describe --tags --always，无 tag 则 0.1.0-dev）
+#   --channel dev|release  分发渠道（默认 dev；文件名使用渠道，版本留在清单中）
 #   --build N          构建号（默认 git rev-list --count HEAD）
 #   --out DIR          产物目录（默认 <repo>/dist）
 #   --arch ARCH        目标架构（默认本机；目前只支持 arm64——GhosttyKit 只有 arm64 切片）
@@ -56,6 +57,7 @@ SYSROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
 
 VERSION=""
 BUILD_NUMBER=""
+PACKAGE_CHANNEL="dev"
 OUT="$ROOT/dist"
 ARCH="$(uname -m)"
 APP_ONLY=0
@@ -71,6 +73,7 @@ GUI_SMOKE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION="${2:?--version 需要值}"; shift 2 ;;
+    --channel) PACKAGE_CHANNEL="${2:?--channel 需要值}"; shift 2 ;;
     --build) BUILD_NUMBER="${2:?--build 需要值}"; shift 2 ;;
     --out) OUT="${2:?--out 需要目录}"; shift 2 ;;
     --arch) ARCH="${2:?--arch 需要值}"; shift 2 ;;
@@ -95,6 +98,8 @@ if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
 fi
 step() { echo "== $* =="; }
 note() { echo "   $*"; }
+
+case "$PACKAGE_CHANNEL" in dev|release) ;; *) fail "未知打包渠道：${PACKAGE_CHANNEL}（只接受 dev/release）" ;; esac
 
 # 签名档位要按**证书本身的类**记账，不能拿「钥匙串里有这串名字」当「有 Developer ID」。
 # 免费个人账号签出来的是 `Apple Development: …`：不能公证（Apple 侧也拒），Gatekeeper
@@ -419,7 +424,7 @@ fi
 
 # ------------------------------------------------------------------ 9. 产物
 step "9/9 产物（dmg / zip / 校验和 / 构建信息）"
-BASE="Ghosterm-${VERSION}-${ARCH}"
+BASE="Ghosterm-macos-${ARCH}-${PACKAGE_CHANNEL}"
 cp "$INFO" "$OUT/BUILD-INFO.txt"
 note "$(basename "$OUT/BUILD-INFO.txt")"
 
