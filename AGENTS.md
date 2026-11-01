@@ -149,6 +149,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 **Android 擦除背景（§9.115）**：完整 848 项发现两处相关背景像素失败，不能记绿。修复后 API 36 的 75 项终端/Kitty/字体/性能组合、Core 47/93、release 与四模块 lint 通过。API 29 以 `ANDROID_KITTY_MUTATE=1 ANDROID_KITTY_CASES=background-layer,erased-background` 配合 `scripts/test-android-ssh.sh` 选跑两组：默认层不透明与旧 style-only 空白背景判据均编译后单条正常断言红、同 APK Core 绿、恢复绿与 SHA256。为手工设备证据，不增加 macOS CI 20 份；不能把定向通过当新完整回归通过。
 
+**Android DNS 探测兼容（§9.116）**：真实模拟器仅限制测试 UID 到 AOSP 两个可达性探测地址，保留本机 SSH/DNS可达，验证旧接口 errno 64 与零 DNS 请求、修复后系统 DNS→真实 SSH/原域名验证名称。API 29 / 36 各 50 项、签名 release/四模块 lint 通过；`mutation-check-android-dns.py` 十三个新增与原平台 answer/rcode 两组同轮通过，每组编译后单条正常断言红、同 APK Core 绿、恢复绿及 SHA256，不增加 macOS CI 20 份。独立取消、双地址族/上限、响应码、错误范围、快照与晚到回调、启动释放和文案均有保护；模拟器规则精确恢复，不将其记作用户真机或完整 VPN/私人 DNS 验收。
+
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
 `ghosterm.h` 是**单一事实来源**。新增/删除/改签名后必须：

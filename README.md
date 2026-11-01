@@ -1,5 +1,7 @@
 # Ghosterm
 
+**Android DNS 修复待发行**：已复现 IP 可连、域名因系统可达性探测误报网络不可用；兼容修复在 Android 10 / 16 各 50 项检查及真实 DNS→SSH 用例通过，15 组保护和签名 release/lint 通过，见[修复记录](docs/reference/android-implementation.md#android-dns-probe-compatibility)。用户手机复测与完整网络矩阵仍待验。
+
 **当前 Android**：共用 dev 已发布正式签名 release APK，包含主机首页、SSH/SFTP、本机/SAF 文件复制、五类设置、Kitty 图形/动画、Nerd Fonts 与可选远端 tmux。最新已验云端包来源 `707d6d3`，8,033,591 字节；已接暂停/继续、安全重试、持久历史/计划引用、显式内容与本机创建身份核对、本机暂存维护。两端各 182 项最终相关组合通过；848 项完整设备回归发现两处相关背景像素失败，修复和复验见 §9.115。完整客户端、未知副作用处理与设备矩阵仍未完成，逐片证据见 [Android 实现计划](docs/reference/android-implementation.md#android-local-file-identity)，下载见 [dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev)。
 
 **历史验收（§9.77，2026-11-01）**：文件任务已显示当前文件的读取/写入/核验、实际字节、本阶段平均速度与保守的阶段剩余时间。25 组新增变异与 114 组相关旧变异分轮通过；新完整 **491 项通过，零失败/错误/跳过**（1250.863 秒），746 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；整体剩余时间、暂停/重试、完整偏好和发行矩阵仍待完成，A6 保持部分交付。同源码云端签名 release 为 5,903,009 字节，16 KB 页启动/升级与 28 字节复制专项已验（§9.78），不代表完整发行矩阵。

@@ -3,6 +3,9 @@ package com.hanxi.ghosterm
 import android.app.Application
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.os.CancellationSignal
+import android.net.DnsResolver
+import android.system.ErrnoException
 import androidx.lifecycle.ViewModelStore
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.*
@@ -14,12 +17,15 @@ import java.io.File
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /** Real DnsResolver -> netd -> UDP fixture. Only a random qname token is redirected;
  * device DNS settings, unrelated requests, VPN and private DNS remain untouched. */
@@ -41,6 +47,58 @@ class SSHDnsWireTest {
     @Before fun setup() { root.mkdirs();await { owners()==0 } }
     @After fun cleanup() { await { owners()==0 };root.deleteRecursively() }
     private enum class Mode { POSITIVE, NXDOMAIN, EMPTY, SERVFAIL, HOLD }
+    /** Restrict only the AOSP reachability probes for this test UID. DNS and
+     * loopback SSH remain routable; no DNS/VPN settings or other UIDs change. */
+    private suspend fun <T> withoutPublicProbeRoutes(block:suspend ()->T):T {
+        assertEquals("1",shell("getprop ro.kernel.qemu"))
+        assertTrue(shell("su 0 id").contains("uid=0"))
+        val uid=android.os.Process.myUid()
+        val priority=4000+java.security.SecureRandom().nextInt(3000)
+        val rules=listOf("-4" to "8.8.8.8/32","-6" to "2000::/128")
+        val installed=mutableListOf<Pair<String,String>>()
+        var failure:Throwable?=null
+        try {
+            for((family,address) in rules) {
+                assertFalse("Probe priority already occupied",shell("su 0 ip $family rule show").lineSequence().any { it.startsWith("$priority:") })
+                val rule="pref $priority uidrange $uid-$uid to $address unreachable"
+                installed+=family to rule
+                shell("su 0 ip $family rule add $rule")
+                assertTrue("Probe route did not install",shell("su 0 ip $family rule show").lineSequence().any { it.startsWith("$priority:") && it.contains("uidrange $uid-$uid") })
+            }
+            return block()
+        } catch(error:Throwable) { failure=error;throw error }
+        finally {
+            var cleanup:Throwable?=null
+            for((family,rule) in installed.asReversed())try {
+                shell("su 0 ip $family rule del $rule")
+                assertFalse("Probe route leaked",shell("su 0 ip $family rule show").lineSequence().any { it.startsWith("$priority:") && it.contains("uidrange $uid-$uid") })
+            } catch(error:Throwable) { if(cleanup==null)cleanup=error else cleanup.addSuppressed(error) }
+            cleanup?.let { if(failure!=null)failure.addSuppressed(it) else throw it }
+        }
+    }
+    private suspend fun legacyQuery(host:String):List<InetAddress> = suspendCancellableCoroutine { waiting ->
+        val signal=CancellationSignal();waiting.invokeOnCancellation { signal.cancel() }
+        DnsResolver.getInstance().query(null,host,DnsResolver.FLAG_EMPTY,{ it.run() },signal,
+            object:DnsResolver.Callback<List<InetAddress>> {
+                override fun onAnswer(answer:List<InetAddress>,rcode:Int) { if(waiting.isActive)waiting.resume(answer) }
+                override fun onError(error:DnsResolver.DnsException) { if(waiting.isActive)waiting.resumeWithException(error) }
+            })
+    }
+    @Test fun domainResolutionDoesNotDependOnPublicProbeRoutes()=runBlocking {
+        val fixture=sshFixture()
+        Dns(Mode.POSITIVE).use { dns -> withoutPublicProbeRoutes {
+            Socket().use { it.connect(InetSocketAddress("127.0.0.1",fixture.getInt("port")),2000) }
+            val legacy=runCatching { withTimeout(5000) { legacyQuery(dns.host) } }.exceptionOrNull()
+            assertTrue("Legacy query must reproduce its preflight failure: $legacy",legacy is DnsResolver.DnsException)
+            assertEquals(64,((legacy as DnsResolver.DnsException).cause as ErrnoException).errno)
+            assertEquals("Preflight failed before sending DNS",0,dns.packets.get())
+            val result=runCatching { withTimeout(10000) { AndroidSSHResolver.resolve(dns.host) } }
+            assertTrue("Domain resolution must not depend on public probe routes: ${result.exceptionOrNull()}",result.isSuccess)
+            assertTrue(result.getOrThrow().any { it.isLoopbackAddress })
+            assertTrue("Actual system DNS query must reach the fixture",dns.packets.get()>0)
+            verifySshIdentityAndOutput(dns.host,result.getOrThrow(),fixture)
+        } }
+    }
     private inner class Dns(private var initial:Mode):Closeable {
         val token="gtdns"+UUID.randomUUID().toString().replace("-","").take(16)
         val host="$token.ghosterm.test"
@@ -116,6 +174,22 @@ class SSHDnsWireTest {
             assertNull("DNS responder failed",error)
         }
     }
+    private fun verifySshIdentityAndOutput(host:String,addresses:List<InetAddress>,fixture:org.json.JSONObject) {
+        val known=File(root,"known_hosts")
+        val target=ResolvedSSHConnection(host,fixture.getInt("port"),fixture.getString("user"),known.path,
+            addresses.map { ResolvedSSHAddress(it.address,(it as? java.net.Inet6Address)?.scopeId ?: 0) },8000)
+        RemoteSession(target).use { session ->
+            var auth=session.authentication()
+            await { auth=session.authentication();assertNotEquals(auth.description,SSHAuthPhase.FAILED,auth.phase);auth.phase==SSHAuthPhase.HOSTKEY && auth.request>0 }
+            assertEquals(fixture.getString("fingerprint"),auth.fingerprint);session.decide(auth,true)
+            await { auth=session.authentication();assertNotEquals(auth.description,SSHAuthPhase.FAILED,auth.phase);auth.phase==SSHAuthPhase.CREDENTIALS && auth.request>0 }
+            val pem=fixture.getString("pem").toByteArray();session.privateKey(auth,pem);assertTrue(pem.all { it==0.toByte() })
+            await { val state=session.state();assertFalse(state.description,state.terminal);state.connected }
+            session.resize(70,20,8,16);session.commit("printf '\\033[2J\\033[HDNS_WIRE_OK\\r\\n'\r")
+            await { session.frame(0)?.let { frame -> (0 until frame.rows).any { frame.line(it).trim()=="DNS_WIRE_OK" } }==true }
+            assertTrue(known.readText().contains("[$host]:${fixture.getInt("port")}"));assertFalse(known.readText().contains("127.0.0.1"))
+        }
+    }
     @Test fun realDnsAnswersReachSshAndPreserveUnicodeHostIdentity()=runBlocking {
         val fixture=sshFixture()
         Dns(Mode.POSITIVE).use { dns ->
@@ -125,20 +199,7 @@ class SSHDnsWireTest {
             val addresses=resolved.getOrThrow()
             assertTrue(addresses.any { it.isLoopbackAddress });assertTrue(dns.questions.isNotEmpty())
             assertTrue(dns.questions.all { it=="${dns.token}.xn--fsqu00a.xn--0zwm56d" })
-            val known=File(root,"known_hosts")
-            val target=ResolvedSSHConnection(host,fixture.getInt("port"),fixture.getString("user"),known.path,
-                addresses.map { ResolvedSSHAddress(it.address,(it as? java.net.Inet6Address)?.scopeId ?: 0) },8000)
-            RemoteSession(target).use { session ->
-                var auth=session.authentication()
-                await { auth=session.authentication();assertNotEquals(auth.description,SSHAuthPhase.FAILED,auth.phase);auth.phase==SSHAuthPhase.HOSTKEY && auth.request>0 }
-                assertEquals(fixture.getString("fingerprint"),auth.fingerprint);session.decide(auth,true)
-                await { auth=session.authentication();assertNotEquals(auth.description,SSHAuthPhase.FAILED,auth.phase);auth.phase==SSHAuthPhase.CREDENTIALS && auth.request>0 }
-                val pem=fixture.getString("pem").toByteArray();session.privateKey(auth,pem);assertTrue(pem.all { it==0.toByte() })
-                await { val state=session.state();assertFalse(state.description,state.terminal);state.connected }
-                session.resize(70,20,8,16);session.commit("printf '\\033[2J\\033[HDNS_WIRE_OK\\r\\n'\r")
-                await { session.frame(0)?.let { frame -> (0 until frame.rows).any { frame.line(it).trim()=="DNS_WIRE_OK" } }==true }
-                assertTrue(known.readText().contains("[$host]:${fixture.getInt("port")}"));assertFalse(known.readText().contains("127.0.0.1"))
-            }
+            verifySshIdentityAndOutput(host,addresses,fixture)
         }
     }
     @Test fun actualNxdomainEmptyAndServfailRemainDistinct()=runBlocking {

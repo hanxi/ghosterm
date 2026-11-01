@@ -1,12 +1,14 @@
 # Android 最终方案实现计划
 
+**当前 A3 DNS 可达性兼容修复（2026-11-02，工作区已验待发行）**：针对 IP 可连、域名误报网络不可用，保留正常系统 DNS 路径，只在组合接口的网络错误时改用同一系统解析器的显式 A/AAAA 查询；不切换 DNS 服务、不重写 SSH 主机身份。真实网络用例复现旧接口在发出 DNS 前报 ENONET，修复后完成 DNS→SSH 认证/输出；API 29 / 36 各 50 项通过，13 个新增与两个受影响旧保护同轮通过，签名 release / 四模块 lint 通过。用户手机、VPN/私人 DNS 完整矩阵仍待验，见[可达性兼容修复](android-implementation.md#android-dns-probe-compatibility)。
+
 **当前 A6 本机文件身份（2026-11-02，已随 `707d6d3` 发行）**：独占创建后、写入内容前持久化创建标记与 inode/UID/父目录参考；历史可分别核对身份和内容，不能把同字节的新文件当作原对象，不改旧任务结果或授予删除/重放权。API 29 / 36 各 182 项最终组合、新身份 27 组、受影响旧摘要四组、原发布 25 组/账本 20 组、死亡四组保护通过；API 29 / 36 各六个真实进程死亡边界、签名 release / 四模块 lint 与本地签名包 16 KB 页身份 SAME→DIFFERENT/内容一致专项通过。最终设备/构建的 869 份非 Markdown 输入完全一致；远端/SAF 未知结果恢复、用户确认恢复/清理和完整客户端设备矩阵仍待完成，见[本机文件身份](android-implementation.md#android-local-file-identity)。
 
 **当前 A6 执行计划引用（2026-11-02）**：正式复制在首次目标副作用前原子登记计划 UUID，保留暂存可显示计划对应的任务来源/目标；旧记录不回填，计划引用不证明当前文件归属或赋予删除权。API 29 / 36 各 92 项、新十一组及受影响旧六组保护分轮、Core 47/93、签名 release / 四模块 lint 通过；已随 `700f8be` 发行，云端包来源/签名/字体/16 KB 对齐、实际覆盖升级的同一计划保留及直接本机复制/重启专项通过。持久文件归属、远端/SAF 未知副作用和完整设备矩阵继续待办，见[执行计划引用](android-implementation.md#android-execution-plan-reference)。
 
 **当前 A5 跨主机复制（2026-11-02）**：不同远端存储关系未知时，新增仅对本次请求有效的位置核对；确认后重新扫描/预检，再单独确认复制，已知同目录/自身子目录仍拒绝。API 29 / 36 各 83 项通过，六组新增与两组受影响旧保护通过，签名 release / 四模块 lint 通过；`25d2137` 已发行并核验包内容/来源及 16 KB 页安装/关于专项。不同逻辑主机共享存储已验，不冒充跨物理服务器或完整客户端完成，见[关系确认记录](android-implementation.md#android-remote-namespace)。
 
-**当前 A3 DNS 切片（2026-11-02）**：系统 DNS 错误分档、UTS46 非过渡域名转换、取消及迟到结果隔离已接入。API 29 / 36 最终相关 34 项均通过，23 个不同保护组分轮通过，release / 四模块 lint 通过；`c1b5167` 已发行并核验来源/签名/包内容及 16 KB 页安装/关于专项。真实 VPN/Private DNS、网络切换与完整客户端仍待完成，见[DNS 验证记录](android-implementation.md#android-dns-diagnostics)。
+**此前 A3 DNS 切片（2026-11-02）**：系统 DNS 错误分档、UTS46 非过渡域名转换、取消及迟到结果隔离已接入。API 29 / 36 最终相关 34 项均通过，23 个不同保护组分轮通过，release / 四模块 lint 通过；`c1b5167` 已发行并核验来源/签名/包内容及 16 KB 页安装/关于专项。真实 VPN/Private DNS、网络切换与完整客户端仍待完成，见[DNS 验证记录](android-implementation.md#android-dns-diagnostics)。
 
 **当前 A6 增量（§9.108）**：已接空暂存目录的显式整理和从来源读取到资源释放的维护互斥，不递归删文件、不改旧任务。API 29 / API 36 各 178 项前置组合通过；取消令牌交接收紧后，两端各 68 项相关复验、两个新增保护组通过，累计二十三个不同组分轮取证。Core 47/93、固定证书 release 与四模块 lint 通过，最终本地包的 16 KB 页专项已验；`fb08aca` 已发布并完成来源/签名/包内容及 16 KB 页实际整理/取消/旧数据保留专项。持久归属/内容核验、远端/SAF 残留及完整客户端矩阵仍未完成，见[空目录维护](android-implementation.md#android-empty-requests)。
 
@@ -3446,3 +3448,19 @@ SQLite 结构版本 1、任务头版本 1/2/3 保持；只有带本机创建参�
 **修复定向与保护验证**：API 36 arm64 / 4 KB 页的 KittyCanvasTest、TerminalScreenTest、TerminalPerformanceTest、NerdFontTest、TerminalPreferencesTest 共 75 项通过，零失败/错误/跳过，238.625 秒（`phase-1793573986705590000/`）。性能探针额外发送的一条 ghosterm_profile 状态不含测试 class/test，收据单独验证其 complete=true，不把它当第 76 项；75 个具名开始/结束仍唯一对应。此轮原失败的两项均已通过，完整性能记录在 `tmp/erased-background-evidence/api36-performance-0.json`。
 
 API 29 arm64 / 4 KB 页按 background-layer、erased-background 两组真实变异验证，回到旧 style-only 判据后新增像素断言正常红；默认背景全不透明变异仍由旧 Kitty below-background 图层用例捕获。每组编译后目标红、同 APK Core 绿、恢复绿与 SHA256；`phase-1793574389930543000/` 两组通过，不称其他 Kitty 保护全量重跑。Core 47 CTest / 93 ABI 通过。签名 release 和 app/data/bridge/terminal 四模块 lint 通过（`phase-1793574103796650000/`）。上述三个阶段的 869 份输入均前后不变；本地 APK 8,033,727 字节，SHA256 `01d9002270fd4e6e3796bb35bbe293726313592a3c218cdce61ca395ba333113`，来源 `06d8390` / dirty，固定证书、非 debuggable/minSdk 29、三个压缩 arm64 SO、ZIP/ELF 16 KB、R8 mapping 和完整 Nerd Fonts/许可核对通过。证据 `tmp/erased-background-evidence/`。尚非云端修复包；新的完整回归与实际发行另记。
+
+
+<a id="android-dns-probe-compatibility"></a>
+### 9.116 IP 可连但域名误报网络不可用（2026-11-02，已验工作区待发行）
+
+用户实测 Wi-Fi 与移动网络均能连接 IP，却在域名阶段显示“当前网络不可用，无法解析主机地址”。AOSP 组合 DnsResolver.query 在 DNS 之前调用 haveIpv4/haveIpv6，以绑定网络后的 UDP connect 探测 8.8.8.8:0 / [2000::]:0；两者失败直接报 ENONET，不代表 DNS 服务或所需 SSH 私网目标一定不可达。依据为 [DnsResolver 实现](https://android.googlesource.com/platform/frameworks/base/+/03162d258880568acdd7e95fc9be1c4e0ee31904/core/java/android/net/DnsResolver.java) 与 [探测实现](https://android.googlesource.com/platform/frameworks/base/+/03162d258880568acdd7e95fc9be1c4e0ee31904/core/java/android/net/util/DnsUtils.java)。这是与用户现象一致的可复现路径，不冒充已在其手机直接取得根因日志。
+
+实现保留组合接口的正常结果与地址排序，仅对 ERROR_SYSTEM 的 ENONET / ENETDOWN / ENETUNREACH 使用兼容路径：同一系统默认 DNS 的显式 A/AAAA 查询，不自建解析协议、不指定公共 DNS、不绑定别的网络、不改 VPN/私人 DNS 设置、ssh_config 或主机验证名称。兼容路径等两类查询结束后合并，IPv4 候选在前，每类沿用系统顺序并保留 IPv6 scope；至少一类给出有效地址即可继续，非零 rcode 的地址不采纳。无有效地址时保留异常/响应码分类，空结果、NXDOMAIN 和未知错误不折叠。合并后仍受 32 地址上限，不能裁切另一类地址假装成功；原连接总 deadline 继续约束整个 DNS/连接流程。
+
+组合请求与两类请求各有独立 CancellationSignal；父取消同时传递，启动异常取消对应请求，重复/晚到的组合或单类回调不能覆盖快照或再次完成。接口错误仍保留系统码和原始异常；最终 DNS 网络失败文案改为“系统 DNS 无法访问当前解析网络，请检查 DNS 设置或稍后重试”，不据 DNS API 的局部错误宣称所有连接都不可用。未增加权限、依赖或 Core 公共 ABI。
+
+真实复现只在已验证 QEMU/root 的测试模拟器，对本次应用 UID、随机空闲优先级及上述两个探测地址临时添加精确 unreachable 规则；DNS 服务、127.0.0.1 SSH 与其他 UID 的路由保持。旧组合接口真实返回 errno 64 且 DNS 请求为零，数字 IP TCP 连接仍可达；旧 AndroidSSHResolver 在目标断言正常红（`phase-1793574942679707000/`，报错与用户相同），同 APK Core 配置对照绿。最初夹具的 suspend 编译错误（`phase-1793574792188052000/`）和 executeShellCommand 不解释 shell 运算符导致的起跑错误（`phase-1793574834224969000/`）均未计正常目标红；改以实际路由存在/清除作为判据。修复后同条件完成真实系统 DNS→SSH hostkey/私钥认证→终端输出，验证 known_hosts 保留原始域名而非 IP，结束时逐条移除精确规则；没有改变全局 DNS 或系统策略。
+
+最终 API 36 / API 29 arm64、4 KB 页各 50 项通过，零失败/错误/跳过（25.187 / 24.137 秒，`phase-1793575713962623000/`、`phase-1793575754791888000/`）。覆盖兼容分支十项、原 DNS、真实 DNS/SSH、网络/取消与普通远端终端。13 个新增保护与原平台 answer/rcode 两组同轮通过（`phase-1793575456378811000/`）：每组真实编译后单条正常断言红、同 APK Core 配置绿、复原绿与 SHA256；不是全部 36 个现有 DNS 保护全量重跑。两端 50 项逐项身份集合一致，最终两端、release/lint、变异与当前工作区的 870 份非 Markdown 输入集合/SHA256 相同。
+
+签名 release 与四模块 lint 通过（`phase-1793575713962848000/`）；本地 APK 8,038,695 字节，SHA256 `120d9e2ba81ebb7cdd613ba3391fef61402aa135a3692764492ab5807f4577ba`，来源 `cf3904e` / dirty。固定证书、非 debuggable/minSdk 29、三个压缩 arm64 SO、ZIP/ELF 16 KB、R8 mapping 与完整 Nerd Fonts/许可核对通过。证据 `tmp/dns-probe-fix/api29*` / `api36*`、`mutations/`、`mutations.log`、`old-app-core-control.log`、`local-release/` 与上述 phase。此包同时包含 §9.115 背景修复，尚不是云端包；用户设备与完整 VPN/私人 DNS、物理网络矩阵仍待验证，新完整回归与实际发行另记。

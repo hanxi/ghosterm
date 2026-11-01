@@ -39,6 +39,21 @@ def execute(root, build, test):
         ('nontransitional', 'SSHDnsResolverTest#unicodeDeviationCharactersDoNotResolveToADifferentAsciiDomain', 'IDNA.NONTRANSITIONAL_TO_ASCII', '0', 1),
         ('idna-validation', 'SSHDnsResolverTest#invalidNamesDoNotStartPlatformQuery', 'require(!info.hasErrors())', 'require(true)', 1),
     ]
+    cases += [
+        ('probe-fallback', 'SSHDnsWireTest#domainResolutionDoesNotDependOnPublicProbeRoutes', 'val retry=error.code==DnsResolver.ERROR_SYSTEM && errno in setOf(ANDROID_ENONET,OsConstants.ENETDOWN,OsConstants.ENETUNREACH)', 'val retry=false', 1),
+        ('probe-error-scope', 'SSHDnsCompatibilityTest#ordinaryFailuresDoNotStartCompatibilityQueries', 'val retry=error.code==DnsResolver.ERROR_SYSTEM && errno in setOf(ANDROID_ENONET,OsConstants.ENETDOWN,OsConstants.ENETUNREACH)', 'val retry=true', 1),
+        ('family-types', 'SSHDnsCompatibilityTest#preflightFailuresQueryBothFamiliesAndPreserveIpv6Scope', 'listOf(SSHDnsRecordType.A,SSHDnsRecordType.AAAA)', 'listOf(SSHDnsRecordType.A,SSHDnsRecordType.A)', 1),
+        ('family-signals', 'SSHDnsCompatibilityTest#cancellationReachesThreeIndependentSignalsAndRejectsLateCallbacks', 'records.query(host,type,signals[index+1],sink)', 'records.query(host,type,signals[1],sink)', 1),
+        ('family-cancel', 'SSHDnsCompatibilityTest#cancellationReachesThreeIndependentSignalsAndRejectsLateCallbacks', 'cancellation.setOnCancelListener { signals.forEach { it.cancel() } }', 'cancellation.setOnCancelListener { signals[0].cancel() }', 1),
+        ('family-limit', 'SSHDnsCompatibilityTest#combinedLimitRejectsRatherThanTruncatingAnAddressFamily', 'return Reply(addresses)', 'return Reply(addresses.take(32))', 1),
+        ('family-rcode', 'SSHDnsCompatibilityTest#serverErrorsNeverContributeAddressesOrInventNxdomain', 'it.error==null && it.rcode==0', 'it.error==null', 1),
+        ('family-snapshot', 'SSHDnsCompatibilityTest#stalePrimaryAndDuplicateFamilyCallbacksCannotReplaceTheSnapshot', 'Reply(answer.toList(),rcode)', 'Reply(answer,rcode)', 2),
+        ('family-duplicates', 'SSHDnsCompatibilityTest#stalePrimaryAndDuplicateFamilyCallbacksCannotReplaceTheSnapshot', '|| replies[index]!=null', '|| false', 1),
+        ('family-late-primary', 'SSHDnsCompatibilityTest#stalePrimaryAndDuplicateFamilyCallbacksCannotReplaceTheSnapshot', 'if(stage!=0 || cancellation.isCanceled)false', 'if(cancellation.isCanceled)false', 1),
+        ('family-startup-cleanup', 'SSHDnsCompatibilityTest#synchronousFailuresReleaseSignalsAndDoNotChangeCancellationSemantics', 'signals[index+1].cancel();sink.onError(', 'sink.onError(', 1),
+        ('primary-startup-cleanup', 'SSHDnsCompatibilityTest#synchronousFailuresReleaseSignalsAndDoNotChangeCancellationSemantics', 'synchronized(lock) { stage=2 }\n            signals.forEach { it.cancel() }\n            throw error', 'synchronized(lock) { stage=2 }\n            throw error', 1),
+        ('network-diagnostic', 'SSHDnsCompatibilityTest#systemDnsFailureDoesNotClaimAllConnectivityIsUnavailable', '系统 DNS 无法访问当前解析网络，请检查 DNS 设置或稍后重试', '当前网络不可用，无法解析主机地址', 1),
+    ]
     selected=os.environ.get('ANDROID_SSH_DNS_MUTATIONS','').split(',')
     if selected!=['']:
         unknown=set(selected)-{case[0] for case in cases}

@@ -1,12 +1,14 @@
 # Android 宿主
 
+**当前 A3 DNS 可达性兼容修复（2026-11-02，工作区已验待发行）**：针对 IP 可连、域名误报网络不可用，保留正常系统 DNS 路径，只在组合接口的网络错误时改用同一系统解析器的显式 A/AAAA 查询；不切换 DNS 服务、不重写 SSH 主机身份。真实网络用例复现旧接口在发出 DNS 前报 ENONET，修复后完成 DNS→SSH 认证/输出；API 29 / 36 各 50 项通过，13 个新增与两个受影响旧保护同轮通过，签名 release / 四模块 lint 通过。用户手机、VPN/私人 DNS 完整矩阵仍待验，见[可达性兼容修复](../docs/reference/android-implementation.md#android-dns-probe-compatibility)。
+
 **当前 A6 本机文件身份（2026-11-02，已随 `707d6d3` 发行）**：独占创建后、写入内容前持久化创建标记与 inode/UID/父目录参考；历史可分别核对身份和内容，不能把同字节的新文件当作原对象，不改旧任务结果或授予删除/重放权。API 29 / 36 各 182 项最终组合、新身份 27 组、受影响旧摘要四组、原发布 25 组/账本 20 组、死亡四组保护通过；API 29 / 36 各六个真实进程死亡边界、签名 release / 四模块 lint 与本地签名包 16 KB 页身份 SAME→DIFFERENT/内容一致专项通过。最终设备/构建的 869 份非 Markdown 输入完全一致；远端/SAF 未知结果恢复、用户确认恢复/清理和完整客户端设备矩阵仍待完成，见[本机文件身份](../docs/reference/android-implementation.md#android-local-file-identity)。
 
 **历史 A6 内容核验切片（2026-11-02，最终发行见 §9.111–§9.113）**：新文件在写入前保存来源长度/SHA256，历史详情可显式读取目标并比较；匹配不提升旧未知结果或赋予删除权，旧无摘要记录不补造参考。两端各 113 项前置组合通过；补齐全局单读取/排队控制后，相关 50 项均通过。十七个不同新保护组分轮、原账本二十组及调整后队列保护通过，最终签名 release / 四模块 lint 通过；16 KB 页本地签名包验证参考保留、来源消失后匹配与目标修改后不匹配，已随 `c13245a` 发行。私有候选核验已随 `15a52d2`、执行计划引用已随 `700f8be` 发行；本机身份见 §9.114，完整恢复/设备矩阵仍待完成，见[内容核验记录](../docs/reference/android-implementation.md#android-content-verification)。
 
 **当前 A5 跨主机复制（2026-11-02）**：不同远端存储关系未知时，新增仅对本次请求有效的位置核对；确认后重新扫描/预检，再单独确认复制，已知同目录/自身子目录仍拒绝。API 29 / 36 各 83 项通过，六组新增与两组受影响旧保护通过，签名 release / 四模块 lint 通过；`25d2137` 已发行并核验包内容/来源及 16 KB 页安装/关于专项。不同逻辑主机共享存储已验，不冒充跨物理服务器或完整客户端完成，见[关系确认记录](../docs/reference/android-implementation.md#android-remote-namespace)。
 
-**当前 A3 DNS 切片（2026-11-02）**：系统 DNS 错误分档、UTS46 非过渡域名转换、取消及迟到结果隔离已接入。API 29 / 36 最终相关 34 项均通过，23 个不同保护组分轮通过，release / 四模块 lint 通过；`c1b5167` 已发行并核验来源/签名/包内容及 16 KB 页安装/关于专项。真实 VPN/Private DNS、网络切换与完整客户端仍待完成，见[DNS 验证记录](../docs/reference/android-implementation.md#android-dns-diagnostics)。
+**此前 A3 DNS 切片（2026-11-02）**：系统 DNS 错误分档、UTS46 非过渡域名转换、取消及迟到结果隔离已接入。API 29 / 36 最终相关 34 项均通过，23 个不同保护组分轮通过，release / 四模块 lint 通过；`c1b5167` 已发行并核验来源/签名/包内容及 16 KB 页安装/关于专项。真实 VPN/Private DNS、网络切换与完整客户端仍待完成，见[DNS 验证记录](../docs/reference/android-implementation.md#android-dns-diagnostics)。
 
 **当前 A6 增量（§9.106）**：本机目标候选已按全部请求目录核算保留量和写入预约，超限在创建候选前拒绝且报告零写入；API 29 / API 36 各 137 项组合、十七个新保护组分轮、既有本机发布 25 组/记录 20 组和 release/lint 通过。预算云端包待验；最新已发布 `106f66b` 已在 16 KB 页验证历史重新发起、冲突/取消、重启关联与原记录清除。内容/归属核验、显式残留清理和完整客户端目标未完成，见[预算与发行记录](../docs/reference/android-implementation.md#android-local-publication-budget)。
 
