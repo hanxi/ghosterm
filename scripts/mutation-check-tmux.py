@@ -68,6 +68,7 @@ def main():
             ('known-empty', 'src/tmux/tmux.c', '*server = GT_TMUX_SERVER_RUNNING;', '*server = GT_TMUX_SERVER_ABSENT;', 'adversarial', 'command'),
             ('local-unknown-exit', 'src/io/pty_posix.c', 'bool e = atomic_load(&t->exited) && atomic_load(&t->exit_code) >= 0;', 'bool e = atomic_load(&t->exited);', 'command', 'lifecycle'),
             ('closed-stdio', 'src/tmux/command.c', 'if (p[i] < 3) {', 'if (false) {', 'command', 'lifecycle'),
+            ('command-signal-mask', 'src/tmux/command.c', 'sigprocmask(SIG_SETMASK, &child_signals, NULL) != 0', 'false', 'command', 'lifecycle'),
             ('cancellation', 'src/tmux/command.c', 'b->cancelled && b->cancelled(b->context)', 'false', 'adversarial', 'command'),
             ('resize', 'src/io/pty_posix.c', 'if (ioctl(t->master_fd, TIOCSWINSZ, &ws) < 0)', 'if ((void)ws, false)', 'attach', 'command'),
         ]

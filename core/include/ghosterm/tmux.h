@@ -68,6 +68,8 @@ int gt_tmux_change(gt_tmux_t *, gt_tmux_operation_t,
                    const gt_tmux_session_t *target, const char *name,
                    gt_tmux_result_t *result);
 /* Creates an ordinary interactive transport after fresh target validation.
+ * Remote attach validates both management and execution SSH endpoints within
+ * one total budget; equal login names do not prove an equal tmux namespace.
  * -N attach-session only. Closing it closes the client, never kills session.
  * Local: attach_ssh=NULL; remote: dedicated authenticated attach_ssh required.
  */

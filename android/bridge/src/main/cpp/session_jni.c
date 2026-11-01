@@ -14,6 +14,7 @@
 #include "android_png.h"
 #include "android_graphics.h"
 #include "ssh_session.h"
+#include "tmux_session.h"
 
 /* Each transport AND VT has one native owner. JNI never calls transport/VT.
  * The registry owns one reference; detached worker and JNI borrows own others.
@@ -36,6 +37,7 @@ typedef struct session {
     pthread_mutex_t mutex;
     char *home;
     gaj_ssh *remote;
+    gaj_tmux_target *tmux_target;
     gt_ssh_t *ssh; /* owner only; closed after transport */
     command *first, *last;
     size_t queued_bytes, queued_commands;
@@ -72,7 +74,7 @@ static void release(session *s) {
     if (!destroy) return;
     command *cmd = s->first;
     while (cmd) { command *next = cmd->next; free(cmd); cmd = next; }
-    gat_graphics_frame_free(s->graphics_frame);gaj_ssh_free(s->remote); free(s->action_result); free(s->frame); free(s->home); pthread_mutex_destroy(&s->mutex); free(s);
+    gat_graphics_frame_free(s->graphics_frame);gaj_ssh_free(s->remote);gaj_tmux_target_free(s->tmux_target); free(s->action_result); free(s->frame); free(s->home); pthread_mutex_destroy(&s->mutex); free(s);
 }
 static session *borrow(JNIEnv *env, jlong id) {
     if (id <= 0) { fail(env, "终端会话已关闭"); return NULL; }
@@ -114,7 +116,17 @@ static void *owner(void *context) {
         if (atomic_load(&s->stop)) goto finished;
         gt_shell_opts_t shell={.term="xterm-256color",.cols=80,.rows=24};
         gt_status_t opened=GT_OK;
-        s->transport=gaj_ssh_open_shell(s->remote,s->ssh,&shell,&s->stop,&opened);
+        if(s->tmux_target) {
+            char detail[256]={0};
+            s->transport=gaj_tmux_attach(s->tmux_target,s->ssh,&shell,&s->stop,&opened,detail,sizeof(detail));
+            gaj_tmux_target_free(s->tmux_target);s->tmux_target=NULL;
+            if(!s->transport && !atomic_load(&s->stop)) {
+                char message[320];
+                snprintf(message,sizeof(message),"无法连接后台会话（错误 %d）：%s",(int)opened,detail);
+                failed(s,message);
+                goto finished;
+            }
+        } else s->transport=gaj_ssh_open_shell(s->remote,s->ssh,&shell,&s->stop,&opened);
         if (atomic_load(&s->stop) || opened==GT_ERR_CANCELLED) goto finished;
         if (!s->transport) {
             failed(s,opened==GT_ERR_UNSUPPORTED?"服务器拒绝远端 PTY/shell":
@@ -239,7 +251,7 @@ finished:
 }
 
 static jlong start_session(JNIEnv *env, session *s) {
-    if (pthread_mutex_init(&s->mutex, NULL)) { gaj_ssh_free(s->remote); free(s->home); free(s); fail(env, "无法初始化终端锁"); return 0; }
+    if (pthread_mutex_init(&s->mutex, NULL)) { gaj_ssh_free(s->remote);gaj_tmux_target_free(s->tmux_target); free(s->home); free(s); fail(env, "无法初始化终端锁"); return 0; }
     atomic_init(&s->stop, false); atomic_init(&s->frame_requested, true);
     atomic_init(&s->graphics_requested,true);atomic_init(&s->visible,false);
     s->refs = 2;
@@ -287,6 +299,18 @@ JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_createRemot
     if (!s) { gaj_ssh_free(remote); fail(env,"无法分配 SSH 会话"); return 0; }
     s->remote=remote;
     return start_session(env,s);
+}
+JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_createRemoteTmux(JNIEnv *env,jobject self,
+        jbyteArray host,jint port,jbyteArray user,jbyteArray known,jobjectArray addresses,jintArray scopes,jint timeout,
+        jlong manager,jlong snapshot,jint index) {
+    (void)self;
+    if(!gat_android_png_init(env)) { if(!(*env)->ExceptionCheck(env))fail(env,"无法初始化终端 PNG 解码");return 0; }
+    gaj_tmux_target *target=gaj_tmux_target_new(env,manager,snapshot,index);if(!target)return 0;
+    gaj_ssh *remote=gaj_ssh_new(env,host,port,user,known,addresses,scopes,timeout);
+    if(!remote){gaj_tmux_target_free(target);return 0;}
+    session *s=calloc(1,sizeof(*s));
+    if(!s){gaj_ssh_free(remote);gaj_tmux_target_free(target);fail(env,"无法分配后台终端");return 0;}
+    s->remote=remote;s->tmux_target=target;return start_session(env,s);
 }
 JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_readAuthentication(JNIEnv *env, jobject self, jlong id) {
     (void)self; session *s=borrow(env,id); if (!s) return NULL;

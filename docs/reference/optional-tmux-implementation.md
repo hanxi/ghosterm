@@ -4,7 +4,7 @@
 
 ## 当前状态（2026-10-30）
 
-六个实施切片与最终验收已完成；交付范围是共享 C 与 macOS 宿主，Android 的列表与 attach 仍在 A8 待办。下方依赖表记录重构前的消费者及当时迁移决定，列出的 daemon/session/IPC 路径已退役，不是当前待删除清单。共享接口基线 `854e473` 增加 IdentityFile 来源查询后，Core 为 36 项 CTest、75 个公共符号，Apple 绑定为 73/2，JNI 为 34/41；该只读接口不增加 tmux 能力或验收范围。后续主机信任记录快照切片为 37 CTest / 79 ABI、Apple 77/2、JNI 38/41，同样不增加 tmux 产品范围（Android 实现计划 §9.36）。后续共享信任事务/移除绑定为 38 CTest / 80 ABI、Apple 78/2、JNI 39/41（§9.37），不等于新增 tmux UI/attach 验收。连接检查切片的 35/74 和本次 tmux 验收当时的 30/70 作为历史保留。各次结果分别见[路线图](roadmap.md#验收记账与历史记录)。
+六个实施切片与最终验收已完成；交付范围是共享 C 与 macOS 宿主，Android 的远端列表与独立 attach 已在后续 A8 接入，当前设备/变异/发行范围见 [Android 后台会话记录](android-implementation.md#android-tmux)，不回填为本节历史重构的验收。下方依赖表记录重构前的消费者及当时迁移决定，列出的 daemon/session/IPC 路径已退役，不是当前待删除清单。共享接口基线 `854e473` 增加 IdentityFile 来源查询后，Core 为 36 项 CTest、75 个公共符号，Apple 绑定为 73/2，JNI 为 34/41；该只读接口不增加 tmux 能力或验收范围。后续主机信任记录快照切片为 37 CTest / 79 ABI、Apple 77/2、JNI 38/41，同样不增加 tmux 产品范围（Android 实现计划 §9.36）。后续共享信任事务/移除绑定为 38 CTest / 80 ABI、Apple 78/2、JNI 39/41（§9.37），不等于新增 tmux UI/attach 验收。连接检查切片的 35/74 和本次 tmux 验收当时的 30/70 作为历史保留。各次结果分别见[路线图](roadmap.md#验收记账与历史记录)。
 
 普通 shell 通道切片增加第 81 个 ABI，Apple 79/2、JNI 39/42；它不改变本节 2026-10-28 的交付范围。新预算 helper 曾使 tmux SSH 取消变异未变红，恢复旧路径对 `gt__command_expired` 的调用后，最终真实 SSH 六组完整复验通过；此前本地 tmux 26 组保留原范围。过程见 [§9.41](android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)，不新增 Android tmux UI 或完整 macOS 宿主验收。
 
@@ -141,3 +141,10 @@ Kitty 模式优先输出文本，“上”实际发出 `EF 9C 80`（U+F700）。
 - 本轮 `scripts/gate.sh`：47 项 CTest、89 个公共 ABI 通过；
   `scripts/terminal-gate.sh`：29 项通过；原生 release 构建和 `scripts/build-mac-app.sh`
   打包、签名/自包含检查、真实网格及随包主题冒烟通过。没有将这些结果记作完整宿主 UI 套件通过。
+
+
+### 后续管理命令信号隔离与 Android 接线（2026-11-01）
+
+已有 `4924a2d` 只隔离 PTY 子进程；本轮进一步修正本地管理命令 fork/exec 继承信号屏蔽的问题，使 GUI worker 启动的 tmux 管理命令/服务器获得独立的未屏蔽信号集合，调用线程保持原状态。真实 exec 信号探针旧红/API 对照绿/修复绿；新增变异后共享 tmux 当前为 27 组，Core 47/93 与 macOS 原生构建通过，九项 tmux UI 回归通过且未观察到新增孤儿进程。完整宿主的既有设置页像素失败仍保留。
+
+`gt_tmux_attach` 现同时校验管理 SSH 和实际执行 SSH 的会话身份，两者共用原总 deadline；同地址/用户不能排除密钥受限命令或后端命名空间差异。真实 SSH 的原六组变异已复验，Android 另用重定向到另一真实 tmux server 的密钥验证在 PTY 前拒绝。新增六个 Android `gt_tmux_*` 引用，93 ABI 不变，Apple 89/4、JNI 55/38。Android 页面/owner/未知结果与分档证据统一见上方 A8 链接；手机本地 tmux 和环境包不因此自动成为可用能力。

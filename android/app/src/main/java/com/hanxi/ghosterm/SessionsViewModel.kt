@@ -27,7 +27,8 @@ import com.hanxi.ghosterm.domain.AppPreferences
 import java.io.File
 import java.util.UUID
 
-class TerminalSession(val id: UUID, val title: String, internal val connection: NativeTerminalSession, val remoteAlias: String? = null) {
+class TerminalSession(val id: UUID, val title: String, internal val connection: NativeTerminalSession,
+    val remoteAlias: String? = null, val backgroundSession: String? = null) {
     val surface: TerminalSurface get() = connection
     var state by mutableStateOf(SessionState(0, null, 0, null)); internal set
     internal var appliedAppearance: TerminalAppearance? = null
@@ -36,6 +37,9 @@ class TerminalSession(val id: UUID, val title: String, internal val connection: 
 
 /** Activity ViewModel lifetime survives rotation; navigating never closes a session. */
 class SSHAttempt(val target: PreparedSSH, internal val filesReady: ((RemoteFileSession, String) -> Unit)? = null) {
+    internal var tmuxReady: ((RemoteTmuxSession,String)->Unit)? = null
+    internal var tmuxTarget: RemoteTmuxTarget? = null
+    internal var tmuxName: String? = null
     internal var taskLabel: String? = null
     internal var taskCancelled: (() -> Unit)? = null
     val forFiles get() = filesReady != null || taskLabel != null
@@ -144,7 +148,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     fun cancelNewRemote() { selectingNewRemote = false }
     fun connect(target: PreparedSSH) {
         if (connecting != null) return
-        val existing = sessions.filter { it.remoteAlias == target.alias && it.state.connected }
+        val existing = sessions.filter { it.remoteAlias == target.alias && it.state.connected && it.backgroundSession==null }
         if (!selectingNewRemote && existing.isNotEmpty()) {
             if (existing.size == 1) show(existing.single().id) else choosingRemote = target.alias
             return
@@ -158,6 +162,20 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         if(connecting != null) return
         val attempt = SSHAttempt(target,ready); connecting = attempt
         if(target.user.isNotBlank()) startConnection(attempt)
+    }
+    fun connectTmux(target: PreparedSSH,ready: (RemoteTmuxSession,String)->Unit): UUID? {
+        if(connecting!=null)return null
+        val attempt=SSHAttempt(target).also { it.tmuxReady=ready }
+        connecting=attempt
+        if(target.user.isNotBlank())startConnection(attempt)
+        return attempt.id
+    }
+    fun attachTmux(target: PreparedSSH,selection: RemoteTmuxTarget,name: String): Boolean {
+        if(connecting!=null)return false
+        val attempt=SSHAttempt(target).also { it.tmuxTarget=selection;it.tmuxName=name;it.message="正在连接后台会话客户端…" }
+        connecting=attempt
+        if(target.user.isNotBlank())startConnection(attempt)
+        return true
     }
     /** The task owns these sessions. Authentication only lends the existing credential UI;
      * it never adopts the session into the browser or terminal collection. */
@@ -254,18 +272,20 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
             try {
                 val deadline = SystemClock.elapsedRealtime() + connectionBudgetMillis
                 withTimeout(connectionBudgetMillis) {
-                    val addresses = withContext(Dispatchers.IO) { resolver.resolve(attempt.target.host) }
+                    val addresses = if(attempt.tmuxTarget==null) withContext(Dispatchers.IO) { resolver.resolve(attempt.target.host) } else emptyList()
                     ensureActive()
-                    check(connecting === attempt && addresses.isNotEmpty()) { "连接请求已取消或没有可用地址" }
+                    check(connecting === attempt && (attempt.tmuxTarget!=null || addresses.isNotEmpty())) { "连接请求已取消或没有可用地址" }
                     val candidates = addresses.map { ResolvedSSHAddress(it.address, (it as? Inet6Address)?.scopeId ?: 0) }
                     val remaining = deadline - SystemClock.elapsedRealtime()
                     check(remaining > 0) { "SSH 连接超时" }
                     withContext(Dispatchers.IO) {
                         val knownHosts = File(getApplication<Application>().filesDir, "home/.ssh/known_hosts")
                         check(knownHosts.parentFile!!.isDirectory || knownHosts.parentFile!!.mkdirs()) { "无法准备主机信任目录" }
-                        val request = ResolvedSSHConnection(attempt.target.host, attempt.target.port, attempt.username,
+                        val request = attempt.tmuxTarget?.connection(remaining.coerceAtMost(60_000).toInt()) ?: ResolvedSSHConnection(attempt.target.host, attempt.target.port, attempt.username,
                             knownHosts.absolutePath, candidates, remaining.coerceAtMost(60_000).toInt())
-                        owned = if(attempt.forFiles) RemoteFileSession(request) else RemoteSession(request)
+                        owned = if(attempt.tmuxReady!=null) RemoteTmuxSession(request)
+                            else if(attempt.forFiles) RemoteFileSession(request)
+                            else attempt.tmuxTarget?.let { RemoteSession(request,it) } ?: RemoteSession(request)
                     }
                     ensureActive()
                     check(connecting === attempt) { "连接请求已取消" }
@@ -279,20 +299,29 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                             attempt.message = "正在打开远端文件…"
                         val terminalState = (connection as? RemoteSession)?.state()
                         val fileState = (connection as? RemoteFileSession)?.state()
-                        if (terminalState?.connected == true || fileState?.ready == true) {
-                            if(connection is RemoteFileSession) {
+                        val tmuxState=(connection as? RemoteTmuxSession)?.state()
+                        if(attempt.tmuxReady!=null && auth.phase in listOf(SSHAuthPhase.READY,SSHAuthPhase.TAKEN))
+                            attempt.message="正在准备后台会话管理…"
+                        if (terminalState?.connected == true || fileState?.ready == true || tmuxState?.ready==true) {
+                            if(connection is RemoteTmuxSession) {
+                                checkNotNull(attempt.tmuxReady)(connection,attempt.username)
+                                owned=null;attempt.connection=null;connecting=null
+                            } else if(connection is RemoteFileSession) {
                                 checkNotNull(attempt.filesReady)(connection,attempt.username)
                                 owned = null; attempt.connection = null; connecting = null
                             } else {
-                                val session = TerminalSession(UUID.randomUUID(), attempt.target.alias, connection as RemoteSession, attempt.target.alias)
+                                val session = TerminalSession(UUID.randomUUID(),
+                                    attempt.target.alias+(attempt.tmuxName?.let { " · "+it } ?: ""),
+                                    connection as RemoteSession, attempt.target.alias,attempt.tmuxName)
                                 session.state = checkNotNull(terminalState)
                                 register(session); owned = null; attempt.connection = null; connecting = null; show(session.id)
                             }
                             break
                         }
-                        if (terminalState?.terminal == true || fileState?.finished == true || auth.phase == SSHAuthPhase.FAILED || auth.phase == SSHAuthPhase.CANCELLED) {
+                        if (terminalState?.terminal == true || fileState?.finished == true || tmuxState?.finished==true || auth.phase == SSHAuthPhase.FAILED || auth.phase == SSHAuthPhase.CANCELLED) {
                             attempt.message = if (auth.phase == SSHAuthPhase.FAILED) auth.description else
-                                terminalState?.description ?: "无法打开远端文件（错误 ${fileState?.error}）"
+                                terminalState?.description ?: if(tmuxState!=null) "后台连接失败（错误 "+tmuxState.error+"）"
+                                else "无法打开远端文件（错误 ${fileState?.error}）"
                             attempt.failed = true; break
                         }
                         if (auth.phase == SSHAuthPhase.CREDENTIALS && !listed) {

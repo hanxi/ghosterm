@@ -13,4 +13,7 @@ gt_transport_t *gaj_ssh_open_shell(gaj_ssh *, gt_ssh_t *, const gt_shell_opts_t 
 gt_sftp_t *gaj_ssh_open_sftp(gaj_ssh *, gt_ssh_t *, atomic_bool *, gt_status_t *);
 jobjectArray gaj_ssh_info(JNIEnv *, gaj_ssh *);
 void gaj_ssh_respond(JNIEnv *, gaj_ssh *, jlong request, jint kind, jbyteArray first, jbyteArray second);
+/* Frozen successfully authenticated candidate, not another DNS lookup.
+ * No Core access; copies the connection owner's acknowledged selection. */
+bool gaj_ssh_connected_address(gaj_ssh *, uint8_t address[16], uint8_t *family, uint32_t *scope);
 #endif

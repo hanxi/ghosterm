@@ -147,7 +147,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 > A1 验收时为 Apple 71/2、JNI 11/62（引用/显式登记未用）；A2 本地终端首片 JNI 为 19/54，整个 A2 阶段尚未完成。连接检查接口加入后公共符号为 74 项，Apple 72/2；JNI 配置检查切片 20/54，SSH 后端切片为 32/42，身份容器首片加入后为 33/41；IdentityFile 来源查询切片为 75 个公共符号、Apple 73/2、JNI 34/41；主机信任记录快照切片为 79 个公共符号、Apple 77/2、JNI 38/41；共享信任写入与移除绑定为 80 个公共符号、Apple 78/2、JNI 39/41；已验通道取消切片为 81 个公共符号、Apple 79/2、JNI 39/42（新入口替换旧 shell 引用）；受控 SFTP 切片为 82 个公共符号、Apple 80/2、JNI 40/42（§9.47），只有绑定/helper，无文件产品接线。§9.45 Android 依赖补丁已验六场景及完整 214 项；§9.47 主机补丁依赖已接默认构建，17 项协议、十组接口变异、十一组依赖守卫与既有打包变异通过，详见 `docs/reference/host-ssh2-build.md`。§9.56 为 87 个公共符号、Apple 85/2、JNI 47/40，专项和最终完整 Android 260 项通过；首轮失败及测试同步修正仍保留记录。§9.57 为 88 个公共符号、Apple 86/2、JNI 48/40，远端非覆盖发布与绑定专项及最终完整 Android 266 项通过（API 36 arm64 / 4 KB 页模拟器）。§9.65 新增受控远端单目录创建，为 89 个公共符号、Apple 87/2、JNI 49/40；本片为专项/变异与原生构建证据，不沿用旧完整设备结果。实际数量以当前检出的脚本输出为准；符号对拍不替代平台行为验收。
 > 各次接口与平台验收分别记在 `docs/reference/roadmap.md`，不得借旧结果记新接口通过。
 > Android 已验收组件/配置绑定；A2 首片已接本地 Transport、Canvas/InputConnection 与会话生命周期，整个终端阶段未完成。连接配置检查已接两端；Android SSH native owner/认证桥及远端终端后端已接，产品 DNS/认证页面与 Keystore 容器首片已接（实现计划 §9.27），整个 A3 仍未完成；SFTP 文件专用 owner/JNI/Kotlin 后端已由 §9.51 接入，远端只读页面已由 §9.52 接入，§9.69 已接复制执行器数据层，§9.70 已接任务认证与粘贴页面；§9.71 已接进程共享任务、复制清单和认证，§9.72 已接 FIFO 队列，§9.73 已验持久观察记录与只读历史，§9.74 已验前台服务/通知的 API 36 模拟器档；§9.77 已验当前文件阶段进度；§9.98 已接整体数据 ETA、协作暂停/继续与当前进程内安全重试（API 29/36 专项与分轮变异）；完整客户端、持久历史核对和残留清理仍待完成；NAPI 尚未实现。
-> §9.98 当前为 93 个公共符号、Apple 89/4、JNI 49/44；新增可暂停收发由 Android 专属文件 owner 消费。Core/Swift 输入摘要与通过记录一致；新增十三组与受影响旧七组均为手工证据，不增加 CI 20 份。Android Kitty 图形及动画是用户新增必需项，当前尚未接渲染，验收契约见 Android 计划 §5.2。
+> §9.98 切片为 93 个公共符号、Apple 89/4、JNI 49/44；新增可暂停收发由 Android 专属文件 owner 消费。Core/Swift 输入摘要与通过记录一致；新增十三组与受影响旧七组均为手工证据，不增加 CI 20 份。Android Kitty 图形/动画与 Nerd Fonts 已接并发行，设备与真实签名包范围见 §9.100–§9.102；不代表整个 A2 完成。
+> §9.103 新接 Android 远端 tmux 管理/独立 attach，ABI 仍为 93，Apple 89/4、JNI 55/38；API 29/36 各 45 项组合与十二组 Android 变异通过，发行范围另记，不增加上述 macOS CI 20 份。
 > 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
 
 `libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的九场景、七组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同九场景。Android 与主机默认构建均应用补丁；`mutation-check-sftp-open.py` 另验 7 C + 2 Swift + 1 无库组，`mutation-check-host-ssh2.py --app 本轮.app` 验十一组依赖/包/CMake 守卫，目标红、独立对照绿、恢复绿与 SHA256。已交付证据见 Android 实现计划 §9.45/§9.47/§9.49，范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
@@ -215,6 +216,9 @@ Android Release 资产以 `python3 scripts/check-android-release-assets.py 目�
 `android-files-product` 用 `ANDROID_SERIAL=设备 ANDROID_FILES_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFilesProductTest bash scripts/test-android-ssh.sh` 手工执行 14 组，护独立文件连接、实际用户名快照、规范路径/排序、未知与无符号大小/类型文案、预览、离页释放、迟到认证与错误可见性；目标红、同 APK 配置对照绿、恢复绿与 SHA256。9 项产品设备用例及最终回归范围见 Android 实现计划 §9.52。只登记现有验证范围，不增加 CI 20 份或改变验收规则。
 
 ### 变异验证（新增闸门必须附）
+
+`android-tmux` 用 `ANDROID_SERIAL=设备 ANDROID_TMUX_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteTmuxTest bash scripts/test-android-ssh.sh` 手工执行十二组：实际执行端命名空间、固定地址、native/Kotlin 代次、认证 scope/材料清理、取消释放、真正 attach、未知结果/文案/禁止重试与普通入口隔离。每组真实编译后单条目标断言红、同 APK Core 配置对照绿、复原绿并核对输入 SHA256；入队次数与服务器 create 日志共同约束未知重试。API 29/36 各 45 项组合及失败/复验记录见 Android 计划 §9.103，不计入 macOS CI 20 份。
+
 
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。
 样板见 `scripts/mutation-check-sshconfig.sh`（17 组变异：A1~A9 + B1~B8，另验基线与回滚）。A9 用真实目录触发 fread 错误，断言必须返回失败；同变异下合法配置 golden 对照仍须通过，不能把读取错误当成空配置。B7/B8 护非连续重复指令替换/删除，构建通过后逐字节写回目标红、同变异求值对照绿、恢复绿与 SHA256 一致。
@@ -286,9 +290,9 @@ A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi
 在工程 `tmp/` 的隔离目标里安装真实签名包，不触碰 `/Applications`。六组变异护 SHA256、
 应用标识、签名完整性、递归清除 quarantine、替换失败恢复与平台/运行中保护；每组目标红、
 独立对照绿、SHA 回滚。dev/full 打包后都用本轮 ZIP 运行，验证当前脚本与本轮产物配套。）
-（`tmux` 以 `python3 scripts/mutation-check-tmux.py` 跑 26 组隔离变异（当前脚本数量）：缺失判定、
+（`tmux` 以 `python3 scripts/mutation-check-tmux.py` 跑 27 组隔离变异（当前脚本数量）：缺失判定、
 重复/UTF-8 解析、未知策略/结果、明确拒绝、版本、format/分号/shell 引用、身份、禁止 attach 起新 server、
-尺寸接线、丢失本地退出状态、关闭标准描述符、取消及探测错误分类。目标断言红、同变异下独立对照绿、SHA 回滚；make 整秒时间戳下强制重链，
+尺寸接线、丢失本地退出状态、关闭标准描述符、子命令信号隔离、取消及探测错误分类。目标断言红、同变异下独立对照绿、SHA 回滚；make 整秒时间戳下强制重链，
 不让旧可执行文件冒充变异结果。普通离线 gate 只跑命令与恶意输出夹具；真实本地/SSH
 八模式（含已有空 server 与 owner 被 SIGKILL）另以 `test-tmux.py` / `test-tmux-ssh.py` 执行，缺 tmux 时明确失败，不算通过。已与 `tmux-ui` 纳入 CI full 档；Linux 与真实 SSH/断网仍是手工证据。）
 （`tmux-ui` 用 `python3 scripts/mutation-check-tmux-ui.py` 验新格子不覆盖任务、detach 保留

@@ -610,6 +610,16 @@ gt_transport_t *gt_tmux_attach(gt_tmux_t *t, const gt_tmux_session_t *target,
   if (!size)
     size = &zero;
   if (ssh) {
+    /* A second authenticated connection may reach a different backend or have
+     * a key-specific restricted-command namespace. Validate where attach will
+     * actually execute, using the same total budget, before opening a PTY. */
+    gt_tmux_t execution = *t;
+    execution.ssh = ssh;
+    rc = validate(&execution, target, &b);
+    if (rc) {
+      if (out_status) *out_status = (gt_status_t)rc;
+      return NULL;
+    }
     char *command = shell_command(argv);
     if (!command) {
       if (out_status) *out_status = GT_ERR_INTERNAL;

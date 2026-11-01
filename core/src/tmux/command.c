@@ -118,6 +118,12 @@ int gt__command_local(const char *exe, const char *const *argv,
     maxfd = 65536;
   pid_t pid = fork();
   if (pid == 0) {
+    /* Management commands may fork a long-lived tmux server. Do not let a
+     * GUI worker's blocked signals become that server's lifetime policy.
+     * This is child-only and async-signal-safe, like the PTY exec path. */
+    sigset_t child_signals;
+    sigemptyset(&child_signals);
+    if (sigprocmask(SIG_SETMASK, &child_signals, NULL) != 0) _exit(126);
     setpgid(0, 0);
     int nullfd = open("/dev/null", O_RDONLY);
     if (nullfd < 0 || dup2(nullfd, 0) < 0 || dup2(pipes[0][1], 1) < 0 ||

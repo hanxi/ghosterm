@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel(), settings: SettingsViewModel = viewModel(), about: AboutViewModel = viewModel()) {
+fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel(), settings: SettingsViewModel = viewModel(), about: AboutViewModel = viewModel(), tmux: TmuxViewModel = viewModel()) {
     val applied by settings.settings.state.collectAsState()
     val runtime by runtimeModel.state.collectAsState()
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) hosts.readImport(uri) }
@@ -105,6 +105,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         SSHConnectionDialog(sessions)
         SSHConnectionDialog(fileTasks.authentication,fileTasks.presenterId,
             visible=fileTasks.presentsAuthentication && sessions.connecting==null)
+        LaunchedEffect(sessions.connecting?.id,tmux.visible) { if(tmux.visible) tmux.authenticationDismissed() }
         SSHSessionChoices(sessions)
         if(fileTasks.visible) { FileTasksScreen(fileTasks);return@MaterialTheme }
         if (files.visible) {
@@ -133,6 +134,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
             TerminalScreen(sessions, files::enter)
             return@MaterialTheme
         }
+        if(tmux.visible) { TmuxScreen(tmux);return@MaterialTheme }
         Scaffold(topBar = {
             TopAppBar(title = { Text(when (hosts.page) {
                 Page.HOSTS -> "主机"; Page.SETTINGS -> settings.section?.title ?: "设置"; Page.ABOUT -> about.selected?.title ?: "关于 Ghosterm"
@@ -180,7 +182,9 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     }
                 }
                 when (hosts.page) {
-                    Page.HOSTS -> HostsPage(hosts, sessions, files::enter)
+                    Page.HOSTS -> HostsPage(hosts, sessions, files::enter) { host ->
+                        hosts.checkConnection(host) { request -> tmux.open(request,sessions) }
+                    }
                     Page.EDIT_HOST -> EditHostPage(hosts)
                     Page.KNOWN_HOSTS -> KnownHostsScreen(knownHosts)
                     Page.IDENTITIES -> IdentitiesScreen(identities) {
@@ -232,7 +236,8 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
 }
 
 @Composable
-private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFiles: () -> Unit) {
+private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFiles: () -> Unit,
+    background: (com.hanxi.ghosterm.domain.Host)->Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (sessions.selectingNewRemote) item {
             Row { Text("选择要新建会话的主机",Modifier.weight(1f)); TextButton(onClick = sessions::cancelNewRemote) { Text("取消") } }
@@ -254,6 +259,8 @@ private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFi
                     }
                     TextButton(onClick = { model.edit(host) }, enabled = !model.busy) { Text("编辑") }
                 }
+                TextButton(onClick={ background(host) },enabled=!model.busy && sessions.connecting==null,
+                    modifier=Modifier.padding(horizontal=12.dp).testTag("host-background-"+host.alias)) { Text("后台会话") }
             }
         }
     }

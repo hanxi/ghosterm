@@ -20,6 +20,8 @@ struct gaj_ssh {
     gt_ssh_auth_options_t options;
     ssh_address addresses[GAJ_SSH_MAX_ADDRESSES];
     size_t address_count;
+    ssh_address connected;
+    bool has_connected;
     gt_ssh_auth_info_t info;
     uint64_t request;
     uint64_t deadline; /* Monotonic connection deadline; IO owner only. */
@@ -158,7 +160,12 @@ next_candidate:
         publish(s,&info);
         if (info.phase==GT_SSH_AUTH_PHASE_READY) {
             if (!gt_ssh_authenticator_take(auth,&result)) { info.phase=GT_SSH_AUTH_PHASE_FAILED; info.error=GT_ERR_INTERNAL; }
-            else info.phase=GT_SSH_AUTH_PHASE_TAKEN;
+            else {
+                pthread_mutex_lock(&s->mutex);
+                s->connected=s->addresses[candidate];s->has_connected=true;
+                pthread_mutex_unlock(&s->mutex);
+                info.phase=GT_SSH_AUTH_PHASE_TAKEN;
+            }
             publish(s,&info); goto done;
         }
         if (info.phase==GT_SSH_AUTH_PHASE_FAILED || info.phase==GT_SSH_AUTH_PHASE_CANCELLED) goto done;
@@ -263,4 +270,12 @@ jobjectArray gaj_ssh_info(JNIEnv *env, gaj_ssh *s) {
         (*env)->SetObjectArrayElement(env,out,i,value); (*env)->DeleteLocalRef(env,value);
     }
     return out;
+}
+
+bool gaj_ssh_connected_address(gaj_ssh *s,uint8_t address[16],uint8_t *family,uint32_t *scope) {
+    if(!s || !address || !family || !scope)return false;
+    pthread_mutex_lock(&s->mutex);
+    bool ready=s->has_connected;
+    if(ready){memcpy(address,s->connected.bytes,16);*family=s->connected.family;*scope=s->connected.scope;}
+    pthread_mutex_unlock(&s->mutex);return ready;
 }

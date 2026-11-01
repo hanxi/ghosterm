@@ -146,7 +146,28 @@ static void send(gt_transport_t *t, const char *s) {
   CHECK(gt_transport_write(t, (const uint8_t *)s, strlen(s)) == 0,
         "transport input");
 }
-static void command_tests(void) {
+static void command_tests(const char *self) {
+  sigset_t blocked, original, after;
+  sigemptyset(&blocked);
+  sigaddset(&blocked, SIGTERM);
+  sigaddset(&blocked, SIGCHLD);
+  sigaddset(&blocked, SIGHUP);
+  CHECK(pthread_sigmask(SIG_BLOCK, &blocked, &original) == 0,
+        "block caller signals for actual exec probe");
+  const char *probe[] = {self, "command-signal-mask-child", NULL};
+  gt_command_budget_t probe_budget = {gt__command_now() + 2000, NULL, NULL};
+  gt_command_result_t probe_result = {0};
+  int probe_status = gt__command_local(self, probe, &probe_budget, &probe_result);
+  int mask_status = pthread_sigmask(SIG_SETMASK, NULL, &after);
+  int restore_status = pthread_sigmask(SIG_SETMASK, &original, NULL);
+  CHECK(mask_status == 0 && restore_status == 0 &&
+            sigismember(&after, SIGTERM) && sigismember(&after, SIGCHLD) &&
+            sigismember(&after, SIGHUP), "command preserves caller signal mask");
+  CHECK(probe_status == GT_OK && probe_result.completed &&
+            probe_result.exit_code == 0 && probe_result.out &&
+            !strcmp(probe_result.out, "0 0 0\n"),
+        "command child does not inherit caller signal mask");
+  gt__command_free(&probe_result);
   char *quoted = gt__command_quote("a'$(touch nope);\n");
   CHECK(quoted && !strcmp(quoted, "'a'\\''$(touch nope);\n'"),
         "POSIX single quoting");
@@ -591,8 +612,15 @@ static void network(const char *mode, const gt_tmux_opts_t *options) {
 }
 
 int main(int argc, char **argv) {
+  if (argc == 2 && !strcmp(argv[1], "command-signal-mask-child")) {
+    sigset_t mask;
+    if (sigprocmask(SIG_SETMASK, NULL, &mask)) return 2;
+    printf("%d %d %d\n", sigismember(&mask, SIGTERM),
+           sigismember(&mask, SIGCHLD), sigismember(&mask, SIGHUP));
+    return 0;
+  }
   if (argc == 2 && !strcmp(argv[1], "command")) {
-    command_tests();
+    command_tests(argv[0]);
     return 0;
   }
   if (argc == 4 && !strcmp(argv[1], "discover")) {

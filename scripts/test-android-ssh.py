@@ -81,18 +81,27 @@ def main():
     queue_peer=importlib.util.module_from_spec(spec);spec.loader.exec_module(queue_peer)
     queue_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1' or
                  'RemoteFileTasksProductTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
-    with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data, channels.fixture(work,channel_tests) as channel_data, queue_peer.fixture(work,queue_tests) as queue_data:
+    spec=importlib.util.spec_from_file_location('tmux_fixture',ROOT/'scripts/lib/android-tmux-fixture.py')
+    tmux_fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(tmux_fixture)
+    tmux_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_TMUX_MUTATE')=='1' or
+                'Tmux' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
+    with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data, channels.fixture(work,channel_tests) as channel_data, queue_peer.fixture(work,queue_tests) as queue_data, tmux_fixture.fixture(ROOT,work,tmux_tests,locale) as tmux_data:
         token=secrets.token_hex(32)
         # No key text in instrumentation arguments, output logs, repository, or device files.
         payload=json.dumps(dict(user=user,port=int(port),pem=Path(key).read_text(),
             clientFingerprint=run(['ssh-keygen','-lf',str(key)+'.pub','-E','sha256']).split()[1],
             fingerprint=os.environ['GT_TEST_HOSTKEY_SHA256'],public=Path(work,'hostkey.pub').read_text(),
-            wrongPem=Path(work,'hostkey').read_text(),otherPublic=Path(work,'clientkey.pub').read_text(),**credential_data,**channel_data,**file_data,**queue_data)).encode()
+            wrongPem=Path(work,'hostkey').read_text(),otherPublic=Path(work,'clientkey.pub').read_text(),**credential_data,**channel_data,**file_data,**queue_data,**tmux_data)).encode()
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):
                 self.connection.settimeout(5)
                 supplied=self.rfile.readline(128).strip().decode('ascii',errors='ignore')
-                if hmac.compare_digest(supplied,token): self.wfile.write(payload+b'\n')
+                if hmac.compare_digest(supplied,token):
+                    value=json.loads(payload)
+                    if tmux_tests:
+                        journal=Path(value['tmux']['createLog'])
+                        value['tmux']['createAttempts']=len(journal.read_bytes().splitlines()) if journal.exists() else 0
+                    self.wfile.write(json.dumps(value).encode()+b'\n')
         with socketserver.ThreadingTCPServer(('127.0.0.1',0),Handler) as server:
             server.daemon_threads=True
             fixture_port=server.server_address[1]
@@ -180,6 +189,10 @@ def main():
                         spec=importlib.util.spec_from_file_location('remote_journal_mutations',ROOT/'scripts/mutation-check-android-remote-journal.py')
                         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                         module.execute(ROOT,build,test,crash)
+                if os.environ.get('ANDROID_TMUX_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('tmux_mutations',ROOT/'scripts/mutation-check-android-tmux.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_KITTY_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('kitty_mutations',ROOT/'scripts/mutation-check-android-kitty.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

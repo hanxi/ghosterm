@@ -21,6 +21,14 @@ class ResolvedSSHConnection(val host: String, val port: Int, val user: String,
     internal fun open(): Long = NativeSession.createRemote(host.toByteArray(Charsets.UTF_8), port,
         user.toByteArray(Charsets.UTF_8), knownHosts.toByteArray(Charsets.UTF_8),
         candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis)
+    internal fun openTmux(fence: Int,budget: Int,socket: ByteArray): Long =
+        NativeTmux.create(host.toByteArray(Charsets.UTF_8),port,user.toByteArray(Charsets.UTF_8),
+            knownHosts.toByteArray(Charsets.UTF_8),candidates.map { it.bytes() }.toTypedArray(),
+            candidates.map { it.scope }.toIntArray(),timeoutMillis,fence,budget,socket)
+    internal fun openTmuxTarget(manager: Long,snapshot: Long,index: Int): Long =
+        NativeSession.createRemoteTmux(host.toByteArray(Charsets.UTF_8),port,user.toByteArray(Charsets.UTF_8),
+            knownHosts.toByteArray(Charsets.UTF_8),candidates.map { it.bytes() }.toTypedArray(),
+            candidates.map { it.scope }.toIntArray(),timeoutMillis,manager,snapshot,index)
 }
 
 /** Shared authentication control only; terminal bytes never cross this interface. */
@@ -32,7 +40,9 @@ interface AuthenticatedSSH : java.io.Closeable {
 }
 
 /** SSH authentication and terminal IO share one native owner. No terminal bytes enter Kotlin. */
-class RemoteSession(connection: ResolvedSSHConnection) : NativeTerminalSession(connection.open(), true), AuthenticatedSSH {
+class RemoteSession private constructor(handle: Long) : NativeTerminalSession(handle, true), AuthenticatedSSH {
+    constructor(connection: ResolvedSSHConnection):this(connection.open())
+    constructor(connection: ResolvedSSHConnection,target: RemoteTmuxTarget):this(target.open(connection))
     override fun decide(prompt: SSHAuthState, accept: Boolean) = respond(prompt, if (accept) 1 else 2)
     /** Buffers are consumed and zeroed on success AND failure. Never pass an immutable password String. */
     override fun password(prompt: SSHAuthState, password: ByteArray) = respond(prompt, 3, password)

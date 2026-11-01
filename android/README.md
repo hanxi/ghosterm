@@ -1,9 +1,11 @@
 # Android 宿主
 
-**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](../docs/reference/android-implementation.md#android-kitty)，不扩大为整个 A2 完成。
+**当前工作区（2026-11-01，A8）**：远端 tmux 后台会话已接主机入口、真实探测/列表/新建/重命名/结束和独立 SSH attach；普通 SSH 入口保持独立。API 29 / API 36 各 45 项组合专项、十二组 Android 变异、共享核心 47 项与 27 组 tmux 变异通过；macOS 原生构建与九项 tmux UI 回归通过。发行包与完整设备矩阵另验，见[后台会话记录](../docs/reference/android-implementation.md#android-tmux)。此前 Kitty 图形/动画、48dp 正式图标与 Nerd Fonts 均已发布；当前最新已验云端包为 `de1fd4a`（7,826,823 字节）。A2 真机/完整输入性能、A3 网络、A5 跨远端命名空间、A6 历史核对/残留清理和 A10 全矩阵仍未完成，整个客户端目标保持进行中。
+
+**历史 A6 切片（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](../docs/reference/android-implementation.md#android-kitty)，不扩大为整个 A2 完成。
 
 
-**上一已验包（2026-11-01，`a70a0d0`，保留原专项证据）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程首次完整 626 项在 1,800 秒总时限处终止（563 项成功结束、未见失败事件），未计完整通过，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口仍在隔离验证；最终按用户要求共用 dev Release，固定渠道文件名和平台间保留校验正在主工程验收；整个 Android 目标、设备与输入法矩阵尚未完成。
+**历史已验包（2026-11-01，`a70a0d0`，保留原专项证据）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程首次完整 626 项在 1,800 秒总时限处终止（563 项成功结束、未见失败事件），未计完整通过，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口仍在隔离验证；最终按用户要求共用 dev Release，固定渠道文件名和平台间保留校验正在主工程验收；整个 Android 目标、设备与输入法矩阵尚未完成。
 
 **历史已发行验收（§9.79，2026-11-01，ca6f104）**：API 29 文件访问的高版本 API 崩溃已修复，组合接受和单 LF 回车顺序已修正；相关新增/既有变异分轮通过。新完整 **498 项通过，零失败/错误/跳过**（1350.909 秒），实际具名开始/结束与 498 项默认发现集合一致；753 份非 Markdown 输入集合/SHA256 不变，两份已安装 APK 与构建摘要匹配。完整套件只覆盖 API 36 arm64 / 4 KB 页模拟器；API 29 的 86 项文件/导入专项另行通过，raw 终端、旧版 Gboard 坐标同步、真实设备和完整发行矩阵仍未完成。同提交云端签名 release 已下载验包：5,903,897 字节，固定证书、非 debuggable/minSdk 29/仅 arm64、三份压缩 native 库、ELF/ZIP 16 KB 对齐均通过；API 36 / 16 KB 页已验保留数据升级、28 字节复制/保留两者/预览与真实本地终端提示符。API 29 的本地包（5,904,217 字节）另验预览和 27 字节复制，但 Gboard 输入仍失败。云端链接和分档证据见本节末；§9.81 工作区已修正输入窗口与编辑提交边界，API 36 的 14 项/API 29 的 3 项专项通过；新增 18 组变异已分两轮完成，既有组合/终端/文本变异与组合四模块 lint 已通过；工作区新完整 523 项与本地签名 release 专项通过（§9.82），不借用这份旧已发行结果。
 
@@ -323,3 +325,8 @@ ANDROID_SERIAL=设备 ANDROID_COPY_PROGRESS_MUTATE=1 bash scripts/test-android-s
 ```
 
 25 组新增变异使用真实编译的目标断言红、同 APK 独立配置对照绿、恢复绿及 SHA256。受影响旧变异累计 114 组分轮通过；完整 491 项通过，范围和失败/恢复历史见[§9.77](../docs/reference/android-implementation.md#977-a6-文件阶段进度与任务页面2026-11-01)。该脚本为手工设备验证，未加入 macOS CI 20 份覆盖。
+
+
+## 可选远端后台会话
+
+主机卡片的「后台会话」显式探测远端 tmux，支持路径/版本、真实列表、新建/重命名/确认结束和独立 SSH 客户端连接；不自动安装或修改远端 tmux 配置。关闭客户端不发送结束命令，结果未知不自动重试，断线须刷新重选。手机本地 tmux 未提供。Core 操作由独立 native actor 管理，终端仍消费普通 Transport，详见 [A8 接线与验收](../docs/reference/android-implementation.md#android-tmux)。
