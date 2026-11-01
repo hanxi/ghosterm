@@ -1,6 +1,6 @@
 # 能力矩阵
 
-**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。新增必需项：Android Kitty 图形及动画（§5.2），尚未接入 Canvas，不记为支持。
+**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](android-implementation.md#android-kitty)，不扩大为整个 A2 完成。
 
 **后续验收（§9.93–§9.94）**：SAF 与缩小图标已随 a70a0d0 发行；626 项完整运行仍在执行。独立通道方案已取消，改为共用 dev；预览副本清理仍未合入，分开记录。
 
@@ -105,6 +105,7 @@
 | Linux | full libghostty（OpenGL 4.3） | ❌ |
 | Web | libghostty-vt + 自绘（wasm） | ❌ |
 | Android | libghostty-vt + 自绘 | 🟡 | A0 已验；A2 本地 PTY→VT→Canvas 与 InputConnection 首片已交付，文本操作切片接入文本选择/复制粘贴/本地清屏；API 36 arm64 / 4 KB 页模拟器验证见实现计划 §9.14。选区边缘滚动/Ctrl 生命周期切片已验（§9.15）；Ctrl 标点、模式感知 Enter 与真实 Gboard 拼音基本路径已验（§9.16）；后续按键重复/释放与焦点归属已验（§9.17，94 项完整设备测试、18+2 组选组变异）；后续修饰键/数字键盘/组合音符及静止文本闪烁已验（§9.18–§9.19），§9.21 短时取帧与性能探针通过完整 101 项、四组性能变异及五组回归；已有模拟器 debug 基线，真机/release/长负载及物理键盘/布局矩阵未完成 |
+| Android Kitty 图形/动画 | libghostty-vt + 系统 PNG + Canvas | 🟡 | 已接通静态、Unicode、帧传输/播放/停止/合成及隐藏停 tick；API 29 21 项专项与首批八组变异通过，其他设备与发行状态见[当前证据](android-implementation.md#android-kitty) |
 | HarmonyOS | libghostty-vt + ArkUI Canvas | ❌ |
 | Windows | 待定 | ❌ |
 

@@ -1,8 +1,11 @@
 #include "surface.h"
+#include "android_graphics.h"
 #include <ghostty/vt.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <string.h>
 
+static atomic_ullong animation_ticks;
 struct gat_surface {
     GhosttyTerminal terminal;
     GhosttyRenderState render;
@@ -13,6 +16,8 @@ struct gat_surface {
     gat_write_fn write;
     void *context;
     bool write_ok;
+    uint16_t cw,ch;
+    gat_graphics_cache *graphics;
 };
 
 static void reply(GhosttyTerminal terminal, void *context, const uint8_t *bytes, size_t length) {
@@ -26,6 +31,8 @@ gat_surface *gat_surface_new(gat_write_fn write, void *context, const char **err
     gat_surface *s = calloc(1, sizeof(*s));
     if (!s) return NULL;
     s->write = write; s->context = context; s->write_ok = true;
+    s->cw=8;s->ch=16;s->graphics=gat_graphics_new();
+    if(!s->graphics) { free(s);return NULL; }
 #define INIT(call, message) do { if ((call) != GHOSTTY_SUCCESS) { *error = message; gat_surface_free(s); return NULL; } } while (0)
     INIT(ghostty_terminal_new(NULL, &s->terminal, 80, 24), "无法创建 VT 网格");
     INIT(ghostty_render_state_new(NULL, &s->render), "无法创建 VT 渲染状态");
@@ -35,11 +42,15 @@ gat_surface *gat_surface_new(gat_write_fn write, void *context, const char **err
     INIT(ghostty_key_event_new(NULL, &s->key), "无法创建 VT 按键事件");
     GhosttyColorRgb background = {23, 27, 32}, foreground = {228, 232, 238};
     size_t scrollback = 8 * 1024 * 1024;
+    size_t images = 16 * 1024 * 1024, graphics_buffer = 8 * 1024 * 1024;
     INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_USERDATA, s), "无法设置 VT 上下文");
     INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, (const void *)reply), "无法设置 VT 输入回调");
     INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &background), "无法设置终端背景色");
     INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, &foreground), "无法设置终端前景色");
     INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, &scrollback), "无法设置终端滚动历史");
+    INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT, &images), "无法设置图像存储限额");
+    INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_APC_MAX_BYTES_KITTY, &graphics_buffer), "无法设置图像输入限额");
+    INIT(ghostty_terminal_resize(s->terminal,80,24,s->cw,s->ch), "无法设置初始终端像素尺寸");
 #undef INIT
     return s;
 }
@@ -48,7 +59,7 @@ void gat_surface_free(gat_surface *s) {
     if (!s) return;
     ghostty_key_event_free(s->key); ghostty_key_encoder_free(s->encoder);
     ghostty_render_state_row_cells_free(s->cells); ghostty_render_state_row_iterator_free(s->rows);
-    ghostty_render_state_free(s->render); ghostty_terminal_free(s->terminal); free(s);
+    gat_graphics_free(s->graphics);ghostty_render_state_free(s->render); ghostty_terminal_free(s->terminal); free(s);
 }
 
 void gat_surface_feed(gat_surface *s, const uint8_t *bytes, size_t length) {
@@ -56,7 +67,8 @@ void gat_surface_feed(gat_surface *s, const uint8_t *bytes, size_t length) {
 }
 
 bool gat_surface_resize(gat_surface *s, uint16_t cols, uint16_t rows, uint16_t cw, uint16_t ch) {
-    return ghostty_terminal_resize(s->terminal, cols, rows, cw, ch) == GHOSTTY_SUCCESS;
+    if(ghostty_terminal_resize(s->terminal,cols,rows,cw,ch)!=GHOSTTY_SUCCESS)return false;
+    s->cw=cw;s->ch=ch;return true;
 }
 
 static void bottom(gat_surface *s) {
@@ -229,7 +241,7 @@ int gat_surface_action(gat_surface *s, int kind, int x, int y,
 static int32_t color(GhosttyColorRgb c) { return (int32_t)(0xff000000u | (uint32_t)c.r << 16 | (uint32_t)c.g << 8 | c.b); }
 
 /* Private packed frame v1: 10 header integers then (bg, fg, flags, width, n, codepoints...) per cell.
- * flags: bold=1 italic=2 faint=4 invisible=8 strike=16 underline=32 overline=64 blink=128.
+ * flags: bold=1 italic=2 faint=4 invisible=8 strike=16 underline=32 overline=64 blink=128 selected=256 defaultBackground=512.
  * Every glyph, including combining marks and wide-cell spacers, comes from the real VT. */
 bool gat_surface_frame(gat_surface *s, int32_t **values, size_t *count) {
     *values = NULL; *count = 0;
@@ -269,7 +281,7 @@ bool gat_surface_frame(gat_surface *s, int32_t **values, size_t *count) {
             (void)ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_SELECTED, &selected);
             out[used++] = color(style.inverse ? fg : bg); out[used++] = color(style.inverse ? bg : fg);
             out[used++] = style.bold | style.italic << 1 | style.faint << 2 | style.invisible << 3 |
-                style.strikethrough << 4 | (style.underline != 0) << 5 | style.overline << 6 | style.blink << 7 | selected << 8;
+                style.strikethrough << 4 | (style.underline != 0) << 5 | style.overline << 6 | style.blink << 7 | selected << 8 | ((style.bg_color.tag==GHOSTTY_STYLE_COLOR_NONE && !style.inverse) << 9);
             out[used++] = wide == GHOSTTY_CELL_WIDE_NARROW ? 1 : wide == GHOSTTY_CELL_WIDE_WIDE ? 2 : 0;
             out[used++] = (int32_t)n;
             if (n && ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, out + used) != GHOSTTY_SUCCESS) goto failed;
@@ -280,3 +292,13 @@ bool gat_surface_frame(gat_surface *s, int32_t **values, size_t *count) {
 failed:
     free(out); return false;
 }
+
+bool gat_surface_animation_tick(gat_surface *s,uint64_t now_ms,bool *changed,uint64_t *delay_ms) {
+    atomic_fetch_add(&animation_ticks,1);
+    return ghostty_kitty_graphics_animation_tick(s->terminal,now_ms,changed,delay_ms)==GHOSTTY_SUCCESS;
+}
+bool gat_surface_graphics(gat_surface *s,gat_graphics_frame **frame,bool *changed) {
+    return gat_graphics_capture(s->graphics,s->terminal,s->cw,s->ch,frame,changed);
+}
+
+uint64_t gat_surface_animation_ticks(void) { return atomic_load(&animation_ticks); }

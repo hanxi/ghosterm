@@ -5,6 +5,8 @@ interface TerminalSurface {
     /** Acknowledged on the VT owner; never injected into the terminal byte stream. */
     suspend fun configure(appearance: TerminalAppearance)
     fun frame(after: Long): TerminalFrame?
+    fun graphics(after: Long): TerminalGraphics? = null
+    fun visible(value: Boolean) {}
     fun resize(cols: Int, rows: Int, cellWidth: Int, cellHeight: Int)
     fun commit(text: String)
     /** Layout character without modifiers, for VT keyboard protocols; zero means unavailable. */

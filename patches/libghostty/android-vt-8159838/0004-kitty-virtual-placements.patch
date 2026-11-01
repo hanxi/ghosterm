@@ -1,0 +1,138 @@
+--- a/src/terminal/c/kitty_graphics.zig
++++ b/src/terminal/c/kitty_graphics.zig
+@@ -228,6 +228,93 @@
+ 
+     const storage = graphics_;
+     return storage.images.getPtr(image_id);
++}
++
++pub const VirtualRenderFn = *const fn (?*anyopaque, u32, u32, i32, u32, u32, *const PlacementRenderInfo) callconv(lib.calling_conv) bool;
++
++/// Resolve placeholder cells using the same Unicode and geometry implementation
++/// as the full renderer. Also resolves children anchored to virtual placements.
++pub fn virtual_render(
++    terminal_: terminal_c.Terminal,
++    cell_width: u32,
++    cell_height: u32,
++    visit_: ?VirtualRenderFn,
++    context: ?*anyopaque,
++) callconv(lib.calling_conv) Result {
++    const wrapper = terminal_ orelse return .invalid_value;
++    const visit = visit_ orelse return .invalid_value;
++    if (cell_width == 0 or cell_height == 0) return .invalid_value;
++    if (comptime !build_options.kitty_graphics) return .no_value;
++    const t = wrapper.terminal;
++    const storage = &t.screens.active.kitty_images;
++    const pages = &t.screens.active.pages;
++    const top = pages.getTopLeft(.viewport);
++    const bottom = pages.getBottomRight(.viewport) orelse return .success;
++    const unicode = @import("../kitty/graphics_unicode.zig");
++    var origins: std.AutoHashMapUnmanaged(kitty_storage.ImageStorage.PlacementKey, struct { x: u32, y: u32 }) = .empty;
++    defer origins.deinit(t.gpa());
++    var iterator = unicode.placementIterator(top, bottom);
++    while (iterator.next()) |p| {
++        const target = storage.placeholderTarget(p.image_id, p.placement_id) orelse continue;
++        const viewport = pages.pointFromPin(.viewport, p.pin) orelse continue;
++        const origin = origins.getOrPut(t.gpa(), target.key) catch return .out_of_memory;
++        if (!origin.found_existing) {
++            origin.value_ptr.* = .{ .x = viewport.viewport.x, .y = viewport.viewport.y };
++        } else {
++            origin.value_ptr.x = @min(origin.value_ptr.x, viewport.viewport.x);
++            origin.value_ptr.y = @min(origin.value_ptr.y, viewport.viewport.y);
++        }
++        const image = storage.images.getPtr(p.image_id) orelse continue;
++        if (image.data.isPending()) continue;
++        const rendered = p.renderPlacement(storage, image, cell_width, cell_height) catch continue;
++        if (rendered.dest_width == 0 or rendered.dest_height == 0) continue;
++        const info: PlacementRenderInfo = .{
++            .pixel_width = rendered.dest_width,
++            .pixel_height = rendered.dest_height,
++            .grid_cols = p.width,
++            .grid_rows = p.height,
++            .viewport_col = @intCast(viewport.viewport.x),
++            .viewport_row = @intCast(viewport.viewport.y),
++            .viewport_visible = true,
++            .source_x = rendered.source_x,
++            .source_y = rendered.source_y,
++            .source_width = rendered.source_width,
++            .source_height = rendered.source_height,
++        };
++        if (!visit(context, p.image_id, target.key.placement_id.id, -1, rendered.offset_x, rendered.offset_y, &info)) return .limit_exceeded;
++    }
++    var placements = storage.placements.iterator();
++    while (placements.next()) |entry| {
++        const p = entry.value_ptr;
++        const relative = switch (p.location) { .relative => |value| value, else => continue };
++        const chain = storage.resolveChain(relative) orelse continue;
++        if (chain.root.location != .virtual) continue;
++        const origin = origins.get(chain.root_key) orelse continue;
++        const image = storage.images.getPtr(entry.key_ptr.image_id) orelse continue;
++        if (image.data.isPending()) continue;
++        const grid = p.gridSize(image.*, t);
++        if (grid.cols == 0 or grid.rows == 0) continue;
++        const x: i64 = @as(i64, origin.x) + chain.horizontal_offset;
++        const y: i64 = @as(i64, origin.y) + chain.vertical_offset;
++        if (x >= t.cols or x + grid.cols - 1 < 0 or y >= t.rows or y + grid.rows - 1 < 0) continue;
++        const pixels = p.pixelSize(image.*, t);
++        const source = p.sourceRect(image.*);
++        const info: PlacementRenderInfo = .{
++            .pixel_width = pixels.width,
++            .pixel_height = pixels.height,
++            .grid_cols = grid.cols,
++            .grid_rows = grid.rows,
++            .viewport_col = std.math.cast(i32, x) orelse continue,
++            .viewport_row = std.math.cast(i32, y) orelse continue,
++            .viewport_visible = true,
++            .source_x = source.x,
++            .source_y = source.y,
++            .source_width = source.width,
++            .source_height = source.height,
++        };
++        if (!visit(context, entry.key_ptr.image_id, entry.key_ptr.placement_id.id, p.z, p.x_offset, p.y_offset, &info)) return .limit_exceeded;
++    }
++    return .success;
+ }
+ 
+ pub fn image_get(
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -14,6 +14,7 @@
+ pub const kitty_graphics = @import("kitty_graphics.zig");
+ pub const kitty_graphics_get = kitty_graphics.get;
+ pub const kitty_graphics_animation_tick = kitty_graphics.animation_tick;
++pub const kitty_graphics_virtual_render = kitty_graphics.virtual_render;
+ pub const kitty_graphics_image = kitty_graphics.image_get_handle;
+ pub const kitty_graphics_image_get = kitty_graphics.image_get;
+ pub const kitty_graphics_image_get_multi = kitty_graphics.image_get_multi;
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -391,6 +391,7 @@
+         if (features.kitty_graphics) {
+             @export(&c.kitty_graphics_get, .{ .name = "ghostty_kitty_graphics_get" });
+             @export(&c.kitty_graphics_animation_tick, .{ .name = "ghostty_kitty_graphics_animation_tick" });
++            @export(&c.kitty_graphics_virtual_render, .{ .name = "ghostty_kitty_graphics_virtual_render" });
+             @export(&c.kitty_graphics_image, .{ .name = "ghostty_kitty_graphics_image" });
+             @export(&c.kitty_graphics_image_get, .{ .name = "ghostty_kitty_graphics_image_get" });
+             @export(&c.kitty_graphics_image_get_multi, .{ .name = "ghostty_kitty_graphics_image_get_multi" });
+--- a/include/ghostty/vt/kitty_graphics.h
++++ b/include/ghostty/vt/kitty_graphics.h
+@@ -523,6 +523,19 @@
+     bool* out_changed,
+     uint64_t* out_delay_ms);
+ 
++/** Visit resolved Unicode-placeholder fragments and relative children rooted
++ * at visible virtual placements. The callback consumes borrowed geometry and
++ * returns false to stop with LIMIT_EXCEEDED. No terminal mutation is allowed
++ * from the callback. This uses the upstream Unicode placement implementation.
++ */
++typedef bool (*GhosttyKittyVirtualPlacementFn)(void* context,
++    uint32_t image_id, uint32_t placement_id, int32_t z,
++    uint32_t x_offset, uint32_t y_offset,
++    const GhosttyKittyGraphicsPlacementRenderInfo* geometry);
++GHOSTTY_API GhosttyResult ghostty_kitty_graphics_virtual_render(
++    GhosttyTerminal terminal, uint32_t cell_width, uint32_t cell_height,
++    GhosttyKittyVirtualPlacementFn visit, void* context);
++
+ /**
+  * Look up a Kitty graphics image by its image ID.
+  *

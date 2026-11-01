@@ -6,6 +6,7 @@
 
 /* Engine-only seam. All calls belong to one IO owner; no transport/UI types. */
 typedef struct gat_surface gat_surface;
+typedef struct gat_graphics_frame gat_graphics_frame;
 typedef bool (*gat_write_fn)(void *, const uint8_t *, size_t);
 gat_surface *gat_surface_new(gat_write_fn write, void *context, const char **error);
 void gat_surface_free(gat_surface *surface);
@@ -22,4 +23,7 @@ int gat_surface_action(gat_surface *surface, int kind, int x, int y,
     const uint8_t *bytes, size_t length, uint8_t **result, size_t *result_length);
 /* Caller owns returned allocation. Integers describe cells, never raw PTY output. */
 bool gat_surface_frame(gat_surface *surface, int32_t **values, size_t *count);
+bool gat_surface_animation_tick(gat_surface *surface,uint64_t now_ms,bool *changed,uint64_t *delay_ms);
+bool gat_surface_graphics(gat_surface *surface,gat_graphics_frame **frame,bool *changed);
+uint64_t gat_surface_animation_ticks(void);
 #endif

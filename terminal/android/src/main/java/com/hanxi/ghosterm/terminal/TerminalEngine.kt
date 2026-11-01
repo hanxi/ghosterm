@@ -7,4 +7,6 @@ object TerminalEngine {
     private external fun versionBytes(): ByteArray
     /** Creates a native VT, feeds input, and returns cursor position (load/ABI probe). */
     external fun probeCursor(input: ByteArray): IntArray
+    /** Native protocol/clock probe; this does not claim Canvas image support. */
+    external fun probeKittyFrames(input: ByteArray, imageId: Int, ticks: LongArray): IntArray
 }

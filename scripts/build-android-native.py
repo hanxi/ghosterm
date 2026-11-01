@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PIN = '81598385d608dda4946093d6d6a234d204a2f225'
 NDK = '28.2.13676358'
 VT_PATCHES = [ROOT / 'patches/libghostty/android-vt-8159838' / name for name in
-              ('0001-link-android-libc.patch', '0002-local-clear.patch')]
+              ('0001-link-android-libc.patch', '0002-local-clear.patch', '0003-kitty-animation-clock.patch', '0004-kitty-virtual-placements.patch', '0005-kitty-android-limits.patch')]
 SSH2_PATCHES = [ROOT / 'patches/libssh2/1.11.1' / name for name in
                 ('0001-sftp-eof.patch', '0002-sftp-init-cleanup.patch', '0003-sftp-name-bounds.patch')]
 SOURCES = {
@@ -109,7 +109,7 @@ def main():
     for name, filename in [('openssl-3.5.4', 'LICENSE.txt'), ('libssh2-1.11.1', 'COPYING')]:
         shutil.copyfile(source(name, work) / filename, licenses / (name + '.txt'))
     artifacts = [prefix / 'lib' / n for n in ('libcrypto.a', 'libssh2.a', 'libghostty-vt.a')]
-    artifacts.append(prefix / 'include/ghostty/vt/terminal.h')
+    artifacts.extend(prefix / 'include/ghostty/vt' / name for name in ('terminal.h', 'kitty_graphics.h'))
     if receipt.exists() and all(p.exists() for p in artifacts):
         saved = json.loads(receipt.read_text())
         if verified_artifacts(saved, signature, artifacts):

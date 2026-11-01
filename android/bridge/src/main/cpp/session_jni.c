@@ -11,6 +11,8 @@
 #include <sys/stat.h>
 #include "ghosterm.h"
 #include "surface.h"
+#include "android_png.h"
+#include "android_graphics.h"
 #include "ssh_session.h"
 
 /* Each transport AND VT has one native owner. JNI never calls transport/VT.
@@ -30,7 +32,7 @@ typedef struct command {
 } command;
 typedef struct session {
     size_t refs;
-    atomic_bool stop, frame_requested;
+    atomic_bool stop, frame_requested, graphics_requested, visible;
     pthread_mutex_t mutex;
     char *home;
     gaj_ssh *remote;
@@ -49,6 +51,8 @@ typedef struct session {
     int32_t *frame;
     size_t frame_length;
     uint64_t revision, frame_revision;
+    gat_graphics_frame *graphics_frame;
+    uint64_t graphics_revision, graphics_source_revision;
     /* Below: exclusively accessed by owner. */
     gt_transport_t *transport;
     gat_surface *surface;
@@ -68,7 +72,7 @@ static void release(session *s) {
     if (!destroy) return;
     command *cmd = s->first;
     while (cmd) { command *next = cmd->next; free(cmd); cmd = next; }
-    gaj_ssh_free(s->remote); free(s->action_result); free(s->frame); free(s->home); pthread_mutex_destroy(&s->mutex); free(s);
+    gat_graphics_frame_free(s->graphics_frame);gaj_ssh_free(s->remote); free(s->action_result); free(s->frame); free(s->home); pthread_mutex_destroy(&s->mutex); free(s);
 }
 static session *borrow(JNIEnv *env, jlong id) {
     if (id <= 0) { fail(env, "终端会话已关闭"); return NULL; }
@@ -138,7 +142,7 @@ static void *owner(void *context) {
     if (!s->surface) { failed(s, engine_error); goto finished; }
     pthread_mutex_lock(&s->mutex); s->state = 1; pthread_mutex_unlock(&s->mutex);
     s->revision = 1;
-    uint8_t output[4096];
+    uint8_t output[4096];uint64_t animation_at=UINT64_MAX,animation_revision=0;bool graphics_dirty=false;
     while (!atomic_load(&s->stop)) {
         pthread_mutex_lock(&s->mutex);
         bool resize = s->size_pending; s->size_pending = false;
@@ -202,6 +206,26 @@ static void *owner(void *context) {
             gt_ssh_close(s->ssh); s->ssh = NULL;
             s->revision++; (void)publish(s);
         }
+        bool visible=atomic_load(&s->visible);
+        struct timespec clock;if(clock_gettime(CLOCK_MONOTONIC,&clock)) { failed(s,"无法读取动画时钟");break; }
+        uint64_t now=(uint64_t)clock.tv_sec*1000+(uint64_t)clock.tv_nsec/1000000;
+        if(visible && (animation_revision!=s->revision || now>=animation_at)) {
+            bool changed=false;uint64_t delay=UINT64_MAX;
+            if(!gat_surface_animation_tick(s->surface,now,&changed,&delay)) { failed(s,"无法推进图像动画");break; }
+            if(changed)graphics_dirty=true;
+            animation_revision=s->revision;
+            animation_at=delay>UINT64_MAX-now?UINT64_MAX:now+delay;
+        }
+        if(visible && atomic_exchange(&s->graphics_requested,false) && (s->graphics_source_revision!=s->revision || graphics_dirty)) {
+            gat_graphics_frame *frame=NULL;bool changed=false;
+            if(!gat_surface_graphics(s->surface,&frame,&changed)) { failed(s,"终端图像资源超出支持范围或无法绘制");break; }
+            s->graphics_source_revision=s->revision;graphics_dirty=false;
+            if(changed) {
+                pthread_mutex_lock(&s->mutex);
+                gat_graphics_frame *previous=s->graphics_frame;s->graphics_frame=frame;s->graphics_revision++;
+                pthread_mutex_unlock(&s->mutex);gat_graphics_frame_free(previous);
+            }
+        }
         int child = s->transport ? gt_transport_child_state(s->transport) : GT_TRANSPORT_CHILD_EXITED;
         pthread_mutex_lock(&s->mutex); s->child = child; pthread_mutex_unlock(&s->mutex);
         if (atomic_exchange(&s->frame_requested, false) && s->revision != s->frame_revision && !publish(s)) break;
@@ -217,6 +241,7 @@ finished:
 static jlong start_session(JNIEnv *env, session *s) {
     if (pthread_mutex_init(&s->mutex, NULL)) { gaj_ssh_free(s->remote); free(s->home); free(s); fail(env, "无法初始化终端锁"); return 0; }
     atomic_init(&s->stop, false); atomic_init(&s->frame_requested, true);
+    atomic_init(&s->graphics_requested,true);atomic_init(&s->visible,false);
     s->refs = 2;
     pthread_mutex_lock(&registry_mutex);
     size_t slot = 0; while (slot < SLOTS && registry[slot].value) slot++;
@@ -238,6 +263,7 @@ static jlong start_session(JNIEnv *env, session *s) {
 }
 JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_create(JNIEnv *env, jobject self, jbyteArray home) {
     (void)self;
+    if(!gat_android_png_init(env)) { if(!(*env)->ExceptionCheck(env))fail(env,"无法初始化终端 PNG 解码");return 0; }
     if (!home) { fail(env, "终端目录缺失"); return 0; }
     jsize n = (*env)->GetArrayLength(env, home);
     if (n <= 0 || n > 4096) { fail(env, "终端目录无效"); return 0; }
@@ -254,6 +280,7 @@ JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_create(JNIE
 JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_createRemote(JNIEnv *env, jobject self,
         jbyteArray host, jint port, jbyteArray user, jbyteArray known_hosts, jobjectArray addresses, jintArray scopes, jint timeout) {
     (void)self;
+    if(!gat_android_png_init(env)) { if(!(*env)->ExceptionCheck(env))fail(env,"无法初始化终端 PNG 解码");return 0; }
     gaj_ssh *remote=gaj_ssh_new(env,host,port,user,known_hosts,addresses,scopes,timeout);
     if (!remote) return 0;
     session *s=calloc(1,sizeof(*s));
@@ -332,6 +359,22 @@ JNIEXPORT jintArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_readFra
     }
     pthread_mutex_unlock(&s->mutex); release(s); return result;
 }
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_setVisibility(JNIEnv *env,jobject self,jlong id,jboolean visible) {
+    (void)self;session *s=borrow(env,id);if(!s)return;
+    atomic_store(&s->visible,visible);
+    if(visible) { atomic_store(&s->graphics_requested,true);atomic_store(&s->frame_requested,true); }
+    release(s);
+}
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_readGraphics(JNIEnv *env,jobject self,jlong id,jlong last) {
+    (void)self;session *s=borrow(env,id);if(!s)return NULL;
+    atomic_store(&s->graphics_requested,true);
+    pthread_mutex_lock(&s->mutex);
+    gat_graphics_frame *frame=s->graphics_frame;uint64_t revision=s->graphics_revision;
+    if(revision==(uint64_t)last)frame=NULL;
+    gat_graphics_frame_retain(frame);pthread_mutex_unlock(&s->mutex);
+    jobjectArray result=gat_graphics_frame_java(env,frame,revision);
+    gat_graphics_frame_free(frame);release(s);return result;
+}
 JNIEXPORT jintArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_readState(JNIEnv *env, jobject self, jlong id) {
     (void)self;
     session *s = borrow(env, id); if (!s) return NULL;
@@ -407,4 +450,12 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_endAction(JN
         free(s->action_result); s->action_result = NULL; s->action_length = 0;
     }
     pthread_mutex_unlock(&s->mutex); release(s);
+}
+
+/* Explicit diagnostic pull; no image/terminal payload, no UI event traffic. */
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_readGraphicsMetrics(JNIEnv *env,jobject self) {
+    (void)self;int64_t bitmaps=0,frames=0;gat_graphics_metrics(&bitmaps,&frames);
+    jlong values[]={(jlong)gat_surface_animation_ticks(),(jlong)bitmaps,(jlong)frames};
+    jlongArray result=(*env)->NewLongArray(env,3);
+    if(result)(*env)->SetLongArrayRegion(env,result,0,3,values);return result;
 }

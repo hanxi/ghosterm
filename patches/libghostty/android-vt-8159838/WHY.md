@@ -36,3 +36,19 @@ shell 发送命令或控制字符，因此增加小型 `ghostty_terminal_clear_l
 模式和未完成 OSC；全选/复制验证历史内容消失，备用屏幕清除后主屏内容仍在。
 当前工作区的设备/变异结果见 [Android 实现计划 §9.14](../../../docs/reference/android-implementation.md#914-a2-文本操作工作区与文档复核2026-10-30)；
 文本切片不扩大为完整 A2 验收。上游提供等价、不写 PTY 的 public local-clear API 后可撤此补丁。
+
+## `0003-kitty-animation-clock.patch`
+
+当前 pin 的 Kitty 动画解析/帧合成和 animationTick 已在引擎中实现，C API 也能读取当前帧像素与 generation，但没有暴露时钟推进入口。Android 自绘不能调用 full renderer，也不能等到新的 PTY 输出才刷新动画。此补丁仅经四处 C API 导出接线暴露 owner 驱动的 tick，返回变化与下次唤醒间隔；不新增解析器、线程或全局时钟。无运行中动画与未编译图形保持不同结果，所有借用句柄在 tick 后重新获取。
+
+仅应用于 Android 的隔离 VT 构建；共享 Core ABI 与 Apple full 引擎不变。上游提供等价 public tick 后可撤回。Android Canvas、系统 PNG 解码、owner 帧调度与设备专项见 [Kitty 验收记录](../../../docs/reference/android-implementation.md#android-kitty)；该入口不扩大为完整终端验收。
+
+## `0004-kitty-virtual-placements.patch`
+
+public placement render_info 将 Unicode virtual placement 和以它为根的 relative placement 标为不可见，只有 full renderer 的扫描路径能定位占位字符。Android 需要同一 Unicode/合成几何；此扩展通过只读回调导出上游 placementIterator、renderPlacement 与虚拟根原点折叠，不复制协议解析器或变音符表。回调的图像/位置为借用数据，禁止回调内重入终端，输出数量可由调用方中止并返回 LIMIT_EXCEEDED。构建收据包含补丁及 kitty_graphics.h；设备与发行证据见同一 [Kitty 验收记录](../../../docs/reference/android-implementation.md#android-kitty)。
+
+## 0005 Android Kitty 资源边界与小图占位裁切
+
+Android 单屏图片存储为 16 MiB，平台 Bitmap 上限 4096×4096。上游原始图片默认允许 10000 像素边长，必须在协议接受前拒绝超过 Android 渲染边界的输入，不能等 Canvas 建图失败后结束终端。仅 Android 限定 1024 个图片 ID、4096 个放置、单图 1024 帧、全屏 8192 个附加帧，重复 ID/放置替换仍允许；错误沿原有协议回复，不静默成功。字节额度不能约束极小图的帧与放置元数据，因此另设数量边界。Unicode 源裁切继续使用上游几何，Android 对源矩形向外取整，避免 1 像素图放大至多格后片段四舍五入为零；其他平台保持原行为。
+
+放置网格的单边上限为 65535 格，在协议回复成功之前拒绝超大网格，保证最大单元像素下 Canvas 有符号整数矩形不会溢出；非法放置不终止已有会话。

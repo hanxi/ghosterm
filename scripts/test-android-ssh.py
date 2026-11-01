@@ -180,6 +180,10 @@ def main():
                         spec=importlib.util.spec_from_file_location('remote_journal_mutations',ROOT/'scripts/mutation-check-android-remote-journal.py')
                         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                         module.execute(ROOT,build,test,crash)
+                if os.environ.get('ANDROID_KITTY_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('kitty_mutations',ROOT/'scripts/mutation-check-android-kitty.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_SETTINGS_PROTECTION_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('settings_protection_mutations',ROOT/'scripts/mutation-check-android-settings-protection.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

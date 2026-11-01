@@ -2,6 +2,7 @@ package com.hanxi.ghosterm.bridge
 
 import com.hanxi.ghosterm.terminal.KeyAction
 import com.hanxi.ghosterm.terminal.TerminalFrame
+import com.hanxi.ghosterm.terminal.TerminalGraphics
 import com.hanxi.ghosterm.terminal.TerminalSurface
 import com.hanxi.ghosterm.terminal.TerminalAppearance
 import java.io.Closeable
@@ -15,6 +16,9 @@ open class NativeTerminalSession internal constructor(private var handle: Long, 
     private val actionMutex = Mutex()
     @Synchronized override fun frame(after: Long): TerminalFrame? =
         if (handle == 0L) null else NativeSession.readFrame(handle, after)?.let(TerminalFrame::decode)
+    @Synchronized override fun graphics(after: Long): TerminalGraphics? =
+        if(handle==0L) null else NativeSession.readGraphics(handle,after)?.let(TerminalGraphics::decode)
+    @Synchronized override fun visible(value: Boolean) { if(handle!=0L) NativeSession.setVisibility(handle,value) }
     @Synchronized override fun resize(cols: Int, rows: Int, cellWidth: Int, cellHeight: Int) {
         check(handle != 0L) { "终端会话已关闭" }
         NativeSession.setSize(handle, cols, rows, cellWidth, cellHeight)
@@ -113,6 +117,9 @@ internal object NativeSession {
     external fun dispose(handle: Long)
     external fun enqueue(handle: Long, kind: Int, key: Int, mods: Int, unshiftedCodepoint: Int, action: Int, bytes: ByteArray)
     external fun setSize(handle: Long, cols: Int, rows: Int, cellWidth: Int, cellHeight: Int)
+    external fun readGraphicsMetrics(): LongArray
+    external fun readGraphics(handle: Long, after: Long): Array<Any>?
+    external fun setVisibility(handle: Long, visible: Boolean)
     external fun readFrame(handle: Long, after: Long): IntArray?
     external fun readState(handle: Long): IntArray
     external fun readError(handle: Long): ByteArray

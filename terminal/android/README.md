@@ -36,3 +36,5 @@ Ctrl 标点与键盘协议切片见[§9.16](../../docs/reference/android-impleme
 Android SSH 后端已在[§9.25](../../docs/reference/android-implementation.md#925-android-ssh-认证与远端终端后端2026-10-30)接入相同 native owner、VT 与 TerminalSurface 接口；认证状态是独立控制面，输出不经过 Kotlin。默认 ViewModel 工厂、认证页面、Keystore 容器、多会话选择与远端 Activity 重建已有定向证据，见[§9.27](../../docs/reference/android-implementation.md#927-ssh-产品页面与加密身份容器2026-10-30)。随后修正本地终端测试判据，该切片完整 130 项回归通过。回环 IPv4/IPv6 的真实 SSH 与候选推进后由 §9.40 验收；真实域名、公网/切网及完整 A2/A3 矩阵仍待补。后续 SAF 切片见下文，不能据模拟器首片通过声称阶段完成。
 
 SAF 私钥导入生命周期已按[§9.29](../../docs/reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)完成五项定向、七组变异及完整 135 项设备回归；历史选择器导航与 Activity 重建等待失败保留在 §9.28–§9.29。终端输出接缝未改变，仍须补其他设备、性能与 A3 剩余产品验收。
+
+Kitty 图形及动画已接入同一 Surface：RGB/RGBA、系统 PNG、压缩分块、Unicode 占位图、z 层与透明合成，a=f/a=a/a=c 帧操作及无新输出的定时播放。字节仍直接喂 VT，owner 创建位图并按 generation 缓存，View 只绘制快照；隐藏停止动画 tick。Android 专用补丁 0003–0005 暴露上游时钟/虚拟定位并限制资源；原 pin 与 Apple full 引擎不变，构建收据另核对 kitty_graphics.h。当前设备、变异和发行边界以[Kitty 验收记录](../../docs/reference/android-implementation.md#android-kitty)为准；不把专项通过记成整个 A2 完成。

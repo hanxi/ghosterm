@@ -43,7 +43,7 @@ class TerminalView(context: Context) : View(context) {
             releaseHeldKeys()
             resetTextActions()
             connection?.cancel(); connection = null
-            field = value; currentFrame = null; lastSize = null; inputFrameDeadline = 0L
+            field?.visible(false);field = value;value?.visible(running);currentGraphics=null; currentFrame = null; lastSize = null; inputFrameDeadline = 0L
             ctrl = 0; updateSize(); invalidate()
             inputMethod.restartInput(this)
         }
@@ -146,10 +146,13 @@ class TerminalView(context: Context) : View(context) {
             return true
         }
     })
+    private var currentGraphics: TerminalGraphics?=null
+    private val imagePaint=Paint(Paint.FILTER_BITMAP_FLAG)
     private val tick = object : Runnable {
         override fun run() {
             if (!running) return
             dispatch {
+                surface?.graphics(currentGraphics?.revision ?: 0)?.let { currentGraphics=it;invalidate() }
                 surface?.frame(currentFrame?.revision ?: 0)?.let {
                     currentFrame = it; invalidate(); connection?.anchor(); actionMode?.invalidateContentRect()
                 }
@@ -213,6 +216,7 @@ class TerminalView(context: Context) : View(context) {
         val next = isAttachedToWindow && isShown && windowVisibility == VISIBLE
         if (next == running) return
         running = next
+        dispatch { surface?.visible(next) }
         if (running) post(tick) else removeCallbacks(tick)
     }
     override fun onAttachedToWindow() {
@@ -227,6 +231,7 @@ class TerminalView(context: Context) : View(context) {
         releaseHeldKeys()
         resetTextActions()
         ctrl = 0
+        dispatch { surface?.visible(false) }
         running = false; removeCallbacks(tick); connection?.cancel(); connection = null
         super.onDetachedFromWindow()
     }
@@ -571,14 +576,17 @@ class TerminalView(context: Context) : View(context) {
         val frame = currentFrame
         canvas.drawColor(frame?.background ?: (0xff000000.toInt() or style.appearance.background))
         if (frame == null) return
+        currentGraphics?.draw(canvas,1,imagePaint)
         for (y in 0 until frame.rows) for (x in 0 until frame.cols) {
             val cell = frame.cells[y * frame.cols + x]
+            if(cell.flags and 256==0 && cell.flags and 512!=0) continue
             fill.color = if (cell.flags and 256 != 0) Color.rgb(68, 91, 125) else cell.background
             canvas.drawRect((x * cellWidth).toFloat(), (y * cellHeight).toFloat(), ((x + 1) * cellWidth).toFloat(), ((y + 1) * cellHeight).toFloat(), fill)
         }
+        currentGraphics?.draw(canvas,2,imagePaint)
         for (y in 0 until frame.rows) for (x in 0 until frame.cols) {
             val cell = frame.cells[y * frame.cols + x]
-            if (cell.width == 0 || cell.flags and 8 != 0 || (cell.flags and 128 != 0 && !blink)) continue
+            if (cell.width == 0 || cell.flags and 8 != 0 || (cell.flags and 128 != 0 && !blink) || cell.text.takeIf { it.isNotEmpty() }?.codePointAt(0)==0x10eeee) continue
             val left = (x * cellWidth).toFloat(); val top = (y * cellHeight).toFloat()
             val right = left + cellWidth * cell.width
             canvas.save(); canvas.clipRect(left, top, right, top + cellHeight)
@@ -589,6 +597,7 @@ class TerminalView(context: Context) : View(context) {
             if (cell.flags and 64 != 0) canvas.drawLine(left, top + 1, right, top + 1, paint)
             canvas.restore()
         }
+        currentGraphics?.draw(canvas,3,imagePaint)
         val cursorFocused = hasFocus() && hasWindowFocus()
         if (frame.cursorVisible && (!style.appearance.blink || !frame.cursorBlink || blink || !cursorFocused)) {
             val x = (frame.cursorX * cellWidth).toFloat(); val y = (frame.cursorY * cellHeight).toFloat()

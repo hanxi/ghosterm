@@ -1,6 +1,6 @@
 # Android 最终方案实现计划
 
-**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。新增必需项：Android Kitty 图形及动画（§5.2），尚未接入 Canvas，不记为支持。
+**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](android-implementation.md#android-kitty)，不扩大为整个 A2 完成。
 
 **上一已验包（2026-11-01，`a70a0d0`，保留原专项证据）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程首次完整 626 项在 1,800 秒总时限处终止（563 项成功结束、未见失败事件），未计完整通过，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口仍在隔离验证；最终按用户要求共用 dev Release，固定渠道文件名和平台间保留校验正在主工程验收；整个 Android 目标、设备与输入法矩阵尚未完成。
 
@@ -315,7 +315,7 @@ macOS 对照时须注意：`beffb49` 已接 `TerminalHostView.copy:` / `paste:`�
 
 ### 5.2 Kitty 图形与动画（用户新增必需项，2026-11-01）
 
-Android 继续采用 libghostty-vt + 原生 Canvas；本项包含静态图像与动画，不能用显示 GIF 或一张 PNG 代替协议实现。当前 pin 已有图像存储、动画/合成逻辑及当前帧像素的 C 查询；Android 尚未启用存储、安装 PNG 解码器或绘制图像，且 C 接口缺少动画时钟推进入口。新增上游接线一律写入 patches/ 并附 WHY.md，不修改 vendor。
+Android 继续采用 libghostty-vt + 原生 Canvas；本项包含静态图像与动画，不能用显示 GIF 或一张 PNG 代替协议实现。当前 pin 已有图像存储、动画/合成逻辑及当前帧像素的 C 查询；Android 现已启用有界图像存储、系统 PNG 解码、Canvas 图层及 owner 动画时钟；对应范围和发行状态见[当前记录](#android-kitty)。新增上游接线一律写入 patches/ 并附 WHY.md，不修改 vendor。
 
 - 接通 RGB/RGBA、PNG、分块与压缩数据直传及正确查询/错误响应；解码在 VT owner 上，限制压缩/解码尺寸、帧与总存储。文件或共享内存媒介不具备权限时返回协议错误，不读取任意路径。
 - 绘制位置、裁剪、像素偏移、透明度和 z 层，处理滚动/回卷、缩放、alternate screen、删除与清屏；Unicode placeholder 的图像定位也纳入验收。
@@ -2864,7 +2864,7 @@ API 36 真 SSH 的 FileCopyExecutorTest/RemoteFilesTest **57 项通过**（40.41
 
 Kitty 单独在 `tmp/android-kitty/` 开发，未合入或发行。补丁 0003 通过四处导出暴露上游现有 animationTick，返回帧变化与下次唤醒；vendor 保持原 pin/无修改。Android 原生时钟桥完成编译并在 API 29 验证：RGBA 帧按指定单调时间切换、generation 改变，无需补发终端字节；不是 Canvas 播放验收。
 
-后续接 Android BitmapFactory PNG 回调，限输入/像素/尺寸并使用 VT 提供的受限分配器，不增加随包 PNG 解码库；固定 straight-alpha 像素专项与 RGBA 动画专项 **2 项通过**（`phase-1793532328383819000`，812 份输入不变）。该组件探针在 JNI 调用线程创建 VT；实际 Transport owner、Canvas、图层/Unicode placeholder、可见性与完整动画控制/资源测试仍待接，不能记 Android Kitty 已支持。当前设备 API 29 上的内部 debug 探针不属于上述签名 release。
+后续接 Android BitmapFactory PNG 回调，限输入/像素/尺寸并使用 VT 提供的受限分配器，不增加随包 PNG 解码库；固定 straight-alpha 像素专项与 RGBA 动画专项 **2 项通过**（`phase-1793532328383819000`，812 份输入不变）。该组件探针在 JNI 调用线程创建 VT；该首片结束时，实际 Transport owner、Canvas、图层/Unicode placeholder、可见性与完整动画控制/资源测试仍待接，不能记 Android Kitty 已支持；后续实现见[§9.100](#android-kitty)。当前设备 API 29 上的内部 debug 探针不属于上述签名 release。
 
 ## 10. 验收与变异清单
 
@@ -2981,3 +2981,20 @@ macOS 核对 `ConfigStore`、`SettingsStore`、`TransferManager`、`AppModel.sta
 - CI 的 dev 路径过滤意味着文档/Android 等改动不一定触发 macOS 出包；只校正事实描述，不改变 AGENTS 的合并验收要求，也不宣称本轮线上发布或 CI 已通过。
 
 本次复核重跑 Apple/JNI 符号对拍、校验 19 份源码与运行前摘要一致、核对完整设备测试开始/结束记录及文档链接。没有重跑完整 Android/Apple 宿主或修复系统选择器失败；不新增这些范围的通过结论。
+
+<a id="android-kitty"></a>
+
+### 9.100 A2 Kitty 图形与动画（2026-11-01）
+
+已接通共享于本地 PTY/SSH 的 VT → 位图 → Canvas 链路；不是 GIF 查看器，也没有在 Kotlin 重写协议。当前 pin 继续锁定，上游接线仅以 Android 专用补丁 0003–0005 应用；Core 93 项 ABI 不变，Apple full 引擎不应用这些补丁。
+
+- 原生 owner 通过上游 animationTick 按单调时钟推进 a=f 帧、a=a 播放/停止/切帧/有限循环及 a=c 合成；没有新输出也更新。纯动画不增加文字快照 revision，按图像 generation 复用缓存。隐藏页面停止动画 tick，返回继续当前时间轴；普通 transport 读循环不停止。
+- RGB/RGBA、PNG、zlib 压缩及多段直传沿用 VT 解析与响应。PNG 使用 Android BitmapFactory，关闭自动缩放和预乘，解码材料交 VT 的限额分配器；Canvas 位图由 owner 转成预乘像素，发布后不修改。未开放文件/临时文件/共享内存媒介，走上游明确错误回复。
+- Canvas 按低于背景、背景与文字之间、文字以上三层绘制，区分默认背景和显式设置的同色背景。支持正常放置、Unicode 占位片段、虚拟根的相对子放置、透明合成、删除、主/备用屏隔离、字体尺寸变化和滚动回卷。位图与几何快照分开持有引用，删除/关闭清理 native 缓存和帧；Java 位图由 GC 回收，不把 native 引用归零当堆内存测试。
+- 每屏图像/动画像素 16 MiB，单边 4096 像素；PNG 编码与解码各至多 8 MiB；单屏 1024 图片 ID、4096 放置、单图 1024 帧、全屏 8192 个附加帧。放置网格单边限 65535 格。越界在协议接受前拒绝，错误不拆掉既有终端；不假装成功。Unicode 片段使用按需扩容数组，上限 256×256 个可见单元加 4096 个正常/相对放置，不预分配最大数组。
+
+**当前证据**：API 29 arm64 / 4 KB 页模拟器 21 项专项通过（16.155 秒），实际日志以 `phase-1793535297682116000/output.log` 为准。实际 PTY 和真实 sshd → SSH → 同一生产 TerminalView 验像素，覆盖无新字节动画、切帧/停止/合成、有限循环、透明 PNG、z 层、压缩分块、Unicode/相对定位、删除、主/备用屏、隐藏时无动画 tick、字体变化、回卷、查询真实回包及资源拒绝后继续。首批八组变异通过（`phase-1793534660440780000`）：clock、hidden-clock、canvas、background-layer、png-alpha、virtual、dimensions、frames；每组实际编译后对应 AssertionError 红，同 APK 独立配置绿，恢复目标绿与源码 SHA256 相同。最后新增的放置上限与相对子放置两组也已通过（`phase-1793535414740648000`），同样为真实编译、目标断言红、同 APK 独立 Core 配置绿、恢复目标绿及源码 SHA256 一致；合计十个不同变异组。
+
+查询回包的 PTY 用例显式采用 canonical/echo：观察真实响应的回显，再提交换行让 dd 读回并逐字节核对。API 29 模拟器 toybox stty 无法应用全部 raw 参数；先前错误地依赖 raw 的测试失败保留，不伪装成已验证 raw 模式。相对图最初的纯绿色断言被正常块光标完全遮挡，夹具现显式隐藏光标再验图像；失败结果保留。
+
+**闸门和发行状态**：Core 47 项 / 93 ABI 通过（`tmp/a7-primary-evidence/phase-1793534736918214000`）。API 36 arm64 / 4 KB 页模拟器的 50 项 Kitty + 既有本地/SSH 终端组合通过（46.902 秒，`phase-1793535333396066000`）；签名 release/R8 和四模块 lint 通过（`tmp/a7-primary-evidence/phase-1793535349661681000`，822 份非 Markdown 输入不变）。本地 release 为 6,198,541 字节、SHA256 `9eaa96689f4f90885cbd84dc3554d80ecd0948378e49fb5de24b52e061d46186`，固定证书、非 debug、arm64、R8 mapping、ZIP/ELF 16 KB 页对齐验证通过。API 36 / 16 KB 页模拟器上以真实签名 R8 APK 升级 A70，检查一份原有文件并通过系统键盘输入 Kitty 序列，实际屏幕捕获红/绿两帧切换及删除（`tmp/a4-kitty-release16k/result.json`）。该 APK 的源码记录是本地 `c231812` + dirty，不能冒充 CI 产物；其他既有文件未删改，不把只检查一份写成重新预览了全部十一份。最后两组变异已通过，CI 发行仍待本片正式提交构建。完整客户端回归未重跑；真实手机、复杂裁切/长期压力/功耗、物理输入设备矩阵和完整 A2 仍待后续验收。

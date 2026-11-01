@@ -1,0 +1,78 @@
+--- a/src/terminal/c/kitty_graphics.zig
++++ b/src/terminal/c/kitty_graphics.zig
+@@ -196,6 +196,29 @@
+         };
+     }
+ };
++
++/// Advance animations on the terminal's active screen using the owner's clock.
++/// No timer or thread is created here. UINT64_MAX means no future tick is due.
++pub fn animation_tick(
++    terminal_: terminal_c.Terminal,
++    now_ms: u64,
++    out_changed_: ?*bool,
++    out_delay_ms_: ?*u64,
++) callconv(lib.calling_conv) Result {
++    if (out_changed_) |out| out.* = false;
++    if (out_delay_ms_) |out| out.* = std.math.maxInt(u64);
++    const out_changed = out_changed_ orelse return .invalid_value;
++    const out_delay_ms = out_delay_ms_ orelse return .invalid_value;
++    const wrapper = terminal_ orelse return .invalid_value;
++    if (comptime !build_options.kitty_graphics) return .no_value;
++    const t = wrapper.terminal;
++    const storage = &t.screens.active.kitty_images;
++    const before = storage.generation;
++    const next = storage.animationTick(t.io(), now_ms);
++    out_changed.* = storage.generation != before;
++    out_delay_ms.* = next orelse std.math.maxInt(u64);
++    return .success;
++}
+ 
+ pub fn image_get_handle(
+     graphics_: KittyGraphics,
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -13,6 +13,7 @@
+ pub const io = @import("io.zig");
+ pub const kitty_graphics = @import("kitty_graphics.zig");
+ pub const kitty_graphics_get = kitty_graphics.get;
++pub const kitty_graphics_animation_tick = kitty_graphics.animation_tick;
+ pub const kitty_graphics_image = kitty_graphics.image_get_handle;
+ pub const kitty_graphics_image_get = kitty_graphics.image_get;
+ pub const kitty_graphics_image_get_multi = kitty_graphics.image_get_multi;
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -389,6 +389,7 @@
+         }
+         if (features.kitty_graphics) {
+             @export(&c.kitty_graphics_get, .{ .name = "ghostty_kitty_graphics_get" });
++            @export(&c.kitty_graphics_animation_tick, .{ .name = "ghostty_kitty_graphics_animation_tick" });
+             @export(&c.kitty_graphics_image, .{ .name = "ghostty_kitty_graphics_image" });
+             @export(&c.kitty_graphics_image_get, .{ .name = "ghostty_kitty_graphics_image_get" });
+             @export(&c.kitty_graphics_image_get_multi, .{ .name = "ghostty_kitty_graphics_image_get_multi" });
+--- a/include/ghostty/vt/kitty_graphics.h
++++ b/include/ghostty/vt/kitty_graphics.h
+@@ -507,6 +507,23 @@
+     void* out);
+ 
+ /**
++ * Advance animation frames on the terminal's active screen. Call only on the
++ * terminal owner, before reading current-frame pixels. The caller supplies
++ * monotonically increasing milliseconds and schedules any next wakeup itself.
++ *
++ * Both output pointers are required and are cleared before validation.
++ * out_changed reports a pixel/generation change; out_delay_ms is UINT64_MAX
++ * when no animation needs a future tick. Idle is SUCCESS, graphics disabled
++ * at build time is NO_VALUE, invalid arguments are INVALID_VALUE.
++ * Any previously borrowed graphics/image handles must be reacquired afterwards.
++ */
++GHOSTTY_API GhosttyResult ghostty_kitty_graphics_animation_tick(
++    GhosttyTerminal terminal,
++    uint64_t now_ms,
++    bool* out_changed,
++    uint64_t* out_delay_ms);
++
++/**
+  * Look up a Kitty graphics image by its image ID.
+  *
+  * Returns NULL if no image with the given ID exists or if Kitty graphics

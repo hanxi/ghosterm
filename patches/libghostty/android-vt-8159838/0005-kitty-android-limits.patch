@@ -1,0 +1,101 @@
+--- a/src/terminal/kitty/graphics_image.zig
++++ b/src/terminal/kitty/graphics_image.zig
+@@ -17,10 +17,10 @@
+ const log = std.log.scoped(.kitty_gfx);
+ 
+ /// Maximum width or height of an image. Taken directly from Kitty.
+-const max_dimension = 10000;
++const max_dimension = if (builtin.abi.isAndroid()) 4096 else 10000;
+ 
+ /// Maximum size in bytes, taken from Kitty.
+-const max_size = 400 * 1024 * 1024; // 400MB
++const max_size = if (builtin.abi.isAndroid()) 16 * 1024 * 1024 else 400 * 1024 * 1024;
+ 
+ /// An image that is still being loaded. The image should be initialized
+ /// using init on the first chunk and then addData for each subsequent
+--- a/src/terminal/kitty/graphics_storage.zig
++++ b/src/terminal/kitty/graphics_storage.zig
+@@ -1,4 +1,5 @@
+ const std = @import("std");
++const android_graphics = @import("builtin").abi.isAndroid();
+ const assert = @import("../../quirks.zig").inlineAssert;
+ const Allocator = std.mem.Allocator;
+ const ArenaAllocator = std.heap.ArenaAllocator;
+@@ -274,6 +275,9 @@
+         s: *terminal.Screen,
+         img: Image,
+     ) Allocator.Error!void {
++        // Android's bounded Canvas cache must reject before acknowledging.
++        if (android_graphics and !self.images.contains(img.id) and self.images.count() >= 1024)
++            return error.OutOfMemory;
+         const new_len = img.data.len();
+ 
+         // If the image itself is over the limit, then error immediately
+@@ -397,6 +401,8 @@
+             },
+         };
+ 
++        if (android_graphics and !self.placements.contains(key) and self.placements.count() >= 4096)
++            return error.OutOfMemory;
+         const gop = try self.placements.getOrPut(alloc, key);
+         if (gop.found_existing) {
+             gop.value_ptr.deinit(s);
+@@ -1014,6 +1020,18 @@
+         image_id: u32,
+         bytes: usize,
+     ) Allocator.Error!void {
++        if (android_graphics) {
++            const image = self.images.get(image_id) orelse return error.OutOfMemory;
++            if (image.animation) |anim| {
++                if (anim.frameCount() >= 1024) return error.OutOfMemory;
++            }
++            var count: usize = 0;
++            var images = self.images.valueIterator();
++            while (images.next()) |entry| {
++                if (entry.animation) |anim| count += anim.frameCount() - 1;
++            }
++            if (count >= 8192) return error.OutOfMemory;
++        }
+         if (bytes > self.total_limit) return error.OutOfMemory;
+ 
+         const total_bytes = self.total_bytes + bytes;
+--- a/src/terminal/kitty/graphics_unicode.zig
++++ b/src/terminal/kitty/graphics_unicode.zig
+@@ -2,6 +2,7 @@
+ //! Kitty graphics protocol unicode placeholder, virtual placement feature.
+ 
+ const std = @import("std");
++const android_graphics = @import("builtin").abi.isAndroid();
+ const assert = @import("../../quirks.zig").inlineAssert;
+ const testing = std.testing;
+ const terminal = @import("../main.zig");
+@@ -341,10 +342,10 @@
+             .top_left = self.pin,
+             .offset_x = @intFromFloat(@round(p_dest.x_offset)),
+             .offset_y = @intFromFloat(@round(p_dest.y_offset)),
+-            .source_x = @intFromFloat(@round(img_scale_source.x)),
+-            .source_y = @intFromFloat(@round(img_scale_source.y)),
+-            .source_width = @intFromFloat(@round(img_scale_source.width)),
+-            .source_height = @intFromFloat(@round(img_scale_source.height)),
++            .source_x = @intFromFloat(if (android_graphics) @floor(img_scale_source.x) else @round(img_scale_source.x)),
++            .source_y = @intFromFloat(if (android_graphics) @floor(img_scale_source.y) else @round(img_scale_source.y)),
++            .source_width = @intFromFloat(if (android_graphics) @ceil(img_scale_source.x + img_scale_source.width) - @floor(img_scale_source.x) else @round(img_scale_source.width)),
++            .source_height = @intFromFloat(if (android_graphics) @ceil(img_scale_source.y + img_scale_source.height) - @floor(img_scale_source.y) else @round(img_scale_source.height)),
+             .dest_width = @intFromFloat(@round(p_dest.width)),
+             .dest_height = @intFromFloat(@round(p_dest.height)),
+         };
+--- a/src/terminal/kitty/graphics_exec.zig
++++ b/src/terminal/kitty/graphics_exec.zig
+@@ -267,6 +267,12 @@
+         .image_number = d.image_number,
+         .placement_id = d.placement_id,
+     };
++
++    // Canvas integer geometry must remain bounded before protocol success.
++    if (@import("builtin").abi.isAndroid() and (d.columns > 65535 or d.rows > 65535)) {
++        result.message = "EINVAL: placement dimensions too large";
++        return result;
++    }
+ 
+     // A virtual placement (U=1) cannot also be a relative placement.
+     // Kitty checks this before even looking up the image.
