@@ -148,7 +148,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 > 各次接口与平台验收分别记在 `docs/reference/roadmap.md`，不得借旧结果记新接口通过。
 > Android 已验收组件/配置绑定；A2 首片已接本地 Transport、Canvas/InputConnection 与会话生命周期，整个终端阶段未完成。连接配置检查已接两端；Android SSH native owner/认证桥及远端终端后端已接，产品 DNS/认证页面与 Keystore 容器首片已接（实现计划 §9.27），整个 A3 仍未完成；SFTP 文件专用 owner/JNI/Kotlin 后端已由 §9.51 接入，远端只读页面已由 §9.52 接入，§9.69 已接复制执行器数据层，§9.70 已接任务认证与粘贴页面；§9.71 已接进程共享任务、复制清单和认证，§9.72 已接 FIFO 队列，§9.73 已验持久观察记录与只读历史，§9.74 已验前台服务/通知的 API 36 模拟器档；§9.77 已验当前文件阶段进度；§9.98 已接整体数据 ETA、协作暂停/继续与当前进程内安全重试（API 29/36 专项与分轮变异）；完整客户端、持久历史核对和残留清理仍待完成；NAPI 尚未实现。
 > §9.98 切片为 93 个公共符号、Apple 89/4、JNI 49/44；新增可暂停收发由 Android 专属文件 owner 消费。Core/Swift 输入摘要与通过记录一致；新增十三组与受影响旧七组均为手工证据，不增加 CI 20 份。Android Kitty 图形/动画与 Nerd Fonts 已接并发行，设备与真实签名包范围见 §9.100–§9.102；不代表整个 A2 完成。
-> §9.103 新接 Android 远端 tmux 管理/独立 attach，ABI 仍为 93，Apple 89/4、JNI 55/38；API 29/36 各 45 项组合与十二组 Android 变异通过，发行范围另记，不增加上述 macOS CI 20 份。
+> §9.103 新接 Android 远端 tmux 管理/独立 attach，ABI 仍为 93，Apple 89/4、JNI 55/38；API 29/36 各 45 项组合与十二组 Android 变异通过，云端签名包的 16 KB 页真实 SSH/tmux 操作范围见 §9.103，不增加上述 macOS CI 20 份。
 > 新增平台绑定必须把引用名集合纳入对拍；签名兼容仍须各端真实编译验证。
 
 `libssh2-sftp` 用 `python3 scripts/test-libssh2-sftp.py --fetch --mutate` 验锁定依赖的九场景、七组重新编译的 native 变异及两组隔离收据变异，目标红、独立对照绿、恢复绿与 SHA256；`--android 设备` 用实际 NDK archive 验同九场景。Android 与主机默认构建均应用补丁；`mutation-check-sftp-open.py` 另验 7 C + 2 Swift + 1 无库组，`mutation-check-host-ssh2.py --app 本轮.app` 验十一组依赖/包/CMake 守卫，目标红、独立对照绿、恢复绿与 SHA256。已交付证据见 Android 实现计划 §9.45/§9.47/§9.49，范围见 `docs/reference/host-ssh2-build.md`。手工证据，不增加 CI 20 份，此处仅登记范围。
@@ -296,7 +296,7 @@ A10 护**另一条分发链的下界**：Homebrew cask（独立公开 tap `hanxi
 不让旧可执行文件冒充变异结果。普通离线 gate 只跑命令与恶意输出夹具；真实本地/SSH
 八模式（含已有空 server 与 owner 被 SIGKILL）另以 `test-tmux.py` / `test-tmux-ssh.py` 执行，缺 tmux 时明确失败，不算通过。已与 `tmux-ui` 纳入 CI full 档；Linux 与真实 SSH/断网仍是手工证据。）
 （`tmux-ui` 用 `python3 scripts/mutation-check-tmux-ui.py` 验新格子不覆盖任务、detach 保留
-断开格子、关闭只断开客户端、未知文案、探测错误分类、路径变更清选择、鼠标输入及拒绝覆盖运行格子，共十组，另护 runner 长路径下 Unix socket 的真实绑定。使用真 tmux +
+断开格子、关闭只断开客户端、未知文案、探测错误分类、路径变更清选择、鼠标输入及拒绝覆盖运行格子等共十三组（以现有脚本枚举为准），含 runner 长路径下 Unix socket 的真实绑定。使用真 tmux +
 full surface，断言内层任务 PID 不变；旧绑定不提供结束入口。`auth` 现复用同一异步认证，
 当前共十一组隔离变异：原六组在真 sshd 上护 tilde、没口令的钥匙、服务器方法表、撤销提示、Swift 撤销枚举映射与保存失败提示路由；新增五组护连接配置准入、目标/主机/独立 SFTP 传值与来源。拒绝配置在 DNS 前停止，SFTP 产品入口另验撤销/不支持规则不请求信任或凭据，不再变异已经删除的认证副本。）
 （`tmux-ssh` 用 `python3 scripts/mutation-check-tmux-ssh.py` 配合隔离真 sshd 运行，六组变异护
