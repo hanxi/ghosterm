@@ -31,6 +31,7 @@ import android.view.inputmethod.CursorAnchorInfo
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.SurroundingText
 import kotlin.math.ceil
 
 /** Canvas consumes cell snapshots; neither PTY output nor transport types enter this View. */
@@ -53,6 +54,7 @@ class TerminalView(context: Context) : View(context) {
     var currentFrame: TerminalFrame? = null
         private set
     private var imeComposition = ""
+    private var imeUnderlined = false
     private val pendingAccents = mutableMapOf<Int, Int>()
     val composition: String get() = imeComposition.ifEmpty {
         pendingAccents.values.lastOrNull()?.let { String(Character.toChars(it)) } ?: ""
@@ -377,10 +379,12 @@ class TerminalView(context: Context) : View(context) {
             target.key(code, effectiveMods, text, unshiftedCodepoint, KeyAction.PRESS)
             target.key(code, effectiveMods, "", unshiftedCodepoint, KeyAction.RELEASE)
         } }
+        if (sent) connection?.terminalKeyAccepted()
         if (sent && ctrl == 1) ctrl = 0
         return sent
     }
     fun commitText(text: String): Boolean {
+        if (!validInputText(text)) return false
         pendingAccents.clear(); invalidate()
         if (ctrl != 0 && text.length == 1 && text[0] in ' '..'~') {
             // A soft keyboard commits characters, not physical key positions.
@@ -392,6 +396,18 @@ class TerminalView(context: Context) : View(context) {
         val sent = dispatchInput { surface?.commit(text) }
         if (sent && ctrl == 1) ctrl = 0
         return sent
+    }
+    private fun validInputText(text: CharSequence): Boolean {
+        var index = 0
+        while (index < text.length) {
+            val character = text[index++]
+            if (Character.isHighSurrogate(character)) {
+                if (index < text.length && Character.isLowSurrogate(text[index])) { index++; continue }
+            } else if (!Character.isLowSurrogate(character)) continue
+            onError("输入文字不完整，请重新输入")
+            return false
+        }
+        return true
     }
     override fun onCheckIsTextEditor() = true
     override fun onCreateInputConnection(info: EditorInfo): InputConnection {
@@ -432,6 +448,7 @@ class TerminalView(context: Context) : View(context) {
         val sent = dispatchInput { surface?.key(terminalCode, modifiers, text, unshifted, action) }
         if (sent) {
             heldKeys[identity] = HeldKey(terminalCode, modifiers, unshifted, softCtrl)
+            if (!modifierKey) connection?.terminalKeyAccepted()
             if (!modifierKey && ctrl == 1) ctrl = 0
         }
         return sent
@@ -538,7 +555,8 @@ class TerminalView(context: Context) : View(context) {
         }
         if (composition.isNotEmpty() && frame.cursorX >= 0) {
             val x = (frame.cursorX * cellWidth).toFloat(); val y = (frame.cursorY * cellHeight).toFloat()
-            paint.color = frame.foreground; paint.alpha = 255; paint.isUnderlineText = true
+            paint.color = frame.foreground; paint.alpha = 255
+            paint.isUnderlineText = imeUnderlined || pendingAccents.isNotEmpty()
             paint.isStrikeThruText = false; paint.isFakeBoldText = false; paint.textSkewX = 0f
             fill.color = frame.background
             canvas.drawRect(x, y, x + paint.measureText(composition), y + cellHeight, fill)
@@ -551,6 +569,14 @@ class TerminalView(context: Context) : View(context) {
         private var valid = true
         private var batches = 0
         private var cursorUpdates = false
+        // Accepted text is no longer editable: transport may already have sent
+        // it. Keep the remaining IME window at its UTF-16 document offset.
+        private var origin = 0
+        private var selectionDirty = false
+        // A finalized window is retained only while its selection still needs
+        // it. Its bytes already belong to transport and must never be replayed.
+        private var finalized = false
+        private fun absolute(index: Int): Int = if (index < 0) -1 else origin + index
         override fun performContextMenuAction(id: Int): Boolean {
             if (!valid) return false
             when (id) {
@@ -566,58 +592,154 @@ class TerminalView(context: Context) : View(context) {
         }
         override fun getEditable(): Editable = pending
         init { Selection.setSelection(pending, 0) }
-        fun cancel() { valid = false; pending.clear(); imeComposition = ""; pendingAccents.clear(); invalidate() }
-        private fun changed() {
-            imeComposition = pending.toString(); invalidate()
+        fun cancel() { valid = false;
+            // commitText can leave plain text after its requested cursor. Keep
+            // that accepted tail on focus/connection changes; active composition
+            // is still explicitly cancelled, and finalized text is never resent.
+            if (!finalized && getComposingSpanStart(pending) < 0 && pending.isNotEmpty())
+                this@TerminalView.commitText(pending.toString())
+            pending.clear(); pending.clearSpans(); imeComposition = ""; imeUnderlined = false
+            pendingAccents.clear(); invalidate()
+        }
+        private fun changed(selectionChanged: Boolean = true) {
+            imeComposition = if (finalized) "" else pending.toString()
+            imeUnderlined = !finalized && getComposingSpanStart(pending) >= 0
+            invalidate()
+            selectionDirty = selectionDirty || selectionChanged
             if (batches == 0 && valid) {
-                inputMethod.updateSelection(this@TerminalView, Selection.getSelectionStart(pending), Selection.getSelectionEnd(pending),
-                    getComposingSpanStart(pending), getComposingSpanEnd(pending))
+                if (selectionDirty) {
+                    inputMethod.updateSelection(this@TerminalView, absolute(Selection.getSelectionStart(pending)), absolute(Selection.getSelectionEnd(pending)),
+                        absolute(getComposingSpanStart(pending)), absolute(getComposingSpanEnd(pending)))
+                    selectionDirty = false
+                }
                 anchor()
             }
         }
-        override fun beginBatchEdit(): Boolean { if (!valid) return false; batches++; return true }
-        override fun endBatchEdit(): Boolean { if (!valid) return false; if (batches > 0) batches--; changed(); return batches > 0 }
+        override fun beginBatchEdit(): Boolean { if (!valid || batches == Int.MAX_VALUE) return false; batches++; return true }
+        override fun endBatchEdit(): Boolean { if (!valid) return false; if (batches > 0) batches--; changed(false); return batches > 0 }
         override fun setComposingText(text: CharSequence, position: Int): Boolean {
-            if (!valid) return false
+            if (!valid || text.length > Int.MAX_VALUE - origin - pending.length) return false
+            if (!editableInsertion()) return false
+            compactFinalized()
             val ok = super.setComposingText(text, position); changed(); return ok
         }
         override fun setComposingRegion(start: Int, end: Int): Boolean {
             if (!valid) return false
-            val ok = super.setComposingRegion(start, end); changed(); return ok
+            fun local(index: Int) = (index.toLong() - origin).coerceIn(0L, pending.length.toLong()).toInt()
+            val ok = super.setComposingRegion(local(start), local(end))
+            // Region marking neither moves the cursor nor changes the text.
+            changed(false); return ok
+        }
+        override fun setSelection(start: Int, end: Int): Boolean {
+            if (!valid || start < origin || end < origin ||
+                start.toLong() > origin.toLong() + pending.length || end.toLong() > origin.toLong() + pending.length) return false
+            val ok = super.setSelection(start - origin, end - origin)
+            if (ok) compactFinalized()
+            changed(); return ok
+        }
+        override fun getTextBeforeCursor(length: Int, flags: Int): CharSequence? =
+            if (!valid || length < 0) null else super.getTextBeforeCursor(length, flags)
+        override fun getTextAfterCursor(length: Int, flags: Int): CharSequence? =
+            if (!valid || length < 0) null else super.getTextAfterCursor(length, flags)
+        override fun getSelectedText(flags: Int): CharSequence? =
+            if (!valid) null else super.getSelectedText(flags)
+        @android.annotation.TargetApi(31)
+        override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText? {
+            if (!valid || beforeLength < 0 || afterLength < 0) return null
+            val local = super.getSurroundingText(beforeLength, afterLength, flags) ?: return null
+            return SurroundingText(local.text, local.selectionStart, local.selectionEnd, origin + local.offset)
         }
         override fun commitText(text: CharSequence, position: Int): Boolean {
-            if (!valid) return false
+            if (!valid || text.length > Int.MAX_VALUE - origin - pending.length) return false
             // Gboard may commit a single LF for Enter instead of sending a key
             // event. Preserve terminal Enter semantics without rewriting text blocks.
-            val sent = if (text.toString() == "\n") finishComposingText() && sendKey(KeyEvent.KEYCODE_ENTER)
-                else this@TerminalView.commitText(text.toString())
-            if (!sent) return false
-            pending.clear(); Selection.setSelection(pending, 0); changed(); return true
+            if (text.toString() == "\n") {
+                if (!acceptForReturn() || !sendKey(KeyEvent.KEYCODE_ENTER)) return false
+                origin++; changed(); return true
+            }
+            if (!editableInsertion()) return false
+            // Let Android compute the replacement and newCursorPosition on a
+            // temporary editor. Rejection must leave the live buffer untouched.
+            val candidate = SpannableStringBuilder(pending)
+            Selection.setSelection(candidate, Selection.getSelectionStart(pending), Selection.getSelectionEnd(pending))
+            val editor = object : BaseInputConnection(this@TerminalView, true) {
+                override fun getEditable(): Editable = candidate
+            }
+            val composingStart = getComposingSpanStart(pending)
+            val composingEnd = getComposingSpanEnd(pending)
+            if (composingStart >= 0 && composingEnd >= 0)
+                editor.setComposingRegion(composingStart, composingEnd)
+            if (!editor.commitText(text, position)) return false
+            if (!validInputText(candidate)) return false
+            val cursor = Selection.getSelectionStart(candidate)
+            val delivered = if (finalized) pending.length else 0
+            if (cursor < delivered) return false
+            val accepted = candidate.subSequence(delivered, cursor).toString()
+            if (accepted.isNotEmpty() && !this@TerminalView.commitText(accepted)) return false
+            val remaining = candidate.subSequence(cursor, candidate.length)
+            origin += cursor
+            pending.clear(); pending.clearSpans(); pending.append(remaining)
+            finalized = false
+            Selection.setSelection(pending, 0); changed(); return true
         }
         override fun finishComposingText(): Boolean {
             if (!valid) return false
             // IMEs may accept a word by ending composition rather than calling
             // commitText. Finishing preserves text; cancelling/closing discards it.
             val accepted = pending.toString()
-            if (accepted.isNotEmpty() && !this@TerminalView.commitText(accepted)) return false
-            super.finishComposingText(); pending.clear(); Selection.setSelection(pending, 0); changed(); return true
+            if (accepted.length > Int.MAX_VALUE - origin) return false
+            if (!finalized && accepted.isNotEmpty() && !this@TerminalView.commitText(accepted)) return false
+            finalized = true
+            super.finishComposingText()
+            compactFinalized(); changed(); return true
+        }
+        private fun compactFinalized(force: Boolean = false) {
+            if (!finalized || (!force && (Selection.getSelectionStart(pending) != pending.length ||
+                        Selection.getSelectionEnd(pending) != pending.length))) return
+            origin += pending.length
+            pending.clear(); pending.clearSpans(); Selection.setSelection(pending, 0)
+            finalized = false
+        }
+        fun terminalKeyAccepted() {
+            // External terminal navigation/editing supersedes the old read-only
+            // IME selection. No uncommitted text is finalized by this operation.
+            if (finalized) { compactFinalized(force = true); changed() }
+        }
+        private fun editableInsertion(): Boolean {
+            if (!finalized) return true
+            if (getComposingSpanStart(pending) < 0 && Selection.getSelectionStart(pending) == pending.length &&
+                Selection.getSelectionEnd(pending) == pending.length) return true
+            onError("该段文字已经发送，请使用终端按键编辑")
+            return false
+        }
+        private fun acceptForReturn(): Boolean {
+            if (!valid || !finishComposingText()) return false
+            // Return is a terminal action; finish itself must not move selection.
+            compactFinalized(force = true); changed(); return true
         }
         override fun closeConnection() { cancel(); super.closeConnection() }
         override fun deleteSurroundingText(before: Int, after: Int): Boolean = delete(before, after, false)
         override fun deleteSurroundingTextInCodePoints(before: Int, after: Int): Boolean = delete(before, after, true)
         private fun delete(before: Int, after: Int, codepoints: Boolean): Boolean {
             if (!valid || before < 0 || after < 0 || before > 1024 || after > 1024) return false
+            if (finalized) {
+                if (!editableInsertion()) return false
+                compactFinalized()
+            }
             if (pending.isNotEmpty()) {
                 // BaseInputConnection excludes the composing span when deleting surrounding
                 // text. Our entire local buffer is uncommitted, so edit it at the IME cursor.
-                val start = Selection.getSelectionStart(pending).coerceAtLeast(0)
-                val end = Selection.getSelectionEnd(pending).coerceAtLeast(start)
+                val first = Selection.getSelectionStart(pending).coerceAtLeast(0)
+                val last = Selection.getSelectionEnd(pending).coerceAtLeast(0)
+                val start = minOf(first, last)
+                val end = maxOf(first, last)
                 val left = if (codepoints) Character.offsetByCodePoints(pending, start,
                     -before.coerceAtMost(Character.codePointCount(pending, 0, start))) else (start - before).coerceAtLeast(0)
                 val right = if (codepoints) Character.offsetByCodePoints(pending, end,
                     after.coerceAtMost(Character.codePointCount(pending, end, pending.length))) else (end + after).coerceAtMost(pending.length)
                 pending.delete(end, right); pending.delete(left, start)
-                Selection.setSelection(pending, left)
+                val removedBefore = start - left
+                Selection.setSelection(pending, first - removedBefore, last - removedBefore)
                 changed(); return true
             }
             repeat(before) { if (!sendKey(KeyEvent.KEYCODE_DEL)) return false }
@@ -626,11 +748,11 @@ class TerminalView(context: Context) : View(context) {
         }
         override fun sendKeyEvent(event: KeyEvent): Boolean {
             if (!valid) return false
-            if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER && !finishComposingText()) return false
+            if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER && !acceptForReturn()) return false
             return if (event.action == KeyEvent.ACTION_DOWN) onKeyDown(event.keyCode, event)
                 else if (event.action == KeyEvent.ACTION_UP) onKeyUp(event.keyCode, event) else false
         }
-        override fun performEditorAction(action: Int): Boolean = valid && finishComposingText() && sendKey(KeyEvent.KEYCODE_ENTER)
+        override fun performEditorAction(action: Int): Boolean = valid && acceptForReturn() && sendKey(KeyEvent.KEYCODE_ENTER)
         override fun requestCursorUpdates(mode: Int): Boolean {
             if (!valid) return false
             cursorUpdates = mode and CURSOR_UPDATE_MONITOR != 0
@@ -645,9 +767,12 @@ class TerminalView(context: Context) : View(context) {
             val x = (frame.cursorX.coerceAtLeast(0) * cellWidth).toFloat()
             val y = (frame.cursorY.coerceAtLeast(0) * cellHeight).toFloat()
             val info = CursorAnchorInfo.Builder().setMatrix(transform)
-                .setSelectionRange(Selection.getSelectionStart(pending), Selection.getSelectionEnd(pending))
+                .setSelectionRange(absolute(Selection.getSelectionStart(pending)), absolute(Selection.getSelectionEnd(pending)))
                 .setInsertionMarkerLocation(x, y, y + baseline, y + cellHeight, CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION)
-            if (pending.isNotEmpty()) info.setComposingText(0, pending)
+            val composingStart = getComposingSpanStart(pending)
+            val composingEnd = getComposingSpanEnd(pending)
+            if (composingStart >= 0 && composingEnd > composingStart)
+                info.setComposingText(absolute(composingStart), pending.subSequence(composingStart, composingEnd))
             inputMethod.updateCursorAnchorInfo(this@TerminalView, info.build())
         }
     }

@@ -177,6 +177,226 @@ class TerminalScreenTest {
         }
     }
 
+    @Test fun imeSurroundingDeletePreservesReversedSelection() {
+        send("stty raw -echo; printf '\\033[2J\\033[HIME_DELETE_READY\\r\\n'; dd bs=1 count=5 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_DELETE_DONE\\r\\n'\r")
+        waitFor("IME_DELETE_READY")
+        ui.runOnIdle {
+            val view = terminal()
+            val connection = view.onCreateInputConnection(EditorInfo())
+            assertTrue(connection.setComposingText("abcdef", 1))
+            assertTrue(connection.setSelection(3, 1))
+            assertTrue(connection.deleteSurroundingText(1, 1))
+            assertEquals("surrounding deletion preserves selected text", "bc", connection.getSelectedText(0)?.toString())
+            assertEquals("bcef", view.composition)
+            val editable = checkNotNull((connection as android.view.inputmethod.BaseInputConnection).editable)
+            assertEquals("selection direction is retained", 2, android.text.Selection.getSelectionStart(editable))
+            assertEquals(0, android.text.Selection.getSelectionEnd(editable))
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                val window = checkNotNull(connection.getSurroundingText(10, 10, 0))
+                // BaseInputConnection normalizes the query range, while the
+                // editable itself retains the original selection direction.
+                assertEquals(0, window.selectionStart)
+                assertEquals(2, window.selectionEnd)
+            }
+            assertTrue(connection.finishComposingText())
+            connection.closeConnection()
+            assertTrue(view.onCreateInputConnection(EditorInfo()).commitText("!1234", 1))
+        }
+        waitFor("IME_DELETE_DONE")
+        assertTrue("surrounding deletion preserves the selected bytes: ${text()}",
+            text().replace(Regex("\\s+"), " ").contains("62 63 65 66 21"))
+    }
+
+    @Test fun terminalKeysReleaseReadOnlyImeContextForFurtherInput() {
+        send("stty raw -echo; printf '\\033[>4;0m\\033[<u\\033[?1l\\033[2J\\033[HIME_NAV_READY\\r\\n'; dd bs=1 count=16 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_NAV_DONE\\r\\n'\r")
+        waitFor("IME_NAV_READY")
+        ui.runOnIdle {
+            val view = terminal()
+            val connection = view.onCreateInputConnection(EditorInfo())
+            assertTrue(connection.setComposingText("abcd", 1))
+            assertTrue(connection.setSelection(1, 3))
+            assertTrue(connection.finishComposingText())
+            assertTrue(view.sendKey(KeyEvent.KEYCODE_DPAD_LEFT))
+            assertTrue("auxiliary terminal key releases read-only context", connection.commitText("Z", 1))
+            assertTrue(connection.setComposingText("efgh", 1))
+            assertTrue(connection.setSelection(6, 8))
+            assertTrue(connection.finishComposingText())
+            assertTrue(view.onKeyDown(KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT)))
+            assertTrue(view.onKeyUp(KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT)))
+            assertTrue("hardware terminal key releases read-only context", connection.commitText("Q", 1))
+        }
+        waitFor("IME_NAV_DONE")
+        assertTrue("terminal navigation neither replays accepted text nor blocks subsequent input: ${text()}",
+            text().replace(Regex("\\s+"), "").contains("616263641b5b445a656667681b5b4351"))
+    }
+
+    @Test fun imeCursorPositionsKeepAnEditableTailUntilAcceptance() {
+        send("stty raw -echo; printf '\\033[2J\\033[HIME_CURSOR_READY\\r\\n'; dd bs=1 count=6 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_CURSOR_DONE\\r\\n'\r")
+        waitFor("IME_CURSOR_READY")
+        ui.runOnIdle {
+            val connection = terminal().onCreateInputConnection(EditorInfo())
+            assertTrue(connection.setComposingText("abcd", 1))
+            assertTrue(connection.setComposingRegion(1, 3))
+            assertTrue(connection.commitText("XY", 0))
+            assertEquals("cursor zero retains replacement and suffix", "XYd", connection.getTextAfterCursor(10, 0).toString())
+            assertTrue(connection.setSelection(1, 1))
+            assertTrue(connection.setComposingRegion(1, 3))
+            assertTrue(connection.setComposingText("文", 1))
+            assertTrue(connection.commitText("草", 1))
+            assertEquals("cursor one retains the uncommitted suffix", "d", connection.getTextAfterCursor(10, 0).toString())
+            assertTrue(connection.finishComposingText())
+            assertEquals("finish retains the cursor before the accepted suffix", "d", connection.getTextAfterCursor(10, 0).toString())
+            assertTrue(connection.setSelection(3, 3))
+            assertTrue(connection.commitText("!12", 1))
+        }
+        waitFor("IME_CURSOR_DONE")
+        assertTrue("cursor-relative edits send only final accepted bytes: ${text()}",
+            text().replace(Regex("\\s+"), " ").contains("61 e8 8d 89 64 21"))
+    }
+
+    @Test fun imeRejectedCommitKeepsTheOriginalEditableAndRetry() {
+        send("stty raw -echo; printf '\\033[2J\\033[HIME_REJECT_READY\\r\\n'; dd bs=1 count=6 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_REJECT_DONE\\r\\n'\r")
+        waitFor("IME_REJECT_READY")
+        ui.runOnIdle {
+            val view = terminal()
+            val connection = view.onCreateInputConnection(EditorInfo())
+            assertTrue(connection.setComposingText("a中b", 1))
+            assertTrue(connection.setComposingRegion(1, 2))
+            // The invalid unit lies AFTER the requested cursor: validating only
+            // the emitted prefix would incorrectly accept and send the 'a'.
+            assertFalse("invalid commit is rejected", connection.commitText(String(charArrayOf(0xD800.toChar())), 0))
+            assertFalse("direct typed input rejects an orphan low surrogate",
+                view.commitText(String(charArrayOf(0xDC00.toChar()))))
+            assertEquals("rejected commit keeps the visible pending text", "a中b", view.composition)
+            assertEquals("a中b", connection.getTextBeforeCursor(10, 0).toString())
+            assertTrue(connection.commitText("文", 2))
+            assertTrue(connection.commitText("!12", 1))
+        }
+        waitFor("IME_REJECT_DONE")
+        assertTrue("retry uses the original composing region without a partial failed write: ${text()}",
+            text().replace(Regex("\\s+"), " ").contains("61 e6 96 87 62 21"))
+    }
+
+    @Test fun imePlainSuffixIsDeliveredOnceWhenTheConnectionCloses() {
+        send("stty raw -echo; printf '\\033[2J\\033[HIME_TAIL_READY\\r\\n'; dd bs=1 count=6 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_TAIL_DONE\\r\\n'\r")
+        waitFor("IME_TAIL_READY")
+        ui.runOnIdle {
+            val view = terminal()
+            val connection = view.onCreateInputConnection(EditorInfo())
+            assertTrue(connection.setComposingText("a中b", 1))
+            assertTrue(connection.setComposingRegion(1, 2))
+            assertTrue(connection.commitText("文", 1))
+            assertEquals("b", connection.getTextAfterCursor(10, 0).toString())
+            connection.closeConnection()
+            connection.closeConnection()
+            assertTrue(view.onCreateInputConnection(EditorInfo()).commitText("!12", 1))
+        }
+        waitFor("IME_TAIL_DONE")
+        assertTrue("connection closure preserves a plain committed suffix once: ${text()}",
+            text().replace(Regex("\\s+"), " ").contains("61 e6 96 87 62 21"))
+    }
+
+    @Test fun imeFinalizedSelectionCannotReplayOrRewriteAcceptedBytes() {
+        send("stty raw -echo; printf '\\033[2J\\033[HIME_FINAL_READY\\r\\n'; dd bs=1 count=5 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_FINAL_DONE\\r\\n'\r")
+        waitFor("IME_FINAL_READY")
+        ui.runOnIdle {
+            val view = terminal()
+            val connection = view.onCreateInputConnection(EditorInfo())
+            assertTrue(connection.setComposingText("abcd", 1))
+            assertTrue(connection.setSelection(1, 3))
+            assertTrue(connection.finishComposingText())
+            assertTrue(connection.finishComposingText())
+            assertFalse("accepted text is explicitly read-only", connection.commitText("bad", 1))
+            assertEquals("failed rewrite keeps the accepted selection", "bc", connection.getSelectedText(0).toString())
+            assertTrue(connection.finishComposingText())
+            connection.closeConnection()
+            assertTrue(view.onCreateInputConnection(EditorInfo()).commitText("!1234", 1))
+        }
+        waitFor("IME_FINAL_DONE")
+        assertTrue("finalized bytes are neither rewritten nor replayed: ${text()}",
+            text().replace(Regex("\\s+"), " ").contains("61 62 63 64 21"))
+    }
+
+    @Test fun imeFinishPreservesSelectionInsideTheAcceptedText() {
+        ui.runOnIdle {
+            val connection = terminal().onCreateInputConnection(EditorInfo())
+            assertTrue(connection.setComposingText("abcd", 1))
+            assertTrue(connection.setSelection(1, 3))
+            assertEquals("bc", connection.getSelectedText(0).toString())
+            val before = if (android.os.Build.VERSION.SDK_INT >= 31)
+                checkNotNull(connection.getSurroundingText(10, 10, 0)) else null
+            assertTrue(connection.finishComposingText())
+            assertEquals("finish removes composing status without changing the selection", "bc",
+                connection.getSelectedText(0)?.toString())
+            assertEquals("finish removes the composing marker", -1,
+                android.view.inputmethod.BaseInputConnection.getComposingSpanStart(
+                    checkNotNull((connection as android.view.inputmethod.BaseInputConnection).editable)))
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                val after = checkNotNull(connection.getSurroundingText(10, 10, 0))
+                assertEquals(before!!.offset + before.selectionStart, after.offset + after.selectionStart)
+                assertEquals(before.offset + before.selectionEnd, after.offset + after.selectionEnd)
+            }
+            assertTrue(connection.finishComposingText())
+            connection.closeConnection()
+        }
+    }
+
+    @Test fun imePartialCommitPreservesTextOutsideTheComposingRegion() {
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hIME_PARTIAL_READY\\r\\n'; dd bs=1 count=6 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_PARTIAL_DONE\\r\\n'\r")
+        waitFor("IME_PARTIAL_READY")
+        ui.runOnIdle {
+            val connection = terminal().onCreateInputConnection(EditorInfo())
+            assertTrue(connection.setComposingText("a中b", 1))
+            assertTrue(connection.setComposingRegion(1, 2))
+            // Position 2 places the cursor after the retained trailing 'b'.
+            assertTrue(connection.commitText("文", 2))
+            // Both the old short write and the correct write finish dd. The
+            // verdict must be the bytes themselves rather than a reader timeout.
+            assertTrue(connection.commitText("!12", 1))
+        }
+        waitFor("IME_PARTIAL_DONE")
+        assertTrue("partial IME replacement keeps both uncommitted sides: ${text()}",
+            text().replace(Regex("\\s+"), " ").contains("61 e6 96 87 62 21"))
+    }
+
+    @Test fun imeWindowUsesAcceptedUtf16OffsetsForSelectionAndRegions() {
+        ui.runOnIdle {
+            val view = terminal()
+            val connection = view.onCreateInputConnection(EditorInfo())
+            assertTrue(connection.commitText("😀中", 1))
+            assertTrue(connection.beginBatchEdit())
+            assertTrue(connection.beginBatchEdit())
+            assertTrue(connection.setComposingText("草稿", 1))
+            assertTrue("selection uses the accepted UTF-16 prefix", connection.setSelection(4, 5))
+            assertEquals("稿", connection.getSelectedText(0).toString())
+            assertTrue(connection.setComposingRegion(5, 4))
+            assertEquals("region marking preserves selection", "稿", connection.getSelectedText(0).toString())
+            assertTrue(connection.setSelection(3, 3))
+            assertTrue(connection.setComposingText("文", 1))
+            assertEquals("草文", view.composition)
+            assertTrue("one nested batch remains", connection.endBatchEdit())
+            assertFalse("the last batch ends", connection.endBatchEdit())
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                val window = checkNotNull(connection.getSurroundingText(100, 100, 0))
+                assertEquals("surrounding text keeps its document offset", 3, window.offset)
+                assertEquals("草文", window.text.toString())
+                assertEquals(2, window.selectionStart)
+                assertEquals(2, window.selectionEnd)
+            }
+            assertTrue("regions clip without overflowing", connection.setComposingRegion(Int.MAX_VALUE, Int.MIN_VALUE))
+            assertTrue(connection.finishComposingText())
+            assertTrue(connection.setComposingText("😀", 1))
+            assertTrue(connection.setSelection(5, 7))
+            assertEquals("😀", connection.getSelectedText(0).toString())
+            connection.closeConnection()
+            assertNull(connection.getTextBeforeCursor(10, 0))
+            assertNull(connection.getTextAfterCursor(10, 0))
+            assertNull(connection.getSelectedText(0))
+            assertFalse(connection.setSelection(0, 0))
+            if (android.os.Build.VERSION.SDK_INT >= 31) assertNull(connection.getSurroundingText(10, 10, 0))
+        }
+    }
+
     @Test fun finishingImeCompositionPreservesBytesOnceAndClosingStillCancels() {
         send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hIME_FINISH_READY\\r\\n'; dd bs=1 count=7 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_FINISH_DONE\\r\\n'\r")
         waitFor("IME_FINISH_READY")

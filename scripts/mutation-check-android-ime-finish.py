@@ -33,18 +33,18 @@ def main():
     finish = 'TerminalScreenTest#finishingImeCompositionPreservesBytesOnceAndClosingStillCancels'
     enter = 'TerminalScreenTest#imeEnterAndEditorActionAcceptPendingTextBeforeTheReturn'
     line_feed = 'TerminalScreenTest#imeLineFeedAcceptsPendingCompositionBeforeReturn'
-    accepted = 'if (accepted.isNotEmpty() && !this@TerminalView.commitText(accepted)) return false'
+    accepted = 'if (!finalized && accepted.isNotEmpty() && !this@TerminalView.commitText(accepted)) return false'
     cases = [
-        (accepted, 'if (accepted.isNotEmpty()) Unit', finish),
-        (accepted, 'if (accepted.isNotEmpty() && !this@TerminalView.commitText("\\u001b[200~" + accepted + "\\u001b[201~")) return false', finish),
+        (accepted, 'if (!finalized && accepted.isNotEmpty()) Unit', finish),
+        (accepted, 'if (!finalized && accepted.isNotEmpty() && !this@TerminalView.commitText("\\u001b[200~" + accepted + "\\u001b[201~")) return false', finish),
         ('fun cancel() { valid = false;', 'fun cancel() { this@TerminalView.commitText(pending.toString()); valid = false;', finish),
-        ('if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER && !finishComposingText()) return false', 'Unit', enter),
-        ('override fun performEditorAction(action: Int): Boolean = valid && finishComposingText() && sendKey(KeyEvent.KEYCODE_ENTER)',
+        ('if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER && !acceptForReturn()) return false', 'Unit', enter),
+        ('override fun performEditorAction(action: Int): Boolean = valid && acceptForReturn() && sendKey(KeyEvent.KEYCODE_ENTER)',
          'override fun performEditorAction(action: Int): Boolean = valid && sendKey(KeyEvent.KEYCODE_ENTER)', enter),
         ('override fun finishComposingText(): Boolean {\n            if (!valid) return false',
          'override fun finishComposingText(): Boolean {\n            if (false && !valid) return false', finish),
-        ('val sent = if (text.toString() == "\\n") finishComposingText() && sendKey(KeyEvent.KEYCODE_ENTER)',
-         'val sent = if (text.toString() == "\\n") sendKey(KeyEvent.KEYCODE_ENTER)', line_feed),
+        ('if (!acceptForReturn() || !sendKey(KeyEvent.KEYCODE_ENTER)) return false',
+         'if (!sendKey(KeyEvent.KEYCODE_ENTER)) return false; pending.clear(); pending.clearSpans(); Selection.setSelection(pending, 0); finalized = false', line_feed),
     ]
     selected = args.selected or list(range(1, len(cases) + 1))
     if any(n < 1 or n > len(cases) for n in selected):
