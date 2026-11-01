@@ -1,6 +1,6 @@
 # Android 宿主
 
-**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。已发布包仍为 `494ddaa` 缓存清理版，当前 A6 批次待提交出包。新增必需项：Android Kitty 图形及动画（§5.2），尚未接入 Canvas，不记为支持。
+**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。新增必需项：Android Kitty 图形及动画（§5.2），尚未接入 Canvas，不记为支持。
 
 
 **上一已验包（2026-11-01，`a70a0d0`，保留原专项证据）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程首次完整 626 项在 1,800 秒总时限处终止（563 项成功结束、未见失败事件），未计完整通过，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口仍在隔离验证；最终按用户要求共用 dev Release，固定渠道文件名和平台间保留校验正在主工程验收；整个 Android 目标、设备与输入法矩阵尚未完成。
@@ -79,7 +79,7 @@ ANDROID_SERIAL=emulator-5554 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileTasks
 ANDROID_SERIAL=emulator-5554 ANDROID_FILE_TASK_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileTasksProductTest,com.hanxi.ghosterm.RemoteFileTasksProductTest,com.hanxi.ghosterm.SafFileTasksProductTest bash scripts/test-android-ssh.sh
 ```
 
-18 项定向使用真实 HOME、系统 DocumentsUI/独立 provider 与 SSH。24 组产品变异覆盖路由、请求身份、取消名额、结果/清单和认证归属；失败过程与最终证据统一记在 §9.70。§9.71 改由进程级 `FileWorkRuntime` 持有任务、清单和独立认证，`FileTasksViewModel` 仅保留页面路由与 presenter UUID；显式结束 Activity 只解除呈现归属。§9.72 已接 FIFO 等待请求，扫描/确认/执行仍串行；后台通知/暂停/重试/进程恢复未实现。主机顶栏新增任务快捷入口，与 HTML 顶栏仅设置的差异仍待导航收口。
+18 项定向使用真实 HOME、系统 DocumentsUI/独立 provider 与 SSH。24 组产品变异覆盖路由、请求身份、取消名额、结果/清单和认证归属；失败过程与最终证据统一记在 §9.70。§9.71 改由进程级 `FileWorkRuntime` 持有任务、清单和独立认证，`FileTasksViewModel` 仅保留页面路由与 presenter UUID；显式结束 Activity 只解除呈现归属。§9.72 已接 FIFO 等待请求，扫描/确认/执行仍串行；§9.74 已接后台通知，§9.98 已接暂停/继续、安全失败项重试与整体 ETA；持久历史核对、残留清理及完整矩阵仍待收尾，普通任务不自动恢复执行。主机顶栏新增任务快捷入口，与 HTML 顶栏仅设置的差异仍待导航收口。
 
 ## 文件任务排队（§9.72）
 
