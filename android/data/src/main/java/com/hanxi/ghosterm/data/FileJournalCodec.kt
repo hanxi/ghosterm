@@ -41,13 +41,15 @@ internal object FileJournalCodec {
     fun header(v: FileJournalRecord): ByteArray {
         require(v.items.isEmpty())
         val i=v.intent
-        val header=obj("version" to if(i.retryOf==null) "1" else "2","id" to i.id,"clipboard" to i.clipboardId,
+        val header=obj("version" to if(v.executionPlanId!=null) "3" else if(i.retryOf==null) "1" else "2","id" to i.id,"clipboard" to i.clipboardId,
             "source" to location(i.source),"sourceLabel" to i.sourceLabel,
             "selected" to JSONArray(i.selected.map(::entry)),"destination" to location(i.destination),
             "destinationLabel" to i.destinationLabel,"phase" to v.phase.name,
             "updated" to v.updatedMillis.toString(),"outcome" to v.outcome?.name,
             "cancelled" to v.cancelled,"error" to v.error)
-        i.retryOf?.let { header.put("retryOf",it) }
+        if(v.executionPlanId!=null) {
+            header.put("plan",v.executionPlanId);header.put("retryOf",i.retryOf ?: JSONObject.NULL)
+        } else i.retryOf?.let { header.put("retryOf",it) }
         return bytes(header,HEADER_LIMIT).also { readHeader(it) }
     }
     fun item(v: FileJournalItem): ByteArray {
@@ -116,19 +118,23 @@ internal object FileJournalCodec {
     fun readHeader(bytes: ByteArray): FileJournalRecord {
         val o=parse(bytes,HEADER_LIMIT)
         val version=o.text("version")
-        require(version=="1" || version=="2") { "任务记录版本不支持" }
+        require(version in setOf("1","2","3")) { "任务记录版本不支持" }
         val fields=arrayOf("version","id","clipboard","source","sourceLabel","selected","destination","destinationLabel","phase","updated","outcome","cancelled","error")
-        o.fields(*(if(version=="2") fields+"retryOf" else fields))
-        val retryOf=if(version=="2") uuid(o.text("retryOf")).also { require(it!=o.text("id")) { "任务不能引用自身" } } else null
+        o.fields(*(when(version) { "3"->fields+arrayOf("plan","retryOf");"2"->fields+"retryOf";else->fields }))
+        val retryOf=if(version in setOf("2","3")) o.optional("retryOf")?.let { uuid(it).also { require(it!=o.text("id")) { "任务不能引用自身" } } } else null
+        require(version!="2" || retryOf!=null) { "关联任务身份缺失" }
+        val plan=if(version=="3") uuid(o.text("plan")) else null
+        val phase=FileJournalPhase.valueOf(o.text("phase"))
+        require(plan==null || phase in setOf(FileJournalPhase.RUNNING,FileJournalPhase.CANCELLING,FileJournalPhase.FINISHED)) { "复制计划尚未登记执行" }
         val selected=o.get("selected") as? JSONArray ?: error("任务来源清单无效")
         require(selected.length() in 1..4096)
         val entries=(0 until selected.length()).map { entry(selected.getJSONObject(it)) }
         require(entries.distinctBy { it.id }.size==entries.size)
         return FileJournalRecord(FileJournalIntent(uuid(o.text("id")),uuid(o.text("clipboard")),
             location(o.objectAt("source")),o.text("sourceLabel"),Collections.unmodifiableList(entries),
-            location(o.objectAt("destination")),o.text("destinationLabel"),retryOf),FileJournalPhase.valueOf(o.text("phase")),
+            location(o.objectAt("destination")),o.text("destinationLabel"),retryOf),phase,
             long(o.text("updated")).also { require(it>=0) },o.optional("outcome")?.let(FileCopyState::valueOf),
-            o.get("cancelled") as? Boolean ?: error("任务取消状态无效"),o.optional("error"))
+            o.get("cancelled") as? Boolean ?: error("任务取消状态无效"),o.optional("error"),executionPlanId=plan)
     }
     fun readItem(bytes: ByteArray): FileJournalItem {
         val o=parse(bytes,ITEM_LIMIT)

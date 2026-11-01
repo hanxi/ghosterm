@@ -9,6 +9,8 @@ data class FileJournalIntent(val id: String, val clipboardId: String,
 data class FileJournalItem(val value: FileCopyItemResult, val checkpoint: FileCopyCheckpoint)
 data class FileJournalRecord(val intent: FileJournalIntent, val phase: FileJournalPhase,
     val updatedMillis: Long, val outcome: FileCopyState? = null, val cancelled: Boolean = false,
-    val error: String? = null, val items: List<FileJournalItem> = emptyList()) {
+    val error: String? = null, val items: List<FileJournalItem> = emptyList(),
+    /** Registered before execution; a plan reference is not current file ownership. */
+    val executionPlanId: String? = null) {
     val interrupted get() = phase != FileJournalPhase.FINISHED
 }

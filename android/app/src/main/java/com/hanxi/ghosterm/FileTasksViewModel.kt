@@ -205,7 +205,7 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
                 val observer=launch { execution.updates.collect { task.result=it } }
                 var began=false
                 try {
-                    try { journal.begin(task.request.id,execution.outcome.items);began=true }
+                    try { journal.begin(task.request.id,execution.outcome.items,plan.id);began=true }
                     catch(error: Exception) { if(error !is CancellationException) recordFailure(task,error);throw error }
                     ensureActive();execution.execute()
                 }
@@ -332,7 +332,13 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     fun retainedLabel(item: LocalRetainedFiles.Item):String {
         val matches=history.flatMap { it.items }.map { it.value }.plus(tasks.flatMap { it.result?.items.orEmpty() })
             .filter { it.targetParent?.endpoint==FileEndpoint.APP && it.candidatePath==item.referencePath }.map { it.source.relativePath }.distinct()
-        return when(matches.size) { 0->"未关联记录的暂存";1->"记录引用：${matches.single()}";else->"多条记录引用的暂存位置" }
+        if(matches.isNotEmpty()) return if(matches.size==1) "记录引用：${matches.single()}" else "多条记录引用的暂存位置"
+        val plans=history.filter { it.executionPlanId==item.executionPlanId }
+        return when(plans.size) {
+            0->"未关联记录的暂存"
+            1->"任务记录：${plans.single().intent.sourceLabel} → ${plans.single().intent.destinationLabel}"
+            else->"多条记录引用的暂存位置"
+        }
     }
     fun openRetained(item: LocalRetainedFiles.Item) {
         if(!retainedVisible || busy || retainedLoading || emptyRetainedReview!=null) return

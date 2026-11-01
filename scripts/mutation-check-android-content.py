@@ -16,7 +16,8 @@ def execute(root,build,test):
     screen=root/'android/app/src/main/java/com/hanxi/ghosterm/FileTasksScreen.kt'
     private=root/'android/data/src/main/java/com/hanxi/ghosterm/data/LocalRetainedFiles.kt'
     budget=root/'android/data/src/main/java/com/hanxi/ghosterm/data/LocalPublicationBudget.kt'
-    originals={p:p.read_bytes() for p in (digest,snapshot,executor,codec,inspector,model,screen,private,budget)}
+    journal=root/'android/data/src/main/java/com/hanxi/ghosterm/data/FileTaskJournal.kt'
+    originals={p:p.read_bytes() for p in (digest,snapshot,executor,codec,inspector,model,screen,private,budget,journal)}
     hashes={p:hashlib.sha256(data).digest() for p,data in originals.items()}
     if any(MARK.encode() in data for data in originals.values()):raise RuntimeError('Residual content mutation')
     data='FileContentTest#'
@@ -62,6 +63,20 @@ def execute(root,build,test):
         ('private-dispatch',inspector,"if(candidate && parent?.endpoint==FileEndpoint.APP && item.value.candidatePath?.startsWith('/')==true)",'if(false)',private_test+'historyComparesPrivateCandidateWithoutInferringItsTaskOwnership'),
         ('private-vm',model,'retained={ path -> LocalRetainedFiles(File(app.filesDir,"file-tasks")).content(path) }','retained=null','FileJournalProductTest#privateCandidateContentUsesReadonlyNamespaceAndDoesNotChangeUnknownHistory'),
     ]
+    plan='FileExecutionPlanTest#'
+    cases += [
+        ('plan-encode',codec,'header.put("plan",v.executionPlanId)','Unit',plan+'planAndLineageSurviveNewStoreAndEveryTerminalPhase'),
+        ('plan-decode',codec,'executionPlanId=plan)','executionPlanId=null)',plan+'planAndLineageSurviveNewStoreAndEveryTerminalPhase'),
+        ('plan-register',journal,'updatedMillis=System.currentTimeMillis(),executionPlanId=executionPlanId','updatedMillis=System.currentTimeMillis(),executionPlanId=null',plan+'planAndLineageSurviveNewStoreAndEveryTerminalPhase'),
+        ('plan-unique-record',journal,'check(FileJournalCodec.readHeader(rows.getBlob(0)).executionPlanId!=executionPlanId)','check(true)',plan+'duplicateAndInvalidPlansFailBeforeAnyItemsAreInserted'),
+        ('plan-unique-load',journal,'check(plans.distinct().size==plans.size)','check(true)',plan+'duplicateSavedPlansAreRejectedWithoutRepairOrDeletion'),
+        ('plan-fields',codec,'o.fields(*(when(version) { "3"->fields+arrayOf("plan","retryOf");"2"->fields+"retryOf";else->fields }))','if(version!="3") o.fields(*(when(version) { "3"->fields+arrayOf("plan","retryOf");"2"->fields+"retryOf";else->fields }))',plan+'missingPlanAndUnknownFieldsCannotDowngradeToLegacy'),
+        ('plan-uuid',codec,'val plan=if(version=="3") uuid(o.text("plan")) else null','val plan=if(version=="3") o.text("plan") else null',plan+'registeredPlanRequiresCanonicalIdentityAndAnExecutionPhase'),
+        ('plan-phase',codec,'require(plan==null || phase in setOf(FileJournalPhase.RUNNING,FileJournalPhase.CANCELLING,FileJournalPhase.FINISHED))','require(true)',plan+'registeredPlanRequiresCanonicalIdentityAndAnExecutionPhase'),
+        ('plan-vm',model,'journal.begin(task.request.id,execution.outcome.items,plan.id)','journal.begin(task.request.id,execution.outcome.items,null)','FileJournalProductTest#finishedProductPersistsResultsAndNewRuntimeDoesNotReplayCopy'),
+        ('plan-item',private,'stamp.size,millis,task)','stamp.size,millis,"")','RetainedFilesProductTest#registeredPlanFindsItsRetainedCandidateWithoutACompletedItemCheckpoint'),
+        ('plan-label',model,'history.filter { it.executionPlanId==item.executionPlanId }','history.filter { false }','RetainedFilesProductTest#registeredPlanFindsItsRetainedCandidateWithoutACompletedItemCheckpoint'),
+    ]
     selected=os.environ.get('ANDROID_FILE_CONTENT_CASES','').split(',')
     if selected!=['']:
         if set(selected)-{c[0] for c in cases}:raise RuntimeError('Unknown content mutation')
@@ -88,6 +103,6 @@ def execute(root,build,test):
         for path,data in originals.items():
             if MARK.encode() in path.read_bytes():path.write_bytes(data)
             if hashlib.sha256(path.read_bytes()).digest()!=hashes[path]:raise RuntimeError('Content source restoration failed')
-    print(f'ANDROID NAMESPACE MUTATIONS PASS: {len(cases)} groups',flush=True)
+    print(f'ANDROID CONTENT MUTATIONS PASS: {len(cases)} groups',flush=True)
 
 if __name__=='__main__':raise SystemExit('Use ANDROID_FILE_CONTENT_MUTATE=1 with scripts/test-android-ssh.sh')

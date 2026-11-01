@@ -68,6 +68,28 @@ class RetainedFilesProductTest {
         ui.waitUntil(10000) { !model.retainedLoading }
         ui.onNodeWithTag("retained-preview").assertTextEquals("preview bytes")
     }
+    @Test fun registeredPlanFindsItsRetainedCandidateWithoutACompletedItemCheckpoint() {
+        openList()
+        ui.runOnIdle { assertEquals("未关联记录的暂存",model.retainedLabel(model.retainedSnapshot!!.items.single())) }
+        ui.runOnIdle { model.hideRetained() }
+        val before=runBlocking { journal.load().single() }
+        val plan=destination.parentFile!!.name
+        assertNotEquals(before.intent.id,plan)
+        runBlocking { journal.phase(before.intent.id,FileJournalPhase.CONFIRMING);journal.begin(before.intent.id,emptyList(),plan) }
+        ui.runOnIdle { model.reloadHistory() };ui.waitUntil(10000) { !model.journalLoading }
+        openList()
+        val expected="任务记录：home → home"
+        ui.runOnIdle {
+            val item=model.retainedSnapshot!!.items.single()
+            assertEquals(plan,item.executionPlanId);assertEquals(expected,model.retainedLabel(item))
+        }
+        ui.onNodeWithText(expected).assertExists()
+        assertEquals("preview bytes",candidate.readText());assertTrue(model.history.single().items.isEmpty())
+        ui.runOnIdle { model.hideRetained();model.removeHistory(model.history.single()) }
+        ui.waitUntil(10000) { !model.journalLoading };openList()
+        ui.runOnIdle { assertEquals("未关联记录的暂存",model.retainedLabel(model.retainedSnapshot!!.items.single())) }
+        assertEquals("preview bytes",candidate.readText());assertEquals("keep original",original.readText())
+    }
     @Test fun tapPreviewsAndOnlySeparateConfirmationDeletesWithoutRewritingHistory() {
         val before=runBlocking { journal.load() }
         openList();openPreview()

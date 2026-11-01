@@ -288,6 +288,9 @@ class FileJournalProductTest {
         assertTrue(reopened.tasks.isEmpty());assertFalse(reopened.history.single().interrupted)
         assertEquals(FileCopyState.COMPLETE,reopened.history.single().outcome)
         assertEquals(task.result!!.items,reopened.history.single().items.map { it.value })
+        assertNotNull(task.execution)
+        assertEquals(task.execution!!.plan.id,reopened.history.single().executionPlanId)
+        assertNotEquals(task.request.id,reopened.history.single().executionPlanId)
         assertEquals(callsBefore,calls.get());assertEquals(listOf("a.txt"),File(home,"target").list()!!.toList())
         ui.onNodeWithTag("file-history-status").assertTextEquals("历史任务 · 全部复制完成")
     }

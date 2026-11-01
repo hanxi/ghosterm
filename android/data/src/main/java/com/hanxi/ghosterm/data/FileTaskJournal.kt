@@ -117,6 +117,8 @@ class FileTaskJournal(private val file: File) {
         check(bytes<=MAX_BYTES && bytes==scalar(db,"SELECT bytes FROM budget WHERE id=1") &&
             count.toLong()==scalar(db,"SELECT items FROM budget WHERE id=1") &&
             count.toLong()==scalar(db,"SELECT count(*) FROM items")) { "任务记录账目不一致，原记录已保留" }
+        val plans=records.mapNotNull { it.executionPlanId }
+        check(plans.distinct().size==plans.size) { "多条任务引用同一复制计划，原记录已保留" }
         Collections.unmodifiableList(records.sortedByDescending { it.updatedMillis })
     }
     suspend fun accept(request: FilePasteRequest) = transaction { db ->
@@ -133,16 +135,22 @@ class FileTaskJournal(private val file: File) {
         writeHeader(db,record.copy(phase=phase,updatedMillis=System.currentTimeMillis()))
     }
     /** Whole plan commits before the first destination side effect; no partial plan on quota failure. */
-    suspend fun begin(id: String, items: List<FileCopyItemResult>) = transaction { db ->
+    suspend fun begin(id: String, items: List<FileCopyItemResult>, executionPlanId: String? = null) = transaction { db ->
         require(items.size<=16384 && items.distinctBy { it.source.relativePath }.size==items.size)
         val record=header(db,id);check(record.phase==FileJournalPhase.CONFIRMING)
+        if(executionPlanId!=null) {
+            require(java.util.UUID.fromString(executionPlanId).toString()==executionPlanId) { "复制计划身份无效" }
+            db.rawQuery("SELECT payload FROM tasks WHERE id!=?",arrayOf(id)).use { rows ->
+                while(rows.moveToNext()) check(FileJournalCodec.readHeader(rows.getBlob(0)).executionPlanId!=executionPlanId) { "复制计划已由另一条任务登记" }
+            }
+        }
         check(scalar(db,"SELECT count(*) FROM items WHERE task=?",arrayOf(id))==0L)
         for(item in items) {
             val payload=FileJournalCodec.item(FileJournalItem(item,FileCopyCheckpoint.PREPARING))
             budget(db,payload.size.toLong(),1)
             db.insertOrThrow("items",null,ContentValues().apply { put("task",id);put("path",item.source.relativePath);put("payload",payload) })
         }
-        writeHeader(db,record.copy(phase=FileJournalPhase.RUNNING,updatedMillis=System.currentTimeMillis()))
+        writeHeader(db,record.copy(phase=FileJournalPhase.RUNNING,updatedMillis=System.currentTimeMillis(),executionPlanId=executionPlanId))
     }
     suspend fun checkpoint(id: String,value: FileCopyItemResult,point: FileCopyCheckpoint) = transaction { db ->
         db.rawQuery("SELECT phase FROM tasks WHERE id=?",arrayOf(id)).use {

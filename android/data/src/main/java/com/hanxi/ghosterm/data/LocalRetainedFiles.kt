@@ -28,7 +28,7 @@ import java.util.UUID
 class LocalRetainedFiles(private val root: File, private val budget: LocalPublicationBudget = LocalPublicationBudget.SHARED,
     private val entryLimit: Int = 4096, private val taskLimit: Int = 4096) {
     class Ref internal constructor(internal val owner: UUID, internal val epoch: Long, internal val id: UUID)
-    data class Item(val ref: Ref, val referencePath: String, val size: Long, val modifiedMillis: Long)
+    data class Item(val ref: Ref, val referencePath: String, val size: Long, val modifiedMillis: Long, val executionPlanId: String)
     data class Snapshot(val items: List<Item>, val complete: Boolean, val error: String?, val emptyRequestCount: Int = 0)
     class EmptyReview internal constructor(val count: Int)
     data class EmptyResult(val removed: Int, val missing: Int, val issues: List<String>)
@@ -124,7 +124,7 @@ class LocalRetainedFiles(private val root: File, private val budget: LocalPublic
                                                     val stamp=fingerprint(Os.lstat(candidate.toString()))
                                                     val ref=Ref(ownerId,epoch,UUID.randomUUID())
                                                     val millis=stamp.modifiedSeconds.takeIf { it>=0 && it<=Long.MAX_VALUE/1000 }?.times(1000) ?: 0
-                                                    val item=Item(ref,File(root,"$task/destination/$filename").absolutePath,stamp.size,millis)
+                                                    val item=Item(ref,File(root,"$task/destination/$filename").absolutePath,stamp.size,millis,task)
                                                     records[ref.id]=Record(item,task,filename,rootIdentity,ownerIdentity,destinationIdentity,stamp);rows+=item
                                                 }
                                             }
