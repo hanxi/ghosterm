@@ -271,7 +271,11 @@ bool gat_surface_frame(gat_surface *s, int32_t **values, size_t *count) {
                 ghostty_cell_get(raw, GHOSTTY_CELL_DATA_WIDE, &wide) != GHOSTTY_SUCCESS ||
                 ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style) != GHOSTTY_SUCCESS ||
                 ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN, &n) != GHOSTTY_SUCCESS) goto failed;
-            (void)ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg);
+            /* Erased cells can carry RGB/palette backgrounds in their content
+             * tag even when the text style has no background. Only the resolved
+             * color API knows whether a cell should reveal below-bg graphics. */
+            GhosttyResult bg_result = ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg);
+            if (bg_result != GHOSTTY_SUCCESS && bg_result != GHOSTTY_INVALID_VALUE) goto failed;
             (void)ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, &fg);
             if (n > 65536 || used + 5 + n > 4 * 1024 * 1024) goto failed;
             if (used + 5 + n > cap) {
@@ -281,7 +285,7 @@ bool gat_surface_frame(gat_surface *s, int32_t **values, size_t *count) {
             (void)ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_SELECTED, &selected);
             out[used++] = color(style.inverse ? fg : bg); out[used++] = color(style.inverse ? bg : fg);
             out[used++] = style.bold | style.italic << 1 | style.faint << 2 | style.invisible << 3 |
-                style.strikethrough << 4 | (style.underline != 0) << 5 | style.overline << 6 | style.blink << 7 | selected << 8 | ((style.bg_color.tag==GHOSTTY_STYLE_COLOR_NONE && !style.inverse) << 9);
+                style.strikethrough << 4 | (style.underline != 0) << 5 | style.overline << 6 | style.blink << 7 | selected << 8 | ((bg_result==GHOSTTY_INVALID_VALUE && !style.inverse) << 9);
             out[used++] = wide == GHOSTTY_CELL_WIDE_NARROW ? 1 : wide == GHOSTTY_CELL_WIDE_WIDE ? 2 : 0;
             out[used++] = (int32_t)n;
             if (n && ghostty_render_state_row_cells_get(s->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, out + used) != GHOSTTY_SUCCESS) goto failed;

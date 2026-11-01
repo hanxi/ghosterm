@@ -3423,7 +3423,7 @@ SQLite 结构版本 1、任务头版本 1/2/3 保持；只有带本机创建参�
 **共享死亡工具的远端复验**：提交 `707d6d3` 后，在 API 29 arm64 / 4 KB 页通过同一 APK 的真实 SSH 四边界：remote-create、remote-publish、remote-published、remote-directory；每个边界确认旧 PID 消失、独立新连接读取原记录及真实远端文件，并有同 APK Core 对照。原 RemoteFileJournalTest 四项同时通过（4.946 秒）。`phase-1793571784957583000/` 的 869 份输入前后一致，证据归档 `tmp/local-identity-evidence/remote-crash/`；这证明共享自发 SIGKILL 工具在远端夹具适用，不实现或宣称未知结果自动恢复。
 
 
-**§9.114 云端发行与实际包**：[Android CI 41356839346](https://github.com/hanxi/ghosterm/actions/runs/41356839346) 与 [macOS CI 41356839296](https://github.com/hanxi/ghosterm/actions/runs/41356839296) 均成功。共用 dev 实际 APK 来源 `707d6d3` / clean，8,033,591 字节，SHA256 `0441f5ab6fa6c895983afdb129c246e0962323d4679c3895bb7909fe324652db`。下载核对固定证书、非 debuggable/minSdk 29、三个压缩 arm64 SO、ZIP/ELF 16 KB、外部构建清单/摘要、完整 Nerd Fonts/许可与实际 CI 的 R8/资源优化任务；共用八份附件包含两份 macOS 归档。证据 `tmp/local-identity-cloud/inspection/result.json`、`published/`、`ci.log`、`dev-assets.json`。实际签名包的升级与新建复制另验；848 项完整回归正在 API 36 / 4 KB 页运行，未完成前不计通过。
+**§9.114 云端发行与实际包**：[Android CI 41356839346](https://github.com/hanxi/ghosterm/actions/runs/41356839346) 与 [macOS CI 41356839296](https://github.com/hanxi/ghosterm/actions/runs/41356839296) 均成功。共用 dev 实际 APK 来源 `707d6d3` / clean，8,033,591 字节，SHA256 `0441f5ab6fa6c895983afdb129c246e0962323d4679c3895bb7909fe324652db`。下载核对固定证书、非 debuggable/minSdk 29、三个压缩 arm64 SO、ZIP/ELF 16 KB、外部构建清单/摘要、完整 Nerd Fonts/许可与实际 CI 的 R8/资源优化任务；共用八份附件包含两份 macOS 归档。证据 `tmp/local-identity-cloud/inspection/result.json`、`published/`、`ci.log`、`dev-assets.json`。实际签名包的升级与新建复制另验；848 项完整回归在 API 36 / 4 KB 页完成，846 项通过、两项失败，详见 §9.115；本轮不计完整通过。
 
 
 **实际云端包 16 KB 页升级与新建复制**：实际下载的 `707d6d3` / clean APK 在 API 36 / 16 KB 页模拟器覆盖安装，安装后 APK SHA256 与下载文件一致，首页/关于的提交与干净状态通过。普通应用 UID 的只读 SQLite 探针核对升级前保存的整项版本 3 编码，字节完全不变（含创建身份与摘要），执行计划引用也与原 receipt 一致。正式历史页面仍将受控替换目标判为身份不同、内容一致，原已完成结果不变。证据 `tmp/local-identity-cloud/device-result.json`、`tmp/local-identity-release16k/upgrade-reference-exit.xml`、`upgrade-plan-probe.xml`、`cloud-identity-different.xml`、`cloud-content-match.xml` 与 `fixture.json`。
@@ -3431,3 +3431,18 @@ SQLite 结构版本 1、任务头版本 1/2/3 保持；只有带本机创建参�
 随后在同一干净云端包中直接新建另一份独立公开样本 `cloud-identity-proof-41f9cfdf3b4d.txt`，经正式选择/复制/目标确认写入 `smoke-target/`；强制停止/重启后历史仍已完成，目标身份 SAME、内容 MATCH。普通应用 UID 的只读查询复核新写头版本 3、已完成任务/条目、非重试关联、计划与请求 UUID 不同以及计划目录；这份样本是在实际云端包创建，不借升级前 dirty 包样本代替。证据 `tmp/local-identity-release16k-clean/fixture.json`、`persisted-details.xml`、`cloud-clean-identity-same.xml`、`cloud-clean-content-match.xml`、`local-plan-probe.xml`。
 
 两份样本最后均仅清理各自 nonce 对应的源/目标/receipt、空计划目录和再次核对名称后的单条历史，普通 shell 退出 0 后关闭会话；旧 before-upgrade 记录仍可打开，最终回到首页。没有 adb root/run-as、策略绕过、整个 HOME 或任务根递归清空。验收探针的首轮清理未退出、后续长命令引用错误、新建关联探针引用错误及一次误用升级模式均未计通过；修正后以短行传递编码脚本，完整 SHA256 校验后解释执行，明确区分新建/升级模式并核验退出状态，再分别完成关联与限定清理。脚本临时文件也按该 nonce 删除；新建样本的初始命令另确认前一样本的脚本文件不存在。失败截图/命令与修正后的 `cleanup-*`、`local-query.sh`、`fixture.json` 均保留在上述两个目录。此处是签名包本机复制与升级专项，不代表物理硬件、远端/SAF 恢复或完整 A10；848 项模拟器完整回归另记终态。
+
+
+<a id="android-erased-background"></a>
+### 9.115 完整回归发现的空白单元格背景回归（2026-11-02，修复验证中）
+
+首次新完整运行 `phase-1793571841511187000/` 执行默认发现的 848 项，1937.524 秒，846 项正常通过、两项普通断言失败，零错误/跳过；每项开始/结束唯一且对应，869 份非 Markdown 输入前后集合/SHA256 一致。失败为 TerminalPerformanceTest 的 input color 0 和 TerminalScreenTest 的 ANSI 红背景像素（723/120960），不能记作完整绿。原始完整日志、默认发现、构建与源码收据归档 `tmp/local-identity-evidence/full848-failed/`。这份失败属于此前的 `707d6d3` 应用代码；已发行的字体和本机文件身份专项不抵消它。
+
+原因是 Kitty below-background 图层所用 defaultBackground 标记仅检查 `GhosttyStyle.bg_color`；上游擦除出的空白单元格可将真彩色/调色板背景存在 content tag 中，文字 style 仍为 NONE，于是 Canvas 错把有色空白当默认透明背景。pin 的 `ghostty/vt/render.h` 明确由 BG_COLOR 查询统一解析这三种来源，仅无背景返回 GHOSTTY_INVALID_VALUE；修复据此区分有色单元格，并拒绝其他查询错误，反色单元格继续不透明。不改变上游、Core/JNI 公共 ABI、字宽或 Kitty 图层顺序。
+
+新增真实 PTY→VT→Canvas 的真彩色擦除与恢复默认背景像素用例，在未修复实现上正常断言红：期望 -16075706，实际为默认背景 -15262944（`phase-1793573921310977000/`）；同一已安装 APK 的独立 Core 配置对照通过，日志 `full848-failed/erased-background-control.log`。修复后的平台组合、回到旧判据的真实变异、release 与新的完整运行另记；不能以新增一个像素用例通过替代完整客户端复验。
+
+
+**修复定向与保护验证**：API 36 arm64 / 4 KB 页的 KittyCanvasTest、TerminalScreenTest、TerminalPerformanceTest、NerdFontTest、TerminalPreferencesTest 共 75 项通过，零失败/错误/跳过，238.625 秒（`phase-1793573986705590000/`）。性能探针额外发送的一条 ghosterm_profile 状态不含测试 class/test，收据单独验证其 complete=true，不把它当第 76 项；75 个具名开始/结束仍唯一对应。此轮原失败的两项均已通过，完整性能记录在 `tmp/erased-background-evidence/api36-performance-0.json`。
+
+API 29 arm64 / 4 KB 页按 background-layer、erased-background 两组真实变异验证，回到旧 style-only 判据后新增像素断言正常红；默认背景全不透明变异仍由旧 Kitty below-background 图层用例捕获。每组编译后目标红、同 APK Core 绿、恢复绿与 SHA256；`phase-1793574389930543000/` 两组通过，不称其他 Kitty 保护全量重跑。Core 47 CTest / 93 ABI 通过。签名 release 和 app/data/bridge/terminal 四模块 lint 通过（`phase-1793574103796650000/`）。上述三个阶段的 869 份输入均前后不变；本地 APK 8,033,727 字节，SHA256 `01d9002270fd4e6e3796bb35bbe293726313592a3c218cdce61ca395ba333113`，来源 `06d8390` / dirty，固定证书、非 debuggable/minSdk 29、三个压缩 arm64 SO、ZIP/ELF 16 KB、R8 mapping 和完整 Nerd Fonts/许可核对通过。证据 `tmp/erased-background-evidence/`。尚非云端修复包；新的完整回归与实际发行另记。

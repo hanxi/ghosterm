@@ -147,6 +147,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 
 
+**Android 擦除背景（§9.115）**：完整 848 项发现两处相关背景像素失败，不能记绿。修复后 API 36 的 75 项终端/Kitty/字体/性能组合、Core 47/93、release 与四模块 lint 通过。API 29 以 `ANDROID_KITTY_MUTATE=1 ANDROID_KITTY_CASES=background-layer,erased-background` 配合 `scripts/test-android-ssh.sh` 选跑两组：默认层不透明与旧 style-only 空白背景判据均编译后单条正常断言红、同 APK Core 绿、恢复绿与 SHA256。为手工设备证据，不增加 macOS CI 20 份；不能把定向通过当新完整回归通过。
+
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
 `ghosterm.h` 是**单一事实来源**。新增/删除/改签名后必须：

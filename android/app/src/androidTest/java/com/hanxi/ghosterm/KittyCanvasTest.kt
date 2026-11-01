@@ -77,6 +77,20 @@ class KittyCanvasTest {
         capture.eraseColor(Color.TRANSPARENT)
         view.draw(Canvas(capture));capture.getPixel(3,3)
     }
+    @Test fun erasedTrueColorBackgroundPaintsEmptyCells() {
+        val background=session.frame(0)!!.background
+        for((sgr,marker,expected) in listOf(
+            Triple("48;2;10;180;70","ERASE_RGB",Color.rgb(10,180,70)),
+            Triple("0","ERASE_DEFAULT",background))) {
+            output("\u001b[${sgr}m\u001b[2J\u001b[H\u001b[?25l${marker}\r\n")
+            await { ui.runOnIdle { view.currentFrame?.line(0)==marker } }
+            val actual=ui.runOnIdle {
+                capture.eraseColor(Color.TRANSPARENT);view.draw(Canvas(capture))
+                capture.getPixel(200,200)
+            }
+            assertEquals("Erased blank cells must paint their resolved background",expected,actual)
+        }
+    }
     @Test fun remoteSshUsesTheSameCanvasAndAnimationOwner() {
         val fixture=sshFixture()
         val host="kitty-fixture.ghosterm.test"
