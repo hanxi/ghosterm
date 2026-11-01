@@ -87,6 +87,7 @@ class FileTasksProductTest {
         try { ui.waitUntil(10000) { tasks.tasks.size==2 && latest.phase==FileTaskPhase.CONFIRMING } }
         catch(timeout: ComposeTimeoutException) { fail("retry confirmation creates a fresh checked request") }
         assertNotEquals(original.request.id,latest.request.id)
+        assertEquals(original.request.id,latest.request.retryOf)
         assertEquals(FileConflictPolicy.ASK,latest.request.conflictPolicy)
         assertEquals("existing",File(home,"target/a.txt").readText())
         ui.onNodeWithTag("file-task-keep").performScrollTo().performClick()
@@ -95,6 +96,7 @@ class FileTasksProductTest {
         assertEquals("existing",File(home,"target/a.txt").readText())
         assertEquals("真实复制 ☃\n",File(home,"target/a (2).txt").readText())
         assertEquals(FileCopyItemState.CONFLICT,original.result!!.items.single().state)
+        assertEquals(original.request.id,runBlocking { FileTaskJournal(File(root,"file-history/tasks.db")).load().single { it.intent.id==latest.request.id }.intent.retryOf })
     }
     @Test fun pasteFreezesDestinationAndKeepsDefaultClipboardAfterRealCopy() {
         prepare();assertFalse(File(home,"target/a.txt").exists())

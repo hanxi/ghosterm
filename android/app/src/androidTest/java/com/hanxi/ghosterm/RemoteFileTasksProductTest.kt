@@ -150,6 +150,54 @@ class RemoteFileTasksProductTest {
             ui.waitUntil(10000) { !tasks().journalLoading }
         }
     }
+    @Test fun historicalRetryAuthenticatesFreshTargetAndWritesNewLinkedResult() {
+        val source=FileLocation(FileEndpoint.APP)
+        val entry=kotlinx.coroutines.runBlocking { LocalFileBrowser(home,ui.activity.contentResolver).browse(source).entries.single { it.name=="$unique.txt" } }
+        val destination=FileLocation(FileEndpoint("history-retry-$unique",unique,fixture.getString("taskRemoteScratch"),
+            remote=RemoteFileIdentity(unique,"127.0.0.1",fixture.getString("user"),fixture.getInt("port"))))
+        val old=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"local source",listOf(entry)),destination,"history target")
+        val journal=FileTaskJournal(File(ui.activity.filesDir,"file-history/tasks.db"))
+        kotlinx.coroutines.runBlocking { journal.load();journal.accept(old) }
+        try {
+            val before=kotlinx.coroutines.runBlocking { journal.load().single { it.intent.id==old.id } }
+            ui.runOnIdle { tasks().reloadHistory();tasks().show() }
+            ui.waitUntil(10000) { !tasks().journalLoading && tasks().history.any { it.intent.id==old.id } }
+            assertEquals(0,owners());assertTrue(tasks().tasks.isEmpty())
+            ui.onNode(hasTestTag("file-history-retry") and hasAnyAncestor(hasTestTag("file-history:${old.id}"))).performScrollTo().performClick()
+            assertTrue(tasks().tasks.isEmpty())
+            ui.onNodeWithTag("file-history-retry-confirm").performClick()
+            loginUntil { tasks().tasks.singleOrNull()?.phase in setOf(FileTaskPhase.CONFIRMING,FileTaskPhase.FINISHED) }
+            val child=tasks().tasks.single()
+            assertEquals(child.error,FileTaskPhase.CONFIRMING,child.phase)
+            assertEquals(old.id,child.request.retryOf);assertNotEquals(old.id,child.request.id)
+            ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
+            loginUntil { !tasks().busy }
+            assertEquals(child.result?.error,FileCopyState.COMPLETE,child.result?.state)
+            assertEquals(2,authIds.size);assertEquals(0,owners())
+            assertEquals(before,kotlinx.coroutines.runBlocking { journal.load().single { it.intent.id==old.id } })
+            assertEquals(old.id,kotlinx.coroutines.runBlocking { journal.load().single { it.intent.id==child.request.id }.intent.retryOf })
+            kotlinx.coroutines.runBlocking {
+                val connection=RemoteFileSession(ResolvedSSHConnection("127.0.0.1",fixture.getInt("port"),fixture.getString("user"),known.path,byteArrayOf(127,0,0,1)))
+                try {
+                    kotlinx.coroutines.withTimeout(10000) {
+                        var prompt=connection.authentication()
+                        while(prompt.phase!=SSHAuthPhase.CREDENTIALS) {
+                            assertFalse(connection.state().finished);kotlinx.coroutines.delay(10);prompt=connection.authentication()
+                        }
+                        connection.privateKey(prompt,fixture.getString("taskFilePem").toByteArray())
+                        while(!connection.state().ready) { assertFalse(connection.state().finished);kotlinx.coroutines.delay(10) }
+                    }
+                    assertArrayEquals("真实任务上传 ☃\n".toByteArray(),connection.preview(destination.directoryId+"/$unique.txt"))
+                } finally { kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { connection.closeAndAwait() } }
+            }
+            assertEquals(0,owners())
+        } finally {
+            ui.runOnIdle { tasks().tasks.toList().forEach(tasks()::cancel) }
+            ui.waitUntil(15000) { !tasks().busy }
+            tasks().history.firstOrNull { it.intent.id==old.id }?.let { record -> ui.runOnIdle { tasks().removeHistory(record) } }
+            ui.waitUntil(10000) { !tasks().journalLoading }
+        }
+    }
     @Test fun uploadThroughPasteButtonSurvivesRotationAndKeepsBrowserAndClipboard() {
         ui.onNodeWithText("本机文件").performClick();loaded();copy("$unique.txt")
         val clipboard=files().clipboard!!.id

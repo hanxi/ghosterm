@@ -46,7 +46,7 @@ def main():
         ('load-history',store,'history.addAll(journal.load())','journal.load()',p+'reopenedQueuedIntentIsReadOnlyAndClearingHistoryNeverStartsIt'),
         ('stop-queue',store,'if(journalLoading || journalError!=null || backgroundHold!=null) return','if(journalLoading || backgroundHold!=null) return',p+'completionRecordFailureStopsAlreadyQueuedNextRequest'),
         ('remove-after-commit',store,'journal.remove(record.intent.id);history.remove(record)','history.remove(record);journal.remove(record.intent.id)',p+'failedHistoryRemovalKeepsVisibleRecordAndOriginalDatabase'),
-        ('interrupted-label',screen,'"已中断 · 结果待核对"','"全部复制完成"',p+'reopenedQueuedIntentIsReadOnlyAndClearingHistoryNeverStartsIt'),
+        ('interrupted-label',screen,'if(record.interrupted) "已中断 · 结果待核对"','if(record.interrupted) "全部复制完成"',p+'reopenedQueuedIntentIsReadOnlyAndClearingHistoryNeverStartsIt'),
     ]
     if args.case:
         if args.case not in {c[0] for c in cases}:raise RuntimeError('Unknown case')
@@ -71,7 +71,7 @@ def main():
         if passed!=green or (not green and ('FAILURES!!!' not in output or not any(x in output for x in ('AssertionError','org.junit.ComparisonFailure')))):
             raise RuntimeError(output)
     baseline='FileJournalTest,FileJournalProductTest,SafPublicationTest#journalUriIsPersistedBeforeContentWrite'
-    build('baseline');test('baseline',baseline,True,18)
+    build('baseline');test('baseline',baseline,True,23)
     test('baseline-control','ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig',True)
     try:
         for name,path,before,after,target in cases:
@@ -83,7 +83,7 @@ def main():
             restore();build(name+'-restored');test(name+'-restored',target,True)
             print(f'PASS {name}: compiled target red / same APK config green / restored green / SHA256',flush=True)
     finally:restore()
-    build('final');test('final',baseline,True,18)
+    build('final');test('final',baseline,True,23)
     print(f'ANDROID FILE JOURNAL MUTATIONS PASS: {len(cases)} groups',flush=True)
 
 

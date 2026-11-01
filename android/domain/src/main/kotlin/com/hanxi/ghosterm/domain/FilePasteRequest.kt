@@ -14,14 +14,17 @@ class FilePasteRequest private constructor(
     val items: List<BrowserEntry>,
     val destination: FileLocation,
     val destinationPathLabel: String,
-    val conflictPolicy: FileConflictPolicy
+    val conflictPolicy: FileConflictPolicy,
+    val retryOf: String?
 ) {
     companion object {
         fun capture(clipboard: FileClipboardSnapshot, destination: FileLocation,
-            destinationPathLabel: String, conflictPolicy: FileConflictPolicy = FileConflictPolicy.ASK) =
-            FilePasteRequest(UUID.randomUUID().toString(), clipboard.id, clipboard.source,
+            destinationPathLabel: String, conflictPolicy: FileConflictPolicy = FileConflictPolicy.ASK, retryOf: String? = null): FilePasteRequest {
+            require(retryOf==null || UUID.fromString(retryOf).toString()==retryOf) { "原任务标识无效" }
+            return FilePasteRequest(UUID.randomUUID().toString(), clipboard.id, clipboard.source,
                 clipboard.sourcePathLabel, Collections.unmodifiableList(ArrayList(clipboard.items)),
-                destination, destinationPathLabel, conflictPolicy)
+                destination, destinationPathLabel, conflictPolicy, retryOf)
+        }
     }
 }
 

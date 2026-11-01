@@ -89,6 +89,80 @@ class FileJournalProductTest {
         assertEquals("unrelated current bytes",File(home,"target/a.txt").readText())
         assertEquals("partial",File(home,"target/.candidate").readText())
     }
+    @Test fun explicitHistoricalRetryCreatesLinkedRequestAndPreservesOldRecord() {
+        val old=FilePasteRequest.capture(snapshot,target,"target")
+        runBlocking { journal.load();journal.accept(old) }
+        val before=runBlocking { journal.load().single() }
+        val model=open()
+        ui.onNodeWithTag("file-history-retry").performScrollTo().performClick()
+        assertTrue(model.tasks.isEmpty());assertEquals(0,calls.get())
+        ui.onNodeWithTag("file-history-retry-confirm").performClick()
+        ui.waitUntil(10000) { model.tasks.singleOrNull()?.phase in setOf(FileTaskPhase.CONFIRMING,FileTaskPhase.FINISHED) }
+        val task=model.tasks.single()
+        assertEquals(task.error,FileTaskPhase.CONFIRMING,task.phase)
+        assertNotEquals(old.id,task.request.id);assertEquals(old.id,task.request.retryOf)
+        assertEquals(FileConflictPolicy.ASK,task.request.conflictPolicy)
+        assertEquals(before,runBlocking { journal.load().single { it.intent.id==old.id } })
+        ui.onNodeWithTag("file-task-origin").performScrollTo().performClick()
+        ui.onNodeWithText("原记录已保留，不受重新发起的结果影响。").assertExists()
+        ui.onNodeWithText("返回任务").performClick()
+        ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick();waitDone(task)
+        assertEquals(FileCopyState.COMPLETE,task.result!!.state)
+        assertEquals("persistent UI bytes",File(home,"target/a.txt").readText())
+        val reopened=open()
+        assertEquals(old.id,reopened.history.single { it.intent.id==task.request.id }.intent.retryOf)
+        assertEquals(before,reopened.history.single { it.intent.id==old.id })
+        runBlocking { journal.remove(old.id) };ui.runOnIdle { reopened.reloadHistory() }
+        ui.waitUntil(10000) { !reopened.journalLoading }
+        ui.onNodeWithTag("file-history-origin").performScrollTo().performClick()
+        ui.onNodeWithText("原任务记录已清除；这条任务保留了原任务的关联。").assertExists()
+        ui.onNodeWithText("返回任务").performClick()
+        assertEquals("persistent UI bytes",File(home,"target/a.txt").readText())
+    }
+    @Test fun unconfirmedHistoricalSideEffectCannotBeReplayed() {
+        val old=FilePasteRequest.capture(snapshot,target,"target")
+        val item=FileCopyItemResult(FileScanEntry(snapshot.source,snapshot.items.single(),"a.txt"),FileCopyItemState.NOT_ATTEMPTED,target,"a.txt")
+        runBlocking {
+            journal.load();journal.accept(old);journal.phase(old.id,FileJournalPhase.CONFIRMING);journal.begin(old.id,listOf(item))
+            journal.checkpoint(old.id,item,FileCopyCheckpoint.DOCUMENT_CREATE)
+        }
+        val before=runBlocking { journal.load() };val model=open()
+        ui.onNodeWithTag("file-history-retry").performScrollTo().performClick()
+        ui.onNodeWithTag("file-history-retry-confirm").assertIsNotEnabled()
+        ui.onNodeWithText("保留记录").performClick()
+        assertTrue(model.tasks.isEmpty());assertEquals(before,runBlocking { journal.load() })
+        assertTrue(File(home,"target").list()!!.isEmpty());assertEquals(0,calls.get())
+    }
+    @Test fun historicalRetryRechecksChangedSourceBeforeAnyCopy() {
+        val old=FilePasteRequest.capture(snapshot,target,"target")
+        runBlocking { journal.load();journal.accept(old) }
+        val before=runBlocking { journal.load().single() }
+        File(home,"source/a.txt").writeText("changed source with a different size")
+        val model=open()
+        ui.onNodeWithTag("file-history-retry").performScrollTo().performClick()
+        ui.onNodeWithTag("file-history-retry-confirm").performClick()
+        ui.waitUntil(10000) { model.tasks.singleOrNull()?.phase==FileTaskPhase.FINISHED }
+        assertNotNull(model.tasks.single().error);assertTrue(File(home,"target").list()!!.isEmpty())
+        assertEquals(before,runBlocking { journal.load().single { it.intent.id==old.id } })
+        assertEquals(old.id,model.tasks.single().request.retryOf)
+    }
+    @Test fun historicalRetryQueuesBehindExistingConfirmationAndKeepsAssociation() {
+        val old=FilePasteRequest.capture(snapshot,target,"old target")
+        runBlocking { journal.load();journal.accept(old) }
+        File(home,"other").mkdir();val model=open()
+        val first=ui.runOnIdle { model.start(snapshot,FileLocation(FileEndpoint.APP,"other"),"other",::connections);model.tasks.single() }
+        ui.waitUntil(10000) { first.phase==FileTaskPhase.CONFIRMING }
+        val history=model.history.single()
+        ui.runOnIdle { model.requestHistoryRetry(history);model.confirmHistoryRetry() }
+        ui.waitUntil(10000) { model.tasks.size==2 && runBlocking { journal.load().size==3 } }
+        val queued=model.tasks.first { it!==first }
+        assertEquals(FileTaskPhase.QUEUED,queued.phase);assertEquals(old.id,queued.request.retryOf)
+        assertTrue(File(home,"target").list()!!.isEmpty());assertEquals(1,calls.get())
+        ui.runOnIdle { model.cancel(first) };waitDone(first)
+        ui.waitUntil(10000) { queued.phase==FileTaskPhase.CONFIRMING || queued.phase==FileTaskPhase.FINISHED }
+        assertEquals(queued.error,FileTaskPhase.CONFIRMING,queued.phase)
+        assertEquals(old.id,runBlocking { journal.load().single { it.intent.id==queued.request.id }.intent.retryOf })
+    }
     @Test fun admissionFailureNeverScansAndDoesNotErasePreviousHistory() {
         val previous=FilePasteRequest.capture(snapshot,target,"target")
         runBlocking { journal.load();journal.accept(previous) }

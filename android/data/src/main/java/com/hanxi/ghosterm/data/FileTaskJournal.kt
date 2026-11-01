@@ -122,7 +122,7 @@ class FileTaskJournal(private val file: File) {
     suspend fun accept(request: FilePasteRequest) = transaction { db ->
         check(scalar(db,"SELECT count(*) FROM tasks")<MAX_RECORDS) { "任务历史已满，请先清除旧记录" }
         val record=FileJournalRecord(FileJournalIntent(request.id,request.clipboardId,request.source,request.sourcePathLabel,
-            request.items,request.destination,request.destinationPathLabel),FileJournalPhase.QUEUED,System.currentTimeMillis())
+            request.items,request.destination,request.destinationPathLabel,request.retryOf),FileJournalPhase.QUEUED,System.currentTimeMillis())
         val payload=FileJournalCodec.header(record);budget(db,payload.size.toLong())
         db.insertOrThrow("tasks",null,ContentValues().apply { put("id",request.id);put("phase",record.phase.name);put("payload",payload) })
         Unit

@@ -17,7 +17,12 @@ import com.hanxi.ghosterm.domain.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileTasksScreen(model: FileTasksViewModel) {
-    BackHandler { if(model.retryTask!=null) model.dismissRetry() else model.hide() }
+    BackHandler { when {
+        model.originId!=null -> model.dismissOrigin()
+        model.retryHistory!=null -> model.dismissHistoryRetry()
+        model.retryTask!=null -> model.dismissRetry()
+        else -> model.hide()
+    } }
     model.retryTask?.let { task -> model.retryPlan(task)?.let { retry ->
         AlertDialog(onDismissRequest=model::dismissRetry,title={ Text("重试未完成项目？") },text={
             Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -31,6 +36,38 @@ fun FileTasksScreen(model: FileTasksViewModel) {
             dismissButton={ TextButton(onClick=model::dismissRetry) { Text("取消") } })
     } }
 
+    model.retryHistory?.let { record -> model.historyRetryPlan(record)?.let { retry ->
+        AlertDialog(onDismissRequest=model::dismissHistoryRetry,title={ Text("重新发起未完成项目？") },text={
+            Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text("重新检查 ${retry.retryItems} 项；保留 ${retry.retained} 项已完成或跳过的结果。")
+                if(retry.blocked>0) Text("另有 ${retry.blocked} 项结果待核对，本次不会重试。")
+                Text("将创建关联原记录的新任务，重新取得授权、检查来源与冲突。原任务记录保持不变。")
+                retry.groups.take(4).forEach { Text("目标：${it.destinationLabel}") }
+            }
+        },confirmButton={ TextButton(onClick=model::confirmHistoryRetry,enabled=retry.groups.isNotEmpty(),modifier=Modifier.testTag("file-history-retry-confirm")) { Text("重新检查并入队") } },
+            dismissButton={ TextButton(onClick=model::dismissHistoryRetry) { Text("保留记录") } })
+    } }
+    model.originId?.let { id ->
+        val old=model.history.firstOrNull { it.intent.id==id }
+        val live=model.tasks.firstOrNull { it.request.id==id }
+        AlertDialog(onDismissRequest=model::dismissOrigin,title={ Text("原任务") },text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            when {
+                old!=null -> {
+                    Text("来源：${old.intent.source.endpoint.label} / ${old.intent.sourceLabel}")
+                    Text("目标：${old.intent.destination.endpoint.label} / ${old.intent.destinationLabel}")
+                    Text(if(old.interrupted) "已中断 · 结果待核对" else historyStatus(old))
+                    Text("原记录已保留，不受重新发起的结果影响。")
+                }
+                live!=null -> {
+                    Text("来源：${live.request.source.endpoint.label} / ${live.request.sourcePathLabel}")
+                    Text("目标：${live.request.destination.endpoint.label} / ${live.request.destinationPathLabel}")
+                    Text(taskStatus(live))
+                }
+                else -> Text("原任务记录已清除；这条任务保留了原任务的关联。")
+            }
+        } },confirmButton={ TextButton(onClick=model::dismissOrigin) { Text("返回任务") } })
+    }
+
     val list=rememberLazyListState()
     val context=LocalContext.current
     LaunchedEffect(model.tasks.firstOrNull()?.request?.id) { list.scrollToItem(0) }
@@ -40,6 +77,7 @@ fun FileTasksScreen(model: FileTasksViewModel) {
         LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).testTag("file-tasks"),
             state=list,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             model.notice?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
+            model.historyRetryError?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
             model.inspectionError?.let { item { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-history-inspection-error")) } }
             if(model.background.enabled && (model.background.state!=FileBackgroundState.IDLE || model.background.error!=null)) item {
                 Card(Modifier.fillMaxWidth().testTag("file-background-status")) {
@@ -76,6 +114,7 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                 ElevatedCard(Modifier.fillMaxWidth().testTag("file-task:${task.request.id}")) {
                     Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                         Text(taskStatus(task),style=MaterialTheme.typography.titleMedium,modifier=Modifier.testTag("file-task-status"))
+                        task.request.retryOf?.let { id -> TextButton(onClick={ model.showOrigin(id) },modifier=Modifier.testTag("file-task-origin")) { Text("查看原任务") } }
                         if(task.phase==FileTaskPhase.QUEUED) {
                             Text("前方还有 ${model.queuedAhead(task) ?: 0} 个任务",modifier=Modifier.testTag("file-task-queue-position"))
                             Text("尚未检查来源与目标，轮到本任务后再确认复制。",style=MaterialTheme.typography.bodySmall)
@@ -178,7 +217,9 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                 FileHistoryCard(record,onRemove={ model.removeHistory(record) },canRemove=!model.busy && !model.journalLoading && model.inspectingId==null,
                     inspection=model.inspections[record.intent.id],inspecting=model.inspectingId==record.intent.id,
                     canInspect=!model.busy && !model.journalLoading && model.inspectingId==null,
-                    onInspect={ model.inspectHistory(record) },onCancel=model::cancelInspection)
+                    onInspect={ model.inspectHistory(record) },onCancel=model::cancelInspection,
+                    canRetry=!model.journalLoading && model.journalError==null && model.inspectingId==null,
+                    onRetry={ model.requestHistoryRetry(record) },onOrigin={ record.intent.retryOf?.let(model::showOrigin) })
             }
         }
     }
@@ -226,7 +267,7 @@ private fun FileTaskByteProgress(activity: FileCopyActivity, running: Boolean, w
 
 @Composable
 private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRemove: Boolean,
-    inspection: FileHistoryInspection?, inspecting: Boolean, canInspect: Boolean, onInspect: () -> Unit, onCancel: () -> Unit) {
+    inspection: FileHistoryInspection?, inspecting: Boolean, canInspect: Boolean, onInspect: () -> Unit, onCancel: () -> Unit, canRetry: Boolean, onRetry: () -> Unit, onOrigin: () -> Unit) {
     val observations=remember(inspection) { inspection?.observations?.groupBy { it.relativePath }.orEmpty() }
     ElevatedCard(Modifier.fillMaxWidth().testTag("file-history:${record.intent.id}")) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -238,6 +279,8 @@ private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRe
             Text(if(record.interrupted) "任务未自动继续。记录后的操作可能尚未确认，请核对目标和暂存位置后再发起新的复制。"
                 else "这是上次运行保存的结果；未重新检查文件。",style=MaterialTheme.typography.bodySmall)
             record.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+            if(record.intent.retryOf!=null) TextButton(onClick=onOrigin,modifier=Modifier.testTag("file-history-origin")) { Text("查看原任务") }
+            TextButton(onClick=onRetry,enabled=canRetry,modifier=Modifier.testTag("file-history-retry")) { Text("重新检查未完成项目") }
             TextButton(onClick=onInspect,enabled=canInspect && record.items.isNotEmpty(),modifier=Modifier.testTag("file-history-inspect")) { Text("核对当前位置") }
             if(inspecting) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -273,7 +316,7 @@ private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRe
                                     FileHistoryPresence.ABSENT->"本次目录读取未找到"
                                     FileHistoryPresence.UNKNOWN->"无法核对"
                                 })
-                                observation.entry?.let { Text("当前类型：${it.kind} · ${it.size?.let { size -> "$size 字节" } ?: "大小未知"}") }
+                                observation.entry?.let { Text("当前类型：${when(it.kind) { FileKind.FILE->"文件";FileKind.DIRECTORY->"文件夹";FileKind.LINK->"符号链接";FileKind.OTHER->"其他" }} · ${it.size?.let { size -> "$size 字节" } ?: "大小未知"}") }
                                 observation.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
                             }
                         }

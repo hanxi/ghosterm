@@ -79,12 +79,12 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
     private val completedState = kotlinx.coroutines.flow.MutableStateFlow<FileCopyProgress?>(null)
     val completed: kotlinx.coroutines.flow.StateFlow<FileCopyProgress?> = completedState
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
-        connections: (FilePasteRequest) -> FileTaskConnections, preferences: AppPreferences = AppPreferences()) {
+        connections: (FilePasteRequest) -> FileTaskConnections, preferences: AppPreferences = AppPreferences(), retryOf: String? = null) {
         if(journalError!=null) { notice="任务记录不可用，请先在文件任务中核对记录错误";return }
         if(tasks.count { it.active } >= MAX_REQUESTS) {
             notice="待处理请求已达 $MAX_REQUESTS 个，请先完成或取消已有任务";return
         }
-        val request=FilePasteRequest.capture(snapshot,destination,label,preferences.conflict)
+        val request=FilePasteRequest.capture(snapshot,destination,label,preferences.conflict,retryOf)
         val task=FileTask(request, preferences.clipboardAfterPaste == ClipboardAfterPaste.CLEAR).also { it.connections=connections }
         notice=null;tasks.add(0,task);task.recording=true
         task.job=scope.launch(start=CoroutineStart.LAZY) {
@@ -208,7 +208,20 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
         // Admission runs on the same owner as start(): check capacity for the
         // entire batch first. Every group receives a new UUID and fresh policy.
         for(group in plan.groups) start(FileClipboardSnapshot.capture(group.source,group.sourceLabel,group.entries),
-            group.destination,group.destinationLabel,task.connections,preferences)
+            group.destination,group.destinationLabel,task.connections,preferences,task.request.id)
+    }
+    fun historyRetryPlan(record: FileJournalRecord): FileCopyRetry? {
+        if(record !in history || journalLoading || journalError!=null) return null
+        return FileCopyRetry.plan(record)
+    }
+    fun retryHistory(record: FileJournalRecord, connections: (FilePasteRequest) -> FileTaskConnections, preferences: AppPreferences) {
+        val plan=historyRetryPlan(record) ?: run { notice="历史记录状态已改变，请重新检查后再发起";return }
+        if(plan.groups.isEmpty()) { notice="没有可重新发起的项目，请先核对结果不明的项目";return }
+        if(tasks.count { it.active }+plan.groups.size>MAX_REQUESTS) {
+            notice="需 ${plan.groups.size} 个目录请求，等待队列腾出空间后再重试";return
+        }
+        for(group in plan.groups) start(FileClipboardSnapshot.capture(group.source,group.sourceLabel,group.entries),
+            group.destination,group.destinationLabel,connections,preferences,record.intent.id)
     }
     fun cancelRequest(id: String) { tasks.firstOrNull { it.request.id==id }?.let(::cancel) }
     fun pause(task: FileTask) {
@@ -267,7 +280,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val journalError get() = work.tasks.journalError
     val background get() = work.background
     fun retryBackground() = work.background.requestFromUser(presenterId)
-    fun reloadHistory() { cancelInspection();inspections.clear();work.tasks.reloadHistory() }
+    fun reloadHistory() { cancelInspection();inspections.clear();inspectionError=null;historyRetryError=null;work.tasks.reloadHistory() }
     fun removeHistory(record: FileJournalRecord) { cancelInspection();inspections.remove(record.intent.id);work.tasks.removeHistory(record) }
     val inspections = mutableStateMapOf<String,FileHistoryInspection>()
     var inspectingId by mutableStateOf<String?>(null); private set
@@ -309,7 +322,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val presentsAuthentication get() = work.presenter == presenterId
     var visible by mutableStateOf(false); private set
     fun show() { visible=true }
-    fun hide() { cancelInspection();retryTask=null;visible=false }
+    fun hide() { cancelInspection();retryTask=null;retryHistory=null;originId=null;visible=false }
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
         connections: (FilePasteRequest) -> FileTaskConnections = work::connections) {
         visible=true
@@ -332,6 +345,24 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
         val preferences=work.preferences
         work.background.submitFromUser(presenterId) { work.tasks.retry(task,preferences) }
     }
+    var retryHistory by mutableStateOf<FileJournalRecord?>(null); private set
+    var historyRetryError by mutableStateOf<String?>(null); private set
+    fun historyRetryPlan(record: FileJournalRecord) = work.tasks.historyRetryPlan(record)
+    fun requestHistoryRetry(record: FileJournalRecord) {
+        historyRetryError=null
+        try { if(historyRetryPlan(record)!=null) retryHistory=record }
+        catch(error: Exception) { historyRetryError=error.message ?: "历史记录无法用于重新发起" }
+    }
+    fun dismissHistoryRetry() { retryHistory=null }
+    fun confirmHistoryRetry() {
+        val record=retryHistory ?: return
+        retryHistory=null
+        val preferences=work.preferences
+        work.background.submitFromUser(presenterId) { work.tasks.retryHistory(record,work::connections,preferences) }
+    }
+    var originId by mutableStateOf<String?>(null); private set
+    fun showOrigin(id: String) { originId=id }
+    fun dismissOrigin() { originId=null }
     fun choose(task: FileTask, ref: FilePasteDecisionRef, path: String, choice: FilePasteChoice, all: Boolean) =
         work.tasks.choose(task,ref,path,choice,all)
     fun confirm(task: FileTask, ref: FilePasteDecisionRef) = work.tasks.confirm(task,ref)

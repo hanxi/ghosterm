@@ -1,6 +1,6 @@
 # Ghosterm
 
-**当前 Android**：共用 dev 已发布正式签名 release APK，包含主机首页、SSH/SFTP、本机/SAF 文件复制、五类设置、Kitty 图形/动画、Nerd Fonts 与可选远端 tmux。最新已验云端包来源 `a63ec46`，7,899,063 字节；当前工作区正完善文件历史核对。完整客户端与设备矩阵仍未完成，逐片范围见 [Android 实现计划](docs/reference/android-implementation.md)，下载见 [dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev)。
+**当前 Android**：共用 dev 已发布正式签名 release APK，包含主机首页、SSH/SFTP、本机/SAF 文件复制、五类设置、Kitty 图形/动画、Nerd Fonts 与可选远端 tmux。最新已验云端包来源 `50d62e2`，7,918,947 字节；已接历史位置核对，当前工作区正完善历史重新发起。完整客户端与设备矩阵仍未完成，逐片范围见 [Android 实现计划](docs/reference/android-implementation.md)，下载见 [dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev)。
 
 **历史验收（§9.77，2026-11-01）**：文件任务已显示当前文件的读取/写入/核验、实际字节、本阶段平均速度与保守的阶段剩余时间。25 组新增变异与 114 组相关旧变异分轮通过；新完整 **491 项通过，零失败/错误/跳过**（1250.863 秒），746 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；整体剩余时间、暂停/重试、完整偏好和发行矩阵仍待完成，A6 保持部分交付。同源码云端签名 release 为 5,903,009 字节，16 KB 页启动/升级与 28 字节复制专项已验（§9.78），不代表完整发行矩阵。
 
