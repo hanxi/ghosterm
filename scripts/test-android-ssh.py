@@ -25,12 +25,24 @@ def cleanup_network_rules(adb, prefix):
     if prefix+'-' in run([*adb,'shell','su','0','iptables','-S','OUTPUT']):
         raise RuntimeError('Network fixture rules survived cleanup')
 
+def cleanup_dns_rules(adb, prefix):
+    rows=run([*adb,'shell','su','0','iptables','-t','nat','-S','OUTPUT']).splitlines()
+    for row in rows:
+        fields=shlex.split(row)
+        if '--comment' not in fields: continue
+        comment=fields[fields.index('--comment')+1]
+        if not comment.startswith(prefix+'-dns-'): continue
+        if fields[:2]!=['-A','OUTPUT']: raise RuntimeError('Unexpected DNS fixture chain')
+        run([*adb,'shell','su','0','iptables','-t','nat','-D',*fields[1:]])
+    if prefix+'-dns-' in run([*adb,'shell','su','0','iptables','-t','nat','-S','OUTPUT']):
+        raise RuntimeError('DNS fixture rules survived cleanup')
+
 def main():
     if len(sys.argv)!=6: raise SystemExit('Use test-android-ssh.sh with the isolated sshd fixture')
     host,port,user,key,work=sys.argv[1:]
     serial=os.environ['ANDROID_SERIAL'];adb=['adb','-s',serial]
-    network_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_NETWORK_MUTATE')=='1' or
-                   'SSHNetworkTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
+    network_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_NETWORK_MUTATE')=='1' or os.environ.get('ANDROID_SSH_DNS_MUTATE')=='1' or
+                   any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('SSHNetworkTest','SSHDnsWireTest')))
     rule_prefix='ghosterm-network-'+secrets.token_hex(8)
     # Device shell tests must not run the developer's interactive shell rc/plugins.
     # Restrict only this disposable authorized key, leaving the host account untouched.
@@ -166,6 +178,10 @@ def main():
                         raise
                     print(f'EXECUTION: all {len(discovered_names)} discovered tests completed successfully',flush=True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_SSH_DNS_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('dns_mutations',ROOT/'scripts/mutation-check-android-dns.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILE_JOURNAL_REMOTE_CRASH')=='1' or os.environ.get('ANDROID_FILE_JOURNAL_REMOTE_MUTATE')=='1':
                     import contextlib,io
                     spec=importlib.util.spec_from_file_location('journal_crash',ROOT/'scripts/test-android-file-journal-crash.py')
@@ -303,7 +319,8 @@ def main():
                     if network_tests:
                         # Stop any timed-out instrumentation before removing its owned loopback rules.
                         run([*adb,'shell','am','force-stop','com.hanxi.ghosterm'])
-                        cleanup_network_rules(adb,rule_prefix)
+                        try: cleanup_network_rules(adb,rule_prefix)
+                        finally: cleanup_dns_rules(adb,rule_prefix)
                 finally:
                     for value in reversed(mappings):run([*adb,'reverse','--remove','tcp:'+str(value)])
                     server.shutdown();worker.join()
