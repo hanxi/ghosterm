@@ -3464,3 +3464,8 @@ API 29 arm64 / 4 KB 页按 background-layer、erased-background 两组真实变�
 最终 API 36 / API 29 arm64、4 KB 页各 50 项通过，零失败/错误/跳过（25.187 / 24.137 秒，`phase-1793575713962623000/`、`phase-1793575754791888000/`）。覆盖兼容分支十项、原 DNS、真实 DNS/SSH、网络/取消与普通远端终端。13 个新增保护与原平台 answer/rcode 两组同轮通过（`phase-1793575456378811000/`）：每组真实编译后单条正常断言红、同 APK Core 配置绿、复原绿与 SHA256；不是全部 36 个现有 DNS 保护全量重跑。两端 50 项逐项身份集合一致，最终两端、release/lint、变异与当前工作区的 870 份非 Markdown 输入集合/SHA256 相同。
 
 签名 release 与四模块 lint 通过（`phase-1793575713962848000/`）；本地 APK 8,038,695 字节，SHA256 `120d9e2ba81ebb7cdd613ba3391fef61402aa135a3692764492ab5807f4577ba`，来源 `cf3904e` / dirty。固定证书、非 debuggable/minSdk 29、三个压缩 arm64 SO、ZIP/ELF 16 KB、R8 mapping 与完整 Nerd Fonts/许可核对通过。证据 `tmp/dns-probe-fix/api29*` / `api36*`、`mutations/`、`mutations.log`、`old-app-core-control.log`、`local-release/` 与上述 phase。此包同时包含 §9.115 背景修复，尚不是云端包；用户设备与完整 VPN/私人 DNS、物理网络矩阵仍待验证，新完整回归与实际发行另记。
+
+
+### 9.117 Android CI 缓存目录对齐（2026-11-02，待实际 CI 验证）
+
+`707d6d3` 的 Android CI 发布成功，但 setup-java 收尾提示默认缓存目录不存在。构建脚本尊重 workflow 指定的工程内 GRADLE_USER_HOME，而锁定 setup-java 的默认位置为 runner home 下 `.gradle/caches` 与 `.gradle/wrapper`，两者不一致。修复在 setup-java 之前通过 GITHUB_ENV 指定用户目录 `.gradle`，保持本地构建默认位置、工具链 pin 和 release 签名不变。工程临时文件仍在工程 tmp/；不将构建密钥放入 Gradle home。actionlint 1.7.12 的语法检查通过；缓存保存/命中及实际出包另记，不宣称已达到某个提速比例。说明见 [release 构建](../how-to/android-release.md#ci-gradle-缓存目录)。

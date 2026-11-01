@@ -90,3 +90,10 @@ bash scripts/build-android.sh :app:assembleRelease
 
 产物为 `android/app/build/outputs/apk/release/app-release.apk`。
 未提供签名文件时只能得到未签名 release APK，不作为可安装包交付。
+
+
+## CI Gradle 缓存目录
+
+CI 在 setup-java 之前将 GRADLE_USER_HOME 设置为 runner 用户目录下的 `.gradle`，与锁定的 setup-java v6.1.0 默认缓存位置一致；依赖缓存和 wrapper 缓存才会覆盖实际构建目录。此前 job 将 Gradle home 指到工程 `build/android-toolchain/gradle-home`，setup-java 却检查用户目录，导致发布虽然成功但缓存未保存。本地脚本仍默认使用工程内工具链目录，也继续尊重调用方显式设置的 GRADLE_USER_HOME。
+
+修正依据是[锁定版本的缓存实现](https://github.com/actions/setup-java/blob/b843ebf9b913146b38da2eaa7aeddf76074ae1ad/src/cache.ts)。workflow 语法检查已通过；首次实际保存和后续命中仍须读取对应 CI 日志确认，不能仅凭配置或一次总耗时宣称加速比例。
