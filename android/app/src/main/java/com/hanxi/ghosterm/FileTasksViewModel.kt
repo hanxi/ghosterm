@@ -271,6 +271,78 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
 class FileTasksViewModel @JvmOverloads constructor(application: Application,
     internal val work: FileWorkRuntime = (application as? GhostermApplication)?.fileWork ?: FileWorkRuntime(application)
 ) : AndroidViewModel(application) {
+    private val retainedOwner=lazy { LocalRetainedFiles(File(application.filesDir,"file-tasks")) }
+    var retainedVisible by mutableStateOf(false); private set
+    var retainedLoading by mutableStateOf(false); private set
+    var retainedSnapshot by mutableStateOf<LocalRetainedFiles.Snapshot?>(null); private set
+    var retainedReview by mutableStateOf<LocalRetainedFiles.Review?>(null); private set
+    var retainedError by mutableStateOf<String?>(null); private set
+    var retainedNotice by mutableStateOf<String?>(null); private set
+    private var retainedRef: LocalRetainedFiles.Ref?=null
+    private var retainedJob: Job?=null
+    private var retainedEpoch=0L
+    val retainedReleaseError get() = work.retainedReleaseError
+    fun showRetained() {
+        if(busy || journalLoading || inspectingId!=null) return
+        retainedVisible=true;refreshRetained()
+    }
+    fun refreshRetained() = loadRetained(clearError=true)
+    private fun loadRetained(clearError:Boolean) {
+        if(!retainedVisible || busy || retainedLoading || retainedReview!=null) return
+        val ticket=++retainedEpoch;retainedLoading=true;if(clearError)retainedError=null;retainedSnapshot=null
+        retainedJob=viewModelScope.launch {
+            try {
+                val result=retainedOwner.value.load();ensureActive()
+                if(ticket==retainedEpoch)retainedSnapshot=result
+            } catch(cancel:CancellationException) { throw cancel }
+            catch(error:Exception) { if(ticket==retainedEpoch)retainedError=error.message ?: "无法读取保留暂存" }
+            finally { if(ticket==retainedEpoch) { retainedLoading=false;retainedJob=null } }
+        }
+    }
+    fun retainedLabel(item: LocalRetainedFiles.Item):String {
+        val matches=history.flatMap { it.items }.map { it.value }.plus(tasks.flatMap { it.result?.items.orEmpty() })
+            .filter { it.targetParent?.endpoint==FileEndpoint.APP && it.candidatePath==item.referencePath }.map { it.source.relativePath }.distinct()
+        return when(matches.size) { 0->"未关联记录的暂存";1->"记录引用：${matches.single()}";else->"多条记录引用的暂存位置" }
+    }
+    fun openRetained(item: LocalRetainedFiles.Item) {
+        if(!retainedVisible || busy || retainedLoading) return
+        val ticket=++retainedEpoch;retainedRef=item.ref;retainedLoading=true;retainedError=null;retainedNotice=null
+        retainedJob=viewModelScope.launch {
+            var delivered=false
+            try {
+                val review=retainedOwner.value.prepare(item.ref);ensureActive()
+                if(ticket==retainedEpoch) { retainedReview=review;delivered=true }
+            } catch(cancel:CancellationException) { throw cancel }
+            catch(error:Exception) { if(ticket==retainedEpoch)retainedError=error.message ?: "无法核对暂存文件" }
+            finally {
+                if(!delivered)work.releaseRetained(retainedOwner.value,item.ref)
+                if(ticket==retainedEpoch) { retainedLoading=false;retainedJob=null;if(!delivered)retainedRef=null }
+            }
+        }
+    }
+    fun dismissRetained() {
+        retainedEpoch++;retainedJob?.cancel();retainedJob=null
+        retainedRef?.let { work.releaseRetained(retainedOwner.value,it) }
+        retainedRef=null;retainedReview=null;retainedLoading=false
+    }
+    fun hideRetained() { dismissRetained();retainedVisible=false;retainedSnapshot=null }
+    fun clearRetained() {
+        val review=retainedReview ?: return
+        if(!retainedVisible || busy || retainedLoading) return
+        val ticket=++retainedEpoch;retainedLoading=true;retainedError=null
+        retainedJob=viewModelScope.launch {
+            try {
+                val result=retainedOwner.value.clear(review.item.ref)
+                if(ticket==retainedEpoch)retainedNotice=if(result==LocalRetainedFiles.Outcome.CLEARED) "所选暂存文件已清除" else "该暂存位置已不存在"
+            } catch(error:Exception) { if(ticket==retainedEpoch)retainedError=error.message ?: "无法确认清理结果，请刷新" }
+            finally {
+                if(ticket==retainedEpoch) {
+                    retainedRef=null;retainedReview=null;retainedLoading=false;retainedJob=null
+                    loadRetained(clearError=false)
+                }
+            }
+        }
+    }
     val presenterId = java.util.UUID.randomUUID()
     val tasks get() = work.tasks.tasks
     val busy get() = work.tasks.busy
@@ -322,7 +394,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val presentsAuthentication get() = work.presenter == presenterId
     var visible by mutableStateOf(false); private set
     fun show() { visible=true }
-    fun hide() { cancelInspection();retryTask=null;retryHistory=null;originId=null;visible=false }
+    fun hide() { hideRetained();cancelInspection();retryTask=null;retryHistory=null;originId=null;visible=false }
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
         connections: (FilePasteRequest) -> FileTaskConnections = work::connections) {
         visible=true
@@ -375,5 +447,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     fun resumed() = work.resume(presenterId)
     fun paused() = work.pause(presenterId)
     fun focused() = work.focus(presenterId)
-    override fun onCleared() { work.release(presenterId);super.onCleared() }
+    override fun onCleared() {
+        retainedRef?.let { if(retainedOwner.isInitialized())work.releaseRetained(retainedOwner.value,it) }
+        work.release(presenterId);super.onCleared() }
 }

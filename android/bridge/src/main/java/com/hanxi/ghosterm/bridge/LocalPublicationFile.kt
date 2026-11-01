@@ -22,6 +22,9 @@ object LocalPublicationFile {
     fun childDirectory(directory: Int, name: String): ParcelFileDescriptor =
         ParcelFileDescriptor.adoptFd(openChildDirectory(directory,bytes(name)))
     private external fun openChildDirectory(directory: Int, name: ByteArray): Int
+    fun retainedCandidate(directory: Int, name: String): ParcelFileDescriptor =
+        ParcelFileDescriptor.adoptFd(openRetainedCandidate(directory,bytes(name)))
+    private external fun openRetainedCandidate(directory: Int, name: ByteArray): Int
     fun candidate(directory: Int, name: String): ParcelFileDescriptor =
         ParcelFileDescriptor.adoptFd(openCandidate(directory,bytes(name)))
     /** Creates one private directory relative to a pinned parent. Existing objects

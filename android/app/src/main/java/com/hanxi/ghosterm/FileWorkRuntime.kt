@@ -33,6 +33,13 @@ class FileWorkRuntime(application: Application,
 
     fun connections(request: FilePasteRequest): FileTaskConnections =
         authentication.fileTaskConnections(request) { tasks.cancelRequest(request.id) }
+    var retainedReleaseError by mutableStateOf<String?>(null); private set
+    internal fun releaseRetained(service: com.hanxi.ghosterm.data.LocalRetainedFiles, ref: com.hanxi.ghosterm.data.LocalRetainedFiles.Ref) {
+        scope.launch {
+            try { service.dismiss(ref) }
+            catch(error:Exception) { retainedReleaseError="暂存查看资源释放失败：${error.message ?: "未知原因"}" }
+        }
+    }
     fun resume(id: UUID) { resumed.remove(id);resumed.add(id);presenter=id;background.refreshNotifications() }
     fun pause(id: UUID) { resumed.remove(id);if(presenter==id) presenter=resumed.lastOrNull() }
     fun focus(id: UUID) { if(id in resumed) { resumed.remove(id);resumed.add(id);presenter=id } }

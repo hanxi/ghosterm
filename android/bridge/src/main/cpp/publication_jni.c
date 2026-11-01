@@ -66,6 +66,19 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_LocalPublicationFile_openC
     if(fd<0)failure(env,error);
     return fd;
 }
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_LocalPublicationFile_openRetainedCandidate(
+    JNIEnv *env,jobject self,jint directory,jbyteArray name) {
+    (void)self;
+    char *value=text(env,name);if(!value)return -1;
+    if(!component(value)){free(value);failure(env,EINVAL);return -1;}
+    int fd=openat(directory,value,O_RDONLY|O_NONBLOCK|O_NOFOLLOW|O_CLOEXEC);
+    int error=errno;free(value);
+    struct stat st;
+    if(fd>=0 && fstat(fd,&st)<0) { error=errno;close(fd);fd=-1; }
+    else if(fd>=0 && !S_ISREG(st.st_mode)) { close(fd);fd=-1;error=EINVAL; }
+    if(fd<0)failure(env,error);
+    return fd;
+}
 JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_LocalPublicationFile_openCandidate(
     JNIEnv *env,jobject self,jint directory,jbyteArray name) {
     (void)self;

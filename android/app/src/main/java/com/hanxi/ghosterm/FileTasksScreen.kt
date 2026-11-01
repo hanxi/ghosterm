@@ -17,6 +17,7 @@ import com.hanxi.ghosterm.domain.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileTasksScreen(model: FileTasksViewModel) {
+    if(model.retainedVisible) { RetainedFilesScreen(model);return }
     BackHandler { when {
         model.originId!=null -> model.dismissOrigin()
         model.retryHistory!=null -> model.dismissHistoryRetry()
@@ -73,9 +74,10 @@ fun FileTasksScreen(model: FileTasksViewModel) {
     LaunchedEffect(model.tasks.firstOrNull()?.request?.id) { list.scrollToItem(0) }
     Scaffold(topBar={ TopAppBar(title={ Text("文件任务") },navigationIcon={
         TextButton(onClick=model::hide) { Text("返回") }
-    }) }) { padding ->
+    },actions={ TextButton(onClick=model::showRetained,enabled=!model.busy && !model.journalLoading && model.inspectingId==null,modifier=Modifier.testTag("file-retained-open")) { Text("保留暂存") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).testTag("file-tasks"),
             state=list,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            model.retainedReleaseError?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
             model.notice?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
             model.historyRetryError?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
             model.inspectionError?.let { item { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-history-inspection-error")) } }
