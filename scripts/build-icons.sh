@@ -75,7 +75,7 @@ build_apple() {
 ANDROID_DENSITIES=("mdpi 48" "hdpi 72" "xhdpi 96" "xxhdpi 144" "xxxhdpi 192")
 build_android() {
   local dir="$OUT/android" d size
-  info "android/mipmap-*（legacy 圆角 + 圆形，标记缩小约 15%）"
+  info "android/mipmap-*（legacy 圆角 + 圆形，标记缩小约 27%）"
   local work; work=$(_icons_workdir)
   python3 - "$ICONS_MASTER" "$work/legacy.svg" <<'PYICON'
 from pathlib import Path
@@ -83,7 +83,7 @@ import sys
 source=Path(sys.argv[1]).read_text()
 begin="<!-- BEGIN:mark -->";end="<!-- END:mark -->"
 assert source.count(begin)==source.count(end)==1, "母版缺少唯一 mark 标记"
-source=source.replace(begin,begin+'<g transform="translate(512 512) scale(0.85) translate(-512 -512)">',1)
+source=source.replace(begin,begin+'<g transform="translate(512 512) scale(0.73) translate(-512 -512)">',1)
 source=source.replace(end,'</g>'+end,1)
 Path(sys.argv[2]).write_text(source)
 PYICON
@@ -93,11 +93,11 @@ PYICON
     icons_png "$2" "$dir/mipmap-$1/ic_launcher_round.png" 0.5 0 "$work/legacy.svg"
   done
   rm -rf "$work"
-  info "android/adaptive（108dp 视口，前景 56dp 内容区）"
-  # 108dp 视口；内容按 56dp 见方缩放并居中，落在中间 72dp 安全区内。
+  info "android/adaptive（108dp 视口，前景 48dp 内容区）"
+  # 108dp 视口；内容按 48dp 见方缩放并居中，落在中间 72dp 安全区内。
   local bbox s tx ty
   bbox=$(icons_mark_bbox)
-  read -r s tx ty <<<"$(icons_fit "$bbox" 108 56)"
+  read -r s tx ty <<<"$(icons_fit "$bbox" 108 48)"
   python3 "$HERE/lib/icons_android.py" "$ICONS_MASTER" "$dir" "$s" "$tx" "$ty"
   python3 "$HERE/lib/icons_check_android.py" "$dir/drawable/ic_launcher_foreground.xml"
 }

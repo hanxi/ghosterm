@@ -62,7 +62,7 @@ bash scripts/build-icons.sh check       # 产物是否与母版/脚本一致（�
   都是这一档——Windows 不遮罩应用图标（Win11 任务栏 / 开始菜单直接显示原图），
   所以 `.ico` 帧与 MSIX PNG 都带透明角。只有 **favicon** 保留直角（浏览器标签直接展示）。
   圆角是 **SVG 里的 `clipPath`**，不是位图蒙版。
-- **Android 前景**：108dp 视口，内容按 56dp 见方缩放居中（较原 66dp 缩小约 15%；legacy 标记同步缩小 15%，背景不变），必须落在官方 72dp 安全区内
+- **Android 前景**：108dp 视口，内容按 48dp 见方缩放居中（较上一版 56dp 再缩小约 14%；legacy 标记由母版的 85% 调到 73%，背景不变），必须落在官方 72dp 安全区内
   ——`icons_check_android.py` 在生成时渲染 + 断言，越界直接报错。
 - **位图**：一律由 `rsvg-convert` **按目标边长直接渲染**（矢量缩放），不做光栅重采样、
   不做位图合成。原因记在 `scripts/lib/icons.sh`：本机 ImageMagick 的 PNG `-resize`/`-composite`

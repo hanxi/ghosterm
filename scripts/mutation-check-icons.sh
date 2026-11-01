@@ -50,7 +50,7 @@ t = "".join(line for line in t.splitlines(True)
 open(master, "w", encoding="utf-8").write(t)
 
 b = open(builder, encoding="utf-8").read()
-b = b.replace('"$bbox" 108 80', '"$bbox" 108 56')
+b = b.replace('"$bbox" 108 80', '"$bbox" 108 48')
 open(builder, "w", encoding="utf-8").write(b)
 
 s = open(squircle, encoding="utf-8").read()
@@ -128,8 +128,8 @@ python3 - "$BUILDER" <<'PY'
 import sys
 p = sys.argv[1]
 t = open(p, encoding="utf-8").read()
-assert '"$bbox" 108 56' in t, "生成脚本结构变了，变异脚本要跟着改"
-open(p, "w", encoding="utf-8").write(t.replace('"$bbox" 108 56', '"$bbox" 108 80', 1))
+assert '"$bbox" 108 48' in t, "生成脚本结构变了，变异脚本要跟着改"
+open(p, "w", encoding="utf-8").write(t.replace('"$bbox" 108 48', '"$bbox" 108 80', 1))
 PY
 expect_red "Android 前景越出 72dp 安全区" bash scripts/build-icons.sh android
 expect_green "同一变异下 harmonyos 不受影响（红有指向性）" bash scripts/build-icons.sh harmonyos
