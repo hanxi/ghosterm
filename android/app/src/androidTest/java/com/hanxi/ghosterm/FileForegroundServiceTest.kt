@@ -406,6 +406,33 @@ class FileForegroundServiceTest {
     }
     private fun notification():Notification?=context.getSystemService(NotificationManager::class.java).activeNotifications
         .singleOrNull { it.notification.channelId==FileTransferService.CHANNEL }?.notification
+    @Test fun pausedNotificationReflectsAcknowledgementAndCanCancelItsOwner() {
+        val task=begin();prepared(task)
+        val acquired=CountDownLatch(1);val release=CountDownLatch(1)
+        try {
+            main {
+                task.connections={ intent ->
+                    acquired.countDown();check(release.await(15,TimeUnit.SECONDS))
+                    com.hanxi.ghosterm.data.FileTaskConnections(intent.source.endpoint,intent.destination.endpoint,
+                        { _,_->error("local task must not resolve SSH") },{ _,_,_->error("local task must not authenticate") })
+                }
+                model.confirm(task,task.decisions!!.reference)
+            }
+            assertTrue(acquired.await(5,TimeUnit.SECONDS))
+            main { model.pause(task) }
+            await("pause remains pending while owner is busy") { task.result?.pause==FileCopyPause.REQUESTED }
+            release.countDown()
+            await("IO owner confirms pause") { task.result?.pause==FileCopyPause.PAUSED }
+            await("notification reflects acknowledged pause") {
+                notification()?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()=="文件任务已暂停"
+            }
+            assertFalse(File(root,"target/a.txt").exists())
+            send(notification()!!.actions.single().actionIntent)
+            await("notification cancellation releases paused owner") { task.phase==FileTaskPhase.FINISHED }
+            assertEquals(FileCopyState.CANCELLED,task.result!!.state)
+            assertFalse(File(root,"target/a.txt").exists())
+        } finally { release.countDown() }
+    }
     @Test fun postedNotificationOpensTasksAndCancelsOnlyItsOriginalRequest() {
         val first=begin();prepared(first)
         await("notification must be posted with actual task status") {

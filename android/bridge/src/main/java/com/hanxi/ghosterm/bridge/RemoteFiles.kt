@@ -17,6 +17,18 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+/** A pause request is not an acknowledgement. Only the native IO checkpoint
+ * reports paused; resume keeps the same connection and descriptors. */
+class RemoteTransferControl(private val changed: (Boolean) -> Unit = {}) {
+    private val wanted = java.util.concurrent.atomic.AtomicBoolean()
+    private var acknowledged = false
+    fun requestPause(paused: Boolean) { wanted.set(paused) }
+    internal val requested get() = wanted.get()
+    internal fun observe(paused: Boolean) {
+        if(acknowledged != paused) { acknowledged=paused;changed(paused) }
+    }
+}
+
 /** File control data only; never terminal output or native handles. */
 data class RemoteFileEntry(val path: String, val directory: Boolean, val symbolicLink: Boolean,
     val regularFile: Boolean, val size: ULong?, val modifiedSeconds: Long?) {
@@ -101,7 +113,7 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
     /** Cancelling a waiter does not cancel native cleanup. Task finally blocks
      * must wait in NonCancellable before releasing their connection capacity. */
     suspend fun closeAndAwait() { close(); closed.await() }
-    private suspend fun operation(kind: Int, path: String, timeoutMillis: Int, sourceFd: Int = -1, expectedSize: Long = 0, destination: String? = null, directory: Boolean = false, progress: ((RemoteTransferProgress) -> Unit)? = null): ByteArray = withContext(Dispatchers.IO) {
+    private suspend fun operation(kind: Int, path: String, timeoutMillis: Int, sourceFd: Int = -1, expectedSize: Long = 0, destination: String? = null, directory: Boolean = false, control: RemoteTransferControl? = null, progress: ((RemoteTransferProgress) -> Unit)? = null): ByteArray = withContext(Dispatchers.IO) {
         require(path.isNotEmpty() && '\u0000' !in path && timeoutMillis in 1..60_000) { "文件路径或超时无效" }
         requests.withLock {
             // Native duplicates the write end and closes it only AFTER its data
@@ -113,7 +125,8 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
                 val encoded = Charsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(path))
                 val bytes = ByteArray(encoded.remaining()); encoded.get(bytes)
-                handle to if(kind==3) NativeFiles.beginCreate(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd,progress!=null)
+                handle to if(control!=null && (kind==3 || kind==4)) NativeFiles.beginTransfer(handle,kind,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd,progress!=null,control.requested)
+                    else if(kind==3) NativeFiles.beginCreate(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd,progress!=null)
                     else if(kind==4) NativeFiles.beginReceive(handle,bytes,sourceFd,expectedSize,timeoutMillis,checkNotNull(released)[1].fd,progress!=null)
                     else if(kind==5) NativeFiles.beginPublish(handle,bytes,encodePath(checkNotNull(destination)),directory,expectedSize,timeoutMillis)
                     else NativeFiles.begin(handle, kind, bytes, timeoutMillis)
@@ -125,6 +138,14 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
                 var lastProgress: RemoteTransferProgress? = null
                 var sampledAt = Long.MIN_VALUE
                 while(response == null) {
+                    if(control!=null) {
+                        val paused=synchronized(this@RemoteFileSession) {
+                            check(handle==owner) { "文件连接已关闭" }
+                            NativeFiles.transferControl(owner,request,control.requested)
+                        }
+                        check(paused in 0..2) { "传输暂停状态无效" }
+                        control.observe(paused==2)
+                    }
                     response = synchronized(this@RemoteFileSession) {
                         check(handle == owner) { "文件连接已关闭" }
                         NativeFiles.result(owner, request)
@@ -165,6 +186,7 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
                 } else bytes.copyOfRange(8, bytes.size)
             } finally {
                 if(!completed) close()
+                control?.observe(false)
             }
             } finally {
                 if(released != null) {
@@ -214,9 +236,9 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
      * An exception/coroutine cancellation without a result means UNKNOWN: do
      * not automatically retry or unlink. Final destination commit is separate. */
     suspend fun createExclusive(path: String, sourceFd: Int, expectedSize: Long,
-                                timeoutMillis: Int = 5000, progress: ((RemoteTransferProgress) -> Unit)? = null): RemoteCreationResult {
+                                timeoutMillis: Int = 5000, control: RemoteTransferControl? = null, progress: ((RemoteTransferProgress) -> Unit)? = null): RemoteCreationResult {
         require(sourceFd>=0 && expectedSize>=0) { "文件源描述符或尺寸无效" }
-        val data=ByteBuffer.wrap(operation(3,path,timeoutMillis,sourceFd,expectedSize,progress=progress)).order(ByteOrder.BIG_ENDIAN)
+        val data=ByteBuffer.wrap(operation(3,path,timeoutMillis,sourceFd,expectedSize,control=control,progress=progress)).order(ByteOrder.BIG_ENDIAN)
         check(data.remaining()==20) { "创建结果无法确认，请保留目标路径" }
         val status=data.int
         check(data.int==3) { "创建结果归属无效" }
@@ -355,9 +377,9 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
      * On error discard partial bytes. Return/cancellation waits for native fd
      * release, so a surrounding staging lease remains valid throughout IO. */
     suspend fun receive(path: String, destinationFd: Int, maxBytes: Long,
-                        timeoutMillis: Int = 5000, progress: ((RemoteTransferProgress) -> Unit)? = null): Long {
+                        timeoutMillis: Int = 5000, control: RemoteTransferControl? = null, progress: ((RemoteTransferProgress) -> Unit)? = null): Long {
         require(destinationFd>=0 && maxBytes>=0) { "文件目标描述符或限额无效" }
-        val data=ByteBuffer.wrap(operation(4,path,timeoutMillis,destinationFd,maxBytes,progress=progress)).order(ByteOrder.BIG_ENDIAN)
+        val data=ByteBuffer.wrap(operation(4,path,timeoutMillis,destinationFd,maxBytes,control=control,progress=progress)).order(ByteOrder.BIG_ENDIAN)
         check(data.remaining()==8) { "接收结果格式无效" }
         val count=data.long
         check(count in 0..maxBytes) { "接收结果大小无效" }
@@ -389,6 +411,8 @@ internal object NativeFiles {
     external fun beginPublish(handle: Long, source: ByteArray, destination: ByteArray, directory: Boolean, expectedSize: Long, budget: Int): Long
     external fun beginMkdir(handle: Long, parent: ByteArray, name: ByteArray, budget: Int, releaseFd: Int): Long
     external fun cancelMkdir(handle: Long, request: Long)
+    external fun beginTransfer(handle: Long, kind: Int, path: ByteArray, fd: Int, size: Long, budget: Int, releaseFd: Int, observe: Boolean, paused: Boolean): Long
+    external fun transferControl(handle: Long, request: Long, paused: Boolean): Int
     external fun progress(handle: Long, request: Long): LongArray
     external fun result(handle: Long, request: Long): ByteArray?
     external fun finish(handle: Long, request: Long)

@@ -32,6 +32,27 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
         private val started=AtomicBoolean()
         private val cancelled=AtomicBoolean()
         private val finalized=AtomicBoolean()
+        private val pauseWanted=AtomicBoolean()
+        private var pausedAt: Long?=null
+        private var pausedMillis=0L
+        private var activityPauseBase=0L
+        private val transferControl=RemoteTransferControl { acknowledged -> acknowledgePause(acknowledged) }
+        private fun acknowledgePause(paused: Boolean) = synchronized(lifecycle) {
+            val now=android.os.SystemClock.elapsedRealtime()
+            if(paused && pausedAt==null) pausedAt=now
+            if(!paused) pausedAt?.let { began -> pausedMillis+=now-began;pausedAt=null }
+            activity=activity?.copy(pausedMillis=pausedMillis-activityPauseBase)
+            if(!finalized.get()) mutable.value=progress(FileCopyState.RUNNING)
+        }
+        fun pause() = synchronized(lifecycle) {
+            if(finalized.get() || cancelled.get()) return@synchronized
+            pauseWanted.set(true);transferControl.requestPause(true)
+            mutable.value=progress(FileCopyState.RUNNING)
+        }
+        fun resume() = synchronized(lifecycle) {
+            pauseWanted.set(false);transferControl.requestPause(false)
+            if(!finalized.get()) mutable.value=progress(FileCopyState.RUNNING)
+        }
         private val cancelOperation=AtomicReference<(() -> Unit)?>(null)
         private val closed=CompletableDeferred<Unit>()
         @Volatile private var worker: Job?=null
@@ -43,6 +64,12 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                     error=skips[node.relativePath]?.reason?.let { if(it==FilePasteDecisionKind.UNSUPPORTED) "已跳过不支持的条目" else "已跳过同名项目" }))
             }
         }
+        private var transferBytes=0uL
+        private var remainingKnown=plan.knownBytes
+        private var remainingUnknown=plan.unknownSizeFiles
+        private val learnedSizes=mutableMapOf<String,ULong>()
+        private var executionBegan: Long?=null
+        private var workObservedAt=0L
         private var failure: String?=null
         @Volatile private var cancellationFailure: String?=null
         private var verified=false
@@ -52,36 +79,54 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
         val updates=mutable.asStateFlow()
         val outcome get()=updates.value
         val finished get()=closed.isCompleted
-        private fun progress(state: FileCopyState)=FileCopyProgress(plan.request.id,plan.request.clipboardId,state,results.values,failure,activity)
-        private fun observe(source: FileScanEntry, stage: FileCopyStage, total: ULong?): (ULong, ULong?) -> Unit {
+        private fun progress(state: FileCopyState)=FileCopyProgress(plan.request.id,plan.request.clipboardId,state,results.values,failure,activity,
+            if(state!=FileCopyState.RUNNING || cancelled.get()) FileCopyPause.RUNNING
+            else if(pausedAt!=null) FileCopyPause.PAUSED else if(pauseWanted.get()) FileCopyPause.REQUESTED else FileCopyPause.RUNNING,
+            executionBegan?.let { began -> FileCopyWork(transferBytes,
+                if(remainingUnknown==0 && remainingKnown<=ULong.MAX_VALUE/2uL) remainingKnown*2uL else null,
+                began,maxOf(began,workObservedAt),pausedMillis,activity?.stage==FileCopyStage.VERIFYING) })
+        private fun learnSourceSize(source: FileScanEntry, size: ULong) = synchronized(lifecycle) {
+            if(source.entry.size==null && source.relativePath !in learnedSizes) {
+                check(remainingUnknown>0 && ULong.MAX_VALUE-remainingKnown>=size) { "任务总量无法确认" }
+                learnedSizes[source.relativePath]=size;remainingUnknown--;remainingKnown+=size
+            }
+        }
+        private fun observe(source: FileScanEntry, stage: FileCopyStage, total: ULong?, remote: Boolean = false): (ULong, ULong?) -> Unit {
             val token=Any()
             val began=android.os.SystemClock.elapsedRealtime()
             var previous=0uL
             var emittedAt=began
             synchronized(lifecycle) {
-                activityOwner=token
+                activityOwner=token;activityPauseBase=pausedMillis
                 activity=FileCopyActivity(source.relativePath,stage,0uL,total,began,began)
                 mutable.value=progress(FileCopyState.RUNNING)
             }
             return { bytes,knownTotal -> synchronized(lifecycle) {
                 if(activityOwner===token && !finalized.get()) {
-                    check(bytes>=previous) { "文件进度倒退" };previous=bytes
-                    val now=android.os.SystemClock.elapsedRealtime()
+                    check(bytes>=previous) { "文件进度倒退" }
+                    check(ULong.MAX_VALUE-transferBytes>=bytes-previous) { "任务字节计数溢出" }
+                    transferBytes+=bytes-previous;previous=bytes
+                    val now=android.os.SystemClock.elapsedRealtime();workObservedAt=now
                     val next=if(stage==FileCopyStage.WRITING && knownTotal!=null && bytes>=knownTotal) FileCopyStage.VERIFYING else stage
                     val previousActivity=activity
-                    activity=FileCopyActivity(source.relativePath,next,bytes,knownTotal,began,now)
+                    activity=FileCopyActivity(source.relativePath,next,bytes,knownTotal,began,now,pausedMillis-activityPauseBase)
                     // Four UI observations per second, plus metadata/phase changes
                     // and the actual final byte count. Never write a journal here.
                     if(now-emittedAt>=250 || previousActivity?.totalBytes!=knownTotal || previousActivity?.stage!=next || knownTotal==bytes) {
                         mutable.value=progress(FileCopyState.RUNNING);emittedAt=now
                     }
                 }
-            } }
+            };if(!remote) active() }
         }
         @Volatile var recordingError: String?=null; private set
         private suspend fun report(value: FileCopyItemResult, point: FileCopyCheckpoint = FileCopyCheckpoint.RESULT) {
             // Memory keeps the actual observation even if its durable write fails.
-            synchronized(lifecycle) { results[value.source.relativePath]=value;mutable.value=progress(FileCopyState.RUNNING) }
+            synchronized(lifecycle) {
+                if(value.state==FileCopyItemState.SKIPPED && results[value.source.relativePath]?.state!=FileCopyItemState.SKIPPED && value.source.entry.kind==FileKind.FILE) {
+                    (value.source.entry.size ?: learnedSizes[value.source.relativePath])?.let { remainingKnown-=it } ?: run { remainingUnknown-- }
+                }
+                results[value.source.relativePath]=value;mutable.value=progress(FileCopyState.RUNNING)
+            }
             recordingError?.let { error(it) }
             try { withContext(NonCancellable) { record(value,point) } }
             catch(error: Exception) {
@@ -89,10 +134,24 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                 throw error
             }
         }
-        private fun active() { if(cancelled.get()) throw CancellationException("复制已取消") }
+        /** IO-owner checkpoint; callers never run this from the UI thread. */
+        private fun active() {
+            if(cancelled.get()) throw CancellationException("复制已取消")
+            if(pauseWanted.get()) {
+                acknowledgePause(true)
+                try {
+                    while(pauseWanted.get()) {
+                        if(cancelled.get()) throw CancellationException("复制已取消")
+                        Thread.sleep(20)
+                    }
+                } finally { acknowledgePause(false) }
+            }
+            if(cancelled.get()) throw CancellationException("复制已取消")
+        }
         fun cancel() {
             synchronized(lifecycle) {
                 if(finalized.get() || !cancelled.compareAndSet(false,true)) return
+                pauseWanted.set(false);transferControl.requestPause(false)
                 if(!started.get()) { finish();return }
             }
             // Acquiring connections is cancellable. Side effects run in a retained
@@ -110,6 +169,7 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
         suspend fun execute(): FileCopyProgress {
             synchronized(lifecycle) {
                 check(!finalized.get() && started.compareAndSet(false,true)) { "复制任务只能执行一次，取消后不能启动" }
+                executionBegan=android.os.SystemClock.elapsedRealtime();workObservedAt=checkNotNull(executionBegan)
             }
             return suspendCancellableCoroutine { waiting ->
                 val owner=CoroutineScope(Dispatchers.IO).launch(start=CoroutineStart.LAZY) {
@@ -264,28 +324,29 @@ class FileCopyExecutor(private val home: File, private val resolver: ContentReso
                     }
                     check(source.entry.kind==FileKind.FILE) { "执行清单包含不支持的条目" }
                     val from=scope.remote(Role.SOURCE,source.parent.endpoint)?.session
-                    val reading=observe(source,FileCopyStage.READING,source.entry.size)
+                    val reading=observe(source,FileCopyStage.READING,source.entry.size,remote=from!=null)
                     val snapshot=operation({ store.close();from?.close() }) {
                         if(from==null) local.snapshot(source.parent,source.entry,store) { bytes,total -> reading(bytes.toULong(),total?.toULong()) }
                         else store.receive(from,source.entry.id,source.entry.size?.let { size ->
                             check(size<=Long.MAX_VALUE.toULong());size.toLong()
-                        },progress={ reading(it.bytes,it.totalBytes) })
+                        },control=transferControl,progress={ reading(it.bytes,it.totalBytes) })
                     }
                     snapshot.use {
+                        learnSourceSize(source,snapshot.size.toULong())
                         reading(snapshot.size.toULong(),snapshot.size.toULong())
                         active()
                         val after=browse(Role.SOURCE,source.parent)
                         check(after.location==source.parent && after.entries.singleOrNull { it.id==source.entry.id }==source.entry) { "读取期间来源已改变" }
                         active();writing=true
                         val destination=scope.remote(Role.DESTINATION,parent.endpoint)?.session
-                        val writingProgress=observe(source,FileCopyStage.WRITING,snapshot.size.toULong())
+                        val writingProgress=observe(source,FileCopyStage.WRITING,snapshot.size.toULong(),remote=destination!=null)
                         result=when {
                             destination!=null -> {
                                 val candidate=parent.directoryId.trimEnd('/')+"/.ghosterm-copy-"+UUID.randomUUID()
                                 result=result.copy(candidatePath=candidate);report(result,FileCopyCheckpoint.REMOTE_CREATE)
                                 operation(destination::close) {
                                     snapshot.withDescriptor { fd,size ->
-                                        val staged=destination.createExclusive(candidate,fd,size,progress={ writingProgress(it.bytes,it.totalBytes) })
+                                        val staged=destination.createExclusive(candidate,fd,size,control=transferControl,progress={ writingProgress(it.bytes,it.totalBytes) })
                                         if(staged.state!=RemoteCreationState.COMPLETE) result.copy(
                                             state=when(staged.state) {
                                                 RemoteCreationState.NOT_ATTEMPTED->FileCopyItemState.NOT_ATTEMPTED

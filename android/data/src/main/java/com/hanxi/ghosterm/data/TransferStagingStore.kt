@@ -192,10 +192,11 @@ class TransferStagingStore(private val directory: File,
      * connection operation, never a final target. Caller retains the connection. */
     suspend fun receive(files: com.hanxi.ghosterm.bridge.RemoteFileSession, path: String,
         expectedSize: Long? = null, timeoutMillis: Int = 5000,
+        control: com.hanxi.ghosterm.bridge.RemoteTransferControl? = null,
         progress: ((com.hanxi.ghosterm.bridge.RemoteTransferProgress) -> Unit)? = null): Snapshot = suspendCancellableCoroutine { waiting ->
         val worker = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             try {
-                val result = receiveCopy(files,path,expectedSize,timeoutMillis,progress)
+                val result = receiveCopy(files,path,expectedSize,timeoutMillis,control,progress)
                 waiting.resume(result,onCancellation = { _, value, _ -> value.close() })
             } catch(failure: Exception) { if(waiting.isActive) waiting.resumeWithException(failure) }
         }
@@ -212,6 +213,7 @@ class TransferStagingStore(private val directory: File,
 
     private suspend fun receiveCopy(files: com.hanxi.ghosterm.bridge.RemoteFileSession,
         path: String, expected: Long?, timeoutMillis: Int,
+        control: com.hanxi.ghosterm.bridge.RemoteTransferControl?,
         progress: ((com.hanxi.ghosterm.bridge.RemoteTransferProgress) -> Unit)?): Snapshot {
         require(expected == null || expected in 0..fileLimit) { "文件超过暂存上限或大小无效" }
         val reservation = expected ?: fileLimit
@@ -228,7 +230,7 @@ class TransferStagingStore(private val directory: File,
             writer=AnonymousStagingFile.create(directory)
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             // Zero reservation still probes remote EOF, but never writes a byte.
-            val size=files.receive(path,writer.fd,reservation,timeoutMillis,progress)
+            val size=files.receive(path,writer.fd,reservation,timeoutMillis,control,progress)
             check(expected == null || size == expected) { "源文件大小已改变，请重新复制" }
             check(size <= reservation) { "远端文件超过暂存预算" }
             val readonly=Os.open("/proc/self/fd/${writer.fd}",OsConstants.O_RDONLY or OsConstants.O_CLOEXEC,0)

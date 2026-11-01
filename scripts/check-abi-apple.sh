@@ -20,6 +20,8 @@ mkdir -p "$TMP"
 ALLOW_UNBOUND=$(cat <<'EOF'
 gt_config_effective      通用视图（ssh -G 对拍用）：UI 暂只需要 typed 视图
 gt_config_supported_keys 支持集枚举：同上，UI 未做「生效配置」面板
+gt_sftp_receive_controllable Android 暂停首片；Apple 仍消费原有受控观察接口
+gt_sftp_create_controllable Android 暂停首片；Apple 仍消费原有受控观察接口
 EOF
 )
 # 只取符号名（每行第一列；空行与注释行丢弃），落盘供 comm 使用。

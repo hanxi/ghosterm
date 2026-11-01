@@ -72,6 +72,30 @@ class FileTasksProductTest {
         assertNotEquals("confirm button starts execution",FileTaskPhase.CONFIRMING,latest.phase);finished()
     }
     private fun finished() { ui.waitUntil(15000) { !tasks.busy } }
+    @Test fun retryRequiresConfirmationAndRechecksConflictsWithoutOverwriting() {
+        prepare()
+        File(home,"target/a.txt").writeText("existing")
+        confirm()
+        val original=latest
+        assertEquals(FileCopyItemState.CONFLICT,original.result!!.items.single().state)
+        ui.onNodeWithTag("file-task-retry").performScrollTo().performClick()
+        ui.onNodeWithText("重试未完成项目？").assertIsDisplayed()
+        ui.onNodeWithText("取消").performClick()
+        assertEquals(1,tasks.tasks.size)
+        ui.onNodeWithTag("file-task-retry").performScrollTo().performClick()
+        ui.onNodeWithTag("file-task-retry-confirm").performClick()
+        try { ui.waitUntil(10000) { tasks.tasks.size==2 && latest.phase==FileTaskPhase.CONFIRMING } }
+        catch(timeout: ComposeTimeoutException) { fail("retry confirmation creates a fresh checked request") }
+        assertNotEquals(original.request.id,latest.request.id)
+        assertEquals(FileConflictPolicy.ASK,latest.request.conflictPolicy)
+        assertEquals("existing",File(home,"target/a.txt").readText())
+        ui.onNodeWithTag("file-task-keep").performScrollTo().performClick()
+        confirm()
+        assertEquals(FileCopyState.COMPLETE,latest.result!!.state)
+        assertEquals("existing",File(home,"target/a.txt").readText())
+        assertEquals("真实复制 ☃\n",File(home,"target/a (2).txt").readText())
+        assertEquals(FileCopyItemState.CONFLICT,original.result!!.items.single().state)
+    }
     @Test fun pasteFreezesDestinationAndKeepsDefaultClipboardAfterRealCopy() {
         prepare();assertFalse(File(home,"target/a.txt").exists())
         val clipboard=files.clipboard!!.id

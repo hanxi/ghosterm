@@ -27,11 +27,11 @@ def execute(root,build,test):
         ('source-bytes',store,'progress(size,total)','progress(0,total)',staging,'source progress real final bytes'),
         ('source-unknown',store,'val total=if(length>=0) length else expected','val total=if(length>=0) length else expected ?: 0L',staging,'source progress preserves unknown total'),
         ('source-thread',store,'progress(size,total)','kotlinx.coroutines.runBlocking { kotlinx.coroutines.withContext(Dispatchers.Main) { progress(size,total) } }',staging,'source progress belongs to IO'),
-        ('read-phase',executor,'observe(source,FileCopyStage.READING,source.entry.size)','observe(source,FileCopyStage.WRITING,source.entry.size)',read,'partial source phase'),
+        ('read-phase',executor,'observe(source,FileCopyStage.READING,source.entry.size,remote=from!=null)','observe(source,FileCopyStage.WRITING,source.entry.size,remote=from!=null)',read,'partial source phase'),
         ('read-forward',executor,'reading(bytes.toULong(),total?.toULong())','reading(0uL,total?.toULong())',read,'source bytes become visible during stall'),
         ('write-forward',executor,'writingProgress(bytes.toULong(),total.toULong())','writingProgress(0uL,total.toULong())',write,'local final bytes await publication'),
         ('verify-phase',executor,'FileCopyStage.VERIFYING else stage','FileCopyStage.WRITING else stage',write,'local final bytes await publication'),
-        ('activity-bytes',executor,'FileCopyActivity(source.relativePath,next,bytes,knownTotal,began,now)','FileCopyActivity(source.relativePath,next,bytes+1uL,knownTotal,began,now)',write,'local observed write byte count'),
+        ('activity-bytes',executor,'FileCopyActivity(source.relativePath,next,bytes,knownTotal,began,now,pausedMillis-activityPauseBase)','FileCopyActivity(source.relativePath,next,bytes+1uL,knownTotal,began,now,pausedMillis-activityPauseBase)',write,'local observed write byte count'),
         ('local-written-bytes',local,'checkpoint(copied+offset,size)','checkpoint(0,size)',write,'local final bytes await publication'),
         ('saf-short-write',saf,'checkpoint(copied+offset,size)','Unit',partial,'partial write bytes become visible while stalled'),
         ('mean-window',domain,'elapsed<1000','elapsed<0',mean,'speed needs a time window'),
@@ -41,7 +41,7 @@ def execute(root,build,test):
         ('estimate-remaining',domain,'(total-bytes).toDouble()/rate','total.toDouble()/rate',mean,'remaining time is for this phase'),
         ('estimate-finished',domain,'bytes>=total || nowMillis-observedMillis>2000','nowMillis-observedMillis>2000',mean,'reached byte total is not zero seconds to completion'),
         ('estimate-stall',domain,'bytes>=total || nowMillis-observedMillis>2000','bytes>=total',mean,'stalled IO has no remaining-time estimate'),
-        ('ui-pane',ui,'FileTaskByteProgress(activity,result.state==FileCopyState.RUNNING && task.active)','Unit',verify_ui,'file-task-byte-stage'),
+        ('ui-pane',ui,'FileTaskByteProgress(activity,result.state==FileCopyState.RUNNING && task.active && result.pause==FileCopyPause.RUNNING,result.work)','Unit',verify_ui,'file-task-byte-stage'),
         ('ui-reading',ui,'FileCopyStage.READING -> "读取来源"','FileCopyStage.READING -> "写入目标"',reading_ui,'正在读取来源'),
         ('ui-verifying',ui,'FileCopyStage.VERIFYING -> "核对并提交"','FileCopyStage.VERIFYING -> "复制完成"',verify_ui,'正在核对并提交'),
         ('ui-bytes',ui,'Text("${activity.bytes} / ','Text("0 / ',reading_ui,'4 / 8 字节'),
@@ -67,8 +67,12 @@ def execute(root,build,test):
         for name,path,old,new,method,message in cases:
             if wanted is not None and name not in wanted:continue
             clean=originals[path].decode();expected=2 if name=='write-forward' else 1
-            assert clean.count(old)==expected,(name,clean.count(old))
-            path.write_text(clean.replace(old,new)+'\n// '+MARK+'\n')
+            # Stage estimators retain their independent assertions; the new
+            # request-wide estimator has its own task-control mutations.
+            cut=clean.index('data class FileCopyWork') if path==domain else len(clean)
+            prefix,suffix=clean[:cut],clean[cut:]
+            assert prefix.count(old)==expected,(name,prefix.count(old))
+            path.write_text(prefix.replace(old,new)+suffix+'\n// '+MARK+'\n')
             label='copy-progress-'+name
             build(label);one(label,method,False,message)
             one(label+'-control','com.hanxi.ghosterm.ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig',True)

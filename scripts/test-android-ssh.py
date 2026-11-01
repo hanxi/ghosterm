@@ -224,6 +224,10 @@ def main():
                     spec=importlib.util.spec_from_file_location('files_receive_mutations',ROOT/'scripts/mutation-check-android-files-receive.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_TASK_CONTROLS_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('task_controls_mutations',ROOT/'scripts/mutation-check-android-task-controls.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_COPY_PROGRESS_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('copy_progress_mutations',ROOT/'scripts/mutation-check-android-copy-progress.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

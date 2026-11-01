@@ -120,6 +120,17 @@ class SafCopyExecutorTest {
         assertEquals(FileCopyState.COMPLETE,out.state);assertEquals("original",File(home,"target/keep.txt").readText())
         assertEquals(8uL,out.committedBytes);assertEquals(0,state().getInt("writes"));assertEquals(0,state().getInt("creates"))
     }
+    @Test fun sealedUnknownSourceBecomesKnownWholeRequestWork()=runBlocking<Unit> {
+        reset("pipe-unknown-size")
+        val plan=plan(location,FileLocation(FileEndpoint.APP,"target"),listOf("keep.txt"))
+        assertNull(plan.totalBytes)
+        val request=copy(plan)
+        val out=request.execute();request.awaitClosed()
+        assertEquals(FileCopyState.COMPLETE,out.state)
+        assertEquals("sealed source supplies request total",16uL,out.work?.totalBytes)
+        assertEquals("read plus write bytes are counted once",16uL,out.work?.bytes)
+        assertEquals("original",File(home,"target/keep.txt").readText())
+    }
     @Test fun sourceReadProgressStaysZeroUntilProviderReturnsBytes()=runBlocking<Unit> {
         reset("source-read-stall")
         val request=copy(plan(location,FileLocation(FileEndpoint.APP,"target"),listOf("keep.txt")))

@@ -8,9 +8,10 @@ import androidx.compose.runtime.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.conflate
 import java.util.UUID
+import com.hanxi.ghosterm.domain.FileCopyPause
 
 enum class FileBackgroundState { IDLE, STARTING, ACTIVE, STOPPING, FAILED, TIMED_OUT }
-internal data class FileNotificationSummary(val count: Int, val id: String?, val phase: FileTaskPhase?)
+internal data class FileNotificationSummary(val count: Int, val id: String?, val phase: FileTaskPhase?, val pause: FileCopyPause = FileCopyPause.RUNNING)
 
 /** Owns only the service registration. FileTaskStore remains the sole execution owner. */
 class FileTransferBackground(private val application: Application, private val work: FileWorkRuntime,
@@ -32,7 +33,7 @@ class FileTransferBackground(private val application: Application, private val w
     private fun summary(): FileNotificationSummary {
         val active=work.tasks.tasks.filter { it.active || it.recording }
         val current=active.lastOrNull { it.phase!=FileTaskPhase.QUEUED } ?: active.lastOrNull()
-        return FileNotificationSummary(active.size,current?.request?.id,current?.phase)
+        return FileNotificationSummary(active.size,current?.request?.id,current?.phase,current?.result?.pause ?: FileCopyPause.RUNNING)
     }
     fun refreshNotifications() {
         if(!enabled) return
@@ -157,7 +158,11 @@ class FileTransferService : Service() {
         val text=when(summary?.phase) {
             FileTaskPhase.SCANNING -> "正在检查文件"
             FileTaskPhase.CONFIRMING -> "等待在任务页面确认"
-            FileTaskPhase.RUNNING -> "正在复制文件"
+            FileTaskPhase.RUNNING -> when(summary.pause) {
+                FileCopyPause.REQUESTED -> "正在暂停文件任务"
+                FileCopyPause.PAUSED -> "文件任务已暂停"
+                else -> "正在复制文件"
+            }
             FileTaskPhase.CANCELLING -> "正在取消并等待结果"
             else -> "正在准备文件任务"
         }

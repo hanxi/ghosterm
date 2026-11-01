@@ -33,7 +33,7 @@
    把字节变成屏幕。于是「SSH vs 本地 shell」「Metal vs 自绘」互不污染。
 2. **字节流不过事件队列**：终端输出由会话线程 `transport_read → surface` 直连；
    事件队列只承载低频状态。这是性能红线。
-3. **C ABI 是唯一跨语言边界**：所有平台绑定经 `core/include/ghosterm.h`，使用 opaque handle、POD 与 NUL 结尾字符串。当前为 **91 个公共符号、Apple 89 项引用/2 项登记未用、Android JNI 51 项引用/40 项登记未用**；实际数量以当前检出的对拍脚本输出为准。新增绑定须纳入符号对拍并完成平台原生编译；NAPI 尚未实现。
+3. **C ABI 是唯一跨语言边界**：所有平台绑定经 `core/include/ghosterm.h`，使用 opaque handle、POD 与 NUL 结尾字符串。当前为 **93 个公共符号、Apple 89 项引用/4 项登记未用、Android JNI 49 项引用/44 项登记未用**；实际数量以当前检出的对拍脚本输出为准。新增绑定须纳入符号对拍并完成平台原生编译；NAPI 尚未实现。
 
 共享受控文件接口已经提供 Swift/JNI 绑定。Android 已由复制执行器和任务页面消费，macOS 文件队列仍待迁移；绑定通过不能代替产品接线与行为验收。当前调用方见 [Apple 接线表](../../apple/README.md#共享文件接口与产品接线)和 [Android 实施映射](../reference/android-implementation.md#69-后续实现入口与跨端依赖)，历次接口数量及验证范围见[路线图](../reference/roadmap.md)。
 

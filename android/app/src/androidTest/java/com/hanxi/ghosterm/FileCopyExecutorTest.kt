@@ -60,6 +60,74 @@ class FileCopyExecutorTest {
         val request=request(plan,executor);val outcome=withTimeout(15000) { request.execute() };request.awaitClosed()
         assertTrue(request.finished);assertSame(outcome,request.outcome);return outcome
     }
+    @Test fun retryPartialTreeCopiesOnlyUnfinishedChildIntoAcknowledgedDirectory() = runBlocking {
+        val directory=File(home,"source/tree").apply { mkdir() }
+        File(directory,"a.txt").writeText("completed")
+        File(directory,"b.txt").writeText("retry me")
+        val originalPlan=plan(select=listOf("tree"))
+        val interrupted=FileCopyExecutor(home,context.contentResolver,File(root,"first-task"),{ intent ->
+            FileTaskConnections(intent.source.endpoint,intent.destination.endpoint,{ _,_->error("unexpected remote") },{ _,_,_->error("unexpected auth") })
+        },record={ value,_ ->
+            if(value.source.relativePath=="tree/a.txt" && value.state==FileCopyItemState.COMPLETE)
+                File(home,"target/tree/b.txt").writeText("late conflict")
+        })
+        val old=run(originalPlan,interrupted)
+        assertEquals(FileCopyItemState.COMPLETE,old.items.single { it.source.relativePath=="tree/a.txt" }.state)
+        assertEquals(FileCopyItemState.CONFLICT,old.items.single { it.source.relativePath=="tree/b.txt" }.state)
+        val committed=File(home,"target/tree/a.txt")
+        val inode=Os.stat(committed.path).st_ino
+        val retry=FileCopyRetry.plan(originalPlan.request,old)
+        assertEquals(1,retry.retryItems);assertEquals(2,retry.retained);assertEquals(0,retry.blocked)
+        val group=retry.groups.single()
+        assertEquals(listOf("b.txt"),group.entries.map { it.name })
+        assertEquals("target/tree",group.destination.directoryId)
+        val next=plan(group.source,group.destination,FileConflictPolicy.KEEP_BOTH,select=listOf("b.txt"))
+        assertEquals(FileCopyState.COMPLETE,run(next).state)
+        assertEquals(inode,Os.stat(committed.path).st_ino)
+        assertEquals("completed",committed.readText())
+        assertEquals("late conflict",File(home,"target/tree/b.txt").readText())
+        assertEquals("retry me",File(home,"target/tree/b (2).txt").readText())
+        assertEquals(2,old.completed)
+    }
+    @Test fun pausedRequestRetainsWorkAndResumesWithoutRecreatingIt() = runBlocking {
+        val bytes=ByteArray(131073) { (it*31).toByte() }
+        File(home,"source/paused.bin").writeBytes(bytes)
+        val task=request(plan())
+        task.pause()
+        val result=async(Dispatchers.IO) { task.execute() }
+        withTimeout(5000) { while(task.outcome.pause!=FileCopyPause.PAUSED && !result.isCompleted) delay(10) }
+        assertEquals("local owner acknowledges pause before publication",FileCopyPause.PAUSED,task.outcome.pause)
+        delay(100)
+        assertFalse(File(home,"target/paused.bin").exists())
+        assertFalse(result.isCompleted)
+        task.resume()
+        assertEquals(FileCopyState.COMPLETE,withTimeout(15000) { result.await() }.state)
+        assertArrayEquals(bytes,File(home,"target/paused.bin").readBytes())
+        assertEquals((bytes.size*2).toULong(),task.outcome.work!!.bytes)
+        assertEquals((bytes.size*2).toULong(),task.outcome.work!!.totalBytes)
+        assertEquals(FileCopyPause.RUNNING,task.outcome.pause)
+    }
+    @Test fun cancellingPausedRequestReleasesItsOwnerWithoutPublishing() = runBlocking {
+        File(home,"source/paused.bin").writeText("keep")
+        val task=request(plan());task.pause()
+        val result=async(Dispatchers.IO) { task.execute() }
+        withTimeout(5000) { while(task.outcome.pause!=FileCopyPause.PAUSED) delay(10) }
+        task.cancel()
+        assertEquals(FileCopyState.CANCELLED,withTimeout(5000) { result.await() }.state)
+        withTimeout(5000) { task.awaitClosed() }
+        assertFalse(File(home,"target/paused.bin").exists())
+        assertEquals("keep",File(home,"source/paused.bin").readText())
+    }
+    @Test fun wholeRequestEstimateKeepsUnknownAndVerificationDistinctAndExcludesPause() {
+        val work=FileCopyWork(2000uL,10000uL,100,4100,2000)
+        assertEquals(8L,work.estimatedSeconds(4100))
+        assertNull(work.copy(totalBytes=null).estimatedSeconds(4100))
+        assertNull(work.copy(verifying=true).estimatedSeconds(4100))
+        assertNull(work.copy(bytes=10000uL).estimatedSeconds(4100))
+        assertNull(work.estimatedSeconds(6101))
+        val activity=FileCopyActivity("file",FileCopyStage.READING,2000uL,10000uL,100,4100,2000)
+        assertEquals(1000.0,activity.averageBytesPerSecond(4100)!!,0.001)
+    }
     @Test fun phaseAverageUsesElapsedTimeWithoutInventingUnknownTotals() {
         val activity=FileCopyActivity("file",FileCopyStage.READING,1000uL,null,100,200)
         assertNull("speed needs a time window",activity.averageBytesPerSecond(1099))

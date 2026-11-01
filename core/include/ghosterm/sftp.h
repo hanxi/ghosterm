@@ -109,6 +109,23 @@ typedef struct {
 } gt_sftp_progress_t;
 typedef void (*gt_sftp_progress_fn)(const gt_sftp_progress_t *progress, void *context);
 
+/* Cooperative transfer control, dedicated owner only. Both callbacks and a
+ * cancellation callback are required by the controllable entry points. They
+ * return promptly and never reenter Core. pause_changed(true) acknowledges an
+ * actual IO checkpoint; a request alone is not acknowledgement. While paused,
+ * network/file IO stops and cancellation is polled at <=20 ms sleep intervals.
+ * Only acknowledged paused wall time is excluded from the operation budget;
+ * callback time and all active IO retain the original shared timeout. Resume
+ * does not reconnect/retry or promise that the peer remained connected. Local
+ * syscalls cannot be hard-preempted. Control/context live until the call returns;
+ * no callback follows return. Legacy controlled/observed APIs never pause. */
+typedef struct {
+  bool (*pause_requested)(void *context);
+  void (*pause_changed)(bool paused, void *context);
+  void *context;
+} gt_sftp_transfer_control_t;
+
+
 /* Bounded remote regular file -> task-owned local staging fd. Dedicated owner
  * only, with the same invalidation rules as preview_controlled. Caller retains
  * an empty writable regular fd (no O_APPEND), exclusively owns it until return,
@@ -131,6 +148,12 @@ int gt_sftp_receive_observed(gt_sftp_t *sftp, const char *path, int destination_
     uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
     bool (*cancelled)(void *), void *context,
     gt_sftp_progress_fn observer, void *observer_context);
+int gt_sftp_receive_controllable(gt_sftp_t *sftp, const char *path, int destination_fd,
+    uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context,
+    gt_sftp_progress_fn observer, void *observer_context,
+    const gt_sftp_transfer_control_t *control);
+
 
 /* Exclusive creation for task-owned remote staging paths. Does not overwrite,
  * rename, remove or publish a final destination. Dedicated owner only; no jobs
@@ -166,6 +189,12 @@ int gt_sftp_create_observed(gt_sftp_t *sftp, const char *path, int source_fd,
     uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
     bool (*cancelled)(void *), void *context,
     gt_sftp_progress_fn observer, void *observer_context);
+int gt_sftp_create_controllable(gt_sftp_t *sftp, const char *path, int source_fd,
+    uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context,
+    gt_sftp_progress_fn observer, void *observer_context,
+    const gt_sftp_transfer_control_t *control);
+
 
 /* Publish a completed, caller-owned remote staging path WITHOUT overwrite.
  * Dedicated owner only, no jobs/other channels. Source LSTAT, destination

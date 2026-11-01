@@ -17,7 +17,20 @@ import com.hanxi.ghosterm.domain.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileTasksScreen(model: FileTasksViewModel) {
-    BackHandler { model.hide() }
+    BackHandler { if(model.retryTask!=null) model.dismissRetry() else model.hide() }
+    model.retryTask?.let { task -> model.retryPlan(task)?.let { retry ->
+        AlertDialog(onDismissRequest=model::dismissRetry,title={ Text("重试未完成项目？") },text={
+            Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text("重试 ${retry.retryItems} 项，保留 ${retry.retained} 项已完成或跳过的结果。")
+                if(retry.blocked>0) Text("另有 ${retry.blocked} 项需核对或清理实际位置；本次不会重试。")
+                Text("重新检查来源、目标与同名项目；不会沿用上次的冲突选择。")
+                retry.groups.take(4).forEach { Text("目标：${it.destinationLabel}") }
+                if(retry.groups.size>4) Text("共 ${retry.groups.size} 个目标目录")
+            }
+        },confirmButton={ TextButton(onClick=model::confirmRetry,modifier=Modifier.testTag("file-task-retry-confirm")) { Text("检查并重试") } },
+            dismissButton={ TextButton(onClick=model::dismissRetry) { Text("取消") } })
+    } }
+
     val list=rememberLazyListState()
     val context=LocalContext.current
     LaunchedEffect(model.tasks.firstOrNull()?.request?.id) { list.scrollToItem(0) }
@@ -116,10 +129,27 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                         task.result?.let { result ->
                             val skips=result.items.count { it.state==FileCopyItemState.SKIPPED }
                             Text("已完成 ${result.completed} 项 · 已跳过 $skips 项 · 已提交 ${result.committedBytes} 字节")
+                            if(task.phase==FileTaskPhase.RUNNING && !task.cancelled) {
+                                when(result.pause) {
+                                    FileCopyPause.RUNNING -> OutlinedButton(onClick={ model.pause(task) },modifier=Modifier.testTag("file-task-pause")) { Text("暂停") }
+                                    FileCopyPause.REQUESTED -> {
+                                        Text("正在暂停，等待当前操作到达安全位置",Modifier.testTag("file-task-pausing"))
+                                        TextButton(onClick={ model.continueTask(task) },modifier=Modifier.testTag("file-task-resume")) { Text("继续") }
+                                    }
+                                    FileCopyPause.PAUSED -> {
+                                        Text("已暂停",Modifier.testTag("file-task-paused"))
+                                        OutlinedButton(onClick={ model.continueTask(task) },modifier=Modifier.testTag("file-task-resume")) { Text("继续") }
+                                    }
+                                }
+                            }
                             result.activity?.takeIf { result.state!=FileCopyState.COMPLETE && result.state!=FileCopyState.WITH_SKIPS }?.let { activity ->
-                                FileTaskByteProgress(activity,result.state==FileCopyState.RUNNING && task.active)
+                                FileTaskByteProgress(activity,result.state==FileCopyState.RUNNING && task.active && result.pause==FileCopyPause.RUNNING,result.work)
                             }
                             result.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+                            model.retryPlan(task)?.let { retry ->
+                                if(retry.blocked>0) Text("${retry.blocked} 项需核对实际位置后再操作",modifier=Modifier.testTag("file-task-retry-blocked"))
+                                if(retry.groups.isNotEmpty()) OutlinedButton(onClick={ model.requestRetry(task) },modifier=Modifier.testTag("file-task-retry")) { Text("重试未完成项目") }
+                            }
                             var details by remember(task.request.id) { mutableStateOf(false) }
                             TextButton(onClick={ details=!details },modifier=Modifier.testTag("file-task-details")) { Text(if(details) "收起结果" else "查看逐项结果") }
                             if(details) AlertDialog(onDismissRequest={ details=false },title={ Text("逐项结果") },
@@ -151,7 +181,7 @@ fun FileTasksScreen(model: FileTasksViewModel) {
 }
 
 @Composable
-private fun FileTaskByteProgress(activity: FileCopyActivity, running: Boolean) {
+private fun FileTaskByteProgress(activity: FileCopyActivity, running: Boolean, work: FileCopyWork?) {
     var now by remember(activity.startedMillis) { mutableLongStateOf(activity.observedMillis) }
     LaunchedEffect(activity.startedMillis,running) {
         while(running) {
@@ -160,6 +190,13 @@ private fun FileTaskByteProgress(activity: FileCopyActivity, running: Boolean) {
         }
     }
     Column(Modifier.fillMaxWidth().testTag("file-task-byte-progress"),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        work?.let { total ->
+            Text("整体传输 ${total.bytes} / ${total.totalBytes?.let { "$it 字节" } ?: "总量未知"}（含读取与写入）",Modifier.testTag("file-task-overall-bytes"))
+            if(running) {
+                val seconds=total.estimatedSeconds(maxOf(now,activity.observedMillis))
+                Text(seconds?.let { "整体预计还需约 $it 秒" } ?: "整体剩余时间暂无法估算",Modifier.testTag("file-task-overall-estimate"))
+            }
+        }
         Text(activity.relativePath,maxLines=2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         val stage=when(activity.stage) {
             FileCopyStage.READING -> "读取来源"
@@ -236,7 +273,11 @@ internal fun taskStatus(task: FileTask): String = when(task.phase) {
     FileTaskPhase.QUEUED -> "排队等待"
     FileTaskPhase.SCANNING -> "正在检查来源与目标"
     FileTaskPhase.CONFIRMING -> "确认粘贴"
-    FileTaskPhase.RUNNING -> "正在复制"
+    FileTaskPhase.RUNNING -> when(task.result?.pause) {
+        FileCopyPause.REQUESTED -> "正在暂停"
+        FileCopyPause.PAUSED -> "已暂停"
+        else -> "正在复制"
+    }
     FileTaskPhase.CANCELLING -> "正在取消，等待资源释放"
     FileTaskPhase.FINISHED -> when(task.result?.state) {
         FileCopyState.COMPLETE -> "全部复制完成"

@@ -130,6 +130,21 @@ class SSHNetworkTest {
             assertFalse("test rule leaked", shell("su 0 iptables -S OUTPUT").contains(tag))
         }
     }
+    @Test fun systemDnsDomainConnectsToRealSSH() = directory { dir ->
+        val domain = "localhost"
+        val addresses = kotlinx.coroutines.runBlocking {
+            kotlinx.coroutines.withTimeout(15000) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { AndroidSSHResolver.resolve(domain) }
+            }
+        }
+        assertTrue(addresses.any { it.isLoopbackAddress })
+        val target = ResolvedSSHConnection(domain, fixture.getInt("port"), fixture.getString("user"),
+            File(dir, "known_hosts").path, addresses.map { ResolvedSSHAddress(it.address, (it as? java.net.Inet6Address)?.scopeId ?: 0) }, 8000)
+        RemoteSession(target).use { session ->
+            trust(session); terminal(session)
+            assertTrue(File(dir, "known_hosts").readText().contains("[$domain]:${target.port}"))
+        }
+    }
     @Test fun refusedIpv4FallsBackAndPreservesHostIdentity() = directory { dir ->
         Endpoint("127.0.0.1").use { endpoint ->
             RemoteSession(connection(dir,endpoint.port,listOf(candidate("127.0.0.2"),candidate("127.0.0.1")))).use { session ->

@@ -82,6 +82,30 @@ class FileQueueProductTest {
         confirm(third);done(third);copied("three");assertFalse(page.busy)
         assertEquals("queued bytes ☃\n",File(home,"source/a.txt").readText())
     }
+    @Test fun pausePageWaitsForOwnerAcknowledgementAndRetainsTheQueueSlot() {
+        val release=CountDownLatch(1).also { releases+=it }
+        val acquired=CountDownLatch(1)
+        val calls=AtomicInteger()
+        val first=add("one") { intent ->
+            if(calls.incrementAndGet()==2) { acquired.countDown();check(release.await(10,TimeUnit.SECONDS)) }
+            connections(intent)
+        }
+        ready(first);confirm(first)
+        assertTrue(acquired.await(5,TimeUnit.SECONDS))
+        val second=add("two")
+        await("queued task admitted") { second.recorded && !second.recording }
+        ui.onNodeWithTag("file-task-pause").performScrollTo().performClick()
+        ui.onNodeWithTag("file-task-pausing").assertIsDisplayed()
+        assertEquals(FileCopyPause.REQUESTED,first.result!!.pause)
+        release.countDown()
+        await("owner acknowledges actual checkpoint") { first.result?.pause==FileCopyPause.PAUSED }
+        ui.onNodeWithTag("file-task-paused").assertIsDisplayed()
+        assertEquals(FileTaskPhase.QUEUED,second.phase)
+        assertFalse(File(home,"one/a.txt").exists());assertFalse(File(home,"two/a.txt").exists())
+        ui.onNodeWithTag("file-task-resume").performScrollTo().performClick()
+        done(first);copied("one");ready(second)
+        confirm(second);done(second);copied("two")
+    }
     @Test fun cancelledWaitingRequestNeverAcquiresAndNextLiveRequestCanRun() {
         val first=add("one");ready(first)
         val calls=AtomicInteger()

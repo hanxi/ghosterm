@@ -193,7 +193,29 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
             }.also { it.start() }
         } catch(failure: Exception) { task.error=failure.message ?: "无法开始复制" }
     }
+    fun retryPlan(task: FileTask): FileCopyRetry? {
+        if(task !in tasks || task.active || task.recording || task.persistenceError!=null) return null
+        return task.result?.let { FileCopyRetry.plan(task.request,it) }
+    }
+    fun retry(task: FileTask, preferences: AppPreferences) {
+        val plan=retryPlan(task) ?: return
+        if(plan.groups.isEmpty()) { notice="没有可重试项目，请先核对结果不明的项目";return }
+        if(journalError!=null || journalLoading) { notice="任务记录不可用，请先核对记录错误";return }
+        if(tasks.count { it.active }+plan.groups.size>MAX_REQUESTS) {
+            notice="重试需 ${plan.groups.size} 个目录请求，等待队列腾出空间后再重试";return
+        }
+        // Admission runs on the same owner as start(): check capacity for the
+        // entire batch first. Every group receives a new UUID and fresh policy.
+        for(group in plan.groups) start(FileClipboardSnapshot.capture(group.source,group.sourceLabel,group.entries),
+            group.destination,group.destinationLabel,task.connections,preferences)
+    }
     fun cancelRequest(id: String) { tasks.firstOrNull { it.request.id==id }?.let(::cancel) }
+    fun pause(task: FileTask) {
+        if(task in tasks && task.phase==FileTaskPhase.RUNNING && !task.cancelled) task.execution?.pause()
+    }
+    fun continueTask(task: FileTask) {
+        if(task in tasks && task.phase==FileTaskPhase.RUNNING && !task.cancelled) task.execution?.resume()
+    }
     fun cancel(task: FileTask) {
         if(task !in tasks || !task.active || task.phase==FileTaskPhase.CANCELLING) return
         task.cancelled=true
@@ -250,7 +272,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val presentsAuthentication get() = work.presenter == presenterId
     var visible by mutableStateOf(false); private set
     fun show() { visible=true }
-    fun hide() { visible=false }
+    fun hide() { retryTask=null;visible=false }
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
         connections: (FilePasteRequest) -> FileTaskConnections = work::connections) {
         visible=true
@@ -261,10 +283,24 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
         val preferences = work.preferences
         work.background.submitFromUser(presenterId) { work.tasks.start(snapshot,destination,label,work::connections,preferences) }
     }
+    var retryTask by mutableStateOf<FileTask?>(null); private set
+    fun retryPlan(task: FileTask) = work.tasks.retryPlan(task)
+    fun requestRetry(task: FileTask) {
+        if(work.tasks.retryPlan(task)?.groups?.isNotEmpty()==true) retryTask=task
+    }
+    fun dismissRetry() { retryTask=null }
+    fun confirmRetry() {
+        val task=retryTask ?: return
+        retryTask=null
+        val preferences=work.preferences
+        work.background.submitFromUser(presenterId) { work.tasks.retry(task,preferences) }
+    }
     fun choose(task: FileTask, ref: FilePasteDecisionRef, path: String, choice: FilePasteChoice, all: Boolean) =
         work.tasks.choose(task,ref,path,choice,all)
     fun confirm(task: FileTask, ref: FilePasteDecisionRef) = work.tasks.confirm(task,ref)
     fun cancelRequest(id: String) = work.tasks.cancelRequest(id)
+    fun pause(task: FileTask) = work.tasks.pause(task)
+    fun continueTask(task: FileTask) = work.tasks.continueTask(task)
     fun cancel(task: FileTask) = work.tasks.cancel(task)
     fun remove(task: FileTask) = work.tasks.remove(task)
     fun queuedAhead(task: FileTask) = work.tasks.queuedAhead(task)

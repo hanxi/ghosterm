@@ -1,6 +1,7 @@
 package com.hanxi.ghosterm
 
 import com.hanxi.ghosterm.bridge.FileDescriptorFlags
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -482,6 +483,45 @@ class RemoteFilesTest {
         catch(cancelled: CancellationException) { throw cancelled }
         catch(failure: Exception) { throw AssertionError("creation outcome must reach caller",failure) }
 
+    @Test fun pausedReceiveKeepsDescriptorAndExcludesPausedTimeFromBudget() = directory { root -> runBlocking {
+        RemoteFileSession(connection(known(root))).use { files ->
+            supply(files)
+            val paused=java.util.concurrent.atomic.AtomicBoolean()
+            val control=RemoteTransferControl { paused.set(it) }.apply { requestPause(true) }
+            val destination=File(root,"paused-receive")
+            ParcelFileDescriptor.open(destination,ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_READ_WRITE).use { fd ->
+                val result=async(Dispatchers.IO) { runCatching { files.receive(fixture.getString("remoteRoot")+"/文本.txt",fd.fd,4096,300,control) } }
+                withTimeout(5000) { while(!paused.get() && !result.isCompleted) delay(10) }
+                assertTrue("receive owner acknowledges pause before IO completes",paused.get())
+                delay(450)
+                assertEquals(0L,destination.length());assertFalse(result.isCompleted)
+                control.requestPause(false)
+                val received=withTimeout(5000) { result.await() }
+                assertTrue("receive resumes with active-time budget: ${received.exceptionOrNull()}",received.isSuccess)
+                assertTrue(received.getOrThrow()>0)
+                assertEquals("远端 UTF-8\nline two\n",destination.readText())
+            }
+        }
+    } }
+    @Test fun pausedCreateCanResumeWithTheSameSourceAndNoDuplicatePublication() = directory { root -> runBlocking {
+        val bytes=ByteArray(70001) { (it*7).toByte() }
+        val source=File(root,"paused-create").apply { writeBytes(bytes) }
+        val path=fixture.getString("remoteRoot")+"-paused-"+UUID.randomUUID()
+        RemoteFileSession(connection(known(root))).use { files ->
+            supply(files)
+            val paused=java.util.concurrent.atomic.AtomicBoolean()
+            val control=RemoteTransferControl { paused.set(it) }.apply { requestPause(true) }
+            ParcelFileDescriptor.open(source,ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                val result=async(Dispatchers.IO) { files.createExclusive(path,fd.fd,bytes.size.toLong(),500,control) }
+                withTimeout(5000) { while(!paused.get()) delay(10) }
+                delay(650)
+                assertFalse(result.isCompleted)
+                control.requestPause(false)
+                assertEquals(RemoteCreationState.COMPLETE,withTimeout(5000) { result.await() }.state)
+                assertArrayEquals(bytes,files.preview(path))
+            }
+        }
+    } }
     @Test fun exclusiveCreatePreservesContentOffsetAndExistingTarget() = directory { root ->
         val path=fixture.getString("remoteRoot")+"-created-"+UUID.randomUUID()
         val content=ByteArray(100003) { (it*31+7).toByte() }
