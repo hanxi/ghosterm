@@ -4,8 +4,7 @@
 
 ## 为什么是 MIT
 
-仓库自己的代码（`core/`、各端宿主、`terminal/`、脚本、文档）依赖的组件都在
-宽松许可侧，MIT 分发无冲突、义务最轻（只需保留版权与许可声明）：
+共享核心与终端引擎的代码依赖主要为宽松许可组件；仓库自身的 MIT 许可不替代各组件许可：
 
 | 组件 | 许可 | 用途 |
 |---|---|---|
@@ -15,6 +14,12 @@
 
 随包分发这些组件时，把各自许可与版权声明亮给用户（App 内「关于」窗口 +
 运行时包内 `LICENSE`）即满足义务；**不需要**随包附源码归档。
+
+## Android 终端符号字体
+
+Android 内置未修改的 **Symbols Nerd Font Mono 3.5.1**，用于 Nerd Fonts 图标回退；普通文字仍走系统等宽字体。上游发行地址、归档及字体 SHA256 记录在 `terminal/android/NERD-FONTS.json`。它不是 Termux 环境包，不需要额外下载才能显示图标。
+
+Nerd Fonts 工具本身为 MIT；字体合并的图标集还包含 CC BY 4.0、Apache 2.0、OFL 等各自许可，不能统一称为 MIT。原始发行 README 的图标来源、版本、许可表与版权说明，以及上游 glyph 目录提供的许可证，随包合并为 `licenses/NerdFontsSymbols.txt`，由 Android「关于 → Nerd Fonts · 字体与图标许可」展示。保留原始 TTF，不做删字、改名或重新绘制；上游 README 对 Font Logos 的 `unlicensed` 标注也按原文保留，不改写其许可状态。
 
 ## GPL 组件的红线（iSH / Termux，均未随包）
 

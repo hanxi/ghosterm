@@ -1,6 +1,6 @@
 # Android 最终方案实现计划
 
-**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](android-implementation.md#android-kitty)，不扩大为整个 A2 完成。
+**当前工作区（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](android-implementation.md#android-kitty)，不扩大为整个 A2 完成。Nerd Fonts 符号回退的设备范围见[字体记录](#android-nerd-fonts)。
 
 **上一已验包（2026-11-01，`a70a0d0`，保留原专项证据）**：SAF 文本/原始暂存完成边界与缩小约 15% 的正式图标已进入签名 release，APK **6,154,369 字节（约 5.87 MiB）**。[Android Release](https://github.com/hanxi/ghosterm/releases/tag/dev) / [直接下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)，云端 [CI 41293452143](https://github.com/hanxi/ghosterm/actions/runs/41293452143) 成功；源码/clean、摘要、固定证书、实际 R8/资源优化、三份压缩 arm64 SO 和 ELF/ZIP 16 KB 对齐已核验，上传后再次下载核对。实际同包 16 KB 页升级、十一旧文件保留、外观保存/重启、关于源码、两条系统键盘 ASCII 命令及跨 UID 外部只读打开专项通过。SAF 最终 API 29 / API 36 各 64 项与十五组新变异、23 组暂存变异通过；主工程首次完整 626 项在 1,800 秒总时限处终止（563 项成功结束、未见失败事件），未计完整通过，最近完整通过的 609 项只属于旧 `ab2f008`，不借作新包的完整证据。预览清理入口仍在隔离验证；最终按用户要求共用 dev Release，固定渠道文件名和平台间保留校验正在主工程验收；整个 Android 目标、设备与输入法矩阵尚未完成。
 
@@ -3002,3 +3002,22 @@ macOS 核对 `ConfigStore`、`SettingsStore`、`TransferManager`、`AppModel.sta
 **云端发行已验证**：代码提交 `d49c7bb38ac145ecaff2da06a24cc7a225111a00` 的 [Android release CI 41306314367](https://github.com/hanxi/ghosterm/actions/runs/41306314367) 成功，实际日志包含 R8 任务和 release 产物校验；共用 [dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev) 的 [Ghosterm-android-arm64-dev.apk](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **6,198,265 字节**，SHA256 `8b7c834b86d3dc444fe2c328e776439c92676f180e99156ded448670c31e41be`。实际下载后，APK 内 `d49c7bb / clean`、外部 Android 构建清单/摘要和字节完全一致，固定证书、非 debuggable、minSdk 29、三份压缩 arm64 SO、ZIP/ELF 16 KB 对齐均核验。记录 `tmp/a4-kitty-cloud/inspection/result.json`；云端 R8 证据来自实际 CI 日志，不借本地 mapping 文件当云端产物。
 
 同一份云端 APK 已在 API 36 / arm64 / 16 KB 页模拟器覆盖升级上述本地签名包，安装摘要与下载文件一致；一份旧文件经生产预览保留，系统键盘输入 Kitty 指令后，实际屏幕分别出现 11,508 个纯红/纯绿像素，再删除图像后两色消失；输入法组件未改变。证据 `tmp/a4-kitty-cloud/smoke16k/result.json` 和 XML/PNG。没有对 release 注入 instrumentation。Android 发布保持共用 Release ID `430482454`，仅替换三个 Android 附件，macOS DMG/ZIP 的发布前后资产 ID 不变；八个附件名称符合当前 dev 命名，无旧 APK 名称。这些是本片图形/动画发行证据，仍不替代完整设备/输入/功耗矩阵或整个 Android 客户端验收。
+
+
+### 9.101 Android 图标继续缩小（2026-11-01，d2882af）
+
+按用户反馈把 adaptive 前景内容由 56dp 调为 48dp（再缩小约 14%），legacy 标记由母版的 85% 调为 73%；背景、图形母版与其他平台产物保持原字节。所有 Android 派生产物和摘要均由 `scripts/build-icons.sh` 生成；图标九项基线/变异/独立对照/复原检查通过。普通与圆形图标同步更新。安装图标测试的眼睛取样点随 48dp 几何调整，后续字体组合专项已实际复验，未移除图形断言。
+
+[Android CI 41311487952](https://github.com/hanxi/ghosterm/actions/runs/41311487952) 与 [macOS CI 41311487894](https://github.com/hanxi/ghosterm/actions/runs/41311487894) 成功。共用 dev 的实际 Android APK 为 6,203,357 字节，SHA256 `7494bbf6b5cf24ab292b65131e5fcfc1f1e9fa6e1f0bdda794daabb4aa5bfdc3`；下载后核对 clean/提交、固定证书、非 debuggable/minSdk 29、三份压缩 arm64 库、ELF/ZIP 16 KB 对齐通过。实际 API 36 / 16 KB 页设备保留数据覆盖安装、冷启动通过；未把该启动专项称为完整设备验收。证据 `tmp/android-icon-evidence/`。
+
+<a id="android-nerd-fonts"></a>
+
+### 9.102 Android Nerd Fonts 符号字体（2026-11-01）
+
+用户实测提示符图标缺字。旧 Canvas 只有 `Typeface.MONOSPACE`，没有 Nerd Fonts 字形；现内置上游未修改的 **Symbols Nerd Font Mono 3.5.1**，使用 API 29 的自定义字体回退链，并继续以系统等宽字体处理普通文字、中文与 Emoji。网格宽度、行高与基线仍按原系统等宽字体计算；粗体/斜体继续由现有 Paint 样式处理。终端不感知本地/SSH 类型，二者自动获得相同符号支持；不需要远端安装字体，不新增字体选择偏好。
+
+字体完整包含上游 10,624 个映射字形，不做小范围裁字；字体 TTF 2,610,012 字节，实际 debug APK 中以 ZIP 压缩存储为 1,611,835 字节。发行包最终增量由 CI 下载包另验。来源、版本与字体/归档 SHA256 记录在 `terminal/android/NERD-FONTS.json`。上游发行 README、许可和 glyph 目录的各项声明随包保留，「关于」增加字体与图标许可入口；不把所有图标集统一标成 MIT。
+
+API 29 arm64 / 4 KB 页与 API 36 arm64 / 4 KB 页各 **15 项组合专项通过，零失败**（10.131 秒、24.066 秒），包含字体两项、既有终端偏好十一项、正式图标与关于页各一项。八类真实字形样本覆盖 Powerline/Seti/Devicons/Codicons/Font Awesome/Linux/Octicons/Material Design（含补充私用区），另验证 ASCII 字宽、中文和 Emoji。真实 PTY 输出经 VT 到生产 Canvas，检查单元宽度、后续字母位置、可见且互不相同的图标像素；关于页逐份读取实际许可证并重建 Activity。837 份非 Markdown 输入集合与 SHA256 在两轮前后不变。
+
+初轮 14 项有一项失败：直接把补充私用区字符放进 shell 命令行时被系统行编辑器改写，VT 得到的是后续 X；该轮不计通过。夹具改以八进制转义输出原始 UTF-8 字节后，保留补充区及所有像素/宽度断言，两设备最终组合通过。证据 `tmp/android-font-evidence/`、`tmp/a7-primary-evidence/phase-1793540668016162000/` 与 `phase-1793540695533718000/`。新增字体变异一组已通过：退回系统等宽字体后对应字形断言红、同 APK Core 配置对照绿、复原后目标绿，837 份输入集合与 SHA256 不变（`phase-1793540727130923000/`）。云端发行另记结果；不替代 A2 完整输入法、真机/性能或完整客户端验收。

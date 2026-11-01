@@ -38,3 +38,9 @@ Android SSH 后端已在[§9.25](../../docs/reference/android-implementation.md#
 SAF 私钥导入生命周期已按[§9.29](../../docs/reference/android-implementation.md#929-saf-私钥导入生命周期2026-10-30)完成五项定向、七组变异及完整 135 项设备回归；历史选择器导航与 Activity 重建等待失败保留在 §9.28–§9.29。终端输出接缝未改变，仍须补其他设备、性能与 A3 剩余产品验收。
 
 Kitty 图形及动画已接入同一 Surface：RGB/RGBA、系统 PNG、压缩分块、Unicode 占位图、z 层与透明合成，a=f/a=a/a=c 帧操作及无新输出的定时播放。字节仍直接喂 VT，owner 创建位图并按 generation 缓存，View 只绘制快照；隐藏停止动画 tick。Android 专用补丁 0003–0005 暴露上游时钟/虚拟定位并限制资源；原 pin 与 Apple full 引擎不变，构建收据另核对 kitty_graphics.h。当前设备、变异和发行边界以[Kitty 验收记录](../../docs/reference/android-implementation.md#android-kitty)为准；不把专项通过记成整个 A2 完成。
+
+## Nerd Fonts 符号回退
+
+`TerminalFonts` 内置 Symbols Nerd Font Mono 3.5.1，并使用 API 29 的 `Typeface.CustomFallbackBuilder` 回退到系统 `monospace`。普通文字、中文和 Emoji 保留系统回退；网格宽度和基线继续按系统等宽字体计算，Canvas 的粗体/斜体样式与 VT 单元宽度不变。本地和 SSH 共用同一个 TerminalView，无需在远端安装字体。
+
+字体为上游未修改的完整符号文件；版本、来源、SHA256 见 `NERD-FONTS.json`，关于页展示字体及图标集许可。真实设备字体覆盖、PTY→VT→Canvas 像素与恢复验证由 `NerdFontTest`、`scripts/mutation-check-android-fonts.py` 执行；具体已验范围见 [Android 实现计划](../../docs/reference/android-implementation.md#android-nerd-fonts)。

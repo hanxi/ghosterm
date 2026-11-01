@@ -30,7 +30,8 @@ class AboutProductTest {
         ui.onNodeWithText("Core ${runtime.core}").assertIsDisplayed()
         ui.onNodeWithText("libghostty-vt ${runtime.terminal}").assertIsDisplayed()
         val documents = mapOf(AboutLicense.GHOSTERM to "Ghosterm-MIT.txt", AboutLicense.GHOSTTY to "Ghostty-MIT.txt",
-            AboutLicense.LIBSSH2 to "libssh2-1.11.1.txt", AboutLicense.OPENSSL to "openssl-3.5.4.txt")
+            AboutLicense.LIBSSH2 to "libssh2-1.11.1.txt", AboutLicense.OPENSSL to "openssl-3.5.4.txt",
+            AboutLicense.NERD_FONTS to "NerdFontsSymbols.txt")
         AboutLicense.entries.forEach { license ->
             val tag = "about-license-${license.name}"
             ui.onNodeWithTag(tag).performScrollTo().assertHasClickAction().performClick()

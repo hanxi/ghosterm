@@ -1,0 +1,8 @@
+{
+  "version": "3.5.1",
+  "source": "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/NerdFontsSymbolsOnly.tar.xz",
+  "archive_sha256": "01172f37db8543edb102e5cb5c64101c9f4686630804d49b419aa07b23a69996",
+  "file": "nerd_symbols_mono.ttf",
+  "sha256": "fe471e538392f51910faab985fa8e192a39dd3426125edd15b71b3680df0e749",
+  "unmodified": true
+}

@@ -115,7 +115,9 @@ class TerminalView(context: Context) : View(context) {
     private val clipboard get() = context.getSystemService(ClipboardManager::class.java)
     private val handleRadius get() = 10f * resources.displayMetrics.density
     private val inputMethod get() = context.getSystemService(InputMethodManager::class.java)
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.MONOSPACE }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = TerminalFonts.typeface(context) }
+    // Symbol fallback must not change the text grid or the baseline of regular text.
+    private val metricsPaint = Paint().apply { typeface = Typeface.MONOSPACE }
     private val fill = Paint()
     private var cellWidth = 1
     private var cellHeight = 1
@@ -186,9 +188,10 @@ class TerminalView(context: Context) : View(context) {
         style = value
         if (changedMetrics) {
             paint.textSize = pixels
-            cellWidth = ceil(paint.measureText("M")).toInt().coerceAtLeast(1)
+            metricsPaint.textSize = pixels
+            cellWidth = ceil(metricsPaint.measureText("M")).toInt().coerceAtLeast(1)
             cellHeight = ceil(paint.textSize * value.lineHeight).toInt().coerceAtLeast(1)
-            baseline = (cellHeight - (paint.fontMetrics.descent - paint.fontMetrics.ascent)) / 2 - paint.fontMetrics.ascent
+            baseline = (cellHeight - (metricsPaint.fontMetrics.descent - metricsPaint.fontMetrics.ascent)) / 2 - metricsPaint.fontMetrics.ascent
             metricsReady = true
             lastSize = null; updateSize()
         }

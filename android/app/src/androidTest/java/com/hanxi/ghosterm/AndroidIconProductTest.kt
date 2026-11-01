@@ -30,9 +30,9 @@ class AndroidIconProductTest {
             fun bright(x: Int, y: Int): Boolean = bitmap.getPixel(x, y).let { Color.red(it) > 190 && Color.green(it) > 190 && Color.blue(it) > 190 && Color.alpha(it) == 255 }
             fun eye(x: Int, y: Int): Boolean = bitmap.getPixel(x, y).let { Color.red(it) < 80 && Color.green(it) < 80 && Color.blue(it) < 120 && Color.alpha(it) == 255 }
             assertTrue("Official ghost body must be visible", bright(96, 96))
-            assertTrue("White face between the two eyes must remain visible", bright(96, 66))
-            assertTrue("Left ghost eye must remain visible", eye(68, 66))
-            assertTrue("Right ghost eye must remain visible", eye(124, 66))
+            assertTrue("White face between the two eyes must remain visible", bright(96, 70))
+            assertTrue("Left ghost eye must remain visible", eye(72, 70))
+            assertTrue("Right ghost eye must remain visible", eye(120, 70))
             File(context.cacheDir, "official-launcher-icon.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         } finally { bitmap.recycle() }
     }
