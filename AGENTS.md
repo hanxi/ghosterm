@@ -380,6 +380,12 @@ flush 一次 wtail，当尾队列的泵。契约见 `transport.h`：「输入不
 字节）。变异 T1~T8 有牙，T8 另护输入法提交的控制字符原样到达 transport，避免吞掉 tmux 前缀。）
 `terminal-keyboard` 以 `python3 scripts/mutation-check-terminal-keyboard.py` 手工执行一组隔离变异，护 AppKit 功能键占位符不得作为可输入文本；真实 NSEvent 经 full libghostty 验普通、应用光标及 Kitty 六种 flags，共 90 个功能键场景。编译后目标断言红、同变异中文提交对照绿、恢复绿与 SHA256；终端测试纳入既有 terminal gate，变异不增加 CI 20 份。真实 SSH/Codex 输入框验证范围见 `docs/reference/optional-tmux-implementation.md` 的功能键编码记录。
 
+`kitty-macos` 以 `python3 scripts/test-kitty-macos.py` 手工验证八项协议/像素检查：
+查询、分块 PNG、实际图像像素、删除、损坏 PNG 拒绝、动画帧接收/切换与自动播放。
+隔离生产 TerminalSurface 丢弃图形序列后须重新编译，八项目标红、同变异文本入网格
+对照绿、恢复编译后绿与 SHA256。仅原生窗口/full libghostty 证据，不代表完整 App、
+PTY、SSH/tmux 或全协议验收，不增加 CI 20 份；用法见 `terminal/apple/README.md`。
+
 `shell-mouse-recovery` 以 `python3 scripts/test-shell-mouse-recovery.py --mutate --codex --ssh`
 手工验证：真实 full libghostty / PTY / tmux 复现窗格内程序异常退出后的鼠标模式残留，
 Bash/Zsh 提示符集成自动清理，重连与新 surface 不再产生序列文本输入，正常 TUI 仍实际

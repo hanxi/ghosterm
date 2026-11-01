@@ -74,3 +74,18 @@ libghostty 的 Metal 渲染器要求 surface 的 NSView 是 **layer-hosting**：
 - [ ] macOS 终端剪贴板收尾：`TerminalHostView.copy:` / `paste:` 已连接真实选区、`NSPasteboard` 和模式感知粘贴；专用测试覆盖显式 firstResponder 目标的菜单快捷键。shim 读取回调仍返回不可用，写入/确认回调为空，当前菜单粘贴也无确认。须补全局菜单自动路由、引擎发起的复制粘贴、选中自动复制及确认/取消；本轮文档复核未重跑专用测试/四组变异。详见[路线图](../../docs/reference/roadmap.md#macos-下一步与共享缺口)。
 - [ ] iOS full libghostty 构建与 UIKit 宿主：当前 SwiftPM 依赖 AppKit，不能只加一个 `xcframework_target` 就交付 iOS。
 - [x] 自进程视图像素验证：`PixelRenderTests` 与 `mutation-check-pixel.sh` 已覆盖背景/前景颜色及对照，不需要屏幕录制权限；真实系统激活/全屏另见标签界面计划的桌面证据。
+
+### Kitty 图形手工验证
+
+先构建 `scripts/build-ghostty.sh`，再运行 `python3 scripts/test-kitty-macos.py`。
+脚本核对引擎 pin、补丁和 archive 收据，在隔离副本编译生产 TerminalSurface，
+用离屏原生窗口抓取 Metal 像素：验证协议查询、分块 PNG 显示、删除、损坏 PNG
+拒绝、动画帧接收/切换及自动播放，共八项；普通文本入网格是独立对照。
+随后在隔离副本中故意丢弃 Kitty 图形序列，重新编译，要求八项变红而文本对照仍绿，
+恢复后重新编译复验，并核对源码 SHA256。日志、截图和引擎收据位于 `tmp/kitty-macos-*`。
+
+范围仅为 macOS TerminalSurface + full libghostty 的原生窗口与协议回包，
+不代表完整 App、PTY、SSH/tmux 链路或 Kitty 协议全规范验收；不增加 CI 20 份覆盖。
+
+2026-11-01：macOS 26.6.2 / arm64、引擎 `81598385d608` 实测上述八项基线、
+隔离变异及恢复全部符合预期；原生构建通过。
