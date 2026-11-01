@@ -190,6 +190,7 @@ class IdentitySettingsTest {
             known.delete(); config.parentFile!!.mkdirs()
             config.writeText("Host identity-settings\n HostName 127.0.0.1\n Port ${fixture.getInt("port")}\n User ${fixture.getString("user")}\n")
             main { hosts.reload() }; await { !hosts.busy }
+            ui.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("identity-settings"))
             ui.onNodeWithText("identity-settings").performClick(); await { sessions.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY }
             ui.onNodeWithText("信任并连接").performClick(); await { sessions.connecting?.identities?.any { it.id==identity.id }==true }
             ui.onNodeWithTag("ssh-key-${identity.id}").performScrollTo().performClick()
@@ -198,7 +199,8 @@ class IdentitySettingsTest {
             val connected=main { sessions.active!! }
             main { sessions.home() }; settings()
             row(identity.id).performScrollTo().performClick(); await { !model.busy }
-            ui.onNodeWithText("移除此身份").performScrollTo().performClick(); ui.onNodeWithText("确认移除").performClick()
+            ui.onNodeWithTag("identities-screen").performScrollToNode(hasText("移除此身份"))
+            ui.onNodeWithText("移除此身份").performClick(); ui.onNodeWithText("确认移除").performClick()
             await { !model.busy && model.selected==null }
             assertSame(connected,main { sessions.active }); assertTrue(main { connected.state.connected })
             assertEquals(0,provider("status").getInt("writes"))
@@ -211,6 +213,7 @@ class IdentitySettingsTest {
     }
     private fun click(vararg labels: String): Boolean {
         for(match in nodes().filter { it.isVisibleToUser && (it.text?.toString() in labels || it.contentDescription?.toString() in labels) }) {
+            when(tapLegacyDocumentRow(instrumentation,match)) { true -> return true; false -> continue; null -> Unit }
             var node: AccessibilityNodeInfo?=match
             while(node!=null) { if(node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK))return true; node=node.parent }
         }
@@ -237,7 +240,7 @@ class IdentitySettingsTest {
                 if(row != null) {
                     var target: AccessibilityNodeInfo? = row
                     while(target != null && !target.isClickable) target = target.parent
-                    target?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if(target?.performAction(AccessibilityNodeInfo.ACTION_CLICK)!=true) tapLegacyDocumentRow(instrumentation,row)
                 } else roots.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
                 false
             } else if(click("$id.pem")) true else {
@@ -251,6 +254,9 @@ class IdentitySettingsTest {
         // A null/transient tree during rotation is not a completed picker result.
         systemAwait {
             val tree = nodes()
+            // Android 10 may select a document and require an explicit SELECT.
+            if(tree.any { it.isVisibleToUser && it.packageName?.toString()?.contains("documentsui")==true })
+                click("SELECT","Select","选择")
             tree.any { it.isVisibleToUser && it.packageName?.toString() == "com.hanxi.ghosterm" } &&
                 tree.none { it.packageName?.toString()?.contains("documentsui") == true }
         }

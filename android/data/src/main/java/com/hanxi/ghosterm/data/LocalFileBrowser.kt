@@ -1,5 +1,6 @@
 package com.hanxi.ghosterm.data
 
+import com.hanxi.ghosterm.bridge.FileDescriptorFlags
 import android.content.res.AssetFileDescriptor
 import android.os.ParcelFileDescriptor
 import android.content.ContentResolver
@@ -128,8 +129,8 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
     private fun read(fd: FileDescriptor, length: Long, active: () -> Boolean): String {
         check(length<=PREVIEW_LIMIT) { "只读预览最多支持 256 KiB 文本" }
         val data=ByteArray(PREVIEW_LIMIT+1)
-        val flags=Os.fcntlInt(fd,OsConstants.F_GETFL,0)
-        Os.fcntlInt(fd,OsConstants.F_SETFL,flags or OsConstants.O_NONBLOCK)
+        val flags=FileDescriptorFlags.status(fd)
+        FileDescriptorFlags.status(fd,flags or OsConstants.O_NONBLOCK)
         try {
             var used=0;val cap=if(length>=0) minOf(length, data.size.toLong()).toInt() else data.size
             val poll=StructPollfd().apply { this.fd=fd;events=OsConstants.POLLIN.toShort() }
@@ -146,7 +147,7 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
             check((0 until used).none { data[it]==0.toByte() }) { "此文件不是可预览的 UTF-8 文本" }
             return try { Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(data,0,used)).toString() }
             catch (_: java.nio.charset.CharacterCodingException) { error("此文件不是可预览的 UTF-8 文本") }
-        } finally { data.fill(0);Os.fcntlInt(fd,OsConstants.F_SETFL,flags) }
+        } finally { data.fill(0);FileDescriptorFlags.status(fd,flags) }
     }
     /** Freeze a selected local/SAF source into an anonymous task-owned snapshot.
      * No destination is opened and no remote/browser connection is borrowed. */

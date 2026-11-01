@@ -1,5 +1,6 @@
 package com.hanxi.ghosterm.data
 
+import com.hanxi.ghosterm.bridge.FileDescriptorFlags
 import android.content.ContentResolver
 import android.database.Cursor
 import android.net.Uri
@@ -263,9 +264,9 @@ class SafFilePublisher(private val resolver: ContentResolver,
     private data class Info(val name: String, val mime: String, val flags: Int, val size: Long?, val modified: Long?)
     private fun file(info: Info) { check(info.mime != Document.MIME_TYPE_DIR && info.flags and Document.FLAG_VIRTUAL_DOCUMENT == 0) { "目标不是普通文档" } }
     private suspend fun <T> nonblocking(fd: FileDescriptor, block: suspend () -> T): T {
-        val flags = Os.fcntlInt(fd, OsConstants.F_GETFL, 0)
-        Os.fcntlInt(fd, OsConstants.F_SETFL, flags or OsConstants.O_NONBLOCK)
-        try { return block() } finally { Os.fcntlInt(fd, OsConstants.F_SETFL, flags) }
+        val flags = FileDescriptorFlags.status(fd)
+        FileDescriptorFlags.status(fd,flags or OsConstants.O_NONBLOCK)
+        try { return block() } finally { FileDescriptorFlags.status(fd,flags) }
     }
     private fun ready(fd: FileDescriptor, events: Int): Boolean =
         Os.poll(arrayOf(StructPollfd().apply { this.fd = fd;this.events = events.toShort() }), 100) != 0

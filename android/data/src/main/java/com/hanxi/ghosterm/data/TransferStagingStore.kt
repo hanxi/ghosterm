@@ -1,5 +1,6 @@
 package com.hanxi.ghosterm.data
 
+import com.hanxi.ghosterm.bridge.FileDescriptorFlags
 import android.content.res.AssetFileDescriptor
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
@@ -108,8 +109,8 @@ class TransferStagingStore(private val directory: File,
                     check(OsConstants.S_ISREG(before.st_mode) || OsConstants.S_ISFIFO(before.st_mode)) { "不支持暂存此文件类型" }
                     if(OsConstants.S_ISREG(before.st_mode)) Os.lseek(source,asset.startOffset,OsConstants.SEEK_SET)
                     else check(asset.startOffset==0L) { "管道文档不能带文件偏移" }
-                    val flags = Os.fcntlInt(source,OsConstants.F_GETFL,0)
-                    Os.fcntlInt(source,OsConstants.F_SETFL,flags or OsConstants.O_NONBLOCK)
+                    val flags = FileDescriptorFlags.status(source)
+                    FileDescriptorFlags.status(source,flags or OsConstants.O_NONBLOCK)
                     val poll = StructPollfd().apply { this.fd=source;events=OsConstants.POLLIN.toShort() }
                     val buffer = ByteArray(32 * 1024)
                     try {
@@ -146,7 +147,7 @@ class TransferStagingStore(private val directory: File,
                         if(OsConstants.S_ISREG(before.st_mode)) check(before.st_size==after.st_size &&
                             before.st_mtim.tv_sec==after.st_mtim.tv_sec && before.st_mtim.tv_nsec==after.st_mtim.tv_nsec &&
                             before.st_ctim.tv_sec==after.st_ctim.tv_sec && before.st_ctim.tv_nsec==after.st_ctim.tv_nsec) { "读取时源文件发生变化" }
-                    } finally { buffer.fill(0);Os.fcntlInt(source,OsConstants.F_SETFL,flags) }
+                    } finally { buffer.fill(0);FileDescriptorFlags.status(source,flags) }
                 }
             }
             // Reopen the anonymous inode read-only; a dup of O_RDWR would allow mutation.

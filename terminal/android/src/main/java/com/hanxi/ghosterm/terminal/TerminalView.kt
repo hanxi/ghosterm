@@ -589,13 +589,17 @@ class TerminalView(context: Context) : View(context) {
             if (!valid) return false
             // Gboard may commit a single LF for Enter instead of sending a key
             // event. Preserve terminal Enter semantics without rewriting text blocks.
-            val sent = if (text.toString() == "\n") sendKey(KeyEvent.KEYCODE_ENTER)
+            val sent = if (text.toString() == "\n") finishComposingText() && sendKey(KeyEvent.KEYCODE_ENTER)
                 else this@TerminalView.commitText(text.toString())
             if (!sent) return false
             pending.clear(); Selection.setSelection(pending, 0); changed(); return true
         }
         override fun finishComposingText(): Boolean {
             if (!valid) return false
+            // IMEs may accept a word by ending composition rather than calling
+            // commitText. Finishing preserves text; cancelling/closing discards it.
+            val accepted = pending.toString()
+            if (accepted.isNotEmpty() && !this@TerminalView.commitText(accepted)) return false
             super.finishComposingText(); pending.clear(); Selection.setSelection(pending, 0); changed(); return true
         }
         override fun closeConnection() { cancel(); super.closeConnection() }
@@ -622,10 +626,11 @@ class TerminalView(context: Context) : View(context) {
         }
         override fun sendKeyEvent(event: KeyEvent): Boolean {
             if (!valid) return false
+            if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER && !finishComposingText()) return false
             return if (event.action == KeyEvent.ACTION_DOWN) onKeyDown(event.keyCode, event)
                 else if (event.action == KeyEvent.ACTION_UP) onKeyUp(event.keyCode, event) else false
         }
-        override fun performEditorAction(action: Int): Boolean = valid && sendKey(KeyEvent.KEYCODE_ENTER)
+        override fun performEditorAction(action: Int): Boolean = valid && finishComposingText() && sendKey(KeyEvent.KEYCODE_ENTER)
         override fun requestCursorUpdates(mode: Int): Boolean {
             if (!valid) return false
             cursorUpdates = mode and CURSOR_UPDATE_MONITOR != 0

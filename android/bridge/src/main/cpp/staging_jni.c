@@ -7,6 +7,39 @@
 #include <errno.h>
 #include <stdio.h>
 
+/* android.system.Os.fcntlInt is public only from API 30. Keep the API 29
+ * adapter here with the other platform filesystem controls. Java owns and
+ * pins the passed descriptor; no Core handles or file bytes cross this seam. */
+static void descriptor_error(JNIEnv *env, const char *operation, int error) {
+    jclass type=(*env)->FindClass(env,"android/system/ErrnoException");
+    if(!type)return;
+    jmethodID constructor=(*env)->GetMethodID(env,type,"<init>","(Ljava/lang/String;I)V");
+    if(!constructor)return;
+    jstring name=(*env)->NewStringUTF(env,operation);
+    if(!name)return;
+    jobject failure=(*env)->NewObject(env,type,constructor,name,(jint)error);
+    if(failure)(*env)->Throw(env,(jthrowable)failure);
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_FileDescriptorFlags_getStatus(
+    JNIEnv *env, jobject self, jint fd) {
+    (void)self;
+    int result=fcntl(fd,F_GETFL);
+    if(result<0)descriptor_error(env,"fcntl(F_GETFL)",errno);
+    return result;
+}
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_FileDescriptorFlags_setStatus(
+    JNIEnv *env, jobject self, jint fd, jint flags) {
+    (void)self;
+    if(fcntl(fd,F_SETFL,flags)<0)descriptor_error(env,"fcntl(F_SETFL)",errno);
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_FileDescriptorFlags_getDescriptor(
+    JNIEnv *env, jobject self, jint fd) {
+    (void)self;
+    int result=fcntl(fd,F_GETFD);
+    if(result<0)descriptor_error(env,"fcntl(F_GETFD)",errno);
+    return result;
+}
+
 /* Android-only filesystem adapter; no Core handles or data bytes cross JNI.
  * O_TMPFILE avoids a crash window with a named temporary file. O_EXCL forbids
  * later linking this inode into the user's filesystem. */

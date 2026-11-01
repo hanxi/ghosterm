@@ -46,6 +46,8 @@ jobs:
           subprocess.run([manager,'--licenses'],input='y\n'*100,text=True,check=True)
           subprocess.run([manager,'platform-tools','platforms;android-36','build-tools;35.0.0','ndk;28.2.13676358','cmake;3.22.1'],check=True)
           PY
+      - name: Check Android platform APIs
+        run: bash scripts/check-android-api.sh
       - name: Restore release signing key
         if: github.event_name != 'pull_request'
         env:

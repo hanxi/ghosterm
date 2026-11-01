@@ -1,6 +1,8 @@
 # Android 宿主
 
-**最新验收（§9.77，2026-11-01）**：文件任务已显示当前文件的读取/写入/核验、实际字节、本阶段平均速度与保守的阶段剩余时间。25 组新增变异与 114 组相关旧变异分轮通过；新完整 **491 项通过，零失败/错误/跳过**（1250.863 秒），746 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；整体剩余时间、暂停/重试、完整偏好和发行矩阵仍待完成，A6 保持部分交付。同源码云端签名 release 为 5,903,009 字节，16 KB 页启动/升级与 28 字节复制专项已验（§9.78），不代表完整发行矩阵。
+**当前验收（§9.79，2026-11-01，云端发行待验证）**：API 29 文件访问的高版本 API 崩溃已修复，组合接受和单 LF 回车顺序已修正；相关新增/既有变异分轮通过。新完整 **498 项通过，零失败/错误/跳过**（1350.909 秒），实际具名开始/结束与 498 项默认发现集合一致；753 份非 Markdown 输入集合/SHA256 不变，两份已安装 APK 与构建摘要匹配。完整套件只覆盖 API 36 arm64 / 4 KB 页模拟器；API 29 的 86 项文件/导入专项另行通过，raw 终端、旧版 Gboard 坐标同步、真实设备和完整发行矩阵仍未完成。新的本地签名 release 已构建并验包：5,904,217 字节，固定证书、非 debuggable/minSdk 29/仅 arm64、三份压缩 native 库、ELF/ZIP 16 KB 对齐均通过；API 29 已验实际预览、27 字节复制和来源保留，但测试输入仍复现 Gboard 错误。最新云端包仍为 §9.78 的 ab7c53f。
+
+**前次已发行验收（§9.77，2026-11-01）**：文件任务已显示当前文件的读取/写入/核验、实际字节、本阶段平均速度与保守的阶段剩余时间。25 组新增变异与 114 组相关旧变异分轮通过；新完整 **491 项通过，零失败/错误/跳过**（1250.863 秒），746 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；整体剩余时间、暂停/重试、完整偏好和发行矩阵仍待完成，A6 保持部分交付。同源码云端签名 release 为 5,903,009 字节，16 KB 页启动/升级与 28 字节复制专项已验（§9.78），不代表完整发行矩阵。
 
 **历史验收（§9.75，2026-11-01）**：开启通知后当前任务不补发的问题已修复；两组新增变异、七组通知相关旧变异及五个系统场景通过。新完整 **483 项通过，零失败/错误/跳过**（1143.045 秒），742 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；同一云端签名 release 已验升级、通知恢复/跳转/取消及 28 字节复制预览；A6 其他能力和完整发行矩阵仍待完成。
 
@@ -236,6 +238,12 @@ python3 scripts/mutation-check-android-terminal.py
 # A2 文本与按键切片验证，各轮完整/选组范围见 §9.14–§9.18
 python3 scripts/mutation-check-android-text.py
 python3 scripts/mutation-check-android-vt-libc.py
+# API 29 fd 控制；IME finish 的 raw PTY 证明目前使用 API 36 / 4 KB 页设备
+python3 scripts/mutation-check-android-fd-flags.py
+python3 scripts/mutation-check-android-ime-finish.py
+# 四模块 release lint；对应变异不需要模拟器
+bash scripts/check-android-api.sh
+python3 scripts/mutation-check-android-api.py
 bash scripts/gate.sh
 ```
 

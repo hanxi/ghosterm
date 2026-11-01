@@ -1,5 +1,6 @@
 package com.hanxi.ghosterm.data
 
+import com.hanxi.ghosterm.bridge.FileDescriptorFlags
 import android.content.ContentResolver
 import android.net.Uri
 import android.os.CancellationSignal
@@ -35,8 +36,8 @@ object IdentityDocumentReader {
                 val count = checkNotNull(resolver.openAssetFileDescriptor(uri,"r",signal)) { "无法读取所选密钥" }.use { asset ->
                     asset.createInputStream().use { input ->
                         val fd = input.fd
-                        val flags = Os.fcntlInt(fd,OsConstants.F_GETFL,0)
-                        Os.fcntlInt(fd,OsConstants.F_SETFL,flags or OsConstants.O_NONBLOCK)
+                        val flags = FileDescriptorFlags.status(fd)
+                        FileDescriptorFlags.status(fd,flags or OsConstants.O_NONBLOCK)
                         try {
                             val poll = StructPollfd().apply { this.fd = fd; events = OsConstants.POLLIN.toShort() }
                             val limit = if (asset.declaredLength >= 0) minOf(buffer.size.toLong(),asset.declaredLength).toInt() else buffer.size
@@ -54,7 +55,7 @@ object IdentityDocumentReader {
                             }
                             check(used in 1..1024*1024) { "密钥必须为 1 字节至 1 MiB" }
                             used
-                        } finally { Os.fcntlInt(fd,OsConstants.F_SETFL,flags) }
+                        } finally { FileDescriptorFlags.status(fd,flags) }
                     }
                 }
                 if (!waiting.isActive) return@dispatch

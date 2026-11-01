@@ -1,5 +1,6 @@
 package com.hanxi.ghosterm
 
+import com.hanxi.ghosterm.bridge.FileDescriptorFlags
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -642,7 +643,7 @@ class RemoteFilesTest {
                                     assertEquals(0,dir.listFiles().orEmpty().size)
                                     snapshot.withDescriptor { fd,count ->
                                         val descriptor=android.os.ParcelFileDescriptor.fromFd(fd)
-                                        assertEquals(0,android.system.Os.fcntlInt(descriptor.fileDescriptor,android.system.OsConstants.F_GETFL,0) and android.system.OsConstants.O_ACCMODE)
+                                        assertEquals(0,FileDescriptorFlags.status(descriptor.fileDescriptor) and android.system.OsConstants.O_ACCMODE)
                                         val got=android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes() }
                                         assertEquals(size.toLong(),count);assertArrayEquals(bytes,got)
                                     }

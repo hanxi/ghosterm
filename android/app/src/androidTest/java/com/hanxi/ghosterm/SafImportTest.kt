@@ -1,6 +1,7 @@
 package com.hanxi.ghosterm
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Application
 import android.os.SystemClock
 import android.provider.DocumentsContract
@@ -31,6 +32,7 @@ class SafImportTest {
     private val imported = "# imported 🔑\r\nHost imported-host\r\n  HostName imported.test\r\n  User owner\r\n"
 
     @Before fun setup() {
+        automation.serviceInfo=automation.serviceInfo.apply { flags=flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS }
         val context = instrumentation.targetContext
         directory = File(context.cacheDir, "saf-ui-${UUID.randomUUID()}").apply { mkdirs() }
         file = File(directory, "home/.ssh/config").apply { parentFile!!.mkdirs(); writeText(original) }
@@ -67,6 +69,7 @@ class SafImportTest {
     }
     private fun clickSystem(vararg labels: String): Boolean {
         for (match in nodes().filter { it.isVisibleToUser && (it.text?.toString() in labels || it.contentDescription?.toString() in labels) }) {
+            when(tapLegacyDocumentRow(instrumentation,match)) { true -> return true; false -> continue; null -> Unit }
             var node: AccessibilityNodeInfo? = match
             while (node != null) {
                 if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
@@ -81,21 +84,33 @@ class SafImportTest {
     }
     private fun select(id: String) {
         openPicker()
-        // The system remembers the last root; otherwise open its navigation drawer.
-        if (!nodes().any { it.text?.toString() == "$id.conf" }) {
-            if (!clickSystem("Ghosterm Test Files")) {
-                assertTrue("Picker roots button missing: ${nodes().map { it.text to it.contentDescription }}",
-                    clickSystem("Show roots", "Open navigation drawer", "显示根目录", "显示位置"))
-                await { clickSystem("Ghosterm Test Files") }
-            }
-        }
+        // A drawer can expose the covered directory's accessibility nodes too.
+        // Resolve the actual roots list first, then the requested provider/file.
         await {
-            if (clickSystem("$id.conf")) true else {
-                // The outer drawer also advertises scrolling; move the document grid itself.
-                nodes().firstOrNull { it.isScrollable && it.viewIdResourceName?.endsWith(":id/dir_list") == true }
-                    ?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            val tree=nodes()
+            val roots=tree.firstOrNull { it.isVisibleToUser && it.viewIdResourceName?.endsWith(":id/roots_list")==true }
+            if(roots!=null) {
+                if(!clickSystem("Ghosterm Test Files")) roots.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                false
+            } else if(tree.any { it.isVisibleToUser && (it.text?.toString()=="Ghosterm Test Files" || it.contentDescription?.toString()=="Ghosterm Test Files") }) {
+                if(clickSystem("$id.conf")) true else {
+                    tree.firstOrNull { it.isScrollable && it.viewIdResourceName?.endsWith(":id/dir_list")==true }
+                        ?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                    false
+                }
+            } else {
+                clickSystem("Show roots","Open navigation drawer","显示根目录","显示位置")
                 false
             }
+        }
+        // A prior error is not delivery of this picker result. Observe the
+        // actual system window closing before inspecting the new model state.
+        await {
+            val tree=nodes()
+            if(tree.any { it.isVisibleToUser && it.packageName?.toString()?.contains("documentsui")==true })
+                clickSystem("SELECT","Select","选择")
+            tree.any { it.isVisibleToUser && it.packageName?.toString()=="com.hanxi.ghosterm" } &&
+                tree.none { it.packageName?.toString()?.contains("documentsui")==true }
         }
         await { model.imported != null || model.error != null }
         await { !model.busy }

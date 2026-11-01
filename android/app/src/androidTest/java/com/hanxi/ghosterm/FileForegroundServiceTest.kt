@@ -171,6 +171,7 @@ class FileForegroundServiceTest {
         }
         collect(instrumentation.uiAutomation.rootInActiveWindow)
         for(found in matches) {
+            when(tapLegacyDocumentRow(instrumentation,found)) { true -> return true; false -> continue; null -> Unit }
             var node:android.view.accessibility.AccessibilityNodeInfo?=found
             while(node!=null) {
                 if(node.isEnabled && node.isClickable && node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)) return true
@@ -194,7 +195,7 @@ class FileForegroundServiceTest {
         // Opening the drawer works even when DocumentsUI remembers a different provider.
         clickText("Show roots","Open navigation drawer","显示根目录","显示位置")
         clickText("Ghosterm Copy Destination")
-        clickText("Use this folder","USE THIS FOLDER","使用此文件夹")
+        clickText("Use this folder","USE THIS FOLDER","使用此文件夹","ALLOW ACCESS TO \"GHOSTERM COPY DESTINATION\"")
         uiWait("real SAF grant must be confirmed") { tryClick("Allow","ALLOW","允许") || main { files.location.endpoint.treeUri!=null } }
         waitFor { !files.loading && files.location.endpoint.treeUri!=null && !files.choosingLocation && activity?.lifecycle?.currentState==Lifecycle.State.RESUMED }
         val destination=main { files.location }

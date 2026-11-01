@@ -132,16 +132,28 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
      */
     private static void leaveOneAtomicWriteFree(ParcelFileDescriptor[] pipe) throws IOException,android.system.ErrnoException {
         java.io.FileDescriptor writer=pipe[1].getFileDescriptor();byte[] bytes=new byte[4096];
-        int flags=android.system.Os.fcntlInt(writer,android.system.OsConstants.F_GETFL,0);
-        android.system.Os.fcntlInt(writer,android.system.OsConstants.F_SETFL,flags|android.system.OsConstants.O_NONBLOCK);
-        try {
-            while(true)try { android.system.Os.write(writer,bytes,0,bytes.length); }
-            catch(android.system.ErrnoException failure) {
-                if(failure.errno==android.system.OsConstants.EAGAIN)break;
+        android.system.StructPollfd poll=new android.system.StructPollfd();
+        poll.fd=writer;poll.events=(short)android.system.OsConstants.POLLOUT;
+        int filled=0;
+        // The fixture is the sole writer and its reader has not started yet.
+        // POLLOUT guarantees room for one PIPE_BUF-sized atomic write. This
+        // avoids the API-30-only Java fcntlInt in the independent test provider.
+        while(true) {
+            try {
+                poll.revents=0;
+                if(android.system.Os.poll(new android.system.StructPollfd[]{poll},0)==0)break;
+                if((poll.revents&(android.system.OsConstants.POLLERR|android.system.OsConstants.POLLHUP|android.system.OsConstants.POLLNVAL))!=0)
+                    throw new IOException("Pipe fixture unavailable");
+                if((poll.revents&android.system.OsConstants.POLLOUT)==0)break;
+                int written=android.system.Os.write(writer,bytes,0,bytes.length);
+                if(written!=bytes.length)throw new IOException("Pipe atomic fixture write failed");
+                filled+=written;
+            } catch(android.system.ErrnoException failure) {
                 if(failure.errno!=android.system.OsConstants.EINTR)throw failure;
             }
-            if(android.system.Os.read(pipe[0].getFileDescriptor(),bytes,0,bytes.length)!=bytes.length)throw new IOException("Pipe capacity fixture failed");
-        } finally { android.system.Os.fcntlInt(writer,android.system.OsConstants.F_SETFL,flags); }
+        }
+        if(filled<bytes.length || android.system.Os.read(pipe[0].getFileDescriptor(),bytes,0,bytes.length)!=bytes.length)
+            throw new IOException("Pipe capacity fixture failed");
     }
     @Override public void deleteDocument(String id) { deletes.incrementAndGet();throw new UnsupportedOperationException("Must not blindly delete"); }
     @Override public ParcelFileDescriptor openDocument(String id,String access,CancellationSignal signal) throws FileNotFoundException {

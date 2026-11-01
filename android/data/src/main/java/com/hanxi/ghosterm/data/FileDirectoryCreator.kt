@@ -156,20 +156,20 @@ class FileDirectoryCreator(private val home: File, private val resolver: Content
             val created=Documents.createDocument(resolver,uri,Document.MIME_TYPE_DIR,requestedName)
                 ?: error("创建结果未知；请核对目标目录")
             outcome=outcome.copy(documentUri=created.toString())
-                withContext(NonCancellable) { observed(outcome) }
+            withContext(NonCancellable) { observed(outcome) }
             check(created.scheme=="content" && created.authority==tree.authority && Documents.isTreeUri(created) &&
                 Documents.getTreeDocumentId(created)==endpoint.rootId) { "提供方返回了其他文档树" }
             val id=Documents.getDocumentId(created)
             check(id !in existing && id!=endpoint.rootId && id!=parent.directoryId) { "提供方未返回新目录" }
             outcome=outcome.copy(state=State.CREATED,location=parent.copy(directoryId=id))
-                withContext(NonCancellable) { observed(outcome) }
+            withContext(NonCancellable) { observed(outcome) }
             active()
             check(Documents.isChildDocument(resolver,uri,created)) { "新目录不在目标目录内" }
             val actual=info(created)
             check(actual.directory && actual.flags and Document.FLAG_VIRTUAL_DOCUMENT==0) { "新条目不是普通目录" }
             validName(actual.name)
             outcome=outcome.copy(actualName=actual.name)
-                withContext(NonCancellable) { observed(outcome) }
+            withContext(NonCancellable) { observed(outcome) }
             check(children(tree,id).isEmpty()) { "新目录不是空目录" }
             check(children(tree,parent.directoryId)[id]==actual.name) { "新目录不在指定的直接父目录下" }
             active()

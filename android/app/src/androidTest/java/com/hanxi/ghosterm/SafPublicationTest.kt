@@ -63,13 +63,9 @@ class SafPublicationTest {
         ui.onNodeWithText("本机文件").performClick();await { !model().loading }
         ui.onNodeWithTag("file-location").performClick();ui.onNodeWithText("选择设备文件夹").performClick()
         await { nodes().any { it.packageName?.toString()?.contains("documentsui")==true } }
-        if(!nodes().any { it.text?.toString()=="keep.txt" }) {
-            if(!click("Ghosterm Copy Destination")) {
-                assertTrue(click("Show roots","Open navigation drawer","显示根目录","显示位置"))
-                await { click("Ghosterm Copy Destination") }
-            }
-        }
-        await { click("Use this folder","USE THIS FOLDER","使用此文件夹") }
+        assertTrue(click("Show roots","Open navigation drawer","显示根目录","显示位置"))
+        await { click("Ghosterm Copy Destination") }
+        await { click("Use this folder","USE THIS FOLDER","使用此文件夹","ALLOW ACCESS TO \"GHOSTERM COPY DESTINATION\"") }
         await { click("Allow","ALLOW","允许") || model().location.endpoint.treeUri!=null }
         await { !model().loading && model().location.endpoint.treeUri!=null && !model().choosingLocation }
         assertNull(main { model().error });location=main { model().location }
@@ -88,6 +84,7 @@ class SafPublicationTest {
     }
     private fun click(vararg names:String):Boolean {
         for(found in nodes().filter { it.isVisibleToUser && (it.text?.toString() in names || it.contentDescription?.toString() in names) }) {
+            when(tapLegacyDocumentRow(instrumentation,found)) { true -> return true; false -> continue; null -> Unit }
             var node:AccessibilityNodeInfo?=found
             while(node!=null) { if(node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK))return true;node=node.parent }
         };return false

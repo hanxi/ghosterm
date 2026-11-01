@@ -1,5 +1,6 @@
 package com.hanxi.ghosterm
 
+import com.hanxi.ghosterm.bridge.FileDescriptorFlags
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
@@ -202,12 +203,12 @@ class LocalPublicationTest {
 
     @Test fun nativeCandidateRequiresCompleteReadonlyOwnedFile() = runBlocking {
         LocalPublicationFile.directory(home,"").use { directory -> LocalPublicationFile.directory(publications,"").use { stage ->
-            assertEquals(OsConstants.FD_CLOEXEC,Os.fcntlInt(directory.fileDescriptor,OsConstants.F_GETFD,0) and OsConstants.FD_CLOEXEC)
+            assertEquals(OsConstants.FD_CLOEXEC,FileDescriptorFlags.descriptorFlags(directory.fd) and OsConstants.FD_CLOEXEC)
             val candidate=LocalPublicationFile.candidate(stage.fd,"candidate")
             try {
                 assertEquals(1L,Os.fstat(candidate.fileDescriptor).st_nlink)
                 assertEquals(384,Os.fstat(candidate.fileDescriptor).st_mode and 511)
-                assertEquals(OsConstants.FD_CLOEXEC,Os.fcntlInt(candidate.fileDescriptor,OsConstants.F_GETFD,0) and OsConstants.FD_CLOEXEC)
+                assertEquals(OsConstants.FD_CLOEXEC,FileDescriptorFlags.descriptorFlags(candidate.fd) and OsConstants.FD_CLOEXEC)
                 assertTrue(home.list()!!.isEmpty());Os.write(candidate.fileDescriptor,byteArrayOf(1,2,3),0,3)
                 rejects { LocalPublicationFile.candidate(stage.fd,"candidate").close() }
                 assertArrayEquals(byteArrayOf(1,2,3),File(publications,"candidate").readBytes())

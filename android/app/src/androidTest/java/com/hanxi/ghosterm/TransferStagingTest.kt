@@ -1,5 +1,6 @@
 package com.hanxi.ghosterm
 
+import com.hanxi.ghosterm.bridge.FileDescriptorFlags
 import android.content.res.AssetFileDescriptor
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
@@ -94,8 +95,8 @@ class TransferStagingTest {
             assertArrayEquals(original,content(snapshot))
             snapshot.withDescriptor { fd,_ ->
                 ParcelFileDescriptor.fromFd(fd).use { borrowed ->
-                    assertEquals(OsConstants.O_RDONLY,Os.fcntlInt(borrowed.fileDescriptor,OsConstants.F_GETFL,0) and OsConstants.O_ACCMODE)
-                    assertEquals(OsConstants.FD_CLOEXEC,Os.fcntlInt(borrowed.fileDescriptor,OsConstants.F_GETFD,0) and OsConstants.FD_CLOEXEC)
+                    assertEquals(OsConstants.O_RDONLY,FileDescriptorFlags.status(borrowed.fileDescriptor) and OsConstants.O_ACCMODE)
+                    assertEquals(OsConstants.FD_CLOEXEC,FileDescriptorFlags.descriptorFlags(borrowed.fd) and OsConstants.FD_CLOEXEC)
                     assertEquals(384,Os.fstat(borrowed.fileDescriptor).st_mode and 511)
                     rejects { Os.write(borrowed.fileDescriptor,byteArrayOf(1),0,1) }
                     Os.lseek(borrowed.fileDescriptor,19,OsConstants.SEEK_SET)
@@ -224,7 +225,7 @@ class TransferStagingTest {
         AnonymousStagingFile.create(staging).use { fd ->
             assertEquals(0L,Os.fstat(fd.fileDescriptor).st_nlink)
             assertEquals(384,Os.fstat(fd.fileDescriptor).st_mode and 511)
-            assertEquals(OsConstants.FD_CLOEXEC,Os.fcntlInt(fd.fileDescriptor,OsConstants.F_GETFD,0) and OsConstants.FD_CLOEXEC)
+            assertEquals(OsConstants.FD_CLOEXEC,FileDescriptorFlags.descriptorFlags(fd.fd) and OsConstants.FD_CLOEXEC)
             Os.write(fd.fileDescriptor,byteArrayOf(1,2,3),0,3)
             assertEquals(3L,Os.fstat(fd.fileDescriptor).st_size)
             assertTrue(staging.list()!!.isEmpty())

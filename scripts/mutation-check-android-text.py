@@ -175,6 +175,9 @@ def main():
          ui + 'auxiliaryKeysResolvePendingDeadCompositionBeforeSending'),
         (view, 'if (code == KeyEvent.KEYCODE_ESCAPE || code == KeyEvent.KEYCODE_DEL) {', 'if (false) {',
          ui + 'auxiliaryKeysResolvePendingDeadCompositionBeforeSending'),
+        (view, 'target.select(SelectionOperation.WORD, x, y); showTextActions()',
+         'target.select(SelectionOperation.WORD, x, y + 1); showTextActions()',
+         ui + 'handleEdgesScrollWhileHeldAndStopOnReleaseOrCancel'),
     ]
     selected = args.selected or list(range(1, len(cases) + 1))
     if any(n < 1 or n > len(cases) for n in selected): raise RuntimeError('case out of range')
@@ -206,6 +209,8 @@ def main():
             path.write_text(source.replace(before, after + suffix))
             build(label)
             test(target, False, label + '-target')
+            if number == 72 and 'word selection must be acknowledged on viewport row 8; selectedRows=[9]' not in (work / (label + '-target.log')).read_text():
+                raise RuntimeError('X72 must fail on the requested-row assertion')
             test('NativeSmokeTest#corePreservesUtf8AndLineEndings', True, label + '-control')
             path.write_bytes(originals[path])
             if hashlib.sha256(path.read_bytes()).digest() != hashes[path]: raise RuntimeError('restore SHA256 mismatch')

@@ -95,6 +95,7 @@ class SSHIdentityImportTest {
     }
     private fun click(vararg labels: String): Boolean {
         for(match in nodes().filter { it.isVisibleToUser && (it.text?.toString() in labels || it.contentDescription?.toString() in labels) }) {
+            when(tapLegacyDocumentRow(instrumentation,match)) { true -> return true; false -> continue; null -> Unit }
             var node: AccessibilityNodeInfo?=match
             while(node!=null) { if(node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK))return true; node=node.parent }
         }
@@ -121,7 +122,7 @@ class SSHIdentityImportTest {
                 if(row != null) {
                     var target: AccessibilityNodeInfo? = row
                     while(target != null && !target.isClickable) target = target.parent
-                    target?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    if(target?.performAction(AccessibilityNodeInfo.ACTION_CLICK)!=true) tapLegacyDocumentRow(instrumentation,row)
                 } else roots.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
                 false
             } else if(click("$id.pem")) true else {
@@ -136,6 +137,9 @@ class SSHIdentityImportTest {
         // Observe the app window and then consumption of the Activity result.
         systemAwait {
             val tree = nodes()
+            // Android 10 may select a document and require an explicit SELECT.
+            if(tree.any { it.isVisibleToUser && it.packageName?.toString()?.contains("documentsui")==true })
+                click("SELECT","Select","选择")
             tree.any { it.isVisibleToUser && it.packageName?.toString()=="com.hanxi.ghosterm" } &&
                 tree.none { it.packageName?.toString()?.contains("documentsui")==true }
         }

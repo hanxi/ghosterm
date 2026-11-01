@@ -42,8 +42,9 @@ class TerminalScreenTest {
         directory = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "terminal-ui-${UUID.randomUUID()}").apply { mkdirs() }
         val app = object : Application() { override fun getFilesDir() = directory }
         val hosts = HostsViewModel(app)
+        val runtime = RuntimeInfoViewModel()
         sessions = SessionsViewModel(app)
-        ui.setContent { GhostermApp(hosts, RuntimeInfoViewModel(), sessions) }
+        ui.setContent { GhostermApp(hosts, runtime, sessions) }
         ui.onNodeWithText("本地终端").performClick()
         ui.waitUntil(10_000) { ui.runOnIdle { sessions.active?.state?.connected == true } }
         ui.waitUntil(10_000) { viewOrNull()?.currentFrame != null }
@@ -176,6 +177,66 @@ class TerminalScreenTest {
         }
     }
 
+    @Test fun finishingImeCompositionPreservesBytesOnceAndClosingStillCancels() {
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hIME_FINISH_READY\\r\\n'; dd bs=1 count=7 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_FINISH_DONE\\r\\n'\r")
+        waitFor("IME_FINISH_READY")
+        ui.runOnIdle {
+            val view = terminal(); val connection = view.onCreateInputConnection(EditorInfo())
+            assertTrue(connection.finishComposingText())
+            assertTrue(connection.setComposingText("草稿", 1))
+            assertEquals("草稿", view.composition)
+            assertTrue(connection.finishComposingText())
+            assertEquals("", view.composition)
+            assertTrue(connection.finishComposingText())
+            assertTrue(connection.setComposingText("丢弃", 1))
+            connection.closeConnection()
+            assertEquals("", view.composition)
+            assertFalse(connection.finishComposingText())
+            assertTrue(view.onCreateInputConnection(EditorInfo()).commitText("!", 1))
+        }
+        waitFor("IME_FINISH_DONE")
+        assertTrue("finish must preserve accepted bytes once without bracketed paste: ${text()}",
+            text().replace(Regex("\\s+"), " ").contains("e8 8d 89 e7 a8 bf 21"))
+    }
+
+    @Test fun imeEnterAndEditorActionAcceptPendingTextBeforeTheReturn() {
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hIME_ENTER_READY\\r\\n'; dd bs=1 count=14 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_ENTER_DONE\\r\\n'\r")
+        waitFor("IME_ENTER_READY")
+        ui.runOnIdle {
+            val view = terminal(); val connection = view.onCreateInputConnection(EditorInfo())
+            assertTrue(connection.setComposingText("草稿", 1))
+            assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)))
+            assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)))
+            assertEquals("IME Enter accepts composition before the key", "", view.composition)
+            assertTrue(connection.finishComposingText())
+            assertTrue(connection.setComposingText("中文", 1))
+            assertTrue(connection.performEditorAction(EditorInfo.IME_ACTION_DONE))
+            assertEquals("editor action accepts composition before Return", "", view.composition)
+            assertTrue(connection.finishComposingText())
+        }
+        waitFor("IME_ENTER_DONE")
+        assertTrue("IME acceptance must precede each Return without duplication: ${text()}",
+            text().replace(Regex("\\s+"), "").contains("e88d89e7a8bf0de4b8ade696870d"))
+    }
+
+    @Test fun imeLineFeedAcceptsPendingCompositionBeforeReturn() {
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hIME_LF_READY\\r\\n'; dd bs=1 count=7 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_LF_DONE\\r\\n'\r")
+        waitFor("IME_LF_READY")
+        ui.runOnIdle {
+            val view=terminal();val connection=view.onCreateInputConnection(EditorInfo())
+            assertTrue(connection.setComposingText("草稿",1))
+            assertTrue(connection.commitText("\n",1))
+            assertEquals("single IME LF accepts composition before Return","",view.composition)
+            assertTrue(connection.finishComposingText())
+            // A dropped composition still gives dd seven bytes and a normal
+            // exit. The mutation must fail on byte content, not a hung reader.
+            assertTrue(connection.commitText("123456",1))
+        }
+        waitFor("IME_LF_DONE")
+        assertTrue("single IME LF must preserve typed bytes before CR: ${text()}",
+            text().replace(Regex("\\s+"),"").contains("e88d89e7a8bf0d"))
+    }
+
     @Test fun imeCompositionCancellationAndDeleteReachRealPtyCorrectly() {
         send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hIME_READY\\r\\n'; dd bs=1 count=12 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_DONE\\r\\n'\r")
         waitFor("IME_READY")
@@ -185,6 +246,9 @@ class TerminalScreenTest {
             assertEquals("草稿😀", view.composition)
             assertTrue(connection.deleteSurroundingTextInCodePoints(1, 0))
             assertEquals("草稿", view.composition)
+            // Explicit cancellation replaces the composing text with nothing.
+            // finishComposingText itself accepts the remaining text.
+            assertTrue(connection.setComposingText("", 1))
             assertTrue(connection.finishComposingText())
             assertEquals("", view.composition)
             assertTrue(connection.setComposingText("中wen", 1))
@@ -789,11 +853,26 @@ class TerminalScreenTest {
         ui.runOnIdle { sessions.active!!.surface.scroll(-80) }
         ui.waitUntil { terminal().currentFrame!!.line(0) != before }
         for (up in listOf(true, false)) {
-            val top = terminal().currentFrame!!.line(0).toInt()
-            val anchor = terminal().currentFrame!!.line(8).toInt()
             clipboard("before-edge-copy")
             longPressCell(1, 8)
-            ui.waitUntil { terminal().currentFrame!!.cells.any { it.flags and 256 != 0 } }
+            // A queued scroll can finish during the long press. Observe the
+            // actual word selection, then capture viewport and anchor together.
+            var selectedFrame=terminal().currentFrame!!
+            try {
+                ui.waitUntil {
+                    val frame=terminal().currentFrame!!
+                    val selected=frame.cells.indices.filter { frame.cells[it].flags and 256 != 0 }
+                    if(selected.isNotEmpty() && selected.all { it/frame.cols==8 }) {
+                        selectedFrame=frame;true
+                    } else false
+                }
+            } catch(failure:androidx.compose.ui.test.ComposeTimeoutException) {
+                val frame=terminal().currentFrame!!
+                val selectedRows=frame.cells.indices.filter { frame.cells[it].flags and 256 != 0 }.map { it/frame.cols }.distinct()
+                throw AssertionError("word selection must be acknowledged on viewport row 8; selectedRows=$selectedRows",failure)
+            }
+            val top=selectedFrame.line(0).toInt()
+            val anchor=selectedFrame.line(8).toInt()
             val drag = HandleDrag(start = up)
             var x = 0f; var y = 0f
             ui.runOnIdle {

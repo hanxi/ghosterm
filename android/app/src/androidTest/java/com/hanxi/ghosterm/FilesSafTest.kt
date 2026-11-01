@@ -59,6 +59,7 @@ class FilesSafTest {
     }
     private fun systemClick(vararg names:String):Boolean {
         for(found in nodes().filter { it.isVisibleToUser && (it.text?.toString() in names || it.contentDescription?.toString() in names) }) {
+            when(tapLegacyDocumentRow(instrumentation,found)) { true -> return true; false -> continue; null -> Unit }
             var node:AccessibilityNodeInfo?=found
             while(node!=null) { if(node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK))return true;node=node.parent }
         };return false
@@ -69,13 +70,9 @@ class FilesSafTest {
     }
     private fun grant() {
         picker()
-        if(!nodes().any { it.text?.toString()=="notes.txt" }) {
-            if(!systemClick("Ghosterm Browser Files")) {
-                assertTrue("system roots accessible",systemClick("Show roots","Open navigation drawer","显示根目录","显示位置"))
-                await { systemClick("Ghosterm Browser Files") }
-            }
-        }
-        await { systemClick("Use this folder","USE THIS FOLDER","使用此文件夹") }
+        assertTrue("system roots accessible",systemClick("Show roots","Open navigation drawer","显示根目录","显示位置"))
+        await { systemClick("Ghosterm Browser Files") }
+        await { systemClick("Use this folder","USE THIS FOLDER","使用此文件夹","ALLOW ACCESS TO \"GHOSTERM BROWSER FILES\"") }
         await { systemClick("Allow","ALLOW","允许") || model().location.endpoint.treeUri!=null }
         await { !model().loading && model().location.endpoint.treeUri!=null && !model().choosingLocation }
         assertNull(main { model().error })

@@ -1,5 +1,7 @@
 # Android release APK
 
+当前工作区 §9.79 已有本地签名 release（5,904,217 字节），完整 498 项仅在 API 36 / 4 KB 页模拟器通过；API 29 的 signed release 预览/27 字节复制已验，但 Gboard 输入仍失败。该本地产物尚未作为新 CI 包发布；下方云端链接和 16 KB 页证据仍属于 ab7c53f，不混用验证范围。
+
 工作流为 `.github/workflows/android-release.yml`，监听 main push、PR 和手动触发。
 main 与手动构建使用固定 release 密钥签名；PR 只验证优化后的未签名 release 构建。
 当前签名包来自 [run 41241009189](https://github.com/hanxi/ghosterm/actions/runs/41241009189)，
@@ -33,6 +35,10 @@ SHA256 `753822e77c626a3852a64d4bac7d587c40a52ba7b700d7df8940316f67c20496`。
 在 GitHub Actions 中打开 **Android Release APK** 的成功运行，下载
 `Ghosterm-android-release-<commit>` artifact。解压后包含安装 APK、`SHA256SUMS`
 和 `build-info.json`。诊断 artifact 单独保存 R8 映射与 native 符号，均保留 14 天。
+
+工作流在恢复签名材料之前运行 `bash scripts/check-android-api.sh`，分别检查
+app、bridge、data、terminal 的 release lint；app 单独 lint 不覆盖依赖模块源码。
+新增入口在本地已通过 API 30 调用的编译后变异验证，当前工作区尚未提交，云端执行待验。
 
 当前仅 arm64-v8a，声明最低 API 29；设备验证范围仍见
 [Android 实现计划](../reference/android-implementation.md)。release 构建不代表完整功能或发行矩阵已验收。
