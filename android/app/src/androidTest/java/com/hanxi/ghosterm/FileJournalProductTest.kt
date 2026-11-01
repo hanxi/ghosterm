@@ -88,6 +88,31 @@ class FileJournalProductTest {
             }
         } finally { ui.runOnIdle { references.asReversed().forEach { store.endContentRead(it) } } }
     }
+    @Test fun privateCandidateContentUsesReadonlyNamespaceAndDoesNotChangeUnknownHistory() {
+        val request=FilePasteRequest.capture(snapshot,target,"target")
+        val plan=File(root,"file-tasks/${UUID.randomUUID()}")
+        val destination=File(plan,"destination")
+        destination.mkdirs();android.system.Os.chmod(File(root,"file-tasks").path,448)
+        android.system.Os.chmod(plan.path,448);android.system.Os.chmod(destination.path,448)
+        val candidate=File(destination,UUID.randomUUID().toString())
+        val bytes=File(home,"source/a.txt").readBytes();candidate.writeBytes(bytes);android.system.Os.chmod(candidate.path,384)
+        val digest=FileContentDigest(bytes.size.toLong(),java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) })
+        val item=FileCopyItemResult(FileScanEntry(snapshot.source,snapshot.items.single(),"a.txt"),FileCopyItemState.UNKNOWN,
+            target,"a.txt",candidatePath=candidate.absolutePath,sourceDigest=digest)
+        runBlocking { journal.load();journal.accept(request);journal.phase(request.id,FileJournalPhase.CONFIRMING);journal.begin(request.id,listOf(item)) }
+        val before=runBlocking { journal.load() };val model=open()
+        ui.onNodeWithTag("file-history-details").performScrollTo().performClick()
+        ui.onNodeWithTag("file-history-content:a.txt:true").performScrollTo().performClick()
+        ui.waitUntil(10000) { model.inspectingId==null && model.contentInspections.isNotEmpty() }
+        ui.onNodeWithTag("file-history-content-result").assertTextEquals("内容与复制时的来源一致")
+        assertArrayEquals(bytes,candidate.readBytes());assertEquals(before,runBlocking { journal.load() })
+        ui.runOnIdle { assertFalse(model.contentReading) }
+        assertTrue(candidate.delete())
+        ui.onNodeWithTag("file-history-content:a.txt:true").performScrollTo().performClick()
+        ui.waitUntil(10000) { model.inspectingId==null && model.contentInspections.isNotEmpty() }
+        ui.onNodeWithTag("file-history-content-result").assertTextEquals("本次读取未找到该文件")
+        assertEquals(before,runBlocking { journal.load() });assertEquals(FileCopyItemState.UNKNOWN,model.history.single().items.single().value.state)
+    }
     @Test fun explicitContentVerificationShowsMatchAndDifferenceWithoutChangingOldResult() {
         val request=FilePasteRequest.capture(snapshot,target,"target")
         val bytes=File(home,"source/a.txt").readBytes()

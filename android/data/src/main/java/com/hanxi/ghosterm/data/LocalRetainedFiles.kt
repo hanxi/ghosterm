@@ -190,6 +190,62 @@ class LocalRetainedFiles(private val root: File, private val budget: LocalPublic
             cleanup?.let { if(primary!=null)primary.addSuppressed(it) else throw it }
         }
     } }
+    /** Read only a freshly validated object in this private candidate namespace.
+     * Does not create a list Ref, prepare a deletion review, or trust journal ownership. */
+    suspend fun content(referencePath: String, byteLimit: Long = 256L*1024*1024,
+        checkpoint: () -> Unit = {}): com.hanxi.ghosterm.domain.FileContentDigest? = withContext(Dispatchers.IO) { mutex.withLock {
+        require(byteLimit in 1..256L*1024*1024)
+        val prefix=root.absolutePath+File.separator
+        require(referencePath.startsWith(prefix)) { "暂存位置不在本应用的候选区域" }
+        val parts=referencePath.removePrefix(prefix).split('/')
+        require(parts.size==3 && canonical(parts[0]) && parts[1]=="destination" && canonical(parts[2]) &&
+            File(root,parts.joinToString("/")).absolutePath==referencePath) { "暂存位置结构无效" }
+        fun exists(parent: ParcelFileDescriptor, name: String): Boolean = try {
+            Os.lstat("/proc/self/fd/${parent.fd}/$name");true
+        } catch(error:ErrnoException) { if(error.errno==OsConstants.ENOENT)false else throw error }
+        val context=currentCoroutineContext();context.ensureActive()
+        if(!present())return@withLock null
+        var reading=false
+        try {
+            LocalPublicationFile.directory(root,"").use { rootFd -> budget.whileIdle(rootFd) {
+                context.ensureActive()
+                val rootIdentity=directory(rootFd)
+                if(!exists(rootFd,parts[0]))return@whileIdle null
+                LocalPublicationFile.childDirectory(rootFd.fd,parts[0]).use { owner ->
+                    val ownerIdentity=directory(owner)
+                    if(!exists(owner,"destination"))return@whileIdle null
+                    LocalPublicationFile.childDirectory(owner.fd,"destination").use { destination ->
+                        val destinationIdentity=directory(destination)
+                        if(!exists(destination,parts[2]))return@whileIdle null
+                        LocalPublicationFile.retainedCandidate(destination.fd,parts[2]).use { file ->
+                            val before=fingerprint(Os.fstat(file.fileDescriptor));reading=true
+                            check(before.size<=byteLimit) { "私有暂存内容超过本次核验上限" }
+                            val result=FileContentHasher.digest(file.fileDescriptor,before.size) { context.ensureActive();checkpoint() }
+                            check(fingerprint(Os.fstat(file.fileDescriptor))==before) { "核验期间暂存文件发生变化" }
+                            // A still-readable old inode is insufficient if its current name moved.
+                            try {
+                                LocalPublicationFile.directory(root,"").use { freshRoot ->
+                                    check(directory(freshRoot)==rootIdentity) { "核验期间暂存根目录发生变化" }
+                                    LocalPublicationFile.childDirectory(freshRoot.fd,parts[0]).use { freshOwner ->
+                                        check(directory(freshOwner)==ownerIdentity) { "核验期间任务暂存位置发生变化" }
+                                        LocalPublicationFile.childDirectory(freshOwner.fd,"destination").use { freshDestination ->
+                                            check(directory(freshDestination)==destinationIdentity) { "核验期间目标暂存位置发生变化" }
+                                            LocalPublicationFile.retainedCandidate(freshDestination.fd,parts[2]).use { freshFile ->
+                                                check(fingerprint(Os.fstat(freshFile.fileDescriptor))==before) { "核验期间暂存文件名称发生变化" }
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch(error:ErrnoException) { throw IOException("核验期间暂存位置发生变化",error) }
+                            context.ensureActive();result
+                        }
+                    }
+                }
+            } }
+        } catch(error:ErrnoException) {
+            if(!reading && error.errno==OsConstants.ENOENT)null else throw error
+        }
+    } }
     private fun java.nio.charset.CoderResult.throwExceptionIfError() { if(isError)throwException() }
     suspend fun dismiss(ref: Ref) = withContext(NonCancellable+Dispatchers.IO) { mutex.withLock {
         if(held?.record?.item?.ref===ref)closeHeld()

@@ -495,12 +495,12 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
                             })
                         }
                         try {
-                            FileHistoryContentInspector(::browse) { location,entry ->
+                            FileHistoryContentInspector(::browse,read={ location,entry ->
                                 val remote=scope.remote(FileTaskConnections.Role.DESTINATION,location.endpoint)?.session
                                 val snapshot=if(remote==null) local.snapshot(location,entry,store) else store.receive(remote,entry.id,
                                     entry.size?.let { check(it<=Long.MAX_VALUE.toULong());it.toLong() })
                                 snapshot.use { it.contentDigest() }
-                            }.inspect(record,item,candidate)
+                            },retained={ path -> LocalRetainedFiles(File(app.filesDir,"file-tasks")).content(path) }).inspect(record,item,candidate)
                         } finally { withContext(NonCancellable) { store.closeAndAwait() } }
                     }
                 } }
