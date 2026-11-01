@@ -5,6 +5,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hanxi.ghosterm.domain.*
+import com.hanxi.ghosterm.data.PreviewFileSource
 import com.hanxi.ghosterm.data.LocalFileBrowser
 import com.hanxi.ghosterm.data.FileBrowserRepository
 import com.hanxi.ghosterm.data.PreferencesState
@@ -22,7 +23,9 @@ data class ClipboardReplacement(val expectedId: String, val snapshot: FileClipbo
 /** Activity-local browser over the shared file clipboard; navigation owns only its reads. */
 class FilesViewModel @JvmOverloads constructor(application: Application,
     private val source: FileBrowserSource = FileBrowserRepository(LocalFileBrowser(File(application.filesDir,"home"),application.contentResolver)),
-    private val work: FileWorkRuntime = (application as? GhostermApplication)?.fileWork ?: FileWorkRuntime(application)
+    private val work: FileWorkRuntime = (application as? GhostermApplication)?.fileWork ?: FileWorkRuntime(application),
+    private val externalCache: ExternalPreviewCache = (application as? GhostermApplication)?.externalPreviews
+        ?: ExternalPreviewCache(application,File(application.cacheDir,"external-previews"), "${application.packageName}.previews")
 ) : AndroidViewModel(application) {
     var visible by mutableStateOf(false); private set
     var endpoints by mutableStateOf(listOf(FileEndpoint.APP)); private set
@@ -65,17 +68,66 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
         } }
     }
     private val remembered = mutableMapOf<String,List<FileCrumb>>()
+    var externalPreparing by mutableStateOf(false); private set
+    var externalError by mutableStateOf<String?>(null); private set
+    var externalCacheError by mutableStateOf<String?>(null); private set
+    var externalReady by mutableStateOf<ExternalPreviewCache.Ready?>(null); private set
+    private var externalJob: Job? = null
+    private var externalGeneration=0L
+    init { viewModelScope.launch { externalCache.cleanupError.collect { externalCacheError=it } } }
+    private fun cancelExternal() {
+        externalGeneration++;externalJob?.cancel();externalJob=null;externalPreparing=false;externalError=null
+        externalReady?.let(externalCache::discardLater);externalReady=null
+    }
+    fun externalPresenterStopped() {
+        val pending=externalPreparing || externalReady!=null
+        cancelExternal()
+        if(pending) externalError="外部打开已取消，请再次点击打开"
+    }
+    fun openExternal() {
+        val shown=preview ?: return
+        if(!visible || externalPreparing || externalReady!=null || shown.entry.kind!=FileKind.FILE ||
+            (shown.text==null && shown.error==null)) return
+        cancelExternal();externalError=null;externalPreparing=true
+        val token=externalGeneration;val requested=location
+        externalJob=viewModelScope.launch {
+            var ready: ExternalPreviewCache.Ready?=null
+            try {
+                val reader=checkNotNull(source as? PreviewFileSource) { "此文件服务不支持外部打开" }
+                ready=externalCache.prepare(shown.entry.name,shown.entry.size) { reader.snapshot(requested,shown.entry,it) }
+                if(visible && token==externalGeneration && preview?.entry==shown.entry) {
+                    externalReady=ready;ready=null
+                }
+            } catch(cancel: CancellationException) { throw cancel }
+            catch(error: Exception) { if(token==externalGeneration) externalError=error.message ?: "无法准备外部预览" }
+            finally {
+                ready?.let(externalCache::discardLater)
+                if(token==externalGeneration) { externalPreparing=false;externalJob=null }
+            }
+        }
+    }
+    /** Called synchronously by the visible page; a stale preparation never launches an activity. */
+    fun launchExternal(ready: ExternalPreviewCache.Ready, launch: (ExternalPreviewCache.Ready) -> Unit) {
+        if(!visible || externalReady!==ready || preview==null) return
+        externalReady=null
+        try { launch(ready) }
+        catch(error: Exception) {
+            externalCache.discardLater(ready)
+            externalError=if(error is android.content.ActivityNotFoundException) "没有可打开此类型文件的应用，请先复制到设备文件夹"
+                else "无法打开其他应用：${error.message ?: "未知原因"}"
+        }
+    }
     private var readJob: Job? = null
     private var rootsJob: Job? = null
     private var generation = 0L
     private var rootsGeneration = 0L
-    fun enter() { visible=true; choosingLocation=false; refreshEndpoints(); reload() }
+    fun enter() { externalCache.sweepLater();visible=true; choosingLocation=false; refreshEndpoints(); reload() }
     fun leave() {
         visible=false;choosingLocation=false;pickerPending=false;rootsGeneration++;rootsJob?.cancel()
         dismissClipboardDialogs();clipboardError=null
         cancelRead();preview=null;clearSelection();(source as? FileBrowserRepository)?.close()
     }
-    private fun cancelRead(): Long { generation++;readJob?.cancel();readJob=null;loading=false;return generation }
+    private fun cancelRead(): Long { cancelExternal();generation++;readJob?.cancel();readJob=null;loading=false;return generation }
     fun clearSelection() { selecting=false;selected=emptySet() }
     fun selectMode() { if(!loading && error==null) selecting=true }
     fun all() { if(selecting) selected=visibleEntries.map { it.id }.toSet() }

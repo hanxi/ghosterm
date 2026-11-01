@@ -1,5 +1,7 @@
 # Android 宿主
 
+**A4 外部打开（§9.92，主工程已验、待提交/新 CI）**：有界只读副本、24 小时回收、临时 URI 授权与后台取消已接。API 29 最终 30 项（7.670 秒）、24 组编译后变异及一组真实进程中断反例通过；四模块 release lint、API 36 / arm64 / 4 KB 页完整 **609 项通过**（1,551.598 秒），发现/具名开始结束、两 APK 安装摘要及 798 份输入一致。本地固定证书 R8 release 为 6,146,497 字节，验签/压缩/16 KB 对齐通过，如实标为 dirty；新云端包及完整设备矩阵仍待收尾。SAF 文本片段/完整性修复在隔离工作树，不属于这轮 609 项。
+
 
 **最新已出包（2026-11-01，`29d3f3d`）**：五类设置、16 项偏好消费者、恢复默认保护、实际提交与许可证的关于页及正式 Android 图标已提交。功能组合完整 **576 项通过，零失败/错误/跳过**（1,587.573 秒，仅 API 36 / arm64 / 4 KB 页）；图标接线在其后由独立设备专项及一组误绑变异验证，不冒充完整 577 项重跑。云端 [release CI 41282597767](https://github.com/hanxi/ghosterm/actions/runs/41282597767) 成功，[签名 APK artifact](https://github.com/hanxi/ghosterm/actions/runs/41282597767/artifacts/13074167376) 为 **6,129,125 字节（约 5.85 MiB）**；实际包的提交/clean 收据、SHA256、固定证书、非调试、R8/资源裁剪、压缩 arm64 库及 ELF/ZIP 16 KB 对齐均已核验。同一实际云端包已在 API 36 arm64 / 16 KB 页模拟器验证同证书覆盖升级、七个旧文件预览保留、外观保存/进程重启、关于页 clean 提交，以及系统英文键盘显示时连续两条 ASCII 命令的文件读回；输入法方法/选中子类型前后不变。此专项不代表组合输入法、真机或完整发行矩阵。整体 Android 仍未完成；当前证据见实施计划 §9.91。
 
@@ -57,7 +59,7 @@ SSH 身份设置已接通列表、详情、指纹、导入与移除，身份设�
 
 位置面板从当前主机配置发起独立文件连接，共用既有 DNS、主机验证与身份认证；不借用终端连接。端点保留 UUID 和实际 host/user/port 快照，配置编辑不改写已连接端点。真实目录成功后显示规范路径，点按预览、长按选择；离页关闭浏览连接，重新进入须显式重连。
 
-实现入口为 [文件 repository](data/src/main/java/com/hanxi/ghosterm/data/FileBrowserRepository.kt)、[文件 ViewModel](app/src/main/java/com/hanxi/ghosterm/FilesViewModel.kt) 与 [真实产品设备测试](app/src/androidTest/java/com/hanxi/ghosterm/RemoteFilesProductTest.kt)。§9.60 已接复制来源清单；§9.70 已接粘贴任务，外部打开仍待开发；浏览连接离页关闭，独立任务连接由任务持有者管理。
+实现入口为 [文件 repository](data/src/main/java/com/hanxi/ghosterm/data/FileBrowserRepository.kt)、[文件 ViewModel](app/src/main/java/com/hanxi/ghosterm/FilesViewModel.kt) 与 [真实产品设备测试](app/src/androidTest/java/com/hanxi/ghosterm/RemoteFilesProductTest.kt)。§9.60 已接复制来源清单；§9.70 已接粘贴任务，外部只读打开已在 §9.92 工作区实现并进行独立验收；浏览连接离页关闭，独立任务连接由任务持有者管理。
 
 ```bash
 ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFilesProductTest bash scripts/test-android-ssh.sh

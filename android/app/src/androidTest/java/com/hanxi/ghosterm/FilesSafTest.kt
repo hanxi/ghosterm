@@ -213,4 +213,28 @@ class FilesSafTest {
         }
     }
 
+    @Test fun externalCopiesUseRealSafGrantAndBoundUnknownSizeBeforeIndependentRead() {
+        grant()
+        val location=main { model().location }
+        val source=LocalFileBrowser(File(instrumentation.targetContext.filesDir,"home"),resolver)
+        val directory=File(instrumentation.targetContext.cacheDir,"saf-preview-${UUID.randomUUID()}")
+        val cache=ExternalPreviewCache(instrumentation.targetContext,directory,"com.hanxi.ghosterm.previews")
+        try { runBlocking {
+            val entries=source.list(location)
+            val unknown=entries.single { it.name=="unknown-large.txt" }
+            assertNull(unknown.size)
+            val ready=cache.prepare(unknown.name,unknown.size) { source.snapshot(location,unknown,it) }
+            assertEquals(256L*1024+1,ready.bytes)
+            cache.open(ready.uri,"r").use { descriptor -> android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use {
+                val bytes=it.readBytes();assertEquals(256*1024+1,bytes.size);assertTrue(bytes.all { byte -> byte=='a'.code.toByte() })
+            } }
+            revoke()
+            var error: Exception?=null
+            try { cache.prepare(unknown.name,null) { source.snapshot(location,unknown,it) } }
+            catch(failure: Exception) { error=failure }
+            assertNotNull("revoked SAF cannot produce a new external copy",error)
+            assertEquals(ready.bytes,cache.info(ready.uri).second)
+        } } finally { directory.deleteRecursively() }
+    }
+
 }

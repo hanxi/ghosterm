@@ -2,6 +2,9 @@ package com.hanxi.ghosterm
 
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,6 +33,18 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
     var menu by remember { mutableStateOf(false) }
     val context=LocalContext.current
     BackHandler { if(menu) menu=false else model.back() }
+    val lifecycle=LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(model,lifecycle) {
+        val observer=LifecycleEventObserver { _,event -> if(event==Lifecycle.Event.ON_STOP) model.externalPresenterStopped() }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer);model.externalPresenterStopped() }
+    }
+    val ready=model.externalReady
+    LaunchedEffect(ready) { ready?.let {
+        if(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) model.launchExternal(it) { copy ->
+            context.startActivity(externalPreviewIntent(copy))
+        } else model.externalPresenterStopped()
+    } }
     val preview=model.preview
     Scaffold(topBar={
         TopAppBar(title={ Text(if(preview!=null) preview.entry.name else if(model.selecting) "已选 ${model.selected.size} 项" else "文件",
@@ -54,6 +69,14 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
         if(preview!=null) {
             Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).padding(16.dp)) {
                 Text("只读预览 · UTF-8 文本",style=MaterialTheme.typography.labelMedium)
+                if(preview.entry.kind==FileKind.FILE) {
+                    TextButton(onClick=model::openExternal,
+                        enabled=!model.externalPreparing && (preview.text!=null || preview.error!=null),
+                        modifier=Modifier.testTag("file-open-external")) { Text(if(model.externalPreparing) "正在准备只读副本…" else "用其他应用打开") }
+                    Text("只读副本最多 16 MiB，最多保留 24 小时；修改不会写回来源。",style=MaterialTheme.typography.bodySmall)
+                }
+                model.externalError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-external-error")) }
+                model.externalCacheError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-preview-cache-error")) }
                 if(preview.error!=null) Text(preview.error,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(top=16.dp).testTag("file-preview-error"))
                 else if(preview.text==null) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top=16.dp))
                 else SelectionContainer(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
@@ -66,6 +89,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 Text(remoteError,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(horizontal=16.dp).testTag("file-connect-error"))
             Text(if(model.location.endpoint.remoteAlias!=null) model.location.directoryId else model.crumbs.joinToString(" / ") { it.label },Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).testTag("file-breadcrumb"),
                 style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+            model.externalCacheError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-preview-cache-error")) }
             model.preferenceError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("file-preference-error")) }
             model.clipboardError?.let { Text(it,color=MaterialTheme.colorScheme.error,
                 modifier=Modifier.padding(horizontal=16.dp).testTag("file-clipboard-error")) }
@@ -170,3 +194,11 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
 private fun clipboardSource(snapshot: FileClipboardSnapshot): String = snapshot.source.endpoint.let { endpoint ->
     endpoint.remote?.let { "${it.alias} · ${it.user}@${it.host}:${it.port}" } ?: "本机 · ${endpoint.label}"
 }
+
+/** URI grants follow the receiving activity lifetime; no persistable or write grant. */
+internal fun externalPreviewIntent(copy: ExternalPreviewCache.Ready): android.content.Intent =
+    android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+        setDataAndType(copy.uri,copy.mime)
+        clipData=android.content.ClipData.newRawUri(copy.name,copy.uri)
+        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }

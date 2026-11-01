@@ -350,4 +350,47 @@ class RemoteFileTaskTest {
         }
         assertEquals(1,calls);assertEquals(0,owners())
     } }
+    @Test fun remoteExternalPreviewPreservesRawBytesAndOutlivesItsBrowserConnection()=directory { root -> runBlocking {
+        val files=RemoteFileSession(connection(known(root)))
+        val context=instrumentation.targetContext
+        val browser=com.hanxi.ghosterm.data.FileBrowserRepository(com.hanxi.ghosterm.data.LocalFileBrowser(root,context.contentResolver))
+        val cache=ExternalPreviewCache(instrumentation.targetContext,File(root,"previews"),"com.hanxi.ghosterm.previews")
+        try {
+            supply(files)
+            val endpoint=withContext(Dispatchers.Main.immediate) {
+                browser.attach(RemoteFileIdentity("preview",host,fixture.getString("user"),fixture.getInt("port")),files)
+            }
+            val listed=browser.browse(FileLocation(endpoint,fixture.getString("remoteRoot")))
+            val entry=listed.entries.single { it.name=="文本.txt" }
+            val ready=cache.prepare(entry.name,entry.size) { browser.snapshot(listed.location,entry,it) }
+            withContext(Dispatchers.Main.immediate) { browser.disconnect(endpoint) };files.closeAndAwait()
+            cache.open(ready.uri,"r").use { descriptor ->
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).use {
+                    assertArrayEquals("远端 UTF-8\nline two\n".toByteArray(),it.readBytes())
+                }
+            }
+            assertEquals(0,owners());assertEquals("text/plain",ready.mime)
+        } finally { withContext(Dispatchers.Main.immediate) { browser.close() };files.closeAndAwait() }
+    } }
+    @Test fun remoteExternalPreviewRejectsOutsideDirectoryBeforeReadingAndKeepsConnectionUsable()=directory { root -> runBlocking {
+        val files=RemoteFileSession(connection(known(root)))
+        val browser=com.hanxi.ghosterm.data.FileBrowserRepository(com.hanxi.ghosterm.data.LocalFileBrowser(root,instrumentation.targetContext.contentResolver))
+        val cache=ExternalPreviewCache(instrumentation.targetContext,File(root,"previews"),"com.hanxi.ghosterm.previews")
+        try {
+            supply(files)
+            val endpoint=withContext(Dispatchers.Main.immediate) {
+                browser.attach(RemoteFileIdentity("preview",host,fixture.getString("user"),fixture.getInt("port")),files)
+            }
+            val listed=browser.browse(FileLocation(endpoint,fixture.getString("remoteRoot")))
+            val entry=listed.entries.single { it.name=="文本.txt" }
+            val forged=entry.copy(id="/outside.txt")
+            var error: Exception?=null
+            try { cache.prepare(forged.name,forged.size) { browser.snapshot(listed.location,forged,it) } }
+            catch(failure: Exception) { error=failure }
+            assertTrue(error?.message?.contains("不属于当前文件夹")==true)
+            assertTrue(files.state().ready)
+            assertEquals(listed.location.directoryId,browser.browse(listed.location).location.directoryId)
+        } finally { withContext(Dispatchers.Main.immediate) { browser.close() };files.closeAndAwait() }
+    } }
+
 }

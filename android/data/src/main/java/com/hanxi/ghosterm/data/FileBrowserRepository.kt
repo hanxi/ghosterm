@@ -10,7 +10,7 @@ import java.util.UUID
 
 /** Process-local file connections, independent of terminal owners and transfer jobs.
  * Map access is serialized by the caller's UI dispatcher; native requests run off it. */
-class FileBrowserRepository(private val local: FileBrowserSource) : FileBrowserSource, Closeable {
+class FileBrowserRepository(private val local: FileBrowserSource) : FileBrowserSource, PreviewFileSource, Closeable {
     private val remotes = linkedMapOf<String, Pair<FileEndpoint,RemoteFileSession>>()
     fun attach(identity: RemoteFileIdentity, connection: RemoteFileSession): FileEndpoint {
         val endpoint = FileEndpoint("remote:${UUID.randomUUID()}",identity.alias,".",remote=identity)
@@ -43,6 +43,21 @@ class FileBrowserRepository(private val local: FileBrowserSource) : FileBrowserS
                 .thenBy { it.name.lowercase(Locale.ROOT) }.thenBy { it.name }.thenBy { it.id })
             BrowserDirectory(location.copy(directoryId=directory.path),entries)
         }
+    }
+    override suspend fun snapshot(location: FileLocation, entry: BrowserEntry, store: TransferStagingStore,
+        progress: (Long, Long?) -> Unit): TransferStagingStore.Snapshot {
+        check(entry.kind==FileKind.FILE) { "只能打开普通文件；符号链接不会自动跟随" }
+        if(location.endpoint.remote==null) return checkNotNull(local as? PreviewFileSource) {
+            "此文件服务不支持外部打开"
+        }.snapshot(location,entry,store,progress)
+        val prefix=location.directoryId.trimEnd('/')+"/"
+        check(entry.id.startsWith(prefix) && entry.id.removePrefix(prefix).let {
+            it.isNotEmpty() && '/' !in it && it!="." && it!=".."
+        }) { "文件不属于当前文件夹" }
+        val expected=entry.size?.let { check(it<=Long.MAX_VALUE.toULong()) { "文件大小不受支持" };it.toLong() }
+        val remote=withContext(Dispatchers.Main.immediate) { session(location.endpoint) }
+        return store.receive(remote,entry.id,expected,
+            progress={ progress(it.bytes.toLong(),it.totalBytes?.takeIf { size -> size<=Long.MAX_VALUE.toULong() }?.toLong()) })
     }
     override suspend fun preview(location: FileLocation, entry: BrowserEntry): String {
         if(location.endpoint.remoteAlias==null) return local.preview(location,entry)

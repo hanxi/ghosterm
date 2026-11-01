@@ -163,6 +163,10 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 `android-file-journal-discovery` 以 `ANDROID_SERIAL=设备 python3 scripts/test-android-file-journal-discovery.py --mutate` 手工执行一组，护默认 JUnit 发现不会把禁用的宿主中断探针算作一项空测试；目标红、同 APK 实际配置对照绿、恢复后具名清单一致与 SHA256。`ANDROID_SSH_ALL=1` 的完整入口另对拍默认发现与实际执行的具名集合、开始/结束及零跳过；发现数量本身不是实际执行通过。以上任务记录/中断/发现共 27 组均为手工覆盖，不增加 macOS CI 20 份。
 
+`android-external-preview` 用 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-external-preview.py` 手工执行 24 组，护已知/未知限额与原始字节、总量/零字节数量、默认大小/期限、过期与未命名仍使用的 pin、只读/URI/临时授权、provider、页间 seek、清理失败、单次启动、旧副本、按钮、后台与实际 worker 取消及远端父目录拒绝。当前 API 29 / arm64 / 4 KB 页每组编译后目标单条断言红、同 APK Core 配置对照绿、恢复绿与源码 SHA256；其他设备与完整客户端另验。`ANDROID_SERIAL=设备 python3 scripts/test-android-preview-restart.py --mutate` 另护真实 producer 进程死亡：独立 UID 保留 unstable client 取得的同一个 proxy FD，8 MiB 未读尾段须报 IO 错误，重启清理该次过期 token；改为原始 inode FD 后目标红、同 APK Core 对照绿、复原绿与 SHA256。不能拿被系统联动杀掉的接收者或已经缓存的旧页当成目标红/通过；前三轮探针与变异不足的失败及修正见 Android 实施计划 §9.92。两入口均为手工证据，不增加上述 macOS CI 20 份；完整矩阵仍待执行。
+
+**Android 外部预览整合（2026-11-01，§9.92，本轮待提交/新 CI）**：API 29 最终 30 项、24 组编译后变异与一组真实进程中断反例通过；Core 77 份源文件仍与先前 47 CTest / 91 符号闸门相同，未修改 Apple 源码。主工程四模块 release lint、本地固定证书 release 构建与 API 36 / arm64 / 4 KB 页完整 609 项通过（1,551.598 秒），零失败/错误/跳过，具名发现/开始结束、两安装 APK 摘要及 798 份输入前后与最终审计一致。带正式图标的本地 R8 release 为 6,146,497 字节，验签/压缩/16 KB 对齐通过；包内是 a0328da + dirty，不冒充云端包。SAF 文本片段修复仍在隔离工作树，不在此完整 APK；完整设备、输入法、发行矩阵及整个 Android 目标仍未完成。
+
 `android-file-queue` 以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileQueueProductTest ANDROID_FILE_QUEUE_MUTATE=1 bash scripts/test-android-ssh.sh` 手工执行 14 组，护 FIFO、请求容量、取消等待项、实际释放前不推进、各终态推进、队列位置/页面和请求内决策。另启动独立 OpenSSH 服务验两个端点的排队认证与真实内容；同宿主双服务不等于公网或物理双机矩阵。每组真实编译后目标断言红、同 APK 配置对照绿、恢复绿与 SHA256；实际通过范围见 Android 实现计划 §9.72。属于手工覆盖，不增加 CI 20 份。
 
 `android-process-files` 以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.ProcessFileWorkTest ANDROID_PROCESS_FILES_MUTATE=1 bash scripts/test-android-ssh.sh` 手工执行 15 组，护进程任务/清单唯一持有、页面结束/后台、全局名额、结果订阅、认证接管及系统选择器/旧确认归属。编译后目标红、同 APK 配置对照绿、恢复绿与 SHA256；设备与实际运行范围见 Android 实现计划 §9.71/§9.72。不增加 CI 20 份，不将进程内存活记为前台服务或进程恢复完成；排队另见 §9.72。

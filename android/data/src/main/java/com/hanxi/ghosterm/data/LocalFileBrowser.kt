@@ -30,7 +30,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /** Read-only browsing. Root is the terminal HOME, never the app's identity containers. */
-class LocalFileBrowser(private val root: File, private val resolver: ContentResolver) : FileBrowserSource {
+class LocalFileBrowser(private val root: File, private val resolver: ContentResolver) : FileBrowserSource, PreviewFileSource {
     companion object {
         const val PREVIEW_LIMIT = 256 * 1024
         const val ENTRY_LIMIT = 4096
@@ -151,8 +151,8 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
     }
     /** Freeze a selected local/SAF source into an anonymous task-owned snapshot.
      * No destination is opened and no remote/browser connection is borrowed. */
-    suspend fun snapshot(location: FileLocation, entry: BrowserEntry, store: TransferStagingStore,
-        progress: (Long, Long?) -> Unit = { _, _ -> }): TransferStagingStore.Snapshot {
+    override suspend fun snapshot(location: FileLocation, entry: BrowserEntry, store: TransferStagingStore,
+        progress: (Long, Long?) -> Unit): TransferStagingStore.Snapshot {
         check(entry.kind==FileKind.FILE) { "只能复制普通文件；符号链接不会自动跟随" }
         val expected=entry.size?.let { check(it<=Long.MAX_VALUE.toULong()) { "文件大小不受支持" };it.toLong() }
         return store.snapshot(expected,progress) { signal ->

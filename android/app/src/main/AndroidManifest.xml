@@ -8,6 +8,8 @@
         android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true" android:theme="@style/Theme.Ghosterm"
         android:usesCleartextTraffic="false">
+        <provider android:name=".ExternalPreviewProvider" android:authorities="${applicationId}.previews"
+            android:exported="false" android:grantUriPermissions="true" />
         <service android:name=".FileTransferService" android:exported="false"
             android:foregroundServiceType="dataSync" android:stopWithTask="false" />
         <receiver android:name=".FileTransferActions" android:exported="false" />
