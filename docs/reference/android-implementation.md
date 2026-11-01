@@ -1,6 +1,6 @@
 # Android 最终方案实现计划
 
-**当前 A6 执行计划引用（2026-11-02）**：正式复制在首次目标副作用前原子登记计划 UUID，保留暂存可显示计划对应的任务来源/目标；旧记录不回填，计划引用不证明当前文件归属或赋予删除权。API 29 / 36 各 92 项、新十一组及受影响旧六组保护分轮、Core 47/93、签名 release / 四模块 lint 通过，待提交发行。已有目标/私有候选内容核验随 `15a52d2` 发行；持久文件归属、远端/SAF 未知副作用和完整设备矩阵继续待办，见[执行计划引用](android-implementation.md#android-execution-plan-reference)。
+**当前 A6 执行计划引用（2026-11-02）**：正式复制在首次目标副作用前原子登记计划 UUID，保留暂存可显示计划对应的任务来源/目标；旧记录不回填，计划引用不证明当前文件归属或赋予删除权。API 29 / 36 各 92 项、新十一组及受影响旧六组保护分轮、Core 47/93、签名 release / 四模块 lint 通过；已随 `700f8be` 发行，云端包来源/签名/字体/16 KB 对齐、实际覆盖升级的同一计划保留及直接本机复制/重启专项通过。持久文件归属、远端/SAF 未知副作用和完整设备矩阵继续待办，见[执行计划引用](android-implementation.md#android-execution-plan-reference)。
 
 **当前 A5 跨主机复制（2026-11-02）**：不同远端存储关系未知时，新增仅对本次请求有效的位置核对；确认后重新扫描/预检，再单独确认复制，已知同目录/自身子目录仍拒绝。API 29 / 36 各 83 项通过，六组新增与两组受影响旧保护通过，签名 release / 四模块 lint 通过；`25d2137` 已发行并核验包内容/来源及 16 KB 页安装/关于专项。不同逻辑主机共享存储已验，不冒充跨物理服务器或完整客户端完成，见[关系确认记录](android-implementation.md#android-remote-namespace)。
 
@@ -12,7 +12,7 @@
 
 **历史 A6 增量（§9.106）**：本机目标候选已按全部请求目录核算保留量和写入预约，超限在创建候选前拒绝且报告零写入；API 29 / API 36 各 137 项组合、十七个新保护组分轮、既有本机发布 25 组/记录 20 组和 release/lint 通过。预算已随 `5a0618d` 发布，签名/来源/包内容核验通过，设备复制专项另验；`106f66b` 已在 16 KB 页验证历史重新发起、冲突/取消、重启关联与原记录清除。本机显式残留查看/清理正在 §9.107 验证，内容/归属核验和完整客户端目标未完成，见[预算与发行记录](#android-local-publication-budget)。
 
-**已发行 A8 基线（2026-11-01）**：远端 tmux 后台会话已接主机入口、真实探测/列表/新建/重命名/结束和独立 SSH attach；普通 SSH 入口保持独立。`ee2a83f` 基线的 API 29 / API 36 各 45 项组合和十二组 Android 变异通过；选择器补丁两端各三项、入口/选择器两组增量通过，累计十三个不同保护组分轮取证。共享核心 47 项与 27 组 tmux 变异、macOS 原生构建及九项 tmux UI 回归通过。最新云端签名 APK 已在 16 KB 页模拟器验证实际 SSH/tmux 任务跨客户端与升级保留、重命名、取消/确认结束及旧文件保留，完整设备矩阵仍未完成，见[后台会话记录](android-implementation.md#android-tmux)。此前 Kitty 图形/动画、48dp 正式图标与 Nerd Fonts 均已发布；当前最新已验云端包为 `15a52d2`（8,013,811 字节，包内容与 16 KB 页安装/关于专项；上一版历史摘要行为另记，见 §9.111–§9.112）。A2 真机/完整输入性能、A3 网络、A5 跨远端命名空间、A6 内容/归属核验与残留清理和 A10 全矩阵仍未完成，整个客户端目标保持进行中。
+**已发行 A8 基线（2026-11-01）**：远端 tmux 后台会话已接主机入口、真实探测/列表/新建/重命名/结束和独立 SSH attach；普通 SSH 入口保持独立。`ee2a83f` 基线的 API 29 / API 36 各 45 项组合和十二组 Android 变异通过；选择器补丁两端各三项、入口/选择器两组增量通过，累计十三个不同保护组分轮取证。共享核心 47 项与 27 组 tmux 变异、macOS 原生构建及九项 tmux UI 回归通过。最新云端签名 APK 已在 16 KB 页模拟器验证实际 SSH/tmux 任务跨客户端与升级保留、重命名、取消/确认结束及旧文件保留，完整设备矩阵仍未完成，见[后台会话记录](android-implementation.md#android-tmux)。此前 Kitty 图形/动画、48dp 正式图标与 Nerd Fonts 均已发布；当前最新已验云端包为 `700f8be`（8,015,271 字节，包内容及 16 KB 页计划引用升级/本机复制专项；前置行为另记，见 §9.111–§9.113）。A2 真机/完整输入性能、A3 网络、A5 跨远端命名空间、A6 内容/归属核验与残留清理和 A10 全矩阵仍未完成，整个客户端目标保持进行中。
 
 **历史 A6 切片（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](android-implementation.md#android-kitty)，不扩大为整个 A2 完成。Nerd Fonts 符号回退已随 `de1fd4a` 发布，设备与签名包范围见[字体记录](#android-nerd-fonts)。
 
@@ -3338,7 +3338,7 @@ Android 仍使用系统 `DnsResolver`，不另连公共 DNS、不修改设备解
 
 
 <a id="android-execution-plan-reference"></a>
-### 9.113 A6 执行计划引用的原子登记（2026-11-02，验证中）
+### 9.113 A6 执行计划引用的原子登记（2026-11-02，已发行）
 
 正式复制确认后，应用在执行器首次目标副作用之前，将不可变计划 UUID 与全部逐项初始观察放入同一个 SQLite 事务。提交失败不启动执行；UUID 必须规范，当前账本内不允许两条任务引用同一计划；读取发现重复计划时明确失败并保留原数据。取消和完成写回保留关联。它记录本次执行选用了哪个计划，不是可执行计划、恢复命令、授权或当前文件所有权，仍不自动续传、重放或删除。
 
@@ -3360,3 +3360,19 @@ Android 仍使用系统 `DnsResolver`，不另连公共 DNS、不修改设备解
 API 29 / API 36 arm64 / 4 KB 页的执行计划、账本、历史重试、真实历史与暂存页面、私有内容与普通内容共 **92 项均通过**，零失败/错误/跳过（31.742 / 54.846 秒，`phase-1793565994672366000/` / `phase-1793566055690584000/`），两端逐项启动/结束身份一致。与最终签名 release / app/data/bridge/terminal 四模块 lint（`phase-1793565994672367000/`，74 秒）同为 864 份相同非 Markdown 输入集合/SHA256，并逐份核对提交前源码。Core 离线闸门 47 CTest / 93 公共符号与 Android JNI 55 引用 / 38 显式未用另通过；未改 Core、公开 ABI 或 Apple 源码，不新增 macOS CI 20 份覆盖。
 
 本地 APK **8,015,423 字节**，SHA256 `5b988a6e877b36f2190f963587067689770d84ef4677d2e9362bdc0f9c1dd636`，来源 `4ded8b5` / dirty；固定证书、非 debuggable/minSdk 29、三个压缩 arm64 SO、ZIP/ELF 16 KB、R8 mapping 及完整 Nerd Fonts/许可均核验。设备事件与收据 `tmp/execution-plan-evidence/api29*` / `api36*`，包 `local-release/`。实际签名包专项与发行另记，不把仪器测试当成实际发行全量；A6 持久文件归属和未知副作用恢复仍未完成。
+
+
+**本地签名包 16 KB 页专项**：上述本地 dirty release 在 API 36 / 16 KB 页模拟器覆盖安装后，仅创建本次独立公共文本 `plan-proof-23a960bdc535.txt`，正式复制到 `smoke-target/`，完成后强制停止/重启再打开同一历史详情。随后通过应用普通 PTY shell，以只读 sqlite3 查询仅限本次唯一相对路径的记录：头版本 3、已完成任务/条目、plan 与请求 id 不同、非重试的 retryOf 为 null；对应私有 destination 目录存在，来源/目标 cmp 一致，并将本次计划 UUID 保存到独立测试 receipt。探针退出 0 后关闭 shell，无 adb root/run-as 或策略绕过。证据 `tmp/execution-plan-release16k/fixture.json`、`persisted-details.xml`、`local-query.sh`、`local-plan-probe.xml`。这是受控本机复制/只读记录关联，不证明任意文件归属、掉电耐久性或完整客户端；本次样本与计划目录保留供干净 CI 升级复验，之后按已知样本清理。
+
+
+**§9.113 云端发行与实际升级**：[Android CI 41348806586](https://github.com/hanxi/ghosterm/actions/runs/41348806586) 与 [macOS CI 41348806603](https://github.com/hanxi/ghosterm/actions/runs/41348806603) 均成功。共用 dev 实际 APK 来源 `700f8be` / clean，**8,015,271 字节**，SHA256 `a7f6219fe5f6f29d31e92c6011d40a9f508d4cfbbe419abb9f321a14bd62548e`。下载核验外部摘要/清单、固定证书、非 debuggable/minSdk 29、三个压缩 arm64 SO、ZIP/ELF 16 KB、完整 Nerd Fonts/许可及实际 CI R8/资源优化任务；共用八份附件与两份 macOS 归档保留。
+
+同一云端包在 API 36 / 16 KB 页模拟器覆盖安装、首页/关于页源码与干净状态通过。随后从普通应用 shell 以只读 sqlite3 再核对上述唯一测试记录，显式验证 UID ≥ 10000、版本 3、已完成任务/条目、非重试关联以及 plan 与请求 id 不同；当前计划 UUID 与升级前 receipt 完全一致，对应 destination 目录仍在，源/目标 cmp 一致。不是 adb root/run-as/外部测试 provider 取数，也不将计划路径当文件所有权。
+
+升级复验后普通 shell 先重新核对 nonce、计划 receipt 与字节，仅 rmdir 本次计划内的已空 source/destination/计划目录，并删除本次源、目标和 receipt，退出 0 后关闭会话；随后重新打开最新详情确认同一 nonce 才清除这条历史，下一条旧 before-upgrade 记录仍可打开，最后回到首页。未递归删除原 HOME/任务根，不重放或删除其他历史。实际包与来源证据 `tmp/execution-plan-cloud/inspection/`、`published/`、`ci.log`、`dev-assets.json`、`release-about.xml`、`device-result.json`；升级与清理在 `tmp/execution-plan-release16k/upgrade-plan-probe.xml`、`cleanup-*`、`fixture.json`。这份样本是在本地 dirty 包创建、干净包升级读取，不冒充在云端包中创建；直接云端包新建复制另验，完整 A6/A10 仍未完成。
+
+
+**直接云端包新建复制**：同一 `700f8be` / clean APK 继续在上述 16 KB 页模拟器中，通过普通 shell 创建另一个独立公共样本 `plan-proof-170105c03fa6.txt`，经正式文件选择/复制/目标确认写入 `smoke-target/`；完成后强制停止/重启，历史仍显示该 nonce 已完成。普通应用 UID shell 的只读 sqlite3 复验通过：本次新写头版本 3、任务/条目已完成、plan 与请求 id 不同、非重试 retryOf 为 null；对应 destination 目录存在，源和目标 cmp 一致。探针退出 0 并关闭会话，证据 `tmp/execution-plan-release16k-clean/persisted-details.xml`、`local-query.sh`、`local-plan-probe.xml`、`fixture.json`。这是当前云端 release 的本机→本机写入与重启保留专项，不替代远端/SAF、物理硬件或完整 A10。
+
+
+直接云端包样本复验后，也仅按同一 nonce 与计划 receipt 清理本次源/目标/receipt、仅 rmdir 本次已空计划目录，并在详情再次核对 nonce 后清除该历史；旧 before-upgrade 记录仍能打开，回到首页、没有活动测试 shell。两份 fixture 的 owned_files_removed / owned_empty_plan_removed / owned_history_removed 均为 true，旧样本另有 cloud_upgrade_plan_verified=true；第二份证据 `tmp/execution-plan-release16k-clean/cleanup-*`、`fixture.json`。未以当前计划目录或摘要赋予产品自动删除权；持久文件身份、远端/SAF 未知结果恢复、A2/A3/A5/A10 的剩余设备与网络范围继续待办。
