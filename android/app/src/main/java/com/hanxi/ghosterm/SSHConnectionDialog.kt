@@ -137,7 +137,7 @@ fun SSHSessionChoices(model: SessionsViewModel) {
     ModalBottomSheet(onDismissRequest = model::dismissRemoteChoices) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text("选择 $alias 的会话",style = MaterialTheme.typography.titleLarge)
-            model.sessions.filter { it.remoteAlias == alias && it.state.connected }.forEachIndexed { index, session ->
+            model.sessions.filter { it.remoteAlias == alias && it.state.connected && it.backgroundSession==null }.forEachIndexed { index, session ->
                 TextButton(onClick = { model.show(session.id) },modifier = Modifier.fillMaxWidth().testTag("ssh-session-${session.id}")) {
                     Text("会话 ${index + 1}" + if (model.selected == session.id) " · 当前" else "")
                 }

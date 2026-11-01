@@ -217,7 +217,7 @@ Android Release 资产以 `python3 scripts/check-android-release-assets.py 目�
 
 ### 变异验证（新增闸门必须附）
 
-`android-tmux` 用 `ANDROID_SERIAL=设备 ANDROID_TMUX_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteTmuxTest bash scripts/test-android-ssh.sh` 手工执行十二组：实际执行端命名空间、固定地址、native/Kotlin 代次、认证 scope/材料清理、取消释放、真正 attach、未知结果/文案/禁止重试与普通入口隔离。每组真实编译后单条目标断言红、同 APK Core 配置对照绿、复原绿并核对输入 SHA256；入队次数与服务器 create 日志共同约束未知重试。API 29/36 各 45 项组合及失败/复验记录见 Android 计划 §9.103，不计入 macOS CI 20 份。
+`android-tmux` 用 `ANDROID_SERIAL=设备 ANDROID_TMUX_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteTmuxTest bash scripts/test-android-ssh.sh` 手工执行十三组：实际执行端命名空间、固定地址、native/Kotlin 代次、认证 scope/材料清理、取消释放、真正 attach、未知结果/文案/禁止重试与普通入口/选择器隔离。每组真实编译后单条目标断言红、同 APK Core 配置对照绿、复原绿并核对输入 SHA256；入队次数与服务器 create 日志共同约束未知重试。`ee2a83f` 的 API 29/36 各 45 项组合、新选择器补丁的两端三项与入口/选择器两组变异及失败/复验记录见 Android 计划 §9.103，不计入 macOS CI 20 份。
 
 
 新增任何断言/闸门，都要证明它**有牙**：故意改坏 → 断言变红 → 回滚复绿。

@@ -153,6 +153,17 @@ class TmuxProductTest {
             assertNotEquals(background,sessions().active!!.id)
             assertTrue(sessions().sessions.any { it.id==background && it.state.connected })
         }
+        val firstOrdinary=sessions().active!!.id
+        ui.runOnIdle { sessions().selectNewRemote() }
+        ui.onNodeWithText(alias).performClick();login()
+        ui.waitUntil(15000) { sessions().visible && sessions().active?.state?.connected==true && sessions().active!!.id!=firstOrdinary }
+        val secondOrdinary=sessions().active!!.id
+        ui.runOnIdle { sessions().home() }
+        ui.onNodeWithText(alias).performClick()
+        ui.waitUntil(15000) { sessions().choosingRemote==alias }
+        ui.onNodeWithTag("ssh-session-"+background).assertDoesNotExist()
+        ui.onNodeWithTag("ssh-session-"+firstOrdinary).assertIsDisplayed()
+        ui.onNodeWithTag("ssh-session-"+secondOrdinary).assertIsDisplayed()
     }
     @Test fun unknownCreateIsVisibleAndReconnectionDoesNotReplayIt() {
         vault.remove(identity);identity=vault.import(alias+"-delay",tmux.getString("delayPem").toByteArray())

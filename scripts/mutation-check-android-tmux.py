@@ -12,7 +12,8 @@ def execute(root,build,test):
     bridge=root/'android/bridge/src/main/java/com/hanxi/ghosterm/bridge/RemoteTmux.kt'
     model=root/'android/app/src/main/java/com/hanxi/ghosterm/TmuxViewModel.kt'
     sessions=root/'android/app/src/main/java/com/hanxi/ghosterm/SessionsViewModel.kt'
-    originals={p:p.read_bytes() for p in (core,native,session,bridge,model,sessions)}
+    dialog=root/'android/app/src/main/java/com/hanxi/ghosterm/SSHConnectionDialog.kt'
+    originals={p:p.read_bytes() for p in (core,native,session,bridge,model,sessions,dialog)}
     if any(MARK.encode() in data for data in originals.values()):raise RuntimeError('Residual Android tmux mutation')
     remote='com.hanxi.ghosterm.RemoteTmuxTest#'
     ui='com.hanxi.ghosterm.TmuxProductTest#'
@@ -30,6 +31,7 @@ def execute(root,build,test):
       ('unknown-ui',model,unknown,'RemoteTmuxResult.UNKNOWN -> error=label+"请求已拒绝。"+result.error',ui+'unknownCreateIsVisibleAndReconnectionDoesNotReplayIt'),
       ('unknown-auto-retry',model,unknown,'RemoteTmuxResult.UNKNOWN -> { error=label+"结果无法确认，请刷新实际会话后再操作；不会自动重试。"+result.error;action(remote);Unit }',ui+'unknownCreateIsVisibleAndReconnectionDoesNotReplayIt'),
       ('default-entry',sessions,'it.state.connected && it.backgroundSession==null','it.state.connected',ui+'normalHostEntryCreatesAnOrdinaryTerminalInsteadOfReusingABackgroundClient'),
+      ('ordinary-picker',dialog,'it.remoteAlias == alias && it.state.connected && it.backgroundSession==null','it.remoteAlias == alias && it.state.connected',ui+'normalHostEntryCreatesAnOrdinaryTerminalInsteadOfReusingABackgroundClient'),
     ]
     wanted=set(os.environ['ANDROID_TMUX_CASES'].split(',')) if os.environ.get('ANDROID_TMUX_CASES') else None
     if wanted is not None and wanted-{c[0] for c in cases}:raise RuntimeError('Unknown Android tmux case')
