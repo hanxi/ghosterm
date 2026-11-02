@@ -2,11 +2,11 @@
 
 Ghosterm 是各端原生 UI、共享 C 核心和 libghostty 驱动的终端，提供 SSH 配置管理与 SFTP 文件管理。默认普通 PTY/SSH，可显式使用 tmux 后台会话。
 
-**当前发行（2026-11-02，`84b984e`）**：主机首页、唯一设置入口、底部文件任务条；终端保持唯一键盘入口。文件支持点按打开、长按多选和跨本机/远端复制粘贴，最新修正覆盖大字体与矮窗口；域名 DNS 兼容及地址防自动更正已保留。详见[当前发行与安装证据](docs/reference/android-implementation.md#9147-验收夹具校正的实际-dev-发行2026-11-02)。
+**当前发行（2026-11-02，`6deb04b`）**：主机首页、唯一设置入口、底部文件任务条；终端保持唯一键盘入口。文件支持点按打开、长按多选和跨本机/远端复制粘贴，最新修正覆盖大字体与矮窗口；域名 DNS 兼容及地址防自动更正已保留。详见[当前发行与安装证据](docs/reference/android-implementation.md#9150-终端无障碍的实际-dev-发行2026-11-02)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,126,827 字节，固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐与构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41446395677) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41446395663) 成功。两端共用 dev，保留八份平台附件。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,127,663 字节，固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐与构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41455186293) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41455186283) 成功。两端共用 dev，保留八份平台附件。
 
-**验收状态**：`18db11b` 在 API 29 / API 36、arm64 / 4 KiB 页各默认完整 **912 项通过**，零失败/错误/跳过；具名集合、各自安装包和同源 902 份输入已核验。API 36 / 16 KiB 页校正后 `84b984e` 全量为 911/912，仍未验收；紧凑菜单同步与终端无障碍正文已补入工作区，专项通过，新全量/CI 待验。实际发行专项与仍缺的真机/完整发行矩阵见[完成审计](docs/reference/android-implementation.md#101-当前完成审计与剩余验收2026-11-02)。
+**验收状态**：`18db11b` 在 API 29 / API 36、arm64 / 4 KiB 页各默认完整 **912 项通过**，零失败/错误/跳过；具名集合、各自安装包和同源 902 份输入已核验。API 36 / 16 KiB 页校正后 `84b984e` 全量为 911/912，仍未验收；紧凑菜单同步与终端无障碍正文已随 `6deb04b` 发行，专项与 CI 包检查通过；新默认 915 项全量仍在运行。实际发行专项与仍缺的真机/完整发行矩阵见[完成审计](docs/reference/android-implementation.md#101-当前完成审计与剩余验收2026-11-02)。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
