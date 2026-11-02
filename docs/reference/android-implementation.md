@@ -1,8 +1,8 @@
 # Android 最终方案实现计划
 
-**当前 Android 发行（2026-11-02，`8d6178d`）**：主机字段已关闭自动更正，地址使用 URI 键盘；DNS 探测兼容保留，实际签名包已验证公网 `ssh.github.com:443` 解析至 SSH 主机密钥确认，未接受信任或认证。手机 Wi-Fi/移动网络仍待用户复测。横屏终端布局见 [§9.139](android-implementation.md#9139-横屏键盘与大字体终端布局2026-11-02工作区)，输入与实际发行见 §9.140–§9.141。
+**当前 Android 发行（2026-11-02，`b7dae61`）**：大字体/矮窗口文件页面保留完整条目、复制清单与粘贴入口，见 §9.142；主机字段关闭自动更正，地址使用 URI 键盘，DNS 探测兼容保留。公网 `ssh.github.com:443` 至主机密钥确认的正式包证据属于 `8d6178d`，未接受信任或认证；手机 Wi-Fi/移动网络仍待用户复测。横屏终端布局见 [§9.139](android-implementation.md#9139-横屏键盘与大字体终端布局2026-11-02工作区)，输入与实际发行见 §9.140–§9.141。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,118,419 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41419624635) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41418475020) 成功。macOS 两份归档来源为 `3d197c8` / build 88，与 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,126,827 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41435141857) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41435141893) 成功。macOS 两份归档来源为 `b7dae61` / build 89，与 Android 共用 dev，八份平台附件名称保留。
 
 **最近完整回归**：`8d6178d` 在 API 36 / arm64 / 4 KiB 页默认未筛选 **908 项全部通过**，零失败/错误/跳过，2,415.623 秒；具名执行集合、实际安装 APK 与 901 份源码输入前后摘要均核验，见 §9.142。API 29 最近完整 905 项仍只属于较早的 `8e161e7`（§9.132），不能当作同源双版本 908 项通过。后续大字体/矮窗口文件浏览、复制与预览增量已在 API 29 / 4 KiB 与 API 36 / 16 KiB 页各通过 51 项专项，并在 API 29 通过 22 组变异；902 份输入与签名 release/lint 同源，见 §9.142；不在上述 908 项 APK 中，也不算新版本完整回归。Core 49/94、两端各十个真实进程中断及旧失败保留在各自实施记录。`8e161e7` 正式包十分钟批量输出观察仍见 §9.138，不转记为新包或手机性能通过。
 
@@ -3801,3 +3801,12 @@ API 36 既有 HostScreenTest 全部 **14 项通过**，69.760 秒（阶段 `1793
 `mutation-check-android-task-dock.py` 最终 **22 组全部通过**：保留旧八组，新增紧凑摘要、打开/未知状态、文件位置身份、条目可见、预览滚动、选择栏、清单高度/详情/粘贴/清空/虚拟列表及竖屏大字体。每组真实编译后正常断言红、同 APK 独立 Core 配置对照绿、恢复绿与源文件 SHA256；收据与逐组日志在 `final22/`。属手工设备证据，不增加 macOS CI 20 份。
 
 现有发行密钥签名的本地优化 release 与四模块 lint 通过；APK **8,127,107 字节**，SHA256 `626187ca56ea7e205ab5422d9c73900affb494df688d34db19fbbf03ad199618`。固定证书、非 debug、minSdk 29、R8 映射、arm64 三库压缩、ZIP/ELF 16 KiB 对齐和构建路径检查通过，收据与实际包在 `final-signed-release/`。该本地包是隔离检出的 `8e161e7` / dirty 元数据，不冒充 clean CI 包；新提交的云端包与实际安装验收另记。Core 离线闸门本轮 **49 CTest / 94 ABI** 通过（`final-core-gate.log`），本片未改公共 ABI。一次新建 QA 模拟器 QEMU 自身以 134 退出，已保留 `emulator36-16k-third.log` 并保留数据重启；不计作应用通过或已定位的应用崩溃。上述均为模拟器专项，用户手机的 Wi-Fi/移动网络复测和完整系统/键盘矩阵仍待验。
+
+
+### 9.143 大字体文件界面的实际 dev 发行（2026-11-02，`b7dae61`）
+
+[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41435141857) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41435141893) 均成功。实际从 dev 下载 APK **8,126,827 字节**，SHA256 `de8fcf507970de7581de65295d235aa136570e3db4b643342ab47b4692711934`，包内来源 `b7dae6148128904ec6382f30453397518464d144` / clean；固定证书、非 debug/minSdk 29、R8/资源优化、三份压缩 arm64 SO、ELF/ZIP 16 KiB、完整 Nerd Fonts/许可与构建机路径检查通过。外部清单、SHA256 和包内元数据/实际字节一致，共用 dev 八份平台附件保留。macOS `version.json` 同源、build 89、最低 macOS 15.0、ad-hoc/未公证；未改变独立 Homebrew cask 的 26 下限。发行原始证据在 `tmp/android-small-files-cloud/`。
+
+本地同源签名包先在本次新建的 API 36 / arm64 / 16 KiB 页 QA AVD 中，经真实终端创建带随机目录标记的源/目标文件。200% 字体的横屏 640×320 与竖屏 320×640 均可见复制名称、粘贴按钮和完整文件行；清单可滚动查看完整项。确认前目标只有既有文件，明确点击“确认复制到此目录”后显示完成一项、提交 15 字节；目标副本 `release-copy-ok`、源同文和既有 `keep-destination` 均通过真实只读预览读回。一次外部 uiautomator dump 超时中断脚本，随后保留现场继续真实手势；不记为首轮整脚本通过或应用崩溃。操作 XML、脚本及局部结果在 `tmp/android-small-files-release-ui/`。
+
+随后以实际下载的 clean CI APK 覆盖安装，核对设备已安装 APK 与下载字节相同；保持 200% 竖屏字体，再从真实文件入口逐一读回同一个随机目录中的目标、既有和源，内容相同。收据 `tmp/android-small-files-cloud/device-result.json`；证明本次包可覆盖安装并保留这些自建文件，不扩大成旧用户全量数据迁移、此 clean APK 上重新执行全部复制场景、物理手机 DNS 或完整发行矩阵。原有 QA AVD 的历史数据未卸载或清除；卸载 debug/test 只发生在此次新建的隔离 QA AVD。整个 Android 客户端目标仍未完成，待验范围继续见 §8/§10。
