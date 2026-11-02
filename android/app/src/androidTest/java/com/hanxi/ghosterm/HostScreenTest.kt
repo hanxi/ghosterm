@@ -91,7 +91,7 @@ class HostScreenTest {
         ui.onNodeWithText("还没有主机").assertDoesNotExist()
         ui.onNodeWithText("添加主机").assertIsNotEnabled()
         ui.onNodeWithText("设置").performClick()
-        ui.onNodeWithText("关于 Ghosterm").performClick()
+        ui.onNodeWithText("关于 Ghosterm").performScrollTo().performClick()
         ui.onNodeWithText("返回").performClick()
         openConnectionCategory()
         ui.onNodeWithText("管理主机").performScrollTo().performClick()

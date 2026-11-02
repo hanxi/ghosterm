@@ -127,11 +127,13 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         try { if(!release.await(mode.equals("foreground-late-create")?60:10,TimeUnit.SECONDS))throw new FileNotFoundException("Fixture release timed out"); }
         catch(InterruptedException error) { Thread.currentThread().interrupt();throw new FileNotFoundException("Interrupted"); }
     }
-    /** Fill the pipe then free only PIPE_BUF (4 KiB on the tested Linux device).
-     * POLLOUT is now true, but a blocking 32 KiB write cannot complete until release.
+    /** Fill with atomic PIPE_BUF writes, then free one whole kernel pipe page.
+     * Reading only 4 KiB does not free a ring slot on a 16 KiB-page device:
+     * POLLOUT stays false and the fixture never permits initial partial progress.
+     * One free page permits partial progress, but still stalls a 32 KiB write.
      * These fixture bytes never claim to be a successful target; the test cancels it.
      */
-    private static void leaveOneAtomicWriteFree(ParcelFileDescriptor[] pipe) throws IOException,android.system.ErrnoException {
+    private static void leaveOnePipePageFree(ParcelFileDescriptor[] pipe) throws IOException,android.system.ErrnoException {
         java.io.FileDescriptor writer=pipe[1].getFileDescriptor();byte[] bytes=new byte[4096];
         android.system.StructPollfd poll=new android.system.StructPollfd();
         poll.fd=writer;poll.events=(short)android.system.OsConstants.POLLOUT;
@@ -153,7 +155,9 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
                 if(failure.errno!=android.system.OsConstants.EINTR)throw failure;
             }
         }
-        if(filled<bytes.length || android.system.Os.read(pipe[0].getFileDescriptor(),bytes,0,bytes.length)!=bytes.length)
+        int pageSize=Math.toIntExact(android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE));
+        byte[] freed=new byte[pageSize];
+        if(filled<freed.length || android.system.Os.read(pipe[0].getFileDescriptor(),freed,0,freed.length)!=freed.length)
             throw new IOException("Pipe capacity fixture failed");
     }
     @Override public void deleteDocument(String id) throws FileNotFoundException {
@@ -176,7 +180,7 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
                 e.closed=new CountDownLatch(1);
                 if(e.mode.equals("pipe-write")||e.mode.equals("pipe-stall")) {
                     ParcelFileDescriptor[] pair=ParcelFileDescriptor.createReliablePipe();
-                    if(e.mode.equals("pipe-stall"))try { leaveOneAtomicWriteFree(pair); }
+                    if(e.mode.equals("pipe-stall"))try { leaveOnePipePageFree(pair); }
                     catch(IOException|android.system.ErrnoException failure) { pair[0].close();pair[1].close();throw failure; }
                     active.incrementAndGet();
                     new Thread(()-> {

@@ -28,7 +28,8 @@ def main():
     model = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm/SessionsViewModel.kt'
     screen = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm/TerminalScreen.kt'
     main_screen = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm/MainActivity.kt'
-    originals = {p: p.read_bytes() for p in (native, surface, view, model, screen, main_screen)}
+    lifecycle_test = ROOT / 'android/app/src/androidTest/java/com/hanxi/ghosterm/TerminalLifecycleTest.kt'
+    originals = {p: p.read_bytes() for p in (native, surface, view, model, screen, main_screen, lifecycle_test)}
     if any(MARK.encode() in data for data in originals.values()): raise RuntimeError('mutation marker present')
     hashes = {p: hashlib.sha256(data).digest() for p, data in originals.items()}
     local = 'LocalTerminalTest#'
@@ -91,6 +92,8 @@ def main():
         (surface, 'style.blink << 7',
          '0 << 7', ui + 'blinkingTextRepaintsWithoutCursorOrNewOutput'),
     ]
+    cases.append((lifecycle_test, 'terminal().commitText("stty -echo; printf \'\\\\033[2J\\\\033[HPID:%s\\\\r\\\\n\' \\"\\u0024\\u0024\\"\\r")', 'terminal().commitText("stty -echo; printf \'\\\\033[2J\\\\033[HPID:not-a-number%s\\\\r\\\\n\' \\"\\u0024\\u0024\\"\\r")',
+                  life + 'activityRecreationRetainsOwnerPidAndKeyboardResizesTheSamePty'))
     selected = args.selected or list(range(1, len(cases) + 1))
     if any(n < 1 or n > len(cases) for n in selected): raise RuntimeError('case out of range')
     work = ROOT / 'tmp/android-terminal-mutations'; work.mkdir(exist_ok=True)
@@ -120,6 +123,8 @@ def main():
             path.write_text(source.replace(before, after + ' /* ' + MARK + ' */'))
             build(label)
             test(target, False, label + '-target')
+            if number == 25 and '等待真实终端 PID' not in (work / (label + '-target.log')).read_text():
+                raise RuntimeError('T25 must fail at the real PID checkpoint')
             test('NativeSmokeTest#corePreservesUtf8AndLineEndings', True, label + '-control')
             path.write_bytes(originals[path])
             if hashlib.sha256(path.read_bytes()).digest() != hashes[path]: raise RuntimeError('restore SHA256 mismatch')

@@ -645,8 +645,15 @@ class TerminalScreenTest {
             image.recycle(); assertTrue("selected cells must be visibly painted", selected > 50)
         }
         clickSystemText("复制")
-        ui.waitUntil {
-            ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() == "COPY_THIS"
+        try {
+            ui.waitUntil {
+                ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() == "COPY_THIS"
+            }
+        } catch (failure: ComposeTimeoutException) {
+            val actual = ui.runOnIdle {
+                ui.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString()
+            }
+            throw AssertionError("复制应为 COPY_THIS，实际剪贴板为 <$actual>", failure)
         }
     }
 

@@ -39,6 +39,20 @@ class TerminalLifecycleTest {
         }
         ui.runOnIdle { fail("等待 $value [focus=${terminal().hasFocus()} window=${terminal().hasWindowFocus()} composing=${terminal().composition} ctrl=${terminal().ctrl}]: ${text()}") }
     }
+    private fun capturePid(): Pair<String, Int> {
+        val end = SystemClock.uptimeMillis() + 10_000
+        while (SystemClock.uptimeMillis() < end) {
+            val captured = ui.runOnIdle {
+                terminal().currentFrame?.let { frame ->
+                    val line = frame.line(0)
+                    if (line.matches(Regex("PID:[0-9]+"))) line to frame.rows else null
+                }
+            }
+            if (captured != null) return captured
+            SystemClock.sleep(20)
+        }
+        throw AssertionError("等待真实终端 PID: " + ui.runOnIdle { text() })
+    }
     private fun waitForUnwrapped(value: String) {
         val surface = ui.runOnIdle { checkNotNull(model().active).surface }
         val end = SystemClock.uptimeMillis() + 10_000
@@ -79,8 +93,8 @@ class TerminalLifecycleTest {
             original = model()
             terminal().commitText("stty -echo; printf '\\033[2J\\033[HPID:%s\\r\\n' \"\u0024\u0024\"\r")
         }
-        waitFor("PID:")
-        ui.runOnIdle { pid = terminal().currentFrame!!.line(0); rows = terminal().currentFrame!!.rows }
+        val captured = capturePid()
+        pid = captured.first; rows = captured.second
         ui.activityRule.scenario.recreate()
         ui.runOnIdle { assertSame(original, model()) }
         ui.waitUntil { find(ui.activity.window.decorView)?.currentFrame != null }
