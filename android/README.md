@@ -4,9 +4,9 @@
 
 [共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,139,891 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41535579105](https://github.com/hanxi/ghosterm/actions/runs/41535579105) 成功，实际附件已下载核验。Mac 保留 `d3313a7` / build 95 / min macOS 15.0 / ad-hoc / 未公证（[原 CI](https://github.com/hanxi/ghosterm/actions/runs/41528681290)）；其五份附件 ID/尺寸不变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
 
-**完整回归**：`0c30b17` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **924 项全部通过**，零失败/错误/跳过。两端 908 份输入前后及跨检出相同，实际安装 APK、源码和具名成功集合已核对（§9.170）。旧 `0c30b17` 实际 CI release 的 API 29 覆盖升级、SAF 加载/错误/重试及原资料保留另有专项；真实手机和完整外部端点矩阵仍待完成。
+**完整回归**：`e254b3d` / clean 在 API 29 / arm64 / 4 KiB 页与 Android 16 / API 36 / arm64 / 16 KiB 页各默认完整 **929 项全部通过**，零失败/错误/跳过。具名发现/成功结束集合、实际安装 app/test APK 及 911 份输入前后与跨检出一致，见 [§9.176](../docs/reference/android-implementation.md#9176-夹具修正后的两端默认完整-929-项2026-11-03)。这是 debug instrumentation 完整结果；正式 release 及真实手机/外部矩阵分别记账。
 
-**完整回归状态**：`e254b3d` 两端新的干净 929 项正在运行，尚未验收通过。旧 `174e754` 两端各 929 方法中具名失败 60 个（104 条含重复报错事件）；夹具修正、原失败重放与 IME 专项分别记账，见 [§9.174](../docs/reference/android-implementation.md#9174-成功密钥记忆后完整回归的测试夹具修正2026-11-03)。
+**旧失败记录保留**：`174e754` 两端各 929 方法中具名失败 60 个（104 条含重复报错事件）；旧手动认证前提与 Application Context 夹具已修正，过程见 [§9.174](../docs/reference/android-implementation.md#9174-成功密钥记忆后完整回归的测试夹具修正2026-11-03)。不把旧失败改记为通过。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 
