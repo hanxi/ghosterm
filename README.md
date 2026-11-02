@@ -1,28 +1,12 @@
 # Ghosterm
 
-**Android 新恢复入口已发行（`5645f5c`）**：已接结果不明任务的显式来源选择，重新扫描与确认后创建新复制，保留原结果；Android 10 / 16 各 47 项组合和 15 组分轮变异通过。详见[实现记录](docs/reference/android-implementation.md#android-history-recovery)。
+Ghosterm 是各端原生 UI、共享 C 核心和 libghostty 驱动的终端，提供 SSH 配置管理与 SFTP 文件管理。默认普通 PTY/SSH，可显式使用 tmux 后台会话。
 
-**Android DNS 修复已发行（`66d1bd9`）**：已复现 IP 可连、域名因系统可达性探测误报网络不可用；兼容修复在 Android 10 / 16 各 50 项检查及真实 DNS→SSH 用例通过，15 组保护和签名 release/lint 通过，见[修复记录](docs/reference/android-implementation.md#android-dns-probe-compatibility)。用户手机复测与完整网络矩阵仍待验。
+**当前发行（2026-11-02，`98d845e`）**：历史未完成位置已支持显式核对、默认不勾选的删除确认和独立 SQLite 操作记录；本机/远端文件与空目录、SAF 文件已接，SAF 目录明确提示系统整理。原复制结果不改写，未知删除不自动重放。API 29/36 各 76 项、十三个新保护及四个受影响复验、Core 49/94 与签名 release/四模块 lint 通过。实际签名包在 API 36 / arm64 / 16 KiB 页验证旧版 SAF 部分文档保留、进程中断后意图保留、无自动重放与缺失目标停止；详见[历史清理记录](docs/reference/android-implementation.md#android-explicit-history-cleanup)。
 
-**当前 Android**：共用 dev 已发布正式签名 release APK，包含主机首页、SSH/SFTP、本机/SAF 文件复制、五类设置、Kitty 图形/动画、Nerd Fonts 与可选远端 tmux。最新已验云端包来源 `5645f5c`，8,044,919 字节；已接暂停/继续、安全重试、持久历史/计划引用、显式内容与本机创建身份核对、本机暂存维护。两端各 182 项最终相关组合通过；此前 `66d1bd9` 修复背景像素后，API 36 / 4 KB 页完整 860 项通过（零失败/错误/跳过），历史失败与最终证据见 §9.115/§9.120。完整客户端、未知副作用处理与设备矩阵仍未完成，逐片证据见 [Android 实现计划](docs/reference/android-implementation.md#android-local-file-identity)，下载见 [dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev)。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,091,475 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可和 ELF/ZIP 16 KiB 对齐均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41375020094) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41375020093) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
 
-**历史验收（§9.77，2026-11-01）**：文件任务已显示当前文件的读取/写入/核验、实际字节、本阶段平均速度与保守的阶段剩余时间。25 组新增变异与 114 组相关旧变异分轮通过；新完整 **491 项通过，零失败/错误/跳过**（1250.863 秒），746 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；整体剩余时间、暂停/重试、完整偏好和发行矩阵仍待完成，A6 保持部分交付。同源码云端签名 release 为 5,903,009 字节，16 KB 页启动/升级与 28 字节复制专项已验（§9.78），不代表完整发行矩阵。
-
-**历史验收（§9.75，2026-11-01）**：开启通知后当前任务不补发的问题已修复；两组新增变异、七组通知相关旧变异及五个系统场景通过。新完整 **483 项通过，零失败/错误/跳过**（1143.045 秒），742 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；同一云端签名 release 已验升级、通知恢复/跳转/取消及 28 字节复制预览；A6 其他能力和完整发行矩阵仍待完成。
-
-**前次验收（§9.74，2026-11-01）**：文件传输前台服务、通知跳转/取消及系统超时、stop-app、通知拒绝/渠道关闭专项已验；30 组新增变异与 73 组相关既有变异分轮通过。完整 **483 项通过，零失败/错误/跳过**（1178.324 秒），742 份非 Markdown 源码集合/SHA256 不变，两份已安装 APK 与构建摘要一致。仅 API 36 arm64 / 4 KB 页模拟器；暂停/重试、真实进度与完整偏好仍待完成，A6 保持部分交付。
-
-**macOS 功能键修复（`124edb6`）**：排除 AppKit 功能键占位符文本，由 full libghostty 按协商协议编码。该提交记录普通/应用光标/Kitty 共 90 个场景、1 组变异、Terminal 29 项及真实 SSH → Codex 左右键验证通过，原生 release 与打包通过；未重跑完整宿主 UI，既有设置页像素失败仍保留。详见[功能键编码记录](docs/reference/optional-tmux-implementation.md#功能键编码修复2026-10-31)。
-
-**上一阶段实现（2026-10-31，§9.72 当前模拟器档已验）**：§9.72 已接 FIFO 文件队列，最多 32 个未结束请求；扫描、确认、执行和取消清理共用一个执行名额。8 项队列定向、14 组新增及既有 39 组变异通过；完整设备 453 项通过。前台服务/通知、持久恢复、暂停/重试和完整偏好仍未实现，A6 保持部分完成。 详见[队列记录](docs/reference/android-implementation.md#972-a6-fifo-文件任务队列2026-10-31)。
-
-**历史验收（§9.73）**：SQLite 任务记录、执行检查点和重启后的只读历史已接通；27 组新增记录/中断/发现变异、九种真实进程中断及受影响的既有变异通过。完整 **475 项通过，零失败/错误/跳过**（1200.707 秒），735 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致；仅 API 36 arm64 / 4 KB 页模拟器。历史不自动重放复制或恢复清单；前台服务、暂停和失败重试仍未实现，A6 保持部分完成。详见[持久记录验收](docs/reference/android-implementation.md#973-a6-持久任务记录与只读历史2026-10-31)。
-
-**历史验收边界（§9.72）**：完整设备 **453 项通过，零失败/错误/跳过**（1216.568 秒），仅 API 36 arm64 / 4 KB 页模拟器；722 份非 Markdown 源码摘要不变，安装主/测试 APK 与构建 SHA256 一致。 Android debug/测试 APK 构建、Core 47 CTest / 89 ABI、Apple 87/2 与 JNI 49/40 绑定对拍通过。本轮未重跑完整 macOS 宿主或打包；macOS 键盘专项与既有设置页像素失败分别保留。该轮未新增 Android 真机、API 29、16 KB 页、发行或 CI 证据；新的独立 release CI 见 [出包说明](docs/how-to/android-release.md)。
-
-**libghostty 驱动的多端终端** × **VS Code 式 `~/.ssh/config` 图形管理** × **WinSCP 式 SFTP 文件管理器**。
-
-**macOS 最近完整宿主记录**：`4cbfcf4` 已修复跨屏缩放，三项定向与六组变异通过；完整 App 349 项中 347 通过、1 跳过、1 设置页像素失败，尚未全绿。真实双屏复验和设置布局修复仍待完成，见 [Apple 说明](apple/README.md)。
+整个客户端仍未完成：当前进程已结束任务的直接维护入口、不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
 ## 技术栈
 
@@ -138,13 +122,13 @@ Android 已接主机首页、本地/SSH 终端、本机/SAF/远端文件浏览�
 
 进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准；以下区分生产实现与历史验收，不把原型中的可交互演示记为已实现能力。
 
-- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成当前模拟器档；A2/A3/A4/A5/A6/A7 部分交付。任务页已接独立认证、冲突确认、取消等待和实际结果；跨远端命名空间判定、FIFO 调度和前台服务已接；暂停/继续、安全失败项重试、16 项设置生产接线及显式 tmux 已发行。历史位置/摘要、本机创建身份核对和暂存维护已接；远端/SAF 未知副作用处理、完整恢复/清理与设备/发行矩阵仍待完成。选区历史失败及后续修正、保护证据保留在实现记录。
+- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成当前模拟器档；A2/A3/A4/A5/A6/A7 部分交付。任务页已接独立认证、冲突确认、取消等待和实际结果；跨远端命名空间判定、FIFO 调度和前台服务已接；暂停/继续、安全失败项重试、16 项设置生产接线及显式 tmux 已发行。历史位置/摘要、本机创建身份核对和暂存维护已接；历史位置的远端/SAF 文件清理已接（§9.123）；当前已结束任务的直接维护、完整恢复与设备/发行矩阵仍待完成。选区历史失败及后续修正、保护证据保留在实现记录。
 - **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。macOS 尚无 TCP 失败后遍历 DNS 备用地址的实现；Android 已按 §9.40 接入候选推进。Android 普通 shell 已接剩余预算和取消；Swift 新接口已验，但 macOS 产品尚未改用，认证可取消不等于桌面通道打开已可取消，见 [通道边界](apple/README.md#ssh-认证后的通道打开边界)。
-- **共享核心**：最新本地闸门为 **47 项 CTest / 93 ABI**，Android JNI 为 55 引用 / 38 显式未用（§9.114）；§9.65 的历史验收基线为 **47 项 CTest / 89 ABI**，Apple 87/2、JNI 49/40；受控 shell/SFTP 打开、目录浏览、有界预览、独占暂存创建、受控读取到 fd 与三份依赖补丁已验。Android 已消费 shell 入口，SFTP 已接专用 owner/JNI/Kotlin 后端，文件页面已接；macOS 产品尚未改用受控 shell/SFTP。TOFU/移除共同事务已交付，Android 管理页在 §9.39 验收，macOS 无管理页；共享修复不代表桌面配置、设置或文件提交事务已完成。
+- **共享核心**：最新本地闸门为 **49 项 CTest / 94 ABI**，Apple 90 引用/4 登记未用，Android JNI 56/38（§9.122–§9.123）；§9.65 的历史验收基线为 **47 项 CTest / 89 ABI**，Apple 87/2、JNI 49/40；受控 shell/SFTP 打开、目录浏览、有界预览、独占暂存创建、受控读取到 fd 与三份依赖补丁已验。Android 已消费 shell 入口，SFTP 已接专用 owner/JNI/Kotlin 后端，文件页面已接；macOS 产品尚未改用受控 shell/SFTP。TOFU/移除共同事务已交付，Android 管理页在 §9.39 验收，macOS 无管理页；共享修复不代表桌面配置、设置或文件提交事务已完成。
 
 | 能力 | 状态 |
 |---|---|
-| C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 当前 93 符号对拍通过，包含远端非覆盖发布、受控单目录创建和请求内收发进度观察；受控打开、浏览与 stat 标志已验，Android 只读文件页面已接，macOS 产品仍待迁移，接口尚未冻结，旧会话 ABI 已移除 |
+| C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 当前 94 符号对拍通过，包含远端非覆盖发布、受控单目录创建和请求内收发进度观察；受控打开、浏览与 stat 标志已验，Android 只读文件页面已接，macOS 产品仍待迁移，接口尚未冻结，旧会话 ABI 已移除 |
 | `ssh_config` 解析 / 无损往返（未编辑） | ✅ 与原文逐字节相同 |
 | `ssh_config` 求值 | ✅ typed 视图 + 通用视图（`ssh -G` 等价）；42 键 × 6 host 全表语义对拍 |
 | `ssh_config` 编辑 API | 🟡 9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令已按实际匹配行编辑，已增加三字段来源与包含文件/重名块编辑保护；已接入仅替换目标别名 token 的重命名接口；全部字段视图仍待补齐 |
@@ -154,7 +138,7 @@ Android 已接主机首页、本地/SSH 终端、本机/SAF/远端文件浏览�
 | SFTP（list / stat / 上传 / 下载 / job 三态） | 🟡 基础原语有真 sshd e2e 与变异证据；覆盖截断与关闭结果检查已补齐（Android 计划 §9.53）；独占暂存创建与远端非覆盖发布已接（§9.54/§9.57），Android 产品接线见 §9.70；macOS 旧下载完整长度校验及过载下终态保障仍待补齐 |
 | **macOS 原生宿主** | 🟡 已交付主要功能；配置写盘与私钥安全存储接线仍有缺口，见路线图 |
 | ├ TerminalSurface（full libghostty + Metal） | ✅ 上游补丁提供 host IO 后端（`patches/libghostty/`） |
-| ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；当前绑定 ABI 对拍为 93 项中引用 89 项、另 4 项显式登记，受控文件新入口未接产品；改名绑定不等于 macOS 表单已接入 |
+| ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；当前绑定 ABI 对拍为 94 项中引用 90 项、另 4 项显式登记，受控文件新入口未接产品；改名绑定不等于 macOS 表单已接入 |
 | ├ 标签 / 窗格 | ✅ 单窗口顶部或侧边标签、UUID 重排、唯一加号、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；统一终端/文件工作区、分屏预览、焦点与停画。**遗留**：标签/布局跨重启持久化（设置偏好已持久化） |
 | ├ 配色集随包 + 主题选择 | ✅ Ghostty 配色集随包（`Contents/Resources/ghostty/themes`，数量由构建输出决定）+ 资源目录推导；出包包内配置检查验主题被引擎接受 |
 | ├ 终端设置 | 🟡 配置由 Ghostty 解析，字号/配色已有真实 surface 证据；`SettingsStore` 重复键编辑、读取错误与冲突判定仍有缺口，不能把正常配置的测试扩大为全部保存路径正确 |

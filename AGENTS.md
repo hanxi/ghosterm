@@ -155,7 +155,7 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 **受控远端删除后端（§9.122，未发行）**：当前 Core 49 CTest / 94 ABI，Apple 90 引用/4 登记未用，JNI 56/38。`mutation-check-sftp-remove.py` 的 Core 21＋Swift 7 组与 `ANDROID_REMOVE_MUTATE=1` 配合 `test-android-ssh.sh` 的 Android 19 组为分轮手工证据：编译后正常断言红、独立配置绿、复原绿及 SHA256；旧保护 13＋4 组复验通过。API 29/36 各 22 项与签名 release / 四模块 lint 通过；不增加 macOS CI 20 份。该后端切片当时未接页面/持久意图，后续历史文件清理见 §9.123；不据此记 A6 完成。
 
-**历史位置显式清理（§9.123，待发行）**：`ANDROID_FILE_CLEANUP_MUTATE=1` 配合 `test-android-ssh.sh` 的十三个不同保护分轮（12＋1）通过，后续三组 UI 和一组 write-ahead 复验通过：编译后正常断言红、同 APK 配置绿、复原绿及 SHA256。API 29/36 各 76 项、Core 49/94、签名 release/四模块 lint 通过，885 份最终输入一致。不增加 macOS CI 20 份；真实进程死亡、完整提供方/服务器及物理设备矩阵未完成，不记 A6/客户端完成。
+**历史位置显式清理（§9.123，已随 98d845e 发行）**：`ANDROID_FILE_CLEANUP_MUTATE=1` 配合 `test-android-ssh.sh` 的十三个不同保护分轮（12＋1）通过，后续三组 UI 和一组 write-ahead 复验通过：编译后正常断言红、同 APK 配置绿、复原绿及 SHA256。API 29/36 各 76 项、Core 49/94、签名 release/四模块 lint 通过，885 份最终输入一致。不增加 macOS CI 20 份；实际签名包在 16 KiB 页设备已验 SAF 删除回包前结束进程、UNKNOWN 意图保留和无重放；其它端点死亡、完整提供方/服务器及物理设备矩阵未完成，不记 A6/客户端完成。
 
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
