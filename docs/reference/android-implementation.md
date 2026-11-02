@@ -3949,7 +3949,7 @@ API 36 / arm64 / 4 KiB 页阶段 `1793618726649410000` 正常结束：默认未�
 
 拥有的 API 29 / arm64 / 4 KiB 页发行 AVD 以同证书覆盖升级，安装包摘要与实际下载一致，原 QA 主机仍在。按 [Rebex 官方公开测试端点](https://test.rebex.net/)与[其第三方客户端说明](https://www.rebex.net/file-server/)，通过真实界面连接域名/22 端口，独立扫描的公钥指纹与应用确认一致；使用官方公开只读测试账户登录 SSH，从终端点“文件”，同主机独立 SFTP 成功列出 `readme.txt` 并实际打开 UTF-8 预览。没有远端写入、上传或删除。返回后终端仍连接，经界面明确关闭本次会话；保留 QA 配置，停止 AVD、保留原数据。`rebex-result.json`、脱敏界面 XML 与相邻记录保存实际步骤，不包含口令。只证明这一外部只读服务器及实际签名包场景，不代表用户手机或全部服务器/文件写入矩阵。
 
-SSH 身份使用规则：导入只进入本机 Keystore 加密容器；要长期用于主机，需在“编辑主机 → SSH 身份 → 添加已导入密钥”保存。当前版本自动尝试明确配置的无口令候选；加密身份仍需口令，缺失/无效配置不猜选其他钥匙，手动认证可显式改选。配置不会因当次选钥静默更改。
+SSH 身份使用规则：导入只进入本机 Keystore 加密容器；要长期用于主机，需在“编辑主机 → SSH 身份 → 添加已导入身份”中点选密钥名称，再保存主机。当前版本自动尝试明确配置的无口令候选；加密身份仍需口令，缺失/无效配置不猜选其他钥匙，手动认证可显式改选。配置不会因当次选钥静默更改。
 
 当前 clean `c594409` 双系统默认发现集均为 917 项、904 份非 Markdown 输入。两端已完整执行并各有十五项旧手动认证流程相关失败，尚不能记为全量通过。API 29 用时 1,253.587 秒、API 36 / 16 KiB 页 1,350.811 秒，均 902 项通过；具名开始/结束集合与默认发现集完全相等，无跳过，904 份输入前后不变、来源 clean、实际安装 APK 与各自构建一致。完整失败证据在 `tmp/android-small-files-evidence/full917-c594409-api29-failed/`、`full917-c594409-16k-failed/`。三组夹具修正保留认证取消、归属、活动会话和文件实际字节断言，后续专项另记。
 
@@ -4006,3 +4006,14 @@ SSH 身份使用规则：导入只进入本机 Keystore 加密容器；要长期
 API 29 实际应用/测试 APK SHA256 为 `c4541e2daedcbbea3d1fca02c5445b0794c613577f12ac969f60b78d2a6fccd9` / `ef7cf0cc9b7e439e75d79ea087cdb3585400c0f389159dd49a81e0a1880ce589`；API 36 / 16 KiB 页为 `da61afb77cf2dac7b9a8ef697c394ed375b9c48f886fc52b152b3bbcc500ed83` / `7315f171e5bf0a98560282cd267ae5385b9fa2602d47abd4c4ce9cd4b0e6d7a8`。两端安装包均匹配对应构建，包内来源为上述 commit / clean。完整日志、发现集合、APK、阶段和源摘要在 `tmp/android-small-files-evidence/full917-f5eda91-api29/`、`full917-f5eda91-16k/`。归档后两台 QA AVD 停止、userdata 保留。
 
 本轮完整包含三份手动夹具的修正和自动身份/当前主机文件入口的产品测试；旧 `c594409` 两端各 902/917 的失败原始证据继续保留。完整 debug 套件不等于实际签名包在手机或全部外部端点上的全量；签名 APK 专项另见 §9.159。整个目标仍需 §10.1 的剩余外部设备/矩阵证据。
+
+
+### 9.161 正式包主机关联密钥的自动认证与配置原样输入（2026-11-03）
+
+实际 §9.157 的 f5eda91 签名 APK 在拥有的 API 29 / 4 KiB 页 AVD 上，通过真实 DocumentsUI 从临时 RAM 管道导入隔离 sshd 测试身份，公钥指纹与应用详情一致；主机编辑页“添加已导入身份”中点选该身份并保存。连续两次新 SSH、一次独立同主机 SFTP 自动认证成功，实际打开 UTF-8 文件预览，再返回仍连接的终端；选钥及提交凭据点击均为零，服务器事件为 shell / sftp / shell。安装 APK 摘要等于 §9.157。不是加密身份、物理手机或所有网络/服务器矩阵的验收。
+
+收尾发现实际 Gboard 会在 SSH 配置文本编辑器把 ssh.github.com 改成 she.github.com，把双空格缩进改成标点。保存前完整文本断言拒绝了错误候选，没有写入错误配置。单独关闭自动纠错、URI 输入以及仅关闭建议的尝试仍未通过真实输入法检查，原失败证据保留。最终仅在配置文本框的实际 InputConnection 创建后设置 EditorInfo：清除自动纠错和原 variation，采用 visible-password 的原样输入提示并关闭建议，同时保留 multiline；普通可见文本框和选取/复制功能保留，不使用密码遮罩或强制 ASCII。拦截器 remembered，避免每次键入重启输入会话。[Android InputType](https://developer.android.com/reference/android/text/InputType) 与 [Compose 拦截 API](https://developer.android.com/reference/kotlin/androidx/compose/ui/platform/InterceptPlatformTextInput.composable)为接口依据，实际 pinned Compose 1.9.4 编译及设备输入为本轮证据。
+
+新增实际 EditorInfo 与 Unicode/域名/缩进保存断言；五组变异分别破坏自动纠错、原样模式、建议、多行和保存文本。API 29 均真实编译后目标普通断言红、同 APK 独立 Core 对照绿、恢复绿且 SHA256 一致；最终 HostScreenTest / NativeSmokeTest 两完整类 **18 项通过，43.759 秒**。API 36 / 16 KiB 页同两类 **18 项通过，48.719 秒**。两端各 905 份非 Markdown 输入前后不变，具名开始/成功结束集合与两类发现集完全一致，实际安装应用/测试 APK 匹配对应构建。证据在 tmp/android-small-files-evidence/config-literal-final-api29-accepted/、config-literal-final-api36-accepted/；默认发现集现为 918 项，本次未运行完整 918 项，旧 917 项不计为新套件通过。
+
+Core 49 CTest / 94 ABI、固定证书本地优化 release 与四模块 release lint 通过。本地 APK **8,134,447 字节**，SHA256 1eb8af8e344487812b98bae716af2eb90cafd07a315a9f18678e957cc17d3324，来源为隔离 18db11b / dirty，不计 clean CI 发行。固定证书、非 debug/minSdk 29、三个压缩 arm64 SO、ZIP/ELF 16 KiB、完整 Nerd Fonts/许可与路径检查通过。该候选包同证书覆盖原发行测试包后，以真实 Gboard 原样输入并保存原配置，重新进入编辑器逐字核对一致。只移除本次身份、主机和 127.0.0.1 测试信任记录；两个原 QA 主机、Rebex 信任和两条历史保留。临时 provider 已卸载，服务器/HTTP 管道关闭且内存材料清零，reverse 清空，显示恢复，AVD 停止但 userdata 保留。证据在 tmp/release-auto-key/ 的 result.json、config-restore.json、cleanup-result.json 和相邻源日志。当前共用 dev 仍为 f5eda91；本轮源码后续 CI 发行另记。

@@ -40,6 +40,44 @@ class HostScreenTest {
         if (ui.onAllNodesWithTag("settings-section-SESSIONS").fetchSemanticsNodes().isNotEmpty())
             ui.onNodeWithTag("settings-section-SESSIONS").performScrollTo().performClick()
     }
+    @Test fun configEditorDisablesAutocorrectAndWritesLiteralText() {
+        load("Host original\n  HostName original.test\n")
+        ui.onNodeWithText("设置").performClick()
+        openConnectionCategory()
+        ui.onNodeWithText("查看与编辑 SSH 配置").performScrollTo().performClick()
+        ui.onNodeWithText("配置内容").performClick()
+        ui.waitUntil(10_000) {
+            ui.runOnIdle {
+                androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                    .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                    .any { it.window.decorView.findFocus()?.onCheckIsTextEditor() == true }
+            }
+        }
+        ui.runOnIdle {
+            val focus = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                .mapNotNull { it.window.decorView.findFocus() }.single { it.onCheckIsTextEditor() }
+            val info = android.view.inputmethod.EditorInfo()
+            val connection = checkNotNull(focus.onCreateInputConnection(info))
+            try {
+                assertEquals("SSH config must not request automatic correction", 0,
+                    info.inputType and android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT)
+                assertEquals("SSH config must request literal input", android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+                    info.inputType and android.text.InputType.TYPE_MASK_VARIATION)
+                assertTrue("SSH config must disable input-method suggestions",
+                    info.inputType and android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0)
+                assertTrue("SSH config editor must retain multiline input",
+                    info.inputType and android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE != 0)
+            } finally { connection.closeConnection() }
+        }
+        closeSoftKeyboard()
+        val literal = "# 中文注释 ☃\nHost literal\n  HostName ssh.github.com\n  User git\n  Port 22\n"
+        ui.onNodeWithText("配置内容").performTextReplacement(literal)
+        ui.onNodeWithText("保存").performClick()
+        ui.waitUntil(10_000) { !model.busy && model.page != Page.CONFIG }
+        assertEquals("Literal SSH config text must reach disk unchanged", literal,
+            File(directory, "home/.ssh/config").readText())
+    }
     @Test fun hostClickReportsUnsupportedConfigurationAndLeavesEditorAvailable() {
         val text = "Host gateway-target\n HostName 127.0.0.1\n ProxyJump gateway\n"
         load(text)

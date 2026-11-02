@@ -3,10 +3,16 @@ package com.hanxi.ghosterm
 import android.os.Bundle
 import android.content.Intent
 import android.app.Activity
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.InterceptPlatformTextInput
+import androidx.compose.ui.platform.PlatformTextInputInterceptor
+import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import com.hanxi.ghosterm.domain.AppAppearance
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -61,7 +67,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel(), settings: SettingsViewModel = viewModel(), about: AboutViewModel = viewModel(), tmux: TmuxViewModel = viewModel()) {
     val focus = LocalFocusManager.current
@@ -209,9 +215,25 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     }
                     Page.CONFIG -> Column(Modifier.padding(horizontal = 16.dp).fillMaxSize()) {
                         Text("此副本保存在应用内。Include 相对应用私有 HOME/.ssh；保存前强制备份。", style = MaterialTheme.typography.bodySmall)
-                        OutlinedTextField(hosts.configText, { hosts.configText = it }, enabled = !hosts.busy,
-                            modifier = Modifier.fillMaxWidth().weight(1f).padding(vertical = 12.dp),
-                            label = { Text("配置内容") }, textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace))
+                        InterceptPlatformTextInput(interceptor = remember {
+                            PlatformTextInputInterceptor { request, session ->
+                                session.startInputMethod(object : PlatformTextInputMethodRequest {
+                                    override fun createInputConnection(outAttributes: EditorInfo): InputConnection {
+                                        val connection = request.createInputConnection(outAttributes)
+                                        // Keep the visible multiline editor; ask the IME for literal input.
+                                        outAttributes.inputType = (outAttributes.inputType and
+                                            (InputType.TYPE_MASK_VARIATION or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT).inv()) or
+                                            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                                        return connection
+                                    }
+                                })
+                            }
+                        }) {
+                            OutlinedTextField(hosts.configText, { hosts.configText = it }, enabled = !hosts.busy,
+                                modifier = Modifier.fillMaxWidth().weight(1f).padding(vertical = 12.dp),
+                                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                                label = { Text("配置内容") }, textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace))
+                        }
                     }
                     Page.SETTINGS -> SettingsContent(settings, hosts.snapshot != null, hosts.busy,
                         onHosts = hosts::back, onConfig = hosts::config,
