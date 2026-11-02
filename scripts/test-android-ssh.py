@@ -265,6 +265,10 @@ def main():
                     spec=importlib.util.spec_from_file_location('pty_fixture_mutations',ROOT/'scripts/mutation-check-android-pty-fixture.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_TASK_DOCK_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('task_dock_mutations',ROOT/'scripts/mutation-check-android-task-dock.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILE_ARCHIVE_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('archive_mutations',ROOT/'scripts/mutation-check-android-file-archive.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

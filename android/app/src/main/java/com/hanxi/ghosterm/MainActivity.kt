@@ -117,7 +117,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                 onPaste={ files.clipboard?.let { snapshot ->
                     fileTasks.startUserTask(snapshot,files.location,
                         if(files.location.endpoint.remote!=null) files.location.directoryId else files.crumbs.joinToString(" / ") { it.label })
-                } },showTasks=fileTasks::show) { alias ->
+                } },showTasks=fileTasks::show,taskBar={ FileTaskDock(fileTasks) }) { alias ->
                 val host=hosts.snapshot?.hosts?.firstOrNull { it.alias==alias }
                 if(host==null) files.remoteConnectionError("主机配置已不可用，请返回首页重新载入")
                 else {
@@ -150,7 +150,6 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
             }, actions = {
                 when (hosts.page) {
                     Page.HOSTS -> {
-                        TextButton(onClick=fileTasks::show) { Text("任务") }
                         TextButton(onClick = hosts::settings, enabled = !hosts.busy) { Text("设置") }
                     }
                     Page.EDIT_HOST -> TextButton(onClick = { focus.clearFocus(); keyboard?.hide(); hosts.saveHost() }, enabled = !hosts.busy && hosts.canEditDraft) { Text("保存") }
@@ -159,11 +158,14 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                 }
             })
         }, bottomBar = {
-            if (hosts.page == Page.HOSTS) Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f)) { Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.none { it.remoteAlias == null }) "本地终端" else "继续本地终端") }
-                Button(onClick = { hosts.edit() }, enabled = !hosts.busy && hosts.snapshot != null,
-                    modifier = Modifier.weight(1f)) { Text("添加主机") }
+            if (hosts.page == Page.HOSTS) Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+                FileTaskDock(fileTasks)
+                Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f)) { Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.none { it.remoteAlias == null }) "本地终端" else "继续本地终端") }
+                    Button(onClick = { hosts.edit() }, enabled = !hosts.busy && hosts.snapshot != null,
+                        modifier = Modifier.weight(1f)) { Text("添加主机") }
+                }
             }
         }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {

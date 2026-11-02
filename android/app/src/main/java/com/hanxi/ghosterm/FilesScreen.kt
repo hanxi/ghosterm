@@ -29,7 +29,9 @@ import com.hanxi.ghosterm.domain.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List<String> = emptyList(),
-    remoteError: String? = null, onPaste: () -> Unit = {}, showTasks: () -> Unit = {}, connectRemote: (String) -> Unit = {}) {
+    remoteError: String? = null, onPaste: () -> Unit = {}, showTasks: () -> Unit = {},
+    taskBar: @Composable () -> Unit = { TextButton(onClick = showTasks) { Text("文件任务") } },
+    connectRemote: (String) -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     val context=LocalContext.current
     BackHandler { if(menu) menu=false else model.back() }
@@ -57,7 +59,6 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 TextButton(onClick={ menu=true }) { Text("更多") }
                 DropdownMenu(expanded=menu,onDismissRequest={ menu=false }) {
                     if(preview==null) {
-                        DropdownMenuItem(text={ Text("文件任务") },onClick={ menu=false;showTasks() })
                         if(model.location.endpoint.remoteAlias!=null)
                             DropdownMenuItem(text={ Text("断开文件连接") },onClick={ menu=false;model.disconnectRemote() })
                         DropdownMenuItem(text={ Text("刷新") },onClick={ menu=false;model.reload() })
@@ -69,7 +70,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 }
             }
         })
-    }) { padding ->
+    }, bottomBar = { Column(Modifier.fillMaxWidth().navigationBarsPadding()) { taskBar() } }) { padding ->
         if(preview!=null) {
             Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).padding(16.dp)) {
                 Text("只读预览 · UTF-8 文本",style=MaterialTheme.typography.labelMedium)
