@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import tarfile
 import urllib.request
@@ -117,17 +118,35 @@ def main():
             print('Android native dependencies verified (cached)', flush=True)
             return
     openssl = source('openssl-3.5.4', work)
+    # OpenSSL embeds its configured module/engine directories in libcrypto.
+    # Keep the device prefix independent of this machine's installation directory.
+    logical_openssl_prefix = '/nonexistent/ghosterm'
     run(['./Configure', 'android-arm64', '-D__ANDROID_API__=29', 'no-shared', 'no-tests',
-         'no-apps', 'no-docs', 'no-module', '--openssldir=/nonexistent/ghosterm', '--prefix=' + str(prefix), '--libdir=lib'], cwd=openssl, env=environment)
+         'no-apps', 'no-docs', 'no-module', '--openssldir=/nonexistent/ghosterm',
+         '--prefix=' + logical_openssl_prefix, '--libdir=lib'], cwd=openssl, env=environment)
     run(['make', '-j4', 'build_libs'], cwd=openssl, env=environment)
-    run(['make', 'install_dev'], cwd=openssl, env=environment)
+    openssl_install = work / 'openssl-install'
+    if openssl_install.exists():
+        shutil.rmtree(openssl_install)
+    run(['make', 'install_dev', 'DESTDIR=' + str(openssl_install)], cwd=openssl, env=environment)
+    installed = openssl_install / logical_openssl_prefix.lstrip('/')
+    shutil.copytree(installed / 'include', prefix / 'include', dirs_exist_ok=True)
+    (prefix / 'lib').mkdir(exist_ok=True)
+    for name in ('libcrypto.a', 'libssl.a'):
+        shutil.copy2(installed / 'lib' / name, prefix / 'lib' / name)
     ssh2 = patched_ssh2_source(work)
     # A CMake cache from the old, unpatched source must not be reused.
     ssh2_build = work / 'ssh2-patched-build'
+    if ssh2_build.exists():
+        shutil.rmtree(ssh2_build)
+    # The NDK initializes its flags cache before reading environment CFLAGS.
+    # Pass this flag explicitly; the toolchain still prepends its normal flags.
+    ssh2_flags = shlex.join(['-ffile-prefix-map=' + str(ssh2) + '=libssh2'])
     run(['cmake', '-S', ssh2, '-B', ssh2_build,
          '-DCMAKE_TOOLCHAIN_FILE=' + str(ndk / 'build/cmake/android.toolchain.cmake'),
          '-DANDROID_ABI=' + args.abi, '-DANDROID_PLATFORM=android-29',
          '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_POSITION_INDEPENDENT_CODE=ON',
+         '-DCMAKE_C_FLAGS=' + ssh2_flags,
          '-DCMAKE_INSTALL_PREFIX=' + str(prefix), '-DCMAKE_INSTALL_LIBDIR=lib',
          '-DBUILD_SHARED_LIBS=OFF', '-DBUILD_EXAMPLES=OFF', '-DBUILD_TESTING=OFF',
          '-DCRYPTO_BACKEND=OpenSSL', '-DENABLE_ZLIB_COMPRESSION=OFF',

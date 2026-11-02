@@ -4,7 +4,7 @@
 
 [共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,100,847 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可和 ELF/ZIP 16 KiB 对齐均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41391597431) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41391597436) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
 
-**完整回归状态**：旧 `be30117` 在 API 29/36 各跑完 900 项，均 897 通过、3 项旧 Ctrl 测试定位失败，不记全绿。修正后 API 29 的 67 项相关组合和九项终端控制通过；八组新保护分轮、七组受影响旧保护、Core 49/94 与 release/四模块 lint 通过。API 36 的最终 76 项相关组合也通过；当前 `f85eafc` 的 API 29/36 默认 905 项完整回归均在运行，不能记全量通过。真实签名包的 16 KiB 页覆盖升级和只读导航专项通过。
+**完整回归状态**：`f85eafc` 的 905 项全量在 API 29 为 901 通过/4 个未滚动定位失败，API 36 为 904 通过/1 个 stock 编辑器输入事件过期失败，均不记全绿。修正后两端各 11 项、最终系统键盘各三次、旧接收十三组及远端页面十四组变异通过；Core 49/94、release/四模块 lint 和两组真实重建的包路径变异通过。实际 release 内的三处构建机路径已在工作区消除并加入 CI 检查；新发行和最终完整矩阵仍待收尾（§9.128–§9.130）。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
@@ -3633,3 +3633,34 @@ API 29 后续 66 项相关组合通过，188.625 秒的最终 67 项组合另含
 API 36 最终 **76 项组合通过，零失败/错误/跳过**，325.361 秒（阶段 1793596332527223000），覆盖同一组任务条/主机/文件/清单/全局任务/归档/设置与全部九项终端控制。实际具名启动/结束与 76 项声明相同，安装应用/测试 APK 摘要匹配构建；893 份非 Markdown 输入前后一致，并与最终 release/lint 及 API 29 九项 Ctrl 阶段完全相同。API 29 的 67＋9 是分轮证据，不能改写成同一轮 76 项。证据 `tmp/file-task-dock-evidence/api36-final/receipt.json`、`final-source-inputs.json` 与 `cohort-differences.json`。
 
 随后已在同一干净 `f85eafc` 检出启动 API 36 默认 905 项（阶段 1793596765785466000），与 API 29 的独立完整运行并行；临时收据助手已能解析 JUnit 含逗号的耗时，原实际执行日志仍保留。两端当前是执行中，不以这一轮组合或已发布 release 记完整客户端通过。源码及阶段护栏未放宽，未在运行中的检出编辑非 Markdown 输入。
+
+
+### 9.128 文件接收验证与远端文件滚动定位（2026-11-02，工作区）
+
+复验旧文件接收验证时发现 budget 变异仍要求两个调用位置；JNI 已在 `3fcc17a` 将观察/暂停接收统一为单个 gt_sftp_receive_controllable 调用。只把旧脚本定位数量改为一处，未改生产 JNI 或原测试断言。13 组完整复验通过（阶段 1793597058851100000，893 份非 Markdown 输入不变），含原生计数/偏移/关闭/CLOEXEC/总预算、Kotlin 计数/错误、冻结尺寸、预约释放、取消以及接收/上传描述符关闭通知；均编译后目标正常断言红、同 APK Core 配置绿、恢复绿与 SHA256。延迟关闭两组先验调度扰动基线，再验拒绝提前释放。证据 `tmp/receive-gate-final-evidence/mutations/summary.json`。
+
+`f85eafc` 的 API 29 默认 905 项结束：901 通过、4 失败、零跳过，1,510.152 秒。893 份输入集合/SHA256 前后一致，实际安装应用/测试 APK 与构建相同，APK 来源 clean；具名开始/完成与发现集合一致。四项失败均在 RemoteFilesProductTest 寻找尚未显示的“文本.txt”行；新增底部任务条缩小了文件列表，旧用例没有先滚动。证据 `tmp/file-archive-evidence/task-dock-full-api29/execution-status.json`，不记完整通过。
+
+entry 测试助手改为通过真实 LazyColumn 的 performScrollToNode 找到目标，再执行原来的点按、长按、真实预览/内容和连接身份断言；不改生产文件操作或删除断言。完整远端页面十项在 API 29 通过（阶段 1793598172918890000，895 份输入不变）；同轮已使用下节的逻辑 OpenSSL 安装前缀，但环境 CFLAGS 尚未生效，不能称这份中间构建已消除全部路径。后续显式编译参数、受影响变异与平台组合另验。
+
+### 9.129 APK 构建机路径检查（2026-11-02，工作区）
+
+按 §10 检查实际 `f85eafc` release APK，在 libghosterm_android.so 发现三处 CI 工作区路径：OpenSSL 引擎目录/模块目录和 libssh2 的 openssl.c 文件名。新 check-android-package-paths.py 在解压后的各条目流式检查当前工作区与常见构建主机前缀，跨读取块保留匹配；只报告条目与前缀类别，不把原路径复制到错误中。这是路径专项，不宣称完整秘密扫描。实际旧 APK 被正常拒绝，同一 APK 验签和 ZIP 16 KiB 对照仍绿、SHA256 不变（old-ci-rejection.json）。
+
+OpenSSL 保持既有静态/no-module 等功能配置，只把配置前缀固定为 /nonexistent/ghosterm，以 DESTDIR 安装到工程 tmp 内暂存后复制头文件/静态库到构建输出。libssh2 通过显式 CMAKE_C_FLAGS 的 -ffile-prefix-map 生成相对文件名；清理旧 CMake 缓存，NDK 仍追加其正常平台与保护选项。初次用环境 CFLAGS 被 NDK 提前初始化的空 cache 忽略，已根据钉定工具链源码和实际 flags.make 改为显式参数；最终 APK 检查另验，未把中间库误报为通过。没有修改上游源码、公开 ABI 或加密算法选择。
+
+新增签名出包前检查，main/PR 均对唯一 release APK 执行；PR 的未签名包仍只作验证，不变成可安装发行。新脚本 mutation-check-android-package-paths.py 以真实重建的依赖和签名 release APK 变异：逻辑前缀改回构建目录、取消源文件名映射；目标路径检查应红，同一 APK 验签、ELF arm64/16 KiB 与 ZIP 对齐仍绿，恢复后重建绿并比对源文件 SHA256。两组真实重建变异已完整通过（阶段 1793598435935397000，895 份输入不变）：目标为实际签名 release APK，路径检查正常红；同一 APK 验签、arm64 ELF/ZIP 16 KiB 对照绿，恢复后重新构建绿与源码 SHA256。没有拿原字节注入或编译失败冒充路径闸门证据。Core 49 CTest / 94 ABI 本轮再验通过，证据 `tmp/android-package-path-final-evidence/`。运行中的 API 36 f85eafc 全量在独立缓存/检出，不受本次依赖重建影响。
+
+滚动定位改正后，既有远端页面十四组变异全部复验通过（阶段 1793599100244908000，895 份输入不变），覆盖重连错误、用户名身份、未知类型/尺寸、无符号长度、真实 owner、规范路径、排序、预览、离页关闭、迟到交接、读错误和远端标签；每组编译后正常断言红、同 APK Core 配置绿、恢复绿与 SHA256。不是只让滚动助手吞掉断言或把失败条目过滤掉。证据 `tmp/android-package-path-final-evidence/remote-mutations/`。
+
+### 9.130 系统输入测试的就绪与事件过期（2026-11-02，工作区）
+
+`f85eafc` 的 API 36 默认 905 项结束：904 通过、1 失败、零跳过，2,453.715 秒；893 份输入集合/SHA256 前后一致，安装 APK 与构建一致，源码 clean。唯一失败是 SystemImeProductTest 的独立 stock EditText 对照：预期命令的后半段没有收到，尚未进入终端的字节断言；不能记为终端吞字或完整通过。证据 `tmp/file-archive-evidence/task-dock-full-api36/execution-status.json`。
+
+失败用例 13:54:54 开始、13:55:12 报错；同一设备 13:55:08 的 InputDispatcher 日志记录 Dropped event because it is stale。AOSP 的 [InputShellCommand](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/android16-release/services/core/java/com/android/server/input/InputShellCommand.java) 为一次 input text 生成一组 KeyEvent 并按原时间戳顺序注入；[InputDispatcher](https://android.googlesource.com/platform/frameworks/native/+/refs/heads/android16-release/services/inputflinger/dispatcher/InputDispatcher.cpp) 会丢弃过期事件，含默认 10 秒界限。日志与该机制一致；未把模拟器/注入控制失败扩张为产品输入故障。
+
+测试在请求 stock 键盘后，先等编辑框取得焦点、窗口焦点、成为活动输入目标且系统键盘显示。仅加入就绪等待的版本在 API 36 连续三次通过；随后仍把同一 ASCII 命令按八字符分批交给原 input text 路径，避免长组事件在排队时过期。未改 App 的 InputConnection，不直接设置对照文字，不改命令、不取消独立编辑器/真实文件的精确字节断言。这仍是系统输入路径的虚拟按键验证，不等于逐键点按软键盘、手机拼音或全输入法矩阵。原日志 `ime-ready/input-dispatcher.log`、`test-runner.log` 已保留。
+
+最终 API 29 / API 36 各 **11 项组合通过，零失败/错误/跳过**，25.868 / 73.683 秒（阶段 1793599723012277000 / 1793599724086776000），覆盖完整十项真实远端文件页面与一项系统键盘/stock 编辑器/两次实际命令写文件。分批版本在两设备又各追加两次通过，故最终各三次，不能与先前就绪版三次混算。两端具名启动/完成集合正确，安装应用/测试 APK 摘要与构建一致；最终两设备及 release/lint 的 895 份非 Markdown 输入完全相同，证据 `tmp/android-package-path-final-evidence/api29-final/`、`api36-final/`、`ime-final/` 与 `final-source-inputs.json`。
+
+最终固定证书签名 release 与四模块 release lint 通过（阶段 1793599909892146000）；本地包 8,101,847 字节，SHA256 `175742dcff1d19c307eaa982165d8bb22465da9375a5e504cb4704c3da445956`，来源 `3ca3fbd` / dirty。完整 Nerd Fonts/许可、三份压缩 arm64 SO、ELF/ZIP 16 KiB、测试 PTY 不入正式包、源码收据、R8 mapping 和新路径检查均通过；libssh2 相对文件名有效，NDK 原有栈保护、FORTIFY、格式检查、优化及 PIC 选项均保留。CI 配置 actionlint 通过。此为本地构建，不宣称新 CI clean 发行或两端全量已绿；修正后的默认 905 项会从最终干净提交重新执行。

@@ -4,7 +4,7 @@
 
 [共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,100,847 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可和 ELF/ZIP 16 KiB 对齐均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41391597431) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41391597436) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
 
-**完整回归状态**：旧 `be30117` 在 API 29/36 各跑完 900 项，均 897 通过、3 项旧 Ctrl 测试定位失败，不记全绿。修正后 API 29 的 67 项相关组合和九项终端控制通过；八组新保护分轮、七组受影响旧保护、Core 49/94 与 release/四模块 lint 通过。API 36 的最终 76 项相关组合也通过；当前 `f85eafc` 的 API 29/36 默认 905 项完整回归均在运行，不能记全量通过。真实签名包的 16 KiB 页覆盖升级和只读导航专项通过。
+**完整回归状态**：`f85eafc` 的 905 项全量在 API 29 为 901 通过/4 个未滚动定位失败，API 36 为 904 通过/1 个 stock 编辑器输入事件过期失败，均不记全绿。修正后两端各 11 项、最终系统键盘各三次、旧接收十三组及远端页面十四组变异通过；Core 49/94、release/四模块 lint 和两组真实重建的包路径变异通过。实际 release 内的三处构建机路径已在工作区消除并加入 CI 检查；新发行和最终完整矩阵仍待收尾（§9.128–§9.130）。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
