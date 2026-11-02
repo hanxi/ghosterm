@@ -4,7 +4,7 @@
 
 [共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,100,791 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41398896578) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41398896781) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
 
-**完整回归状态**：`f85eafc` 的 905 项全量在 API 29 为 901 通过/4 个未滚动定位失败，API 36 为 904 通过/1 个 stock 编辑器输入事件过期失败，均不记全绿。修正后两端各 11 项、最终系统键盘各三次、旧接收十三组及远端页面十四组变异通过；Core 49/94、release/四模块 lint 和两组真实重建的包路径变异通过。实际 release 内的三处构建机路径已消除并通过 CI 检查，已随 `8e161e7` 发行；该干净来源的两端默认 905 项完整运行仍在进行（§9.128–§9.131）。
+**完整回归状态**：`f85eafc` 的 905 项全量在 API 29 为 901 通过/4 个未滚动定位失败，API 36 为 904 通过/1 个 stock 编辑器输入事件过期失败，均不记全绿。修正后两端各 11 项、最终系统键盘各三次、旧接收十三组及远端页面十四组变异通过；Core 49/94、release/四模块 lint 和两组真实重建的包路径变异通过。实际 release 内的三处构建机路径已消除并通过 CI 检查，已随 `8e161e7` 发行；该干净来源 API 29 默认完整 905 项已通过（1,511.909 秒），源码/安装 APK/具名执行集合均核验；API 36 全量仍在运行（§9.128–§9.132）。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
