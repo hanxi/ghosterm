@@ -1,10 +1,10 @@
 # 能力矩阵
 
-**当前发行（2026-11-02，`79eae97`）**：已结束任务可显式移到历史记录，无须重启即可核对、重新发起或清理；只读核对持久快照，不重放复制、不改原记录。历史位置显式清理和独立操作记录继续保留。API 29/36 各 67 项、十组新保护、受影响旧保护/28 项产品回归、Core 49/94 与签名 release/四模块 lint 通过。详见[当前任务归档记录](android-implementation.md#android-current-task-archive)。
+**当前发行（2026-11-02，`be30117`）**：修正 Android 10 的输入与焦点、窄屏 Ctrl 和主机保存错误提示；保留任务归档、历史位置维护与 DNS 探测兼容。API 29/36 各 103 项、九个新保护分轮与既有七组 IME 保护、Core 49/94、签名 release/四模块 lint 通过。详见[兼容与验收记录](android-implementation.md#android-api29-compatibility)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,095,459 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可和 ELF/ZIP 16 KiB 对齐均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41380186441) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41380186332) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,095,959 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可和 ELF/ZIP 16 KiB 对齐均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41388311170) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41388311210) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
 
-**当前源码增量**：Android 10 的输入/焦点、窄屏 Ctrl、保存错误提示和测试夹具已收尾；API 29/36 各 103 项、九个新保护分轮与既有七组 IME 保护、Core 49/94、签名 release/四模块 lint 通过。此前 900 项 API 29 有 45 项失败，API 36 在完成 878 项时到达宿主预算，均不算全量通过；新的完整回归与发行另记实现计划 §9.125。
+**完整回归状态**：此前 900 项 API 29 有 45 项失败，API 36 在完成 878 项时到达宿主预算，均不算全量通过。修正后正从同一份干净的 `be30117` 源码，在 API 29/36 各执行新的 900 项；结果另记，不以定向测试或云端出包代替。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
