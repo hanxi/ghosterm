@@ -8,6 +8,7 @@ import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityEvent
 import android.os.Bundle
 import kotlinx.coroutines.*
 import android.graphics.Canvas
@@ -417,8 +418,25 @@ class TerminalView(context: Context) : View(context) {
     }
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
         super.onInitializeAccessibilityNodeInfo(info)
+        info.className = android.widget.TextView::class.java.name
+        info.isEditable = false
+        info.contentDescription = null
+        info.text = currentFrame?.accessibilityText() ?: "终端屏幕尚未就绪"
         info.addAction(AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, "选择终端文本"))
         info.addAction(AccessibilityNodeInfo.AccessibilityAction(android.R.id.paste, "粘贴文本"))
+    }
+    override fun onInitializeAccessibilityEvent(event: AccessibilityEvent) {
+        super.onInitializeAccessibilityEvent(event)
+        event.className = android.widget.TextView::class.java.name
+    }
+    override fun onPopulateAccessibilityEvent(event: AccessibilityEvent) {
+        super.onPopulateAccessibilityEvent(event)
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED ||
+            event.eventType == AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED) {
+            event.contentDescription = null
+            event.text.clear()
+            event.text.add(currentFrame?.accessibilityText() ?: "终端屏幕尚未就绪")
+        }
     }
     override fun performAccessibilityAction(action: Int, args: Bundle?): Boolean {
         if (action == android.R.id.paste) { pasteClipboard(); return true }

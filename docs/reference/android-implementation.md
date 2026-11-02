@@ -1,10 +1,10 @@
 # Android 最终方案实现计划
 
-**当前 Android 发行（2026-11-02，`b7dae61`）**：大字体/矮窗口文件页面保留完整条目、复制清单与粘贴入口，见 §9.142；主机字段关闭自动更正，地址使用 URI 键盘，DNS 探测兼容保留。公网 `ssh.github.com:443` 至主机密钥确认的正式包证据属于 `8d6178d`，未接受信任或认证；手机 Wi-Fi/移动网络仍待用户复测。横屏终端布局见 [§9.139](android-implementation.md#9139-横屏键盘与大字体终端布局2026-11-02工作区)，输入与实际发行见 §9.140–§9.141。
+**当前 Android 发行（2026-11-02，`84b984e`）**：大字体/矮窗口文件页面保留完整条目、复制清单与粘贴入口，见 §9.142；主机字段关闭自动更正，地址使用 URI 键盘，DNS 探测兼容保留。当前正式包已复测公网 `ssh.github.com:443` 至主机密钥确认并取消，未接受信任或认证（§9.147）；手机 Wi-Fi/移动网络仍待用户复测。横屏终端布局见 [§9.139](android-implementation.md#9139-横屏键盘与大字体终端布局2026-11-02工作区)，输入与实际发行见 §9.140–§9.141。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,126,827 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41435141857) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41435141893) 成功。macOS 两份归档来源为 `b7dae61` / build 89，与 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,126,827 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41446395677) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41446395663) 成功。macOS 两份归档来源为 `84b984e` / build 90，与 Android 共用 dev，八份平台附件名称保留。
 
-**最近完整回归**：`18db11b` 在 API 29 / API 36、arm64 / 4 KiB 页各默认未筛选 **912 项全部通过**，零失败/错误/跳过，1,455.218 / 2,513.336 秒。发现/执行集合、各自实际安装 APK 与相同的 902 份源码输入前后摘要均已核验，见 §9.144–§9.145。API 36 / 16 KiB 页首轮完整 912 项为 907 通过、5 失败，未验收；夹具修正和定向复验见 §9.146。当前文件专项与实际签名发行见 §9.142–§9.143；Core 49/94、进程中断、性能及旧失败各按其来源记账，不能扩大为真机或实际 release 全量矩阵。
+**最近完整回归**：`18db11b` 在 API 29 / API 36、arm64 / 4 KiB 页各默认未筛选 **912 项全部通过**，零失败/错误/跳过，1,455.218 / 2,513.336 秒。发现/执行集合、各自实际安装 APK 与相同的 902 份源码输入前后摘要均已核验，见 §9.144–§9.145。API 36 / 16 KiB 页首轮为 907/912；夹具校正后干净 `84b984e` 为 911/912，一项紧凑菜单失败仍未验收。失败与同步修正见 §9.146、§9.148。终端可见文字无障碍的源码与专项已补齐，尚未发行或完成新全量，见 §9.149。当前文件专项与实际签名发行见 §9.142–§9.143；Core 49/94、进程中断、性能及旧失败各按其来源记账，不能扩大为真机或实际 release 全量矩阵。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
@@ -778,7 +778,7 @@ tmux 在 A8 接入，共享 `gt_tmux_*` 管理与普通 transport attach；用�
 
 A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.1）；`8e161e7` 当时已完成 API 29 arm64 / 4 KiB 页默认完整 905 项（§9.132），同源 API 36 默认完整 905 项也已通过（§9.135）；历史全量按各节记载。§9.78 另已验证 API 36 / 16 KB 页签名 release 的启动、升级与小文件复制。API 29 后续分轮专项和 Kitty 的签名包证据须按对应章节读取，历史输入失败不由新的图形专项抵消；真机与完整 16 KB/IME 矩阵仍须在 A10 验证；x86_64 须先提供对应 native 库。不能只调整 APK zip 对齐就声明全 native 依赖可运行。[16 KB 页面支持](https://developer.android.com/guide/practices/page-sizes)
 
-采用 Material 3 页面/面板/开关/选择控件，保持石墨色系；触点至少 48dp，字体响应系统缩放，危险动作有文字说明。320dp 窄屏、横屏、分屏、字体放大、TalkBack、硬件键盘和深浅色均纳入验收。状态栏/导航栏/IME insets 不得重复扣除或遮挡操作区。[触点与语义](https://developer.android.com/develop/ui/compose/accessibility/api-defaults)、[窗口 Insets](https://developer.android.com/develop/ui/compose/system/insets-ui)
+采用 Material 3 页面/面板/开关/选择控件，保持石墨色系；触点至少 48dp，字体响应系统缩放，危险动作有文字说明。320dp 窄屏、横屏、分屏、字体放大、TalkBack、硬件键盘和深浅色均纳入验收。终端自绘 View 的节点/焦点提供有界当前视口文字，保留未就绪与空屏区别、隐藏属性和图像占位过滤；实现与系统服务专项见 §9.149，实际 TalkBack 播报仍待验。状态栏/导航栏/IME insets 不得重复扣除或遮挡操作区。[触点与语义](https://developer.android.com/develop/ui/compose/accessibility/api-defaults)、[窗口 Insets](https://developer.android.com/develop/ui/compose/system/insets-ui)
 
 ### 8.1 A6 后台执行的系统约束（§9.74 当前模拟器档已验）
 
@@ -2886,18 +2886,18 @@ Kitty 单独在 `tmp/android-kitty/` 开发，未合入或发行。补丁 0003 �
 
 ### 10.1 当前完成审计与剩余验收（2026-11-02）
 
-本表用于决定整个目标是否可完成；阶段记录中的局部通过不能替代缺失项。当前功能发行来源为 `b7dae61`，文档提交为 `18db11b`；两者非 Markdown 输入相同。
+本表用于决定整个目标是否可完成；阶段记录中的局部通过不能替代缺失项。当前实际发行来源为 `84b984e`，其生产源码与 `b7dae61` 相同；工作区新增终端无障碍正文与紧凑菜单同步，尚未发行。同源 4 KiB 页全量来自 `18db11b`，不把它冒充修改后测试 APK 的全量。
 
 | 要求 | 当前可核验的证据 | 尚缺的最终证据 |
 |---|---|---|
-| A0/A1 构建、配置与导航 | 固定工具链与 C ABI、原生模块、配置无损/事务和页面测试已接；当前 APK 由成功 CI 构建 | 最新版本 API 29 / API 36 的 4 KiB 页同源未筛选各 912 项通过；16 KiB 页首轮完整 912 项有五项失败；夹具修正定向验证不替代新版本全量 |
+| A0/A1 构建、配置与导航 | 固定工具链与 C ABI、原生模块、配置无损/事务和页面测试已接；当前 APK 由成功 CI 构建 | `18db11b` 在 API 29 / API 36 的 4 KiB 页同源未筛选各 912 项通过；`84b984e` 的 16 KiB 页完整为 911/912；新工作区快照全量仍待验 |
 | A2 真终端、文本/输入、Kitty 动画 | 原生 Transport→VT、Canvas、InputConnection 与相关设备/变异证据；§9.100/§9.102 图形/字体，§9.139 终端矮窗口；§9.138 签名包十分钟输出属于旧 `8e161e7` | 当前发行档长负载、完整软/硬键盘与布局、真实手机的吞吐/帧/内存/输入延迟；不能以回调注入等同真实硬件 |
-| A3 SSH/身份/网络 | DNS、主机信任、凭据容器、取消和真实 sshd 测试；`8d6178d` 实际公网域名到 hostkey 确认；当前发行保留兼容修复 | 用户手机 Wi-Fi/移动网络域名复测、完整 VPN/私人 DNS/网络切换矩阵；未取得用户设备结果 |
+| A3 SSH/身份/网络 | DNS、主机信任、凭据容器、取消和真实 sshd 测试；`84b984e` 实际公网域名到 hostkey 确认并取消；当前发行保留兼容修复 | 用户手机 Wi-Fi/移动网络域名复测、完整 VPN/私人 DNS/网络切换矩阵；未取得用户设备结果 |
 | A4–A6 文件/复制/后台与重启核对 | 四方向、预检/决策/非覆盖发布、持久观察、暂停取消/显式重试/清理与进程中断测试已接；§9.142 两端 51 项/22 组变异；§9.143 实际签名包复制及 clean 包升级读回 | 不同外部 DocumentsProvider、不同物理服务器的完整方向/失败矩阵与最终发行档；测试专用 provider/隔离 sshd 不替代外部产品 |
 | A7 设置、恢复与资料保护 | 五类 16 项偏好和消费者、恢复保护、身份与信任页面已发行；历史设置专项与全量范围分别记账 | 最新整体回归；真机放大字体、读屏和输入完整矩阵 |
 | A8 显式可选 tmux | §9.103 管理/独立 owner/attach、未知与选择器、实际 SSH/tmux 签名包证据 | 真机断网/切网与完整发行矩阵，不能借此声明手机本地 tmux |
 | A9 环境包 | 用户决定延后，首版 SSH/系统 shell 不依赖它 | 后续独立目标，不补造当前安装器或随包 runtime |
-| A10 发行、安全和许可 | `b7dae61` Android/macOS CI 成功；实际下载 APK 固定证书、clean 来源、R8/资源优化、arm64、16 KiB、Nerd Fonts/许可、路径和八份共用资产检查；实际覆盖安装保留自建文件 | 真实手机、TalkBack、完整软硬键盘与系统/发行矩阵；独立真实设备不可由模拟器结果替代 |
+| A10 发行、安全和许可 | `84b984e` Android/macOS CI 成功；实际下载 APK 固定证书、clean 来源、R8/资源优化、arm64、16 KiB、Nerd Fonts/许可、路径和八份共用资产检查；实际覆盖安装保留自建文件 | 真实手机、TalkBack、完整软硬键盘与系统/发行矩阵；独立真实设备不可由模拟器结果替代 |
 
 完整回归固定 `18db11b` / clean：API 29 / 4 KiB 页阶段 `1793618692937978000`、API 36 / 4 KiB 页阶段 `1793618726649410000`，均发现默认 **912 项**后开始实际执行；API 29 / API 36 的 4 KiB 页均已全部通过；902 份非 Markdown 输入已冻结，两个独立检出和设备分别持 OS 锁。日志为 `tmp/android-small-files-evidence/final-full-api29.log` / `final-full-api36.log` 及各阶段目录；结束前不记完成，不按发现数量推算成功数量。原始 AVD 数据保留，未使用 wipe-data 或卸载原有数据。
 
@@ -3862,3 +3862,30 @@ API 36 / arm64 / 4 KiB 页阶段 `1793618726649410000` 正常结束：默认未�
 
 
 本轮复制/选区既有 **X15/X16 两组**在 API 36 / 16 KiB 页通过（`1793622878150443000`、`clipboard-X15-X16/`）：禁用实际剪贴板写入后，“实际剪贴板为 clipboard-before-copy”的普通断言红；禁用选区绘制后像素断言红；两者同 APK Core 对照绿、恢复绿与 SHA256。保留原 1000ms 超时，不将这两组选跑记为全部 72 组重跑。最终候选相对原完整回归只有四个 androidTest 文件与一个变异脚本变化，902 份输入集合仍相同；生产源文件与原通过片逐份 SHA256 一致。新完整回归/CI 包另记。
+
+
+### 9.147 验收夹具校正的实际 dev 发行（2026-11-02）
+
+`84b984e31479bfc40a825796b4810a3ca3b262da` 的 [Android CI](https://github.com/hanxi/ghosterm/actions/runs/41446395677) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41446395663) 均成功。实际下载的签名优化 APK 为 **8,126,827 字节**，SHA256 `5a1d4c012551b45b994d961978351f033ef273a41948d6424d9a82e3cba8d678`，包内 commit / clean、固定证书、非 debug/minSdk 29、R8/资源优化、三个压缩 arm64 SO、ZIP/ELF 16 KiB、完整 Nerd Fonts/许可与构建机路径检查均通过；Android 外部清单与实际包一致。macOS `version.json` 同源、build 90、最低 15.0、ad-hoc/未公证。Mac 更新后八份附件名保留，三份 Android 附件的 ID/大小/digest 未变；本轮未另下载 Mac 两归档作本机全套验包，不扩大 CI 结果。证据 `tmp/android-84b-cloud/`。
+
+自建 API 29 / 4 KiB 页 release AVD 从先前实际 `8d6178d` 同证书覆盖安装，已安装 APK 与新下载字节相同，原保存的 `public-dns-3d197c8` / `git@ssh.github.com:443` 仍在。真实入口解析并连接公网域名，到主机密钥确认显示 ECDSA `SHA256:p2QAMXNIC1TJYWeIOttrVc98/R1BUFWu3/LiyKgUfQM`，与同轮独立 `ssh-keyscan` / `ssh-keygen` 指纹一致；最终明确点“取消连接”，未接受信任或认证。初次脚本错找“取消”后未完成取消，等待期间页面已超时关闭；该轮不记完整成功，保留 XML。纠正工具选择器后重新连接，完整步骤成功并保存 `device-result.json`；不修改产品来适配脚本。该证据只覆盖模拟器正式包的升级、保存主机和公网 DNS→hostkey，不等于用户手机的 Wi-Fi/移动网络、完整认证/SFTP或网络矩阵。
+
+干净 `84b984e` 的 API 36 / arm64 / 16 KiB 页默认完整结果为 911/912，并未全绿；原始失败与后续同步修正见 §9.148。生产代码未因本片测试校正改变；其余真机/输入/性能/外部端点矩阵继续按 §10.1 验收。
+
+### 9.148 紧凑菜单的 Compose 布局同步（2026-11-02）
+
+干净 `84b984e` 阶段 `1793623152647541000` 正常结束：默认未筛选 **912 项执行、911 通过、1 失败，1,424.739 秒**，无跳过；902 份输入前后不变。唯一失败为 `TerminalLayoutTest#largeFontCompactMenuRoutesFilesAndSessionsWithoutReplacingOwner`，从文件返回、键盘显示后找不到会话菜单项。实际应用/测试 APK 与对应构建相同，SHA256 分别为 `515f1d6981850a62fd1e2c619e2bdce6ecef1f4e2ac7ca5f5178ec4043dff173` / `1c0c53a55abb828af0558974462d4a66dbeb68244a0568c73f31845a6c285f04`。完整发现/执行集合、原始失败、实际 APK 与快照归档在 `tmp/android-small-files-evidence/full912-16k-84b-layout/`，不记完整通过。
+
+旧用例在未改动时的定向重放通过（阶段 `1793624720774010000`），不足以证明产品错误已修复。原 helper 只等待原生可见窗口高度，现同时等待 Compose 实际 `terminal-compact-bar` 达到完整控件高度，再操作菜单；保留文件/会话路由和 owner/PID 断言，不加固定睡眠。既有四组 `legacy-chrome / files-route / sessions-route / menu-origin` 在阶段 `1793626348580848000` 通过：编译后正常目标红、同 APK Core 绿、恢复绿与 SHA256，日志与收据在 `a11y-layout-guards/`。这是定向同步与变异证据，新全量另验。
+
+### 9.149 终端可见文字无障碍（2026-11-02，工作区）
+
+实际 `84b984e` 签名包的系统无障碍树中，终端只有“终端”标签和长按/粘贴动作，文字为空（`tmp/android-84b-cloud/terminal-accessibility.xml`）。依照 [Android 自定义 View 无障碍指南](https://developer.android.com/guide/topics/ui/accessibility/views/custom-views)，现将终端输出节点声明为只读 `TextView`，查询节点或获得普通/无障碍焦点时提供当前已渲染视口文字。数据来自不可变 `TerminalFrame`，不另读 Transport/JNI、不把输出字节送入 UI 事件队列，也不按输出持续播报。
+
+契约：未取得 frame 显示“终端屏幕尚未就绪”，已取得的空屏显示“终端屏幕为空”；非空文字带“终端屏幕文字”前缀。跳过宽字符续格、隐藏属性文字与 Kitty 图像占位符，保留中文、组合音符和 Emoji。最多 32,768 个 UTF-16 单位（包含前缀和截断说明），不拆单元字符串，超限明确提示后续文字未提供；只读当前视口，不声称完整回卷或图像语义。节点及焦点事件清除会遮住正文的通用描述，既有长按选择/粘贴保留；View 的命中标签仍为“终端”。
+
+冻结 **903 份非 Markdown 输入**：API 29 / arm64 / 4 KiB 页 **5 项通过、15.834 秒**（`1793626289866160000`），API 36 / arm64 / 16 KiB 页 **5 项通过、7.210 秒**（`1793626563479461000`）。两轮输入与最终冻结快照完全一致、前后不变，实际安装应用/测试 APK 与各自构建匹配。覆盖真实 PTY→VT→系统无障碍节点、真实 UiAutomation 服务请求触摸探索并执行焦点动作/读取系统焦点事件、隐藏内容、空屏/未就绪/截断，以及紧凑菜单与独立 Core。服务 flags 和触摸探索状态 finally 恢复。收据、实际 APK、逐项集合与日志在 `tmp/android-small-files-evidence/a11y-final5-api29/`、`a11y-final5-16k/`；不是实际 TalkBack TTS 或物理手机手势验收。
+
+`mutation-check-android-text.py` 保留旧 72 组，新增 **X73–X87 共 15 组**，阶段 `1793626130137927000` 全部通过：节点/焦点正文、角色与描述、只读属性、隐藏/续格/图像占位、文字预算/截断/有效正文和空屏/未就绪分别编译变坏，正常目标断言红、同 APK 独立 Core 绿、恢复绿与 SHA256。归档 `a11y-X73-X87/`；本轮仅重跑新增 15 组，不称完整 87 组重新通过，仍属手工设备证据。
+
+同一 903 份输入的固定证书优化 release 与 app/terminal/bridge/data 四模块 release lint 通过（`1793626289860402000`）。本地 APK **8,127,943 字节**，比当前实际发行增加 1,116 字节，SHA256 `f95a2efa6187d72154cf9c295ad1996a8f0c025f1a3eceab25bb6096cdaea668`。证书、非 debug/minSdk 29、R8 映射、三个压缩 arm64 SO、ZIP/ELF 16 KiB、完整字体/许可和构建路径检查通过；收据/实际包在 `a11y-local-release/`。该隔离包来源为 `18db11b` / dirty，不冒充 clean CI。提交前再次运行 `bash scripts/gate.sh`，49 CTest / 94 ABI 全绿（`a11y-core-gate.log`），本片未改 C ABI。整个客户端、新快照默认全量、正式包的系统节点、实际 TalkBack/真机/外部端点矩阵仍待验收。

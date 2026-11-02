@@ -91,6 +91,65 @@ class TerminalScreenTest {
         throw AssertionError("等待 $value: ${text()}; state=${sessions.active?.connection?.state()}")
     }
 
+    @Test fun accessibilityReadsVisibleViewportOnQueryAndFocus() {
+        send("printf '\\033[2J\\033[HA11Y_VISIBLE \\033[8mA11Y_HIDDEN\\033[0m\\r\\n'\r")
+        waitFor("A11Y_VISIBLE")
+        ui.runOnIdle {
+            val pending = TerminalView(ui.activity).createAccessibilityNodeInfo()
+            assertEquals("终端屏幕尚未就绪", pending.text?.toString())
+            pending.recycle()
+            val view = terminal()
+            val info = view.createAccessibilityNodeInfo()
+            assertEquals("android.widget.TextView", info.className?.toString())
+            assertFalse("The output is not an editable document", info.isEditable)
+            assertNull("The generic label must not mask output text", info.contentDescription)
+            assertTrue("Actual VT output must be exposed", info.text?.contains("A11Y_VISIBLE") == true)
+            assertFalse("Concealed text must not be exposed", info.text?.contains("A11Y_HIDDEN") == true)
+            info.recycle()
+        }
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val manager = ui.activity.getSystemService(android.view.accessibility.AccessibilityManager::class.java)
+        val service = automation.serviceInfo
+        val originalFlags = service.flags
+        val originalExploration = manager.isTouchExplorationEnabled
+        try {
+            service.flags = originalFlags or
+                android.accessibilityservice.AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE or
+                android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            automation.serviceInfo = service
+            ui.waitUntil(10_000) { manager.isTouchExplorationEnabled }
+            fun findOutput(node: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
+                if (node == null) return null
+                if (node.text?.contains("A11Y_VISIBLE") == true) return node
+                for (i in 0 until node.childCount) findOutput(node.getChild(i))?.let { return it }
+                return null
+            }
+            var output: android.view.accessibility.AccessibilityNodeInfo? = null
+            ui.waitUntil(10_000) {
+                output = automation.windows.firstNotNullOfOrNull { findOutput(it.root) }
+                output != null
+            }
+            val node = checkNotNull(output)
+            val event = automation.executeAndWaitForEvent({
+                assertTrue("The accessibility service must focus the output", node.performAction(
+                    android.view.accessibility.AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS))
+            }, { event ->
+                event.eventType == android.view.accessibility.AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED &&
+                    event.packageName?.toString() == ui.activity.packageName
+            }, 5_000)
+            try {
+                assertEquals("android.widget.TextView", event.className?.toString())
+                assertNull(event.contentDescription)
+                assertTrue("Focus must read the current viewport", event.text.joinToString().contains("A11Y_VISIBLE"))
+                assertFalse(event.text.joinToString().contains("A11Y_HIDDEN"))
+            } finally { event.recycle(); node.recycle() }
+        } finally {
+            service.flags = originalFlags
+            automation.serviceInfo = service
+            ui.waitUntil(10_000) { manager.isTouchExplorationEnabled == originalExploration }
+        }
+    }
+
     @Test fun rendersRealAnsiPixelsAndHasOneKeyboardControl() {
         send("stty -echo; printf '\\033[41m\\033[2J\\033[HPIXEL_READY'\r")
         waitFor("PIXEL_READY")

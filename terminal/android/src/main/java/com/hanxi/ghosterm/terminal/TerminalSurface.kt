@@ -40,6 +40,46 @@ data class TerminalFrame(
     fun line(row: Int): String = cells.subList(row * cols, (row + 1) * cols)
         .joinToString("") { if (it.width == 0) "" else it.text.ifEmpty { " " } }.trimEnd()
 
+    /** Read-only visible text, requested by accessibility rather than output delivery. */
+    fun accessibilityText(): String {
+        val prefix = "终端屏幕文字\n"
+        val omitted = "\n（内容过长，后续文字未提供）"
+        val capacity = 32768 - prefix.length - omitted.length
+        val body = StringBuilder()
+        var emptyRows = 0
+        var truncated = false
+        for (row in 0 until rows) {
+            val separators = if (body.isEmpty()) 0 else emptyRows + 1
+            val available = capacity - body.length - separators
+            val line = StringBuilder()
+            var spaces = 0
+            for (column in 0 until cols) {
+                val cell = cells[row * cols + column]
+                if (cell.width == 0) continue
+                // Match Canvas concealment and suppress image placeholder glyphs.
+                if (cell.flags and 8 != 0 || cell.text.isBlank() || cell.text.codePointAt(0) == 0x10eeee) {
+                    spaces++
+                    continue
+                }
+                if (line.length + spaces + cell.text.length > available) {
+                    truncated = true
+                    break
+                }
+                repeat(spaces) { line.append(' ') }
+                spaces = 0
+                line.append(cell.text)
+            }
+            if (line.isNotEmpty()) {
+                repeat(separators) { body.append('\n') }
+                body.append(line)
+                emptyRows = 0
+            } else emptyRows++
+            if (truncated) break
+        }
+        if (body.isEmpty() && !truncated) return "终端屏幕为空"
+        return prefix + body + if (truncated) omitted else ""
+    }
+
     companion object {
         /** Private native snapshot format. Never used as a PTY output channel. */
         fun decode(data: IntArray): TerminalFrame {

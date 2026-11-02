@@ -27,7 +27,8 @@ def main():
     view = ROOT / 'terminal/android/src/main/java/com/hanxi/ghosterm/terminal/TerminalView.kt'
     screen = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm/TerminalScreen.kt'
     clear_patch = ROOT / 'patches/libghostty/android-vt-8159838/0002-local-clear.patch'
-    originals = {p: p.read_bytes() for p in (native, surface, view, screen, clear_patch)}
+    frame_file = ROOT / 'terminal/android/src/main/java/com/hanxi/ghosterm/terminal/TerminalSurface.kt'
+    originals = {p: p.read_bytes() for p in (native, surface, view, screen, clear_patch, frame_file)}
     if any(MARK.encode() in data for data in originals.values()): raise RuntimeError('mutation marker present')
     hashes = {p: hashlib.sha256(data).digest() for p, data in originals.items()}
     local = 'LocalTerminalTest#'
@@ -178,6 +179,23 @@ def main():
         (view, 'target.select(SelectionOperation.WORD, x, y); showTextActions()',
          'target.select(SelectionOperation.WORD, x, y + 1); showTextActions()',
          ui + 'handleEdgesScrollWhileHeldAndStopOnReleaseOrCancel'),
+    ]
+    cases += [
+        (view, 'info.text = currentFrame?.accessibilityText() ?: "终端屏幕尚未就绪"', 'Unit', 'TerminalScreenTest#accessibilityReadsVisibleViewportOnQueryAndFocus'),
+        (view, 'info.className = android.widget.TextView::class.java.name', 'info.className = android.view.View::class.java.name', 'TerminalScreenTest#accessibilityReadsVisibleViewportOnQueryAndFocus'),
+        (view, 'info.isEditable = false', 'info.isEditable = true', 'TerminalScreenTest#accessibilityReadsVisibleViewportOnQueryAndFocus'),
+        (view, 'info.contentDescription = null', 'info.contentDescription = "终端"', 'TerminalScreenTest#accessibilityReadsVisibleViewportOnQueryAndFocus'),
+        (view, 'event.text.add(currentFrame?.accessibilityText() ?: "终端屏幕尚未就绪")', 'Unit', 'TerminalScreenTest#accessibilityReadsVisibleViewportOnQueryAndFocus'),
+        (view, 'event.className = android.widget.TextView::class.java.name', 'event.className = android.view.View::class.java.name', 'TerminalScreenTest#accessibilityReadsVisibleViewportOnQueryAndFocus'),
+        (view, 'event.contentDescription = null', 'event.contentDescription = "终端"', 'TerminalScreenTest#accessibilityReadsVisibleViewportOnQueryAndFocus'),
+        (frame_file, 'cell.flags and 8 != 0 ||', 'false ||', 'TerminalAccessibilityTest#visibleTextOmitsConcealedContentAndWideContinuation'),
+        (frame_file, 'if (cell.width == 0) continue', 'if (false) continue', 'TerminalAccessibilityTest#visibleTextOmitsConcealedContentAndWideContinuation'),
+        (frame_file, 'cell.text.codePointAt(0) == 0x10eeee', 'false', 'TerminalAccessibilityTest#visibleTextOmitsConcealedContentAndWideContinuation'),
+        (frame_file, 'val capacity = 32768 - prefix.length - omitted.length', 'val capacity = Int.MAX_VALUE - prefix.length - omitted.length', 'TerminalAccessibilityTest#blankAndOversizedViewportsReportTheirActualScope'),
+        (frame_file, 'return prefix + body + if (truncated) omitted else ""', 'return prefix + body', 'TerminalAccessibilityTest#blankAndOversizedViewportsReportTheirActualScope'),
+        (frame_file, 'return "终端屏幕为空"', 'return "终端屏幕尚未就绪"', 'TerminalAccessibilityTest#blankAndOversizedViewportsReportTheirActualScope'),
+        (view, 'info.text = currentFrame?.accessibilityText() ?: "终端屏幕尚未就绪"', 'info.text = currentFrame?.accessibilityText() ?: "终端屏幕为空"', 'TerminalScreenTest#accessibilityReadsVisibleViewportOnQueryAndFocus'),
+        (frame_file, 'return prefix + body + if (truncated) omitted else ""', 'return prefix + if (truncated) omitted else body', 'TerminalAccessibilityTest#blankAndOversizedViewportsReportTheirActualScope'),
     ]
     selected = args.selected or list(range(1, len(cases) + 1))
     if any(n < 1 or n > len(cases) for n in selected): raise RuntimeError('case out of range')
