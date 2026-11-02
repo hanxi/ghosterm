@@ -1,18 +1,20 @@
 # Android release APK
 
-当前已核验签名包来自 [run 41517499969](https://github.com/hanxi/ghosterm/actions/runs/41517499969)，源码 `0c30b17` / clean，包含 SAF 完整目录/错误状态处理。
+当前已核验签名包来自 [run 41528681298](https://github.com/hanxi/ghosterm/actions/runs/41528681298)，源码 `d3313a7` / clean，默认记住成功使用的 SSH 密钥，仍保留 SAF 完整目录/错误状态处理。
 [直接下载签名 release APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)（[共用 dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev)）。
-APK **8,134,611 字节**，SHA256 `72f88f4d203836e499bdc348b51a603af2d42a3cbe4c8f50eabf6f75087414e5`；同时核对 `android-SHA256SUMS` 和 `android-build-info.json`，滚动链接可能已更新。
+APK **8,139,859 字节**，SHA256 `ee9c2e6292c73e4a7dc76a4fb16b012845443b8a293c82e1e11465db5ef2b286`；同时核对 `android-SHA256SUMS` 和 `android-build-info.json`，滚动链接可能已更新。
 固定发行证书、非 debuggable/minSdk 29/仅 arm64、实际 R8/资源优化、native 压缩、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐及构建机路径检查均已核验。
 
-当前同源 clean debug APK 在 API 29 / 4 KiB 页与 API 36 / 16 KiB 页各默认完整 **924 项通过**，零失败/错误/跳过，908 份输入及实际安装 APK 已核对（§9.170）。本轮产品的两端初步各 47 项、十六组编译变异及本地签名/lint 证据见 §9.168，实际发行见 §9.169。当前实际 CI 包在 API 29 的覆盖升级、原配置/主机/历史保留和 SAF 加载/错误/重试页面通过，详见 §9.170；旧 `7bebba8` 两端各 918 项保留于 §9.163。手机验收步骤见[真实设备检查](android-device-check.md)。
+本轮认证/文件/任务专项为 API 29 的 21 项、Android 16 / 16 KiB 的 33 项，主机身份另 11 项回归，四组编译变异及 Core/四模块 lint 通过。记住记录仅为应用私有身份 UUID，不写口令、不改 SSH 配置；详见实现计划 §9.172–§9.173。本轮未重跑默认完整套件，不借旧 924 项记新产物完整通过。
+
+旧 `0c30b17` / clean debug APK 在 API 29 / 4 KiB 页与 API 36 / 16 KiB 页各默认完整 **924 项通过**，零失败/错误/跳过，908 份输入及实际安装 APK 已核对（§9.170）。该旧产品的两端初步各 47 项、十六组编译变异及本地签名/lint 证据见 §9.168，实际发行见 §9.169。旧 `0c30b17` 实际 CI 包在 API 29 的覆盖升级、原配置/主机/历史保留和 SAF 加载/错误/重试页面通过，详见 §9.170；旧 `7bebba8` 两端各 918 项保留于 §9.163。手机验收步骤见[真实设备检查](android-device-check.md)。
 
 旧 `f5eda91` 正式包的升级、公网 SSH/SFTP 与 Kitty 证据见 §9.159，两端 917 项见 §9.160；旧 16 KiB 模拟器首次关机后包解析异常仍保留，原因未定。`7bebba8` 的升级、918 项、持续输出及后续 FrameTimeline 排查分别见 §9.162–§9.166，不能借这些结果宣布新包完整或物理手机矩阵通过。
 
 最终按用户要求与 macOS 共用 `dev` Release，文件名固定为 `Ghosterm-android-arm64-dev.apk`、`Ghosterm-macos-arm64-dev.dmg` 和 `Ghosterm-macos-arm64-dev.zip`。这里 dev 表示分发渠道，Android 仍是固定密钥签名、R8/资源裁剪的 release 构建。
 Mac 使用 `SHA256SUMS` / `BUILD-INFO.txt` / `version.json`，Android 使用 `android-SHA256SUMS` / `android-build-info.json`，各自记录版本和实际提交。8 个附件已实际下载逐一比对；临时 android-dev Release 及 tag 已删除。两端发布共用互斥组，Mac 原位更新并只清理旧 Mac 归档，不能再删除整个 Release。
 
-当前发行证据见[实施计划 §9.169](../reference/android-implementation.md#9169-当前-saf-状态修复的实际-dev-发行2026-11-03)；旧 `a70a0d0` 的外部打开/SAF 专项保留于 §9.93–§9.94。
+当前发行证据见[实施计划 §9.173](../reference/android-implementation.md#9173-成功密钥记忆的实际-dev-发行2026-11-03)；旧 `a70a0d0` 的外部打开/SAF 专项保留于 §9.93–§9.94。
 
 前次 `29d3f3d` 的 [CI 41282597767](https://github.com/hanxi/ghosterm/actions/runs/41282597767) 产出 6,129,125 字节签名包；五类设置与正式图标的完整/专项证据保留于 §9.91。
 

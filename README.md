@@ -2,11 +2,11 @@
 
 Ghosterm 是各端原生 UI、共享 C 核心和 libghostty 驱动的终端，提供 SSH 配置管理与 SFTP 文件管理。默认普通 PTY/SSH，可显式使用 tmux 后台会话。
 
-**当前 Android 发行（2026-11-03，`0c30b17`）**：SAF 查询等待完整目录结果并保留提供方报告的错误，浏览/扫描/冲突检查不再消费明确标记为未完成的列表；配置原样输入、当前主机 SFTP、关联身份自动认证、Kitty 动画和 Nerd Fonts 保留。见 [SAF 实际发行](docs/reference/android-implementation.md#9169-当前-saf-状态修复的实际-dev-发行2026-11-03)。
+**当前 Android 发行（2026-11-03，`d3313a7`）**：默认记住成功使用的 SSH 密钥，下次自动使用；取消勾选可仅用于本次连接，加密密钥仍需口令。SSH/SFTP/独立任务共用记忆，SSH 配置不改写。既有 SAF 修复、Kitty 动画和 Nerd Fonts 保留。见 [实际发行](docs/reference/android-implementation.md#9173-成功密钥记忆的实际-dev-发行2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,134,611 字节**；固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41517499969) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41517500119) 均成功；两端当前资产同源 `0c30b17`，Mac 为 build 94 / min macOS 15.0 / ad-hoc / 未公证。实际 DMG/ZIP 与清单一致，共用 dev 八份固定附件完整；上轮 Mac 容量失败记录保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,139,859 字节**；固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41528681298) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41528681290) 均成功；两端当前资产同源 `d3313a7`，Mac 为 build 95 / min macOS 15.0 / ad-hoc / 未公证。实际 APK、DMG/ZIP 与各自清单一致，共用 dev 八份固定附件完整。
 
-**完整回归**：`0c30b17` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **924 项全部通过**，零失败/错误/跳过。两端 908 份输入前后及跨检出相同，实际安装 APK、源码和具名成功集合已核对（§9.170）。实际 CI release 的 API 29 覆盖升级、SAF 加载/错误/重试及原资料保留另有专项；真实手机和完整外部端点矩阵仍待完成。
+**完整回归**：`0c30b17` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **924 项全部通过**，零失败/错误/跳过。两端 908 份输入前后及跨检出相同，实际安装 APK、源码和具名成功集合已核对（§9.170）。旧 `0c30b17` 实际 CI release 的 API 29 覆盖升级、SAF 加载/错误/重试及原资料保留另有专项；真实手机和完整外部端点矩阵仍待完成。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 

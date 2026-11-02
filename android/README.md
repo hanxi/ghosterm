@@ -1,16 +1,16 @@
 # Android 宿主
 
-**当前 Android 发行（2026-11-03，`0c30b17`）**：SAF 查询等待完整目录结果并保留提供方报告的错误，浏览/扫描/冲突检查不再消费明确标记为未完成的列表；配置原样输入、当前主机 SFTP、关联身份自动认证、Kitty 动画和 Nerd Fonts 保留。见 [SAF 实际发行](../docs/reference/android-implementation.md#9169-当前-saf-状态修复的实际-dev-发行2026-11-03)。
+**当前 Android 发行（2026-11-03，`d3313a7`）**：默认记住成功使用的 SSH 密钥，下次自动使用；取消勾选可仅用于本次连接，加密密钥仍需口令。SSH/SFTP/独立任务共用记忆，SSH 配置不改写。既有 SAF 修复、Kitty 动画和 Nerd Fonts 保留。见 [实际发行](../docs/reference/android-implementation.md#9173-成功密钥记忆的实际-dev-发行2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,134,611 字节**；固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41517499969) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41517500119) 均成功；两端当前资产同源 `0c30b17`，Mac 为 build 94 / min macOS 15.0 / ad-hoc / 未公证。实际 DMG/ZIP 与清单一致，共用 dev 八份固定附件完整；上轮 Mac 容量失败记录保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,139,859 字节**；固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41528681298) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41528681290) 均成功；两端当前资产同源 `d3313a7`，Mac 为 build 95 / min macOS 15.0 / ad-hoc / 未公证。实际 APK、DMG/ZIP 与各自清单一致，共用 dev 八份固定附件完整。
 
-**完整回归**：`0c30b17` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **924 项全部通过**，零失败/错误/跳过。两端 908 份输入前后及跨检出相同，实际安装 APK、源码和具名成功集合已核对（§9.170）。实际 CI release 的 API 29 覆盖升级、SAF 加载/错误/重试及原资料保留另有专项；真实手机和完整外部端点矩阵仍待完成。
+**完整回归**：`0c30b17` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **924 项全部通过**，零失败/错误/跳过。两端 908 份输入前后及跨检出相同，实际安装 APK、源码和具名成功集合已核对（§9.170）。旧 `0c30b17` 实际 CI release 的 API 29 覆盖升级、SAF 加载/错误/重试及原资料保留另有专项；真实手机和完整外部端点矩阵仍待完成。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 
 主机管理按真实 SSH 配置显示默认/继承/显式来源，支持稀疏编辑、配置文本、来源遮蔽、别名和身份关联；私钥只保存到本安装的 Keystore 加密容器。默认本地 PTY/SSH，后台 tmux 由用户显式选择。文件点按打开、长按选择，复制后显示清单，在本机/远端任意目标重新预检与确认。
 
-**免重复选钥**：在“编辑主机 → SSH 身份 → 添加已导入身份”中点选密钥名称，再保存主机，后续连接自动使用明确配置的无口令身份。导入或当次选钥不会静默修改主机配置；加密身份仍需口令。SSH 终端中的“文件”使用已连接主机的快照和独立 SFTP，不因后来编辑主机地址而跳到另一台服务器。
+**免重复选钥**：认证时默认勾选“记住此密钥”，成功后下次自动使用，无需先进入主机编辑关联。取消勾选可仅用于本次；加密密钥仍需口令。记录是应用内认证偏好，不改写 SSH 配置。SSH 终端中的“文件”仍使用已连接主机快照和独立 SFTP。
 
 - [最终交互原型](../docs/design/android-prototype.html)：主机首页、终端、文件、设置，单一 HTML。
 - [实现计划与证据](../docs/reference/android-implementation.md)：模块、线程、配置/认证、输入、复制和 A0–A10。

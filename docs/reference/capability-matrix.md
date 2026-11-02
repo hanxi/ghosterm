@@ -1,20 +1,20 @@
 # 能力矩阵
 
-**当前 Android 发行（2026-11-03，`0c30b17`）**：SAF 查询等待完整目录结果并保留提供方报告的错误，浏览/扫描/冲突检查不再消费明确标记为未完成的列表；配置原样输入、当前主机 SFTP、关联身份自动认证、Kitty 动画和 Nerd Fonts 保留。见 [SAF 实际发行](android-implementation.md#9169-当前-saf-状态修复的实际-dev-发行2026-11-03)。
+**当前 Android 发行（2026-11-03，`d3313a7`）**：默认记住成功使用的 SSH 密钥，下次自动使用；取消勾选可仅用于本次连接，加密密钥仍需口令。SSH/SFTP/独立任务共用记忆，SSH 配置不改写。既有 SAF 修复、Kitty 动画和 Nerd Fonts 保留。见 [实际发行](android-implementation.md#9173-成功密钥记忆的实际-dev-发行2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,134,611 字节**；固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41517499969) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41517500119) 均成功；两端当前资产同源 `0c30b17`，Mac 为 build 94 / min macOS 15.0 / ad-hoc / 未公证。实际 DMG/ZIP 与清单一致，共用 dev 八份固定附件完整；上轮 Mac 容量失败记录保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,139,859 字节**；固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41528681298) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41528681290) 均成功；两端当前资产同源 `d3313a7`，Mac 为 build 95 / min macOS 15.0 / ad-hoc / 未公证。实际 APK、DMG/ZIP 与各自清单一致，共用 dev 八份固定附件完整。
 
-**完整回归**：`0c30b17` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **924 项全部通过**，零失败/错误/跳过。两端 908 份输入前后及跨检出相同，实际安装 APK、源码和具名成功集合已核对（§9.170）。实际 CI release 的 API 29 覆盖升级、SAF 加载/错误/重试及原资料保留另有专项；真实手机和完整外部端点矩阵仍待完成。
+**完整回归**：`0c30b17` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **924 项全部通过**，零失败/错误/跳过。两端 908 份输入前后及跨检出相同，实际安装 APK、源码和具名成功集合已核对（§9.170）。旧 `0c30b17` 实际 CI release 的 API 29 覆盖升级、SAF 加载/错误/重试及原资料保留另有专项；真实手机和完整外部端点矩阵仍待完成。
 
-**成功密钥记忆候选**：认证默认记住成功选择的身份，下次自动使用；可取消勾选仅用于本次。API 29 的 21 项、Android 16 / 16 KiB 的 33 项专项、四组变异与 Core/Android lint 已通过；不改 SSH 配置、不保存口令。尚未把该候选记为正式发布，见 [实施记录 §9.172](android-implementation.md#9172-记住成功使用的-ssh-密钥2026-11-03发行前候选)。
+**成功密钥记忆已发行**：API 29 的 21 项、Android 16 / 16 KiB 的 33 项专项、四组变异与 Core/Android lint 已通过；主机身份另有 11 项回归。当前实际 CI APK 已独立下载核验；专项不代替新版本完整套件或真机证据，见 [实施记录 §9.172–§9.173](android-implementation.md#9172-记住成功使用的-ssh-密钥2026-11-03发行前候选)。
 
-**公网文件专项**：当前实际 CI 签名包在 API 29 / arm64 / 4 KiB 页，通过私有 SFTPCloud 和只读 Rebex 完成六个生产页面复制请求，覆盖本机/远端四方向、空目录、保留两者冲突与跨服务复制；目标字节独立核对通过。临时数据/主机/信任已清理，原配置逐字保留，应用重启后保留原两条和新增六条历史。仅这套设备与两个服务，不代表全部提供方、物理服务器或真机矩阵，见 [公网专项](android-implementation.md#9165-当前正式包两项公网服务的文件复制验收2026-11-03)。
+**公网文件专项**：旧 `7bebba8` 实际 CI 签名包在 API 29 / arm64 / 4 KiB 页，通过私有 SFTPCloud 和只读 Rebex 完成六个生产页面复制请求，覆盖本机/远端四方向、空目录、保留两者冲突与跨服务复制；目标字节独立核对通过。临时数据/主机/信任已清理，原配置逐字保留，应用重启后保留原两条和新增六条历史。仅这套设备与两个服务，不代表全部提供方、物理服务器或真机矩阵，见 [公网专项](android-implementation.md#9165-当前正式包两项公网服务的文件复制验收2026-11-03)。
 
-**第三方文件提供方**：当前实际签名包在 API 29 / arm64 / 4 KiB 页完成 RSAF v4.16 本地后端双向复制、同名保留和独立底层字节核对；卸载测试提供方后明确显示授权失效。RSAF 自身存储权限被撤销时，应用与系统选择器均显示空结果，该限制保留、不记失败矩阵通过。临时文件/提供方已清理，原配置与资料保留，见 [RSAF 专项](android-implementation.md#9167-当前正式包第三方-rsaf-提供方专项2026-11-03)。
+**第三方文件提供方**：旧 `7bebba8` 实际签名包在 API 29 / arm64 / 4 KiB 页完成 RSAF v4.16 本地后端双向复制、同名保留和独立底层字节核对；卸载测试提供方后明确显示授权失效。RSAF 自身存储权限被撤销时，应用与系统选择器均显示空结果，该限制保留、不记失败矩阵通过。临时文件/提供方已清理，原配置与资料保留，见 [RSAF 专项](android-implementation.md#9167-当前正式包第三方-rsaf-提供方专项2026-11-03)。
 
 **SAF 状态修复已发行**：共享查询的有界等待、取消、错误和游标所有权已接入；实际 clean CI 包与原始验证范围分别见 [修复证据](android-implementation.md#9168-saf-查询的加载错误与资源所有权2026-11-03未发行候选)及 [本轮发行](android-implementation.md#9169-当前-saf-状态修复的实际-dev-发行2026-11-03)。完整 924 项的最终结果见 §9.170；提供方自身未报告错误的空结果限制仍保留。
 
-**第三方远端读取**：当前实际 `0c30b17` release 在 API 29 / arm64 / 4 KiB 页，经 RSAF v4.16 的真实 SFTP 后端完成系统授权、列表/完整预览和复制到应用文件；379 字节目标与独立远端 SHA256 一致，源前后不变，临时数据已清理。仅一个只读服务/提供方路径，见 [远端提供方专项](android-implementation.md#9171-身份说明校正与第三方远端提供方读取2026-11-03)。
+**第三方远端读取**：旧 `0c30b17` release 在 API 29 / arm64 / 4 KiB 页，经 RSAF v4.16 的真实 SFTP 后端完成系统授权、列表/完整预览和复制到应用文件；379 字节目标与独立远端 SHA256 一致，源前后不变，临时数据已清理。仅一个只读服务/提供方路径，见 [远端提供方专项](android-implementation.md#9171-身份说明校正与第三方远端提供方读取2026-11-03)。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 
