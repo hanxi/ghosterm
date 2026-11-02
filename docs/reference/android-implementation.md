@@ -1,10 +1,10 @@
 # Android 最终方案实现计划
 
-**当前发行（2026-11-02，`f85eafc`）**：首页右上角只保留设置，文件任务入口移到底部；首页与文件页显示真实任务状态，点击查看后返回原目录。已接待确认/队列优先级、未知结果和历史入口，不自动确认写入或重试。详见[底部任务条记录](android-implementation.md#android-task-dock)。
+**当前发行（2026-11-02，`8e161e7`）**：首页右上角只保留设置，文件任务入口移到底部；首页与文件页显示真实任务状态，点击查看后返回原目录。已接待确认/队列优先级、未知结果和历史入口，不自动确认写入或重试。详见[底部任务条记录](android-implementation.md#android-task-dock)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,100,847 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可和 ELF/ZIP 16 KiB 对齐均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41391597431) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41391597436) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,100,791 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41398896578) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41398896781) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
 
-**完整回归状态**：`f85eafc` 的 905 项全量在 API 29 为 901 通过/4 个未滚动定位失败，API 36 为 904 通过/1 个 stock 编辑器输入事件过期失败，均不记全绿。修正后两端各 11 项、最终系统键盘各三次、旧接收十三组及远端页面十四组变异通过；Core 49/94、release/四模块 lint 和两组真实重建的包路径变异通过。实际 release 内的三处构建机路径已在工作区消除并加入 CI 检查；新发行和最终完整矩阵仍待收尾（§9.128–§9.130）。
+**完整回归状态**：`f85eafc` 的 905 项全量在 API 29 为 901 通过/4 个未滚动定位失败，API 36 为 904 通过/1 个 stock 编辑器输入事件过期失败，均不记全绿。修正后两端各 11 项、最终系统键盘各三次、旧接收十三组及远端页面十四组变异通过；Core 49/94、release/四模块 lint 和两组真实重建的包路径变异通过。实际 release 内的三处构建机路径已消除并通过 CI 检查，已随 `8e161e7` 发行；该干净来源的两端默认 905 项完整运行仍在进行（§9.128–§9.131）。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
@@ -33,7 +33,7 @@
 | 复制数据层 | §9.54–§9.59 已接独占创建、匿名来源快照、受控远端读取、fd 释放及各目标文件写入；§9.61–§9.64 已接来源扫描、目标预检、请求内决策与本机/SAF 单目录创建；§9.65–§9.66 已接受控远端目录及统一服务，§9.67 已接独立任务连接，§9.69 已接复制执行器与逐项结果 | §9.70 已有生产页面和任务认证；跨远端关系确认见 §9.110，本机候选预算/显式清理见 §9.106–§9.108；显式摘要核验已接（§9.111–§9.112）；本机创建身份核验见 §9.114，SAF/远端未知结果恢复与完整归属/清理流程仍待补 |
 | tmux | Android 管理 UI、专用 SSH owner、探测/列表/新建/重命名/结束和独立 attach 已接并发行，见 §9.103 | 真机、网络切换及完整设备矩阵；不替代普通 SSH 入口 |
 | 环境包 | `runtime-payload/` 只有规范，无安装器 | 独立后续 PoC；不作为首版 SSH/系统 shell 的依赖 |
-| CI 与出包 | Android 固定密钥签名 release CI 已接；当前 `f85eafc` 云端包 8,100,847 字节，下载核验通过（§9.127）；历史 16 KB 页外部打开专项见 §9.92 | 真机、完整输入法/设备和发行矩阵仍待完成 |
+| CI 与出包 | Android 固定密钥签名 release CI 已接；当前 `8e161e7` 云端包 8,100,791 字节，下载核验通过（§9.131）；历史 16 KB 页外部打开专项见 §9.92 | 真机、完整输入法/设备和发行矩阵仍待完成 |
 
 Apple 的 `SessionController`、`SSHAuthenticationFlow`、`FilesPanelModel`、`TransferManager` 可供行为对照，**不能由 Android 引用或移植为跨端 UI**。已有 C 接口不等于 Android 已可使用：A0 已隔离交叉构建：显式传入 Android libssh2 target，不读取宿主 pkg-config；宿主测试目标在交叉构建默认关闭。
 
@@ -3664,3 +3664,12 @@ OpenSSL 保持既有静态/no-module 等功能配置，只把配置前缀固定�
 最终 API 29 / API 36 各 **11 项组合通过，零失败/错误/跳过**，25.868 / 73.683 秒（阶段 1793599723012277000 / 1793599724086776000），覆盖完整十项真实远端文件页面与一项系统键盘/stock 编辑器/两次实际命令写文件。分批版本在两设备又各追加两次通过，故最终各三次，不能与先前就绪版三次混算。两端具名启动/完成集合正确，安装应用/测试 APK 摘要与构建一致；最终两设备及 release/lint 的 895 份非 Markdown 输入完全相同，证据 `tmp/android-package-path-final-evidence/api29-final/`、`api36-final/`、`ime-final/` 与 `final-source-inputs.json`。
 
 最终固定证书签名 release 与四模块 release lint 通过（阶段 1793599909892146000）；本地包 8,101,847 字节，SHA256 `175742dcff1d19c307eaa982165d8bb22465da9375a5e504cb4704c3da445956`，来源 `3ca3fbd` / dirty。完整 Nerd Fonts/许可、三份压缩 arm64 SO、ELF/ZIP 16 KiB、测试 PTY 不入正式包、源码收据、R8 mapping 和新路径检查均通过；libssh2 相对文件名有效，NDK 原有栈保护、FORTIFY、格式检查、优化及 PIC 选项均保留。CI 配置 actionlint 通过。此为本地构建，不宣称新 CI clean 发行或两端全量已绿；修正后的默认 905 项会从最终干净提交重新执行。
+
+
+### 9.131 构建路径修正的实际 dev 发行（2026-11-02，`8e161e7`）
+
+[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41398896578) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41398896781) 均成功。共用 dev 实际下载 APK 来源 `8e161e7978004b91d62ef72b93adf02d0a40f10b` / clean，8,100,791 字节，SHA256 `5899b2c6c6b1490a0bc9f89bc12058bfc33586c49987e0b2be68b7d69eb741e3`。固定证书、minSdk 29、非 debug、三份压缩 arm64 SO、ZIP/ELF 16 KiB、完整 Nerd Fonts/许可、外部元数据/摘要均核验；实际 CI 日志确认 R8、资源优化和新增构建机路径检查通过。检查下载 APK 同样通过。共用 dev 八附件保留，macOS version.json 同来源、build 87、最低 macOS 15.0、ad-hoc/未公证；不借用 Android 证据宣称 macOS 行为通过。证据 `tmp/package-path-final-cloud/inspection/result.json`、`published/`、`ci.log`、`dev-assets.json` 与 `macos-published/`。
+
+同一 clean 来源已在两个独立检出启动 API 29 / API 36、arm64 / 4 KiB 页的默认 905 项全量（阶段 1793600268498604000 / 1793600269648277000）。两端各冻结 895 份非 Markdown 输入；结束前不记完整通过，不以旧 baseline.log 冒充本轮结果。旧 f85eafc 两端失败与修正后专项证据仍按 §9.128–§9.130 保留。用户手机 Wi-Fi/移动网络及完整 VPN/私人 DNS 矩阵仍待实际复测，不因虚拟设备通过而标为完成。
+
+实际签名 APK 另从旧版覆盖安装到 API 36 / arm64 / 16 KiB 页模拟器，安装后摘要与下载包相同。正式主机入口连接 localhost 和专用反向端口，进入 SSH 主机密钥确认页；原始域名、端口及 RSA SHA256 指纹与宿主内存密钥独立计算一致。取消连接，未接受信任、未输入认证材料；仅说明该包的 localhost 解析到 SSH 握手可达，不记完整认证/SFTP或用户公网域名通过。测试前以普通应用 UID 本地终端保存原配置字节/不存在状态；清理先对比原字节前缀和唯一测试块四条指令，再原子恢复字节或恢复不存在状态，核验后移除本次备份。首页重载无测试主机，原五个根目录条目与两条历史仍可见；移除唯一 reverse 并核对 PID 命令后结束本次服务器。未清空应用、用户文件、全局 DNS 或历史。证据 `tmp/package-path-release16k/device-result.json`、`hostkey-result.json`、`config-cleanup.json` 及 UI XML。
