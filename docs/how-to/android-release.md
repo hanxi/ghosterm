@@ -1,15 +1,15 @@
 # Android release APK
 
-当前已核验签名包来自 [run 41535579105](https://github.com/hanxi/ghosterm/actions/runs/41535579105)，源码 `e254b3d` / clean，默认记住成功使用的 SSH 密钥，仍保留 SAF 完整目录/错误状态处理。
+当前已核验签名包来自 [run 41544996548](https://github.com/hanxi/ghosterm/actions/runs/41544996548)，源码 `808c0ae` / clean，默认记住成功使用的 SSH 密钥，仍保留 SAF 完整目录/错误状态处理。
 [直接下载签名 release APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)（[共用 dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev)）。
-APK **8,139,891 字节**，SHA256 `29f6c554c8ce744ec13b69858be958f1a9506f301f1a1762fcc860c253f993cf`；同时核对 `android-SHA256SUMS` 和 `android-build-info.json`，滚动链接可能已更新。
+APK **8,139,875 字节**，SHA256 `308cf3afd178b3bde6b091fbdd1395dc77b6a7f72249c7795f46387096deaddd`；同时核对 `android-SHA256SUMS` 和 `android-build-info.json`，滚动链接可能已更新。
 固定发行证书、非 debuggable/minSdk 29/仅 arm64、实际 R8/资源优化、native 压缩、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐及构建机路径检查均已核验。
 
-本实际 APK 在 API 29 / 4 KiB 页的同证书升级、首次手动记钥、同进程及冷进程新连接自动认证、独立 SFTP 精确预览已通过，导入提供方提前卸载后仍可用；原配置/两主机/11 条历史计数和原空身份清单保留，见实现计划 §9.177。限无口令 Ed25519 与隔离真 sshd，不替代真机或优化 release 全套矩阵。
+前一实际 `e254b3d` APK 在 API 29 / 4 KiB 页的同证书升级、首次手动记钥、同进程及冷进程新连接自动认证、独立 SFTP 精确预览已通过，导入提供方提前卸载后仍可用；原配置/两主机/11 条历史计数和原空身份清单保留，见实现计划 §9.177。限无口令 Ed25519 与隔离真 sshd，不替代真机或优化 release 全套矩阵。
 
 本轮认证/文件/任务专项为 API 29 的 21 项、Android 16 / 16 KiB 的 33 项，主机身份另 11 项回归，四组编译变异及 Core/四模块 lint 通过。记住记录仅为应用私有身份 UUID，不写口令、不改 SSH 配置；详见实现计划 §9.172–§9.173。本轮未重跑默认完整套件，不借旧 924 项记新产物完整通过。
 
-`174e754` 两端默认完整 929 方法运行均有 60 个具名方法失败（104 条含 setup/cleanup 重复的失败事件），原始结果保留于实现计划 §9.174；测试替身 Context 与显式仅本次认证的夹具修正、原失败重放和系统 IME 专项分别记账，`e254b3d` 两端新的干净默认完整 **929 项均已通过**，具名集合、911 份输入及实际安装 APK 核验见 §9.176。产品源码从 `d3313a7` 到本页实际发行 `e254b3d` 未变，不将夹具失败记录隐藏或改记为正式包完整通过。
+`174e754` 两端默认完整 929 方法运行均有 60 个具名方法失败（104 条含 setup/cleanup 重复的失败事件），原始结果保留于实现计划 §9.174；测试替身 Context 与显式仅本次认证的夹具修正、原失败重放和系统 IME 专项分别记账，`e254b3d` 两端新的干净默认完整 **929 项均已通过**，具名集合、911 份输入及实际安装 APK 核验见 §9.176。产品源码从 `d3313a7` 到 `e254b3d` 未变；当前 `808c0ae` 仅另改两份文件的提示文字，20 项既有测试、app/data lint 与 Core 通过，实际发行见 §9.178，不将夹具失败记录隐藏或改记为正式包完整通过。
 
 旧 `0c30b17` / clean debug APK 在 API 29 / 4 KiB 页与 API 36 / 16 KiB 页各默认完整 **924 项通过**，零失败/错误/跳过，908 份输入及实际安装 APK 已核对（§9.170）。该旧产品的两端初步各 47 项、十六组编译变异及本地签名/lint 证据见 §9.168，实际发行见 §9.169。旧 `0c30b17` 实际 CI 包在 API 29 的覆盖升级、原配置/主机/历史保留和 SAF 加载/错误/重试页面通过，详见 §9.170；旧 `7bebba8` 两端各 918 项保留于 §9.163。手机验收步骤见[真实设备检查](android-device-check.md)。
 

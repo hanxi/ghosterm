@@ -1,8 +1,8 @@
 # Android 最终方案实现计划
 
-**当前 Android 发行（2026-11-03，`e254b3d`）**：默认记住成功使用的 SSH 密钥，下次自动使用；取消勾选可仅用于本次连接，加密密钥仍需口令。SSH/SFTP/独立任务共用记忆，SSH 配置不改写。既有 SAF 修复、Kitty 动画和 Nerd Fonts 保留。见 [实际发行](android-implementation.md#9175-夹具修正提交的实际-android-dev-发行2026-11-03)。
+**当前 Android 发行（2026-11-03，`808c0ae`）**：默认记住成功使用的 SSH 密钥，下次自动使用；取消勾选可仅用于本次连接，加密密钥仍需口令。SSH/SFTP/独立任务共用记忆，SSH 配置不改写。既有 SAF 修复、Kitty 动画和 Nerd Fonts 保留。见 [实际发行](android-implementation.md#9178-密钥记忆提示修正的实际-android-dev-发行2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,139,891 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41535579105](https://github.com/hanxi/ghosterm/actions/runs/41535579105) 成功，实际附件已下载核验。Mac 保留 `d3313a7` / build 95 / min macOS 15.0 / ad-hoc / 未公证（[原 CI](https://github.com/hanxi/ghosterm/actions/runs/41528681290)）；其五份附件 ID/尺寸不变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,139,875 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41544996548](https://github.com/hanxi/ghosterm/actions/runs/41544996548) 成功，实际附件已下载核验。Mac 保留 `d3313a7` / build 95 / min macOS 15.0 / ad-hoc / 未公证（[原 CI](https://github.com/hanxi/ghosterm/actions/runs/41528681290)）；其五份附件 ID/尺寸不变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
 
 **完整回归**：`e254b3d` / clean 在 API 29 / arm64 / 4 KiB 页与 Android 16 / API 36 / arm64 / 16 KiB 页各默认完整 **929 项全部通过**，零失败/错误/跳过。具名发现/成功结束集合、实际安装 app/test APK 及 911 份输入前后与跨检出一致，见 [§9.176](android-implementation.md#9176-夹具修正后的两端默认完整-929-项2026-11-03)。这是 debug instrumentation 完整结果；正式 release 及真实手机/外部矩阵分别记账。
 
@@ -35,7 +35,7 @@
 | 复制数据层 | §9.54–§9.59 已接独占创建、匿名来源快照、受控远端读取、fd 释放及各目标文件写入；§9.61–§9.64 已接来源扫描、目标预检、请求内决策与本机/SAF 单目录创建；§9.65–§9.66 已接受控远端目录及统一服务，§9.67 已接独立任务连接，§9.69 已接复制执行器与逐项结果 | §9.70 已有生产页面和任务认证；跨远端关系确认见 §9.110，本机候选预算/显式清理见 §9.106–§9.108；显式摘要核验已接（§9.111–§9.112）；本机创建身份核验见 §9.114；结果不明来源显式重选与新请求见 §9.121，SAF/远端历史位置显式清理及独立记录见 §9.123；完整提供方/服务器/进程死亡矩阵仍待补 |
 | tmux | Android 管理 UI、专用 SSH owner、探测/列表/新建/重命名/结束和独立 attach 已接并发行，见 §9.103 | 真机、网络切换及完整设备矩阵；不替代普通 SSH 入口 |
 | 环境包 | `runtime-payload/` 只有规范，无安装器 | 独立后续 PoC；不作为首版 SSH/系统 shell 的依赖 |
-| CI 与出包 | Android 固定密钥签名 release CI 已接；当前 `e254b3d` 云端包 8,139,891 字节，实际附件、固定证书、源码收据与发布完整性核验通过（§9.175）；先前 `c594409` 的安装/公网 SSH/SFTP 见 §9.155；历史 16 KB 页外部打开专项见 §9.92 | 真机、完整输入法/设备和发行矩阵仍待完成 |
+| CI 与出包 | Android 固定密钥签名 release CI 已接；当前 `808c0ae` 云端包 8,139,875 字节，实际附件、固定证书、源码收据与发布完整性核验通过（§9.178）；先前 `c594409` 的安装/公网 SSH/SFTP 见 §9.155；历史 16 KB 页外部打开专项见 §9.92 | 真机、完整输入法/设备和发行矩阵仍待完成 |
 
 Apple 的 `SessionController`、`SSHAuthenticationFlow`、`FilesPanelModel`、`TransferManager` 可供行为对照，**不能由 Android 引用或移植为跨端 UI**。已有 C 接口不等于 Android 已可使用：A0 已隔离交叉构建：显式传入 Android libssh2 target，不读取宿主 pkg-config；宿主测试目标在交叉构建默认关闭。
 
@@ -2888,7 +2888,7 @@ Kitty 单独在 `tmp/android-kitty/` 开发，未合入或发行。补丁 0003 �
 
 ### 10.1 当前完成审计与剩余验收（2026-11-03）
 
-本表用于决定整个目标是否可完成；阶段记录不能替代缺失项。真实手机的操作步骤与反馈模板见[手机验收方法](../how-to/android-device-check.md)。当前 Android 实际发行来源为 `e254b3d`（§9.175），成功密钥记忆的专项与变异见 §9.172；最近完整回归为 `e254b3d` 两端 clean debug APK 默认完整 929 项通过（§9.176）；旧 `0c30b17` 两端 924 项保留于 §9.170；旧 `7bebba8` 两端 918 项通过（§9.163）；旧 `f5eda91` 两端各 917 项按 §9.160 保留；APK 实际发行、专项和完整回归分别记账。旧 `c594409` 的两端十五项失败与修正仍保留，未回填为通过。物理手机与完整外部端点/输入/读屏矩阵仍缺证据，初次 16 KiB 模拟器关机后的包解析异常原因未定。
+本表用于决定整个目标是否可完成；阶段记录不能替代缺失项。真实手机的操作步骤与反馈模板见[手机验收方法](../how-to/android-device-check.md)。当前 Android 实际发行来源为 `808c0ae`（§9.178），成功密钥记忆的专项与变异见 §9.172；最近完整回归为 `e254b3d` 两端 clean debug APK 默认完整 929 项通过（§9.176）；旧 `0c30b17` 两端 924 项保留于 §9.170；旧 `7bebba8` 两端 918 项通过（§9.163）；旧 `f5eda91` 两端各 917 项按 §9.160 保留；APK 实际发行、专项和完整回归分别记账。旧 `c594409` 的两端十五项失败与修正仍保留，未回填为通过。物理手机与完整外部端点/输入/读屏矩阵仍缺证据，初次 16 KiB 模拟器关机后的包解析异常原因未定。
 
 | 要求 | 当前可核验的证据 | 尚缺的最终证据 |
 |---|---|---|
@@ -2899,7 +2899,7 @@ Kitty 单独在 `tmp/android-kitty/` 开发，未合入或发行。补丁 0003 �
 | A7 设置、恢复与资料保护 | 五类 16 项偏好和消费者、恢复保护、身份与信任页面已发行；历史设置专项与全量范围分别记账 | 当前 `e254b3d` 两端 929 项通过（§9.176）；旧 `0c30b17` 两端 924 项见 §9.170；最近 `7bebba8` 两端 918 项通过，旧 `f5eda91` 两端 917 项另记；旧 `6deb04b` 实际 TalkBack 导航和生成播报文字局部通过（§9.153），真机放大字体、声音及全页面/输入矩阵仍缺 |
 | A8 显式可选 tmux | §9.103 管理/独立 owner/attach、未知与选择器、实际 SSH/tmux 签名包证据 | 真机断网/切网与完整发行矩阵，不能借此声明手机本地 tmux |
 | A9 环境包 | 用户决定延后，首版 SSH/系统 shell 不依赖它 | 后续独立目标，不补造当前安装器或随包 runtime |
-| A10 发行、安全和许可 | 当前 Android `e254b3d` 发行见 §9.175，实际升级/冷进程记钥见 §9.177；Mac `d3313a7` / build 95 实际归档见 §9.173；旧 `0c30b17` 的发行证据另记：实际下载 APK 固定证书、clean 来源、R8/资源优化、arm64、16 KiB、Nerd Fonts/许可、路径和八份共用资产检查；两份 Mac 归档与清单核对见 §9.169；旧 `0c30b17` 实际 APK 在 API 29 覆盖升级与 SAF 状态专项通过（§9.170） | 真实手机、TalkBack 全页面/声音、完整软硬键盘与系统/发行矩阵；独立真实设备不可由模拟器结果替代 |
+| A10 发行、安全和许可 | 当前 Android `808c0ae` 发行见 §9.178，前一实际包 `e254b3d` 的升级/冷进程记钥见 §9.177；Mac `d3313a7` / build 95 实际归档见 §9.173；旧 `0c30b17` 的发行证据另记：实际下载 APK 固定证书、clean 来源、R8/资源优化、arm64、16 KiB、Nerd Fonts/许可、路径和八份共用资产检查；两份 Mac 归档与清单核对见 §9.169；旧 `0c30b17` 实际 APK 在 API 29 覆盖升级与 SAF 状态专项通过（§9.170） | 真实手机、TalkBack 全页面/声音、完整软硬键盘与系统/发行矩阵；独立真实设备不可由模拟器结果替代 |
 
 最近完整通过的旧回归为 `6deb04b` / clean：API 29 / 4 KiB 页阶段 `1793626910447653000`、API 36 / 16 KiB 页阶段 `1793626910447823000`，均默认发现并完整执行 **915 项且全部通过**；903 份非 Markdown 输入冻结，两个独立检出和设备分别持 OS 锁。实际构建 APK 的包内来源已核对为上述提交 / clean。日志 `tmp/android-small-files-evidence/full-a11y-6deb04b-api29.log` / `full-a11y-6deb04b-16k.log` 及各阶段目录；已逐项核对实际成功结束集合，不按发现数量推算成功数量。原始 AVD 数据保留，未使用 wipe-data 或卸载原有数据。前次 `18db11b` 的双系统 4 KiB 页 912 项完整通过继续只属于原产物。
 
@@ -4281,3 +4281,12 @@ Mac 工作流过滤 Android 与 Markdown 变动，本次没有新的 Mac CI；�
 原始证据在 `tmp/android-release-remember/`：`upgrade-result.json`、`first-success.json`、`cold-result.json`、`result.json`、`cleanup-result.json`、`owned-cache-before-cleanup.xml` 与命名页面 XML/日志。驱动的最初 DocumentsUI dump/旧网格选择器未完成，导致一次认证前连接超时；另一次配置清空仅改到未保存草稿、一个过长 shell 清理命令未获确认，都保留失败记录。后来从同一测试资源恢复操作，没有修改产品逻辑、超时或原数据保护条件；完整新配置草稿匹配原备份后才保存，缓存删除前另行完整读取核验。实际验收只覆盖此正式包、一个模拟器、无口令 Ed25519 身份、一个隔离真 sshd；不等同真实手机、加密口令、公共网络/服务器矩阵或整套优化 release instrumentation。
 
 本轮实测发现身份详情及配置身份提示仍说“仅为本次连接选择”，与默认记住成功身份不一致，现仅修改 `IdentitiesScreen.kt` 与 `IdentityReferences.kt` 的相关提示文字，说明配置引用与记住选择的区别。相对完整 `e254b3d` 的 911 份输入，仅这两份文件不同，其他 909 份一致；没有新增断言或修改认证/存储分支。现有身份设置、主机身份、自动候选策略及独立 Core **20 项全部通过（25.022 秒）**，实际 APK/具名集合见 `copy-identity20/receipt.json`；app/data lint 与 Core **49 CTest / 94 ABI** 通过（`copy-lint.log`、`copy-core-gate.log`）。没有为提示文字重复整套回归；最近完整 929 项仍绑定 §9.176 的 `e254b3d`，实际冷进程验收也绑定上面的 `e254b3d` 正式 APK，不能改写成后续文案包的运行结果。
+
+
+### 9.178 密钥记忆提示修正的实际 Android dev 发行（2026-11-03）
+
+`808c0ae414702bfae794d2cbb9f034be58f60571` / clean 的 [Android CI 41544996548](https://github.com/hanxi/ghosterm/actions/runs/41544996548) 已成功，实际下载共用 dev 的 APK、外部源码信息与校验和重新核验。APK **8,139,875 字节**，SHA256 **`308cf3afd178b3bde6b091fbdd1395dc77b6a7f72249c7795f46387096deaddd`**；固定证书、minSdk 29/非 debuggable/仅 arm64、实际 R8/资源优化、三份压缩 native 库、ELF/ZIP 16 KiB、完整 Nerd Fonts/许可与构建机路径检查均通过。清单中的源码、尺寸、摘要与 APK 一致，共用 dev 八份资产完整。
+
+本提交产品变化仅为 §9.177 的身份帮助文字。已有 20 项专项、app/data lint 和 Core 49 CTest / 94 ABI 结果分别记账；本节没有在新优化包上重跑冷进程操作或整套 instrumentation。最近两端完整 929 项与实际 release 冷进程记钥/SFTP 操作仍绑定 `e254b3d`，不改写为本次包的运行结果。发布证据在 `tmp/android-release-remember/808-release/` 的 `inspection/result.json`、`ci.log`、`published/`、`dev-assets.json` 与 `mac-assets-preserved.json`。
+
+本轮只触发 Android 工作流；Mac 仍为 `d3313a7` / build 95 / min macOS 15.0 / ad-hoc / 未公证，其五份资产 ID 与尺寸相对前次发行完全一致。两端按各自来源收据记账。§10.1 的真实手机、外部提供方/服务器完整矩阵与旧帧异常仍未关闭，整个 Android 目标未完成。
