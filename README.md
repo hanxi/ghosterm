@@ -2,11 +2,11 @@
 
 Ghosterm 是各端原生 UI、共享 C 核心和 libghostty 驱动的终端，提供 SSH 配置管理与 SFTP 文件管理。默认普通 PTY/SSH，可显式使用 tmux 后台会话。
 
-**当前发行（2026-11-02，`8e161e7`）**：首页右上角只保留设置，文件任务入口移到底部；首页与文件页显示真实任务状态，点击查看后返回原目录。已接待确认/队列优先级、未知结果和历史入口，不自动确认写入或重试。详见[底部任务条记录](docs/reference/android-implementation.md#android-task-dock)。
+**当前发行（2026-11-02，`b7dae61`）**：主机首页、唯一设置入口、底部文件任务条；终端保持唯一键盘入口。文件支持点按打开、长按多选和跨本机/远端复制粘贴，最新修正覆盖大字体与矮窗口；域名 DNS 兼容及地址防自动更正已保留。详见[当前发行与安装证据](docs/reference/android-implementation.md#9143-大字体文件界面的实际-dev-发行2026-11-02b7dae61)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,100,791 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41398896578) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41398896781) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,126,827 字节，固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐与构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41435141857) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41435141893) 成功。两端共用 dev，保留八份平台附件。
 
-**完整回归状态**：`8e161e7` 在 API 29 / API 36、arm64 / 4 KiB 页各完成默认未筛选 905 项，零失败/错误/跳过（1,511.909 / 2,400.027 秒）；具名执行集合、实际安装 APK 与 895 份源码输入前后摘要均核验（§9.132、§9.135）。Core 49/94、release/四模块 lint、接收十三组/远端页面十四组及两组真实重建的包路径变异已有本轮证据。旧全量失败保留在 §9.128–§9.130，不借新结果抹去。两端各十个真实进程中断检查点也已通过（§9.133、§9.136）；实际签名包专项与真机/长负载/完整端点矩阵分别记账，整个客户端尚未完成。 正式包 API 29 另完成十分钟批量输出观察，源端推算约 13.58 GiB / 23.18 MiB/s、采样 PSS 55.6–56.9 MiB；计数溢出的独立核对、窗口指标与范围见 §9.138，不作为整条字节流哈希或真机性能通过。
+**验收状态**：最新已完成的完整回归为 `8d6178d` 的 API 36 / 4 KiB 页 908 项；最近同源双系统全量仍为 `8e161e7` 的 API 29 / 36 各 905 项。`b7dae61` 文件专项两端各 51 项、22 组变异及实际签名包升级已通过，不能据此声明整个版本全量通过。当前冻结同一源码的两端默认 912 项仍在执行；证据范围与剩余条件统一见[完成审计](docs/reference/android-implementation.md#101-当前完成审计与剩余验收2026-11-02)。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
@@ -100,7 +100,7 @@ open tmp/Ghosterm.app                # 普通终端；通过连接选择器进�
 
 包是**自包含**的（core 与 libghostty 静态链接，libssh2 嵌入
 `Contents/Frameworks/`）——目标 Mac 不需要 Homebrew。当前发行包为 arm64；
-`8e161e7` 的 CI dev 包记录最低 macOS 15.0，Homebrew cask 仍声明 macOS 26 下限。
+`b7dae61` 的 CI dev 包记录最低 macOS 15.0，Homebrew cask 仍声明 macOS 26 下限。
 源码声明的 macOS 13 不等于包的运行下限，打包脚本按实际嵌入依赖计算并验证 minos；
 包元数据也不代表该系统上的全部功能已验收，具体证据见[开发包说明](docs/how-to/dev-build.md)。
 ad-hoc 签名；Developer ID + 公证是显式遗留项（待证书，见 roadmap）。

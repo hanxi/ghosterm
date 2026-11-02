@@ -1,10 +1,10 @@
 # Android 宿主
 
-**当前发行（2026-11-02，`8e161e7`）**：首页右上角只保留设置，文件任务入口移到底部；首页与文件页显示真实任务状态，点击查看后返回原目录。已接待确认/队列优先级、未知结果和历史入口，不自动确认写入或重试。详见[底部任务条记录](../docs/reference/android-implementation.md#android-task-dock)。
+**当前发行（2026-11-02，`b7dae61`）**：主机首页、唯一设置入口、底部文件任务条；终端保持唯一键盘入口。文件支持点按打开、长按多选和跨本机/远端复制粘贴，最新修正覆盖大字体与矮窗口；域名 DNS 兼容及地址防自动更正已保留。详见[当前发行与安装证据](../docs/reference/android-implementation.md#9143-大字体文件界面的实际-dev-发行2026-11-02b7dae61)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,100,791 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41398896578) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41398896781) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,126,827 字节，固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐与构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41435141857) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41435141893) 成功。两端共用 dev，保留八份平台附件。
 
-**完整回归状态**：`8e161e7` 在 API 29 / API 36、arm64 / 4 KiB 页各完成默认未筛选 905 项，零失败/错误/跳过（1,511.909 / 2,400.027 秒）；具名执行集合、实际安装 APK 与 895 份源码输入前后摘要均核验（§9.132、§9.135）。Core 49/94、release/四模块 lint、接收十三组/远端页面十四组及两组真实重建的包路径变异已有本轮证据。旧全量失败保留在 §9.128–§9.130，不借新结果抹去。两端各十个真实进程中断检查点也已通过（§9.133、§9.136）；实际签名包专项与真机/长负载/完整端点矩阵分别记账，整个客户端尚未完成。 正式包 API 29 另完成十分钟批量输出观察，源端推算约 13.58 GiB / 23.18 MiB/s、采样 PSS 55.6–56.9 MiB；计数溢出的独立核对、窗口指标与范围见 §9.138，不作为整条字节流哈希或真机性能通过。
+**验收状态**：最新已完成的完整回归为 `8d6178d` 的 API 36 / 4 KiB 页 908 项；最近同源双系统全量仍为 `8e161e7` 的 API 29 / 36 各 905 项。`b7dae61` 文件专项两端各 51 项、22 组变异及实际签名包升级已通过，不能据此声明整个版本全量通过。当前冻结同一源码的两端默认 912 项仍在执行；证据范围与剩余条件统一见[完成审计](../docs/reference/android-implementation.md#101-当前完成审计与剩余验收2026-11-02)。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
@@ -29,7 +29,7 @@ ANDROID_SERIAL=设备 ANDROID_FILES_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.
 
 ## 粘贴确认与任务页面
 
-本节的 §9.70–§9.73 为交付记录。§9.73 在相同页面上新增历史区和记录错误状态：接纳、取消及清除可能需要等待 SQLite 事务；重启显示只读记录，不恢复清单或执行。详细状态、容量和失败契约见 [§8.2](../docs/reference/android-implementation.md#82-a6-持久任务记录与中断核对)；当前完整 475 项已通过，旧 APK 的通过数量仍保留为历史。
+本节的 §9.70–§9.73 为交付记录。§9.73 在相同页面上新增历史区和记录错误状态：接纳、取消及清除可能需要等待 SQLite 事务；重启显示只读记录，不恢复清单或执行。详细状态、容量和失败契约见 [§8.2](../docs/reference/android-implementation.md#82-a6-持久任务记录与中断核对)；该切片当时完整 475 项通过，不能作为当前发行版全量结果。
 
 进程所有权入口为 [FileWorkRuntime](app/src/main/java/com/hanxi/ghosterm/FileWorkRuntime.kt)，任务状态机 `FileTaskStore` 与页面 facade 同在 `FileTasksViewModel.kt`。§9.70 新增 [FileTasksViewModel](app/src/main/java/com/hanxi/ghosterm/FileTasksViewModel.kt) 和 [FileTasksScreen](app/src/main/java/com/hanxi/ghosterm/FileTasksScreen.kt)。文件来源卡片提供粘贴入口；任务固定源/目标，预检后确认冲突，独立认证后执行，保留实际位置与逐项错误。默认保留复制清单；取消要等待实际 provider/原生资源释放，不立即释放名额。完整实现及尚未完成范围见[任务契约](../docs/reference/android-implementation.md#619-当前任务页面与-a6-后续实现)。
 
@@ -38,11 +38,11 @@ ANDROID_SERIAL=emulator-5554 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileTasks
 ANDROID_SERIAL=emulator-5554 ANDROID_FILE_TASK_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileTasksProductTest,com.hanxi.ghosterm.RemoteFileTasksProductTest,com.hanxi.ghosterm.SafFileTasksProductTest bash scripts/test-android-ssh.sh
 ```
 
-18 项定向使用真实 HOME、系统 DocumentsUI/独立 provider 与 SSH。24 组产品变异覆盖路由、请求身份、取消名额、结果/清单和认证归属；失败过程与最终证据统一记在 §9.70。§9.71 改由进程级 `FileWorkRuntime` 持有任务、清单和独立认证，`FileTasksViewModel` 仅保留页面路由与 presenter UUID；显式结束 Activity 只解除呈现归属。§9.72 已接 FIFO 等待请求，扫描/确认/执行仍串行；§9.74 已接后台通知，§9.98 已接暂停/继续、安全失败项重试与整体 ETA；持久历史核对、残留清理及完整矩阵仍待收尾，普通任务不自动恢复执行。主机顶栏新增任务快捷入口，与 HTML 顶栏仅设置的差异仍待导航收口。
+18 项定向使用真实 HOME、系统 DocumentsUI/独立 provider 与 SSH。24 组产品变异覆盖路由、请求身份、取消名额、结果/清单和认证归属；失败过程与最终证据统一记在 §9.70。§9.71 改由进程级 `FileWorkRuntime` 持有任务、清单和独立认证，`FileTasksViewModel` 仅保留页面路由与 presenter UUID；显式结束 Activity 只解除呈现归属。§9.72 已接 FIFO 等待请求，扫描/确认/执行仍串行；§9.74 已接后台通知，§9.98 已接暂停/继续、安全失败项重试与整体 ETA；持久历史的位置/内容核对、显式重新发起和清理已按 §9.104–§9.123 接入；完整外部端点/设备矩阵仍待验，普通任务不自动恢复执行。§9.127 已将任务入口收口到首页和文件页底部，首页右上角仅设置。
 
 ## 文件任务排队（§9.72）
 
-队列按 FIFO 接纳最多 32 个未结束请求；等待时仅保存固定来源/目标，不读取文件或建立连接。轮到后扫描、独立认证并再次确认；等待项可直接取消，运行项取消后须等真实资源释放才推进下一项。页面显示前方任务数，旧冲突决定不传给后续请求。当前模拟器档完整 453 项通过；阶段仍为部分 A6，后台服务与持久恢复未实现。
+队列按 FIFO 接纳最多 32 个未结束请求；等待时仅保存固定来源/目标，不读取文件或建立连接。轮到后扫描、独立认证并再次确认；等待项可直接取消，运行项取消后须等真实资源释放才推进下一项。页面显示前方任务数，旧冲突决定不传给后续请求。该队列切片当时完整 453 项通过；后续 §9.73/§9.74 已接持久观察记录与后台传输服务。重启只呈现记录供显式核对，不自动恢复执行；完整矩阵仍待验。
 
 ```bash
 ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.FileQueueProductTest ANDROID_FILE_QUEUE_MUTATE=1 bash scripts/test-android-ssh.sh
@@ -90,7 +90,7 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-clipboard.py
 
 ## SAF 目标文档验证
 
-`SafFilePublisher` 仅为数据层，文件页仍无复制/粘贴任务。创建后失败可能留下文档；请求保留 URI 与副作用状态，不能自动删除或盲重试。16 项真实系统授权/可写 provider 设备用例和 30 组变异的范围见实现计划 §9.59。
+`SafFilePublisher` 是 SAF 发布数据层；§9.70 已接文件粘贴与任务页面，调用方通过统一执行器消费发布结果。创建后失败可能留下文档；请求保留 URI 与副作用状态，不能自动删除或盲重试。16 项真实系统授权/可写 provider 设备用例和 30 组变异的范围见实现计划 §9.59。
 
 ```bash
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-saf-publication.py
@@ -243,7 +243,7 @@ ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.IdentitySettingsTest \
 ANDROID_SSH_IDENTITIES_MUTATE=1 bash scripts/test-android-ssh.sh
 ```
 
-八项定向与十组变异已通过；范围见[§9.33](../docs/reference/android-implementation.md#933-ssh-身份设置与公钥信息2026-10-30)。主机引用与身份映射已按 §9.35 接入，known_hosts 管理已由 §9.39 交付，完整偏好仍未实现。
+八项定向与十组变异已通过；范围见[§9.33](../docs/reference/android-implementation.md#933-ssh-身份设置与公钥信息2026-10-30)。主机引用与身份映射已按 §9.35 接入，known_hosts 管理已由 §9.39 交付；§9.91 已接五类设置、16 项偏好与已有 surface/文件页面消费者，证据范围见实现计划。
 
 ## 边界
 
@@ -271,11 +271,11 @@ ANDROID_SSH_HOST_IDENTITIES_MUTATE=1 bash scripts/test-android-ssh.sh
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-known-hosts.py
 ```
 
-CI 已产出签名且压缩的 release APK，下载与签名说明见 [Android release](../docs/how-to/android-release.md)。首次云端包对应 `d585f0b`；持久记录切片提交后的产物须按新 commit 另行验证。
+CI 已产出签名且压缩的 release APK，下载与签名说明见 [Android release](../docs/how-to/android-release.md)。首次云端包对应 `d585f0b`；当前发行与实际下载/安装证据见本文开头，不借首次包结果覆盖后续提交。
 
-## 当前文件阶段进度（§9.77）
+## 文件阶段进度（§9.77 历史切片）
 
-任务页区分读取来源、写入目标和核对/提交；活动字节独立于已提交字节，不用作续传偏移。总量未知不伪造百分比；平均速度计入阻塞耗时，只估计当前字节阶段的剩余时间，停滞、核验或总量未知时不显示估计。暂停/重试和整体剩余时间仍待完成。
+任务页区分读取来源、写入目标和核对/提交；活动字节独立于已提交字节，不用作续传偏移。总量未知不伪造百分比；平均速度计入阻塞耗时，只估计当前字节阶段的剩余时间，停滞、核验或总量未知时不显示估计。该切片当时未接暂停/重试和整体剩余时间；§9.98 后已接暂停/继续、安全失败项重试与整体 ETA，未知总量及不可估计阶段仍不伪造剩余时间。
 
 ```bash
 ANDROID_SERIAL=设备 ANDROID_COPY_PROGRESS_MUTATE=1 bash scripts/test-android-ssh.sh
