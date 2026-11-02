@@ -87,7 +87,10 @@ class RemoteFilesProductTest {
         val bitmap=ui.onRoot().captureToImage().asAndroidBitmap()
         File(ui.activity.cacheDir,"remote-files-$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) }
     }
-    private fun entry(name:String)=ui.onNodeWithTag("file-entry:$name")
+    private fun entry(name:String):SemanticsNodeInteraction {
+        ui.onNodeWithTag("file-list").performScrollToNode(hasTestTag("file-entry:$name"))
+        return ui.onNodeWithTag("file-entry:$name")
+    }
     private fun control(op:String,user:String,stage:String="readdir",action:String="allow"):JSONObject {
         val peer=fixture.getJSONObject("channels")
         return Socket("127.0.0.1",peer.getInt("controlPort")).use { socket ->
