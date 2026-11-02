@@ -1,6 +1,8 @@
 # Android 宿主
 
-**未发行的清理后端（§9.122）**：受控远端单文件/空目录删除已实现，支持取消、请求归属、资源退出与完整结果状态。API 29/36 各 22 项、签名 release / 四模块 lint 通过；正式清理页面、持久删除意图/结果和 SAF 清理继续待办。证据见[实施计划](../docs/reference/android-implementation.md#android-reviewed-remote-removal)。
+**历史位置显式清理（2026-11-02，已验工作区，CI 发行待核验）**：本机/远端/SAF 文件的当前位置检查、独立勾选确认和 SQLite 操作记录已接，意图先落盘，未知结果不自动重放；本机/远端空目录只做非递归删除，SAF 目录明确提示系统整理。API 29/36 各 76 项、Core 49/94、签名 release/四模块 lint 通过；十三个新保护分轮和四个受影响复验通过，实际进程死亡/物理设备与全客户端矩阵待验，见[§9.123](../docs/reference/android-implementation.md#android-explicit-history-cleanup)。
+
+**此前清理后端切片（§9.122）**：受控远端单文件/空目录删除已实现，支持取消、请求归属、资源退出与完整结果状态。API 29/36 各 22 项、签名 release / 四模块 lint 通过；该切片当时未接页面与持久操作记录；后续历史文件清理见 §9.123，完整设备矩阵仍待完成。证据见[实施计划](../docs/reference/android-implementation.md#android-reviewed-remote-removal)。
 
 **当前 A3 DNS 可达性兼容修复（2026-11-02，工作区已验待发行）**：针对 IP 可连、域名误报网络不可用，保留正常系统 DNS 路径，只在组合接口的网络错误时改用同一系统解析器的显式 A/AAAA 查询；不切换 DNS 服务、不重写 SSH 主机身份。真实网络用例复现旧接口在发出 DNS 前报 ENONET，修复后完成 DNS→SSH 认证/输出；API 29 / 36 各 50 项通过，13 个新增与两个受影响旧保护同轮通过，签名 release / 四模块 lint 通过。用户手机、VPN/私人 DNS 完整矩阵仍待验，见[可达性兼容修复](../docs/reference/android-implementation.md#android-dns-probe-compatibility)。
 

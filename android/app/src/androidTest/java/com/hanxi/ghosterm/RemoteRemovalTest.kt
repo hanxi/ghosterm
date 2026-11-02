@@ -5,6 +5,8 @@ import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.*
+import com.hanxi.ghosterm.data.*
+import com.hanxi.ghosterm.domain.*
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -267,4 +269,29 @@ class RemoteRemovalTest {
         }
     }
 
+    @Test fun reviewedHistoryCleanupUsesDedicatedEndpointAndPersistsNewOperationOnly()=real { files,parent,root ->
+        val entry=create(files,parent,root)
+        val endpoint=FileEndpoint("cleanup-remote","remote",parent,remote=
+            RemoteFileIdentity("fixture",host,fixture.getString("user"),fixture.getInt("port")))
+        val destination=FileLocation(endpoint)
+        val source=FileLocation(FileEndpoint.APP)
+        val selected=BrowserEntry("source",entry.name,FileKind.FILE,entry.size,entry.modifiedSeconds?.times(1000))
+        val request=FilePasteRequest.capture(
+            FileClipboardSnapshot.capture(source,"source",listOf(selected)),destination,"remote")
+        val item=FileJournalItem(FileCopyItemResult(
+            FileScanEntry(source,selected,entry.name),FileCopyItemState.UNKNOWN,
+            destination,entry.name,createdId=entry.path),FileCopyCheckpoint.PUBLISH)
+        val record=FileJournalRecord(FileJournalIntent(request.id,request.clipboardId,
+            source,"source",listOf(selected),destination,"remote"),FileJournalPhase.RUNNING,0,items=listOf(item))
+        val journal=FileCleanupJournal(File(root,"cleanup/operations.db"))
+        val cleaner=FileResidualCleanup(root,instrumentation.targetContext.contentResolver,journal)
+        val binding=RemoteFileBinding(endpoint,files)
+        val review=cleaner.review(record,item,false,binding)
+        assertEquals("safe bytes ☃",files.previewText(entry.path));assertTrue(journal.load().isEmpty())
+        val result=cleaner.remove(review,binding)
+        assertEquals(FileCleanupState.REMOVED,result.state)
+        assertEquals(0,result.status);assertEquals(0u,result.remoteStatus);assertEquals(listOf(result),journal.load())
+        assertTrue(files.browse(parent).entries.none { it.path==entry.path })
+        assertEquals(FileCopyItemState.UNKNOWN,record.items.single().value.state)
+    }
 }

@@ -434,6 +434,98 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
             }
         }
     }
+    private val cleanupJournal=FileCleanupJournal(File(application.filesDir,"file-cleanup/operations.db"))
+    private val cleaner=FileResidualCleanup(File(application.filesDir,"home"),application.contentResolver,cleanupJournal)
+    val cleanupRecords=mutableStateListOf<FileCleanupRecord>()
+    var cleanupReview by mutableStateOf<FileResidualCleanup.Review?>(null);private set
+    var cleanupRecordsVisible by mutableStateOf(false);private set
+    var cleanupBusy by mutableStateOf(false);private set
+    var cleanupError by mutableStateOf<String?>(null);private set
+    var cleanupNotice by mutableStateOf<String?>(null);private set
+    private var cleanupJob:Job?=null
+    fun cancelCleanup() { cleanupReview=null;cleanupJob?.cancel() }
+    fun dismissCleanupReview() { cleanupReview=null }
+    fun hideCleanupRecords() { cleanupRecordsVisible=false }
+    fun showCleanupRecords() { cleanupRecordsVisible=true;reloadCleanupRecords() }
+    fun reloadCleanupRecords() {
+        if(cleanupBusy) return
+        cleanupBusy=true;cleanupError=null
+        cleanupJob=viewModelScope.launch {
+            try { val found=cleanupJournal.load();ensureActive();cleanupRecords.clear();cleanupRecords.addAll(found) }
+            catch(cancel:CancellationException) { throw cancel }
+            catch(error:Exception) { cleanupError=error.message ?: "无法读取清理记录，原文件已保留" }
+            finally { cleanupBusy=false;cleanupJob=null }
+        }
+    }
+    fun requestCleanup(record:FileJournalRecord,item:FileJournalItem,candidate:Boolean) {
+        if(cleanupBusy || busy || journalLoading || inspectingId!=null || record !in history ||
+            !FileResidualCleanup.eligible(record,item,candidate)) return
+        val lease=work.tasks.beginContentRead() ?: return
+        cleanupReview=null;cleanupError=null;cleanupNotice=null;cleanupBusy=true
+        cleanupJob=viewModelScope.launch(start=CoroutineStart.UNDISPATCHED) {
+            try {
+                val parent=checkNotNull(item.value.targetParent)
+                val review=withTimeout(60_000) {
+                    work.authentication.fileHistoryConnections(record.intent.id,parent.endpoint,::cancelCleanup).use { scope ->
+                        cleaner.review(record,item,candidate,scope.remote(FileTaskConnections.Role.DESTINATION,parent.endpoint))
+                    }
+                }
+                ensureActive()
+                if(record in history)cleanupReview=review
+            } catch(timeout:TimeoutCancellationException) { cleanupError="清理位置核对超时，请重新发起" }
+            catch(cancel:CancellationException) { throw cancel }
+            catch(error:Exception) { cleanupError=error.message ?: "无法核对清理位置" }
+            finally { work.tasks.endContentRead(lease);cleanupBusy=false;cleanupJob=null }
+        }
+    }
+    fun confirmCleanup() {
+        val review=cleanupReview ?: return
+        if(cleanupBusy || busy || journalLoading || inspectingId!=null) return
+        val record=history.singleOrNull { it.intent.id==review.key.requestId }
+        if(record==null) { cleanupReview=null;cleanupError="原历史记录已改变，请重新检查";return }
+        val lease=work.tasks.beginContentRead() ?: return
+        cleanupReview=null;cleanupError=null;cleanupNotice=null;cleanupBusy=true
+        cleanupJob=viewModelScope.launch(start=CoroutineStart.UNDISPATCHED) {
+            try {
+                val outcome=withTimeout(60_000) {
+                    work.authentication.fileHistoryConnections(record.intent.id,review.parent.endpoint,::cancelCleanup).use { scope ->
+                        cleaner.remove(review,scope.remote(FileTaskConnections.Role.DESTINATION,review.parent.endpoint))
+                    }
+                }
+                ensureActive()
+                cleanupNotice=when(outcome.state) {
+                    FileCleanupState.REMOVED->"已收到删除成功确认，原复制记录保持不变"
+                    FileCleanupState.ABSENT->"本次未找到该位置，没有认定是本次删除"
+                    FileCleanupState.CHANGED->"文件信息已改变，没有继续删除"
+                    FileCleanupState.NOT_ATTEMPTED->"没有发起删除，请查看清理记录"
+                    FileCleanupState.REJECTED->"删除被明确拒绝，请查看清理记录"
+                    FileCleanupState.UNKNOWN->"删除结果不明，请检查当前位置，不会自动重试"
+                }
+                outcome.error?.let { cleanupError=it }
+            } catch(timeout:TimeoutCancellationException) { cleanupError="清理超时，请核对清理记录和当前位置" }
+            catch(cancel:CancellationException) { cleanupNotice="已取消；请核对清理记录和当前位置，不会自动重试";throw cancel }
+            catch(error:Exception) { cleanupError=error.message ?: "清理或结果保存失败，请核对当前位置" }
+            finally {
+                // The dedicated connection/provider worker has actually finished before releasing the global lease.
+                withContext(NonCancellable) {
+                    try { val found=cleanupJournal.load();cleanupRecords.clear();cleanupRecords.addAll(found) }
+                    catch(error:Exception) { cleanupError=error.message ?: "无法读取清理结果，原记录已保留" }
+                }
+                work.tasks.endContentRead(lease);cleanupBusy=false;cleanupJob=null
+            }
+        }
+    }
+    fun removeCleanupRecord(record:FileCleanupRecord) {
+        if(cleanupBusy || record !in cleanupRecords) return
+        val lease=work.tasks.beginContentRead() ?: return
+        cleanupBusy=true;cleanupError=null
+        cleanupJob=viewModelScope.launch(start=CoroutineStart.UNDISPATCHED) {
+            try { cleanupJournal.remove(record.id);cleanupRecords.remove(record) }
+            catch(cancel:CancellationException) { throw cancel }
+            catch(error:Exception) { cleanupError=error.message ?: "无法清除清理记录" }
+            finally { work.tasks.endContentRead(lease);cleanupBusy=false;cleanupJob=null }
+        }
+    }
     val presenterId = java.util.UUID.randomUUID()
     val tasks get() = work.tasks.tasks
     val busy get() = work.tasks.busy
@@ -443,7 +535,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val journalError get() = work.tasks.journalError
     val background get() = work.background
     fun retryBackground() = work.background.requestFromUser(presenterId)
-    fun reloadHistory() { dismissHistoryRecovery();cancelInspection();inspections.clear();contentInspections.clear();identityInspections.clear();inspectionError=null;historyRetryError=null;work.tasks.reloadHistory() }
+    fun reloadHistory() { dismissCleanupReview();dismissHistoryRecovery();cancelInspection();inspections.clear();contentInspections.clear();identityInspections.clear();inspectionError=null;historyRetryError=null;work.tasks.reloadHistory() }
     fun removeHistory(record: FileJournalRecord) { cancelInspection();inspections.remove(record.intent.id);contentInspections.keys.filter { it.requestId==record.intent.id }.forEach(contentInspections::remove);identityInspections.keys.filter { it.requestId==record.intent.id }.forEach(identityInspections::remove);work.tasks.removeHistory(record) }
     val inspections = mutableStateMapOf<String,FileHistoryInspection>()
     var inspectingId by mutableStateOf<String?>(null); private set
@@ -580,7 +672,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val presentsAuthentication get() = work.presenter == presenterId
     var visible by mutableStateOf(false); private set
     fun show() { visible=true }
-    fun hide() { hideRetained();cancelInspection();retryTask=null;retryHistory=null;dismissHistoryRecovery();originId=null;visible=false }
+    fun hide() { cancelCleanup();hideCleanupRecords();hideRetained();cancelInspection();retryTask=null;retryHistory=null;dismissHistoryRecovery();originId=null;visible=false }
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
         connections: (FilePasteRequest) -> FileTaskConnections = work::connections) {
         visible=true
@@ -660,6 +752,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     fun paused() = work.pause(presenterId)
     fun focused() = work.focus(presenterId)
     override fun onCleared() {
+        cancelCleanup()
         retainedRef?.let { if(retainedOwner.isInitialized())work.releaseRetained(retainedOwner.value,it) }
         emptyRetainedReview?.let { if(retainedOwner.isInitialized())work.releaseEmptyRetained(retainedOwner.value,it) }
         work.release(presenterId);super.onCleared() }

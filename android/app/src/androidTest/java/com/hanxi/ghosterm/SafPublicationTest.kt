@@ -396,4 +396,88 @@ class SafPublicationTest {
             } finally { caller.cancel();while(queue.isNotEmpty())queue.poll()?.run();caller.join() }
         }
     }
+    private suspend fun cleanupRecord(uri:Uri):FileJournalRecord {
+        val entry=LocalFileBrowser(root,resolver).browse(location).entries.single { it.id==DocumentsContract.getDocumentId(uri) }
+        val source=FileLocation(FileEndpoint.APP);val selected=BrowserEntry("source",entry.name,FileKind.FILE,entry.size,entry.modifiedMillis)
+        val request=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"source",listOf(selected)),location,"SAF")
+        return FileJournalRecord(FileJournalIntent(request.id,request.clipboardId,source,"source",listOf(selected),location,"SAF"),
+            FileJournalPhase.RUNNING,0,items=listOf(FileJournalItem(FileCopyItemResult(FileScanEntry(source,selected,entry.name),FileCopyItemState.UNKNOWN,
+                location,entry.name,createdId=entry.id,documentUri=uri.toString()),FileCopyCheckpoint.DOCUMENT_CREATED)))
+    }
+    @Test fun explicitCleanupAcknowledgementAndLostReplyAreDurableAndNeverReplayed()=runBlocking<Unit> {
+        for(mode in listOf("cleanup","cleanup-lost","cleanup-hold")) {
+            reset(mode)
+            val parent=DocumentsContract.buildDocumentUriUsingTree(Uri.parse(location.endpoint.treeUri),location.directoryId)
+            val document=checkNotNull(DocumentsContract.createDocument(resolver,parent,"text/plain","clean-${UUID.randomUUID()}"))
+            resolver.openOutputStream(document)!!.use { it.write("reviewed SAF bytes".toByteArray()) }
+            val old=cleanupRecord(document);val saved=old.copy(items=old.items.toList())
+            val journal=FileCleanupJournal(File(root,"cleanup-${UUID.randomUUID()}/operations.db"))
+            val cleaner=FileResidualCleanup(root,resolver,journal)
+            val review=cleaner.review(old,old.items.single(),false)
+            assertEquals("review never deletes",0,state().getInt("deletes"));assertTrue(journal.load().isEmpty())
+            if(mode=="cleanup-hold") {
+                coroutineScope {
+                    val pending=async(Dispatchers.IO) { cleaner.remove(review) }
+                    try {
+                        until { state().getInt("active")==1 }
+                        val intents=journal.load()
+                        assertEquals("delete intent must commit before provider mutation",1,intents.size)
+                        assertEquals("intent must be durable before provider deletion",FileCleanupState.UNKNOWN,intents.single().state)
+                        assertNull(intents.single().status)
+                        pending.cancel();delay(100);assertFalse("provider worker must actually finish before cancellation completes",pending.isCompleted)
+                    } finally { state("release");pending.join() }
+                    assertEquals("late cancel cannot erase acknowledged deletion",FileCleanupState.REMOVED,journal.load().single().state)
+                }
+            } else {
+                val result=cleaner.remove(review)
+                assertEquals(if(mode=="cleanup")FileCleanupState.REMOVED else FileCleanupState.UNKNOWN,result.state)
+                assertEquals(result,journal.load().single())
+            }
+            assertTrue("deleted document must actually disappear",LocalFileBrowser(root,resolver).browse(location).entries.none { it.id==DocumentsContract.getDocumentId(document) })
+            assertEquals(1,state().getInt("deletes"));assertEquals(saved,old)
+            assertTrue(runCatching { cleaner.remove(review) }.isFailure)
+            assertEquals(1,state().getInt("deletes"))
+        }
+    }
+    @Test fun cleanupRequiresCurrentWriteGrantDeleteCapabilityAndKnownMetadata()=runBlocking<Unit> {
+        for(mode in listOf("cleanup-no-delete","cleanup-missing-time")) {
+            reset(mode)
+            val parent=DocumentsContract.buildDocumentUriUsingTree(Uri.parse(location.endpoint.treeUri),location.directoryId)
+            val document=checkNotNull(DocumentsContract.createDocument(resolver,parent,"text/plain","preserve-${UUID.randomUUID()}"))
+            val old=cleanupRecord(document)
+            val cleaner=FileResidualCleanup(root,resolver,FileCleanupJournal(File(root,"cleanup-${UUID.randomUUID()}/operations.db")))
+            assertTrue(runCatching { cleaner.review(old,old.items.single(),false) }.isFailure)
+            assertEquals("unsupported metadata/capability never calls deletion",0,state().getInt("deletes"))
+        }
+        reset("cleanup")
+        val parent=DocumentsContract.buildDocumentUriUsingTree(Uri.parse(location.endpoint.treeUri),location.directoryId)
+        val document=checkNotNull(DocumentsContract.createDocument(resolver,parent,"text/plain","revoke-${UUID.randomUUID()}"))
+        val old=cleanupRecord(document)
+        val cleaner=FileResidualCleanup(root,resolver,FileCleanupJournal(File(root,"cleanup-revoked/operations.db")))
+        val review=cleaner.review(old,old.items.single(),false)
+        resolver.releasePersistableUriPermission(Uri.parse(location.endpoint.treeUri),Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        val result=cleaner.remove(review)
+        assertEquals(FileCleanupState.NOT_ATTEMPTED,result.state)
+        assertEquals(0,state().getInt("deletes"))
+    }
+    @Test fun cleanupIntentCommitsBeforeProviderSideEffectAndWaitsForActualReply()=runBlocking<Unit> {
+        reset("cleanup-hold")
+        val parent=DocumentsContract.buildDocumentUriUsingTree(Uri.parse(location.endpoint.treeUri),location.directoryId)
+        val document=checkNotNull(DocumentsContract.createDocument(resolver,parent,"text/plain","intent-${UUID.randomUUID()}"))
+        val old=cleanupRecord(document)
+        val journal=FileCleanupJournal(File(root,"cleanup-intent/operations.db"))
+        val cleaner=FileResidualCleanup(root,resolver,journal);val review=cleaner.review(old,old.items.single(),false)
+        coroutineScope {
+            val pending=async(Dispatchers.IO) { cleaner.remove(review) }
+            try {
+                until { state().getInt("active")==1 }
+                val found=journal.load()
+                assertEquals("delete intent must commit before provider mutation",1,found.size)
+                assertEquals(FileCleanupState.UNKNOWN,found.single().state);assertNull(found.single().status)
+                pending.cancel();delay(100)
+                assertFalse("cancel must await the actual provider call",pending.isCompleted)
+            } finally { state("release");withContext(NonCancellable) { pending.join() } }
+            assertEquals("late provider acknowledgement stays durable",FileCleanupState.REMOVED,journal.load().single().state)
+        }
+    }
 }

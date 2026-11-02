@@ -1,6 +1,8 @@
 # 路线图
 
-**远端清理后端（2026-11-02，工作区已实现，尚未发行）**：受控单文件/空目录删除已绑定 Core、Swift 与 Android，保留未知/拒绝/成功回包，支持有界取消和实际 owner 释放。Core 49 CTest / 94 ABI、Apple 90/4、JNI 56/38、API 29/36 各 22 项、签名 release / 四模块 lint 通过；新增 Core 21＋Swift 7＋Android 19 组保护分轮通过，旧保护 13＋4 组复验通过。正式清理页面、持久删除意图/结果与 SAF 清理仍待接入，A6/完整客户端未完成，见[§9.122](android-implementation.md#android-reviewed-remote-removal)。
+**历史位置显式清理（2026-11-02，已验工作区，CI 发行待核验）**：本机/远端/SAF 文件的当前位置检查、独立勾选确认和 SQLite 操作记录已接，意图先落盘，未知结果不自动重放；本机/远端空目录只做非递归删除，SAF 目录明确提示系统整理。API 29/36 各 76 项、Core 49/94、签名 release/四模块 lint 通过；十三个新保护分轮和四个受影响复验通过，实际进程死亡/物理设备与全客户端矩阵待验，见[§9.123](android-implementation.md#android-explicit-history-cleanup)。
+
+**远端清理后端（2026-11-02，工作区已实现，尚未发行）**：受控单文件/空目录删除已绑定 Core、Swift 与 Android，保留未知/拒绝/成功回包，支持有界取消和实际 owner 释放。Core 49 CTest / 94 ABI、Apple 90/4、JNI 56/38、API 29/36 各 22 项、签名 release / 四模块 lint 通过；新增 Core 21＋Swift 7＋Android 19 组保护分轮通过，旧保护 13＋4 组复验通过。后续历史文件清理与独立记录由 §9.123 接入，A6/完整客户端矩阵未完成，见[§9.122](android-implementation.md#android-reviewed-remote-removal)。
 
 **当前 A6 显式重新选择（2026-11-02，已随 `5645f5c` 发行）**：结果不明的历史任务可由用户重新勾选原始来源，创建关联原记录的新复制请求，重新扫描、认证及确认冲突；默认全不选，旧结果和实际文件保持原样。API 29 / 36 各 47 项组合（含真实 SFTP 和 SAF）通过，15 个不同保护组分轮、Core 47/93、签名 release 与四模块 lint 通过；完整恢复/残留清理和设备矩阵仍待收尾，见[重新选择记录](android-implementation.md#android-history-recovery)。
 

@@ -153,7 +153,9 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 **Android 结果不明来源重新选择（§9.121）**：普通安全重试不放开未知项；独立入口默认全不选，确认后新请求重新扫描/认证/ASK 冲突，旧记录/目标/候选保留。API 29 / 36 各 47 项组合（含真实 SFTP/SAF）、Core 47/93、签名 release 与四模块 lint 通过。`mutation-check-android-history-recovery.py` 十五个不同组分轮取证（11＋4）：正常断言红、同 APK Core 绿、恢复绿和 SHA256；最终生产源与两轮原件一致。初轮第十二组参数异常和后续 SAF 用例缺导入的编译失败均未计通过。手工证据，不增加 macOS CI 20 份；完整恢复/残留清理与设备矩阵未完成。
 
-**受控远端删除后端（§9.122，未发行）**：当前 Core 49 CTest / 94 ABI，Apple 90 引用/4 登记未用，JNI 56/38。`mutation-check-sftp-remove.py` 的 Core 21＋Swift 7 组与 `ANDROID_REMOVE_MUTATE=1` 配合 `test-android-ssh.sh` 的 Android 19 组为分轮手工证据：编译后正常断言红、独立配置绿、复原绿及 SHA256；旧保护 13＋4 组复验通过。API 29/36 各 22 项与签名 release / 四模块 lint 通过；不增加 macOS CI 20 份。尚无正式清理页面、持久删除意图/结果或 SAF 清理，不据此记 A6 完成。
+**受控远端删除后端（§9.122，未发行）**：当前 Core 49 CTest / 94 ABI，Apple 90 引用/4 登记未用，JNI 56/38。`mutation-check-sftp-remove.py` 的 Core 21＋Swift 7 组与 `ANDROID_REMOVE_MUTATE=1` 配合 `test-android-ssh.sh` 的 Android 19 组为分轮手工证据：编译后正常断言红、独立配置绿、复原绿及 SHA256；旧保护 13＋4 组复验通过。API 29/36 各 22 项与签名 release / 四模块 lint 通过；不增加 macOS CI 20 份。该后端切片当时未接页面/持久意图，后续历史文件清理见 §9.123；不据此记 A6 完成。
+
+**历史位置显式清理（§9.123，待发行）**：`ANDROID_FILE_CLEANUP_MUTATE=1` 配合 `test-android-ssh.sh` 的十三个不同保护分轮（12＋1）通过，后续三组 UI 和一组 write-ahead 复验通过：编译后正常断言红、同 APK 配置绿、复原绿及 SHA256。API 29/36 各 76 项、Core 49/94、签名 release/四模块 lint 通过，885 份最终输入一致。不增加 macOS CI 20 份；真实进程死亡、完整提供方/服务器及物理设备矩阵未完成，不记 A6/客户端完成。
 
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 

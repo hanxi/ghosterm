@@ -15,12 +15,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.hanxi.ghosterm.domain.*
+import com.hanxi.ghosterm.data.FileResidualCleanup
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileTasksScreen(model: FileTasksViewModel) {
     if(model.retainedVisible) { RetainedFilesScreen(model);return }
+    FileCleanupDialogs(model)
     BackHandler { when {
+        model.cleanupReview!=null -> model.dismissCleanupReview()
+        model.cleanupRecordsVisible -> model.hideCleanupRecords()
+        model.cleanupBusy -> model.cancelCleanup()
         model.originId!=null -> model.dismissOrigin()
         model.recoveryHistory!=null -> model.dismissHistoryRecovery()
         model.retryHistory!=null -> model.dismissHistoryRetry()
@@ -100,12 +105,15 @@ fun FileTasksScreen(model: FileTasksViewModel) {
     LaunchedEffect(model.tasks.firstOrNull()?.request?.id) { list.scrollToItem(0) }
     Scaffold(topBar={ TopAppBar(title={ Text("文件任务") },navigationIcon={
         TextButton(onClick=model::hide) { Text("返回") }
-    },actions={ TextButton(onClick=model::showRetained,enabled=!model.busy && !model.journalLoading && model.inspectingId==null,modifier=Modifier.testTag("file-retained-open")) { Text("保留暂存") } }) }) { padding ->
+    },actions={ TextButton(onClick=model::showCleanupRecords,modifier=Modifier.testTag("file-cleanup-records-open")) { Text("清理记录") };TextButton(onClick=model::showRetained,enabled=!model.busy && !model.journalLoading && model.inspectingId==null,modifier=Modifier.testTag("file-retained-open")) { Text("保留暂存") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).testTag("file-tasks"),
             state=list,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             model.retainedReleaseError?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
             model.notice?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
             model.historyRetryError?.let { item { Text(it,color=MaterialTheme.colorScheme.error) } }
+            model.cleanupError?.let { item { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-cleanup-error")) } }
+            model.cleanupNotice?.let { item { Text(it,modifier=Modifier.testTag("file-cleanup-notice")) } }
+            if(model.cleanupBusy) item { Column { LinearProgressIndicator(Modifier.fillMaxWidth());Text("正在处理，请稍候…");TextButton(onClick=model::cancelCleanup,modifier=Modifier.testTag("file-cleanup-cancel")) { Text("取消") } } }
             model.inspectionError?.let { item { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-history-inspection-error")) } }
             if(model.background.enabled && (model.background.state!=FileBackgroundState.IDLE || model.background.error!=null)) item {
                 Card(Modifier.fillMaxWidth().testTag("file-background-status")) {
@@ -266,7 +274,8 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                     content=model.contentInspections,checkingContent=model.inspectingContent,
                     identities=model.identityInspections,checkingIdentity=model.inspectingIdentity,
                     onIdentity={ item,candidate -> model.inspectIdentity(record,item,candidate) },
-                    onContent={ item,candidate -> model.inspectContent(record,item,candidate) })
+                    onContent={ item,candidate -> model.inspectContent(record,item,candidate) },
+                    onCleanup={ item,candidate -> model.requestCleanup(record,item,candidate) })
             }
         }
     }
@@ -318,7 +327,7 @@ private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRe
     content: Map<FileHistoryContentKey,FileHistoryContentResult>,checkingContent: FileHistoryContentKey?,
     identities: Map<FileHistoryContentKey,LocalFileIdentityResult>,checkingIdentity:FileHistoryContentKey?,
     onIdentity:(FileJournalItem,Boolean)->Unit,
-    onContent: (FileJournalItem,Boolean) -> Unit) {
+    onContent: (FileJournalItem,Boolean) -> Unit, onCleanup:(FileJournalItem,Boolean)->Unit) {
     val observations=remember(inspection) { inspection?.observations?.groupBy { it.relativePath }.orEmpty() }
     ElevatedCard(Modifier.fillMaxWidth().testTag("file-history:${record.intent.id}")) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -389,6 +398,12 @@ private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRe
                             }
                             (value.documentUri ?: value.createdId)?.let { Text("已记录位置：$it") }
                             value.candidatePath?.let { Text("未确认的暂存位置：$it") }
+                            for(candidate in listOf(false,true).filter { FileResidualCleanup.eligible(record,item,it) }) {
+                                TextButton(onClick={ details=false;onCleanup(item,candidate) },enabled=canInspect,
+                                    modifier=Modifier.testTag("file-cleanup-review:${value.source.relativePath}:$candidate")) {
+                                    Text(if(candidate) "查看并清理暂存位置" else "查看并清理目标位置")
+                                }
+                            }
                             value.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
                             if(value.sourceDigest==null && value.source.entry.kind==FileKind.FILE)
                                 Text("未记录来源内容摘要，无法比较历史内容。",style=MaterialTheme.typography.bodySmall)

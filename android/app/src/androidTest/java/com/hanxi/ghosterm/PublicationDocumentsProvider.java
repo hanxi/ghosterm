@@ -43,7 +43,7 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
             entries.put(keep.id,keep);
         } catch(IOException error) { throw new IllegalStateException(error); }
     }
-    static Bundle fixture(String action,Bundle input) {
+    static synchronized Bundle fixture(String action,Bundle input) {
         PublicationDocumentsProvider self=instance;
         if(self==null) throw new IllegalStateException("Documents provider not initialized");
         if(action.equals("reset"))self.reset(input.getString("mode","normal"));
@@ -73,8 +73,9 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         v.put(Document.COLUMN_DISPLAY_NAME,e!=null?e.name:(id.equals("pub:root")?"Ghosterm Copy Destination":"Nested"));
         v.put(Document.COLUMN_MIME_TYPE,folder(id)?Document.MIME_TYPE_DIR:"application/octet-stream");
         v.put(Document.COLUMN_FLAGS,folder(id)?(mode.equals("no-create")?0:Document.FLAG_DIR_SUPPORTS_CREATE):(mode.equals("no-write")?0:Document.FLAG_SUPPORTS_WRITE|(mode.equals("virtual")?Document.FLAG_VIRTUAL_DOCUMENT:0)));
+        if(mode.startsWith("cleanup") && !folder(id) && !mode.equals("cleanup-no-delete"))v.put(Document.COLUMN_FLAGS,Document.FLAG_SUPPORTS_WRITE|Document.FLAG_SUPPORTS_DELETE);
         v.put(Document.COLUMN_SIZE,folder(id)||mode.equals("short")||mode.equals("extra")||mode.startsWith("pipe")?null:e.file.length());
-        v.put(Document.COLUMN_LAST_MODIFIED,null);row(c,v);
+        v.put(Document.COLUMN_LAST_MODIFIED,mode.startsWith("cleanup") && !mode.equals("cleanup-missing-time") && e!=null?e.file.lastModified():null);row(c,v);
     }
     @Override public Cursor queryDocument(String id,String[] projection) throws FileNotFoundException {
         if(mode.equals("metadata-stall")) { active.incrementAndGet();try { waitGate(); } finally { active.decrementAndGet(); } }
@@ -155,7 +156,17 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         if(filled<bytes.length || android.system.Os.read(pipe[0].getFileDescriptor(),bytes,0,bytes.length)!=bytes.length)
             throw new IOException("Pipe capacity fixture failed");
     }
-    @Override public void deleteDocument(String id) { deletes.incrementAndGet();throw new UnsupportedOperationException("Must not blindly delete"); }
+    @Override public void deleteDocument(String id) throws FileNotFoundException {
+        deletes.incrementAndGet();
+        if(!mode.startsWith("cleanup"))throw new UnsupportedOperationException("Must not blindly delete");
+        Entry e=entries.get(id);
+        if(e==null || e.directory || id.equals("opaque:keep"))throw new FileNotFoundException("Invalid cleanup target");
+        if(mode.equals("cleanup-hold")) { active.incrementAndGet();try { waitGate(); } finally { active.decrementAndGet(); } }
+        synchronized(PublicationDocumentsProvider.class) {
+            if(!e.file.delete())throw new FileNotFoundException("Delete failed");entries.remove(id);
+        }
+        if(mode.equals("cleanup-lost"))throw new FileNotFoundException("Lost acknowledgement");
+    }
     @Override public ParcelFileDescriptor openDocument(String id,String access,CancellationSignal signal) throws FileNotFoundException {
         Entry e=entries.get(id);if(e==null)throw new FileNotFoundException(id);
         if(signal!=null)signal.throwIfCanceled();
