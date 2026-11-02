@@ -2,11 +2,11 @@
 
 Ghosterm 是各端原生 UI、共享 C 核心和 libghostty 驱动的终端，提供 SSH 配置管理与 SFTP 文件管理。默认普通 PTY/SSH，可显式使用 tmux 后台会话。
 
-**当前 Android 发行（2026-11-03，`f5eda91`）**：SSH 终端的“文件”打开当前会话主机的独立 SFTP，已配置的无口令密钥自动认证；首页“本机文件”回到本机。实际签名包的公网 SSH/SFTP、两系统 Kitty 动画与覆盖升级已验，初次 16 KiB 模拟器关机后的包解析失败及对照重启单独保留，见 [§9.159](docs/reference/android-implementation.md#9159-f5eda91-实际发行包的两系统设备验收2026-11-03)。
+**当前 Android 发行（2026-11-03，`7bebba8`）**：修复 SSH 配置文本框被输入法纠错改域名/缩进；保留当前主机 SFTP、已配置无口令身份自动认证、Kitty 动画和 Nerd Fonts。正式包与专项结果按版本分别记录，见 [配置输入修复](docs/reference/android-implementation.md#9161-正式包主机关联密钥的自动认证与配置原样输入2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,129,887 字节，固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐与构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41475692020) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41470932423) 成功。两端共用 dev，保留八份平台附件。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,133,699 字节**；固定发行证书、clean 来源、R8/资源裁剪、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41490888458) 成功；本次 Android 发布保留全部五份 macOS 资产，Mac 仍为 `c594409` / build 92；同提交 Mac CI 尚在排队。共用 dev 八份固定附件完整。
 
-**完整回归**：`f5eda91` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认未筛选 **917 项全部通过**，零失败/错误/跳过。两端同源 904 份输入前后不变，具名发现/执行集合、实际安装 APK 与 clean 来源均核验（§9.160）。旧 `c594409` 的十五项夹具失败保留于 §9.155–§9.156；真机、完整键盘/读屏与外部端点矩阵仍待完成。
+**完整回归**：当前 `7bebba8` / clean 的两系统默认 918 项正在执行，尚未记为通过；同源 905 份输入。最近完整通过为 `f5eda91` / clean，两端各 917 项（§9.160）。本轮配置输入两系统各 18 项、五组编译变异和真实 Gboard 已通过（§9.161）。真机、完整键盘/读屏与外部端点矩阵仍待完成。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 
