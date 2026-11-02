@@ -4,9 +4,9 @@ Ghosterm 是各端原生 UI、共享 C 核心和 libghostty 驱动的终端，�
 
 **当前 Android 发行（2026-11-03，`7bebba8`）**：修复 SSH 配置文本框被输入法纠错改域名/缩进；保留当前主机 SFTP、已配置无口令身份自动认证、Kitty 动画和 Nerd Fonts。正式包与专项结果按版本分别记录，见 [配置输入修复](docs/reference/android-implementation.md#9161-正式包主机关联密钥的自动认证与配置原样输入2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,133,699 字节**；固定发行证书、clean 来源、R8/资源裁剪、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41490888458) 成功；本次 Android 发布保留全部五份 macOS 资产，Mac 仍为 `c594409` / build 92；同提交 Mac CI 尚在排队。共用 dev 八份固定附件完整。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,133,699 字节**；固定发行证书、clean 来源、R8/资源裁剪、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41490888458) 成功；本次 Android 发布保留全部五份 macOS 资产，Mac 仍为 `c594409` / build 92；同提交 Mac CI 首次因 runner 容量未执行，原记录保留；第二次仍在排队。共用 dev 八份固定附件完整。
 
-**完整回归**：当前 `7bebba8` / clean 的两系统默认 918 项正在执行，尚未记为通过；同源 905 份输入。最近完整通过为 `f5eda91` / clean，两端各 917 项（§9.160）。本轮配置输入两系统各 18 项、五组编译变异和真实 Gboard 已通过（§9.161）。真机、完整键盘/读屏与外部端点矩阵仍待完成。
+**完整回归**：`7bebba8` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **918 项全部通过**，零失败/错误/跳过。两端 905 份输入前后及跨设备相同，具名集合、实际安装 APK 与来源已核验（§9.163）。实际签名包两端覆盖升级另记 §9.162；真机、完整键盘/读屏与外部端点矩阵仍待完成。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 
