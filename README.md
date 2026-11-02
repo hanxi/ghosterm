@@ -6,7 +6,7 @@ Ghosterm 是各端原生 UI、共享 C 核心和 libghostty 驱动的终端，�
 
 [共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,126,827 字节，固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐与构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41435141857) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41435141893) 成功。两端共用 dev，保留八份平台附件。
 
-**验收状态**：最新已完成的完整回归为 `8d6178d` 的 API 36 / 4 KiB 页 908 项；最近同源双系统全量仍为 `8e161e7` 的 API 29 / 36 各 905 项。`b7dae61` 文件专项两端各 51 项、22 组变异及实际签名包升级已通过，不能据此声明整个版本全量通过。当前冻结同一源码的两端默认 912 项仍在执行；证据范围与剩余条件统一见[完成审计](docs/reference/android-implementation.md#101-当前完成审计与剩余验收2026-11-02)。
+**验收状态**：`18db11b` 在 API 29 / 4 KiB 页完整 **912 项通过**，1,455.218 秒，具名集合、安装包与 902 份源码输入已核验；同源 API 36 完整 912 项仍在执行，尚未声明双系统通过。当前发行的文件专项两端各 51 项、22 组变异及实际签名包升级均已有证据。最新结果与仍缺的真机/完整发行矩阵见[完成审计](docs/reference/android-implementation.md#101-当前完成审计与剩余验收2026-11-02)。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
