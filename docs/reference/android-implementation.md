@@ -4,7 +4,7 @@
 
 [共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,100,791 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41398896578) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41398896781) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
 
-**完整回归状态**：`f85eafc` 的 905 项全量在 API 29 为 901 通过/4 个未滚动定位失败，API 36 为 904 通过/1 个 stock 编辑器输入事件过期失败，均不记全绿。修正后两端各 11 项、最终系统键盘各三次、旧接收十三组及远端页面十四组变异通过；Core 49/94、release/四模块 lint 和两组真实重建的包路径变异通过。实际 release 内的三处构建机路径已消除并通过 CI 检查，已随 `8e161e7` 发行；该干净来源 API 29 默认完整 905 项已通过（1,511.909 秒），源码/安装 APK/具名执行集合均核验；API 36 全量仍在运行（§9.128–§9.132）。
+**完整回归状态**：`8e161e7` 在 API 29 / API 36、arm64 / 4 KiB 页各完成默认未筛选 905 项，零失败/错误/跳过（1,511.909 / 2,400.027 秒）；具名执行集合、实际安装 APK 与 895 份源码输入前后摘要均核验（§9.132、§9.135）。Core 49/94、release/四模块 lint、接收十三组/远端页面十四组及两组真实重建的包路径变异已有本轮证据。旧全量失败保留在 §9.128–§9.130，不借新结果抹去。两端各十个真实进程中断检查点也已通过（§9.133、§9.136）；实际签名包专项与真机/长负载/完整端点矩阵分别记账，整个客户端尚未完成。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
@@ -77,7 +77,7 @@ Apple 的 `SessionController`、`SSHAuthenticationFlow`、`FilesPanelModel`、`T
 
 ## 3. 模块与线程设计
 
-模块目录（app/bridge/terminal/domain/data 已建；下列 owner、事件泵、会话/文件模型与 TerminalView 为目标职责，尚未全部实现）：
+模块目录（app/bridge/terminal/domain/data 已建；各 owner、会话/文件模型与 TerminalView 的接线和证据按下文对应阶段记载；旧 job 事件泵不是当前 Android 复制路径）：
 
 ```text
 android/
@@ -359,7 +359,7 @@ PasteRequest
 | 源 → 目标 | 首版路径 | 限制与补齐 |
 |---|---|---|
 | 本机 → 本机 | 私有文件或 SAF 的流式复制 | provider 不支持创建/写入时明确失败；不依赖真实路径 |
-| 本机 → 远端 | 本机/SAF 先由 `TransferStagingStore` 封为匿名只读快照，再以 `RemoteFileSession.createExclusive` 写入远端任务暂存 | 快照和独占创建底层已验；执行器与页面已接，任务容量和进程恢复仍待补，空间不足在写远端前报错 |
+| 本机 → 远端 | 本机/SAF 先由 `TransferStagingStore` 封为匿名只读快照，再以 `RemoteFileSession.createExclusive` 写入远端任务暂存 | 快照和独占创建底层已验；执行器与页面已接，容量调度、持久观察和显式重新发起见 §9.72–§9.73、§9.105/§9.121；空间不足在写远端前报错，完整外部端点/进程死亡矩阵仍待验 |
 | 远端 → 本机 | `TransferStagingStore.receive` 经受控读取取得匿名快照，再提交至私有文件/SAF 文档 | 读取与 fd 释放底层已验；应用私有目录文件发布已由 §9.58 接入，SAF 新文档写入由 §9.59 补齐，§9.69 执行器与 §9.70 页面已编排；两阶段成功才标完成，读取完成不代表 SAF 写入成功 |
 | 远端 → 远端 | 源专用连接受控读取到匿名快照，目标专用连接独占创建，最后非覆盖发布 | 读/写与远端发布单侧接口已验，独立双端任务已接；不同远端的关系仍为未知，须经 §9.110 的本次显式位置确认后重新预检；已知同目录/自身子目录仍拒绝；明示“经本机中转”，不执行拼接的 `cp/scp`，不声称服务器端复制 |
 
@@ -448,7 +448,7 @@ macOS `TransferManager` 可作为正常路由对照，但目前仍忽略控制�
 
 读取失败可在任务私有 fd 中留下部分字节，但不交给预览或目标发布；结果长度只在成功后有效。调用方负责独占该写 fd，网络预算不构成本地文件系统调用的硬中断保证。源属性复核只能检测可观察变化，不承诺任意外部写者下的原子快照。新接口不能与同一连接上的旧 job 并发使用。
 
-验证按 Core 真实 SSH/故障协议 → Swift 绑定 → JNI owner/设备 → 暂存集成 → 页面推进；每个新增断言配目标红、独立对照绿、恢复绿与 SHA256，未运行的网络、设备或桌面产品档位保留未验。A4 的 SAF 片段预览偏移是独立修复项，不能因暂存路径已正确处理 `startOffset` 就勾为完成。
+验证按 Core 真实 SSH/故障协议 → Swift 绑定 → JNI owner/设备 → 暂存集成 → 页面推进；每个新增断言配目标红、独立对照绿、恢复绿与 SHA256，未运行的网络、设备或桌面产品档位保留未验。A4 的 SAF 片段预览已独立按 §9.93 修正并验收；暂存路径的 `startOffset` 证据不替代预览或完整外部提供方验收。
 
 #### 非覆盖发布的协议边界
 
@@ -485,7 +485,7 @@ macOS `TransferManager` 可作为正常路由对照，但目前仍忽略控制�
 | 职责 | 已有源码 | 当前消费者边界 |
 |---|---|---|
 | 浏览、选择和复制卡片 | [FilesViewModel](../../android/app/src/main/java/com/hanxi/ghosterm/FilesViewModel.kt)、[FilesScreen](../../android/app/src/main/java/com/hanxi/ghosterm/FilesScreen.kt) | 已有产品页面；卡片可查看/清空，§9.70 已有粘贴执行入口 |
-| 粘贴确认与任务结果 | [FileTasksViewModel](../../android/app/src/main/java/com/hanxi/ghosterm/FileTasksViewModel.kt)、[FileTasksScreen](../../android/app/src/main/java/com/hanxi/ghosterm/FileTasksScreen.kt) | §9.71 由 `FileWorkRuntime` 共享任务，`FileTasksViewModel` 只持有本页路由；队列由 §9.72 接入，后台恢复未接 |
+| 粘贴确认与任务结果 | [FileTasksViewModel](../../android/app/src/main/java/com/hanxi/ghosterm/FileTasksViewModel.kt)、[FileTasksScreen](../../android/app/src/main/java/com/hanxi/ghosterm/FileTasksScreen.kt) | §9.71 由 `FileWorkRuntime` 共享任务，`FileTasksViewModel` 只持有本页路由；队列由 §9.72 接入；持久观察、历史核对、显式重新发起与清理见 §9.73、§9.104–§9.105、§9.111–§9.114、§9.121/§9.123，不自动恢复执行 |
 | 任务连接认证 | [SessionsViewModel](../../android/app/src/main/java/com/hanxi/ghosterm/SessionsViewModel.kt) 的 `fileTaskConnections` / `authenticateFileTask` | 核对冻结端点、各角色独立连接和 attempt UUID；复用信任/凭据 UI，不借用浏览或终端 owner |
 | 固定来源和目标 | [FileClipboard](../../android/domain/src/main/kotlin/com/hanxi/ghosterm/domain/FileClipboard.kt)、[FilePasteRequest](../../android/domain/src/main/kotlin/com/hanxi/ghosterm/domain/FilePasteRequest.kt) | 前者由进程级 `FileClipboardStore` 持有；后者由 `FileTaskStore` 消费，页面不持有执行协程 |
 | 枚举与目标预检 | [FileTreeScanner](../../android/data/src/main/java/com/hanxi/ghosterm/data/FileTreeScanner.kt)、[FilePastePreflight](../../android/data/src/main/java/com/hanxi/ghosterm/data/FilePastePreflight.kt) | 数据层及集成测试已接；§9.70 任务/冲突页已接 |
@@ -775,13 +775,13 @@ A7 的验收分三层：存储验证往返/迁移/损坏/写入失败及快速�
 
 tmux 在 A8 接入，共享 `gt_tmux_*` 管理与普通 transport attach；用户显式打开列表才探测，缺失、版本不支持、拒绝与未知分开。HTML 的固定“未安装”只是演示分支，原生必须展示真实结果。关闭只断客户端，不结束后台 session；结束是单独确认动作。重新连接必须取新列表，禁止按旧 ID/名称恢复。手机本地 tmux 不因远端支持而自动成为可用能力。
 
-A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.1）；完整设备回归仍仅为 API 36 arm64、4 KB 页模拟器；§9.78 另已验证 API 36 / 16 KB 页签名 release 的启动、升级与小文件复制。API 29 后续分轮专项和 Kitty 的签名包证据须按对应章节读取，历史输入失败不由新的图形专项抵消；真机与完整 16 KB/IME 矩阵仍须在 A10 验证；x86_64 须先提供对应 native 库。不能只调整 APK zip 对齐就声明全 native 依赖可运行。[16 KB 页面支持](https://developer.android.com/guide/practices/page-sizes)
+A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.1）；当前 `8e161e7` 已完成 API 29 arm64 / 4 KiB 页默认完整 905 项（§9.132），同源 API 36 默认完整 905 项也已通过（§9.135）；历史全量按各节记载。§9.78 另已验证 API 36 / 16 KB 页签名 release 的启动、升级与小文件复制。API 29 后续分轮专项和 Kitty 的签名包证据须按对应章节读取，历史输入失败不由新的图形专项抵消；真机与完整 16 KB/IME 矩阵仍须在 A10 验证；x86_64 须先提供对应 native 库。不能只调整 APK zip 对齐就声明全 native 依赖可运行。[16 KB 页面支持](https://developer.android.com/guide/practices/page-sizes)
 
 采用 Material 3 页面/面板/开关/选择控件，保持石墨色系；触点至少 48dp，字体响应系统缩放，危险动作有文字说明。320dp 窄屏、横屏、分屏、字体放大、TalkBack、硬件键盘和深浅色均纳入验收。状态栏/导航栏/IME insets 不得重复扣除或遮挡操作区。[触点与语义](https://developer.android.com/develop/ui/compose/accessibility/api-defaults)、[窗口 Insets](https://developer.android.com/develop/ui/compose/system/insets-ui)
 
 ### 8.1 A6 后台执行的系统约束（§9.74 当前模拟器档已验）
 
-按当前 minSdk 29、target 36 的范围，复制服务拟使用 `dataSync`，清单须声明普通前台服务权限、该类型权限及服务类型；此类型覆盖网络传输和本地文件处理，不能扩展成普通 SSH 保活。长时间网络任务另可使用 API 34 起的 UIDT，但它也要求用户发起、调度条件和通知，不自动提供 Ghosterm 的副作用恢复；不得让两种调度器重复启动同一请求。[服务类型](https://developer.android.com/develop/background-work/services/fgs/service-types#data-sync)、[UIDT](https://developer.android.com/develop/background-work/background-tasks/uidt)
+按当前 minSdk 29、target 36 的范围，复制服务已使用 `dataSync`（`FileTransferService`，§9.74），清单须声明普通前台服务权限、该类型权限及服务类型；此类型覆盖网络传输和本地文件处理，不能扩展成普通 SSH 保活。长时间网络任务另可使用 API 34 起的 UIDT，但它也要求用户发起、调度条件和通知，不自动提供 Ghosterm 的副作用恢复；不得让两种调度器重复启动同一请求。[服务类型](https://developer.android.com/develop/background-work/services/fgs/service-types#data-sync)、[UIDT](https://developer.android.com/develop/background-work/background-tasks/uidt)
 
 | 场景 | 实施要求与验证 |
 |---|---|
@@ -807,7 +807,7 @@ A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.
 | 历史清除 | 无活动任务时确认删除记录，事务成功后才移除历史行；失败保留原行。不删除目标、候选或 SAF 文档，也不撤销已发生的复制 |
 | 容量与清单 | 32 个未结束请求的调度上限，与 64 条持久记录的上限分别计算；已结束记录仍占持久容量。`clipboardId` 仅供关联观察，不重建待粘贴清单 |
 
-§9.73 已交付 `FileTaskJournal`、逐项检查点和只读历史页面，对应 19＋4 组记录变异、真实进程中断及测试发现守卫见该节；当时完整 475 项已通过，后续完整 523 项随 `272d140` 发行，本轮功能代码完整 576 项也已通过（§9.91）。账本提供观察与核对，不自动恢复副作用；§9.98 已接 A6 暂停/重试与整体 ETA，历史核对与残留清理仍待完善；普通任务不自动恢复执行，不因回归通过勾选整个阶段完成。持久层采用 Android 内置 SQLite 事务（DELETE journal、synchronous=FULL），替代原先整份文件原子替换方案：来源树最多 16384 项，逐条结果更新不应反复重写整份清单。数据库操作在 IO 线程经 Mutex 串行执行；任务意图、整份初始计划和最终摘要分别事务提交，事务内失败回滚；提交结果无法确认时保留错误并阻断推进，下次重读实际提交状态，不假定记录未改变。显式错误处理器保留损坏文件；未知版本、读取失败和账目不一致均阻断任务，不自动清空。
+§9.73 已交付 `FileTaskJournal`、逐项检查点和只读历史页面，对应 19＋4 组记录变异、真实进程中断及测试发现守卫见该节；当时完整 475 项已通过，后续完整 523 项随 `272d140` 发行，本轮功能代码完整 576 项也已通过（§9.91）。账本提供观察与核对，不自动恢复副作用；§9.98 已接 A6 暂停/重试与整体 ETA，历史核对、显式重新发起与清理已分阶段接入（§9.104–§9.105、§9.111–§9.114、§9.121/§9.123），完整外部端点/设备矩阵仍待验；普通任务不自动恢复执行，不因回归通过勾选整个阶段完成。持久层采用 Android 内置 SQLite 事务（DELETE journal、synchronous=FULL），替代原先整份文件原子替换方案：来源树最多 16384 项，逐条结果更新不应反复重写整份清单。数据库操作在 IO 线程经 Mutex 串行执行；任务意图、整份初始计划和最终摘要分别事务提交，事务内失败回滚；提交结果无法确认时保留错误并阻断推进，下次重读实际提交状态，不假定记录未改变。显式错误处理器保留损坏文件；未知版本、读取失败和账目不一致均阻断任务，不自动清空。
 
 持久 DTO 与可执行的 `FilePasteRequest` 分开：保存版本、请求 UUID、必要来源/目标身份、逐项计划、已经返回的实际位置与结果。§9.111–§9.112 已为新读取文件保存写入前长度/SHA256 参考，并提供目标/本机候选的显式内容核验；§9.114 另在本机普通文件独占创建后、写入内容前保存创建标记与 inode/UID/父目录身份。旧无参考记录不补造参考；内容一致与文件身份分开观察，两者均不自动改写旧结果或赋予清理、覆盖与重放权限。不得保存私钥、口令、打开的 fd/连接、文件内容、认证弹窗或旧冲突授权。容量上限为 64 条任务历史、每任务 16384 项、全库 32768 项和 16 MiB 元数据；单任务头 1 MiB、单项 64 KiB、单字段 16 KiB、JSON 嵌套 16 层，超过预算显式失败，不自动淘汰历史。读取复核数据库完整性、版本、身份、字段类型和容量账目；不把 URI 或远端路径当成可执行的恢复授权。SQLite 提交与文件系统调用不承诺硬实时有界，也不扩大为目标文件内容断电持久保证。
 
@@ -835,14 +835,14 @@ A0 已锁定 minSdk 29、compile/target 36、arm64-v8a 及工具链版本（§9.
 
 | 切片 | 依赖 | 可审阅交付与退出条件 | 状态 |
 |---|---|---|---|
-| A0 工程与构建 | 无 | 原生空壳 APK；锁工具链/ABI/API；隔离 NDK sysroot 与宿主库；设备加载 core/vt；JNI 引用集合纳入 ABI 检查 | 已完成：API 36 arm64 模拟器，见 §9.1 |
-| A1 导航与主机 | A0 | 首页/设置/页面返回；配置读取、搜索、增改、备份失败阻断、冲突拒绝、原子提交；假数据只在调试 fixture | 已完成：API 36 arm64 / 4 KB 页模拟器；SAF 与表单收尾见 §9.11，其他设备档位仍属 A10 |
+| A0 工程与构建 | 无 | 原生空壳 APK；锁工具链/ABI/API；隔离 NDK sysroot 与宿主库；设备加载 core/vt；JNI 引用集合纳入 ABI 检查 | 已完成：首片见 §9.1；当前来源 API 29 / API 36 arm64 / 4 KiB 页各完整 905 项见 §9.132 / §9.135 |
+| A1 导航与主机 | A0 | 首页/设置/页面返回；配置读取、搜索、增改、备份失败阻断、冲突拒绝、原子提交；假数据只在调试 fixture | 已完成当前模拟器档：首片 SAF 与表单收尾见 §9.11；当前来源 API 29 / API 36 各完整 905 项见 §9.132 / §9.135，其他设备档位仍属 A10 |
 | A2 本地终端 | A0 | `/system/bin/sh` 真 PTY→VT→像素；IME/辅助键/resize/暂停绘制/有界关闭；确认 renderer 方案 | 已交付至按键重复/释放与焦点归属（§9.14–§9.17）；§9.18 键盘扩展已验，§9.19 闪烁文本修复已验，§9.21 短时取帧/性能探针通过完整 101 项设备测试；§9.100 已接 Kitty 图形/动画并单列设备和签名包证据；真机/长负载性能及完整输入矩阵仍待完成 |
 | A3 SSH 与身份 | A1、A2、共享 known_hosts 标记修复、连接前配置能力校验 | DNS→hostkey→凭据→shell；Keystore 安全容器；取消归属、超时、失效身份、两会话隔离；真 sshd | 部分完成：主机信任/保存失败、配置准入及 SSH JNI/远端终端后端已验（§9.22–§9.25）；DNS/UI/Keystore 产品首片与多会话已接（§9.27）；SAF 导入已验（§9.29），加密密钥重试/成功密码已验（§9.31），身份列表/指纹/导入/移除已验（§9.33），主机身份关联接线见 §9.35；信任事务/绑定见 §9.37，管理页已验收（§9.39）；候选地址已验（§9.40）；通道取消切片已验（§9.41）；其余网络矩阵未完成 |
 | A4 文件浏览 | 本机/SAF 依赖 A0/A1；远端依赖 A3 | 本机私有目录/SAF/远端；真实预览与路径；点按/长按、多选；位置 generation；独立 SFTP owner | 部分交付：本机/SAF 列表、只读 UTF-8 预览与多选已有当前模拟器档证据，远端页面/repository 已接；外部只读打开与缓存见 §9.92，SAF 片段/完成确认已由 §9.93 验收，用户清理与在读保护见 §9.95–§9.96；复杂 provider、真机及完整矩阵仍待补 |
 | A5 复制基础 | A0、A4 | 先补共享非覆盖创建、关闭结果与提交契约及各端绑定；本地流与暂存；四种方向、冲突、空目录/链接规则、扫描预算与真实结果 | 共享传输结果、独占创建、本机/SAF 暂存已交付（§9.53–§9.55）；远端读取暂存与 fd 释放已验（§9.56）；远端非覆盖发布及绑定已验（§9.57），应用私有目录常规文件发布已接（§9.58），SAF 新文档写入已验（§9.59）；来源清单/详情已由 §9.60 接入；§9.61 已接固定请求与来源树扫描，§9.62 已接目标预检，§9.63 已接请求内决策与执行清单，§9.64 已接本机/SAF 单目录创建，§9.65 已接受控远端单目录接口，§9.66 已接统一目录服务，§9.67 已接独立任务连接，§9.69 已接数据层执行器与逐项结果；§9.70 已接任务认证、冲突/粘贴页面及 Activity 持有者，当前模拟器档已验；§9.71 已接进程持有，§9.72 已接 FIFO 队列；跨远端关系已接本次显式确认（§9.110）；不同物理服务器与完整矩阵仍待验 |
 | A6 复制任务 | A5 | 进程级调度与终态可靠性、父子进度、暂停取消、失败重试、断线、清单 UUID、关闭页面不丢任务 | 部分交付：§9.70 已验预检/确认/执行/取消/结果；§9.71 已接进程共享任务/清单/认证；§9.72 已验 FIFO 队列、8 项定向、14 组新增及既有 39 组变异、完整 453 项通过，仅当前模拟器档；§9.73 已验持久观察与只读历史、新增 27 组变异及受影响旧变异，完整 475 项通过；§9.74 已接前台服务，§9.98 已接暂停/继续、安全重试与整体 ETA；显式位置/摘要核对、历史重新发起、本机候选与空目录维护已接（§9.104–§9.113），本机创建身份见 §9.114；§9.121 已接结果不明来源的显式重新选择与新请求；历史位置显式清理及独立记录见 §9.123，同进程归档见 §9.124；底部任务条发行见 §9.127；完整端点/进程死亡/设备矩阵待收尾 |
-| A7 完整设置 | A1、A2、A6；身份子页可随 A3 先行 | 16 项偏好持久化、即时应用与重启读取；身份/主机验证详情；恢复不误删会话资料 | 部分交付：身份列表/详情/导入/移除已由 §9.33 验收；主机引用接线见 §9.35；信任记录管理已验收（§9.39）；16 项偏好存储已提交（§9.82）；本轮主工程已接完整分类/消费者/恢复保护/关于页面，API 36 功能代码完整 576 项与图标专项通过；新 release CI、设备矩阵见 §9.91，未据此宣布整个 Android 完成 |
+| A7 完整设置 | A1、A2、A6；身份子页可随 A3 先行 | 16 项偏好持久化、即时应用与重启读取；身份/主机验证详情；恢复不误删会话资料 | 已完成当前模拟器档：身份列表/详情/导入/移除已由 §9.33 验收；主机引用接线见 §9.35；信任记录管理已验收（§9.39）；16 项偏好存储已提交（§9.82）；本轮主工程已接完整分类/消费者/恢复保护/关于页面，API 36 功能代码完整 576 项与图标专项通过；初次 release CI 见 §9.91；当前来源两端完整 905 项见 §9.132 / §9.135，真机与完整发行矩阵仍属 A10，未据此宣布整个 Android 完成 |
 | A8 可选 tmux | A3 | 真能力探测/列表/管理/attach；任务 PID 保留、未知结果、断线重新选择；不影响普通入口 | 已接远端产品与独立 owner；`ee2a83f` 两端各 45 项/完整十二组，`a63ec46` 选择器补丁两端各三项/两组增量（累计十三个不同保护组），见 §9.103；当前云端签名包 16 KB 页真实 SSH/tmux 操作通过；完整设备矩阵另验，不提供手机本地 tmux |
 | A9 环境包 PoC | A2，独立后续 | 系统执行限制验证；Termux/proot 来源/哈希/启动/PTY；成功后才排安装 UI，不默认为可交付 | 延后 |
 | A10 验收与发行 | A1–A8 | 真机与模拟器矩阵、APK 自包含、安全与隐私检查、清单/许可、CI 实际运行；失败项不记绿 | release/CI 已接（§8.3），§9.78 已验实际签名包在 API 36 / 16 KB 页的启动、升级与小文件复制；API 29 的分轮定向证据见 §9.93/§9.98/§9.100，不代替完整输入/发行矩阵；历史失败保留在原阶段记录 |
@@ -3679,4 +3679,38 @@ OpenSSL 保持既有静态/no-module 等功能配置，只把配置前缀固定�
 
 干净检出 `8e161e7978004b91d62ef72b93adf02d0a40f10b` 在 API 29 / arm64 / 4 KiB 页模拟器完成默认未筛选 905 项，零失败/错误/跳过，1,511.909 秒。具名开始和完成去重后与本轮发现集合完全相同；不是只重跑旧失败项。阶段 1793600268498604000 的 895 份非 Markdown 输入集合/SHA256 前后一致，并与最终定向和 release/lint 的输入锚一致。
 
-实际安装应用 APK SHA256 `ebd6d1583a9effc37cf6b78114e4677a11bef19f38009427d9fdf3d7a8ee84aa`、测试 APK SHA256 `5796f33e337f77e012330da5282a438f363f5102af26f95cef323c183ec98dd6` 均与各自构建相同；应用内构建来源为上述提交 / clean。证据 `tmp/file-archive-evidence/package-final-full-api29/verified-execution.json`、`baseline.log`、`full-discovery.json` 和输入前后映射。这是 debug instrumentation 的指定模拟器全量，不扩大为真机、全部签名 release 或其他 Android 版本通过。API 36 同源全量仍在运行；真实进程停止另行复验，不把普通默认测试发现当作宿主停止检查点已运行。
+实际安装应用 APK SHA256 `ebd6d1583a9effc37cf6b78114e4677a11bef19f38009427d9fdf3d7a8ee84aa`、测试 APK SHA256 `5796f33e337f77e012330da5282a438f363f5102af26f95cef323c183ec98dd6` 均与各自构建相同；应用内构建来源为上述提交 / clean。证据 `tmp/file-archive-evidence/package-final-full-api29/verified-execution.json`、`baseline.log`、`full-discovery.json` 和输入前后映射。这是 debug instrumentation 的指定模拟器全量，不扩大为真机、全部签名 release 或其他 Android 版本通过。API 36 同源全量最终结果见 §9.135；真实进程停止另行复验，不把普通默认测试发现当作宿主停止检查点已运行。
+
+
+### 9.133 最终来源的真实进程中断复验（2026-11-02，`8e161e7`）
+
+复用 §9.132 同一实际 APK 对，在 API 29 / arm64 / 4 KiB 页执行六个本机/SAF 检查点与四个真实 SSH 检查点：`intent`、`candidate`、`origin-created`、`published`、`saf-create-intent`、`saf-created`、`remote-create`、`remote-publish`、`remote-published`、`remote-directory`。每项先核验当前活 PID 和持久检查点，经 nonce/PID 绑定请求使真实进程 SIGKILL，确认旧 PID 消失且有对应确认；随后新 PID 读取原记录、核对真实文件并确认未恢复执行，同 APK Core 配置对照通过。远端另完整运行 RemoteFileJournalTest 四项（5.683 秒）。这些宿主探针未纳入默认 905 项，不将数量相加冒充新的完整测试套件。
+
+两个阶段 1793601844874098000 / 1793601930880363000 的 895 份输入前后一致，并与 §9.132 / 最终 release 输入锚相同；实际 APK 摘要保持 §9.132 的应用/测试对不变。证据 `tmp/file-archive-evidence/package-final-crash-api29/receipt.json`、`package-final-remote-crash-api29/receipt.json` 与各自原始日志/输入映射。首次隔离检出起跑因未提供工具链路径，在执行设备检查前失败（阶段 1793601836225378000）；补工程内工具链软链后重新执行，没有改源码或把起跑错误计为检查点成功。只证明上述数据路径和版本，不替代全部提供方、服务器、用户系统停止、清理调用中断或真机矩阵。
+
+同一 API 29 完整 905 项生成的性能原始样本已提取，见 `tmp/file-archive-evidence/package-final-performance/api29.json` 和 `api29-summary.json`。短时突发约 15.219 MiB/s，带每块 50 ms 节流的持续样本约 1.662 MiB/s、8.874 秒；窗口像素输入样本 20 次，p50 51.301 ms / p95 67.589 ms，包含抓帧/轮询开销。峰值采样 PSS 156,936 KiB；三秒空闲前台/后台进程单核 CPU 为 2.167% / 0.3%；关闭请求约 0.959 ms、owner 释放约 265.418 ms。这是模拟器 debug＋instrumentation 的短时基线，不能据此宣称真机流畅度、release 性能或长负载验收通过。
+
+
+### 9.134 实际签名发行包的 Android 10 首装（2026-11-02，`8e161e7`）
+
+另建独立空白 API 29 / arm64 / 4 KiB 页模拟器，以 320dp 窄屏首次安装共用 dev 实际 APK，安装后摘要 `5899b2c6c6b1490a0bc9f89bc12058bfc33586c49987e0b2be68b7d69eb741e3` 与下载包一致。正式首页为空；经实际页面新建本地终端，系统虚拟按键以短批输入命令，真实 shell 写入 `release-api29-ok`，文件页面点按该文件打开只读预览，内容准确。之后终端先检查原内容再删除本次文件，以状态码 0 退出并经菜单确认关闭本次会话；文件列表确认测试文件已移除。关于页显示完整 `8e161e7` 提交和“工作区干净”；force-stop 后冷启动仍为空首页，无测试主机/会话。
+
+证据 `tmp/package-final-release-api29/installed.json`、`smoke-result.json`、`smoke.log` 与 UI XML。该模拟器为本次独立创建，未清除其他设备应用数据。初次启动遇宿主可用空间不足，尚未开始产品验收；清除未在使用的旧临时依赖/编译缓存和已安装工具的下载压缩包后启动，源码、签名备份、验收日志、正式 native 缓存和运行中的 API 36 检出/数据保留。结束后停止本次模拟器。这补充最低支持版本上实际签名/R8 包的首装、系统按键、本地终端、文件读回与清理，不等于 API 29 release 全套、真机中文 IME、网络或性能矩阵通过。
+
+
+### 9.135 最终来源 API 36 完整回归（2026-11-02，`8e161e7`）
+
+干净检出 `8e161e7978004b91d62ef72b93adf02d0a40f10b` 在 API 36 / arm64 / 4 KiB 页模拟器完成默认未筛选 905 项，零失败/错误/跳过，2,400.027 秒。该耗时为实际 JUnit 结果，不是把 2,400 秒观察超时当作通过；宿主本轮执行预算为 3,000 秒。具名开始/完成与发现集合一致；阶段 1793600269648277000 的 895 份非 Markdown 输入集合/SHA256 前后一致，并与 API 29 全量、最终定向和 release/lint 输入锚相同。
+
+实际安装应用 APK SHA256 `820f33820066538449d6fab16ffcc29a92ca2837d331165fbec8a57c6c005e5e`、测试 APK SHA256 `9daf7182fe7a5d5a9026f50e0d40079bf0ca31efea5579e420f46b97a7c4f012` 均与各自构建相同；应用内来源为上述提交 / clean。证据 `tmp/file-archive-evidence/package-final-full-api36/verified-execution.json`、`baseline.log`、`full-discovery.json` 与输入前后映射。两端各自编译/安装，不要求两个不同检出的 APK 字节相同；核验的是各自实际产物与同一源码集合。
+
+同一次全量的性能原始报告保存在 `tmp/file-archive-evidence/package-final-performance/api36.json` 和 `api36-summary.json`：窗口像素输入 20 次的 p50 51.058 ms / p95 70.174 ms（含抓帧/轮询开销），峰值采样 PSS 177,541 KiB；关闭请求约 4.577 ms、owner 释放约 237.835 ms。与 API 29 一样，这只是模拟器 debug＋instrumentation 的短时样本；不扩大为真机、签名 release、长负载或整个客户端验收通过。用户手机 Wi-Fi/移动网络的域名复测、真机输入/性能/无障碍及完整外部提供方/服务器矩阵仍待证据。
+
+
+### 9.136 API 36 的真实进程中断复验（2026-11-02，`8e161e7`）
+
+API 36 / arm64 / 4 KiB 页复验与 §9.133 相同的六个本机/SAF 和四个真实 SSH 检查点，全部通过；远端另运行完整 RemoteFileJournalTest 四项（5.072 秒）。逐项确认旧 PID 活着并到达持久检查点，再以 nonce/PID 绑定请求触发真实 SIGKILL；新进程读取原记录、核对实际文件且未恢复执行，同 APK Core 配置对照均通过。不是在进程内仅调用生命周期回调，也没有将这些宿主探针纳入默认 905 项或与其相加。
+
+阶段 1793602689060458000 / 1793602743315520000 的 895 份源码输入集合/SHA256 前后一致，且与两端全量和最终 release 输入锚相同；应用/测试 APK 摘要保持 §9.135 的实际全量 APK 对不变。证据 `tmp/file-archive-evidence/package-final-crash-api36/receipt.json`、`package-final-remote-crash-api36/receipt.json` 与各自原始日志/输入映射。当前两端各十个检查点均有同来源证据，不据此扩大为所有清理调用中断、真实系统停止或任意外部提供方/服务器通过。
+
+本轮复核共用 dev 仍有八份平台附件，重新下载的 android-build-info.json 仍为 clean `8e161e7`、8,100,791 字节及 §9.131 的同一摘要，R8/资源优化声明均为 true；证据 `tmp/final-current-release/`。macOS 当前云端包的最低系统元数据为 15.0，Homebrew cask 仍要求 macOS 26，两者并非同一限制；路线图和 dev 安装说明同步区分当前云端包、本机依赖及 cask 声明，不用 Android 全量结果宣称 macOS 行为通过。

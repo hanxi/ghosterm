@@ -81,7 +81,7 @@ cask 指向 `dev` 滚动直链、写的是 `sha256 :no_check`——**因为 dev 
 SHA256SUMS` 那一步手工对（包内 `BUILD-INFO.txt` 与 release 上那份同源）。
 cask 里的 `depends_on arch: :arm64` / `depends_on macos: :tahoe` 是显式安装下限，
 不满足会当场报错。该下限保留此前本机打包时内嵌 Homebrew `libcrypto` 要求 macOS 26.0
-的限制；`010c251` 的 CI dev 包机读清单实际记录 `min_macos=15.0`，两者须分开看。
+的限制；`8e161e7` 的 CI dev 包机读清单实际记录 `min_macos=15.0`，两者须分开看。
 打包脚本按每轮实际依赖核算二进制下限，cask 尚未降低系统要求；15.0 的包元数据
 不表示 macOS 15 全量 UI 与发行矩阵已验收。**首次打开照样会被 Gatekeeper 拦**（见上表），brew 换来的是安装与
 升级省事，不是免弹窗。
