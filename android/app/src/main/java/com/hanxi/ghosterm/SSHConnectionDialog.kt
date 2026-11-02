@@ -11,6 +11,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -31,8 +33,8 @@ fun SSHConnectionDialog(model: SessionsViewModel, presenter: java.util.UUID? = n
     var secret by remember(attempt.id, prompt?.request) { mutableStateOf("") }
     var identityId by remember(attempt.id, prompt?.request) { mutableStateOf<String?>(null) }
     var otherIdentity by remember(attempt.id, prompt?.request) { mutableStateOf(false) }
-    val candidates = remember(attempt.target.identityFiles, attempt.identities) {
-        IdentityReferences.candidates(attempt.target.identityFiles, attempt.identities)
+    val candidates = remember(attempt.authenticationIdentityFiles, attempt.identities) {
+        IdentityReferences.candidates(attempt.authenticationIdentityFiles, attempt.identities)
     }
     LaunchedEffect(attempt.id, prompt?.request, candidates.identities) {
         if (identityId == null && !otherIdentity) identityId = candidates.identities.firstOrNull()?.id
@@ -78,17 +80,22 @@ fun SSHConnectionDialog(model: SessionsViewModel, presenter: java.util.UUID? = n
                                 visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                                 modifier = Modifier.testTag("ssh-secret"), enabled = ready)
                         } else if (keyAvailable) {
-                            if (attempt.target.identityFiles.isNotEmpty()) {
-                                Text("主机配置中的身份", style = MaterialTheme.typography.titleSmall)
+                            if (attempt.authenticationIdentityFiles.isNotEmpty()) {
+                                Text(if(attempt.rememberedIdentityId != null) "上次成功使用的密钥" else "主机配置中的身份", style = MaterialTheme.typography.titleSmall)
                                 candidates.issues.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                                 TextButton(onClick = { model.manualAuthentication(attempt.id); otherIdentity = !otherIdentity; identityId = null; secret = "" }, enabled = ready,
                                     modifier = Modifier.testTag("ssh-other-identity")) {
-                                    Text(if (otherIdentity) "返回配置身份" else "选择其他身份（仅本次）")
+                                    Text(if (otherIdentity) "返回推荐身份" else "选择其他身份")
                                 }
                             }
                             if (attempt.identities.isEmpty()) Text("还没有导入的密钥。导入会保存到本机加密容器，原文档不修改。")
-                            if(candidates.identities.isEmpty()) Text("本次选钥不会自动关联主机。可在主机编辑 → SSH 身份中添加并保存，下次将自动使用；加密密钥仍需输入口令。")
-                            val choices = if (attempt.target.identityFiles.isEmpty() || otherIdentity) attempt.identities else candidates.identities
+                            Text("登录成功后记住所选密钥，下次自动使用；加密密钥仍需输入口令。取消勾选可仅用于本次连接。")
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Checkbox(checked = attempt.rememberIdentity, onCheckedChange = { attempt.rememberIdentity = it },
+                                    enabled = ready, modifier = Modifier.testTag("ssh-remember-identity").semantics { contentDescription = "记住此密钥" })
+                                Text("记住此密钥")
+                            }
+                            val choices = if (attempt.authenticationIdentityFiles.isEmpty() || otherIdentity) attempt.identities else candidates.identities
                             choices.forEach { identity ->
                                 TextButton(onClick = { model.manualAuthentication(attempt.id); identityId = identity.id; secret = "" }, enabled = ready,
                                     modifier = Modifier.fillMaxWidth().testTag("ssh-key-${identity.id}")) {

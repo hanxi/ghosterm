@@ -132,6 +132,16 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
             visible=fileTasks.presentsAuthentication && sessions.connecting==null)
         LaunchedEffect(sessions.connecting?.id,tmux.visible) { if(tmux.visible) tmux.authenticationDismissed() }
         SSHSessionChoices(sessions)
+        val identityWarningOwner = when {
+            sessions.identityMemoryWarning != null -> sessions
+            fileTasks.authentication.identityMemoryWarning != null -> fileTasks.authentication
+            else -> null
+        }
+        identityWarningOwner?.let { owner ->
+            AlertDialog(onDismissRequest = owner::dismissIdentityMemoryWarning,
+                title = { Text("密钥未能记住") }, text = { Text(owner.identityMemoryWarning.orEmpty()) },
+                confirmButton = { TextButton(onClick = owner::dismissIdentityMemoryWarning) { Text("知道了") } })
+        }
         if(fileTasks.visible) { FileTasksScreen(fileTasks);return@MaterialTheme }
         if (files.visible) {
             FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error,

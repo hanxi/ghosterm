@@ -312,6 +312,10 @@ def main():
                     spec=importlib.util.spec_from_file_location('saf_query_mutations',ROOT/'scripts/mutation-check-android-saf-query.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_REMEMBER_IDENTITY_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('remember_identity_mutations',ROOT/'scripts/mutation-check-android-remember-identity.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_CONFIG_INPUT_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('config_input_mutations',ROOT/'scripts/mutation-check-android-config-input.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

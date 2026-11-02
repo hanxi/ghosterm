@@ -243,6 +243,7 @@ class HostIdentityTest {
         ui.onNodeWithText("认证并连接").assertIsNotEnabled()
         ui.onNodeWithTag("ssh-other-identity").performScrollTo().performClick()
         ui.onNodeWithTag("ssh-key-${key.id}").performScrollTo().performClick()
+        ui.onNodeWithTag("ssh-remember-identity").performScrollTo().performClick()
         ui.onNodeWithText("认证并连接").performClick()
         await("explicit key authenticated") { sessions.connecting==null && sessions.active?.state?.connected==true }
         assertArrayEquals(original,config.readBytes())

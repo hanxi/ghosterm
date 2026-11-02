@@ -38,14 +38,17 @@ class RemoteFileTasksProductTest {
     private lateinit var key:StoredIdentity
     private val authIds=mutableSetOf<UUID>()
     private val trustedAttempts=mutableSetOf<UUID>()
+    private var rememberedBefore=emptyMap<String,String>()
     @Before fun setup() {
+        rememberedBefore=ui.activity.getSharedPreferences("ssh-successful-identities",android.content.Context.MODE_PRIVATE)
+            .all.mapValues { it.value as String }
         home=File(ui.activity.filesDir,"home")
         config=File(home,".ssh/config");known=File(home,".ssh/known_hosts")
         configBefore=config.takeIf { it.exists() }?.readBytes();knownBefore=known.takeIf { it.exists() }?.readBytes()
         config.parentFile!!.mkdirs();known.delete()
         vault=IdentityVault(File(ui.activity.filesDir,"identities"));key=vault.import(unique,fixture.getString("taskFilePem").toByteArray())
         // These cases deliberately exercise manual credential prompts, cancellation and attempt ownership.
-        // Configured-key automatic authentication is covered by RemoteFilesProductTest.
+        // Opt out in loginUntil so repeated prompts still exercise independent request ownership.
         config.writeText("Host $unique\n HostName 127.0.0.1\n Port ${fixture.getInt("port")}\n User ${fixture.getString("user")}\n")
         File(home,"$unique.txt").writeText("真实任务上传 ☃\n")
         File(home,unique).mkdir()
@@ -61,6 +64,8 @@ class RemoteFileTasksProductTest {
         ui.runOnIdle { tasks().tasks.toList().forEach(tasks()::remove);files().requestClipboardClear();files().confirmClipboardClear() }
         ui.waitUntil(10000) { tasks().tasks.isEmpty() }
         vault.remove(key)
+        val memory=ui.activity.getSharedPreferences("ssh-successful-identities",android.content.Context.MODE_PRIVATE).edit().clear()
+        rememberedBefore.forEach { (key,value) -> memory.putString(key,value) };assertTrue(memory.commit())
         configBefore?.let(config::writeBytes) ?: config.delete();knownBefore?.let(known::writeBytes) ?: known.delete()
         File(home,"$unique.txt").delete();File(home,unique).deleteRecursively()
     }
@@ -69,7 +74,7 @@ class RemoteFileTasksProductTest {
         return type.getDeclaredMethod("ownerCount").invoke(type.getField("INSTANCE").get(null)) as Int
     }
     private fun loaded() { ui.waitUntil(10000) { !files().loading } }
-    private fun loginUntil(done:()->Boolean) {
+    private fun loginUntil(remember:Boolean=false,done:()->Boolean) {
         val until=SystemClock.uptimeMillis()+20000
         while(!done() && SystemClock.uptimeMillis()<until) {
             val attempt=auth().connecting ?: sessions().connecting
@@ -80,6 +85,8 @@ class RemoteFileTasksProductTest {
                     SSHAuthPhase.CREDENTIALS -> if(attempt.identities.any { it.id==key.id } && !attempt.credentialBusy) {
                         if(authIds.add(attempt.id)) {
                             ui.onNodeWithTag("ssh-key-${key.id}").performScrollTo().performClick()
+                            if(!remember && attempt.rememberIdentity)
+                                ui.onNodeWithTag("ssh-remember-identity").performScrollTo().performClick()
                             ui.onNodeWithText("认证并连接").performClick()
                         }
                     }
@@ -90,11 +97,11 @@ class RemoteFileTasksProductTest {
         }
         assertTrue("flow did not finish: ${(auth().connecting ?: sessions().connecting)?.message} / ${tasks().tasks.firstOrNull()?.error}",done())
     }
-    private fun openRemote(alias:String=unique) {
+    private fun openRemote(alias:String=unique,remember:Boolean=false) {
         if(!files().visible) ui.onNodeWithText("本机文件").performClick()
         ui.onNodeWithTag("file-location").performClick()
         ui.onNodeWithTag("file-connect:$alias").performScrollTo().performClick()
-        loginUntil { sessions().connecting==null && files().location.endpoint.remoteAlias==alias && !files().loading }
+        loginUntil(remember) { sessions().connecting==null && files().location.endpoint.remoteAlias==alias && !files().loading }
         assertNull(files().error)
     }
     private fun entry(name:String):SemanticsNodeInteraction {
@@ -308,6 +315,19 @@ class RemoteFileTasksProductTest {
         ui.waitUntil(10000) { files().preview?.text!=null || files().preview?.error!=null }
         assertEquals("真实任务上传 ☃\n",files().preview?.text)
         assertEquals(1,owners());assertEquals(3,authIds.size)
+    }
+    @Test fun rememberedBrowserIdentityAuthenticatesIndependentTaskWithoutSelectingAgain() {
+        openRemote(remember=true);assertEquals(1,authIds.size);copy("文本.txt")
+        ui.runOnIdle { files().choose(FileEndpoint.APP) };loaded();entry(unique).performClick();loaded()
+        ui.onNodeWithTag("file-paste").performClick()
+        ui.waitUntil(15000) { latest.phase in setOf(FileTaskPhase.CONFIRMING,FileTaskPhase.FINISHED) }
+        assertEquals("preflight: ${latest.error}",FileTaskPhase.CONFIRMING,latest.phase)
+        ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
+        ui.waitUntil(15000) { !tasks().busy }
+        assertEquals("copy: ${latest.result?.error}",FileCopyState.COMPLETE,latest.result?.state)
+        assertEquals("远端 UTF-8\nline two\n",File(home,"$unique/文本.txt").readText())
+        assertEquals("Only the initial browser connection selected a key",1,authIds.size)
+        assertNull(auth().connecting)
     }
     @Test fun downloadUsesSourceRoleAndLeavingFilePageKeepsTaskAlive() {
         openRemote();copy("文本.txt")

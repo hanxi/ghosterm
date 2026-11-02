@@ -34,8 +34,13 @@ class RemoteFilesProductTest {
     private lateinit var vault:IdentityVault
     private lateinit var key:StoredIdentity
     private val extraKeys=mutableListOf<StoredIdentity>()
+    private var rememberedBefore=emptyMap<String,String>()
     private val alias="files-${UUID.randomUUID().toString().take(8)}"
+    private fun remembered()=com.hanxi.ghosterm.data.RememberedSSHIdentities(
+        ui.activity.getSharedPreferences("ssh-successful-identities",android.content.Context.MODE_PRIVATE))
     @Before fun setup() {
+        rememberedBefore=ui.activity.getSharedPreferences("ssh-successful-identities",android.content.Context.MODE_PRIVATE)
+            .all.mapValues { it.value as String }
         config=File(ui.activity.filesDir,"home/.ssh/config");known=File(ui.activity.filesDir,"home/.ssh/known_hosts")
         configBefore=config.takeIf { it.exists() }?.readBytes();knownBefore=known.takeIf { it.exists() }?.readBytes()
         known.delete();vault=IdentityVault(File(ui.activity.filesDir,"identities"))
@@ -56,6 +61,10 @@ class RemoteFilesProductTest {
         val end=SystemClock.uptimeMillis()+10000
         while(owners()!=0 && SystemClock.uptimeMillis()<end) SystemClock.sleep(20)
         assertEquals("file page releases its owners",0,owners())
+        // Restore independently of the store under mutation (including an ignored opt-out).
+        val memory=ui.activity.getSharedPreferences("ssh-successful-identities",android.content.Context.MODE_PRIVATE).edit().clear()
+        rememberedBefore.forEach { (key,value) -> memory.putString(key,value) }
+        assertTrue(memory.commit())
         if(::key.isInitialized) vault.remove(key)
         extraKeys.forEach(vault::remove)
         if(::config.isInitialized) { configBefore?.let(config::writeBytes) ?: config.delete();knownBefore?.let(known::writeBytes) ?: known.delete() }
@@ -146,6 +155,55 @@ class RemoteFilesProductTest {
         ui.onNodeWithText("返回").performClick();ui.onNodeWithText("返回").performClick()
         ui.onNodeWithText("返回").performClick();ui.onNodeWithText("本机文件").performClick()
         ui.waitUntil { !files().loading };assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)
+    }
+
+    private fun unconfiguredTerminal():PreparedSSH {
+        vault.remove(key)
+        key=vault.import("Remember ${UUID.randomUUID()}",fixture.getString("terminalFilePem").toByteArray())
+        load()
+        config.writeText(config.readText().lineSequence().filterNot { it.contains("IdentityFile") }.joinToString("\n"))
+        return ConfigBridge.prepareConnection(config.readBytes(),alias)
+    }
+    private fun startManual(target:PreparedSSH) {
+        ui.runOnIdle { sessions().connect(target) }
+        phase(SSHAuthPhase.HOSTKEY);ui.onNodeWithText("信任并连接").performClick()
+        phase(SSHAuthPhase.CREDENTIALS)
+    }
+    @Test fun successfulManualKeyIsRememberedAndNextConnectionNeedsNoSelection() {
+        val target=unconfiguredTerminal();val before=config.readBytes()
+        startManual(target)
+        ui.onNodeWithTag("ssh-key-${key.id}").performScrollTo().performClick()
+        ui.onNodeWithText("认证并连接").performClick()
+        ui.waitUntil(15000) { sessions().connecting==null && sessions().active?.state?.connected==true }
+        assertEquals(key.id,remembered().find(target,target.user,vault.list())?.id)
+        assertArrayEquals("Remembering must not edit SSH config",before,config.readBytes())
+        ui.runOnIdle { sessions().close(sessions().active!!.id);sessions().connect(target) }
+        ui.waitUntil(15000) { sessions().connecting==null && sessions().active?.state?.connected==true }
+        assertEquals(key.id,com.hanxi.ghosterm.data.IdentityReferences.decode(sessions().active!!.remoteTarget!!.identityFiles.single()))
+    }
+    @Test fun uncheckedRememberUsesKeyOnlyForThisConnection() {
+        val target=unconfiguredTerminal()
+        startManual(target)
+        ui.onNodeWithTag("ssh-key-${key.id}").performScrollTo().performClick()
+        ui.onNodeWithTag("ssh-remember-identity").performScrollTo().performClick()
+        ui.onNodeWithText("认证并连接").performClick()
+        ui.waitUntil(15000) { sessions().connecting==null && sessions().active?.state?.connected==true }
+        assertNull(remembered().find(target,target.user,vault.list()))
+        ui.runOnIdle { sessions().close(sessions().active!!.id);sessions().connect(target) }
+        phase(SSHAuthPhase.CREDENTIALS)
+        ui.runOnIdle { sessions().cancelConnection(sessions().connecting!!.id) }
+    }
+    @Test fun rejectedOrCancelledKeyNeverBecomesRemembered() {
+        val target=unconfiguredTerminal()
+        val wrong=vault.import("Wrong ${UUID.randomUUID()}",fixture.getString("wrongPem").toByteArray()).also { extraKeys+=it }
+        startManual(target)
+        ui.onNodeWithTag("ssh-key-${wrong.id}").performScrollTo().performClick()
+        val request=sessions().connecting!!.auth!!.request
+        ui.onNodeWithText("认证并连接").performClick()
+        ui.waitUntil(10000) { sessions().connecting?.let { !it.credentialBusy && it.auth?.phase==SSHAuthPhase.CREDENTIALS && it.auth?.request!=request }==true }
+        assertNull("Rejected key cannot be remembered",remembered().find(target,target.user,vault.list()))
+        ui.runOnIdle { sessions().cancelConnection(sessions().connecting!!.id) }
+        assertNull("Cancelled attempt cannot be remembered",remembered().find(target,target.user,vault.list()))
     }
 
     @Test fun protocolReadFailureIsVisibleAndCannotPretendEmpty() {
