@@ -12,7 +12,7 @@
 // 为什么用 `TerminalApp.shared()`：libghostty 的 app 释放会停掉全局状态
 // （见 `TerminalApp` 的注释），故凡是挂 host view 的用例都沿用仓库既有口径。
 import AppKit
-import GhostermTerminal
+@testable import GhostermTerminal
 import XCTest
 
 final class TerminalIMETests: XCTestCase {
@@ -213,6 +213,56 @@ final class TerminalIMETests: XCTestCase {
                        "Ctrl+B 应编码为 STX（tmux 前缀；#14451 同场景的兜底路径）")
         XCTAssertEqual(press(126, "\u{F700}"), [0x1B, 0x5B, 0x41],
                        "方向键应编码为 CSI A（不被 PUA 字符干扰）")
+    }
+
+    /// 重放输入法回调，不能依赖 CI 上无法激活的系统拼音。
+    /// 中文 Ctrl+B 后 n 开始组字，删除最后一个字，再切英文按 Ctrl+B、n。
+    @MainActor
+    func testControlPrefixAfterDeletingComposition() throws {
+        let (surface, host) = try makeHost()
+        var received = Data()
+        surface.onInput = { received.append($0) }
+        func event(_ code: UInt16, _ chars: String, _ ignoring: String,
+                   _ mods: NSEvent.ModifierFlags = []) -> NSEvent {
+            NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: mods,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0, context: nil,
+                characters: chars, charactersIgnoringModifiers: ignoring,
+                isARepeat: false, keyCode: code)!
+        }
+        let prefix = event(11, "\u{02}", "b", .control)
+        let next = event(45, "n", "n")
+        let missing = NSRange(location: NSNotFound, length: 0)
+        // 输入法既可能提交控制字符，也可能提交未施加 Control 的字母或空串。
+        for committed in ["\u{02}", "b", ""] {
+            host.processKeyDown(with: prefix) { _ in
+                host.insertText("\u{02}", replacementRange: missing)
+            }
+            host.processKeyDown(with: next) { _ in
+                host.setMarkedText("n", selectedRange: NSRange(location: 1, length: 0),
+                                   replacementRange: missing)
+            }
+            XCTAssertTrue(host.hasMarkedText())
+            host.processKeyDown(with: event(51, "\u{7f}", "\u{7f}")) { _ in
+                host.setMarkedText("", selectedRange: NSRange(location: 0, length: 0),
+                                   replacementRange: missing)
+                host.insertText("", replacementRange: missing)
+            }
+            XCTAssertFalse(host.hasMarkedText())
+            XCTAssertTrue(waitUntil { !received.isEmpty })
+            XCTAssertEqual(Array(received), [0x02], "组合与删除不得泄漏到终端")
+            received.removeAll()
+            host.processKeyDown(with: prefix) { _ in
+                host.insertText(committed, replacementRange: missing)
+            }
+            host.processKeyDown(with: next) { _ in
+                host.insertText("n", replacementRange: missing)
+            }
+            XCTAssertTrue(waitUntil { !received.isEmpty })
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            XCTAssertEqual(Array(received), [0x02, 0x6e],
+                           "切英文后必须发送 tmux 前缀与 n；回调=\(committed.debugDescription)")
+            received.removeAll()
+        }
     }
 
     /// 对照：证明「粘贴语义会被 bracketed paste 包裹」——上面那条断言因此有区分度

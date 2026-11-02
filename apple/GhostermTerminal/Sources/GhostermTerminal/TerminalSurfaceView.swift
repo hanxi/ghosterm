@@ -400,9 +400,14 @@ public final class TerminalHostView: NSView, NSTextInputClient {
     ///      - 否则是**普通按键**（功能键 / 组合键 / 未产生文本的键）→ 走原来的
     ///        编码路径。
     public override func keyDown(with event: NSEvent) {
+        processKeyDown(with: event) { interpretKeyEvents([$0]) }
+    }
+
+    /// 把系统输入法回调与结算放在同一次调用里；测试可重放输入法的不同回调顺序。
+    internal func processKeyDown(with event: NSEvent, interpret: (NSEvent) -> Void) {
         keyTextAccumulator = []
         let markedTextBefore = markedText.length > 0
-        interpretKeyEvents([event])
+        interpret(event)
         let accumulated = keyTextAccumulator
         keyTextAccumulator = nil
 
@@ -412,7 +417,15 @@ public final class TerminalHostView: NSView, NSTextInputClient {
         // 输入法提交的文本（含「拼音选字后回车/空格」这种刚结束组合的提交）：
         // 以键入语义下发，程序看到的是「一个字一个字敲出来」，不是一次粘贴。
         if let accumulated, !accumulated.isEmpty {
-            for text in accumulated { surface.sendCommittedText(text) }
+            // 输入法可能把 Ctrl+B 回调为普通 "b"。组合态之外的 ASCII 控制键
+            // 必须保留物理键与修饰键，让引擎编码；按无修饰文本提交会丢掉 tmux 前缀。
+            if !markedTextBefore && markedText.length == 0,
+               event.modifierFlags.contains(.control),
+               accumulated.allSatisfy({ $0.utf8.count == 1 && $0.utf8.first! < 0x80 }) {
+                forwardKeyEvent(event)
+            } else {
+                for text in accumulated { surface.sendCommittedText(text) }
+            }
             return
         }
 
@@ -422,6 +435,10 @@ public final class TerminalHostView: NSView, NSTextInputClient {
 
         // 普通按键。注意：可打印的 ASCII 也会经 insertText 攒进累加器（上面已
         // 处理），这里兜的是**未产生文本**的键（回车 / 退格 / 方向键 / 组合键…）。
+        forwardKeyEvent(event)
+    }
+
+    private func forwardKeyEvent(_ event: NSEvent) {
         surface.sendKeyEvent(nativeKeycode: UInt32(event.keyCode),
                              text: event.characters ?? "",
                              codepoint: event.charactersIgnoringModifiers?
@@ -479,6 +496,8 @@ public final class TerminalHostView: NSView, NSTextInputClient {
         }
         // 提交即组合结束：清掉预编辑显示。
         unmarkText()
+        // 空提交只结束组合，不代表产生了一次终端输入，不能截断控制键兜底。
+        guard !chars.isEmpty else { return }
         if keyTextAccumulator != nil {
             keyTextAccumulator?.append(chars)
             return

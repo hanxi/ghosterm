@@ -407,7 +407,7 @@ flush 一次 wtail，当尾队列的泵。契约见 `transport.h`：「输入不
 且 `keyDown` 走 `interpretKeyEvents`，组合串经 preedit 内联显示、提交走**键入**
 语义（`TerminalIMETests`，观测口径是 libghostty 的 `ime_point` 宽度与 transport
 字节）。变异 T1~T8 有牙，T8 另护输入法提交的控制字符原样到达 transport，避免吞掉 tmux 前缀。）
-`terminal-keyboard` 以 `python3 scripts/mutation-check-terminal-keyboard.py` 手工执行一组隔离变异，护 AppKit 功能键占位符不得作为可输入文本；真实 NSEvent 经 full libghostty 验普通、应用光标及 Kitty 六种 flags，共 90 个功能键场景。编译后目标断言红、同变异中文提交对照绿、恢复绿与 SHA256；终端测试纳入既有 terminal gate，变异不增加 CI 20 份。真实 SSH/Codex 输入框验证范围见 `docs/reference/optional-tmux-implementation.md` 的功能键编码记录。
+`terminal-keyboard` 以 `python3 scripts/mutation-check-terminal-keyboard.py` 手工执行三组隔离变异：原功能键组护 AppKit 功能键占位符不得作为可输入文本，真实 NSEvent 经 full libghostty 验普通、应用光标及 Kitty 六种 flags，共 90 个功能键场景；新增两组护输入法 ASCII 提交保留 Control、空提交不吞控制键，以重放组字/删除/提交回调验证最终 `02 6e` 字节，不等同于真实系统输入法切换或 tmux 窗口切换验收。编译后目标断言红、同变异中文提交对照绿、恢复绿与 SHA256；终端测试纳入既有 terminal gate，变异不增加 CI 20 份。真实 SSH/Codex 输入框与本轮回调验证范围见 `docs/reference/optional-tmux-implementation.md`。
 
 `kitty-macos` 以 `python3 scripts/test-kitty-macos.py` 手工验证八项协议/像素检查：
 查询、分块 PNG、实际图像像素、删除、损坏 PNG 拒绝、动画帧接收/切换与自动播放。

@@ -283,10 +283,10 @@ mutate "T7" "$VIEW" <<'PY_T7'
 import sys
 p=sys.argv[1]; s=open(p).read()
 old = """    public override func keyDown(with event: NSEvent) {
-        keyTextAccumulator = []"""
+        processKeyDown(with: event)"""
 new = """    public override func keyDown(with event: NSEvent) {
         if true { return } /* GT_MUTATION_MARK：不路由按键 */
-        keyTextAccumulator = []"""
+        processKeyDown(with: event)"""
 assert old in s, "T7 锚点缺失"
 open(p,'w').write(s.replace(old,new,1))
 PY_T7

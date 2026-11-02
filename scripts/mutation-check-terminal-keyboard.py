@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""功能键编码：隔离 native 变异，目标红、中文提交对照绿、恢复绿与 SHA256。"""
+"""功能键与输入法控制键编码：隔离 native 变异，目标红、中文提交对照绿、恢复绿与 SHA256。"""
 import hashlib
 import os
 from pathlib import Path
@@ -12,11 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / 'apple/GhostermTerminal'
 MARK = 'GT_KEYBOARD_PROTOCOL_MUTATION_MARK'
 SURFACE = 'Sources/GhostermTerminal/TerminalSurface.swift'
+VIEW = 'Sources/GhostermTerminal/TerminalSurfaceView.swift'
+IME = 'TerminalIMETests/testControlPrefixAfterDeletingComposition'
 SUITE = 'TerminalKeyboardProtocolTests'
 CASES = [
     ('AppKit 功能键占位符不得作为文本', SURFACE,
      ' || (0xF700...0xF8FF).contains($0.value)', '',
      'testFunctionKeysAcrossKeyboardProtocols'),
+    ('输入法 ASCII 提交保留 Control', VIEW,
+     'event.modifierFlags.contains(.control),', 'false,', IME),
+    ('输入法空提交不吞控制键', VIEW,
+     'guard !chars.isEmpty else { return }', '', IME),
 ]
 
 
@@ -69,19 +75,22 @@ def main():
     try:
         probe('baseline', SUITE)
         probe('baseline-control', control)
+        probe('baseline-ime', IME)
         for index, (label, name, old, new, test) in enumerate(CASES):
+            target = test if '/' in test else SUITE + '/' + test
             source = originals[name].decode()
             if source.count(old) != 1:
                 raise RuntimeError(f'变异锚点不唯一：{label}')
             try:
                 (package / name).write_text(source.replace(old, new) + '\n// ' + MARK + '\n')
-                probe(f'{index}-red', SUITE + '/' + test, red=True)
+                probe(f'{index}-red', target, red=True)
                 probe(f'{index}-control', control)
             finally:
                 restore()
-            probe(f'{index}-restored', SUITE + '/' + test)
+            probe(f'{index}-restored', target)
             print(f'PASS {label}：目标红、同变异对照绿、恢复绿与 SHA256', flush=True)
         probe('restored', SUITE)
+        probe('restored-ime', IME)
         print(f'PASS {len(CASES)} 组功能键编码变异；日志：{work}', flush=True)
     finally:
         restore()
