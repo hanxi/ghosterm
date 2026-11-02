@@ -2,7 +2,7 @@
 
 **当前 Android 发行（2026-11-03，`7bebba8`）**：修复 SSH 配置文本框被输入法纠错改域名/缩进；保留当前主机 SFTP、已配置无口令身份自动认证、Kitty 动画和 Nerd Fonts。正式包与专项结果按版本分别记录，见 [配置输入修复](android-implementation.md#9161-正式包主机关联密钥的自动认证与配置原样输入2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,133,699 字节**；固定发行证书、clean 来源、R8/资源裁剪、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41490888458) 成功；本次 Android 发布保留全部五份 macOS 资产，Mac 仍为 `c594409` / build 92；同提交 Mac CI 首次因 runner 容量未执行，原记录保留；第二次仍在排队。共用 dev 八份固定附件完整。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,133,699 字节**；固定发行证书、clean 来源、R8/资源裁剪、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41490888458) 成功；本次 Android 发布保留全部五份 macOS 资产，Mac 仍为 `c594409` / build 92；同提交 Mac CI 两次均因 hosted runner 容量未执行构建，原失败记录保留，未发布新 Mac 包。共用 dev 八份固定附件完整。
 
 **完整回归**：`7bebba8` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **918 项全部通过**，零失败/错误/跳过。两端 905 份输入前后及跨设备相同，具名集合、实际安装 APK 与来源已核验（§9.163）。实际签名包两端覆盖升级另记 §9.162；真机、完整键盘/读屏与外部端点矩阵仍待完成。
 
@@ -4021,7 +4021,7 @@ Core 49 CTest / 94 ABI、固定证书本地优化 release 与四模块 release l
 
 ### 9.162 配置原样输入修复的实际 CI 发行（2026-11-03）
 
-`7bebba8cf017043986763e100665a539362981d5` 的 [Android CI 41490888458](https://github.com/hanxi/ghosterm/actions/runs/41490888458) 成功，四模块 release lint 与优化构建通过。共用 dev 实际下载 APK **8,133,699 字节**，SHA256 `5e9c3023bbb3a840a84734a3ba6e1d5477e4e06b23907070cd0cd0bb7fb9028d`。固定证书、包内/外部 clean commit、非 debug/minSdk 29、实际 R8/资源裁剪、三个压缩 arm64 SO、ZIP/ELF 16 KiB、完整 Nerd Fonts/许可和构建机路径核验通过。Android 三份资产与外部摘要一致；发布前后 macOS 五份资产的 ID/大小/digest 完全一致，仍为 c594409 / build 92。共用 dev 八份固定资产齐全，没有恢复 android-dev。[同提交 Mac CI](https://github.com/hanxi/ghosterm/actions/runs/41490888563) 第一次因 hosted runner 未接单失败，构建 job 未执行任何步骤，发布跳过；GitHub 注明 macOS arm64 容量不足。annotations/state 原始收据保留，同提交未改源码/规则重跑，第二次当前仍排队，不能记为成功或记新 Mac 包已发行。
+`7bebba8cf017043986763e100665a539362981d5` 的 [Android CI 41490888458](https://github.com/hanxi/ghosterm/actions/runs/41490888458) 成功，四模块 release lint 与优化构建通过。共用 dev 实际下载 APK **8,133,699 字节**，SHA256 `5e9c3023bbb3a840a84734a3ba6e1d5477e4e06b23907070cd0cd0bb7fb9028d`。固定证书、包内/外部 clean commit、非 debug/minSdk 29、实际 R8/资源裁剪、三个压缩 arm64 SO、ZIP/ELF 16 KiB、完整 Nerd Fonts/许可和构建机路径核验通过。Android 三份资产与外部摘要一致；发布前后 macOS 五份资产的 ID/大小/digest 完全一致，仍为 c594409 / build 92。共用 dev 八份固定资产齐全，没有恢复 android-dev。[同提交 Mac CI](https://github.com/hanxi/ghosterm/actions/runs/41490888563) 第一次因 hosted runner 未接单失败，构建 job 未执行任何步骤，发布跳过；GitHub 注明 macOS arm64 容量不足。annotations/state 原始收据保留，同提交未改源码/规则重跑，第二次也因相同容量原因结束；两次都没有执行构建步骤，发布跳过。两份 annotations/state 收据保存在 tmp/android-7bebba8-cloud/，不能记为成功或记新 Mac 包已发行。
 
 实际 API 29 / 4 KiB 页发行 AVD 保留 userdata，以同证书将 §9.161 本地候选覆盖为上述实际 CI APK，安装后摘要与下载相同；通过生产配置编辑页逐字读回原 SSH 配置一致，保留两个原 QA 主机与可见两条历史。首次驱动遗漏“会话与连接”设置分类，在导航定位处失败；无配置写入。保留该失败后按实际路由继续，在同一个已安装 APK 上完成读回。不是产品修复、也不是两次完整独立覆盖验收。显示尺寸/密度恢复，sync 后停止 AVD，资料保留。原始 CI 日志、APK、外部清单、验包收据、升级/定位日志及脱敏 XML 在 tmp/android-7bebba8-cloud/。本轮不扩大为签名包完整 IME/Kitty/公网矩阵；§9.161 的真实 Gboard 证据属于本地签名候选，旧 f5eda91 的正式包自动身份与公网证据按原版本保留。
 
@@ -4037,3 +4037,10 @@ Core 49 CTest / 94 ABI、固定证书本地优化 release 与四模块 release l
 API 29 实际应用/测试 APK SHA256 为 `7fcfd654a38b119a339e1675ce0422522a832c3f4545e52a44afd25819bce8fe` / `3e69601d6d9a9220386e6f3ab366e4673071b31897bcb993ebeb4b7417d30a40`；API 36 / 16 KiB 页为 `d5f5a884ef9235321d0f44db765350e129455965362f38133624c52f0595ff0f` / `e4ac27a982ba6e050737658bf8bc1760ebb6e5423ee7cedd8e548758501c6b9d`。实际安装均匹配对应构建，包内来源均是上述提交 / clean。完整日志、默认发现集、APK、阶段源摘要与收据在 tmp/android-small-files-evidence/full918-7bebba8-api29/、full918-7bebba8-16k/；跨设备源码对照为 full918-7bebba8-source-equivalence.json。归档后各自 sync 并停止拥有的 QA AVD，userdata 保留。
 
 本轮是完整 debug instrumentation 验收；实际固定签名 CI APK 的发布/覆盖升级另见 §9.162，真实 Gboard 和五组配置输入变异另见 §9.161。不将这两套模拟器记作真实手机、全部软硬键盘/TalkBack/网络切换、全部外部 DocumentsProvider 或物理服务器矩阵通过，整个目标仍需 §10.1 的剩余外部设备证据。
+
+
+### 9.164 当前正式包双系统持续输出观察（2026-11-03，进行中）
+
+§9.162 的实际固定签名/优化 CI APK 在拥有的 API 29 / 4 KiB 页和原 API 36 / 16 KiB 页发行 AVD 上开始十分钟有节奏输出观察。先记录原文件页和显示参数，通过实际配置文本框只读查看/聚焦并返回首页，再新建本地终端；没有编辑原配置。两端安装 APK 摘要均核对为 5e9c3023bbb3a840a84734a3ba6e1d5477e4e06b23907070cd0cd0bb7fb9028d。源每批输出 512 行并间隔 50ms，计划记录 PSS/真实进程 tick/窗口帧、输出中往返文件页、输出完成后像素回显观察和忙碌关闭；完成后只按本次随机文件及 SHA 清理，原文件/历史不删。实际已开始，不预记完成或性能通过。
+
+证据分别在 tmp/release-7bebba8-load-api29/ 与 tmp/release-7bebba8-load-api36/；fixture.json、config-visit.json、output.log 记录本次来源与启动，pipeline.py 持设备 OS 锁。两负载共享同一宿主，没有并跑 debug 回归；不能直接与 §9.158 的三 AVD 混合负载作性能优劣对比。结果待结束后独立核对，模拟器不替代物理手机性能或完整输入/网络矩阵。
