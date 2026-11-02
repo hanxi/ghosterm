@@ -6,7 +6,7 @@ APK **8,127,663 字节**，SHA256 `fb26f4bb585fe8ac644904438fe769363b4700d9020e4
 固定发行证书、非 debuggable/minSdk 29/仅 arm64、实际 R8/资源优化、native 压缩、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐及构建机路径检查均已核验。
 
 该实际包在 API 29 / arm64 / 4 KiB 页覆盖升级后保留保存主机，公网域名 `ssh.github.com:443` 已解析并连接到主机密钥确认，再明确取消，未接受信任或认证（§9.150）。实际正式包的终端系统节点亦已提供可见正文并过滤隐藏文字。大字体文件复制与实际包升级读取的范围见 §9.142–§9.143。旧包的 16 KiB 页外部只读打开证据仍只属于对应产物，不回填为新包全量。
-最近同源 4 KiB 页完整通过来自 `18db11b`（API 29 / API 36 各 912 项）；`84b984e` 的 16 KiB 页全量为 911/912，不能记绿。`6deb04b` 已提交终端可见文字无障碍和紧凑菜单布局同步，签名 CI 与下载校验通过，默认 915 项回归仍在运行。用户手机 Wi-Fi/移动网络、实际 TalkBack、完整键盘/外部端点/发行矩阵仍未完成。
+最近同源 4 KiB 页完整通过来自 `18db11b`（API 29 / API 36 各 912 项）；`84b984e` 的 16 KiB 页全量为 911/912，不能记绿。`6deb04b` 已提交终端可见文字无障碍和紧凑菜单布局同步，签名 CI 与下载校验通过；默认 915 项已在 API 29 / 4 KiB 页与 API 36 / 16 KiB 页同源通过。用户手机 Wi-Fi/移动网络、实际 TalkBack、完整键盘/外部端点/发行矩阵仍未完成。
 
 最终按用户要求与 macOS 共用 `dev` Release，文件名固定为 `Ghosterm-android-arm64-dev.apk`、`Ghosterm-macos-arm64-dev.dmg` 和 `Ghosterm-macos-arm64-dev.zip`。这里 dev 表示分发渠道，Android 仍是固定密钥签名、R8/资源裁剪的 release 构建。
 Mac 使用 `SHA256SUMS` / `BUILD-INFO.txt` / `version.json`，Android 使用 `android-SHA256SUMS` / `android-build-info.json`，各自记录版本和实际提交。8 个附件已实际下载逐一比对；临时 android-dev Release 及 tag 已删除。两端发布共用互斥组，Mac 原位更新并只清理旧 Mac 归档，不能再删除整个 Release。
