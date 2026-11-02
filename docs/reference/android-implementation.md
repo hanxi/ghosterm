@@ -1,6 +1,6 @@
 # Android 最终方案实现计划
 
-**当前 A6 显式重新选择（2026-11-02，已验工作区待 CI 发行）**：结果不明的历史任务可由用户重新勾选原始来源，创建关联原记录的新复制请求，重新扫描、认证及确认冲突；默认全不选，旧结果和实际文件保持原样。API 29 / 36 各 47 项组合（含真实 SFTP 和 SAF）通过，15 个不同保护组分轮、Core 47/93、签名 release 与四模块 lint 通过；完整恢复/残留清理和设备矩阵仍待收尾，见[重新选择记录](android-implementation.md#android-history-recovery)。
+**当前 A6 显式重新选择（2026-11-02，已随 `5645f5c` 发行）**：结果不明的历史任务可由用户重新勾选原始来源，创建关联原记录的新复制请求，重新扫描、认证及确认冲突；默认全不选，旧结果和实际文件保持原样。API 29 / 36 各 47 项组合（含真实 SFTP 和 SAF）通过，15 个不同保护组分轮、Core 47/93、签名 release 与四模块 lint 通过；完整恢复/残留清理和设备矩阵仍待收尾，见[重新选择记录](android-implementation.md#android-history-recovery)。
 
 **当前 A3 DNS 可达性兼容修复（2026-11-02，已随 `66d1bd9` 发行）**：针对 IP 可连、域名误报网络不可用，保留正常系统 DNS 路径，只在组合接口的网络错误时改用同一系统解析器的显式 A/AAAA 查询；不切换 DNS 服务、不重写 SSH 主机身份。真实网络用例复现旧接口在发出 DNS 前报 ENONET，修复后完成 DNS→SSH 认证/输出；API 29 / 36 各 50 项通过，13 个新增与两个受影响旧保护同轮通过，签名 release / 四模块 lint 通过。实际签名包另在 16 KB 页模拟器经真实分流 VPN DNS 到达 SSH 主机验证（§9.118）；该源码 API 36 / 4 KB 页完整 860 项已通过（§9.120）；用户手机、VPN/私人 DNS 完整矩阵仍待验，见[可达性兼容修复](android-implementation.md#android-dns-probe-compatibility)。
 
@@ -18,7 +18,7 @@
 
 **历史 A6 增量（§9.106）**：本机目标候选已按全部请求目录核算保留量和写入预约，超限在创建候选前拒绝且报告零写入；API 29 / API 36 各 137 项组合、十七个新保护组分轮、既有本机发布 25 组/记录 20 组和 release/lint 通过。预算已随 `5a0618d` 发布，签名/来源/包内容核验通过，设备复制专项另验；`106f66b` 已在 16 KB 页验证历史重新发起、冲突/取消、重启关联与原记录清除。本机显式残留查看/清理正在 §9.107 验证，内容/归属核验和完整客户端目标未完成，见[预算与发行记录](#android-local-publication-budget)。
 
-**已发行 A8 基线（2026-11-01）**：远端 tmux 后台会话已接主机入口、真实探测/列表/新建/重命名/结束和独立 SSH attach；普通 SSH 入口保持独立。`ee2a83f` 基线的 API 29 / API 36 各 45 项组合和十二组 Android 变异通过；选择器补丁两端各三项、入口/选择器两组增量通过，累计十三个不同保护组分轮取证。共享核心 47 项与 27 组 tmux 变异、macOS 原生构建及九项 tmux UI 回归通过。最新云端签名 APK 已在 16 KB 页模拟器验证实际 SSH/tmux 任务跨客户端与升级保留、重命名、取消/确认结束及旧文件保留，完整设备矩阵仍未完成，见[后台会话记录](android-implementation.md#android-tmux)。此前 Kitty 图形/动画、48dp 正式图标与 Nerd Fonts 均已发布；当前最新已验云端包为 `66d1bd9`（8,038,551 字节，来源/签名/字体/16 KB 对齐与覆盖安装核对，见 §9.116；创建身份及此前专项保留各自范围）。A2 真机/完整输入性能、A3 网络、A5 跨远端命名空间、A6 内容/归属核验与残留清理和 A10 全矩阵仍未完成，整个客户端目标保持进行中。
+**已发行 A8 基线（2026-11-01）**：远端 tmux 后台会话已接主机入口、真实探测/列表/新建/重命名/结束和独立 SSH attach；普通 SSH 入口保持独立。`ee2a83f` 基线的 API 29 / API 36 各 45 项组合和十二组 Android 变异通过；选择器补丁两端各三项、入口/选择器两组增量通过，累计十三个不同保护组分轮取证。共享核心 47 项与 27 组 tmux 变异、macOS 原生构建及九项 tmux UI 回归通过。最新云端签名 APK 已在 16 KB 页模拟器验证实际 SSH/tmux 任务跨客户端与升级保留、重命名、取消/确认结束及旧文件保留，完整设备矩阵仍未完成，见[后台会话记录](android-implementation.md#android-tmux)。此前 Kitty 图形/动画、48dp 正式图标与 Nerd Fonts 均已发布；当前最新已验云端包为 `5645f5c`（8,044,919 字节，来源/签名/字体/16 KB 对齐与覆盖安装核对，见 §9.121；创建身份及此前专项保留各自范围）。A2 真机/完整输入性能、A3 网络、A5 跨远端命名空间、A6 内容/归属核验与残留清理和 A10 全矩阵仍未完成，整个客户端目标保持进行中。
 
 **历史 A6 切片（2026-11-01，§9.98）**：文件任务已接暂停/继续、当前进程内失败项重试、整体数据进度与保守 ETA；API 36 的 80 项、API 29 的 81 项组合专项通过，新增十三组保护与七组受影响旧变异分轮通过。最后的通知暂停/取消、未知尺寸来源封存及系统 DNS → SSH 专项另验；不代替完整客户端回归。A6 批次已随 `3fcc17a` 发布到共用 dev Release；签名 release 为 6,181,137 字节，下载后源码/clean、摘要/清单与固定证书核对通过。Kitty 图形与动画已接入 Android，当前范围、设备证据与发行状态见[Kitty 验收记录](android-implementation.md#android-kitty)，不扩大为整个 A2 完成。Nerd Fonts 符号回退已随 `de1fd4a` 发布，设备与签名包范围见[字体记录](#android-nerd-fonts)。
 
@@ -3468,14 +3468,14 @@ API 29 arm64 / 4 KB 页按 background-layer、erased-background 两组真实变�
 签名 release 与四模块 lint 通过（`phase-1793575713962848000/`）；本地 APK 8,038,695 字节，SHA256 `120d9e2ba81ebb7cdd613ba3391fef61402aa135a3692764492ab5807f4577ba`，来源 `cf3904e` / dirty。固定证书、非 debuggable/minSdk 29、三个压缩 arm64 SO、ZIP/ELF 16 KB、R8 mapping 与完整 Nerd Fonts/许可核对通过。证据 `tmp/dns-probe-fix/api29*` / `api36*`、`mutations/`、`mutations.log`、`old-app-core-control.log`、`local-release/` 与上述 phase。此包同时包含 §9.115 背景修复，尚不是云端包；用户设备与完整 VPN/私人 DNS、物理网络矩阵仍待验证，新完整回归与实际发行另记。
 
 
-### 9.117 Android CI 缓存目录对齐（2026-11-02，实际 CI 已保存缓存）
+### 9.117 Android CI 缓存目录对齐（2026-11-02，实际 CI 已保存并命中缓存）
 
 `707d6d3` 的 Android CI 发布成功，但 setup-java 收尾提示默认缓存目录不存在。构建脚本尊重 workflow 指定的工程内 GRADLE_USER_HOME，而锁定 setup-java 的默认位置为 runner home 下 `.gradle/caches` 与 `.gradle/wrapper`，两者不一致。修复在 setup-java 之前通过 GITHUB_ENV 指定用户目录 `.gradle`，保持本地构建默认位置、工具链 pin 和 release 签名不变。工程临时文件仍在工程 tmp/；不将构建密钥放入 Gradle home。actionlint 1.7.12 的语法检查通过；缓存保存/命中及实际出包另记，不宣称已达到某个提速比例。说明见 [release 构建](../how-to/android-release.md#ci-gradle-缓存目录)。
 
 
 **§9.116 实际云端发行补记**：[Android CI 41362651987](https://github.com/hanxi/ghosterm/actions/runs/41362651987) 与 [macOS CI 41362652167](https://github.com/hanxi/ghosterm/actions/runs/41362652167) 均成功。共用 dev 实际下载 APK 为 `66d1bd9` / clean，包含 DNS 修复 `450d0ff` 与背景修复 `cf3904e`，8,038,551 字节，SHA256 `fa81f25798f750d3b2e2b98ecd0559e0dd91e8d71b0d9681fb512f9de361f709`。固定发行证书、minSdk 29、非 debuggable、三个压缩 arm64 SO、ELF/ZIP 16 KB 对齐、完整 Nerd Fonts/许可、外部构建清单/摘要与实际 CI R8/资源优化任务核对通过；共用 dev 八份附件的名称检查通过。实际签名 APK 已覆盖安装到 API 36 / 16 KB 页模拟器，安装后 SHA256 与下载包相同，首页/关于显示来源 `66d1bd9` 与干净状态。证据 `tmp/dns-probe-cloud/published/`、`inspection/`、`ci.log`、`dev-assets.json`、`device-result.json` 与 `release-about.xml`。这不替代用户手机或完整 VPN/私人 DNS 验证。新的默认 860 项完整回归已在独立 API 36 / 4 KB 页设备通过，范围见 §9.120。
 
-**§9.117 实际 CI 补记**：上述 Android CI 的 setup-java 收尾明确记录缓存已保存（`setup-java-Linux-x64-gradle-e83e41b19a90021f3e9799a60996681ffd02dbf53b0b62313dd331c5e1c17377`）；构建与发布成功。尚未取证后续构建的热缓存命中，因此不宣称提速比例。
+**§9.117 实际 CI 补记**：上述 Android CI 的 setup-java 收尾明确记录缓存已保存（`setup-java-Linux-x64-gradle-e83e41b19a90021f3e9799a60996681ffd02dbf53b0b62313dd331c5e1c17377`）；构建与发布成功。后续 `5645f5c` 的 Android CI 41366380045 已实际命中同一 Gradle 主键及 wrapper 主键，并记录 Cache restored successfully；见该轮 ci.log。保存与后续命中均已取证，不据两次构建时长差异推断固定提速比例。
 
 
 <a id="android-vpn-dns-release"></a>
@@ -3508,7 +3508,7 @@ A2/A10 增量观察使用已下载并核验的正式 APK `66d1bd9`，API 36 / ar
 
 
 <a id="android-history-recovery"></a>
-### 9.121 结果不明来源的显式重新选择（2026-11-02，已验工作区待 CI 发行）
+### 9.121 结果不明来源的显式重新选择（2026-11-02，已随 `5645f5c` 发行）
 
 历史任务中新增“重新选择结果不明的来源”。普通安全重试仍默认排除成功、跳过和结果不明项；此入口单独列出原始选中来源中具有未知结果/未确认副作用的根项目，全部默认不勾选。整行至少 48dp 可点按，并具有 Checkbox 语义。取消、重载历史和离开任务页清空选择；旋转保留 Activity ViewModel 中的当前选择。确认后捕获选择快照，生成新清单/请求 UUID，保留 retryOf，重新走队列、来源扫描、端点认证、目标预检和 ASK 冲突选择。不会沿用旧授权或把旧结果提升为成功，也不会自动删除已有目标/候选。
 
@@ -3521,3 +3521,6 @@ A2/A10 增量观察使用已下载并核验的正式 APK `66d1bd9`，API 36 / ar
 主工程 Core 闸门 47 CTest / 93 公共符号通过；签名 release 和 app/data/bridge/terminal 的 release lint 通过，36 秒。本地包 8,045,087 字节，SHA256 `8d70568dc1587eeec56a29cc7896604458a00191022b75720e5bd650ef1387cd`，来源 `5a6f235` / dirty；固定发行证书、minSdk 29、非 debuggable、三个压缩 arm64 SO、ELF/ZIP 16 KB 对齐、R8 mapping、完整 Nerd Fonts/许可均核对通过。它是提交前包，尚非 CI clean 包或 16 KB 页产品验收。证据 `tmp/history-recovery-evidence/` 的 `api29/`、`api36/`、`mutations-summary.json`、两轮变异目录、`release-lint/`、`local-release/` 与 `core-gate.log`；两端阶段为 `1793578229480047000`（隔离检出）/ `1793578318167326000`（主工程），release/lint 为 `1793578400637167000`。
 
 此前 §9.120 的 860 项全量通过只属于 `66d1bd9`，不充作这次新增流程的全量证据。此入口是用户明确发起的新复制，不是旧进程断点续传或对未知结果的自动认领；远端/SAF 残留的完整显式清理、完整恢复与真机/网络/输入法矩阵仍待完成。
+
+
+**§9.121 云端发行补记**：[Android CI 41366380045](https://github.com/hanxi/ghosterm/actions/runs/41366380045) 与 [macOS CI 41366380053](https://github.com/hanxi/ghosterm/actions/runs/41366380053) 均成功。共用 dev 实际 APK 来源 `5645f5c` / clean，8,044,919 字节，SHA256 `a53a9654f6b9564d3def9a59c35e024d8d095d01d7809cf473b98f079e56ecda`。下载核对固定证书、minSdk 29/非 debuggable、三个压缩 arm64 SO、ELF/ZIP 16 KB 对齐、完整 Nerd Fonts/许可、外部构建清单/摘要和实际 CI R8/资源优化任务，共用八份附件名称通过。覆盖安装到 API 36 / 16 KB 页模拟器后，设备实际 APK SHA256 与下载包一致，首页和关于显示 `5645f5c`、干净状态。证据 `tmp/history-recovery-cloud/published/`、`inspection/`、`ci.log`、`dev-assets.json`、`device-result.json`、`release-about.xml`。此项只证明真实发行包的安装/来源，新增恢复产品行为仍分别以两端各 47 项为证，不扩大为签名包全量、真机或全部 A6 完成。CI 本轮同时实际命中 Gradle 及 wrapper 缓存，补齐 §9.117 保存→命中的证据链。
