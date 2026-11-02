@@ -1,6 +1,6 @@
 # Android 最终方案实现计划
 
-**当前 A3 DNS 可达性兼容修复（2026-11-02，已随 `66d1bd9` 发行）**：针对 IP 可连、域名误报网络不可用，保留正常系统 DNS 路径，只在组合接口的网络错误时改用同一系统解析器的显式 A/AAAA 查询；不切换 DNS 服务、不重写 SSH 主机身份。真实网络用例复现旧接口在发出 DNS 前报 ENONET，修复后完成 DNS→SSH 认证/输出；API 29 / 36 各 50 项通过，13 个新增与两个受影响旧保护同轮通过，签名 release / 四模块 lint 通过。实际签名包另在 16 KB 页模拟器经真实分流 VPN DNS 到达 SSH 主机验证（§9.118）；用户手机、VPN/私人 DNS 完整矩阵仍待验，见[可达性兼容修复](android-implementation.md#android-dns-probe-compatibility)。
+**当前 A3 DNS 可达性兼容修复（2026-11-02，已随 `66d1bd9` 发行）**：针对 IP 可连、域名误报网络不可用，保留正常系统 DNS 路径，只在组合接口的网络错误时改用同一系统解析器的显式 A/AAAA 查询；不切换 DNS 服务、不重写 SSH 主机身份。真实网络用例复现旧接口在发出 DNS 前报 ENONET，修复后完成 DNS→SSH 认证/输出；API 29 / 36 各 50 项通过，13 个新增与两个受影响旧保护同轮通过，签名 release / 四模块 lint 通过。实际签名包另在 16 KB 页模拟器经真实分流 VPN DNS 到达 SSH 主机验证（§9.118）；该源码 API 36 / 4 KB 页完整 860 项已通过（§9.120）；用户手机、VPN/私人 DNS 完整矩阵仍待验，见[可达性兼容修复](android-implementation.md#android-dns-probe-compatibility)。
 
 **当前 A6 本机文件身份（2026-11-02，已随 `707d6d3` 发行）**：独占创建后、写入内容前持久化创建标记与 inode/UID/父目录参考；历史可分别核对身份和内容，不能把同字节的新文件当作原对象，不改旧任务结果或授予删除/重放权。API 29 / 36 各 182 项最终组合、新身份 27 组、受影响旧摘要四组、原发布 25 组/账本 20 组、死亡四组保护通过；API 29 / 36 各六个真实进程死亡边界、签名 release / 四模块 lint 与本地签名包 16 KB 页身份 SAME→DIFFERENT/内容一致专项通过。最终设备/构建的 869 份非 Markdown 输入完全一致；远端/SAF 未知结果恢复、用户确认恢复/清理和完整客户端设备矩阵仍待完成，见[本机文件身份](android-implementation.md#android-local-file-identity)。
 
@@ -3471,7 +3471,7 @@ API 29 arm64 / 4 KB 页按 background-layer、erased-background 两组真实变�
 `707d6d3` 的 Android CI 发布成功，但 setup-java 收尾提示默认缓存目录不存在。构建脚本尊重 workflow 指定的工程内 GRADLE_USER_HOME，而锁定 setup-java 的默认位置为 runner home 下 `.gradle/caches` 与 `.gradle/wrapper`，两者不一致。修复在 setup-java 之前通过 GITHUB_ENV 指定用户目录 `.gradle`，保持本地构建默认位置、工具链 pin 和 release 签名不变。工程临时文件仍在工程 tmp/；不将构建密钥放入 Gradle home。actionlint 1.7.12 的语法检查通过；缓存保存/命中及实际出包另记，不宣称已达到某个提速比例。说明见 [release 构建](../how-to/android-release.md#ci-gradle-缓存目录)。
 
 
-**§9.116 实际云端发行补记**：[Android CI 41362651987](https://github.com/hanxi/ghosterm/actions/runs/41362651987) 与 [macOS CI 41362652167](https://github.com/hanxi/ghosterm/actions/runs/41362652167) 均成功。共用 dev 实际下载 APK 为 `66d1bd9` / clean，包含 DNS 修复 `450d0ff` 与背景修复 `cf3904e`，8,038,551 字节，SHA256 `fa81f25798f750d3b2e2b98ecd0559e0dd91e8d71b0d9681fb512f9de361f709`。固定发行证书、minSdk 29、非 debuggable、三个压缩 arm64 SO、ELF/ZIP 16 KB 对齐、完整 Nerd Fonts/许可、外部构建清单/摘要与实际 CI R8/资源优化任务核对通过；共用 dev 八份附件的名称检查通过。实际签名 APK 已覆盖安装到 API 36 / 16 KB 页模拟器，安装后 SHA256 与下载包相同，首页/关于显示来源 `66d1bd9` 与干净状态。证据 `tmp/dns-probe-cloud/published/`、`inspection/`、`ci.log`、`dev-assets.json`、`device-result.json` 与 `release-about.xml`。这不替代用户手机或完整 VPN/私人 DNS 验证。新的默认 860 项完整回归正在独立 API 36 / 4 KB 页设备运行，完成前不记全绿。
+**§9.116 实际云端发行补记**：[Android CI 41362651987](https://github.com/hanxi/ghosterm/actions/runs/41362651987) 与 [macOS CI 41362652167](https://github.com/hanxi/ghosterm/actions/runs/41362652167) 均成功。共用 dev 实际下载 APK 为 `66d1bd9` / clean，包含 DNS 修复 `450d0ff` 与背景修复 `cf3904e`，8,038,551 字节，SHA256 `fa81f25798f750d3b2e2b98ecd0559e0dd91e8d71b0d9681fb512f9de361f709`。固定发行证书、minSdk 29、非 debuggable、三个压缩 arm64 SO、ELF/ZIP 16 KB 对齐、完整 Nerd Fonts/许可、外部构建清单/摘要与实际 CI R8/资源优化任务核对通过；共用 dev 八份附件的名称检查通过。实际签名 APK 已覆盖安装到 API 36 / 16 KB 页模拟器，安装后 SHA256 与下载包相同，首页/关于显示来源 `66d1bd9` 与干净状态。证据 `tmp/dns-probe-cloud/published/`、`inspection/`、`ci.log`、`dev-assets.json`、`device-result.json` 与 `release-about.xml`。这不替代用户手机或完整 VPN/私人 DNS 验证。新的默认 860 项完整回归已在独立 API 36 / 4 KB 页设备通过，范围见 §9.120。
 
 **§9.117 实际 CI 补记**：上述 Android CI 的 setup-java 收尾明确记录缓存已保存（`setup-java-Linux-x64-gradle-e83e41b19a90021f3e9799a60996681ffd02dbf53b0b62313dd331c5e1c17377`）；构建与发布成功。尚未取证后续构建的热缓存命中，因此不宣称提速比例。
 
@@ -3483,7 +3483,7 @@ API 29 arm64 / 4 KB 页按 background-layer、erased-background 两组真实变�
 
 正式主机入口连接该域名后，VPN 实际观察 A/AAAA 各一次，应用进入真实 SSH 主机密钥确认页，显示原始域名、端口及与隔离服务器独立计算一致的 SHA256 指纹。取消连接，未接受主机信任、未输入凭据；这证明本场景 DNS 到主机验证可达，不称完整认证/终端会话通过。实际完整 DNS→认证→输出证据仍以 §9.116 的设备专项为准，不把单场景扩大成全部 VPN/私人 DNS、物理 Wi-Fi/移动网络或用户手机已验。
 
-夹具起跑先确认没有活动 VPN NetworkAgent、always-on 未启用；未替换已有 VPN。首次应用 UID 配置探针发现原配置文件不存在而正常失败，未计业务通过；随后独占创建随机测试配置，保存其摘要。清理先核对配置摘要才删除本次文件，恢复原先不存在状态；正式首页重新加载后回到“还没有主机”。停止并卸载临时 VPN 应用、撤销本次 reverse、结束宿主 SSH 服务，实际 connectivity 中无 VPN NetworkAgent。测试应用 Stop 按钮的 stopService 未立即解除系统持有的服务绑定，最终通过 force-stop 本次临时应用关闭 TUN，并以实际网络消失验收；该夹具问题不算产品失败或成功证据。正式 APK、全局 DNS/私人 DNS设置、用户文件与原有历史均未由夹具改写。证据 `tmp/dns-vpn-fixture/fixture.json`、`vpn-management-active.txt`、`vpn-hostkey-verified.xml`、`vpn-query-counts.xml` 与 `connectivity-after-stop.txt`；正式首页清理收据 `tmp/dns-probe-cloud/vpn-clean-home.xml`。默认 860 项完整回归仍由独立设备继续运行，当前不记完成。
+夹具起跑先确认没有活动 VPN NetworkAgent、always-on 未启用；未替换已有 VPN。首次应用 UID 配置探针发现原配置文件不存在而正常失败，未计业务通过；随后独占创建随机测试配置，保存其摘要。清理先核对配置摘要才删除本次文件，恢复原先不存在状态；正式首页重新加载后回到“还没有主机”。停止并卸载临时 VPN 应用、撤销本次 reverse、结束宿主 SSH 服务，实际 connectivity 中无 VPN NetworkAgent。测试应用 Stop 按钮的 stopService 未立即解除系统持有的服务绑定，最终通过 force-stop 本次临时应用关闭 TUN，并以实际网络消失验收；该夹具问题不算产品失败或成功证据。正式 APK、全局 DNS/私人 DNS设置、用户文件与原有历史均未由夹具改写。证据 `tmp/dns-vpn-fixture/fixture.json`、`vpn-management-active.txt`、`vpn-hostkey-verified.xml`、`vpn-query-counts.xml` 与 `connectivity-after-stop.txt`；正式首页清理收据 `tmp/dns-probe-cloud/vpn-clean-home.xml`。默认 860 项完整回归已在独立设备通过，范围见 §9.120。
 
 
 ### 9.119 实际签名包 16 KB 页持续输出观察（2026-11-02）
@@ -3492,4 +3492,14 @@ A2/A10 增量观察使用已下载并核验的正式 APK `66d1bd9`，API 36 / ar
 
 采样 PSS 初始 41,886 KiB、峰值 59,062 KiB、最后一次 56,995 KiB；native PSS 初始 12,512 KiB、峰值/末次 13,024 KiB。数字来自实际 dumpsys meminfo，包含应用及主动 UI/内存采样的影响，不是纯 VT 内存，也不证明无泄漏、长时间稳定或真机流畅。原宿主监视器的 24 次采样窗口先到期（错误文案写 240 秒，实际还包含 UI dump/采样耗时）；设备上的同一负载仍在进行，之后继续观察原进程至正常结束，没有重跑或缩减 180 轮工作量，不将其记为规定时间内通过。每轮大量 shell printf 与模拟器调度也属于该负载成本，不能把它当作终端最大吞吐或输入延迟指标。
 
-证据 `tmp/release16k-load/command.txt`、`samples.json`、`extended-samples.json`、逐次 `.meminfo`、`final.png` 与 `result.json`。这补充正式包/16 KB 页持续输出的单场景证据；真机、完整软硬输入法、滚动/动画组合、长时性能和完整 A2/A10 仍待验。独立 API 36 / 4 KB 页设备上的默认 860 项完整回归仍在运行。
+证据 `tmp/release16k-load/command.txt`、`samples.json`、`extended-samples.json`、逐次 `.meminfo`、`final.png` 与 `result.json`。这补充正式包/16 KB 页持续输出的单场景证据；真机、完整软硬输入法、滚动/动画组合、长时性能和完整 A2/A10 仍待验。独立 API 36 / 4 KB 页设备上的默认 860 项完整回归已通过，范围见 §9.120。
+
+
+<a id="android-full-860"></a>
+### 9.120 DNS/背景修复后完整回归（2026-11-02，`66d1bd9`）
+
+`phase-1793576000337976000/` 在 API 36 / arm64 / 4 KB 页模拟器执行默认发现的全部 860 项，2027.989 秒，零失败/错误/跳过。具名开始、结束各 860 次且唯一，身份集合与本轮默认发现完全一致；终端性能探针另有一份 complete=true 报告，属于自定义 instrumentation 状态，不冒充额外 JUnit 用例。870 份非 Markdown 输入前后集合/SHA256 不变，当前主工作区也与该集合一致。此前 §9.115 的两项真实失败已在本轮通过，历史失败记录保留。
+
+测试完成后、任何主工作区重建之前，分别读取设备实际安装路径并核对 APK SHA256：应用 `64fe38108f445cdda516206b3e12d4ff67957672c23dd7f5085e28477e28771b`（37,678,846 字节，debug），测试 APK `6a3ffb34826a861f040a5471e6db0cff0c4e7a7e461e040d5a0f902766721e2c`（9,343,298 字节）。两者与本轮构建产物相同，已独立归档；应用内来源为 `66d1bd9` / clean。证据 `tmp/dns-probe-fix/full860/result.json`、`apks/`、`sources-before.json` / `sources-after.json`、`output.log`、`full-discovery.json` 与 `verification.log`；性能报告 `tmp/erased-background-evidence/full860-performance-0.json`。
+
+本轮是该源码的 API 36 / 4 KB 页 debug instrumentation 全量证据，不能宣称 API 29、真机或签名 release 全量通过。实际同来源 release 的签名/字体/对齐、16 KB 页覆盖安装、分流 VPN DNS 和持续输出分别见 §9.116–§9.119。运行期间的新恢复流程放在工程 tmp 内的隔离检出，独立编译与设备测试；未改本轮 870 份输入，不属于这 860 项的验收范围。A6 完整恢复/清理及客户端设备矩阵仍待收尾。
