@@ -133,6 +133,7 @@ class RemoteFileTasksProductTest {
             ui.waitUntil(10000) { !tasks().journalLoading && tasks().history.any { it.intent.id==request.id } }
             val before=kotlinx.coroutines.runBlocking { journal.load().single { it.intent.id==request.id } }
             val authBefore=authIds.size
+            ui.onNodeWithTag("file-tasks").performScrollToNode(hasTestTag("file-history:${request.id}"))
             ui.onNode(hasTestTag("file-history-details") and hasAnyAncestor(hasTestTag("file-history:${request.id}"))).performScrollTo().performClick()
             ui.onNodeWithTag("file-history-content:$unique.txt:false").performScrollTo().performClick()
             loginUntil { tasks().inspectingId==null && tasks().contentInspections.keys.any { it.requestId==request.id } }

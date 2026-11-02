@@ -260,7 +260,12 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                         }
                         if(task.active) TextButton(onClick={ model.cancel(task) },enabled=task.phase!=FileTaskPhase.CANCELLING,
                             modifier=Modifier.fillMaxWidth().testTag("file-task-cancel")) { Text("取消任务") }
-                        else TextButton(onClick={ model.remove(task) },modifier=Modifier.fillMaxWidth()) { Text("清除这条记录") }
+                        else {
+                            OutlinedButton(onClick={ model.archive(task) },enabled=model.canArchive(task),
+                                modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("file-task-archive")) { Text("移到历史记录") }
+                            TextButton(onClick={ model.remove(task) },enabled=!task.recording && !model.journalLoading && !model.contentReading,
+                                modifier=Modifier.fillMaxWidth().testTag("file-task-remove")) { Text("清除这条记录") }
+                        }
                     }
                 }
             }

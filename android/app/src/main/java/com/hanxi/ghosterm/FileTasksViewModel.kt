@@ -290,8 +290,48 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
             task.execution?.cancel() ?: task.job?.cancel()
         }
     }
+    fun canArchive(task:FileTask):Boolean = scope.isActive && task in tasks && !task.active && !task.recording &&
+        task.recorded && task.persistenceError==null && journalError==null && !journalLoading && !busy && !contentReading
+    /** Move only a verified, durably finished observation. No journal/file write or replay. */
+    fun archive(task:FileTask) {
+        if(!canArchive(task)) { notice="请等待任务和记录操作结束后，再移到历史记录";return }
+        val lease=beginContentRead() ?: return
+        task.recording=true;notice=null
+        scope.launch(start=CoroutineStart.UNDISPATCHED) {
+            try {
+                val record=journal.load().singleOrNull { it.intent.id==task.request.id }
+                check(record!=null) { "没有找到原任务记录，当前结果已保留" }
+                check(record.phase==FileJournalPhase.FINISHED) { "任务记录尚未结束，不能归档" }
+                val request=task.request
+                val expected=FileJournalIntent(request.id,request.clipboardId,request.source,request.sourcePathLabel,
+                    request.items,request.destination,request.destinationPathLabel,request.retryOf)
+                check(record.intent==expected && record.outcome==task.result?.state && record.cancelled==task.cancelled) {
+                    "持久记录与当前任务不一致，请重新核对"
+                }
+                task.result?.let { result ->
+                    check(record.items.map { it.value }==result.items && record.items.all { it.checkpoint==FileCopyCheckpoint.RESULT }) {
+                        "逐项结果尚未完整保存，当前结果已保留"
+                    }
+                }
+                ensureActive()
+                check(task in tasks && !task.active && task.recording && history.none { it.intent.id==request.id }) {
+                    "任务状态已改变，未移入历史记录"
+                }
+                history.add(record);history.sortByDescending { it.updatedMillis }
+                tasks.remove(task)
+                notice="已移到历史记录，可核对位置、重新发起或清理未完成项目"
+            } catch(cancel:CancellationException) { throw cancel }
+            catch(error:Exception) {
+                journalError="读取归档记录失败：${error.message ?: "未知原因"}。当前结果已保留。"
+                notice=null
+            } finally {
+                task.recording=false
+                endContentRead(lease)
+            }
+        }
+    }
     fun remove(task: FileTask) {
-        if(task.active || task.recording) return
+        if(task !in tasks || task.active || task.recording || journalLoading || contentReading) return
         task.recording=true
         scope.launch {
             try { if(task.recorded) journal.remove(task.request.id);tasks.remove(task) }
@@ -746,6 +786,8 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     fun pause(task: FileTask) = work.tasks.pause(task)
     fun continueTask(task: FileTask) = work.tasks.continueTask(task)
     fun cancel(task: FileTask) = work.tasks.cancel(task)
+    fun canArchive(task:FileTask) = work.tasks.canArchive(task)
+    fun archive(task:FileTask) = work.tasks.archive(task)
     fun remove(task: FileTask) = work.tasks.remove(task)
     fun queuedAhead(task: FileTask) = work.tasks.queuedAhead(task)
     fun resumed() = work.resume(presenterId)

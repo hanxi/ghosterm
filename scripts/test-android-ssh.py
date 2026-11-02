@@ -51,7 +51,7 @@ def main():
     if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
     file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1' or
-                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteRemovalTest','RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest','RemoteFileTaskTest','FileCopyExecutorTest','RemoteFileJournalTest','RemoteFileTasksProductTest','ProcessFileWorkTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_COPY_PROGRESS_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PROGRESS_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1' or os.environ.get('ANDROID_REMOVE_MUTATE')=='1' or os.environ.get('ANDROID_FILE_CLEANUP_MUTATE')=='1')
+                any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteRemovalTest','RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest','RemoteFileTaskTest','FileCopyExecutorTest','RemoteFileJournalTest','RemoteFileTasksProductTest','ProcessFileWorkTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_COPY_PROGRESS_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PROGRESS_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1' or os.environ.get('ANDROID_REMOVE_MUTATE')=='1' or os.environ.get('ANDROID_FILE_CLEANUP_MUTATE')=='1' or os.environ.get('ANDROID_FILE_TASK_PRODUCT_MUTATE')=='1')
     file_data={}
     if file_tests:
         file_key=Path(work)/'file-clientkey'
@@ -92,6 +92,7 @@ def main():
     spec=importlib.util.spec_from_file_location('queue_peer',ROOT/'scripts/lib/android-file-queue-peer.py')
     queue_peer=importlib.util.module_from_spec(spec);spec.loader.exec_module(queue_peer)
     queue_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1' or
+                 os.environ.get('ANDROID_FILE_TASK_PRODUCT_MUTATE')=='1' or
                  'RemoteFileTasksProductTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
     spec=importlib.util.spec_from_file_location('tmux_fixture',ROOT/'scripts/lib/android-tmux-fixture.py')
     tmux_fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(tmux_fixture)
@@ -247,6 +248,10 @@ def main():
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_MKDIR_DATA_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('mkdir_data_mutations',ROOT/'scripts/mutation-check-android-mkdir-data.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_FILE_ARCHIVE_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('archive_mutations',ROOT/'scripts/mutation-check-android-file-archive.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILE_CLEANUP_MUTATE')=='1':

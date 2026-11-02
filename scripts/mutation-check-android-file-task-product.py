@@ -34,7 +34,7 @@ def execute(root,build,test):
         ('destination',tasks,'FilePasteRequest.capture(snapshot,destination,label,preferences.conflict)','FilePasteRequest.capture(snapshot,FileLocation(FileEndpoint.APP),label,preferences.conflict)',copy),
         ('slot',tasks,'if(tasks.any { it.active && it.phase!=FileTaskPhase.QUEUED }) return','if(false) return',slot),
         ('cancel-slot',tasks,'} else {\n            task.phase=FileTaskPhase.CANCELLING','} else {\n            task.phase=FileTaskPhase.FINISHED',slot),
-        ('remove-running',tasks,'if(task.active || task.recording) return','if(false) return',slot),
+        ('remove-running',tasks,'if(task !in tasks || task.active || task.recording || journalLoading || contentReading) return','if(false) return',slot),
         ('confirm-route',screen,'model.confirm(task,decision.reference)','Unit',copy),
         ('confirm-ref',tasks,'checkNotNull(task.decisionOwner).confirm(ref)','checkNotNull(task.decisionOwner).confirm(task.decisions!!.reference)',stale),
         ('execute',tasks,'ensureActive();execution.execute()','ensureActive();execution.cancel();execution.execute()',copy),
