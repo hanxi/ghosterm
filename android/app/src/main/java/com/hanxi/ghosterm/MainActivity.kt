@@ -290,6 +290,7 @@ private fun EditHostPage(model: HostsViewModel) {
         }
         Text("开启“使用继承值”时由配置规则或默认值决定；关闭后为此主机设置。未改字段保留原文。", style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(edit.alias, { model.draft = draft.copy(edit = edit.copy(alias = it)) }, label = { Text("别名") }, singleLine = true,
+            keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
             enabled = enabled, modifier = Modifier.fillMaxWidth(),
             supportingText = { Text("改名只修改此别名，同块其他名称保留；新名称可能匹配不同的继承规则。") })
         for (field in HostField.entries) {
@@ -309,7 +310,11 @@ private fun EditHostPage(model: HostsViewModel) {
                             if (pendingInheritance) Text("待保存：使用其他规则或默认值，移除此 Host 块的设置。")
                         }
                     },
-                    keyboardOptions = KeyboardOptions(keyboardType = if (field == HostField.PORT) KeyboardType.Number else KeyboardType.Text),
+                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = when (field) {
+                        HostField.PORT -> KeyboardType.Number
+                        HostField.HOSTNAME -> KeyboardType.Uri
+                        else -> KeyboardType.Text
+                    }),
                     enabled = enabled && !inherits, modifier = Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .toggleable(value = inherits, enabled = enabled, role = Role.Switch) {
