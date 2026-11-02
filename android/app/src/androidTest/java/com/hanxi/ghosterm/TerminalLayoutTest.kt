@@ -113,6 +113,10 @@ class TerminalLayoutTest {
         await("Window must report the actual IME-constrained visible frame") {
             ui.runOnIdle { Rect().also { ui.activity.window.decorView.getWindowVisibleDisplayFrame(it) }.height() < 200 }
         }
+        await("Compose compact controls must reflect the actual IME insets") {
+            ui.onAllNodesWithTag("terminal-compact-bar").fetchSemanticsNodes()
+                .singleOrNull()?.boundsInRoot?.height?.let { it >= 47f } == true
+        }
     }
 
     private fun visibleControlsAndPixels() {
