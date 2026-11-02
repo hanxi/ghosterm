@@ -111,7 +111,7 @@ class TerminalControlsTest {
     @Test fun onceCtrlClearsTheActualShellLineAndReleasesBeforeTyping() {
         val session = add(); prepare(session); val terminal = view()
         session.connection.commit("invalid-command")
-        ui.onNodeWithText("Ctrl").performScrollTo().performClick()
+        ui.onNodeWithText("Ctrl").assertIsDisplayed().performClick()
         ui.onNodeWithText("Ctrl ✓").assertExists()
         main { assertEquals(1, terminal.ctrl); assertTrue(terminal.sendKey(KeyEvent.KEYCODE_U, text = "u", unshiftedCodepoint = 'u'.code)); assertEquals(0, terminal.ctrl) }
         command(terminal, "ONCE_CTRL_OK"); output(session, "ONCE_CTRL_OK")
@@ -120,7 +120,7 @@ class TerminalControlsTest {
     @Test fun lockedCtrlAppliesToTwoShellEditsUntilExplicitlyReleased() {
         save(PreferenceEdit.CtrlMode(CtrlBehavior.LOCKED)); val session = add(); prepare(session); val terminal = view()
         session.connection.commit("first-invalid")
-        ui.onNodeWithText("Ctrl").performScrollTo().performClick()
+        ui.onNodeWithText("Ctrl").assertIsDisplayed().performClick()
         ui.onNodeWithText("Ctrl 锁定").assertExists()
         main { assertEquals(2, terminal.ctrl); assertTrue(terminal.sendKey(KeyEvent.KEYCODE_U, text = "u", unshiftedCodepoint = 'u'.code)); assertEquals(2, terminal.ctrl) }
         session.connection.commit("second-invalid")
@@ -132,7 +132,7 @@ class TerminalControlsTest {
 
     @Test fun modeChangesAndHidingKeysReleasePendingCtrl() {
         val session = add(); prepare(session); val terminal = view()
-        ui.onNodeWithText("Ctrl").performScrollTo().performClick()
+        ui.onNodeWithText("Ctrl").assertIsDisplayed().performClick()
         save(PreferenceEdit.CtrlMode(CtrlBehavior.LOCKED))
         main { assertEquals(0, terminal.ctrl) }
         ui.onNodeWithText("Ctrl").performClick()
