@@ -28,7 +28,8 @@ import java.io.File
 import java.util.UUID
 
 class TerminalSession(val id: UUID, val title: String, internal val connection: NativeTerminalSession,
-    val remoteAlias: String? = null, val backgroundSession: String? = null) {
+    val remoteAlias: String? = null, val backgroundSession: String? = null,
+    val remoteTarget: PreparedSSH? = null) {
     val surface: TerminalSurface get() = connection
     var state by mutableStateOf(SessionState(0, null, 0, null)); internal set
     internal var appliedAppearance: TerminalAppearance? = null
@@ -54,6 +55,10 @@ class SSHAttempt(val target: PreparedSSH, internal val filesReady: ((RemoteFileS
     internal var connection: AuthenticatedSSH? = null
     internal var job: Job? = null
     internal var credentialJob: Job? = null
+    internal var manualCredentials = false
+    internal val automaticKeyRequests = mutableSetOf<Long>()
+    internal val triedIdentityIds = mutableSetOf<String>()
+    internal var submittedIdentityId: String? = null
 }
 
 class SessionsViewModel @JvmOverloads constructor(application: Application, private val resolver: SSHResolver = AndroidSSHResolver,
@@ -256,6 +261,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                             catch(_: Exception) { attempt.credentialError = "无法读取身份容器，请检查或重新导入密钥" }
                             listed = true
                         }
+                        if(auth.phase==SSHAuthPhase.CREDENTIALS && listed) useConfiguredIdentity(attempt,auth)
                         delay(50)
                     }
                 }
@@ -319,7 +325,10 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                             } else {
                                 val session = TerminalSession(UUID.randomUUID(),
                                     attempt.target.alias+(attempt.tmuxName?.let { " · "+it } ?: ""),
-                                    connection as RemoteSession, attempt.target.alias,attempt.tmuxName)
+                                    connection as RemoteSession, attempt.target.alias,attempt.tmuxName,
+                                    attempt.target.copy(user=attempt.username,identityFiles=(attempt.submittedIdentityId?.let {
+                                        listOf(com.hanxi.ghosterm.data.IdentityReferences.encode(it))
+                                    } ?: attempt.target.identityFiles).toList()))
                                 session.state = checkNotNull(terminalState)
                                 register(session); owned = null; attempt.connection = null; connecting = null; show(session.id)
                             }
@@ -336,6 +345,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                             catch (_: Exception) { attempt.credentialError = "无法读取身份容器，请检查或重新导入密钥" }
                             listed = true
                         }
+                        if(auth.phase==SSHAuthPhase.CREDENTIALS && listed) useConfiguredIdentity(attempt,auth)
                         delay(50)
                     }
                 }
@@ -360,20 +370,32 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         try { current(id,prompt).connection!!.decide(prompt,accept) }
         catch (_: Exception) { connecting?.takeIf { it.id == id }?.credentialError = "主机确认已失效，请等待当前连接状态" }
     }
+    fun manualAuthentication(id: UUID) { connecting?.takeIf { it.id==id }?.manualCredentials=true }
+    private fun useConfiguredIdentity(attempt: SSHAttempt, prompt: SSHAuthState) {
+        if(attempt.manualCredentials || attempt.credentialBusy || prompt.request<=0 || prompt.methods and 1==0 ||
+            prompt.request in attempt.automaticKeyRequests) return
+        val candidate=com.hanxi.ghosterm.data.IdentityReferences.automaticCandidate(
+            attempt.target.identityFiles,attempt.identities,attempt.triedIdentityIds) ?: return
+        attempt.automaticKeyRequests.add(prompt.request)
+        useIdentity(attempt.id,prompt,candidate,ByteArray(0),automatic=true)
+    }
     fun password(id: UUID, prompt: SSHAuthState, secret: ByteArray) {
-        try { current(id,prompt).connection!!.password(prompt,secret) }
+        try { current(id,prompt).let { it.manualCredentials=true;it.submittedIdentityId=null;it.connection!!.password(prompt,secret) } }
         catch (_: Exception) { connecting?.takeIf { it.id == id }?.credentialError = "凭据请求已失效或不支持此方式" }
         finally { secret.fill(0) }
     }
-    fun useIdentity(id: UUID, prompt: SSHAuthState, identity: StoredIdentity, passphrase: ByteArray) {
+    fun useIdentity(id: UUID, prompt: SSHAuthState, identity: StoredIdentity, passphrase: ByteArray, automatic: Boolean = false) {
         val attempt = try { current(id,prompt) } catch (_: Exception) { passphrase.fill(0); return }
         if (attempt.credentialBusy) { passphrase.fill(0); return }
+        if(!automatic) attempt.manualCredentials=true
+        attempt.triedIdentityIds.add(identity.id)
         attempt.credentialBusy = true; attempt.credentialError = null
         attempt.credentialJob = viewModelScope.launch {
             var material: ByteArray? = null
             try {
                 withContext(Dispatchers.IO) { material = vault.unlock(identity) }
                 current(id,prompt).connection!!.privateKey(prompt,checkNotNull(material),passphrase)
+                attempt.submittedIdentityId=identity.id
             } catch (cancel: CancellationException) { throw cancel }
             catch (_: Exception) { if (connecting === attempt) attempt.credentialError = "无法解锁或使用此身份，请重新选择或导入" }
             finally { material?.fill(0); passphrase.fill(0); attempt.credentialBusy = false }

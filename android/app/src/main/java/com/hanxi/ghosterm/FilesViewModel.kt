@@ -141,6 +141,11 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     private var generation = 0L
     private var rootsGeneration = 0L
     fun enter() { externalCache.sweepLater();visible=true; choosingLocation=false; refreshEndpoints(); reload() }
+    fun enterLocal() {
+        remembered[location.endpoint.id]=crumbs.toList()
+        crumbs=remembered[FileEndpoint.APP.id] ?: listOf(FileCrumb(FileLocation(FileEndpoint.APP),FileEndpoint.APP.label))
+        enter()
+    }
     fun leave() {
         externalClearConfirm=false
         visible=false;choosingLocation=false;pickerPending=false;rootsGeneration++;rootsJob?.cancel()

@@ -75,10 +75,6 @@ class RemoteFilesProductTest {
     }
     private fun login(trust:Boolean=true, expectedError:Boolean=false) {
         if(trust) { phase(SSHAuthPhase.HOSTKEY);ui.onNodeWithText("信任并连接").performClick() }
-        phase(SSHAuthPhase.CREDENTIALS)
-        ui.waitUntil(10000) { sessions().connecting?.identities?.any { it.id==key.id }==true }
-        ui.onNodeWithTag("ssh-key-${key.id}").performScrollTo().performClick()
-        ui.onNodeWithText("认证并连接").performClick()
         try { ui.waitUntil(10000) { sessions().connecting==null && files().location.endpoint.remoteAlias==alias && !files().loading } }
         catch(failure:ComposeTimeoutException) { fail("file page never ready: ${sessions().connecting?.message} / ${files().error}") }
         if(!expectedError) assertNull("real directory must succeed",files().error)
@@ -110,6 +106,48 @@ class RemoteFilesProductTest {
         ui.runOnIdle { hosts().reload() };ui.waitUntil { !hosts().busy && hosts().snapshot?.text==config.readText() }
         return user
     }
+    @Test fun automaticIdentityPolicyDoesNotGuessSkipEncryptedOrRepeatRejectedKeys() {
+        val first=StoredIdentity(UUID.randomUUID().toString(),"first",false)
+        val second=StoredIdentity(UUID.randomUUID().toString(),"second",false)
+        val encrypted=StoredIdentity(UUID.randomUUID().toString(),"encrypted",true)
+        fun ref(identity:StoredIdentity)=com.hanxi.ghosterm.data.IdentityReferences.encode(identity.id)
+        fun pick(values:List<String>,tried:Set<String> = emptySet())=
+            com.hanxi.ghosterm.data.IdentityReferences.automaticCandidate(values,listOf(second,first,encrypted),tried)
+        assertNull("Unconfigured vault identities must not be guessed",pick(emptyList()))
+        assertEquals("Configuration order wins over vault order",first,pick(listOf(ref(first),ref(second))))
+        assertEquals("A rejected identity must not be repeated",second,pick(listOf(ref(first),ref(second)),setOf(first.id)))
+        assertNull("Encrypted first identity requires a user passphrase",pick(listOf(ref(encrypted),ref(second))))
+        assertNull("IdentityFile none requires explicit selection",pick(listOf("none",ref(first))))
+        assertNull("Missing configured identity is not silently bypassed",pick(listOf(com.hanxi.ghosterm.data.IdentityReferences.encode(UUID.randomUUID().toString()),ref(first))))
+    }
+
+    @Test fun terminalFilesUsesConnectedHostSnapshotAndConfiguredKeyWithoutSelectingAgain() {
+        extraKeys.add(key)
+        key=vault.import("Terminal files ${UUID.randomUUID()}",fixture.getString("terminalFilePem").toByteArray())
+        load()
+        ui.runOnIdle { hosts().checkConnection(hosts().snapshot!!.hosts.single { it.alias==alias }) { sessions().connect(it) } }
+        phase(SSHAuthPhase.HOSTKEY);ui.onNodeWithText("信任并连接").performClick()
+        try { ui.waitUntil(15000) { sessions().connecting==null && sessions().active?.state?.connected==true } }
+        catch(failure:ComposeTimeoutException) { fail("Configured key must authenticate without selection: ${sessions().connecting?.message}") }
+        val terminal=sessions().active!!
+        assertEquals("127.0.0.1",terminal.remoteTarget!!.host)
+        config.writeText(config.readText().replace("HostName 127.0.0.1","HostName 192.0.2.123"))
+        ui.runOnIdle { hosts().reload() }
+        ui.waitUntil(10000) { !hosts().busy && hosts().snapshot?.text==config.readText() }
+        ui.onNodeWithTag("terminal-files").performClick()
+        try { ui.waitUntil(15000) { sessions().connecting==null && files().location.endpoint.remoteAlias==alias && !files().loading } }
+        catch(failure:ComposeTimeoutException) { fail("Remote terminal file entry must open its own host: ${sessions().connecting?.message} / ${files().error}") }
+        assertNull("Remote terminal file entry must list the remote directory",files().error)
+        assertEquals("127.0.0.1",files().location.endpoint.remote!!.host)
+        entry("文本.txt").performClick();ui.waitUntil { files().preview?.text!=null }
+        assertEquals("远端 UTF-8\nline two\n",files().preview!!.text)
+        assertSame("File owner must not replace terminal",terminal,sessions().active)
+        assertTrue(terminal.state.connected)
+        ui.onNodeWithText("返回").performClick();ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithText("返回").performClick();ui.onNodeWithText("本机文件").performClick()
+        ui.waitUntil { !files().loading };assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)
+    }
+
     @Test fun protocolReadFailureIsVisibleAndCannotPretendEmpty() {
         protocol("deny");open();login(false,expectedError=true)
         assertNotNull("directory failure must stay visible",files().error)
@@ -119,9 +157,6 @@ class RemoteFilesProductTest {
     }
     @Test fun cancellingBlockedDirectoryReleasesFileOwner() {
         val user=protocol("hold");open()
-        phase(SSHAuthPhase.CREDENTIALS)
-        ui.waitUntil { sessions().connecting?.identities?.any { it.id==key.id }==true }
-        ui.onNodeWithTag("ssh-key-${key.id}").performScrollTo().performClick();ui.onNodeWithText("认证并连接").performClick()
         ui.waitUntil(10000) { sessions().connecting==null && files().loading && files().location.endpoint.remoteAlias==alias }
         ui.waitUntil(10000) { control("state",user).getJSONArray("events").toString().contains("readdir") }
         ui.onNodeWithText("返回").performClick()
@@ -144,7 +179,9 @@ class RemoteFilesProductTest {
         ui.onNodeWithTag("file-preview").assertDoesNotExist()
     }
     @Test fun lateAuthenticationCannotReopenOrReplaceLeftPage() {
-        open();phase(SSHAuthPhase.HOSTKEY);ui.onNodeWithText("信任并连接").performClick()
+        open();phase(SSHAuthPhase.HOSTKEY)
+        ui.runOnIdle { sessions().manualAuthentication(sessions().connecting!!.id) }
+        ui.onNodeWithText("信任并连接").performClick()
         phase(SSHAuthPhase.CREDENTIALS)
         ui.waitUntil { sessions().connecting?.identities?.any { it.id==key.id }==true }
         ui.runOnIdle { files().leave();files().enter() }
@@ -249,15 +286,15 @@ class RemoteFilesProductTest {
         open();login();val original=files().location.endpoint.id
         ui.onNodeWithText("返回").performClick();ui.waitUntil { owners()==0 && !files().visible }
         load(" ProxyJump forbidden.example\n")
-        ui.onNodeWithText("本机文件").performClick();ui.waitUntil { files().error!=null }
-        ui.onNodeWithTag("file-list-error").assertTextContains("重新连接",substring=true)
-        ui.onNodeWithTag("file-list-empty").assertDoesNotExist()
-        assertEquals(0,owners());assertEquals(original,files().location.endpoint.id)
-        ui.onNodeWithText("重新连接").performClick();ui.waitUntil { hosts().error!=null }
+        ui.onNodeWithText("本机文件").performClick();ui.waitUntil { !files().loading }
+        assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)
+        assertNull(files().error);assertEquals(0,owners())
+        ui.onNodeWithTag("file-location").performClick()
+        ui.onNodeWithTag("file-connect:$alias").performScrollTo().performClick();ui.waitUntil { hosts().error!=null }
         ui.onNodeWithTag("file-connect-error").assertTextContains("不支持 SSH 配置",substring=true)
         assertNull(sessions().connecting)
         load()
-        ui.onNodeWithText("重新连接").performClick();login(false)
+        ui.onNodeWithTag("file-connect:$alias").performScrollTo().performClick();login(false)
         assertNotEquals("reconnection must get a fresh endpoint identity",original,files().location.endpoint.id)
         entry("文本.txt").assertIsDisplayed()
     }

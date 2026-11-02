@@ -2892,7 +2892,7 @@ Kitty 单独在 `tmp/android-kitty/` 开发，未合入或发行。补丁 0003 �
 |---|---|---|
 | A0/A1 构建、配置与导航 | 固定工具链与 C ABI、原生模块、配置无损/事务和页面测试已接；当前 APK 由成功 CI 构建 | `6deb04b` 的 API 29 / 4 KiB 页及 API 36 / 16 KiB 页各未筛选 915 项通过；其他真实系统/设备与输入矩阵仍属 A10 |
 | A2 真终端、文本/输入、Kitty 动画 | 原生 Transport→VT、Canvas、InputConnection 与相关设备/变异证据；§9.100/§9.102 图形/字体，§9.139 终端矮窗口；§9.138 签名包十分钟输出属于旧 `8e161e7` | 当前发行档长负载、完整软/硬键盘与布局、真实手机的吞吐/帧/内存/输入延迟；不能以回调注入等同真实硬件 |
-| A3 SSH/身份/网络 | DNS、主机信任、凭据容器、取消和真实 sshd 测试；`6deb04b` 实际公网域名到 hostkey 确认并取消；当前发行保留兼容修复 | 用户手机 Wi-Fi/移动网络域名复测、完整 VPN/私人 DNS/网络切换矩阵；未取得用户设备结果 |
+| A3 SSH/身份/网络 | DNS、主机信任、凭据容器、取消和真实 sshd 测试；`6deb04b` 实际公网域名到 hostkey 确认并取消；当前发行保留兼容修复 | 用户已反馈域名正常；仍缺 Wi-Fi/移动网络、VPN/私人 DNS/切网的逐项设备证据 |
 | A4–A6 文件/复制/后台与重启核对 | 四方向、预检/决策/非覆盖发布、持久观察、暂停取消/显式重试/清理与进程中断测试已接；§9.142 两端 51 项/22 组变异；§9.143 实际签名包复制及 clean 包升级读回 | 不同外部 DocumentsProvider、不同物理服务器的完整方向/失败矩阵与最终发行档；测试专用 provider/隔离 sshd 不替代外部产品 |
 | A7 设置、恢复与资料保护 | 五类 16 项偏好和消费者、恢复保护、身份与信任页面已发行；历史设置专项与全量范围分别记账 | 当前两端 915 项已通过；真机放大字体、实际读屏和输入完整矩阵 |
 | A8 显式可选 tmux | §9.103 管理/独立 owner/attach、未知与选择器、实际 SSH/tmux 签名包证据 | 真机断网/切网与完整发行矩阵，不能借此声明手机本地 tmux |
@@ -3927,3 +3927,17 @@ API 36 / arm64 / 4 KiB 页阶段 `1793618726649410000` 正常结束：默认未�
 记录的七项 secure 设置、显示播报开关及 TalkBack 通知权限均核对还原；空字符串设置首次参数传递失败后以正确 shell 引用恢复，逐值比较相同。临时输入器/独立 QA 观察 APK 已移除，AVD 停止但原应用数据保留。源码/安装包、原始节点、手势步骤、播报截图、设置前后值和 `result.json` 在 `tmp/android-6deb04b-talkback/`。依据 [Android TalkBack 测试指南](https://developer.android.com/guide/topics/ui/accessibility/testing#talkback)、[UiAutomation 非抑制标志](https://developer.android.com/reference/android/app/UiAutomation#FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)与[模拟器触屏事件](https://developer.android.com/studio/run/emulator-console)；只证明这些场景的导航与生成播报文字，未验证实际声音/发音、物理手机或全部页面。
 
 用户随后反馈手机域名连接已正常；尚未分别提供 Wi-Fi/移动网络、VPN/私人 DNS/切网的逐项记录。另反馈远端文件列表不可见及每次需选择密钥，已作为新产品缺陷继续处理，不能以本轮 915 项通过掩盖未覆盖的连接入口体验。
+
+### 9.154 远程终端文件入口与配置密钥自动认证（2026-11-02，工作区）
+
+用户反馈域名连接正常，但从远程终端看不到远端文件，并且每次需要选密钥。源码定位到两个接线缺口：终端“文件”和首页“本机文件”原先共同调用无上下文 `files.enter`；认证只预选配置身份，没有自动提交。新实现为远端会话保留不可变 host/user/port/身份引用快照，终端文件入口据此创建独立 SFTP 连接，主机配置后来改动不改变该目标；首页和本地终端入口明确选择应用本机位置。文件连接不借用终端 Transport；返回文件不替换或断开原终端。
+
+已配置且可用、无需口令的身份按 ssh_config 顺序自动尝试；一次请求不重复提交，已尝试身份不循环重试。不猜本机其他身份，配置缺失/无效、IdentityFile none、首候选需口令时保留明确手动流程；用户手动选密码或其他身份后停止本次自动选择。成功提交的密钥引用随该终端会话传给文件连接，只有引用而无明文密钥/口令。临时选钥仍不暗改 ssh_config；永久关联沿用“编辑主机 → SSH 身份 → 添加已导入身份 → 保存”，连接页已补说明。
+
+同一冻结 **904 份功能输入**：API 36 / arm64 / 16 KiB 页远端产品与独立 Core **13 项通过、25.326 秒**；API 29 / arm64 / 4 KiB 页远端产品、SSH 产品/连接模型、身份容器与 Core **30 项通过、30.802 秒**。输入前后相同，两实际安装 APK 分别匹配各自构建；收据/实际 APK 在 `tmp/android-remote-context-fix/accepted16k/`、`accepted-api29/`。新端到端用例从真实 SSH 连接出发，随后将当前配置地址改为不可达地址，再点终端“文件”，仍自动认证并列出原服务器文件，读回 UTF-8 内容且终端保持连接；返回首页“本机文件”选择本机端点。原手动认证/旧本机入口假设的两处夹具已按新行为更新，保留目录取消、独立 owner 释放、配置不支持和必须重新连接等断言。
+
+新 `mutation-check-android-remote-entry.py` **10 组通过**：终端文件路由、目标快照、自动认证、本机入口、禁止猜身份、配置顺序、拒绝后不重复、需口令、none 与缺失引用。每组真实编译后普通目标断言红、同 APK Core 对照绿、恢复绿及 SHA256；最终又执行上述 13 项产品回归。阶段 `1793632441627584000`，属于手工设备证据，不增加 macOS CI 20 份。命令示例：`ANDROID_SERIAL=设备 ANDROID_REMOTE_ENTRY_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFilesProductTest#terminalFilesUsesConnectedHostSnapshotAndConfiguredKeyWithoutSelectingAgain,com.hanxi.ghosterm.RemoteFilesProductTest#automaticIdentityPolicyDoesNotGuessSkipEncryptedOrRepeatRejectedKeys,com.hanxi.ghosterm.NativeSmokeTest#corePreservesUtf8AndLineEndings bash scripts/test-android-ssh.sh`。
+
+保留初始失败：首轮自动认证只接入任务循环而漏了普通 SSH 循环，目标等待失败、同 APK Core 通过；补上后文件已打开，但原测试身份被服务器强制为 SFTP-only，普通终端随即退出。现增加独立的同一密钥支持 shell/SFTP 的隔离 sshd 夹具，未删除“终端仍连接”断言。第一轮完整产品回归另有两项旧手动选择/本机入口预期失败，修正夹具后复绿。原始记录在 `first-failure/`、`second-failure/`、`product-regression-first/`，不记首轮全绿。
+
+同源固定证书签名优化 release 与 app/terminal/bridge/data 四模块 release lint 通过；本地 APK **8,130,431 字节**，SHA256 `0cbf42341a740dda3d7efb972aa91b47b558f22f9c74f313a4f2e93eb3a78689`。证书、minSdk 29/非 debug、R8 mapping、三个压缩 arm64 SO、ZIP/ELF 16 KiB、字体/许可和构建路径检查通过；隔离包元数据 `18db11b` / dirty，不冒充 clean CI。Core 闸门本轮 49 CTest / 94 ABI 通过，公共 ABI 未改。全量 915 项仍只属于旧 `6deb04b`；新提交的实际 CI 包、用户文件复测和新默认全量另记。

@@ -32,6 +32,14 @@ object IdentityReferences {
         return IdentityCandidates(identities, issues)
     }
 
+    /** Automatic login only uses a complete, explicitly configured candidate chain. */
+    fun automaticCandidate(values: List<String>, available: List<StoredIdentity>, tried: Set<String>): StoredIdentity? {
+        val configured=candidates(values,available)
+        if(configured.issues.isNotEmpty()) return null
+        val first=configured.identities.firstOrNull { it.id !in tried } ?: return null
+        return first.takeUnless { it.needsPassphrase }
+    }
+
     /** Core is the only evaluator. Include/inherited and inactive own-block references retain provenance. */
     fun usages(snapshot: ConfigSnapshot, id: String, checkpoint: () -> Unit = {}): List<IdentityUsage> = buildList {
         val reference = encode(id)

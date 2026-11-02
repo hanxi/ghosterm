@@ -93,6 +93,21 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         }
         hosts.back()
     }
+    fun connectFileTarget(target: com.hanxi.ghosterm.bridge.PreparedSSH, token: Long) {
+        if(!files.acceptsRemoteConnection(token)) return
+        files.dismissLocations()
+        sessions.connectFiles(target) { connection,user ->
+            files.remoteConnected(RemoteFileIdentity(target.alias,target.host,user,target.port),connection,token)
+        }
+    }
+    fun openTerminalFiles() {
+        val session=sessions.active ?: return
+        val target=session.remoteTarget
+        if(target==null && session.remoteAlias==null) { files.enterLocal();return }
+        files.enter()
+        if(target==null) files.remoteConnectionError("无法确定此会话的远端主机，请从文件位置重新连接")
+        else connectFileTarget(target,files.beginRemoteConnection())
+    }
     BackHandler(!sessions.visible && !files.visible && !fileTasks.visible && hosts.page != Page.HOSTS) { back() }
     LaunchedEffect(settings.leaveRequested) { if (settings.consumeLeave() && hosts.page == Page.SETTINGS) hosts.back() }
     val dark = when (applied.committed.appearance) {
@@ -123,19 +138,14 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                 else {
                     val token=files.beginRemoteConnection()
                     hosts.checkConnection(host) { target ->
-                        if(files.acceptsRemoteConnection(token)) {
-                            files.dismissLocations()
-                            sessions.connectFiles(target) { connection,user ->
-                                files.remoteConnected(RemoteFileIdentity(target.alias,target.host,user,target.port),connection,token)
-                            }
-                        }
+                        connectFileTarget(target,token)
                     }
                 }
             }
             return@MaterialTheme
         }
         if (sessions.visible && sessions.active != null) {
-            TerminalScreen(sessions, files::enter)
+            TerminalScreen(sessions, ::openTerminalFiles)
             return@MaterialTheme
         }
         if(tmux.visible) { TmuxScreen(tmux);return@MaterialTheme }
@@ -188,7 +198,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     }
                 }
                 when (hosts.page) {
-                    Page.HOSTS -> HostsPage(hosts, sessions, files::enter) { host ->
+                    Page.HOSTS -> HostsPage(hosts, sessions, files::enterLocal) { host ->
                         hosts.checkConnection(host) { request -> tmux.open(request,sessions) }
                     }
                     Page.EDIT_HOST -> EditHostPage(hosts)

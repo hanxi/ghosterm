@@ -70,7 +70,7 @@ fun SSHConnectionDialog(model: SessionsViewModel, presenter: java.util.UUID? = n
                         val passwordAvailable = prompt!!.methods and 2 != 0
                         val keyAvailable = prompt.methods and 1 != 0
                         if (passwordAvailable && keyAvailable) Row {
-                            TextButton(onClick = { passwordMode = true; secret = "" }) { Text("使用密码") }
+                            TextButton(onClick = { model.manualAuthentication(attempt.id); passwordMode = true; secret = "" }) { Text("使用密码") }
                             TextButton(onClick = { passwordMode = false; secret = "" }) { Text("使用密钥") }
                         }
                         if (passwordMode && passwordAvailable) {
@@ -81,15 +81,16 @@ fun SSHConnectionDialog(model: SessionsViewModel, presenter: java.util.UUID? = n
                             if (attempt.target.identityFiles.isNotEmpty()) {
                                 Text("主机配置中的身份", style = MaterialTheme.typography.titleSmall)
                                 candidates.issues.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
-                                TextButton(onClick = { otherIdentity = !otherIdentity; identityId = null; secret = "" }, enabled = ready,
+                                TextButton(onClick = { model.manualAuthentication(attempt.id); otherIdentity = !otherIdentity; identityId = null; secret = "" }, enabled = ready,
                                     modifier = Modifier.testTag("ssh-other-identity")) {
                                     Text(if (otherIdentity) "返回配置身份" else "选择其他身份（仅本次）")
                                 }
                             }
                             if (attempt.identities.isEmpty()) Text("还没有导入的密钥。导入会保存到本机加密容器，原文档不修改。")
+                            if(candidates.identities.isEmpty()) Text("本次选钥不会自动关联主机。可在主机编辑 → SSH 身份中添加并保存，下次将自动使用；加密密钥仍需输入口令。")
                             val choices = if (attempt.target.identityFiles.isEmpty() || otherIdentity) attempt.identities else candidates.identities
                             choices.forEach { identity ->
-                                TextButton(onClick = { identityId = identity.id; secret = "" }, enabled = ready,
+                                TextButton(onClick = { model.manualAuthentication(attempt.id); identityId = identity.id; secret = "" }, enabled = ready,
                                     modifier = Modifier.fillMaxWidth().testTag("ssh-key-${identity.id}")) {
                                     Text((if (selected?.id == identity.id) "✓ " else "") + identity.name)
                                 }

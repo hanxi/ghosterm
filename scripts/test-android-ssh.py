@@ -61,7 +61,7 @@ def main():
     locale=next((x for x in ('en_US.UTF-8','C.UTF-8','C.utf8','en_US.utf8') if x in locales),None)
     if locale is None:raise RuntimeError('SSH test shell requires an installed UTF-8 locale')
     Path(work,'authorized_keys').write_text('command="env LC_ALL='+locale+' INPUTRC=/dev/null /bin/sh -i" '+Path(key+'.pub').read_text())
-    file_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1' or
+    file_tests=(os.environ.get('ANDROID_REMOTE_ENTRY_MUTATE')=='1' or os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_FILES_OWNER_MUTATE')=='1' or os.environ.get('ANDROID_FILE_QUEUE_MUTATE')=='1' or
                 any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('RemoteRemovalTest','RemoteFilesTest','RemoteFilesProductTest','RemoteDirectoryTest','RemoteDirectoryDataTest','RemoteFileTaskTest','FileCopyExecutorTest','RemoteFileJournalTest','RemoteFileTasksProductTest','ProcessFileWorkTest')) or os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1' or os.environ.get('ANDROID_COPY_PROGRESS_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PROGRESS_MUTATE')=='1' or os.environ.get('ANDROID_FILES_CREATE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_RECEIVE_MUTATE')=='1' or os.environ.get('ANDROID_FILES_PUBLISH_MUTATE')=='1' or os.environ.get('ANDROID_REMOVE_MUTATE')=='1' or os.environ.get('ANDROID_FILE_CLEANUP_MUTATE')=='1' or os.environ.get('ANDROID_FILE_TASK_PRODUCT_MUTATE')=='1')
     file_data={}
     if file_tests:
@@ -79,6 +79,21 @@ def main():
         option=command.replace('\\','\\\\').replace('"','\\"')
         with Path(work,'authorized_keys').open('a') as allowed: allowed.write('command="'+option+'" '+Path(str(file_key)+'.pub').read_text())
         file_data=dict(filePem=file_key.read_text(),remoteRoot=str(remote),remoteScratch=str(scratch),remoteReadOnly=str(readonly))
+        # One identity must support both the ordinary terminal and its independent SFTP browser.
+        paired_key=Path(work)/'terminal-file-clientkey'
+        run(['ssh-keygen','-q','-t','ed25519','-N','','-f',paired_key])
+        sftp_server=next((p for p in (Path('/usr/libexec/sftp-server'),Path('/usr/lib/openssh/sftp-server')) if p.is_file()),None)
+        if sftp_server is None:raise RuntimeError('Paired terminal/SFTP fixture requires the OpenSSH sftp-server executable')
+        paired_script=Path(work)/'terminal-file-command.sh'
+        paired_script.write_text('#!/bin/sh\nset -eu\ncase "${SSH_ORIGINAL_COMMAND-}" in\n'
+            + "  '') cd "+shlex.quote(str(remote))+"; exec env LC_ALL="+shlex.quote(locale)+" ENV=/dev/null INPUTRC=/dev/null /bin/sh -i;;\n"
+            + '  internal-sftp|*/sftp-server) exec '+shlex.quote(str(sftp_server))+' -d '+shlex.quote(str(remote))+';;\n'
+            + '  *) exit 126;;\nesac\n')
+        paired_script.chmod(0o700)
+        paired_command=shlex.quote(str(paired_script)).replace('\\','\\\\').replace('"','\\"')
+        with Path(work,'authorized_keys').open('a') as allowed:allowed.write('command="'+paired_command+'" '+Path(str(paired_key)+'.pub').read_text())
+        file_data['terminalFilePem']=paired_key.read_text()
+
         # Product paste tests write into their initial browser directory. Keep their
         # key/root separate from the seven-entry read fixture used by browse tests.
         task_key=Path(work)/'task-file-clientkey'
@@ -287,6 +302,10 @@ def main():
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_MKDIR_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('mkdir_mutations',ROOT/'scripts/mutation-check-android-mkdir.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_REMOTE_ENTRY_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('remote_entry_mutations',ROOT/'scripts/mutation-check-android-remote-entry.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILES_PRODUCT_MUTATE')=='1':
