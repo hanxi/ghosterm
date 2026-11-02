@@ -117,7 +117,7 @@ class SSHDnsResolverTest {
     }
     @Test fun dnsFailureIsVisibleInProductAndCreatesNoTerminal() {
         val instrumentation=InstrumentationRegistry.getInstrumentation();val dir=File(instrumentation.targetContext.cacheDir,"dns-model-${UUID.randomUUID()}").apply { mkdirs() }
-        val application=object:Application() { override fun getFilesDir()=dir }
+        val application=object:Application() { init { attachBaseContext(InstrumentationRegistry.getInstrumentation().targetContext) }; override fun getFilesDir()=dir }
         val query=Query();val store=ViewModelStore();lateinit var model:SessionsViewModel
         try {
             instrumentation.runOnMainSync {

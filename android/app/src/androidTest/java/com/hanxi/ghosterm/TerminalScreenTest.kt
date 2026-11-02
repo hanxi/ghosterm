@@ -44,7 +44,7 @@ class TerminalScreenTest {
     private lateinit var preferences: AppSettings
     @Before fun setup() {
         directory = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "terminal-ui-${UUID.randomUUID()}").apply { mkdirs() }
-        val app = object : Application() { override fun getFilesDir() = directory }
+        val app = object : Application() { init { attachBaseContext(InstrumentationRegistry.getInstrumentation().targetContext) }; override fun getFilesDir() = directory }
         val hosts = HostsViewModel(app)
         val runtime = RuntimeInfoViewModel()
         preferences = AppSettings(PreferencesRepository(PreferencesFile(File(directory, "preferences"))))

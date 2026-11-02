@@ -283,7 +283,7 @@ class SSHNetworkTest {
         Endpoint("127.0.0.1").use { endpoint ->
             val user=fixture.getString("user")
             val store=ViewModelStore()
-            val application=object: Application() { override fun getFilesDir() = dir }
+            val application=object: Application() { init { attachBaseContext(InstrumentationRegistry.getInstrumentation().targetContext) }; override fun getFilesDir() = dir }
             lateinit var model: SessionsViewModel
             instrumentation.runOnMainSync {
                 model=SessionsViewModel(application,SSHResolver { listOf(ip("127.0.0.2"),ip("127.0.0.1")) })

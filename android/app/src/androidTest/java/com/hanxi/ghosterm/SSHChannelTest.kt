@@ -147,7 +147,7 @@ class SSHChannelTest {
         known(home)
         val cancelBound=maxOf(1500L,(calibration()*1.5).toLong()+500)
         val store=ViewModelStore()
-        val application=object:Application() { override fun getFilesDir()=dir }
+        val application=object:Application() { init { attachBaseContext(InstrumentationRegistry.getInstrumentation().targetContext) }; override fun getFilesDir()=dir }
         lateinit var model: SessionsViewModel
         instrumentation.runOnMainSync {
             model=SessionsViewModel(application,SSHResolver { listOf(InetAddress.getByAddress(byteArrayOf(127,0,0,1))) })

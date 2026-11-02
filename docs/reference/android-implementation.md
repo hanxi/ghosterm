@@ -6,6 +6,8 @@
 
 **完整回归**：`0c30b17` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **924 项全部通过**，零失败/错误/跳过。两端 908 份输入前后及跨检出相同，实际安装 APK、源码和具名成功集合已核对（§9.170）。旧 `0c30b17` 实际 CI release 的 API 29 覆盖升级、SAF 加载/错误/重试及原资料保留另有专项；真实手机和完整外部端点矩阵仍待完成。
 
+**新增完整回归未通过**：`174e754` 两端各 929 方法，具名失败 60 个（104 条含重复报错事件）。旧手动认证前提及 Application Context 夹具已修正，原失败重放与 IME 专项分别通过；新干净完整套件仍待执行，见 [§9.174](android-implementation.md#9174-成功密钥记忆后完整回归的测试夹具修正2026-11-03)。
+
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 
 页面与操作基准为唯一的 [Android HTML 原型](../design/android-prototype.html)。首版保持主机首页、不加工作/个人分组、点按打开/长按多选、统一复制粘贴与可见清单，终端只有一个键盘入口。A0/A1/A7 已完成当前模拟器档，A2–A6/A8 的整阶段状态按 §9 的实际证据和剩余矩阵记账。
@@ -4217,3 +4219,21 @@ API 29 主机身份产品与独立 Core 对照另 **11 项通过**（`host-ident
 实际 APK 的源码收据为上述提交 / clean，证书仍为固定发行证书 `15875e9401bf5be2bd1232e3989d5e5cc5382af17bbee89a1c3b1ef1e0f01a1c`；非 debuggable、minSdk 29、仅三份压缩 arm64 SO、ZIP/ELF 16 KiB、完整 Nerd Font/许可及构建机路径检查通过。CI 日志已核对实际 R8 与资源裁剪步骤，不只信外部布尔值。证据 `tmp/android-remember-key/published/`、`inspection/result.json`、`ci.log`。本轮本地专项的四份产品源码 SHA256 与该提交逐一一致，见 `result.json`；§9.172 的 debug 专项仍不等同在优化 release APK 上跑完整 instrumentation 或真实手机验收。
 
 同提交 [macOS CI 41528681290](https://github.com/hanxi/ghosterm/actions/runs/41528681290) 成功，实际共用 release 的 Mac 为 build 95 / min macOS 15.0 / ad-hoc / 未公证。DMG/ZIP 均已下载并与 `version.json`、`SHA256SUMS`、`BUILD-INFO.txt` 对拍；摘要分别为 `e7a5ccf2cd56a1e7053e4ecabf6200a6fc41e818e436178ea89dcc82940ce972`、`74d0d45d80a7e8053d2a2be187b494f02f55a76e4f56aac180adae56ec2828f1`，收据 `mac-current/verification.json`。共用 dev 仍为八份固定附件，未重建旧 `android-dev`。本片无 macOS 产品源码或 Core ABI 改动；整个 Android 目标仍需 §10.1 的真实设备、网络/输入/性能及完整外部端点验收。
+
+
+### 9.174 成功密钥记忆后完整回归的测试夹具修正（2026-11-03）
+
+`174e7546258dd44bd780e562d1beb767793abe24` / clean 的两个默认完整运行均执行 **929 个具名方法**：API 29 / arm64 / 4 KiB 页阶段 `1793655562094748000`，1,424.164 秒；API 36 / arm64 / 16 KiB 页阶段 `1793655564178136000`，1,517.558 秒。两端同一 **60 个方法失败、869 个成功、0 跳过**；runner 另报告 **104 条失败事件**，包含 setup 与 cleanup 对同一方法重复报错，不能写成 104 个不同方法。两端 911 份输入前后与跨检出一致，实际安装 APK 与构建输出及 `174e754` / clean 收据匹配。
+
+完整原始失败记录保存在 `tmp/android-small-files-evidence/full929-174e754-api29-failed/` 与 `full929-174e754-16k-failed/`。大量异常使最终 JUnit 长报告在堆栈中截断，未保留末尾 FAILURES 汇总；保留原文，由完整具名开始/终态集合与默认发现清单对拍，再单独保存 logcat 的最终 929/104/0 事件。诊断收据明确 `accepted=false`，没有放宽通过版验证器或将失败运行改记为通过。
+
+失败归因及修正：
+
+- 53 个方法受旧 Application 替身未绑定 Context 影响：构造 SessionsViewModel 时读取成功身份偏好，触发 SharedPreferences 空指针。七个测试文件补 `attachBaseContext`，继续使用各自隔离 filesDir，没有改产品为静默忽略存储错误。
+- 七个方法依赖每次手动认证：ProcessFileWorkTest 三项、SSHProductTest 一项、TmuxProductTest 三项。它们的首次成功登录如今默认记住密钥，后续认证被自动完成；夹具显式选择“仅本次使用”，继续保留 Activity/picker 归属、过期结果、远端 PID 和关闭行为断言。成功密钥记忆的默认行为仍由 §9.172 的专用产品测试验证。
+
+修正十份 androidTest 文件后，API 29 完整相关组首次 **110 项中 109 项通过、1 项失败**，日志 `tmp/android-remember-key/fixture110-first/`。剩余为 SystemImeProductTest：独立系统编辑器控制通过，关闭其键盘后立即点终端切换按钮，尚未等待窗口 Insets 同步，最后显示前提失败；原失败日志完整保留。随后显式隐藏并等待系统状态及根窗口 IME Insets 均为隐藏，再点一次原键盘按钮；没有删除键盘显示、独立编辑器、两条真实命令文件/字节断言，也没有增加原单次等待预算。API 29 的系统 IME 与独立 Core **2 项通过，4.275 秒**，见 `ime-synchronized-api29/`。
+
+API 36 在加最后这处 IME 同步之前，原失败 60 个方法加独立 Core **61 项全部通过，131.567 秒**；911 份输入冻结、阶段 `1793657248807597000`，实际两 APK 与 `174e754` / dirty 收据匹配，见 `tmp/android-remember-key/fixture61-16k/`。同步到最终夹具后，系统 IME 与 Core **2 项另通过**，阶段 `1793657522187814000`，911 份输入不变、实际 APK 核对见 `ime-synchronized-16k/`。不能把 61 项重放或 109+2 合并宣称一轮完整 929 项通过。
+
+四份成功密钥记忆产品源码 SHA256 与已发行 `d3313a7` 一致；本片只改测试夹具与文档。Core **49 CTest / 94 ABI** 再通过（`core-gate-after-fixtures.log`），Android 实际构建和 app/androidTest lint 通过（`fixture-app-lint.log`）；汇总 `tmp/android-remember-key/result.json`。没有重跑旧过程/输入法的全部变异，不借旧结果记新闸门通过。新的干净默认完整回归需另跑，§10.1 其余真实设备与外部端点验收仍缺证据。

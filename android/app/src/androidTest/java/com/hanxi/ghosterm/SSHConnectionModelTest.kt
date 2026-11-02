@@ -31,7 +31,7 @@ class SSHConnectionModelTest {
     }
     private fun withModel(resolver: SSHResolver,budget: Long = 60000,test: (SessionsViewModel) -> Unit) {
         val directory = File(instrumentation.targetContext.cacheDir,"ssh-model-${UUID.randomUUID()}").apply { mkdirs() }
-        val application = object: Application() { override fun getFilesDir() = directory }
+        val application = object: Application() { init { attachBaseContext(InstrumentationRegistry.getInstrumentation().targetContext) }; override fun getFilesDir() = directory }
         val store = ViewModelStore()
         lateinit var model: SessionsViewModel
         main { model = SessionsViewModel(application,resolver,budget); store.put("test",model) }

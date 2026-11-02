@@ -213,7 +213,7 @@ class SSHDnsWireTest {
         }
     }
     private fun model(dns:Dns,budget:Long=8000,test:(SessionsViewModel)->Unit) {
-        val application=object:Application() { override fun getFilesDir()=root }
+        val application=object:Application() { init { attachBaseContext(InstrumentationRegistry.getInstrumentation().targetContext) }; override fun getFilesDir()=root }
         val store=ViewModelStore();lateinit var model:SessionsViewModel
         instrumentation.runOnMainSync { model=SessionsViewModel(application,connectionBudgetMillis=budget,monitorSessions=false);store.put("dns",model) }
         try { test(model) } finally { instrumentation.runOnMainSync { store.clear() } }

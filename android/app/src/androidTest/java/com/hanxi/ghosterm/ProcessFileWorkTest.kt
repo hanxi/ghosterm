@@ -248,8 +248,11 @@ class ProcessFileWorkTest {
                     assertFalse("authentication failed: ${attempt.message}",attempt.failed)
                     attempt.auth?.let { prompt -> when(prompt.phase) {
                         SSHAuthPhase.HOSTKEY -> model.decide(attempt.id,prompt,true)
-                        SSHAuthPhase.CREDENTIALS -> if(!attempt.credentialBusy && attempt.identities.any { it.id==key.id } && replied.add(attempt.id))
+                        SSHAuthPhase.CREDENTIALS -> if(!attempt.credentialBusy && attempt.identities.any { it.id==key.id } && replied.add(attempt.id)) {
+                            // These tests need a fresh manual prompt to observe presenter/picker ownership.
+                            attempt.rememberIdentity=false
                             model.useIdentity(attempt.id,prompt,key,ByteArray(0))
+                        }
                         else -> Unit
                     } }
                 }

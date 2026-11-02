@@ -66,6 +66,8 @@ class TmuxProductTest {
             attempt?.auth?.let { it.phase==SSHAuthPhase.CREDENTIALS && it.request>0 }==true
         }
         ui.onNodeWithTag("ssh-key-"+identity.id).performScrollTo().performClick()
+        // Lifecycle and unknown-outcome checks intentionally require fresh manual authentication.
+        ui.onNodeWithTag("ssh-remember-identity").performScrollTo().performClick()
         ui.onNodeWithText("认证并连接").performClick()
         ui.waitUntil(15000) { sessions().connecting==null }
     }

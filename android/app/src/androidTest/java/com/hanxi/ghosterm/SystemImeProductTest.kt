@@ -16,6 +16,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.terminal.TerminalView
@@ -43,7 +45,7 @@ class SystemImeProductTest {
     @Before fun setup() {
         directory = File(instrumentation.targetContext.cacheDir, "system-ime-${UUID.randomUUID()}")
             .apply { check(mkdirs()) }
-        val app = object : Application() { override fun getFilesDir() = directory }
+        val app = object : Application() { init { attachBaseContext(InstrumentationRegistry.getInstrumentation().targetContext) }; override fun getFilesDir() = directory }
         val hosts = HostsViewModel(app)
         val runtime = RuntimeInfoViewModel()
         sessions = SessionsViewModel(app)
@@ -199,6 +201,15 @@ class SystemImeProductTest {
         assertTrue("A real enabled system IME is required", !ime.isNullOrBlank())
         useEnglishSubtypeForShellCommand(checkNotNull(ime))
         stockEditorControl()
+        // The toolbar button toggles the current insets state. Finish hiding the
+        // stock editor's IME before asking that button to show the terminal IME.
+        ui.runOnIdle { terminal()?.hideKeyboard() }
+        ui.waitUntil(10_000) {
+            ui.runOnIdle {
+                ViewCompat.getRootWindowInsets(ui.activity.window.decorView)
+                    ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom == 0
+            } && !shell("dumpsys input_method").contains("mInputShown=true")
+        }
         ui.onNodeWithTag("terminal-keyboard").performTouchInput { click() }
         val keyboardDeadline = SystemClock.uptimeMillis() + 10_000
         var keyboardState = shell("dumpsys input_method")

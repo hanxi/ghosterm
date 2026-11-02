@@ -69,6 +69,8 @@ class SSHProductTest {
         if (trust) ui.onNodeWithText("信任并连接").performClick()
         phase(SSHAuthPhase.CREDENTIALS)
         ui.onNodeWithTag("ssh-key-${identity.id}").performScrollTo().performClick()
+        // Keep these owner/navigation scenarios on their deliberate manual-authentication path.
+        ui.onNodeWithTag("ssh-remember-identity").performScrollTo().performClick()
         ui.onNodeWithTag("ssh-secret").assertDoesNotExist()
         ui.onNodeWithText("认证并连接").performClick()
         ui.waitUntil(15000) { sessions().visible && sessions().active?.state?.connected == true && sessions().connecting == null }
