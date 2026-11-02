@@ -1,5 +1,7 @@
 # Android 宿主
 
+**未发行的清理后端（§9.122）**：受控远端单文件/空目录删除已实现，支持取消、请求归属、资源退出与完整结果状态。API 29/36 各 22 项、签名 release / 四模块 lint 通过；正式清理页面、持久删除意图/结果和 SAF 清理继续待办。证据见[实施计划](../docs/reference/android-implementation.md#android-reviewed-remote-removal)。
+
 **当前 A3 DNS 可达性兼容修复（2026-11-02，工作区已验待发行）**：针对 IP 可连、域名误报网络不可用，保留正常系统 DNS 路径，只在组合接口的网络错误时改用同一系统解析器的显式 A/AAAA 查询；不切换 DNS 服务、不重写 SSH 主机身份。真实网络用例复现旧接口在发出 DNS 前报 ENONET，修复后完成 DNS→SSH 认证/输出；API 29 / 36 各 50 项通过，13 个新增与两个受影响旧保护同轮通过，签名 release / 四模块 lint 通过。用户手机、VPN/私人 DNS 完整矩阵仍待验，见[可达性兼容修复](../docs/reference/android-implementation.md#android-dns-probe-compatibility)。
 
 **当前 A6 本机文件身份（2026-11-02，已随 `707d6d3` 发行）**：独占创建后、写入内容前持久化创建标记与 inode/UID/父目录参考；历史可分别核对身份和内容，不能把同字节的新文件当作原对象，不改旧任务结果或授予删除/重放权。API 29 / 36 各 182 项最终组合、新身份 27 组、受影响旧摘要四组、原发布 25 组/账本 20 组、死亡四组保护通过；API 29 / 36 各六个真实进程死亡边界、签名 release / 四模块 lint 与本地签名包 16 KB 页身份 SAME→DIFFERENT/内容一致专项通过。最终设备/构建的 869 份非 Markdown 输入完全一致；远端/SAF 未知结果恢复、用户确认恢复/清理和完整客户端设备矩阵仍待完成，见[本机文件身份](../docs/reference/android-implementation.md#android-local-file-identity)。

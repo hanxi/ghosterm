@@ -88,6 +88,11 @@ int main(void) {
         "NULL 句柄的 sftp_rmdir 必须返回 INVALID_ARG");
   CHECK(gt_sftp_remove(NULL, "/x") == GT_ERR_INVALID_ARG,
         "NULL 句柄的 sftp_remove 必须返回 INVALID_ARG");
+  gt_sftp_remove_result_t removal = {GT_SFTP_REMOVE_REMOVED, 99};
+  int remove_status = gt_sftp_remove_controlled(NULL, "/", "x", false, 0, 0, &removal, 1000, NULL, NULL);
+  CHECK((remove_status == GT_ERR_INVALID_ARG || remove_status == GT_ERR_UNSUPPORTED) &&
+        removal.state == GT_SFTP_REMOVE_NOT_ATTEMPTED && removal.remote_status == 0,
+        "controlled remove must reject invalid/unavailable owners and clear outcome");
   CHECK(gt_sftp_remove_all(NULL, "/x") == GT_ERR_INVALID_ARG,
         "NULL 句柄的 sftp_remove_all 必须返回 INVALID_ARG");
   CHECK(gt_sftp_rename(NULL, "/a", "/b") == GT_ERR_INVALID_ARG,

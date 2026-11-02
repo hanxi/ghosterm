@@ -40,10 +40,15 @@ def execute(root,build,test):
     try:
         for label,path,old,new,method in cases:
             text=originals[path].decode()
-            # borrow checks stale generations; dispose has an independent guard.
-            count=2 if label=='generation' else 1
-            if text.count(old)!=count:raise RuntimeError('Ambiguous mutation '+label+': '+str(text.count(old)))
-            path.write_text(text.replace(old,new,1)+'\n// '+MARK+'\n')
+            # Scope the stale-generation mutation to borrow; dispose/cancel have independent guards.
+            if label=='generation':
+                start=text.index('static file_session *borrow(');end=text.index('static bool stopped(',start)
+                piece=text[start:end];assert piece.count(old)==1
+                text=text[:start]+piece.replace(old,new)+text[end:]
+            else:
+                if text.count(old)!=1:raise RuntimeError('Ambiguous mutation '+label+': '+str(text.count(old)))
+                text=text.replace(old,new,1)
+            path.write_text(text+'\n// '+MARK+'\n')
             label='files-owner-'+label;selection='com.hanxi.ghosterm.RemoteFilesTest#'+method
             build(label);output=test(label,selection,False)
             if 'AssertionError' not in output and 'ComparisonFailure' not in output:raise RuntimeError('Target was not an assertion failure')

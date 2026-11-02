@@ -277,6 +277,53 @@ final class GhostermCoreTests: XCTestCase {
         }
     }
 
+    func testSFTPRemovalEndToEnd() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],
+              let key = env["GHOSTERM_SSH_KEY"], let port = UInt16(env["GHOSTERM_SSH_PORT"] ?? "") else {
+            throw XCTSkip("SSH fixture required")
+        }
+        for mode in ["file", "directory", "nonempty", "absent", "size", "time"] {
+            let session = try SSHSession(SSHOptions(host: host, port: port, username: user,
+                knownHostsPath: env["GHOSTERM_SSH_KNOWN_HOSTS"]))
+            session.setHostKeyDecider { _, _, _, _ in .accept }
+            try session.authenticate(privateKeyPEM: String(contentsOfFile: key, encoding: .utf8))
+            try session.connect(); defer { session.close() }
+            let files = try session.sftp(timeoutMilliseconds: 3000); defer { files.close() }
+            let parent = (key as NSString).deletingLastPathComponent + "/remove-" + UUID().uuidString
+            let name = "删除 ☃", path = parent + "/" + name
+            let directory = mode == "directory" || mode == "nonempty"
+            let payload = Data("safe bytes ☃".utf8)
+            try FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: false)
+            defer { try? FileManager.default.removeItem(atPath: parent) }
+            if directory {
+                try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: false)
+                if mode == "nonempty" { try payload.write(to: URL(fileURLWithPath: path + "/child")) }
+            } else if mode != "absent" { try payload.write(to: URL(fileURLWithPath: path)) }
+            let observed = try files.list(path: parent).first { $0.name == name }
+            if mode != "absent" { XCTAssertNotNil(observed?.mtime) }
+            let mtime = Int64(observed?.mtime?.timeIntervalSince1970 ?? 0)
+            let size = directory ? UInt64(0) : UInt64(payload.count)
+            XCTAssertThrowsError(try files.removeReviewed(parent: parent, name: "bad\0name", directory: false,
+                expectedSize: 0, expectedModifiedSeconds: 0, timeoutMilliseconds: 1000))
+            let invalid = try files.removeReviewed(parent: parent, name: name, directory: directory,
+                expectedSize: size, expectedModifiedSeconds: mtime, timeoutMilliseconds: 0)
+            XCTAssertEqual(invalid.status, 1); XCTAssertEqual(invalid.state, .notAttempted)
+            let cancel = SSHCancellation(); cancel.cancel()
+            let cancelled = try files.removeReviewed(parent: parent, name: name, directory: directory,
+                expectedSize: size, expectedModifiedSeconds: mtime, timeoutMilliseconds: 3000, cancellation: cancel)
+            XCTAssertEqual(cancelled.status, 8); XCTAssertEqual(cancelled.state, .notAttempted)
+            let result = try files.removeReviewed(parent: parent, name: name, directory: directory,
+                expectedSize: size + (mode == "size" ? 1 : 0), expectedModifiedSeconds: mtime + (mode == "time" ? 1 : 0),
+                timeoutMilliseconds: 3000)
+            XCTAssertEqual(result.status, ["nonempty", "size", "time"].contains(mode) ? 3 : 0)
+            XCTAssertEqual(result.state, mode == "nonempty" ? .rejected : ["size", "time"].contains(mode) ? .changed : mode == "absent" ? .absent : .removed)
+            XCTAssertEqual(result.remoteStatus, mode == "nonempty" ? 4 : mode == "absent" ? 2 : 0)
+            XCTAssertEqual(FileManager.default.fileExists(atPath: path), ["nonempty", "size", "time"].contains(mode))
+            if mode == "nonempty" { XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path + "/child")), payload) }
+        }
+    }
+
     func testSFTPPublishEndToEnd() throws {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["GHOSTERM_SSH_HOST"], let user = env["GHOSTERM_SSH_USER"],

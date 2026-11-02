@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Native descriptor ownership and creation outcome, same-APK independent control."""
 import hashlib
+import os
 MARK='GT_ANDROID_PUBLISH_MUTATION'
 
 def execute(root,build,test):
@@ -12,7 +13,7 @@ def execute(root,build,test):
     protocol='publishProtocolPreservesRejectedUnknownAndQueryFailure'
     cancel='publishTimeoutAndCancellationReleaseOwner'
     cases=[
-        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5 && kind!=6)','if(status!=GT_OK && kind!=3 && kind!=6)',protocol),
+        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5 && kind!=6 && kind!=7)','if(status!=GT_OK && kind!=3 && kind!=6 && kind!=7)',protocol),
         ('paths',native,'files,path,destination,publish_directory','files,destination,path,publish_directory',good),
         ('directory',native,'files,path,destination,publish_directory','files,path,destination,(publish_directory && false)','publishDirectoryPreservesEmptyDirectory'),
         ('size',native,'publish_directory,expected_size,&outcome','publish_directory,0,&outcome',good),
@@ -23,6 +24,15 @@ def execute(root,build,test):
         ('throw-status',kotlin,'if(status != 0 && kind!=3 && kind!=5)','if(status != 0 && kind!=3)',protocol),
         ('cancel',kotlin,'if(!completed) close()','if(!completed) Unit',cancel),
     ]
+    # Removal has the same argument prefix; mutate only the publication branch.
+    text=originals[native].decode();start=text.index('else if(kind==5)');end=text.index('else if(kind==6)',start)
+    piece=text[start:end]
+    cases=[(label,path,piece,piece.replace(old,new),method) if label in ('paths','directory','size','budget','remote','unknown') else (label,path,old,new,method)
+        for label,path,old,new,method in cases]
+    selected=os.environ.get('ANDROID_FILES_PUBLISH_MUTATIONS','').split(',')
+    if selected!=['']:
+        if set(selected)-{c[0] for c in cases}:raise RuntimeError('Unknown mutation selector')
+        cases=[c for c in cases if c[0] in selected]
     try:
         for label,path,old,new,method in cases:
             text=originals[path].decode();assert text.count(old)==1,(label,text.count(old))
@@ -38,5 +48,5 @@ def execute(root,build,test):
         for path,data in originals.items():
             if MARK.encode() in path.read_bytes():path.write_bytes(data)
         if any(path.read_bytes()!=data for path,data in originals.items()):raise RuntimeError('Publish source restoration failed')
-    print('ANDROID FILES PUBLISH MUTATIONS PASS: 10 groups',flush=True)
+    print(f'ANDROID FILES PUBLISH MUTATIONS PASS: {len(cases)} groups',flush=True)
 if __name__=='__main__':raise SystemExit('Use ANDROID_FILES_PUBLISH_MUTATE=1 with test-android-ssh.sh')

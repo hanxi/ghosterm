@@ -3524,3 +3524,18 @@ A2/A10 增量观察使用已下载并核验的正式 APK `66d1bd9`，API 36 / ar
 
 
 **§9.121 云端发行补记**：[Android CI 41366380045](https://github.com/hanxi/ghosterm/actions/runs/41366380045) 与 [macOS CI 41366380053](https://github.com/hanxi/ghosterm/actions/runs/41366380053) 均成功。共用 dev 实际 APK 来源 `5645f5c` / clean，8,044,919 字节，SHA256 `a53a9654f6b9564d3def9a59c35e024d8d095d01d7809cf473b98f079e56ecda`。下载核对固定证书、minSdk 29/非 debuggable、三个压缩 arm64 SO、ELF/ZIP 16 KB 对齐、完整 Nerd Fonts/许可、外部构建清单/摘要和实际 CI R8/资源优化任务，共用八份附件名称通过。覆盖安装到 API 36 / 16 KB 页模拟器后，设备实际 APK SHA256 与下载包一致，首页和关于显示 `5645f5c`、干净状态。证据 `tmp/history-recovery-cloud/published/`、`inspection/`、`ci.log`、`dev-assets.json`、`device-result.json`、`release-about.xml`。此项只证明真实发行包的安装/来源，新增恢复产品行为仍分别以两端各 47 项为证，不扩大为签名包全量、真机或全部 A6 完成。CI 本轮同时实际命中 Gradle 及 wrapper 缓存，补齐 §9.117 保存→命中的证据链。
+
+<a id="android-reviewed-remote-removal"></a>
+### 9.122 远端显式清理的受控删除后端（2026-11-02，工作区已实现，尚未发行）
+
+新增 `gt_sftp_remove_controlled` 与 Swift/JNI/Kotlin 绑定，公共符号由 93 增至 94。该接口只删除一个刚经人工检查的普通文件或空目录，不递归删除；专用连接、同一总预算与请求归属取消贯穿父目录 LSTAT/REALPATH、两次目标 LSTAT 和 UNLINK/RMDIR。已知类型/大小/修改时间变化时保留文件，缺属性明确不支持，父目录别名不作为原路径继续执行。SFTP v3 不能提供原子 compare-and-unlink 或 inode 身份：元数据相同不证明内容/归属，相同路径仍可能被其他写入者竞争修改。后续产品必须重新展示当前位置并取得明确确认，不能把历史记录直接转为删除授权。
+
+结果分别保留未尝试、观察到不存在、元数据变化、结果不明、明确拒绝和收到删除成功回包；错误时结果与原始 SFTP 状态码仍可读取。成功回包优先于迟到取消；回包丢失保留未知，不自动重发。不支持 libssh2 的入口明确返回错误并清零输出。Android 请求只能执行一次，关闭须等实际 native owner 退出，排队取消不能中止正在进行的另一请求。
+
+隔离实现已通过 Core 49 项 CTest、94 符号 ABI 与两端绑定对拍；真实 sshd 的 21 个核心情形、Swift 真实 SSH 用例、21 组 Core 与 7 组 Swift 变异通过，每组编译后正常断言红、独立配置对照绿、复原绿及 SHA256。额外用真实 `GHOSTERM_WITH_LIBSSH2=OFF` 静态库验证不支持分支，含故意返回成功的正常断言红及复原。Core/Swift 变异阶段 `1793581163356313000`、闸门阶段 `1793581298233139000`、无 libssh2 归档阶段 `1793581358607228000`；前两次 jobs 夹具基线/编译失败不计有效红。
+
+Android 前置 19 项在 API 29/36 通过；补入 native 完成通知 fd 的 CLOEXEC/实际生命周期、陈旧请求与句柄代际、排队取消三个边界后，API 29 的 22 项组合通过（阶段 `1793581817120775000`，879 份非 Markdown 输入不变）。最终 API 29 / 36 均完成全部 22 项，30.687 / 31.076 秒，零失败/错误/跳过；阶段 `1793582171087880000` 的 879 份非 Markdown 输入集合/SHA256 不变，两设备实际安装应用/测试 APK 均与各自构建摘要相同。签名 release 和 app/data/bridge/terminal 的 release lint 通过（90 秒）。本地 APK 8,046,731 字节，SHA256 `ce23ef7cd9e05e8b208a91516f4afa125c2eaac28a40fe74f9520581cbd6bc6b`，来源 `5645f5c` / dirty；固定证书、minSdk 29、非 debuggable、三份压缩 arm64 SO、ELF/ZIP 16 KB 对齐、R8 mapping、完整 Nerd Fonts/许可已核对，证据 `tmp/remove-final/`。这不是已发行 clean 包或实际 16 KB 页产品验收。尚未接入正式清理页面、持久删除意图/结果与 SAF 清理；不能把本后端切片记为 A6 或安卓客户端完成。
+
+Android 新增 19 个保护分两轮取证：阶段 `1793581858034573000` 的前十二组与 `1793581991688847000` 的后七组，每组编译后正常断言红、同 APK Core 配置对照绿、复原绿与 SHA256。首次重复执行保护变异意外绿，原因是测试先取消请求，而取消异常也是 IllegalStateException；改为取消前验证一次性准入并检查具体错误，再复验通过。旧目录九组、旧发布三组、旧独占创建一组同轮复验通过；旧脚本的分支锚点限定到原操作，避免新增删除分支造成歧义。锚点静态演练只说明定位唯一，不计设备行为证据。旧创建大小锚点、旧发布状态/未知锚点和 owner 代际锚点的四组额外复验通过（阶段 `1793582351510969000`），仍是正常断言红、同 APK 配置绿、复原绿和 SHA256；这次仅调整验证脚本，不改变已验产品源码。
+
+合回主工程后再次运行 `scripts/gate.sh`，49 项 CTest / 94 ABI 全绿；Apple 90/4 与 Android 56/38 对拍再次通过。21 份非 Markdown 新增/修改文件与隔离实现逐字节一致，收据 `tmp/remove-backend-integration/`；本切片尚未推送或生成新 CI 发行。

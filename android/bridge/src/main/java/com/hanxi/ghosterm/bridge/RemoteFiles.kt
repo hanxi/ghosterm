@@ -55,6 +55,9 @@ enum class RemoteDirectoryCreationState { NOT_ATTEMPTED, CONFLICT, UNKNOWN, REJE
  * retains any possible side effect. COMPLETE is only a verified native result. */
 data class RemoteDirectoryCreationResult(val status: Int?, val state: RemoteDirectoryCreationState,
     val remoteStatus: UInt = 0u, val error: String? = null)
+enum class RemoteRemovalState { NOT_ATTEMPTED, ABSENT, CHANGED, UNKNOWN, REJECTED, REMOVED }
+data class RemoteRemovalResult(val status: Int?, val state: RemoteRemovalState,
+    val remoteStatus: UInt = 0u, val error: String? = null)
 data class RemoteFilePeer(val host: String, val port: Int, val user: String)
 
 class RemoteFileException(val status: Int) : IllegalStateException(when(status) {
@@ -367,6 +370,111 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
             }
         }
     }
+    /** One-shot explicit removal; the caller supplies a fresh review and must
+     * persist intent before execute. Equal metadata is not ownership proof. */
+    fun prepareRemoval(parent:String,name:String,directory:Boolean,expectedSize:Long,
+        expectedModifiedSeconds:Long,timeoutMillis:Int=5000):RemovalRequest {
+        val parentBytes=encodePath(parent);val nameBytes=encodePath(name)
+        require(parent.startsWith('/') && (parent=="/" || parent.drop(1).split('/').all { it.isNotEmpty() && it!="." && it!=".." })) { "删除父路径必须已规范化" }
+        require(name!="." && name!=".." && '/' !in name && nameBytes.size in 1..255 &&
+            parentBytes.size+nameBytes.size+(if(parent=="/") 0 else 1)<65536 && timeoutMillis in 1..60_000) { "删除名称或预算无效" }
+        require(expectedSize>=0 && (!directory || expectedSize==0L) && expectedModifiedSeconds in 0..0xffffffffL) { "删除需要已知大小与修改时间" }
+        return RemovalRequest(parent,name,directory,expectedSize,expectedModifiedSeconds,timeoutMillis)
+    }
+    inner class RemovalRequest internal constructor(val parent: String, val name: String, val directory:Boolean, val expectedSize:Long, val expectedModifiedSeconds:Long, val timeoutMillis: Int) {
+        val path = parent.trimEnd('/')+"/"+name
+        @Volatile var outcome=RemoteRemovalResult(null,RemoteRemovalState.NOT_ATTEMPTED);private set
+        private val started=java.util.concurrent.atomic.AtomicBoolean()
+        private val closed=kotlinx.coroutines.CompletableDeferred<Unit>()
+        private var cancelled=false
+        private var binding: Pair<Long,Long>?=null
+        private var worker:kotlinx.coroutines.Job?=null
+        val finished get()=closed.isCompleted
+        @Synchronized fun cancel() {
+            cancelled=true
+            val active=binding
+            if(active!=null) NativeFiles.cancelRemove(active.first,active.second)
+            else worker?.cancel()
+            if(!started.get()) closed.complete(Unit)
+        }
+        suspend fun awaitClosed() { closed.await() }
+        @Synchronized private fun bind(owner: Long, releaseFd: Int): Long {
+            if(cancelled) throw kotlinx.coroutines.CancellationException("文件删除已取消")
+            val request=NativeFiles.beginRemove(owner,encodePath(parent),encodePath(name),directory,expectedSize,expectedModifiedSeconds,timeoutMillis,releaseFd)
+            binding=owner to request
+            outcome=RemoteRemovalResult(null,RemoteRemovalState.UNKNOWN)
+            return request
+        }
+        @Synchronized private fun unbind() { binding=null }
+        private fun failed(error: Throwable) {
+            if(outcome.state!=RemoteRemovalState.REMOVED) outcome=outcome.copy(
+                status=outcome.status ?: if(error is kotlinx.coroutines.CancellationException) 8 else 3,
+                error=error.message ?: "文件删除结果无法确认，请重新连接核对目标")
+        }
+        suspend fun execute(): RemoteRemovalResult {
+            check(started.compareAndSet(false,true)) { "删除请求不能重复执行" }
+            return kotlinx.coroutines.suspendCancellableCoroutine { waiting ->
+                val owner=kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch(start=kotlinx.coroutines.CoroutineStart.LAZY) {
+                    try { perform() } catch(error: Exception) { failed(error);if(error is kotlinx.coroutines.CancellationException) throw error }
+                }
+                synchronized(this) { worker=owner;if(cancelled) owner.cancel() }
+                owner.invokeOnCompletion { error ->
+                    if(error!=null) failed(error)
+                    closed.complete(Unit)
+                    if(waiting.isActive) {
+                        if(error is kotlinx.coroutines.CancellationException) waiting.resumeWithException(error)
+                        else waiting.resume(outcome)
+                    }
+                }
+                waiting.invokeOnCancellation { cancel() }
+                owner.start()
+            }
+        }
+        private suspend fun perform() = requests.withLock {
+            val released=ParcelFileDescriptor.createPipe()
+            var admitted=false
+            try {
+                val (owner,request)=synchronized(this@RemoteFileSession) {
+                    check(handle!=0L) { "文件连接已关闭" }
+                    handle to bind(handle,released[1].fd)
+                }
+                admitted=true;released[1].close()
+                var bytes:ByteArray?=null
+                while(bytes==null) {
+                    bytes=synchronized(this@RemoteFileSession) {
+                        check(handle==owner) { "文件连接已关闭" }
+                        NativeFiles.result(owner,request)
+                    }
+                    if(bytes==null) delay(10)
+                }
+                val data=ByteBuffer.wrap(checkNotNull(bytes)).order(ByteOrder.BIG_ENDIAN)
+                check(data.remaining()==16) { "删除结果无法确认，请保留目标位置" }
+                val status=data.int
+                check(data.int==7) { "删除结果归属无效" }
+                val state=data.int;val remote=data.int.toUInt()
+                check(state in 0..5 && (status==0)==(state==5 || state==1)) { "删除结果不一致" }
+                outcome=RemoteRemovalResult(status,RemoteRemovalState.entries[state],remote,
+                    if(status==0) null else RemoteFileException(status).message)
+                synchronized(this@RemoteFileSession) {
+                    check(handle==owner) { "文件连接已关闭" }
+                    NativeFiles.finish(owner,request)
+                }
+                if(status!=0) this@RemoteFileSession.close()
+            } catch(error: Exception) {
+                if(admitted) this@RemoteFileSession.close()
+                throw error
+            } finally {
+                unbind();released[1].close()
+                // The native fence survives disposed/recycled registry handles.
+                // On failure it closes after SFTP/SSH cleanup, not on cancellation.
+                withContext(NonCancellable+Dispatchers.IO) {
+                    ParcelFileDescriptor.AutoCloseInputStream(released[0]).use {
+                        check(it.read()==-1) { "删除完成通知无效" }
+                    }
+                }
+            }
+        }
+    }
     private fun encodePath(path: String): ByteArray {
         require(path.isNotEmpty() && '\u0000' !in path) { "文件路径无效" }
         val encoded=Charsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
@@ -411,6 +519,8 @@ internal object NativeFiles {
     external fun beginPublish(handle: Long, source: ByteArray, destination: ByteArray, directory: Boolean, expectedSize: Long, budget: Int): Long
     external fun beginMkdir(handle: Long, parent: ByteArray, name: ByteArray, budget: Int, releaseFd: Int): Long
     external fun cancelMkdir(handle: Long, request: Long)
+    external fun beginRemove(handle:Long,parent:ByteArray,name:ByteArray,directory:Boolean,size:Long,mtime:Long,budget:Int,releaseFd:Int):Long
+    external fun cancelRemove(handle:Long,request:Long)
     external fun beginTransfer(handle: Long, kind: Int, path: ByteArray, fd: Int, size: Long, budget: Int, releaseFd: Int, observe: Boolean, paused: Boolean): Long
     external fun transferControl(handle: Long, request: Long, paused: Boolean): Int
     external fun progress(handle: Long, request: Long): LongArray

@@ -1227,6 +1227,102 @@ finished:
   return status;
 }
 
+static int remove_matches(const LIBSSH2_SFTP_ATTRIBUTES *attributes, bool directory,
+    uint64_t size, int64_t mtime, gt_sftp_remove_result_t *out) {
+  if (!(attributes->flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) ||
+      !(attributes->flags & LIBSSH2_SFTP_ATTR_ACMODTIME) ||
+      (!directory && !(attributes->flags & LIBSSH2_SFTP_ATTR_SIZE))) return GT_ERR_UNSUPPORTED;
+  unsigned long kind = directory ? LIBSSH2_SFTP_S_IFDIR : LIBSSH2_SFTP_S_IFREG;
+  if ((attributes->permissions & LIBSSH2_SFTP_S_IFMT) != kind ||
+      (!directory && attributes->filesize != size) || attributes->mtime != (unsigned long)mtime) {
+    out->state = GT_SFTP_REMOVE_CHANGED;
+    return GT_ERR_IO;
+  }
+  return GT_OK;
+}
+int gt_sftp_remove_controlled(gt_sftp_t *sftp, const char *parent, const char *name,
+    bool directory, uint64_t expected_size, int64_t expected_mtime,
+    gt_sftp_remove_result_t *out, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context) {
+  if (out) *out = (gt_sftp_remove_result_t){GT_SFTP_REMOVE_NOT_ATTEMPTED, 0};
+  if (!sftp || !out || !timeout_ms || !mkdir_parent(parent) || !name || !*name ||
+      strlen(name) > 255 || strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, "..") ||
+      strlen(parent) + strlen(name) + (parent[1] ? 1 : 0) >= 65536 ||
+      expected_size > INT64_MAX || (directory && expected_size != 0)) return GT_ERR_INVALID_ARG;
+  if (expected_mtime < 0 || (uint64_t)expected_mtime > UINT32_MAX) return GT_ERR_UNSUPPORTED;
+  const int64_t deadline = mono_ms() + timeout_ms;
+  int status = open_status(deadline, cancelled, context);
+  if (status != GT_OK) return status;
+  pthread_mutex_lock(&sftp->qlock);
+  bool has_jobs = sftp->all_head != NULL;
+  pthread_mutex_unlock(&sftp->qlock);
+  if (has_jobs) return GT_ERR_INVALID_ARG;
+  void *raw = NULL; int socket = -1;
+  status = gt__ssh_borrow(sftp->ssh, &raw, &socket);
+  if (status != GT_OK) return status;
+  char *path = gt__alloc(strlen(parent) + strlen(name) + 2);
+  char *canonical = gt__alloc(65536);
+  if (!path || !canonical) { free(path); free(canonical); return GT_ERR_INTERNAL; }
+  strcpy(path, parent); if (parent[1]) strcat(path, "/"); strcat(path, name);
+  LIBSSH2_SESSION *session = raw;
+  LIBSSH2_SFTP_ATTRIBUTES attributes = {0};
+  SFTP_LOCK(sftp);
+  int blocking = libssh2_session_get_blocking(session);
+  long timeout = libssh2_session_get_timeout(session);
+  libssh2_session_set_blocking(session, 0);
+  bool io = false; int result = 0;
+  status = publish_lstat(sftp, session, socket, parent, &attributes, deadline, cancelled, context, &io, &result);
+  if (status != GT_OK) goto finished;
+  if (result != 0) { out->remote_status = publish_remote_error(sftp, result); status = GT_ERR_IO; goto finished; }
+  status = publish_source(&attributes, true, 0, NULL);
+  if (status != GT_OK) goto finished;
+  for (unsigned pass = 0; pass < 2; pass++) {
+    status = mkdir_realpath(sftp, session, socket, parent, canonical, deadline, cancelled, context, &out->remote_status);
+    if (status != GT_OK) goto finished;
+    memset(&attributes, 0, sizeof attributes);
+    status = publish_lstat(sftp, session, socket, path, &attributes, deadline, cancelled, context, &io, &result);
+    if (status != GT_OK) goto finished;
+    if (result != 0) {
+      out->remote_status = publish_remote_error(sftp, result);
+      if (out->remote_status == LIBSSH2_FX_NO_SUCH_FILE) {
+        out->state = GT_SFTP_REMOVE_ABSENT; status = GT_OK;
+      } else status = GT_ERR_IO;
+      goto finished;
+    }
+    status = remove_matches(&attributes, directory, expected_size, expected_mtime, out);
+    if (status != GT_OK) goto finished;
+  }
+  for (;;) {
+    status = open_status(deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+    out->state = GT_SFTP_REMOVE_UNKNOWN;
+    result = directory ? libssh2_sftp_rmdir_ex(sftp->sftp, path, (unsigned)strlen(path)) :
+        libssh2_sftp_unlink_ex(sftp->sftp, path, (unsigned)strlen(path));
+    if (result == 0) { out->state = GT_SFTP_REMOVE_REMOVED; status = GT_OK; break; }
+    if (result != LIBSSH2_ERROR_EAGAIN) {
+      out->remote_status = publish_remote_error(sftp, result);
+      if (publish_rejected(out->remote_status)) out->state = GT_SFTP_REMOVE_REJECTED;
+      status = out->remote_status == LIBSSH2_FX_OP_UNSUPPORTED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;
+      break;
+    }
+    status = browse_wait(session, socket, deadline, cancelled, context);
+    if (status != GT_OK) goto finished;
+  }
+finished:
+  if (status != GT_OK && io) {
+    gt__ssh_abort(sftp->ssh);
+    libssh2_session_set_blocking(session, 1);
+    libssh2_session_set_timeout(session, 50);
+    gt__set_error("sftp remove: inspect retained outcome; never retry deletion automatically");
+  } else {
+    libssh2_session_set_blocking(session, blocking);
+    libssh2_session_set_timeout(session, timeout);
+  }
+  SFTP_UNLOCK(sftp);
+  free(path); free(canonical);
+  return status;
+}
+
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out) {
   return stat_common(sftp, path, out, true);
 }
@@ -1748,6 +1844,18 @@ int gt_sftp_pause(gt_sftp_t *sftp, uint64_t job_id, bool paused) {
 #else /* !GT_HAVE_LIBSSH2 —— 显式 UNSUPPORTED */
 
 struct gt_sftp { void *unused; };
+
+int gt_sftp_remove_controlled(gt_sftp_t *sftp, const char *parent, const char *name,
+    bool directory, uint64_t expected_size, int64_t expected_mtime,
+    gt_sftp_remove_result_t *out, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context) {
+  (void)sftp; (void)parent; (void)name; (void)directory; (void)expected_size;
+  (void)expected_mtime; (void)timeout_ms; (void)cancelled; (void)context;
+  if (out) *out = (gt_sftp_remove_result_t){GT_SFTP_REMOVE_NOT_ATTEMPTED, 0};
+  gt__set_error("sftp remove controlled: libssh2 unavailable");
+  return GT_ERR_UNSUPPORTED;
+}
+
 
 int gt_sftp_mkdir_controlled(gt_sftp_t *sftp, const char *parent, const char *name,
     gt_sftp_mkdir_result_t *out, uint32_t timeout_ms,

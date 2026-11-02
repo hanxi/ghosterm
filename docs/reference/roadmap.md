@@ -1,5 +1,7 @@
 # 路线图
 
+**远端清理后端（2026-11-02，工作区已实现，尚未发行）**：受控单文件/空目录删除已绑定 Core、Swift 与 Android，保留未知/拒绝/成功回包，支持有界取消和实际 owner 释放。Core 49 CTest / 94 ABI、Apple 90/4、JNI 56/38、API 29/36 各 22 项、签名 release / 四模块 lint 通过；新增 Core 21＋Swift 7＋Android 19 组保护分轮通过，旧保护 13＋4 组复验通过。正式清理页面、持久删除意图/结果与 SAF 清理仍待接入，A6/完整客户端未完成，见[§9.122](android-implementation.md#android-reviewed-remote-removal)。
+
 **当前 A6 显式重新选择（2026-11-02，已随 `5645f5c` 发行）**：结果不明的历史任务可由用户重新勾选原始来源，创建关联原记录的新复制请求，重新扫描、认证及确认冲突；默认全不选，旧结果和实际文件保持原样。API 29 / 36 各 47 项组合（含真实 SFTP 和 SAF）通过，15 个不同保护组分轮、Core 47/93、签名 release 与四模块 lint 通过；完整恢复/残留清理和设备矩阵仍待收尾，见[重新选择记录](android-implementation.md#android-history-recovery)。
 
 **当前 A3 DNS 可达性兼容修复（2026-11-02，已随 `66d1bd9` 发行）**：针对 IP 可连、域名误报网络不可用，保留正常系统 DNS 路径，只在组合接口的网络错误时改用同一系统解析器的显式 A/AAAA 查询；不切换 DNS 服务、不重写 SSH 主机身份。真实网络用例复现旧接口在发出 DNS 前报 ENONET，修复后完成 DNS→SSH 认证/输出；API 29 / 36 各 50 项通过，13 个新增与两个受影响旧保护同轮通过，签名 release / 四模块 lint 通过。实际签名包另在 16 KB 页模拟器经真实分流 VPN DNS 到达 SSH 主机验证（§9.118）；该源码 API 36 / 4 KB 页完整 860 项已通过（§9.120）；用户手机、VPN/私人 DNS 完整矩阵仍待验，见[可达性兼容修复](android-implementation.md#android-dns-probe-compatibility)。

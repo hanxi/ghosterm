@@ -260,6 +260,38 @@ int gt_sftp_mkdir_controlled(gt_sftp_t *sftp, const char *parent, const char *na
     gt_sftp_mkdir_result_t *out, uint32_t timeout_ms,
     bool (*cancelled)(void *), void *context);
 
+/* Explicit, non-recursive removal of one freshly reviewed regular file or empty
+ * directory on a dedicated owner. parent is canonical absolute, name one leaf
+ * (1..255 bytes), expected_size is known for files and 0 for directories, and
+ * expected_mtime is a known SFTP-v3 timestamp (0..UINT32_MAX). Unknown metadata
+ * is UNSUPPORTED, never permission to delete. Parent LSTAT/REALPATH and two
+ * target LSTAT checks share timeout_ms with UNLINK/RMDIR. A known type/size/time
+ * mismatch is CHANGED and never submits deletion; explicit preflight absence
+ * is ABSENT (an observation, not a deletion acknowledgement).
+ * REMOVED requires a successful server acknowledgement and wins over late
+ * cancellation. A missing acknowledgement stays UNKNOWN; decoded operation
+ * errors are REJECTED. Preserve out even on error. No automatic retry, recursive
+ * deletion, result promotion, ownership proof or journal. SFTP v3 cannot pin an
+ * inode or atomically compare-and-unlink: equal metadata does not prove identity
+ * or unchanged content, and arbitrary concurrent path writers remain a race.
+ * Any failure after IO invalidates this owner; reconnect before inspection. */
+typedef enum {
+  GT_SFTP_REMOVE_NOT_ATTEMPTED = 0,
+  GT_SFTP_REMOVE_ABSENT = 1,
+  GT_SFTP_REMOVE_CHANGED = 2,
+  GT_SFTP_REMOVE_UNKNOWN = 3,
+  GT_SFTP_REMOVE_REJECTED = 4,
+  GT_SFTP_REMOVE_REMOVED = 5,
+} gt_sftp_remove_state_t;
+typedef struct {
+  gt_sftp_remove_state_t state;
+  uint32_t remote_status;
+} gt_sftp_remove_result_t;
+int gt_sftp_remove_controlled(gt_sftp_t *sftp, const char *parent, const char *name,
+    bool directory, uint64_t expected_size, int64_t expected_mtime,
+    gt_sftp_remove_result_t *out, uint32_t timeout_ms,
+    bool (*cancelled)(void *), void *context);
+
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out);
 
 /* lstat：**不跟随**符号链接（报链接自身的属性）。 */

@@ -19,11 +19,11 @@ def execute(root,build,test):
     cases=[
         ('paths',native,'files,path,destination,&outcome,budget,mkdir_stopped,s);','files,destination,path,&outcome,budget,mkdir_stopped,s);',real),
         ('budget',native,'files,path,destination,&outcome,budget,mkdir_stopped,s);','files,path,destination,&outcome,50,mkdir_stopped,s);','oneDeadlineCoversEveryProtocolStage'),
-        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5 && kind!=6)','if(status!=GT_OK && kind!=3 && kind!=5)',protocol),
+        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5 && kind!=6 && kind!=7)','if(status!=GT_OK && kind!=3 && kind!=5 && kind!=7)',protocol),
         ('remote-status',native,'u32(&p, outcome.remote_status);','u32(&p, 0);',protocol),
         ('created',native,'u32(&p, (uint32_t)outcome.state);','u32(&p, (uint32_t)(outcome.state==GT_SFTP_MKDIR_CREATED?GT_SFTP_MKDIR_UNKNOWN:outcome.state));',cancel),
         ('unknown',native,'u32(&p, (uint32_t)outcome.state);','u32(&p, (uint32_t)(outcome.state==GT_SFTP_MKDIR_UNKNOWN?GT_SFTP_MKDIR_REJECTED:outcome.state));',protocol),
-        ('cancel-core',native,'budget,mkdir_stopped,s);','budget,(true?NULL:mkdir_stopped),s);',cancel),
+        ('cancel-core',native,'files,path,destination,&outcome,budget,mkdir_stopped,s);','files,path,destination,&outcome,budget,(true?NULL:mkdir_stopped),s);',cancel),
         ('cancel-id',native,'s->request==(uint64_t)request && s->kind==6','s->kind==6',stale),
         ('cancel-generation',native,'file_session *s = registry[slot].generation==generation ? registry[slot].value : NULL;','file_session *s = generation ? registry[slot].value : NULL;',stale),
         ('fence-early',native,'if(kind==6){directory_fence=release_fd;release_fd=-1;}','if(kind==6){close(release_fd);release_fd=-1;}',fence),
@@ -36,12 +36,26 @@ def execute(root,build,test):
         ('parent',kotlin,'require(parent.startsWith(\'/\') &&','require(true || parent.startsWith(\'/\') &&',invalid),
         ('name',kotlin,"nameBytes.size in 1..255","nameBytes.size in 1..65535",invalid),
     ]
+    def scope(text,marker):
+        start=text.index(marker);begin=text.index('{',start);depth=1;end=begin+1
+        while depth:
+            depth+=(text[end]=='{')-(text[end]=='}');end+=1
+        return text[start:end]
+    # Scope shared coroutine statements to DirectoryRequest, not RemovalRequest.
+    text=originals[kotlin].decode()
+    scoped=[]
+    for label,path,old,new,method in cases:
+        if path==kotlin:
+            piece=scope(text,'    fun prepareDirectory(' if label in ('parent','name') else '    inner class DirectoryRequest')
+            assert piece.count(old)==1,(label,piece.count(old))
+            scoped.append((label,path,piece,piece.replace(old,new),method))
+        else:scoped.append((label,path,old,new,method))
+    cases=scoped
     # Keep the native fence descriptor mutation scoped to this admission path.
-    text=originals[native].decode();start=text.index('JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginMkdir');end=text.index('JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_cancelMkdir',start)
+    text=originals[native].decode();start=text.index('JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginMkdir');end=text.index('\nJNIEXPORT ',start+len('JNIEXPORT'))
     piece=text[start:end];assert piece.count('F_DUPFD_CLOEXEC')==1
     cases.append(('fence-cloexec',native,piece,piece.replace('F_DUPFD_CLOEXEC','F_DUPFD'),fence))
-    text=originals[kotlin].decode();start=text.index('    inner class DirectoryRequest');end=text.index('    private fun encodePath(',start)
-    piece=text[start:end]
+    text=originals[kotlin].decode();piece=scope(text,'    inner class DirectoryRequest')
     changed=piece.replace('if(cancelled) throw kotlinx.coroutines.CancellationException("目录创建已取消")','if(false && cancelled) throw kotlinx.coroutines.CancellationException("目录创建已取消")').replace('if(cancelled) owner.cancel()','if(false && cancelled) owner.cancel()')
     cases.append(('pre-cancel',kotlin,piece,changed,invalid))
     selected=os.environ.get('ANDROID_MKDIR_MUTATIONS','').split(',')

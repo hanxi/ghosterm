@@ -632,6 +632,13 @@ public struct SFTPPublishResult: Equatable {
     public let remoteStatus: UInt32
 }
 
+public struct SFTPRemovalResult: Equatable {
+    public enum State: UInt32 { case notAttempted = 0, absent, changed, unknown, rejected, removed }
+    public let status: Int32
+    public let state: State
+    public let remoteStatus: UInt32
+}
+
 public struct SFTPDirectoryCreationResult: Equatable {
     public enum State: UInt32 { case notAttempted = 0, conflict, unknown, rejected, created, complete }
     public let status: Int32
@@ -719,6 +726,32 @@ public final class SFTPSession {
         }
         out.sort { $0.name < $1.name }
         return out
+    }
+
+    /// Explicit removal against fresh metadata; no inode/ownership guarantee or
+    /// automatic retry. Preserve unknown outcomes and reconnect after failed IO.
+    public func removeReviewed(parent: String, name: String, directory: Bool,
+                               expectedSize: UInt64, expectedModifiedSeconds: Int64,
+                               timeoutMilliseconds: UInt32, cancellation: SSHCancellation? = nil) throws -> SFTPRemovalResult {
+        guard !parent.isEmpty, !name.isEmpty, !parent.utf8.contains(0), !name.utf8.contains(0) else {
+            throw GhostermError.status(Int32(GT_ERR_INVALID_ARG.rawValue), "Invalid removal path")
+        }
+        var outcome = gt_sftp_remove_result_t()
+        let context = cancellation.map { Unmanaged.passUnretained($0).toOpaque() }
+        let status = withExtendedLifetime(cancellation) {
+            parent.withCString { path in name.withCString { leaf in
+                gt_sftp_remove_controlled(handle, path, leaf, directory, expectedSize, expectedModifiedSeconds,
+                    &outcome, timeoutMilliseconds, { pointer in
+                        guard let pointer else { return false }
+                        return Unmanaged<SSHCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+                    }, context)
+            } }
+        }
+        guard let state = SFTPRemovalResult.State(rawValue: outcome.state.rawValue),
+              (status == 0) == (state == .removed || state == .absent) else {
+            throw GhostermError.status(Int32(GT_ERR_PROTOCOL.rawValue), "Uncertain removal outcome")
+        }
+        return SFTPRemovalResult(status: status, state: state, remoteStatus: outcome.remote_status)
     }
 
     /// One empty remote directory; dedicated owner only. Preserve the result on
