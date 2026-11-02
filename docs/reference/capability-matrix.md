@@ -1,8 +1,8 @@
 # 能力矩阵
 
-**当前发行（2026-11-02，`3d197c8`）**：终端在横屏键盘/大字体/短窗口下使用紧凑工具栏，极矮横屏将控件放在右侧，保留原终端与会话；文件/会话入口经更多访问。双版本布局专项、API 36 的 59 项组合和 API 29 的 15 组变异见[布局记录](android-implementation.md#9139-横屏键盘与大字体终端布局2026-11-02工作区)。底部文件任务条及旧有复制、SSH、图形和字体能力保留。
+**当前 Android 发行（2026-11-02，`8d6178d`）**：主机字段已关闭自动更正，地址使用 URI 键盘；DNS 探测兼容保留，实际签名包已验证公网 `ssh.github.com:443` 解析至 SSH 主机密钥确认，未接受信任或认证。手机 Wi-Fi/移动网络仍待用户复测。横屏终端布局见 [§9.139](android-implementation.md#9139-横屏键盘与大字体终端布局2026-11-02工作区)，输入与实际发行见 §9.140–§9.141。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,118,315 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41418475027) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41418475020) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,118,419 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41419624635) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41418475020) 成功。macOS 两份归档来源为 `3d197c8` / build 88，与 Android 共用 dev，八份平台附件名称保留。
 
 **完整回归状态**：`8e161e7` 在 API 29 / API 36、arm64 / 4 KiB 页各完成默认未筛选 905 项，零失败/错误/跳过（1,511.909 / 2,400.027 秒）；具名执行集合、实际安装 APK 与 895 份源码输入前后摘要均核验（§9.132、§9.135）。Core 49/94、release/四模块 lint、接收十三组/远端页面十四组及两组真实重建的包路径变异已有本轮证据。旧全量失败保留在 §9.128–§9.130，不借新结果抹去。两端各十个真实进程中断检查点也已通过（§9.133、§9.136）；实际签名包专项与真机/长负载/完整端点矩阵分别记账，整个客户端尚未完成。 正式包 API 29 另完成十分钟批量输出观察，源端推算约 13.58 GiB / 23.18 MiB/s、采样 PSS 55.6–56.9 MiB；计数溢出的独立核对、窗口指标与范围见 §9.138，不作为整条字节流哈希或真机性能通过。
 

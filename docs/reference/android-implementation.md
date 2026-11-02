@@ -1,8 +1,8 @@
 # Android 最终方案实现计划
 
-**当前发行（2026-11-02，`3d197c8`）**：终端在横屏键盘/大字体/短窗口下使用紧凑工具栏，极矮横屏将控件放在右侧，保留原终端与会话；文件/会话入口经更多访问。双版本布局专项、API 36 的 59 项组合和 API 29 的 15 组变异见[布局记录](android-implementation.md#9139-横屏键盘与大字体终端布局2026-11-02工作区)。底部文件任务条及旧有复制、SSH、图形和字体能力保留。
+**当前 Android 发行（2026-11-02，`8d6178d`）**：主机字段已关闭自动更正，地址使用 URI 键盘；DNS 探测兼容保留，实际签名包已验证公网 `ssh.github.com:443` 解析至 SSH 主机密钥确认，未接受信任或认证。手机 Wi-Fi/移动网络仍待用户复测。横屏终端布局见 [§9.139](android-implementation.md#9139-横屏键盘与大字体终端布局2026-11-02工作区)，输入与实际发行见 §9.140–§9.141。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,118,315 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41418475027) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41418475020) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,118,419 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41419624635) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41418475020) 成功。macOS 两份归档来源为 `3d197c8` / build 88，与 Android 共用 dev，八份平台附件名称保留。
 
 **完整回归状态**：`8e161e7` 在 API 29 / API 36、arm64 / 4 KiB 页各完成默认未筛选 905 项，零失败/错误/跳过（1,511.909 / 2,400.027 秒）；具名执行集合、实际安装 APK 与 895 份源码输入前后摘要均核验（§9.132、§9.135）。Core 49/94、release/四模块 lint、接收十三组/远端页面十四组及两组真实重建的包路径变异已有本轮证据。旧全量失败保留在 §9.128–§9.130，不借新结果抹去。两端各十个真实进程中断检查点也已通过（§9.133、§9.136）；实际签名包专项与真机/长负载/完整端点矩阵分别记账，整个客户端尚未完成。 正式包 API 29 另完成十分钟批量输出观察，源端推算约 13.58 GiB / 23.18 MiB/s、采样 PSS 55.6–56.9 MiB；计数溢出的独立核对、窗口指标与范围见 §9.138，不作为整条字节流哈希或真机性能通过。
 
@@ -3768,3 +3768,16 @@ Core 49 CTest / 94 ABI 通过（`tmp/android-layout-audit/core-gate.log`）。�
 API 36 既有 HostScreenTest 全部 **14 项通过**，69.760 秒（阶段 `1793610943378056000`）；901 份源码输入前后一致。本地固定证书签名 release 与四模块 release lint 通过（阶段 `1793610942277497000`），APK 8,119,507 字节、SHA256 `dcd316923890a2bb839fcbf9de1d6be39890c470b04c19600f9f8b9fe083a195`，来源 `3d197c8` / dirty。固定证书、非 debug/minSdk 29、压缩 arm64 SO、ZIP/ELF 16 KiB、R8 mapping 和构建机路径检查通过；这是本地包，尚不称新 clean CI 发行。
 
 同一实际签名包在 API 29 / arm64 / 4 KiB 页按真实主机编辑→保存→连接操作，`ssh.github.com` 输入及失焦后、保存前保持逐字一致；原域名和 443 端口在主机密钥页可见。公网 DNS→TCP→SSH 握手成功，ECDSA 指纹与宿主独立 `ssh-keyscan -p 443` 结果一致；随后取消连接，未接受信任、未输入凭据，不记完整认证/SFTP或用户手机 Wi-Fi/移动网络通过。安装 APK 与本地构建逐字相同。证据 `tmp/android-public-dns-release/hostkey-result.json`、真实 UI XML、输入前后日志和 `local-inspection/`。此项补足公网域名路径观察，不推断已经复现了用户手机原始的网络错误。
+
+
+### 9.141 域名输入修正的实际 dev APK 与剩余布局（2026-11-02，`8d6178d`）
+
+[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41419624635) 成功，实际下载的共用 dev APK 为 8,118,419 字节，SHA256 `21ca7782c63207adcbe56f1aeddc7e611fbbef870da1f72a2088fc67b524c52a`，来源 `8d6178d70318054601b340dede54bfea1a52f968` / clean。固定发行证书、非 debug/minSdk 29、R8/资源优化、三份压缩 arm64 SO、ELF/ZIP 16 KiB、完整 Nerd Fonts/许可及构建机路径检查通过；外部清单与包内元数据/实际字节相同，八份平台附件保留。macOS 归档仍为先前成功的 `3d197c8` / build 88，本片只改 Android 与文档，按现有路径规则没有重新触发 macOS CI。证据 `tmp/android-host-input-cloud/`。
+
+实际下载 APK 在 API 29 / arm64 / 4 KiB 页从同证书本地包覆盖安装，安装字节与下载包逐字相同。通过真实主机入口连接 `ssh.github.com:443`，确认页保留原域名并显示与宿主独立握手相同的 ECDSA 指纹；随后取消，未接受信任、未进行认证。这个结果证明此发行包的公网域名到 SSH 主机密钥路径可达，仍不等同于用户手机的 Wi-Fi/移动网络、完整认证/SFTP或全部 DNS/VPN 矩阵通过。证据 `tmp/android-public-dns-release/final-ci-hostkey-result.json` 与 `final-ci-hostkey.xml`。
+
+此前本地同源签名包另验实际大字体横屏 IME：左侧真实 ANSI 色块/网格可见，右侧返回/Ctrl/可滚动辅助键/键盘/更多可见，经更多进入文件；旋转时系统会收起键盘，测试使用真实 `wm set-user-rotation lock 1` 后再次显示 IME，未把先前仍竖屏的截图当作横屏证据。实际 shell 写入 `signed-layout-ok\n` 后由真实只读预览读取，预览实际末字节为 LF；测试文件已在原 shell 删除，退出状态 0、会话关闭，字体/旋转恢复。证据 `release-landscape-keyboard.png`、`file-proof.json` 和 `layout-cleanup.json`；不把这份 dirty 包的观察转记成 CI APK 的完整布局矩阵。
+
+**尚未修复的真实观察**：上述路径中，在横屏加系统字体比例 2 时，文件页底部任务条与顶部位置/路径占用了大部分高度，文件名只露约 2px，夹具拒绝点击被裁切条目。恢复竖屏后才完成预览；因此不能宣称该极端布局下文件浏览可用。截图 `tmp/android-public-dns-release/file-landscape-font2-clipped.png`，原始 XML/失败保留；下一片需调整短窗口任务条及文件页空间，并验证真实条目可见/打开、任务状态和原目录不丢。
+
+独立干净检出已从 `8d6178d` 启动 API 36 默认未筛选完整回归，发现 **908 项**（阶段 `1793611179272935000`），冻结 901 份非 Markdown 输入。当前仍在运行，不能借旧 `8e161e7` 的两端 905 项或本轮 59/14 项专项宣称完整通过；整个客户端目标保持未完成。
