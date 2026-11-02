@@ -66,7 +66,7 @@ class FileDestinationAccess(private val home: File, private val resolver: Conten
                 else {
                     val uri=Documents.buildDocumentUriUsingTree(tree,location.directoryId)
                     val columns=arrayOf(Document.COLUMN_DOCUMENT_ID,Document.COLUMN_MIME_TYPE,Document.COLUMN_FLAGS)
-                    checkNotNull(resolver.query(uri,columns,null,null,null,signal)) { "无法读取目标目录信息" }.use { cursor ->
+                    SafDocumentQuery.read(resolver,uri,columns,signal).use { cursor ->
                         check(cursor.moveToFirst()) { "目标目录已不存在" }
                         check(cursor.getString(0)==location.directoryId && cursor.getString(1)==Document.MIME_TYPE_DIR) { "目标身份或类型已改变" }
                         check(!cursor.isNull(2)) { "无法确认目标创建能力" }

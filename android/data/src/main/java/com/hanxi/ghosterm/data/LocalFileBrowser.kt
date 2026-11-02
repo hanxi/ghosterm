@@ -64,7 +64,7 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
         return BrowserEntry(id,name,kind,if(kind==FileKind.FILE) number(Document.COLUMN_SIZE)?.toULong() else null,number(Document.COLUMN_LAST_MODIFIED))
     }
     private fun info(uri: Uri, signal: CancellationSignal): BrowserEntry =
-        checkNotNull(resolver.query(uri,columns,null,null,null,signal)) { "无法读取文档信息" }.use {
+        SafDocumentQuery.read(resolver,uri,columns,signal).use {
             check(it.moveToFirst()) { "文档已移动或不存在" }; it.entry()
         }
     override suspend fun endpoints(): List<FileEndpoint> = io { signal, active ->
@@ -118,7 +118,7 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
             val tree=checkGrant(location.endpoint)
             check(info(document(tree,location.directoryId),signal).kind==FileKind.DIRECTORY) { "该文档不是文件夹" }
             val uri=Documents.buildChildDocumentsUriUsingTree(tree,location.directoryId)
-            checkNotNull(resolver.query(uri,columns,null,null,null,signal)) { "文件夹读取失败" }.use { cursor ->
+            SafDocumentQuery.read(resolver,uri,columns,signal).use { cursor ->
                 while(cursor.moveToNext()) add(cursor.entry())
             }
             check(entries.map { it.id }.distinct().size==entries.size) { "文件提供方返回重复文档标识" }

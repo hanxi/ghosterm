@@ -178,7 +178,7 @@ class FileDirectoryCreator(private val home: File, private val resolver: Content
         private fun info(uri: Uri): Info {
             signal.throwIfCanceled()
             val columns=arrayOf(Document.COLUMN_DOCUMENT_ID,Document.COLUMN_DISPLAY_NAME,Document.COLUMN_MIME_TYPE,Document.COLUMN_FLAGS)
-            return checkNotNull(resolver.query(uri,columns,null,null,null,signal)) { "无法读取目录信息" }.use { cursor ->
+            return SafDocumentQuery.read(resolver,uri,columns,signal).use { cursor ->
                 check(cursor.moveToFirst() && cursor.getString(0)==Documents.getDocumentId(uri)) { "目录身份不一致" }
                 check(!cursor.isNull(1) && !cursor.isNull(2) && !cursor.isNull(3)) { "目录信息不完整" }
                 val result=Info(cursor.getString(1),cursor.getString(2)==Document.MIME_TYPE_DIR,cursor.getInt(3))
@@ -189,7 +189,7 @@ class FileDirectoryCreator(private val home: File, private val resolver: Content
         private fun children(tree: Uri, id: String): Map<String,String> {
             signal.throwIfCanceled()
             val uri=Documents.buildChildDocumentsUriUsingTree(tree,id)
-            return checkNotNull(resolver.query(uri,arrayOf(Document.COLUMN_DOCUMENT_ID,Document.COLUMN_DISPLAY_NAME),null,null,null,signal)) { "无法检查目录内容" }.use { cursor ->
+            return SafDocumentQuery.read(resolver,uri,arrayOf(Document.COLUMN_DOCUMENT_ID,Document.COLUMN_DISPLAY_NAME),signal).use { cursor ->
                 val result=linkedMapOf<String,String>();val names=hashSetOf<String>();var bytes=0L
                 while(cursor.moveToNext()) {
                     signal.throwIfCanceled()

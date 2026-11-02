@@ -235,7 +235,7 @@ class SafFilePublisher(private val resolver: ContentResolver,
 
         private fun info(uri: Uri): Info {
             signal.throwIfCanceled()
-            return (resolver.query(uri, columns, null, null, null, signal) ?: error("无法读取文档信息")).use { cursor ->
+            return SafDocumentQuery.read(resolver,uri,columns,signal).use { cursor ->
                 check(cursor.moveToFirst()) { "文档信息不存在" }
                 val id = cursor.required(Document.COLUMN_DOCUMENT_ID)
                 check(id == Documents.getDocumentId(uri)) { "文档身份不一致" }
@@ -247,8 +247,7 @@ class SafFilePublisher(private val resolver: ContentResolver,
         }
         private fun children(tree: Uri, parent: String): Map<String, String> {
             val uri = Documents.buildChildDocumentsUriUsingTree(tree, parent)
-            return (resolver.query(uri, arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME), null, null, null, signal)
-                ?: error("无法检查目标目录冲突")).use { cursor ->
+            return SafDocumentQuery.read(resolver,uri,arrayOf(Document.COLUMN_DOCUMENT_ID,Document.COLUMN_DISPLAY_NAME),signal).use { cursor ->
                 val result = mutableMapOf<String, String>()
                 while (cursor.moveToNext()) {
                     signal.throwIfCanceled()

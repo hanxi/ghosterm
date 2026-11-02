@@ -129,7 +129,7 @@ class SafDirectoryTest {
         assertEquals(0,state().getInt("creates"));unchanged()
     }
     @Test fun deniedRevokedAndUnreadableTargetsNeverCreate() = runBlocking {
-        for(mode in listOf("no-create","list-fail","duplicate","too-many","directory-metadata")) {
+        for(mode in listOf("no-create","list-fail","duplicate","too-many","directory-metadata","query-children-error","query-metadata-error")) {
             reset(mode);val result=request().execute()
             assertEquals(mode,State.NOT_ATTEMPTED,result.state);assertNotNull(result.error);assertEquals(0,state().getInt("creates"))
         }

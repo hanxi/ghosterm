@@ -146,8 +146,10 @@ class SafPublicationTest {
         assertArrayEquals("original".toByteArray(),state().getByteArray("keep"))
         reset("no-create")
         assertEquals(FilePasteCheckFailureKind.READ_ONLY,service.check(scanned).failure?.kind)
-        reset("list-fail")
-        assertEquals(FilePasteCheckFailureKind.TARGET_READ,service.check(scanned).failure?.kind)
+        for(mode in listOf("list-fail","query-children-error","query-metadata-error")) {
+            reset(mode)
+            assertEquals(mode,FilePasteCheckFailureKind.TARGET_READ,service.check(scanned).failure?.kind)
+        }
         reset("normal")
         resolver.releasePersistableUriPermission(Uri.parse(location.endpoint.treeUri),Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         assertEquals(FilePasteCheckFailureKind.READ_ONLY,service.check(scanned).failure?.kind)
@@ -261,7 +263,7 @@ class SafPublicationTest {
         assertEquals(0,state().getInt("creates"));preserved()
     }
     @Test fun unsupportedDirectoryAndFailedOrDuplicateListingDoNotCreate() = runBlocking {
-        snapshot("new".toByteArray()).use { frozen -> for(mode in listOf("no-create","list-fail","duplicate","too-many")) {
+        snapshot("new".toByteArray()).use { frozen -> for(mode in listOf("no-create","list-fail","duplicate","too-many","query-children-error","query-metadata-error")) {
             reset(mode);val result=request().execute(frozen)
             assertEquals(mode,State.NOT_ATTEMPTED,result.state);assertNotNull(result.error);assertEquals(0,state().getInt("creates"))
         } };preserved()
@@ -440,7 +442,7 @@ class SafPublicationTest {
         }
     }
     @Test fun cleanupRequiresCurrentWriteGrantDeleteCapabilityAndKnownMetadata()=runBlocking<Unit> {
-        for(mode in listOf("cleanup-no-delete","cleanup-missing-time")) {
+        for(mode in listOf("cleanup-no-delete","cleanup-missing-time","cleanup-query-error","cleanup-query-loading")) {
             reset(mode)
             val parent=DocumentsContract.buildDocumentUriUsingTree(Uri.parse(location.endpoint.treeUri),location.directoryId)
             val document=checkNotNull(DocumentsContract.createDocument(resolver,parent,"text/plain","preserve-${UUID.randomUUID()}"))

@@ -3,6 +3,8 @@ package com.hanxi.ghosterm;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.os.CancellationSignal;
+import android.os.Bundle;
+import android.provider.DocumentsContract;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract.Document;
 import android.provider.DocumentsContract.Root;
@@ -18,6 +20,19 @@ import java.util.Map;
 /** Read-only tree in the test APK. IDs deliberately differ from display names and filesystem paths. */
 public final class FilesDocumentsProvider extends DocumentsProvider {
     private File directory;
+    private volatile String listingMode="ready";
+    private final java.util.concurrent.atomic.AtomicInteger pendingQueries=new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicInteger pendingClosed=new java.util.concurrent.atomic.AtomicInteger();
+    @Override public Bundle call(String method,String arg,Bundle extras) {
+        Bundle result=new Bundle();
+        if(method.equals("listing-mode")) { listingMode=arg;pendingQueries.set(0);pendingClosed.set(0); }
+        else if(method.equals("listing-ready")) {
+            listingMode="ready";
+            getContext().getContentResolver().notifyChange(DocumentsContract.buildChildDocumentsUri(
+                "com.hanxi.ghosterm.test.browser","opaque:folder"),null);
+        } else if(!method.equals("listing-counts")) return super.call(method,arg,extras);
+        result.putInt("queries",pendingQueries.get());result.putInt("closed",pendingClosed.get());return result;
+    }
     private final java.util.concurrent.atomic.AtomicInteger slowStreams=new java.util.concurrent.atomic.AtomicInteger();
     private final java.util.concurrent.atomic.AtomicInteger slowNaturalEnds=new java.util.concurrent.atomic.AtomicInteger();
     @Override public boolean onCreate() {
@@ -62,9 +77,30 @@ public final class FilesDocumentsProvider extends DocumentsProvider {
         values.put(Document.COLUMN_LAST_MODIFIED,null);values.put(Document.COLUMN_SUMMARY,"active="+slowStreams.get()+";natural="+slowNaturalEnds.get());row(cursor,values);
     }
     @Override public Cursor queryDocument(String id,String[] projection) throws FileNotFoundException {
-        MatrixCursor cursor=cursor(projection);document(cursor,id);return cursor;
+        MatrixCursor cursor=cursor(projection);document(cursor,id);
+        if(id.equals("opaque:folder") && listingMode.equals("error-metadata")) {
+            Bundle extras=new Bundle();extras.putString(DocumentsContract.EXTRA_ERROR,"Fixture cloud offline");cursor.setExtras(extras);
+        }
+        return cursor;
     }
     @Override public Cursor queryChildDocuments(String parent,String[] projection,String sort) throws FileNotFoundException {
+        if(parent.equals("opaque:folder") && !listingMode.equals("ready") && !listingMode.equals("error-metadata")) {
+            pendingQueries.incrementAndGet();
+            MatrixCursor pending=new MatrixCursor(projection!=null?projection:new String[]{Document.COLUMN_DOCUMENT_ID,
+                Document.COLUMN_DISPLAY_NAME,Document.COLUMN_MIME_TYPE,Document.COLUMN_FLAGS,Document.COLUMN_SIZE,Document.COLUMN_LAST_MODIFIED}) {
+                @Override public void close() { if(!isClosed()) pendingClosed.incrementAndGet();super.close(); }
+            };
+            Bundle extras=new Bundle();
+            if(listingMode.equals("error-bad-type")) extras.putInt(DocumentsContract.EXTRA_ERROR,7);
+            else if(listingMode.equals("loading-bad-type")) extras.putString(DocumentsContract.EXTRA_LOADING,"unknown");
+            else if(listingMode.startsWith("error")) extras.putString(DocumentsContract.EXTRA_ERROR,"Fixture cloud offline");
+            else extras.putBoolean(DocumentsContract.EXTRA_LOADING,true);
+            if(listingMode.endsWith("partial")) document(pending,"opaque:child");
+            pending.setExtras(extras);
+            pending.setNotificationUri(getContext().getContentResolver(),DocumentsContract.buildChildDocumentsUri(
+                "com.hanxi.ghosterm.test.browser",parent));
+            return pending;
+        }
         MatrixCursor cursor=cursor(projection);
         if(parent.equals("opaque:denied")) throw new FileNotFoundException("Fixture directory denied");
         if(parent.equals("tree:root")) for(String id:new String[]{"opaque:folder","opaque:empty","opaque:denied","opaque:note","opaque:large","opaque:slow"}) document(cursor,id);

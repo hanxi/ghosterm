@@ -308,6 +308,10 @@ def main():
                     spec=importlib.util.spec_from_file_location('remote_entry_mutations',ROOT/'scripts/mutation-check-android-remote-entry.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_SAF_QUERY_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('saf_query_mutations',ROOT/'scripts/mutation-check-android-saf-query.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_CONFIG_INPUT_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('config_input_mutations',ROOT/'scripts/mutation-check-android-config-input.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

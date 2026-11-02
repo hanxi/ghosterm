@@ -79,7 +79,15 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
     }
     @Override public Cursor queryDocument(String id,String[] projection) throws FileNotFoundException {
         if(mode.equals("metadata-stall")) { active.incrementAndGet();try { waitGate(); } finally { active.decrementAndGet(); } }
-        MatrixCursor c=cursor(projection);document(c,id);return c;
+        MatrixCursor c=cursor(projection);document(c,id);
+        if(mode.equals("query-metadata-error") && projection!=null && java.util.Arrays.asList(projection).contains(Document.COLUMN_FLAGS) ||
+            mode.startsWith("cleanup-query-") && projection!=null && projection.length==2) {
+            Bundle extras=new Bundle();
+            if(mode.equals("cleanup-query-loading")) extras.putBoolean(android.provider.DocumentsContract.EXTRA_LOADING,true);
+            else extras.putString(android.provider.DocumentsContract.EXTRA_ERROR,"Fixture cloud metadata unavailable");
+            c.setExtras(extras);
+        }
+        return c;
     }
     @Override public Cursor queryChildDocuments(String parent,String[] projection,String sort) throws FileNotFoundException {
         if(mode.equals("list-stall")) { active.incrementAndGet();try { waitGate(); } finally { active.decrementAndGet(); } }
@@ -87,6 +95,9 @@ public final class PublicationDocumentsProvider extends DocumentsProvider {
         MatrixCursor c=cursor(projection);
         if(parent.equals("pub:root"))document(c,"pub:folder");
         for(Entry e:entries.values())if(e.parent.equals(parent))document(c,e.id);
+        if(mode.equals("query-children-error")) {
+            Bundle extras=new Bundle();extras.putString(android.provider.DocumentsContract.EXTRA_ERROR,"Fixture cloud directory unavailable");c.setExtras(extras);
+        }
         if(mode.equals("duplicate"))document(c,"opaque:keep");
         if(mode.equals("too-many"))for(int i=0;i<4097;i++) {
             Map<String,Object> v=new HashMap<>();v.put(Document.COLUMN_DOCUMENT_ID,"extra:"+i);v.put(Document.COLUMN_DISPLAY_NAME,"extra-"+i);row(c,v);

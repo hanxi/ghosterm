@@ -57,7 +57,9 @@ class FileResidualCleanup(private val home:File,private val resolver:ContentReso
             Documents.isChildDocument(resolver,directory,target)) { "文档不在已授权的目标目录内" }
         check(entry.kind==FileKind.FILE) { "提供方没有非递归删除空目录接口，请在系统文件管理器中整理该目录" }
         resolver.query(target,arrayOf(Document.COLUMN_DOCUMENT_ID,Document.COLUMN_FLAGS),null,null,null).use { cursor ->
-            check(cursor!=null && cursor.moveToFirst() && cursor.getString(0)==entry.id &&
+            checkNotNull(cursor) { "无法核对清理目标" }
+            SafDocumentQuery.requireComplete(cursor)
+            check(cursor.moveToFirst() && cursor.getString(0)==entry.id &&
                 cursor.getInt(1) and Document.FLAG_SUPPORTS_DELETE!=0 && !cursor.moveToNext()) { "提供方不支持删除这个文档" }
         }
         return target

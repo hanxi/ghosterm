@@ -36,8 +36,9 @@ class FilesSafTest {
     private val resolver get()=instrumentation.targetContext.contentResolver
     private fun model()=ViewModelProvider(ui.activity)[FilesViewModel::class.java]
     private fun <T> main(block:()->T):T=ui.runOnIdle(block)
-    @Before fun setup() { revoke();ui.onNodeWithText("本机文件").performClick();await { !model().loading } }
+    @Before fun setup() { listingMode("ready");revoke();ui.onNodeWithText("本机文件").performClick();await { !model().loading } }
     @After fun cleanup() {
+        listingMode("ready")
         main { model().requestClipboardClear();model().confirmClipboardClear();model().leave() }
         revoke()
     }
@@ -77,6 +78,73 @@ class FilesSafTest {
         await { !model().loading && model().location.endpoint.treeUri!=null && !model().choosingLocation }
         assertNull(main { model().error })
         ui.onNodeWithTag("file-entry:notes.txt").assertIsDisplayed()
+    }
+    private val fixtureUri get() = resolver.persistedUriPermissions.first {
+        it.uri.authority=="com.hanxi.ghosterm.test.browser"
+    }.uri
+    private fun listingMode(mode: String) {
+        if(mode=="ready" && resolver.persistedUriPermissions.none { it.uri.authority=="com.hanxi.ghosterm.test.browser" }) return
+        resolver.call(fixtureUri,"listing-mode",mode,null)
+    }
+    private fun pendingCounts() = checkNotNull(resolver.call(fixtureUri,"listing-counts",null,null))
+    private fun openPendingFolder(mode: String) {
+        grant();listingMode(mode)
+        ui.onNodeWithTag("file-entry:Folder").performClick()
+        val end=SystemClock.elapsedRealtime()+5000
+        while(pendingCounts().getInt("queries")==0 && SystemClock.elapsedRealtime()<end) SystemClock.sleep(20)
+        assertTrue("Fixture directory query must start",pendingCounts().getInt("queries")>0)
+    }
+    @Test fun loadingDirectoryWaitsForNotificationWithoutPublishingEmptyOrPartialRows() {
+        openPendingFolder("loading-partial")
+        assertTrue("Pending provider rows must not complete the listing",main { model().loading })
+        ui.onNodeWithTag("file-list-empty").assertDoesNotExist()
+        ui.onNodeWithTag("file-entry:你好.txt").assertDoesNotExist()
+        resolver.call(fixtureUri,"listing-ready",null,null)
+        await { !model().loading }
+        assertNull(main { model().error })
+        ui.onNodeWithTag("file-entry:你好.txt").assertIsDisplayed()
+        val counts=pendingCounts()
+        assertEquals("Loading cursor must be closed after completion",counts.getInt("queries"),counts.getInt("closed"))
+    }
+    @Test fun providerCursorErrorsRejectBothEmptyAndPartialResults() {
+        grant()
+        for(mode in listOf("error-empty","error-partial","error-metadata")) {
+            if(main { model().location.directoryId }!="tree:root") {
+                listingMode("ready");main { model().back() };await { !model().loading }
+            }
+            listingMode(mode);ui.onNodeWithTag("file-entry:Folder").performClick();await { !model().loading }
+            ui.onNodeWithTag("file-list-error").assertTextContains("Fixture cloud offline",substring=true)
+            ui.onNodeWithTag("file-list-empty").assertDoesNotExist()
+            ui.onNodeWithTag("file-entry:你好.txt").assertDoesNotExist()
+            assertEquals("Errored cursor must close",pendingCounts().getInt("queries"),pendingCounts().getInt("closed"))
+        }
+    }
+    @Test fun providerMalformedCursorStatesAreErrors() {
+        grant()
+        for((mode,message) in listOf("error-bad-type" to "无效错误状态","loading-bad-type" to "无效加载状态")) {
+            if(main { model().location.directoryId }!="tree:root") { listingMode("ready");main { model().back() };await { !model().loading } }
+            listingMode(mode);ui.onNodeWithTag("file-entry:Folder").performClick();await { !model().loading }
+            ui.onNodeWithTag("file-list-error").assertTextContains(message,substring=true)
+            ui.onNodeWithTag("file-list-empty").assertDoesNotExist()
+            assertEquals("Malformed cursor must close",pendingCounts().getInt("queries"),pendingCounts().getInt("closed"))
+        }
+    }
+    @Test fun leavingPendingProviderCancelsWaitAndClosesItsCursor() {
+        openPendingFolder("loading-empty")
+        assertTrue("Loading cursor must keep operation pending",main { model().loading })
+        main { model().leave() }
+        val end=SystemClock.elapsedRealtime()+3000
+        while(pendingCounts().getInt("closed")<pendingCounts().getInt("queries") && SystemClock.elapsedRealtime()<end) SystemClock.sleep(20)
+        assertEquals("Cancelled provider cursor must close promptly",pendingCounts().getInt("queries"),pendingCounts().getInt("closed"))
+    }
+    @Test fun stuckProviderTimesOutAsErrorInsteadOfEmptySuccess() {
+        openPendingFolder("loading-empty")
+        val end=SystemClock.elapsedRealtime()+35000
+        while(main { model().loading } && SystemClock.elapsedRealtime()<end) SystemClock.sleep(50)
+        assertFalse("Provider loading must have a bounded wait",main { model().loading })
+        ui.onNodeWithTag("file-list-error").assertTextContains("文件提供方加载超时",substring=true)
+        ui.onNodeWithTag("file-list-empty").assertDoesNotExist()
+        assertEquals("Timed-out provider cursor must close",pendingCounts().getInt("queries"),pendingCounts().getInt("closed"))
     }
     @Test fun realTreeGrantReadsOpaqueIdsSurvivesRotationAndDetectsRevocation() {
         grant();val owner=main { model() };val endpoint=main { owner.location.endpoint }
