@@ -202,6 +202,10 @@ def main():
                     spec=importlib.util.spec_from_file_location('dns_mutations',ROOT/'scripts/mutation-check-android-dns.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_TERMINAL_LAYOUT_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('terminal_layout_mutations',ROOT/'scripts/mutation-check-android-terminal-layout.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILE_JOURNAL_REMOTE_CRASH')=='1' or os.environ.get('ANDROID_FILE_JOURNAL_REMOTE_MUTATE')=='1':
                     import contextlib,io
                     spec=importlib.util.spec_from_file_location('journal_crash',ROOT/'scripts/test-android-file-journal-crash.py')
