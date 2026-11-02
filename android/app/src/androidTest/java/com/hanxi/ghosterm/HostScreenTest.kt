@@ -317,7 +317,13 @@ class HostScreenTest {
         load(original)
         ui.onNodeWithText("编辑").performClick()
         ui.onNodeWithContentDescription("远端用户名使用继承值").performScrollTo().performClick()
-        ui.onNodeWithText("远端用户名").performScrollTo().performTextReplacement("bad user")
+        ui.onNodeWithText("远端用户名").performScrollTo().performClick()
+        ui.waitUntil(10_000) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("dumpsys input_method").use {
+                java.io.FileInputStream(it.fileDescriptor).bufferedReader().use { reader -> "mInputShown=true" in reader.readText() }
+            }
+        }
+        ui.onNodeWithText("远端用户名").performTextReplacement("bad user")
         ui.onNodeWithText("保存").performClick()
         ui.waitUntil(10_000) { !model.busy }
         assertEquals("Invalid field must keep the editing page", Page.EDIT_HOST, model.page)

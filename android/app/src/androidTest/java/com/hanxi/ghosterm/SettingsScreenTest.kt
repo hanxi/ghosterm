@@ -132,7 +132,9 @@ class SettingsScreenTest {
     }
 
     private fun systemNight(command: String = ""): String =
-        instrumentation.uiAutomation.executeShellCommand("cmd uimode night" + if (command.isEmpty()) "" else " $command").use {
+        instrumentation.uiAutomation.executeShellCommand(
+            (if(command.isNotEmpty() && InstrumentationRegistry.getArguments().getString("privilegedNightMode")=="true") "su 0 " else "")+
+                "cmd uimode night" + if (command.isEmpty()) "" else " $command").use {
             java.io.FileInputStream(it.fileDescriptor).bufferedReader().use { reader -> reader.readText().trim() }
         }
 
@@ -142,9 +144,9 @@ class SettingsScreenTest {
         section(SettingsSection.APPEARANCE)
         choose(PreferenceKey.APPEARANCE, "system")
         try {
-            systemNight("yes")
+            assertEquals("Fixture: system night setting did not apply", "Night mode: yes", systemNight("yes"))
             assertApplicationAppearance(true)
-            systemNight("no")
+            assertEquals("Fixture: system day setting did not apply", "Night mode: no", systemNight("no"))
             assertApplicationAppearance(false)
         } finally {
             systemNight(initial)

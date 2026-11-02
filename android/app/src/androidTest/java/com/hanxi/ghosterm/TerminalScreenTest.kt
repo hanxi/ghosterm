@@ -53,7 +53,7 @@ class TerminalScreenTest {
         ui.onNodeWithText("本地终端").performClick()
         ui.waitUntil(10_000) { ui.runOnIdle { sessions.active?.state?.connected == true } }
         ui.waitUntil(10_000) { viewOrNull()?.currentFrame != null }
-        ui.runOnIdle { terminal().commitText("stty -echo; PS1=''; printf '\\033[2J\\033[HUI_SHELL_READY'\r") }
+        ui.runOnIdle { terminal().commitText(NativePtyFixture.initialize()+"stty -echo; PS1=''; printf '\\033[2J\\033[HUI_SHELL_READY'\r") }
         ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "UI_SHELL_READY" }
 
     }
@@ -436,7 +436,7 @@ class TerminalScreenTest {
     }
 
     @Test fun imeEnterAndEditorActionAcceptPendingTextBeforeTheReturn() {
-        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hIME_ENTER_READY\\r\\n'; dd bs=1 count=14 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_ENTER_DONE\\r\\n'\r")
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?2004hIME_ENTER_READY\\r\\n'; dd bs=1 count=21 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nIME_ENTER_DONE\\r\\n'\r")
         waitFor("IME_ENTER_READY")
         ui.runOnIdle {
             val view = terminal(); val connection = view.onCreateInputConnection(EditorInfo())
@@ -449,10 +449,15 @@ class TerminalScreenTest {
             assertTrue(connection.performEditorAction(EditorInfo.IME_ACTION_DONE))
             assertEquals("editor action accepts composition before Return", "", view.composition)
             assertTrue(connection.finishComposingText())
+            assertTrue(connection.setComposingText("硬键", 1))
+            assertTrue(view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)))
+            assertTrue(view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)))
+            assertEquals("physical Return accepts preedit before the key", "", view.composition)
+            assertTrue(connection.finishComposingText())
         }
         waitFor("IME_ENTER_DONE")
         assertTrue("IME acceptance must precede each Return without duplication: ${text()}",
-            text().replace(Regex("\\s+"), "").contains("e88d89e7a8bf0de4b8ade696870d"))
+            text().replace(Regex("\\s+"), "").contains("e88d89e7a8bf0de4b8ade696870de7a1ace994ae0d"))
     }
 
     @Test fun imeLineFeedAcceptsPendingCompositionBeforeReturn() {
@@ -555,13 +560,40 @@ class TerminalScreenTest {
                 for (i in 0 until node.childCount) visit(node.getChild(i))
             }
             automation.windows.forEach { visit(it.root) }
-            labels = nodes.map { "${it.text}/${it.contentDescription}" }
-            nodes.firstOrNull { it.isVisibleToUser && (it.text?.toString() == label || it.contentDescription?.toString() == label) }?.let { match ->
+            labels = nodes.map { node ->
+                val bounds=android.graphics.Rect();node.getBoundsInScreen(bounds)
+                "${node.text}/${node.contentDescription} visible=${node.isVisibleToUser} enabled=${node.isEnabled} clickable=${node.isClickable} bounds=$bounds"
+            }
+            nodes.firstOrNull { node ->
+                val named=node.text?.toString()==label || node.contentDescription?.toString()==label
+                val bounds=android.graphics.Rect();node.getBoundsInScreen(bounds)
+                val screen=ui.activity.resources.displayMetrics
+                // Android 10's floating toolbar can draw an action while its
+                // accessibility node incorrectly reports visible=false.
+                val legacy=android.os.Build.VERSION.SDK_INT<=29 && node.isEnabled && node.isClickable &&
+                    node.packageName?.toString()==ui.activity.packageName && !bounds.isEmpty &&
+                    bounds.left>=0 && bounds.top>=0 && bounds.right<=screen.widthPixels && bounds.bottom<=screen.heightPixels
+                named && (node.isVisibleToUser || legacy)
+            }?.let { match ->
                 if (!click) return
                 var node: android.view.accessibility.AccessibilityNodeInfo? = match
                 while (node != null) {
-                    if (node.isClickable && node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)) return
+                    if (node.isEnabled && node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)) return
                     node = node.parent
+                }
+                if(android.os.Build.VERSION.SDK_INT<=29 && match.isEnabled) {
+                    // Exercise the actual bounded touch target when the old
+                    // floating toolbar cannot dispatch an accessibility click.
+                    val bounds=android.graphics.Rect();match.getBoundsInScreen(bounds)
+                    if(!bounds.isEmpty) {
+                        val now=android.os.SystemClock.uptimeMillis()
+                        fun touch(action:Int):Boolean {
+                            val event=android.view.MotionEvent.obtain(now,android.os.SystemClock.uptimeMillis(),action,bounds.exactCenterX(),bounds.exactCenterY(),0)
+                            event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
+                            return try { automation.injectInputEvent(event,true) } finally { event.recycle() }
+                        }
+                        if(touch(android.view.MotionEvent.ACTION_DOWN) && touch(android.view.MotionEvent.ACTION_UP)) return
+                    }
                 }
             }
             android.os.SystemClock.sleep(50)
@@ -573,6 +605,14 @@ class TerminalScreenTest {
                 val field = view.javaClass.getDeclaredField(name).apply { isAccessible = true }
                 "$name=${field.get(view)}"
             }
+        }
+        ui.runOnIdle {
+            val view=terminal();val visible=android.graphics.Rect();view.getGlobalVisibleRect(visible)
+            val handles=view.javaClass.getDeclaredMethod("selectionHandles").apply { isAccessible=true }.invoke(view)
+            diagnostic+=" visible=$visible handles=$handles touch=${view.isInTouchMode}"
+        }
+        automation.takeScreenshot()?.let { image ->
+            java.io.File(ui.activity.cacheDir,"terminal-text-action-failed.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG,100,it) };image.recycle()
         }
         fail("System text action $label missing ($diagnostic): $labels")
     }
@@ -726,7 +766,7 @@ class TerminalScreenTest {
             byteArrayOf(28, 29, 30, 31, 127, 0, 27, 28, 29, 30, 31, 127, 0)
         captureKeys("\\033[?2004h", controls + "K中文😀ab/".toByteArray(Charsets.UTF_8)) {
             ui.onNodeWithText("Ctrl").performClick()
-            ui.onNodeWithText("/").performClick()
+            ui.onNodeWithText("/").performScrollTo().performClick()
             ui.onNodeWithText("Ctrl").assertIsDisplayed()
             lockCtrlMode()
             ui.onNodeWithText("Ctrl").performClick()
@@ -738,7 +778,7 @@ class TerminalScreenTest {
             }
             ui.onNodeWithText("Ctrl 锁定").assertIsDisplayed()
             ui.onNodeWithText("Ctrl 锁定").performClick()
-            ui.onNodeWithText("/").performClick()
+            ui.onNodeWithText("/").performScrollTo().performClick()
         }
     }
 
@@ -746,7 +786,7 @@ class TerminalScreenTest {
         listOf("\\033[>1u" to "\u001b[47;5u", "\\033[>4;2m" to "\u001b[27;5;47~").forEach { (mode, encoded) ->
             captureKeys(mode, encoded.toByteArray(Charsets.UTF_8)) {
                 ui.onNodeWithText("Ctrl").performClick()
-                ui.onNodeWithText("/").performClick()
+                ui.onNodeWithText("/").performScrollTo().performClick()
                 ui.onNodeWithText("Ctrl").assertIsDisplayed()
             }
         }
@@ -855,9 +895,9 @@ class TerminalScreenTest {
     @Test fun auxiliaryAndImeKeyTapsIncludeReleaseWhenRequested() {
         val expected = "\u001b[9u\u001b[9;1:3u\u001b[13u\u001b[13;1:3u\u001b[47;5u\u001b[47;5:3uEND"
         captureKeys("\\033[>11u", expected.toByteArray(Charsets.UTF_8)) {
-            ui.onNodeWithText("Tab").performClick()
+            ui.onNodeWithText("Tab").performScrollTo().performClick()
             ui.runOnIdle { assertTrue(terminal().onCreateInputConnection(EditorInfo()).performEditorAction(EditorInfo.IME_ACTION_NONE)) }
-            ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("/").performClick()
+            ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("/").performScrollTo().performClick()
             ui.runOnIdle { assertTrue(terminal().commitText("END")) }
         }
     }
@@ -977,9 +1017,9 @@ class TerminalScreenTest {
     @Test fun auxiliaryKeysResolvePendingDeadCompositionBeforeSending() {
         captureKeys("", "´\teEND".toByteArray()) {
             ui.runOnIdle { deadAcute() }
-            ui.onNodeWithText("Esc").performClick()
+            ui.onNodeWithText("Esc").performScrollTo().performClick()
             ui.runOnIdle { assertEquals("", terminal().composition); deadAcute() }
-            ui.onNodeWithText("Tab").performClick()
+            ui.onNodeWithText("Tab").performScrollTo().performClick()
             ui.runOnIdle {
                 assertEquals("", terminal().composition)
                 val ime = terminal().onCreateInputConnection(EditorInfo())

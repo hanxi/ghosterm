@@ -115,6 +115,7 @@ class TerminalPreferencesTest {
         checkNotNull(find(ui.activity.window.decorView))
     }
     private fun bitmap(view: TerminalView, blink: Boolean = false): Bitmap = main {
+        instrumentation.setInTouchMode(false)
         view.requestFocus()
         TerminalView::class.java.getDeclaredField("blink").apply { isAccessible = true }.setBoolean(view, blink)
         Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888).also { view.draw(Canvas(it)) }

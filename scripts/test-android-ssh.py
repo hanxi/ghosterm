@@ -41,6 +41,17 @@ def main():
     if len(sys.argv)!=6: raise SystemExit('Use test-android-ssh.sh with the isolated sshd fixture')
     host,port,user,key,work=sys.argv[1:]
     serial=os.environ['ANDROID_SERIAL'];adb=['adb','-s',serial]
+    night_class='com.hanxi.ghosterm.SettingsScreenTest'
+    night_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_PTY_FIXTURE_MUTATE')=='1' or
+                 any(value in (night_class,night_class+'#systemAppearanceTracksAndroidNightModeInBothDirections')
+                     for value in os.environ.get('ANDROID_SSH_TEST_CLASS','').split(',')))
+    privileged_night=False
+    shell_can_set_night=(night_tests and 'android.permission.MODIFY_DAY_NIGHT_MODE: granted=true' in
+                         run([*adb,'shell','dumpsys','package','com.android.shell']))
+    if night_tests and not shell_can_set_night and 'mNightModeLocked=true' in run([*adb,'shell','dumpsys','uimode']):
+        if run([*adb,'shell','su','0','id','-u']).strip()!='0':
+            raise RuntimeError('Locked night-mode fixture requires privileged system setting access')
+        privileged_night=True
     network_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_NETWORK_MUTATE')=='1' or os.environ.get('ANDROID_SSH_DNS_MUTATE')=='1' or
                    any(name in os.environ.get('ANDROID_SSH_TEST_CLASS','') for name in ('SSHNetworkTest','SSHDnsWireTest')))
     rule_prefix='ghosterm-network-'+secrets.token_hex(8)
@@ -131,11 +142,11 @@ def main():
                 def test(label,selection,green):
                     args=[*adb,'shell','am','instrument','-w','-r','-e','fixturePort',str(fixture_port),'-e','fixtureToken',token,'-e','networkRulePrefix',rule_prefix]
                     if selection: args+=['-e','class',selection]
-                    # The 626-test aggregate completed 563 named tests with no
-                    # failure events before the old 1800 s host budget expired.
-                    # Its measured rate projects ~2001 s; allow ~20% aggregate
-                    # headroom (2400 s). Individual operation/timing assertions
-                    # and directed/mutation 600 s bounds remain unchanged.
+                    if privileged_night:args+=['-e','privilegedNightMode','true']
+                    # The 900-test API 36 run completed 878 named tests without
+                    # failures before 2400 s expired. Its rate projects 2460 s;
+                    # 3000 s supplies ~20% aggregate headroom. Directed test and
+                    # individual operation bounds remain unchanged.
                     import contextlib
                     access=contextlib.nullcontext()
                     if selection is None or 'FileForegroundServiceTest' in selection:
@@ -144,7 +155,7 @@ def main():
                         access=foreground_module.notification_access(adb,run)
                     with access:
                         output=run([*args,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],
-                                   seconds=2400 if selection is None else 600)
+                                   seconds=3000 if selection is None else 600)
                     (logs/(label+'.log')).write_text(output)
                     if green:
                         good='OK (' in output and 'FAILURES' not in output and 'INSTRUMENTATION_FAILED' not in output
@@ -248,6 +259,10 @@ def main():
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_MKDIR_DATA_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('mkdir_data_mutations',ROOT/'scripts/mutation-check-android-mkdir-data.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
+                if os.environ.get('ANDROID_PTY_FIXTURE_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('pty_fixture_mutations',ROOT/'scripts/mutation-check-android-pty-fixture.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
                     module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILE_ARCHIVE_MUTATE')=='1':

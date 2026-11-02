@@ -5,6 +5,8 @@ import android.content.Intent
 import android.app.Activity
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.hanxi.ghosterm.domain.AppAppearance
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -62,6 +64,8 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel(), settings: SettingsViewModel = viewModel(), about: AboutViewModel = viewModel(), tmux: TmuxViewModel = viewModel()) {
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val applied by settings.settings.state.collectAsState()
     val runtime by runtimeModel.state.collectAsState()
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) hosts.readImport(uri) }
@@ -149,7 +153,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                         TextButton(onClick=fileTasks::show) { Text("任务") }
                         TextButton(onClick = hosts::settings, enabled = !hosts.busy) { Text("设置") }
                     }
-                    Page.EDIT_HOST -> TextButton(onClick = hosts::saveHost, enabled = !hosts.busy && hosts.canEditDraft) { Text("保存") }
+                    Page.EDIT_HOST -> TextButton(onClick = { focus.clearFocus(); keyboard?.hide(); hosts.saveHost() }, enabled = !hosts.busy && hosts.canEditDraft) { Text("保存") }
                     Page.CONFIG -> TextButton(onClick = hosts::saveConfig, enabled = !hosts.busy && hosts.snapshot != null && hosts.dirty) { Text("保存") }
                     else -> Unit
                 }

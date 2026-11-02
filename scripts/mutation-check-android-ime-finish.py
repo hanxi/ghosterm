@@ -38,7 +38,7 @@ def main():
         (accepted, 'if (!finalized && accepted.isNotEmpty()) Unit', finish),
         (accepted, 'if (!finalized && accepted.isNotEmpty() && !this@TerminalView.commitText("\\u001b[200~" + accepted + "\\u001b[201~")) return false', finish),
         ('fun cancel() { valid = false;', 'fun cancel() { this@TerminalView.commitText(pending.toString()); valid = false;', finish),
-        ('if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER && !acceptForReturn()) return false', 'Unit', enter),
+        ('if (code == KeyEvent.KEYCODE_ENTER && composition.isNotEmpty() && connection?.acceptForReturn() == false) return false', 'Unit', enter),
         ('override fun performEditorAction(action: Int): Boolean = valid && acceptForReturn() && sendKey(KeyEvent.KEYCODE_ENTER)',
          'override fun performEditorAction(action: Int): Boolean = valid && sendKey(KeyEvent.KEYCODE_ENTER)', enter),
         ('override fun finishComposingText(): Boolean {\n            if (!valid) return false',

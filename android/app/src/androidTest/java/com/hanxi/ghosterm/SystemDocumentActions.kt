@@ -31,14 +31,19 @@ internal fun tapLegacyDocumentRow(instrumentation: Instrumentation, node: Access
     catch(_:java.util.concurrent.TimeoutException) { return false }
     if(!node.refresh() || !node.isEnabled || !node.isVisibleToUser ||
         node.text?.toString()!=text || node.contentDescription?.toString()!=description) return false
+    val original=Rect();node.getBoundsInScreen(original)
+    SystemClock.sleep(100)
+    if(!node.refresh() || node.text?.toString()!=text || node.contentDescription?.toString()!=description) return false
     val bounds=Rect();node.getBoundsInScreen(bounds)
+    if(bounds!=original) return false
     var ancestor=node.parent
     while(ancestor!=null) {
         val clip=Rect();ancestor.getBoundsInScreen(clip)
         if(!bounds.intersect(clip)) return false
         ancestor=ancestor.parent
     }
-    if(bounds.isEmpty) return false
+    val minimum=(16*instrumentation.targetContext.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+    if(bounds.isEmpty || bounds.height()<minOf(original.height(),minimum) || bounds.width()<minOf(original.width(),minimum)) return false
     val start=SystemClock.uptimeMillis()
     fun inject(action:Int):Boolean {
         val event=MotionEvent.obtain(start,SystemClock.uptimeMillis(),action,bounds.exactCenterX(),bounds.exactCenterY(),0)

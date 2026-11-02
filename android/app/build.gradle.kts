@@ -91,3 +91,30 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+// This is a child executable for instrumentation tests, packaged only in the
+// test APK. The release application has no terminal test binary or hook.
+val testPtyLibraries = layout.buildDirectory.dir("generated/test-pty/jniLibs")
+val buildTestPty = tasks.register<Exec>("buildTestPty") {
+    val source = layout.projectDirectory.file("src/androidTest/cpp/pty_fixture.c")
+    val output = testPtyLibraries.map { it.file("arm64-v8a/libghosterm_test_pty.so") }
+    inputs.file(source)
+    inputs.property("ndkVersion", requireNotNull(android.ndkVersion))
+    outputs.file(output)
+    doFirst {
+        val host = when {
+            System.getProperty("os.name").startsWith("Mac") -> "darwin-x86_64"
+            System.getProperty("os.name").startsWith("Linux") -> "linux-x86_64"
+            else -> error("Unsupported host for instrumentation PTY executable")
+        }
+        val compiler = android.sdkDirectory.resolve("ndk/${android.ndkVersion}/toolchains/llvm/prebuilt/$host/bin/aarch64-linux-android29-clang")
+        check(compiler.isFile) { "Missing pinned Android compiler: $compiler" }
+        val temporary = rootProject.projectDir.parentFile.resolve("tmp/android-test-pty").apply { mkdirs() }
+        val binary = output.get().asFile.apply { parentFile.mkdirs() }
+        environment("TMPDIR", temporary.absolutePath)
+        commandLine(compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", "-fPIE", "-pie",
+            "-Wl,-z,max-page-size=16384", source.asFile, "-o", binary)
+    }
+}
+android.sourceSets.getByName("androidTest").jniLibs.srcDir(testPtyLibraries)
+tasks.matching { it.name == "preDebugAndroidTestBuild" }.configureEach { dependsOn(buildTestPty) }

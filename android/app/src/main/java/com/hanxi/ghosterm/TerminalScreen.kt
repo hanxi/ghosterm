@@ -66,20 +66,22 @@ fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
                     view.requestKeepAwake(controls.keepAwake)
                 }, modifier = Modifier.fillMaxWidth().weight(1f).testTag("terminal-surface"))
             }
-            if (controls.auxiliaryKeys) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("terminal-auxiliary-keys"), verticalAlignment = Alignment.CenterVertically) {
+            if (controls.auxiliaryKeys) Row(Modifier.fillMaxWidth().testTag("terminal-auxiliary-keys"), verticalAlignment = Alignment.CenterVertically) {
                 val keys = listOf("Esc" to KeyEvent.KEYCODE_ESCAPE, "Tab" to KeyEvent.KEYCODE_TAB,
                     "↑" to KeyEvent.KEYCODE_DPAD_UP, "↓" to KeyEvent.KEYCODE_DPAD_DOWN,
                     "←" to KeyEvent.KEYCODE_DPAD_LEFT, "→" to KeyEvent.KEYCODE_DPAD_RIGHT)
                 TextButton(onClick = { terminal?.toggleCtrl() }, enabled = session.state.connected,
                     modifier = Modifier.heightIn(min = 48.dp)) { Text(when(ctrl) { 1 -> "Ctrl ✓"; 2 -> "Ctrl 锁定"; else -> "Ctrl" }) }
-                keys.forEach { (label, code) -> TextButton(onClick = { terminal?.sendKey(code) }, enabled = session.state.connected,
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text(label) } }
-                listOf("/", "-").forEach { value -> TextButton(onClick = { terminal?.commitText(value) }, enabled = session.state.connected,
-                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text(value) } }
-                if (controls.extendedKeys) listOf("Home" to KeyEvent.KEYCODE_MOVE_HOME, "End" to KeyEvent.KEYCODE_MOVE_END,
-                    "PgUp" to KeyEvent.KEYCODE_PAGE_UP, "PgDn" to KeyEvent.KEYCODE_PAGE_DOWN).forEach { (label, code) ->
-                    TextButton(onClick = { terminal?.sendKey(code) }, enabled = session.state.connected,
-                        modifier = Modifier.heightIn(min = 48.dp)) { Text(label) }
+                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                    keys.forEach { (label, code) -> TextButton(onClick = { terminal?.sendKey(code) }, enabled = session.state.connected,
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text(label) } }
+                    listOf("/", "-").forEach { value -> TextButton(onClick = { terminal?.commitText(value) }, enabled = session.state.connected,
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text(value) } }
+                    if (controls.extendedKeys) listOf("Home" to KeyEvent.KEYCODE_MOVE_HOME, "End" to KeyEvent.KEYCODE_MOVE_END,
+                        "PgUp" to KeyEvent.KEYCODE_PAGE_UP, "PgDn" to KeyEvent.KEYCODE_PAGE_DOWN).forEach { (label, code) ->
+                        TextButton(onClick = { terminal?.sendKey(code) }, enabled = session.state.connected,
+                            modifier = Modifier.heightIn(min = 48.dp)) { Text(label) }
+                    }
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,

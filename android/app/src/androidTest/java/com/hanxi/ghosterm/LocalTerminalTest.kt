@@ -21,7 +21,7 @@ class LocalTerminalTest {
         val session = LocalSession(dir.absolutePath)
         try {
             await { val state = session.state(); assertFalse(state.description, state.terminal); state.connected }
-            session.commit("stty -echo; PS1=''; printf '\\033[2J\\033[HNATIVE_READY\\r\\n'\r")
+            session.commit(NativePtyFixture.initialize()+"stty -echo; PS1=''; printf '\\033[2J\\033[HNATIVE_READY\\r\\n'\r")
             frame(session) { it.line(0) == "NATIVE_READY" }
             test(session)
         }

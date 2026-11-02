@@ -342,7 +342,7 @@ private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRe
             Text("目标：${record.intent.destination.endpoint.label}\n${record.intent.destinationLabel}")
             Text("${record.intent.selected.size} 项来源 · 已记录 ${record.items.count { it.value.state==FileCopyItemState.COMPLETE }} 项完成")
             Text(if(record.interrupted) "任务未自动继续。记录后的操作可能尚未确认，请核对目标和暂存位置后再发起新的复制。"
-                else "这是上次运行保存的结果；未重新检查文件。",style=MaterialTheme.typography.bodySmall)
+                else "这是已保存的任务结果；未重新检查文件。",style=MaterialTheme.typography.bodySmall)
             record.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
             if(record.intent.retryOf!=null) TextButton(onClick=onOrigin,modifier=Modifier.testTag("file-history-origin")) { Text("查看原任务") }
             TextButton(onClick=onRetry,enabled=canRetry,modifier=Modifier.testTag("file-history-retry")) { Text("重新检查未完成项目") }

@@ -85,6 +85,7 @@ class SafImportTest {
     }
     private fun select(id: String) {
         openPicker()
+        var resetDirectoryScroll=true
         // A drawer can expose the covered directory's accessibility nodes too.
         // Resolve the actual roots list first, then the requested provider/file.
         await {
@@ -94,9 +95,15 @@ class SafImportTest {
                 if(!clickSystem("Ghosterm Test Files")) roots.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
                 false
             } else if(tree.any { it.isVisibleToUser && (it.text?.toString()=="Ghosterm Test Files" || it.contentDescription?.toString()=="Ghosterm Test Files") }) {
-                if(clickSystem("$id.conf")) true else {
-                    tree.firstOrNull { it.isScrollable && it.viewIdResourceName?.endsWith(":id/dir_list")==true }
-                        ?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                val directory=tree.firstOrNull { it.viewIdResourceName?.endsWith(":id/dir_list")==true }
+                if(resetDirectoryScroll) {
+                    // DocumentsUI retains the previous document's scroll position.
+                    // Start a fresh search from the beginning, using real scrolling.
+                    try { automation.waitForIdle(100,1500) } catch(_:java.util.concurrent.TimeoutException) { return@await false }
+                    if(directory!=null && !directory.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) resetDirectoryScroll=false
+                    false
+                } else if(clickSystem("$id.conf")) true else {
+                    directory?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
                     false
                 }
             } else {
@@ -196,7 +203,7 @@ class SafImportTest {
     }
     @Test fun truncatedPreviewImportsWholeFileAndKeepsErrorsVisible() {
         select("large")
-        ui.onNodeWithTag("config-import-truncated").assertIsDisplayed()
+        ui.onNodeWithTag("config-import-truncated").performScrollTo().assertIsDisplayed()
         ui.onNodeWithTag("config-import-preview").assertTextEquals("#" + "a".repeat(8190))
         unchanged()
         file.writeText("Host external\n")

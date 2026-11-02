@@ -172,6 +172,8 @@ class TerminalView(context: Context) : View(context) {
     }
     init {
         isFocusable = true; isFocusableInTouchMode = true
+        // The terminal paints its own focus. Framework highlights tint ANSI colors.
+        defaultFocusHighlightEnabled = false
         isLongClickable = true
         contentDescription = "终端"
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
@@ -485,6 +487,9 @@ class TerminalView(context: Context) : View(context) {
         if (selecting && event.isCtrlPressed && code == KeyEvent.KEYCODE_A) { textAction { it.select(SelectionOperation.ALL) }; return true }
         if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_UP)
             return super.onKeyDown(code, event)
+        // A physical Return can arrive here directly while the IME keeps preedit.
+        // Accept that text before sending Return through the terminal key encoder.
+        if (code == KeyEvent.KEYCODE_ENTER && composition.isNotEmpty() && connection?.acceptForReturn() == false) return false
         val modifierKey = KeyEvent.isModifierKey(code) || code in setOf(
             KeyEvent.KEYCODE_CAPS_LOCK, KeyEvent.KEYCODE_NUM_LOCK, KeyEvent.KEYCODE_SCROLL_LOCK)
         val unicode = event.getUnicodeChar(event.metaState and KeyEvent.META_CTRL_MASK.inv() and KeyEvent.META_META_MASK.inv())
@@ -777,7 +782,7 @@ class TerminalView(context: Context) : View(context) {
             onError("该段文字已经发送，请使用终端按键编辑")
             return false
         }
-        private fun acceptForReturn(): Boolean {
+        fun acceptForReturn(): Boolean {
             if (!valid || !finishComposingText()) return false
             // Return is a terminal action; finish itself must not move selection.
             compactFinalized(force = true); changed(); return true
@@ -813,7 +818,7 @@ class TerminalView(context: Context) : View(context) {
         }
         override fun sendKeyEvent(event: KeyEvent): Boolean {
             if (!valid) return false
-            if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER && !acceptForReturn()) return false
+
             return if (event.action == KeyEvent.ACTION_DOWN) onKeyDown(event.keyCode, event)
                 else if (event.action == KeyEvent.ACTION_UP) onKeyUp(event.keyCode, event) else false
         }

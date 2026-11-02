@@ -25,8 +25,9 @@ wrapper.chmod(0o700)
 PY
 export TMPDIR="$ROOT/tmp"
 export PYTHONPYCACHEPREFIX="$ROOT/tmp/android-python-cache"
+# Full: 900 s cold build + 3000 s tests + 300 s fixture setup/cleanup.
 FIXTURE_BUDGET=1800
-if [[ "${ANDROID_SSH_ALL:-0}" == 1 ]]; then FIXTURE_BUDGET=2700; fi
+if [[ "${ANDROID_SSH_ALL:-0}" == 1 ]]; then FIXTURE_BUDGET=4200; fi
 gt_timeout "$FIXTURE_BUDGET" bash "$ROOT/core/tests/scripts/ssh_e2e.sh" "$WRAPPER" > "$ROOT/tmp/android-ssh-fixture.log" 2>&1 || {
     cat "$ROOT/tmp/android-ssh-fixture.log"; exit 1;
 }

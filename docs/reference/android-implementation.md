@@ -1,10 +1,10 @@
 # Android 最终方案实现计划
 
-**当前发行（2026-11-02，`98d845e`）**：历史未完成位置已支持显式核对、默认不勾选的删除确认和独立 SQLite 操作记录；本机/远端文件与空目录、SAF 文件已接，SAF 目录明确提示系统整理。原复制结果不改写，未知删除不自动重放。API 29/36 各 76 项、十三个新保护及四个受影响复验、Core 49/94 与签名 release/四模块 lint 通过。实际签名包在 API 36 / arm64 / 16 KiB 页验证旧版 SAF 部分文档保留、进程中断后意图保留、无自动重放与缺失目标停止；详见[历史清理记录](android-implementation.md#android-explicit-history-cleanup)。
+**当前发行（2026-11-02，`79eae97`）**：已结束任务可显式移到历史记录，无须重启即可核对、重新发起或清理；只读核对持久快照，不重放复制、不改原记录。历史位置显式清理和独立操作记录继续保留。API 29/36 各 67 项、十组新保护、受影响旧保护/28 项产品回归、Core 49/94 与签名 release/四模块 lint 通过。详见[当前任务归档记录](android-implementation.md#android-current-task-archive)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,091,475 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可和 ELF/ZIP 16 KiB 对齐均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41375020094) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41375020093) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,095,459 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可和 ELF/ZIP 16 KiB 对齐均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41380186441) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41380186332) 成功。macOS 两份归档和 Android 共用 dev，八份平台附件名称保留。
 
-**当前源码增量**：已结束任务可显式移到历史记录，无须重启即可核对、重新发起或清理；只读核对持久快照，不重放复制、不改原记录。API 29/36 各 67 项、十组新保护和受影响旧保护/28 项产品回归通过，Core 49/94、签名 release/四模块 lint 通过。新云端发行另记实现计划 §9.124。
+**当前源码增量**：Android 10 的输入/焦点、窄屏 Ctrl、保存错误提示和测试夹具已收尾；API 29/36 各 103 项、九个新保护分轮与既有七组 IME 保护、Core 49/94、签名 release/四模块 lint 通过。此前 900 项 API 29 有 45 项失败，API 36 在完成 878 项时到达宿主预算，均不算全量通过；新的完整回归与发行另记实现计划 §9.125。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户手机的域名连接复测尚未取得证据。
 
@@ -279,7 +279,7 @@ Host demo
 | 尺寸 | 内容区扣除状态栏、底部控制、辅助键及 IME insets；同一尺寸下发 VT 与 transport；合帧且拒绝零尺寸 |
 | 输入 | `TerminalView` 实现 InputConnection；组合串只本地显示，commit 才编码发送；中文提交不套 bracketed paste |
 | 辅助键 | Esc/Ctrl/Tab/四方向，加 `/`、`-`；扩展增加 Home/End/PgUp/PgDn；根据 VT 模式编码，不硬编码所有方向键字节 |
-| Ctrl | 单次发送后释放；锁定再点解除；会话切换/断开清修饰状态，防串到另一会话 |
+| Ctrl | 固定在辅助栏左侧，其余按键可横向滚动；单次发送后释放，锁定再点解除；会话切换/断开清修饰状态，防串到另一会话 |
 | 系统键盘 | 一个开关；状态来自实际 IME 可见性；外接键盘仍可输入；自动弹出只作用于新连接 |
 | 文本粘贴 | 与文件剪贴板分离；走 VT paste 编码，尊重 bracketed paste；不能把文件卡片贴入 shell |
 | 清屏 | 只清本地终端显示/滚动历史，明确作用范围；不向 shell 注入 `clear`、Ctrl+C 或回车，不中断命令 |
@@ -3560,3 +3560,40 @@ Android 新增 19 个保护分两轮取证：阶段 `1793581858034573000` 的前
 最终 API 29 / API 36 arm64、4 KiB 页各 67 项通过，零失败/错误/跳过（66.631 / 107.825 秒）；覆盖归档、持久任务、显式清理、队列、历史重试/未知来源恢复和当前任务产品页面。逐项启动/完成与七个类的 67 项声明一致，两设备、最终工作区与 release/lint 的 887 份非 Markdown 输入集合及 SHA256 相同；实际安装的应用与测试 APK 摘要匹配各自构建。API 36 首轮在第 13 项模拟器离线退出，未计通过，确认模拟器进程退出后重启，再从头运行完整 67 项。另一次从错误工作目录启动的并行检查已中断，未计验收。最终两份组合在独立检出运行。证据 `tmp/file-archive-evidence/api29/`、`api36/`、`receipts.py`，阶段 `1793587830067040000` / `1793587921026251000`。
 
 Core 49 CTest / 94 ABI、Android JNI 56 引用/38 显式未用通过。固定证书签名 release 与四模块 release lint 通过（阶段 `1793587869792978000`）；本地 APK 8,095,735 字节，SHA256 `a24dd6dd8fff58bc7d1527434c96c920a7b3cd2585cec03a72db27795dc9de35`，来源 `1b65d39` / dirty，签名、对齐与构建元数据校验通过，不称云端包。默认全量和实际云端签名包另验；不同提供方/物理服务器、真机网络/输入/性能及完整客户端验收仍未完成。
+
+**实际云端发行**：[Android CI 41380186441](https://github.com/hanxi/ghosterm/actions/runs/41380186441) 与 [macOS CI 41380186332](https://github.com/hanxi/ghosterm/actions/runs/41380186332) 成功。共用 dev 实际下载 APK 为 `79eae97` / clean，8,095,459 字节，SHA256 `0f9215d43a7ae388898f457ac8d159beb14af46524ae983519b11b02e61543c0`；固定证书、minSdk 29/非 debuggable、三个压缩 arm64 SO、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB、外部摘要/构建清单与实际 CI R8/资源裁剪任务均核验。八份共用附件及 macOS version.json 的同提交验证通过，旧 android-dev release 不存在。证据 `tmp/file-archive-cloud/inspection/`、`published/`、`ci.log`、`dev-assets.json`、`macos-published/`。
+
+**新的全量运行未通过**：API 29 的默认 900 项全部执行，855 项通过、45 项失败，零跳过，1,844.387 秒；900 个具名启动/结束与默认发现一致，887 份输入不变。API 36 在 2,400 秒宿主预算到期时已启动 879 项、完成 878 项，尚无失败，但剩余项目没有执行完成；不记全量通过。该轮主检出的输入守卫另发现并行 macOS 工作修改了四份输入，因此也不记全仓输入不变；Android/Core/Android Terminal 输入未改，实际安装 APK 与本轮构建摘要相同，仍为 `79eae97` / clean。原始结果及失败列表见 `tmp/file-archive-evidence/full-api29/`、`full-api36/`；兼容与验收修正见 §9.125。不得将定向或云端构建绿当作完整客户端验收。
+
+实际 CI 签名包覆盖安装到 API 36 / arm64 / 16 KiB 页模拟器，安装后 APK SHA256 与下载相同。普通 UI 在新包中长按来源、复制、进入独立目标并确认，完成 33 字节文件；“移到历史记录”立即出现历史详情，PID 前后一致，无重启或复制重放。历史详情明确记录同一来源/目标，核验目标内容显示与复制时来源一致；关于页显示 `79eae97` 与工作区干净。正常确认仅清除本次历史/复制清单后，普通应用 UID shell 重新验证本次源与目标 SHA256，只删除本次两个文件并 rmdir 本次两个空目录，退出 0 后关闭本次终端；原五个可见条目保留，回到首页。未用 root/run-as、未编辑应用数据库。证据 `tmp/archive-release16k/installed.json`、`archive-pid.json`、`content-verified.xml`、`release-about.xml`、`cleanup.log`、`device-result.json`。不将该专项扩张为签名包全量或真机验收。
+
+全量中另观测到 API 29 的六项 LocalTerminalTest 输入/粘贴/本地清屏失败；独立 adb PTY 探针在同设备的系统 stty -echo / -icanon / raw 均返回失败且状态未改变，API 36 同命令成功、raw 的单字节 Z 可读出 5a。此证据把系统工具兼容与应用字节链分开，还不能据此宣布已修复或跳过失败。原始探针 `tmp/file-archive-evidence/raw-shell-probe/noninteractive-result.json` 与两端 flags.log；首个交互探针因命令回显含完成 token，其 done 字段无效，不能作为成功证据。本轮也发现历史卡片“上次运行”文案不适用于同进程归档，§9.125 已将其改为描述已保存的任务结果。
+
+
+<a id="android-api29-compatibility"></a>
+
+### 9.125 Android 10 输入、焦点与验收夹具收尾（2026-11-02）
+
+900 项首次 API 29 全量的 45 项失败分为：LocalTerminalTest 六项、TerminalScreenTest 三十项、TerminalPreferencesTest 三项、TerminalLifecycleTest 两项、SafImportTest 两项，以及主机编辑、系统外观各一项。没有跳过失败项。独立 strace 与应用 SELinux 审计均确认系统 stty 使用 TCSETSF（0x5404）时遭 EACCES；实际命令未改变 echo/canonical 标志。这个系统工具错误不能冒充应用字节链出错或全量通过。
+
+新增仅随 instrumentation APK 的 C11 子程序，经实际子进程 stdin 使用 TCSANOW 设置并回读核对模式；原终端设置只在测试 shell 中保存，sane 恢复原快照。测试继续通过真正的 LocalSession/PTY、VT 和 InputConnection 读写字节，不替换 Core、不增加公开 ABI、不给正式应用添加后门或工具。子程序由钉定 NDK 从源构建，正式 release 不携带；没有放宽 SELinux、修改系统 stty 或把应用变为 root。独立临时 APK 的 API 29 探针成功读出 Z 的 5a，随后测试 APK 中的 19 项本地终端和一项 IME 页面验证通过。临时探针包已卸载。
+
+主机保存非法显式用户名的失败，在单独语义替换文字时未复现；改为真实点击输入框并确认系统 IME 弹出后，旧界面稳定地无法显示错误。保存动作现在先清除编辑焦点、收起 IME，再校验/保存，当前草稿保留；同用例转绿。自绘终端关闭框架默认焦点高亮，避免退出触摸模式后的框架叠层改变 ANSI 背景和光标像素；现有像素测试显式覆盖物理键盘焦点，旧代码两项正常断言失败、修正后通过。正式应用仍自行绘制焦点/光标。
+
+物理 Enter、InputConnection.sendKeyEvent、editor action 与单个 LF 提交共用接受组合串的语义：先接受尚未提交文字，再由 VT 编码 Return，不当作粘贴，不重发已结束的组合。既有字节测试增加直达 View 的物理 Return，实际读取三段中文与三个 CR，共 21 字节。生命周期测试同时识别 IME 尚在显示的 pwd 组合串和已提交的文本；仍只发送原有两次物理 Enter，并以 shell 实际输出的 HOME 证明命令执行，不从测试直接提交候选。
+
+窄屏辅助栏将 Ctrl 固定在左侧，其他按键继续横向滚动并保留 48 dp 触控目标；点击标点后 Ctrl 状态仍可见。测试滚动到目标按键后再点击，不向屏幕外注入点击。HTML 原型同步 Ctrl 顺序与固定位置。API 29 原生浮动工具条实际绘制按钮但无障碍节点可能误报 invisible；仅测试夹具在自己的工具条、屏幕内且可用的按钮上允许真实触摸，复制结果仍与完整预期文本对拍，不直接调用复制或写剪贴板冒充 UI。系统菜单读屏体验仍不据此宣布完整通过。
+
+SAF 导入测试的目录搜索先通过系统滚动回到开头，不把上次文档的目录位置当作初始位置；旧系统触摸前确认条目与几何稳定，截断提示通过实际滚动验证可见。保留完整提供方条目和所有内容/权限/备份/原文档不写入断言，没有改为只显示一份测试文件。
+
+系统外观用例现在先检查设置命令是否真的应用。API 29 测试镜像锁定夜间模式，且 shell 缺少 MODIFY_DAY_NIGHT_MODE；AOSP 的服务会拒绝该调用，见 [Android 10 UiModeManagerService](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/android10-release/services/core/java/com/android/server/UiModeManagerService.java)。宿主只在运行该系统外观用例、设置被锁且 shell 未获该权限时显式使用测试设备的 su 0 系统设置入口，并在 finally 恢复原值；普通应用、PTY、配置和文件操作继续使用应用 UID。新平台 shell 已获该权限时不要求额外权限；其他设置单项也不被夜间模式夹具额外限制。无所需测试设备能力时明确失败，不能伪报主题已切换。
+
+新增九个不同变异保护分三轮（6＋1＋2）通过，覆盖 raw 模式、模式 syscall、错误可见、框架焦点叠层、物理 Return、锁定系统外观、提供方选择、固定 Ctrl 与工具条复制路由。每组真实编译后单条正常断言红、同 APK Core 配置对照绿、恢复绿与 SHA256。既有 IME finish 七组也完整复验通过，原 Return 保护迁到统一入口。证据 `tmp/android-api29-final-evidence/mutations/`、`six-groups/`、`provider-choice/`、`narrow-controls/`、`ime-finish/`。九组为手工证据，不增加 macOS CI 20 份。
+
+原 900 项 API 36 聚合在 2,400 秒到期前完成 878 项且无失败，按速率预计约 2,460 秒；新聚合预算为 3,000 秒，约留 20% 余量。外层为 4,200 秒，容纳 900 秒冷构建、3,000 秒测试及 300 秒夹具准备/清理。单项 600 秒宿主边界和每个具体操作/断言的时间要求不变；不靠延长单项超时掩盖失败。修正后的两端 103 项、最终 release 与新的完整 900 项分别记账，不以本节中间定向或变异结果宣布客户端完成。
+
+最终 API 29 / API 36 arm64、4 KiB 页各 **103 项通过，零失败/错误/跳过**（170.423 / 301.933 秒），覆盖本地终端、完整终端交互页、生命周期、终端偏好、主机配置页面、真实 SAF 导入、任务归档和真实系统外观变化。逐项启动/结束与选定 103 项声明一致；两端和最终 release/lint 的同一组 890 份非 Markdown 输入集合/SHA256 完全相同，安装应用/测试 APK 摘要匹配各自构建。前一轮同样 103 项 API 36 通过；API 29 的四项失败则暴露了窄屏辅助栏与浮动菜单可见性问题，修正后两端再完整运行这一组合，未把前一轮记为通过。两份最终设备阶段为 `1793592772463117000` / `1793592772463102000`，收据 `tmp/android-api29-final-evidence/api29-final/`、`api36-final/`。
+
+Core 49 CTest / 94 公共 ABI 再验通过，未改公开 ABI。最终固定证书签名 release 与四模块 release lint 通过（`1793592772470873000`）；本地 APK 8,096,535 字节，SHA256 `d7476de814b200f53f457dacb10ee049d627efb414aeb083ff8d022a5edd8838`，来源 `1211ff2` / dirty。三份压缩 arm64 SO、ELF/ZIP 16 KiB 对齐、完整 Nerd Fonts/许可、固定证书和测试子程序未进入正式包均核验，证据 `local-release/`、`release-final/`；不能称这份本地包为 clean CI 发行。源码提交后的完整 900 项与实际云端签名包另记。
+
+物理 Return 的指向验证随后加强：保留旧 InputConnection.sendKeyEvent 的接受逻辑、只撤掉直达 View 的处理，旧 IME/editor-action 路径仍正常，但新增“physical Return accepts preedit before the key”断言明确变红；同 APK Core 配置绿、恢复 21 字节用例绿与 SHA256。这是同一物理 Return 保护的增量复验，不增加九个不同保护的数量，证据 `physical-return-refined/`。最终 103 项及 release/lint 的 890 份输入属于上一版变异驱动；此增量只加强变异驱动，运行源码、测试、构建文件均未变化。新的全量以提交后的最终驱动和源码重新运行。

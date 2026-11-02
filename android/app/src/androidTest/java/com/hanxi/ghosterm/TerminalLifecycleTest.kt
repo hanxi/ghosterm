@@ -37,7 +37,7 @@ class TerminalLifecycleTest {
             if (found) return
             SystemClock.sleep(20)
         }
-        ui.runOnIdle { fail("等待 $value: ${text()}") }
+        ui.runOnIdle { fail("等待 $value [focus=${terminal().hasFocus()} window=${terminal().hasWindowFocus()} composing=${terminal().composition} ctrl=${terminal().ctrl}]: ${text()}") }
     }
     private fun waitForUnwrapped(value: String) {
         val surface = ui.runOnIdle { checkNotNull(model().active).surface }
@@ -57,6 +57,10 @@ class TerminalLifecycleTest {
         ui.onNodeWithText("本地终端").performClick()
         ui.waitUntil(10_000) { model().active?.state?.connected == true }
         ui.waitUntil { find(ui.activity.window.decorView)?.currentFrame != null }
+        ui.runOnIdle {
+            terminal().commitText(NativePtyFixture.initialize()+"stty -echo; PS1=''; printf '\\033[2J\\033[HLIFECYCLE_READY\\r\\n'\r")
+        }
+        ui.waitUntil(10_000) { terminal().currentFrame?.line(0)=="LIFECYCLE_READY" }
     }
     @After fun close() {
         ui.runOnIdle { model().sessions.map { it.id }.forEach(model()::close) }
@@ -114,7 +118,7 @@ class TerminalLifecycleTest {
         // Gboard Pinyin commits "pwd" without a newline). Do not require a
         // particular installed IME/subtype or execute a composition as a command.
         // The next Enter executes; direct single-Enter encoding has separate tests.
-        waitFor("pwd")
+        ui.waitUntil(10_000) { ui.runOnIdle { text().contains("pwd") || terminal().composition=="pwd" } }
         instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_ENTER)
         waitForUnwrapped("/files/home")
         if (ui.onAllNodesWithText("显示键盘").fetchSemanticsNodes().isNotEmpty())
