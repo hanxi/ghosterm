@@ -1,5 +1,7 @@
 # Ghosterm
 
+**Android 新恢复入口待发行**：已接结果不明任务的显式来源选择，重新扫描与确认后创建新复制，保留原结果；Android 10 / 16 各 47 项组合和 15 组分轮变异通过。详见[实现记录](docs/reference/android-implementation.md#android-history-recovery)。
+
 **Android DNS 修复已发行（`66d1bd9`）**：已复现 IP 可连、域名因系统可达性探测误报网络不可用；兼容修复在 Android 10 / 16 各 50 项检查及真实 DNS→SSH 用例通过，15 组保护和签名 release/lint 通过，见[修复记录](docs/reference/android-implementation.md#android-dns-probe-compatibility)。用户手机复测与完整网络矩阵仍待验。
 
 **当前 Android**：共用 dev 已发布正式签名 release APK，包含主机首页、SSH/SFTP、本机/SAF 文件复制、五类设置、Kitty 图形/动画、Nerd Fonts 与可选远端 tmux。最新已验云端包来源 `66d1bd9`，8,038,551 字节；已接暂停/继续、安全重试、持久历史/计划引用、显式内容与本机创建身份核对、本机暂存维护。两端各 182 项最终相关组合通过；修复背景像素后，API 36 / 4 KB 页完整 860 项通过（零失败/错误/跳过），历史失败与最终证据见 §9.115/§9.120。完整客户端、未知副作用处理与设备矩阵仍未完成，逐片证据见 [Android 实现计划](docs/reference/android-implementation.md#android-local-file-identity)，下载见 [dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev)。

@@ -252,6 +252,20 @@ class FileTaskStore(application: Application, private val scope: CoroutineScope,
         for(group in plan.groups) start(FileClipboardSnapshot.capture(group.source,group.sourceLabel,group.entries),
             group.destination,group.destinationLabel,connections,preferences,record.intent.id)
     }
+    fun historyRecoveryPlan(record: FileJournalRecord): FileHistoryRecovery? {
+        if(record !in history || journalLoading || journalError!=null) return null
+        return FileHistoryRecovery.plan(record)
+    }
+    fun recoverHistory(record: FileJournalRecord, selected: Set<String>, connections: (FilePasteRequest) -> FileTaskConnections,
+        preferences: AppPreferences) {
+        val entries=try {
+            val plan=historyRecoveryPlan(record) ?: run { notice="历史记录状态已改变，请重新选择";return }
+            plan.select(selected)
+        } catch(error:Exception) { notice=error.message ?: "无法重新检查所选来源";return }
+        if(tasks.count { it.active }>=MAX_REQUESTS) { notice="等待队列已满，请稍后重新选择";return }
+        start(FileClipboardSnapshot.capture(record.intent.source,record.intent.sourceLabel,entries),
+            record.intent.destination,record.intent.destinationLabel,connections,preferences,record.intent.id)
+    }
     fun cancelRequest(id: String) { tasks.firstOrNull { it.request.id==id }?.let(::cancel) }
     fun pause(task: FileTask) {
         if(task in tasks && task.phase==FileTaskPhase.RUNNING && !task.cancelled) task.execution?.pause()
@@ -429,7 +443,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val journalError get() = work.tasks.journalError
     val background get() = work.background
     fun retryBackground() = work.background.requestFromUser(presenterId)
-    fun reloadHistory() { cancelInspection();inspections.clear();contentInspections.clear();identityInspections.clear();inspectionError=null;historyRetryError=null;work.tasks.reloadHistory() }
+    fun reloadHistory() { dismissHistoryRecovery();cancelInspection();inspections.clear();contentInspections.clear();identityInspections.clear();inspectionError=null;historyRetryError=null;work.tasks.reloadHistory() }
     fun removeHistory(record: FileJournalRecord) { cancelInspection();inspections.remove(record.intent.id);contentInspections.keys.filter { it.requestId==record.intent.id }.forEach(contentInspections::remove);identityInspections.keys.filter { it.requestId==record.intent.id }.forEach(identityInspections::remove);work.tasks.removeHistory(record) }
     val inspections = mutableStateMapOf<String,FileHistoryInspection>()
     var inspectingId by mutableStateOf<String?>(null); private set
@@ -566,7 +580,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     val presentsAuthentication get() = work.presenter == presenterId
     var visible by mutableStateOf(false); private set
     fun show() { visible=true }
-    fun hide() { hideRetained();cancelInspection();retryTask=null;retryHistory=null;originId=null;visible=false }
+    fun hide() { hideRetained();cancelInspection();retryTask=null;retryHistory=null;dismissHistoryRecovery();originId=null;visible=false }
     fun start(snapshot: FileClipboardSnapshot, destination: FileLocation, label: String,
         connections: (FilePasteRequest) -> FileTaskConnections = work::connections) {
         visible=true
@@ -593,6 +607,7 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
     var historyRetryError by mutableStateOf<String?>(null); private set
     fun historyRetryPlan(record: FileJournalRecord) = work.tasks.historyRetryPlan(record)
     fun requestHistoryRetry(record: FileJournalRecord) {
+        dismissHistoryRecovery()
         historyRetryError=null
         try { if(historyRetryPlan(record)!=null) retryHistory=record }
         catch(error: Exception) { historyRetryError=error.message ?: "历史记录无法用于重新发起" }
@@ -603,6 +618,30 @@ class FileTasksViewModel @JvmOverloads constructor(application: Application,
         retryHistory=null
         val preferences=work.preferences
         work.background.submitFromUser(presenterId) { work.tasks.retryHistory(record,work::connections,preferences) }
+    }
+    var recoveryHistory by mutableStateOf<FileJournalRecord?>(null); private set
+    var recoveryEntries by mutableStateOf<List<BrowserEntry>>(emptyList()); private set
+    var recoverySelection by mutableStateOf<Set<String>>(emptySet()); private set
+    fun requestHistoryRecovery(record:FileJournalRecord) {
+        dismissHistoryRetry();retryTask=null;originId=null
+        historyRetryError=null
+        try {
+            val plan=work.tasks.historyRecoveryPlan(record) ?: return
+            recoveryEntries=plan.entries;recoverySelection=emptySet();recoveryHistory=record
+        } catch(error:Exception) { historyRetryError=error.message ?: "无法读取结果不明的来源" }
+    }
+    fun selectRecovery(id:String,selected:Boolean) {
+        if(recoveryHistory==null || recoveryEntries.none { it.id==id }) return
+        recoverySelection=if(selected) recoverySelection+id else recoverySelection-id
+    }
+    fun dismissHistoryRecovery() { recoveryHistory=null;recoveryEntries=emptyList();recoverySelection=emptySet() }
+    fun confirmHistoryRecovery() {
+        val record=recoveryHistory ?: return
+        val selected=recoverySelection.toSet()
+        if(selected.isEmpty()) return
+        dismissHistoryRecovery()
+        val preferences=work.preferences
+        work.background.submitFromUser(presenterId) { work.tasks.recoverHistory(record,selected,work::connections,preferences) }
     }
     var originId by mutableStateOf<String?>(null); private set
     fun showOrigin(id: String) { originId=id }

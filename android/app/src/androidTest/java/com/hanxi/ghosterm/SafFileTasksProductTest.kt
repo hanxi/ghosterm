@@ -1,5 +1,7 @@
 package com.hanxi.ghosterm
 
+import com.hanxi.ghosterm.data.FileTaskJournal
+
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -96,6 +98,45 @@ class SafFileTasksProductTest {
         val entries=runBlocking { browser.browse(source).entries }.filter { it.kind==FileKind.FILE }
         val snapshot=FileClipboardSnapshot.capture(source,source.directoryId,entries)
         main { tasks().start(snapshot,target,target.directoryId,::connections) }
+    }
+    @Test fun uncertainHistoricalDocumentCreationNeedsExplicitNewSelectionAndGrantedProvider() {
+        val source=FileLocation(FileEndpoint.APP,"$unique/source")
+        val entry=runBlocking { LocalFileBrowser(home,resolver).browse(source).entries.single { it.name=="new.txt" } }
+        val old=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"source",listOf(entry)),location,"device folder")
+        val journal=FileTaskJournal(File(context.filesDir,"file-history/tasks.db"))
+        runBlocking {
+            journal.load();journal.accept(old);journal.phase(old.id,FileJournalPhase.CONFIRMING)
+            val item=FileCopyItemResult(FileScanEntry(source,entry,entry.name),FileCopyItemState.NOT_ATTEMPTED,location,entry.name)
+            journal.begin(old.id,listOf(item));journal.checkpoint(old.id,item,FileCopyCheckpoint.DOCUMENT_CREATE)
+        }
+        val before=runBlocking { journal.load().single { it.intent.id==old.id } }
+        try {
+            main { tasks().reloadHistory();tasks().show() }
+            await { !tasks().journalLoading && tasks().history.any { it.intent.id==old.id } }
+            ui.onNode(hasTestTag("file-history-recovery") and hasAnyAncestor(hasTestTag("file-history:${old.id}"))).performScrollTo().performClick()
+            ui.onNodeWithTag("file-history-recovery-confirm").assertIsNotEnabled()
+            assertTrue(tasks().tasks.isEmpty())
+            ui.onNodeWithTag("file-history-recovery-select:new.txt").assertIsOff().performClick().assertIsOn()
+            ui.onNodeWithTag("file-history-recovery-confirm").performClick()
+            await { latest.phase in setOf(FileTaskPhase.CONFIRMING,FileTaskPhase.FINISHED) }
+            val child=latest
+            assertEquals(child.error,FileTaskPhase.CONFIRMING,child.phase)
+            assertEquals(old.id,child.request.retryOf);assertNotEquals(old.id,child.request.id)
+            assertEquals(FileConflictPolicy.ASK,child.request.conflictPolicy)
+            assertEquals(before,runBlocking { journal.load().single { it.intent.id==old.id } })
+            ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
+            await { !tasks().busy }
+            assertEquals(child.result?.error,FileCopyState.COMPLETE,child.result?.state)
+            val uri=child.result!!.items.single().documentUri
+            assertNotNull(uri)
+            assertArrayEquals(File(root,"source/new.txt").readBytes(),resolver.openInputStream(Uri.parse(uri))!!.use { it.readBytes() })
+            assertEquals(before,runBlocking { journal.load().single { it.intent.id==old.id } })
+            assertEquals(old.id,runBlocking { journal.load().single { it.intent.id==child.request.id }.intent.retryOf })
+        } finally {
+            main { tasks().tasks.toList().forEach(tasks()::cancel) };await { !tasks().busy }
+            tasks().history.firstOrNull { it.intent.id==old.id }?.let { oldRecord -> main { tasks().removeHistory(oldRecord) } }
+            await { !tasks().journalLoading }
+        }
     }
     @Test fun writeProgressStaysVerifyingUntilRealProviderReadbackCompletes() {
         reset("read-stall")

@@ -229,6 +229,83 @@ class FileJournalProductTest {
         ui.onNodeWithText("返回任务").performClick()
         assertEquals("persistent UI bytes",File(home,"target/a.txt").readText())
     }
+    @Test fun uncertainHistoryRequiresUncheckedSelectionAndFreshConflictConfirmation() {
+        val old=FilePasteRequest.capture(snapshot,target,"target")
+        val item=FileCopyItemResult(FileScanEntry(snapshot.source,snapshot.items.single(),"a.txt"),FileCopyItemState.NOT_ATTEMPTED,target,"a.txt",candidatePath="target/.partial")
+        runBlocking {
+            journal.load();journal.accept(old);journal.phase(old.id,FileJournalPhase.CONFIRMING);journal.begin(old.id,listOf(item))
+            journal.checkpoint(old.id,item,FileCopyCheckpoint.PUBLISH)
+        }
+        File(home,"target/a.txt").writeText("uncertain original")
+        File(home,"target/.partial").writeText("retained partial")
+        val before=runBlocking { journal.load().single() };val model=open()
+        ui.onNodeWithTag("file-history-recovery").performScrollTo().performClick()
+        ui.onNodeWithTag("file-history-recovery-confirm").assertIsNotEnabled()
+        ui.onNodeWithTag("file-history-recovery-select:a.txt").assertIsOff().performClick().assertIsOn()
+        assertTrue(model.tasks.isEmpty());assertEquals(0,calls.get())
+        ui.onNodeWithText("保留原状").performClick()
+        ui.onNodeWithTag("file-history-recovery").performScrollTo().performClick()
+        ui.onNodeWithTag("file-history-recovery-select:a.txt").assertIsOff().performClick().assertIsOn()
+        ui.onNodeWithTag("file-history-recovery-confirm").performClick()
+        ui.waitUntil(10000) { model.tasks.singleOrNull()?.phase in setOf(FileTaskPhase.CONFIRMING,FileTaskPhase.FINISHED) }
+        val task=model.tasks.single()
+        assertEquals(task.error,FileTaskPhase.CONFIRMING,task.phase)
+        assertNotEquals(old.id,task.request.id);assertEquals(old.id,task.request.retryOf)
+        assertEquals(FileConflictPolicy.ASK,task.request.conflictPolicy)
+        assertEquals("uncertain original",File(home,"target/a.txt").readText())
+        assertEquals(before,runBlocking { journal.load().single { it.intent.id==old.id } })
+        ui.onNodeWithTag("file-task-keep").performScrollTo().performClick()
+        ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick();waitDone(task)
+        assertEquals(FileCopyState.COMPLETE,task.result!!.state)
+        assertEquals("persistent UI bytes",File(home,"target/a (2).txt").readText())
+        assertEquals("uncertain original",File(home,"target/a.txt").readText())
+        assertEquals("retained partial",File(home,"target/.partial").readText())
+        val reopened=open()
+        assertEquals(before,reopened.history.single { it.intent.id==old.id })
+        assertEquals(old.id,reopened.history.single { it.intent.id==task.request.id }.intent.retryOf)
+    }
+    @Test fun uncertainHistoryRechecksChangedSourceAndRejectsStaleHistoryAdmission() {
+        val old=FilePasteRequest.capture(snapshot,target,"target")
+        runBlocking { journal.load();journal.accept(old);journal.phase(old.id,FileJournalPhase.CONFIRMING);journal.begin(old.id,emptyList()) }
+        val model=open();val record=model.history.single()
+        File(home,"source/a.txt").writeText("changed source with different length")
+        ui.runOnIdle {
+            model.requestHistoryRecovery(record)
+            assertTrue(model.recoverySelection.isEmpty())
+            model.selectRecovery("foreign",true);assertTrue(model.recoverySelection.isEmpty())
+            model.selectRecovery(snapshot.items.single().id,true)
+            model.confirmHistoryRecovery()
+        }
+        ui.waitUntil(10000) { model.tasks.singleOrNull()?.phase==FileTaskPhase.FINISHED }
+        assertNotNull(model.tasks.single().error)
+        assertTrue(File(home,"target").list()!!.isEmpty())
+        assertEquals(record,runBlocking { journal.load().single { it.intent.id==old.id } })
+        val count=model.tasks.size
+        ui.runOnIdle { model.work.tasks.recoverHistory(record.copy(updatedMillis=record.updatedMillis+1),setOf(snapshot.items.single().id),::connections,AppPreferences()) }
+        assertEquals(count,model.tasks.size)
+    }
+    @Test fun uncertainHistoryCopiesOnlyExplicitlySelectedRootsAndReloadClearsChoice() {
+        File(home,"source/b.txt").writeText("second source")
+        val source=FileLocation(FileEndpoint.APP,"source")
+        val list=runBlocking { LocalFileBrowser(home,context.contentResolver).browse(source).entries }
+        val old=FilePasteRequest.capture(FileClipboardSnapshot.capture(source,"source",list),target,"target")
+        runBlocking {
+            journal.load();journal.accept(old);journal.phase(old.id,FileJournalPhase.CONFIRMING)
+            journal.begin(old.id,list.map { FileCopyItemResult(FileScanEntry(source,it,it.name),FileCopyItemState.NOT_ATTEMPTED,target,it.name) })
+            for(entry in list) journal.checkpoint(old.id,FileCopyItemResult(FileScanEntry(source,entry,entry.name),FileCopyItemState.NOT_ATTEMPTED,target,entry.name),FileCopyCheckpoint.LOCAL_CREATE)
+        }
+        val model=open();val record=model.history.single();val selected=list.single { it.name=="a.txt" }
+        ui.runOnIdle { model.requestHistoryRecovery(record);model.selectRecovery(selected.id,true);model.reloadHistory() }
+        ui.waitUntil(10000) { !model.journalLoading }
+        assertNull(model.recoveryHistory);assertTrue(model.recoverySelection.isEmpty())
+        ui.runOnIdle { model.requestHistoryRecovery(model.history.single());model.selectRecovery(selected.id,true);model.confirmHistoryRecovery() }
+        ui.waitUntil(10000) { model.tasks.singleOrNull()?.phase in setOf(FileTaskPhase.CONFIRMING,FileTaskPhase.FINISHED) }
+        val task=model.tasks.single();assertEquals(task.error,FileTaskPhase.CONFIRMING,task.phase)
+        assertEquals(listOf("a.txt"),task.request.items.map { it.name })
+        assertTrue(File(home,"target").list()!!.isEmpty())
+        ui.runOnIdle { model.cancel(task) };waitDone(task)
+        assertEquals(record,runBlocking { journal.load().single { it.intent.id==old.id } })
+    }
     @Test fun unconfirmedHistoricalSideEffectCannotBeReplayed() {
         val old=FilePasteRequest.capture(snapshot,target,"target")
         val item=FileCopyItemResult(FileScanEntry(snapshot.source,snapshot.items.single(),"a.txt"),FileCopyItemState.NOT_ATTEMPTED,target,"a.txt")

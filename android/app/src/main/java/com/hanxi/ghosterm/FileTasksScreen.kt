@@ -2,6 +2,8 @@ package com.hanxi.ghosterm
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -20,6 +22,7 @@ fun FileTasksScreen(model: FileTasksViewModel) {
     if(model.retainedVisible) { RetainedFilesScreen(model);return }
     BackHandler { when {
         model.originId!=null -> model.dismissOrigin()
+        model.recoveryHistory!=null -> model.dismissHistoryRecovery()
         model.retryHistory!=null -> model.dismissHistoryRetry()
         model.retryTask!=null -> model.dismissRetry()
         else -> model.hide()
@@ -48,6 +51,29 @@ fun FileTasksScreen(model: FileTasksViewModel) {
         },confirmButton={ TextButton(onClick=model::confirmHistoryRetry,enabled=retry.groups.isNotEmpty(),modifier=Modifier.testTag("file-history-retry-confirm")) { Text("重新检查并入队") } },
             dismissButton={ TextButton(onClick=model::dismissHistoryRetry) { Text("保留记录") } })
     } }
+    model.recoveryHistory?.let { record ->
+        AlertDialog(onDismissRequest=model::dismissHistoryRecovery,title={ Text("重新选择结果不明的来源") },text={
+            Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text("原任务结果保持不变，已产生的文件会保留。只对你本次勾选的来源创建新任务，再重新扫描、认证和处理同名冲突。")
+                Text("选择文件夹会重新检查整个来源树，其中可能包含已经复制的文件。请先核对原目标；保留两者可能产生重复副本。")
+                Text("目标：${record.intent.destinationLabel}")
+                if(model.recoveryEntries.isEmpty()) Text("没有可在此重新选择的来源，请返回任务查看结果。")
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max=280.dp)) {
+                    items(model.recoveryEntries,key={ it.id }) { entry ->
+                        Row(Modifier.fillMaxWidth().heightIn(min=48.dp)
+                            .testTag("file-history-recovery-select:${entry.name}")
+                            .toggleable(value=entry.id in model.recoverySelection,role=Role.Checkbox,
+                                onValueChange={ model.selectRecovery(entry.id,it) }),verticalAlignment=Alignment.CenterVertically) {
+                            Checkbox(checked=entry.id in model.recoverySelection,onCheckedChange=null)
+                            Text(entry.name,Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        },confirmButton={ TextButton(onClick=model::confirmHistoryRecovery,
+            enabled=model.recoverySelection.isNotEmpty(),modifier=Modifier.testTag("file-history-recovery-confirm")) { Text("检查所选来源") } },
+            dismissButton={ TextButton(onClick=model::dismissHistoryRecovery) { Text("保留原状") } })
+    }
     model.originId?.let { id ->
         val old=model.history.firstOrNull { it.intent.id==id }
         val live=model.tasks.firstOrNull { it.request.id==id }
@@ -236,7 +262,7 @@ fun FileTasksScreen(model: FileTasksViewModel) {
                     canInspect=!model.busy && !model.journalLoading && model.inspectingId==null && !model.contentReading,
                     onInspect={ model.inspectHistory(record) },onCancel=model::cancelInspection,
                     canRetry=!model.journalLoading && model.journalError==null && model.inspectingId==null,
-                    onRetry={ model.requestHistoryRetry(record) },onOrigin={ record.intent.retryOf?.let(model::showOrigin) },
+                    onRetry={ model.requestHistoryRetry(record) },onRecover={ model.requestHistoryRecovery(record) },onOrigin={ record.intent.retryOf?.let(model::showOrigin) },
                     content=model.contentInspections,checkingContent=model.inspectingContent,
                     identities=model.identityInspections,checkingIdentity=model.inspectingIdentity,
                     onIdentity={ item,candidate -> model.inspectIdentity(record,item,candidate) },
@@ -288,7 +314,7 @@ private fun FileTaskByteProgress(activity: FileCopyActivity, running: Boolean, w
 
 @Composable
 private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRemove: Boolean,
-    inspection: FileHistoryInspection?, inspecting: Boolean, canInspect: Boolean, onInspect: () -> Unit, onCancel: () -> Unit, canRetry: Boolean, onRetry: () -> Unit, onOrigin: () -> Unit,
+    inspection: FileHistoryInspection?, inspecting: Boolean, canInspect: Boolean, onInspect: () -> Unit, onCancel: () -> Unit, canRetry: Boolean, onRetry: () -> Unit, onRecover: () -> Unit, onOrigin: () -> Unit,
     content: Map<FileHistoryContentKey,FileHistoryContentResult>,checkingContent: FileHistoryContentKey?,
     identities: Map<FileHistoryContentKey,LocalFileIdentityResult>,checkingIdentity:FileHistoryContentKey?,
     onIdentity:(FileJournalItem,Boolean)->Unit,
@@ -306,6 +332,9 @@ private fun FileHistoryCard(record: FileJournalRecord,onRemove: () -> Unit,canRe
             record.error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
             if(record.intent.retryOf!=null) TextButton(onClick=onOrigin,modifier=Modifier.testTag("file-history-origin")) { Text("查看原任务") }
             TextButton(onClick=onRetry,enabled=canRetry,modifier=Modifier.testTag("file-history-retry")) { Text("重新检查未完成项目") }
+            if(record.interrupted || record.outcome==FileCopyState.UNKNOWN || record.items.any {
+                it.checkpoint!=FileCopyCheckpoint.RESULT || it.value.state in setOf(FileCopyItemState.RUNNING,FileCopyItemState.CREATED,FileCopyItemState.UNKNOWN)
+            }) TextButton(onClick=onRecover,enabled=canRetry,modifier=Modifier.testTag("file-history-recovery")) { Text("重新选择结果不明的来源") }
             TextButton(onClick=onInspect,enabled=canInspect && record.items.isNotEmpty(),modifier=Modifier.testTag("file-history-inspect")) { Text("核对当前位置") }
             if(inspecting) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
