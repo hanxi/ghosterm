@@ -4,7 +4,7 @@
 
 [共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,134,611 字节**；固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41517499969) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41517500119) 均成功；两端当前资产同源 `0c30b17`，Mac 为 build 94 / min macOS 15.0 / ad-hoc / 未公证。实际 DMG/ZIP 与清单一致，共用 dev 八份固定附件完整；上轮 Mac 容量失败记录保留。
 
-**完整回归进行中**：`0c30b17` / clean 已在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各发现并启动默认 **924 项**，尚未记为通过；908 份输入分别冻结。当前产品两端初步各 47 项、十六组编译变异、Core 49 项/94 ABI 和签名 release/四模块 lint 已通过（§9.168）。最近完整通过仍为 `7bebba8` 两端各 918 项（§9.163），不借给新提交；真实手机与完整外部端点矩阵仍待完成。
+**完整回归**：`0c30b17` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认完整 **924 项全部通过**，零失败/错误/跳过。两端 908 份输入前后及跨检出相同，实际安装 APK、源码和具名成功集合已核对（§9.170）。实际 CI release 的 API 29 覆盖升级、SAF 加载/错误/重试及原资料保留另有专项；真实手机和完整外部端点矩阵仍待完成。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 
