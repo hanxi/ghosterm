@@ -107,7 +107,9 @@ class SystemImeProductTest {
     private fun typeCommand(value: String = command) {
         // UiAutomation uses Runtime.exec rather than a shell: quotes would be
         // typed literally. Encoded spaces keep the fixed payload in one argv.
-        shell("input text " + value.replace(" ", "%s"))
+        // input text creates one timestamped event array per invocation. Keep
+        // each real system injection short so queued events do not become stale.
+        value.chunked(8).forEach { chunk -> shell("input text " + chunk.replace(" ", "%s")) }
     }
 
     private fun awaitShellCompletion(marker: String) {
@@ -162,6 +164,12 @@ class SystemImeProductTest {
         ui.waitUntil(10_000) { ui.runOnIdle { editor.hasWindowFocus() } }
         ui.runOnIdle { ui.activity.getSystemService(InputMethodManager::class.java)
             .showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT) }
+        ui.waitUntil(10_000) {
+            ui.runOnIdle {
+                editor.hasFocus() && editor.hasWindowFocus() &&
+                    ui.activity.getSystemService(InputMethodManager::class.java).isActive(editor)
+            } && shell("dumpsys input_method").contains("mInputShown=true")
+        }
         typeCommand()
         shell("input keyevent 66")
         val deadline = SystemClock.uptimeMillis() + 2_000
