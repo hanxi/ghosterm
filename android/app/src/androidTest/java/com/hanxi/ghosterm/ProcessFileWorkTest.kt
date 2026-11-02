@@ -237,7 +237,8 @@ class ProcessFileWorkTest {
         val material=fixture.getString("taskFilePem").toByteArray()
         try { provider("configure",material);key=vault.import(unique,material) } finally { material.fill(0) }
         config.parentFile!!.mkdirs();known.delete()
-        config.writeText("Host $unique\n HostName 127.0.0.1\n Port ${fixture.getInt("port")}\n User ${fixture.getString("user")}\n IdentityFile ghosterm-identity:${key.id}\n")
+        // Leave the key unassociated so presenter/picker lifecycle tests retain a real manual authentication phase.
+        config.writeText("Host $unique\n HostName 127.0.0.1\n Port ${fixture.getInt("port")}\n User ${fixture.getString("user")}\n")
     }
     private fun authenticate(model:SessionsViewModel,done:()->Boolean) {
         val replied=mutableSetOf<UUID>();val end=SystemClock.elapsedRealtime()+20000

@@ -262,6 +262,8 @@ class HostIdentityTest {
         await("host association saved") { !hosts.busy && hosts.page==Page.HOSTS }
         assertEquals(listOf(IdentityReferences.encode(key.id)),ConfigBridge.identities(config.readBytes(),alias).map { it.value })
         ui.onNodeWithText(alias).performClick(); phase(SSHAuthPhase.HOSTKEY)
+        // This case verifies explicit manual candidate UI and credential removal; default auto-login is covered by RemoteFilesProductTest.
+        main { sessions.manualAuthentication(sessions.connecting!!.id) }
         ui.onNodeWithText("信任并连接").performClick(); phase(SSHAuthPhase.CREDENTIALS)
         ui.onNodeWithTag("ssh-key-${other.id}").assertDoesNotExist()
         ui.onNodeWithTag("ssh-key-${key.id}").performScrollTo().assertTextContains("✓ z-linked",substring=true)

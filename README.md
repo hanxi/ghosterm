@@ -2,11 +2,11 @@
 
 Ghosterm 是各端原生 UI、共享 C 核心和 libghostty 驱动的终端，提供 SSH 配置管理与 SFTP 文件管理。默认普通 PTY/SSH，可显式使用 tmux 后台会话。
 
-**当前发行（2026-11-02，`6deb04b`）**：主机首页、唯一设置入口、底部文件任务条；终端保持唯一键盘入口。文件支持点按打开、长按多选和跨本机/远端复制粘贴，最新修正覆盖大字体与矮窗口；域名 DNS 兼容及地址防自动更正已保留。详见[当前发行与安装证据](docs/reference/android-implementation.md#9150-终端无障碍的实际-dev-发行2026-11-02)。
+**当前 Android 发行（2026-11-02，`c594409`）**：SSH 终端的“文件”打开当前会话主机的独立 SFTP，已配置的无口令密钥自动认证；本机文件入口回到本机。未配置、缺失或加密身份仍需明确选择/口令，不自动关联任意已导入密钥。用户已反馈手机域名正常；实际签名包公网 SSH→SFTP 列表与预览通过，见 [§9.155](docs/reference/android-implementation.md#9155-当前主机文件与自动认证的实际发行2026-11-02)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,127,663 字节，固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐与构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41455186293) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41455186283) 成功。两端共用 dev，保留八份平台附件。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,129,887 字节，固定发行证书、clean 来源、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐与构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41470932199) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41470932423) 成功。两端共用 dev，保留八份平台附件。
 
-**验收状态**：干净 `6deb04b` 在 API 29 / arm64 / 4 KiB 页与 API 36 / arm64 / 16 KiB 页各默认完整 **915 项通过**，零失败/错误/跳过；同源 903 份输入、具名集合和各自安装 APK 均核验。实际签名包另验证系统无障碍正文及 DownloadsProvider 双向复制/同名保留。真机、实际 TalkBack、完整软硬键盘与外部端点/发行矩阵仍待完成，范围见[完成审计](docs/reference/android-implementation.md#101-当前完成审计与剩余验收2026-11-02)。
+**回归状态**：旧 `6deb04b` 的 API 29 / 4 KiB 页、API 36 / 16 KiB 页各 915 项通过只属于旧版本（§9.152）。`c594409` 的 API 36 文件产品 13 项、API 29 认证/文件等 30 项及新增十组变异通过（§9.154）；新默认 917 项已在两端执行完毕，各 902 项通过、15 项失败；失败来自旧手动认证夹具与自动认证流程冲突，当前不记全量通过，三组夹具修正后，两端各完整通过 44 项专项（§9.156），新完整回归另记。实际 TalkBack 导航与生成播报文字已有局部证据（§9.153）；真机、完整软硬键盘、外部端点与发行矩阵仍待完成。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 

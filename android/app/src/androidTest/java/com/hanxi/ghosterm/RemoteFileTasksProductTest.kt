@@ -44,7 +44,9 @@ class RemoteFileTasksProductTest {
         configBefore=config.takeIf { it.exists() }?.readBytes();knownBefore=known.takeIf { it.exists() }?.readBytes()
         config.parentFile!!.mkdirs();known.delete()
         vault=IdentityVault(File(ui.activity.filesDir,"identities"));key=vault.import(unique,fixture.getString("taskFilePem").toByteArray())
-        config.writeText("Host $unique\n HostName 127.0.0.1\n Port ${fixture.getInt("port")}\n User ${fixture.getString("user")}\n IdentityFile ghosterm-identity:${key.id}\n")
+        // These cases deliberately exercise manual credential prompts, cancellation and attempt ownership.
+        // Configured-key automatic authentication is covered by RemoteFilesProductTest.
+        config.writeText("Host $unique\n HostName 127.0.0.1\n Port ${fixture.getInt("port")}\n User ${fixture.getString("user")}\n")
         File(home,"$unique.txt").writeText("真实任务上传 ☃\n")
         File(home,unique).mkdir()
         ui.runOnIdle { hosts().reload() };ui.waitUntil(10000) { !hosts().busy && hosts().snapshot?.text==config.readText() }
@@ -335,7 +337,7 @@ class RemoteFileTasksProductTest {
         val uploaded=files().entries.single { it.name=="$unique.txt" }
         val before=authIds.size
         val alias="$unique-other"
-        if(crossHost) config.appendText("Host $alias\n HostName localhost\n Port ${fixture.getInt("port")}\n User ${fixture.getString("user")}\n IdentityFile ghosterm-identity:${key.id}\n")
+        if(crossHost) config.appendText("Host $alias\n HostName localhost\n Port ${fixture.getInt("port")}\n User ${fixture.getString("user")}\n")
         val endpoint=source.endpoint.copy(id="second-$unique",remote=if(crossHost)
             source.endpoint.remote!!.copy(alias=alias,host="localhost") else source.endpoint.remote)
         val target=FileLocation(endpoint,fixture.getString("taskRemoteScratch"))
@@ -412,7 +414,7 @@ class RemoteFileTasksProductTest {
         val snapshotOne=FileClipboardSnapshot.capture(sourceOne,"first endpoint",listOf(files().entries.single { it.name=="文本.txt" }))
         val secondAlias="$unique-second"
         val peer=fixture.getJSONObject("queuePeer")
-        config.appendText("Host $secondAlias\n HostName 127.0.0.1\n Port ${peer.getInt("port")}\n User ${fixture.getString("user")}\n IdentityFile ghosterm-identity:${key.id}\n")
+        config.appendText("Host $secondAlias\n HostName 127.0.0.1\n Port ${peer.getInt("port")}\n User ${fixture.getString("user")}\n")
         ui.runOnIdle { hosts().reload();files().leave() }
         ui.waitUntil(10000) { !hosts().busy && hosts().snapshot?.text==config.readText() }
         openRemote(secondAlias);val sourceTwo=files().location

@@ -1,14 +1,14 @@
 # 能力矩阵
 
-**当前 Android 发行（2026-11-02，`6deb04b`）**：大字体/矮窗口文件页面保留完整条目、复制清单与粘贴入口，见 §9.142；主机字段关闭自动更正，地址使用 URI 键盘，DNS 探测兼容保留。`6deb04b` 正式包已复测公网 `ssh.github.com:443` 至主机密钥确认并取消，未接受信任或认证（§9.150）；用户已反馈手机域名连接正常，完整网络矩阵仍待验。横屏终端布局见 [§9.139](android-implementation.md#9139-横屏键盘与大字体终端布局2026-11-02工作区)，输入与实际发行见 §9.140–§9.141。
+**当前 Android 发行（2026-11-02，`c594409`）**：SSH 终端的“文件”打开当前会话主机的独立 SFTP，已配置的无口令密钥自动认证；本机文件入口回到本机。未配置、缺失或加密身份仍需明确选择/口令，不自动关联任意已导入密钥。用户已反馈手机域名正常；实际签名包公网 SSH→SFTP 列表与预览通过，见 [§9.155](android-implementation.md#9155-当前主机文件与自动认证的实际发行2026-11-02)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,127,663 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41455186293) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41455186283) 成功。macOS 两份归档来源为 `6deb04b` / build 91，与 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,129,887 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41470932199) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41470932423) 成功。macOS 两份归档来源为 `c594409` / build 92，与 Android 共用 dev，八份平台附件名称保留。
 
-**最近完整回归**：干净 `6deb04b` 在 API 29 / arm64 / 4 KiB 页及 API 36 / arm64 / 16 KiB 页各默认未筛选 **915 项全部通过**，零失败/错误/跳过，用时 1,273.543 / 1,424.725 秒。两端同一 903 份功能输入前后不变，具名发现/执行集合与各自实际安装 APK 摘要均核验，见 §9.152。前次 `84b984e` 的 911/912 失败保留于 §9.148，不改写为绿；本轮不扩大为真机、所有页尺寸/输入法或实际 release APK 全量。正式包与系统 DownloadsProvider 的实际双向复制见 §9.150–§9.151。
+**回归状态**：旧 `6deb04b` 的 API 29 / 4 KiB 页、API 36 / 16 KiB 页各 915 项通过只属于旧版本（§9.152）。`c594409` 的 API 36 文件产品 13 项、API 29 认证/文件等 30 项及新增十组变异通过（§9.154）；新默认 917 项已在两端执行完毕，各 902 项通过、15 项失败；失败来自旧手动认证夹具与自动认证流程冲突，当前不记全量通过，三组夹具修正后，两端各完整通过 44 项专项（§9.156），新完整回归另记。实际 TalkBack 导航与生成播报文字已有局部证据（§9.153）；真机、完整软硬键盘、外部端点与发行矩阵仍待完成。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 
-**新反馈修复（待发行）**：远端终端“文件”已改为当前会话目标的独立 SFTP；配置密钥自动认证及安全候选策略已接，API 29/36 专项和十组变异通过。与当前 dev 产物分开记账，见 §9.154。
+**新反馈已发行**：当前主机文件入口与配置密钥自动认证已随 `c594409` 发布；API 29/36 专项和十组变异见 §9.154，实际正式包公网 SSH/SFTP 见 §9.155。
 
 2026-10-28 已完成 [可选 tmux 重构](plan-optional-tmux.md)。默认 PTY/SSH 已恢复，
 旧 sessiond、私有恢复与随包 runtime 已退役。可选 tmux 为 🟡：tmux 3.2a 已验证 macOS 本机与 Ubuntu 22.04 SSH 的真实命令和 PTY；3.6a 另验证原生列表、任务 PID 保留、断网与受限账户，最终打包证据见实施清单。仅支持 POSIX 兼容远端登录 shell；不自动安装、恢复或管理旧 daemon。
