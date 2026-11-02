@@ -6,6 +6,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
@@ -33,6 +35,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
     taskBar: @Composable () -> Unit = { TextButton(onClick = showTasks) { Text("文件任务") } },
     connectRemote: (String) -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
+    val compact = LocalConfiguration.current.screenHeightDp < 400 || LocalConfiguration.current.fontScale >= 1.5f
     val context=LocalContext.current
     BackHandler { if(menu) menu=false else model.back() }
     val lifecycle=LocalLifecycleOwner.current.lifecycle
@@ -59,6 +62,11 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 TextButton(onClick={ menu=true }) { Text("更多") }
                 DropdownMenu(expanded=menu,onDismissRequest={ menu=false }) {
                     if(preview==null) {
+                        if(compact && model.selecting) {
+                            DropdownMenuItem(text={ Text("全选") },onClick={ menu=false;model.all() })
+                            DropdownMenuItem(text={ Text("清除选择") },onClick={ menu=false;model.clearChecked() })
+                            if(model.clipboard!=null) DropdownMenuItem(text={ Text("查看清单") },onClick={ menu=false;model.showClipboard() })
+                        }
                         if(model.location.endpoint.remoteAlias!=null)
                             DropdownMenuItem(text={ Text("断开文件连接") },onClick={ menu=false;model.disconnectRemote() })
                         DropdownMenuItem(text={ Text("刷新") },onClick={ menu=false;model.reload() })
@@ -72,7 +80,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
         })
     }, bottomBar = { Column(Modifier.fillMaxWidth().navigationBarsPadding()) { taskBar() } }) { padding ->
         if(preview!=null) {
-            Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).padding(16.dp)) {
+            Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).verticalScroll(rememberScrollState()).padding(16.dp)) {
                 Text("只读预览 · UTF-8 文本",style=MaterialTheme.typography.labelMedium)
                 if(preview.entry.kind==FileKind.FILE) {
                     TextButton(onClick=model::openExternal,
@@ -85,16 +93,24 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 PreviewCacheStatus(model)
                 if(preview.error!=null) Text(preview.error,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(top=16.dp).testTag("file-preview-error"))
                 else if(preview.text==null) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top=16.dp))
-                else SelectionContainer(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
+                else SelectionContainer(Modifier.fillMaxWidth()) {
                     Text(preview.text, fontFamily=FontFamily.Monospace,modifier=Modifier.padding(vertical=16.dp).testTag("file-preview"))
                 }
             }
         } else Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            if(compact) Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal=8.dp), verticalAlignment=Alignment.CenterVertically) {
+                TextButton(onClick=model::chooseLocations,contentPadding=PaddingValues(horizontal=8.dp),modifier=Modifier.widthIn(max=180.dp).testTag("file-location")) {
+                    Text("${if(model.location.endpoint.remoteAlias==null) "本机" else "远端"} · ${model.location.endpoint.label}",maxLines=1,overflow=TextOverflow.Ellipsis)
+                }
+                Text(if(model.location.endpoint.remoteAlias!=null) model.location.directoryId else model.crumbs.joinToString(" / ") { it.label },
+                    Modifier.weight(1f).testTag("file-breadcrumb"),style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+            } else {
             TextButton(onClick=model::chooseLocations,modifier=Modifier.fillMaxWidth().testTag("file-location")) { Text("${if(model.location.endpoint.remoteAlias==null) "本机" else "远端"} · ${model.location.endpoint.label}") }
-            if(remoteError!=null && !model.choosingLocation)
-                Text(remoteError,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(horizontal=16.dp).testTag("file-connect-error"))
             Text(if(model.location.endpoint.remoteAlias!=null) model.location.directoryId else model.crumbs.joinToString(" / ") { it.label },Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).testTag("file-breadcrumb"),
                 style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+            }
+            if(remoteError!=null && !model.choosingLocation)
+                Text(remoteError,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(horizontal=16.dp).testTag("file-connect-error"))
             model.externalCacheError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-preview-cache-error")) }
             PreviewCacheStatus(model)
             model.preferenceError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("file-preference-error")) }
@@ -114,20 +130,31 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("file-list")) {
                 items(model.visibleEntries,key={ it.id }) { entry ->
                     val checked=entry.id in model.selected
-                    ListItem(modifier=Modifier.fillMaxWidth().heightIn(min=64.dp).testTag("file-entry:${entry.name}")
+                    val detail=when(entry.kind) {
+                        FileKind.DIRECTORY -> "文件夹"
+                        FileKind.LINK -> "符号链接"
+                        FileKind.OTHER -> "特殊或未知类型"
+                        FileKind.FILE -> entry.size?.let { if(it<=Long.MAX_VALUE.toULong()) Formatter.formatShortFileSize(context,it.toLong()) else "$it 字节" } ?: "大小未知"
+                    }
+                    val entryModifier=Modifier.fillMaxWidth().testTag("file-entry:${entry.name}")
                         .semantics { selected=checked }.combinedClickable(role=if(model.selecting) Role.Checkbox else Role.Button,
-                            onClick={ model.tap(entry) },onLongClick={ model.longPress(entry) },onLongClickLabel="选择此项目"),
+                            onClick={ model.tap(entry) },onLongClick={ model.longPress(entry) },onLongClickLabel="选择此项目")
+                    if(compact) Row(entryModifier.height(48.dp).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically,
+                        horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        if(model.selecting) Checkbox(checked=checked,onCheckedChange=null) else Text(if(entry.kind==FileKind.DIRECTORY) "▸" else "·")
+                        Text(entry.name,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        Text(detail,Modifier.widthIn(max=120.dp),style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    } else ListItem(modifier=entryModifier.heightIn(min=64.dp),
                         headlineContent={ Text(entry.name,maxLines=2,overflow=TextOverflow.Ellipsis) },
-                        supportingContent={ Text(when(entry.kind) {
-                            FileKind.DIRECTORY -> "文件夹"
-                            FileKind.LINK -> "符号链接"
-                            FileKind.OTHER -> "特殊或未知类型"
-                            FileKind.FILE -> entry.size?.let { if(it<=Long.MAX_VALUE.toULong()) Formatter.formatShortFileSize(context,it.toLong()) else "$it 字节" } ?: "大小未知"
-                        }) },leadingContent={ if(model.selecting) Checkbox(checked=checked,onCheckedChange=null) else Text(if(entry.kind==FileKind.DIRECTORY) "▸" else "·") })
+                        supportingContent={ Text(detail) },leadingContent={ if(model.selecting) Checkbox(checked=checked,onCheckedChange=null) else Text(if(entry.kind==FileKind.DIRECTORY) "▸" else "·") })
                     HorizontalDivider()
                 }
             }
-            if(model.selecting) Column(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {
+            if(compact && model.selecting) Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically) {
+                Text("已选 ${model.selected.size} 项"+(model.clipboard?.let { " · 清单 ${it.items.size} 项" } ?: ""),Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis)
+                Button(onClick=model::copySelected,enabled=model.selected.isNotEmpty() && !model.loading && model.error==null,
+                    contentPadding=PaddingValues(horizontal=12.dp),modifier=Modifier.height(48.dp).testTag("file-copy")) { Text("复制 ${model.selected.size} 项",maxLines=1) }
+            } else if(model.selecting) Column(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {
                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                     Text("${model.selected.size} 项",Modifier.weight(1f))
                     TextButton(onClick=model::all) { Text("全选") };TextButton(onClick=model::clearChecked) { Text("清除选择") }
@@ -136,7 +163,18 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                     modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("file-copy")) { Text("复制 ${model.selected.size} 项") }
             }
             model.clipboard?.let { snapshot ->
-                ElevatedCard(Modifier.fillMaxWidth().padding(12.dp).testTag("file-clipboard")) {
+                if(compact && !model.selecting) ElevatedCard(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=4.dp).testTag("file-clipboard")) {
+                    Row(Modifier.fillMaxWidth().height(48.dp).testTag("file-clipboard-compact"),verticalAlignment=Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f).fillMaxHeight().clickable(role=Role.Button,onClick=model::showClipboard)
+                            .testTag("file-clipboard-details").padding(horizontal=8.dp),contentAlignment=Alignment.CenterStart) {
+                            Text(snapshot.items.take(3).joinToString("、") { it.name }+" · ${snapshot.items.size} 项 · "+clipboardSource(snapshot)+" / "+snapshot.sourcePathLabel,
+                                maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("file-clipboard-names"))
+                        }
+                        TextButton(onClick=onPaste,enabled=!model.loading && model.error==null,contentPadding=PaddingValues(horizontal=8.dp),
+                            modifier=Modifier.height(48.dp).testTag("file-paste")) { Text("粘贴",maxLines=1) }
+                        TextButton(onClick=model::requestClipboardClear,contentPadding=PaddingValues(horizontal=8.dp),modifier=Modifier.height(48.dp)) { Text("清空",maxLines=1) }
+                    }
+                } else if(!compact) ElevatedCard(Modifier.fillMaxWidth().padding(12.dp).testTag("file-clipboard")) {
                     Column(Modifier.padding(horizontal=12.dp,vertical=8.dp)) {
                         Text("待粘贴 · ${snapshot.items.size} 项",style=MaterialTheme.typography.titleSmall)
                         Text(clipboardSource(snapshot),maxLines=if(model.selecting) 1 else 2,overflow=TextOverflow.Ellipsis,
@@ -186,11 +224,11 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
     if(model.clipboardDetails && clipboard!=null) ModalBottomSheet(onDismissRequest=model::hideClipboard,
         sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("复制清单 · ${clipboard.items.size} 项",style=MaterialTheme.typography.titleLarge)
-            Text(clipboardSource(clipboard),modifier=Modifier.testTag("file-clipboard-detail-source"))
-            Text(clipboard.sourcePathLabel,modifier=Modifier.testTag("file-clipboard-detail-path"))
-            Text("清单保存的是来源位置；文件内容会在粘贴时读取。",style=MaterialTheme.typography.bodySmall)
             LazyColumn(Modifier.weight(1f,fill=false).testTag("file-clipboard-items")) {
+                item { Text("复制清单 · ${clipboard.items.size} 项",style=MaterialTheme.typography.titleLarge) }
+                item { Text(clipboardSource(clipboard),modifier=Modifier.testTag("file-clipboard-detail-source")) }
+                item { Text(clipboard.sourcePathLabel,modifier=Modifier.testTag("file-clipboard-detail-path")) }
+                item { Text("清单保存的是来源位置；文件内容会在粘贴时读取。",style=MaterialTheme.typography.bodySmall) }
                 items(clipboard.items,key={ it.id }) { entry ->
                     ListItem(headlineContent={ Text(entry.name) },supportingContent={ Text(when(entry.kind) {
                         FileKind.DIRECTORY -> "文件夹";FileKind.LINK -> "符号链接 · 粘贴时需单独处理"
