@@ -25,8 +25,8 @@ object IdentityReferences {
                 id != null -> byId[id]?.let { if (it !in identities) identities += it }
                     ?: run { issues += "配置身份已移除或不可用：$value" }
                 value.startsWith(PREFIX) -> issues += "配置身份引用无效：$value"
-                value == "none" -> issues += "配置包含 IdentityFile none；使用密钥需明确选择本次身份。"
-                else -> issues += "尚未关联的身份路径：$value。可在主机编辑中关联，或仅为本次连接选择身份。"
+                value == "none" -> issues += "配置包含 IdentityFile none；使用密钥需明确选择身份。"
+                else -> issues += "尚未关联的身份路径：$value。可在主机编辑中关联，或在连接时选择身份。"
             }
         }
         return IdentityCandidates(identities, issues)

@@ -42,11 +42,11 @@ fun IdentitiesScreen(model: IdentitiesViewModel, import: () -> Unit) {
         } else {
             item { Text(record.name,style = MaterialTheme.typography.titleLarge) }
             item {
-                Text("使用方式：在主机编辑中关联，或仅为本次连接选择。")
+                Text("使用方式：连接时选钥，成功后默认记住；也可在主机编辑中关联。")
                 val reference = (IdentityReferences.PREFIX + record.id).takeIf { IdentityReferences.decode(it) != null }
                 if (reference != null) SelectionContainer { Text(reference, style = MaterialTheme.typography.bodySmall) }
                 else Text("此条目的身份编号无效，不能用于主机关联。", color = MaterialTheme.colorScheme.error)
-                Text("此引用只适用于本机。重新导入会创建新身份，需重新关联；配置导出不含私钥。", style = MaterialTheme.typography.bodySmall)
+                Text("此引用只适用于本机。重新导入会创建新身份，原配置引用需重新关联；配置导出不含私钥。", style = MaterialTheme.typography.bodySmall)
             }
             model.info?.let { info -> item {
                 info.algorithm?.let { Text("类型：$it",Modifier.testTag("identity-algorithm")) }
@@ -76,7 +76,7 @@ fun IdentitiesScreen(model: IdentitiesViewModel, import: () -> Unit) {
     }
     if (model.confirmingRemoval) AlertDialog(onDismissRequest = model::cancelRemoval,
         title = { Text("移除 ${model.selected?.name}？") },
-        text = { Text("将删除应用内副本及其安全密钥。原私钥文件和已建立的连接保留。SSH 配置中的引用不会删除，之后连接会提示身份不可用；重新导入后须重新关联。" +
+        text = { Text("将删除应用内副本及其安全密钥。原私钥文件和已建立的连接保留。SSH 配置中的引用不会删除；重新导入后，需重新关联或在连接时选择新身份。" +
             if (model.usageError != null) "当前引用情况无法确定。" else "当前列表中有 ${model.usages.size} 台主机引用此身份。") },
         confirmButton = { TextButton(onClick = model::remove) { Text("确认移除") } },
         dismissButton = { TextButton(onClick = model::cancelRemoval) { Text("保留身份") } })
