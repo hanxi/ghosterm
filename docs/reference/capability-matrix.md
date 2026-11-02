@@ -1,10 +1,10 @@
 # 能力矩阵
 
-**当前 Android 发行（2026-11-02，`c594409`）**：SSH 终端的“文件”打开当前会话主机的独立 SFTP，已配置的无口令密钥自动认证；本机文件入口回到本机。未配置、缺失或加密身份仍需明确选择/口令，不自动关联任意已导入密钥。用户已反馈手机域名正常；实际签名包公网 SSH→SFTP 列表与预览通过，见 [§9.155](android-implementation.md#9155-当前主机文件与自动认证的实际发行2026-11-02)。
+**当前 Android 发行（2026-11-03，`f5eda91`）**：SSH 终端的“文件”打开当前会话主机的独立 SFTP，已配置的无口令密钥自动认证；首页“本机文件”回到本机。实际签名包的公网 SSH/SFTP、两系统 Kitty 动画与覆盖升级已验，初次 16 KiB 模拟器关机后的包解析失败及对照重启单独保留，见 [§9.159](android-implementation.md#9159-f5eda91-实际发行包的两系统设备验收2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,129,887 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41470932199) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41470932423) 成功。macOS 两份归档来源为 `c594409` / build 92，与 Android 共用 dev，八份平台附件名称保留。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 8,129,887 字节，固定发行证书、源码 clean、R8/资源优化、仅 arm64、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐和构建机路径检查均核验；[Android CI](https://github.com/hanxi/ghosterm/actions/runs/41475692020) 与 [macOS CI](https://github.com/hanxi/ghosterm/actions/runs/41470932423) 成功。macOS 两份归档来源为 `c594409` / build 92，与 Android 共用 dev，八份平台附件名称保留。
 
-**回归状态**：旧 `6deb04b` 的 API 29 / 4 KiB 页、API 36 / 16 KiB 页各 915 项通过只属于旧版本（§9.152）。`c594409` 的 API 36 文件产品 13 项、API 29 认证/文件等 30 项及新增十组变异通过（§9.154）；新默认 917 项已在两端执行完毕，各 902 项通过、15 项失败；失败来自旧手动认证夹具与自动认证流程冲突，当前不记全量通过，三组夹具修正后，两端各完整通过 44 项专项（§9.156），新完整回归另记。实际 TalkBack 导航与生成播报文字已有局部证据（§9.153）；真机、完整软硬键盘、外部端点与发行矩阵仍待完成。
+**完整回归**：`f5eda91` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页各默认未筛选 **917 项全部通过**，零失败/错误/跳过。两端同源 904 份输入前后不变，具名发现/执行集合、实际安装 APK 与 clean 来源均核验（§9.160）。旧 `c594409` 的十五项夹具失败保留于 §9.155–§9.156；真机、完整键盘/读屏与外部端点矩阵仍待完成。
 
 整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
 

@@ -1,17 +1,18 @@
 # Android release APK
 
-当前已核验签名包来自 [run 41455186293](https://github.com/hanxi/ghosterm/actions/runs/41455186293)，源码 `6deb04b` / clean。
+当前已核验签名包来自 [run 41475692020](https://github.com/hanxi/ghosterm/actions/runs/41475692020)，源码 `f5eda91` / clean。
 [直接下载签名 release APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)（[共用 dev Release](https://github.com/hanxi/ghosterm/releases/tag/dev)）。
-APK **8,127,663 字节**，SHA256 `fb26f4bb585fe8ac644904438fe769363b4700d9020e476b1751be5aeee7cdce`；下载时同时核对 `android-SHA256SUMS` 和 `android-build-info.json`，滚动链接可能已由新提交更新。
+APK **8,129,887 字节**，SHA256 `9177fad06eb4275503c39f01ea7ada6516309a6fde875112772e60bd58483d39`；下载时同时核对 `android-SHA256SUMS` 和 `android-build-info.json`，滚动链接可能已由新提交更新。
 固定发行证书、非 debuggable/minSdk 29/仅 arm64、实际 R8/资源优化、native 压缩、完整 Nerd Fonts/许可、ELF/ZIP 16 KiB 对齐及构建机路径检查均已核验。
 
-该实际包在 API 29 / arm64 / 4 KiB 页覆盖升级后保留保存主机，公网域名 `ssh.github.com:443` 已解析并连接到主机密钥确认，再明确取消，未接受信任或认证（§9.150）。实际正式包的终端系统节点亦已提供可见正文并过滤隐藏文字。大字体文件复制与实际包升级读取的范围见 §9.142–§9.143。旧包的 16 KiB 页外部只读打开证据仍只属于对应产物，不回填为新包全量。
-最近同源 4 KiB 页完整通过来自 `18db11b`（API 29 / API 36 各 912 项）；`84b984e` 的 16 KiB 页全量为 911/912，不能记绿。`6deb04b` 已提交终端可见文字无障碍和紧凑菜单布局同步，签名 CI 与下载校验通过；默认 915 项已在 API 29 / 4 KiB 页与 API 36 / 16 KiB 页同源通过。用户手机 Wi-Fi/移动网络、实际 TalkBack、完整键盘/外部端点/发行矩阵仍未完成。
+该实际包已在 API 29 / 4 KiB 页与原有 API 36 / 16 KiB 页覆盖安装，分别验证保留 QA 主机或可见旧文件/历史数量，实际文本预览、Kitty 红绿动画及删除通过。API 29 另通过公网域名 SSH→同主机 SFTP 列表/预览。16 KiB 模拟器在首次 emulator kill 后重开曾出现包解析失败；保留原始失败后，同 APK 两种安装方式的正常 guest reboot 均通过，原因尚未确定。详细范围见 §9.159，不将旧资料的可见数量写成所有内容逐字节验收。
+
+当前 clean `f5eda91` 的 API 29 / 4 KiB 页与 API 36 / 16 KiB 页各默认完整 **917 项通过**（§9.160）。Android CI 首次因 NDK 下载压缩包损坏失败，第二次成功，实际发布包已核验（§9.157）；旧 `c594409` 的十五项手动认证夹具失败仍保留（§9.155–§9.156）。物理手机网络/输入/性能与完整外部端点/发行矩阵仍待完成。
 
 最终按用户要求与 macOS 共用 `dev` Release，文件名固定为 `Ghosterm-android-arm64-dev.apk`、`Ghosterm-macos-arm64-dev.dmg` 和 `Ghosterm-macos-arm64-dev.zip`。这里 dev 表示分发渠道，Android 仍是固定密钥签名、R8/资源裁剪的 release 构建。
 Mac 使用 `SHA256SUMS` / `BUILD-INFO.txt` / `version.json`，Android 使用 `android-SHA256SUMS` / `android-build-info.json`，各自记录版本和实际提交。8 个附件已实际下载逐一比对；临时 android-dev Release 及 tag 已删除。两端发布共用互斥组，Mac 原位更新并只清理旧 Mac 归档，不能再删除整个 Release。
 
-当前证据与分轮范围见[实施计划 §9.150–§9.151](../reference/android-implementation.md#9150-终端无障碍的实际-dev-发行2026-11-02)；旧 `a70a0d0` 的外部打开/SAF 专项保留于 §9.93–§9.94。
+当前发行证据见[实施计划 §9.157](../reference/android-implementation.md#9157-手动夹具校正版本的实际-dev-发行2026-11-03)；旧 `a70a0d0` 的外部打开/SAF 专项保留于 §9.93–§9.94。
 
 前次 `29d3f3d` 的 [CI 41282597767](https://github.com/hanxi/ghosterm/actions/runs/41282597767) 产出 6,129,125 字节签名包；五类设置与正式图标的完整/专项证据保留于 §9.91。
 
@@ -94,4 +95,17 @@ bash scripts/build-android.sh :app:assembleRelease
 
 CI 在 setup-java 之前将 GRADLE_USER_HOME 设置为 runner 用户目录下的 `.gradle`，与锁定的 setup-java v6.1.0 默认缓存位置一致；依赖缓存和 wrapper 缓存才会覆盖实际构建目录。此前 job 将 Gradle home 指到工程 `build/android-toolchain/gradle-home`，setup-java 却检查用户目录，导致发布虽然成功但缓存未保存。本地脚本仍默认使用工程内工具链目录，也继续尊重调用方显式设置的 GRADLE_USER_HOME。
 
-修正依据是[锁定版本的缓存实现](https://github.com/actions/setup-java/blob/b843ebf9b913146b38da2eaa7aeddf76074ae1ad/src/cache.ts)。workflow 语法检查已通过；首次实际保存和后续命中仍须读取对应 CI 日志确认，不能仅凭配置或一次总耗时宣称加速比例。
+修正依据是[锁定版本的缓存实现](https://github.com/actions/setup-java/blob/b843ebf9b913146b38da2eaa7aeddf76074ae1ad/src/cache.ts)。workflow 语法检查已通过；`f5eda91` 的成功 CI 日志已确认 Gradle 与 wrapper 缓存恢复及 primary key 命中；没有据此宣称固定加速比例，先前首次保存仍以对应旧日志为准。
+
+
+## 手机复测与结果记录
+
+在原安装上覆盖升级，关于页记录实际 commit、手机型号和 Android 版本；安装来源的“dev”字样不代表 debug 包。不要用模拟器结果填写真机记录。
+
+1. 在“编辑主机 → SSH 身份”关联已导入密钥并保存，再连接主机。无口令配置密钥应自动使用；加密身份仍需口令。未配置时选择只作用当次，不应静默修改 ssh_config。
+2. 在 SSH 终端点“文件”，顶部应显示该远端主机，显示目录或具体错误；打开短文本查看真实内容，返回后终端应仍连接。首页“本机文件”应进入应用本机目录。
+3. 用自己的测试目录验证长按选择、复制清单、目标处粘贴和冲突“保留两者”；比对实际目标内容。分别记录本机→远端、远端→本机和系统文件选择器的结果，未测方向留空。
+4. 测试中文输入、组合取消/删除、唯一键盘开关、横屏和大字体。外接键盘和 TalkBack 有实际设备/服务时分别记录；模拟按键回调不能记成物理键盘通过。
+5. 将 Wi-Fi、移动网络及实际使用的 VPN/私人 DNS 分开记录。域名连接失败时附页面错误文字和所在步骤，不把一次成功扩大成完整网络矩阵通过。
+
+反馈只需型号、系统版本、commit、操作步骤和实际结果。不要在反馈中提供私钥、口令或包含凭据的截图。
