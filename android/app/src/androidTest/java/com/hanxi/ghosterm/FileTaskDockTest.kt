@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -30,6 +31,12 @@ class FileTaskDockTest {
     private val opened = AtomicInteger()
     private val source = FileLocation(FileEndpoint.APP, "source")
     private val target = FileLocation(FileEndpoint.APP, "target")
+    private fun captureEmptyReview(name:String) {
+        ui.waitForIdle()
+        val output=File(context.cacheDir,"empty-task-review").apply { mkdirs() }
+        val bitmap=ui.onRoot().captureToImage().asAndroidBitmap()
+        File(output,"$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) }
+    }
     @Before fun setup() {
         root = File(context.cacheDir, "dock-${UUID.randomUUID()}").apply { mkdirs() }
         home = File(root, "home").apply { mkdirs() }
@@ -65,24 +72,40 @@ class FileTaskDockTest {
         assertEquals("real preflight reaches confirmation", FileTaskPhase.CONFIRMING, task.phase)
         return task
     }
-    @Test fun hostHeaderOnlyHasSettingsAndBottomEntryReturnsToTheSameFileLocation() {
+    @Test fun emptyHomeHidesSummaryAndFileHistoryEntryReturnsToTheSameLocation() {
         ui.onNodeWithText("任务", substring = false).assertDoesNotExist()
-        val settings = ui.onNodeWithText("设置").fetchSemanticsNode().boundsInRoot
-        val dock = ui.onNodeWithTag("file-task-dock").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertTrue("task entry belongs below the header", dock.top > settings.bottom)
-        ui.onNodeWithTag("file-task-dock").performClick()
-        assertTrue(tasks.visible);ui.onNodeWithTag("file-tasks").assertIsDisplayed()
-        ui.onNodeWithText("返回").performClick();assertFalse(tasks.visible)
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).assertIsDisplayed()
+        ui.onNodeWithTag("file-task-dock").assertDoesNotExist()
+        ui.onNodeWithTag("file-task-dock-status",useUnmergedTree=true).assertDoesNotExist()
+        captureEmptyReview("empty-home")
         ui.runOnIdle { files.enter() };ui.waitUntil(10000) { !files.loading }
         ui.onNodeWithTag("file-entry:source").performClick();ui.waitUntil(10000) { !files.loading }
         val location = files.location
+        ui.onNodeWithTag("file-task-dock-status",useUnmergedTree=true).assertDoesNotExist()
+        captureEmptyReview("empty-file-browser")
         ui.onNodeWithTag("file-task-dock").assertIsDisplayed().performClick()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         assertTrue(files.visible);assertEquals(location, files.location)
         ui.onNodeWithTag("file-entry:a.txt").assertIsDisplayed()
         assertTrue(tasks.tasks.isEmpty());assertEquals(0, opened.get())
         assertEquals("dock actual source ☃\n", File(home, "source/a.txt").readText())
     }
+    @Test fun activeSummaryAndClipboardLeaveOneActualFileRow() {
+        val task=prepare();val before=opened.get()
+        File(home,"target/existing.txt").writeText("unchanged destination")
+        ui.runOnIdle { files.enter() };ui.waitUntil { !files.loading }
+        ui.onNodeWithTag("file-entry:source").performClick();ui.waitUntil { !files.loading }
+        ui.onNodeWithTag("file-entry:a.txt").performTouchInput { longClick() };ui.onNodeWithTag("file-copy").performClick()
+        ui.runOnIdle { files.back() };ui.waitUntil { !files.loading }
+        ui.onNodeWithTag("file-entry:target").performClick();ui.waitUntil { !files.loading }
+        ui.onNodeWithTag("file-task-dock-status",useUnmergedTree=true).assertTextEquals("确认粘贴")
+        val row=ui.onNodeWithTag("file-entry:existing.txt").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val list=ui.onNodeWithTag("file-list").fetchSemanticsNode().boundsInRoot
+        assertTrue("actual task summary and clipboard must leave a file row",list.height>=row.height)
+        assertEquals(FileTaskPhase.CONFIRMING,task.phase);assertEquals(before,opened.get())
+        assertFalse(File(home,"target/a.txt").exists())
+    }
+
     @Test fun actualCopyChangesDockFromConfirmationToFinishedThenImmutableHistory() {
         val task = prepare()
         ui.onNodeWithTag("file-task-dock-status", useUnmergedTree = true).assertTextEquals("确认粘贴")
@@ -95,13 +118,14 @@ class FileTaskDockTest {
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
         ui.waitUntil(15000) { !task.active && !task.recording }
         assertEquals(FileCopyState.COMPLETE, task.result?.state)
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithTag("file-task-dock-status", useUnmergedTree = true).assertTextEquals("全部复制完成")
         assertEquals(File(home, "source/a.txt").readText(), File(home, "target/a.txt").readText())
         ui.runOnIdle { tasks.archive(task) };ui.waitUntil(10000) { task !in tasks.tasks && !tasks.contentReading }
-        ui.onNodeWithTag("file-task-dock-status", useUnmergedTree = true).assertTextEquals("查看 1 条历史记录")
+        ui.onNodeWithTag("file-task-dock-status", useUnmergedTree = true).assertDoesNotExist()
+        captureEmptyReview("history-only-home")
         val count = opened.get()
-        ui.onNodeWithTag("file-task-dock").performClick()
+        ui.onNodeWithTag("home-task-history").assertIsDisplayed().performClick()
         ui.onNodeWithTag("file-tasks").assertIsDisplayed()
         assertEquals("viewing archived work never restarts IO", count, opened.get())
         assertEquals(File(home, "source/a.txt").readText(), File(home, "target/a.txt").readText())

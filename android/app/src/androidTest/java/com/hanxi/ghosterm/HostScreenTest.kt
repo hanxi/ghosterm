@@ -42,7 +42,7 @@ class HostScreenTest {
     }
     @Test fun configEditorDisablesAutocorrectAndWritesLiteralText() {
         load("Host original\n  HostName original.test\n")
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
         openConnectionCategory()
         ui.onNodeWithText("查看与编辑 SSH 配置").performScrollTo().performClick()
         ui.onNodeWithText("配置内容").performClick()
@@ -86,13 +86,13 @@ class HostScreenTest {
         assertEquals("不支持 SSH 配置：proxyjump（当前配置:3）", model.error)
         ui.onNodeWithText("不支持 SSH 配置：proxyjump（当前配置:3）").assertIsDisplayed()
         assertEquals(text, File(directory, "home/.ssh/config").readText())
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         ui.onNodeWithText("主机地址").assertTextContains("127.0.0.1")
     }
     @Test fun invalidAliasAddressAndPortPreserveDraftAndOriginal() {
         val original = "Host original\n  HostName original.test\n  User owner\n  Port 22\n"
         load(original)
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         val cases = listOf(
             Triple("别名", listOf("", "*bad", "a".repeat(129)), "别名只能包含字母、数字、点、短横线与下划线"),
             Triple("主机地址", listOf("", "bad host", "host#comment"), "请填写有效的主机地址，或选择使用继承值"),
@@ -115,22 +115,22 @@ class HostScreenTest {
             closeSoftKeyboard()
         }
         assertFalse(model.dirty)
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("放弃未保存的修改？").assertDoesNotExist()
         ui.onNodeWithText("original").assertIsDisplayed()
     }
     @Test fun loadFailureHidesEmptyAndStaleListsAndCanRetry() {
-        ui.onNodeWithText("还没有主机").assertIsDisplayed()
+        ui.onNodeWithText("添加你的第一台主机").assertIsDisplayed()
         val file = File(directory, "home/.ssh/config")
         assertTrue(file.mkdir())
         ui.runOnIdle { model.reload() }
         ui.waitUntil(10_000) { !model.busy }
         ui.onNodeWithText("配置不是普通文件或超过 1 MiB").assertIsDisplayed()
-        ui.onNodeWithText("还没有主机").assertDoesNotExist()
+        ui.onNodeWithText("添加你的第一台主机").assertDoesNotExist()
         ui.onNodeWithText("添加主机").assertIsNotEnabled()
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
         ui.onNodeWithText("关于 Ghosterm").performScrollTo().performClick()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         openConnectionCategory()
         ui.onNodeWithText("管理主机").performScrollTo().performClick()
         ui.onNodeWithText("配置不是普通文件或超过 1 MiB").assertIsDisplayed()
@@ -144,7 +144,7 @@ class HostScreenTest {
         ui.runOnIdle { model.reload() }
         ui.waitUntil(10_000) { !model.busy }
         ui.onNodeWithText("recovered").assertDoesNotExist()
-        ui.onNodeWithText("还没有主机").assertDoesNotExist()
+        ui.onNodeWithText("添加你的第一台主机").assertDoesNotExist()
     }
     @Test fun invalidConfigurationRemainsErrorUntilReloaded() {
         val file = File(directory, "home/.ssh/config")
@@ -152,7 +152,7 @@ class HostScreenTest {
         ui.runOnIdle { model.reload() }
         ui.waitUntil(10_000) { !model.busy }
         ui.onNodeWithText("SSH 配置必须为 UTF-8 文本").assertIsDisplayed()
-        ui.onNodeWithText("还没有主机").assertDoesNotExist()
+        ui.onNodeWithText("添加你的第一台主机").assertDoesNotExist()
         file.writeText("Include ${directory.path}/missing.conf\n")
         ui.onNodeWithText("重新载入").performClick()
         ui.waitUntil(10_000) { !model.busy }
@@ -161,13 +161,13 @@ class HostScreenTest {
         assertTrue(file.delete())
         ui.onNodeWithText("重新载入").performClick()
         ui.waitUntil(10_000) { !model.busy }
-        ui.onNodeWithText("还没有主机").assertIsDisplayed()
+        ui.onNodeWithText("添加你的第一台主机").assertIsDisplayed()
         assertNull(model.snapshot!!.revision.identity)
     }
     @Test fun configReloadConfirmsDiscardAndKeepsDraftOnReadFailure() {
         load("Host original\n")
         val file = File(directory, "home/.ssh/config")
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
         openConnectionCategory()
         ui.onNodeWithText("查看与编辑 SSH 配置").performScrollTo().performClick()
         ui.onNodeWithText("配置内容").performTextReplacement("Host draft\n")
@@ -197,7 +197,7 @@ class HostScreenTest {
         assertEquals(Page.CONFIG, model.page)
         ui.onNodeWithText("配置内容").assertTextContains("Host recovered\n")
         ui.onNodeWithText("保存").assertIsNotEnabled()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         openConnectionCategory()
         ui.onNodeWithText("管理主机").performScrollTo().performClick()
         ui.onNodeWithText("recovered").assertIsDisplayed()
@@ -205,7 +205,7 @@ class HostScreenTest {
     @Test fun hostConflictCanReloadOrDiscardDeletedTarget() {
         load("Host demo\n  HostName original.test\n  User owner\n")
         val file = File(directory, "home/.ssh/config")
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         ui.onNodeWithText("主机地址").performTextReplacement("draft.test")
         closeSoftKeyboard()
         file.writeText("Host demo\n  HostName external.test\n  User owner\n")
@@ -244,7 +244,7 @@ class HostScreenTest {
     }
     @Test fun fieldSourcesAndSharedBlockWarningAreVisible() {
         load("User inherited\nHost demo sibling\n  HostName example.test\n  User explicit\n")
-        ui.onAllNodesWithText("编辑")[0].performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         ui.onNodeWithText("Host demo sibling").assertIsDisplayed()
         ui.onNodeWithText("此 Host 块包含多个别名或规则；修改会同时影响上方列出的全部名称。").assertIsDisplayed()
         ui.onNodeWithText("继承自全局配置 · 第 1 行；此块设置的 explicit 未生效").performScrollTo().assertIsDisplayed()
@@ -260,7 +260,7 @@ class HostScreenTest {
     }
     @Test fun readOnlyHostCanInspectConfigAndReturnWithFreshOwnership() {
         load("Host dup\n  User first\nHost DUP\n  User second\n")
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         ui.onNodeWithText("保存").assertIsNotEnabled()
         ui.onNodeWithText("别名").assertIsNotEnabled()
         ui.onNodeWithText("主机地址").assertIsNotEnabled()
@@ -268,7 +268,7 @@ class HostScreenTest {
         ui.onNodeWithText("此别名出现在 2 个 Host 块中，无法确定修改目标；请在 SSH 配置页编辑。").assertIsDisplayed()
         openConnectionCategory()
         ui.onNodeWithText("查看与编辑 SSH 配置").performScrollTo().performClick()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("别名").assertExists()
         ui.onNodeWithText("保存").assertIsNotEnabled()
         openConnectionCategory()
@@ -280,20 +280,20 @@ class HostScreenTest {
         ui.onNodeWithText("fixed.test").assertExists()
         ui.onNodeWithText("远端用户名").performScrollTo().assertTextContains("owner")
         assertEquals(1, model.draft!!.original!!.source!!.matchingBlocks)
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("dup").assertIsDisplayed()
     }
     @Test fun inheritanceSwitchSavesSameValueAndThenRemovesOverride() {
         val original = "Host demo\n  HostName example.test\nHost *\n  User inherited\n"
         load(original)
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         val toggle = ui.onNodeWithContentDescription("远端用户名使用继承值")
         toggle.performScrollTo().assertIsOn().performClick()
         ui.onNodeWithText("远端用户名").assertIsEnabled().assertTextContains("inherited")
         ui.onNodeWithText("保存").performClick()
         ui.waitUntil(10_000) { !model.busy && model.page == Page.HOSTS }
         assertEquals("inherited", model.snapshot!!.hosts.single().source!!.user.explicitValue)
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         toggle.performScrollTo().assertIsOff().performClick()
         ui.onNodeWithText("远端用户名").assertIsNotEnabled()
         ui.onNodeWithText("保存").performClick()
@@ -313,7 +313,7 @@ class HostScreenTest {
         ui.waitUntil(10_000) { !model.busy && model.page == Page.HOSTS }
         assertEquals("inherit-all:22", model.snapshot!!.hosts.single().address)
         val original = File(directory, "home/.ssh/config").readText()
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         for ((label, value) in fields) {
             ui.onNodeWithContentDescription("${label}使用继承值").performScrollTo().assertIsOn().performClick()
                 .assertIsOff()
@@ -323,7 +323,7 @@ class HostScreenTest {
         ui.onNodeWithText("保存").performClick()
         ui.waitUntil(10_000) { !model.busy && model.page == Page.HOSTS }
         assertEquals("owner@example.test:2200", model.snapshot!!.hosts.single().address)
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         for ((label, _) in fields) ui.onNodeWithContentDescription("${label}使用继承值").performScrollTo().assertIsOff().performClick().assertIsOn()
         ui.onNodeWithText("保存").performClick()
         ui.waitUntil(10_000) { !model.busy }
@@ -333,19 +333,19 @@ class HostScreenTest {
     @Test fun inheritanceChangesRequireDiscardAndRevertingIsClean() {
         val original = "Host demo\n  HostName example.test\n  User alice\n"
         load(original)
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         val toggle = ui.onNodeWithContentDescription("远端用户名使用继承值")
         toggle.performScrollTo().performClick()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("放弃未保存的修改？").assertIsDisplayed()
         ui.onNodeWithText("继续编辑").performClick()
         toggle.assertIsOn().performClick()
         ui.onNodeWithText("远端用户名").assertTextContains("alice")
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("添加主机").assertIsDisplayed()
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         toggle.performScrollTo().performClick()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("放弃修改").performClick()
         ui.onNodeWithText("添加主机").assertIsDisplayed()
         assertEquals(original, File(directory, "home/.ssh/config").readText())
@@ -353,7 +353,7 @@ class HostScreenTest {
     @Test fun invalidExplicitValueKeepsDraftAndCanReturnToInheritance() {
         val original = "Host demo\n  HostName example.test\n"
         load(original)
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         ui.onNodeWithContentDescription("远端用户名使用继承值").performScrollTo().performClick()
         ui.onNodeWithText("远端用户名").performScrollTo().performClick()
         ui.waitUntil(10_000) {
@@ -370,20 +370,20 @@ class HostScreenTest {
         assertEquals(Page.EDIT_HOST, model.page)
         assertEquals(original, File(directory, "home/.ssh/config").readText())
         ui.onNodeWithContentDescription("远端用户名使用继承值").performScrollTo().performClick()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("添加主机").assertIsDisplayed()
     }
     @Test fun renameUsesRealFormAndCollisionKeepsDraft() {
         val original = "Host demo sibling\n  HostName example.test\n  User me\nHost occupied\n"
         load(original)
-        ui.onAllNodesWithText("编辑")[0].performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         ui.onNodeWithText("别名").performScrollTo().assertIsEnabled().performTextReplacement("OCCUPIED")
         ui.onNodeWithText("保存").performClick()
         ui.waitUntil(10_000) { !model.busy }
         assertEquals(Page.EDIT_HOST, model.page)
         ui.onNodeWithText("该主机别名已存在").assertIsDisplayed()
         ui.onNodeWithText("别名").assertTextContains("OCCUPIED").performTextReplacement("renamed")
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("放弃未保存的修改？").assertIsDisplayed()
         ui.onNodeWithText("继续编辑").performClick()
         ui.onNodeWithText("保存").performClick()
@@ -392,9 +392,10 @@ class HostScreenTest {
         ui.onNodeWithText("renamed").assertIsDisplayed()
         ui.onNodeWithText("sibling").assertIsDisplayed()
         assertEquals(original.replace("Host demo", "Host renamed"), File(directory, "home/.ssh/config").readText())
-        ui.onAllNodesWithText("编辑")[0].performClick()
-        ui.onNodeWithText("别名").performTextReplacement("discarded")
-        ui.onNodeWithText("返回").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
+        ui.waitUntil(10_000) { model.page==Page.EDIT_HOST && model.draft!=null }
+        ui.onNodeWithText("别名").performScrollTo().performTextReplacement("discarded")
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("放弃修改").performClick()
         ui.onNodeWithText("renamed").assertIsDisplayed()
         assertEquals(listOf("renamed", "sibling", "occupied"), model.snapshot!!.hosts.map { it.alias })
@@ -409,23 +410,23 @@ class HostScreenTest {
         ui.onNodeWithText("ui-host").assertIsDisplayed()
         val file = File(directory, "home/.ssh/config")
         assertTrue(file.readText().contains("Host ui-host"))
-        ui.onNodeWithText("搜索名称或地址").performTextInput("no-match")
-        ui.onNodeWithText("没有匹配的主机").assertIsDisplayed()
-        ui.onNodeWithText("搜索名称或地址").performTextClearance()
-        ui.onNodeWithText("编辑").performClick()
+        ui.onNodeWithTag("hosts-search").performTextInput("no-match")
+        ui.onNodeWithText("没有找到主机").assertIsDisplayed()
+        ui.onNodeWithTag("hosts-search").performTextClearance()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         ui.onNodeWithText("alice").assertExists()
         ui.onNodeWithText("远端用户名").performScrollTo().performTextReplacement("bob")
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("放弃未保存的修改？").assertIsDisplayed()
         ui.onNodeWithText("继续编辑").performClick()
         ui.onNodeWithText("保存").performClick()
         ui.waitUntil(10_000) { model.page == Page.HOSTS && !model.busy }
         assertTrue(file.readText().contains("User bob"))
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
         openConnectionCategory()
         ui.onNodeWithText("查看与编辑 SSH 配置").performScrollTo().performClick()
-        ui.onNodeWithText("返回").performClick()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("关于 Ghosterm").performScrollTo().assertIsDisplayed()
     }
 }

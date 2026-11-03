@@ -26,12 +26,10 @@ fun KnownHostsScreen(model: KnownHostsViewModel) {
             if (!model.busy && model.error == null && records?.isEmpty() == true)
                 item { Text("还没有主机验证记录", Modifier.testTag("known-hosts-empty")) }
             items(records.orEmpty(), key = { it.id }) { record ->
-                OutlinedButton(onClick = { model.open(record.id) }, enabled = !model.busy,
-                    modifier = Modifier.fillMaxWidth().testTag("known-host-row-${record.index}")) {
-                    Column(Modifier.fillMaxWidth()) {
-                        Text(record.record.hosts.trustDisplay().take(160).ifEmpty { "未识别记录" }, maxLines = 3)
-                        Text("第 ${record.record.line} 行 · ${record.kind}", style = MaterialTheme.typography.bodySmall)
-                    }
+                GhostermGroup {
+                    GhostermActionRow(record.record.hosts.trustDisplay().take(160).ifEmpty { "未识别记录" },
+                        "第 ${record.record.line} 行 · ${record.kind}",UiIcon.Shield,Modifier.testTag("known-host-row-${record.index}"),
+                        enabled=!model.busy) { model.open(record.id) }
                 }
             }
         } else {

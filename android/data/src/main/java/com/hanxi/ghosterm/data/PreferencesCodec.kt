@@ -11,6 +11,7 @@ internal object PreferencesCodec {
     fun encode(p: AppPreferences): ByteArray {
         val values = JSONObject().apply {
             put("appearance", p.appearance.id); put("terminalTheme", p.terminalTheme.id)
+            put("fontFamily",p.fontFamily.id)
             put("fontSize", p.fontSize); put("lineHeight", p.lineHeight.id); put("cursor", p.cursor.id)
             put("blink", p.blink); put("auxKeys", p.auxKeys); put("keySet", p.keySet.id)
             put("ctrlMode", p.ctrlMode.id); put("autoKeyboard", p.autoKeyboard); put("keepAwake", p.keepAwake)
@@ -60,6 +61,9 @@ internal object PreferencesCodec {
         return DecodedPreferences(AppPreferences(
             appearance = choice(PreferenceKey.APPEARANCE, defaults.appearance, AppAppearance.entries),
             terminalTheme = choice(PreferenceKey.TERMINAL_THEME, defaults.terminalTheme, TerminalTheme.entries),
+            // Additive schema-1 field: old documents already used Android's system monospace.
+            fontFamily = if(!values.has(PreferenceKey.FONT_FAMILY.id)) TerminalFont.SYSTEM else
+                value(PreferenceKey.FONT_FAMILY,defaults.fontFamily) { (it as? String)?.let(TerminalFont::fromId) },
             fontSize = value(PreferenceKey.FONT_SIZE, defaults.fontSize) { (it as? Int)?.takeIf { n -> n in 10..20 } },
             lineHeight = choice(PreferenceKey.LINE_HEIGHT, defaults.lineHeight, TerminalLineHeight.entries),
             cursor = choice(PreferenceKey.CURSOR, defaults.cursor, TerminalCursor.entries),

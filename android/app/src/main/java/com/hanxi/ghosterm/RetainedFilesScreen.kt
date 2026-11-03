@@ -17,8 +17,8 @@ import java.util.Date
 @Composable
 fun RetainedFilesScreen(model: FileTasksViewModel) {
     BackHandler { if((model.retainedReview!=null || model.emptyRetainedReview!=null) && !model.retainedLoading)model.dismissRetained() else model.hideRetained() }
-    Scaffold(topBar={ TopAppBar(title={ Text("保留的本机暂存") },navigationIcon={
-        TextButton(onClick=model::hideRetained) { Text("返回任务") }
+    Scaffold(topBar={ GhostermTopBar(title={ Text("保留的本机暂存") },navigationIcon={
+        GhostermIconButton(UiIcon.Back,"返回任务",onClick=model::hideRetained)
     },actions={ TextButton(onClick=model::refreshRetained,enabled=!model.busy && !model.retainedLoading && model.retainedReview==null && model.emptyRetainedReview==null,
         modifier=Modifier.testTag("retained-refresh")) { Text("刷新") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).testTag("retained-list"),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {

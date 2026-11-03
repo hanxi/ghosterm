@@ -190,7 +190,7 @@ class TerminalLayoutTest {
         androidx.test.espresso.Espresso.pressBack()
         ui.onNodeWithTag("terminal-files").performClick()
         ui.onNodeWithTag("file-location").assertIsDisplayed()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         sameShell()
     }
 
@@ -228,7 +228,7 @@ class TerminalLayoutTest {
         visibleControlsAndPixels()
         ui.onNodeWithTag("terminal-menu").performClick();ui.onNodeWithTag("terminal-menu-files").performScrollTo().performClick()
         ui.onNodeWithTag("file-location").assertExists()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         landscapeWithIme(2f)
         ui.onNodeWithTag("terminal-menu").performClick();ui.onNodeWithTag("terminal-menu-sessions").performScrollTo().performClick()
         try { ui.onNodeWithText("新建本地会话").performScrollTo().assertIsDisplayed() }

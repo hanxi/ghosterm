@@ -87,7 +87,7 @@ class SafPreviewAssetsTest {
         ui.onNodeWithTag("file-entry:$name").performClick()
         await { model().preview?.let { it.text!=null || it.error!=null }==true }
     }
-    private fun back() { ui.onNodeWithText("返回").performClick();await { model().preview==null } }
+    private fun back() { ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();await { model().preview==null } }
     @Test fun segmentUsesAbsoluteOffsetAndNeverReadsOutsideItsDeclaredBounds() {
         grant();open("segment.txt")
         ui.onNodeWithTag("file-preview").assertTextEquals("片段 UTF-8 🔑\n")

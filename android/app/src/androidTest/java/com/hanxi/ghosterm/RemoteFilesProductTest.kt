@@ -152,7 +152,7 @@ class RemoteFilesProductTest {
         assertEquals("远端 UTF-8\nline two\n",files().preview!!.text)
         assertSame("File owner must not replace terminal",terminal,sessions().active)
         assertTrue(terminal.state.connected)
-        ui.onNodeWithText("返回").performClick();ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithTag("terminal-back").performClick();ui.onNodeWithText("本机文件").performClick()
         ui.waitUntil { !files().loading };assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)
     }
@@ -244,7 +244,7 @@ class RemoteFilesProductTest {
         val user=protocol("hold");open()
         ui.waitUntil(10000) { sessions().connecting==null && files().loading && files().location.endpoint.remoteAlias==alias }
         ui.waitUntil(10000) { control("state",user).getJSONArray("events").toString().contains("readdir") }
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         try { ui.waitUntil(3000) { owners()==0 } }
         catch(failure:ComposeTimeoutException) { fail("cancelled file page must release blocked owner") }
         assertFalse(files().visible);assertTrue(files().entries.isEmpty())
@@ -314,22 +314,22 @@ class RemoteFilesProductTest {
         assertEquals(7,files().entries.size)
         assertEquals("directories first",FileKind.DIRECTORY,files().entries.first().kind)
         capture("browse")
-        ui.onNodeWithTag("file-location").assertTextContains("远端",substring=true)
-        ui.onNodeWithTag("file-breadcrumb",useUnmergedTree=true).assertTextEquals("远端 · $alias / ${fixture.getString("remoteRoot")}")
+        ui.onNodeWithTag("file-endpoint-title").assertTextEquals("远端 · $alias")
+        ui.onNodeWithTag("file-breadcrumb",useUnmergedTree=true).assertTextEquals(fixture.getString("remoteRoot"))
         entry("文本.txt").performClick()
         ui.waitUntil(10000) { files().preview?.text!=null }
         ui.onNodeWithTag("file-preview").assertTextEquals("远端 UTF-8\nline two\n")
         ui.activityRule.scenario.recreate()
         assertEquals(endpoint,files().location.endpoint.id)
         ui.onNodeWithTag("file-preview").assertTextEquals("远端 UTF-8\nline two\n")
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         entry("文本.txt").performTouchInput { longClick() }
         assertNull(files().preview);assertEquals(1,files().selected.size);capture("selected")
-        ui.onNodeWithText("取消选择").performClick()
+        ui.onNode(hasText("取消选择") or hasContentDescription("取消选择")).performClick()
         entry("folder").performClick();ui.waitUntil { !files().loading }
         ui.onNodeWithTag("file-list-empty").assertIsDisplayed()
-        ui.onNodeWithText("返回").performClick();ui.waitUntil { !files().loading }
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.waitUntil { !files().loading }
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         try { ui.waitUntil(3000) { !files().visible && owners()==0 } }
         catch(failure:ComposeTimeoutException) { fail("leaving file page must close idle owner") }
         assertSame(terminal,sessions().active)
@@ -344,12 +344,12 @@ class RemoteFilesProductTest {
             ui.waitUntil(10000) { files().preview?.error!=null }
             ui.onNodeWithTag("file-preview-error").assertIsDisplayed()
             ui.onNodeWithTag("file-preview").assertDoesNotExist()
-            ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         }
         entry("zero").performScrollTo().performClick()
         ui.waitUntil { files().preview?.text!=null };assertEquals("",files().preview!!.text)
-        ui.onNodeWithText("返回").performClick()
-        ui.onNodeWithText("更多").performClick();ui.onNodeWithText("断开文件连接").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
+        ui.onNode(hasText("更多") or hasContentDescription("更多")).performClick();ui.onNodeWithText("断开文件连接").performClick()
         ui.waitUntil { owners()==0 && !files().loading }
         assertNull(files().location.endpoint.remoteAlias)
         assertTrue(sessions().sessions.isEmpty())
@@ -369,7 +369,7 @@ class RemoteFilesProductTest {
     }
     @Test fun leavingRequiresExplicitReconnectWithNewEndpoint() {
         open();login();val original=files().location.endpoint.id
-        ui.onNodeWithText("返回").performClick();ui.waitUntil { owners()==0 && !files().visible }
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.waitUntil { owners()==0 && !files().visible }
         load(" ProxyJump forbidden.example\n")
         ui.onNodeWithText("本机文件").performClick();ui.waitUntil { !files().loading }
         assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)
@@ -391,15 +391,15 @@ class RemoteFilesProductTest {
         assertEquals(fixture.getString("remoteRoot")+"/文本.txt",snapshot.items.single().id)
         ui.activityRule.scenario.recreate();assertSame(snapshot,files().clipboard)
         load(user="another-user")
-        ui.onNodeWithText("更多").performClick();ui.onNodeWithText("断开文件连接").performClick()
+        ui.onNode(hasText("更多") or hasContentDescription("更多")).performClick();ui.onNodeWithText("断开文件连接").performClick()
         ui.waitUntil(10000) { owners()==0 && !files().loading }
         assertSame(snapshot,files().clipboard);assertNull(files().location.endpoint.remote)
-        ui.onNodeWithTag("file-clipboard-source").assertTextEquals("$alias · ${fixture.getString("user")}@127.0.0.1:${fixture.getInt("port")}")
-        ui.onNodeWithTag("file-clipboard-path").assertTextEquals(fixture.getString("remoteRoot"))
+        ui.onNodeWithTag("file-clipboard-source",useUnmergedTree=true).assertTextEquals("$alias · ${fixture.getString("user")}@127.0.0.1:${fixture.getInt("port")}")
+        ui.onNodeWithTag("file-clipboard-path",useUnmergedTree=true).assertTextEquals(fixture.getString("remoteRoot"))
         ui.onNodeWithText("查看清单").performClick()
         ui.onNodeWithTag("file-clipboard-item:${snapshot.items.single().id}").assertIsDisplayed()
         ui.onNodeWithText("返回文件").performClick()
-        ui.onNodeWithText("返回").performClick();ui.onNodeWithText("本机文件").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.onNodeWithText("本机文件").performClick()
         ui.waitUntil { !files().loading };assertSame(snapshot,files().clipboard)
         assertTrue(sessions().sessions.isEmpty())
     }

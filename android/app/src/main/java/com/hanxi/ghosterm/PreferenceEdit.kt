@@ -7,6 +7,7 @@ sealed class PreferenceEdit(val key: PreferenceKey) {
     abstract fun apply(before: AppPreferences): AppPreferences
     data class Appearance(val value: AppAppearance) : PreferenceEdit(PreferenceKey.APPEARANCE) { override fun apply(before: AppPreferences) = before.copy(appearance = value) }
     data class Theme(val value: TerminalTheme) : PreferenceEdit(PreferenceKey.TERMINAL_THEME) { override fun apply(before: AppPreferences) = before.copy(terminalTheme = value) }
+    data class FontFamily(val value: TerminalFont) : PreferenceEdit(PreferenceKey.FONT_FAMILY) { override fun apply(before: AppPreferences) = before.copy(fontFamily=value) }
     data class FontSize(val value: Int) : PreferenceEdit(PreferenceKey.FONT_SIZE) { override fun apply(before: AppPreferences) = before.copy(fontSize = value) }
     data class LineHeight(val value: TerminalLineHeight) : PreferenceEdit(PreferenceKey.LINE_HEIGHT) { override fun apply(before: AppPreferences) = before.copy(lineHeight = value) }
     data class Cursor(val value: TerminalCursor) : PreferenceEdit(PreferenceKey.CURSOR) { override fun apply(before: AppPreferences) = before.copy(cursor = value) }
@@ -24,7 +25,7 @@ sealed class PreferenceEdit(val key: PreferenceKey) {
 
     companion object {
         fun defaults(): List<PreferenceEdit> = AppPreferences().let { p -> listOf(
-            Appearance(p.appearance), Theme(p.terminalTheme), FontSize(p.fontSize), LineHeight(p.lineHeight),
+            Appearance(p.appearance), Theme(p.terminalTheme), FontFamily(p.fontFamily), FontSize(p.fontSize), LineHeight(p.lineHeight),
             Cursor(p.cursor), Blink(p.blink), AuxKeys(p.auxKeys), KeySet(p.keySet), CtrlMode(p.ctrlMode),
             AutoKeyboard(p.autoKeyboard), KeepAwake(p.keepAwake), ShowHidden(p.showHidden), Sort(p.sortBy),
             FoldersFirst(p.foldersFirst), Conflict(p.conflict), Clipboard(p.clipboardAfterPaste),

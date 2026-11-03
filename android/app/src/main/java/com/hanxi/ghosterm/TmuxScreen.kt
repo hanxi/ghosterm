@@ -20,8 +20,8 @@ fun TmuxScreen(model: TmuxViewModel) {
     var leave by remember { mutableStateOf(false) }
     fun back() { if(model.changing)leave=true else model.leave() }
     BackHandler(onBack=::back)
-    Scaffold(topBar={ TopAppBar(title={ Text(model.alias+" · 后台会话") },
-        navigationIcon={ TextButton(onClick=::back) { Text("返回") } }) }) { padding ->
+    Scaffold(topBar={ GhostermTopBar(title={ Text(model.alias+" · 后台会话") },
+        navigationIcon={ GhostermIconButton(UiIcon.Back,"返回",onClick=::back) }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).testTag("tmux-page"),
             contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             item {

@@ -153,10 +153,10 @@ class ExternalPreviewProductTest {
         ui.runOnIdle { model.launchExternal(copy) {};model.confirmExternalClear() }
         waitFor { !model.externalClearing };assertEquals("unconfirmed cleanup must retain the copy",3L,runCatching { cache.info(copy.uri).second }.getOrNull())
         ui.runOnIdle { showScreen=true }
-        ui.onNodeWithText("更多").performClick();ui.onNodeWithTag("file-preview-cache-clear").performClick()
+        ui.onNode(hasText("更多") or hasContentDescription("更多")).performClick();ui.onNodeWithTag("file-preview-cache-clear").performClick()
         ui.onNodeWithText("清理预览副本？").assertIsDisplayed();assertEquals(3L,cache.info(copy.uri).second)
         ui.onNodeWithText("取消").performClick();assertEquals(3L,cache.info(copy.uri).second)
-        ui.onNodeWithText("更多").performClick();ui.onNodeWithTag("file-preview-cache-clear").performClick()
+        ui.onNode(hasText("更多") or hasContentDescription("更多")).performClick();ui.onNodeWithTag("file-preview-cache-clear").performClick()
         ui.onNodeWithTag("file-preview-cache-clear-confirm").performClick()
         waitFor { !model.externalClearing && model.externalClearResult!=null }
         assertEquals(1,ui.runOnIdle { model.externalClearResult!!.removed })

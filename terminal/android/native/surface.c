@@ -189,14 +189,20 @@ int gat_surface_action(gat_surface *s, int kind, int x, int y,
         return 0;
     }
     if (kind == 12) {
-        if (length != 6 || x < 0 || x > 2 || y < 0 || y > 1) return 2;
+        if (length != 57 || x < 0 || x > 2 || y < 0 || y > 1) return 2;
         GhosttyColorRgb background = {bytes[0], bytes[1], bytes[2]};
         GhosttyColorRgb foreground = {bytes[3], bytes[4], bytes[5]};
+        GhosttyColorRgb cursor_color = {bytes[6], bytes[7], bytes[8]};
+        GhosttyColorRgb palette[256];
+        if (ghostty_terminal_get(s->terminal,GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT,&palette)!=GHOSTTY_SUCCESS) return 2;
+        for (size_t i=0;i<16;i++) palette[i]=(GhosttyColorRgb){bytes[9+i*3],bytes[10+i*3],bytes[11+i*3]};
         GhosttyTerminalCursorStyle cursor = (GhosttyTerminalCursorStyle)x;
         bool blink = y != 0;
         /* Default setters preserve explicit OSC/DECSCUSR overrides. No PTY bytes. */
         return ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &background) == GHOSTTY_SUCCESS &&
             ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, &foreground) == GHOSTTY_SUCCESS &&
+            ghostty_terminal_set(s->terminal,GHOSTTY_TERMINAL_OPT_COLOR_CURSOR,&cursor_color)==GHOSTTY_SUCCESS &&
+            ghostty_terminal_set(s->terminal,GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,&palette)==GHOSTTY_SUCCESS &&
             ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE, &cursor) == GHOSTTY_SUCCESS &&
             ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_BLINK, &blink) == GHOSTTY_SUCCESS ? 0 : 2;
     }
@@ -285,13 +291,14 @@ bool gat_surface_frame(gat_surface *s, int32_t **values, size_t *count) {
         ghostty_render_state_get(s->render, GHOSTTY_RENDER_STATE_DATA_COLORS, &colors) != GHOSTTY_SUCCESS ||
         ghostty_render_state_get(s->render, GHOSTTY_RENDER_STATE_DATA_CURSOR, &cursor) != GHOSTTY_SUCCESS ||
         ghostty_render_state_get(s->render, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &s->rows) != GHOSTTY_SUCCESS) return false;
-    size_t cap = 10 + (size_t)cols * rows * 6, used = 10;
+    size_t cap = 11 + (size_t)cols * rows * 6, used = 11;
     int32_t *out = malloc(cap * sizeof(*out));
     if (!out) return false;
-    out[0] = 1; out[1] = cols; out[2] = rows; out[3] = color(colors.background); out[4] = color(colors.foreground);
+    out[0] = 2; out[1] = cols; out[2] = rows; out[3] = color(colors.background); out[4] = color(colors.foreground);
     out[5] = cursor.viewport_has_value ? cursor.viewport_x : -1;
     out[6] = cursor.viewport_has_value ? cursor.viewport_y : -1;
     out[7] = cursor.visible && cursor.viewport_has_value; out[8] = cursor.blinking; out[9] = cursor.visual_style;
+    out[10] = color(colors.cursor_has_value ? colors.cursor : colors.foreground);
     while (ghostty_render_state_row_iterator_next(s->rows)) {
         if (ghostty_render_state_row_get(s->rows, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &s->cells) != GHOSTTY_SUCCESS) goto failed;
         while (ghostty_render_state_row_cells_next(s->cells)) {

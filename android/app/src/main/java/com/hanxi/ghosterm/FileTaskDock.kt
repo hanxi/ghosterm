@@ -10,9 +10,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.hanxi.ghosterm.domain.FileCopyState
 
+internal val FileTasksViewModel.hasDockSummary: Boolean
+    get()=tasks.isNotEmpty() || journalLoading || journalError!=null
+
 /** Observe application-owned work; opening the list never starts or confirms IO. */
 @Composable
 internal fun FileTaskDock(model: FileTasksViewModel) {
+    if(!model.hasDockSummary) return
     val task = model.tasks.firstOrNull { it.active && it.phase != FileTaskPhase.QUEUED }
         ?: model.tasks.lastOrNull { it.active } ?: model.tasks.firstOrNull()
     val active = model.tasks.count { it.active }
@@ -26,13 +30,17 @@ internal fun FileTaskDock(model: FileTasksViewModel) {
     }
     val statusColor = if(error != null || uncertain) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     Card(onClick = model::show, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = if(compact) 2.dp else 6.dp)
-        .testTag("file-task-dock")) {
+        .testTag("file-task-dock"),colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surfaceContainerHigh),
+        shape=MaterialTheme.shapes.small) {
         if (compact) Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 12.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text("文件任务 · $status", style = MaterialTheme.typography.bodyMedium,
                 color = statusColor, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.testTag("file-task-dock-status"))
-        } else Column(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        } else Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(12.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+            GhostermIcon(UiIcon.Copy,tint=MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f),verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("文件任务", style = MaterialTheme.typography.labelLarge)
             Text(status, style = MaterialTheme.typography.bodyMedium,
                 color = statusColor, maxLines = 2, overflow = TextOverflow.Ellipsis,
@@ -42,6 +50,8 @@ internal fun FileTaskDock(model: FileTasksViewModel) {
                     style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if(active > 1) Text("另有 ${active - 1} 个待处理任务", style = MaterialTheme.typography.bodySmall)
             }
+            }
+            GhostermIcon(UiIcon.Arrow,tint=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

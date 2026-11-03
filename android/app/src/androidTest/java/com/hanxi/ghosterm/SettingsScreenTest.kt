@@ -60,7 +60,7 @@ class SettingsScreenTest {
         original = if (file.exists()) file.readBytes() else null; backedUp = true
         assertTrue(runBlocking { withTimeout(10_000) { owner.save(UUID.randomUUID(), PreferenceEdit.defaults()) } } is PreferenceUpdate.Saved)
         await { model.candidate == AppPreferences() }; idle()
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
     }
     @After fun cleanup() {
         if (!backedUp) return
@@ -221,7 +221,7 @@ class SettingsScreenTest {
             }
             await { checkNotNull(task).recorded && !checkNotNull(task).recording }
             assertEquals(FileTaskPhase.QUEUED, main { checkNotNull(task).phase })
-            ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
             ui.onNodeWithText("本地终端").performClick()
             await { sessions.active?.state?.connected == true }
             session = main { checkNotNull(sessions.active) }
@@ -232,7 +232,7 @@ class SettingsScreenTest {
             await { pid("RESET_PID:") != null }
             val beforePid = checkNotNull(pid("RESET_PID:")).removePrefix("RESET_PID:")
             ui.onNodeWithTag("terminal-back").performClick()
-            ui.onNodeWithText("设置").performClick()
+            ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
             ui.onNodeWithText("恢复默认设置").performScrollTo().performClick()
             ui.onNodeWithText("保留设置").performClick(); idle()
             assertEquals(customized, owner.state.value.committed)
@@ -259,7 +259,7 @@ class SettingsScreenTest {
                 assertSame(session, sessions.active); assertSame(surface, sessions.active!!.surface)
                 assertTrue(sessions.active!!.state.connected)
             }
-            ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
             ui.onNodeWithText("继续本地终端").performClick()
             ui.waitForIdle()
             ui.waitUntil(10_000) { terminalOrNull() != null }
@@ -291,24 +291,24 @@ class SettingsScreenTest {
         val hidden = File(ui.activity.filesDir, "home/.menu-preference-${UUID.randomUUID()}")
         hidden.parentFile!!.mkdirs(); hidden.writeText("hidden menu fixture\n")
         try {
-            ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
             ui.onNodeWithText("本机文件").performClick()
             ui.waitUntil(10_000) { main { !files.loading && files.entries.any { it.name == hidden.name } } }
             ui.onNodeWithTag("file-entry:${hidden.name}").assertDoesNotExist()
             val entries = main { files.entries }
-            ui.onNodeWithText("更多").performClick()
+            ui.onNode(hasText("更多") or hasContentDescription("更多")).performClick()
             ui.onNodeWithText("显示隐藏文件").assertIsEnabled().performClick()
             await("Hidden file menu did not commit the preference") { files.showHidden && !files.hiddenSaving && owner.state.value.committed.showHidden }
             assertEquals(true, disk("showHidden")); main { assertSame(entries, files.entries) }
             ui.onNodeWithTag("file-list").performScrollToNode(hasTestTag("file-entry:${hidden.name}"))
             ui.onNodeWithTag("file-entry:${hidden.name}").assertIsDisplayed()
-            ui.onNodeWithText("返回").performClick()
-            ui.onNodeWithText("设置").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
+            ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
             section(SettingsSection.FILES)
             row(PreferenceKey.SHOW_HIDDEN).performScrollTo().assertIsOn().performClick(); idle()
             await { !files.showHidden && !owner.state.value.committed.showHidden }
             assertEquals(false, disk("showHidden"))
-            ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
             ui.onNodeWithText("本机文件").performClick()
             ui.onNodeWithTag("file-entry:${hidden.name}").assertDoesNotExist()
             ui.activityRule.scenario.recreate()
@@ -325,17 +325,17 @@ class SettingsScreenTest {
             SettingsSection.FILES to PreferenceKey.SHOW_HIDDEN)
         firstRows.forEach { (category, first) ->
             section(category); row(first).performScrollTo().assertIsDisplayed()
-            ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
             assertNull(main { model.section }); assertEquals(Page.SETTINGS, main { hosts.page })
         }
         section(SettingsSection.SECURITY)
         ui.onNodeWithText("SSH 身份").performScrollTo().assertHasClickAction()
         ui.onNodeWithText("主机验证记录").performScrollTo().performClick()
         await { hosts.page == Page.KNOWN_HOSTS }
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         assertEquals(Page.SETTINGS, main { hosts.page })
         assertEquals(SettingsSection.SECURITY, main { model.section })
-        ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         assertEquals(Page.HOSTS, main { hosts.page })
     }
 
@@ -358,7 +358,7 @@ class SettingsScreenTest {
         idle(); assertEquals(18, disk("fontSize")); assertEquals("paper", disk("terminalTheme"))
         choose(PreferenceKey.APPEARANCE, "dark")
         assertEquals(AppAppearance.DARK, main { owner.state.value.committed.appearance })
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithText("恢复默认设置").performScrollTo().performClick()
         ui.onNodeWithText("保留设置").performClick(); assertEquals(18, disk("fontSize"))
         ui.onNodeWithText("恢复默认设置").performClick(); ui.onNodeWithText("恢复默认").performClick()
@@ -401,7 +401,7 @@ class SettingsScreenTest {
                 assertTrue("${key.id} must retain a 48dp touch target; visual=$bounds, touch=$touch, size=${node.size}",
                     touch.height >= 48 * density - 1)
             }
-            ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         }
     }
 }

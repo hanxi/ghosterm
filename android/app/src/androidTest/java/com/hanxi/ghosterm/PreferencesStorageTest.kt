@@ -40,7 +40,7 @@ class PreferencesStorageTest {
         return update as PreferenceUpdate.Failed
     }
     private fun changed() = AppPreferences(appearance = AppAppearance.DARK, terminalTheme = TerminalTheme.FOREST,
-        fontSize = 20, lineHeight = TerminalLineHeight.COMPACT, cursor = TerminalCursor.UNDERLINE,
+        fontFamily = TerminalFont.JETBRAINS_MONO, fontSize = 20, lineHeight = TerminalLineHeight.COMPACT, cursor = TerminalCursor.UNDERLINE,
         blink = false, auxKeys = false, keySet = AuxiliaryKeySet.EXTENDED, ctrlMode = CtrlBehavior.LOCKED,
         autoKeyboard = true, keepAwake = true, showHidden = true, sortBy = FileSort.SIZE,
         foldersFirst = false, conflict = FileConflictPolicy.KEEP_BOTH, clipboardAfterPaste = ClipboardAfterPaste.CLEAR)
@@ -95,7 +95,7 @@ class PreferencesStorageTest {
 
     @Test fun firstUseDefaultsMatchTheFinalPrototypeDocument() = runBlocking {
         // Independent fixture from android-prototype.html, not AppPreferences defaults.
-        val expected = JSONObject("""{"appearance":"system","terminalTheme":"graphite","fontSize":12,"lineHeight":"standard","cursor":"block","blink":true,"auxKeys":true,"keySet":"basic","ctrlMode":"once","autoKeyboard":false,"keepAwake":false,"showHidden":false,"sortBy":"name","foldersFirst":true,"conflict":"ask","clipboardAfterPaste":"keep"}""")
+        val expected = JSONObject("""{"appearance":"system","terminalTheme":"graphite","fontFamily":"system","fontSize":12,"lineHeight":"standard","cursor":"block","blink":true,"auxKeys":true,"keySet":"basic","ctrlMode":"once","autoKeyboard":false,"keepAwake":false,"showHidden":false,"sortBy":"name","foldersFirst":true,"conflict":"ask","clipboardAfterPaste":"keep"}""")
         val repository = repository(); repository.reload()
         assertTrue(repository.update { it } is PreferenceUpdate.Saved)
         val actual = JSONObject(target.readText()).getJSONObject("values")

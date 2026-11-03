@@ -108,6 +108,17 @@ class FileSmallWindowTest {
         val whole = ui.onNodeWithTag("file-entry:$name").getUnclippedBoundsInRoot()
         assertEquals("The whole file row must fit the visible list", (whole.bottom - whole.top).value, bounds.height, .5f)
     }
+    @Test fun emptyCompactBrowserHidesSummaryAndMenuKeepsHistoryReachable() {
+        val location=files.location
+        ui.onNodeWithTag("file-task-dock-status",useUnmergedTree=true).assertDoesNotExist()
+        fileRow("source")
+        ui.onNode(hasText("更多") or hasContentDescription("更多")).performClick()
+        ui.onNodeWithTag("files-task-history").assertIsDisplayed().performClick()
+        ui.onNodeWithTag("file-tasks").assertIsDisplayed()
+        assertTrue(tasks.tasks.isEmpty());assertEquals(0,opens)
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
+        assertEquals(location,files.location);fileRow("source")
+    }
     @Test fun landscapeFontTwoKeepsFileRowsAndPreviewReadable() {
         fileRow("source")
         ui.onNodeWithTag("file-location").assertTextContains("本机", substring = true)
@@ -121,7 +132,7 @@ class FileSmallWindowTest {
         node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertTrue(layouts.isNotEmpty())
         assertTrue("At least one whole preview line must be readable", node.fetchSemanticsNode().boundsInRoot.height >= layouts.first().getLineBottom(0) - layouts.first().getLineTop(0))
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.runOnIdle { assertEquals(location, files.location) }
         fileRow("a.txt")
         assertEquals(content, File(home, "source/a.txt").readText())
@@ -144,7 +155,7 @@ class FileSmallWindowTest {
         ui.onNodeWithTag("file-tasks").assertIsDisplayed()
         assertEquals(before, opens); assertEquals(FileTaskPhase.CONFIRMING, task.phase)
         assertFalse(File(home, "target/a.txt").exists())
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.runOnIdle { tasks.cancel(task) }
         ui.waitUntil(15_000) { !task.active && !task.recording }
         ui.runOnIdle {
@@ -191,10 +202,10 @@ class FileSmallWindowTest {
         assertEquals(content, File(home, "target/a.txt").readText())
         assertEquals(content, File(home, "source/a.txt").readText())
         assertEquals("preserve destination", File(home, "target/existing.txt").readText())
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.runOnIdle { assertEquals(location, files.location); assertEquals(snapshot.id, files.clipboard?.id) }
         fileRow("a.txt"); fileRow("existing.txt")
-        ui.onNodeWithText("清空").performClick()
+        ui.onNode(hasText("清空") or hasContentDescription("清空")).performClick()
         ui.onNodeWithText("清空复制清单？").assertIsDisplayed()
         ui.runOnIdle { assertEquals(snapshot.id, files.clipboard?.id) }
         ui.onNodeWithText("取消").performClick()

@@ -192,11 +192,15 @@ class TerminalView(context: Context) : View(context) {
         updateStyle(style.copy(fontSize = sp))
     }
     fun updateStyle(value: TerminalStyle) {
+        val face=if(metricsReady && style.fontId==value.fontId) paint.typeface else try {
+            TerminalFonts.typeface(context,value.fontId)
+        } catch(failure:Exception) { onError("无法应用终端字体：${failure.message ?: "未知原因"}");return }
         val pixels = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value.fontSize, resources.displayMetrics)
-        val changedMetrics = !metricsReady || style.fontSize != value.fontSize || style.lineHeight != value.lineHeight || paint.textSize != pixels
+        val changedMetrics = !metricsReady || style.fontId!=value.fontId || style.fontSize != value.fontSize || style.lineHeight != value.lineHeight || paint.textSize != pixels
         if (style == value && !changedMetrics) return
         style = value
         if (changedMetrics) {
+            paint.typeface=face;metricsPaint.typeface=face
             paint.textSize = pixels
             metricsPaint.textSize = pixels
             cellWidth = ceil(metricsPaint.measureText("M")).toInt().coerceAtLeast(1)
@@ -638,7 +642,7 @@ class TerminalView(context: Context) : View(context) {
         for (y in 0 until frame.rows) for (x in 0 until frame.cols) {
             val cell = frame.cells[y * frame.cols + x]
             if(cell.flags and 256==0 && cell.flags and 512!=0) continue
-            fill.color = if (cell.flags and 256 != 0) Color.rgb(68, 91, 125) else cell.background
+            fill.color = if (cell.flags and 256 != 0) (0xff000000.toInt() or style.appearance.selectionBackground) else cell.background
             canvas.drawRect((x * cellWidth).toFloat(), (y * cellHeight).toFloat(), ((x + 1) * cellWidth).toFloat(), ((y + 1) * cellHeight).toFloat(), fill)
         }
         currentGraphics?.draw(canvas,2,imagePaint)
@@ -648,7 +652,7 @@ class TerminalView(context: Context) : View(context) {
             val left = (x * cellWidth).toFloat(); val top = (y * cellHeight).toFloat()
             val right = left + cellWidth * cell.width
             canvas.save(); canvas.clipRect(left, top, right, top + cellHeight)
-            paint.color = if (cell.flags and 256 != 0) Color.WHITE else cell.foreground; paint.alpha = if (cell.flags and 4 != 0) 128 else 255
+            paint.color = if (cell.flags and 256 != 0) (0xff000000.toInt() or style.appearance.selectionForeground) else cell.foreground; paint.alpha = if (cell.flags and 4 != 0) 128 else 255
             paint.isFakeBoldText = cell.flags and 1 != 0; paint.textSkewX = if (cell.flags and 2 != 0) -0.2f else 0f
             paint.isStrikeThruText = cell.flags and 16 != 0; paint.isUnderlineText = cell.flags and 32 != 0
             canvas.drawText(cell.text, left, top + baseline, paint)
@@ -657,16 +661,28 @@ class TerminalView(context: Context) : View(context) {
         }
         currentGraphics?.draw(canvas,3,imagePaint)
         val cursorFocused = hasFocus() && hasWindowFocus()
-        if (frame.cursorVisible && (!style.appearance.blink || !frame.cursorBlink || blink || !cursorFocused)) {
+        if (frame.cursorVisible && frame.cursorX in 0 until frame.cols && frame.cursorY in 0 until frame.rows && (!style.appearance.blink || !frame.cursorBlink || blink || !cursorFocused)) {
             val x = (frame.cursorX * cellWidth).toFloat(); val y = (frame.cursorY * cellHeight).toFloat()
-            fill.color = frame.foreground; fill.alpha = if (cursorFocused) 150 else 255
+            val cursorCell=frame.cells[frame.cursorY*frame.cols+frame.cursorX]
+            val cursorWidth=cellWidth*cursorCell.width.coerceAtLeast(1)
+            fill.color = frame.cursorColor; fill.alpha = if (cursorFocused && frame.cursorStyle==1) 255 else if(cursorFocused) 150 else 255
             fill.style = if (cursorFocused) Paint.Style.FILL else Paint.Style.STROKE
             when (frame.cursorStyle) {
                 0 -> canvas.drawRect(x, y, x + 2, y + cellHeight, fill)
                 2 -> canvas.drawRect(x, y + cellHeight - 2, x + cellWidth, y + cellHeight, fill)
-                else -> canvas.drawRect(x, y, x + cellWidth, y + cellHeight, fill)
+                else -> canvas.drawRect(x, y, x + cursorWidth, y + cellHeight, fill)
             }
             fill.style = Paint.Style.FILL; fill.alpha = 255
+            if(cursorFocused && frame.cursorStyle==1) {
+                val cell=cursorCell
+                if(cell.width>0 && cell.flags and 8==0 && (cell.flags and 128==0 || blink) && cell.text.isNotEmpty() && cell.text.codePointAt(0)!=0x10eeee) {
+                    canvas.save();canvas.clipRect(x,y,x+cursorWidth,y+cellHeight)
+                    paint.color=0xff000000.toInt() or style.appearance.cursorText;paint.alpha=255
+                    paint.isFakeBoldText=cell.flags and 1!=0;paint.textSkewX=if(cell.flags and 2!=0) -.2f else 0f
+                    paint.isUnderlineText=false;paint.isStrikeThruText=false
+                    canvas.drawText(cell.text,x,y+baseline,paint);canvas.restore()
+                }
+            }
         }
         if (selecting) selectionHandles()?.let { (start, end) ->
             fill.color = Color.rgb(120, 170, 255)

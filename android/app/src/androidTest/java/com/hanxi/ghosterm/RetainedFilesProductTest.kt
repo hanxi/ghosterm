@@ -132,7 +132,7 @@ class RetainedFilesProductTest {
         openList();openPreview()
         ui.onNodeWithText("返回列表").performClick()
         ui.waitUntil(10000) { descriptors()==0 }
-        ui.onNodeWithText("返回任务").performClick()
+        ui.onNode(hasText("返回任务") or hasContentDescription("返回任务")).performClick()
         assertFalse(model.retainedVisible);assertEquals("preview bytes",candidate.readText())
         assertEquals("keep original",original.readText())
     }

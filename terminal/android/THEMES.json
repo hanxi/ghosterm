@@ -1,0 +1,9 @@
+{
+  "ghostty_pin": "81598385d608dda4946093d6d6a234d204a2f225",
+  "package_hash": "N-V-__8AADNBBQDD4MFOa3Y7R_A8PHIeWQ1IZdOiBFZS3nZ7",
+  "source": "https://deps.files.ghostty.org/ghostty-themes-release-20261005-151109-31756e7.tgz",
+  "count": 725,
+  "catalog_sha256": "1827bbb5cdf710a28b2f4e0b37d370030a98d6d89b884bab2cc0ec138a34dd01",
+  "license_source": "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/31756e7/LICENSE",
+  "license_sha256": "2373168614b527494dff99eb393024608216db79f687d58bad420f6c1e0ad192"
+}

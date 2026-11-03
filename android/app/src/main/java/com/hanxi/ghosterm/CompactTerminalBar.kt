@@ -26,10 +26,10 @@ internal fun CompactTerminalBar(
     Row(Modifier.fillMaxWidth().height(52.dp).background(MaterialTheme.colorScheme.surface)
         .testTag(if (compactNavigation) "terminal-compact-bar" else "terminal-input-bar"), verticalAlignment = Alignment.CenterVertically) {
         if (compactNavigation) IconButton(onClick = onBack, modifier = Modifier.size(48.dp).testTag("terminal-back")) {
-            Icon(painterResource(R.drawable.ic_terminal_back), contentDescription = "返回")
+            GhostermIcon(UiIcon.Back,"返回")
         }
         if (policy.auxiliaryKeys) {
-            TextButton(onClick = onCtrl, enabled = connected, contentPadding = PaddingValues(horizontal = 8.dp),
+            TextButton(onClick = onCtrl, enabled = connected,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.onSurface), contentPadding = PaddingValues(horizontal = 8.dp),
                 modifier = Modifier.height(48.dp)) {
                 Text(when (ctrl) { 1 -> "Ctrl ✓"; 2 -> "Ctrl 锁定"; else -> "Ctrl" }, maxLines = 1)
             }
@@ -39,16 +39,16 @@ internal fun CompactTerminalBar(
                     "↑" to KeyEvent.KEYCODE_DPAD_UP, "↓" to KeyEvent.KEYCODE_DPAD_DOWN,
                     "←" to KeyEvent.KEYCODE_DPAD_LEFT, "→" to KeyEvent.KEYCODE_DPAD_RIGHT)
                 keys.forEach { (label, code) ->
-                    TextButton(onClick = { onKey(code) }, enabled = connected, contentPadding = PaddingValues(horizontal = 8.dp),
+                    TextButton(onClick = { onKey(code) }, enabled = connected,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.onSurface), contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier.height(48.dp).widthIn(min = 48.dp)) { Text(label, maxLines = 1) }
                 }
                 listOf("/", "-").forEach { value ->
-                    TextButton(onClick = { onText(value) }, enabled = connected, contentPadding = PaddingValues(horizontal = 8.dp),
+                    TextButton(onClick = { onText(value) }, enabled = connected,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.onSurface), contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier.size(48.dp)) { Text(value, maxLines = 1) }
                 }
                 if (policy.extendedKeys) listOf("Home" to KeyEvent.KEYCODE_MOVE_HOME, "End" to KeyEvent.KEYCODE_MOVE_END,
                     "PgUp" to KeyEvent.KEYCODE_PAGE_UP, "PgDn" to KeyEvent.KEYCODE_PAGE_DOWN).forEach { (label, code) ->
-                    TextButton(onClick = { onKey(code) }, enabled = connected, contentPadding = PaddingValues(horizontal = 8.dp),
+                    TextButton(onClick = { onKey(code) }, enabled = connected,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.onSurface), contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier.height(48.dp).widthIn(min = 48.dp)) { Text(label, maxLines = 1) }
                 }
             }
@@ -56,13 +56,13 @@ internal fun CompactTerminalBar(
         IconButton(onClick = onKeyboard, enabled = keyboardEnabled,
             modifier = Modifier.size(48.dp).testTag("terminal-keyboard")
                 .semantics { selected = imeVisible }
-                .background(if (imeVisible) MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent,
+                .background(if (imeVisible) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent,
                     MaterialTheme.shapes.medium)) {
-            Icon(painterResource(R.drawable.ic_terminal_keyboard), contentDescription = if (imeVisible) "收起键盘" else "显示键盘")
+            GhostermIcon(UiIcon.Keyboard,if (imeVisible) "收起键盘" else "显示键盘",tint=MaterialTheme.colorScheme.primary)
         }
         if (compactNavigation) Box {
             IconButton(onClick = onMenu, modifier = Modifier.size(48.dp).testTag("terminal-menu")) {
-                Icon(painterResource(R.drawable.ic_terminal_more), contentDescription = "更多")
+                GhostermIcon(UiIcon.More,"更多")
             }
             menu()
         }

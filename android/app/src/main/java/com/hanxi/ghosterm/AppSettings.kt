@@ -21,6 +21,7 @@ sealed interface SettingsReload {
 class AppSettings(
     private val repository: PreferencesRepository,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    private val fontApplication: Application? = null,
 ) : Closeable {
     private val lifetime = SupervisorJob(scope.coroutineContext[Job])
     private val owner = CoroutineScope(scope.coroutineContext + lifetime)
@@ -37,6 +38,7 @@ class AppSettings(
         data class Save(override val client: UUID, val edits: List<PreferenceEdit>, val reset: Boolean,
             val result: CompletableDeferred<PreferenceUpdate>) : Operation { override fun cancel() { result.cancel() } }
         data class Reload(override val client: UUID, val result: CompletableDeferred<SettingsReload>) : Operation { override fun cancel() { result.cancel() } }
+        data class RemoveFont(override val client:UUID,val id:String,val result:CompletableDeferred<String?>):Operation { override fun cancel() { result.cancel() } }
     }
     private val requests = Channel<Operation>(MAX_QUEUED)
     init {
@@ -50,6 +52,15 @@ class AppSettings(
                     try {
                         when (operation) {
                             is Operation.Save -> {
+                                if(fontApplication!=null && (operation.reset || operation.edits.any { it.key==com.hanxi.ghosterm.domain.PreferenceKey.FONT_FAMILY })) {
+                                    val candidate=if(operation.reset) AppPreferences() else operation.edits.fold(published.value.committed) { p,edit -> edit.apply(p) }
+                                    try { withContext(Dispatchers.IO) { com.hanxi.ghosterm.terminal.TerminalFonts.prepare(fontApplication,candidate.fontFamily.id) } }
+                                    catch(cancelled:CancellationException) { throw cancelled }
+                                    catch(failure:Exception) {
+                                        operation.result.complete(PreferenceUpdate.Failed("字体无法载入，尚未保存：${failure.message ?: "未知原因"}"))
+                                        continue
+                                    }
+                                }
                                 val result = if (operation.reset) repository.reset()
                                     else repository.update { before -> operation.edits.fold(before) { p, edit -> edit.apply(p) } }
                                 publish(repository.state.value)
@@ -64,6 +75,18 @@ class AppSettings(
                                 if (state is PreferencesState.Ready && problem.value?.client == operation.client) problem.value = null
                                 operation.result.complete(SettingsReload.Loaded(state))
                             }
+                            is Operation.RemoveFont -> {
+                                val app=fontApplication
+                                val message=when {
+                                    app==null -> "应用未配置字体存储"
+                                    published.value.committed.fontFamily.id==operation.id -> "请先切换到其他字体，再移除此字体"
+                                    repository.state.value !is PreferencesState.Ready -> "设置尚未载入，不能确认字体是否正在使用"
+                                    else -> try { withContext(Dispatchers.IO) { com.hanxi.ghosterm.terminal.TerminalFontStore(app).remove(operation.id) };null }
+                                        catch(cancelled:CancellationException) { throw cancelled }
+                                        catch(failure:Exception) { "移除字体未完成：${failure.message ?: "未知原因"}" }
+                                }
+                                operation.result.complete(message)
+                            }
                         }
                     } catch (cancelled: CancellationException) {
                         operation.cancel(); throw cancelled
@@ -73,6 +96,7 @@ class AppSettings(
                         when (operation) {
                             is Operation.Save -> operation.result.complete(PreferenceUpdate.Failed(message, true))
                             is Operation.Reload -> operation.result.complete(SettingsReload.Rejected(message))
+                            is Operation.RemoveFont -> operation.result.complete(message)
                         }
                     } finally { pending.update { it - 1 } }
                 }
@@ -113,6 +137,12 @@ class AppSettings(
     suspend fun reload(client: UUID): SettingsReload {
         val result = CompletableDeferred<SettingsReload>()
         if (!accept(Operation.Reload(client, result))) return SettingsReload.Rejected("暂时无法重新载入，请重试。")
+        return result.await()
+    }
+    /** Serialize deletion with font selection, so another window cannot commit a just-deleted file. */
+    suspend fun removeFont(client:UUID,id:String):String? {
+        val result=CompletableDeferred<String?>()
+        if(!accept(Operation.RemoveFont(client,id,result))) return "字体操作较多，请稍后重试"
         return result.await()
     }
     override fun close() {

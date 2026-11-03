@@ -48,9 +48,9 @@ fun AboutContent(model: AboutViewModel, runtime: RuntimeInfo) {
             Text("原生 Android 客户端 · MIT License")
             Text("项目与终端组件许可证", style = MaterialTheme.typography.titleMedium)
             AboutLicense.entries.forEach { license ->
-                OutlinedButton({ model.open(license) }, Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("about-license-${license.name}")) { Text(license.title) }
+                GhostermGroup { GhostermActionRow(license.title,icon=UiIcon.File,modifier=Modifier.testTag("about-license-${license.name}")) { model.open(license) } }
             }
-            OutlinedButton({ model.openSource(context) }, Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("about-source")) { Text("项目源码") }
+            GhostermGroup { GhostermActionRow("项目源码",icon=UiIcon.Terminal,modifier=Modifier.testTag("about-source")) { model.openSource(context) } }
             SelectionContainer { Text(AboutViewModel.SOURCE) }
             model.linkError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }

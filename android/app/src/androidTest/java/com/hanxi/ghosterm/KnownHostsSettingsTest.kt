@@ -83,7 +83,7 @@ class KnownHostsSettingsTest {
         }
     }
     private fun settings() {
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
         ui.onNodeWithTag("settings-section-SECURITY").performScrollTo().performClick()
         ui.onNodeWithText("主机验证记录").performScrollTo().performClick()
         await { hosts.page == Page.KNOWN_HOSTS && !model.busy && (model.snapshot != null || model.error != null) }
@@ -113,7 +113,7 @@ class KnownHostsSettingsTest {
         assertArrayEquals("# 注释\r\n$row\r\n\r\n".toByteArray(),known.readBytes())
         ui.onNodeWithTag("known-hosts-notice").assertTextEquals("记录已移除")
         assertEquals(1,main { model.snapshot!!.records.size })
-        ui.onNodeWithText("返回").performClick(); assertEquals(Page.SETTINGS,main { hosts.page })
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); assertEquals(Page.SETTINGS,main { hosts.page })
     }
     @Test fun ruleKindsAndMalformedRecordsStayVisibleAndReadOnly() {
         known.writeText("@revoked ${line()}@cert-authority ${line()}@unknown ${line()}${line("|1|c2FsdA==|aGFzaA==")}broken row\n")
@@ -125,7 +125,7 @@ class KnownHostsSettingsTest {
             ui.onNodeWithTag("known-host-readonly").performScrollTo().assertExists()
             ui.onNodeWithText("移除此记录").assertDoesNotExist()
             main { model.requestRemoval() }; assertFalse(main { model.confirmingRemoval })
-            ui.onNodeWithText("返回").performClick(); assertEquals(Page.KNOWN_HOSTS,main { hosts.page })
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); assertEquals(Page.KNOWN_HOSTS,main { hosts.page })
         }
     }
     @Test fun publicFingerprintUsesWireBytesAndRejectsWrongAlgorithms() {
@@ -133,11 +133,11 @@ class KnownHostsSettingsTest {
         known.writeText(line()+"bad.example ssh-ed25519 !!!!\nwrong.example ssh-rsa $blob\n"+line("hidden\u202E.example"))
         settings(); open()
         ui.onNodeWithTag("known-host-fingerprint").performScrollTo().assertTextEquals(fixture.getString("fingerprint"))
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         for(index in 1..2) {
             open(index); ui.onNodeWithTag("known-host-fingerprint-unavailable").performScrollTo().assertExists()
             ui.onNodeWithTag("known-host-fingerprint").assertDoesNotExist()
-            ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         }
         open(3); ui.onNodeWithTag("known-host-hosts").assertTextEquals("hidden\\u202e.example")
     }
@@ -157,7 +157,7 @@ class KnownHostsSettingsTest {
         ui.onNodeWithText("重新载入记录").performClick(); await { !model.busy && model.snapshot!=null }
         ui.onNodeWithTag("known-hosts-error").assertDoesNotExist(); open()
         ui.onNodeWithTag("known-host-fingerprint").performScrollTo().assertTextEquals(fixture.getString("fingerprint"))
-        ui.onNodeWithText("返回").performClick(); known.delete()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); known.delete()
         ui.onNodeWithText("重新载入记录").performClick(); await { !model.busy && model.snapshot?.records?.isEmpty()==true }
         ui.onNodeWithTag("known-hosts-empty").assertExists()
     }
@@ -208,7 +208,7 @@ class KnownHostsSettingsTest {
         try {
             main { hosts.knownHosts(); model.enter() }
             assertTrue(entered.await(5,TimeUnit.SECONDS))
-            ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
             ui.onNodeWithTag("settings-section-SECURITY").performScrollTo().performClick()
             ui.onNodeWithText("主机验证记录").performScrollTo().performClick()
             await { !model.busy && model.snapshot?.revision=="new" }
@@ -251,7 +251,7 @@ class KnownHostsSettingsTest {
         try {
             ui.onNodeWithText("确认移除记录").performClick(); assertTrue(started.await(5,TimeUnit.SECONDS))
             main { model.remove() }; assertEquals(1,calls.get())
-            ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
             assertEquals(Page.SETTINGS,main { hosts.page })
             ui.onNodeWithText("主机验证记录").performScrollTo().performClick()
             assertTrue(main { model.writing }); ui.onNodeWithText("重新载入记录").assertIsNotEnabled()
@@ -291,7 +291,7 @@ class KnownHostsSettingsTest {
         request(); confirm(); assertEquals("",known.readText())
         assertArrayEquals(savedConfig,config.readBytes()); assertTrue(vault.list().any { it.id==key.id })
         assertSame(connected,main { sessions.active }); assertTrue(main { connected.state.connected })
-        ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         main { sessions.selectNewRemote() }
         ui.onNodeWithText(alias).performClick(); await("new connection asks for host verification") { sessions.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY }
         main { sessions.cancelConnection(sessions.connecting!!.id); sessions.show(connected.id) }

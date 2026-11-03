@@ -12,6 +12,8 @@ if [ -z "${JAVA_HOME:-}" ]; then
   JDK="$ROOT/build/android-toolchain/jdk-17.0.21+9/Contents/Home"
   if [ -x "$JDK/bin/java" ]; then export JAVA_HOME="$JDK"; fi
 fi
+python3 "$ROOT/scripts/build-android-ui-icons.py" --check
+python3 "$ROOT/scripts/build-android-appearance.py" --check
 python3 "$ROOT/scripts/check-abi-android.py"
 python3 "$ROOT/scripts/build-android-native.py"
 if [ "$#" -eq 0 ]; then set -- :app:assembleDebug :app:assembleDebugAndroidTest; fi

@@ -145,8 +145,8 @@ class TerminalPreferencesTest {
         val read = type.getMethod("readAction", Long::class.javaPrimitiveType, Long::class.javaPrimitiveType)
         val end = type.getMethod("endAction", Long::class.javaPrimitiveType, Long::class.javaPrimitiveType)
         val handle = NativeTerminalProbe.handle(session)
-        for ((shape, blink, bytes) in listOf(Triple(0, 2, ByteArray(6)), Triple(0, -1, ByteArray(6)),
-            Triple(3, 0, ByteArray(6)), Triple(-1, 0, ByteArray(6)), Triple(0, 0, ByteArray(7)), Triple(0, 0, ByteArray(5)))) {
+        for ((shape, blink, bytes) in listOf(Triple(0, 2, ByteArray(57)), Triple(0, -1, ByteArray(57)),
+            Triple(3, 0, ByteArray(57)), Triple(-1, 0, ByteArray(57)), Triple(0, 0, ByteArray(58)), Triple(0, 0, ByteArray(56)), Triple(0, 0, ByteArray(6)))) {
             val revision = frame(session) { true }.revision
             val request = begin.invoke(instance, handle, 12, shape, blink, bytes) as Long
             assertNotEquals("Fixture: appearance request could not be queued", 0L, request)
@@ -189,6 +189,79 @@ class TerminalPreferencesTest {
         val hex = (1 until result.rows).map(result::line).takeWhile { it != "PREF_INPUT_DONE" }
             .map { it.trim().replace(Regex(" +"), " ") }.filter { it.matches(Regex("[0-9a-f]{2}( [0-9a-f]{2})*")) }.joinToString(" ")
         assertEquals("53 54 59 4c 45 5f 49 4e 50 55 54", hex)
+    }
+
+    @Test fun allAnsiColorsAndOscCursorOverridesUseTheSelectedTheme() = terminal { session ->
+        val theme = TerminalTheme.entries.single { it.label == "Dracula" }
+        val appearance = AppPreferences(terminalTheme = theme).terminalStyle().appearance
+        configure(session, appearance)
+        fun colors(marker: String): TerminalFrame {
+            val sequence = (0..15).joinToString("") { index ->
+                "\\033[${if(index<8) 30+index else 90+index-8};${if(index<8) 40+index else 100+index-8}mX"
+            }
+            session.commit("printf '\\033[2J\\033[H${sequence}\\033[0m\\r\\n$marker\\r\\n'\r")
+            return frame(session) { it.line(1) == marker }
+        }
+        val first = colors("PALETTE_READY")
+        for(index in 0..15) {
+            val color = 0xff000000.toInt() or theme.palette[index]
+            assertEquals("ANSI foreground $index", color, first.cells[index].foreground)
+            assertEquals("ANSI background $index", color, first.cells[index].background)
+        }
+        assertEquals(0xff000000.toInt() or theme.cursorColor, first.cursorColor)
+        output(session, "\\033]4;1;#123456\\007\\033]12;#654321\\007", "OSC_PALETTE")
+        val changed = appearance.copy(palette=appearance.palette.map { it xor 0x010101 }, cursorColor=0xabcdef)
+        configure(session, changed)
+        val overridden = colors("OVERRIDE_READY")
+        assertEquals(0xff123456.toInt(), overridden.cells[1].foreground)
+        assertEquals(0xff654321.toInt(), overridden.cursorColor)
+        output(session, "\\033]104;1\\007\\033]112\\007", "RESET_PALETTE")
+        val reset = colors("RESET_READY")
+        assertEquals(0xff000000.toInt() or changed.palette[1], reset.cells[1].foreground)
+        assertEquals(0xffabcdef.toInt(), reset.cursorColor)
+    }
+
+    @Test fun selectedThemeSelectionAndCursorReachActualCanvasPixels() = withModel { root, _, owner, model ->
+        val session = add(model)
+        ui.setContent { MaterialTheme { if (model.visible) TerminalScreen(model) {} } }
+        ui.waitForIdle(); val view = terminalView()
+        marker(session,File(root,"home"),"canvas-theme-pid")
+        val theme=TerminalTheme.entries.single { it.label=="Nord" }
+        assertTrue(save(owner,PreferenceEdit.Theme(theme),PreferenceEdit.Blink(false)) is PreferenceUpdate.Saved)
+        await { main { view.style.appearance.selectionBackground==theme.selectionBackground } }
+        output(session.connection,"\\033[0m\\033[2J\\033[H", "CANVAS_THEME")
+        await { main { view.currentFrame?.line(0)=="CANVAS_THEME" } }
+        val cw=main { TerminalView::class.java.getDeclaredField("cellWidth").apply { isAccessible=true }.getInt(view) }
+        val ch=main { TerminalView::class.java.getDeclaredField("cellHeight").apply { isAccessible=true }.getInt(view) }
+        await("Fixture: terminal window did not gain focus") { main { view.hasWindowFocus() } }
+        val position=main { checkNotNull(view.currentFrame) }
+        val plain=bitmap(view)
+        assertEquals(0xff000000.toInt() or theme.cursorColor,plain.getPixel(position.cursorX*cw+cw/2,position.cursorY*ch+ch/2))
+        plain.recycle()
+        session.connection.commit("printf '\\033[2J\\033[HCURSOR_GLYPH\\033[H'\r")
+        await { main { view.currentFrame?.let { it.line(0)=="CURSOR_GLYPH" && it.cursorX==0 && it.cursorY==0 }==true } }
+        val block=bitmap(view)
+        val expected=Bitmap.createBitmap(cw,ch,Bitmap.Config.ARGB_8888)
+        val baseline=main { TerminalView::class.java.getDeclaredField("baseline").apply { isAccessible=true }.getFloat(view) }
+        val cursorPaint=main { Paint(TerminalView::class.java.getDeclaredField("metricsPaint").apply { isAccessible=true }.get(view) as Paint) }
+        cursorPaint.isAntiAlias=true
+        cursorPaint.color=0xff000000.toInt() or theme.cursorText
+        Canvas(expected).apply { drawColor(0xff000000.toInt() or theme.cursorColor);drawText("C",0f,baseline.toFloat(),cursorPaint) }
+        val expectedPixels=IntArray(cw*ch);val actualPixels=IntArray(cw*ch)
+        expected.getPixels(expectedPixels,0,cw,0,0,cw,ch);block.getPixels(actualPixels,0,cw,0,0,cw,ch)
+        assertArrayEquals("A block cursor redraws the actual glyph using its theme text color",expectedPixels,actualPixels)
+        expected.recycle()
+        block.recycle()
+        session.connection.commit("printf '\\033[2;1H'\r")
+        await { main { view.currentFrame?.cursorY==1 } }
+        runBlocking { session.surface.select(SelectionOperation.ALL) }
+        await { main { view.currentFrame?.cells?.firstOrNull()?.flags?.and(256)==256 } }
+        val selected=bitmap(view)
+        assertEquals(0xff000000.toInt() or theme.selectionBackground, selected.getPixel(0,0))
+        var foreground=0
+        for(y in 0 until ch) for(x in 0 until cw*12) if(selected.getPixel(x,y)==(0xff000000.toInt() or theme.selectionForeground)) foreground++
+        assertTrue("Selected text uses the theme foreground",foreground>10)
+        selected.recycle()
     }
 
     @Test fun committedPreferencesReachExistingAndNewOwnersWithoutReplacingShells() = withModel { root, _, owner, model ->

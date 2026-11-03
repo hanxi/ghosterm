@@ -34,7 +34,8 @@ def main():
     view = ROOT / 'terminal/android/src/main/java/com/hanxi/ghosterm/terminal/TerminalView.kt'
     native = ROOT / 'terminal/android/native/surface.c'
     dto = ROOT / 'terminal/android/src/main/java/com/hanxi/ghosterm/terminal/TerminalStyle.kt'
-    originals = {path: path.read_bytes() for path in (model, mapper, screen, bridge, view, native, dto)}
+    theme = ROOT / 'android/domain/src/main/kotlin/com/hanxi/ghosterm/domain/AppPreferences.kt'
+    originals = {path: path.read_bytes() for path in (model, mapper, screen, bridge, view, native, dto, theme)}
     modes = {path: path.stat().st_mode & 0o777 for path in originals}
     if any(MARK.encode() in data for data in originals.values()): raise RuntimeError('Residual terminal style mutation')
     api = helper.run([*adb, 'shell', 'getprop', 'ro.build.version.sdk']); helper.require(api)
@@ -57,13 +58,13 @@ def main():
     case('preserve-osc-override', 'oscOverridesSurviveNewDefaultsAndResetToTheNewPalette', native, '/* Default setters preserve',
         'ghostty_terminal_vt_write(s->terminal, (const uint8_t *)"\\033]111\\007", 6); /* Default setters preserve')
     case('no-settings-in-pty-stream', 'appearanceChangesNeverEnterTheShellInputStream', native,
-        'if (length != 6 || x < 0', '(void)s->write(s->context, (const uint8_t *)"INJECTED_", 9); if (length != 6 || x < 0')
-    case('bridge-color-order', ack, bridge, 'listOf(appearance.background, appearance.foreground)', 'listOf(appearance.foreground, appearance.background)')
+        'if (length != 57 || x < 0', '(void)s->write(s->context, (const uint8_t *)"INJECTED_", 9); if (length != 57 || x < 0')
+    case('bridge-color-order', ack, bridge, 'listOf(appearance.background,appearance.foreground,appearance.cursorColor)', 'listOf(appearance.foreground,appearance.background,appearance.cursorColor)')
     case('bridge-acknowledged-route', ack, bridge, 'action(12, appearance.cursor.code, if (appearance.blink) 1 else 0, colors)', 'Unit')
     case('registration-independent-of-ui', owners, model, 'surfaceTargets.value = sessions.toList()', 'surfaceTargets.value = emptyList()', 2)
     case('all-existing-owners', owners, model, 'for (session in targets)', 'for (session in targets.takeLast(1))')
     case('hot-existing-appearance', owners, model, 'if (session.appliedAppearance == style.appearance) continue', 'if (session.appliedAppearance != null) continue')
-    case('paper-palette-map', owners, mapper, 'TerminalTheme.PAPER -> 0xfaf8f2 to 0x283b33', 'TerminalTheme.PAPER -> 0x171b20 to 0xdce3ec')
+    case('paper-palette-map', owners, theme, 'TerminalTheme("paper","纸白",0xfaf8f2,0x283b33', 'TerminalTheme("paper","纸白",0x171b20,0xdce3ec')
     case('existing-view-update', pixels, screen, 'view.updateStyle(model.terminalStyle)', 'Unit')
     case('physical-line-height', pixels, view, 'ceil(paint.textSize * value.lineHeight)', 'ceil(paint.textSize)')
     case('cursor-blink-off-gate', blinking, view, '!style.appearance.blink || !frame.cursorBlink', '!frame.cursorBlink')
@@ -71,14 +72,14 @@ def main():
     case('window-focus-not-only-view-focus', 'anUnfocusedWindowShowsAStaticCursorEvenWhenTheViewKeepsFocus', view,
         'val cursorFocused = hasFocus() && hasWindowFocus()', 'val cursorFocused = hasFocus()')
     case('initial-equal-style-still-measures', pixels, view, 'if (style == value && !changedMetrics) return', 'if (style == value) return')
-    case('line-height-mapping', pixels, mapper, 'TerminalStyle(fontSize.toFloat(), lineHeight.factor,', 'TerminalStyle(fontSize.toFloat(), 1.85f,')
+    case('line-height-mapping', pixels, mapper, 'TerminalStyle(fontSize.toFloat(),lineHeight.factor,', 'TerminalStyle(fontSize.toFloat(),1.85f,')
     case('surface-errors-visible', 'oneUnavailableSurfaceReportsAnErrorWithoutBlockingOtherOwners', model,
         'if (session in sessions) reportError(', 'if (false) reportError(')
-    case('forest-palette-map', owners, mapper, 'TerminalTheme.FOREST -> 0x14241c to 0xe2ecdf', 'TerminalTheme.FOREST -> 0x171b20 to 0xdce3ec')
+    case('forest-palette-map', owners, theme, 'TerminalTheme("forest","墨绿",0x14241c,0xe2ecdf', 'TerminalTheme("forest","墨绿",0x171b20,0xdce3ec')
     case('sp-physical-conversion', pixels, view,
         'TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value.fontSize, resources.displayMetrics)', 'value.fontSize')
     case('native-blink-flag-bound', packets, native, 'y > 1) return 2;', 'y > 2) return 2;')
-    case('native-exact-packet-length', packets, native, 'if (length != 6 || x < 0', 'if (length < 6 || x < 0')
+    case('native-exact-packet-length', packets, native, 'if (length != 57 || x < 0', 'if (length < 57 || x < 0')
     case('validate-before-palette-side-effects', packets, native, 'if (kind == 12) {',
         'if (kind == 12) { GhosttyColorRgb premature_background = {0,0,0}; (void)ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &premature_background);')
     case('bar-cursor-abi', ack, dto, 'BAR(0)', 'BAR(1)')

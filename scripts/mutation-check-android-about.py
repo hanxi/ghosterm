@@ -60,7 +60,7 @@ def main():
     case('license-file-matches-component', product, model,
         'GHOSTERM("Ghosterm · MIT", "Ghosterm-MIT.txt")', 'GHOSTERM("Ghosterm · MIT", "openssl-3.5.4.txt")')
     case('explicit-source-button-route', source, screen,
-        'OutlinedButton({ model.openSource(context) },', 'OutlinedButton({ },')
+        '{ model.openSource(context) }','{ Unit }')
     case('source-launch-error-visible', source_error, model,
         'catch (_: android.content.ActivityNotFoundException) { sourceUnavailable() }',
         'catch (_: android.content.ActivityNotFoundException) { }')

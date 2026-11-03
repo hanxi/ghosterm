@@ -103,8 +103,8 @@ fun FileTasksScreen(model: FileTasksViewModel) {
     val list=rememberLazyListState()
     val context=LocalContext.current
     LaunchedEffect(model.tasks.firstOrNull()?.request?.id) { list.scrollToItem(0) }
-    Scaffold(topBar={ TopAppBar(title={ Text("文件任务") },navigationIcon={
-        TextButton(onClick=model::hide) { Text("返回") }
+    Scaffold(topBar={ GhostermTopBar(title={ Text("文件任务") },navigationIcon={
+        GhostermIconButton(UiIcon.Back,"返回",onClick=model::hide)
     },actions={ TextButton(onClick=model::showCleanupRecords,modifier=Modifier.testTag("file-cleanup-records-open")) { Text("清理记录") };TextButton(onClick=model::showRetained,enabled=!model.busy && !model.journalLoading && model.inspectingId==null,modifier=Modifier.testTag("file-retained-open")) { Text("保留暂存") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).testTag("file-tasks"),
             state=list,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {

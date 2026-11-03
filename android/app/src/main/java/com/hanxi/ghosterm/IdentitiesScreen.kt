@@ -25,18 +25,14 @@ fun IdentitiesScreen(model: IdentitiesViewModel, import: () -> Unit) {
         val record = model.selected
         if (record == null) {
             item {
-                Button(onClick = import,enabled = !model.busy && !model.pickerPending,modifier = Modifier.fillMaxWidth()) { Text("导入私钥") }
+                Button(onClick = import,enabled = !model.busy && !model.pickerPending,modifier = Modifier.fillMaxWidth()) { GhostermIcon(UiIcon.Key);Spacer(Modifier.width(8.dp));Text("导入私钥") }
                 Text("导入副本由 Android 安全存储保护，原文件不会修改。",style = MaterialTheme.typography.bodySmall)
             }
             if (!model.busy && model.records.isEmpty() && model.error == null) item { Text("还没有保存的身份") }
             items(model.records,key = { it.id }) { entry ->
-                OutlinedButton(onClick = { model.open(entry) },enabled = !model.busy && !model.pickerPending,
-                    modifier = Modifier.fillMaxWidth().testTag("identity-row-${entry.id}")) {
-                    Column(Modifier.fillMaxWidth()) {
-                        Text(entry.name)
-                        Text(entry.problem ?: if(entry.identity?.needsPassphrase == true) "连接时输入密钥口令" else "无需密钥口令",
-                            style = MaterialTheme.typography.bodySmall)
-                    }
+                GhostermGroup {
+                    GhostermActionRow(entry.name,entry.problem ?: if(entry.identity?.needsPassphrase==true) "连接时输入密钥口令" else "无需密钥口令",
+                        UiIcon.Key,Modifier.testTag("identity-row-${entry.id}"),enabled=!model.busy && !model.pickerPending) { model.open(entry) }
                 }
             }
         } else {

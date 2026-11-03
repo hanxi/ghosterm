@@ -1,0 +1,14 @@
+{
+  "source_code_pro": {
+    "url": "https://raw.githubusercontent.com/adobe-fonts/source-code-pro/803b7e23ec97ae58b6232ea76519a76d428ba268/TTF/SourceCodePro-Regular.ttf",
+    "sha256": "74bd80d3e42a08517cd7e1108ba3d86f2da29ac0f3065be95e0357956ab9db37",
+    "license_url": "https://raw.githubusercontent.com/adobe-fonts/source-code-pro/803b7e23ec97ae58b6232ea76519a76d428ba268/LICENSE.md",
+    "license_sha256": "7c940e28a5388e9bba866cf0e408edda45fe0899ba98665b8f6ab31dc5e4b8ff"
+  },
+  "jetbrains_mono": {
+    "source": "vendor/ghostty/src/font/res/JetBrainsMonoNoNF-Regular.ttf",
+    "ghostty_pin": "81598385d608dda4946093d6d6a234d204a2f225",
+    "sha256": "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f",
+    "license_sha256": "fb755fa3280d1d215a20df2e64fe6a0f75f8208439b11671978214aae60d2997"
+  }
+}

@@ -10,15 +10,12 @@ internal fun AppPreferences.terminalControls() = TerminalControls(auxKeys, keySe
     ctrlMode == CtrlBehavior.LOCKED, autoKeyboard, keepAwake)
 
 internal fun AppPreferences.terminalStyle(): TerminalStyle {
-    val colors = when (terminalTheme) {
-        TerminalTheme.GRAPHITE -> 0x171b20 to 0xdce3ec
-        TerminalTheme.FOREST -> 0x14241c to 0xe2ecdf
-        TerminalTheme.PAPER -> 0xfaf8f2 to 0x283b33
-    }
+    val theme=terminalTheme
     val shape = when (cursor) {
         TerminalCursor.BLOCK -> CursorShape.BLOCK
         TerminalCursor.BAR -> CursorShape.BAR
         TerminalCursor.UNDERLINE -> CursorShape.UNDERLINE
     }
-    return TerminalStyle(fontSize.toFloat(), lineHeight.factor, TerminalAppearance(colors.first, colors.second, shape, blink))
+    return TerminalStyle(fontSize.toFloat(),lineHeight.factor,TerminalAppearance(theme.background,theme.foreground,shape,blink,
+        theme.cursorColor,theme.cursorText,theme.selectionBackground,theme.selectionForeground,theme.palette),fontFamily.id)
 }

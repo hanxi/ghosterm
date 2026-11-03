@@ -44,7 +44,7 @@ class SafImportTest {
         val runtime = RuntimeInfoViewModel()
         ui.setContent { GhostermApp(model, runtime) }
         await { !model.busy && model.snapshot != null }
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
         ui.onNodeWithTag("settings-section-SESSIONS").performScrollTo().performClick()
     }
     @After fun cleanup() { directory.deleteRecursively() }
@@ -226,7 +226,7 @@ class SafImportTest {
         ui.onNodeWithText("确认导入").performClick()
         await { !model.busy }
         assertEquals("", file.readText())
-        ui.onNodeWithText("还没有主机").assertIsDisplayed()
+        ui.onNodeWithText("添加你的第一台主机").assertIsDisplayed()
         assertEquals(original, file.parentFile!!.listFiles()!!.single { it.name.startsWith("config.backup-") }.readText())
         assertProviderUntouched("empty", "")
     }

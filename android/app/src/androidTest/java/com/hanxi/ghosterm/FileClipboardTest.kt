@@ -89,9 +89,9 @@ class FileClipboardTest {
             assertEquals(FileLocation(FileEndpoint.APP),model.clipboard!!.source)
             assertEquals(count,lists);assertEquals(0,previews)
             ui.onNodeWithTag("file-clipboard").assertIsDisplayed()
-            ui.onNodeWithTag("file-clipboard-source").assertTextEquals("本机 · 应用文件")
-            ui.onNodeWithTag("file-clipboard-path").assertTextEquals("应用文件")
-            ui.onNodeWithTag("file-clipboard-names").assertTextEquals("a.txt")
+            ui.onNodeWithTag("file-clipboard-source",useUnmergedTree=true).assertTextEquals("本机 · 应用文件")
+            ui.onNodeWithTag("file-clipboard-path",useUnmergedTree=true).assertTextEquals("应用文件")
+            ui.onNodeWithTag("file-clipboard-names",useUnmergedTree=true).assertTextEquals("a.txt")
             capture("card")
             assertEquals("text clipboard stays",system.primaryClip!!.getItemAt(0).text.toString());preserved()
         } finally { ui.runOnIdle { if(before!=null) system.setPrimaryClip(before) else system.clearPrimaryClip() } }
@@ -116,15 +116,15 @@ class FileClipboardTest {
         ui.onNodeWithText("替换清单").performClick()
         assertSame(pending,model.clipboard);assertNotEquals(first.id,model.clipboard!!.id)
         assertEquals("b.txt",model.clipboard!!.items.single().id);assertFalse(model.selecting)
-        ui.onNodeWithText("清空").performClick();ui.onNodeWithText("取消").performClick()
+        ui.onNode(hasText("清空") or hasContentDescription("清空")).performClick();ui.onNodeWithText("取消").performClick()
         assertSame(pending,model.clipboard)
-        ui.onNodeWithText("清空").performClick();ui.onNodeWithText("确认清空").performClick()
+        ui.onNode(hasText("清空") or hasContentDescription("清空")).performClick();ui.onNodeWithText("确认清空").performClick()
         assertNull(model.clipboard);ui.onNodeWithTag("file-clipboard").assertDoesNotExist();preserved()
     }
     @Test fun navigationLeaveAndReloadKeepFrozenOriginAndCancelOldReplacement() {
         show();copy("a.txt");val snapshot=model.clipboard!!
         entry("folder").performClick();loaded()
-        ui.onNodeWithTag("file-clipboard-path").assertTextEquals("应用文件")
+        ui.onNodeWithTag("file-clipboard-path",useUnmergedTree=true).assertTextEquals("应用文件")
         copy("child.txt");assertNotNull(model.clipboardReplacement)
         ui.runOnIdle { model.leave();model.enter() };loaded()
         ui.runOnIdle { model.confirmClipboardReplacement();model.confirmClipboardClear() }

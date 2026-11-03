@@ -85,7 +85,7 @@ class IdentitySettingsTest {
         automation.setRotation(if(autoRotation==1) UiAutomation.ROTATION_UNFREEZE else rotation)
     }
     private fun settings() {
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
         ui.onNodeWithTag("settings-section-SECURITY").performScrollTo().performClick()
         ui.onNodeWithText("SSH 身份").performScrollTo().performClick()
         await { !model.busy && hosts.page==Page.IDENTITIES }
@@ -106,7 +106,7 @@ class IdentitySettingsTest {
         assertFalse(keys().containsAlias("ghosterm.ssh.identity.${identity.id}"))
         assertFalse(File(directory,"${identity.id}.json").exists())
         ui.onNodeWithTag("identity-notice").assertTextEquals("身份已移除")
-        ui.onNodeWithText("返回").performClick(); assertEquals(Page.SETTINGS,main { hosts.page })
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); assertEquals(Page.SETTINGS,main { hosts.page })
     }
     @Test fun corruptEntryIsVisibleAndRemovableWithoutHidingHealthyKey() {
         val healthy=vault.import("healthy-key",fixture.getString("pem").toByteArray())
@@ -166,7 +166,7 @@ class IdentitySettingsTest {
         settings(); openPicker(); select("slow-key")
         systemAwait { provider("status").getInt("reads")==1 }
         await { model.busy }
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         systemAwait { provider("status").getInt("closed")==1 }
         assertTrue(added().isEmpty()); assertEquals(0,provider("status").getInt("writes"))
     }
@@ -184,7 +184,7 @@ class IdentitySettingsTest {
         await("Exactly one settings identity must be imported") { !model.busy && added().size==1 }
         assertNotSame(old,ui.activity); assertSame(model,main { ViewModelProvider(ui.activity)[IdentitiesViewModel::class.java] })
         val identity=added().single(); row(identity.id).performScrollTo().performClick(); await { !model.busy }; fingerprint()
-        ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         val config=File(ui.activity.filesDir,"home/.ssh/config"); val known=File(ui.activity.filesDir,"home/.ssh/known_hosts")
         val before=config.takeIf(File::exists)?.readBytes(); val previousKnown=known.takeIf(File::exists)?.readBytes()
         try {

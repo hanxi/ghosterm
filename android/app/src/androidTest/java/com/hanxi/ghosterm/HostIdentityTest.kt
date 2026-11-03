@@ -97,12 +97,12 @@ class HostIdentityTest {
         return ConfigRepository(scratch)
     }
     private fun editPage() {
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         await("identity editor ready") { hosts.page == Page.EDIT_HOST && !hosts.identityLoading }
         assertNull(main { hosts.identityError })
     }
     private fun settingsDetail() {
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
         ui.onNodeWithTag("settings-section-SECURITY").performScrollTo().performClick()
         ui.onNodeWithText("SSH 身份").performScrollTo().performClick()
         await("identity inventory") { !identities.busy }
@@ -176,7 +176,7 @@ class HostIdentityTest {
     }
     @Test fun identitySourceFailureKeepsScalarDraftAndNeverShowsEmptySuccess() {
         load(" IdentityFile one two\n")
-        ui.onNodeWithText("编辑").performClick()
+        ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         await("source query failed") { !hosts.identityLoading }
         ui.onNodeWithTag("host-identity-error").performScrollTo().assertExists()
         ui.onNodeWithTag("host-add-identity-${key.id}").assertDoesNotExist()
@@ -193,7 +193,7 @@ class HostIdentityTest {
         ui.onNodeWithTag("host-add-identity-${key.id}").performScrollTo().performClick()
         ui.activityRule.scenario.recreate()
         assertTrue(main { hosts.draft!!.dirty })
-        ui.onNodeWithText("返回").performClick(); ui.onNodeWithText("继续编辑").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNodeWithText("继续编辑").performClick()
         ui.onNodeWithText("保存").performClick()
         await("identity-only draft saved") { !hosts.busy && hosts.page==Page.HOSTS }
         assertEquals(listOf("own",IdentityReferences.encode(key.id)),ConfigBridge.identities(config.readBytes(),alias).filter { it.explicitValue }.map { it.value })
@@ -223,7 +223,7 @@ class HostIdentityTest {
     }
     @Test fun malformedInventoryIdShowsAnErrorInsteadOfCrashingReferenceDetails() {
         File(directory,"not-a-uuid.json").writeText("damaged fixture")
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
         ui.onNodeWithTag("settings-section-SECURITY").performScrollTo().performClick()
         ui.onNodeWithText("SSH 身份").performScrollTo().performClick()
         await("damaged inventory") { !identities.busy }

@@ -139,7 +139,7 @@ class FileBrowserTest {
         entry("child").performTouchInput { longClick() }
         ui.onNodeWithTag("file-tab-remote").assertIsNotEnabled()
         ui.runOnIdle { model.switchScope(true);assertFalse(model.remoteScope);assertTrue(model.selecting) }
-        ui.onNodeWithText("取消选择").performClick()
+        ui.onNode(hasText("取消选择") or hasContentDescription("取消选择")).performClick()
         ui.onNodeWithTag("file-tab-remote").performClick()
         ui.onNodeWithTag("file-tab-local").performClick();loaded()
         assertEquals(other,model.location.endpoint);assertEquals("sub",model.location.directoryId)
@@ -161,17 +161,17 @@ class FileBrowserTest {
         show(); assertFalse(model.selecting);capture("browse")
         entry("Alpha").performClick(); loaded()
         entry("child.txt").assertIsDisplayed(); assertEquals("Alpha",model.location.directoryId)
-        ui.onNodeWithText("返回").performClick();loaded()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();loaded()
         entry("notes.txt").performClick()
         ui.waitUntil { ui.runOnIdle { model.preview?.text!=null } }
         ui.onNodeWithTag("file-preview").assertTextEquals("你好 🔑\nsecond line\n")
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         entry("Alpha").performTouchInput { longClick() }
         entry("Alpha").assertIsSelected(); assertEquals("",model.location.directoryId)
         entry("notes.txt").performClick();entry("notes.txt").assertIsSelected()
         assertNull(model.preview);assertEquals(2,model.selected.size);capture("selected")
         entry("Alpha").performClick();entry("Alpha").assertIsNotSelected()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithContentDescription("取消选择").performClick()
         assertFalse(model.selecting);assertTrue(model.selected.isEmpty());assertTrue(model.visible)
         entry("notes.txt").performClick();ui.waitUntil { ui.runOnIdle { model.preview?.text!=null } }
         assertArrayEquals("你好 🔑\nsecond line\n".toByteArray(),File(home,"notes.txt").readBytes())
@@ -180,12 +180,12 @@ class FileBrowserTest {
         show();ui.onNodeWithText("选择").performClick();ui.onNodeWithText("全选").performClick()
         assertEquals(setOf("Alpha","notes.txt","空 文.txt"),model.selected)
         assertFalse(model.selected.contains("Alpha/child.txt"))
-        ui.onNodeWithText("更多").performClick();ui.onNodeWithText("显示隐藏文件").performClick()
+        ui.onNode(hasText("更多") or hasContentDescription("更多")).performClick();ui.onNodeWithText("显示隐藏文件").performClick()
         entry(".hidden").performClick();assertTrue(model.selected.contains(".hidden"))
-        ui.onNodeWithText("更多").performClick();ui.onNodeWithText("隐藏点文件").performClick()
+        ui.onNode(hasText("更多") or hasContentDescription("更多")).performClick();ui.onNodeWithText("隐藏点文件").performClick()
         assertFalse(model.selected.contains(".hidden"));entry(".hidden").assertDoesNotExist()
-        ui.onNodeWithText("清除选择").performClick();assertTrue(model.selected.isEmpty());assertTrue(model.selecting)
-        ui.onNodeWithText("取消选择").performClick();assertFalse(model.selecting)
+        ui.onNode(hasText("更多") or hasContentDescription("更多")).performClick();ui.onNodeWithText("清除选择").performClick();assertTrue(model.selected.isEmpty());assertTrue(model.selecting)
+        ui.onNode(hasText("取消选择") or hasContentDescription("取消选择")).performClick();assertFalse(model.selecting)
     }
     @Test fun readFailureIsVisibleAndRetryDoesNotPretendEmpty() {
         val saved=File(directory,"moved-home");check(home.renameTo(saved));home.writeText("not a directory")
@@ -260,7 +260,7 @@ class FileBrowserTest {
         ui.runOnIdle { assertTrue(model.loading);assertTrue(model.entries.isEmpty()) }
         ui.runOnIdle { lists[1].resume(listOf(file)) };loaded()
         entry("note").performClick();ui.waitUntil { previews.size==1 }
-        ui.onNodeWithText("返回").performClick();entry("note").performClick();ui.waitUntil { previews.size==2 }
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();entry("note").performClick();ui.waitUntil { previews.size==2 }
         ui.runOnIdle { previews[1].resume("fresh") };ui.onNodeWithTag("file-preview").assertTextEquals("fresh")
         ui.runOnIdle { previews[0].resume("old") };ui.onNodeWithTag("file-preview").assertTextEquals("fresh")
         ui.runOnIdle { model.closePreview();model.reload() };ui.waitUntil { lists.size==3 }
@@ -280,7 +280,7 @@ class FileBrowserTest {
         ui.runOnIdle { model.choose(other) };loaded();assertTrue(model.selected.isEmpty());assertFalse(model.selecting)
         assertEquals("root",model.location.directoryId)
         ui.runOnIdle { model.choose(FileEndpoint.APP) };loaded();assertEquals("sub",model.location.directoryId)
-        ui.onNodeWithText("返回").performClick();loaded();assertEquals("",model.location.directoryId)
-        ui.onNodeWithText("返回").performClick();assertFalse(model.visible)
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();loaded();assertEquals("",model.location.directoryId)
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();assertFalse(model.visible)
     }
 }

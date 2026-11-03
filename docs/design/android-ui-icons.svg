@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <title>Ghosterm Android UI icons — shared by HTML and native vector resources</title>
+  <symbol id="arrow" viewBox="0 0 24 24">
+    <path d="m9 5 7 7-7 7" />
+  </symbol>
+  <symbol id="back" viewBox="0 0 24 24">
+    <path d="m14 5-7 7 7 7M7 12h14" />
+  </symbol>
+  <symbol id="battery" viewBox="0 0 24 24">
+    <path d="M3 6h16v12H3zM21 10v4M6 9h10v6H6z" />
+  </symbol>
+  <symbol id="check" viewBox="0 0 24 24">
+    <path d="m5 12 4 4L19 6" />
+  </symbol>
+  <symbol id="clock" viewBox="0 0 24 24">
+    <path d="M21 12a9 9 0 1 0-18 0 9 9 0 0 0 18 0M12 7v5l3 2" />
+  </symbol>
+  <symbol id="close" viewBox="0 0 24 24">
+    <path d="m6 6 12 12M6 18 18 6" />
+  </symbol>
+  <symbol id="cloud" viewBox="0 0 24 24">
+    <path d="M7 18a5 5 0 1 1 0-10 6 6 0 0 1 12-1 5 5 0 0 1 0 11z" />
+  </symbol>
+  <symbol id="copy" viewBox="0 0 24 24">
+    <path d="M8 8h13v13H8zM16 8V3H3v13h5" />
+  </symbol>
+  <symbol id="disconnect" viewBox="0 0 24 24">
+    <path d="M8 3v5m8-5v5M5 8h14v3a7 7 0 0 1-14 0zM12 18v4" />
+  </symbol>
+  <symbol id="down" viewBox="0 0 24 24">
+    <path d="m6 9 6 6 6-6" />
+  </symbol>
+  <symbol id="download" viewBox="0 0 24 24">
+    <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" />
+  </symbol>
+  <symbol id="edit" viewBox="0 0 24 24">
+    <path d="m4 16 12-12 4 4L8 20H4zM13 7l4 4" />
+  </symbol>
+  <symbol id="file" viewBox="0 0 24 24">
+    <path d="M5 2h9l5 5v15H5zM14 2v6h5M8 12h8M8 16h6" />
+  </symbol>
+  <symbol id="folder" viewBox="0 0 24 24">
+    <path d="M3 6h7l2 2h9v12H3zM3 6V4h7l2 2" />
+  </symbol>
+  <symbol id="grid" viewBox="0 0 24 24">
+    <path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z" />
+  </symbol>
+  <symbol id="home" viewBox="0 0 24 24">
+    <path d="m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9" />
+  </symbol>
+  <symbol id="key" viewBox="0 0 24 24">
+    <path d="M8 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10M13 12h9m-3 0v3m-3-3v2" />
+  </symbol>
+  <symbol id="keyboard" viewBox="0 0 24 24">
+    <path d="M2 5h20v14H2zM5 9h1m3 0h1m3 0h1m3 0h1M5 12h1m3 0h1m3 0h1m3 0h1M7 16h10" />
+  </symbol>
+  <symbol id="more" viewBox="0 0 24 24">
+    <path d="M12 5h.01M12 12h.01M12 19h.01" />
+  </symbol>
+  <symbol id="paste" viewBox="0 0 24 24">
+    <path d="M9 4H5v18h14V4h-4M9 2h6v4H9zM8 11h8M8 15h6" />
+  </symbol>
+  <symbol id="pause" viewBox="0 0 24 24">
+    <path d="M8 5v14M16 5v14" />
+  </symbol>
+  <symbol id="play" viewBox="0 0 24 24">
+    <path d="m7 4 13 8-13 8z" />
+  </symbol>
+  <symbol id="plus" viewBox="0 0 24 24">
+    <path d="M12 5v14M5 12h14" />
+  </symbol>
+  <symbol id="search" viewBox="0 0 24 24">
+    <path d="M20 20l-5-5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0" />
+  </symbol>
+  <symbol id="server" viewBox="0 0 24 24">
+    <path d="M4 3h16v7H4zM4 14h16v7H4zM7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6" />
+  </symbol>
+  <symbol id="settings" viewBox="0 0 24 24">
+    <path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z" />
+  </symbol>
+  <symbol id="shield" viewBox="0 0 24 24">
+    <path d="m12 2 9 4v7c0 5-9 9-9 9s-9-4-9-9V6zM8 12l3 3 5-6" />
+  </symbol>
+  <symbol id="signal" viewBox="0 0 24 24">
+    <path d="M4 20v-4M9 20V11M14 20V7M19 20V3" />
+  </symbol>
+  <symbol id="terminal" viewBox="0 0 24 24">
+    <path d="m4 6 6 6-6 6m9 0h7" />
+  </symbol>
+  <symbol id="upload" viewBox="0 0 24 24">
+    <path d="M12 15V3m-5 5 5-5 5 5M4 16v5h16v-5" />
+  </symbol>
+  <symbol id="wifi" viewBox="0 0 24 24">
+    <path d="M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M9 16a5 5 0 0 1 6 0M12 20h.01" />
+  </symbol>
+</svg>

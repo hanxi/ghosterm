@@ -215,7 +215,7 @@ class FileJournalProductTest {
         assertEquals(before,runBlocking { journal.load().single { it.intent.id==old.id } })
         ui.onNodeWithTag("file-task-origin").performScrollTo().performClick()
         ui.onNodeWithText("原记录已保留，不受重新发起的结果影响。").assertExists()
-        ui.onNodeWithText("返回任务").performClick()
+        ui.onNode(hasText("返回任务") or hasContentDescription("返回任务")).performClick()
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick();waitDone(task)
         assertEquals(FileCopyState.COMPLETE,task.result!!.state)
         assertEquals("persistent UI bytes",File(home,"target/a.txt").readText())
@@ -226,7 +226,7 @@ class FileJournalProductTest {
         ui.waitUntil(10000) { !reopened.journalLoading }
         ui.onNodeWithTag("file-history-origin").performScrollTo().performClick()
         ui.onNodeWithText("原任务记录已清除；这条任务保留了原任务的关联。").assertExists()
-        ui.onNodeWithText("返回任务").performClick()
+        ui.onNode(hasText("返回任务") or hasContentDescription("返回任务")).performClick()
         assertEquals("persistent UI bytes",File(home,"target/a.txt").readText())
     }
     @Test fun uncertainHistoryRequiresUncheckedSelectionAndFreshConflictConfirmation() {

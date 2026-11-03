@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import com.hanxi.ghosterm.data.ConfigRepository
 import com.hanxi.ghosterm.data.FileTaskConnections
@@ -102,7 +103,13 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
             settings.state.collect { terminalControls = it.committed.terminalControls() }
         }
         viewModelScope.launch {
-            val styles = settings?.state?.map { it.committed.terminalStyle() }?.distinctUntilChanged()
+            val styles = settings?.state?.map { state ->
+                try {
+                    withContext(Dispatchers.IO) { com.hanxi.ghosterm.terminal.TerminalFonts.prepare(application,state.committed.fontFamily.id) }
+                    state.committed.terminalStyle()
+                } catch(cancelled:CancellationException) { throw cancelled }
+                catch(failure:Exception) { reportError("终端字体无法载入：${failure.message ?: "未知原因"}，请在设置中重新选择。");null }
+            }?.filterNotNull()?.distinctUntilChanged()
                 ?: flowOf(AppPreferences().terminalStyle())
             combine(styles, surfaceTargets) { style, targets -> style to targets }
                 .collect { (style, targets) ->

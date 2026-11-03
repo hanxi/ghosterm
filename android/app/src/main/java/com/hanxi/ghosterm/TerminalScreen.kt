@@ -68,7 +68,7 @@ fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
     }
     Scaffold(topBar = {
         if (!compact)
-        TopAppBar(title = {
+        GhostermTopBar(title = {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("terminal-sessions")
                 .semantics { contentDescription = "切换会话，当前 ${session.title}，${model.sessions.size} 个会话" }
                 .clickable(role = Role.Button) { terminal?.hideKeyboard(); list = true },
@@ -84,15 +84,15 @@ fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
             }
         }, navigationIcon = {
             IconButton(onClick = back, modifier = Modifier.testTag("terminal-back")) {
-                Icon(painterResource(R.drawable.ic_terminal_back), contentDescription = "返回")
+                GhostermIcon(UiIcon.Back,"返回")
             }
         }, actions = {
             IconButton(onClick = { terminal?.hideKeyboard(); openFiles() }, modifier = Modifier.testTag("terminal-files")) {
-                Icon(painterResource(R.drawable.ic_terminal_folder), contentDescription = "当前会话的文件")
+                GhostermIcon(UiIcon.Folder,"当前会话的文件")
             }
             Box {
                 IconButton(onClick = { menuCompact = false; menu = true }, modifier = Modifier.testTag("terminal-menu")) {
-                    Icon(painterResource(R.drawable.ic_terminal_more), contentDescription = "更多")
+                    GhostermIcon(UiIcon.More,"更多")
                 }
                 actions()
             }
@@ -145,7 +145,7 @@ fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
             if (controls.autoKeyboard) terminal?.requestAutomaticKeyboard()
         }
     }
-    if (list) ModalBottomSheet(onDismissRequest = { list = false },
+    if (list) ModalBottomSheet(dragHandle={ GhostermSheetHandle() },onDismissRequest = { list = false },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text("会话", style = MaterialTheme.typography.titleLarge)

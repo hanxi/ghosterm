@@ -37,6 +37,7 @@ data class TerminalFrame(
     val revision: Long, val cols: Int, val rows: Int, val background: Int, val foreground: Int,
     val cursorX: Int, val cursorY: Int, val cursorVisible: Boolean, val cursorBlink: Boolean,
     val cursorStyle: Int, val cells: List<TerminalCell>,
+    val cursorColor: Int = foreground,
 ) {
     val hasBlinkingText: Boolean = cells.any { it.width != 0 && it.flags and 128 != 0 && it.flags and 8 == 0 }
     fun line(row: Int): String = cells.subList(row * cols, (row + 1) * cols)
@@ -85,10 +86,10 @@ data class TerminalFrame(
     companion object {
         /** Private native snapshot format. Never used as a PTY output channel. */
         fun decode(data: IntArray): TerminalFrame {
-            require(data.size >= 12 && data[2] == 1) { "终端画面格式无效" }
+            require(data.size >= 13 && data[2] == 2) { "终端画面格式无效" }
             val cols = data[3]; val rows = data[4]
             require(cols in 1..256 && rows in 1..256)
-            var offset = 12
+            var offset = 13
             val cells = ArrayList<TerminalCell>(cols * rows)
             repeat(cols * rows) {
                 require(offset + 5 <= data.size)
@@ -100,7 +101,7 @@ data class TerminalFrame(
             }
             require(offset == data.size)
             return TerminalFrame((data[0].toLong() and 0xffffffffL) or (data[1].toLong() shl 32),
-                cols, rows, data[5], data[6], data[7], data[8], data[9] != 0, data[10] != 0, data[11], cells)
+                cols, rows, data[5], data[6], data[7], data[8], data[9] != 0, data[10] != 0, data[11], cells,data[12])
         }
     }
 }

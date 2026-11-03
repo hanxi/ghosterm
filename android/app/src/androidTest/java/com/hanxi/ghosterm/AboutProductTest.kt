@@ -19,7 +19,7 @@ class AboutProductTest {
         InstrumentationRegistry.getArguments().getString("aboutExpectedCommit")?.let { assertEquals(it, expected.commit) }
         InstrumentationRegistry.getArguments().getString("aboutExpectedState")?.let { assertEquals(it, expected.sourceState) }
         assertNotNull("Fixture: this repository build must have a commit", expected.commit)
-        ui.onNodeWithText("设置").performClick()
+        ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
         ui.onNodeWithText("关于 Ghosterm").performScrollTo().performClick()
         ui.waitUntil(10_000) { ui.runOnIdle { model().build != null } }
         ui.onNodeWithTag("about-version").assertTextEquals("版本 ${BuildConfig.VERSION_NAME}")
@@ -31,7 +31,10 @@ class AboutProductTest {
         ui.onNodeWithText("libghostty-vt ${runtime.terminal}").assertIsDisplayed()
         val documents = mapOf(AboutLicense.GHOSTERM to "Ghosterm-MIT.txt", AboutLicense.GHOSTTY to "Ghostty-MIT.txt",
             AboutLicense.LIBSSH2 to "libssh2-1.11.1.txt", AboutLicense.OPENSSL to "openssl-3.5.4.txt",
-            AboutLicense.NERD_FONTS to "NerdFontsSymbols.txt")
+            AboutLicense.NERD_FONTS to "NerdFontsSymbols.txt",
+            AboutLicense.JETBRAINS_MONO to "JetBrainsMono-OFL.txt",
+            AboutLicense.SOURCE_CODE_PRO to "SourceCodePro-OFL.txt",
+            AboutLicense.TERMINAL_THEMES to "TerminalThemes-MIT.txt")
         AboutLicense.entries.forEach { license ->
             val tag = "about-license-${license.name}"
             ui.onNodeWithTag(tag).performScrollTo().assertHasClickAction().performClick()
@@ -41,7 +44,7 @@ class AboutProductTest {
             assertEquals(license, ui.runOnIdle { model().selected })
             ui.activityRule.scenario.recreate()
             ui.onNodeWithTag("about-license-document").assertTextEquals(bundled)
-            ui.onNodeWithText("返回").performClick()
+            ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
             assertNull(ui.runOnIdle { model().selected })
             ui.onNodeWithTag("about-version").performScrollTo().assertIsDisplayed()
         }
@@ -49,7 +52,7 @@ class AboutProductTest {
         ui.onNodeWithTag("about-source").performScrollTo().assertHasClickAction()
         ui.onNodeWithText("检查更新").assertDoesNotExist()
         ui.onNodeWithText("安装更新").assertDoesNotExist()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         assertEquals(Page.SETTINGS, ui.runOnIdle { ViewModelProvider(ui.activity)[HostsViewModel::class.java].page })
     }
 }

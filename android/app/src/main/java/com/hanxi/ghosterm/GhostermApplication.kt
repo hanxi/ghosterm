@@ -9,7 +9,7 @@ import com.hanxi.ghosterm.data.PreferencesRepository
 class GhostermApplication : Application() {
     val externalPreviews by lazy { ExternalPreviewCache(this,File(cacheDir,"external-previews"), "$packageName.previews") }
     val fileWork by lazy { FileWorkRuntime(this) }
-    val settings by lazy { AppSettings(PreferencesRepository(PreferencesFile(File(filesDir, "preferences")))) }
+    val settings by lazy { AppSettings(PreferencesRepository(PreferencesFile(File(filesDir, "preferences"))),fontApplication=this) }
     override fun onCreate() {
         super.onCreate()
         externalPreviews.sweepLater()

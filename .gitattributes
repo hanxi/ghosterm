@@ -1,0 +1,4 @@
+# Preserve the original bytes of upstream licenses checked by FONTS.json / THEMES.json.
+terminal/android/src/main/assets/licenses/JetBrainsMono-OFL.txt -text whitespace=-blank-at-eol,cr-at-eol
+terminal/android/src/main/assets/licenses/SourceCodePro-OFL.txt -text whitespace=-blank-at-eol,cr-at-eol
+terminal/android/src/main/assets/licenses/TerminalThemes-MIT.txt -text whitespace=-blank-at-eol,cr-at-eol

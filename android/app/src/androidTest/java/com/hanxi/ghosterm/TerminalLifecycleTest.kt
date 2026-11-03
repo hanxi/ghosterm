@@ -168,7 +168,7 @@ class TerminalLifecycleTest {
         ui.runOnIdle { assertSame(original,model().active);assertTrue(original.state.connected) }
         ui.activityRule.scenario.recreate()
         ui.onNodeWithTag("file-location").assertIsDisplayed()
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.waitUntil { ui.runOnIdle { find(ui.activity.window.decorView)?.currentFrame!=null } }
         ui.runOnIdle {
             assertSame(original,model().active);assertEquals(1,model().sessions.size)

@@ -38,7 +38,10 @@ data class AboutBuild(val commit: String?, val sourceState: String) {
 enum class AboutLicense(val title: String, val fileName: String) {
     GHOSTERM("Ghosterm · MIT", "Ghosterm-MIT.txt"), GHOSTTY("Ghostty · MIT", "Ghostty-MIT.txt"),
     LIBSSH2("libssh2 · BSD", "libssh2-1.11.1.txt"), OPENSSL("OpenSSL · Apache 2.0", "openssl-3.5.4.txt"),
-    NERD_FONTS("Nerd Fonts · 字体与图标许可", "NerdFontsSymbols.txt")
+    NERD_FONTS("Nerd Fonts · 字体与图标许可", "NerdFontsSymbols.txt"),
+    JETBRAINS_MONO("JetBrains Mono · OFL", "JetBrainsMono-OFL.txt"),
+    SOURCE_CODE_PRO("Source Code Pro · OFL", "SourceCodePro-OFL.txt"),
+    TERMINAL_THEMES("iTerm2 Color Schemes · MIT", "TerminalThemes-MIT.txt")
 }
 sealed interface AboutDocument {
     data object Loading : AboutDocument

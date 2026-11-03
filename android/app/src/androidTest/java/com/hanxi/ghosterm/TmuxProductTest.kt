@@ -72,7 +72,7 @@ class TmuxProductTest {
         ui.waitUntil(15000) { sessions().connecting==null }
     }
     private fun open() {
-        ui.onNodeWithTag("host-background-"+alias).performScrollTo().performClick()
+        ui.onNodeWithTag("host-menu:"+alias).performScrollTo().performClick();ui.onNodeWithTag("host-background-"+alias).performScrollTo().performClick()
         login()
         ui.waitUntil(15000) { !model().busy && model().selectedPath!=null && model().server!=null }
         assertNull(model().error)

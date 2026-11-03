@@ -67,7 +67,7 @@ open class NativeTerminalSession internal constructor(private var handle: Long, 
     }
     override suspend fun clearLocal() { action(8) }
     override suspend fun configure(appearance: TerminalAppearance) {
-        val colors = listOf(appearance.background, appearance.foreground).flatMap { rgb ->
+        val colors = (listOf(appearance.background,appearance.foreground,appearance.cursorColor)+appearance.palette).flatMap { rgb ->
             listOf((rgb ushr 16).toByte(), (rgb ushr 8).toByte(), rgb.toByte())
         }.toByteArray()
         action(12, appearance.cursor.code, if (appearance.blink) 1 else 0, colors)

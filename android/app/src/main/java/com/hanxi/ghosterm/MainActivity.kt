@@ -21,6 +21,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,6 +40,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -123,10 +130,8 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
     SideEffect { activity?.let { WindowCompat.getInsetsController(it.window, it.window.decorView).apply {
         isAppearanceLightStatusBars = !dark; isAppearanceLightNavigationBars = !dark
     } } }
-    val colors = if (dark) darkColorScheme(primary = Color(0xFFBACDFF),
-        background = Color(0xFF171B20), surface = Color(0xFF21262D), onSurface = Color(0xFFE4E8EE))
-        else lightColorScheme(primary = Color(0xFF425F96), background = Color(0xFFF7F8FC), surface = Color(0xFFF7F8FC))
-    MaterialTheme(colorScheme = colors) {
+    val colors = ghostermColors(dark)
+    GhostermTheme(dark) {
         SSHConnectionDialog(sessions)
         SSHConnectionDialog(fileTasks.authentication,fileTasks.presenterId,
             visible=fileTasks.presentsAuthentication && sessions.connecting==null)
@@ -142,13 +147,16 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                 title = { Text("密钥未能记住") }, text = { Text(owner.identityMemoryWarning.orEmpty()) },
                 confirmButton = { TextButton(onClick = owner::dismissIdentityMemoryWarning) { Text("知道了") } })
         }
-        if(fileTasks.visible) { FileTasksScreen(fileTasks);return@MaterialTheme }
+        if(fileTasks.visible) { FileTasksScreen(fileTasks);return@GhostermTheme }
         if (files.visible) {
+            val fileDockVisible=fileTasks.hasDockSummary
             FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error,
                 onPaste={ if(!files.awaitingRemote) files.clipboard?.let { snapshot ->
                     fileTasks.startUserTask(snapshot,files.location,
                         if(files.location.endpoint.remote!=null) files.location.directoryId else files.crumbs.joinToString(" / ") { it.label })
-                } },showTasks=fileTasks::show,taskBar={ FileTaskDock(fileTasks) }) { alias ->
+                } },showTasks=fileTasks::show,taskBar={ if(fileDockVisible) FileTaskDock(fileTasks) },summaryVisible=fileDockVisible,
+                onHosts={ files.leave();sessions.home() },
+                onTerminal=if(sessions.active==null) null else { { files.leave();sessions.active?.let { sessions.show(it.id) } } }) { alias ->
                 val host=hosts.snapshot?.hosts?.firstOrNull { it.alias==alias }
                 if(host==null) files.remoteConnectionError("主机配置已不可用，请返回首页重新载入")
                 else {
@@ -158,25 +166,26 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     }
                 }
             }
-            return@MaterialTheme
+            return@GhostermTheme
         }
         if (sessions.visible && sessions.active != null) {
             TerminalScreen(sessions, ::openTerminalFiles)
-            return@MaterialTheme
+            return@GhostermTheme
         }
-        if(tmux.visible) { TmuxScreen(tmux);return@MaterialTheme }
+        if(tmux.visible) { TmuxScreen(tmux);return@GhostermTheme }
         Scaffold(topBar = {
-            TopAppBar(title = { Text(when (hosts.page) {
-                Page.HOSTS -> "主机"; Page.SETTINGS -> settings.section?.title ?: "设置"; Page.ABOUT -> about.selected?.title ?: "关于 Ghosterm"
+            GhostermTopBar(title = { Text(when (hosts.page) {
+                Page.HOSTS -> "Ghosterm"; Page.SETTINGS -> settings.section?.title ?: "设置"; Page.ABOUT -> about.selected?.title ?: "关于 Ghosterm"
                 Page.IDENTITIES -> "SSH 身份"
                 Page.KNOWN_HOSTS -> "主机验证记录"
                 Page.CONFIG -> "SSH 配置"; Page.EDIT_HOST -> if (hosts.draft?.original == null) "添加主机" else "编辑主机"
             }, maxLines = 1, overflow = TextOverflow.Ellipsis) }, navigationIcon = {
-                if (hosts.page != Page.HOSTS) TextButton(onClick = { back() }, enabled = !hosts.busy) { Text("返回") }
+                if (hosts.page != Page.HOSTS) GhostermIconButton(UiIcon.Back,"返回",onClick={ back() },enabled=!hosts.busy)
             }, actions = {
                 when (hosts.page) {
                     Page.HOSTS -> {
-                        TextButton(onClick = hosts::settings, enabled = !hosts.busy) { Text("设置") }
+                        if(fileTasks.history.isNotEmpty()) GhostermIconButton(UiIcon.Clock,"文件任务历史",onClick=fileTasks::show,modifier=Modifier.testTag("home-task-history"))
+                        GhostermIconButton(UiIcon.Settings,"设置",onClick=hosts::settings,enabled=!hosts.busy)
                     }
                     Page.EDIT_HOST -> TextButton(onClick = { focus.clearFocus(); keyboard?.hide(); hosts.saveHost() }, enabled = !hosts.busy && hosts.canEditDraft) { Text("保存") }
                     Page.CONFIG -> TextButton(onClick = hosts::saveConfig, enabled = !hosts.busy && hosts.snapshot != null && hosts.dirty) { Text("保存") }
@@ -185,12 +194,24 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
             })
         }, bottomBar = {
             if (hosts.page == Page.HOSTS) Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
-                FileTaskDock(fileTasks)
+                if(fileTasks.hasDockSummary) FileTaskDock(fileTasks)
+                val resume=sessions.active ?: sessions.sessions.lastOrNull()
+                if(resume!=null) Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp)
+                    .clip(MaterialTheme.shapes.medium).background(colors.surfaceContainerHigh).border(1.dp,colors.outline,MaterialTheme.shapes.medium)
+                    .clickable { sessions.show(resume.id) }.padding(12.dp),verticalAlignment=Alignment.CenterVertically,
+                    horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                    GhostermGlyph(UiIcon.Terminal)
+                    Column(Modifier.weight(1f)) {
+                        Text("继续 ${resume.title}",style=MaterialTheme.typography.titleSmall)
+                        Text("${sessions.sessions.size} 个活动会话 · 点击返回终端",style=MaterialTheme.typography.bodySmall)
+                    }
+                    GhostermIcon(UiIcon.Arrow)
+                }
                 Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f)) { Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.none { it.remoteAlias == null }) "本地终端" else "继续本地终端") }
+                    TextButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f).heightIn(min=56.dp)) { GhostermIcon(UiIcon.Terminal);Spacer(Modifier.width(8.dp));Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.none { it.remoteAlias == null }) "本地终端" else "继续本地终端") }
                     Button(onClick = { hosts.edit() }, enabled = !hosts.busy && hosts.snapshot != null,
-                        modifier = Modifier.weight(1f)) { Text("添加主机") }
+                        modifier = Modifier.weight(1f).heightIn(min=56.dp),shape=MaterialTheme.shapes.medium) { GhostermIcon(UiIcon.Plus);Spacer(Modifier.width(8.dp));Text("添加主机") }
                 }
             }
         }) { padding ->
@@ -214,7 +235,9 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     }
                 }
                 when (hosts.page) {
-                    Page.HOSTS -> HostsPage(hosts, sessions, files::enterLocal) { host ->
+                    Page.HOSTS -> HostsPage(hosts, sessions, files::enterLocal, browse={ host ->
+                        hosts.checkConnection(host) { target -> files.enter();connectFileTarget(target,files.beginRemoteConnection()) }
+                    }) { host ->
                         hosts.checkConnection(host) { request -> tmux.open(request,sessions) }
                     }
                     Page.EDIT_HOST -> EditHostPage(hosts)
@@ -283,33 +306,76 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFiles: () -> Unit,
-    background: (com.hanxi.ghosterm.domain.Host)->Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (sessions.selectingNewRemote) item {
-            Row { Text("选择要新建会话的主机",Modifier.weight(1f)); TextButton(onClick = sessions::cancelNewRemote) { Text("取消") } }
+    browse: (com.hanxi.ghosterm.domain.Host)->Unit, background: (com.hanxi.ghosterm.domain.Host)->Unit) {
+    val hosts=model.filteredHosts
+    LazyColumn(Modifier.fillMaxSize().testTag("host-list"),contentPadding=PaddingValues(horizontal=GhostermDimensions.page,vertical=6.dp)) {
+        if(sessions.selectingNewRemote) item {
+            Row { Text("选择要新建会话的主机",Modifier.weight(1f));TextButton(onClick=sessions::cancelNewRemote) { Text("取消") } }
         }
-        item { OutlinedButton(onClick=openFiles,modifier=Modifier.fillMaxWidth()) { Text("本机文件") } }
-        item { OutlinedTextField(model.query, { model.query = it }, modifier = Modifier.fillMaxWidth(),
-            label = { Text("搜索名称或地址") }, singleLine = true) }
-        if (model.snapshot != null && model.filteredHosts.isEmpty()) item {
-            Column(Modifier.fillMaxWidth().padding(vertical = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (model.query.isBlank()) "还没有主机" else "没有匹配的主机", style = MaterialTheme.typography.titleLarge)
-                Text(if (model.query.isBlank()) "添加主机，或在设置中导入 SSH 配置。" else "试试其他名称或地址。", Modifier.padding(top = 12.dp))
+        item {
+            Text("YOUR CONNECTIONS",Modifier.padding(top=6.dp,bottom=9.dp),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
+            Text("主机",style=MaterialTheme.typography.headlineLarge)
+            Text("选择一台主机，开始工作。",Modifier.padding(top=8.dp,bottom=16.dp),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            GhostermSearchField(model.query,{ model.query=it },Modifier.testTag("hosts-search"))
+            TextButton(onClick=openFiles,modifier=Modifier.heightIn(min=48.dp)) {
+                GhostermIcon(UiIcon.Folder);Spacer(Modifier.width(8.dp));Text("本机文件")
+            }
+            GhostermSectionLabel("已保存的主机","${model.snapshot?.hosts?.size ?: 0} 台")
+        }
+        if(model.snapshot!=null && hosts.isEmpty()) item {
+            Column(Modifier.fillMaxWidth().padding(vertical=40.dp),horizontalAlignment=Alignment.CenterHorizontally,
+                verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                GhostermIcon(if(model.query.isBlank()) UiIcon.Server else UiIcon.Search,modifier=Modifier.size(40.dp),tint=MaterialTheme.colorScheme.primary)
+                Text(if(model.query.isBlank()) "添加你的第一台主机" else "没有找到主机",style=MaterialTheme.typography.headlineSmall)
+                Text(if(model.query.isBlank()) "保存地址，下次点按即可连接。\n也可以直接打开本地终端。" else "换一个名称或地址试试。",
+                    style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        items(model.filteredHosts, key = { it.alias }) { host ->
-            Card(Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { model.checkConnection(host, sessions::connect) }, enabled = !model.busy, modifier = Modifier.weight(1f)) {
-                        Column(Modifier.fillMaxWidth()) { Text(host.alias, style = MaterialTheme.typography.titleMedium); Text(host.address, style = MaterialTheme.typography.bodySmall) }
+        items(hosts,key={ it.alias }) { host ->
+            var menu by remember(host.alias) { mutableStateOf(false) }
+            val index=hosts.indexOf(host)
+            val shape=RoundedCornerShape(topStart=if(index==0) 18.dp else 0.dp,topEnd=if(index==0) 18.dp else 0.dp,
+                bottomStart=if(index==hosts.lastIndex) 18.dp else 0.dp,bottomEnd=if(index==hosts.lastIndex) 18.dp else 0.dp)
+            val connections=sessions.sessions.toList().filter { it.remoteAlias==host.alias }
+            val connected=connections.any { it.state.connected }
+            val status=if(connected) "会话已连接" else connections.lastOrNull()?.state?.description ?: "未连接"
+            Row(Modifier.fillMaxWidth().clip(shape).background(MaterialTheme.colorScheme.surface).heightIn(min=92.dp)
+                .padding(start=12.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically) {
+                Row(Modifier.weight(1f).heightIn(min=80.dp).clickable(enabled=!model.busy) { model.checkConnection(host,sessions::connect) }
+                    .padding(vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                    GhostermGlyph(UiIcon.Server,Modifier.size(40.dp))
+                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                        Text(host.alias,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+                        Text(host.address,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+                            Box(Modifier.size(5.dp).background(if(connected) Color(0xFF5E9B62) else MaterialTheme.colorScheme.onSurfaceVariant,RoundedCornerShape(5.dp)))
+                            Text(status,style=MaterialTheme.typography.labelSmall,color=if(connected) Color(0xFF5E9B62) else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
-                    TextButton(onClick = { model.edit(host) }, enabled = !model.busy) { Text("编辑") }
                 }
-                TextButton(onClick={ background(host) },enabled=!model.busy && sessions.connecting==null,
-                    modifier=Modifier.padding(horizontal=12.dp).testTag("host-background-"+host.alias)) { Text("后台会话") }
+                Box {
+                    GhostermIconButton(UiIcon.More,"主机操作",onClick={ menu=true },modifier=Modifier.testTag("host-menu:${host.alias}"))
+                    if(menu) ModalBottomSheet(dragHandle={ GhostermSheetHandle() },onDismissRequest={ menu=false },sheetState=rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
+                        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(GhostermDimensions.page)) {
+                            Text(host.alias,style=MaterialTheme.typography.titleLarge)
+                            Text(host.address,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            GhostermActionRow("连接终端","普通 SSH 会话",UiIcon.Terminal,enabled=!model.busy) { menu=false;model.checkConnection(host,sessions::connect) }
+                            GhostermActionRow("浏览文件","进入此主机的 SFTP 目录",UiIcon.Folder,enabled=!model.busy) { menu=false;browse(host) }
+                            GhostermActionRow("编辑主机","修改名称、地址与身份",UiIcon.Edit,enabled=!model.busy) { menu=false;model.edit(host) }
+                            GhostermActionRow("后台会话","显式选择 tmux",UiIcon.Clock,modifier=Modifier.testTag("host-background-"+host.alias),
+                                enabled=!model.busy && sessions.connecting==null) { menu=false;background(host) }
+                        }
+                    }
+                }
             }
+            if(index<hosts.lastIndex) GhostermDivider()
+        }
+        if(hosts.isNotEmpty()) item {
+            Text("点按连接 · 右侧菜单可编辑或浏览文件",Modifier.padding(top=14.dp,bottom=12.dp),
+                style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -364,7 +430,7 @@ private fun EditHostPage(model: HostsViewModel) {
                     }.semantics { contentDescription = "${field.label}使用继承值" },
                     verticalAlignment = Alignment.CenterVertically) {
                     Text("使用继承值", Modifier.weight(1f))
-                    Switch(checked = inherits, onCheckedChange = null, enabled = enabled)
+                    GhostermSwitch(inherits,enabled)
                 }
             }
         }

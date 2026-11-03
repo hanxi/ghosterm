@@ -26,9 +26,19 @@ def main():
         raise RuntimeError('Set ANDROID_SERIAL to the preference test device')
     adb = ['adb', '-s', serial]
     helper.require(helper.run([*adb, 'get-state']))
+    # Match test-android-ssh.py: locked API 29 fixtures require system-setting
+    # privilege. Do not mistake a rejected fixture command for a product failure.
+    permissions = helper.run([*adb,'shell','dumpsys','package','com.android.shell']).stdout
+    night_locked = 'mNightModeLocked=true' in helper.run([*adb,'shell','dumpsys','uimode']).stdout
+    privileged_night = night_locked and 'android.permission.MODIFY_DAY_NIGHT_MODE: granted=true' not in permissions
+    if privileged_night:
+        result = helper.run([*adb,'shell','su','0','id'])
+        helper.require(result)
+        if 'uid=0' not in result.stdout:
+            raise RuntimeError('Locked night-mode fixture requires privileged system setting access')
     base = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm'
     model, owner, screen = (base / name for name in ('SettingsViewModel.kt', 'AppSettings.kt', 'SettingsContent.kt'))
-    originals = {path: path.read_bytes() for path in (model, owner, screen, base / "MainActivity.kt", base / "FilesScreen.kt")}
+    originals = {path: path.read_bytes() for path in (model, owner, screen, base / "MainActivity.kt", base / "FilesScreen.kt", base / "GhostermTheme.kt")}
     modes = {path: path.stat().st_mode & 0o777 for path in originals}
     if any(MARK.encode() in data for data in originals.values()):
         raise RuntimeError('Residual settings mutation')
@@ -59,23 +69,23 @@ def main():
     case('older-success-keeps-newest-error', control+'queueRejectionKeepsTheNewestDraftAfterOlderWritesFinish', model,
         'if (ticket == attempt) error = null', 'error = null')
     case('one-tap-one-toggle', page+'singleSwitchTapPersistsAndRecreationKeepsCategoryAndValue', screen,
-        'onValueChange = change', 'onValueChange = { change(!it) }')
+        'onValueChange=change','onValueChange={ change(!it) }')
     case('choice-saves', page+'choicesSliderAndConfirmedResetUseProductionStorage', screen,
-        'model.edit(option.edit); choice = null', 'choice = null')
+        'model.edit(PreferenceEdit.Theme(it));choice=null', 'choice=null')
     case('confirmed-reset-action', page+'choicesSliderAndConfirmedResetUseProductionStorage', screen,
         'TextButton(model::confirmReset,', 'TextButton(model::cancelReset,')
     case('all-five-categories', page+'fiveCategoriesHaveOneBackPathAndSecurityRoutes', screen,
-        'SettingsSection.entries.forEach { section ->', 'SettingsSection.entries.filterNot { it == SettingsSection.SECURITY }.forEach { section ->')
+        'GhostermActionRow(section.title,summary,icon,Modifier.testTag("settings-section-${section.name}")) { model.open(section) }','if(section!=SettingsSection.SECURITY) GhostermActionRow(section.title,summary,icon,Modifier.testTag("settings-section-${section.name}")) { model.open(section) }')
     case('unknown-page-disabled', page+'damagedDocumentIsVisibleAndDisabledUntilReloadSucceeds', screen,
         'val enabled = model.canEdit', 'val enabled = true')
     case('slider-measured-touch-size', page+'categoryRowsRemainReachableInsideTheScreen', screen,
         'thumb = { Box(Modifier.height(48.dp)', 'thumb = { Box(Modifier.height(24.dp)')
     app = base / 'MainActivity.kt'
     appearance = page+'applicationAppearanceChangesWindowPixelsBarsAndSurvivesRecreation'
-    case('actual-dark-background', appearance, app,
-        'background = Color(0xFF171B20)', 'background = Color(0xFF000000)')
-    case('actual-light-background', appearance, app,
-        'background = Color(0xFFF7F8FC)', 'background = Color(0xFFFFFFFF)')
+    case('actual-dark-background', appearance, base/'GhostermTheme.kt',
+        'val bg=if(dark) Color(0xFF171B20)','val bg=if(dark) Color(0xFF000000)')
+    case('actual-light-background', appearance, base/'GhostermTheme.kt',
+        'else Color(0xFFF7F8FC)','else Color(0xFFFFFFFF)')
     case('status-icons-follow-appearance', appearance, app,
         'isAppearanceLightStatusBars = !dark', 'isAppearanceLightStatusBars = true')
     case('navigation-icons-follow-appearance', appearance, app,
@@ -128,7 +138,8 @@ def main():
             run_logged(label + '-install-' + Path(name).name, [*adb, 'install', '-r', '-t', ROOT / 'android/app/build/outputs' / name])
 
     def test(label, target, green):
-        output = run_logged(label, [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
+        output = run_logged(label, [*adb, 'shell', 'am', 'instrument', '-w', '-r',
+            *(['-e','privilegedNightMode','true'] if privileged_night else []), '-e', 'class',
             'com.hanxi.ghosterm.' + target, 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
         if green:
             good = 'OK (1 test)' in output and 'FAILURES' not in output

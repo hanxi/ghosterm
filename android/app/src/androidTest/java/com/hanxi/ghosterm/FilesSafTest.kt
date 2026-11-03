@@ -159,7 +159,7 @@ class FilesSafTest {
         ui.activityRule.scenario.recreate()
         ui.onNodeWithTag("file-preview").assertTextEquals("tree child 中文\n")
         assertSame(owner,main { model() })
-        ui.onNodeWithText("返回").performClick();ui.onNodeWithText("返回").performClick();await { !model().loading }
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();await { !model().loading }
         revoke();main { model().reload() };await { !model().loading }
         ui.onNodeWithTag("file-list-error").assertTextContains("授权已失效",substring=true)
         ui.onNodeWithTag("file-list-empty").assertDoesNotExist()
@@ -184,7 +184,7 @@ class FilesSafTest {
         ui.activityRule.scenario.recreate();assertSame(snapshot,main { model().clipboard })
         ui.onNodeWithTag("file-location").performClick();ui.onNodeWithText("应用文件").performClick();await { !model().loading }
         revoke()
-        ui.onNodeWithTag("file-clipboard-path").assertTextContains("Folder",substring=true)
+        ui.onNodeWithTag("file-clipboard-path",useUnmergedTree=true).assertTextContains("Folder",substring=true)
         ui.onNodeWithText("查看清单").performClick()
         ui.onNodeWithTag("file-clipboard-item:${snapshot.items.single().id}").assertIsDisplayed()
         ui.onNodeWithText("返回文件").performClick()
@@ -226,20 +226,20 @@ class FilesSafTest {
     @Test fun providerErrorsEmptyUnknownSizeAndCancelledStreamRemainDistinct() {
         grant()
         ui.onNodeWithTag("file-entry:Empty").performClick();await { !model().loading }
-        ui.onNodeWithTag("file-list-empty").assertIsDisplayed();ui.onNodeWithText("返回").performClick();await { !model().loading }
+        ui.onNodeWithTag("file-list-empty").assertIsDisplayed();ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();await { !model().loading }
         ui.onNodeWithTag("file-entry:Denied").performClick();await { !model().loading }
         ui.onNodeWithTag("file-list-error").assertExists();ui.onNodeWithTag("file-list-empty").assertDoesNotExist()
-        ui.onNodeWithText("返回").performClick();await { !model().loading }
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();await { !model().loading }
         ui.onNodeWithTag("file-list").performScrollToNode(hasTestTag("file-entry:unknown-large.txt"))
         ui.onNodeWithTag("file-entry:unknown-large.txt").performClick();await { model().preview?.error!=null }
         ui.onNodeWithTag("file-preview-error").assertTextContains("256 KiB",substring=true)
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         ui.onNodeWithTag("file-list").performScrollToNode(hasTestTag("file-entry:slow.txt"))
         ui.onNodeWithTag("file-entry:slow.txt").performClick();await { model().preview!=null }
         assertNull(main { model().preview?.text })
         val tree=main { model().location.endpoint.treeUri!! }
         val naturalEnds=awaitStreams(tree,1)
-        ui.onNodeWithText("返回").performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         assertEquals("stream closed by cancellation, not natural completion",naturalEnds,awaitStreams(tree,0))
         ui.onNodeWithTag("file-list").performScrollToNode(hasTestTag("file-entry:notes.txt"))
         ui.onNodeWithTag("file-entry:notes.txt").performClick()

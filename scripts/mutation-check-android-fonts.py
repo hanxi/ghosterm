@@ -32,7 +32,7 @@ def main():
     if any(MARK.encode() in data for data in originals.values()):
         raise RuntimeError('Residual settings mutation')
     cases = [('renderer-font', 'NerdFontTest#installedRendererCoversNerdSymbolsAndRetainsSystemTextFallback', (
-        (manifest, 'typeface = TerminalFonts.typeface(context)', 'typeface = Typeface.MONOSPACE', 1),
+        (manifest, 'paint.typeface=face;metricsPaint.typeface=face', 'paint.typeface=Typeface.MONOSPACE;metricsPaint.typeface=face', 1),
     ))]
     selected = args.selected or list(range(1, len(cases) + 1))
     if len(selected) != len(set(selected)) or any(n < 1 or n > len(cases) for n in selected):

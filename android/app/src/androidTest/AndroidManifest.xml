@@ -1,5 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <provider android:name="com.hanxi.ghosterm.FontDocumentsProvider" android:authorities="com.hanxi.ghosterm.test.fonts"
+            android:exported="true" android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+        </provider>
+        <provider android:name="com.hanxi.ghosterm.FontFixtureControlProvider" android:authorities="com.hanxi.ghosterm.test.fontcontrol" android:exported="true" />
         <provider android:name="com.hanxi.ghosterm.PreviewAssetsProvider"
             android:authorities="com.hanxi.ghosterm.test.previewassets"
             android:exported="true" android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
