@@ -140,15 +140,15 @@ final class AboutWindowTests: XCTestCase {
         for _ in 0..<16 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
 
         let buttons = hostedButtonFrames(in: root)
-        XCTAssertEqual(buttons.count, 1,
+        XCTAssertEqual(buttons.count, 2,
                        "关于窗口的「更新」那行必须**恰好**一颗按钮：0 颗＝入口整个没画出来，"
-                       + "2 颗多半是加了「安装」——dev 包 ad-hoc 未公证，点了也装不上。"
+                       + "整张窗口另有一颗字体许可按钮；除此之外不允许增加「安装」。"
                        + "（这一眼取在「未检查」状态：真查出有新版时那一行会另挂「打开下载页」"
                        + "直链，那是允许的——不允许的是替用户动二进制。）实测 \(buttons)；视图树：\(viewTree(root))")
 
         let rings = hostedFrames(containing: "_FocusRingView", in: root)
             + nativeButtonFrames(in: root)
-        XCTAssertEqual(rings.count, 1, "按钮的焦点圈数目和按钮对不上：\(rings)")
+        XCTAssertEqual(rings.count, 2, "按钮的焦点圈数目和按钮对不上：\(rings)")
         for ring in rings {
             XCTAssertGreaterThan(ring.width, 0)
             XCTAssertGreaterThan(ring.height, 0)
@@ -176,6 +176,17 @@ final class AboutWindowTests: XCTestCase {
         }
         walk(root)
         return names.joined(separator: "; ")
+    }
+
+    @MainActor
+    func testUpdateRowAloneKeepsExactlyOneActionAlongsideTheNewLicenseEntry() throws {
+        let host = NSHostingView(rootView: UpdateRow(updater: UpdateChecker()).padding(20).frame(width: 600))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 180), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        TestWindows.presentOffscreen(window)
+        defer { window.orderOut(nil) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertEqual(hostedButtonFrames(in: host).count, 1, "Only the manual update action belongs in the update row")
     }
 
     private func hostedButtonFrames(in root: NSView) -> [CGRect] {

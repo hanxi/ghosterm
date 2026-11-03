@@ -358,3 +358,8 @@ bash scripts/package-mac.sh --version 0.1.0 --sign "Developer ID Application: �
 参考：[Termini](https://github.com/hudsonkit/Termini)（MIT）、[iGhostVT](https://github.com/owngoal-dev/iGhostVT)（MIT）、[VVTerm](https://github.com/vivy-company/vvterm)（GPL-3.0）。
 
 Android 的持久来源摘要与显式历史内容比较在 [§9.111](../docs/reference/android-implementation.md#android-content-verification) 单独记录。摘要由 Android 匿名快照读取及任务账本保存，不是新 Core ABI；本端旧 job/TransferManager、历史观察和候选归属不会因此获得 SHA256 参考、历史内容核验或删除授权。本段只核对接线边界，不新增 macOS 行为验收。
+
+
+## macOS 终端字体（2026-11-04）
+
+设置 → 外观 → 终端字体支持搜索本机等宽字体、实际字形预览与应用；默认复用引擎 JetBrains Mono，新增内置 Source Code Pro 四种字形。字体只注册到当前进程，沿用现有配置保存/重载，不替换终端会话；来源、限制及分轮验收见 [macOS 终端字体](../docs/reference/macos-terminal-fonts.md)。

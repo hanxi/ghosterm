@@ -2,3 +2,4 @@
 terminal/android/src/main/assets/licenses/JetBrainsMono-OFL.txt -text whitespace=-blank-at-eol,cr-at-eol
 terminal/android/src/main/assets/licenses/SourceCodePro-OFL.txt -text whitespace=-blank-at-eol,cr-at-eol
 terminal/android/src/main/assets/licenses/TerminalThemes-MIT.txt -text whitespace=-blank-at-eol,cr-at-eol
+apple/GhostermApp/Sources/GhostermAppModel/Resources/Fonts/SourceCodePro-OFL.txt -text whitespace=-blank-at-eol,cr-at-eol

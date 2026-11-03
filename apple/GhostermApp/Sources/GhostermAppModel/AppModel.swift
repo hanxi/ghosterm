@@ -30,6 +30,7 @@ public final class AppModel: ObservableObject {
     /// 终端配置加载失败的原因（nil = 正常）。UI 必须显示它——用户改了
     /// 字体却看到默认大小，比看到一条错误难查得多。
     @Published public private(set) var terminalConfigError: String?
+    @Published public private(set) var terminalFontError: String?
 
     public let terminalApp: TerminalApp?
 
@@ -178,6 +179,8 @@ public final class AppModel: ObservableObject {
         // **用户配置**重载进去。不要让 shared 直接吃 configPath——
         // 单例已存在时那个参数会被忽略，于是「用户配的字体没生效」这种
         // 问题会以最难看懂的形式出现。
+        try? TerminalFonts.prepare()
+        self.terminalFontError = TerminalFonts.issue
         self.terminalConfigError = nil
         do {
             let app = try TerminalApp.shared()
@@ -504,6 +507,21 @@ public final class AppModel: ObservableObject {
     }
 
     // MARK: - 设置（终端配置 + 应用偏好）
+
+    public var terminalFontSelection: TerminalFontSelection {
+        TerminalFontSelection(config: terminalConfigText)
+    }
+
+    public func selectTerminalFont(family: String?) throws {
+        guard !terminalFontSelection.external else {
+            throw SettingsStoreError.invalid("字体由附加配置文件管理，请在配置文件页修改")
+        }
+        guard terminalApp != nil else {
+            throw SettingsStoreError.invalid(terminalConfigError ?? "终端引擎不可用")
+        }
+        if let family { try TerminalFonts.validate(family: family) }
+        try replaceTerminalConfig(TerminalFontSelection.replacing(in: terminalConfigText, family: family))
+    }
 
     /// 保存终端设置并**应用到已有终端面**。
     ///

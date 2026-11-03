@@ -74,8 +74,8 @@ struct SettingsView: View {
         var height: CGFloat {
             switch self {
             case .general: return 320
-            case .appearance: return 560
-            case .keyboard: return 565
+            case .appearance: return 580
+            case .keyboard: return 640
             case .configuration: return 445
             }
         }
@@ -376,6 +376,8 @@ private struct AppearancePane: View {
                 SettingsNote("新开的终端用这个字号；已经开着的标签页保持它当时的字号。")
             }
 
+            SettingsRow("终端字体") { TerminalFontControl(model: model) }
+
             SettingsRow("界面") {
                 HStack(spacing: DS.Padding.m) {
                     ValueText(text: InterfaceTextSize.percent(step: interfaceStep))
@@ -596,6 +598,7 @@ private struct KeyboardPane: View {
                          + "现在只做得到把键拦在菜单这一层。")
                 .padding(.top, DS.Padding.s)
         }
+        .font(DS.Font.body)
     }
 }
 

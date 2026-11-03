@@ -58,6 +58,7 @@ struct AboutContentView: View {
 /// 图标 + 名称 + 版本，下面接许可）。
 struct AboutPane: View {
     @StateObject private var updater = UpdateChecker()
+    @State private var fontLicensePresented = false
 
     var body: some View {
         VStack(spacing: DS.Padding.l) {
@@ -108,6 +109,17 @@ struct AboutPane: View {
                          + "源码与许可全文：https://github.com/hanxi/ghosterm")
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
+            Button("Source Code Pro 字体许可…") { fontLicensePresented = true }
+                .sheet(isPresented: $fontLicensePresented) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Source Code Pro · SIL OFL 1.1").font(.headline)
+                        ScrollView {
+                            Text((try? TerminalFonts.licenseText()) ?? "无法读取随包字体许可，请检查安装包。")
+                                .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        HStack { Spacer(); Button("关闭") { fontLicensePresented = false }.keyboardShortcut(.cancelAction) }
+                    }.padding(20).frame(width: 560, height: 400)
+                }
         }
     }
 }

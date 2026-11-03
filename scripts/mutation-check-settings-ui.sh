@@ -310,7 +310,7 @@ echo "== U11：外观页定高不收（回 640 → 底部空一大截） =="
 python3 - "$SETTINGS" <<'PYU11'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "            case .appearance: return 560"
+old = "            case .appearance: return 580"
 new = "            case .appearance: return 640 /* GT_MUTATION_MARK：定高不对表 */"
 assert old in s, "U11 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
@@ -322,7 +322,7 @@ echo "== U12：键盘页定高装不下内容（回 420 → 底部藏滚动里�
 python3 - "$SETTINGS" <<'PYU12'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "            case .keyboard: return 565"
+old = "            case .keyboard: return 640"
 new = "            case .keyboard: return 420 /* GT_MUTATION_MARK：定高不对表 */"
 assert old in s, "U12 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))

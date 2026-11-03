@@ -23,6 +23,10 @@ Nerd Fonts 工具本身为 MIT；字体合并的图标集还包含 CC BY 4.0、A
 
 Android 另内置未修改的 **JetBrains Mono Regular** 与 **Source Code Pro Regular**，均按 SIL Open Font License 1.1 分发；固定来源、版本及摘要见 `terminal/android/FONTS.json`。完整许可随包位于 `licenses/JetBrainsMono-OFL.txt`、`licenses/SourceCodePro-OFL.txt`，可从关于页面查看。内置 Ghostty/iTerm2 配色库保留其 MIT 版权与许可，来源收据见 `terminal/android/THEMES.json`，随包声明为 `licenses/TerminalThemes-MIT.txt`。用户导入字体仅作为其应用私有副本，不成为项目随包字体。
 
+## macOS 终端字体
+
+macOS 复用 full libghostty 自带的默认 JetBrains Mono；新增 Source Code Pro 四种常用字形按 SIL OFL 1.1 分发，固定来源与 SHA256 记录在 `apple/GhostermApp/Sources/GhostermAppModel/Resources/Fonts/manifest.json`，完整许可随同字体资源 bundle 打包，可在关于窗口查看。只在当前进程注册字体，不写入系统字体目录。本机已安装字体仅被读取使用，不成为应用随包字体。实现和实际验收范围见 [macOS 终端字体](../reference/macos-terminal-fonts.md)。
+
 ## GPL 组件的红线（iSH / Termux，均未随包）
 
 MIT 不豁免**第三方 GPL 组件自身的**许可义务——它们按什么许可分发，义务就

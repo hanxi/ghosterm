@@ -41,6 +41,7 @@ let package = Package(
                 .product(name: "GhostermTerminal", package: "GhostermTerminal"),
             ],
             path: "Sources/GhostermAppModel",
+            resources: [.copy("Resources/Fonts")],
             linkerSettings: [
                 .unsafeFlags(["-L", coreBuild, "-lghosterm_core",
                               "-L", ssh2Lib, "-lssh2"]),

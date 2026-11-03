@@ -529,6 +529,11 @@ final class SettingsUITests: XCTestCase {
                 return XCTFail("\(pane.rawValue) 拿不到位图缓存")
             }
             host.cacheDisplay(in: host.bounds, to: rep)
+            var reviewRoot = URL(fileURLWithPath: #filePath)
+            for _ in 0..<5 { reviewRoot.deleteLastPathComponent() }
+            let review = reviewRoot.appendingPathComponent("tmp/macos-fonts")
+            try FileManager.default.createDirectory(at: review, withIntermediateDirectories: true)
+            try rep.representation(using: .png, properties: [:])?.write(to: review.appendingPathComponent("settings-\(pane.rawValue).png"))
             let scale = CGFloat(rep.pixelsWide) / host.bounds.width
             var lastRow = -1
             if let data = rep.bitmapData {

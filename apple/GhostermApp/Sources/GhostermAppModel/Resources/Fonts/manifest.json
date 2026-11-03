@@ -1,0 +1,31 @@
+{
+  "family": "Source Code Pro",
+  "postscript": "SourceCodePro-Regular",
+  "file": "SourceCodePro-Regular.ttf",
+  "sha256": "74bd80d3e42a08517cd7e1108ba3d86f2da29ac0f3065be95e0357956ab9db37",
+  "license": "SourceCodePro-OFL.txt",
+  "license_sha256": "7c940e28a5388e9bba866cf0e408edda45fe0899ba98665b8f6ab31dc5e4b8ff",
+  "source": "https://github.com/adobe-fonts/source-code-pro/tree/803b7e23ec97ae58b6232ea76519a76d428ba268",
+  "faces": [
+    {
+      "file": "SourceCodePro-Regular.ttf",
+      "postscript": "SourceCodePro-Regular",
+      "sha256": "74bd80d3e42a08517cd7e1108ba3d86f2da29ac0f3065be95e0357956ab9db37"
+    },
+    {
+      "file": "SourceCodePro-Bold.ttf",
+      "postscript": "SourceCodePro-Bold",
+      "sha256": "b2095e0d657e6d28dc32444a9dacabab0c9241d0bf39d96371756cc9bdbc3a5f"
+    },
+    {
+      "file": "SourceCodePro-It.ttf",
+      "postscript": "SourceCodePro-It",
+      "sha256": "9c9e0f4d016210a3c5bdfba5262637c5b26ddff4ccc382ebbc781de5961d0042"
+    },
+    {
+      "file": "SourceCodePro-BoldIt.ttf",
+      "postscript": "SourceCodePro-BoldIt",
+      "sha256": "1b49d9304012bf8db9e5dd4104183d5c122c445d0570a2259125f71977595b90"
+    }
+  ]
+}

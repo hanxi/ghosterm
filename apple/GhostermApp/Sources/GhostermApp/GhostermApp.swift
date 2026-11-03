@@ -34,6 +34,18 @@ enum GhostermUI {
     static func smokeMode(_ args: [String]) -> Bool {
         guard args.count >= 2 else { return false }
         switch args[1] {
+        case "--font-check":
+            do {
+                try TerminalFonts.prepare()
+                let directory = try TerminalFonts.resourceDirectory()
+                let report = ["font": "Source Code Pro", "scope": "process", "resources": directory.path]
+                let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
+                print(String(decoding: data, as: UTF8.self))
+                exit(0)
+            } catch {
+                fputs("字体校验失败：\(error)\n", stderr)
+                exit(1)
+            }
         case "--local":
             LocalSmoke.run(executable: args.count >= 3 ? args[2] : nil)
         case "--ssh-smoke" where args.count >= 4:
@@ -98,6 +110,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.messageText = "终端配置无效"
             alert.informativeText = err + "\n\n（已改用引擎默认配置；"
                 + "修好 \(model.settings.terminalConfigPath) 后重启即可。）"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "好")
+            alert.runModal()
+        }
+        if let err = model.terminalFontError {
+            let alert = NSAlert()
+            alert.messageText = "内置字体无法载入"
+            alert.informativeText = err + "\n\n可继续使用引擎默认字体或本机字体。请重新安装完整应用以使用内置字体。"
             alert.alertStyle = .warning
             alert.addButton(withTitle: "好")
             alert.runModal()

@@ -100,5 +100,6 @@ public enum AboutInfo {
         Entry(name: "libghostty (Ghostty)", detail: "MIT · 终端引擎（含本地补丁）"),
         Entry(name: "libssh2", detail: "BSD-3-Clause · SSH / SFTP"),
         Entry(name: "OpenSSL", detail: "Apache-2.0 · SSH 加密后端"),
+        Entry(name: "Source Code Pro", detail: "SIL OFL 1.1 · 内置等宽字体"),
     ]
 }
