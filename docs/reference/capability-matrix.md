@@ -1,10 +1,10 @@
 # 能力矩阵
 
-**当前 Android 发行（2026-11-03，`976a7b5`）**：终端点按按 VT 鼠标模式发送，可切换已开启鼠标的 tmux 窗口；未开启鼠标时点按打开键盘，长按仍选文本。SSH 传递实际像素尺寸，读取失败显示底层错误详情；频繁断流的手机根因仍待定位。既有密钥记忆、SAF、Kitty 动画与 Nerd Fonts 保留。见 [本次实现与验证](android-implementation.md#9181-安卓鼠标点击ssh-像素尺寸与读取错误详情2026-11-03)。
+**当前 Android 发行（2026-11-03，`f39cb6d`）**：已确认 EOF 后的负读取码不再误报为读取失败，真正断流仍显示错误；SSH 退出码未获证明时保持未知。保留 VT 鼠标点击、SSH 像素尺寸、成功密钥记忆、SAF、Kitty 动画与 Nerd Fonts。手机频繁断流是否全部同因仍未确定。见 [本次修正](android-implementation.md#9185-已确认-eof-与负读取码的分类修正2026-11-03) 与 [实际发行](android-implementation.md#9187-eof-分类修正的实际-androidmacos-dev-发行2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,255 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41556541717](https://github.com/hanxi/ghosterm/actions/runs/41556541717) 成功，实际附件已下载核验。macOS 保持 `945f68c` / build 96 / min macOS 15.0 / ad-hoc / 未公证（[CI 41553371055](https://github.com/hanxi/ghosterm/actions/runs/41553371055)）；ZIP、DMG 与清单摘要一致，macOS 五份附件 ID/尺寸/摘要未变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,235 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查通过。[Android CI 41560404916](https://github.com/hanxi/ghosterm/actions/runs/41560404916) 与 [macOS CI 41560405120](https://github.com/hanxi/ghosterm/actions/runs/41560405120) 均成功，实际八份附件已下载核验。macOS 同源 `f39cb6d` / build 97 / min macOS 15.0 / ad-hoc / 未公证，ZIP/DMG 与两端各自清单一致。
 
-**完整回归**：API 29 / arm64 / 4 KiB 页的 `976a7b5` / clean 默认完整 **941 项通过**；API 36 / arm64 / 16 KiB 页的 `945f68c` / clean 默认完整 **941 项通过**。两份产品源码相同，滚动测试等待条件不同，来源收据分别记账。原 API 29 一次失败及修正验证保留于 [§9.182](android-implementation.md#9182-两端-941-项结果与滚动测试等待竞态修正2026-11-03)，修正后完整结果见 [§9.186](android-implementation.md#9186-滚动测试修正后的-api-29-完整-941-项2026-11-03)。debug 完整回归与正式包、真机矩阵分别记账；新的 EOF 分类修正已合入，CI 与完整复验另记（§9.185）。
+**完整回归**：本次 `f39cb6d` 两端 clean 默认 941 项仍在执行，不能借旧结果记为本轮全绿。最近已完成为：API 29 / arm64 / 4 KiB 页的 `976a7b5` / clean 默认完整 **941 项通过**；API 36 / arm64 / 16 KiB 页的 `945f68c` / clean 默认完整 **941 项通过**。此前两份产品源码相同，滚动测试等待条件不同，来源收据分别记账。原 API 29 一次失败及修正验证保留于 [§9.182](android-implementation.md#9182-两端-941-项结果与滚动测试等待竞态修正2026-11-03)，修正后完整结果见 [§9.186](android-implementation.md#9186-滚动测试修正后的-api-29-完整-941-项2026-11-03)。debug 完整回归与正式包、真机矩阵分别记账；新的 EOF 分类修正已发行，完整复验另记（§9.185）。
 
 **旧失败记录保留**：`174e754` 两端各 929 方法中具名失败 60 个（104 条含重复报错事件）；旧手动认证前提与 Application Context 夹具已修正，过程见 [§9.174](android-implementation.md#9174-成功密钥记忆后完整回归的测试夹具修正2026-11-03)。不把旧失败改记为通过。
 
@@ -35,7 +35,7 @@
 > 口径（铁律 #8）：**✅** 已实现且有闸门/实测证据 · **🟡** 已实现但只在某一档证据下成立
 > （必须写明哪档）· **⏳** 契约/占位在，无实现 · **❌** 未开始 · **⛔ WONTFIX** 不做并注明原因。
 >
-> 核对日期：**2026-11-02**。当前 Core 49 CTest / 94 ABI、Apple 90 引用/4 登记未用、JNI 56/38；受控删除见 §9.122，Android 历史清理及独立记录见 §9.123。接口/各端产品与证据范围分开；旧计数与失败保留在[实施记录](android-implementation.md#9-分阶段实施与依赖)，不借作本轮全量通过。
+> 历史核对：**2026-11-02**。当时 Core 49 CTest / 94 ABI、Apple 90 引用/4 登记未用、JNI 56/38；受控删除见 §9.122，Android 历史清理及独立记录见 §9.123。接口/各端产品与证据范围分开；旧计数与失败保留在[实施记录](android-implementation.md#9-分阶段实施与依赖)，不借作本轮全量通过。
 
 **文件首片边界**：A4 本机/SAF 只读浏览、UTF-8 预览与多选已通过 14 项定向、18 组变异和完整 214 项设备回归。此前草稿编译失败已修复；远端 SFTP 页面随后由 §9.52 接入，§9.60 已接复制来源清单，§9.70 已接粘贴任务，§9.71 已接进程共享，§9.72 已接 FIFO 队列，当前模拟器档已验，见 [§9.43](android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)。
 
@@ -74,6 +74,7 @@
 | 事件队列（低频、批量轮询） | 🟡 | `src/core.c` 为加锁的 256 项环形缓冲；`test_api` 与 SFTP job 的 PROGRESS / JOB_DONE 证据已存在。队列满会覆盖最旧事件，尚无 job 终态查询 ABI，不能保证过载时终态不丢；需按路线图补保留/查询保障 |
 | Transport 接缝（本地 PTY） | ✅ | `gt_transport_open_pty`（POSIX forkpty）；`pty_transport` 行为断言（真 forkpty，离线）：EOF 前不丢最后一批 / 退出码 / 字节往返 / 超时不折叠 EOF / winsize / resize / TERM / close(NULL) 安全 / 前台作业四态 / 内核 cwd / **写绝不无限等**（第 13 节：pty 输入队列满时写要有界返回且积压字节随后补送——旧实现的 `poll(-1)` 会钉死会话线程 → 关标签页时 `queue.sync` 把主线程也钉死＝整个 app 无响应）；变异 `mutation-check-transport` P1~P4 有牙。**Swift 端** `StopBoundedTests` 断言 `SessionController.stop()` 只取消且有界返回，并等待弱引用证明 I/O owner 真正释放（当前 stop 不再同步等待队列）（走生产链路 `sendText → onInput → 会话线程 write`，子进程 `stty -icanon -echo` 才会真触发 EAGAIN 而非 canonical 丢弃），对 P4 验过牙（变异体挂起超时 / 干净 0.7s 绿） |
 | Transport 接缝（SSH shell） | ✅ | `gt_transport_open_ssh_shell`（libssh2 pty-req+shell）；`ssh_e2e` 真 sshd 回显/resize；`b27c787` 修复零超时轮询（临时 nonblocking 后恢复会话设置），有真实远端屏障和五组 SSH 变异证据，见 §9.27；不扩大为所有通道打开/关闭均有界 |
+| SSH 已确认 EOF 与真正断流区分 | 🟡 | `f39cb6d` 已发行；Core 50 CTest / 94 ABI、三组 C 边界编译变异、真 sshd 97 项、API 29 / API 36 各 29 项及 macOS 原生构建已验。新版本两端完整 941 项尚在执行，真实手机频繁断流根因仍未全部确定；不增加自动重连，未知退出码保持未知，见 §9.185、§9.187 |
 | 普通 SSH shell 打开取消与总预算 | 🟡 | §9.41 新增 controlled API，Android native owner 已接原连接余额和取消；三个阶段取消/预算、明确拒绝/断线及请求隔离共 13 项定向、13 组变异通过。Swift 新绑定验真实 sshd 和三组变异，macOS 产品仍使用旧 opener，尚未接入其原认证 deadline/取消，见 [两端边界](../../apple/README.md#ssh-认证后的通道打开边界)及 [实施契约](android-implementation.md#认证后打开-shell-的实施契约) |
 | Transport：前台作业判定（关闭确认用） | ✅ | `gt_transport_child_state` **四态**（UNKNOWN/EXITED/IDLE/JOB）：POSIX 读内核 `tcgetpgrp(master) == shell 自己的进程组` 判「空闲提示符 vs 有作业」，SSH / ConPTY 报 `UNKNOWN`（**不猜**，铁律 #6）。`test_transport` 第 11 节（IDLE/JOB/EXITED/NULL→UNKNOWN）+ 变异 `mutation-check-transport` P1/P2 有牙。**前置修复**：本地 PTY 子进程曾拿不到控制终端（父进程抢跑 `setpgid` → 子进程 `setsid` 报 EPERM），已修 |
 | Transport：会话 cwd | 🟡 | **本地 PTY ✅**：`gt_transport_child_cwd` 内核查询（macOS `proc_pidinfo` / Linux `/proc/<pid>/cwd`），`test_transport` 第 12 节（继承 cwd + `cd` 后随之变）。**远端 cwd 未交付**：OSC 7 在我们钉的 embedded host-IO 下到不了宿主（无 `GHOSTTY_ACTION_PWD`），且 libghostty 要求 host `isLocal`——接线留为 seam，依赖上游支持 / roadmap R2 |

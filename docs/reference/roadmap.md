@@ -1,10 +1,10 @@
 # 路线图
 
-**当前 Android 发行（2026-11-03，`976a7b5`）**：终端点按按 VT 鼠标模式发送，可切换已开启鼠标的 tmux 窗口；未开启鼠标时点按打开键盘，长按仍选文本。SSH 传递实际像素尺寸，读取失败显示底层错误详情；频繁断流的手机根因仍待定位。既有密钥记忆、SAF、Kitty 动画与 Nerd Fonts 保留。见 [本次实现与验证](android-implementation.md#9181-安卓鼠标点击ssh-像素尺寸与读取错误详情2026-11-03)。
+**当前 Android 发行（2026-11-03，`f39cb6d`）**：已确认 EOF 后的负读取码不再误报为读取失败，真正断流仍显示错误；SSH 退出码未获证明时保持未知。保留 VT 鼠标点击、SSH 像素尺寸、成功密钥记忆、SAF、Kitty 动画与 Nerd Fonts。手机频繁断流是否全部同因仍未确定。见 [本次修正](android-implementation.md#9185-已确认-eof-与负读取码的分类修正2026-11-03) 与 [实际发行](android-implementation.md#9187-eof-分类修正的实际-androidmacos-dev-发行2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,255 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41556541717](https://github.com/hanxi/ghosterm/actions/runs/41556541717) 成功，实际附件已下载核验。macOS 保持 `945f68c` / build 96 / min macOS 15.0 / ad-hoc / 未公证（[CI 41553371055](https://github.com/hanxi/ghosterm/actions/runs/41553371055)）；ZIP、DMG 与清单摘要一致，macOS 五份附件 ID/尺寸/摘要未变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,235 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查通过。[Android CI 41560404916](https://github.com/hanxi/ghosterm/actions/runs/41560404916) 与 [macOS CI 41560405120](https://github.com/hanxi/ghosterm/actions/runs/41560405120) 均成功，实际八份附件已下载核验。macOS 同源 `f39cb6d` / build 97 / min macOS 15.0 / ad-hoc / 未公证，ZIP/DMG 与两端各自清单一致。
 
-**完整回归**：API 29 / arm64 / 4 KiB 页的 `976a7b5` / clean 默认完整 **941 项通过**；API 36 / arm64 / 16 KiB 页的 `945f68c` / clean 默认完整 **941 项通过**。两份产品源码相同，滚动测试等待条件不同，来源收据分别记账。原 API 29 一次失败及修正验证保留于 [§9.182](android-implementation.md#9182-两端-941-项结果与滚动测试等待竞态修正2026-11-03)，修正后完整结果见 [§9.186](android-implementation.md#9186-滚动测试修正后的-api-29-完整-941-项2026-11-03)。debug 完整回归与正式包、真机矩阵分别记账；新的 EOF 分类修正已合入，CI 与完整复验另记（§9.185）。
+**完整回归**：本次 `f39cb6d` 两端 clean 默认 941 项仍在执行，不能借旧结果记为本轮全绿。最近已完成为：API 29 / arm64 / 4 KiB 页的 `976a7b5` / clean 默认完整 **941 项通过**；API 36 / arm64 / 16 KiB 页的 `945f68c` / clean 默认完整 **941 项通过**。此前两份产品源码相同，滚动测试等待条件不同，来源收据分别记账。原 API 29 一次失败及修正验证保留于 [§9.182](android-implementation.md#9182-两端-941-项结果与滚动测试等待竞态修正2026-11-03)，修正后完整结果见 [§9.186](android-implementation.md#9186-滚动测试修正后的-api-29-完整-941-项2026-11-03)。debug 完整回归与正式包、真机矩阵分别记账；新的 EOF 分类修正已发行，完整复验另记（§9.185）。
 
 **旧失败记录保留**：`174e754` 两端各 929 方法中具名失败 60 个（104 条含重复报错事件）；旧手动认证前提与 Application Context 夹具已修正，过程见 [§9.174](android-implementation.md#9174-成功密钥记忆后完整回归的测试夹具修正2026-11-03)。不把旧失败改记为通过。
 
