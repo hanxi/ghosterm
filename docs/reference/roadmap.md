@@ -4,7 +4,7 @@
 
 [共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,251 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查通过。[Android CI 41566580012](https://github.com/hanxi/ghosterm/actions/runs/41566580012) 与 [macOS CI 41566579889](https://github.com/hanxi/ghosterm/actions/runs/41566579889) 均成功，实际八份附件已下载核验。macOS 同源 `ae164f1` / build 98 / min macOS 15.0 / ad-hoc / 未公证，ZIP/DMG 与各自清单一致。
 
-**完整回归**：`f39cb6d` / clean 的 API 36 / 16 KiB 页完整 **941 项通过**；API 29 / 4 KiB 页为 **940 成功、1 个会话查询并发异常、零跳过**，未记全绿。选择查询已改为不可变列表快照，新增并发回归、两组编译变异及两系统各 19 项通过，新的默认完整 942 项另记。结果与原失败见 [§9.188](android-implementation.md#9188-会话选择查询的并发快照修正候选2026-11-03)。实际签名包 EOF/真正断流/显式新连接运行验收见 [§9.189](android-implementation.md#9189-实际签名-f39-包的-eof真正断流与新建连接2026-11-03)，与 debug 全套及手机矩阵分别记账。
+**完整回归**：`ae164f1` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页均为默认完整 **942 项通过，零失败/错误/跳过**；917 份输入前后一致，具名发现/执行集合及实际安装包已核验，见 [§9.191](android-implementation.md#9191-会话快照修正后的双系统完整-942-项2026-11-03)。原 `f39cb6d` API 29 并发异常保留于 §9.188；实际签名包运行专项仍按 §9.189 的来源分别记账，完整 debug 套件不替代手机验收。
 
 **旧失败记录保留**：`174e754` 两端各 929 方法中具名失败 60 个（104 条含重复报错事件）；旧手动认证前提与 Application Context 夹具已修正，过程见 [§9.174](android-implementation.md#9174-成功密钥记忆后完整回归的测试夹具修正2026-11-03)。不把旧失败改记为通过。
 
