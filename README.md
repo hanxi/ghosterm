@@ -157,7 +157,7 @@ Android 已接主机首页、本地/SSH 终端、本机/SAF/远端文件浏览�
 | └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
 | 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留）。工作流有路径过滤/取消，不保证每个提交出包，见 [CI 触发范围](docs/how-to/dev-build.md#ci-是怎么串起来的) |
 | 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
-| Android | 🟡 A0/A1 当前模拟器档完成；主机、终端、文件浏览/复制任务和身份/信任管理已接，§9.71 已接进程共享任务，§9.72 已接 FIFO 队列。输入/性能、网络/预览收尾、跨远端命名空间、后台恢复、完整设置及发行矩阵仍待完成；见[实现进度](docs/reference/android-implementation.md#9-分阶段实施与依赖) |
+| Android | 🟡 A0/A1 当前模拟器档完成；主机、终端、文件浏览/复制任务和身份/信任管理已接，§9.71 已接进程共享任务，§9.72 已接 FIFO 队列。五类 16 项设置、后台传输、只读持久历史、摘要/归属核对与显式清理已接；不会自动恢复复制副作用。完整设备/网络/外部端点及发行矩阵仍待完成；见[实现进度](docs/reference/android-implementation.md#9-分阶段实施与依赖) |
 | iOS / 其余端 | ❌ 原生宿主未交付 |
 
 macOS／共享 PTY 已修复 SIGWINCH 通知，真实本地 shell→系统 ssh→远端 tmux 的窗口尺寸同步证据见[tmux 实施记录](docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。Bash/Zsh 鼠标残留清理脚本须显式安装到实际 shell 所在主机；真实休眠和用户远端未验，见[使用说明](docs/how-to/mouse-report-recovery.md)。各次 Android 测试数量保留在[实现记录](docs/reference/android-implementation.md#9-分阶段实施与依赖)，不与最新完整套件相加。

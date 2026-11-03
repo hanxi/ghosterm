@@ -113,7 +113,7 @@ def main():
                     'IdentitySettingsTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
     spec=importlib.util.spec_from_file_location('channels',ROOT/'scripts/lib/android-ssh-channels.py')
     channels=importlib.util.module_from_spec(spec);spec.loader.exec_module(channels)
-    channel_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_CHANNEL_MUTATE')=='1' or
+    channel_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_SSH_CHANNEL_MUTATE')=='1' or os.environ.get('ANDROID_MOUSE_MUTATE')=='1' or
                    'SSHChannelTest' in os.environ.get('ANDROID_SSH_TEST_CLASS','') or file_tests)
     spec=importlib.util.spec_from_file_location('queue_peer',ROOT/'scripts/lib/android-file-queue-peer.py')
     queue_peer=importlib.util.module_from_spec(spec);spec.loader.exec_module(queue_peer)
@@ -122,7 +122,7 @@ def main():
                  'RemoteFileTasksProductTest' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
     spec=importlib.util.spec_from_file_location('tmux_fixture',ROOT/'scripts/lib/android-tmux-fixture.py')
     tmux_fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(tmux_fixture)
-    tmux_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_TMUX_MUTATE')=='1' or
+    tmux_tests=(os.environ.get('ANDROID_SSH_ALL')=='1' or os.environ.get('ANDROID_TMUX_MUTATE')=='1' or os.environ.get('ANDROID_MOUSE_MUTATE')=='1' or
                 'Tmux' in os.environ.get('ANDROID_SSH_TEST_CLASS',''))
     with credentials.fixture(ROOT,work,key,credential_tests,identity_tests) as credential_data, channels.fixture(work,channel_tests) as channel_data, queue_peer.fixture(work,queue_tests) as queue_data, tmux_fixture.fixture(ROOT,work,tmux_tests,locale) as tmux_data:
         token=secrets.token_hex(32)
@@ -205,6 +205,10 @@ def main():
                         raise
                     print(f'EXECUTION: all {len(discovered_names)} discovered tests completed successfully',flush=True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_MOUSE_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('mouse_mutations',ROOT/'scripts/mutation-check-android-mouse.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_FILE_CONTENT_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('content_mutations',ROOT/'scripts/mutation-check-android-content.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

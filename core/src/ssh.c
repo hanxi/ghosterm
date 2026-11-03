@@ -22,6 +22,7 @@
 
 #include <stdio.h>
 #include <ctype.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1184,8 +1185,12 @@ int gt__ssh_shell_read(void *ch, uint8_t *buf, size_t cap, int timeout_ms) {
   if (n == LIBSSH2_ERROR_TIMEOUT || n == LIBSSH2_ERROR_EAGAIN)
     return GT_TRANSPORT_READ_TIMEOUT;
   char *msg = NULL;
-  libssh2_session_last_error(sh->sess, &msg, NULL, 0);
-  gt__set_error("ssh_shell read: %s", msg ? msg : "unknown");
+  int last = libssh2_session_last_error(sh->sess, &msg, NULL, 0);
+  /* Some libssh2 receive failures return a code without replacing its previous
+   * timeout text. Never label a reset using that stale timeout description. */
+  bool current = last == (int)n && msg && *msg;
+  gt__set_error("ssh_shell read: libssh2=%ld%s%s", (long)n,
+      current ? ": " : "", current ? msg : "");
   return GT_TRANSPORT_READ_ERROR;
 }
 
@@ -1217,9 +1222,12 @@ int gt__ssh_shell_resize(void *ch, uint16_t cols, uint16_t rows, uint32_t px_w,
                          uint32_t px_h) {
   ssh_shell_t *sh = ch;
   if (!sh) return GT_ERR_INVALID_ARG;
-  (void)px_w; (void)px_h;
-  if (libssh2_channel_request_pty_size(sh->chan, cols ? cols : 80,
-                                       rows ? rows : 24) != 0) {
+  if (px_w > INT_MAX || px_h > INT_MAX) {
+    gt__set_error("ssh_shell resize: pixel dimensions exceed libssh2 integer range");
+    return GT_ERR_UNSUPPORTED;
+  }
+  if (libssh2_channel_request_pty_size_ex(sh->chan, cols ? cols : 80,
+                                       rows ? rows : 24, (int)px_w, (int)px_h) != 0) {
     gt__set_error("ssh_shell resize 失败");
     return GT_ERR_IO;
   }

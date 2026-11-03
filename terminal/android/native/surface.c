@@ -13,6 +13,8 @@ struct gat_surface {
     GhosttyRenderStateRowCells cells;
     GhosttyKeyEncoder encoder;
     GhosttyKeyEvent key;
+    GhosttyMouseEncoder mouse_encoder;
+    GhosttyMouseEvent mouse;
     gat_write_fn write;
     void *context;
     bool write_ok;
@@ -40,6 +42,8 @@ gat_surface *gat_surface_new(gat_write_fn write, void *context, const char **err
     INIT(ghostty_render_state_row_cells_new(NULL, &s->cells), "无法创建 VT 单元格迭代器");
     INIT(ghostty_key_encoder_new(NULL, &s->encoder), "无法创建 VT 按键编码器");
     INIT(ghostty_key_event_new(NULL, &s->key), "无法创建 VT 按键事件");
+    INIT(ghostty_mouse_encoder_new(NULL, &s->mouse_encoder), "无法创建 VT 鼠标编码器");
+    INIT(ghostty_mouse_event_new(NULL, &s->mouse), "无法创建 VT 鼠标事件");
     GhosttyColorRgb background = {23, 27, 32}, foreground = {228, 232, 238};
     size_t scrollback = 8 * 1024 * 1024;
     size_t images = 16 * 1024 * 1024, graphics_buffer = 8 * 1024 * 1024;
@@ -58,6 +62,7 @@ gat_surface *gat_surface_new(gat_write_fn write, void *context, const char **err
 void gat_surface_free(gat_surface *s) {
     if (!s) return;
     ghostty_key_event_free(s->key); ghostty_key_encoder_free(s->encoder);
+    ghostty_mouse_event_free(s->mouse); ghostty_mouse_encoder_free(s->mouse_encoder);
     ghostty_render_state_row_cells_free(s->cells); ghostty_render_state_row_iterator_free(s->rows);
     gat_graphics_free(s->graphics);ghostty_render_state_free(s->render); ghostty_terminal_free(s->terminal); free(s);
 }
@@ -157,6 +162,32 @@ static bool read_paste(void *context, GhosttyString mime, GhosttyWriter writer) 
 int gat_surface_action(gat_surface *s, int kind, int x, int y,
         const uint8_t *bytes, size_t length, uint8_t **result, size_t *result_length) {
     *result = NULL; *result_length = 0;
+    if (kind == 13) {
+        if (length != 3 || bytes[0] < 1 || bytes[0] > 3 || x < 0 || y < 0 || bytes[2] > 3) return 2;
+        bool tracking = false;
+        if (ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_MOUSE_TRACKING, &tracking) != GHOSTTY_SUCCESS) return 2;
+        if (!tracking) return 1;
+        uint16_t cols = 0, rows = 0;
+        if (ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_COLS, &cols) != GHOSTTY_SUCCESS ||
+            ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_ROWS, &rows) != GHOSTTY_SUCCESS) return 2;
+        GhosttyMouseEncoderSize size = {.size = sizeof(size), .screen_width = (uint32_t)cols * s->cw,
+            .screen_height = (uint32_t)rows * s->ch, .cell_width = s->cw, .cell_height = s->ch};
+        ghostty_mouse_encoder_setopt_from_terminal(s->mouse_encoder, s->terminal);
+        ghostty_mouse_encoder_setopt(s->mouse_encoder, GHOSTTY_MOUSE_ENCODER_OPT_SIZE, &size);
+        ghostty_mouse_event_set_button(s->mouse, (GhosttyMouseButton)bytes[0]);
+        ghostty_mouse_event_set_mods(s->mouse, (GhosttyMods)(bytes[1] | ((uint16_t)bytes[2] << 8)));
+        ghostty_mouse_event_set_position(s->mouse, (GhosttyMousePosition){.x = (float)x, .y = (float)y});
+        /* One owner operation preserves press/release order and the geometry observed by the tap. */
+        for (int action = GHOSTTY_MOUSE_ACTION_PRESS; action <= GHOSTTY_MOUSE_ACTION_RELEASE; action++) {
+            bool pressed = action == GHOSTTY_MOUSE_ACTION_PRESS;
+            ghostty_mouse_encoder_setopt(s->mouse_encoder, GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED, &pressed);
+            ghostty_mouse_event_set_action(s->mouse, (GhosttyMouseAction)action);
+            char buffer[128]; size_t written = 0;
+            if (ghostty_mouse_encoder_encode(s->mouse_encoder, s->mouse, buffer, sizeof(buffer), &written) != GHOSTTY_SUCCESS ||
+                (written && !s->write(s->context, (const uint8_t *)buffer, written))) return 2;
+        }
+        return 0;
+    }
     if (kind == 12) {
         if (length != 6 || x < 0 || x > 2 || y < 0 || y > 1) return 2;
         GhosttyColorRgb background = {bytes[0], bytes[1], bytes[2]};

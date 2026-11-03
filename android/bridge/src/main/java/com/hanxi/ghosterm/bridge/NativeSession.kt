@@ -45,7 +45,7 @@ open class NativeTerminalSession internal constructor(private var handle: Long, 
                 }
                 if (response == null) delay(10)
             }
-            check(response[0].toInt() != 3) { "终端文本操作失败，选区可能已失效或超过 1 MiB" }
+            check(response[0].toInt() != 3) { if (kind == 13) "终端鼠标点击失败，连接可能已断开" else "终端文本操作失败，选区可能已失效或超过 1 MiB" }
             response
         } finally {
             synchronized(this) { if (handle == owner) NativeSession.endAction(owner, request) }
@@ -53,6 +53,10 @@ open class NativeTerminalSession internal constructor(private var handle: Long, 
     }
     override suspend fun paste(text: String, allowUnsafe: Boolean): Boolean =
         action(1, if (allowUnsafe) 1 else 0, bytes = text.toByteArray(Charsets.UTF_8))[0].toInt() == 1
+    override suspend fun click(x: Int, y: Int, modifiers: Int, button: Int): Boolean {
+        require(x >= 0 && y >= 0 && modifiers in 0..1023 && button in 1..3)
+        return action(13, x, y, byteArrayOf(button.toByte(), modifiers.toByte(), (modifiers ushr 8).toByte()))[0].toInt() == 1
+    }
     override suspend fun select(operation: SelectionOperation, x: Int, y: Int) {
         action(operation.code, x, y)
     }

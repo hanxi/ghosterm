@@ -181,7 +181,7 @@ static void *owner(void *context) {
                 pthread_mutex_unlock(&s->mutex);
                 uint8_t *result = NULL; size_t result_length = 0;
                 int status = 2;
-                if (current && (cmd->kind != 1 || s->transport))
+                if (current && ((cmd->kind != 1 && cmd->kind != 13) || s->transport))
                     status = gat_surface_action(s->surface, cmd->kind, cmd->key, cmd->mods, cmd->bytes, cmd->length, &result, &result_length);
                 pthread_mutex_lock(&s->mutex);
                 if (s->action_id == cmd->action_id) {
@@ -201,7 +201,11 @@ static void *owner(void *context) {
         if (s->transport) length = gt_transport_read(s->transport, output, sizeof(output), had_input ? 0 : 20);
         else { struct timespec delay = {.tv_nsec = 20 * 1000 * 1000}; nanosleep(&delay, NULL); }
         if (length > 0) { gat_surface_feed(s->surface, output, (size_t)length); s->revision++; }
-        else if (length == GT_TRANSPORT_READ_ERROR) { failed(s, "终端读取失败"); break; }
+        else if (length == GT_TRANSPORT_READ_ERROR) {
+            char reason[256];
+            snprintf(reason, sizeof(reason), "终端读取失败，当前连接已停止：%.170s", gt_last_error());
+            failed(s, reason); break;
+        }
         else if (length == GT_TRANSPORT_READ_EOF) {
             int code = 0; bool known = gt_transport_exited(s->transport, &code);
             /* Slave EOF can precede the waitpid thread. Allow bounded reaping;
@@ -427,7 +431,7 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_ownerCount(J
 JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_beginAction(JNIEnv *env, jobject self, jlong id,
         jint kind, jint x, jint y, jbyteArray bytes) {
     (void)self;
-    if (!bytes || kind < 1 || kind > 12) { fail(env, "文本操作无效"); return 0; }
+    if (!bytes || kind < 1 || kind > 13) { fail(env, "文本操作无效"); return 0; }
     jsize length = (*env)->GetArrayLength(env, bytes);
     if (length > INPUT_LIMIT) { fail(env, "文本超过 1 MiB 限制"); return 0; }
     session *s = borrow(env, id); if (!s) return 0;
@@ -437,7 +441,7 @@ JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_beginAction
     (*env)->GetByteArrayRegion(env, bytes, 0, length, (jbyte *)cmd->bytes);
     if ((*env)->ExceptionCheck(env)) { free(cmd); release(s); return 0; }
     pthread_mutex_lock(&s->mutex);
-    bool ready = !s->action_id && !atomic_load(&s->stop) && s->state != 3 && (kind != 1 || s->state <= 1);
+    bool ready = !s->action_id && !atomic_load(&s->stop) && s->state != 3 && ((kind != 1 && kind != 13) || s->state <= 1);
     bool room = s->queued_bytes + (size_t)length <= INPUT_LIMIT && s->queued_commands < COMMAND_LIMIT;
     uint64_t request = 0;
     if (ready && room) {

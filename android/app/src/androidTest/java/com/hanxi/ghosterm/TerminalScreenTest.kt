@@ -91,6 +91,67 @@ class TerminalScreenTest {
         throw AssertionError("等待 $value: ${text()}; state=${sessions.active?.connection?.state()}")
     }
 
+    private fun hideMouseTestKeyboard() {
+        ui.runOnIdle { terminal().hideKeyboard() }
+        ui.waitUntil(10_000) {
+            androidx.core.view.ViewCompat.getRootWindowInsets(terminal())
+                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == false
+        }
+    }
+    private fun clickMouseCell(column: Int, row: Int, long: Boolean = false) {
+        val coordinates = CoordinatesProvider { view ->
+            val t = view as TerminalView
+            val frame = t.currentFrame!!
+            val location = IntArray(2); t.getLocationOnScreen(location)
+            floatArrayOf(location[0] + (column + .5f) * (t.width / frame.cols),
+                location[1] + (row + .5f) * (t.height / frame.rows))
+        }
+        onView(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(TerminalView::class.java))
+            .perform(GeneralClickAction(if (long) Tap.LONG else Tap.SINGLE, coordinates, Press.FINGER))
+    }
+    @Test fun mouseModeTapSendsRealCoordinatesWithoutOpeningKeyboard() {
+        hideMouseTestKeyboard()
+        val packet = File(directory, "mouse-packet")
+        val expected = "\u001b[<0;3;4M\u001b[<0;3;4m".toByteArray()
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?1000h\\033[?1006hMOUSE_TAP_READY'; dd bs=1 count=${expected.size} of='${packet.path}' 2>/dev/null; printf '\\033[?1000l\\033[?1006l\\r\\nMOUSE_TAP_DONE'; stty sane\r")
+        waitFor("MOUSE_TAP_READY")
+        val owner = sessions.active!!.connection
+        clickMouseCell(2, 3)
+        waitFor("MOUSE_TAP_DONE")
+        assertArrayEquals(expected, packet.readBytes())
+        repeat(5) {
+            android.os.SystemClock.sleep(100)
+            ui.runOnIdle {
+                assertSame(owner, sessions.active!!.connection)
+                assertFalse(androidx.core.view.ViewCompat.getRootWindowInsets(terminal())!!
+                    .isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()))
+            }
+        }
+    }
+    @Test fun plainTerminalTapStillOpensKeyboardWithoutWritingMouseBytes() {
+        hideMouseTestKeyboard()
+        val packet = File(directory, "plain-tap-packet")
+        send("stty raw -echo; printf '\\033[2J\\033[HPLAIN_TAP_READY'; dd bs=1 count=1 of='${packet.path}' 2>/dev/null; printf '\\r\\nPLAIN_TAP_DONE'; stty sane\r")
+        waitFor("PLAIN_TAP_READY")
+        clickMouseCell(2, 3)
+        ui.waitUntil(10_000) { androidx.core.view.ViewCompat.getRootWindowInsets(terminal())
+            ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true }
+        ui.runOnIdle { assertTrue(terminal().commitText("Z")) }
+        waitFor("PLAIN_TAP_DONE")
+        assertArrayEquals(byteArrayOf(90), packet.readBytes())
+    }
+    @Test fun longPressInMouseModeSelectsTextWithoutSendingAClick() {
+        hideMouseTestKeyboard()
+        val packet = File(directory, "long-press-packet")
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?1000h\\033[?1006hSELECT_THIS word'; dd bs=1 count=1 of='${packet.path}' 2>/dev/null; printf '\\033[?1000l\\033[?1006l\\r\\nLONG_PRESS_DONE'; stty sane\r")
+        waitFor("SELECT_THIS")
+        clickMouseCell(2, 0, long = true)
+        ui.waitUntil(10_000) { terminal().currentFrame?.cells?.any { it.flags and 256 != 0 } == true }
+        ui.runOnIdle { assertTrue(terminal().dismissSelection()); assertTrue(terminal().commitText("Z")) }
+        waitFor("LONG_PRESS_DONE")
+        assertArrayEquals(byteArrayOf(90), packet.readBytes())
+    }
+
     @Test fun accessibilityReadsVisibleViewportOnQueryAndFocus() {
         send("printf '\\033[2J\\033[HA11Y_VISIBLE \\033[8mA11Y_HIDDEN\\033[0m\\r\\n'\r")
         waitFor("A11Y_VISIBLE")

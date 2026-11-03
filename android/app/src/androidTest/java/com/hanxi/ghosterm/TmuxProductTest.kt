@@ -101,6 +101,49 @@ class TmuxProductTest {
         ui.waitUntil(15000) { !model().busy && model().entries.none { it.name==name } }
         assertNull(model().error)
     }
+    @Test fun tappingRealTmuxStatusSwitchesWindowsWithoutOpeningTheKeyboard() {
+        open()
+        val name = "mouse-" + UUID.randomUUID().toString().take(8)
+        create(name)
+        ui.waitUntil(15000) { !model().busy && model().entries.any { it.name == name } }
+        showRow(name); ui.onNodeWithTag("tmux-attach-" + row(name).id).performClick(); login()
+        ui.waitUntil(15000) { sessions().visible && sessions().active?.state?.connected == true }
+        ui.waitUntil(10000) { terminal(ui.activity.window.decorView)?.currentFrame != null }
+        val owner = sessions().active!!.connection
+        ui.runOnIdle {
+            val t = terminal(ui.activity.window.decorView)!!
+            t.hideKeyboard()
+            t.commitText("tmux set-option -t '$name' mouse on; tmux set-option -t '$name' status-left ''; tmux set-option -t '$name' status-right ''; tmux set-option -t '$name' status-justify left; tmux set-window-option automatic-rename off; tmux rename-window ONE; tmux set-window-option window-status-format ' #W '; tmux set-window-option window-status-current-format '[#W]'; tmux new-window -d -t '$name' -n TWO \"printf '\\\\033[2J\\\\033[HTWO_BODY'; exec sleep 600\"; printf '\\033[2J\\033[HONE_BODY\\r\\n'\r")
+        }
+        ui.waitUntil(10000) {
+            terminal(ui.activity.window.decorView)?.let { t ->
+                t.currentFrame?.let { f -> f.line(0).contains("ONE_BODY") && f.line(f.rows - 1).contains("TWO") } == true &&
+                    androidx.core.view.ViewCompat.getRootWindowInsets(t)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == false
+            } == true
+        }
+        val coordinates = androidx.test.espresso.action.CoordinatesProvider { view ->
+            val t = view as TerminalView; val f = t.currentFrame!!
+            val column = f.line(f.rows - 1).indexOf("TWO")
+            assertTrue(column >= 0)
+            val location = IntArray(2); t.getLocationOnScreen(location)
+            floatArrayOf(location[0] + (column + 1.5f) * (t.width / f.cols), location[1] + (f.rows - .5f) * (t.height / f.rows))
+        }
+        androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(TerminalView::class.java))
+            .perform(androidx.test.espresso.action.GeneralClickAction(androidx.test.espresso.action.Tap.SINGLE, coordinates, androidx.test.espresso.action.Press.FINGER))
+        ui.waitUntil(10000) { terminal(ui.activity.window.decorView)?.currentFrame?.line(0)?.contains("TWO_BODY") == true }
+        ui.runOnIdle {
+            assertSame(owner, sessions().active!!.connection)
+            assertTrue(sessions().active!!.state.connected)
+            assertFalse(androidx.core.view.ViewCompat.getRootWindowInsets(terminal(ui.activity.window.decorView)!!)!!
+                .isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()))
+        }
+        ui.onNodeWithText("更多").performClick(); ui.onNodeWithText("关闭会话").performClick(); ui.onNodeWithText("关闭会话").performClick()
+        ui.waitUntil(10000) { !sessions().visible }
+        ui.onNodeWithTag("tmux-page").performScrollToNode(hasText("刷新列表"))
+        ui.onNodeWithText("刷新列表").performClick()
+        ui.waitUntil(15000) { !model().busy && model().entries.any { it.name == name } }
+        end(name)
+    }
     @Test fun realPageManagesRotatesAttachesAndClosingOnlyDisconnectsTheClient() {
         open()
         val name="ui-"+UUID.randomUUID().toString().take(8)

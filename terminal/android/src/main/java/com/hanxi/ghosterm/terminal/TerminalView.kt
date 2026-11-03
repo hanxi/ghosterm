@@ -131,10 +131,17 @@ class TerminalView(context: Context) : View(context) {
     private var inputFrameDeadline = 0L
     private var blink = true
     private var fractionalScroll = 0f
+    private var pointerContextClick = false
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-        override fun onDown(event: MotionEvent) = true
+        override fun onDown(event: MotionEvent): Boolean { pointerContextClick = false; return true }
         override fun onSingleTapUp(event: MotionEvent): Boolean {
-            if (selecting) dismissSelection() else performClick()
+            if (pointerContextClick) { pointerContextClick = false; return true }
+            if (selecting) dismissSelection() else tapTerminal(event, 1)
+            return true
+        }
+        override fun onContextClick(event: MotionEvent): Boolean {
+            pointerContextClick = true
+            if (selecting) dismissSelection() else tapTerminal(event, 2)
             return true
         }
         override fun onLongPress(event: MotionEvent) {
@@ -258,6 +265,31 @@ class TerminalView(context: Context) : View(context) {
     }
     override fun performClick(): Boolean {
         super.performClick(); showKeyboard(); return true
+    }
+    private fun tapTerminal(event: MotionEvent, button: Int) {
+        val frame = currentFrame ?: run { performClick(); return }
+        val x = event.x.toInt().coerceIn(0, frame.cols * cellWidth - 1)
+        val y = event.y.toInt().coerceIn(0, frame.rows * cellHeight - 1)
+        val modifiers = (if (event.metaState and KeyEvent.META_SHIFT_MASK != 0) 1 else 0) or
+            (if (event.metaState and KeyEvent.META_CTRL_MASK != 0 || ctrl != 0) 2 else 0) or
+            (if (event.metaState and KeyEvent.META_ALT_MASK != 0) 4 else 0)
+        textAction { target ->
+            if (target.click(x, y, modifiers, button)) {
+                super.performClick()
+                requestFocus()
+                if (ctrl == 1) ctrl = 0
+                inputFrameDeadline = SystemClock.uptimeMillis() + 120
+                removeCallbacks(tick); postOnAnimation(tick)
+            } else if (surface === target && isAttachedToWindow && isShown) performClick()
+        }
+    }
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS && event.actionButton == MotionEvent.BUTTON_TERTIARY) {
+            pointerContextClick = true
+            if (selecting) dismissSelection() else tapTerminal(event, 3)
+            return true
+        }
+        return gestures.onGenericMotionEvent(event) || super.onGenericMotionEvent(event)
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN && selecting) {

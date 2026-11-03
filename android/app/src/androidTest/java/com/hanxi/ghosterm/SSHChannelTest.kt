@@ -139,6 +139,52 @@ class SSHChannelTest {
     @Test fun ptyDisconnectIsNotRefusal() = refused("pty", "打开远端 PTY/shell 失败或超时", "disconnect")
     @Test fun shellDisconnectIsNotRefusal() = refused("shell", "打开远端 PTY/shell 失败或超时", "disconnect")
 
+    @Test fun remoteResizePreservesPixelDimensionsForRealTerminalTools() = directory { dir ->
+        val user = control("new", stage = "shell", action = "allow").getString("user")
+        RemoteSession(connection(known(dir), user)).use { session ->
+            supply(session, credentials(session))
+            await { session.state().connected }
+            session.resize(51, 17, 9, 19)
+            await {
+                val sizes = control("state", user).getJSONArray("sizes")
+                sizes.length() > 0 && sizes.getJSONArray(sizes.length() - 1).let { it.getInt(0) == 51 && it.getInt(1) == 17 }
+            }
+            val sizes = control("state", user).getJSONArray("sizes")
+            val size = sizes.getJSONArray(sizes.length() - 1)
+            assertEquals(459, size.getInt(2)); assertEquals(323, size.getInt(3))
+            assertTrue(session.state().connected)
+        }
+    }
+    @Test fun idleReadsStayConnectedAndPeerDropReportsTheActualReadFailure() = directory { dir ->
+        val user = control("new", stage = "shell", action = "allow").getString("user")
+        RemoteSession(connection(known(dir), user)).use { session ->
+            supply(session, credentials(session))
+            await { session.state().connected }
+            repeat(20) { SystemClock.sleep(25); assertTrue("空闲读取被误判断开：${session.state()}", session.state().connected) }
+            control("disconnect", user)
+            await { session.state().terminal }
+            val state = session.state()
+            assertFalse(state.connected); assertEquals(3, state.phase)
+            val reason = requireNotNull(state.error)
+            assertTrue(reason, reason.startsWith("终端读取失败，当前连接已停止："))
+            assertTrue(reason, Regex("ssh_shell read: libssh2=-[0-9]+").containsMatchIn(reason))
+            assertFalse("真实断流错误被写成先前空闲超时：$reason", reason.contains("libssh2=-9"))
+            assertFalse("真实断流错误引用了旧超时文案：$reason", reason.lowercase().contains("timed out"))
+        }
+    }
+    @Test fun orderlyRemoteEofIsNotReportedAsAReadFailure() = directory { dir ->
+        val user = control("new", stage = "shell", action = "allow").getString("user")
+        RemoteSession(connection(known(dir), user)).use { session ->
+            supply(session, credentials(session))
+            await { session.state().connected }
+            await { events(user).contains("shell") }
+            control("eof", user)
+            await { session.state().terminal }
+            assertEquals(2, session.state().phase)
+            assertNull(session.state().error)
+        }
+    }
+
     @Test fun productCancellationDropsLateShellAndNewRequestIsIndependent() = directory { dir ->
         val user=control("new",stage="shell").getString("user")
         val port=peer.getInt("port")

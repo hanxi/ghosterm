@@ -58,6 +58,8 @@ def fixture(work, enabled):
         def get_allowed_auths(self, username): return 'publickey'
         def check_auth_publickey(self, username, supplied):
             with lock: self.record = records.get(username)
+            if self.record is not None:
+                with lock: self.record['connection'] = self.connection
             return paramiko.AUTH_SUCCESSFUL if self.record and hmac.compare_digest(supplied.get_base64(),client) else paramiko.AUTH_FAILED
         def phase(self, stage):
             record = self.record
@@ -73,7 +75,11 @@ def fixture(work, enabled):
         def check_channel_request(self, kind, chanid):
             return paramiko.OPEN_SUCCEEDED if kind == 'session' and self.phase('channel') else paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
         def check_channel_pty_request(self, channel, term, width, height, pixelwidth, pixelheight, modes):
+            with lock: self.record['sizes'].append([width,height,pixelwidth,pixelheight])
             return self.phase('pty')
+        def check_channel_window_change_request(self, channel, width, height, pixelwidth, pixelheight):
+            with lock: self.record['sizes'].append([width,height,pixelwidth,pixelheight])
+            return True
         def check_channel_shell_request(self, channel): return self.phase('shell')
         def check_channel_subsystem_request(self, channel, name):
             if name != 'sftp' or not self.phase('subsystem'): return False
@@ -101,6 +107,7 @@ def fixture(work, enabled):
                     if channel:
                         # Retain accepted channels until this connection closes.
                         channels.append(channel)
+                        with lock: peer.record['channel'] = channel
                         sftp_channel = channel
                     if sftp_channel and peer.sftp_requested.is_set() and not version_sent and sftp_channel.recv_ready():
                         init.extend(sftp_channel.recv(9-len(init)))
@@ -149,14 +156,18 @@ def fixture(work, enabled):
                 if op == 'new':
                     if request['stage'] not in ('channel','pty','shell','subsystem','version', *directory_peer.STAGES, *preview_peer.STAGES, *transfer_peer.STAGES, *create_peer.STAGES, *receive_peer.STAGES, *publish_peer.STAGES, *mkdir_peer.STAGES, *remove_peer.STAGES) or request['action'] not in ('hold','deny','allow','disconnect','eof','partial','header-eof','queued-partial', *directory_peer.ACTIONS, *preview_peer.ACTIONS, *create_peer.ACTIONS, *receive_peer.ACTIONS, *publish_peer.ACTIONS, *mkdir_peer.ACTIONS, *remove_peer.ACTIONS): raise ValueError('Invalid fixture mode')
                     name = 'channel-'+secrets.token_hex(12)
-                    records[name] = dict(stage=request['stage'],action=request['action'],events=[],release=threading.Event())
+                    records[name] = dict(stage=request['stage'],action=request['action'],events=[],sizes=[],release=threading.Event())
                     result = dict(user=name)
                 else:
                     record = records[request['user']]
                     if op == 'freeze': record['frozen'] = True; record['events'].append('frozen')
                     elif op == 'release': record['release'].set()
+                    elif op == 'disconnect': record['connection'].shutdown(socket.SHUT_RDWR)
+                    elif op == 'eof':
+                        record['channel'].send_exit_status(0)
+                        record['channel'].shutdown_write()
                     elif op != 'state': raise ValueError('Unknown fixture operation')
-                    result = dict(events=list(record['events']))
+                    result = dict(events=list(record['events']), sizes=list(record['sizes']))
             self.wfile.write(json.dumps(result).encode()+b'\n')
     closing = threading.Event()
     channels = []

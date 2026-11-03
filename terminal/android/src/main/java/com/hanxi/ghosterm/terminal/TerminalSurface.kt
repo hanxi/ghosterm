@@ -12,6 +12,8 @@ interface TerminalSurface {
     /** Layout character without modifiers, for VT keyboard protocols; zero means unavailable. */
     fun key(code: Int, modifiers: Int = 0, text: String = "", unshiftedCodepoint: Int = 0, action: KeyAction = KeyAction.PRESS)
     fun scroll(lines: Int)
+    /** Pixel position in this surface. False means mouse reporting is disabled. */
+    suspend fun click(x: Int, y: Int, modifiers: Int = 0, button: Int = 1): Boolean
     /** False requests confirmation; no bytes were written in that case. */
     suspend fun paste(text: String, allowUnsafe: Boolean = false): Boolean
     suspend fun select(operation: SelectionOperation, x: Int = 0, y: Int = 0)
