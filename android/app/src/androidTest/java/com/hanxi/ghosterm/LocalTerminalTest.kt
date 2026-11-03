@@ -99,7 +99,8 @@ class LocalTerminalTest {
         session.commit("printf '\\033[?1049l'\r")
         frame(session) { it.line(0).startsWith("MAIN_SCREEN") }
         session.commit("i=0; while [ \"\u0024i\" -lt 100 ]; do printf 'line-%03d\\r\\n' \"\u0024i\"; i=\u0024((i+1)); done; printf 'SCROLL_DONE'\r")
-        frame(session) { text(it).contains("SCROLL_DONE") }
+        // Interactive shells can echo the command before its output is complete.
+        frame(session) { f -> (0 until f.rows).any { f.line(it) == "SCROLL_DONE" } }
         session.scroll(-50)
         val history = frame(session) { !text(it).contains("SCROLL_DONE") && text(it).contains("line-") }
         assertFalse(text(history).contains("line-099"))
