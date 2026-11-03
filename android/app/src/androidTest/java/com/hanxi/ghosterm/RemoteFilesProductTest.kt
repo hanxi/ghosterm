@@ -153,7 +153,7 @@ class RemoteFilesProductTest {
         assertSame("File owner must not replace terminal",terminal,sessions().active)
         assertTrue(terminal.state.connected)
         ui.onNodeWithText("返回").performClick();ui.onNodeWithText("返回").performClick()
-        ui.onNodeWithText("返回").performClick();ui.onNodeWithText("本机文件").performClick()
+        ui.onNodeWithTag("terminal-back").performClick();ui.onNodeWithText("本机文件").performClick()
         ui.waitUntil { !files().loading };assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)
     }
 

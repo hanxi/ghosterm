@@ -29,7 +29,8 @@ def main():
     base = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm'
     mapper, model, screen = (base / name for name in ('TerminalPreferences.kt','SessionsViewModel.kt','TerminalScreen.kt'))
     view = ROOT / 'terminal/android/src/main/java/com/hanxi/ghosterm/terminal/TerminalView.kt'
-    originals = {path:path.read_bytes() for path in (mapper,model,screen,view)}
+    bar = base / 'CompactTerminalBar.kt'
+    originals = {path:path.read_bytes() for path in (mapper,model,screen,view,bar)}
     modes = {path:path.stat().st_mode & 0o777 for path in originals}
     if any(MARK.encode() in value for value in originals.values()):raise RuntimeError('Residual controls mutation')
     cases=[]
@@ -40,8 +41,8 @@ def main():
     release='modeChangesAndHidingKeysReleasePendingCtrl'
     awake='keepAwakeTracksWindowFocusAndStopsWhenTheTerminalLeaves'
     auto='automaticKeyboardShowsForNewConnectionsAndNotExistingSelections'
-    case('hide-auxiliary-row',keys,screen,'if (controls.auxiliaryKeys) Row(', 'if (true) Row(')
-    case('extended-key-choice',keys,screen,'if (controls.extendedKeys) listOf(', 'if (false) listOf(')
+    case('hide-auxiliary-row',keys,bar,'if (policy.auxiliaryKeys)', 'if (true)')
+    case('extended-key-choice',keys,bar,'if (policy.extendedKeys) listOf(', 'if (false) listOf(')
     case('ctrl-policy-change-releases',release,view,'auxiliaryKeys = visible; lockedCtrl = locked; ctrl = 0','auxiliaryKeys = visible; lockedCtrl = locked')
     case('ctrl-once-policy',once,view,'else if (lockedCtrl) 2 else 1','else if (lockedCtrl) 2 else 2')
     case('ctrl-locked-policy',locked,view,'else if (lockedCtrl) 2 else 1','else if (lockedCtrl) 1 else 1')

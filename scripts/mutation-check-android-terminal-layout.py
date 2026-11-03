@@ -10,6 +10,7 @@ def execute(root,build,test):
     default='landscapeImeKeepsRealPixelsControlsAndSamePty'
     routing='largeFontCompactMenuRoutesFilesAndSessionsWithoutReplacingOwner'
     short='shortWindowKeepsCtrlPinnedAndActionsAboveTheWindowEdge'
+    portrait='portraitInputRowKeepsNavigationAtTopAndKeyboardPinned'
     def replacement(path,old,new):
         def change():
             text=originals[path].decode();assert text.count(old)==1,(old,text.count(old));return {path:text.replace(old,new)}
@@ -19,10 +20,14 @@ def execute(root,build,test):
         anchor='                verticalAlignment = Alignment.CenterVertically) {\n';assert text.count(anchor)==1
         return {bar:text.replace(anchor,anchor+block)}
     cases=[
+        ('portrait-row-height',portrait,replacement(bar,'.height(52.dp).background(MaterialTheme.colorScheme.surface)','.height(96.dp).background(MaterialTheme.colorScheme.surface)')),
+        ('portrait-files-route',portrait,replacement(screen,'IconButton(onClick = { terminal?.hideKeyboard(); openFiles() },','IconButton(onClick = { terminal?.hideKeyboard(); Unit },')),
+        ('portrait-sessions-route',portrait,replacement(screen,'.clickable(role = Role.Button) { terminal?.hideKeyboard(); list = true }','.clickable(role = Role.Button) { terminal?.hideKeyboard(); Unit }')),
+        ('keyboard-selected',portrait,replacement(bar,'selected = imeVisible','selected = false')),
         ('legacy-chrome',default,replacement(screen,'val compact = maxHeight < 224.dp','val compact = false')),
         ('always-compact',default,replacement(screen,'val compact = maxHeight < 224.dp','val compact = true')),
         ('ime-insets',default,replacement(screen,'.union(WindowInsets.ime)','')),
-        ('bar-height',default,replacement(bar,'.height(48.dp).testTag("terminal-compact-bar")','.height(96.dp).testTag("terminal-compact-bar")')),
+        ('bar-height',default,replacement(bar,'.height(52.dp).background(MaterialTheme.colorScheme.surface)','.height(96.dp).background(MaterialTheme.colorScheme.surface)')),
         ('back-route',default,replacement(bar,'IconButton(onClick = onBack,','IconButton(onClick = {},')),
         ('keyboard-route',default,replacement(screen,'onKeyboard = { if (imeVisible) terminal?.hideKeyboard() else terminal?.showKeyboard() }','onKeyboard = {}')),
         ('files-route',routing,replacement(screen,'menu = false; terminal?.hideKeyboard(); openFiles()','menu = false; terminal?.hideKeyboard(); Unit')),

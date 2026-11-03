@@ -654,7 +654,7 @@ class TerminalScreenTest {
         ui.onNodeWithText("关闭会话").performClick()
         ui.onNodeWithText("取消").performClick()
         assertEquals(original, sessions.active!!.id)
-        ui.onNodeWithText("会话 · 1").performClick()
+        ui.onNodeWithTag("terminal-sessions").performClick()
         ui.onNodeWithText("新建本地会话").performClick()
         ui.waitUntil(10_000) { !sessions.creating && sessions.sessions.size == 2 && sessions.active?.id != original && sessions.active?.state?.connected == true }
         assertNotEquals(original, sessions.active!!.id)
@@ -1200,10 +1200,10 @@ class TerminalScreenTest {
         ui.onNodeWithText("Ctrl").assertIsDisplayed()
         ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
         val first = terminal()
-        ui.onNodeWithText("会话 · 1").performClick(); ui.onNodeWithText("新建本地会话").performClick()
+        ui.onNodeWithTag("terminal-sessions").performClick(); ui.onNodeWithText("新建本地会话").performClick()
         ui.waitUntil { sessions.sessions.size == 2 && sessions.active!!.state.connected && viewOrNull()?.currentFrame != null }
         ui.runOnIdle { assertNotSame("each session needs its own input/selection state", first, terminal()); assertEquals(0, terminal().ctrl) }
-        ui.onNodeWithText("会话 · 2").performClick(); ui.onNodeWithText("本地终端 1").performClick()
+        ui.onNodeWithTag("terminal-sessions").performClick(); ui.onNodeWithText("本地终端 1").performClick()
         ui.waitUntil { sessions.active!!.id == original && viewOrNull()?.currentFrame != null }
         ui.onNodeWithText("Ctrl").assertIsDisplayed()
         ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()

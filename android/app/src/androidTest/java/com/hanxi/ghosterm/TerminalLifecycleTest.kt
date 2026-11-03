@@ -105,7 +105,7 @@ class TerminalLifecycleTest {
         waitFor(pid)
         ui.onNodeWithTag("terminal-keyboard").performClick()
         ui.waitUntil(10_000) { terminal().currentFrame!!.rows < rows }
-        ui.onNodeWithText("收起键盘").assertIsDisplayed()
+        ui.onNodeWithContentDescription("收起键盘").assertIsDisplayed()
         var smaller = 0; var cols = 0
         ui.runOnIdle { val f = terminal().currentFrame!!; smaller = f.rows; cols = f.cols
             terminal().commitText("printf '\\033[2J\\033[H'; stty size; printf 'KEYBOARD_SIZE\\r\\n'\r") }
@@ -113,7 +113,7 @@ class TerminalLifecycleTest {
         ui.runOnIdle { assertTrue(text(), text().contains("$smaller $cols")) }
         ui.onNodeWithTag("terminal-keyboard").performClick()
         ui.waitUntil(10_000) { terminal().currentFrame!!.rows == rows }
-        ui.onNodeWithText("显示键盘").assertIsDisplayed()
+        ui.onNodeWithContentDescription("显示键盘").assertIsDisplayed()
         ui.runOnIdle { assertSame(original, model()) }
     }
 
@@ -135,11 +135,11 @@ class TerminalLifecycleTest {
         ui.waitUntil(10_000) { ui.runOnIdle { text().contains("pwd") || terminal().composition=="pwd" } }
         instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_ENTER)
         waitForUnwrapped("/files/home")
-        if (ui.onAllNodesWithText("显示键盘").fetchSemanticsNodes().isNotEmpty())
+        if (ui.onAllNodesWithContentDescription("显示键盘").fetchSemanticsNodes().isNotEmpty())
             ui.onNodeWithTag("terminal-keyboard").performClick()
-        ui.waitUntil(10_000) { ui.onAllNodesWithText("收起键盘").fetchSemanticsNodes().isNotEmpty() }
+        ui.waitUntil(10_000) { ui.onAllNodesWithContentDescription("收起键盘").fetchSemanticsNodes().isNotEmpty() }
         ui.onNodeWithTag("terminal-back").performClick()
-        ui.waitUntil(10_000) { ui.onAllNodesWithText("显示键盘").fetchSemanticsNodes().isNotEmpty() }
+        ui.waitUntil(10_000) { ui.onAllNodesWithContentDescription("显示键盘").fetchSemanticsNodes().isNotEmpty() }
         ui.onNodeWithTag("terminal-surface").assertIsDisplayed()
         assertEquals(original, model().active!!.id)
         ui.onNodeWithTag("terminal-back").performClick()
@@ -153,7 +153,7 @@ class TerminalLifecycleTest {
         ui.runOnIdle { terminal().commitText("stty -echo; PS1=''; printf '\\033[2J\\033[HFILES_PID:%s\\r\\n' \"\u0024\u0024\"\r") }
         ui.waitUntil(10_000) { ui.runOnIdle { terminal().currentFrame?.line(0)?.matches(Regex("FILES_PID:[0-9]+"))==true } }
         val pid=ui.runOnIdle { terminal().currentFrame!!.line(0) }
-        ui.onAllNodesWithText("会话 · 1").assertCountEquals(1)
+        ui.onAllNodesWithTag("terminal-sessions").assertCountEquals(1)
         ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(1)
         val settings = (ui.activity.application as GhostermApplication).settings
         restoreCtrl = settings.state.value.committed.ctrlMode

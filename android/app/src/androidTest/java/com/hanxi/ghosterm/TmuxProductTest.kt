@@ -137,7 +137,7 @@ class TmuxProductTest {
             assertFalse(androidx.core.view.ViewCompat.getRootWindowInsets(terminal(ui.activity.window.decorView)!!)!!
                 .isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()))
         }
-        ui.onNodeWithText("更多").performClick(); ui.onNodeWithText("关闭会话").performClick(); ui.onNodeWithText("关闭会话").performClick()
+        ui.onNodeWithTag("terminal-menu").performClick(); ui.onNodeWithText("关闭会话").performClick(); ui.onNodeWithText("关闭会话").performClick()
         ui.waitUntil(10000) { !sessions().visible }
         ui.onNodeWithTag("tmux-page").performScrollToNode(hasText("刷新列表"))
         ui.onNodeWithText("刷新列表").performClick()
@@ -166,7 +166,7 @@ class TmuxProductTest {
         ui.waitUntil(10000) { terminal(ui.activity.window.decorView)?.currentFrame!=null }
         ui.runOnIdle { terminal(ui.activity.window.decorView)!!.commitText("printf '\\033[2J\\033[HTMUX_UI_READY\\r\\n'\r") }
         ui.waitUntil(10000) { terminal(ui.activity.window.decorView)?.currentFrame?.line(0)=="TMUX_UI_READY" }
-        ui.onNodeWithText("更多").performClick();ui.onNodeWithText("关闭会话").performClick()
+        ui.onNodeWithTag("terminal-menu").performClick();ui.onNodeWithText("关闭会话").performClick()
         ui.onNodeWithText("仅断开当前 tmux 客户端",substring=true).assertIsDisplayed()
         ui.onNodeWithText("关闭会话").performClick()
         ui.waitUntil(10000) { !sessions().visible }

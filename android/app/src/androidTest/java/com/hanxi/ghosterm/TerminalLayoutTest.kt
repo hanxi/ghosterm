@@ -156,6 +156,44 @@ class TerminalLayoutTest {
         assertSame(session.surface,model().active!!.surface)
     }
 
+    @Test fun portraitInputRowKeepsNavigationAtTopAndKeyboardPinned() {
+        val settings=(ui.activity.application as GhostermApplication).settings
+        previousKeys=settings.state.value.committed.keySet
+        previousAux=settings.state.value.committed.auxKeys
+        assertTrue(runBlocking { settings.save(UUID.randomUUID(),listOf(
+            PreferenceEdit.KeySet(AuxiliaryKeySet.EXTENDED),PreferenceEdit.AuxKeys(true))) } is PreferenceUpdate.Saved)
+        ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(1)
+        ui.onAllNodesWithTag("terminal-menu").assertCountEquals(1)
+        val bar=ui.onNodeWithTag("terminal-input-bar").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val scale=ui.activity.resources.displayMetrics.density
+        assertEquals("input chrome occupies one row",52f*scale,bar.height,scale)
+        for(tag in listOf("terminal-sessions","terminal-files")) {
+            val bounds=ui.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue("navigation is above terminal input",bounds.bottom<bar.top)
+        }
+        val keyboard=ui.onNodeWithTag("terminal-keyboard").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
+        val ctrl=ui.onNodeWithText("Ctrl").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
+        ui.onNodeWithText("PgDn").performScrollTo().assertIsDisplayed()
+        assertEquals("keyboard stays pinned",keyboard,ui.onNodeWithTag("terminal-keyboard").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot)
+        assertEquals("Ctrl stays pinned",ctrl,ui.onNodeWithText("Ctrl").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot)
+        ui.onNodeWithTag("terminal-keyboard").assertIsNotSelected().assertContentDescriptionEquals("显示键盘").performClick()
+        await("Keyboard icon must reflect the actual IME") {
+            imeShown() && ui.onAllNodesWithContentDescription("收起键盘").fetchSemanticsNodes().isNotEmpty()
+        }
+        ui.onNodeWithTag("terminal-keyboard").assertIsSelected().performClick()
+        await("Keyboard toggle must close actual IME") { !imeShown() }
+        assertTrue(runBlocking { settings.save(UUID.randomUUID(),listOf(PreferenceEdit.AuxKeys(false))) } is PreferenceUpdate.Saved)
+        ui.onNodeWithTag("terminal-keyboard").assertIsDisplayed()
+        ui.onAllNodesWithTag("terminal-auxiliary-keys").assertCountEquals(0)
+        ui.onNodeWithTag("terminal-sessions").performClick()
+        ui.onNodeWithText("新建本地会话").assertIsDisplayed()
+        androidx.test.espresso.Espresso.pressBack()
+        ui.onNodeWithTag("terminal-files").performClick()
+        ui.onNodeWithTag("file-location").assertIsDisplayed()
+        ui.onNodeWithText("返回").performClick()
+        sameShell()
+    }
+
     @Test fun landscapeImeKeepsRealPixelsControlsAndSamePty() {
         landscapeWithIme(1f);visibleControlsAndPixels();sameShell()
         ui.onNodeWithTag("terminal-back").performClick()

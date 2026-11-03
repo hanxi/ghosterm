@@ -1,6 +1,7 @@
 package com.hanxi.ghosterm
 
 import android.view.KeyEvent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -9,18 +10,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 
-/** One touch-sized row leaves a terminal line above the landscape IME. */
+/** One input row in every window; navigation joins it only in short windows. */
 @Composable
 internal fun CompactTerminalBar(
     policy: TerminalControls, connected: Boolean, keyboardEnabled: Boolean, ctrl: Int, imeVisible: Boolean,
     onBack: () -> Unit, onCtrl: () -> Unit, onKey: (Int) -> Unit, onText: (String) -> Unit,
     onKeyboard: () -> Unit, onMenu: () -> Unit, menu: @Composable () -> Unit,
+    compactNavigation: Boolean = true,
 ) {
-    Row(Modifier.fillMaxWidth().height(48.dp).testTag("terminal-compact-bar"), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack, modifier = Modifier.size(48.dp).testTag("terminal-back")) {
+    Row(Modifier.fillMaxWidth().height(52.dp).background(MaterialTheme.colorScheme.surface)
+        .testTag(if (compactNavigation) "terminal-compact-bar" else "terminal-input-bar"), verticalAlignment = Alignment.CenterVertically) {
+        if (compactNavigation) IconButton(onClick = onBack, modifier = Modifier.size(48.dp).testTag("terminal-back")) {
             Icon(painterResource(R.drawable.ic_terminal_back), contentDescription = "返回")
         }
         if (policy.auxiliaryKeys) {
@@ -49,10 +54,13 @@ internal fun CompactTerminalBar(
             }
         } else Spacer(Modifier.weight(1f))
         IconButton(onClick = onKeyboard, enabled = keyboardEnabled,
-            modifier = Modifier.size(48.dp).testTag("terminal-keyboard")) {
+            modifier = Modifier.size(48.dp).testTag("terminal-keyboard")
+                .semantics { selected = imeVisible }
+                .background(if (imeVisible) MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent,
+                    MaterialTheme.shapes.medium)) {
             Icon(painterResource(R.drawable.ic_terminal_keyboard), contentDescription = if (imeVisible) "收起键盘" else "显示键盘")
         }
-        Box {
+        if (compactNavigation) Box {
             IconButton(onClick = onMenu, modifier = Modifier.size(48.dp).testTag("terminal-menu")) {
                 Icon(painterResource(R.drawable.ic_terminal_more), contentDescription = "更多")
             }

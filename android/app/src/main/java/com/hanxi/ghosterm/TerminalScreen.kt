@@ -1,10 +1,13 @@
 package com.hanxi.ghosterm
 
-import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,9 +45,9 @@ fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
         android.util.TypedValue.COMPLEX_UNIT_SP, model.terminalStyle.fontSize, metrics) *
         model.terminalStyle.lineHeight).toInt()
     // In very short landscape windows, place controls beside the terminal so text
-    // keeps the full available height instead of losing another 48 dp to chrome.
+    // keeps the full available height instead of losing another 52 dp to chrome.
     val sideControls = compact && maxWidth >= 480.dp &&
-        maxHeight < 48.dp + with(density) { (linePixels * 2).toDp() }
+        maxHeight < 52.dp + with(density) { (linePixels * 2).toDp() }
     val sideWidth = maxWidth / 2
     val actions: @Composable () -> Unit = {
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -56,21 +59,41 @@ fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
             DropdownMenuItem(text = { Text("关闭会话") }, onClick = { menu = false; confirmClose = true })
         }
     }
-    val compactBar: @Composable () -> Unit = {
+    val inputBar: @Composable () -> Unit = {
         CompactTerminalBar(controls, session.state.connected, !session.state.terminal, ctrl, imeVisible,
             onBack = back, onCtrl = { terminal?.toggleCtrl() },
             onKey = { terminal?.sendKey(it) }, onText = { terminal?.commitText(it) },
             onKeyboard = { if (imeVisible) terminal?.hideKeyboard() else terminal?.showKeyboard() },
-            onMenu = { menuCompact = true; menu = true }, menu = actions)
+            onMenu = { menuCompact = true; menu = true }, menu = actions, compactNavigation = compact)
     }
     Scaffold(topBar = {
         if (!compact)
         TopAppBar(title = {
-            Column { Text(session.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(session.state.description, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        }, navigationIcon = { TextButton(onClick = back, modifier = Modifier.testTag("terminal-back")) { Text("返回") } }, actions = {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("terminal-sessions")
+                .semantics { contentDescription = "切换会话，当前 ${session.title}，${model.sessions.size} 个会话" }
+                .clickable(role = Role.Button) { terminal?.hideKeyboard(); list = true },
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(session.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${session.state.description} · ${model.sessions.size} 个会话",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Icon(painterResource(R.drawable.ic_terminal_expand), contentDescription = null,
+                    modifier = Modifier.size(18.dp))
+            }
+        }, navigationIcon = {
+            IconButton(onClick = back, modifier = Modifier.testTag("terminal-back")) {
+                Icon(painterResource(R.drawable.ic_terminal_back), contentDescription = "返回")
+            }
+        }, actions = {
+            IconButton(onClick = { terminal?.hideKeyboard(); openFiles() }, modifier = Modifier.testTag("terminal-files")) {
+                Icon(painterResource(R.drawable.ic_terminal_folder), contentDescription = "当前会话的文件")
+            }
             Box {
-                TextButton(onClick = { menuCompact = false; menu = true }, modifier = Modifier.testTag("terminal-menu")) { Text("更多") }
+                IconButton(onClick = { menuCompact = false; menu = true }, modifier = Modifier.testTag("terminal-menu")) {
+                    Icon(painterResource(R.drawable.ic_terminal_more), contentDescription = "更多")
+                }
                 actions()
             }
         })
@@ -108,40 +131,10 @@ fun TerminalScreen(model: SessionsViewModel, openFiles: () -> Unit) {
             }
             }
             if (sideControls) Box(Modifier.width(sideWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                compactBar()
+                inputBar()
             }
             }
-            if (compact) {
-                if (!sideControls) compactBar()
-            } else {
-            if (controls.auxiliaryKeys) Row(Modifier.fillMaxWidth().testTag("terminal-auxiliary-keys"), verticalAlignment = Alignment.CenterVertically) {
-                val keys = listOf("Esc" to KeyEvent.KEYCODE_ESCAPE, "Tab" to KeyEvent.KEYCODE_TAB,
-                    "↑" to KeyEvent.KEYCODE_DPAD_UP, "↓" to KeyEvent.KEYCODE_DPAD_DOWN,
-                    "←" to KeyEvent.KEYCODE_DPAD_LEFT, "→" to KeyEvent.KEYCODE_DPAD_RIGHT)
-                TextButton(onClick = { terminal?.toggleCtrl() }, enabled = session.state.connected,
-                    modifier = Modifier.heightIn(min = 48.dp)) { Text(when(ctrl) { 1 -> "Ctrl ✓"; 2 -> "Ctrl 锁定"; else -> "Ctrl" }) }
-                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                    keys.forEach { (label, code) -> TextButton(onClick = { terminal?.sendKey(code) }, enabled = session.state.connected,
-                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text(label) } }
-                    listOf("/", "-").forEach { value -> TextButton(onClick = { terminal?.commitText(value) }, enabled = session.state.connected,
-                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Text(value) } }
-                    if (controls.extendedKeys) listOf("Home" to KeyEvent.KEYCODE_MOVE_HOME, "End" to KeyEvent.KEYCODE_MOVE_END,
-                        "PgUp" to KeyEvent.KEYCODE_PAGE_UP, "PgDn" to KeyEvent.KEYCODE_PAGE_DOWN).forEach { (label, code) ->
-                        TextButton(onClick = { terminal?.sendKey(code) }, enabled = session.state.connected,
-                            modifier = Modifier.heightIn(min = 48.dp)) { Text(label) }
-                    }
-                }
-            }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = { terminal?.hideKeyboard(); list = true }) { Text("会话 · ${model.sessions.size}") }
-                TextButton(onClick = { terminal?.hideKeyboard();openFiles() },modifier=Modifier.testTag("terminal-files")) { Text("文件") }
-                TextButton(onClick = { if (imeVisible) terminal?.hideKeyboard() else terminal?.showKeyboard() },
-                    modifier = Modifier.testTag("terminal-keyboard"), enabled = !session.state.terminal) {
-                    Text(if (imeVisible) "收起键盘" else "显示键盘")
-                }
-            }
-            }
+            if (!sideControls) inputBar()
         }
     }
     LaunchedEffect(session.state.terminal) { if (session.state.terminal) { terminal?.ctrl = 0; terminal?.hideKeyboard() } }

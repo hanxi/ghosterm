@@ -14,7 +14,8 @@ def execute(root, build, test):
     settings = root / 'android/app/src/androidTest/java/com/hanxi/ghosterm/SettingsScreenTest.kt'
     picker = root / 'android/app/src/androidTest/java/com/hanxi/ghosterm/SafImportTest.kt'
     screen = root / 'android/app/src/main/java/com/hanxi/ghosterm/TerminalScreen.kt'
-    originals = {p: p.read_bytes() for p in (terminal, child, main, settings, picker, screen)}
+    bar = root / 'android/app/src/main/java/com/hanxi/ghosterm/CompactTerminalBar.kt'
+    originals = {p: p.read_bytes() for p in (terminal, child, main, settings, picker, screen, bar)}
     if any(MARK.encode() in data for data in originals.values()):
         raise RuntimeError('Residual PTY fixture mutation')
     cases = [
@@ -37,15 +38,15 @@ def execute(root, build, test):
          'SettingsScreenTest#systemAppearanceTracksAndroidNightModeInBothDirections'),
     ]
     cases.append(('provider-choice', picker, 'clickSystem("$id.conf")', 'clickSystem("valid.conf")', 'SafImportTest#invalidDocumentsExplainFailureWithoutReplacingConfig'))
-    text=originals[screen].decode()
-    start=text.index('            if (controls.auxiliaryKeys) Row(')
-    end=text.index('            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)',start)
-    row=text[start:end]
-    scrolled=row.replace('Row(Modifier.fillMaxWidth().testTag("terminal-auxiliary-keys")',
-                         'Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("terminal-auxiliary-keys")')
-    scrolled=scrolled.replace('Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),','Row(Modifier,')
-    assert scrolled!=row
-    cases.append(('pinned-ctrl', screen, row, scrolled, 'TerminalScreenTest#ctrlPunctuationUsesVtAndLeavesUnicodeAndBulkCommitsIntact'))
+    text=originals[bar].decode()
+    start=text.index('            TextButton(onClick = onCtrl,')
+    end=text.index('            Row(Modifier.weight(1f)',start)
+    block=text[start:end]
+    scrolled=text[:start]+text[end:]
+    anchor='                verticalAlignment = Alignment.CenterVertically) {\n'
+    assert scrolled.count(anchor)==1
+    scrolled=scrolled.replace(anchor,anchor+block)
+    cases.append(('pinned-ctrl', bar, text, scrolled, 'TerminalScreenTest#ctrlPunctuationUsesVtAndLeavesUnicodeAndBulkCommitsIntact'))
     cases.append(('toolbar-copy-route', terminal, 'android.R.id.copy -> copySelection()', 'android.R.id.copy -> Unit', 'TerminalScreenTest#handleEdgesScrollWhileHeldAndStopOnReleaseOrCancel'))
     # Recreate the old split implementation: IME sendKeyEvent still accepts
     # preedit, but a physical View key does not. Only the new physical assertion
