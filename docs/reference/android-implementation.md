@@ -1,8 +1,8 @@
 # Android 最终方案实现计划
 
-**当前 Android 发行（2026-11-03，`945f68c`）**：终端点按按 VT 鼠标模式发送，可切换已开启鼠标的 tmux 窗口；未开启鼠标时点按打开键盘，长按仍选文本。SSH 传递实际像素尺寸，读取失败显示底层错误详情；频繁断流的手机根因仍待定位。既有密钥记忆、SAF、Kitty 动画与 Nerd Fonts 保留。见 [本次实现与验证](android-implementation.md#9181-安卓鼠标点击ssh-像素尺寸与读取错误详情2026-11-03)。
+**当前 Android 发行（2026-11-03，`976a7b5`）**：终端点按按 VT 鼠标模式发送，可切换已开启鼠标的 tmux 窗口；未开启鼠标时点按打开键盘，长按仍选文本。SSH 传递实际像素尺寸，读取失败显示底层错误详情；频繁断流的手机根因仍待定位。既有密钥记忆、SAF、Kitty 动画与 Nerd Fonts 保留。见 [本次实现与验证](android-implementation.md#9181-安卓鼠标点击ssh-像素尺寸与读取错误详情2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,251 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41553371067](https://github.com/hanxi/ghosterm/actions/runs/41553371067) 成功，实际附件已下载核验。macOS 同为 `945f68c` / build 96 / min macOS 15.0 / ad-hoc / 未公证（[CI 41553371055](https://github.com/hanxi/ghosterm/actions/runs/41553371055)）；ZIP、DMG 与清单摘要一致，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,255 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41556541717](https://github.com/hanxi/ghosterm/actions/runs/41556541717) 成功，实际附件已下载核验。macOS 保持 `945f68c` / build 96 / min macOS 15.0 / ad-hoc / 未公证（[CI 41553371055](https://github.com/hanxi/ghosterm/actions/runs/41553371055)）；ZIP、DMG 与清单摘要一致，macOS 五份附件 ID/尺寸/摘要未变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
 
 **完整回归**：`e254b3d` / clean 在 API 29 / arm64 / 4 KiB 页与 Android 16 / API 36 / arm64 / 16 KiB 页各默认完整 **929 项全部通过**，零失败/错误/跳过。具名发现/成功结束集合、实际安装 app/test APK 及 911 份输入前后与跨检出一致，见 [§9.176](android-implementation.md#9176-夹具修正后的两端默认完整-929-项2026-11-03)。这是 debug instrumentation 完整结果；正式 release 及真实手机/外部矩阵分别记账。
 
@@ -2889,7 +2889,7 @@ Kitty 单独在 `tmp/android-kitty/` 开发，未合入或发行。补丁 0003 �
 
 ### 10.1 当前完成审计与剩余验收（2026-11-03）
 
-本表用于决定整个目标是否可完成；阶段记录不能替代缺失项。真实手机的操作步骤与反馈模板见[手机验收方法](../how-to/android-device-check.md)。当前 Android 实际发行来源为 `945f68c`（§9.181；鼠标点击、SSH 像素尺寸和读取错误详情），成功密钥记忆的专项与变异见 §9.172；最近完整回归为 `e254b3d` 两端 clean debug APK 默认完整 929 项通过（§9.176）；旧 `0c30b17` 两端 924 项保留于 §9.170；旧 `7bebba8` 两端 918 项通过（§9.163）；旧 `f5eda91` 两端各 917 项按 §9.160 保留；APK 实际发行、专项和完整回归分别记账。旧 `c594409` 的两端十五项失败与修正仍保留，未回填为通过。用户已反馈“我真机测试正常”（§9.179）；手机型号、系统、实际包版本与具体覆盖场景尚未补充，完整外部端点/输入/读屏矩阵仍未逐项核验。初次 16 KiB 模拟器关机后的包解析异常原因未定。
+本表用于决定整个目标是否可完成；阶段记录不能替代缺失项。真实手机的操作步骤与反馈模板见[手机验收方法](../how-to/android-device-check.md)。当前 Android 实际发行来源为 `976a7b5`（§9.184；产品代码同 `945f68c`，鼠标点击、SSH 像素尺寸和读取错误详情见 §9.181），成功密钥记忆的专项与变异见 §9.172；最近完整回归为 `e254b3d` 两端 clean debug APK 默认完整 929 项通过（§9.176）；旧 `0c30b17` 两端 924 项保留于 §9.170；旧 `7bebba8` 两端 918 项通过（§9.163）；旧 `f5eda91` 两端各 917 项按 §9.160 保留；APK 实际发行、专项和完整回归分别记账。旧 `c594409` 的两端十五项失败与修正仍保留，未回填为通过。用户已反馈“我真机测试正常”（§9.179）；手机型号、系统、实际包版本与具体覆盖场景尚未补充，完整外部端点/输入/读屏矩阵仍未逐项核验。初次 16 KiB 模拟器关机后的包解析异常原因未定。
 
 | 要求 | 当前可核验的证据 | 尚缺的最终证据 |
 |---|---|---|
@@ -4363,3 +4363,10 @@ API 36 的 gfx 高计数集中在前面，240–540 秒间累计保持 612，最
 **读取错误边界**：本次工具 shell 退出 0 后，测试服务立即关闭连接，产品显示 `libssh2=-43: transport read`，XML `after-quit.xml` 保留，尚未解释该具体闭合时序。另以独立 macOS libssh2 1.11.1 和环回 SSH 探针区分正常 EOF（延迟/立即关闭 transport 均为 read=0、eof=1）与直接切断 TCP（read=-43、eof=0），不支持把所有 -43 静默当作 EOF，也不能证明手机频繁断流根因。一次直接客户端探针未回答 kitten 查询，有限读取后取消，夹具终止子进程时错误地把负 SIGTERM 退出码传给 Paramiko 的无符号状态接口，导致夹具 exit 1；原错误在 `server.log`。finally 已清零临时口令、移除 0600 broker/reverse 并回收子进程，不能将它记为正常夹具结束。无产品源码或超时调整。
 
 **清理与原数据**：原 SSH 配置为空，先逐字核对当前只含自建主机/127.0.0.1:62192，再在生产编辑器还原空草稿，空值守卫通过才保存；初期 Ctrl+A/浮动工具条选择失败均未获保存，之后重新读取原已保存副本，以有界删除及空值守卫完成，正常备份保留。重启冷读配置仍精确为空；只按端点及指纹移除自建信任，冷读验证列表为空。冷启动首页、可见文件行/尺寸及 **2 条**历史计数与原记录完全相同，八项 secure 设置和显示尺寸/密度相同；不宣称所有隐藏文件或历史正文逐字节一致。监听端口、broker、reverse 和三个自建 PTY 子进程均确认消失，无私钥身份导入，AVD sync 正常停止、userdata 保留，见 `signed945/cleanup.json`、`preserved-data.json`。未 wipe、卸载原应用、删除其他文件或重跑已接受的十分钟负载。
+
+
+### 9.184 滚动测试修正提交的实际 release APK（2026-11-03）
+
+`976a7b56375b944ed2d7af6b346f009b4dc69b34` / clean 的 [Android CI 41556541717](https://github.com/hanxi/ghosterm/actions/runs/41556541717) 已成功。实际下载共用 dev 八份附件，下载前后资产 ID/尺寸/摘要一致；APK **8,142,255 字节**，SHA256 **`7163c966c4606ab6b27f4fae4ef2acf4573722fc2f80b38d3445c6f1186f7142`**。固定证书、非 debuggable/minSdk 29、R8/资源裁剪、三份压缩 arm64 库、ELF/ZIP 16 KiB、Nerd Fonts/许可、构建机路径及外部元数据一致性检查通过。macOS 仍为 `945f68c` / build 96 / min 15.0 / ad-hoc / 未公证，五份资产 ID/尺寸/摘要与上次完全相同，ZIP/DMG 与清单再次核对一致。
+
+本次相对 `945f68c` 的产品源码无变化，只修正一份滚动测试及文档。实际 Core/Androidx 库全文件摘要相同，VT 库全文件摘要不同；进一步逐节及逐字节核对，仅 36 字节 `.note.gnu.build-id` 范围不同，其余字节精确一致，未将整个库伪记为字节相同。签名 APK、CI 日志与验证在 `tmp/android-mouse-evidence/fixture-release/`，含 `vt-section-comparison.json`。§9.183 的官方 kitten 设备验收仍绑定实际安装的 `945f68c`，没有改记为本次未安装的包。API 29 的本次 clean 默认完整 941 项已启动、实际构建元数据确认 `976a7b5` / clean，运行结果另记；API 36 已通过的完整 941 项仍绑定 `945f68c`。整个目标的真机/外部矩阵与断流根因仍未完成。

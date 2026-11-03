@@ -1,8 +1,8 @@
 # 能力矩阵
 
-**当前 Android 发行（2026-11-03，`945f68c`）**：终端点按按 VT 鼠标模式发送，可切换已开启鼠标的 tmux 窗口；未开启鼠标时点按打开键盘，长按仍选文本。SSH 传递实际像素尺寸，读取失败显示底层错误详情；频繁断流的手机根因仍待定位。既有密钥记忆、SAF、Kitty 动画与 Nerd Fonts 保留。见 [本次实现与验证](android-implementation.md#9181-安卓鼠标点击ssh-像素尺寸与读取错误详情2026-11-03)。
+**当前 Android 发行（2026-11-03，`976a7b5`）**：终端点按按 VT 鼠标模式发送，可切换已开启鼠标的 tmux 窗口；未开启鼠标时点按打开键盘，长按仍选文本。SSH 传递实际像素尺寸，读取失败显示底层错误详情；频繁断流的手机根因仍待定位。既有密钥记忆、SAF、Kitty 动画与 Nerd Fonts 保留。见 [本次实现与验证](android-implementation.md#9181-安卓鼠标点击ssh-像素尺寸与读取错误详情2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,251 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41553371067](https://github.com/hanxi/ghosterm/actions/runs/41553371067) 成功，实际附件已下载核验。macOS 同为 `945f68c` / build 96 / min macOS 15.0 / ad-hoc / 未公证（[CI 41553371055](https://github.com/hanxi/ghosterm/actions/runs/41553371055)）；ZIP、DMG 与清单摘要一致，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,255 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41556541717](https://github.com/hanxi/ghosterm/actions/runs/41556541717) 成功，实际附件已下载核验。macOS 保持 `945f68c` / build 96 / min macOS 15.0 / ad-hoc / 未公证（[CI 41553371055](https://github.com/hanxi/ghosterm/actions/runs/41553371055)）；ZIP、DMG 与清单摘要一致，macOS 五份附件 ID/尺寸/摘要未变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
 
 **完整回归**：`945f68c` / clean 在 API 36 / arm64 / 16 KiB 页默认完整 **941 项通过**；API 29 / 4 KiB 页为 940 成功、1 个旧滚动测试失败，未记全绿。测试现改为等待独立完成标记行，19 项本地终端及编译变异通过；新的 API 29 clean 完整回归另记。证据与原失败见 [§9.182](android-implementation.md#9182-两端-941-项结果与滚动测试等待竞态修正2026-11-03)。此前 `e254b3d` 两端默认完整 929 项通过仍只属于原产物；debug instrumentation 与正式包/真机矩阵分别记账。
 
