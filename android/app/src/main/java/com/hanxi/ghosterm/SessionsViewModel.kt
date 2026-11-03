@@ -89,7 +89,12 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     private val vault = IdentityVault(File(application.filesDir, "identities"))
     private val rememberedIdentities = com.hanxi.ghosterm.data.RememberedSSHIdentities(
         application.getSharedPreferences("ssh-successful-identities", android.content.Context.MODE_PRIVATE))
-    val active: TerminalSession? get() = sessions.firstOrNull { it.id == selected }
+    val active: TerminalSession? get() {
+        val id = selected ?: return null
+        // Readers may run while the main thread registers a session. Iterate
+        // one immutable SnapshotStateList view instead of its live iterator.
+        return sessions.toList().firstOrNull { it.id == id }
+    }
     var terminalStyle by mutableStateOf((settings?.state?.value?.committed ?: AppPreferences()).terminalStyle()); private set
     var terminalControls by mutableStateOf((settings?.state?.value?.committed ?: AppPreferences()).terminalControls()); private set
     init {

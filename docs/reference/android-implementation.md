@@ -4406,3 +4406,25 @@ API 36 的 gfx 高计数集中在前面，240–540 秒间累计保持 612，最
 macOS 同源 **build 97** / arm64 / min macOS 15.0 / ad-hoc / 未公证；实际 DMG SHA256 `518fe97accef35b01f6c2bb1e9030d4306f6c62063d486e63e6fa21077409fd4`、ZIP SHA256 `35b5c5ea79b8e1ccb8e92dee976be66fa30acc4ea773f5728e4f9925ae2f7ea3`，与 `SHA256SUMS`、`BUILD-INFO.txt` 和 `version.json` 一致。两平台这次均发布新产物，不把旧“Mac 五份附件 ID 不变”的 Android 单独发版证据挪来使用。实际文件、两份 CI 状态/日志、签名/字体/路径/对齐和清单收据均在 `tmp/android-eof-evidence/release/`。
 
 本次两端默认完整 **941 项**已从同一 clean commit 启动，915 份非 Markdown 输入一致并冻结；已核对当前发现清单的 mtime 属于各自本轮执行区间，均发现 941 项，实际构建元数据均为 `f39cb6d` / clean。此时仍在执行，不能预记成功或把上轮 API 29 `976a7b5` / API 36 `945f68c` 的通过移到本轮。优化 release 的正常 EOF/真正断流/后续新连接设备专项已准备，待释放设备后执行；尚无运行结果。源码确认 SSH shell 的公共 libssh2 getter 缺少 exit-status availability 位，继续显示退出状态未知，不能因测试服务送出 0 就把产品写成已证明成功退出。手机频繁断流是否全部同因仍待具体反馈，整个 §10.1 目标保持未完成。
+
+
+### 9.188 会话选择查询的并发快照修正候选（2026-11-03）
+
+`f39cb6d` / clean 的 API 29 / arm64 / 4 KiB 页默认 941 项已结束：**940 成功、1 失败、零跳过，1370.820 秒**。失败为 `RemoteFilesProductTest#realRemotePageAuthenticationRotationAndPreviewKeepTerminal`；完整 JUnit 显示 `SnapshotStateList` 迭代器在 `SessionsViewModel.active` 抛 `ConcurrentModificationException`，调用点是该用例第 267 行等待本地终端连接，尚未进入远端文件浏览。原 getter 在测试线程轮询与主线程新增会话交错时迭代可变列表。早先 logcat 只剩异常末尾，未据片段判断原因；以最终完整输出定位。严格失败归档 `tmp/android-small-files-evidence/full941-f39cb6d-api29-failed/` 保留实际 app/test APK、915 份一致输入和全部具名终止状态，`accepted=false`。同源 API 36 / arm64 / 16 KiB 页完整 **941 项通过，1471.894 秒**，零失败/跳过，归档 `full941-f39cb6d-16k/`；两份结果分别记账。
+
+当前选择查询改为先捕获选中的 UUID，再遍历 `SnapshotStateList.toList()` 的不可变视图；列表写入仍在主线程。新增 `SessionsSnapshotTest` 使用一个真实本地连接承载 32 条选择元数据，主线程增删临时元数据 6000 次，另一线程至少执行 2048 次选择校验，并验证切换 UUID/移除选中项后的结果。测试清理回收唯一真实连接，不创建 32 个 shell。两组编译变异分别恢复旧活动迭代器、改成非选中 UUID：旧迭代器连续两次复现同类 `ConcurrentModificationException`，错目标断言亦红；每组同 APK 独立 Core 配置对照绿、恢复绿及源码 SHA256 相同。原文件认证/旋转/预览类、新并发类和 NativeSmoke 共 **19 项**在 API 29 / API 36 各通过（**27.555 / 31.001 秒**）。917 份输入前后及跨检出相同，实际安装 APK 与各自构建一致；源码分别为 `92d8cc7` / dirty、`f39cb6d` / dirty，不冒充 clean 全套或实际发行。证据 `tmp/android-active-session-evidence/api29/`、`api36/`；归档器首次错误的预期完整 SHA 被拒绝后，改从 git rev-parse 获取权威值再验证，未放宽源码匹配。
+
+新增一项 Android 测试使默认发现预期成为 **942 项**；`mutation-check-android-active-session.py` 为手工验证，未加入 macOS CI full 的二十份变异清单。候选 app lint、合入/新的 release CI 与两端 clean 完整 942 项另记，不能由 19 项补成整套成功。此修改针对会话选择查询，不把上述失败写成 SFTP 列目录错误；手机频繁断流的整体根因仍未确定。
+
+### 9.189 实际签名 f39 包的 EOF、真正断流与新建连接（2026-11-03）
+
+原 API 36 / arm64 / 16 KiB 页发行 AVD 保留 userdata，将实际 `945f68c` APK（SHA256 `326fef7c7001a7459dbec17dcdc7856538f7ee4748e5e0f4583b7a3b03068cf5`）同证书覆盖为实际 `f39cb6d` R8 release（SHA256 `594fdc6cb943b603f0864f13dc36ee35e1510f6c83efd29cade5c05152c917b9`）。拉回安装字节与已下载附件相同；升级前后冷启动首页、可见文件元数据、2 条历史计数、空配置、八项 secure 设置和显示尺寸/密度相同。仅增加独立临时主机和其精确指纹信任，无私钥导入。
+
+生产 UI 密码认证连接自建环回 Paramiko SSH 协议 peer，依次验证：① 服务端发送尾部 `EOF_TAIL_中é` 和 EOF 后，终端仍显示尾部文字，状态为 **“连接已断开 · 退出状态未知”**，没有读取失败；服务端虽送 exit-status 0，产品未将缺少 availability 位的 getter 当作已证明的成功状态。② 服务端直接切断 TCP、不发送 EOF，产品保留 **“终端读取失败，当前连接已停止”** 与实际 libssh2 负错误码。③ 手动关闭旧会话、从主机列表再创建连接，第三次认证和新通道成功，随后 EOF 再次通过。断流后一秒内认证计数保持 2，第三次是显式新建，未把它描述为自动重连。三次真实生产流程、节点 XML/结果、已安装 APK 及源端事件在 `tmp/android-eof-release-device/` 的 `acceptance.json`、`upgrade.json` 与各 case 记录。
+
+此 peer 不分配真实 OS PTY，也不是外部/物理服务器；正常 EOF 为接收留了 500ms，不强行宣称本节触发了“负读取码+已确认 EOF”分支，后者由 §9.185 的实测库状态和编译 C 边界回归证明。本节是优化 release 运行验收，不能据此完成手机网络或全部服务端矩阵。
+
+收尾先逐字验证当前配置只含 `eof-release-4a6f74` / 127.0.0.1:51091，再在生产编辑器删除到空、检查空草稿后保存并冷读确认；按端点及 SHA256 指纹只移除自建信任，冷读列表为空。原首页、可见文件、2 条历史计数、八项 secure 与显示参数再次核对相同，正常配置备份保留，不宣称隐藏文件/历史正文全部逐字节相同。服务端 **exit 0**、临时口令已清零、broker/监听端口/adb reverse 均消失；sync 正常停止原发行 AVD，保留 userdata 和新 APK，不 wipe 或卸载。清理证据 `device-cleanup.json`、`cleanup.json`、`final-cleanup.json`。本次未重跑已接受的 Kitty 图形或十分钟负载。
+
+
+**§9.188 合入收尾**：app lintDebug 通过，两个候选检出的 917 份非 Markdown 输入完全相同。会话查询修正、新并发测试及两组手工变异脚本随本节提交主线；后续以该 clean 提交执行两端默认完整 942 项和对应 release CI，未预记完成。原 `f39cb6d` API 29 的 1 项失败、API 36 的 941 项通过及其签名包 §9.189 运行结果仍按原来源保留。
