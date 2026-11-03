@@ -216,6 +216,15 @@ if(SSH2_FOUND)
 
 endif()
 
+if(GHOSTERM_WITH_LIBSSH2 AND SSH2_FOUND)
+  add_executable(test_ssh_read tests/test_ssh_read.c)
+  target_include_directories(test_ssh_read PRIVATE src ${SSH2_INCLUDE_DIRS})
+  target_compile_definitions(test_ssh_read PRIVATE GT_HAVE_LIBSSH2=1)
+  target_link_libraries(test_ssh_read PRIVATE ghosterm_core)
+  target_compile_options(test_ssh_read PRIVATE -Wall -Wextra -Werror)
+  add_test(NAME ssh_shell_read COMMAND test_ssh_read)
+endif()
+
 add_executable(test_ssh tests/test_ssh.c)
 target_link_libraries(test_ssh PRIVATE ghosterm_core)
 if(SSH2_FOUND)

@@ -6,7 +6,7 @@ Ghosterm 是各端原生 UI、共享 C 核心和 libghostty 驱动的终端，�
 
 [共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,255 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41556541717](https://github.com/hanxi/ghosterm/actions/runs/41556541717) 成功，实际附件已下载核验。macOS 保持 `945f68c` / build 96 / min macOS 15.0 / ad-hoc / 未公证（[CI 41553371055](https://github.com/hanxi/ghosterm/actions/runs/41553371055)）；ZIP、DMG 与清单摘要一致，macOS 五份附件 ID/尺寸/摘要未变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
 
-**完整回归**：API 29 / arm64 / 4 KiB 页的 `976a7b5` / clean 默认完整 **941 项通过**；API 36 / arm64 / 16 KiB 页的 `945f68c` / clean 默认完整 **941 项通过**。两份产品源码相同，滚动测试等待条件不同，来源收据分别记账。原 API 29 一次失败及修正验证保留于 [§9.182](docs/reference/android-implementation.md#9182-两端-941-项结果与滚动测试等待竞态修正2026-11-03)，修正后完整结果见 [§9.186](docs/reference/android-implementation.md#9186-滚动测试修正后的-api-29-完整-941-项2026-11-03)。debug 完整回归与正式包、真机矩阵分别记账；另有未合并的 EOF 分类修正候选（§9.185）。
+**完整回归**：API 29 / arm64 / 4 KiB 页的 `976a7b5` / clean 默认完整 **941 项通过**；API 36 / arm64 / 16 KiB 页的 `945f68c` / clean 默认完整 **941 项通过**。两份产品源码相同，滚动测试等待条件不同，来源收据分别记账。原 API 29 一次失败及修正验证保留于 [§9.182](docs/reference/android-implementation.md#9182-两端-941-项结果与滚动测试等待竞态修正2026-11-03)，修正后完整结果见 [§9.186](docs/reference/android-implementation.md#9186-滚动测试修正后的-api-29-完整-941-项2026-11-03)。debug 完整回归与正式包、真机矩阵分别记账；新的 EOF 分类修正已合入，CI 与完整复验另记（§9.185）。
 
 **旧失败记录保留**：`174e754` 两端各 929 方法中具名失败 60 个（104 条含重复报错事件）；旧手动认证前提与 Application Context 夹具已修正，过程见 [§9.174](docs/reference/android-implementation.md#9174-成功密钥记忆后完整回归的测试夹具修正2026-11-03)。不把旧失败改记为通过。
 

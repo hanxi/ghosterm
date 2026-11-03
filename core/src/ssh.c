@@ -1178,11 +1178,11 @@ int gt__ssh_shell_read(void *ch, uint8_t *buf, size_t cap, int timeout_ms) {
   libssh2_session_set_blocking(sh->sess, previous_blocking);
   libssh2_session_set_timeout(sh->sess, previous_timeout);
   if (n > 0) return (int)n;
-  if (n == 0) {
-    if (libssh2_channel_eof(sh->chan)) return GT_TRANSPORT_READ_EOF;
-    return GT_TRANSPORT_READ_TIMEOUT;
-  }
-  if (n == LIBSSH2_ERROR_TIMEOUT || n == LIBSSH2_ERROR_EAGAIN)
+  /* A peer can send EOF and close TCP in the same read. libssh2 may then
+   * return SOCKET_RECV while its channel has already confirmed EOF. Preserve
+   * positive tail bytes first, then distinguish confirmed EOF from a reset. */
+  if (libssh2_channel_eof(sh->chan)) return GT_TRANSPORT_READ_EOF;
+  if (n == 0 || n == LIBSSH2_ERROR_TIMEOUT || n == LIBSSH2_ERROR_EAGAIN)
     return GT_TRANSPORT_READ_TIMEOUT;
   char *msg = NULL;
   int last = libssh2_session_last_error(sh->sess, &msg, NULL, 0);

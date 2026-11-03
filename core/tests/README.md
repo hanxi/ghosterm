@@ -345,3 +345,16 @@ archive 与测试可执行再重链；回滚同样执行，并核对原始 SHA25
 - Android 阶段停滞、明确拒绝/断线区别与 owner 生命周期用协议故障端验证，正常 PTY/PID 用 OpenSSH；入口和范围见 [Android §9.41](../../docs/reference/android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)。
 
 这些是手工验证，不新增 CI 覆盖。共享通道代码变更还需回归既有 SSH/exec/tmux，不能以新接口定向替代旧入口。
+
+
+### SSH shell 读取的 EOF 边界
+
+`ssh_shell_read` CTest 编译真实 `ssh.c`，只在 libssh2 读取边界替换返回值/EOF 状态，复现真实库可产生的“负读取码 + EOF 已确认”。验证正长度尾部字节优先、已确认 EOF、真正 reset、暂时无数据以及 timeout/blocking 恢复；不提供产品测试钩子，不替代实际 SSH/平台验收。所有检查均不依赖 NDEBUG。
+
+```sh
+bash scripts/build-core.sh
+ctest --test-dir core/build -R '^ssh_shell_read$' --output-on-failure
+python3 scripts/mutation-check-ssh-read.py
+```
+
+三组变异分别破坏 EOF 确认、真实断流和尾部输出优先级，每组编译成功后目标断言红、独立 API 对照绿、复原所有模式绿并校验 SHA256；临时目录固定工程 tmp。该变异脚本为手工证据，未加入 macOS CI full 档的二十份变异清单。实际 SSH/Android/macOS 的证据与限制见 Android 实现计划 §9.185。
