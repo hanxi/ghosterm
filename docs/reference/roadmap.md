@@ -1,8 +1,8 @@
 # 路线图
 
-**当前 Android 发行（2026-11-03，`808c0ae`）**：默认记住成功使用的 SSH 密钥，下次自动使用；取消勾选可仅用于本次连接，加密密钥仍需口令。SSH/SFTP/独立任务共用记忆，SSH 配置不改写。既有 SAF 修复、Kitty 动画和 Nerd Fonts 保留。见 [实际发行](android-implementation.md#9178-密钥记忆提示修正的实际-android-dev-发行2026-11-03)。
+**当前 Android 发行（2026-11-03，`945f68c`）**：终端点按按 VT 鼠标模式发送，可切换已开启鼠标的 tmux 窗口；未开启鼠标时点按打开键盘，长按仍选文本。SSH 传递实际像素尺寸，读取失败显示底层错误详情；频繁断流的手机根因仍待定位。既有密钥记忆、SAF、Kitty 动画与 Nerd Fonts 保留。见 [本次实现与验证](android-implementation.md#9181-安卓鼠标点击ssh-像素尺寸与读取错误详情2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,139,875 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41544996548](https://github.com/hanxi/ghosterm/actions/runs/41544996548) 成功，实际附件已下载核验。Mac 保留 `d3313a7` / build 95 / min macOS 15.0 / ad-hoc / 未公证（[原 CI](https://github.com/hanxi/ghosterm/actions/runs/41528681290)）；其五份附件 ID/尺寸不变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,251 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41553371067](https://github.com/hanxi/ghosterm/actions/runs/41553371067) 成功，实际附件已下载核验。macOS 同为 `945f68c` / build 96 / min macOS 15.0 / ad-hoc / 未公证（[CI 41553371055](https://github.com/hanxi/ghosterm/actions/runs/41553371055)）；ZIP、DMG 与清单摘要一致，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
 
 **完整回归**：`e254b3d` / clean 在 API 29 / arm64 / 4 KiB 页与 Android 16 / API 36 / arm64 / 16 KiB 页各默认完整 **929 项全部通过**，零失败/错误/跳过。具名发现/成功结束集合、实际安装 app/test APK 及 911 份输入前后与跨检出一致，见 [§9.176](android-implementation.md#9176-夹具修正后的两端默认完整-929-项2026-11-03)。这是 debug instrumentation 完整结果；正式 release 及真实手机/外部矩阵分别记账。
 
@@ -22,7 +22,7 @@
 
 **第三方远端读取**：旧 `0c30b17` release 在 API 29 / arm64 / 4 KiB 页，经 RSAF v4.16 的真实 SFTP 后端完成系统授权、列表/完整预览和复制到应用文件；379 字节目标与独立远端 SHA256 一致，源前后不变，临时数据已清理。仅一个只读服务/提供方路径，见 [远端提供方专项](android-implementation.md#9171-身份说明校正与第三方远端提供方读取2026-11-03)。
 
-**当前正式包长负载**：`808c0ae` 已完成两端十分钟双设备输出、负载中页面往返和忙碌关闭；API 29 / API 36 帧耗时 p95 为 6ms / 8ms。API 36 部分时段 FrameTimeline 已采集，旧持续高计数根因仍未关闭，见 [§9.180](android-implementation.md#9180-当前实际发行包的双设备十分钟负载与同负载跟踪2026-11-03)。
+**此前正式包长负载**：`808c0ae` 已完成两端十分钟双设备输出、负载中页面往返和忙碌关闭；API 29 / API 36 帧耗时 p95 为 6ms / 8ms。API 36 部分时段 FrameTimeline 已采集，旧持续高计数根因仍未关闭，见 [§9.180](android-implementation.md#9180-当前实际发行包的双设备十分钟负载与同负载跟踪2026-11-03)。
 
 用户于 2026-11-03 反馈真机测试正常；型号、系统、安装版本和具体场景待补充，按用户反馈记账，不代替完整设备矩阵。
 

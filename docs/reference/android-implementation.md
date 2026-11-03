@@ -1,8 +1,8 @@
 # Android 最终方案实现计划
 
-**当前 Android 发行（2026-11-03，`808c0ae`）**：默认记住成功使用的 SSH 密钥，下次自动使用；取消勾选可仅用于本次连接，加密密钥仍需口令。SSH/SFTP/独立任务共用记忆，SSH 配置不改写。既有 SAF 修复、Kitty 动画和 Nerd Fonts 保留。见 [实际发行](android-implementation.md#9178-密钥记忆提示修正的实际-android-dev-发行2026-11-03)。
+**当前 Android 发行（2026-11-03，`945f68c`）**：终端点按按 VT 鼠标模式发送，可切换已开启鼠标的 tmux 窗口；未开启鼠标时点按打开键盘，长按仍选文本。SSH 传递实际像素尺寸，读取失败显示底层错误详情；频繁断流的手机根因仍待定位。既有密钥记忆、SAF、Kitty 动画与 Nerd Fonts 保留。见 [本次实现与验证](android-implementation.md#9181-安卓鼠标点击ssh-像素尺寸与读取错误详情2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,139,875 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41544996548](https://github.com/hanxi/ghosterm/actions/runs/41544996548) 成功，实际附件已下载核验。Mac 保留 `d3313a7` / build 95 / min macOS 15.0 / ad-hoc / 未公证（[原 CI](https://github.com/hanxi/ghosterm/actions/runs/41528681290)）；其五份附件 ID/尺寸不变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,251 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41553371067](https://github.com/hanxi/ghosterm/actions/runs/41553371067) 成功，实际附件已下载核验。macOS 同为 `945f68c` / build 96 / min macOS 15.0 / ad-hoc / 未公证（[CI 41553371055](https://github.com/hanxi/ghosterm/actions/runs/41553371055)）；ZIP、DMG 与清单摘要一致，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
 
 **完整回归**：`e254b3d` / clean 在 API 29 / arm64 / 4 KiB 页与 Android 16 / API 36 / arm64 / 16 KiB 页各默认完整 **929 项全部通过**，零失败/错误/跳过。具名发现/成功结束集合、实际安装 app/test APK 及 911 份输入前后与跨检出一致，见 [§9.176](android-implementation.md#9176-夹具修正后的两端默认完整-929-项2026-11-03)。这是 debug instrumentation 完整结果；正式 release 及真实手机/外部矩阵分别记账。
 
@@ -4324,7 +4324,7 @@ API 36 的 gfx 高计数集中在前面，240–540 秒间累计保持 612，最
 本节是当前实际优化包的本地终端负载、升级与资料保护观察，不替代 §9.176 的 debug 完整 929 项，不借用为所有 SSH/Kitty/文件端点的 release 矩阵。没有新增永久测试或产品闸门。
 
 
-### 9.181 安卓鼠标点击、SSH 像素尺寸与读取错误详情（2026-11-03，未发行候选）
+### 9.181 安卓鼠标点击、SSH 像素尺寸与读取错误详情（2026-11-03）
 
 用户报告经常看到“终端读取失败”，并反馈无法点击 tmux 状态栏切换 windows。源码确认原提示来自已建立 transport 的 `GT_TRANSPORT_READ_ERROR` 分支：该分支停止当前连接，不是重连请求失败；普通 SSH 不自动重连。TIMEOUT/EAGAIN 原已作为“暂时没有数据”保留，本片不将所有读取错误静默忽略，也不据短时隔离测试宣称手机频繁断流根因已修复。已询问闲置/后台/切网时机和新连接结果，尚待具体反馈。
 
@@ -4340,3 +4340,8 @@ API 36 的 gfx 高计数集中在前面，240–540 秒间累计保持 612，最
 
 
 **候选验证收尾**：API 29 的 14 组编译变异全部通过，每组目标正常断言红、同 APK 独立配置绿、源码恢复后目标绿及 SHA256 一致；恢复后 26 项完整专项另跑通过（28.543 秒）。Android 16 / API 36 / arm64 / 16 KiB 页同一 26 项通过，实际安装 app/test APK 与各自构建摘要相同。913 份非 Markdown/非 vendor 输入在变异恢复与平台检查后相同；收据分别为 `tmp/android-mouse-evidence/api29-final/`、`api36/`，14 组原始日志在 `mutations14/`。Core 离线 49 CTest / 94 ABI、真 sshd 的 `test_ssh` 96 项、四 Android 模块 lint 及 macOS 原生 release/ad-hoc App 构建均通过，相关日志在同一证据根。没有据这些专项宣称新的默认完整 941 项或实际 CI 签名包已通过；下一步提交后分别执行完整回归、CI 出包与真实工具复验。原 `808c0ae` Kitty 工具失败和手机频繁断流未明原因继续保留。
+
+
+**本片实际发行**：`945f68ce4cb4f66cd9c2c83f1040d36960eac1bd` / clean 的 Android、macOS CI 均已成功。共用 dev 八份资产实际下载并分别核验，Android APK **8,142,251 字节**，SHA256 **`326fef7c7001a7459dbec17dcdc7856538f7ee4748e5e0f4583b7a3b03068cf5`**；固定证书、非 debuggable/minSdk 29、R8/资源优化、三份压缩 arm64 库、ELF/ZIP 16 KiB、字体/许可与构建机路径检查通过。macOS 同源 build 96，最低 15.0、ad-hoc、未公证，实际 ZIP/DMG 的摘要与 `SHA256SUMS`/`version.json` 一致。证据见 `tmp/android-mouse-evidence/release/`。最初本地验包脚本误把 macOS 可执行文件名写成 `Ghosterm` 而断言失败；按项目实际 `GhostermApp` 修正该临时检查后通过，未改动产物或放宽签名/摘要要求。
+
+**本片完整回归尚未完成**：两端同源默认 941 项已启动，913 份输入冻结。API 29 目前发现旧 `LocalTerminalTest#alternateScreenAndScrollbackComeFromVt` 超时，保留原始错误 `tmp/android-mouse-evidence/full-api29-errors.log`；失败帧包含回显命令的 `SCROLL_DONE` 和 `line-000` 至 `line-021`，疑似结束标记误匹配导致过早滚动，尚待独立证明。API 36 仍在执行，不能把运行中的无已见失败或 26 项专项记作完整 941 项通过。两端运行结束前不改测试/产品输入。官方 kitten 工具在新实际签名包上的复验及手机频繁断流根因仍未完成。
