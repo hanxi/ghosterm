@@ -157,6 +157,33 @@ class RemoteFilesProductTest {
         ui.waitUntil { !files().loading };assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)
     }
 
+    @Test fun remoteAndLocalTabsRetainDirectoriesClipboardAndTheSameFileConnection() {
+        val localName="tab-local-${UUID.randomUUID()}"
+        val local=File(ui.activity.filesDir,"home/$localName").apply { mkdirs() }
+        File(local,"keep.txt").writeText("local unchanged\n")
+        try {
+            open();login()
+            ui.onNodeWithTag("file-tab-remote").assertIsSelected();capture("tabs-remote")
+            val endpoint=files().location.endpoint
+            entry("文本.txt").performTouchInput { longClick() };ui.onNodeWithTag("file-copy").performClick()
+            val clipboard=files().clipboard
+            entry("folder").performClick();ui.waitUntil { !files().loading }
+            val remotePath=files().location.directoryId
+            ui.onNodeWithTag("file-tab-local").performClick();ui.waitUntil { !files().loading }
+            entry(localName).performClick();ui.waitUntil { !files().loading }
+            entry("keep.txt").assertIsDisplayed();capture("tabs-local")
+            ui.onNodeWithTag("file-tab-remote").performClick();ui.waitUntil { !files().loading }
+            assertEquals(endpoint,files().location.endpoint);assertEquals(remotePath,files().location.directoryId)
+            assertNull(files().error);assertNull(sessions().connecting)
+            assertSame(clipboard,files().clipboard)
+            ui.onNodeWithTag("file-tab-local").performClick();ui.waitUntil { !files().loading }
+            assertEquals(localName,files().location.directoryId);entry("keep.txt").assertIsDisplayed()
+            assertSame(clipboard,files().clipboard)
+            assertEquals("local unchanged\n",File(local,"keep.txt").readText())
+            assertFalse("Tab changes must not paste a copied file",File(local,"文本.txt").exists())
+        } finally { local.deleteRecursively() }
+    }
+
     private fun unconfiguredTerminal():PreparedSSH {
         vault.remove(key)
         key=vault.import("Remember ${UUID.randomUUID()}",fixture.getString("terminalFilePem").toByteArray())
@@ -288,7 +315,7 @@ class RemoteFilesProductTest {
         assertEquals("directories first",FileKind.DIRECTORY,files().entries.first().kind)
         capture("browse")
         ui.onNodeWithTag("file-location").assertTextContains("远端",substring=true)
-        ui.onNodeWithTag("file-breadcrumb").assertTextContains(fixture.getString("remoteRoot"))
+        ui.onNodeWithTag("file-breadcrumb",useUnmergedTree=true).assertTextEquals("远端 · $alias / ${fixture.getString("remoteRoot")}")
         entry("文本.txt").performClick()
         ui.waitUntil(10000) { files().preview?.text!=null }
         ui.onNodeWithTag("file-preview").assertTextEquals("远端 UTF-8\nline two\n")

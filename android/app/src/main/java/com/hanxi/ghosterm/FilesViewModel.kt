@@ -31,6 +31,10 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     var endpoints by mutableStateOf(listOf(FileEndpoint.APP)); private set
     var crumbs by mutableStateOf(listOf(FileCrumb(FileLocation(FileEndpoint.APP),FileEndpoint.APP.label))); private set
     val location get() = crumbs.last().location
+    var remoteScope by mutableStateOf(false); private set
+    val awaitingRemote get() = remoteScope && location.endpoint.remoteAlias==null
+    private var lastLocalEndpointId = FileEndpoint.APP.id
+    private var lastRemoteEndpointId: String? = null
     var entries by mutableStateOf<List<BrowserEntry>>(emptyList()); private set
     var loading by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
@@ -140,8 +144,9 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     private var rootsJob: Job? = null
     private var generation = 0L
     private var rootsGeneration = 0L
-    fun enter() { externalCache.sweepLater();visible=true; choosingLocation=false; refreshEndpoints(); reload() }
+    fun enter() { externalCache.sweepLater();remoteScope=location.endpoint.remoteAlias!=null;visible=true; choosingLocation=false; refreshEndpoints(); reload() }
     fun enterLocal() {
+        lastLocalEndpointId=FileEndpoint.APP.id
         remembered[location.endpoint.id]=crumbs.toList()
         crumbs=remembered[FileEndpoint.APP.id] ?: listOf(FileCrumb(FileLocation(FileEndpoint.APP),FileEndpoint.APP.label))
         enter()
@@ -216,6 +221,19 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
             } finally { hiddenSaving = false }
         }
     }
+    fun switchScope(remote: Boolean) {
+        if(selecting || remote==remoteScope) return
+        pickerPending=false
+        rootsGeneration++;rootsJob?.cancel();rootsJob=null
+        val endpoint=if(remote) endpoints.firstOrNull { it.id==lastRemoteEndpointId && it.remoteAlias!=null }
+            ?: endpoints.lastOrNull { it.remoteAlias!=null }
+        else endpoints.firstOrNull { it.id==lastLocalEndpointId && it.remoteAlias==null } ?: FileEndpoint.APP
+        if(endpoint!=null) { choose(endpoint);return }
+        // Empty remote scope has no destination. Invalidate local reads and any
+        // pending connection before showing the explicit connection entry.
+        cancelRead();dismissClipboardDialogs();clearSelection();preview=null;entries=emptyList();error=null
+        remoteScope=true
+    }
     fun chooseLocations() { dismissClipboardDialogs();choosingLocation=true;refreshEndpoints() }
     fun dismissLocations() { choosingLocation=false }
     private fun refreshEndpoints() {
@@ -231,6 +249,8 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
         dismissClipboardDialogs()
         remembered[location.endpoint.id]=crumbs.toList()
         crumbs=remembered[endpoint.id] ?: listOf(FileCrumb(FileLocation(endpoint),endpoint.label))
+        remoteScope=endpoint.remoteAlias!=null
+        if(remoteScope) lastRemoteEndpointId=endpoint.id else lastLocalEndpointId=endpoint.id
         choosingLocation=false;reload()
     }
     fun beginRemoteConnection(): Long { endpointError=null;return cancelRead() }
@@ -274,6 +294,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
         }
     }
     fun reload() {
+        if(awaitingRemote) return
         val token=cancelRead();val requested=location
         clipboardReplacement=null
         clearSelection();preview=null;entries=emptyList();error=null;loading=true
@@ -317,6 +338,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
             choosingLocation -> dismissLocations()
             preview!=null -> closePreview()
             selecting -> clearSelection()
+            awaitingRemote -> switchScope(false)
             crumbs.size>1 -> { crumbs=crumbs.dropLast(1);reload() }
             else -> leave()
         }

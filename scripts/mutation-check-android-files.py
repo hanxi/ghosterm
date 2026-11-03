@@ -15,7 +15,7 @@ run,require=helper.run,helper.require
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--case',type=int,help='One group; omitted runs all groups')
+    parser=argparse.ArgumentParser();parser.add_argument('--case',type=int,action='append',help='Repeat to select groups; omitted runs all groups')
     args=parser.parse_args()
     serial=os.environ.get('ANDROID_SERIAL')
     if not serial:raise RuntimeError('Set ANDROID_SERIAL to the intended test device')
@@ -55,14 +55,34 @@ def main():
          'if(false && index<parts.lastIndex) check(OsConstants.S_ISDIR(Os.lstat(path.path).st_mode))',
          'FileBrowserTest#linksTraversalAndSpecialFilesAreExplicitlyRejected'),
         (source,'check(entries.size<ENTRY_LIMIT)','check(true)','FileBrowserTest#tooManyEntriesReportsFailureRatherThanPartialSuccess'),
-        (app,'TerminalScreen(sessions, files::enter)',
-         'TerminalScreen(sessions) { sessions.active?.let { sessions.close(it.id) }; files.enter() }',lifecycle),
+        (app,'TerminalScreen(sessions, ::openTerminalFiles)',
+         'TerminalScreen(sessions) { sessions.active?.let { sessions.close(it.id) }; openTerminalFiles() }',lifecycle),
         (screen,'onLongClick={ model.longPress(entry) }','onLongClick={ model.tap(entry) }',ui),
         (source,'while(true) {\n                    check(active()) { "预览已取消" }','while(true) {\n                    check(true) { "预览已取消" }',
          'FilesSafTest#providerErrorsEmptyUnknownSizeAndCancelledStreamRemainDistinct'),
         (source,'// This owner opened it with Os.open, so it must also close it.\n                Os.close(fd)','// This owner opened it with Os.open, so it must also close it.\n                Unit','FileBrowserTest#localPreviewClosesDescriptorsAfterSuccessAndDecodeFailure'),
     ]
-    if args.case and not 1<=args.case<=len(cases):raise RuntimeError('Invalid case')
+    scopes='FileBrowserTest#scopeTabsKeepLocalPathAndClipboardWithoutAnImplicitRemoteDestination'
+    cases += [
+        (screen,'onClick={ model.switchScope(remote) }','onClick={}',scopes),
+        (model,'val awaitingRemote get() = remoteScope && location.endpoint.remoteAlias==null','val awaitingRemote get() = false',scopes),
+        (model,'remoteScope=true','remoteScope=false',scopes),
+        (model,'cancelRead();dismissClipboardDialogs();clearSelection();preview=null;entries=emptyList();error=null',
+         'dismissClipboardDialogs();clearSelection();preview=null;entries=emptyList();error=null','FileBrowserTest#emptyRemoteTabInvalidatesLateReadsAndPendingConnection'),
+        (model,'remoteScope=true','clipboard=null;remoteScope=true',scopes),
+        (screen,'if(!model.selecting) Button(onClick=onPaste,enabled=!model.awaitingRemote && !model.loading',
+         'if(!model.selecting) Button(onClick=onPaste,enabled=!model.loading',scopes),
+        (model,'if(selecting || remote==remoteScope) return','if(remote==remoteScope) return',
+         'FileBrowserTest#tabsPreserveTheSelectedDeviceFolderAndBlockSwitchingDuringSelection'),
+        (model,'lastLocalEndpointId=endpoint.id','lastLocalEndpointId=FileEndpoint.APP.id',
+         'FileBrowserTest#tabsPreserveTheSelectedDeviceFolderAndBlockSwitchingDuringSelection'),
+    ]
+    cases += [(app,'if(!files.awaitingRemote) files.clipboard?.let','if(true) files.clipboard?.let',
+        'FileClipboardLifecycleTest#stalePasteActionCannotUseLocalDestinationAfterChoosingEmptyRemoteTab')]
+    cases += [(model,'rootsGeneration++;rootsJob?.cancel();rootsJob=null','Unit',
+        'FileBrowserTest#emptyRemoteTabInvalidatesLateReadsAndPendingConnection')]
+    selected=set(args.case or range(1,len(cases)+1))
+    if any(not 1<=number<=len(cases) for number in selected):raise RuntimeError('Invalid case')
     def build(label):
         result=run(['bash',ROOT/'scripts/build-android.sh'],seconds=900)
         (work/f'{label}-build.log').write_text(result.stdout+result.stderr);require(result)
@@ -77,11 +97,15 @@ def main():
         if passed!=green or (not green and ('FAILURES' not in output or not any(x in output for x in ('AssertionError','org.junit.ComparisonFailure')))):
             raise RuntimeError(output)
     build('baseline')
-    test('FileBrowserTest,FilesSafTest,'+lifecycle,True,'baseline',24)
+    if args.case:
+        for number,target in enumerate(dict.fromkeys(cases[index-1][3] for index in sorted(selected)),1):
+            test(target,True,f'baseline-target-{number}')
+    else:
+        test('FileBrowserTest,FilesSafTest,'+lifecycle,True,'baseline',27)
     test(control,True,'baseline-control')
     try:
         for index,(path,before,after,target) in enumerate(cases,1):
-            if args.case and args.case!=index:continue
+            if index not in selected:continue
             clean=originals[path].decode()
             if clean.count(before)!=1:raise RuntimeError(f'F{index}: missing/ambiguous anchor')
             path.write_text(clean.replace(before,after+' /* '+MARK+' */'))
@@ -94,7 +118,7 @@ def main():
         for path,data in originals.items():
             if MARK.encode() in path.read_bytes():path.write_bytes(data)
         if any(hashlib.sha256(p.read_bytes()).digest()!=h for p,h in hashes.items()):raise RuntimeError('Sources changed during mutations')
-    print(f'ANDROID FILES MUTATIONS PASS: {1 if args.case else len(cases)} groups',flush=True)
+    print(f'ANDROID FILES MUTATIONS PASS: {len(selected)} groups',flush=True)
 
 
 if __name__=='__main__':

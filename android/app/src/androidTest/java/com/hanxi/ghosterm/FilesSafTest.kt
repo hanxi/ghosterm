@@ -230,15 +230,18 @@ class FilesSafTest {
         ui.onNodeWithTag("file-entry:Denied").performClick();await { !model().loading }
         ui.onNodeWithTag("file-list-error").assertExists();ui.onNodeWithTag("file-list-empty").assertDoesNotExist()
         ui.onNodeWithText("返回").performClick();await { !model().loading }
+        ui.onNodeWithTag("file-list").performScrollToNode(hasTestTag("file-entry:unknown-large.txt"))
         ui.onNodeWithTag("file-entry:unknown-large.txt").performClick();await { model().preview?.error!=null }
         ui.onNodeWithTag("file-preview-error").assertTextContains("256 KiB",substring=true)
         ui.onNodeWithText("返回").performClick()
+        ui.onNodeWithTag("file-list").performScrollToNode(hasTestTag("file-entry:slow.txt"))
         ui.onNodeWithTag("file-entry:slow.txt").performClick();await { model().preview!=null }
         assertNull(main { model().preview?.text })
         val tree=main { model().location.endpoint.treeUri!! }
         val naturalEnds=awaitStreams(tree,1)
         ui.onNodeWithText("返回").performClick()
         assertEquals("stream closed by cancellation, not natural completion",naturalEnds,awaitStreams(tree,0))
+        ui.onNodeWithTag("file-list").performScrollToNode(hasTestTag("file-entry:notes.txt"))
         ui.onNodeWithTag("file-entry:notes.txt").performClick()
         await { model().preview?.text!=null };ui.onNodeWithTag("file-preview").assertTextEquals("provider notes 🔑\n")
         ui.onNodeWithTag("file-preview").assertTextEquals("provider notes 🔑\n")

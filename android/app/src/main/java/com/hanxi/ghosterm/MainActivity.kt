@@ -145,7 +145,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         if(fileTasks.visible) { FileTasksScreen(fileTasks);return@MaterialTheme }
         if (files.visible) {
             FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error,
-                onPaste={ files.clipboard?.let { snapshot ->
+                onPaste={ if(!files.awaitingRemote) files.clipboard?.let { snapshot ->
                     fileTasks.startUserTask(snapshot,files.location,
                         if(files.location.endpoint.remote!=null) files.location.directoryId else files.crumbs.joinToString(" / ") { it.label })
                 } },showTasks=fileTasks::show,taskBar={ FileTaskDock(fileTasks) }) { alias ->

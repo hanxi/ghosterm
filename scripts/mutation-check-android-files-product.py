@@ -29,7 +29,12 @@ def execute(root,build,test):
       ('leave',model,'clearSelection();(source as? FileBrowserRepository)?.close()','clearSelection()',real),
       ('stale-handoff',model,'if(!acceptsRemoteConnection(token))','if(false && !acceptsRemoteConnection(token))','lateAuthenticationCannotReopenOrReplaceLeftPage'),
       ('read-error',model,'error=failure.message ?: "读取文件夹失败，请重试"','error=null','protocolReadFailureIsVisibleAndCannotPretendEmpty'),
-      ('remote-label',screen,'if(model.location.endpoint.remoteAlias==null) "本机" else "远端"','if(model.location.endpoint.remoteAlias==null) "本机" else "本机"',real),
+      ('remote-label',screen,'else "${if(model.remoteScope) "远端" else "本机"} · ${model.location.endpoint.label}"','else "本机 · ${model.location.endpoint.label}"',real),
+    ]
+    scopes='remoteAndLocalTabsRetainDirectoriesClipboardAndTheSameFileConnection'
+    cases += [
+      ('remote-tab-route',model,'endpoints.firstOrNull { it.id==lastRemoteEndpointId && it.remoteAlias!=null }','endpoints.firstOrNull { it.remoteAlias==null }',scopes),
+      ('remote-tab-memory',model,'remembered[endpoint.id] ?: listOf(FileCrumb(FileLocation(endpoint),endpoint.label))','listOf(FileCrumb(FileLocation(endpoint),endpoint.label))',scopes),
     ]
     selected=os.environ.get('ANDROID_FILES_PRODUCT_MUTATIONS','').split(',')
     if selected!=['']:

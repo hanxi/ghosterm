@@ -5,6 +5,9 @@ import androidx.activity.compose.BackHandler
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -51,12 +54,13 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
         } else model.externalPresenterStopped()
     } }
     val preview=model.preview
+    val pathLabel=if(model.location.endpoint.remoteAlias!=null) model.location.directoryId else model.crumbs.joinToString(" / ") { it.label }
     Scaffold(topBar={
         TopAppBar(title={ Text(if(preview!=null) preview.entry.name else if(model.selecting) "已选 ${model.selected.size} 项" else "文件",
             maxLines=1,overflow=TextOverflow.Ellipsis) },navigationIcon={ TextButton(onClick=model::back) { Text("返回") } },actions={
             if(preview==null) {
                 if(model.selecting) TextButton(onClick=model::clearSelection) { Text("取消选择") }
-                else TextButton(onClick=model::selectMode,enabled=!model.loading && model.error==null) { Text("选择") }
+                else TextButton(onClick=model::selectMode,enabled=!model.awaitingRemote && !model.loading && model.error==null) { Text("选择") }
             }
             Box {
                 TextButton(onClick={ menu=true }) { Text("更多") }
@@ -99,15 +103,20 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             }
         } else Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             if(compact) Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal=8.dp), verticalAlignment=Alignment.CenterVertically) {
-                TextButton(onClick=model::chooseLocations,contentPadding=PaddingValues(horizontal=8.dp),modifier=Modifier.widthIn(max=180.dp).testTag("file-location")) {
-                    Text("${if(model.location.endpoint.remoteAlias==null) "本机" else "远端"} · ${model.location.endpoint.label}",maxLines=1,overflow=TextOverflow.Ellipsis)
+                FileScopeTabs(model,Modifier.width(144.dp))
+                TextButton(onClick=model::chooseLocations,contentPadding=PaddingValues(horizontal=8.dp),
+                    modifier=Modifier.weight(1f).testTag("file-location")) {
+                    Text(if(model.awaitingRemote) "选择远程主机" else "${if(model.remoteScope) "远端" else "本机"} · "+
+                        pathLabel,
+                        Modifier.testTag("file-breadcrumb"),style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
-                Text(if(model.location.endpoint.remoteAlias!=null) model.location.directoryId else model.crumbs.joinToString(" / ") { it.label },
-                    Modifier.weight(1f).testTag("file-breadcrumb"),style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
             } else {
-            TextButton(onClick=model::chooseLocations,modifier=Modifier.fillMaxWidth().testTag("file-location")) { Text("${if(model.location.endpoint.remoteAlias==null) "本机" else "远端"} · ${model.location.endpoint.label}") }
-            Text(if(model.location.endpoint.remoteAlias!=null) model.location.directoryId else model.crumbs.joinToString(" / ") { it.label },Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).testTag("file-breadcrumb"),
-                style=MaterialTheme.typography.bodySmall,maxLines=2,overflow=TextOverflow.Ellipsis)
+            FileScopeTabs(model,Modifier.fillMaxWidth().padding(horizontal=12.dp))
+            TextButton(onClick=model::chooseLocations,modifier=Modifier.fillMaxWidth().testTag("file-location")) {
+                Text(if(model.awaitingRemote) "选择远程主机" else "${if(model.remoteScope) "远端" else "本机"} · ${model.location.endpoint.label}"+" / "+pathLabel,
+                    Modifier.fillMaxWidth().testTag("file-breadcrumb"),style=MaterialTheme.typography.bodySmall,
+                    maxLines=2,overflow=TextOverflow.Ellipsis)
+            }
             }
             if(remoteError!=null && !model.choosingLocation)
                 Text(remoteError,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(horizontal=16.dp).testTag("file-connect-error"))
@@ -116,6 +125,13 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             model.preferenceError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("file-preference-error")) }
             model.clipboardError?.let { Text(it,color=MaterialTheme.colorScheme.error,
                 modifier=Modifier.padding(horizontal=16.dp).testTag("file-clipboard-error")) }
+            if(model.awaitingRemote) Column(Modifier.weight(1f).fillMaxWidth().padding(16.dp).testTag("file-remote-empty"),
+                horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
+                Text("选择远程主机",style=MaterialTheme.typography.titleMedium)
+                Text(model.endpointError ?: "连接后浏览远程文件。本地目录和待粘贴清单会保留。",
+                    style=MaterialTheme.typography.bodySmall)
+                TextButton(onClick=model::chooseLocations,modifier=Modifier.heightIn(min=48.dp)) { Text("选择或连接主机") }
+            } else {
             when {
                 model.loading -> LinearProgressIndicator(Modifier.fillMaxWidth())
                 model.error!=null -> Column(Modifier.padding(16.dp)) {
@@ -150,6 +166,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                     HorizontalDivider()
                 }
             }
+            }
             if(compact && model.selecting) Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically) {
                 Text("已选 ${model.selected.size} 项"+(model.clipboard?.let { " · 清单 ${it.items.size} 项" } ?: ""),Modifier.weight(1f),maxLines=1,overflow=TextOverflow.Ellipsis)
                 Button(onClick=model::copySelected,enabled=model.selected.isNotEmpty() && !model.loading && model.error==null,
@@ -170,7 +187,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                             Text(snapshot.items.take(3).joinToString("、") { it.name }+" · ${snapshot.items.size} 项 · "+clipboardSource(snapshot)+" / "+snapshot.sourcePathLabel,
                                 maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("file-clipboard-names"))
                         }
-                        TextButton(onClick=onPaste,enabled=!model.loading && model.error==null,contentPadding=PaddingValues(horizontal=8.dp),
+                        TextButton(onClick=onPaste,enabled=!model.awaitingRemote && !model.loading && model.error==null,contentPadding=PaddingValues(horizontal=8.dp),
                             modifier=Modifier.height(48.dp).testTag("file-paste")) { Text("粘贴",maxLines=1) }
                         TextButton(onClick=model::requestClipboardClear,contentPadding=PaddingValues(horizontal=8.dp),modifier=Modifier.height(48.dp)) { Text("清空",maxLines=1) }
                     }
@@ -183,7 +200,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                             modifier=Modifier.testTag("file-clipboard-path"),style=MaterialTheme.typography.bodySmall)
                         if(!model.selecting) Text(snapshot.items.take(3).joinToString("、") { it.name }+if(snapshot.items.size>3) "…" else "",
                             maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("file-clipboard-names"))
-                        if(!model.selecting) Button(onClick=onPaste,enabled=!model.loading && model.error==null,
+                        if(!model.selecting) Button(onClick=onPaste,enabled=!model.awaitingRemote && !model.loading && model.error==null,
                             modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("file-paste")) { Text("粘贴到当前目录") }
                         Row {
                             TextButton(onClick=model::showClipboard,modifier=Modifier.heightIn(min=48.dp)) { Text("查看清单") }
@@ -237,6 +254,26 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 }
             }
             TextButton(onClick=model::hideClipboard,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text("返回文件") }
+        }
+    }
+}
+
+/** Navigation scopes share one clipboard; choosing a scope never starts a copy. */
+@Composable
+private fun FileScopeTabs(model: FilesViewModel, modifier: Modifier = Modifier) {
+    Row(modifier.height(48.dp).selectableGroup().testTag("file-scope-tabs"),
+        verticalAlignment=Alignment.CenterVertically) {
+        listOf(true to "远程",false to "本地").forEach { (remote,label) ->
+            val active=model.remoteScope==remote
+            Box(Modifier.weight(1f).fillMaxHeight()
+                .background(if(active) MaterialTheme.colorScheme.primary.copy(alpha=.12f) else androidx.compose.ui.graphics.Color.Transparent,
+                    MaterialTheme.shapes.medium)
+                .selectable(selected=active,enabled=!model.selecting,role=Role.Tab,onClick={ model.switchScope(remote) })
+                .testTag(if(remote) "file-tab-remote" else "file-tab-local").padding(horizontal=4.dp),
+                contentAlignment=Alignment.Center) {
+                Text(label,style=MaterialTheme.typography.labelLarge,maxLines=1,overflow=TextOverflow.Ellipsis,
+                    color=if(active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

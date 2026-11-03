@@ -45,8 +45,8 @@ def execute(root,build,test):
     ]
     cases += [('compact-entry',files,'if(compact) Row(entryModifier.height(48.dp)','if(false) Row(entryModifier.height(48.dp)',copied)]
     cases += [('header-identity',files,
-        'Text("${if(model.location.endpoint.remoteAlias==null) "本机" else "远端"} · ${model.location.endpoint.label}",maxLines=1,overflow=TextOverflow.Ellipsis)',
-        'Text(model.location.endpoint.label,maxLines=1,overflow=TextOverflow.Ellipsis)',small)]
+        '"${if(model.remoteScope) "远端" else "本机"} · "+',
+        '""+',small)]
     cases += [('portrait-font',files,
         'val compact = LocalConfiguration.current.screenHeightDp < 400 || LocalConfiguration.current.fontScale >= 1.5f',
         'val compact = LocalConfiguration.current.screenHeightDp < 400',

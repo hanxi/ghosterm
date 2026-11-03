@@ -24,6 +24,24 @@ class FileClipboardLifecycleTest {
     @After fun cleanup() {
         ui.runOnIdle { files().requestClipboardClear();files().confirmClipboardClear();files().leave();sessions().sessions.map { it.id }.forEach(sessions()::close) };file.delete()
     }
+    @Test fun stalePasteActionCannotUseLocalDestinationAfterChoosingEmptyRemoteTab() {
+        ui.onNodeWithText("本机文件").performClick();ui.waitUntil { !files().loading }
+        ui.onNodeWithTag("file-entry:${file.name}").performScrollTo().performTouchInput { longClick() }
+        ui.onNodeWithTag("file-copy").performClick()
+        val action=ui.onNodeWithTag("file-paste").assertIsEnabled().fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
+        val tasks=ViewModelProvider(ui.activity)[FileTasksViewModel::class.java]
+        ui.runOnIdle {
+            files().switchScope(true)
+            assertTrue(files().awaitingRemote)
+            action.invoke()
+            assertFalse("A stale paste callback must not open a task for the hidden local destination",tasks.visible)
+        }
+        ui.onNodeWithTag("file-tab-remote").assertIsSelected()
+        ui.onNodeWithTag("file-remote-empty").assertIsDisplayed()
+        assertEquals("clipboard lifecycle",file.readText())
+    }
+
     @Test fun clipboardSurvivesSettingsTerminalAndActivityRecreationWithoutOwningShell() {
         ui.onNodeWithText("本机文件").performClick();ui.waitUntil { !files().loading }
         ui.onNodeWithTag("file-entry:${file.name}").performScrollTo().performTouchInput { longClick() }

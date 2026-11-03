@@ -73,6 +73,79 @@ class FileBrowserTest {
         assertNotNull("operation must explicitly fail",failure)
     }
 
+    @Test fun scopeTabsKeepLocalPathAndClipboardWithoutAnImplicitRemoteDestination() {
+        show();entry("Alpha").performClick();loaded()
+        entry("child.txt").performTouchInput { longClick() }
+        ui.onNodeWithTag("file-copy").performClick()
+        val clipboard=model.clipboard
+        assertNotNull(clipboard)
+        ui.onNodeWithTag("file-tab-local").assertIsSelected()
+        ui.onNodeWithTag("file-tab-remote").performClick().assertIsSelected()
+        ui.onNodeWithTag("file-remote-empty").assertIsDisplayed()
+        ui.onNodeWithTag("file-list").assertDoesNotExist()
+        ui.onNodeWithText("选择").assertIsNotEnabled()
+        ui.onNodeWithTag("file-paste").assertIsNotEnabled()
+        assertSame(clipboard,model.clipboard)
+        assertTrue(model.entries.isEmpty());assertNull(model.error)
+        ui.onNodeWithText("选择或连接主机").performClick()
+        ui.onNodeWithText("文件位置").assertIsDisplayed()
+        androidx.test.espresso.Espresso.pressBack()
+        ui.onNodeWithTag("file-tab-local").performClick().assertIsSelected();loaded()
+        entry("child.txt").assertIsDisplayed()
+        assertEquals("Alpha",model.location.directoryId)
+        assertSame(clipboard,model.clipboard)
+        assertEquals("child\n",File(home,"Alpha/child.txt").readText())
+    }
+    @Test fun emptyRemoteTabInvalidatesLateReadsAndPendingConnection() {
+        val lists=mutableListOf<Continuation<List<BrowserEntry>>>()
+        var grant:Continuation<FileEndpoint>?=null
+        val fake=object:FileBrowserSource {
+            override suspend fun endpoints()=listOf(FileEndpoint.APP)
+            override suspend fun grantTree(uri:String,flags:Int)=suspendCoroutine<FileEndpoint> { grant=it }
+            override suspend fun list(location:FileLocation)=suspendCoroutine<List<BrowserEntry>> { lists.add(it) }
+            override suspend fun preview(location:FileLocation,entry:BrowserEntry)=""
+        }
+        model=FilesViewModel(app,fake,work)
+        ui.setContent { MaterialTheme { FilesScreen(model,{}) } }
+        ui.runOnIdle { model.enter() };ui.waitUntil { lists.size==1 }
+        ui.runOnIdle { assertTrue(model.beginPicker());model.picked("content://fixture/tree/late",1) }
+        ui.waitUntil { grant!=null }
+        val token=ui.runOnIdle { model.beginRemoteConnection() }
+        ui.onNodeWithTag("file-tab-remote").performClick()
+        ui.runOnIdle {
+            assertFalse("Changing tabs cancels a pending remote handoff",model.acceptsRemoteConnection(token))
+            lists[0].resume(listOf(BrowserEntry("stale","stale",FileKind.FILE,1u,null)))
+            grant!!.resume(FileEndpoint("late","Late device folder","root","content://fixture/tree/late"))
+        }
+        ui.onNodeWithTag("file-remote-empty").assertIsDisplayed()
+        ui.runOnIdle { assertTrue(model.entries.isEmpty());assertFalse(model.loading);assertTrue(model.endpoints.none { it.id=="late" });model.reload() }
+        assertEquals("Empty remote scope must not read the previous local destination",1,lists.size)
+        ui.onNodeWithTag("file-tab-local").performClick();ui.waitUntil { lists.size==2 }
+        ui.runOnIdle { lists[1].resume(listOf(BrowserEntry("fresh","fresh",FileKind.FILE,1u,null))) };loaded()
+        entry("fresh").assertIsDisplayed();entry("stale").assertDoesNotExist()
+    }
+    @Test fun tabsPreserveTheSelectedDeviceFolderAndBlockSwitchingDuringSelection() {
+        val other=FileEndpoint("other","Device folder","root","content://fixture/tree/root")
+        val folder=BrowserEntry("sub","sub",FileKind.DIRECTORY,null,null)
+        model=FilesViewModel(app,object:FileBrowserSource {
+            override suspend fun endpoints()=listOf(FileEndpoint.APP,other)
+            override suspend fun grantTree(uri:String,flags:Int)=other
+            override suspend fun list(location:FileLocation)=if(location.directoryId=="root") listOf(folder)
+                else listOf(BrowserEntry("child","child",FileKind.FILE,1u,null))
+            override suspend fun preview(location:FileLocation,entry:BrowserEntry)=""
+        },work)
+        show();ui.waitUntil { model.endpoints.size==2 }
+        ui.runOnIdle { model.choose(other) };loaded();entry("sub").performClick();loaded()
+        entry("child").performTouchInput { longClick() }
+        ui.onNodeWithTag("file-tab-remote").assertIsNotEnabled()
+        ui.runOnIdle { model.switchScope(true);assertFalse(model.remoteScope);assertTrue(model.selecting) }
+        ui.onNodeWithText("取消选择").performClick()
+        ui.onNodeWithTag("file-tab-remote").performClick()
+        ui.onNodeWithTag("file-tab-local").performClick();loaded()
+        assertEquals(other,model.location.endpoint);assertEquals("sub",model.location.directoryId)
+        entry("child").assertIsDisplayed()
+    }
+
     @Test fun realDirectoryKeepsMetadataAndNeverExposesInternalContainers() {
         val entries=listed()
         assertEquals("Alpha",entries.first().name)
