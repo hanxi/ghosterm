@@ -1,8 +1,8 @@
 # 能力矩阵
 
-**当前 Android 发行（2026-11-03，`f39cb6d`）**：已确认 EOF 后的负读取码不再误报为读取失败，真正断流仍显示错误；SSH 退出码未获证明时保持未知。保留 VT 鼠标点击、SSH 像素尺寸、成功密钥记忆、SAF、Kitty 动画与 Nerd Fonts。手机频繁断流是否全部同因仍未确定。见 [本次修正](android-implementation.md#9185-已确认-eof-与负读取码的分类修正2026-11-03) 与 [实际发行](android-implementation.md#9187-eof-分类修正的实际-androidmacos-dev-发行2026-11-03)。
+**当前 Android 发行（2026-11-03，`ae164f1`）**：会话选择查询改用不可变快照，修正并发迭代异常；已确认 EOF 后的负读取码不再误报为读取失败，真正断流仍显示错误、未获证明的退出码保持未知。VT 点击、像素尺寸、密钥记忆、SAF、Kitty 动画与 Nerd Fonts 保留。手机频繁断流是否全部同因仍未确定。见 [会话查询修正](android-implementation.md#9188-会话选择查询的并发快照修正候选2026-11-03) 与 [实际发行](android-implementation.md#9190-会话快照修正的实际-androidmacos-dev-发行2026-11-03)。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,235 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查通过。[Android CI 41560404916](https://github.com/hanxi/ghosterm/actions/runs/41560404916) 与 [macOS CI 41560405120](https://github.com/hanxi/ghosterm/actions/runs/41560405120) 均成功，实际八份附件已下载核验。macOS 同源 `f39cb6d` / build 97 / min macOS 15.0 / ad-hoc / 未公证，ZIP/DMG 与两端各自清单一致。
+[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,251 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查通过。[Android CI 41566580012](https://github.com/hanxi/ghosterm/actions/runs/41566580012) 与 [macOS CI 41566579889](https://github.com/hanxi/ghosterm/actions/runs/41566579889) 均成功，实际八份附件已下载核验。macOS 同源 `ae164f1` / build 98 / min macOS 15.0 / ad-hoc / 未公证，ZIP/DMG 与各自清单一致。
 
 **完整回归**：`f39cb6d` / clean 的 API 36 / 16 KiB 页完整 **941 项通过**；API 29 / 4 KiB 页为 **940 成功、1 个会话查询并发异常、零跳过**，未记全绿。选择查询已改为不可变列表快照，新增并发回归、两组编译变异及两系统各 19 项通过，新的默认完整 942 项另记。结果与原失败见 [§9.188](android-implementation.md#9188-会话选择查询的并发快照修正候选2026-11-03)。实际签名包 EOF/真正断流/显式新连接运行验收见 [§9.189](android-implementation.md#9189-实际签名-f39-包的-eof真正断流与新建连接2026-11-03)，与 debug 全套及手机矩阵分别记账。
 
