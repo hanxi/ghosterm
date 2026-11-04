@@ -285,14 +285,18 @@ class TerminalView(context: Context) : View(context) {
         val modifiers = (if (event.metaState and KeyEvent.META_SHIFT_MASK != 0) 1 else 0) or
             (if (event.metaState and KeyEvent.META_CTRL_MASK != 0 || ctrl != 0) 2 else 0) or
             (if (event.metaState and KeyEvent.META_ALT_MASK != 0) 4 else 0)
+        // A finger tap also requests typing when the application consumes mouse
+        // reports (tmux, vim). Do this before the asynchronous mouse operation.
+        val touchTyping = button == 1 && event.isFromSource(android.view.InputDevice.SOURCE_TOUCHSCREEN)
+        if (touchTyping) performClick()
         textAction { target ->
             if (target.click(x, y, modifiers, button)) {
-                super.performClick()
+                if (!touchTyping) super.performClick()
                 requestFocus()
                 if (ctrl == 1) ctrl = 0
                 inputFrameDeadline = SystemClock.uptimeMillis() + 120
                 removeCallbacks(tick); postOnAnimation(tick)
-            } else if (surface === target && isAttachedToWindow && isShown) performClick()
+            } else if (!touchTyping && surface === target && isAttachedToWindow && isShown) performClick()
         }
     }
     private fun scrollTerminal(lines: Int, event: MotionEvent) {

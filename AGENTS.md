@@ -157,6 +157,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 **历史位置显式清理（§9.123，已随 98d845e 发行）**：`ANDROID_FILE_CLEANUP_MUTATE=1` 配合 `test-android-ssh.sh` 的十三个不同保护分轮（12＋1）通过，后续三组 UI 和一组 write-ahead 复验通过：编译后正常断言红、同 APK 配置绿、复原绿及 SHA256。API 29/36 各 76 项、Core 49/94、签名 release/四模块 lint 通过，885 份最终输入一致。不增加 macOS CI 20 份；实际签名包在 16 KiB 页设备已验 SAF 删除回包前结束进程、UNKNOWN 意图保留和无重放；其它端点死亡、完整提供方/服务器及物理设备矩阵未完成，不记 A6/客户端完成。
 
+**Android 触屏输入与快捷键连发（§9.201）**：鼠标模式下触屏轻点同时请求 IME 与发送原鼠标操作；长按仍选字。快捷键按系统延迟/间隔连发，松手、滑出/取消、失焦、禁用及移除停止。API 36 / arm64 / 4 KiB 页的终端 53＋控制 9＋连发 5 项为分轮证据；`ANDROID_MOUSE_MUTATIONS=tap-route,keyboard,long-press,key-repeat,key-repeat-release` 五组（初始 4＋1，最终完整五组复验）真实编译后目标正常断言红、同 APK 配置绿、恢复绿与 SHA256。探针输入源、停止会话旧断言、取消变异编译失败及虚拟时钟不足的失败均保留，不计通过。不增加 CI 20 份；未发行，不代表真实设备/输入法/全客户端验收。
+
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
 `ghosterm.h` 是**单一事实来源**。新增/删除/改签名后必须：

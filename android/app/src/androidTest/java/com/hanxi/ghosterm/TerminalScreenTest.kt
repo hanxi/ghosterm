@@ -107,9 +107,9 @@ class TerminalScreenTest {
                 location[1] + (row + .5f) * (t.height / frame.rows))
         }
         onView(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(TerminalView::class.java))
-            .perform(GeneralClickAction(if (long) Tap.LONG else Tap.SINGLE, coordinates, Press.FINGER))
+            .perform(GeneralClickAction(if (long) Tap.LONG else Tap.SINGLE, coordinates, Press.FINGER, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0))
     }
-    @Test fun mouseModeTapSendsRealCoordinatesWithoutOpeningKeyboard() {
+    @Test fun mouseModeFingerTapSendsRealCoordinatesAndOpensKeyboard() {
         hideMouseTestKeyboard()
         val packet = File(directory, "mouse-packet")
         val expected = "\u001b[<0;3;4M\u001b[<0;3;4m".toByteArray()
@@ -119,15 +119,11 @@ class TerminalScreenTest {
         clickMouseCell(2, 3)
         waitFor("MOUSE_TAP_DONE")
         assertArrayEquals(expected, packet.readBytes())
-        repeat(5) {
-            android.os.SystemClock.sleep(100)
-            ui.runOnIdle {
-                assertSame(owner, sessions.active!!.connection)
-                assertFalse(androidx.core.view.ViewCompat.getRootWindowInsets(terminal())!!
-                    .isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()))
-            }
-        }
+        try { ui.waitUntil(10_000) { terminalImeShown() } }
+        catch (failure: ComposeTimeoutException) { fail("A touchscreen tap in mouse mode must show the actual system IME") }
+        ui.runOnIdle { assertSame(owner, sessions.active!!.connection) }
     }
+
     @Test fun menuShowsKeyboardInMouseModeWithoutSendingTerminalInput() {
         hideMouseTestKeyboard()
         val packet = File(directory, "keyboard-menu-packet")
@@ -1339,7 +1335,8 @@ class TerminalScreenTest {
         ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
         ui.runOnIdle { sessions.active!!.surface.commit("exit 0\r") }
         ui.waitUntil { sessions.active!!.state.terminal }
-        ui.onNodeWithText("Ctrl").assertIsNotEnabled()
+        ui.onNodeWithText("Ctrl").assertDoesNotExist()
+        ui.onNodeWithTag("terminal-recover").assertExists()
         ui.runOnIdle { assertEquals(0, terminal().ctrl); assertFalse(terminal().commitText("x")) }
     }
 

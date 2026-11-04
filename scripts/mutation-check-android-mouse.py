@@ -12,7 +12,8 @@ def execute(root, build, test):
     session = root/'android/bridge/src/main/cpp/session_jni.c'
     binding = root/'android/bridge/src/main/java/com/hanxi/ghosterm/bridge/NativeSession.kt'
     core = root/'core/src/ssh.c'
-    originals = {p: p.read_bytes() for p in (surface, view, session, binding, core)}
+    controls = root/'android/app/src/main/java/com/hanxi/ghosterm/CompactTerminalBar.kt'
+    originals = {p: p.read_bytes() for p in (surface, view, session, binding, core, controls)}
     hashes = {p: hashlib.sha256(data).digest() for p, data in originals.items()}
     if any(MARK.encode() in data for data in originals.values()):
         raise RuntimeError('Residual mouse mutation')
@@ -21,7 +22,7 @@ def execute(root, build, test):
     ssh = 'com.hanxi.ghosterm.SSHChannelTest#'
     cases = [
         ('tap-route', view, 'else tapTerminal(event, 1)', 'else performClick()',
-         ui+'mouseModeTapSendsRealCoordinatesWithoutOpeningKeyboard'),
+         ui+'mouseModeFingerTapSendsRealCoordinatesAndOpensKeyboard'),
         ('coordinates', surface, '.x = (float)x, .y = (float)y', '.x = (float)x + s->cw, .y = (float)y',
          native+'sgrClickUsesCellsAndBalancedPressRelease'),
         ('release', surface, 'action <= GHOSTTY_MOUSE_ACTION_RELEASE', 'action < GHOSTTY_MOUSE_ACTION_RELEASE',
@@ -37,9 +38,9 @@ def execute(root, build, test):
         ('long-press', view, 'override fun onLongPress(event: MotionEvent) {',
          'override fun onLongPress(event: MotionEvent) {\n            tapTerminal(event, 1)',
          ui+'longPressInMouseModeSelectsTextWithoutSendingAClick'),
-        ('keyboard', view, 'if (target.click(x, y, modifiers, button)) {\n                super.performClick()',
-         'if (target.click(x, y, modifiers, button)) {\n                performClick()',
-         ui+'mouseModeTapSendsRealCoordinatesWithoutOpeningKeyboard'),
+        ('keyboard', view, 'if (touchTyping) performClick()',
+         'if (false && touchTyping) performClick()',
+         ui+'mouseModeFingerTapSendsRealCoordinatesAndOpensKeyboard'),
         ('validation', binding, 'require(x >= 0 && y >= 0 && modifiers in 0..1023 && button in 1..3)',
          'require(x >= -1 && y >= 0 && modifiers in 0..1023 && button in 1..3)',
          native+'disabledMouseWritesNothingAndInvalidInputDoesNotPoisonNextInput'),
@@ -57,6 +58,14 @@ def execute(root, build, test):
         ('eof', core, 'if (libssh2_channel_eof(sh->chan)) return GT_TRANSPORT_READ_EOF;',
          'if (libssh2_channel_eof(sh->chan)) return GT_TRANSPORT_READ_ERROR;',
          ssh+'orderlyRemoteEofIsNotReportedAsAReadFailure'),
+    ]
+    cases += [
+        ('key-repeat', controls, 'repeated = true\n                        action()',
+         'repeated = true\n                        Unit',
+         'com.hanxi.ghosterm.TerminalKeyRepeatTest#holdingRepeatsAndReleaseAddsNoKeyAndStops'),
+        ('key-repeat-release', controls, 'interactions.interactions.collectLatest { interaction ->',
+         'interactions.interactions.collect { interaction ->',
+         'com.hanxi.ghosterm.TerminalKeyRepeatTest#holdingRepeatsAndReleaseAddsNoKeyAndStops'),
     ]
     selected = os.environ.get('ANDROID_MOUSE_MUTATIONS', '').split(',')
     if selected != ['']:

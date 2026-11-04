@@ -4567,3 +4567,15 @@ API 29 50 项组合与 API 36 最终 71 项组合包含真实删除确认/取消
 首次 32 项组合两端各有 13 个 SAF 失败，均为新增入口与位置面板同名导致选择器歧义；页面入口改为“授权文件夹”后复验通过，原失败未记绿。另一次并发 Gradle debug 构建发生 Kotlin 缓存/增量图冲突，没有计通过；改为串行构建，再复用同一 APK 对在设备执行。`--baseline-only --skip-build` 支持该复用入口。
 
 Core 离线闸门 **51 CTest / 95 ABI**、最终 Debug/测试 APK、未签名 Release/R8 及四模块 release lint 通过。日志及收据在 `tmp/device-storage-*`、`tmp/android-files-mutations/`（按设备分目录的最终组合具名清单；早期变异日志位于根目录）。本片未发行，未跑 Android 客户端完整回归、物理手机/外部 SD 卡/USB/OEM 存储矩阵，不以定向结果替代这些证据。
+
+### 9.201 Android 鼠标模式触屏输入与快捷键连发（2026-11-04，工作区候选）
+
+用户反馈 tmux 内轻点偶尔不弹输入法。原实现把鼠标模式下已消费的点击只用于请求焦点，只有未消费点击才唤起输入法。现在触屏主按钮轻点在发送鼠标操作前请求系统 IME；原坐标、修饰键与配对按下/释放仍交给终端引擎编码，不在 UI 拼字节。普通 shell 轻点、菜单显示键盘及长按选字保留，TerminalView 不识别 SSH/tmux 类型。
+
+快捷栏的 Esc/Tab/方向/Home/End/PgUp/PgDn 及文字键增加长按连发，使用 Android 系统初始延迟和重复间隔；Ctrl 继续由原有单次/锁定策略管理。保留 TextButton 的单击、键盘和无障碍语义；按住期间连发，松手不追加单击，滑出/手势取消、连接禁用、窗口失焦及控件移除均停止。作用域和最新回调跟随当前页面，避免旧回调继续输入。
+
+API 36 / arm64 / 4 KiB 页模拟器分轮验证 TerminalScreen 53 项、TerminalControls 9 项及新增 TerminalKeyRepeat 5 项。真实 PTY 测试同时断言 SGR 点击字节与系统 IME 可见性；没有把只调用 showKeyboard 当成键盘已显示。首轮 65 项有两项失败：触屏探针没有指定输入源，以及已有停止会话断言仍寻找已由恢复入口替代的 Ctrl 按钮；现明确注入 SOURCE_TOUCHSCREEN，停止断言同时检查 Ctrl 不存在、恢复入口存在和真实输入被拒绝。后续组合的失败属于 §9.202 的新增测试返回步骤，不记整轮全绿。
+
+`ANDROID_MOUSE_MUTATE=1` 配合 `test-android-ssh.sh` 的 `tap-route,keyboard,long-press,key-repeat,key-repeat-release` 五组先分轮取证（4＋1），最终在去除重复 accessibility click 通知后的生产源上完整五组复验，护点击路由、IME、长按选字、连发及松手取消。每组真实编译后目标正常断言红、同 APK Core 配置绿、恢复绿及源码 SHA256。取消变异初次使用 import alias 未能编译，未计目标红；最初停止探针只等待墙钟时间，未推进 Compose 虚拟时钟，变异假绿被拒绝，改为明确推进测试时钟再断言。没有把该失败计通过。
+
+Core 离线闸门 51 CTest / 95 ABI、Android Debug/测试 APK、未签名 Release/R8 与四模块 release lint 通过。证据在 `tmp/input-controls-*`、`tmp/input-files-*`、`tmp/input-mutations-*`、`tmp/input-final-mutations.log` 和 `tmp/android-ssh-tests/mouse-*`。以上为本地手工模拟器证据，不增加 macOS CI 20 份，不代表物理手机/OEM 输入法、API 29、16 KiB 页或 Android 全客户端验收；本片未发行。
