@@ -171,7 +171,8 @@ class HostScreenTest {
         ui.onNodeWithText("关于 Ghosterm").performScrollTo().performClick()
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         openConnectionCategory()
-        ui.onNodeWithText("管理主机").performScrollTo().performClick()
+        ui.onNodeWithContentDescription("返回").performClick()
+        ui.onNodeWithContentDescription("返回").performClick()
         ui.onNodeWithText("配置不是普通文件或超过 1 MiB").assertIsDisplayed()
         assertTrue(file.delete())
         file.writeText("Host recovered\n  User owner\n")
@@ -238,7 +239,8 @@ class HostScreenTest {
         ui.onNodeWithText("保存").assertIsNotEnabled()
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         openConnectionCategory()
-        ui.onNodeWithText("管理主机").performScrollTo().performClick()
+        ui.onNodeWithContentDescription("返回").performClick()
+        ui.onNodeWithContentDescription("返回").performClick()
         ui.onNodeWithText("recovered").assertIsDisplayed()
     }
     @Test fun hostConflictCanReloadOrDiscardDeletedTarget() {

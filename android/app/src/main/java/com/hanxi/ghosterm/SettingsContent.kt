@@ -73,7 +73,7 @@ private fun AppPreferences.label(key: PreferenceKey) = if(key==PreferenceKey.TER
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connectionsBusy: Boolean,
-    onHosts: () -> Unit, onConfig: () -> Unit, onImport: () -> Unit,
+    onConfig: () -> Unit, onImport: () -> Unit,
     onIdentities: () -> Unit, onKnownHosts: () -> Unit, onAbout: () -> Unit,
     fonts:TerminalFontsViewModel=viewModel()) {
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
@@ -181,7 +181,6 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                 GhostermGroup { SwitchRow(PreferenceKey.KEEP_AWAKE,p.keepAwake,"只在前台终端常亮，进入文件、设置或后台即停止",enabled) { model.edit(PreferenceEdit.KeepAwake(it)) } }
                 GhostermSectionLabel("连接资料")
                 GhostermGroup {
-                    ActionRow("管理主机",!connectionsBusy,onHosts);GhostermDivider()
                     ActionRow("查看与编辑 SSH 配置",configAvailable && !connectionsBusy,onConfig);GhostermDivider()
                     ActionRow("导入 SSH 配置",configAvailable && !connectionsBusy,onImport)
                 }

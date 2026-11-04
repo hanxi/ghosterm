@@ -333,7 +333,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                             }
                         }
                         Page.SETTINGS -> SettingsContent(settings, hosts.snapshot != null, hosts.busy,
-                            onHosts = hosts::back, onConfig = hosts::config,
+                            onConfig = hosts::config,
                             onImport = { import.launch(arrayOf("*/*")) },
                             onIdentities = { hosts.identities(); identities.enter() },
                             onKnownHosts = { hosts.knownHosts(); knownHosts.enter() }, onAbout = hosts::about)
