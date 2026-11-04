@@ -1,5 +1,7 @@
 package com.hanxi.ghosterm
 
+import android.os.Build
+import android.view.WindowManager
 import android.view.ViewTreeObserver
 import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
@@ -19,7 +21,11 @@ internal fun TerminalSystemBars(visible: Boolean) {
         val previousVisible = window?.let { ViewCompat.getRootWindowInsets(it.decorView)
             ?.isVisible(WindowInsetsCompat.Type.statusBars()) } ?: true
         val previousBehavior = controller?.systemBarsBehavior
+        val previousCutoutMode = window?.attributes?.layoutInDisplayCutoutMode
         onDispose {
+            if (window != null) window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = checkNotNull(previousCutoutMode)
+            }
             controller?.let {
                 it.systemBarsBehavior = checkNotNull(previousBehavior)
                 if (previousVisible) it.show(WindowInsetsCompat.Type.statusBars())
@@ -30,8 +36,14 @@ internal fun TerminalSystemBars(visible: Boolean) {
     DisposableEffect(activity, visible) {
         val window = activity?.window
         val decor = window?.decorView
+        val originalCutoutMode = window?.attributes?.layoutInDisplayCutoutMode
         val applyVisibility = Runnable {
             if (window != null) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode = if (visible) checkNotNull(originalCutoutMode)
+                        else if (Build.VERSION.SDK_INT >= 30) WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                        else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
                 WindowCompat.getInsetsController(window, window.decorView).apply {
                     systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                     if (visible) show(WindowInsetsCompat.Type.statusBars())
@@ -47,6 +59,9 @@ internal fun TerminalSystemBars(visible: Boolean) {
         decor?.viewTreeObserver?.addOnWindowFocusChangeListener(focusListener)
         decor?.post(applyVisibility)
         onDispose {
+            if (window != null) window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = checkNotNull(originalCutoutMode)
+            }
             decor?.removeCallbacks(applyVisibility)
             decor?.viewTreeObserver?.removeOnWindowFocusChangeListener(focusListener)
         }

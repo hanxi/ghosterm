@@ -35,7 +35,11 @@ def execute(root,build,test):
         ('status-default',status,replacement(screen,'var statusBarVisible by rememberSaveable { mutableStateOf(false) }','var statusBarVisible by rememberSaveable { mutableStateOf(true) }')),
         ('status-toggle',status,replacement(screen,'statusBarVisible = !statusBarVisible','statusBarVisible = statusBarVisible')),
         ('status-restore',status,replacement(system,'if (previousVisible) it.show(WindowInsetsCompat.Type.statusBars())','if (previousVisible) it.hide(WindowInsetsCompat.Type.statusBars())')),
-        ('hidden-status-insets',portrait,replacement(screen,'systemInsets.union(WindowInsets.displayCutout)','WindowInsets.systemBars.union(WindowInsets.displayCutout)')),
+        ('hidden-status-insets',portrait,replacement(screen,'systemInsets.union(if (statusBarVisible)', 'WindowInsets.systemBars.union(if (statusBarVisible)')),
+        # Requires API 29 with a display cutout; API 35+ enforces edge-to-edge.
+        ('cutout-window-policy',status,replacement(system,'WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES','WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER')),
+        ('hidden-cutout-insets',status,replacement(screen,'if (statusBarVisible) WindowInsets.displayCutout else','if (true) WindowInsets.displayCutout else')),
+        ('menu-ime-focus','menuKeepsOpenKeyboardAndTerminalGeometryStable',replacement(screen,'PopupProperties(focusable = !imeVisible)','PopupProperties(focusable = true)')),
         ('ime-insets',default,replacement(screen,'.union(WindowInsets.ime)','')),
         ('bar-height',default,replacement(bar,'.height(48.dp).background(MaterialTheme.colorScheme.surface)','.height(24.dp).background(MaterialTheme.colorScheme.surface)')),
         ('back-route',default,replacement(screen,'BackHandler(onBack = back)','BackHandler(onBack = {})')),

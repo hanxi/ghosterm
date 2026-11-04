@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.text.style.TextOverflow
 import com.hanxi.ghosterm.terminal.TerminalView
 import kotlinx.coroutines.delay
@@ -57,7 +58,7 @@ fun TerminalScreen(model: SessionsViewModel,
     LaunchedEffect(keyboardRequested, terminal) {
         val target = terminal
         if (keyboardRequested && target != null) {
-            // The menu owns window focus until its popup has been dismissed.
+            // Wait for popup dismissal and any pending window focus handoff.
             withFrameNanos { }
             withTimeoutOrNull(1_000) {
                 while (!target.hasWindowFocus()) delay(25)
@@ -68,14 +69,17 @@ fun TerminalScreen(model: SessionsViewModel,
     }
     val back: () -> Unit = { if (imeVisible) terminal?.hideKeyboard() else if (terminal?.dismissSelection() != true) model.home() }
     BackHandler(onBack = back)
+    BackHandler(enabled = menu) { menu = false }
     // API 29's stable edge-to-edge insets still include a hidden status bar.
-    // Reserve only requested status chrome; camera cutouts and caption bars
-    // remain protected independently, including desktop/freeform windows.
+    // Hidden status chrome releases the entire top band, including the cutout
+    // inset. Keep side/bottom cutouts and desktop/freeform captions protected.
     val systemInsets = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
         .union(WindowInsets.captionBar)
         .union(if (statusBarVisible) WindowInsets.statusBars else WindowInsets(0, 0, 0, 0))
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(
-        systemInsets.union(WindowInsets.displayCutout).union(WindowInsets.ime))) {
+        systemInsets.union(if (statusBarVisible) WindowInsets.displayCutout else
+            WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+            .union(WindowInsets.ime))) {
     val density = LocalDensity.current
     val compact = maxHeight < 224.dp || (session.state.terminal && maxHeight < 360.dp)
     val metrics = LocalView.current.resources.displayMetrics
@@ -88,7 +92,10 @@ fun TerminalScreen(model: SessionsViewModel,
         maxHeight < 48.dp + with(density) { (linePixels * 2).toDp() }
     val sideWidth = maxWidth / 2
     val actions: @Composable () -> Unit = {
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false },
+            // Keep an open IME attached to the terminal. A focusable popup is
+            // still useful for keyboard navigation when the IME is closed.
+            properties = PopupProperties(focusable = !imeVisible)) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(session.title, style = MaterialTheme.typography.titleSmall)
                 Text(session.state.description, style = MaterialTheme.typography.bodySmall,

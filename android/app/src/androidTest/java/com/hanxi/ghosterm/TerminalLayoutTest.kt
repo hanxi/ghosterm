@@ -171,6 +171,12 @@ class TerminalLayoutTest {
                 ?.isVisible(WindowInsetsCompat.Type.statusBars()) == true }
         }
         await("terminal must hide the actual system status bar") { !statusShown() }
+        fun fillsTop() = ui.runOnIdle {
+            val caption = ViewCompat.getRootWindowInsets(ui.activity.window.decorView)!!
+                .getInsets(WindowInsetsCompat.Type.captionBar()).top
+            IntArray(2).also { view().getLocationOnScreen(it) }[1] == caption
+        }
+        await("hidden status bar must release the entire top band, including cutout padding") { fillsTop() }
         ui.onNodeWithTag("terminal-menu").performClick()
         ui.onNodeWithTag("terminal-menu-status-bar").performScrollTo().assertTextEquals("显示系统状态栏").performClick()
         await("menu must restore the actual status bar") { statusShown() }
@@ -185,6 +191,7 @@ class TerminalLayoutTest {
         ui.onNodeWithTag("terminal-menu").performClick()
         ui.onNodeWithTag("terminal-menu-status-bar").performScrollTo().assertTextEquals("隐藏系统状态栏").performClick()
         await("menu must hide the actual status bar") { !statusShown() }
+        await("hiding status bar again must release the top band") { fillsTop() }
         ui.openTerminalFiles()
         ui.onNodeWithTag("file-location").assertIsDisplayed()
         await("file page must regain the actual system status bar") { statusShown() }
@@ -195,6 +202,42 @@ class TerminalLayoutTest {
         ui.onNodeWithTag("terminal-menu-home").performScrollTo().performClick()
         await("home must regain the actual system status bar") { statusShown() }
         assertSame(session,model().active)
+    }
+
+    @Test fun menuKeepsOpenKeyboardAndTerminalGeometryStable() {
+        ui.showTerminalKeyboard()
+        await("actual IME and terminal insets must settle") { imeShown() && terminalImeShown() }
+        ui.waitForIdle()
+        val height = ui.runOnIdle { view().height }
+        val violations = mutableListOf<String>()
+        val observer = android.view.ViewTreeObserver.OnPreDrawListener {
+            val terminal = view()
+            val shown = ViewCompat.getRootWindowInsets(terminal)
+                ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            if (!shown || terminal.height != height || !terminal.hasWindowFocus())
+                violations += "ime=$shown height=${terminal.height}/$height focus=${terminal.hasWindowFocus()}"
+            true
+        }
+        ui.runOnIdle { ui.activity.window.decorView.viewTreeObserver.addOnPreDrawListener(observer) }
+        try {
+            ui.onNodeWithTag("terminal-menu").performClick()
+            ui.onNodeWithTag("terminal-menu-keyboard").performScrollTo().assertIsDisplayed()
+            SystemClock.sleep(600)
+            assertTrue("menu must keep the real system IME open", imeShown())
+            ui.onNodeWithTag("terminal-menu-keyboard").performClick()
+            SystemClock.sleep(600)
+            ui.runOnIdle { assertTrue("menu open/close must retain IME, focus and viewport: $violations", violations.isEmpty()) }
+            sameShell()
+        } finally {
+            ui.runOnIdle { ui.activity.window.decorView.viewTreeObserver.removeOnPreDrawListener(observer) }
+        }
+        ui.terminalBack()
+        await("Back must still hide the actual IME") { !imeShown() }
+        ui.onNodeWithTag("terminal-menu").performClick()
+        ui.onNodeWithTag("terminal-menu-keyboard").performScrollTo().assertIsDisplayed()
+        ui.terminalBack()
+        ui.onNodeWithTag("terminal-menu-keyboard").assertDoesNotExist()
+        sameShell()
     }
 
     @Test fun portraitFocusKeepsMenuFixedAndKeyboardInMenu() {
@@ -213,8 +256,8 @@ class TerminalLayoutTest {
         }
         val top=ui.runOnIdle { IntArray(2).also { view().getLocationOnScreen(it) }[1] }
         val cutout=ui.runOnIdle { ViewCompat.getRootWindowInsets(ui.activity.window.decorView)!!
-            .getInsets(WindowInsetsCompat.Type.displayCutout()).top }
-        assertEquals("terminal starts at the camera-safe top without app chrome",cutout,top)
+            .getInsets(WindowInsetsCompat.Type.captionBar()).top }
+        assertEquals("terminal uses the hidden status band below any window caption",cutout,top)
         val menu=ui.onNodeWithTag("terminal-menu").fetchSemanticsNode().touchBoundsInRoot
         ui.onNodeWithText("Ctrl").assertIsDisplayed()
         ui.onNodeWithText("PgDn").performScrollTo().assertIsDisplayed()

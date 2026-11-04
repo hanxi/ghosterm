@@ -4613,3 +4613,13 @@ API 36 / arm64 / 4 KiB 页：初始 84 项组合中 83 项通过，新增终端�
 最终 API 29 / arm64 / 4 KiB 页五类终端布局/生命周期/控制/页面/连发组合 **76 项通过，137.958 秒**；API 36 / arm64 / 4 KiB 页在相同生产源上先完成这五类加真实 SSH 产品、远端文件产品、tmux 与文件清单往返的 **107 项通过，479.672 秒**，随后仅改上述测试夹具就绪条件，最终页面 **53 项通过，155.053 秒**。各轮具名开始/成功结束唯一集合一致，零失败/错误/跳过；后两台最终 app/test APK 摘要分别同为 `f9d804213cdb887c9b14c7657e375a650a7886303cc593ed49f6a779c84dd4cf` / `9d97cade4cbe4a63770ec2c403970f2785dd6f1ae412bfb85362d4766c02c43b`，安装字节与构建一致。107 项的原测试 APK 另保存，未把不同测试夹具或不同 APK 混记为同一轮。674 份指定范围非 Markdown 源输入前后相同；107 项快照至最终快照只有 `TerminalScreenTest.kt` 的夹具前置条件/诊断变化，生产源逐字相同。
 
 最终生产源的 Core **51 CTest / 95 ABI**、Debug/测试 APK、未签名 Release（实际 R8/资源优化）与 app/bridge/data/terminal 四模块 release lint 通过。上述分轮变异、失败/修复、安装摘要、具名集合、输入映射及原生运行截图保存在 `tmp/terminal-focus-evidence/`，关键收据为 `completed-api36-receipt.json`、`final-ui-api36/receipt.json`、`final-accepted-api29/receipt.json`、`layout-mutations-accepted.json` 与 `inputs-accepted-{before,after}.json`。使用只读模拟器实例保留原 AVD 数据，不是 16 KiB 页、物理手机、完整厂商输入法/外部端点或默认完整客户端验收，也未发行。
+
+### 9.204 Android 隐藏状态栏释放顶部区域与菜单输入法稳定性（2026-11-04，工作区候选）
+
+用户反馈隐藏状态栏后顶部仍留空，随后反馈打开菜单时输入法收起、关闭后重新弹出。前者来自 §9.203 始终保留的顶部 displayCutout 安全区；本次按用户预期调整为隐藏状态栏时允许终端使用整个顶部条带，显示状态栏时恢复顶部状态栏/挖孔避让。侧边、底部挖孔、导航、IME 和桌面 caption 避让保留；实际摄像头挖孔仍会遮挡其所在位置的字符。终端页面临时设置窗口 cutout mode（API 30 起 ALWAYS，API 29 SHORT_EDGES），切换/离页时恢复原窗口策略。
+
+菜单在 IME 已显示时不获取独立窗口输入焦点，保留终端输入连接与既有键盘高度；IME 未显示时仍可获取菜单焦点。宿主页补菜单返回处理，“显示键盘”、文件/会话导航和离页主动收起键盘仍走原入口。新增实际系统 IME、终端窗口焦点与每帧高度观察，开关菜单期间任一帧键盘消失、失焦或视口高度改变都会失败；状态栏测试补隐藏前后顶部位置及同一 PTY 检查。未改 C ABI 或 Transport 字节路径。
+
+API 36 / arm64 / 4 KiB 页布局六项通过（64.400 秒），终端页面 53 项另轮通过（179.431 秒）；API 29 / arm64 / 4 KiB 页开启 `com.android.internal.display.cutout.emulation.tall`，实际顶部 cutout 为 48px，布局六项通过（34.680 秒），结束后恢复 overlay。三轮 app/test APK SHA256 同为 `97574c9d978d687732ea224136dcadebab462f7da4f13211f2df03b8bf8edb85` / `6aafce61de4b7a40313c5f8431a2a220379641e77db8478d9af8ce754337faf2`，各自安装摘要、具名开始/结束集合与零跳过均核验。没有把分轮相加冒充默认全客户端回归。
+
+布局变异的 `status-toggle`、`status-restore`、`hidden-status-insets` 三个既有保护，以及 `hidden-cutout-insets`、`cutout-window-policy`、`menu-ime-focus` 三个新增保护，共六个不同组分轮通过；菜单焦点在 API 29/36 各验一次，共七次有效执行。每次均编译后正常目标断言红、同 APK 配置对照绿、复原绿与生产源 SHA256。API 36 的 stable-status 旧变异未改变实际边距，目标仍绿，已拒收并转到 API 29 验证；首轮 lint 出现两处 SuspiciousIndentation 失败，稳定输入后重新运行通过，不记首轮绿。最终 Core 51 CTest / 95 ABI、Debug/测试 APK、未签名 Release/R8 与 app/bridge/data/terminal 四模块 release lint 通过。证据在 `tmp/terminal-top-band/`，设备安装/具名集合收据在 `tmp/terminal-focus-evidence/{top-band-and-menu,top-band-and-menu-api29-cutout,top-band-terminal-regression}/`。本片为手工模拟器验证，不增加 macOS CI 20 份；未发行，未替代物理手机与厂商输入法验收。

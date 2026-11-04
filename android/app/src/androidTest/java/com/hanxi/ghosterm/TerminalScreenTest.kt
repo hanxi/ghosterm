@@ -108,7 +108,7 @@ class TerminalScreenTest {
             val line=kotlin.math.ceil(android.util.TypedValue.applyDimension(
                 android.util.TypedValue.COMPLEX_UNIT_SP,style.fontSize,v.resources.displayMetrics)*style.lineHeight).toInt()
             val safeTop=androidx.core.view.ViewCompat.getRootWindowInsets(v)
-                ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.displayCutout())?.top ?: 0
+                ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.captionBar())?.top ?: 0
             val top=IntArray(2).also(v::getLocationOnScreen)[1]
             top==safeTop && v.currentFrame?.rows == (v.height / line).coerceAtMost(256)
         } }
