@@ -151,12 +151,13 @@ jobs:
           if ! gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" > tmp/android-ci/before.json 2>tmp/android-ci/view.err; then
             if grep -qiE 'HTTP 404|Not Found' tmp/android-ci/view.err; then
               printf '{"id":null,"assets":[]}\n' > tmp/android-ci/before.json
-              gh release create dev --prerelease --target "$GITHUB_SHA" --title 'Ghosterm dev' --notes '开发包按平台命名；版本、源码和校验和见各平台清单。'
+              gh release create dev --prerelease --target "$GITHUB_SHA" --title 'Ghosterm dev（macOS / Android）' --notes-file .github/release-notes/dev.md
             else
               cat tmp/android-ci/view.err >&2; exit 1
             fi
           fi
           gh release upload dev tmp/android-ci/release-assets/* --clobber
+          gh release edit dev --prerelease --title 'Ghosterm dev（macOS / Android）' --notes-file .github/release-notes/dev.md
           gh release download dev --pattern Ghosterm-android-arm64-dev.apk --pattern android-SHA256SUMS --pattern android-build-info.json --dir tmp/android-ci/published
           python3 scripts/check-android-release-assets.py tmp/android-ci/published --expect-commit "$GITHUB_SHA"
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" > tmp/android-ci/after.json

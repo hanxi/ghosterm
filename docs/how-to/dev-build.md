@@ -118,7 +118,7 @@ cask 里的 `depends_on arch: :arm64` / `depends_on macos: :tahoe` 是显式安�
 
 ## 确认这个包是怎么来的：读 `BUILD-INFO.txt`
 
-随包与 release 正文都带同一份 `BUILD-INFO.txt`，它是**实际值**而不是配置值：
+随包与 Release 附件都带同一份 `BUILD-INFO.txt`，它是**实际值**而不是配置值：
 
 | 字段 | 含义 |
 |---|---|
@@ -272,3 +272,7 @@ macOS 包只依赖普通引擎 SDK、共享 C 核心、原生 UI、图标和主�
 
 - [能力矩阵](../reference/capability-matrix.md)——构建与交付一行的状态口径
 - [路线图](../reference/roadmap.md)——签名 / 公证 / 降最低系统版本的遗留项
+
+## dev Release 正文维护
+
+两端共用 [.github/release-notes/dev.md](../../.github/release-notes/dev.md)；macOS 与 Android 发布 job 都以此更新同一 Release 的标题和正文。正文保留下载、安装、收据与校验入口，不内嵌单个平台的构建号、工具链或构建机路径。具体版本以各端附件为准，不能用共享 tag 推断 Android 提交。

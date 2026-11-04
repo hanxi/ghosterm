@@ -125,8 +125,6 @@ jobs:
       - name: 原位更新 dev Release
         run: |
           set -euo pipefail
-          VERSION="$(sed -n 's/^版本: *\([^ ]*\).*/\1/p' dist/BUILD-INFO.txt)"
-          BUILD="$(sed -n 's/^版本: *[^ ]* (build *\([0-9]*\)).*/\1/p' dist/BUILD-INFO.txt)"
 
           mkdir -p tmp
           EXISTS=yes
@@ -139,37 +137,15 @@ jobs:
             fi
           fi
 
-          NOTES="$(cat dist/BUILD-INFO.txt)"
-          # YAML 会剥掉 block scalar 的公共缩进，所以正文落到脚本里仍是顶格——
-          # 少缩进会被 YAML 当成新键，多缩进会被 Markdown 读成代码块。
-          NOTES="${NOTES}$(cat <<'MD'
-
-          ## 这个 dev 包是什么
-          滚动 tag `dev`：每次 push main 覆盖一次，正文里的 build 号就是那次运行的编号。
-
-          - **ad-hoc 签名、未公证**。首次打开会不会被拦，取决于下载工具贴不贴
-            `com.apple.quarantine`：浏览器、以及 `brew install --cask`（Homebrew 自己贴）
-            都要放行一次——系统设置 →「隐私与安全性」→「仍要打开」，或
-            `xattr -dr com.apple.quarantine /Applications/Ghosterm.app`。
-            用 `curl` 取 zip + `ditto -x -k` 解出来则不贴标记（实测），但要自己核对
-            下面的 `SHA256SUMS`。口径见 `docs/how-to/dev-build.md`。
-          - **仅 macOS arm64**。Android 的签名 release 构建也在本页，文件名为 `Ghosterm-android-arm64-dev.apk`；iOS 暂无构建入口。
-          - **别把 `dev` 当自动更新通道**：每轮 ad-hoc 签名的 cdhash 都不同，tag 会滚动指向 macOS 构建提交，Android 提交以 android-build-info.json 为准。
-          - 想一条命令装/升级：`brew tap hanxi/ghosterm && brew trust hanxi/homebrew-ghosterm
-            && brew install --cask ghosterm-dev`（升级 `brew upgrade --cask --greedy ghosterm-dev`）。
-            cask 走 `sha256 :no_check`——滚动资产字节钉不住，要验字节请对 `SHA256SUMS`。
-          MD
-          )"
-          printf '%s\n' "$NOTES" > tmp/dev-notes.md
           if [ "$EXISTS" = yes ]; then
             gh release upload dev dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json --clobber
             gh api "repos/$GITHUB_REPOSITORY/releases/tags/dev" > tmp/dev-uploaded.json
             python3 scripts/check-dev-release-assets.py --platform macos --assets-file tmp/dev-uploaded.json --obsolete-macos > tmp/obsolete-macos.txt
             while IFS= read -r asset; do gh release delete-asset dev "$asset" --yes; done < tmp/obsolete-macos.txt
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/dev" -f sha="$GITHUB_SHA" -F force=true
-            gh release edit dev --prerelease --target "$GITHUB_SHA" --title "Ghosterm dev（${VERSION} build ${BUILD}）" --notes-file tmp/dev-notes.md
+            gh release edit dev --prerelease --target "$GITHUB_SHA" --title 'Ghosterm dev（macOS / Android）' --notes-file .github/release-notes/dev.md
           else
-            gh release create dev --prerelease --target "$GITHUB_SHA" --title "Ghosterm dev（${VERSION} build ${BUILD}）" --notes-file tmp/dev-notes.md dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json
+            gh release create dev --prerelease --target "$GITHUB_SHA" --title 'Ghosterm dev（macOS / Android）' --notes-file .github/release-notes/dev.md dist/*.dmg dist/*.zip dist/SHA256SUMS dist/BUILD-INFO.txt dist/version.json
           fi
 
       - name: 复验 dev Release 指向本轮
