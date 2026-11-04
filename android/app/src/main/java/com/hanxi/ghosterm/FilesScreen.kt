@@ -7,6 +7,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.combinedClickable
@@ -21,6 +22,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
@@ -325,14 +327,14 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
 /** Navigation scopes share one clipboard; choosing a scope never starts a copy. */
 @Composable
 private fun FileScopeTabs(model: FilesViewModel, modifier: Modifier = Modifier, compact: Boolean=false) {
-    Row(modifier.height(48.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh,MaterialTheme.shapes.extraLarge)
-        .selectableGroup().testTag("file-scope-tabs"),
+    Row(modifier.height(if(compact) 48.dp else 56.dp).clip(CircleShape)
+        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+        .selectableGroup().testTag("file-scope-tabs").padding(4.dp),
         verticalAlignment=Alignment.CenterVertically) {
         listOf(true to "远程",false to "本地").forEach { (remote,label) ->
             val active=model.remoteScope==remote
-            Box(Modifier.weight(1f).fillMaxHeight()
-                .background(if(active) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent,
-                    MaterialTheme.shapes.medium)
+            Box(Modifier.weight(1f).fillMaxHeight().clip(CircleShape)
+                .background(if(active) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
                 .selectable(selected=active,enabled=!model.selecting,role=Role.Tab,onClick={ model.switchScope(remote) })
                 .testTag(if(remote) "file-tab-remote" else "file-tab-local").padding(horizontal=4.dp),
                 contentAlignment=Alignment.Center) {
