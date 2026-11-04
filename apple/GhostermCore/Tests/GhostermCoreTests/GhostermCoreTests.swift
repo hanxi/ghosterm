@@ -100,6 +100,19 @@ final class GhostermCoreTests: XCTestCase {
         XCTAssertEqual(cfg.serialized(), before)
     }
 
+    func testConfigRemovePreservesSiblingAndRejectsAmbiguity() throws {
+        let cfg = try SSHConfig(contents: "# keep\r\nHost \"demo\" sibling # shared\r\n User me\r\nHost other\n Port 2200\n")
+        try cfg.removeHost(alias: "demo")
+        XCTAssertEqual(cfg.serialized(), "# keep\r\nHost sibling # shared\r\n User me\r\nHost other\n Port 2200\n")
+        try cfg.removeHost(alias: "sibling")
+        XCTAssertEqual(cfg.serialized(), "# keep\r\nHost other\n Port 2200\n")
+        XCTAssertEqual(cfg.hostPatterns, ["other"])
+        let ambiguous = try SSHConfig(contents: "Host demo\n User a\nHost DEMO\n User b\n")
+        let before = ambiguous.serialized()
+        XCTAssertThrowsError(try ambiguous.removeHost(alias: "demo"))
+        XCTAssertEqual(ambiguous.serialized(), before)
+    }
+
     func testConfigMetadataCopiesValuesAcrossEdit() throws {
         let cfg = try SSHConfig(contents: "User inherited\nHost web sibling\n  HostName old.test\n  User explicit\n")
         let before = try cfg.inspect(alias: "web")

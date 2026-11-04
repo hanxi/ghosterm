@@ -40,6 +40,45 @@ class HostScreenTest {
         if (ui.onAllNodesWithTag("settings-section-SESSIONS").fetchSemanticsNodes().isNotEmpty())
             ui.onNodeWithTag("settings-section-SESSIONS").performScrollTo().performClick()
     }
+    @Test fun deleteHostRequiresConfirmationAndPreservesSharedAliasAndBackup() {
+        val original = "# 保留\r\nHost \"demo\" sibling # shared\r\n User alice\r\nHost other\n Port 2200\n"
+        load(original)
+        fun request() {
+            ui.onNodeWithTag("host-menu:demo").performScrollTo().performClick()
+            ui.onNodeWithTag("host-delete:demo").performScrollTo().performClick()
+        }
+        request()
+        ui.onNodeWithText("取消").performClick()
+        assertEquals(original, File(directory, "home/.ssh/config").readText())
+        request()
+        ui.onNodeWithText("共用配置及其他别名保留", substring = true).assertIsDisplayed()
+        ui.onNodeWithTag("host-delete-confirm").performClick()
+        ui.waitUntil(10_000) { !model.busy && model.snapshot?.hosts?.none { it.alias == "demo" } == true }
+        ui.onNodeWithText("sibling").assertIsDisplayed()
+        assertEquals(original.replace("\"demo\" ", ""), File(directory, "home/.ssh/config").readText())
+        assertEquals(original, File(directory, "home/.ssh").listFiles()!!.single { it.name.startsWith("config.backup-") }.readText())
+    }
+
+    @Test fun changedFileWhileDeleteConfirmationIsOpenIsNotOverwritten() {
+        val original = "Host demo\n User old\n"
+        load(original)
+        ui.onNodeWithTag("host-menu:demo").performClick()
+        ui.onNodeWithTag("host-delete:demo").performScrollTo().performClick()
+        val external = original + "# edited elsewhere\n"
+        File(directory, "home/.ssh/config").writeText(external)
+        ui.onNodeWithTag("host-delete-confirm").performClick()
+        ui.waitUntil(10_000) { !model.busy && model.error != null }
+        ui.onNodeWithText("SSH 配置已改变，请重新载入后再编辑").assertIsDisplayed()
+        assertEquals(external, File(directory, "home/.ssh/config").readText())
+    }
+
+    @Test fun duplicateHostDeletionIsDisabledWithAnExplanation() {
+        load("Host demo\n User a\nHost DEMO\n User b\n")
+        ui.onNodeWithTag("host-menu:demo").performClick()
+        ui.onNodeWithTag("host-delete:demo").performScrollTo().assertIsNotEnabled()
+        ui.onNodeWithText("此别名出现在 2 个 Host 块中", substring = true).assertExists()
+        ui.onNodeWithTag("host-delete-confirm").assertDoesNotExist()
+    }
     @Test fun configEditorDisablesAutocorrectAndWritesLiteralText() {
         load("Host original\n  HostName original.test\n")
         ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()

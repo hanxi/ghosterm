@@ -188,6 +188,23 @@ class ConfigRepository(
 
     fun prepareConnection(snapshot: ConfigSnapshot, alias: String) = ConfigBridge.prepareConnection(snapshot.bytes, alias)
 
+    fun removeHost(previous: ConfigSnapshot, alias: String): ConfigSaved {
+        val host = previous.hosts.singleOrNull { it.alias.equals(alias, ignoreCase = true) } ?: throw ConfigConflict()
+        if (host.source?.editable != true)
+            throw ConfigAccess(host.source?.editRestriction ?: "无法确定主机配置归属，请重新载入")
+        val candidate = ConfigBridge.removeHost(previous.bytes, host.alias)
+        val parsed = snapshot(candidate, previous.revision)
+        if (parsed.hosts.any { it.alias.equals(host.alias, ignoreCase = true) } ||
+            parsed.hosts.map { it.alias } != previous.hosts.filter { it != host }.map { it.alias })
+            throw ConfigAccess("删除范围无法确认，原配置未修改")
+        for (other in previous.hosts.filter { it != host }) {
+            val retained = parsed.hosts.single { it.alias == other.alias }
+            if (retained.hostname != other.hostname || retained.user != other.user || retained.port != other.port)
+                throw ConfigAccess("删除会改变其他主机配置，原配置未修改")
+        }
+        return save(previous, candidate)
+    }
+
     fun connectionIssues(snapshot: ConfigSnapshot, alias: String) =
         ConfigBridge.connectionIssues(snapshot.bytes, alias)
 

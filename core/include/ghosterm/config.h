@@ -223,6 +223,17 @@ int gt_config_edit(gt_config_t *cfg, const char *alias,
  * Success invalidates borrowed metadata, just like edit. */
 int gt_config_rename_host(gt_config_t *cfg, const char *alias, const char *new_alias);
 
+/* Remove a positive literal alias from a unique main-file Host header.
+ * Shared headers: remove only its token/separator; body and siblings remain
+ * byte-identical (wildcards may still match that name). Sole-token headers:
+ * remove header/directive lines up to the next main-file Host or Match,
+ * preserving standalone comments/blank lines; a contained Include is UNSUPPORTED.
+ * Included origins, duplicate blocks/tokens: UNSUPPORTED; missing: NOT_FOUND;
+ * invalid/pattern alias: INVALID_ARG. Reparse failure leaves cfg unchanged.
+ * No file writes or effects on active sessions, identities or known_hosts.
+ * Success invalidates borrowed metadata, just like edit. */
+int gt_config_remove_host(gt_config_t *cfg, const char *alias);
+
 #ifdef __cplusplus
 }
 #endif

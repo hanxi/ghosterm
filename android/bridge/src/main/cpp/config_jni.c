@@ -317,3 +317,23 @@ JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_ConfigBridge_prepa
 done:
     gt_resolved_free(host); free(alias); gt_config_free(cfg); return result;
 }
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_hanxi_ghosterm_bridge_ConfigBridge_removeHostBytes(JNIEnv *env, jobject self,
+        jbyteArray input, jbyteArray name) {
+    (void)self;
+    gt_config_t *cfg = parse(env, input);
+    if (!cfg) return NULL;
+    char *alias = utf8(env, name);
+    jbyteArray result = NULL;
+    if (!alias) goto done;
+    if (gt_config_remove_host(cfg, alias) != GT_OK) {
+        fail(env, "无法删除：配置来自 Include、别名重复或块内含 Include；请在 SSH 配置页核对"); goto done;
+    }
+    char *serialized = gt_config_to_string(cfg);
+    if (!serialized) { fail(env, "配置序列化失败"); goto done; }
+    result = bytes(env, serialized);
+    free(serialized);
+done:
+    free(alias); gt_config_free(cfg); return result;
+}

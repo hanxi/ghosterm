@@ -160,6 +160,10 @@ public final class SSHConfig {
         })
     }
 
+    public func removeHost(alias: String) throws {
+        try check(alias.withCString { gt_config_remove_host(handle, $0) })
+    }
+
     /// Copies borrowed Core provenance before the snapshot can be edited/freed.
     public func inspect(alias: String) throws -> ConfigHostInfo {
         var info = gt_config_host_info_t()

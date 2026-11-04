@@ -27,6 +27,7 @@ data class ConfigImport(val bytes: ByteArray, val name: String) {
     }
     val truncated: Boolean = preview.length < bytes.toString(Charsets.UTF_8).length
 }
+data class HostRemoval(val host: Host, val snapshot: ConfigSnapshot)
 
 class HostsViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ConfigRepository(File(application.filesDir, "home/.ssh"))
@@ -41,6 +42,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     var notice by mutableStateOf<String?>(null); private set
+    var removal by mutableStateOf<HostRemoval?>(null); private set
     var page by mutableStateOf(Page.HOSTS); private set
     var query by mutableStateOf("")
     var draft by mutableStateOf<HostDraft?>(null)
@@ -157,6 +159,24 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun keepEditing() { discard = false; reloadAfterDiscard = false }
     fun dismissNotice() { notice = null }
+    fun requestRemove(host: Host) {
+        if (busy) return
+        val base = snapshot ?: return
+        val current = base.hosts.singleOrNull { it.alias == host.alias } ?: return
+        if (current.source?.editable != true) { error = current.source?.editRestriction ?: "无法确定主机配置归属"; return }
+        removal = HostRemoval(current, base)
+    }
+    fun cancelRemove() { if (!busy) removal = null }
+    fun confirmRemove() {
+        if (busy) return
+        val request = removal ?: return
+        removal = null
+        work {
+            val saved = withContext(Dispatchers.IO) { repository.removeHost(request.snapshot, request.host.alias) }
+            snapshot = saved.snapshot
+            notice = saved.warning ?: "已删除主机 ${request.host.alias}，原配置已备份"
+        }
+    }
     fun checkConnection(host: Host, connect: (com.hanxi.ghosterm.bridge.PreparedSSH) -> Unit) {
         val base = snapshot ?: return
         work {

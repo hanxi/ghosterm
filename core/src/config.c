@@ -1424,6 +1424,28 @@ static bool rename_name_valid(const char *name) {
   return true;
 }
 
+/* Takes ownership of text and publishes only a complete, checked parse. */
+static int config_replace_checked(gt_config_t *cfg, char *text) {
+  /* Publish only after reparsing succeeds; missing Includes leave cfg intact. */
+  gt_config_t *candidate = gt__alloc(sizeof *candidate);
+  if (!candidate) { free(text); return GT_ERR_INTERNAL; }
+  if (cfg->source_path) {
+    candidate->source_path = gt__strdup(cfg->source_path);
+    if (!candidate->source_path) { free(text); gt_config_free(candidate); return GT_ERR_INTERNAL; }
+  }
+  parse_text(candidate, text, strlen(text), 0);
+  if (candidate->include_error) { free(text); gt_config_free(candidate); return GT_ERR_IO; }
+  char *roundtrip = gt_config_to_string(candidate);
+  bool complete = roundtrip && strcmp(roundtrip, text) == 0;
+  free(roundtrip); free(text);
+  if (!complete) { gt_config_free(candidate); return GT_ERR_INTERNAL; }
+  gt_config_t old = *cfg;
+  *cfg = *candidate;
+  *candidate = old;
+  gt_config_free(candidate);
+  return GT_OK;
+}
+
 int gt_config_rename_host(gt_config_t *cfg, const char *alias, const char *new_alias) {
   if (!cfg || !alias || !*alias || strpbrk(alias, "*?![]") || !rename_name_valid(new_alias)) {
     gt__set_error("config_rename_host: invalid literal alias");
@@ -1479,22 +1501,83 @@ int gt_config_rename_host(gt_config_t *cfg, const char *alias, const char *new_a
   memcpy(text + start + added, original + start + removed, length - start - removed + 1);
   free(original);
 
-  /* Publish only after reparsing succeeds; missing Includes leave cfg intact. */
-  gt_config_t *candidate = gt__alloc(sizeof *candidate);
-  if (!candidate) { free(text); return GT_ERR_INTERNAL; }
-  if (cfg->source_path) {
-    candidate->source_path = gt__strdup(cfg->source_path);
-    if (!candidate->source_path) { free(text); gt_config_free(candidate); return GT_ERR_INTERNAL; }
+  return config_replace_checked(cfg, text);
+}
+
+
+int gt_config_remove_host(gt_config_t *cfg, const char *alias) {
+  if (!cfg || !alias || !*alias || strpbrk(alias, "*?![]")) {
+    gt__set_error("config_remove_host: literal alias required"); return GT_ERR_INVALID_ARG;
   }
-  parse_text(candidate, text, strlen(text), 0);
-  if (candidate->include_error) { free(text); gt_config_free(candidate); return GT_ERR_IO; }
-  char *roundtrip = gt_config_to_string(candidate);
-  bool complete = roundtrip && strcmp(roundtrip, text) == 0;
-  free(roundtrip); free(text);
-  if (!complete) { gt_config_free(candidate); return GT_ERR_INTERNAL; }
-  gt_config_t old = *cfg;
-  *cfg = *candidate;
-  *candidate = old;
-  gt_config_free(candidate);
-  return GT_OK;
+  for (const unsigned char *p = (const unsigned char *)alias; *p; p++)
+    if (isspace(*p)) return GT_ERR_INVALID_ARG;
+  gt_config_host_info_t info;
+  int rc = gt_config_inspect_host(cfg, alias, &info);
+  if (rc != GT_OK) return rc;
+  if (info.included || info.matching_blocks != 1) {
+    gt__set_error("config_remove_host: included or ambiguous Host block"); return GT_ERR_UNSUPPORTED;
+  }
+  int block = find_block_for_alias(cfg, alias), token = -1, matches = 0;
+  size_t index = cfg->blocks[block].header_node;
+  const gt_node_t *header = &cfg->nodes[index];
+  for (int i = 0; i < header->nargs; i++)
+    if (kw_eq(header->args[i], alias)) { token = i; matches++; }
+  if (matches < 1 || matches > 1) {
+    gt__set_error("config_remove_host: repeated alias within Host header"); return GT_ERR_UNSUPPORTED;
+  }
+  char *text = NULL;
+  if (header->nargs > 1) {
+    const char *q = header->raw, *end = q + strlen(q);
+    while (q < end && (*q == ' ' || *q == '\t')) q++;
+    while (q < end && !isspace((unsigned char)*q) && *q != '=') q++;
+    if (q < end && *q == '=') q++;
+    token_range_t ranges[2] = {{.index = token}, {.index = token + 1 < header->nargs ? token + 1 : token - 1}};
+    for (int r = 0; r < 2; r++) {
+      char **args = NULL; int nargs = 0;
+      if (tokenize(q, end, &args, &nargs, &ranges[r]) != 0) return GT_ERR_INTERNAL;
+      for (int i = 0; i < nargs; i++) free(args[i]);
+      free(args);
+      if (!ranges[r].start || !ranges[r].end) return GT_ERR_INTERNAL;
+    }
+    const char *start = token + 1 < header->nargs ? ranges[0].start : ranges[1].end;
+    const char *finish = token + 1 < header->nargs ? ranges[1].start : ranges[0].end;
+    size_t offset = (size_t)(start - header->raw), removed = (size_t)(finish - start);
+    for (size_t i = 0; i < index; i++) if (!cfg->nodes[i].included) offset += strlen(cfg->nodes[i].raw);
+    char *original = gt_config_to_string(cfg);
+    if (!original) return GT_ERR_INTERNAL;
+    size_t length = strlen(original);
+    text = gt__alloc(length - removed + 1);
+    if (text) {
+      memcpy(text, original, offset);
+      memcpy(text + offset, original + offset + removed, length - offset - removed + 1);
+    }
+    free(original);
+  } else {
+    /* Match and Host both end this main-file scope. Expanded Include nodes
+     * cannot define its boundary, and deleting an Include can affect siblings. */
+    size_t end = cfg->nnodes;
+    for (size_t i = index + 1; i < cfg->nnodes; i++) {
+      const gt_node_t *node = &cfg->nodes[i];
+      if (node->included) continue;
+      if (kw_eq(node->keyword, "host") || kw_eq(node->keyword, "match")) { end = i; break; }
+      if (kw_eq(node->keyword, "include")) {
+        gt__set_error("config_remove_host: block contains Include; edit configuration explicitly"); return GT_ERR_UNSUPPORTED;
+      }
+    }
+    size_t length = 0;
+    for (size_t i = 0; i < cfg->nnodes; i++) if (!cfg->nodes[i].included &&
+        !(i >= index && i < end && cfg->nodes[i].keyword)) length += strlen(cfg->nodes[i].raw);
+    text = gt__alloc(length + 1);
+    if (text) {
+      size_t at = 0;
+      for (size_t i = 0; i < cfg->nnodes; i++) {
+        const gt_node_t *node = &cfg->nodes[i];
+        if (node->included || (i >= index && i < end && node->keyword)) continue;
+        size_t n = strlen(node->raw); memcpy(text + at, node->raw, n); at += n;
+      }
+      text[at] = 0;
+    }
+  }
+  if (!text) return GT_ERR_INTERNAL;
+  return config_replace_checked(cfg, text);
 }

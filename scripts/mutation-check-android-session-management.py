@@ -30,6 +30,10 @@ def execute(root, build, test):
                  '            else startForeground(NOTIFICATION, notification)')
     release = 'if (!enabled) { wake?.let { if (it.isHeld) it.release() }; wake = null; return }'
     cases = [
+        ('host-confirm', host, lambda: replace(app / 'HostsViewModel.kt', 'removal = HostRemoval(current, base)', 'removal = HostRemoval(current, base); confirmRemove()')),
+        ('host-write', host, lambda: replace(data, 'return save(previous, candidate)', 'return ConfigSaved(parsed)', 'fun removeHost(')),
+        ('host-revision', 'com.hanxi.ghosterm.ConfigRepositoryTest#deleteRejectsStaleConfigurationAndBackupFailureWithoutChangingOriginal',
+         lambda: replace(data, 'if (revision != previous.revision) throw ConfigConflict()', 'if (false) throw ConfigConflict()')),
         ('foreground-promotion', background + 'realServiceAndOptionalWakeLockTrackSessionsAndBackgroundIoContinues',
          lambda: replace(app / 'TerminalConnectionService.kt', promotion, promotion + '\n            stopForeground(STOP_FOREGROUND_REMOVE)')),
         ('wake-release', background + 'realServiceAndOptionalWakeLockTrackSessionsAndBackgroundIoContinues',

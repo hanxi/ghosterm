@@ -109,6 +109,27 @@ class SSHProductTest {
         }
     }
 
+    @Test fun deletingAHostKeepsItsEstablishedConnectionIdentityAndTrustRecord() {
+        open(); val id = login()
+        val session = sessions().active!!
+        val trust = known.readBytes()
+        val identityIds = vault.list().map { it.id }
+        ui.onNodeWithTag("terminal-back").performClick()
+        ui.onNodeWithTag("host-menu:" + alias).performClick()
+        ui.onNodeWithTag("host-delete:" + alias).performScrollTo().performClick()
+        ui.onNodeWithTag("host-delete-confirm").performClick()
+        ui.waitUntil(10_000) { !hosts().busy && hosts().snapshot?.hosts?.none { it.alias == alias } == true }
+        assertArrayEquals(trust, known.readBytes())
+        assertEquals(identityIds, vault.list().map { it.id })
+        ui.runOnIdle {
+            assertTrue(session.connection.state().connected)
+            assertEquals(id, sessions().active!!.id)
+            sessions().show(id)
+            session.connection.commit("printf '\\r\\nHOST_DELETION_CONNECTION_PROOF\\r\\n'\r")
+        }
+        ui.waitUntil(10_000) { find(ui.activity.window.decorView)?.currentFrame?.let { f -> (0 until f.rows).any { f.line(it).contains("HOST_DELETION_CONNECTION_PROOF") } } == true }
+    }
+
     @Test fun homeTrustKeyAuthenticationAndRotationKeepOneRemoteShell() {
         open()
         ui.onNodeWithTag("ssh-fingerprint").assertTextEquals(fixture.getString("fingerprint"))

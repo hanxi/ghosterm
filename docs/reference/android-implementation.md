@@ -4521,3 +4521,29 @@ API 36 / arm64 / 16 KiB 页真实复制/归档/历史入口及小窗口组合 11
 手工证据为九组隔离资源生成守卫；十个不同主题/字体设备变异分轮通过（API 36 八组、API 29 两个预算组，部分组后续复验），以及受影响旧终端样式五组、Nerd 绘制一组、设置保存一组。设备变异均真实编译后单条正常断言红、同 APK Core 配置绿、复原绿与 SHA256。初轮选区文字变异因 Dracula 选中文字本来就是白色而未红，改用有差异的 Nord；181 项前置组合有一处新增光标像素夹具失败，明确清空 shell 提示符并用独立抗锯齿栅格参考核验光标文字，补充夹具中错误的反射字段类型已修复；没有删除生产断言。初次 lint 的 composition 中直接读 StateFlow 已改为订阅状态。首次关于补充因测试映射缺新条目而失败，补齐独立映射后重跑。这些失败/定位或编译问题均未计为目标红或通过。
 
 审核入口为 `tmp/android-appearance/index.html`，含两端各七张实际截图及同源 HTML 参考；具名结果、输入/安装/产物收据、性能报告、各次失败与分轮变异日志同目录或其指向的 `tmp/android-appearance-mutations/` 等目录。HTML 直接入口仍为 `docs/design/android-prototype.html`。以上为本地定向设备证据，不增加 macOS CI 20 份，不代表默认完整客户端、物理设备、全部输入法/字体提供方或云端发行已完成。
+
+### 9.198 终端交互与后台连接保护候选（2026-11-04，定向设备验证）
+
+文件远程/本地 Tab 改为带 4 dp 内边距的胶囊分段，背景和按压涟漪共用裁剪。终端常驻键盘按钮移到更多菜单；菜单关闭后等窗口焦点返回再显示 IME，系统返回负责收起；普通布局隐藏辅助键时不留空栏。停止终端显示本地新建、普通 SSH 重新连接、tmux 重新查询列表并选择的独立入口；普通 SSH 重新检查当前主机配置和认证，旧画面保留且禁止输入。清理入口在会话面板及更多菜单，确认捕获当时的已停止 UUID 集合，提交前再读 native 状态；不把晚到停止或仍连接的会话纳入清理。
+
+Android 手势此前只调用本地 viewport 滚动，现按 VT 状态分发鼠标滚轮、alternate-scroll 或本地历史；外接鼠标滚轮同样处理。`python3 scripts/test-android-scroll.py --mutate` 在工程 tmp 中从 pin 与现有补丁构建真实宿主 VT：SGR/传统编码、X10 排除滚轮、坐标/方向/修饰键、备用屏幕/应用光标、错误和限额通过；隔离恢复旧 history-only 实现后正常协议断言红，同一二进制普通历史对照绿，原件绿与 SHA256。真实宿主 tmux 的隔离 socket/PTY、mouse on、进入复制模式及双向历史位置验证通过。此证据不等于 Android 手势、设备 tmux 或 Codex 实测。
+
+终端 owner 的进程内目录改由 Application 持有，Activity presenter 销毁取消在途认证、释放其观察任务，但已注册终端可供新 presenter 使用；测试隔离模型维持原生命周期。用户发起本地/SSH/tmux attach 时启动独立 `specialUse` 前台服务；不复用文件传输的 dataSync 服务。通知只含连接数量，不含主机、路径或凭据；最后一个连接停止且无在途终端连接时退出服务。服务不 sticky，不在进程死亡后重放连接、凭据或命令。菜单有失败重试、通知设置和用户显式开启的锁屏保活；partial wake lock 每次限两分钟、按分钟续期，最后连接结束或服务销毁时释放。屏幕常亮偏好仍只负责前台显示，与锁屏保活独立。
+
+新增 `TerminalBackgroundProductTest` 验真实 promotion/通知/唤醒锁/后台 IO、通知返回和 presenter 清理后同一 native owner 的使用；现有宿主入口复用通知权限前后恢复流程。API 29 / arm64 / 4 KiB 页先有主机/后台组合 50 项零失败/跳过，终端 21 项组合随后修正用例后分轮覆盖：普通历史滚动使用多次反向手势回到底部，滚轮坐标取实际字格，远端未知退出状态按原值保留，鼠标模式菜单用系统返回收起 IME；主 Activity 的顶部返回仍由既有用例独立验证。不能把不同 APK 的分轮结果称为一次 71 项完整组合。
+
+API 36 / arm64 / 4 KiB 页的主机配置/页面、后台服务、SSH 删除与恢复、tmux 重新选择、鼠标/滚动和终端生命周期/辅助键组合最终 **71 项通过，零失败/跳过**。真实 Service 的运行类型断言包含 specialUse；最后会话结束后检查实际持有锁的部分。初轮把 Android 16 的历史唤醒锁日志当成仍持有锁而失败，已改为显式解析当前 Wake Locks 段；修正后 71 项通过。之后额外保留实际 WakeLock 对象以防 GC 代替生产释放，相关资源保护与恢复用例在后续变异的原件上再次通过，不称重新完整 71 项。
+
+`ANDROID_SESSION_MANAGEMENT_MUTATE=1` 配合 `test-android-ssh.sh` 的九组设备变异分两轮通过（主机确认/落盘/旧版本三组，服务真实 promotion/唤醒锁释放/presenter 所有权/清理活会话保护/滚轮接线/键盘菜单六组）：真实编译后正常单条断言红、同 APK 配置对照绿、原件绿及源码 SHA256。直接删除 startForeground 的最初探针触发系统启动超时崩溃，不计通过；改为实际 promotion 后立即降为普通服务，保留系统启动期限并由真实 foreground 标志断言红。测试清理只释放本次观察到的锁，通知权限由宿主恢复。不得把这些手工组计入 macOS CI 20 份。
+
+初始隔离 AVD 因约 6.2 GiB 剩余空间未通过约 7.2 GiB userdata 检查；仅清理本轮生成的可重建宿主 VT 编译副本后，新建 API 29 及 API 36 独立 AVD 成功，没有删除/使用已有 QA AVD 数据。首轮界面恢复等待及 ActivityScenario 对通知 intent 的跟踪失败已改成实际 Activity 生命周期观察；失败不计通过。记录在 `tmp/android-session-protection/`。Android Debug/测试 APK、未签名 Release（R8）和四模块 release lint 通过；未进行物理设备、16 KiB 页新包、Doze/锁屏长时或换网矩阵，不称完整客户端或稳定性验收。
+
+SSH 周期保活仍未实现，非零 ServerAliveInterval 仍明确拒绝；前台服务及唤醒锁不保证系统强停、Doze 或换网后 TCP 继续存在。这里的清理只移除停止终端的进程内记录，不修改主机配置；主机删除见 §9.199。
+
+### 9.199 Android 删除主机与共享 C 删除接口（2026-11-04，工作区候选）
+
+主机行右侧操作菜单新增“删除主机”和带名称/范围的确认。确认捕获当时的 ConfigSnapshot，不重新选择新快照覆盖用户之后的修改；成功更新派生列表。专用单 token Host 移除头及到下一个主文件 Host/Match 之前的指令行，独立注释/空行保留。共享 Host 只删除目标 token 和相邻分隔，保留其他别名、通配/否定规则及全部正文；通配规则仍可能匹配被移除的名称。Include 来源和重复块在页面说明限制并禁用；块内 Include/重复 token 由 Core 显式拒绝，请在配置页核对。写回走原有版本比对、强制备份、0600 暂存及原子替换，不删除密钥、验证记录或关闭已建立连接。
+
+新增纯配置 API `gt_config_remove_host`；重解析与既有 rename 共享一次检查后发布的路径，失败不改变原 cfg。Swift/JNI 同步绑定：**51 CTest / 95 ABI，Apple 91 引用/4 登记未用，JNI 57/38**。`mutation-check-config-remove.py --apple` 的七组隔离 C 与一组 Swift 变异通过，既有 rename 十二组 C 复验通过；目标真实编译后正常断言红、独立 API/配置往返绿、原件绿及 SHA256。初轮复合拒绝条件的变异先命中别的保护，收窄到目标 guard 后取证，没有把错误归因计通过。
+
+API 29 50 项组合与 API 36 最终 71 项组合包含真实删除确认/取消、共享别名与备份、外部编辑冲突、备份失败、重复块禁用，以及隔离真实 SSH 的“删除主机后原连接继续回显、密钥与主机验证文件保留”。Core/Swift、Android Debug/测试 APK、未签名 Release/R8、四模块 release lint 和 macOS 宿主原生构建通过。设备变异三组随 §9.198 的九组分轮记账，不重复算组数。上述为本地模拟器与宿主证据，非签名云端发行/物理手机/完整 Android 验收，不增加 CI 20 份。日志在 `tmp/android-host-delete-*`、`tmp/config-remove-mutations/` 和 `tmp/android-ssh-tests/session-management-*`。

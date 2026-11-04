@@ -44,6 +44,49 @@ class ConfigRepositoryTest {
         assertArrayEquals(source.toByteArray(), directory.listFiles()!!.single { it.name.startsWith("config.backup-") }.readBytes())
         assertNotEquals(initial.revision.identity, result.snapshot.revision.identity)
     }
+
+    @Test fun deleteSoleAndSharedHostsPreservesOtherBytesAndBacksUpEachSave() = fixture { directory ->
+        val original = "# 保留 🔑\r\nHost \"demo\" sibling # shared\r\n User alice\r\nHost other\n Port 2200\n"
+        val file = File(directory, "config").apply { writeText(original) }
+        val repo = ConfigRepository(directory)
+        val first = repo.removeHost(repo.load(), "demo").snapshot
+        val expected = original.replace("\"demo\"\u0020", "")
+        assertEquals(expected, file.readText())
+        assertEquals(listOf("sibling", "other"), first.hosts.map { it.alias })
+        assertEquals(original, directory.listFiles()!!.single { it.name.startsWith("config.backup-") }.readText())
+        val last = repo.removeHost(first, "sibling").snapshot
+        assertEquals("# 保留 🔑\r\nHost other\n Port 2200\n", file.readText())
+        assertEquals(listOf("other"), last.hosts.map { it.alias })
+        assertEquals(setOf(original, expected), directory.listFiles()!!.filter { it.name.startsWith("config.backup-") }.map { it.readText() }.toSet())
+    }
+
+    @Test fun deleteRejectsStaleConfigurationAndBackupFailureWithoutChangingOriginal() = fixture { directory ->
+        val file = File(directory, "config").apply { writeText("Host demo\n User me\nHost other\n User keep\n") }
+        val repo = ConfigRepository(directory)
+        val before = repo.load()
+        file.appendText("# external change\n")
+        val current = file.readBytes()
+        assertThrows(ConfigConflict::class.java) { repo.removeHost(before, "demo") }
+        assertArrayEquals(current, file.readBytes())
+        val broken = ConfigRepository(directory, object : ConfigFileOps() {
+            override fun writeExclusive(path: Path, bytes: ByteArray) {
+                if (path.fileName.toString().startsWith("config.backup-")) throw IOException("injected backup failure")
+                super.writeExclusive(path, bytes)
+            }
+        })
+        assertThrows(ConfigAccess::class.java) { broken.removeHost(broken.load(), "demo") }
+        assertArrayEquals(current, file.readBytes())
+        assertFalse(directory.listFiles()!!.any { it.name.startsWith("config.backup-") || it.name.endsWith(".new") })
+    }
+
+    @Test fun deleteAmbiguousAliasIsRejectedBeforeWriting() = fixture { directory ->
+        val original = "Host demo\n User one\nHost DEMO\n User two\n"
+        val file = File(directory, "config").apply { writeText(original) }
+        val repo = ConfigRepository(directory)
+        assertThrows(ConfigAccess::class.java) { repo.removeHost(repo.load(), "demo") }
+        assertEquals(original, file.readText())
+        assertFalse(directory.listFiles()!!.any { it.name.startsWith("config.backup-") })
+    }
     @Test fun backupFailureLeavesOriginal() = fixture { directory ->
         val file = File(directory, "config").apply { writeText(source) }
         val ops = object : ConfigFileOps() {

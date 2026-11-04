@@ -346,6 +346,17 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
 private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFiles: () -> Unit,
     browse: (com.hanxi.ghosterm.domain.Host)->Unit, background: (com.hanxi.ghosterm.domain.Host)->Unit) {
     val hosts=model.filteredHosts
+    model.removal?.let { request ->
+        AlertDialog(onDismissRequest = model::cancelRemove, title = { Text("删除主机 ${request.host.alias}？") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(if (request.host.source!!.patternCount > 1) "仅移除此 Host 规则中的这个别名，共用配置及其他别名保留。"
+                    else "将从 SSH 配置中移除此主机的专用配置。")
+                Text("删除前会备份配置。已建立的连接、密钥和主机验证记录保留。")
+            } },
+            confirmButton = { TextButton(onClick = model::confirmRemove, enabled = !model.busy,
+                modifier = Modifier.testTag("host-delete-confirm")) { Text("删除") } },
+            dismissButton = { TextButton(onClick = model::cancelRemove) { Text("取消") } })
+    }
     LazyColumn(Modifier.fillMaxSize().testTag("host-list"),contentPadding=PaddingValues(horizontal=GhostermDimensions.page,vertical=6.dp)) {
         if(sessions.selectingNewRemote) item {
             Row { Text("选择要新建会话的主机",Modifier.weight(1f));TextButton(onClick=sessions::cancelNewRemote) { Text("取消") } }
@@ -402,7 +413,10 @@ private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFi
                             GhostermActionRow("编辑主机","修改名称、地址与身份",UiIcon.Edit,enabled=!model.busy) { menu=false;model.edit(host) }
                             GhostermActionRow("后台会话","显式选择 tmux",UiIcon.Clock,modifier=Modifier.testTag("host-background-"+host.alias),
                                 enabled=!model.busy && sessions.connecting==null) { menu=false;background(host) }
-
+                            GhostermDivider()
+                            GhostermActionRow("删除主机",host.source?.editRestriction ?: "备份后移除配置，现有连接保留",UiIcon.Close,
+                                enabled=!model.busy && host.source?.editable == true,
+                                modifier=Modifier.testTag("host-delete:"+host.alias)) { menu=false;model.requestRemove(host) }
                         }
                     }
                 }

@@ -16,6 +16,10 @@ object ConfigBridge {
     fun rename(configuration: ByteArray, alias: String, replacement: String): ByteArray =
         renameBytes(configuration, alias.toByteArray(Charsets.UTF_8), replacement.toByteArray(Charsets.UTF_8))
 
+    fun removeHost(configuration: ByteArray, alias: String): ByteArray =
+        removeHostBytes(configuration, alias.toByteArray(Charsets.UTF_8))
+    private external fun removeHostBytes(configuration: ByteArray, alias: ByteArray): ByteArray
+
     fun editIdentities(configuration: ByteArray, alias: String, values: List<String>): ByteArray =
         editIdentityBytes(configuration, alias.toByteArray(Charsets.UTF_8), values.map { it.toByteArray(Charsets.UTF_8) }.toTypedArray())
     private external fun editIdentityBytes(configuration: ByteArray, alias: ByteArray, values: Array<ByteArray>): ByteArray
