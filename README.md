@@ -1,175 +1,57 @@
 # Ghosterm
 
-Ghosterm 是各端原生 UI、共享 C 核心和 libghostty 驱动的终端，提供 SSH 配置管理与 SFTP 文件管理。默认普通 PTY/SSH，可显式使用 tmux 后台会话。
+**原生终端、SSH 配置管理与 SFTP 文件工作区。**
 
-**当前 Android 发行（2026-11-03，`ae164f1`）**：会话选择查询改用不可变快照，修正并发迭代异常；已确认 EOF 后的负读取码不再误报为读取失败，真正断流仍显示错误、未获证明的退出码保持未知。VT 点击、像素尺寸、密钥记忆、SAF、Kitty 动画与 Nerd Fonts 保留。手机频繁断流是否全部同因仍未确定。见 [会话查询修正](docs/reference/android-implementation.md#9188-会话选择查询的并发快照修正候选2026-11-03) 与 [实际发行](docs/reference/android-implementation.md#9190-会话快照修正的实际-androidmacos-dev-发行2026-11-03)。
+Ghosterm 使用各端原生 UI、共享 C11 核心和 libghostty。默认打开普通本地 PTY / SSH，后台会话由用户显式选择 tmux。当前提供 macOS 与 Android 开发版，其余端尚未交付。
 
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,142,251 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查通过。[Android CI 41566580012](https://github.com/hanxi/ghosterm/actions/runs/41566580012) 与 [macOS CI 41566579889](https://github.com/hanxi/ghosterm/actions/runs/41566579889) 均成功，实际八份附件已下载核验。macOS 同源 `ae164f1` / build 98 / min macOS 15.0 / ad-hoc / 未公证，ZIP/DMG 与各自清单一致。
+[产品网站](https://hanxi.cc/ghosterm/) · [下载 dev 版](https://github.com/hanxi/ghosterm/releases/tag/dev) · [文档导航](docs/README.md) · [当前状态](docs/reference/current-status.md)
 
-**完整回归**：`ae164f1` / clean 在 API 29 / arm64 / 4 KiB 页和 API 36 / arm64 / 16 KiB 页均为默认完整 **942 项通过，零失败/错误/跳过**；917 份输入前后一致，具名发现/执行集合及实际安装包已核验，见 [§9.191](docs/reference/android-implementation.md#9191-会话快照修正后的双系统完整-942-项2026-11-03)。原 `f39cb6d` API 29 并发异常保留于 §9.188；实际签名包运行专项仍按 §9.189 的来源分别记账，完整 debug 套件不替代手机验收。
+## 安装
 
-**旧失败记录保留**：`174e754` 两端各 929 方法中具名失败 60 个（104 条含重复报错事件）；旧手动认证前提与 Application Context 夹具已修正，过程见 [§9.174](docs/reference/android-implementation.md#9174-成功密钥记忆后完整回归的测试夹具修正2026-11-03)。不把旧失败改记为通过。
+- **macOS arm64**：[安装与升级](docs/how-to/dev-build.md)。开发包使用 ad-hoc 签名、未公证；最低系统以随包 `BUILD-INFO.txt` 为准。
+- **Android arm64，Android 10+**：[下载 APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk)，[发行与校验说明](docs/how-to/android-release.md)。
 
-**此前正式包长负载**：`808c0ae` 已完成两端十分钟双设备输出、负载中页面往返和忙碌关闭；API 29 / API 36 帧耗时 p95 为 6ms / 8ms。API 36 部分时段 FrameTimeline 已采集，旧持续高计数根因仍未关闭，见 [§9.180](docs/reference/android-implementation.md#9180-当前实际发行包的双设备十分钟负载与同负载跟踪2026-11-03)。
+滚动 dev 资产会更新，两端独立出包。源码进度、当前发行及历史完整测试分别见[当前状态](docs/reference/current-status.md)，完整设备/输入法/网络/文件服务矩阵仍在推进。
 
-用户于 2026-11-03 反馈真机测试正常；型号、系统、安装版本和具体场景待补充，按用户反馈记账，不代替完整设备矩阵。
+## 能做什么
 
-整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
-
-## 技术栈
-
-| 层 | 选型 |
+| 平台 | 已接入的主要功能 |
 |---|---|
-| UI | **各端原生**：SwiftUI(macOS/iOS) · Compose(Android) · ArkUI(HarmonyOS) · WinUI3(Windows) · GTK4(Linux) · Web |
-| 终端引擎 | **full libghostty**（Apple/Linux，Metal/GL4.3）· **libghostty-vt + 自绘**（Web/Android/HarmonyOS） |
-| 共享核心 | **C11**（`core/`）：ssh(libssh2) · sftp · ssh_config · known_hosts · PTY（端口转发待实现） |
-| 接缝 | `UI → TerminalSurface → Transport(本地PTY/SSH) → Core` |
-| 环境包 | 规划按需下载：Android Termux/proot · iOS iSH（当前仅规范，无安装器，不进 App 包） |
+| macOS | full libghostty / Metal，本地与 SSH 终端，标签/分屏，SSH 配置界面，本地/SFTP 文件窗格、传输与 Quick Look，显式 tmux |
+| Android | libghostty-vt / Canvas，本地与 SSH，身份/主机验证，SAF/本机/SFTP 文件浏览与复制任务，历史核对/清理，主题/字体/Kitty，显式远端 tmux |
 
-**不用跨端 UI 框架，不用 Rust。** 决策记录见 [docs/architecture/overview.md](docs/architecture/overview.md)。
+功能仍有边界，特别是 macOS 配置保存、安全存储和文件失败处理；详见[能力矩阵](docs/reference/capability-matrix.md)与[路线图](docs/reference/roadmap.md)。
 
-## 目录
+## 架构与目录
 
-```
-core/           C 共享库（唯一跨语言边界：include/ghosterm.h）
-terminal/       各端 TerminalSurface（full libghostty 或 vt+自绘）
-apple/ android/  现有宿主 + UI（其余端 windows/linux/harmony/web 为规划）
-assets/         品牌资源：应用图标母版 SVG + 各端派生（scripts/build-icons.sh）
-runtime-payload/ 环境包清单规范（下载/校验/安装器待实现，二进制不入库）
-patches/        上游补丁（每个带 WHY.md）
-scripts/        构建 / 闸门 / 变异验证
-docs/           架构 · 能力矩阵 · 许可 · 路线 · Apple UI 已知坑
-```
+`UI → TerminalSurface → Transport → Core`；终端字节由 transport 直达 surface，不经过 UI 事件队列。各端仅通过 `core/include/ghosterm.h` 消费 C ABI。不使用跨端 UI 框架或 Rust。
 
-## 快速开始
+| 目录 | 用途 |
+|---|---|
+| `core/` | C11 / POSIX 共享核心：SSH、SFTP、ssh_config、known_hosts、PTY |
+| `terminal/` | 各端 TerminalSurface；Apple full libghostty，Android vt + 自绘 |
+| `apple/`、`android/` | 原生宿主与 UI |
+| `assets/`、`patches/` | 品牌母版和派生资源、带 WHY 的上游补丁 |
+| `runtime-payload/` | 后续按需环境包规范，当前没有安装器 |
+| `scripts/`、`docs/`、`site/` | 构建/闸门、文档、GitHub Pages 落地页 |
+
+## 开发
+
+macOS 使用完整 Xcode；依赖准备见[主机 SSH 构建](docs/reference/host-ssh2-build.md)。
 
 ```bash
-# macOS：使用完整 Xcode 的一致工具链；按实际安装路径调整
-# 在同一 shell 运行后续 Core / Swift / 打包命令
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 mkdir -p "$PWD/tmp"
 export TMPDIR="$PWD/tmp"
-
-# 主机 SSH 依赖：首次允许联网准备，之后可离线校验
-# macOS 先安装 cmake、pkg-config、openssl@3，准备 C 编译器与 Python 3.12+
 export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}"
 python3 scripts/build-host-ssh2.py --fetch
-
-# 离线闸门（依赖产物及收据已准备；要求 cmake ≥3.19）
-bash scripts/gate.sh                       # 核心：构建 + ssh_config 对拍 + ABI + 支持集双向校验
-
-# Apple 端（需要 zig 0.16.0 / Xcode / Metal toolchain）
-bash scripts/build-ghostty.sh              # 隔离源码打补丁 → build/GhosttyKit.xcframework
-bash scripts/gate-ghostty-patch.sh         # 补丁与树一致 + 补丁符号真的导出
-bash scripts/terminal-gate.sh              # TerminalSurface（字节 → libghostty 网格）
-bash scripts/apple-app-gate.sh             # 绑定 ABI 对拍 + 主机列表 + 真 sshd e2e
-
-# Android（SDK/NDK/JDK 等准备见 android/README.md）
-bash scripts/build-android.sh              # arm64 debug APK + 设备测试 APK
-
-# 变异验证：证明闸门有牙，不是空跑
-bash scripts/mutation-check-sshconfig.sh
-bash scripts/mutation-check-ssh.sh
-bash scripts/mutation-check-ghostty-patch.sh
-bash scripts/mutation-check-terminal.sh
-bash scripts/mutation-check-sftp.sh
-bash scripts/mutation-check-icons.sh
-bash scripts/mutation-check-package-mac.sh
-
-# 应用图标：母版 SVG → 各端图标（需要 rsvg-convert / ImageMagick / python3）
-bash scripts/build-icons.sh                    # 全端生成
-bash scripts/build-icons.sh check              # 产物与母版是否一致
-
-# macOS 打包：.app + .dmg + .zip + SHA256SUMS（详见下方「跑起来」）
-bash scripts/package-mac.sh                    # 出包到 dist/
-bash scripts/package-mac.sh --help             # 全部选项（版本/签名/公证/最低系统）
+bash scripts/gate.sh
 ```
 
-核心默认构建要求已校验的 `build/host-native`，不再自动探测 Homebrew libssh2 或在缺库时退回 stub。`gate.sh` 只离线校验；`build-core.sh` 可以从已缓存源码重建依赖，下载仍需显式 `--fetch`。详细准备、无 SSH 构建和未验收边界见[主机依赖说明](docs/reference/host-ssh2-build.md)。真实 SSH/SFTP 测试另需 sshd 与 ssh-keygen；显式关闭 libssh2 的构建返回 `GT_ERR_UNSUPPORTED`，不等于 SSH 功能通过。Apple 宿主闸门缺 GhosttyKit 产物会失败，缺 Swift 或无法启动 sshd 时有显式 SKIP；验收必须检查实际覆盖，不能只看退出码。
+[Apple 构建](apple/README.md) · [Android 构建](android/README.md) · [终端接缝](terminal/README.md) · [网站维护](site/README.md)
 
-## 跑起来（macOS）
-
-安装最新 dev 版（自动校验并清除 quarantine；升级前先退出 Ghosterm）：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hanxi/ghosterm/main/scripts/install-macos.sh | /bin/bash
-```
-
-安装到 `/Applications/Ghosterm.app`，后续升级重复执行；[安装说明](docs/how-to/dev-build.md)。
-
-从源码构建：
-
-```bash
-bash scripts/build-mac-app.sh        # 出包：tmp/Ghosterm.app（自包含的普通终端包）
-open tmp/Ghosterm.app                # 普通终端；通过连接选择器进入 SSH/SFTP 与主机管理
-```
-
-包是**自包含**的（core 与 libghostty 静态链接，libssh2 嵌入
-`Contents/Frameworks/`）——目标 Mac 不需要 Homebrew。当前发行包为 arm64；
-`b7dae61` 的 CI dev 包记录最低 macOS 15.0，Homebrew cask 仍声明 macOS 26 下限。
-源码声明的 macOS 13 不等于包的运行下限，打包脚本按实际嵌入依赖计算并验证 minos；
-包元数据也不代表该系统上的全部功能已验收，具体证据见[开发包说明](docs/how-to/dev-build.md)。
-ad-hoc 签名；Developer ID + 公证是显式遗留项（待证书，见 roadmap）。
-
-可选后台会话从 `+ → 新建连接 → 打开为后台会话` 或已有终端标签右键菜单打开；目标需安装 tmux >=3.2a，
-不影响普通终端。主机选择从连接选择器进入，主机编辑在“管理 SSH 配置”；侧栏只列活动标签。操作与保留边界见[使用 tmux 后台会话](docs/how-to/tmux-sessions.md)。
-
-不带包直接跑（开发循环）：
-
-```bash
-cd apple/GhostermApp && swift run GhostermApp                 # GUI
-swift run GhostermApp --local                                 # 无窗口冒烟（打网格文本）
-swift run GhostermApp --ssh-smoke <config> <host别名>          # 无 UI 走 AppModel 全链路
-```
-
-## 当前状态（2026-11-02）
-
-下列状态按当前产品调用方记账。Android §9.70 已接任务认证与粘贴页面，本片当前模拟器档验证通过；macOS 受控文件接口迁移仍待完成。[路线图](docs/reference/roadmap.md#当前进度总览)分别记录底层接口、实际产品和各轮验收结果。
-
-Android 已接主机首页、本地/SSH 终端、本机/SAF/远端文件浏览、点按打开和长按选择；§9.70 接通复制清单到粘贴确认、执行与结果页面，文件任务连接独立于浏览和终端。五类设置与 16 项偏好生产消费者已接；A5/A6 的完整行为、设备和发行矩阵待补；历史测试数量集中保留在[实现记录](docs/reference/android-implementation.md#9-分阶段实施与依赖)。
-
-进度以[路线图当前总览](docs/reference/roadmap.md#当前进度总览)为准；以下区分生产实现与历史验收，不把原型中的可交互演示记为已实现能力。
-
-- **Android**：按[唯一 HTML 方案](docs/design/android-prototype.html)和[详细实现文档](docs/reference/android-implementation.md)开发。A0/A1 已完成当前模拟器档；A2/A3/A4/A5/A6/A7 部分交付。任务页已接独立认证、冲突确认、取消等待和实际结果；跨远端命名空间判定、FIFO 调度和前台服务已接；暂停/继续、安全失败项重试、16 项设置生产接线及显式 tmux 已发行。历史位置/摘要、本机创建身份核对和暂存维护已接；历史位置的远端/SAF 文件清理已接（§9.123）；当前已结束任务的直接维护、完整恢复与设备/发行矩阵仍待完成。选区历史失败及后续修正、保护证据保留在实现记录。
-- **macOS**：普通终端、统一标签/文件工作区、传输主流程及显式 tmux 已交付。配置事务/表单、安全存储、完整剪贴板、文件失败处理与发行仍有缺口；[Apple 实现说明](apple/README.md)和[路线图待办](docs/reference/roadmap.md#macos-下一步与共享缺口)列出源码事实与完成条件。macOS 尚无 TCP 失败后遍历 DNS 备用地址的实现；Android 已按 §9.40 接入候选推进。Android 普通 shell 已接剩余预算和取消；Swift 新接口已验，但 macOS 产品尚未改用，认证可取消不等于桌面通道打开已可取消，见 [通道边界](apple/README.md#ssh-认证后的通道打开边界)。
-- **共享核心**：最新本地闸门为 **49 项 CTest / 94 ABI**，Apple 90 引用/4 登记未用，Android JNI 56/38（§9.122–§9.123）；§9.65 的历史验收基线为 **47 项 CTest / 89 ABI**，Apple 87/2、JNI 49/40；受控 shell/SFTP 打开、目录浏览、有界预览、独占暂存创建、受控读取到 fd 与三份依赖补丁已验。Android 已消费 shell 入口，SFTP 已接专用 owner/JNI/Kotlin 后端，文件页面已接；macOS 产品尚未改用受控 shell/SFTP。TOFU/移除共同事务已交付，Android 管理页在 §9.39 验收，macOS 无管理页；共享修复不代表桌面配置、设置或文件提交事务已完成。
-
-| 能力 | 状态 |
-|---|---|
-| C 核心骨架 + `ghosterm.h` v0 ABI | 🟡 当前 94 符号对拍通过，包含远端非覆盖发布、受控单目录创建和请求内收发进度观察；受控打开、浏览与 stat 标志已验，Android 只读文件页面已接，macOS 产品仍待迁移，接口尚未冻结，旧会话 ABI 已移除 |
-| `ssh_config` 解析 / 无损往返（未编辑） | ✅ 与原文逐字节相同 |
-| `ssh_config` 求值 | ✅ typed 视图 + 通用视图（`ssh -G` 等价）；42 键 × 6 host 全表语义对拍 |
-| `ssh_config` 编辑 API | 🟡 9 个原夹具 + 5 个补充用例逐字节对拍；非连续重复指令已按实际匹配行编辑，已增加三字段来源与包含文件/重名块编辑保护；已接入仅替换目标别名 token 的重命名接口；全部字段视图仍待补齐 |
-| `ssh_config` `Include` 展开 | ✅ OpenSSH 同口径（相对路径基准 = ~/.ssh、glob、嵌套 + 深度上限 16）；6 组断言 + 变异 I1~I4 |
-| 本地 PTY transport（forkpty） | ✅ POSIX 实现（macOS/Linux 证据；Android A2 首片已有 API 36 模拟器定向/变异证据，整个阶段未完成） |
-| SSH（libssh2）connect / auth / hostkey TOFU / ssh-shell | 🟡 密码/密钥、可取消认证与撤销优先的主机验证已有真 sshd 证据；CA-only、未知标记和 hashed 条目显式报不支持，见 [主机信任边界](core/tests/README.md#主机信任与撤销)。共享连接前配置检查已接两端；高级选项执行仍未实现，Android SSH 后端已绑定，产品、SAF 导入、凭据、身份设置与信任记录管理连同文件首片已有完整 214 项设备回归证据，A3 余项待收尾 |
-| SFTP（list / stat / 上传 / 下载 / job 三态） | 🟡 基础原语有真 sshd e2e 与变异证据；覆盖截断与关闭结果检查已补齐（Android 计划 §9.53）；独占暂存创建与远端非覆盖发布已接（§9.54/§9.57），Android 产品接线见 §9.70；macOS 旧下载完整长度校验及过载下终态保障仍待补齐 |
-| **macOS 原生宿主** | 🟡 已交付主要功能；配置写盘与私钥安全存储接线仍有缺口，见路线图 |
-| ├ TerminalSurface（full libghostty + Metal） | ✅ 上游补丁提供 host IO 后端（`patches/libghostty/`） |
-| ├ SwiftUI 宿主 + `ghosterm.h` 绑定 | ✅ 窗口 / 侧边栏 / 多标签页 / 分屏 / 设置页 / 三态对话框；当前绑定 ABI 对拍为 94 项中引用 90 项、另 4 项显式登记，受控文件新入口未接产品；改名绑定不等于 macOS 表单已接入 |
-| ├ 标签 / 窗格 | ✅ 单窗口顶部或侧边标签、UUID 重排、唯一加号、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；统一终端/文件工作区、分屏预览、焦点与停画。**遗留**：标签/布局跨重启持久化（设置偏好已持久化） |
-| ├ 配色集随包 + 主题选择 | ✅ Ghostty 配色集随包（`Contents/Resources/ghostty/themes`，数量由构建输出决定）+ 资源目录推导；出包包内配置检查验主题被引擎接受 |
-| ├ 终端设置 | 🟡 配置由 Ghostty 解析，字号/配色已有真实 surface 证据；`SettingsStore` 重复键编辑、读取错误与冲突判定仍有缺口，不能把正常配置的测试扩大为全部保存路径正确 |
-| ├ 终端系统复制粘贴 | 🟡 `beffb49` 已接标准 `copy:` / `paste:` 与 ⌘C/⌘V；真实选区和模式感知粘贴已有专用测试。全局菜单自动路由、粘贴确认及引擎剪贴板回调仍待验收，见路线图 P1 |
-| ├ ssh_config 图形编辑（M3） | 🟡 编辑器、通配块与 Core 稀疏 API 已实现；共享重复指令误删已修复。macOS 表单仍简化扫描/提交全部字段，备份错误被忽略、替换先删后移，保真与事务保障待修复 |
-| ├ 文件工作区与传输 | 🟡 本地/SFTP 统一窗格、队列、拖放与 Quick Look；独立文件连接。控制异常/未知结果、目录内链接跳过明细尚待修复；目录冲突 UI 等验收缺口见交接文档 |
-| ├ 文件查询与搜索 | 🟡 正常浏览/搜索已有接线；存在性查询折叠错误，树加载失败被缓存为空；搜索及递归权限遗漏部分遍历错误，远端搜索未检查退出状态且取消未传入后端；传输入队/控制仍可能同步阻塞主线程，见 [Apple 说明](apple/README.md#文件查询与线程边界) |
-| └ 渲染 | ✅ 三层证据：字节→网格、渲染层已挂、**像素级**（抓自进程内视图帧比颜色，含对照与变异 P1~P3）——抓自进程内的视图不需要录屏权限 |
-| 打包分发（脚本 + CI + DMG + 校验和） | ✅ `scripts/package-mac.sh` + `macos-release.yml`；ad-hoc 签名已可出包，**Developer ID + 公证待证书**（显式遗留）。工作流有路径过滤/取消，不保证每个提交出包，见 [CI 触发范围](docs/how-to/dev-build.md#ci-是怎么串起来的) |
-| 可选 tmux 后台会话 | 🟡 macOS 与 Linux SSH 的 tmux 3.2a、3.6a；用户显式打开列表、选择及重新连接；保留边界见使用说明 |
-| Android | 🟡 A0/A1 当前模拟器档完成；主机、终端、文件浏览/复制任务和身份/信任管理已接，§9.71 已接进程共享任务，§9.72 已接 FIFO 队列。五类 16 项设置、后台传输、只读持久历史、摘要/归属核对与显式清理已接；不会自动恢复复制副作用。完整设备/网络/外部端点及发行矩阵仍待完成；见[实现进度](docs/reference/android-implementation.md#9-分阶段实施与依赖) |
-| iOS / 其余端 | ❌ 原生宿主未交付 |
-
-macOS／共享 PTY 已修复 SIGWINCH 通知，真实本地 shell→系统 ssh→远端 tmux 的窗口尺寸同步证据见[tmux 实施记录](docs/reference/optional-tmux-implementation.md#后续-pty-尺寸通知修复2026-10-30)。Bash/Zsh 鼠标残留清理脚本须显式安装到实际 shell 所在主机；真实休眠和用户远端未验，见[使用说明](docs/how-to/mouse-report-recovery.md)。各次 Android 测试数量保留在[实现记录](docs/reference/android-implementation.md#9-分阶段实施与依赖)，不与最新完整套件相加。
-
-进度看板见 [docs/reference/roadmap.md](docs/reference/roadmap.md)；开发铁律见 [AGENTS.md](AGENTS.md)。
+提交与验收规则以 [AGENTS.md](AGENTS.md) 为准；CI 绿不等于全部手工闸门通过。历史实现和测试记录保留在文档中，不作为当前提交的通过证明。
 
 ## 许可
 
-**MIT License**（`LICENSE`）。随包组件（libghostty / libssh2 / OpenSSL 等）
-各自按其许可分发；iSH/Termux 这类 GPL 组件若日后随包分发，仍需履行
-其自身的 source offer，安排见
-[docs/explanation/licensing.md](docs/explanation/licensing.md)。
-
-> 历史版本（Lynx + Rust 实现）归档在 git tag `archive/lynx-rust-v1`，
-> 其 `ssh -G` 黄金夹具已迁入 `core/tests/fixtures/`。
+[MIT License](LICENSE)。随包组件分别遵守其自身许可，详见[许可说明](docs/explanation/licensing.md)。旧 Lynx + Rust 版本保留在 `archive/lynx-rust-v1` tag。

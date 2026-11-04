@@ -1,18 +1,6 @@
 # Android 宿主
 
-**当前 Android 发行（2026-11-03，`808c0ae`）**：默认记住成功使用的 SSH 密钥，下次自动使用；取消勾选可仅用于本次连接，加密密钥仍需口令。SSH/SFTP/独立任务共用记忆，SSH 配置不改写。既有 SAF 修复、Kitty 动画和 Nerd Fonts 保留。见 [实际发行](../docs/reference/android-implementation.md#9178-密钥记忆提示修正的实际-android-dev-发行2026-11-03)。
-
-[共用 dev APK](https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-android-arm64-dev.apk) 为 **8,139,875 字节**；固定证书、clean 来源、R8/资源优化、仅 arm64、Nerd Fonts/许可、ELF/ZIP 16 KiB 和构建机路径检查均通过。[Android CI 41544996548](https://github.com/hanxi/ghosterm/actions/runs/41544996548) 成功，实际附件已下载核验。Mac 保留 `d3313a7` / build 95 / min macOS 15.0 / ad-hoc / 未公证（[原 CI](https://github.com/hanxi/ghosterm/actions/runs/41528681290)）；其五份附件 ID/尺寸不变，共用 dev 八份附件完整。Android 与 macOS 分别以各自收据为准。
-
-**完整回归**：`e254b3d` / clean 在 API 29 / arm64 / 4 KiB 页与 Android 16 / API 36 / arm64 / 16 KiB 页各默认完整 **929 项全部通过**，零失败/错误/跳过。具名发现/成功结束集合、实际安装 app/test APK 及 911 份输入前后与跨检出一致，见 [§9.176](../docs/reference/android-implementation.md#9176-夹具修正后的两端默认完整-929-项2026-11-03)。这是 debug instrumentation 完整结果；正式 release 及真实手机/外部矩阵分别记账。
-
-**旧失败记录保留**：`174e754` 两端各 929 方法中具名失败 60 个（104 条含重复报错事件）；旧手动认证前提与 Application Context 夹具已修正，过程见 [§9.174](../docs/reference/android-implementation.md#9174-成功密钥记忆后完整回归的测试夹具修正2026-11-03)。不把旧失败改记为通过。
-
-**当前正式包长负载**：`808c0ae` 已完成两端十分钟双设备输出、负载中页面往返和忙碌关闭；API 29 / API 36 帧耗时 p95 为 6ms / 8ms。API 36 部分时段 FrameTimeline 已采集，旧持续高计数根因仍未关闭，见 [§9.180](../docs/reference/android-implementation.md#9180-当前实际发行包的双设备十分钟负载与同负载跟踪2026-11-03)。
-
-用户于 2026-11-03 反馈真机测试正常；型号、系统、安装版本和具体场景待补充，按用户反馈记账，不代替完整设备矩阵。
-
-整个客户端仍未完成：不同提供方/物理服务器、真实手机网络/输入/性能及最终全量矩阵仍待收尾。A9 环境包按用户决定延后。Kitty 图形/动画、正式图标、Nerd Fonts、五类设置、可选远端 tmux 和 DNS 探测兼容已在当前发行中保留；用户已反馈手机域名连接正常，逐项网络矩阵尚未取得证据。
+> 当前源码、发行清单与完整回归范围见[当前状态](../docs/reference/current-status.md)。历史测试与失败保留在实现计划 §9。
 
 主机管理按真实 SSH 配置显示默认/继承/显式来源，支持稀疏编辑、配置文本、来源遮蔽、别名和身份关联；私钥只保存到本安装的 Keystore 加密容器。默认本地 PTY/SSH，后台 tmux 由用户显式选择。文件点按打开、长按选择，复制后显示清单，在本机/远端任意目标重新预检与确认。
 
@@ -24,16 +12,16 @@
 
 ## 远端文件页面
 
-位置面板从当前主机配置发起独立文件连接，共用既有 DNS、主机验证与身份认证；不借用终端连接。端点保留 UUID 和实际 host/user/port 快照，配置编辑不改写已连接端点。真实目录成功后显示规范路径，点按预览、长按选择；离页关闭浏览连接，重新进入须显式重连。
+位置面板从当前主机配置发起独立文件连接，共用既有 DNS、主机验证与身份认证；不借用终端连接。端点保留 UUID 和实际 host/user/port 快照，配置编辑不改写已连接端点。真实目录成功后显示规范路径，点按预览、长按选择；离页取消页面读取并隔离晚到回调，保留 FilesViewModel 持有的独立浏览连接；输入和目标匹配且 native ready 时复用，显式断开或模型清理时释放（§9.202–§9.203）。
 
-实现入口为 [文件 repository](data/src/main/java/com/hanxi/ghosterm/data/FileBrowserRepository.kt)、[文件 ViewModel](app/src/main/java/com/hanxi/ghosterm/FilesViewModel.kt) 与 [真实产品设备测试](app/src/androidTest/java/com/hanxi/ghosterm/RemoteFilesProductTest.kt)。§9.60 已接复制来源清单；§9.70 已接粘贴任务，外部只读打开已在 §9.92 工作区实现并进行独立验收；浏览连接离页关闭，独立任务连接由任务持有者管理。
+实现入口为 [文件 repository](data/src/main/java/com/hanxi/ghosterm/data/FileBrowserRepository.kt)、[文件 ViewModel](app/src/main/java/com/hanxi/ghosterm/FilesViewModel.kt) 与 [真实产品设备测试](app/src/androidTest/java/com/hanxi/ghosterm/RemoteFilesProductTest.kt)。§9.60 已接复制来源清单；§9.70 已接粘贴任务，外部只读打开已在 §9.92 工作区实现并进行独立验收；浏览连接随模型存活，独立任务连接由任务持有者管理。
 
 ```bash
 ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFilesProductTest bash scripts/test-android-ssh.sh
 ANDROID_SERIAL=设备 ANDROID_FILES_PRODUCT_MUTATE=1 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFilesProductTest bash scripts/test-android-ssh.sh
 ```
 
-第二条运行 14 组已编译的产品变异，每组配同 APK 独立配置对照及恢复验证；来源为 [变异脚本](../scripts/mutation-check-android-files-product.py)。完整验证结果与历史失败见实现计划 §9.52；需要先准备 SSH 协议夹具环境，见下文测试入口。
+第二条运行产品变异（组数以当前脚本枚举为准），每组配同 APK 独立配置对照及恢复验证；来源为 [变异脚本](../scripts/mutation-check-android-files-product.py)。完整验证结果与历史失败见实现计划 §9.52；需要先准备 SSH 协议夹具环境，见下文测试入口。
 
 ## 粘贴确认与任务页面
 
