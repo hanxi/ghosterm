@@ -159,6 +159,25 @@ static bool supported(const char *s, bool *valid) {
   return major > 3 ||
          (major == 3 && (minor > 2 || (minor == 2 && *suffix >= 'a')));
 }
+/* ssh exec uses a non-login shell. Resolve the remote account's login PATH
+ * (e.g. Homebrew from .zprofile), just as local discovery does. Quote the
+ * command as data; neither a PATH entry nor SHELL becomes shell source. */
+static int remote_login(gt_ssh_t *ssh, const char *command,
+                        const gt_command_budget_t *b, gt_command_result_t *r) {
+  /* The subshell preserves gt__command_ssh's trailing completion record. */
+  const char *prefix = "(case ${SHELL:-/bin/sh} in /*) exec \"${SHELL:-/bin/sh}\" -l -c ";
+  const char *suffix = ";; *) exit 126;; esac)";
+  char *quoted = gt__command_quote(command), *wrapped = NULL;
+  size_t length = 0;
+  if (!quoted) return GT_ERR_INTERNAL;
+  int rc = gt__command_append(&wrapped, &length, prefix, strlen(prefix));
+  if (!rc) rc = gt__command_append(&wrapped, &length, quoted, strlen(quoted));
+  if (!rc) rc = gt__command_append(&wrapped, &length, suffix, strlen(suffix));
+  free(quoted);
+  if (!rc) rc = gt__command_ssh(ssh, wrapped, b, r);
+  free(wrapped);
+  return rc;
+}
 int gt_tmux_discover(gt_ssh_t *ssh, const gt_tmux_opts_t *o,
                      gt_tmux_candidate_t *out, size_t cap, size_t *count) {
   static const gt_tmux_opts_t zero;
@@ -187,7 +206,7 @@ int gt_tmux_discover(gt_ssh_t *ssh, const gt_tmux_opts_t *o,
   free(quoted);
   gt_command_result_t r = {0};
   int rc;
-  if (ssh) rc = gt__command_ssh(ssh, command, &b, &r);
+  if (ssh) rc = remote_login(ssh, command, &b, &r);
   else {
     const char *shell = o->login_shell ? o->login_shell : getenv("SHELL");
     if (!shell || !*shell) shell = "/bin/sh";
@@ -272,7 +291,7 @@ gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *o, gt_status_t *out
     strcpy(t->exe, o->executable);
   else {
     if (ssh)
-      rc = gt__command_ssh(ssh, discover, &b, &r);
+      rc = remote_login(ssh, discover, &b, &r);
     else {
       const char *shell = o->login_shell ? o->login_shell : getenv("SHELL");
       if (!shell || !*shell)

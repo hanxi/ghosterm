@@ -9,6 +9,9 @@ def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def timed(args, expected=0):
     cmd = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require mutation-check-tmux; shift; gt_timeout 180 "$@"', 'tmux-mutation', str(ROOT)] + list(map(str, args))
     result = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env=dict(os.environ, TMPDIR=str(ROOT/'tmp')))
+    if 'SKIP' in result.stdout + result.stderr:
+        print(result.stdout, result.stderr, flush=True)
+        raise RuntimeError('tmux mutation prerequisite skipped')
     if (result.returncode == 0) != (expected == 0):
         print(result.stdout, result.stderr, flush=True)
         raise RuntimeError(f'expected {expected}, actual {result.returncode}: {args}')
@@ -41,6 +44,8 @@ def main():
         def check(mode, red=False):
             if mode == 'command': timed([binary,'command'],1 if red else 0)
             elif mode == 'discovery': timed(['python3',ROOT/'core/tests/scripts/test-tmux-discovery.py',binary],1 if red else 0)
+            elif mode == 'remote-discovery': timed(['env','GT_TMUX_TEST_BINARY='+str(binary),'bash',
+                ROOT/'core/tests/scripts/ssh_e2e.sh',ROOT/'core/tests/scripts/test-tmux-login-ssh.py'],1 if red else 0)
             else: timed(['python3',ROOT/'scripts/test-tmux.py','--binary',binary] + (['--fake'] if mode=='adversarial' else [mode]),1 if red else 0)
         for mode in ['command','discovery','adversarial','names','identity','policy','attach','race','empty','owner-kill']: check(mode)
         mutants = [
@@ -50,6 +55,10 @@ def main():
             ('path-duplicates', 'src/tmux/tmux.c', 'if (!duplicate) {', 'if ((void)duplicate, true) {', 'discovery', 'command'),
             ('path-capacity', 'src/tmux/tmux.c', 'if (*count == cap) { rc = GT_ERR_PROTOCOL; goto done; }', 'if (*count == cap) break;', 'discovery', 'command'),
             ('path-unknown', 'src/tmux/tmux.c', 'out[i].status = ok ? GT_OK : valid ? GT_ERR_UNSUPPORTED : GT_ERR_PROTOCOL;', 'out[i].status = ok ? GT_OK : GT_ERR_UNSUPPORTED;', 'discovery', 'command'),
+            ('remote-login-discover', 'src/tmux/tmux.c', 'if (ssh) rc = remote_login(ssh, command, &b, &r);',
+             'if (ssh) rc = gt__command_ssh(ssh, command, &b, &r);', 'remote-discovery', 'command'),
+            ('remote-login-open', 'src/tmux/tmux.c', 'rc = remote_login(ssh, discover, &b, &r);',
+             'rc = gt__command_ssh(ssh, discover, &b, &r);', 'remote-discovery', 'command'),
             ('missing', 'src/tmux/tmux.c', '  if(!r->completed||r->exit_code!=1||r->out_len||!r->err)return false;', '  if(r->completed&&r->exit_code==1)return true;', 'adversarial', 'command'),
             ('duplicates', 'src/tmux/tmux.c', 'if(rows[i].id==r->id||', 'if(false||', 'adversarial', 'command'),
             ('utf8', 'src/tmux/tmux.c', '}else return false;\n    unsigned count=n;', '}else {p++;continue;}\n    unsigned count=n;', 'adversarial', 'command'),
@@ -74,6 +83,7 @@ def main():
         ]
         requested=os.environ.get('GT_TMUX_MUTATIONS')
         if requested: mutants=[case for case in mutants if case[0] in requested.split(',')]
+        if any(case[4] == 'remote-discovery' for case in mutants): check('remote-discovery')
         try:
             for name, file, old, new, target, control in mutants:
                 path=core/file; source=originals[file].decode()
@@ -98,7 +108,8 @@ def main():
                 (build/'libghosterm_core.a').unlink(missing_ok=True)
                 binary.unlink(missing_ok=True)
                 timed(['cmake','--build',build,'-j4'])
-                print(f'PASS {name}: target red, control green, SHA rollback',flush=True)
+                check(target)
+                print(f'PASS {name}: target red, control green, restored target green, SHA rollback',flush=True)
             for mode in ['command','adversarial','attach','race']:check(mode)
         finally:
             for file,data in originals.items():

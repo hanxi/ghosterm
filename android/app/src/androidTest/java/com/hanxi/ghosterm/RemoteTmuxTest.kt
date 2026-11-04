@@ -46,7 +46,7 @@ class RemoteTmuxTest {
         folder.deleteRecursively()
         Unit
     }
-    private fun authenticate(session: AuthenticatedSSH,ready: ()->Boolean) {
+    private fun authenticate(session: AuthenticatedSSH, key: String = "pem", ready: ()->Boolean) {
         var prompt: SSHAuthState?=null
         await {
             val value=session.authentication()
@@ -54,7 +54,7 @@ class RemoteTmuxTest {
             prompt=value
             value.phase==SSHAuthPhase.CREDENTIALS && value.request>0
         }
-        val bytes=tmux.getString("pem").toByteArray()
+        val bytes=tmux.getString(key).toByteArray()
         session.privateKey(checkNotNull(prompt),bytes)
         assertTrue("tmux credential caller buffer cleared",bytes.all { it==0.toByte() })
         await {
@@ -95,6 +95,26 @@ class RemoteTmuxTest {
         val result=connection.list()
         assertEquals(result.error,0,result.status);assertEquals(RemoteTmuxServer.ABSENT,result.server);assertTrue(result.entries.isEmpty())
         assertEquals(RemoteTmuxServer.ABSENT,connection.list().server)
+    }
+    @Test fun remoteLoginFindsTmuxOutsideExecPathAndUsesTheAbsoluteCandidate(): Unit=runBlocking {
+        for ((key,path) in listOf("loginPem" to tmux.getString("path")) +
+            if (tmux.has("homebrewPem")) listOf("homebrewPem" to "/opt/homebrew/bin/tmux") else emptyList()) {
+            val connection=RemoteTmuxSession(request(),socketPath=socket()).also { managers+=it }
+            authenticate(connection,key) { connection.state().ready }
+            val discovery=connection.discover()
+            assertEquals(discovery.error,0,discovery.status)
+            assertTrue("Remote login candidate missing: $path",discovery.candidates.any { it.path==path && it.usable })
+            assertEquals(0,connection.selectExecutable(path).status)
+            assertEquals(RemoteTmuxServer.ABSENT,connection.list().server)
+            assertEquals(RemoteTmuxResult.CONFIRMED,connection.create("login-path").result)
+            val created=connection.list()
+            assertEquals("$key: ${created.error}",0,created.status)
+            assertEquals("$key must keep its created session",1,created.entries.size)
+            val entry=created.entries.single()
+            assertEquals("login-path",entry.name)
+            assertEquals(RemoteTmuxResult.CONFIRMED,connection.terminate(entry).result)
+            connection.closeAndAwait()
+        }
     }
     @Test fun createRenameAndTerminateUseActualIdentitiesAndInvalidateOldSelections(): Unit=runBlocking {
         val connection=manager(socket())

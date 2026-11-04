@@ -668,6 +668,26 @@ int main(int argc, char **argv) {
     gt_ssh_close(management_ssh);
     puts("PASS tmux SSH PATH discovery"); return 0;
   }
+  if (!strncmp(argv[1], "login-", 6)) {
+    CHECK(management_ssh, "login discovery requires SSH");
+    gt_tmux_candidate_t candidates[8]; size_t n = 42;
+    gt_status_t status = GT_OK;
+    int rc = gt_tmux_discover(management_ssh, NULL, candidates, 8, &n);
+    gt_tmux_t *opened = gt_tmux_open(management_ssh, NULL, &status);
+    if (!strcmp(argv[1], "login-open")) {
+      CHECK(rc == GT_OK && n == 1 && !strcmp(candidates[0].path, argv[2]) &&
+            candidates[0].status == GT_OK, "login-only PATH is discovered and version checked");
+      CHECK(opened && status == GT_OK, "default open resolves the same login PATH");
+    } else if (!strcmp(argv[1], "login-missing")) {
+      CHECK(rc == GT_OK && n == 0 && !opened && status == GT_ERR_NOT_FOUND,
+            "clean login with no tmux is known absent");
+    } else {
+      CHECK(rc == GT_ERR_PROTOCOL && n == 0 && !opened && status == GT_ERR_PROTOCOL,
+            "login diagnostics or failure cannot claim tmux absent");
+    }
+    gt_tmux_close(opened); gt_ssh_close(management_ssh);
+    puts("PASS tmux remote login discovery"); return 0;
+  }
   exe = argv[2];
   socket_path = argv[3];
   gt_tmux_opts_t opts = {.executable = exe, .socket_path = socket_path};

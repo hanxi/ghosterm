@@ -19,6 +19,8 @@ def execute(root,build,test):
     ui='com.hanxi.ghosterm.TmuxProductTest#'
     unknown='RemoteTmuxResult.UNKNOWN -> error=label+"结果无法确认，请刷新实际会话后再操作；不会自动重试。"+result.error'
     cases=[
+      ('login-path',core,'if (ssh) rc = remote_login(ssh, command, &b, &r);',
+       'if (ssh) rc = gt__command_ssh(ssh, command, &b, &r);',remote+'remoteLoginFindsTmuxOutsideExecPathAndUsesTheAbsoluteCandidate'),
       ('execution-endpoint',core,'rc = validate(&execution, target, &b);','rc = execution.ssh ? GT_OK : GT_ERR_INVALID_ARG;',remote+'executionNamespaceIsValidatedBeforeAttachingADifferentKeysEnvironment'),
       ('pinned-address',bridge,'return connectionFor(target,connection.timeoutMillis).openTmuxTarget(handle,target.snapshot,target.index).also { snapshot=0 }','return connection.openTmuxTarget(handle,target.snapshot,target.index).also { snapshot=0 }',remote+'attachUsesTheAcknowledgedManagementAddressInsteadOfANewCandidate'),
       ('native-epoch',native,'expected==s->snapshot && index>=0','expected<=s->snapshot && index>=0',remote+'nativeRefreshEpochRejectsAnOldTargetEvenIfTheCoreIdentityStillExists'),

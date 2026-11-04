@@ -4631,3 +4631,17 @@ API 36 / arm64 / 4 KiB 页布局六项通过（64.400 秒），终端页面 53 �
 与 §9.206 联合验证的最终 API 36 / arm64 / 4 KiB 页模拟器六类相关组合为 **37 项通过，135.520 秒**，具名开始/成功结束唯一集合一致，零失败/跳过。实际安装的 Debug/测试 APK SHA256 与构建产物相同，17 份本轮非 Markdown 输入复原摘要单列于 `tmp/ssh-connection-review/receipt.json`。Core **52 CTest / 95 ABI**、Apple 引用对拍、Android Debug/测试 APK、未签名 Release/R8 与四模块 release lint 通过；本轮不是默认完整客户端或物理手机/厂商输入法验收，未发行。
 
 失败记录保留：首轮 19 项有一项手动步骤早于表单就绪；随后自动阶段观察抓到请求清零后的表单闪现，未记绿。联合 37 项初轮另有 tmux 夹具/呈现时机失败，详见下节；修正后四项定向与最终 37 项通过。一次默认 ZIG 临时路径缺失和一次测试命令覆盖 PATH 后找不到 rg 均为前置/包装器失败，没有冒充功能通过。日志、分轮变异和安装收据在 `tmp/ssh-connection-review/` 与 `tmp/android-ssh-tests/`。
+
+### 9.206 SSH 远端登录 PATH 与 macOS Homebrew tmux（2026-11-05）
+
+用户反馈 Android 的后台会话连接在远端 Linux 可发现 tmux，但这台 Mac 的 `/opt/homebrew/bin/tmux` 不在候选中。隔离 loopback 真 sshd 探针复现：普通 SSH exec 的 PATH 没有 Homebrew；实际账号 `~/.zprofile` 中的 `brew shellenv` 只在登录 shell 加载，登录后能找到该路径并读出 **tmux 3.6a**。原 Core 远端发现只在非登录 shell 中枚举 PATH，与已有本地登录 shell 的语义不同。
+
+远端 `gt_tmux_discover` 和未显式给 executable 的 `gt_tmux_open` 统一通过账号的非交互登录 shell 执行发现，读取真实登录 PATH，不硬编码 Homebrew 或改变用户 PATH 顺序。命令与 shell 路径按数据引用，保留原有路径去重、绝对路径/版本/容量检查、同一操作期限与取消；选定后继续按绝对路径执行。登录失败、标准输出污染或 stderr 仍显式报错，不能降格为“未安装”。登录命令包在子 shell 内，保证既有 SSH 完成回执继续执行；没有把 EOF/退出码冒充确定完成。
+
+新增 `tmux_login_ssh` CTest 用真 SSH 验六种受控登录环境：顺序/去重/不同版本、仅登录 PATH 有 tmux 的默认打开、真实空候选、stdout/stderr 污染及登录失败；路径含空格和单引号。`GT_TMUX_MUTATIONS=remote-login-discover,remote-login-open python3 scripts/mutation-check-tmux.py` 两个隔离 Core 组通过，目标正常断言红、同 archive 命令对照绿、复原后同目标绿与 SHA256；变异脚本拒绝 SKIP。新增组沿用既有 tmux 脚本入口，本轮记录的是本地结果，不声称云端 CI 已执行。
+
+Android `RemoteTmuxTest` 新增一个实际 JNI/Core 用例，分别认证到“仅登录 PATH 提供 tmux”的受控入口，以及这台 Mac 的真实 `/bin/zsh`＋隔离 HOME/.zprofile＋Homebrew 入口。两者均发现并版本验证绝对路径，显式选择后在隔离 socket 创建、列出和结束会话；未触碰用户现有 tmux server。`ANDROID_TMUX_MUTATE=1 ANDROID_TMUX_CASES=login-path` 的一组真实编译设备变异通过，单条正常断言红、同 APK 配置绿、复原绿与 SHA256。最终 37 项、安装 APK/17 份输入收据和构建结果与 §9.205 共用；Core 为 **52 CTest / 95 ABI**，没有改 C ABI 或平台签名。
+
+失败记录：最初登录包装器用外层 exec，吞掉既有 SSH 完成回执，新 CTest 因此失败；增加子 shell 后通过，没有把该前置失败当变异证据。联合设备初轮还暴露测试登录 shell 不能作为交互 shell、以及 macOS path_helper 将测试延迟 wrapper 排到真实 tmux 后面，分别造成新建会话立即退出与旧 UNKNOWN 保护超时。现夹具支持正常 shell 参数，普通测试使用受控登录 PATH，Homebrew 专项继续使用实际 zsh；隔离 HOME 的默认 shell 固定为 `/bin/sh`，保留原创建/持久任务/UNKNOWN 断言。四项定向修正后，最终六类 37 项通过。证据位于 `tmp/ssh-connection-review/{mac-path-probe.log,tmux-login.log,tmux-final-mutations.log,accepted-device-mutations.log,final-gate.log,release-lint.log,receipt.json}`。
+
+本片未发行；没有将受控 POSIX 环境记为新的外部 Linux 实机结果，也未替代物理 Android、厂商 shell 配置或全客户端回归。
