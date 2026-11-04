@@ -58,7 +58,7 @@ class RemoteFileTasksProductTest {
         ui.runOnIdle {
             tasks().tasks.toList().forEach(tasks()::cancel)
             sessions().connecting?.let { sessions().cancelConnection(it.id) }
-            files().leave();sessions().sessions.map { it.id }.forEach(sessions()::close)
+            files().leave();files().disconnectAll();sessions().sessions.map { it.id }.forEach(sessions()::close)
         }
         ui.waitUntil(15000) { !tasks().busy && owners()==0 }
         ui.runOnIdle { tasks().tasks.toList().forEach(tasks()::remove);files().requestClipboardClear();files().confirmClipboardClear() }
@@ -337,7 +337,7 @@ class RemoteFileTasksProductTest {
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
         ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
         ui.onNodeWithTag("ssh-task-role").assertTextEquals("复制任务 · 读取来源")
-        ui.runOnIdle { files().leave() }
+        ui.runOnIdle { files().leave();files().disconnectAll() }
         loginUntil { !tasks().busy }
         assertEquals(FileCopyState.COMPLETE,latest.result?.state)
         assertEquals("远端 UTF-8\nline two\n",File(home,"$unique/文本.txt").readText())

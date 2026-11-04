@@ -55,7 +55,7 @@ class RemoteFilesProductTest {
     }
     @After fun cleanup() {
         ui.runOnIdle {
-            sessions().connecting?.let { sessions().cancelConnection(it.id) };files().requestClipboardClear();files().confirmClipboardClear();files().disconnectRemote();files().leave()
+            sessions().connecting?.let { sessions().cancelConnection(it.id) };files().requestClipboardClear();files().confirmClipboardClear();files().disconnectAll();files().leave()
             sessions().sessions.map { it.id }.forEach(sessions()::close)
         }
         val end=SystemClock.uptimeMillis()+10000
@@ -152,7 +152,21 @@ class RemoteFilesProductTest {
         assertEquals("远端 UTF-8\nline two\n",files().preview!!.text)
         assertSame("File owner must not replace terminal",terminal,sessions().active)
         assertTrue(terminal.state.connected)
-        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
+        val retained=files().location.endpoint
+        ui.onNodeWithTag("files-return-terminal").performClick()
+        ui.onNodeWithTag("terminal-files").performClick()
+        ui.waitUntil(10000) { !files().loading }
+        assertEquals("Returning reuses the same file owner",retained,files().location.endpoint)
+        assertNull(sessions().connecting);assertEquals(1,owners())
+        ui.runOnIdle {
+            assertFalse("A different host must not reuse this owner",files().reuseRemote(terminal.remoteTarget!!.copy(host="192.0.2.124")))
+            assertFalse("A different user must not reuse this owner",files().reuseRemote(terminal.remoteTarget!!.copy(user="other")))
+            assertFalse("A different key must not reuse this owner",files().reuseRemote(terminal.remoteTarget!!.copy(identityFiles=listOf("none"))))
+            assertFalse("A different alias must not reuse this owner",files().reuseRemote(terminal.remoteTarget!!.copy(alias="other-alias")))
+            assertFalse("A different port must not reuse this owner",files().reuseRemote(terminal.remoteTarget!!.copy(port=1)))
+        }
+        ui.onNodeWithTag("files-return-terminal").performClick()
         ui.onNodeWithTag("terminal-back").performClick();ui.onNodeWithText("本机文件").performClick()
         ui.waitUntil { !files().loading };assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)
     }
@@ -330,8 +344,14 @@ class RemoteFilesProductTest {
         ui.onNodeWithTag("file-list-empty").assertIsDisplayed()
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.waitUntil { !files().loading }
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
-        try { ui.waitUntil(3000) { !files().visible && owners()==0 } }
-        catch(failure:ComposeTimeoutException) { fail("leaving file page must close idle owner") }
+        ui.waitUntil(3000) { !files().visible }
+        ui.runOnIdle { files().enter() }
+        ui.waitUntil(5000) { !files().loading }
+        assertEquals(endpoint,files().location.endpoint.id)
+        assertNull("Returning to the file page must keep a usable owner",files().error)
+        assertEquals("Navigation retains the browser connection",1,owners())
+        ui.runOnIdle { files().leave();files().disconnectAll() }
+        ui.waitUntil(3000) { owners()==0 }
         assertSame(terminal,sessions().active)
         assertEquals("file login must not add a terminal",1,sessions().sessions.size)
         ui.runOnIdle { terminal.surface.commit("printf '\\033[2J\\033[HAFTER-PID:%s\\n' \"\u0024\u0024\"\r") }
@@ -367,9 +387,33 @@ class RemoteFilesProductTest {
         assertFalse(known.exists());assertNull(files().location.endpoint.remoteAlias)
         assertTrue(sessions().sessions.isEmpty())
     }
+    @Test fun clearingBrowserViewModelClosesRetainedOwners() {
+        val store=androidx.lifecycle.ViewModelStore()
+        val browser=FilesViewModel(ui.activity.application)
+        try {
+            ui.runOnIdle {
+                store.put("browser",browser);browser.enter()
+                val token=browser.beginRemoteConnection()
+                hosts().checkConnection(hosts().snapshot!!.hosts.single { it.alias==alias }) { target ->
+                    sessions().connectFiles(target) { connection,user ->
+                        browser.remoteConnected(com.hanxi.ghosterm.domain.RemoteFileIdentity(target.alias,target.host,user,target.port),connection,token,target)
+                    }
+                }
+            }
+            phase(SSHAuthPhase.HOSTKEY);ui.onNodeWithText("信任并连接").performClick()
+            ui.waitUntil(15000) { sessions().connecting==null && browser.location.endpoint.remote!=null && !browser.loading }
+            assertEquals(1,owners())
+            ui.runOnIdle { browser.leave() };assertEquals(1,owners())
+            ui.runOnIdle { store.clear() }
+            try { ui.waitUntil(5000) { owners()==0 } }
+            catch (failure: ComposeTimeoutException) { fail("Clearing the browser ViewModel must release its retained SFTP owner") }
+        } finally { ui.runOnIdle { store.clear() } }
+    }
     @Test fun leavingRequiresExplicitReconnectWithNewEndpoint() {
         open();login();val original=files().location.endpoint.id
-        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.waitUntil { owners()==0 && !files().visible }
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.waitUntil { !files().visible }
+        assertEquals(1,owners())
+        ui.runOnIdle { files().disconnectAll() };ui.waitUntil { owners()==0 }
         load(" ProxyJump forbidden.example\n")
         ui.onNodeWithText("本机文件").performClick();ui.waitUntil { !files().loading }
         assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)

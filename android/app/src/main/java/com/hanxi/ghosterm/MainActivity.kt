@@ -142,9 +142,10 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
     }
     fun connectFileTarget(target: com.hanxi.ghosterm.bridge.PreparedSSH, token: Long) {
         if(!files.acceptsRemoteConnection(token)) return
+        if(files.reuseRemote(target)) return
         files.dismissLocations()
         sessions.connectFiles(target) { connection,user ->
-            files.remoteConnected(RemoteFileIdentity(target.alias,target.host,user,target.port),connection,token)
+            files.remoteConnected(RemoteFileIdentity(target.alias,target.host,user,target.port),connection,token,target)
         }
     }
     fun openTerminalFiles() {
@@ -153,7 +154,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         if(target==null && session.remoteAlias==null) { files.enterLocal();return }
         files.enter()
         if(target==null) files.remoteConnectionError("无法确定此会话的远端主机，请从文件位置重新连接")
-        else connectFileTarget(target,files.beginRemoteConnection())
+        else if(!files.reuseRemote(target)) connectFileTarget(target,files.beginRemoteConnection())
     }
     BackHandler(!sessions.visible && !files.visible && !fileTasks.visible && hosts.page != Page.HOSTS) { back() }
     LaunchedEffect(settings.leaveRequested) { if (settings.consumeLeave() && hosts.page == Page.SETTINGS) hosts.back() }
@@ -191,7 +192,9 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                 } },showTasks=fileTasks::show,taskBar={ if(fileDockVisible) FileTaskDock(fileTasks) },summaryVisible=fileDockVisible,
                 onHosts={ files.leave();sessions.home() },
                 onTerminal=if(sessions.active==null) null else { { files.leave();sessions.active?.let { sessions.show(it.id) } } },
-                browseDeviceStorage=::browseDeviceStorage) { alias ->
+                browseDeviceStorage=::browseDeviceStorage,
+                connectionProgress=sessions.connecting?.takeIf { it.filesReady!=null && it.passiveProgress }?.message,
+                cancelConnection={ sessions.connecting?.takeIf { it.filesReady!=null }?.let { sessions.cancelConnection(it.id) } }) { alias ->
                 val host=hosts.snapshot?.hosts?.firstOrNull { it.alias==alias }
                 if(host==null) files.remoteConnectionError("主机配置已不可用，请返回首页重新载入")
                 else {

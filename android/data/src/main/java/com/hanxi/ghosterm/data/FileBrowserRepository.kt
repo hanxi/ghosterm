@@ -17,6 +17,9 @@ class FileBrowserRepository(private val local: FileBrowserSource) : FileBrowserS
         remotes[endpoint.id] = endpoint to connection
         return endpoint
     }
+    fun isConnected(endpoint: FileEndpoint): Boolean = remotes[endpoint.id]?.let {
+        it.first == endpoint && it.second.state().ready
+    } == true
     fun disconnect(endpoint: FileEndpoint) { remotes.remove(endpoint.id)?.second?.close() }
     override fun close() { remotes.values.forEach { it.second.close() };remotes.clear() }
     override suspend fun endpoints(): List<FileEndpoint> = local.endpoints() + remotes.values.map { it.first }

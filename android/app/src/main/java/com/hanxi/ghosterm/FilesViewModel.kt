@@ -156,7 +156,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
         externalClearConfirm=false
         visible=false;choosingLocation=false;pickerPending=false;deviceAccessPending=false;rootsGeneration++;rootsJob?.cancel()
         dismissClipboardDialogs();clipboardError=null
-        cancelRead();preview=null;clearSelection();(source as? FileBrowserRepository)?.close()
+        cancelRead();preview=null;clearSelection()
     }
     private fun cancelRead(): Long { cancelExternal();generation++;readJob?.cancel();readJob=null;loading=false;return generation }
     fun clearSelection() { selecting=false;selected=emptySet() }
@@ -256,29 +256,46 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
         if(remoteScope) lastRemoteEndpointId=endpoint.id else lastLocalEndpointId=endpoint.id
         choosingLocation=false;reload()
     }
+    private val remoteTargets = mutableMapOf<String, com.hanxi.ghosterm.bridge.PreparedSSH>()
+    /** Only reuse this browser's live owner with the same immutable connection inputs. */
+    fun reuseRemote(target: com.hanxi.ghosterm.bridge.PreparedSSH): Boolean {
+        val repository = source as? FileBrowserRepository ?: return false
+        val endpoint = endpoints.firstOrNull { endpoint ->
+            remoteTargets[endpoint.id]?.let { old ->
+                old.alias == target.alias && old.host == target.host && old.port == target.port &&
+                    (target.user.isBlank() || old.user == target.user) && old.identityFiles == target.identityFiles
+            } == true && repository.isConnected(endpoint)
+        } ?: return false
+        choose(endpoint)
+        return true
+    }
+    fun disconnectAll() {
+        cancelRead(); (source as? FileBrowserRepository)?.close(); remoteTargets.clear()
+    }
     fun beginRemoteConnection(): Long { endpointError=null;return cancelRead() }
     fun acceptsRemoteConnection(token: Long) = visible && token==generation
     fun remoteConnectionError(message: String) { endpointError=message;choosingLocation=true }
-    fun remoteConnected(identity: RemoteFileIdentity, connection: RemoteFileSession, token: Long) {
+    fun remoteConnected(identity: RemoteFileIdentity, connection: RemoteFileSession, token: Long, target: com.hanxi.ghosterm.bridge.PreparedSSH? = null) {
         if(!acceptsRemoteConnection(token)) { connection.close();return }
         val repository=source as? FileBrowserRepository
         if(repository==null) { connection.close();error="远端文件服务不可用";return }
         cancelRead()
         val alias=identity.alias
         // Reconnection replaces this browser endpoint only; terminal sessions are unrelated.
-        endpoints.filter { it.remoteAlias==alias }.forEach(repository::disconnect)
+        endpoints.filter { it.remoteAlias==alias }.forEach { repository.disconnect(it);remoteTargets.remove(it.id) }
         val endpoint=repository.attach(identity,connection)
+        if(target!=null) remoteTargets[endpoint.id]=target.copy(user=identity.user,identityFiles=target.identityFiles.toList())
         endpoints=endpoints.filterNot { it.remoteAlias==alias }+endpoint
         choose(endpoint)
     }
     fun disconnectRemote() {
         val endpoint=location.endpoint
         if(endpoint.remoteAlias==null) return
-        cancelRead();(source as? FileBrowserRepository)?.disconnect(endpoint)
+        cancelRead();(source as? FileBrowserRepository)?.disconnect(endpoint);remoteTargets.remove(endpoint.id)
         endpoints=endpoints.filterNot { it.id==endpoint.id };remembered.remove(endpoint.id)
         choose(FileEndpoint.APP)
     }
-    override fun onCleared() { leave();(source as? FileBrowserRepository)?.close();super.onCleared() }
+    override fun onCleared() { leave();disconnectAll();super.onCleared() }
     fun beginPicker(): Boolean { if(pickerPending) return false;pickerPending=true;return true }
     fun beginDeviceAccess(): Boolean {
         if(!visible || selecting || deviceAccessPending) return false

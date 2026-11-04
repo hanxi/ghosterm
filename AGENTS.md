@@ -159,6 +159,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 **Android 触屏输入与快捷键连发（§9.201）**：鼠标模式下触屏轻点同时请求 IME 与发送原鼠标操作；长按仍选字。快捷键按系统延迟/间隔连发，松手、滑出/取消、失焦、禁用及移除停止。API 36 / arm64 / 4 KiB 页的终端 53＋控制 9＋连发 5 项为分轮证据；`ANDROID_MOUSE_MUTATIONS=tap-route,keyboard,long-press,key-repeat,key-repeat-release` 五组（初始 4＋1，最终完整五组复验）真实编译后目标正常断言红、同 APK 配置绿、恢复绿与 SHA256。探针输入源、停止会话旧断言、取消变异编译失败及虚拟时钟不足的失败均保留，不计通过。不增加 CI 20 份；未发行，不代表真实设备/输入法/全客户端验收。
 
+**Android 文件连接复用与连接提示（§9.202）**：导航保留浏览器独立 SFTP owner，输入/目标匹配且 native ready 时复用；显式断开和 FilesViewModel 清理仍关闭，晚到认证仍受页面代次隔离。被动认证/打开改为同一页内进度，交互认证和错误保留弹窗。API 36 的初始 84 项组合有一条新增测试步骤失败，不记整轮绿；修正后 11 项及后续 9 项定向通过。`ANDROID_FILES_PRODUCT_MUTATIONS=reconnect-error,leave,stale-handoff,retain-navigation,reuse-terminal,clear-lifetime,progress-dialog` 七组同轮目标正常断言红、同 APK 配置绿、恢复绿及 SHA256；关闭保护迁到显式关闭/模型清理，另护导航不得关闭。Core 51/95、Debug/测试 APK、未签名 Release/R8 和四模块 lint 通过。手工模拟器证据，不增加 CI 20 份；未发行，非长时换网/真实设备/完整客户端验收。
+
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
 `ghosterm.h` 是**单一事实来源**。新增/删除/改签名后必须：

@@ -41,6 +41,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
     taskBar: @Composable () -> Unit = { TextButton(onClick = showTasks) { Text("文件任务") } },
     onHosts: (() -> Unit)? = null, onTerminal: (() -> Unit)? = null, summaryVisible: Boolean = true,
     browseDeviceStorage: () -> Unit = { model.choose(FileEndpoint.DEVICE) },
+    connectionProgress: String? = null, cancelConnection: () -> Unit = {},
     connectRemote: (String) -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     val compact = LocalConfiguration.current.screenHeightDp < 400 || LocalConfiguration.current.fontScale >= 1.5f
@@ -167,6 +168,12 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 if(model.location.endpoint==FileEndpoint.DEVICE) Text("可浏览、预览和复制来源；粘贴到手机请先「授权文件夹」选择目标。",
                     style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if(connectionProgress!=null) Row(Modifier.fillMaxWidth().padding(horizontal=16.dp).testTag("file-connection-progress"),
+                verticalAlignment=Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(20.dp))
+                Text(connectionProgress,Modifier.weight(1f).padding(horizontal=12.dp))
+                TextButton(onClick=cancelConnection) { Text("取消") }
+            }
             if(remoteError!=null && !model.choosingLocation)
                 Text(remoteError,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(horizontal=16.dp).testTag("file-connect-error"))
             model.externalCacheError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-preview-cache-error")) }
@@ -182,6 +189,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 TextButton(onClick=model::chooseLocations,modifier=Modifier.heightIn(min=48.dp)) { Text("选择或连接主机") }
             } else {
             when {
+                connectionProgress!=null -> Unit
                 model.loading -> LinearProgressIndicator(Modifier.fillMaxWidth())
                 model.error!=null -> Column(Modifier.padding(16.dp)) {
                     Text(model.error!!,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-list-error"))

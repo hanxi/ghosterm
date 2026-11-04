@@ -4579,3 +4579,17 @@ API 36 / arm64 / 4 KiB 页模拟器分轮验证 TerminalScreen 53 项、Terminal
 `ANDROID_MOUSE_MUTATE=1` 配合 `test-android-ssh.sh` 的 `tap-route,keyboard,long-press,key-repeat,key-repeat-release` 五组先分轮取证（4＋1），最终在去除重复 accessibility click 通知后的生产源上完整五组复验，护点击路由、IME、长按选字、连发及松手取消。每组真实编译后目标正常断言红、同 APK Core 配置绿、恢复绿及源码 SHA256。取消变异初次使用 import alias 未能编译，未计目标红；最初停止探针只等待墙钟时间，未推进 Compose 虚拟时钟，变异假绿被拒绝，改为明确推进测试时钟再断言。没有把该失败计通过。
 
 Core 离线闸门 51 CTest / 95 ABI、Android Debug/测试 APK、未签名 Release/R8 与四模块 release lint 通过。证据在 `tmp/input-controls-*`、`tmp/input-files-*`、`tmp/input-mutations-*`、`tmp/input-final-mutations.log` 和 `tmp/android-ssh-tests/mouse-*`。以上为本地手工模拟器证据，不增加 macOS CI 20 份，不代表物理手机/OEM 输入法、API 29、16 KiB 页或 Android 全客户端验收；本片未发行。
+
+### 9.202 Android 文件连接复用与连接进度整合（2026-11-04，工作区候选）
+
+用户反馈从终端进入文件页每次重新连接，并先后看到“正在认证”和“正在打开”两段进度弹窗。原 leave 会关闭全部浏览器连接，终端文件入口又无条件创建独立 owner；本片将浏览器连接的寿命改为 FilesViewModel 寿命。离开仍取消页面读取、预览与选择并使旧请求代次失效，保留已建立的独立 SFTP owner；显式断开或 ViewModel 清理继续释放，复制任务和终端仍使用各自的 owner，不借用彼此的通道或凭据。
+
+首次进入仍建立独立 SFTP 连接。返回时只复用 native 状态仍 ready、别名/实际主机/端口/实际用户名/IdentityFile 输入相符的浏览器 owner，并保留目录；不把旧连接移交给另一主机、用户或密钥。主机列表的连接操作仍先通过当前配置准入，终端文件入口使用该终端建立时捕获的目标。已失效连接由用户明确进入或重连时重新认证，不在后台自动重连；旧认证完成后仍须通过页面代次检查，不能重新打开或替换已离开页面。
+
+文件连接的被动阶段统一在文件页一条状态行更新，可取消；只有需要用户名、主机信任、手动凭据或错误处置时才打开交互弹窗。配置的自动密钥尝试不短暂绘制凭据表单；拒绝、解锁错误、缺失/加密密钥及手动选择继续进入原交互流程。没有改写 SSH 配置或保存口令，也不把复制任务的认证呈现策略混入浏览器。
+
+API 36 / arm64 / 4 KiB 页：初始 84 项组合中 83 项通过，新增终端文件往返测试误点两次返回而失败，未记组合全绿；改为一次关闭预览、通过实际“回到终端”按钮往返后，11 项定向通过，涵盖真实 SSH/文件复用、浏览器清理、进度呈现、连发/焦点、Ctrl 退出与浏览器断开不结束复制任务。后续最终 9 项输入/进度组合通过。复用测试还拒绝不同主机/用户名/密钥/别名/端口；离开后实际重新浏览而非只数 owner，并验证 ViewModel 清理关闭保留连接。没有把旧“离开即关闭”断言直接删掉：关闭保护移到显式断开和模型寿命结束，导航保留另加反向变异。
+
+`ANDROID_FILES_PRODUCT_MUTATE=1 ANDROID_FILES_PRODUCT_MUTATIONS=reconnect-error,leave,stale-handoff,retain-navigation,reuse-terminal,clear-lifetime,progress-dialog` 配合 `test-android-ssh.sh` 的七组同轮通过，护错误可见、显式关闭、晚到认证、导航保留、终端入口复用、模型释放和单一页内进度。每组真实编译后目标正常断言红、同 APK Core 配置绿、恢复绿与 SHA256。证据在 `tmp/input-files-final-verified-evidence.log`、`tmp/input-files-mutations-verified.log` 及 `tmp/android-ssh-tests/files-product-*`；最终输入复验见 §9.201。Core 51 CTest / 95 ABI、Debug/测试 APK、未签名 Release/R8 和四模块 release lint 通过；最终构建见 `tmp/input-files-final-release-lint.log`。
+
+仅为本地模拟器手工证据，不增加 macOS CI 20 份，不代表 API 29、16 KiB 页、物理手机、长时间空闲/换网或完整客户端验收；未发行。

@@ -10,7 +10,8 @@ def execute(root,build,test):
     source=root/'android/data/src/main/java/com/hanxi/ghosterm/data/FileBrowserRepository.kt'
     screen=root/'android/app/src/main/java/com/hanxi/ghosterm/FilesScreen.kt'
     app=root/'android/app/src/main/java/com/hanxi/ghosterm/MainActivity.kt'
-    originals={p:p.read_bytes() for p in (model,sessions,source,screen,app)}
+    dialog=root/'android/app/src/main/java/com/hanxi/ghosterm/SSHConnectionDialog.kt'
+    originals={p:p.read_bytes() for p in (model,sessions,source,screen,app,dialog)}
     hashes={p:hashlib.sha256(b).digest() for p,b in originals.items()}
     if any(MARK.encode() in b for b in originals.values()):raise RuntimeError('Residual file product mutation')
     real='realRemotePageAuthenticationRotationAndPreviewKeepTerminal'
@@ -26,10 +27,18 @@ def execute(root,build,test):
       ('unknown-type',source,'else -> FileKind.OTHER','else -> FileKind.FILE',metadata),
       ('unsigned-size',source,'},it.size,it.modifiedSeconds?','},it.size?.toLong()?.coerceAtLeast(0)?.toULong(),it.modifiedSeconds?',metadata),
       ('preview',source,'return session(location.endpoint).previewText(entry.id)','return ""',real),
-      ('leave',model,'clearSelection();(source as? FileBrowserRepository)?.close()','clearSelection()',real),
+      ('leave',model,'cancelRead(); (source as? FileBrowserRepository)?.close(); remoteTargets.clear()','cancelRead(); remoteTargets.clear()',real),
       ('stale-handoff',model,'if(!acceptsRemoteConnection(token))','if(false && !acceptsRemoteConnection(token))','lateAuthenticationCannotReopenOrReplaceLeftPage'),
       ('read-error',model,'error=failure.message ?: "读取文件夹失败，请重试"','error=null','protocolReadFailureIsVisibleAndCannotPretendEmpty'),
       ('remote-label',screen,'else "${if(model.remoteScope) "远端" else "本机"} · ${model.location.endpoint.label}"','else "本机 · ${model.location.endpoint.label}"',real),
+    ]
+    cases += [
+      ('retain-navigation',model,'cancelRead();preview=null;clearSelection()','cancelRead();preview=null;clearSelection();disconnectAll()',real),
+      ('reuse-terminal',model,'} == true && repository.isConnected(endpoint)','} == false && repository.isConnected(endpoint)','terminalFilesUsesConnectedHostSnapshotAndConfiguredKeyWithoutSelectingAgain'),
+    ]
+    cases += [
+      ('clear-lifetime',model,'override fun onCleared() { leave();disconnectAll();super.onCleared() }','override fun onCleared() { leave();super.onCleared() }','clearingBrowserViewModelClosesRetainedOwners'),
+      ('progress-dialog',root/'android/app/src/main/java/com/hanxi/ghosterm/SSHConnectionDialog.kt','if (attempt.filesReady != null && attempt.passiveProgress) return','if (false && attempt.filesReady != null && attempt.passiveProgress) return','passiveStagesShareOnePageIndicatorAndCanBeCancelled'),
     ]
     scopes='remoteAndLocalTabsRetainDirectoriesClipboardAndTheSameFileConnection'
     cases += [
@@ -45,7 +54,7 @@ def execute(root,build,test):
             clean=originals[path].decode()
             if clean.count(old)!=1:raise RuntimeError('Ambiguous product mutation '+label)
             path.write_text(clean.replace(old,new)+'\n// '+MARK+'\n')
-            label='files-product-'+label;target='com.hanxi.ghosterm.RemoteFilesProductTest#'+method
+            label='files-product-'+label;target=('com.hanxi.ghosterm.FileConnectionPresentationTest#' if label=='files-product-progress-dialog' else 'com.hanxi.ghosterm.RemoteFilesProductTest#')+method
             build(label);test(label,target,False)
             test(label+'-control','com.hanxi.ghosterm.ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig',True)
             path.write_bytes(originals[path]);assert hashlib.sha256(path.read_bytes()).digest()==hashes[path]
