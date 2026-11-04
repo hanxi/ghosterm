@@ -28,9 +28,9 @@ fun SSHConnectionDialog(model: SessionsViewModel, presenter: java.util.UUID? = n
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> model.completeIdentityImport(uri,presenter) }
     if(!visible) return
     val attempt = model.connecting ?: return
-    // File browsing keeps passive progress in the page, with one stable indicator.
+    // Terminal connections and file browsing keep passive progress in the page.
     // Trust, credential, username and failure prompts still require a dialog.
-    if (attempt.filesReady != null && attempt.passiveProgress) return
+    if ((attempt.filesReady != null || attempt.forTerminal) && attempt.passiveProgress) return
     val prompt = attempt.auth
     var username by remember(attempt.id) { mutableStateOf(attempt.username) }
     var secret by remember(attempt.id, prompt?.request) { mutableStateOf("") }

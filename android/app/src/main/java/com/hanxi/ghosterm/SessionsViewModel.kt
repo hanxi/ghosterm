@@ -45,9 +45,11 @@ class SSHAttempt(val target: PreparedSSH, internal val filesReady: ((RemoteFileS
     internal var taskLabel: String? = null
     internal var taskCancelled: (() -> Unit)? = null
     val passiveProgress get() = !failed && username.isNotBlank() &&
-        auth?.phase != SSHAuthPhase.HOSTKEY && (auth?.phase != SSHAuthPhase.CREDENTIALS || automaticFileAuthentication)
-    internal var automaticFileAuthentication by mutableStateOf(false)
+        ((auth?.request ?: 0) <= 0 ||
+            (auth?.phase != SSHAuthPhase.HOSTKEY && (auth?.phase != SSHAuthPhase.CREDENTIALS || automaticAuthentication)))
+    internal var automaticAuthentication by mutableStateOf(false)
     val forFiles get() = filesReady != null || taskLabel != null
+    val forTerminal get() = !forFiles && tmuxReady == null
     val id: UUID = UUID.randomUUID()
     var username by mutableStateOf(target.user)
     var message by mutableStateOf("正在解析主机地址…")
@@ -379,13 +381,18 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                         val auth = connection.authentication()
                         // Configured keys authenticate without briefly presenting a credential form.
                         // A rejected request or unlock error returns to explicit user input.
-                        attempt.automaticFileAuthentication = attempt.filesReady != null &&
+                        val automaticAuthentication = (attempt.filesReady != null || attempt.forTerminal) &&
                             auth.phase == SSHAuthPhase.CREDENTIALS && !attempt.manualCredentials &&
                             attempt.credentialError == null && (!listed || attempt.credentialBusy ||
                             auth.request in attempt.automaticKeyRequests ||
                             (auth.methods and 1 != 0 && com.hanxi.ghosterm.data.IdentityReferences.automaticCandidate(
                                 attempt.authenticationIdentityFiles,attempt.identities,attempt.triedIdentityIds) != null))
-                        attempt.auth = auth; attempt.message = auth.description
+                        // Publish the prompt and its presentation policy together; observers
+                        // must not see a new prompt paired with the previous phase's flag.
+                        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                            attempt.automaticAuthentication = automaticAuthentication
+                            attempt.auth = auth; attempt.message = auth.description
+                        }
                         if(attempt.forFiles && auth.phase in listOf(SSHAuthPhase.READY,SSHAuthPhase.TAKEN))
                             attempt.message = "正在打开远端文件…"
                         val terminalState = (connection as? RemoteSession)?.state()

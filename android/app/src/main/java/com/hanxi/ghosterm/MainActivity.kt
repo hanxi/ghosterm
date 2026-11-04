@@ -167,204 +167,206 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
     } } }
     val colors = ghostermColors(dark)
     GhostermTheme(dark) {
-        SSHConnectionDialog(sessions)
-        SSHConnectionDialog(fileTasks.authentication,fileTasks.presenterId,
-            visible=fileTasks.presentsAuthentication && sessions.connecting==null)
-        LaunchedEffect(sessions.connecting?.id,tmux.visible) { if(tmux.visible) tmux.authenticationDismissed() }
-        SSHSessionChoices(sessions)
-        val identityWarningOwner = when {
-            sessions.identityMemoryWarning != null -> sessions
-            fileTasks.authentication.identityMemoryWarning != null -> fileTasks.authentication
-            else -> null
-        }
-        identityWarningOwner?.let { owner ->
-            AlertDialog(onDismissRequest = owner::dismissIdentityMemoryWarning,
-                title = { Text("密钥未能记住") }, text = { Text(owner.identityMemoryWarning.orEmpty()) },
-                confirmButton = { TextButton(onClick = owner::dismissIdentityMemoryWarning) { Text("知道了") } })
-        }
-        if(fileTasks.visible) { FileTasksScreen(fileTasks);return@GhostermTheme }
-        if (files.visible) {
-            val fileDockVisible=fileTasks.hasDockSummary
-            FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error,
-                onPaste={ if(!files.awaitingRemote && files.location.endpoint!=com.hanxi.ghosterm.domain.FileEndpoint.DEVICE) files.clipboard?.let { snapshot ->
-                    fileTasks.startUserTask(snapshot,files.location,
-                        if(files.location.endpoint.remote!=null) files.location.directoryId else files.crumbs.joinToString(" / ") { it.label })
-                } },showTasks=fileTasks::show,taskBar={ if(fileDockVisible) FileTaskDock(fileTasks) },summaryVisible=fileDockVisible,
-                onHosts={ files.leave();sessions.home() },
-                onTerminal=if(sessions.active==null) null else { { files.leave();sessions.active?.let { sessions.show(it.id) } } },
-                browseDeviceStorage=::browseDeviceStorage,
-                connectionProgress=sessions.connecting?.takeIf { it.filesReady!=null && it.passiveProgress }?.message,
-                cancelConnection={ sessions.connecting?.takeIf { it.filesReady!=null }?.let { sessions.cancelConnection(it.id) } }) { alias ->
-                val host=hosts.snapshot?.hosts?.firstOrNull { it.alias==alias }
-                if(host==null) files.remoteConnectionError("主机配置已不可用，请返回首页重新载入")
-                else {
-                    val token=files.beginRemoteConnection()
-                    hosts.checkConnection(host) { target ->
-                        connectFileTarget(target,token)
+        SSHConnectionLayout(sessions) {
+            SSHConnectionDialog(sessions)
+            SSHConnectionDialog(fileTasks.authentication,fileTasks.presenterId,
+                visible=fileTasks.presentsAuthentication && sessions.connecting==null)
+            LaunchedEffect(sessions.connecting?.id,tmux.visible) { if(tmux.visible) tmux.authenticationDismissed() }
+            SSHSessionChoices(sessions)
+            val identityWarningOwner = when {
+                sessions.identityMemoryWarning != null -> sessions
+                fileTasks.authentication.identityMemoryWarning != null -> fileTasks.authentication
+                else -> null
+            }
+            identityWarningOwner?.let { owner ->
+                AlertDialog(onDismissRequest = owner::dismissIdentityMemoryWarning,
+                    title = { Text("密钥未能记住") }, text = { Text(owner.identityMemoryWarning.orEmpty()) },
+                    confirmButton = { TextButton(onClick = owner::dismissIdentityMemoryWarning) { Text("知道了") } })
+            }
+            if(fileTasks.visible) { FileTasksScreen(fileTasks);return@SSHConnectionLayout }
+            if (files.visible) {
+                val fileDockVisible=fileTasks.hasDockSummary
+                FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error,
+                    onPaste={ if(!files.awaitingRemote && files.location.endpoint!=com.hanxi.ghosterm.domain.FileEndpoint.DEVICE) files.clipboard?.let { snapshot ->
+                        fileTasks.startUserTask(snapshot,files.location,
+                            if(files.location.endpoint.remote!=null) files.location.directoryId else files.crumbs.joinToString(" / ") { it.label })
+                    } },showTasks=fileTasks::show,taskBar={ if(fileDockVisible) FileTaskDock(fileTasks) },summaryVisible=fileDockVisible,
+                    onHosts={ files.leave();sessions.home() },
+                    onTerminal=if(sessions.active==null) null else { { files.leave();sessions.active?.let { sessions.show(it.id) } } },
+                    browseDeviceStorage=::browseDeviceStorage,
+                    connectionProgress=sessions.connecting?.takeIf { it.filesReady!=null && it.passiveProgress }?.message,
+                    cancelConnection={ sessions.connecting?.takeIf { it.filesReady!=null }?.let { sessions.cancelConnection(it.id) } }) { alias ->
+                    val host=hosts.snapshot?.hosts?.firstOrNull { it.alias==alias }
+                    if(host==null) files.remoteConnectionError("主机配置已不可用，请返回首页重新载入")
+                    else {
+                        val token=files.beginRemoteConnection()
+                        hosts.checkConnection(host) { target ->
+                            connectFileTarget(target,token)
+                        }
                     }
                 }
+                return@SSHConnectionLayout
             }
-            return@GhostermTheme
-        }
-        if (sessions.visible && sessions.active != null) {
-            val viewportId = sessions.active!!.id
-            DisposableEffect(viewportId) {
-                onDispose { if (recoveryOwner == viewportId) recoveryOwner = null }
-            }
-            TerminalScreen(sessions, openFiles = ::openTerminalFiles, recoveryBusy = hosts.busy,
-                recoveryError = if (recoveryOwner == sessions.active?.id) hosts.error else null,
-                onRecover = { stopped ->
-                    if (stopped.remoteAlias == null) sessions.restartLocal(stopped.id)
-                    else if (!hosts.busy && sessions.connecting == null) {
-                        val host = hosts.snapshot?.hosts?.firstOrNull { it.alias.equals(stopped.remoteAlias, ignoreCase = true) }
-                        if (host == null) sessions.reportError("主机配置已不可用，请返回主机列表重新载入。旧画面仍保留。")
-                        else {
-                            recoveryOwner = stopped.id
-                            sessions.dismissError()
-                            hosts.checkConnection(host) { target ->
-                                // A late configuration check must not reopen a viewport the user left.
-                                if (recoveryOwner == stopped.id && sessions.visible && sessions.active?.id == stopped.id && stopped.state.terminal) {
-                                    if (stopped.backgroundSession != null) {
-                                        sessions.home(); tmux.open(target, sessions)
-                                    } else sessions.reconnect(stopped.id, target)
+            if (sessions.visible && sessions.active != null) {
+                val viewportId = sessions.active!!.id
+                DisposableEffect(viewportId) {
+                    onDispose { if (recoveryOwner == viewportId) recoveryOwner = null }
+                }
+                TerminalScreen(sessions, openFiles = ::openTerminalFiles, recoveryBusy = hosts.busy,
+                    recoveryError = if (recoveryOwner == sessions.active?.id) hosts.error else null,
+                    onRecover = { stopped ->
+                        if (stopped.remoteAlias == null) sessions.restartLocal(stopped.id)
+                        else if (!hosts.busy && sessions.connecting == null) {
+                            val host = hosts.snapshot?.hosts?.firstOrNull { it.alias.equals(stopped.remoteAlias, ignoreCase = true) }
+                            if (host == null) sessions.reportError("主机配置已不可用，请返回主机列表重新载入。旧画面仍保留。")
+                            else {
+                                recoveryOwner = stopped.id
+                                sessions.dismissError()
+                                hosts.checkConnection(host) { target ->
+                                    // A late configuration check must not reopen a viewport the user left.
+                                    if (recoveryOwner == stopped.id && sessions.visible && sessions.active?.id == stopped.id && stopped.state.terminal) {
+                                        if (stopped.backgroundSession != null) {
+                                            sessions.home(); tmux.open(target, sessions)
+                                        } else sessions.reconnect(stopped.id, target)
+                                    }
                                 }
                             }
                         }
+                    })
+                return@SSHConnectionLayout
+            }
+            if(tmux.visible) { TmuxScreen(tmux);return@SSHConnectionLayout }
+            Scaffold(topBar = {
+                GhostermTopBar(title = { Text(when (hosts.page) {
+                    Page.HOSTS -> "Ghosterm"; Page.SETTINGS -> settings.section?.title ?: "设置"; Page.ABOUT -> about.selected?.title ?: "关于 Ghosterm"
+                    Page.IDENTITIES -> "SSH 身份"
+                    Page.KNOWN_HOSTS -> "主机验证记录"
+                    Page.CONFIG -> "SSH 配置"; Page.EDIT_HOST -> if (hosts.draft?.original == null) "添加主机" else "编辑主机"
+                }, maxLines = 1, overflow = TextOverflow.Ellipsis) }, navigationIcon = {
+                    if (hosts.page != Page.HOSTS) GhostermIconButton(UiIcon.Back,"返回",onClick={ back() },enabled=!hosts.busy)
+                }, actions = {
+                    when (hosts.page) {
+                        Page.HOSTS -> {
+                            if(fileTasks.history.isNotEmpty()) GhostermIconButton(UiIcon.Clock,"文件任务历史",onClick=fileTasks::show,modifier=Modifier.testTag("home-task-history"))
+                            GhostermIconButton(UiIcon.Settings,"设置",onClick=hosts::settings,enabled=!hosts.busy)
+                        }
+                        Page.EDIT_HOST -> TextButton(onClick = { focus.clearFocus(); keyboard?.hide(); hosts.saveHost() }, enabled = !hosts.busy && hosts.canEditDraft) { Text("保存") }
+                        Page.CONFIG -> TextButton(onClick = hosts::saveConfig, enabled = !hosts.busy && hosts.snapshot != null && hosts.dirty) { Text("保存") }
+                        else -> Unit
                     }
                 })
-            return@GhostermTheme
-        }
-        if(tmux.visible) { TmuxScreen(tmux);return@GhostermTheme }
-        Scaffold(topBar = {
-            GhostermTopBar(title = { Text(when (hosts.page) {
-                Page.HOSTS -> "Ghosterm"; Page.SETTINGS -> settings.section?.title ?: "设置"; Page.ABOUT -> about.selected?.title ?: "关于 Ghosterm"
-                Page.IDENTITIES -> "SSH 身份"
-                Page.KNOWN_HOSTS -> "主机验证记录"
-                Page.CONFIG -> "SSH 配置"; Page.EDIT_HOST -> if (hosts.draft?.original == null) "添加主机" else "编辑主机"
-            }, maxLines = 1, overflow = TextOverflow.Ellipsis) }, navigationIcon = {
-                if (hosts.page != Page.HOSTS) GhostermIconButton(UiIcon.Back,"返回",onClick={ back() },enabled=!hosts.busy)
-            }, actions = {
-                when (hosts.page) {
-                    Page.HOSTS -> {
-                        if(fileTasks.history.isNotEmpty()) GhostermIconButton(UiIcon.Clock,"文件任务历史",onClick=fileTasks::show,modifier=Modifier.testTag("home-task-history"))
-                        GhostermIconButton(UiIcon.Settings,"设置",onClick=hosts::settings,enabled=!hosts.busy)
-                    }
-                    Page.EDIT_HOST -> TextButton(onClick = { focus.clearFocus(); keyboard?.hide(); hosts.saveHost() }, enabled = !hosts.busy && hosts.canEditDraft) { Text("保存") }
-                    Page.CONFIG -> TextButton(onClick = hosts::saveConfig, enabled = !hosts.busy && hosts.snapshot != null && hosts.dirty) { Text("保存") }
-                    else -> Unit
-                }
-            })
-        }, bottomBar = {
-            if (hosts.page == Page.HOSTS) Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
-                if(fileTasks.hasDockSummary) FileTaskDock(fileTasks)
-                val resume=sessions.active ?: sessions.sessions.lastOrNull()
-                if(resume!=null) Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp)
-                    .clip(MaterialTheme.shapes.medium).background(colors.surfaceContainerHigh).border(1.dp,colors.outline,MaterialTheme.shapes.medium)
-                    .clickable { sessions.show(resume.id) }.padding(12.dp),verticalAlignment=Alignment.CenterVertically,
-                    horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                    GhostermGlyph(UiIcon.Terminal)
-                    Column(Modifier.weight(1f)) {
-                        Text("${if(resume.state.terminal) "查看" else "继续"} ${resume.title}",style=MaterialTheme.typography.titleSmall)
-                        Text(if(resume.state.terminal) "已停止 · 旧画面保留" else
-                            "${sessions.sessions.count { it.state.connected }} 个已连接会话 · 点击返回终端",style=MaterialTheme.typography.bodySmall)
-                    }
-                    GhostermIcon(UiIcon.Arrow)
-                }
-                Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f).heightIn(min=56.dp)) { GhostermIcon(UiIcon.Terminal);Spacer(Modifier.width(8.dp));Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.none { it.remoteAlias == null && !it.state.terminal }) "本地终端" else "继续本地终端") }
-                    Button(onClick = { hosts.edit() }, enabled = !hosts.busy && hosts.snapshot != null,
-                        modifier = Modifier.weight(1f).heightIn(min=56.dp),shape=MaterialTheme.shapes.medium) { GhostermIcon(UiIcon.Plus);Spacer(Modifier.width(8.dp));Text("添加主机") }
-                }
-            }
-        }) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
-                sessions.error?.let { Text(it, Modifier.padding(16.dp), color = colors.error) }
-                if (hosts.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                hosts.error?.let { error ->
-                    if (hosts.imported == null)
-                    Card(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = colors.errorContainer)) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(error, color = colors.onErrorContainer)
-                            if (hosts.page == Page.HOSTS || hosts.page == Page.CONFIG || hosts.page == Page.EDIT_HOST)
-                                TextButton(onClick = hosts::reload, enabled = !hosts.busy) { Text("重新载入") }
+            }, bottomBar = {
+                if (hosts.page == Page.HOSTS) Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+                    if(fileTasks.hasDockSummary) FileTaskDock(fileTasks)
+                    val resume=sessions.active ?: sessions.sessions.lastOrNull()
+                    if(resume!=null) Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp)
+                        .clip(MaterialTheme.shapes.medium).background(colors.surfaceContainerHigh).border(1.dp,colors.outline,MaterialTheme.shapes.medium)
+                        .clickable { sessions.show(resume.id) }.padding(12.dp),verticalAlignment=Alignment.CenterVertically,
+                        horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                        GhostermGlyph(UiIcon.Terminal)
+                        Column(Modifier.weight(1f)) {
+                            Text("${if(resume.state.terminal) "查看" else "继续"} ${resume.title}",style=MaterialTheme.typography.titleSmall)
+                            Text(if(resume.state.terminal) "已停止 · 旧画面保留" else
+                                "${sessions.sessions.count { it.state.connected }} 个已连接会话 · 点击返回终端",style=MaterialTheme.typography.bodySmall)
                         }
+                        GhostermIcon(UiIcon.Arrow)
+                    }
+                    Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        TextButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f).heightIn(min=56.dp)) { GhostermIcon(UiIcon.Terminal);Spacer(Modifier.width(8.dp));Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.none { it.remoteAlias == null && !it.state.terminal }) "本地终端" else "继续本地终端") }
+                        Button(onClick = { hosts.edit() }, enabled = !hosts.busy && hosts.snapshot != null,
+                            modifier = Modifier.weight(1f).heightIn(min=56.dp),shape=MaterialTheme.shapes.medium) { GhostermIcon(UiIcon.Plus);Spacer(Modifier.width(8.dp));Text("添加主机") }
                     }
                 }
-                hosts.notice?.let { message ->
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = hosts::dismissNotice) { Text("知道了") }
-                    }
-                }
-                when (hosts.page) {
-                    Page.HOSTS -> HostsPage(hosts, sessions, files::enterLocal, browse={ host ->
-                        hosts.checkConnection(host) { target -> files.enter();connectFileTarget(target,files.beginRemoteConnection()) }
-                    }) { host ->
-                        hosts.checkConnection(host) { request -> tmux.open(request,sessions) }
-                    }
-                    Page.EDIT_HOST -> EditHostPage(hosts)
-                    Page.KNOWN_HOSTS -> KnownHostsScreen(knownHosts)
-                    Page.IDENTITIES -> IdentitiesScreen(identities) {
-                        if (identities.beginImport()) try { identityImport.launch(arrayOf("*/*")) }
-                        catch (_: Exception) { identities.importLaunchFailed() }
-                    }
-                    Page.CONFIG -> Column(Modifier.padding(horizontal = 16.dp).fillMaxSize()) {
-                        Text("此副本保存在应用内。Include 相对应用私有 HOME/.ssh；保存前强制备份。", style = MaterialTheme.typography.bodySmall)
-                        InterceptPlatformTextInput(interceptor = remember {
-                            PlatformTextInputInterceptor { request, session ->
-                                session.startInputMethod(object : PlatformTextInputMethodRequest {
-                                    override fun createInputConnection(outAttributes: EditorInfo): InputConnection {
-                                        val connection = request.createInputConnection(outAttributes)
-                                        // Keep the visible multiline editor; ask the IME for literal input.
-                                        outAttributes.inputType = (outAttributes.inputType and
-                                            (InputType.TYPE_MASK_VARIATION or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT).inv()) or
-                                            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-                                        return connection
-                                    }
-                                })
+            }) { padding ->
+                Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
+                    sessions.error?.let { Text(it, Modifier.padding(16.dp), color = colors.error) }
+                    if (hosts.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    hosts.error?.let { error ->
+                        if (hosts.imported == null)
+                        Card(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = colors.errorContainer)) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(error, color = colors.onErrorContainer)
+                                if (hosts.page == Page.HOSTS || hosts.page == Page.CONFIG || hosts.page == Page.EDIT_HOST)
+                                    TextButton(onClick = hosts::reload, enabled = !hosts.busy) { Text("重新载入") }
                             }
-                        }) {
-                            OutlinedTextField(hosts.configText, { hosts.configText = it }, enabled = !hosts.busy,
-                                modifier = Modifier.fillMaxWidth().weight(1f).padding(vertical = 12.dp),
-                                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
-                                label = { Text("配置内容") }, textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace))
                         }
                     }
-                    Page.SETTINGS -> SettingsContent(settings, hosts.snapshot != null, hosts.busy,
-                        onHosts = hosts::back, onConfig = hosts::config,
-                        onImport = { import.launch(arrayOf("*/*")) },
-                        onIdentities = { hosts.identities(); identities.enter() },
-                        onKnownHosts = { hosts.knownHosts(); knownHosts.enter() }, onAbout = hosts::about)
-                    Page.ABOUT -> AboutContent(about, runtime)
+                    hosts.notice?.let { message ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = hosts::dismissNotice) { Text("知道了") }
+                        }
+                    }
+                    when (hosts.page) {
+                        Page.HOSTS -> HostsPage(hosts, sessions, files::enterLocal, browse={ host ->
+                            hosts.checkConnection(host) { target -> files.enter();connectFileTarget(target,files.beginRemoteConnection()) }
+                        }) { host ->
+                            hosts.checkConnection(host) { request -> tmux.open(request,sessions) }
+                        }
+                        Page.EDIT_HOST -> EditHostPage(hosts)
+                        Page.KNOWN_HOSTS -> KnownHostsScreen(knownHosts)
+                        Page.IDENTITIES -> IdentitiesScreen(identities) {
+                            if (identities.beginImport()) try { identityImport.launch(arrayOf("*/*")) }
+                            catch (_: Exception) { identities.importLaunchFailed() }
+                        }
+                        Page.CONFIG -> Column(Modifier.padding(horizontal = 16.dp).fillMaxSize()) {
+                            Text("此副本保存在应用内。Include 相对应用私有 HOME/.ssh；保存前强制备份。", style = MaterialTheme.typography.bodySmall)
+                            InterceptPlatformTextInput(interceptor = remember {
+                                PlatformTextInputInterceptor { request, session ->
+                                    session.startInputMethod(object : PlatformTextInputMethodRequest {
+                                        override fun createInputConnection(outAttributes: EditorInfo): InputConnection {
+                                            val connection = request.createInputConnection(outAttributes)
+                                            // Keep the visible multiline editor; ask the IME for literal input.
+                                            outAttributes.inputType = (outAttributes.inputType and
+                                                (InputType.TYPE_MASK_VARIATION or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT).inv()) or
+                                                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                                            return connection
+                                        }
+                                    })
+                                }
+                            }) {
+                                OutlinedTextField(hosts.configText, { hosts.configText = it }, enabled = !hosts.busy,
+                                    modifier = Modifier.fillMaxWidth().weight(1f).padding(vertical = 12.dp),
+                                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                                    label = { Text("配置内容") }, textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace))
+                            }
+                        }
+                        Page.SETTINGS -> SettingsContent(settings, hosts.snapshot != null, hosts.busy,
+                            onHosts = hosts::back, onConfig = hosts::config,
+                            onImport = { import.launch(arrayOf("*/*")) },
+                            onIdentities = { hosts.identities(); identities.enter() },
+                            onKnownHosts = { hosts.knownHosts(); knownHosts.enter() }, onAbout = hosts::about)
+                        Page.ABOUT -> AboutContent(about, runtime)
+                    }
                 }
             }
-        }
-        if (hosts.discard) AlertDialog(onDismissRequest = hosts::keepEditing, title = { Text("放弃未保存的修改？") },
-            text = { Text("已保存的主机配置不会改变。") },
-            confirmButton = { TextButton(onClick = hosts::confirmDiscard) { Text("放弃修改") } },
-            dismissButton = { TextButton(onClick = hosts::keepEditing) { Text("继续编辑") } })
-        hosts.imported?.let { document -> AlertDialog(onDismissRequest = hosts::cancelImport, title = { Text("替换应用内 SSH 配置？") },
-            text = {
-                Column(Modifier.heightIn(max = 440.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    hosts.error?.let { Text(it, Modifier.testTag("config-import-error"), color = colors.error) }
-                    if (hosts.snapshot == null) {
-                        Text("当前配置已变化或不可读取。重新载入后，请核对并再次确认导入。")
-                        TextButton(onClick = hosts::reload, enabled = !hosts.busy) { Text("重新载入当前配置") }
-                    }
-                    Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(document.name, style = MaterialTheme.typography.titleSmall)
-                        Text("${document.bytes.size} 字节 · UTF-8")
-                        Text("将先备份当前配置，再导入所选文档的副本。原文档不会修改。Include 相对应用私有 HOME/.ssh，不是所选文档所在目录。")
-                        if (document.truncated) Text("预览已截断；确认后导入完整文件。", Modifier.testTag("config-import-truncated"))
-                        SelectionContainer {
-                            Text(document.preview.ifEmpty { "（空配置）" }, Modifier.testTag("config-import-preview"), fontFamily = FontFamily.Monospace)
+            if (hosts.discard) AlertDialog(onDismissRequest = hosts::keepEditing, title = { Text("放弃未保存的修改？") },
+                text = { Text("已保存的主机配置不会改变。") },
+                confirmButton = { TextButton(onClick = hosts::confirmDiscard) { Text("放弃修改") } },
+                dismissButton = { TextButton(onClick = hosts::keepEditing) { Text("继续编辑") } })
+            hosts.imported?.let { document -> AlertDialog(onDismissRequest = hosts::cancelImport, title = { Text("替换应用内 SSH 配置？") },
+                text = {
+                    Column(Modifier.heightIn(max = 440.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        hosts.error?.let { Text(it, Modifier.testTag("config-import-error"), color = colors.error) }
+                        if (hosts.snapshot == null) {
+                            Text("当前配置已变化或不可读取。重新载入后，请核对并再次确认导入。")
+                            TextButton(onClick = hosts::reload, enabled = !hosts.busy) { Text("重新载入当前配置") }
+                        }
+                        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(document.name, style = MaterialTheme.typography.titleSmall)
+                            Text("${document.bytes.size} 字节 · UTF-8")
+                            Text("将先备份当前配置，再导入所选文档的副本。原文档不会修改。Include 相对应用私有 HOME/.ssh，不是所选文档所在目录。")
+                            if (document.truncated) Text("预览已截断；确认后导入完整文件。", Modifier.testTag("config-import-truncated"))
+                            SelectionContainer {
+                                Text(document.preview.ifEmpty { "（空配置）" }, Modifier.testTag("config-import-preview"), fontFamily = FontFamily.Monospace)
+                            }
                         }
                     }
-                }
-            },
-            confirmButton = { TextButton(onClick = hosts::confirmImport, enabled = !hosts.busy && hosts.snapshot != null) { Text("确认导入") } },
-            dismissButton = { TextButton(onClick = hosts::cancelImport, enabled = !hosts.busy) { Text("取消") } })
+                },
+                confirmButton = { TextButton(onClick = hosts::confirmImport, enabled = !hosts.busy && hosts.snapshot != null) { Text("确认导入") } },
+                dismissButton = { TextButton(onClick = hosts::cancelImport, enabled = !hosts.busy) { Text("取消") } })
+            }
         }
     }
 }

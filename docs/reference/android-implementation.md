@@ -4619,3 +4619,15 @@ API 36 / arm64 / 4 KiB 页：初始 84 项组合中 83 项通过，新增终端�
 API 36 / arm64 / 4 KiB 页布局六项通过（64.400 秒），终端页面 53 项另轮通过（179.431 秒）；API 29 / arm64 / 4 KiB 页开启 `com.android.internal.display.cutout.emulation.tall`，实际顶部 cutout 为 48px，布局六项通过（34.680 秒），结束后恢复 overlay。三轮 app/test APK SHA256 同为 `97574c9d978d687732ea224136dcadebab462f7da4f13211f2df03b8bf8edb85` / `6aafce61de4b7a40313c5f8431a2a220379641e77db8478d9af8ce754337faf2`，各自安装摘要、具名开始/结束集合与零跳过均核验。没有把分轮相加冒充默认全客户端回归。
 
 布局变异的 `status-toggle`、`status-restore`、`hidden-status-insets` 三个既有保护，以及 `hidden-cutout-insets`、`cutout-window-policy`、`menu-ime-focus` 三个新增保护，共六个不同组分轮通过；菜单焦点在 API 29/36 各验一次，共七次有效执行。每次均编译后正常目标断言红、同 APK 配置对照绿、复原绿与生产源 SHA256。API 36 的 stable-status 旧变异未改变实际边距，目标仍绿，已拒收并转到 API 29 验证；首轮 lint 出现两处 SuspiciousIndentation 失败，稳定输入后重新运行通过，不记首轮绿。最终 Core 51 CTest / 95 ABI、Debug/测试 APK、未签名 Release/R8 与 app/bridge/data/terminal 四模块 release lint 通过。证据在 `tmp/terminal-top-band/`，设备安装/具名集合收据在 `tmp/terminal-focus-evidence/{top-band-and-menu,top-band-and-menu-api29-cutout,top-band-terminal-regression}/`。本片为手工模拟器验证，不增加 macOS CI 20 份；未发行，未替代物理手机与厂商输入法验收。
+
+### 9.205 Android SSH 终端连接页内进度（2026-11-05）
+
+用户反馈文件页的多段进度弹窗已合并，但普通 SSH 仍先后弹出认证和打开终端的进度。终端连接（含独立 tmux attach）现由宿主保持一条可取消的页内进度，解析、连接、自动认证和打开终端只更新同一条状态。原页面/旧终端保持挂载；返回键先取消当前连接，不先离页。用户名、主机信任、手动凭据与错误继续使用原防截屏交互弹窗；文件任务的认证呈现和后台管理页的原呈现策略不在本片扩展。
+
+自动密钥尝试沿用现有身份选择策略，扩展终端的被动呈现，不改变认证方式或保存口令。认证状态与呈现标记在同一 Compose Snapshot 发布；原生层在提交响应后仍报告凭据阶段但请求号为 0 时，没有可回答请求，应显示进度，不能闪出禁用表单。未配置、加密/缺失密钥、拒绝和解锁错误仍进入显式交互。手动路径测试等待可交互请求，而非刚进入原生凭据阶段就寻找控件。
+
+新增四项通过真实 GhostermApp 路由的呈现/取消/返回/失败/用户名转换保护，以及一项真实 OpenSSH 自动密钥阶段观察。`ANDROID_SSH_PRODUCT_MUTATE=1 ANDROID_SSH_PRODUCT_CASES=passive-dialog,progress-route,progress-cancel,progress-back,automatic-progress` 的五组在最终源上同轮通过；文件页既有 `progress-dialog` 另复验通过。均真实编译后单条正常断言红、同 APK 配置绿、复原绿与 SHA256；测试进程崩溃或编译失败不算目标红。变异脚本增加组选择、信号复原与单条正常失败检查，没有删除既有保护。
+
+与 §9.206 联合验证的最终 API 36 / arm64 / 4 KiB 页模拟器六类相关组合为 **37 项通过，135.520 秒**，具名开始/成功结束唯一集合一致，零失败/跳过。实际安装的 Debug/测试 APK SHA256 与构建产物相同，17 份本轮非 Markdown 输入复原摘要单列于 `tmp/ssh-connection-review/receipt.json`。Core **52 CTest / 95 ABI**、Apple 引用对拍、Android Debug/测试 APK、未签名 Release/R8 与四模块 release lint 通过；本轮不是默认完整客户端或物理手机/厂商输入法验收，未发行。
+
+失败记录保留：首轮 19 项有一项手动步骤早于表单就绪；随后自动阶段观察抓到请求清零后的表单闪现，未记绿。联合 37 项初轮另有 tmux 夹具/呈现时机失败，详见下节；修正后四项定向与最终 37 项通过。一次默认 ZIG 临时路径缺失和一次测试命令覆盖 PATH 后找不到 rg 均为前置/包装器失败，没有冒充功能通过。日志、分轮变异和安装收据在 `tmp/ssh-connection-review/` 与 `tmp/android-ssh-tests/`。

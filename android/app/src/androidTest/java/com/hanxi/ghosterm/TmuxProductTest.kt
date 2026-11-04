@@ -63,7 +63,7 @@ class TmuxProductTest {
         ui.waitUntil(15000) {
             val attempt=sessions().connecting
             assertFalse(attempt?.message,attempt?.failed==true)
-            attempt?.auth?.let { it.phase==SSHAuthPhase.CREDENTIALS && it.request>0 }==true
+            attempt?.let { it.auth?.let { auth -> auth.phase==SSHAuthPhase.CREDENTIALS && auth.request>0 }==true && !it.passiveProgress }==true
         }
         ui.onNodeWithTag("ssh-key-"+identity.id).performScrollTo().performClick()
         // Lifecycle and unknown-outcome checks intentionally require fresh manual authentication.

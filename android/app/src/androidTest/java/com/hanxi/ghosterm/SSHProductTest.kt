@@ -6,6 +6,8 @@ import com.hanxi.ghosterm.terminal.TerminalView
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hanxi.ghosterm.bridge.SSHAuthPhase
 import com.hanxi.ghosterm.data.IdentityVault
@@ -15,6 +17,9 @@ import org.junit.Assert.*
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 /** Real production Activity, real native owner, real remote shell and Android Keystore. */
 @RunWith(AndroidJUnit4::class)
@@ -61,7 +66,8 @@ class SSHProductTest {
     }
     private fun terminal() = checkNotNull(find(ui.activity.window.decorView))
     private fun phase(value: SSHAuthPhase) {
-        try { ui.waitUntil(15000) { sessions().connecting?.let { it.auth?.phase == value && (it.auth?.request ?: 0) > 0 } == true } }
+        try { ui.waitUntil(15000) { sessions().connecting?.let { it.auth?.phase == value && (it.auth?.request ?: 0) > 0 &&
+            (value != SSHAuthPhase.CREDENTIALS || !it.passiveProgress) } == true } }
         catch (failure: ComposeTimeoutException) { fail("SSH page did not reach $value: ${sessions().connecting?.message}") }
     }
     private fun open() { ui.onNodeWithText(alias).performClick(); phase(SSHAuthPhase.HOSTKEY) }
@@ -211,5 +217,31 @@ class SSHProductTest {
         assertTrue(hosts().error!!.contains("proxyjump"))
         assertNull(sessions().connecting); assertTrue(sessions().sessions.isEmpty()); assertFalse(known.exists())
         ui.onNodeWithText("认证并连接").assertDoesNotExist()
+    }
+    @Test fun configuredKeyKeepsCredentialStagesInlineAndCreatesOneShell() {
+        load(extra = " IdentityFile ${com.hanxi.ghosterm.data.IdentityReferences.encode(identity.id)}\n")
+        val credentialStages = mutableListOf<Pair<Boolean, String>>()
+        lateinit var observer: Job
+        ui.runOnIdle {
+            observer = ui.activity.lifecycleScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                snapshotFlow { sessions().connecting?.let {
+                    it.auth?.phase to (it.passiveProgress to "request=${it.auth?.request} auto=${it.automaticAuthentication} busy=${it.credentialBusy} error=${it.credentialError != null}")
+                } }.collect { state -> if (state?.first == SSHAuthPhase.CREDENTIALS) credentialStages.add(state.second) }
+            }
+        }
+        try {
+            open()
+            ui.onAllNodes(isDialog()).assertCountEquals(1)
+            ui.onNodeWithTag("ssh-connection-progress").assertDoesNotExist()
+            ui.onNodeWithText("信任并连接").performClick()
+            ui.waitUntil(15000) { sessions().connecting == null && sessions().active?.state?.connected == true }
+            ui.onNodeWithTag("terminal-surface").assertIsDisplayed()
+            ui.onAllNodes(isDialog()).assertCountEquals(0)
+            ui.runOnIdle {
+                assertTrue("The real credential stage must be observed", credentialStages.isNotEmpty())
+                assertTrue("Configured key attempts must not expose a manual credential form: $credentialStages", credentialStages.all { it.first })
+                assertEquals(1, sessions().sessions.size)
+            }
+        } finally { observer.cancel() }
     }
 }
