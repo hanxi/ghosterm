@@ -15,6 +15,7 @@ bool gat_surface_resize(gat_surface *surface, uint16_t cols, uint16_t rows, uint
 bool gat_surface_text(gat_surface *surface, const uint8_t *text, size_t length);
 bool gat_surface_key(gat_surface *surface, int key, int mods, uint32_t unshifted, int action, const uint8_t *text, size_t length);
 void gat_surface_scroll(gat_surface *surface, int delta);
+bool gat_surface_wheel(gat_surface *surface, int delta, int x, int y, int mods);
 /* Control result: 0 success, 1 paste confirmation required, 2 operation error.
  * kind: 1 paste (x=allow unsafe), 2 word, 3 start, 4 end, 5 all,
  * 6 deselect, 7 copy, 8 local clear, 9 order endpoints before a new drag. 10/11 scroll+start/end (bytes: one signed delta -1..1).

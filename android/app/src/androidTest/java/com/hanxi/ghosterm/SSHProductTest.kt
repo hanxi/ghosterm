@@ -78,6 +78,37 @@ class SSHProductTest {
         ui.waitUntil(10000) { find(ui.activity.window.decorView)?.currentFrame != null }
         return sessions().active!!.id
     }
+    @Test fun stoppedSshRechecksConfigurationAndAuthenticatesANewOwnerWithoutRemovingHistory() {
+        open(); val oldId = login()
+        val old = sessions().active!!
+        ui.runOnIdle { terminal().commitText("printf '\\r\\nSTOPPED_SSH_PROOF\\r\\n'; exit 7\r") }
+        ui.waitUntil(15_000) { old.state.terminal }
+        val stoppedState = old.state
+        assertTrue(stoppedState.exitCode == null || stoppedState.exitCode == 7)
+        ui.onNodeWithTag("terminal-recover").assertTextEquals("重新连接")
+        load(extra = " ProxyCommand false\n")
+        ui.onNodeWithTag("terminal-recover").performClick()
+        ui.waitUntil(10_000) { !hosts().busy && hosts().error != null }
+        ui.onNodeWithText(hosts().error!!).assertIsDisplayed()
+        ui.runOnIdle { assertNull(sessions().connecting); assertSame(old, sessions().active) }
+        load()
+        ui.onNodeWithTag("terminal-recover").performClick()
+        phase(SSHAuthPhase.CREDENTIALS)
+        ui.runOnIdle { sessions().cancelConnection(sessions().connecting!!.id) }
+        ui.onNodeWithTag("terminal-stopped").assertIsDisplayed()
+        ui.runOnIdle { assertSame(old, sessions().active); assertEquals(1, sessions().sessions.size) }
+        ui.onNodeWithTag("terminal-recover").performClick()
+        val newId = login(trust = false)
+        assertNotEquals(oldId, newId)
+        ui.runOnIdle {
+            assertEquals(2, sessions().sessions.size)
+            assertTrue(sessions().sessions.any { it === old })
+            assertNotSame(old.connection, sessions().active!!.connection)
+            assertEquals(stoppedState, old.state)
+            assertTrue(old.connection.frame(-1)!!.let { f -> (0 until f.rows).any { f.line(it).contains("STOPPED_SSH_PROOF") } })
+        }
+    }
+
     @Test fun homeTrustKeyAuthenticationAndRotationKeepOneRemoteShell() {
         open()
         ui.onNodeWithTag("ssh-fingerprint").assertTextEquals(fixture.getString("fingerprint"))

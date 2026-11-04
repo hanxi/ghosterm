@@ -71,15 +71,21 @@ class SSHAttempt(val target: PreparedSSH, internal val filesReady: ((RemoteFileS
 class SessionsViewModel @JvmOverloads constructor(application: Application, private val resolver: SSHResolver = AndroidSSHResolver,
     private val connectionBudgetMillis: Long = 60_000, private val monitorSessions: Boolean = true,
     settings: AppSettings? = (application as? GhostermApplication)?.settings) : AndroidViewModel(application) {
-    val sessions = mutableStateListOf<TerminalSession>()
-    private val surfaceTargets = MutableStateFlow<List<TerminalSession>>(emptyList())
-    var selected by mutableStateOf<UUID?>(null); private set
+    private val processTerminals = monitorSessions && application is GhostermApplication
+    private val terminalStore = if (processTerminals) (application as GhostermApplication).terminalStore else TerminalSessionStore()
+    val sessions = terminalStore.sessions
+    private val surfaceTargets = MutableStateFlow<List<TerminalSession>>(sessions.toList())
+    var selected: UUID?
+        get() = terminalStore.selected
+        private set(value) { terminalStore.selected = value }
     var visible by mutableStateOf(false); private set
     var creating by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     var identityMemoryWarning by mutableStateOf<String?>(null); private set
     fun dismissIdentityMemoryWarning() { identityMemoryWarning = null }
-    private var sequence = 0
+    private var sequence: Int
+        get() = terminalStore.sequence
+        set(value) { terminalStore.sequence = value }
     var connecting by mutableStateOf<SSHAttempt?>(null); private set
     var selectingNewRemote by mutableStateOf(false); private set
     var choosingRemote by mutableStateOf<String?>(null); private set
@@ -96,6 +102,14 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         // one immutable SnapshotStateList view instead of its live iterator.
         return sessions.toList().firstOrNull { it.id == id }
     }
+    private val background get() = if (processTerminals) (getApplication<Application>() as GhostermApplication).terminalBackground else null
+    val backgroundState get() = background?.state
+    val backgroundError get() = background?.error
+    val backgroundAwake get() = background?.keepAwake == true
+    val backgroundNotificationsVisible get() = background?.notificationsVisible != false
+    fun protectInBackground() { background?.startFromUser(this) }
+    fun toggleBackgroundAwake() { background?.setKeepAwakeFromUser(!backgroundAwake) }
+    fun dismissBackgroundError() { background?.dismissError() }
     var terminalStyle by mutableStateOf((settings?.state?.value?.committed ?: AppPreferences()).terminalStyle()); private set
     var terminalControls by mutableStateOf((settings?.state?.value?.committed ?: AppPreferences()).terminalControls()); private set
     init {
@@ -126,7 +140,8 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                     }
                 }
         }
-        if(monitorSessions) viewModelScope.launch {
+        if (processTerminals) (application as GhostermApplication).terminalBackground
+        if(monitorSessions && !processTerminals) viewModelScope.launch {
             while (true) {
                 sessions.forEach { it.state = it.connection.state() }
                 delay(250)
@@ -134,12 +149,14 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         }
     }
     fun local() {
-        val previous = active?.takeIf { it.remoteAlias == null } ?: sessions.lastOrNull { it.remoteAlias == null }
+        val previous = active?.takeIf { it.remoteAlias == null && !it.state.terminal }
+            ?: sessions.lastOrNull { it.remoteAlias == null && !it.state.terminal }
         if (previous == null) newLocal() else show(previous.id)
     }
     fun newLocal() {
         if (creating) return
         creating = true; error = null
+        protectInBackground()
         viewModelScope.launch {
             var created: LocalSession? = null
             try {
@@ -168,11 +185,35 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         val session = sessions.firstOrNull { it.id == id } ?: return
         session.connection.close(); sessions.remove(session)
         surfaceTargets.value = sessions.toList()
-        if (selected == id) selected = sessions.lastOrNull()?.id
+        if (selected == id) selected = (sessions.lastOrNull { !it.state.terminal } ?: sessions.lastOrNull())?.id
         if (sessions.isEmpty()) visible = false
     }
     fun selectNewRemote() { selectingNewRemote = true; home() }
+    fun clearStopped(ids: List<UUID>) {
+        ids.distinct().forEach { id ->
+            val session = sessions.firstOrNull { it.id == id } ?: return@forEach
+            session.state = session.connection.state()
+            if (session.state.terminal) close(id)
+        }
+    }
     fun cancelNewRemote() { selectingNewRemote = false }
+    /** A stopped viewport stays available; recovery always creates a separate owner. */
+    fun restartLocal(id: UUID) {
+        val old = sessions.firstOrNull { it.id == id && it.remoteAlias == null } ?: return
+        old.state = old.connection.state()
+        if (old.state.terminal) newLocal()
+    }
+    fun reconnect(id: UUID, target: PreparedSSH) {
+        if (connecting != null) return
+        val old = sessions.firstOrNull { it.id == id } ?: return
+        if (old.backgroundSession != null || !old.remoteAlias.equals(target.alias, ignoreCase = true)) return
+        old.state = old.connection.state()
+        if (!old.state.terminal) return
+        selectingNewRemote = false; choosingRemote = null
+        val attempt = SSHAttempt(target); connecting = attempt
+        protectInBackground()
+        if (target.user.isNotBlank()) startConnection(attempt)
+    }
     fun connect(target: PreparedSSH) {
         if (connecting != null) return
         val existing = sessions.filter { it.remoteAlias == target.alias && it.state.connected && it.backgroundSession==null }
@@ -182,6 +223,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         }
         selectingNewRemote = false; choosingRemote = null
         val attempt = SSHAttempt(target); connecting = attempt
+        protectInBackground()
         if (target.user.isNotBlank()) startConnection(attempt)
     }
     /** File authentication uses the same policy and UI, but never creates a terminal. */
@@ -201,6 +243,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         if(connecting!=null)return false
         val attempt=SSHAttempt(target).also { it.tmuxTarget=selection;it.tmuxName=name;it.message="正在连接后台会话客户端…" }
         connecting=attempt
+        protectInBackground()
         if(target.user.isNotBlank())startConnection(attempt)
         return true
     }
@@ -302,6 +345,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         attempt.username = user; startConnection(attempt)
     }
     private fun startConnection(attempt: SSHAttempt) {
+        if (!attempt.forFiles && attempt.tmuxReady == null) protectInBackground()
         attempt.job = viewModelScope.launch {
             var owned: AuthenticatedSSH? = null
             try {
@@ -496,5 +540,10 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
             finally { material?.fill(0); attempt.credentialBusy = false }
         }
     }
-    override fun onCleared() { connecting?.let { cancelConnection(it.id) }; sessions.forEach { it.connection.close() }; super.onCleared() }
+    override fun onCleared() {
+        connecting?.let { cancelConnection(it.id) }
+        background?.detached(this)
+        if (!processTerminals) sessions.forEach { it.connection.close() }
+        super.onCleared()
+    }
 }

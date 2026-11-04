@@ -10,7 +10,7 @@ def execute(root,build,test):
     default='landscapeImeKeepsRealPixelsControlsAndSamePty'
     routing='largeFontCompactMenuRoutesFilesAndSessionsWithoutReplacingOwner'
     short='shortWindowKeepsCtrlPinnedAndActionsAboveTheWindowEdge'
-    portrait='portraitInputRowKeepsNavigationAtTopAndKeyboardPinned'
+    portrait='portraitInputRowKeepsNavigationAtTopAndKeyboardInMenu'
     def replacement(path,old,new):
         def change():
             text=originals[path].decode();assert text.count(old)==1,(old,text.count(old));return {path:text.replace(old,new)}
@@ -23,13 +23,13 @@ def execute(root,build,test):
         ('portrait-row-height',portrait,replacement(bar,'.height(52.dp).background(MaterialTheme.colorScheme.surface)','.height(96.dp).background(MaterialTheme.colorScheme.surface)')),
         ('portrait-files-route',portrait,replacement(screen,'IconButton(onClick = { terminal?.hideKeyboard(); openFiles() },','IconButton(onClick = { terminal?.hideKeyboard(); Unit },')),
         ('portrait-sessions-route',portrait,replacement(screen,'.clickable(role = Role.Button) { terminal?.hideKeyboard(); list = true }','.clickable(role = Role.Button) { terminal?.hideKeyboard(); Unit }')),
-        ('keyboard-selected',portrait,replacement(bar,'selected = imeVisible','selected = false')),
+        ('keyboard-focus',portrait,replacement(screen,'target.showKeyboard()','Unit')),
         ('legacy-chrome',default,replacement(screen,'val compact = maxHeight < 224.dp','val compact = false')),
         ('always-compact',default,replacement(screen,'val compact = maxHeight < 224.dp','val compact = true')),
         ('ime-insets',default,replacement(screen,'.union(WindowInsets.ime)','')),
         ('bar-height',default,replacement(bar,'.height(52.dp).background(MaterialTheme.colorScheme.surface)','.height(96.dp).background(MaterialTheme.colorScheme.surface)')),
         ('back-route',default,replacement(bar,'IconButton(onClick = onBack,','IconButton(onClick = {},')),
-        ('keyboard-route',default,replacement(screen,'onKeyboard = { if (imeVisible) terminal?.hideKeyboard() else terminal?.showKeyboard() }','onKeyboard = {}')),
+        ('keyboard-route',default,replacement(screen,'menu = false; keyboardRequested = true','menu = false; keyboardRequested = false')),
         ('files-route',routing,replacement(screen,'menu = false; terminal?.hideKeyboard(); openFiles()','menu = false; terminal?.hideKeyboard(); Unit')),
         ('sessions-route',routing,replacement(screen,'menu = false; terminal?.hideKeyboard(); list = true','menu = false; terminal?.hideKeyboard(); Unit')),
         ('menu-origin',routing,replacement(screen,'onMenu = { menuCompact = true; menu = true }','onMenu = { menuCompact = false; menu = true }')),

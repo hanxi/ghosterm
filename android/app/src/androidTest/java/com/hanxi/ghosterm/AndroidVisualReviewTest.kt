@@ -167,11 +167,11 @@ class AndroidVisualReviewTest {
         session.surface.commit("printf '\\033[2J\\033[H\\033[38;2;181;213;165m$ pwd\\033[0m\\r\\n/data/user/0/com.hanxi.ghosterm/files/home\\r\\n\\r\\n\\033[38;2;181;213;165m$ ls\\033[0m\\r\\ncore  docs  scripts\\r\\n\\r\\n$ '\r")
         await("actual PTY output not rendered") { session.connection.frame(-1)?.let { frame -> (0 until frame.rows).any { frame.line(it).contains("core  docs  scripts") } }==true }
         capture("terminal")
-        ui.onNodeWithTag("terminal-keyboard").performClick()
-        ui.waitUntil(10000) { ui.onAllNodesWithContentDescription("收起键盘").fetchSemanticsNodes().isNotEmpty() }
+        ui.showTerminalKeyboard()
+        ui.waitUntil(10000) { terminalImeShown() }
         capture("terminal-keyboard")
-        ui.onNodeWithTag("terminal-keyboard").performClick()
-        ui.waitUntil(10000) { ui.onAllNodesWithContentDescription("显示键盘").fetchSemanticsNodes().isNotEmpty() }
+        ui.onNodeWithTag("terminal-back").performClick()
+        ui.waitUntil(10000) { !terminalImeShown() }
         ui.onNodeWithTag("terminal-sessions").performClick();capture("sessions")
         androidx.test.espresso.Espresso.pressBack();ui.onNodeWithTag("terminal-back").performClick();capture("hosts-resume")
         captureRemoteAndSecurity()
@@ -248,8 +248,8 @@ class AndroidVisualReviewTest {
             assertTrue("Real active summary and clipboard must leave a full 48dp row",row.height>=48f)
             capture("files-landscape-large-font")
             home();ui.runOnIdle { sessions().show(sessions().sessions.single().id) }
-            ui.onNodeWithTag("terminal-keyboard").performClick()
-            ui.waitUntil(10000) { ui.onAllNodesWithContentDescription("收起键盘").fetchSemanticsNodes().isNotEmpty() }
+            ui.showTerminalKeyboard()
+            ui.waitUntil(10000) { terminalImeShown() }
             capture("terminal-landscape-keyboard")
         } finally {
             androidx.test.espresso.Espresso.closeSoftKeyboard()

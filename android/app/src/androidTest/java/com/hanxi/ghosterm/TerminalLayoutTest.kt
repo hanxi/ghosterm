@@ -107,7 +107,7 @@ class TerminalLayoutTest {
                 kotlin.math.abs(ui.activity.resources.configuration.fontScale-font)<.01f
         }
         await("Rotated terminal view did not attach") { find(ui.activity.window.decorView)?.hasWindowFocus()==true }
-        if(!imeShown()) ui.onNodeWithTag("terminal-keyboard").performClick()
+        if(!imeShown()) ui.showTerminalKeyboard()
         await("Actual system IME did not show") { imeShown() }
         ui.waitForIdle()
         await("Window must report the actual IME-constrained visible frame") {
@@ -120,7 +120,7 @@ class TerminalLayoutTest {
     }
 
     private fun visibleControlsAndPixels() {
-        ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(1)
+        ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(0)
         ui.onAllNodesWithTag("terminal-menu").assertCountEquals(1)
         lateinit var window: Rect
         lateinit var terminal: Rect
@@ -133,7 +133,7 @@ class TerminalLayoutTest {
             assertSame(session.surface,view().surface)
             assertEquals(session.id,model().active!!.id)
         }
-        for(tag in listOf("terminal-back","terminal-keyboard","terminal-menu")) {
+        for(tag in listOf("terminal-back","terminal-menu")) {
             val bounds=ui.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
             assertTrue("$tag touch height",bounds.height>=47)
             assertTrue("$tag above IME",bounds.bottom<=window.bottom+1)
@@ -156,13 +156,13 @@ class TerminalLayoutTest {
         assertSame(session.surface,model().active!!.surface)
     }
 
-    @Test fun portraitInputRowKeepsNavigationAtTopAndKeyboardPinned() {
+    @Test fun portraitInputRowKeepsNavigationAtTopAndKeyboardInMenu() {
         val settings=(ui.activity.application as GhostermApplication).settings
         previousKeys=settings.state.value.committed.keySet
         previousAux=settings.state.value.committed.auxKeys
         assertTrue(runBlocking { settings.save(UUID.randomUUID(),listOf(
             PreferenceEdit.KeySet(AuxiliaryKeySet.EXTENDED),PreferenceEdit.AuxKeys(true))) } is PreferenceUpdate.Saved)
-        ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(1)
+        ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(0)
         ui.onAllNodesWithTag("terminal-menu").assertCountEquals(1)
         val bar=ui.onNodeWithTag("terminal-input-bar").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val scale=ui.activity.resources.displayMetrics.density
@@ -171,20 +171,22 @@ class TerminalLayoutTest {
             val bounds=ui.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             assertTrue("navigation is above terminal input",bounds.bottom<bar.top)
         }
-        val keyboard=ui.onNodeWithTag("terminal-keyboard").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
         val ctrl=ui.onNodeWithText("Ctrl").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
         ui.onNodeWithText("PgDn").performScrollTo().assertIsDisplayed()
-        assertEquals("keyboard stays pinned",keyboard,ui.onNodeWithTag("terminal-keyboard").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot)
         assertEquals("Ctrl stays pinned",ctrl,ui.onNodeWithText("Ctrl").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot)
-        ui.onNodeWithTag("terminal-keyboard").assertIsNotSelected().assertContentDescriptionEquals("显示键盘").performClick()
-        await("Keyboard icon must reflect the actual IME") {
-            imeShown() && ui.onAllNodesWithContentDescription("收起键盘").fetchSemanticsNodes().isNotEmpty()
+        ui.showTerminalKeyboard()
+        await("Menu action must show the actual IME") {
+            imeShown() && terminalImeShown()
         }
-        ui.onNodeWithTag("terminal-keyboard").assertIsSelected().performClick()
-        await("Keyboard toggle must close actual IME") { !imeShown() }
+        ui.onNodeWithTag("terminal-back").performClick()
+        await("Back must close actual IME") { !imeShown() }
         assertTrue(runBlocking { settings.save(UUID.randomUUID(),listOf(PreferenceEdit.AuxKeys(false))) } is PreferenceUpdate.Saved)
-        ui.onNodeWithTag("terminal-keyboard").assertIsDisplayed()
+        ui.onNodeWithTag("terminal-keyboard").assertDoesNotExist()
         ui.onAllNodesWithTag("terminal-auxiliary-keys").assertCountEquals(0)
+        ui.onNodeWithTag("terminal-input-bar").assertDoesNotExist()
+        ui.showTerminalKeyboard()
+        ui.onNodeWithTag("terminal-back").performClick()
+        await("Hidden auxiliary keys still allow system keyboard dismissal") { !imeShown() }
         ui.onNodeWithTag("terminal-sessions").performClick()
         ui.onNodeWithText("新建本地会话").assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
@@ -203,12 +205,14 @@ class TerminalLayoutTest {
         }
         sameShell()
         landscapeWithIme(1f);visibleControlsAndPixels()
-        ui.onNodeWithTag("terminal-keyboard").performClick()
-        await("Keyboard action must actually hide the IME") { !imeShown() }
+        ui.onNodeWithTag("terminal-back").performClick()
+        await("Back must actually hide the IME") { !imeShown() }
         await("Navigation must settle after the keyboard action") {
             try { ui.onNodeWithTag("terminal-files").assertIsDisplayed(); true } catch (_: AssertionError) { false }
         }
-        ui.onNodeWithTag("terminal-keyboard").assert(hasText("显示键盘") or hasContentDescription("显示键盘"))
+        ui.showTerminalKeyboard()
+        ui.onNodeWithTag("terminal-back").performClick()
+        await("Back must hide IME again") { !imeShown() }
         sameShell()
     }
 
@@ -247,7 +251,7 @@ class TerminalLayoutTest {
         previousKeys=settings.state.value.committed.keySet
         previousAux=settings.state.value.committed.auxKeys
         assertTrue(runBlocking { settings.save(UUID.randomUUID(),listOf(PreferenceEdit.KeySet(AuxiliaryKeySet.EXTENDED))) } is PreferenceUpdate.Saved)
-        if(imeShown()) ui.onNodeWithTag("terminal-keyboard").performClick()
+        if(imeShown()) { ui.onNodeWithTag("terminal-back").performClick(); await("IME must hide") { !imeShown() } }
         shell("wm size 640x200")
         ui.runOnUiThread { ui.activity.requestedOrientation=ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
         await("Fixture must reach the short native window") { ui.activity.resources.configuration.screenHeightDp <= 220 }

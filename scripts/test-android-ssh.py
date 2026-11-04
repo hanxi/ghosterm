@@ -164,7 +164,7 @@ def main():
                     # individual operation bounds remain unchanged.
                     import contextlib
                     access=contextlib.nullcontext()
-                    if selection is None or 'FileForegroundServiceTest' in selection:
+                    if selection is None or 'FileForegroundServiceTest' in selection or 'TerminalBackgroundProductTest' in selection:
                         spec=importlib.util.spec_from_file_location('foreground_access',ROOT/'scripts/test-android-foreground.py')
                         foreground_module=importlib.util.module_from_spec(spec);spec.loader.exec_module(foreground_module)
                         access=foreground_module.notification_access(adb,run)
@@ -205,6 +205,10 @@ def main():
                         raise
                     print(f'EXECUTION: all {len(discovered_names)} discovered tests completed successfully',flush=True)
                 (ROOT/'tmp/android-a3-ssh-device.log').write_text(output)
+                if os.environ.get('ANDROID_SESSION_MANAGEMENT_MUTATE')=='1':
+                    spec=importlib.util.spec_from_file_location('session_management_mutations',ROOT/'scripts/mutation-check-android-session-management.py')
+                    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+                    module.execute(ROOT,build,test)
                 if os.environ.get('ANDROID_MOUSE_MUTATE')=='1':
                     spec=importlib.util.spec_from_file_location('mouse_mutations',ROOT/'scripts/mutation-check-android-mouse.py')
                     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)

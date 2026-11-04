@@ -10,25 +10,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 
 /** One input row in every window; navigation joins it only in short windows. */
 @Composable
 internal fun CompactTerminalBar(
-    policy: TerminalControls, connected: Boolean, keyboardEnabled: Boolean, ctrl: Int, imeVisible: Boolean,
+    policy: TerminalControls, connected: Boolean, ctrl: Int,
     onBack: () -> Unit, onCtrl: () -> Unit, onKey: (Int) -> Unit, onText: (String) -> Unit,
-    onKeyboard: () -> Unit, onMenu: () -> Unit, menu: @Composable () -> Unit,
+    onMenu: () -> Unit, menu: @Composable () -> Unit,
     compactNavigation: Boolean = true,
+    recoveryAction: (@Composable () -> Unit)? = null,
 ) {
+    if (!compactNavigation && !policy.auxiliaryKeys) return
     Row(Modifier.fillMaxWidth().height(52.dp).background(MaterialTheme.colorScheme.surface)
         .testTag(if (compactNavigation) "terminal-compact-bar" else "terminal-input-bar"), verticalAlignment = Alignment.CenterVertically) {
         if (compactNavigation) IconButton(onClick = onBack, modifier = Modifier.size(48.dp).testTag("terminal-back")) {
             GhostermIcon(UiIcon.Back,"返回")
         }
-        if (policy.auxiliaryKeys) {
+        if (recoveryAction != null) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { recoveryAction() }
+        else if (policy.auxiliaryKeys) {
             TextButton(onClick = onCtrl, enabled = connected,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.onSurface), contentPadding = PaddingValues(horizontal = 8.dp),
                 modifier = Modifier.height(48.dp)) {
                 Text(when (ctrl) { 1 -> "Ctrl ✓"; 2 -> "Ctrl 锁定"; else -> "Ctrl" }, maxLines = 1)
@@ -53,13 +53,6 @@ internal fun CompactTerminalBar(
                 }
             }
         } else Spacer(Modifier.weight(1f))
-        IconButton(onClick = onKeyboard, enabled = keyboardEnabled,
-            modifier = Modifier.size(48.dp).testTag("terminal-keyboard")
-                .semantics { selected = imeVisible }
-                .background(if (imeVisible) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent,
-                    MaterialTheme.shapes.medium)) {
-            GhostermIcon(UiIcon.Keyboard,if (imeVisible) "收起键盘" else "显示键盘",tint=MaterialTheme.colorScheme.primary)
-        }
         if (compactNavigation) Box {
             IconButton(onClick = onMenu, modifier = Modifier.size(48.dp).testTag("terminal-menu")) {
                 GhostermIcon(UiIcon.More,"更多")

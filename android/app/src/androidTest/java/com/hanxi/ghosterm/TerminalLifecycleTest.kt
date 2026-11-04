@@ -103,17 +103,17 @@ class TerminalLifecycleTest {
             terminal().commitText("printf '\\033[2J\\033[HPID:%s\\r\\n' \"\u0024\u0024\"\r")
         }
         waitFor(pid)
-        ui.onNodeWithTag("terminal-keyboard").performClick()
+        ui.showTerminalKeyboard()
         ui.waitUntil(10_000) { terminal().currentFrame!!.rows < rows }
-        ui.onNodeWithContentDescription("收起键盘").assertIsDisplayed()
+        assertTrue(terminalImeShown())
         var smaller = 0; var cols = 0
         ui.runOnIdle { val f = terminal().currentFrame!!; smaller = f.rows; cols = f.cols
             terminal().commitText("printf '\\033[2J\\033[H'; stty size; printf 'KEYBOARD_SIZE\\r\\n'\r") }
         waitFor("KEYBOARD_SIZE")
         ui.runOnIdle { assertTrue(text(), text().contains("$smaller $cols")) }
-        ui.onNodeWithTag("terminal-keyboard").performClick()
+        ui.onNodeWithTag("terminal-back").performClick()
         ui.waitUntil(10_000) { terminal().currentFrame!!.rows == rows }
-        ui.onNodeWithContentDescription("显示键盘").assertIsDisplayed()
+        assertFalse(terminalImeShown())
         ui.runOnIdle { assertSame(original, model()) }
     }
 
@@ -135,11 +135,11 @@ class TerminalLifecycleTest {
         ui.waitUntil(10_000) { ui.runOnIdle { text().contains("pwd") || terminal().composition=="pwd" } }
         instrumentation.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_ENTER)
         waitForUnwrapped("/files/home")
-        if (ui.onAllNodesWithContentDescription("显示键盘").fetchSemanticsNodes().isNotEmpty())
-            ui.onNodeWithTag("terminal-keyboard").performClick()
-        ui.waitUntil(10_000) { ui.onAllNodesWithContentDescription("收起键盘").fetchSemanticsNodes().isNotEmpty() }
+        if (!terminalImeShown())
+            ui.showTerminalKeyboard()
+        ui.waitUntil(10_000) { terminalImeShown() }
         ui.onNodeWithTag("terminal-back").performClick()
-        ui.waitUntil(10_000) { ui.onAllNodesWithContentDescription("显示键盘").fetchSemanticsNodes().isNotEmpty() }
+        ui.waitUntil(10_000) { !terminalImeShown() }
         ui.onNodeWithTag("terminal-surface").assertIsDisplayed()
         assertEquals(original, model().active!!.id)
         ui.onNodeWithTag("terminal-back").performClick()
@@ -154,7 +154,7 @@ class TerminalLifecycleTest {
         ui.waitUntil(10_000) { ui.runOnIdle { terminal().currentFrame?.line(0)?.matches(Regex("FILES_PID:[0-9]+"))==true } }
         val pid=ui.runOnIdle { terminal().currentFrame!!.line(0) }
         ui.onAllNodesWithTag("terminal-sessions").assertCountEquals(1)
-        ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(1)
+        ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(0)
         val settings = (ui.activity.application as GhostermApplication).settings
         restoreCtrl = settings.state.value.committed.ctrlMode
         val saved = runBlocking { settings.save(java.util.UUID.randomUUID(), listOf(PreferenceEdit.CtrlMode(com.hanxi.ghosterm.domain.CtrlBehavior.LOCKED))) }

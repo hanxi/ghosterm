@@ -56,7 +56,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
     private val fileTaskPage get() = androidx.lifecycle.ViewModelProvider(this)[FileTasksViewModel::class.java]
-    override fun onResume() { super.onResume();fileTaskPage.resumed() }
+    override fun onResume() {
+        super.onResume(); fileTaskPage.resumed()
+        (application as GhostermApplication).terminalBackground.refreshNotifications()
+    }
     override fun onPause() { fileTaskPage.paused();super.onPause() }
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
@@ -66,17 +69,24 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if(savedInstanceState==null && intent.action==FileTransferService.OPEN_TASKS) fileTaskPage.show()
+        if (savedInstanceState == null && intent.action == TerminalConnectionService.OPEN_TERMINALS) revealTerminal()
         setContent { GhostermApp() }
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent);setIntent(intent)
         if(intent.action==FileTransferService.OPEN_TASKS) fileTaskPage.show()
+        if (intent.action == TerminalConnectionService.OPEN_TERMINALS) revealTerminal()
+    }
+    private fun revealTerminal() {
+        val model = androidx.lifecycle.ViewModelProvider(this)[SessionsViewModel::class.java]
+        (model.active ?: model.sessions.lastOrNull { it.state.connected })?.let { model.show(it.id) }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel(), settings: SettingsViewModel = viewModel(), about: AboutViewModel = viewModel(), tmux: TmuxViewModel = viewModel()) {
+    var recoveryOwner by remember { mutableStateOf<java.util.UUID?>(null) }
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val applied by settings.settings.state.collectAsState()
@@ -169,7 +179,31 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
             return@GhostermTheme
         }
         if (sessions.visible && sessions.active != null) {
-            TerminalScreen(sessions, ::openTerminalFiles)
+            val viewportId = sessions.active!!.id
+            DisposableEffect(viewportId) {
+                onDispose { if (recoveryOwner == viewportId) recoveryOwner = null }
+            }
+            TerminalScreen(sessions, openFiles = ::openTerminalFiles, recoveryBusy = hosts.busy,
+                recoveryError = if (recoveryOwner == sessions.active?.id) hosts.error else null,
+                onRecover = { stopped ->
+                    if (stopped.remoteAlias == null) sessions.restartLocal(stopped.id)
+                    else if (!hosts.busy && sessions.connecting == null) {
+                        val host = hosts.snapshot?.hosts?.firstOrNull { it.alias.equals(stopped.remoteAlias, ignoreCase = true) }
+                        if (host == null) sessions.reportError("主机配置已不可用，请返回主机列表重新载入。旧画面仍保留。")
+                        else {
+                            recoveryOwner = stopped.id
+                            sessions.dismissError()
+                            hosts.checkConnection(host) { target ->
+                                // A late configuration check must not reopen a viewport the user left.
+                                if (recoveryOwner == stopped.id && sessions.visible && sessions.active?.id == stopped.id && stopped.state.terminal) {
+                                    if (stopped.backgroundSession != null) {
+                                        sessions.home(); tmux.open(target, sessions)
+                                    } else sessions.reconnect(stopped.id, target)
+                                }
+                            }
+                        }
+                    }
+                })
             return@GhostermTheme
         }
         if(tmux.visible) { TmuxScreen(tmux);return@GhostermTheme }
@@ -202,14 +236,15 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                     horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                     GhostermGlyph(UiIcon.Terminal)
                     Column(Modifier.weight(1f)) {
-                        Text("继续 ${resume.title}",style=MaterialTheme.typography.titleSmall)
-                        Text("${sessions.sessions.size} 个活动会话 · 点击返回终端",style=MaterialTheme.typography.bodySmall)
+                        Text("${if(resume.state.terminal) "查看" else "继续"} ${resume.title}",style=MaterialTheme.typography.titleSmall)
+                        Text(if(resume.state.terminal) "已停止 · 旧画面保留" else
+                            "${sessions.sessions.count { it.state.connected }} 个已连接会话 · 点击返回终端",style=MaterialTheme.typography.bodySmall)
                     }
                     GhostermIcon(UiIcon.Arrow)
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f).heightIn(min=56.dp)) { GhostermIcon(UiIcon.Terminal);Spacer(Modifier.width(8.dp));Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.none { it.remoteAlias == null }) "本地终端" else "继续本地终端") }
+                    TextButton(onClick = sessions::local, enabled = !sessions.creating, modifier = Modifier.weight(1f).heightIn(min=56.dp)) { GhostermIcon(UiIcon.Terminal);Spacer(Modifier.width(8.dp));Text(if (sessions.creating) "正在创建…" else if (sessions.sessions.none { it.remoteAlias == null && !it.state.terminal }) "本地终端" else "继续本地终端") }
                     Button(onClick = { hosts.edit() }, enabled = !hosts.busy && hosts.snapshot != null,
                         modifier = Modifier.weight(1f).heightIn(min=56.dp),shape=MaterialTheme.shapes.medium) { GhostermIcon(UiIcon.Plus);Spacer(Modifier.width(8.dp));Text("添加主机") }
                 }
@@ -367,6 +402,7 @@ private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFi
                             GhostermActionRow("编辑主机","修改名称、地址与身份",UiIcon.Edit,enabled=!model.busy) { menu=false;model.edit(host) }
                             GhostermActionRow("后台会话","显式选择 tmux",UiIcon.Clock,modifier=Modifier.testTag("host-background-"+host.alias),
                                 enabled=!model.busy && sessions.connecting==null) { menu=false;background(host) }
+
                         }
                     }
                 }

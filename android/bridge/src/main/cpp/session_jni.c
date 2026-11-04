@@ -192,6 +192,12 @@ static void *owner(void *context) {
             } else if (cmd->kind == 1) ok = gat_surface_text(s->surface, cmd->bytes, cmd->length);
             else if (cmd->kind == 2) ok = gat_surface_key(s->surface, cmd->key, cmd->mods, cmd->unshifted, cmd->key_action, cmd->bytes, cmd->length);
             else if (cmd->kind == 3) gat_surface_scroll(s->surface, cmd->key);
+            else if (cmd->kind == 4) {
+                if (s->transport) ok = gat_surface_wheel(s->surface, cmd->key,
+                    cmd->bytes[0] | ((unsigned)cmd->bytes[1] << 8),
+                    cmd->bytes[2] | ((unsigned)cmd->bytes[3] << 8), cmd->mods);
+                else gat_surface_scroll(s->surface, cmd->key);
+            }
             else ok = false;
             free(cmd);
             if (!ok) { failed(s, "终端输入或按键编码失败"); break; }
@@ -339,11 +345,12 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_dispose(JNIE
 JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_enqueue(JNIEnv *env, jobject self, jlong id,
         jint kind, jint key, jint mods, jint unshifted, jint key_action, jbyteArray bytes) {
     (void)self;
-    if (!bytes || kind < 1 || kind > 3 || mods < 0 || mods > 1023 || key_action < 0 || key_action > 2) { fail(env, "终端输入无效"); return; }
+    if (!bytes || kind < 1 || kind > 4 || mods < 0 || mods > 1023 || key_action < 0 || key_action > 2) { fail(env, "终端输入无效"); return; }
     if (unshifted < 0 || unshifted > 0x10ffff || (unshifted >= 0xd800 && unshifted <= 0xdfff)) {
         fail(env, "终端按键字符无效"); return;
     }
     jsize length = (*env)->GetArrayLength(env, bytes);
+    if (kind == 4 && (length != 4 || key < -64 || key > 64)) { fail(env, "终端滚动无效"); return; }
     if (length > INPUT_LIMIT) { fail(env, "输入内容过长，请分段输入"); return; }
     session *s = borrow(env, id); if (!s) return;
     command *cmd = malloc(sizeof(*cmd) + (size_t)length);
@@ -352,7 +359,7 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_enqueue(JNIE
     (*env)->GetByteArrayRegion(env, bytes, 0, length, (jbyte *)cmd->bytes);
     if ((*env)->ExceptionCheck(env)) { free(cmd); release(s); return; }
     pthread_mutex_lock(&s->mutex);
-    bool connected = (s->state <= 1 || (kind == 3 && s->state == 2)) && !atomic_load(&s->stop);
+    bool connected = (s->state <= 1 || ((kind == 3 || kind == 4) && s->state == 2)) && !atomic_load(&s->stop);
     bool room = s->queued_bytes + (size_t)length <= INPUT_LIMIT && s->queued_commands < COMMAND_LIMIT;
     if (connected && room) {
         if (s->last) s->last->next = cmd; else s->first = cmd;

@@ -53,7 +53,7 @@ def main():
          ui + 'finishingImeCompositionPreservesBytesOnceAndClosingStillCancels'),
         (view, 'pending.delete(end, right); pending.delete(left, start)',
          'pending.delete(end, right); pending.delete(start, start)', ime),
-        (view, 'fill.color = if (cell.flags and 256 != 0) Color.rgb(68, 91, 125) else cell.background', 'fill.color = Color.BLACK', ui + 'rendersRealAnsiPixelsAndHasOneKeyboardControl'),
+        (view, 'fill.color = if (cell.flags and 256 != 0) Color.rgb(68, 91, 125) else cell.background', 'fill.color = Color.BLACK', ui + 'rendersRealAnsiPixelsWithoutPersistentKeyboardControl'),
         (model, 'fun home() { visible = false }',
          'fun home() { active?.let { close(it.id) }; visible = false }', ui + 'returningHomePreservesShellAndViewUsesActualSize'),
         (screen, 'menu = false; confirmClose = true',

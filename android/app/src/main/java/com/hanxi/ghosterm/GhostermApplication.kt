@@ -7,6 +7,8 @@ import com.hanxi.ghosterm.data.PreferencesFile
 import com.hanxi.ghosterm.data.PreferencesRepository
 
 class GhostermApplication : Application() {
+    internal val terminalStore by lazy { TerminalSessionStore() }
+    val terminalBackground by lazy { TerminalConnectionBackground(this, terminalStore) }
     val externalPreviews by lazy { ExternalPreviewCache(this,File(cacheDir,"external-previews"), "$packageName.previews") }
     val fileWork by lazy { FileWorkRuntime(this) }
     val settings by lazy { AppSettings(PreferencesRepository(PreferencesFile(File(filesDir, "preferences"))),fontApplication=this) }

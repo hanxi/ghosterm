@@ -201,8 +201,7 @@ class SystemImeProductTest {
         assertTrue("A real enabled system IME is required", !ime.isNullOrBlank())
         useEnglishSubtypeForShellCommand(checkNotNull(ime))
         stockEditorControl()
-        // The toolbar button toggles the current insets state. Finish hiding the
-        // stock editor's IME before asking that button to show the terminal IME.
+        // Close the stock editor IME before opening the terminal keyboard menu.
         ui.runOnIdle { terminal()?.hideKeyboard() }
         ui.waitUntil(10_000) {
             ui.runOnIdle {
@@ -210,7 +209,7 @@ class SystemImeProductTest {
                     ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom == 0
             } && !shell("dumpsys input_method").contains("mInputShown=true")
         }
-        ui.onNodeWithTag("terminal-keyboard").performTouchInput { click() }
+        ui.showTerminalKeyboard()
         val keyboardDeadline = SystemClock.uptimeMillis() + 10_000
         var keyboardState = shell("dumpsys input_method")
         while (!keyboardState.contains("mInputShown=true") && SystemClock.uptimeMillis() < keyboardDeadline) {

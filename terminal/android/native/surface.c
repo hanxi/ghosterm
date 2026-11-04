@@ -152,6 +152,49 @@ void gat_surface_scroll(gat_surface *s, int delta) {
         .tag = GHOSTTY_SCROLL_VIEWPORT_DELTA, .value.delta = delta});
 }
 
+bool gat_surface_wheel(gat_surface *s, int delta, int x, int y, int mods) {
+    if (delta < -64 || delta > 64 || x < 0 || y < 0 || mods < 0 || mods > 1023) return false;
+    if (!delta) return true;
+    bool tracking = false;
+    if (ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_MOUSE_TRACKING, &tracking) != GHOSTTY_SUCCESS) return false;
+    if (tracking) {
+        uint16_t cols = 0, rows = 0;
+        if (ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_COLS, &cols) != GHOSTTY_SUCCESS ||
+            ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_ROWS, &rows) != GHOSTTY_SUCCESS) return false;
+        GhosttyMouseEncoderSize size = {.size = sizeof(size), .screen_width = (uint32_t)cols * s->cw,
+            .screen_height = (uint32_t)rows * s->ch, .cell_width = s->cw, .cell_height = s->ch};
+        ghostty_mouse_encoder_setopt_from_terminal(s->mouse_encoder, s->terminal);
+        ghostty_mouse_encoder_setopt(s->mouse_encoder, GHOSTTY_MOUSE_ENCODER_OPT_SIZE, &size);
+        bool pressed = false;
+        ghostty_mouse_encoder_setopt(s->mouse_encoder, GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED, &pressed);
+        ghostty_mouse_event_set_button(s->mouse, delta < 0 ? GHOSTTY_MOUSE_BUTTON_FOUR : GHOSTTY_MOUSE_BUTTON_FIVE);
+        ghostty_mouse_event_set_mods(s->mouse, (GhosttyMods)mods);
+        ghostty_mouse_event_set_position(s->mouse, (GhosttyMousePosition){
+            .x = (float)((uint32_t)x < size.screen_width ? (uint32_t)x : size.screen_width - 1),
+            .y = (float)((uint32_t)y < size.screen_height ? (uint32_t)y : size.screen_height - 1)});
+        // Wheel buttons have press events only, including in SGR mouse mode.
+        ghostty_mouse_event_set_action(s->mouse, GHOSTTY_MOUSE_ACTION_PRESS);
+        for (int i = 0; i < abs(delta); i++) {
+            char buffer[128]; size_t written = 0;
+            if (ghostty_mouse_encoder_encode(s->mouse_encoder, s->mouse, buffer, sizeof(buffer), &written) != GHOSTTY_SUCCESS ||
+                (written && !s->write(s->context, (const uint8_t *)buffer, written))) return false;
+        }
+        return true;
+    }
+    GhosttyTerminalScreen screen;
+    GhosttyTerminalModeConfig alternate = {.mode = GHOSTTY_MODE_ALT_SCROLL};
+    if (ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_ACTIVE_SCREEN, &screen) != GHOSTTY_SUCCESS ||
+        ghostty_terminal_get(s->terminal, GHOSTTY_TERMINAL_DATA_MODE, &alternate) != GHOSTTY_SUCCESS) return false;
+    if (screen == GHOSTTY_TERMINAL_SCREEN_ALTERNATE && alternate.value) {
+        for (int i = 0; i < abs(delta); i++) {
+            int key = delta < 0 ? 19 : 20;
+            if (!gat_surface_key(s, key, mods, 0, GHOSTTY_KEY_ACTION_PRESS, NULL, 0) ||
+                !gat_surface_key(s, key, mods, 0, GHOSTTY_KEY_ACTION_RELEASE, NULL, 0)) return false;
+        }
+    } else gat_surface_scroll(s, delta);
+    return true;
+}
+
 typedef struct { const uint8_t *bytes; size_t length; } paste_data;
 static bool read_paste(void *context, GhosttyString mime, GhosttyWriter writer) {
     (void)mime;

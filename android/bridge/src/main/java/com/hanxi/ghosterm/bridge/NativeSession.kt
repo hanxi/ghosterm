@@ -27,6 +27,13 @@ open class NativeTerminalSession internal constructor(private var handle: Long, 
     @Synchronized override fun key(code: Int, modifiers: Int, text: String, unshiftedCodepoint: Int, action: KeyAction) =
         input(2, code, modifiers, text, unshiftedCodepoint, action)
     @Synchronized override fun scroll(lines: Int) = input(3, lines, 0, "")
+    @Synchronized override fun wheel(lines: Int, x: Int, y: Int, modifiers: Int) {
+        check(handle != 0L) { "终端会话已关闭" }
+        require(lines in -64..64 && x in 0..65535 && y in 0..65535 && modifiers in 0..1023)
+        if (lines == 0) return
+        NativeSession.enqueue(handle, 4, lines, modifiers, 0, KeyAction.PRESS.code,
+            byteArrayOf(x.toByte(), (x ushr 8).toByte(), y.toByte(), (y ushr 8).toByte()))
+    }
     private fun input(kind: Int, code: Int, mods: Int, text: String, unshiftedCodepoint: Int = 0, action: KeyAction = KeyAction.PRESS) {
         check(handle != 0L) { "终端会话已关闭" }
         NativeSession.enqueue(handle, kind, code, mods, unshiftedCodepoint, action.code, text.toByteArray(Charsets.UTF_8))

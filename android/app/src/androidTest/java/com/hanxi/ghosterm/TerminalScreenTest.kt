@@ -128,6 +128,136 @@ class TerminalScreenTest {
             }
         }
     }
+    @Test fun menuShowsKeyboardInMouseModeWithoutSendingTerminalInput() {
+        hideMouseTestKeyboard()
+        val packet = File(directory, "keyboard-menu-packet")
+        val owner = sessions.active!!.connection
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?1000h\\033[?1006hMENU_KEYBOARD_READY'; dd bs=1 count=1 of='${packet.path}' 2>/dev/null; printf '\\033[?1000l\\033[?1006l\\r\\nMENU_KEYBOARD_DONE'; stty sane\r")
+        waitFor("MENU_KEYBOARD_READY")
+        ui.showTerminalKeyboard()
+        androidx.test.espresso.Espresso.pressBack()
+        ui.waitUntil(10_000) { !terminalImeShown() }
+        ui.onNodeWithTag("terminal-surface").assertIsDisplayed()
+        ui.runOnIdle { assertSame(owner, sessions.active!!.connection); assertTrue(terminal().commitText("Z")) }
+        waitFor("MENU_KEYBOARD_DONE")
+        assertArrayEquals(byteArrayOf(90), packet.readBytes())
+    }
+
+    @Test fun wheelReachesMouseProgramWithCoordinatesAndNoReleasePacket() {
+        hideMouseTestKeyboard()
+        val packet = File(directory, "wheel-packet")
+        val expected = "\u001b[<64;3;4M\u001b[<64;3;4M\u001b[<65;3;4M".toByteArray()
+        send("stty raw -echo; printf '\\033[2J\\033[H\\033[?1000h\\033[?1006hWHEEL_READY'; dd bs=1 count=${expected.size} of='${packet.path}' 2>/dev/null; printf '\\033[?1000l\\033[?1006l\\r\\nWHEEL_DONE'; stty sane\r")
+        waitFor("WHEEL_READY")
+        ui.runOnIdle {
+            val view = terminal(); val frame = view.currentFrame!!
+            val x = (2.5f * view.width / frame.cols).toInt()
+            val y = (3.5f * view.height / frame.rows).toInt()
+            sessions.active!!.surface.wheel(-2, x, y)
+            sessions.active!!.surface.wheel(1, x, y)
+        }
+        waitFor("WHEEL_DONE")
+        assertArrayEquals(expected, packet.readBytes())
+        assertFalse(terminalImeShown())
+    }
+
+    @Test fun fingerSwipeMovesOrdinaryShellHistoryWithoutOpeningKeyboard() {
+        hideMouseTestKeyboard()
+        send("seq 1 300; printf 'FINGER_SCROLL_DONE'; sleep 30\r")
+        waitFor("FINGER_SCROLL_DONE")
+        val before = ui.runOnIdle { terminal().currentFrame!!.line(0) }
+        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeDown(durationMillis = 400) }
+        ui.waitUntil(10_000) { terminal().currentFrame!!.line(0) != before }
+        val historical = ui.runOnIdle { terminal().currentFrame!!.line(0) }
+        assertFalse(terminalImeShown())
+        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeUp(durationMillis = 400) }
+        ui.waitUntil(10_000) { terminal().currentFrame!!.line(0) != historical }
+        repeat(3) {
+            if (ui.runOnIdle { terminal().currentFrame!!.line(0) } != before)
+                ui.onNodeWithTag("terminal-surface").performTouchInput { swipeUp(durationMillis = 400) }
+        }
+        ui.waitUntil(10_000) { terminal().currentFrame!!.line(0) == before }
+    }
+
+    @Test fun fingerSwipeRoutesWheelToTheSameMouseSurface() {
+        hideMouseTestKeyboard()
+        send("printf '\\033[?1000h\\033[?1006hFINGER_MOUSE_READY'; sleep 30\r")
+        waitFor("FINGER_MOUSE_READY")
+        val original = sessions.active!!.surface
+        val deltas = mutableListOf<Int>()
+        ui.runOnIdle {
+            terminal().surface = object : com.hanxi.ghosterm.terminal.TerminalSurface by original {
+                override fun wheel(lines: Int, x: Int, y: Int, modifiers: Int) {
+                    assertTrue(x >= 0 && y >= 0)
+                    deltas.add(lines)
+                    original.wheel(lines, x, y, modifiers)
+                }
+            }
+        }
+        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeDown(durationMillis = 400) }
+        ui.runOnIdle { assertTrue(deltas.isNotEmpty()); assertTrue(deltas.all { it < 0 }); deltas.clear() }
+        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeUp(durationMillis = 400) }
+        ui.runOnIdle { assertTrue(deltas.isNotEmpty()); assertTrue(deltas.all { it > 0 }) }
+        assertFalse(terminalImeShown())
+    }
+
+    @Test fun stoppedLocalOffersANewTerminalAndPreservesItsOldViewport() {
+        val old = sessions.active!!
+        send("printf '\\r\\nSTOPPED_LOCAL_PROOF\\r\\n'; exit 7\r")
+        ui.waitUntil(10_000) { old.state.terminal }
+        ui.onNodeWithTag("terminal-stopped").assertIsDisplayed()
+        ui.runOnIdle {
+            assertFalse(terminal().commitText("must-not-be-sent"))
+            assertFalse(terminal().sendKey(KeyEvent.KEYCODE_ENTER))
+        }
+        ui.onNodeWithTag("terminal-surface").performTouchInput { click() }
+        assertFalse(terminalImeShown())
+        ui.onNodeWithTag("terminal-recover").assertTextEquals("新建终端").performClick()
+        ui.waitUntil(10_000) { sessions.active?.id != old.id && sessions.active?.state?.connected == true }
+        ui.runOnIdle {
+            assertTrue(sessions.sessions.any { it === old })
+            assertEquals(7, old.state.exitCode)
+            assertTrue(old.connection.frame(-1)!!.let { f -> (0 until f.rows).any { f.line(it).contains("STOPPED_LOCAL_PROOF") } })
+            sessions.show(old.id)
+        }
+        ui.onNodeWithTag("terminal-stopped").assertIsDisplayed()
+        ui.onNodeWithTag("terminal-back").performClick()
+        ui.onNodeWithText("查看 ${old.title}").assertIsDisplayed()
+        ui.onNodeWithText("已停止 · 旧画面保留").assertIsDisplayed()
+        ui.onNodeWithText("继续本地终端").performClick()
+        ui.runOnIdle { assertNotEquals(old.id, sessions.active?.id); assertEquals(2, sessions.sessions.size) }
+    }
+
+    @Test fun cleanupRemovesOnlyConfirmedStoppedIdsAndKeepsLiveAndLaterStoppedSessions() {
+        val old = sessions.active!!
+        send("exit 7\r")
+        ui.waitUntil(10_000) { old.state.terminal }
+        ui.runOnIdle { sessions.newLocal() }
+        ui.waitUntil(10_000) { sessions.active?.id != old.id && sessions.active?.state?.connected == true }
+        val live = sessions.active!!
+        ui.onNodeWithTag("terminal-sessions").performClick()
+        ui.onNodeWithTag("terminal-clean-stopped").assertTextEquals("清理已停止会话（1）").performClick()
+        ui.onNodeWithText("保留").performClick()
+        ui.runOnIdle { assertTrue(sessions.sessions.any { it === old }) }
+        ui.onNodeWithTag("terminal-menu").performClick()
+        ui.onNodeWithTag("terminal-clean-stopped").performClick()
+        ui.runOnIdle { sessions.newLocal() }
+        ui.waitUntil(10_000) { sessions.active?.id != live.id && sessions.active?.state?.connected == true }
+        val late = sessions.active!!
+        ui.runOnIdle { late.connection.commit("exit 8\r") }
+        ui.waitUntil(10_000) { late.state.terminal }
+        ui.onNodeWithTag("terminal-clean-stopped-confirm").performClick()
+        ui.runOnIdle {
+            assertFalse(sessions.sessions.any { it.id == old.id })
+            assertTrue(sessions.sessions.any { it === live })
+            assertTrue(sessions.sessions.any { it === late })
+            // Even an explicitly supplied live id cannot bypass the native-state check.
+            sessions.clearStopped(listOf(live.id))
+            assertTrue(sessions.sessions.any { it === live })
+            assertTrue(live.connection.state().connected)
+        }
+    }
+
     @Test fun plainTerminalTapStillOpensKeyboardWithoutWritingMouseBytes() {
         hideMouseTestKeyboard()
         val packet = File(directory, "plain-tap-packet")
@@ -211,10 +341,10 @@ class TerminalScreenTest {
         }
     }
 
-    @Test fun rendersRealAnsiPixelsAndHasOneKeyboardControl() {
+    @Test fun rendersRealAnsiPixelsWithoutPersistentKeyboardControl() {
         send("stty -echo; printf '\\033[41m\\033[2J\\033[HPIXEL_READY'\r")
         waitFor("PIXEL_READY")
-        ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(1)
+        ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(0)
         ui.onNodeWithText("新建本地会话").assertDoesNotExist()
         var red = 0; var count = 0
         ui.runOnIdle {

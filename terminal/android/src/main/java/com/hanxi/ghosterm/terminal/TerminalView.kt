@@ -38,6 +38,12 @@ import kotlin.math.ceil
 
 /** Canvas consumes cell snapshots; neither PTY output nor transport types enter this View. */
 class TerminalView(context: Context) : View(context) {
+    var inputEnabled = true
+        set(value) {
+            if (field == value) return
+            field = value
+            if (!value) { hideKeyboard(); heldKeys.clear(); pendingAccents.clear(); connection?.cancel(); ctrl = 0 }
+        }
     var surface: TerminalSurface? = null
         set(value) {
             if (field === value) return
@@ -131,9 +137,10 @@ class TerminalView(context: Context) : View(context) {
     private var inputFrameDeadline = 0L
     private var blink = true
     private var fractionalScroll = 0f
+    private var wheelRemainder = 0f
     private var pointerContextClick = false
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
-        override fun onDown(event: MotionEvent): Boolean { pointerContextClick = false; return true }
+        override fun onDown(event: MotionEvent): Boolean { pointerContextClick = false; fractionalScroll = 0f; return true }
         override fun onSingleTapUp(event: MotionEvent): Boolean {
             if (pointerContextClick) { pointerContextClick = false; return true }
             if (selecting) dismissSelection() else tapTerminal(event, 1)
@@ -151,8 +158,8 @@ class TerminalView(context: Context) : View(context) {
         }
         override fun onScroll(first: MotionEvent?, last: MotionEvent, dx: Float, dy: Float): Boolean {
             fractionalScroll += dy
-            val lines = (fractionalScroll / cellHeight).toInt()
-            if (lines != 0) { dispatch { surface?.scroll(lines) }; fractionalScroll -= lines * cellHeight }
+            val lines = (fractionalScroll / cellHeight).toInt().coerceIn(-64, 64)
+            if (lines != 0) { scrollTerminal(lines, last); fractionalScroll -= lines * cellHeight }
             return true
         }
     })
@@ -271,6 +278,7 @@ class TerminalView(context: Context) : View(context) {
         super.performClick(); showKeyboard(); return true
     }
     private fun tapTerminal(event: MotionEvent, button: Int) {
+        if (!inputEnabled) { super.performClick(); return }
         val frame = currentFrame ?: run { performClick(); return }
         val x = event.x.toInt().coerceIn(0, frame.cols * cellWidth - 1)
         val y = event.y.toInt().coerceIn(0, frame.rows * cellHeight - 1)
@@ -287,7 +295,25 @@ class TerminalView(context: Context) : View(context) {
             } else if (surface === target && isAttachedToWindow && isShown) performClick()
         }
     }
+    private fun scrollTerminal(lines: Int, event: MotionEvent) {
+        val frame = currentFrame ?: return
+        val x = event.x.toInt().coerceIn(0, frame.cols * cellWidth - 1)
+        val y = event.y.toInt().coerceIn(0, frame.rows * cellHeight - 1)
+        val modifiers = (if (event.metaState and KeyEvent.META_SHIFT_MASK != 0) 1 else 0) or
+            (if (event.metaState and KeyEvent.META_CTRL_MASK != 0 || ctrl != 0) 2 else 0) or
+            (if (event.metaState and KeyEvent.META_ALT_MASK != 0) 4 else 0)
+        dispatchInput {
+            // Selecting text always moves local history, never a remote program.
+            if (selecting || !inputEnabled) surface?.scroll(lines) else surface?.wheel(lines, x, y, modifiers)
+        }
+    }
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_SCROLL) {
+            wheelRemainder -= event.getAxisValue(MotionEvent.AXIS_VSCROLL) * 3f
+            val lines = wheelRemainder.toInt().coerceIn(-64, 64)
+            if (lines != 0) { scrollTerminal(lines, event); wheelRemainder -= lines }
+            return true
+        }
         if (event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS && event.actionButton == MotionEvent.BUTTON_TERTIARY) {
             pointerContextClick = true
             if (selecting) dismissSelection() else tapTerminal(event, 3)
@@ -429,14 +455,16 @@ class TerminalView(context: Context) : View(context) {
     }
     fun clearLocal() { textAction { it.clearLocal(); dismissSelection() } }
     fun pasteClipboard() {
+        if (!inputEnabled) return
         val clip = clipboard.primaryClip
         val text = if (clip?.itemCount == 1 && clip.description.hasMimeType("text/*")) clip.getItemAt(0).text?.toString() else null
         if (text == null) { onError("剪贴板中没有可粘贴的文本"); return }
         pasteSnapshot(text, false)
     }
     private fun pasteSnapshot(text: String, confirmed: Boolean) {
-        if (pasteDialog != null) return
+        if (!inputEnabled || pasteDialog != null) return
         textAction { target ->
+            if (!inputEnabled) return@textAction
             if (target.paste(text, confirmed)) { dismissSelection(); return@textAction }
             if (!isAttachedToWindow || surface !== target) return@textAction
             pasteDialog = AlertDialog.Builder(context).setTitle("粘贴可能执行命令")
@@ -478,10 +506,11 @@ class TerminalView(context: Context) : View(context) {
         if (action == android.R.id.paste) { pasteClipboard(); return true }
         return super.performAccessibilityAction(action, args)
     }
-    private fun showKeyboardNow() { requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT) }
+    private fun showKeyboardNow() { if (inputEnabled) { requestFocus(); inputMethod.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT) } }
     fun showKeyboard() { cancelAutomaticKeyboard(); showKeyboardNow() }
     fun hideKeyboard() { cancelAutomaticKeyboard(); inputMethod.hideSoftInputFromWindow(windowToken, 0) }
     fun sendKey(code: Int, modifiers: Int = 0, text: String = "", unshiftedCodepoint: Int = 0): Boolean {
+        if (!inputEnabled) return false
         if (pendingAccents.isNotEmpty()) {
             if (code == KeyEvent.KEYCODE_ESCAPE || code == KeyEvent.KEYCODE_DEL) {
                 pendingAccents.clear(); invalidate(); return true
@@ -500,6 +529,7 @@ class TerminalView(context: Context) : View(context) {
         return sent
     }
     fun commitText(text: String): Boolean {
+        if (!inputEnabled) return false
         if (!validInputText(text)) return false
         pendingAccents.clear(); invalidate()
         if (ctrl != 0 && text.length == 1 && text[0] in ' '..'~') {
@@ -541,6 +571,7 @@ class TerminalView(context: Context) : View(context) {
         if (selecting && event.isCtrlPressed && code == KeyEvent.KEYCODE_A) { textAction { it.select(SelectionOperation.ALL) }; return true }
         if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_VOLUME_UP)
             return super.onKeyDown(code, event)
+        if (!inputEnabled) return false
         // A physical Return can arrive here directly while the IME keeps preedit.
         // Accept that text before sending Return through the terminal key encoder.
         if (code == KeyEvent.KEYCODE_ENTER && composition.isNotEmpty() && connection?.acceptForReturn() == false) return false

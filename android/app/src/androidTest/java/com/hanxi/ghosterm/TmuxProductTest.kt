@@ -101,6 +101,38 @@ class TmuxProductTest {
         ui.waitUntil(15000) { !model().busy && model().entries.none { it.name==name } }
         assertNull(model().error)
     }
+    @Test fun stoppedAttachmentReauthenticatesManagementAndRequiresFreshSelection() {
+        open()
+        val name = "recover-" + UUID.randomUUID().toString().take(8)
+        create(name)
+        ui.waitUntil(15000) { !model().busy && model().entries.any { it.name == name } }
+        showRow(name); ui.onNodeWithTag("tmux-attach-" + row(name).id).performClick(); login()
+        ui.waitUntil(15000) { sessions().active?.state?.connected == true && sessions().visible }
+        val old = sessions().active!!
+        ui.waitUntil(10000) { terminal(ui.activity.window.decorView)?.currentFrame != null }
+        ui.runOnIdle { terminal(ui.activity.window.decorView)!!.commitText("tmux detach-client\r") }
+        ui.waitUntil(15000) { old.state.terminal }
+        ui.onNodeWithTag("terminal-recover").assertTextEquals("查看后台会话").performClick()
+        login()
+        ui.waitUntil(15000) { !model().busy && model().entries.any { it.name == name } }
+        ui.onNodeWithTag("tmux-page").assertIsDisplayed()
+        ui.runOnIdle { assertEquals(1, sessions().sessions.size); assertSame(old, sessions().active); assertFalse(sessions().visible) }
+        showRow(name); ui.onNodeWithTag("tmux-attach-" + row(name).id).performClick(); login()
+        ui.waitUntil(15000) { sessions().visible && sessions().active?.state?.connected == true }
+        ui.runOnIdle {
+            assertNotEquals(old.id, sessions().active!!.id)
+            assertEquals(name, sessions().active!!.backgroundSession)
+            assertTrue(sessions().sessions.any { it === old })
+        }
+        ui.onNodeWithTag("terminal-menu").performClick(); ui.onNodeWithText("关闭会话").performClick(); ui.onNodeWithText("关闭会话").performClick()
+        ui.waitUntil(10000) { sessions().active === old }
+        ui.onNodeWithTag("terminal-back").performClick()
+        ui.waitUntil(10000) { !sessions().visible }
+        ui.onNodeWithTag("tmux-page").performScrollToNode(hasText("刷新列表")); ui.onNodeWithText("刷新列表").performClick()
+        ui.waitUntil(15000) { !model().busy && model().entries.any { it.name == name } }
+        end(name)
+    }
+
     @Test fun tappingRealTmuxStatusSwitchesWindowsWithoutOpeningTheKeyboard() {
         open()
         val name = "mouse-" + UUID.randomUUID().toString().take(8)
