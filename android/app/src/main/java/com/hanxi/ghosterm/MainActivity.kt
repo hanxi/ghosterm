@@ -93,6 +93,30 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
     val runtime by runtimeModel.state.collectAsState()
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) hosts.readImport(uri) }
     val identityImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(),identities::completeImport)
+    val storageContext=LocalContext.current
+    var storageAccessRequested by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    fun finishStorageAccess() {
+        if(!storageAccessRequested) return
+        storageAccessRequested=false
+        // Android can kill the app when all-files access changes. Recreate only
+        // the file browser on return; terminal connections are never restored.
+        if(!files.visible) { files.enterLocal();files.beginDeviceAccess() }
+        files.completeDeviceAccess()
+    }
+    val storageSettings = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { finishStorageAccess() }
+    val storagePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { finishStorageAccess() }
+    fun browseDeviceStorage() {
+        if(!files.beginDeviceAccess()) return
+        if(com.hanxi.ghosterm.data.DeviceStorageAccess.granted(storageContext)) { files.completeDeviceAccess();return }
+        storageAccessRequested=true
+        try {
+            if(android.os.Build.VERSION.SDK_INT>=30) {
+                val intent=Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    android.net.Uri.fromParts("package",storageContext.packageName,null))
+                storageSettings.launch(intent)
+            } else storagePermission.launch(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE,android.Manifest.permission.WRITE_EXTERNAL_STORAGE))
+        } catch(_: Exception) { storageAccessRequested=false;files.deviceAccessFailed() }
+    }
     val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data=result.data
         files.picked(if(result.resultCode==Activity.RESULT_OK) data?.data?.toString() else null,data?.flags ?: 0)
@@ -161,12 +185,13 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         if (files.visible) {
             val fileDockVisible=fileTasks.hasDockSummary
             FilesScreen(files, ::pickFolder, hosts.snapshot?.hosts?.map { it.alias } ?: emptyList(),hosts.error,
-                onPaste={ if(!files.awaitingRemote) files.clipboard?.let { snapshot ->
+                onPaste={ if(!files.awaitingRemote && files.location.endpoint!=com.hanxi.ghosterm.domain.FileEndpoint.DEVICE) files.clipboard?.let { snapshot ->
                     fileTasks.startUserTask(snapshot,files.location,
                         if(files.location.endpoint.remote!=null) files.location.directoryId else files.crumbs.joinToString(" / ") { it.label })
                 } },showTasks=fileTasks::show,taskBar={ if(fileDockVisible) FileTaskDock(fileTasks) },summaryVisible=fileDockVisible,
                 onHosts={ files.leave();sessions.home() },
-                onTerminal=if(sessions.active==null) null else { { files.leave();sessions.active?.let { sessions.show(it.id) } } }) { alias ->
+                onTerminal=if(sessions.active==null) null else { { files.leave();sessions.active?.let { sessions.show(it.id) } } },
+                browseDeviceStorage=::browseDeviceStorage) { alias ->
                 val host=hosts.snapshot?.hosts?.firstOrNull { it.alias==alias }
                 if(host==null) files.remoteConnectionError("主机配置已不可用，请返回首页重新载入")
                 else {

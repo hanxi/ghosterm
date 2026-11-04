@@ -47,6 +47,7 @@ class FileDestinationAccess(private val home: File, private val resolver: Conten
     }
     suspend fun inspect(location: FileLocation): FileTargetDirectory {
         val create=when {
+            location.endpoint==FileEndpoint.DEVICE -> throw UnsupportedOperationException("设备存储当前支持浏览和复制来源；粘贴请先通过「选择设备文件夹」授权目标")
             location.endpoint==FileEndpoint.APP -> io {
                 LocalPublicationFile.directory(home,location.directoryId).use { directory ->
                     val writable=try { Os.access("/proc/self/fd/${directory.fd}",OsConstants.W_OK or OsConstants.X_OK) }
@@ -84,6 +85,13 @@ class FileDestinationAccess(private val home: File, private val resolver: Conten
     }
     suspend fun relation(source: FileLocation, target: FileLocation): FileLocationRelation {
         val a=source.endpoint;val b=target.endpoint
+        if(a==FileEndpoint.DEVICE || b==FileEndpoint.DEVICE) {
+            DeviceStorageAccess.root()
+            canonicalPath(if(a==FileEndpoint.DEVICE) source.directoryId else target.directoryId,false)
+            if(a==FileEndpoint.DEVICE && b==FileEndpoint.DEVICE) return pathRelation(source.directoryId,target.directoryId)
+            // A SAF provider can expose a directory inside the same shared storage.
+            return if(a.treeUri!=null || b.treeUri!=null) FileLocationRelation.UNKNOWN else FileLocationRelation.SEPARATE
+        }
         if(a==FileEndpoint.APP && b==FileEndpoint.APP) {
             return io {
                 LocalPublicationFile.directory(home,source.directoryId).close()

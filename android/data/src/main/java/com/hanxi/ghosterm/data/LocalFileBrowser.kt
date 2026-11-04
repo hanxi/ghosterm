@@ -68,7 +68,7 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
             check(it.moveToFirst()) { "文档已移动或不存在" }; it.entry()
         }
     override suspend fun endpoints(): List<FileEndpoint> = io { signal, active ->
-        listOf(FileEndpoint.APP) + resolver.persistedUriPermissions.filter { it.isReadPermission && Documents.isTreeUri(it.uri) }.map {
+        listOf(FileEndpoint.APP,FileEndpoint.DEVICE) + resolver.persistedUriPermissions.filter { it.isReadPermission && Documents.isTreeUri(it.uri) }.map {
             signal.throwIfCanceled(); check(active())
             val id=Documents.getTreeDocumentId(it.uri)
             val label=try { info(document(it.uri,id),signal).name } catch (_: Exception) { "设备文件夹（不可访问）" }
@@ -102,7 +102,10 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
             OsConstants.S_ISLNK(stat.st_mode)->FileKind.LINK;else->FileKind.OTHER }
         return BrowserEntry(id,file.name,kind,if(kind==FileKind.FILE) stat.st_size.toULong() else null,stat.st_mtime*1000)
     }
-    override suspend fun list(location: FileLocation): List<BrowserEntry> = io { signal, active ->
+    override suspend fun list(location: FileLocation): List<BrowserEntry> =
+        if(location.endpoint==FileEndpoint.DEVICE) deviceBrowser().list(location.copy(endpoint=FileEndpoint.APP))
+        else listLocal(location)
+    private suspend fun listLocal(location: FileLocation): List<BrowserEntry> = io { signal, active ->
         val entries=ArrayList<BrowserEntry>()
         fun add(entry: BrowserEntry) {
             signal.throwIfCanceled();check(active());check(entries.size<ENTRY_LIMIT) { "文件夹超过 4096 项，无法完整列出" };entries.add(entry)
@@ -165,6 +168,8 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
      * No destination is opened and no remote/browser connection is borrowed. */
     override suspend fun snapshot(location: FileLocation, entry: BrowserEntry, store: TransferStagingStore,
         progress: (Long, Long?) -> Unit): TransferStagingStore.Snapshot {
+        if(location.endpoint==FileEndpoint.DEVICE)
+            return deviceBrowser().snapshot(location.copy(endpoint=FileEndpoint.APP),entry,store,progress)
         check(entry.kind==FileKind.FILE) { "只能复制普通文件；符号链接不会自动跟随" }
         val expected=entry.size?.let { check(it<=Long.MAX_VALUE.toULong()) { "文件大小不受支持" };it.toLong() }
         return store.snapshot(expected,progress) { signal ->
@@ -185,7 +190,10 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
             }
         }
     }
-    override suspend fun preview(location: FileLocation, entry: BrowserEntry): String = io { signal, active ->
+    override suspend fun preview(location: FileLocation, entry: BrowserEntry): String =
+        if(location.endpoint==FileEndpoint.DEVICE) deviceBrowser().preview(location.copy(endpoint=FileEndpoint.APP),entry)
+        else previewLocal(location,entry)
+    private suspend fun previewLocal(location: FileLocation, entry: BrowserEntry): String = io { signal, active ->
         check(entry.kind==FileKind.FILE) { "此条目不能预览；符号链接不会自动跟随" }
         if(location.endpoint==FileEndpoint.APP) {
             val parent=entry.id.substringBeforeLast('/',"")
@@ -224,4 +232,5 @@ class LocalFileBrowser(private val root: File, private val resolver: ContentReso
             }
         }
     }
+    private fun deviceBrowser() = LocalFileBrowser(DeviceStorageAccess.root(),resolver)
 }

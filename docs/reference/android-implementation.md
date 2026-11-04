@@ -4547,3 +4547,23 @@ SSH 周期保活仍未实现，非零 ServerAliveInterval 仍明确拒绝；前�
 新增纯配置 API `gt_config_remove_host`；重解析与既有 rename 共享一次检查后发布的路径，失败不改变原 cfg。Swift/JNI 同步绑定：**51 CTest / 95 ABI，Apple 91 引用/4 登记未用，JNI 57/38**。`mutation-check-config-remove.py --apple` 的七组隔离 C 与一组 Swift 变异通过，既有 rename 十二组 C 复验通过；目标真实编译后正常断言红、独立 API/配置往返绿、原件绿及 SHA256。初轮复合拒绝条件的变异先命中别的保护，收窄到目标 guard 后取证，没有把错误归因计通过。
 
 API 29 50 项组合与 API 36 最终 71 项组合包含真实删除确认/取消、共享别名与备份、外部编辑冲突、备份失败、重复块禁用，以及隔离真实 SSH 的“删除主机后原连接继续回显、密钥与主机验证文件保留”。Core/Swift、Android Debug/测试 APK、未签名 Release/R8、四模块 release lint 和 macOS 宿主原生构建通过。设备变异三组随 §9.198 的九组分轮记账，不重复算组数。上述为本地模拟器与宿主证据，非签名云端发行/物理手机/完整 Android 验收，不增加 CI 20 份。日志在 `tmp/android-host-delete-*`、`tmp/config-remove-mutations/` 和 `tmp/android-ssh-tests/session-management-*`。
+
+### 9.200 Android 设备共享存储直接浏览（2026-11-04，工作区候选）
+
+用户反馈本机文件局限于应用目录，并提供 MaterialFiles 作为参照。仅露出已有 SAF 选择器不能扩大访问范围。本片参考 [MaterialFiles 93c3339 的权限声明](https://github.com/zhanghai/MaterialFiles/blob/93c333960aa897836ba3f215a19d0cb0de494db1/app/src/main/AndroidManifest.xml)及其权限请求路线，依据 [Android 官方所有文件访问接口](https://developer.android.com/training/data-storage/manage-all-files)独立实现，没有引入上游代码或依赖。
+
+本机页并列提供“浏览设备存储”和“授权文件夹”，位置面板保留“选择设备文件夹”。Android 11+ 由用户在系统设置启用所有文件访问；Android 10 使用 legacy 存储声明及运行时权限，并核对读取 AppOps。设备端点指向平台提供的主共享存储根，不接收任意根路径；平台根的别名先规范化，子路径继续沿用本机后端的路径、链接、普通文件、预览/快照和限额检查。可浏览 Download、Documents 等共享目录，预览、外部只读打开并作为复制来源；应用 HOME 和设备端点分别保留目录。源扫描仍校验相对 ID 归属，SAF URI/文档 ID 不转换为本机路径。
+
+**本片不是整盘管理或 root 支持**：没有读取其他应用私有数据的能力，SD 卡继续使用原 SAF 授权入口。设备端点暂不支持粘贴，页面禁用且预检显式报不支持；目标写入继续使用已授权 SAF 或既有应用 HOME/SFTP 流程，不把私有暂存的原子发布直接挪到另一个文件系统。设备来源与 SAF 目标的存储关系保持未知，继续要求核对，不假定二者独立。
+
+权限设置不以 Activity 的返回码冒充授权，回到页面重新读取实际权限；拒绝和设置不可用均显示错误。权限页面打开期间的进程重建通过可保存的请求状态回到文件页，不恢复终端连接。专项 host 探针在设置页面实际 SIGKILL 调试进程，核对新 PID 和返回后的设备端点；没有把普通 Activity 重建或旧 PID 当作进程死亡。
+
+失败记录：初始探针在 instrumentation 内改变/恢复所有文件访问，系统结束测试进程，未计通过；改为宿主在测试前后设置并恢复。UiAutomation 的命令不解释重定向，最初测试文件未生成；改为真实复制系统 hosts 文本夹具。Android 10 的拒绝按钮及页面返回等待、读取 AppOps 拒绝残留与平台根别名处理均经过修正。新建空 AVD 遭剩余空间检查拒绝，最终使用本轮独立的 APFS 写时复制 AVD，未清空原 QA/正式包数据。上述失败不算目标红或通过。
+
+最终定向：API 29 / arm64 / 4 KiB 页及 API 36 / arm64 / 16 KiB 页各 **32 项**本机/SAF/设备存储/终端文件往返组合通过（13＋13＋5＋1）；各另有独立配置一项与拒绝授权一项通过，具名开始/成功结束集合一致，零失败/跳过。两端实际安装的 app/test APK 与同一组构建产物 SHA256 一致，最终 304 份 Android/终端源码输入摘要保持一致。API 36 另验设置页期间真实 SIGKILL、新 PID 及自然返回设备端点。
+
+`mutation-check-android-files.py --case 29 --case 30 --case 31 --case 32` 的授权结果、设备目标禁写、实际根选择与来源 ID 归属四组在两端通过；`--case 33` 的可保存请求状态组仅在 API 36 通过，共五个不同新增保护组。每组真实编译后目标正常断言红、同 APK 独立配置绿、原件绿与 SHA256；进程组由宿主真实结束调试进程后的端点断言承担目标红，不以测试进程被杀本身计红。最后的按钮文案调整再经上述双端组合验证。为手工证据，不增加 macOS CI 20 份。
+
+首次 32 项组合两端各有 13 个 SAF 失败，均为新增入口与位置面板同名导致选择器歧义；页面入口改为“授权文件夹”后复验通过，原失败未记绿。另一次并发 Gradle debug 构建发生 Kotlin 缓存/增量图冲突，没有计通过；改为串行构建，再复用同一 APK 对在设备执行。`--baseline-only --skip-build` 支持该复用入口。
+
+Core 离线闸门 **51 CTest / 95 ABI**、最终 Debug/测试 APK、未签名 Release/R8 及四模块 release lint 通过。日志及收据在 `tmp/device-storage-*`、`tmp/android-files-mutations/`（按设备分目录的最终组合具名清单；早期变异日志位于根目录）。本片未发行，未跑 Android 客户端完整回归、物理手机/外部 SD 卡/USB/OEM 存储矩阵，不以定向结果替代这些证据。

@@ -6,6 +6,7 @@ import importlib.util
 import os
 from pathlib import Path
 import signal
+import re
 
 ROOT=Path(__file__).resolve().parents[1]
 MARK='GT_ANDROID_FILES_MUTATION'
@@ -16,7 +17,10 @@ run,require=helper.run,helper.require
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--case',type=int,action='append',help='Repeat to select groups; omitted runs all groups')
+    parser.add_argument('--baseline-only',action='store_true',help='Run local/SAF/device/lifecycle baselines and permission denial without mutations')
+    parser.add_argument('--skip-build',action='store_true',help='With --baseline-only, install and test the already-built APK pair')
     args=parser.parse_args()
+    if args.skip_build and not args.baseline_only:parser.error('--skip-build requires --baseline-only')
     serial=os.environ.get('ANDROID_SERIAL')
     if not serial:raise RuntimeError('Set ANDROID_SERIAL to the intended test device')
     adb=[str(ROOT/'build/android-toolchain/sdk/platform-tools/adb'),'-s',serial]
@@ -25,10 +29,11 @@ def main():
     source=ROOT/'android/data/src/main/java/com/hanxi/ghosterm/data/LocalFileBrowser.kt'
     screen=ROOT/'android/app/src/main/java/com/hanxi/ghosterm/FilesScreen.kt'
     app=ROOT/'android/app/src/main/java/com/hanxi/ghosterm/MainActivity.kt'
-    originals={p:p.read_bytes() for p in (model,source,screen,app)}
+    scanner=ROOT/'android/data/src/main/java/com/hanxi/ghosterm/data/FileTreeScanner.kt'
+    originals={p:p.read_bytes() for p in (model,source,screen,app,scanner)}
     hashes={p:hashlib.sha256(data).digest() for p,data in originals.items()}
     if any(MARK.encode() in data for data in originals.values()):raise RuntimeError('Existing mutation marker')
-    work=ROOT/'tmp/android-files-mutations';work.mkdir(exist_ok=True)
+    work=ROOT/'tmp/android-files-mutations'/serial.replace('/','_');work.mkdir(parents=True,exist_ok=True)
     test_class='com.hanxi.ghosterm.'
     lifecycle='TerminalLifecycleTest#filesNavigationPreservesOwnerPidAndResetsTerminalInputState'
     control='ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig'
@@ -77,21 +82,73 @@ def main():
         (model,'lastLocalEndpointId=endpoint.id','lastLocalEndpointId=FileEndpoint.APP.id',
          'FileBrowserTest#tabsPreserveTheSelectedDeviceFolderAndBlockSwitchingDuringSelection'),
     ]
-    cases += [(app,'if(!files.awaitingRemote) files.clipboard?.let','if(true) files.clipboard?.let',
+    cases += [(app,'if(!files.awaitingRemote && files.location.endpoint!=com.hanxi.ghosterm.domain.FileEndpoint.DEVICE) files.clipboard?.let','if(true) files.clipboard?.let',
         'FileClipboardLifecycleTest#stalePasteActionCannotUseLocalDestinationAfterChoosingEmptyRemoteTab')]
     cases += [(model,'rootsGeneration++;rootsJob?.cancel();rootsJob=null','Unit',
         'FileBrowserTest#emptyRemoteTabInvalidatesLateReadsAndPendingConnection')]
+    device='DeviceStorageTest#'
+    cases += [
+        (model,'if(!com.hanxi.ghosterm.data.DeviceStorageAccess.granted(getApplication()))','if(false)',
+            device+'permissionEntryFollowsActualGrant'),
+        (screen,' && model.location.endpoint!=FileEndpoint.DEVICE','',
+            device+'devicePageBrowsesDownloadsPreviewsAndCopiesWithoutGrantingTargetWrites'),
+        (source,'LocalFileBrowser(DeviceStorageAccess.root(),resolver)','LocalFileBrowser(root,resolver)',
+            device+'directReadsRequirePermissionAndRejectTraversalAndForgedEndpoints'),
+        (scanner,'parent.endpoint==FileEndpoint.APP || parent.endpoint==FileEndpoint.DEVICE','parent.endpoint==FileEndpoint.APP',
+            device+'forgedDeviceIdsAreRejectedBeforeCopy'),
+    ]
+    sdk_result=run([*adb,'shell','getprop','ro.build.version.sdk']);require(sdk_result)
+    if int(sdk_result.stdout)>=30:
+        cases += [(app,'androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }',
+            'remember { mutableStateOf(false) }','StoragePermissionHost')]
     selected=set(args.case or range(1,len(cases)+1))
     if any(not 1<=number<=len(cases) for number in selected):raise RuntimeError('Invalid case')
     def build(label):
-        result=run(['bash',ROOT/'scripts/build-android.sh'],seconds=900)
-        (work/f'{label}-build.log').write_text(result.stdout+result.stderr);require(result)
+        if not args.skip_build:
+            result=run(['bash',ROOT/'scripts/build-android.sh'],seconds=900)
+            (work/f'{label}-build.log').write_text(result.stdout+result.stderr);require(result)
         for apk in ('apk/debug/app-debug.apk','apk/androidTest/debug/app-debug-androidTest.apk'):
             require(run([*adb,'install','-r','-t',ROOT/'android/app/build/outputs'/apk]))
     def test(names,green,label,count=1):
-        result=run([*adb,'shell','am','instrument','-w','-r','-e','class',
-                    ','.join(test_class+n for n in names.split(',')),
-                    'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],seconds=300)
+        if names=='StoragePermissionHost':
+            result=run(['python3',ROOT/'scripts/test-android-storage-access.py'],seconds=120)
+            output=result.stdout+result.stderr;(work/f'{label}.log').write_text(output)
+            passed=result.returncode==0 and 'PASS: real process death while permission UI open' in output
+            if passed!=green or (not green and 'AssertionError' not in output):raise RuntimeError(output)
+            return
+        def checked_output(command):
+            value=run(command);require(value);return value.stdout
+        restore=[]
+        try:
+            if 'DeviceStorageTest' in names:
+                # Changing this access can kill the UID. Set it before instrumentation,
+                # and restore it only after the test process has finished.
+                denied=names==device+'permissionEntryFollowsActualGrant'
+                sdk=int(checked_output([*adb,'shell','getprop','ro.build.version.sdk']).strip())
+                if sdk>=30:
+                    old=checked_output([*adb,'shell','appops','get','--uid','com.hanxi.ghosterm','MANAGE_EXTERNAL_STORAGE'])
+                    match=re.search(r'MANAGE_EXTERNAL_STORAGE: (\w+)',old)
+                    restore.append([*adb,'shell','appops','set','--uid','com.hanxi.ghosterm','MANAGE_EXTERNAL_STORAGE',match[1] if match else 'default'])
+                    require(run([*adb,'shell','appops','set','--uid','com.hanxi.ghosterm','MANAGE_EXTERNAL_STORAGE','deny' if denied else 'allow']))
+                else:
+                    package=checked_output([*adb,'shell','dumpsys','package','com.hanxi.ghosterm'])
+                    for permission in ('READ_EXTERNAL_STORAGE','WRITE_EXTERNAL_STORAGE'):
+                        was_granted=f'android.permission.{permission}: granted=true' in package
+                        if was_granted==denied:
+                            full='android.permission.'+permission
+                            restore.append([*adb,'shell','pm','grant' if was_granted else 'revoke','com.hanxi.ghosterm',full])
+                            require(run([*adb,'shell','pm','revoke' if denied else 'grant','com.hanxi.ghosterm',full]))
+                    # API 29 can retain the UID app-op denial after pm grant.
+                    for permission in ('READ_EXTERNAL_STORAGE','WRITE_EXTERNAL_STORAGE'):
+                        old=checked_output([*adb,'shell','appops','get','com.hanxi.ghosterm',permission])
+                        match=re.search(permission+r': (\w+)',old)
+                        restore.append([*adb,'shell','appops','set','--uid','com.hanxi.ghosterm',permission,match[1] if match else 'default'])
+                        require(run([*adb,'shell','appops','set','--uid','com.hanxi.ghosterm',permission,'ignore' if denied else 'allow']))
+            result=run([*adb,'shell','am','instrument','-w','-r','-e','class',
+                        ','.join(test_class+n for n in names.split(',')),
+                        'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],seconds=300)
+        finally:
+            for command in restore:require(run(command))
         output=result.stdout+result.stderr;(work/f'{label}.log').write_text(output)
         passed=result.returncode==0 and f'OK ({count} '+('test)' if count==1 else 'tests)') in output
         if passed!=green or (not green and ('FAILURES' not in output or not any(x in output for x in ('AssertionError','org.junit.ComparisonFailure')))):
@@ -101,8 +158,13 @@ def main():
         for number,target in enumerate(dict.fromkeys(cases[index-1][3] for index in sorted(selected)),1):
             test(target,True,f'baseline-target-{number}')
     else:
-        test('FileBrowserTest,FilesSafTest,'+lifecycle,True,'baseline',27)
+        test('FileBrowserTest,FilesSafTest,DeviceStorageTest,'+lifecycle,True,'baseline',32)
     test(control,True,'baseline-control')
+    if args.baseline_only:
+        test(device+'permissionEntryFollowsActualGrant',True,'baseline-device-denied')
+        if int(sdk_result.stdout)>=30:test('StoragePermissionHost',True,'baseline-storage-process-return')
+        print('ANDROID FILES BASELINE PASS: named local/SAF/device/lifecycle tests, configuration control and denied access',flush=True)
+        return
     try:
         for index,(path,before,after,target) in enumerate(cases,1):
             if index not in selected:continue

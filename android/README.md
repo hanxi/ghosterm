@@ -107,11 +107,18 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-saf-publicat
 
 ## 本机与 SAF 文件验证
 
-本机文件列表提供「选择设备文件夹」按钮，可直接打开系统选择器，授权后浏览手机或 SD 卡上的文件夹；已授权位置可从路径按钮或「选择位置」切换。应用目录仍为本地终端 HOME。Android 11 及以上的系统选择器不允许授权存储根目录、Download 根目录及 Android/data、Android/obb；可选择允许的子文件夹，不提供整盘访问权限。
+本机文件页提供两种入口：「浏览设备存储」在 Android 11 及以上申请系统“所有文件访问”，Android 10 请求存储权限，授权后直接浏览主共享存储（包括 Download、Documents），支持预览、外部只读打开及复制来源；目录和错误沿用有界、非跟随链接的本机后端。设备存储端点暂不作为粘贴目标；写入手机或访问 SD 卡仍通过「选择设备文件夹」授权后使用既有复制流程。应用目录仍为本地终端 HOME。
+
+页面按钮为「授权文件夹」，位置面板中为「选择设备文件夹」，两者打开同一个系统选择器。
+
+“所有文件访问”不等于 root，不能读取其他应用的私有目录。系统文件夹选择器的权限规则独立：Android 11 及以上不允许选择存储根目录、Download 根目录及 Android/data、Android/obb。系统改变“所有文件访问”权限时可能结束应用进程，授权返回只恢复文件浏览，不恢复终端连接。
 
 ```bash
+ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-files.py --baseline-only
 ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-files.py
 ```
+
+设备存储新增保护为 `--case 29 --case 30 --case 31 --case 32`，API 30+ 另有 `--case 33` 验真实进程死亡后的权限页面返回。仅在专用模拟器上运行：宿主在 instrumentation 之外设置并恢复存储权限和 AppOps，避免权限变化杀死测试进程。API 30+ 已安装当前调试包后，可独立运行 `ANDROID_SERIAL=设备 python3 scripts/test-android-storage-access.py` 复验该返回路径。新增证据与未覆盖范围见 [§9.200](../docs/reference/android-implementation.md#9200-android-设备共享存储直接浏览2026-11-04工作区候选)，不将旧完整回归记为本片通过。
 
 真实本地文件与系统树选择器；18 组目标红/同 APK 配置对照绿/恢复绿/SHA。无需 SSH 夹具即可定向跑；完整套件仍按下文使用 SSH/凭据/协议端夹具。首片只读浏览与有界 UTF-8 预览；该首片范围见 §9.43；后续远端页面见 §9.52，任务页面见 §9.70，进程持有与 FIFO 队列分别见 §9.71/§9.72。
 

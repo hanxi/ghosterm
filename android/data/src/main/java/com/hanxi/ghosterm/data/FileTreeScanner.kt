@@ -43,7 +43,7 @@ class FileTreeScanner(private val browse: suspend (FileLocation) -> BrowserDirec
                 entry.name=="." || entry.name==".." || '/' in entry.name)
                 stop(FileScanFailureKind.INVALID_ENTRY,"条目标识或名称不能安全复制")
             val expected=when {
-                parent.endpoint==FileEndpoint.APP -> if(parent.directoryId.isEmpty()) entry.name else parent.directoryId+"/"+entry.name
+                parent.endpoint==FileEndpoint.APP || parent.endpoint==FileEndpoint.DEVICE -> if(parent.directoryId.isEmpty()) entry.name else parent.directoryId+"/"+entry.name
                 parent.endpoint.remote!=null -> parent.directoryId.trimEnd('/')+"/"+entry.name
                 else -> null // SAF IDs are opaque, including separators and colons.
             }

@@ -40,6 +40,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
     remoteError: String? = null, onPaste: () -> Unit = {}, showTasks: () -> Unit = {},
     taskBar: @Composable () -> Unit = { TextButton(onClick = showTasks) { Text("文件任务") } },
     onHosts: (() -> Unit)? = null, onTerminal: (() -> Unit)? = null, summaryVisible: Boolean = true,
+    browseDeviceStorage: () -> Unit = { model.choose(FileEndpoint.DEVICE) },
     connectRemote: (String) -> Unit = {}) {
     var menu by remember { mutableStateOf(false) }
     val compact = LocalConfiguration.current.screenHeightDp < 400 || LocalConfiguration.current.fontScale >= 1.5f
@@ -57,7 +58,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             context.startActivity(externalPreviewIntent(copy))
         } else model.externalPresenterStopped()
     } }
-    val pasteEnabled=!model.awaitingRemote && !model.loading && model.error==null
+    val pasteEnabled=!model.awaitingRemote && !model.loading && model.error==null && model.location.endpoint!=FileEndpoint.DEVICE
     val preview=model.preview
     val pathLabel=if(model.location.endpoint.remoteAlias!=null) model.location.directoryId else model.crumbs.joinToString("/") { it.label }
     Scaffold(topBar={
@@ -154,12 +155,16 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             }
             }
             if(!model.remoteScope && !model.selecting) Column(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {
-                OutlinedButton(onClick=pickFolder,enabled=!model.pickerPending,
-                    modifier=Modifier.fillMaxWidth().testTag("file-add-device-folder")) {
-                    GhostermIcon(UiIcon.Folder);Spacer(Modifier.width(8.dp));Text("选择设备文件夹")
+                Row(Modifier.fillMaxWidth()) {
+                    TextButton(onClick=browseDeviceStorage,enabled=!model.deviceAccessPending,
+                        modifier=Modifier.weight(1f).testTag("file-device-storage")) { Text("浏览设备存储") }
+                    TextButton(onClick=pickFolder,enabled=!model.pickerPending,
+                        modifier=Modifier.weight(1f).testTag("file-add-device-folder")) { Text("授权文件夹") }
                 }
                 if(model.location.endpoint==FileEndpoint.APP) Text(
-                    "当前为应用目录。选择设备文件夹后，可浏览手机或 SD 卡中获授权的文件。",
+                    "当前为应用目录。浏览设备存储可访问 Download、Documents 等共享目录；也可单独授权文件夹。",
+                    style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                if(model.location.endpoint==FileEndpoint.DEVICE) Text("可浏览、预览和复制来源；粘贴到手机请先「授权文件夹」选择目标。",
                     style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if(remoteError!=null && !model.choosingLocation)
@@ -291,7 +296,7 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             Text("文件位置",style=MaterialTheme.typography.titleLarge)
             model.endpointError?.let { Text(it,color=MaterialTheme.colorScheme.error) }
             remoteError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-connect-error")) }
-            model.endpoints.forEach { endpoint -> TextButton(onClick={ model.choose(endpoint) },modifier=Modifier.fillMaxWidth()) { Text(endpoint.label) } }
+            model.endpoints.forEach { endpoint -> TextButton(onClick={ if(endpoint==FileEndpoint.DEVICE) browseDeviceStorage() else model.choose(endpoint) },modifier=Modifier.fillMaxWidth()) { Text(endpoint.label) } }
             if(remoteHosts.isNotEmpty()) Text("远端主机",style=MaterialTheme.typography.titleMedium)
             remoteHosts.forEach { alias -> TextButton(onClick={ connectRemote(alias) },modifier=Modifier.fillMaxWidth().testTag("file-connect:$alias")) { Text("连接 $alias") } }
             OutlinedButton(onClick=pickFolder,enabled=!model.pickerPending,modifier=Modifier.fillMaxWidth()) { Text("选择设备文件夹") }

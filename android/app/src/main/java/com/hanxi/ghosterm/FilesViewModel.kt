@@ -49,6 +49,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     var preferenceError by mutableStateOf<String?>(null); private set
     var preview by mutableStateOf<FilePreview?>(null); private set
     var pickerPending by mutableStateOf(false); private set
+    var deviceAccessPending by mutableStateOf(false); private set
     private val clipboardStore = work.clipboard
     var clipboard: FileClipboardSnapshot?
         get() = clipboardStore.snapshot
@@ -153,7 +154,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     }
     fun leave() {
         externalClearConfirm=false
-        visible=false;choosingLocation=false;pickerPending=false;rootsGeneration++;rootsJob?.cancel()
+        visible=false;choosingLocation=false;pickerPending=false;deviceAccessPending=false;rootsGeneration++;rootsJob?.cancel()
         dismissClipboardDialogs();clipboardError=null
         cancelRead();preview=null;clearSelection();(source as? FileBrowserRepository)?.close()
     }
@@ -223,6 +224,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     }
     fun switchScope(remote: Boolean) {
         if(selecting || remote==remoteScope) return
+        deviceAccessPending=false
         pickerPending=false
         rootsGeneration++;rootsJob?.cancel();rootsJob=null
         val endpoint=if(remote) endpoints.firstOrNull { it.id==lastRemoteEndpointId && it.remoteAlias!=null }
@@ -246,6 +248,7 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     }
     fun choose(endpoint: FileEndpoint) {
         if(endpoints.none { it.id==endpoint.id }) return
+        deviceAccessPending=false
         dismissClipboardDialogs()
         remembered[location.endpoint.id]=crumbs.toList()
         crumbs=remembered[endpoint.id] ?: listOf(FileCrumb(FileLocation(endpoint),endpoint.label))
@@ -277,6 +280,22 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     }
     override fun onCleared() { leave();(source as? FileBrowserRepository)?.close();super.onCleared() }
     fun beginPicker(): Boolean { if(pickerPending) return false;pickerPending=true;return true }
+    fun beginDeviceAccess(): Boolean {
+        if(!visible || selecting || deviceAccessPending) return false
+        deviceAccessPending=true;return true
+    }
+    fun completeDeviceAccess() {
+        if(!deviceAccessPending || !visible) return
+        deviceAccessPending=false
+        if(!com.hanxi.ghosterm.data.DeviceStorageAccess.granted(getApplication())) {
+            endpointError="设备存储访问未授权，仍可使用「选择设备文件夹」";choosingLocation=true;return
+        }
+        endpoints=endpoints.filterNot { it.id==FileEndpoint.DEVICE.id }+FileEndpoint.DEVICE
+        choose(FileEndpoint.DEVICE)
+    }
+    fun deviceAccessFailed() {
+        deviceAccessPending=false;endpointError="无法打开存储权限设置，请使用「选择设备文件夹」";choosingLocation=true
+    }
     fun pickerFailed() { pickerPending=false;endpointError="无法打开系统文件夹选择器";choosingLocation=true }
     fun picked(uri: String?, flags: Int) {
         if(!pickerPending) return

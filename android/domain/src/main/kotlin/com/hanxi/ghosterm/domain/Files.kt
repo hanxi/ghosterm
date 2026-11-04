@@ -4,7 +4,10 @@ package com.hanxi.ghosterm.domain
 data class RemoteFileIdentity(val alias: String, val host: String, val user: String, val port: Int)
 data class FileEndpoint(val id: String, val label: String, val rootId: String, val treeUri: String? = null, val remote: RemoteFileIdentity? = null) {
     val remoteAlias get() = remote?.alias
-    companion object { val APP = FileEndpoint("app", "应用文件", "") }
+    companion object {
+        val APP = FileEndpoint("app", "应用文件", "")
+        val DEVICE = FileEndpoint("device-storage", "设备存储", "")
+    }
 }
 data class FileLocation(val endpoint: FileEndpoint, val directoryId: String = endpoint.rootId)
 enum class FileKind { DIRECTORY, FILE, LINK, OTHER }
