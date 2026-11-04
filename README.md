@@ -54,4 +54,4 @@ bash scripts/gate.sh
 
 ## 许可
 
-[MIT License](LICENSE)。随包组件分别遵守其自身许可，详见[许可说明](docs/explanation/licensing.md)。旧 Lynx + Rust 版本保留在 `archive/lynx-rust-v1` tag。
+[MIT License](LICENSE)。随包组件分别遵守其自身许可，详见[许可说明](docs/explanation/licensing.md)。
