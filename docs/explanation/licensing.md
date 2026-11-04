@@ -8,12 +8,11 @@
 
 | 组件 | 许可 | 用途 |
 |---|---|---|
-| libghostty / Ghostty | MIT | 终端引擎（Mac/Android/HarmonyOS/Linux/Web） |
+| libghostty / Ghostty | MIT | 当前 macOS/Android 终端引擎；其它端为规划 |
 | libssh2 | BSD-3-Clause | SSH / SFTP |
 | mbedTLS / OpenSSL | Apache-2.0 / Apache-2.0 | SSH 加密后端 |
 
-随包分发这些组件时，把各自许可与版权声明亮给用户（App 内「关于」窗口 +
-运行时包内 `LICENSE`）即满足义务；**不需要**随包附源码归档。
+分发材料须按各组件原始许可和实际包内容分别维护；仓库 MIT 不覆盖第三方版权声明。许可、字体清单与构建收据各自核对，不能把一个关于窗口视作所有组件的完整许可盘点。
 
 ## Android 终端字体与主题
 
@@ -35,7 +34,7 @@ MIT 不豁免**第三方 GPL 组件自身的**许可义务——它们按什么�
 | 组件 | 许可 | 现状 |
 |---|---|---|
 | **iSH** | GPL-3.0 | iOS 本地 shell，**延后、未集成** |
-| **Termux bootstrap** | 各包混合（多 GPL） | Android 环境包，**按需下载、不进 App 包** |
+| **Termux bootstrap** | 各包混合（多 GPL） | Android 环境包，**规划按需下载，安装器未实现，不进 App 包** |
 
 一旦这两类组件真的随二进制分发（打进 IPA/APK 或预装进包），就必须履行它们
 自己的 **source offer**：提供对应源码或书面要约。届时：

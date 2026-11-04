@@ -1,5 +1,8 @@
 # macOS 终端字体选择
 
+> 临时材料状态（2026-11-04）：本文列出的旧 `tmp/` 日志、截图、包与 AVD 已按用户要求清理；下述记录是历史摘要，不能再将这些路径当作现存附件或本轮复验。已入库的设计图片及 `site/assets/` 截图仍可访问。
+
+
 入口：设置 → 外观 → 终端字体。可搜索引擎默认字体、应用内置字体和本机等宽字体，预览后点“应用”；取消或仅浏览不改配置。
 
 默认选项复用 full libghostty 的 JetBrains Mono，不重复打包。Source Code Pro 来自 Adobe 固定提交 `803b7e23ec97ae58b6232ea76519a76d428ba268`，随包提供常规、粗体、斜体、粗斜体四个原始 TTF；其常规字形与 Android 所用版本一致。来源、SHA256 与 OFL 许可摘要位于 `apple/GhostermApp/Sources/GhostermAppModel/Resources/Fonts/manifest.json`。字体册管理的本机字体通过 Core Text 动态发现，无应用内导入或联网下载。

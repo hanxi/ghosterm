@@ -1,6 +1,6 @@
 # 主机 libssh2 构建与 SFTP 打开状态
 
-**macOS CI 搜索路径修复（2026-11-01）**：`2fbf4cc` 的 [dev run 41233655948](https://github.com/hanxi/ghosterm/actions/runs/41233655948) 在准备依赖时失败：runner 已安装 OpenSSL 3.5.9，但默认 pkg-config 指向 OpenSSL 4.1.0，builder 因而在 4.x 目录中查找预期的 `libcrypto.3.dylib`。共享 macOS 工作流现将 `brew --prefix openssl@3` 下的 pkgconfig 目录置于已有搜索路径之前，并通过 GITHUB_ENV 传给后续构建。没有改为使用未经本项目验证的 OpenSSL 4，也没有修改已锁定的 libssh2 来源或补丁。用工作流实际环境代码配合隔离的 4.x 元数据验证了空/已有搜索路径两种入口：均选择本机真实 3.x，并找到所需 dylib，保留已有路径；环境选择探针不替代打包；随后修复提交 `010c251` 的 [dev run 41235795612](https://github.com/hanxi/ghosterm/actions/runs/41235795612) 已成功，日志确认选择 OpenSSL 3 的 pkgconfig 目录、主机依赖构建通过、47 项 CTest / 91 ABI 与 dev 包通过。此轨为轻闸门，不覆盖完整宿主，既有设置页像素失败不变。Android 的独立 NDK 依赖与成功的 release run 41233655896 不受此环境问题影响。
+**macOS CI 搜索路径修复（2026-11-01）**：`2fbf4cc` 的 [dev run 41233655948](https://github.com/hanxi/ghosterm/actions/runs/41233655948) 在准备依赖时失败：runner 已安装 OpenSSL 3.5.9，但默认 pkg-config 指向 OpenSSL 4.1.0，builder 因而在 4.x 目录中查找预期的 `libcrypto.3.dylib`。共享 macOS 工作流现将 `brew --prefix openssl@3` 下的 pkgconfig 目录置于已有搜索路径之前，并通过 GITHUB_ENV 传给后续构建。没有改为使用未经本项目验证的 OpenSSL 4，也没有修改已锁定的 libssh2 来源或补丁。用工作流实际环境代码配合隔离的 4.x 元数据验证了空/已有搜索路径两种入口：均选择本机真实 3.x，并找到所需 dylib，保留已有路径；环境选择探针不替代打包；随后修复提交 `010c251` 的 [dev run 41235795612](https://github.com/hanxi/ghosterm/actions/runs/41235795612) 已成功，日志确认选择 OpenSSL 3 的 pkgconfig 目录、主机依赖构建通过、47 项 CTest / 91 ABI 与 dev 包通过。此轨为轻闸门，不覆盖完整宿主，该轮设置页像素失败仍属历史；后续字体切片已修正布局并通过关联定向，不回填为当时完整宿主通过。Android 的独立 NDK 依赖与成功的 release run 41233655896 不受此环境问题影响。
 
 核对日期：2026-10-31。受控 SFTP 打开接口、主机补丁依赖与构建/打包接线已完成本机验收，见 Android 实现计划 §9.47。此前 `cef17ac` 记录的依赖守卫测试失败已修正并复验：十组直接守卫变异及一组真实 CMake 调用方变异通过。§9.49 已完成受控目录浏览与目录句柄关闭契约，§9.50 新增有界预览。§9.51 已接 Android 专用文件 owner/JNI/Kotlin 及中止后关闭；Android 远端页面已由 §9.52 接入，macOS 产品迁移仍待完成。
 
@@ -69,7 +69,7 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 |---|---|---|
 | Core | 非阻塞 init 与 EAGAIN 等待中检查 deadline/取消；补丁修复库内部 EOF 循环与未完成 init 的清理 | 后续 SFTP 操作另立取消/预算契约；当前打开验证不扩大为整条连接有界 |
 | Swift 绑定 | `SSHSession.sftp(timeoutMilliseconds:cancellation:)` 已存在，定向/变异有通过记录 | macOS 产品工厂仍调用无参 `ssh.sftp()`；原认证预算未传入文件 owner |
-| Android native | `files_jni.c` 的专用 owner 调用 `gaj_ssh_open_sftp`，从原认证取剩余预算并封顶 5000 ms；目录/预览各有请求预算和停止信号 | `RemoteFileSession` 后端与远端 repository、认证 UI、文件页已按 §9.51/§9.52 接入；§9.70 已接独立复制任务与认证页面，进程级调度/后台与完整矩阵待补 |
+| Android native | `files_jni.c` 的专用 owner 调用 `gaj_ssh_open_sftp`，从原认证取剩余预算并封顶 5000 ms；目录/预览各有请求预算和停止信号 | `RemoteFileSession` 后端与远端 repository、认证 UI、文件页已按 §9.51/§9.52 接入；§9.70 已接独立复制任务与认证页面，进程级 FIFO 调度与前台服务后续已由 §9.72/§9.74 接入；完整设备/外部端点矩阵待补 |
 
 §9.47 已验收基线为 82 ABI、Apple 80/2、JNI 40/42；§9.49 受控目录浏览为 83 ABI、Apple 81/2、JNI 40/43。§9.51 为 85 ABI、Apple 83/2、JNI 45/40；§9.54 为 86 ABI、Apple 84/2、JNI 46/40；§9.56 为 87 ABI、Apple 85/2、JNI 47/40，新增受控读取到 fd；§9.57 为 88 ABI、Apple 86/2、JNI 48/40，新增非覆盖发布及绑定；§9.65 受控单目录创建后为 89 ABI、Apple 87/2、JNI 49/40。Android 后端、浏览页面、§9.69 执行器及 §9.70 任务页面已消费受控接口；260 项是 §9.56 的历史读取产物，最新完整结果见[路线图](roadmap.md#当前进度总览)。这些数量不是产品可用功能数量。macOS 文件产品的列表、realpath、预览、任务和关闭仍按原契约运行；opener 测试不证明整个文件连接可取消。
 
@@ -104,7 +104,7 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 
 此前守卫失败是测试观测面错误：破坏 prefix 收据后，整包校验又比较包收据，因此撤去 prefix 守卫仍被另一道检查拦住。现在 prefix 变异直接执行生产 `verify`，包变异执行 `check_bundle`；两条路径都有合法产物和独立损坏对照。新增 CMake 组实际配置 Core，撤去失败传播后目标红，独立非法 target 对照仍绿，恢复后再次拒绝坏收据。初次 CMake 断言未处理错误输出折行，改为仅归一化空白后复验，不忽略退出码或错误原因；历史失败没有用放宽生产校验来消除。
 
-两端产品接线另验原总预算、取消后停止后续请求、晚到结果隔离和 owner 释放。Android A4 远端浏览/预览后端已由 §9.51 接入，页面随后由 §9.52 接入；复制执行器和粘贴/认证/结果页面已由 §9.69/§9.70 接入，§9.71 已有进程共享单活动请求，队列由 §9.72 接入，后台服务和进程恢复仍待完成；macOS 产品仍用旧 opener，配置、设置、剪贴板和传输错误处理的缺口继续见[路线图](roadmap.md#macos-下一步与共享缺口)。本轮不新增完整 Apple 宿主、其他设备档位或 CI 证据。
+两端产品接线另验原总预算、取消后停止后续请求、晚到结果隔离和 owner 释放。Android A4 远端浏览/预览后端已由 §9.51 接入，页面随后由 §9.52 接入；复制执行器和粘贴/认证/结果页面已由 §9.69/§9.70 接入，§9.71 已有进程共享单活动请求，队列由 §9.72 接入，后台服务后续已由 §9.74 接入，历史记录已由 §9.73 接入；进程死亡后不自动恢复执行，显式重新发起见 §9.105/§9.121；macOS 产品仍用旧 opener，配置、设置、剪贴板和传输错误处理的缺口继续见[路线图](roadmap.md#macos-下一步与共享缺口)。本轮不新增完整 Apple 宿主、其他设备档位或 CI 证据。
 
 
 ## 专用连接中止与 Android 消费边界

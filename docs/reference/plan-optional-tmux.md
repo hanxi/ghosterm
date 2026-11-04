@@ -3,7 +3,7 @@
 > 设计与实施历史：保留原决策和验收记录；执行前以[当前状态](current-status.md)、[路线图](roadmap.md)及 AGENTS.md 为准。旧方案中的组件名或“待实现”不代表当前源码。
 
 
-日期：2026-10-28。状态：六个实施切片与最终验收已完成；依赖、命令决策、测试范围和限制见 [实施清单](optional-tmux-implementation.md)。普通默认入口、自有 sessiond 退役、可选 tmux 共享模块与 macOS 原生 UI 均已交付；Android 原生 UI 尚待 A8，不包含在本计划的已交付范围内。
+日期：2026-10-28。状态：六个实施切片与最终验收已完成；依赖、命令决策、测试范围和限制见 [实施清单](optional-tmux-implementation.md)。普通默认入口、自有 sessiond 退役、可选 tmux 共享模块与 macOS 原生 UI 均已交付；Android 原生 UI 在本计划完成时尚未接入，后续已由 §9.103 交付远端管理与独立 attach；其证据不回填为本计划当时通过。
 
 将默认连接恢复为普通本地 PTY / SSH 终端，把后台保活改为用户显式选择的外部会话能力。首版支持 tmux：一个 Ghosterm 格子附着一个 tmux session；session 内的 window、pane、状态栏、快捷键和鼠标行为全部由普通 tmux 客户端处理。删除自有 sessiond 及其恢复、部署和打包体系，不保留旧 ABI、协议、配置或记录格式的兼容代码。
 

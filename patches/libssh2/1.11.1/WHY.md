@@ -39,7 +39,7 @@ Android 的 `scripts/build-android-native.py` 从校验过的 tarball 重新解�
 `build/host-native` 中的同版补丁库，打包时嵌入它及收据。主机 17 项协议、十组接口变异、十一组依赖守卫及既有打包变异
 通过；具体范围见
 [主机构建与证据](../../../docs/reference/host-ssh2-build.md)。
-两端产品取消接线、Android 文件 owner 与完整 A4 仍未交付。
+Android 文件 owner/页面已按 §9.51–§9.52 接入，复制任务按 §9.69–§9.70 接入；macOS 产品仍未迁移受控 opener。完整 A4/外部端点矩阵仍未完成。
 
 ## 复现与有牙验证
 

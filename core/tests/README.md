@@ -48,7 +48,7 @@
 
 仍须补实现和故障回归：
 
-- §9.54 已提供独占暂存创建，§9.57 已补远端非覆盖发布及绑定，应用级提交事务尚待接入；旧 job 直接覆盖在后续 IO/关闭失败时可能留下部分文件，关闭成功不表示 fsync 或原子提交。
+- §9.54 已提供独占暂存创建，§9.57 已补远端非覆盖发布及绑定，Android 应用级非覆盖提交已由 §9.69–§9.70 接入；macOS 旧 job 队列尚待迁移；旧 job 直接覆盖在后续 IO/关闭失败时可能留下部分文件，关闭成功不表示 fsync 或原子提交。
 - `gt_sftp_walk` 仅裁剪大于 64 的正深度，负深度的递归条件没有硬上限；头文件注释所称“仍有编译期护栏”不代表实现已兑现。`remove_all` 有独立深度检查，不能将两者混为一谈。
 - 单 worker/FIFO 是每个 `gt_sftp_t` 的约束，不是跨连接的全局限并发；暂停中的当前 job 仍占用该会话 worker。
 
@@ -279,7 +279,7 @@ golden.effective.tsv 的 # supported_key 元数据
 
 | 脚本 | 用途 |
 |---|---|
-| `scripts/regen-golden.sh` | 再生两份夹具（**须钉版本环境**） |
+| `scripts/regen-golden.sh` | 由 golden.conf 再生 effective.tsv / json 两份输出（输入不由脚本生成）（**须钉版本环境**） |
 | `scripts/probe-multivalue-*.sh` | 多值指令「一行多 token vs 多行」语义探针 |
 | `scripts/writeback_check.py` | 用 `fixtures/writeback.json` 驱动 `gtb` 跑编辑 API 对拍（`sshconfig_writeback`） |
 | `scripts/ssh_e2e.sh` | 起本机真 sshd（非特权 + 公钥）跑 `test_ssh`（`ssh_e2e`）；无 sshd 显式 SKIP |

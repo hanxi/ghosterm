@@ -80,7 +80,6 @@ bash scripts/build-icons.sh check       # 产物是否与母版/脚本一致（�
 - **macOS 26 的「底座」**：macOS 26 会给**非满画布**的旧式图标自动套一圈系统底座
   （浅色圆角框 + 内缩的图标），深色图标会被拆成「黑板 + 白框」，很难看（Ghostty 这类
   预圆角图标的通病）。所以 macOS 产物一律**满画布直角、不透明**，让系统干净地裁成圆角；
-  实测：预圆角 → 有底座，满画布直角 → 无底座。本项目 `LSMinimumSystemVersion = 26.0`，
-  不背旧版 macOS，故直接按 26 取。
+  实测：预圆角 → 有底座，满画布直角 → 无底座。这是 macOS 26 的历史图标实测。当前包的 `LSMinimumSystemVersion` 由主程序与嵌入依赖的实际 minos 核算，不能从图标形态推断安装下限；线上快照见 `docs/reference/current-status.md`。
 - **iOS idiom 分组**：`Contents.json` 每个尺寸只给一条 idiom（76/83.5 归 `ipad`，
   1024 归 `ios-marketing`，其余归 `iphone`），Xcode 可能会提示补 iPad 专用尺寸。

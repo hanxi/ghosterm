@@ -1,6 +1,6 @@
 # 使用 tmux 后台会话
 
-本文操作对应当前 **macOS 客户端**。Android 的管理列表与 attach 尚未接入，列在[Android 实现计划](../reference/android-implementation.md) A8；共享 Core 已有接口不等于各端 UI 已交付。
+本文操作对应当前 **macOS 客户端**。Android 已接入远端管理列表与独立 attach（§9.103），入口在主机菜单；下述“新标签页”等操作仅适用于 macOS。Android 不提供本机 tmux 环境包，完整真机/网络矩阵仍待完成。
 
 普通本地 shell、SSH 和文件面板照常使用，不需要安装 tmux。
 后台会话需要目标机器上的 **tmux 3.2a 或更新版本**；已验证 macOS 本机及 Ubuntu 22.04 SSH 目标的 3.2a 和 3.6a。

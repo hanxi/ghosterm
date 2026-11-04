@@ -12,7 +12,7 @@ dev 轨**没有 Developer ID 证书**，只做 ad-hoc 签名、不公证。首�
 | 装法 | 谁贴 quarantine | 首次打开 |
 |---|---|---|
 | 浏览器 / AirDrop 下 dmg | 下载工具贴（`0081;…;Safari;…`），且会**从 dmg 传染**给拖出来的 `.app`（`0281;…`） | 拦，需放行一次 |
-| `brew install --cask` | **Homebrew 自己贴**（`0381;…;;<uuid>`，agent 写 `Homebrew Cask`；Homebrew 7 没有关掉它的开关） | 拦，需放行一次 |
+| `brew install --cask` | **Homebrew 自己贴**（`0381;…;;<uuid>`，agent 写 `Homebrew Cask`；该次实测的 Homebrew 版本未提供关闭开关） | 拦，需放行一次 |
 | 一键安装脚本 | 安装时显式递归清除 | 无需手动执行 xattr |
 | `curl` + `ditto` | **不贴**（zip 与解出的 `.app` 都只有 `com.apple.provenance`） | 不拦 |
 
@@ -50,15 +50,15 @@ curl -fsSL https://raw.githubusercontent.com/hanxi/ghosterm/main/scripts/install
 ```bash
 (
   set -eu
-  curl -fsSL -o Ghosterm-0.1.0-dev-arm64.zip https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-0.1.0-dev-arm64.zip
+  curl -fsSL -o Ghosterm-macos-arm64-dev.zip https://github.com/hanxi/ghosterm/releases/download/dev/Ghosterm-macos-arm64-dev.zip
   curl -fsSL -o SHA256SUMS https://github.com/hanxi/ghosterm/releases/download/dev/SHA256SUMS
-  awk '$2 == "Ghosterm-0.1.0-dev-arm64.zip" && NF == 2 { print; n++ } END { if (n != 1) exit 1 }' SHA256SUMS > Ghosterm-zip.sha256
+  awk '$2 == "Ghosterm-macos-arm64-dev.zip" && NF == 2 { print; n++ } END { if (n != 1) exit 1 }' SHA256SUMS > Ghosterm-zip.sha256
   shasum -a 256 -c Ghosterm-zip.sha256
-  ditto -x -k Ghosterm-0.1.0-dev-arm64.zip /Applications
+  ditto -x -k Ghosterm-macos-arm64-dev.zip /Applications
 )
 ```
 
-下载文件名须与清单一致。这里只提取 ZIP 的唯一一条记录；缺失、重复、下载失败或摘要不符时停止，不会继续解包。示例资产名对应当前脚本默认版本，版本变化时以 Release 实际名称为准；一键安装脚本会从 `version.json` 读取名称。手动解包不提供一键脚本的运行中检查和替换回滚。
+下载文件名须与清单一致。这里只提取 ZIP 的唯一一条记录；缺失、重复、下载失败或摘要不符时停止，不会继续解包。示例使用 dev 渠道的固定资产名，实际名称仍须与 Release 清单一致；一键安装脚本会从 `version.json` 读取名称。手动解包不提供一键脚本的运行中检查和替换回滚。
 
 `curl` 不属于会贴标记的「下载代理」，所以解出来的 `.app` 没有 `com.apple.quarantine`。
 实测到的是**「标记不在」这一层**（外加一个不带标记的 ad-hoc 探针包被 LaunchServices
@@ -100,13 +100,13 @@ cask 里的 `depends_on arch: :arm64` / `depends_on macos: :tahoe` 是显式安�
 ## 从 GitHub Releases 装（dmg）
 
 1. 下载 [`dev` release](https://github.com/hanxi/ghosterm/releases/tag/dev) 里的
-   `Ghosterm-0.1.0-dev-arm64.dmg`（连同 `SHA256SUMS`）。
+   `Ghosterm-macos-arm64-dev.dmg`（连同 `SHA256SUMS`）。
 2. 校验和比对——`SHA256SUMS` 是打包脚本对**最终字节**算的：
 
    ```bash
    (
      set -eu
-     awk '$2 == "Ghosterm-0.1.0-dev-arm64.dmg" && NF == 2 { print; n++ } END { if (n != 1) exit 1 }' SHA256SUMS > Ghosterm-dmg.sha256
+     awk '$2 == "Ghosterm-macos-arm64-dev.dmg" && NF == 2 { print; n++ } END { if (n != 1) exit 1 }' SHA256SUMS > Ghosterm-dmg.sha256
      shasum -a 256 -c Ghosterm-dmg.sha256
    )
    ```
@@ -191,9 +191,9 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
 
 ## dev 包的边界（不是缺陷，是现状）
 
-- **此 dev 发布渠道只有 macOS**。Android 已有[本地 debug APK 构建入口](../../android/README.md)，但尚无 Android CI/发布渠道；iOS 仍无可用构建入口。
+- **本页说明 macOS 安装**。共用 dev Release 另有独立 CI 生成的 Android 签名 release APK，见 [Android 发行说明](android-release.md)；iOS 无可用构建入口。
 - **`dev` 不能当自动更新通道**：每轮 ad-hoc 签名的 cdhash 都不同，而 `dev` tag 会被
-  强删重建；做自动更新要等 Developer ID 签名 + 公证（见
+  原位更新指向 macOS 发布提交；做自动更新要等 Developer ID 签名 + 公证（见
   [roadmap](../reference/roadmap.md) 的遗留项）。「有没有新版」的检测不受此限制，
   见上面 [version.json](#有没有新版的机读入口versionjson)——它只给直链，装不装由人。
 - 普通终端构建细节，见 [CI 出包口径](#ci-是怎么串起来的)。
@@ -207,7 +207,7 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
 |---|---|---|---|
 | `adhoc` | `--adhoc`（默认；CI 的 dev 轨走这条） | ❌ | Gatekeeper 拦：`xattr -dr com.apple.quarantine` 或系统设置「仍要打开」（见 [怎么装](#怎么装一键脚本手工解包homebrew-或浏览器)） |
 | `dev` | `--sign "Apple Development: …"`（免费个人账号，不花 $99） | ❌ Apple 不给这一档公证，脚本自己先拦 | 同上，仍要放行 |
-| `id` | `--sign "Developer ID Application: …"`（付费 Apple Developer Program） | ✅ `--notarize <profile>` | 双击即装 |
+| `id` | `--sign "Developer ID Application: …"`（付费 Apple Developer Program） | ✅ `--notarize <profile>` | 仍须签名、公证及目标系统装机验收；仓库尚无本档实际包通过记录 |
 | `none` | `--no-sign`（排障用） | ❌ | 未签名，macOS 直接拒开 |
 
 - **决定「首次打开要不要放行」的是下载工具贴不贴 `com.apple.quarantine`，不是换渠道**：
@@ -221,7 +221,7 @@ UI 在 `AboutWindow.swift` 的 `UpdateRow`）：
 - **因此「每 7 天重签一次」不是第三条路**：7 天是免费账号 *provisioning profile* 的有效期
   （iOS 装机才吃这套），macOS 直发 dmg 不吃 profile；而带 `--timestamp` 的签名到期后依然
   有效（校验用的是签名时刻）。真正的拦路石是公证，重打多少次都不动它。每轮重打反倒会换
-  cdhash、强删重建 `dev` tag，让用户机器上那份与清单里那份不是同一个二进制——检测照报
+  cdhash、更新 `dev` tag，让用户机器上那份与清单里那份不是同一个二进制——检测照报
   「已是最新」（`git_commit` 相同），实际内容已经换了，这是最坏的一种假绿。
 - 身份串不属于这两类（Enterprise、`Developer ID Installer`、自签）→ **当场拒**：宁可红，
   不拿别的证书冒充 `id`。那个字段是 app 侧判断「能不能自动装」的唯一依据
@@ -246,7 +246,7 @@ bash scripts/package-mac.sh --adhoc --out dist
 
 ## CI 是怎么串起来的
 
-共享打包工作流运行 `build-host-ssh2.py --fetch`，Core/SwiftPM 消费仓库自建补丁 libssh2，OpenSSL 仍由宿主提供。`010c251` 显式将 Homebrew OpenSSL 3 的 pkg-config 路径放在前面，修复 runner 默认选中 OpenSSL 4 后准备依赖失败的问题。[dev CI 41235795612](https://github.com/hanxi/ghosterm/actions/runs/41235795612) 已通过主机依赖准备、47 CTest / 91 ABI、普通引擎打包与滚动 dev 发布；发布后的 `version.json` 已核对提交号 `010c251d246b42f582322f4c5d7af95bead7ec92`、arm64、最低系统 15.0、ad-hoc 与未公证状态。这是轻闸门结果，不替代完整 macOS UI 验收，既有设置页像素失败仍待修。构建准备与证据见[主机依赖说明](../reference/host-ssh2-build.md)。
+共享打包工作流运行 `build-host-ssh2.py --fetch`，Core/SwiftPM 消费仓库自建补丁 libssh2，OpenSSL 仍由宿主提供。`010c251` 显式将 Homebrew OpenSSL 3 的 pkg-config 路径放在前面，修复 runner 默认选中 OpenSSL 4 后准备依赖失败的问题。[dev CI 41235795612](https://github.com/hanxi/ghosterm/actions/runs/41235795612) 已通过主机依赖准备、47 CTest / 91 ABI、普通引擎打包与滚动 dev 发布；发布后的 `version.json` 已核对提交号 `010c251d246b42f582322f4c5d7af95bead7ec92`、arm64、最低系统 15.0、ad-hoc 与未公证状态。这是轻闸门结果，不替代完整 macOS UI 验收，该轮设置页像素失败保留为历史；后续布局修正及定向通过见 [字体切片](../reference/macos-terminal-fonts.md)，未据此声明新完整宿主全绿。构建准备与证据见[主机依赖说明](../reference/host-ssh2-build.md)。
 
 ```text
 push main（通过路径过滤）或手动 → dev-build.yml

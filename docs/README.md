@@ -58,3 +58,5 @@
 - [terminal/apple/README.md](../terminal/apple/README.md)
 
 [网站维护与发布](../site/README.md)。设计原型与历史方案不是当前产品能力承诺。历史章节保留原时间、失败和验收范围；清空后的 `tmp/` 链接仅说明当时的临时位置。
+
+逐份审阅范围、修正点与本轮验证见[文档核对记录](reference/documentation-audit.md)。

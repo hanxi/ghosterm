@@ -56,7 +56,7 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-decisions.py
 
 ## 目标预检验证
 
-`FileDestinationAccess` 读取真实目标，`FilePastePreflight` 保留请求身份、创建能力三态与只读冲突数据。相同目录/目录自身后代被拒绝，读取错误不当作空目录；不同远端命名空间关系仍未知。仅元数据预检，§9.70 已有任务/页面消费者，不能代替写前重验和非覆盖提交。
+`FileDestinationAccess` 读取真实目标，`FilePastePreflight` 保留请求身份、创建能力三态与只读冲突数据。相同目录/目录自身后代被拒绝，读取错误不当作空目录；不同远端命名空间关系仍未知，§9.110 已有请求内显式确认，不能把确认视为证明命名空间分离。仅元数据预检，§9.70 已有任务/页面消费者，不能代替写前重验和非覆盖提交。
 
 ```bash
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-preflight.py
@@ -148,14 +148,14 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-network-clea
 
 ## 构建
 
-锁定 JDK 17、Gradle 8.13（wrapper 验 SHA256）、AGP 8.13.2、Kotlin 2.2.21、Compose BOM 2025.10.01、NDK 28.2.13676358、CMake 3.22.1、Zig 0.16.0。compile/target API 36，min API 29，当前只构建 arm64-v8a。API 29 是声明下限，尚无该版本运行证据。
+锁定 JDK 17、Gradle 8.13（wrapper 验 SHA256）、AGP 8.13.2、Kotlin 2.2.21、Compose BOM 2025.10.01、NDK 28.2.13676358、CMake 3.22.1、Zig 0.16.0。compile/target API 36，min API 29，当前只构建 arm64-v8a。API 29 与 API 36 均有模拟器完整/定向记录，4 KiB 与 16 KiB 页的证据须按实际提交分别读取；见当前状态，不推定全部真机通过。
 
 准备 JDK 和 Android command-line tools 后，设置 `JAVA_HOME`、`ANDROID_HOME`；SDK 安装项：
 
 ```bash
 sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' \
   'ndk;28.2.13676358' 'cmake;3.22.1'
-export ZIG=/path/to/zig-0.16.0/zig
+export ZIG=/path/to/zig-0.16.0/zig # 使用长期工具链目录，例如 build/android-toolchain/ 下的固定版本
 bash scripts/build-android.sh
 ```
 
@@ -276,7 +276,7 @@ ANDROID_SSH_HOST_IDENTITIES_MUTATE=1 bash scripts/test-android-ssh.sh
 ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-known-hosts.py
 ```
 
-CI 已产出签名且压缩的 release APK，下载与签名说明见 [Android release](../docs/how-to/android-release.md)。首次云端包对应 `d585f0b`；当前发行与实际下载/安装证据见本文开头，不借首次包结果覆盖后续提交。
+CI 已产出签名且压缩的 release APK，下载与签名说明见 [Android release](../docs/how-to/android-release.md)。首次云端包对应 `d585f0b`；当前发行快照与历史下载/安装范围见[当前状态](../docs/reference/current-status.md)，不借首次包结果覆盖后续提交。
 
 ## 文件阶段进度（§9.77 历史切片）
 
@@ -292,3 +292,5 @@ ANDROID_SERIAL=设备 ANDROID_COPY_PROGRESS_MUTATE=1 bash scripts/test-android-s
 ## 可选远端后台会话
 
 主机卡片的「后台会话」显式探测远端 tmux，支持路径/版本、真实列表、新建/重命名/确认结束和独立 SSH 客户端连接；不自动安装或修改远端 tmux 配置。关闭客户端不发送结束命令，结果未知不自动重试，断线须刷新重选。手机本地 tmux 未提供。Core 操作由独立 native actor 管理，终端仍消费普通 Transport，详见 [A8 接线与验收](../docs/reference/android-implementation.md#android-tmux)。
+
+临时目录清理后，不应继续依赖旧 `tmp/zig/`。构建前显式设置 `ZIG` 指向已校验的 0.16.0 可执行文件（或在 PATH 提供该版本）；SDK/NDK/JDK/Gradle 等长期工具链放在 `build/android-toolchain/`，不因清理临时取证材料一同删除。

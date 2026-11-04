@@ -1,8 +1,6 @@
 # Android TerminalSurface
 
-最近完整 APK 回归与当前工作区验收统一见 [Android 实现计划](../../docs/reference/android-implementation.md#1-交付范围与当前基础)，仅限已记录的设备档位，不视为全部终端专项通过。[§9.67](../../docs/reference/android-implementation.md#967-a5-独立任务连接与可等待关闭2026-10-31) 的完整 **395 项通过**保留为历史产物，仅 API 36 arm64 / 4 KB 页模拟器。§9.49 的 214 项保留为历史；§9.44 的选区滚动偶发失败及 §9.49 中间轮的导入旋转观察失败仍保留追踪，最终复验通过不表示偶发根因已修复，文件浏览及终端往返证据见[§9.43](../../docs/reference/android-implementation.md#943-a4-本机与-saf-文件浏览首片2026-10-30)；底栏已对齐会话/文件/唯一键盘，进入文件页不关闭终端 owner。通道取消切片的完整 200 项保留为历史；该切片新增 13 项协议阶段/生命周期定向与 13 组变异，见[§9.41](../../docs/reference/android-implementation.md#941-ssh-通道打开预算与取消2026-10-30)。Android native owner 将认证后剩余预算与取消传入共享 controlled 入口；字节仍为 Transport→VT，不经 UI。候选推进的真实双栈 SSH 证据保留在 §9.40。当前完整套件仍要求可 root 的 API 36 arm64 / 4 KB 页模拟器及测试协议端依赖，不扩大为公网、真机或整个 A2/A3。首轮选区复制等待失败、产品变异掉线中断和 tmux SSH 失败后的调整及最终复验一并记在 §9.41；本通道切片已完成当前模拟器档验收，选区早期不稳定的根因仍未确定。下文保留各历史切片数量。
-
-状态（2026-10-31）：**A0 已验；A2 原生 surface、Canvas TerminalView、InputConnection 与生命周期首片已交付；文本操作切片已验，整个 A2 未完成**。Gradle `:terminal` 指向本目录；native 子目录由 `:bridge` 的 CMake 统一构建，避免重复 Core。宿主设计见[最终 HTML](../../docs/design/android-prototype.html)，开发与验收见[Android 实现计划](../../docs/reference/android-implementation.md) A0/A2。
+Gradle `:terminal` 指向本目录，JNI 由 `:bridge` 统一构建。当前为 libghostty-vt + Canvas；整个 A2 的物理设备、输入与性能矩阵未完成。完整回归和后续定向范围见[当前状态](../../docs/reference/current-status.md)。
 
 ## 已实现
 
@@ -15,7 +13,7 @@
 - 已接：原生 owner 将 Transport 输出直接送 `native/surface.c` 的 VT，`TerminalView` 从受控网格快照读取；不把输出文本送 Compose。
 - Canvas 已有真 PTY 的 ANSI/宽字符网格和红绿底像素定向证据；`12c88ba` 已接入 VT 选区高亮与手柄。模拟器 debug 持续输出/滚动基线已见 §9.21；仍须补真机/release/长负载证据再固定生产 renderer；需要 GLES 时保持 surface 接缝。
 - `TerminalView` 已实现 InputConnection 与键编码，尺寸同时通知 VT/Transport；组合/删除/提交已有真实 PTY 字节回读；此前结束标记换行导致的夹具超时已修正。初始焦点与基本硬件按键已由生产 Activity 验证；真实 Gboard 拼音基本路径已按 §9.16 验证，完整软硬键盘矩阵仍待补。
-- `setFontSize` 可更新字号并触发网格 resize；当前默认 14sp，主题/字号/行距设置尚未接入。不可见时停画、owner 继续读流，surface 不知道连接类别。
+- `setFontSize` 可更新字号并触发网格 resize；默认 12sp，主题/字号/行距/光标设置已接入（§9.91），内置主题库与字体选择/导入见 §9.197。不可见时停画、owner 继续读流，surface 不知道连接类别。
 - 文本动作由 native owner 串行执行：VT 跟踪选区、formatter 复制原始字符、paste 按当前模式编码。平台 View 接系统剪贴板和浮动工具条，确认使用原始快照；URI 不转换为 shell 文本。正常 EOF 后保留 VT 供浏览/复制，显式关闭释放；不承诺错误退出后仍保留。
 - 本地清屏使用独立 `0002-local-clear.patch`，清当前屏幕/历史/选区/图像，保留模式、解析器与另一屏幕；不向 PTY 写入。JNI 包含同次构建安装的 patched 头，`terminal.h` 和 archive 都进入缓存校验；不修改 Apple full 引擎补丁集。
 
@@ -41,6 +39,12 @@ Kitty 图形及动画已接入同一 Surface：RGB/RGBA、系统 PNG、压缩分
 
 ## Nerd Fonts 符号回退
 
-`TerminalFonts` 内置 Symbols Nerd Font Mono 3.5.1，并使用 API 29 的 `Typeface.CustomFallbackBuilder` 回退到系统 `monospace`。普通文字、中文和 Emoji 保留系统回退；网格宽度和基线继续按系统等宽字体计算，Canvas 的粗体/斜体样式与 VT 单元宽度不变。本地和 SSH 共用同一个 TerminalView，无需在远端安装字体。
+`TerminalFonts` 内置 Symbols Nerd Font Mono 3.5.1，并使用 API 29 的 `Typeface.CustomFallbackBuilder` 回退到系统 `monospace`。普通文字、中文和 Emoji 保留系统回退；网格宽度和基线按当前所选正文等宽字体计算，Canvas 的粗体/斜体样式与 VT 单元宽度不变。本地和 SSH 共用同一个 TerminalView，无需在远端安装字体。
 
 字体为上游未修改的完整符号文件；版本、来源、SHA256 见 `NERD-FONTS.json`，关于页展示字体及图标集许可。真实设备字体覆盖、PTY→VT→Canvas 像素与恢复验证由 `NerdFontTest`、`scripts/mutation-check-android-fonts.py` 执行；具体已验范围见 [Android 实现计划](../../docs/reference/android-implementation.md#android-nerd-fonts)。
+
+## 当前外观与输入扩展
+
+正文可选系统等宽、JetBrains Mono、Source Code Pro 或经验证导入的 TTF/OTF；Nerd 符号独立回退。原有三主题和同源 Ghostty 主题库、字体预算与验证入口见[外观参考](../../docs/reference/android-terminal-appearance.md)。
+
+触屏轻点在鼠标模式下也请求系统 IME，同时由 VT 编码原鼠标操作；长按选字保留。快捷键按系统延迟/间隔连发，松手、取消、失焦或移除即停止。默认隐藏状态栏、横滑辅助键及固定菜单属于宿主 `TerminalScreen`，不在 surface 中识别 tmux（§9.201–§9.204）。

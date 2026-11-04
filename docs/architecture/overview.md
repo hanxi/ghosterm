@@ -117,13 +117,13 @@ Android 文本操作继续沿 TerminalSurface 接缝：带序号的控制请求�
 
 共享认证的主机信任已保留 known_hosts 标记：撤销优先拒绝，读取失败与未支持规则分别报错；Swift 已消费新增撤销状态，Android SSH native owner 与类型化认证桥已按 §9.25 接入，产品 DNS/页面首片见 §9.27。哈希主机名/证书验证未实现，TOFU 写盘错误已阻断认证（§9.23）；§9.37 已改为共享备份与原子替换事务，确认之后在锁内重新核对信任规则；共享连接配置检查已接两端，macOS 在 DNS 前拒绝未支持的配置，Android 首页显示拒绝来源，并在重新检查实际目标后连接；默认工厂、产品页面与多会话已通过完整回归（§9.27）。实现与各端证据见 [Android §9.22](../reference/android-implementation.md#922-a3-共享主机信任前置2026-10-30)，不将共享 API 的进展当成所有原生端已交付。
 
-Android 身份设置已接通列表/详情、OpenSSH 公钥指纹、SAF 导入与确认移除；请求由独立 ViewModel 持有，IO 在后台执行，详情只保留公开信息。身份设置的八项定向和十组变异已有证据；后续主机关联切片完整 160 项设备回归通过，见[§9.35](../reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)。主机身份引用写入同一 SSH 配置保存事务，引用详情从共享来源查询派生；`ghosterm-identity:<UUID>` 是本安装容器标识，不是跨端可用密钥路径。认证只按配置解析候选，其他身份需用户明确选择。主机信任记录管理已按 §9.39 接入；A7 的 16 项偏好尚未完成。
+Android 身份设置已接通列表/详情、OpenSSH 公钥指纹、SAF 导入与确认移除；请求由独立 ViewModel 持有，IO 在后台执行，详情只保留公开信息。身份设置的八项定向和十组变异已有证据；后续主机关联切片完整 160 项设备回归通过，见[§9.35](../reference/android-implementation.md#935-主机身份关联与引用详情2026-10-30)。主机身份引用写入同一 SSH 配置保存事务，引用详情从共享来源查询派生；`ghosterm-identity:<UUID>` 是本安装容器标识，不是跨端可用密钥路径。认证只按配置解析候选，其他身份需用户明确选择。主机信任记录管理已按 §9.39 接入；A7 的五类设置与 16 项原有偏好已由 §9.91 接入，后续主题/字体扩展见 §9.197。
 
-Android 文件控制面已有 `FileBrowserSource` 与 `LocalFileBrowser`：本机 HOME 使用平台文件 API，SAF 保留系统文档 URI，经后台 IO 返回条目/预览。`FilesViewModel` 用代次隔离结果，文件页不持有或关闭终端连接；本地 fd 显式释放、SAF 流取消和旋转后 PID 保持已验（实现计划 §9.43）。§9.51 另已接 `RemoteFileSession`/`files_jni.c` 的专用 SSH/SFTP owner、generation registry 与单请求结果；§9.52 的 `FileBrowserRepository` 汇合本机/SAF 与远端 source，页面经当前配置和共用认证建立独立文件连接；§9.70 的复制任务另建源/目标连接，不借用浏览 owner；跨远端关系与完整 A6 调度仍待补。
+Android 文件控制面已有 `FileBrowserSource` 与 `LocalFileBrowser`：本机 HOME 使用平台文件 API，SAF 保留系统文档 URI，经后台 IO 返回条目/预览。`FilesViewModel` 用代次隔离结果，文件页不持有或关闭终端连接；本地 fd 显式释放、SAF 流取消和旋转后 PID 保持已验（实现计划 §9.43）。§9.51 另已接 `RemoteFileSession`/`files_jni.c` 的专用 SSH/SFTP owner、generation registry 与单请求结果；§9.52 的 `FileBrowserRepository` 汇合本机/SAF 与远端 source，页面经当前配置和共用认证建立独立文件连接；§9.70 的复制任务另建源/目标连接，不借用浏览 owner；跨远端未知关系显式确认已由 §9.110 接入，FIFO 调度已由 §9.72 接入；完整外部端点/设备矩阵仍待补。
 
-SFTP 受控打开与主机依赖前置已按 §9.47 验收：Core controlled opener、Swift 重载和 Android native helper 已存在，默认主机构建/SwiftPM 消费补丁 libssh2。17 项协议、十组接口变异、十一组依赖守卫及既有打包变异通过。macOS 产品仍用无参 `sftp()`，Android owner 已按 §9.51 消费受控接口；页面/repository 已按 §9.52 接线，预览缓存/外部打开待补，详见[主机依赖说明](../reference/host-ssh2-build.md)。
+SFTP 受控打开与主机依赖前置已按 §9.47 验收：Core controlled opener、Swift 重载和 Android native helper 已存在，默认主机构建/SwiftPM 消费补丁 libssh2。17 项协议、十组接口变异、十一组依赖守卫及既有打包变异通过。macOS 产品仍用无参 `sftp()`，Android owner 已按 §9.51 消费受控接口；页面/repository 已按 §9.52 接线，有界预览缓存/外部只读打开已由 §9.92–§9.93 接入，详见[主机依赖说明](../reference/host-ssh2-build.md)。
 
-受控目录浏览（§9.49）已通过协议与变异：Core/Swift 将规范路径、全部条目和目录关闭合成一次结果，要求独占 SSH/SFTP 且不与传输 job 共用。该切片为 83 ABI、Apple 81/2、JNI 40/43；当时 JNI 登记待接，后续 owner 由 §9.51 接入；macOS 产品尚未消费新入口或元数据。任务 ID 在移交 worker 前保存，exec 的局部超时在解锁前恢复；两项不替代预览、会话关闭和文件提交契约。§9.50 新增单预算的 LSTAT/只读 OPEN/FSTAT/READ/CLOSE 预览接口，该切片为 84 ABI、Apple 82/2、JNI 40/44；§9.51 新增 owner-only abort 后为 85 ABI、Apple 83/2、JNI 45/40；返回有界原始字节，Android 平台已接解码、页面代次和只读预览；缓存/外部打开待补，macOS 产品未消费。详见[路线图](../reference/roadmap.md#macos-下一步与共享缺口)。
+受控目录浏览（§9.49）已通过协议与变异：Core/Swift 将规范路径、全部条目和目录关闭合成一次结果，要求独占 SSH/SFTP 且不与传输 job 共用。该切片为 83 ABI、Apple 81/2、JNI 40/43；当时 JNI 登记待接，后续 owner 由 §9.51 接入；macOS 产品尚未消费新入口或元数据。任务 ID 在移交 worker 前保存，exec 的局部超时在解锁前恢复；两项不替代预览、会话关闭和文件提交契约。§9.50 新增单预算的 LSTAT/只读 OPEN/FSTAT/READ/CLOSE 预览接口，该切片为 84 ABI、Apple 82/2、JNI 40/44；§9.51 新增 owner-only abort 后为 85 ABI、Apple 83/2、JNI 45/40；返回有界原始字节，Android 平台已接解码、页面代次和只读预览；有界缓存/外部只读打开已由 §9.92–§9.93 接入，macOS 产品未消费。详见[路线图](../reference/roadmap.md#macos-下一步与共享缺口)。
 
 ### 任务资源与显示状态的边界
 
@@ -131,7 +131,7 @@ Android 当前 `RemoteFileSession.close()` 仅撤销句柄并通知停止；fd �
 
 macOS 当前 `TransferManager.jobs` 同时承担显示列表和字节汇总来源，清除终态子行会影响活动父任务的后续汇总；目录暂停也尚未覆盖后台扫描/创建。任务结果账目、资源生命周期和可清除历史须分别建模，不能把正常路由的 UI 状态当作底层已暂停/释放的证据；实际限制见 [Apple 说明](../../apple/README.md#目录暂停与汇总边界)。
 
-Android §9.69 已在 data 层组合连接、快照和发布操作，在 domain 层保留逐项结果并通过本片验收；§9.70 新增 `FileTasksViewModel` / `FileTasksScreen` 生产消费者与 `SessionsViewModel.fileTaskConnections` 认证适配器。§9.71 由 `GhostermApplication.fileWork` 持有 `FileWorkRuntime`，其 `FileTaskStore` 持有请求；§9.72 接入最多 32 个未结束请求的 FIFO 队列，扫描、确认及取消清理仍共用一个执行名额；关闭 Activity 只解除呈现归属，不取消任务。任务认证独立于普通终端/浏览认证，恢复显示时按 presenter UUID 接管。后台进程仍存活时保留任务，进程死亡不恢复。确认前的预检连接关闭后，执行另建连接并重新认证。复制清单默认保留，结果仅按原清单 ID 有条件清空；完整偏好尚未接。队列和 §9.74 前台服务已验当前模拟器档，真实进度、暂停和重试继续按 [§6.18](../reference/android-implementation.md#618-复制执行器结果与页面接入契约)实施。macOS `DirectoryCompletion` 另有混合取消/跳过依赖回调顺序的问题；两端任务模型及验收各自独立，不能从 Android 数据层验收推定桌面已迁移。
+Android §9.69 已在 data 层组合连接、快照和发布操作，在 domain 层保留逐项结果并通过本片验收；§9.70 新增 `FileTasksViewModel` / `FileTasksScreen` 生产消费者与 `SessionsViewModel.fileTaskConnections` 认证适配器。§9.71 由 `GhostermApplication.fileWork` 持有 `FileWorkRuntime`，其 `FileTaskStore` 持有请求；§9.72 接入最多 32 个未结束请求的 FIFO 队列，扫描、确认及取消清理仍共用一个执行名额；关闭 Activity 只解除呈现归属，不取消任务。任务认证独立于普通终端/浏览认证，恢复显示时按 presenter UUID 接管。后台进程仍存活时保留任务，进程死亡不恢复。确认前的预检连接关闭后，执行另建连接并重新认证。复制清单默认保留，结果仅按原清单 ID 有条件清空；复制清单策略偏好已由 §9.91 接入。队列和 §9.74 前台服务已验当前模拟器档，真实进度已由 §9.77 接入，暂停/安全重试及整体 ETA 已由 §9.98 接入，契约见 [§6.18](../reference/android-implementation.md#618-复制执行器结果与页面接入契约)实施。macOS `DirectoryCompletion` 另有混合取消/跳过依赖回调顺序的问题；两端任务模型及验收各自独立，不能从 Android 数据层验收推定桌面已迁移。
 
 ## 参考实现（技术对照）
 
