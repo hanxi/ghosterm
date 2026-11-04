@@ -27,7 +27,7 @@ def main():
         match=re.search(r'^源码:\s*git ([a-f0-9]+)$',(app/'Contents/Resources/BUILD-INFO.txt').read_text(),re.M)
         assert match,'fixture must have clean build metadata'
         commit=subprocess.check_output(['git','-C',ROOT,'rev-parse',match[1]+'^{commit}'],text=True).strip()
-        zip_name='Ghosterm-test-arm64.zip';fixtures={}
+        zip_name='Ghosterm-macos-arm64-dev.zip';fixtures={}
         for mode in ['good','foreign','signature']:
             fixture=folder/('fixture-'+mode);fixture.mkdir();archive=fixture/zip_name
             if mode=='good':shutil.copy2(a.archive,archive)

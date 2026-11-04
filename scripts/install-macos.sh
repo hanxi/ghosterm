@@ -68,7 +68,7 @@ fetch "$BASE/version.json" "$WORK/version.json" || fail '无法取得发布清�
 [ "$(field channel)" = dev ] || fail '发布渠道不符'
 [ "$(field arch)" = arm64 ] || fail '发布架构不支持'
 ZIP_NAME=$(field assets.zip)
-case "$ZIP_NAME" in Ghosterm-*-arm64.zip) ;; *) fail '发布包名称无效' ;; esac
+case "$ZIP_NAME" in Ghosterm-macos-arm64-dev.zip) ;; *) fail '发布包名称无效' ;; esac
 case "$ZIP_NAME" in *[!A-Za-z0-9._-]*) fail '发布包名称含非法字符' ;; esac
 MIN=$(field min_macos)
 [[ "$MIN" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || fail '最低系统版本无效'
