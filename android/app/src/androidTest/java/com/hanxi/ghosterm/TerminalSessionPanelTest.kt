@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -47,6 +48,11 @@ class TerminalSessionPanelTest {
         model = SessionsViewModel(app, settings = null)
         val hosts = HostsViewModel(app)
         val runtime = RuntimeInfoViewModel()
+        ui.runOnUiThread {
+            ui.activity.enableEdgeToEdge()
+            // Match MainActivity's manifest; adjustPan cannot supply API 29 IME insets.
+            ui.activity.window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        }
         ui.setContent { GhostermApp(hosts, runtime, model) }
         first = newLocal()
         await("initial keyboard must be closed") { !terminalImeShown() }
@@ -121,6 +127,85 @@ class TerminalSessionPanelTest {
         assertTrue(first.connection.state().connected)
     }
 
+    private fun capture(name: String) {
+        val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+        try {
+            val folder = File(instrumentation.targetContext.cacheDir, "session-ime-review").apply { mkdirs() }
+            File(folder, "$name.png").outputStream().use { image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        } finally { image.recycle() }
+    }
+
+    private fun keepImeAndViewport(checkHeight: Boolean = true, block: () -> Unit) {
+        ui.waitForIdle()
+        val height = ui.runOnIdle { terminal().height }
+        val violations = mutableListOf<String>()
+        val observer = android.view.ViewTreeObserver.OnPreDrawListener {
+            val view = find(ui.activity.window.decorView)
+            val visible = view?.let { androidx.core.view.ViewCompat.getRootWindowInsets(it)
+                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) } == true
+            if (!visible || (checkHeight && view?.height != height) || !view.hasWindowFocus())
+                violations += "ime=$visible height=${view?.height}/$height focus=${view?.hasWindowFocus()}"
+            true
+        }
+        ui.runOnIdle { ui.activity.window.decorView.viewTreeObserver.addOnPreDrawListener(observer) }
+        try {
+            block()
+            settleInputFrames()
+            ui.runOnIdle { assertTrue("chooser must retain the IME, window focus and viewport on every frame: $violations", violations.isEmpty()) }
+        } finally {
+            ui.runOnIdle { ui.activity.window.decorView.viewTreeObserver.removeOnPreDrawListener(observer) }
+        }
+    }
+
+    @Test fun openingAndCancellingPanelKeepsImeVisibleOnEveryFrame() {
+        ui.showTerminalKeyboard()
+        settleInputFrames()
+        val original = terminal()
+        capture("keyboard-before")
+        keepImeAndViewport {
+            ui.openTerminalSessions()
+            ui.onNodeWithTag("terminal-session-panel").assertIsDisplayed()
+            settleInputFrames()
+            assertTrue("opening the chooser must leave the actual IME visible", terminalImeShown())
+            val bottom = ui.onNodeWithTag("terminal-session-panel").fetchSemanticsNode().boundsInRoot.bottom
+            val window = ui.runOnIdle { android.graphics.Rect().also { ui.activity.window.decorView.getWindowVisibleDisplayFrame(it) } }
+            assertTrue("chooser must stay above the actual IME", bottom <= window.bottom + 1)
+            capture("keyboard-panel")
+            val lateBack = ui.runOnIdle { checkNotNull(terminal().onBackBeforeIme) }
+            ui.onNodeWithTag("terminal-sessions-dismiss").performClick()
+            ui.onNodeWithTag("terminal-session-panel").assertDoesNotExist()
+            ui.runOnIdle { lateBack() }
+            ui.openTerminalSessions()
+            ui.onNodeWithTag("terminal-sessions-scrim").performTouchInput { click(androidx.compose.ui.geometry.Offset(10f, 5f)) }
+            ui.onNodeWithTag("terminal-session-panel").assertDoesNotExist()
+        }
+        assertSame(original, terminal())
+        assertSame(first, model.active)
+    }
+
+    @Test fun searchingKeepsImeVisibleAndReturnsInputFocusToSameTerminal() {
+        repeat(6) { newLocal() }
+        val active = model.active!!
+        ui.showTerminalKeyboard()
+        settleInputFrames()
+        keepImeAndViewport(checkHeight = false) {
+            ui.openTerminalSessions()
+            ui.onNodeWithTag("terminal-session-search").performClick().performTextInput("本地")
+            settleInputFrames()
+            capture("keyboard-search-many")
+            ui.onNodeWithTag("terminal-sessions-dismiss").performClick()
+            await("dismissing search must return native terminal input focus") { ui.runOnIdle { terminal().hasFocus() } }
+            ui.openTerminalSessions()
+            ui.onNodeWithTag("terminal-session-search").performClick().performTextInput("本地")
+            ui.terminalBack()
+            ui.onNodeWithTag("terminal-session-panel").assertDoesNotExist()
+            await("Back from search must return native terminal input focus") { ui.runOnIdle { terminal().hasFocus() } }
+        }
+        assertSame(active, model.active)
+        ui.terminalBack()
+        await("normal Back after the chooser leaves must hide the actual IME") { !terminalImeShown() }
+    }
+
     @Test fun switchAndDismissRestoreOpenImeAndInputGoesOnlyToSelectedPty() {
         val second = newLocal()
         val originalPid = File(directory, "original-pid")
@@ -134,9 +219,16 @@ class TerminalSessionPanelTest {
                 otherPid.isFile && otherPid.readText().trim().toIntOrNull() != null
         }
         ui.showTerminalKeyboard()
-        ui.openTerminalSessions()
-        select(first.id)
-        ui.awaitTerminalKeyboard()
+        settleInputFrames()
+        // restartInput may update an IME's candidate strip when the owner
+        // changes. It must stay visible; opening/cancelling is geometry-stable.
+        keepImeAndViewport(checkHeight = false) {
+            ui.openTerminalSessions()
+            capture("keyboard-two-sessions")
+            select(first.id)
+            ui.awaitTerminalKeyboard()
+        }
+        capture("keyboard-after-switch")
         val proof = File(directory, "input-proof")
         val connection = ui.runOnIdle { terminal().onCreateInputConnection(android.view.inputmethod.EditorInfo())!! }
         ui.runOnIdle {
@@ -152,6 +244,7 @@ class TerminalSessionPanelTest {
         ui.awaitTerminalKeyboard()
         ui.openTerminalSessions()
         ui.terminalBack()
+        ui.onNodeWithTag("terminal-session-panel").assertDoesNotExist()
         ui.awaitTerminalKeyboard()
         assertSame(first, model.active)
     }

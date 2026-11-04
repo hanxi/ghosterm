@@ -1350,11 +1350,23 @@ class TerminalScreenTest {
         ui.onNodeWithText("Ctrl").performScrollTo().assertIsDisplayed()
         ui.onNodeWithText("Ctrl").performScrollTo().performClick(); ui.onNodeWithText("Ctrl ✓").performScrollTo().performClick()
         val first = terminal()
+        val oldSurface = first.surface
+        ui.runOnIdle { assertTrue(first.performLongClick()) }
+        runBlocking { checkNotNull(oldSurface).select(com.hanxi.ghosterm.terminal.SelectionOperation.ALL) }
+        ui.waitUntil(10_000) { first.currentFrame?.cells?.any { it.flags and 256 != 0 } == true }
+        val staleInput = ui.runOnIdle { first.onCreateInputConnection(EditorInfo()).also { it.setComposingText("SESSION_DRAFT", 1) } }
         ui.openTerminalSessions(); ui.onNodeWithTag("terminal-new-local").performClick()
         ui.waitUntil { sessions.sessions.size == 2 && sessions.active!!.state.connected && viewOrNull()?.currentFrame != null }
-        ui.runOnIdle { assertNotSame("each session needs its own input/selection state", first, terminal()); assertEquals(0, terminal().ctrl) }
+        ui.runOnIdle { assertSame("the served view stays attached while session input state is replaced", first, terminal())
+            assertNotSame(oldSurface, terminal().surface)
+            assertFalse("a stale input context cannot target the newly selected owner", staleInput.commitText("MUST_NOT_LEAK", 1))
+            assertEquals("", terminal().composition)
+            assertFalse("the prior viewport's local selection mode must not cross owners", terminal().dismissSelection())
+            assertEquals(0, terminal().ctrl) }
         ui.openTerminalSessions(); ui.onNodeWithTag("terminal-session-select-$original").performClick()
         ui.waitUntil { sessions.active!!.id == original && viewOrNull()?.currentFrame != null }
+        try { ui.waitUntil(10_000) { terminal().currentFrame!!.cells.none { it.flags and 256 != 0 } } }
+        catch (failure: ComposeTimeoutException) { throw AssertionError("rebinding must clear the previous viewport selection", failure) }
         ui.onNodeWithText("Ctrl").performScrollTo().assertIsDisplayed()
         ui.onNodeWithText("Ctrl").performScrollTo().performClick(); ui.onNodeWithText("Ctrl ✓").performScrollTo().performClick()
         ui.runOnIdle { sessions.active!!.surface.commit("exit 0\r") }

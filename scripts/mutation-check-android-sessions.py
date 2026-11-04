@@ -30,7 +30,8 @@ def main():
     base = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm'
     screen, panel, model, bar = (base / name for name in (
         'TerminalScreen.kt', 'TerminalSessionPanel.kt', 'SessionsViewModel.kt', 'CompactTerminalBar.kt'))
-    originals = {path: path.read_bytes() for path in (screen, panel, model, bar)}
+    view = ROOT / 'terminal/android/src/main/java/com/hanxi/ghosterm/terminal/TerminalView.kt'
+    originals = {path: path.read_bytes() for path in (screen, panel, model, bar, view)}
     if any(MARK.encode() in data for data in originals.values()):
         print('Residual session-switcher mutation', file=sys.stderr)
         raise SystemExit(2)
@@ -41,6 +42,8 @@ def main():
     stopped = prefix + 'closedImeStaysClosedAndStoppedPreviousDoesNotReappear'
     grouping = prefix + 'groupedSearchAndFooterKeepCurrentAndAllCreationActionsVisible'
     close = prefix + 'rowCloseConfirmationKeepsTheCapturedUuidAcrossSelectionChanges'
+    opening = prefix + 'openingAndCancellingPanelKeepsImeVisibleOnEveryFrame'
+    search_focus = prefix + 'searchingKeepsImeVisibleAndReturnsInputFocusToSameTerminal'
     cases = [
         ('entry-route', entry, bar, 'IconButton(onClick = onSessions,', 'IconButton(onClick = {},'),
         ('hidden-aux-entry', 'com.hanxi.ghosterm.TerminalLayoutTest#portraitFocusKeepsMenuFixedAndKeyboardInMenu',
@@ -50,9 +53,9 @@ def main():
         ('previous-selection', previous, model, 'terminalStore.previous = active?.id', 'terminalStore.previous = null'),
         ('stable-numbers', previous, model,
          '(sessions.filter { it.remoteAlias == session.remoteAlias }\n            .maxOfOrNull { it.switcherNumber } ?: 0) + 1', '1'),
-        ('keyboard-restore', keyboard, screen, 'if (restore && keyboardBeforePanel)', 'if (false)'),
+        ('keyboard-restore', search_focus, screen, 'if (restore && keyboardBeforePanel)', 'if (false)'),
         ('keyboard-hidden', stopped, screen, 'if (restore && keyboardBeforePanel)', 'if (restore)'),
-        ('keyboard-snapshot', keyboard, screen,
+        ('keyboard-snapshot', search_focus, screen,
          'keyboardBeforePanel = terminal?.let {\n            androidx.core.view.ViewCompat.getRootWindowInsets(it)\n                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())\n        } ?: imeVisible',
          'keyboardBeforePanel = false'),
         ('stopped-previous', stopped, model, 'it.id != selected && !it.state.terminal', 'it.id != selected'),
@@ -75,18 +78,46 @@ def main():
     ]
     cases += [
         ('adaptive-height', entry, panel, '.heightIn(max = preferredHeight).fillMaxHeight(.92f)', '.fillMaxHeight(.92f)'),
-        ('keyboard-platform-state', keyboard, screen,
+        ('keyboard-platform-state', stopped, screen,
          'keyboardBeforePanel = terminal?.let {\n            androidx.core.view.ViewCompat.getRootWindowInsets(it)\n                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())\n        } ?: imeVisible',
-         'keyboardBeforePanel = imeVisible'),
+         'keyboardBeforePanel = true'),
     ]
-    # This regression specifically needs API 29's stale Compose inset snapshot.
-    # Run it explicitly there; the portable default contains the other 19 groups.
-    selected = args.selected or [case[0] for case in cases if case[0] != 'keyboard-platform-state']
-    if 'keyboard-platform-state' in selected:
+    screen_source = originals[screen].decode()
+    retained = screen_source.replace('                AndroidView(factory', '            key(session.id) {\n                AndroidView(factory')
+    retained = retained.replace('modifier = Modifier.fillMaxSize().testTag("terminal-surface"))\n            if (compact)',
+        'modifier = Modifier.fillMaxSize().testTag("terminal-surface"))\n            }\n            if (compact)')
+    panel_source = originals[panel].decode()
+    separate_window = panel_source.replace('    BoxWithConstraints(Modifier.fillMaxSize().testTag("terminal-session-overlay")',
+        '    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {\n    BoxWithConstraints(Modifier.fillMaxSize().testTag("terminal-session-overlay")')
+    separate_window = separate_window.replace('\n}\n\n@Composable\nprivate fun TerminalSessionRow', '\n    }\n}\n\n@Composable\nprivate fun TerminalSessionRow')
+    cases += [
+        ('panel-open-hide', opening, screen, 'keyboardRequested = null\n        list = true',
+         'keyboardRequested = null\n        terminal?.hideKeyboard()\n        list = true'),
+        ('panel-window-focus', opening, panel, panel_source, separate_window),
+        ('panel-ime-insets', opening, screen, '.union(WindowInsets.ime)', ''),
+        ('panel-compact-scroll', 'com.hanxi.ghosterm.TerminalLayoutTest#largeFontCompactMenuRoutesFilesAndSessionsWithoutReplacingOwner',
+         panel, 'if (compactPanel) item(key = "compact-footer")', 'if (false) item(key = "compact-footer")'),
+        ('view-retained', 'com.hanxi.ghosterm.TerminalScreenTest#ctrlDoesNotCrossPagesSessionsOrNormalExit', screen, screen_source, retained),
+        ('surface-context-cancel', 'com.hanxi.ghosterm.TerminalScreenTest#ctrlDoesNotCrossPagesSessionsOrNormalExit', view,
+         'resetTextActions()\n            connection?.cancel(); connection = null',
+         'resetTextActions()\n            connection = null'),
+        ('panel-direct-focus', search_focus, screen, 'if (restore) terminal?.requestFocus()', 'if (restore) Unit'),
+        ('panel-late-dismiss', opening, screen,
+         'val dismissSessions: (Boolean) -> Unit = { restore ->\n        if (list) {',
+         'val dismissSessions: (Boolean) -> Unit = { restore ->\n        if (true) {'),
+        ('surface-selection-reset', 'com.hanxi.ghosterm.TerminalScreenTest#ctrlDoesNotCrossPagesSessionsOrNormalExit', view,
+         'releaseHeldKeys()\n            resetTextActions()',
+         'releaseHeldKeys()'),
+        ('pre-ime-back', keyboard, view, 'keyCode == KeyEvent.KEYCODE_BACK && handler != null', 'keyCode == KeyEvent.KEYCODE_UNKNOWN && handler != null'),
+        ('search-pre-ime-back', search_focus, panel, 'if (event.key == Key.Back)', 'if (false)'),
+    ]
+    platform_only = {'keyboard-platform-state', 'pre-ime-back', 'search-pre-ime-back'}
+    selected = args.selected or [case[0] for case in cases if case[0] not in platform_only]
+    if platform_only.intersection(selected):
         device = helper.run([*adb, 'shell', 'getprop', 'ro.build.version.sdk'])
         helper.require(device)
         if device.stdout.strip() != '29':
-            raise RuntimeError('keyboard-platform-state requires API 29')
+            raise RuntimeError('Selected legacy platform/Back guards require API 29')
     if len(selected) != len(set(selected)) or set(selected) - {case[0] for case in cases}:
         raise RuntimeError('Unknown or duplicate session mutation')
     cases = [case for case in cases if case[0] in selected]

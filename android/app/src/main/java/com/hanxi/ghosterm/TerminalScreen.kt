@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,7 +30,8 @@ fun TerminalScreen(model: SessionsViewModel,
     openFiles: () -> Unit) {
     val session = model.active ?: return
     val controls = model.terminalControls
-    var terminal by remember(session.id) { mutableStateOf<TerminalView?>(null) }
+    var terminal by remember { mutableStateOf<TerminalView?>(null) }
+    var boundSession by remember { mutableStateOf<java.util.UUID?>(null) }
     var ctrl by remember(session.id) { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
     var statusBarVisible by rememberSaveable { mutableStateOf(false) }
@@ -82,13 +84,18 @@ fun TerminalScreen(model: SessionsViewModel,
                 ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())
         } ?: imeVisible
         keyboardRequested = null
-        terminal?.hideKeyboard()
         list = true
     }
     val dismissSessions: (Boolean) -> Unit = { restore ->
-        list = false
-        if (restore && keyboardBeforePanel) keyboardRequested = model.active?.takeUnless { it.state.terminal }?.id
-        keyboardBeforePanel = false
+        if (list) {
+            // Move focus directly from search to the editor before removing search;
+            // otherwise Compose's temporary focus parking can dismiss the IME.
+            if (restore) terminal?.requestFocus()
+            list = false
+            if (restore && keyboardBeforePanel) keyboardRequested = model.active?.takeUnless { it.state.terminal }?.id
+            else if (restore) { terminal?.hideKeyboard(); terminal?.requestFocus() }
+            keyboardBeforePanel = false
+        }
     }
     val back: () -> Unit = { if (imeVisible) terminal?.hideKeyboard() else if (terminal?.dismissSelection() != true) model.home() }
     BackHandler(onBack = back)
@@ -195,7 +202,7 @@ fun TerminalScreen(model: SessionsViewModel,
             }) else null)
         }
     }
-        Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().then(if (list) Modifier.clearAndSetSemantics { } else Modifier)) {
             (model.error ?: model.backgroundError)?.takeUnless { compact }?.let { message ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
@@ -204,22 +211,31 @@ fun TerminalScreen(model: SessionsViewModel,
             }
             Row(Modifier.fillMaxWidth().weight(1f)) {
             Box(Modifier.weight(1f).fillMaxHeight()) {
-            key(session.id) {
+            // Keep the served Android view attached across session selection.
+            // Surface rebinding cancels the old input context before switching owners.
                 AndroidView(factory = { context -> TerminalView(context).also {
                     it.inputEnabled = !session.state.terminal
                     it.updateStyle(model.terminalStyle)
                     it.applyAuxiliaryPolicy(controls.auxiliaryKeys, controls.lockedCtrl)
                     it.requestKeepAwake(controls.keepAwake)
-                    it.surface = session.surface; it.onError = model::reportError
+                    it.surface = session.surface; boundSession = session.id; it.onError = model::reportError
                     it.onModifiersChanged = { value -> ctrl = value }; terminal = it
                     it.requestFocus()
                 } }, update = { view ->
+                    view.onModifiersChanged = { value -> ctrl = value }
+                    if (boundSession != session.id) {
+                        view.surface = session.surface
+                        boundSession = session.id
+                        view.requestFocus()
+                    }
+                    view.onBackBeforeIme = if (list) ({ dismissSessions(true) }) else null
+                    view.importantForAccessibility = if (list) android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                        else android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
                     view.inputEnabled = !session.state.terminal
                     view.updateStyle(model.terminalStyle)
                     view.applyAuxiliaryPolicy(controls.auxiliaryKeys, controls.lockedCtrl)
                     view.requestKeepAwake(controls.keepAwake)
                 }, modifier = Modifier.fillMaxSize().testTag("terminal-surface"))
-            }
             if (compact) (model.error ?: model.backgroundError ?: recoveryError?.takeUnless { recoveryErrorDismissed })?.let { message ->
                 Surface(color = MaterialTheme.colorScheme.errorContainer) {
                     Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -245,7 +261,7 @@ fun TerminalScreen(model: SessionsViewModel,
     }
     if (list) TerminalSessionPanel(model.sessions.toList(), session.id, model.previousSession, model.creating,
         onSelect = { id -> model.show(id); dismissSessions(true) }, onDismiss = { dismissSessions(true) },
-        onNewLocal = { dismissSessions(false); model.newLocal() },
+        onNewLocal = { dismissSessions(false); terminal?.hideKeyboard(); model.newLocal() },
         onNewSSH = { dismissSessions(false); terminal?.hideKeyboard(); model.selectNewRemote() },
         onClose = { closeTarget = it }, onCleanup = { ids -> dismissSessions(false); cleanupIds = ids })
     cleanupIds?.let { ids ->

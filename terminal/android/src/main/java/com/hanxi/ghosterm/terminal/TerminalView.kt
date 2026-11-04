@@ -56,6 +56,8 @@ class TerminalView(context: Context) : View(context) {
         }
     var onError: (String) -> Unit = {}
     var onModifiersChanged: (Int) -> Unit = {}
+    /** A host overlay may consume Back before the IME; normal terminal Back is unchanged. */
+    var onBackBeforeIme: (() -> Unit)? = null
     /** 0 off, 1 one-shot, 2 locked. */
     var ctrl: Int = 0
         set(value) { field = value; onModifiersChanged(value) }
@@ -251,6 +253,7 @@ class TerminalView(context: Context) : View(context) {
         post { if (isAttachedToWindow && isShown) requestFocus() }
     }
     override fun onDetachedFromWindow() {
+        onBackBeforeIme = null
         cancelAutomaticKeyboard(); keepScreenOn = false
         releaseHeldKeys()
         resetTextActions()
@@ -560,6 +563,14 @@ class TerminalView(context: Context) : View(context) {
         return true
     }
     override fun onCheckIsTextEditor() = true
+    override fun onKeyPreIme(keyCode: Int, event: KeyEvent): Boolean {
+        val handler = onBackBeforeIme
+        if (keyCode == KeyEvent.KEYCODE_BACK && handler != null) {
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) handler()
+            return true
+        }
+        return super.onKeyPreIme(keyCode, event)
+    }
     override fun onCreateInputConnection(info: EditorInfo): InputConnection {
         connection?.cancel()
         info.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS

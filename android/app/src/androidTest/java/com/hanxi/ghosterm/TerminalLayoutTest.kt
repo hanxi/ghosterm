@@ -334,7 +334,10 @@ class TerminalLayoutTest {
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         landscapeWithIme(2f)
         ui.openTerminalSessions()
-        try { ui.onNodeWithTag("terminal-new-local").assertIsDisplayed() }
+        try {
+            ui.onNodeWithTag("terminal-session-list").performScrollToNode(hasTestTag("terminal-new-local"))
+            ui.onNodeWithTag("terminal-new-local").assertIsDisplayed()
+        }
         catch (failure: AssertionError) {
             instrumentation.uiAutomation.takeScreenshot()?.let { image ->
                 File(ui.activity.cacheDir,"layout-sheet-debug.png").outputStream().use { image.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };image.recycle()
@@ -359,6 +362,9 @@ class TerminalLayoutTest {
         ui.onNodeWithTag("terminal-new-local").assertIsDisplayed()
         ui.onNodeWithTag("terminal-new-ssh").assertIsDisplayed()
         ui.onAllNodes(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsActions.Expand)).assertCountEquals(0)
+        val panel = ui.onNodeWithTag("terminal-session-panel").fetchSemanticsNode().boundsInRoot
+        val window = ui.runOnIdle { Rect().also { ui.activity.window.decorView.getWindowVisibleDisplayFrame(it) } }
+        assertTrue("many sessions need the expanded available height", panel.height > window.height() * .75f)
         ui.onNodeWithTag("terminal-sessions-dismiss").performClick()
         assertEquals(ids, model().sessions.map { it.id })
         ui.runOnIdle { model().show(session.id) }

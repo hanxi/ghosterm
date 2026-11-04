@@ -39,7 +39,7 @@ Apple 的 `SessionController`、`SSHAuthenticationFlow`、`FilesPanelModel`、`T
 |---|---|---|
 | 主机 | 顶栏仅设置；底部文件任务、本地终端、添加主机；列表上方本机文件入口 | 搜索名称/地址，单一列表；有活动会话时显示继续入口；任务入口访问进程任务和持久历史（A6） |
 | 终端 | 默认无顶栏/系统状态栏；底部横滑辅助键、固定会话按钮与菜单 | Ctrl 与其余辅助键共同横滑；隐藏辅助键仍保留会话与菜单。菜单包含文件/返回首页/显示键盘/状态栏/清屏/关闭，不重复放切换会话；极矮横屏保留侧置保护 |
-| 会话面板 | 上一会话、按主机分组的列表、已停止折叠区、固定新建入口 | 当前 UUID 高亮；同主机终端稳定编号；超过六个会话可搜索；逐项关闭确认捕获目标 UUID；切换/取消恢复打开前的键盘状态。新建 SSH 进入主机选择，本地创建新 owner；详见 §9.207 |
+| 会话面板 | 上一会话、按主机分组的列表、已停止折叠区、固定新建入口 | 当前 UUID 高亮；同主机终端稳定编号；超过六个会话可搜索；逐项关闭确认捕获目标 UUID；同窗口覆盖层在打开/切换/取消期间保留已显示的键盘；原生输入视图复用且旧输入上下文取消。原来关闭则仍关闭。新建 SSH 进入主机选择，本地创建新 owner；详见 §9.207–§9.208 |
 | 文件 | 返回、选择、页面菜单；远程/本地两个常驻 Tab 与位置入口 | 各端点保留进程内目录；空远程无粘贴目标；单击打开、长按多选；清单跨 Tab 保留，选择中 Tab 禁用 |
 | 设置总览 | 返回；五类设置、查看 SSH 配置、关于、恢复默认 | 分类行显示当前值；详情页返回总览，再回来源页 |
 
@@ -4658,7 +4658,7 @@ Android `RemoteTmuxTest` 新增一个实际 JNI/Core 用例，分别认证到“
 
 逐项关闭确认捕获被操作的会话对象/UUID；确认期间选择其他连接，也只关闭原目标。取消不关闭，关闭其他连接不替换当前 owner。tmux 保留原“仅断开当前客户端”的提示。批量清理仍捕获确认时的已停止 UUID 集合，并在执行前重新检查 native 状态；不删除旧断言或扩大清理范围。
 
-**手工变异范围**：`ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-sessions.py` 的通用默认包含十九组，API 29 的 `--case keyboard-platform-state` 另验实际平台状态与旧 Compose 快照的差异。本轮二十个不同保护分轮通过：入口、隐藏辅助键、菜单去重、上一会话、编号、键盘恢复/关闭策略/捕获、停止项/折叠、分组/搜索/高亮、固定新建入口、逐项选择/关闭目标/取消、新建 SSH，以及短列表高度。主切片为六组＋十二组，高度收口后新增一组并复验多会话底部动作，API 29 专属组另轮通过。每组真实编译后单条正常断言红、同 APK 独立 Core 配置绿、恢复绿与四份生产文件 SHA256；初次未杀死的“关闭键盘”变异未计通过。脚本残留标记拒绝启动（exit 2）和恢复摘要也已实测。
+**手工变异范围**：`ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-sessions.py` 在当时的通用默认包含十九组，API 29 的 `--case keyboard-platform-state` 另验实际平台状态与旧 Compose 快照的差异。本轮二十个不同保护分轮通过：入口、隐藏辅助键、菜单去重、上一会话、编号、键盘恢复/关闭策略/捕获、停止项/折叠、分组/搜索/高亮、固定新建入口、逐项选择/关闭目标/取消、新建 SSH，以及短列表高度。主切片为六组＋十二组，高度收口后新增一组并复验多会话底部动作，API 29 专属组另轮通过。每组真实编译后单条正常断言红、同 APK 独立 Core 配置绿、恢复绿与四份生产文件 SHA256；初次未杀死的“关闭键盘”变异未计通过。脚本残留标记拒绝启动（exit 2）和恢复摘要也已实测。
 
 受影响的既有保护另有八个不同组分轮复验：布局 `portrait-sessions-route / sessions-route / menu-fixed / sheet-expanded / side-controls` 五组、session-management 的 `cleanup-live-guard / keyboard-menu` 两组及 terminal T10 的菜单关闭确认。会话入口、键盘请求与关闭目标的原脚本锚点同步迁移，没有删除保护。短列表高度收紧后，原大字号短窗口未能杀死“允许部分展开”的变异，未记绿；保留原路由断言，新增八个真实 PTY 会话的展开/底部动作检查后才完成该组红/对照绿/恢复绿与 SHA256。
 
@@ -4667,3 +4667,22 @@ Android `RemoteTmuxTest` 新增一个实际 JNI/Core 用例，分别认证到“
 Core 最终离线闸门为 **52 CTest / 95 ABI**；Android Debug/测试 APK、未签名 Release（实际 R8/资源优化）及 app/bridge/data/terminal 四模块 release lint 通过。本片为手工模拟器证据，不增加 macOS CI 的二十份变异覆盖；未发行，不代表物理手机、厂商输入法、16 KiB 页或默认完整客户端验收。逐组日志、失败、原生观察与最终安装/输入收据保存在 `tmp/session-refactor/` 与 `tmp/android-session-mutations/`。
 
 **最终稳定输入组合**：API 29 / arm64 / 4 KiB 页七类会话/终端布局/页面/控制/生命周期/连发/快照组合 **85 项通过，350.576 秒**；API 36 / arm64 / 4 KiB 页同一组合加八项真实 OpenSSH 产品路径为 **93 项通过，551.349 秒**。具名开始/成功结束唯一集合与声明数量一致，零失败/错误/跳过；API 29 的集合是 API 36 的子集，没有把分轮结果相加冒充一次默认全量。680 份指定 Android/终端/Core/脚本非 Markdown 输入前后 SHA256 不变。两设备实际安装的主/测试 APK 均与构建产物逐字摘要一致，分别为 `0aea63e7d5eed4acaca7ec55175532b06bb30dfd46c842e39a5cf757933682a3` / `4f5ee9314dc5aa16d8ff99b1a744e1998afee36f7c616f91af5355f48363bd98`；本地构建保留 dirty 来源，不冒充云端或正式签名发行。机读收据为 `tmp/session-refactor/receipt.json`，输入前后映射为 `inputs-final-{before,after}.json`，稳定源码的构建/lint 与 Core 记录为同目录 `build-final.log` / `gate-final.log`。
+
+
+### 9.208 Android 会话切换期间保持输入法（2026-11-05）
+
+用户反馈 §9.207 每次打开会话面板都会收起输入法。旧实现主动 `hideKeyboard()`，并以独立 Dialog 窗口的 `ModalBottomSheet` 接管焦点；旧断言只验关闭面板后恢复，不能证明打开期间连续可见。本片改用同一窗口的底部覆盖层，遵循宿主 IME 边距，不主动抢输入焦点。普通窗口固定标题/搜索和底部新建动作；大字号、短窗口与横屏将整个面板放入同一个滚动列表，保持所有动作可达。
+
+切换时复用原生 `TerminalView`，按 UUID 重绑 Surface；旧输入连接、组合草稿、修饰键、按住的键及本地选区操作状态在原有 setter 中取消/释放，避免旧 View 移除让 API 29 收起 IME。旧 Surface 原生选区仍由现有尺寸同步清除。测试保留不同 owner、Ctrl 隔离和真实 PTY 输入落点断言，并补同一 View、旧 InputConnection 失效及旧本地选区状态清除。字节流、Transport、C ABI 与各 owner 生命周期不变。
+
+关闭搜索先直接把焦点交还终端，再移除搜索框；若延后，API 36 的 Compose 临时焦点停放会收起 IME。迟到/重复关闭回调以面板状态防重。API 29 由原生 `onKeyPreIme` 及 Compose 搜索前置按键处理面板返回，API 33+ 在面板存在期间登记 overlay 优先级返回回调，退出即移除。关闭按钮、遮罩和返回保留原终端键盘策略；面板消失后普通返回仍正常收起键盘。原来未打开键盘的终端不会因搜索而改变关闭后的策略；新建仍走各自页面/owner 的键盘策略。
+
+新测试逐绘制帧观察实际窗口 IME、窗口焦点；打开/取消还检查终端高度不变及面板位于实际 IME 边界以上。切换 owner 或搜索会触发输入连接更新，输入法候选栏可改变高度，这两条只要求 IME 连续可见，不声称候选栏像素尺寸固定。夹具启用与 MainActivity 一致的 edge-to-edge 和 `adjustResize`。七会话搜索截图来自七个真实本地 shell，不将显示夹具别名冒充真实远端。
+
+**分轮手工变异**：本片选跑十四个不同保护：原有 `keyboard-restore / keyboard-snapshot / keyboard-platform-state` 三组迁移到连续可见/搜索焦点/关闭策略；新增 `panel-open-hide / panel-window-focus / panel-ime-insets / panel-compact-scroll / view-retained / surface-context-cancel / panel-direct-focus / panel-late-dismiss / surface-selection-reset / pre-ime-back / search-pre-ime-back` 十一组。API 36 十组、API 29 后续分轮执行；每个计入组均真实编译后单条正常断言红、同 APK 独立 Core 配置绿、恢复绿及五份生产源码 SHA256。脚本现登记三十一组，通用默认二十八组，三个 API 29 专属组选跑；本片未声称整份默认变异全部重跑。既有布局 `sheet-expanded` 判据迁移为真实面板高度，保留固定新建动作断言。
+
+**未通过探针**：最初返回键仍由 IME 先消费、API 29 的 adjustPan 夹具缺少边距、逐会话 View 移除、候选栏高度过严、API 36 搜索移除前未交还焦点均先出现真实失败，修正后才重验。直接跳过 native selection-clear 的探针受现有 resize 清除覆盖，未杀死、不计绿；撤回冗余生产代码并改验旧本地选区模式 reset。首个返回键变异破坏 Kotlin nullable smart cast，编译失败不计红；改为错误 keycode 后重跑。证据保留在 `tmp/session-ime/` 与 `tmp/android-session-mutations/`。
+
+受影响的既有保护另复验四组：布局 `sheet-expanded / side-controls` 与 session-management 的 `cleanup-live-guard / keyboard-menu`；正常断言红、同 APK 配置绿、恢复绿及 SHA256 均通过。最终构建包含 Debug/测试 APK、未签名 Release（实际 R8/资源优化）与 app/bridge/data/terminal 四模块 release lint；Core 离线闸门 **52 CTest / 95 ABI** 通过。实际测试截图保存在 [`android-session-ime/index.html`](../design/android-session-ime/index.html)，PNG 为 UiAutomation 原始截图。
+
+**最终稳定输入组合**：API 29 / arm64 / 4 KiB 页为七类会话/布局/页面/控制/生命周期/连发/快照 **87 项通过，328.083 秒**；API 36 同一组合加八项真实 OpenSSH 产品路径为 **95 项通过，486.786 秒**。逐项开始/成功结束集合与声明数量一致，零失败/错误/跳过；API 29 集合为 API 36 子集。680 份指定非 Markdown 输入前后摘要一致，两设备安装的主/测试 APK 分别与构建产物一致：`21e3e299bb2b14db8834c5b9c6b23c0a4788052d71ab263c358402312ceb5aba` / `94d7e72145a7628592fa661c1f7e60fbcc3fadf3debc4d77b5affe66fac3b13c`。本地构建保留 dirty 来源，未冒充正式签名或云端发行。机读收据为 `tmp/session-ime/receipt.json`，输入摘要为 `inputs-final-{before,after}.json`；最终构建、Core 与设备日志均在同目录。截图来源和逐字摘要另记 `screenshots.json`，四张 PNG 原样入库。本片为手工模拟器证据，不增加 macOS CI 二十份；未发行，非物理手机、厂商输入法、预测返回手势矩阵、16 KiB 页或完整客户端验收。

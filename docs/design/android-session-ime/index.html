@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ghosterm Android 会话切换：实际测试截图</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5f8;color:#263144;font:16px/1.65 system-ui,sans-serif}main{max-width:1320px;margin:auto;padding:32px 24px}h1{font-size:26px;margin:0 0 12px}p{max-width:900px}section{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:24px;margin-top:28px}figure{margin:0;background:white;border:1px solid #dbe1ea;border-radius:20px;padding:16px}figcaption{font-weight:650;margin-bottom:12px}img{display:block;width:100%;height:auto;border-radius:12px}small{display:block;font-weight:400;color:#57667b}a{color:#355d99}
+</style><main><h1>会话切换期间保持键盘</h1>
+<p>2026-11-05 · Android 原生设备测试截图。会话面板与终端处在同一窗口；打开、取消、切换时保留已经显示的系统输入法。七会话搜索使用七个真实本地 shell。</p>
+<p>API 29：87 项；API 36：95 项（含 8 项真实 SSH 产品路径）。本页为 arm64 / 4 KiB 页模拟器证据。</p>
+<section>
+<figure><figcaption>打开面板，键盘仍在<small>API 36 · 当前会话高亮，新建入口位于键盘上方</small></figcaption><a href="api36-panel.png"><img src="api36-panel.png" alt="打开会话面板时系统键盘仍显示"></a></figure>
+<figure><figcaption>切换后继续输入<small>API 36 · 实际输入另以两个 shell 的 PID 核对</small></figcaption><a href="api36-after-switch.png"><img src="api36-after-switch.png" alt="切换本地会话后系统键盘保持显示"></a></figure>
+<figure><figcaption>七会话搜索<small>API 36 · 搜索焦点与终端焦点直接交接</small></figcaption><a href="api36-search.png"><img src="api36-search.png" alt="七个真实会话的搜索面板与系统键盘"></a></figure>
+<figure><figcaption>旧版 Android 交叉验证<small>API 29 · 同窗口面板与系统键盘</small></figcaption><a href="api29-panel.png"><img src="api29-panel.png" alt="API 29 会话面板与输入法同屏"></a></figure>
+</section><p><a href="../android-session-panel.html">查看原布局原型</a> · <a href="../../reference/android-implementation.md">实现与验证范围（§9.208）</a></p></main></html>
