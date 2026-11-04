@@ -255,7 +255,8 @@ class TerminalScreenTest {
         ui.waitUntil(10_000) { sessions.active?.id != old.id && sessions.active?.state?.connected == true }
         val live = sessions.active!!
         ui.openTerminalSessions()
-        ui.onNodeWithTag("terminal-clean-stopped").assertTextEquals("清理已停止会话（1）").performClick()
+        ui.onNodeWithTag("terminal-session-list").performScrollToNode(hasTestTag("terminal-clean-stopped"))
+        ui.onNodeWithTag("terminal-clean-stopped").assertTextEquals("清理").performClick()
         ui.onNodeWithText("保留").performClick()
         ui.runOnIdle { assertTrue(sessions.sessions.any { it === old }) }
         ui.onNodeWithTag("terminal-menu").performClick()
@@ -364,7 +365,7 @@ class TerminalScreenTest {
         send("stty -echo; printf '\\033[41m\\033[2J\\033[HPIXEL_READY'\r")
         waitFor("PIXEL_READY")
         ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(0)
-        ui.onNodeWithText("新建本地会话").assertDoesNotExist()
+        ui.onNodeWithTag("terminal-new-local").assertDoesNotExist()
         var red = 0; var count = 0
         ui.runOnIdle {
             val view = terminal()
@@ -804,7 +805,7 @@ class TerminalScreenTest {
         ui.onNodeWithText("取消").performClick()
         assertEquals(original, sessions.active!!.id)
         ui.openTerminalSessions()
-        ui.onNodeWithText("新建本地会话").performClick()
+        ui.onNodeWithTag("terminal-new-local").performClick()
         ui.waitUntil(10_000) { !sessions.creating && sessions.sessions.size == 2 && sessions.active?.id != original && sessions.active?.state?.connected == true }
         assertNotEquals(original, sessions.active!!.id)
         ui.onNodeWithTag("terminal-menu").performClick()
@@ -1349,10 +1350,10 @@ class TerminalScreenTest {
         ui.onNodeWithText("Ctrl").performScrollTo().assertIsDisplayed()
         ui.onNodeWithText("Ctrl").performScrollTo().performClick(); ui.onNodeWithText("Ctrl ✓").performScrollTo().performClick()
         val first = terminal()
-        ui.openTerminalSessions(); ui.onNodeWithText("新建本地会话").performClick()
+        ui.openTerminalSessions(); ui.onNodeWithTag("terminal-new-local").performClick()
         ui.waitUntil { sessions.sessions.size == 2 && sessions.active!!.state.connected && viewOrNull()?.currentFrame != null }
         ui.runOnIdle { assertNotSame("each session needs its own input/selection state", first, terminal()); assertEquals(0, terminal().ctrl) }
-        ui.openTerminalSessions(); ui.onNodeWithText("本地终端 1").performClick()
+        ui.openTerminalSessions(); ui.onNodeWithTag("terminal-session-select-$original").performClick()
         ui.waitUntil { sessions.active!!.id == original && viewOrNull()?.currentFrame != null }
         ui.onNodeWithText("Ctrl").performScrollTo().assertIsDisplayed()
         ui.onNodeWithText("Ctrl").performScrollTo().performClick(); ui.onNodeWithText("Ctrl ✓").performScrollTo().performClick()

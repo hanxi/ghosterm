@@ -161,6 +161,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 **Android 文件连接复用与连接提示（§9.202）**：导航保留浏览器独立 SFTP owner，输入/目标匹配且 native ready 时复用；显式断开和 FilesViewModel 清理仍关闭，晚到认证仍受页面代次隔离。被动认证/打开改为同一页内进度，交互认证和错误保留弹窗。API 36 的初始 84 项组合有一条新增测试步骤失败，不记整轮绿；修正后 11 项及后续 9 项定向通过。`ANDROID_FILES_PRODUCT_MUTATIONS=reconnect-error,leave,stale-handoff,retain-navigation,reuse-terminal,clear-lifetime,progress-dialog` 七组同轮目标正常断言红、同 APK 配置绿、恢复绿及 SHA256；关闭保护迁到显式关闭/模型清理，另护导航不得关闭。Core 51/95、Debug/测试 APK、未签名 Release/R8 和四模块 lint 通过。手工模拟器证据，不增加 CI 20 份；未发行，非长时换网/真实设备/完整客户端验收。
 
+**Android 会话入口与分组面板（§9.207）**：辅助键行固定会话按钮，隐藏辅助键仍保留入口，菜单去重；按主机分组、稳定编号、当前 UUID 高亮、进程内上一会话、停止项折叠/搜索及固定新建动作已接。少量会话收紧高度，大字号纵排；关闭确认捕获目标 UUID，切换/取消恢复此前实际 IME 状态。`mutation-check-android-sessions.py` 的二十个不同组为分轮手工证据（通用默认十九组，API 29 专属 `--case keyboard-platform-state` 另跑），另有布局五组、session-management 两组及 terminal T10 复验：正常单条断言红、同 APK Core 配置绿、恢复绿与 SHA256。未杀死的旧短窗口展开/纯墙钟负向键盘判据、测试重复构造/编译与 PID 字段误用、API 29 旧 Compose 快照及文件往返 IME 同步失败均保留且未计绿。最终 API 29 / 36 同源组合各 85 / 93 项，680 份指定输入及安装 APK 摘要一致；Core 52/95、Debug/测试 APK、未签名 Release/R8 与四模块 lint 通过。手工模拟器 / 4 KiB 页证据，不增加 macOS CI 二十份；未发行，非真机/厂商输入法/完整客户端验收。
+
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
 `ghosterm.h` 是**单一事实来源**。新增/删除/改签名后必须：

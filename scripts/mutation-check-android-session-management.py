@@ -45,7 +45,7 @@ def execute(root, build, test):
         ('wheel-route', screen + 'fingerSwipeRoutesWheelToTheSameMouseSurface',
          lambda: replace(view, 'if (selecting || !inputEnabled) surface?.scroll(lines)', 'if (true) surface?.scroll(lines)')),
         ('keyboard-menu', screen + 'menuShowsKeyboardInMouseModeWithoutSendingTerminalInput',
-         lambda: replace(app / 'TerminalScreen.kt', 'menu = false; keyboardRequested = true', 'menu = false; keyboardRequested = false')),
+         lambda: replace(app / 'TerminalScreen.kt', 'menu = false; keyboardRequested = session.id', 'menu = false; keyboardRequested = null')),
     ]
     selected = os.environ.get('ANDROID_SESSION_MANAGEMENT_CASES', '').split(',')
     if selected != ['']:

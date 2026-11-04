@@ -195,7 +195,7 @@ class SSHProductTest {
     @Test fun explicitNewConnectionAndHostChoiceDoNotReplaceLocalOrRemoteOwners() {
         open(); val first = login()
         ui.openTerminalSessions()
-        ui.onNodeWithText("新建 SSH 会话").performClick()
+        ui.onNodeWithTag("terminal-new-ssh").performClick()
         ui.onNodeWithText(alias).performClick()
         val second = login(trust = false)
         assertNotEquals(first,second); assertEquals(2,sessions().sessions.size)

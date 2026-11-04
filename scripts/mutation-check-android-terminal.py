@@ -56,7 +56,7 @@ def main():
         (view, 'fill.color = if (cell.flags and 256 != 0) Color.rgb(68, 91, 125) else cell.background', 'fill.color = Color.BLACK', ui + 'rendersRealAnsiPixelsWithoutPersistentKeyboardControl'),
         (model, 'fun home() { visible = false }',
          'fun home() { active?.let { close(it.id) }; visible = false }', ui + 'returningHomePreservesShellAndViewUsesActualSize'),
-        (screen, 'menu = false; confirmClose = true',
+        (screen, 'menu = false; closeTarget = session',
          'menu = false; model.close(session.id)', ui + 'closeRequiresConfirmationAndSessionPanelCreatesIndependentSession'),
         (native, 'session *s = registry[slot].generation == generation ? registry[slot].value : NULL;\n    if (s) s->refs++;',
          'session *s = registry[slot].value; (void)generation;\n    if (s) s->refs++;', generation),

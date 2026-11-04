@@ -16,8 +16,7 @@ internal fun ComposeContentTestRule.openTerminalFiles() {
 }
 
 internal fun ComposeContentTestRule.openTerminalSessions() {
-    onNodeWithTag("terminal-menu").performClick()
-    onNodeWithTag("terminal-menu-sessions").performScrollTo().performClick()
+    onNodeWithTag("terminal-sessions").performClick()
 }
 
 /** Exercise the visible fallback, including popup dismissal and window focus. */

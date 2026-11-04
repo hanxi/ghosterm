@@ -34,11 +34,12 @@ fun TerminalScreen(model: SessionsViewModel,
     var menu by remember { mutableStateOf(false) }
     var statusBarVisible by rememberSaveable { mutableStateOf(false) }
     TerminalSystemBars(statusBarVisible)
-    var keyboardRequested by remember(session.id) { mutableStateOf(false) }
+    var keyboardRequested by remember { mutableStateOf<java.util.UUID?>(null) }
+    var keyboardBeforePanel by rememberSaveable { mutableStateOf(false) }
     var recoveryErrorDismissed by remember(session.id, recoveryError) { mutableStateOf(false) }
     var list by remember { mutableStateOf(false) }
     var confirmClear by remember(session.id) { mutableStateOf(false) }
-    var confirmClose by remember(session.id) { mutableStateOf(false) }
+    var closeTarget by remember { mutableStateOf<TerminalSession?>(null) }
     var cleanupIds by remember { mutableStateOf<List<java.util.UUID>?>(null) }
     val stopped = model.sessions.filter { it.state.terminal }
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
@@ -55,17 +56,39 @@ fun TerminalScreen(model: SessionsViewModel,
             if (onRecover != null) onRecover(session) else model.restartLocal(session.id)
         }
     }
-    LaunchedEffect(keyboardRequested, terminal) {
+    LaunchedEffect(keyboardRequested, terminal, session.id, list, closeTarget) {
         val target = terminal
-        if (keyboardRequested && target != null) {
+        if (keyboardRequested == session.id && target != null && !list && closeTarget == null && !session.state.terminal) {
             // Wait for popup dismissal and any pending window focus handoff.
             withFrameNanos { }
             withTimeoutOrNull(1_000) {
-                while (!target.hasWindowFocus()) delay(25)
-                if (target.isAttachedToWindow && target.isShown) target.showKeyboard()
+                while (!target.isAttachedToWindow || !target.hasWindowFocus()) delay(25)
+                if (target.isShown) {
+                    target.requestFocus()
+                    // A new AndroidView has window focus before API 29 has
+                    // handed its input connection to the IME. Let focus settle.
+                    withFrameNanos { }
+                    target.showKeyboard()
+                }
             }
-            keyboardRequested = false
+            keyboardRequested = null
         }
+    }
+    val openSessions: () -> Unit = {
+        // API 29 can report a visible platform IME before Compose's inset
+        // snapshot catches up. Capture the actual window state at the click.
+        keyboardBeforePanel = terminal?.let {
+            androidx.core.view.ViewCompat.getRootWindowInsets(it)
+                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())
+        } ?: imeVisible
+        keyboardRequested = null
+        terminal?.hideKeyboard()
+        list = true
+    }
+    val dismissSessions: (Boolean) -> Unit = { restore ->
+        list = false
+        if (restore && keyboardBeforePanel) keyboardRequested = model.active?.takeUnless { it.state.terminal }?.id
+        keyboardBeforePanel = false
     }
     val back: () -> Unit = { if (imeVisible) terminal?.hideKeyboard() else if (terminal?.dismissSelection() != true) model.home() }
     BackHandler(onBack = back)
@@ -124,20 +147,17 @@ fun TerminalScreen(model: SessionsViewModel,
                 onClick = { menu = false; recover() }, modifier = Modifier.testTag("terminal-menu-recover"))
             DropdownMenuItem(text = { Text("显示键盘") }, enabled = !session.state.terminal,
                 leadingIcon = { GhostermIcon(UiIcon.Keyboard) },
-                onClick = { menu = false; keyboardRequested = true },
+                onClick = { menu = false; keyboardRequested = session.id },
                 modifier = Modifier.testTag("terminal-menu-keyboard"))
             DropdownMenuItem(text = { Text("文件") }, onClick = { menu = false; terminal?.hideKeyboard(); openFiles() }, modifier = Modifier.testTag("terminal-menu-files"))
             DropdownMenuItem(text = { Text(if (statusBarVisible) "隐藏系统状态栏" else "显示系统状态栏") },
                 onClick = { menu = false; statusBarVisible = !statusBarVisible }, modifier = Modifier.testTag("terminal-menu-status-bar"))
-            DropdownMenuItem(text = { Text("切换会话（${model.sessions.size}）") },
-                onClick = { menu = false; terminal?.hideKeyboard(); list = true }, modifier = Modifier.testTag("terminal-menu-sessions")
-                    .semantics { contentDescription = "切换会话，当前 ${session.title}，${model.sessions.size} 个会话" })
             DropdownMenuItem(text = { Text("返回主机列表") },
                 onClick = { menu = false; terminal?.hideKeyboard(); model.home() }, modifier = Modifier.testTag("terminal-menu-home"))
             DropdownMenuItem(text = { Text("清除本地显示") }, onClick = { menu = false; confirmClear = true })
             if (stopped.isNotEmpty()) DropdownMenuItem(text = { Text("清理已停止会话（${stopped.size}）") },
                 onClick = { menu = false; cleanupIds = stopped.map { it.id } }, modifier = Modifier.testTag("terminal-clean-stopped"))
-            DropdownMenuItem(text = { Text("关闭会话") }, onClick = { menu = false; confirmClose = true })
+            DropdownMenuItem(text = { Text("关闭会话") }, onClick = { menu = false; closeTarget = session })
         }
     }
     val inputBar: @Composable () -> Unit = {
@@ -157,7 +177,7 @@ fun TerminalScreen(model: SessionsViewModel,
                     Button(onClick = recover, enabled = recoveryEnabled, modifier = Modifier.testTag("terminal-recover")) {
                         Text(if (recoveryBusy || model.creating) "正在准备…" else recoveryLabel)
                     }
-                    TextButton(onClick = { confirmClose = true }) { Text("移除旧会话") }
+                    TextButton(onClick = { closeTarget = session }) { Text("移除旧会话") }
                 }
             }
         }
@@ -165,6 +185,8 @@ fun TerminalScreen(model: SessionsViewModel,
             onCtrl = { terminal?.toggleCtrl() },
             onKey = { terminal?.sendKey(it) }, onText = { terminal?.commitText(it) },
             onMenu = { menu = true }, menu = actions,
+            sessionCount = model.sessions.size,
+            sessionTitle = listOfNotNull(session.remoteAlias, session.switcherTitle).joinToString(" · "), onSessions = openSessions,
             recoveryAction = if (session.state.terminal && compact) ({
                 TextButton(onClick = recover, enabled = recoveryEnabled, modifier = Modifier.testTag("terminal-recover")
                     .semantics { contentDescription = session.state.description + "，" + recoveryLabel }) {
@@ -221,21 +243,11 @@ fun TerminalScreen(model: SessionsViewModel,
             if (controls.autoKeyboard) terminal?.requestAutomaticKeyboard()
         }
     }
-    if (list) ModalBottomSheet(dragHandle={ GhostermSheetHandle() },onDismissRequest = { list = false },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
-            Text("会话", style = MaterialTheme.typography.titleLarge)
-            if (stopped.isNotEmpty()) TextButton(onClick = { list = false; cleanupIds = stopped.map { it.id } },
-                modifier = Modifier.testTag("terminal-clean-stopped")) { Text("清理已停止会话（${stopped.size}）") }
-            model.sessions.forEach { item ->
-                TextButton(onClick = { model.show(item.id); list = false }, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth()) { Text(item.title); Text(item.state.description, style = MaterialTheme.typography.bodySmall) }
-                }
-            }
-            OutlinedButton(onClick = { list = false; model.selectNewRemote() }, modifier = Modifier.fillMaxWidth()) { Text("新建 SSH 会话") }
-            Button(onClick = { list = false; model.newLocal() }, enabled = !model.creating, modifier = Modifier.fillMaxWidth()) { Text("新建本地会话") }
-        }
-    }
+    if (list) TerminalSessionPanel(model.sessions.toList(), session.id, model.previousSession, model.creating,
+        onSelect = { id -> model.show(id); dismissSessions(true) }, onDismiss = { dismissSessions(true) },
+        onNewLocal = { dismissSessions(false); model.newLocal() },
+        onNewSSH = { dismissSessions(false); terminal?.hideKeyboard(); model.selectNewRemote() },
+        onClose = { closeTarget = it }, onCleanup = { ids -> dismissSessions(false); cleanupIds = ids })
     cleanupIds?.let { ids ->
         AlertDialog(onDismissRequest = { cleanupIds = null }, title = { Text("清理 ${ids.size} 个已停止会话？") },
             text = { Text("这些会话的终端画面和滚动历史将被移除。已连接的终端与远端 tmux 任务不受影响。") },
@@ -247,9 +259,13 @@ fun TerminalScreen(model: SessionsViewModel,
         text = { Text("清除此终端当前屏幕及其滚动历史。不会发送命令或中断正在运行的程序。") },
         confirmButton = { TextButton(onClick = { confirmClear = false; terminal?.clearLocal() }) { Text("清除") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("取消") } })
-    if (confirmClose) AlertDialog(onDismissRequest = { confirmClose = false }, title = { Text("关闭 ${session.title}？") },
-        text = { Text(if (session.state.terminal) "将移除此会话的终端画面。" else if(session.backgroundSession!=null) "仅断开当前 tmux 客户端。任务保留遵循远端 tmux 与系统策略；再次连接时请刷新后台会话列表。" else "将断开此终端，正在运行的程序可能终止。返回主机列表可保留连接。") },
-        confirmButton = { TextButton(onClick = { confirmClose = false; model.close(session.id) }) { Text("关闭会话") } },
-        dismissButton = { TextButton(onClick = { confirmClose = false }) { Text("取消") } })
+    closeTarget?.let { target ->
+        AlertDialog(onDismissRequest = { closeTarget = null },
+            title = { Text("关闭 ${listOfNotNull(target.remoteAlias, target.switcherTitle).joinToString(" · ")}？") },
+            text = { Text(if (target.state.terminal) "将移除此会话的终端画面。" else if(target.backgroundSession!=null) "仅断开当前 tmux 客户端。任务保留遵循远端 tmux 与系统策略；再次连接时请刷新后台会话列表。" else "将断开此终端，正在运行的程序可能终止。返回主机列表可保留连接。") },
+            confirmButton = { TextButton(onClick = { closeTarget = null; model.close(target.id) },
+                modifier = Modifier.testTag("terminal-close-confirm")) { Text("关闭会话") } },
+            dismissButton = { TextButton(onClick = { closeTarget = null }) { Text("取消") } })
+    }
     }
 }

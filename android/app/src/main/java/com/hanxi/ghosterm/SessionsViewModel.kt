@@ -35,6 +35,12 @@ class TerminalSession(val id: UUID, val title: String, internal val connection: 
     var state by mutableStateOf(SessionState(0, null, 0, null)); internal set
     internal var appliedAppearance: TerminalAppearance? = null
     internal var keyboardOffered = false
+    internal var switcherNumber = 1
+    internal val switcherTitle: String get() = when {
+        remoteAlias == null -> title
+        backgroundSession != null -> "$backgroundSession · 终端 $switcherNumber"
+        else -> "终端 $switcherNumber"
+    }
 }
 
 /** Activity ViewModel lifetime survives rotation; navigating never closes a session. */
@@ -107,6 +113,9 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         // one immutable SnapshotStateList view instead of its live iterator.
         return sessions.toList().firstOrNull { it.id == id }
     }
+    internal val previousSession: TerminalSession? get() = sessions.toList().firstOrNull {
+        it.id == terminalStore.previous && it.id != selected && !it.state.terminal
+    }
     private val background get() = if (processTerminals) (getApplication<Application>() as GhostermApplication).terminalBackground else null
     val backgroundState get() = background?.state
     val backgroundError get() = background?.error
@@ -178,11 +187,16 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
             finally { created?.close(); creating = false }
         }
     }
-    fun show(id: UUID) { if (sessions.any { it.id == id }) { selected = id; visible = true; error = null; choosingRemote = null } }
+    fun show(id: UUID) { if (sessions.any { it.id == id }) {
+        if (selected != id) terminalStore.previous = active?.id
+        selected = id; visible = true; error = null; choosingRemote = null
+    } }
     fun home() { visible = false }
     fun reportError(message: String) { error = message }
     fun dismissError() { error = null }
     private fun register(session: TerminalSession) {
+        session.switcherNumber = (sessions.filter { it.remoteAlias == session.remoteAlias }
+            .maxOfOrNull { it.switcherNumber } ?: 0) + 1
         sessions.add(session)
         surfaceTargets.value = sessions.toList()
     }
@@ -190,6 +204,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         val session = sessions.firstOrNull { it.id == id } ?: return
         session.connection.close(); sessions.remove(session)
         surfaceTargets.value = sessions.toList()
+        if (terminalStore.previous == id) terminalStore.previous = null
         if (selected == id) selected = (sessions.lastOrNull { !it.state.terminal } ?: sessions.lastOrNull())?.id
         if (sessions.isEmpty()) visible = false
     }

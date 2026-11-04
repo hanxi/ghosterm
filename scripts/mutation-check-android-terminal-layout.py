@@ -5,7 +5,8 @@ MARK='GT_ANDROID_TERMINAL_LAYOUT_MUTATION'
 def execute(root,build,test):
     base=root/'android/app/src/main/java/com/hanxi/ghosterm'
     screen=base/'TerminalScreen.kt';bar=base/'CompactTerminalBar.kt';system=base/'TerminalSystemBars.kt'
-    originals={p:p.read_bytes() for p in (screen,bar,system)}
+    panel=base/'TerminalSessionPanel.kt'
+    originals={p:p.read_bytes() for p in (screen,bar,system,panel)}
     if any(MARK.encode() in b for b in originals.values()):raise RuntimeError('Residual terminal layout mutation')
     default='landscapeImeKeepsRealPixelsControlsAndSamePty'
     routing='largeFontCompactMenuRoutesFilesAndSessionsWithoutReplacingOwner'
@@ -29,7 +30,7 @@ def execute(root,build,test):
     cases=[
         ('portrait-row-height',portrait,replacement(bar,'.height(48.dp).background(MaterialTheme.colorScheme.surface)','.height(96.dp).background(MaterialTheme.colorScheme.surface)')),
         ('portrait-files-route',portrait,replacement(screen,'menu = false; terminal?.hideKeyboard(); openFiles()','menu = false; terminal?.hideKeyboard(); Unit')),
-        ('portrait-sessions-route',portrait,replacement(screen,'menu = false; terminal?.hideKeyboard(); list = true','menu = false; terminal?.hideKeyboard(); Unit')),
+        ('portrait-sessions-route',portrait,replacement(bar,'IconButton(onClick = onSessions,','IconButton(onClick = {},')),
         ('keyboard-focus',portrait,replacement(screen,'target.showKeyboard()','Unit')),
         ('legacy-chrome',portrait,replacement(screen,'Column(Modifier.fillMaxSize()) {','Column(Modifier.fillMaxSize()) { Spacer(Modifier.height(60.dp))')),
         ('status-default',status,replacement(screen,'var statusBarVisible by rememberSaveable { mutableStateOf(false) }','var statusBarVisible by rememberSaveable { mutableStateOf(true) }')),
@@ -43,11 +44,11 @@ def execute(root,build,test):
         ('ime-insets',default,replacement(screen,'.union(WindowInsets.ime)','')),
         ('bar-height',default,replacement(bar,'.height(48.dp).background(MaterialTheme.colorScheme.surface)','.height(24.dp).background(MaterialTheme.colorScheme.surface)')),
         ('back-route',default,replacement(screen,'BackHandler(onBack = back)','BackHandler(onBack = {})')),
-        ('keyboard-route',default,replacement(screen,'menu = false; keyboardRequested = true','menu = false; keyboardRequested = false')),
+        ('keyboard-route',default,replacement(screen,'menu = false; keyboardRequested = session.id','menu = false; keyboardRequested = null')),
         ('files-route',routing,replacement(screen,'menu = false; terminal?.hideKeyboard(); openFiles()','menu = false; terminal?.hideKeyboard(); Unit')),
-        ('sessions-route',routing,replacement(screen,'menu = false; terminal?.hideKeyboard(); list = true','menu = false; terminal?.hideKeyboard(); Unit')),
+        ('sessions-route',routing,replacement(bar,'IconButton(onClick = onSessions,','IconButton(onClick = {},')),
         ('menu-fixed',portrait,scroll_menu),
-        ('sheet-expanded',routing,replacement(screen,'rememberModalBottomSheetState(skipPartiallyExpanded = true)','rememberModalBottomSheetState(skipPartiallyExpanded = false)')),
+        ('sheet-expanded','manySessionsOpenExpandedWithFixedCreationActions',replacement(panel,'rememberModalBottomSheetState(skipPartiallyExpanded = true)','rememberModalBottomSheetState(skipPartiallyExpanded = false)')),
         ('side-controls',routing,replacement(screen,'val sideControls = compact && maxWidth >= 480.dp &&','val sideControls = false &&')),
         ('auxiliary-policy',short,replacement(bar,'if (policy.auxiliaryKeys)','if (true)')),
         ('extended-policy',short,replacement(bar,'if (policy.extendedKeys)','if (false)')),

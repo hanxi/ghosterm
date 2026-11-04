@@ -138,7 +138,7 @@ class TerminalLayoutTest {
             assertSame(session.surface,view().surface)
             assertEquals(session.id,model().active!!.id)
         }
-        for(tag in listOf("terminal-menu")) {
+        for(tag in listOf("terminal-menu", "terminal-sessions")) {
             val bounds=ui.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
             assertTrue("$tag touch height",bounds.height>=47)
             assertTrue("$tag above IME",bounds.bottom<=window.bottom+1)
@@ -251,7 +251,7 @@ class TerminalLayoutTest {
         val bar=ui.onNodeWithTag("terminal-input-bar").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val scale=ui.activity.resources.displayMetrics.density
         assertEquals("input chrome occupies one row",48f*scale,bar.height,scale)
-        for(tag in listOf("terminal-sessions","terminal-files")) {
+        for(tag in listOf("terminal-files")) {
             ui.onNodeWithTag(tag).assertDoesNotExist()
         }
         val top=ui.runOnIdle { IntArray(2).also { view().getLocationOnScreen(it) }[1] }
@@ -259,9 +259,11 @@ class TerminalLayoutTest {
             .getInsets(WindowInsetsCompat.Type.captionBar()).top }
         assertEquals("terminal uses the hidden status band below any window caption",cutout,top)
         val menu=ui.onNodeWithTag("terminal-menu").fetchSemanticsNode().touchBoundsInRoot
+        val switcher=ui.onNodeWithTag("terminal-sessions").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
         ui.onNodeWithText("Ctrl").assertIsDisplayed()
         ui.onNodeWithText("PgDn").performScrollTo().assertIsDisplayed()
         assertEquals("menu stays pinned",menu,ui.onNodeWithTag("terminal-menu").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot)
+        assertEquals("session entry stays pinned",switcher,ui.onNodeWithTag("terminal-sessions").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot)
         ui.onNodeWithText("Ctrl").assertIsNotDisplayed()
         ui.showTerminalKeyboard()
         await("Menu action must show the actual IME") {
@@ -274,11 +276,12 @@ class TerminalLayoutTest {
         ui.onAllNodesWithTag("terminal-auxiliary-keys").assertCountEquals(0)
         ui.onNodeWithTag("terminal-input-bar").assertIsDisplayed()
         ui.onNodeWithTag("terminal-menu").assertIsDisplayed()
+        ui.onNodeWithTag("terminal-sessions").assertIsDisplayed()
         ui.showTerminalKeyboard()
         ui.terminalBack()
         await("Hidden auxiliary keys still allow system keyboard dismissal") { !imeShown() }
         ui.openTerminalSessions()
-        ui.onNodeWithText("新建本地会话").assertIsDisplayed()
+        ui.onNodeWithTag("terminal-new-local").assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
         ui.openTerminalFiles()
         ui.onNodeWithTag("file-location").assertIsDisplayed()
@@ -325,10 +328,13 @@ class TerminalLayoutTest {
         visibleControlsAndPixels()
         ui.onNodeWithTag("terminal-menu").performClick();ui.onNodeWithTag("terminal-menu-files").performScrollTo().performClick()
         ui.onNodeWithTag("file-location").assertExists()
+        // The explicit hide on file navigation completes asynchronously. Do not
+        // let a stale "shown" flag suppress the next keyboard request.
+        await("file navigation must finish closing its previous IME") { !imeShown() }
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         landscapeWithIme(2f)
-        ui.onNodeWithTag("terminal-menu").performClick();ui.onNodeWithTag("terminal-menu-sessions").performScrollTo().performClick()
-        try { ui.onNodeWithText("新建本地会话").performScrollTo().assertIsDisplayed() }
+        ui.openTerminalSessions()
+        try { ui.onNodeWithTag("terminal-new-local").assertIsDisplayed() }
         catch (failure: AssertionError) {
             instrumentation.uiAutomation.takeScreenshot()?.let { image ->
                 File(ui.activity.cacheDir,"layout-sheet-debug.png").outputStream().use { image.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };image.recycle()
@@ -336,6 +342,26 @@ class TerminalLayoutTest {
             throw failure
         }
         androidx.test.espresso.Espresso.pressBack()
+        sameShell()
+    }
+
+    @Test fun manySessionsOpenExpandedWithFixedCreationActions() {
+        repeat(7) {
+            val previous = model().active!!.id
+            ui.runOnIdle { model().newLocal() }
+            await("another real session must connect") { ui.runOnIdle {
+                model().active?.let { it.id != previous && it.state.connected } == true
+            } }
+        }
+        val ids = model().sessions.map { it.id }
+        ui.openTerminalSessions()
+        ui.onNodeWithTag("terminal-session-search").assertIsDisplayed()
+        ui.onNodeWithTag("terminal-new-local").assertIsDisplayed()
+        ui.onNodeWithTag("terminal-new-ssh").assertIsDisplayed()
+        ui.onAllNodes(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsActions.Expand)).assertCountEquals(0)
+        ui.onNodeWithTag("terminal-sessions-dismiss").performClick()
+        assertEquals(ids, model().sessions.map { it.id })
+        ui.runOnIdle { model().show(session.id) }
         sameShell()
     }
 

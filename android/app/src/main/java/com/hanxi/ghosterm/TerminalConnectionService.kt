@@ -14,6 +14,7 @@ import java.util.UUID
 internal class TerminalSessionStore {
     val sessions = mutableStateListOf<TerminalSession>()
     var selected by mutableStateOf<UUID?>(null)
+    var previous by mutableStateOf<UUID?>(null)
     var sequence = 0
 }
 

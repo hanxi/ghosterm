@@ -16,14 +16,17 @@ import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-/** One scrollable key row, with an always reachable menu outside the scroll area. */
+/** One scrollable key row, with fixed session and menu controls outside it. */
 @Composable
 internal fun CompactTerminalBar(
     policy: TerminalControls, connected: Boolean, ctrl: Int,
     onCtrl: () -> Unit, onKey: (Int) -> Unit, onText: (String) -> Unit,
     onMenu: () -> Unit, menu: @Composable () -> Unit,
+    sessionCount: Int, sessionTitle: String, onSessions: () -> Unit,
     recoveryAction: (@Composable () -> Unit)? = null,
 ) {
     Row(Modifier.fillMaxWidth().height(48.dp).background(MaterialTheme.colorScheme.surface)
@@ -56,6 +59,11 @@ internal fun CompactTerminalBar(
                 }
             }
         } else Spacer(Modifier.weight(1f))
+        IconButton(onClick = onSessions, modifier = Modifier.size(48.dp).testTag("terminal-sessions")
+            .semantics { contentDescription = "切换会话，当前 $sessionTitle，$sessionCount 个会话" }) {
+            BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary) { Text(sessionCount.toString()) } }) { GhostermIcon(UiIcon.Copy) }
+        }
         Box {
             IconButton(onClick = onMenu, modifier = Modifier.size(48.dp).testTag("terminal-menu")) {
                 GhostermIcon(UiIcon.More,"更多")
