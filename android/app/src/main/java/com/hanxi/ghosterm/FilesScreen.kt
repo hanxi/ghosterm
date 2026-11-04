@@ -153,6 +153,15 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
                 Text(if(model.selecting) "点按选择" else "点按打开 · 长按多选",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
             }
+            if(!model.remoteScope && !model.selecting) Column(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {
+                OutlinedButton(onClick=pickFolder,enabled=!model.pickerPending,
+                    modifier=Modifier.fillMaxWidth().testTag("file-add-device-folder")) {
+                    GhostermIcon(UiIcon.Folder);Spacer(Modifier.width(8.dp));Text("选择设备文件夹")
+                }
+                if(model.location.endpoint==FileEndpoint.APP) Text(
+                    "当前为应用目录。选择设备文件夹后，可浏览手机或 SD 卡中获授权的文件。",
+                    style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if(remoteError!=null && !model.choosingLocation)
                 Text(remoteError,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(horizontal=16.dp).testTag("file-connect-error"))
             model.externalCacheError?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("file-preview-cache-error")) }
@@ -286,6 +295,8 @@ fun FilesScreen(model: FilesViewModel, pickFolder: () -> Unit, remoteHosts: List
             if(remoteHosts.isNotEmpty()) Text("远端主机",style=MaterialTheme.typography.titleMedium)
             remoteHosts.forEach { alias -> TextButton(onClick={ connectRemote(alias) },modifier=Modifier.fillMaxWidth().testTag("file-connect:$alias")) { Text("连接 $alias") } }
             OutlinedButton(onClick=pickFolder,enabled=!model.pickerPending,modifier=Modifier.fillMaxWidth()) { Text("选择设备文件夹") }
+            Text("通过系统选择器授权文件夹，授权后可在此切换。Android 11 及以上不允许选择存储根目录、Download 根目录和 Android/data、Android/obb；可选择允许的子文件夹。",
+                style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     if(model.externalClearConfirm) AlertDialog(onDismissRequest=model::dismissExternalClear,

@@ -107,6 +107,8 @@ ANDROID_SERIAL=emulator-5554 python3 scripts/mutation-check-android-saf-publicat
 
 ## 本机与 SAF 文件验证
 
+本机文件列表提供「选择设备文件夹」按钮，可直接打开系统选择器，授权后浏览手机或 SD 卡上的文件夹；已授权位置可从路径按钮或「选择位置」切换。应用目录仍为本地终端 HOME。Android 11 及以上的系统选择器不允许授权存储根目录、Download 根目录及 Android/data、Android/obb；可选择允许的子文件夹，不提供整盘访问权限。
+
 ```bash
 ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-files.py
 ```
