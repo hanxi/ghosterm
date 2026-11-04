@@ -1,0 +1,20 @@
+[
+  {
+    "file": "macos-workspace.png",
+    "source": "docs/design/tab-chrome-native/desktop-top-normal.png",
+    "sha256": "af33f18f330f821895d3d187dd7d68a03517a8e484dcaa043ae870ef02366a55",
+    "description": "macOS 原生视图测试截图，2026-10-29；隔离 PTY，历史界面"
+  },
+  {
+    "file": "android-hosts.png",
+    "source": "tmp/android-design/screens-final-36/light-hosts.png",
+    "sha256": "cc807a610ffae072875f3dd4dfbf69efe2ecc7e99ee0b45e5df7716eeac2342e",
+    "description": "AndroidVisualReviewTest，API 36，原生主机页；example.com/TEST-NET 为测试主机"
+  },
+  {
+    "file": "android-files.png",
+    "source": "tmp/android-design/screens-final-36/light-files-remote.png",
+    "sha256": "096764e2e6f0fb11bbfe874d1f0eb716ee5236ef58cc4996f5816195775cef54",
+    "description": "AndroidVisualReviewTest，API 36，隔离真实 SFTP 夹具；历史文件页"
+  }
+]
