@@ -145,7 +145,13 @@ class FilesViewModel @JvmOverloads constructor(application: Application,
     private var rootsJob: Job? = null
     private var generation = 0L
     private var rootsGeneration = 0L
-    fun enter() { externalCache.sweepLater();remoteScope=location.endpoint.remoteAlias!=null;visible=true; choosingLocation=false; refreshEndpoints(); reload() }
+    fun enter() { enterForConnection();reload() }
+    /** A terminal entry chooses its retained connection before issuing one read. */
+    fun enterForConnection() {
+        externalCache.sweepLater();remoteScope=location.endpoint.remoteAlias!=null
+        visible=true;choosingLocation=false;refreshEndpoints()
+        cancelRead();preview=null;entries=emptyList();error=null;clearSelection()
+    }
     fun enterLocal() {
         lastLocalEndpointId=FileEndpoint.APP.id
         remembered[location.endpoint.id]=crumbs.toList()

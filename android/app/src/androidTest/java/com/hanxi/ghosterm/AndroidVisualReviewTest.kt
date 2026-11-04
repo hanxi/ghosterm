@@ -170,10 +170,10 @@ class AndroidVisualReviewTest {
         ui.showTerminalKeyboard()
         ui.waitUntil(10000) { terminalImeShown() }
         capture("terminal-keyboard")
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.waitUntil(10000) { !terminalImeShown() }
-        ui.onNodeWithTag("terminal-sessions").performClick();capture("sessions")
-        androidx.test.espresso.Espresso.pressBack();ui.onNodeWithTag("terminal-back").performClick();capture("hosts-resume")
+        ui.openTerminalSessions();capture("sessions")
+        androidx.test.espresso.Espresso.pressBack();ui.terminalBack();capture("hosts-resume")
         captureRemoteAndSecurity()
         captureActualCopy()
         captureLargeFontAndLandscape()

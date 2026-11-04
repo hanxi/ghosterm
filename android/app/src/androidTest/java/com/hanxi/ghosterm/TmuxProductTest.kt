@@ -126,14 +126,14 @@ class TmuxProductTest {
         }
         ui.onNodeWithTag("terminal-menu").performClick(); ui.onNodeWithText("关闭会话").performClick(); ui.onNodeWithText("关闭会话").performClick()
         ui.waitUntil(10000) { sessions().active === old }
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.waitUntil(10000) { !sessions().visible }
         ui.onNodeWithTag("tmux-page").performScrollToNode(hasText("刷新列表")); ui.onNodeWithText("刷新列表").performClick()
         ui.waitUntil(15000) { !model().busy && model().entries.any { it.name == name } }
         end(name)
     }
 
-    @Test fun tappingRealTmuxStatusSwitchesWindowsWithoutOpeningTheKeyboard() {
+    @Test fun tappingRealTmuxStatusSwitchesWindowsAndOpensTheKeyboard() {
         open()
         val name = "mouse-" + UUID.randomUUID().toString().take(8)
         create(name)
@@ -163,11 +163,10 @@ class TmuxProductTest {
         androidx.test.espresso.Espresso.onView(androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(TerminalView::class.java))
             .perform(androidx.test.espresso.action.GeneralClickAction(androidx.test.espresso.action.Tap.SINGLE, coordinates, androidx.test.espresso.action.Press.FINGER))
         ui.waitUntil(10000) { terminal(ui.activity.window.decorView)?.currentFrame?.line(0)?.contains("TWO_BODY") == true }
+        ui.awaitTerminalKeyboard()
         ui.runOnIdle {
             assertSame(owner, sessions().active!!.connection)
             assertTrue(sessions().active!!.state.connected)
-            assertFalse(androidx.core.view.ViewCompat.getRootWindowInsets(terminal(ui.activity.window.decorView)!!)!!
-                .isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()))
         }
         ui.onNodeWithTag("terminal-menu").performClick(); ui.onNodeWithText("关闭会话").performClick(); ui.onNodeWithText("关闭会话").performClick()
         ui.waitUntil(10000) { !sessions().visible }

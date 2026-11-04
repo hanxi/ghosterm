@@ -54,7 +54,7 @@ class FileClipboardLifecycleTest {
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.onNodeWithText("本地终端").performClick()
         ui.waitUntil(10000) { sessions().active?.state?.connected==true }
         val terminal=sessions().active!!
-        ui.onNodeWithTag("terminal-files").performClick();ui.waitUntil { !files().loading }
+        ui.openTerminalFiles();ui.waitUntil { !files().loading }
         assertSame(snapshot,files().clipboard);assertSame(terminal,sessions().active)
         ui.onNodeWithTag("file-clipboard").assertIsDisplayed()
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();assertSame(terminal,sessions().active)

@@ -60,6 +60,13 @@ def execute(root, build, test):
          ssh+'orderlyRemoteEofIsNotReportedAsAReadFailure'),
     ]
     cases += [
+        ('finger-history', view,
+         'if (selecting || !inputEnabled) surface?.scroll(lines) else surface?.wheel(lines, x, y, modifiers)',
+         'if (selecting || !inputEnabled) surface?.scroll(lines) else Unit',
+         ui+'fingerSwipeMovesOrdinaryShellHistoryWithoutOpeningKeyboard'),
+        ('tmux-touch-keyboard', view, 'if (touchTyping) performClick()',
+         'if (false && touchTyping) performClick()',
+         'com.hanxi.ghosterm.TmuxProductTest#tappingRealTmuxStatusSwitchesWindowsAndOpensTheKeyboard'),
         ('key-repeat', controls, 'repeated = true\n                        action()',
          'repeated = true\n                        Unit',
          'com.hanxi.ghosterm.TerminalKeyRepeatTest#holdingRepeatsAndReleaseAddsNoKeyAndStops'),

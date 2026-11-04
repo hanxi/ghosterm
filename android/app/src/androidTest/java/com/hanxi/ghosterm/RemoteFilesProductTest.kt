@@ -143,7 +143,7 @@ class RemoteFilesProductTest {
         config.writeText(config.readText().replace("HostName 127.0.0.1","HostName 192.0.2.123"))
         ui.runOnIdle { hosts().reload() }
         ui.waitUntil(10000) { !hosts().busy && hosts().snapshot?.text==config.readText() }
-        ui.onNodeWithTag("terminal-files").performClick()
+        ui.openTerminalFiles()
         try { ui.waitUntil(15000) { sessions().connecting==null && files().location.endpoint.remoteAlias==alias && !files().loading } }
         catch(failure:ComposeTimeoutException) { fail("Remote terminal file entry must open its own host: ${sessions().connecting?.message} / ${files().error}") }
         assertNull("Remote terminal file entry must list the remote directory",files().error)
@@ -155,7 +155,7 @@ class RemoteFilesProductTest {
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         val retained=files().location.endpoint
         ui.onNodeWithTag("files-return-terminal").performClick()
-        ui.onNodeWithTag("terminal-files").performClick()
+        ui.openTerminalFiles()
         ui.waitUntil(10000) { !files().loading }
         assertEquals("Returning reuses the same file owner",retained,files().location.endpoint)
         assertNull(sessions().connecting);assertEquals(1,owners())
@@ -167,7 +167,7 @@ class RemoteFilesProductTest {
             assertFalse("A different port must not reuse this owner",files().reuseRemote(terminal.remoteTarget!!.copy(port=1)))
         }
         ui.onNodeWithTag("files-return-terminal").performClick()
-        ui.onNodeWithTag("terminal-back").performClick();ui.onNodeWithText("本机文件").performClick()
+        ui.terminalBack();ui.onNodeWithText("本机文件").performClick()
         ui.waitUntil { !files().loading };assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)
     }
 

@@ -104,7 +104,7 @@ class TerminalAppearanceProductTest {
         val session=ui.runOnIdle { sessions().active!! }
         val connection=session.connection;val surface=session.surface
         val pid=connection.state().child;assertTrue(pid>0)
-        ui.onNodeWithTag("terminal-back").performClick();appearance()
+        ui.terminalBack();appearance()
         ui.onNodeWithTag("settings-row-fontFamily").performScrollTo().performClick()
         await("Font catalog did not load") { !fonts().busy && fonts().choices.size>=3 }
         capture("font-library")

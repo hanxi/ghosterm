@@ -114,7 +114,7 @@ class SSHProductTest {
         val session = sessions().active!!
         val trust = known.readBytes()
         val identityIds = vault.list().map { it.id }
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.onNodeWithTag("host-menu:" + alias).performClick()
         ui.onNodeWithTag("host-delete:" + alias).performScrollTo().performClick()
         ui.onNodeWithTag("host-delete-confirm").performClick()
@@ -161,7 +161,7 @@ class SSHProductTest {
             val frame = terminal().currentFrame
             fail("remote PID after recreation, expected $pid: " + frame?.let { (0 until it.rows).joinToString(" / ",transform = it::line) })
         }
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.onNodeWithText(alias).performClick()
         ui.runOnIdle { assertEquals(id,sessions().active!!.id); assertEquals(1,sessions().sessions.size) }
     }
@@ -188,17 +188,17 @@ class SSHProductTest {
     }
     @Test fun explicitNewConnectionAndHostChoiceDoNotReplaceLocalOrRemoteOwners() {
         open(); val first = login()
-        ui.onNodeWithTag("terminal-sessions").performClick()
+        ui.openTerminalSessions()
         ui.onNodeWithText("新建 SSH 会话").performClick()
         ui.onNodeWithText(alias).performClick()
         val second = login(trust = false)
         assertNotEquals(first,second); assertEquals(2,sessions().sessions.size)
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.onNodeWithText(alias).performClick()
         ui.onNodeWithText("选择 $alias 的会话").assertIsDisplayed()
         ui.onNodeWithTag("ssh-session-$first").performClick()
         ui.runOnIdle { assertEquals(first,sessions().active!!.id); assertEquals(2,sessions().sessions.size) }
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.onNodeWithText("本地终端").performClick()
         ui.waitUntil(10000) { sessions().active?.remoteAlias == null && sessions().active?.state?.connected == true }
         assertEquals(3,sessions().sessions.size)

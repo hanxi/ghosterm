@@ -10,6 +10,8 @@ import android.view.ViewGroup
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.data.PreferenceUpdate
@@ -114,7 +116,7 @@ class TerminalLayoutTest {
             ui.runOnIdle { Rect().also { ui.activity.window.decorView.getWindowVisibleDisplayFrame(it) }.height() < 200 }
         }
         await("Compose compact controls must reflect the actual IME insets") {
-            ui.onAllNodesWithTag("terminal-compact-bar").fetchSemanticsNodes()
+            ui.onAllNodesWithTag("terminal-input-bar").fetchSemanticsNodes()
                 .singleOrNull()?.boundsInRoot?.height?.let { it >= 47f } == true
         }
     }
@@ -122,6 +124,9 @@ class TerminalLayoutTest {
     private fun visibleControlsAndPixels() {
         ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(0)
         ui.onAllNodesWithTag("terminal-menu").assertCountEquals(1)
+        val bar = ui.onNodeWithTag("terminal-input-bar").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val density = ui.activity.resources.displayMetrics.density
+        assertEquals("landscape controls must still occupy exactly one 48dp row",48f*density,bar.height,density)
         lateinit var window: Rect
         lateinit var terminal: Rect
         ui.runOnIdle {
@@ -133,7 +138,7 @@ class TerminalLayoutTest {
             assertSame(session.surface,view().surface)
             assertEquals(session.id,model().active!!.id)
         }
-        for(tag in listOf("terminal-back","terminal-menu")) {
+        for(tag in listOf("terminal-menu")) {
             val bounds=ui.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
             assertTrue("$tag touch height",bounds.height>=47)
             assertTrue("$tag above IME",bounds.bottom<=window.bottom+1)
@@ -156,7 +161,43 @@ class TerminalLayoutTest {
         assertSame(session.surface,model().active!!.surface)
     }
 
-    @Test fun portraitInputRowKeepsNavigationAtTopAndKeyboardInMenu() {
+    @Test fun statusBarToggleAndLeavingTerminalRestoreSystemChromeWithoutReplacingPty() {
+        fun statusShown(): Boolean {
+            // Before API 30 compat visibility is inferred from stable insets,
+            // which retain 24dp even when the actual system bar is hidden.
+            if (android.os.Build.VERSION.SDK_INT < 30) return Regex(
+                "BarController.StatusBar\\s+mState=WINDOW_STATE_SHOWING").containsMatchIn(shell("dumpsys window displays"))
+            return ui.runOnIdle { ViewCompat.getRootWindowInsets(ui.activity.window.decorView)
+                ?.isVisible(WindowInsetsCompat.Type.statusBars()) == true }
+        }
+        await("terminal must hide the actual system status bar") { !statusShown() }
+        ui.onNodeWithTag("terminal-menu").performClick()
+        ui.onNodeWithTag("terminal-menu-status-bar").performScrollTo().assertTextEquals("显示系统状态栏").performClick()
+        await("menu must restore the actual status bar") { statusShown() }
+        await("shown status bar and camera cutout must not obscure the terminal") { ui.runOnIdle {
+            val safeTop=ViewCompat.getRootWindowInsets(ui.activity.window.decorView)!!.getInsets(
+                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()).top
+            IntArray(2).also { view().getLocationOnScreen(it) }[1] == safeTop
+        } }
+        sameShell()
+        ui.activityRule.scenario.recreate()
+        await("visible status bar preference survives recreation") { statusShown() && find(ui.activity.window.decorView)?.currentFrame!=null }
+        ui.onNodeWithTag("terminal-menu").performClick()
+        ui.onNodeWithTag("terminal-menu-status-bar").performScrollTo().assertTextEquals("隐藏系统状态栏").performClick()
+        await("menu must hide the actual status bar") { !statusShown() }
+        ui.openTerminalFiles()
+        ui.onNodeWithTag("file-location").assertIsDisplayed()
+        await("file page must regain the actual system status bar") { statusShown() }
+        ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
+        await("returning terminal hides status bar") { !statusShown() }
+        sameShell()
+        ui.onNodeWithTag("terminal-menu").performClick()
+        ui.onNodeWithTag("terminal-menu-home").performScrollTo().performClick()
+        await("home must regain the actual system status bar") { statusShown() }
+        assertSame(session,model().active)
+    }
+
+    @Test fun portraitFocusKeepsMenuFixedAndKeyboardInMenu() {
         val settings=(ui.activity.application as GhostermApplication).settings
         previousKeys=settings.state.value.committed.keySet
         previousAux=settings.state.value.committed.auxKeys
@@ -166,31 +207,37 @@ class TerminalLayoutTest {
         ui.onAllNodesWithTag("terminal-menu").assertCountEquals(1)
         val bar=ui.onNodeWithTag("terminal-input-bar").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val scale=ui.activity.resources.displayMetrics.density
-        assertEquals("input chrome occupies one row",52f*scale,bar.height,scale)
+        assertEquals("input chrome occupies one row",48f*scale,bar.height,scale)
         for(tag in listOf("terminal-sessions","terminal-files")) {
-            val bounds=ui.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-            assertTrue("navigation is above terminal input",bounds.bottom<bar.top)
+            ui.onNodeWithTag(tag).assertDoesNotExist()
         }
-        val ctrl=ui.onNodeWithText("Ctrl").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
+        val top=ui.runOnIdle { IntArray(2).also { view().getLocationOnScreen(it) }[1] }
+        val cutout=ui.runOnIdle { ViewCompat.getRootWindowInsets(ui.activity.window.decorView)!!
+            .getInsets(WindowInsetsCompat.Type.displayCutout()).top }
+        assertEquals("terminal starts at the camera-safe top without app chrome",cutout,top)
+        val menu=ui.onNodeWithTag("terminal-menu").fetchSemanticsNode().touchBoundsInRoot
+        ui.onNodeWithText("Ctrl").assertIsDisplayed()
         ui.onNodeWithText("PgDn").performScrollTo().assertIsDisplayed()
-        assertEquals("Ctrl stays pinned",ctrl,ui.onNodeWithText("Ctrl").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot)
+        assertEquals("menu stays pinned",menu,ui.onNodeWithTag("terminal-menu").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot)
+        ui.onNodeWithText("Ctrl").assertIsNotDisplayed()
         ui.showTerminalKeyboard()
         await("Menu action must show the actual IME") {
             imeShown() && terminalImeShown()
         }
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         await("Back must close actual IME") { !imeShown() }
         assertTrue(runBlocking { settings.save(UUID.randomUUID(),listOf(PreferenceEdit.AuxKeys(false))) } is PreferenceUpdate.Saved)
         ui.onNodeWithTag("terminal-keyboard").assertDoesNotExist()
         ui.onAllNodesWithTag("terminal-auxiliary-keys").assertCountEquals(0)
-        ui.onNodeWithTag("terminal-input-bar").assertDoesNotExist()
+        ui.onNodeWithTag("terminal-input-bar").assertIsDisplayed()
+        ui.onNodeWithTag("terminal-menu").assertIsDisplayed()
         ui.showTerminalKeyboard()
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         await("Hidden auxiliary keys still allow system keyboard dismissal") { !imeShown() }
-        ui.onNodeWithTag("terminal-sessions").performClick()
+        ui.openTerminalSessions()
         ui.onNodeWithText("新建本地会话").assertIsDisplayed()
         androidx.test.espresso.Espresso.pressBack()
-        ui.onNodeWithTag("terminal-files").performClick()
+        ui.openTerminalFiles()
         ui.onNodeWithTag("file-location").assertIsDisplayed()
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         sameShell()
@@ -198,22 +245,25 @@ class TerminalLayoutTest {
 
     @Test fun landscapeImeKeepsRealPixelsControlsAndSamePty() {
         landscapeWithIme(1f);visibleControlsAndPixels();sameShell()
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         await("Compact back must hide the IME before leaving the session") { !imeShown() }
         await("Navigation must be visible after keyboard removal settles") {
-            try { ui.onNodeWithTag("terminal-files").assertIsDisplayed(); true } catch (_: AssertionError) { false }
+            try { ui.onNodeWithTag("terminal-menu").assertIsDisplayed(); true } catch (_: AssertionError) { false }
         }
         sameShell()
         landscapeWithIme(1f);visibleControlsAndPixels()
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         await("Back must actually hide the IME") { !imeShown() }
         await("Navigation must settle after the keyboard action") {
-            try { ui.onNodeWithTag("terminal-files").assertIsDisplayed(); true } catch (_: AssertionError) { false }
+            try { ui.onNodeWithTag("terminal-menu").assertIsDisplayed(); true } catch (_: AssertionError) { false }
         }
         ui.showTerminalKeyboard()
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         await("Back must hide IME again") { !imeShown() }
         sameShell()
+        ui.terminalBack()
+        ui.onNodeWithText("继续本地终端").assertIsDisplayed()
+        assertSame("system back must retain the live PTY",session,model().active)
     }
 
     @Test fun largeFontCompactMenuRoutesFilesAndSessionsWithoutReplacingOwner() {
@@ -246,20 +296,20 @@ class TerminalLayoutTest {
         sameShell()
     }
 
-    @Test fun shortWindowKeepsCtrlPinnedAndActionsAboveTheWindowEdge() {
+    @Test fun shortWindowScrollsAllKeysAndKeepsMenuAboveTheWindowEdge() {
         val settings=(ui.activity.application as GhostermApplication).settings
         previousKeys=settings.state.value.committed.keySet
         previousAux=settings.state.value.committed.auxKeys
         assertTrue(runBlocking { settings.save(UUID.randomUUID(),listOf(PreferenceEdit.KeySet(AuxiliaryKeySet.EXTENDED))) } is PreferenceUpdate.Saved)
-        if(imeShown()) { ui.onNodeWithTag("terminal-back").performClick(); await("IME must hide") { !imeShown() } }
+        if(imeShown()) { ui.terminalBack(); await("IME must hide") { !imeShown() } }
         shell("wm size 640x200")
         ui.runOnUiThread { ui.activity.requestedOrientation=ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
         await("Fixture must reach the short native window") { ui.activity.resources.configuration.screenHeightDp <= 220 }
-        val before=ui.onNodeWithText("Ctrl").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
+        val before=ui.onNodeWithTag("terminal-menu").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
         ui.onNodeWithText("PgDn").performScrollTo().assertIsDisplayed()
-        val after=ui.onNodeWithText("Ctrl").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
+        val after=ui.onNodeWithTag("terminal-menu").assertIsDisplayed().fetchSemanticsNode().touchBoundsInRoot
         assertEquals(before.left,after.left,.5f)
-        ui.onNodeWithText("Ctrl").performClick();ui.runOnIdle { assertEquals(1,view().ctrl) }
+        ui.onNodeWithText("Ctrl").performScrollTo().performClick();ui.runOnIdle { assertEquals(1,view().ctrl) }
         ui.onNodeWithText("Ctrl ✓").performClick();ui.runOnIdle { assertEquals(0,view().ctrl) }
         visibleControlsAndPixels()
         val height=ui.runOnIdle { view().height }

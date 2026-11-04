@@ -286,7 +286,7 @@ class KnownHostsSettingsTest {
         main { terminal().commitText("stty -echo; PS1=''; printf '\\033[2J\\033[HTRUST:%s\\r\\n' \"\u0024\u0024\"\r") }
         await("remote PID before removing trust") { pid("TRUST:")!=null }
         val before=main { pid("TRUST:")!! }
-        ui.onNodeWithTag("terminal-back").performClick(); settings(); open()
+        ui.terminalBack(); settings(); open()
         ui.onNodeWithTag("known-host-fingerprint").performScrollTo().assertTextEquals(fixture.getString("fingerprint"))
         request(); confirm(); assertEquals("",known.readText())
         assertArrayEquals(savedConfig,config.readBytes()); assertTrue(vault.list().any { it.id==key.id })

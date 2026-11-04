@@ -4593,3 +4593,23 @@ API 36 / arm64 / 4 KiB 页：初始 84 项组合中 83 项通过，新增终端�
 `ANDROID_FILES_PRODUCT_MUTATE=1 ANDROID_FILES_PRODUCT_MUTATIONS=reconnect-error,leave,stale-handoff,retain-navigation,reuse-terminal,clear-lifetime,progress-dialog` 配合 `test-android-ssh.sh` 的七组同轮通过，护错误可见、显式关闭、晚到认证、导航保留、终端入口复用、模型释放和单一页内进度。每组真实编译后目标正常断言红、同 APK Core 配置绿、恢复绿与 SHA256。证据在 `tmp/input-files-final-verified-evidence.log`、`tmp/input-files-mutations-verified.log` 及 `tmp/android-ssh-tests/files-product-*`；最终输入复验见 §9.201。Core 51 CTest / 95 ABI、Debug/测试 APK、未签名 Release/R8 和四模块 release lint 通过；最终构建见 `tmp/input-files-final-release-lint.log`。
 
 仅为本地模拟器手工证据，不增加 macOS CI 20 份，不代表 API 29、16 KiB 页、物理手机、长时间空闲/换网或完整客户端验收；未发行。
+
+### 9.203 Android 默认专注终端与横滑辅助键（2026-11-04，工作区候选）
+
+按用户确认的专注布局移除终端顶栏，默认隐藏系统顶部状态栏；保留系统导航、挖孔/刘海与桌面窗口标题栏的安全区。底部为 48dp 单行辅助键，Ctrl、Esc、Tab、四方向、符号和用户已选择的扩展键在同一个横滑区域，不绘制水平滚动条，唯一固定在右侧的是菜单。关闭辅助键偏好后仍保留菜单；停止会话保留旧画面和恢复/确认入口，不显示失效辅助键。极短横屏仍用侧置控件保护可读行数。
+
+会话名/状态、文件、切换会话、返回主机列表及显式状态栏开关均在菜单。显式显示状态栏的选择随当前页面重建保留，离开终端时恢复宿主系统栏。手指轻点继续走既有 TerminalView 输入路径，包括终端程序启用鼠标上报时的手指输入，长按选择、拖动滚屏和物理鼠标保持原语义；“显示键盘”菜单作为明确兜底，弹出菜单释放窗口焦点后再请求实际 IME。没有新增 C ABI，也未更改字节流接缝。
+
+首轮 76 项中三项失败：两个新布局断言误把真实挖孔安全区假定为 0，以及停止页面仍出现禁用 Ctrl。后续 API 29 另发现隐藏状态栏后 stable insets 仍保留 24dp、旧 Ctrl 测试假定其固定、以及一次历史滚屏到达边界超时；这些失败日志保留，均不计绿。状态栏是否真正隐藏在 API 29 用系统窗口状态核实，不能把兼容层由 stable insets 推导的可见性当作独立事实；产品布局显式排除未请求的状态栏边距，同时独立保护 cutout/caption。回归按新布局先滚动到 Ctrl，再核对原始 PTY 输入字节，不删除输入断言。
+
+修正后的 API 29 / API 36 各五项布局专项已通过。最终组合、分轮变异与构建结果见后续本节记录；本条不预记尚在执行的结果，不以旧完整客户端结果替代本轮验证。
+
+**后续实际失败与修正**：API 29 的普通历史滑动测试从终端最顶边开始，在默认全屏后会触发系统状态栏手势；改从视口内部 20%–80% 区间滑动，继续检查真实历史变化、回到当前画面与键盘未打开，未屏蔽系统边缘手势。真实产品导航 31 项初轮另有两项失败：旧 tmux 测试要求手指点击不弹键盘，与用户这次选择及 §9.201 的手指输入策略冲突；现保留真实窗口切换、同一连接和后台任务的断言，改为同时等待真实系统 IME。终端文件入口则在 `enter()` 与 `reuseRemote()` 中连续启动目录读取，第二次取消前一次在途读取后关闭 SFTP；改为 `enterForConnection()` 只准备页面、清除旧展示，再由选择/认证路径发起一次读取。原来的实际远端内容、不可变主机快照、同一端点、owner 数量和不同连接参数拒绝复用断言均保留。
+
+**手工分轮变异**：布局 22 个不同组为 10＋1＋11 分轮证据，含真实系统栏默认/切换/离页恢复、API 29 隐藏栏边距、IME 避让、48dp 行高、系统返回、会话/文件入口、固定菜单、展开的会话面板、侧置保护、辅助/扩展键偏好、可滑 Ctrl 与错误可见性。早期把极短横屏按键栏加高到 96dp 会被父约束钳回，原变异未改变实际高度；补精确高度断言后用压缩到 24dp 验其红。旧“IME 分支返回”变异会被系统优先消费返回键，改为破坏实际 BackHandler，并保留键盘关闭后再次返回主机页且不终止 PTY 的检查；上述未杀死的探针均不计通过。既有 terminal T21 系统返回组另复验通过。新增 `ANDROID_MOUSE_MUTATIONS=finger-history,tmux-touch-keyboard` 两组与 `ANDROID_FILES_PRODUCT_MUTATIONS=terminal-entry-single-read` 一组同轮通过，护内部滚屏、真实 tmux 手指键盘唤起及目录单次读取。每组均真实编译后正常目标断言红、同 APK 独立 Core/配置对照绿、恢复绿与 SHA256；不增加 macOS CI 20 份。
+
+**最终网格就绪与设备证据**：API 29 的进一步诊断确认，最初快照仍为默认 24 行，回到最新内容时已经是窗口的 25 行（原始记录为 `before=278 rows=24 after=277 rows=25 last=FINGER_SCROLL_DONE`）；未放宽“回到原首行”判据。同一初始化时序也使鼠标坐标测试出现期望第 4 行、实际第 5 行的精确字节差异。终端页面测试夹具现统一等待实际全屏安全区位置与按字体度量计算的网格行数都已同步，再发送命令或由网格换算手指坐标，保留原始鼠标报文字节断言。API 29 的普通滚屏组、既有 tap-route/keyboard 两组再次完成编译后正常断言红、同 APK 独立配置绿、恢复绿和 SHA256；这三次为原保护复验，不重复计作三个新增组。
+
+最终 API 29 / arm64 / 4 KiB 页五类终端布局/生命周期/控制/页面/连发组合 **76 项通过，137.958 秒**；API 36 / arm64 / 4 KiB 页在相同生产源上先完成这五类加真实 SSH 产品、远端文件产品、tmux 与文件清单往返的 **107 项通过，479.672 秒**，随后仅改上述测试夹具就绪条件，最终页面 **53 项通过，155.053 秒**。各轮具名开始/成功结束唯一集合一致，零失败/错误/跳过；后两台最终 app/test APK 摘要分别同为 `f9d804213cdb887c9b14c7657e375a650a7886303cc593ed49f6a779c84dd4cf` / `9d97cade4cbe4a63770ec2c403970f2785dd6f1ae412bfb85362d4766c02c43b`，安装字节与构建一致。107 项的原测试 APK 另保存，未把不同测试夹具或不同 APK 混记为同一轮。674 份指定范围非 Markdown 源输入前后相同；107 项快照至最终快照只有 `TerminalScreenTest.kt` 的夹具前置条件/诊断变化，生产源逐字相同。
+
+最终生产源的 Core **51 CTest / 95 ABI**、Debug/测试 APK、未签名 Release（实际 R8/资源优化）与 app/bridge/data/terminal 四模块 release lint 通过。上述分轮变异、失败/修复、安装摘要、具名集合、输入映射及原生运行截图保存在 `tmp/terminal-focus-evidence/`，关键收据为 `completed-api36-receipt.json`、`final-ui-api36/receipt.json`、`final-accepted-api29/receipt.json`、`layout-mutations-accepted.json` 与 `inputs-accepted-{before,after}.json`。使用只读模拟器实例保留原 AVD 数据，不是 16 KiB 页、物理手机、完整厂商输入法/外部端点或默认完整客户端验收，也未发行。

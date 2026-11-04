@@ -18,29 +18,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
-/** One input row in every window; navigation joins it only in short windows. */
+/** One scrollable key row, with an always reachable menu outside the scroll area. */
 @Composable
 internal fun CompactTerminalBar(
     policy: TerminalControls, connected: Boolean, ctrl: Int,
-    onBack: () -> Unit, onCtrl: () -> Unit, onKey: (Int) -> Unit, onText: (String) -> Unit,
+    onCtrl: () -> Unit, onKey: (Int) -> Unit, onText: (String) -> Unit,
     onMenu: () -> Unit, menu: @Composable () -> Unit,
-    compactNavigation: Boolean = true,
     recoveryAction: (@Composable () -> Unit)? = null,
 ) {
-    if (!compactNavigation && !policy.auxiliaryKeys) return
-    Row(Modifier.fillMaxWidth().height(52.dp).background(MaterialTheme.colorScheme.surface)
-        .testTag(if (compactNavigation) "terminal-compact-bar" else "terminal-input-bar"), verticalAlignment = Alignment.CenterVertically) {
-        if (compactNavigation) IconButton(onClick = onBack, modifier = Modifier.size(48.dp).testTag("terminal-back")) {
-            GhostermIcon(UiIcon.Back,"返回")
-        }
+    Row(Modifier.fillMaxWidth().height(48.dp).background(MaterialTheme.colorScheme.surface)
+        .testTag("terminal-input-bar"), verticalAlignment = Alignment.CenterVertically) {
         if (recoveryAction != null) Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { recoveryAction() }
         else if (policy.auxiliaryKeys) {
-            TextButton(onClick = onCtrl, enabled = connected,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.onSurface), contentPadding = PaddingValues(horizontal = 8.dp),
-                modifier = Modifier.height(48.dp)) {
-                Text(when (ctrl) { 1 -> "Ctrl ✓"; 2 -> "Ctrl 锁定"; else -> "Ctrl" }, maxLines = 1)
-            }
+            // All keys scroll together; horizontalScroll draws no scrollbar.
             Row(Modifier.weight(1f).height(48.dp).horizontalScroll(rememberScrollState()).testTag("terminal-auxiliary-keys"),
                 verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onCtrl, enabled = connected,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                    contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.height(48.dp)) {
+                    Text(when (ctrl) { 1 -> "Ctrl ✓"; 2 -> "Ctrl 锁定"; else -> "Ctrl" }, maxLines = 1)
+                }
                 val keys = listOf("Esc" to KeyEvent.KEYCODE_ESCAPE, "Tab" to KeyEvent.KEYCODE_TAB,
                     "↑" to KeyEvent.KEYCODE_DPAD_UP, "↓" to KeyEvent.KEYCODE_DPAD_DOWN,
                     "←" to KeyEvent.KEYCODE_DPAD_LEFT, "→" to KeyEvent.KEYCODE_DPAD_RIGHT)
@@ -59,7 +56,7 @@ internal fun CompactTerminalBar(
                 }
             }
         } else Spacer(Modifier.weight(1f))
-        if (compactNavigation) Box {
+        Box {
             IconButton(onClick = onMenu, modifier = Modifier.size(48.dp).testTag("terminal-menu")) {
                 GhostermIcon(UiIcon.More,"更多")
             }

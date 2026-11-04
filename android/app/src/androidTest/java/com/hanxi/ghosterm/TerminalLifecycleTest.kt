@@ -111,7 +111,7 @@ class TerminalLifecycleTest {
             terminal().commitText("printf '\\033[2J\\033[H'; stty size; printf 'KEYBOARD_SIZE\\r\\n'\r") }
         waitFor("KEYBOARD_SIZE")
         ui.runOnIdle { assertTrue(text(), text().contains("$smaller $cols")) }
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.waitUntil(10_000) { terminal().currentFrame!!.rows == rows }
         assertFalse(terminalImeShown())
         ui.runOnIdle { assertSame(original, model()) }
@@ -138,11 +138,11 @@ class TerminalLifecycleTest {
         if (!terminalImeShown())
             ui.showTerminalKeyboard()
         ui.waitUntil(10_000) { terminalImeShown() }
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.waitUntil(10_000) { !terminalImeShown() }
         ui.onNodeWithTag("terminal-surface").assertIsDisplayed()
         assertEquals(original, model().active!!.id)
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.onNodeWithText("继续本地终端").assertIsDisplayed()
         assertEquals(original, model().active!!.id)
     }
@@ -153,7 +153,8 @@ class TerminalLifecycleTest {
         ui.runOnIdle { terminal().commitText("stty -echo; PS1=''; printf '\\033[2J\\033[HFILES_PID:%s\\r\\n' \"\u0024\u0024\"\r") }
         ui.waitUntil(10_000) { ui.runOnIdle { terminal().currentFrame?.line(0)?.matches(Regex("FILES_PID:[0-9]+"))==true } }
         val pid=ui.runOnIdle { terminal().currentFrame!!.line(0) }
-        ui.onAllNodesWithTag("terminal-sessions").assertCountEquals(1)
+        ui.onAllNodesWithTag("terminal-menu").assertCountEquals(1)
+        ui.onAllNodesWithTag("terminal-menu-sessions").assertCountEquals(0)
         ui.onAllNodesWithTag("terminal-keyboard").assertCountEquals(0)
         val settings = (ui.activity.application as GhostermApplication).settings
         restoreCtrl = settings.state.value.committed.ctrlMode
@@ -162,7 +163,7 @@ class TerminalLifecycleTest {
         ui.waitUntil { ui.runOnIdle { model().terminalControls.lockedCtrl } }
         ui.onNodeWithText("Ctrl").performClick()
         ui.onNodeWithText("Ctrl 锁定").assertIsDisplayed()
-        ui.onNodeWithTag("terminal-files").performClick()
+        ui.openTerminalFiles()
         ui.onNodeWithTag("terminal-surface").assertDoesNotExist()
         ui.onNodeWithTag("file-location").assertIsDisplayed()
         ui.runOnIdle { assertSame(original,model().active);assertTrue(original.state.connected) }
@@ -176,7 +177,7 @@ class TerminalLifecycleTest {
             terminal().commitText("printf '\\033[2J\\033[HFILES_PID:%s\\r\\n' \"\u0024\u0024\"\r")
         }
         ui.waitUntil(10_000) { ui.runOnIdle { terminal().currentFrame?.line(0)==pid } }
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.onNodeWithText("继续本地终端").assertIsDisplayed()
     }
 
@@ -187,7 +188,7 @@ class TerminalLifecycleTest {
         // written. A builtin shell loop would misleadingly report IDLE while busy.
         ui.runOnIdle { terminal().commitText("stty -echo; printf '\\033[2J\\033[H'; sh -c 'read token; seq 1 100000'; printf 'BACKGROUND_EXIT:%d\\r\\nBACKGROUND_DONE\\r\\n' \"\u0024?\"\r") }
         ui.waitUntil(10_000) { model().active?.state?.child == 3 }
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.onNodeWithTag("terminal-surface").assertDoesNotExist()
         // Release the child's input barrier only after the View is gone. Its
         // >400 KiB output exceeds the PTY buffer, so it cannot return without IO.

@@ -5,11 +5,30 @@ import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.FileInputStream
 
+internal fun ComposeContentTestRule.terminalBack() {
+    androidx.test.espresso.Espresso.pressBack()
+    waitForIdle()
+}
+
+internal fun ComposeContentTestRule.openTerminalFiles() {
+    onNodeWithTag("terminal-menu").performClick()
+    onNodeWithTag("terminal-menu-files").performScrollTo().performClick()
+}
+
+internal fun ComposeContentTestRule.openTerminalSessions() {
+    onNodeWithTag("terminal-menu").performClick()
+    onNodeWithTag("terminal-menu-sessions").performScrollTo().performClick()
+}
+
 /** Exercise the visible fallback, including popup dismissal and window focus. */
 internal fun ComposeContentTestRule.showTerminalKeyboard() {
     onNodeWithTag("terminal-keyboard").assertDoesNotExist()
     onNodeWithTag("terminal-menu").performClick()
     onNodeWithTag("terminal-menu-keyboard").performScrollTo().assertIsEnabled().performClick()
+    awaitTerminalKeyboard()
+}
+
+internal fun ComposeContentTestRule.awaitTerminalKeyboard() {
     try { waitUntil(10_000) {
         var inset = false
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
@@ -21,7 +40,7 @@ internal fun ComposeContentTestRule.showTerminalKeyboard() {
         }
         inset && terminalImeShown()
     } } catch (failure: ComposeTimeoutException) {
-        throw AssertionError("Keyboard menu did not display the actual system IME", failure)
+        throw AssertionError("Terminal did not display the actual system IME", failure)
     }
     waitForIdle()
 }

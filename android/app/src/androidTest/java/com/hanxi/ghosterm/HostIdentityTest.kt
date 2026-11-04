@@ -275,7 +275,7 @@ class HostIdentityTest {
         main { terminal().commitText("stty -echo; PS1=''; printf '\\033[2J\\033[HLINKED:%s\\r\\n' \"\u0024\u0024\"\r") }
         await("remote PID before rename") { pid("LINKED:")!=null }
         val before=main { pid("LINKED:")!! }
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         editPage(); ui.onNodeWithText("别名").performScrollTo().performTextReplacement("$alias-new")
         ui.onNodeWithText("保存").performClick()
         await("renamed") { !hosts.busy && hosts.page==Page.HOSTS }

@@ -35,6 +35,7 @@ def execute(root,build,test):
     cases += [
       ('retain-navigation',model,'cancelRead();preview=null;clearSelection()','cancelRead();preview=null;clearSelection();disconnectAll()',real),
       ('reuse-terminal',model,'} == true && repository.isConnected(endpoint)','} == false && repository.isConnected(endpoint)','terminalFilesUsesConnectedHostSnapshotAndConfiguredKeyWithoutSelectingAgain'),
+      ('terminal-entry-single-read',app,'files.enterForConnection()','files.enter()','terminalFilesUsesConnectedHostSnapshotAndConfiguredKeyWithoutSelectingAgain'),
     ]
     cases += [
       ('clear-lifetime',model,'override fun onCleared() { leave();disconnectAll();super.onCleared() }','override fun onCleared() { leave();super.onCleared() }','clearingBrowserViewModelClosesRetainedOwners'),

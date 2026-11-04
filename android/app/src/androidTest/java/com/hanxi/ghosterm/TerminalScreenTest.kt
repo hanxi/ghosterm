@@ -53,6 +53,7 @@ class TerminalScreenTest {
         ui.onNodeWithText("本地终端").performClick()
         ui.waitUntil(10_000) { ui.runOnIdle { sessions.active?.state?.connected == true } }
         ui.waitUntil(10_000) { viewOrNull()?.currentFrame != null }
+        awaitReadyViewport()
         ui.runOnIdle { terminal().commitText(NativePtyFixture.initialize()+"stty -echo; PS1=''; printf '\\033[2J\\033[HUI_SHELL_READY'\r") }
         ui.waitUntil(10_000) { terminal().currentFrame?.line(0) == "UI_SHELL_READY" }
 
@@ -97,7 +98,22 @@ class TerminalScreenTest {
             androidx.core.view.ViewCompat.getRootWindowInsets(terminal())
                 ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == false
         }
+        awaitReadyViewport()
     }
+    private fun awaitReadyViewport() {
+        // The initial VT snapshot may still have its default 24 rows while
+        // Android is applying the full-screen window's final geometry.
+        ui.waitUntil(10_000) { ui.runOnIdle {
+            val v=terminal();val style=sessions.terminalStyle
+            val line=kotlin.math.ceil(android.util.TypedValue.applyDimension(
+                android.util.TypedValue.COMPLEX_UNIT_SP,style.fontSize,v.resources.displayMetrics)*style.lineHeight).toInt()
+            val safeTop=androidx.core.view.ViewCompat.getRootWindowInsets(v)
+                ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.displayCutout())?.top ?: 0
+            val top=IntArray(2).also(v::getLocationOnScreen)[1]
+            top==safeTop && v.currentFrame?.rows == (v.height / line).coerceAtMost(256)
+        } }
+    }
+
     private fun clickMouseCell(column: Int, row: Int, long: Boolean = false) {
         val coordinates = CoordinatesProvider { view ->
             val t = view as TerminalView
@@ -161,18 +177,25 @@ class TerminalScreenTest {
         hideMouseTestKeyboard()
         send("seq 1 300; printf 'FINGER_SCROLL_DONE'; sleep 30\r")
         waitFor("FINGER_SCROLL_DONE")
-        val before = ui.runOnIdle { terminal().currentFrame!!.line(0) }
-        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeDown(durationMillis = 400) }
-        ui.waitUntil(10_000) { terminal().currentFrame!!.line(0) != before }
+        val initial = ui.runOnIdle { terminal().currentFrame!! };val before = initial.line(0)
+        // Full-screen edges belong to system bars; scroll inside the viewport.
+        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeDown(startY = height * .2f, endY = height * .8f, durationMillis = 400) }
+        try { ui.waitUntil(10_000) { terminal().currentFrame!!.line(0) != before } }
+        catch (failure: ComposeTimeoutException) { throw AssertionError("Interior swipe must move real shell history",failure) }
         val historical = ui.runOnIdle { terminal().currentFrame!!.line(0) }
         assertFalse(terminalImeShown())
-        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeUp(durationMillis = 400) }
+        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeUp(startY = height * .8f, endY = height * .2f, durationMillis = 400) }
         ui.waitUntil(10_000) { terminal().currentFrame!!.line(0) != historical }
         repeat(3) {
             if (ui.runOnIdle { terminal().currentFrame!!.line(0) } != before)
-                ui.onNodeWithTag("terminal-surface").performTouchInput { swipeUp(durationMillis = 400) }
+                ui.onNodeWithTag("terminal-surface").performTouchInput { swipeUp(startY = height * .8f, endY = height * .2f, durationMillis = 400) }
         }
-        ui.waitUntil(10_000) { terminal().currentFrame!!.line(0) == before }
+        try { ui.waitUntil(10_000) { terminal().currentFrame!!.line(0) == before } }
+        catch (failure: ComposeTimeoutException) {
+            val diagnostic=ui.runOnIdle { val v=terminal();val f=v.currentFrame!!
+                "before=$before rows=${initial.rows} after=${f.line(0)} rows=${f.rows} view=${v.width}x${v.height} cursor=${f.cursorY} visible=${f.cursorVisible} last=${f.line(f.rows-1)} error=${sessions.error} background=${sessions.backgroundError}" }
+            throw AssertionError(diagnostic,failure)
+        }
     }
 
     @Test fun fingerSwipeRoutesWheelToTheSameMouseSurface() {
@@ -190,9 +213,9 @@ class TerminalScreenTest {
                 }
             }
         }
-        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeDown(durationMillis = 400) }
+        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeDown(startY = height * .2f, endY = height * .8f, durationMillis = 400) }
         ui.runOnIdle { assertTrue(deltas.isNotEmpty()); assertTrue(deltas.all { it < 0 }); deltas.clear() }
-        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeUp(durationMillis = 400) }
+        ui.onNodeWithTag("terminal-surface").performTouchInput { swipeUp(startY = height * .8f, endY = height * .2f, durationMillis = 400) }
         ui.runOnIdle { assertTrue(deltas.isNotEmpty()); assertTrue(deltas.all { it > 0 }) }
         assertFalse(terminalImeShown())
     }
@@ -217,7 +240,7 @@ class TerminalScreenTest {
             sessions.show(old.id)
         }
         ui.onNodeWithTag("terminal-stopped").assertIsDisplayed()
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.onNodeWithText("查看 ${old.title}").assertIsDisplayed()
         ui.onNodeWithText("已停止 · 旧画面保留").assertIsDisplayed()
         ui.onNodeWithText("继续本地终端").performClick()
@@ -231,7 +254,7 @@ class TerminalScreenTest {
         ui.runOnIdle { sessions.newLocal() }
         ui.waitUntil(10_000) { sessions.active?.id != old.id && sessions.active?.state?.connected == true }
         val live = sessions.active!!
-        ui.onNodeWithTag("terminal-sessions").performClick()
+        ui.openTerminalSessions()
         ui.onNodeWithTag("terminal-clean-stopped").assertTextEquals("清理已停止会话（1）").performClick()
         ui.onNodeWithText("保留").performClick()
         ui.runOnIdle { assertTrue(sessions.sessions.any { it === old }) }
@@ -762,7 +785,7 @@ class TerminalScreenTest {
         val first = terminal().currentFrame!!
         val pid = first.line(0)
         waitFor("${first.rows} ${first.cols}")
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.terminalBack()
         ui.onNodeWithText("继续本地终端").assertIsDisplayed()
         ui.onNodeWithTag("terminal-surface").assertDoesNotExist()
         assertEquals(id, sessions.active!!.id)
@@ -780,7 +803,7 @@ class TerminalScreenTest {
         ui.onNodeWithText("关闭会话").performClick()
         ui.onNodeWithText("取消").performClick()
         assertEquals(original, sessions.active!!.id)
-        ui.onNodeWithTag("terminal-sessions").performClick()
+        ui.openTerminalSessions()
         ui.onNodeWithText("新建本地会话").performClick()
         ui.waitUntil(10_000) { !sessions.creating && sessions.sessions.size == 2 && sessions.active?.id != original && sessions.active?.state?.connected == true }
         assertNotEquals(original, sessions.active!!.id)
@@ -976,20 +999,20 @@ class TerminalScreenTest {
     @Test fun ctrlSingleUseAndLockEncodeRealPtyInput() {
         send("stty raw -echo; printf '\\033[2J\\033[HCTRL_READY\\r\\n'; dd bs=1 count=5 2>/dev/null | od -An -tx1; stty sane; printf '\\r\\nCTRL_DONE\\r\\n'\r")
         waitFor("CTRL_READY")
-        ui.onNodeWithText("Ctrl").performClick()
-        ui.onNodeWithText("Ctrl ✓").assertIsDisplayed()
+        ui.onNodeWithText("Ctrl").performScrollTo().performClick()
+        ui.onNodeWithText("Ctrl ✓").performScrollTo().assertIsDisplayed()
         ui.runOnIdle { assertTrue(terminal().onCreateInputConnection(EditorInfo()).commitText("a", 1)) }
-        ui.onNodeWithText("Ctrl").assertIsDisplayed()
+        ui.onNodeWithText("Ctrl").performScrollTo().assertIsDisplayed()
         send("b")
         lockCtrlMode()
-        ui.onNodeWithText("Ctrl").performClick()
-        ui.onNodeWithText("Ctrl 锁定").assertIsDisplayed()
+        ui.onNodeWithText("Ctrl").performScrollTo().performClick()
+        ui.onNodeWithText("Ctrl 锁定").performScrollTo().assertIsDisplayed()
         ui.runOnIdle {
             val ime = terminal().onCreateInputConnection(EditorInfo())
             assertTrue(ime.commitText("c", 1)); assertTrue(ime.commitText("d", 1))
         }
-        ui.onNodeWithText("Ctrl 锁定").assertIsDisplayed()
-        ui.onNodeWithText("Ctrl 锁定").performClick()
+        ui.onNodeWithText("Ctrl 锁定").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Ctrl 锁定").performScrollTo().performClick()
         send("e"); waitFor("CTRL_DONE")
         assertTrue(text(), text().replace(Regex("\\s+"), " ").contains("01 62 03 04 65"))
     }
@@ -1018,19 +1041,19 @@ class TerminalScreenTest {
         val controls = byteArrayOf(31, 0) + "\u001b[91;5u".toByteArray(Charsets.UTF_8) +
             byteArrayOf(28, 29, 30, 31, 127, 0, 27, 28, 29, 30, 31, 127, 0)
         captureKeys("\\033[?2004h", controls + "K中文😀ab/".toByteArray(Charsets.UTF_8)) {
-            ui.onNodeWithText("Ctrl").performClick()
+            ui.onNodeWithText("Ctrl").performScrollTo().performClick()
             ui.onNodeWithText("/").performScrollTo().performClick()
-            ui.onNodeWithText("Ctrl").assertIsDisplayed()
+            ui.onNodeWithText("Ctrl").performScrollTo().assertIsDisplayed()
             lockCtrlMode()
-            ui.onNodeWithText("Ctrl").performClick()
+            ui.onNodeWithText("Ctrl").performScrollTo().performClick()
             ui.runOnIdle {
                 val ime = terminal().onCreateInputConnection(EditorInfo())
                 "@[\\]^_?2345678 ".forEach { assertTrue(ime.commitText(it.toString(), 1)) }
                 // Kelvin sign lowercases to ASCII k; it must still remain Unicode text.
                 listOf("K", "中文", "😀", "ab").forEach { assertTrue(ime.commitText(it, 1)) }
             }
-            ui.onNodeWithText("Ctrl 锁定").assertIsDisplayed()
-            ui.onNodeWithText("Ctrl 锁定").performClick()
+            ui.onNodeWithText("Ctrl 锁定").performScrollTo().assertIsDisplayed()
+            ui.onNodeWithText("Ctrl 锁定").performScrollTo().performClick()
             ui.onNodeWithText("/").performScrollTo().performClick()
         }
     }
@@ -1038,9 +1061,9 @@ class TerminalScreenTest {
     @Test fun softCtrlUsesCurrentKittyAndModifyOtherKeysModes() {
         listOf("\\033[>1u" to "\u001b[47;5u", "\\033[>4;2m" to "\u001b[27;5;47~").forEach { (mode, encoded) ->
             captureKeys(mode, encoded.toByteArray(Charsets.UTF_8)) {
-                ui.onNodeWithText("Ctrl").performClick()
+                ui.onNodeWithText("Ctrl").performScrollTo().performClick()
                 ui.onNodeWithText("/").performScrollTo().performClick()
-                ui.onNodeWithText("Ctrl").assertIsDisplayed()
+                ui.onNodeWithText("Ctrl").performScrollTo().assertIsDisplayed()
             }
         }
     }
@@ -1085,7 +1108,7 @@ class TerminalScreenTest {
     @Test fun oneShotCtrlStaysWithHeldKeyUntilRelease() {
         val expected = "\u001b[97;5u\u001b[97;5:2u\u001b[97;5:3u\u001b[98u\u001b[98;1:3uEND"
         captureKeys("\\033[>11u", expected.toByteArray(Charsets.UTF_8)) {
-            ui.onNodeWithText("Ctrl").performClick()
+            ui.onNodeWithText("Ctrl").performScrollTo().performClick()
             ui.runOnIdle {
                 val view = terminal(); view.requestFocus()
                 val a = KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, 0)
@@ -1150,7 +1173,7 @@ class TerminalScreenTest {
         captureKeys("\\033[>11u", expected.toByteArray(Charsets.UTF_8)) {
             ui.onNodeWithText("Tab").performScrollTo().performClick()
             ui.runOnIdle { assertTrue(terminal().onCreateInputConnection(EditorInfo()).performEditorAction(EditorInfo.IME_ACTION_NONE)) }
-            ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("/").performScrollTo().performClick()
+            ui.onNodeWithText("Ctrl").performScrollTo().performClick(); ui.onNodeWithText("/").performScrollTo().performClick()
             ui.runOnIdle { assertTrue(terminal().commitText("END")) }
         }
     }
@@ -1319,20 +1342,20 @@ class TerminalScreenTest {
 
     @Test fun ctrlDoesNotCrossPagesSessionsOrNormalExit() {
         val original = sessions.active!!.id
-        ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
-        ui.onNodeWithTag("terminal-back").performClick()
+        ui.onNodeWithText("Ctrl").performScrollTo().performClick(); ui.onNodeWithText("Ctrl ✓").performScrollTo().performClick()
+        ui.terminalBack()
         ui.onNodeWithText("继续本地终端").performClick()
         ui.waitUntil { viewOrNull()?.currentFrame != null }
-        ui.onNodeWithText("Ctrl").assertIsDisplayed()
-        ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
+        ui.onNodeWithText("Ctrl").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Ctrl").performScrollTo().performClick(); ui.onNodeWithText("Ctrl ✓").performScrollTo().performClick()
         val first = terminal()
-        ui.onNodeWithTag("terminal-sessions").performClick(); ui.onNodeWithText("新建本地会话").performClick()
+        ui.openTerminalSessions(); ui.onNodeWithText("新建本地会话").performClick()
         ui.waitUntil { sessions.sessions.size == 2 && sessions.active!!.state.connected && viewOrNull()?.currentFrame != null }
         ui.runOnIdle { assertNotSame("each session needs its own input/selection state", first, terminal()); assertEquals(0, terminal().ctrl) }
-        ui.onNodeWithTag("terminal-sessions").performClick(); ui.onNodeWithText("本地终端 1").performClick()
+        ui.openTerminalSessions(); ui.onNodeWithText("本地终端 1").performClick()
         ui.waitUntil { sessions.active!!.id == original && viewOrNull()?.currentFrame != null }
-        ui.onNodeWithText("Ctrl").assertIsDisplayed()
-        ui.onNodeWithText("Ctrl").performClick(); ui.onNodeWithText("Ctrl ✓").performClick()
+        ui.onNodeWithText("Ctrl").performScrollTo().assertIsDisplayed()
+        ui.onNodeWithText("Ctrl").performScrollTo().performClick(); ui.onNodeWithText("Ctrl ✓").performScrollTo().performClick()
         ui.runOnIdle { sessions.active!!.surface.commit("exit 0\r") }
         ui.waitUntil { sessions.active!!.state.terminal }
         ui.onNodeWithText("Ctrl").assertDoesNotExist()

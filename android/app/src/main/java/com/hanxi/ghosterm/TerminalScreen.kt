@@ -1,16 +1,14 @@
 package com.hanxi.ghosterm
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -33,7 +31,8 @@ fun TerminalScreen(model: SessionsViewModel,
     var terminal by remember(session.id) { mutableStateOf<TerminalView?>(null) }
     var ctrl by remember(session.id) { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
-    var menuCompact by remember { mutableStateOf(false) }
+    var statusBarVisible by rememberSaveable { mutableStateOf(false) }
+    TerminalSystemBars(statusBarVisible)
     var keyboardRequested by remember(session.id) { mutableStateOf(false) }
     var recoveryErrorDismissed by remember(session.id, recoveryError) { mutableStateOf(false) }
     var list by remember { mutableStateOf(false) }
@@ -69,21 +68,32 @@ fun TerminalScreen(model: SessionsViewModel,
     }
     val back: () -> Unit = { if (imeVisible) terminal?.hideKeyboard() else if (terminal?.dismissSelection() != true) model.home() }
     BackHandler(onBack = back)
+    // API 29's stable edge-to-edge insets still include a hidden status bar.
+    // Reserve only requested status chrome; camera cutouts and caption bars
+    // remain protected independently, including desktop/freeform windows.
+    val systemInsets = WindowInsets.systemBars.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+        .union(WindowInsets.captionBar)
+        .union(if (statusBarVisible) WindowInsets.statusBars else WindowInsets(0, 0, 0, 0))
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(
-        WindowInsets.systemBars.union(WindowInsets.displayCutout).union(WindowInsets.ime))) {
+        systemInsets.union(WindowInsets.displayCutout).union(WindowInsets.ime))) {
     val density = LocalDensity.current
-    val compact = maxHeight < 224.dp || (session.state.terminal && maxHeight < 360.dp) || (menu && menuCompact)
+    val compact = maxHeight < 224.dp || (session.state.terminal && maxHeight < 360.dp)
     val metrics = LocalView.current.resources.displayMetrics
     val linePixels = kotlin.math.ceil(android.util.TypedValue.applyDimension(
         android.util.TypedValue.COMPLEX_UNIT_SP, model.terminalStyle.fontSize, metrics) *
         model.terminalStyle.lineHeight).toInt()
     // In very short landscape windows, place controls beside the terminal so text
-    // keeps the full available height instead of losing another 52 dp to chrome.
+    // keeps the full available height instead of losing another 48 dp to chrome.
     val sideControls = compact && maxWidth >= 480.dp &&
-        maxHeight < 52.dp + with(density) { (linePixels * 2).toDp() }
+        maxHeight < 48.dp + with(density) { (linePixels * 2).toDp() }
     val sideWidth = maxWidth / 2
     val actions: @Composable () -> Unit = {
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text(session.title, style = MaterialTheme.typography.titleSmall)
+                Text(session.state.description, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (model.backgroundState != null && !session.state.terminal) {
                 DropdownMenuItem(text = { Text(when (model.backgroundState) {
                     TerminalBackgroundState.ACTIVE -> "后台连接保护已开启"
@@ -109,10 +119,14 @@ fun TerminalScreen(model: SessionsViewModel,
                 leadingIcon = { GhostermIcon(UiIcon.Keyboard) },
                 onClick = { menu = false; keyboardRequested = true },
                 modifier = Modifier.testTag("terminal-menu-keyboard"))
-            if (menuCompact) {
-                DropdownMenuItem(text = { Text("会话") }, onClick = { menu = false; terminal?.hideKeyboard(); list = true }, modifier = Modifier.testTag("terminal-menu-sessions"))
-                DropdownMenuItem(text = { Text("文件") }, onClick = { menu = false; terminal?.hideKeyboard(); openFiles() }, modifier = Modifier.testTag("terminal-menu-files"))
-            }
+            DropdownMenuItem(text = { Text("文件") }, onClick = { menu = false; terminal?.hideKeyboard(); openFiles() }, modifier = Modifier.testTag("terminal-menu-files"))
+            DropdownMenuItem(text = { Text(if (statusBarVisible) "隐藏系统状态栏" else "显示系统状态栏") },
+                onClick = { menu = false; statusBarVisible = !statusBarVisible }, modifier = Modifier.testTag("terminal-menu-status-bar"))
+            DropdownMenuItem(text = { Text("切换会话（${model.sessions.size}）") },
+                onClick = { menu = false; terminal?.hideKeyboard(); list = true }, modifier = Modifier.testTag("terminal-menu-sessions")
+                    .semantics { contentDescription = "切换会话，当前 ${session.title}，${model.sessions.size} 个会话" })
+            DropdownMenuItem(text = { Text("返回主机列表") },
+                onClick = { menu = false; terminal?.hideKeyboard(); model.home() }, modifier = Modifier.testTag("terminal-menu-home"))
             DropdownMenuItem(text = { Text("清除本地显示") }, onClick = { menu = false; confirmClear = true })
             if (stopped.isNotEmpty()) DropdownMenuItem(text = { Text("清理已停止会话（${stopped.size}）") },
                 onClick = { menu = false; cleanupIds = stopped.map { it.id } }, modifier = Modifier.testTag("terminal-clean-stopped"))
@@ -120,6 +134,7 @@ fun TerminalScreen(model: SessionsViewModel,
         }
     }
     val inputBar: @Composable () -> Unit = {
+        Column {
         if (session.state.terminal && !compact) Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("terminal-stopped")) {
                 Column(Modifier.heightIn(max = 120.dp).verticalScroll(rememberScrollState())) {
@@ -138,51 +153,20 @@ fun TerminalScreen(model: SessionsViewModel,
                     TextButton(onClick = { confirmClose = true }) { Text("移除旧会话") }
                 }
             }
-        } else
-        CompactTerminalBar(controls, session.state.connected, ctrl,
-            onBack = back, onCtrl = { terminal?.toggleCtrl() },
+        }
+        CompactTerminalBar(if (session.state.terminal) controls.copy(auxiliaryKeys = false) else controls, session.state.connected, ctrl,
+            onCtrl = { terminal?.toggleCtrl() },
             onKey = { terminal?.sendKey(it) }, onText = { terminal?.commitText(it) },
-            onMenu = { menuCompact = true; menu = true }, menu = actions, compactNavigation = compact,
-            recoveryAction = if (session.state.terminal) ({
+            onMenu = { menu = true }, menu = actions,
+            recoveryAction = if (session.state.terminal && compact) ({
                 TextButton(onClick = recover, enabled = recoveryEnabled, modifier = Modifier.testTag("terminal-recover")
                     .semantics { contentDescription = session.state.description + "，" + recoveryLabel }) {
                     Text(recoveryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }) else null)
+        }
     }
-    Scaffold(topBar = {
-        if (!compact)
-        GhostermTopBar(title = {
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("terminal-sessions")
-                .semantics { contentDescription = "切换会话，当前 ${session.title}，${model.sessions.size} 个会话" }
-                .clickable(role = Role.Button) { terminal?.hideKeyboard(); list = true },
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(session.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${session.state.description} · ${model.sessions.size} 个会话",
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Icon(painterResource(R.drawable.ic_terminal_expand), contentDescription = null,
-                    modifier = Modifier.size(18.dp))
-            }
-        }, navigationIcon = {
-            IconButton(onClick = back, modifier = Modifier.testTag("terminal-back")) {
-                GhostermIcon(UiIcon.Back,"返回")
-            }
-        }, actions = {
-            IconButton(onClick = { terminal?.hideKeyboard(); openFiles() }, modifier = Modifier.testTag("terminal-files")) {
-                GhostermIcon(UiIcon.Folder,"当前会话的文件")
-            }
-            Box {
-                IconButton(onClick = { menuCompact = false; menu = true }, modifier = Modifier.testTag("terminal-menu")) {
-                    GhostermIcon(UiIcon.More,"更多")
-                }
-                actions()
-            }
-        })
-    }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
+        Column(Modifier.fillMaxSize()) {
             (model.error ?: model.backgroundError)?.takeUnless { compact }?.let { message ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
@@ -222,7 +206,6 @@ fun TerminalScreen(model: SessionsViewModel,
             }
             if (!sideControls) inputBar()
         }
-    }
     LaunchedEffect(session.state.terminal) { if (session.state.terminal) { terminal?.ctrl = 0; terminal?.hideKeyboard() } }
     DisposableEffect(session.id) { onDispose { session.keyboardOffered = true } }
     LaunchedEffect(session.id, session.state.connected, terminal, controls.autoKeyboard) {

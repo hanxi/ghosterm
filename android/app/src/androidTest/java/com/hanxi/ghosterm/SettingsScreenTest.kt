@@ -231,7 +231,7 @@ class SettingsScreenTest {
             terminal().let { view -> main { view.commitText("stty -echo; PS1=''; printf '\\033[3J\\033[2J\\033[HRESET_PID:%s\\r\\n' \"\u0024\u0024\"\r") } }
             await { pid("RESET_PID:") != null }
             val beforePid = checkNotNull(pid("RESET_PID:")).removePrefix("RESET_PID:")
-            ui.onNodeWithTag("terminal-back").performClick()
+            ui.terminalBack()
             ui.onNode(hasText("设置") or hasContentDescription("设置")).performClick()
             ui.onNodeWithText("恢复默认设置").performScrollTo().performClick()
             ui.onNodeWithText("保留设置").performClick(); idle()

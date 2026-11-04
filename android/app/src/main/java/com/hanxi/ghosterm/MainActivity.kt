@@ -152,7 +152,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
         val session=sessions.active ?: return
         val target=session.remoteTarget
         if(target==null && session.remoteAlias==null) { files.enterLocal();return }
-        files.enter()
+        files.enterForConnection()
         if(target==null) files.remoteConnectionError("无法确定此会话的远端主机，请从文件位置重新连接")
         else if(!files.reuseRemote(target)) connectFileTarget(target,files.beginRemoteConnection())
     }
