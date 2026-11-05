@@ -142,13 +142,13 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九 / 十 / 十二至十八批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c` 与 `backends/ssh_exec.h/.c` 并纳入 Core 构建，其余生产模块仍为拟议。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
+以下为实现布局；第九 / 十 / 十二至十九批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共通道门面 `channel.c`，纳入 Core 构建。公共 `extension.h` 的通道部分已接两端 worker，其余生产模块仍为拟议。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
 
 ```text
-core/include/ghosterm/extension.h   公共 opaque handle / POD / 错误契约
+core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD；Session 等待后续
 core/src/extension/
   mux.c          增量识别、分帧、原始终端字节透传
-  channel.c      协商、序号、窗口、取消、背压
+  channel.c      已实现 S4d1：公共通道门面、native 稳定写缓冲、逐跳认证 challenge / 生命周期
   stream.h / stream.c   私有有序双向字节通道契约，不带终端 / 插件业务语义
   fd-stream.c    已实现：显式接管 pipe / stream socket；非阻塞 IO 与停止唤醒
   frame.h / frame.c    已实现：候选长度前缀、增量 decoder 与单帧 writer
@@ -185,8 +185,9 @@ packages/plugin-sdk/
 plugins/official/{preview,ai-codex,ai-claude,diff,table,...}/
   src/{client,executor,shared}/     业务均通过同一 SDK
 
-apple/.../ExtensionController.swift / ExtensionPane.swift
-android/bridge/.../extension_owner.c  JNI actor 与 C ABI 绑定
+apple/GhostermCore/.../ExtensionChannel.swift   已实现：专属非 UI queue 的公共通道绑定
+apple/.../ExtensionController.swift / ExtensionPane.swift   待实现
+android/bridge/.../extension_jni.c / ExtensionChannel.kt   已实现：创建线程独占 IO、代次句柄 / stop pin
 android/app/.../ExtensionViewModel.kt / ExtensionScreen.kt
 windows/bridge/ · linux/bridge/ · harmony/bridge/ · web/bridge/
   各端能力适配；端代码之间不互相引用
@@ -218,6 +219,10 @@ bridge / JS runtime 作为显式可配置构建能力，CMake 与平台构建各
 `gterm` 作为独立 CLI 构件发布，由用户在实际机器显式安装；普通 App 包不新增 helper、Linux 安装包或 shell runtime，也不自动布置远端工具。随包官方插件是受信 JS / schema / 资源，不是可执行环境。未来若要改变随包边界，须先单独修订 AGENTS 与包验收，不能借本方案隐式放行。
 
 ### C ABI 接口形状
+
+第十九批已加入 `gt_ext_channel_*` 十一项公共通道入口：显式 fd / SSH 路线、推进、状态、逐跳决定 /
+材料、部分 IO、stop / close / destroy。所有平台只经 `ghosterm.h` 消费；协议仍由私有 BridgeSession
+负责，以下 mux / instance / resource 示例仍是后续接口草案，不能据公共通道 ABI 提前开放插件权限。
 
 ```c
 /* 草案，仅示意职责；尚未加入 ghosterm.h，不构成 ABI 承诺。 */
@@ -1332,7 +1337,7 @@ Go/Tailcat provider 可经私有 C ABI 给 C owner 受控 stream 或 POSIX fd，
 | S1 私有 stream / 共用 codec | 第九批已落地 C 接缝、部分 IO、预算 / 停止语义、候选长度分帧；不是完整 wire 校验器 | 同一套 conformance 夹具对 pipe / socketpair；随机分块、短写 / WAIT、前缀污染、截断 / 尾字节、限额、关闭后拒发。九模式与十三组变异通过；不拿内存 fake 通过当网络适配已完成。 |
 | S2 直接 SSH 后端 | 第十批 S2a 已接专属 auth owner、无 PTY exec / 三路 IO；第十一批 S2b 已关闭旧 exec helper 风险 | 直连十六场景 / 十四组变异；旧 helper 十个协议场景、边界测试及十六组新变异通过，原 exec 三组复验。更完整取消 / 重协商 / 长时资源矩阵继续作为后续组合验收，不借本片记插件产品完成。 |
 | S3 受管跳板链 | 第一跳至最终目标的字节 IO、逐跳身份 / 认证与清理 | 第十二批已验证 libssh2 两 / 三层、不同 pin、失败定位、转发拒绝、未知 hostkey、错凭据、半开链、取消与释放。客户端只准直拨第一跳；尚非真实封闭内网 / WAN / App 证据，完整平台和资源组合继续验收。 |
-| S4 共用会话与原生入口 | 协商、包匹配、原生批准、资源 / 请求、两端最小绑定 | 第十三至十八批已接原始校验、控制握手、RPC、Store、资源消息 / credit / 发布回执和显式根 fd 的源文件读取。原生根授权入口、实际插件运行和原生页面仍待接；后续须两端页面 / 绑定、同一会话夹具和普通终端回归。公开头变化时完整 ABI / gate / 绑定对拍。 |
+| S4 共用会话与原生入口 | 协商、包匹配、原生批准、资源 / 请求、两端最小绑定 | 第十三至十八批接私有控制握手 / RPC / Store / 资源回执与 scoped source；第十九批接公共通道 ABI 和两端非 UI worker 的逐跳认证 / IO。公共 Session / ResourceRef、原生授权 / 视图、实际插件运行仍待接；后续须同一协议夹具、页面 / 绑定及普通终端回归。公开头变化时完整 ABI / gate / 绑定对拍。 |
 | S5 前台 gterm 附着 | 一次性 IPC 与受控 attach | 原目录 / 环境归属、实例错配、IPC 权限 / 路径、进程退出、第二客户端切 pane、无秘密回卷和无后台服务。 |
 | 后续网关 | WSS 或 Go 网络 provider | 对同一 conformance / wire / 会话夹具再验，再加网关自身认证、实际网络与平台矩阵；不倒填 S1 为兼容网关已通过。 |
 
@@ -1979,6 +1984,89 @@ stat 检查拦住，以及排队变化的测试只核对错误码而容许 STOPP
 **后续。** 本片补上源文件来源与 EOF，不代表 P0 / S4 / 总计划完成。公开原生门面 / 两端绑定、根授权 /
 ResourceRef 视图、SDK / JS runtime、生产 gterm / 前台 IPC、附件 manifest 和多实例 mux 继续分片；未知 /
 缺能力显式返回，不回退到不安全 TTY 输入，不引入自有 sessiond。未来网关只保留 provider 接缝，不实现。
+
+### P0 第十九批：S4d1 公共通道 ABI、两端 worker 与真实跳板接线（2026-11-06）
+
+**交付与边界。** 新增公共 [extension.h](../../core/include/ghosterm/extension.h) 和 C11 / POSIX
+`extension/channel.c`，经 `ghosterm.h` 导出十一项 `gt_ext_channel_*`；保留原 95 项签名，当前 **106 ABI**。
+opaque channel 只接可信 native transport owner，提供显式 fd 或完整 SSH 路线、有限 step / read、复制
+写入、状态、逐跳决定 / 凭据和分步关闭；不在这里做插件 consent / 包校验 / RPC / 资源发布，不向 JS
+暴露此原生接口。没有把 terminal / SFTP 的 SSH 对象交进插件并发 IO；所有 SSH 材料必须 fresh，成功
+才整体消费 / 清空数组，失败保留调用者所有权。Bootstrap 为可信固定命令，动态插件参数仍须走协议。
+
+`GHOSTERM_WITH_PLUGIN_CHANNEL=ON/OFF` 只控制公共通道 provider，不代表 JS / 整套插件档已经存在。
+关闭后 fd / SSH 构造明确 UNSUPPORTED，导出仍为 106；无 libssh2 档继续支持本机 fd，SSH 明确不支持。
+不自动改用 PTY、shell relay、Go 或网关。公开头单独编译 / 依赖图及符号双向对拍继续执行，平台只包含
+聚合头；没有把私有 stream vtable / route 指针透传到 Swift / JNI。
+
+**IO 与释放。** 原生固定一次 workspace，至多 16 个公共 owner，上限检查在分配前，构造失败立即
+归还预约；已创建的失败 / DRAINING owner 到实际 destroy 才释放容量。write 复制至多 16 KiB 后即可返回，本次 Swift Data / JNI 临时
+数组从不被借用；队列已占用返回 WAIT，不覆盖旧数据。step 单次推进 admission 或一个部分 write，read
+独立有限预算，不在 UI / 终端读线程执行。accepted 是本地复制，sent 是底层接受，received 是底层读取，
+这些观察均不能充当协议业务结果或远端完成。IO 后发生 stop 仍记录已观察的实际字节，但停止交付新数据。
+
+底层在 WAIT 后可能继续借用 C 写缓冲；stop 只拒新 IO，缓冲地址 / 内容及容量保留至底层接受或完成
+close。DRAINING / close IO 错误都保留 owner / 缓冲，`cleanup_error` 与原错误分开；重试不能把原失败
+改成普通取消。close 完成才擦除剩余数据，destroy 只接收已释放 provider，成功后清空 caller handle。
+构造无效 / 不支持不消费 fd / SSH，运行后 read / write / close / destroy 不静默成功；无自动重发。
+
+**认证与 native 绑定。** 每跳保留实际 hostkey / 认证状态、决定、失败阶段与期限。未知主机与凭据等待
+各发本地 challenge，回应须匹配同 channel 的 hop / challenge / 等待类型；UNKNOWN 决定保持等待。
+凭据失败后生成新 challenge，旧回应不传给 SSH；总 setup / 逐跳预算不重置。初始决定为 UNKNOWN，
+不是 calloc 的零值 ACCEPT。已确认未知主机的原始 lookup 仍可为 UNKNOWN，明确 ACCEPT 决定单独
+保留；不为了 credential 页面把原始事实改成 KNOWN。没有解锁材料进入 wire / argv / 文件或日志。
+
+- Apple 的 [ExtensionChannel.swift](../../apple/GhostermCore/Sources/GhostermCore/ExtensionChannel.swift)
+  由专属非 main queue 驱动，只 stop 可跨线程；close / destroy 与 stop lock 隔离。deinit 在原 owner 做
+  有限清理，未完成 / IO 错误保留在 pendingClose ledger，Core 容量仍计费，提供显式重试；不宣布提前释放。
+- Android 的 `ExtensionChannel.kt` / `extension_jni.c` 在创建 worker 上执行 IO。JNI 用单调代次 ID 与
+  有界注册表，不透传裸指针；跨线程 stop pin 住 owner，最后 pin 退出后才销毁，旧 ID 不命中新连接。
+  主机决定使用带类型的 ACCEPT / REJECT / UNKNOWN；输入按 UTF-8 byte arrays 校验 NUL / 上限。
+  构造异常归还保留位，JNI pending exception 不继续解析，凭据临时内存 / caller byte arrays 擦除。
+
+这些是传输 worker，不是 ExtensionPane / Screen 或插件批准 UI。原生根目录授权、公开 Session / lease /
+RPC / ResourceRef、SDK / runtime / gterm 和 App 对 `ProxyJump` 的产品消费均未因此完成；普通终端路径
+与字节直达 Surface 保持原接线，没有把协议输出回写当前 tmux pane。
+
+**验证。** `test_ext_channel` 只从公开头调用 provider；另编译真实 connector、仅替换 native connect
+边界，禁止客户端直拨任何内跳。10 个 fd / 所有权 / 计费 / 错误场景与 8 个真实 socket / allocator /
+close 边界场景纳入 Core gate；[test-plugin-channel.py](../../scripts/test-plugin-channel.py) 跑真实两 /
+三层隔离 sshd 的十场景：双向 256 KiB echo、逐跳独立 key、延迟凭据、错误 pin、转发拒绝、未知主机
+接受 / 拒绝、真实错误密钥后重试和虚拟单调时钟推进后的 setup 拒发。使用 memory keys / owned agent，
+只启最终无 PTY exec；exec 出口是测试 binary，不冒充已安装生产 gterm 或已跑完整 BridgeSession。
+
+Swift **9 项**、Android **12 项**同样穿透实际绑定 / Core / 两三跳，核对临时缓冲复制、旧 handle / 线程 /
+取消 / 代次 / 清理、256 KiB 原样字节、认证重试与旧 challenge。Android 证据仅本轮隔离 **API 36 / arm64 /
+4 KiB 页模拟器**；仅 adb reverse 首跳和内存夹具端口，没有映射内跳。C connect 边界另做首跳限制，
+不把同机环回或模拟器专项叫作真实封闭内网、WAN、厂商手机、完整客户端或 tmux 产品验收。
+
+`mutation-check-plugin-channel.py` **21 Core + 3 Swift** 隔离组：每组实际重编、正常 C / 单条 XCTest
+断言红、同 archive 配置对照绿、重编恢复目标和 SHA256；首尾完整 18 native / 十 SSH，Swift 首尾 9 项。
+Core 开 ASan / UBSan，Swift 套在同一恢复源上另构建普通 Core；未跑 LSan，不外推 crypto 全分配无泄漏。
+`mutation-check-plugin-channel-jni.py --device ...` **4 JNI** 组护 worker、旧 ID、未知退出和异常保留位：
+真实 NDK 编译 / APK 安装并对拍已安装摘要，单条正常 JUnit 断言红、同 APK 配置 / 非法 NUL / VT 三项
+对照绿，重编恢复目标，首尾完整 12 项 / 两三跳。原件备份及 INT / TERM / 失败精确恢复，发现并发改写
+不覆盖他人内容；不拿编译 / 崩溃 / 超时当红。这些手工组不增加 macOS CI 二十份。
+
+最终收据 `tmp/plugin-channel-mutations-mrtp7m3l/logs/result.json`（21+3）和
+`tmp/plugin-channel-jni-mutations-xuq7c8ad/logs/result.json`（4）。Core gate **282 CTest / 106 ABI**、
+Apple **102 / 4** 与 JNI **68 / 38** 引用 / 显式未用对拍、严格 C11 / pedantic-errors 三源、关闭通道档
+及无 SSH 档同一 106 导出通过。macOS App 真实 native build、NDK Debug / APK 与未签名 Release / R8、
+Android app / bridge / terminal / data 四模块 lint 通过；没有本轮签名 / 云端发行 / App 插件视图结论。
+
+**失败历史。** 新边界先正常断言红复现 stop / DRAINING / close error 的提前擦除，以及 IO 后立即 stop
+漏记 write / read 实际字节，共五项；独立配置绿后修复，保留缓冲至 provider 释放，并保留实际观察。
+原本的 queued-stop 零缓冲判据迁为“仍持有、完成关闭后清空”，没有删掉生命期断言。JNI 首轮 11 项
+有一条把“已明确接受”的初始 UNKNOWN 错认必须变成 KNOWN，改为核对原始 lookup + 明确 ACCEPT，
+没有放开未决定的 UNKNOWN。首次 NDK 有三项 signed 比较编译失败，无 SSH / disabled 测试缺条件
+编译、变异 reply-hop unused 参数的编译失败、一次未杀死额度变异均拒收；额度另核对未进入分配器。
+诊断探针虽复现额外 owner 可创建，未查明此前 PASS 的原因，不将推测原因写成结论。两次 lint 命令
+选错项目 / JVM task 的失败单列，最终按实际四个 Android 模块重跑。
+主要日志 / 汇总 `tmp/plugin-channel-*` 与 `tmp/plugin-channel-evidence.json`，失败轮不计最终通过。
+
+**下一片。** 沿同一 C ABI 接公开 BridgeSession / 原生决定 / 请求 / 资源快照门面，接两端原生批准与
+ResourceRef 视图，再推进 SDK / runtime / gterm 前台 IPC、插件与多实例。P0 / P1 / S4 / 整体目标未完成；
+未来网关继续只保留 provider 接缝，不实现。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

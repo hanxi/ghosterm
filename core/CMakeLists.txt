@@ -27,6 +27,7 @@ add_library(ghosterm_core STATIC
   src/extension/resource.c
   src/extension/transfer.c
   src/extension/source.c
+  src/extension/channel.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
   src/core.c
@@ -49,6 +50,10 @@ target_link_libraries(ghosterm_core PUBLIC Threads::Threads)
 # SSH/SFTP 后端（libssh2）——开关是**显式的，不静默降级**（铁律 #6）。
 # 默认 ON：主机消费锁定补丁库，Android 传入显式交叉构建 target。
 # 无 SSH 依赖时显式配置 OFF，入口均返回 GT_ERR_UNSUPPORTED；不自动换回未修复库。
+option(GHOSTERM_WITH_PLUGIN_CHANNEL "Expose native plugin channel providers (not JS runtime)" ON)
+if(GHOSTERM_WITH_PLUGIN_CHANNEL)
+  target_compile_definitions(ghosterm_core PRIVATE GT_HAVE_PLUGIN_CHANNEL=1)
+endif()
 option(GHOSTERM_WITH_LIBSSH2 "Build the libssh2 SSH/SFTP backend" ON)
 set(GHOSTERM_SSH2_TARGET "" CACHE STRING "Explicit target for a cross-compiled libssh2 backend")
 set(SSH2_FOUND FALSE)
@@ -72,6 +77,36 @@ endif()
 if(GHOSTERM_BUILD_TESTS)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
+add_executable(test_ext_channel tests/test_ext_channel.c)
+target_link_libraries(test_ext_channel PRIVATE ghosterm_core)
+target_compile_options(test_ext_channel PRIVATE -Wall -Wextra -Werror)
+if(GHOSTERM_WITH_PLUGIN_CHANNEL)
+  add_executable(test_ext_channel_boundary tests/test_ext_channel_boundary.c)
+  target_include_directories(test_ext_channel_boundary PRIVATE src)
+  target_link_libraries(test_ext_channel_boundary PRIVATE ghosterm_core)
+  target_compile_definitions(test_ext_channel_boundary PRIVATE GT_HAVE_PLUGIN_CHANNEL=1)
+  target_compile_options(test_ext_channel_boundary PRIVATE -Wall -Wextra -Werror)
+  foreach(mode allocation constructor-failure wait-stop draining close-error post-write-stop post-read-stop counter)
+    add_test(NAME ext_channel_boundary_${mode} COMMAND test_ext_channel_boundary ${mode})
+    set_tests_properties(ext_channel_boundary_${mode} PROPERTIES TIMEOUT 20)
+  endforeach()
+  foreach(mode invalid copy partial quantum eof close-queued stop failure-stop rejected-fd capacity)
+    add_test(NAME ext_channel_${mode} COMMAND test_ext_channel ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+    set_tests_properties(ext_channel_${mode} PROPERTIES TIMEOUT 20)
+  endforeach()
+  if(SSH2_FOUND)
+    target_sources(test_ext_channel PRIVATE tests/ext_channel_dial.c)
+    target_include_directories(test_ext_channel PRIVATE src ${SSH2_INCLUDE_DIRS})
+    target_compile_definitions(test_ext_channel PRIVATE GT_HAVE_LIBSSH2=1)
+    add_test(NAME ext_channel_ssh COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-channel.py --binary $<TARGET_FILE:test_ext_channel>)
+    set_tests_properties(ext_channel_ssh PROPERTIES TIMEOUT 280)
+  else()
+    add_test(NAME ext_channel_unsupported_ssh COMMAND test_ext_channel unsupported-ssh ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+  endif()
+else()
+  add_test(NAME ext_channel_disabled COMMAND test_ext_channel disabled ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+endif()
 add_executable(test_bridge_source tests/test_bridge_source.c)
 target_include_directories(test_bridge_source PRIVATE src ${SSH2_INCLUDE_DIRS})
 target_link_libraries(test_bridge_source PRIVATE ghosterm_core)

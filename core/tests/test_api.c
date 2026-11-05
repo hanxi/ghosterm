@@ -11,6 +11,15 @@ static int fail = 0, pass = 0;
 int main(void) {
   const char *v = gt_version();
   CHECK(v && *v, "gt_version() 非空");
+  gt_ext_channel_t *extension=(gt_ext_channel_t *)1;
+  CHECK(gt_ext_channel_open_fd(-1,-1,&extension)==GT_ERR_INVALID_ARG && !extension,
+        "plugin channel rejects invalid fds and clears output");
+  CHECK(gt_ext_channel_open_ssh(NULL,NULL,0,NULL,NULL,&extension)==GT_ERR_INVALID_ARG && !extension,
+        "plugin channel rejects missing explicit SSH route");
+  CHECK(gt_ext_channel_write(NULL,"x",1).state==GT_EXT_IO_ERROR &&
+        gt_ext_channel_read(NULL,&extension,1,0).error==GT_ERR_INVALID_ARG &&
+        gt_ext_channel_destroy(&extension)==GT_ERR_INVALID_ARG,
+        "plugin channel invalid calls never pretend success");
 
   /* 三态枚举不得折叠 */
   gt_hostkey_decision_t d = GT_HOSTKEY_UNKNOWN;
