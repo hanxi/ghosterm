@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Ghosterm 插件桥接架构评审稿：TypeScript 插件、本地与执行端双包、TTY 通道、AI 对话、原生 UI 和多平台接入规范。">
+<title>Ghosterm 插件桥接架构与开发规范</title>
+<style>
+:root{color-scheme:light;--bg:#f2f4f2;--paper:#fff;--ink:#25382f;--muted:#6b7870;--line:#dce4de;--accent:#387961;--soft:#e9f1eb;--amber:#946d2b;--code:#21342c;--nav:232px}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:28px}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.8 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif}button,select,input{font:inherit}button{cursor:pointer;color:inherit}a{color:var(--accent);text-underline-offset:4px}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid #6caa8f;outline-offset:3px}[hidden]{display:none!important}.shell{max-width:1580px;margin:auto;display:grid;grid-template-columns:var(--nav) minmax(0,1fr)}.rail{border-right:1px solid var(--line);padding:27px 21px;position:sticky;top:0;height:100vh;overflow:auto;scrollbar-width:thin}.brand{display:flex;align-items:center;gap:9px;text-decoration:none;color:var(--ink);font-weight:700;font-size:15px}.mark{display:grid;place-items:center;background:#304b3e;color:#d0eadb;font:700 18px monospace;width:31px;height:31px;border-radius:9px}.rail .edition{font:9px ui-monospace,monospace;letter-spacing:1px;color:var(--muted);margin:20px 0 16px}.rail nav{display:flex;flex-direction:column;gap:3px}.rail nav a{display:flex;gap:9px;padding:7px 9px;border-radius:5px;font-size:12px;text-decoration:none;color:var(--muted)}.rail nav a span{font:10px/2 ui-monospace,monospace;color:#9ba69c}.rail nav a:hover,.rail nav a.active{background:#e1eae2;color:#2c674b}.rail .rail-foot{font-size:10px;line-height:1.9;margin:25px 8px;color:var(--muted)}main{min-width:0;padding:27px 48px 45px}.mast{display:flex;align-items:center;justify-content:space-between;gap:15px;padding-bottom:17px;border-bottom:1px solid var(--line);color:var(--muted);font:10px ui-monospace,monospace;letter-spacing:1px}.mast a{font:11px -apple-system,sans-serif;letter-spacing:0}.hero{padding:34px 0 28px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:end}.eyebrow{font:10px ui-monospace,monospace;letter-spacing:2px;color:var(--accent);margin-bottom:10px}h1{font-size:37px;line-height:1.3;letter-spacing:-1.7px;margin:0 0 13px;font-weight:650}.lead{font-size:14px;color:var(--muted);max-width:740px}.draft{border:1px solid #b7ccb9;color:#56755d;border-radius:20px;padding:5px 12px;font-size:11px;white-space:nowrap}.quick-summary{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);background:var(--paper);border-radius:10px;overflow:hidden;margin-bottom:22px}.quick-summary div{padding:18px;border-right:1px solid var(--line)}.quick-summary div:last-child{border:0}.quick-summary small{display:block;color:var(--muted);font-size:10px;margin-bottom:6px}.quick-summary strong{font-size:14px;font-weight:600}.notice{padding:13px 17px;border-left:3px solid #7f9d83;background:#e9eee6;font-size:12px;color:#5b7159;margin:0 0 26px}.section{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:30px 32px;margin-bottom:20px;scroll-margin-top:24px;min-width:0}.section-heading{display:flex;align-items:start;gap:14px;margin-bottom:18px}.section-number{font:11px ui-monospace,monospace;border:1px solid #bfd1c2;color:#5d886a;border-radius:50%;width:29px;height:29px;flex:none;display:grid;place-items:center;margin-top:3px}h2{font-size:23px;line-height:1.4;letter-spacing:-.7px;margin:0 0 5px;font-weight:650}.section-heading p{font-size:12px;color:var(--muted);margin:0}h3{font-size:15px;margin:24px 0 9px;line-height:1.5}h4{font-size:13px;margin:19px 0 7px}p{margin:10px 0;color:#526358}strong{font-weight:650}ul,ol{padding-left:21px;color:#526358}li{margin:6px 0}code{background:#edf2ee;border-radius:4px;padding:2px 5px;font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}pre{padding:20px;background:var(--code);color:#d2e6d8;border-radius:7px;font:11px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace;overflow:auto;white-space:pre;tab-size:2}pre code{padding:0;background:transparent;color:inherit;font:inherit}.table-wrap{overflow:auto;max-width:100%;margin:15px 0}table{width:100%;border-collapse:collapse;font-size:12px;line-height:1.8}th{background:#edf3ee;color:#496550;font-weight:600;text-align:left;white-space:nowrap}td,th{padding:11px 12px;border-bottom:1px solid #e3e9e4;vertical-align:top}td p{margin:0;font-size:12px}.badge{display:inline-block;border-radius:4px;padding:2px 7px;font-size:10px;line-height:1.8;white-space:nowrap;background:#eaf2eb;color:#427450}.badge.pending{background:#f5efdf;color:#8c713d}.badge.dark{background:#dfe7e3;color:#455e52}.callout{background:#f0f5f0;border-left:3px solid #7da285;padding:12px 16px;margin:17px 0;color:#4c6c52;font-size:12px}.callout.warning{background:#f8f4e9;border-color:#c6a96c;color:#856d3c}.two-col{display:grid;grid-template-columns:1fr 1fr;gap:17px}.mini-card{background:#f8faf8;border:1px solid #e0e7e0;border-radius:7px;padding:17px 18px}.mini-card h3{margin:0 0 8px;font-size:14px}.mini-card p{font-size:12px;margin:6px 0}.decision-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}.decision{display:flex;gap:10px;padding:13px 15px;border:1px solid #e0e7e0;border-radius:6px;font-size:12px}.decision b{font:10px/2 monospace;color:#6d9478;flex:none}.decision p{margin:0}.segmented{display:flex;gap:3px;background:#edf2ee;border:1px solid #dce5dd;padding:4px;border-radius:8px;flex-wrap:wrap}.segmented button{border:0;background:transparent;border-radius:5px;padding:7px 12px;font-size:11px;color:#6b7a6d;min-height:34px}.segmented button[aria-pressed=true]{background:#365e46;color:#fff}.interaction-label{font-size:10px;color:var(--muted);margin-bottom:8px}.topology{margin-top:16px;border:1px solid #dbe5dd;border-radius:9px;overflow:hidden}.topology-top{background:#eef4ee;padding:12px 16px;font-size:11px;display:flex;justify-content:space-between;gap:12px}.topology-body{padding:22px;background:#fafcf9}.route{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:22px}.route-node{border:1px solid #cbdccd;background:white;border-radius:6px;padding:8px 12px;font:11px ui-monospace,monospace}.route-node.final{border-color:#78a184;background:#e9f3e9;color:#3b6e48}.route-arrow{color:#8fa393;font-size:17px}.processes{display:grid;grid-template-columns:1fr 42px 1fr;align-items:stretch}.process-box{background:#fff;border:1px solid #dce6de;border-radius:7px;overflow:hidden}.process-title{padding:10px 13px;background:#edf3ee;font-size:11px;font-weight:600;border-bottom:1px solid #dce6de}.process-inner{padding:14px}.process-inner div{padding:8px 10px;border-radius:5px;background:#f4f7f3;margin-bottom:7px;font-size:11px;border:1px solid #e5ebe4}.process-inner div:last-child{margin:0}.bridge-arrows{display:grid;place-items:center;font-size:23px;color:#789b80}.process-inner small{display:block;font-size:10px;color:#819082}.topology-note{font-size:12px;line-height:1.9;background:#fff;padding:14px 17px;border-top:1px solid #dce6de}.flow{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:16px 0}.flow .node{background:#edf4ef;border:1px solid #d5e3d8;padding:9px 12px;border-radius:5px;font-size:11px}.flow .arrow{color:#97ab9c}.file-browser{border:1px solid #d6e0d8;border-radius:7px;overflow:hidden;margin:16px 0}.file-browser-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:#f0f5f0;border-bottom:1px solid #d6e0d8;font-size:11px}.file-browser pre{margin:0;border-radius:0;max-height:570px}.code-tabs{display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:#e8eee8}.code-tabs button{border:0;background:transparent;font-size:11px;padding:6px 10px;border-radius:4px;color:#647b69}.code-tabs button[aria-pressed=true]{background:#fff;color:#30593d}.copy-button{border:1px solid #c9d9cd;border-radius:5px;background:white;font-size:10px;padding:4px 8px}.rule-list{counter-reset:rules;list-style:none;padding:0}.rule-list li{display:flex;gap:12px;counter-increment:rules;padding:10px 0;border-bottom:1px solid #e7ede7;font-size:12px}.rule-list li:before{content:counter(rules,decimal-leading-zero);color:#78a184;font:10px monospace;flex:none;width:21px;line-height:2}.rule-list li p{margin:0}.stepper{display:flex;flex-wrap:wrap;gap:5px;margin:15px 0}.stepper button{border:1px solid #d8e3da;background:#f8faf7;border-radius:5px;padding:8px 11px;font-size:11px}.stepper button[aria-pressed=true]{border-color:#5c8b65;color:#36623f;background:#eaf2e8}.step-detail{padding:17px 19px;border:1px solid #d8e3da;border-radius:7px;background:#f8faf7;min-height:113px}.step-detail h4{margin:0 0 6px;font-size:13px}.step-detail p{font-size:12px;margin:0}.phase{border:1px solid #dce5dd;border-radius:7px;margin:11px 0;overflow:hidden}.phase summary{list-style:none;cursor:pointer;display:flex;gap:12px;padding:15px 17px;align-items:center;background:#f7faf6;font-size:13px}.phase summary::-webkit-details-marker{display:none}.phase summary:after{content:'＋';margin-left:auto;color:#74977b}.phase[open] summary:after{content:'−'}.phase summary b{font:11px ui-monospace,monospace;color:#5b8564;flex:none}.phase .phase-body{padding:1px 20px 16px;font-size:12px}.phase .phase-body h4{font-size:12px}.source-links{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px}.source-links a{font-size:11px;line-height:1.8;overflow-wrap:anywhere;padding:8px 0}.source-links small{display:block;color:var(--muted);font-size:10px}.footer{padding:15px 0;display:flex;justify-content:space-between;gap:15px;font:10px ui-monospace,monospace;color:#849386;border-top:1px solid var(--line)}.toolbar{display:flex;gap:8px;align-items:center}.small-button{border:1px solid var(--line);background:var(--paper);color:var(--muted);font-size:10px;border-radius:5px;padding:5px 9px}.native-demo{border:1px solid #cddbd0;border-radius:8px;overflow:hidden;margin:17px 0}.native-demo-head{background:#e8efe9;padding:11px 15px;display:flex;justify-content:space-between;gap:12px;font-size:11px}.chat-demo{padding:20px;background:#fafcf9}.chat-user{margin-left:14%;border-radius:8px;background:#e3eee4;padding:12px 15px;font-size:12px;color:#49644f}.chat-agent{padding:17px 0 8px;font-size:12px;color:#637768}.tool-demo{border:1px solid #dce6de;border-radius:6px;padding:10px 13px;font:10px ui-monospace,monospace;background:white;margin:9px 0}.approval-demo{border:1px solid #d9c795;border-radius:7px;background:#faf7ed;padding:13px 15px;font-size:12px}.approval-demo p{font-size:11px;margin:6px 0;color:#897447}.approval-demo button{border:1px solid #c6d5c5;background:#f5f8f2;border-radius:5px;padding:5px 12px;font-size:11px;margin:5px 7px 0 0}.approval-demo button.accept{background:#467750;border-color:#467750;color:white}.offline-note{font-size:10px;color:#8a978b;text-align:right;margin-top:10px}.subtle{font-size:11px;color:#829085}.checklist{display:grid;grid-template-columns:1fr 1fr;gap:9px}.check-item{padding:12px 14px;border:1px solid #e0e7e0;border-radius:6px;font-size:12px}.check-item b{color:#5c8464;margin-right:8px;font:10px monospace}.platform-filter{display:flex;align-items:center;gap:10px;margin:12px 0;color:var(--muted);font-size:11px}.platform-filter select{background:#fff;border:1px solid #d5dfd5;border-radius:5px;padding:6px 9px;color:var(--ink)}.platform-detail{padding:15px 17px;background:#edf4ed;border-radius:6px;font-size:12px;margin-bottom:15px}.modal{border:1px solid var(--line);border-radius:12px;padding:25px;background:white;color:var(--ink);width:450px;max-width:90%;box-shadow:0 20px 70px #223e2d30}.modal::backdrop{background:#19332166}.modal h3{margin:0 0 10px}.modal p{font-size:12px}.toast{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);background:#2f513b;color:white;box-shadow:0 5px 18px #233c3033;padding:10px 18px;font-size:12px;border-radius:7px;z-index:10;max-width:90%}.jump{display:none}.policy{font-size:12px;color:#7c704c;background:#faf6e9;padding:12px 15px;border-radius:6px}.closed-question{display:flex;gap:12px;padding:13px 0;border-bottom:1px solid #e5ebe5}.closed-question b{font:11px monospace;color:#72987b;flex:none}.closed-question p{margin:0;font-size:12px}.section:target{border-color:#8aad91}.print-only{display:none}
+@media(min-width:1500px){main{padding-left:60px;padding-right:60px}}
+@media(max-width:1100px){:root{--nav:200px}main{padding:25px}.rail{padding:25px 13px}.hero{display:block}.draft{display:inline-block;margin-top:17px}h1{font-size:31px}.section{padding:25px}.quick-summary div{padding:15px 12px}.quick-summary strong{font-size:12px}.source-links{grid-template-columns:1fr}}
+@media(max-width:760px){html{scroll-padding-top:15px}.shell{display:block}.rail{position:relative;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:15px}.rail .edition,.rail .rail-foot{display:none}.rail nav{flex-direction:row;overflow:auto;white-space:nowrap;margin-top:12px;gap:4px;scrollbar-width:thin}.rail nav a{padding:6px 8px;font-size:10px}.rail nav a span{display:none}main{padding:20px 12px}.mast{font-size:9px;letter-spacing:0}.mast .toolbar .small-button:first-child{display:none}.hero{padding:25px 3px}h1{font-size:29px;letter-spacing:-1px}.lead{font-size:12px}.quick-summary{grid-template-columns:1fr 1fr}.quick-summary div:nth-child(2){border-right:0}.quick-summary div:nth-child(-n+2){border-bottom:1px solid var(--line)}.section{padding:22px 16px;margin-bottom:14px}.section-heading{gap:10px}h2{font-size:20px}.section-heading p{font-size:11px}p,li{font-size:12px}.two-col,.decision-grid,.checklist{grid-template-columns:1fr}.table-wrap table{min-width:650px}.processes{grid-template-columns:1fr}.bridge-arrows{height:35px}.topology-body{padding:15px}.process-inner{padding:11px}.topology-top{font-size:10px}.source-links{grid-template-columns:1fr}.route{gap:5px}.route-node{padding:6px 8px;font-size:10px}.segmented button{padding:6px 9px}.file-browser-head{padding:9px 11px}.file-browser pre{font-size:10px;padding:15px}.phase summary{font-size:12px;padding:13px}.phase .phase-body{padding:0 14px 12px}.native-demo-head{font-size:10px}.chat-demo{padding:14px}.footer{font-size:8px}.topology-note{font-size:11px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+@media print{body{background:white;font-size:10pt}.shell{display:block}.rail,.mast .toolbar,.segmented,.stepper,.copy-button,.platform-filter,.toast{display:none!important}main{padding:0}.section{break-inside:auto;border:0;border-top:1px solid #ccc;border-radius:0;padding:18px 0}.hero{padding-top:10px}.quick-summary{box-shadow:none}pre{white-space:pre-wrap;background:#f3f5f3;color:#25382f;break-inside:avoid}.table-wrap{overflow:visible}a{color:inherit}.section:target{border-color:#ccc}.phase-body{display:block}.print-only{display:block}.section-heading{break-after:avoid}}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="rail"><a class="brand" href="#overview"><span class="mark">›_</span>Ghosterm</a><div class="edition">PLUGIN BRIDGE / RFC 0.1</div><nav aria-label="方案目录">
+<a href="#overview" class="active"><span>00</span>定位与设计决策</a><a href="#architecture"><span>01</span>本地与远端架构</a><a href="#code"><span>02</span>代码模块与接缝</a><a href="#runtime"><span>03</span>语言与运行时</a><a href="#package"><span>04</span>插件包与分发</a><a href="#sdk"><span>05</span>插件开发规范</a><a href="#wire"><span>06</span>TTY 通道与协议</a><a href="#paths"><span>07</span>路径与资源模型</a><a href="#lifecycle"><span>08</span>生命周期与权限</a><a href="#ai"><span>09</span>AI 对话插件</a><a href="#platforms"><span>10</span>未来平台接入</a><a href="#roadmap"><span>11</span>实现切片与验收</a><a href="#decisions"><span>12</span>待验证与决策点</a><a href="#references"><span>13</span>源码与官方资料</a>
+</nav><div class="rail-foot">一份插件，两侧部署。<br>原生界面，远端执行。<br><br>本页为架构评审稿。<br>所有示例接口均未实现。<br><a href="../preview-panes/index.html">查看预览窗格效果图 ↗</a></div></aside>
+<main>
+<header class="mast"><span>ARCHITECTURE &amp; PLUGIN DEVELOPMENT</span><div class="toolbar"><button class="small-button" id="expand-phases">展开实施计划</button><button class="small-button" id="print">打印 / 导出 PDF</button></div></header>
+<div class="hero"><div><div class="eyebrow">GHOSTERM EXTENSION SYSTEM</div><h1>插件桥接架构<br>与开发规范</h1><p class="lead">让远端命令通过现有连接，打开本地原生窗格。文件预览、AI 对话、差异、表格和任务面板，作为同一套插件系统的不同能力。</p></div><span class="draft">评审草案 v0.1 · 2026.11.05</span></div>
+<div class="quick-summary"><div><small>插件主语言</small><strong>TypeScript → JavaScript</strong></div><div><small>包模型</small><strong>Client + Executor</strong></div><div><small>系统接缝</small><strong>C11 + 原生宿主</strong></div><div><small>接入顺序</small><strong>macOS / Android 优先</strong></div></div>
+<div class="notice">本轮交付为 HTML 方案。目录、API、命令、协议和预算是设计草案，不代表当前 Ghosterm 已支持；TTY 路由与 JS 引擎须先通过探针再冻结规范。本页交互只切换离线示例，不连接远端、不运行 Agent。</div>
+
+<section class="section" id="overview"><div class="section-heading"><span class="section-number">00</span><div><h2>定位与设计决策</h2><p>从预览命令，扩展为远端程序与原生工作区之间的插件桥接。</p></div></div>
+<p>暂定命令名 <code>gterm</code>。所有业务子命令由插件贡献；宿主只保留安装、诊断、通道和生命周期等基础设施。普通本地 PTY / SSH 继续作为默认入口，用户在某个执行环境显式运行 <code>gterm &lt;command&gt;</code> 后才激活扩展。</p>
+<div class="decision-grid"><div class="decision"><b>D01</b><p><strong>一个插件版本，两侧产物。</strong>Client 运行于 Ghosterm，Executor 在任务所在机器运行；共享 schema，分别部署、分别授权。</p></div><div class="decision"><b>D02</b><p><strong>TypeScript 优先，协议不锁语言。</strong>Portable JS 为目标默认档；Node / Exec 是声明依赖的执行端档位。</p></div><div class="decision"><b>D03</b><p><strong>原生工作区与原生标准组件。</strong>插件声明 chat / diff / table / task / form 语义，自定义 Web 内容只承担文档或图表。</p></div><div class="decision"><b>D04</b><p><strong>主通道为 TTY，已管理端点可另用直接通道。</strong>嵌套 SSH 不重建猜测出来的 SFTP；TTY 的输出与输入路由分别验收。</p></div><div class="decision"><b>D05</b><p><strong>业务插件不处理终端字节流。</strong>协议分帧和资源 IO 在 C / Transport owner，TerminalSurface 不知道 SSH 或插件业务。</p></div><div class="decision"><b>D06</b><p><strong>显式前台生命周期。</strong>不引入 sessiond、自动恢复、常驻安装服务或随包 shell runtime；tmux 仍由用户选择。</p></div><div class="decision"><b>D07</b><p><strong>实现状态与能力诚实分开。</strong>GUI 能展示不等于有本地执行器；未具备的能力返回 GT_ERR_UNSUPPORTED。</p></div><div class="decision"><b>D08</b><p><strong>协议 v1 与 SDK v1 先是候选。</strong>格式、命名与预算须经过两个平台、真实 SSH 和 tmux 探针才能进入兼容承诺。</p></div></div>
+<h3>业务扩展范围</h3><div class="table-wrap"><table><thead><tr><th>贡献的命令</th><th>执行端</th><th>本地界面</th><th>首片定位</th></tr></thead><tbody><tr><td><code>preview &lt;path&gt;</code></td><td>读取有界文件、整理附件</td><td>文档 / 图片 / 源码</td><td>第一个资源类插件</td></tr><tr><td><code>ai codex</code></td><td>管理 app-server 子进程及协议</td><td>对话 / 工具调用 / 批准</td><td>第一个双向会话插件</td></tr><tr><td><code>ai claude</code></td><td>CLI / Agent SDK 独立适配</td><td>复用对话语义，保留能力差异</td><td>验证 Node / Exec 档</td></tr><tr><td><code>diff</code> / <code>table</code></td><td>资源或分页查询</td><td>原生差异 / 只读表格</td><td>验证组件复用</td></tr><tr><td><code>logs</code> / <code>task</code></td><td>有界流、阶段与结果</td><td>搜索 / 进度 / 测试报告</td><td>验证背压和持续事件</td></tr><tr><td><code>select</code> / <code>form</code></td><td>提交 schema、等待用户输入</td><td>原生选择 / 表单</td><td>验证 request / response</td></tr><tr><td><code>send</code> / <code>receive</code></td><td>受控传输</td><td>选择器 / 进度</td><td>上传需独立授权，非首片默认</td></tr></tbody></table></div>
+<p>宿主保留 <code>plugin</code>、<code>doctor</code>、<code>relay</code> 等管理命名空间。它们不承载业务，不开放插件覆盖；<code>preview / ai / diff</code> 不写死在 C 核心。先用随包官方插件验证 SDK，第三方任意安装在隔离与渠道策略验证后开放。</p>
+</section>
+
+<section class="section" id="architecture"><div class="section-heading"><span class="section-number">01</span><div><h2>本地与远端架构</h2><p>界面侧固定，执行侧随任务位置变化；实际支持范围由能力握手确定。</p></div></div>
+<div class="interaction-label">切换拓扑，查看不同执行环境的边界</div><div class="segmented" aria-label="执行拓扑"><button data-topology="local" aria-pressed="false">本机执行</button><button data-topology="nested" aria-pressed="true">SSH → SSH → tmux</button><button data-topology="relay" aria-pressed="false">tmux → SSH → tmux</button><button data-topology="web" aria-pressed="false">未来 Web 客户端</button></div>
+<div class="topology"><div class="topology-top"><span id="topology-title">嵌套 SSH 中执行</span><span class="badge pending">目标行为 · 待探针验证</span></div><div class="topology-body"><div class="route" id="route"></div><div class="processes"><div class="process-box"><div class="process-title" id="client-title">Ghosterm / macOS 或 Android</div><div class="process-inner"><div>原生工作区与语义组件<small>chat / approval / diff / resource / table</small></div><div>Client 插件 + 受限宿主 SDK<small>JS worker · 不接收终端原始输出</small></div><div>ExtensionController → Transport actor<small>实例代次、能力、取消、资源句柄</small></div></div></div><div class="bridge-arrows" aria-label="双向连接">⇄</div><div class="process-box"><div class="process-title" id="executor-title">主机 B / 当前执行环境</div><div class="process-inner"><div>gterm 前台宿主<small>独占本次 TTY 协议与子进程生命周期</small></div><div>Executor 插件<small>portable / node / exec</small></div><div id="executor-leaf">文件资源 / Codex / Claude / 任务命令<small>文件与命令都在实际环境中解析</small></div></div></div></div></div><div class="topology-note" id="topology-note"></div></div>
+<h3>三条数据路径</h3><div class="two-col"><div class="mini-card"><h3>普通终端路径</h3><p><code>Transport → native mux → TerminalSurface</code></p><p>未协商业务的普通字节仍直连；不进入 JS、不进入 UI 队列。不为插件复制整份终端输出。</p></div><div class="mini-card"><h3>插件控制路径</h3><p><code>原生 UI → ExtensionController → Transport owner → Core</code></p><p>同一套 actor / broker 代理处理资源和执行请求；UI 与插件视图不直接调 Core 或 libssh2。</p></div></div>
+<p>扩展消息由 native mux 识别后进入有界插件通道；大块文件在 worker 读写私有 ResourceStore。UI 只收到合并的状态失效通知，再经平台门面拉取有界快照。TerminalSurface 继续只负责终端呈现，不承担资源下载或 AI 适配。</p>
+<div class="callout">应用层桥接协议用于用户显式启动的业务会话，不恢复 shell、PTY 或 tmux，不创建旧 ABI / 记录兼容层。JS 引擎是插件解释器候选，不是已退役的 shell 环境包。实现时须在 AGENTS 同步登记新增目录、边界和验收范围。</div>
+<h3>没有远端时也使用同一模型</h3><p>本机桌面命令通过 stdio / 本地 IPC 将 Executor 连接至同一 Broker，避免不必要的 TTY 编码。移动端 Client 可以连接远端 Executor；本机执行只能使用平台明确允许且已实现的服务，不能把远端执行能力冒充手机本地能力。Client 与 Executor 不共享内存对象、文件句柄或凭据。</p>
+</section>
+
+<section class="section" id="code"><div class="section-heading"><span class="section-number">02</span><div><h2>代码模块与实现接缝</h2><p>以下目录和符号为拟议实现布局；本页没有创建生产模块。</p></div></div>
+<div class="file-browser"><div class="file-browser-head"><span>PROPOSED SOURCE LAYOUT</span><span class="badge dark">C 核心 / 独立 CLI / TS SDK / 原生绑定</span></div><pre>core/include/ghosterm/extension.h   公共 opaque handle / POD / 错误契约
+core/src/extension/
+  mux.c          增量识别、分帧、原始终端字节透传
+  channel.c      协商、序号、窗口、取消、背压
+  resource.c     资源预算、临时落盘、摘要、完整发布
+  registry.c     插件元数据、版本与能力匹配
+  runtime.c      插件任务与能力句柄
+  js/            JS 引擎 C 适配与宿主 API，不依赖端代码
+core/tests/      分帧、生命周期、权限、资源和互操作测试
+
+cli/gterm/
+  main.c         命令发现与插件分发，不包含业务命令实现
+  tty_posix.c    TTY 状态保存 / 恢复、前台占用、用户取消
+  process_posix.c / ipc_posix.c
+  relay.c        可选前台中继，具体支持拓扑由探针决定
+
+packages/plugin-sdk/
+  portable/      可在轻量 JS 引擎运行的公共能力
+  client/        原生视图描述、会话、资源引用
+  executor/      文件、子进程、消息、取消接口
+  node/          显式 Node 档适配
+  schema/        Manifest / wire / view schema 与生成工具
+  testkit/       模拟能力、协议夹具、权限负向测试
+
+plugins/official/{preview,ai-codex,ai-claude,diff,table,...}/
+  src/{client,executor,shared}/     业务均通过同一 SDK
+
+apple/.../ExtensionController.swift / ExtensionPane.swift
+android/bridge/.../extension_owner.c  JNI actor 与 C ABI 绑定
+android/app/.../ExtensionViewModel.kt / ExtensionScreen.kt
+windows/bridge/ · linux/bridge/ · harmony/bridge/ · web/bridge/
+  各端能力适配；端代码之间不互相引用
+
+vendor/&lt;js-engine&gt;/              通过 submodule 锁 pin，待引擎探针选定
+patches/&lt;js-engine&gt;/WHY.md        仅在确需上游修改时添加
+scripts/                         构建、SDK 校验、变异和包完整性检查</pre></div>
+<h3>模块所有权</h3><div class="table-wrap"><table><thead><tr><th>模块</th><th>拥有的资源</th><th>必须满足的契约</th></tr></thead><tbody><tr><td>Terminal IO owner</td><td>Transport 与 native mux</td><td>read / write / resize 单 owner；协议回包与用户输入统一调度；普通字节直达 Surface</td></tr><tr><td>ExtensionBroker</td><td>连接 epoch、实例表、路由、预算</td><td>任何 UI / JS 请求都检查实例、代次、能力和期限；不持有解锁私钥副本</td></tr><tr><td>PluginRuntime worker</td><td>JS runtime、模块、有限任务队列</td><td>不运行于 UI / 终端读线程；同步 JS 有 CPU / 内存上限，原生 IO 另有取消和截止时间</td></tr><tr><td>ResourceStore</td><td>未完成写入与已发布只读资源</td><td>校验完后才发布；引用计数与配额；清理不删除来源文件或未知归属文件</td></tr><tr><td>ExecutorSupervisor</td><td>本次子进程、管道、退出结果</td><td>不把 EOF 当成功；退出码、协议结果和取消分开；只清理自己创建的进程范围</td></tr><tr><td>原生 PaneController</td><td>窗格 UUID、Client 状态与视图</td><td>布局重排不重启业务；关闭、隐藏、失焦行为各自定义；通过门面调用 Broker</td></tr></tbody></table></div>
+<p>共享核心保持 C11 + POSIX，绝不包含 AppKit / Android / WebView / windows.h。未来 Windows 的进程和文件适配在平台 bridge 提供能力表；共享纯状态机与 codec 单独构建。Web 仅编译可移植子集，不声称整套 POSIX Core 可直接 wasm 化。</p>
+<h3>构建、发布与默认入口</h3><p>bridge / JS runtime 作为显式可配置构建能力，CMake 与平台构建各自记录实际开关。公开符号在不支持构建中仍提供返回 <code>GT_ERR_UNSUPPORTED</code> 的实现，不因开关改变导出集合。离线 core gate 不临时联网拉引擎；启用插件档时必须有锁定依赖与真实测试，不把缺依赖的 SKIP 记为通过。</p>
+<p><code>gterm</code> 作为独立 CLI 构件发布，由用户在实际机器显式安装；普通 App 包不新增 helper、Linux 安装包或 shell runtime，也不自动布置远端工具。随包官方插件是受信 JS / schema / 资源，不是可执行环境。未来若要改变随包边界，须先单独修订 AGENTS 与包验收，不能借本方案隐式放行。</p>
+<h3>C ABI 接口形状</h3><pre>/* 草案，仅示意职责；尚未加入 ghosterm.h，不构成 ABI 承诺。 */
+typedef struct gt_ext_mux gt_ext_mux_t;
+typedef struct gt_ext_instance gt_ext_instance_t;
+typedef struct gt_ext_resource gt_ext_resource_t;
+
+/* IO owner 喂入；terminal_sink 在同一 IO 路径直接消费普通字节。 */
+gt_status_t gt_ext_mux_feed(..., const uint8_t *bytes, size_t count,
+                           terminal_sink, void *context);
+/* IO owner 提取获准的回包后再调用 transport_write。 */
+gt_status_t gt_ext_mux_take_output(...);
+/* worker / actor 拉取有界业务快照，绝不借出 JSValue 或内部 fd。 */
+gt_status_t gt_ext_instance_read_snapshot(...);
+gt_status_t gt_ext_instance_submit_action(...);
+gt_status_t gt_ext_resource_read(...);
+gt_status_t gt_ext_instance_cancel(...);</pre>
+<p>所有平台绑定仍从 <code>core/include/ghosterm.h</code> 进入；子头不反向包含聚合头。JS 宿主函数在 C 内部调用同一能力服务，不把 JS 对象跨到 Swift / JNI。新增公开接口须同步 Apple / JNI 引用与显式未用登记，并完成各端真实编译。</p>
+<h3>现有代码的落点</h3><p>macOS 在 <a href="../../../apple/GhostermApp/Sources/GhostermAppModel/WorkspaceLayout.swift">WorkspacePane</a> 增加 extension 叶子，接既有宿主 UUID、焦点、缩放和关闭；不让每个业务插件增加一个 Swift enum 分支。Android 新建通用扩展状态与屏幕，不把生命周期绑在 <a href="../../../android/app/src/main/java/com/hanxi/ghosterm/FilesViewModel.kt">FilesViewModel</a>。两端 Transport 现有读写循环的变更必须单独保护普通终端不失字、不改序、不阻塞。</p>
+</section>
+
+<section class="section" id="runtime"><div class="section-heading"><span class="section-number">03</span><div><h2>语言与运行时</h2><p>统一插件开发体验，保留原生宿主边界；编程语言不等于执行环境。</p></div></div>
+<p><strong>插件源码统一优先 TypeScript，发布 JS 源码模块和 schema。</strong>主 CLI、协议、资源 store 与引擎绑定使用 C。Swift / Kotlin 实现原生宿主；不引入跨端 UI 框架，不使用 Rust。</p>
+<div class="table-wrap"><table><thead><tr><th>运行档</th><th>使用范围</th><th>可用能力</th><th>分发策略</th></tr></thead><tbody><tr><td><strong>portable-js</strong><br><span class="badge pending">目标默认 · 引擎待选</span></td><td>Client 与普通 Executor</td><td>ES 模块 + Promise / typed arrays + 明确的宿主 SDK；无 Node 内置模块、无 DOM、无直接 native FFI</td><td>宿主内嵌轻量 JS 引擎候选，插件不单独携带解释器；两侧分别构建和验收</td></tr><tr><td><strong>node</strong><br><span class="badge dark">执行端可选</span></td><td>依赖完整 npm / 官方 SDK 的 Executor</td><td>独立 Node 子进程，通过进程消息与核心通信；本地 Client 仍用 portable-js</td><td>声明版本范围，使用执行机器已安装的运行时；缺失即显式报错，不自动下载</td></tr><tr><td><strong>exec</strong><br><span class="badge dark">执行端可选</span></td><td>Python / Go / C 等适配程序</td><td>长度受限的结构化 stdio / 资源句柄协议；不加载动态库到 App</td><td>按 OS / arch 提供构件或声明解释器；平台不允许子进程时不可用</td></tr><tr><td><strong>web-content</strong><br><span class="badge dark">本地可选内容视图</span></td><td>文档、图表等定制内容</td><td>HTML / CSS / JS，通过资源 broker 与有限消息通信</td><td>不取代原生工作区、确认、文件授权和通用对话组件；独立 origin / 配置</td></tr></tbody></table></div>
+<h3>轻量引擎的选型闸门</h3><p>QuickJS / QuickJS-NG 进入 P0 候选，不在本稿锁定分支。评估 C11 工具链、macOS / Android NDK 构建、API 稳定性、维护与许可、模块加载、内存 / 栈限额、CPU 中断、GC 与取消行为。原生异步 IO、事件循环、流控、UTF-8 编解码和定时器由宿主补齐，不能把“嵌入引擎”当成已有 Node 兼容层。QuickJS 提供内存限制与中断入口，但它们不覆盖阻塞的原生函数，也不构成完整恶意代码沙箱。[S4]</p>
+<p>插件分发编译后的 JS 文本，不把引擎字节码当稳定格式；缓存仅作为本机、当前引擎版本的可删除优化。默认禁用原生动态模块和通用 <code>std/os</code>，模块导入只允许插件包内资源和宿主白名单。</p>
+<h3>标准组件与自定义视图</h3><div class="two-col"><div class="mini-card"><h3>标准组件由各端原生实现</h3><p>插件通过 SDK 声明 <code>chat</code>、<code>approval</code>、<code>diff</code>、<code>table</code>、<code>task</code>、<code>form</code> 的数据模型和动作。macOS 与 Android 分别实现键盘、无障碍、焦点、IME 和自适应。</p></div><div class="mini-card"><h3>Web 内容可使用 Lit</h3><p>只在文档 / 图表需要特殊内容布局时使用。Lit 是开发选项，不进入核心 SDK 的强制依赖；纯 JS、其它框架产出的离线 HTML 也可按同一内容契约接入。</p></div></div>
+<p>不同宿主可采用不同引擎实现，只承诺同一 Portable API 与 conformance 行为。纯 schema / reducer / 编码逻辑可共享；Client 与 Executor 各自独立状态，不共享运行中的 JS 对象或模块单例。</p>
+</section>
+<section class="section" id="package"><div class="section-heading"><span class="section-number">04</span><div><h2>插件包与部署规范</h2><p>一个逻辑插件版本，两个可独立部署的部分；兼容以协议与能力为准。</p></div></div>
+<pre>org.ghosterm.ai-codex.gtp/          逻辑发布包，后缀与容器格式待 P0 冻结
+  plugin.json                     UTF-8 manifest，schemaVersion 独立版本
+  integrity.json                  每个成员的路径 / 字节数 / SHA256
+  signature                       若渠道要求，覆盖精确的清单摘要
+  client/index.js                 portable Client
+  executor/portable/index.js       普通 CLI 适配
+  executor/node/index.js           仅声明 Node 变体时提供
+  shared/                         构建后实际使用的公共模块
+  schemas/                        参数、消息和后端版本适配 schema
+  views/                          可选离线内容视图
+  assets/                         非可执行资源
+  LICENSES/                       插件与依赖许可证
+  README                          命令、能力、依赖与关闭语义</pre>
+<p>开发源码组织为 <code>src/client</code>、<code>src/executor</code>、<code>src/shared</code>；打包阶段生成两侧产物和完整依赖闭包。Client 与 Executor 不必都存在，但不能运行缺失或不兼容的一侧。运行时不从 CDN 拉依赖，不从文件内容中选择插件。</p>
+<div class="file-browser"><div class="file-browser-head"><span>示例 Manifest / API 形状 / 代码布局</span><button class="copy-button" id="copy-code">复制当前示例</button></div><div class="code-tabs" aria-label="代码示例"><button data-code="manifest" aria-pressed="true">plugin.json</button><button data-code="client" aria-pressed="false">Client.ts</button><button data-code="executor" aria-pressed="false">Executor.ts</button><button data-code="types" aria-pressed="false">SDK 类型</button><button data-code="install" aria-pressed="false">部署与开发</button></div><pre id="code-display" tabindex="0" aria-label="当前代码示例"></pre></div>
+<h3>Manifest 必填信息</h3><div class="table-wrap"><table><thead><tr><th>字段组</th><th>规则</th></tr></thead><tbody><tr><td>身份与版本</td><td>稳定反向域名 id、SemVer pluginVersion、schemaVersion、sdkApiRange、bridgeProtocolRange、publisher 与 license。包 ID 不是已验证的发布者身份。</td></tr><tr><td>命令贡献</td><td>token 数组路径、参数 schema、说明、所需视图。冲突时先由用户建立关联；不按安装顺序抢占命令，不覆盖宿主管理命令。</td></tr><tr><td>Client</td><td>entry、runtime、所需宿主能力、可选内容视图。标准组件由宿主决定是否可用，不因包自称支持就返回成功。</td></tr><tr><td>Executor 变体</td><td>entry / executable、runtime、OS / arch、依赖范围、requires。一个包可同时提供 portable 与 node 变体，但选择必须可见且可固定。</td></tr><tr><td>权限</td><td>按 side 声明 capability、目的和请求范围。安装声明不等于运行授权，远端声明也不能授予本地文件或进程访问。</td></tr><tr><td>产物与兼容</td><td>所有 entry 必须在完整性清单内；路径不可越界。SDK、视图、传输、插件版本分别协商，不能拿一个 version 替代全部协议。</td></tr></tbody></table></div>
+<h3>安装与升级</h3><ol><li>本地安装 Client 前展示发布者、包摘要、权限和依赖；远端只安装 Executor，需用户明确选择实际执行环境。默认不沿 SSH 自动复制、安装或修改 shell 启动文件。</li><li>按内容摘要下载 / 导入到私有 staging，检查条目数、解压总量、单文件和路径。拒绝绝对路径、<code>..</code>、符号链接、设备文件、大小写折叠冲突和未知重复成员。</li><li>校验签名策略与完整性后原子激活；包目录只读。SHA256 证明字节一致，发布者身份依赖受信公钥 / 渠道，不能只凭远端传来的摘要自动信任。</li><li>实例绑定实际 Client / Executor 摘要、schema 与权限快照。升级只影响新实例，旧实例继续引用原包；卸载先停用新建，再按用户选择结束现有实例。</li><li>回滚恢复已验证的旧包。包状态迁移只处理插件私有数据，不迁移批准决定、旧请求或可执行会话，不重放远端操作。</li></ol>
+<p>逻辑包允许拆成 Client / Executor 子构件分发，公用同一发布描述与两侧摘要。连接时分别显示实际版本；初期官方插件优先要求配对版本，后续按显式的对端 schema 范围放宽。部分升级失败保留旧可用版本，并明确显示两侧不一致。</p>
+<div class="callout warning">首片提供随包官方插件和用户显式指定的受信开发目录。开放第三方安装前，需要完成插件来源、隔离、撤销与各发行渠道动态代码规则的专项评估；这不阻止先验证 SDK 和双包结构，也不预先承诺插件市场。</div>
+</section>
+<section class="section" id="sdk"><div class="section-heading"><span class="section-number">05</span><div><h2>插件开发规范</h2><p>“须”为 v1 候选的强制规则；“建议”为默认最佳实践。以实际发布的 schema 和 conformance 为准。</p></div></div>
+<h3>公共接口与生命周期</h3><pre>export interface PluginEntry {
+  activate(context: PluginContext): Promise&lt;Disposable&gt;;
+}
+
+interface PluginContext {
+  readonly instanceId: string;
+  readonly epoch: string;
+  readonly side: "client" | "executor";
+  readonly capabilities: CapabilitySet;
+  readonly cancellation: CancellationToken; // SDK 提供，不假设浏览器全局
+  readonly session: SessionChannel;        // typed request / response / event
+  readonly resources: ResourceBroker;      // scoped ResourceRef，非任意路径
+  readonly ui?: NativeViewService;         // Client 独有
+  readonly process?: ProcessService;       // Executor 且获授权时可用
+}
+
+interface ResourceRef {
+  readonly id: string;                     // 实例内 opaque token
+  readonly generation: string;
+  readonly displayName: string;
+  readonly mediaType: string;
+  readonly size: {kind: "known"; bytes: string} | {kind: "unknown"};
+}
+
+type Outcome =
+  | {kind: "success"; result: unknown}
+  | {kind: "failed"; error: PluginError}
+  | {kind: "cancelled"; effect: "none" | "possible"}
+  | {kind: "unknown"; reason: string};</pre>
+<p><code>activate</code> 只在用户启动贡献命令、权限与依赖检查通过后执行。模块顶层只注册纯元数据，不做文件读取、网络连接、进程启动或自动安装。资源在对应 context 内创建和释放；宿主回收不等待插件成功返回 <code>dispose</code>。</p>
+<h3>强制规则</h3><ol class="rule-list"><li><p><strong>TypeScript strict。</strong>声明并生成参数 / 消息 schema，禁止用 <code>any</code> 绕过对外边界。构建产物须适配所声明运行时，不以开发机 Node 能运行代替 portable 兼容。</p></li><li><p><strong>能力先探测再调用。</strong>可选能力缺失显示功能不可用；必需能力缺失拒绝激活。不得静默改用另一台主机、另一运行时或另一认证身份。</p></li><li><p><strong>消息必须有 schema 与身份。</strong>包含 requestId / instanceId / epoch；拒绝旧代次与错误资源。未知必需字段 / 协议版本失败，明确声明为可选的扩展字段才可忽略。</p></li><li><p><strong>输入按数据传递。</strong>进程使用 executable + argv，不拼 shell 字符串。用户路径由实际 Executor 解析；客户端不执行远端提供的命令片段。</p></li><li><p><strong>所有 IO 有取消和期限。</strong>使用宿主提供的预算，不自行创建无限重试或后台轮询。进度不是完成，EOF 不是业务成功，未知不归为拒绝或成功。</p></li><li><p><strong>流必须有背压。</strong>等待 send / append 的 credit，禁止无限缓存和逐 token UI 事件；文件内容通过 ResourceBroker 流动，不塞入 JSON 或视图属性。</p></li><li><p><strong>portable 导入受限。</strong>只导入包内模块和 SDK；无 <code>node:*</code>、DOM、native 动态模块、任意 FFI 或外部 HTTP import。Node / Exec 档的额外依赖须显式声明。</p></li><li><p><strong>Client / Executor 权限隔离。</strong>执行端获得 project.read 不等于能读本地文件；Client 展示文件不等于有执行权限。包中的 web 内容不直接持有 process、SSH 或文件路径能力。</p></li><li><p><strong>批准由原生宿主呈现。</strong>后端请求与不可变 ID 绑定，展示真实动作、执行环境与范围。插件不能伪造“用户已批准”或将旧批准应用于新操作。</p></li><li><p><strong>终端与插件日志分离。</strong>Executor 插件标准输出只承载宿主协议；诊断经受限日志接口。不得把协议或凭据写到普通终端回卷、快照与测试基线。</p></li><li><p><strong>界面可访问、可缩放。</strong>原生组件保留无障碍和大字号；内容视图响应主题、viewport 与 visibility。私有 CSS 不覆盖宿主窗口，也不劫持终端快捷键。</p></li><li><p><strong>禁用可收回能力。</strong>停止后释放订阅 / token / 进程管道；晚到回调不能恢复 UI 或副作用。插件失败仅影响自身实例，宿主依旧可用。</p></li></ol>
+<h3>开发、构建与验证</h3><p>拟提供 <code>gterm-plugin init / check / build / pack / test</code> 开发工具（仅拟议命令）。<code>check</code> 校验 manifest、schema、命令冲突、依赖与导入闭包；<code>test</code> 在受限 harness 中验证激活、取消、超限、旧 epoch、错误消息和资源释放；<code>pack</code> 生成完整性清单、许可证和可复现产物。默认无安装后脚本。</p>
+<p>官方示例须包括一个资源插件和一个持续双向会话插件，并在 macOS / Android 上通过相同行为夹具。至少做一次破坏权限、一次破坏取消、一次错发实例的变异；正常断言红、独立配置对照绿、恢复绿及 SHA256 一致，编译失败不算目标红。</p>
+<div class="callout">SDK 采用类型描述 + 运行时 schema 双重约束。C ABI 的 64 位计数在 JSON 中使用规范十进制字符串，SDK 提供受检比较 / 转换；未知大小是单独标签，不用 0 代替。协议 schema 是语言无关事实来源，TS 类型与 C / 平台模型从它生成或双向对拍。</div>
+</section>
+<section class="section" id="wire"><div class="section-heading"><span class="section-number">06</span><div><h2>TTY 双向通道与协议</h2><p>分开解决输出透传、输入归属、业务消息和资源完整性；不把图形协议作为依赖。</p></div></div>
+<p>标准 TTY 文件协议可作为传输子集的互操作候选；本方案还需要持续 RPC、多个逻辑流和优先级。P0 对比 Kitty 文件传输 / trzsz 与受限 bridge framing 的真实链路，能复用的子集继续复用；扩展需要显式协商，不擅自改包后声称兼容。首个规范冻结前，任何私有 carrier 都只用于隔离探针。</p>
+<h3>逻辑帧与传输编码</h3><pre>{
+  "wireVersion": 1,
+  "connectionId": "b7f0...",
+  "instanceId": "i-019...",
+  "epoch": "2",
+  "streamId": "control",
+  "seq": "17",
+  "kind": "request",
+  "requestId": "r-83...",
+  "method": "chat.approval.respond",
+  "payload": {"approvalId": "a-31...", "decision": "decline"}
+}</pre>
+<p>这是逻辑 JSON schema 示例，不是可以直接粘贴到 shell 的字节。字段名、格式和 ID 约束待 P0 固定。不同插件的 payload 仍需各自 schema；未知 method 必须返回错误，不能当成功丢弃。</p>
+<div class="table-wrap"><table><thead><tr><th>通道</th><th>编码</th><th>校验边界</th></tr></thead><tbody><tr><td>本机 stdio / IPC</td><td>固定长度前缀 + 有界 metadata / payload；不引入 TTY 转义</td><td>最大帧、UTF-8 / JSON、类型、实例归属、EOF 的半帧；本地 IPC 另验证当前用户 / 客户端</td></tr><tr><td>TTY carrier</td><td>候选私有 DCS 前缀 + 有界文本编码分片 + ST；实际前缀与 tmux 包装由 P0 冻结</td><td>增量 parser 跨 read 分块；不宣称占用已登记标准序列；可识别但未授权只允许小型 offer</td></tr><tr><td>tmux 包装</td><td>按探测结果使用 DCS passthrough / 明确前台 relay</td><td>层数、转义膨胀、长度上限、可见性；不根据环境变量猜测最终可用性</td></tr><tr><td>未来 gateway</td><td>经认证的 WSS / 平台网关，承载同一逻辑帧</td><td>外层认证、来源 / 用户隔离与过期；不向浏览器发 SSH 私钥，不开放匿名执行入口</td></tr></tbody></table></div>
+<p>解析器在普通态遇到非本协议字节须逐字节透传，不能破坏未知 OSC / APC / DCS、Kitty 图形或剪贴板协议。遇到已识别并接受的损坏 bridge 帧则丢弃该协议帧并终止扩展实例，不让载荷落入终端。前缀未完整时只缓存有限探测窗口，超时后按原字节恢复，不能吞掉普通输出或无限等。</p>
+<h3>通道建立流程</h3><div class="stepper" aria-label="通道建立步骤"><button data-step="0" aria-pressed="true">1 发现</button><button data-step="1" aria-pressed="false">2 授权</button><button data-step="2" aria-pressed="false">3 验路</button><button data-step="3" aria-pressed="false">4 激活</button><button data-step="4" aria-pressed="false">5 结束</button></div><div class="step-detail" id="step-detail"></div>
+<p>生命周期候选：<code>OFFERED → CONSENT → PROBING → NEGOTIATED → ACTIVE → DRAINING → CLOSED</code>。拒绝、超时、损坏与失联是独立出口。握手包含 host / SDK / protocol 版本、插件两侧摘要、能力交集、预算和新 nonce；nonce / 随机 ID 用于绑定实例与防止串帧，不证明最终主机身份。</p>
+<h3>输出可达不等于输入有路由</h3><div class="callout warning"><strong>必须先关闭的风险：</strong>tmux passthrough 可让某个 pane 的输出到达终端，但终端写回的输入通常交给当前 pane。GUI 用户输入、批准或取消不能仅凭“收到过这个 pane 的 offer”就回写。即使禁用本机快捷键，另一个 tmux 客户端仍可能切 pane；pane ID 和短时心跳本身都不是原子的路由保证。</div>
+<div class="table-wrap"><table><thead><tr><th>模式</th><th>可提供的能力</th><th>准入条件</th></tr></thead><tbody><tr><td>单向资源 push</td><td>执行端发送资源，客户端校验后展示；客户端可拒收 / 停用</td><td>不依赖回包；远端只能报告“已发送”，不能假报“本地已接收”。用户本地停止接收不等于远端已取消。</td></tr><tr><td>前台独占双向</td><td>AI / 表单 / 进度确认</td><td>gterm 正在持有输入端；具体拓扑的往返和切 pane 负向探针通过。无法保证回包归属时不开放写方向。</td></tr><tr><td>明确 relay / 受管路由</td><td>中间 tmux 后继续嵌套 SSH 的双向交互</td><td>用户显式使用前台中继或可精确寻址的管理通道；必须证明向目标子进程写入，而非只做转义转发。</td></tr><tr><td>独立直接连接</td><td>已管理端点的 IPC / 执行通道</td><td>目标由用户认证和选择；可作为明确的替代路径，不能偷偷改连首层 SSH 或创建猜测的端口转发。</td></tr></tbody></table></div>
+<p>trzsz 的跳板机 tmux 场景已有 relay 要求，说明需要按拓扑验收 [S1]。若“另一客户端切 pane”的隔离问题在通用 TTY 下无法解决，则该拓扑的双向能力应标不支持或要求额外路由，不将单向 preview 通过外推成 AI 可交互。relay 只是候选实现，不是本稿已证明的通用解法。</p>
+<h3>TTY 所有权与恢复</h3><p>CLI 显式打开控制 TTY，检查前台进程组，保存 termios / fd flags，再进入本次传输模式；协议与普通输出分离。拒绝从后台 job 抢占 TTY，拒绝不具备可用 TTY 却悄悄改走 stdout 的场景。正常完成、Ctrl-C、TERM 和可处理异常恢复自身修改；SIGKILL 无法执行恢复，诊断工具需提供由用户显式运行的终端修复步骤。停止扩展不杀死调用它的 shell 或用户已有 tmux server。</p>
+<h3>流控与预算候选</h3><div class="table-wrap"><table><thead><tr><th>对象</th><th>初始候选</th><th>超限处理</th></tr></thead><tbody><tr><td>TTY 分片</td><td>原始载荷 ≤ 1 KiB；完整 carrier 目标 ≤ 2 KiB；包装后长度另检查</td><td>按双方协商值缩小；重组消息上限与分片数量独立，不无限累积</td></tr><tr><td>控制 / 插件事件</td><td>重组 JSON ≤ 64 KiB；大内容改为资源引用</td><td>协议错误或能力报错；不截断 schema 后继续执行</td></tr><tr><td>实例 / 排队</td><td>每连接 ≤ 8 个实例；每实例控制队列 ≤ 64 项</td><td>繁忙错误；明确排队，不挤掉批准或混入另一实例</td></tr><tr><td>资源</td><td>首片文本 ≤ 256 KiB；文件默认 ≤ 16 MiB；同意更大额度需新授权</td><td>预检与流式累计双检查；未知大小也有硬上限；不发布半文件</td></tr><tr><td>握手 / 空闲</td><td>探测总预算 5 秒；中断 / 清理各有有界期限，具体值须标定</td><td>显式诊断。活跃批准等待与业务耗时不等于网络空闲，不用统一 timeout 误杀</td></tr><tr><td>UI 变化</td><td>最多约 10 次 / 秒的合并失效通知；后台视图停更新</td><td>worker 保留有界有序内容，credit 耗尽则暂停读取，不丢 token、不降格为成功</td></tr></tbody></table></div>
+<p>以上数字用于探针与内存预算，不是性能承诺。control / approval / cancel 优先于 bulk；小分片避免资源占用整条通道。每个单向流有单调 seq 和 credit，重复帧不产生重复副作用；顺序缺口、旧 epoch、未知资源或过期 request 拒绝。允许活连接内的有界确认机制，不持久化会话恢复窗口，不在重连时自动重发批准、进程启动或文件写入。</p>
+</section>
+<section class="section" id="paths"><div class="section-heading"><span class="section-number">07</span><div><h2>路径解析与资源模型</h2><p>由真实执行环境打开文件；Client 使用实例内资源引用，而非猜测远端路径。</p></div></div>
+<p><code>gterm preview ./docs/README.md</code> 在命令运行位置读取 cwd，并按当前用户 / 容器 / 挂载命名空间打开文件。路径解析交 Executor 的文件服务完成，不在客户端替它展开 <code>~</code>、环境变量或 shell 表达式。初片不执行 glob、命令替换或 shell 求值；CLI 参数已经由用户 shell 展开时按实际 argv 处理。</p>
+<div class="flow"><span class="node">执行端路径 / argv</span><span class="arrow">→</span><span class="node">scoped file handle</span><span class="arrow">→</span><span class="node">资源流 + 完整性检查</span><span class="arrow">→</span><span class="node">本地 ResourceRef</span><span class="arrow">→</span><span class="node">原生 / 文档视图</span></div>
+<h3>身份不能只用 hostname</h3><p>资源身份包含 connection epoch、Executor instance、资源 ID 与 generation；hostname、cwd、tmux pane、容器名只是来源描述。最深层机器的自报名字不能升级为已通过 hostkey 验证的端点。界面分别标注“外层已认证到 A”和“执行端报告 B / container”，不将 nonce、路径、摘要或 GUI 连通性当成 SSH 身份认证。</p>
+<div class="table-wrap"><table><thead><tr><th>对象</th><th>存储 / 传输内容</th><th>使用规则</th></tr></thead><tbody><tr><td>OriginDescriptor</td><td>来源链说明、验证层级、执行端描述、instance</td><td>标签可帮助定位；不能据此自动创建连接、读取其它主机或复用认证</td></tr><tr><td>PathCandidate</td><td>原始文本、行列号、关联的命令 / cwd 锚点、可选 origin</td><td>只是候选；没有可用读取通道或输出归属时不直接打开</td></tr><tr><td>ResourceRef</td><td>opaque ID、代次、MIME、显示名、已知 / 未知大小</td><td>只在当前授权实例有效；不携带宿主 fd、绝对私有缓存路径或可执行内容入口</td></tr><tr><td>ResourceManifest</td><td>主资源、附件图、相对路径映射、长度、摘要</td><td>按范围授权；附件数 / 总字节 / 深度有上限；资源 ID 不跨实例复用</td></tr><tr><td>Snapshot</td><td>校验后冻结的只读副本</td><td>预览可在远端进程结束后继续；明确拍摄时间 / 版本，刷新需新的可用读取者</td></tr></tbody></table></div>
+<h3>读取与发布</h3><ol><li>实际打开文件后检查普通文件、尺寸与授权范围；首片拒绝不支持的符号链接 / 特殊文件，保留 SFTP v3 无法保证竞态原子 no-follow 的既有边界。</li><li>从打开的句柄有界读取，记录声明长度、实收长度和摘要；文件变化可被检测时拒绝，摘要只证明传输内容一致，不承诺源文件具有文件系统快照一致性。</li><li>客户端写入私有未发布资源，校验完成 / 长度 / 摘要 / EOF 与完成帧后原子发布。失败、取消、超限均不把半文件作为完整结果显示。</li><li>标准视图经 ResourceRef 拉取；内容 WebView 只获得映射 URI。GTK、AppKit、Android 或 JS 都不绕过 Broker 自行读原路径。</li><li>已发布副本有引用和预算；关闭最后一个消费者后按缓存策略清理。该清理不触碰执行端来源、传输任务的未知残留或其它插件资源。</li></ol>
+<h3>HTML / Markdown 附件</h3><p>资源插件在允许的根目录内显式收集 CSS / 图片等依赖。首片可用静态解析与用户确认的附件列表；拒绝越界、非 UTF-8 路径和无法保证来源的依赖，不递归打包整个项目。动态资源请求只有 Executor 活着且请求通道可用时才开放，插件退出后的快照不承诺无限按需读取。</p>
+<p>macOS 可通过自定义资源 scheme，Android 可通过合成 HTTPS 的资源 loader，未来各端各用适合的资源映射。统一的是 ResourceBroker 语义，不要求同一 URI scheme；网络、脚本、表单和内容视图桥接分开授权。网页 / localhost 的网络可达与 SSH 转发属于另一个插件能力，不因资源回传完成而自动具备。</p>
+<h3>普通路径点击的分级承诺</h3><div class="table-wrap"><table><thead><tr><th>入口</th><th>首版行为</th><th>后续扩展条件</th></tr></thead><tbody><tr><td>preview 明确指定文件</td><td>Executor 当场解析并发送</td><td>首个可靠闭环</td></tr><tr><td>已传回快照的预览链接</td><td>点击资源 ID 打开本地只读副本</td><td>无需远端进程继续存活；过期明确报错</td></tr><tr><td>只含远端路径的链接</td><td>需要活跃且可精确寻址的读取服务</td><td>打印链接后退出不算服务；不能通过向任意当前 shell 注入命令来补足</td></tr><tr><td>任意程序输出里的相对路径</td><td>可识别候选，但不猜来源或用当前 cwd 解释历史输出</td><td>shell / tmux 归属锚点与读取通道同时具备；tmux 重绘混流可能仍要求用户选来源</td></tr></tbody></table></div>
+</section>
+<section class="section" id="lifecycle"><div class="section-heading"><span class="section-number">08</span><div><h2>生命周期、权限与失败语义</h2><p>协议连通、插件可用、任务完成与用户授权，各自独立。</p></div></div>
+<h3>授权按侧与实例发放</h3><div class="table-wrap"><table><thead><tr><th>能力</th><th>范围</th><th>边界</th></tr></thead><tbody><tr><td><code>ui.chat / ui.diff / ui.form</code></td><td>本地当前窗格</td><td>不能创建伪造系统确认或抢占别的窗格；不授予文件 / 进程权限</td></tr><tr><td><code>resource.read</code></td><td>明确 ResourceRef 与 generation</td><td>不允许猜路径；跨实例引用失败；读取额度按插件与连接共同计费</td></tr><tr><td><code>file.readScoped</code></td><td>执行端根目录 / 用户所选句柄</td><td>目录选择与请求关联；路径变化重新校验，非 UTF-8 / 特殊文件按能力显式拒绝</td></tr><tr><td><code>process.spawn</code></td><td>执行端具体程序 / argv / cwd / env 策略</td><td>不是 OS 沙箱。子进程可具有当前用户权限；CLI 自身的批准 / 沙箱政策继续生效</td></tr><tr><td><code>network.connect</code></td><td>执行端用途与目标</td><td>不把 AI Provider 联网授权扩成任意客户端网络；重定向和代理由对应能力控制</td></tr><tr><td><code>local.export / upload</code></td><td>原生文件选择器确定的资源</td><td>单独用户动作，禁止远端任意拉取本地文件；不能借“预览”默许上传</td></tr><tr><td><code>credential.use</code></td><td>由平台授权的调用，不给 JS 私钥原文</td><td>不复制 SSH 私钥、OAuth token 到 manifest / 日志 / 通道；工具自身认证仍由其后端处理</td></tr></tbody></table></div>
+<p>同一用户子进程并非安全隔离边界。Portable 引擎不暴露 os / std，加内存、栈与执行中断；任何原生能力仍须检查权限与期限。任意恶意第三方插件需要额外隔离和威胁模型，首片仅受信插件，不宣称 QuickJS 或 WebView 已提供完整沙箱。</p>
+<h3>关闭与断连</h3><div class="table-wrap"><table><thead><tr><th>触发</th><th>本地行为</th><th>执行端 / 结果</th></tr></thead><tbody><tr><td>隐藏 / 切换标签</td><td>停绘与合并 UI 更新，保持实例身份</td><td>任务继续遵守有界输出 / 背压；不按可见性重新启动</td></tr><tr><td>关闭窗格</td><td>有活动任务时展示明确语义；确认后撤销本地能力并请求取消</td><td>待有界清理；取消未确认且可能有副作用记 unknown，不默认当已停止</td></tr><tr><td>插件异常 / 超额</td><td>显示错误，可显式重新启动；隔离自身 worker</td><td>释放所属资源；本次创建的进程按策略回收，不杀 shell / tmux server</td></tr><tr><td>SSH / TTY 丢失</td><td>停用输入与批准；保留最后快照并标失联</td><td>是否还活着取决于实际 OS / tmux；不自动重发命令、批准或业务请求</td></tr><tr><td>客户端进程重启</td><td>只读展示允许保存的历史摘要；新实例重新握手</td><td>不持久化 live capability、管道、pending approval 或自动 attach 标识</td></tr><tr><td>显式重新连接</td><td>新 epoch；让用户选择已认证端点 / 工具原生会话</td><td>原生 Agent 的 resume 单独验证，不冒充桥接器恢复旧 TTY / 进程</td></tr></tbody></table></div>
+<p>对带副作用的 request，超时 / 失联后返回 unknown，并保留最小观察信息。新 epoch 下旧 requestId 不能再次执行；协议重复包只返回已有状态，不触发第二次启动。去重记录只在活实例内有界存在，进程死亡后不能声称 exactly-once。</p>
+<h3>本地数据与诊断</h3><p>默认不持久化完整 AI 对话和工具输出；是否保存由用户设置与插件能力决定。插件私有存储按包 / 实例隔离并有配额。日志只记版本、状态、耗时、计数和经处理的错误；路径、对话、提示词、工具输入与任何密钥材料不进入默认诊断和测试快照。导出诊断由用户主动选择内容。</p>
+<p>关闭后迟到的资源、批准、进程退出事件都先校验实例状态与 epoch。平台销毁视图不等于 IO owner 已释放：必须有异步释放收据，原生主线程不得 join 等待。缓存清理与业务取消分开，不因“删除历史”漏掉活跃资源预算。</p>
+</section>
+<section class="section" id="ai"><div class="section-heading"><span class="section-number">09</span><div><h2>AI 对话插件的实现切片</h2><p>体验接近 VS Code 的 Agent 插件；任务实际运行在所选 Executor 环境。</p></div></div>
+<div class="native-demo"><div class="native-demo-head"><span>原生 chat 组件的语义示意 / ai-codex</span><span>外层认证：A · 执行端报告：B</span></div><div class="chat-demo"><div class="chat-user">检查登录逻辑的问题，先给我看修改内容。</div><div class="chat-agent">我会检查相关文件，并展示拟议修改。</div><div class="tool-demo">read_file · src/auth.ts <span style="float:right;color:#73957b">completed</span></div><div class="tool-demo">fileChange · src/auth.ts <span style="float:right;color:#9f8656">proposed</span></div><div class="approval-demo"><strong>是否允许这个文件改动？</strong><p>approvalId: a-demo-31 · instance: demo · epoch: 1<br>执行位置：B / project · src/auth.ts · 本次操作</p><div id="approval-buttons"><button class="accept" data-approval="accept">允许本次（示意）</button><button data-approval="decline">拒绝（示意）</button></div><p id="approval-result" hidden></p><button id="reset-approval" hidden>重置示例</button></div><div class="offline-note">此处只有 UI 状态演示，不调用 Codex / Claude，不执行文件修改。</div></div></div>
+<h3>后端适配与能力差异</h3><div class="table-wrap"><table><thead><tr><th>后端</th><th>适配方式</th><th>需要独立验证</th></tr></thead><tbody><tr><td>Codex</td><td>Executor 启动 app-server 的 stdio 子进程，按所安装版本生成 / 固定 schema；Client 使用原生 chat / approval / diff。[S2]</td><td>线程 / turn、事件关联、interrupt、审批与 resolved、原生 session resume。接口成熟度和版本变化不能被通用 SDK 隐藏。</td></tr><tr><td>Claude</td><td>优先验证 CLI 的结构化流；需要完整批准回调时采用 Node / Python Agent SDK 的独立 Executor 档。[S3]</td><td>输入流、工具状态、canUseTool / 用户问题、取消、配置加载、认证与 SDK 版本。stream-json 存在不等于所有交互能力对等。</td></tr><tr><td>ACP 等其它 Agent</td><td>作为可选 Adapter 接同一 chat 语义；保留厂商扩展事件，未知事件可展示为受限详情。[S5]</td><td>具体版本 / adapter 语言与依赖、权限和文件操作角色。ACP 负责 Agent 交互模型，不负责 TTY 或 SSH 路由。</td></tr></tbody></table></div>
+<p>采用现有 Agent 的执行、权限和会话机制，不重新实现模型请求循环。插件启动的子进程只通过管道和 SDK 交互，不抓屏幕重画。普通已经运行的 TUI 不承诺无损接管；通过 <code>gterm ai codex</code> / <code>gterm ai claude</code> 显式启动，恢复现有 Agent 会话要用户另选并走其原生接口。</p>
+<h3>统一语义与厂商特性</h3><pre>chat.session        created / status / capabilities / closed
+chat.message        user / assistant；有 messageId 与有序 delta
+chat.tool           started / updated / completed / failed
+chat.change         proposed / completed / failed；关联资源与版本
+chat.approval       requested / resolved / expired
+chat.question       requested / answered / cancelled
+chat.turn           started / completed / interrupted / failed / unknown
+resource.ready      可预览的已校验文件或 diff 资源
+
+Client → Executor：prompt / interrupt / approval.respond / question.respond</pre>
+<p>只统一确实共有的最小行为。模型列表、费用、上下文、历史、图片输入和后台任务必须有能力与“未知 / 不提供”状态，不拿缺失统计显示 0，也不把“提出修改”画成“修改完成”。diff 的审批与后端请求关联，纯展示差异不等于允许写文件。</p>
+<h3>批准与输入的约束</h3><p>待批准动作的标题、参数、执行位置与可选决定来自固定后端请求；原生宿主绑定 approvalId / thread / turn / epoch / 有效期。回答一次后按钮失效；后端取消 / 中断后，旧 UI 不得再批准。连接失效时不发送默认允许；未确认的批准结果显示未知，重连不重放。</p>
+<h3>认证与后台边界</h3><p>Agent 使用执行机器上的合法认证配置，凭据不经插件通道搬到手机。具体 CLI 登录能否用于第三方集成须按实际接口与发行方式核验；Claude Agent SDK 官方当前指向 API key 等支持方式，本方案不承诺复用订阅登录。[S3] 登录失败是独立状态，不伪装成工具无输出。</p>
+<p>首片关闭 chat 即请求停止本次会话，不提供桥接器自己的后台会话服务。用户把命令运行在 tmux 中时，远端进程是否保留仍由 tmux / OS 决定；客户端断线后禁止输入，状态标失联。后续按 Agent 自有会话能力做显式恢复，不按旧 pane 名称偷偷新建或恢复。</p>
+</section>
+<section class="section" id="platforms"><div class="section-heading"><span class="section-number">10</span><div><h2>未来平台接入规范</h2><p>同一插件协议，各端原生视图；接收、渲染与本机执行是三项不同能力。</p></div></div>
+<div class="platform-filter"><label for="platform-select">查看接入重点</label><select id="platform-select"><option value="macos">macOS</option><option value="android">Android</option><option value="ios">iOS</option><option value="linux">Linux</option><option value="windows">Windows</option><option value="harmony">HarmonyOS</option><option value="web">Web</option></select></div><div class="platform-detail" id="platform-detail"></div>
+<div class="table-wrap"><table><thead><tr><th>平台</th><th>原生 Client / 视图</th><th>Executor / 接入方式</th><th>插件状态</th></tr></thead><tbody><tr><td>macOS</td><td>Swift / AppKit / SwiftUI；WKWebView 只用于内容</td><td>本机 CLI + IPC / PTY，或远端 TTY。QuickJS 候选与进程管理首验。</td><td>⏳ 首验目标</td></tr><tr><td>Android</td><td>Kotlin 原生 / Compose；JNI 只走 ghosterm.h；WebView 内容</td><td>远端 TTY 优先。本机执行依赖已明确提供的环境 / 服务，不能假设有系统 shell 工具或桌面 CLI。</td><td>⏳ 首验目标</td></tr><tr><td>iOS</td><td>Swift 原生；同 Apple 平台但不直接引用 macOS 宿主</td><td>远端 Executor 优先，不承诺 fork / exec。插件解释与分发按系统 / 渠道逐项验证。</td><td>⏳ 后续</td></tr><tr><td>Linux</td><td>独立原生宿主；组件语义 / SDK 共用</td><td>本机 POSIX CLI / IPC、远端 TTY；内容引擎另选，不依赖 Apple 代码。</td><td>⏳ 后续</td></tr><tr><td>Windows</td><td>独立 Windows 原生宿主与 bridge</td><td>进程 / pipe / 路径 / ConPTY 由平台能力实现；共享核心不引 windows.h，不承诺 POSIX 代码直接可编译。</td><td>⏳ 后续</td></tr><tr><td>HarmonyOS</td><td>ArkUI 原生；NAPI 绑定经同一 C ABI</td><td>远端 TTY 优先；HUKS、文件授权和本机进程按平台明确支持。</td><td>⏳ 后续</td></tr><tr><td>Web</td><td>原生 Web / DOM；可用 Worker 运行 Portable Client 的适配实现</td><td>浏览器不能直接使用 POSIX PTY / 任意 TCP SSH；需用户配置、经认证的 gateway。Wasm 仅编译可移植子集。</td><td>⏳ 后续</td></tr></tbody></table></div>
+<p>上表只表示接入设计，不给任何平台插件能力打已完成标记。终端引擎分档保持 AGENTS 原规则：Apple full libghostty，Android / HarmonyOS / 当前 Web 走 libghostty-vt + 自绘；Windows 引擎仍待验证。插件不改变这些选择。</p>
+<h3>平台必须实现的能力表</h3><pre>ExtensionPlatformServices
+  monotonicClock / secureRandom
+  boundedWorker / cancellation / lifecycle
+  privateResourceStore / readOnlyResourceMapping
+  nativeViews(chat, approval, diff, table, task, form, resource)
+  credentialBroker / userFilePicker / settings
+  [optional] localIpc / spawnProcess / processPipes
+  [optional] webContentView / gatewayTransport
+  [optional] portableJsRuntime
+
+所有 optional 能力均需运行时探测与明确错误；平台服务通过 C ABI / 门面进入。</pre>
+<p>平台接入包不能直接读取其它端的文件、链接其实现或复制错误 enum。标准视图在对应原生 UI 线程运行，Broker / JS / IO 在 worker。平台差异写入能力矩阵，🟡 需注明设备、系统、证据与限制；不因同一 TS 插件在 macOS 成功就给 Android / Web 记绿。</p>
+<h3>跨平台 conformance</h3><p>每端执行同一组 manifest / 消息 / 资源 / 取消 / 权限夹具，再加真实原生构建与设备测试。无障碍、IME、前后台、进程终止、文件授权撤销、平台安全存储和内存压力由平台专项验证。JS 测试只能证明插件逻辑，不能替代 JNI / Swift / ArkTS / Win32 接线和实际 UI 行为。</p>
+</section>
+<section class="section" id="roadmap"><div class="section-heading"><span class="section-number">11</span><div><h2>实现切片与验收计划</h2><p>每片可独立评审和回滚；不先搭完整市场，也不先承诺所有拓扑。</p></div></div>
+<details class="phase" open><summary><b>P0</b>关闭技术风险并冻结第一份协议候选</summary><div class="phase-body"><p><strong>交付：</strong>隔离探针、对照报告、兼容矩阵、schema 候选和选型决策。分别验证 JS 引擎与 TTY 路由，Android / macOS 从这一阶段都参与。</p><ul><li>比较现有 TTY 文件协议子集与 bridge carrier；验证控制序列最大长度、分片、未知序列透明、标准终端未安装 Client 时的行为。</li><li>两台隔离 sshd / 明确主机别名，分别构造三种嵌套拓扑；验证单向资源和完整双向握手，不把文件成功当交互成功。</li><li>第二个 tmux 客户端切 pane、切 window、detach / attach、后台输出、终端回包与 echo；失败时不得回写到无接收者的 shell。</li><li>QuickJS 候选在 macOS / Android NDK 真编译，验证 Promise job、模块闭包、取消、原生 IO 截止、限额、GC 和多实例隔离。</li></ul><p><strong>退出条件：</strong>选定可证明的首版拓扑、引擎、预算和线路；未解决的双向路由明确拒绝。若只能证明单向，先继续资源闭环，AI 对话等双向功能不得记可用。</p></div></details>
+<details class="phase"><summary><b>P1</b>C 通道与受控资源闭环</summary><div class="phase-body"><p><strong>交付：</strong>mux / channel / ResourceStore、公共 C ABI、CLI 前台传输壳、两端最小绑定。此时业务可先用静态测试 producer，不直接写死 preview 功能。</p><p><strong>验收：</strong>随机分块 / 断帧 / 垃圾输入、协议损坏与超限、seq / epoch、窗口与背压、完整性、半文件拒绝、重复完成、fd / 进程释放。普通终端原始字节 SHA256 对照、SSH 文本与既有 Kitty / OSC 不回归。Core gate、ABI 及两端真实构建。</p><p><strong>变异：</strong>吞普通字节、误识别非 bridge 控制序列、跳过授权、资源发布前校验被绕过、旧 epoch 接受、取消后继续回包；每个目标与独立配置对照按 AGENTS 记证据。</p></div></details>
+<details class="phase"><summary><b>P2</b>插件注册、运行时与 preview 插件</summary><div class="phase-body"><p><strong>交付：</strong>Portable SDK、manifest / 双包校验、受信开发目录、runtime worker、原生 resource 组件。preview 作为第一个官方业务插件贡献命令。</p><p><strong>验收：</strong>Client / Executor 不匹配、缺运行时 / 能力、命令冲突、包越界 / hash / 重复成员、激活副作用、资源跨实例、JS 超时 / 内存、失效 token / dispose / 晚到结果。macOS 工作区 UUID 不重建，Android 手机返回终端恢复焦点 / IME。</p><p><strong>范围：</strong>先有界 UTF-8 文本与静态图片，再加入 Markdown / HTML 附件收集。图片区分压缩尺寸与解码像素预算；不放宽已有 SFTP preview 上限来迁就新功能。</p></div></details>
+<details class="phase"><summary><b>P3</b>Codex 对话与批准的完整双向闭环</summary><div class="phase-body"><p><strong>交付：</strong>ai-codex 插件、chat / tool / approval / diff 原生组件、后端版本探测。用真实 app-server schema 验证适配，不在测试里模拟一个“长得像”的成功后端代替最终验收。</p><p><strong>验收：</strong>消息关联 / 顺序、工具与拟议 / 实际变更、批准 / 拒绝 / 过期 / 重复点击、interrupt、后端退出、GUI 关闭和 SSH 断线后的 unknown。嵌套 tmux 必须在 P0 确认的双向路由条件内执行，外部客户端切换负向不能省。</p><p><strong>范围：</strong>真实 Agent 专项使用隔离项目、不改用户仓库；只验证用户授权的动作。登录与版本失败显式展示，能力缺失不启用绕过批准的开关。</p></div></details>
+<details class="phase"><summary><b>P4</b>Claude 与 Node 或 Exec 执行端档</summary><div class="phase-body"><p><strong>交付：</strong>ai-claude 插件、显式运行时依赖、SDK / CLI 模式选择。复用原生 chat 组件，验证第二个后端没有被第一套语义过度绑定。</p><p><strong>验收：</strong>版本 / 认证、所需设置与权限模式、用户问题、批准回调、双向输入与取消、Node 进程 / 子进程管道退出与资源预算。缺依赖不自动安装、不改用本地身份。认证与发行方式符合选定接口要求。</p></div></details>
+<details class="phase"><summary><b>P5</b>验证通用扩展与开发者体验</summary><div class="phase-body"><p><strong>交付：</strong>diff / table 两个轻量插件，logs / task / form 中选择一个持续交互样例，开发工具和 testkit。说明如何让同一 Executor 在本机 / 远端运行。</p><p><strong>验收：</strong>表格分页、长日志流控与搜索、任务取消 / unknown、表单 schema 与迟到回答、无障碍 / 大字号 / 主题。证明业务不需新增 C ABI / 每平台专属窗格类型；需要新增能力时走明确接口切片。</p></div></details>
+<details class="phase"><summary><b>P6</b>受控分发与后续平台</summary><div class="phase-body"><p><strong>交付：</strong>包签名 / 渠道策略、升级 / 回滚 / 禁用、资源清理；按需要接 Linux / Windows / iOS / HarmonyOS / Web 的平台服务。</p><p><strong>验收：</strong>安装原子性、断网和损坏包、兼容矩阵、旧实例包引用、撤销与隐私。每端先通过 conformance，再完成真实构建、设备 / 原生 UI 与平台生命周期专项；未接能力保留不支持状态。</p><p><strong>范围：</strong>任意第三方安装和 gateway 单列安全与运维设计，不借插件计划重新引入通用后台会话服务或自动恢复协议。</p></div></details>
+<h3>共同验收闸门</h3><div class="checklist"><div class="check-item"><b>G1</b>Core C11、-Wall -Wextra -Werror、CTest / public_headers</div><div class="check-item"><b>G2</b>ghosterm.h ↔ 实现 ↔ Apple / JNI 引用对拍，新增平台加入</div><div class="check-item"><b>G3</b>平台真实原生编译；JS 绿不能替代 Swift / JNI / NAPI</div><div class="check-item"><b>G4</b>生产接线正常断言红、同变异独立对照绿、恢复绿及 SHA256</div><div class="check-item"><b>G5</b>真实 SSH / tmux 拓扑、切 pane、取消 / 断线与终端无回归</div><div class="check-item"><b>G6</b>干净打包、许可清单、插件完整性、无旧 runtime 或凭据</div></div>
+<p>变异脚本遵守标记预扫、INT / TERM 恢复、起跑前 SHA256 和 <code>gt_timeout</code>。临时文件 / 探针 / socket / 二进制全在仓库 <code>tmp/</code>，清理只限本轮所属目录。时间测试与同负载标定比较，系统设置和测试账户必须恢复。</p>
+<p>新增手工验证不自动计入既有 macOS CI 二十份；若要纳入 CI，须同步工作流、包构建和 AGENTS 的覆盖口径。每个实现切片明确当前提交、输入摘要、设备与原生构件、成功 / 失败 / 未运行，不能借历史测试替新接口验收。</p>
+<div class="callout">本 HTML 属于文档 / 交互评审稿：本轮检查页面、链接、示例和交互，不以其浏览器通过宣称 TTY、引擎或平台实现通过。生产切片再执行上述完整闸门。</div>
+</section>
+<section class="section" id="decisions"><div class="section-heading"><span class="section-number">12</span><div><h2>待验证事项与决策闸门</h2><p>保留明确的技术出口，避免把尚未证明的假设固化到 SDK。</p></div></div>
+<div class="closed-question"><b>Q01</b><p><strong>TTY 双向路由。</strong>必须证明回应进入对应前台接收者。证明不了则限制拓扑或要求明确路由，保留单向资源能力；不拿心跳 / pane ID 代替路由隔离。</p></div>
+<div class="closed-question"><b>Q02</b><p><strong>标准协议复用范围。</strong>文件子集可独立互操作，持续 RPC / 多流是否需要新的外层 carrier 由 P0 对比决定；冻结前不声称兼容 Kitty / trzsz。</p></div>
+<div class="closed-question"><b>Q03</b><p><strong>JS 引擎与宿主成本。</strong>比较 QuickJS 候选在两端的 C11 构建、异步 IO 与取消、限额和维护。达不到指标就保留 Exec 探针，不以 Node 全平台嵌入代替能力验证。</p></div>
+<div class="closed-question"><b>Q04</b><p><strong>原生组件的最小公共语义。</strong>用 preview + Codex + 第二个 AI 后端检验。遇到独有能力时显式扩展，不伪造“所有工具都等价”的通用事件。</p></div>
+<div class="closed-question"><b>Q05</b><p><strong>插件隔离与分发。</strong>受信随包先落地；恶意代码隔离、平台渠道、签名根与撤销完成后再开放任意第三方安装。</p></div>
+<div class="closed-question"><b>Q06</b><p><strong>未来 Web 与 Windows。</strong>只有 codec / 状态机等可移植部分复用；平台进程、网络与资源授权通过能力表实现。gateway 与 Windows 原生后端分别验收。</p></div>
+<div class="closed-question"><b>Q07</b><p><strong>命令名、文件后缀与版本。</strong><code>gterm</code>、<code>.gtp</code>、v1 字段及全部函数名都是草案，发布前检查命名冲突并冻结文档与 schema。源协议变更不等于恢复旧 ABI 兼容层。</p></div>
+<h3>已确定的实现约束</h3><p>业务子命令均为插件；Client / Executor 同包配对、独立部署；TypeScript 优先；核心与传输使用 C；原生 UI；普通终端默认路径不依赖 CLI 或插件包；不依赖 Kitty 图形；不自动安装远端环境；不引入自有 sessiond；未知、拒绝和成功分开。</p>
+</section>
+<section class="section" id="references"><div class="section-heading"><span class="section-number">13</span><div><h2>源码落点与官方资料</h2><p>查阅日期 2026-11-05。设计选择与预算为本稿提案；链接中的能力只支持其对应事实。</p></div></div>
+<h3>当前仓库</h3><div class="source-links"><a href="../../../AGENTS.md">AGENTS.md<small>目录边界、C ABI、字节流、原生 UI、退役决定与验收唯一事实来源。</small></a><a href="../../architecture/overview.md">架构总览<small>现有 Transport / Surface / Core 接缝与平台差异。</small></a><a href="../../../core/include/ghosterm/transport.h">公开 Transport 契约<small>read / write / resize 所有权与终端字节路径。</small></a><a href="../../../core/include/ghosterm/sftp.h">受控 SFTP 资源接口<small>有界预览、类型和竞态保证边界，不能无限放大现有接口。</small></a><a href="../../../apple/GhostermApp/Sources/GhostermAppModel/WorkspaceLayout.swift">macOS 工作区模型<small>terminal / files 叶子与稳定 UUID；extension 叶子尚未加入。</small></a><a href="../../../android/app/src/main/java/com/hanxi/ghosterm/FilesViewModel.kt">Android 文件页模型<small>现有页面内预览；插件实例应独立建模。</small></a><a href="../../reference/plan-optional-tmux.md">可选 tmux 计划<small>不恢复自有 sessiond；普通终端不依赖后台 runtime。</small></a><a href="../preview-panes/index.html">预览窗格交互示意<small>此前的预览效果图；本稿扩大到通用插件桥接。</small></a></div>
+<h3>外部依据</h3><div class="source-links"><a href="https://trzsz.github.io/go.html" target="_blank" rel="noopener noreferrer">S1 · trzsz / relay ↗<small>跳板机 tmux 后继续 SSH 的中继要求。</small></a><a href="https://learn.chatgpt.com/docs/app-server" target="_blank" rel="noopener noreferrer">S2 · Codex App Server ↗<small>官方结构化会话、流式事件、批准、stdio 与版本 schema。</small></a><a href="https://code.claude.com/docs/en/agent-sdk/overview" target="_blank" rel="noopener noreferrer">S3 · Claude Agent SDK ↗<small>TypeScript / Python 接入、能力与当前认证边界。</small></a><a href="https://code.claude.com/docs/en/headless" target="_blank" rel="noopener noreferrer">S3 · Claude 程序化 CLI ↗<small>结构化输出与交互模式，不能只凭 stream-json 假定全功能。</small></a><a href="https://code.claude.com/docs/en/agent-sdk/permissions" target="_blank" rel="noopener noreferrer">S3 · Claude 权限回调 ↗<small>批准与工具授权需真实后端机制接入。</small></a><a href="https://bellard.org/quickjs/quickjs.html" target="_blank" rel="noopener noreferrer">S4 · QuickJS C API ↗<small>内存 / 栈限制、中断、字节码与 runtime / context 边界。</small></a><a href="https://quickjs-ng.github.io/quickjs/" target="_blank" rel="noopener noreferrer">S4 · QuickJS-NG 候选 ↗<small>分支候选，需独立平台与维护评估，不代表已选定。</small></a><a href="https://agentclientprotocol.com/get-started/introduction" target="_blank" rel="noopener noreferrer">S5 · Agent Client Protocol ↗<small>编辑器 / Agent 交互模型；远端传输不能自动替代 TTY 路由。</small></a><a href="https://sw.kovidgoyal.net/kitty/file-transfer-protocol/" target="_blank" rel="noopener noreferrer">S6 · TTY 文件传输协议 ↗<small>独立于图形协议的文件传输，可作为互操作候选。</small></a><a href="https://github.com/tmux/tmux/wiki/Control-Mode" target="_blank" rel="noopener noreferrer">S7 · tmux Control Mode ↗<small>受管 pane 输出与精确控制入口，不自动穿透任意内层 tmux。</small></a><a href="https://developer.android.com/develop/ui/views/layout/webapps/load-local-content" target="_blank" rel="noopener noreferrer">S8 · Android 本地 Web 内容 ↗<small>资源 loader 与内容映射，非插件 OS 沙箱。</small></a><a href="https://developer.apple.com/documentation/webkit/wkurlschemehandler" target="_blank" rel="noopener noreferrer">S8 · Apple 资源 scheme ↗<small>内容资源加载，保持原生宿主与资源范围。</small></a></div>
+</section>
+<footer class="footer"><span>GHOSTERM / PLUGIN BRIDGE / RFC 0.1</span><span>方案评审 · 无生产实现声明</span></footer>
+</main></div>
+<div class="toast" id="toast" role="status" hidden></div>
+<template id="sample-manifest"><pre>{
+  "schemaVersion": 1,
+  "id": "org.ghosterm.ai-codex",
+  "pluginVersion": "0.1.0",
+  "sdkApiRange": ">=0.1.0 &lt;0.2.0",
+  "bridgeProtocolRange": [1],
+  "publisher": "ghosterm",
+  "license": "MIT",
+  "commands": [{
+    "path": ["ai", "codex"],
+    "title": "Codex 对话",
+    "argsSchema": "schemas/command.json"
+  }],
+  "client": {
+    "runtime": "portable-js",
+    "entry": "client/index.js",
+    "requires": ["ui.chat", "ui.approval", "session.rpc"],
+    "optional": ["ui.diff", "ui.resource"]
+  },
+  "executor": {
+    "variants": [{
+      "id": "portable-stdio",
+      "runtime": "portable-js",
+      "entry": "executor/portable/index.js",
+      "requires": ["process.spawn", "process.pipes", "session.rpc"],
+      "dependencies": [{
+        "program": "codex",
+        "versionPolicy": "adapter-verified",
+        "schema": "schemas/codex-version-map.json"
+      }]
+    }]
+  },
+  "permissions": [{
+    "side": "executor",
+    "capability": "process.spawn",
+    "programs": ["codex"],
+    "purpose": "启动用户选定的 Codex app-server",
+    "scope": "instance"
+  }]
+}</pre></template>
+<template id="sample-client"><pre>// src/client/index.ts —— 草案形状，不是现成可运行 SDK
+import { AgentAction, AgentEvent } from "../shared/schema";
+
+export async function activate(ctx: ClientContext) {
+  const chat = await ctx.ui.chat.open({
+    title: "Codex",
+    origin: ctx.session.originDescriptor,
+    approvalRenderer: "host-native"
+  });
+
+  // 每次请求由 SDK 绑定 instance / epoch，宿主再次校验。
+  const actions = chat.onAction(async (input) =&gt; {
+    const action = AgentAction.parse(input);
+    await ctx.session.request("agent.action", action, {
+      cancellation: ctx.cancellation
+    });
+  });
+
+  const events = ctx.session.onEvent("agent.event", (input) =&gt; {
+    const event = AgentEvent.parse(input);
+    chat.apply(event); // 语义数据；实际 UI / IME / 无障碍由原生端实现
+  });
+
+  return {
+    async dispose() {
+      actions.dispose();
+      events.dispose();
+      await chat.close();
+    }
+  };
+}
+
+// 大文件只交 ResourceRef；不用 chat props 传 Base64 内容。
+// chat.apply 不构成逐 token UI 事件，宿主合并通知并按需拉取快照。</pre></template>
+<template id="sample-executor"><pre>// src/executor/index.ts —— 草案；adapter 是插件内的版本适配模块
+import { createCodexAdapter } from "./codex-adapter";
+import { AgentAction } from "../shared/schema";
+
+export async function activate(ctx: ExecutorContext) {
+  const child = await ctx.process.spawn({
+    program: "codex",
+    argv: ["app-server", "--listen", "stdio://"],
+    cwd: ctx.invocation.workspaceHandle,
+    envPolicy: "selected-user-environment",
+    cancellation: ctx.cancellation
+  });
+
+  const adapter = await createCodexAdapter({
+    child,
+    version: child.verifiedVersion,
+    cancellation: ctx.cancellation
+  });
+
+  const events = adapter.onEvent(async (event) =&gt; {
+    // 等待 credit，不无限缓存；文件内容经 resource stream。
+    await ctx.session.emit("agent.event", event, {
+      cancellation: ctx.cancellation
+    });
+  });
+
+  const requests = ctx.session.handle("agent.action", async (input) =&gt; {
+    const action = AgentAction.parse(input);
+    return adapter.dispatch(action); // 真实后端确认，不提前返回成功
+  });
+
+  return {
+    async dispose() {
+      requests.dispose();
+      events.dispose();
+      await adapter.stop({deadlineMs: ctx.shutdownBudgetMs});
+      await child.release();
+    }
+  };
+}
+
+// 宿主关闭会独立撤销能力与回收资源，不依赖这段 dispose 总能执行。
+// PATH 解析结果、实际版本、cwd 与权限在 spawn 前由宿主验证。</pre></template>
+<template id="sample-types"><pre>// 发布时由 schema 生成 / 对拍。示例只说明边界。
+interface ClientContext extends PluginContext {
+  side: "client";
+  ui: NativeViewService;
+  process?: never;
+}
+
+interface ExecutorContext extends PluginContext {
+  side: "executor";
+  invocation: {workspaceHandle: WorkspaceHandle};
+  process: AuthorizedProcessService;
+  shutdownBudgetMs: number;
+  ui?: never;
+}
+
+interface SessionChannel {
+  request(method: string, payload: unknown, opts: RequestOptions): Promise&lt;unknown&gt;;
+  emit(topic: string, payload: unknown, opts: EmitOptions): Promise&lt;void&gt;;
+  handle(method: string, callback: RequestHandler): Disposable;
+  onEvent(topic: string, callback: EventHandler): Disposable;
+  readonly originDescriptor: OriginDescriptor;
+}
+
+interface ResourceBroker {
+  publish(input: ScopedResourceInput, opts: Budget): Promise&lt;ResourceRef&gt;;
+  open(ref: ResourceRef, opts: Budget): Promise&lt;BoundedReadStream&gt;;
+  release(ref: ResourceRef): Promise&lt;void&gt;;
+}
+
+interface PluginError {
+  code: "UNSUPPORTED" | "DENIED" | "EXPIRED" | "INVALID_INPUT"
+      | "RESOURCE_LIMIT" | "CANCELLED" | "IO" | "PROTOCOL" | "INTERNAL";
+  message: string;
+  effect: "none" | "possible";
+}
+
+// Outcome.kind=unknown 表示业务结果未知，不用 DENIED / success 代替。
+// TypeScript 声明只供开发；宿主仍对消息、资源与能力做运行时校验。</pre></template>
+<template id="sample-install"><pre># 以下命令尚未实现，用于约定开发体验
+gterm-plugin init ai-example
+gterm-plugin check
+gterm-plugin build
+gterm-plugin test --runtime portable-js
+gterm-plugin pack
+
+# 本地 Client：在 Ghosterm 原生插件页导入并明确授权
+# 导入 org.ghosterm.ai-example.gtp，显示权限和包摘要
+
+# 在实际执行机器安装 Executor，不自动 SSH 到猜测的主机
+gterm plugin install ./org.ghosterm.ai-example.gtp --side executor
+gterm doctor
+gterm ai example
+
+# 本机桌面执行使用同一 Executor，通过本地 IPC 接入
+# 未具备本机执行能力的平台应显示不支持
+
+# 调试链接目录只对受信开发者开放
+gterm plugin link ./dist --side executor
+
+# 不自动下载 Node / SDK，不执行安装后脚本，不修改 shell 启动文件</pre></template>
+<noscript><p style="padding:20px;text-align:center">本页正文可直接阅读。拓扑切换与代码示例需要启用 JavaScript；页面不会发起后台联网。</p></noscript>
+<script>
+'use strict';
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const topology={
+ local:{title:'本机桌面执行',route:['Ghosterm','本地 IPC / stdio','gterm Executor'],client:'Ghosterm / 桌面原生 Client',executor:'本机执行环境',leaf:'本机文件 / Codex / Claude / 任务命令',note:'本机 Executor 复用同一插件逻辑，通过已认证的本地 IPC 或受控子进程管道连接。原生 App 不必把消息重新编码进终端；移动端本机执行仍按实际能力拒绝或接平台服务。'},
+ nested:{title:'SSH → SSH → tmux：在最深层命令解析路径',route:['Ghosterm','SSH A','SSH B','tmux','gterm Executor'],client:'Ghosterm / macOS 或 Android',executor:'主机 B / 当前执行环境',leaf:'B 中的文件 / Codex / Claude / 任务命令',note:'文件在 B 中读取，经现有 TTY 回传，免去重建到 B 的认证连接。单向资源与双向 AI 分别验收；tmux 输出可达不代表回应必定进入原 pane。外层身份 A 与执行端自报 B 分开显示。'},
+ relay:{title:'SSH → tmux → SSH → tmux：中间层需单独验证',route:['Ghosterm','SSH A','tmux A','SSH B','tmux B','gterm Executor'],client:'Ghosterm / 原生 Client',executor:'主机 B / 可选受管路由',leaf:'前台 relay / 精确寻址后再开放交互',note:'跳板机 tmux 后继续 SSH 可能需要明确 relay；多层转义、长度和返回路由都要测试。relay 不能只转义输出，还须解决输入归属。另一客户端切 pane 后若无法保证隔离，此拓扑的写方向必须停用或要求独立通道。'},
+ web:{title:'未来 Web：通过独立认证的 gateway',route:['Web Client','认证 WSS gateway','执行端路由','gterm Executor'],client:'Web / DOM + Worker Client',executor:'用户明确配置的执行环境',leaf:'远端文件 / Agent / 任务服务',note:'浏览器不能直接 fork 或建立任意 TCP SSH。gateway 是后续独立接入能力，不自动部署、不默认开放端口；只共享逻辑帧与可移植核心子集，不能据此宣称 POSIX Core 整体支持 wasm。'}
+};
+function setTopology(key){const t=topology[key];if(!t)return;$$('[data-topology]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.topology===key)));$('#topology-title').textContent=t.title;$('#client-title').textContent=t.client;$('#executor-title').textContent=t.executor;$('#executor-leaf').replaceChildren(document.createTextNode(t.leaf));const small=document.createElement('small');small.textContent='仅在探测到且已授权的能力范围内运行';$('#executor-leaf').append(small);$('#topology-note').textContent=t.note;$('#route').replaceChildren();t.route.forEach((name,i)=>{if(i){const a=document.createElement('span');a.className='route-arrow';a.textContent='→';$('#route').append(a)}const n=document.createElement('span');n.className='route-node'+(i===t.route.length-1?' final':'');n.textContent=name;$('#route').append(n)})}
+const steps=[
+ ['1 / 发现 OFFERED','用户显式运行 gterm。只发送有界 offer，包含协议候选、插件与所需能力。宿主在未获批准前不接受文件 payload，也不启动本地插件代码。'],
+ ['2 / 授权 CONSENT','本地核对已安装 Client、包摘要、版本与能力，展示来源验证层级和本次权限。拒绝与未知分开；远端 offer 不自动变成本地安装或执行授权。'],
+ ['3 / 验路 PROBING','确认前台接收者、实际双向路径、分片长度和预算。外部客户端切 pane 等负向测试不通过，就只保留明确可用的单向模式或要求独立路由。'],
+ ['4 / 激活 ACTIVE','新 connection / epoch 下启动配对实例。控制、交互、资源流独立限额与 credit，原生视图拉取合并状态；批准、取消优先于 bulk。'],
+ ['5 / 结束 DRAINING → CLOSED','取消、完成、超时与失联有不同结果；回收资源不依赖插件成功清理。可处理退出恢复 TTY，断线不自动批准或重发操作，不生成私有恢复记录。']
+];
+function setStep(index){if(!steps[index])return;$$('[data-step]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.step)===index)));$('#step-detail').replaceChildren();const h=document.createElement('h4'),p=document.createElement('p');h.textContent=steps[index][0];p.textContent=steps[index][1];$('#step-detail').append(h,p)}
+let sample='manifest',toastTimer;function setCode(key){const template=$('#sample-'+key);if(!template)return;sample=key;$$('[data-code]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.code===key)));$('#code-display').textContent=template.content.textContent.trim()}
+function notify(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,2600)}
+const platforms={macos:'首验：稳定工作区叶子 + ExtensionController actor + C ABI。重点验证本地 IPC、双向远端、JS 预算与原生焦点 / 关闭。现有 macOS 终端能力不等于插件能力已实现。',android:'首验：JNI native owner + Portable Client + 原生组件。远端 Executor 为主；API 29 / 36、4 KiB / 16 KiB 页分别记录。验证 IME、前后台、进程死亡和 WebView 资源映射。',ios:'远端优先：原生 Swift 宿主，通过公共 C ABI 连接插件 broker；不承诺任意本地子进程。系统与发行渠道允许的代码解释、文件授权和后台行为须单独验证。',linux:'独立原生 UI 和平台服务，共用 C codec / 状态机与 TS SDK。POSIX CLI / IPC 作为本机执行路径；内容引擎、文件选择器与桌面生命周期由 Linux 宿主适配。',windows:'平台 bridge 提供进程 / pipe / 私有存储与路径语义，不能把 Windows API 直接放入 POSIX Core。先验证共享纯状态机，再验 ConPTY、编码、取消与进程树清理。',harmony:'ArkUI 原生视图 + NAPI 公共 C ABI；远端执行优先。HUKS、应用沙箱、线程与文件授权按平台能力表实现，不能复用 Android 端代码冒充 HarmonyOS 接入。',web:'DOM / Worker 可承载适配后的 Portable Client，资源使用浏览器授权和映射。远端连接依赖用户配置的认证 gateway；Wasm 只构建可移植子集，不能直接执行原生 CLI。'};
+function setPlatform(key){if(platforms[key])$('#platform-detail').textContent=platforms[key]}
+document.addEventListener('click',e=>{const t=e.target.closest('[data-topology]');if(t)setTopology(t.dataset.topology);const s=e.target.closest('[data-step]');if(s)setStep(Number(s.dataset.step));const c=e.target.closest('[data-code]');if(c)setCode(c.dataset.code);const approval=e.target.closest('[data-approval]');if(approval){$('#approval-buttons').hidden=true;$('#approval-result').hidden=false;$('#approval-result').textContent=(approval.dataset.approval==='accept'?'已选择允许本次':'已选择拒绝')+' · 仅离线 UI 示意，没有发出请求或执行操作';$('#reset-approval').hidden=false}});
+$('#reset-approval').onclick=()=>{$('#approval-buttons').hidden=false;$('#approval-result').hidden=true;$('#reset-approval').hidden=true};
+$('#platform-select').onchange=e=>setPlatform(e.target.value);
+$('#copy-code').onclick=async()=>{try{if(!navigator.clipboard)throw Error();await navigator.clipboard.writeText($('#code-display').textContent);notify('已复制当前草案示例')}catch{const range=document.createRange();range.selectNodeContents($('#code-display'));const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);notify('示例已选中，可使用系统复制快捷键')}};
+$('#expand-phases').onclick=()=>{const expand=$$('.phase').some(e=>!e.open);$$('.phase').forEach(e=>e.open=expand);$('#expand-phases').textContent=expand?'折叠实施计划':'展开实施计划';if(expand)$('#roadmap').scrollIntoView()};
+$('#print').onclick=()=>window.print();let phaseState=[];window.addEventListener('beforeprint',()=>{phaseState=$$('.phase').map(e=>e.open);$$('.phase').forEach(e=>e.open=true)});window.addEventListener('afterprint',()=>{$$('.phase').forEach((e,i)=>e.open=phaseState[i]??false)});
+if('IntersectionObserver' in window){const observer=new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting){$$('.rail nav a').forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#'+entry.target.id))}}},{rootMargin:'-5% 0px -72% 0px'});$$('section[id]').forEach(s=>observer.observe(s))}
+setTopology('nested');setStep(0);setCode('manifest');setPlatform('macos');
+</script>
+</body></html>
