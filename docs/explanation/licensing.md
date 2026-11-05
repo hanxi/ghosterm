@@ -10,6 +10,7 @@
 |---|---|---|
 | libghostty / Ghostty | MIT | 当前 macOS/Android 终端引擎；其它端为规划 |
 | libssh2 | BSD-3-Clause | SSH / SFTP |
+| QuickJS-NG 0.18.0 | MIT | 显式可选 Core 插件 JS 后端，默认关闭，App 尚未启用；submodule pin 与内容核对见插件计划第二十五批 |
 | mbedTLS / OpenSSL | Apache-2.0 / Apache-2.0 | SSH 加密后端 |
 
 分发材料须按各组件原始许可和实际包内容分别维护；仓库 MIT 不覆盖第三方版权声明。许可、字体清单与构建收据各自核对，不能把一个关于窗口视作所有组件的完整许可盘点。

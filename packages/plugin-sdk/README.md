@@ -32,8 +32,8 @@ codec 同时提供 TypeScript 推断、运行时解析与可独立验证的 JSON
 原型污染键拒绝。uint64 以规范十进制字符串保持精确，不能经过 Number 四舍五入。
 
 受信 native adapter 绑定唯一 Session / 原 lease / 串行 owner；它必须继续使用 Core 对方向、能力、
-实例、代次和期限的校验。JS 不持有 lease、fd 或私钥。`NativePort` 是待生产运行时实现的宿主契约，
-当前只有 conformance C host 接了真实公开 Session。SDK 不是授权源或恶意插件沙箱。
+实例、代次和期限的校验。JS 不持有 lease、fd 或私钥。`NativePort` 是宿主契约；Core 的显式可选 QuickJS-NG 后端已接真实 Session，
+SDK conformance C host 另作独立对照。该后端尚无公共 runtime ABI / App 接线。SDK 不是授权源或恶意插件沙箱。
 
 native owner 先推进 C IO，再调用 `session.step()`；runtime 另有独立 CPU / Promise job 预算。
 SDK 每次最多 take 8 个请求、保留 64 个发送观察与 64 个处理中请求，最多注册 16 个 handler。

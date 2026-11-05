@@ -28,7 +28,7 @@ runtime catalog，四组变异护本地创建、启动偏好、分屏目录与�
 | `core/` | C 共享库：ssh / sftp / ssh_config / known_hosts / forward / pty | **纯 C11 + POSIX**，禁止依赖任何端代码、禁止依赖 UI |
 | `terminal/` | 各端 TerminalSurface（full libghostty 或 libghostty-vt+自绘） | 只依赖 `core/include` 与 libghostty |
 | `apple/ android/`（现有）· `windows/ linux/ harmony/ web/`（规划） | 各端宿主 + UI | 通过 `core/include/ghosterm.h` 消费核心；**禁止**直接引用其他端 |
-| `vendor/` | 上游 submodule（ghostty、ish-arm64），**锁 pin** | 不允许就地改；改动一律走 `patches/` |
+| `vendor/` | 上游 submodule（ghostty、ish-arm64、quickjs-ng），**锁 pin** | 不允许就地改；改动一律走 `patches/` |
 | `runtime-payload/` | 环境包（Android Termux/proot、iOS iSH） | 只放清单与下载/校验逻辑，二进制不入库 |
 | `patches/` | 上游补丁 | 每个补丁必须带 `WHY.md` |
 | `scripts/` | 构建/闸门脚本 | — |
@@ -496,6 +496,27 @@ request / 聚合导出后完整复验；ASan/UBSan，无 LSan，手工覆盖不�
 378 CTest / 147 ABI，未改 Core / 公开头 / native 绑定；没有本轮 Android / NDK / App / SSH / 设备 /
 发行结论。原生能力在每次副作用前仍须检查；SDK 无法终止任意 JS / 阻塞原生调用，不是恶意代码
 沙箱。完整 SDK / runtime / 页面 / gterm IPC / 插件 / 多实例继续，网关不实现；见插件计划第二十四批。
+
+**插件可选 Core JS runtime 第二十五批（2026-11-06）**：私有 `runtime.h/.c` / `runtime-quickjs.inc`
+接复制模块、受限 bootstrap / SDK port、真实公开 Session RPC / 激活 / 预算 / 取消与关闭。
+QuickJS-NG 0.18.0 submodule pin `d7215b0ad3fc2c562e8317fd9bca058fd4863804`，四编译源 / 顶层头 /
+LICENSE SHA256 另验，无上游修改或 quickjs-libc。CMake 显式可选、默认 OFF；缺 provider / 测试产物 /
+pin / 内容即拒配，关闭档入口 UNSUPPORTED，无系统或网络回落。成功才接管 ACTIVE / 同角色 / 原
+owner Session，无 Source / 旧请求 owner；trusted caller 校验包 / 模块 snapshot，摘要不是授权。
+每实例独立 engine/context；只 stop 可跨线程，宿主仍须调度 owner。模块 64 / 每个 128 KiB / 总
+1 MiB，ASCII 规范 ID；JS heap 默认 16 MiB / 栈 256 KiB / step CPU 25 ms / 32 jobs / 激活 5 s，
+不等于 RSS / 原生 IO 限额；显式禁止 Atomics.wait 阻塞 owner。只 bootstrap 可取 native port，POD 用 null prototype，原 lease 每次
+再查；已入队请求在 JS POD 交接 OOM 即 revoke，不能遗留发送。close 先撤销，再受中断 dispose /
+强制释放 engine，原错误 / dispose 失败 / native cleanup 分开；非 OS / 同 UID 沙箱。
+27 项实际 Core / QuickJS / strict TS SDK 场景通过，含双向请求、TLA、拒绝处理、预算、导入、并存
+实例隔离、对端死亡及实际 queued request / QuickJS OOM 边界；具名注册 / 执行集合一致。十三组
+隔离 C 真实 obj / archive / executable 重链后正常目标断言红、同库配置绿、恢复绿及 SHA256；另
+四项配置拒绝不计作编译后变异。实际 main 残留预扫退出 2 / 源不变 / 无子命令。ASan/UBSan，无
+LSan，严格 C11 四次通过，均为手工，不增加 CI 二十份。顶层 CPU 误记 SCRIPT、边界缺实现宏的编译
+失败 / Not Run 保留且未计绿。默认 build-core / gate 为 379 CTest / 147 ABI，公开头及 native
+绑定未改。可选 NDK 28.2 / arm64 / API 29 真编译并链接含 runtime 和引擎定义的 ELF，未设备执行，
+无 App / APK / 签名 / 云端 / WAN 结论。公共 runtime ABI、两端启用、完整 SDK / 原生授权页 / gterm /
+插件 / 多实例仍待接；网关不实现，范围 / 许可 / 收据见插件计划第二十五批。
 
 `android-foreground` 以 `ANDROID_SERIAL=设备 python3 scripts/test-android-foreground.py` 验八项真实服务/页面定向，`mutation-check-android-foreground.py` 手工验 23 组；护真实 promotion、调度阻断、权限/类型、代次与请求取消、通知隐私/路由和生命周期。`test-android-foreground-system.py` 另验真实系统超时、stop-app 后新 PID 只读历史、通知拒绝及系统设置渠道关闭；`mutation-check-android-foreground-system.py` 有九组相应场景变异，含开启通知后补发及渠道恢复的状态检查。每组须编译后目标单条 JUnit 断言红、同 APK 配置对照绿、恢复绿与 SHA256，崩溃/编译失败不算目标红。系统设置及权限须恢复，stop-app 被中断的 staging 不计通过。§9.74 的 30 组与 §9.75 追加的两组均为分轮证据，不称一轮全量；完整 483 项仅 API 36 arm64 / 4 KB 页模拟器。以上均属手工覆盖，不增加 macOS CI 20 份，也不代表整个 A6 或发行矩阵完成。
 

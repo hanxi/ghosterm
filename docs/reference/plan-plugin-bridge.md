@@ -142,7 +142,7 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九 / 十 / 十二至二十三批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共门面 `channel.c` / `session-api.c` / `resource-api.c` / `source-api.c`，纳入 Core 构建。公共通道、Session 生命周期、JSON 请求、资源与 scoped source 门面已接两端 worker；App 根授权 / 控制器及其余生产模块仍待接。第二十四批已接 `packages/plugin-sdk/portable/` 的 strict TS 类型化请求边界，`schema/` 与 `testkit/` 有结构 / 元数据及 C/QuickJS conformance；生产 runtime / JS adapter 与 App 尚未接入。
+以下为实现布局；第九 / 十 / 十二至二十五批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共门面 `channel.c` / `session-api.c` / `resource-api.c` / `source-api.c`，纳入 Core 构建。公共通道、Session 生命周期、JSON 请求、资源与 scoped source 门面已接两端 worker；第二十五批再接显式可选的私有 QuickJS-NG runtime / native RPC adapter；公共 runtime ABI、App 根授权 / 控制器及其余生产模块仍待接。第二十四批已接 `packages/plugin-sdk/portable/` 的 strict TS 类型化请求边界，`schema/` 与 `testkit/` 有结构 / 元数据及 C/QuickJS conformance；可选私有 runtime 已接，公共 runtime 门面与 App 尚未接入。
 
 ```text
 core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
@@ -170,7 +170,7 @@ core/src/extension/
   transfer.h / transfer.c  已实现 S4c2b：资源流 credit / seq、发布回执、取消及 Session / RPC 共存
   source.h / source.c    已实现 S4c2c：显式授权根 fd、逐层 no-follow、同句柄两遍读取 / EOF / 文件变化检查
   registry.c     插件元数据、版本与能力匹配
-  runtime.c      插件任务与能力句柄
+  runtime.h / runtime.c / runtime-quickjs.inc  已接可选私有 runtime：复制模块、受限 SDK、JS 预算、逐 Session RPC 与关闭；其余宿主能力待接
   js/            JS 引擎 C 适配与宿主 API，不依赖端代码
 core/tests/      分帧、生命周期、权限、资源和互操作测试
 core/src/ssh/wire.h  私有递归字节 IO / readiness；内层 SSH 不直接拨 TCP
@@ -199,7 +199,7 @@ android/app/.../ExtensionViewModel.kt / ExtensionScreen.kt
 windows/bridge/ · linux/bridge/ · harmony/bridge/ · web/bridge/
   各端能力适配；端代码之间不互相引用
 
-vendor/<js-engine>/              通过 submodule 锁 pin，待引擎探针选定
+vendor/quickjs-ng/               显式可选后端；0.18.0 / d7215b0，submodule + 编译输入 SHA256 固定
 patches/<js-engine>/WHY.md        仅在确需上游修改时添加
 scripts/                         构建、SDK 校验、变异和包完整性检查
 ```
@@ -267,14 +267,14 @@ macOS 在 [WorkspacePane](../../apple/GhostermApp/Sources/GhostermAppModel/Works
 
 | 运行档 | 使用范围 | 可用能力 | 分发策略 |
 | --- | --- | --- | --- |
-| **portable-js** / 目标默认 · 引擎待选 | Client 与普通 Executor | ES 模块 + Promise / typed arrays + 明确的宿主 SDK；无 Node 内置模块、无 DOM、无直接 native FFI | 宿主内嵌轻量 JS 引擎候选，插件不单独携带解释器；两侧分别构建和验收 |
+| **portable-js** / 目标默认 · Core 可选后端已接 | Client 与普通 Executor | ES 模块 + Promise / typed arrays + 明确的宿主 SDK；无 Node 内置模块、无 DOM、无直接 native FFI | Core 可选 QuickJS-NG 0.18.0；App 未启用。插件不单独携带解释器，两侧分别构建和验收 |
 | **node** / 执行端可选 | 依赖完整 npm / 官方 SDK 的 Executor | 独立 Node 子进程，通过进程消息与核心通信；本地 Client 仍用 portable-js | 声明版本范围，使用执行机器已安装的运行时；缺失即显式报错，不自动下载 |
 | **exec** / 执行端可选 | Python / Go / C 等适配程序 | 长度受限的结构化 stdio / 资源句柄协议；不加载动态库到 App | 按 OS / arch 提供构件或声明解释器；平台不允许子进程时不可用 |
 | **web-content** / 本地可选内容视图 | 文档、图表等定制内容 | HTML / CSS / JS，通过资源 broker 与有限消息通信 | 不取代原生工作区、确认、文件授权和通用对话组件；独立 origin / 配置 |
 
 ### 轻量引擎的选型闸门
 
-QuickJS / QuickJS-NG 进入 P0 候选，不在本稿锁定分支。评估 C11 工具链、macOS / Android NDK 构建、API 稳定性、维护与许可、模块加载、内存 / 栈限额、CPU 中断、GC 与取消行为。原生异步 IO、事件循环、流控、UTF-8 编解码和定时器由宿主补齐，不能把“嵌入引擎”当成已有 Node 兼容层。QuickJS 提供内存限制与中断入口，但它们不覆盖阻塞的原生函数，也不构成完整恶意代码沙箱。[S4](https://bellard.org/quickjs/quickjs.html)
+QuickJS / QuickJS-NG 的第二批比较与第二十四批 SDK 联验之后，第二十五批已选 QuickJS-NG 0.18.0 作为首个显式可选 Core 后端；正式 pin 与边界见该批记录。继续评估 C11 工具链、macOS / Android NDK 构建、API 稳定性、维护与许可、模块加载、内存 / 栈限额、CPU 中断、GC 与取消行为。原生异步 IO、事件循环、流控、UTF-8 编解码和定时器由宿主补齐，不能把“嵌入引擎”当成已有 Node 兼容层。QuickJS 提供内存限制与中断入口，但它们不覆盖阻塞的原生函数，也不构成完整恶意代码沙箱。[S4](https://bellard.org/quickjs/quickjs.html)
 
 插件分发编译后的 JS 文本，不把引擎字节码当稳定格式；缓存仅作为本机、当前引擎版本的可删除优化。默认禁用原生动态模块和通用 `std/os`，模块导入只允许插件包内资源和宿主白名单。
 
@@ -2420,6 +2420,86 @@ runner 的实际 main 在隔离残留标记下退出 2、源不变且无子命�
 当前源码、输出 / 构件摘要、日志、提交及所属临时构件清理事实在 `tmp/plugin-sdk-evidence.json`。
 **剩余。** 生产 runtime / JS adapter、完整 PluginContext / SDK 服务、原生根授权 / 批准 / 资源视图、
 App 控制器、gterm IPC、包安装 / 激活、实际插件和多实例继续；整个目标未完成，网关仍只预留。
+
+### P0 第二十五批：显式可选的 Core JS runtime 与真实请求适配（2026-11-06）
+
+**决策与交付。** 在 `67e83e4` 上加入私有 `runtime.h/.c` / `runtime-quickjs.inc` 与
+`core/cmake/PluginJS.cmake`。选择 QuickJS-NG **0.18.0**，submodule 固定官方 tag 对应
+**`d7215b0ad3fc2c562e8317fd9bca058fd4863804`**，编译的四源 / 全部顶层头和 LICENSE 另做 SHA256
+对拍；不执行上游 CMake，不链接 quickjs-libc；上游源码保持原样，无本地补丁。
+
+本批根据已验证的受管 SSH / Session / SDK 路线，把第二批的候选收敛为可选依赖，替代当时“全部 P0
+结束才锁依赖”的推进顺序。理由是该后端现可在明确边界内实现并单独验证，不要求任意嵌套 TTY 写回
+成立，也不意味着协议 / SDK 冻结或 P0 全项完成。`GHOSTERM_WITH_PLUGIN_JS=OFF` 为默认；普通 App
+尚未启用。开启需要显式 plugin channel、正确 submodule / 内容及测试 SDK 产物，缺少时配置失败；
+不联网下载或回落系统引擎。关闭档仍提供明确 UNSUPPORTED 私有入口，公开 **147 ABI** 不变。
+
+**所有权与权限。** 仅成功构造才接管 / 清空一个 ACTIVE、requests-enabled、原 native owner 独占的
+Session；拒绝有 Source 借用或角色不匹配，caller 不得交入已有请求 owner。原 Store / 通道容量继续
+到真实 Session destroy 计费。native caller 须提供匹配已协商包 / 侧的已核验模块快照；逐模块摘要
+只证明内容一致，不代替包来源 / manifest / 本次授权。构造复制源码 / 路径 / 配置，不执行插件。
+
+每实例独立 JSRuntime / JSContext，原串行非 UI owner 驱动；只有 stop 原子标记可跨线程，adopt /
+destroy 不得与 stop caller 竞争。step 的 C Session IO 为零等待；宿主仍须调度 / 唤醒该 owner，
+不能把 stop 标记当现成 App worker。没有新增线程、终端字节过桥、自有后台服务、自动恢复或网关。
+
+模块 1–64 个、每个 128 KiB、总源码 1 MiB，复制到 native 所有的内存。当前模块 ID 限 ASCII 的
+`plugin:/` / `sdk:/` 规范路径；相对导入只在根内归一化，缺项 / 越界 / Node / 网络 / native 模块
+拒绝。任意 UTF-8 包路径支持仍待后续能力，不做隐式改名。只有宿主 bootstrap 可取 `host:/native`，
+插件不能静态 / 动态导入它；SDK 通过私有状态持有 port。无文件系统 loader、字节码输入或通用 FFI。
+
+bootstrap 在同一受控边界执行 ESM / 顶层 await，再调用一次 activate，等待有效 disposable；当前
+context 提供 side / instanceId / 精确 epoch / cancellation / SessionChannel，尚非完整 PluginContext。
+原生 adapter 实际调用同一公开 C request / result / cancel / forget / take / check / respond / revoke；
+不另造 RPC 状态机或把 lease / fd 暴露给 JS。描述返回为 null-prototype POD，避免继承 setter；每次
+操作仍走原 lease / 角色 / 能力 / 期限检查。SDK 或插件不能据此伪造用户批准。
+
+**预算与结束。** 默认 JS heap 16 MiB、栈 256 KiB、每 step CPU 25 ms / 32 jobs、激活总期限 5 s；
+配置上限分别 128 MiB / 1 MiB / 1 s / 128 jobs / 60 s。源码副本和 Core workspace 不计入 JS heap，
+这些不是 RSS 或性能承诺。C / 磁盘服务仍须自己的预算。CPU 中断覆盖模块求值、activate、pump 和
+job；job 队列未排空即 JOBS 失败，不报成功；显式禁止 Atomics.wait 阻塞 owner，不依赖引擎默认值。
+处理过的 Promise rejection 不误杀，未处理项以有界
+64 槽跟踪；只记录状态 / 计数，不取异常文本入日志。普通 VM 异常（含 VM OOM / 栈）用 SCRIPT，
+明确发生在返回 POD 交接的 OOM 用 MEMORY；CPU / 停止 / 激活过期 / 原 Session end/error 分开保留。
+
+Native request 已入队、返回 JS POD 时的真实 OOM 会立即撤销整个 Session；未交付的 owning handle
+不能留下来继续发。close 先 revoke / stop，再尽力调用受中断保护的 dispose，随后强制释放 context /
+engine，不等未完成 Promise。dispose 错误与原运行错误、native cleanup_error 分开；DRAINING / IO
+保留 owner，真实 Session destroy 后才 CLOSED / destroy，模块副本最后释放。不是恶意代码 / 同 UID
+沙箱；JS 文件 / 进程 / UI / 网络服务尚未接，native 副作用仍须独立检查。
+
+**验收与失败记录。** 可选开启档在本机新编译 Core / QuickJS、同一 strict TS SDK 上 **27 项**通过，
+具名注册集合与实际执行数双向核对：参数 / 摘要 / 角色及构造失败不消费、复制源码、真实双向 RPC、
+相对 / 静态 / 动态导入、顶层 await、处理过 / 未处理拒绝、缺 activate / disposable、stop、CPU /
+顶层 CPU、Atomics 阻塞拒绝、内存 / 栈 / jobs / 激活期限、恶意 dispose、对端丢失、继承 setter、并存实例隔离及 OOM
+交接。隔离项在另一实例保持 FAILED 时，存活实例仍完成已确认请求。OOM 边界先观察真实 Core 请求
+已 QUEUED，再由实际 QuickJS OOM 异常拒绝 POD 分配，核对撤销、无接收请求与 fd 归零。没有进程 /
+文件业务副作用证据，亦没有跨连接 mux 或 App 多实例结论。
+
+新 **13 组 C 变异**完整通过：摘要、角色、源码复制、native 导入、CPU / Atomics / 内存 / job 限额、未处理 /
+已处理拒绝、stop、engine 释放和 OOM 交接立即 revoke。每组实际重编译 runtime / 两个测试 obj，
+重建 archive / 三个 executable，正常单条断言红、同 archive 独立配置绿、恢复绿和 SHA256。另有
+**4 项配置负向**护 provider、测试产物、commit pin、源码内容；只记配置拒绝，不冒充编译后变异。
+实际 main 残留标记预扫退出 2 / 源不变 / 无子命令。ASan / UBSan，无 LSan；四次严格 C11 /
+pedantic 编译通过。均为手工证据，不增加 CI 二十份。
+
+首轮顶层 CPU 中断在模块 Promise rejection 分支误记 SCRIPT，保留正常失败再修复为 CPU / stop；
+边界测试最初未启用实现宏，编译失败 / CTest Not Run 未计绿。最终新增并存隔离及具名发现保护后，
+全套和十三组重新执行。普通关闭档 `build-core.sh` / `gate.sh` 为 **379 CTest / 147 ABI**；公开头 /
+Apple / JNI 绑定未改。可选开启档另以 **NDK 28.2 / arm64-v8a / API 29** 真编译并链接 executable，
+实际 ELF 中含 runtime 与 JS_NewRuntime 定义；只是编译 / 链接，**未在 Android 设备执行**，没有
+JNI / Swift App 启用、APK / 签名 / 云端发行或物理设备 / WAN / 封闭内网结论。
+
+| 范围 | 本地收据 |
+|---|---|
+| 27 项 / 13 变异 / 4 配置拒绝 / NDK 实际链接 | `tmp/plugin-runtime-s_wcmmuj/logs/result.json` |
+| 严格 C11 四次编译 | `tmp/plugin-runtime-strict/result.json` |
+| 实际 main 残留预扫 | `tmp/plugin-runtime-preflight-b8z3iy_j/result.json` |
+| 默认构建 / gate | `tmp/plugin-runtime-core-final.log` / `tmp/plugin-runtime-gate-verified.log` |
+
+源码、pin / 许可、构件与日志摘要、提交及清理记录在 `tmp/plugin-runtime-evidence.json`。
+**剩余。** 公共 runtime ABI / 两端绑定、App 启用与原生根授权 / 批准 / 视图、完整 SDK 服务、gterm
+IPC、包安装 / 激活、实际插件与多实例继续；不把私有入口记为 App 已可用，网关仍只预留。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 
