@@ -483,6 +483,20 @@ Debug / 测试 APK / 未签名 Release / 实际 R8 / 四模块 lint 通过。错
 gterm IPC / 实际插件 / 多实例、物理设备 / WAN / 封闭内网 / 签名发行仍待验；目标继续，网关不实现。
 本批语义、限制及收据见插件计划第二十三批。
 
+**插件 Portable SDK 第二十四批（2026-11-06）**：`packages/plugin-sdk/portable/` 首片 strict TS /
+ES2020 类型化请求、对象 / 文本 / 整数 codec 与 schema、取消 / Outcome / step / dispose 已接，错误
+常量从既有 wire schema 生成并 `--check`。native port 只由受信 adapter 绑定原 Session / lease /
+owner；私有字段不泄露 port，Core 仍再验权限 / 实例 / 期限。没有生产 JS adapter / 完整 runtime。
+16 场景基线 / 恢复通过：13 项真实 Core RPC / socketpair，另为纯值、入队前拒绝 / native 零请求、
+以及不一致确认 adapter 故障各一项；故障 adapter 不算真实对端回执。QuickJS-NG 0.18.0 校验归档
+原样 C11 构建，无 quickjs-libc / Node / DOM。TS 5.9.3 / Ajv 8.17.1 仅锁定开发工具，四类静态负向 /
+36 schema 对拍通过。九组隔离 TS 变异真实编译 / C 重链后 SDK 正常断言红、同构件独立对照绿、
+恢复绿 / SHA256；实际 main 残留预扫退出 2 / 源不变 / 无子命令。两处 TS 编译失败拒收后重跑，
+request / 聚合导出后完整复验；ASan/UBSan，无 LSan，手工覆盖不增加 CI 二十份。Core 本轮仍为
+378 CTest / 147 ABI，未改 Core / 公开头 / native 绑定；没有本轮 Android / NDK / App / SSH / 设备 /
+发行结论。原生能力在每次副作用前仍须检查；SDK 无法终止任意 JS / 阻塞原生调用，不是恶意代码
+沙箱。完整 SDK / runtime / 页面 / gterm IPC / 插件 / 多实例继续，网关不实现；见插件计划第二十四批。
+
 `android-foreground` 以 `ANDROID_SERIAL=设备 python3 scripts/test-android-foreground.py` 验八项真实服务/页面定向，`mutation-check-android-foreground.py` 手工验 23 组；护真实 promotion、调度阻断、权限/类型、代次与请求取消、通知隐私/路由和生命周期。`test-android-foreground-system.py` 另验真实系统超时、stop-app 后新 PID 只读历史、通知拒绝及系统设置渠道关闭；`mutation-check-android-foreground-system.py` 有九组相应场景变异，含开启通知后补发及渠道恢复的状态检查。每组须编译后目标单条 JUnit 断言红、同 APK 配置对照绿、恢复绿与 SHA256，崩溃/编译失败不算目标红。系统设置及权限须恢复，stop-app 被中断的 staging 不计通过。§9.74 的 30 组与 §9.75 追加的两组均为分轮证据，不称一轮全量；完整 483 项仅 API 36 arm64 / 4 KB 页模拟器。以上均属手工覆盖，不增加 macOS CI 20 份，也不代表整个 A6 或发行矩阵完成。
 
 `android-file-journal` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-file-journal.py` 手工执行 20 组，护事务回滚、损坏/版本/容量、严格 JSON 与 UTF-8、检查点顺序、已知结果保留、历史加载/删除和队列阻断。`mutation-check-android-file-journal-crash.py` 在同样的设备环境下另验四组真实 SIGKILL/新 PID 恢复变异（含创建身份与阻止普通失败冒充死亡）；`test-android-file-journal-crash.py` 提供本机/SAF 六个中断点，新增创建标记已落盘、内容未写入边界。API 29 的 run-as 信号被 SELinux 拒绝，测试使用请求/PID/边界绑定的命令与 ack，由应用仅 SIGKILL 自身，宿主确认旧 PID 消失；不使用 root 或修改策略。远端以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFileJournalTest ANDROID_FILE_JOURNAL_REMOTE_MUTATE=1 bash scripts/test-android-ssh.sh` 执行四组变异及四个真实中断点，单独复验场景将 MUTATE 换为 CRASH。新进程只加载只读记录，核对实际文件/文档与清除记录不删文件，不自动重放任务、不恢复凭据。每组须真实编译后目标红、同 APK 配置对照绿、恢复绿与 SHA256；数量、失败与已运行范围见 Android 实现计划 §9.73，不将专项通过记为整个 A6 或断电恢复完成。

@@ -1,0 +1,10 @@
+{
+  "name": "ghosterm-plugin-sdk-check",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "ajv": "8.17.1"
+  }
+}

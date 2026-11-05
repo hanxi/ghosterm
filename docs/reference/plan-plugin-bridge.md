@@ -142,7 +142,7 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九 / 十 / 十二至二十三批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共门面 `channel.c` / `session-api.c` / `resource-api.c` / `source-api.c`，纳入 Core 构建。公共通道、Session 生命周期、JSON 请求、资源与 scoped source 门面已接两端 worker；App 根授权 / 控制器及其余生产模块仍待接。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
+以下为实现布局；第九 / 十 / 十二至二十三批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共门面 `channel.c` / `session-api.c` / `resource-api.c` / `source-api.c`，纳入 Core 构建。公共通道、Session 生命周期、JSON 请求、资源与 scoped source 门面已接两端 worker；App 根授权 / 控制器及其余生产模块仍待接。第二十四批已接 `packages/plugin-sdk/portable/` 的 strict TS 类型化请求边界，`schema/` 与 `testkit/` 有结构 / 元数据及 C/QuickJS conformance；生产 runtime / JS adapter 与 App 尚未接入。
 
 ```text
 core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
@@ -182,12 +182,12 @@ cli/gterm/
   relay.c        可选前台中继，具体支持拓扑由探针决定
 
 packages/plugin-sdk/
-  portable/      可在轻量 JS 引擎运行的公共能力
+  portable/      已接 SDK 首片：类型化请求、业务 codec / schema、取消 / 结果与边界值；其余能力待接
   client/        原生视图描述、会话、资源引用
   executor/      文件、子进程、消息、取消接口
   node/          显式 Node 档适配
   schema/        Manifest / wire / view schema 与生成工具
-  testkit/       模拟能力、协议夹具、权限负向测试
+  testkit/       已接元数据、strict TS 负向与真实公开 C / QuickJS 请求 conformance；其余夹具待接
 
 plugins/official/{preview,ai-codex,ai-claude,diff,table,...}/
   src/{client,executor,shared}/     业务均通过同一 SDK
@@ -2359,6 +2359,67 @@ Debug / 测试 APK、未签名 Release / 本轮实际 R8 与四模块 lint 通�
 **剩余。** 原生根授权 / 批准 / 资源视图、App 控制器、SDK / runtime / gterm IPC、包安装 / 激活、
 实际插件与多实例继续；未验证物理设备、WAN、真实封闭内网、签名 / 云端发行或完整客户端。
 整个插件目标未完成，未来网关只预留、不实现。
+
+### P0 第二十四批：Portable SDK 类型化请求首片（2026-11-06）
+
+**交付。** 在 `9d5d8d0` 上新增 `packages/plugin-sdk/portable/` 与聚合 `index.ts`，strict TypeScript /
+ES2020、无 DOM / Node types。类型化 `SessionChannel.request` / register、Promise Outcome、显式
+cancel / step / dispose，以及对象 / 文本 / 整数 codec 的静态推断、运行时校验与 JSON Schema 已接。
+这是 SDK 请求首片，尚非完整 PluginContext / activation、事件或资源 / 进程 / UI 服务。接口未冻结，
+没有发布 npm 包；[SDK README](../../packages/plugin-sdk/README.md) 说明当前调用与宿主契约。
+
+`generate-plugin-sdk.py --check` 从既有语言无关 wire schema 投影错误码和错误 / unknown 长度，不
+另造错误格式；failed 保留原 error / effect，cancelled 和 unknown 不折叠。业务 codec 在发请求前、
+接收处理前及成功结果返回前检查；对象拒绝未知字段。参数复制且冻结，不调用访问器 / toJSON；拒绝
+非法 UTF-16、非有限数、不安全整数、环、稀疏数组、原型污染键和超限 JSON。按 UTF-8 检查 3072 字节
+预算，uint64 以规范十进制字符串精确比较。对象 / 文本 / 整数只是当前 schema 子集，不是任意业务
+JSON Schema 解释器；公开 decode 也不替代 Core 对原始 wire 的重复键 / UTF-8 / envelope 校验。
+
+`NativePort` 为未来受信 runtime adapter 契约，由 native 绑定唯一 Session / 原 lease / 串行 owner；
+SDK 不持有 lease、fd 或凭据。私有状态使用 ECMAScript private fields，不能经普通属性取 native port。
+方向、实例 / epoch、能力和期限仍由 Core 再核对，SDK 不是权限源或恶意插件沙箱。native owner 先
+推进 C IO，再调用 SDK step；runtime 另管 CPU / Promise job 预算，不引 Node / 浏览器事件循环。
+每步最多 take 8 项，发送 / 接收各 64 个保留槽，注册最多 16 项；忙时显式返回，不自动重试 / 重放。
+
+异步处理每次 await 后、执行副作用前须调用 context.check，最终 native 能力边界仍须再检查。
+SDK 在处理前和返回后也检查；取消、撤销、旧 lease、超时均不能借迟到结果恢复操作。只有 native
+已确认且状态一致的成功结果才返回 success；处理被中断、结果 schema 错误或状态不一致保留 unknown，
+不声称没有副作用。dispose 立即 revoke、取消发送并清空接收账目，不等待插件配合；发送观察仍由
+owner 继续推进结果 / forget / native close。任意未完成 Promise 的强制回收由后续 runtime 销毁
+context，不声称 SDK 自己可以终止不配合的 JS 或阻塞原生调用。
+
+**真实联验。** 新 `scripts/probes/plugin-sdk.c` 是开发 conformance host，以原公开 C Session /
+request 接口和真实 socketpair 配对；没有复制请求状态机，没有生产 JS adapter 或新 C ABI。锁定
+QuickJS-NG **0.18.0** 的校验归档重新解包和 C11 编译，不加载 quickjs-libc / std / os；相同 TS 产物
+实际运行于该引擎。测试编译刻意不提供 DOM / Node types，另有参数类型、DOM、require、timer 四类
+预期编译错误保护；实际引擎也检查这些环境入口不存在。新增 TypeScript **5.9.3** / Ajv **8.17.1**
+仅为 lock integrity 钉住的开发工具，默认离线，非 Core / App 依赖；代码与缓存只在仓库 tmp。
+
+最终 **16 个场景**基线 / 恢复后全套通过，其中 **13 项**实际发起 Core RPC：双向业务 / 参数复制、
+接收与返回 schema、排队取消 / 到期、已发取消 / 到期、撤销、旧 lease、原生拒绝 / 不支持、64 槽
+容量与三类非成功 Outcome。另有 **1 项**纯值校验、**1 项**入队前拒绝 / native 零请求，以及 **1 项**
+显式故障 adapter 注入“成功但未确认”——后者不算真实网络 / 对端回执证据。各次实际 Session
+均关闭并核对 fd 归零。codec JSON Schema 与独立 Ajv **36 组**对拍；C / QuickJS 使用 ASan / UBSan，
+没有 LSan。该片未运行 Android / NDK、App 页面或 SSH 链路，不借此前多跳证据外推 SDK 已部署。
+
+新 **9 组隔离变异**完整通过：发起前 / 成功结果业务校验、异步 check、dispose 接收账目、未确认
+成功、发送容量、uint64 上界、UTF-16、冻结快照。每组实际重新 TS 编译 / C 编译 / 链接后，单个
+SDK 正常断言红、同构件独立值或双向业务对照绿、恢复编译 / 目标绿及 SHA256；未改生产工作树。
+两轮初始 result-schema / uint64-max 变异导致 noUnused / unknown 缩窄的 TS 编译失败，均被拒收；
+修正变异写法后重新全套。重命名 request / 聚合导出之后又完整复验，不沿用旧源码收据。
+runner 的实际 main 在隔离残留标记下退出 2、源不变且无子命令。所有新验证仍为手工，不增加 CI
+二十份。Core gate 本轮 **378 CTest / 147 ABI**；未改 Core、公开头或两端 native 绑定，无新平台
+构建 / 设备或发行结论。
+
+| 范围 | 本地收据 |
+|---|---|
+| 最终 strict TS / Core / QuickJS / schema / 九组变异 | `tmp/plugin-sdk-_8k11dfx/logs/result.json` |
+| 实际 main 残留预扫 | `tmp/plugin-sdk-preflight-ng7rk5m7/result.json` |
+| Core gate | `tmp/plugin-sdk-gate.log` |
+
+当前源码、输出 / 构件摘要、日志、提交及所属临时构件清理事实在 `tmp/plugin-sdk-evidence.json`。
+**剩余。** 生产 runtime / JS adapter、完整 PluginContext / SDK 服务、原生根授权 / 批准 / 资源视图、
+App 控制器、gterm IPC、包安装 / 激活、实际插件和多实例继续；整个目标未完成，网关仍只预留。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 
