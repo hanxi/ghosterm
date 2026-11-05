@@ -193,7 +193,10 @@ static void transfer_network_ssh(int argc,char **argv){
   CHECK(decided && session_dials==1);if(!strcmp(argv[1],"ssh-deny"))CHECK(!state.file && !state.completed);else CHECK(state.confirmed && state.snapshot && state.completed==80 && state.peer_ready);session_dispose(state.session);transfer_store_close(&state.store);gt__secure_erase(private_key,n);free(private_key);private_key=NULL;printf("PASS bridge_transfer_%s_%zu\n",argv[1],count);
 }
 #endif
-int main(int argc,char **argv){CHECK(argc>=3);transfer_root=argv[argc-1];if(!strcmp(argv[1],"--executor")){CHECK(argc==3);transfer_network_executor();return 0;}
+#ifndef GT_BRIDGE_TRANSFER_TEST_MAIN
+#define GT_BRIDGE_TRANSFER_TEST_MAIN main
+#endif
+int GT_BRIDGE_TRANSFER_TEST_MAIN(int argc,char **argv){CHECK(argc>=3);transfer_root=argv[argc-1];if(!strcmp(argv[1],"--executor")){CHECK(argc==3);transfer_network_executor();return 0;}
 #ifdef GT_HAVE_LIBSSH2
   if(argc>3){transfer_network_ssh(argc-1,argv);return 0;}
 #endif

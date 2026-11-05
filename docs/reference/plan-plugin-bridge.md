@@ -142,7 +142,7 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九 / 十 / 十二至十七批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c` 与 `backends/ssh_exec.h/.c` 并纳入 Core 构建，其余生产模块仍为拟议。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
+以下为实现布局；第九 / 十 / 十二至十八批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c` 与 `backends/ssh_exec.h/.c` 并纳入 Core 构建，其余生产模块仍为拟议。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
 
 ```text
 core/include/ghosterm/extension.h   公共 opaque handle / POD / 错误契约
@@ -161,6 +161,7 @@ core/src/extension/
   backends/local_ipc.c  显式前台 gterm 附着，后续按目标安全 IPC 验收
   resource.h / resource.c  已实现 S4c2a / S4c2b：共享预算、匿名暂存、完整发布 / 快照引用 / 退役交接
   transfer.h / transfer.c  已实现 S4c2b：资源流 credit / seq、发布回执、取消及 Session / RPC 共存
+  source.h / source.c    已实现 S4c2c：显式授权根 fd、逐层 no-follow、同句柄两遍读取 / EOF / 文件变化检查
   registry.c     插件元数据、版本与能力匹配
   runtime.c      插件任务与能力句柄
   js/            JS 引擎 C 适配与宿主 API，不依赖端代码
@@ -698,7 +699,8 @@ CLI 显式打开控制 TTY，检查前台进程组，保存 termios / fd flags�
 4. 标准视图经 ResourceRef 拉取；内容 WebView 只获得映射 URI。GTK、AppKit、Android 或 JS 都不绕过 Broker 自行读原路径。
 5. 已发布副本有引用和预算；关闭最后一个消费者后按缓存策略清理。该清理不触碰执行端来源、传输任务的未知残留或其它插件资源。
 
-第十六批已实现上述接收存储边界，尚未实现源文件读取、消息派发或平台资源映射。当前私有 Store 的
+第十六 / 十七批已实现接收存储和资源消息，第十八批补显式授权根内的普通文件读取 / EOF，平台资源映射
+仍未接入；只有可信 native caller 能提供根 fd，不能把远端自报路径当作授权。当前私有 Store 的
 generation 在每个绑定实例内全局递增，成功 begin 后即消耗，不随释放 / 取消回退，不按文件名分别计数。
 失败 begin 不消耗；已发布且仍保留的同一原生 ref 可幂等完成。后续 resource owner 须保持这个高水位，
 不能因为缓存释放而让旧 ID / generation 重新发布；它不构成跨进程持久去重或自动恢复承诺。
@@ -1330,7 +1332,7 @@ Go/Tailcat provider 可经私有 C ABI 给 C owner 受控 stream 或 POSIX fd，
 | S1 私有 stream / 共用 codec | 第九批已落地 C 接缝、部分 IO、预算 / 停止语义、候选长度分帧；不是完整 wire 校验器 | 同一套 conformance 夹具对 pipe / socketpair；随机分块、短写 / WAIT、前缀污染、截断 / 尾字节、限额、关闭后拒发。九模式与十三组变异通过；不拿内存 fake 通过当网络适配已完成。 |
 | S2 直接 SSH 后端 | 第十批 S2a 已接专属 auth owner、无 PTY exec / 三路 IO；第十一批 S2b 已关闭旧 exec helper 风险 | 直连十六场景 / 十四组变异；旧 helper 十个协议场景、边界测试及十六组新变异通过，原 exec 三组复验。更完整取消 / 重协商 / 长时资源矩阵继续作为后续组合验收，不借本片记插件产品完成。 |
 | S3 受管跳板链 | 第一跳至最终目标的字节 IO、逐跳身份 / 认证与清理 | 第十二批已验证 libssh2 两 / 三层、不同 pin、失败定位、转发拒绝、未知 hostkey、错凭据、半开链、取消与释放。客户端只准直拨第一跳；尚非真实封闭内网 / WAN / App 证据，完整平台和资源组合继续验收。 |
-| S4 共用会话与原生入口 | 协商、包匹配、原生批准、资源 / 请求、两端最小绑定 | 第十三至十七批已接原始校验、控制握手、RPC、Store 及资源消息 / credit / 发布回执。源文件范围读取、实际插件运行和原生页面仍待接；后续须两端页面 / 绑定、同一会话夹具和普通终端回归。公开头变化时完整 ABI / gate / 绑定对拍。 |
+| S4 共用会话与原生入口 | 协商、包匹配、原生批准、资源 / 请求、两端最小绑定 | 第十三至十八批已接原始校验、控制握手、RPC、Store、资源消息 / credit / 发布回执和显式根 fd 的源文件读取。原生根授权入口、实际插件运行和原生页面仍待接；后续须两端页面 / 绑定、同一会话夹具和普通终端回归。公开头变化时完整 ABI / gate / 绑定对拍。 |
 | S5 前台 gterm 附着 | 一次性 IPC 与受控 attach | 原目录 / 环境归属、实例错配、IPC 权限 / 路径、进程退出、第二客户端切 pane、无秘密回卷和无后台服务。 |
 | 后续网关 | WSS 或 Go 网络 provider | 对同一 conformance / wire / 会话夹具再验，再加网关自身认证、实际网络与平台矩阵；不倒填 S1 为兼容网关已通过。 |
 
@@ -1901,6 +1903,82 @@ selector 探针验证异常能传出；这不是整套脚本在任意中断点�
 **后续。** 本片仍无公共 ABI、原生授权 / ResourceRef 视图、SDK / JS runtime、CLI / 源文件 scoped reader、
 附件 manifest 或多实例 Session mux。下一片先补实际文件句柄来源 / 范围与 EOF 边界，再按计划接原生门面 /
 两端绑定及 S5 前台 IPC。P0 / P1 / S4 / 总目标未完成；外部网关继续不实现。
+
+### P0 第十八批：S4c2c 授权根内的真实文件读取与资源发送（2026-11-06）
+
+**范围与接缝。** 新增私有 [source.h](../../core/src/extension/source.h) / `source.c`；原生 owner 显式传入
+已经选择并授权的目录 fd、相对路径、MIME 与本次字节限额。Session 必须已激活，实际 native lease 同时
+允许 `file.readScoped` 和 `resource.receive`。未决定返回 WAIT，缺能力返回 UNSUPPORTED，作用域不匹配
+返回 DENIED，已撤销返回 CLOSED；未找到文件单独 NOT_FOUND。纯校验 / 授权失败不读文件，不从远端
+metadata、终端输出或 hostname 自动选根、重建连接。仍为纯 C11 / POSIX，公开 ABI 保持 95；没有新
+Swift / JNI caller、生产 CLI 或 App 根目录选择器，不把私有入口当作已完成原生授权产品。
+
+构造复制路径 / MIME，固定一次 workspace 分配，持有自己的 CLOEXEC 根 / 祖先 / 文件 fd；借入的根 fd
+不改 flags / offset，也不由 Source 关闭。绝对路径、`..`、非 UTF-8 / C0 / DEL / C1 控制名、过深 / 过长
+路径明确拒绝；支持 `./`、冗余分隔符和字面的 Unicode / `$()` 名称，不做 shell、环境变量、glob 或 tilde
+展开。最多 32 个有效组件、路径 4096 bytes、单组件 255 bytes。逐层 `fstatat(..., AT_SYMLINK_NOFOLLOW)`
+预检，再 `openat` 只读 / NOFOLLOW / CLOEXEC / NONBLOCK；前后核对 inode / 类型，首片只读普通文件。
+每步重新核对 retained ancestor 链和文件 dev / ino / mode / nlink / size / mtime / ctime；构造与 stat / read
+后的授权检查阻止已撤销读取继续交付。目录 ACL、挂载策略、对象总数和调用线程预算仍由可信 native
+caller 管理；可达硬链接允许。授权跟随已打开的根 inode，不跟随旧绝对路径；不是恶意同 UID 进程沙箱。
+
+**两遍读取与结果。** 从同一个文件 fd 用 `pread` 处理，每步一次最多 16 KiB 读取或一次有界 producer
+copy，Session 由调用方另行驱动；普通磁盘 IO 不承诺硬延迟期限，不能在 UI 线程调用。第一遍有界计算
+真实 SHA256，确认实际 EOF / 属性后才 READY；此时尚无资源消息。显式 send 后第二遍按既有 producer
+背压提交，读取量、producer 接纳量与回执分别观察；接纳量不冒充远端收到。第二遍也须实际 EOF / 属性
+不变，且 Transfer 的实际接纳摘要与第一遍一致，才允许完成帧。只有匹配接收端发布回执才 SUCCEEDED。
+两遍会增加源磁盘读取量；它可检测常见替换、截断、增长和内容变化，仍不构成文件系统原子快照。
+
+失败立即停止本地读取并擦除 buffer / hash，已开资源走取消控制，不发布半文件。已发但丢失回执保留
+UNKNOWN / UNCERTAIN，不能把未知记作失败无副作用。明确取消、源文件变化和 IO 错误分别保留；关闭
+不把已经开始的失败取消覆盖成普通取消。close 一次释放自己的所有 fd，已消费 fd 的 close EIO 当次
+报告 IO，保留对象供再次 bookkeeping，不重试该数字 fd；待远端取消时返回 WAIT，由 owner 继续 Session
+或显式结束连接。Source 先于 Session 销毁，Session 借用期直到 Source destroy；终态 transfer observation
+由 destroy forget，不停止同 Session 的其它任务。已确认副本不受后续源文件删除 / 变化影响。
+
+**行为验证。** [test_bridge_source.c](../../core/tests/test_bridge_source.c) 复用真实 Session / RPC / Store /
+SSH fixture，仅替换文件 syscall 边界注入短读、EINTR / EAGAIN / EIO、stat 中断、符号链接替换及 read
+期间文件截断；没有生产测试 hook。64 个 native 场景覆盖空 / 3 bytes / 256 KiB、32 组件、字面名称、硬链接、
+路径 / 能力 / lease / 限额、两次实际 EOF、同长度修改 / 替换 / 移动 / 删除、背压下变化、原 fd offset、
+分配失败、关闭错误和原根 fd 提前关闭。两遍内容不一致另在已打开文件的 pread 返回边界注入，不把该
+边界当实际文件系统快照测试。完整副本逐字节核验及固定已知摘要对拍，背压停读时 RPC 仍能独立完成。
+
+`python3 scripts/test-plugin-session.py --source --binary core/build/test_bridge_source` 在真实锁定 libssh2 /
+两、三层独立 hostkey 的 loopback sshd 上跑允许 / 拒绝四场景。允许时两端各从本次明确根内打开真实
+256 KiB 文件，两遍读取后双向传输、实际 Snapshot 逐字节 / 摘要 / 发布回执核验，同时 80 次确认 RPC；
+反向 RPC 确认双方完成才撤销。拒绝时不创建源文件 owner。客户端 native dial 只允许首跳；不是同一个
+主机密钥替代逐跳认证，也不是 App 已消费 ProxyJump、真实封闭内网 / WAN / tmux 产品验收。
+
+**验证收据。** `python3 scripts/mutation-check-plugin-source.py` 的 **34 组**在隔离 Core 上完成：scoped
+能力 / lease / 等待 / unsupported、路径 / UTF-8 / 深度、三项 open flags / 只读、两档限额、版本 / 祖先、
+构造 / stat / read 后撤销、两遍 EOF / 短读 / 读取错误 / EINTR / 摘要、背压 / 发布回执 / UNKNOWN、失败
+与取消区分、关闭 IO / 根 fd 所有权及 workspace 释放。每组强制重编实际 Core `source.c.o` 和 include-based
+test object，并核对构建日志；正常 C 断言 exit 1、同 archive 配置绿、重新编译的目标恢复绿及 SHA256。
+首尾各完成全部 64 native 和四 SSH，不把每组目标恢复冒充每组完整 SSH；ASan / UBSan 开启，未跑 LSan，
+崩溃 / 编译 / 超时不计目标红。最终收据 `tmp/plugin-source-mutations-4tw3qwv3/logs/result.json`。
+
+最终 Core gate **263 CTest / 95 ABI**，实际无 SSH
+archive 的 64 个源文件 native 场景、严格 C11 / pedantic-errors 的生产源与 include-based test 通过。
+Android NDK 28.2 bridge Debug 构建通过，实际 `source.c.o` 有 7 个私有 Source 定义符号；Apple 91/4 与 JNI
+57/38 引用对拍通过。没有新 JNI 调用，
+不将 object 编译当作产品接入。变异仍属手工，不增加 macOS CI 二十份。
+
+保留失败：首轮测试 main 复用宏冲突导致编译失败；改为既有 test 入口宏模式后重编。首轮 57 项有四项
+失败，不能记绿：背压期望漏算已有资源 credit 窗口；目录移动探针发生在目标目录打开前；stop-send
+探针把本地 stop 当作远端已收到 EOF。收紧为实际窗口上限与停读不变性、文件打开后移动祖先、显式
+关闭连接后远端清理，再保留原未知 / 不发布断言。该修正不是保证任意网络中断都已清理。构造 stat 后
+补授权复查，避免已停止 owner 继续打开子路径；源变化后 close 保留原错误、未发送的变化结果保留 FAILED。
+另有三轮未杀死变异被 runner 拒收：stat 后授权移除仍由后续 read 检查拦住、read 后授权移除仍由后续
+stat 检查拦住，以及排队变化的测试只核对错误码而容许 STOPPED。补上取消后不再进行下一类文件 IO 的
+次数断言，以及未发送变化必须 FAILED / 非确认 / 未开始的结果；没有降低断言或把 PASS 算红。原根 fd
+提前关闭用例在重新打开前先完成读取，排除 fd 编号复用遮蔽所有权错误。三轮失败日志保留、恢复的
+生产源摘要核对后清理所属构建副本，不将局部已过组数当最终整组证据。
+主要日志 `tmp/plugin-source-{mutations-verified,gate-verified,android-initial}.log`、无库 /
+严格编译的 `tmp/plugin-source-{off-vt4or2so,strict-n2td8zfk}/` 和汇总 `tmp/plugin-source-evidence.json`。
+
+**后续。** 本片补上源文件来源与 EOF，不代表 P0 / S4 / 总计划完成。公开原生门面 / 两端绑定、根授权 /
+ResourceRef 视图、SDK / JS runtime、生产 gterm / 前台 IPC、附件 manifest 和多实例 mux 继续分片；未知 /
+缺能力显式返回，不回退到不安全 TTY 输入，不引入自有 sessiond。未来网关只保留 provider 接缝，不实现。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

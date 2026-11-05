@@ -26,6 +26,7 @@ add_library(ghosterm_core STATIC
   src/extension/rpc.c
   src/extension/resource.c
   src/extension/transfer.c
+  src/extension/source.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
   src/core.c
@@ -71,6 +72,20 @@ endif()
 if(GHOSTERM_BUILD_TESTS)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
+add_executable(test_bridge_source tests/test_bridge_source.c)
+target_include_directories(test_bridge_source PRIVATE src ${SSH2_INCLUDE_DIRS})
+target_link_libraries(test_bridge_source PRIVATE ghosterm_core)
+target_compile_options(test_bridge_source PRIVATE -Wall -Wextra -Werror)
+if(SSH2_FOUND)
+  target_compile_definitions(test_bridge_source PRIVATE GT_HAVE_LIBSSH2=1)
+  add_test(NAME bridge_source_ssh COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-session.py --source --binary $<TARGET_FILE:test_bridge_source>)
+  set_tests_properties(bridge_source_ssh PROPERTIES TIMEOUT 280)
+endif()
+foreach(mode roundtrip large empty short literal hardlink max-depth backpressure rpc-progress absolute parent utf8 control c1 long-name long-path deep missing mime limit negotiated-limit root-file symlink symlink-dir directory fifo unsupported ungranted scope revoked waiting open-error swap-open move-open stop-open eintr again read-error stat-error early-eof eof-extra digest stop-read stop-stat stop-send cancel close-pending lost rename replace unlink change-ready change-backpressure grow truncate edit allocation close-error close-root mid-read second-eof second-error queued-change failure-close)
+  add_test(NAME bridge_source_${mode} COMMAND test_bridge_source ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+  set_tests_properties(bridge_source_${mode} PROPERTIES TIMEOUT 20)
+endforeach()
 add_executable(test_bridge_transfer tests/test_bridge_transfer.c)
 target_include_directories(test_bridge_transfer PRIVATE src ${SSH2_INCLUDE_DIRS})
 target_link_libraries(test_bridge_transfer PRIVATE ghosterm_core)

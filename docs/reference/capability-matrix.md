@@ -13,7 +13,7 @@
 | 能力 | 状态 | 证据 |
 |---|---|---|
 | C ABI（`ghosterm.h` v0，未冻结） | 🟡 | §9.122–§9.123 为 94 符号，Apple 90/4、JNI 56/38；后续为 95 ABI，见当前状态；§9.122 增加受控显式删除，§9.123 已接 Android 历史清理与独立记录；含受控读取到 fd、非覆盖发布和单目录创建。Android 只读文件页面与暂存层已消费，macOS 产品仍待迁移；§9.57 已补发布入口及两端绑定，原草稿对拍失败保留为历史。接口未冻结，消费者须同步重编译 |
-| 插件 SSH 通道（私有 Core，未接 App） | 🟡 | [插件计划第九至十七批](plan-plugin-bridge.md)：C stream / 显式跳板路线 / 握手 / RPC / 资源 credit 与发布回执 / Store。macOS loopback 真实两三跳，双向各 256 KiB / 80 确认 RPC、47 native 场景及 36 新变异；Core gate 198 CTest / 95 ABI。Android 仅 NDK bridge 编译，无新 JNI caller / 设备证据；其它端未验。没有公开插件 ABI、源文件范围读取、App 授权 / 视图、SDK / runtime / gterm IPC；受管 route 不代表产品已消费 ProxyJump。网关暂不实现，非完整插件产品或真实封闭内网 / WAN 验收 |
+| 插件 SSH 通道（私有 Core，未接 App） | 🟡 | [插件计划第九至十八批](plan-plugin-bridge.md)：C stream / 显式跳板路线 / 握手 / RPC / 资源 credit 与发布回执 / Store，加显式根 fd 的普通文件 no-follow / 两遍读取 / EOF / 摘要检查。macOS loopback 真实两三跳，双向各 256 KiB 源文件 / 快照和 80 确认 RPC；源读取 64 native 场景与 34 组编译变异通过，范围见第十八批；Core gate 263 CTest / 95 ABI。Android 仅 NDK bridge 编译，无新 JNI caller / 设备证据；其它端未验。没有公开插件 ABI、App 根授权 / 视图、SDK / runtime / gterm IPC；受管 route 不代表产品已消费 ProxyJump。网关暂不实现，非完整插件产品或真实封闭内网 / WAN 验收 |
 | `ssh_config` 解析（AST + Host 块） | ✅ | `ctest sshconfig_golden`：4 个 Host 块 / 6 个模式 |
 | `ssh_config` 无损往返（**未编辑**） | ✅ | 与原文**逐字节相同**（`test_config` 头号断言） |
 | `ssh_config` 求值（typed） | ✅ | `gt_config_resolve`：user/hostname/port/forwardagent/compression/serveraliveinterval/identityfile/proxyjump/setenv/localforward |
