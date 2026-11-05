@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "extension/session.h"
+#include "extension/transfer.h"
 #include "base/secure-random.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -16,7 +17,8 @@ struct gt_bridge_session {
   gt_bridge_writer_t *writer;
   gt_bridge_wire_t *wire;
   gt_bridge_rpc_t *rpc;
-  bool rpc_sending;
+  gt_bridge_transfer_t *resources;
+  bool rpc_sending,resource_sending,prefer_resource;
   atomic_bool stopping;
   gt_bridge_session_phase_t after_send;
   bool released,close_queued,tx_exhausted,rx_exhausted;
@@ -41,6 +43,7 @@ static void end_session(gt_bridge_session_t *s,gt_bridge_session_end_t reason,gt
   if(s->info.end!=GT_BRIDGE_END_NONE)return;
   s->info.end=reason;s->info.error=error;memset(s->info.consent_token,0,sizeof(s->info.consent_token));
   gt__bridge_rpc_end(s->rpc);
+  gt__bridge_transfer_end(s->resources);
   if(notify && s->info.connection[0] && add_time(s->now,1000,&s->ending_end))s->info.phase=GT_BRIDGE_SESSION_ENDING;
   else{s->info.phase=GT_BRIDGE_SESSION_ENDED;gt__bridge_stream_stop(s->stream);}
 }
@@ -135,9 +138,11 @@ static bool nonce_equal(gt_bridge_session_t *s,uint16_t payload,bool challenge) 
 }
 static bool features_equal(gt_bridge_session_t *s,uint16_t payload) {
   uint16_t id=gt__bridge_wire_member(s->wire,payload,"features");size_t count=gt__bridge_wire_count(s->wire,id);
-  if(!s->config.rpc_enabled)return count==0;
-  if(count!=1)return false;const uint8_t *p;size_t n;
-  return gt__bridge_wire_string(s->wire,gt__bridge_wire_at(s->wire,id,0),&p,&n) && n==8 && !memcmp(p,"requests",8);
+  if(count!=(size_t)s->config.rpc_enabled+(s->config.resource_store?1u:0u))return false;
+  for(size_t i=0;i<count;i++){const uint8_t *p;size_t n;if(!gt__bridge_wire_string(s->wire,gt__bridge_wire_at(s->wire,id,i),&p,&n))return false;
+    if(n==8 && !memcmp(p,"requests",8)){if(!s->config.rpc_enabled)return false;}
+    else if(n==9 && !memcmp(p,"resources",9)){if(!s->config.resource_store)return false;}else return false;}
+  return true;
 }
 static bool capabilities_json(gt_bridge_session_t *s,char *out,size_t capacity) {
   size_t at=0;out[at++]='[';
@@ -152,7 +157,7 @@ static bool payload_json(gt_bridge_session_t *s,gt_bridge_kind_t kind,char *out,
   (void)snprintf(budgets,sizeof(budgets),"{\"fragmentBytes\":%u,\"messageBytes\":%u,\"resourceBytes\":%u}",b.fragment_bytes,b.message_bytes,b.resource_bytes);
   if(!capabilities_json(s,caps,sizeof(caps)))return false;
   const char *hn=s->host_nonce[0]?s->host_nonce:zero_id,*en=s->executor_nonce[0]?s->executor_nonce:zero_id;
-  const char *features=s->config.rpc_enabled?"[\"requests\"]":"[]";int n=-1;
+  const char *features=s->config.resource_store?(s->config.rpc_enabled?"[\"requests\",\"resources\"]":"[\"resources\"]"):(s->config.rpc_enabled?"[\"requests\"]":"[]");int n=-1;
   if(kind==GT_BRIDGE_HELLO)n=snprintf(out,capacity,
     "{\"hostVersion\":\"%s\",\"sdkVersion\":\"%s\",\"nonce\":\"%s\",\"pluginId\":\"%s\",\"pluginVersion\":\"%s\",\"clientDigest\":\"%s\",\"executorDigest\":\"%s\",\"consentMs\":%u,\"budgets\":%s,\"features\":%s}",
     s->config.host_version,s->config.sdk_version,hn,s->config.plugin_id,s->config.plugin_version,s->config.client_digest,s->config.executor_digest,s->consent_ms,budgets,features);
@@ -171,7 +176,7 @@ static bool payload_json(gt_bridge_session_t *s,gt_bridge_kind_t kind,char *out,
   return n>=0 && (size_t)n<capacity;
 }
 static bool frame_json(gt_bridge_session_t *s,gt_bridge_kind_t kind,char *out,size_t capacity,size_t *length) {
-  static const char *names[]={"offer","request","response","event","cancel","credit","resource.begin","resource.chunk","resource.end","close","hello","probe","accept","ready"};
+  static const char *names[]={"offer","request","response","event","cancel","credit","resource.begin","resource.chunk","resource.end","close","hello","probe","accept","ready","resource.result","resource.cancel"};
   if((unsigned)kind>=sizeof(names)/sizeof(*names))return false;
   char payload[GT_BRIDGE_SESSION_CONTROL_MAX+1];if(!payload_json(s,kind,payload,sizeof(payload)))return false;
   int n=snprintf(out,capacity,"{\"wireVersion\":1,\"connectionId\":\"%s\",\"instanceId\":\"%s\",\"epoch\":\"1\",\"streamId\":\"control\",\"seq\":\"%" PRIu64 "\",\"kind\":\"%s\",\"payload\":%s}",
@@ -187,14 +192,19 @@ static bool queue(gt_bridge_session_t *s,gt_bridge_kind_t kind,gt_bridge_session
 }
 static void incompatible(gt_bridge_session_t *s){end_session(s,GT_BRIDGE_END_INCOMPATIBLE,GT_ERR_UNSUPPORTED,false);}
 static void protocol(gt_bridge_session_t *s){end_session(s,GT_BRIDGE_END_PROTOCOL,GT_ERR_PROTOCOL,false);}
+static gt_status_t application_received(gt_bridge_session_t *s,const gt_bridge_message_t *m,size_t size){
+  bool resource=!strcmp(m->stream,"resource") || m->kind==GT_BRIDGE_RESOURCE_RESULT || m->kind==GT_BRIDGE_RESOURCE_CANCEL;
+  if(m->kind==GT_BRIDGE_CREDIT && string_equal(s,m->payload,"streamId","resource"))resource=true;
+  return resource?(s->resources?gt__bridge_transfer_receive(s->resources,m,size):GT_ERR_UNSUPPORTED):(s->rpc?gt__bridge_rpc_receive(s->rpc,m,size,s->now):GT_ERR_UNSUPPORTED);
+}
 static bool incoming(gt_bridge_session_t *s,const uint8_t *bytes,size_t size) {
   gt_bridge_message_t m;
   if(size>GT_BRIDGE_SESSION_CONTROL_MAX || gt__bridge_wire_parse(s->wire,bytes,size,&m)!=GT_OK){protocol(s);return false;}
   if(m.epoch!=1){protocol(s);return false;}
   if(s->info.connection[0] && (strcmp(m.connection,s->info.connection) || strcmp(m.instance,s->info.instance))){protocol(s);return false;}
   if(strcmp(m.stream,"control")) {
-    if(s->info.phase!=GT_BRIDGE_SESSION_ACTIVE || !s->rpc){protocol(s);return false;}
-    gt_status_t status=gt__bridge_rpc_receive(s->rpc,&m,size,s->now);s->info.received++;
+    if(s->info.phase!=GT_BRIDGE_SESSION_ACTIVE){protocol(s);return false;}
+    gt_status_t status=application_received(s,&m,size);s->info.received++;
     if(status!=GT_OK){end_session(s,status==GT_ERR_UNSUPPORTED?GT_BRIDGE_END_INCOMPATIBLE:GT_BRIDGE_END_PROTOCOL,status,false);return false;}return true;
   }
   if(s->rx_exhausted || m.sequence!=s->rx_sequence){protocol(s);return false;}
@@ -237,13 +247,11 @@ static bool incoming(gt_bridge_session_t *s,const uint8_t *bytes,size_t size) {
     if(s->role==GT_BRIDGE_HOST && s->info.phase==GT_BRIDGE_SESSION_WAIT_ACK)return transition(s,GT_BRIDGE_SESSION_ACTIVE);
     protocol(s);return false;
   }
-  /* Only the explicitly negotiated request class has a dispatch/credit owner.
-   * Other application kinds never inherit handshake-only consent. */
-  if(s->info.phase==GT_BRIDGE_SESSION_ACTIVE && s->rpc) {
-    gt_status_t status=gt__bridge_rpc_receive(s->rpc,&m,size,s->now);
+  /* Each explicitly negotiated class owns its traffic and credit separately. */
+  if(s->info.phase==GT_BRIDGE_SESSION_ACTIVE) {
+    gt_status_t status=application_received(s,&m,size);
     if(status!=GT_OK){end_session(s,status==GT_ERR_UNSUPPORTED?GT_BRIDGE_END_INCOMPATIBLE:GT_BRIDGE_END_PROTOCOL,status,false);return false;}return true;
   }
-  if(s->info.phase==GT_BRIDGE_SESSION_ACTIVE){end_session(s,GT_BRIDGE_END_INCOMPATIBLE,GT_ERR_UNSUPPORTED,false);return false;}
   protocol(s);return false;
 }
 static int budget(gt_bridge_session_t *s,uint64_t start,int ms) {
@@ -259,17 +267,20 @@ gt_bridge_session_phase_t gt__bridge_session_step(gt_bridge_session_t *s,int ms)
   if(s->released || s->info.phase==GT_BRIDGE_SESSION_CLOSED)return GT_BRIDGE_SESSION_CLOSED;
   if(!tick(s) || s->info.phase>=GT_BRIDGE_SESSION_ENDED)return s->info.phase;
   uint64_t start=s->now;
-  if(s->info.phase==GT_BRIDGE_SESSION_ACTIVE && s->rpc && !gt__bridge_writer_pending(s->writer)) {
-    char frame[GT_BRIDGE_RPC_FRAME_MAX+1];size_t n=0;bool control=false;
-    gt_status_t status=gt__bridge_rpc_prepare(s->rpc,s->tx_sequence,s->now,frame,sizeof(frame),&n,&control);
-    if(status!=GT_OK){end_session(s,GT_BRIDGE_END_PROTOCOL,status,false);return s->info.phase;}
+  if(s->info.phase==GT_BRIDGE_SESSION_ACTIVE && (s->rpc || s->resources) && !gt__bridge_writer_pending(s->writer)) {
+    char rpc_frame[GT_BRIDGE_RPC_FRAME_MAX+1],resource_frame[4097];size_t rpc_n=0,resource_n=0;bool rpc_control=false,resource_control=false;
+    gt_status_t status=s->rpc?gt__bridge_rpc_prepare(s->rpc,s->tx_sequence,s->now,rpc_frame,sizeof(rpc_frame),&rpc_n,&rpc_control):GT_OK;
+    if(status==GT_OK && s->resources)status=gt__bridge_transfer_prepare(s->resources,s->tx_sequence,resource_frame,sizeof(resource_frame),&resource_n,&resource_control);
+    if(status!=GT_OK){end_session(s,status==GT_ERR_CANCELLED?GT_BRIDGE_END_REVOKED:status==GT_ERR_UNSUPPORTED?GT_BRIDGE_END_INCOMPATIBLE:status==GT_ERR_IO?GT_BRIDGE_END_INTERNAL:GT_BRIDGE_END_PROTOCOL,status,false);return s->info.phase;}
+    bool resource=resource_n && (!rpc_n || (resource_control && !rpc_control) || (resource_control==rpc_control && s->prefer_resource));
+    char *frame=resource?resource_frame:rpc_frame;size_t n=resource?resource_n:rpc_n;bool control=resource?resource_control:rpc_control;
     if(n) {
       gt_bridge_message_t m;
       if((control && s->tx_exhausted) || gt__bridge_wire_parse(s->wire,frame,n,&m)!=GT_OK){protocol(s);return s->info.phase;}
       if(!tick(s))return s->info.phase;
-      if(gt__bridge_rpc_current(s->rpc,s->now)) {
+      if(resource || gt__bridge_rpc_current(s->rpc,s->now)) {
         if(gt__bridge_writer_queue(s->writer,frame,n)!=GT_OK){protocol(s);return s->info.phase;}
-        gt__bridge_rpc_commit(s->rpc);s->rpc_sending=true;
+        if(resource){gt__bridge_transfer_commit(s->resources);s->resource_sending=true;}else{gt__bridge_rpc_commit(s->rpc);s->rpc_sending=true;}s->prefer_resource=!resource;
         if(control){if(s->tx_sequence==UINT64_MAX)s->tx_exhausted=true;else s->tx_sequence++;}
       }
     }
@@ -285,8 +296,9 @@ gt_bridge_session_phase_t gt__bridge_session_step(gt_bridge_session_t *s,int ms)
     if(complete)s->info.sent++;
     if(!tick(s))return s->info.phase; /* time may advance during the write */
     if(!complete)return s->info.phase;
-    bool application=s->rpc_sending;
-    if(application){gt__bridge_rpc_sent(s->rpc);s->rpc_sending=false;}
+    bool application=s->rpc_sending || s->resource_sending;
+    if(s->rpc_sending){gt__bridge_rpc_sent(s->rpc);s->rpc_sending=false;}
+    if(s->resource_sending){gt__bridge_transfer_sent(s->resources);s->resource_sending=false;}
     if(s->info.end!=GT_BRIDGE_END_NONE)s->info.phase=s->close_queued?GT_BRIDGE_SESSION_ENDED:GT_BRIDGE_SESSION_ENDING;
     else if(!application && !transition(s,s->after_send))return s->info.phase;
     if(s->info.phase>=GT_BRIDGE_SESSION_ENDING)return s->info.phase;
@@ -355,12 +367,14 @@ gt_bridge_close_t gt__bridge_session_close(gt_bridge_session_t *s,int ms) {
   return result;
 }
 static void free_parts(gt_bridge_session_t *s) {
+  gt__bridge_transfer_free(s->resources);
   gt__bridge_rpc_free(s->rpc);
   gt__bridge_writer_free(s->writer);gt__bridge_decoder_free(s->decoder);gt__bridge_wire_free(s->wire);
   gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));a.release(a.context,s,sizeof(*s));
 }
 gt_status_t gt__bridge_session_destroy(gt_bridge_session_t *s) {
   if(!s || !s->released)return GT_ERR_INVALID_ARG;
+  gt_status_t cleanup=gt__bridge_transfer_cleanup(s->resources);if(cleanup!=GT_OK)return cleanup;
   gt_status_t status=gt__bridge_stream_destroy(s->stream);if(status!=GT_OK)return status;free_parts(s);return GT_OK;
 }
 gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,gt_bridge_role_t role,const gt_bridge_session_config_t *config,
@@ -374,6 +388,7 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,gt_bridge_role_t 
      !local_budgets(config->budgets) || !config->clock || !config->handshake_ms || config->handshake_ms>60000 || !config->consent_ms || config->consent_ms>600000)return GT_ERR_INVALID_ARG;
   if(strcmp(config->sdk_version,"1.0.0"))return GT_ERR_UNSUPPORTED;
   if(config->rpc_method_count>16 || (!config->rpc_enabled && config->rpc_method_count))return GT_ERR_INVALID_ARG;
+  if((!config->resource_store && config->resource_scope_bytes) || (config->resource_store && (!config->resource_scope_bytes || config->resource_scope_bytes>GT_BRIDGE_RESOURCE_TOTAL_MAX)))return GT_ERR_INVALID_ARG;
   for(size_t i=0;i<config->rpc_method_count;i++) {
     const gt_bridge_rpc_method_t *m=&config->rpc_methods[i];
     if(!name_safe(m->method) || !name_safe(m->capability) || !m->input || !m->output || m->receiver>1)return GT_ERR_INVALID_ARG;
@@ -389,6 +404,7 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,gt_bridge_role_t 
   if(status==GT_OK)status=gt__bridge_decoder_new(GT_BRIDGE_FRAME_MAX,&a,&s->decoder);
   if(status==GT_OK)status=gt__bridge_writer_new(GT_BRIDGE_FRAME_MAX,&a,&s->writer);
   if(status==GT_OK && config->rpc_enabled)status=gt__bridge_rpc_new(s,s->wire,&a,&s->rpc);
+  if(status==GT_OK && config->resource_store)status=gt__bridge_transfer_new(s,s->wire,config->resource_store,config->resource_scope_bytes,&a,&s->resources);
   if(status==GT_OK)status=random_id(s->lease);
   if(status==GT_OK && role==GT_BRIDGE_HOST)status=random_id(s->info.connection);
   if(status==GT_OK && role==GT_BRIDGE_HOST)status=random_id(s->info.instance);
@@ -417,3 +433,11 @@ gt_bridge_rpc_status_t gt__bridge_session_respond(gt_bridge_session_t *s,const g
 
 bool gt__bridge_session_scope(const gt_bridge_session_t *s,const gt_bridge_lease_t *lease){return s && lease && lease->epoch==s->info.epoch && !memcmp(lease->connection,s->info.connection,33) && !memcmp(lease->instance,s->info.instance,33) && !memcmp(lease->token,s->lease,33);}
 bool gt__bridge_session_has_capability(const gt_bridge_session_t *s,const char *capability){return s && capability && strnlen(capability,129)<=128 && contains(s->config.available,s->config.available_count,capability);}
+gt_bridge_resource_status_t gt__bridge_session_send_resource(gt_bridge_session_t *s,const gt_bridge_lease_t *l,const gt_bridge_resource_descriptor_t *d,uint64_t *handle){if(handle)*handle=0;if(!s || !s->resources)return GT_BRIDGE_RESOURCE_UNSUPPORTED;if(!tick(s))return GT_BRIDGE_RESOURCE_CLOSED;return gt__bridge_transfer_start(s->resources,l,d,handle);}
+gt_bridge_resource_status_t gt__bridge_session_write_resource(gt_bridge_session_t *s,const gt_bridge_lease_t *l,uint64_t h,const void *p,size_t n,size_t *accepted){if(accepted)*accepted=0;if(!s || !s->resources)return GT_BRIDGE_RESOURCE_UNSUPPORTED;if(!tick(s))return GT_BRIDGE_RESOURCE_CLOSED;return gt__bridge_transfer_write(s->resources,l,h,p,n,accepted);}
+gt_bridge_resource_status_t gt__bridge_session_finish_resource(gt_bridge_session_t *s,const gt_bridge_lease_t *l,uint64_t h,bool complete){if(!s || !s->resources)return GT_BRIDGE_RESOURCE_UNSUPPORTED;if(!tick(s))return GT_BRIDGE_RESOURCE_CLOSED;return gt__bridge_transfer_finish(s->resources,l,h,complete);}
+gt_bridge_resource_status_t gt__bridge_session_cancel_resource(gt_bridge_session_t *s,const gt_bridge_lease_t *l,uint64_t h){if(s)(void)tick(s);return s && s->resources?gt__bridge_transfer_cancel(s->resources,l,h):GT_BRIDGE_RESOURCE_UNSUPPORTED;}
+bool gt__bridge_session_resource_result(gt_bridge_session_t *s,const gt_bridge_lease_t *l,uint64_t h,gt_bridge_transfer_result_t *out){if(out)memset(out,0,sizeof(*out));if(s)(void)tick(s);return s && s->resources && gt__bridge_transfer_result(s->resources,l,h,out);}
+gt_bridge_resource_status_t gt__bridge_session_forget_resource(gt_bridge_session_t *s,const gt_bridge_lease_t *l,uint64_t h){if(s)(void)tick(s);return s && s->resources?gt__bridge_transfer_forget(s->resources,l,h):GT_BRIDGE_RESOURCE_UNSUPPORTED;}
+gt_bridge_resource_status_t gt__bridge_session_take_resource(gt_bridge_session_t *s,const gt_bridge_lease_t *l,gt_bridge_snapshot_t *out){if(out)memset(out,0,sizeof(*out));if(s)(void)tick(s);return s && s->resources?gt__bridge_transfer_take(s->resources,l,out):GT_BRIDGE_RESOURCE_UNSUPPORTED;}
+gt_bridge_resource_status_t gt__bridge_session_reject_resource(gt_bridge_session_t *s,const gt_bridge_lease_t *l){if(!s || !s->resources)return GT_BRIDGE_RESOURCE_UNSUPPORTED;if(!tick(s))return GT_BRIDGE_RESOURCE_CLOSED;return gt__bridge_transfer_reject(s->resources,l);}

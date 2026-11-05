@@ -8,7 +8,7 @@ user explicitly supplies --fetch. Raw lexical policy cases are kept separate.
 from pathlib import Path
 import argparse,base64,copy,hashlib,json,os,random,shutil,signal,struct,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1]
-KINDS=['offer','request','response','event','cancel','credit','resource.begin','resource.chunk','resource.end','close','hello','probe','accept','ready']
+KINDS=['offer','request','response','event','cancel','credit','resource.begin','resource.chunk','resource.end','close','hello','probe','accept','ready','resource.result','resource.cancel']
 
 def fixtures():
     source=json.loads((ROOT/'packages/plugin-sdk/schema/bridge-v1.cases.json').read_text());cases=[]

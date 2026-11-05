@@ -12,7 +12,7 @@
 
 typedef struct {
   uint64_t handle,last_generation,reserved,budget;size_t resources;
-  bool sealed;gt_bridge_lease_t lease;
+  bool sealed,retiring;gt_bridge_lease_t lease;
 } resource_scope_t;
 typedef enum {RESOURCE_UNUSED,RESOURCE_STAGING,RESOURCE_PUBLISHED,RESOURCE_CLEANING} resource_state_t;
 typedef struct {
@@ -85,6 +85,7 @@ static gt_bridge_resource_status_t resource_drop(gt_bridge_resource_store_t *s,r
     item->name[0]=0;
   }
   s->reserved-=item->reserved;scope->reserved-=item->reserved;s->resources--;scope->resources--;
+  if(scope->retiring && !scope->resources && !failed)gt__secure_erase(scope,sizeof(*scope));
   gt__secure_erase(item,sizeof(*item));return failed?GT_BRIDGE_RESOURCE_IO:GT_BRIDGE_RESOURCE_OK;
 }
 static gt_bridge_resource_status_t resource_fail(gt_bridge_resource_store_t *s,resource_scope_t *scope,resource_item_t *item,gt_bridge_resource_status_t status){
@@ -201,6 +202,11 @@ gt_bridge_resource_status_t gt__bridge_resource_seal(gt_bridge_resource_store_t 
 gt_bridge_resource_status_t gt__bridge_resource_unbind(gt_bridge_resource_store_t *s,uint64_t owner,const gt_bridge_lease_t *lease){
   if(!s)return GT_BRIDGE_RESOURCE_INVALID;resource_scope_t *scope=resource_scope(s,owner,lease);if(!scope)return GT_BRIDGE_RESOURCE_DENIED;
   if(!scope->sealed || scope->resources)return GT_BRIDGE_RESOURCE_WAIT;gt__secure_erase(scope,sizeof(*scope));return GT_BRIDGE_RESOURCE_OK;
+}
+gt_bridge_resource_status_t gt__bridge_resource_retire(gt_bridge_resource_store_t *s,uint64_t owner,const gt_bridge_lease_t *lease){
+  if(!s)return GT_BRIDGE_RESOURCE_INVALID;resource_scope_t *scope=resource_scope(s,owner,lease);if(!scope)return GT_BRIDGE_RESOURCE_DENIED;
+  scope->retiring=true;gt_bridge_resource_status_t status=gt__bridge_resource_seal(s,owner,lease);
+  if(status==GT_BRIDGE_RESOURCE_OK && !scope->resources)gt__secure_erase(scope,sizeof(*scope));return status;
 }
 bool gt__bridge_resource_usage(const gt_bridge_resource_store_t *s,gt_bridge_resource_usage_t *out){
   if(out)memset(out,0,sizeof(*out));if(!s || !out)return false;out->reserved_bytes=s->reserved;out->resources=s->resources;

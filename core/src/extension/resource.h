@@ -55,6 +55,9 @@ gt_bridge_resource_status_t gt__bridge_resource_release(gt_bridge_resource_store
 /* Seal rejects new traffic, discards staging, keeps published snapshots; native
  * scoped snapshot reads are still valid, not renewed remote permissions. */
 gt_bridge_resource_status_t gt__bridge_resource_seal(gt_bridge_resource_store_t *,uint64_t,const gt_bridge_lease_t *);
+/* Seal and hand off lifetime to retained snapshots. Automatically unbinds after
+ * the final ref/cleanup is released; Store itself must still outlive all pins. */
+gt_bridge_resource_status_t gt__bridge_resource_retire(gt_bridge_resource_store_t *,uint64_t,const gt_bridge_lease_t *);
 gt_bridge_resource_status_t gt__bridge_resource_unbind(gt_bridge_resource_store_t *,uint64_t,const gt_bridge_lease_t *);
 bool gt__bridge_resource_usage(const gt_bridge_resource_store_t *,gt_bridge_resource_usage_t *);
 /* Refuses while any bound scope remains, including sealed scopes with pins.

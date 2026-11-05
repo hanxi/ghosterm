@@ -7,7 +7,7 @@ import hashlib,json,os,shutil,signal,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_RPC_MUTATION'
 MODES='roundtrip full unknown denied missing-cap remote-invalid queued-cancel queued-timeout validation scope cancel late-result lost stop duplicate conflict retired feature allocation credit pending-duplicate cancel-before-take cancel-no-credit credit-overflow overspend gap response-conflict counter select-expiry held-credit incoming-timeout'.split()
 INPUTS=sorted({str(p.relative_to(ROOT)) for folder in ('core/src','core/include') for p in (ROOT/folder).rglob('*') if p.is_file() and p.suffix in ('.c','.h','.inc')})+[
- 'core/CMakeLists.txt','core/tests/test_bridge_rpc.c','core/tests/test_bridge_rpc.c','core/tests/test_bridge_ssh.c',
+ 'core/CMakeLists.txt','core/tests/test_bridge_rpc.c','core/tests/test_bridge_session.c','core/tests/test_bridge_ssh.c',
  'packages/plugin-sdk/schema/bridge-v1.candidate.json','packages/plugin-sdk/schema/bridge-v1.cases.json',
  'scripts/generate-plugin-wire.py','scripts/test-plugin-session.py','scripts/test-plugin-route.py','scripts/test-plugin-ssh.py',
  'scripts/test-plugin-ssh-stream.py','scripts/mutation-check-plugin-rpc.py']
@@ -114,7 +114,7 @@ def main():
           'queued-timeout'),
          ('precommit-deadline',
           'session.c',
-          'if(gt__bridge_rpc_current(s->rpc,s->now))',
+          'if(resource || gt__bridge_rpc_current(s->rpc,s->now))',
           'if(true)',
           'select-expiry'),
          ('incoming-deadline',

@@ -29,7 +29,7 @@ KEYS={'$schema','$id','$comment','$defs','$ref','type','additionalProperties','r
 
 def generate(raw):
     document=json.loads(raw);specs=[document];paths=['#'];indices={'#':0}
-    if document['properties']['kind']['enum']!=['offer','request','response','event','cancel','credit','resource.begin','resource.chunk','resource.end','close','hello','probe','accept','ready']:
+    if document['properties']['kind']['enum']!=['offer','request','response','event','cancel','credit','resource.begin','resource.chunk','resource.end','close','hello','probe','accept','ready','resource.result','resource.cancel']:
         raise ValueError('Wire kind changes require updating the C message model and conformance')
     def register(spec,path):
         if path not in indices:

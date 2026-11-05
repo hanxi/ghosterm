@@ -212,6 +212,29 @@
         "executorNonce": "22222222222222222222222222222222",
         "challenge": "33333333333333333333333333333333"
       }
+    },
+    "resource.result": {
+      "kind": "resource.result",
+      "streamId": "control",
+      "payload": {
+        "resourceId": "cccccccccccccccccccccccccccccccc",
+        "generation": "1",
+        "outcome": {
+          "kind": "success",
+          "value": {
+            "byteLength": "1",
+            "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        }
+      }
+    },
+    "resource.cancel": {
+      "kind": "resource.cancel",
+      "streamId": "control",
+      "payload": {
+        "resourceId": "cccccccccccccccccccccccccccccccc",
+        "generation": "1"
+      }
     }
   },
   "patches": [
@@ -768,6 +791,118 @@
       ],
       "valid": false,
       "value": "RPC"
+    },
+    {
+      "name": "resource-result-generation-zero",
+      "from": "resource.result",
+      "path": [
+        "payload",
+        "generation"
+      ],
+      "value": "0",
+      "valid": false
+    },
+    {
+      "name": "resource-result-scope-extra",
+      "from": "resource.result",
+      "path": [
+        "payload",
+        "instanceId"
+      ],
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": false
+    },
+    {
+      "name": "resource-result-cancelled",
+      "from": "resource.result",
+      "path": [
+        "payload",
+        "outcome"
+      ],
+      "value": {
+        "kind": "cancelled",
+        "effect": "none"
+      },
+      "valid": true
+    },
+    {
+      "name": "resource-result-unknown",
+      "from": "resource.result",
+      "path": [
+        "payload",
+        "outcome"
+      ],
+      "value": {
+        "kind": "unknown",
+        "reason": "receipt retired"
+      },
+      "valid": true
+    },
+    {
+      "name": "resource-result-invalid-outcome",
+      "from": "resource.result",
+      "path": [
+        "payload",
+        "outcome"
+      ],
+      "value": {
+        "kind": "success"
+      },
+      "valid": false
+    },
+    {
+      "name": "resource-cancel-generation-overflow",
+      "from": "resource.cancel",
+      "path": [
+        "payload",
+        "generation"
+      ],
+      "value": "18446744073709551616",
+      "valid": false
+    },
+    {
+      "name": "resource-cancel-request-id",
+      "from": "resource.cancel",
+      "path": [
+        "payload",
+        "requestId"
+      ],
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": false
+    },
+    {
+      "name": "resource-result-busy",
+      "from": "resource.result",
+      "path": [
+        "payload",
+        "outcome"
+      ],
+      "value": {
+        "kind": "failed",
+        "error": {
+          "code": "BUSY",
+          "message": "resource not published",
+          "effect": "none"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "resource-result-integrity",
+      "from": "resource.result",
+      "path": [
+        "payload",
+        "outcome"
+      ],
+      "value": {
+        "kind": "failed",
+        "error": {
+          "code": "INTEGRITY",
+          "message": "resource not published",
+          "effect": "none"
+        }
+      },
+      "valid": true
     }
   ]
 }

@@ -17,7 +17,8 @@ typedef enum {
   GT_BRIDGE_OFFER,GT_BRIDGE_REQUEST,GT_BRIDGE_RESPONSE,GT_BRIDGE_EVENT,
   GT_BRIDGE_CANCEL,GT_BRIDGE_CREDIT,GT_BRIDGE_RESOURCE_BEGIN,
   GT_BRIDGE_RESOURCE_CHUNK,GT_BRIDGE_RESOURCE_END,GT_BRIDGE_CLOSE,
-  GT_BRIDGE_HELLO,GT_BRIDGE_PROBE,GT_BRIDGE_ACCEPT,GT_BRIDGE_READY
+  GT_BRIDGE_HELLO,GT_BRIDGE_PROBE,GT_BRIDGE_ACCEPT,GT_BRIDGE_READY,
+  GT_BRIDGE_RESOURCE_RESULT,GT_BRIDGE_RESOURCE_CANCEL
 } gt_bridge_kind_t;
 typedef struct {
   char connection[33],instance[33],stream[129];
@@ -40,6 +41,7 @@ bool gt__bridge_wire_string(const gt_bridge_wire_t *,uint16_t,const uint8_t **,s
 bool gt__bridge_wire_raw(const gt_bridge_wire_t *,uint16_t,const uint8_t **,size_t *);
 /* Typed accessors for validated numeric fields and capability arrays. */
 bool gt__bridge_wire_uint(const gt_bridge_wire_t *,uint16_t,uint64_t *);
+bool gt__bridge_wire_counter(const gt_bridge_wire_t *,uint16_t,uint64_t *);
 size_t gt__bridge_wire_count(const gt_bridge_wire_t *,uint16_t);
 uint16_t gt__bridge_wire_at(const gt_bridge_wire_t *,uint16_t,size_t);
 void gt__bridge_wire_free(gt_bridge_wire_t *);

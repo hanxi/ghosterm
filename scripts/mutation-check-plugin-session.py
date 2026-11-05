@@ -55,7 +55,7 @@ def main():
           ('stop-permission','if(stopped(s) || s->info.end!=GT_BRIDGE_END_NONE)return GT_BRIDGE_ACCESS_REVOKED;','if(s->info.end!=GT_BRIDGE_END_NONE)return GT_BRIDGE_ACCESS_REVOKED;','stop-before-step'),
           ('lease-token',' || memcmp(lease->token,s->lease,33)','','allow'),
           ('early-lease',' || s->info.phase!=GT_BRIDGE_SESSION_ACTIVE)return false;',' )return false;','allow'),
-          ('application-not-silent','if(s->info.phase==GT_BRIDGE_SESSION_ACTIVE){end_session(s,GT_BRIDGE_END_INCOMPATIBLE,GT_ERR_UNSUPPORTED,false);return false;}','if(s->info.phase==GT_BRIDGE_SESSION_ACTIVE)return true;','active-message'),
+          ('application-not-silent',':(s->rpc?gt__bridge_rpc_receive(s->rpc,m,size,s->now):GT_ERR_UNSUPPORTED);',':(s->rpc?gt__bridge_rpc_receive(s->rpc,m,size,s->now):GT_OK);','active-message'),
           ('late-read','if(!tick(s))return s->info.phase; /* no activation from late read bytes */','/* omitted read deadline recheck */','late-read'),
           ('late-write','if(!tick(s))return s->info.phase; /* time may advance during the write */','/* omitted write deadline recheck */','late-write'),
           ('expired-effect','s->info.end==GT_BRIDGE_END_EXPIRED && s->info.decision!=GT_BRIDGE_DECISION_ALLOW?','s->info.end==GT_BRIDGE_END_EXPIRED?','expired-after-allow'),

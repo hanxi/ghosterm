@@ -48,7 +48,9 @@
         "hello",
         "probe",
         "accept",
-        "ready"
+        "ready",
+        "resource.result",
+        "resource.cancel"
       ]
     },
     "payload": {}
@@ -193,6 +195,26 @@
           "$ref": "#/$defs/ready"
         }
       }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "resource.result"
+        },
+        "payload": {
+          "$ref": "#/$defs/resourceResult"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "resource.cancel"
+        },
+        "payload": {
+          "$ref": "#/$defs/resourceCancel"
+        }
+      }
     }
   ],
   "$defs": {
@@ -288,7 +310,9 @@
             "CANCELLED",
             "IO",
             "PROTOCOL",
-            "INTERNAL"
+            "INTERNAL",
+            "BUSY",
+            "INTEGRITY"
           ]
         },
         "message": {
@@ -784,6 +808,42 @@
         },
         "challenge": {
           "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "resourceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resourceId",
+        "generation",
+        "outcome"
+      ],
+      "properties": {
+        "resourceId": {
+          "$ref": "#/$defs/id"
+        },
+        "generation": {
+          "$ref": "#/$defs/positiveCounter"
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        }
+      }
+    },
+    "resourceCancel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resourceId",
+        "generation"
+      ],
+      "properties": {
+        "resourceId": {
+          "$ref": "#/$defs/id"
+        },
+        "generation": {
+          "$ref": "#/$defs/positiveCounter"
         }
       }
     }

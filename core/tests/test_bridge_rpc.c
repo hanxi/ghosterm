@@ -205,7 +205,10 @@ static void rpc_fixture_ssh(int argc,char **argv) {
   CHECK(decided && session_dials==1 && completed==(!strcmp(argv[1],"ssh-deny")?0:80));session_dispose(s);gt__secure_erase(private_key,n);free(private_key);private_key=NULL;printf("PASS bridge_rpc_%s_%zu\n",argv[1],count);
 }
 #endif
-int main(int argc,char **argv) {
+#ifndef GT_BRIDGE_RPC_TEST_MAIN
+#define GT_BRIDGE_RPC_TEST_MAIN main
+#endif
+int GT_BRIDGE_RPC_TEST_MAIN(int argc,char **argv) {
   if(argc==2 && !strcmp(argv[1],"--executor")){rpc_fixture_executor();return 0;}
 #ifdef GT_HAVE_LIBSSH2
   if(argc>2){rpc_fixture_ssh(argc,argv);return 0;}

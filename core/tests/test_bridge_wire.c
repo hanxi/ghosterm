@@ -40,6 +40,9 @@ int main(int argc,char **argv) {
       CHECK(!strcmp(message.connection,connection) && !strcmp(message.instance,instance) && !strcmp(message.stream,stream));
       CHECK(gt__bridge_wire_raw(wire,message.payload,&view,&view_size) && view>=bytes && view_size && view+view_size<=bytes+size);
       CHECK(!gt__bridge_wire_member(wire,message.payload,"missing-member"));
+      uint64_t counter_value=0;CHECK(gt__bridge_wire_counter(wire,gt__bridge_wire_member(wire,1,"seq"),&counter_value) && counter_value==sequence);
+      CHECK(gt__bridge_wire_counter(wire,gt__bridge_wire_member(wire,1,"epoch"),&counter_value) && counter_value==epoch);
+      CHECK(!gt__bridge_wire_counter(wire,gt__bridge_wire_member(wire,1,"wireVersion"),&counter_value) && !counter_value);
     } else {
       uint8_t zero[sizeof(message)];memset(zero,0,sizeof(zero));CHECK(status==GT_ERR_PROTOCOL && !memcmp(&message,zero,sizeof(message)));
       CHECK(!gt__bridge_wire_raw(wire,1,&view,&view_size) && !view && !view_size && !gt__bridge_wire_member(wire,1,"payload"));

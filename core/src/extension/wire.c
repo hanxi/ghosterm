@@ -315,7 +315,7 @@ gt_status_t gt__bridge_wire_parse(gt_bridge_wire_t *d,const void *bytes,size_t s
   for(size_t i=0;i<3;i++){const json_node_t *n=&d->nodes[member(d,1,fields[i])];memcpy(targets[i],d->strings+n->text,n->size);}
   const json_node_t *epoch=&d->nodes[member(d,1,"epoch")],*seq=&d->nodes[member(d,1,"seq")];
   (void)counter(d->strings+epoch->text,epoch->size,&out->epoch);(void)counter(d->strings+seq->text,seq->size,&out->sequence);
-  const char *kinds[]={"offer","request","response","event","cancel","credit","resource.begin","resource.chunk","resource.end","close","hello","probe","accept","ready"};
+  const char *kinds[]={"offer","request","response","event","cancel","credit","resource.begin","resource.chunk","resource.end","close","hello","probe","accept","ready","resource.result","resource.cancel"};
   uint16_t kind=member(d,1,"kind");for(size_t i=0;i<sizeof(kinds)/sizeof(*kinds);i++)if(node_string_is(d,kind,kinds[i]))out->kind=(gt_bridge_kind_t)i;
   out->payload=member(d,1,"payload");d->valid=true;return GT_OK;
 }
@@ -337,6 +337,10 @@ bool gt__bridge_wire_uint(const gt_bridge_wire_t *d,uint16_t id,uint64_t *out) {
 }
 size_t gt__bridge_wire_count(const gt_bridge_wire_t *d,uint16_t id) {
   return d && d->valid && id && id<=d->used && d->nodes[id].kind==J_ARRAY?d->nodes[id].count:0;
+}
+bool gt__bridge_wire_counter(const gt_bridge_wire_t *d,uint16_t id,uint64_t *out){
+  if(out)*out=0;if(!d || !d->valid || !id || id>d->used || !out || d->nodes[id].kind!=J_STRING)return false;
+  return counter(d->strings+d->nodes[id].text,d->nodes[id].size,out);
 }
 uint16_t gt__bridge_wire_at(const gt_bridge_wire_t *d,uint16_t id,size_t at) {
   if(!d || !d->valid || !id || id>d->used || d->nodes[id].kind!=J_ARRAY)return 0;

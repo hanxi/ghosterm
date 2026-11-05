@@ -16,13 +16,34 @@ python3 scripts/mutation-check-plugin-resource.py
 
 `bridge_resource_hash_reference` 额外执行 68 个独立 Python hashlib 对拍；私有纯 C SHA-256 不依赖可选 SSH
 archive，另有空串 / abc / 百万 a、计数溢出及终结状态检查。这不是认证、签名或加密模块认证。
-本片只实现接收存储，尚无 resource wire / credit / Session caller、实际源文件范围检查、UI / JNI / SDK
-消费者。目录 ACL / 挂载策略由可信原生调用者保证，Core 检查 mode / uid；不声称 mode 单独证明目录安全。
-变异与完整边界见插件计划第十六批，手工脚本不增加 macOS CI 二十份。
+第十七批已接下面的私有 transfer / Session caller，仍无实际源文件范围检查、UI / JNI / SDK 消费者。
+目录 ACL / 挂载策略由可信原生调用者保证，Core 检查 mode / uid；不声称 mode 单独证明目录安全。
+变异与完整边界见插件计划第十六 / 十七批，手工脚本不增加 macOS CI 二十份。
+
+## 插件资源消息与发布回执
+
+`bridge_transfer_*` 的 47 native mode 使用实际 Session / RPC / Store、socket 和文件，覆盖独立 resource
+credit / seq、partial / WAIT 后持账、producer buffer / EOF / hash、发布才确认、窗口 / snapshot 数量、
+取消 / 断线 UNKNOWN、重复完成 / 冲突、最近 receipt 淘汰、权限与四字段 scope、源端 / 数据流 counter、
+IO 后 stop、销毁重试和 Session 退出后的快照。每实例每方向串行传输，outgoing observation 未 forget 时
+新 start 为 WAIT；不把这条 bulk 流当多实例 mux 已完成。Store retire 在最后 ref 释放后自动解绑。
+
+```bash
+ctest --test-dir core/build --output-on-failure -R '^bridge_transfer_'
+python3 scripts/test-plugin-session.py --resources --binary core/build/test_bridge_transfer
+python3 scripts/mutation-check-plugin-transfer.py
+```
+
+SSH CTest 包含两 / 三跳的允许 / 拒绝四场景，允许项双向各 256 KiB、逐字节 / 回执和 80 确认 RPC，
+用反向 RPC 作结束屏障后撤销；native 只直拨第一跳。新套 36 组编译后变异分别护 native / 对端权限、credit、
+确认事实、作用域和重试清理；每次恢复完整 47 native / 四 SSH。最后一次 close 的 EIO 及多快照中途错误
+先以正常断言复现，修复后要求 owner / scope 保留并能再次销毁。新候选消息为 control 上的 resource.result / cancel，
+不受 data credit 阻塞。静态 C producer 仍未实现源文件授权根 / no-follow 读取，不代表 App / 插件可用。
+完整变异、失败 / 恢复、信号探针及限制见插件计划第十七批；不增加 CI 二十份。
 
 ## 插件 wire 原始字节与 schema
 
-`bridge_wire` 经 stdin 夹具调用实际 C `wire.c`，607 项覆盖 SDK 候选 envelope / outcome / handshake / RPC、uint64、
+`bridge_wire` 经 stdin 夹具调用实际 C `wire.c`，618 项覆盖 SDK 候选 envelope / outcome / handshake / RPC / resource receipt、uint64、
 规范数值 / SemVer / Base64、重复 decoded key / 跨对象 key、UTF-8 / surrogate、每字节截断、byte / depth /
 node 两侧界限、失败输出 / view 和 allocator / 擦除。它不检查连接 / 实例归属、授权或序号连续性。
 `bridge_wire_generated` 执行 `generate-plugin-wire.py --check`；候选 schema 为事实来源，生成物勿手改。
@@ -30,22 +51,22 @@ node 两侧界限、失败输出 / view 和 allocator / 擦除。它不检查连
 ```bash
 python3 scripts/generate-plugin-wire.py          # schema 变化后显式再生
 python3 scripts/test-plugin-wire.py
-python3 scripts/test-plugin-wire.py --reference # 离线锁定 Ajv，对拍其中 260 个 schema 实例
+python3 scripts/test-plugin-wire.py --reference # 离线锁定 Ajv，对拍其中 271 个 schema 实例
 python3 scripts/mutation-check-plugin-wire.py
 ```
 
 reference 首次缺开发缓存可显式加 `--fetch`；默认 Core CTest 不需要 npm / Node。其余 347 项是 lexical /
 owner 策略，不能称 Ajv 已验证。十六组隔离 ASan / UBSan 变异要求正常 C 断言红、同库配置绿、恢复全套 / 生成物
 绿及 SHA256；编译、崩溃与超时不算目标红。无 SSH archive 复用相同 wire 用例，无平台绑定 / SSH 会话结论。
-完整范围见插件计划第十三至十五批；变异手工执行，不增加 macOS CI 二十份。
+完整范围见插件计划第十三至十七批；变异手工执行，不增加 macOS CI 二十份。
 
 ## 插件会话握手与实例授权
 
 `bridge_session_*` 的 27 个本机 socket mode 验实际 C Session 与 caller 提供的 local peer 事实，不能
 替代 S5 的 IPC 身份核验。覆盖 HELLO / OFFER、UNKNOWN / native ticket 决定、nonce challenge、双方 READY、
 control seq / instance / epoch、metadata / capability / budget、scoped lease / 撤销、半帧 / EOF、等待决定与
-IO 后期限、分配 / entropy / fd 释放。默认不启用 requests；显式启用时走下面的私有 RPC owner，
-双方 features 必须精确匹配。event / resource 尚不派发，收到必须报不支持。
+IO 后期限、分配 / entropy / fd 释放。默认不启用 requests / resources；显式启用时走对应私有 owner，
+双方 features 必须精确匹配。event 尚不派发，收到必须报不支持。
 `bridge_session_ssh` 打包两 / 三台不同 hostkey 的四场景，实际 C Executor 通过无 PTY SSH stdio 运行，
 native dial 仅准第一跳；允许后撤销与拒绝另验，未证明 UI 或真实封闭内网。
 

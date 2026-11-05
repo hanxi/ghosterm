@@ -25,6 +25,7 @@ add_library(ghosterm_core STATIC
   src/extension/session.c
   src/extension/rpc.c
   src/extension/resource.c
+  src/extension/transfer.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
   src/core.c
@@ -70,6 +71,20 @@ endif()
 if(GHOSTERM_BUILD_TESTS)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
+add_executable(test_bridge_transfer tests/test_bridge_transfer.c)
+target_include_directories(test_bridge_transfer PRIVATE src ${SSH2_INCLUDE_DIRS})
+target_link_libraries(test_bridge_transfer PRIVATE ghosterm_core)
+target_compile_options(test_bridge_transfer PRIVATE -Wall -Wextra -Werror)
+if(SSH2_FOUND)
+  target_compile_definitions(test_bridge_transfer PRIVATE GT_HAVE_LIBSSH2=1)
+  add_test(NAME bridge_transfer_ssh COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-session.py --resources --binary $<TARGET_FILE:test_bridge_transfer>)
+  set_tests_properties(bridge_transfer_ssh PROPERTIES TIMEOUT 280)
+endif()
+foreach(mode roundtrip large unknown empty partial snapshot bidirectional queued-cancel cancel receiver-cancel denied unsupported feature lost stop deferred-credit pending-window rpc-progress io native-scope source-incomplete integrity duplicate receipt-conflict snapshot-quota retired destroy-retry stop-write stop-finish bad-success possible-cancel offset overspend gap epoch instance allocation counter exit-before-receipt credit-overflow fairness source-digest peer-id limit duplicate-conflict release-io release-last-io)
+  add_test(NAME bridge_transfer_${mode} COMMAND test_bridge_transfer ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+  set_tests_properties(bridge_transfer_${mode} PROPERTIES TIMEOUT 20)
+endforeach()
 add_executable(test_bridge_resource tests/test_bridge_resource.c)
 target_include_directories(test_bridge_resource PRIVATE src)
 target_link_libraries(test_bridge_resource PRIVATE ghosterm_core)

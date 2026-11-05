@@ -1,5 +1,5 @@
 /* Private session: one selected instance on one admitted duplex stream.
- * Optional bounded requests; no resource publication, gateway, auto-reconnect
+ * Optional bounded requests/resources; no gateway, auto-reconnect
  * or public ABI. Caller supplies metadata from its verified package and
  * peer owners, not remote self-reported trust. One serial non-UI IO owner.
  * Only stop is cross-thread; all stop callers finish before destroy. */
@@ -10,6 +10,7 @@
 #define GT_BRIDGE_SESSION_CAPS_MAX 16u
 #define GT_BRIDGE_SESSION_CONTROL_MAX 4096u
 typedef struct gt_bridge_session gt_bridge_session_t;
+typedef struct gt_bridge_resource_store gt_bridge_resource_store_t;
 typedef enum {GT_BRIDGE_HOST,GT_BRIDGE_EXECUTOR} gt_bridge_role_t;
 typedef enum {GT_BRIDGE_PEER_LOCAL,GT_BRIDGE_PEER_SSH} gt_bridge_peer_kind_t;
 typedef struct {gt_bridge_peer_kind_t kind;char identity[128];} gt_bridge_peer_evidence_t;
@@ -26,6 +27,9 @@ typedef struct {
   bool rpc_enabled;
   size_t rpc_method_count;
   gt_bridge_rpc_method_t rpc_methods[16];
+  /* Borrowed connection Store outlives Session and all handed-off snapshots. */
+  gt_bridge_resource_store_t *resource_store;
+  uint64_t resource_scope_bytes;
 } gt_bridge_session_config_t;
 typedef enum {
   GT_BRIDGE_SESSION_SENDING,GT_BRIDGE_SESSION_WAIT_HELLO,GT_BRIDGE_SESSION_WAIT_OFFER,

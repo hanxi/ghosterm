@@ -91,6 +91,6 @@ def main():
         print(f'PLUGIN RESOURCE MUTATIONS PASS: {len(cases)} groups; logs: {logs}',flush=True)
     except BaseException as error:
         (logs/'failure.txt').write_text(repr(error)+'\n');raise
-def stop(signum,frame):raise InterruptedError(f'signal {signum}')
+def stop(signum,frame):raise KeyboardInterrupt(f'signal {signum}')
 if __name__=='__main__':
     signal.signal(signal.SIGINT,stop);signal.signal(signal.SIGTERM,stop);main()
