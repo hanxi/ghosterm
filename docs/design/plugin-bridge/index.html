@@ -23,7 +23,7 @@
 <header class="mast"><span>ARCHITECTURE &amp; PLUGIN DEVELOPMENT</span><div class="toolbar"><button class="small-button" id="expand-phases">展开实施计划</button><button class="small-button" id="print">打印 / 导出 PDF</button></div></header>
 <div class="hero"><div><div class="eyebrow">GHOSTERM EXTENSION SYSTEM</div><h1>插件桥接架构<br>与开发规范</h1><p class="lead">让远端命令通过现有连接，打开本地原生窗格。文件预览、AI 对话、差异、表格和任务面板，作为同一套插件系统的不同能力。</p></div><span class="draft">评审草案 v0.1 · 2026.11.05</span></div>
 <div class="quick-summary"><div><small>插件主语言</small><strong>TypeScript → JavaScript</strong></div><div><small>包模型</small><strong>Client + Executor</strong></div><div><small>系统接缝</small><strong>C11 + 原生宿主</strong></div><div><small>接入顺序</small><strong>macOS / Android 优先</strong></div></div>
-<div class="notice">本轮交付为 HTML 方案。目录、API、命令、协议和预算是设计草案，不代表当前 Ghosterm 已支持；TTY 路由与 JS 引擎须先通过探针再冻结规范。本页交互只切换离线示例，不连接远端、不运行 Agent。</div>
+<div class="notice">方案方向已确认，后续架构与开发规范以 <a href="../../reference/plan-plugin-bridge.md">Markdown 维护文档</a> 为主；本页保留为交互评审快照。目录、API、命令、协议和预算仍是设计草案，不代表当前 Ghosterm 已支持；TTY 路由与 JS 引擎须先通过探针再冻结规范。本页交互只切换离线示例，不连接远端、不运行 Agent。</div>
 
 <section class="section" id="overview"><div class="section-heading"><span class="section-number">00</span><div><h2>定位与设计决策</h2><p>从预览命令，扩展为远端程序与原生工作区之间的插件桥接。</p></div></div>
 <p>暂定命令名 <code>gterm</code>。所有业务子命令由插件贡献；宿主只保留安装、诊断、通道和生命周期等基础设施。普通本地 PTY / SSH 继续作为默认入口，用户在某个执行环境显式运行 <code>gterm &lt;command&gt;</code> 后才激活扩展。</p>

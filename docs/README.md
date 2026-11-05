@@ -27,6 +27,7 @@
 - [可选 tmux 实施清单](reference/optional-tmux-implementation.md)
 - [计划：SFTP → 统一文件浏览器（M4.6）](reference/plan-files-manager.md)
 - [可选 tmux 后台会话重构计划](reference/plan-optional-tmux.md)
+- [插件桥接架构与开发规范计划](reference/plan-plugin-bridge.md)
 - [计划：文件面板顶栏修复 + 标签右键菜单](reference/plan-panel-tab-menu.md)
 - [macOS 标签栏与窗格界面重构计划](reference/plan-tab-chrome-refactor.md)
 - [计划：关闭确认降噪 + ⌘T 继承当前标签页 + cwd 地基](reference/plan-tabs-close-and-newtab.md)
@@ -35,6 +36,7 @@
 
 ## 设计资料
 
+- [插件桥接 HTML 评审稿](design/plugin-bridge/index.html)
 - [Tern 四种布局参考截图](design/tern-reference/README.md)
 - [Android 交互原型](design/android-prototype.html)
 - [macOS 标签原型](design/tabs-chrome-prototype.html)
