@@ -10,6 +10,7 @@
 // 让「连不上会不会崩」这件事在没有 UI 时也能验收。
 import AppKit
 import GhostermAppModel
+import GhostermCore
 import GhostermTerminal
 import Foundation
 
@@ -103,6 +104,54 @@ enum LocalSmoke {
             FileHandle.standardError.write(Data("smoke 失败: \(error)\n".utf8))
             exit(1)
         }
+    }
+}
+
+/// Exercises the packaged resource loader with a private HOME supplied by the
+/// gate. The real shell must clear mouse modes at its next prompt.
+enum MouseRecoverySmoke {
+    @MainActor static func run(homePath: String) {
+        do {
+            try check(homePath: homePath)
+            print("MOUSE_RECOVERY_OK")
+            exit(0)
+        } catch {
+            fputs("鼠标恢复校验失败：\(error)\n", stderr)
+            exit(1)
+        }
+    }
+
+    @MainActor private static func check(homePath: String) throws {
+        let home = URL(fileURLWithPath: homePath)
+        var directory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: home.path, isDirectory: &directory), directory.boolValue else {
+            throw GhostermError.failed("鼠标恢复冒烟需要已有的隔离目录")
+        }
+        _ = NSApplication.shared
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let app = try TerminalApp.shared(); app.startEventLoop()
+        let surface = try TerminalSurface(app: app)
+        let session = try SessionController.localShell(surface: surface, executable: "/bin/zsh",
+            env: ["HOME=" + home.path, "ZDOTDIR=" + home.path], kind: .shell)
+        defer { session.stop() }
+        let receipt = home.appendingPathComponent("hook-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: receipt) }
+        let quote = "'" + receipt.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let title = "GHOSTERM_MOUSE_RECOVERY_" + UUID().uuidString
+        var observed = false
+        surface.onTitle = { value in
+            if value == title { DispatchQueue.main.async { observed = true } }
+        }
+        session.start()
+        surface.sendCommittedText("(( ${precmd_functions[(Ie)__ghosterm_mouse_prompt]} )) && printf READY > " + quote + "; printf '\\033[?1000h\\033[?1006h\\033]0;" + title + "\\007'\r")
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+            if observed, FileManager.default.fileExists(atPath: receipt.path), !surface.isMouseCaptured {
+                return
+            }
+        }
+        throw GhostermError.failed("本地 zsh 提示符没有自动清理鼠标模式")
     }
 }
 

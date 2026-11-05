@@ -208,8 +208,10 @@ FONT_BUNDLE_SRC="$(dirname "$BIN")/$FONT_BUNDLE_NAME"
 FONT_BUNDLE_DST="$APP/Contents/Resources/$FONT_BUNDLE_NAME"
 [ -d "$FONT_BUNDLE_SRC" ] || fail "缺随包字体资源：${FONT_BUNDLE_SRC}"
 python3 "$ROOT/scripts/check-macos-fonts.py" || fail "字体资源校验失败"
+python3 "$ROOT/scripts/check-shell-integration.py" || fail "shell 恢复资源校验失败"
 cp -R "$FONT_BUNDLE_SRC" "$FONT_BUNDLE_DST"
 python3 "$ROOT/scripts/check-macos-fonts.py" --bundle "$FONT_BUNDLE_DST" || fail "打包字体资源校验失败"
+python3 "$ROOT/scripts/check-shell-integration.py" --bundle "$FONT_BUNDLE_DST" || fail "打包 shell 恢复资源校验失败"
 # 图标：从 assets/icons 的母版派生产物生成 .icns（不在打包时重画 SVG，避免第二套真相）
 ICONSET_SRC="$ROOT/assets/icons/apple/AppIcon.appiconset"
 [ -d "$ICONSET_SRC" ] || fail "缺 ${ICONSET_SRC}（先跑 bash scripts/build-icons.sh apple）"
@@ -401,6 +403,13 @@ if [ "$ARCH" = "$(uname -m)" ]; then
   echo "${CONFIG_OUT}" | grep -q "CONFIG_OK diagnostics=0" \
     || fail "包内配置检查失败（随包主题 ${THEME_NAME} 未被引擎接受）：${CONFIG_OUT}"
   note "包内配置检查 ok：随包主题「${THEME_NAME}」被引擎接受"
+  mkdir -p "$WORK/mouse-home"
+  if ! "$MAIN_EXE" --mouse-recovery-check "$WORK/mouse-home" >"$WORK/mouse-check.log" 2>&1; then
+    cat "$WORK/mouse-check.log" >&2
+    fail "包内 zsh 鼠标恢复检查失败"
+  fi
+  grep -q '^MOUSE_RECOVERY_OK$' "$WORK/mouse-check.log" || fail "包内鼠标恢复检查缺少通过收据"
+  note "包内 zsh 鼠标恢复检查 ok"
   # 统计要诚实：`grep -c Frameworks/` 会把 /System/Library/Frameworks 一起数进去
   # （数字好看但没意义）。这里只数「来自本 bundle」与「内嵌库」两个口径。
   TOTAL_LOADS="$(grep -c '^dyld\[' "$WORK/dyld.log" 2>/dev/null || true)"

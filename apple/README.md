@@ -47,7 +47,7 @@ apple/
 
 已交付与遗留见[路线图](../docs/reference/roadmap.md)、[能力矩阵](../docs/reference/capability-matrix.md)。
 
-`7939ef8` 另交付 Bash/Zsh 提示符鼠标模式清理脚本：程序异常退出回到提示符时清理残留，避免鼠标移动变成 shell 输入。它位于 `scripts/shell-integration/`，通过显式安装器加载到实际运行 shell 的主机；当前 App/打包脚本没有自动安装或注入步骤，远端 tmux 需要远端安装。macOS 26.6.2 / tmux 3.6a 的本地和系统 SSH→隔离环回 sshd 已有复现及修复记录，八组变异通过；真实整机休眠与用户远端尚未验。安装方法、正常 TUI 边界及 Codex 未复现记录见[鼠标残留恢复](../docs/how-to/mouse-report-recovery.md)。这项提示符钩子不提供远端 cwd 上报，也不补齐 OSC 133 集成。
+`7939ef8` 交付的 Bash/Zsh 提示符鼠标清理脚本仍可独立安装。当前 App 的普通本地 zsh 入口已自动加载随包钩子：系统 SSH 异常断开回到本地提示符时清理移动/点击残留，无需修改用户启动文件；`.direct`、其它 shell 及远端仍保留原启动方式，Bash/远端需手工集成。macOS 26.6.2 / tmux 3.6a 已有三层隔离 SSH 断线、真实 AppKit 点击及正常 TUI 字节对照；真实硬件休眠和用户远端另验。随包资源对拍、自动接线与包内检查见[鼠标残留恢复](../docs/how-to/mouse-report-recovery.md)。这项提示符钩子不提供远端 cwd 上报，也不补齐 OSC 133 集成。
 
 共享 `gt_config_edit` 已修复非连续重复指令误删中间行的问题，Apple 与 JNI 使用同一实现。`ConfigStore` 的强制备份/原子替换、私钥材料安全存储接线仍有缺口；Android 写盘事务不等于 macOS 写盘事务已修复。
 `HostListModel.directives` 目前仍以 Swift 简化行扫描提供表单初值，`HostEditorSheet.save` 提交全部显示字段；不能把 Core 的稀疏编辑保证扩大为整个表单的“只改脏字段”。tab、`=`、引号、重复指令与未改保存的保真须独立补齐，见路线图 P0。

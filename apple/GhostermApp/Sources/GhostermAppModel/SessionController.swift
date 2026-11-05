@@ -113,11 +113,14 @@ public final class SessionController {
         surface: TerminalSurface,
         executable: String? = nil,
         argv: [String] = [],
+        env: [String] = [],
         cwd: String? = nil,
         kind: Transport.PTYCommandKind
     ) throws -> SessionController {
+        let launch = try ShellIntegration.launch(executable: executable, arguments: argv,
+                                                 environment: env, kind: kind)
         let t = try Transport.openPTY(
-            executable: executable, argv: argv, cwd: cwd,
+            executable: launch.executable, argv: launch.arguments, env: launch.environment, cwd: cwd,
             term: "xterm-256color", kind: kind,
             cols: surface.gridSize.cols, rows: surface.gridSize.rows
         )

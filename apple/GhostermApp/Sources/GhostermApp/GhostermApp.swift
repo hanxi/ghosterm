@@ -48,6 +48,8 @@ enum GhostermUI {
             }
         case "--local":
             LocalSmoke.run(executable: args.count >= 3 ? args[2] : nil)
+        case "--mouse-recovery-check" where args.count >= 3:
+            MouseRecoverySmoke.run(homePath: args[2])
         case "--ssh-smoke" where args.count >= 4:
             SSHSmoke.run(configPath: args[2], pattern: args[3])
         case "--config-check" where args.count >= 3:
