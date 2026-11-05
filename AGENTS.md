@@ -441,6 +441,28 @@ Debug / 未签名 Release / R8 和四模块 lint 通过。重复 respond 的错�
 SDK / runtime / gterm IPC / 插件 / 多实例仍待接；无签名发行、物理设备或完整客户端结论，网关不实现。
 完整链接取证、闭包范围及本地收据路径见插件计划第二十一批。
 
+**插件 S4d4 公开资源第二十二批（2026-11-06）**：`extension_resource.h` / `resource-api.c` 新增十六项
+公共 Store / 资源 Session / producer / 回执 / 快照入口，原 124 签名保留；当前 Core **140 ABI**、
+Apple **136 / 4**、JNI **102 / 38**。精确 RESOURCES / 可选 REQUESTS；Store 借用从构造成功到实际
+Session destroy 持续计费，快照 pin 跨 Session 保留，scope budget 在构造前核对。固定字段先查 NUL，
+真实发布 / 回执才能确认；排队取消、已发无回执 UNKNOWN、确认后 stop 分开。Store WAIT 保留，目录
+close 后 IO 消费 owner；最后 ref 真实 close 后 EIO 不重试数值 fd，全部 Session 释放后才收集退休空
+scope。Swift queue / owning Snapshot / 原队列析构 ledger、JNI Store 代次表 / 原 worker、take 前预分配
+及 Kotlin 解包失败的无分配返回包 discard 已接；无 source 文件访问 / App 根授权或资源视图。
+22 本机＋3 边界、两三跳允许 / 拒绝四 SSH、Swift 7、API 36 arm64 / 4 KiB 页 Android 7 项通过；允许
+链路双向各 256 KiB 与 80 确认 RPC，执行端独立资源 / RPC 完成记录各六份，数量和内容严格核对。
+新 **26 C / 4 Swift / 6 JNI**、旧 Store 32 / Transfer 36 C 与公开 Session 13 C / 2 Swift、RPC 18 C /
+3 Swift 分套复验通过，共 **125 C / 9 Swift / 6 JNI = 140 组手工**，不增加 macOS CI 二十份。
+实际编译 / archive / executable / JNI shared 重链后正常目标断言红、独立同库 / APK 配置绿、恢复 /
+SHA256；Core ASan/UBSan，无 LSan。两份新 runner 的实际 main 隔离预扫退出 2 / 源不变 / 无子命令。
+348 CTest / 140 ABI、严格 C11 五源、关闭 provider / 无 SSH、强制实际链接的 macOS App、Android
+Debug / 测试 APK / 未签名 Release / R8 和四模块 lint 通过。metadata-boundary 先正常断言红 / 配置绿
+再修复；错误额度和 finish 预期、fixture 编译失败、未触及状态映射的变异 PASS、清理覆盖断言、JUnit
+ComparisonFailure / 数组断言拒收以及改输入触发 SHA 拒收轮次均保留，不计最终通过。测试现在保留原
+异常及 suppressed 清理错误；JUnit 分类另有三份真实输出 / 五类拒收验证。完整多实例、公开 scoped
+source、App / SDK / runtime / gterm IPC / 实际插件、物理设备 / WAN / 封闭内网 / 签名发行未完成；
+整个目标继续，网关不实现。完整语义、限制和当前收据见插件计划第二十二批。
+
 `android-foreground` 以 `ANDROID_SERIAL=设备 python3 scripts/test-android-foreground.py` 验八项真实服务/页面定向，`mutation-check-android-foreground.py` 手工验 23 组；护真实 promotion、调度阻断、权限/类型、代次与请求取消、通知隐私/路由和生命周期。`test-android-foreground-system.py` 另验真实系统超时、stop-app 后新 PID 只读历史、通知拒绝及系统设置渠道关闭；`mutation-check-android-foreground-system.py` 有九组相应场景变异，含开启通知后补发及渠道恢复的状态检查。每组须编译后目标单条 JUnit 断言红、同 APK 配置对照绿、恢复绿与 SHA256，崩溃/编译失败不算目标红。系统设置及权限须恢复，stop-app 被中断的 staging 不计通过。§9.74 的 30 组与 §9.75 追加的两组均为分轮证据，不称一轮全量；完整 483 项仅 API 36 arm64 / 4 KB 页模拟器。以上均属手工覆盖，不增加 macOS CI 20 份，也不代表整个 A6 或发行矩阵完成。
 
 `android-file-journal` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-file-journal.py` 手工执行 20 组，护事务回滚、损坏/版本/容量、严格 JSON 与 UTF-8、检查点顺序、已知结果保留、历史加载/删除和队列阻断。`mutation-check-android-file-journal-crash.py` 在同样的设备环境下另验四组真实 SIGKILL/新 PID 恢复变异（含创建身份与阻止普通失败冒充死亡）；`test-android-file-journal-crash.py` 提供本机/SAF 六个中断点，新增创建标记已落盘、内容未写入边界。API 29 的 run-as 信号被 SELinux 拒绝，测试使用请求/PID/边界绑定的命令与 ack，由应用仅 SIGKILL 自身，宿主确认旧 PID 消失；不使用 root 或修改策略。远端以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFileJournalTest ANDROID_FILE_JOURNAL_REMOTE_MUTATE=1 bash scripts/test-android-ssh.sh` 执行四组变异及四个真实中断点，单独复验场景将 MUTATE 换为 CRASH。新进程只加载只读记录，核对实际文件/文档与清除记录不删文件，不自动重放任务、不恢复凭据。每组须真实编译后目标红、同 APK 配置对照绿、恢复绿与 SHA256；数量、失败与已运行范围见 Android 实现计划 §9.73，不将专项通过记为整个 A6 或断电恢复完成。

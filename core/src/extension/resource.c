@@ -212,6 +212,9 @@ bool gt__bridge_resource_usage(const gt_bridge_resource_store_t *s,gt_bridge_res
   if(out)memset(out,0,sizeof(*out));if(!s || !out)return false;out->reserved_bytes=s->reserved;out->resources=s->resources;
   for(size_t i=0;i<GT_BRIDGE_RESOURCE_SCOPES;i++)if(s->scopes[i].handle)out->scopes++;return true;
 }
+void gt__bridge_resource_collect_retired(gt_bridge_resource_store_t *s){
+  if(s)for(size_t i=0;i<GT_BRIDGE_RESOURCE_SCOPES;i++)if(s->scopes[i].retiring && !s->scopes[i].resources)gt__secure_erase(&s->scopes[i],sizeof(s->scopes[i]));
+}
 gt_bridge_resource_status_t gt__bridge_resource_destroy(gt_bridge_resource_store_t *s){
   if(!s)return GT_BRIDGE_RESOURCE_INVALID;if(s->resources)return GT_BRIDGE_RESOURCE_WAIT;for(size_t i=0;i<GT_BRIDGE_RESOURCE_SCOPES;i++)if(s->scopes[i].handle)return GT_BRIDGE_RESOURCE_WAIT;
   gt_allocator_t a=s->allocator;int directory=s->config.directory_fd;gt__secure_erase(s,sizeof(*s));a.release(a.context,s,sizeof(*s));return close(directory)?GT_BRIDGE_RESOURCE_IO:GT_BRIDGE_RESOURCE_OK;

@@ -37,11 +37,13 @@ public final class ExtensionChannel {
     // Transactional transfer: exclude every cross-thread stop while C changes
     // ownership. On failure raw is unchanged; on success this wrapper is inert.
     var sessionOwner: DispatchQueue { checkOwner(); return owner }
-    func adoptSession(role: gt_ext_role_t, config: inout gt_ext_session_config_t, methods: [gt_ext_rpc_method_t]? = nil) throws -> OpaquePointer {
+    func adoptSession(role: gt_ext_role_t, config: inout gt_ext_session_config_t, methods: [gt_ext_rpc_method_t]? = nil, store: OpaquePointer? = nil, scopeBytes: UInt64 = 0) throws -> OpaquePointer {
         _ = try pointer(); stopLock.lock(); defer { stopLock.unlock() }
         var session: OpaquePointer?
         let result: gt_status_t
-        if let methods {
+        if let store {
+            result = (methods ?? []).withUnsafeBufferPointer { gt_ext_session_open_resources(&raw, role, &config, $0.baseAddress, $0.count, store, scopeBytes, &session) }
+        } else if let methods {
             result = methods.withUnsafeBufferPointer { gt_ext_session_open_rpc(&raw, role, &config, $0.baseAddress, $0.count, &session) }
         } else { result = gt_ext_session_open(&raw, role, &config, &session) }
         guard result == GT_OK, let session else { throw GhostermError.status(Int32(result.rawValue), "无法接管插件会话") }

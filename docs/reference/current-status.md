@@ -19,7 +19,7 @@
 - Android：libghostty-vt + Canvas、主机/身份/信任管理、本地/SSH、SAF/本机/SFTP 浏览与复制任务、持久只读历史、显式核对/清理、主题/字体/Kitty、可选远端 tmux。设备共享存储来源暂不支持作为粘贴目标；环境包延后。
 - iOS、Windows、Linux、HarmonyOS、Web 原生客户端尚未交付。落地页是产品介绍网站，不是 Web 终端。
 - 默认普通终端，后台会话由用户显式选择 tmux；自有 sessiond、私有恢复协议及随包 runtime 已退役。
-- 插件源码（2026-11-06）：[计划第二十一批](plan-plugin-bridge.md) 已接公共 SSH 通道 / Session 生命周期 / JSON 请求与 Swift/JNI worker；请求支持显式协商、方法根类型和复制快照，完整业务 schema、公开资源 / source 门面、App 批准 / 视图、SDK / runtime / gterm IPC 和实际插件仍待接，网关只预留。
+- 插件源码（2026-11-06）：[计划第二十二批](plan-plugin-bridge.md) 已接公共 SSH 通道 / Session / JSON 请求 / 资源 Store 与 Swift/JNI worker；资源快照跨 Session 保留、引用及预算继续计费。公开 scoped source、完整业务 schema、App 根授权 / 批准 / 资源视图、SDK / runtime / gterm IPC 和实际插件仍待接，网关只预留。
 
 详细平台差异见[能力矩阵](capability-matrix.md)。
 
@@ -27,7 +27,7 @@
 
 - 最近同源完整 Android 记录：`ae164f1`，API 29 / arm64 / 4 KiB 与 API 36 / arm64 / 16 KiB 各默认完整 942 项通过（[§9.191](android-implementation.md#9191-会话快照修正后的双系统完整-942-项2026-11-03)）。后续修改没有借用这轮结果声称新源码完整通过。
 - 后续本地定向：§9.200–§9.204 分别保存设备存储、触屏/连发、文件 owner 复用、全屏布局及菜单 IME 的分轮结果和失败；当时 Core 记录为 51 CTest / 95 ABI，静态绑定对拍为 Apple 91 引用/4 登记未用、JNI 57 引用/38 登记未用。各原生构建、lint 和变异的范围见对应节，不相加冒充全客户端回归。
-- 插件第二十一批（2026-11-06）：当前 Core 322 CTest / 124 ABI、Apple 120/4、JNI 86/38；公开请求 19 个本机场景、两三跳允许 / 拒绝四场景、Swift 7 与 API 36 arm64 / 4 KiB 页 Android 8 项通过，允许项双向各 80 个确认请求并独立核对执行端完成记录。修正验收脚本强制重链接后，新 18 C / 3 Swift / 4 JNI 与旧依赖 236 C / 5 Swift / 8 JNI 分套通过，共 274 组手工变异，不增加 macOS CI 二十份。严格 C11、关闭 provider / 无 SSH 变体、macOS 构建、Android 未签名 Release/R8 与四模块 lint 通过；仅源码 / 隔离专项，不更新上面的发行或完整客户端回归结论。
+- 插件第二十二批（2026-11-06）：当前 Core 348 CTest / 140 ABI、Apple 136/4、JNI 102/38；25 个本地 / 真实边界、两三跳允许 / 拒绝四 SSH 场景、Swift 7 与 API 36 arm64 / 4 KiB 页 Android 7 项通过。允许链路双向各 256 KiB / 80 确认 RPC，独立资源和 RPC 完成记录各六份。新 26 C / 4 Swift / 6 JNI 与旧 Store / Transfer / 公开 Session / RPC 的 99 C / 5 Swift 分套通过，共 140 组手工变异，不增加 macOS CI 二十份。严格 C11、关闭 provider / 无 SSH 变体、强制重链接的 macOS App、Android 未签名 Release/R8 与四模块 lint 通过；仅源码 / 隔离专项，不更新上面的发行或完整客户端回归结论。
 - macOS `4cbfcf4` 完整宿主历史含设置页像素失败；后续字体切片已修正键盘页高度，关联组合 56 通过/1 开发态资源跳过，未重跑完整宿主。终端、绑定和打包专项不能代替完整宿主全绿，见[实施记录](optional-tmux-implementation.md)。
 - 真机/OEM 输入法、网络切换、全部提供方/服务器、长时性能及完整发行矩阵仍未完成。合并闸门以 [AGENTS.md](../../AGENTS.md) 为唯一事实来源。
 

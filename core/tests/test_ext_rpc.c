@@ -7,7 +7,9 @@ static size_t rpc_methods(gt_ext_rpc_method_t *m){
  memset(m,0,4*sizeof(*m));const char *names[]={"fixture.echo","fixture.ask","fixture.done","fixture.denied"};
  for(size_t i=0;i<4;i++){strcpy(m[i].method,names[i]);strcpy(m[i].capability,i==3?"ui.chat":"ui.form");m[i].receiver=i==0 || i==3?GT_EXT_EXECUTOR:GT_EXT_HOST;m[i].input_shape=m[i].output_shape=GT_EXT_JSON_OBJECT;}return 4;
 }
-static gt_ext_session_t *rpc_adopt(gt_ext_channel_t **c,gt_ext_role_t role,gt_ext_session_config_t *config,const gt_ext_rpc_method_t *methods,size_t count){gt_ext_session_t *s=NULL;CHECK(gt_ext_session_open_rpc(c,role,config,methods,count,&s)==GT_OK && s && !*c);return s;}
+static gt_ext_session_t *(*rpc_adopt_hook)(gt_ext_channel_t **,gt_ext_role_t,gt_ext_session_config_t *,const gt_ext_rpc_method_t *,size_t);
+static bool (*rpc_progress_hook)(gt_ext_session_t *,const gt_ext_lease_t *);
+static gt_ext_session_t *rpc_adopt(gt_ext_channel_t **c,gt_ext_role_t role,gt_ext_session_config_t *config,const gt_ext_rpc_method_t *methods,size_t count){if(rpc_adopt_hook)return rpc_adopt_hook(c,role,config,methods,count);gt_ext_session_t *s=NULL;CHECK(gt_ext_session_open_rpc(c,role,config,methods,count,&s)==GT_OK && s && !*c);return s;}
 static void rpc_open(rpc_pair_t *f,const char *mode){
  memset(f,0,sizeof(*f));int fd[2];CHECK(!socketpair(AF_UNIX,SOCK_STREAM,0,fd));gt_ext_channel_t *h=ext_channel(fd[0]),*e=ext_channel(fd[1]);gt_ext_session_config_t c=ext_config();c.features=GT_EXT_FEATURE_REQUESTS;
  if(strstr(mode,"timeout")){f->pair.clock=1000;c.clock=ext_clock;c.clock_context=&f->pair.clock;}
@@ -91,7 +93,8 @@ static void rpc_executor(const char *proof_root){
  CHECK(!isatty(0) && !isatty(1));gt_ext_channel_t *c=NULL;CHECK(gt_ext_channel_open_fd(0,1,&c)==GT_OK);gt_ext_session_config_t cfg=ext_config();cfg.features=GT_EXT_FEATURE_REQUESTS;gt_ext_rpc_method_t m[4];rpc_methods(m);gt_ext_session_t *s=rpc_adopt(&c,GT_EXT_EXECUTOR,&cfg,m,4);gt_ext_lease_t l={0};unsigned completed=0,handled=0;uint64_t pending=0,end=ext_now()+25000;bool done=false;
  while(ext_info(s).phase<GT_EXT_SESSION_ENDED){
   gt_ext_session_step(s,5);CHECK(ext_now()<end);if(ext_info(s).phase!=GT_EXT_SESSION_ACTIVE)continue;CHECK(gt_ext_session_lease(s,&l));
-  if(!pending && (completed<80 || handled==80)){const char *method=completed<80?"fixture.ask":"fixture.done";CHECK(gt_ext_session_request(s,&l,method,"{\"text\":\"bridge\"}",17,10000,&pending)==GT_EXT_RPC_OK && pending);}
+  bool extra_ready=!rpc_progress_hook || rpc_progress_hook(s,&l);
+  if(!pending && (completed<80 || (handled==80 && extra_ready))){const char *method=completed<80?"fixture.ask":"fixture.done";CHECK(gt_ext_session_request(s,&l,method,"{\"text\":\"bridge\"}",17,10000,&pending)==GT_EXT_RPC_OK && pending);}
   gt_ext_rpc_request_t q;gt_ext_rpc_status_t status=gt_ext_session_take_request(s,&l,&q);CHECK(status==GT_EXT_RPC_WAIT || status==GT_EXT_RPC_OK);if(status==GT_EXT_RPC_OK){CHECK(!strcmp(q.method,"fixture.echo"));rpc_reply(s,&l,&q);handled++;}
   if(pending){gt_ext_rpc_result_t r=rpc_result(s,&l,pending);if(r.confirmed){CHECK(r.state==GT_EXT_RPC_SUCCEEDED);CHECK(gt_ext_session_forget_request(s,&l,pending)==GT_EXT_RPC_OK);pending=0;if(completed==80){done=true;break;}completed++;}}
  }
@@ -107,16 +110,20 @@ static void rpc_network(int argc,char **argv){
  while(ext_info(s).phase<GT_EXT_SESSION_ENDED){gt_ext_session_step(s,5);CHECK(ext_now()<end);gt_ext_session_info_t i=ext_info(s);
   if(i.phase==GT_EXT_SESSION_CONSENT){CHECK(!decided && gt_ext_session_decide(s,i.consent_token,deny?GT_EXT_DECISION_DENY:GT_EXT_DECISION_ALLOW)==GT_OK);decided=true;}
   if(i.phase!=GT_EXT_SESSION_ACTIVE)continue;CHECK(gt_ext_session_lease(s,&l));
+  if(rpc_progress_hook)(void)rpc_progress_hook(s,&l);
   if(completed<80 && !pending)CHECK(gt_ext_session_request(s,&l,"fixture.echo","{\"text\":\"bridge\"}",17,10000,&pending)==GT_EXT_RPC_OK && pending);
   gt_ext_rpc_request_t q;gt_ext_rpc_status_t status=gt_ext_session_take_request(s,&l,&q);CHECK(status==GT_EXT_RPC_WAIT || status==GT_EXT_RPC_OK);if(status==GT_EXT_RPC_OK){if(!strcmp(q.method,"fixture.done")){CHECK(!done);done=true;done_request=q;}else{CHECK(!strcmp(q.method,"fixture.ask"));handled++;rpc_reply(s,&l,&q);}}
   if(pending){gt_ext_rpc_result_t r=rpc_result(s,&l,pending);if(r.confirmed){CHECK(r.state==GT_EXT_RPC_SUCCEEDED && strstr(r.outcome,"bridge"));CHECK(gt_ext_session_forget_request(s,&l,pending)==GT_EXT_RPC_OK);pending=0;completed++;}}
-  if(done && !answered && completed==80 && handled==80){rpc_reply(s,&l,&done_request);answered=true;}
+  if(done && !answered && completed==80 && handled==80 && (!rpc_progress_hook || rpc_progress_hook(s,&l))){rpc_reply(s,&l,&done_request);answered=true;}
  }
  CHECK(decided && gt_ext_test_dials==1);if(deny)CHECK(!completed && !handled && ext_info(s).end==GT_EXT_END_DENIED);else CHECK(completed==80 && handled==80 && done && answered && ext_info(s).end==GT_EXT_END_LOST);
  ext_drop(&s);printf("PASS ext_rpc_%s_%u\n",argv[1],count);
 }
 #endif
-int main(int argc,char **argv){CHECK(argc>=2);if(!strcmp(argv[1],"--executor")){CHECK(argc==3);rpc_executor(argv[2]);return 0;}
+#ifndef EXT_RPC_MAIN
+#define EXT_RPC_MAIN main
+#endif
+int EXT_RPC_MAIN(int argc,char **argv){CHECK(argc>=2);if(!strcmp(argv[1],"--executor")){CHECK(argc==3);rpc_executor(argv[2]);return 0;}
 #ifdef GT_HAVE_LIBSSH2
  if(argc>2){rpc_network(argc,argv);return 0;}
 #endif

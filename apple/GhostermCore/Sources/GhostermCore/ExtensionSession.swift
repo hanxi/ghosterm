@@ -58,6 +58,7 @@ public final class ExtensionSession {
     }
     public struct Lease { fileprivate let raw: gt_ext_lease_t }
     private let owner: DispatchQueue, stopLock = NSLock()
+    private let resourceStore: ExtensionResourceStore?
     private var raw: OpaquePointer?
     private func pointer() throws -> OpaquePointer {
         dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
@@ -65,8 +66,8 @@ public final class ExtensionSession {
     }
     /// Consumes the channel only on success. Caller supplies a verified native
     /// package/endpoint snapshot; matching peer metadata is not package hashing.
-    public init(channel: ExtensionChannel, role: Role, config: Config) throws {
-        owner = channel.sessionOwner
+    public init(channel: ExtensionChannel, role: Role, config: Config, resourceStore: ExtensionResourceStore? = nil, resourceScopeBytes: UInt64 = 1048576) throws {
+        owner = channel.sessionOwner; self.resourceStore = resourceStore
         var c = gt_ext_session_config_t()
         try sessionPut(config.pluginID, into: &c.plugin_id); try sessionPut(config.pluginVersion, into: &c.plugin_version)
         try sessionPut(config.clientDigest, into: &c.client_digest); try sessionPut(config.executorDigest, into: &c.executor_digest)
@@ -87,7 +88,9 @@ public final class ExtensionSession {
             }
             c.features = UInt32(GT_EXT_FEATURE_REQUESTS)
         }
-        raw = try channel.adoptSession(role: gt_ext_role_t(rawValue: role.rawValue), config: &c, methods: methods)
+        let store = try resourceStore?.pointer(on: owner)
+        if store != nil { c.features |= UInt32(GT_EXT_FEATURE_RESOURCES) }
+        raw = try channel.adoptSession(role: gt_ext_role_t(rawValue: role.rawValue), config: &c, methods: methods, store: store, scopeBytes: store == nil ? 0 : resourceScopeBytes)
     }
     public func step(milliseconds: Int32 = 0) throws -> Phase {
         guard milliseconds >= 0 else { throw GhostermError.failed("会话等待预算无效") }
@@ -154,6 +157,47 @@ public final class ExtensionSession {
         let p = try pointer(); var l = lease.raw
         return outcome.withUnsafeBytes { RPCStatus(rawValue: gt_ext_session_respond(p, &l, ticket, $0.baseAddress, $0.count).rawValue) ?? .invalid }
     }
+    public struct ResourceAdmission { public let status: ExtensionResourceStore.Status, handle: UInt64? }
+    public enum TransferState: UInt32 { case queued, sending, pending, succeeded, failed, cancelled, unknown }
+    public struct TransferResult {
+        public let handle: UInt64, accepted: UInt64, state: TransferState, confirmed: Bool, cancelRequested: Bool
+        public let resourceID: String, code: String, generation: UInt64
+    }
+    public func sendResource(_ lease: Lease, descriptor: ExtensionResourceStore.Descriptor) throws -> ResourceAdmission {
+        var l = lease.raw, d = try descriptor.native(), h: UInt64 = 0
+        let status = ExtensionResourceStore.Status(gt_ext_session_send_resource(try pointer(), &l, &d, &h))
+        return ResourceAdmission(status: status, handle: status == .ok ? h : nil)
+    }
+    public func writeResource(_ lease: Lease, handle: UInt64, bytes: Data) throws -> (ExtensionResourceStore.Status, Int) {
+        let p = try pointer(); var l = lease.raw, n = 0
+        let status = bytes.withUnsafeBytes { gt_ext_session_write_resource(p, &l, handle, $0.baseAddress, $0.count, &n) }
+        return (ExtensionResourceStore.Status(status), n)
+    }
+    public func finishResource(_ lease: Lease, handle: UInt64, sourceComplete: Bool) throws -> ExtensionResourceStore.Status {
+        var l = lease.raw; return ExtensionResourceStore.Status(gt_ext_session_finish_resource(try pointer(), &l, handle, sourceComplete))
+    }
+    public func cancelResource(_ lease: Lease, handle: UInt64) throws -> ExtensionResourceStore.Status {
+        var l = lease.raw; return ExtensionResourceStore.Status(gt_ext_session_cancel_resource(try pointer(), &l, handle))
+    }
+    public func forgetResource(_ lease: Lease, handle: UInt64) throws -> ExtensionResourceStore.Status {
+        var l = lease.raw; return ExtensionResourceStore.Status(gt_ext_session_forget_resource(try pointer(), &l, handle))
+    }
+    public func rejectResource(_ lease: Lease) throws -> ExtensionResourceStore.Status {
+        var l = lease.raw; return ExtensionResourceStore.Status(gt_ext_session_reject_resource(try pointer(), &l))
+    }
+    public func resourceResult(_ lease: Lease, handle: UInt64) throws -> (ExtensionResourceStore.Status, TransferResult?) {
+        var l = lease.raw, v = gt_ext_transfer_result_t()
+        let status = ExtensionResourceStore.Status(gt_ext_session_resource_result(try pointer(), &l, handle, &v))
+        guard status == .ok else { return (status, nil) }
+        return (status, TransferResult(handle: v.handle, accepted: v.accepted, state: TransferState(rawValue: v.state.rawValue) ?? .unknown,
+            confirmed: v.confirmed, cancelRequested: v.cancel_requested, resourceID: sessionString(v.resource_id), code: sessionString(v.code), generation: v.generation))
+    }
+    public func takeResource(_ lease: Lease) throws -> (ExtensionResourceStore.Status, ExtensionResourceStore.Snapshot?) {
+        var l = lease.raw, v = gt_ext_resource_snapshot_t()
+        let status = ExtensionResourceStore.Status(gt_ext_session_take_resource(try pointer(), &l, &v))
+        guard status == .ok, let resourceStore else { return (status, nil) }
+        return (status, ExtensionResourceStore.Snapshot(store: resourceStore, lease: lease, native: v))
+    }
     public func stop() { stopLock.lock(); defer { stopLock.unlock() }; if let raw { gt_ext_session_stop(raw) } }
     @discardableResult public func closeStep(milliseconds: Int32 = 0) throws -> Bool {
         let p = try pointer(); guard milliseconds >= 0 else { throw GhostermError.failed("会话关闭预算无效") }
@@ -166,6 +210,122 @@ public final class ExtensionSession {
     public static var pendingCloseCount: Int { ExtensionSessionCleanup.count }
     public static func retryPendingClose(on owner: DispatchQueue) { ExtensionSessionCleanup.retry(owner) }
     deinit { if let raw { ExtensionSessionCleanup.enqueue(raw, owner: owner) } }
+}
+/// Native private-directory owner. A Store never renews remote authorization.
+/// Snapshot reads/releases and Session adoption must use this same serial queue.
+public final class ExtensionResourceStore {
+    public enum Status: UInt32 {
+        case ok, wait, invalid, denied, closed, `protocol`, limit, io, unsupported, notFound
+        fileprivate init(_ value: gt_ext_resource_status_t) { self = Status(rawValue: value.rawValue) ?? .invalid }
+    }
+    public struct Descriptor {
+        public let resourceID: String, sha256: String, mime: String, displayName: String
+        public let generation: UInt64, size: UInt64, sizeKnown: Bool
+        public init(sha256: String, mime: String, displayName: String, size: UInt64, sizeKnown: Bool = true, resourceID: String = "", generation: UInt64 = 0) {
+            self.sha256 = sha256; self.mime = mime; self.displayName = displayName; self.size = size
+            self.sizeKnown = sizeKnown; self.resourceID = resourceID; self.generation = generation
+        }
+        fileprivate init(_ v: gt_ext_resource_descriptor_t) {
+            self.init(sha256: sessionString(v.sha256), mime: sessionString(v.mime), displayName: sessionString(v.display_name), size: v.size,
+                      sizeKnown: v.size_known, resourceID: sessionString(v.resource_id), generation: v.generation)
+        }
+        fileprivate func native() throws -> gt_ext_resource_descriptor_t {
+            var d = gt_ext_resource_descriptor_t(); try sessionPut(resourceID, into: &d.resource_id); try sessionPut(sha256, into: &d.sha256)
+            try sessionPut(mime, into: &d.mime); try sessionPut(displayName, into: &d.display_name)
+            d.generation = generation; d.size = size; d.size_known = sizeKnown; return d
+        }
+    }
+    public struct Usage { public let reservedBytes: UInt64, resources: Int, scopes: Int, sessions: Int }
+    public struct Info { public let descriptor: Descriptor, received: UInt64, reserved: UInt64, references: UInt32, published: Bool }
+    public final class Snapshot {
+        private let store: ExtensionResourceStore, lease: ExtensionSession.Lease
+        private var native: gt_ext_resource_snapshot_t?
+        public let descriptor: Descriptor
+        fileprivate init(store: ExtensionResourceStore, lease: ExtensionSession.Lease, native: gt_ext_resource_snapshot_t) {
+            self.store = store; self.lease = lease; self.native = native; descriptor = Descriptor(native.descriptor)
+        }
+        public func info() throws -> (Status, Info?) {
+            let p = try store.pointer(on: store.owner); guard var r = native else { return (.closed, nil) }
+            var l = lease.raw, i = gt_ext_resource_info_t(); let status = Status(gt_ext_resource_store_info(p, &l, &r, &i))
+            return (status, status == .ok ? Info(descriptor: Descriptor(i.descriptor), received: i.received, reserved: i.reserved, references: i.references, published: i.published) : nil)
+        }
+        public func read(offset: UInt64, capacity: Int = 16384) throws -> (Status, Data) {
+            let p = try store.pointer(on: store.owner); guard var r = native else { return (.closed, Data()) }
+            guard capacity > 0 && capacity <= 16384 else { return (.invalid, Data()) }
+            var l = lease.raw, n = 0, data = Data(count: capacity)
+            let status = data.withUnsafeMutableBytes { Status(gt_ext_resource_store_read(p, &l, &r, offset, $0.baseAddress, $0.count, &n)) }
+            guard status == .ok, n <= capacity else { return (status, Data()) }; data.count = n; return (status, data)
+        }
+        public func retain() throws -> (Status, Snapshot?) {
+            let p = try store.pointer(on: store.owner); guard var r = native else { return (.closed, nil) }
+            var l = lease.raw; let status = Status(gt_ext_resource_store_retain(p, &l, &r))
+            return (status, status == .ok ? Snapshot(store: store, lease: lease, native: r) : nil)
+        }
+        @discardableResult public func close() throws -> Status {
+            let p = try store.pointer(on: store.owner); guard var r = native else { return .closed }
+            var l = lease.raw; let status = Status(gt_ext_resource_store_release(p, &l, &r)); native = r.handle == 0 ? nil : r; return status
+        }
+        deinit {
+            if var r = native {
+                let s = store; var l = lease.raw
+                ExtensionResourceCleanup.enqueue(on: s.owner) {
+                    guard let p = try? s.pointer(on: s.owner) else { return false }
+                    let status = gt_ext_resource_store_release(p, &l, &r)
+                    return status == GT_EXT_RESOURCE_OK || status == GT_EXT_RESOURCE_NOT_FOUND
+                }
+            }
+        }
+    }
+    fileprivate let owner: DispatchQueue
+    private var raw: OpaquePointer?
+    fileprivate func pointer(on queue: DispatchQueue) throws -> OpaquePointer {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        guard queue === owner, let raw else { throw GhostermError.failed("资源 Store 已释放或 owner 不匹配") }; return raw
+    }
+    /// Caller owns the authorized private directory fd; Core duplicates it.
+    public init(directoryFD: Int32, owner: DispatchQueue, totalBytes: UInt64 = 1048576, resourceBytes: UInt64 = 262144, slots: Int = 64) throws {
+        self.owner = owner; dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        var c = gt_ext_resource_store_config_t(directory_fd: directoryFD, total_bytes: totalBytes, resource_bytes: resourceBytes, slots: slots)
+        let status = gt_ext_resource_store_open(&c, &raw)
+        guard status == GT_EXT_RESOURCE_OK else { throw GhostermError.failed("无法打开资源 Store：\(status.rawValue)") }
+    }
+    public func usage() throws -> Usage {
+        var u = gt_ext_resource_usage_t(); guard gt_ext_resource_store_usage(try pointer(on: owner), &u) else { throw GhostermError.failed("资源计费状态无效") }
+        return Usage(reservedBytes: u.reserved_bytes, resources: u.resources, scopes: u.scopes, sessions: u.sessions)
+    }
+    @discardableResult public func close() throws -> Status {
+        _ = try pointer(on: owner); return Status(gt_ext_resource_store_destroy(&raw))
+    }
+    public static var pendingCloseCount: Int { ExtensionResourceCleanup.count }
+    public static func retryPendingClose(on owner: DispatchQueue) { ExtensionResourceCleanup.retry(owner) }
+    deinit {
+        if let p = raw {
+            var owned: OpaquePointer? = p
+            ExtensionResourceCleanup.enqueue(on: owner) {
+                guard owned != nil else { return true }
+                return gt_ext_resource_store_destroy(&owned) == GT_EXT_RESOURCE_OK
+            }
+        }
+    }
+}
+private final class ExtensionResourceCleanup {
+    private static let lock = NSLock()
+    private static var entries: [UUID: ExtensionResourceCleanup] = [:]
+    private let id = UUID(), owner: DispatchQueue, attempt: () -> Bool
+    init(owner: DispatchQueue, attempt: @escaping () -> Bool) { self.owner = owner; self.attempt = attempt }
+    static var count: Int { lock.lock(); defer { lock.unlock() }; return entries.count }
+    static func enqueue(on owner: DispatchQueue, attempt: @escaping () -> Bool) {
+        let item = ExtensionResourceCleanup(owner: owner, attempt: attempt); lock.lock(); entries[item.id] = item; lock.unlock()
+        owner.async { item.run() }
+    }
+    static func retry(_ owner: DispatchQueue) {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        lock.lock(); let values = entries.values.filter { $0.owner === owner }; lock.unlock(); values.forEach { $0.run() }
+    }
+    private func run() {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        if attempt() { Self.lock.lock(); Self.entries.removeValue(forKey: id); Self.lock.unlock() }
+    }
 }
 private func sessionPut<T>(_ text: String, into value: inout T) throws {
     let bytes = Array(text.utf8)

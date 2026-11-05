@@ -8,8 +8,17 @@ import argparse,hashlib,importlib.util,json,os,pwd,re,secrets,shlex,signal,socke
 ROOT=Path(__file__).resolve().parents[1];sys.dont_write_bytecode=True
 def load(name,path):
     spec=importlib.util.spec_from_file_location(name,path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
+def normal_junit_assertion(output):
+    # JUnit ComparisonFailure extends AssertionError; ArrayComparisonFailure
+    # overrides toString and omits its class name. Require the actual JUnit
+    # array stack and AssertionError cause, not an arbitrary wrapped exception.
+    primary=re.search(r'INSTRUMENTATION_STATUS: stack=(?:java\.lang\.AssertionError|org\.junit\.ComparisonFailure|org\.junit\.internal\.ArrayComparisonFailure)(?::|\n)',output)
+    array=(re.search(r'INSTRUMENTATION_STATUS: stack=arrays first differed at element \[',output)
+           and 'at org.junit.internal.ComparisonCriteria.arrayEquals(' in output
+           and 'Caused by: java.lang.AssertionError:' in output)
+    return bool((primary or array) and re.search(r'Tests run:\s*1,\s*Failures:\s*1',output) and 'INSTRUMENTATION_FAILED' not in output)
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--session',action='store_true');parser.add_argument('--rpc',action='store_true');parser.add_argument('--binary',type=Path);parser.add_argument('--apple',action='store_true');parser.add_argument('--android');parser.add_argument('--case',action='append');parser.add_argument('--expect-assertion',action='store_true');parser.add_argument('--apple-filter');parser.add_argument('--android-test');parser.add_argument('--expect-platform-assertion',choices=['apple','android']);parser.add_argument('--source-root',type=Path,default=ROOT);args=parser.parse_args();args.session=args.session or args.rpc;binary=(args.binary or ROOT/('core/build/test_ext_rpc' if args.rpc else 'core/build/test_ext_session' if args.session else 'core/build/test_ext_channel')).resolve();assert binary.is_file();args.apple_filter=args.apple_filter or ('ExtensionRPCTests' if args.rpc else 'ExtensionSessionTests' if args.session else 'ExtensionChannelTests');args.android_test=args.android_test or ('com.hanxi.ghosterm.ExtensionRPCTest' if args.rpc else 'com.hanxi.ghosterm.ExtensionSessionTest' if args.session else 'com.hanxi.ghosterm.ExtensionChannelTest')
+    parser=argparse.ArgumentParser();parser.add_argument('--session',action='store_true');parser.add_argument('--rpc',action='store_true');parser.add_argument('--resources',action='store_true');parser.add_argument('--binary',type=Path);parser.add_argument('--apple',action='store_true');parser.add_argument('--android');parser.add_argument('--case',action='append');parser.add_argument('--expect-assertion',action='store_true');parser.add_argument('--apple-filter');parser.add_argument('--android-test');parser.add_argument('--expect-platform-assertion',choices=['apple','android']);parser.add_argument('--source-root',type=Path,default=ROOT);args=parser.parse_args();args.rpc=args.rpc or args.resources;args.session=args.session or args.rpc;binary=(args.binary or ROOT/('core/build/test_ext_resource' if args.resources else 'core/build/test_ext_rpc' if args.rpc else 'core/build/test_ext_session' if args.session else 'core/build/test_ext_channel')).resolve();assert binary.is_file();args.apple_filter=args.apple_filter or ('ExtensionResourceTests' if args.resources else 'ExtensionRPCTests' if args.rpc else 'ExtensionSessionTests' if args.session else 'ExtensionChannelTests');args.android_test=args.android_test or ('com.hanxi.ghosterm.ExtensionResourceTest' if args.resources else 'com.hanxi.ghosterm.ExtensionRPCTest' if args.rpc else 'com.hanxi.ghosterm.ExtensionSessionTest' if args.session else 'com.hanxi.ghosterm.ExtensionChannelTest')
     if args.expect_assertion:assert args.case and len(args.case)==1 and not args.apple and not args.android
     if args.expect_platform_assertion:assert (args.apple and not args.android) if args.expect_platform_assertion=='apple' else (args.android and not args.apple)
     source_root=args.source_root.resolve();inputs=[p for folder in ['core/src','core/include'] for p in (source_root/folder).rglob('*') if p.is_file() and p.suffix in ('.c','.h','.inc')]
@@ -24,6 +33,10 @@ def main():
         inputs += [source_root/'core/tests/test_ext_rpc.c']
         if args.apple:inputs += [source_root/'apple/GhostermCore/Tests/GhostermCoreTests/ExtensionRPCTests.swift']
         if args.android:inputs += [source_root/'android/app/src/androidTest/java/com/hanxi/ghosterm/ExtensionRPCTest.kt']
+    if args.resources:
+        inputs += [source_root/'core/tests/test_ext_resource.c']
+        if args.apple:inputs += [source_root/'apple/GhostermCore/Tests/GhostermCoreTests/ExtensionResourceTests.swift']
+        if args.android:inputs += [source_root/'android/bridge/src/main/java/com/hanxi/ghosterm/bridge/ExtensionResourceStore.kt',source_root/'android/app/src/androidTest/java/com/hanxi/ghosterm/ExtensionResourceTest.kt']
     hashes={str(p.relative_to(source_root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
     work=Path(tempfile.mkdtemp(prefix='plugin-public-channel-',dir=ROOT/'tmp'));results=[];env={**os.environ,'TMPDIR':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
     proofs=work/'proofs';proofs.mkdir()
@@ -36,7 +49,7 @@ def main():
         elif red=='apple':
             assert p.returncode==1 and re.search(r'Executed 1 test, with [1-9][0-9]* failures? \(0 unexpected\)',output) and not any(x in output for x in ['AddressSanitizer','runtime error:','crashed']),output
         elif red=='android':
-            assert p.returncode==0 and re.search(r'Tests run:\s*1,\s*Failures:\s*1',output) and 'java.lang.AssertionError' in output and 'INSTRUMENTATION_FAILED' not in output,output
+            assert p.returncode==0 and normal_junit_assertion(output),output
         elif p.returncode:raise RuntimeError(label+': '+output)
         results.append(label);return output
     with helpers.owned_agent(work,'host-agent') as agent:
@@ -66,7 +79,7 @@ def main():
                 if args.apple:
                     apple={**env,'DEVELOPER_DIR':'/Applications/Xcode.app/Contents/Developer','GHOSTERM_EXT_FIXTURE_PORT':str(port),'GHOSTERM_EXT_FIXTURE_TOKEN':token}
                     output=run('apple',['swift','test','--package-path',source_root/'apple/GhostermCore','--filter',args.apple_filter],budget=180,environment=apple,red='apple' if args.expect_platform_assertion=='apple' else None)
-                    if not args.expect_platform_assertion:assert 'skipped' not in output.lower() and '0 failures' in output,output
+                    if not args.expect_platform_assertion:assert 'skipped' not in output.lower() and re.search(r'Executed [1-9][0-9]* tests?, with 0 failures',output),output
                     print('PASS public channel Swift native + two/three SSH',flush=True)
                 if args.android:
                     adb=ROOT/'build/android-toolchain/sdk/platform-tools/adb';device=[str(adb),'-s',args.android]
@@ -74,15 +87,22 @@ def main():
                         run('reverse-'+str(p),[*device,'reverse','tcp:'+str(p),'tcp:'+str(p)],budget=15)
                         stack.callback(lambda p=p:subprocess.run([*device,'reverse','--remove','tcp:'+str(p)],capture_output=True,timeout=10))
                     output=run('android',[*device,'shell','am','instrument','-w','-r','-e','class',args.android_test,'-e','fixturePort',str(port),'-e','fixtureToken',token,'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'],budget=240,red='android' if args.expect_platform_assertion=='android' else None)
-                    if not args.expect_platform_assertion:assert 'OK (' in output and 'FAILURES' not in output and 'INSTRUMENTATION_FAILED' not in output,output
+                    if not args.expect_platform_assertion:assert re.search(r'OK \([1-9][0-9]* tests?\)',output) and 'FAILURES' not in output and 'INSTRUMENTATION_FAILED' not in output,output
                     print('PASS public channel JNI native + two/three SSH (only first ports reversed)',flush=True)
     if args.rpc and not args.expect_assertion and not args.expect_platform_assertion:
         reports=list(proofs.glob('rpc-proof-*'));assert len(reports)>=sum(case.startswith('allow') for case in cases),'missing actual executor completion proof'
         for proof in reports:assert json.loads(proof.read_text())==dict(completed=80,handled=80,done=True),proof
+    if args.resources and not args.expect_assertion and not args.expect_platform_assertion:
+        expected=sum(case.startswith('allow') for case in cases)
+        for enabled,selector,group in [(args.apple,args.apple_filter,'ExtensionResourceTests'),(bool(args.android),args.android_test,'com.hanxi.ghosterm.ExtensionResourceTest')]:
+            if enabled:expected += 2 if selector==group else int('HopBidirectionalResourcesAndRPC' in selector)
+        reports=list(proofs.glob('resource-proof-*'));assert len(reports)==expected,('executor resource proof count',len(reports),expected)
+        assert len(list(proofs.glob('rpc-proof-*')))==expected,'executor RPC proof count'
+        for proof in reports:assert json.loads(proof.read_text())==dict(received=262144,confirmed=True),proof
     for p in work.rglob('*'):
         if p.is_file() and (b'PRIVATE KEY-----' in p.read_bytes() or b'openssh-key-v1\0' in p.read_bytes()):raise RuntimeError('private fixture serialized')
     for name,value in hashes.items():assert hashlib.sha256((source_root/name).read_bytes()).hexdigest()==value,name
-    scope='public bidirectional JSON RPC; actual remote completion proofs; no method JSON Schema/runtime/UI/resources/WAN/gateway' if args.rpc else 'public native Session handshake/consent/lease/revoke; no request/resource facade, App consent UI/runtime/WAN/gateway' if args.session else 'public channel providers only; managed loopback routes and native worker bindings, no plugin consent/runtime/UI/WAN/gateway'
+    scope='public native resources and RPC; actual executor byte/receipt proofs; no source-file facade/UI/SDK/runtime/WAN/gateway' if args.resources else 'public bidirectional JSON RPC; actual remote completion proofs; no method JSON Schema/runtime/UI/resources/WAN/gateway' if args.rpc else 'public native Session handshake/consent/lease/revoke; no request/resource facade, App consent UI/runtime/WAN/gateway' if args.session else 'public channel providers only; managed loopback routes and native worker bindings, no plugin consent/runtime/UI/WAN/gateway'
     (work/'result.json').write_text(json.dumps(dict(accepted=True,cases=results,session_lifecycle=args.session,expected_assertion=args.expect_assertion,expected_platform_assertion=args.expect_platform_assertion,inputs_sha256=hashes,source_root=str(source_root),binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),scope=scope),indent=2)+'\n');print('PUBLIC CHANNEL PASS; logs: '+str(work),flush=True)
 def stop(number,frame):raise KeyboardInterrupt('signal '+str(number))
 if __name__=='__main__':signal.signal(signal.SIGINT,stop);signal.signal(signal.SIGTERM,stop);main()

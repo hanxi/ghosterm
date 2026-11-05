@@ -35,8 +35,9 @@ typedef struct {
  gt_ext_budgets_t budgets;uint32_t handshake_ms,consent_ms;
  gt_ext_peer_t peer;
  /* session_open supports only 0 (handshake). The dedicated open_rpc constructor
-  * accepts GT_EXT_FEATURE_REQUESTS with a native method registry. Unknown bits
-  * explicitly return UNSUPPORTED; resources are a subsequent API slice. */
+  * accepts GT_EXT_FEATURE_REQUESTS with a native method registry. The dedicated
+  * open_resources accepts RESOURCES, optionally REQUESTS, and a native Store.
+  * Unknown bits explicitly return UNSUPPORTED. */
  uint32_t features;
  /* NULL selects Core monotonic time. Custom clock/context must outlive the
   * Session and be bounded/non-reentrant; never call a UI/platform loop. */

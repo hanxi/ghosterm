@@ -83,9 +83,12 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
         }
     }
     internal fun adoptSession(role: Int, texts: Array<ByteArray>, required: Array<ByteArray>,
-                              available: Array<ByteArray>, numbers: IntArray, methods: List<ExtensionSession.Method>? = null): Long {
+                              available: Array<ByteArray>, numbers: IntArray, methods: List<ExtensionSession.Method>? = null, store: Long = 0, scopeBytes: Long = 0): Long {
         owner()
-        val result = if (methods == null) NativeExtensionChannel.openSession(handle, role, texts, required, available, numbers)
+        val result = if (store != 0L) NativeExtensionChannel.openSessionResources(handle, role, texts, required, available, numbers,
+            (methods ?: emptyList()).map { it.name.toByteArray() }.toTypedArray(), (methods ?: emptyList()).map { it.capability.toByteArray() }.toTypedArray(),
+            (methods ?: emptyList()).flatMap { listOf(it.receiver.ordinal, it.inputShape.ordinal, it.outputShape.ordinal) }.toIntArray(), store, scopeBytes)
+            else if (methods == null) NativeExtensionChannel.openSession(handle, role, texts, required, available, numbers)
             else NativeExtensionChannel.openSessionRpc(handle, role, texts, required, available, numbers,
                 methods.map { it.name.toByteArray() }.toTypedArray(), methods.map { it.capability.toByteArray() }.toTypedArray(),
                 methods.flatMap { listOf(it.receiver.ordinal, it.inputShape.ordinal, it.outputShape.ordinal) }.toIntArray())
@@ -148,4 +151,8 @@ internal object NativeExtensionChannel {
         available: Array<ByteArray>, numbers: IntArray): LongArray
     external fun openSessionRpc(handle: Long, role: Int, texts: Array<ByteArray>, required: Array<ByteArray>,
         available: Array<ByteArray>, numbers: IntArray, names: Array<ByteArray>, capabilities: Array<ByteArray>, policies: IntArray): LongArray
+    external fun openSessionResources(handle: Long, role: Int, texts: Array<ByteArray>, required: Array<ByteArray>,
+        available: Array<ByteArray>, numbers: IntArray, names: Array<ByteArray>, capabilities: Array<ByteArray>, policies: IntArray,
+        store: Long, scopeBytes: Long): LongArray
+
 }

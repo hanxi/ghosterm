@@ -4,7 +4,7 @@ import android.os.Looper
 
 /** Native consent/lifecycle worker, never an App view or JS permission bypass.
  * Only stop is cross-thread. Explicit close retains draining/error ownership. */
-class ExtensionSession private constructor(private val worker: Thread) : AutoCloseable {
+class ExtensionSession private constructor(private val worker: Thread, private val resourceStore: ExtensionResourceStore? = null) : AutoCloseable {
     enum class Role { HOST, EXECUTOR }
     enum class PeerKind { LOCAL, SSH }
     enum class Decision { UNKNOWN, ALLOW, DENY }
@@ -85,6 +85,39 @@ class ExtensionSession private constructor(private val worker: Thread) : AutoClo
     }
     fun respond(lease: Lease, ticket: Long, outcome: ByteArray): RPCStatus { owner()
         return RPCStatus.entries[NativeExtensionSession.respond(handle, lease.bytes, ticket, outcome)] }
+    data class ResourceAdmission(val status: ExtensionResourceStore.Status, val handle: Long?)
+    enum class TransferState { QUEUED, SENDING, PENDING, SUCCEEDED, FAILED, CANCELLED, UNKNOWN }
+    data class TransferResult(val handle: Long, val accepted: Long, val state: TransferState, val confirmed: Boolean,
+        val cancelRequested: Boolean, val resourceId: String, val code: String, val generation: Long)
+    fun sendResource(lease: Lease, descriptor: ExtensionResourceStore.Descriptor): ResourceAdmission {
+        owner(); val d = descriptor
+        val v = NativeExtensionSession.sendResource(handle, lease.bytes, arrayOf(d.resourceId, d.sha256, d.mime, d.displayName).map { it.toByteArray() }.toTypedArray(), d.generation, d.size, d.sizeKnown)
+        check(v.size == 2); val status = ExtensionResourceStore.Status.entries[v[0].toInt()]
+        return ResourceAdmission(status, if (status == ExtensionResourceStore.Status.OK) v[1] else null)
+    }
+    fun writeResource(lease: Lease, request: Long, bytes: ByteArray, offset: Int = 0, count: Int = bytes.size - offset): Pair<ExtensionResourceStore.Status, Int> {
+        owner(); val v = NativeExtensionSession.writeResource(handle, lease.bytes, request, bytes, offset, count)
+        check(v.size == 2); return ExtensionResourceStore.Status.entries[v[0].toInt()] to v[1].toInt()
+    }
+    fun finishResource(lease: Lease, request: Long, sourceComplete: Boolean): ExtensionResourceStore.Status { owner(); return ExtensionResourceStore.Status.entries[NativeExtensionSession.resourceAction(handle, lease.bytes, request, 0, sourceComplete)] }
+    fun cancelResource(lease: Lease, request: Long): ExtensionResourceStore.Status { owner(); return ExtensionResourceStore.Status.entries[NativeExtensionSession.resourceAction(handle, lease.bytes, request, 1, false)] }
+    fun forgetResource(lease: Lease, request: Long): ExtensionResourceStore.Status { owner(); return ExtensionResourceStore.Status.entries[NativeExtensionSession.resourceAction(handle, lease.bytes, request, 2, false)] }
+    fun rejectResource(lease: Lease): ExtensionResourceStore.Status { owner(); return ExtensionResourceStore.Status.entries[NativeExtensionSession.resourceAction(handle, lease.bytes, 0, 3, false)] }
+    fun resourceResult(lease: Lease, request: Long): Pair<ExtensionResourceStore.Status, TransferResult?> {
+        owner(); val packet = NativeExtensionSession.resourceResult(handle, lease.bytes, request); val v = packet[0] as LongArray; val b = packet[1] as ByteArray
+        check(v.size == 7 && b.size == 66); val status = ExtensionResourceStore.Status.entries[v[0].toInt()]
+        return status to if (status == ExtensionResourceStore.Status.OK) TransferResult(v[1], v[2], TransferState.entries[v[3].toInt()], v[4] != 0L, v[5] != 0L, resourceText(b, 0, 33), resourceText(b, 33, 33), v[6]) else null
+    }
+    fun takeResource(lease: Lease): Pair<ExtensionResourceStore.Status, ExtensionResourceStore.Snapshot?> {
+        owner(); val packet = NativeExtensionSession.takeResource(handle, lease.bytes)
+        try {
+            val v = packet[0] as LongArray; val b = packet[1] as ByteArray; check(v.size == 6 && b.size == 1285)
+            val status = ExtensionResourceStore.Status.entries[v[0].toInt()]
+            return status to if (status == ExtensionResourceStore.Status.OK) checkNotNull(resourceStore).snapshot(lease, v, b) else null
+        } catch (error: Throwable) {
+            try { resourceStore?.discard(lease, packet) } finally { stop() }; throw error
+        }
+    }
     fun stop() { val id = handle; if (id != 0L) NativeExtensionSession.stop(id) }
     fun closeStep(milliseconds: Int = 0): Boolean {
         owner(); require(milliseconds >= 0)
@@ -99,14 +132,15 @@ class ExtensionSession private constructor(private val worker: Thread) : AutoClo
     companion object {
         /** Success invalidates channel; failure leaves it usable. Metadata is
          * copied from a trusted package/endpoint snapshot, never peer output. */
-        fun adopt(channel: ExtensionChannel, role: Role, config: Config): ExtensionSession {
-            val result = ExtensionSession(Thread.currentThread())
+        fun adopt(channel: ExtensionChannel, role: Role, config: Config, resourceStore: ExtensionResourceStore? = null, resourceScopeBytes: Long = 1048576): ExtensionSession {
+            val store = resourceStore?.nativeHandle() ?: 0L
+            val result = ExtensionSession(Thread.currentThread(), resourceStore)
             val texts = arrayOf(config.pluginId, config.pluginVersion, config.clientDigest, config.executorDigest,
                 config.hostVersion, config.sdkVersion, config.peerIdentity).map { it.toByteArray() }.toTypedArray()
             val numbers = intArrayOf(config.peerKind.ordinal, config.budgets.fragmentBytes, config.budgets.messageBytes,
-                config.budgets.resourceBytes, config.handshakeMilliseconds, config.consentMilliseconds, if (config.methods == null) 0 else 1)
+                config.budgets.resourceBytes, config.handshakeMilliseconds, config.consentMilliseconds, (if (config.methods == null) 0 else 1) or (if (resourceStore == null) 0 else 2))
             result.handle = channel.adoptSession(role.ordinal, texts, config.required.map { it.toByteArray() }.toTypedArray(),
-                config.available.map { it.toByteArray() }.toTypedArray(), numbers, config.methods?.toList())
+                config.available.map { it.toByteArray() }.toTypedArray(), numbers, config.methods?.toList(), store, if (store == 0L) 0L else resourceScopeBytes)
             return result
         }
     }
@@ -127,4 +161,10 @@ internal object NativeExtensionSession {
     external fun takeRequest(handle: Long, lease: ByteArray): Array<Any>
     external fun requestResult(handle: Long, lease: ByteArray, request: Long): Array<Any>
     external fun respond(handle: Long, lease: ByteArray, ticket: Long, outcome: ByteArray): Int
+    external fun sendResource(handle: Long, lease: ByteArray, strings: Array<ByteArray>, generation: Long, size: Long, known: Boolean): LongArray
+    external fun writeResource(handle: Long, lease: ByteArray, request: Long, bytes: ByteArray, offset: Int, count: Int): LongArray
+    external fun resourceAction(handle: Long, lease: ByteArray, request: Long, action: Int, complete: Boolean): Int
+    external fun resourceResult(handle: Long, lease: ByteArray, request: Long): Array<Any>
+    external fun takeResource(handle: Long, lease: ByteArray): Array<Any>
+
 }

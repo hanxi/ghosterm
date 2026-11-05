@@ -33,6 +33,15 @@ int main(void) {
   CHECK(gt_ext_session_request(NULL,&no_lease,"fixture.echo","{}",2,1000,&request_handle)==GT_EXT_RPC_INVALID && !request_handle &&
         gt_ext_session_request_result(NULL,&no_lease,1,&rpc_result)==GT_EXT_RPC_INVALID && !rpc_result.handle && !rpc_result.outcome_size,
         "plugin RPC invalid calls clear handles and results");
+  gt_ext_resource_store_t *resource_store=(gt_ext_resource_store_t *)1;
+  CHECK(gt_ext_resource_store_open(NULL,&resource_store)==GT_EXT_RESOURCE_INVALID && !resource_store &&
+        gt_ext_session_open_resources(NULL,GT_EXT_HOST,NULL,NULL,0,NULL,0,&plugin_session)==GT_ERR_INVALID_ARG && !plugin_session,
+        "plugin resources require explicit native Store and Session");
+  gt_ext_resource_snapshot_t resource_snapshot;memset(&resource_snapshot,1,sizeof(resource_snapshot));
+  gt_ext_transfer_result_t resource_result;memset(&resource_result,1,sizeof(resource_result));
+  CHECK(gt_ext_session_take_resource(NULL,&no_lease,&resource_snapshot)==GT_EXT_RESOURCE_INVALID && !resource_snapshot.handle &&
+        gt_ext_session_resource_result(NULL,&no_lease,1,&resource_result)==GT_EXT_RESOURCE_INVALID && !resource_result.confirmed && !resource_result.handle,
+        "plugin resource invalid calls never publish or confirm");
 
   /* 三态枚举不得折叠 */
   gt_hostkey_decision_t d = GT_HOSTKEY_UNKNOWN;

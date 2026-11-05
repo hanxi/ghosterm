@@ -60,6 +60,9 @@ gt_bridge_resource_status_t gt__bridge_resource_seal(gt_bridge_resource_store_t 
 gt_bridge_resource_status_t gt__bridge_resource_retire(gt_bridge_resource_store_t *,uint64_t,const gt_bridge_lease_t *);
 gt_bridge_resource_status_t gt__bridge_resource_unbind(gt_bridge_resource_store_t *,uint64_t,const gt_bridge_lease_t *);
 bool gt__bridge_resource_usage(const gt_bridge_resource_store_t *,gt_bridge_resource_usage_t *);
+/* Facade calls only after all Session owners are destroyed. A failed close can
+ * leave a retired, empty scope for retry accounting; no fd/item remains there. */
+void gt__bridge_resource_collect_retired(gt_bridge_resource_store_t *);
 /* Refuses while any bound scope remains, including sealed scopes with pins.
  * Once no scopes remain it consumes the store, including on directory close IO
  * error; never retry a consumed fd/handle. No fsync/crash durability claim. */

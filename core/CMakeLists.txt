@@ -29,6 +29,7 @@ add_library(ghosterm_core STATIC
   src/extension/source.c
   src/extension/channel.c
   src/extension/session-api.c
+  src/extension/resource-api.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
   src/core.c
@@ -78,6 +79,31 @@ endif()
 if(GHOSTERM_BUILD_TESTS)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
+add_executable(test_ext_resource tests/test_ext_resource.c)
+target_link_libraries(test_ext_resource PRIVATE ghosterm_core)
+target_compile_options(test_ext_resource PRIVATE -Wall -Wextra -Werror)
+if(GHOSTERM_WITH_PLUGIN_CHANNEL)
+  add_executable(test_ext_resource_boundary tests/test_ext_resource_boundary.c)
+  target_include_directories(test_ext_resource_boundary PRIVATE src)
+  target_link_libraries(test_ext_resource_boundary PRIVATE ghosterm_core)
+  target_compile_options(test_ext_resource_boundary PRIVATE -Wall -Wextra -Werror)
+  foreach(mode retired-close directory-close metadata-boundary)
+    add_test(NAME ext_resource_boundary_${mode} COMMAND test_ext_resource_boundary ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+    set_tests_properties(ext_resource_boundary_${mode} PROPERTIES TIMEOUT 30)
+  endforeach()
+  foreach(mode invalid constructor features store-pending denied unsupported scope roundtrip reverse large empty unknown-size copy retain after-close quota backpressure queued-cancel lost confirmed-stop digest length)
+    add_test(NAME ext_resource_${mode} COMMAND test_ext_resource ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+    set_tests_properties(ext_resource_${mode} PROPERTIES TIMEOUT 30)
+  endforeach()
+  if(SSH2_FOUND)
+    target_sources(test_ext_resource PRIVATE tests/ext_channel_dial.c)
+    target_include_directories(test_ext_resource PRIVATE src ${SSH2_INCLUDE_DIRS})
+    target_compile_definitions(test_ext_resource PRIVATE GT_HAVE_LIBSSH2=1)
+    add_test(NAME ext_resource_ssh COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-channel.py --resources --binary $<TARGET_FILE:test_ext_resource>)
+    set_tests_properties(ext_resource_ssh PROPERTIES TIMEOUT 180)
+  endif()
+endif()
 add_executable(test_ext_rpc tests/test_ext_rpc.c)
 target_link_libraries(test_ext_rpc PRIVATE ghosterm_core)
 target_compile_options(test_ext_rpc PRIVATE -Wall -Wextra -Werror)
