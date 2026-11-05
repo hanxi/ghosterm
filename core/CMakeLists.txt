@@ -28,6 +28,7 @@ add_library(ghosterm_core STATIC
   src/extension/transfer.c
   src/extension/source.c
   src/extension/channel.c
+  src/extension/session-api.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
   src/core.c
@@ -77,6 +78,31 @@ endif()
 if(GHOSTERM_BUILD_TESTS)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
+add_executable(test_ext_session tests/test_ext_session.c)
+target_link_libraries(test_ext_session PRIVATE ghosterm_core)
+target_compile_options(test_ext_session PRIVATE -Wall -Wextra -Werror)
+if(GHOSTERM_WITH_PLUGIN_CHANNEL)
+  add_executable(test_ext_session_boundary tests/test_ext_session_boundary.c)
+  target_include_directories(test_ext_session_boundary PRIVATE src)
+  target_link_libraries(test_ext_session_boundary PRIVATE ghosterm_core)
+  target_compile_options(test_ext_session_boundary PRIVATE -Wall -Wextra -Werror)
+  foreach(mode allocation inner-open close-error draining destroy-error)
+    add_test(NAME ext_session_boundary_${mode} COMMAND test_ext_session_boundary ${mode})
+    set_tests_properties(ext_session_boundary_${mode} PROPERTIES TIMEOUT 20)
+  endforeach()
+  foreach(mode invalid config dirty-write dirty-read stopped closed capacity allow deny expired ticket stop lost revoke)
+    add_test(NAME ext_session_${mode} COMMAND test_ext_session ${mode})
+    set_tests_properties(ext_session_${mode} PROPERTIES TIMEOUT 20)
+  endforeach()
+  if(SSH2_FOUND)
+    target_sources(test_ext_session PRIVATE tests/ext_channel_dial.c)
+    target_include_directories(test_ext_session PRIVATE src ${SSH2_INCLUDE_DIRS})
+    target_compile_definitions(test_ext_session PRIVATE GT_HAVE_LIBSSH2=1)
+    add_test(NAME ext_session_ssh COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-session.py --public-session --binary $<TARGET_FILE:test_ext_session>)
+    set_tests_properties(ext_session_ssh PROPERTIES TIMEOUT 180)
+  endif()
+endif()
 add_executable(test_ext_channel tests/test_ext_channel.c)
 target_link_libraries(test_ext_channel PRIVATE ghosterm_core)
 target_compile_options(test_ext_channel PRIVATE -Wall -Wextra -Werror)

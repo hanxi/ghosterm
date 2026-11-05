@@ -12,8 +12,8 @@
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
-| C ABI（`ghosterm.h` v0，未冻结） | 🟡 | §9.122–§9.123 为 94 符号，Apple 90/4、JNI 56/38；后续为 95 ABI，见当前状态；§9.122 增加受控显式删除，§9.123 已接 Android 历史清理与独立记录；含受控读取到 fd、非覆盖发布和单目录创建。Android 只读文件页面与暂存层已消费，macOS 产品仍待迁移；§9.57 已补发布入口及两端绑定，原草稿对拍失败保留为历史。接口未冻结，消费者须同步重编译 |
-| 插件 SSH 通道 / 原生 worker（协议与视图待接） | 🟡 | [插件计划第九至十九批](plan-plugin-bridge.md)：私有握手 / RPC / scoped source / 资源回执 / Store，新增公共通道十一项 ABI / Swift queue / JNI worker；Core 282 CTest / 106 ABI。macOS 9、API 36 arm64 / 4 KiB 页 JNI 12 项，真实环回两三跳 / 256 KiB、凭据重试 / 旧 challenge、首跳拨号限制；21 C / 3 Swift / 4 JNI 编译变异通过。关闭通道 / 无 SSH 档均保留 106 导出，缺能力明确不支持；不是完整插件档开关。公共 Session / 资源 ABI、App 批准 / 视图、SDK / runtime / gterm IPC 未接，产品尚未消费 ProxyJump；其它端 / 真实设备 / 封闭内网 / WAN 未验。网关只预留，不实现 |
+| C ABI（`ghosterm.h` v0，未冻结） | 🟡 | [插件计划第二十批](plan-plugin-bridge.md) 当前 116 符号，Apple 112/4、JNI 78/38，通道与 Session 生命周期已接 native worker，公开请求 / 资源及 App 插件页面待接；§9.122–§9.123 的 94 符号、Apple 90/4、JNI 56/38 为历史切片；§9.122 增加受控显式删除，§9.123 已接 Android 历史清理与独立记录；含受控读取到 fd、非覆盖发布和单目录创建。Android 只读文件页面与暂存层已消费，macOS 产品仍待迁移；§9.57 已补发布入口及两端绑定，原草稿对拍失败保留为历史。接口未冻结，消费者须同步重编译 |
+| 插件 SSH 通道 / Session worker（请求与视图待接） | 🟡 | [插件计划第九至二十批](plan-plugin-bridge.md)：私有 RPC / scoped source / 资源回执 / Store，公共通道十一项及 Session 生命周期十项 ABI / Swift queue / JNI worker；Core 302 CTest / 116 ABI。Session 的 Swift 8、API 36 arm64 / 4 KiB 页 JNI 10 项，真实环回两三跳 / 决定 / lease / 撤销、旧 ticket / ID / epoch / 容量释放；13 C / 2 Swift / 4 JNI 编译变异通过。原通道 C 十场景 / Swift 9 / JNI 12 与原 JNI 四组另复验。关闭 provider / 无 SSH 档保留 116 导出，缺能力明确不支持；不是完整插件档。公开请求 / 资源 ABI、App 批准 / 视图、SDK / runtime / gterm IPC 未接，产品尚未消费 ProxyJump；其它端 / 真实设备 / 封闭内网 / WAN 未验。网关只预留，不实现 |
 | `ssh_config` 解析（AST + Host 块） | ✅ | `ctest sshconfig_golden`：4 个 Host 块 / 6 个模式 |
 | `ssh_config` 无损往返（**未编辑**） | ✅ | 与原文**逐字节相同**（`test_config` 头号断言） |
 | `ssh_config` 求值（typed） | ✅ | `gt_config_resolve`：user/hostname/port/forwardagent/compression/serveraliveinterval/identityfile/proxyjump/setenv/localforward |

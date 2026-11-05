@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "ghosterm/extension.h"
 #include "extension/route.h"
+#include "extension/channel-owner.h"
 #include "base/secure-random.h"
 #include <stdlib.h>
 #include <string.h>
@@ -108,3 +109,12 @@ gt_ext_close_t gt_ext_channel_close(gt_ext_channel_t *c,int ms){
   gt_bridge_close_t r=gt__bridge_stream_close(c->stream,ms);if(r==GT_BRIDGE_RELEASED){channel_discard(c);c->closed=true;c->info.phase=GT_EXT_CLOSED;c->info.cleanup_error=GT_OK;return GT_EXT_RELEASED;}if(r==GT_BRIDGE_CLOSE_ERROR)c->info.cleanup_error=GT_ERR_IO;return r==GT_BRIDGE_DRAINING?GT_EXT_DRAINING:GT_EXT_CLOSE_ERROR;
 }
 gt_status_t gt_ext_channel_destroy(gt_ext_channel_t **owned){if(!owned || !*owned || !(*owned)->closed)return GT_ERR_INVALID_ARG;gt_ext_channel_t *c=*owned;gt_status_t status=gt__bridge_stream_destroy(c->stream);if(status!=GT_OK)return status;channel_free(c);*owned=NULL;return GT_OK;}
+gt_status_t gt__ext_channel_admit(gt_ext_channel_t *c,bool ssh,gt_bridge_stream_t **out){
+  if(out)*out=NULL;
+  if(!c || !out || !c->stream || c->closed || c->ssh!=ssh || c->info.phase!=GT_EXT_READY || channel_stopped(c) || c->info.accepted || c->info.received || c->write_size)return GT_ERR_INVALID_ARG;
+  *out=c->stream;return GT_OK;
+}
+/* Session construction consumed only its local stream copy. Keep the channel
+ * reservation until that Session actually destroys the provider. */
+void gt__ext_channel_commit(gt_ext_channel_t *c){c->stream=NULL;}
+void gt__ext_channel_retire(gt_ext_channel_t *c){channel_free(c);}

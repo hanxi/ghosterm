@@ -20,6 +20,12 @@ int main(void) {
         gt_ext_channel_read(NULL,&extension,1,0).error==GT_ERR_INVALID_ARG &&
         gt_ext_channel_destroy(&extension)==GT_ERR_INVALID_ARG,
         "plugin channel invalid calls never pretend success");
+  gt_ext_session_t *plugin_session=(gt_ext_session_t *)1;
+  CHECK(gt_ext_session_open(NULL,GT_EXT_HOST,NULL,&plugin_session)==GT_ERR_INVALID_ARG && !plugin_session,
+        "plugin Session rejects absent channel and clears output");
+  CHECK(gt_ext_session_decide(NULL,"stale",GT_EXT_DECISION_ALLOW)==GT_ERR_INVALID_ARG &&
+        !gt_ext_session_lease(NULL,NULL) && gt_ext_session_destroy(&plugin_session)==GT_ERR_INVALID_ARG,
+        "plugin Session cannot grant or destroy an invalid owner");
 
   /* 三态枚举不得折叠 */
   gt_hostkey_decision_t d = GT_HOSTKEY_UNKNOWN;

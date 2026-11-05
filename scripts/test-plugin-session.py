@@ -10,11 +10,13 @@ def load(name,path):
     spec=importlib.util.spec_from_file_location(name,path);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--binary',type=Path,default=ROOT/'core/build/test_bridge_session');parser.add_argument('--case',action='append');parser.add_argument('--rpc',action='store_true');parser.add_argument('--resources',action='store_true');parser.add_argument('--source',action='store_true')
+    parser.add_argument('--public-session',action='store_true')
     args=parser.parse_args();binary=args.binary.resolve();assert binary.is_file()
     if sum((args.rpc,args.resources,args.source))>1:parser.error('choose one application fixture')
     bulk=args.resources or args.source
     route=load('session_route_fixture',ROOT/'scripts/test-plugin-route.py');helpers=load('session_key_fixture',ROOT/'scripts/test-plugin-ssh.py');streams=load('session_stream_fixture',ROOT/'scripts/test-plugin-ssh-stream.py')
-    label='bridge_source' if args.source else 'bridge_transfer' if args.resources else 'bridge_rpc' if args.rpc else 'bridge_session';work=Path(tempfile.mkdtemp(prefix='plugin-source-ssh-' if args.source else 'plugin-transfer-ssh-' if args.resources else 'plugin-rpc-ssh-' if args.rpc else 'plugin-session-ssh-',dir=ROOT/'tmp'));private,public=streams.memory_identity();cases=args.case or ['allow2','allow3','deny2','deny3'];assert all(case in ['allow2','allow3','deny2','deny3'] for case in cases)
+    if args.public_session and (args.rpc or bulk):parser.error('public Session lifecycle fixture has no application classes yet')
+    label='ext_session' if args.public_session else 'bridge_source' if args.source else 'bridge_transfer' if args.resources else 'bridge_rpc' if args.rpc else 'bridge_session';work=Path(tempfile.mkdtemp(prefix='plugin-source-ssh-' if args.source else 'plugin-transfer-ssh-' if args.resources else 'plugin-rpc-ssh-' if args.rpc else 'plugin-session-ssh-',dir=ROOT/'tmp'));private,public=streams.memory_identity();cases=args.case or ['allow2','allow3','deny2','deny3'];assert all(case in ['allow2','allow3','deny2','deny3'] for case in cases)
     env={**os.environ,'TMPDIR':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'};env.pop('TMUX',None);env.pop('TMUX_PANE',None)
     with helpers.owned_agent(work,'host-agent') as agent:
         keys=[helpers.add_memory_key(agent,'session-hop-'+str(i)) for i in range(3)];assert len({k.split()[1] for k in keys})==3

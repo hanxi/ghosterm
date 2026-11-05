@@ -6,7 +6,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-typedef struct {uint64_t id;gt_ext_channel_t *channel;pthread_t owner;unsigned pins;bool retiring;} extension_slot_t;
+typedef struct {uint64_t id;gt_ext_channel_t *channel;gt_ext_session_t *session;pthread_t owner;unsigned pins;bool retiring;} extension_slot_t;
 static pthread_mutex_t extension_lock=PTHREAD_MUTEX_INITIALIZER;
 static extension_slot_t extension_slots[GT_EXT_CHANNEL_LIMIT];
 static uint64_t extension_next=1;
@@ -79,4 +79,57 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_clo
   (void)self;extension_slot_t *s=extension_pin(e,id,true,false);if(!s)return GT_EXT_CLOSE_ERROR;if(ms<0){extension_unpin(s);extension_error(e,"插件关闭预算无效");return GT_EXT_CLOSE_ERROR;}gt_ext_close_t state=gt_ext_channel_close(s->channel,ms);if(state!=GT_EXT_RELEASED){extension_unpin(s);return state;}
   pthread_mutex_lock(&extension_lock);if(s->pins!=1){s->pins--;pthread_mutex_unlock(&extension_lock);return GT_EXT_DRAINING;}s->retiring=true;gt_ext_channel_t *channel=s->channel;pthread_mutex_unlock(&extension_lock);gt_status_t status=gt_ext_channel_destroy(&channel);
   pthread_mutex_lock(&extension_lock);if(status==GT_OK)memset(s,0,sizeof(*s));else{s->retiring=false;s->pins--;}pthread_mutex_unlock(&extension_lock);return status==GT_OK?GT_EXT_RELEASED:GT_EXT_CLOSE_ERROR;
+}
+/* A Session replaces its channel in the same charged registry slot. Adoption
+ * retires the old generation only after successful Core transfer. A concurrent
+ * stop pin returns a visible retryable error before changing ownership. */
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_openSession(JNIEnv *e,jobject self,jlong id,jint role,jobjectArray texts,jobjectArray required,jobjectArray available,jintArray numbers){
+ (void)self;if(!texts || !required || !available || !numbers || (*e)->GetArrayLength(e,texts)!=7 || (*e)->GetArrayLength(e,numbers)!=7 || (*e)->GetArrayLength(e,required)>16 || (*e)->GetArrayLength(e,available)>16){extension_error(e,"插件会话参数无效");return NULL;}
+ jlongArray result=(*e)->NewLongArray(e,2);if(!result)return NULL;gt_ext_session_config_t c={0};jint v[7];(*e)->GetIntArrayRegion(e,numbers,0,7,v);if((*e)->ExceptionCheck(e))return NULL;
+ char *fields[7]={c.plugin_id,c.plugin_version,c.client_digest,c.executor_digest,c.host_version,c.sdk_version,c.peer.identity};size_t capacities[7]={129,65,65,65,65,65,128};
+ for(jsize i=0;i<7;i++){char *p=extension_item(e,texts,i,capacities[i]-1);if(!p)return NULL;memcpy(fields[i],p,strlen(p)+1);free(p);}
+ c.required_count=(size_t)(*e)->GetArrayLength(e,required);c.available_count=(size_t)(*e)->GetArrayLength(e,available);
+ for(size_t i=0;i<c.required_count;i++){char *p=extension_item(e,required,(jsize)i,128);if(!p)return NULL;memcpy(c.required[i],p,strlen(p)+1);free(p);}
+ for(size_t i=0;i<c.available_count;i++){char *p=extension_item(e,available,(jsize)i,128);if(!p)return NULL;memcpy(c.available[i],p,strlen(p)+1);free(p);}
+ c.peer.kind=(gt_ext_peer_kind_t)v[0];c.budgets=(gt_ext_budgets_t){(uint32_t)v[1],(uint32_t)v[2],(uint32_t)v[3]};c.handshake_ms=(uint32_t)v[4];c.consent_ms=(uint32_t)v[5];c.features=(uint32_t)v[6];
+ extension_slot_t *s=extension_pin(e,id,true,false);if(!s)return NULL;pthread_mutex_lock(&extension_lock);
+ bool exclusive=s->pins==1 && extension_next<=INT64_MAX;uint64_t successor=0;if(exclusive){successor=extension_next++;s->retiring=true;}pthread_mutex_unlock(&extension_lock);
+ gt_status_t status=exclusive?gt_ext_session_open(&s->channel,(gt_ext_role_t)role,&c,&s->session):GT_ERR_IO;jlong values[2]={status,0};
+ pthread_mutex_lock(&extension_lock);if(status==GT_OK){s->id=successor;values[1]=(jlong)s->id;}s->retiring=false;s->pins--;pthread_mutex_unlock(&extension_lock);
+ (*e)->SetLongArrayRegion(e,result,0,2,values);return result;
+}
+static extension_slot_t *session_pin(JNIEnv *e,jlong id,bool owner,bool quiet){
+ pthread_mutex_lock(&extension_lock);extension_slot_t *s=NULL;for(size_t i=0;i<GT_EXT_CHANNEL_LIMIT;i++)if(id>0 && extension_slots[i].id==(uint64_t)id && extension_slots[i].session && !extension_slots[i].retiring){s=&extension_slots[i];break;}
+ if(s && owner && !pthread_equal(s->owner,pthread_self())){pthread_mutex_unlock(&extension_lock);if(!quiet)extension_error(e,"插件会话必须由创建它的 IO worker 调用");return NULL;}
+ if(s)s->pins++;pthread_mutex_unlock(&extension_lock);if(!s && !quiet)extension_error(e,"插件会话句柄已失效");return s;
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_step(JNIEnv *e,jobject self,jlong id,jint ms){
+ (void)self;extension_slot_t *s=session_pin(e,id,true,false);if(!s)return GT_EXT_SESSION_ENDED;if(ms<0){extension_unpin(s);extension_error(e,"会话等待预算无效");return GT_EXT_SESSION_ENDED;}gt_ext_session_phase_t phase=gt_ext_session_step(s->session,ms);extension_unpin(s);return (jint)phase;
+}
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_info(JNIEnv *e,jobject self,jlong id){
+ (void)self;extension_slot_t *s=session_pin(e,id,true,false);if(!s)return NULL;gt_ext_session_info_t i;bool ok=gt_ext_session_info(s->session,&i);extension_unpin(s);if(!ok){extension_error(e,"会话状态无效");return NULL;}
+ jlong v[13]={i.phase,i.end,i.error,i.decision,(jlong)i.epoch,(jlong)i.consent_deadline,(jlong)i.received,(jlong)i.sent,i.budgets.fragment_bytes,i.budgets.message_bytes,i.budgets.resource_bytes,i.peer.kind,i.cleanup_error};
+ const char *strings[5]={i.connection,i.instance,i.consent_token,i.peer_host_version,i.peer.identity};jclass object=(*e)->FindClass(e,"java/lang/Object");if(!object)return NULL;jclass bytes=(*e)->FindClass(e,"[B");if(!bytes)return NULL;
+ jobjectArray out=(*e)->NewObjectArray(e,2,object,NULL);if(!out)return NULL;jlongArray values=(*e)->NewLongArray(e,13);if(!values)return NULL;jobjectArray texts=(*e)->NewObjectArray(e,5,bytes,NULL);if(!texts)return NULL;(*e)->SetLongArrayRegion(e,values,0,13,v);
+ for(jsize n=0;n<5;n++){jbyteArray text=extension_bytes(e,strings[n],strlen(strings[n]));if(!text)return NULL;(*e)->SetObjectArrayElement(e,texts,n,text);(*e)->DeleteLocalRef(e,text);if((*e)->ExceptionCheck(e))return NULL;}
+ (*e)->SetObjectArrayElement(e,out,0,values);(*e)->SetObjectArrayElement(e,out,1,texts);return out;
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_decide(JNIEnv *e,jobject self,jlong id,jbyteArray ticket,jint decision){
+ (void)self;char *text=extension_text(e,ticket,32);if(!text)return GT_ERR_INVALID_ARG;extension_slot_t *s=session_pin(e,id,true,false);gt_status_t status=s?gt_ext_session_decide(s->session,text,(gt_ext_decision_t)decision):GT_ERR_INVALID_ARG;if(s)extension_unpin(s);free(text);return status;
+}
+JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_lease(JNIEnv *e,jobject self,jlong id){
+ (void)self;extension_slot_t *s=session_pin(e,id,true,false);if(!s)return NULL;gt_ext_lease_t l;bool ok=gt_ext_session_lease(s->session,&l);extension_unpin(s);if(!ok)return NULL;
+ uint8_t encoded[107];memcpy(encoded,l.connection,33);memcpy(encoded+33,l.instance,33);memcpy(encoded+66,l.token,33);for(unsigned n=0;n<8;n++)encoded[99+n]=(uint8_t)(l.epoch>>(56-n*8));jbyteArray out=extension_bytes(e,encoded,sizeof(encoded));extension_erase(encoded,sizeof(encoded));extension_erase(&l,sizeof(l));return out;
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_access(JNIEnv *e,jobject self,jlong id,jbyteArray lease,jbyteArray capability){
+ (void)self;if(!lease || (*e)->GetArrayLength(e,lease)!=107){extension_error(e,"会话租约无效");return GT_EXT_ACCESS_DENIED;}char *cap=extension_text(e,capability,128);if(!cap)return GT_EXT_ACCESS_DENIED;
+ uint8_t encoded[107];(*e)->GetByteArrayRegion(e,lease,0,107,(jbyte *)encoded);if((*e)->ExceptionCheck(e)){free(cap);return GT_EXT_ACCESS_DENIED;}gt_ext_lease_t l={0};memcpy(l.connection,encoded,33);memcpy(l.instance,encoded+33,33);memcpy(l.token,encoded+66,33);for(unsigned n=0;n<8;n++)l.epoch=(l.epoch<<8)|encoded[99+n];extension_erase(encoded,sizeof(encoded));
+ extension_slot_t *s=session_pin(e,id,true,false);gt_ext_access_t status=s?gt_ext_session_access(s->session,&l,cap):GT_EXT_ACCESS_DENIED;if(s)extension_unpin(s);free(cap);extension_erase(&l,sizeof(l));return status;
+}
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_revoke(JNIEnv *e,jobject self,jlong id){(void)self;extension_slot_t *s=session_pin(e,id,true,false);if(s){gt_ext_session_revoke(s->session);extension_unpin(s);}}
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_stop(JNIEnv *e,jobject self,jlong id){(void)self;extension_slot_t *s=session_pin(e,id,false,true);if(s){gt_ext_session_stop(s->session);extension_unpin(s);}}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_close(JNIEnv *e,jobject self,jlong id,jint ms){
+ (void)self;extension_slot_t *s=session_pin(e,id,true,false);if(!s)return GT_EXT_CLOSE_ERROR;if(ms<0){extension_unpin(s);extension_error(e,"会话关闭预算无效");return GT_EXT_CLOSE_ERROR;}gt_ext_close_t state=gt_ext_session_close(s->session,ms);if(state!=GT_EXT_RELEASED){extension_unpin(s);return state;}
+ pthread_mutex_lock(&extension_lock);if(s->pins!=1){s->pins--;pthread_mutex_unlock(&extension_lock);return GT_EXT_DRAINING;}s->retiring=true;gt_ext_session_t *session=s->session;pthread_mutex_unlock(&extension_lock);gt_status_t status=gt_ext_session_destroy(&session);
+ pthread_mutex_lock(&extension_lock);if(status==GT_OK)memset(s,0,sizeof(*s));else{s->retiring=false;s->pins--;}pthread_mutex_unlock(&extension_lock);return status==GT_OK?GT_EXT_RELEASED:GT_EXT_CLOSE_ERROR;
 }

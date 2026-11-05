@@ -34,6 +34,16 @@ public final class ExtensionChannel {
     private func pointer() throws -> OpaquePointer {
         checkOwner(); guard let raw else { throw GhostermError.failed("插件通道已释放") }; return raw
     }
+    // Transactional transfer: exclude every cross-thread stop while C changes
+    // ownership. On failure raw is unchanged; on success this wrapper is inert.
+    var sessionOwner: DispatchQueue { checkOwner(); return owner }
+    func adoptSession(role: gt_ext_role_t, config: inout gt_ext_session_config_t) throws -> OpaquePointer {
+        _ = try pointer(); stopLock.lock(); defer { stopLock.unlock() }
+        var session: OpaquePointer?
+        let result = gt_ext_session_open(&raw, role, &config, &session)
+        guard result == GT_OK, let session else { throw GhostermError.status(Int32(result.rawValue), "无法接管插件会话") }
+        return session
+    }
     /// Exclusive pipe/socket descriptors are consumed on success only.
     public init(readFD: Int32, writeFD: Int32, owner: DispatchQueue) throws {
         self.owner = owner; checkOwner()

@@ -82,6 +82,14 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
             else -> throw ExtensionChannelException(3, "插件通道释放失败，仍保留 owner")
         }
     }
+    internal fun adoptSession(role: Int, texts: Array<ByteArray>, required: Array<ByteArray>,
+                              available: Array<ByteArray>, numbers: IntArray): Long {
+        owner()
+        val result = NativeExtensionChannel.openSession(handle, role, texts, required, available, numbers)
+        check(result.size == 2)
+        if (result[0] != 0L) throw ExtensionChannelException(result[0].toInt(), "无法接管插件会话")
+        check(result[1] > 0L); handle = 0L; return result[1]
+    }
     override fun close() {
         if (handle == 0L) return
         owner()
@@ -133,4 +141,6 @@ internal object NativeExtensionChannel {
         known: ByteArray, kind: Int, first: ByteArray, second: ByteArray): Int
     external fun stop(handle: Long)
     external fun close(handle: Long, milliseconds: Int): Int
+    external fun openSession(handle: Long, role: Int, texts: Array<ByteArray>, required: Array<ByteArray>,
+        available: Array<ByteArray>, numbers: IntArray): LongArray
 }

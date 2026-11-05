@@ -142,13 +142,15 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九 / 十 / 十二至十九批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共通道门面 `channel.c`，纳入 Core 构建。公共 `extension.h` 的通道部分已接两端 worker，其余生产模块仍为拟议。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
+以下为实现布局；第九 / 十 / 十二至二十批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共门面 `channel.c` / `session-api.c`，纳入 Core 构建。公共通道与 Session 生命周期已接两端 worker；公开请求 / 资源门面和其余生产模块仍待接。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
 
 ```text
-core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD；Session 等待后续
+core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
+core/include/ghosterm/extension_session.h   已实现 S4d2：公共单实例握手 / 决定 / lease / 撤销 / 关闭
 core/src/extension/
   mux.c          增量识别、分帧、原始终端字节透传
   channel.c      已实现 S4d1：公共通道门面、native 稳定写缓冲、逐跳认证 challenge / 生命周期
+  channel-owner.h / session-api.c   已实现 S4d2：通道事务交接、保留容量、公开 Session 生命周期门面
   stream.h / stream.c   私有有序双向字节通道契约，不带终端 / 插件业务语义
   fd-stream.c    已实现：显式接管 pipe / stream socket；非阻塞 IO 与停止唤醒
   frame.h / frame.c    已实现：候选长度前缀、增量 decoder 与单帧 writer
@@ -185,9 +187,9 @@ packages/plugin-sdk/
 plugins/official/{preview,ai-codex,ai-claude,diff,table,...}/
   src/{client,executor,shared}/     业务均通过同一 SDK
 
-apple/GhostermCore/.../ExtensionChannel.swift   已实现：专属非 UI queue 的公共通道绑定
+apple/GhostermCore/.../ExtensionChannel.swift / ExtensionSession.swift   已实现：专属非 UI queue 的通道 / 会话绑定
 apple/.../ExtensionController.swift / ExtensionPane.swift   待实现
-android/bridge/.../extension_jni.c / ExtensionChannel.kt   已实现：创建线程独占 IO、代次句柄 / stop pin
+android/bridge/.../extension_jni.c / ExtensionChannel.kt / ExtensionSession.kt   已实现：创建线程独占 IO、代次交接 / stop pin
 android/app/.../ExtensionViewModel.kt / ExtensionScreen.kt
 windows/bridge/ · linux/bridge/ · harmony/bridge/ · web/bridge/
   各端能力适配；端代码之间不互相引用
@@ -221,8 +223,9 @@ bridge / JS runtime 作为显式可配置构建能力，CMake 与平台构建各
 ### C ABI 接口形状
 
 第十九批已加入 `gt_ext_channel_*` 十一项公共通道入口：显式 fd / SSH 路线、推进、状态、逐跳决定 /
-材料、部分 IO、stop / close / destroy。所有平台只经 `ghosterm.h` 消费；协议仍由私有 BridgeSession
-负责，以下 mux / instance / resource 示例仍是后续接口草案，不能据公共通道 ABI 提前开放插件权限。
+材料、部分 IO、stop / close / destroy。第二十批再加 `gt_ext_session_*` 十项，公开握手 / 原生决定 /
+lease / 撤销及生命周期，实际协议复用私有 BridgeSession；请求 / 资源门面仍待接。所有平台只经
+`ghosterm.h` 消费，以下 mux / instance / resource 示例仍是后续接口草案，不能据这些 ABI 提前开放插件权限。
 
 ```c
 /* 草案，仅示意职责；尚未加入 ghosterm.h，不构成 ABI 承诺。 */
@@ -1337,11 +1340,13 @@ Go/Tailcat provider 可经私有 C ABI 给 C owner 受控 stream 或 POSIX fd，
 | S1 私有 stream / 共用 codec | 第九批已落地 C 接缝、部分 IO、预算 / 停止语义、候选长度分帧；不是完整 wire 校验器 | 同一套 conformance 夹具对 pipe / socketpair；随机分块、短写 / WAIT、前缀污染、截断 / 尾字节、限额、关闭后拒发。九模式与十三组变异通过；不拿内存 fake 通过当网络适配已完成。 |
 | S2 直接 SSH 后端 | 第十批 S2a 已接专属 auth owner、无 PTY exec / 三路 IO；第十一批 S2b 已关闭旧 exec helper 风险 | 直连十六场景 / 十四组变异；旧 helper 十个协议场景、边界测试及十六组新变异通过，原 exec 三组复验。更完整取消 / 重协商 / 长时资源矩阵继续作为后续组合验收，不借本片记插件产品完成。 |
 | S3 受管跳板链 | 第一跳至最终目标的字节 IO、逐跳身份 / 认证与清理 | 第十二批已验证 libssh2 两 / 三层、不同 pin、失败定位、转发拒绝、未知 hostkey、错凭据、半开链、取消与释放。客户端只准直拨第一跳；尚非真实封闭内网 / WAN / App 证据，完整平台和资源组合继续验收。 |
-| S4 共用会话与原生入口 | 协商、包匹配、原生批准、资源 / 请求、两端最小绑定 | 第十三至十八批接私有控制握手 / RPC / Store / 资源回执与 scoped source；第十九批接公共通道 ABI 和两端非 UI worker 的逐跳认证 / IO。公共 Session / ResourceRef、原生授权 / 视图、实际插件运行仍待接；后续须同一协议夹具、页面 / 绑定及普通终端回归。公开头变化时完整 ABI / gate / 绑定对拍。 |
+| S4 共用会话与原生入口 | 协商、包匹配、原生批准、资源 / 请求、两端最小绑定 | 第十三至十八批接私有控制握手 / RPC / Store / 资源回执与 scoped source；第十九批接公共通道 / 逐跳认证，第二十批接公共 Session 生命周期 / 原生决定 / lease 和两端非 UI worker。公开请求 / ResourceRef、原生授权页面 / 视图、实际插件运行仍待接；后续须同一协议夹具、页面 / 绑定及普通终端回归。公开头变化时完整 ABI / gate / 绑定对拍。 |
 | S5 前台 gterm 附着 | 一次性 IPC 与受控 attach | 原目录 / 环境归属、实例错配、IPC 权限 / 路径、进程退出、第二客户端切 pane、无秘密回卷和无后台服务。 |
 | 后续网关 | WSS 或 Go 网络 provider | 对同一 conformance / wire / 会话夹具再验，再加网关自身认证、实际网络与平台矩阵；不倒填 S1 为兼容网关已通过。 |
 
-以上为有序切片，不把 SSH、跳板、原生授权或前台附着提前记完成。本轮仅静态研究和文档更新，`git diff --check` 验格式；未运行新 Core / 平台 / 网络测试，没有新增 CI 覆盖。结论是接缝可以预先收敛，首版 SSH 不必依赖网关；兼容性通过共同契约和新增 provider 的实测逐步获得。
+以上为有序切片，不把 SSH、跳板、原生授权或前台附着提前记完成。第八批当时仅做静态研究和文档更新，
+`git diff --check` 验格式，没有该批的新 Core / 平台 / 网络测试或 CI 覆盖；后续实现与验收按第九至二十批
+分别记账。接缝可先收敛，首版 SSH 不依赖网关；兼容性通过共同契约和新增 provider 的实测逐步获得。
 
 ### 第九批实施：S1 私有字节流与候选分帧（2026-11-05）
 
@@ -2067,6 +2072,65 @@ Android app / bridge / terminal / data 四模块 lint 通过；没有本轮签�
 **下一片。** 沿同一 C ABI 接公开 BridgeSession / 原生决定 / 请求 / 资源快照门面，接两端原生批准与
 ResourceRef 视图，再推进 SDK / runtime / gterm 前台 IPC、插件与多实例。P0 / P1 / S4 / 整体目标未完成；
 未来网关继续只保留 provider 接缝，不实现。
+
+### P0 第二十批：S4d2 公开 Session 生命周期与两端原生决定（2026-11-06）
+
+**交付。** 在 `66330b2` 上增加公共 [extension_session.h](../../core/include/ghosterm/extension_session.h)
+与 C11 / POSIX `session-api.c`，经聚合头新增十项 `gt_ext_session_*`，既有 106 项签名保留，当前
+**116 ABI**。单实例 Session 复用实际私有握手 / wire / frame；显式 HOST / EXECUTOR、native 配置复制、
+有限 step、info、当次 ticket 决定、双方 READY 后的 scoped lease、access、revoke / stop、分步关闭 /
+destroy。UNKNOWN 不等于 ALLOW / DENY，历史拒绝或断流原因不被后续 stop 覆盖。
+
+本片公开门面只协商握手档，`features != 0` 明确 UNSUPPORTED；没有把私有 requests / resources 已实现
+当成公开门面已接。required / available 是 caller 已核验包与宿主能力快照，peer identity 是可信 native
+证据标签，SSH / fd provider 类型另核对。匹配远端摘要不替代包文件核验，也不从 payload 自报主机推断
+身份；租约只证明本会话作用域，不证明 OS 权限或业务完成，不交给远端 / JS。
+
+**所有权。** Session 只接 READY 且未发生 raw 协议读写的通道：已复制 / 已读字节、待发送 raw 队列、
+stop / close、尚未建完的 SSH 和 peer.kind 不匹配均拒绝。构造不做通道 IO；分配 / 配置 / 私有 Session
+构造失败保留原 channel 与其可用性。成功时清空 caller channel、把私有 stream 交给 Session，原 wrapper
+只保留容量预约。该预约跨握手失败、撤销、DRAINING 及 provider close 完成，直到 Session 实际 destroy
+才归还；不能通过转换类型绕过 16-owner 上限。公开头与两端都要求迁移 / destroy 前结束全部 stop caller。
+
+close / destroy 的 ERROR 均保留 owner；`cleanup_error` 与原 end / error 分开。实际负向边界先复现
+“destroy 失败后重复 close 抹去 cleanup_error”的正常断言红，同 archive 配置对照绿后修复：已完成的
+provider close 不清掉尚未解决的销毁错误，重试 destroy 才处理释放。
+
+**两端接线。** Swift `ExtensionSession` 在原 channel queue 上接管；转换及最终 destroy 与跨线程 stop
+用同一生命周期锁隔离，失败保留 channel。deinit 把未释放 owner 留在可观察 / 可重试 cleanup ledger；
+测试在清空 ledger 后重新占满 16 个 Core 通道，验证实际容量归还。JNI 在原有 16-slot 注册表内转换，
+排除其它 stop pin 后才接管；成功生成新的单调 ID，旧 channel ID 和旧 Session ID 均不能命中新 owner。
+后继 ID 在锁内先预约，避免并发创建消耗序号上界；失败不更改原 slot / channel。Kotlin 创建 worker
+独占 IO、typed phase / decision / access / end、复制 info / native lease、显式 close，不依赖 finalizer。
+
+**证据。** 公开头调用的 14 个本机场景和 5 个 allocator / provider 失败边界；真实两 / 三跳各允许 /
+拒绝共四场景，C native connector 只准直拨首跳。Swift **8 项**、隔离 **API 36 / arm64 / 4 KiB 页**
+Android **10 项**通过，均含真实 SSH / public Session，批准前 / 双方 READY 前无租约、跨实例 ticket /
+lease、撤销、失败交接、旧 ID、owner 线程、实际容量释放。模拟器只 reverse 首跳与内存夹具，不映射
+内跳。测试 exec 使用本轮固定 C binary 的 stdio，不冒充生产 gterm、插件激活或 App 批准页面。
+
+`mutation-check-plugin-session-api.py` **13 C + 2 Swift**：真实重编、正常 C / XCTest 断言红、同 archive
+独立配置绿、重编恢复目标 / SHA256；首尾完整 19 native / 四 SSH，Swift 首尾 8 项。Core ASan / UBSan，
+Swift 单独用同一恢复源的普通 Core 构建；未跑 LSan。`mutation-check-plugin-session-api-jni.py` **4 JNI**
+护 worker、交接代次、UNKNOWN 与 lease epoch：实际 NDK 编译 / 安装 APK 摘要对拍，单条正常 JUnit 红、
+同 APK 配置 / 非法 NUL / VT 三项对照绿、重编恢复与首尾完整 10 项 / 两三跳。两份 runner 的残留标记预扫已按 AGENTS 固定返回 2，隔离执行实际入口确认源文件不变；该脚本修正后整套重跑。以上 **19 组为手工**，
+不增加 macOS CI 二十份。最终收据 `tmp/plugin-session-api-mutations-8alwu20n/logs/result.json` 和
+`tmp/plugin-session-api-jni-mutations-yu4k_j5r/logs/result.json`。
+
+Core gate **302 CTest / 116 ABI**；Apple **112 引用 / 4 未用**、JNI **78 / 38**、严格 C11 三源、
+关闭 provider / 无 libssh2 两档同一 116 导出及相关实际测试通过。macOS App native build、Android
+未签名 Release / R8 与 app / bridge / terminal / data 四模块 lint 通过；本地包仍是未提交来源，未做签名 /
+云端发行。原通道十个 C SSH / Swift 9 / JNI 12 项跨两端复验，原 JNI 四组变异另复验，独立保留收据。
+
+**失败与边界。** 初轮 SSH 测试误把 `strcmp` 非零整数直接与 bool 比较，修正成明确相等后重编 / 四场景
+通过；失败轮不计绿。初轮一组移除外层 destroy guard 的变异仍被实际私有检查拦住，整轮被 runner
+拒收；该组没有可观察的错误行为，未计入最终十三组，也没有改变“提前 destroy 必须拒绝”的断言。
+隔离 AVD 首次用了不存在的 JDK 路径，未启动；改用仓库实际工具链后冷启动，没有借失败记设备通过。
+日志 / 汇总保留在 `tmp/plugin-session-api-*` 与 `tmp/plugin-session-api-evidence.json`。
+
+**后续。** 公开请求 / 资源 / scoped source 门面、两端原生批准页面与 ResourceRef 视图、SDK / runtime /
+gterm 前台 IPC、插件与多实例仍继续分批实现。未完成 P0 / P1 / S4 / 整体目标；无真实封闭内网 / WAN /
+物理设备 / 完整客户端结论。未来网关只保留 provider 接缝，不实现。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 
