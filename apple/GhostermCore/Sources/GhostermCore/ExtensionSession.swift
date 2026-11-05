@@ -210,6 +210,15 @@ public final class ExtensionSession {
         return ExtensionFileSource.Admission(status: ExtensionFileSource.Status(status), source: status == GT_EXT_SOURCE_OK ? source : nil)
     }
     public func stop() { stopLock.lock(); defer { stopLock.unlock() }; if let raw { gt_ext_session_stop(raw) } }
+    internal var runtimeOwner: DispatchQueue { dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread); return owner }
+    internal var runtimeStore: ExtensionResourceStore? { resourceStore }
+    internal func adoptRuntime(config: inout gt_ext_runtime_config_t) throws -> OpaquePointer {
+        _ = try pointer(); stopLock.lock(); defer { stopLock.unlock() }
+        var runtime: OpaquePointer?
+        let status = gt_ext_runtime_open(&raw, &config, &runtime)
+        guard status == GT_OK, let runtime else { throw GhostermError.status(Int32(status.rawValue), "运行时未接管会话") }
+        return runtime
+    }
     @discardableResult public func closeStep(milliseconds: Int32 = 0) throws -> Bool {
         let p = try pointer(); guard milliseconds >= 0 else { throw GhostermError.failed("会话关闭预算无效") }
         let result = gt_ext_session_close(p, milliseconds)

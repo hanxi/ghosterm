@@ -20,6 +20,11 @@ int main(void) {
         gt_ext_channel_read(NULL,&extension,1,0).error==GT_ERR_INVALID_ARG &&
         gt_ext_channel_destroy(&extension)==GT_ERR_INVALID_ARG,
         "plugin channel invalid calls never pretend success");
+  gt_ext_runtime_t *runtime=(gt_ext_runtime_t *)1;gt_ext_runtime_info_t runtime_info;memset(&runtime_info,1,sizeof(runtime_info));
+  CHECK(gt_ext_runtime_open(NULL,NULL,&runtime)!=GT_OK && !runtime,"runtime invalid/unsupported construction clears owner");
+  CHECK(!gt_ext_runtime_info(NULL,&runtime_info) && !runtime_info.steps && !runtime_info.module_bytes,"runtime invalid observation clears POD");
+  CHECK(gt_ext_runtime_step(NULL)==GT_EXT_RUNTIME_CLOSED && gt_ext_runtime_close(NULL)==GT_EXT_CLOSE_ERROR && gt_ext_runtime_destroy(&runtime)==GT_ERR_INVALID_ARG,"runtime invalid lifetime never succeeds");
+  gt_ext_runtime_stop(NULL);
   gt_ext_session_t *plugin_session=(gt_ext_session_t *)1;
   CHECK(gt_ext_session_open(NULL,GT_EXT_HOST,NULL,&plugin_session)==GT_ERR_INVALID_ARG && !plugin_session,
         "plugin Session rejects absent channel and clears output");

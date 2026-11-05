@@ -115,7 +115,7 @@ static void runtime_free_engine(gt_bridge_runtime_t *r){
 static void runtime_free_modules(gt_bridge_runtime_t *r){for(size_t i=0;i<r->count;i++)free(r->modules[i].source);}
 gt_status_t gt__bridge_runtime_open(gt_ext_session_t **session,const gt_runtime_config_t *c,gt_bridge_runtime_t **out){
  if(out)*out=NULL;if(!out || !session || !*session || !c || !c->modules || !c->module_count || c->module_count>64 || !runtime_name(c->entry) || strncmp(c->entry,"plugin:/",8) || (c->role!=GT_EXT_HOST && c->role!=GT_EXT_EXECUTOR))return GT_ERR_INVALID_ARG;
- gt_ext_session_info_t info;if(!gt_ext_session_info(*session,&info) || info.phase!=GT_EXT_SESSION_ACTIVE || !(*session)->requests || (*session)->sources)return GT_ERR_INVALID_ARG;
+ gt_ext_session_info_t info;if(!gt_ext_session_info(*session,&info) || info.phase!=GT_EXT_SESSION_ACTIVE || !(*session)->requests || (*session)->sources || !gt__bridge_session_runtime_admissible((*session)->inner))return GT_ERR_INVALID_ARG;
  gt_bridge_role_t actual_role;size_t method_count;gt__bridge_session_methods((*session)->inner,&method_count,&actual_role);if((unsigned)actual_role!=(unsigned)c->role)return GT_ERR_INVALID_ARG;
  size_t memory=c->memory_bytes?c->memory_bytes:16*1024*1024,stack=c->stack_bytes?c->stack_bytes:256*1024;uint32_t cpu=c->cpu_ms?c->cpu_ms:25,jobs=c->jobs_per_step?c->jobs_per_step:32;
  if(c->activation_ms>60000)return GT_ERR_INVALID_ARG;

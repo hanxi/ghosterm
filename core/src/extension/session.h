@@ -63,6 +63,7 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **,gt_bridge_role_t,
  const gt_bridge_session_config_t *,const gt_allocator_t *,gt_bridge_session_t **);
 gt_bridge_session_phase_t gt__bridge_session_step(gt_bridge_session_t *,int ms);
 bool gt__bridge_session_info(const gt_bridge_session_t *,gt_bridge_session_info_t *);
+bool gt__bridge_session_runtime_admissible(const gt_bridge_session_t *);
 /* Owner-only command from the native authorization path; token binds the
  * displayed decision to this offer. UNKNOWN waits, never grants or rejects. */
 gt_status_t gt__bridge_session_decide(gt_bridge_session_t *,const char *,gt_bridge_decision_t);

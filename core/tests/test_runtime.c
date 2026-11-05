@@ -1,6 +1,11 @@
 #define EXT_RPC_MAIN runtime_rpc_fixture_main
 #include "test_ext_rpc.c"
+#ifdef GT_RUNTIME_PUBLIC_API
+#include "runtime-api-test-alias.h"
+#else
 #include "extension/runtime.h"
+#define GT_RUNTIME_NULL_DESTROY_STATUS GT_ERR_UNSUPPORTED
+#endif
 #include "base/sha256.h"
 static void module(gt_runtime_module_t *m,const char *name,const char *text){m->name=name;m->source=text;m->size=strlen(text);gt_sha256_t hash;gt__sha256_init(&hash);CHECK(gt__sha256_update(&hash,text,m->size) && gt__sha256_final(&hash,m->sha256));}
 #ifdef GT_TEST_PLUGIN_JS
@@ -16,6 +21,7 @@ static const char *echo_plugin=
  "for(const k of ['process','require','window','document','std','os','fetch','native'])if(k in globalThis)throw Error('ambient');"
  "ctx.session.register({name:'fixture.echo',input:codec,output:codec},async(v,c)=>{await Promise.resolve();c.check();return v});return {dispose(){}};}";
 static void runtime_case(const char *mode,const char *root){
+ gt_runtime_info_t empty;memset(&empty,1,sizeof(empty));CHECK(!gt__bridge_runtime_info(NULL,&empty) && !empty.steps && !empty.jobs && !empty.module_bytes && !empty.engine_released);
  const char *names[]={"index.js","codec.js","session.js","wire-contract.js"};const char *ids[]={"sdk:/index.js","sdk:/codec.js","sdk:/session.js","sdk:/wire-contract.js"};char *scripts[4];gt_runtime_module_t modules[8]={0};
  for(unsigned i=0;i<4;i++){scripts[i]=read_module(root,names[i]);module(&modules[i],ids[i],scripts[i]);}
  const char *plugin=echo_plugin;
@@ -55,7 +61,8 @@ static void runtime_case(const char *mode,const char *root){
   modules[4].sha256[0]=modules[4].sha256[0]=='0'?'1':'0';CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_ERR_PROTOCOL && !rt && pair.pair.e);module(&modules[4],"plugin:/entry.js",plugin);
   module(&modules[4],"host:/native",plugin);config.entry="plugin:/missing.js";CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_ERR_INVALID_ARG && !rt && pair.pair.e);rpc_drop(&pair);
  }else{
-  CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_OK && rt && !pair.pair.e);CHECK(rt_info(rt).phase==GT_RUNTIME_CREATED && rt_info(rt).steps==0);CHECK(gt__bridge_runtime_destroy(&rt)==GT_ERR_INVALID_ARG && rt);
+  size_t total=0;for(size_t i=0;i<count;i++)total+=modules[i].size;
+  CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_OK && rt && !pair.pair.e);CHECK(rt_info(rt).phase==GT_RUNTIME_CREATED && rt_info(rt).steps==0 && rt_info(rt).module_bytes==total);CHECK(gt__bridge_runtime_destroy(&rt)==GT_ERR_INVALID_ARG && rt);
   /* Prove copies, not borrowed caller source or metadata. */
   for(unsigned i=0;i<4;i++){memset(scripts[i],0,modules[i].size);free(scripts[i]);scripts[i]=NULL;}memset(modules,0,sizeof(modules));
   if(!strcmp(mode,"stop")){pthread_t t;CHECK(!pthread_create(&t,NULL,rt_stop,rt) && !pthread_join(t,NULL));CHECK(gt__bridge_runtime_step(rt)==GT_RUNTIME_STOPPED && rt_info(rt).error==GT_RUNTIME_CANCELLED);}
@@ -68,7 +75,7 @@ static void runtime_case(const char *mode,const char *root){
    if(!strcmp(mode,"reverse") || !strcmp(mode,"prototype"))CHECK(reverse==1);
    gt_runtime_info_t info=rt_info(rt);
    bool active=!strcmp(mode,"atomics") || !strcmp(mode,"isolation") || !strcmp(mode,"reverse") || !strcmp(mode,"prototype") || !strcmp(mode,"roundtrip") || !strcmp(mode,"relative") || !strcmp(mode,"handled") || !strcmp(mode,"top-await") || !strcmp(mode,"dispose-loop") || !strcmp(mode,"peer-loss");
-   CHECK(info.phase==(active?GT_RUNTIME_ACTIVE:GT_RUNTIME_FAILED));
+   CHECK(info.phase==(active?GT_RUNTIME_ACTIVE:GT_RUNTIME_FAILED) && info.steps>0);
    if(!strcmp(mode,"cpu") || !strcmp(mode,"top-cpu"))CHECK(info.error==GT_RUNTIME_CPU);
    if(!strcmp(mode,"boundary-outbound")){CHECK(info.error==GT_RUNTIME_MEMORY && gt_ext_session_access(borrowed,&pair.e,"ui.form")==GT_EXT_ACCESS_REVOKED);gt_ext_rpc_request_t q;CHECK(gt_ext_session_take_request(pair.pair.h,&pair.h,&q)==GT_EXT_RPC_WAIT);}
    if(!strcmp(mode,"jobs"))CHECK(info.error==GT_RUNTIME_JOBS && info.jobs==config.jobs_per_step);
@@ -96,9 +103,16 @@ static void runtime_case(const char *mode,const char *root){
 #define GT_RUNTIME_MAIN main
 #endif
 int GT_RUNTIME_MAIN(int argc,char **argv){CHECK(argc>=2);size_t before=ext_fds();
+#ifdef GT_RUNTIME_PUBLIC_API
+#ifdef GT_TEST_PLUGIN_JS
+ CHECK(gt_ext_runtime_support()==GT_OK);
+#else
+ CHECK(gt_ext_runtime_support()==GT_ERR_UNSUPPORTED);
+#endif
+#endif
 #ifdef GT_TEST_PLUGIN_JS
  CHECK(argc==3);runtime_case(argv[1],argv[2]);
 #else
- (void)module;gt_bridge_runtime_t *rt=(gt_bridge_runtime_t *)1;CHECK(gt__bridge_runtime_open(NULL,NULL,&rt)==GT_ERR_UNSUPPORTED && !rt);gt_runtime_info_t info;memset(&info,1,sizeof(info));CHECK(!gt__bridge_runtime_info(NULL,&info) && !info.steps && !info.module_bytes);CHECK(gt__bridge_runtime_step(NULL)==GT_RUNTIME_CLOSED && gt__bridge_runtime_close(NULL)==GT_EXT_CLOSE_ERROR && gt__bridge_runtime_destroy(NULL)==GT_ERR_UNSUPPORTED);gt__bridge_runtime_stop(NULL);
+ (void)module;gt_bridge_runtime_t *rt=(gt_bridge_runtime_t *)1;CHECK(gt__bridge_runtime_open(NULL,NULL,&rt)==GT_ERR_UNSUPPORTED && !rt);gt_runtime_info_t info;memset(&info,1,sizeof(info));CHECK(!gt__bridge_runtime_info(NULL,&info) && !info.steps && !info.module_bytes);CHECK(gt__bridge_runtime_step(NULL)==GT_RUNTIME_CLOSED && gt__bridge_runtime_close(NULL)==GT_EXT_CLOSE_ERROR && gt__bridge_runtime_destroy(NULL)==GT_RUNTIME_NULL_DESTROY_STATUS);gt__bridge_runtime_stop(NULL);
 #endif
  CHECK(ext_fds()==before);printf("PASS runtime_%s\n",argv[1]);return 0;}

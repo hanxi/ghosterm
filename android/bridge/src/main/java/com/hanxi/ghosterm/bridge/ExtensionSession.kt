@@ -122,6 +122,13 @@ class ExtensionSession private constructor(private val worker: Thread, private v
         owner(); return ExtensionFileSource.open(handle, lease, rootFd, relativePath, mime, byteLimit)
     }
     fun stop() { val id = handle; if (id != 0L) NativeExtensionSession.stop(id) }
+    internal fun runtimeWorker(): Thread { owner(); return worker }
+    internal fun runtimeStore(): ExtensionResourceStore? { owner(); return resourceStore }
+    internal fun adoptRuntime(open: (Long) -> LongArray): LongArray {
+        owner(); val values = open(handle); check(values.size == 2)
+        if (values[0] == 0L) handle = 0L
+        return values
+    }
     fun closeStep(milliseconds: Int = 0): Boolean {
         owner(); require(milliseconds >= 0)
         return when (NativeExtensionSession.close(handle, milliseconds)) {

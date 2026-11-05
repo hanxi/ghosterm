@@ -30,6 +30,7 @@ typedef struct gt_bridge_session gt_bridge_session_t;
 gt_status_t gt__bridge_rpc_new(gt_bridge_session_t *,gt_bridge_wire_t *,const gt_allocator_t *,gt_bridge_rpc_t **);
 void gt__bridge_rpc_free(gt_bridge_rpc_t *);
 void gt__bridge_rpc_end(gt_bridge_rpc_t *);
+bool gt__bridge_rpc_has_owners(const gt_bridge_rpc_t *);
 gt_status_t gt__bridge_rpc_receive(gt_bridge_rpc_t *,const gt_bridge_message_t *,size_t frame_size,uint64_t now);
 gt_status_t gt__bridge_rpc_prepare(gt_bridge_rpc_t *,uint64_t control_seq,uint64_t now,char *,size_t,size_t *,bool *control);
 void gt__bridge_rpc_commit(gt_bridge_rpc_t *);

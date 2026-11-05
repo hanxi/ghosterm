@@ -441,3 +441,5 @@ bool gt__bridge_session_resource_result(gt_bridge_session_t *s,const gt_bridge_l
 gt_bridge_resource_status_t gt__bridge_session_forget_resource(gt_bridge_session_t *s,const gt_bridge_lease_t *l,uint64_t h){if(s)(void)tick(s);return s && s->resources?gt__bridge_transfer_forget(s->resources,l,h):GT_BRIDGE_RESOURCE_UNSUPPORTED;}
 gt_bridge_resource_status_t gt__bridge_session_take_resource(gt_bridge_session_t *s,const gt_bridge_lease_t *l,gt_bridge_snapshot_t *out){if(out)memset(out,0,sizeof(*out));if(s)(void)tick(s);return s && s->resources?gt__bridge_transfer_take(s->resources,l,out):GT_BRIDGE_RESOURCE_UNSUPPORTED;}
 gt_bridge_resource_status_t gt__bridge_session_reject_resource(gt_bridge_session_t *s,const gt_bridge_lease_t *l){if(!s || !s->resources)return GT_BRIDGE_RESOURCE_UNSUPPORTED;if(!tick(s))return GT_BRIDGE_RESOURCE_CLOSED;return gt__bridge_transfer_reject(s->resources,l);}
+
+bool gt__bridge_session_runtime_admissible(const gt_bridge_session_t *s){return s && s->rpc && !gt__bridge_rpc_has_owners(s->rpc) && !gt__bridge_transfer_has_owner(s->resources);}

@@ -3,6 +3,7 @@
  * No source-file access/authorization, runtime, UI or public ABI. */
 #ifndef GT_BRIDGE_TRANSFER_H
 #define GT_BRIDGE_TRANSFER_H
+/* Internal ownership check for transactional runtime adoption. */
 #include "extension/resource.h"
 #define GT_BRIDGE_TRANSFER_WINDOW 8192u
 #define GT_BRIDGE_TRANSFER_CHUNK 768u
@@ -43,4 +44,6 @@ bool gt__bridge_session_resource_result(gt_bridge_session_t *,const gt_bridge_le
 gt_bridge_resource_status_t gt__bridge_session_forget_resource(gt_bridge_session_t *,const gt_bridge_lease_t *,uint64_t);
 gt_bridge_resource_status_t gt__bridge_session_take_resource(gt_bridge_session_t *,const gt_bridge_lease_t *,gt_bridge_snapshot_t *);
 gt_bridge_resource_status_t gt__bridge_session_reject_resource(gt_bridge_session_t *,const gt_bridge_lease_t *);
+bool gt__bridge_transfer_has_owner(const gt_bridge_transfer_t *);
+
 #endif

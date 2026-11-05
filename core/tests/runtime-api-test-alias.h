@@ -1,0 +1,29 @@
+/* Test-only name projection: shared scenarios instantiate the public PODs and
+ * invoke only public runtime symbols. No private struct layout/cast/entry. */
+#include "ghosterm.h"
+#define gt_bridge_runtime_t gt_ext_runtime_t
+#define gt_runtime_module_t gt_ext_runtime_module_t
+#define gt_runtime_config_t gt_ext_runtime_config_t
+#define gt_runtime_info_t gt_ext_runtime_info_t
+#define gt__bridge_runtime_open gt_ext_runtime_open
+#define gt__bridge_runtime_step gt_ext_runtime_step
+#define gt__bridge_runtime_info gt_ext_runtime_info
+#define gt__bridge_runtime_stop gt_ext_runtime_stop
+#define gt__bridge_runtime_close gt_ext_runtime_close
+#define gt__bridge_runtime_destroy gt_ext_runtime_destroy
+#define GT_RUNTIME_CREATED GT_EXT_RUNTIME_CREATED
+#define GT_RUNTIME_STARTING GT_EXT_RUNTIME_STARTING
+#define GT_RUNTIME_ACTIVE GT_EXT_RUNTIME_ACTIVE
+#define GT_RUNTIME_FAILED GT_EXT_RUNTIME_FAILED
+#define GT_RUNTIME_STOPPED GT_EXT_RUNTIME_STOPPED
+#define GT_RUNTIME_CLOSED GT_EXT_RUNTIME_CLOSED
+#define GT_RUNTIME_NONE GT_EXT_RUNTIME_NONE
+#define GT_RUNTIME_SCRIPT GT_EXT_RUNTIME_SCRIPT
+#define GT_RUNTIME_MEMORY GT_EXT_RUNTIME_MEMORY
+#define GT_RUNTIME_CPU GT_EXT_RUNTIME_CPU
+#define GT_RUNTIME_CANCELLED GT_EXT_RUNTIME_CANCELLED
+#define GT_RUNTIME_JOBS GT_EXT_RUNTIME_JOBS
+#define GT_RUNTIME_PROTOCOL GT_EXT_RUNTIME_PROTOCOL
+#define GT_RUNTIME_IO GT_EXT_RUNTIME_IO
+#define GT_RUNTIME_EXPIRED GT_EXT_RUNTIME_EXPIRED
+#define GT_RUNTIME_NULL_DESTROY_STATUS GT_ERR_INVALID_ARG

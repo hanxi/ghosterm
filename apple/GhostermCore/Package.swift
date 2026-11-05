@@ -21,6 +21,13 @@ while !FileManager.default.fileExists(atPath: dependencyRoot.appendingPathCompon
     dependencyRoot = parent
 }
 let ssh2Lib = dependencyRoot.appendingPathComponent("build/host-native/lib").path
+// Explicit Core conformance profile; ordinary App builds keep the backend OFF.
+let pluginJS = ProcessInfo.processInfo.environment["GHOSTERM_CORE_TEST_PLUGIN_JS"]
+precondition(pluginJS == nil || pluginJS == "0" || pluginJS == "1", "Invalid Core JS profile")
+let runtimeLink: [String] = pluginJS == "1" ? ["-lghosterm_quickjs", "-lm"] : []
+if pluginJS == "1" {
+    precondition(FileManager.default.fileExists(atPath: coreBuild + "/libghosterm_quickjs.a"), "Build enabled Core JS archive first")
+}
 
 
 let package = Package(
@@ -36,7 +43,7 @@ let package = Package(
             publicHeadersPath: "include",
             linkerSettings: [
                 .unsafeFlags(["-L", coreBuild, "-lghosterm_core",
-                              "-L", ssh2Lib, "-lssh2"]),
+                              "-L", ssh2Lib, "-lssh2"] + runtimeLink),
             ]
         ),
         .target(
@@ -47,7 +54,8 @@ let package = Package(
         .testTarget(
             name: "GhostermCoreTests",
             dependencies: ["GhostermCore"],
-            path: "Tests/GhostermCoreTests"
+            path: "Tests/GhostermCoreTests",
+            exclude: pluginJS == "1" ? [] : ["ExtensionRuntimeTests.swift"]
         ),
     ]
 )

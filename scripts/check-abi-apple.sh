@@ -34,6 +34,7 @@ APPLE_SRC=(
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/ExtensionChannel.swift"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/ExtensionSession.swift"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/ExtensionSource.swift"
+  "$ROOT/apple/GhostermCore/Sources/GhostermCore/ExtensionRuntime.swift"
   "$ROOT/apple/GhostermCore/Sources/GhostermCore/Tmux.swift"
   "$ROOT/apple/GhostermCore/Tests/GhostermCoreTests/GhostermCoreTests.swift"
   "$ROOT/apple/GhostermTerminal/Sources/CGhostty/shim.c"

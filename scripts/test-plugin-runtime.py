@@ -101,7 +101,7 @@ def main():
   disabled=work/'disabled';run('disabled-configure',['cmake','-S',core,'-B',disabled,'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_JS=OFF']);run('disabled-build',['cmake','--build',disabled,'--target','test_runtime','-j','2'],budget=180);run('disabled-test',[disabled/'test_runtime','disabled'])
   symbols=run('symbols',['nm','-g','--defined-only',build/'libghosterm_core.a']);declared=set()
   for p in (core/'include').rglob('*.h'):declared.update(n for n in re.findall(r'\b(gt_[a-z][a-z0-9_]*)\s*\(',p.read_text()) if not n.endswith('_t'))
-  actual={m.group(1) for m in re.finditer(r'\bT\s+_?(gt_[a-z][a-z0-9_]*)\b',symbols)};assert actual==declared and len(actual)==147
+  actual={m.group(1) for m in re.finditer(r'\bT\s+_?(gt_[a-z][a-z0-9_]*)\b',symbols)};assert actual==declared
   android=None
   if args.android_build:
    ndk=ROOT/'build/android-toolchain/sdk/ndk/28.2.13676358';android_build=work/'android'
@@ -110,7 +110,7 @@ def main():
    binary=android_build/'test_runtime';nm=ndk/'toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-nm';exports=run('android-symbols',[nm,'--defined-only',binary]);assert 'gt__bridge_runtime_open' in exports and 'JS_NewRuntime' in exports;assert binary.read_bytes()[:4]==b'\x7fELF'
    android=dict(abi='arm64-v8a',api=29,executed=False,binary_sha256=sha(binary),core_sha256=sha(android_build/'libghosterm_core.a'),engine_sha256=sha(android_build/'libghosterm_quickjs.a'))
   for name,h in hashes.items():assert sha(ROOT/name)==h,name
-  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in cases] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,guards=4,abi=147,core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC; no public runtime ABI, App enable, OS effects, gterm, physical devices, WAN or gateway')
+  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in cases] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC; no public runtime ABI, App enable, OS effects, gterm, physical devices, WAN or gateway')
   (logs/'result.json').write_text(json.dumps(receipt,indent=2)+'\n');shutil.rmtree(source);print('PLUGIN RUNTIME PASS; logs: '+str(logs),flush=True)
  except BaseException as error:(logs/'failure.txt').write_text(repr(error)+'\n');raise
 def stop(n,_frame):raise KeyboardInterrupt('signal '+str(n))

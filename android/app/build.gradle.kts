@@ -4,6 +4,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 val releaseStore = providers.environmentVariable("ANDROID_RELEASE_STORE_FILE")
+val pluginJsEnabled = providers.gradleProperty("ghostermPluginJs").orNull == "true"
+val runtimeSdkDirectory = providers.gradleProperty("ghostermRuntimeSdk").orNull
+val runtimeLicenseAssets = layout.buildDirectory.dir("generated/plugin-js-license-assets")
+val copyRuntimeLicense = if (pluginJsEnabled) tasks.register<Copy>("copyRuntimeLicense") {
+    from(rootProject.file("../vendor/quickjs-ng/LICENSE")) { rename { "QuickJSNG-MIT.txt" } }
+    into(runtimeLicenseAssets.map { it.dir("licenses") })
+} else null
 fun sourceGit(vararg arguments: String): String? = try {
     val command = providers.exec {
         commandLine(listOf("git", "-C", rootProject.projectDir.parentFile.absolutePath) + arguments)
@@ -42,6 +49,7 @@ android {
         versionCode = 1
         versionName = "0.1.0-dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("boolean", "PLUGIN_JS_ENABLED", pluginJsEnabled.toString())
         ndk { abiFilters += "arm64-v8a" }
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -66,6 +74,11 @@ android {
     }
     sourceSets["main"].assets.srcDir("../../build/android-native/assets")
     sourceSets["main"].assets.srcDir(sourceAssets)
+    if (pluginJsEnabled) {
+        sourceSets["main"].assets.srcDir(runtimeLicenseAssets)
+        sourceSets["androidTest"].java.srcDir("src/pluginRuntimeTest/java")
+        if (runtimeSdkDirectory != null) sourceSets["androidTest"].assets.srcDir(runtimeSdkDirectory)
+    }
     sourceSets["main"].res.srcDir("../../assets/icons/android")
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
@@ -118,3 +131,6 @@ val buildTestPty = tasks.register<Exec>("buildTestPty") {
 }
 android.sourceSets.getByName("androidTest").jniLibs.srcDir(testPtyLibraries)
 tasks.matching { it.name == "preDebugAndroidTestBuild" }.configureEach { dependsOn(buildTestPty) }
+if (copyRuntimeLicense != null) tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+    dependsOn(copyRuntimeLicense)
+}

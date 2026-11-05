@@ -219,3 +219,5 @@ void gt__bridge_transfer_commit(gt_bridge_transfer_t *t){
   else {t->tx_credit-=t->cost;if(t->tx_sequence==UINT64_MAX)t->tx_exhausted=true;else t->tx_sequence++;if(t->prepared==TRANSFER_BEGIN){t->out.started=true;t->out.result.state=GT_BRIDGE_TRANSFER_SENDING;}if(t->prepared==TRANSFER_END){t->out.end_committed=true;t->out.result.state=GT_BRIDGE_TRANSFER_PENDING;}}
 }
 void gt__bridge_transfer_sent(gt_bridge_transfer_t *t){if(t->inflight==TRANSFER_CREDIT)t->rx_credit+=t->grant;if(t->inflight==TRANSFER_BEGIN)t->out.begin_sent=true;if(t->inflight==TRANSFER_CHUNK){gt__secure_erase(t->out.bytes,sizeof(t->out.bytes));t->out.pending=0;}t->inflight=t->prepared=TRANSFER_NONE;}
+
+bool gt__bridge_transfer_has_owner(const gt_bridge_transfer_t *t){return t && t->out.used;}

@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05。状态：**P0 继续验收；S1–S3 字节通道、S4a wire、S4b 握手、S4c1 请求、S4c2a 存储及 S4c2b 资源消息已进入 Core 并分片验证，源文件范围读取、实际插件运行和原生 App 接线尚未完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第二十六批。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求首片及可选 JS runtime 公共门面已分片验证。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -37,7 +37,7 @@
 
 - **D03** **原生工作区与原生标准组件。** 插件声明 chat / diff / table / task / form 语义，自定义 Web 内容只承担文档或图表。
 
-- **D04** **主通道为 TTY，已管理端点可另用直接通道。** 嵌套 SSH 不重建猜测出来的 SFTP；TTY 的输出与输入路由分别验收。
+- **D04** **首版双向通道优先独立、无 PTY 的 SSH exec / stdio。** 受管多跳逐跳认证，TTY 只作受限发现 / 单向候选；不从手工嵌套 shell 猜测目标或重建 SFTP。未来网关只保留 Transport 接缝，不实现。
 
 - **D05** **业务插件不处理终端字节流。** 协议分帧和资源 IO 在 C / Transport owner，TerminalSurface 不知道 SSH 或插件业务。
 
@@ -142,7 +142,7 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九 / 十 / 十二至二十五批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共门面 `channel.c` / `session-api.c` / `resource-api.c` / `source-api.c`，纳入 Core 构建。公共通道、Session 生命周期、JSON 请求、资源与 scoped source 门面已接两端 worker；第二十五批再接显式可选的私有 QuickJS-NG runtime / native RPC adapter；公共 runtime ABI、App 根授权 / 控制器及其余生产模块仍待接。第二十四批已接 `packages/plugin-sdk/portable/` 的 strict TS 类型化请求边界，`schema/` 与 `testkit/` 有结构 / 元数据及 C/QuickJS conformance；可选私有 runtime 已接，公共 runtime 门面与 App 尚未接入。
+以下为实现布局；第九至二十六批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI。默认关闭 JS 后端；App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
 
 ```text
 core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
@@ -150,12 +150,14 @@ core/include/ghosterm/extension_session.h   已实现 S4d2：公共单实例握�
 core/include/ghosterm/extension_rpc.h   已实现 S4d3：公开 JSON 请求 / 结果快照 / 取消 / check / respond
 core/include/ghosterm/extension_resource.h   已实现 S4d4：公开 Store / 资源传输 / 保留快照 / 预算与关闭
 core/include/ghosterm/extension_source.h   已实现 S4d5：授权根 fd 内的公开文件来源 / 两遍校验 / 回执与关闭
+core/include/ghosterm/extension_runtime.h   已实现：可选 JS runtime / 原 owner 接管 / 预算观察与关闭
 core/src/extension/
   mux.c          增量识别、分帧、原始终端字节透传
   channel.c      已实现 S4d1：公共通道门面、native 稳定写缓冲、逐跳认证 challenge / 生命周期
   channel-owner.h / session-owner.h / session-api.c   已实现 S4d2 / S4d3 / S4d4：通道事务交接、保留容量、公开 Session / 请求 / 资源构造与 Source 借用计数
   resource-api.c   已实现 S4d4：公共 Store 与资源流门面、借用计数、发布快照 / 读取 / 引用交接
   source-api.c   已实现 S4d5：公开文件来源门面、Session pin、原失败与关闭错误分开
+  runtime-api.c   已实现：公共 runtime 门面；runtime.c / runtime-quickjs.inc 为可选 backend
   stream.h / stream.c   私有有序双向字节通道契约，不带终端 / 插件业务语义
   fd-stream.c    已实现：显式接管 pipe / stream socket；非阻塞 IO 与停止唤醒
   frame.h / frame.c    已实现：候选长度前缀、增量 decoder 与单帧 writer
@@ -2500,6 +2502,78 @@ JNI / Swift App 启用、APK / 签名 / 云端发行或物理设备 / WAN / 封�
 源码、pin / 许可、构件与日志摘要、提交及清理记录在 `tmp/plugin-runtime-evidence.json`。
 **剩余。** 公共 runtime ABI / 两端绑定、App 启用与原生根授权 / 批准 / 视图、完整 SDK 服务、gterm
 IPC、包安装 / 激活、实际插件与多实例继续；不把私有入口记为 App 已可用，网关仍只预留。
+
+### P0 第二十六批：公共 runtime ABI 与两端原生 worker（2026-11-06）
+
+**门面与接管。** `ghosterm/extension_runtime.h` 新增 support / open / step / info / stop / close /
+destroy 七项公共入口，opaque 句柄与 POD；平台只从 `ghosterm.h` 进入。当前 **154 ABI**，Apple
+**150 引用 / 4 登记未用**、JNI **116 / 38**。原 147 项保留；support 只是编译能力，不是批准或
+激活成功。JS 后端默认 OFF，明确返回 UNSUPPORTED，无安装 / 系统引擎 / TTY / 网关回落。
+
+构造复制模块和配置，先分配门面，再成功消费同角色 ACTIVE / requests Session，失败保留原句柄。
+可信 caller 仍须验证包、SDK snapshot、协商摘要及实际服务。补齐 private Session 的 owner 检查：
+存在 live Source、任何 outgoing request 观察、已取走且未结束的 incoming ticket 或 resource producer
+时拒绝。未取走的对端请求可以先到达，继续由 Session 持有并交给 JS 处理，避免 READY 后接管竞态。
+已交接快照有独立 Store pin，不作为旧 Session 的调用 owner。资源 Session 可以接管，但当前 JS
+context 尚无资源 / 文件 / 进程服务，不能据 native feature 声称完整 SDK 已实现。
+
+phase / error 逐项映射；info 无借用指针，失败清零，计数保留 uint64。stop 仍只有原子停止意义，
+原非 UI worker 必须继续调度。close 撤销 / 受限 dispose / engine 释放先于 native Session 关闭；
+错误 / DRAINING 不丢 owner，destroy 失败保留可重试句柄。
+
+**平台接缝。** Swift 模块缓冲在 C 复制后释放，原 queue 和 stopLock 保护生命周期，Store 强引用
+随 runtime 保留；析构进入原 queue 的有界清理 ledger，失败保留供显式重试。Kotlin 先分配 owner /
+复制模块 / 严格 UTF-8 编码，再经 JNI 接管；JNI 共用原 16-slot 容量，以独占 pin / retiring 防停止
+和销毁竞争。只有 Core 接管成功才更换代次 ID，旧 Session Java 句柄清零；uint64 用 ULong 保留。
+没有 App UI、终端 IO 路径改动或后台自动启动。
+
+两端测试档必须显式开启：Swift `GHOSTERM_CORE_TEST_PLUGIN_JS=1` 链接可选 engine archive；Android
+`-PghostermPluginJs=true` 同步强制 CMake ON，`-PghostermRuntimeSdk=路径` 仅供测试 APK 载入本轮
+编译 SDK。默认 false 显式重置 CMake OFF，避免复用启用缓存。enabled-only 测试从普通档的发现集
+排除，不以 skip / 空函数充数；普通档另真实断言 UNSUPPORTED 与原 Session 保留。开启 Android
+包携带原样 `assets/licenses/QuickJSNG-MIT.txt`；SDK 只在测试 APK，尚非 App 插件安装器。
+
+**实际验证。** 开启档公共 C **31 项**（26 共用场景、4 owner 组合与 1 真实 JS POD OOM 边界），
+私有 **27 项**同轮通过；具名发现 / 实际执行集合双向核对。公共测试 object 只引用实际 public
+runtime 符号，没有 private runtime 调用或布局转换。包含真实双向 JS / Session RPC、未取 peer 请求
+继续处理、资源 Store pin 保留及 fd 恢复。Swift **8 项**、API 36 / arm64 / 4 KiB 页模拟器 Android
+**8 项**通过，真实 TS 产物在实际 QuickJS 执行；每次 APK 安装后从设备核 SHA256，打包 JNI 分别
+与 strip 输入 / 原始链接产物核对，SDK 字节与原始 MIT 许可逐项对拍。
+
+新 **19 C + 6 Swift + 7 JNI/Kotlin = 32 组**变异通过：C 实际 obj / archive / executable 重链，
+Swift 实际重编，JNI 实际 shared link / APK 构建和安装后正常单条断言红；同 archive / 同 APK
+独立 Core 配置绿、恢复目标重建绿与源 SHA256。Android worker 保护的一组同时破坏 JNI / Kotlin
+两道检查，其余六组各自独立。旧私有 runtime **13 组 / 27 场景 / 4 配置拒绝**另套复验通过，
+含 NDK API 29 实际 ELF 链接；不把编译计设备执行。Core ASan / UBSan，无 LSan；四源严格 C11
+编译通过。两个新 runner 实际 main 残留预扫退出 2、源不变且零子命令；不作任意时刻信号清理
+已验承诺。均为手工，不增加 macOS CI 二十份。
+
+失败记录：JNI 代次锚点起初不唯一，在构建前拒绝；首次把 APK 经 strip 后 JNI 与原始 shared
+直接对比而失败，改为分别核对 merged / linked 和 packaged / stripped。停止变异直接删除函数
+引用，被 ABI 守卫拒绝，未当行为目标红；改为保留引用而禁用调用后七组完整重跑。早期无锁的
+预编译 / 设备轮次只作为准备，不替代上述输入摘要与基线 / 恢复证据。
+
+默认 `gate.sh`：**380 CTest / 154 ABI**；无 SSH / provider OFF 的实际 archive 也保持 154 导出，
+缺能力明确 UNSUPPORTED。macOS App 默认档实际 executable 重链和 Swift 关闭档单项通过。
+Android 默认 Debug / 测试 APK、未签名 Release / 实际 R8 与 app / bridge / terminal / data 四模块
+lint 通过；设备关闭档单项及独立 Core 三项同轮通过。默认 APK 未含 QuickJS / SDK / 引擎许可，
+enabled-only 测试类不在默认 DEX；原生 linked 符号另证无 JS_NewRuntime，不靠文件名推断。
+
+| 范围 | 本地收据 |
+|---|---|
+| 公共 31 / 私有 27 C、19 C / 6 Swift 变异、Swift 8 项 | `tmp/plugin-runtime-api-mutations-4clnab5v/logs/result.json` |
+| Android 8 项 / 7 JNI-Kotlin 变异、安装 / SDK / 许可 | `tmp/plugin-runtime-api-jni-mutations-r4j_tlmc/logs/result.json` |
+| 原私有 runtime 13 变异 / 配置拒绝 / NDK 链接复验 | `tmp/plugin-runtime-dh1jix_7/logs/result.json` |
+| 无 SSH / provider OFF / 严格 C11 | `tmp/plugin-runtime-api-variants-yx_eu1i6/result.json` |
+| 实际 main 残留预扫 | `tmp/plugin-runtime-api-preflight-main-fi__pqvw/result.json` |
+| Core gate / macOS App / Swift 默认档 | `tmp/plugin-runtime-api-gate-initial.log` / `tmp/plugin-runtime-api-macos-app.json` / `tmp/plugin-runtime-api-swift-default-final.log` |
+| Android 默认构建 / 实际关闭档与 Core 对照 | `tmp/plugin-runtime-api-android-default-final.log` / `tmp/plugin-runtime-api-artifacts/default.json` |
+
+后续证据与清理摘要保存在 `tmp/plugin-runtime-api-evidence.json`。本轮只证明本机 / 模拟器原生 worker，
+没有本轮 SSH / tmux、真实封闭内网 / WAN、物理设备或签名 / 云端发行结论。App 根授权 / 批准 /
+视图 / 激活、完整 PluginContext / SDK 文件进程服务、gterm IPC、包安装、实际插件及多实例继续。
+下一片先补 runtime 的受控资源 / scoped source 服务，复用既有 C 原语与预算，再接 App / gterm；
+不将公共门面当整个插件完成，未来网关继续只预留。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

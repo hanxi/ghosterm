@@ -192,3 +192,5 @@ void gt__bridge_rpc_sent(gt_bridge_rpc_t *r) {
   if(r->inflight==RPC_TX_RESPONSE){rpc_in_t *p=&r->in[r->inflight_slot];r->credit_pending[0]+=p->reserved;p->reserved=0;p->needs_send=false;}
   r->inflight=RPC_TX_NONE;r->prepared=RPC_TX_NONE;
 }
+
+bool gt__bridge_rpc_has_owners(const gt_bridge_rpc_t *r){if(!r)return false;for(size_t i=0;i<GT_BRIDGE_RPC_SLOTS;i++)if(r->out[i].used || (r->in[i].used && r->in[i].taken && !r->in[i].done))return true;return false;}
