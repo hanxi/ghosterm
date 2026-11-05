@@ -1,5 +1,25 @@
 # core/tests — 测试与黄金夹具
 
+## 插件资源存储
+
+`bridge_resource_*` 的 22 个 native mode 使用真实私有目录 / 匿名文件，验证已知 / 未知大小预约、
+跨实例总量与数量限额、逐偏移部分写、长度 / 摘要 / 完成门槛、只读快照、引用预算、seal / stale scope /
+token / generation、UTF-8 元数据、清理失败保留计费和文件替换拒删。256 KiB 真实分块写读逐字节核对；
+子进程只在 begin 成功并写入后退出，证明这一个边界的匿名暂存释放，不代表任意 syscall 中途崩溃。
+固定 allocator / fd 精确恢复；部分 IO / EINTR / ENOSPC 等只替换 syscall 边界，不是模拟整个文件系统。
+
+```bash
+ctest --test-dir core/build --output-on-failure -R '^bridge_resource_'
+python3 scripts/test-plugin-resource.py
+python3 scripts/mutation-check-plugin-resource.py
+```
+
+`bridge_resource_hash_reference` 额外执行 68 个独立 Python hashlib 对拍；私有纯 C SHA-256 不依赖可选 SSH
+archive，另有空串 / abc / 百万 a、计数溢出及终结状态检查。这不是认证、签名或加密模块认证。
+本片只实现接收存储，尚无 resource wire / credit / Session caller、实际源文件范围检查、UI / JNI / SDK
+消费者。目录 ACL / 挂载策略由可信原生调用者保证，Core 检查 mode / uid；不声称 mode 单独证明目录安全。
+变异与完整边界见插件计划第十六批，手工脚本不增加 macOS CI 二十份。
+
 ## 插件 wire 原始字节与 schema
 
 `bridge_wire` 经 stdin 夹具调用实际 C `wire.c`，607 项覆盖 SDK 候选 envelope / outcome / handshake / RPC、uint64、

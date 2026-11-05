@@ -17,12 +17,14 @@ option(GHOSTERM_BUILD_TESTS "Build host executables and register tests" ${GHOSTE
 
 add_library(ghosterm_core STATIC
   src/base/secure-random.c
+  src/base/sha256.c
   src/extension/stream.c
   src/extension/fd-stream.c
   src/extension/frame.c
   src/extension/wire.c
   src/extension/session.c
   src/extension/rpc.c
+  src/extension/resource.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
   src/core.c
@@ -68,6 +70,17 @@ endif()
 if(GHOSTERM_BUILD_TESTS)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
+add_executable(test_bridge_resource tests/test_bridge_resource.c)
+target_include_directories(test_bridge_resource PRIVATE src)
+target_link_libraries(test_bridge_resource PRIVATE ghosterm_core)
+target_compile_options(test_bridge_resource PRIVATE -Wall -Wextra -Werror)
+foreach(mode roundtrip partial unknown pins integrity offset budget quota scope seal malformed filesystem allocation io-write io-read io-cleanup cleanup-race exhaustion hash crash shared large)
+  add_test(NAME bridge_resource_${mode} COMMAND test_bridge_resource ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+  set_tests_properties(bridge_resource_${mode} PROPERTIES TIMEOUT 10)
+endforeach()
+add_test(NAME bridge_resource_hash_reference COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-resource.py --binary $<TARGET_FILE:test_bridge_resource>)
+set_tests_properties(bridge_resource_hash_reference PROPERTIES TIMEOUT 60)
 add_executable(test_bridge_rpc tests/test_bridge_rpc.c)
 target_include_directories(test_bridge_rpc PRIVATE src ${SSH2_INCLUDE_DIRS})
 target_link_libraries(test_bridge_rpc PRIVATE ghosterm_core)
