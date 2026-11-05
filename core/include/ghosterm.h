@@ -80,6 +80,7 @@ size_t gt_core_poll_events(gt_event_t *out, size_t cap);
 #include "ghosterm/tmux.h"
 #include "ghosterm/extension.h"
 #include "ghosterm/extension_session.h"
+#include "ghosterm/extension_rpc.h"
 
 #ifdef __cplusplus
 } /* extern "C" */

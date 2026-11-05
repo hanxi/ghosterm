@@ -26,6 +26,13 @@ int main(void) {
   CHECK(gt_ext_session_decide(NULL,"stale",GT_EXT_DECISION_ALLOW)==GT_ERR_INVALID_ARG &&
         !gt_ext_session_lease(NULL,NULL) && gt_ext_session_destroy(&plugin_session)==GT_ERR_INVALID_ARG,
         "plugin Session cannot grant or destroy an invalid owner");
+  CHECK(gt_ext_session_open_rpc(NULL,GT_EXT_HOST,NULL,NULL,0,&plugin_session)==GT_ERR_INVALID_ARG && !plugin_session,
+        "plugin RPC rejects absent explicit Session configuration");
+  gt_ext_lease_t no_lease={0};uint64_t request_handle=99;gt_ext_rpc_result_t rpc_result;
+  memset(&rpc_result,1,sizeof(rpc_result));
+  CHECK(gt_ext_session_request(NULL,&no_lease,"fixture.echo","{}",2,1000,&request_handle)==GT_EXT_RPC_INVALID && !request_handle &&
+        gt_ext_session_request_result(NULL,&no_lease,1,&rpc_result)==GT_EXT_RPC_INVALID && !rpc_result.handle && !rpc_result.outcome_size,
+        "plugin RPC invalid calls clear handles and results");
 
   /* 三态枚举不得折叠 */
   gt_hostkey_decision_t d = GT_HOSTKEY_UNKNOWN;

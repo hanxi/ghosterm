@@ -27,8 +27,11 @@ def main():
         return out
     def rebuild(label):
         obj.unlink(missing_ok=True)
+        shared=ROOT/'android/bridge/build/intermediates/cxx/Debug/5v2x5f5z/obj/arm64-v8a/libghosterm_android.so'
+        shared.unlink(missing_ok=True)
         out=run(label+'-native',['cmake','--build',ndk,'--target','ghosterm_android','--verbose'])
         if not obj.is_file() or 'extension_jni.c' not in out or ' -c ' not in out:raise RuntimeError('JNI not actually compiled: '+label)
+        if not shared.is_file() or ' -shared ' not in out or '-o ' not in out:raise RuntimeError('JNI not actually linked: '+label)
         run(label+'-apk',['bash',ROOT/'scripts/build-android.sh',':app:assembleDebug'],budget=600)
         run(label+'-install',[*device,'install','-r',apk],budget=60)
         # Verify bytes actually installed, not just host package existence.

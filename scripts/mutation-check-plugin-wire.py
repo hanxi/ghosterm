@@ -3,6 +3,7 @@
 full restoration and input digests. No crash or timeout counts as a red.
 """
 from pathlib import Path
+import sys
 import hashlib,json,os,shutil,signal,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1]
 MARK='GT_PLUGIN_WIRE_MUTATION'
@@ -24,9 +25,15 @@ def main():
         if p.returncode:raise RuntimeError(label+': '+output)
         return output
     def rebuild(label):
+        # GNU make can rebuild .o/.a within one second without relinking tests.
+        binaries=['test_bridge_wire', 'test_config']
+        for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
         objects=[('ghosterm_core','src/extension/wire.c'),('test_bridge_wire','tests/test_bridge_wire.c')]
         for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
         run(label+'-build',['cmake','--build',build,'--target','test_bridge_wire','test_config','-j','2'])
+        link_log=(logs/(label+'-build.log')).read_text()
+        for marker in ['Linking C static library libghosterm_core.a',*['Linking C executable '+name for name in binaries]]:
+            if marker not in link_log:raise RuntimeError('Missing actual link: '+label+' '+marker)
         output=(logs/(label+'-build.log')).read_text()
         for owner,name in objects:
             if 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' not in output:raise RuntimeError('Missing actual compilation: '+label+' '+owner)
@@ -39,7 +46,7 @@ def main():
     def control(label):run(label+'-control',[build/'test_config',source/'tests/fixtures'])
     try:
         for name in ('core/src/extension/wire.c','core/src/extension/wire.h'):
-            if MARK.encode() in (ROOT/name).read_bytes():raise RuntimeError('Residual mutation: '+name)
+            if MARK.encode() in (ROOT/name).read_bytes():print('Residual mutation: '+name,file=sys.stderr);raise SystemExit(2)
         run('generated',['python3',ROOT/'scripts/generate-plugin-wire.py','--check'])
         shutil.copytree(ROOT/'core',source,ignore=shutil.ignore_patterns('build','build-*'))
         run('configure',['cmake','-S',source,'-B',build,'-DCMAKE_BUILD_TYPE=Debug','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])

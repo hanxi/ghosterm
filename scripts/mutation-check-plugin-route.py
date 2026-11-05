@@ -6,6 +6,7 @@ C assertion, pass an independent configuration control, then restore the full
 route suite and source digest. Crash/timeout/sanitizer failure is not evidence.
 """
 from pathlib import Path
+import sys
 import hashlib
 import json
 import os
@@ -43,7 +44,16 @@ def main():
         commands.append(dict(label=label,returncode=p.returncode))
         if p.returncode:raise RuntimeError(label+': '+output)
         return output
-    def rebuild(label):run(label+'-build',['cmake','--build',build,'--target','test_bridge_route','test_config','-j','2'])
+    def rebuild(label):
+        objects=[('ghosterm_core', 'src/ssh.c'), ('ghosterm_core', 'src/extension/route.c'), ('ghosterm_core', 'src/extension/backends/ssh_exec.c'), ('test_bridge_route', 'tests/test_bridge_route.c')];binaries=['test_bridge_route','test_config']
+        for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
+        for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
+        run(label+'-build',['cmake','--build',build,'--target','test_bridge_route','test_config','-j','2'])
+        output=(logs/(label+'-build.log')).read_text()
+        for owner,name in objects:
+            if 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' not in output:raise RuntimeError('Missing actual compilation: '+label+' '+name)
+        for marker in ['Linking C static library libghosterm_core.a',*['Linking C executable '+name for name in binaries]]:
+            if marker not in output:raise RuntimeError('Missing actual link: '+label+' '+marker)
     def suite(label,mode=None,red=False):
         args=['python3',ROOT/'scripts/test-plugin-route.py','--binary',build/'test_bridge_route']
         if mode:args+=['--case',mode]
@@ -54,7 +64,7 @@ def main():
     def control(label):run(label+'-control',[build/'test_config',source/'tests/fixtures'])
     try:
         for name in ('core/src/extension/route.c','core/src/extension/backends/ssh_exec.c','core/src/ssh.c'):
-            if MARK.encode() in (ROOT/name).read_bytes():raise RuntimeError('Residual mutation: '+name)
+            if MARK.encode() in (ROOT/name).read_bytes():print('Residual mutation: '+name,file=sys.stderr);raise SystemExit(2)
         shutil.copytree(ROOT/'core',source,ignore=shutil.ignore_patterns('build','build-*'))
         run('configure',['cmake','-S',source,'-B',build,'-DCMAKE_BUILD_TYPE=Debug',
                          '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])

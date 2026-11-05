@@ -2,7 +2,7 @@ import Cghosterm
 import Foundation
 
 /// Trusted native handshake/consent worker. A lease is available only after
-/// both READY messages. Request/resource classes and App views follow later.
+/// both READY messages. JSON requests stay on this owner; App views follow later.
 public final class ExtensionSession {
     public enum Role: UInt32 { case host, executor }
     public enum PeerKind: UInt32 { case local, ssh }
@@ -13,6 +13,20 @@ public final class ExtensionSession {
         case waitReady, waitAck, active, ending, ended, closed
     }
     public enum End: UInt32 { case none, denied, revoked, expired, incompatible, `protocol`, lost, peer, local, `internal` }
+    public enum JSONShape: UInt32 { case any, object, array, string, boolean, number, null }
+    public enum RPCStatus: UInt32 { case ok, wait, invalid, denied, unsupported, closed }
+    public enum RPCState: UInt32 { case queued, pending, succeeded, failed, cancelled, unknown }
+    public struct Method {
+        public let name: String, capability: String, receiver: Role, inputShape: JSONShape, outputShape: JSONShape
+        public init(name: String, capability: String, receiver: Role, inputShape: JSONShape = .any, outputShape: JSONShape = .any) {
+            self.name = name; self.capability = capability; self.receiver = receiver; self.inputShape = inputShape; self.outputShape = outputShape
+        }
+    }
+    public struct RPCAdmission { public let status: RPCStatus, handle: UInt64? }
+    public struct RPCResult {
+        public let handle: UInt64, requestID: String, state: RPCState, cancelRequested: Bool, deadlineElapsed: Bool, confirmed: Bool, outcome: Data
+    }
+    public struct RPCRequest { public let ticket: UInt64, requestID: String, method: String, input: Data }
     public struct Budgets {
         public let fragmentBytes: UInt32, messageBytes: UInt32, resourceBytes: UInt32
         public init(fragmentBytes: UInt32 = 768, messageBytes: UInt32 = 65536, resourceBytes: UInt32 = 262144) {
@@ -24,14 +38,16 @@ public final class ExtensionSession {
         public let hostVersion: String, sdkVersion: String, required: [String], available: [String]
         public let peerKind: PeerKind, peerIdentity: String, budgets: Budgets
         public let handshakeMilliseconds: UInt32, consentMilliseconds: UInt32
+        public let methods: [Method]?
         public init(pluginID: String, pluginVersion: String, clientDigest: String, executorDigest: String,
                     hostVersion: String, sdkVersion: String = "1.0.0", required: [String], available: [String],
                     peerKind: PeerKind, peerIdentity: String, budgets: Budgets = Budgets(),
-                    handshakeMilliseconds: UInt32 = 5000, consentMilliseconds: UInt32 = 60000) {
+                    handshakeMilliseconds: UInt32 = 5000, consentMilliseconds: UInt32 = 60000, methods: [Method]? = nil) {
             self.pluginID = pluginID; self.pluginVersion = pluginVersion; self.clientDigest = clientDigest
             self.executorDigest = executorDigest; self.hostVersion = hostVersion; self.sdkVersion = sdkVersion
             self.required = required; self.available = available; self.peerKind = peerKind; self.peerIdentity = peerIdentity
             self.budgets = budgets; self.handshakeMilliseconds = handshakeMilliseconds; self.consentMilliseconds = consentMilliseconds
+            self.methods = methods
         }
     }
     public struct Info {
@@ -61,7 +77,17 @@ public final class ExtensionSession {
         c.budgets = gt_ext_budgets_t(fragment_bytes: config.budgets.fragmentBytes, message_bytes: config.budgets.messageBytes,
                                     resource_bytes: config.budgets.resourceBytes)
         c.handshake_ms = config.handshakeMilliseconds; c.consent_ms = config.consentMilliseconds
-        raw = try channel.adoptSession(role: gt_ext_role_t(rawValue: role.rawValue), config: &c)
+        var methods: [gt_ext_rpc_method_t]?
+        if let registry = config.methods {
+            guard registry.count <= 16 else { throw GhostermError.failed("请求方法数量超限") }
+            methods = try registry.map { entry in
+                var m = gt_ext_rpc_method_t(); try sessionPut(entry.name, into: &m.method); try sessionPut(entry.capability, into: &m.capability)
+                m.receiver = gt_ext_role_t(rawValue: entry.receiver.rawValue); m.input_shape = gt_ext_json_shape_t(rawValue: entry.inputShape.rawValue)
+                m.output_shape = gt_ext_json_shape_t(rawValue: entry.outputShape.rawValue); return m
+            }
+            c.features = UInt32(GT_EXT_FEATURE_REQUESTS)
+        }
+        raw = try channel.adoptSession(role: gt_ext_role_t(rawValue: role.rawValue), config: &c, methods: methods)
     }
     public func step(milliseconds: Int32 = 0) throws -> Phase {
         guard milliseconds >= 0 else { throw GhostermError.failed("会话等待预算无效") }
@@ -91,6 +117,43 @@ public final class ExtensionSession {
         return capability.withCString { Access(rawValue: gt_ext_session_access(p, &l, $0).rawValue) ?? .denied }
     }
     public func revoke() throws { gt_ext_session_revoke(try pointer()) }
+    public func request(_ lease: Lease, method: String, input: Data, timeoutMilliseconds: UInt32 = 30000) throws -> RPCAdmission {
+        let p = try pointer(); guard !method.utf8.contains(0) else { throw GhostermError.failed("请求方法含 NUL") }
+        var l = lease.raw, handle: UInt64 = 0
+        let status = method.withCString { name in input.withUnsafeBytes { gt_ext_session_request(p, &l, name, $0.baseAddress, $0.count, timeoutMilliseconds, &handle) } }
+        let value = RPCStatus(rawValue: status.rawValue) ?? .invalid
+        return RPCAdmission(status: value, handle: value == .ok ? handle : nil)
+    }
+    public func cancelRequest(_ lease: Lease, handle: UInt64) throws -> RPCStatus {
+        var l = lease.raw; return RPCStatus(rawValue: gt_ext_session_cancel_request(try pointer(), &l, handle).rawValue) ?? .invalid
+    }
+    public func requestResult(_ lease: Lease, handle: UInt64) throws -> (RPCStatus, RPCResult?) {
+        var l = lease.raw, value = gt_ext_rpc_result_t()
+        let status = RPCStatus(rawValue: gt_ext_session_request_result(try pointer(), &l, handle, &value).rawValue) ?? .invalid
+        guard status == .ok else { return (status, nil) }
+        guard value.outcome_size <= 3072 else { stop(); throw GhostermError.failed("请求结果超限") }
+        let data = withUnsafeBytes(of: value.outcome) { Data($0.prefix(Int(value.outcome_size))) }
+        return (status, RPCResult(handle: value.handle, requestID: sessionString(value.request_id), state: RPCState(rawValue: value.state.rawValue) ?? .unknown,
+            cancelRequested: value.cancel_requested, deadlineElapsed: value.deadline_elapsed, confirmed: value.confirmed, outcome: data))
+    }
+    public func forgetRequest(_ lease: Lease, handle: UInt64) throws -> RPCStatus {
+        var l = lease.raw; return RPCStatus(rawValue: gt_ext_session_forget_request(try pointer(), &l, handle).rawValue) ?? .invalid
+    }
+    public func takeRequest(_ lease: Lease) throws -> (RPCStatus, RPCRequest?) {
+        var l = lease.raw, value = gt_ext_rpc_request_t()
+        let status = RPCStatus(rawValue: gt_ext_session_take_request(try pointer(), &l, &value).rawValue) ?? .invalid
+        guard status == .ok else { return (status, nil) }
+        guard value.input_size <= 3072 else { stop(); throw GhostermError.failed("请求内容超限") }
+        let data = withUnsafeBytes(of: value.input) { Data($0.prefix(Int(value.input_size))) }
+        return (status, RPCRequest(ticket: value.ticket, requestID: sessionString(value.request_id), method: sessionString(value.method), input: data))
+    }
+    public func checkRequest(_ lease: Lease, ticket: UInt64) throws -> RPCStatus {
+        var l = lease.raw; return RPCStatus(rawValue: gt_ext_session_check_request(try pointer(), &l, ticket).rawValue) ?? .invalid
+    }
+    public func respond(_ lease: Lease, ticket: UInt64, outcome: Data) throws -> RPCStatus {
+        let p = try pointer(); var l = lease.raw
+        return outcome.withUnsafeBytes { RPCStatus(rawValue: gt_ext_session_respond(p, &l, ticket, $0.baseAddress, $0.count).rawValue) ?? .invalid }
+    }
     public func stop() { stopLock.lock(); defer { stopLock.unlock() }; if let raw { gt_ext_session_stop(raw) } }
     @discardableResult public func closeStep(milliseconds: Int32 = 0) throws -> Bool {
         let p = try pointer(); guard milliseconds >= 0 else { throw GhostermError.failed("会话关闭预算无效") }

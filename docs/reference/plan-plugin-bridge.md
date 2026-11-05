@@ -142,15 +142,16 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九 / 十 / 十二至二十批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共门面 `channel.c` / `session-api.c`，纳入 Core 构建。公共通道与 Session 生命周期已接两端 worker；公开请求 / 资源门面和其余生产模块仍待接。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
+以下为实现布局；第九 / 十 / 十二至二十一批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共门面 `channel.c` / `session-api.c`，纳入 Core 构建。公共通道、Session 生命周期与 JSON 请求已接两端 worker；公开资源门面和其余生产模块仍待接。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
 
 ```text
 core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
 core/include/ghosterm/extension_session.h   已实现 S4d2：公共单实例握手 / 决定 / lease / 撤销 / 关闭
+core/include/ghosterm/extension_rpc.h   已实现 S4d3：公开 JSON 请求 / 结果快照 / 取消 / check / respond
 core/src/extension/
   mux.c          增量识别、分帧、原始终端字节透传
   channel.c      已实现 S4d1：公共通道门面、native 稳定写缓冲、逐跳认证 challenge / 生命周期
-  channel-owner.h / session-api.c   已实现 S4d2：通道事务交接、保留容量、公开 Session 生命周期门面
+  channel-owner.h / session-api.c   已实现 S4d2 / S4d3：通道事务交接、保留容量、公开 Session / 请求门面
   stream.h / stream.c   私有有序双向字节通道契约，不带终端 / 插件业务语义
   fd-stream.c    已实现：显式接管 pipe / stream socket；非阻塞 IO 与停止唤醒
   frame.h / frame.c    已实现：候选长度前缀、增量 decoder 与单帧 writer
@@ -224,7 +225,9 @@ bridge / JS runtime 作为显式可配置构建能力，CMake 与平台构建各
 
 第十九批已加入 `gt_ext_channel_*` 十一项公共通道入口：显式 fd / SSH 路线、推进、状态、逐跳决定 /
 材料、部分 IO、stop / close / destroy。第二十批再加 `gt_ext_session_*` 十项，公开握手 / 原生决定 /
-lease / 撤销及生命周期，实际协议复用私有 BridgeSession；请求 / 资源门面仍待接。所有平台只经
+lease / 撤销及生命周期。第二十一批新增八项请求入口，显式协商、方法表 / 根类型约束、双向请求 /
+结果 / 取消 / check / respond，快照复制为调用方 POD；不是业务 JSON Schema 引擎。实际协议复用私有
+BridgeSession；公开资源门面仍待接。所有平台只经
 `ghosterm.h` 消费，以下 mux / instance / resource 示例仍是后续接口草案，不能据这些 ABI 提前开放插件权限。
 
 ```c
@@ -1340,7 +1343,7 @@ Go/Tailcat provider 可经私有 C ABI 给 C owner 受控 stream 或 POSIX fd，
 | S1 私有 stream / 共用 codec | 第九批已落地 C 接缝、部分 IO、预算 / 停止语义、候选长度分帧；不是完整 wire 校验器 | 同一套 conformance 夹具对 pipe / socketpair；随机分块、短写 / WAIT、前缀污染、截断 / 尾字节、限额、关闭后拒发。九模式与十三组变异通过；不拿内存 fake 通过当网络适配已完成。 |
 | S2 直接 SSH 后端 | 第十批 S2a 已接专属 auth owner、无 PTY exec / 三路 IO；第十一批 S2b 已关闭旧 exec helper 风险 | 直连十六场景 / 十四组变异；旧 helper 十个协议场景、边界测试及十六组新变异通过，原 exec 三组复验。更完整取消 / 重协商 / 长时资源矩阵继续作为后续组合验收，不借本片记插件产品完成。 |
 | S3 受管跳板链 | 第一跳至最终目标的字节 IO、逐跳身份 / 认证与清理 | 第十二批已验证 libssh2 两 / 三层、不同 pin、失败定位、转发拒绝、未知 hostkey、错凭据、半开链、取消与释放。客户端只准直拨第一跳；尚非真实封闭内网 / WAN / App 证据，完整平台和资源组合继续验收。 |
-| S4 共用会话与原生入口 | 协商、包匹配、原生批准、资源 / 请求、两端最小绑定 | 第十三至十八批接私有控制握手 / RPC / Store / 资源回执与 scoped source；第十九批接公共通道 / 逐跳认证，第二十批接公共 Session 生命周期 / 原生决定 / lease 和两端非 UI worker。公开请求 / ResourceRef、原生授权页面 / 视图、实际插件运行仍待接；后续须同一协议夹具、页面 / 绑定及普通终端回归。公开头变化时完整 ABI / gate / 绑定对拍。 |
+| S4 共用会话与原生入口 | 协商、包匹配、原生批准、资源 / 请求、两端最小绑定 | 第十三至十八批接私有控制握手 / RPC / Store / 资源回执与 scoped source；第十九批接公共通道 / 逐跳认证，第二十批接公共 Session 生命周期 / 原生决定 / lease，第二十一批接公开 JSON 请求，均有两端非 UI worker。公开 ResourceRef、原生授权页面 / 视图、SDK 业务 schema 与实际插件运行仍待接；后续须同一协议夹具、页面 / 绑定及普通终端回归。公开头变化时完整 ABI / gate / 绑定对拍。 |
 | S5 前台 gterm 附着 | 一次性 IPC 与受控 attach | 原目录 / 环境归属、实例错配、IPC 权限 / 路径、进程退出、第二客户端切 pane、无秘密回卷和无后台服务。 |
 | 后续网关 | WSS 或 Go 网络 provider | 对同一 conformance / wire / 会话夹具再验，再加网关自身认证、实际网络与平台矩阵；不倒填 S1 为兼容网关已通过。 |
 
@@ -2131,6 +2134,75 @@ Core gate **302 CTest / 116 ABI**；Apple **112 引用 / 4 未用**、JNI **78 /
 **后续。** 公开请求 / 资源 / scoped source 门面、两端原生批准页面与 ResourceRef 视图、SDK / runtime /
 gterm 前台 IPC、插件与多实例仍继续分批实现。未完成 P0 / P1 / S4 / 整体目标；无真实封闭内网 / WAN /
 物理设备 / 完整客户端结论。未来网关只保留 provider 接缝，不实现。
+
+### P0 第二十一批：S4d3 公开 JSON 请求与原生快照（2026-11-06）
+
+**交付。** 在 `3deadd2` 上增加 [extension_rpc.h](../../core/include/ghosterm/extension_rpc.h)，
+`session-api.c` 复用实际私有 RPC，新增八项公共入口：`open_rpc`、request、cancel、result、forget、
+take、check、respond。当前 **124 ABI**，原 116 项签名 / 配置布局保留。原 `session_open` 仍只支持
+握手档；新的专用构造须显式声明 REQUESTS，未知 feature / 根类型不静默降级。无资源、TTY、网关或
+自动重连 / 重放路径。
+
+**方法契约与权限。** 最多十六项 native 方法描述，方法 / capability / receiver 与七种 JSON 根类型
+均复制到 Session 自有 workspace；校验回调只访问这份稳定副本，不借 caller 栈 / Swift / Java 数组，
+不回调 UI / 外语运行时。严格 JSON / UTF-8、重复 decoded key、原型污染策略、长度 / 深度和 Outcome
+仍由共用 wire 校验；根类型约束只声明 JSON codec，**不是完整 JSON Schema 或业务校验**。业务 schema
+由后续受信 SDK / runtime 在执行前核验，并须立即 `check_request`；这里不执行文件 / 子进程 / UI 副作用。
+
+每个操作检查原 Session scoped lease，空队列的 take 也拒绝跨作用域 lease；method 接收侧、能力和
+实际协商分别检查。每方向最多 64 个保留请求，窗口不足返回 WAIT，不能把排队接受当完成。未分配
+wire ID 的取消可确定 effect none；已发送无完整回应的断流 / 超时保留 UNKNOWN。已确认结果不因后续
+stop 改写，只有有效 Outcome 才能改变业务结论。结果 / cancel / forget 在原 owner 保留期间仍可核对。
+
+**快照与两端。** incoming / result 的 JSON 和关联字段复制到调用方固定 POD，失败先清空输出，最大
+3072 字节；不返回私有 RPC / wire 的临时指针。可跨 step / forget / close / destroy 保留已复制数据，
+不据此续期远端权限。Swift 在原 queue 复制为 Data；JNI 先分配并挂好 Java 返回数组，再消费 incoming
+ticket，填充异常停止 Session；Kotlin 解包失败也停止，避免把丢失的 native 交接继续当活动请求。
+主线程 / 其它 worker 拒绝 IO，继续使用原代次注册表 / stop pin，无新增 App 页面或后台服务。
+
+**真实链路。** 19 个公开头本机场景覆盖注册 / 根类型 / 作用域 / 结果复制、双向收发、64-slot 背压、
+排队与已发取消、虚拟单调时钟下两种超时、远端未知方法 / 拒绝输入及已确认结果不变。真实两 / 三跳
+各允许 / 拒绝四场景，只准客户端原生直拨首跳。允许项双方各 **80 个确认请求**；执行端最后等待 done
+RPC 的完整确认才落本轮私有临时完成记录，runner 另核对记录内容。不能只凭 host 的 accepted / 写出
+计数或进程 EOF 认定对端已收到业务结果。执行端退出后保留 LOST，再次 revoke 不改写该原始原因。
+
+macOS Swift **7 项**、隔离 **API 36 / arm64 / 4 KiB 页** Android **8 项**穿透实际绑定 / Core，含双向
+原样 UTF-8 / 快照、取消 / UNKNOWN / 确认保留、作用域 / 根类型 / 关闭请求档、线程及两 / 三跳各八十
+确认请求。adb 只 reverse 首跳与内存夹具，内跳没有映射。exec 为测试 binary 的固定 stdio 入口，
+不冒充生产 gterm / SDK / 业务 schema / 实际插件或原生批准页面。
+
+**验收可靠性修复。** 初轮 receiver 变异意外 PASS，runner 拒收。日志证明该轮虽有对象 / archive
+重建，却没有 `Linking C executable test_ext_rpc`；独立诊断重链接后观察到 public receiver 256 被截为
+private 0、构造返回 OK，正常断言红。已对十二份 C 插件 runner 强制删本轮相关对象 / archive / 目标及
+独立配置可执行文件，再要求实际编译 / 两类链接日志；三份 JNI runner 另强制重链 shared library。
+不用延时等时间戳跨秒来代替新构件。新 RPC **18 C + 3 Swift + 4 JNI** 在修正后通过，目标均正常断言
+红，同 archive / APK 独立配置绿，重编 / 重链恢复及源码 SHA256；Core ASan / UBSan，无 LSan。
+十五份 runner 的残留标记预扫经隔离执行实际 main 确认退出 2、源不变且未启动任何子命令。
+
+旧依赖闭包已用修正后的 runner 全部重编 / 重链复验：**236 C + 5 Swift + 8 JNI**，与新 RPC 合计
+**254 C + 8 Swift + 12 JNI = 274 组**，分套执行，不冒充一次完整客户端回归。旧组范围为 stream 13、
+SSH stream 14、route 13、wire 16、Session 21、RPC 23、Store 32、Transfer 36、Source 34、公共通道
+21 C / 3 Swift、公开 Session 13 C / 2 Swift，以及两份旧 JNI 各四组。每组正常目标断言红、独立
+配置对照绿、恢复实际重链绿及 SHA256；不改写旧批当时的功能测试结果。十三套旧收据路径和摘要汇总
+在 `tmp/plugin-rpc-api-recheck.json`；新收据分别为
+`tmp/plugin-rpc-api-mutations-_4vtu3zg/logs/result.json` 与
+`tmp/plugin-rpc-api-jni-mutations-5pt9kcmu/logs/result.json`。十五份 runner 的预扫证据在
+`tmp/plugin-rpc-api-preflight-j6a5lq2h/result.json`。
+
+Core gate **322 CTest / 124 ABI**、Apple **120 引用 / 4 未用**、JNI **86 / 38**、严格 C11 两源、
+关闭 provider / 无 SSH 两档同一 124 导出、macOS native build、Android 未签名 Release / R8 和四模块
+lint 已通过；未做本轮签名或云端发行。最终两端真实 SSH 组合收据为
+`tmp/plugin-public-channel-2p47f2vq/result.json`，其 `proofs/` 保留执行端双方各八十项完成证据；
+严格编译和变体分别在 `tmp/plugin-rpc-api-strict-hjiozqkh/result.json`、
+`tmp/plugin-rpc-api-variants-mehvv407/result.json`。本批输入 / 日志摘要与清理收据集中在
+`tmp/plugin-rpc-api-evidence.json`；这些本地证据不入库，不能代替他机重新验收。新增二十五组和旧闭包
+复验均属手工，不增加 macOS CI 二十份。
+
+**失败与剩余。** 首轮四个 native 用例把重复 respond 的预期误写成 CLOSED；实际契约是已回复 ticket
+INVALID，修正预期仍拒绝第二次回应，重新编译恢复通过。旧 binary 的变异 PASS、初次重链修复脚本的
+缩进失败及随后被拒收的旧 runner 轮次均不计最终通过。第十九批容量 PASS 的历史没有相同链接取证，
+不据本批诊断倒填其原因。公开资源 / scoped source、App 批准 / ResourceRef 视图、SDK / runtime /
+gterm IPC、插件 / 多实例继续；整个目标未完成，未来网关只预留，不实现。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

@@ -3,6 +3,7 @@
 red, same-library configuration green, restored native/SSH suite and SHA256.
 """
 from pathlib import Path
+import sys
 import hashlib,json,os,re,shutil,signal,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_SOURCE_MUTATION'
 MODES=re.search(r'foreach\(mode (roundtrip large empty.*?)\)',(ROOT/'core/CMakeLists.txt').read_text()).group(1).split()
@@ -20,9 +21,15 @@ def main():
             if p.returncode!=1 or 'FAIL ' not in output or any(x in output for x in ('AddressSanitizer','runtime error:','UndefinedBehaviorSanitizer')):raise RuntimeError(label+': expected normal C assertion; '+output)
         elif p.returncode:raise RuntimeError(label+': '+output)
     def rebuild(label):
+        # GNU make can rebuild .o/.a within one second without relinking tests.
+        binaries=['test_bridge_source', 'test_config']
+        for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
         objects=[('ghosterm_core','src/extension/source.c'),('test_bridge_source','tests/test_bridge_source.c')]
         for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
         run(label+'-build',['cmake','--build',build,'--target','test_bridge_source','test_config','-j','2'])
+        link_log=(logs/(label+'-build.log')).read_text()
+        for marker in ['Linking C static library libghosterm_core.a',*['Linking C executable '+name for name in binaries]]:
+            if marker not in link_log:raise RuntimeError('Missing actual link: '+label+' '+marker)
         output=(logs/(label+'-build.log')).read_text()
         for owner,name in objects:
             if 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' not in output:raise RuntimeError('Missing actual compilation: '+label+' '+owner)
@@ -66,7 +73,7 @@ def main():
       ('owner-release',[('a.release(a.context,s,sizeof(*s));return GT_BRIDGE_SOURCE_OK;','(void)a;return GT_BRIDGE_SOURCE_OK;')],'allocation'),
     ]
     try:
-        if MARK.encode() in (ROOT/'core/src/extension/source.c').read_bytes():raise RuntimeError('Residual source mutation')
+        if MARK.encode() in (ROOT/'core/src/extension/source.c').read_bytes():print('Residual source mutation',file=sys.stderr);raise SystemExit(2)
         for label,changes,mode in cases:
             if mode not in MODES:raise RuntimeError('Unregistered target: '+label)
             candidate=(ROOT/'core/src/extension/source.c').read_text()

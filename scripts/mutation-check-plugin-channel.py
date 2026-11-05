@@ -4,6 +4,7 @@ must fail by its normal assertion, same archive config stays green, restored
 target is rebuilt, and complete native/SSH suites pass at the boundaries.
 """
 from pathlib import Path
+import sys
 import hashlib,json,os,shutil,signal,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_CHANNEL_MUTATION'
 NATIVE='invalid copy partial quantum eof close-queued stop failure-stop rejected-fd capacity'.split()
@@ -21,9 +22,15 @@ def main():
             if p.returncode!=1 or 'FAIL ' not in out or any(x in out for x in ['AddressSanitizer','UndefinedBehaviorSanitizer','runtime error:']):raise RuntimeError(label+': expected normal C assertion\n'+out)
         elif p.returncode:raise RuntimeError(label+': '+out)
     def rebuild(label):
+        # GNU make can rebuild .o/.a within one second without relinking tests.
+        binaries=['test_ext_channel', 'test_ext_channel_boundary', 'test_config']
+        for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
         objects=[('ghosterm_core','src/extension/channel.c'),('test_ext_channel_boundary','tests/test_ext_channel_boundary.c'),('test_ext_channel','tests/test_ext_channel.c')]
         for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
         run(label+'-build',['cmake','--build',build,'--target','test_ext_channel','test_ext_channel_boundary','test_config','-j','2'])
+        link_log=(logs/(label+'-build.log')).read_text()
+        for marker in ['Linking C static library libghosterm_core.a',*['Linking C executable '+name for name in binaries]]:
+            if marker not in link_log:raise RuntimeError('Missing actual link: '+label+' '+marker)
         out=(logs/(label+'-build.log')).read_text()
         for owner,name in objects:assert 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' in out,label+' did not recompile '+name
     def target(label,kind,mode,red):
@@ -63,7 +70,7 @@ def main():
     ]
     try:
         for name in ['core/src/extension/channel.c','apple/GhostermCore/Sources/GhostermCore/ExtensionChannel.swift']:
-            if MARK.encode() in (ROOT/name).read_bytes():raise RuntimeError('residual mutation '+name)
+            if MARK.encode() in (ROOT/name).read_bytes():print('residual mutation '+name,file=sys.stderr);raise SystemExit(2)
         text=(ROOT/'core/src/extension/channel.c').read_text()
         for label,changes,_,_ in cases:
             for old,_ in changes:

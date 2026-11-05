@@ -3,6 +3,7 @@
 config green, complete native and real multi-hop SSH restoration with SHA256.
 """
 from pathlib import Path
+import sys
 import hashlib,json,os,shutil,signal,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_TRANSFER_MUTATION'
 MODES='roundtrip large unknown empty partial snapshot bidirectional queued-cancel cancel receiver-cancel denied unsupported feature lost stop deferred-credit pending-window rpc-progress io native-scope source-incomplete integrity duplicate receipt-conflict snapshot-quota retired destroy-retry stop-write stop-finish bad-success possible-cancel offset overspend gap epoch instance allocation counter exit-before-receipt credit-overflow fairness source-digest peer-id limit duplicate-conflict release-io release-last-io'.split()
@@ -20,9 +21,15 @@ def main():
             if p.returncode!=1 or 'FAIL ' not in output or any(x in output for x in ('AddressSanitizer','runtime error:','UndefinedBehaviorSanitizer')):raise RuntimeError(label+': expected normal C assertion; '+output)
         elif p.returncode:raise RuntimeError(label+': '+output)
     def rebuild(label):
+        # GNU make can rebuild .o/.a within one second without relinking tests.
+        binaries=['test_bridge_transfer', 'test_config']
+        for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
         objects=[('ghosterm_core','src/extension/'+n+'.c') for n in ('transfer','session','resource','wire')]+[('test_bridge_transfer','tests/test_bridge_transfer.c')]
         for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
         run(label+'-build',['cmake','--build',build,'--target','test_bridge_transfer','test_config','-j','2'])
+        link_log=(logs/(label+'-build.log')).read_text()
+        for marker in ['Linking C static library libghosterm_core.a',*['Linking C executable '+name for name in binaries]]:
+            if marker not in link_log:raise RuntimeError('Missing actual link: '+label+' '+marker)
         output=(logs/(label+'-build.log')).read_text()
         for owner,name in objects:
             if 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' not in output:raise RuntimeError('Missing actual compilation: '+label+' '+owner)
@@ -69,7 +76,7 @@ def main():
     ]
     try:
         for name in ('transfer.c','session.c','resource.c'):
-            if MARK.encode() in (ROOT/'core/src/extension'/name).read_bytes():raise RuntimeError('Residual mutation: '+name)
+            if MARK.encode() in (ROOT/'core/src/extension'/name).read_bytes():print('Residual mutation: '+name,file=sys.stderr);raise SystemExit(2)
         shutil.copytree(ROOT/'core',source,ignore=shutil.ignore_patterns('build','build-*'))
         run('configure',['cmake','-S',source,'-B',build,'-DCMAKE_BUILD_TYPE=Debug','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
         rebuild('baseline');suite('baseline');run('baseline-config',[build/'test_config',source/'tests/fixtures'])

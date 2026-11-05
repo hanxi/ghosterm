@@ -34,9 +34,9 @@ typedef struct {
  char required[GT_EXT_CAPS_MAX][129],available[GT_EXT_CAPS_MAX][129];
  gt_ext_budgets_t budgets;uint32_t handshake_ms,consent_ms;
  gt_ext_peer_t peer;
- /* Only 0 (handshake) currently supported by this public facade. Nonzero
-  * explicitly returns UNSUPPORTED, never claims requests/resources negotiated.
-  * Private request/resource classes are connected in subsequent API slices. */
+ /* session_open supports only 0 (handshake). The dedicated open_rpc constructor
+  * accepts GT_EXT_FEATURE_REQUESTS with a native method registry. Unknown bits
+  * explicitly return UNSUPPORTED; resources are a subsequent API slice. */
  uint32_t features;
  /* NULL selects Core monotonic time. Custom clock/context must outlive the
   * Session and be bounded/non-reentrant; never call a UI/platform loop. */

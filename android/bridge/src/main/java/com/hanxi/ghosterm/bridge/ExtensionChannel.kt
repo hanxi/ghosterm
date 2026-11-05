@@ -83,9 +83,12 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
         }
     }
     internal fun adoptSession(role: Int, texts: Array<ByteArray>, required: Array<ByteArray>,
-                              available: Array<ByteArray>, numbers: IntArray): Long {
+                              available: Array<ByteArray>, numbers: IntArray, methods: List<ExtensionSession.Method>? = null): Long {
         owner()
-        val result = NativeExtensionChannel.openSession(handle, role, texts, required, available, numbers)
+        val result = if (methods == null) NativeExtensionChannel.openSession(handle, role, texts, required, available, numbers)
+            else NativeExtensionChannel.openSessionRpc(handle, role, texts, required, available, numbers,
+                methods.map { it.name.toByteArray() }.toTypedArray(), methods.map { it.capability.toByteArray() }.toTypedArray(),
+                methods.flatMap { listOf(it.receiver.ordinal, it.inputShape.ordinal, it.outputShape.ordinal) }.toIntArray())
         check(result.size == 2)
         if (result[0] != 0L) throw ExtensionChannelException(result[0].toInt(), "无法接管插件会话")
         check(result[1] > 0L); handle = 0L; return result[1]
@@ -143,4 +146,6 @@ internal object NativeExtensionChannel {
     external fun close(handle: Long, milliseconds: Int): Int
     external fun openSession(handle: Long, role: Int, texts: Array<ByteArray>, required: Array<ByteArray>,
         available: Array<ByteArray>, numbers: IntArray): LongArray
+    external fun openSessionRpc(handle: Long, role: Int, texts: Array<ByteArray>, required: Array<ByteArray>,
+        available: Array<ByteArray>, numbers: IntArray, names: Array<ByteArray>, capabilities: Array<ByteArray>, policies: IntArray): LongArray
 }

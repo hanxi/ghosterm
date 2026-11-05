@@ -3,6 +3,7 @@
 green, restore all native storage cases and input digests. Workspace only tmp.
 """
 from pathlib import Path
+import sys
 import hashlib,json,os,shutil,signal,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_RESOURCE_MUTATION'
 MODES='roundtrip partial unknown pins integrity offset budget quota scope seal malformed filesystem allocation io-write io-read io-cleanup cleanup-race exhaustion hash crash shared large'.split()
@@ -20,9 +21,15 @@ def main():
             if p.returncode!=1 or 'FAIL ' not in output or any(x in output for x in ('AddressSanitizer','runtime error:','UndefinedBehaviorSanitizer')):raise RuntimeError(label+': expected normal C assertion; '+output)
         elif p.returncode:raise RuntimeError(label+': '+output)
     def rebuild(label):
+        # GNU make can rebuild .o/.a within one second without relinking tests.
+        binaries=['test_bridge_resource', 'test_config']
+        for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
         objects=[('ghosterm_core','src/extension/resource.c'),('ghosterm_core','src/base/sha256.c'),('test_bridge_resource','tests/test_bridge_resource.c')]
         for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
         run(label+'-build',['cmake','--build',build,'--target','test_bridge_resource','test_config','-j','2'])
+        link_log=(logs/(label+'-build.log')).read_text()
+        for marker in ['Linking C static library libghosterm_core.a',*['Linking C executable '+name for name in binaries]]:
+            if marker not in link_log:raise RuntimeError('Missing actual link: '+label+' '+marker)
         output=(logs/(label+'-build.log')).read_text()
         for owner,name in objects:
             if 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' not in output:raise RuntimeError('Missing actual compilation: '+label+' '+owner)
@@ -64,7 +71,7 @@ def main():
       ('sha-final-state','sha256.c','s->ended=true;return true;','s->ended=false;return true;','hash')]
     try:
         for name in ('core/src/extension/resource.c','core/src/base/sha256.c'):
-            if MARK.encode() in (ROOT/name).read_bytes():raise RuntimeError('Residual mutation: '+name)
+            if MARK.encode() in (ROOT/name).read_bytes():print('Residual mutation: '+name,file=sys.stderr);raise SystemExit(2)
         shutil.copytree(ROOT/'core',source,ignore=shutil.ignore_patterns('build','build-*'))
         run('configure',['cmake','-S',source,'-B',build,'-DCMAKE_BUILD_TYPE=Debug','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
         rebuild('baseline');suite('baseline');run('baseline-config',[build/'test_config',source/'tests/fixtures'])

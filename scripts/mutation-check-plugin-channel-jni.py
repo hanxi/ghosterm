@@ -5,6 +5,7 @@ INT/TERM/failure. Normal single JUnit assertion red, SAME APK Core control green
 then rebuilt/restored target. No private keys enter argv/files or test snapshots.
 """
 from pathlib import Path
+import sys
 import argparse,hashlib,json,os,signal,subprocess,tempfile,zipfile
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_CHANNEL_JNI_MUTATION'
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -13,7 +14,7 @@ def main():
     work=Path(tempfile.mkdtemp(prefix='plugin-channel-jni-mutations-',dir=ROOT/'tmp'));logs=work/'logs';logs.mkdir();commands=[]
     path=ROOT/'android/bridge/src/main/cpp/extension_jni.c';original=path.read_bytes();owned_mutation=None
     (work/'extension_jni.c.original').write_bytes(original)
-    if MARK.encode() in original:raise RuntimeError('residual JNI mutation')
+    if MARK.encode() in original:print('residual JNI mutation',file=sys.stderr);raise SystemExit(2)
     inputs=[p for folder in ['core/src','core/include'] for p in (ROOT/folder).rglob('*') if p.is_file() and p.suffix in ('.c','.h','.inc')]
     inputs += [ROOT/p for p in ['core/CMakeLists.txt','core/include/ghosterm.h','android/bridge/src/main/cpp/CMakeLists.txt','android/bridge/src/main/cpp/extension_jni.c','android/bridge/src/main/java/com/hanxi/ghosterm/bridge/ExtensionChannel.kt','android/app/src/androidTest/java/com/hanxi/ghosterm/ExtensionChannelTest.kt','scripts/test-plugin-channel.py','scripts/mutation-check-plugin-channel-jni.py']]
     hashes={str(p.relative_to(ROOT)):sha(p) for p in inputs}
@@ -26,8 +27,11 @@ def main():
         return out
     def rebuild(label):
         obj.unlink(missing_ok=True)
+        shared=ROOT/'android/bridge/build/intermediates/cxx/Debug/5v2x5f5z/obj/arm64-v8a/libghosterm_android.so'
+        shared.unlink(missing_ok=True)
         out=run(label+'-native',['cmake','--build',ndk,'--target','ghosterm_android','--verbose'])
         if not obj.is_file() or 'extension_jni.c' not in out or ' -c ' not in out:raise RuntimeError('JNI not actually compiled: '+label)
+        if not shared.is_file() or ' -shared ' not in out or '-o ' not in out:raise RuntimeError('JNI not actually linked: '+label)
         run(label+'-apk',['bash',ROOT/'scripts/build-android.sh',':app:assembleDebug'],budget=600)
         run(label+'-install',[*device,'install','-r',apk],budget=60)
         # Verify bytes actually installed, not just host package existence.

@@ -3,6 +3,7 @@
 restored full bridge suite green and original SHA256. Never edit the worktree.
 """
 from pathlib import Path
+import sys
 import hashlib
 import json
 import os
@@ -33,7 +34,7 @@ def main():
            "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"}
     originals = {name: (ROOT / name).read_bytes() for name in SOURCES}
     if any(MARK.encode() in original for original in originals.values()):
-        raise RuntimeError("Residual bridge stream mutation")
+        print("Residual bridge stream mutation",file=sys.stderr);raise SystemExit(2)
     hashes = {name: digest(ROOT / name) for name in INPUTS}
     commands = []
 
@@ -62,7 +63,16 @@ def main():
                           "-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"])
 
         def rebuild(label):
+            objects=[('ghosterm_core','src/extension/'+n+'.c') for n in ('stream','fd-stream','frame')]+[('test_bridge_stream','tests/test_bridge_stream.c')]
+            binaries=['test_bridge_stream','test_config']
+            for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
+            for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
             run(label + "-build", ["cmake", "--build", build, "--target", "test_bridge_stream", "test_config", "-j", "2"])
+            output=(logs/(label+'-build.log')).read_text()
+            for owner,name in objects:
+                if 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' not in output:raise RuntimeError('Missing actual compilation: '+label+' '+name)
+            for marker in ['Linking C static library libghosterm_core.a',*['Linking C executable '+name for name in binaries]]:
+                if marker not in output:raise RuntimeError('Missing actual link: '+label+' '+marker)
 
         def suite(label):
             run(label, ["ctest", "--test-dir", build, "-R", "^bridge_stream_", "--output-on-failure"])

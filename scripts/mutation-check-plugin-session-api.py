@@ -21,9 +21,15 @@ def main():
             if p.returncode!=1 or 'FAIL ' not in out or any(x in out for x in ['AddressSanitizer','UndefinedBehaviorSanitizer','runtime error:']):raise RuntimeError(label+': expected normal C assertion\n'+out)
         elif p.returncode:raise RuntimeError(label+': '+out)
     def rebuild(label):
+        # GNU make can rebuild .o/.a within one second without relinking tests.
+        binaries=['test_ext_session', 'test_ext_session_boundary', 'test_config']
+        for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
         objects=[('ghosterm_core','src/extension/channel.c'),('ghosterm_core','src/extension/session-api.c'),('test_ext_session_boundary','tests/test_ext_session_boundary.c'),('test_ext_session','tests/test_ext_session.c')]
         for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
         run(label+'-build',['cmake','--build',build,'--target','test_ext_session','test_ext_session_boundary','test_config','-j','2'])
+        link_log=(logs/(label+'-build.log')).read_text()
+        for marker in ['Linking C static library libghosterm_core.a',*['Linking C executable '+name for name in binaries]]:
+            if marker not in link_log:raise RuntimeError('Missing actual link: '+label+' '+marker)
         output=(logs/(label+'-build.log')).read_text()
         for owner,name in objects:assert 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' in output,label+' failed to rebuild '+name
     def target(label,kind,mode,red=False):run(label,[build/('test_ext_session_boundary' if kind=='boundary' else 'test_ext_session'),mode],red=red,budget=30)

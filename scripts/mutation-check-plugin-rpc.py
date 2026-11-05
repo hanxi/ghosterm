@@ -3,6 +3,7 @@
 fail normal C assertions; every restore runs all socket and real SSH cases.
 """
 from pathlib import Path
+import sys
 import hashlib,json,os,shutil,signal,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_RPC_MUTATION'
 MODES='roundtrip full unknown denied missing-cap remote-invalid queued-cancel queued-timeout validation scope cancel late-result lost stop duplicate conflict retired feature allocation credit pending-duplicate cancel-before-take cancel-no-credit credit-overflow overspend gap response-conflict counter select-expiry held-credit incoming-timeout'.split()
@@ -24,10 +25,16 @@ def main():
             if p.returncode!=1 or 'FAIL ' not in output or any(x in output for x in ('AddressSanitizer','runtime error:','UndefinedBehaviorSanitizer')):raise RuntimeError(label+': expected normal C assertion; '+output)
         elif p.returncode:raise RuntimeError(label+': '+output)
     def rebuild(label):
+        # GNU make can rebuild .o/.a within one second without relinking tests.
+        binaries=['test_bridge_rpc', 'test_config']
+        for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
         # Include-based tests must not retain an object across a fast restore.
         objects=[('ghosterm_core','src/extension/rpc.c'),('ghosterm_core','src/extension/session.c'),('test_bridge_rpc','tests/test_bridge_rpc.c')]
         for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
         run(label+'-build',['cmake','--build',build,'--target','test_bridge_rpc','test_config','-j','2'])
+        link_log=(logs/(label+'-build.log')).read_text()
+        for marker in ['Linking C static library libghosterm_core.a',*['Linking C executable '+name for name in binaries]]:
+            if marker not in link_log:raise RuntimeError('Missing actual link: '+label+' '+marker)
         output=(logs/(label+'-build.log')).read_text()
         for owner,name in objects:
             if 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' not in output:raise RuntimeError('Missing actual compilation: '+label+' '+owner)
@@ -36,7 +43,7 @@ def main():
         run(label+'-ssh',['python3',ROOT/'scripts/test-plugin-session.py','--binary',build/'test_bridge_rpc','--rpc'])
     try:
         for name in ('session.c','rpc.c','rpc.h'):
-            if MARK.encode() in (ROOT/'core/src/extension'/name).read_bytes():raise RuntimeError('Residual mutation: '+name)
+            if MARK.encode() in (ROOT/'core/src/extension'/name).read_bytes():print('Residual mutation: '+name,file=sys.stderr);raise SystemExit(2)
         shutil.copytree(ROOT/'core',source,ignore=shutil.ignore_patterns('build','build-*'))
         run('configure',['cmake','-S',source,'-B',build,'-DCMAKE_BUILD_TYPE=Debug','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
         rebuild('baseline');suite('baseline');run('baseline-control',[build/'test_config',source/'tests/fixtures'])
