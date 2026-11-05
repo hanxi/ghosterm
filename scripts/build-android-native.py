@@ -17,7 +17,8 @@ NDK = '28.2.13676358'
 VT_PATCHES = [ROOT / 'patches/libghostty/android-vt-8159838' / name for name in
               ('0001-link-android-libc.patch', '0002-local-clear.patch', '0003-kitty-animation-clock.patch', '0004-kitty-virtual-placements.patch', '0005-kitty-android-limits.patch')]
 SSH2_PATCHES = [ROOT / 'patches/libssh2/1.11.1' / name for name in
-                ('0001-sftp-eof.patch', '0002-sftp-init-cleanup.patch', '0003-sftp-name-bounds.patch')]
+                ('0001-sftp-eof.patch', '0002-sftp-init-cleanup.patch', '0003-sftp-name-bounds.patch',
+                 '0004-channel-exit-status.patch')]
 SOURCES = {
     'openssl-3.5.4': ('https://www.openssl.org/source/openssl-3.5.4.tar.gz',
                       '967311f84955316969bdb1d8d4b983718ef42338639c621ec4c34fddef355e99'),

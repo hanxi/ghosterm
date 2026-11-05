@@ -3,6 +3,8 @@
 #define GT_SSH_CONNECTOR_H
 #include "ghosterm/ssh.h"
 #include "base/allocator.h"
+#include <stdatomic.h>
+typedef struct gt_bridge_stream gt_bridge_stream_t;
 typedef struct gt_ssh_connector gt_ssh_connector_t;
 typedef struct {
   /* Resolved network address, separate from SSH host/known_hosts identity.
@@ -11,6 +13,7 @@ typedef struct {
   uint8_t family,address[16];uint32_t scope;
   uint32_t timeout_ms;void *clock_context;bool (*clock)(void *,uint64_t *);
   bool defer_credentials;
+  const atomic_bool *stop; /* borrowed, valid through connector disposal */
 } gt_ssh_connector_config_t;
 typedef enum {GT_SSH_CONNECT_TCP,GT_SSH_CONNECT_NEGOTIATING,GT_SSH_CONNECT_HOSTKEY,
   GT_SSH_CONNECT_AUTHENTICATING,GT_SSH_CONNECT_READY,GT_SSH_CONNECT_TAKEN,
@@ -26,6 +29,15 @@ typedef struct {
  * One fixed owner allocation plus libssh2/crypto's own bounded protocol state.
  * Single non-UI serial owner; timeout 1..60000ms covers TCP through authentication. */
 gt_status_t gt__ssh_connector_open(gt_ssh_t **,const gt_ssh_connector_config_t *,const gt_allocator_t *,gt_ssh_connector_t **);
+/* No DNS/socket/connect to the inner host: consumes an admitted direct-tcpip
+ * stream and fresh SSH on success only. family must be 0. Original SSH host
+ * and port still identify known_hosts. Use dispose (not legacy void close). */
+gt_status_t gt__ssh_connector_open_stream(gt_ssh_t **,const gt_ssh_connector_config_t *,
+  gt_bridge_stream_t **,const gt_allocator_t *,gt_ssh_connector_t **);
+/* One owner cleanup step. Keeps the connector and its capacity until every
+ * nested provider is closed. On completion sets *connector=NULL. */
+gt_status_t gt__ssh_connector_dispose(gt_ssh_connector_t **,bool *released);
+int gt__ssh_connector_wait(gt_ssh_connector_t *,int ms,const int *wake_fds,size_t wake_count);
 gt_ssh_connector_phase_t gt__ssh_connector_step(gt_ssh_connector_t *);
 bool gt__ssh_connector_info(const gt_ssh_connector_t *,gt_ssh_connector_info_t *);
 /* Only UNKNOWN; UNKNOWN decision leaves it waiting. ACCEPT writes known_hosts

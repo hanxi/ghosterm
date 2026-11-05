@@ -1,0 +1,9 @@
+{
+  "name": "ghosterm-plugin-schema-probe",
+  "private": true,
+  "version": "0.0.0",
+  "license": "MIT",
+  "devDependencies": {
+    "ajv": "8.17.1"
+  }
+}

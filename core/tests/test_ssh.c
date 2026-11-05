@@ -70,6 +70,29 @@ static int read_exec_checked(gt_ssh_t *ssh, gt_ssh_exec_t *exec,
   return result;
 }
 
+/* OpenSSH may send exit-status after output EOF. Keep the original explicit
+ * 0/3 assertions, but drive that separate protocol fact under a deadline;
+ * querying it must no longer send a destructive CLOSE to force an answer. */
+static bool wait_exec_status(gt_ssh_t *ssh, gt_ssh_exec_t *exec, int *status) {
+  struct timespec start, now;
+  if (clock_gettime(CLOCK_MONOTONIC, &start)) return false;
+  for (;;) {
+    if (gt_ssh_exec_exit_status(exec, status)) return true;
+    uint8_t bytes[16]; bool iserr = false;
+    int n = read_exec_checked(ssh, exec, bytes, sizeof(bytes), 0, &iserr);
+    CHECK(n <= 0, "exec EOF 后没有新输出；状态与输出结束分开");
+    if (n == GT_EXEC_READ_ERROR || n > 0 || clock_gettime(CLOCK_MONOTONIC, &now)) return false;
+    int64_t elapsed = (now.tv_sec-start.tv_sec)*1000 + (now.tv_nsec-start.tv_nsec)/1000000;
+    if (elapsed >= 1000) return false;
+    struct timespec pause = {0,1000000}; nanosleep(&pause,NULL);
+  }
+}
+static int64_t exec_test_now(void) {
+  struct timespec t;
+  if (clock_gettime(CLOCK_MONOTONIC, &t)) return -1;
+  return (int64_t)t.tv_sec*1000 + t.tv_nsec/1000000;
+}
+
 static char *read_file(const char *path) {
   FILE *f = fopen(path, "rb");
   if (!f) return NULL;
@@ -541,7 +564,7 @@ int main(int argc, char **argv) {
             }
             ebuf[tot] = '\0';
             CHECK(strstr(ebuf, "GT_EXEC_OK") != NULL, "exec stdout 含命令输出");
-            CHECK(gt_ssh_exec_exit_status(ex, &ec) && ec == 0, "exec 退出码为 0");
+            CHECK(wait_exec_status(s, ex, &ec) && ec == 0, "exec 退出码为 0");
             gt_ssh_exec_close(ex);
           } else {
             printf("note: exec 不可用（status=%d）\n", (int)es);
@@ -567,9 +590,14 @@ int main(int argc, char **argv) {
           if (ex2) {
             char ob[512] = {0}, er[512] = {0};
             size_t no = 0, ne = 0;
+            int64_t output_deadline = exec_test_now() + 3000;
             for (;;) {
               uint8_t tmp[256]; bool iserr = false;
-              int n = read_exec_checked(s, ex2, tmp, sizeof tmp, 3000, &iserr);
+              int n = read_exec_checked(s, ex2, tmp, sizeof tmp, 100, &iserr);
+              if (exec_test_now() >= output_deadline) {
+                CHECK(0, "exec stdout/stderr 必须在总期限内排空");
+                break;
+              }
               if (n > 0) {
                 size_t un = (size_t)n;
                 if (iserr) { size_t c = sizeof er - 1 - ne; if (un > c) un = c;
@@ -586,7 +614,7 @@ int main(int argc, char **argv) {
             CHECK(strstr(ob, "OUT") != NULL, "exec stdout 有 OUT");
             CHECK(strstr(ob, "ERR") == NULL, "stderr 未混入 stdout");
             CHECK(strstr(er, "ERR") != NULL, "exec stderr 有 ERR");
-            CHECK(gt_ssh_exec_exit_status(ex2, &ec2) && ec2 == 3, "exec 退出码 3 被读出");
+            CHECK(wait_exec_status(s, ex2, &ec2) && ec2 == 3, "exec 退出码 3 被读出");
             gt_ssh_exec_close(ex2);
           }
         }

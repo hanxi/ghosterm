@@ -1,0 +1,773 @@
+{
+  "base": {
+    "wireVersion": 1,
+    "connectionId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "instanceId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "epoch": "1",
+    "streamId": "control",
+    "seq": "0"
+  },
+  "messages": {
+    "offer": {
+      "kind": "offer",
+      "payload": {
+        "pluginId": "org.ghosterm.preview",
+        "pluginVersion": "0.1.0",
+        "clientDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "executorDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "route": "tty-push",
+        "requires": [
+          "resource.receive"
+        ],
+        "budgets": {
+          "fragmentBytes": 768,
+          "messageBytes": 65536,
+          "resourceBytes": 16777216
+        },
+        "hostVersion": "0.1.0",
+        "sdkVersion": "1.0.0",
+        "hostNonce": "11111111111111111111111111111111",
+        "nonce": "22222222222222222222222222222222",
+        "consentMs": 60000,
+        "features": []
+      }
+    },
+    "request": {
+      "kind": "request",
+      "payload": {
+        "requestId": "ffffffffffffffffffffffffffffffff",
+        "method": "form.submit",
+        "input": {
+          "answer": "终端"
+        },
+        "timeoutMs": 30000
+      }
+    },
+    "response-success": {
+      "kind": "response",
+      "payload": {
+        "requestId": "ffffffffffffffffffffffffffffffff",
+        "outcome": {
+          "kind": "success",
+          "value": {
+            "done": true
+          }
+        }
+      }
+    },
+    "response-denied": {
+      "kind": "response",
+      "payload": {
+        "requestId": "ffffffffffffffffffffffffffffffff",
+        "outcome": {
+          "kind": "failed",
+          "error": {
+            "code": "DENIED",
+            "message": "declined",
+            "effect": "none"
+          }
+        }
+      }
+    },
+    "response-unknown": {
+      "kind": "response",
+      "payload": {
+        "requestId": "ffffffffffffffffffffffffffffffff",
+        "outcome": {
+          "kind": "unknown",
+          "reason": "response lost"
+        }
+      }
+    },
+    "response-cancelled": {
+      "kind": "response",
+      "payload": {
+        "requestId": "ffffffffffffffffffffffffffffffff",
+        "outcome": {
+          "kind": "cancelled",
+          "effect": "possible"
+        }
+      }
+    },
+    "event": {
+      "kind": "event",
+      "payload": {
+        "topic": "task.updated",
+        "value": {
+          "state": "running"
+        }
+      }
+    },
+    "cancel": {
+      "kind": "cancel",
+      "payload": {
+        "requestId": "ffffffffffffffffffffffffffffffff"
+      }
+    },
+    "credit": {
+      "kind": "credit",
+      "payload": {
+        "bytes": 768,
+        "streamId": "rpc"
+      }
+    },
+    "resource.begin": {
+      "kind": "resource.begin",
+      "payload": {
+        "resourceId": "cccccccccccccccccccccccccccccccc",
+        "generation": "1",
+        "displayName": "预览.txt",
+        "mime": "text/plain",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "size": {
+          "kind": "known",
+          "bytes": "1"
+        }
+      }
+    },
+    "resource.chunk": {
+      "kind": "resource.chunk",
+      "payload": {
+        "resourceId": "cccccccccccccccccccccccccccccccc",
+        "generation": "1",
+        "offset": "0",
+        "dataBase64": "CQ=="
+      }
+    },
+    "resource.end": {
+      "kind": "resource.end",
+      "payload": {
+        "resourceId": "cccccccccccccccccccccccccccccccc",
+        "generation": "1",
+        "byteLength": "1",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    },
+    "close": {
+      "kind": "close",
+      "payload": {
+        "outcome": {
+          "kind": "unknown",
+          "reason": "connection lost"
+        }
+      }
+    },
+    "hello": {
+      "kind": "hello",
+      "payload": {
+        "hostVersion": "0.1.0",
+        "sdkVersion": "1.0.0",
+        "nonce": "22222222222222222222222222222222",
+        "pluginId": "org.ghosterm.preview",
+        "pluginVersion": "0.1.0",
+        "clientDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "executorDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "consentMs": 60000,
+        "budgets": {
+          "fragmentBytes": 768,
+          "messageBytes": 65536,
+          "resourceBytes": 16777216
+        },
+        "features": []
+      }
+    },
+    "probe": {
+      "kind": "probe",
+      "payload": {
+        "hostNonce": "11111111111111111111111111111111",
+        "executorNonce": "22222222222222222222222222222222",
+        "challenge": "33333333333333333333333333333333",
+        "capabilities": [
+          "resource.receive"
+        ],
+        "budgets": {
+          "fragmentBytes": 768,
+          "messageBytes": 65536,
+          "resourceBytes": 16777216
+        },
+        "features": []
+      }
+    },
+    "accept": {
+      "kind": "accept",
+      "payload": {
+        "hostNonce": "11111111111111111111111111111111",
+        "executorNonce": "22222222222222222222222222222222",
+        "challenge": "33333333333333333333333333333333",
+        "capabilities": [
+          "resource.receive"
+        ],
+        "budgets": {
+          "fragmentBytes": 768,
+          "messageBytes": 65536,
+          "resourceBytes": 16777216
+        },
+        "features": []
+      }
+    },
+    "ready": {
+      "kind": "ready",
+      "payload": {
+        "hostNonce": "11111111111111111111111111111111",
+        "executorNonce": "22222222222222222222222222222222",
+        "challenge": "33333333333333333333333333333333"
+      }
+    }
+  },
+  "patches": [
+    {
+      "name": "unknown-root-field",
+      "from": "offer",
+      "path": [
+        "requiredFutureField"
+      ],
+      "valid": false,
+      "value": true
+    },
+    {
+      "name": "wire-version",
+      "from": "offer",
+      "path": [
+        "wireVersion"
+      ],
+      "valid": false,
+      "value": 2
+    },
+    {
+      "name": "numeric-epoch",
+      "from": "offer",
+      "path": [
+        "epoch"
+      ],
+      "valid": false,
+      "value": 1
+    },
+    {
+      "name": "zero-epoch",
+      "from": "offer",
+      "path": [
+        "epoch"
+      ],
+      "valid": false,
+      "value": "0"
+    },
+    {
+      "name": "leading-zero-epoch",
+      "from": "offer",
+      "path": [
+        "epoch"
+      ],
+      "valid": false,
+      "value": "01"
+    },
+    {
+      "name": "exponent-seq",
+      "from": "offer",
+      "path": [
+        "seq"
+      ],
+      "valid": false,
+      "value": "1e2"
+    },
+    {
+      "name": "counter-overflow",
+      "from": "offer",
+      "path": [
+        "seq"
+      ],
+      "valid": false,
+      "value": "18446744073709551616"
+    },
+    {
+      "name": "uppercase-id",
+      "from": "offer",
+      "path": [
+        "connectionId"
+      ],
+      "valid": false,
+      "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "name": "short-id",
+      "from": "offer",
+      "path": [
+        "instanceId"
+      ],
+      "valid": false,
+      "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "name": "missing-instance",
+      "from": "offer",
+      "path": [
+        "instanceId"
+      ],
+      "valid": false,
+      "remove": true
+    },
+    {
+      "name": "unknown-kind",
+      "from": "offer",
+      "path": [
+        "kind"
+      ],
+      "valid": false,
+      "value": "future"
+    },
+    {
+      "name": "unknown-route",
+      "from": "offer",
+      "path": [
+        "payload",
+        "route"
+      ],
+      "valid": false,
+      "value": "tmux-heartbeat"
+    },
+    {
+      "name": "unknown-offer-field",
+      "from": "offer",
+      "path": [
+        "payload",
+        "hostnameIsAuthenticated"
+      ],
+      "valid": false,
+      "value": true
+    },
+    {
+      "name": "duplicate-capability",
+      "from": "offer",
+      "path": [
+        "payload",
+        "requires"
+      ],
+      "valid": false,
+      "value": [
+        "resource.receive",
+        "resource.receive"
+      ]
+    },
+    {
+      "name": "fragment-budget-overflow",
+      "from": "offer",
+      "path": [
+        "payload",
+        "budgets",
+        "fragmentBytes"
+      ],
+      "valid": false,
+      "value": 769
+    },
+    {
+      "name": "message-budget-overflow",
+      "from": "offer",
+      "path": [
+        "payload",
+        "budgets",
+        "messageBytes"
+      ],
+      "valid": false,
+      "value": 65537
+    },
+    {
+      "name": "resource-budget-overflow",
+      "from": "offer",
+      "path": [
+        "payload",
+        "budgets",
+        "resourceBytes"
+      ],
+      "valid": false,
+      "value": 16777217
+    },
+    {
+      "name": "semver-leading-zero",
+      "from": "offer",
+      "path": [
+        "payload",
+        "pluginVersion"
+      ],
+      "valid": false,
+      "value": "01.0.0"
+    },
+    {
+      "name": "semver-prerelease-leading-zero",
+      "from": "offer",
+      "path": [
+        "payload",
+        "pluginVersion"
+      ],
+      "valid": false,
+      "value": "0.1.0-01"
+    },
+    {
+      "name": "invalid-package-id",
+      "from": "offer",
+      "path": [
+        "payload",
+        "pluginId"
+      ],
+      "valid": false,
+      "value": "org/ghosterm"
+    },
+    {
+      "name": "method-shell-text",
+      "from": "request",
+      "path": [
+        "payload",
+        "method"
+      ],
+      "valid": false,
+      "value": "echo hello; ls"
+    },
+    {
+      "name": "missing-request-id",
+      "from": "request",
+      "path": [
+        "payload",
+        "requestId"
+      ],
+      "valid": false,
+      "remove": true
+    },
+    {
+      "name": "unknown-is-not-success",
+      "from": "response-unknown",
+      "path": [
+        "payload",
+        "outcome",
+        "value"
+      ],
+      "valid": false,
+      "value": {}
+    },
+    {
+      "name": "success-is-not-unknown",
+      "from": "response-success",
+      "path": [
+        "payload",
+        "outcome",
+        "reason"
+      ],
+      "valid": false,
+      "value": "lost"
+    },
+    {
+      "name": "unknown-error-code",
+      "from": "response-denied",
+      "path": [
+        "payload",
+        "outcome",
+        "error",
+        "code"
+      ],
+      "valid": false,
+      "value": "SUCCESS"
+    },
+    {
+      "name": "null-effect",
+      "from": "response-cancelled",
+      "path": [
+        "payload",
+        "outcome",
+        "effect"
+      ],
+      "valid": false,
+      "value": null
+    },
+    {
+      "name": "zero-credit",
+      "from": "credit",
+      "path": [
+        "payload",
+        "bytes"
+      ],
+      "valid": false,
+      "value": 0
+    },
+    {
+      "name": "huge-credit",
+      "from": "credit",
+      "path": [
+        "payload",
+        "bytes"
+      ],
+      "valid": false,
+      "value": 65537
+    },
+    {
+      "name": "zero-resource-generation",
+      "from": "resource.begin",
+      "path": [
+        "payload",
+        "generation"
+      ],
+      "valid": false,
+      "value": "0"
+    },
+    {
+      "name": "nul-display-name",
+      "from": "resource.begin",
+      "path": [
+        "payload",
+        "displayName"
+      ],
+      "valid": false,
+      "value": "x\u0000y"
+    },
+    {
+      "name": "bad-mime",
+      "from": "resource.begin",
+      "path": [
+        "payload",
+        "mime"
+      ],
+      "valid": false,
+      "value": "application/中文"
+    },
+    {
+      "name": "bad-digest",
+      "from": "resource.begin",
+      "path": [
+        "payload",
+        "sha256"
+      ],
+      "valid": false,
+      "value": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    {
+      "name": "negative-length",
+      "from": "resource.begin",
+      "path": [
+        "payload",
+        "size",
+        "bytes"
+      ],
+      "valid": false,
+      "value": "-1"
+    },
+    {
+      "name": "negative-offset",
+      "from": "resource.chunk",
+      "path": [
+        "payload",
+        "offset"
+      ],
+      "valid": false,
+      "value": "-1"
+    },
+    {
+      "name": "empty-chunk",
+      "from": "resource.chunk",
+      "path": [
+        "payload",
+        "dataBase64"
+      ],
+      "valid": false,
+      "value": ""
+    },
+    {
+      "name": "noncanonical-base64",
+      "from": "resource.chunk",
+      "path": [
+        "payload",
+        "dataBase64"
+      ],
+      "valid": false,
+      "value": "CR=="
+    },
+    {
+      "name": "invalid-base64",
+      "from": "resource.chunk",
+      "path": [
+        "payload",
+        "dataBase64"
+      ],
+      "valid": false,
+      "value": "?Q=="
+    },
+    {
+      "name": "oversize-chunk",
+      "from": "resource.chunk",
+      "path": [
+        "payload",
+        "dataBase64"
+      ],
+      "valid": false,
+      "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "name": "counter-u64-max",
+      "from": "offer",
+      "path": [
+        "seq"
+      ],
+      "value": "18446744073709551615",
+      "valid": true
+    },
+    {
+      "name": "direct-route",
+      "from": "offer",
+      "path": [
+        "payload",
+        "route"
+      ],
+      "value": "direct-duplex",
+      "valid": true
+    },
+    {
+      "name": "semver-prerelease",
+      "from": "offer",
+      "path": [
+        "payload",
+        "pluginVersion"
+      ],
+      "value": "0.1.0-beta.1+build.2",
+      "valid": true
+    },
+    {
+      "name": "declared-camelcase-capability",
+      "from": "offer",
+      "path": [
+        "payload",
+        "requires"
+      ],
+      "value": [
+        "file.readScoped",
+        "process.spawn"
+      ],
+      "valid": true
+    },
+    {
+      "name": "unknown-resource-size",
+      "from": "resource.begin",
+      "path": [
+        "payload",
+        "size"
+      ],
+      "value": {
+        "kind": "unknown"
+      },
+      "valid": true
+    },
+    {
+      "name": "unknown-size-with-bytes",
+      "from": "resource.begin",
+      "path": [
+        "payload",
+        "size"
+      ],
+      "value": {
+        "kind": "unknown",
+        "bytes": "0"
+      },
+      "valid": false
+    },
+    {
+      "name": "hello-sdk-invalid",
+      "from": "hello",
+      "path": [
+        "payload",
+        "sdkVersion"
+      ],
+      "valid": false,
+      "value": "1"
+    },
+    {
+      "name": "offer-nonce-invalid",
+      "from": "offer",
+      "path": [
+        "payload",
+        "nonce"
+      ],
+      "valid": false,
+      "value": "x"
+    },
+    {
+      "name": "probe-duplicate-capability",
+      "from": "probe",
+      "path": [
+        "payload",
+        "capabilities"
+      ],
+      "valid": false,
+      "value": [
+        "resource.receive",
+        "resource.receive"
+      ]
+    },
+    {
+      "name": "consent-budget-zero",
+      "from": "hello",
+      "path": [
+        "payload",
+        "consentMs"
+      ],
+      "valid": false,
+      "value": 0
+    },
+    {
+      "name": "consent-budget-overflow",
+      "from": "offer",
+      "path": [
+        "payload",
+        "consentMs"
+      ],
+      "valid": false,
+      "value": 600001
+    },
+    {
+      "name": "ready-challenge-invalid",
+      "from": "ready",
+      "path": [
+        "payload",
+        "challenge"
+      ],
+      "valid": false,
+      "value": "0"
+    },
+    {
+      "name": "request-timeout-zero",
+      "from": "request",
+      "path": [
+        "payload",
+        "timeoutMs"
+      ],
+      "valid": false,
+      "value": 0
+    },
+    {
+      "name": "request-timeout-overflow",
+      "from": "request",
+      "path": [
+        "payload",
+        "timeoutMs"
+      ],
+      "valid": false,
+      "value": 3600001
+    },
+    {
+      "name": "duplicate-feature",
+      "from": "offer",
+      "path": [
+        "payload",
+        "features"
+      ],
+      "valid": false,
+      "value": [
+        "requests",
+        "requests"
+      ]
+    },
+    {
+      "name": "invalid-credit-target",
+      "from": "credit",
+      "path": [
+        "payload",
+        "streamId"
+      ],
+      "valid": false,
+      "value": "RPC"
+    }
+  ]
+}

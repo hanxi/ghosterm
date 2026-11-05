@@ -1,4 +1,4 @@
-# libssh2 1.11.1：SFTP EOF、初始化清理与 NAME 边界
+# libssh2 1.11.1：SFTP 边界与 SSH 退出状态存在性
 
 源码：`https://libssh2.org/download/libssh2-1.11.1.tar.gz`，SHA256
 `d9ec76cbe34db98eec3539fe2c899d26b0c837cb3eb466a56b0f109cabf658f7`。
@@ -32,8 +32,17 @@ channel destructor；原 session free 只释放 init 对象，遗漏 partial pac
 
 ## 构建与当前范围
 
+`0004-channel-exit-status.patch` 为插件计划 S2b 补旧 exec helper 的状态边界。上游 getter
+在未收到 exit-status 时也返回 0，无法同时保留「明确报告 0」和「未知」；Ghosterm 的
+旧 helper 因此会把无状态 / exit-signal 当作已知成功。补丁仅在完整 exit-status 请求中
+记录存在标志与原始 uint32，首次完整状态生效，截断请求不生效，重复请求不覆盖。
+新增带 Ghosterm 前缀的依赖扩展 `libssh2_ghosterm_channel_exit_status`，不替换上游 getter：
+返回 1 才写 int 输出，缺失返回 0，超出 int 表示范围返回 -1，均不进行 IO 或关闭通道。
+此 API 只在 C 内消费，不进入 Ghosterm 平台 ABI。主机 / Android 补丁列表与 SHA 收据同步；
+缺该补丁的头 / 库不能继续用于新 Core。具体复现、失败和验收记录见插件计划第十一批。
+
 Android 的 `scripts/build-android-native.py` 从校验过的 tarball 重新解包后
-依序应用三份补丁，使用独立 CMake 构建目录，补丁 SHA256 纳入依赖收据。
+依序应用四份补丁，使用独立 CMake 构建目录，补丁 SHA256 纳入依赖收据。
 库产物 SHA256 仍由原缓存校验检查；原未打补丁的缓存不能命中新收据。
 主机构建通过 `scripts/build-host-ssh2.py`，默认 Core 与 SwiftPM 已消费
 `build/host-native` 中的同版补丁库，打包时嵌入它及收据。主机 17 项协议、十组接口变异、十一组依赖守卫及既有打包变异
@@ -82,3 +91,6 @@ python3 scripts/test-libssh2-sftp.py --android emulator-5554
 升级锁定版本后，在实际发布依赖上证明两种 EOF 有界返回、取消/超时后 partial
 及排队报文完整释放，并让正常连接对照通过；再移除补丁和构建收据字段。
 第三份补丁另须在升级库上证明畸形 NAME 长度在复制前被拒绝、空目录项不能充当 EOF，并保留有效名称对照及两组目标红/恢复绿证据。不能只依据上游版本号、正常 SFTP 能打开或编译成功而撤除。
+第四份补丁须证明真实 0 / 非零、无状态、信号、截断 / 重复、超范围及 EOF 后迟到状态能被区分，
+查询不关闭进程、不改未知输出；升级若提供等价 API，先迁移 Core 与两端锁定构建、验证收据拒绝旧库，
+再撤掉该扩展。不依据旧 getter 的值猜测存在性。

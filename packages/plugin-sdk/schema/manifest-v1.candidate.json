@@ -1,0 +1,444 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghosterm.invalid/plugin-schema/manifest-v1.candidate.json",
+  "$comment": "P0 candidate only. Metadata declarations are not install/activation permission. SemVer ranges, command conflicts, member identity and live capabilities require semantic and native owner checks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "pluginVersion",
+    "sdkApiRange",
+    "bridgeProtocolRange",
+    "publisher",
+    "license",
+    "commands",
+    "permissions"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "$ref": "https://ghosterm.invalid/plugin-schema/bridge-v1.candidate.json#/$defs/pluginId"
+    },
+    "pluginVersion": {
+      "$ref": "https://ghosterm.invalid/plugin-schema/bridge-v1.candidate.json#/$defs/version"
+    },
+    "sdkApiRange": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\x00]*$"
+    },
+    "bridgeProtocolRange": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535
+      }
+    },
+    "publisher": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\x00]*$"
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\x00]*$"
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "title",
+          "argsSchema"
+        ],
+        "properties": {
+          "path": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9-]*$"
+            }
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[^\\x00]*$"
+          },
+          "argsSchema": {
+            "$ref": "#/$defs/packagePath"
+          },
+          "views": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "chat",
+                "approval",
+                "diff",
+                "table",
+                "task",
+                "form",
+                "resource",
+                "web-content"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime",
+        "entry",
+        "requires"
+      ],
+      "properties": {
+        "runtime": {
+          "const": "portable-js"
+        },
+        "entry": {
+          "$ref": "#/$defs/packagePath"
+        },
+        "requires": {
+          "$ref": "#/$defs/capabilities"
+        },
+        "optional": {
+          "$ref": "#/$defs/capabilities"
+        }
+      }
+    },
+    "executor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variants"
+      ],
+      "properties": {
+        "variants": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/variant"
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "side",
+          "capability",
+          "purpose",
+          "scope"
+        ],
+        "properties": {
+          "side": {
+            "enum": [
+              "client",
+              "executor"
+            ]
+          },
+          "capability": {
+            "$ref": "https://ghosterm.invalid/plugin-schema/bridge-v1.candidate.json#/$defs/name"
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "pattern": "^[^\\x00]*$"
+          },
+          "scope": {
+            "const": "instance"
+          },
+          "programs": {
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/program"
+            }
+          }
+        }
+      }
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "client"
+      ],
+      "properties": {
+        "client": {}
+      }
+    },
+    {
+      "required": [
+        "executor"
+      ],
+      "properties": {
+        "executor": {}
+      }
+    }
+  ],
+  "$defs": {
+    "packagePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*/$)(?!.*[\\\\\\x00-\\x1f\\x7f:])(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*[. ](?:/|$)).+$"
+    },
+    "program": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._+-]*$"
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://ghosterm.invalid/plugin-schema/bridge-v1.candidate.json#/$defs/name"
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "program",
+              "versionPolicy",
+              "versionRange"
+            ],
+            "properties": {
+              "program": {
+                "$ref": "#/$defs/program"
+              },
+              "versionPolicy": {
+                "const": "range"
+              },
+              "versionRange": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[^\\x00]*$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "program",
+              "versionPolicy",
+              "schema"
+            ],
+            "properties": {
+              "program": {
+                "$ref": "#/$defs/program"
+              },
+              "versionPolicy": {
+                "const": "adapter-verified"
+              },
+              "schema": {
+                "$ref": "#/$defs/packagePath"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "os": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "macos",
+          "ios",
+          "linux",
+          "android",
+          "windows",
+          "harmony",
+          "web"
+        ]
+      }
+    },
+    "arch": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "aarch64",
+          "x86_64",
+          "wasm32"
+        ]
+      }
+    },
+    "variant": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "requires",
+            "runtime",
+            "entry"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "https://ghosterm.invalid/plugin-schema/bridge-v1.candidate.json#/$defs/name"
+            },
+            "requires": {
+              "$ref": "#/$defs/capabilities"
+            },
+            "optional": {
+              "$ref": "#/$defs/capabilities"
+            },
+            "dependencies": {
+              "$ref": "#/$defs/dependencies"
+            },
+            "os": {
+              "$ref": "#/$defs/os"
+            },
+            "arch": {
+              "$ref": "#/$defs/arch"
+            },
+            "runtime": {
+              "const": "portable-js"
+            },
+            "entry": {
+              "$ref": "#/$defs/packagePath"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "requires",
+            "runtime",
+            "entry",
+            "runtimeVersionRange"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "https://ghosterm.invalid/plugin-schema/bridge-v1.candidate.json#/$defs/name"
+            },
+            "requires": {
+              "$ref": "#/$defs/capabilities"
+            },
+            "optional": {
+              "$ref": "#/$defs/capabilities"
+            },
+            "dependencies": {
+              "$ref": "#/$defs/dependencies"
+            },
+            "os": {
+              "$ref": "#/$defs/os"
+            },
+            "arch": {
+              "$ref": "#/$defs/arch"
+            },
+            "runtime": {
+              "const": "node"
+            },
+            "entry": {
+              "$ref": "#/$defs/packagePath"
+            },
+            "runtimeVersionRange": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^\\x00]*$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "requires",
+            "runtime",
+            "executable",
+            "os",
+            "arch"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "https://ghosterm.invalid/plugin-schema/bridge-v1.candidate.json#/$defs/name"
+            },
+            "requires": {
+              "$ref": "#/$defs/capabilities"
+            },
+            "optional": {
+              "$ref": "#/$defs/capabilities"
+            },
+            "dependencies": {
+              "$ref": "#/$defs/dependencies"
+            },
+            "os": {
+              "$ref": "#/$defs/os"
+            },
+            "arch": {
+              "$ref": "#/$defs/arch"
+            },
+            "runtime": {
+              "const": "exec"
+            },
+            "executable": {
+              "$ref": "#/$defs/packagePath"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

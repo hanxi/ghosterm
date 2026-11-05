@@ -174,7 +174,9 @@ enum {
 int gt_ssh_exec_read(gt_ssh_exec_t *e, uint8_t *buf, size_t cap,
                      int timeout_ms, bool *is_stderr);
 
-/* 远端退出码（通道关闭后才有效）。成功写入返回 true。 */
+/* 被动查询已收到的明确 exit-status；不进行 IO、不发送 EOF/CLOSE。
+ * 已知 0 也返回 true；缺状态、只有 signal 或超出 int 范围返回 false，
+ * 不改 exit_code。此值不证明输出已排空或业务操作成功；迟到状态须继续 read 推进。 */
 bool gt_ssh_exec_exit_status(gt_ssh_exec_t *e, int *exit_code);
 
 void gt_ssh_exec_close(gt_ssh_exec_t *e);

@@ -17,6 +17,14 @@ option(GHOSTERM_BUILD_TESTS "Build host executables and register tests" ${GHOSTE
 
 add_library(ghosterm_core STATIC
   src/base/secure-random.c
+  src/extension/stream.c
+  src/extension/fd-stream.c
+  src/extension/frame.c
+  src/extension/wire.c
+  src/extension/session.c
+  src/extension/rpc.c
+  src/extension/route.c
+  src/extension/backends/ssh_exec.c
   src/core.c
   src/config.c
   src/known_hosts.c
@@ -60,6 +68,79 @@ endif()
 if(GHOSTERM_BUILD_TESTS)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
+add_executable(test_bridge_rpc tests/test_bridge_rpc.c)
+target_include_directories(test_bridge_rpc PRIVATE src ${SSH2_INCLUDE_DIRS})
+target_link_libraries(test_bridge_rpc PRIVATE ghosterm_core)
+target_compile_options(test_bridge_rpc PRIVATE -Wall -Wextra -Werror)
+if(SSH2_FOUND)
+  target_compile_definitions(test_bridge_rpc PRIVATE GT_HAVE_LIBSSH2=1)
+  add_test(NAME bridge_rpc_ssh COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-session.py --rpc --binary $<TARGET_FILE:test_bridge_rpc>)
+  set_tests_properties(bridge_rpc_ssh PROPERTIES TIMEOUT 90)
+endif()
+foreach(mode roundtrip full unknown denied missing-cap remote-invalid queued-cancel queued-timeout validation scope cancel late-result lost stop duplicate conflict retired feature allocation credit pending-duplicate cancel-before-take cancel-no-credit credit-overflow overspend gap response-conflict counter select-expiry held-credit incoming-timeout)
+  add_test(NAME bridge_rpc_${mode} COMMAND test_bridge_rpc ${mode})
+  set_tests_properties(bridge_rpc_${mode} PROPERTIES TIMEOUT 10)
+endforeach()
+add_executable(test_bridge_session tests/test_bridge_session.c)
+target_include_directories(test_bridge_session PRIVATE src ${SSH2_INCLUDE_DIRS})
+target_link_libraries(test_bridge_session PRIVATE ghosterm_core)
+target_compile_options(test_bridge_session PRIVATE -Wall -Wextra -Werror)
+if(SSH2_FOUND)
+  target_compile_definitions(test_bridge_session PRIVATE GT_HAVE_LIBSSH2=1)
+  add_test(NAME bridge_session_ssh COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-session.py --binary $<TARGET_FILE:test_bridge_session>)
+  set_tests_properties(bridge_session_ssh PROPERTIES TIMEOUT 90)
+endif()
+foreach(mode allow deny late-deny consent-time expired clock lost revoke stop stop-before-step allocation bad-nonce bad-scope old-epoch gap replay wrong-digest wrong-cap budget-upgrade bad-accept bad-ready truncated early-message active-message late-read late-write expired-after-allow)
+  add_test(NAME bridge_session_${mode} COMMAND test_bridge_session ${mode})
+  set_tests_properties(bridge_session_${mode} PROPERTIES TIMEOUT 10)
+endforeach()
+add_executable(test_bridge_wire tests/test_bridge_wire.c)
+target_include_directories(test_bridge_wire PRIVATE src)
+target_link_libraries(test_bridge_wire PRIVATE ghosterm_core)
+target_compile_options(test_bridge_wire PRIVATE -Wall -Wextra -Werror)
+add_test(NAME bridge_wire COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-wire.py --binary $<TARGET_FILE:test_bridge_wire>)
+set_tests_properties(bridge_wire PROPERTIES TIMEOUT 45)
+add_test(NAME bridge_wire_generated COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate-plugin-wire.py --check
+  --output ${CMAKE_CURRENT_SOURCE_DIR}/src/extension/wire-schema.inc)
+add_executable(test_bridge_route tests/test_bridge_route.c)
+target_include_directories(test_bridge_route PRIVATE src ${SSH2_INCLUDE_DIRS})
+target_link_libraries(test_bridge_route PRIVATE ghosterm_core)
+target_compile_options(test_bridge_route PRIVATE -Wall -Wextra -Werror)
+if(SSH2_FOUND)
+  target_compile_definitions(test_bridge_route PRIVATE GT_HAVE_LIBSSH2=1)
+  add_test(NAME bridge_route_e2e COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-route.py --binary $<TARGET_FILE:test_bridge_route>)
+  set_tests_properties(bridge_route_e2e PROPERTIES TIMEOUT 90)
+else()
+  add_test(NAME bridge_route_unsupported COMMAND test_bridge_route unsupported)
+endif()
+add_executable(test_bridge_ssh tests/test_bridge_ssh.c)
+target_include_directories(test_bridge_ssh PRIVATE src)
+target_link_libraries(test_bridge_ssh PRIVATE ghosterm_core)
+target_compile_options(test_bridge_ssh PRIVATE -Wall -Wextra -Werror)
+if(SSH2_FOUND)
+  target_compile_definitions(test_bridge_ssh PRIVATE GT_HAVE_LIBSSH2=1)
+  add_test(NAME bridge_ssh_e2e COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-ssh-stream.py --binary $<TARGET_FILE:test_bridge_ssh>)
+  set_tests_properties(bridge_ssh_e2e PROPERTIES TIMEOUT 90)
+  add_test(NAME bridge_exec_e2e COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-ssh-stream.py --binary $<TARGET_FILE:test_bridge_ssh> --legacy)
+  set_tests_properties(bridge_exec_e2e PROPERTIES TIMEOUT 90)
+else()
+  add_test(NAME bridge_ssh_unsupported COMMAND test_bridge_ssh unsupported)
+endif()
+add_executable(test_bridge_stream tests/test_bridge_stream.c)
+target_include_directories(test_bridge_stream PRIVATE src)
+target_link_libraries(test_bridge_stream PRIVATE ghosterm_core)
+target_compile_options(test_bridge_stream PRIVATE -Wall -Wextra -Werror)
+foreach(mode pipe socket codec limits allocation stop deadline lifecycle invalid)
+  add_test(NAME bridge_stream_${mode} COMMAND test_bridge_stream ${mode})
+  set_tests_properties(bridge_stream_${mode} PROPERTIES TIMEOUT 15)
+endforeach()
 add_test(NAME public_headers
          COMMAND ${Python3_EXECUTABLE}
                  ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check-public-headers.py
@@ -221,6 +302,12 @@ if(SSH2_FOUND)
 endif()
 
 if(GHOSTERM_WITH_LIBSSH2 AND SSH2_FOUND)
+  add_executable(test_exec_boundary tests/test_exec_boundary.c)
+  target_include_directories(test_exec_boundary PRIVATE src ${SSH2_INCLUDE_DIRS})
+  target_compile_definitions(test_exec_boundary PRIVATE GT_HAVE_LIBSSH2=1)
+  target_link_libraries(test_exec_boundary PRIVATE ghosterm_core)
+  target_compile_options(test_exec_boundary PRIVATE -Wall -Wextra -Werror)
+  add_test(NAME ssh_exec_boundary COMMAND test_exec_boundary)
   add_executable(test_ssh_read tests/test_ssh_read.c)
   target_include_directories(test_ssh_read PRIVATE src ${SSH2_INCLUDE_DIRS})
   target_compile_definitions(test_ssh_read PRIVATE GT_HAVE_LIBSSH2=1)

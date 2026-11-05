@@ -121,6 +121,7 @@ jobs:
           # openssl@3 is keg-only; runner's default pkg-config may select OpenSSL 4.
           HOST_OPENSSL_PREFIX="$(brew --prefix openssl@3)"
           echo "PKG_CONFIG_PATH=${HOST_OPENSSL_PREFIX}/lib/pkgconfig${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}" >> "$GITHUB_ENV"
+          echo "${HOST_OPENSSL_PREFIX}/bin" >> "$GITHUB_PATH"
           if [ "${{ inputs.gates }}" = full ]; then brew install tmux; fi
           python3 -m venv tmp/venv-icons
           tmp/venv-icons/bin/python -m pip install --quiet --upgrade pip pillow
@@ -129,6 +130,9 @@ jobs:
 
       - name: 构建锁定的 SSH 依赖
         run: python3 scripts/build-host-ssh2.py --fetch
+
+      - name: 准备锁定的 SSH 协议测试工具链
+        run: bash scripts/bootstrap-ssh-channel-tests.sh
 
       - name: 装 zig ${{ env.ZIG_VERSION }}（仅重建引擎时）
         if: steps.ghostty.outputs.cache-hit != 'true'

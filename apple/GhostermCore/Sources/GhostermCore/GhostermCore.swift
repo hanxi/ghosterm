@@ -520,7 +520,7 @@ public final class SSHExec {
         throw GhostermError.failed(Ghosterm.lastError)
     }
 
-    /// 远端退出码（通道关闭后才有效；拿不到返回 nil）。
+    /// 已收到的明确退出码；被动查询，不关闭通道。缺失/迟到返回 nil，后续 read 可推进。
     public func exitStatus() -> Int32? {
         var code: Int32 = 0
         return gt_ssh_exec_exit_status(handle, &code) ? code : nil

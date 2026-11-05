@@ -1,0 +1,10 @@
+{
+  "name": "ghosterm-plugin-package-check",
+  "private": true,
+  "version": "0.0.0",
+  "license": "MIT",
+  "devDependencies": {
+    "ajv": "8.17.1",
+    "semver": "7.7.3"
+  }
+}

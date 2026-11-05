@@ -81,7 +81,16 @@ ctest --test-dir tmp/core-without-ssh --output-on-failure
 
 `gt_sftp_stat_t` 追加大小已知和普通文件标志；Swift 已映射，Android §9.51 的 JNI/Kotlin 后端也已保留这些信息，文件页已在 §9.52 消费。属于公开结构布局变更，所有绑定与原生消费者须重编译；符号对拍本身不检查旧结构布局。macOS 产品的 `FileEntry` 仍丢弃这些标志，未知大小/特殊类型的页面语义尚未修复。
 
-第三份补丁 `0003-sftp-name-bounds.patch` 校验 NAME 返回路径长度不超过实际 payload，并拒绝空目录项名称。当前主机构建及 Android 构建均应用三份补丁，历史两补丁的设备与打包变异证据不得自动移记为第三份通过。
+第三份补丁 `0003-sftp-name-bounds.patch` 校验 NAME 返回路径长度不超过实际 payload，并拒绝空目录项名称。当时主机及 Android 应用三份补丁，历史两补丁的设备与打包变异证据不得自动移记为第三份通过；当前第四份补丁见下。
+
+## 插件 S2b：明确退出状态（2026-11-05）
+
+当前主机 / Android 锁定清单已增加 `0004-channel-exit-status.patch`：旧 getter 不能区分明确 0 和无状态，
+新增带存在标志的 `libssh2_ghosterm_channel_exit_status` 供 C 内消费，不修改 Ghosterm 公共 ABI。
+Core 查询被动、不发 CLOSE，未知输出保持；完整首次 uint32 才成立，信号 / 畸形 / 超范围不猜 0。
+主机和 NDK 依赖实际重建，主机收据验证拒绝旧三补丁输入，实际 Android JNI 链接通过。新旧退出状态、
+EOF/迟到/关闭边界、十六组新变异及原三/十四组分轮复验证据见[插件计划第十一批](plan-plugin-bridge.md)。
+SFTP 九场景本轮通过；不沿用旧设备/打包结论，不声称所有 libssh2/crypto 分配零泄漏。
 
 §9.49 为 41 CTest / 83 ABI、36 项目录协议、19 组浏览变异、独立提交 UAF 变异，以及 SFTP 八/exec 三/SSH 五组通过；主机与 NDK 依赖同九场景、七 native + 两收据变异通过。macOS 原生与 app-only 包通过，Android 最终完整 214 项设备回归通过。早期 Swift 定位失败、共享竞态/超时修复及设备中间轮失败见 [§9.49](android-implementation.md#949-受控目录浏览与共享会话修复2026-10-30)。以下保留 §9.47 的历史基线。
 

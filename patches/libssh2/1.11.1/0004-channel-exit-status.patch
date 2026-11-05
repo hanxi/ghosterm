@@ -1,0 +1,73 @@
+--- a/include/libssh2.h
++++ b/include/libssh2.h
+@@ -1032,6 +1032,11 @@
+     libssh2_channel_flush_ex((channel), SSH_EXTENDED_DATA_STDERR)
+ 
+ LIBSSH2_API int libssh2_channel_get_exit_status(LIBSSH2_CHANNEL* channel);
++/* Ghosterm pinned extension: 1 = explicit status, 0 = absent, -1 = outside
++ * int range. No IO/close and no output modification unless returning 1. */
++#define LIBSSH2_GHOSTERM_EXIT_STATUS_PRESENT 1
++LIBSSH2_API int libssh2_ghosterm_channel_exit_status(LIBSSH2_CHANNEL *channel,
++                                                   int *status);
+ LIBSSH2_API int libssh2_channel_get_exit_signal(LIBSSH2_CHANNEL* channel,
+                                                 char **exitsignal,
+                                                 size_t *exitsignal_len,
+--- a/src/libssh2_priv.h
++++ b/src/libssh2_priv.h
+@@ -452,6 +452,8 @@
+ 
+     /* channel's program exit status */
+     int exit_status;
++    uint32_t ghosterm_exit_status;
++    unsigned char ghosterm_exit_status_received;
+ 
+     /* channel's program exit signal (without the SIG prefix) */
+     char *exit_signal;
+--- a/src/packet.c
++++ b/src/packet.c
+@@ -1138,10 +1138,13 @@
+                         channelp =
+                             _libssh2_channel_locate(session, channel);
+ 
+-                    if(channelp && (strlen("exit-status") + 14) <= datalen) {
+-                        channelp->exit_status =
++                    if(channelp && (strlen("exit-status") + 14) <= datalen &&
++                       !channelp->ghosterm_exit_status_received) {
++                        channelp->ghosterm_exit_status =
+                             _libssh2_ntohu32(data + 10 +
+                                              strlen("exit-status"));
++                        channelp->ghosterm_exit_status_received = 1;
++                        channelp->exit_status = (int)channelp->ghosterm_exit_status;
+                         _libssh2_debug((session, LIBSSH2_TRACE_CONN,
+                                        "Exit status %d received for "
+                                        "channel %u/%u",
+--- a/src/channel.c
++++ b/src/channel.c
+@@ -49,6 +49,7 @@
+ #endif
+ 
+ #include <assert.h>
++#include <limits.h>
+ 
+ #include "channel.h"
+ #include "transport.h"
+@@ -1794,6 +1795,19 @@
+     return channel->exit_status;
+ }
+ 
++/* Ghosterm pinned extension: distinguish a reported 0 from no status. */
++LIBSSH2_API int
++libssh2_ghosterm_channel_exit_status(LIBSSH2_CHANNEL *channel, int *status)
++{
++    if(!channel || !channel->ghosterm_exit_status_received)
++        return 0;
++    if(channel->ghosterm_exit_status > INT_MAX)
++        return -1;
++    if(status)
++        *status = (int)channel->ghosterm_exit_status;
++    return 1;
++}
++
+ /*
+  * libssh2_channel_get_exit_signal
+  *

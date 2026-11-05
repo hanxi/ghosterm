@@ -18,6 +18,8 @@
 #include "internal.h"
 #include "tmux/command.h"
 #include "ssh/connector.h"
+#include "ssh/wire.h"
+#include "extension/backends/ssh_exec.h"
 #include "base/secure-random.h"
 
 #include <stdio.h>
@@ -121,6 +123,14 @@ struct gt_ssh {
   int sock;
   LIBSSH2_SESSION *session;
   bool connected,handshake_verified;
+  bool channel_started,bridge_owned;
+  gt_bridge_stream_t *wire;
+  bool wire_stopped,wire_bounded;
+  size_t wire_left;
+  void *wire_clock_context;
+  bool (*wire_clock)(void *,uint64_t *);
+  uint64_t wire_deadline;
+  const atomic_bool *wire_stop;
   pthread_mutex_t io_lock; /* 每会话 I/O 锁（见 internal.h 说明） */
   bool io_lock_init;
 };
@@ -637,9 +647,90 @@ int gt_ssh_connect(gt_ssh_t *ssh) {
   return gt_ssh_authenticate(ssh);
 }
 
+/* Managed nesting owns its parent stream. A borrowed root descriptor is used
+ * only for libssh2's nonblocking socket bookkeeping; callbacks carry all bytes.
+ * Child close never closes that borrowed descriptor directly. */
+bool gt__ssh_route_fresh(const gt_ssh_t *s) {
+  return s && !s->session && s->sock < 0 && !s->wire && !s->connected;
+}
+uint16_t gt__ssh_route_port(const gt_ssh_t *s) { return s ? s->port : 0; }
+int gt__ssh_wire_descriptor(const gt_ssh_t *s) {
+  return !s ? -1 : s->wire ? gt__bridge_ssh_descriptor(s->wire) : s->sock;
+}
+unsigned gt__ssh_wire_depth(const gt_ssh_t *s) {
+  return s && s->wire ? gt__bridge_ssh_depth(s->wire)+1 : 1;
+}
+ssize_t gt__ssh_wire_read(gt_ssh_t *s, void *p, size_t n, int flags) {
+  if (!s) return -EINVAL;
+  if (s->wire_stopped) return 0;
+  if (s->wire) {
+    gt_bridge_io_t r = gt__bridge_stream_read(s->wire,p,n,0);
+    if (r.state == GT_BRIDGE_DATA) return (ssize_t)r.count;
+    if (r.state == GT_BRIDGE_WAIT) return -EAGAIN;
+    if (r.state == GT_BRIDGE_EOF || r.state == GT_BRIDGE_CLOSED) return 0;
+    return -EIO;
+  }
+  ssize_t rc=recv(s->sock,p,n,flags);
+  return rc<0 ? -(errno==EWOULDBLOCK || errno==EINTR ? EAGAIN : errno) : rc;
+}
+ssize_t gt__ssh_wire_write(gt_ssh_t *s, const void *p, size_t n, int flags) {
+  if (!s) return -EINVAL;
+  if (s->wire_stopped) return -EPIPE;
+  if (s->wire) {
+    gt_bridge_io_t r = gt__bridge_stream_write(s->wire,p,n,0);
+    if (r.state == GT_BRIDGE_DATA) return (ssize_t)r.count;
+    if (r.state == GT_BRIDGE_WAIT) return -EAGAIN;
+    return -EPIPE;
+  }
+#ifdef MSG_NOSIGNAL
+  flags |= MSG_NOSIGNAL;
+#endif
+  ssize_t rc=send(s->sock,p,n,flags);
+  return rc<0 ? -(errno==EWOULDBLOCK || errno==EINTR ? EAGAIN : errno) : rc;
+}
+int gt__ssh_wire_wait(gt_ssh_t *s,short events,int ms,const int *wake,size_t count) {
+  if (!s || ms<0 || count>2 || (count && !wake)) return -1;
+  if (s->wire) return gt__bridge_ssh_wait(s->wire,events,ms,wake,count);
+  struct pollfd fds[3]={{s->sock,events,0},{-1,POLLIN,0},{-1,POLLIN,0}};
+  for(size_t i=0;i<count;i++)fds[i+1].fd=wake[i];
+  int rc=poll(fds,(nfds_t)(count+1),ms);
+  if(rc<0 && errno==EINTR)return 0;
+  if(rc<0 || (fds[0].revents&POLLNVAL))return -1;
+  return rc>0;
+}
+static bool connector_wire_permitted(gt_ssh_t *s,size_t *n) {
+  if (!s->wire_bounded) return true;
+  if (!s->wire_left || (s->wire_stop && atomic_load_explicit(s->wire_stop,memory_order_acquire))) return false;
+  uint64_t now;
+  if (!s->wire_clock(s->wire_clock_context,&now) || now>=s->wire_deadline) return false;
+  if (*n>s->wire_left)*n=s->wire_left;
+  return true;
+}
+static LIBSSH2_RECV_FUNC(connector_wire_receive) {
+  (void)socket; gt_ssh_t *s=*abstract;
+  if (!connector_wire_permitted(s,&length))return -EAGAIN;
+  ssize_t n=gt__ssh_wire_read(s,buffer,length,flags);
+  if(n>0 && s->wire_bounded)s->wire_left-=(size_t)n;
+  return n;
+}
+static LIBSSH2_SEND_FUNC(connector_wire_send) {
+  (void)socket; gt_ssh_t *s=*abstract;
+  if (!connector_wire_permitted(s,&length))return -EAGAIN;
+  ssize_t n=gt__ssh_wire_write(s,buffer,length,flags);
+  if(n>0 && s->wire_bounded)s->wire_left-=(size_t)n;
+  return n;
+}
+static void connector_session(gt_ssh_t *s) {
+  s->session=libssh2_session_init_ex(NULL,NULL,NULL,s);
+  if (!s->session)return;
+  libssh2_session_set_blocking(s->session,0);
+  libssh2_session_callback_set2(s->session,LIBSSH2_CALLBACK_RECV,(libssh2_cb_generic *)connector_wire_receive);
+  libssh2_session_callback_set2(s->session,LIBSSH2_CALLBACK_SEND,(libssh2_cb_generic *)connector_wire_send);
+}
+
 /* Nonblocking connector owns fresh SSH throughout TCP/hostkey/auth. DNS and
  * UI decisions are supplied separately; no worker may outlive a cancellation. */
-typedef enum {CONNECT_SOCKET,CONNECT_POLL,CONNECT_HANDSHAKE,CONNECT_HOSTKEY,CONNECT_METHODS,CONNECT_AUTH} connect_stage;
+typedef enum {CONNECT_SOCKET,CONNECT_POLL,CONNECT_HANDSHAKE,CONNECT_HOSTKEY,CONNECT_METHODS,CONNECT_AUTH,CONNECT_STREAM} connect_stage;
 struct gt_ssh_connector {
   gt_allocator_t allocator;gt_ssh_t *ssh;gt_ssh_connector_config_t config;
   gt_ssh_connector_info_t info;connect_stage stage;uint64_t started,now;
@@ -650,14 +741,17 @@ static void connector_release(void *ctx,void *p,size_t n){(void)ctx;(void)n;free
 static void connector_drop(gt_ssh_connector_t *c) {
   if(c->ssh) {
     gt_ssh_t *s=c->ssh;
-    if(s->sock>=0)(void)shutdown(s->sock,SHUT_RDWR);
-    if(s->session){libssh2_session_set_blocking(s->session,1);libssh2_session_set_timeout(s->session,1);}
-    s->connected=false;gt_ssh_close(s);c->ssh=NULL;
+    gt__ssh_abort(s);
+    bool released=false;
+    (void)gt__ssh_dispose_step(&c->ssh,&released);
   }
   if(c->host_key){gt__secure_erase(c->host_key,strlen(c->host_key));free(c->host_key);c->host_key=NULL;}
 }
 static void connector_fail(gt_ssh_connector_t *c,gt_status_t error){c->info.phase=GT_SSH_CONNECT_FAILED;c->info.error=error;connector_drop(c);}
 static bool connector_tick(gt_ssh_connector_t *c) {
+  if(c->config.stop && atomic_load_explicit(c->config.stop,memory_order_acquire)) {
+    c->info.phase=GT_SSH_CONNECT_CANCELLED;c->info.error=GT_ERR_CANCELLED;connector_drop(c);return false;
+  }
   uint64_t now;if(!c->config.clock(c->config.clock_context,&now) || now<c->now){connector_fail(c,GT_ERR_INTERNAL);return false;}c->now=now;
   if(now-c->started>=c->config.timeout_ms){c->info.deadline=true;connector_fail(c,GT_ERR_IO);return false;}return true;
 }
@@ -674,6 +768,18 @@ gt_status_t gt__ssh_connector_open(gt_ssh_t **owned,const gt_ssh_connector_confi
   uint64_t now;if(!config->clock(config->clock_context,&now))return GT_ERR_IO;
   gt_ssh_connector_t *c=a.allocate(a.context,sizeof(*c));if(!c)return GT_ERR_IO;
   memset(c,0,sizeof(*c));c->allocator=a;c->config=*config;c->started=c->now=now;c->ssh=*owned;*owned=NULL;*out=c;return GT_OK;
+}
+gt_status_t gt__ssh_connector_open_stream(gt_ssh_t **owned,const gt_ssh_connector_config_t *config,
+  gt_bridge_stream_t **wire,const gt_allocator_t *allocator,gt_ssh_connector_t **out) {
+  if(out)*out=NULL;
+  if(!config || config->family!=0 || !wire || !*wire || !gt__bridge_ssh_forward_ready(*wire))return GT_ERR_INVALID_ARG;
+  if(gt__bridge_ssh_depth(*wire)>=8)return GT_ERR_UNSUPPORTED;
+  gt_ssh_connector_config_t checked=*config;checked.family=4;
+  gt_status_t rc=gt__ssh_connector_open(owned,&checked,allocator,out);
+  if(rc!=GT_OK)return rc;
+  gt_ssh_connector_t *c=*out;c->config=*config;c->stage=CONNECT_STREAM;
+  c->info.phase=GT_SSH_CONNECT_NEGOTIATING;c->ssh->wire=*wire;*wire=NULL;
+  return GT_OK;
 }
 static void connector_socket(gt_ssh_connector_t *c) {
   gt_ssh_t *s=c->ssh;int family=c->config.family==4?AF_INET:AF_INET6;int fd=socket(family,SOCK_STREAM,0);
@@ -722,16 +828,21 @@ gt_ssh_connector_phase_t gt__ssh_connector_step(gt_ssh_connector_t *c) {
   if((c->info.phase>=GT_SSH_CONNECT_READY && c->info.phase!=GT_SSH_CONNECT_CREDENTIALS) || !connector_tick(c))return c->info.phase;
   if(c->info.phase==GT_SSH_CONNECT_CREDENTIALS)return c->info.phase;
   gt_ssh_t *s=c->ssh;int rc=0;
+  s->wire_bounded=true;s->wire_left=65536;s->wire_clock=c->config.clock;
+  s->wire_clock_context=c->config.clock_context;s->wire_deadline=c->started+c->config.timeout_ms;s->wire_stop=c->config.stop;
   switch(c->stage) {
     case CONNECT_SOCKET:connector_socket(c);break;
     case CONNECT_POLL: {
       struct pollfd p={.fd=s->sock,.events=POLLOUT};rc=poll(&p,1,0);
       if(rc<0){if(errno!=EINTR)connector_fail(c,GT_ERR_IO);break;}if(!rc)break;
       int error=0;socklen_t n=sizeof(error);if((p.revents&(POLLERR|POLLHUP|POLLNVAL)) || getsockopt(s->sock,SOL_SOCKET,SO_ERROR,&error,&n) || error){connector_fail(c,GT_ERR_IO);break;}
-      s->session=libssh2_session_init();if(!s->session){connector_fail(c,GT_ERR_INTERNAL);break;}
-      libssh2_session_set_blocking(s->session,0);c->stage=CONNECT_HANDSHAKE;c->info.phase=GT_SSH_CONNECT_NEGOTIATING;break;
+      connector_session(s);if(!s->session){connector_fail(c,GT_ERR_INTERNAL);break;}
+      c->stage=CONNECT_HANDSHAKE;c->info.phase=GT_SSH_CONNECT_NEGOTIATING;break;
     }
-    case CONNECT_HANDSHAKE:rc=libssh2_session_handshake(s->session,s->sock);if(!rc)c->stage=CONNECT_HOSTKEY;else if(rc!=LIBSSH2_ERROR_EAGAIN)connector_fail(c,connector_error(rc));break;
+    case CONNECT_STREAM:
+      connector_session(s);if(!s->session){connector_fail(c,GT_ERR_INTERNAL);break;}
+      c->stage=CONNECT_HANDSHAKE;break;
+    case CONNECT_HANDSHAKE:rc=libssh2_session_handshake(s->session,gt__ssh_wire_descriptor(s));if(!rc)c->stage=CONNECT_HOSTKEY;else if(rc!=LIBSSH2_ERROR_EAGAIN)connector_fail(c,connector_error(rc));break;
     case CONNECT_HOSTKEY:if(c->info.phase!=GT_SSH_CONNECT_HOSTKEY)connector_hostkey(c);break;
     case CONNECT_METHODS: {
       char *methods=libssh2_userauth_list(s->session,s->username,(unsigned)strlen(s->username));
@@ -768,6 +879,18 @@ gt_ssh_connector_phase_t gt__ssh_connector_step(gt_ssh_connector_t *c) {
   return c->info.phase;
 }
 bool gt__ssh_connector_info(const gt_ssh_connector_t *c,gt_ssh_connector_info_t *out){if(out)memset(out,0,sizeof(*out));if(!c || !out)return false;*out=c->info;return true;}
+int gt__ssh_connector_wait(gt_ssh_connector_t *c,int ms,const int *wake,size_t count) {
+  if(!c || !c->ssh || ms<0 || c->info.phase==GT_SSH_CONNECT_HOSTKEY || c->info.phase==GT_SSH_CONNECT_CREDENTIALS)return 0;
+  if(c->config.stop && atomic_load_explicit(c->config.stop,memory_order_acquire))return 0;
+  short events=c->stage==CONNECT_POLL?POLLOUT:POLLIN;
+  if(c->ssh->session) {
+    int dirs=libssh2_session_block_directions(c->ssh->session);events=0;
+    if(dirs&LIBSSH2_SESSION_BLOCK_INBOUND)events|=POLLIN;
+    if(dirs&LIBSSH2_SESSION_BLOCK_OUTBOUND)events|=POLLOUT;
+    if(!events)events=POLLIN;
+  }
+  return gt__ssh_wire_wait(c->ssh,events,ms,wake,count);
+}
 gt_status_t gt__ssh_connector_supply(gt_ssh_connector_t *c,gt_ssh_t **owned) {
   if(!c || !owned || !*owned || c->info.phase!=GT_SSH_CONNECT_CREDENTIALS || !c->config.defer_credentials)return GT_ERR_INVALID_ARG;
   if(!connector_tick(c))return c->info.error;
@@ -789,17 +912,39 @@ bool gt__ssh_connector_take(gt_ssh_connector_t *c,gt_ssh_t **out) {
   /* libssh2 blocking mode implements bounded waits around nonblocking recv.
    * Making the OS socket blocking here bypasses its timeout machinery. */
   libssh2_session_set_blocking(c->ssh->session,1);libssh2_session_set_timeout(c->ssh->session,5000);*out=c->ssh;c->ssh=NULL;c->info.phase=GT_SSH_CONNECT_TAKEN;
+  (*out)->wire_bounded=false;(*out)->wire_stop=NULL;(*out)->wire_clock=NULL;
   free(c->host_key);c->host_key=NULL;return true;
 }
 void gt__ssh_connector_cancel(gt_ssh_connector_t *c){if(!c || (c->info.phase>=GT_SSH_CONNECT_TAKEN && c->info.phase!=GT_SSH_CONNECT_CREDENTIALS))return;c->info.phase=GT_SSH_CONNECT_CANCELLED;c->info.error=GT_ERR_CANCELLED;connector_drop(c);}
-void gt__ssh_connector_close(gt_ssh_connector_t *c){if(!c)return;connector_drop(c);gt_allocator_t a=c->allocator;gt__secure_erase(c,sizeof(*c));a.release(a.context,c,sizeof(*c));}
+gt_status_t gt__ssh_connector_dispose(gt_ssh_connector_t **owned,bool *released) {
+  if(released)*released=false;
+  if(!owned || !*owned || !released)return GT_ERR_INVALID_ARG;
+  gt_ssh_connector_t *c=*owned;connector_drop(c);
+  if(c->ssh)return GT_OK;
+  gt_allocator_t a=c->allocator;gt__secure_erase(c,sizeof(*c));a.release(a.context,c,sizeof(*c));
+  *owned=NULL;*released=true;return GT_OK;
+}
+void gt__ssh_connector_close(gt_ssh_connector_t *c){if(!c)return;bool released=false;(void)gt__ssh_connector_dispose(&c,&released);}
 
 int gt__ssh_borrow(gt_ssh_t *ssh,void **session,int *socket) {
-  if(!ssh || !ssh->connected || !session || !socket)return GT_ERR_INVALID_ARG;
+  if(!ssh || !ssh->connected || !session || !socket || ssh->bridge_owned)return GT_ERR_INVALID_ARG;
+  if(ssh->wire)return GT_ERR_UNSUPPORTED;
+  ssh->channel_started=true;
   *session=ssh->session;*socket=ssh->sock;return GT_OK;
+}
+int gt__ssh_stream_claim(gt_ssh_t *ssh,void **session,int *socket,bool commit) {
+  if(!ssh || !ssh->connected || !ssh->session || !session || !socket ||
+     ssh->channel_started || ssh->bridge_owned)return GT_ERR_INVALID_ARG;
+  void *context=*libssh2_session_abstract(ssh->session);
+  if(context && context!=ssh)return GT_ERR_INVALID_ARG;
+  *session=ssh->session;*socket=gt__ssh_wire_descriptor(ssh);
+  if(commit)ssh->bridge_owned=true;
+  return GT_OK;
 }
 int gt_ssh_abort(gt_ssh_t *ssh) {
   if (!ssh) return GT_ERR_INVALID_ARG;
+  ssh->wire_bounded=false;ssh->wire_stopped=true;
+  if(ssh->wire)gt__bridge_stream_stop(ssh->wire);
   int result = 0;
   if (ssh->sock >= 0) {
     do { result = shutdown(ssh->sock, SHUT_RDWR); } while (result < 0 && errno == EINTR);
@@ -812,10 +957,39 @@ int gt_ssh_abort(gt_ssh_t *ssh) {
 }
 void gt__ssh_abort(gt_ssh_t *ssh) { (void)gt_ssh_abort(ssh); }
 
+gt_status_t gt__ssh_dispose_step(gt_ssh_t **owned, bool *released) {
+  if (released) *released = false;
+  if (!owned || !*owned || !released || (*owned)->connected) return GT_ERR_INVALID_ARG;
+  gt_ssh_t *ssh = *owned;
+  if (ssh->session) {
+    libssh2_session_set_blocking(ssh->session, 0);
+    int rc = libssh2_session_free(ssh->session);
+    if (rc == LIBSSH2_ERROR_EAGAIN) return GT_OK;
+    if (rc) return GT_ERR_IO;
+    ssh->session = NULL;
+  }
+  if(ssh->wire) {
+    gt_bridge_close_t rc=gt__bridge_stream_close(ssh->wire,0);
+    if(rc==GT_BRIDGE_CLOSE_ERROR)return GT_ERR_IO;
+    if(rc!=GT_BRIDGE_RELEASED)return GT_OK;
+    if(gt__bridge_stream_destroy(ssh->wire)!=GT_OK)return GT_ERR_IO;
+    ssh->wire=NULL;
+  }
+  *owned = NULL;
+  gt_ssh_close(ssh);
+  *released = true;
+  return GT_OK;
+}
+
 
 
 void gt_ssh_close(gt_ssh_t *ssh) {
   if (!ssh) return;
+  if(ssh->wire) {
+    gt__ssh_abort(ssh);bool released=false;
+    if(gt__ssh_dispose_step(&ssh,&released)!=GT_OK || !released)gt__set_error("SSH: nested owner requires disposal continuation");
+    return;
+  }
   if (ssh->session) {
     libssh2_session_set_timeout(ssh->session,100);
     if (ssh->connected) libssh2_session_disconnect(ssh->session, "bye");
@@ -843,10 +1017,12 @@ void gt__ssh_io_unlock(gt_ssh_t *ssh) {
  * 契约：libssh2 句柄不穿透——上层只见 gt_sftp_* / gt_sftp_entry_t。
  * 线程：与 shell 通道同规则，全部由**同一会话线程**独占调用。 */
 gt_sftp_t *gt_ssh_sftp(gt_ssh_t *ssh) {
-  if (!ssh || !ssh->connected || !ssh->session) {
+  if(ssh && ssh->wire){gt__set_error("gt_ssh_sftp: virtual SSH supports managed bridge channels only");return NULL;}
+  if (!ssh || !ssh->connected || !ssh->session || ssh->bridge_owned) {
     gt__set_error("gt_ssh_sftp: 会话未连接");
     return NULL;
   }
+  ssh->channel_started=true;
   return gt__sftp_from_session(ssh->session, ssh);
 }
 
@@ -897,10 +1073,11 @@ static LIBSSH2_CHANNEL *command_channel(gt_ssh_t *ssh, const char *command,
                                         int *status, bool distinct_timeout) {
   LIBSSH2_CHANNEL *channel = NULL;
   *status = GT_ERR_IO;
-  if (!ssh || !ssh->connected || !ssh->session) {
+  if (!ssh || !ssh->connected || !ssh->session || ssh->bridge_owned) {
     gt__set_error("SSH: connection unavailable");
     return NULL;
   }
+  ssh->channel_started=true;
   if ((*status = channel_budget_status(b, distinct_timeout)) != GT_OK) goto failed;
   libssh2_session_set_blocking(ssh->session, 0);
   while (!(channel = libssh2_channel_open_session(ssh->session))) {
@@ -959,9 +1136,10 @@ failed:
 int gt__command_ssh(gt_ssh_t *ssh, const char *command,
                     const gt_command_budget_t *b, gt_command_result_t *r) {
   memset(r, 0, sizeof *r);
+  if(ssh && ssh->wire)return GT_ERR_UNSUPPORTED;
   if (gt__command_expired(b))
     return GT_ERR_CANCELLED;
-  if (!ssh || !ssh->session || !ssh->connected)
+  if (!ssh || !ssh->session || !ssh->connected || ssh->bridge_owned)
     return GT_ERR_IO;
   gt__ssh_io_lock(ssh);
   long previous = libssh2_session_get_timeout(ssh->session);
@@ -1044,7 +1222,8 @@ static void *ssh_interactive_open(gt_ssh_t *ssh, const char *command,
                            const gt_shell_opts_t *opts, uint32_t timeout_ms,
                            bool (*cancelled)(void *), void *context, gt_status_t *out_status, bool distinct_timeout) {
   if (out_status) *out_status = GT_ERR_INVALID_ARG;
-  if (!ssh || !ssh->session)
+  if(ssh && ssh->wire){if(out_status)*out_status=GT_ERR_UNSUPPORTED;return NULL;}
+  if (!ssh || !ssh->session || ssh->bridge_owned)
     return NULL;
   gt_command_budget_t budget = {
       gt__command_now() + (timeout_ms ? timeout_ms : 5000), cancelled, context};
@@ -1081,7 +1260,7 @@ static void *ssh_interactive_open(gt_ssh_t *ssh, const char *command,
 
 static int64_t mono_ms(void) {
   struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
+  if (clock_gettime(CLOCK_MONOTONIC, &ts)) return -1;
   return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
@@ -1262,15 +1441,14 @@ typedef struct gt_ssh_exec {
   LIBSSH2_SESSION *sess;
   LIBSSH2_CHANNEL *chan;
   bool closed;
-  bool stdout_eof;
-  bool stderr_eof;
 } gt_ssh_exec_t;
 
 gt_ssh_exec_t *gt_ssh_exec(gt_ssh_t *ssh, const char *command,
                            gt_status_t *out_status) {
   if (out_status)
     *out_status = GT_ERR_INTERNAL;
-  if (!ssh || !ssh->connected || !ssh->session) {
+  if(ssh && ssh->wire){if(out_status)*out_status=GT_ERR_UNSUPPORTED;return NULL;}
+  if (!ssh || !ssh->connected || !ssh->session || ssh->bridge_owned) {
     gt__set_error("ssh_exec: 会话未连接");
     if (out_status)
       *out_status = GT_ERR_INVALID_ARG;
@@ -1315,77 +1493,91 @@ gt_ssh_exec_t *gt_ssh_exec(gt_ssh_t *ssh, const char *command,
   }
   e->chan = chan;
   e->closed = false;
-  e->stdout_eof = false;
-  e->stderr_eof = false;
   if (out_status)
     *out_status = GT_OK;
   return e;
 }
 
 /*
- * 读一路输出。stdout 先读、stderr 其次——两路都用**短时片**（100ms）读，
- * 分片之间释放 I/O 锁，故长命令（远端 find）期间浏览/传输仍能推进。
- * 只有两路都 EOF 才报 EOF（铁律 #6：不把超时折叠成 EOF）。
+ * 两路均非阻塞读取；无数据时最多 poll 50ms，并在等待前释放会话锁。
+ * 只有 channel 确认 EOF 且全部排队输出已读完才报 EOF；0 是无 payload。
  */
 static int64_t exec_mono_ms(void) {
   struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
+  if (clock_gettime(CLOCK_MONOTONIC, &ts)) return -1;
   return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
 int gt_ssh_exec_read(gt_ssh_exec_t *e, uint8_t *buf, size_t cap,
                      int timeout_ms, bool *is_stderr) {
   if (is_stderr) *is_stderr = false;
-  if (!e || !buf || cap == 0) return GT_EXEC_READ_ERROR;
+  if (!e || !buf || cap == 0 || cap > INT_MAX) return GT_EXEC_READ_ERROR;
   int64_t start = exec_mono_ms();
+  if (start < 0) return GT_EXEC_READ_ERROR;
   for (;;) {
     gt__ssh_io_lock(e->ssh);
     long previous_timeout = libssh2_session_get_timeout(e->sess);
-    libssh2_session_set_timeout(e->sess, 100);
+    int previous_blocking = libssh2_session_get_blocking(e->sess);
+    /* A zero budget must never enter libssh2's blocking read. Polling outside
+     * the lock leaves sibling SFTP work runnable and preserves its settings. */
+    libssh2_session_set_blocking(e->sess, 0);
+    libssh2_session_set_timeout(e->sess, 50);
     ssize_t n = -1;
-    bool fromerr = false;
-    bool hard = false;
-    if (!e->stdout_eof) {
-      ssize_t a = libssh2_channel_read(e->chan, (char *)buf, cap);
-      if (a > 0) n = a;
-      else if (a == 0) e->stdout_eof = true;
-      else if (a != LIBSSH2_ERROR_TIMEOUT && a != LIBSSH2_ERROR_EAGAIN) hard = true;
-    }
-    if (n < 0 && !hard && !e->stderr_eof) {
+    bool fromerr = false, hard = false;
+    ssize_t a = libssh2_channel_read(e->chan, (char *)buf, cap);
+    if (a > 0) n = a;
+    else if (a != 0 && a != LIBSSH2_ERROR_TIMEOUT && a != LIBSSH2_ERROR_EAGAIN) hard = true;
+    if (n < 0 && !hard) {
       ssize_t b = libssh2_channel_read_stderr(e->chan, (char *)buf, cap);
       if (b > 0) { n = b; fromerr = true; }
-      else if (b == 0) e->stderr_eof = true;
-      else if (b != LIBSSH2_ERROR_TIMEOUT && b != LIBSSH2_ERROR_EAGAIN) hard = true;
+      else if (b != 0 && b != LIBSSH2_ERROR_TIMEOUT && b != LIBSSH2_ERROR_EAGAIN) hard = true;
     }
-    bool both_eof = e->stdout_eof && e->stderr_eof;
-    char *emsg = NULL;
-    if (hard) libssh2_session_last_error(e->sess, &emsg, NULL, 0);
-    /* The polling slice belongs to this read, not sibling SFTP channels. */
+    /* The library's channel EOF includes all queued streams. No per-stream
+     * latch on raw 0: a later read must still pump late exit-status packets. */
+    bool both_eof = n < 0 && libssh2_channel_eof(e->chan);
+    int directions = n < 0 ? libssh2_session_block_directions(e->sess) : 0;
+    int socket = e->ssh->sock;
+    char diagnostic[192] = {0};
+    if (hard && !both_eof) {
+      char *message = NULL;
+      libssh2_session_last_error(e->sess, &message, NULL, 0);
+      snprintf(diagnostic, sizeof(diagnostic), "%s", message ? message : "unknown");
+    }
+    libssh2_session_set_blocking(e->sess, previous_blocking);
     libssh2_session_set_timeout(e->sess, previous_timeout);
     gt__ssh_io_unlock(e->ssh);
-
     if (n > 0) { if (is_stderr) *is_stderr = fromerr; return (int)n; }
     if (both_eof) return GT_EXEC_READ_EOF;
-    if (hard) {
-      gt__set_error("ssh_exec read: %s", emsg ? emsg : "unknown");
-      return GT_EXEC_READ_ERROR;
+    if (hard) { gt__set_error("ssh_exec read: %s", diagnostic); return GT_EXEC_READ_ERROR; }
+    int64_t now = exec_mono_ms();
+    if (now < start) return GT_EXEC_READ_ERROR;
+    int wait = 50;
+    if (timeout_ms >= 0) {
+      int64_t remaining = timeout_ms - (now - start);
+      if (remaining <= 0) return GT_EXEC_READ_TIMEOUT;
+      if (remaining < wait) wait = (int)remaining;
     }
-    if (timeout_ms >= 0 && exec_mono_ms() - start >= timeout_ms)
-      return GT_EXEC_READ_TIMEOUT;
+    short events = 0;
+    if (directions & LIBSSH2_SESSION_BLOCK_INBOUND) events |= POLLIN;
+    if (directions & LIBSSH2_SESSION_BLOCK_OUTBOUND) events |= POLLOUT;
+    if (!events) events = POLLIN;
+    struct pollfd p = {socket, events, 0};
+    int rc = poll(&p, 1, wait);
+    if (rc < 0 && errno != EINTR) return GT_EXEC_READ_ERROR;
+    if (p.revents & POLLNVAL) return GT_EXEC_READ_ERROR;
   }
 }
 
 bool gt_ssh_exec_exit_status(gt_ssh_exec_t *e, int *exit_code) {
   if (!e) return false;
   gt__ssh_io_lock(e->ssh);
-  /* 必须先 close：libssh2 要在通道关闭时才把 exit-status 收全。 */
-  if (!e->closed) {
-    libssh2_channel_close(e->chan);
-    e->closed = true;
-  }
-  int rc = libssh2_channel_get_exit_status(e->chan);
+  /* Passive snapshot: never send EOF/CLOSE to discover an optional status.
+   * Only an explicit complete packet proves even a reported exit value 0. */
+  int value = 0;
+  int rc = libssh2_ghosterm_channel_exit_status(e->chan, &value);
   gt__ssh_io_unlock(e->ssh);
-  if (exit_code) *exit_code = rc;
+  if (rc != 1) return false;
+  if (exit_code) *exit_code = value;
   return true;
 }
 
@@ -1421,10 +1613,22 @@ gt_status_t gt__ssh_connector_supply(gt_ssh_connector_t *c,gt_ssh_t **s){(void)c
 bool gt__ssh_connector_take(gt_ssh_connector_t *c,gt_ssh_t **o){(void)c;if(o)*o=NULL;return false;}
 void gt__ssh_connector_cancel(gt_ssh_connector_t *c){(void)c;}
 void gt__ssh_connector_close(gt_ssh_connector_t *c){(void)c;}
+gt_status_t gt__ssh_connector_open_stream(gt_ssh_t **s,const gt_ssh_connector_config_t *c,gt_bridge_stream_t **w,const gt_allocator_t *a,gt_ssh_connector_t **o){(void)s;(void)c;(void)w;(void)a;if(o)*o=NULL;return GT_ERR_UNSUPPORTED;}
+gt_status_t gt__ssh_connector_dispose(gt_ssh_connector_t **c,bool *r){(void)c;if(r)*r=false;return GT_ERR_UNSUPPORTED;}
+int gt__ssh_connector_wait(gt_ssh_connector_t *c,int t,const int *w,size_t n){(void)c;(void)t;(void)w;(void)n;return -1;}
+bool gt__ssh_route_fresh(const gt_ssh_t *s){(void)s;return false;}
+uint16_t gt__ssh_route_port(const gt_ssh_t *s){(void)s;return 0;}
+int gt__ssh_wire_descriptor(const gt_ssh_t *s){(void)s;return -1;}
+unsigned gt__ssh_wire_depth(const gt_ssh_t *s){(void)s;return 0;}
+ssize_t gt__ssh_wire_read(gt_ssh_t *s,void *b,size_t n,int f){(void)s;(void)b;(void)n;(void)f;return -1;}
+ssize_t gt__ssh_wire_write(gt_ssh_t *s,const void *b,size_t n,int f){(void)s;(void)b;(void)n;(void)f;return -1;}
+int gt__ssh_wire_wait(gt_ssh_t *s,short e,int t,const int *f,size_t n){(void)s;(void)e;(void)t;(void)f;(void)n;return -1;}
 
 
 int gt__ssh_borrow(gt_ssh_t *s,void **p,int *fd){(void)s;if(p)*p=NULL;if(fd)*fd=-1;return GT_ERR_UNSUPPORTED;}
+int gt__ssh_stream_claim(gt_ssh_t *s,void **p,int *fd,bool c){(void)s;(void)c;if(p)*p=NULL;if(fd)*fd=-1;return GT_ERR_UNSUPPORTED;}
 void gt__ssh_abort(gt_ssh_t *s){(void)s;}
+gt_status_t gt__ssh_dispose_step(gt_ssh_t **s,bool *r){(void)s;if(r)*r=false;return GT_ERR_UNSUPPORTED;}
 int gt_ssh_abort(gt_ssh_t *ssh) { return ssh ? GT_ERR_UNSUPPORTED : GT_ERR_INVALID_ARG; }
 
 
@@ -1536,7 +1740,7 @@ int gt_ssh_exec_read(gt_ssh_exec_t *e, uint8_t *b, size_t c, int t, bool *is_err
   return GT_EXEC_READ_ERROR;
 }
 bool gt_ssh_exec_exit_status(gt_ssh_exec_t *e, int *code) {
-  (void)e; if (code) *code = 0; return false;
+  (void)e; (void)code; return false;
 }
 void gt_ssh_exec_close(gt_ssh_exec_t *e) { (void)e; }
 

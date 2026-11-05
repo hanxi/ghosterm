@@ -94,6 +94,13 @@ void gt__ssh_io_lock(gt_ssh_t *ssh);
 void gt__ssh_io_unlock(gt_ssh_t *ssh);
 
 int gt__ssh_borrow(gt_ssh_t *,void **session,int *socket);
+/* A fresh authenticated connection only: rejects any prior channel/borrow.
+ * false preflights; true commits a dedicated bridge claim on this serial owner. */
+int gt__ssh_stream_claim(gt_ssh_t *,void **session,int *socket,bool commit);
 void gt__ssh_abort(gt_ssh_t *);
+/* Dedicated owner, after socket abort and resuming its pending libssh2 call.
+ * One nonblocking free attempt; EAGAIN retains capacity and ownership. Success
+ * frees SSH/credentials and sets *owned=NULL. Never use with sibling channels. */
+gt_status_t gt__ssh_dispose_step(gt_ssh_t **owned, bool *released);
 
 #endif /* GHOSTERM_INTERNAL_H */

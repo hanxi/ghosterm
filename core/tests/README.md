@@ -1,5 +1,100 @@
 # core/tests — 测试与黄金夹具
 
+## 插件 wire 原始字节与 schema
+
+`bridge_wire` 经 stdin 夹具调用实际 C `wire.c`，607 项覆盖 SDK 候选 envelope / outcome / handshake / RPC、uint64、
+规范数值 / SemVer / Base64、重复 decoded key / 跨对象 key、UTF-8 / surrogate、每字节截断、byte / depth /
+node 两侧界限、失败输出 / view 和 allocator / 擦除。它不检查连接 / 实例归属、授权或序号连续性。
+`bridge_wire_generated` 执行 `generate-plugin-wire.py --check`；候选 schema 为事实来源，生成物勿手改。
+
+```bash
+python3 scripts/generate-plugin-wire.py          # schema 变化后显式再生
+python3 scripts/test-plugin-wire.py
+python3 scripts/test-plugin-wire.py --reference # 离线锁定 Ajv，对拍其中 260 个 schema 实例
+python3 scripts/mutation-check-plugin-wire.py
+```
+
+reference 首次缺开发缓存可显式加 `--fetch`；默认 Core CTest 不需要 npm / Node。其余 347 项是 lexical /
+owner 策略，不能称 Ajv 已验证。十六组隔离 ASan / UBSan 变异要求正常 C 断言红、同库配置绿、恢复全套 / 生成物
+绿及 SHA256；编译、崩溃与超时不算目标红。无 SSH archive 复用相同 wire 用例，无平台绑定 / SSH 会话结论。
+完整范围见插件计划第十三至十五批；变异手工执行，不增加 macOS CI 二十份。
+
+## 插件会话握手与实例授权
+
+`bridge_session_*` 的 27 个本机 socket mode 验实际 C Session 与 caller 提供的 local peer 事实，不能
+替代 S5 的 IPC 身份核验。覆盖 HELLO / OFFER、UNKNOWN / native ticket 决定、nonce challenge、双方 READY、
+control seq / instance / epoch、metadata / capability / budget、scoped lease / 撤销、半帧 / EOF、等待决定与
+IO 后期限、分配 / entropy / fd 释放。默认不启用 requests；显式启用时走下面的私有 RPC owner，
+双方 features 必须精确匹配。event / resource 尚不派发，收到必须报不支持。
+`bridge_session_ssh` 打包两 / 三台不同 hostkey 的四场景，实际 C Executor 通过无 PTY SSH stdio 运行，
+native dial 仅准第一跳；允许后撤销与拒绝另验，未证明 UI 或真实封闭内网。
+
+```bash
+ctest --test-dir core/build --output-on-failure -R '^bridge_session_'
+python3 scripts/test-plugin-session.py
+python3 scripts/mutation-check-plugin-session.py
+```
+
+21 组隔离 ASan / UBSan 变异均须编译后正常 C 断言红、同库配置绿、恢复全部 27 socket / 4 SSH 绿与 SHA256；
+无库 archive 复用 27 socket 和同一 wire，SSH 四场景只在真实依赖档运行。不把 native lease 当成已发生的用户
+批准 UI / 插件运行，完整范围和期限问题的负向复现见插件计划第十四批；不增加 CI 二十份。
+
+## 插件有界请求与结果
+
+`bridge_rpc_*` 的 31 个 socket mode 使用同一实际 Session 和固定 method 注册表，覆盖输入 / 输出校验、
+receiver / capability / lease、64 项双向容量、request / response 独立 credit / seq、重复 / 缓存淘汰、
+取消 / 相对期限、晚到结果、断线 UNKNOWN 与确认结果保留。JSON view 借用至下一次修改 owner / step、
+forget 或 destroy，异步使用必须先复制。wire ID 仅在有 credit 且交给 writer 时分配；旧 ID 不重新执行。
+`bridge_rpc_ssh` 含两 / 三跳允许 / 拒绝四场景，允许项各有 80 次实际 echo 请求后撤销；没有业务插件副作用。
+
+```bash
+ctest --test-dir core/build --output-on-failure -R '^bridge_rpc_'
+python3 scripts/test-plugin-session.py --rpc --binary core/build/test_bridge_rpc
+python3 scripts/mutation-check-plugin-rpc.py
+```
+
+23 组隔离 ASan / UBSan 变异要求编译后正常 C 断言红、同 archive 配置绿、恢复 31 socket / 4 SSH 绿与
+SHA256。RPC / Session / wire 三套 runner 每轮显式删除隔离副本中受影响的 Core / include-based test
+object 并核对编译日志，避免快速恢复留下旧对象。没有 LSan / UI / ResourceStore / 实际插件激活或设备结论；
+详细证据和失败记录见插件计划第十五批，手工变异不增加 macOS CI 二十份。
+
+## 插件独立 SSH 字节流
+
+`bridge_stream_*` 验私有分帧与真实 pipe / socketpair。`bridge_ssh_e2e` 验锁定 libssh2、隔离
+OpenSSH 与 Paramiko 4.0.0 故障端：无 PTY 双向帧、stderr 限额、截断、取消、exec 拒绝、缺退出状态、
+reset 和与普通终端的关闭隔离。测试用内存密钥和专属 agent，不读用户密钥，不访问用户 tmux。
+
+有 SSH 的默认 Core gate 需要预备测试工具链；缺依赖报错，不 SKIP，也不在 gate 内联网安装：
+
+```bash
+bash scripts/bootstrap-ssh-channel-tests.sh  # 显式联网准备锁定的测试依赖
+bash scripts/gate.sh
+python3 scripts/test-plugin-ssh-stream.py    # 默认离线；使用已构建的 test_bridge_ssh
+python3 scripts/mutation-check-plugin-ssh-stream.py
+```
+
+还需本机 `sshd` / `ssh-agent` / `ssh-add`、支持 Ed25519 的 OpenSSL CLI，以及 `timeout` 或 `gtimeout`。
+macOS CI 已接入工具链准备和 OpenSSL PATH；是否实际通过以本轮云端日志为准。协议故障端不证明任意
+真实服务器、WAN、多跳或 App 可用；十四组变异为手工入口，不增加 macOS CI 二十份。显式无 SSH 构建
+另注册 `bridge_ssh_unsupported` 并链接实际 stub archive；详细证据和剩余事项见插件计划第十批。
+
+旧 exec 的 `ssh_exec_boundary` 与 `bridge_exec_e2e` 另护 EOF / 状态存在性。`gt_ssh_exec_exit_status`
+是被动快照，不关闭通道，不凭缺省 0 报成功，未知不改输出；EOF 后迟到状态通过后续 read 推进。
+`python3 scripts/test-plugin-ssh-stream.py --legacy` 跑十个协议场景，
+`python3 scripts/mutation-check-exec-state.py` 跑十六组 Core / 实际依赖 / 无库变异；
+`bash scripts/mutation-check-exec.sh` 仍护原三组，保留原已知 0 / 3 断言及恢复会话 timeout。
+主机和 Android 当前依赖均须应用 `0004-channel-exit-status.patch`，只验新 getter 返回整数值不足以
+证明状态存在。第十一批为本机/原生编译证据，完整平台和端点矩阵仍见插件计划，不新增 CI 二十份。
+
+`bridge_route_e2e` 链接实际 libssh2 验受管 direct-tcpip 两 / 三层路线；仅客户端 native `connect`
+边界禁止直拨内层，每跳不同 pin，跳板禁 shell 且只准转发下一跳。十八场景包括逐跳认证事实、
+未知身份决定 / 补凭据、内层错 pin / 密码、第一 / 中间跳转发拒绝、半开、总期限、取消、所有权和释放。
+半开取消以实际内层 SSH banner 作屏障，不能用等待固定时长代替。每项精确 allocator 与 fd 基线恢复。
+`python3 scripts/test-plugin-route.py` 独立复验；`python3 scripts/mutation-check-plugin-route.py`
+在隔离 Core 用 ASan / UBSan 编译十三组，每组正常 C 断言红、同库配置绿、恢复十八场景绿与 SHA256。
+实际无库构建另注册 `bridge_route_unsupported`。八台是配置上限，不是本轮实测层数；无 App / Android
+设备 / WAN / 真实封闭内网结论，十三组仍为手工，不增加 CI 二十份。详细证据见插件计划第十二批。
+
 ## 受控远端单目录创建
 
 `gt_sftp_mkdir_controlled` 在专用 owner 上用一个正预算完成父目录 LSTAT/REALPATH、目标不存在检查、0700 MKDIR、子目录 LSTAT/REALPATH 和空目录 OPEN/READ/CLOSE。只有服务器明确返回不存在才尝试创建；未尝试、冲突、未知、明确拒绝、已创建但未核验、核验完成分别保留。创建确认后的取消不会抹掉副作用，最终成功也不被迟到取消改写；不自动重试、合并或删除。SFTP v3 的元数据核验不是父目录 inode 固定或任意远端写者下的原子保证。

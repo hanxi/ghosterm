@@ -1,0 +1,791 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghosterm.invalid/plugin-schema/bridge-v1.candidate.json",
+  "$comment": "P0 candidate only; private Core wire validation is generated from this schema, without a public compatibility promise. JSON instance validation does not authorize a message or replace lexical/UTF-8/byte/depth limits and channel/resource state checks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "wireVersion",
+    "connectionId",
+    "instanceId",
+    "epoch",
+    "streamId",
+    "seq",
+    "kind",
+    "payload"
+  ],
+  "properties": {
+    "wireVersion": {
+      "const": 1
+    },
+    "connectionId": {
+      "$ref": "#/$defs/id"
+    },
+    "instanceId": {
+      "$ref": "#/$defs/id"
+    },
+    "epoch": {
+      "$ref": "#/$defs/positiveCounter"
+    },
+    "streamId": {
+      "$ref": "#/$defs/name"
+    },
+    "seq": {
+      "$ref": "#/$defs/counter"
+    },
+    "kind": {
+      "enum": [
+        "offer",
+        "request",
+        "response",
+        "event",
+        "cancel",
+        "credit",
+        "resource.begin",
+        "resource.chunk",
+        "resource.end",
+        "close",
+        "hello",
+        "probe",
+        "accept",
+        "ready"
+      ]
+    },
+    "payload": {}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "offer"
+        },
+        "payload": {
+          "$ref": "#/$defs/offer"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "request"
+        },
+        "payload": {
+          "$ref": "#/$defs/request"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "response"
+        },
+        "payload": {
+          "$ref": "#/$defs/response"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "event"
+        },
+        "payload": {
+          "$ref": "#/$defs/event"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "cancel"
+        },
+        "payload": {
+          "$ref": "#/$defs/cancel"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "credit"
+        },
+        "payload": {
+          "$ref": "#/$defs/credit"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "resource.begin"
+        },
+        "payload": {
+          "$ref": "#/$defs/resourceBegin"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "resource.chunk"
+        },
+        "payload": {
+          "$ref": "#/$defs/resourceChunk"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "resource.end"
+        },
+        "payload": {
+          "$ref": "#/$defs/resourceEnd"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "close"
+        },
+        "payload": {
+          "$ref": "#/$defs/close"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "hello"
+        },
+        "payload": {
+          "$ref": "#/$defs/hello"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "probe"
+        },
+        "payload": {
+          "$ref": "#/$defs/probe"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "accept"
+        },
+        "payload": {
+          "$ref": "#/$defs/accept"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "ready"
+        },
+        "payload": {
+          "$ref": "#/$defs/ready"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "digest": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "counter": {
+      "type": "string",
+      "maxLength": 20,
+      "pattern": "^(?:0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|18446744073709550[0-9]{3}|18446744073709551[0-5][0-9]{2}|1844674407370955160[0-9]{1}|1844674407370955161[0-4]|18446744073709551615)$"
+    },
+    "positiveCounter": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/counter"
+        },
+        {
+          "not": {
+            "const": "0"
+          }
+        }
+      ]
+    },
+    "pluginId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*$"
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fragmentBytes",
+        "messageBytes",
+        "resourceBytes"
+      ],
+      "properties": {
+        "fragmentBytes": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 768
+        },
+        "messageBytes": {
+          "type": "integer",
+          "minimum": 128,
+          "maximum": 65536
+        },
+        "resourceBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16777216
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "effect"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "UNSUPPORTED",
+            "DENIED",
+            "EXPIRED",
+            "INVALID_INPUT",
+            "RESOURCE_LIMIT",
+            "CANCELLED",
+            "IO",
+            "PROTOCOL",
+            "INTERNAL"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "effect": {
+          "enum": [
+            "none",
+            "possible"
+          ]
+        }
+      }
+    },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "value"
+          ],
+          "properties": {
+            "kind": {
+              "const": "success"
+            },
+            "value": {}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "error"
+          ],
+          "properties": {
+            "kind": {
+              "const": "failed"
+            },
+            "error": {
+              "$ref": "#/$defs/error"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "effect"
+          ],
+          "properties": {
+            "kind": {
+              "const": "cancelled"
+            },
+            "effect": {
+              "enum": [
+                "none",
+                "possible"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "properties": {
+            "kind": {
+              "const": "unknown"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          }
+        }
+      ]
+    },
+    "offer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pluginId",
+        "pluginVersion",
+        "clientDigest",
+        "executorDigest",
+        "route",
+        "requires",
+        "budgets",
+        "hostVersion",
+        "sdkVersion",
+        "hostNonce",
+        "nonce",
+        "consentMs",
+        "features"
+      ],
+      "properties": {
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "pluginVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "clientDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "executorDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "route": {
+          "enum": [
+            "tty-push",
+            "direct-duplex"
+          ]
+        },
+        "requires": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/name"
+          }
+        },
+        "budgets": {
+          "$ref": "#/$defs/budgets"
+        },
+        "hostVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "sdkVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "hostNonce": {
+          "$ref": "#/$defs/id"
+        },
+        "nonce": {
+          "$ref": "#/$defs/id"
+        },
+        "consentMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600000
+        },
+        "features": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/name"
+          }
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "method",
+        "input",
+        "timeoutMs"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/id"
+        },
+        "method": {
+          "$ref": "#/$defs/name"
+        },
+        "input": {},
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600000
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "outcome"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/id"
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic",
+        "value"
+      ],
+      "properties": {
+        "topic": {
+          "$ref": "#/$defs/name"
+        },
+        "value": {}
+      }
+    },
+    "cancel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "credit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "streamId"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "streamId": {
+          "$ref": "#/$defs/name"
+        }
+      }
+    },
+    "resourceBegin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resourceId",
+        "generation",
+        "displayName",
+        "mime",
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "resourceId": {
+          "$ref": "#/$defs/id"
+        },
+        "generation": {
+          "$ref": "#/$defs/positiveCounter"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+        },
+        "mime": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "size": {
+          "$ref": "#/$defs/size"
+        }
+      }
+    },
+    "resourceChunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resourceId",
+        "generation",
+        "offset",
+        "dataBase64"
+      ],
+      "properties": {
+        "resourceId": {
+          "$ref": "#/$defs/id"
+        },
+        "generation": {
+          "$ref": "#/$defs/positiveCounter"
+        },
+        "offset": {
+          "$ref": "#/$defs/counter"
+        },
+        "dataBase64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 1024,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=|[A-Za-z0-9+/][AQgw]==)?$"
+        }
+      }
+    },
+    "resourceEnd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resourceId",
+        "generation",
+        "byteLength",
+        "sha256"
+      ],
+      "properties": {
+        "resourceId": {
+          "$ref": "#/$defs/id"
+        },
+        "generation": {
+          "$ref": "#/$defs/positiveCounter"
+        },
+        "byteLength": {
+          "$ref": "#/$defs/counter"
+        },
+        "sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "close": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome"
+      ],
+      "properties": {
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        }
+      }
+    },
+    "size": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "bytes"
+          ],
+          "properties": {
+            "kind": {
+              "const": "known"
+            },
+            "bytes": {
+              "$ref": "#/$defs/counter"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "unknown"
+            }
+          }
+        }
+      ]
+    },
+    "hello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hostVersion",
+        "sdkVersion",
+        "nonce",
+        "pluginId",
+        "pluginVersion",
+        "clientDigest",
+        "executorDigest",
+        "consentMs",
+        "budgets",
+        "features"
+      ],
+      "properties": {
+        "hostVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "sdkVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "nonce": {
+          "$ref": "#/$defs/id"
+        },
+        "pluginId": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "pluginVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "clientDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "executorDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "consentMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600000
+        },
+        "budgets": {
+          "$ref": "#/$defs/budgets"
+        },
+        "features": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/name"
+          }
+        }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hostNonce",
+        "executorNonce",
+        "challenge",
+        "capabilities",
+        "budgets",
+        "features"
+      ],
+      "properties": {
+        "hostNonce": {
+          "$ref": "#/$defs/id"
+        },
+        "executorNonce": {
+          "$ref": "#/$defs/id"
+        },
+        "challenge": {
+          "$ref": "#/$defs/id"
+        },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/name"
+          }
+        },
+        "budgets": {
+          "$ref": "#/$defs/budgets"
+        },
+        "features": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/name"
+          }
+        }
+      }
+    },
+    "accept": {
+      "$ref": "#/$defs/probe"
+    },
+    "ready": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hostNonce",
+        "executorNonce",
+        "challenge"
+      ],
+      "properties": {
+        "hostNonce": {
+          "$ref": "#/$defs/id"
+        },
+        "executorNonce": {
+          "$ref": "#/$defs/id"
+        },
+        "challenge": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    }
+  }
+}

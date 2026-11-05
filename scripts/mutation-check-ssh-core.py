@@ -34,7 +34,8 @@ def main():
       'exec':[
         ('timeout','libssh2_session_set_timeout(e->sess, previous_timeout);','(void)previous_timeout;'),
         ('stderr','ssize_t b = libssh2_channel_read_stderr(e->chan, (char *)buf, cap);','ssize_t b = libssh2_channel_read(e->chan, (char *)buf, cap);'),
-        ('exit','int rc = libssh2_channel_get_exit_status(e->chan);','int rc = 0;'),
+        ('exit','int rc = libssh2_ghosterm_channel_exit_status(e->chan, &value);',
+         'int rc = libssh2_ghosterm_channel_exit_status(e->chan, &value); value = 0;'),
       ]}
     with tempfile.TemporaryDirectory(prefix='ssh-core-mutations-',dir=ROOT/'tmp') as work:
         folder=pathlib.Path(work);core=folder/'core';build=folder/'build';path=core/'src'/filename
@@ -48,7 +49,8 @@ def main():
             args=[build/'test_config',ROOT/'core/tests/fixtures'] if control else ['bash',ROOT/'core/tests/scripts/ssh_e2e.sh',build/target]
             code,out=run(args)
             marker='FAIL ' if group=='credentials' else 'FAIL:'
-            valid=(code!=0 and (expected or marker) in out) if red else code==0 and 'SKIP' not in out
+            status_red = code == 1 if group == 'exec' else code != 0
+            valid=(status_red and (expected or marker) in out) if red else code==0 and 'SKIP' not in out
             if not valid:print(out,flush=True);raise RuntimeError(group+' expected '+('red' if red else 'green'))
         check();check(control=True)
         def rebuild():

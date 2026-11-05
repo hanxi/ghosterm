@@ -32,6 +32,7 @@ runtime catalog，四组变异护本地创建、启动偏好、分屏目录与�
 | `runtime-payload/` | 环境包（Android Termux/proot、iOS iSH） | 只放清单与下载/校验逻辑，二进制不入库 |
 | `patches/` | 上游补丁 | 每个补丁必须带 `WHY.md` |
 | `scripts/` | 构建/闸门脚本 | — |
+| `packages/` | 插件 SDK、schema 与开发 testkit；当前为未冻结候选 | 可移植契约不依赖端 UI；portable SDK 不引 Node / DOM。C 核心不依赖 TypeScript 或开发工具运行时 |
 | `docs/` | Diátaxis 文档 | — |
 | `assets/` | 品牌资源：应用图标**母版 SVG** + 各端派生产物 | 无代码依赖；产物一律由 `scripts/build-icons.sh` 从母版派生，禁手改产物 |
 
@@ -188,6 +189,160 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 `sftp-mkdir` 以 `python3 scripts/mutation-check-sftp-mkdir.py` 手工执行 26 Core＋1 无库 archive＋5 Swift 组；真实 SSH 与协议矩阵为 81 组，护单次预算、取消、规范路径/名称、冲突/错误/副作用、空目录核验与连接失效。Android 另以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteDirectoryTest ANDROID_MKDIR_MUTATE=1 bash scripts/test-android-ssh.sh` 执行 20 组，护结果保留、一次性请求、排队/迟到取消、请求与连接代次隔离、失败连接释放及完成管道。目标须真实编译后红、独立配置对照绿、恢复绿与 SHA256；12 项设备基线通过，仅 API 36 arm64 / 4 KB 页模拟器。范围及失败记录见 Android 计划 §9.65，不增加 CI 20 份，不将原语记为任务/页面或 macOS 产品迁移完成。
 
 `terminal-backing-scale` 以 `python3 scripts/mutation-check-terminal-backing-scale.py` 手工执行六组，护引擎 DPI、Metal 比例、backing 回调、换屏通知、像素换算与未上屏同步；真实编译后目标红、同变异字节入网格对照绿、恢复绿及 SHA256。`4cbfcf4` 的三项原生回归与六组变异已有记录，自动注入比例不等于真实双屏视觉验收；完整宿主仍保留一项既有设置页像素失败，不记全绿。范围见 `docs/reference/optional-tmux-implementation.md` 的跨显示器缩放记录，不增加 CI 20 份覆盖。
+
+**插件桥接 P0 首批隔离探针（2026-11-05）**：`python3 scripts/test-plugin-bridge.py --mutate --tmux`
+在 `scripts/probes/plugin-carrier.c` 验 C11 / ASan / UBSan 八类检查与六组重新编译变异，
+正常目标断言红、同构件独立完整帧绿、恢复绿与 SHA256；仅隔离副本，不接生产 ABI / Transport / App。
+tmux 3.6a 两个真实附着 PTY 客户端验证候选输出完整，同时复现另一客户端切 pane 后回包进入错误 pane。
+该结果禁止据普通 passthrough 的输出连通性宣称双向输入安全；后续引擎与 SSH 探针分批登记，不倒填首批范围。
+实验载荷 / 编码 / 前缀均未冻结，不表示插件能力已实现；范围与首轮失败见
+`docs/reference/plan-plugin-bridge.md` 的 P0 第一批记录。手工证据，不增加 macOS CI 二十份。
+
+**插件 JS 双候选 P0 第二批（2026-11-05）**：`python3 scripts/test-plugin-js.py --fetch --mutate --android-build`
+显式下载 / 校验归档，`--android 序号` 才记设备执行；源码为 `scripts/probes/plugin-js.c`，不接生产依赖。
+QuickJS 2026-06-04 / QuickJS-NG 0.18.0 的 macOS arm64 各十一项与各四组重新编译变异通过，
+正常目标断言红、同构件 portable 对照绿、恢复绿与 SHA256；两套 NDK 28.2 / API 29 arm64
+构件在专属 API 29 / 4 KiB 页模拟器各十一项通过。主机用 ASan / UBSan 并拒绝恢复后假绿。
+宿主实验均 C11 / Werror；QuickJS 上游 arm64 需 GNU11，不能记为纯 C11；NG 上游原样 C11 通过。
+本轮首选候选收敛至 NG，尚未新增 vendor gitlink、冻结 SDK 或接 App；编译失败与行为边界见计划
+P0 第二批。仅主机变异 / 原生模拟器专项，不是 Android 变异或客户端全量验收，不增加 CI 二十份。
+
+**插件嵌套 SSH P0 第三批（2026-11-05）**：`python3 scripts/test-plugin-ssh.py` 在同一主机的两套
+隔离 loopback sshd / 不同钉公钥别名上跑三条 SSH / tmux 链路，768 字节载荷由同一 C decoder
+验完整；真实第二客户端切 pane / window、detach / attach、后台输出及外层 pane 负向均取证。
+原 TTY 写回仍不安全；显式认证的独立 SSH exec 管道保持接收者，关闭后拒发、已收请求丢回包记 unknown。
+一次性测试私钥只经内存管道交给专属系统 agent，落盘仅公钥；无用户凭据、无自动重连或发现。
+`python3 scripts/test-plugin-ssh-cleanup.py` 护中断不得被 PTY / pipe IO 吞掉，并在 live SSH 进程树上
+验 SIGINT / SIGTERM 退出与清理；修正后第一批六组变异以不可恢复 sanitizer 复验通过。
+源码、失败和当前摘要见计划 P0 第三批；无生产 ABI / App 接线，不增加 CI 二十份，不代替 Android TTY / WAN 验收。
+
+**插件无 Client / schema P0 第四批（2026-11-05）**：`python3 scripts/test-plugin-no-client.py --android 序号`
+以同一十一份字节夹具验真实 macOS full surface 与 API 29 / arm64 / 4 KiB 页 VT，DSR 作处理完成屏障，
+完整候选帧静默、Kitty 查询回包正常；截断 DCS 吞后续字节直至 ST 的限制单独记账。无 Android UI / 渲染或完整 App 结论。
+`packages/plugin-sdk/schema/` 仅放未冻结的 JSON Schema 与样例；`test-plugin-schema.py --fetch --mutate`
+显式取锁定开发工具，默认离线，五十七份结构样例与四组 schema 变异通过，不代替 C / channel 状态机验证。
+`test-plugin-protocols.py --fetch` 取锁定 trzsz-go 1.2.0 作上游比较：十五项及两档各 256 KiB 真实 PTY 文件互通通过，
+不表示 Ghosterm 兼容 trzsz / Kitty 文件协议。首次继承宿主 tmux 的失败与无法证明原选项继承完全恢复的限制保留；
+最终清除环境并以阻断器禁止访问宿主 tmux 后重跑通过。全部为手工探针，不增加 CI 二十份；详见计划 P0 第四批。
+
+**插件包元数据 P0 第五批（2026-11-05）**：`python3 scripts/test-plugin-package.py --fetch --mutate`
+首次显式取锁定开发依赖，后续默认离线。manifest / integrity 候选与 testkit 元数据检查器有 96 项具名检查、
+六组模块重新加载后的变异：正常目标断言红、同模块 Client 兼容性对照绿、恢复绿及源字节一致。
+只比较调用方提供的成员统计 / 摘要和能力事实，返回兼容不授予权限；不是实际解包、hash 读取、无链接打开、
+签名、安装或插件激活证据。`process.pipes` 可用性与 `process.spawn` 的程序权限分开，计划原样示例纳入两侧检查。
+包结构与本地版本 / 命令预检不替代仍待选择的授权启动流程。失败、摘要与合成输入范围见计划 P0 第五批；
+无新增 Core ABI / 平台接线，不增加 macOS CI 二十份。
+
+**插件 TailPocket 参考 P0 第六批（2026-11-05）**：`python3 scripts/test-plugin-tailpocket.py --fetch`
+显式取锁定上游 / Go 工具链，缓存就绪后默认离线构建；上游 Go 仅作独立参考进程，正式底层仍须 C，
+不接 gomobile / SDK / App helper。C11 两端在同机两套 loopback SSH / tmux 与本机 DERP / STUN 上完成
+配对、四轮双向候选消息、未配对公钥、第二客户端切 pane / window、外层切 pane、执行端退出 23 后
+EOF / unknown / 晚到拒发、撤销前网络仍可达的独立对照，以及撤销后的旧 Link 新客户端不可达，共九项观察。
+固定源归档 / 模块锁 / `go mod verify`，私钥与邀请只在内存中；C 用 ASan / UBSan，macOS 未运行 LSan。
+编译、工具链、启动和本机探测超时的初轮失败保留，不计通过；无 C 版 Tailcat / 网络底层、GUI 批准、
+移动设备或 WAN 结论。正常结束清理专属进程与 socket，详见插件计划 P0 第六批；手工证据，不增加 CI 二十份。
+
+**插件 Go→C ABI P0 第七批研究（2026-11-05）**：`python3 scripts/test-plugin-go-abi.py --apple --android`
+仅隔离研究库与 C caller，不修改纯 C Core 口径或公共 ABI，不接入 App。macOS arm64 的 C main 调用同进程 Go
+archive，实跑真实配对 / 本机 DERP 往返、缓冲区与失效句柄、C 线程取消 / 活动关闭及无网络 owner 清理；
+iOS device / simulator arm64 为 archive / C 链接证据，Android API 29 / NDK 28.2 为 shared / C 链接与四个
+LOAD 的 16 KiB 对齐证据，均未记移动端运行。Android c-archive 实际不支持。研究库含测试中继，包体 / RSS
+不外推产品增量；Go runtime 在首次 ABI 前已启动，关闭实例不卸载 runtime。首轮把构建 telemetry 文件误判为
+运行 HOME 文件而失败，拆分两种 HOME 后完整入口通过；不计首轮绿。源摘要、样本与封闭内网 SSH 优先建议见
+插件计划 P0 第七批；不增加 CI 二十份，不替代信号 / PTY / 原生宿主 / 设备 / 发行验收。
+
+**插件 SSH 优先接缝 P0 第八批研究（2026-11-05）**：用户已选独立 SSH 优先、预留网关 provider。
+仅静态审计与文档设计：当前 exec 无 stdin write、terminal command 会申请 PTY、read 0 / 默认退出码 0
+不能升级成可靠结束事实。计划收敛 Route owner / 私有 byte stream / 共用 BridgeSession；首片专属 SSH owner，
+后续多跳 / 前台 gterm IPC 附着 / 网关分片分别验收，不用互斥锁共用终端 SSH 或自动换路假装已隔离。
+具体契约、源码依据和 S1–S5 次序见插件计划第八批；未改生产 Core / ABI / App，未新增运行或 CI 证据。
+
+**插件 S1 私有字节流 / 分帧第九批（2026-11-05）**：`core/src/extension/` 新增 C11 stream / fd-stream /
+frame，已纳入 Core 构建，无公共 ABI / 平台接线。真实 pipe / socketpair 共用 conformance，九模式护
+部分 IO、背压 WAIT、尾字节 EOF、停止唤醒 / 拒发、EINTR 截止、分帧 / 截断 / 上限与精确 allocator。
+`python3 scripts/mutation-check-plugin-stream.py` 在本轮隔离副本用 ASan / UBSan 真编译十三组：
+目标正常 FAIL 断言红、同库独立 ssh_config 对照绿、恢复九模式绿及 SHA256；gt_timeout / 标记预扫，
+不修改生产源，未运行 LSan。三份新 C 源码与测试另以严格 C11 / pedantic-errors 编译并跑九模式通过，
+`build-core.sh` / `gate.sh` 通过，当前 Core 61 CTest / 95 ABI。变异为手工证据，不增加 CI 二十份。
+codec 仅长度 / 帧边界，不是 JSON / schema / 权限 / 业务结果验证；未新增 SSH / App / Android / WAN
+证据，不记 P0 / P1 完成。关闭后的 owner / wake 资源计费至 destroy；后续专属 SSH、多跳、会话与前台附着
+仍按插件计划 S2–S5 推进，网关不在当前实现范围。
+
+**插件 S2a 直连 SSH 第十批（2026-11-05）**：私有 `extension/backends/ssh_exec.h/.c` 复用认证 connector，
+claim 拒绝已有 channel / borrow 的连接，被认领的连接拒绝普通 exec / shell / SFTP；不申请 PTY。
+固定 16 KiB 收发、分离 / 有界 stderr、finite budget / wake / 分阶段失败、未知退出不猜 0，close 先 abort
+专属 socket 再按真实 libssh2 释放结果计费。`test-plugin-ssh-stream.py` 的 OpenSSH 十项与 Paramiko 六项
+共十六场景通过；reset 以客户端接收确认作屏障，初轮缺屏障的恢复失败与测试编译错误不计通过。
+`mutation-check-plugin-ssh-stream.py` 十四组同轮 ASan / UBSan 编译后正常 C 断言红、同库配置绿、恢复全套
+十六场景绿与 SHA256；未运行 LSan，不宣称外部库全部无泄漏。Core 62 CTest / 95 ABI、Apple 91/4、JNI
+57/38、严格 C11 新源 / 测试编译和实际无 SSH archive / stub 链接通过。CTest / macOS CI 工具链准备已接，
+只有本地证据，十四组变异不增加 CI 二十份。旧 exec helper 独立负向 / 修复及更完整取消 / 重协商矩阵仍待完成，
+不记整个 S2 / P0 / P1 完成。无公共 ABI / App / Android / 多跳 / WAN 证据，网关继续暂缓；详见插件计划第十批。
+
+**插件 S2b 旧 exec 事实第十一批（2026-11-05）**：先在真实协议端复现未知→0及查询关闭活动通道，
+已知 0/23 对照绿后修复。`0004-channel-exit-status.patch` 新增 C 内依赖 getter 与存在位，首个完整状态
+生效，截断/重复/超范围不冒充 0；主机/Android 四补丁清单和 SHA 收据同步并实际重建。Core getter
+被动查询、未知输出保持；read 非阻塞，不把 0 记 EOF，后续读取可推进迟到状态，恢复会话 IO 设置。
+`bridge_exec_e2e` 十个真实协议场景与 `ssh_exec_boundary` 加入 CTest；`mutation-check-exec-state.py`
+十六组（Core 十＋依赖五＋实际无库一）ASan/UBSan 正常 C 断言红、同库配置绿、恢复绿及 SHA256；未跑 LSan。
+原 exec 三组及 SSH 后端十四组分轮复验通过。原 0/3 断言保留并按期限推进迟到状态；stderr 驱动超时曾被拒绝
+计红，补总期限后正常断言红；缓存/Zig路径和 CLT XCTest 失败也不计通过。最终 Core 64/95、Apple 91/4、
+JNI 57/38，严格 C11 新源/边界编译、SFTP 九场景、Android NDK 四补丁/实际 bridge Debug链接、局部 Xcode
+下 Apple 注入 sshd 的同轮 34 项零失败/跳过通过。Swift 仅同步查询语义文案，无公共 ABI 签名变化。
+新 BridgeStream 可选进程诊断仍保持未知；无 Android 设备/整 App/多跳/WAN/发行结论，不增加 CI 二十份。
+S3/S4/S5及完整取消/重协商/长时组合仍继续，P0/P1/插件计划未完成，网关不实现；详见插件计划第十一批。
+
+**插件 S3 受管多跳第十二批（2026-11-05）**：私有 `extension/route.h/.c` / `ssh/wire.h` 用单 owner
+和 libssh2 回调逐跳 direct-tcpip，最终无 PTY exec；逐跳身份 / 认证、总期限 / wake / DRAINING，
+不共享终端 SSH、不猜手工链路、不直拨内层或自动回退。八台为配置上限，本轮仅两 / 三台 loopback。
+`bridge_route_e2e` 十八场景在不同内存 hostkey、跳板禁 shell / 限下一跳转发下通过，客户端实际 connect
+仅准第一跳且逐项断言一次；未对远端设 WAN 防火墙，不记真实封闭内网。内层错 pin / 密码、未知决定 /
+补凭据、第一 / 中间跳拒绝、实际内层 banner 屏障后的半开取消 / 总期限和读取消、allocator / fd 归零均验。
+`mutation-check-plugin-route.py` 十三组 ASan / UBSan 真编译后正常 C 断言红、同库配置绿、恢复十八场景绿
+及 SHA256；原直连十四组另完整复验，未跑 LSan。Core 65/95、Apple 91/4、JNI 57/38、严格 C11 四源编译、
+实际无库 route / ssh stub、Apple 注入 sshd 同轮 34 项零失败 / 跳过、Android NDK bridge Debug 实际链接通过。
+无公共 ABI / App 接线、Android 设备多跳 / 八层 / WAN / 发行结论；十三组手工，不增加 CI 二十份。
+P0/P1/整个插件目标未完成，S4 共用会话 / 原生授权与 S5 前台 IPC 继续，网关不实现；详见插件计划第十二批。
+
+**插件 S4a wire 第十三批（2026-11-05）**：私有 `extension/wire.h/.c` 实现有界原始 JSON / UTF-8，
+`generate-plugin-wire.py` 从 SDK 候选生成 `wire-schema.inc` 并以 CTest `--check` 对拍。重复 decoded key /
+非法编码、surrogate、污染、精确数值与 64 KiB / 32 层 / 4096 node 策略单独检查；不是通用 schema 引擎。
+固定 workspace、parse 无分配、失败清空输出 / 撤销 view、释放擦除。`bridge_wire` 的 575 项通过，其中
+246 个实例与锁定 Ajv 独立对拍；329 项 lexical / owner 策略不冒充 Ajv 证据。十六组隔离 ASan / UBSan
+编译后正常 C 断言红、同库配置绿、恢复完整 575 项 / 生成物绿及 SHA256；首轮 unused-variable 编译失败
+未计红，修正变异后完整十六组同轮通过，未跑 LSan。原 schema 57 项 / 四组 JS 变异另复验通过。
+Core 67/95、严格 C11 新源 / 测试、实际无 SSH archive 同套 wire、Android NDK 新 object 编译和 bridge Debug
+构建通过；wire 没有 JNI 消费者，不将 object 符号当页面接线。无公共 ABI / App / 新 Swift 绑定、Android
+设备 / 真实 SSH wire 会话 / WAN / 发行结论；十六组手工，不增加 CI 二十份。schema 只改消费者说明，
+协议仍是候选。握手 / nonce / 实例归属 / 连续 seq / 授权 / 请求 / 资源发布与 S5 继续，P0/P1/S4/总目标
+未完成；外部网关不实现，详见插件计划第十三批。
+
+**插件 S4b 会话内核第十四批（2026-11-05）**：私有 `extension/session.h/.c` 在单一已选实例上复用
+stream / frame / wire，HELLO / OFFER → native ticket 决定 → nonce PROBE / ACCEPT → 双方 READY，
+才发放本端 scoped lease；UNKNOWN / DENIED / REVOKED / UNSUPPORTED 不折叠，control seq / ID / epoch
+绑定，原生 PeerEvidence 不受远端覆盖。用户等待另计期限，IO 后须重检；实际 read / write 越期激活及批准后
+过期 effect none 曾以正常断言复现、同库配置绿，修复后恢复绿。27 socket / 4 真实两三台 SSH 场景通过，
+后者仅准 native 直拨第一跳，不是远端 WAN 防火墙 / 真实内网证据。21 组隔离 ASan / UBSan 编译后正常 C
+断言红、配置绿、恢复完整 27＋4 绿与 SHA256；旧 wire 十六组另完整复验，未跑 LSan。wire 候选随控制消息
+更新为 585 C / 256 Ajv 实例及 329 lexical / owner；schema 67 / 四组、包元数据 96 / 六组另复验通过。
+Core 95 CTest / 95 ABI、严格 C11 三源、实际无库 27 Session＋wire / 生成物共 29 项、Android NDK session
+object / bridge Debug 构建通过，Apple 91/4、JNI 57/38 对拍保持；无新 JNI /
+Swift 消费者、原生批准页面或设备 / WAN / 发行证据。没有实际插件激活，包摘要仅匹配 caller 的已核验快照，
+不冒充本片文件核验。21 组手工，不增加 CI 二十份；S4c 请求 / 多流 credit / ResourceStore、原生 ABI / 页面
+与 S5 仍继续，P0/P1/S4/整个目标未完成，网关不实现；证据与边界见插件计划第十四批。
+
+**插件 S4c1 请求第十五批（2026-11-05）**：私有 `extension/rpc.h/.c` 接实际 Session，显式 requests
+协商、最多 16 method 的 receiver / capability / 双向校验，所有原生请求操作核对 scoped lease。64 项
+outgoing / incoming-receipt、双向独立 request / response credit / seq、control 保留；wire ID 在有窗口且
+交 writer 时分配，缓存外旧 ID 不执行。排队取消可 none，可能已发出的取消 / 断流保留 UNKNOWN，完整确认
+不可改写；相对期限不冒充远端硬取消。31 socket / 两三跳四 SSH 场景通过，允许项各 80 echo 后撤销；
+23 新请求＋21 Session＋16 wire 组分套最终复验，真实编译后正常 C 断言红、同 archive 配置绿、恢复完整
+套件绿及 SHA256，ASan / UBSan，无 LSan。初始变异编译失败和一次恢复测试对象未重编导致的断言红均未
+计通过；三个 runner 每轮删除隔离 Core / test 对象并核对实际编译。Core 127/95、实际无库 60 项、严格
+C11 三源与 NDK bridge Debug 通过，rpc object 15 私有定义，无 JNI caller。wire 607 C / 260 Ajv /
+347 lexical-owner、schema 71 / 四组、元数据 96 / 六组通过；Apple 91/4、JNI 57/38 对拍保持。无公共 ABI /
+UI / 实际插件 / 设备 / WAN / 发行结论，手工变异不增加 CI 二十份。S4c2 ResourceStore、原生门面 / 页面、
+runtime / SDK、多实例和 S5 继续；整个目标未完成，网关不实现，证据与限制见插件计划第十五批。
 
 `android-foreground` 以 `ANDROID_SERIAL=设备 python3 scripts/test-android-foreground.py` 验八项真实服务/页面定向，`mutation-check-android-foreground.py` 手工验 23 组；护真实 promotion、调度阻断、权限/类型、代次与请求取消、通知隐私/路由和生命周期。`test-android-foreground-system.py` 另验真实系统超时、stop-app 后新 PID 只读历史、通知拒绝及系统设置渠道关闭；`mutation-check-android-foreground-system.py` 有九组相应场景变异，含开启通知后补发及渠道恢复的状态检查。每组须编译后目标单条 JUnit 断言红、同 APK 配置对照绿、恢复绿与 SHA256，崩溃/编译失败不算目标红。系统设置及权限须恢复，stop-app 被中断的 staging 不计通过。§9.74 的 30 组与 §9.75 追加的两组均为分轮证据，不称一轮全量；完整 483 项仅 API 36 arm64 / 4 KB 页模拟器。以上均属手工覆盖，不增加 macOS CI 20 份，也不代表整个 A6 或发行矩阵完成。
 
