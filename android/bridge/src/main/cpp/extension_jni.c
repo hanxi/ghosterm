@@ -248,3 +248,36 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionResourceSto
  jlong v[3];(*e)->GetLongArrayRegion(e,meta,0,3,v);if((*e)->ExceptionCheck(e) || v[0]!=GT_EXT_RESOURCE_OK)return GT_EXT_RESOURCE_INVALID;gt_ext_lease_t l;if(!session_rpc_lease(e,lease,&l))return GT_EXT_RESOURCE_INVALID;
  gt_ext_resource_snapshot_t ref={.owner=(uint64_t)v[1],.handle=(uint64_t)v[2]};(*e)->GetByteArrayRegion(e,bytes,0,33,(jbyte *)ref.token);if((*e)->ExceptionCheck(e))return GT_EXT_RESOURCE_INVALID;resource_store_slot_t *s=resource_store_owner(e,id);return s?gt_ext_resource_store_release(s->store,&l,&ref):GT_EXT_RESOURCE_INVALID;
 }
+typedef struct {uint64_t id;gt_ext_source_t *source;pthread_t owner;} extension_source_slot_t;
+static extension_source_slot_t extension_sources[GT_EXT_CHANNEL_LIMIT*GT_EXT_SOURCE_LIMIT];
+static extension_source_slot_t *extension_source_owner(JNIEnv *e,jlong id){
+ pthread_mutex_lock(&extension_lock);extension_source_slot_t *s=NULL;
+ for(size_t i=0;i<GT_EXT_CHANNEL_LIMIT*GT_EXT_SOURCE_LIMIT;i++)if(id>0 && extension_sources[i].id==(uint64_t)id && extension_sources[i].source){s=&extension_sources[i];break;}
+ bool valid=s && pthread_equal(s->owner,pthread_self());pthread_mutex_unlock(&extension_lock);
+ if(!valid){extension_error(e,"源文件已释放或不在创建 worker");return NULL;}return s;
+}
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_open(JNIEnv *e,jobject self,jlong session,jbyteArray lease,jint root,jbyteArray path,jbyteArray mime,jlong limit){
+ (void)self;jlongArray result=(*e)->NewLongArray(e,2);if(!result)return NULL;gt_ext_lease_t l;if(!session_rpc_lease(e,lease,&l))return NULL;
+ char *name=extension_text(e,path,4096);if(!name)return NULL;char *type=extension_text(e,mime,128);if(!type){free(name);return NULL;}
+ extension_slot_t *parent=session_pin(e,session,true,false);if(!parent){free(name);free(type);return NULL;}
+ pthread_mutex_lock(&extension_lock);extension_source_slot_t *slot=NULL;
+ if(extension_next<=INT64_MAX)for(size_t i=0;i<GT_EXT_CHANNEL_LIMIT*GT_EXT_SOURCE_LIMIT;i++)if(!extension_sources[i].id){slot=&extension_sources[i];slot->id=extension_next++;slot->owner=pthread_self();break;}pthread_mutex_unlock(&extension_lock);
+ if(!slot){extension_unpin(parent);free(name);free(type);extension_error(e,"源文件 native owner 容量已占用");return NULL;}
+ gt_ext_source_config_t c={root,name,type,(uint64_t)limit};gt_ext_source_t *source=NULL;gt_ext_source_status_t status=gt_ext_source_open(parent->session,&l,&c,&source);free(name);free(type);extension_unpin(parent);
+ jlong values[2]={status,status==GT_EXT_SOURCE_OK?(jlong)slot->id:0};pthread_mutex_lock(&extension_lock);if(status==GT_EXT_SOURCE_OK)slot->source=source;else memset(slot,0,sizeof(*slot));pthread_mutex_unlock(&extension_lock);
+ (*e)->SetLongArrayRegion(e,result,0,2,values);return result;
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_step(JNIEnv *e,jobject self,jlong id){(void)self;extension_source_slot_t *s=extension_source_owner(e,id);return s?gt_ext_source_step(s->source):GT_EXT_SOURCE_FAILED;}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_send(JNIEnv *e,jobject self,jlong id){(void)self;extension_source_slot_t *s=extension_source_owner(e,id);return s?gt_ext_source_send(s->source):GT_EXT_SOURCE_INVALID;}
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_cancel(JNIEnv *e,jobject self,jlong id){(void)self;extension_source_slot_t *s=extension_source_owner(e,id);if(s)gt_ext_source_cancel(s->source);}
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_info(JNIEnv *e,jobject self,jlong id){
+ (void)self;jlongArray meta;jbyteArray bytes;jobjectArray result=session_rpc_arrays(e,16,1318,&meta,&bytes);if(!result)return NULL;extension_source_slot_t *s=extension_source_owner(e,id);if(!s)return NULL;gt_ext_source_info_t i;
+ if(!gt_ext_source_info(s->source,&i)){extension_error(e,"源文件状态无效");return NULL;}
+ jlong v[16]={i.phase,i.error,i.cleanup_error,i.closed,i.has_transfer,(jlong)i.hashed,(jlong)i.read_bytes,(jlong)i.accepted,(jlong)i.transfer_accepted,i.transfer_state,i.confirmed,i.cancel_requested,(jlong)i.generation,(jlong)i.descriptor.generation,(jlong)i.descriptor.size,i.descriptor.size_known};
+ (*e)->SetLongArrayRegion(e,meta,0,16,v);resource_descriptor_bytes(e,bytes,0,&i.descriptor);(*e)->SetByteArrayRegion(e,bytes,1252,33,(const jbyte *)i.resource_id);(*e)->SetByteArrayRegion(e,bytes,1285,33,(const jbyte *)i.code);return result;
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_close(JNIEnv *e,jobject self,jlong id){
+ (void)self;extension_source_slot_t *s=extension_source_owner(e,id);if(!s)return GT_EXT_SOURCE_INVALID;
+ gt_ext_source_status_t status=gt_ext_source_close(s->source);if(status!=GT_EXT_SOURCE_OK)return status;gt_ext_source_t *source=s->source;status=gt_ext_source_destroy(&source);
+ if(status==GT_EXT_SOURCE_OK){pthread_mutex_lock(&extension_lock);memset(s,0,sizeof(*s));pthread_mutex_unlock(&extension_lock);}return status;
+}

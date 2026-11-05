@@ -98,12 +98,12 @@ gt_ext_access_t gt_ext_session_access(const gt_ext_session_t *s,const gt_ext_lea
 void gt_ext_session_revoke(gt_ext_session_t *s){if(s)gt__bridge_session_revoke(s->inner);}
 void gt_ext_session_stop(gt_ext_session_t *s){if(s)gt__bridge_session_stop(s->inner);}
 gt_ext_close_t gt_ext_session_close(gt_ext_session_t *s,int ms){
- if(!s || ms<0)return GT_EXT_CLOSE_ERROR;if(s->released)return GT_EXT_RELEASED;gt_bridge_close_t r=gt__bridge_session_close(s->inner,ms);
- if(r==GT_BRIDGE_RELEASED){s->released=true;s->cleanup_error=GT_OK;return GT_EXT_RELEASED;}
+ if(!s || ms<0)return GT_EXT_CLOSE_ERROR;if(s->released)return s->sources?GT_EXT_DRAINING:GT_EXT_RELEASED;gt_bridge_close_t r=gt__bridge_session_close(s->inner,ms);
+ if(r==GT_BRIDGE_RELEASED){s->released=true;s->cleanup_error=GT_OK;return s->sources?GT_EXT_DRAINING:GT_EXT_RELEASED;}
  if(r==GT_BRIDGE_CLOSE_ERROR)s->cleanup_error=GT_ERR_IO;return r==GT_BRIDGE_DRAINING?GT_EXT_DRAINING:GT_EXT_CLOSE_ERROR;
 }
 gt_status_t gt_ext_session_destroy(gt_ext_session_t **owned){
- if(!owned || !*owned || !(*owned)->released)return GT_ERR_INVALID_ARG;gt_ext_session_t *s=*owned;gt_status_t status=gt__bridge_session_destroy(s->inner);
+ if(!owned || !*owned || !(*owned)->released || (*owned)->sources)return GT_ERR_INVALID_ARG;gt_ext_session_t *s=*owned;gt_status_t status=gt__bridge_session_destroy(s->inner);
  if(status!=GT_OK){s->cleanup_error=status;return status;}if(s->store)s->store->sessions--;gt__ext_channel_retire(s->channel);gt__secure_erase(s,sizeof(*s));free(s);*owned=NULL;return GT_OK;
 }
 static gt_bridge_lease_t ext_lease(const gt_ext_lease_t *p){gt_bridge_lease_t l;memcpy(l.connection,p->connection,33);memcpy(l.instance,p->instance,33);memcpy(l.token,p->token,33);l.epoch=p->epoch;return l;}

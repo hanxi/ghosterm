@@ -30,6 +30,7 @@ add_library(ghosterm_core STATIC
   src/extension/channel.c
   src/extension/session-api.c
   src/extension/resource-api.c
+  src/extension/source-api.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
   src/core.c
@@ -79,6 +80,30 @@ endif()
 if(GHOSTERM_BUILD_TESTS)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
+add_executable(test_ext_source tests/test_ext_source.c)
+target_link_libraries(test_ext_source PRIVATE ghosterm_core)
+target_compile_options(test_ext_source PRIVATE -Wall -Wextra -Werror)
+if(GHOSTERM_WITH_PLUGIN_CHANNEL)
+  add_executable(test_ext_source_boundary tests/test_ext_source_boundary.c)
+  target_include_directories(test_ext_source_boundary PRIVATE src)
+  target_link_libraries(test_ext_source_boundary PRIVATE ghosterm_core)
+  target_compile_options(test_ext_source_boundary PRIVATE -Wall -Wextra -Werror)
+  foreach(mode close-error failure-close destroy-error)
+    add_test(NAME ext_source_boundary_${mode} COMMAND test_ext_source_boundary ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+    set_tests_properties(ext_source_boundary_${mode} PROPERTIES TIMEOUT 30)
+  endforeach()
+  foreach(mode invalid feature scope ungranted unsupported parent absolute missing utf8 control mime limit symlink fifo capacity session-pin cancel-before change-ready cancel-sent lost roundtrip large empty literal copy confirmed-stop)
+    add_test(NAME ext_source_${mode} COMMAND test_ext_source ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+    set_tests_properties(ext_source_${mode} PROPERTIES TIMEOUT 30)
+  endforeach()
+  if(SSH2_FOUND)
+    target_sources(test_ext_source PRIVATE tests/ext_channel_dial.c)
+    target_include_directories(test_ext_source PRIVATE src ${SSH2_INCLUDE_DIRS})
+    target_compile_definitions(test_ext_source PRIVATE GT_HAVE_LIBSSH2=1)
+    add_test(NAME ext_source_ssh COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-plugin-channel.py --source-api --binary $<TARGET_FILE:test_ext_source>)
+    set_tests_properties(ext_source_ssh PROPERTIES TIMEOUT 180)
+  endif()
+endif()
 add_executable(test_ext_resource tests/test_ext_resource.c)
 target_link_libraries(test_ext_resource PRIVATE ghosterm_core)
 target_compile_options(test_ext_resource PRIVATE -Wall -Wextra -Werror)

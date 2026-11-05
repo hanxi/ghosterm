@@ -94,7 +94,8 @@ public final class ExtensionSession {
     }
     public func step(milliseconds: Int32 = 0) throws -> Phase {
         guard milliseconds >= 0 else { throw GhostermError.failed("会话等待预算无效") }
-        return Phase(rawValue: gt_ext_session_step(try pointer(), milliseconds).rawValue) ?? .ended
+        let phase = Phase(rawValue: gt_ext_session_step(try pointer(), milliseconds).rawValue) ?? .ended
+        ExtensionFileSource.reapDroppedSources(on: owner); return phase
     }
     public func info() throws -> Info {
         var i = gt_ext_session_info_t()
@@ -197,6 +198,16 @@ public final class ExtensionSession {
         let status = ExtensionResourceStore.Status(gt_ext_session_take_resource(try pointer(), &l, &v))
         guard status == .ok, let resourceStore else { return (status, nil) }
         return (status, ExtensionResourceStore.Snapshot(store: resourceStore, lease: lease, native: v))
+    }
+    public func openSource(_ lease: Lease, rootFD: Int32, relativePath: String, mime: String = "application/octet-stream", byteLimit: UInt64 = 262144) throws -> ExtensionFileSource.Admission {
+        let p = try pointer(); guard !relativePath.utf8.contains(0), relativePath.utf8.count <= 4096, !mime.utf8.contains(0), mime.utf8.count <= 128 else { throw GhostermError.failed("源文件参数无效或超限") }
+        let source = ExtensionFileSource(owner: owner); var l = lease.raw, rawSource: OpaquePointer?
+        let status = relativePath.withCString { path in mime.withCString { type in
+            var c = gt_ext_source_config_t(root_fd: rootFD, relative_path: path, mime: type, byte_limit: byteLimit)
+            return gt_ext_source_open(p, &l, &c, &rawSource)
+        } }
+        if let rawSource { source.adopt(rawSource) }
+        return ExtensionFileSource.Admission(status: ExtensionFileSource.Status(status), source: status == GT_EXT_SOURCE_OK ? source : nil)
     }
     public func stop() { stopLock.lock(); defer { stopLock.unlock() }; if let raw { gt_ext_session_stop(raw) } }
     @discardableResult public func closeStep(milliseconds: Int32 = 0) throws -> Bool {
@@ -363,6 +374,7 @@ private final class ExtensionSessionCleanup {
         guard let raw else { return }; gt_ext_session_stop(raw)
         for _ in 0..<32 {
             let result = gt_ext_session_close(raw, 0)
+            if result == GT_EXT_DRAINING { ExtensionFileSource.reapDroppedSources(on: owner) }
             if result == GT_EXT_CLOSE_ERROR { return }
             if result == GT_EXT_RELEASED {
                 guard gt_ext_session_destroy(&self.raw) == GT_OK else { return }

@@ -71,7 +71,9 @@ bool gt_ext_session_lease(const gt_ext_session_t *,gt_ext_lease_t *);
 gt_ext_access_t gt_ext_session_access(const gt_ext_session_t *,const gt_ext_lease_t *,const char *capability);
 void gt_ext_session_revoke(gt_ext_session_t *);
 void gt_ext_session_stop(gt_ext_session_t *);
-/* Retain handle on DRAINING/error. Destroy only after close RELEASED; success
+/* Live sources keep close DRAINING and forbid destroy even after transport has
+ * closed; close/destroy sources first. Retain handle on DRAINING/error.
+ * Destroy only after close RELEASED; success
  * clears *owner. Historical end/error survive stop/close; cleanup_error separate. */
 gt_ext_close_t gt_ext_session_close(gt_ext_session_t *,int ms);
 gt_status_t gt_ext_session_destroy(gt_ext_session_t **);

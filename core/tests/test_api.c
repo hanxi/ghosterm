@@ -43,6 +43,12 @@ int main(void) {
         gt_ext_session_resource_result(NULL,&no_lease,1,&resource_result)==GT_EXT_RESOURCE_INVALID && !resource_result.confirmed && !resource_result.handle,
         "plugin resource invalid calls never publish or confirm");
 
+  gt_ext_source_t *file_source=(gt_ext_source_t *)1;gt_ext_source_info_t source_info;memset(&source_info,1,sizeof(source_info));
+  CHECK(gt_ext_source_open(NULL,&no_lease,NULL,&file_source)==GT_EXT_SOURCE_INVALID && !file_source &&
+        !gt_ext_source_info(NULL,&source_info) && !source_info.has_transfer && !source_info.confirmed &&
+        gt_ext_source_destroy(&file_source)==GT_EXT_SOURCE_INVALID,
+        "scoped source requires native Session/root/lease and never fabricates a result");
+
   /* 三态枚举不得折叠 */
   gt_hostkey_decision_t d = GT_HOSTKEY_UNKNOWN;
   CHECK(d == GT_HOSTKEY_UNKNOWN, "hostkey 三态不得折叠");

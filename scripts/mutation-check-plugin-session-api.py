@@ -51,7 +51,7 @@ def main():
       ('lease-epoch',api,'out->epoch=l.epoch;','out->epoch=l.epoch+1;','native','allow'),
       ('close-error-visible',api,'s->cleanup_error=GT_ERR_IO;','s->cleanup_error=GT_OK;','boundary','close-error'),
       ('destroy-error-retained',api,'if(status!=GT_OK){s->cleanup_error=status;return status;}','if(false && status!=GT_OK){s->cleanup_error=status;return status;}','boundary','destroy-error'),
-      ('destroy-history',api,'if(s->released)return GT_EXT_RELEASED;','if(false && s->released)return GT_EXT_RELEASED;','boundary','destroy-error'),
+      ('destroy-history',api,'if(s->released)return s->sources?GT_EXT_DRAINING:GT_EXT_RELEASED;','if(false && s->released)return s->sources?GT_EXT_DRAINING:GT_EXT_RELEASED;','boundary','destroy-error'),
     ]
     swift_cases=[
       ('swift-decision','decision: Decision(rawValue: i.decision.rawValue) ?? .unknown','decision: .allow','testNativeConsentAndScopedLease'),

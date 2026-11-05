@@ -142,18 +142,20 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九 / 十 / 十二至二十二批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共门面 `channel.c` / `session-api.c` / `resource-api.c`，纳入 Core 构建。公共通道、Session 生命周期、JSON 请求与资源门面已接两端 worker；公开 scoped source、App 控制器及其余生产模块仍待接。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
+以下为实现布局；第九 / 十 / 十二至二十三批已新增私有 `stream.h/.c`、`fd-stream.c`、`frame.h/.c`、`route.h/.c`、`wire.h/.c`、`session.h/.c`、`rpc.h/.c`、`resource.h/.c`、`transfer.h/.c`、`source.h/.c`、`backends/ssh_exec.h/.c` 及公共门面 `channel.c` / `session-api.c` / `resource-api.c` / `source-api.c`，纳入 Core 构建。公共通道、Session 生命周期、JSON 请求、资源与 scoped source 门面已接两端 worker；App 根授权 / 控制器及其余生产模块仍待接。`packages/plugin-sdk/schema/` 与 `testkit/` 已有结构 / 元数据候选，尚未接 App。
 
 ```text
 core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
 core/include/ghosterm/extension_session.h   已实现 S4d2：公共单实例握手 / 决定 / lease / 撤销 / 关闭
 core/include/ghosterm/extension_rpc.h   已实现 S4d3：公开 JSON 请求 / 结果快照 / 取消 / check / respond
 core/include/ghosterm/extension_resource.h   已实现 S4d4：公开 Store / 资源传输 / 保留快照 / 预算与关闭
+core/include/ghosterm/extension_source.h   已实现 S4d5：授权根 fd 内的公开文件来源 / 两遍校验 / 回执与关闭
 core/src/extension/
   mux.c          增量识别、分帧、原始终端字节透传
   channel.c      已实现 S4d1：公共通道门面、native 稳定写缓冲、逐跳认证 challenge / 生命周期
-  channel-owner.h / session-owner.h / session-api.c   已实现 S4d2 / S4d3 / S4d4：通道事务交接、保留容量、公开 Session / 请求 / 资源构造
+  channel-owner.h / session-owner.h / session-api.c   已实现 S4d2 / S4d3 / S4d4：通道事务交接、保留容量、公开 Session / 请求 / 资源构造与 Source 借用计数
   resource-api.c   已实现 S4d4：公共 Store 与资源流门面、借用计数、发布快照 / 读取 / 引用交接
+  source-api.c   已实现 S4d5：公开文件来源门面、Session pin、原失败与关闭错误分开
   stream.h / stream.c   私有有序双向字节通道契约，不带终端 / 插件业务语义
   fd-stream.c    已实现：显式接管 pipe / stream socket；非阻塞 IO 与停止唤醒
   frame.h / frame.c    已实现：候选长度前缀、增量 decoder 与单帧 writer
@@ -229,7 +231,7 @@ bridge / JS runtime 作为显式可配置构建能力，CMake 与平台构建各
 材料、部分 IO、stop / close / destroy。第二十批再加 `gt_ext_session_*` 十项，公开握手 / 原生决定 /
 lease / 撤销及生命周期。第二十一批新增八项请求入口，显式协商、方法表 / 根类型约束、双向请求 /
 结果 / 取消 / check / respond，快照复制为调用方 POD；不是业务 JSON Schema 引擎。实际协议复用私有
-BridgeSession；第二十二批另接十六项 Store / 资源门面，原生目录 fd、Session 借用 / 快照保留、资源回执及显式关闭；公开 scoped source 仍待接。所有平台只经
+BridgeSession；第二十二批另接十六项 Store / 资源门面，原生目录 fd、Session 借用 / 快照保留、资源回执及显式关闭；第二十三批再接七项 scoped source 入口，复用私有两遍文件读取与发布回执，成功构造到 destroy 持续借用 Session。所有平台只经
 `ghosterm.h` 消费，以下 mux / instance / resource 示例仍是后续接口草案，不能据这些 ABI 提前开放插件权限。
 
 ```c
@@ -1345,7 +1347,7 @@ Go/Tailcat provider 可经私有 C ABI 给 C owner 受控 stream 或 POSIX fd，
 | S1 私有 stream / 共用 codec | 第九批已落地 C 接缝、部分 IO、预算 / 停止语义、候选长度分帧；不是完整 wire 校验器 | 同一套 conformance 夹具对 pipe / socketpair；随机分块、短写 / WAIT、前缀污染、截断 / 尾字节、限额、关闭后拒发。九模式与十三组变异通过；不拿内存 fake 通过当网络适配已完成。 |
 | S2 直接 SSH 后端 | 第十批 S2a 已接专属 auth owner、无 PTY exec / 三路 IO；第十一批 S2b 已关闭旧 exec helper 风险 | 直连十六场景 / 十四组变异；旧 helper 十个协议场景、边界测试及十六组新变异通过，原 exec 三组复验。更完整取消 / 重协商 / 长时资源矩阵继续作为后续组合验收，不借本片记插件产品完成。 |
 | S3 受管跳板链 | 第一跳至最终目标的字节 IO、逐跳身份 / 认证与清理 | 第十二批已验证 libssh2 两 / 三层、不同 pin、失败定位、转发拒绝、未知 hostkey、错凭据、半开链、取消与释放。客户端只准直拨第一跳；尚非真实封闭内网 / WAN / App 证据，完整平台和资源组合继续验收。 |
-| S4 共用会话与原生入口 | 协商、包匹配、原生批准、资源 / 请求、两端最小绑定 | 第十三至十八批接私有控制握手 / RPC / Store / 资源回执与 scoped source；第十九批接公共通道 / 逐跳认证，第二十批接公共 Session 生命周期 / 原生决定 / lease，第二十一批接公开 JSON 请求，第二十二批接公开 Store / 资源传输 / 保留快照，均有两端非 UI worker。公开 scoped source、原生授权页面 / 视图、SDK 业务 schema 与实际插件运行仍待接；后续须同一协议夹具、页面 / 绑定及普通终端回归。公开头变化时完整 ABI / gate / 绑定对拍。 |
+| S4 共用会话与原生入口 | 协商、包匹配、原生批准、资源 / 请求、两端最小绑定 | 第十三至十八批接私有控制握手 / RPC / Store / 资源回执与 scoped source；第十九批接公共通道 / 逐跳认证，第二十批接公共 Session 生命周期 / 原生决定 / lease，第二十一批接公开 JSON 请求，第二十二批接公开 Store / 资源传输 / 保留快照，第二十三批接公开 scoped source，均有两端非 UI worker。原生授权页面 / 视图、SDK 业务 schema 与实际插件运行仍待接；后续须同一协议夹具、页面 / 绑定及普通终端回归。公开头变化时完整 ABI / gate / 绑定对拍。 |
 | S5 前台 gterm 附着 | 一次性 IPC 与受控 attach | 原目录 / 环境归属、实例错配、IPC 权限 / 路径、进程退出、第二客户端切 pane、无秘密回卷和无后台服务。 |
 | 后续网关 | WSS 或 Go 网络 provider | 对同一 conformance / wire / 会话夹具再验，再加网关自身认证、实际网络与平台矩阵；不倒填 S1 为兼容网关已通过。 |
 
@@ -2288,6 +2290,75 @@ dex 后实际重跑，不把 UP-TO-DATE 当本次实际执行。最终收据如�
 **剩余。** 公开 scoped source、原生根授权 / 批准 / 资源视图、SDK / runtime / gterm IPC、包安装 /
 激活、实际插件和多实例继续；本批没有签名或云端发行、物理设备 / WAN / 真实封闭内网 / 完整客户端
 结论。整个插件目标未完成，未来网关只预留、不实现。
+
+### P0 第二十三批：S4d5 公开授权目录内的文件来源（2026-11-06）
+
+**交付。** 在 `a20e7cb` 上增加 `extension_source.h` / `source-api.c`，七项 open / step / send /
+cancel / info / close / destroy 公共入口；当前 **147 ABI**，原 140 项签名 / POD 布局保留。
+Source 使用原 Session lease，要求明确协商资源和获准 file.readScoped / resource.receive；未请求的
+能力返回 UNSUPPORTED，无效授权返回 DENIED，无资源 Store 时在打开 / 读取文件前拒绝。
+
+可信 native caller 显式提供已授权根 fd、相对路径、MIME 和字节上限，平台负责 ACL / 挂载策略；
+构造复制参数和 CLOEXEC fd，不采用 cwd、环境变量、tilde 或 shell 展开。复用第十八批逐层 no-follow /
+只读 / 非阻塞 open、普通文件与祖先身份核对、同 fd 两遍有界读取 / SHA256 / 实际 EOF；每 step
+最多 16 KiB，遵守资源背压，只有对端验证发布回执才成功。允许根内可达硬链接，不承诺同 UID 沙箱、
+原子文件系统快照或磁盘硬期限。授权根 UI、本机进程沙箱和全客户端文件授权尚未接。
+
+每 Session 最多 **16 个 Source**；成功构造到成功 destroy 持续 pin Session，包括文件已关闭之后。
+Session 可以释放 transport，但有 Source 时 close 仍为 DRAINING，destroy 拒绝；Source 的 WAIT /
+关闭 IO 保留 owner 和借用，不重试已经消费的数值 fd。原文件变化 / 取消 / 未知事实与 cleanup_error
+分开。Source 自己管理资源结果 / forget，不向外泄漏可被另行 forget 的 transfer handle；wire ID
+仅作关联，info 为独立复制的 POD。父 Session 退出后，未确认发送保留 UNKNOWN，已确认成功不改写。
+
+Swift Source 只持有自己的 raw / 原 queue，Core 计数保护父 Session，无强引用环；丢弃对象进入原
+queue 的 pending ledger。存活 Session 的 step 会推进已丢弃 Source 的正常清理，IO 条目保留到显式
+retry；Session 析构也可推进它们。Source 释放后异步唤起父 Session / Store 清理，避免递归 reaper
+销毁正在清理中的父对象。两种析构顺序和父 Session 仍存活的丢弃来源均独立验收。
+
+Kotlin 使用原非 UI worker、显式 AutoCloseable，无 finalizer；Admission 和 Java Source 在 native
+构造前分配，避免返回时丢失 owning pin。路径严格 UTF-8 编码，拒绝 NUL / 非法 UTF-16，不将坏代理项
+替换为 `?` 而误选真实文件。JNI 独立 **256 槽**代次表、原 pthread 操作，所有入口只经聚合 C ABI。
+
+**验证及失败记录。** 公开接口 **26 个本机场景 + 3 个真实 close 后注入 EIO 边界**通过；覆盖构造
+失败清输出、参数复制、根路径 / 链接 / FIFO、额度 / Session pin、文件变化、空文件 / 字面文件名、
+背压、取消 / UNKNOWN / 确认后 stop、复制观察及 fd 归零。边界另护 destroy 失败不消费指针 / pin。
+最终 Core gate **378 CTest / 147 ABI**，Apple **143 引用 / 4 未用**、JNI **109 / 38**。
+
+同轮 C 两 / 三跳允许 / 拒绝四 SSH 场景、Swift **8 项**、隔离 **API 36 / arm64 / 4 KiB 页** Android
+**8 项**零失败 / 零跳过。允许项双向各 **256 KiB** 文件来源 / 资源快照逐字节与摘要核对，同时双向
+各 **80 个确认 RPC**；执行端完成记录为 Source / Resource / RPC **各 6 份，共 18 份**，严格核对
+数量和内容。客户端只直拨首跳，adb 只 reverse 首跳及本机夹具，不要求目标访问外网。
+
+新 **24 C / 5 Swift / 6 JNI / 1 Kotlin** 变异通过，旧私有 Source **34 C**、公开 Session **13 C /
+2 Swift**、公开资源 **26 C / 4 Swift**分套复验，共 **97 C / 11 Swift / 6 JNI / 1 Kotlin = 115 组
+手工证据**。每组强制实际 obj / archive / executable 或 JNI shared 重链后正常目标断言红、同库 /
+同 APK 独立配置绿、恢复编译绿和 SHA256。Core 使用 ASan / UBSan，无 LSan；不增加 macOS CI 二十份。
+两份新 runner 的实际 main 隔离残留预扫退出 2、源不变且无子命令。
+
+初次未请求 capability 的测试误期待 DENIED，修为既有 UNSUPPORTED 契约；Android 复制的网络测试
+误用 Resource 枚举导致编译失败，清理 helper 又对已释放 Session 调用 closeStep 导致三项失败，均
+保留且不计绿。后者改用已有幂等 close，未改生产语义。直接运行 Swift 时缺 SSH 夹具的两项跳过不算
+完整通过；最终联合夹具八项全部实际执行。没有将任何编译失败、清理覆盖异常或中间结果倒填为成功。
+
+严格 C11 / pedantic-errors 五源、关闭 provider / 无 libssh2 两档 **147 导出**和相关真实测试通过。
+macOS App 删除 `swift build --show-bin-path` 实际产品后核对 verbose 可执行文件链接，Android
+Debug / 测试 APK、未签名 Release / 本轮实际 R8 与四模块 lint 通过；已安装两 APK 及包内 JNI 摘要
+与最终构件一致。本地收据如下，均核对当前输入，不能代替他机或发行验收：
+
+| 范围 | 本地收据 |
+|---|---|
+| 新 C / Swift 24 / 5 | `tmp/plugin-source-api-mutations-mg_k9l5c/logs/result.json` |
+| 新 JNI / Kotlin 6 / 1 | `tmp/plugin-source-api-jni-mutations-pdwii7s8/logs/result.json` |
+| 旧私有 Source 34 | `tmp/plugin-source-mutations-k4tbdrt3/logs/result.json` |
+| 旧公开 Session 13 / 2、资源 26 / 4 | `tmp/plugin-session-api-mutations-1doh4lh7/logs/result.json` / `tmp/plugin-resource-api-mutations-bxt9n7b5/logs/result.json` |
+| 最终两端 / 四 SSH / 18 份 proof | `tmp/plugin-public-channel-kcs3f6ev/result.json` 及 `proofs/` |
+| 严格编译 / 关闭 provider / 无 SSH | `tmp/plugin-source-api-variants-kdxmn028/result.json` |
+| runner 实际 main 残留预扫 | `tmp/plugin-source-api-preflight-vlsg1jt0/result.json` |
+
+本批源码、日志、构件 / 已安装 APK、提交及所属临时进程清理事实在 `tmp/plugin-source-api-evidence.json`。
+**剩余。** 原生根授权 / 批准 / 资源视图、App 控制器、SDK / runtime / gterm IPC、包安装 / 激活、
+实际插件与多实例继续；未验证物理设备、WAN、真实封闭内网、签名 / 云端发行或完整客户端。
+整个插件目标未完成，未来网关只预留、不实现。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

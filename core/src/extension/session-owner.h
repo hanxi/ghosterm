@@ -9,5 +9,6 @@ struct gt_ext_session {
  gt_bridge_session_t *inner;gt_ext_channel_t *channel;bool released,requests;
  gt_status_t cleanup_error;gt_ext_rpc_method_t methods[GT_EXT_RPC_METHODS_MAX];
  gt_ext_resource_store_t *store;
+ size_t sources;
 };
 #endif

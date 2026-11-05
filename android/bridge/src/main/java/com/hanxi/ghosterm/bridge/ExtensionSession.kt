@@ -118,6 +118,9 @@ class ExtensionSession private constructor(private val worker: Thread, private v
             try { resourceStore?.discard(lease, packet) } finally { stop() }; throw error
         }
     }
+    fun openSource(lease: Lease, rootFd: Int, relativePath: String, mime: String = "application/octet-stream", byteLimit: Long = 262144): ExtensionFileSource.Admission {
+        owner(); return ExtensionFileSource.open(handle, lease, rootFd, relativePath, mime, byteLimit)
+    }
     fun stop() { val id = handle; if (id != 0L) NativeExtensionSession.stop(id) }
     fun closeStep(milliseconds: Int = 0): Boolean {
         owner(); require(milliseconds >= 0)
