@@ -67,7 +67,7 @@ def main():
                 elif case == 'unknown': assert result['result'] == 'unknown', result
                 elif case == 'unsupported': assert result['result'] == 'unsupported', result
                 elif case == 'no-activation': assert result['code'] == 'COMMAND_ACTIVATION_UNAVAILABLE', result
-                elif case == 'doctor': assert result == dict(portableJs='available', commandActivation='unsupported', localIpc='unsupported'), result
+                elif case == 'doctor': assert result == dict(portableJs='available', commandActivation='explicit-stdio-only', localIpc='unsupported'), result
                 else: assert result['result'] != 'compatible', result
             if case == 'integrity': (package / 'README').write_text(files['README'])
             print('PASS', case)

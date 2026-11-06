@@ -1067,3 +1067,12 @@ Invocation，原始命令/argv 在接管前复制；规范 token、固定包完�
 4 KiB 页模拟器十五项组合及真实构建通过。JNI 初次编译失败和 Swift 收据文案识别失败
 保留，最终完整复验见插件计划第四十二批。手工证据不增加 CI 二十份；CLI 激活/IPC、
 来源授权、参数 schema、App 和业务插件仍未完成。
+
+**插件前台 stdio 第四十三批（2026-11-06）**：独立 gterm relay --stdio 明确开发包摘要 /
+Client 摘要 / 包目录 / 完整命令，固定检查后等待 Host Session 批准才激活；原始 argv 经
+现有调用接缝传入，业务仍由插件/codec负责。两向 TTY 拒绝，stdout 仅协议，未知/拒绝/
+取消/关闭错误分开。主机真实 child 七项、TTY 两向、旧 CLI 十二项/OFF 两项、默认
+470 CTest / 169 ABI通过；七组优化 ASan/UBSan 变异正常断言红/同 archive 配置绿/复原/
+SHA256。NDK arm64 CLI在专用 API36 / 4 KiB 页模拟器同源七项通过；不是 APK/真实设备/
+SSH 拓扑验收。原件见插件计划第四十三批；不进 App 包、不增加 CI 二十份。跨包分发、
+schema 解码、本机 IPC、App授权/视图和官方业务插件仍待完成。

@@ -1,8 +1,8 @@
 # gterm 前台 CLI
 
 独立构件，不加入 Ghosterm App 包、不安装远端 helper、不修改 shell 配置。
-当前接入诊断及固定包兼容性检查；命令激活、本机 IPC、安装/升级仍未实现。
-它不提供业务命令，未知命令返回 `COMMAND_ACTIVATION_UNAVAILABLE`。
+当前接入诊断、固定包兼容性检查及显式 stdio Executor；普通命令分发、本机 IPC、安装/升级仍未实现。
+它不内置业务命令，未接分发的顶层命令返回 `COMMAND_ACTIVATION_UNAVAILABLE`。
 
 从仓库根目录构建（产物在工程 `tmp/`）：
 
@@ -43,3 +43,44 @@ python3 scripts/mutation-check-gterm.py
 变异 runner 只改工程 `tmp/` 中的 CLI 副本，锁定 SDK 工具离线构建；Core / 上游为只读
 输入。实际重新编译 CLI，目标正常断言红、同 archive 配置对照绿、复原绿并核对源码摘要。
 这是 CLI 检查入口验收，不替代未来激活、IPC、SSH 或实际业务插件验收。
+
+
+显式 stdio Executor 由持有专属 pipe/socket 的原生 Host 启动：
+
+```text
+gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 [--method NAME]... -- DIRECTORY COMMAND [ARG...]
+```
+
+这是当前的前台启动协议，不是向交互终端写回的通道；stdin/stdout 任一为 TTY 都拒绝。
+stdout 只传 Core 协议，诊断只到 stderr，且不记录参数、模块异常文本或授权 token。
+Host 必须管理专属 stdio 的对端归属；本入口不实现本机 socket 认证、发现或后台服务。
+
+`--trust-development-digest` 是调用方对这份固定开发包字节的显式来源选择，不是发布者
+签名认证，也不代替 Host 的本次 Session 决定。包捕获、完整性/兼容检查、摘要和完整
+命令贡献匹配均在启动协议前完成。Host 按实际 Client/Executor 摘要核对和授权；拒绝、
+取消或不匹配不得激活插件。`--method` 可重复至 16 项，显式开放接收端为 Executor、
+输入/输出根类型为 object、能力为 session.rpc 的方法；必须由包声明 session.rpc。
+具体业务 schema 仍由 SDK codec 检查，本入口没有实现任意 JSON Schema 服务。
+当前 Host 能力事实只有 portable JS 和 session.rpc，其它必需服务明确失败。
+
+实际 command/argv 只作为只读调用数据交给插件，不拼 shell，不把多 token 命令猜成某个
+包；COMMAND 参数是完整规范命令。跨包命令发现与关联、CLI 参数 schema 解码仍待接。
+不会自动下载、安装、连接其它执行环境或使用另一身份。
+
+进程保持前台，收到 Host 关闭或 SIGINT/SIGTERM 后释放 runtime/Session/包引用。stdio
+模式退出码 0 只表示已激活实例随后被对端有序结束，**不表示业务操作成功**；业务结果
+只能依据 RPC 回执。2 参数/命令/TTY 错误，3 包能力未知，4 不支持，5 引擎/校验/关闭错误，
+6 来源摘要不符或 Host 拒绝，7 未建立完整实例或通道结果不明，130 取消。插件 dispose
+异常也返回非零。Host 丢失、未确认的操作不自动重放。
+
+```sh
+cmake -S cli/gterm -B tmp/gterm-build -DGHOSTERM_GTERM_TESTS=ON \
+  -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=OFF
+cmake --build tmp/gterm-build -j 4
+python3 scripts/test-gterm-stdio.py --build tmp/gterm-build
+python3 scripts/test-gterm-stdio.py --build tmp/gterm-build --case tty
+python3 scripts/mutation-check-gterm.py --stdio
+```
+
+此进程测试以真实独立 child 与公共 native HOST Session 往返，不模拟 wire 成功。App
+原生授权页面、实际 SSH 启动矩阵、本机 IPC、官方 preview 与其它业务插件尚未完成。

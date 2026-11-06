@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第四十二批运行时调用信息。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第四十三批前台 stdio Executor。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -187,7 +187,7 @@ core/tests/      分帧、生命周期、权限、资源和互操作测试
 core/src/ssh/wire.h  私有递归字节 IO / readiness；内层 SSH 不直接拨 TCP
 
 cli/gterm/
-  main.c         已接 doctor / plugin check；命令发现与插件分发待接，不包含业务命令实现
+  main.c / stdio.c 已接 doctor / plugin check / 显式开发包 stdio 激活；跨包命令发现待接，不包含业务命令实现
   tty_posix.c    TTY 状态保存 / 恢复、前台占用、用户取消
   process_posix.c / ipc_posix.c
   relay.c        可选前台中继，具体支持拓扑由探针决定
@@ -3437,6 +3437,55 @@ XCTAssert 文案，收据未接受；补充精确 XCTFail 判据后完整两组�
 本批完成运行时调用信息接缝，没有完成 CLI 命令选择/激活、前台 IPC、原生来源授权、
 参数 schema 解码、App 视图与实际业务插件。手工模拟器证据不增加 CI 二十份，不代表
 真实设备、签名发行或整体计划完成。
+
+### P0 第四十三批：显式开发包前台 stdio Executor（2026-11-06）
+
+独立 CLI 新接 `gterm relay --stdio`：调用方必须明确提供开发包摘要、实际 Client 摘要、
+包目录、完整贡献命令和 argv。固定捕获/完整性/兼容检查、开发包摘要与命令声明匹配
+先于协议；来源选择只承认调用方显式信任这份字节，不声称签名或发布者认证。stdin /
+stdout 必须为专属非 TTY pipe/socket，stdout 只走 Core 协议，stderr 只输出固定诊断。
+调用方仍须保证 stdio 的真实对端归属，本片不是本机 IPC 认证或通用终端回包通道。
+
+CLI 经公共 C ABI 构建 Executor Session，等待 Host 以实际双侧摘要与能力批准后才交给
+package runtime。`--method` 可重复至 16 个，显式声明 session.rpc / Executor 接收、
+object 根形状；不写死业务方法。当前能力事实仅 portable JS / session.rpc，其它必需
+能力明确失败，SDK/协议版本从 sdk-version.json 生成并纳入 CMake 重配置依赖。
+原始调用信息从第四十二批接缝进入插件，业务 codec 继续负责具体 schema。收到拒绝 /
+取消、摘要不匹配或未声明命令不得激活，不自动重放、不自动安装或换身份。
+
+运行保持前台，SIGINT/TERM 经标记进入原 worker 关闭；Host 有序结束已激活实例时退出
+0，仅表示宿主生命周期结束，**不表示业务动作成功**，业务结论仍看 RPC 回执。断线 /
+未建成会话结果不明与拒绝分开，dispose 异常/清理错误返回非零。完整参数及退出码见
+`cli/gterm/README.md`。doctor 标记 `commandActivation=explicit-stdio-only`，普通顶层
+命令分发仍未接，App 包未新增 CLI / helper / 环境包。
+
+真实独立 CLI child 与公共 C HOST Session 的七项进程测试通过：实际 RPC 与中文/空/
+代码样式 argv、拒绝、取消、来源摘要变化、对端摘要不匹配、未声明命令、dispose 异常。
+拒绝/取消使用模块顶层立即抛错的夹具，仍须返回原拒绝/取消；摘要/命令失败另断言没有
+接收任何协议字节。stdin 与 stdout 两向 TTY 均拒绝且不写输出。既有十二项 CLI 检查
+回归、OFF 档两项、默认 gate 470 CTest / 169 ABI 通过；Core 源码/公开 ABI 未修改，
+不声称本轮重跑 enabled 634 项。日志 `tmp/gterm-stdio-process-final.log`、
+`tmp/gterm-stdio-tty.log`、`tmp/gterm-stdio-regression-final.log`、
+`tmp/gterm-stdio-off-final-tests.log`、`tmp/gterm-stdio-gate.log`。
+
+七组隔离 CLI 变异（TTY、来源摘要、命令贡献、等待授权、参数、dispose 错误、方法方向）
+在优化 ASan/UBSan 下真编译，目标正常断言红、同 archive 配置对照绿、复原绿与 SHA256，
+无 LSan；不接受进程 signal/sanitizer 报错为正常目标红。原件
+`tmp/gterm-mutations-gbi3kqzf/logs/result.json`，最终全部输入逐项一致，完整日志
+`tmp/gterm-stdio-mutations-complete.log`。此前六组及新增 TTY 七组阶段日志保留，最终以
+这份完整七组收据为准。
+
+NDK 28.2 / API29 / arm64 CLI 与进程测试 ELF 真构建，在专用 API36 arm64 / 4 KiB 页
+模拟器 `emulator-5580` 运行相同七项进程测试通过。最终 CLI SHA256
+`8eddd079f13cfa4659d43df4cd46201d511a4f76a960090e26814545fe1ffd68`，
+测试 ELF `373e4fd6ac55d6590f7ee0b18555c15811d532161eadfcf364f62e0e4d15b6d5`，
+均主机/设备对拍；设备目录已清理。日志 `tmp/gterm-stdio-android-final-build.log`、
+`tmp/gterm-stdio-device-final.log`，执行适配器 `tmp/gterm-stdio-device.py` 复用同一进程
+fixture runner，没有改用模拟 wire。此证据不包含 Android TTY 两向测试、真实设备或 APK。
+
+本片是显式单包 stdio 的真实激活/RPC闭环，仍需跨包命令发现、CLI schema 解码、实际
+SSH 启动与拓扑矩阵、本机 IPC、App 来源/授权界面与原生视图、完整 SDK 及官方业务插件。
+手工证据不增加 CI 二十份，不记完整 gterm/App/插件计划完成。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

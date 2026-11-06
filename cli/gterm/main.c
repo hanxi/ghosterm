@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE
 #include "ghosterm.h"
+#include "stdio.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -18,6 +19,7 @@ static void interrupt_check(int number) { interrupted = number; }
 static int usage(void) {
     fputs("usage: gterm doctor\n"
           "       gterm plugin check [--host-json FILE] -- DIRECTORY\n"
+          "       gterm relay --stdio --trust-development-digest SHA256 --client-digest SHA256 [--method NAME]... -- DIRECTORY COMMAND [ARG...]\n"
           "Host JSON is caller-supplied compatibility evidence, not a grant.\n", stderr);
     return 2;
 }
@@ -141,9 +143,10 @@ int main(int argc, char **argv) {
     action.sa_handler = interrupt_check; sigemptyset(&action.sa_mask);
     if (sigaction(SIGINT, &action, NULL) || sigaction(SIGTERM, &action, NULL)) return 5;
     int result;
+    if (argc >= 3 && !strcmp(argv[1], "relay") && !strcmp(argv[2], "--stdio")) return gterm_stdio(argc - 3, argv + 3, &interrupted);
     if (argc == 2 && !strcmp(argv[1], "doctor")) {
         bool available = gt_ext_runtime_support() == GT_OK;
-        printf("{\"portableJs\":\"%s\",\"commandActivation\":\"unsupported\",\"localIpc\":\"unsupported\"}\n", available ? "available" : "unsupported");
+        printf("{\"portableJs\":\"%s\",\"commandActivation\":\"%s\",\"localIpc\":\"unsupported\"}\n", available ? "available" : "unsupported", available ? "explicit-stdio-only" : "unsupported");
         result = available ? 0 : 4;
     } else if (argc >= 3 && !strcmp(argv[1], "plugin") && !strcmp(argv[2], "check")) {
         if (argc == 5 && !strcmp(argv[3], "--")) result = package_check(argv[4], NULL);
