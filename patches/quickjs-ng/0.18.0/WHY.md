@@ -69,3 +69,17 @@ class/private field/闭包及含 120 case 的 switch 逐分配失败和销毁归
 隔离变异 runner 的 switch 边界只在危险回填前观察并阻止非法写，正常路径执行原代码；
 这样可用正常断言验省略生产检查，而不将崩溃计作目标红。实际无观察钩子的包语料
 逐分配扫描另列证据，不以边界观察替代真实编译器回归。
+
+## 正则 atom 发射后的 OOM（第三十三批）
+
+七份补丁后的真实包语料在 macOS 优化 ASan 的 ordinal 1427 仍发现
+`re_need_check_adv_and_capture_init` 读取不完整 range operand。`re_parse_term` 原有入口检查
+只能捕获上一个 term 的错误；本 term 的 atom 发射失败后，量词优化仍扫描缺失 operand。
+`0008-regexp-atom-oom.patch` 在 atom 发射之后、量词检查之前传播原 sticky OOM，保留原预算
+和 range / capture / forward / backward 语义。实际未插观察钩子的包语料另做完整失败扫描。
+
+`test_plugin_regexp_oom` 独立编译相同上游 regexp / unicode 源，提供原生 allocator，
+覆盖七种 range / capture / 量词 / SemVer 风格 / lookbehind / Unicode 语料的每个分配点，
+要求 OOM 显式失败、无半成品和存活分配。隔离变异在发射边界确定性置 error，并在危险
+scan 前观察 / 阻止破坏；正常配置仍执行原实现。目标正常断言红、同 archive 的独立 literal
+配置绿、重建恢复及 SHA256；观察变异与真实无钩子失败扫描分开，不将 sanitizer 崩溃计红。

@@ -1,0 +1,22 @@
+--- a/libregexp.c
++++ b/libregexp.c
+@@ -2056,6 +2056,8 @@
+             dbuf_putc(&s->group_names, 0);
+             dbuf_putc(&s->group_names, 0);
+         parse_capture:
++            if (dbuf_error(&s->group_names))
++                goto out_of_memory;
+             if (s->capture_count >= CAPTURE_COUNT_MAX)
+                 return re_parse_error(s, "too many captures");
+             last_atom_start = s->byte_code.size;
+@@ -2241,6 +2243,10 @@
+             re_emit_op(s, REOP_prev);
+         break;
+     }
++
++    /* Do not inspect an atom whose emission failed or was truncated. */
++    if (dbuf_error(&s->byte_code))
++        goto out_of_memory;
+ 
+     /* quantifier */
+     if (last_atom_start >= 0) {

@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第三十二批内存提交收口。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第三十三批正则 OOM 收口。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -2799,6 +2799,43 @@ JS ON / SSH ON 完整 Core 550 项通过。内存 runner 从包检查中解耦�
 `.gitmodules`、随后缺离线 npm 缓存，均在起跑阶段失败而不计绿；补齐同源文件 / 已有缓存后
 完整重跑。App 激活 / 回收、包快照复用、真实业务与平台进程内存仍待接；包元数据继续因
 优化 ASan 的正则 OOM 越界未验收，下一批独立处理，不接 App 或未来网关。
+
+### P0 第三十三批：正则 atom 与捕获组 OOM（2026-11-06）
+
+继续独立加固锁定 QuickJS-NG，不将第二十九批包校验候选混入本次提交。
+`0008-regexp-atom-oom.patch` 在 atom 发射后、量词优化扫描前检查 bytecode sticky error，
+避免 range operand 未发射完整时仍进入 `re_need_check_adv_and_capture_init`。
+独立逐分配测试又发现 unnamed capture 的 group_names 分配失败可能被忽略、返回成功；
+本片在 parse_capture 入口检查该缓冲错误，避免缺失分组记录继续进入嵌套解析。
+不跳过分配点、不容忍半成品、不改变栈 / 内存预算或正常路径语义，vendor 保持原 pin。
+
+`test_plugin_regexp_oom` 独立链接同一份 regexp / unicode 源，七种 range / 捕获 / 量词 /
+SemVer 风格 / lookbehind / Unicode 语料共 **208 个分配失败点**，每点必须显式 OOM、无
+返回字节码及存活分配；另跑正常编译 / bytecode 校验 / 恢复。macOS 优化 ASan/UBSan 与
+NDK 28.2 arm64 / API29 实际 ELF 在 API36 / 4 KiB 页私有模拟器均通过。
+`mutation-check-plugin-regexp.py` 两组真实重编译：atom 传播与 capture 传播，各自编译后
+目标正常断言红、同 archive 独立 literal 配置绿、重建恢复及 SHA256。atom 边界的确定性
+发射错误 / 危险 scan 前观察只存在于隔离变异构件；无观察钩子的实际语料另记。
+
+
+**最终独立源码验收。** 默认 `build-core.sh` / `gate.sh` **465 CTest / 154 ABI**，显式
+JS ON / SSH ON 完整 Core **551 项**通过；CMake 测试注册收口后另复验 regexp / compiler
+三项。当前未提交包候选的固定语料另通过 macOS Debug **72 夹具＋1892 分配点**、优化
+ASan/UBSan **72＋1554**、Android 实际 ELF **72＋1554**；均无观察钩子。包语料证明
+当前引擎修复，不等于 metadata / 模块加载 / App / 完整插件已经验收。手工 ASan/UBSan、
+无 LSan，不增加 macOS CI 二十份，不增加公共 ABI 或平台产品代码。
+
+收据与最终输入核对汇总在 `tmp/plugin-oom-work/regexp-result.json`；原件为
+`tmp/plugin-regexp-qq1ol11j/logs/result.json`、`tmp/pkg-native-6zezg7jk/logs/result.json`、
+`tmp/pkg-native-mavr8dws/logs/result.json` 和 `tmp/pkg-native-t2dzso89/logs/result.json`。
+NDK 设备范围为 API36 / arm64 / 4 KiB 页私有模拟器，非 App / 真机 / 发行证据。
+
+**失败保留。** 初始原生 sweep 的正常断言失败揭示捕获组缓冲错误被忽略，未计通过；补
+parse_capture 检查后七种语料完整重跑。初版变异 runner 的 quantifier 锚点匹配两个赋值，
+以及以 stderr 首字符判红而拒收带诊断前缀的正常失败，均修正后完整重跑两组；未把 runner
+失败计为目标红。一次隔离目录内使用根目录相对路径的设置错误单列保留，纠正路径后复验。
+第二十九批继续做独立包校验验收，后续模块闭包、App 授权 / 视图、完整 SDK、gterm 与实际
+插件仍待完成；外部网关只预留。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

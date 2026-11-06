@@ -5,3 +5,4 @@ terminal/android/src/main/assets/licenses/TerminalThemes-MIT.txt -text whitespac
 apple/GhostermApp/Sources/GhostermAppModel/Resources/Fonts/SourceCodePro-OFL.txt -text whitespace=-blank-at-eol,cr-at-eol
 # Unified diffs use one literal space for an empty context line.
 patches/libssh2/1.11.1/0004-channel-exit-status.patch whitespace=-blank-at-eol
+patches/quickjs-ng/0.18.0/0008-regexp-atom-oom.patch whitespace=-blank-at-eol
