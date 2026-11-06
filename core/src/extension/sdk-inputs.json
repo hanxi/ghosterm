@@ -34,7 +34,7 @@
   ],
   "inputs": {
     "packages/plugin-sdk/portable/codec.ts": "3e43b923457d1c117afaf2939eaa8c12fcda2c8c8da76bb8bc3fcaea6f23adf8",
-    "packages/plugin-sdk/portable/index.ts": "4cbe9b2917a85ed3c087bc240a6eab8acab5a2baad670ebedc9abf5612f99a14",
+    "packages/plugin-sdk/portable/index.ts": "1770099de6c91a916df118faad4c8627fd27f00c5231486cfe5ee1acc505f0e7",
     "packages/plugin-sdk/portable/resources.ts": "79678114de0cb9f3004dfa6b56f2d44ba18eab4b65d4b957b6f890e7d573cb31",
     "packages/plugin-sdk/portable/session.ts": "e9ebe829939c4eb37865fafbafc4a4a5d69497a3cecf8426f6a088386ec9dc63",
     "packages/plugin-sdk/portable/wire-contract.ts": "a99e7998716305ac5226b44b72cd7ece5ea97c0ed9515effd4de8843b4997e8a",

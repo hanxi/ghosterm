@@ -12,3 +12,14 @@ document.title = "bad";
 require("node:fs");
 // @ts-expect-error portable code has no ambient timers
 setTimeout(() => {}, 1);
+
+import type { PluginContext, CapabilityAccess, PluginEntry } from "../portable/index.js";
+declare const context: PluginContext;
+const access: CapabilityAccess = context.capabilities.query("session.rpc"); void access;
+const entry: PluginEntry = { activate(ctx) { const side: "client" | "executor" = ctx.side; void side; return { dispose() {} }; } }; void entry;
+// @ts-expect-error observation is not boolean consent
+const approved: boolean = context.capabilities.query("session.rpc"); void approved;
+// @ts-expect-error activation metadata is immutable
+context.side = "client";
+// @ts-expect-error no unimplemented ambient process service
+context.process.spawn("tool");

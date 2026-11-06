@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第三十九批独立 CLI 检查入口。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第四十批运行时能力观察。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3321,6 +3321,47 @@ NDK 28.2 / API29 / arm64 独立 CLI 真编译，在专用 API36 / arm64 / 4 KiB 
 
 手工 CLI 后端证据，不增加 CI 二十份。开发目录来源批准、持久安装、前台 IPC、命令
 激活、App 原生视图、完整 SDK 和实际业务插件继续；本片不代表 gterm 完整可用或计划完成。
+
+### P0 第四十批：运行时能力观察与关闭错误（2026-11-06）
+
+CLI 激活接线前核对发现，现有实际 context 缺少本计划声明的能力查询。bootstrap 现在
+提供冻结的 `capabilities.query(name)`，经受限 host native port 读取当前 Session lease，
+保留 unknown / allowed / denied / revoked / unsupported 五态，不把 token 暴露给插件，
+不缓存 allowed。运行时停止或失败后直接观察 revoked；空名、超长、NUL 和非字符串
+拒绝。它是当前 Session 授权观察，不是对应 UI / process 等服务已实现的证明；宿主服务
+缺失仍必须显式拒绝，不能凭查询结果绕过服务自身检查。
+
+Portable SDK 同步添加 `CapabilityAccess`、`CapabilitySet`、`CancellationToken`、
+`Disposable`、`PluginContext` 与 `PluginEntry` 类型，resources 仅在资源 Session 中存在，
+尚未实现的 UI/process/命令参数不伪装成可用字段。strict TS 正向及负向边界通过，固定
+SDK 生成器对拍通过；类型变化不改变发射的五个 JS 模块内容，仅更新输入摘要。
+
+关闭时先撤销 Session，再调用插件 dispose；新增检查暴露原 bootstrap 的 `catch {}` 会
+吞掉普通 dispose 异常。已去掉该吞异常逻辑，让既有 native `dispose_error` 正确记录，
+仍释放引擎和 owner，原业务错误不改写为成功。新增 capabilities 与 dispose-throw 两个
+模式，分别经过私有和公共运行时共四项通过，关闭断言同时要求正常 fixture 不产生意外
+错误。能力用例实际覆盖 allowed / unsupported / revoked、输入拒绝与冻结；不声称该
+运行阶段实际产生了 unknown / denied。
+
+六组隔离优化 ASan/UBSan 变异（allowed、unsupported、revoked 映射，输入检查，冻结，
+dispose 吞异常）通过：重新编译后的正常单条断言红、同 archive 独立配置绿、复原绿与
+源码 SHA256，无 LSan。原件 `tmp/pkgload-y14mil3z/logs/result.json`，最终全部输入逐项
+一致；日志 `tmp/plugin-capabilities-mutations.log`。公共 ABI 无新增，Apple 165/4、JNI
+131/38 对拍通过。默认闸门 470 CTest / 169 ABI、enabled JS/SSH 串行完整 632 项
+（125.42 秒）全部通过，日志 `tmp/plugin-capabilities-gate.log`、
+`tmp/plugin-capabilities-all-tests.log`。本片没有修改平台 UI/绑定源码，不称重跑 App 或签名发行。
+
+NDK 28.2 / arm64 / API29 构建 `test_runtime`、`test_ext_runtime`，在专用 API36 / 4 KiB
+页模拟器 `emulator-5580` 执行四项通过。设备/主机摘要对拍，设备目录已删除；原件为
+`tmp/plugin-capabilities-android-targets.log`、`tmp/plugin-capabilities-device.log` 和本轮
+脚本 `tmp/plugin-capabilities-device.py`。首次组合构建额外请求既有 `test_config` 时，
+其 `realpath` 的 512 字节缓冲区未满足 NDK 的 PATH_MAX 编译检查，失败记录保留在
+`tmp/plugin-capabilities-android-build.log`；该目标未在本片修复，不计 Android 全套配置
+或 Core 验收通过。此项可移植性缺陷留待后续修复。
+
+本片补运行时激活依赖，不把 CLI 检查升级成命令激活成功。前台 IPC、命令/参数接线、
+开发目录来源授权、App 原生视图、完整 SDK 与实际业务插件仍继续；手工证据不增加
+CI 二十份，不代表真实设备或完整计划完成。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

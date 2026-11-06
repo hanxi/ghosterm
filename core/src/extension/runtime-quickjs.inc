@@ -93,6 +93,22 @@ static JSValue runtime_native(JSContext *c,JSValueConst self,int argc,JSValueCon
  (void)self;gt_bridge_runtime_t *r=JS_GetContextOpaque(c);if(!r || !r->session)return JS_ThrowInternalError(c,"runtime closed");
  if(op==7){gt_ext_session_revoke(r->session);return JS_UNDEFINED;}
  if(op==8){gt_ext_lease_t live;return JS_NewBool(c,!atomic_load_explicit(&r->stopped,memory_order_relaxed) && r->info.phase<GT_RUNTIME_FAILED && gt_ext_session_lease(r->session,&live) && live.epoch==r->lease.epoch && !memcmp(live.token,r->lease.token,33));}
+ /* Observe the live scoped grant, never cache it in JS or expose its lease. */
+ if(op==9){
+  if(argc!=1 || !JS_IsString(argv[0]))goto invalid;
+  size_t size;const char *name=JS_ToCStringLen(c,&size,argv[0]);if(!name)return JS_EXCEPTION;
+  if(!size || size>128 || memchr(name,0,size)){JS_FreeCString(c,name);goto invalid;}
+  gt_ext_access_t access=atomic_load_explicit(&r->stopped,memory_order_relaxed) || r->info.phase>=GT_RUNTIME_FAILED?GT_EXT_ACCESS_REVOKED:gt_ext_session_access(r->session,&r->lease,name);
+  JS_FreeCString(c,name);
+  switch(access){
+   case GT_EXT_ACCESS_UNKNOWN:return JS_NewString(c,"unknown");
+   case GT_EXT_ACCESS_ALLOWED:return JS_NewString(c,"allowed");
+   case GT_EXT_ACCESS_DENIED:return JS_NewString(c,"denied");
+   case GT_EXT_ACCESS_REVOKED:return JS_NewString(c,"revoked");
+   case GT_EXT_ACCESS_UNSUPPORTED:return JS_NewString(c,"unsupported");
+  }
+  return JS_ThrowInternalError(c,"invalid access observation");
+ }
  if((op==0 || op==4 || op==5 || op==6) && (atomic_load_explicit(&r->stopped,memory_order_relaxed) || r->info.phase>=GT_RUNTIME_FAILED))return op==4?JS_NULL:JS_ThrowInternalError(c,"runtime stopped");
  uint64_t h=0;gt_ext_rpc_status_t status;
  if(op==0){
@@ -123,8 +139,8 @@ invalid:return JS_ThrowTypeError(c,"invalid native request");
 }
 #include "extension/runtime-resource-js.inc"
 static int runtime_bind(JSContext *c,JSModuleDef *module){
- const char *names[]={"request","result","cancel","forget","take","check","respond","revoke","alive"};
- for(int i=0;i<9;i++)if(JS_SetModuleExport(c,module,names[i],JS_NewCFunctionMagic(c,runtime_native,names[i],0,JS_CFUNC_generic_magic,i)))return -1;
+ const char *names[]={"request","result","cancel","forget","take","check","respond","revoke","alive","access"};
+ for(int i=0;i<10;i++)if(JS_SetModuleExport(c,module,names[i],JS_NewCFunctionMagic(c,runtime_native,names[i],0,JS_CFUNC_generic_magic,i)))return -1;
  for(int i=0;i<9;i++)if(JS_SetModuleExport(c,module,runtime_resource_exports[i],JS_NewCFunctionMagic(c,runtime_resource_native,runtime_resource_exports[i],0,JS_CFUNC_generic_magic,i)))return -1;return 0;
 }
 static JSModuleDef *runtime_package_load(JSContext *ctx,const char *name,gt_bridge_runtime_t *r){
@@ -155,7 +171,7 @@ memory:
 }
 static JSModuleDef *runtime_load(JSContext *ctx,const char *name,void *opaque){
  gt_bridge_runtime_t *r=opaque;
- if(!strcmp(name,"host:/native")){JSModuleDef *m=JS_NewCModule(ctx,name,runtime_bind);if(!m)return NULL;const char *names[]={"request","result","cancel","forget","take","check","respond","revoke","alive"};for(int i=0;i<9;i++)if(JS_AddModuleExport(ctx,m,names[i]))return NULL;for(int i=0;i<9;i++)if(JS_AddModuleExport(ctx,m,runtime_resource_exports[i]))return NULL;return m;}
+ if(!strcmp(name,"host:/native")){JSModuleDef *m=JS_NewCModule(ctx,name,runtime_bind);if(!m)return NULL;const char *names[]={"request","result","cancel","forget","take","check","respond","revoke","alive","access"};for(int i=0;i<10;i++)if(JS_AddModuleExport(ctx,m,names[i]))return NULL;for(int i=0;i<9;i++)if(JS_AddModuleExport(ctx,m,runtime_resource_exports[i]))return NULL;return m;}
  if(r->package)return runtime_package_load(ctx,name,r);
  for(size_t i=0;i<r->count;i++)if(!strcmp(name,r->modules[i].name)){JSValue v=JS_Eval(ctx,r->modules[i].source,r->modules[i].size,name,JS_EVAL_TYPE_MODULE|JS_EVAL_FLAG_COMPILE_ONLY);if(JS_IsException(v))return NULL;JSModuleDef *m=JS_VALUE_GET_PTR(v);JS_FreeValue(ctx,v);return m;}
  JS_ThrowReferenceError(ctx,"module unavailable");return NULL;
@@ -214,8 +230,8 @@ static bool runtime_start(gt_bridge_runtime_t *r){
  char script[GT_RUNTIME_MODULE_NAME_MAX*2+4096];int n=snprintf(script,sizeof(script),
  "import {SessionChannel} from 'sdk:/index.js';import * as port from 'host:/native';import {activate} from %s;"
  "const session=new SessionChannel(port);let state=0,disposable;const cancellation=Object.freeze({get cancelled(){return !port.alive()}});"
- "%sconst context=Object.freeze({session,side:'%s',instanceId:'%s',epoch:'%" PRIu64 "',cancellation%s});"
- "export function pump(){session.step();resources?.step();return state}export function dispose(){session.dispose();resources?.dispose();try{disposable?.dispose()}catch{}}"
+ "%sconst context=Object.freeze({session,side:'%s',instanceId:'%s',epoch:'%" PRIu64 "',cancellation,capabilities:Object.freeze({query(name){return port.access(name)}})%s});"
+ "export function pump(){session.step();resources?.step();return state}export function dispose(){session.dispose();resources?.dispose();disposable?.dispose()}"
  "Promise.resolve().then(()=>activate(context)).then(value=>{if(!value || typeof value.dispose!=='function')throw Error('entry');disposable=value;state=1},()=>{state=-1}).catch(()=>{state=-1});",
  quoted,r->resources?"const {ResourceBroker}=await import('sdk:/resources.js');const resources=new ResourceBroker(port);":"const resources=undefined;",r->role==GT_EXT_HOST?"client":"executor",r->lease.instance,r->lease.epoch,r->resources?",resources":"");
  if(n<0 || (size_t)n>=sizeof(script)){runtime_fail(r,GT_RUNTIME_PROTOCOL);return false;}

@@ -13,7 +13,7 @@ static void module(gt_runtime_module_t *m,const char *name,const char *text){m->
 static char *read_module(const char *root,const char *name){char path[4096];CHECK(snprintf(path,sizeof(path),"%s/%s",root,name)>0);FILE *f=fopen(path,"rb");CHECK(f && !fseek(f,0,SEEK_END));long n=ftell(f);CHECK(n>0 && n<128*1024 && !fseek(f,0,SEEK_SET));char *text=calloc(1,(size_t)n+1);CHECK(text && fread(text,1,(size_t)n,f)==(size_t)n && !fclose(f));return text;}
 static gt_runtime_info_t rt_info(gt_bridge_runtime_t *r){gt_runtime_info_t i;CHECK(gt__bridge_runtime_info(r,&i));return i;}
 static bool expected_dispose_error;
-static void rt_drop(gt_bridge_runtime_t **r){CHECK(gt__bridge_runtime_destroy(r)==GT_ERR_INVALID_ARG && *r);for(unsigned i=0;i<200;i++){gt_ext_close_t c=gt__bridge_runtime_close(*r);CHECK(c==GT_EXT_DRAINING || c==GT_EXT_RELEASED);if(c==GT_EXT_RELEASED){CHECK(gt__bridge_runtime_close(*r)==GT_EXT_RELEASED && rt_info(*r).phase==GT_RUNTIME_CLOSED && rt_info(*r).engine_released);if(expected_dispose_error)CHECK(rt_info(*r).dispose_error && rt_info(*r).error==GT_RUNTIME_NONE);CHECK(gt__bridge_runtime_destroy(r)==GT_OK && !*r);return;}}CHECK(false);}
+static void rt_drop(gt_bridge_runtime_t **r){CHECK(gt__bridge_runtime_destroy(r)==GT_ERR_INVALID_ARG && *r);for(unsigned i=0;i<200;i++){gt_ext_close_t c=gt__bridge_runtime_close(*r);CHECK(c==GT_EXT_DRAINING || c==GT_EXT_RELEASED);if(c==GT_EXT_RELEASED){CHECK(gt__bridge_runtime_close(*r)==GT_EXT_RELEASED && rt_info(*r).phase==GT_RUNTIME_CLOSED && rt_info(*r).engine_released);CHECK(rt_info(*r).dispose_error==expected_dispose_error);if(expected_dispose_error)CHECK(rt_info(*r).error==GT_RUNTIME_NONE);CHECK(gt__bridge_runtime_destroy(r)==GT_OK && !*r);return;}}CHECK(false);}
 static void *rt_stop(void *p){gt__bridge_runtime_stop(p);return NULL;}
 static const char *echo_plugin=
  "import {object,text,integer} from '@ghosterm/plugin-sdk';"
@@ -26,6 +26,12 @@ static void runtime_case(const char *mode,const char *root){
  const char *names[]={"index.js","codec.js","session.js","wire-contract.js"};const char *ids[]={"sdk:/index.js","sdk:/codec.js","sdk:/session.js","sdk:/wire-contract.js"};char *scripts[4];gt_runtime_module_t modules[8]={0};
  for(unsigned i=0;i<4;i++){scripts[i]=read_module(root,names[i]);module(&modules[i],ids[i],scripts[i]);}
  const char *plugin=echo_plugin;
+ if(!strcmp(mode,"capabilities"))plugin=
+ "export function activate(ctx){const caps=ctx.capabilities;"
+ "if(!Object.isFrozen(caps)||caps.query('ui.form')!=='allowed'||caps.query('ui.diff')!=='unsupported')throw Error('access');"
+ "for(const v of ['',123,'x'.repeat(129),'ui.form\\0suffix']){let failed=false;try{caps.query(v)}catch{failed=true}if(!failed)throw Error('input')}"
+ "return {dispose(){if(caps.query('ui.form')!=='revoked')throw Error('cached grant')}}}";
+
  if(!strcmp(mode,"cpu"))plugin="export function activate(){let x=0;for(let i=0;i<20000000;i++)x+=i;return {dispose(){}}}";
  else if(!strcmp(mode,"top-cpu"))plugin="let x=0;for(let i=0;i<20000000;i++)x+=i;export function activate(){return {dispose(){}}}";
  else if(!strcmp(mode,"atomics"))plugin="export function activate(){let refused=false;try{Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,100)}catch{refused=true}if(!refused)throw Error('blocking wait');return {dispose(){}}}";
@@ -43,6 +49,7 @@ static void runtime_case(const char *mode,const char *root){
  else if(!strcmp(mode,"node-import"))plugin="import 'node:fs';export function activate(){return {dispose(){}}}";
  else if(!strcmp(mode,"escape"))plugin="import '../../../escape.js';export function activate(){return {dispose(){}}}";
  else if(!strcmp(mode,"dynamic-import"))plugin="export async function activate(){await import('host:/native');return {dispose(){}}}";
+ else if(!strcmp(mode,"dispose-throw"))plugin="export function activate(){return {dispose(){throw Error('dispose failure')}}}";
  else if(!strcmp(mode,"dispose-loop"))plugin="export function activate(){return {dispose(){for(;;){}}}}";
  else if(!strcmp(mode,"activation-timeout"))plugin="export async function activate(){await new Promise(()=>{});return {dispose(){}}}";
  else if(!strcmp(mode,"top-await"))plugin="await Promise.resolve();export function activate(){return {dispose(){}}}";
@@ -79,7 +86,7 @@ static void runtime_case(const char *mode,const char *root){
    }
    if(!strcmp(mode,"reverse") || !strcmp(mode,"prototype"))CHECK(reverse==1);
    gt_runtime_info_t info=rt_info(rt);
-   bool active=!strcmp(mode,"atomics") || !strcmp(mode,"isolation") || !strcmp(mode,"reverse") || !strcmp(mode,"prototype") || !strcmp(mode,"roundtrip") || !strcmp(mode,"relative") || !strcmp(mode,"handled") || !strcmp(mode,"top-await") || !strcmp(mode,"dispose-loop") || !strcmp(mode,"peer-loss");
+   bool active=!strcmp(mode,"dispose-throw") || !strcmp(mode,"capabilities") || !strcmp(mode,"atomics") || !strcmp(mode,"isolation") || !strcmp(mode,"reverse") || !strcmp(mode,"prototype") || !strcmp(mode,"roundtrip") || !strcmp(mode,"relative") || !strcmp(mode,"handled") || !strcmp(mode,"top-await") || !strcmp(mode,"dispose-loop") || !strcmp(mode,"peer-loss");
    CHECK(info.phase==(active?GT_RUNTIME_ACTIVE:GT_RUNTIME_FAILED) && info.steps>0);
    if(!strcmp(mode,"cpu") || !strcmp(mode,"top-cpu"))CHECK(info.error==GT_RUNTIME_CPU);
    if(!strcmp(mode,"memory") || !strcmp(mode,"caught-memory") || !strcmp(mode,"global-memory"))CHECK(info.error==GT_RUNTIME_MEMORY);
@@ -101,7 +108,7 @@ static void runtime_case(const char *mode,const char *root){
    if(!strcmp(mode,"peer-loss")){ext_drop(&pair.pair.h);for(unsigned i=0;i<100 && gt__bridge_runtime_step(rt)==GT_RUNTIME_ACTIVE;i++){}CHECK(rt_info(rt).phase==GT_RUNTIME_FAILED && rt_info(rt).session_end==GT_EXT_END_LOST);}
   }
   gt__plugin_memory_free(NULL,reservation,reserved);
-  expected_dispose_error=!strcmp(mode,"dispose-loop");rt_drop(&rt);if(pair.pair.h)ext_drop(&pair.pair.h);
+  expected_dispose_error=!strcmp(mode,"dispose-loop") || !strcmp(mode,"dispose-throw");rt_drop(&rt);if(pair.pair.h)ext_drop(&pair.pair.h);
  }
  for(unsigned i=0;i<4;i++)free(scripts[i]);
 }

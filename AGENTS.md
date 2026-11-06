@@ -1041,3 +1041,12 @@ Apple 165/4、JNI 131/38；Core 七组、Swift 三组、JNI 三组新增变异�
 CLI 在专用 API36 / 4 KiB 页模拟器五项通过，设备临时目录清理。首次编译/配置失败与
 测试解码异常均保留且不计红；原件见插件计划第三十九批。未进 App 包、不安装远端环境，
 手工证据不增加 CI 二十份；IPC、业务激活、App 与完整插件计划仍未完成。
+
+**插件运行时能力第四十批（2026-11-06）**：冻结的 `capabilities.query` 观察当前 Session
+授权五态，不缓存 allowed，不暴露 lease，也不把授权等同于服务已实现；SDK context 类型
+同步。修复 bootstrap 吞 dispose 异常，原生 dispose_error 现在可见且继续释放资源。
+默认 470 CTest / 169 ABI、enabled JS/SSH 完整 632 项、六组隔离优化 ASan/UBSan 变异
+正常断言红/同 archive 配置绿/复原绿/SHA256、NDK 两运行时在 API36 / 4 KiB 页模拟器
+四项通过。旧 test_config 的 512 字节 realpath 缓冲区触发 NDK 编译检查，单列未修复，不
+计 Android 全套 Core 通过；原件见插件计划第四十批。手工证据，不增加 CI 二十份，CLI
+激活、IPC、App 和业务插件仍待继续。

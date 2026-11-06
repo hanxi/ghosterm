@@ -24,7 +24,7 @@ CASES=[
 ]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');parser.add_argument('--registry-api',action='store_true');args=parser.parse_args();assert sum([args.public,args.registry,args.registry_api])<=1
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');parser.add_argument('--registry-api',action='store_true');parser.add_argument('--capabilities',action='store_true');args=parser.parse_args();assert sum([args.public,args.registry,args.registry_api,args.capabilities])<=1
  cases=CASES
  executable='test_package_runtime';pattern='^plugin_package_runtime_';objects=['runtime','package-runtime','session']
  if args.public:
@@ -67,6 +67,16 @@ def main():
    ('api-command-zero',api,'if(out)memset(out,0,sizeof(*out));if(!p || !out || p->info.phase!=GT_EXT_PACKAGE_CHECKED)','if(!p || !out || p->info.phase!=GT_EXT_PACKAGE_CHECKED)','registry'),
   ]
   executable='test_ext_package';pattern='^ext_package_';objects=['registry-api','package-check','package-api','registry']
+ if args.capabilities:
+  cases=[
+   ('access-allowed',ENGINE,'case GT_EXT_ACCESS_ALLOWED:return JS_NewString(c,"allowed");','case GT_EXT_ACCESS_ALLOWED:return JS_NewString(c,"denied");','capabilities'),
+   ('access-unsupported',ENGINE,'case GT_EXT_ACCESS_UNSUPPORTED:return JS_NewString(c,"unsupported");','case GT_EXT_ACCESS_UNSUPPORTED:return JS_NewString(c,"unknown");','capabilities'),
+   ('access-revoked',ENGINE,'case GT_EXT_ACCESS_REVOKED:return JS_NewString(c,"revoked");','case GT_EXT_ACCESS_REVOKED:return JS_NewString(c,"allowed");','capabilities'),
+   ('access-input',ENGINE,'!size || size>128 || memchr(name,0,size)','false','capabilities'),
+   ('access-frozen',ENGINE,'capabilities:Object.freeze({query(name){return port.access(name)}})','capabilities:({query(name){return port.access(name)}})','capabilities'),
+   ('dispose-error',ENGINE,'resources?.dispose();disposable?.dispose()','resources?.dispose();try{disposable?.dispose()}catch{}','dispose-throw'),
+  ]
+  executable='test_runtime';pattern='^(ext_)?runtime_(capabilities|dispose-throw)$';objects=['runtime']
  for _,name,old,_,_ in cases:
   data=(ROOT/name).read_text();assert MARK not in data and data.count(old)==1,name
  work=Path(tempfile.mkdtemp(prefix='pkgload-',dir=ROOT/'tmp'));source=work/'source';build=work/'build';logs=work/'logs';logs.mkdir();commands=[]
@@ -90,10 +100,10 @@ def main():
   def rebuild(label):
    for name in objects:(build/'CMakeFiles/ghosterm_core.dir/src/extension'/(name+'.c.o')).unlink(missing_ok=True)
    for name in [executable,'test_config','libghosterm_core.a']:(build/name).unlink(missing_ok=True)
-   out=run(label+'-build',['cmake','--build',build,'--target',executable,'test_config','-j','4'])
+   out=run(label+'-build',['cmake','--build',build,'--target',executable,*(['test_ext_runtime'] if args.capabilities else []),'test_config','-j','4'])
    for name in objects:assert 'src/extension/'+name+'.c.o' in out
    assert 'Linking C static library' in out and 'Linking C executable '+executable in out
-  def target(label,mode,red=False):run(label,[build/executable,*([mode] if mode else []),source/'tmp'],red)
+  def target(label,mode,red=False):run(label,[build/executable,*([mode] if mode else []),sdk if args.capabilities else source/'tmp'],red)
   rebuild('baseline');run('baseline',['ctest','--test-dir',build,'-R',pattern,'--output-on-failure'])
   for label,name,old,new,mode in cases:
    path=source/name;original=path.read_bytes()
