@@ -1,5 +1,8 @@
 package com.hanxi.ghosterm
 
+import com.hanxi.ghosterm.bridge.ExtensionPackage
+import org.json.JSONObject
+import org.json.JSONArray
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
@@ -20,11 +23,11 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 class ExtensionRuntimeTest {
     private data class PairOwner(val h: ExtensionSession, val e: ExtensionSession, val hl: ExtensionSession.Lease, val el: ExtensionSession.Lease)
-    private fun pair(hs: ExtensionResourceStore? = null, es: ExtensionResourceStore? = null): PairOwner {
+    private fun pair(hs: ExtensionResourceStore? = null, es: ExtensionResourceStore? = null, custom: ExtensionSession.Config? = null): PairOwner {
         assertEquals(0, ExtensionRuntime.supportStatus())
         val f = ParcelFileDescriptor.createSocketPair(); val a = f[0].detachFd(); val b = f[1].detachFd()
         val grants = if (hs != null) listOf("ui.form", "resource.receive", "file.readScoped") else listOf("ui.form")
-        val config = ExtensionSession.Config("org.ghosterm.preview", "0.1.0", "d".repeat(64), "e".repeat(64), "0.1.0", required = grants, available = grants, peerKind = ExtensionSession.PeerKind.LOCAL, peerIdentity = "runtime-worker", methods = listOf(
+        val config = custom ?: ExtensionSession.Config("org.ghosterm.preview", "0.1.0", "d".repeat(64), "e".repeat(64), "0.1.0", required = grants, available = grants, peerKind = ExtensionSession.PeerKind.LOCAL, peerIdentity = "runtime-worker", methods = listOf(
             ExtensionSession.Method("fixture.echo", "ui.form", ExtensionSession.Role.EXECUTOR, ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT),
             ExtensionSession.Method("fixture.ask", "ui.form", ExtensionSession.Role.HOST, ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)))
         val h = ExtensionSession.adopt(ExtensionChannel.adoptDescriptors(a, a), ExtensionSession.Role.HOST, config, hs)
@@ -42,6 +45,52 @@ class ExtensionRuntimeTest {
             module("sdk:/$name", assets.open("runtime-sdk/$name").use { it.readBytes() }) }.toMutableList()
         modules += module("plugin:/entry.js", plugin.toByteArray())
         return ExtensionRuntime.Config(modules, "plugin:/entry.js", role, cpuMilliseconds = cpu)
+    }
+    @Test fun fixedPackageAdoptionAndRPC() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val dir = File(context.cacheDir, "package-${java.util.UUID.randomUUID()}"); check(dir.mkdir())
+        val entry = "executor/中文-" + "long-component/".repeat(20) + "entry.js"
+        fun array(vararg values: Any) = JSONArray(values.toList())
+        val manifest = JSONObject().put("schemaVersion", 1).put("id", "org.ghosterm.fixture").put("pluginVersion", "0.1.0")
+            .put("sdkApiRange", "^1.0.0").put("bridgeProtocolRange", array(1)).put("publisher", "测试 publisher").put("license", "MIT")
+            .put("commands", array(JSONObject().put("path", array("fixture")).put("title", "Fixture").put("argsSchema", "schemas/input.json")))
+            .put("executor", JSONObject().put("variants", array(JSONObject().put("id", "portable").put("runtime", "portable-js").put("entry", entry).put("requires", array("session.rpc")))))
+            .put("permissions", JSONArray())
+        val files = mapOf("plugin.json" to manifest.toString(), "README" to "fixture", "LICENSES/MIT.txt" to "fixture", "schemas/input.json" to "{}", entry to echo)
+        val members = JSONArray()
+        for ((path, text) in files) {
+            val bytes = text.toByteArray(); val file = File(dir, path); file.parentFile!!.mkdirs(); file.writeBytes(bytes)
+            members.put(JSONObject().put("path", path).put("bytes", bytes.size).put("sha256", MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }))
+        }
+        File(dir, "integrity.json").writeText(JSONObject().put("schemaVersion", 1).put("members", members).toString())
+        val fd = Os.open(dir.path, OsConstants.O_RDONLY or OsConstants.O_CLOEXEC, 0)
+        val descriptor = ParcelFileDescriptor.dup(fd); Os.close(fd)
+        try {
+            val packageBytes = ExtensionPackage.capture(descriptor.fd)
+            try {
+                for (i in 0 until 1000) { if (packageBytes.step() != ExtensionPackage.Phase.CAPTURING) break }
+                val host = "{\"side\":\"executor\",\"sdkVersion\":\"1.0.0\",\"protocols\":[1],\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\"]}"
+                assertEquals(ExtensionPackage.Phase.CHECKED, packageBytes.check(host))
+                val m = packageBytes.metadata(); assertEquals(entry, m.entry); assertEquals("测试 publisher", m.publisher)
+                assertEquals(listOf("session.rpc"), m.requires); assertEquals(listOf(1), m.protocols)
+                assertFalse(m.authorizationGranted); assertFalse(m.publisherAuthenticated)
+                val config = ExtensionSession.Config(m.id, m.version, m.packageDigest, m.packageDigest, "0.1.0", required = m.requires, available = m.requires,
+                    peerKind = ExtensionSession.PeerKind.LOCAL, peerIdentity = "package-worker", methods = listOf(ExtensionSession.Method("fixture.echo", "session.rpc", ExtensionSession.Role.EXECUTOR, ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)))
+                val p = pair(custom = config)
+                try {
+                    val runtime = ExtensionRuntime.adoptPackage(p.e, packageBytes, ExtensionSession.Role.EXECUTOR, cpuMilliseconds = 500)
+                    try {
+                        packageBytes.close(); assertTrue(File(dir, entry).delete()); p.e.stop()
+                        val request = p.h.request(p.hl, "fixture.echo", "{\"text\":\"固定快照\",\"count\":17}".toByteArray(), 10000).handle!!
+                        for (i in 0 until 5000) { p.h.step(); runtime.step(); if (p.h.requestResult(p.hl, request).second?.confirmed == true) break }
+                        val result = p.h.requestResult(p.hl, request).second!!
+                        assertTrue(result.confirmed); assertEquals(ExtensionSession.RPCState.SUCCEEDED, result.state)
+                        assertTrue(result.outcome.toString(Charsets.UTF_8).contains("固定快照"))
+                        assertEquals(ExtensionSession.RPCStatus.OK, p.h.forgetRequest(p.hl, request))
+                    } finally { runtime.close() }
+                } finally { p.e.close(); p.h.close() }
+            } finally { packageBytes.close() }
+        } finally { descriptor.close(); dir.deleteRecursively() }
     }
     @Test fun adoptionAndActualPluginRPC() {
         val p = pair(); val r = ExtensionRuntime.adopt(p.e, config())

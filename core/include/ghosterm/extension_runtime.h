@@ -4,6 +4,7 @@
 #ifndef GHOSTERM_EXTENSION_RUNTIME_H
 #define GHOSTERM_EXTENSION_RUNTIME_H
 #include "ghosterm/extension_rpc.h"
+#include "ghosterm/extension_package.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -47,6 +48,12 @@ gt_status_t gt_ext_runtime_support(void);
  * 0 limits select 16 MiB heap / 256 KiB stack / 25ms CPU / 32 jobs / 5s activation.
  * Maximum 128 MiB / 1 MiB / 1s / 128 jobs / 60s. Heap excludes source/native IO. */
 gt_status_t gt_ext_runtime_open(gt_ext_session_t **session,const gt_ext_runtime_config_t *,gt_ext_runtime_t **);
+/* Uses CHECKED fixed bytes and the built-in SDK. No caller module/entry override.
+ * Verifies negotiated package identity and required grants. associated is a
+ * trusted native command association decision, not plugin-controlled consent.
+ * Retains package bytes, consumes Session only on success. Stopped owners refuse.
+ * Caller still enforces publisher/source policy before executing any package. */
+gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,gt_ext_package_t *,const gt_ext_runtime_config_t *,bool associated,gt_ext_runtime_t **);
 /* Owner drives zero-wait native IO and bounded JS work; never call on UI thread.
  * Business outcomes remain separate from runtime lifecycle/error observations. */
 gt_ext_runtime_phase_t gt_ext_runtime_step(gt_ext_runtime_t *);

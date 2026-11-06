@@ -27,6 +27,7 @@ add_library(ghosterm_core STATIC
   src/extension/package-json.c
   src/extension/package-check.c
   src/extension/package-runtime.c
+  src/extension/package-api.c
   src/extension/session.c
   src/extension/rpc.c
   src/extension/resource.c
@@ -133,6 +134,18 @@ target_compile_options(test_package_json PRIVATE -Wall -Wextra -Werror)
 foreach(mode valid duplicate surrogate utf8 bom trailing fractional unsafe negative exact syntax-only large bytes-limit nodes nodes-limit depth depth-limit empty-keys small-memory growth growth-duplicate oom dense-string global-memory)
   add_test(NAME plugin_package_json_${mode} COMMAND test_package_json ${mode})
 endforeach()
+add_executable(test_ext_package tests/test_ext_package.c)
+target_include_directories(test_ext_package PRIVATE src)
+target_link_libraries(test_ext_package PRIVATE ghosterm_core)
+target_compile_options(test_ext_package PRIVATE -Wall -Wextra -Werror)
+if(GHOSTERM_WITH_PLUGIN_JS)
+  foreach(mode roundtrip capture-stop check-stop unknown override load-stop mismatch)
+    add_test(NAME ext_package_${mode} COMMAND test_ext_package ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+    set_tests_properties(ext_package_${mode} PROPERTIES TIMEOUT 60)
+  endforeach()
+else()
+  add_test(NAME ext_package_disabled COMMAND test_ext_package disabled)
+endif()
 add_executable(test_package_runtime tests/test_package_runtime.c)
 target_include_directories(test_package_runtime PRIVATE src)
 target_link_libraries(test_package_runtime PRIVATE ghosterm_core)

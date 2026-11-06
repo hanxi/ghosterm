@@ -96,7 +96,10 @@ static void load_echo_request(gt_bridge_runtime_t *r,rpc_pair_t *p,bool client){
  CHECK(result.confirmed && result.state==GT_EXT_RPC_SUCCEEDED && strstr(result.outcome,"固定字节"));CHECK(gt_ext_session_forget_request(peer,lease,h)==GT_EXT_RPC_OK);
 }
 static void *load_thread(void *arg){gt_package_checked_t *package=arg;for(unsigned i=0;i<100;i++){gt_package_checked_t *hold=NULL;CHECK(gt__package_checked_retain(package,&hold));gt_package_check_info_t info;CHECK(gt__package_checked_info(hold,&info) && !strcmp(info.id,"org.ghosterm.fixture"));CHECK(gt__package_checked_destroy(&hold)==GT_PACKAGE_OK && !hold);}CHECK(gt__package_checked_destroy(&package)==GT_PACKAGE_OK);return NULL;}
-int main(int argc,char **argv){
+#ifndef PACKAGE_RUNTIME_MAIN
+#define PACKAGE_RUNTIME_MAIN main
+#endif
+int PACKAGE_RUNTIME_MAIN(int argc,char **argv){
  CHECK(argc>=2);const char *mode=argv[1];gt_bridge_runtime_t *r=NULL;
  if(!strcmp(mode,"disabled")){CHECK(gt__bridge_runtime_open_package(NULL,NULL,NULL,false,&r)==GT_ERR_UNSUPPORTED && !r);return 0;}
  CHECK(argc==3);size_t fds=ext_fds();gt_plugin_memory_info_t before=gt__plugin_memory_info();load_fixture_t f;load_fixture(&f,mode,argv[2]);

@@ -73,6 +73,29 @@ public final class ExtensionRuntime {
             return try session.adoptRuntime(config: &c)
         } }
     }
+    public init(session: ExtensionSession, package: ExtensionPackage, role: ExtensionSession.Role,
+                associated: Bool = false, memoryBytes: UInt64 = 0, stackBytes: UInt64 = 0,
+                cpuMilliseconds: UInt32 = 0, jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0,
+                roots: [Config.WorkspaceRoot] = []) throws {
+        owner = session.runtimeOwner; store = session.runtimeStore
+        guard roots.count <= 8 else { throw GhostermError.failed("运行时授权根超限") }
+        var names: [UnsafeMutablePointer<CChar>] = []
+        defer { names.forEach { $0.deallocate() } }
+        var scopes: [gt_ext_runtime_root_t] = []
+        for root in roots {
+            guard !root.id.utf8.contains(0), root.id.utf8.count <= 64 else { throw GhostermError.failed("运行时授权根标识无效") }
+            let bytes = Array(root.id.utf8CString), name = UnsafeMutablePointer<CChar>.allocate(capacity: bytes.count)
+            name.initialize(from: bytes, count: bytes.count); names.append(name)
+            scopes.append(gt_ext_runtime_root_t(id: UnsafePointer(name), directory_fd: root.directoryFD, byte_limit: root.byteLimit))
+        }
+        raw = try scopes.withUnsafeBufferPointer { values in
+            var c = gt_ext_runtime_config_t(modules: nil, module_count: 0, entry: nil,
+                role: gt_ext_role_t(rawValue: role.rawValue), memory_bytes: memoryBytes, stack_bytes: stackBytes,
+                cpu_ms: cpuMilliseconds, jobs_per_step: jobsPerStep, activation_ms: activationMilliseconds,
+                roots: values.baseAddress, root_count: values.count)
+            return try session.adoptPackageRuntime(package: package, config: &c, associated: associated)
+        }
+    }
     public func step() throws -> Phase { Phase(rawValue: gt_ext_runtime_step(try pointer()).rawValue) ?? .failed }
     public func info() throws -> Info {
         var v = gt_ext_runtime_info_t(); guard gt_ext_runtime_info(try pointer(), &v) else { throw GhostermError.failed("运行时观察无效") }

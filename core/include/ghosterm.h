@@ -84,6 +84,7 @@ size_t gt_core_poll_events(gt_event_t *out, size_t cap);
 #include "ghosterm/extension_resource.h"
 #include "ghosterm/extension_source.h"
 #include "ghosterm/extension_runtime.h"
+#include "ghosterm/extension_package.h"
 
 #ifdef __cplusplus
 } /* extern "C" */

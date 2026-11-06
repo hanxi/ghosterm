@@ -51,6 +51,22 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             require(buffer.remaining() <= limit)
             return ByteArray(buffer.remaining()).also { buffer.get(it) }
         }
+        fun adoptPackage(session: ExtensionSession, packageBytes: ExtensionPackage, role: ExtensionSession.Role,
+            associated: Boolean = false, memoryBytes: Long = 0, stackBytes: Long = 0, cpuMilliseconds: Int = 0,
+            jobsPerStep: Int = 0, activationMilliseconds: Int = 0, roots: List<WorkspaceRoot> = emptyList()): ExtensionRuntime {
+            val worker = session.runtimeWorker(); val packageId = packageBytes.pointer()
+            require(memoryBytes >= 0 && stackBytes >= 0 && cpuMilliseconds >= 0 && jobsPerStep >= 0 && activationMilliseconds >= 0 && roots.size <= 8)
+            val scopes = roots.toList()
+            val names = scopes.map { encode(it.id, 64) }.toTypedArray()
+            val fds = scopes.map { it.directoryFd }.toIntArray()
+            val budgets = scopes.map { require(it.byteLimit >= 0); it.byteLimit }.toLongArray()
+            val limits = longArrayOf(role.ordinal.toLong(), memoryBytes, stackBytes, cpuMilliseconds.toLong(), jobsPerStep.toLong(), activationMilliseconds.toLong())
+            val result = ExtensionRuntime(worker, session.runtimeStore())
+            val values = session.adoptRuntime { NativeExtensionRuntime.openPackage(it, packageId, associated, limits, names, fds, budgets) }
+            check(values.size == 2)
+            if (values[0] != 0L) throw ExtensionChannelException(values[0].toInt(), "插件包运行时未接管会话")
+            check(values[1] > 0); result.handle = values[1]; return result
+        }
         fun adopt(session: ExtensionSession, config: Config): ExtensionRuntime {
             val worker = session.runtimeWorker()
             require(config.modules.isNotEmpty() && config.modules.size <= 64)
@@ -83,6 +99,7 @@ internal object NativeExtensionRuntime {
     init { System.loadLibrary("ghosterm_android") }
     external fun support(): Int
     external fun open(session: Long, names: Array<ByteArray>, sources: Array<ByteArray>, digests: Array<ByteArray>, entry: ByteArray, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray): LongArray
+    external fun openPackage(session: Long, packageHandle: Long, associated: Boolean, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray): LongArray
     external fun step(handle: Long): Int
     external fun info(handle: Long): LongArray
     external fun stop(handle: Long)

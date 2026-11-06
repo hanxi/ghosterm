@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第三十五批私有包加载首片。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片（Android 仅编译）。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第三十六批公开包门面。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -146,7 +146,7 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九至二十八批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI，第二十七批接 runtime-resource / ResourceBroker 与显式授权根，第二十八批补原生目录字节快照采集。第三十四批已接私有原生元数据校验，第三十五批已接私有固定包 / SDK 加载；默认关闭 JS 后端，公共包门面、App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
+以下为实现布局；第九至二十八批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI，第二十七批接 runtime-resource / ResourceBroker 与显式授权根，第二十八批补原生目录字节快照采集。第三十四批已接私有原生元数据校验，第三十五批已接私有固定包 / SDK 加载；第三十六批已接公开包门面；默认关闭 JS 后端，App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
 
 ```text
 core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
@@ -3143,6 +3143,64 @@ Debug 两项定向通过；隔离优化 ASan/UBSan 的全部 41 包加载场景�
 收据 `tmp/pkgload-k984qm3p/logs/result.json` 与本轮输入一致，无 LSan。
 NDK arm64 / API29 测试 ELF 重编译通过，仍未设备执行；未重跑 enabled 完整 Core，
 不把此前 617 项记成本轮完整回归。更多关闭错误 / OOM、公开包门面和 App 仍待后续。
+
+### P0 第三十六批：公开包门面与两端 worker（2026-11-06）
+
+新增 `extension_package.h` / `package-api.c` 和 `gt_ext_runtime_open_package`，共八个
+公共符号。opaque 包 owner 在 worker 上借用目录 fd 采集固定字节，逐步推进到 CAPTURED，
+再用 native 提供的有界 host / registry JSON 校验；失败终止此 owner，错误的 unknown /
+unsupported / denied / cancelled / changed 各自保留。元数据复制为 POD，不暴露内部字节
+指针。JS OFF 构造显式拒绝；stop 可跨线程，destroy 不得与 stop 竞态。
+
+运行时接管要求 CHECKED、未取消包，拒绝调用方覆盖 modules / entry，继续校验 Session
+身份、包摘要、角色、能力和显式命令关联。成功只消费 Session，运行时保留 checked 快照；
+包 owner 可先释放，来源文件删除或修改不影响固定模块。包兼容不是来源信任或执行批准，
+App 必须在调用前实施来源策略和授权。本片仍未接安装 / 注册表 / App 页面。
+
+Swift `ExtensionPackage` 和 runtime 新构造沿同一 DispatchQueue，stop 锁与显式关闭
+隔离；Kotlin / JNI 沿同一线程和注册 ID，stop pin、防旧代次访问、会话成功交接与包引用
+保留。公开 entry 用连续分块 POD 表示 4096 字节 UTF-8 路径，避免 Swift 无法导入 4097
+字节单数组；C 按实际源缓冲大小复制，剩余空间清零。两端实际测试使用中文长路径及
+publisher，逐字段核对后经 Session / 固定 SDK / 真实 QuickJS RPC 往返。
+
+**当前验收：**
+
+| 范围 | 本轮证据 |
+| --- | --- |
+| 默认 `gate.sh` | 470 CTest / 162 ABI |
+| JS ON / SSH ON 完整 Core | 626 项通过 |
+| Apple / JNI 引用对拍 | 158 / 4、124 / 38 |
+| 公开包 Core | enabled 七项、disabled 一项；六组优化 ASan/UBSan 变异，无 LSan |
+| Swift | 默认 OFF 显式不支持专项；enabled 两项（生命周期＋真实包 RPC）；四组实际 XCTest 变异 |
+| Android | 默认 bridge Debug、enabled App / 测试 APK 真构建；API36 / arm64 / 4 KiB 页独立模拟器 runtime 十一项，后续变异最终加 availability 共十二项 |
+| JNI 变异 | 包 entry / 必需能力 / 不授予执行三组＋旧代次切换一组；实际 JNI 编译、共享库链接、两 APK 安装摘要与 SDK / 许可核对 |
+
+六 Core＋四 Swift＋四 Android 各为真实编译后正常断言红、同 archive / APK 的独立配置
+绿、恢复绿及 SHA256。Core 原件 `tmp/pkgload-mkdbhnlf/logs/result.json` 的生产输入与
+当前一致；其脚本全集中仅后来扩展的 JNI runner 不同，不称脚本全集相同。Swift 原件
+`tmp/package-swift-6vcv52xq/logs/result.json`，JNI 原件
+`tmp/plugin-runtime-api-jni-mutations-m9hbsy_e/logs/result.json` 的记录输入均与当前一致。
+Swift runner 使用显式 enabled archive 并记录其摘要，另以完整 Core 构建验证生产 C。
+初始 Android 十一项及 128 份源码 / APK 摘要见 `tmp/plugin-package-device/result.json`；
+最终 APK 以 JNI 收据为准，不将不同构建的摘要混用。
+
+默认 / enabled 完整日志为 `tmp/plugin-package-api-gate.log` /
+`tmp/plugin-package-api-full-tests.log`。Swift 默认专项、enabled 两项、Android enabled
+构建日志分别为 `tmp/plugin-package-swift-tests.log`、`tmp/plugin-package-swift-on-tests.log`、
+`tmp/plugin-package-android-enabled-final.log`。手工证据不增加 CI 二十份，不代表 App
+授权 / 原生视图、真机、完整 Android 客户端或发行验收。
+
+**失败保留。** C fixture 嵌套 main 宏重定义修正后七项通过；Swift 大数组导入失败改为
+分块 POD 后重编译通过，初次 XCTest 因未选 Xcode 开发目录缺模块，改用现有 Xcode 后通过。
+Android 初次 ABI 拒绝未接两项，补齐引用后通过；默认 Zig 路径缺失，指定仓库已有锁定
+工具后构建。测试的 `O_DIRECTORY` 不可用改用只读 fd，由 Core 验目录，未降低生产检查。
+设备变异初次 JUnit ComparisonFailure 未被 runner 识别，不计通过；识别正常比较断言后
+完整四组重跑。Swift 能力变异初次导致前置断言后继续执行、出现两条失败，不计单条目标
+红；测试在关键断言失败后释放并返回，完整四组重跑。所有失败不以退出码零或后续绿覆盖。
+
+后续继续：更多包关闭错误 / OOM 与平台取消竞态、来源信任与注册 / 安装替换、App 根
+授权 / 激活 / 原生视图、完整 SDK、gterm IPC 和业务插件。当前公开门面不承担发布者签名
+验证或自动授权；不增加后台服务和外部网关。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

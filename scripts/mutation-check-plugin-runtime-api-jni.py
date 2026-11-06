@@ -36,11 +36,14 @@ def main():
         print('residual runtime JNI mutation', file=sys.stderr)
         raise SystemExit(2)
     cases = [
+        ('package-entry', [('cpp', '(const char *)m.entry,m.runtime', '"truncated.js",m.runtime')], 'fixedPackageAdoptionAndRPC'),
+        ('package-capabilities', [('cpp', 'fields[10+i]=m.requires[i];', 'fields[10+i]="";')], 'fixedPackageAdoptionAndRPC'),
+        ('package-no-grant', [('cpp', 'm.association_required,m.authorization_granted,m.publisher_authenticated', 'm.association_required,1,m.publisher_authenticated')], 'fixedPackageAdoptionAndRPC'),
         ('jni-phase', [('cpp', 'values[10]={i.phase,i.error', 'values[10]={(i.phase==GT_EXT_RUNTIME_ACTIVE?GT_EXT_RUNTIME_STOPPED:i.phase),i.error')], 'adoptionAndActualPluginRPC'),
         ('jni-cpu-error', [('cpp', 'values[10]={i.phase,i.error', 'values[10]={i.phase,(i.error==GT_EXT_RUNTIME_CPU?GT_EXT_RUNTIME_SCRIPT:i.error)')], 'cpuAndImportFailuresRemainDistinct'),
         ('jni-job-count', [('cpp', '(jlong)i.steps,(jlong)i.jobs,(jlong)i.module_bytes', '(jlong)i.steps,0,(jlong)i.module_bytes')], 'adoptionAndActualPluginRPC'),
         ('jni-stop', [('cpp', 'if(s){gt_ext_runtime_stop(s->runtime);extension_unpin(s);}', 'if(s){if(false)gt_ext_runtime_stop(s->runtime);extension_unpin(s);}')], 'stopFromMainAndOtherWorkerRejected'),
-        ('jni-successor-generation', [('cpp', 'status=exclusive?gt_ext_runtime_open(&s->session,&c,&s->runtime):GT_ERR_IO;jlong values[2]={status,0};pthread_mutex_lock(&extension_lock);if(status==GT_OK){s->id=successor;', 'status=exclusive?gt_ext_runtime_open(&s->session,&c,&s->runtime):GT_ERR_IO;jlong values[2]={status,0};pthread_mutex_lock(&extension_lock);if(status==GT_OK){(void)successor;')], 'generationalIdTransfer'),
+        ('jni-successor-generation', [('cpp', 'status=exclusive?(p?gt_ext_runtime_open_package(&s->session,p->package,&c,associated,&s->runtime):gt_ext_runtime_open(&s->session,&c,&s->runtime)):GT_ERR_IO;if(p)extension_unpin(p);jlong values[2]={status,0};pthread_mutex_lock(&extension_lock);if(status==GT_OK){s->id=successor;', 'status=exclusive?(p?gt_ext_runtime_open_package(&s->session,p->package,&c,associated,&s->runtime):gt_ext_runtime_open(&s->session,&c,&s->runtime)):GT_ERR_IO;if(p)extension_unpin(p);jlong values[2]={status,0};pthread_mutex_lock(&extension_lock);if(status==GT_OK){(void)successor;')], 'generationalIdTransfer'),
         ('jni-kotlin-worker-guard', [
             ('cpp', 'if(s && owner && !pthread_equal(s->owner,pthread_self())){pthread_mutex_unlock(&extension_lock);if(!quiet)extension_error(e,"运行时必须在原 IO worker 调用");', 'if(s && false && owner && !pthread_equal(s->owner,pthread_self())){pthread_mutex_unlock(&extension_lock);if(!quiet)extension_error(e,"运行时必须在原 IO worker 调用");'),
             ('kotlin', 'check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper() && handle != 0L)', 'check(handle != 0L)')], 'stopFromMainAndOtherWorkerRejected'),
@@ -98,7 +101,7 @@ def main():
     def instrumentation(label, selection, count, red=False):
         output = run(label, [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', selection, 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], budget=120)
         if red:
-            if not ('FAILURES!!!' in output and re.search(r'Tests run: 1,\s+Failures: 1', output) and ('java.lang.AssertionError' in output or 'junit.framework.AssertionFailedError' in output)):
+            if not ('FAILURES!!!' in output and re.search(r'Tests run: 1,\s+Failures: 1', output) and ('java.lang.AssertionError' in output or 'junit.framework.AssertionFailedError' in output or 'org.junit.ComparisonFailure' in output)):
                 raise RuntimeError(label + ': expected ordinary single assertion\n' + output)
             if any(s in output for s in ['Process crashed', 'INSTRUMENTATION_FAILED', 'Test run failed', 'Fatal signal', 'java.lang.IllegalStateException:']):
                 raise RuntimeError(label + ': not an ordinary assertion\n' + output)
@@ -154,7 +157,7 @@ def main():
 
         all_tests = 'com.hanxi.ghosterm.ExtensionRuntimeTest,com.hanxi.ghosterm.ExtensionRuntimeAvailabilityTest'
         rebuild('baseline')
-        instrumentation('baseline-tests', all_tests, 11)
+        instrumentation('baseline-tests', all_tests, 12)
         for label, changes, method in cases:
             try:
                 for key, old, new in changes:
@@ -174,7 +177,7 @@ def main():
             rebuild(label + '-restored', any(k == 'kotlin' for k, _, _ in changes))
             instrumentation(label + '-restored-target', 'com.hanxi.ghosterm.ExtensionRuntimeTest#' + method, 1)
             print(label + ': actual JNI/Kotlin compile/shared link / JUnit assertion red / same APK Core green / restored / SHA256', flush=True)
-        instrumentation('final-tests', all_tests, 11)
+        instrumentation('final-tests', all_tests, 12)
         for name, digest in hashes.items():
             assert sha(ROOT / name) == digest, name
         (logs / 'result.json').write_text(json.dumps(dict(accepted=True, groups=[c[0] for c in cases], device=args.device, properties=props, page_size=page, inputs_sha256=hashes, commands=commands, app_sha256=sha(apk), test_apk_sha256=sha(tests), sdk_sha256={p.name: sha(p) for p in sdk.glob('*.js')}, scope='native worker runtime / real JS RPC / API-selected simulator; no App activation UI, SSH, WAN, physical device, release or gateway'), indent=2) + '\n')

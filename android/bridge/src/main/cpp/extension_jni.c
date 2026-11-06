@@ -6,7 +6,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-typedef struct {uint64_t id;gt_ext_channel_t *channel;gt_ext_session_t *session;gt_ext_resource_store_t *store;gt_ext_runtime_t *runtime;pthread_t owner;unsigned pins;bool retiring;} extension_slot_t;
+typedef struct {uint64_t id;gt_ext_channel_t *channel;gt_ext_session_t *session;gt_ext_resource_store_t *store;gt_ext_runtime_t *runtime;gt_ext_package_t *package;pthread_t owner;unsigned pins;bool retiring;} extension_slot_t;
 static pthread_mutex_t extension_lock=PTHREAD_MUTEX_INITIALIZER;
 static extension_slot_t extension_slots[GT_EXT_CHANNEL_LIMIT];
 static uint64_t extension_next=1;
@@ -286,10 +286,11 @@ static extension_slot_t *runtime_pin(JNIEnv *e,jlong id,bool owner,bool quiet){
  if(s && owner && !pthread_equal(s->owner,pthread_self())){pthread_mutex_unlock(&extension_lock);if(!quiet)extension_error(e,"运行时必须在原 IO worker 调用");return NULL;}if(s)s->pins++;pthread_mutex_unlock(&extension_lock);if(!s && !quiet)extension_error(e,"运行时句柄已失效");return s;
 }
 JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_support(JNIEnv *e,jobject self){(void)e;(void)self;return gt_ext_runtime_support();}
-JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_open(JNIEnv *e,jobject self,jlong id,jobjectArray names,jobjectArray sources,jobjectArray digests,jbyteArray entry,jlongArray limits,jobjectArray root_names,jintArray root_fds,jlongArray root_limits){
+static extension_slot_t *package_pin(JNIEnv *,jlong,bool,bool);
+static jlongArray runtime_open(JNIEnv *e,jobject self,jlong id,jobjectArray names,jobjectArray sources,jobjectArray digests,jbyteArray entry,jlongArray limits,jobjectArray root_names,jintArray root_fds,jlongArray root_limits,jlong package_id,jboolean associated){
  (void)self;if(!names || !sources || !digests || !entry || !limits || !root_names || !root_fds || !root_limits){extension_error(e,"运行时参数缺失");return NULL;}jsize count=(*e)->GetArrayLength(e,names),root_count=(*e)->GetArrayLength(e,root_names);
  if(root_count>(jsize)GT_EXT_RUNTIME_ROOTS_MAX || (*e)->GetArrayLength(e,root_fds)!=root_count || (*e)->GetArrayLength(e,root_limits)!=root_count){extension_error(e,"运行时授权根无效");return NULL;}
- if(count<1 || count>(jsize)GT_EXT_RUNTIME_MODULES_MAX || (*e)->GetArrayLength(e,sources)!=count || (*e)->GetArrayLength(e,digests)!=count || (*e)->GetArrayLength(e,limits)!=6){extension_error(e,"运行时模块表无效");return NULL;}
+ if((!package_id && count<1) || (package_id && count!=0) || count>(jsize)GT_EXT_RUNTIME_MODULES_MAX || (*e)->GetArrayLength(e,sources)!=count || (*e)->GetArrayLength(e,digests)!=count || (*e)->GetArrayLength(e,limits)!=6){extension_error(e,"运行时模块表无效");return NULL;}
  jlongArray result=(*e)->NewLongArray(e,2);if(!result)return NULL;jlong v[6];(*e)->GetLongArrayRegion(e,limits,0,6,v);if((*e)->ExceptionCheck(e))return NULL;
  if(v[0]<0 || v[0]>1){extension_error(e,"运行时角色无效");return NULL;}
  for(size_t i=0;i<6;i++)if(v[i]<0 || (i>=3 && (uint64_t)v[i]>UINT32_MAX)){extension_error(e,"运行时预算无效");return NULL;}
@@ -304,14 +305,23 @@ JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRunti
   char *digest=extension_item(e,digests,i,64);if(!digest)goto done;if(strlen(digest)!=64){free(digest);goto done;}
   modules[i]=(gt_ext_runtime_module_t){.name=paths[i],.source=texts[i],.size=(size_t)size};memcpy(modules[i].sha256,digest,65);free(digest);
  }
- bootstrap=extension_text(e,entry,255);if(!bootstrap)goto done;
- {gt_ext_runtime_config_t c={.modules=modules,.module_count=(size_t)count,.entry=bootstrap,.role=(gt_ext_role_t)v[0],.memory_bytes=(uint64_t)v[1],.stack_bytes=(uint64_t)v[2],.cpu_ms=(uint32_t)v[3],.jobs_per_step=(uint32_t)v[4],.activation_ms=(uint32_t)v[5],.roots=roots,.root_count=(size_t)root_count};
- extension_slot_t *s=session_pin(e,id,true,false);if(!s)goto done;pthread_mutex_lock(&extension_lock);bool exclusive=s->pins==1 && extension_next<=INT64_MAX;uint64_t successor=0;if(exclusive){successor=extension_next++;s->retiring=true;}pthread_mutex_unlock(&extension_lock);
- status=exclusive?gt_ext_runtime_open(&s->session,&c,&s->runtime):GT_ERR_IO;jlong values[2]={status,0};pthread_mutex_lock(&extension_lock);if(status==GT_OK){s->id=successor;values[1]=(jlong)s->id;}s->retiring=false;s->pins--;pthread_mutex_unlock(&extension_lock);
+ if(!package_id){bootstrap=extension_text(e,entry,255);if(!bootstrap)goto done;}
+ {gt_ext_runtime_config_t c={.modules=package_id?NULL:modules,.module_count=(size_t)count,.entry=bootstrap,.role=(gt_ext_role_t)v[0],.memory_bytes=(uint64_t)v[1],.stack_bytes=(uint64_t)v[2],.cpu_ms=(uint32_t)v[3],.jobs_per_step=(uint32_t)v[4],.activation_ms=(uint32_t)v[5],.roots=roots,.root_count=(size_t)root_count};
+ extension_slot_t *p=package_id?package_pin(e,package_id,true,false):NULL;if(package_id && !p)goto done;
+ extension_slot_t *s=session_pin(e,id,true,false);if(!s){if(p)extension_unpin(p);goto done;}pthread_mutex_lock(&extension_lock);bool exclusive=s->pins==1 && extension_next<=INT64_MAX;uint64_t successor=0;if(exclusive){successor=extension_next++;s->retiring=true;}pthread_mutex_unlock(&extension_lock);
+ status=exclusive?(p?gt_ext_runtime_open_package(&s->session,p->package,&c,associated,&s->runtime):gt_ext_runtime_open(&s->session,&c,&s->runtime)):GT_ERR_IO;if(p)extension_unpin(p);jlong values[2]={status,0};pthread_mutex_lock(&extension_lock);if(status==GT_OK){s->id=successor;values[1]=(jlong)s->id;}s->retiring=false;s->pins--;pthread_mutex_unlock(&extension_lock);
  (*e)->SetLongArrayRegion(e,result,0,2,values);}
 done:
  for(jsize i=0;i<count;i++){free(paths[i]);free(texts[i]);}for(jsize i=0;i<root_count;i++)free(root_ids[i]);free(bootstrap);if((*e)->ExceptionCheck(e))return NULL;
  if(status!=GT_OK){jlong values[2]={status,0};(*e)->SetLongArrayRegion(e,result,0,2,values);}return result;
+}
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_open(JNIEnv *e,jobject self,jlong id,jobjectArray names,jobjectArray sources,jobjectArray digests,jbyteArray entry,jlongArray limits,jobjectArray root_names,jintArray root_fds,jlongArray root_limits){
+ return runtime_open(e,self,id,names,sources,digests,entry,limits,root_names,root_fds,root_limits,0,false);
+}
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_openPackage(JNIEnv *e,jobject self,jlong id,jlong package_id,jboolean associated,jlongArray limits,jobjectArray root_names,jintArray root_fds,jlongArray root_limits){
+ if(package_id<=0){extension_error(e,"插件包句柄无效");return NULL;}
+ jclass bytes=(*e)->FindClass(e,"[B");if(!bytes)return NULL;jobjectArray empty=(*e)->NewObjectArray(e,0,bytes,NULL);(*e)->DeleteLocalRef(e,bytes);if(!empty)return NULL;jbyteArray entry=(*e)->NewByteArray(e,0);if(!entry){(*e)->DeleteLocalRef(e,empty);return NULL;}
+ jlongArray result=runtime_open(e,self,id,empty,empty,empty,entry,limits,root_names,root_fds,root_limits,package_id,associated);(*e)->DeleteLocalRef(e,entry);(*e)->DeleteLocalRef(e,empty);return result;
 }
 JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_step(JNIEnv *e,jobject self,jlong id){(void)self;extension_slot_t *s=runtime_pin(e,id,true,false);if(!s)return GT_EXT_RUNTIME_FAILED;gt_ext_runtime_phase_t phase=gt_ext_runtime_step(s->runtime);extension_unpin(s);return phase;}
 JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_info(JNIEnv *e,jobject self,jlong id){
@@ -323,4 +333,50 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_clo
  (void)self;extension_slot_t *s=runtime_pin(e,id,true,false);if(!s)return GT_EXT_CLOSE_ERROR;gt_ext_close_t close=gt_ext_runtime_close(s->runtime);if(close!=GT_EXT_RELEASED){extension_unpin(s);return close;}
  pthread_mutex_lock(&extension_lock);if(s->pins!=1){s->pins--;pthread_mutex_unlock(&extension_lock);return GT_EXT_DRAINING;}s->retiring=true;gt_ext_runtime_t *runtime=s->runtime;pthread_mutex_unlock(&extension_lock);gt_status_t status=gt_ext_runtime_destroy(&runtime);
  pthread_mutex_lock(&extension_lock);if(status==GT_OK)memset(s,0,sizeof(*s));else{s->retiring=false;s->pins--;}pthread_mutex_unlock(&extension_lock);return status==GT_OK?GT_EXT_RELEASED:GT_EXT_CLOSE_ERROR;
+}
+
+static extension_slot_t *package_pin(JNIEnv *e,jlong id,bool owner,bool quiet){
+ pthread_mutex_lock(&extension_lock);extension_slot_t *s=NULL;for(size_t i=0;i<GT_EXT_CHANNEL_LIMIT;i++)if(id>0 && extension_slots[i].id==(uint64_t)id && extension_slots[i].package && !extension_slots[i].retiring){s=&extension_slots[i];break;}
+ if(s && owner && !pthread_equal(s->owner,pthread_self())){pthread_mutex_unlock(&extension_lock);if(!quiet)extension_error(e,"插件包必须在原 worker 调用");return NULL;}if(s)s->pins++;pthread_mutex_unlock(&extension_lock);if(!s && !quiet)extension_error(e,"插件包句柄已失效");return s;
+}
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_open(JNIEnv *e,jobject self,jint fd,jint members,jint entries,jlong member_bytes,jlong total_bytes){
+ (void)self;jlongArray result=(*e)->NewLongArray(e,2);if(!result)return NULL;
+ if(members<1 || entries<1 || member_bytes<1 || total_bytes<1){extension_error(e,"插件包预算无效");return NULL;}
+ extension_slot_t *s=extension_reserve(e);if(!s)return NULL;gt_ext_package_t *package=NULL;
+ gt_ext_package_config_t c={fd,(uint32_t)members,(uint32_t)entries,(uint64_t)member_bytes,(uint64_t)total_bytes};gt_status_t status=gt_ext_package_open(&c,&package);jlong values[2]={status,0};
+ if(status==GT_OK){pthread_mutex_lock(&extension_lock);s->package=package;values[1]=(jlong)s->id;pthread_mutex_unlock(&extension_lock);}else extension_abandon(s);
+ (*e)->SetLongArrayRegion(e,result,0,2,values);return result;
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_step(JNIEnv *e,jobject self,jlong id){(void)self;extension_slot_t *s=package_pin(e,id,true,false);if(!s)return GT_EXT_PACKAGE_FAILED;gt_ext_package_phase_t phase=gt_ext_package_step(s->package);extension_unpin(s);return phase;}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_check(JNIEnv *e,jobject self,jlong id,jbyteArray host,jbyteArray registry,jlong memory,jlong stack,jint cpu){
+ (void)self;if(memory<0 || stack<0 || cpu<0){extension_error(e,"插件校验预算无效");return GT_EXT_PACKAGE_FAILED;}
+ char *h=host?extension_text(e,host,65536):NULL,*r=registry?extension_text(e,registry,1048576):NULL;gt_ext_package_phase_t phase=GT_EXT_PACKAGE_FAILED;
+ if(!(*e)->ExceptionCheck(e)){extension_slot_t *s=package_pin(e,id,true,false);if(s){gt_ext_package_check_config_t c={h,r,(uint64_t)memory,(uint64_t)stack,(uint32_t)cpu};phase=gt_ext_package_check(s->package,&c);extension_unpin(s);}}
+ extension_secret_free(h);extension_secret_free(r);return phase;
+}
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_info(JNIEnv *e,jobject self,jlong id){
+ (void)self;jlongArray result=(*e)->NewLongArray(e,4);if(!result)return NULL;extension_slot_t *s=package_pin(e,id,true,false);if(!s)return NULL;gt_ext_package_info_t i;bool ok=gt_ext_package_info(s->package,&i);extension_unpin(s);if(!ok){extension_error(e,"插件包观察无效");return NULL;}jlong v[4]={i.phase,i.error,(jlong)i.members,(jlong)i.bytes};(*e)->SetLongArrayRegion(e,result,0,4,v);return result;
+}
+static jbyteArray package_bytes(JNIEnv *e,const char *text){size_t n=strlen(text);jbyteArray result=(*e)->NewByteArray(e,(jsize)n);if(result)(*e)->SetByteArrayRegion(e,result,0,(jsize)n,(const jbyte *)text);return result;}
+JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_code(JNIEnv *e,jobject self,jlong id){
+ (void)self;extension_slot_t *s=package_pin(e,id,true,false);if(!s)return NULL;gt_ext_package_info_t i;bool ok=gt_ext_package_info(s->package,&i);extension_unpin(s);if(!ok){extension_error(e,"插件包观察无效");return NULL;}return package_bytes(e,i.code);
+}
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_stop(JNIEnv *e,jobject self,jlong id){(void)self;extension_slot_t *s=package_pin(e,id,false,true);if(s){gt_ext_package_stop(s->package);extension_unpin(s);}}
+/* -1 means a concurrent stop still pins the owner; all other results consumed. */
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_close(JNIEnv *e,jobject self,jlong id){
+ (void)self;extension_slot_t *s=package_pin(e,id,true,false);if(!s)return -1;
+ pthread_mutex_lock(&extension_lock);if(s->pins!=1){s->pins--;pthread_mutex_unlock(&extension_lock);return -1;}s->retiring=true;gt_ext_package_t *package=s->package;pthread_mutex_unlock(&extension_lock);
+ gt_status_t status=gt_ext_package_destroy(&package);extension_abandon(s);return status;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_metadata(JNIEnv *e,jobject self,jlong id){
+ (void)self;extension_slot_t *s=package_pin(e,id,true,false);if(!s)return NULL;gt_ext_package_metadata_t m;bool ok=gt_ext_package_metadata(s->package,&m);extension_unpin(s);if(!ok){extension_error(e,"插件包尚未通过校验");return NULL;}
+ const char *fields[42]={m.id,m.version,m.publisher,m.license,(const char *)m.entry,m.runtime,m.variant,m.sdk_version,m.package_digest,m.manifest_digest};
+ for(size_t i=0;i<16;i++){fields[10+i]=m.requires[i];fields[26+i]=m.optional_missing[i];}
+ jclass bytes=(*e)->FindClass(e,"[B");if(!bytes)return NULL;jobjectArray result=(*e)->NewObjectArray(e,42,bytes,NULL);(*e)->DeleteLocalRef(e,bytes);if(!result)return NULL;
+ for(jsize i=0;i<42;i++){jbyteArray value=package_bytes(e,fields[i]);if(!value)return NULL;(*e)->SetObjectArrayElement(e,result,i,value);(*e)->DeleteLocalRef(e,value);if((*e)->ExceptionCheck(e))return NULL;}return result;
+}
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_metadataNumbers(JNIEnv *e,jobject self,jlong id){
+ (void)self;extension_slot_t *s=package_pin(e,id,true,false);if(!s)return NULL;gt_ext_package_metadata_t m;bool ok=gt_ext_package_metadata(s->package,&m);extension_unpin(s);if(!ok){extension_error(e,"插件包尚未通过校验");return NULL;}
+ jlong v[15]={m.requires_count,m.optional_missing_count,m.protocol_count,m.executor,m.association_required,m.authorization_granted,m.publisher_authenticated};for(size_t i=0;i<8;i++)v[7+i]=m.protocols[i];jlongArray result=(*e)->NewLongArray(e,15);if(result)(*e)->SetLongArrayRegion(e,result,0,15,v);return result;
 }

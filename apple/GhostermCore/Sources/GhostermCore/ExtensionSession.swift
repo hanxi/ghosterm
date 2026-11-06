@@ -219,6 +219,14 @@ public final class ExtensionSession {
         guard status == GT_OK, let runtime else { throw GhostermError.status(Int32(status.rawValue), "运行时未接管会话") }
         return runtime
     }
+    internal func adoptPackageRuntime(package: ExtensionPackage, config: inout gt_ext_runtime_config_t, associated: Bool) throws -> OpaquePointer {
+        _ = try pointer(); let bytes = try package.pointer(on: owner)
+        stopLock.lock(); defer { stopLock.unlock() }
+        var runtime: OpaquePointer?
+        let status = gt_ext_runtime_open_package(&raw, bytes, &config, associated, &runtime)
+        guard status == GT_OK, let runtime else { throw GhostermError.status(Int32(status.rawValue), "插件包运行时未接管会话") }
+        return runtime
+    }
     @discardableResult public func closeStep(milliseconds: Int32 = 0) throws -> Bool {
         let p = try pointer(); guard milliseconds >= 0 else { throw GhostermError.failed("会话关闭预算无效") }
         let result = gt_ext_session_close(p, milliseconds)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Compile package-loader mutations in a private copy; crashes never count as red."""
-import hashlib,json,os,re,shutil,signal,subprocess,tempfile
+import argparse,hashlib,json,os,re,shutil,signal,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 MARK='GT_PACKAGE_RUNTIME_MUTATION'
@@ -24,7 +24,21 @@ CASES=[
 ]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- for _,name,old,_,_ in CASES:
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');args=parser.parse_args()
+ cases=CASES
+ executable='test_package_runtime';pattern='^plugin_package_runtime_';objects=['runtime','package-runtime','session']
+ if args.public:
+  api='core/src/extension/package-api.c';runtime='core/src/extension/runtime-api.c'
+  cases=[
+   ('capture-cancel',api,'if(p->info.phase!=GT_EXT_PACKAGE_CAPTURING)return p->info.phase;','if(p->info.phase!=GT_EXT_PACKAGE_CAPTURING)return p->info.phase; atomic_store(&p->stopped,false);','capture-stop'),
+   ('check-cancel',api,'if(p->info.phase!=GT_EXT_PACKAGE_CAPTURED)return p->info.phase;','if(p->info.phase!=GT_EXT_PACKAGE_CAPTURED)return p->info.phase; atomic_store(&p->stopped,false);','check-stop'),
+   ('unknown-preserved',api,'case GT_PACKAGE_CHECK_UNKNOWN:error=GT_EXT_PACKAGE_UNKNOWN;','case GT_PACKAGE_CHECK_UNKNOWN:error=GT_EXT_PACKAGE_UNSUPPORTED;','unknown'),
+   ('metadata-zero',api,'if(out)memset(out,0,sizeof(*out));if(!p || !out || p->info.phase!=GT_EXT_PACKAGE_CHECKED)','if(!p || !out || p->info.phase!=GT_EXT_PACKAGE_CHECKED)','roundtrip'),
+   ('digest-copy',api,'COPY(package_digest);','COPY(manifest_digest);','roundtrip'),
+   ('stopped-adoption',runtime,'if(atomic_load_explicit(&package->stopped,memory_order_relaxed))return GT_ERR_CANCELLED;','if(false && atomic_load_explicit(&package->stopped,memory_order_relaxed))return GT_ERR_CANCELLED;','load-stop'),
+  ]
+  executable='test_ext_package';pattern='^ext_package_';objects=['package-api','runtime-api','runtime','package-runtime','session']
+ for _,name,old,_,_ in cases:
   data=(ROOT/name).read_text();assert MARK not in data and data.count(old)==1,name
  work=Path(tempfile.mkdtemp(prefix='pkgload-',dir=ROOT/'tmp'));source=work/'source';build=work/'build';logs=work/'logs';logs.mkdir();commands=[]
  env={**os.environ,'TMPDIR':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
@@ -45,23 +59,23 @@ def main():
   sdk=work/'sdk';run('sdk',['node',tools/'node_modules/typescript/bin/tsc','-p',source/'packages/plugin-sdk/tsconfig.json','--outDir',sdk])
   run('configure',['cmake','-S',source/'core','-B',build,'-DGHOSTERM_PLUGIN_SDK_DIR='+str(sdk),'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_JS=ON','-DCMAKE_BUILD_TYPE=RelWithDebInfo','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
   def rebuild(label):
-   for name in ['runtime','package-runtime','session']:(build/'CMakeFiles/ghosterm_core.dir/src/extension'/(name+'.c.o')).unlink(missing_ok=True)
-   for name in ['test_package_runtime','test_config','libghosterm_core.a']:(build/name).unlink(missing_ok=True)
-   out=run(label+'-build',['cmake','--build',build,'--target','test_package_runtime','test_config','-j','4'])
-   for name in ['runtime','package-runtime','session']:assert 'src/extension/'+name+'.c.o' in out
-   assert 'Linking C static library' in out and 'Linking C executable test_package_runtime' in out
-  def target(label,mode,red=False):run(label,[build/'test_package_runtime',mode,source/'tmp'],red)
-  rebuild('baseline');run('baseline',['ctest','--test-dir',build,'-R','^plugin_package_runtime_','--output-on-failure'])
-  for label,name,old,new,mode in CASES:
+   for name in objects:(build/'CMakeFiles/ghosterm_core.dir/src/extension'/(name+'.c.o')).unlink(missing_ok=True)
+   for name in [executable,'test_config','libghosterm_core.a']:(build/name).unlink(missing_ok=True)
+   out=run(label+'-build',['cmake','--build',build,'--target',executable,'test_config','-j','4'])
+   for name in objects:assert 'src/extension/'+name+'.c.o' in out
+   assert 'Linking C static library' in out and 'Linking C executable '+executable in out
+  def target(label,mode,red=False):run(label,[build/executable,mode,source/'tmp'],red)
+  rebuild('baseline');run('baseline',['ctest','--test-dir',build,'-R',pattern,'--output-on-failure'])
+  for label,name,old,new,mode in cases:
    path=source/name;original=path.read_bytes()
    try:
     path.write_text(original.decode().replace(old,new)+'\n/* '+MARK+' */\n')
     rebuild(label);target(label+'-red',mode,True);run(label+'-control',[build/'test_config',source/'core/tests/fixtures'])
    finally:path.write_bytes(original);assert sha(path)==hashlib.sha256(original).hexdigest()
    rebuild(label+'-restored');target(label+'-restored',mode);print(label+': assertion red / configuration green / restored green / SHA256',flush=True)
-  run('final',['ctest','--test-dir',build,'-R','^plugin_package_runtime_','--output-on-failure'])
+  run('final',['ctest','--test-dir',build,'-R',pattern,'--output-on-failure'])
   for name,digest in hashes.items():assert sha(source/name)==digest and sha(ROOT/name)==digest,name
-  (logs/'result.json').write_text(json.dumps(dict(accepted=True,groups=[c[0] for c in CASES],inputs_sha256=hashes,commands=commands,sanitizers=['address','undefined'],leak_sanitizer=False),indent=2)+'\n')
+  (logs/'result.json').write_text(json.dumps(dict(accepted=True,groups=[c[0] for c in cases],inputs_sha256=hashes,commands=commands,sanitizers=['address','undefined'],leak_sanitizer=False),indent=2)+'\n')
   print('PACKAGE RUNTIME MUTATIONS PASS: '+str(logs),flush=True)
  except BaseException as error:(logs/'failure.txt').write_text(repr(error));raise
 def stop(number,frame):raise KeyboardInterrupt('signal '+str(number))

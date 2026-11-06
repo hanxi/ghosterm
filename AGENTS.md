@@ -1007,3 +1007,12 @@ JS ON / SSH ON 617 项；39 包加载专项及十一组优化 ASan/UBSan 变异�
 archive / ELF 编译链接通过，本批无在线设备、未设备执行。无公共 ABI / 平台产品改动，
 不增加 CI 二十份；App / 安装信任 / 完整 SDK / gterm / 业务插件继续，失败与收据见
 插件计划第三十五批，不以私有加载首片称整个模块 / 插件计划完成。
+
+**插件公开包门面第三十六批（2026-11-06）**：新增 opaque 目录采集 / 固定字节校验 /
+元数据快照与包 runtime 接管，共 162 ABI；Apple 158/4、JNI 124/38。默认 470 CTest、
+enabled Core 626 项；公开包六 Core、四 Swift、四 Android 变异通过，目标正常断言红、
+独立配置绿、恢复绿与 SHA256。Swift enabled 两项含真实包 RPC；Android API36 / arm64 /
+4 KiB 页独立模拟器 runtime 十一项，变异最终加 availability 十二项；默认 bridge 与
+JS enabled 两 APK 真构建通过。元数据兼容不授予来源信任或执行批准，App 安装 / 激活 /
+原生视图仍待接。均为手工专项，不增加 CI 二十份，不代表真机 / App 产品 / 发行；首次
+失败、最终输入差异和收据见插件计划第三十六批。
