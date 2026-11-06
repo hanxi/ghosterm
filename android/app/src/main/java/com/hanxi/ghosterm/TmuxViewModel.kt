@@ -9,6 +9,31 @@ import kotlinx.coroutines.*
 /** Explicit remote management page. Leaving closes management/authentication;
  * an already attached terminal has a separate SSH owner and keeps running. */
 class TmuxViewModel : ViewModel() {
+    var unified by mutableStateOf(false); private set
+    var directTerminal by mutableStateOf(false); private set
+    private var preferences: android.content.SharedPreferences? = null
+    private var preferenceKey: String? = null
+    fun openHost(request: PreparedSSH, sessions: SessionsViewModel, context: android.content.Context, forceChooser: Boolean = false) {
+        val prefs = context.getSharedPreferences("remote-entry", android.content.Context.MODE_PRIVATE)
+        val key = listOf(request.alias, request.host, request.port.toString(), request.user).joinToString { "${it.length}:$it" }
+        if (!forceChooser && prefs.getBoolean(key, false)) { sessions.connect(request); return }
+        open(request, sessions)
+        unified = true; preferences = prefs; preferenceKey = key; directTerminal = prefs.getBoolean(key, false)
+    }
+    fun updateDirectTerminal(value: Boolean) {
+        val key = preferenceKey ?: return
+        preferences?.edit()?.putBoolean(key, value)?.apply()
+        directTerminal = value
+    }
+    fun openTerminal() {
+        if (!unified || changing) return
+        val request = target ?: return
+        val sessions = controller ?: return
+        // Cancel only this chooser's owner, invalidate callbacks before starting the ordinary connection.
+        leave()
+        sessions.selectNewRemote()
+        sessions.connect(request)
+    }
     var visible by mutableStateOf(false);private set
     var alias by mutableStateOf("");private set
     var busy by mutableStateOf(false);private set
@@ -43,7 +68,9 @@ class TmuxViewModel : ViewModel() {
     }
     fun reconnect() {
         val request=target ?: return;val sessions=controller ?: return
+        val wasUnified=unified; val prefs=preferences; val key=preferenceKey; val direct=directTerminal
         open(request,sessions)
+        unified=wasUnified; preferences=prefs; preferenceKey=key; directTerminal=direct
     }
     fun authenticationDismissed() {
         if(authentication!=null && controller?.connecting?.id!=authentication) {
@@ -56,6 +83,7 @@ class TmuxViewModel : ViewModel() {
         generation++;authentication?.let { controller?.cancelConnection(it) };authentication=null
         job?.cancel();job=null;connection?.close();connection=null
         visible=false;connecting=false;busy=false;changing=false
+        unified=false;preferences=null;preferenceKey=null;directTerminal=false
         candidates=emptyList();selectedPath=null;entries=emptyList();server=null
     }
     private fun operate(change: Boolean=false,action: suspend (RemoteTmuxSession)->Unit) {

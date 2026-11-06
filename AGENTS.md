@@ -23,9 +23,12 @@ Ghosterm = **libghostty 驱动的多端终端** × **VS Code 式 `~/.ssh/config`
 
 ## 当前重构决定
 
-2026-10-28 起按 `docs/reference/plan-optional-tmux.md` 实施：普通本地 PTY/SSH 为默认入口，
+2026-10-28 起按 `docs/reference/plan-optional-tmux.md` 实施：普通本地 PTY/SSH 为默认终端方式，
 后台会话由用户显式选择 tmux；整体退役自有 sessiond、私有恢复协议、安装与随包 runtime，
-不保留旧 ABI/记录的兼容层。依赖闭包、命令决策与验收进度见
+不保留旧 ABI/记录的兼容层。2026-11-06 经用户确认，远端主机入口改为统一连接面板：
+打开面板可自动探测/列举 tmux，普通终端无需等待；创建/attach 仍显式选择。
+本地默认与普通终端快捷入口不探测，能力未知不得当作不存在。规则调整理由与证据见上述计划末节。
+依赖闭包、命令决策与验收进度见
 `docs/reference/optional-tmux-implementation.md`。旧会话系统已退役；通用能力对应闸门仍须执行；
 退役提交同步修改源码、调用方、构建、测试、打包、CI 和下文覆盖范围，不能先删断言换绿。
 
@@ -184,6 +187,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 **Android 会话切换保持输入法（§9.208）**：面板改为同窗口覆盖层，复用原生终端输入视图并按 UUID 重绑 Surface，旧输入上下文/本地选区模式/修饰键隔离保留；搜索移除前直接交还焦点，关闭回调防重，API 29 前置返回与 API 33+ overlay 返回回调仅在面板期间接管。打开/取消逐帧验实际 IME、窗口焦点与高度，切换/搜索允许候选栏高度变化但 IME 不消失。十四个不同会话保护分轮（新增十一＋迁移三）与既有布局/菜单四组通过：编译后正常断言红、同 APK Core 配置绿、恢复绿和源码 SHA256；未杀死的冗余选区清除探针与 nullable 编译失败未计红。API 29 / 36 最终同源组合 87 / 95 项、680 份输入及安装 APK 摘要一致；Core 52/95、Debug/测试 APK、未签名 Release/R8 和四模块 lint 通过。真实截图见 `docs/design/android-session-ime/index.html`。手工 arm64 / 4 KiB 页模拟器证据，不增加 CI 二十份；未发行，非真机/厂商输入法/完整客户端验收。
 
 **Android Nerd 图标单元格裁切（§9.209）**：私用区字形按浮点轮廓等比适配原格子并保留栅格边缘，普通层与块状光标共用；字体/字号/行高变化清缓存。`mutation-check-android-fonts.py` 六组分轮（5＋1）正常断言红、同 APK 配置绿、恢复绿及 SHA256 通过。专用 API 36 / arm64 / 4 KiB 页模拟器的本地 53 项与 SSH 图形 1 项分轮通过；Debug/测试 APK、未签名 Release/R8、四模块 lint、C 格式检查及隔离检出 Core 470/169 通过。最初边缘像素失败、未配置 SSH 夹具的 54 项组合失败及原工作区并行插件摘要失败均单列，不计绿。手工证据，不增加 CI 二十份；未发行，非用户真机或完整字体/客户端矩阵验收。
+
+**远端统一入口（2026-11-06）**：远端主机面板自动探测/列举 tmux，普通终端可直接打开；创建/attach 仍显式选择，直达偏好按端点隔离且可撤销。macOS 24 项与 Release 构建、Android 专用 API 29 arm64 / 4 KiB 页 8＋38 项分轮、未签名 Release/R8 与四模块 lint 通过；Swift 新四组、默认入口旧四组、Android 新三＋旧五组均正常断言红、独立配置绿、恢复绿与 SHA256。C 格式 208 文件、隔离 HEAD Core 470/169 通过；原工作区并行插件 SDK 摘要失败单列，不记整仓绿。不增加 CI 二十份脚本，未发行，非 API 36/真机/完整客户端验收；原件与前置失败见 `docs/reference/optional-tmux-implementation.md` 及 Android 实施计划 §9.211。
 
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 

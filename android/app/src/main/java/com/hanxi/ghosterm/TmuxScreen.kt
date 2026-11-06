@@ -14,16 +14,27 @@ import com.hanxi.ghosterm.bridge.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TmuxScreen(model: TmuxViewModel) {
+    var advanced by remember { mutableStateOf(false) }
     var create by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf<RemoteTmuxEntry?>(null) }
     var terminate by remember { mutableStateOf<RemoteTmuxEntry?>(null) }
     var leave by remember { mutableStateOf(false) }
     fun back() { if(model.changing)leave=true else model.leave() }
     BackHandler(onBack=::back)
-    Scaffold(topBar={ GhostermTopBar(title={ Text(model.alias+" · 后台会话") },
+    Scaffold(topBar={ GhostermTopBar(title={ Text(model.alias+if(model.unified) " · 连接主机" else " · 后台会话") },
         navigationIcon={ GhostermIconButton(UiIcon.Back,"返回",onClick=::back) }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).testTag("tmux-page"),
             contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            if(model.unified)item {
+                Button(onClick=model::openTerminal,enabled=!model.changing,modifier=Modifier.fillMaxWidth().testTag("remote-open-terminal")) { Text("打开普通终端") }
+                Row {
+                    Checkbox(checked=model.directTerminal,onCheckedChange=model::updateDirectTerminal,modifier=Modifier.testTag("remote-direct-terminal"))
+                    Text("下次直接打开普通终端",modifier=Modifier.padding(top=12.dp))
+                }
+                Text("可从主机菜单的连接选项重新选择。",style=MaterialTheme.typography.bodySmall)
+                HorizontalDivider()
+                Text("后台会话",style=MaterialTheme.typography.titleMedium)
+            }
             item {
                 Text("关闭终端仅断开当前客户端，任务保留遵循远端 tmux 与系统策略。“结束会话”会终止其中的任务。",
                     style=MaterialTheme.typography.bodyMedium)
@@ -39,7 +50,8 @@ fun TmuxScreen(model: TmuxViewModel) {
                     Button(onClick={ create=true },enabled=model.canChange,modifier=Modifier.testTag("tmux-create")) { Text("新建会话") }
                 }
             }
-            items(model.candidates,key={ it.path }) { candidate ->
+            if(model.candidates.isNotEmpty())item { TextButton(onClick={ advanced=!advanced }) { Text(if(advanced) "收起 tmux 路径" else "高级：tmux 路径") } }
+            if(advanced)items(model.candidates,key={ it.path }) { candidate ->
                 OutlinedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                         Text(candidate.path,style=MaterialTheme.typography.bodyMedium)

@@ -70,7 +70,7 @@ class SSHProductTest {
             (value != SSHAuthPhase.CREDENTIALS || !it.passiveProgress) } == true } }
         catch (failure: ComposeTimeoutException) { fail("SSH page did not reach $value: ${sessions().connecting?.message}") }
     }
-    private fun open() { ui.onNodeWithText(alias).performClick(); phase(SSHAuthPhase.HOSTKEY) }
+    private fun open() { ui.openOrdinaryHost(alias); phase(SSHAuthPhase.HOSTKEY) }
     private fun login(trust: Boolean = true): UUID {
         if (trust) ui.onNodeWithText("信任并连接").performClick()
         phase(SSHAuthPhase.CREDENTIALS)
@@ -168,7 +168,7 @@ class SSHProductTest {
             fail("remote PID after recreation, expected $pid: " + frame?.let { (0 until it.rows).joinToString(" / ",transform = it::line) })
         }
         ui.terminalBack()
-        ui.onNodeWithText(alias).performClick()
+        ui.openOrdinaryHost(alias)
         ui.runOnIdle { assertEquals(id,sessions().active!!.id); assertEquals(1,sessions().sessions.size) }
     }
     @Test fun refusalNeverRequestsCredentialsOrWritesTrust() {
@@ -184,7 +184,7 @@ class SSHProductTest {
     @Test fun missingUsernameAndCancelledTrustLeaveConfigurationUnchanged() {
         load(user = "")
         val bytes = config.readBytes()
-        ui.onNodeWithText(alias).performClick()
+        ui.openOrdinaryHost(alias)
         ui.onNodeWithTag("ssh-username").performTextInput(fixture.getString("user"))
         ui.onNodeWithText("继续连接").performClick()
         phase(SSHAuthPhase.HOSTKEY)
@@ -196,11 +196,11 @@ class SSHProductTest {
         open(); val first = login()
         ui.openTerminalSessions()
         ui.onNodeWithTag("terminal-new-ssh").performClick()
-        ui.onNodeWithText(alias).performClick()
+        ui.openOrdinaryHost(alias)
         val second = login(trust = false)
         assertNotEquals(first,second); assertEquals(2,sessions().sessions.size)
         ui.terminalBack()
-        ui.onNodeWithText(alias).performClick()
+        ui.openOrdinaryHost(alias)
         ui.onNodeWithText("选择 $alias 的会话").assertIsDisplayed()
         ui.onNodeWithTag("ssh-session-$first").performClick()
         ui.runOnIdle { assertEquals(first,sessions().active!!.id); assertEquals(2,sessions().sessions.size) }
@@ -212,7 +212,7 @@ class SSHProductTest {
     }
     @Test fun unsupportedConfigNeverStartsConnectionOrRequestsCredentials() {
         load(extra = " ProxyJump unsupported\n")
-        ui.onNodeWithText(alias).performClick()
+        ui.openOrdinaryHost(alias)
         ui.waitUntil(10000) { !hosts().busy }
         assertTrue(hosts().error!!.contains("proxyjump"))
         assertNull(sessions().connecting); assertTrue(sessions().sessions.isEmpty()); assertFalse(known.exists())

@@ -27,10 +27,12 @@ class TmuxProductTest {
     private lateinit var known: File
     private lateinit var vault: IdentityVault
     private lateinit var identity: StoredIdentity
+    private var oldEntryPreferences: Map<String, *> = emptyMap<String, Boolean>()
     private var oldConfig: ByteArray?=null
     private var oldKnown: ByteArray?=null
     private val alias="tmux-ui-"+UUID.randomUUID().toString().take(8)
     @Before fun setup() {
+        oldEntryPreferences=ui.activity.getSharedPreferences("remote-entry",android.content.Context.MODE_PRIVATE).all.toMap()
         config=File(ui.activity.filesDir,"home/.ssh/config")
         known=File(ui.activity.filesDir,"home/.ssh/known_hosts")
         oldConfig=config.takeIf { it.exists() }?.readBytes();oldKnown=known.takeIf { it.exists() }?.readBytes()
@@ -53,6 +55,9 @@ class TmuxProductTest {
             sessions().sessions.map { it.id }.forEach(sessions()::close)
         }
         ui.waitUntil(15000) { owners("NativeTmux")==0 && owners("NativeSession")==0 }
+        ui.activity.getSharedPreferences("remote-entry",android.content.Context.MODE_PRIVATE).edit().clear().also { edit ->
+            oldEntryPreferences.forEach { (key,value) -> edit.putBoolean(key,value as Boolean) }
+        }.commit()
         if(::identity.isInitialized)vault.remove(identity)
         if(::config.isInitialized) {
             oldConfig?.let(config::writeBytes) ?: config.delete()
@@ -209,8 +214,69 @@ class TmuxProductTest {
         assertTrue(model().entries.any { it.name==renamed })
         end(renamed)
     }
+    @Test fun unifiedHostEntryDiscoversWithoutAttachingAndCanOpenOrdinaryTerminal() {
+        ui.onNodeWithText(alias).performClick()
+        ui.runOnIdle { assertTrue("host entry must open the chooser",model().unified) }
+        login()
+        ui.waitUntil(15000) { !model().busy && model().server!=null }
+        ui.runOnIdle {
+            assertTrue(model().unified)
+            assertTrue(sessions().sessions.isEmpty())
+            assertFalse(model().directTerminal)
+        }
+        ui.onNodeWithTag("remote-open-terminal").performScrollTo().performClick()
+        ui.runOnIdle { assertFalse("ordinary terminal must release the chooser",model().visible) }
+        login()
+        ui.waitUntil(15000) { sessions().active?.state?.connected==true }
+        ui.waitUntil(15000) { owners("NativeTmux")==0 }
+        ui.runOnIdle {
+            assertFalse(model().visible)
+            assertNull(sessions().active!!.backgroundSession)
+            assertEquals(1,sessions().sessions.size)
+            assertTrue(model().entries.isEmpty())
+        }
+    }
+
+    @Test fun unifiedPendingAuthenticationCanSwitchToOrdinaryWithoutLateReopening() {
+        ui.onNodeWithText(alias).performClick()
+        ui.runOnIdle {
+            val old=checkNotNull(sessions().connecting).id
+            model().openTerminal()
+            assertFalse(model().visible)
+            val ordinary=checkNotNull(sessions().connecting)
+            assertNotEquals(old,ordinary.id)
+            assertTrue(ordinary.forTerminal)
+        }
+        login()
+        ui.waitUntil(15000) { sessions().active?.state?.connected==true && owners("NativeTmux")==0 }
+        ui.runOnIdle {
+            assertFalse(model().visible)
+            assertTrue(model().entries.isEmpty())
+            assertNull(sessions().active!!.backgroundSession)
+            assertEquals(1,sessions().sessions.size)
+        }
+    }
+
+    @Test fun unifiedShortcutCanBeSetAndRevokedFromConnectionOptions() {
+        open()
+        ui.onNodeWithTag("remote-direct-terminal").performScrollTo().performClick()
+        ui.runOnIdle { assertTrue(model().directTerminal); model().leave() }
+        ui.onNodeWithText(alias).performClick()
+        ui.runOnIdle { assertFalse(model().visible); assertNotNull(sessions().connecting) }
+        login()
+        ui.waitUntil(15000) { sessions().active?.state?.connected==true }
+        ui.runOnIdle { sessions().home() }
+        open()
+        ui.runOnIdle { assertTrue(model().directTerminal) }
+        ui.onNodeWithTag("remote-direct-terminal").performScrollTo().performClick()
+        ui.runOnIdle { assertFalse(model().directTerminal); model().leave() }
+        ui.onNodeWithText(alias).performClick()
+        ui.runOnIdle { assertTrue(model().visible); assertTrue(model().unified) }
+    }
+
     @Test fun normalHostEntryCreatesAnOrdinaryTerminalInsteadOfReusingABackgroundClient() {
         open()
+        ui.runOnIdle { model().updateDirectTerminal(true) }
         val name="ordinary-"+UUID.randomUUID().toString().take(8)
         create(name)
         ui.waitUntil(15000) { !model().busy && model().entries.any { it.name==name } }

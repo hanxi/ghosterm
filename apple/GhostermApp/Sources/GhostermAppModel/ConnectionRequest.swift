@@ -15,7 +15,10 @@ public struct ConnectionRequest {
     }
     public let target: AppModel.Target
     public let kind: Kind
-    public init(target: AppModel.Target, kind: Kind) { self.target = target; self.kind = kind }
+    public let forceChooser: Bool
+    public init(target: AppModel.Target, kind: Kind, forceChooser: Bool = false) {
+        self.target = target; self.kind = kind; self.forceChooser = forceChooser
+    }
 
     @MainActor public func open(in model: AppModel) throws {
         if case .host(let pattern) = target {
@@ -25,7 +28,7 @@ public struct ConnectionRequest {
             }
         }
         switch kind {
-        case .terminal: model.connect(to: target)
+        case .terminal: model.openHost(target, forceChooser: forceChooser)
         case .tmux: model.showTmux(for: target)
         case .files:
             switch target {

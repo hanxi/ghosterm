@@ -13,12 +13,16 @@ def execute(root,build,test):
     model=root/'android/app/src/main/java/com/hanxi/ghosterm/TmuxViewModel.kt'
     sessions=root/'android/app/src/main/java/com/hanxi/ghosterm/SessionsViewModel.kt'
     dialog=root/'android/app/src/main/java/com/hanxi/ghosterm/SSHConnectionDialog.kt'
-    originals={p:p.read_bytes() for p in (core,native,session,bridge,model,sessions,dialog)}
+    screen=root/'android/app/src/main/java/com/hanxi/ghosterm/MainActivity.kt'
+    originals={p:p.read_bytes() for p in (core,native,session,bridge,model,sessions,dialog,screen)}
     if any(MARK.encode() in data for data in originals.values()):raise RuntimeError('Residual Android tmux mutation')
     remote='com.hanxi.ghosterm.RemoteTmuxTest#'
     ui='com.hanxi.ghosterm.TmuxProductTest#'
     unknown='RemoteTmuxResult.UNKNOWN -> error=label+"结果无法确认，请刷新实际会话后再操作；不会自动重试。"+result.error'
     cases=[
+      ('unified-route',screen,'tmux.openHost(request,sessions,storageContext)','sessions.connect(request)',ui+'unifiedHostEntryDiscoversWithoutAttachingAndCanOpenOrdinaryTerminal'),
+      ('unified-release',model,'        leave()\n        sessions.selectNewRemote()','        sessions.selectNewRemote()',ui+'unifiedHostEntryDiscoversWithoutAttachingAndCanOpenOrdinaryTerminal'),
+      ('unified-preference',model,'putBoolean(key, value)','putBoolean(key, false)',ui+'unifiedShortcutCanBeSetAndRevokedFromConnectionOptions'),
       ('login-path',core,'        rc = remote_login(ssh, command, &b, &r);\n',
        '        rc = gt__command_ssh(ssh, command, &b, &r);\n',remote+'remoteLoginFindsTmuxOutsideExecPathAndUsesTheAbsoluteCandidate'),
       ('execution-endpoint',core,'rc = validate(&execution, target, &b);','rc = execution.ssh ? GT_OK : GT_ERR_INVALID_ARG;',remote+'executionNamespaceIsValidatedBeforeAttachingADifferentKeysEnvironment'),

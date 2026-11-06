@@ -66,7 +66,7 @@ class SSHCredentialFlowTest {
         config.writeText("Host $alias\n HostName 127.0.0.1\n Port ${server.getInt("port")}\n User ${server.getString("user")}\n")
         onMain { hosts.reload() }
         await { !hosts.busy && hosts.snapshot?.text==config.readText() }
-        ui.onNodeWithText(alias).performClick()
+        ui.openOrdinaryHost(alias)
         await { model.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY || model.connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
         if(onMain { model.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY }) {
             ui.onNodeWithTag("ssh-fingerprint").assertTextEquals(server.getString("fingerprint"))

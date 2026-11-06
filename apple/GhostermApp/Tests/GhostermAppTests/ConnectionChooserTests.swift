@@ -23,6 +23,16 @@ final class ConnectionChooserTests: XCTestCase {
                                 settings: SettingsStore(terminalConfigPath: dir.appendingPathComponent("ghostty").path))
     }
 
+    func testRemoteTerminalRequestOpensUnifiedChooserWithoutCreatingATab() throws {
+        let model = try makeModel()
+        try "Host unified-request-fixture\n HostName 127.0.0.1\n Port 1\n".write(toFile: model.configPath, atomically: true, encoding: .utf8)
+        model.reload()
+        defer { model.dismissTmux(); model.tabs.removeAll() }
+        try ConnectionRequest(target: .host("unified-request-fixture"), kind: .terminal).open(in: model)
+        XCTAssertTrue(model.tmuxChooser?.unified == true)
+        XCTAssertTrue(model.tabs.tabs.isEmpty, "the remote entry must wait for an explicit terminal choice")
+    }
+
     func testSearchMatchesAllTermsWithoutChangingHostAliases() {
         XCTAssertTrue(ConnectionSearch.matches("WEB deploy", text: "web deploy@example.test"))
         XCTAssertTrue(ConnectionSearch.matches("cafe", text: "café"))

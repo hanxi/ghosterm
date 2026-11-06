@@ -49,6 +49,76 @@ import XCTest
             return text.hasPrefix(prefix) ? Int32(text.dropFirst(prefix.count)) : nil
         }.first
     }
+    func testUnifiedEntryCanOpenOrdinaryTerminalWhileProbeIsPending() async throws {
+        let (_, executable, socket) = try fixture()
+        let model = isolatedAppModel(); defer { model.dismissTmux(); model.disconnectForTesting() }
+        let browser = TmuxChooser(model: model, target: .localShell,
+            options: .init(executable: executable, socketPath: socket), unified: true)
+        model.tmuxChooser = browser
+        browser.refresh()
+        XCTAssertTrue(browser.busy)
+        browser.openTerminal()
+        XCTAssertNil(model.tmuxChooser, "ordinary entry must release the chooser")
+        try await until { model.activePane?.isRunning == true }
+        XCTAssertNil(model.activePane?.tmuxContext)
+        XCTAssertEqual(model.tabs.tabs.count, 1)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertNil(model.tmuxChooser, "late discovery must not restore the chooser")
+        XCTAssertTrue(browser.sessions.isEmpty)
+        browser.openTerminal()
+        XCTAssertEqual(model.tabs.tabs.count, 1, "a stale chooser cannot open another terminal")
+    }
+
+    func testUnifiedRemoteEntryPreferenceIsExplicitScopedAndReversible() throws {
+        let (root, _, _) = try fixture()
+        let config = root.appendingPathComponent("ssh-config")
+        try "Host entry\n HostName 127.0.0.1\n Port 1\n User fixture\n".write(to: config, atomically: true, encoding: .utf8)
+        let suite = "remote-entry-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = isolatedAppModel(configPath: config.path)
+        defer { model.dismissTmux(); model.disconnectForTesting() }
+        model.openHost(.host("entry"), defaults: defaults)
+        let browser = try XCTUnwrap(model.tmuxChooser)
+        XCTAssertTrue(browser.unified)
+        XCTAssertFalse(browser.directTerminal)
+        XCTAssertTrue(model.tabs.tabs.isEmpty, "discovery must not create or attach a terminal")
+        browser.directTerminal = true
+        model.dismissTmux()
+        model.openHost(.host("entry"), defaults: defaults)
+        XCTAssertNil(model.tmuxChooser, "explicit shortcut skips discovery")
+        XCTAssertEqual(model.tabs.tabs.count, 1)
+        model.openHost(.host("entry"), forceChooser: true, defaults: defaults)
+        let forced = try XCTUnwrap(model.tmuxChooser)
+        XCTAssertTrue(forced.directTerminal)
+        forced.directTerminal = false
+        model.dismissTmux()
+        model.openHost(.host("entry"), defaults: defaults)
+        XCTAssertNotNil(model.tmuxChooser, "shortcut can be revoked")
+        model.tmuxChooser?.directTerminal = true
+        model.dismissTmux()
+        try "Host entry\n HostName 127.0.0.1\n Port 2\n User fixture\n".write(to: config, atomically: true, encoding: .utf8)
+        model.reload()
+        model.openHost(.host("entry"), defaults: defaults)
+        XCTAssertFalse(try XCTUnwrap(model.tmuxChooser).directTerminal, "changed endpoint does not inherit a shortcut")
+    }
+
+    func testUnifiedOrdinaryActionRejectsChangedHostConfiguration() throws {
+        let (root, _, _) = try fixture()
+        let config = root.appendingPathComponent("ssh-config")
+        try "Host entry\n HostName 127.0.0.1\n Port 1\n".write(to: config, atomically: true, encoding: .utf8)
+        let model = isolatedAppModel(configPath: config.path)
+        defer { model.dismissTmux(); model.disconnectForTesting() }
+        model.openHost(.host("entry"), forceChooser: true)
+        let browser = try XCTUnwrap(model.tmuxChooser)
+        try "Host entry\n HostName 127.0.0.1\n Port 2\n".write(to: config, atomically: true, encoding: .utf8)
+        model.reload()
+        browser.openTerminal()
+        XCTAssertTrue(model.tabs.tabs.isEmpty)
+        XCTAssertTrue(model.tmuxChooser === browser)
+        XCTAssertTrue(browser.message.contains("主机配置已改变"))
+    }
+
     func testCandidatePickerUsesFirstAndRemembersExplicitChoice() async throws {
         let (root, executable, socket) = try fixture()
         let first = root.appendingPathComponent("first"), second = root.appendingPathComponent("second")

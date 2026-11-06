@@ -29,7 +29,7 @@ def execute(root,build,test):
       ('prepare',config,'    if (gt_config_check_connection(cfg, alias, 0, &issue) != GT_OK) {\n','    if (gt_config_check_connection(cfg, alias, 0, &issue) == GT_ERR_INVALID_ARG) {\n','SSHConnectionModelTest#preparationRechecksIncludedConfigurationAndPreservesRawBytes',1),
       ('budget',model,'withTimeout(connectionBudgetMillis) {\n                    val addresses =','withTimeout(60000) {\n                    val addresses =','SSHConnectionModelTest#timeoutCancelsDnsAndShowsFailure',1),
       ('username',model,'if (target.user.isNotBlank()) startConnection(attempt)','startConnection(attempt)','SSHConnectionModelTest#missingUsernameDoesNotResolveUntilValidInputAndDoesNotMutateTarget',1),
-      ('host-route',screen,'model.checkConnection(host, sessions::connect)','model.checkConnection(host) { _ -> }',p('homeTrustKeyAuthenticationAndRotationKeepOneRemoteShell'),1),
+      ('host-route',screen,'model.checkConnection(host,sessions::connect)','model.checkConnection(host) { _ -> }',p('homeTrustKeyAuthenticationAndRotationKeepOneRemoteShell'),1),
       ('reject-button',dialog,'model.decide(attempt.id,prompt!!,false)','model.decide(attempt.id,prompt!!,true)',p('refusalNeverRequestsCredentialsOrWritesTrust'),1),
       ('fingerprint',dialog,'Text(prompt.fingerprint,','Text("fingerprint unavailable",',p('homeTrustKeyAuthenticationAndRotationKeepOneRemoteShell'),1),
       ('multisession',model,'else choosingRemote = target.alias','else show(existing.last().id)',p('explicitNewConnectionAndHostChoiceDoNotReplaceLocalOrRemoteOwners'),1),

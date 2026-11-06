@@ -53,7 +53,8 @@ struct TabContextMenu: View {
 
         if tab.kind.isTerminal {
             Button("后台会话…") {
-                model.showTmux(for: tab.kind.remoteTarget.map { .host($0.pattern) } ?? .localShell)
+                if let remote = tab.kind.remoteTarget { model.openHost(.host(remote.pattern), forceChooser: true) }
+                else { model.showTmux(for: .localShell) }
             }
         }
         Button("打开本地文件窗格") { tabs.activate(tab); model.openLocalFiles() }

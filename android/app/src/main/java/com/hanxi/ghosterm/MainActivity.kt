@@ -299,10 +299,12 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                         }
                     }
                     when (hosts.page) {
-                        Page.HOSTS -> HostsPage(hosts, sessions, files::enterLocal, browse={ host ->
+                        Page.HOSTS -> HostsPage(hosts, sessions, files::enterLocal, connect={ host ->
+                            hosts.checkConnection(host) { request -> tmux.openHost(request,sessions,storageContext) }
+                        }, browse={ host ->
                             hosts.checkConnection(host) { target -> files.enter();connectFileTarget(target,files.beginRemoteConnection()) }
                         }) { host ->
-                            hosts.checkConnection(host) { request -> tmux.open(request,sessions) }
+                            hosts.checkConnection(host) { request -> tmux.openHost(request,sessions,storageContext,forceChooser=true) }
                         }
                         Page.EDIT_HOST -> EditHostPage(hosts)
                         Page.KNOWN_HOSTS -> KnownHostsScreen(knownHosts)
@@ -374,7 +376,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFiles: () -> Unit,
-    browse: (com.hanxi.ghosterm.domain.Host)->Unit, background: (com.hanxi.ghosterm.domain.Host)->Unit) {
+    connect: (com.hanxi.ghosterm.domain.Host)->Unit, browse: (com.hanxi.ghosterm.domain.Host)->Unit, background: (com.hanxi.ghosterm.domain.Host)->Unit) {
     val hosts=model.filteredHosts
     model.removal?.let { request ->
         AlertDialog(onDismissRequest = model::cancelRemove, title = { Text("删除主机 ${request.host.alias}？") },
@@ -420,7 +422,7 @@ private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFi
             val status=if(connected) "会话已连接" else connections.lastOrNull()?.state?.description ?: "未连接"
             Row(Modifier.fillMaxWidth().clip(shape).background(MaterialTheme.colorScheme.surface).heightIn(min=92.dp)
                 .padding(start=12.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically) {
-                Row(Modifier.weight(1f).heightIn(min=80.dp).clickable(enabled=!model.busy) { model.checkConnection(host,sessions::connect) }
+                Row(Modifier.weight(1f).heightIn(min=80.dp).clickable(enabled=!model.busy) { connect(host) }
                     .padding(vertical=10.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                     GhostermGlyph(UiIcon.Server,Modifier.size(40.dp))
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
@@ -438,10 +440,11 @@ private fun HostsPage(model: HostsViewModel, sessions: SessionsViewModel, openFi
                         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(GhostermDimensions.page)) {
                             Text(host.alias,style=MaterialTheme.typography.titleLarge)
                             Text(host.address,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                            GhostermActionRow("连接终端","普通 SSH 会话",UiIcon.Terminal,enabled=!model.busy) { menu=false;model.checkConnection(host,sessions::connect) }
+                            GhostermActionRow("连接主机","普通终端与后台会话",UiIcon.Terminal,enabled=!model.busy) { menu=false;connect(host) }
+                            GhostermActionRow("打开普通终端","跳过后台探测",UiIcon.Terminal,modifier=Modifier.testTag("host-ordinary-"+host.alias),enabled=!model.busy) { menu=false;model.checkConnection(host,sessions::connect) }
                             GhostermActionRow("浏览文件","进入此主机的 SFTP 目录",UiIcon.Folder,enabled=!model.busy) { menu=false;browse(host) }
                             GhostermActionRow("编辑主机","修改名称、地址与身份",UiIcon.Edit,enabled=!model.busy) { menu=false;model.edit(host) }
-                            GhostermActionRow("后台会话","显式选择 tmux",UiIcon.Clock,modifier=Modifier.testTag("host-background-"+host.alias),
+                            GhostermActionRow("连接选项","查看后台会话与快捷偏好",UiIcon.Clock,modifier=Modifier.testTag("host-background-"+host.alias),
                                 enabled=!model.busy && sessions.connecting==null) { menu=false;background(host) }
                             GhostermDivider()
                             GhostermActionRow("删除主机",host.source?.editRestriction ?: "备份后移除配置，现有连接保留",UiIcon.Close,

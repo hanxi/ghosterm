@@ -14,6 +14,8 @@ public struct TmuxPaneContext {
 public final class TmuxChooser: ObservableObject, Identifiable {
     public let id = UUID()
     public let target: AppModel.Target
+    public let unified: Bool
+    @Published public var directTerminal = false { didSet { defaults.set(directTerminal, forKey: directPreferenceKey) } }
     public let replacingPaneID: UUID?
     @Published public var executablePath = "" { didSet { if executablePath != oldValue { invalidatePaths() } } }
     @Published public private(set) var candidates: [TmuxCandidate] = []
@@ -22,6 +24,7 @@ public final class TmuxChooser: ObservableObject, Identifiable {
     @Published public var selectedID: String?
     @Published public private(set) var sessions: [TmuxSession] = []
     @Published public private(set) var busy = false
+    @Published public private(set) var changing = false
     @Published public private(set) var message = ""
     @Published public private(set) var requiresRefresh = true
     public var selected: TmuxSession? { sessions.first { $0.id == selectedID } }
@@ -36,6 +39,19 @@ public final class TmuxChooser: ObservableObject, Identifiable {
     private let defaults: UserDefaults
     private var authID: UUID?
     private var options = TmuxConnection.Options()
+    private var directPreferenceKey: String { Self.directPreferenceKey(sshTarget) }
+    static func directPreferenceKey(_ target: SSHConnectionTarget?) -> String {
+        "connection.direct." + [target?.alias ?? "", target?.host ?? "", target?.user ?? "", String(target?.port ?? 0)].map { "\($0.utf8.count):\($0)" }.joined()
+    }
+    public func openTerminal() {
+        guard unified, !changing, let model, model.tmuxChooser === self else { return }
+        if let sshTarget, model.sshTarget(for: sshTarget.alias) != sshTarget {
+            message = "主机配置已改变，请关闭面板并重新选择主机。"
+            return
+        }
+        model.dismissTmux()
+        model.connect(to: target)
+    }
     private var preferenceKey: String {
         switch target { case .localShell: return "tmux.executable.local"
         case .host(let alias): return "tmux.executable.host." + alias }
@@ -48,12 +64,13 @@ public final class TmuxChooser: ObservableObject, Identifiable {
     }
 
     init(model: AppModel, target: AppModel.Target, replacing: UUID? = nil,
-         options: TmuxConnection.Options = .init(), defaults: UserDefaults = .standard) {
-        self.model = model; self.target = target; replacingPaneID = replacing; self.defaults = defaults
+         options: TmuxConnection.Options = .init(), defaults: UserDefaults = .standard, unified: Bool = false) {
+        self.model = model; self.target = target; self.unified = unified; replacingPaneID = replacing; self.defaults = defaults
         if case .host(let pattern) = target { sshTarget = model.sshTarget(for: pattern) } else { sshTarget = nil }
         loginShell = options.loginShell ?? model.preferences.resolvedShell
         executablePath = options.executable ?? defaults.string(forKey: preferenceKey) ?? ""
         socketPath = options.socketPath ?? ""
+        directTerminal = defaults.bool(forKey: directPreferenceKey)
     }
     public var targetLabel: String {
         if let sshTarget { return "\(sshTarget.alias) · \(sshTarget.user)@\(sshTarget.host):\(sshTarget.port)" }
@@ -69,6 +86,7 @@ public final class TmuxChooser: ObservableObject, Identifiable {
         let state = io; owner.async { state.connection = nil }
     }
     private func authenticate() async throws -> SSHSession? {
+        guard !cancellation.isCancelled else { throw GhostermError.failed("连接已取消") }
         guard let sshTarget, let model else { return nil }
         let id = UUID(); authID = id; defer { model.finishChooserAuthentication(id); authID = nil }
         return try await model.authenticate(sshTarget, id: id, owner: owner)
@@ -98,7 +116,7 @@ public final class TmuxChooser: ObservableObject, Identifiable {
                         state.connection = connection; return try connection.list()
                     }
                     DispatchQueue.main.async { [weak self] in
-                        guard let self else { return }
+                        guard let self, !cancel.isCancelled else { return }
                         self.candidates = discovered
                         self.options = options
                         if case .failure(let error) = discovery { self.discoveryWarning = connectionErrorMessage(error) }
@@ -110,7 +128,7 @@ public final class TmuxChooser: ObservableObject, Identifiable {
         }
     }
     private func finishList(_ result: Result<TmuxConnection.Snapshot, Error>) {
-        guard !cancellation.isCancelled else { return }; busy = false; selectedID = nil
+        guard !cancellation.isCancelled else { return }; busy = false; changing = false; selectedID = nil
         switch result {
         case .success(let snapshot):
             sessions = snapshot.sessions; requiresRefresh = false
@@ -128,7 +146,7 @@ public final class TmuxChooser: ObservableObject, Identifiable {
     }
     public func change(_ operation: TmuxConnection.Operation, name: String = "") {
         guard canOperate, operation == .create || selected != nil else { return }
-        let selected = selected; selectedID = nil; busy = true
+        let selected = selected; selectedID = nil; busy = true; changing = true
         let state = io, cancel = cancellation
         owner.async { [weak self] in
             guard !cancel.isCancelled, let connection = state.connection else { return }
@@ -138,7 +156,7 @@ public final class TmuxChooser: ObservableObject, Identifiable {
                 guard let self, !cancel.isCancelled else { return }
                 if let snapshot { self.finishList(snapshot) }
                 else {
-                    self.busy = false; self.requiresRefresh = true; self.sessions = []
+                    self.busy = false; self.changing = false; self.requiresRefresh = true; self.sessions = []
                     self.message = result.outcome == .unknown ? "操作结果未知；请刷新确认，不会自动重发。\(result.error ?? "")" : "操作未完成，请刷新后重新选择。\(result.error ?? "")"
                 }
             }
@@ -173,6 +191,15 @@ public final class TmuxChooser: ObservableObject, Identifiable {
 }
 
 extension AppModel {
+    public func openHost(_ target: Target, forceChooser: Bool = false, defaults: UserDefaults = .standard) {
+        guard case .host(let alias) = target else { connect(to: target); return }
+        if !forceChooser && defaults.bool(forKey: TmuxChooser.directPreferenceKey(sshTarget(for: alias))) {
+            connect(to: target); return
+        }
+        dismissTmux()
+        let chooser = TmuxChooser(model: self, target: target, defaults: defaults, unified: true)
+        tmuxChooser = chooser; chooser.refresh()
+    }
     public func showTmux(for target: Target, replacing pane: TerminalPane? = nil) {
         if let pane, pane.isRunning && !pane.status.isExited && !pane.status.isFailed { return }
         dismissTmux()

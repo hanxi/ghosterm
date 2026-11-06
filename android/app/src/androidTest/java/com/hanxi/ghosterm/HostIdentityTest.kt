@@ -237,7 +237,7 @@ class HostIdentityTest {
     @Test fun missingConfiguredIdentityRequiresExplicitOneTimeSelection() {
         load(" IdentityFile ${IdentityReferences.encode(UUID.randomUUID().toString())}\n")
         val original=config.readBytes()
-        ui.onNodeWithText(alias).performClick(); phase(SSHAuthPhase.HOSTKEY)
+        ui.openOrdinaryHost(alias); phase(SSHAuthPhase.HOSTKEY)
         ui.onNodeWithText("信任并连接").performClick(); phase(SSHAuthPhase.CREDENTIALS)
         ui.onNodeWithTag("ssh-key-${key.id}").assertDoesNotExist()
         ui.onNodeWithText("认证并连接").assertIsNotEnabled()
@@ -262,7 +262,7 @@ class HostIdentityTest {
         ui.onNodeWithText("保存").performClick()
         await("host association saved") { !hosts.busy && hosts.page==Page.HOSTS }
         assertEquals(listOf(IdentityReferences.encode(key.id)),ConfigBridge.identities(config.readBytes(),alias).map { it.value })
-        ui.onNodeWithText(alias).performClick(); phase(SSHAuthPhase.HOSTKEY)
+        ui.openOrdinaryHost(alias); phase(SSHAuthPhase.HOSTKEY)
         // This case verifies explicit manual candidate UI and credential removal; default auto-login is covered by RemoteFilesProductTest.
         main { sessions.manualAuthentication(sessions.connecting!!.id) }
         ui.onNodeWithText("信任并连接").performClick(); phase(SSHAuthPhase.CREDENTIALS)

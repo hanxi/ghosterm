@@ -83,7 +83,7 @@ class SSHIdentityImportTest {
         fail("Expected import state did not arrive")
     }
     private fun connect() {
-        ui.onNodeWithText(alias).performClick()
+        ui.openOrdinaryHost(alias)
         await { model.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY || model.connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
         if(onMain { model.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY }) ui.onNodeWithText("信任并连接").performClick()
         await { model.connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }

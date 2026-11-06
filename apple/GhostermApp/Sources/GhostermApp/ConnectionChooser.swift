@@ -33,7 +33,7 @@ struct ConnectionChooser: View {
                 .textFieldStyle(.roundedBorder).focused($searchFocused)
                 .onSubmit(connect)
             Picker("打开为", selection: $kind) {
-                ForEach(ConnectionRequest.Kind.allCases) { kind in Text(kind.title).tag(kind) }
+                ForEach(ConnectionRequest.Kind.allCases.filter { $0 != .tmux || target == .localShell }) { kind in Text(kind.title).tag(kind) }
             }.pickerStyle(.segmented)
             if let error = model.loadError {
                 ConnectionLoadError(message: error, retry: model.reload)
@@ -59,15 +59,19 @@ struct ConnectionChooser: View {
                     .font(DS.Font.caption).foregroundStyle(.secondary)
             }
             HStack {
-                Text(kind == .tmux ? "后台会话由 tmux 管理，下一步选择会话。" : "每次打开终端都会建立新的会话。")
+                Text(kind == .tmux ? "后台会话由 tmux 管理，下一步选择会话。" : "选择主机后，可打开普通终端或选择后台会话。")
                     .font(DS.Font.caption).foregroundStyle(.secondary)
                 Spacer()
+                if let selected, case .host = selected, kind == .terminal {
+                    Button("连接选项…") { choose(ConnectionRequest(target: selected, kind: .terminal, forceChooser: true)) }
+                }
                 Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("打开", action: connect).keyboardShortcut(.defaultAction).disabled(selected == nil)
             }
         }
         .padding(20).frame(width: 530)
         .onAppear { searchFocused = true }
+        .onChange(of: target) { _ in if target != .localShell && kind == .tmux { kind = .terminal } }
         .onChange(of: query) { _ in
             if selected == nil { target = showsLocal ? .localShell : hosts.first.map { .host($0.pattern) } }
         }

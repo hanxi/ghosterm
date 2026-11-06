@@ -10,9 +10,20 @@ struct TmuxSheet: View {
     @State private var terminationTarget: TmuxSession?
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("后台会话 · tmux").font(.title2)
+            Text(chooser.unified ? "连接主机" : "后台会话 · tmux").font(.title2)
             Text(chooser.targetLabel).foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 6) {
+            if chooser.unified {
+                Button("打开普通终端") { chooser.openTerminal() }
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("remote-open-terminal")
+                    .disabled(chooser.changing)
+                Toggle("下次直接打开普通终端", isOn: $chooser.directTerminal)
+                Text("可从新建连接的“连接选项”重新选择。可重新连接的任务保留受远端配置影响。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Divider()
+                Text("后台会话").font(.headline)
+            }
+            DisclosureGroup("tmux 程序与路径") {
                 Text("tmux 程序").font(.headline)
                 Picker("程序", selection: Binding(get: { chooser.executablePath }, set: { chooser.selectExecutable($0) })) {
                     Text("自动：使用 PATH 中第一个").tag("")
@@ -76,7 +87,6 @@ struct TmuxSheet: View {
                 Button("取消", role: .cancel, action: close).keyboardShortcut(.cancelAction)
                 Spacer()
                 Button(chooser.replacingPaneID == nil ? "在新标签页连接" : "在原格子连接所选会话") { chooser.connectSelected() }
-                    .keyboardShortcut(.defaultAction)
                     .disabled(!chooser.canOperate || chooser.selected == nil)
             }
         }

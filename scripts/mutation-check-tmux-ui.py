@@ -6,7 +6,8 @@ MARK='GT_TMUX_UI_MUTATION_MARK'
 FILES=['apple/GhostermApp/Sources/GhostermAppModel/TmuxChooser.swift',
        'apple/GhostermApp/Sources/GhostermAppModel/TerminalTab.swift',
        'apple/GhostermTerminal/Sources/GhostermTerminal/TerminalSurfaceView.swift',
-       'apple/GhostermApp/Tests/GhostermAppTests/TmuxUITests.swift']
+       'apple/GhostermApp/Tests/GhostermAppTests/TmuxUITests.swift',
+       'apple/GhostermApp/Sources/GhostermAppModel/ConnectionRequest.swift']
 
 def run(args):
     result=subprocess.run(['bash','-c','. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require tmux-ui; shift; gt_timeout 240 "$@"','tmux-ui',str(ROOT)]+list(map(str,args)),cwd=ROOT,capture_output=True,text=True)
@@ -25,12 +26,16 @@ def main():
         for name in ['core','terminal','build','assets']:(folder/name).symlink_to(ROOT/name,target_is_directory=True)
         package=folder/'apple/GhostermApp'
         def check(red=False,control=False):
-            code,out=run(['xcrun','swift','test','--package-path',package,'--filter','HostListTests' if control else 'TmuxUITests'])
+            code,out=run(['xcrun','swift','test','--package-path',package,'--filter','HostListTests' if control else 'TmuxUITests|ConnectionChooserTests'])
             valid=(code==1 and ('XCTAssert' in out or ': failed - ' in out) and 'Build complete' in out) if red else code==0 and 'Test Suite' in out and 'skipped' not in out
             if not valid:print(out,flush=True);raise RuntimeError('chooser mutation expected '+('red' if red else 'green'))
         check();check(control=True)
-        chooser, pane, view, fixture=FILES
+        chooser, pane, view, fixture, request=FILES
         mutants=[
+            ('unified-config',chooser,'if let sshTarget, model.sshTarget(for: sshTarget.alias) != sshTarget {','if let sshTarget, false && model.sshTarget(for: sshTarget.alias) != sshTarget {'),
+            ('unified-route',request,'case .terminal: model.openHost(target, forceChooser: forceChooser)','case .terminal: model.connect(to: target)'),
+            ('unified-cancel',chooser,'        model.dismissTmux()\n        model.connect(to: target)','        model.connect(to: target)'),
+            ('unified-shortcut',chooser,'if !forceChooser && defaults.bool(forKey: TmuxChooser.directPreferenceKey(sshTarget(for: alias)))','if false && defaults.bool(forKey: TmuxChooser.directPreferenceKey(sshTarget(for: alias)))'),
             ('manual-fallback',chooser,'if options.executable == nil, case .failure(let error) = discovery { throw error }','if case .failure(let error) = discovery { throw error }'),
             ('default-first',chooser,'resolved.executable = discovered.first?.path','resolved.executable = discovered.last?.path'),
             ('choice-persistence',chooser,'defaults.set(path, forKey: preferenceKey)','defaults.removeObject(forKey: preferenceKey)'),

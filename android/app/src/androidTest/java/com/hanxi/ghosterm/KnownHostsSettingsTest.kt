@@ -277,7 +277,7 @@ class KnownHostsSettingsTest {
         config.writeText("Host $alias\n HostName 127.0.0.1\n Port ${fixture.getInt("port")}\n User ${fixture.getString("user")}\n")
         val savedConfig=config.readBytes()
         main { hosts.reload() }; await { !hosts.busy }
-        ui.onNodeWithText(alias).performClick(); await { sessions.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY }
+        ui.openOrdinaryHost(alias); await { sessions.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY }
         ui.onNodeWithText("信任并连接").performClick(); await { sessions.connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
         ui.onNodeWithTag("ssh-key-${key.id}").performScrollTo().performClick()
         ui.onNodeWithText("认证并连接").performClick(); await { sessions.active?.state?.connected==true && sessions.connecting==null }
@@ -293,7 +293,7 @@ class KnownHostsSettingsTest {
         assertSame(connected,main { sessions.active }); assertTrue(main { connected.state.connected })
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick(); ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick()
         main { sessions.selectNewRemote() }
-        ui.onNodeWithText(alias).performClick(); await("new connection asks for host verification") { sessions.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY }
+        ui.openOrdinaryHost(alias); await("new connection asks for host verification") { sessions.connecting?.auth?.phase==SSHAuthPhase.HOSTKEY }
         main { sessions.cancelConnection(sessions.connecting!!.id); sessions.show(connected.id) }
         await { find(ui.activity.window.decorView)?.currentFrame!=null }
         main { terminal().commitText("printf '\\033[2J\\033[HAFTER:%s\\r\\n' \"\u0024\u0024\"\r") }
