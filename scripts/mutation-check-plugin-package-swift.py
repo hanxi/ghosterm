@@ -7,8 +7,16 @@ FILE='apple/GhostermCore/Sources/GhostermCore/ExtensionPackage.swift'
 MARK='GT_PACKAGE_SWIFT_MUTATION'
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--build',required=True,type=Path);args=parser.parse_args();build=args.build.resolve()
+ global FILE
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--build',required=True,type=Path);parser.add_argument('--registry',action='store_true');args=parser.parse_args();build=args.build.resolve()
  cases=[('entry','entry: packageString(v.entry)','entry: "truncated"','testFixedPackageAdoptionAndRPC'),('capabilities','requires: names(v.requires, v.requires_count)','requires: []','testFixedPackageAdoptionAndRPC'),('grant','authorizationGranted: v.authorization_granted','authorizationGranted: true','testFixedPackageAdoptionAndRPC'),('stop','if let raw { gt_ext_package_stop(raw) }','if let raw { _ = raw }','testCapabilityAndOwnerLifetime')]
+ if args.registry:
+  FILE='apple/GhostermCore/Sources/GhostermCore/ExtensionRegistry.swift'
+  cases=[
+   ('registry-unknown','Status(rawValue: value.rawValue) ?? .invalid','value == GT_EXT_REGISTRY_UNKNOWN ? .denied : (Status(rawValue: value.rawValue) ?? .invalid)','testFixedPackageAdoptionAndRPC'),
+   ('registry-denied','Status(rawValue: value.rawValue) ?? .invalid','value == GT_EXT_REGISTRY_DENIED ? .unknown : (Status(rawValue: value.rawValue) ?? .invalid)','testFixedPackageAdoptionAndRPC'),
+   ('registry-command','command: ExtensionPackage.Command(contribution)','command: nil','testFixedPackageAdoptionAndRPC'),
+  ]
  original=(ROOT/FILE).read_text();assert MARK not in original
  for _,old,_,_ in cases:assert original.count(old)==1,old
  hashes={str(p):sha(p) for p in [build/'libghosterm_core.a',build/'libghosterm_quickjs.a',build/'test_config']}

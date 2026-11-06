@@ -38,6 +38,23 @@ final class ExtensionPackageTests: XCTestCase {
             guard metadata.requires == ["session.rpc"] else { try package.close(); return }
             XCTAssertEqual(metadata.protocols, [1])
             XCTAssertFalse(metadata.authorizationGranted); XCTAssertFalse(metadata.publisherAuthenticated)
+            let commands = try package.commands()
+            XCTAssertEqual(commands.count, 1); XCTAssertEqual(commands.first?.path, "fixture")
+            XCTAssertEqual(commands.first?.title, "Fixture"); XCTAssertEqual(commands.first?.argsSchema, "schemas/input.json")
+            let registry = try ExtensionRegistry(owner: q)
+            XCTAssertEqual(try registry.put(package, source: .unknown), .unknown)
+            XCTAssertEqual(try registry.put(package, source: .denied), .denied)
+            XCTAssertEqual(try registry.put(package, source: .allowed), .ok)
+            XCTAssertEqual(try registry.put(package, source: .allowed), .conflict)
+            XCTAssertEqual(try registry.resolve(command: "fixture", executor: true, selectedID: metadata.id, selectedDigest: String(repeating: "0", count: 64)).status, .stale)
+            package.stop()
+            XCTAssertEqual(try registry.put(package, source: .allowed), .cancelled)
+            let selection = try registry.resolve(command: "fixture", executor: true, selectedID: metadata.id, selectedDigest: metadata.packageDigest)
+            XCTAssertEqual(selection.status, .ok); XCTAssertEqual(selection.command?.path, "fixture")
+            let selected = try XCTUnwrap(selection.package)
+            XCTAssertEqual(try selected.info().bytes, try package.info().bytes)
+            XCTAssertEqual(try registry.remove(id: metadata.id, executor: true, expectedDigest: metadata.packageDigest), .ok)
+            XCTAssertEqual(try registry.close(), .ok); XCTAssertThrowsError(try registry.resolve(command: "fixture", executor: true))
             let config = ExtensionSession.Config(pluginID: metadata.id, pluginVersion: metadata.version,
                 clientDigest: metadata.packageDigest, executorDigest: metadata.packageDigest, hostVersion: "0.1.0",
                 required: metadata.requires, available: metadata.requires, peerKind: .local, peerIdentity: "package-worker",
@@ -51,9 +68,9 @@ final class ExtensionPackageTests: XCTestCase {
                 if try h.info().phase == .active { break }
             }
             let lease = try XCTUnwrap(h.lease())
-            let runtime = try ExtensionRuntime(session: e, package: package, role: .executor, cpuMilliseconds: 500)
+            let runtime = try ExtensionRuntime(session: e, package: selected, role: .executor, cpuMilliseconds: 500)
             XCTAssertThrowsError(try e.info()); e.stop()
-            try package.close(); XCTAssertThrowsError(try package.metadata())
+            try selected.close(); try package.close(); XCTAssertThrowsError(try package.metadata())
             try FileManager.default.removeItem(at: dir.appendingPathComponent(entry))
             let request = try XCTUnwrap(h.request(lease, method: "fixture.echo", input: Data("{\"text\":\"固定快照\",\"count\":17}".utf8)).handle)
             for _ in 0..<2000 { _ = try h.step(); _ = try runtime.step(); if try h.requestResult(lease, handle: request).1?.confirmed == true { break } }
@@ -74,6 +91,9 @@ final class ExtensionPackageTests: XCTestCase {
             let fd = Darwin.open(dir.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
             XCTAssertGreaterThanOrEqual(fd, 0); defer { Darwin.close(fd) }
             if ExtensionRuntime.supportStatus != 0 {
+                XCTAssertThrowsError(try ExtensionRegistry(owner: q)) { error in
+                    XCTAssertEqual((error as? ExtensionRegistry.RegistryError)?.status, .unsupported)
+                }
                 XCTAssertThrowsError(try ExtensionPackage(directoryFD: fd, owner: q)) { error in
                     guard case GhostermError.status(7, _) = error else { return XCTFail("Expected explicit unsupported: \(error)") }
                 }

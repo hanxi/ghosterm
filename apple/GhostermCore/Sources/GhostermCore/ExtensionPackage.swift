@@ -28,6 +28,28 @@ public final class ExtensionPackage {
         let status = gt_ext_package_open(&c, &raw)
         guard status == GT_OK else { throw GhostermError.status(Int32(status.rawValue), "无法采集插件包") }
     }
+    internal init(adopting raw: OpaquePointer, owner: DispatchQueue) {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        self.owner = owner; self.raw = raw
+    }
+    public struct Command {
+        public let path: String, title: String, argsSchema: String, views: [String]
+        internal init(_ value: gt_ext_package_command_t) {
+            path = packageString(value.path); title = packageString(value.title); argsSchema = packageString(value.args_schema)
+            views = withUnsafeBytes(of: value.views) { bytes in
+                (0..<min(Int(value.view_count), 8)).map { i in String(decoding: bytes[(i * 16)..<((i + 1) * 16)].prefix(while: { $0 != 0 }), as: UTF8.self) }
+            }
+        }
+    }
+    public func commands() throws -> [Command] {
+        let p = try pointer(on: owner); var count: UInt32 = 0
+        guard gt_ext_package_command_count(p, &count), count <= 64 else { throw GhostermError.failed("插件命令尚不可读") }
+        return try (0..<count).map { index in
+            var command = gt_ext_package_command_t()
+            guard gt_ext_package_command(p, index, &command) else { throw GhostermError.failed("插件命令读取失败") }
+            return Command(command)
+        }
+    }
     public func step() throws -> Phase { Phase(rawValue: gt_ext_package_step(try pointer(on: owner)).rawValue) ?? .failed }
     public func check(hostJSON: String?, registryJSON: String? = nil, memoryBytes: UInt64 = 0,
                       stackBytes: UInt64 = 0, cpuMilliseconds: UInt32 = 0) throws -> Phase {

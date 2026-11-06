@@ -25,3 +25,5 @@ gt_package_status_t gt__package_checked_destroy(gt_package_checked_t **out){if(!
 
 size_t gt__package_checked_command_count(const gt_package_checked_t *p){return p?p->command_count:0;}
 bool gt__package_checked_command(const gt_package_checked_t *p,size_t index,gt_package_command_t *out){if(out)memset(out,0,sizeof(*out));if(!p || !out || index>=p->command_count)return false;*out=p->commands[index];return true;}
+
+bool gt__package_checked_stats(const gt_package_checked_t *p,size_t *count,uint64_t *bytes){if(count)*count=0;if(bytes)*bytes=0;return p && count && bytes && gt__package_snapshot_count(p->snapshot,count,bytes);}

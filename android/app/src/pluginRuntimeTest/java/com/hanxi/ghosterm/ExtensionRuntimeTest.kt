@@ -1,5 +1,6 @@
 package com.hanxi.ghosterm
 
+import com.hanxi.ghosterm.bridge.ExtensionRegistry
 import com.hanxi.ghosterm.bridge.ExtensionPackage
 import org.json.JSONObject
 import org.json.JSONArray
@@ -74,13 +75,34 @@ class ExtensionRuntimeTest {
                 val m = packageBytes.metadata(); assertEquals(entry, m.entry); assertEquals("测试 publisher", m.publisher)
                 assertEquals(listOf("session.rpc"), m.requires); assertEquals(listOf(1), m.protocols)
                 assertFalse(m.authorizationGranted); assertFalse(m.publisherAuthenticated)
+                assertEquals(listOf(ExtensionPackage.Command("fixture", "Fixture", "schemas/input.json", emptyList())), packageBytes.commands())
+                val registry = ExtensionRegistry()
+                val selected = try {
+                    assertEquals(ExtensionRegistry.Status.UNKNOWN, registry.put(packageBytes, ExtensionRegistry.Source.UNKNOWN))
+                    assertEquals(ExtensionRegistry.Status.DENIED, registry.put(packageBytes, ExtensionRegistry.Source.DENIED))
+                    assertEquals(ExtensionRegistry.Status.OK, registry.put(packageBytes, ExtensionRegistry.Source.ALLOWED))
+                    assertEquals(ExtensionRegistry.Status.CONFLICT, registry.put(packageBytes, ExtensionRegistry.Source.ALLOWED))
+                    assertEquals(ExtensionRegistry.Status.STALE, registry.resolve("fixture", true, m.id, "0".repeat(64)).status)
+                    packageBytes.stop()
+                    assertEquals(ExtensionRegistry.Status.CANCELLED, registry.put(packageBytes, ExtensionRegistry.Source.ALLOWED, m.packageDigest))
+                    val selection = registry.resolve("fixture", true, m.id, m.packageDigest)
+                    assertEquals(ExtensionRegistry.Status.OK, selection.status)
+                    assertEquals(packageBytes.commands().single(), selection.command)
+                    selection.packageBytes!!
+                } catch (error: Throwable) { registry.close(); throw error }
+                try {
+                    assertEquals(packageBytes.info().members, selected.info().members)
+                    assertEquals(packageBytes.info().bytes, selected.info().bytes)
+                    assertEquals(ExtensionRegistry.Status.OK, registry.remove(m.id, true, m.packageDigest))
+                    registry.close()
+                    try { registry.resolve("fixture", true); fail("closed registry survived") } catch (_: IllegalStateException) { }
                 val config = ExtensionSession.Config(m.id, m.version, m.packageDigest, m.packageDigest, "0.1.0", required = m.requires, available = m.requires,
                     peerKind = ExtensionSession.PeerKind.LOCAL, peerIdentity = "package-worker", methods = listOf(ExtensionSession.Method("fixture.echo", "session.rpc", ExtensionSession.Role.EXECUTOR, ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)))
                 val p = pair(custom = config)
                 try {
-                    val runtime = ExtensionRuntime.adoptPackage(p.e, packageBytes, ExtensionSession.Role.EXECUTOR, cpuMilliseconds = 500)
+                    val runtime = ExtensionRuntime.adoptPackage(p.e, selected, ExtensionSession.Role.EXECUTOR, cpuMilliseconds = 500)
                     try {
-                        packageBytes.close(); assertTrue(File(dir, entry).delete()); p.e.stop()
+                        selected.close(); packageBytes.close(); assertTrue(File(dir, entry).delete()); p.e.stop()
                         val request = p.h.request(p.hl, "fixture.echo", "{\"text\":\"固定快照\",\"count\":17}".toByteArray(), 10000).handle!!
                         for (i in 0 until 5000) { p.h.step(); runtime.step(); if (p.h.requestResult(p.hl, request).second?.confirmed == true) break }
                         val result = p.h.requestResult(p.hl, request).second!!
@@ -89,6 +111,7 @@ class ExtensionRuntimeTest {
                         assertEquals(ExtensionSession.RPCStatus.OK, p.h.forgetRequest(p.hl, request))
                     } finally { runtime.close() }
                 } finally { p.e.close(); p.h.close() }
+                } finally { selected.close(); registry.close() }
             } finally { packageBytes.close() }
         } finally { descriptor.close(); dir.deleteRecursively() }
     }

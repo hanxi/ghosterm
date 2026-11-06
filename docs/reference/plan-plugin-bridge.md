@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第三十七批私有命令注册表。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第三十八批公共命令注册表。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3245,6 +3245,44 @@ SHA256 同为 `60144d56958c23259ffa2e73964b125f9307a6ec768535a001672c80236df3d3`
 
 本片无平台产品 / 公共 ABI 改动，不增加 CI 二十份。安装原子切换、签名 / 受信开发目录
 授权、公共注册门面与命令列表、App 授权 / 视图、完整 SDK、gterm IPC 和业务插件继续。
+
+### P0 第三十八批：公共命令注册门面与两端 worker（2026-11-06）
+
+新增七个公共 C 入口，开放固定包命令读取及注册表创建、登记、移除、解析、销毁。
+来源 unknown / denied / allowed 显式传递；登记已取消包返回 CANCELLED。登记后的原包
+取消不撤销目录；解析创建独立 CHECKED owner，保留成员数、字节数和固定命令贡献，
+不继承原包的 stop 状态。移除、替换和注册表销毁均不使已解析包失效，不授予执行权限。
+参数 schema 采用分块 POD 字符数组，避免 Swift importer 的大型单数组限制。
+
+Swift `ExtensionRegistry` 与 Kotlin/JNI 同步公开上述语义；JNI 使用原 worker、代次 ID
+及 pin 管理，不把指针交给 Kotlin。两端真实固定目录测试执行来源三态、重复登记、
+过期选择、原包取消、移除与销毁，再以解析包启动已有授权 Session 并完成真实 RPC；
+包目录内容删除、原包及解析包外层 owner 关闭后仍使用被 runtime 保留的固定字节。
+这些是 worker 后端验收，尚未接 App 命令菜单、来源授权或业务插件。
+
+默认 `gate.sh` 470 CTest / 169 ABI 全绿；Apple 165 引用 / 4 登记未用，JNI 131 / 38。
+启用 JS / SSH 的首轮并行 628 项中 627 项通过，`tmux_login_ssh` 的远端 PATH 探测超时；
+单独原样复验通过，首轮保留为失败，不将其写作完整全绿。日志为
+`tmp/plugin-registry-api-on-tests.log`、`tmp/plugin-registry-api-tmux-recheck.log`。
+随后串行完整 628 项全部通过（91.38 秒），日志
+`tmp/plugin-registry-api-on-serial-tests.log`；不改写首轮失败。
+
+新增七组 Core 公共门面变异、三组 Swift 和三组 JNI 变异通过：真实编译后的正常单条
+断言红、同 archive / APK 的独立配置绿、复原绿和 SHA256。Core 使用优化 ASan/UBSan，
+无 LSan。原件分别为 `tmp/pkgload-ghx5_va6/logs/result.json`、
+`tmp/package-swift-gse4yrra/logs/result.json`、
+`tmp/plugin-runtime-api-jni-mutations-yhd1uaq4/logs/result.json`。
+Core 收据采集后修改了其它绑定 runner，生产 C 与对应 Core 测试未变；不声称所有脚本
+与该收据逐字一致。Apple 原生构建及两项行为测试通过；Android Debug/测试 APK 真构建，
+专用 API36 arm64 / 4 KiB 页模拟器的运行时、可用性及配置共 15 项通过，变异 runner
+另做前后 12 项运行时组合与各组同 APK Core 对照。构建日志
+`tmp/plugin-registry-api-android-build.log`，设备日志 `tmp/plugin-registry-android-tests.log`。
+本轮曾复用上一批 Android 构建日志文件名并覆盖，现已改名；上一批设备执行日志和
+记录的 ELF 摘要不受影响，不再以已覆盖日志作为上一批构建原件。
+
+本片为手工证据，不增加 CI 二十份，不冒充产品 UI、真实设备或发行验收。
+持久安装原子切换、来源认证、App 激活/授权/视图、完整 SDK、gterm IPC 和实际业务
+插件继续，计划未完成。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

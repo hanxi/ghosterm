@@ -6,7 +6,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-typedef struct {uint64_t id;gt_ext_channel_t *channel;gt_ext_session_t *session;gt_ext_resource_store_t *store;gt_ext_runtime_t *runtime;gt_ext_package_t *package;pthread_t owner;unsigned pins;bool retiring;} extension_slot_t;
+typedef struct {uint64_t id;gt_ext_channel_t *channel;gt_ext_session_t *session;gt_ext_resource_store_t *store;gt_ext_runtime_t *runtime;gt_ext_package_t *package;gt_ext_registry_t *registry;pthread_t owner;unsigned pins;bool retiring;} extension_slot_t;
 static pthread_mutex_t extension_lock=PTHREAD_MUTEX_INITIALIZER;
 static extension_slot_t extension_slots[GT_EXT_CHANNEL_LIMIT];
 static uint64_t extension_next=1;
@@ -379,4 +379,39 @@ JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPac
 JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_metadataNumbers(JNIEnv *e,jobject self,jlong id){
  (void)self;extension_slot_t *s=package_pin(e,id,true,false);if(!s)return NULL;gt_ext_package_metadata_t m;bool ok=gt_ext_package_metadata(s->package,&m);extension_unpin(s);if(!ok){extension_error(e,"插件包尚未通过校验");return NULL;}
  jlong v[15]={m.requires_count,m.optional_missing_count,m.protocol_count,m.executor,m.association_required,m.authorization_granted,m.publisher_authenticated};for(size_t i=0;i<8;i++)v[7+i]=m.protocols[i];jlongArray result=(*e)->NewLongArray(e,15);if(result)(*e)->SetLongArrayRegion(e,result,0,15,v);return result;
+}
+
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_commandCount(JNIEnv *e,jobject self,jlong id){
+ (void)self;extension_slot_t *s=package_pin(e,id,true,false);if(!s)return -1;uint32_t count=0;bool ok=gt_ext_package_command_count(s->package,&count);extension_unpin(s);if(!ok){extension_error(e,"插件包命令尚不可读");return -1;}return (jint)count;
+}
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_command(JNIEnv *e,jobject self,jlong id,jint index){
+ (void)self;extension_slot_t *s=package_pin(e,id,true,false);if(!s)return NULL;gt_ext_package_command_t c;bool ok=index>=0 && gt_ext_package_command(s->package,(uint32_t)index,&c);extension_unpin(s);if(!ok || c.view_count>8){extension_error(e,"插件命令索引无效");return NULL;}
+ jclass bytes=(*e)->FindClass(e,"[B");if(!bytes)return NULL;jobjectArray result=(*e)->NewObjectArray(e,3+(jsize)c.view_count,bytes,NULL);(*e)->DeleteLocalRef(e,bytes);if(!result)return NULL;
+ const char *fields[11]={c.path,c.title,(const char *)c.args_schema};for(uint32_t i=0;i<c.view_count;i++)fields[3+i]=c.views[i];
+ for(jsize i=0;i<3+(jsize)c.view_count;i++){jbyteArray value=package_bytes(e,fields[i]);if(!value)return NULL;(*e)->SetObjectArrayElement(e,result,i,value);(*e)->DeleteLocalRef(e,value);if((*e)->ExceptionCheck(e))return NULL;}return result;
+}
+static extension_slot_t *registry_pin(JNIEnv *e,jlong id){
+ pthread_mutex_lock(&extension_lock);extension_slot_t *s=NULL;for(size_t i=0;i<GT_EXT_CHANNEL_LIMIT;i++)if(id>0 && extension_slots[i].id==(uint64_t)id && extension_slots[i].registry && !extension_slots[i].retiring){s=&extension_slots[i];break;}
+ if(s && !pthread_equal(s->owner,pthread_self())){pthread_mutex_unlock(&extension_lock);extension_error(e,"注册表必须在原 worker 调用");return NULL;}if(s)s->pins++;pthread_mutex_unlock(&extension_lock);if(!s)extension_error(e,"注册表句柄已失效");return s;
+}
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRegistry_open(JNIEnv *e,jobject self){
+ (void)self;jlongArray result=(*e)->NewLongArray(e,2);if(!result)return NULL;extension_slot_t *s=extension_reserve(e);if(!s)return NULL;gt_ext_registry_t *r=NULL;gt_ext_registry_status_t status=gt_ext_registry_open(&r);jlong v[2]={status,0};
+ if(status==GT_EXT_REGISTRY_OK){pthread_mutex_lock(&extension_lock);s->registry=r;v[1]=(jlong)s->id;pthread_mutex_unlock(&extension_lock);}else extension_abandon(s);(*e)->SetLongArrayRegion(e,result,0,2,v);return result;
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRegistry_put(JNIEnv *e,jobject self,jlong id,jlong package_id,jint source,jbyteArray expected){
+ (void)self;char *digest=expected?extension_text(e,expected,64):NULL;if((*e)->ExceptionCheck(e)){free(digest);return GT_EXT_REGISTRY_INVALID;}extension_slot_t *s=registry_pin(e,id);gt_ext_registry_status_t status=GT_EXT_REGISTRY_INVALID;
+ if(s){extension_slot_t *p=package_pin(e,package_id,true,false);if(p){status=gt_ext_registry_put(s->registry,p->package,(gt_ext_registry_source_t)source,digest);extension_unpin(p);}extension_unpin(s);}free(digest);return status;
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRegistry_remove(JNIEnv *e,jobject self,jlong id,jbyteArray plugin,jboolean executor,jbyteArray expected){
+ (void)self;char *name=extension_text(e,plugin,128),*digest=expected?extension_text(e,expected,64):NULL;gt_ext_registry_status_t status=GT_EXT_REGISTRY_INVALID;
+ if(!(*e)->ExceptionCheck(e)){extension_slot_t *s=registry_pin(e,id);if(s){status=gt_ext_registry_remove(s->registry,name,executor,digest);extension_unpin(s);}}free(name);free(digest);return status;
+}
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRegistry_resolve(JNIEnv *e,jobject self,jlong id,jbyteArray command,jboolean executor,jbyteArray plugin,jbyteArray digest){
+ (void)self;jlongArray result=(*e)->NewLongArray(e,2);if(!result)return NULL;char *path=extension_text(e,command,519),*name=plugin?extension_text(e,plugin,128):NULL,*hash=digest?extension_text(e,digest,64):NULL;jlong v[2]={GT_EXT_REGISTRY_INVALID,0};
+ if(!(*e)->ExceptionCheck(e)){extension_slot_t *s=registry_pin(e,id);if(s){extension_slot_t *p=extension_reserve(e);if(p){gt_ext_package_t *package=NULL;gt_ext_package_command_t contribution;v[0]=gt_ext_registry_resolve(s->registry,path,executor,name,hash,&package,&contribution);
+ if(v[0]==GT_EXT_REGISTRY_OK){pthread_mutex_lock(&extension_lock);p->package=package;v[1]=(jlong)p->id;pthread_mutex_unlock(&extension_lock);}else extension_abandon(p);}extension_unpin(s);}}
+ free(path);free(name);free(hash);if((*e)->ExceptionCheck(e))return NULL;(*e)->SetLongArrayRegion(e,result,0,2,v);return result;
+}
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRegistry_close(JNIEnv *e,jobject self,jlong id){
+ (void)self;extension_slot_t *s=registry_pin(e,id);if(!s)return GT_EXT_REGISTRY_INVALID;pthread_mutex_lock(&extension_lock);s->retiring=true;gt_ext_registry_t *r=s->registry;pthread_mutex_unlock(&extension_lock);gt_ext_registry_status_t status=gt_ext_registry_destroy(&r);extension_abandon(s);return status;
 }

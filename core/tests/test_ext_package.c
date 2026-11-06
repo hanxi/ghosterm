@@ -3,7 +3,7 @@
 #undef PACKAGE_RUNTIME_MAIN
 int main(int argc,char **argv){
  CHECK(argc>=2);const char *mode=argv[1];gt_ext_package_t *package=NULL;
- if(!strcmp(mode,"disabled")){CHECK(gt_ext_package_open(NULL,&package)==GT_ERR_UNSUPPORTED && !package);gt_ext_runtime_t *r=NULL;CHECK(gt_ext_runtime_open_package(NULL,NULL,NULL,false,&r)==GT_ERR_UNSUPPORTED && !r);return 0;}
+ if(!strcmp(mode,"disabled")){gt_ext_registry_t *registry=NULL;CHECK(gt_ext_registry_open(&registry)==GT_EXT_REGISTRY_UNSUPPORTED && !registry);CHECK(gt_ext_package_open(NULL,&package)==GT_ERR_UNSUPPORTED && !package);gt_ext_runtime_t *r=NULL;CHECK(gt_ext_runtime_open_package(NULL,NULL,NULL,false,&r)==GT_ERR_UNSUPPORTED && !r);return 0;}
  CHECK(argc==3);size_t fds=ext_fds();gt_plugin_memory_info_t before=gt__plugin_memory_info();load_fixture_t f;load_fixture(&f,"roundtrip",argv[2]);
  gt_ext_package_config_t capture={f.fd,1024,4096,16777216,67108864};CHECK(gt_ext_package_open(&capture,&package)==GT_OK && package);
  gt_ext_package_metadata_t metadata;memset(&metadata,0x55,sizeof(metadata));CHECK(!gt_ext_package_metadata(package,&metadata) && !metadata.id[0]);
@@ -20,6 +20,21 @@ int main(int argc,char **argv){
  if(!strcmp(mode,"check-stop")){CHECK(phase==GT_EXT_PACKAGE_FAILED && info.error==GT_EXT_PACKAGE_CANCELLED);goto done;}
  CHECK(phase==GT_EXT_PACKAGE_CHECKED && gt_ext_package_metadata(package,&metadata));
  CHECK(!strcmp(metadata.id,f.info.id) && !strcmp(metadata.package_digest,f.info.package_digest) && metadata.requires_count==1 && !metadata.authorization_granted && !metadata.publisher_authenticated);
+ if(!strcmp(mode,"registry")){
+  uint32_t count=0;gt_ext_package_command_t command;CHECK(gt_ext_package_command_count(package,&count) && count==1);
+  CHECK(gt_ext_package_command(package,0,&command) && !strcmp(command.path,"fixture") && !strcmp((char *)command.args_schema,"schemas/input.json"));
+  memset(&command,0x55,sizeof(command));CHECK(!gt_ext_package_command(package,1,&command) && !command.path[0]);
+  gt_ext_registry_t *registry=NULL;CHECK(gt_ext_registry_open(&registry)==GT_EXT_REGISTRY_OK);
+  CHECK(gt_ext_registry_put(registry,package,GT_EXT_REGISTRY_SOURCE_UNKNOWN,NULL)==GT_EXT_REGISTRY_UNKNOWN);
+  CHECK(gt_ext_registry_put(registry,package,GT_EXT_REGISTRY_SOURCE_DENIED,NULL)==GT_EXT_REGISTRY_DENIED);
+  CHECK(gt_ext_registry_put(registry,package,GT_EXT_REGISTRY_SOURCE_ALLOWED,NULL)==GT_EXT_REGISTRY_OK);
+  gt_ext_package_stop(package);CHECK(gt_ext_registry_put(registry,package,GT_EXT_REGISTRY_SOURCE_ALLOWED,NULL)==GT_EXT_REGISTRY_CANCELLED);
+  gt_ext_package_t *selected=NULL;CHECK(gt_ext_registry_resolve(registry,"fixture",true,metadata.id,metadata.package_digest,&selected,&command)==GT_EXT_REGISTRY_OK);
+  gt_ext_package_info_t selected_info;CHECK(gt_ext_package_info(selected,&selected_info) && selected_info.members==info.members && selected_info.bytes==info.bytes);
+  CHECK(gt_ext_registry_remove(registry,metadata.id,true,metadata.package_digest)==GT_EXT_REGISTRY_OK);
+  CHECK(gt_ext_registry_destroy(&registry)==GT_EXT_REGISTRY_OK && !registry);
+  CHECK(gt_ext_package_destroy(&package)==GT_OK);package=selected;
+ }
  rpc_pair_t pair;load_pair(&pair,&f,!strcmp(mode,"mismatch")?"digest":"roundtrip");gt_ext_session_t *original=pair.pair.e;
  gt_ext_runtime_config_t runtime={.role=GT_EXT_EXECUTOR,.cpu_ms=1000,.activation_ms=10000,.jobs_per_step=128};gt_ext_runtime_t *r=NULL;
  if(!strcmp(mode,"override"))runtime.entry="plugin:/override.js";

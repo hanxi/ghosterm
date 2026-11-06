@@ -38,6 +38,14 @@ class ExtensionPackage private constructor(private val worker: Thread) : AutoClo
             text.subList(10, 10 + n[0].toInt()), text.subList(26, 26 + n[1].toInt()),
             (0 until n[2].toInt()).map { n[7 + it].toInt() }, n[3] != 0L, n[4] != 0L, n[5] != 0L, n[6] != 0L)
     }
+    data class Command(val path: String, val title: String, val argsSchema: String, val views: List<String>)
+    fun commands(): List<Command> {
+        val id = pointer(); val count = NativeExtensionPackage.commandCount(id); check(count in 0..64)
+        return (0 until count).map { index ->
+            val v = NativeExtensionPackage.command(id, index).map { it.toString(Charsets.UTF_8) }; check(v.size in 3..11)
+            Command(v[0], v[1], v[2], v.drop(3))
+        }
+    }
     fun stop() { val id = handle; if (id != 0L) NativeExtensionPackage.stop(id) }
     fun closeStep(): Boolean {
         if (handle == 0L) return true
@@ -48,7 +56,11 @@ class ExtensionPackage private constructor(private val worker: Thread) : AutoClo
     }
     override fun close() { repeat(32) { if (closeStep()) return }; throw ExtensionChannelException(3, "插件包仍被取消调用占用，请由原 worker 重试") }
     companion object {
-        private fun encode(value: String, limit: Int): ByteArray {
+        internal fun adopt(id: Long): ExtensionPackage {
+            check(id > 0 && Looper.myLooper() != Looper.getMainLooper())
+            return ExtensionPackage(Thread.currentThread()).also { it.handle = id }
+        }
+        internal fun encode(value: String, limit: Int): ByteArray {
             require('\u0000' !in value)
             val bytes = Charsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(value))
             require(bytes.remaining() <= limit); return ByteArray(bytes.remaining()).also { bytes.get(it) }
@@ -70,6 +82,8 @@ internal object NativeExtensionPackage {
     external fun info(handle: Long): LongArray
     external fun metadata(handle: Long): Array<ByteArray>
     external fun metadataNumbers(handle: Long): LongArray
+    external fun commandCount(handle: Long): Int
+    external fun command(handle: Long, index: Int): Array<ByteArray>
     external fun code(handle: Long): ByteArray
     external fun stop(handle: Long)
     external fun close(handle: Long): Int

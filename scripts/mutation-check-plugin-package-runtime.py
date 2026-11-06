@@ -24,7 +24,7 @@ CASES=[
 ]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');args=parser.parse_args();assert not (args.public and args.registry)
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');parser.add_argument('--registry-api',action='store_true');args=parser.parse_args();assert sum([args.public,args.registry,args.registry_api])<=1
  cases=CASES
  executable='test_package_runtime';pattern='^plugin_package_runtime_';objects=['runtime','package-runtime','session']
  if args.public:
@@ -55,6 +55,18 @@ def main():
    ('side',registry,'!e->package || e->executor!=executor','!e->package || (false && e->executor!=executor)',None),
   ]
   executable='test_plugin_registry';pattern='^plugin_registry$';objects=['registry','package-check']
+ if args.registry_api:
+  api='core/src/extension/registry-api.c'
+  cases=[
+   ('api-source-unknown',api,'case GT_REGISTRY_UNKNOWN:return GT_EXT_REGISTRY_UNKNOWN;','case GT_REGISTRY_UNKNOWN:return GT_EXT_REGISTRY_DENIED;','registry'),
+   ('api-source-denied',api,'case GT_REGISTRY_DENIED:return GT_EXT_REGISTRY_DENIED;','case GT_REGISTRY_DENIED:return GT_EXT_REGISTRY_UNKNOWN;','registry'),
+   ('api-stopped-put',api,'if(atomic_load_explicit(&p->stopped,memory_order_relaxed))return GT_EXT_REGISTRY_CANCELLED;','if(false && atomic_load_explicit(&p->stopped,memory_order_relaxed))return GT_EXT_REGISTRY_CANCELLED;','registry'),
+   ('api-independent-stop',api,'atomic_init(&p->stopped,false);','atomic_init(&p->stopped,true);','registry'),
+   ('api-selected-stats',api,'p->info.members=count;p->info.bytes=bytes;','p->info.members=0;p->info.bytes=bytes;','registry'),
+   ('api-command-schema',api,'memcpy(out->args_schema,c->args_schema,sizeof(c->args_schema));','memset(out->args_schema,0,sizeof(out->args_schema));','registry'),
+   ('api-command-zero',api,'if(out)memset(out,0,sizeof(*out));if(!p || !out || p->info.phase!=GT_EXT_PACKAGE_CHECKED)','if(!p || !out || p->info.phase!=GT_EXT_PACKAGE_CHECKED)','registry'),
+  ]
+  executable='test_ext_package';pattern='^ext_package_';objects=['registry-api','package-check','package-api','registry']
  for _,name,old,_,_ in cases:
   data=(ROOT/name).read_text();assert MARK not in data and data.count(old)==1,name
  work=Path(tempfile.mkdtemp(prefix='pkgload-',dir=ROOT/'tmp'));source=work/'source';build=work/'build';logs=work/'logs';logs.mkdir();commands=[]

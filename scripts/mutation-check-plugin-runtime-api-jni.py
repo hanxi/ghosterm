@@ -36,6 +36,9 @@ def main():
         print('residual runtime JNI mutation', file=sys.stderr)
         raise SystemExit(2)
     cases = [
+        ('registry-source-unknown', [('cpp', '(gt_ext_registry_source_t)source,digest', '(source==GT_EXT_REGISTRY_SOURCE_UNKNOWN?GT_EXT_REGISTRY_SOURCE_DENIED:(gt_ext_registry_source_t)source),digest')], 'fixedPackageAdoptionAndRPC'),
+        ('registry-source-denied', [('cpp', '(gt_ext_registry_source_t)source,digest', '(source==GT_EXT_REGISTRY_SOURCE_DENIED?GT_EXT_REGISTRY_SOURCE_UNKNOWN:(gt_ext_registry_source_t)source),digest')], 'fixedPackageAdoptionAndRPC'),
+        ('registry-command-schema', [('cpp', 'c.path,c.title,(const char *)c.args_schema', 'c.path,c.title,""')], 'fixedPackageAdoptionAndRPC'),
         ('package-entry', [('cpp', '(const char *)m.entry,m.runtime', '"truncated.js",m.runtime')], 'fixedPackageAdoptionAndRPC'),
         ('package-capabilities', [('cpp', 'fields[10+i]=m.requires[i];', 'fields[10+i]="";')], 'fixedPackageAdoptionAndRPC'),
         ('package-no-grant', [('cpp', 'm.association_required,m.authorization_granted,m.publisher_authenticated', 'm.association_required,1,m.publisher_authenticated')], 'fixedPackageAdoptionAndRPC'),

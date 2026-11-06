@@ -13,6 +13,7 @@ typedef struct gt_package_checked gt_package_checked_t;
  * title/schema retain exact UTF-8. No command selection or execution grant. */
 typedef struct {char path[520],title[1025],args_schema[4097];char views[8][16];size_t view_count;} gt_package_command_t;
 bool gt__package_checked_command(const gt_package_checked_t *,size_t,gt_package_command_t *);
+bool gt__package_checked_stats(const gt_package_checked_t *,size_t *,uint64_t *);
 size_t gt__package_checked_command_count(const gt_package_checked_t *);
 
 typedef enum {
