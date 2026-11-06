@@ -49,6 +49,7 @@
 
 ## 模块与贡献
 
+- [AI 辅助开发与安全提示排查](how-to/ai-development.md)
 - [android/README.md](../android/README.md)
 - [apple/README.md](../apple/README.md)
 - [assets/icons/README.md](../assets/icons/README.md)

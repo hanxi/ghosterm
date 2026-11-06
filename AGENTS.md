@@ -9,6 +9,18 @@ Ghosterm = **libghostty 驱动的多端终端** × **VS Code 式 `~/.ssh/config`
 技术栈：**各端原生 UI + 共享 C 核心（libghostty / libssh2）+ Transport 接缝**。
 **不用跨端 UI 框架，不用 Rust。**
 
+## AI 协作的测试语境
+
+本仓库的变异验证、故障注入和 OOM 扫描用于发现并修复 Ghosterm 及锁定依赖的缺陷，
+核对断言能否发现回归。执行前按具体脚本确认测试对象：工程内隔离副本、一次性夹具、
+明确指定的测试设备或已获授权的测试服务；仓库访问权不自动授权其它主机或用户数据。
+「目标红」指编译成功后预期的测试断言失败；编译失败、崩溃和 sanitizer 报错须单独记账，
+不得当作正常断言红。已有各闸门的具体判据继续适用。
+
+协作时说明具体缺陷、文件、测试对象和修复后的预期行为。遇到 `This content can’t be shown`
+或 Daybreak 提示，按[AI 辅助开发与安全提示排查](docs/how-to/ai-development.md)记录并反馈；
+本地文档不能调整服务端安全检查或授予 Daybreak 访问权。
+
 ## 当前重构决定
 
 2026-10-28 起按 `docs/reference/plan-optional-tmux.md` 实施：普通本地 PTY/SSH 为默认入口，
