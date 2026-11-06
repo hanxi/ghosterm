@@ -25,7 +25,7 @@ gt_status_t gt_ext_runtime_open(gt_ext_session_t **session,const gt_ext_runtime_
  gt_runtime_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX];for(size_t i=0;i<config->root_count;i++)roots[i]=(gt_runtime_root_t){config->roots[i].id,config->roots[i].directory_fd,config->roots[i].byte_limit};
  gt_runtime_module_t modules[GT_EXT_RUNTIME_MODULES_MAX];
  for(size_t i=0;i<config->module_count;i++){const gt_ext_runtime_module_t *m=&config->modules[i];modules[i]=(gt_runtime_module_t){.name=m->name,.source=m->source,.size=m->size};memcpy(modules[i].sha256,m->sha256,65);}
- gt_runtime_config_t c={.modules=modules,.module_count=config->module_count,.entry=config->entry,.role=config->role,.memory_bytes=(size_t)config->memory_bytes,.stack_bytes=(size_t)config->stack_bytes,.cpu_ms=config->cpu_ms,.jobs_per_step=config->jobs_per_step,.activation_ms=config->activation_ms,.roots=roots,.root_count=config->root_count};
+ gt_runtime_config_t c={.modules=modules,.module_count=config->module_count,.entry=config->entry,.role=config->role,.memory_bytes=(size_t)config->memory_bytes,.stack_bytes=(size_t)config->stack_bytes,.cpu_ms=config->cpu_ms,.jobs_per_step=config->jobs_per_step,.activation_ms=config->activation_ms,.roots=roots,.root_count=config->root_count,.invocation=config->invocation};
  gt_ext_runtime_t *r=gt__plugin_memory_calloc(1,sizeof(*r));if(!r)return GT_ERR_IO;gt_status_t status=gt__bridge_runtime_open(session,&c,&r->inner);
  if(status!=GT_OK){gt__secure_erase(r,sizeof(*r));gt__plugin_memory_free(NULL,r,sizeof(*r));return status;}*out=r;return GT_OK;
 }
@@ -34,7 +34,7 @@ gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,gt_ext_packag
  if(!session || !*session || !package || package->info.phase!=GT_EXT_PACKAGE_CHECKED || !config || config->modules || config->module_count || config->entry || config->memory_bytes>SIZE_MAX || config->stack_bytes>SIZE_MAX || config->root_count>GT_EXT_RUNTIME_ROOTS_MAX || (config->root_count && !config->roots))return GT_ERR_INVALID_ARG;
  if(atomic_load_explicit(&package->stopped,memory_order_relaxed))return GT_ERR_CANCELLED;
  gt_runtime_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX];for(size_t i=0;i<config->root_count;i++)roots[i]=(gt_runtime_root_t){config->roots[i].id,config->roots[i].directory_fd,config->roots[i].byte_limit};
- gt_runtime_config_t c={.role=config->role,.memory_bytes=(size_t)config->memory_bytes,.stack_bytes=(size_t)config->stack_bytes,.cpu_ms=config->cpu_ms,.jobs_per_step=config->jobs_per_step,.activation_ms=config->activation_ms,.roots=roots,.root_count=config->root_count};
+ gt_runtime_config_t c={.role=config->role,.memory_bytes=(size_t)config->memory_bytes,.stack_bytes=(size_t)config->stack_bytes,.cpu_ms=config->cpu_ms,.jobs_per_step=config->jobs_per_step,.activation_ms=config->activation_ms,.roots=roots,.root_count=config->root_count,.invocation=config->invocation};
  gt_ext_runtime_t *r=gt__plugin_memory_calloc(1,sizeof(*r));if(!r)return GT_ERR_IO;
  gt_status_t status=gt__bridge_runtime_open_package(session,package->checked,&c,associated,&r->inner);
  if(status!=GT_OK){gt__secure_erase(r,sizeof(*r));gt__plugin_memory_free(NULL,r,sizeof(*r));return status;}*out=r;return GT_OK;

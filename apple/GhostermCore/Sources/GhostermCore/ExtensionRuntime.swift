@@ -10,6 +10,30 @@ public final class ExtensionRuntime {
         public let name: String, source: Data, sha256: String
         public init(name: String, source: Data, sha256: String) { self.name = name; self.source = source; self.sha256 = sha256 }
     }
+    public struct Invocation {
+        public let command: String, arguments: [String]
+        public init(command: String, arguments: [String]) { self.command = command; self.arguments = arguments }
+    }
+    private static func withInvocation<T>(_ value: Invocation?, _ body: (UnsafePointer<gt_ext_invocation_t>?) throws -> T) throws -> T {
+        guard let value else { return try body(nil) }
+        guard !value.command.utf8.contains(0), value.command.utf8.count < 520, value.arguments.count <= 32 else { throw GhostermError.failed("命令调用超限或无效") }
+        var size = 0
+        for argument in value.arguments {
+            size += argument.utf8.count + 1
+            guard !argument.utf8.contains(0), argument.utf8.count <= 4096, size <= 16384 else { throw GhostermError.failed("命令参数超限或无效") }
+        }
+        var storage: [UnsafeMutablePointer<CChar>] = []
+        defer { storage.forEach { $0.deallocate() } }
+        for text in [value.command] + value.arguments {
+            let bytes = Array(text.utf8CString), p = UnsafeMutablePointer<CChar>.allocate(capacity: bytes.count)
+            p.initialize(from: bytes, count: bytes.count); storage.append(p)
+        }
+        let arguments: [UnsafePointer<CChar>?] = storage.dropFirst().map { UnsafePointer($0) }
+        return try arguments.withUnsafeBufferPointer { values in
+            var c = gt_ext_invocation_t(command: UnsafePointer(storage[0]), argv: values.baseAddress, argc: values.count)
+            return try withUnsafePointer(to: &c) { try body($0) }
+        }
+    }
     public struct Config {
         public struct WorkspaceRoot {
             public let id: String, directoryFD: Int32, byteLimit: UInt64
@@ -17,14 +41,15 @@ public final class ExtensionRuntime {
         }
         public let modules: [Module], entry: String, role: ExtensionSession.Role
         public let roots: [WorkspaceRoot]
+        public let invocation: Invocation?
         public let memoryBytes: UInt64, stackBytes: UInt64
         public let cpuMilliseconds: UInt32, jobsPerStep: UInt32, activationMilliseconds: UInt32
         public init(modules: [Module], entry: String, role: ExtensionSession.Role,
                     memoryBytes: UInt64 = 0, stackBytes: UInt64 = 0, cpuMilliseconds: UInt32 = 0,
-                    jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0, roots: [WorkspaceRoot] = []) {
+                    jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0, roots: [WorkspaceRoot] = [], invocation: Invocation? = nil) {
             self.modules = modules; self.entry = entry; self.role = role; self.memoryBytes = memoryBytes; self.stackBytes = stackBytes
             self.cpuMilliseconds = cpuMilliseconds; self.jobsPerStep = jobsPerStep; self.activationMilliseconds = activationMilliseconds
-            self.roots = roots
+            self.roots = roots; self.invocation = invocation
         }
     }
     public struct Info {
@@ -66,17 +91,17 @@ public final class ExtensionRuntime {
             guard !root.id.utf8.contains(0), root.id.utf8.count <= 64 else { throw GhostermError.failed("运行时授权根标识无效") }
             roots.append(gt_ext_runtime_root_t(id: UnsafePointer(copy(Data(root.id.utf8)).assumingMemoryBound(to: CChar.self)), directory_fd: root.directoryFD, byte_limit: root.byteLimit))
         }
-        raw = try roots.withUnsafeBufferPointer { scopes in try modules.withUnsafeBufferPointer { values in
+        raw = try Self.withInvocation(config.invocation) { invocation in try roots.withUnsafeBufferPointer { scopes in try modules.withUnsafeBufferPointer { values in
             var c = gt_ext_runtime_config_t(modules: values.baseAddress, module_count: values.count, entry: entry,
                 role: gt_ext_role_t(rawValue: config.role.rawValue), memory_bytes: config.memoryBytes, stack_bytes: config.stackBytes,
-                cpu_ms: config.cpuMilliseconds, jobs_per_step: config.jobsPerStep, activation_ms: config.activationMilliseconds, roots: scopes.baseAddress, root_count: scopes.count)
+                cpu_ms: config.cpuMilliseconds, jobs_per_step: config.jobsPerStep, activation_ms: config.activationMilliseconds, roots: scopes.baseAddress, root_count: scopes.count, invocation: invocation)
             return try session.adoptRuntime(config: &c)
-        } }
+        } } }
     }
     public init(session: ExtensionSession, package: ExtensionPackage, role: ExtensionSession.Role,
                 associated: Bool = false, memoryBytes: UInt64 = 0, stackBytes: UInt64 = 0,
                 cpuMilliseconds: UInt32 = 0, jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0,
-                roots: [Config.WorkspaceRoot] = []) throws {
+                roots: [Config.WorkspaceRoot] = [], invocation: Invocation? = nil) throws {
         owner = session.runtimeOwner; store = session.runtimeStore
         guard roots.count <= 8 else { throw GhostermError.failed("运行时授权根超限") }
         var names: [UnsafeMutablePointer<CChar>] = []
@@ -88,13 +113,13 @@ public final class ExtensionRuntime {
             name.initialize(from: bytes, count: bytes.count); names.append(name)
             scopes.append(gt_ext_runtime_root_t(id: UnsafePointer(name), directory_fd: root.directoryFD, byte_limit: root.byteLimit))
         }
-        raw = try scopes.withUnsafeBufferPointer { values in
+        raw = try Self.withInvocation(invocation) { invocation in try scopes.withUnsafeBufferPointer { values in
             var c = gt_ext_runtime_config_t(modules: nil, module_count: 0, entry: nil,
                 role: gt_ext_role_t(rawValue: role.rawValue), memory_bytes: memoryBytes, stack_bytes: stackBytes,
                 cpu_ms: cpuMilliseconds, jobs_per_step: jobsPerStep, activation_ms: activationMilliseconds,
-                roots: values.baseAddress, root_count: values.count)
+                roots: values.baseAddress, root_count: values.count, invocation: invocation)
             return try session.adoptPackageRuntime(package: package, config: &c, associated: associated)
-        }
+        } }
     }
     public func step() throws -> Phase { Phase(rawValue: gt_ext_runtime_step(try pointer()).rawValue) ?? .failed }
     public func info() throws -> Info {

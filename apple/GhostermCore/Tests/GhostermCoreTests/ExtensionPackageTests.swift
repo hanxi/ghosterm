@@ -17,8 +17,9 @@ final class ExtensionPackageTests: XCTestCase {
             let manifest: [String: Any] = ["schemaVersion": 1, "id": "org.ghosterm.fixture", "pluginVersion": "0.1.0", "sdkApiRange": "^1.0.0", "bridgeProtocolRange": [1],
                 "publisher": "测试 publisher", "license": "MIT", "commands": [["path": ["fixture"], "title": "Fixture", "argsSchema": "schemas/input.json"]],
                 "executor": ["variants": [["id": "portable", "runtime": "portable-js", "entry": entry, "requires": ["session.rpc"]]]], "permissions": []]
+            let invokedEcho = runtimeEcho.replacingOccurrences(of: "activate(ctx){", with: "activate(ctx){if(!ctx.invocation||ctx.invocation.command!=='fixture'||ctx.invocation.arguments[0]!=='中文'||ctx.invocation.arguments[1]!==''||ctx.invocation.arguments[2]!==\"';throw Error('injected');//\")throw Error('invocation');")
             let files: [String: Data] = ["plugin.json": try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]),
-                "README": Data("fixture".utf8), "LICENSES/MIT.txt": Data("fixture".utf8), "schemas/input.json": Data("{}".utf8), entry: Data(runtimeEcho.utf8)]
+                "README": Data("fixture".utf8), "LICENSES/MIT.txt": Data("fixture".utf8), "schemas/input.json": Data("{}".utf8), entry: Data(invokedEcho.utf8)]
             var members: [[String: Any]] = []
             for (path, bytes) in files {
                 let url = dir.appendingPathComponent(path)
@@ -68,12 +69,13 @@ final class ExtensionPackageTests: XCTestCase {
                 if try h.info().phase == .active { break }
             }
             let lease = try XCTUnwrap(h.lease())
-            let runtime = try ExtensionRuntime(session: e, package: selected, role: .executor, cpuMilliseconds: 500)
+            let runtime = try ExtensionRuntime(session: e, package: selected, role: .executor, cpuMilliseconds: 500, invocation: .init(command: "fixture", arguments: ["中文", "", "';throw Error('injected');//"]))
             XCTAssertThrowsError(try e.info()); e.stop()
             try selected.close(); try package.close(); XCTAssertThrowsError(try package.metadata())
             try FileManager.default.removeItem(at: dir.appendingPathComponent(entry))
             let request = try XCTUnwrap(h.request(lease, method: "fixture.echo", input: Data("{\"text\":\"固定快照\",\"count\":17}".utf8)).handle)
             for _ in 0..<2000 { _ = try h.step(); _ = try runtime.step(); if try h.requestResult(lease, handle: request).1?.confirmed == true { break } }
+            guard try runtime.info().phase == .active else { XCTFail("invocation did not activate"); try runtimeClose(runtime); try runtimeClose(h); return }
             let result = try XCTUnwrap(h.requestResult(lease, handle: request).1)
             XCTAssertTrue(result.confirmed); XCTAssertEqual(result.state, .succeeded)
             XCTAssertTrue(String(decoding: result.outcome, as: UTF8.self).contains("固定快照"))

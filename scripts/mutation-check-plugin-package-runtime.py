@@ -24,7 +24,7 @@ CASES=[
 ]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');parser.add_argument('--registry-api',action='store_true');parser.add_argument('--capabilities',action='store_true');args=parser.parse_args();assert sum([args.public,args.registry,args.registry_api,args.capabilities])<=1
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');parser.add_argument('--registry-api',action='store_true');parser.add_argument('--capabilities',action='store_true');parser.add_argument('--invocation',action='store_true');args=parser.parse_args();assert sum([args.public,args.registry,args.registry_api,args.capabilities,args.invocation])<=1
  cases=CASES
  executable='test_package_runtime';pattern='^plugin_package_runtime_';objects=['runtime','package-runtime','session']
  if args.public:
@@ -77,6 +77,17 @@ def main():
    ('dispose-error',ENGINE,'resources?.dispose();disposable?.dispose()','resources?.dispose();try{disposable?.dispose()}catch{}','dispose-throw'),
   ]
   executable='test_runtime';pattern='^(ext_)?runtime_(capabilities|dispose-throw)$';objects=['runtime']
+ if args.invocation:
+  cases=[
+   ('invocation-command',ENGINE,'if(!token)return GT_ERR_INVALID_ARG;','if(false && !token)return GT_ERR_INVALID_ARG;','invocation'),
+   ('invocation-utf8',ENGINE,'!gt__runtime_source_utf8(input->argv[i],sizes[i])','false','invocation'),
+   ('invocation-argument-limit',ENGINE,'sizes[i]>4096','false','invocation'),
+   ('invocation-total-limit',ENGINE,'sizes[i]+1>16384-total','false','invocation'),
+   ('invocation-copy',ENGINE,'memcpy(r->invocation+at,input->argv[i],sizes[i]+1);','memset(r->invocation+at,0,sizes[i]+1);','invocation'),
+   ('invocation-freeze',ENGINE,'Object.freeze(invocation.arguments);','void(invocation.arguments);','invocation'),
+   ('invocation-declared',ENGINE,'if(!found)return GT_ERR_NOT_FOUND;','if(false && !found)return GT_ERR_NOT_FOUND;','package:registry'),
+  ]
+  executable='test_runtime';pattern='^(ext_)?runtime_invocation$|^ext_package_registry$';objects=['runtime','runtime-api']
  for _,name,old,_,_ in cases:
   data=(ROOT/name).read_text();assert MARK not in data and data.count(old)==1,name
  work=Path(tempfile.mkdtemp(prefix='pkgload-',dir=ROOT/'tmp'));source=work/'source';build=work/'build';logs=work/'logs';logs.mkdir();commands=[]
@@ -100,10 +111,12 @@ def main():
   def rebuild(label):
    for name in objects:(build/'CMakeFiles/ghosterm_core.dir/src/extension'/(name+'.c.o')).unlink(missing_ok=True)
    for name in [executable,'test_config','libghosterm_core.a']:(build/name).unlink(missing_ok=True)
-   out=run(label+'-build',['cmake','--build',build,'--target',executable,*(['test_ext_runtime'] if args.capabilities else []),'test_config','-j','4'])
+   out=run(label+'-build',['cmake','--build',build,'--target',executable,*(['test_ext_runtime'] if args.capabilities or args.invocation else []),*(['test_ext_package'] if args.invocation else []),'test_config','-j','4'])
    for name in objects:assert 'src/extension/'+name+'.c.o' in out
    assert 'Linking C static library' in out and 'Linking C executable '+executable in out
-  def target(label,mode,red=False):run(label,[build/executable,*([mode] if mode else []),sdk if args.capabilities else source/'tmp'],red)
+  def target(label,mode,red=False):
+   if mode and mode.startswith('package:'):run(label,[build/'test_ext_package',mode.split(':',1)[1],source/'tmp'],red)
+   else:run(label,[build/executable,*([mode] if mode else []),sdk if args.capabilities or args.invocation else source/'tmp'],red)
   rebuild('baseline');run('baseline',['ctest','--test-dir',build,'-R',pattern,'--output-on-failure'])
   for label,name,old,new,mode in cases:
    path=source/name;original=path.read_bytes()

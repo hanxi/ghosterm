@@ -57,7 +57,8 @@ class ExtensionRuntimeTest {
             .put("commands", array(JSONObject().put("path", array("fixture")).put("title", "Fixture").put("argsSchema", "schemas/input.json")))
             .put("executor", JSONObject().put("variants", array(JSONObject().put("id", "portable").put("runtime", "portable-js").put("entry", entry).put("requires", array("session.rpc")))))
             .put("permissions", JSONArray())
-        val files = mapOf("plugin.json" to manifest.toString(), "README" to "fixture", "LICENSES/MIT.txt" to "fixture", "schemas/input.json" to "{}", entry to echo)
+        val invokedEcho = echo.replace("activate(ctx){", "activate(ctx){if(!ctx.invocation||ctx.invocation.command!=='fixture'||ctx.invocation.arguments[0]!=='中文'||ctx.invocation.arguments[1]!==''||ctx.invocation.arguments[2]!==\"';throw Error('injected');//\")throw Error('invocation');")
+        val files = mapOf("plugin.json" to manifest.toString(), "README" to "fixture", "LICENSES/MIT.txt" to "fixture", "schemas/input.json" to "{}", entry to invokedEcho)
         val members = JSONArray()
         for ((path, text) in files) {
             val bytes = text.toByteArray(); val file = File(dir, path); file.parentFile!!.mkdirs(); file.writeBytes(bytes)
@@ -100,11 +101,12 @@ class ExtensionRuntimeTest {
                     peerKind = ExtensionSession.PeerKind.LOCAL, peerIdentity = "package-worker", methods = listOf(ExtensionSession.Method("fixture.echo", "session.rpc", ExtensionSession.Role.EXECUTOR, ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)))
                 val p = pair(custom = config)
                 try {
-                    val runtime = ExtensionRuntime.adoptPackage(p.e, selected, ExtensionSession.Role.EXECUTOR, cpuMilliseconds = 500)
+                    val runtime = ExtensionRuntime.adoptPackage(p.e, selected, ExtensionSession.Role.EXECUTOR, cpuMilliseconds = 500, invocation = ExtensionRuntime.Invocation("fixture", listOf("中文", "", "';throw Error('injected');//")))
                     try {
                         selected.close(); packageBytes.close(); assertTrue(File(dir, entry).delete()); p.e.stop()
                         val request = p.h.request(p.hl, "fixture.echo", "{\"text\":\"固定快照\",\"count\":17}".toByteArray(), 10000).handle!!
                         for (i in 0 until 5000) { p.h.step(); runtime.step(); if (p.h.requestResult(p.hl, request).second?.confirmed == true) break }
+                        assertEquals(ExtensionRuntime.Phase.ACTIVE, runtime.info().phase)
                         val result = p.h.requestResult(p.hl, request).second!!
                         assertTrue(result.confirmed); assertEquals(ExtensionSession.RPCState.SUCCEEDED, result.state)
                         assertTrue(result.outcome.toString(Charsets.UTF_8).contains("固定快照"))

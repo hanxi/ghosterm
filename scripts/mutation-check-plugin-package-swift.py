@@ -8,7 +8,7 @@ MARK='GT_PACKAGE_SWIFT_MUTATION'
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
  global FILE
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--build',required=True,type=Path);parser.add_argument('--registry',action='store_true');args=parser.parse_args();build=args.build.resolve()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--build',required=True,type=Path);parser.add_argument('--registry',action='store_true');parser.add_argument('--invocation',action='store_true');args=parser.parse_args();assert not (args.registry and args.invocation);build=args.build.resolve()
  cases=[('entry','entry: packageString(v.entry)','entry: "truncated"','testFixedPackageAdoptionAndRPC'),('capabilities','requires: names(v.requires, v.requires_count)','requires: []','testFixedPackageAdoptionAndRPC'),('grant','authorizationGranted: v.authorization_granted','authorizationGranted: true','testFixedPackageAdoptionAndRPC'),('stop','if let raw { gt_ext_package_stop(raw) }','if let raw { _ = raw }','testCapabilityAndOwnerLifetime')]
  if args.registry:
   FILE='apple/GhostermCore/Sources/GhostermCore/ExtensionRegistry.swift'
@@ -16,6 +16,12 @@ def main():
    ('registry-unknown','Status(rawValue: value.rawValue) ?? .invalid','value == GT_EXT_REGISTRY_UNKNOWN ? .denied : (Status(rawValue: value.rawValue) ?? .invalid)','testFixedPackageAdoptionAndRPC'),
    ('registry-denied','Status(rawValue: value.rawValue) ?? .invalid','value == GT_EXT_REGISTRY_DENIED ? .unknown : (Status(rawValue: value.rawValue) ?? .invalid)','testFixedPackageAdoptionAndRPC'),
    ('registry-command','command: ExtensionPackage.Command(contribution)','command: nil','testFixedPackageAdoptionAndRPC'),
+  ]
+ if args.invocation:
+  FILE='apple/GhostermCore/Sources/GhostermCore/ExtensionRuntime.swift'
+  cases=[
+   ('invocation-field','roots: values.baseAddress, root_count: values.count, invocation: invocation','roots: values.baseAddress, root_count: values.count, invocation: nil','testFixedPackageAdoptionAndRPC'),
+   ('invocation-empty','for text in [value.command] + value.arguments {','for text in [value.command] + value.arguments.filter({ !$0.isEmpty }) {','testFixedPackageAdoptionAndRPC'),
   ]
  original=(ROOT/FILE).read_text();assert MARK not in original
  for _,old,_,_ in cases:assert original.count(old)==1,old
@@ -28,7 +34,7 @@ def main():
  def run(label,cmd,red=False):
   shell='. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require package-swift; shift; gt_timeout 240 "$@"'
   p=subprocess.run(['bash','-c',shell,'package-swift',str(ROOT),*map(str,cmd)],cwd=ROOT,env=env,capture_output=True,text=True,timeout=250);out=p.stdout+p.stderr;(logs/(label+'.log')).write_text(out);commands.append(dict(label=label,returncode=p.returncode))
-  if red:assert p.returncode==1 and re.search(r'Executed 1 test, with 1 failure(?:s)? \(0 unexpected\)',out) and 'XCTAssert' in out and not any(x in out for x in ['emit-module command failed','Fatal error:','Signal ']),label+'\n'+out
+  if red:assert p.returncode==1 and re.search(r'Executed 1 test, with 1 failure(?:s)? \(0 unexpected\)',out) and ('XCTAssert' in out or ': failed - invocation did not activate' in out) and not any(x in out for x in ['emit-module command failed','Fatal error:','Signal ']),label+'\n'+out
   else:assert p.returncode==0,label+'\n'+out
   return out
  def test(label,method=None,red=False):

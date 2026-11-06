@@ -11,9 +11,15 @@ export type CapabilityAccess = "unknown" | "allowed" | "denied" | "revoked" | "u
 export interface CapabilitySet { query(name: string): CapabilityAccess; }
 export interface CancellationToken { readonly cancelled: boolean; }
 export interface Disposable { dispose(): void; }
-/** Runtime services implemented today. UI/process and command arguments follow;
+/** Runtime services implemented today. UI/process services follow;
  * optional resources exist only for a native resource-enabled Session. */
+export interface Invocation {
+  readonly command: string;
+  /** Raw data, never shell text or schema-validated options. Decode explicitly. */
+  readonly arguments: readonly string[];
+}
 export interface PluginContext {
+  readonly invocation?: Invocation;
   readonly instanceId: string;
   readonly epoch: string;
   readonly side: "client" | "executor";

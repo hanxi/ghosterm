@@ -287,7 +287,7 @@ static extension_slot_t *runtime_pin(JNIEnv *e,jlong id,bool owner,bool quiet){
 }
 JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_support(JNIEnv *e,jobject self){(void)e;(void)self;return gt_ext_runtime_support();}
 static extension_slot_t *package_pin(JNIEnv *,jlong,bool,bool);
-static jlongArray runtime_open(JNIEnv *e,jobject self,jlong id,jobjectArray names,jobjectArray sources,jobjectArray digests,jbyteArray entry,jlongArray limits,jobjectArray root_names,jintArray root_fds,jlongArray root_limits,jlong package_id,jboolean associated){
+static jlongArray runtime_open(JNIEnv *e,jobject self,jlong id,jobjectArray names,jobjectArray sources,jobjectArray digests,jbyteArray entry,jlongArray limits,jobjectArray root_names,jintArray root_fds,jlongArray root_limits,jlong package_id,jboolean associated,jbyteArray command,jobjectArray arguments){
  (void)self;if(!names || !sources || !digests || !entry || !limits || !root_names || !root_fds || !root_limits){extension_error(e,"运行时参数缺失");return NULL;}jsize count=(*e)->GetArrayLength(e,names),root_count=(*e)->GetArrayLength(e,root_names);
  if(root_count>(jsize)GT_EXT_RUNTIME_ROOTS_MAX || (*e)->GetArrayLength(e,root_fds)!=root_count || (*e)->GetArrayLength(e,root_limits)!=root_count){extension_error(e,"运行时授权根无效");return NULL;}
  if((!package_id && count<1) || (package_id && count!=0) || count>(jsize)GT_EXT_RUNTIME_MODULES_MAX || (*e)->GetArrayLength(e,sources)!=count || (*e)->GetArrayLength(e,digests)!=count || (*e)->GetArrayLength(e,limits)!=6){extension_error(e,"运行时模块表无效");return NULL;}
@@ -295,7 +295,15 @@ static jlongArray runtime_open(JNIEnv *e,jobject self,jlong id,jobjectArray name
  if(v[0]<0 || v[0]>1){extension_error(e,"运行时角色无效");return NULL;}
  for(size_t i=0;i<6;i++)if(v[i]<0 || (i>=3 && (uint64_t)v[i]>UINT32_MAX)){extension_error(e,"运行时预算无效");return NULL;}
  gt_ext_runtime_module_t modules[GT_EXT_RUNTIME_MODULES_MAX]={0};char *paths[GT_EXT_RUNTIME_MODULES_MAX]={0},*texts[GT_EXT_RUNTIME_MODULES_MAX]={0},*bootstrap=NULL;size_t total=0;gt_status_t status=GT_ERR_INVALID_ARG;
+ char *invocation_command=NULL,*invocation_args[32]={0};gt_ext_invocation_t invocation={0};
  gt_ext_runtime_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX]={0};char *root_ids[GT_EXT_RUNTIME_ROOTS_MAX]={0};jint descriptors[GT_EXT_RUNTIME_ROOTS_MAX];jlong root_budgets[GT_EXT_RUNTIME_ROOTS_MAX];
+ if((command==NULL)!=(arguments==NULL)){extension_error(e,"命令调用缺少成对参数");goto done;}
+ if(command){
+  jsize n=(*e)->GetArrayLength(e,arguments);if(n>32){extension_error(e,"命令参数过多");goto done;}
+  invocation_command=extension_text(e,command,519);if(!invocation_command)goto done;size_t bytes=0;
+  for(jsize i=0;i<n;i++){invocation_args[i]=extension_item(e,arguments,i,4096);if(!invocation_args[i])goto done;bytes+=strlen(invocation_args[i])+1;if(bytes>16384){extension_error(e,"命令参数超限");goto done;}}
+  invocation=(gt_ext_invocation_t){invocation_command,(const char *const *)invocation_args,(size_t)n};
+ }
  if(root_count){(*e)->GetIntArrayRegion(e,root_fds,0,root_count,descriptors);(*e)->GetLongArrayRegion(e,root_limits,0,root_count,root_budgets);if((*e)->ExceptionCheck(e))goto done;}
  for(jsize i=0;i<root_count;i++){if(root_budgets[i]<0)goto done;root_ids[i]=extension_item(e,root_names,i,64);if(!root_ids[i])goto done;roots[i]=(gt_ext_runtime_root_t){root_ids[i],descriptors[i],(uint64_t)root_budgets[i]};}
  for(jsize i=0;i<count;i++){
@@ -306,22 +314,23 @@ static jlongArray runtime_open(JNIEnv *e,jobject self,jlong id,jobjectArray name
   modules[i]=(gt_ext_runtime_module_t){.name=paths[i],.source=texts[i],.size=(size_t)size};memcpy(modules[i].sha256,digest,65);free(digest);
  }
  if(!package_id){bootstrap=extension_text(e,entry,255);if(!bootstrap)goto done;}
- {gt_ext_runtime_config_t c={.modules=package_id?NULL:modules,.module_count=(size_t)count,.entry=bootstrap,.role=(gt_ext_role_t)v[0],.memory_bytes=(uint64_t)v[1],.stack_bytes=(uint64_t)v[2],.cpu_ms=(uint32_t)v[3],.jobs_per_step=(uint32_t)v[4],.activation_ms=(uint32_t)v[5],.roots=roots,.root_count=(size_t)root_count};
+ {gt_ext_runtime_config_t c={.modules=package_id?NULL:modules,.module_count=(size_t)count,.entry=bootstrap,.role=(gt_ext_role_t)v[0],.memory_bytes=(uint64_t)v[1],.stack_bytes=(uint64_t)v[2],.cpu_ms=(uint32_t)v[3],.jobs_per_step=(uint32_t)v[4],.activation_ms=(uint32_t)v[5],.roots=roots,.root_count=(size_t)root_count,.invocation=command?&invocation:NULL};
  extension_slot_t *p=package_id?package_pin(e,package_id,true,false):NULL;if(package_id && !p)goto done;
  extension_slot_t *s=session_pin(e,id,true,false);if(!s){if(p)extension_unpin(p);goto done;}pthread_mutex_lock(&extension_lock);bool exclusive=s->pins==1 && extension_next<=INT64_MAX;uint64_t successor=0;if(exclusive){successor=extension_next++;s->retiring=true;}pthread_mutex_unlock(&extension_lock);
  status=exclusive?(p?gt_ext_runtime_open_package(&s->session,p->package,&c,associated,&s->runtime):gt_ext_runtime_open(&s->session,&c,&s->runtime)):GT_ERR_IO;if(p)extension_unpin(p);jlong values[2]={status,0};pthread_mutex_lock(&extension_lock);if(status==GT_OK){s->id=successor;values[1]=(jlong)s->id;}s->retiring=false;s->pins--;pthread_mutex_unlock(&extension_lock);
  (*e)->SetLongArrayRegion(e,result,0,2,values);}
 done:
+ free(invocation_command);for(size_t i=0;i<32;i++)free(invocation_args[i]);
  for(jsize i=0;i<count;i++){free(paths[i]);free(texts[i]);}for(jsize i=0;i<root_count;i++)free(root_ids[i]);free(bootstrap);if((*e)->ExceptionCheck(e))return NULL;
  if(status!=GT_OK){jlong values[2]={status,0};(*e)->SetLongArrayRegion(e,result,0,2,values);}return result;
 }
-JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_open(JNIEnv *e,jobject self,jlong id,jobjectArray names,jobjectArray sources,jobjectArray digests,jbyteArray entry,jlongArray limits,jobjectArray root_names,jintArray root_fds,jlongArray root_limits){
- return runtime_open(e,self,id,names,sources,digests,entry,limits,root_names,root_fds,root_limits,0,false);
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_open(JNIEnv *e,jobject self,jlong id,jobjectArray names,jobjectArray sources,jobjectArray digests,jbyteArray entry,jlongArray limits,jobjectArray root_names,jintArray root_fds,jlongArray root_limits,jbyteArray command,jobjectArray arguments){
+ return runtime_open(e,self,id,names,sources,digests,entry,limits,root_names,root_fds,root_limits,0,false,command,arguments);
 }
-JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_openPackage(JNIEnv *e,jobject self,jlong id,jlong package_id,jboolean associated,jlongArray limits,jobjectArray root_names,jintArray root_fds,jlongArray root_limits){
+JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_openPackage(JNIEnv *e,jobject self,jlong id,jlong package_id,jboolean associated,jlongArray limits,jobjectArray root_names,jintArray root_fds,jlongArray root_limits,jbyteArray command,jobjectArray arguments){
  if(package_id<=0){extension_error(e,"插件包句柄无效");return NULL;}
  jclass bytes=(*e)->FindClass(e,"[B");if(!bytes)return NULL;jobjectArray empty=(*e)->NewObjectArray(e,0,bytes,NULL);(*e)->DeleteLocalRef(e,bytes);if(!empty)return NULL;jbyteArray entry=(*e)->NewByteArray(e,0);if(!entry){(*e)->DeleteLocalRef(e,empty);return NULL;}
- jlongArray result=runtime_open(e,self,id,empty,empty,empty,entry,limits,root_names,root_fds,root_limits,package_id,associated);(*e)->DeleteLocalRef(e,entry);(*e)->DeleteLocalRef(e,empty);return result;
+ jlongArray result=runtime_open(e,self,id,empty,empty,empty,entry,limits,root_names,root_fds,root_limits,package_id,associated,command,arguments);(*e)->DeleteLocalRef(e,entry);(*e)->DeleteLocalRef(e,empty);return result;
 }
 JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_step(JNIEnv *e,jobject self,jlong id){(void)self;extension_slot_t *s=runtime_pin(e,id,true,false);if(!s)return GT_EXT_RUNTIME_FAILED;gt_ext_runtime_phase_t phase=gt_ext_runtime_step(s->runtime);extension_unpin(s);return phase;}
 JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_info(JNIEnv *e,jobject self,jlong id){

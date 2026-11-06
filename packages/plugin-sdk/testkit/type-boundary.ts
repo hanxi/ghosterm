@@ -23,3 +23,8 @@ const approved: boolean = context.capabilities.query("session.rpc"); void approv
 context.side = "client";
 // @ts-expect-error no unimplemented ambient process service
 context.process.spawn("tool");
+
+// @ts-expect-error raw arguments are immutable
+context.invocation?.arguments.push("late");
+// @ts-expect-error invocation arguments are strings, not decoded typed options
+const argumentCount: number | undefined = context.invocation?.arguments[0]; void argumentCount;

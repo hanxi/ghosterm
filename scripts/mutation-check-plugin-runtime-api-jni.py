@@ -36,6 +36,8 @@ def main():
         print('residual runtime JNI mutation', file=sys.stderr)
         raise SystemExit(2)
     cases = [
+        ('invocation-field', [('cpp', '.invocation=command?&invocation:NULL', '.invocation=command && false?&invocation:NULL')], 'fixedPackageAdoptionAndRPC'),
+        ('invocation-count', [('cpp', 'invocation_command,(const char *const *)invocation_args,(size_t)n', 'invocation_command,(const char *const *)invocation_args,(size_t)(n?n-1:0)')], 'fixedPackageAdoptionAndRPC'),
         ('registry-source-unknown', [('cpp', '(gt_ext_registry_source_t)source,digest', '(source==GT_EXT_REGISTRY_SOURCE_UNKNOWN?GT_EXT_REGISTRY_SOURCE_DENIED:(gt_ext_registry_source_t)source),digest')], 'fixedPackageAdoptionAndRPC'),
         ('registry-source-denied', [('cpp', '(gt_ext_registry_source_t)source,digest', '(source==GT_EXT_REGISTRY_SOURCE_DENIED?GT_EXT_REGISTRY_SOURCE_UNKNOWN:(gt_ext_registry_source_t)source),digest')], 'fixedPackageAdoptionAndRPC'),
         ('registry-command-schema', [('cpp', 'c.path,c.title,(const char *)c.args_schema', 'c.path,c.title,""')], 'fixedPackageAdoptionAndRPC'),

@@ -26,6 +26,7 @@ static void runtime_case(const char *mode,const char *root){
  const char *names[]={"index.js","codec.js","session.js","wire-contract.js"};const char *ids[]={"sdk:/index.js","sdk:/codec.js","sdk:/session.js","sdk:/wire-contract.js"};char *scripts[4];gt_runtime_module_t modules[8]={0};
  for(unsigned i=0;i<4;i++){scripts[i]=read_module(root,names[i]);module(&modules[i],ids[i],scripts[i]);}
  const char *plugin=echo_plugin;
+ if(!strcmp(mode,"invocation"))plugin="export function activate(ctx){const i=ctx.invocation;if(!i||i.command!=='fixture run'||i.arguments.length!==3||i.arguments[0]!=='中文'||i.arguments[1]!==\"';throw Error('injected');//\"||i.arguments[2]!==''||!Object.isFrozen(i)||!Object.isFrozen(i.arguments))throw Error('invocation');return {dispose(){}}}";
  if(!strcmp(mode,"capabilities"))plugin=
  "export function activate(ctx){const caps=ctx.capabilities;"
  "if(!Object.isFrozen(caps)||caps.query('ui.form')!=='allowed'||caps.query('ui.diff')!=='unsupported')throw Error('access');"
@@ -63,6 +64,21 @@ static void runtime_case(const char *mode,const char *root){
  if(!strcmp(mode,"relative")){module(&modules[4],"plugin:/nested/entry.js","import {value} from '../shared.js';export function activate(){if(value!==42)throw Error('relative');return {dispose(){}}}");module(&modules[5],"plugin:/shared.js","export const value=42;");count=6;}
  rpc_pair_t pair;rpc_open(&pair,"timeout");gt_ext_session_t *borrowed=pair.pair.e;gt_bridge_runtime_t *rt=(gt_bridge_runtime_t *)1;
  gt_runtime_config_t config={.modules=modules,.module_count=count,.entry=modules[4].name,.role=GT_EXT_EXECUTOR,.cpu_ms=(!strcmp(mode,"cpu") || !strcmp(mode,"top-cpu"))?10:500,.jobs_per_step=32,.activation_ms=!strcmp(mode,"activation-timeout")?1:5000};
+ char invocation_command[]="fixture run",argument[]="中文";const char *argv[]={argument,"';throw Error('injected');//",""};
+ gt_ext_invocation_t invocation={invocation_command,argv,3};
+ if(!strcmp(mode,"invocation")){
+  config.invocation=&invocation;
+  const char *bad[]={"","fixture  run","Fixture","1fixture","fixture_foo","fixture ","fixture/run"};
+  for(size_t i=0;i<sizeof(bad)/sizeof(bad[0]);i++){invocation.command=bad[i];CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_ERR_INVALID_ARG && !rt && pair.pair.e);}
+  invocation.command=invocation_command;invocation.argc=33;CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_ERR_INVALID_ARG && !rt && pair.pair.e);invocation.argc=3;
+  argv[0]="\xc0\x80";CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_ERR_INVALID_ARG && !rt && pair.pair.e);argv[0]=argument;
+  char oversized[4098];memset(oversized,'a',sizeof(oversized)-1);oversized[sizeof(oversized)-1]=0;argv[0]=oversized;
+  CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_ERR_INVALID_ARG && !rt && pair.pair.e);
+  oversized[4096]=0;const char *large[]={oversized,oversized,oversized,oversized};invocation.argv=large;invocation.argc=4;
+  CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_ERR_INVALID_ARG && !rt && pair.pair.e);
+  invocation.argv=argv;invocation.argc=3;argv[0]=argument;
+
+ }
  if(!strcmp(mode,"invalid")){
   CHECK(gt__bridge_runtime_open(NULL,&config,&rt)==GT_ERR_INVALID_ARG && !rt);config.role=GT_EXT_HOST;CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_ERR_INVALID_ARG && !rt && pair.pair.e);config.role=GT_EXT_EXECUTOR;
   config.memory_bytes=1;CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_ERR_INVALID_ARG && !rt && pair.pair.e);config.memory_bytes=0;
@@ -73,6 +89,7 @@ static void runtime_case(const char *mode,const char *root){
  }else{
   size_t total=0;for(size_t i=0;i<count;i++)total+=modules[i].size;
   CHECK(gt__bridge_runtime_open(&pair.pair.e,&config,&rt)==GT_OK && rt && !pair.pair.e);CHECK(rt_info(rt).phase==GT_RUNTIME_CREATED && rt_info(rt).steps==0 && rt_info(rt).module_bytes==total);CHECK(gt__bridge_runtime_destroy(&rt)==GT_ERR_INVALID_ARG && rt);
+  if(!strcmp(mode,"invocation")){memset(invocation_command,'x',sizeof(invocation_command)-1);memset(argument,'x',sizeof(argument)-1);}
   void *reservation=NULL;size_t reserved=0;
   if(!strcmp(mode,"global-memory")){gt_plugin_memory_info_t memory=gt__plugin_memory_info();reserved=memory.limit-memory.used-512*1024;reservation=gt__plugin_memory_alloc(NULL,reserved);CHECK(reservation);}
   /* Prove copies, not borrowed caller source or metadata. */
@@ -86,7 +103,7 @@ static void runtime_case(const char *mode,const char *root){
    }
    if(!strcmp(mode,"reverse") || !strcmp(mode,"prototype"))CHECK(reverse==1);
    gt_runtime_info_t info=rt_info(rt);
-   bool active=!strcmp(mode,"dispose-throw") || !strcmp(mode,"capabilities") || !strcmp(mode,"atomics") || !strcmp(mode,"isolation") || !strcmp(mode,"reverse") || !strcmp(mode,"prototype") || !strcmp(mode,"roundtrip") || !strcmp(mode,"relative") || !strcmp(mode,"handled") || !strcmp(mode,"top-await") || !strcmp(mode,"dispose-loop") || !strcmp(mode,"peer-loss");
+   bool active=!strcmp(mode,"invocation") || !strcmp(mode,"dispose-throw") || !strcmp(mode,"capabilities") || !strcmp(mode,"atomics") || !strcmp(mode,"isolation") || !strcmp(mode,"reverse") || !strcmp(mode,"prototype") || !strcmp(mode,"roundtrip") || !strcmp(mode,"relative") || !strcmp(mode,"handled") || !strcmp(mode,"top-await") || !strcmp(mode,"dispose-loop") || !strcmp(mode,"peer-loss");
    CHECK(info.phase==(active?GT_RUNTIME_ACTIVE:GT_RUNTIME_FAILED) && info.steps>0);
    if(!strcmp(mode,"cpu") || !strcmp(mode,"top-cpu"))CHECK(info.error==GT_RUNTIME_CPU);
    if(!strcmp(mode,"memory") || !strcmp(mode,"caught-memory") || !strcmp(mode,"global-memory"))CHECK(info.error==GT_RUNTIME_MEMORY);

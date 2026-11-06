@@ -12,9 +12,10 @@ class ExtensionRuntime private constructor(private val worker: Thread,
     enum class Failure { NONE, SCRIPT, MEMORY, CPU, CANCELLED, JOBS, PROTOCOL, IO, EXPIRED }
     data class Module(val name: String, val source: ByteArray, val sha256: String)
     data class WorkspaceRoot(val id: String, val directoryFd: Int, val byteLimit: Long)
+    data class Invocation(val command: String, val arguments: List<String>)
     data class Config(val modules: List<Module>, val entry: String, val role: ExtensionSession.Role,
         val memoryBytes: Long = 0, val stackBytes: Long = 0, val cpuMilliseconds: Int = 0,
-        val jobsPerStep: Int = 0, val activationMilliseconds: Int = 0, val roots: List<WorkspaceRoot> = emptyList())
+        val jobsPerStep: Int = 0, val activationMilliseconds: Int = 0, val roots: List<WorkspaceRoot> = emptyList(), val invocation: Invocation? = null)
     data class Info(val phase: Phase, val error: Failure, val cleanupError: Int, val sessionEnd: ExtensionSession.End,
         val sessionError: Int, val disposeError: Boolean, val engineReleased: Boolean,
         val steps: ULong, val jobs: ULong, val moduleBytes: ULong)
@@ -51,9 +52,16 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             require(buffer.remaining() <= limit)
             return ByteArray(buffer.remaining()).also { buffer.get(it) }
         }
+        private fun invocationBytes(value: Invocation?): Pair<ByteArray?, Array<ByteArray>?> {
+            if (value == null) return Pair(null, null)
+            val values = value.arguments.toList(); require(values.size <= 32)
+            var total = 0
+            val args = values.map { encode(it, 4096).also { bytes -> total += bytes.size + 1; require(total <= 16384) } }.toTypedArray()
+            return Pair(encode(value.command, 519), args)
+        }
         fun adoptPackage(session: ExtensionSession, packageBytes: ExtensionPackage, role: ExtensionSession.Role,
             associated: Boolean = false, memoryBytes: Long = 0, stackBytes: Long = 0, cpuMilliseconds: Int = 0,
-            jobsPerStep: Int = 0, activationMilliseconds: Int = 0, roots: List<WorkspaceRoot> = emptyList()): ExtensionRuntime {
+            jobsPerStep: Int = 0, activationMilliseconds: Int = 0, roots: List<WorkspaceRoot> = emptyList(), invocation: Invocation? = null): ExtensionRuntime {
             val worker = session.runtimeWorker(); val packageId = packageBytes.pointer()
             require(memoryBytes >= 0 && stackBytes >= 0 && cpuMilliseconds >= 0 && jobsPerStep >= 0 && activationMilliseconds >= 0 && roots.size <= 8)
             val scopes = roots.toList()
@@ -61,8 +69,9 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             val fds = scopes.map { it.directoryFd }.toIntArray()
             val budgets = scopes.map { require(it.byteLimit >= 0); it.byteLimit }.toLongArray()
             val limits = longArrayOf(role.ordinal.toLong(), memoryBytes, stackBytes, cpuMilliseconds.toLong(), jobsPerStep.toLong(), activationMilliseconds.toLong())
+            val invocationBytes = invocationBytes(invocation)
             val result = ExtensionRuntime(worker, session.runtimeStore())
-            val values = session.adoptRuntime { NativeExtensionRuntime.openPackage(it, packageId, associated, limits, names, fds, budgets) }
+            val values = session.adoptRuntime { NativeExtensionRuntime.openPackage(it, packageId, associated, limits, names, fds, budgets, invocationBytes.first, invocationBytes.second) }
             check(values.size == 2)
             if (values[0] != 0L) throw ExtensionChannelException(values[0].toInt(), "插件包运行时未接管会话")
             check(values[1] > 0); result.handle = values[1]; return result
@@ -86,9 +95,10 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             val rootLimits = roots.map { require(it.byteLimit >= 0); it.byteLimit }.toLongArray()
             val limits = longArrayOf(config.role.ordinal.toLong(), config.memoryBytes, config.stackBytes,
                 config.cpuMilliseconds.toLong(), config.jobsPerStep.toLong(), config.activationMilliseconds.toLong())
+            val invocationBytes = invocationBytes(config.invocation)
             // Allocate Java owner and all arguments before Core takes Session.
             val result = ExtensionRuntime(worker, session.runtimeStore())
-            val values = session.adoptRuntime { NativeExtensionRuntime.open(it, names, sources, digests, entry, limits, rootNames, rootFds, rootLimits) }
+            val values = session.adoptRuntime { NativeExtensionRuntime.open(it, names, sources, digests, entry, limits, rootNames, rootFds, rootLimits, invocationBytes.first, invocationBytes.second) }
             check(values.size == 2)
             if (values[0] != 0L) throw ExtensionChannelException(values[0].toInt(), "运行时未接管会话")
             check(values[1] > 0); result.handle = values[1]; return result
@@ -98,8 +108,8 @@ class ExtensionRuntime private constructor(private val worker: Thread,
 internal object NativeExtensionRuntime {
     init { System.loadLibrary("ghosterm_android") }
     external fun support(): Int
-    external fun open(session: Long, names: Array<ByteArray>, sources: Array<ByteArray>, digests: Array<ByteArray>, entry: ByteArray, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray): LongArray
-    external fun openPackage(session: Long, packageHandle: Long, associated: Boolean, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray): LongArray
+    external fun open(session: Long, names: Array<ByteArray>, sources: Array<ByteArray>, digests: Array<ByteArray>, entry: ByteArray, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray, command: ByteArray? = null, arguments: Array<ByteArray>? = null): LongArray
+    external fun openPackage(session: Long, packageHandle: Long, associated: Boolean, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray, command: ByteArray? = null, arguments: Array<ByteArray>? = null): LongArray
     external fun step(handle: Long): Int
     external fun info(handle: Long): LongArray
     external fun stop(handle: Long)

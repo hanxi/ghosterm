@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第四十一批原生配置对照修复。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第四十二批运行时调用信息。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -441,6 +441,7 @@ interface PluginContext {
   readonly instanceId: string;
   readonly epoch: string;
   readonly side: "client" | "executor";
+  readonly invocation?: {readonly command: string; readonly arguments: readonly string[]};
   readonly capabilities: CapabilitySet;
   readonly cancellation: CancellationToken; // SDK 提供，不假设浏览器全局
   readonly session: SessionChannel;        // typed request / response / event
@@ -3394,6 +3395,48 @@ SSH auth 八组既有变异复验通过（目标正常断言红、同变异配�
 
 本批只修复插件变异使用的原生测试对照，不新增产品能力、ABI、平台绑定或 CI 二十份。
 CLI 激活、前台 IPC、来源授权、App 与业务插件仍按原计划继续。
+
+### P0 第四十二批：命令与原始 argv 贯通运行时（2026-11-06）
+
+公共 runtime config 新增可选 `gt_ext_invocation_t`：原生调用方提供已选择的完整规范命令
+及原始 argv，不执行 shell、不把 argv 冒充按 `argsSchema` 解码后的对象。命令按 manifest
+的 1–8 个 token、每 token 1–64 字节、小写字母起始及字母/数字/连字符语法验证；固定包
+入口另核对该完整命令确实由 checked 包贡献。无匹配返回 NOT_FOUND，失败保留 Session。
+未提供调用信息时 context.invocation 为 undefined，保留现有原生 worker conformance
+入口；这不是将缺失调用的 CLI 请求自动变成某个默认业务命令。
+
+参数限 32 个、每个 UTF-8 4096 字节、含各 NUL 的总量 16384 字节；允许空参数，不允许
+非法 UTF-8。Core 在接管 Session 前复制到计费原生内存，成功/失败/关闭均归还；调用方
+覆盖原缓冲区不改变实例。JS 通过受限 native port 构造字符串与数组，不把输入嵌入源码；
+`invocation` 对象与 `arguments` 数组冻结。SDK 类型同步为只读原始字符串，业务 codec /
+参数 schema 解码仍待命令分发接线，不能称完整参数校验已完成。
+
+Swift 与 JNI/Kotlin 同步公开可选 Invocation，并保持 worker、NUL/UTF-8、数量/大小与
+句柄交接保护。新增私有/公共 native 用例验证复制、非法规范命令、过量/过长/总量、
+非法 UTF-8、冻结及数据注入隔离；固定包用例验证未声明命令拒绝且会话保留。两端实际
+固定包 RPC 携带中文、空字符串、代码样式字符串，完成激活和真实请求。public struct
+布局扩展，所有平台调用方已重编，不承诺旧预编译对象兼容；公共符号数仍为 169。
+
+默认 `gate.sh` 470 CTest / 169 ABI、enabled JS/SSH 串行完整 634 项（125.96 秒）通过；
+Apple 165/4、JNI 131/38 对拍，strict TS 负向及 SDK 生成对拍通过。日志
+`tmp/plugin-invocation-gate.log`、`tmp/plugin-invocation-on-tests.log`。Apple 真构建及两项
+包测试、Android Debug/测试 APK 真构建与专用 API36 arm64 / 4 KiB 页模拟器十五项
+组合通过；日志 `tmp/plugin-invocation-swift-tests.log`、
+`tmp/plugin-invocation-android-final-build.log`、`tmp/plugin-invocation-device-tests.log`。
+
+Core 七组、Swift 两组、JNI 两组新增变异通过：真实重新编译后的单条正常断言红、
+同 archive / APK 配置对照绿、恢复绿及 SHA256。原件分别为
+`tmp/pkgload-lcqun_37/logs/result.json`、`tmp/package-swift-s_xiqweg/logs/result.json`、
+`tmp/plugin-runtime-api-jni-mutations-qui2ajig/logs/result.json`。Core 使用优化 ASan/UBSan，
+无 LSan；其收据后只变了两份绑定 runner，生产 C / native 测试输入一致。两端收据输入
+逐项一致。JNI 首次移除字段导致 unused-but-set-variable 编译失败，不计目标红；改为
+保留引用但不传字段后完整两组通过。Swift 首次已是正常单条 XCTFail，但旧 runner 只认
+XCTAssert 文案，收据未接受；补充精确 XCTFail 判据后完整两组复验。旧日志
+`tmp/plugin-invocation-jni-mutations.log`、`tmp/plugin-invocation-swift-mutations.log` 保留。
+
+本批完成运行时调用信息接缝，没有完成 CLI 命令选择/激活、前台 IPC、原生来源授权、
+参数 schema 解码、App 视图与实际业务插件。手工模拟器证据不增加 CI 二十份，不代表
+真实设备、签名发行或整体计划完成。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

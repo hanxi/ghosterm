@@ -1058,3 +1058,12 @@ CLI 在专用 API36 / 4 KiB 页模拟器五项通过，设备临时目录清理�
 缺 ssh，不记设备完整配置对拍。SSH auth 八组和编译器八组既有变异复验通过（正常断言
 红、同 archive 配置绿、复原与 SHA256）；系统 libssh2 初次链接失败单列，锁定库后才绿。
 本批测试对照修复，不增加产品能力或 CI 二十份；原件与限制见插件计划第四十一批。
+
+**插件调用信息第四十二批（2026-11-06）**：runtime config 与 Swift/JNI/Kotlin 同步可选
+Invocation，原始命令/argv 在接管前复制；规范 token、固定包完整声明、UTF-8 与 32 个/
+4096 单项/16384 总字节限额，失败保留 Session。JS 通过 native 字符串构造并冻结对象，
+不执行 shell，不冒充 schema 解码。默认 470 CTest / 169 ABI、enabled 634 项、Core 七组
+＋Swift 两组＋JNI 两组正常断言红/独立配置绿/复原/SHA256通过；两端实际包 RPC，API36
+4 KiB 页模拟器十五项组合及真实构建通过。JNI 初次编译失败和 Swift 收据文案识别失败
+保留，最终完整复验见插件计划第四十二批。手工证据不增加 CI 二十份；CLI 激活/IPC、
+来源授权、参数 schema、App 和业务插件仍未完成。

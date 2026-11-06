@@ -2,7 +2,7 @@
  * race step/close; no caller may race adoption/destroy. Not an OS sandbox. */
 #ifndef GT_BRIDGE_RUNTIME_H
 #define GT_BRIDGE_RUNTIME_H
-#include "ghosterm/extension_rpc.h"
+#include "ghosterm/extension_runtime.h"
 #include "extension/runtime-resource.h"
 #include "extension/package-check.h"
 typedef struct gt_bridge_runtime gt_bridge_runtime_t;
@@ -13,6 +13,7 @@ typedef struct {
  const gt_runtime_module_t *modules;size_t module_count;const char *entry;
  gt_ext_role_t role;size_t memory_bytes,stack_bytes;uint32_t cpu_ms,jobs_per_step,activation_ms;
  const gt_runtime_root_t *roots;size_t root_count;
+ const gt_ext_invocation_t *invocation;
 } gt_runtime_config_t;
 typedef struct {gt_runtime_phase_t phase;gt_runtime_error_t error;gt_status_t cleanup_error;gt_ext_session_end_t session_end;gt_status_t session_error;bool dispose_error,engine_released;uint64_t steps,jobs;size_t module_bytes;} gt_runtime_info_t;
 /* Requires ACTIVE, requests-enabled, exclusive Session with no source or prior

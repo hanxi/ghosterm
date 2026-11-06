@@ -39,6 +39,12 @@ int main(int argc,char **argv){
  gt_ext_runtime_config_t runtime={.role=GT_EXT_EXECUTOR,.cpu_ms=1000,.activation_ms=10000,.jobs_per_step=128};gt_ext_runtime_t *r=NULL;
  if(!strcmp(mode,"override"))runtime.entry="plugin:/override.js";
  if(!strcmp(mode,"load-stop"))gt_ext_package_stop(package);
+ gt_ext_invocation_t invocation={"missing",NULL,0};
+ if(!strcmp(mode,"registry")){
+  runtime.invocation=&invocation;
+  CHECK(gt_ext_runtime_open_package(&pair.pair.e,package,&runtime,false,&r)==GT_ERR_NOT_FOUND && !r && pair.pair.e==original);
+  invocation.command="fixture";
+ }
  gt_status_t status=gt_ext_runtime_open_package(&pair.pair.e,package,&runtime,false,&r);
  if(!strcmp(mode,"override") || !strcmp(mode,"load-stop") || !strcmp(mode,"mismatch")){
   CHECK(status==(!strcmp(mode,"override")?GT_ERR_INVALID_ARG:!strcmp(mode,"load-stop")?GT_ERR_CANCELLED:GT_ERR_PROTOCOL) && !r && pair.pair.e==original);rpc_drop(&pair);goto done;

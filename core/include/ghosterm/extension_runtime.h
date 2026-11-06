@@ -20,10 +20,15 @@ typedef struct {const char *name;const void *source;size_t size;char sha256[65];
  * Caller validates ACL/mount policy. Core copies ID and CLOEXEC fd duplicate;
  * does not consume the caller fd. Limit 1..16 MiB; <=8 unique ASCII IDs. */
 typedef struct {const char *id;int directory_fd;uint64_t byte_limit;} gt_ext_runtime_root_t;
+/* Raw invocation data, not shell or decoded/schema-validated options. Native
+ * caller supplies the selected canonical command. Copied before adoption;
+ * <=32 UTF-8 arguments, <=4096 bytes each, <=16384 bytes including NULs. */
+typedef struct {const char *command;const char *const *argv;size_t argc;} gt_ext_invocation_t;
 typedef struct {
  const gt_ext_runtime_module_t *modules;size_t module_count;const char *entry;
  gt_ext_role_t role;uint64_t memory_bytes,stack_bytes;uint32_t cpu_ms,jobs_per_step,activation_ms;
  const gt_ext_runtime_root_t *roots;size_t root_count;
+ const gt_ext_invocation_t *invocation;
 } gt_ext_runtime_config_t;
 typedef struct {
  gt_ext_runtime_phase_t phase;gt_ext_runtime_error_t error;gt_status_t cleanup_error;
