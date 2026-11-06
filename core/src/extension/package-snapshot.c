@@ -177,6 +177,9 @@ gt_package_status_t gt__package_snapshot_read(const gt_package_snapshot_t *s,siz
  const package_entry_t *e=s->members[index];uint64_t size=(uint64_t)e->observed.st_size;if(offset>size)return GT_PACKAGE_INVALID;size_t n=(size_t)(size-offset);if(n>cap)n=cap;
  if(n)memcpy(bytes,e->data+offset,n);*read_bytes=n;return GT_PACKAGE_OK;
 }
+bool gt__package_snapshot_view(const gt_package_snapshot_t *s,size_t index,const uint8_t **bytes,size_t *size){
+ if(bytes)*bytes=NULL;if(size)*size=0;if(!s || !s->ready || index>=s->count || !bytes || !size)return false;*bytes=s->members[index]->data;*size=(size_t)s->members[index]->observed.st_size;return true;
+}
 gt_package_status_t gt__package_snapshot_destroy(gt_package_snapshot_t **out){
  if(!out || !*out)return GT_PACKAGE_INVALID;gt_package_snapshot_t *s=*out;*out=NULL;bool failed=false;
  if(s->file>=0 && close(s->file))failed=true;if(s->directory && closedir(s->directory))failed=true;if(s->root>=0 && close(s->root))failed=true;

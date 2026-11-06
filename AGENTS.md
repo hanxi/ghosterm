@@ -585,6 +585,31 @@ unused 编译错误与仍 PASS 的身份变异均拒收，补读取前判据后�
 元数据可信证明，不授予执行；原生 manifest / integrity / Unicode / 来源策略 / 模块加载、
 批准 / 视图 / gterm / 完整插件继续；无设备 / App / 发行结论，网关不实现。见插件计划第二十八批。
 
+**插件包元数据第二十九批历史未验收记录（2026-11-06；最终见第三十四批）**：当前私有固定字节校验候选不接 App / 不增
+公共 ABI。正常路径 35 组编译后变异 / 17 配置拒绝及 42 本机 / 41 Android C 场景通过，
+但 QuickJS 在逐分配失败扫描中仍有字节码清理崩溃：Debug ordinal 1057、优化 ASan/UBSan
+与实际 NDK ELF 的 Android ordinal 680。候选 patch 位于 `patches/quickjs-ng/0.18.0`，
+vendor 未改；崩溃不算正常断言红，前面的单点 OOM / 正常路径通过不代表整批完成。
+默认 JS OFF gate 为 457 CTest / 154 ABI，Apple 150/4、JNI 116/38；均为分范围证据，
+不增加 CI 二十份。按用户约定待人工决定引擎加固或隔离 / 替代评估，当前不提交本批；
+详细故障 / 收据见插件计划第二十九批，网关未实现。
+
+**插件内存第三十批历史专项（2026-11-06；独立提交见第三十二批）**：在现有未提交元数据候选上，包 JSON 的节点 /
+字符串 / 重键表按需增长并逐检查擦除释放；插件自持 heap 申请统一计入默认 128 MiB 进程级
+requested / reserved budget，含 native owner / 分帧 / RPC / 包快照 / 源码 / JS、失败归还与
+realloc 新旧峰值。该值为候选政策，不等于 RSS / PSS / footprint 或线程栈、外部库、Swift /
+JVM / UI / 磁盘配额。每实例仍独立 runtime、heap / stack / CPU / jobs 限额；OOM sticky 撤权。
+私有 `memory.h/.c` / 动态 JSON 新 14 组、117 项基线 / 恢复及既有 runtime 13 组通过；小文档
+峰值 3,008 bytes，1 / 4 / 10 runtime 真实 RPC、私有 / 公共各 100 次开关后 heap 计账 / fd 归零。
+默认 Core 467 / 154 ABI、JS ON / SSH ON 完整 574 项、24 次严格 C11 编译及实际 NDK arm64 /
+API29 ELF 编译链接通过，未设备执行。旧释放保护分族完整复验及 snapshot 擦除专项、公共
+channel / resource / Source 的 C / Swift 变异另记在插件计划；统一收据
+`tmp/plugin-memory-work/result.json` 核对 17 份 accepted 原件 / 输入 SHA256。初版编译 / CTest
+发现 / Debug+ASan 栈 / 未重编、冗余变异未杀死及一次 Source SSH 清理超时均未计绿，修正
+探针后复验；未放宽生产栈限额或原清理断言。不增加公共 ABI / 平台绑定、macOS CI 二十份或
+App 启用。第二十九批引擎编译 OOM 崩溃仍未解决，不能借本片专项记整批绿，候选保持未提交；
+App 按需激活 / 回收、包快照复用与实际设备进程内存仍待验。范围 / 证据见插件计划第三十批。
+
 **插件编译 OOM 第三十一批（2026-11-06）**：七份 QuickJS-NG pin 补丁由私有构建副本应用，
 新增 DynBuf sticky 与 switch default 回填检查。独立编译器 / 缓冲八组真实编译后正常断言红、
 同 archive 配置绿、重建恢复与 SHA256；switch 另用确定性发射失败与危险写前观察，不将
@@ -611,6 +636,18 @@ unused 编译错误与仍 PASS 的身份变异均拒收，补读取前判据后�
 独立默认 Core 465 / 154 ABI、JS ON / SSH ON 551 项全绿。初版捕获组断言红、变异锚点 /
 带前缀诊断拒收与隔离路径设置错误均单列保留。只提交引擎修复；包校验继续单独验收，不增
 公共 ABI / 平台产品文件或 CI 二十份，非 App / 真机 / 发行结论。收据见插件计划第三十三批。
+
+**插件包元数据第三十四批（2026-11-06）**：第二十九批私有固定字节检查经八份引擎补丁后
+独立验收并提交。trusted validator 只检查 manifest / integrity / native host / registry，
+不执行插件；JS OFF 显式不支持，仅兼容结果消费快照，失败保留，始终不授予执行 / 发布者
+身份。默认 467 CTest / 154 ABI、JS ON / SSH ON 完整 577 项、Apple 150/4 / JNI 116/38，
+35 编译后正常断言变异及 23 配置拒绝通过；目标红、同 archive 配置绿、重建恢复与 SHA256。
+当前 Debug 72＋1892、优化 ASan 与 Android ELF 各 72＋1554 夹具 / OOM 分配点，设备另
+49 原生专项、全 OFF 67 项及八次 macOS / NDK 严格 C11 编译通过。Android 为 API36 / arm64 /
+4KiB 页私有模拟器，ASan/UBSan 无 LSan；漏构建边界 executable 的 Not Run 初轮保留且
+未计绿，补齐后重跑。不增公共 ABI / 平台产品源码或 CI 二十份，非 App / 真机 / 发行证据。
+后续模块闭包 / 信任 / 安装、App 授权 / 视图、gterm / 完整 SDK 和真实插件仍待接；原件和
+输入摘要见插件计划第三十四批，不以 metadata 兼容当作执行授权。
 
 `android-foreground` 以 `ANDROID_SERIAL=设备 python3 scripts/test-android-foreground.py` 验八项真实服务/页面定向，`mutation-check-android-foreground.py` 手工验 23 组；护真实 promotion、调度阻断、权限/类型、代次与请求取消、通知隐私/路由和生命周期。`test-android-foreground-system.py` 另验真实系统超时、stop-app 后新 PID 只读历史、通知拒绝及系统设置渠道关闭；`mutation-check-android-foreground-system.py` 有九组相应场景变异，含开启通知后补发及渠道恢复的状态检查。每组须编译后目标单条 JUnit 断言红、同 APK 配置对照绿、恢复绿与 SHA256，崩溃/编译失败不算目标红。系统设置及权限须恢复，stop-app 被中断的 staging 不计通过。§9.74 的 30 组与 §9.75 追加的两组均为分轮证据，不称一轮全量；完整 483 项仅 API 36 arm64 / 4 KB 页模拟器。以上均属手工覆盖，不增加 macOS CI 20 份，也不代表整个 A6 或发行矩阵完成。
 

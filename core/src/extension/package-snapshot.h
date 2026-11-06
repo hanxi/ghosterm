@@ -40,6 +40,9 @@ bool gt__package_snapshot_count(const gt_package_snapshot_t *,size_t *count,uint
 bool gt__package_snapshot_member(const gt_package_snapshot_t *,size_t,gt_package_member_t *);
 gt_package_status_t gt__package_snapshot_find(const gt_package_snapshot_t *,const char *,size_t *index);
 gt_package_status_t gt__package_snapshot_read(const gt_package_snapshot_t *,size_t,uint64_t,void *,size_t,size_t *read_bytes);
+/* Private C validator/loader view; immutable, not necessarily NUL-terminated.
+ * Borrowed until destroy, never handed across a platform/plugin boundary. */
+bool gt__package_snapshot_view(const gt_package_snapshot_t *,size_t,const uint8_t **,size_t *);
 /* Consumes even on close error; no fd is retried. Wipes copies before release. */
 gt_package_status_t gt__package_snapshot_destroy(gt_package_snapshot_t **);
 #endif

@@ -1,0 +1,50 @@
+{
+  "format": 1,
+  "purpose": "closed metadata validator only; no Node/OS/network services",
+  "inputs": {
+    "packages/plugin-sdk/schema/bridge-v1.candidate.json": "10c542c66ab22f0032961eb715af124f418b42aee23036bd4cedf06543564682",
+    "packages/plugin-sdk/schema/manifest-v1.candidate.json": "8a7077d4150ee26ac81aeb9b7257dac8830cad09b427ed8a4b39979599176302",
+    "packages/plugin-sdk/schema/integrity-v1.candidate.json": "54526ce01e2c9f90842949c4fa84724990e20a05d6889e799b86532e7fe7671c",
+    "packages/plugin-sdk/testkit/package-metadata.mjs": "3f67c6766191b66685a03280fbd4c139f37b6385a49bf38424fc32ea9630d323",
+    "scripts/generate-plugin-package-validator.mjs": "564692d865cdb20842c630abbe365fba3380ea17a0b5f6dc92e28055d48aabf7",
+    "scripts/fixtures/plugin-package-tools/package.json": "f72e84dba5c4edb0eb9698cd904a1c8be18e805e690d22c26cf2b0e6c0a36c4c",
+    "scripts/fixtures/plugin-package-tools/package-lock.json": "bca93b49c98cd080ca8258e35ed2295b55a0e832f45578e55f9ce4d0e52291c8"
+  },
+  "outputs": {
+    "core/src/extension/package-validator-code.inc": "b4a925513e8b9cb6abc5ddddbbb979f60fe3285f2ebf9fedf4a35aa4008d3e35",
+    "core/src/extension/package-validator-LICENSES.txt": "714d7eefbfd9cf54ecae358d410b712a76139b293276dbe964de9342ffdc640e"
+  },
+  "modules": {
+    "ajv/dist/runtime/equal.js": "c94467da09ee94e5d194483a7ab821b9bb3bf1c04397270f2ab53dea9de59274",
+    "ajv/dist/runtime/ucs2length.js": "1df012dd3d23fced07255a7204798004509687cb1f431ae0ab976db436bbd890",
+    "fast-deep-equal/index.js": "eb469e206280321a3878f2335ec98aa2104a155079d8ed83a23029098dccd215",
+    "semver/classes/comparator.js": "054202956430d63d5ff4599fae09760ce465b489e4f0b5ef5ce7cc7ac21157ac",
+    "semver/classes/range.js": "cf8f8eb6934663ae2a9d04838d4d71555427a2abd3c8748ee5219507969a6b46",
+    "semver/classes/semver.js": "d5ba57e5c93f031b1d234fca4bb746746fcd1fe51be7e5ee895601e2c12e2083",
+    "semver/functions/cmp.js": "a63d74e87b73788e78e9ce0a4892b5333d6b809c0de88b31e4ed76cbf17f94b3",
+    "semver/functions/compare.js": "d404b5aa48aaddc8a654c5da8fb7d4443404b7948589b21ac4b045d1cee4e34c",
+    "semver/functions/eq.js": "b6e30a7168e52723216fc163d300e2bbabf92ec0251f9ac5438bb6ccf57c8936",
+    "semver/functions/gt.js": "135523704aa48cd98834dd170ee9f74f0e68043b379f32d021db11e6304c5c93",
+    "semver/functions/gte.js": "991c5bbe48ecb210a562646872f05862ad9fc0d42186d85aa60bdc6fa323eb9d",
+    "semver/functions/lt.js": "1c897a9bc849320e2e9dc0f6c09555c01ee3ddf30734515d717b88ad7740ea25",
+    "semver/functions/lte.js": "3a8d0b1d00423f60cc7cb810b36ab77b61330831ad237dbe73eb5cecfa412800",
+    "semver/functions/neq.js": "a662883751918822c162183b46b9e20d09489132f82686c92ab78bee67f3a127",
+    "semver/functions/parse.js": "29a69e15b6d02fe381d573f861881a89590e9d0f0f0ca740c5f85eaf0234c4ad",
+    "semver/functions/satisfies.js": "8cf5e122b757251671ed6c9d9680904b71cd375845853f05312e608cf2cc2946",
+    "semver/functions/valid.js": "0de7ea736cb7807179d46dfac09c830a9338e02b6a07db12d7040cde2def6025",
+    "semver/internal/constants.js": "38a112baf27ceca0260082ff26ac2fd7a9861cab1af12dd65e720277f68e6ce9",
+    "semver/internal/debug.js": "8a9f420572260f3cf944463b5090d62a60f0730589dc23a7ec4ca25e2ee41bb3",
+    "semver/internal/identifiers.js": "b4916b09dc7869ae0eb05e71c855c942a3a7365f7e6e89185d59a9e45a2451d7",
+    "semver/internal/lrucache.js": "14d087c87da87b6f5c36fc4cdd7d2d14077874b14a68e20fce5b6138fa2ca34f",
+    "semver/internal/parse-options.js": "fdf51d0de8d5442c35a997ef58cd530d239ce206f961d14c5121354451b01d01",
+    "semver/internal/re.js": "016655766a1381078a83ba04cd6ba39afc6e64c3e5a95789ad82c3672ae87a94",
+    "semver/ranges/valid.js": "5ef6f995af801868925940cf8df5735d565ebabb090b068695cae65218bcd3ac"
+  },
+  "versions": {
+    "ajv": "8.17.1",
+    "semver": "7.7.3",
+    "fast-deep-equal": "3.1.3"
+  },
+  "bundleSHA256": "073b83ff575d277e8c6ca20d34595d44744d40c49394fe8fef88df9ff46f2a50",
+  "bundleBytes": 165677
+}

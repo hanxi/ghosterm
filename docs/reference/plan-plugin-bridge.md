@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第三十三批正则 OOM 收口。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第三十四批原生元数据收口。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -146,7 +146,7 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九至二十八批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI，第二十七批接 runtime-resource / ResourceBroker 与显式授权根，第二十八批补原生目录字节快照采集。默认关闭 JS 后端；包元数据原生校验 / 加载接线、App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
+以下为实现布局；第九至二十八批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI，第二十七批接 runtime-resource / ResourceBroker 与显式授权根，第二十八批补原生目录字节快照采集。第三十四批已接私有原生元数据校验；默认关闭 JS 后端，包模块加载接线、App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
 
 ```text
 core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
@@ -168,7 +168,10 @@ core/src/extension/
   frame.h / frame.c    已实现：候选长度前缀、增量 decoder 与单帧 writer
   wire.h / wire.c      已实现 S4a：有界原始 UTF-8 / JSON、生成的 envelope schema 校验
   wire-schema.inc     从 SDK 候选生成，脚本 --check 对拍；不是另一份手写 schema
-  package-snapshot.h / package-snapshot.c   已实现：有界物理目录采集、逐文件 SHA256 与字节副本；元数据 / 信任校验待接
+  package-snapshot.h / package-snapshot.c   已实现：有界物理目录采集、逐文件 SHA256 与字节副本；来源信任待接
+  package-check.h / package-check.c / package-check-js.inc   已实现：固定字节的私有元数据 / 完整性 / 兼容检查，不授予执行
+  package-json.c / package-validator-code.inc   严格原生 lexical JSON + 锁定依赖生成的可信 metadata-only capsule
+  memory.h / memory.c   私有进程级插件 requested-heap 配额，跨 native owner / 队列 / 包 / JS 预约与峰值
   session.h / session.c  已实现 S4b / S4c1：单实例握手 / 明确决定 / scoped lease / 可选请求 / 关闭
   rpc.h / rpc.c        已实现 S4c1：固定 method、双向请求 / 结果、独立 credit、取消与重复保护
   route.h / route.c    已实现 S3：显式跳板链、逐跳身份 / 认证、总建路期限及 owner 生命周期
@@ -285,6 +288,39 @@ macOS 在 [WorkspacePane](../../apple/GhostermApp/Sources/GhostermAppModel/Works
 QuickJS / QuickJS-NG 的第二批比较与第二十四批 SDK 联验之后，第二十五批已选 QuickJS-NG 0.18.0 作为首个显式可选 Core 后端；正式 pin 与边界见该批记录。继续评估 C11 工具链、macOS / Android NDK 构建、API 稳定性、维护与许可、模块加载、内存 / 栈限额、CPU 中断、GC 与取消行为。原生异步 IO、事件循环、流控、UTF-8 编解码和定时器由宿主补齐，不能把“嵌入引擎”当成已有 Node 兼容层。QuickJS 提供内存限制与中断入口，但它们不覆盖阻塞的原生函数，也不构成完整恶意代码沙箱。[S4](https://bellard.org/quickjs/quickjs.html)
 
 插件分发编译后的 JS 文本，不把引擎字节码当稳定格式；缓存仅作为本机、当前引擎版本的可删除优化。默认禁用原生动态模块和通用 `std/os`，模块导入只允许插件包内资源和宿主白名单。
+
+### 内存策略与实施顺序（2026-11-06）
+
+保留 QuickJS-NG 和每实例独立 runtime，不因内存担忧改成共享 JS 堆。`16 MiB` 是业务 runtime
+的按需堆上限，元数据校验的 `64 MiB` 也是上限，均不代表启动时预留对应物理内存。
+
+第三十批先处理当前 Core：包 JSON 的节点 / decoded strings / 重键索引按需增长，保留原输入 /
+深度 / 节点 / key-work 限额，检查结束即擦除释放。插件自己持有的 heap 申请统一经进程级预算，
+默认 **128 MiB** 为首片固定候选政策；分帧 / RPC 队列、包快照、源码副本、原生 owner 和 JS
+分配共同计账。自定义 allocator 也不能绕过；先预约再分配，失败归还，真实释放后归还，增长时
+新旧块同时计费。单 runtime 的原 heap / stack / CPU / jobs 限额继续独立执行。
+
+这里统计 requested / reserved bytes 与峰值，不是 RSS、Android PSS 或 macOS footprint；
+不覆盖线程栈、allocator 内部碎片、libssh2 / libc 内部分配、平台 Swift / JVM / UI 对象或磁盘资源。
+ResourceStore 的磁盘预约继续独立。进程级政策目前是私有 Core 入口，App 的配置 / 诊断消费待接。
+并发上限与平台差异须经实际 App 测量再冻结，不把这个固定候选值当低端设备验收承诺。
+
+后续 App / 插件切片遵守以下顺序，当前不记已实现：
+
+1. 安装 / 注册不创建业务插件 runtime，实际命令调用才激活；受信 metadata 校验器可作为短任务
+   运行，用完释放。普通 PTY / SSH 不创建 JS 实例。
+2. 一次性 preview 结束后释放 runtime，原生窗格按有界快照继续展示。AI 正在生成、等待批准或
+   存在未决请求时保留实例；隐藏窗格不等于空闲，不据此回收或重放远端副作用。
+3. 相同包摘要 / 版本的不可变源码和资源复用同一个有引用计数的 snapshot；不得直接映射可变
+   安装目录来冒充已经捕获的字节。跨实例仍不共享 JS 对象、lease 或可执行状态。
+4. 大内容保持 ResourceRef / 分块 IO；对话、日志、表格分页并限制保留量，避免 JS 和 UI 各持
+   一份无限历史。后续再评估少量 worker 调度，保持原 owner 和取消接缝。
+
+业界参考：[VS Code activation events](https://code.visualstudio.com/api/references/activation-events)
+按需激活；[Chrome worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle)
+空闲回收并将必要状态交给宿主；[Shopify / Javy](https://shopify.engineering/javascript-in-webassembly-for-shopify-functions)
+分离引擎与业务产物、精简宿主 API。Javy 的产物体积收益不当作 JS heap 的实测收益；上述生命周期
+方案在 Ghosterm 的适用边界为本项目设计决定，不声称这些产品采用相同的 Core 架构。
 
 ### 标准组件与自定义视图
 
@@ -2729,6 +2765,173 @@ NFC / Unicode 大小写策略、来源 / 签名、宿主版本 / 能力与命令
 原生批准 / 视图、gterm 前台入口、完整 SDK / 进程、实际插件 / 多实例与安装继续，整个插件
 目标未完成；未来网关只预留、不实现。
 
+### P0 第二十九批：固定包字节的原生元数据校验（历史候选，2026-11-06）
+
+> 以下保留最初未验收时的实现、失败和当时判断。引擎修复见第三十一至三十三批；当前
+> 独立包验收已在第三十四批收口，不以本节历史的未提交状态代表当前检出。
+
+基于 `393104c`。第二十八批物理快照之后，私有 `package-check` owner 从快照读取
+`plugin.json` / `integrity.json`，以同一份固定字节验证 manifest、完整性覆盖、入口成员、
+宿主版本 / 协议 / 能力、执行端 variant 与命令冲突。当前是未提交候选；验收记录待本轮
+逐分配失败扫描与最终回归收口，不能把下述实现描述当作已完成批次。
+
+**实现边界。** wire 的 lexical JSON / 精确整数逻辑提取为私有 `base/json-reader.inc`；
+wire 原预算 / 布局保持，包侧另设 16 MiB 输入、16384 nodes、64 层、32768 keys 与
+1048576 次 key 工作预算，拒绝非法 UTF-8、解码后重键、BOM / 尾随内容及不精确整数。
+宿主 / registry 同样先经原生 lexical 检查，不让 `JSON.parse` 的整数舍入折叠原文。
+
+显式 JS 后端只运行随 Core 固定的可信 metadata validator，**不运行插件内容**。
+开发时按锁定 Ajv 8.17.1 生成 standalone schema 验证代码，裁入 semver 7.7.3 的
+valid / validRange / satisfies 依赖闭包及 fast-deep-equal 3.1.3；25 个闭合模块、
+165677 字节 JS。开发工具使用 Node；普通 CMake 构建不依赖 Node / npm / 联网，
+以七份来源与两份生成物 SHA256 拦漂移。完整第三方许可与输入清单随候选代码入库。
+引擎没有 Node / OS / 文件模块 loader 或网络服务，读取文件和 hash 只来自 C 快照。
+
+原生宿主提供观察事实：host 至多 64 KiB，缺失为 UNKNOWN；registry 至多 1 MiB /
+64 份 manifest，缺失为空。远端 self-claim 不可替代 native 探测。默认引擎 heap 64 MiB、
+栈 512 KiB、经过时间预算 1 秒，上限各 128 MiB / 1 MiB / 5 秒；自定义分配器计 header /
+realloc 峰值、失败 sticky，释放前擦除。native JSON workspace / 输入副本与原物理快照
+分别有界，不混算为引擎 heap。期限 / 取消 / 时钟失败分开；完成释放后再检验提交屏障。
+该批当时没有跨实例总预算；第三十批补共享 requested-heap 计账，仍不是进程沙箱、硬 CPU /
+文件系统抢占或整进程 RSS 限额。
+
+只有 COMPATIBLE 消费原快照并返回 checked owner；任何失败保留原快照，不交付半成品。
+checked owner 的成员仍引用同一字节副本，源目录修改 / 删除不改变结果。候选 packageDigest
+是 **原始 integrity.json SHA256**，manifestDigest 是原始 plugin.json SHA256；尚未冻结
+为公共安装协议。输出始终 `authorization_granted=false` / `publisher_authenticated=false`；
+命令冲突只标记需显式关联，不能据此执行或替换注册。JS OFF 明确返回 UNSUPPORTED。
+本批不增加公共 ABI / 平台绑定，不改变默认开关或终端字节路径。
+
+路径语义沿用 testkit 的 NFC + `toLowerCase`，不是所有文件系统的完整 Unicode casefold；
+空目录 Unicode 策略仍待补。来源 / 签名策略、业务 schema 正文、模块闭包 / SDK identity /
+Session digest 绑定、安装替换与多包 / 实例引用尚未接入。原生批准 / 视图、gterm 前台 IPC /
+CLI、完整 SDK 服务 / 进程、实际插件 / 多实例与安装仍继续，App 未启用，网关只预留。
+
+**当前失败证据。** 优化 ASan 档发现 Clang 跳转槽循环越界，Android OOM 发现不完整
+bytecode 进入跳转压缩；逐 ordinal 扫描又发现 class operand 回填、constant-pool 预约及
+部分 parser 错误传播问题。候选修复全部位于 `patches/quickjs-ng/0.18.0`，附 WHY 与固定
+源码摘要，vendor 未改。失败 / 崩溃不计正常断言红；完整扫描未收口前不得提交或记绿。
+
+**本轮卡点，待人工选路。** 五份候选补丁之后，逐分配失败扫描仍未通过：本机 Debug 的
+ordinal **1057**、优化 ASan/UBSan 与 Android 的 ordinal **680** 在字节码清理时进入
+`free_bytecode_atoms → __JS_FreeAtom`，使用无效 atom 后崩溃。Android 是 API36 / arm64 /
+4 KiB 页私有模拟器，运行实际 NDK `RelWithDebInfo` archive 链接出的 ELF；不是 adapter
+模拟故障，也不是只有 sanitizer 才出现的问题。ordinal 只属于相应构件 / 语料。
+当前定位到部分失败字节码与清理格式 / 所有权不一致，精确修复与完整扫描仍待完成，
+不声称已有已验证的根因修复。不能跳过失败 ordinal、把 SIGSEGV 计为正常断言红，或用
+正常路径通过代替 OOM 通过。
+
+**分开记账。** 默认 JS OFF 的 `build-core.sh` / `gate.sh` 为 **457 CTest / 154 ABI**；
+Apple 150/4、JNI 116/38。显式 JS ON / SSH ON 当前候选另过 **551 CTest**，正常路径
+通过仍不抵消下述 OOM 崩溃。当前五份 patch 下的 **35 组正常断言变异 / 17 配置拒绝保护**
+通过：每组真实重编译 Core / 测试 / archive / executable、同 archive 配置绿、重建恢复与
+SHA256，末尾 42 项再绿。配置拒绝含七份生成物依赖保护与五份 patch 各缺失 / 改字节；
+不把配置拒绝当编译后变异。ASan/UBSan，无 LSan，未增加 macOS CI 二十份。
+
+Android 当前候选 **41 项 C 测试**通过，同时单独的 ordinal 680 **exit 139**，故整批未验收。
+本机每轮正常路径 72 个物理目录夹具已过；较早候选的 Android 72＋7 OOM 也过，但后续
+完整扫描暴露更多错误，不能据此宣称安全收口。原 metadata 96 项 / 6 变异复验通过，provider /
+SSH / JS 全 OFF 的 19 项、八次 macOS / NDK 严格 C11 编译通过。wire 提取的既有 618 项 /
+16 变异是单独手工证据；宿主事实仍为测试输入，不是 OS / backend 真探测。
+
+| 范围 | 本地收据 / 故障日志 |
+|---|---|
+| 最新 35 组 / 17 配置拒绝 / 42 项 | `tmp/pkgcheck-8yubtrz9/logs/result.json` |
+| 当前 Debug / ASan 全分配扫描失败 | `tmp/pkgmeta-666m5ux5/oom-sweep-host-parser-fixed.log` / `oom-sweep-asan-parser-fixed.log` |
+| Debug 1057 实际栈 | `tmp/pkgmeta-666m5ux5/oom-1057-lldb-stack.log` |
+| Android 当前 41 项 / 680 崩溃 | `tmp/pkgmeta-666m5ux5/device/current-result.json` / `current-logs/crash-stack.log` |
+| 默认 gate / 全 OFF / 严格 C11 | `tmp/pkgmeta-666m5ux5/default-gate-parser-final.log` / `all-off-tests.log` / `strict/result.json` |
+| 既有 wire 16 组 / 618 项 | `tmp/plugin-wire-mutations-9pbd8jne/logs/result.json` |
+
+按用户「遇到阻碍可以停下来等我人工决定」约定，建议先把 **现有 QuickJS 的 OOM /
+字节码清理一致性** 独立成一片；另一条路线是先评估其它引擎 / 进程隔离及各端约束。
+当前新增代码、候选 patch 与失败复现均保留为未提交工作区，**不标本批完成、不提交、不接
+App、不推送**。原 SSH 插件通道方向和未来网关只预留的范围不变。
+
+完整候选输入 / 构件 / 日志摘要、未通过状态与清理收据登记在
+`tmp/plugin-package-check-evidence.json`；专用模拟器已关闭、隔离 AVD 数据删除，未停止共享
+adb server。Android Debug / Release bridge AAR 已恢复默认 JS OFF；保留复现源码、夹具、
+ELF 与日志供下一片定位，不把它们当已发行 App / 真机结论。
+
+### P0 第三十批：按需 JSON 与插件共享内存预算（历史专项，2026-11-06）
+
+> 本节保留当时在候选上的专项记录；共享内存独立提交见第三十二批，包校验最终状态见
+> 第三十四批。下述未提交 / 卡点描述是该轮历史状态。
+
+在第二十九批未提交候选上落实内存优化，不改变其未验收状态，不接 App、安装或网关。
+`extension/memory.h/.c` 是私有进程级配额与观察入口；没有新增公共 ABI / 平台绑定。
+包 JSON 保留原严格词法 / 精确整数 / 重键语义，动态表增长时重建 key 索引，并在递归返回后
+重新取节点地址；任意增长失败显式报告 MEMORY，释放部分缓冲，原快照不交付半成品。
+
+业务 QuickJS 的自定义 allocator 同时执行实例 heap 和共享预算，计 aligned header / realloc
+新旧块峰值。失败 sticky，不依赖异常是否继续向上传播，不能维持 ACTIVE / 旧 lease；当前 NG 的
+InternalError 不能被 JS catch，`caught-memory` 验的是插件尝试 catch 时仍失败并分类为 MEMORY，
+不冒充 JS 已成功捕获 / 清除异常后的独立行为证据。引擎内另一道提前
+拒绝会绕过分配器观察，因此实例限额统一由 allocator 执行。close 释放引擎和源码副本，原生
+DRAINING owner / 仍保留的快照继续按实际存活计费，最后 destroy 归零；不把 GC 当释放活对象。
+
+新增 `mutation-check-plugin-memory.py --sdk 已编译PortableSDK目录`，在隔离副本真实编译，要求
+正常单条断言红、同库配置绿、重建恢复绿与源码 / SDK SHA256；崩溃、sanitizer、编译错误不计红。
+原分配释放 / 擦除变异随公共 allocator 边界迁移，未删除旧保护；各族证据分别记账，不把相近的
+新旧限额 / 释放变异累计成独立保护数量。
+
+**本机定量证据。** macOS arm64、当前 Debug 构件、真实分配器计账；不是 RSS。原固定
+JSON workspace 的 `sizeof` 为 **17,498,224 bytes**。现在 owner **128 bytes**，小文档峰值
+**3,008 bytes**，16 MiB 原文但只有 `{}` 和空白的用例峰值 **2,688 bytes**；1 MiB 密集字符串
+峰值 **1,575,552 bytes**，包括增长时同时存活的新旧块。每次检查结束只剩 owner，销毁后归零。
+增长语料逐次失败注入后均能释放并再次检查成功，没有缩小原来允许的输入上限。
+
+| 活动 runtime | 拓扑 / 真实 RPC | 插件计账当前量 / 峰值（bytes） |
+| --- | --- | --- |
+| 1 | 一个 Executor runtime + 一个 native Host，共两 Session | 2,804,045 / 2,804,045 |
+| 4 | 两对 Host / Executor runtime，共四 Session | 6,268,516 / 6,269,044 |
+| 10 | 五对 Host / Executor runtime，共十 Session | 15,671,290 / 15,671,818 |
+
+这里含固定协议队列、native owner、源码与 JS；不是十份空引擎的独立 heap 数。两种角色成对
+使用既有通道数量上限，没有为十实例探针放宽生产 16 通道上限。私有 / 公共 runtime 各 100 次
+真实 RPC 开关后，计账和 fd 都归零；不代表真实业务插件的长时内存曲线。
+
+**已完成范围。** 默认 `build-core.sh` / `gate.sh` 为 **467 CTest / 154 ABI**；显式 JS ON /
+SSH ON 的完整 Core **574 项**通过。新内存 runner **14 组 / 117 项基线及最终恢复**通过；
+既有 runtime **13 组 / 33 私有场景 / 四配置拒绝**复验，并在 NDK 28.2 / arm64 / API29 实际
+编译和链接 ELF，**未设备执行**。包检查 **35 组 / 17 配置拒绝 / 50 CTest**最终复验通过，
+原生固定目录与独立 Node / Ajv / semver **72 夹具 + 七个选点 OOM**通过；选点不等于逐分配
+完整扫描。所有这些变异为手工 ASan/UBSan，无 LSan、不增加 CI 二十份。
+
+共享 allocator 接线涉及的既有释放保护另完整复验；物理快照本轮只选擦除组，不冒充二十八批
+全部 28 组重跑。所有行均要求编译后正常断言红、同构件配置绿、重建恢复与 SHA256。
+
+| 保护族 | 本轮通过组数 |
+| --- | --- |
+| stream / wire | 13 / 16 |
+| route / SSH stream | 13 / 14 |
+| ResourceStore / Session / RPC | 32 / 21 / 23 |
+| scoped Source / resource transfer | 34 / 36 |
+| physical snapshot 擦除专项 | 1；基线 / 最终恢复均跑完整 41 项 |
+| 公共 channel | 21 C + 3 Swift |
+| 公共 resource / Source | 26 C + 4 Swift / 24 C + 5 Swift |
+
+另有 **24 次 macOS 严格 C11 / pedantic 编译**；Apple **150/4**、JNI **116/38** 对拍仍一致。
+统一收据在 `tmp/plugin-memory-work/result.json`，包含 **17 份 accepted 原始收据**的路径 /
+摘要、最终生产源码 SHA256、定量结果和保留失败日志；收口时逐份检查原输入摘要仍与工作区
+一致。定量原件为 `metrics.json`，默认 / 显式开启完整 Core 日志为 `final-gate.log` /
+`final-tests-on.log`，均在同目录。本轮保持现有未提交候选，不提交第二十九批、不推送或启用 App。
+
+**失败保留。** 新 runner 初版的弃用 sprintf / 公共 enum 别名编译失败、CTest 发现误包含
+未构建的 snapshot executable / Python validator、make 快速改写未重编，以及冗余 caught-OOM
+变异仍 PASS，均未计红 / 通过。补强实际 object / archive / executable 删除重建与逐项编译
+断言，分类保护改用实际 MEMORY→SCRIPT 回归。Debug + ASan 的 SDK 导入实际报
+`Maximum call stack size exceeded`，没有放宽 256 KiB 栈；新变异使用与既有 runtime 一致的
+RelWithDebInfo + ASan/UBSan 档，普通 Debug 档另由完整 Core 验证。原 Source runner 曾误读
+其它 foreach 的注册表，已改为绑定 `bridge_source`；一次最终真实 SSH deny2 清理超时另留
+失败日志，没有放宽该断言；随后 Source 34 组、完整 native 与两 / 三跳允许 / 拒绝四 SSH
+场景完整重跑通过（`tmp/plugin-source-mutations-fv_ow4x9/logs/result.json`），不把前一轮算绿。
+
+**范围限制。** 现有 QuickJS 编译 OOM / 字节码清理崩溃仍按第二十九批保留；本片预算测试不
+抵消那个失败，不把正常路径或单点 OOM 通过说成引擎已安全。App 按命令激活 / 空闲回收、跨包
+snapshot 复用、真实业务插件 / 图像 / AI 长历史和 macOS footprint / Android PSS / 真机专项
+仍待接。测试探针、编译与脚本接线失败单列保留，不计通过；不新增 macOS CI 二十份。
+
 ### P0 第三十一批：编译器 OOM 的缓冲与 switch 回填（2026-11-06）
 
 先按独立引擎切片处理第二十九批卡点，不把元数据候选和第三十批内存改动混入本次提交。
@@ -2836,6 +3039,55 @@ parse_capture 检查后七种语料完整重跑。初版变异 runner 的 quanti
 失败计为目标红。一次隔离目录内使用根目录相对路径的设置错误单列保留，纠正路径后复验。
 第二十九批继续做独立包校验验收，后续模块闭包、App 授权 / 视图、完整 SDK、gterm 与实际
 插件仍待完成；外部网关只预留。
+
+### P0 第三十四批：原生包元数据独立收口（2026-11-06）
+
+在 `136872c` 的八份引擎补丁和第三十二批共享内存 / 动态 JSON 上，收口第二十九批
+固定字节校验候选。本次提交 `package-check.h/.c` / `package-check-js.inc`、私有 snapshot
+只读 view、锁定开发依赖生成的可信校验 capsule，以及对应 CMake / 测试 / 完整第三方许可。
+普通构建不引入 Node / npm / 联网；JS OFF 显式 UNSUPPORTED。开启后只解释宿主随构建固定
+的 metadata validator，不运行包内业务代码，不增加公共 ABI / 两端绑定或 App 激活。
+
+从相同快照读取 manifest / integrity，严格原生 JSON 先拒绝重键、非法 UTF-8、不精确整数与
+超限，再检查 schema、逐成员 hash / 大小 / 完整覆盖、入口、宿主版本 / 协议 / 能力、执行端
+variant 与命令冲突。host / registry 为 native 调用方显式提供的观察事实，缺失 / 不支持 /
+拒绝不折叠；测试事实不冒充实际 OS / 程序探测。只有 COMPATIBLE 消费快照并交付 checked
+owner，失败保留给调用方；固定字节不随原目录后续修改改变。结果明确未获执行授权 / 未验
+发布者身份，冲突只标需要显式关联。内存 / 取消 / 时钟 / 到期和关闭错误各自保留，释放后
+提交前再检查屏障；共享 heap 与单次 validator 上限同时执行。
+
+**最终验收，均为当前生产输入。**
+
+| 范围 | 结果 |
+| --- | --- |
+| 默认 `build-core.sh` / `gate.sh` | 467 CTest / 154 ABI |
+| JS ON / SSH ON Debug 完整 Core | 577 项 |
+| Apple / JNI 引用对拍 | 150 / 4、116 / 38（引用 / 登记未用） |
+| 元数据 / JSON / 编译 C 专项 | 本机优化 ASan/UBSan 基线 / 最终各 50 项；Android 实际 NDK ELF 49 项（不含 Python 生成物检查） |
+| 编译后变异 | 35 组目标正常断言红、同 archive 独立配置绿、重建恢复与 SHA256 |
+| 配置拒绝 | 7 项生成物 / 输入集＋八份引擎补丁各缺失 / 改字节，共 23 项，单列而非目标红 |
+| 固定目录 / 独立 Node 对拍＋逐分配失败 | Debug 72＋1892；优化 ASan/UBSan 72＋1554；Android ELF 72＋1554，均无观察钩子 |
+| 旧元数据 testkit | 96 夹具 / 6 变异 |
+| provider / SSH / JS 全 OFF | 包 JSON / disabled checker / snapshot 共 67 项 |
+| 严格 C11 / pedantic / Werror | macOS / NDK 各 4 个 translation unit，共 8 次 |
+
+Android 为 NDK 28.2 arm64 / API29 ELF，执行于 API36 / arm64 / 4 KiB 页私有模拟器。
+本机变异为优化 ASan/UBSan，无 LSan；普通完整 Core 为 Debug。全部为手工证据，不增加
+macOS CI 二十份。没有修改平台产品源码，不借 native ELF 宣称 App / 真机 / 发行通过。
+
+收据 / 输入 SHA256 汇总在 `tmp/plugin-oom-work/package-result.json`：变异原件
+`tmp/pkgcheck-8lf51tjj/logs/result.json`、设备原件
+`tmp/plugin-oom-work/package-device/result.json`，三档逐分配原件沿第三十三批列出的
+`pkg-native-6zezg7jk` / `pkg-native-mavr8dws` / `pkg-native-t2dzso89`。默认 / enabled
+完整日志在同目录 `package-final-gate.log` / `package-final-on-tests.log`。
+
+**失败与边界。** 全 OFF 首次选中 snapshot 边界测试却漏构建对应 executable，Not Run
+原日志保留且未计通过；补构建后完整 67 项重跑通过。第二十九批的所有历史 OOM 崩溃与
+前期失败仍保留；第三十一至三十三批修复后，本批在最终相同输入重新跑完整正常 / OOM /
+变异验收，不以历史正常通过抵消失败。目录 Unicode 采用现有 NFC + toLowerCase 路径
+策略，空目录 Unicode / 完整文件系统 casefold 仍未实现。来源签名 / 信任、模块闭包与 SDK
+identity、Session digest 绑定、注册 / 安装替换 / 多包复用、App 授权 / 原生视图、gterm /
+完整 SDK 与真实业务插件继续；本片只是 metadata-only 私有接缝，未来网关不实现。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 
