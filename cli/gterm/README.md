@@ -84,3 +84,23 @@ python3 scripts/mutation-check-gterm.py --stdio
 
 此进程测试以真实独立 child 与公共 native HOST Session 往返，不模拟 wire 成功。App
 原生授权页面、实际 SSH 启动矩阵、本机 IPC、官方 preview 与其它业务插件尚未完成。
+
+`plugin resolve` 对显式列出的开发包解析一条完整 Executor 命令：
+
+```sh
+gterm plugin resolve --host-json host.json -- 'ai codex' ./package-a DIGEST_A ./package-b DIGEST_B
+# 冲突后，用户明确选定插件 ID 与当前精确摘要：
+gterm plugin resolve --host-json host.json --select org.example.ai DIGEST_A -- 'ai codex' ./package-a DIGEST_A ./package-b DIGEST_B
+```
+
+每个目录后必须给其完整性清单的 SHA256；这表示本次显式信任该开发包字节，不证明发布者
+身份。最多 32 个包，不扫描 cwd、环境变量或默认安装路径。所有包固定捕获、完整性及兼容
+校验通过后才解析；没有按顺序优先、隐式替换或自动选择。返回选定 ID、版本、摘要、命令、
+标题和参数 schema 路径；schema 尚未解码，解析不激活插件、不保存关联、不授予 Session 权限。
+任何包失败或关闭失败均不输出部分选定结果。冲突退出 8，显式选择过期退出 9，命令缺失退出
+10；未知能力 3、不支持 4、开发摘要不符 6，其余输入/校验/IO 沿用 2/5，取消 130。
+
+```sh
+python3 scripts/test-gterm-resolve.py --binary tmp/gterm-build/gterm
+python3 scripts/mutation-check-gterm.py --resolve
+```

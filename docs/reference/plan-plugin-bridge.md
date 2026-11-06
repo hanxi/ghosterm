@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第四十三批前台 stdio Executor。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第四十五批显式开发包命令解析。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -187,7 +187,7 @@ core/tests/      分帧、生命周期、权限、资源和互操作测试
 core/src/ssh/wire.h  私有递归字节 IO / readiness；内层 SSH 不直接拨 TCP
 
 cli/gterm/
-  main.c / stdio.c 已接 doctor / plugin check / 显式开发包 stdio 激活；跨包命令发现待接，不包含业务命令实现
+  main.c / stdio.c 已接 doctor / plugin check / 显式开发包 stdio 激活；已接显式目录/摘要的跨包解析；安装发现与自动分发待接，不包含业务命令实现
   tty_posix.c    TTY 状态保存 / 恢复、前台占用、用户取消
   process_posix.c / ipc_posix.c
   relay.c        可选前台中继，具体支持拓扑由探针决定
@@ -3514,6 +3514,44 @@ CLI `a01236a5a57d5bf4aadd4020de5120092ba34976966e6365fa53813fdcb8e762`，
 `tmp/gterm-lifetime-gate.log`、`tmp/gterm-lifetime-core-on-tests.log`。本片没有改公开
 ABI 或平台 UI；手工验证不增加 CI 二十份，跨包命令/schema、实际 SSH CLI 启动、本机
 IPC、App 授权/视图与官方业务插件仍待完成。
+
+### P0 第四十五批：CLI 显式开发包命令解析（2026-11-06）
+
+`gterm plugin resolve --host-json FILE [--select ID DIGEST] -- COMMAND DIRECTORY DIGEST ...`
+把第三十八批公共命令注册器接入实际 CLI。最多 32 个调用方显式列出的开发包，每个目录
+须给当前完整性清单 SHA256；固定捕获、完整性/兼容检查及逐包摘要匹配后，以本次明确的
+开发来源决定注册。它不扫描默认路径，不以包摘要证明发布者身份，不保存安装或命令关联。
+
+按完整 Executor 命令解析；精确重名与前缀冲突不按目录顺序抢占，用户须显式给插件 ID /
+精确摘要。冲突退出 8，过期选择（包括指定 ID 已不存在）退出 9，无命令退出 10；能力
+未知/不支持、摘要不符、取消分别保留。所有包与 owner 关闭均成功后才输出单份解析结果，
+任一包失败不返回部分候选。输出 ID、版本、包摘要、贡献命令/标题/schema 路径，转义非
+ASCII/控制字符；参数 schema 解码与执行尚未接，运行批准/发布者认证仍为 false。说明见
+`cli/gterm/README.md`。
+
+主机十五项实际 CLI 测试覆盖唯一候选、冲突及倒序、显式选择、过期摘要/消失 ID、缺失
+命令、前缀冲突、重复 ID、来源摘要不符/非法、后续包篡改、未知 host 事实、包数限额和
+参数用法；模块顶层抛错仍可解析，禁止把发现当激活。首轮 missing-id 判据错误地期望
+NOT_FOUND，按已有注册器 STALE 契约修正；原初工具输出保留，不计整轮绿。
+最终 `tmp/gterm-resolve-final-tests.log` 十五项通过，JS OFF 显式不支持通过；旧 stdio
+十二项及双向 TTY 复验通过。默认 gate 470 CTest / 169 ABI 通过，Core/公开 ABI/平台 UI
+未改，不声称重跑本轮 JS ON 634 项。
+
+NDK 28.2 / API29 / arm64 实际 CLI 在专用 API36 arm64 / 4 KiB 页模拟器同源十五项通过，
+执行适配器 `tmp/gterm-resolve-device.py` 只把实际 CLI 子进程迁到设备，参数经严格 shell
+编码，所有测试包为本轮独有夹具并已清理。主机/设备产物摘要一致：
+`23c8ed4b421ff8bf6f42d2f0f7c51beca916c967a3d017e5eb3c78a9511ac75c`。
+日志 `tmp/gterm-resolve-final-android-build.log`、`tmp/gterm-resolve-final-device.log`。
+不是 APK、真实设备、SSH 启动或发行验收。
+
+新增六组隔离 CLI 变异护逐包摘要、精确选择、Executor 侧、冲突结果、来源三态与数量
+限额；既有诊断七组同时复验。首版选择变异造成未使用变量编译失败，日志
+`tmp/gterm-resolve-mutations.log` 保留且不计目标红；修正为保留变量引用的行为变异。
+最终采用优化 ASan/UBSan，无 LSan，真实编译后的正常断言红、同 archive 配置绿、复原
+绿与 SHA256；原件 `tmp/gterm-mutations-ghlf1am9/logs/result.json`（六组）与
+`tmp/gterm-mutations-hhnwdpyb/logs/result.json`（七组），最终全部输入摘要逐项一致。
+手工证据不增加 CI 二十份；持久安装发现、CLI schema 解码/完整分发、
+SSH 启动、本机 IPC、App 授权/视图与官方业务插件继续。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

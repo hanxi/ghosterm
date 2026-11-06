@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MARK = 'GT_GTERM_MUTATION'
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def main():
-    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--stdio', action='store_true'); parser.add_argument('--session-loss', action='store_true'); args = parser.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--resolve', action='store_true'); parser.add_argument('--stdio', action='store_true'); parser.add_argument('--session-loss', action='store_true'); args = parser.parse_args()
     if args.session_loss: args.stdio = True
     relative = 'core/src/extension/session.c' if args.session_loss else 'cli/gterm/stdio.c' if args.stdio else 'cli/gterm/main.c'
     file = ROOT / relative; original = file.read_bytes()
@@ -14,9 +14,9 @@ def main():
     cases = [
         ('host-nul', ' || memchr(text, 0, used)', '', 'host-nul'),
         ('host-link', 'O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK', 'O_RDONLY | O_CLOEXEC | O_NONBLOCK', 'host-link'),
-        ('directory-link', 'O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC', 'O_RDONLY | O_DIRECTORY | O_CLOEXEC', 'directory-link'),
-        ('unknown-exit', 'info.error == GT_EXT_PACKAGE_UNKNOWN ? 3', 'info.error == GT_EXT_PACKAGE_UNKNOWN ? 4', 'unknown'),
-        ('package-digest', 'json_string(metadata.package_digest);', 'json_string(metadata.manifest_digest);', 'compatible'),
+        ('directory-link', 'open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)', 'open(directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC)', 'directory-link'),
+        ('unknown-exit', 'failure(kind, info.code, info.error == GT_EXT_PACKAGE_UNKNOWN ? 3', 'failure(kind, info.code, info.error == GT_EXT_PACKAGE_UNKNOWN ? 4', 'unknown'),
+        ('package-digest', 'json_string(metadata.publisher);\n    fputs(",\\"packageDigest\\":", stdout); json_string(metadata.package_digest);', 'json_string(metadata.publisher);\n    fputs(",\\"packageDigest\\":", stdout); json_string(metadata.manifest_digest);', 'compatible'),
         ('terminal-escape', 'c < 32 || c >= 127', 'c < 32 || c > 0x10ffff', 'compatible'),
         ('activation-exit', '"COMMAND_ACTIVATION_UNAVAILABLE", 4', '"COMMAND_ACTIVATION_UNAVAILABLE", 0', 'no-activation'),
     ]
@@ -29,6 +29,15 @@ def main():
             ('arguments', '(size_t)(argc - at - 3)', '0', 'roundtrip'),
             ('dispose-error', ' || info.dispose_error', '', 'dispose-error'),
             ('method-role', 'm->receiver = GT_EXT_EXECUTOR;', 'm->receiver = GT_EXT_HOST;', 'roundtrip'),
+        ]
+    if args.resolve:
+        cases = [
+            ('resolve-digest', 'if (strcmp(metadata.package_digest, expected))', 'if (false && strcmp(metadata.package_digest, expected))', 'digest'),
+            ('resolve-selection', 'true, selected_id, selected_digest, &package', 'true, selected_id, selected_digest ? NULL : selected_digest, &package', 'select'),
+            ('resolve-side', 'registry, command, true, selected_id', 'registry, command, false, selected_id', 'unique'),
+            ('resolve-conflict', 'kind = "conflict"; result = 8;', 'kind = "not-found"; result = 10;', 'conflict'),
+            ('resolve-source', 'registry, package, GT_EXT_REGISTRY_SOURCE_ALLOWED, NULL', 'registry, package, GT_EXT_REGISTRY_SOURCE_UNKNOWN, NULL', 'unique'),
+            ('resolve-limit', '(unsigned)(argc - at - 2) / 2 > GT_EXT_REGISTRY_PACKAGES_MAX', 'false', 'limit'),
         ]
     if args.session_loss:
         cases = [('blocked-writer-eof', 'if(complete) {', 'if(!complete)return s->info.phase; if(complete) {', 'lost')]
@@ -45,7 +54,7 @@ def main():
     (source / 'tmp').mkdir()
     build = work / 'build'; commands = []
     inputs = {str(p.relative_to(ROOT)): sha(p) for folder in ['cli/gterm', 'core/src', 'core/include', 'packages/plugin-sdk'] for p in (ROOT / folder).rglob('*') if p.is_file()}
-    inputs.update({str(p.relative_to(ROOT)): sha(p) for p in [Path(__file__), ROOT / 'scripts/test-gterm.py', ROOT / 'scripts/test-gterm-stdio.py', ROOT / 'core/CMakeLists.txt']})
+    inputs.update({str(p.relative_to(ROOT)): sha(p) for p in [Path(__file__), ROOT / 'scripts/test-gterm.py', ROOT / 'scripts/test-gterm-stdio.py', ROOT / 'scripts/test-gterm-resolve.py', ROOT / 'core/CMakeLists.txt']})
     env = dict(os.environ, TMPDIR=str(work), ASAN_OPTIONS='detect_leaks=0:abort_on_error=1', UBSAN_OPTIONS='halt_on_error=1')
     def run(label, command, red=False):
         shell = '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require gterm; shift; gt_timeout 300 "$@"'
@@ -71,7 +80,7 @@ def main():
             if args.session_loss: assert 'session.c.o' in out and 'Linking C static library' in out
             assert ('stdio.c.o' if args.stdio else 'main.c.o') in out and 'Linking C executable gterm' in out
         def test(label, case=None, red=False):
-            run(label, ['python3', ROOT / ('scripts/test-gterm-stdio.py' if args.stdio else 'scripts/test-gterm.py'), *(['--build', build] if args.stdio else ['--binary', build / 'gterm']), *(['--case', case] if case else [])], red)
+            run(label, ['python3', ROOT / ('scripts/test-gterm-resolve.py' if args.resolve else 'scripts/test-gterm-stdio.py' if args.stdio else 'scripts/test-gterm.py'), *(['--build', build] if args.stdio else ['--binary', build / 'gterm']), *(['--case', case] if case else [])], red)
         rebuild('baseline-build'); test('baseline')
         for label, old, new, case in cases:
             path = source / relative
