@@ -335,7 +335,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                         ensureActive()
                         check(connecting === attempt) { "任务认证请求已失效：$requestId" }
                         val auth = connection.authentication()
-                        attempt.auth = auth; attempt.message = auth.description
+                        publishAuthentication(attempt,auth,listed)
                         val state = connection.state()
                         if(state.ready) { rememberSuccessfulIdentity(attempt)?.let { identityMemoryWarning = it }; break }
                         check(!state.finished && auth.phase != SSHAuthPhase.FAILED && auth.phase != SSHAuthPhase.CANCELLED) {
@@ -354,6 +354,21 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                 attempt.credentialJob?.cancel(); attempt.connection = null
                 if(connecting === attempt) connecting = null
             }
+        }
+    }
+    private fun publishAuthentication(attempt: SSHAttempt, auth: SSHAuthState, listed: Boolean) {
+        // Configured keys authenticate without briefly presenting a credential form.
+        // A rejected request or unlock error returns to explicit user input.
+        val automaticAuthentication = auth.phase == SSHAuthPhase.CREDENTIALS && !attempt.manualCredentials &&
+            attempt.credentialError == null && (!listed || attempt.credentialBusy ||
+            auth.request in attempt.automaticKeyRequests ||
+            (auth.methods and 1 != 0 && com.hanxi.ghosterm.data.IdentityReferences.automaticCandidate(
+                attempt.authenticationIdentityFiles,attempt.identities,attempt.triedIdentityIds) != null))
+        // Publish the prompt and its presentation policy together; observers
+        // must not see a new prompt paired with the previous phase's flag.
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            attempt.automaticAuthentication = automaticAuthentication
+            attempt.auth = auth; attempt.message = auth.description
         }
     }
     fun setConnectionUsername(id: UUID, value: String) {
@@ -394,20 +409,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                         ensureActive()
                         val connection = checkNotNull(owned)
                         val auth = connection.authentication()
-                        // Configured keys authenticate without briefly presenting a credential form.
-                        // A rejected request or unlock error returns to explicit user input.
-                        val automaticAuthentication = (attempt.filesReady != null || attempt.forTerminal) &&
-                            auth.phase == SSHAuthPhase.CREDENTIALS && !attempt.manualCredentials &&
-                            attempt.credentialError == null && (!listed || attempt.credentialBusy ||
-                            auth.request in attempt.automaticKeyRequests ||
-                            (auth.methods and 1 != 0 && com.hanxi.ghosterm.data.IdentityReferences.automaticCandidate(
-                                attempt.authenticationIdentityFiles,attempt.identities,attempt.triedIdentityIds) != null))
-                        // Publish the prompt and its presentation policy together; observers
-                        // must not see a new prompt paired with the previous phase's flag.
-                        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
-                            attempt.automaticAuthentication = automaticAuthentication
-                            attempt.auth = auth; attempt.message = auth.description
-                        }
+                        publishAuthentication(attempt,auth,listed)
                         if(attempt.forFiles && auth.phase in listOf(SSHAuthPhase.READY,SSHAuthPhase.TAKEN))
                             attempt.message = "正在打开远端文件…"
                         val terminalState = (connection as? RemoteSession)?.state()

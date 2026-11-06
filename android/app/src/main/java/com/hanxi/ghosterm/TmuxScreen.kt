@@ -28,8 +28,7 @@ fun TmuxScreen(model: TmuxViewModel) {
                 Text("关闭终端仅断开当前客户端，任务保留遵循远端 tmux 与系统策略。“结束会话”会终止其中的任务。",
                     style=MaterialTheme.typography.bodyMedium)
             }
-            if(model.busy || model.connecting)item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-            if(model.connecting)item { Text("正在连接后台会话管理…") }
+            if(model.busy)item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             model.error?.let { message -> item { Text(message,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("tmux-error")) } }
             model.notice?.let { message -> item { Text(message,modifier=Modifier.testTag("tmux-notice")) } }
             item {

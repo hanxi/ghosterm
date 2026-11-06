@@ -66,4 +66,18 @@ class SSHConnectionPresentationTest {
         ui.onNodeWithTag("ssh-connection-progress").assertIsDisplayed()
         ui.runOnIdle { assertEquals("user", model.connecting!!.username); assertEquals("", model.connecting!!.target.user) }
     }
+    @Test fun tmuxManagementUsesInlineProgressAndBackCancels() {
+        val model=SessionsViewModel(ui.activity.application, SSHResolver { awaitCancellation() }, monitorSessions=false)
+        ui.runOnUiThread {
+            store.put("connection",model)
+            model.connectTmux(PreparedSSH("tmux-host","example.invalid","user",22,emptyList())) { remote,_ -> remote.close() }
+        }
+        ui.setContent { GhostermApp(sessions=model) }
+        ui.onNodeWithTag("ssh-connection-progress").assertIsDisplayed()
+        ui.onAllNodes(isDialog()).assertCountEquals(0)
+        ui.runOnIdle { ui.activity.onBackPressedDispatcher.onBackPressed() }
+        ui.runOnIdle { assertNull(model.connecting) }
+        ui.onNodeWithTag("ssh-connection-progress").assertDoesNotExist()
+    }
+
 }

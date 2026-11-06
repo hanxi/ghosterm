@@ -5,6 +5,10 @@ import android.graphics.Bitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.lifecycle.lifecycleScope
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hanxi.ghosterm.bridge.*
@@ -82,7 +86,7 @@ class RemoteFileTasksProductTest {
                 assertFalse("authentication failed: ${attempt.message}",attempt.failed)
                 when(attempt.auth?.phase) {
                     SSHAuthPhase.HOSTKEY -> if(trustedAttempts.add(attempt.id)) ui.onNodeWithText("信任并连接").performClick()
-                    SSHAuthPhase.CREDENTIALS -> if(attempt.identities.any { it.id==key.id } && !attempt.credentialBusy) {
+                    SSHAuthPhase.CREDENTIALS -> if(!attempt.passiveProgress && attempt.identities.any { it.id==key.id } && !attempt.credentialBusy) {
                         if(authIds.add(attempt.id)) {
                             ui.onNodeWithTag("ssh-key-${key.id}").performScrollTo().performClick()
                             if(!remember && attempt.rememberIdentity)
@@ -302,7 +306,7 @@ class RemoteFileTasksProductTest {
         File(ui.activity.cacheDir,"file-task-confirmation.png").outputStream().use { picture.compress(Bitmap.CompressFormat.PNG,100,it) }
         val task=latest
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
-        ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
+        ui.waitUntil(10000) { auth().connecting?.let { it.auth?.phase==SSHAuthPhase.CREDENTIALS && !it.passiveProgress } == true }
         val attempt=auth().connecting!!.id
         ui.activityRule.scenario.recreate();ui.waitForIdle()
         assertSame(task,latest);assertEquals(attempt,auth().connecting!!.id)
@@ -318,16 +322,31 @@ class RemoteFileTasksProductTest {
     }
     @Test fun rememberedBrowserIdentityAuthenticatesIndependentTaskWithoutSelectingAgain() {
         openRemote(remember=true);assertEquals(1,authIds.size);copy("文本.txt")
-        ui.runOnIdle { files().choose(FileEndpoint.APP) };loaded();entry(unique).performClick();loaded()
-        ui.onNodeWithTag("file-paste").performClick()
-        ui.waitUntil(15000) { latest.phase in setOf(FileTaskPhase.CONFIRMING,FileTaskPhase.FINISHED) }
-        assertEquals("preflight: ${latest.error}",FileTaskPhase.CONFIRMING,latest.phase)
-        ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
-        ui.waitUntil(15000) { !tasks().busy }
-        assertEquals("copy: ${latest.result?.error}",FileCopyState.COMPLETE,latest.result?.state)
-        assertEquals("远端 UTF-8\nline two\n",File(home,"$unique/文本.txt").readText())
-        assertEquals("Only the initial browser connection selected a key",1,authIds.size)
-        assertNull(auth().connecting)
+        val credentialStages=mutableListOf<Boolean>()
+        lateinit var observer: Job
+        ui.runOnIdle {
+            observer=ui.activity.lifecycleScope.launch(start=CoroutineStart.UNDISPATCHED) {
+                snapshotFlow { auth().connecting?.let { it.auth?.phase to it.passiveProgress } }
+                    .collect { state -> if(state?.first==SSHAuthPhase.CREDENTIALS) credentialStages.add(state.second) }
+            }
+        }
+        try {
+            ui.runOnIdle { files().choose(FileEndpoint.APP) };loaded();entry(unique).performClick();loaded()
+            ui.onNodeWithTag("file-paste").performClick()
+            ui.waitUntil(15000) { latest.phase in setOf(FileTaskPhase.CONFIRMING,FileTaskPhase.FINISHED) }
+            assertEquals("preflight: ${latest.error}",FileTaskPhase.CONFIRMING,latest.phase)
+            ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
+            ui.waitUntil(15000) { !tasks().busy }
+            assertEquals("copy: ${latest.result?.error}",FileCopyState.COMPLETE,latest.result?.state)
+            assertEquals("远端 UTF-8\nline two\n",File(home,"$unique/文本.txt").readText())
+            assertEquals("Only the initial browser connection selected a key",1,authIds.size)
+            assertNull(auth().connecting)
+            ui.runOnIdle {
+                assertTrue("Observe real task credential stages",credentialStages.isNotEmpty())
+                assertTrue("Automatic task authentication stays inline",credentialStages.all { it })
+            }
+            ui.onAllNodes(isDialog()).assertCountEquals(0)
+        } finally { observer.cancel() }
     }
     @Test fun downloadUsesSourceRoleAndLeavingFilePageKeepsTaskAlive() {
         openRemote();copy("文本.txt")
@@ -335,7 +354,7 @@ class RemoteFileTasksProductTest {
         entry(unique).performClick();loaded()
         ui.onNodeWithTag("file-paste").performClick();ready()
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
-        ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
+        ui.waitUntil(10000) { auth().connecting?.let { it.auth?.phase==SSHAuthPhase.CREDENTIALS && !it.passiveProgress } == true }
         ui.onNodeWithTag("ssh-task-role").assertTextEquals("复制任务 · 读取来源")
         ui.runOnIdle { files().leave();files().disconnectAll() }
         loginUntil { !tasks().busy }
@@ -407,20 +426,20 @@ class RemoteFileTasksProductTest {
         openRemote();val source=files().location
         val snapshot=FileClipboardSnapshot.capture(source,source.directoryId,listOf(files().entries.single { it.name=="文本.txt" }))
         start(snapshot,FileLocation(FileEndpoint.APP,unique))
-        ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
+        ui.waitUntil(10000) { auth().connecting?.let { it.auth?.phase==SSHAuthPhase.CREDENTIALS && !it.passiveProgress } == true }
         val old=auth().connecting!!;val prompt=old.auth!!
         ui.onNodeWithText("取消连接").performClick()
         ui.waitUntil(10000) { !tasks().busy && owners()==1 }
         assertTrue(latest.cancelled);assertNull(latest.result);assertFalse(File(home,"$unique/文本.txt").exists())
         start(snapshot,FileLocation(FileEndpoint.APP,unique))
-        ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
+        ui.waitUntil(10000) { auth().connecting?.let { it.auth?.phase==SSHAuthPhase.CREDENTIALS && !it.passiveProgress } == true }
         val fresh=auth().connecting!!;val secret="must be wiped".toByteArray()
         ui.runOnIdle { auth().password(old.id,prompt,secret) }
         assertTrue(secret.all { it==0.toByte() });assertNotEquals(old.id,fresh.id)
         assertEquals(SSHAuthPhase.CREDENTIALS,auth().connecting!!.auth!!.phase)
         ready()
         ui.onNodeWithTag("file-task-confirm").performScrollTo().performClick()
-        ui.waitUntil(10000) { auth().connecting?.auth?.phase==SSHAuthPhase.CREDENTIALS }
+        ui.waitUntil(10000) { auth().connecting?.let { it.auth?.phase==SSHAuthPhase.CREDENTIALS && !it.passiveProgress } == true }
         ui.onNodeWithText("取消连接").performClick()
         ui.waitUntil(10000) { !tasks().busy && owners()==1 }
         assertEquals(FileCopyState.CANCELLED,latest.result?.state)
@@ -455,7 +474,7 @@ class RemoteFileTasksProductTest {
         val attemptsBefore=authIds.size
         ui.runOnIdle {
             assertEquals(FileTaskPhase.QUEUED,first.phase);assertEquals(FileTaskPhase.QUEUED,second.phase)
-            assertNull(auth().connecting);assertEquals(1,owners())
+            assertNull(auth().connecting);assertEquals(2,owners()) // Both browser endpoints remain connected.
             tasks().cancel(cancelled)
             tasks().cancel(blocker)
         }
@@ -478,7 +497,7 @@ class RemoteFileTasksProductTest {
         assertFalse(File(home,"$unique/cancelled/文本.txt").exists())
         assertFalse(File(home,"$unique/block/$unique.txt").exists())
         assertEquals(attemptsBefore+4,authIds.size)
-        assertEquals(sourceTwo,files().location);ui.waitUntil(10000) { owners()==1 }
+        assertEquals(sourceTwo,files().location);ui.waitUntil(10000) { owners()==2 }
     }
     @Test fun changedConfigurationAndUnsupportedOptionsCannotRedirectFrozenTask() {
         openRemote();val source=files().location

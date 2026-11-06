@@ -167,7 +167,7 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
     } } }
     val colors = ghostermColors(dark)
     GhostermTheme(dark) {
-        SSHConnectionLayout(sessions) {
+        SSHConnectionLayout(sessions, fileTasks.authentication.takeIf { fileTasks.presentsAuthentication }) {
             SSHConnectionDialog(sessions)
             SSHConnectionDialog(fileTasks.authentication,fileTasks.presenterId,
                 visible=fileTasks.presentsAuthentication && sessions.connecting==null)

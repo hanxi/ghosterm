@@ -39,7 +39,7 @@ def execute(root,build,test):
     ]
     cases += [
       ('clear-lifetime',model,'override fun onCleared() { leave();disconnectAll();super.onCleared() }','override fun onCleared() { leave();super.onCleared() }','clearingBrowserViewModelClosesRetainedOwners'),
-      ('progress-dialog',root/'android/app/src/main/java/com/hanxi/ghosterm/SSHConnectionDialog.kt','if ((attempt.filesReady != null || attempt.forTerminal) && attempt.passiveProgress) return','if (false && (attempt.filesReady != null || attempt.forTerminal) && attempt.passiveProgress) return','passiveStagesShareOnePageIndicatorAndCanBeCancelled'),
+      ('progress-dialog',root/'android/app/src/main/java/com/hanxi/ghosterm/SSHConnectionDialog.kt','if (attempt.passiveProgress) return','if (false && attempt.passiveProgress) return','passiveStagesShareOnePageIndicatorAndCanBeCancelled'),
     ]
     scopes='remoteAndLocalTabsRetainDirectoriesClipboardAndTheSameFileConnection'
     cases += [
