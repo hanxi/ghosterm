@@ -1,0 +1,14 @@
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -25978,6 +25978,11 @@
+         if (js_parse_class_default_ctor(s, class_flags & JS_DEFINE_CLASS_HAS_HERITAGE, &ctor_fd))
+             goto fail;
+     }
++    /* Emission is sticky on OOM; no bytecode operand exists to patch. */
++    if (dbuf_error(&fd->byte_code)) {
++        JS_ThrowOutOfMemory(ctx);
++        goto fail;
++    }
+     /* patch the constant pool index for the constructor */
+     put_u32(fd->byte_code.buf + ctor_cpool_offset, ctor_fd->parent_cpool_idx);
+ 

@@ -2725,6 +2725,46 @@ NFC / Unicode 大小写策略、来源 / 签名、宿主版本 / 能力与命令
 原生批准 / 视图、gterm 前台入口、完整 SDK / 进程、实际插件 / 多实例与安装继续，整个插件
 目标未完成；未来网关只预留、不实现。
 
+### P0 第三十一批：编译器 OOM 的缓冲与 switch 回填（2026-11-06）
+
+先按独立引擎切片处理第二十九批卡点，不把元数据候选和第三十批内存改动混入本次提交。
+`patches/quickjs-ng/0.18.0` 固定七份补丁，构建只改私有副本，分别核对原始输入、补丁与
+应用后的 `quickjs.c` / `cutils.h` SHA256，vendor 不变。前五份候选覆盖 label 优化 OOM、class constructor、constant-pool 与截断函数错误；
+本片新增 DynBuf error 后七类写入 / claim 一致停止，以及 switch default 回填前的
+发射错误检查。
+
+当前实际包语料的 Debug ordinal 1075 经 LLDB 证实：`emit_goto → emit_u32` 预约失败后，
+default 仍用未发射 operand 的位置覆盖前序指令，最终将损坏字节误读成 atom 1115587。
+单加 DynBuf sticky 仍崩溃，补回填检查后原点显式返回 ENGINE_MEMORY。ordinal 只属于
+相应语料和构件；不使用 atom 越界忽略、填充空间、改变栈或预算来隐藏错误。
+
+独立 `test_plugin_compiler_oom` 不依赖包校验器，包含备用容量下七类缓冲操作，和 class /
+private field / 闭包 / 120 case switch 的逐分配失败与销毁归零。无观察钩子的 macOS Debug
+扫描 164 个分配点、NDK 28.2 arm64 API29 ELF 在 API36 / 4 KiB 页模拟器扫描 167 点通过。
+`mutation-check-plugin-compiler.py --build 已启用JS且关闭SSH的ASan构建目录` 另执行八组：
+七类 sticky 与 switch 回填前置检查，真实重编译引擎 / archive / executable，同 archive
+配置对照绿、正常目标断言红、重建恢复绿与 SHA256。switch 的确定性发射失败注入与危险
+写前观察仅在隔离构件；实际包语料扫描使用无钩子引擎，两类证据分开。ASan/UBSan，无 LSan。
+
+独立提交源码的默认 `build-core.sh` / `gate.sh` 为 438 CTest / 154 ABI，JS ON / SSH ON
+完整 Core 511 项，边界注入测试收紧后另复验两项；没有新增公共 ABI、平台产品代码或 App 激活。编译器和 native Core / NDK
+证据不等于 App、真机或业务插件验收，不增加 macOS CI 二十份。
+
+**仍有阻塞。** 包候选固定输入的 macOS Debug 72 夹具＋1892 分配点、Android 实际 ELF
+72 夹具＋1554 分配点通过，但 macOS 优化 ASan 在 ordinal 1427 发现另一处
+`libregexp.c` 的不完整正则 atom 检查越界；不把上述正常构件绿当作包校验已安全。
+该正则问题独立进入下一批，第二十九批仍不提交、不接 App。一个临时正则修复探针已跑完
+原分配范围，但期间测试源变动使摘要拒收，不记最终验收。
+
+**失败保留。** 初次完整包扫描的输入摘要变化拒收；独立 switch 普通语料变异仍 PASS，
+没有计红，随后补确定性发射失败观察。隔离源码初版路径过长导致 agent UNIX socket 无法
+创建，原闸门红；换仓库内短目录后完整重跑。RelWithDebInfo 的全 Core 因既有 assert-only
+测试触发 unused 编译错误，未计通过；完整 Core 使用原 Debug 档，引擎变异仍为优化 sanitizer。
+
+本地收据和最终输入摘要见 `tmp/plugin-oom-work/result.json`；变异原件、栈和未通过日志保留。
+后续按共享内存 / 按需 JSON、正则 OOM、原生元数据分别收口；实际插件、授权 / 视图、
+gterm 与完整 SDK / 安装仍待接，外部网关只预留。
+
 ### P0 关闭技术风险并冻结第一份协议候选
 
 **交付：** 隔离探针、对照报告、兼容矩阵、schema 候选和选型决策。分别验证 JS 引擎与 TTY 路由，Android / macOS 从这一阶段都参与。

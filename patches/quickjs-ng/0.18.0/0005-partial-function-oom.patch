@@ -1,0 +1,17 @@
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -37062,6 +37062,14 @@
+     int stack_size, scope, idx;
+     int function_size, byte_code_offset, cpool_offset;
+     int closure_var_offset, vardefs_offset;
++
++    /* A parser helper can mark its buffer/exception without propagating -1.
++       Never optimize or resolve a partial function definition after OOM. */
++    if (dbuf_error(&fd->byte_code) || JS_HasException(ctx)) {
++        if (!JS_HasException(ctx))
++            JS_ThrowOutOfMemory(ctx);
++        goto fail;
++    }
+ 
+     /* recompute scope linkage */
+     for (scope = 0; scope < fd->scope_count; scope++) {

@@ -1,0 +1,32 @@
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -25567,7 +25567,7 @@
+     idx = cpool_add(s, JS_NULL);
+     fd->parent_cpool_idx = idx;
+ 
+-    return 0;
++    return idx < 0 ? -1 : 0;
+ }
+ 
+ 
+@@ -37111,6 +37111,11 @@
+ 
+         fd1 = list_entry(el, JSFunctionDef, link);
+         cpool_idx = fd1->parent_cpool_idx;
++        /* Do not compile/adopt a child without a successfully reserved slot. */
++        if (cpool_idx < 0 || cpool_idx >= fd->cpool_count) {
++            JS_ThrowInternalError(ctx, "invalid child constant pool slot");
++            goto fail;
++        }
+         func_obj = js_create_function(ctx, fd1);
+         if (JS_IsException(func_obj))
+             goto fail;
+@@ -37973,6 +37978,8 @@
+ 
+         /* the real object will be set at the end of the compilation */
+         idx = cpool_add(s, JS_NULL);
++        if (idx < 0)
++            goto fail;
+         fd->parent_cpool_idx = idx;
+ 
+         if (is_expr) {

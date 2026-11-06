@@ -1,0 +1,13 @@
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -36674,6 +36674,10 @@
+                     if (ls->addr > pos)
+                         ls->addr -= delta;
+                 }
++                /* Avoid widened strided loads beyond the final JumpSlot. */
++#if defined(__clang__)
++#pragma clang loop vectorize(disable) interleave(disable)
++#endif
+                 for (j = i + 1, jp1 = jp + 1; j < s->jump_count; j++, jp1++) {
+                     if (jp1->pos > pos)
+                         jp1->pos -= delta;
