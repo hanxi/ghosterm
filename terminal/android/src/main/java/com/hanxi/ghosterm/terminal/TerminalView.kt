@@ -127,6 +127,11 @@ class TerminalView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = TerminalFonts.typeface(context) }
     // Symbol fallback must not change the text grid or the baseline of regular text.
     private val metricsPaint = Paint().apply { typeface = Typeface.MONOSPACE }
+    private data class SymbolKey(val text: String, val columns: Int, val bold: Boolean, val skew: Float)
+    private data class SymbolPlacement(val scale: Float, val x: Float, val y: Float)
+    private val symbolPlacements = android.util.LruCache<SymbolKey, SymbolPlacement>(256)
+    private val symbolBounds = android.graphics.RectF()
+    private val symbolOutline = android.graphics.Path()
     private val fill = Paint()
     private var cellWidth = 1
     private var cellHeight = 1
@@ -215,6 +220,7 @@ class TerminalView(context: Context) : View(context) {
             cellWidth = ceil(metricsPaint.measureText("M")).toInt().coerceAtLeast(1)
             cellHeight = ceil(paint.textSize * value.lineHeight).toInt().coerceAtLeast(1)
             baseline = (cellHeight - (metricsPaint.fontMetrics.descent - metricsPaint.fontMetrics.ascent)) / 2 - metricsPaint.fontMetrics.ascent
+            symbolPlacements.evictAll()
             metricsReady = true
             lastSize = null; updateSize()
         }
@@ -680,6 +686,48 @@ class TerminalView(context: Context) : View(context) {
         canvas.clipRect(0, 0, width, height)
         try { drawTerminal(canvas) } finally { canvas.restoreToCount(checkpoint) }
     }
+    private fun drawCellText(canvas: Canvas, cell: TerminalCell, left: Float, top: Float) {
+        if (cell.text.isEmpty()) return
+        val cp = cell.text.codePointAt(0)
+        // Nerd symbols live in the Unicode private-use areas. Keep ordinary text,
+        // combining marks and emoji on their original baseline and grid.
+        if (cp !in 0xe000..0xf8ff && cp !in 0xf0000..0xffffd && cp !in 0x100000..0x10fffd) {
+            canvas.drawText(cell.text, left, top + baseline, paint)
+            return
+        }
+        val key = SymbolKey(cell.text, cell.width, paint.isFakeBoldText, paint.textSkewX)
+        val placement = symbolPlacements.get(key) ?: run {
+            symbolOutline.reset()
+            paint.getTextPath(cell.text, 0, cell.text.length, 0f, 0f, symbolOutline)
+            symbolOutline.computeBounds(symbolBounds, true)
+            val width = (cellWidth * cell.width).toFloat()
+            val height = cellHeight.toFloat()
+            // Text rasterization can extend beyond outline bounds after scaling.
+            // Reserve a device pixel for its antialiased edge, not another cell.
+            val inset = minOf(1f, width / 4, height / 4)
+            // The fallback face can have wider ink or different vertical bearings
+            // even when its advance is monospace. Fit ink, not the advance; keep
+            // aspect ratio and never enlarge glyphs that already fit.
+            val scale = if (symbolBounds.isEmpty) 1f else minOf(1f,
+                (width - 2 * inset) / symbolBounds.width(), (height - 2 * inset) / symbolBounds.height())
+            val x = 0f.coerceIn(inset - symbolBounds.left * scale,
+                (width - inset - symbolBounds.right * scale).coerceAtLeast(inset - symbolBounds.left * scale))
+            val y = baseline.coerceIn(inset - symbolBounds.top * scale,
+                (height - inset - symbolBounds.bottom * scale).coerceAtLeast(inset - symbolBounds.top * scale))
+            SymbolPlacement(scale, x, y).also { symbolPlacements.put(key, it) }
+        }
+        val checkpoint = canvas.save()
+        canvas.translate(left + placement.x, top + placement.y)
+        canvas.scale(placement.scale, placement.scale)
+        val subpixel = paint.isSubpixelText
+        val linear = paint.isLinearText
+        paint.isSubpixelText = true
+        paint.isLinearText = true
+        canvas.drawText(cell.text, 0f, 0f, paint)
+        paint.isSubpixelText = subpixel
+        paint.isLinearText = linear
+        canvas.restoreToCount(checkpoint)
+    }
     private fun drawTerminal(canvas: Canvas) {
         val frame = currentFrame
         canvas.drawColor(frame?.background ?: (0xff000000.toInt() or style.appearance.background))
@@ -701,7 +749,7 @@ class TerminalView(context: Context) : View(context) {
             paint.color = if (cell.flags and 256 != 0) (0xff000000.toInt() or style.appearance.selectionForeground) else cell.foreground; paint.alpha = if (cell.flags and 4 != 0) 128 else 255
             paint.isFakeBoldText = cell.flags and 1 != 0; paint.textSkewX = if (cell.flags and 2 != 0) -0.2f else 0f
             paint.isStrikeThruText = cell.flags and 16 != 0; paint.isUnderlineText = cell.flags and 32 != 0
-            canvas.drawText(cell.text, left, top + baseline, paint)
+            drawCellText(canvas, cell, left, top)
             if (cell.flags and 64 != 0) canvas.drawLine(left, top + 1, right, top + 1, paint)
             canvas.restore()
         }
@@ -726,7 +774,7 @@ class TerminalView(context: Context) : View(context) {
                     paint.color=0xff000000.toInt() or style.appearance.cursorText;paint.alpha=255
                     paint.isFakeBoldText=cell.flags and 1!=0;paint.textSkewX=if(cell.flags and 2!=0) -.2f else 0f
                     paint.isUnderlineText=false;paint.isStrikeThruText=false
-                    canvas.drawText(cell.text,x,y+baseline,paint);canvas.restore()
+                    drawCellText(canvas,cell,x,y);canvas.restore()
                 }
             }
         }

@@ -33,6 +33,16 @@ def main():
         raise RuntimeError('Residual settings mutation')
     cases = [('renderer-font', 'NerdFontTest#installedRendererCoversNerdSymbolsAndRetainsSystemTextFallback', (
         (manifest, 'paint.typeface=face;metricsPaint.typeface=face', 'paint.typeface=Typeface.MONOSPACE;metricsPaint.typeface=face', 1),
+    )), ('symbol-fit', 'NerdFontTest#privateUseInkFitsWithoutRelyingOnCellClipping', (
+        (manifest, 'if (cp !in 0xe000..0xf8ff && cp !in 0xf0000..0xffffd && cp !in 0x100000..0x10fffd)', 'if (true)', 1),
+    )), ('normal-symbol-fit', 'NerdFontTest#normalAndBlockCursorUseTheCompleteFittedGlyph', (
+        (manifest, 'drawCellText(canvas, cell, left, top)', 'canvas.drawText(cell.text, left, top + baseline, paint)', 1),
+    )), ('cursor-symbol-fit', 'NerdFontTest#normalAndBlockCursorUseTheCompleteFittedGlyph', (
+        (manifest, 'drawCellText(canvas,cell,x,y)', 'canvas.drawText(cell.text,x,y+baseline,paint)', 1),
+    )), ('symbol-metrics-cache', 'NerdFontTest#privateUseInkFitsWithoutRelyingOnCellClipping', (
+        (manifest, 'symbolPlacements.evictAll()', '/* stale symbol metrics */', 1),
+    )), ('symbol-raster-edge', 'NerdFontTest#privateUseInkFitsWithoutRelyingOnCellClipping', (
+        (manifest, 'val inset = minOf(1f, width / 4, height / 4)', 'val inset = 0f', 1),
     ))]
     selected = args.selected or list(range(1, len(cases) + 1))
     if len(selected) != len(set(selected)) or any(n < 1 or n > len(cases) for n in selected):

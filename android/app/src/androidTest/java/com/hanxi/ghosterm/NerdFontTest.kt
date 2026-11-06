@@ -12,6 +12,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.LocalSession
 import com.hanxi.ghosterm.terminal.TerminalView
+import com.hanxi.ghosterm.terminal.TerminalCell
+import com.hanxi.ghosterm.terminal.TerminalFrame
+import com.hanxi.ghosterm.terminal.TerminalFonts
+import com.hanxi.ghosterm.terminal.TerminalStyle
 import org.junit.*
 import org.junit.Assert.*
 import java.io.File
@@ -46,6 +50,79 @@ class NerdFontTest {
     }
     private fun paint(): Paint = TerminalView::class.java.getDeclaredField("paint").apply { isAccessible=true }.get(view) as Paint
     private fun dimension(name: String): Int = TerminalView::class.java.getDeclaredField(name).apply { isAccessible=true }.getInt(view)
+    private fun drawUnclipped(canvas: Canvas, cell: TerminalCell, x: Float, y: Float) {
+        TerminalView::class.java.getDeclaredMethod("drawCellText", Canvas::class.java,
+            TerminalCell::class.java, Float::class.javaPrimitiveType, Float::class.javaPrimitiveType)
+            .apply { isAccessible=true }.invoke(view,canvas,cell,x,y)
+    }
+    @Test fun privateUseInkFitsWithoutRelyingOnCellClipping() {
+        val icons=(symbols+listOf(0xf489,0xebc5,0xe0b2).map { String(Character.toChars(it)) })
+        for(face in listOf("system","jetbrains_mono","source_code_pro")) {
+            TerminalFonts.prepare(ui.activity,face)
+            ui.runOnIdle {
+                view.surface=null
+                for(size in listOf(8f,12f,24f,32f)) for(line in listOf(1f,1.85f)) {
+                    view.updateStyle(TerminalStyle(fontId=face,fontSize=size,lineHeight=line))
+                    val width=dimension("cellWidth");val height=dimension("cellHeight")
+                    val margin=256
+                    val image=Bitmap.createBitmap(width+margin*2,height+margin*2,Bitmap.Config.ARGB_8888)
+                    try {
+                        val canvas=Canvas(image)
+                        for(flags in listOf(0,1,2,3)) for(icon in icons) {
+                            image.eraseColor(Color.TRANSPARENT)
+                            paint().apply { color=Color.WHITE;isFakeBoldText=flags and 1!=0;textSkewX=if(flags and 2!=0) -.2f else 0f;isUnderlineText=false;isStrikeThruText=false }
+                            drawUnclipped(canvas,TerminalCell(Color.BLACK,Color.WHITE,flags,1,icon),margin.toFloat(),margin.toFloat())
+                            var ink=0;var outside=0
+                            val pixels=IntArray(image.width*image.height)
+                            image.getPixels(pixels,0,image.width,0,0,image.width,image.height)
+                            for(index in pixels.indices) if(Color.alpha(pixels[index])>8) {
+                                ink++
+                                if(index%image.width !in margin until margin+width || index/image.width !in margin until margin+height) outside++
+                            }
+                            val label="$face $size/$line flags=$flags U+${icon.codePointAt(0).toString(16)}"
+                            assertTrue("Visible complete icon: $label",ink>3)
+                            if(outside!=0) {
+                                val bounds=android.graphics.Rect()
+                                paint().getTextBounds(icon,0,icon.length,bounds)
+                                val inkIndices=pixels.indices.filter { Color.alpha(pixels[it])>8 }
+                                val inkBox=listOf(inkIndices.minOf { it%image.width }-margin,inkIndices.minOf { it/image.width }-margin,
+                                    inkIndices.maxOf { it%image.width }-margin,inkIndices.maxOf { it/image.width }-margin)
+                                fail("Unclipped glyph must fit its cell: $label grid=$width/$height bounds=$bounds ink=$inkBox outside=$outside")
+                            }
+                        }
+                    } finally { image.recycle() }
+                }
+            }
+        }
+    }
+    @Test fun normalAndBlockCursorUseTheCompleteFittedGlyph() {
+        ui.runOnIdle {
+            view.surface=null
+            view.updateStyle(TerminalStyle(fontSize=24f,lineHeight=1f,
+                appearance=view.style.appearance.copy(blink=false,cursorText=0xffffff)))
+            view.requestFocus()
+            assertTrue("Fixture: focused renderer",view.hasFocus() && view.hasWindowFocus())
+            val width=dimension("cellWidth");val height=dimension("cellHeight")
+            val cell=TerminalCell(Color.BLACK,Color.WHITE,0,1,"\uf489")
+            val expected=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888)
+            val actual=Bitmap.createBitmap(view.width,view.height,Bitmap.Config.ARGB_8888)
+            try {
+                expected.eraseColor(Color.BLACK)
+                paint().apply { color=Color.WHITE;isFakeBoldText=false;textSkewX=0f;isUnderlineText=false;isStrikeThruText=false }
+                drawUnclipped(Canvas(expected),cell,0f,0f)
+                for(cursor in listOf(false,true)) {
+                    val frame=TerminalFrame(1,2,1,Color.BLACK,Color.WHITE,0,0,cursor,false,1,
+                        listOf(cell,TerminalCell(Color.BLACK,Color.WHITE,0,1,"")),Color.BLACK)
+                    TerminalView::class.java.getDeclaredField("currentFrame").apply { isAccessible=true }.set(view,frame)
+                    view.draw(Canvas(actual))
+                    for(y in 0 until height) for(x in 0 until width)
+                        assertEquals("Complete production glyph, cursor=$cursor at $x,$y",expected.getPixel(x,y),actual.getPixel(x,y))
+                    for(y in 0 until height) for(x in width until width*2)
+                        assertEquals("Glyph must not spill into adjacent cell",Color.BLACK,actual.getPixel(x,y))
+                }
+            } finally { expected.recycle();actual.recycle() }
+        }
+    }
     @Test fun installedRendererCoversNerdSymbolsAndRetainsSystemTextFallback() {
         ui.runOnIdle {
             val actual=paint()

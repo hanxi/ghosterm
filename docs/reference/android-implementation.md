@@ -4686,3 +4686,17 @@ Core 最终离线闸门为 **52 CTest / 95 ABI**；Android Debug/测试 APK、�
 受影响的既有保护另复验四组：布局 `sheet-expanded / side-controls` 与 session-management 的 `cleanup-live-guard / keyboard-menu`；正常断言红、同 APK 配置绿、恢复绿及 SHA256 均通过。最终构建包含 Debug/测试 APK、未签名 Release（实际 R8/资源优化）与 app/bridge/data/terminal 四模块 release lint；Core 离线闸门 **52 CTest / 95 ABI** 通过。实际测试截图保存在 [`android-session-ime/index.html`](../design/android-session-ime/index.html)，PNG 为 UiAutomation 原始截图。
 
 **最终稳定输入组合**：API 29 / arm64 / 4 KiB 页为七类会话/布局/页面/控制/生命周期/连发/快照 **87 项通过，328.083 秒**；API 36 同一组合加八项真实 OpenSSH 产品路径为 **95 项通过，486.786 秒**。逐项开始/成功结束集合与声明数量一致，零失败/错误/跳过；API 29 集合为 API 36 子集。680 份指定非 Markdown 输入前后摘要一致，两设备安装的主/测试 APK 分别与构建产物一致：`21e3e299bb2b14db8834c5b9c6b23c0a4788052d71ab263c358402312ceb5aba` / `94d7e72145a7628592fa661c1f7e60fbcc3fadf3debc4d77b5affe66fac3b13c`。本地构建保留 dirty 来源，未冒充正式签名或云端发行。机读收据为 `tmp/session-ime/receipt.json`，输入摘要为 `inputs-final-{before,after}.json`；最终构建、Core 与设备日志均在同目录。截图来源和逐字摘要另记 `screenshots.json`，四张 PNG 原样入库。本片为手工模拟器证据，不增加 macOS CI 二十份；未发行，非物理手机、厂商输入法、预测返回手势矩阵、16 KiB 页或完整客户端验收。
+
+### 9.209 Android Nerd 图标单元格裁切修复（2026-11-06）
+
+用户截图中的 tmux 状态栏图标只显示部分字形。Android Canvas 原来按正文 `M` 的宽度建格，直接用同字号绘制 Nerd 回退字体并逐格裁剪；回退字体的实际轮廓、左右边距与垂直范围可能超出正文格子。`TerminalView` 现在对 Unicode 私用区字形测量浮点轮廓，在原有单元格内等比缩小、调整位置，并预留一个设备像素的栅格边缘；不扩大终端列宽。普通文字继续使用原绘制路径。普通文字层与块状光标反色层共用字形适配，按文字、列宽、粗体和斜体缓存至多 256 项，字号/字体/行高变化时清空缓存。
+
+`NerdFontTest` 新增不设置单元格 clip 的画布断言，直接检查图标是否仍有像素落在格子外，避免“裁掉后剩余像素可见”冒充完整。覆盖三个内置字体、8/12/24/32 sp、1/1.85 行高、普通/粗体/斜体/粗斜体和十一种 BMP/补充私用区图标；另验生产普通层、块状光标层与邻格边界。原真实 PTY 字形/单元格宽度和系统文字回退断言保留。
+
+手工 `mutation-check-android-fonts.py` 共六组分轮通过（前五组＋栅格边缘一组）：字体回退、适配本身、普通层接线、光标层接线、尺寸缓存失效、栅格边缘。每组真实编译后单条正常断言红、同 APK 独立 Core 配置绿、恢复绿与源码 SHA256。两轮原件和最终 `TerminalView.kt` 摘要相同。专用 API 36 / arm64 / 4 KiB 页模拟器先以 160 dpi 跑变异，再以 1080×2400 / 420 dpi 跑字体、本地终端、外观偏好及本地 Kitty 图形 **53 项通过（85.036 秒）**。Debug/测试 APK、未签名 Release/R8、四模块 release lint 和 clang-format 19.1.7 的 208 文件检查通过。
+
+失败单独记账：最初整数 `getTextBounds` 适配仍在 8 sp 文件图标上漏出边缘；仅启用浮点文字栅格化、随后只改浮点轮廓测量也没有消除全部越界，均未计通过。最终加入设备像素边缘并由第六组变异保护。首轮 54 项组合因未配置 SSH 夹具有一项前置异常，不能记整轮绿。本工作区 Core 闸门因并行插件改动的 `sdk-code.inc` 摘要不一致为 469/470，未修改这些文件；隔离检出最初缺 host-native 收据及 SSH 夹具工具链的失败也保留。
+
+补齐夹具后，独立 SSH 图形专项 **1 项通过（3.149 秒）**，与本地 53 项合为分轮证据，不把失败的首轮改记成全绿。隔离检出加入本轮修改并使用锁定依赖后，离线闸门 **470 CTest / 169 ABI** 通过；它不掩盖原工作区的并行插件摘要失败。最终生产输入与两轮变异原件一致，设备安装主/测试 APK 摘要与构建产物一致，机读收据为 `tmp/nerd-fit/receipt.json`。
+
+收据与原始失败日志位于 `tmp/nerd-fit/`，变异原件位于 `tmp/android-font-mutations/1793974794270978000/` 和 `1793974897194833000/`。本片未发行，属于手工模拟器定向验证，不增加 macOS CI 二十份覆盖，不代表用户截图真机、全部自定义字体、16 KiB 页或完整客户端验收。
