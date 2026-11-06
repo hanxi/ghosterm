@@ -1,0 +1,10 @@
+cmake_minimum_required(VERSION 3.19)
+project(ghosterm_cli C)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+# Independent user-installed artifact, never added to App packaging.
+set(GHOSTERM_BUILD_TESTS OFF CACHE BOOL "Build Core tests")
+add_subdirectory(../../core core)
+add_executable(gterm main.c)
+target_link_libraries(gterm PRIVATE ghosterm_core)
+target_compile_options(gterm PRIVATE -Wall -Wextra -Werror)

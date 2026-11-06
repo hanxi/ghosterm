@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第三十八批公共命令注册表。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第三十九批独立 CLI 检查入口。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -180,14 +180,14 @@ core/src/extension/
   resource.h / resource.c  已实现 S4c2a / S4c2b：共享预算、匿名暂存、完整发布 / 快照引用 / 退役交接
   transfer.h / transfer.c  已实现 S4c2b：资源流 credit / seq、发布回执、取消及 Session / RPC 共存
   source.h / source.c    已实现 S4c2c：显式授权根 fd、逐层 no-follow、同句柄两遍读取 / EOF / 文件变化检查
-  registry.c / registry.h   已接私有进程内命令注册 / 冲突 / 摘要选择；公共门面与安装待接
+  registry.c / registry.h / registry-api.c   已接进程内命令注册 / 冲突 / 摘要选择与公共门面；持久安装待接
   runtime.h / runtime.c / runtime-quickjs.inc  已接可选私有 runtime：复制模块、受限 SDK、JS 预算、逐 Session RPC 与关闭；其余宿主能力待接
   js/            JS 引擎 C 适配与宿主 API，不依赖端代码
 core/tests/      分帧、生命周期、权限、资源和互操作测试
 core/src/ssh/wire.h  私有递归字节 IO / readiness；内层 SSH 不直接拨 TCP
 
 cli/gterm/
-  main.c         命令发现与插件分发，不包含业务命令实现
+  main.c         已接 doctor / plugin check；命令发现与插件分发待接，不包含业务命令实现
   tty_posix.c    TTY 状态保存 / 恢复、前台占用、用户取消
   process_posix.c / ipc_posix.c
   relay.c        可选前台中继，具体支持拓扑由探针决定
@@ -3283,6 +3283,44 @@ Core 收据采集后修改了其它绑定 runner，生产 C 与对应 Core 测�
 本片为手工证据，不增加 CI 二十份，不冒充产品 UI、真实设备或发行验收。
 持久安装原子切换、来源认证、App 激活/授权/视图、完整 SDK、gterm IPC 和实际业务
 插件继续，计划未完成。
+
+### P0 第三十九批：独立 gterm 诊断与固定包检查（2026-11-06）
+
+`cli/gterm` 为独立 CMake 构件，只包含公共 `ghosterm.h`，不加入 App 包或远端安装链。
+`doctor` 如实输出 portable JS、激活与 IPC 的状态；`plugin check [--host-json FILE] -- DIR`
+通过公共包 owner 采集、校验并复制摘要、发布者声明和命令贡献。主机 JSON 是显式的
+调用方兼容性观察，不是已连接服务或批准；缺失时保留 UNKNOWN。业务激活仍明确报
+不支持，不执行 argv 中的 shell 表达式，也不执行包模块顶层。
+
+host 输入限 64 KiB，拒绝内嵌 NUL、最终路径链接、非普通文件，非阻塞打开避免 FIFO
+悬挂；包根最终路径不跟链接，内部由已有 Core 物理采集规则执行。JSON 输出转义控制
+字符与非 ASCII Unicode scalar（含 surrogate pair），保留内容并避免终端直接解释。
+成功前先释放包 owner，输出/释放失败返回非零；signal handler 只记取消标记，Core
+检查在非 signal 上下文进行。同步校验受既有 CPU 预算约束，不承诺立即中断该调用。
+使用及退出码见 `cli/gterm/README.md`。取消时序与完整业务生命周期未在本片验收。
+
+主机 JS ON / OFF 真编译，十二项启用进程级用例及禁用档两项通过；隔离 CLI 副本的
+七组变异（NUL、host/目录链接、unknown 退出码、摘要、终端转义、未接激活退出码）
+使用优化 ASan/UBSan 真编译，目标单条正常断言红、同 archive 独立配置绿、复原绿及
+SHA256，无 LSan。收据 `tmp/gterm-mutations-58lv580z/logs/result.json`，日志
+`tmp/gterm-mutations-verified.log`；默认闸门 470 CTest / 169 ABI 通过，
+`tmp/gterm-gate.log`。Core 源码与公共 ABI 未修改，不借此宣称重跑 enabled Core 628 项。
+
+NDK 28.2 / API29 / arm64 独立 CLI 真编译，在专用 API36 / arm64 / 4 KiB 页模拟器
+`emulator-5580` 执行 doctor、兼容且不授权、缺 host unknown、未接命令拒绝、host 链接
+拒绝五项通过。主机与设备 ELF SHA256 同为
+`95d93fd50052696032971db1cd8096bc2e72d879241f18c0976f38cbcb8009ac`；设备临时目录已清理。
+原件为 `tmp/gterm-android-build.log`、`tmp/gterm-device-smoke.log` 与本轮隔离脚本
+`tmp/gterm-device-smoke.py`，不是 APK / 真实设备 / 发行证据。
+
+首次主机构建缺 Darwin 特性宏导致 `O_NOFOLLOW` 未声明，修复后才计编译通过；首次
+变异配置缺 Core 测试要求的 SDK 产物，已改为离线编译锁定 SDK 后再配置，没有跳过测试。
+第二轮转义变异产生非 UTF-8 输出，旧测试先 JSON 解码而抛异常，不计正常目标红；改为
+先断言输出字节约束，最终完整七组重跑通过。旧日志 `tmp/gterm-build.log`、
+`tmp/gterm-mutations.log`、`tmp/gterm-mutations-final.log` 保留，不冒充成功收据。
+
+手工 CLI 后端证据，不增加 CI 二十份。开发目录来源批准、持久安装、前台 IPC、命令
+激活、App 原生视图、完整 SDK 和实际业务插件继续；本片不代表 gterm 完整可用或计划完成。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 
