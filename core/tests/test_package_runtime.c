@@ -122,6 +122,18 @@ int main(int argc,char **argv){
    if(!strcmp(mode,"share")){load_pair(&second,&f,"share");CHECK(gt__bridge_runtime_open_package(&second.pair.e,f.package,&config,false,&other)==GT_OK && other && !second.pair.e && f.memory.live==1);}
    CHECK(gt__package_checked_destroy(&f.package)==GT_PACKAGE_OK && !f.package && f.memory.live==1);
    void *reservation=NULL;size_t reserved=0;if(!strcmp(mode,"source-memory")){gt_plugin_memory_info_t m=gt__plugin_memory_info();reserved=m.limit-m.used-65536;reservation=gt__plugin_memory_alloc(NULL,reserved);CHECK(reservation);}
+   if(!strcmp(mode,"close-created")){
+    CHECK(gt__bridge_runtime_destroy(&r)==GT_ERR_INVALID_ARG && r);
+    CHECK(load_info(r).module_bytes==0);load_drop(&r);ext_drop(&p.pair.h);
+    load_clear(&f);CHECK(ext_fds()==fds && gt__plugin_memory_info().used==before.used);return 0;
+   }
+   if(!strcmp(mode,"stop-created")){
+    gt__bridge_runtime_stop(r);
+    CHECK(gt__bridge_runtime_step(r)==GT_RUNTIME_STOPPED);
+    CHECK(load_info(r).error==GT_RUNTIME_CANCELLED && load_info(r).module_bytes==0);
+    load_drop(&r);ext_drop(&p.pair.h);load_clear(&f);
+    CHECK(ext_fds()==fds && gt__plugin_memory_info().used==before.used);return 0;
+   }
    load_run(r,peer);gt__plugin_memory_free(NULL,reservation,reserved);
    bool memory=!strcmp(mode,"source-limit") || !strcmp(mode,"source-total") || !strcmp(mode,"module-count") || !strcmp(mode,"source-memory");
    bool script=!strcmp(mode,"missing") || !strcmp(mode,"escape") || !strcmp(mode,"native") || !strcmp(mode,"node") || !strcmp(mode,"network") || !strcmp(mode,"binary") || !strcmp(mode,"nul") || !strcmp(mode,"utf8");

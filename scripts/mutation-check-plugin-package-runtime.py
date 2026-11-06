@@ -8,6 +8,8 @@ PACKAGE='core/src/extension/package-runtime.c'
 ENGINE='core/src/extension/runtime-quickjs.inc'
 SESSION='core/src/extension/session.c'
 CASES=[
+ ('stop-before-load',ENGINE,'if(atomic_load_explicit(&r->stopped,memory_order_relaxed)){runtime_fail(r,GT_RUNTIME_CANCELLED);return r->info.phase;}','if(false && atomic_load_explicit(&r->stopped,memory_order_relaxed)){runtime_fail(r,GT_RUNTIME_CANCELLED);return r->info.phase;}','stop-created'),
+ ('destroy-before-close',ENGINE,'(*out)->info.phase!=GT_RUNTIME_CLOSED','false','close-created'),
  ('identity',SESSION,'!strcmp(s->config.plugin_id,id)','true','id'),
  ('version',SESSION,'!strcmp(s->config.plugin_version,version)','true','version'),
  ('digest',SESSION,'!strcmp(role==GT_BRIDGE_HOST?s->config.client_digest:s->config.executor_digest,digest)','true','digest'),

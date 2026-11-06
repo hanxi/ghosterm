@@ -3131,6 +3131,19 @@ NDK 日志为 `tmp/plugin-package-runtime-android-build.log`。不增加 macOS C
 配置后编译通过。设备执行、更多加载 / 关闭 / OOM 故障保护仍须续验；公共包门面、来源
 信任、安装替换、App 授权 / 原生视图、gterm、完整 SDK 和实际业务插件继续按后续切片推进。
 
+### 第三十五批补验：激活前取消与关闭（2026-11-06）
+
+新增 `close-created` / `stop-created`，以真实固定包、Session 和引擎验证：创建后
+尚未加载模块即可关闭并归还快照 / fd / 全局预算；关闭前 destroy 显式拒绝；首次 step
+前 stop 返回 CANCELLED 且模块字节仍为零。生产实现未改动。
+
+默认 gate 469 CTest / 154 ABI 通过（`tmp/plugin-package-lifetime-gate.log`）。
+Debug 两项定向通过；隔离优化 ASan/UBSan 的全部 41 包加载场景及十三组变异
+（新增两组＋原十一组）通过，目标正常断言红、同 archive 配置绿、恢复绿和 SHA256。
+收据 `tmp/pkgload-k984qm3p/logs/result.json` 与本轮输入一致，无 LSan。
+NDK arm64 / API29 测试 ELF 重编译通过，仍未设备执行；未重跑 enabled 完整 Core，
+不把此前 617 项记成本轮完整回归。更多关闭错误 / OOM、公开包门面和 App 仍待后续。
+
 ### P0 关闭技术风险并冻结第一份协议候选
 
 **交付：** 隔离探针、对照报告、兼容矩阵、schema 候选和选型决策。分别验证 JS 引擎与 TTY 路由，Android / macOS 从这一阶段都参与。
