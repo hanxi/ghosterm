@@ -547,6 +547,7 @@ target_compile_options(test_sftp_remove_stub PRIVATE -Wall -Wextra -Werror)
 add_test(NAME sftp_remove_unsupported COMMAND test_sftp_remove_stub)
 
 add_executable(test_config tests/test_config.c)
+target_compile_definitions(test_config PRIVATE GT_TEST_TMP_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../tmp")
 target_link_libraries(test_config PRIVATE ghosterm_core)
 add_test(NAME sshconfig_golden
          COMMAND test_config ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)

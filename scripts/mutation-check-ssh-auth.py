@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Public SSH authentication translation: isolated ordinary assertion failures."""
-import hashlib,os,shlex,signal,subprocess,sys
+import hashlib,json,os,shlex,signal,subprocess,sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];WORK=ROOT/'tmp/ssh-auth-mutations';SOURCE=ROOT/'core/src/ssh/authenticator.c';MARK='GT_SSH_AUTH_MUTATION_MARK'
 def run(args,timeout=180):
@@ -31,7 +31,7 @@ def main():
   if hashlib.sha256(copy.read_bytes()).digest()!=digest or SOURCE.read_bytes()!=original:raise RuntimeError('session ABI SHA256 rollback failed')
  def build():
   for source,name in [('test_ssh_auth_bridge.c','bridge'),('test_config.c','control')]:
-   rc,out=run([*shlex.split(os.environ.get('CC','cc')),'-std=c11','-Wall','-Wextra','-Werror','-Icore/include','-Icore/src',ROOT/'core/tests'/source,copy,ROOT/'core/build/libghosterm_core.a',*shlex.split(flags),'-pthread','-o',WORK/name])
+   rc,out=run([*shlex.split(os.environ.get('CC','cc')),'-std=c11','-Wall','-Wextra','-Werror','-Icore/include','-Icore/src','-DGT_TEST_TMP_DIR='+json.dumps(str(ROOT/'tmp')),ROOT/'core/tests'/source,copy,ROOT/'core/build/libghosterm_core.a',*shlex.split(flags),'-pthread','-o',WORK/name])
    if rc:raise RuntimeError('session ABI compilation failed: '+out)
  def probe(name,red=False):
   rc,out=run([WORK/name,ROOT/'core/tests/fixtures'])

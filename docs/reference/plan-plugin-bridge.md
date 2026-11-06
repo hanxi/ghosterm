@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第四十批运行时能力观察。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第四十一批原生配置对照修复。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3362,6 +3362,38 @@ NDK 28.2 / arm64 / API29 构建 `test_runtime`、`test_ext_runtime`，在专用 
 本片补运行时激活依赖，不把 CLI 检查升级成命令激活成功。前台 IPC、命令/参数接线、
 开发目录来源授权、App 原生视图、完整 SDK 与实际业务插件仍继续；手工证据不增加
 CI 二十份，不代表真实设备或完整计划完成。
+
+### P0 第四十一批：原生配置对照路径修复（2026-11-06）
+
+修复第四十批实际 NDK 编译暴露的 `test_config` 缺陷：`realpath` 和后续路径缓冲区使用
+平台 PATH_MAX，所有拼接检查返回长度，解析绝对路径失败不回退到截断路径。原测试
+`mkdtemp` 失败会跳过 Include 验收，现改为明确非零；临时树从 fixtures 目录移到 CMake
+指定的工程 `tmp/`，第二参数可显式指定测试工作目录，不依赖系统 `TMPDIR`。直接编译
+该对照的 SSH auth / compiler runner 同步定义目录。实际 Core 配置实现和 golden 未改。
+
+顺带消除相对 Include 对拍中的 shell 路径拼接：通过 pipe/fork/exec 传递 `ssh -G -F`
+参数，父进程读取完整输出、匹配行并核对退出状态。保留原 322 条断言（其中 252 项为
+42 键 × 6 host 全表），没有减少断言换绿。新增路径 runner 使用超过 600 字节的夹具
+目录与带分号的工作目录；完整 322 条通过并检查临时树清空。不存在的工作目录明确
+退出 2，不能跳过验收后报成功。日志 `tmp/config-fixture-paths-final.json`。
+
+主机构建和默认闸门 470 CTest / 169 ABI 通过，NDK API29 / arm64 的原 `test_config`
+真实编译已恢复，日志 `tmp/config-path-gate.log`、`tmp/config-path-android-final.log`。
+专用 API36 模拟器没有 ssh，因此没有把该测试记作设备完整配置对拍通过，也没有安装
+额外远端工具。真实运行时设备专项仍以第四十批的独立证据为准。
+
+SSH auth 八组既有变异复验通过（目标正常断言红、同变异配置对照绿、复原与 SHA256），
+日志 `tmp/config-path-auth-final.log`。首次默认 pkg-config 链到系统 libssh2，因缺锁定
+补丁符号而链接失败；改为显式 `PKG_CONFIG_PATH=$PWD/build/host-native/lib/pkgconfig`
+后才通过。首次失败 `tmp/config-path-auth-mutations.log` 保留，不计正常目标红。
+
+编译器既有八组复验也通过，重新编译的目标正常断言红、同 archive 新配置对照绿、
+复原绿和 SHA256；`tmp/plugin-compiler-0dojv9zw/logs/result.json`、
+`tmp/config-path-compiler-check.log`。这里使用指定的既有 ASan/UBSan Core archive，
+不称本轮重编完整 Core/JS 或重新执行全包 OOM sweep。
+
+本批只修复插件变异使用的原生测试对照，不新增产品能力、ABI、平台绑定或 CI 二十份。
+CLI 激活、前台 IPC、来源授权、App 与业务插件仍按原计划继续。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

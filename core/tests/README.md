@@ -424,7 +424,8 @@ golden.effective.tsv 的 # supported_key 元数据
 
 ```bash
 bash scripts/gate.sh                                  # 配置 / PTY / SSH / 公开头
-core/build/test_config core/tests/fixtures            # 单独跑对拍
+core/build/test_config core/tests/fixtures            # 单独跑对拍（临时目录默认工程 tmp/）
+python3 scripts/test-config-fixture-paths.py           # 长夹具路径、字面分号路径及创建失败
 bash scripts/mutation-check-sshconfig.sh              # 17 组：A1–A9、B1–B8
 bash scripts/mutation-check-include.sh                # Include 四组变异
 python3 scripts/mutation-check-config-rename.py --apple # 重命名 12 C + 1 Swift 变异
@@ -494,3 +495,11 @@ python3 scripts/mutation-check-ssh-read.py
 ```
 
 三组变异分别破坏 EOF 确认、真实断流和尾部输出优先级，每组编译成功后目标断言红、独立 API 对照绿、复原所有模式绿并校验 SHA256；临时目录固定工程 tmp。该变异脚本为手工证据，未加入 macOS CI full 档的二十份变异清单。实际 SSH/Android/macOS 的证据与限制见 Android 实现计划 §9.185。
+
+
+`test_config` 的 Include 临时树默认位于 CMake 指定的工程 `tmp/`，不使用系统临时目录或
+`TMPDIR`。第二个参数可显式指定已存在的工作目录；设备执行时须指向本轮授权测试目录。
+手工编译此测试须定义 `GT_TEST_TMP_DIR` 为工程 `tmp/` 的绝对路径。所有路径拼接检查
+容量，`realpath` 失败和临时目录创建失败均返回非零，不能静默跳过 Include 断言。
+相对 Include 的真 `ssh -G` 对拍以 argv 执行，不经 shell 拼接；设备缺少真实 ssh 时不能
+将该项作为完整配置对照绿。它不替换或再生锁定版本的 golden 夹具。

@@ -108,7 +108,7 @@ def main():
                                        ['quickjs', 'dtoa', 'libregexp', 'libunicode']]])
             run(label + '-link', ['cc', *flags, '-DGT_COMPILER_SWITCH_BOUNDARY',
                                   test, work / 'libengine.a', '-lm', '-o', work / 'test'])
-            run(label + '-control-link', ['cc', *flags, '-I' + str(ROOT / 'core/include'),
+            run(label + '-control-link', ['cc', *flags, '-DGT_TEST_TMP_DIR=' + json.dumps(str(ROOT / 'tmp')), '-I' + str(ROOT / 'core/include'),
                                           ROOT / 'core/tests/test_config.c',
                                           build / 'libghosterm_core.a', work / 'libengine.a',
                                           '-lm', '-o', work / 'control'])

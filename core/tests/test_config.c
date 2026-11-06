@@ -13,6 +13,10 @@
 #include "ghosterm.h"
 #include "ghosterm/config.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <sys/wait.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +29,44 @@ static int g_fail = 0, g_pass = 0;
     if (cond) { g_pass++; }                                       \
     else { g_fail++; printf("FAIL: "); printf(__VA_ARGS__); printf("\n"); } \
   } while (0)
+
+/* Checked joins: long fixture roots must fail visibly, never truncate or skip
+ * the Include assertions. No system temporary-directory fallback. */
+static void test_path(char *out, size_t size, const char *base, const char *suffix) {
+  int n = snprintf(out, size, "%s%s", base, suffix);
+  if (n < 0 || (size_t)n >= size) {
+    fprintf(stderr, "test_config: fixture path exceeds capacity\n");
+    exit(2);
+  }
+}
+static int ssh_relative_include(const char *config) {
+  int fds[2];
+  if (pipe(fds)) return -1;
+  pid_t child = fork();
+  if (child == 0) {
+    close(fds[0]);
+    if (dup2(fds[1], STDOUT_FILENO) < 0) _exit(126);
+    close(fds[1]);
+    int nullfd = open("/dev/null", O_WRONLY);
+    if (nullfd < 0 || dup2(nullfd, STDERR_FILENO) < 0) _exit(126);
+    close(nullfd);
+    execlp("ssh", "ssh", "-G", "-F", config, "reltarget", (char *)NULL);
+    _exit(127);
+  }
+  close(fds[1]);
+  if (child < 0) { close(fds[0]); return -1; }
+  FILE *input = fdopen(fds[0], "r");
+  int found = 0, failed = !input;
+  if (input) {
+    char *line = NULL; size_t size = 0;
+    while (getline(&line, &size, input) >= 0)
+      if (!strcmp(line, "user reluser\n")) found = 1;
+    failed = ferror(input); free(line); fclose(input);
+  } else close(fds[0]);
+  int status; pid_t waited;
+  do { waited = waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
+  return waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0 && found && !failed ? 0 : -1;
+}
 
 static char *read_file(const char *path, size_t *len_out) {
   FILE *f = fopen(path, "rb");
@@ -140,10 +182,10 @@ static char *normalize(const char *v) {
 /* ---------------- 主体 ---------------- */
 
 int main(int argc, char **argv) {
-  if (argc < 2) { fprintf(stderr, "usage: %s <fixtures-dir>\n", argv[0]); return 2; }
-  char conf_path[512], tsv_path[512];
-  snprintf(conf_path, sizeof conf_path, "%s/golden.conf", argv[1]);
-  snprintf(tsv_path, sizeof tsv_path, "%s/golden.effective.tsv", argv[1]);
+  if (argc < 2) { fprintf(stderr, "usage: %s <fixtures-dir> [work-directory]\n", argv[0]); return 2; }
+  char conf_path[PATH_MAX], tsv_path[PATH_MAX];
+  test_path(conf_path, sizeof conf_path, argv[1], "/golden.conf");
+  test_path(tsv_path, sizeof tsv_path, argv[1], "/golden.effective.tsv");
 
   size_t clen = 0, tlen = 0;
   char *conf_text = read_file(conf_path, &clen);
@@ -241,22 +283,22 @@ int main(int argc, char **argv) {
    * 布局必须用**绝对路径**：相对 include 的解析相对主文件目录，而主文件
    * 路径若相对 cwd，测试在不同 cwd（repo root / build）下行为会漂。 */
   {
-    char fixtures_abs[512];
-    if (!realpath(argv[1], fixtures_abs)) {
-      snprintf(fixtures_abs, sizeof fixtures_abs, "%s", argv[1]);
-    }
+    char fixtures_abs[PATH_MAX];
+    if (!realpath(argv[1], fixtures_abs)) { perror("test_config: realpath"); return 2; }
     /* 布局（全在临时目录，测试自建自清；include 用**绝对路径**——
      * 相对路径的 OpenSSH 语义是相对 ~/.ssh，测试不碰用户真实目录）：
      *   <t>/main.conf          : Include <t>/sub 通配（绝对）+ Host localhost
      *   <t>/sub/x.conf         : Include <t>/sub/inc_target.conf（绝对，嵌套）
      *   fixtures/inc_target.conf: Host incuser（User frominclude） */
-    char t[512], sub[512], mainc[512], xconf[512], incsrc[512];
-    snprintf(t, sizeof t, "%s/inc-e2e-XXXXXX", fixtures_abs);
-    if (mkdtemp(t)) {
-      snprintf(sub, sizeof sub, "%s/sub", t);
-      snprintf(mainc, sizeof mainc, "%s/main.conf", t);
-      snprintf(xconf, sizeof xconf, "%s/x.conf", sub);
-      snprintf(incsrc, sizeof incsrc, "%s/inc_target.conf", fixtures_abs);
+    char t[PATH_MAX], sub[PATH_MAX], mainc[PATH_MAX], xconf[PATH_MAX], incsrc[PATH_MAX];
+    const char *temporary = argc > 2 ? argv[2] : GT_TEST_TMP_DIR;
+    test_path(t, sizeof t, temporary, "/inc-e2e-XXXXXX");
+    if (!mkdtemp(t)) { perror("test_config: mkdtemp"); return 2; }
+    {
+      test_path(sub, sizeof sub, t, "/sub");
+      test_path(mainc, sizeof mainc, t, "/main.conf");
+      test_path(xconf, sizeof xconf, sub, "/x.conf");
+      test_path(incsrc, sizeof incsrc, fixtures_abs, "/inc_target.conf");
       mkdir(sub, 0755);
       FILE *f = fopen(mainc, "w");
       if (f) {
@@ -270,8 +312,8 @@ int main(int argc, char **argv) {
       }
       /* 写入「被嵌套 include 的目标文件」（内容与 fixtures/inc_target.conf
        * 同构；复制源文件以保持夹具单一真相）。 */
-      char incdst[512];
-      snprintf(incdst, sizeof incdst, "%s/inc_target.conf", sub);
+      char incdst[PATH_MAX];
+      test_path(incdst, sizeof incdst, sub, "/inc_target.conf");
       {
         FILE *src = fopen(incsrc, "rb");
         FILE *dst = fopen(incdst, "wb");
@@ -321,8 +363,8 @@ int main(int argc, char **argv) {
 
       /* d) 具名（无通配）include 缺文件 → parse 失败且错误可读（不静默）。 */
       {
-        char bad[512];
-        snprintf(bad, sizeof bad, "%s/bad.conf", t);
+        char bad[PATH_MAX];
+        test_path(bad, sizeof bad, t, "/bad.conf");
         FILE *f = fopen(bad, "w");
         if (f) { fprintf(f, "Include no-such-file.conf\n"); fclose(f); }
         gt_config_t *bc = gt_config_parse_file(bad);
@@ -335,16 +377,16 @@ int main(int argc, char **argv) {
       /* e0) 相对 include 的基准目录是 ~/.ssh（与真 ssh 同口径对拍；
        * HOME 重定向进临时目录，绝不碰真实 ~/.ssh）。 */
       {
-        char fakehome[512], fkssh[512], fkconf[512];
-        snprintf(fakehome, sizeof fakehome, "%s/fakehome", t);
-        snprintf(fkssh, sizeof fkssh, "%s/.ssh", fakehome);
-        snprintf(fkconf, sizeof fkconf, "%s/config", fkssh);
+        char fakehome[PATH_MAX], fkssh[PATH_MAX], fkconf[PATH_MAX];
+        test_path(fakehome, sizeof fakehome, t, "/fakehome");
+        test_path(fkssh, sizeof fkssh, fakehome, "/.ssh");
+        test_path(fkconf, sizeof fkconf, fkssh, "/config");
         mkdir(fakehome, 0755);
         mkdir(fkssh, 0755);
         FILE *f = fopen(fkconf, "w");
         if (f) { fprintf(f, "Include rel-*.conf\nHost relhost\n"); fclose(f); }
-        char relsrc[512];
-        snprintf(relsrc, sizeof relsrc, "%s/rel-a.conf", fkssh);
+        char relsrc[PATH_MAX];
+        test_path(relsrc, sizeof relsrc, fkssh, "/rel-a.conf");
         f = fopen(relsrc, "w");
         if (f) { fprintf(f, "Host reltarget\n  User reluser\n"); fclose(f); }
 
@@ -365,11 +407,7 @@ int main(int argc, char **argv) {
         /* 真 ssh 同口径对拍：-F 显式路径时相对 include 解析相对
          * $HOME/.ssh（实测 OpenSSH_10.3p1：HOME=getpwuid 家目录仅在无 -F
          * 时生效；-F 模式下 $HOME 参与 include 解析）。 */
-        char cmd[1024];
-        snprintf(cmd, sizeof cmd,
-                 "HOME=%s ssh -G -F %s reltarget 2>/dev/null | grep -c '^user reluser$'",
-                 fakehome, fkconf);
-        int ssh_ok = system(cmd);
+        int ssh_ok = ssh_relative_include(fkconf);
         CHECK(ssh_ok == 0,
               "真 ssh 同口径也应把相对 include 解析到 $HOME/.ssh（退出码 %d）",
               ssh_ok);
@@ -381,8 +419,8 @@ int main(int argc, char **argv) {
 
       /* e) 通配无匹配 → 静默（与 ssh 一致，不是错误）。 */
       {
-        char w[512];
-        snprintf(w, sizeof w, "%s/wild.conf", t);
+        char w[PATH_MAX];
+        test_path(w, sizeof w, t, "/wild.conf");
         FILE *f = fopen(w, "w");
         if (f) { fprintf(f, "Include nomatch-*.conf\nHost ok\n"); fclose(f); }
         gt_config_t *wc = gt_config_parse_file(w);
@@ -394,8 +432,8 @@ int main(int argc, char **argv) {
       /* f) 自环 include（具名绝对路径指向自身）→ 深度上限必须拦下
        * （parse 失败，不无限递归）。上限抬高/失效时本断言变红。 */
       {
-        char selfc[512];
-        snprintf(selfc, sizeof selfc, "%s/self.conf", t);
+        char selfc[PATH_MAX];
+        test_path(selfc, sizeof selfc, t, "/self.conf");
         FILE *f = fopen(selfc, "w");
         if (f) { fprintf(f, "Include %s\nHost selfhost\n", selfc); fclose(f); }
         gt_config_t *sc = gt_config_parse_file(selfc);
