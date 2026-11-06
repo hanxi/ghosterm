@@ -3487,6 +3487,34 @@ fixture runner，没有改用模拟 wire。此证据不包含 Android TTY 两向
 SSH 启动与拓扑矩阵、本机 IPC、App 来源/授权界面与原生视图、完整 SDK 及官方业务插件。
 手工证据不增加 CI 二十份，不记完整 gterm/App/插件计划完成。
 
+### P0 第四十四批：前台 Executor 断流与双向推进（2026-11-06）
+
+真实 CLI child 扩展生命周期验证时，macOS 的断流用例在十秒期限触发正常断言失败：
+`core/src/extension/session.c` 遇到未排空发送队列直接返回，跳过接收端 EOF；Executor
+仍停在 ACTIVE。采样确认其反复等待 writer，初始失败保留在
+`tmp/gterm-lifetime-tests.log`，未计通过。修复为未完成发送仍推进读取，发送计数、发送
+完成通知和 after-send 阶段转换仍只在发送真正完成时执行；没有延长期限或把断流改成成功。
+
+真实子进程矩阵由七项扩为十二项，新增独立双管道、激活后 SIGTERM、成功 RPC 后断流、
+未确认 RPC 断流、Host 不发握手。取消返回 130，断流/握手超时返回 7；待确认请求须
+UNKNOWN 且 confirmed=false，已有成功回执不抹掉。macOS 十二项与 NDK 28.2 / API29 /
+arm64 ELF 在专用 API36 arm64 / 4 KiB 页模拟器同源十二项通过；不是 Android APK、
+物理设备、SSH 启动或 WAN 验收。设备目录已清理，主机/设备 ELF 摘要对拍一致：
+CLI `a01236a5a57d5bf4aadd4020de5120092ba34976966e6365fa53813fdcb8e762`，
+测试 `cc4e5b8d1545aa43519d59683ec837e36e91d2a524d699b3ac1ca22dbd936398`。
+日志 `tmp/gterm-lifetime-fixed-tests.log`、`tmp/gterm-lifetime-android-build.log`、
+`tmp/gterm-lifetime-device.log`。
+
+`python3 scripts/mutation-check-gterm.py --session-loss` 在隔离 Core 源码副本恢复原提前
+返回逻辑，真实编译后正常断言红、同 archive 配置对照绿、复原十二项绿与 SHA256；
+优化 ASan/UBSan，无 LSan，原件 `tmp/gterm-mutations-fq7qiib8/logs/result.json`。
+既有七组 CLI 变异同轮复验通过，原件 `tmp/gterm-mutations-hy2eda8u/logs/result.json`，
+最终两份收据的全部输入逐项一致。默认 gate 470 CTest / 169 ABI 与 JS ON / SSH ON
+634 CTest 全绿，日志
+`tmp/gterm-lifetime-gate.log`、`tmp/gterm-lifetime-core-on-tests.log`。本片没有改公开
+ABI 或平台 UI；手工验证不增加 CI 二十份，跨包命令/schema、实际 SSH CLI 启动、本机
+IPC、App 授权/视图与官方业务插件仍待完成。
+
 ### P0 关闭技术风险并冻结第一份协议候选
 
 **交付：** 隔离探针、对照报告、兼容矩阵、schema 候选和选型决策。分别验证 JS 引擎与 TTY 路由，Android / macOS 从这一阶段都参与。

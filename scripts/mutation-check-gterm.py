@@ -6,8 +6,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MARK = 'GT_GTERM_MUTATION'
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def main():
-    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--stdio', action='store_true'); args = parser.parse_args()
-    relative = 'cli/gterm/stdio.c' if args.stdio else 'cli/gterm/main.c'
+    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--stdio', action='store_true'); parser.add_argument('--session-loss', action='store_true'); args = parser.parse_args()
+    if args.session_loss: args.stdio = True
+    relative = 'core/src/extension/session.c' if args.session_loss else 'cli/gterm/stdio.c' if args.stdio else 'cli/gterm/main.c'
     file = ROOT / relative; original = file.read_bytes()
     assert MARK.encode() not in original
     cases = [
@@ -29,13 +30,18 @@ def main():
             ('dispose-error', ' || info.dispose_error', '', 'dispose-error'),
             ('method-role', 'm->receiver = GT_EXT_EXECUTOR;', 'm->receiver = GT_EXT_HOST;', 'roundtrip'),
         ]
+    if args.session_loss:
+        cases = [('blocked-writer-eof', 'if(complete) {', 'if(!complete)return s->info.phase; if(complete) {', 'lost')]
     for _, old, _, _ in cases: assert original.decode().count(old) == 1, old
     work = Path(tempfile.mkdtemp(prefix='gterm-mutations-', dir=ROOT / 'tmp'))
     source = work / 'source'; logs = work / 'logs'; logs.mkdir()
     (source / 'cli').mkdir(parents=True)
     shutil.copytree(ROOT / 'cli/gterm', source / 'cli/gterm')
-    # Only CLI is mutated. Core/SDK/vendor are read-only inputs to this build.
-    for name in ['core', 'vendor', 'patches', 'scripts', 'packages']: (source / name).symlink_to(ROOT / name, target_is_directory=True)
+    # Core mutations use a private source copy; never mutate linked inputs.
+    for name in ['core', 'vendor', 'patches', 'scripts', 'packages']:
+        if name == 'core' and args.session_loss:
+            shutil.copytree(ROOT / name, source / name, ignore=shutil.ignore_patterns('build', 'build-*'))
+        else: (source / name).symlink_to(ROOT / name, target_is_directory=True)
     (source / 'tmp').mkdir()
     build = work / 'build'; commands = []
     inputs = {str(p.relative_to(ROOT)): sha(p) for folder in ['cli/gterm', 'core/src', 'core/include', 'packages/plugin-sdk'] for p in (ROOT / folder).rglob('*') if p.is_file()}
@@ -58,7 +64,11 @@ def main():
         def rebuild(label):
             (build / ('CMakeFiles/gterm.dir/' + ('stdio.c.o' if args.stdio else 'main.c.o'))).unlink(missing_ok=True)
             (build / 'gterm').unlink(missing_ok=True)
+            if args.session_loss:
+                (build / 'core/CMakeFiles/ghosterm_core.dir/src/extension/session.c.o').unlink(missing_ok=True)
+                (build / 'core/libghosterm_core.a').unlink(missing_ok=True)
             out = run(label, ['cmake', '--build', build, '--target', 'gterm', 'test_gterm_stdio', 'test_config', '-j', '4'])
+            if args.session_loss: assert 'session.c.o' in out and 'Linking C static library' in out
             assert ('stdio.c.o' if args.stdio else 'main.c.o') in out and 'Linking C executable gterm' in out
         def test(label, case=None, red=False):
             run(label, ['python3', ROOT / ('scripts/test-gterm-stdio.py' if args.stdio else 'scripts/test-gterm.py'), *(['--build', build] if args.stdio else ['--binary', build / 'gterm']), *(['--case', case] if case else [])], red)

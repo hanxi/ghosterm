@@ -4,7 +4,7 @@ import argparse,hashlib,json,os,pty,shutil,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--build',type=Path,required=True);p.add_argument('--case',choices=['roundtrip','deny','cancel','digest','peer-digest','command','dispose-error','tty']);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--build',type=Path,required=True);p.add_argument('--case',choices=['roundtrip','deny','cancel','digest','peer-digest','command','dispose-error','pipes','active-cancel','lost','pending-loss','silent','tty']);a=p.parse_args()
  work=Path(tempfile.mkdtemp(prefix='gterm-stdio-',dir=ROOT/'tmp'));package=work/'package';package.mkdir()
  try:
   manifest=dict(schemaVersion=1,id='org.ghosterm.fixture',pluginVersion='0.1.0',sdkApiRange='^1.0.0',bridgeProtocolRange=[1],publisher='fixture',license='MIT',commands=[dict(path=['fixture'],title='Fixture',argsSchema='schemas/input.json')],executor=dict(variants=[dict(id='portable',runtime='portable-js',entry='executor/index.js',requires=['session.rpc'])]),permissions=[])
@@ -28,8 +28,9 @@ def main():
       assert not data,data
     finally:os.close(master);os.close(slave)
    print('PASS stdio tty input/output');return
-  for case in [a.case] if a.case else ['roundtrip','deny','cancel','digest','peer-digest','command','dispose-error']:
+  for case in [a.case] if a.case else ['roundtrip','deny','cancel','digest','peer-digest','command','dispose-error','pipes','active-cancel','lost','pending-loss','silent']:
    code = plugin.replace("dispose(){}", "dispose(){throw Error('cleanup')} ") if case=='dispose-error' else ("throw Error('not before consent');"+plugin if case in ['deny','cancel'] else plugin)
+   if case=='pending-loss':code=code.replace('c.check();return v','c.check();return await new Promise(()=>{})')
    (package/'executor/index.js').write_text(code)
    for member in members:
     if member['path']=='executor/index.js': member.update(bytes=len(code.encode()),sha256=hashlib.sha256(code.encode()).hexdigest())

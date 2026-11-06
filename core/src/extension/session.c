@@ -297,13 +297,15 @@ gt_bridge_session_phase_t gt__bridge_session_step(gt_bridge_session_t *s,int ms)
     bool complete=gt__bridge_writer_pending(s->writer)==0;
     if(complete)s->info.sent++;
     if(!tick(s))return s->info.phase; /* time may advance during the write */
-    if(!complete)return s->info.phase;
+    /* A blocked writer must not starve incoming control frames or EOF. */
+    if(complete) {
     bool application=s->rpc_sending || s->resource_sending;
     if(s->rpc_sending){gt__bridge_rpc_sent(s->rpc);s->rpc_sending=false;}
     if(s->resource_sending){gt__bridge_transfer_sent(s->resources);s->resource_sending=false;}
     if(s->info.end!=GT_BRIDGE_END_NONE)s->info.phase=s->close_queued?GT_BRIDGE_SESSION_ENDED:GT_BRIDGE_SESSION_ENDING;
     else if(!application && !transition(s,s->after_send))return s->info.phase;
     if(s->info.phase>=GT_BRIDGE_SESSION_ENDING)return s->info.phase;
+    }
   }
   if(!tick(s) || s->info.phase>=GT_BRIDGE_SESSION_ENDING)return s->info.phase;
   if(s->rx_used==s->rx_size) {
