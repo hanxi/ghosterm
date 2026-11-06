@@ -5,8 +5,16 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-typedef struct {uint32_t state[8];uint64_t bytes;size_t used;uint8_t block[64];bool ended;} gt_sha256_t;
+
+typedef struct {
+    uint32_t state[8];
+    uint64_t bytes;
+    size_t used;
+    uint8_t block[64];
+    bool ended;
+} gt_sha256_t;
+
 void gt__sha256_init(gt_sha256_t *);
-bool gt__sha256_update(gt_sha256_t *,const void *,size_t);
-bool gt__sha256_final(gt_sha256_t *,char hex[65]);
+bool gt__sha256_update(gt_sha256_t *, const void *, size_t);
+bool gt__sha256_final(gt_sha256_t *, char hex[65]);
 #endif

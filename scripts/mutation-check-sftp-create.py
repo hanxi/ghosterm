@@ -45,7 +45,7 @@ def main():
                 ('close','status = result == 0 ? GT_OK : GT_ERR_IO;','status = result == 0 ? GT_OK : GT_OK;','close-deny'),
                 ('budget','mono_ms() + timeout_ms;','mono_ms() + 20;','open-timeout'),
                 ('abort','gt__ssh_abort(sftp->ssh);','(void)sftp;','close-deny'),
-                ('late-cancel','finished:\n  if (status != GT_OK','finished:\n  if (status == GT_OK) status = open_status(deadline, cancelled, context);\n  if (status != GT_OK','normal'),
+                ('late-cancel','finished:\n    if (status != GT_OK','finished:\n  if (status == GT_OK) status = open_status(deadline, cancelled, context);\n  if (status != GT_OK','normal'),
                 ('restore','libssh2_session_set_timeout(session, timeout);','libssh2_session_set_timeout(session, timeout + 1);','normal'),
             ]
             variants=[]
@@ -66,7 +66,7 @@ def main():
                 run(['cmake','--build',no,'--clean-first','--target','test_config'],'no-build')
                 run(['cc','-std=c11','-I'+str(work/'core/include'),probe,no/'libghosterm_core.a','-lpthread','-o',work/'probe'],'no-link')
             no_build();run([work/'probe'],'no-baseline')
-            old='gt__set_error("sftp create: libssh2 unavailable");\n  return GT_ERR_UNSUPPORTED;';assert clean.count(old)==1
+            old='gt__set_error("sftp create: libssh2 unavailable");\n    return GT_ERR_UNSUPPORTED;';assert clean.count(old)==1
             source.write_text(clean.replace(old,old.replace('GT_ERR_UNSUPPORTED','GT_OK'))+'\n/* '+MARK+' */\n');no_build();run([work/'probe'],'no-red','FAIL: unavailable create');run([no/'test_config',work/'core/tests/fixtures'],'no-control')
             source.write_text(clean);no_build();run([work/'probe'],'no-restored')
             assert source.read_bytes()==snapshots[paths[0]]

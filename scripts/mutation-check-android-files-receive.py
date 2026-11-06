@@ -12,11 +12,11 @@ def execute(root,build,test):
     cancel='receiveCancellationWaitsForNativeDescriptorRelease'
     failure='receiveProtocolFailuresNeverPublishSnapshot'
     cases=[
-        ('native-count',native,'u64(&p,count);length=8;','u64(&p,0);length=8;',good),
-        ('offset',native,'int owned=fcntl(destination_fd,F_DUPFD_CLOEXEC,0);','int owned=fcntl(destination_fd,F_DUPFD_CLOEXEC,0);if(owned>=0)lseek(owned,0,SEEK_SET);',good),
-        ('fd-close',native,'\n        free(path);if(source_fd>=0)close(source_fd);','\n        free(path);',cancel),
-        ('cloexec',native,'int owned=fcntl(destination_fd,F_DUPFD_CLOEXEC,0);','int owned=fcntl(destination_fd,F_DUPFD,0);',cancel),
-        ('budget',native,'expected_size,&count,budget,stopped,s','expected_size,&count,50,stopped,s',failure),
+        ('native-count',native,'                    u64(&p, count);\n','                    u64(&p, 0);\n',good),
+        ('offset',native,'    int owned = fcntl(destination_fd, F_DUPFD_CLOEXEC, 0);\n    if (owned < 0) {\n','    int owned = fcntl(destination_fd, F_DUPFD_CLOEXEC, 0);\n    if (owned >= 0) {\n        lseek(owned, 0, SEEK_SET);\n    }\n    if (owned < 0) {\n',good),
+        ('fd-close',native,'        if (source_fd >= 0) {\n            close(source_fd);\n        }\n        if (release_fd >= 0) {\n','        if (release_fd >= 0) {\n',cancel),
+        ('cloexec',native,'    int owned = fcntl(destination_fd, F_DUPFD_CLOEXEC, 0);\n','    int owned = fcntl(destination_fd, F_DUPFD, 0);\n',cancel),
+        ('budget',native,'                                                  &count,\n                                                  budget,\n','                                                  &count,\n                                                  50,\n',failure),
         ('kotlin-count',kotlin,'return count\n    }\n    suspend fun preview','return 0\n    }\n    suspend fun preview',good),
         ('status',kotlin,'if(status != 0 && kind!=3 && kind!=5)','if(status != 0 && kind!=3 && kind!=5 && kind!=4)',failure),
         ('frozen-size',store,'check(expected == null || size == expected)','check(true)','receiveFrozenSizeMismatchDoesNotPublishSnapshot'),
@@ -41,8 +41,8 @@ def execute(root,build,test):
         # A controlled scheduling perturbation applies to both green and red:
         # delay closing the data fd after cancellation, without delaying the UI.
         # The green branch must retain the lease; removing the EOF wait must fail.
-        delay_old='\n        free(path);if(source_fd>=0)close(source_fd);'
-        delay_new='\n        free(path);if(source_fd>=0){usleep(500000);close(source_fd);}'
+        delay_old='        if (source_fd >= 0) {\n            close(source_fd);\n'
+        delay_new='        if (source_fd >= 0) {\n            usleep(500000);\n            close(source_fd);\n'
         clean=originals[native].decode();assert clean.count(delay_old)==1
         delayed=clean.replace(delay_old,delay_new)+'\n// '+MARK+'\n'
         fence_old='check(it.read()==-1) { "文件释放通知格式无效" }'

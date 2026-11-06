@@ -134,8 +134,8 @@ def codec_checks(work, mutate):
         print('PASS carrier', case, flush=True)
     if mutate:
         mutations = (
-            ('ordinary', 'else terminal(&c, 1);', 'else { /* drop */ }', 'ordinary bytes changed'),
-            ('opaque', 'opaque(m, c);\n        break;', 'm->state = NORMAL; feed(m, c);\n        break;', 'opaque control string stolen'),
+            ('ordinary', '            } else {\n                terminal(&c, 1);\n', '            } else { /* drop */\n', 'ordinary bytes changed'),
+            ('opaque', '        case OPAQUE:\n            opaque(m, c);\n', '        case OPAQUE:\n            m->state = NORMAL;\n            feed(m, c);\n', 'opaque control string stolen'),
             ('oversize', 'MAX_PAYLOAD = 768', 'MAX_PAYLOAD = 769', 'oversize frame accepted'),
             ('malformed', '(m->digits & 1) || m->digits == 0', '(m->digits & 1)', 'malformed frame accepted'),
             ('incomplete', 'terminal(prefix, m->matched);\n        m->state = OPAQUE;', '/* lost prefix */\n        m->state = OPAQUE;', 'partial prefix lost at EOF'),

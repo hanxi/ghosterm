@@ -19,16 +19,16 @@ def execute(root,build,test):
     ui='com.hanxi.ghosterm.TmuxProductTest#'
     unknown='RemoteTmuxResult.UNKNOWN -> error=label+"结果无法确认，请刷新实际会话后再操作；不会自动重试。"+result.error'
     cases=[
-      ('login-path',core,'if (ssh) rc = remote_login(ssh, command, &b, &r);',
-       'if (ssh) rc = gt__command_ssh(ssh, command, &b, &r);',remote+'remoteLoginFindsTmuxOutsideExecPathAndUsesTheAbsoluteCandidate'),
+      ('login-path',core,'        rc = remote_login(ssh, command, &b, &r);\n',
+       '        rc = gt__command_ssh(ssh, command, &b, &r);\n',remote+'remoteLoginFindsTmuxOutsideExecPathAndUsesTheAbsoluteCandidate'),
       ('execution-endpoint',core,'rc = validate(&execution, target, &b);','rc = execution.ssh ? GT_OK : GT_ERR_INVALID_ARG;',remote+'executionNamespaceIsValidatedBeforeAttachingADifferentKeysEnvironment'),
       ('pinned-address',bridge,'return connectionFor(target,connection.timeoutMillis).openTmuxTarget(handle,target.snapshot,target.index).also { snapshot=0 }','return connection.openTmuxTarget(handle,target.snapshot,target.index).also { snapshot=0 }',remote+'attachUsesTheAcknowledgedManagementAddressInsteadOfANewCandidate'),
-      ('native-epoch',native,'expected==s->snapshot && index>=0','expected<=s->snapshot && index>=0',remote+'nativeRefreshEpochRejectsAnOldTargetEvenIfTheCoreIdentityStillExists'),
+      ('native-epoch',native,'        const bool selected = expected == s->snapshot && index >= 0 && (size_t)index < s->count;\n','        const bool selected = expected <= s->snapshot && index >= 0 && (size_t)index < s->count;\n',remote+'nativeRefreshEpochRejectsAnOldTargetEvenIfTheCoreIdentityStillExists'),
       ('ui-token-epoch',bridge,'snapshot==entry.snapshot && snapshot>0','entry.snapshot>0',remote+'createRenameAndTerminateUseActualIdentitiesAndInvalidateOldSelections'),
       ('auth-scope',bridge,'prompt.owner==handle && prompt.scope===this','prompt.owner==handle',remote+'equalNumericAuthenticationIdentityCannotBypassTheOwnersScope'),
       ('secret-clear',bridge,'finally { first.fill(0);second.fill(0) }','finally { Unit }',remote+'anotherOwnersCredentialPromptIsRejectedAndSecretIsCleared'),
       ('cancel-owner',native,'return atomic_load(&s->stop) || (attach_stop && atomic_load(attach_stop));','return false && (atomic_load(&s->stop) || (attach_stop && atomic_load(attach_stop)));',remote+'cancellationWaitsForNativeOwnerRelease'),
-      ('ordinary-shell-substitution',session,'s->transport=gaj_tmux_attach(s->tmux_target,s->ssh,&shell,&s->stop,&opened,detail,sizeof(detail));','s->transport=gaj_ssh_open_shell(s->remote,s->ssh,&shell,&s->stop,&opened);',remote+'closedClientAndManagementConnectionPreserveTheInnerTaskPid'),
+      ('ordinary-shell-substitution',session,'            s->transport = gaj_tmux_attach(\n                s->tmux_target, s->ssh, &shell, &s->stop, &opened, detail, sizeof(detail));\n','            s->transport = gaj_ssh_open_shell(s->remote, s->ssh, &shell, &s->stop, &opened);\n',remote+'closedClientAndManagementConnectionPreserveTheInnerTaskPid'),
       ('unknown-as-rejected',bridge,'RemoteTmuxResult.entries[outcome]','RemoteTmuxResult.entries[if(outcome==2)1 else outcome]',remote+'mutationRefusalIsDifferentFromAnUnacknowledgedSuccessfulCreate'),
       ('unknown-ui',model,unknown,'RemoteTmuxResult.UNKNOWN -> error=label+"请求已拒绝。"+result.error',ui+'unknownCreateIsVisibleAndReconnectionDoesNotReplayIt'),
       ('unknown-auto-retry',model,unknown,'RemoteTmuxResult.UNKNOWN -> { error=label+"结果无法确认，请刷新实际会话后再操作；不会自动重试。"+result.error;action(remote);Unit }',ui+'unknownCreateIsVisibleAndReconnectionDoesNotReplayIt'),

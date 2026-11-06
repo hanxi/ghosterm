@@ -1,0 +1,34 @@
+name: C Format
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c-format-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: C format check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare formatter
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$PWD/tmp/c-format"
+          export TMPDIR="$PWD/tmp/c-format"
+          python3 -m venv tmp/c-format/venv
+          tmp/c-format/venv/bin/python -m pip install --disable-pip-version-check 'clang-format==19.1.7'
+      - name: Check project C formatting
+        env:
+          CLANG_FORMAT: ${{ github.workspace }}/tmp/c-format/venv/bin/clang-format
+        run: python3 scripts/format-c.py --check

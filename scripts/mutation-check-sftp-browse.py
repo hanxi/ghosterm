@@ -52,16 +52,16 @@ def main():
             end = clean.index('static int stat_common(', start)
             browse = clean[start:end]
             cases = [
-                ('zero', '      !timeout_ms || !max_entries', '      !max_entries', 'normal'),
+                ('zero', '        strlen(path) >= 65536 || !out || !out_count || !timeout_ms || !max_entries ||\n', '        strlen(path) >= 65536 || !out || !out_count || !max_entries ||\n', 'normal'),
                 ('budget', 'const int64_t deadline = mono_ms() + timeout_ms;', 'const int64_t deadline = mono_ms() + 5000;', 'readdir-timeout'),
                 ('jobs', 'if (has_jobs) {', 'if (has_jobs && false) {', 'jobs'),
-                ('close-status', 'if (result != 0) status = GT_ERR_IO;', 'if (result != 0) status = GT_OK;', 'closedir-deny'),
-                ('handle-free', 'if (directory) libssh2_sftp_closedir(directory);', '(void)directory;', 'readdir-cancel'),
+                ('close-status', '            if (result != 0) {\n                status = GT_ERR_IO;\n', '            if (result != 0) {\n                status = GT_OK;\n', 'closedir-deny'),
+                ('handle-free', '        if (directory) {\n            libssh2_sftp_closedir(directory);\n        }\n', '        (void)directory;\n', 'readdir-cancel'),
                 ('abort', 'gt__ssh_abort(sftp->ssh);', '(void)sftp;', 'closedir-deny'),
                 ('limit', 'const int64_t deadline = mono_ms() + timeout_ms;', 'max_entries = 65536;\n  const int64_t deadline = mono_ms() + timeout_ms;', 'limit'),
                 ('absolute', "canonical[0] != '/'", 'false', 'relative-path'),
-                ('name', "memchr(name, '\\0', (size_t)result) || memchr(name, '/', (size_t)result)", 'false', 'slash-name'),
-                ('duplicates', '!strcmp(entries[i-1].full_path, entries[i].full_path)', 'false && !strcmp(entries[i-1].full_path, entries[i].full_path)', 'duplicate'),
+                ('name', "        if (result < 0 || (size_t)result >= sizeof name || memchr(name, '\\0', (size_t)result) ||\n            memchr(name, '/', (size_t)result)) {\n", '        if (result < 0 || (size_t)result >= sizeof name || false) {\n', 'slash-name'),
+                ('duplicates', '            if (!strcmp(entries[i - 1].full_path, entries[i].full_path)) {\n', '            if (false && !strcmp(entries[i - 1].full_path, entries[i].full_path)) {\n', 'duplicate'),
             ]
             variants = []
             for name, old, new, case in cases:
@@ -156,9 +156,9 @@ def main():
                 run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-I' + str(work / 'core/include'),
                      probe, unavailable / 'libghosterm_core.a', '-lpthread', '-o', work / 'unavailable-probe'], 'unavailable-link')
             no_library(); run([work / 'unavailable-probe'], 'unavailable-baseline')
-            old = 'gt__set_error("sftp browse: libssh2 unavailable");\n  return GT_ERR_UNSUPPORTED;'
+            old = '    gt__set_error("sftp browse: libssh2 unavailable");\n    return GT_ERR_UNSUPPORTED;\n'
             assert clean.count(old) == 1
-            source.write_text(clean.replace(old, old.replace('GT_ERR_UNSUPPORTED', 'GT_OK')) + '\n/* ' + MARK + ' */\n')
+            source.write_text(clean.replace(old, '    gt__set_error("sftp browse: libssh2 unavailable");\n    return GT_OK;\n') + '\n/* ' + MARK + ' */\n')
             no_library(); run([work / 'unavailable-probe'], 'unavailable-red', 'FAIL: unavailable browse result')
             run([unavailable / 'test_config', work / 'core/tests/fixtures'], 'unavailable-control')
             source.write_text(clean); no_library(); run([work / 'unavailable-probe'], 'unavailable-restored')

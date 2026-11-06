@@ -28,27 +28,26 @@ extern "C" {
 typedef struct gt_sftp gt_sftp_t;
 
 typedef struct {
-  uint64_t size;
-  uint32_t mode;       /* POSIX mode；0 = 未知 */
-  bool is_dir;
-  bool is_symlink;
-  int64_t mtime_unix;  /* <0 = 未知 */
-  uint32_t uid;        /* has_owner=false 时无意义 */
-  uint32_t gid;        /* has_owner=false 时无意义 */
-  bool has_owner;      /* 服务器给了 UIDGID 属性 */
-  bool has_size;       /* false is unknown, not an empty file */
-  bool is_regular;     /* false for unknown type, links and special files */
+    uint64_t size;
+    uint32_t mode; /* POSIX mode；0 = 未知 */
+    bool is_dir;
+    bool is_symlink;
+    int64_t mtime_unix; /* <0 = 未知 */
+    uint32_t uid;       /* has_owner=false 时无意义 */
+    uint32_t gid;       /* has_owner=false 时无意义 */
+    bool has_owner;     /* 服务器给了 UIDGID 属性 */
+    bool has_size;      /* false is unknown, not an empty file */
+    bool is_regular;    /* false for unknown type, links and special files */
 } gt_sftp_stat_t;
 
 typedef struct {
-  const char *name;
-  char *full_path;     /* 堆分配，随 gt_sftp_entry_t 一起释放 */
-  gt_sftp_stat_t stat;
+    const char *name;
+    char *full_path; /* 堆分配，随 gt_sftp_entry_t 一起释放 */
+    gt_sftp_stat_t stat;
 } gt_sftp_entry_t;
 
 /* 列目录。成功返回 0；目录条目写入 out（调用方 gt_sftp_list_free）。 */
-int gt_sftp_list(gt_sftp_t *sftp, const char *path,
-                 gt_sftp_entry_t **out, size_t *out_count);
+int gt_sftp_list(gt_sftp_t *sftp, const char *path, gt_sftp_entry_t **out, size_t *out_count);
 void gt_sftp_list_free(gt_sftp_entry_t *entries, size_t count);
 
 /* Resolve a real directory and read its complete immediate children under one
@@ -63,11 +62,16 @@ void gt_sftp_list_free(gt_sftp_entry_t *entries, size_t count);
  * Cancellation is CANCELLED; timeout/server/protocol/limit failure is IO.
  * The callback runs on the owner and must not reenter Core. Existing list,
  * transfer and close contracts are unchanged; no lifetime ownership transfer. */
-int gt_sftp_browse_controlled(gt_sftp_t *sftp, const char *path,
-    char *resolved_path, size_t resolved_cap,
-    gt_sftp_entry_t **out, size_t *out_count,
-    uint32_t timeout_ms, size_t max_entries,
-    bool (*cancelled)(void *), void *context);
+int gt_sftp_browse_controlled(gt_sftp_t *sftp,
+                              const char *path,
+                              char *resolved_path,
+                              size_t resolved_cap,
+                              gt_sftp_entry_t **out,
+                              size_t *out_count,
+                              uint32_t timeout_ms,
+                              size_t max_entries,
+                              bool (*cancelled)(void *),
+                              void *context);
 
 /* Read-only, bounded regular-file preview. Dedicated owner rules and failure
  * invalidation are identical to browse_controlled. One budget covers lstat,
@@ -81,9 +85,14 @@ int gt_sftp_browse_controlled(gt_sftp_t *sftp, const char *path,
  * failure; bytes are published only after close succeeds. Empty file is OK.
  * Core returns raw bytes; decoding, binary rejection and preview lifetime
  * belong to the platform. No local file or transfer job is created. */
-int gt_sftp_preview_controlled(gt_sftp_t *sftp, const char *path,
-    uint8_t *buffer, size_t capacity, size_t *out_count, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context);
+int gt_sftp_preview_controlled(gt_sftp_t *sftp,
+                               const char *path,
+                               uint8_t *buffer,
+                               size_t capacity,
+                               size_t *out_count,
+                               uint32_t timeout_ms,
+                               bool (*cancelled)(void *),
+                               void *context);
 
 /* Synchronous IO observations, never completion/publication acknowledgements.
  * RECEIVE counts bytes written into the caller's staging fd. CREATE counts
@@ -98,15 +107,17 @@ int gt_sftp_preview_controlled(gt_sftp_t *sftp, const char *path,
  * the same operation budget. No callback after the observed function returns.
  * NULL observer is supported; no global observer or queued event is retained. */
 typedef enum {
-  GT_SFTP_PROGRESS_RECEIVE = 1,
-  GT_SFTP_PROGRESS_CREATE = 2,
+    GT_SFTP_PROGRESS_RECEIVE = 1,
+    GT_SFTP_PROGRESS_CREATE = 2,
 } gt_sftp_progress_kind_t;
+
 typedef struct {
-  gt_sftp_progress_kind_t kind;
-  uint64_t bytes;
-  uint64_t total_bytes;
-  bool total_known;
+    gt_sftp_progress_kind_t kind;
+    uint64_t bytes;
+    uint64_t total_bytes;
+    bool total_known;
 } gt_sftp_progress_t;
+
 typedef void (*gt_sftp_progress_fn)(const gt_sftp_progress_t *progress, void *context);
 
 /* Cooperative transfer control, dedicated owner only. Both callbacks and a
@@ -120,11 +131,10 @@ typedef void (*gt_sftp_progress_fn)(const gt_sftp_progress_t *progress, void *co
  * syscalls cannot be hard-preempted. Control/context live until the call returns;
  * no callback follows return. Legacy controlled/observed APIs never pause. */
 typedef struct {
-  bool (*pause_requested)(void *context);
-  void (*pause_changed)(bool paused, void *context);
-  void *context;
+    bool (*pause_requested)(void *context);
+    void (*pause_changed)(bool paused, void *context);
+    void *context;
 } gt_sftp_transfer_control_t;
-
 
 /* Bounded remote regular file -> task-owned local staging fd. Dedicated owner
  * only, with the same invalidation rules as preview_controlled. Caller retains
@@ -140,20 +150,36 @@ typedef struct {
  * Successful CLOSE and final cancellation check precede count publication.
  * No job/event, destination commit or fsync guarantee. Local syscalls are not
  * hard-preemptible. Caller must not let native fd duplicates outlive its lease. */
-int gt_sftp_receive_controlled(gt_sftp_t *sftp, const char *path, int destination_fd,
-    uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context);
+int gt_sftp_receive_controlled(gt_sftp_t *sftp,
+                               const char *path,
+                               int destination_fd,
+                               uint64_t max_bytes,
+                               uint64_t *out_count,
+                               uint32_t timeout_ms,
+                               bool (*cancelled)(void *),
+                               void *context);
 /* Same contract and results as receive_controlled, with per-call IO observations. */
-int gt_sftp_receive_observed(gt_sftp_t *sftp, const char *path, int destination_fd,
-    uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context,
-    gt_sftp_progress_fn observer, void *observer_context);
-int gt_sftp_receive_controllable(gt_sftp_t *sftp, const char *path, int destination_fd,
-    uint64_t max_bytes, uint64_t *out_count, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context,
-    gt_sftp_progress_fn observer, void *observer_context,
-    const gt_sftp_transfer_control_t *control);
-
+int gt_sftp_receive_observed(gt_sftp_t *sftp,
+                             const char *path,
+                             int destination_fd,
+                             uint64_t max_bytes,
+                             uint64_t *out_count,
+                             uint32_t timeout_ms,
+                             bool (*cancelled)(void *),
+                             void *context,
+                             gt_sftp_progress_fn observer,
+                             void *observer_context);
+int gt_sftp_receive_controllable(gt_sftp_t *sftp,
+                                 const char *path,
+                                 int destination_fd,
+                                 uint64_t max_bytes,
+                                 uint64_t *out_count,
+                                 uint32_t timeout_ms,
+                                 bool (*cancelled)(void *),
+                                 void *context,
+                                 gt_sftp_progress_fn observer,
+                                 void *observer_context,
+                                 const gt_sftp_transfer_control_t *control);
 
 /* Exclusive creation for task-owned remote staging paths. Does not overwrite,
  * rename, remove or publish a final destination. Dedicated owner only; no jobs
@@ -171,30 +197,48 @@ int gt_sftp_receive_controllable(gt_sftp_t *sftp, const char *path, int destinat
  * on error. bytes_acked is a lower bound, not a partial-file size or progress
  * guarantee (libssh2 may pipeline writes). No terminal/job events are emitted. */
 typedef enum {
-  GT_SFTP_CREATE_NOT_ATTEMPTED = 0,
-  GT_SFTP_CREATE_UNKNOWN = 1,
-  GT_SFTP_CREATE_REJECTED = 2,
-  GT_SFTP_CREATE_CREATED = 3,
-  GT_SFTP_CREATE_COMPLETE = 4,
+    GT_SFTP_CREATE_NOT_ATTEMPTED = 0,
+    GT_SFTP_CREATE_UNKNOWN = 1,
+    GT_SFTP_CREATE_REJECTED = 2,
+    GT_SFTP_CREATE_CREATED = 3,
+    GT_SFTP_CREATE_COMPLETE = 4,
 } gt_sftp_create_state_t;
-typedef struct {
-  gt_sftp_create_state_t state;
-  uint64_t bytes_acked;
-} gt_sftp_create_result_t;
-int gt_sftp_create_controlled(gt_sftp_t *sftp, const char *path, int source_fd,
-    uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context);
-/* Same contract and results as create_controlled, with per-call IO observations. */
-int gt_sftp_create_observed(gt_sftp_t *sftp, const char *path, int source_fd,
-    uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context,
-    gt_sftp_progress_fn observer, void *observer_context);
-int gt_sftp_create_controllable(gt_sftp_t *sftp, const char *path, int source_fd,
-    uint64_t expected_size, gt_sftp_create_result_t *out, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context,
-    gt_sftp_progress_fn observer, void *observer_context,
-    const gt_sftp_transfer_control_t *control);
 
+typedef struct {
+    gt_sftp_create_state_t state;
+    uint64_t bytes_acked;
+} gt_sftp_create_result_t;
+
+int gt_sftp_create_controlled(gt_sftp_t *sftp,
+                              const char *path,
+                              int source_fd,
+                              uint64_t expected_size,
+                              gt_sftp_create_result_t *out,
+                              uint32_t timeout_ms,
+                              bool (*cancelled)(void *),
+                              void *context);
+/* Same contract and results as create_controlled, with per-call IO observations. */
+int gt_sftp_create_observed(gt_sftp_t *sftp,
+                            const char *path,
+                            int source_fd,
+                            uint64_t expected_size,
+                            gt_sftp_create_result_t *out,
+                            uint32_t timeout_ms,
+                            bool (*cancelled)(void *),
+                            void *context,
+                            gt_sftp_progress_fn observer,
+                            void *observer_context);
+int gt_sftp_create_controllable(gt_sftp_t *sftp,
+                                const char *path,
+                                int source_fd,
+                                uint64_t expected_size,
+                                gt_sftp_create_result_t *out,
+                                uint32_t timeout_ms,
+                                bool (*cancelled)(void *),
+                                void *context,
+                                gt_sftp_progress_fn observer,
+                                void *observer_context,
+                                const gt_sftp_transfer_control_t *control);
 
 /* Publish a completed, caller-owned remote staging path WITHOUT overwrite.
  * Dedicated owner only, no jobs/other channels. Source LSTAT, destination
@@ -214,19 +258,27 @@ int gt_sftp_create_controllable(gt_sftp_t *sftp, const char *path, int source_fd
  * Any failure after attempted IO invalidates this owner; preserve the result
  * even on error and reconnect before inspecting partial/unknown side effects. */
 typedef enum {
-  GT_SFTP_PUBLISH_NOT_ATTEMPTED = 0,
-  GT_SFTP_PUBLISH_CONFLICT = 1,
-  GT_SFTP_PUBLISH_UNKNOWN = 2,
-  GT_SFTP_PUBLISH_REJECTED = 3,
-  GT_SFTP_PUBLISH_PUBLISHED = 4,
+    GT_SFTP_PUBLISH_NOT_ATTEMPTED = 0,
+    GT_SFTP_PUBLISH_CONFLICT = 1,
+    GT_SFTP_PUBLISH_UNKNOWN = 2,
+    GT_SFTP_PUBLISH_REJECTED = 3,
+    GT_SFTP_PUBLISH_PUBLISHED = 4,
 } gt_sftp_publish_state_t;
+
 typedef struct {
-  gt_sftp_publish_state_t state;
-  uint32_t remote_status;
+    gt_sftp_publish_state_t state;
+    uint32_t remote_status;
 } gt_sftp_publish_result_t;
-int gt_sftp_publish_controlled(gt_sftp_t *sftp, const char *source, const char *destination,
-    bool directory, uint64_t expected_size, gt_sftp_publish_result_t *out,
-    uint32_t timeout_ms, bool (*cancelled)(void *), void *context);
+
+int gt_sftp_publish_controlled(gt_sftp_t *sftp,
+                               const char *source,
+                               const char *destination,
+                               bool directory,
+                               uint64_t expected_size,
+                               gt_sftp_publish_result_t *out,
+                               uint32_t timeout_ms,
+                               bool (*cancelled)(void *),
+                               void *context);
 
 /* Create one empty directory with requested mode 0700, never merge or retry.
  * Dedicated SSH/SFTP owner, no jobs/other channels. parent must be the frozen
@@ -245,20 +297,26 @@ int gt_sftp_publish_controlled(gt_sftp_t *sftp, const char *source, const char *
  * SFTP v3 metadata/REALPATH checks cannot pin a parent inode. Preserve out even
  * on error; any failure after IO invalidates this owner, reconnect to inspect. */
 typedef enum {
-  GT_SFTP_MKDIR_NOT_ATTEMPTED = 0,
-  GT_SFTP_MKDIR_CONFLICT = 1,
-  GT_SFTP_MKDIR_UNKNOWN = 2,
-  GT_SFTP_MKDIR_REJECTED = 3,
-  GT_SFTP_MKDIR_CREATED = 4,
-  GT_SFTP_MKDIR_COMPLETE = 5,
+    GT_SFTP_MKDIR_NOT_ATTEMPTED = 0,
+    GT_SFTP_MKDIR_CONFLICT = 1,
+    GT_SFTP_MKDIR_UNKNOWN = 2,
+    GT_SFTP_MKDIR_REJECTED = 3,
+    GT_SFTP_MKDIR_CREATED = 4,
+    GT_SFTP_MKDIR_COMPLETE = 5,
 } gt_sftp_mkdir_state_t;
+
 typedef struct {
-  gt_sftp_mkdir_state_t state;
-  uint32_t remote_status;
+    gt_sftp_mkdir_state_t state;
+    uint32_t remote_status;
 } gt_sftp_mkdir_result_t;
-int gt_sftp_mkdir_controlled(gt_sftp_t *sftp, const char *parent, const char *name,
-    gt_sftp_mkdir_result_t *out, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context);
+
+int gt_sftp_mkdir_controlled(gt_sftp_t *sftp,
+                             const char *parent,
+                             const char *name,
+                             gt_sftp_mkdir_result_t *out,
+                             uint32_t timeout_ms,
+                             bool (*cancelled)(void *),
+                             void *context);
 
 /* Explicit, non-recursive removal of one freshly reviewed regular file or empty
  * directory on a dedicated owner. parent is canonical absolute, name one leaf
@@ -276,21 +334,29 @@ int gt_sftp_mkdir_controlled(gt_sftp_t *sftp, const char *parent, const char *na
  * or unchanged content, and arbitrary concurrent path writers remain a race.
  * Any failure after IO invalidates this owner; reconnect before inspection. */
 typedef enum {
-  GT_SFTP_REMOVE_NOT_ATTEMPTED = 0,
-  GT_SFTP_REMOVE_ABSENT = 1,
-  GT_SFTP_REMOVE_CHANGED = 2,
-  GT_SFTP_REMOVE_UNKNOWN = 3,
-  GT_SFTP_REMOVE_REJECTED = 4,
-  GT_SFTP_REMOVE_REMOVED = 5,
+    GT_SFTP_REMOVE_NOT_ATTEMPTED = 0,
+    GT_SFTP_REMOVE_ABSENT = 1,
+    GT_SFTP_REMOVE_CHANGED = 2,
+    GT_SFTP_REMOVE_UNKNOWN = 3,
+    GT_SFTP_REMOVE_REJECTED = 4,
+    GT_SFTP_REMOVE_REMOVED = 5,
 } gt_sftp_remove_state_t;
+
 typedef struct {
-  gt_sftp_remove_state_t state;
-  uint32_t remote_status;
+    gt_sftp_remove_state_t state;
+    uint32_t remote_status;
 } gt_sftp_remove_result_t;
-int gt_sftp_remove_controlled(gt_sftp_t *sftp, const char *parent, const char *name,
-    bool directory, uint64_t expected_size, int64_t expected_mtime,
-    gt_sftp_remove_result_t *out, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context);
+
+int gt_sftp_remove_controlled(gt_sftp_t *sftp,
+                              const char *parent,
+                              const char *name,
+                              bool directory,
+                              uint64_t expected_size,
+                              int64_t expected_mtime,
+                              gt_sftp_remove_result_t *out,
+                              uint32_t timeout_ms,
+                              bool (*cancelled)(void *),
+                              void *context);
 
 int gt_sftp_stat(gt_sftp_t *sftp, const char *path, gt_sftp_stat_t *out);
 
@@ -306,8 +372,8 @@ int gt_sftp_realpath(gt_sftp_t *sftp, const char *path, char *buf, size_t cap);
 /* ---- 写侧原语（三态：失败如实返回，不折叠成 OK） ---- */
 
 int gt_sftp_mkdir(gt_sftp_t *sftp, const char *path, uint32_t mode);
-int gt_sftp_rmdir(gt_sftp_t *sftp, const char *path);   /* 仅空目录 */
-int gt_sftp_remove(gt_sftp_t *sftp, const char *path);  /* 文件 / 符号链接本身 */
+int gt_sftp_rmdir(gt_sftp_t *sftp, const char *path);      /* 仅空目录 */
+int gt_sftp_remove(gt_sftp_t *sftp, const char *path);     /* 文件 / 符号链接本身 */
 int gt_sftp_remove_all(gt_sftp_t *sftp, const char *path); /* 递归删除（深度护栏） */
 int gt_sftp_rename(gt_sftp_t *sftp, const char *from, const char *to);
 int gt_sftp_chmod(gt_sftp_t *sftp, const char *path, uint32_t mode);
@@ -315,9 +381,9 @@ int gt_sftp_chmod(gt_sftp_t *sftp, const char *path, uint32_t mode);
 /* ---- 递归枚举（调用线程同步执行；visitor 返回非 0 即停止） ---- */
 
 typedef struct {
-  const char *path;          /* 完整路径（visitor 调用期间有效） */
-  const char *name;          /* 基本名（同上） */
-  const gt_sftp_stat_t *stat; /* 该条目自身属性（不跟随链接） */
+    const char *path;           /* 完整路径（visitor 调用期间有效） */
+    const char *name;           /* 基本名（同上） */
+    const gt_sftp_stat_t *stat; /* 该条目自身属性（不跟随链接） */
 } gt_sftp_walk_ent_t;
 
 /* 返回 0 = 继续；非 0 = 请求停止（walk 返回 GT_ERR_CANCELLED）。 */
@@ -325,8 +391,7 @@ typedef int (*gt_sftp_walk_fn)(void *ud, const gt_sftp_walk_ent_t *ent);
 
 /* 深度优先枚举 root 下的所有条目（含目录本身的第一层孩子；不含 root）。
  * max_depth < 0 → 无限制（仍有编译期护栏）。 */
-int gt_sftp_walk(gt_sftp_t *sftp, const char *root, int max_depth,
-                 gt_sftp_walk_fn fn, void *ud);
+int gt_sftp_walk(gt_sftp_t *sftp, const char *root, int max_depth, gt_sftp_walk_fn fn, void *ud);
 
 /* ---- 传输 job ---- */
 

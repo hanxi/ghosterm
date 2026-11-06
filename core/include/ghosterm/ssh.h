@@ -22,24 +22,23 @@ typedef struct gt_sftp gt_sftp_t;
 
 /* 主机密钥策略：刻意三态，禁止把 UNKNOWN 折叠成 REJECT（铁律 #6）。 */
 typedef enum {
-  GT_HOSTKEY_ACCEPT = 0,
-  GT_HOSTKEY_REJECT = 1,
-  GT_HOSTKEY_UNKNOWN = 2, /* 需要上层确认 */
+    GT_HOSTKEY_ACCEPT = 0,
+    GT_HOSTKEY_REJECT = 1,
+    GT_HOSTKEY_UNKNOWN = 2, /* 需要上层确认 */
 } gt_hostkey_decision_t;
 
-typedef gt_hostkey_decision_t (*gt_hostkey_decider_fn)(
-    void *userdata,
-    const char *host,
-    uint16_t port,
-    const char *key_type,
-    const char *fingerprint_sha256);
+typedef gt_hostkey_decision_t (*gt_hostkey_decider_fn)(void *userdata,
+                                                       const char *host,
+                                                       uint16_t port,
+                                                       const char *key_type,
+                                                       const char *fingerprint_sha256);
 
 typedef struct {
-  const char *host;     /* 必填 */
-  uint16_t port;        /* 0 → 22 */
-  const char *username; /* 必填 */
-  const char *known_hosts_path; /* NULL → $HOME/.ssh/known_hosts */
-  int connect_timeout_ms; /* TCP + 握手的总预算；0 → 默认 15000 */
+    const char *host;             /* 必填 */
+    uint16_t port;                /* 0 → 22 */
+    const char *username;         /* 必填 */
+    const char *known_hosts_path; /* NULL → $HOME/.ssh/known_hosts */
+    int connect_timeout_ms;       /* TCP + 握手的总预算；0 → 默认 15000 */
 } gt_ssh_opts_t;
 
 /*
@@ -52,12 +51,12 @@ typedef struct {
  * 「明明输了登录密码还是连不上」。有了这张方法表，上层能据此要密码。
  */
 typedef enum {
-  GT_SSH_AUTH_PUBLICKEY = 1 << 0,
-  GT_SSH_AUTH_PASSWORD = 1 << 1,
-  GT_SSH_AUTH_KEYBOARD = 1 << 2, /* keyboard-interactive（常与密码同义） */
-  GT_SSH_AUTH_AGENT = 1 << 3,
-  GT_SSH_AUTH_HOSTBASED = 1 << 4,
-  GT_SSH_AUTH_NONE = 1 << 5,
+    GT_SSH_AUTH_PUBLICKEY = 1 << 0,
+    GT_SSH_AUTH_PASSWORD = 1 << 1,
+    GT_SSH_AUTH_KEYBOARD = 1 << 2, /* keyboard-interactive（常与密码同义） */
+    GT_SSH_AUTH_AGENT = 1 << 3,
+    GT_SSH_AUTH_HOSTBASED = 1 << 4,
+    GT_SSH_AUTH_NONE = 1 << 5,
 } gt_ssh_auth_method_t;
 
 int gt_ssh_auth_methods(gt_ssh_t *ssh);
@@ -71,9 +70,7 @@ gt_ssh_t *gt_ssh_new(const gt_ssh_opts_t *opts);
 int gt_ssh_auth_password(gt_ssh_t *ssh, const char *password);
 int gt_ssh_auth_private_key(gt_ssh_t *ssh, const char *pem, const char *passphrase);
 
-int gt_ssh_set_hostkey_policy(gt_ssh_t *ssh,
-                              gt_hostkey_decider_fn decide,
-                              void *userdata);
+int gt_ssh_set_hostkey_policy(gt_ssh_t *ssh, gt_hostkey_decider_fn decide, void *userdata);
 
 /*
  * 私钥是否需要口令（**只看文件头，不解密**）。
@@ -130,8 +127,11 @@ gt_sftp_t *gt_ssh_sftp(gt_ssh_t *ssh);
  * retry on it. Preflight cancellation/invalid arguments leave it untouched.
  * Success restores session IO settings and returns the ordinary SFTP handle;
  * subsequent operations and close retain their existing blocking contracts. */
-gt_sftp_t *gt_ssh_sftp_controlled(gt_ssh_t *ssh, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context, gt_status_t *status);
+gt_sftp_t *gt_ssh_sftp_controlled(gt_ssh_t *ssh,
+                                  uint32_t timeout_ms,
+                                  bool (*cancelled)(void *),
+                                  void *context,
+                                  gt_status_t *status);
 
 /* ------------------------------------------------------------------ */
 /* exec 通道（远端单命令，用于远端加速：find / grep / du 等）            */
@@ -157,8 +157,7 @@ typedef struct gt_ssh_exec gt_ssh_exec_t;
  *   GT_ERR_IO          = 通道打不开；
  *   GT_ERR_INVALID_ARG = 会话未连接 / 命令为空。
  */
-gt_ssh_exec_t *gt_ssh_exec(gt_ssh_t *ssh, const char *command,
-                           gt_status_t *out_status);
+gt_ssh_exec_t *gt_ssh_exec(gt_ssh_t *ssh, const char *command, gt_status_t *out_status);
 
 /*
  * 读一路输出（stdout / stderr 择先到者）。三态返回，不折叠：
@@ -167,12 +166,12 @@ gt_ssh_exec_t *gt_ssh_exec(gt_ssh_t *ssh, const char *command,
  *   -1  = 错误（详见 gt_last_error）；-2 = 超时（本次无数据，可重试）。
  */
 enum {
-  GT_EXEC_READ_TIMEOUT = -2,
-  GT_EXEC_READ_ERROR = -1,
-  GT_EXEC_READ_EOF = 0,
+    GT_EXEC_READ_TIMEOUT = -2,
+    GT_EXEC_READ_ERROR = -1,
+    GT_EXEC_READ_EOF = 0,
 };
-int gt_ssh_exec_read(gt_ssh_exec_t *e, uint8_t *buf, size_t cap,
-                     int timeout_ms, bool *is_stderr);
+
+int gt_ssh_exec_read(gt_ssh_exec_t *e, uint8_t *buf, size_t cap, int timeout_ms, bool *is_stderr);
 
 /* 被动查询已收到的明确 exit-status；不进行 IO、不发送 EOF/CLOSE。
  * 已知 0 也返回 true；缺状态、只有 signal 或超出 int 范围返回 false，

@@ -100,8 +100,8 @@ echo "== A1：to_string 跳过最后一行（无损往返失效） =="
 cat > "$TMP/gtmut_a1.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old="    if (n->included) continue;\n    size_t l = strlen(n->raw);"
-new="    if (n->included) continue;\n    if (i + 1 == cfg->nnodes) continue; /* GT_MUTATION_MARK */\n    size_t l = strlen(n->raw);"
+old='        size_t l = strlen(n->raw);\n'
+new='        if (i + 1 == cfg->nnodes) {\n            continue; /* GT_MUTATION_MARK */\n        }\n        size_t l = strlen(n->raw);\n'
 assert old in s, "A1 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -128,7 +128,7 @@ echo "== A3：SetEnv 累积（语义漂移） =="
 cat > "$TMP/gtmut_a3.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old='    if (strcmp(n->keyword, "host") == 0) continue;\n    int idx = key_index(n->keyword);'
+old='        if (strcmp(n->keyword, "host") == 0) {\n            continue;\n        }\n        int idx = key_index(n->keyword);'
 assert old in s, "A3 anchor missing"
 # 把 setenv 从 K_LIST_FIRST 降级为 K_LIST（等价于放开 first-wins）
 old2='    {"setenv", K_LIST_FIRST, NULL},'
@@ -159,8 +159,8 @@ echo "== A5：单值 first-wins 失效 =="
 cat > "$TMP/gtmut_a5.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old="      case K_SCALAR:\n        if (s->set) break; /* first-wins */\n"
-new="      case K_SCALAR:\n        /* GT_MUTATION_MARK */\n"
+old='                if (s->set) {\n                    break; /* first-wins */\n                }\n'
+new='                /* GT_MUTATION_MARK */\n'
 assert old in s, "A5 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -218,8 +218,8 @@ echo "== B3：reset 未删旧块 =="
 cat > "$TMP/gtmut_b3.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old="    if (b >= 0) {\n      size_t s, e;\n      block_range(&l, b, &s, &e);\n      if (elist_splice"
-new="    if (0 && b >= 0) { /* GT_MUTATION_MARK */\n      size_t s, e;\n      block_range(&l, b, &s, &e);\n      if (elist_splice"
+old='        if (b >= 0) {\n'
+new='        if (0 && b >= 0) { /* GT_MUTATION_MARK */\n'
 assert old in s, "B3 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -232,8 +232,8 @@ echo "== B4：关键字原样拼写丢失 =="
 cat > "$TMP/gtmut_b4.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old="      if (nfound) split_line(l.v[first].raw, &indent, &kwspell, &sep);"
-new="      if (nfound) { split_line(l.v[first].raw, &indent, &kwspell, &sep); free(kwspell); kwspell = gt__strdup(\"XXX\"); } /* GT_MUTATION_MARK */"
+old='                split_line(l.v[first].raw, &indent, &kwspell, &sep);\n            } else {\n'
+new='                split_line(l.v[first].raw, &indent, &kwspell, &sep);\n                free(kwspell);\n                kwspell = gt__strdup("XXX");\n            } /* GT_MUTATION_MARK */\n            else {\n'
 assert old in s, "B4 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -260,8 +260,8 @@ echo "== B6：Keyword=value 解析漂移 =="
 cat > "$TMP/gtmut_b6.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old="      while (q < le && !isspace((unsigned char)*q) && *q != '=') q++;"
-new="      while (q < le && !isspace((unsigned char)*q)) q++; /* GT_MUTATION_MARK */"
+old="            while (q < le && !isspace((unsigned char)*q) && *q != '=') {\n                q++;\n"
+new='            while (q < le && !isspace((unsigned char)*q)) {\n                q++; /* GT_MUTATION_MARK */\n'
 assert old in s, "B6 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -274,8 +274,8 @@ echo "== A7：行内注释剥离被摘 =="
 cat > "$TMP/gtmut_a7.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old="    if (*p == '#') break;"
-new="    /* GT_MUTATION_MARK */"
+old="        if (*p == '#') {\n            break;\n        }\n"
+new='        /* GT_MUTATION_MARK */\n'
 assert old in s, "A7 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -291,8 +291,8 @@ echo "== A8：Forward 负差值防护路径破坏 =="
 cat > "$TMP/gtmut_a8.py" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old="  if (hend <= hstart) return joined;"
-new="  if (hend <= hstart) return NULL; /* GT_MUTATION_MARK */"
+old='    if (hend <= hstart) {\n        return joined;\n'
+new='    if (hend <= hstart) {\n        return NULL; /* GT_MUTATION_MARK */\n'
 assert old in s, "A8 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
@@ -335,8 +335,8 @@ import sys
 p, variant = sys.argv[1:]
 s = open(p).read()
 if variant == 'replace':
-    old = 'elist_remove_matches(&l, first + 1, e2, e->keyword);\n        if (elist_splice(&l, first, 1, rl, rn, e->keyword, blk) != 0)'
-    new = '/* GT_MUTATION_MARK */\n        if (elist_splice(&l, first, nfound, rl, rn, e->keyword, blk) != 0)'
+    old = '                elist_remove_matches(&l, first + 1, e2, e->keyword);\n                if (elist_splice(&l, first, 1, rl, rn, e->keyword, blk) != 0) {\n'
+    new = '                /* GT_MUTATION_MARK */\n                if (elist_splice(&l, first, nfound, rl, rn, e->keyword, blk) != 0) {\n'
 else:
     old = 'elist_remove_matches(&l, first, e2, e->keyword);'
     new = '(void)elist_splice(&l, first, nfound, NULL, 0, NULL, -1); /* GT_MUTATION_MARK */'

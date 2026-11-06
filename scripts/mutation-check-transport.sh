@@ -117,8 +117,8 @@ echo "== P1：父进程 setpgid 竞争（子进程失去控制终端） =="
 python3 - "$SRC" <<'PYEOF'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "  t->child = pid;\n  /*"
-new = "  t->child = pid;\n  setpgid(pid, pid); /* GT_MUTATION_MARK：把竞争加回来 */\n  /*"
+old = '    t->child = pid;\n    /*\n'
+new = '    t->child = pid;\n    setpgid(pid, pid); /* GT_MUTATION_MARK：把竞争加回来 */\n    /*\n'
 assert old in s, "P1 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PYEOF
@@ -131,8 +131,8 @@ echo "== P2：UNKNOWN 被折叠成 IDLE =="
 python3 - "$FACADE" <<'PYEOF'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "  if (!t) return GT_TRANSPORT_CHILD_UNKNOWN;"
-new = "  if (!t) return GT_TRANSPORT_CHILD_IDLE; /* GT_MUTATION_MARK：折叠未知 */"
+old = '    if (!t) {\n        return GT_TRANSPORT_CHILD_UNKNOWN;\n    }'
+new = '    if (!t) {\n        return GT_TRANSPORT_CHILD_IDLE; /* GT_MUTATION_MARK：折叠未知 */\n    }'
 assert old in s, "P2 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PYEOF
@@ -145,16 +145,8 @@ echo "== P3：close 不再先关 master（回到 join 之后） =="
 python3 - "$SRC" <<'PYEOF'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = """  if (t->master_fd >= 0) {
-    close(t->master_fd);
-    t->master_fd = -1;
-  }
-  if (t->has_waiter) pthread_join(t->waiter, NULL);"""
-new = """  if (t->has_waiter) pthread_join(t->waiter, NULL);
-  if (t->master_fd >= 0) {
-    close(t->master_fd);
-    t->master_fd = -1;
-  } /* GT_MUTATION_MARK：挂断挪到 join 之后 */"""
+old = '    if (t->master_fd >= 0) {\n        close(t->master_fd);\n        t->master_fd = -1;\n    }\n    if (t->has_waiter) {\n        pthread_join(t->waiter, NULL);\n    }\n'
+new = '    if (t->has_waiter) {\n        pthread_join(t->waiter, NULL);\n    }\n    if (t->master_fd >= 0) {\n        close(t->master_fd);\n        t->master_fd = -1;\n    } /* GT_MUTATION_MARK：挂断挪到 join 之后 */\n'
 assert old in s, "P3 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PYEOF

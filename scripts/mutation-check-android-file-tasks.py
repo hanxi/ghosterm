@@ -21,13 +21,13 @@ def execute(root, build, test):
     cases = [
         ('close-await',bridge,'close(); closed.await()','close(); Unit',close),
         ('close-drain',bridge,'check(it.read() == -1) { "连接释放通知格式无效" }','check(true) { "连接释放通知格式无效" }',close),
-        ('close-native-early',native,'int status=GT_ERR_IO;int directory_fence=-1;',
-            'int status=GT_ERR_IO;int directory_fence=-1;close(s->owner_fence);s->owner_fence=-1;',close),
+        ('close-native-early',native,'    if (!ssh || stopped(s)) {\n',
+            '    close(s->owner_fence);\n    s->owner_fence = -1;\n    if (!ssh || stopped(s)) {\n',close),
         ('directory-fence-order',native,
             'if(directory_fence>=0){usleep(300000);close(directory_fence);}\n    /* The connection fence in release must follow every request-local fd. */\n    release(s);',
             'release(s);\n    if(directory_fence>=0){usleep(300000);close(directory_fence);}',
             'connectionCompletionIncludesPendingDirectoryFence'),
-        ('cloexec',native,'s->owner_fence=fcntl(completion_fd,F_DUPFD_CLOEXEC,0);','s->owner_fence=fcntl(completion_fd,F_DUPFD,0);',
+        ('cloexec',native,'    s->owner_fence = fcntl(completion_fd, F_DUPFD_CLOEXEC, 0);\n','    s->owner_fence = fcntl(completion_fd, F_DUPFD, 0);\n',
             'completionPipeIsCloexecAndCloseWithoutWaiterDrainsIt'),
         ('constructor-reader',bridge,'completion[0].close()','Unit','constructionFailureAndFullRegistryDoNotLeakNotificationPipes'),
         ('task-await',task,'it.closeAndAwait()','Unit',failed),
@@ -65,14 +65,14 @@ def execute(root, build, test):
             baseline = dict(originals)
             if name in ('close-await','close-drain','close-native-early','task-await','cancel-cleanup'):
                 text=baseline[native].decode()
-                anchor='gt_sftp_close(files);gt_ssh_close(ssh);'
+                anchor='    gt_sftp_close(files);\n'
                 assert text.count(anchor)==1
-                baseline[native]=(text.replace(anchor,'usleep(300000);'+anchor)+'\n// '+MARK+'\n').encode()
+                baseline[native]=(text.replace(anchor,'    usleep(300000);\n    gt_sftp_close(files);\n')+'\n// '+MARK+'\n').encode()
                 native.write_bytes(baseline[native])
                 build(label+'-delayed-baseline');test(label+'-delayed-baseline',selection,True)
             if name=='directory-fence-order':
                 text=baseline[native].decode()
-                anchor='if(directory_fence>=0)close(directory_fence);\n    /* The connection fence in release must follow every request-local fd. */\n    release(s);'
+                anchor='if (directory_fence >= 0) {\n        close(directory_fence);\n    }\n    /* The connection fence in release must follow every request-local fd. */\n    release(s);'
                 assert text.count(anchor)==1
                 baseline[native]=(text.replace(anchor,old)+'\n// '+MARK+'\n').encode()
                 native.write_bytes(baseline[native])

@@ -11,8 +11,8 @@ def execute(root,build,test):
     create='exclusiveCreatePreservesContentOffsetAndExistingTarget'
     receive='receiveRegularFilePreservesOffsetAndOwnedDescriptor'
     cases=[
-        ('delivery',native,'s->progress=*value;s->progress_present=true;','s->progress=*value;s->progress_present=false;',create,'create progress delivered'),
-        ('bytes',native,'values[1]=(jlong)s->progress.bytes;','values[1]=(jlong)s->progress.bytes+1;',receive,'receive final observed bytes'),
+        ('delivery',native,'        s->progress_present = true;\n','        s->progress_present = false;\n',create,'create progress delivered'),
+        ('bytes',native,'        values[1] = (jlong)s->progress.bytes;\n','        values[1] = (jlong)s->progress.bytes + 1;\n',receive,'receive final observed bytes'),
         ('direction',kotlin,'RemoteTransferDirection.CREATE else RemoteTransferDirection.RECEIVE','RemoteTransferDirection.RECEIVE else RemoteTransferDirection.RECEIVE',create,'create direction and total'),
         ('total',kotlin,'fields[3].toULong().takeIf { fields[2]==1L }','fields[3].toULong().takeIf { false }',receive,'receive direction and total'),
     ]

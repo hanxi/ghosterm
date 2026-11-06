@@ -139,8 +139,8 @@ def mutations(name, original, setup):
     cases = (
         ('memory', 'JS_SetMemoryLimit(o->rt, 16 * 1024 * 1024);',
          'JS_SetMemoryLimit(o->rt, 128 * 1024 * 1024);', 'memory limit failed'),
-        ('job-budget', 'if (jobs++ >= budget) return 1;',
-         'if (jobs++ >= budget) return 0;', 'job budget not enforced'),
+        ('job-budget', '            return 1; /* explicit queue budget exhausted */\n',
+         '            return 0; /* explicit queue budget exhausted */\n', 'job budget not enforced'),
         ('modules', 'return js_strdup(ctx, "plugin:/shared.js");',
          'return NULL;', 'allowed module evaluation failed'),
         ('gc', 'JS_RunGC(o.rt);', '(void)0;', 'GC did not finalize owned cycle'),

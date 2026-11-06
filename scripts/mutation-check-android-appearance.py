@@ -39,7 +39,7 @@ def main():
     def case(name,test,path,old,new): cases.append((name,test,((path,old,new,1),)))
     palette='TerminalPreferencesTest#allAnsiColorsAndOscCursorOverridesUseTheSelectedTheme'
     canvas='TerminalPreferencesTest#selectedThemeSelectionAndCursorReachActualCanvasPixels'
-    case('ansi-palette',palette,native,'for (size_t i=0;i<16;i++) palette[i]=','for (size_t i=1;i<16;i++) palette[i]=')
+    case('ansi-palette',palette,native,'for (size_t i = 0; i < 16; i++) {\n            palette[i] =','for (size_t i = 1; i < 16; i++) {\n            palette[i] =')
     case('cursor-default',palette,native,'GhosttyColorRgb cursor_color = {bytes[6], bytes[7], bytes[8]};','GhosttyColorRgb cursor_color = {0,0,0};')
     case('selection-background',canvas,view,'or style.appearance.selectionBackground','or 0x445b7d')
     case('selection-text',canvas,view,'or style.appearance.selectionForeground','or 0xffffff')

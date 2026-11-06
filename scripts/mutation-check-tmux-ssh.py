@@ -31,7 +31,7 @@ def main():
         check(['lifecycle','attach','reset','blackhole','backpressure','lost-create','lost-terminate','query-timeout','query-cancel'])
         mutants=[
             ('PTY','src/ssh.c','if (pty) {','if (false) {',['attach']),
-            ('exit-unknown','src/ssh.c','(void)exit_code; return false;','(void)exit_code; return true;',['reset']),
+            ('exit-unknown','src/ssh.c','    (void)exit_code;\n    return false;\n','    (void)exit_code;\n    return true;\n',['reset']),
             ('result-unknown','src/tmux/tmux.c','r.started ? GT_TMUX_UNKNOWN : GT_TMUX_REJECTED','GT_TMUX_CONFIRMED',['lost-terminate']),
             ('cancellation','src/tmux/command.c','b->cancelled && b->cancelled(b->context)','false',['query-cancel']),
             ('deadline','src/tmux/command.c','gt__command_now() >= b->deadline','false',['query-timeout']),

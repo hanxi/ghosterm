@@ -12,20 +12,20 @@ def main():
     if MARK.encode() in original: raise RuntimeError('residual mutation')
     logs=ROOT/'tmp/connection-config-mutations'; logs.mkdir(parents=True,exist_ok=True)
     cases=[
-      ('jump','if (!strcmp(key,"proxyjump")) return !strcasecmp(value,"none");','if (!strcmp(key,"proxyjump")) return true;','jump rejected'),
-      ('scope','if (!conditional && n->block>=0 && !block_matches(&cfg->blocks[n->block],host))','if (false && !conditional && n->block>=0 && !block_matches(&cfg->blocks[n->block],host))','other host excluded'),
-      ('precedence','shadowed=seen[key];','shadowed=false && seen[key];','shadowed value ignored'),
-      ('list','k_keys[key].kind!=K_LIST','true','list is cumulative'),
-      ('conditional','bool conditional=!strcmp(n->keyword,"match");','bool conditional=false;','conditional scope refused'),
+      ('jump','        return !strcasecmp(value, "none");\n','        return true;\n','jump rejected'),
+      ('scope','        if (!conditional && n->block >= 0 && !block_matches(&cfg->blocks[n->block], host)) {\n','        if (false && !conditional && n->block >= 0 &&\n            !block_matches(&cfg->blocks[n->block], host)) {\n','other host excluded'),
+      ('precedence','            shadowed = seen[key];\n','            shadowed = false && seen[key];\n','shadowed value ignored'),
+      ('list','        if (key >= 0 && k_keys[key].kind != K_LIST && n->nargs > 0) {\n','        if (key >= 0 && true && n->nargs > 0) {\n','list is cumulative'),
+      ('conditional','        bool conditional = !strcmp(n->keyword, "match");\n','        bool conditional = false;\n','conditional scope refused'),
       ('unknown','  return false;\n}\n\nint gt_config_check_connection','  return true;\n}\n\nint gt_config_check_connection','unknown directive refused'),
-      ('expansion',"strchr(value,'%') == NULL",'true','unimplemented expansion rejected'),
-      ('port-high','port<=65535','true','port upper bound'),
-      ('port-low','return port>0 &&','return true &&','port lower bound'),
-      ('source','out->source_path=n->source_path;','out->source_path="";','included source preserved'),
-      ('included','out->included=n->included;','out->included=false;','included source preserved'),
-      ('line','out->source_line=n->source_line;','out->source_line=0;','first winning source'),
+      ('expansion','        return strchr(value, \'%\') == NULL && strstr(value, "${") == NULL;\n','        return true && strstr(value, "${") == NULL;\n','unimplemented expansion rejected'),
+      ('port-high','        return port > 0 && port <= 65535;\n','        return port > 0 && true;\n','port upper bound'),
+      ('port-low','        return port > 0 && port <= 65535;\n','        return true && port <= 65535;\n','port lower bound'),
+      ('source','        out->source_path = n->source_path;\n','        out->source_path = "";\n','included source preserved'),
+      ('included','        out->included = n->included;\n','        out->included = false;\n','included source preserved'),
+      ('line','        out->source_line = n->source_line;\n','        out->source_line = 0;\n','first winning source'),
       ('enumeration','if (index-- != 0)','if (false && index-- != 0)','list is cumulative'),
-      ('invalid','if (!cfg || !host || !*host || !out) return GT_ERR_INVALID_ARG;','if (!cfg || !host || !*host || !out) return GT_OK;','invalid arguments'),
+      ('invalid','    if (!cfg || !host || !*host || !out) {\n        return GT_ERR_INVALID_ARG;\n','    if (!cfg || !host || !*host || !out) {\n        return GT_OK;\n','invalid arguments'),
     ]
     with tempfile.TemporaryDirectory(prefix='connection-config-',dir=ROOT/'tmp') as directory:
         work=Path(directory); (work/'tmp').mkdir()

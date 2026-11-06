@@ -27,9 +27,9 @@ def main():
             def compile_core():run(['cmake','--build',build,'--clean-first','--target','test_api','test_config'],'build')
             def control(label):run([build/'test_config',work/'core/tests/fixtures'],label)
             compile_core();run([build/'test_api'],'baseline');control('control')
-            old='if (out_status) *out_status = GT_ERR_INVALID_ARG;'
+            old='                                                       gt_status_t *out_status) {\n    if (out_status) {\n        *out_status = GT_ERR_INVALID_ARG;\n'
             if source.read_text().count(old)!=1:raise RuntimeError('Ambiguous ABI anchor')
-            source.write_text(source.read_text().replace(old,'if (out_status) *out_status = GT_OK;')+'\n/* '+MARK+' */\n')
+            source.write_text(source.read_text().replace(old,'                                                       gt_status_t *out_status) {\n    if (out_status) {\n        *out_status = GT_OK;\n')+'\n/* '+MARK+' */\n')
             compile_core();run([build/'test_api'],'null-status',True,'FAIL: controlled shell rejects NULL with status');control('null-control')
             source.write_bytes(originals[paths[0]]);compile_core();run([build/'test_api'],'null-restored')
             print('PASS C shell status: compiled red / config green / restored green / SHA256',flush=True)

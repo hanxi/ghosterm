@@ -20,12 +20,12 @@ def main():
  run('baseline',[ROOT/'core/build/test_ssh_read'])
  run('baseline-control',[ROOT/'core/build/test_api'])
  cases=[
-  ('confirmed','if (libssh2_channel_eof(sh->chan)) return GT_TRANSPORT_READ_EOF;',
-   'if (n == 0 && libssh2_channel_eof(sh->chan)) return GT_TRANSPORT_READ_EOF;','confirmed'),
-  ('reset','if (libssh2_channel_eof(sh->chan)) return GT_TRANSPORT_READ_EOF;',
-   'if (libssh2_channel_eof(sh->chan) || n == LIBSSH2_ERROR_SOCKET_RECV) return GT_TRANSPORT_READ_EOF;','reset'),
-  ('tail','if (n > 0) return (int)n;',
-   'if (n > 0 && !libssh2_channel_eof(sh->chan)) return (int)n;','tail'),
+  ('confirmed','    if (libssh2_channel_eof(sh->chan)) {\n',
+   '    if (n == 0 && libssh2_channel_eof(sh->chan)) {\n','confirmed'),
+  ('reset','    if (libssh2_channel_eof(sh->chan)) {\n',
+   '    if (libssh2_channel_eof(sh->chan) || n == LIBSSH2_ERROR_SOCKET_RECV) {\n','reset'),
+  ('tail','    libssh2_session_set_timeout(sh->sess, previous_timeout);\n    if (n > 0) {\n',
+   '    libssh2_session_set_timeout(sh->sess, previous_timeout);\n    if (n > 0 && !libssh2_channel_eof(sh->chan)) {\n','tail'),
  ]
  results=[]
  try:

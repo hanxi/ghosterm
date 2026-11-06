@@ -21,16 +21,19 @@ char *gt__strndup(const char *s, size_t n);
 void gt__emit_status(int code, const char *message);
 
 /* 通用事件入队：SFTP job（PROGRESS / JOB_DONE）等带 job_id 的低频事件。 */
-void gt__emit_event(gt_event_kind_t kind, uint64_t job_id, int code,
-                    const char *message);
+void gt__emit_event(gt_event_kind_t kind, uint64_t job_id, int code, const char *message);
 
 /* ------------------------------------------------------------------ */
 /* known_hosts 的枚举（真值来源是**文件**，不是 libssh2 的会话缓存）    */
 /* Mutates one line; false for comment/blank, malformed records remain visible. */
 bool gt__kh_split_line(char *line, gt_known_host_entry_t *out);
 typedef gt_status_t (*gt__kh_prepare_fn)(const char *, size_t, char **, size_t *, void *);
-gt_status_t gt__kh_transaction(const char *, const char *, size_t, gt__kh_prepare_fn,
-                               void *, gt_known_hosts_update_result_t *);
+gt_status_t gt__kh_transaction(const char *,
+                               const char *,
+                               size_t,
+                               gt__kh_prepare_fn,
+                               void *,
+                               gt_known_hosts_update_result_t *);
 
 /* ------------------------------------------------------------------ */
 
@@ -48,8 +51,8 @@ gt_status_t gt__kh_transaction(const char *, const char *, size_t, gt__kh_prepar
  * 返回 false 表示停止遍历；marker 原样传递（普通条目为空串）。
  * 文件不存在视为空；其他打开/读取失败返回错误，不能当成无信任记录。
  */
-typedef bool (*gt__kh_visit_fn)(void *ud, const char *hosts, const char *key_type,
-                                const char *key_b64, const char *marker);
+typedef bool (*gt__kh_visit_fn)(
+    void *ud, const char *hosts, const char *key_type, const char *key_b64, const char *marker);
 gt_status_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud);
 
 /* ------------------------------------------------------------------ */
@@ -57,16 +60,22 @@ gt_status_t gt__kh_visit(const char *path, gt__kh_visit_fn cb, void *ud);
 /* ------------------------------------------------------------------ */
 
 /* 打开交互式 shell 通道（pty-req + shell）。失败返回 NULL。 */
-void *gt__ssh_shell_open(gt_ssh_t *ssh, const char *term, uint16_t cols,
-                         uint16_t rows, uint32_t px_w, uint32_t px_h);
-void *gt__ssh_shell_open_controlled(gt_ssh_t *,const gt_shell_opts_t *,uint32_t,bool (*)(void *),void *,gt_status_t *);
-void *gt__ssh_command_open(gt_ssh_t *,const char *,const gt_shell_opts_t *,uint32_t,bool (*)(void *),void *,gt_status_t *);
+void *gt__ssh_shell_open(
+    gt_ssh_t *ssh, const char *term, uint16_t cols, uint16_t rows, uint32_t px_w, uint32_t px_h);
+void *gt__ssh_shell_open_controlled(
+    gt_ssh_t *, const gt_shell_opts_t *, uint32_t, bool (*)(void *), void *, gt_status_t *);
+void *gt__ssh_command_open(gt_ssh_t *,
+                           const char *,
+                           const gt_shell_opts_t *,
+                           uint32_t,
+                           bool (*)(void *),
+                           void *,
+                           gt_status_t *);
 /* 返回 >0 字节数 / GT_TRANSPORT_READ_TIMEOUT / GT_TRANSPORT_READ_EOF /
  * GT_TRANSPORT_READ_ERROR；语义同 gt_transport_read。 */
 int gt__ssh_shell_read(void *ch, uint8_t *buf, size_t cap, int timeout_ms);
 int gt__ssh_shell_write(void *ch, const uint8_t *data, size_t len);
-int gt__ssh_shell_resize(void *ch, uint16_t cols, uint16_t rows, uint32_t px_w,
-                         uint32_t px_h);
+int gt__ssh_shell_resize(void *ch, uint16_t cols, uint16_t rows, uint32_t px_w, uint32_t px_h);
 bool gt__ssh_shell_exited(void *ch, int *exit_code);
 void gt__ssh_shell_close(void *ch);
 
@@ -93,10 +102,10 @@ gt_sftp_t *gt__sftp_from_session(void *session, gt_ssh_t *ssh);
 void gt__ssh_io_lock(gt_ssh_t *ssh);
 void gt__ssh_io_unlock(gt_ssh_t *ssh);
 
-int gt__ssh_borrow(gt_ssh_t *,void **session,int *socket);
+int gt__ssh_borrow(gt_ssh_t *, void **session, int *socket);
 /* A fresh authenticated connection only: rejects any prior channel/borrow.
  * false preflights; true commits a dedicated bridge claim on this serial owner. */
-int gt__ssh_stream_claim(gt_ssh_t *,void **session,int *socket,bool commit);
+int gt__ssh_stream_claim(gt_ssh_t *, void **session, int *socket, bool commit);
 void gt__ssh_abort(gt_ssh_t *);
 /* Dedicated owner, after socket abort and resuming its pending libssh2 call.
  * One nonblocking free attempt; EAGAIN retains capacity and ownership. Success

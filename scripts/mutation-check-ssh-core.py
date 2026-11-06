@@ -19,18 +19,18 @@ def main():
     replace=runpy.run_path(str(ROOT/'scripts/mutation-check-tmux.py'))['replacement']
     cases={
       'credentials':[
-        ('key-retry','if(s->pem && rc==LIBSSH2_ERROR_FILE)error=GT_ERR_AUTH;',
-         'if(false && s->pem && rc==LIBSSH2_ERROR_FILE)error=GT_ERR_AUTH;'),
+        ('key-retry','                if (s->pem && rc == LIBSSH2_ERROR_FILE) {\n',
+         '                if (false && s->pem && rc == LIBSSH2_ERROR_FILE) {\n'),
       ],
       'ssh':[
-        ('zero-poll','if (timeout_ms == 0) libssh2_session_set_blocking(sh->sess, 0);',
-         'if (timeout_ms == 0) libssh2_session_set_timeout(sh->sess, 0);'),
+        ('zero-poll','        libssh2_session_set_blocking(sh->sess, 0);\n',
+         '        libssh2_session_set_timeout(sh->sess, 0);\n'),
         ('UNKNOWN','} else { decision = GT_HOSTKEY_UNKNOWN; }','} else { decision = GT_HOSTKEY_ACCEPT; }'),
         ('MISMATCH','if (kh == KH_MISMATCH) { decision = GT_HOSTKEY_REJECT;','if (kh == KH_MISMATCH) { decision = GT_HOSTKEY_ACCEPT;'),
         ('TOFU','int saved = kh_append(ssh->kh_path, ssh->host, port, ktype, b64, &kh);','int saved = GT_OK;'),
         ('resize','if (libssh2_channel_request_pty_size(sh->chan, cols ? cols : 80, rows ? rows : 24) != 0) {','(void)cols; (void)rows; if (false) {'),
       ],
-      'sftp':[('F1', '  out->size = out->has_size ? a->filesize : 0;', '  out->size = 0; /* GT_MUTATION_MARK */'), ('F2', '    strcpy(e->full_path + off, name);', '    strcpy(e->full_path + off, "x"); /* GT_MUTATION_MARK */'), ('F3', '    if (fwrite(buf, 1, (size_t)n, f) != (size_t)n) { rc = GT_JOB_FAILED; break; }', '    if (fwrite("", 1, 0, f) != (size_t)n) { rc = GT_JOB_FAILED; break; } /* GT_MUTATION_MARK */'), ('F4', 'static void emit_job_done(uint64_t job_id, int result, const char *detail) {', 'static void emit_job_done(uint64_t job_id, int result, const char *detail) {\n  result = GT_JOB_OK; /* GT_MUTATION_MARK: 三态折叠 */'), ('F5', '    int r = remove_all_rec(sftp, ents[i].full_path, depth + 1);', '    int r = gt_sftp_remove(sftp, ents[i].full_path); /* GT_MUTATION_MARK */'), ('F6', '  a.permissions = (unsigned long)(mode & 07777);', '  a.permissions = (unsigned long)((mode & 0) | 0644); /* GT_MUTATION_MARK */'), ('F7', '    if (e->stat.is_dir && (max_depth < 0 || depth < max_depth)) {', '    if (e->stat.is_dir) { (void)max_depth; /* GT_MUTATION_MARK */'), ('F8', '    if (atomic_load(&j->paused)) { usleep(20 * 1000); continue; }', '    if (atomic_load(&j->paused) && false) { usleep(20 * 1000); continue; } /* GT_MUTATION_MARK */')],
+      'sftp':[('F1', '  out->size = out->has_size ? a->filesize : 0;', '  out->size = 0; /* GT_MUTATION_MARK */'), ('F2', '    strcpy(e->full_path + off, name);', '    strcpy(e->full_path + off, "x"); /* GT_MUTATION_MARK */'), ('F3', '        if (fwrite(buf, 1, (size_t)n, f) != (size_t)n) {\n            rc = GT_JOB_FAILED;\n            break;\n        }\n', '        if (fwrite("", 1, 0, f) != (size_t)n) {\n            rc = GT_JOB_FAILED;\n            break;\n        } /* GT_MUTATION_MARK */\n'), ('F4', 'static void emit_job_done(uint64_t job_id, int result, const char *detail) {', 'static void emit_job_done(uint64_t job_id, int result, const char *detail) {\n  result = GT_JOB_OK; /* GT_MUTATION_MARK: 三态折叠 */'), ('F5', '    int r = remove_all_rec(sftp, ents[i].full_path, depth + 1);', '    int r = gt_sftp_remove(sftp, ents[i].full_path); /* GT_MUTATION_MARK */'), ('F6', '  a.permissions = (unsigned long)(mode & 07777);', '  a.permissions = (unsigned long)((mode & 0) | 0644); /* GT_MUTATION_MARK */'), ('F7', '    if (e->stat.is_dir && (max_depth < 0 || depth < max_depth)) {', '    if (e->stat.is_dir) { (void)max_depth; /* GT_MUTATION_MARK */'), ('F8', '        if (atomic_load(&j->paused)) {\n            usleep(20 * 1000);\n            continue;\n        }\n', '        if (atomic_load(&j->paused) && false) {\n            usleep(20 * 1000);\n            continue;\n        } /* GT_MUTATION_MARK */\n')],
       'exec':[
         ('timeout','libssh2_session_set_timeout(e->sess, previous_timeout);','(void)previous_timeout;'),
         ('stderr','ssize_t b = libssh2_channel_read_stderr(e->chan, (char *)buf, cap);','ssize_t b = libssh2_channel_read(e->chan, (char *)buf, cap);'),

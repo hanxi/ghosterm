@@ -26,19 +26,18 @@ def execute(root,build,test):
         text=originals[path].decode();piece=scope(text,marker) if marker else text
         assert piece.count(old)==1,(label,piece.count(old))
         cases.append((label,path,piece,piece.replace(old,new),method))
-    worker='else if(kind==7)'
-    call='files,path,destination,publish_directory,expected_size,expected_mtime,&outcome,budget,mkdir_stopped,s);'
-    add('paths',native,worker,call,call.replace('path,destination','destination,path'),real)
-    add('mtime',native,worker,call,call.replace('expected_mtime,','expected_mtime+1,'),real)
-    add('budget',native,worker,call,call.replace('&outcome,budget,','&outcome,3000,'),'totalBudgetIncludesAllMetadataRequests')
-    add('cancel-core',native,worker,call,call.replace('budget,mkdir_stopped,','budget,(true?NULL:mkdir_stopped),'),cancel)
-    add('raw-status',native,worker,'u32(&p,outcome.remote_status);','u32(&p,0);',protocol)
-    add('unknown',native,worker,'u32(&p,(uint32_t)outcome.state);','u32(&p,(uint32_t)(outcome.state==GT_SFTP_REMOVE_UNKNOWN?GT_SFTP_REMOVE_REJECTED:outcome.state));',protocol)
-    add('outcome',native,None,'if(status!=GT_OK && kind!=3 && kind!=5 && kind!=6 && kind!=7)','if(status!=GT_OK && kind!=3 && kind!=5 && kind!=6)',protocol)
+    worker='else if (kind == 7)'
+    add('paths',native,worker,'                                                   path,\n                                                   destination,\n','                                                   destination,\n                                                   path,\n',real)
+    add('mtime',native,worker,'                                                   expected_mtime,\n','                                                   expected_mtime + 1,\n',real)
+    add('budget',native,worker,'                                                   budget,\n','                                                   3000,\n','totalBudgetIncludesAllMetadataRequests')
+    add('cancel-core',native,worker,'                                                   mkdir_stopped,\n','                                                   (true ? NULL : mkdir_stopped),\n',cancel)
+    add('raw-status',native,worker,'                u32(&p, outcome.remote_status);\n','                u32(&p, 0);\n',protocol)
+    add('unknown',native,worker,'                u32(&p, (uint32_t)outcome.state);\n','                u32(&p,\n                    (uint32_t)(outcome.state == GT_SFTP_REMOVE_UNKNOWN ? GT_SFTP_REMOVE_REJECTED\n                                                                       : outcome.state));\n',protocol)
+    add('outcome',native,None,'        if (status != GT_OK && kind != 3 && kind != 5 && kind != 6 && kind != 7) {\n','        if (status != GT_OK && kind != 3 && kind != 5 && kind != 6) {\n',protocol)
     cancel_marker='JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_cancelRemove'
-    add('cancel-id',native,cancel_marker,'s->request==(uint64_t)request && s->kind==7','s->kind==7',stale)
-    add('cancel-generation',native,cancel_marker,'registry[slot].generation==generation?registry[slot].value:NULL','generation?registry[slot].value:NULL',stale)
-    add('fence-early',native,None,'if(kind==7){directory_fence=release_fd;release_fd=-1;}','if(kind==7){close(release_fd);release_fd=-1;}',fence)
+    add('cancel-id',native,cancel_marker,'    if (s->request == (uint64_t)request && s->kind == 7 && !s->complete) {\n','    if (s->kind == 7 && !s->complete) {\n',stale)
+    add('cancel-generation',native,cancel_marker,'    file_session *s = registry[slot].generation == generation ? registry[slot].value : NULL;\n','    file_session *s = generation ? registry[slot].value : NULL;\n',stale)
+    add('fence-early',native,None,'        if (kind == 7) {\n            directory_fence = release_fd;\n','        if (kind == 7) {\n            close(release_fd);\n',fence)
     add('fence-cloexec',native,'JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_beginRemove','F_DUPFD_CLOEXEC','F_DUPFD',fence)
     request='    inner class RemovalRequest'
     add('status',kotlin,request,'outcome=RemoteRemovalResult(status,RemoteRemovalState.entries[state],remote,','outcome=RemoteRemovalResult(0,RemoteRemovalState.entries[state],remote,',protocol)

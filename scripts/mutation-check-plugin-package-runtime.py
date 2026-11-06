@@ -8,19 +8,19 @@ PACKAGE='core/src/extension/package-runtime.c'
 ENGINE='core/src/extension/runtime-quickjs.inc'
 SESSION='core/src/extension/session.c'
 CASES=[
- ('stop-before-load',ENGINE,'if(atomic_load_explicit(&r->stopped,memory_order_relaxed)){runtime_fail(r,GT_RUNTIME_CANCELLED);return r->info.phase;}','if(false && atomic_load_explicit(&r->stopped,memory_order_relaxed)){runtime_fail(r,GT_RUNTIME_CANCELLED);return r->info.phase;}','stop-created'),
- ('destroy-before-close',ENGINE,'(*out)->info.phase!=GT_RUNTIME_CLOSED','false','close-created'),
- ('identity',SESSION,'!strcmp(s->config.plugin_id,id)','true','id'),
- ('version',SESSION,'!strcmp(s->config.plugin_version,version)','true','version'),
- ('digest',SESSION,'!strcmp(role==GT_BRIDGE_HOST?s->config.client_digest:s->config.executor_digest,digest)','true','digest'),
- ('sdk',PACKAGE,'strcmp(info.sdk_version,GT_PLUGIN_SDK_API_VERSION)','false','sdk-version'),
+ ('stop-before-load',ENGINE,'    }\n    if (atomic_load_explicit(&r->stopped, memory_order_relaxed)) {\n','    }\n    if (false && atomic_load_explicit(&r->stopped, memory_order_relaxed)) {\n','stop-created'),
+ ('destroy-before-close',ENGINE,'    if (!out || !*out || (*out)->info.phase != GT_RUNTIME_CLOSED) {\n','    if (!out || !*out || false) {\n','close-created'),
+ ('identity',SESSION,'    return !strcmp(s->config.plugin_id, id) && !strcmp(s->config.plugin_version, version) &&\n','    return true && !strcmp(s->config.plugin_version, version) &&\n','id'),
+ ('version',SESSION,'    return !strcmp(s->config.plugin_id, id) && !strcmp(s->config.plugin_version, version) &&\n','    return !strcmp(s->config.plugin_id, id) && true &&\n','version'),
+ ('digest',SESSION,'    return !strcmp(s->config.plugin_id, id) && !strcmp(s->config.plugin_version, version) &&\n           !strcmp(role == GT_BRIDGE_HOST ? s->config.client_digest : s->config.executor_digest,\n                   digest) &&\n','    return !strcmp(s->config.plugin_id, id) && !strcmp(s->config.plugin_version, version) && true &&\n','digest'),
+ ('sdk',PACKAGE,'    if (strcmp(info.runtime, "portable-js") ||\n        strcmp(info.sdk_version, GT_PLUGIN_SDK_API_VERSION)) {\n','    if (strcmp(info.runtime, "portable-js") || false) {\n','sdk-version'),
  ('association',PACKAGE,'info.association_required && !associated','false && info.association_required && !associated','association'),
- ('permission',PACKAGE,'gt__bridge_session_access(session,lease,name)!=GT_BRIDGE_ACCESS_ALLOWED','false','ungranted'),
- ('native-import',ENGINE,'!strcmp(name,"host:/native") && !strcmp(base,"host:/bootstrap.js")','!strcmp(name,"host:/native")','native'),
- ('source-size',ENGINE,'source.size>128*1024','false','source-limit'),
- ('source-total',ENGINE,'source.size>1024*1024-r->info.module_bytes','false','source-total'),
- ('module-count',ENGINE,'r->count>=64','r->count>=63','module-boundary'),
- ('utf8',ENGINE,'!gt__runtime_source_utf8(copy,used)','false','utf8'),
+ ('permission',PACKAGE,'        if (gt__bridge_session_access(session, lease, name) != GT_BRIDGE_ACCESS_ALLOWED) {\n','        if (false) {\n','ungranted'),
+ ('native-import',ENGINE,'    if (!strcmp(name, "host:/native") && !strcmp(base, "host:/bootstrap.js")) {\n','    if (!strcmp(name, "host:/native")) {\n','native'),
+ ('source-size',ENGINE,'    if (source.size > 128 * 1024 ||\n        (!known && (r->count >= 64 || source.size > 1024 * 1024 - r->info.module_bytes))) {\n','    if (false || (!known && (r->count >= 64 || source.size > 1024 * 1024 - r->info.module_bytes))) {\n','source-limit'),
+ ('source-total',ENGINE,'    if (source.size > 128 * 1024 ||\n        (!known && (r->count >= 64 || source.size > 1024 * 1024 - r->info.module_bytes))) {\n','    if (source.size > 128 * 1024 || (!known && (r->count >= 64 || false))) {\n','source-total'),
+ ('module-count',ENGINE,'        (!known && (r->count >= 64 || source.size > 1024 * 1024 - r->info.module_bytes))) {\n','        (!known && (r->count >= 63 || source.size > 1024 * 1024 - r->info.module_bytes))) {\n','module-boundary'),
+ ('utf8',ENGINE,'    if (used != source.size || !gt__runtime_source_utf8(copy, used) ||\n        !gt__sha256_update(&hash, copy, used) || !gt__sha256_final(&hash, digest) ||\n        strcmp(digest, source.sha256)) {\n','    if (used != source.size || false || !gt__sha256_update(&hash, copy, used) ||\n        !gt__sha256_final(&hash, digest) || strcmp(digest, source.sha256)) {\n','utf8'),
 ]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
@@ -30,62 +30,62 @@ def main():
  if args.public:
   api='core/src/extension/package-api.c';runtime='core/src/extension/runtime-api.c'
   cases=[
-   ('capture-cancel',api,'if(p->info.phase!=GT_EXT_PACKAGE_CAPTURING)return p->info.phase;','if(p->info.phase!=GT_EXT_PACKAGE_CAPTURING)return p->info.phase; atomic_store(&p->stopped,false);','capture-stop'),
-   ('check-cancel',api,'if(p->info.phase!=GT_EXT_PACKAGE_CAPTURED)return p->info.phase;','if(p->info.phase!=GT_EXT_PACKAGE_CAPTURED)return p->info.phase; atomic_store(&p->stopped,false);','check-stop'),
-   ('unknown-preserved',api,'case GT_PACKAGE_CHECK_UNKNOWN:error=GT_EXT_PACKAGE_UNKNOWN;','case GT_PACKAGE_CHECK_UNKNOWN:error=GT_EXT_PACKAGE_UNSUPPORTED;','unknown'),
-   ('metadata-zero',api,'if(out)memset(out,0,sizeof(*out));if(!p || !out || p->info.phase!=GT_EXT_PACKAGE_CHECKED)','if(!p || !out || p->info.phase!=GT_EXT_PACKAGE_CHECKED)','roundtrip'),
+   ('capture-cancel',api,'    if (p->info.phase != GT_EXT_PACKAGE_CAPTURING) {\n        return p->info.phase;\n    }\n    if (atomic_load_explicit(&p->stopped, memory_order_relaxed)) {\n','    if (p->info.phase != GT_EXT_PACKAGE_CAPTURING) {\n        return p->info.phase;\n    }\n    atomic_store(&p->stopped, false);\n    if (atomic_load_explicit(&p->stopped, memory_order_relaxed)) {\n','capture-stop'),
+   ('check-cancel',api,'    if (p->info.phase != GT_EXT_PACKAGE_CAPTURED) {\n        return p->info.phase;\n    }\n    if (atomic_load_explicit(&p->stopped, memory_order_relaxed)) {\n','    if (p->info.phase != GT_EXT_PACKAGE_CAPTURED) {\n        return p->info.phase;\n    }\n    atomic_store(&p->stopped, false);\n    if (atomic_load_explicit(&p->stopped, memory_order_relaxed)) {\n','check-stop'),
+   ('unknown-preserved',api,'            error = GT_EXT_PACKAGE_UNKNOWN;\n','            error = GT_EXT_PACKAGE_UNSUPPORTED;\n','unknown'),
+   ('metadata-zero',api,'    if (out) {\n        memset(out, 0, sizeof(*out));\n    }\n    if (!p || !out || p->info.phase != GT_EXT_PACKAGE_CHECKED) {\n','    if (!p || !out || p->info.phase != GT_EXT_PACKAGE_CHECKED) {\n','roundtrip'),
    ('digest-copy',api,'COPY(package_digest);','COPY(manifest_digest);','roundtrip'),
-   ('stopped-adoption',runtime,'if(atomic_load_explicit(&package->stopped,memory_order_relaxed))return GT_ERR_CANCELLED;','if(false && atomic_load_explicit(&package->stopped,memory_order_relaxed))return GT_ERR_CANCELLED;','load-stop'),
+   ('stopped-adoption',runtime,'    if (atomic_load_explicit(&package->stopped, memory_order_relaxed)) {\n','    if (false && atomic_load_explicit(&package->stopped, memory_order_relaxed)) {\n','load-stop'),
   ]
   executable='test_ext_package';pattern='^ext_package_';objects=['package-api','runtime-api','runtime','package-runtime','session']
  if args.registry:
   registry='core/src/extension/registry.c'
   cases=[
-   ('command-separator', 'core/src/extension/package-check-js.inc', "if(j)out->path[used++]=' ';", "if(j)out->path[used++]='-';", None),
-   ('command-title', 'core/src/extension/package-check-js.inc', 'out->title,sizeof(out->title)', 'out->title,sizeof(out->title)-1', None),
-   ('command-count', 'core/src/extension/package-check-js.inc', 'n>=1 && n<=64;', 'n>=1 && n<64;', None),
-   ('command-views', 'core/src/extension/package-check-js.inc', 'if(ok)out->view_count=count;', 'if(ok)out->view_count=0;', None),
-   ('source-unknown',registry,'if(source==GT_REGISTRY_SOURCE_UNKNOWN)return GT_REGISTRY_UNKNOWN;','if(source==GT_REGISTRY_SOURCE_UNKNOWN)return GT_REGISTRY_DENIED;',None),
-   ('source-denied',registry,'if(source==GT_REGISTRY_SOURCE_DENIED)return GT_REGISTRY_DENIED;','if(source==GT_REGISTRY_SOURCE_DENIED)return GT_REGISTRY_UNKNOWN;',None),
-   ('conflict',registry,'if(!id && overlaps>1)return GT_REGISTRY_CONFLICT;','if(false && !id && overlaps>1)return GT_REGISTRY_CONFLICT;',None),
-   ('replace-digest',registry,'if(strcmp(entry->digest,expected))return GT_REGISTRY_STALE;','if(false && strcmp(entry->digest,expected))return GT_REGISTRY_STALE;',None),
-   ('remove-digest',registry,'if(strcmp(e->digest,expected))return GT_REGISTRY_STALE;','if(false && strcmp(e->digest,expected))return GT_REGISTRY_STALE;',None),
-   ('selection-digest',registry,'if(strcmp(digest,e->digest))return GT_REGISTRY_STALE;','if(false && strcmp(digest,e->digest))return GT_REGISTRY_STALE;',None),
-   ('prefix-token',registry,"(x==y || (x<y?b[n]:a[n])==' ')",'true',None),
-   ('side',registry,'!e->package || e->executor!=executor','!e->package || (false && e->executor!=executor)',None),
+   ('command-separator', 'core/src/extension/package-check-js.inc', "                out->path[used++] = ' ';\n", "                out->path[used++] = '-';\n", None),
+   ('command-title', 'core/src/extension/package-check-js.inc', '    ok = ok && check_string(c, command, "title", out->title, sizeof(out->title)) &&\n', '    ok = ok && check_string(c, command, "title", out->title, sizeof(out->title) - 1) &&\n', None),
+   ('command-count', 'core/src/extension/package-check-js.inc', '        bool valid = JS_IsArray(commands) && !JS_ToUint32(c, &n, length) && n >= 1 && n <= 64;\n', '        bool valid = JS_IsArray(commands) && !JS_ToUint32(c, &n, length) && n >= 1 && n < 64;\n', None),
+   ('command-views', 'core/src/extension/package-check-js.inc', '        out->view_count = count;\n', '        out->view_count = 0;\n', None),
+   ('source-unknown',registry,'        return GT_REGISTRY_UNKNOWN;\n','        return GT_REGISTRY_DENIED;\n',None),
+   ('source-denied',registry,'        return GT_REGISTRY_DENIED;\n','        return GT_REGISTRY_UNKNOWN;\n',None),
+   ('conflict',registry,'    if (!id && overlaps > 1) {\n','    if (false && !id && overlaps > 1) {\n',None),
+   ('replace-digest',registry,'        if (strcmp(entry->digest, expected)) {\n','        if (false && strcmp(entry->digest, expected)) {\n',None),
+   ('remove-digest',registry,'            if (strcmp(e->digest, expected)) {\n','            if (false && strcmp(e->digest, expected)) {\n',None),
+   ('selection-digest',registry,'            if (strcmp(digest, e->digest)) {\n','            if (false && strcmp(digest, e->digest)) {\n',None),
+   ('prefix-token',registry,"    return !memcmp(a, b, n) && (x == y || (x < y ? b[n] : a[n]) == ' ');\n",'    return !memcmp(a, b, n) && true;\n',None),
+   ('side',registry,'        if (!e->package || e->executor != executor) {\n','        if (!e->package || (false && e->executor != executor)) {\n',None),
   ]
   executable='test_plugin_registry';pattern='^plugin_registry$';objects=['registry','package-check']
  if args.registry_api:
   api='core/src/extension/registry-api.c'
   cases=[
-   ('api-source-unknown',api,'case GT_REGISTRY_UNKNOWN:return GT_EXT_REGISTRY_UNKNOWN;','case GT_REGISTRY_UNKNOWN:return GT_EXT_REGISTRY_DENIED;','registry'),
-   ('api-source-denied',api,'case GT_REGISTRY_DENIED:return GT_EXT_REGISTRY_DENIED;','case GT_REGISTRY_DENIED:return GT_EXT_REGISTRY_UNKNOWN;','registry'),
-   ('api-stopped-put',api,'if(atomic_load_explicit(&p->stopped,memory_order_relaxed))return GT_EXT_REGISTRY_CANCELLED;','if(false && atomic_load_explicit(&p->stopped,memory_order_relaxed))return GT_EXT_REGISTRY_CANCELLED;','registry'),
-   ('api-independent-stop',api,'atomic_init(&p->stopped,false);','atomic_init(&p->stopped,true);','registry'),
-   ('api-selected-stats',api,'p->info.members=count;p->info.bytes=bytes;','p->info.members=0;p->info.bytes=bytes;','registry'),
-   ('api-command-schema',api,'memcpy(out->args_schema,c->args_schema,sizeof(c->args_schema));','memset(out->args_schema,0,sizeof(out->args_schema));','registry'),
-   ('api-command-zero',api,'if(out)memset(out,0,sizeof(*out));if(!p || !out || p->info.phase!=GT_EXT_PACKAGE_CHECKED)','if(!p || !out || p->info.phase!=GT_EXT_PACKAGE_CHECKED)','registry'),
+   ('api-source-unknown',api,'            return GT_EXT_REGISTRY_UNKNOWN;\n','            return GT_EXT_REGISTRY_DENIED;\n','registry'),
+   ('api-source-denied',api,'            return GT_EXT_REGISTRY_DENIED;\n','            return GT_EXT_REGISTRY_UNKNOWN;\n','registry'),
+   ('api-stopped-put',api,'    if (atomic_load_explicit(&p->stopped, memory_order_relaxed)) {\n','    if (false && atomic_load_explicit(&p->stopped, memory_order_relaxed)) {\n','registry'),
+   ('api-independent-stop',api,'    atomic_init(&p->stopped, false);\n','    atomic_init(&p->stopped, true);\n','registry'),
+   ('api-selected-stats',api,'    p->info.members = count;\n','    p->info.members = 0;\n','registry'),
+   ('api-command-schema',api,'    memcpy(out->args_schema, c->args_schema, sizeof(c->args_schema));\n','    memset(out->args_schema, 0, sizeof(out->args_schema));\n','registry'),
+   ('api-command-zero',api,'    if (out) {\n        memset(out, 0, sizeof(*out));\n    }\n    if (!p || !out || p->info.phase != GT_EXT_PACKAGE_CHECKED) {\n','    if (!p || !out || p->info.phase != GT_EXT_PACKAGE_CHECKED) {\n','registry'),
   ]
   executable='test_ext_package';pattern='^ext_package_';objects=['registry-api','package-check','package-api','registry']
  if args.capabilities:
   cases=[
-   ('access-allowed',ENGINE,'case GT_EXT_ACCESS_ALLOWED:return JS_NewString(c,"allowed");','case GT_EXT_ACCESS_ALLOWED:return JS_NewString(c,"denied");','capabilities'),
-   ('access-unsupported',ENGINE,'case GT_EXT_ACCESS_UNSUPPORTED:return JS_NewString(c,"unsupported");','case GT_EXT_ACCESS_UNSUPPORTED:return JS_NewString(c,"unknown");','capabilities'),
-   ('access-revoked',ENGINE,'case GT_EXT_ACCESS_REVOKED:return JS_NewString(c,"revoked");','case GT_EXT_ACCESS_REVOKED:return JS_NewString(c,"allowed");','capabilities'),
-   ('access-input',ENGINE,'!size || size>128 || memchr(name,0,size)','false','capabilities'),
+   ('access-allowed',ENGINE,'                return JS_NewString(c, "allowed");\n','                return JS_NewString(c, "denied");\n','capabilities'),
+   ('access-unsupported',ENGINE,'                return JS_NewString(c, "unsupported");\n','                return JS_NewString(c, "unknown");\n','capabilities'),
+   ('access-revoked',ENGINE,'                return JS_NewString(c, "revoked");\n','                return JS_NewString(c, "allowed");\n','capabilities'),
+   ('access-input',ENGINE,'        if (!size || size > 128 || memchr(name, 0, size)) {\n','        if (false) {\n','capabilities'),
    ('access-frozen',ENGINE,'capabilities:Object.freeze({query(name){return port.access(name)}})','capabilities:({query(name){return port.access(name)}})','capabilities'),
    ('dispose-error',ENGINE,'resources?.dispose();disposable?.dispose()','resources?.dispose();try{disposable?.dispose()}catch{}','dispose-throw'),
   ]
   executable='test_runtime';pattern='^(ext_)?runtime_(capabilities|dispose-throw)$';objects=['runtime']
  if args.invocation:
   cases=[
-   ('invocation-command',ENGINE,'if(!token)return GT_ERR_INVALID_ARG;','if(false && !token)return GT_ERR_INVALID_ARG;','invocation'),
-   ('invocation-utf8',ENGINE,'!gt__runtime_source_utf8(input->argv[i],sizes[i])','false','invocation'),
-   ('invocation-argument-limit',ENGINE,'sizes[i]>4096','false','invocation'),
-   ('invocation-total-limit',ENGINE,'sizes[i]+1>16384-total','false','invocation'),
-   ('invocation-copy',ENGINE,'memcpy(r->invocation+at,input->argv[i],sizes[i]+1);','memset(r->invocation+at,0,sizes[i]+1);','invocation'),
+   ('invocation-command',ENGINE,'    if (!token) {\n','    if (false && !token) {\n','invocation'),
+   ('invocation-utf8',ENGINE,'        if (sizes[i] > 4096 || sizes[i] + 1 > 16384 - total ||\n            !gt__runtime_source_utf8(input->argv[i], sizes[i])) {\n','        if (sizes[i] > 4096 || sizes[i] + 1 > 16384 - total || false) {\n','invocation'),
+   ('invocation-argument-limit',ENGINE,'        if (sizes[i] > 4096 || sizes[i] + 1 > 16384 - total ||\n','        if (false || sizes[i] + 1 > 16384 - total ||\n','invocation'),
+   ('invocation-total-limit',ENGINE,'        if (sizes[i] > 4096 || sizes[i] + 1 > 16384 - total ||\n            !gt__runtime_source_utf8(input->argv[i], sizes[i])) {\n','        if (sizes[i] > 4096 || false || !gt__runtime_source_utf8(input->argv[i], sizes[i])) {\n','invocation'),
+   ('invocation-copy',ENGINE,'        memcpy(r->invocation + at, input->argv[i], sizes[i] + 1);\n','        memset(r->invocation + at, 0, sizes[i] + 1);\n','invocation'),
    ('invocation-freeze',ENGINE,'Object.freeze(invocation.arguments);','void(invocation.arguments);','invocation'),
-   ('invocation-declared',ENGINE,'if(!found)return GT_ERR_NOT_FOUND;','if(false && !found)return GT_ERR_NOT_FOUND;','package:registry'),
+   ('invocation-declared',ENGINE,'        if (!found) {\n','        if (false && !found) {\n','package:registry'),
   ]
   executable='test_runtime';pattern='^(ext_)?runtime_invocation$|^ext_package_registry$';objects=['runtime','runtime-api']
  for _,name,old,_,_ in cases:

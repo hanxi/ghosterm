@@ -8,28 +8,39 @@
 #define GT_BRIDGE_IO_QUANTUM 16384u
 
 typedef enum {
-  GT_BRIDGE_DATA, GT_BRIDGE_WAIT, GT_BRIDGE_EOF,
-  GT_BRIDGE_CLOSED, GT_BRIDGE_ERROR
+    GT_BRIDGE_DATA,
+    GT_BRIDGE_WAIT,
+    GT_BRIDGE_EOF,
+    GT_BRIDGE_CLOSED,
+    GT_BRIDGE_ERROR
 } gt_bridge_io_state_t;
+
 typedef struct {
-  gt_bridge_io_state_t state;
-  size_t count; /* DATA only: local acceptance, never remote completion. */
-  gt_status_t error;
+    gt_bridge_io_state_t state;
+    size_t count; /* DATA only: local acceptance, never remote completion. */
+    gt_status_t error;
 } gt_bridge_io_t;
-typedef enum { GT_BRIDGE_DRAINING, GT_BRIDGE_RELEASED, GT_BRIDGE_CLOSE_ERROR } gt_bridge_close_t;
+
+typedef enum {
+    GT_BRIDGE_DRAINING,
+    GT_BRIDGE_RELEASED,
+    GT_BRIDGE_CLOSE_ERROR
+} gt_bridge_close_t;
 typedef struct gt_bridge_stream gt_bridge_stream_t;
+
 typedef struct {
-  gt_bridge_io_t (*read)(gt_bridge_stream_t *, void *, size_t, int);
-  gt_bridge_io_t (*write)(gt_bridge_stream_t *, const void *, size_t, int);
-  /* Thread-safe wake only. Resource release belongs to the IO owner. */
-  void (*wake)(gt_bridge_stream_t *);
-  gt_bridge_close_t (*close_step)(gt_bridge_stream_t *, int);
-  void (*destroy)(gt_bridge_stream_t *);
+    gt_bridge_io_t (*read)(gt_bridge_stream_t *, void *, size_t, int);
+    gt_bridge_io_t (*write)(gt_bridge_stream_t *, const void *, size_t, int);
+    /* Thread-safe wake only. Resource release belongs to the IO owner. */
+    void (*wake)(gt_bridge_stream_t *);
+    gt_bridge_close_t (*close_step)(gt_bridge_stream_t *, int);
+    void (*destroy)(gt_bridge_stream_t *);
 } gt_bridge_stream_ops_t;
+
 struct gt_bridge_stream {
-  const gt_bridge_stream_ops_t *ops;
-  atomic_bool stopping;
-  bool closed; /* owner only */
+    const gt_bridge_stream_ops_t *ops;
+    atomic_bool stopping;
+    bool closed; /* owner only */
 };
 
 /* Budgets are finite milliseconds >= 0; zero means try without waiting.
@@ -53,6 +64,6 @@ gt_status_t gt__bridge_stream_destroy(gt_bridge_stream_t *);
  * is required (dup aliases share NONBLOCK). Datagram/file fds and sockets with
  * SO_LINGER enabled are rejected. No implicit authentication/IPC trust.
  * Allocator context must outlive destroy. NULL selects malloc/free. */
-gt_status_t gt__bridge_fd_open(int read_fd, int write_fd,
-                               const gt_allocator_t *, gt_bridge_stream_t **);
+gt_status_t
+gt__bridge_fd_open(int read_fd, int write_fd, const gt_allocator_t *, gt_bridge_stream_t **);
 #endif

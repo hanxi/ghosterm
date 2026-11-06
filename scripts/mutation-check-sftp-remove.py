@@ -43,7 +43,7 @@ def main():
                 start=clean.index('static int remove_matches(');end=clean.index('int gt_sftp_stat(',start);piece=clean[start:end]
                 variants=[
                     ('zero-budget','!out || !timeout_ms','!out','normal'),
-                    ('jobs','if (has_jobs) return GT_ERR_INVALID_ARG;','if (has_jobs && false) return GT_ERR_INVALID_ARG;','jobs'),
+                    ('jobs','    if (has_jobs) {\n','    if (has_jobs && false) {\n','jobs'),
                     ('reset','{GT_SFTP_REMOVE_NOT_ATTEMPTED, 0};','{GT_SFTP_REMOVE_REMOVED, 99};','normal'),
                     ('parent','!mkdir_parent(parent)','false','normal'),
                     ('leaf'," || strchr(name, '/')",'','normal'),
@@ -58,7 +58,7 @@ def main():
                     ('recheck','pass < 2','pass < 1','second-change'),
                     ('unknown','if (publish_rejected(out->remote_status))','if (out->remote_status || publish_rejected(out->remote_status))','unknown-code'),
                     ('rejected','out->state = GT_SFTP_REMOVE_REJECTED;','out->state = GT_SFTP_REMOVE_UNKNOWN;','unsupported'),
-                    ('late-cancel','if (result == 0) { out->state = GT_SFTP_REMOVE_REMOVED;','if (result == 0) { status = open_status(deadline, cancelled, context); if(status != GT_OK) goto finished; out->state = GT_SFTP_REMOVE_REMOVED;','late-cancel'),
+                    ('late-cancel','            out->state = GT_SFTP_REMOVE_REMOVED;\n','            status = open_status(deadline, cancelled, context);\n            if (status != GT_OK) {\n                goto finished;\n            }\n            out->state = GT_SFTP_REMOVE_REMOVED;\n','late-cancel'),
                     ('abort','gt__ssh_abort(sftp->ssh);','(void)sftp;','wrong-size'),
                     ('restore','libssh2_session_set_timeout(session, timeout);','libssh2_session_set_timeout(session, timeout + 1);','normal'),
                 ]
@@ -73,7 +73,7 @@ def main():
                     run([build/'test_config',work/'core/tests/fixtures'],name+'-control')
                     source.write_text(clean);compile_core();case(target,name+'-restored')
                     assert source.read_bytes()==originals[ROOT/'core/src/sftp.c'];record('Core',name)
-                old='gt__set_error("sftp remove controlled: libssh2 unavailable");\n  return GT_ERR_UNSUPPORTED;'
+                old='gt__set_error("sftp remove controlled: libssh2 unavailable");\n    return GT_ERR_UNSUPPORTED;'
                 assert clean.count(old)==1;source.write_text(clean.replace(old,old.replace('GT_ERR_UNSUPPORTED','GT_OK'))+'\n/* '+MARK+' */\n')
                 compile_core();run([build/'test_sftp_remove_stub'],'stub-red','FAIL: remove unsupported capability');run([build/'test_config',work/'core/tests/fixtures'],'stub-control')
                 source.write_text(clean);compile_core();run([build/'test_sftp_remove_stub'],'stub-restored');assert source.read_bytes()==originals[ROOT/'core/src/sftp.c'];record('Core','unavailable')

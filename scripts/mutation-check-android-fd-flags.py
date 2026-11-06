@@ -37,14 +37,14 @@ def main():
     descriptor=prefix+'descriptorFlagsObserveTheOriginalSlotAndKeepOtherDuplicatesIndependent'
     error=prefix+'invalidDescriptorPreservesTheOperatingSystemError'
     cases=[
-        ('int result=fcntl(fd,F_GETFL);','int result=fcntl(fd,F_GETFL); if(result>=0) result &= ~O_APPEND;',append),
-        ('if(fcntl(fd,F_SETFL,flags)<0)','if(0 && fcntl(fd,F_SETFL,flags)<0)',pipe),
-        ('fcntl(fd,F_SETFL,flags)','fcntl(fd,F_SETFL,flags | O_NONBLOCK)',pipe),
-        ('fcntl(fd,F_SETFL,flags)','fcntl(fd,F_SETFL,flags & ~O_APPEND)',append),
-        ('int result=fcntl(fd,F_GETFD);','int result=fcntl(fd,F_GETFD); if(result>=0) result |= FD_CLOEXEC;',descriptor),
-        ('if(failure)(*env)->Throw(env,(jthrowable)failure);','(void)failure;',error),
-        ('int result=fcntl(fd,F_GETFL);','int result=fcntl(dup(fd),F_GETFL);',append),
-        ('int result=fcntl(fd,F_GETFL);','int result=fcntl(fd,F_GETFL); if(result>=0) result &= ~O_ACCMODE;',append),
+        ('    int result = fcntl(fd, F_GETFL);\n    if (result < 0) {\n','    int result = fcntl(fd, F_GETFL);\n    if (result >= 0) {\n        result &= ~O_APPEND;\n    }\n    if (result < 0) {\n',append),
+        ('    if (fcntl(fd, F_SETFL, flags) < 0) {\n','    if (0 && fcntl(fd, F_SETFL, flags) < 0) {\n',pipe),
+        ('    if (fcntl(fd, F_SETFL, flags) < 0) {\n','    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {\n',pipe),
+        ('    if (fcntl(fd, F_SETFL, flags) < 0) {\n','    if (fcntl(fd, F_SETFL, flags & ~O_APPEND) < 0) {\n',append),
+        ('    int result = fcntl(fd, F_GETFD);\n    if (result < 0) {\n','    int result = fcntl(fd, F_GETFD);\n    if (result >= 0) {\n        result |= FD_CLOEXEC;\n    }\n    if (result < 0) {\n',descriptor),
+        ('    if (failure) {\n        (*env)->Throw(env, (jthrowable)failure);\n    }\n','    (void)failure;\n',error),
+        ('    int result = fcntl(fd, F_GETFL);\n','    int result = fcntl(dup(fd), F_GETFL);\n',append),
+        ('    int result = fcntl(fd, F_GETFL);\n    if (result < 0) {\n','    int result = fcntl(fd, F_GETFL);\n    if (result >= 0) {\n        result &= ~O_ACCMODE;\n    }\n    if (result < 0) {\n',append),
         ('(jint)error);','(jint)(error==EBADF?ENOENT:error));',error),
     ]
     selected=args.selected or list(range(1,len(cases)+1))

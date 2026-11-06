@@ -23,8 +23,8 @@ def main():
     page='HostScreenTest#hostClickReportsUnsupportedConfigurationAndLeavesEditorAvailable'
     control='ConfigRepositoryTest#firstSaveAndReloadDeriveHostsFromConfig'
     cases=[
-      (native,'result=(*env)->NewObjectArray(env,(jsize)(count*4),type,NULL);','count=0; result=(*env)->NewObjectArray(env,(jsize)(count*4),type,NULL);',binding),
-      (native,'info.keyword,info.source_path,line,info.included?', 'info.keyword,info.source_path,"0",info.included?',binding),
+      (native,'    result = (*env)->NewObjectArray(env, (jsize)(count * 4), type, NULL);\n','    count = 0;\n    result = (*env)->NewObjectArray(env, (jsize)(count * 4), type, NULL);\n',binding),
+      (native,'        const char *fields[] = {info.keyword, info.source_path, line, info.included ? "1" : "0"};\n', '        const char *fields[] = {info.keyword, info.source_path, "0", info.included ? "1" : "0"};\n',binding),
       (bridge,'.chunked(4).map { ConnectionIssue(','.chunked(4).take(0).map { ConnectionIssue(',binding),
       (model,'if (issues.isNotEmpty()) error = "不支持 SSH 配置："','if (issues.isNotEmpty()) error = "配置可直接连接："',page),
       (screen,'onClick = { model.checkConnection(host, sessions::connect) }','onClick = { model.edit(host) }',page),

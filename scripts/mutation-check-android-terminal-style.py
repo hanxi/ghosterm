@@ -78,7 +78,7 @@ def main():
     case('forest-palette-map', owners, theme, 'TerminalTheme("forest","墨绿",0x14241c,0xe2ecdf', 'TerminalTheme("forest","墨绿",0x171b20,0xdce3ec')
     case('sp-physical-conversion', pixels, view,
         'TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value.fontSize, resources.displayMetrics)', 'value.fontSize')
-    case('native-blink-flag-bound', packets, native, 'y > 1) return 2;', 'y > 2) return 2;')
+    case('native-blink-flag-bound', packets, native, 'y > 1) {\n            return 2;\n        }', 'y > 2) {\n            return 2;\n        }')
     case('native-exact-packet-length', packets, native, 'if (length != 57 || x < 0', 'if (length < 57 || x < 0')
     case('validate-before-palette-side-effects', packets, native, 'if (kind == 12) {',
         'if (kind == 12) { GhosttyColorRgb premature_background = {0,0,0}; (void)ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &premature_background);')

@@ -63,7 +63,7 @@ def main():
                 ('line', 'out->source_line = node->source_line;', 'out->source_line = 0;', 'line and memory source'),
                 ('ownership', 'out->explicit_value = node->block == block && !node->included;', 'out->explicit_value = node->block == block;', 'Include is not editable explicit'),
                 ('effective', 'out->effective = applies;', 'out->effective = true;', 'negated literal entry is explicit but ineffective'),
-                ('scope', 'if (!applies && node->block != block) continue;', 'if (false && !applies && node->block != block) continue;', 'end zeroes output'),
+                ('scope', '        if (!applies && node->block != block) {\n', '        if (false && !applies && node->block != block) {\n', 'end zeroes output'),
                 ('match', 'if (kw_eq(node->keyword, "match")) {', 'if (false && kw_eq(node->keyword, "match")) {', 'unsupported never publishes partial entries'),
                 ('arity', '(applies || node->block == block) && node->nargs != 1', '(applies || node->block == block) && node->nargs < 1', 'unsupported never publishes partial entries'),
                 ('include', 'out->included = node->included != 0;', 'out->included = false;', 'Include is not editable explicit'),

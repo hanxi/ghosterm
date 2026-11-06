@@ -20,10 +20,10 @@ def main():
     if any(MARK.encode() in data for data in originals.values()):raise RuntimeError('Existing directories mutation marker')
     work=ROOT/'tmp/android-directories-mutations';work.mkdir(exist_ok=True)
     cases=[
-        ('native-components',native,'if(!component(value))error=EINVAL;\n    else if(mkdirat','if(0)error=EINVAL;\n    else if(mkdirat','LocalDirectoryTest#nativeComponentValidationAndPinnedParentDoNotEscape'),
-        ('native-conflict',native,'else if(mkdirat(directory,value,0700)<0)error=errno;','else if(mkdirat(directory,value,0700)<0)error=0;','LocalDirectoryTest#existingObjectsRemainConflictsIncludingDanglingLinks'),
-        ('native-target',native,'mkdirat(directory,value,0700)','mkdirat(directory,"misdirected",0700)','LocalDirectoryTest#nativeComponentValidationAndPinnedParentDoNotEscape'),
-        ('native-private',native,'mkdirat(directory,value,0700)','mkdirat(directory,value,0600)','LocalDirectoryTest#createsNestedEmptyDirectoriesAndCopiesRealBytes'),
+        ('native-components',native,'    }\n    int error = 0;\n    if (!component(value)) {\n','    }\n    int error = 0;\n    if (0) {\n','LocalDirectoryTest#nativeComponentValidationAndPinnedParentDoNotEscape'),
+        ('native-conflict',native,'    } else if (mkdirat(directory, value, 0700) < 0) {\n        error = errno;\n','    } else if (mkdirat(directory, value, 0700) < 0) {\n        error = 0;\n','LocalDirectoryTest#existingObjectsRemainConflictsIncludingDanglingLinks'),
+        ('native-target',native,'    } else if (mkdirat(directory, value, 0700) < 0) {\n','    } else if (mkdirat(directory, "misdirected", 0700) < 0) {\n','LocalDirectoryTest#nativeComponentValidationAndPinnedParentDoNotEscape'),
+        ('native-private',native,'    } else if (mkdirat(directory, value, 0700) < 0) {\n','    } else if (mkdirat(directory, value, 0600) < 0) {\n','LocalDirectoryTest#createsNestedEmptyDirectoriesAndCopiesRealBytes'),
         ('name-components',domain,'name.isNotEmpty() && name!="." && name!=".." && \'/\' !in name && \'\\u0000\' !in name','true','LocalDirectoryTest#invalidNamesAndRemoteEndpointsAreRejectedBeforeIo'),
         ('name-bytes',domain,'remaining()<=255','remaining()<=255000','LocalDirectoryTest#invalidNamesAndRemoteEndpointsAreRejectedBeforeIo'),
         ('endpoint',domain,'parent.endpoint==FileEndpoint.APP || (parent.endpoint.treeUri!=null && parent.endpoint.remote==null)','true','LocalDirectoryTest#invalidNamesAndRemoteEndpointsAreRejectedBeforeIo'),

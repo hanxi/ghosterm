@@ -21,12 +21,12 @@ def main():
     (ROOT/'tmp').mkdir(exist_ok=True);os.environ['TMPDIR']=str(ROOT/'tmp')
     original=SOURCE.read_bytes();text=original.decode()
     variants=(
-        ('stack setting omitted','rc=pthread_attr_setstacksize(attr,o->stack_size);','rc=0;','attributes','invalid'),
-        ('guard disabled','pthread_attr_setguardsize(attr,o->guard_size)','pthread_attr_setguardsize(attr,0)','attributes','invalid'),
-        ('native guard disappears','pthread_attr_setguardsize(attr,o->guard_size)','pthread_attr_setguardsize(attr,0)','live','invalid'),
-        ('attributes discarded at creation','pthread_create(thread,&attr,run,context)','pthread_create(thread,NULL,run,context)','live','attributes'),
-        ('zero guard accepted','o->guard_size>0','true','invalid','attributes'),
-        ('combined size overflow accepted','o->stack_size<=SIZE_MAX-o->guard_size','true','invalid','attributes'),
+        ('stack setting omitted','        rc = pthread_attr_setstacksize(attr, o->stack_size);\n','        rc = 0;\n','attributes','invalid'),
+        ('guard disabled','            rc = pthread_attr_setguardsize(attr, o->guard_size);\n','            rc = pthread_attr_setguardsize(attr, 0);\n','attributes','invalid'),
+        ('native guard disappears','            rc = pthread_attr_setguardsize(attr, o->guard_size);\n','            rc = pthread_attr_setguardsize(attr, 0);\n','live','invalid'),
+        ('attributes discarded at creation','    rc = pthread_create(thread, &attr, run, context);\n','    rc = pthread_create(thread, NULL, run, context);\n','live','attributes'),
+        ('zero guard accepted','    return page > 0 && o->stack_size > 0 && o->guard_size > 0 &&\n           o->stack_size <= SIZE_MAX - o->guard_size && !(o->stack_size % (size_t)page) &&\n           !(o->guard_size % (size_t)page);\n','    return page > 0 && o->stack_size > 0 && true && o->stack_size <= SIZE_MAX - o->guard_size &&\n           !(o->stack_size % (size_t)page) && !(o->guard_size % (size_t)page);\n','invalid','attributes'),
+        ('combined size overflow accepted','    return page > 0 && o->stack_size > 0 && o->guard_size > 0 &&\n           o->stack_size <= SIZE_MAX - o->guard_size && !(o->stack_size % (size_t)page) &&\n           !(o->guard_size % (size_t)page);\n','    return page > 0 && o->stack_size > 0 && o->guard_size > 0 && true &&\n           !(o->stack_size % (size_t)page) && !(o->guard_size % (size_t)page);\n','invalid','attributes'),
     )
     with tempfile.TemporaryDirectory(prefix='thread-options-',dir=ROOT/'tmp') as directory:
         work=Path(directory);(work/'base').mkdir();source=work/'base/thread-options.h';binary=work/'probe'

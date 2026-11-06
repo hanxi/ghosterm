@@ -33,8 +33,8 @@ typedef struct gt_transport gt_transport_t;
 typedef struct gt_ssh gt_ssh_t;
 
 typedef enum {
-  GT_TRANSPORT_LOCAL_PTY = 0,
-  GT_TRANSPORT_SSH_SHELL = 1,
+    GT_TRANSPORT_LOCAL_PTY = 0,
+    GT_TRANSPORT_SSH_SHELL = 1,
 } gt_transport_kind_t;
 
 /*
@@ -54,25 +54,25 @@ typedef enum {
  * 必须显式说 DIRECT（铁律 #6：不靠推断、调用点必须表态）。
  */
 typedef enum {
-  GT_PTY_CMD_SHELL = 0,  /* 用户的交互 shell → 起成登录 shell */
-  GT_PTY_CMD_DIRECT = 1, /* 跑一条具体命令 → 不加任何登录语义 */
+    GT_PTY_CMD_SHELL = 0,  /* 用户的交互 shell → 起成登录 shell */
+    GT_PTY_CMD_DIRECT = 1, /* 跑一条具体命令 → 不加任何登录语义 */
 } gt_pty_cmd_kind_t;
 
 typedef struct {
-  const char *executable; /* NULL → 平台默认 shell */
-  const char *const *argv; /* NULL 结尾，不含 argv[0]；NULL → 单参数 shell */
-  const char *const *env;  /* NULL 结尾的 "K=V"；NULL → 平台默认 */
-  const char *cwd;         /* NULL → 家目录 */
-  const char *term;        /* NULL → "xterm-256color" */
-  gt_pty_cmd_kind_t cmd_kind; /* 零值 = GT_PTY_CMD_SHELL，见上 */
-  uint16_t cols, rows;
-  uint32_t px_width, px_height;
+    const char *executable;     /* NULL → 平台默认 shell */
+    const char *const *argv;    /* NULL 结尾，不含 argv[0]；NULL → 单参数 shell */
+    const char *const *env;     /* NULL 结尾的 "K=V"；NULL → 平台默认 */
+    const char *cwd;            /* NULL → 家目录 */
+    const char *term;           /* NULL → "xterm-256color" */
+    gt_pty_cmd_kind_t cmd_kind; /* 零值 = GT_PTY_CMD_SHELL，见上 */
+    uint16_t cols, rows;
+    uint32_t px_width, px_height;
 } gt_pty_opts_t;
 
 typedef struct {
-  const char *term; /* NULL → "xterm-256color" */
-  uint16_t cols, rows;
-  uint32_t px_width, px_height;
+    const char *term; /* NULL → "xterm-256color" */
+    uint16_t cols, rows;
+    uint32_t px_width, px_height;
 } gt_shell_opts_t;
 
 /* 打开本地 PTY。POSIX=forkpty；Windows=ConPTY；iOS/HarmonyOS 不支持。 */
@@ -91,13 +91,21 @@ gt_transport_t *gt_transport_open_ssh_shell(gt_ssh_t *ssh, const gt_shell_opts_t
  * Cancellation/timeout may invalidate the SSH connection; discard it on failure.
  * Calls must not race any other use of this SSH connection. */
 gt_transport_t *gt_transport_open_ssh_shell_controlled(gt_ssh_t *ssh,
-    const gt_shell_opts_t *opts, uint32_t timeout_ms,
-    bool (*cancelled)(void *), void *context, gt_status_t *out_status);
+                                                       const gt_shell_opts_t *opts,
+                                                       uint32_t timeout_ms,
+                                                       bool (*cancelled)(void *),
+                                                       void *context,
+                                                       gt_status_t *out_status);
 
 /* Dedicated authenticated owner; PTY request followed by exec, never shell injection.
  * timeout_ms=0 means 5000ms; cancelled may be NULL, invoked on the IO owner. */
-gt_transport_t *gt_transport_open_ssh_command(gt_ssh_t *ssh, const char *command,
-    const gt_shell_opts_t *opts, uint32_t timeout_ms, bool (*cancelled)(void *), void *context, gt_status_t *out_status);
+gt_transport_t *gt_transport_open_ssh_command(gt_ssh_t *ssh,
+                                              const char *command,
+                                              const gt_shell_opts_t *opts,
+                                              uint32_t timeout_ms,
+                                              bool (*cancelled)(void *),
+                                              void *context,
+                                              gt_status_t *out_status);
 
 /*
  * 写入用户输入。**绝不无限阻塞**（M1 修正）。
@@ -116,17 +124,17 @@ gt_transport_t *gt_transport_open_ssh_command(gt_ssh_t *ssh, const char *command
  * read/write/resize 由同一会话线程独占调用，不跨线程。
  */
 int gt_transport_write(gt_transport_t *t, const uint8_t *data, size_t len);
-int gt_transport_resize(gt_transport_t *t, uint16_t cols, uint16_t rows,
-                        uint32_t px_width, uint32_t px_height);
+int gt_transport_resize(
+    gt_transport_t *t, uint16_t cols, uint16_t rows, uint32_t px_width, uint32_t px_height);
 
 /*
  * gt_transport_read 的三态返回（铁律 #6：不得把超时折叠成 EOF）。
  * 返回值 >0 = 读到的字节数。
  */
 enum {
-  GT_TRANSPORT_READ_TIMEOUT = -2, /* 超时：本次无数据，可安全重试 */
-  GT_TRANSPORT_READ_ERROR = -1,   /* 错误：详见 gt_last_error() */
-  GT_TRANSPORT_READ_EOF = 0,      /* EOF：对端已退出且缓冲数据已排空 */
+    GT_TRANSPORT_READ_TIMEOUT = -2, /* 超时：本次无数据，可安全重试 */
+    GT_TRANSPORT_READ_ERROR = -1,   /* 错误：详见 gt_last_error() */
+    GT_TRANSPORT_READ_EOF = 0,      /* EOF：对端已退出且缓冲数据已排空 */
 };
 
 /*
@@ -164,10 +172,10 @@ bool gt_transport_exited(const gt_transport_t *t, int *exit_code);
  * 拿到了控制终端（见 gt_transport_open_pty 里关于不能再 setpgid 的说明）。
  */
 typedef enum {
-  GT_TRANSPORT_CHILD_UNKNOWN = 0,
-  GT_TRANSPORT_CHILD_EXITED = 1,
-  GT_TRANSPORT_CHILD_IDLE = 2,
-  GT_TRANSPORT_CHILD_JOB = 3,
+    GT_TRANSPORT_CHILD_UNKNOWN = 0,
+    GT_TRANSPORT_CHILD_EXITED = 1,
+    GT_TRANSPORT_CHILD_IDLE = 2,
+    GT_TRANSPORT_CHILD_JOB = 3,
 } gt_transport_child_t;
 
 gt_transport_child_t gt_transport_child_state(const gt_transport_t *t);

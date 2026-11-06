@@ -32,13 +32,13 @@ def main():
         def control(label):run([build/'test_config',work/'core/tests/fixtures'],label)
         compile_c();protocol('baseline');run([build/'test_api'],'api-baseline');control('baseline-control')
         cases=[
-          ('null','if (status) *status = result;\n  if (!ssh || !timeout_ms)', 'if (status) *status = GT_OK;\n  if (!ssh || !timeout_ms)',None),
+          ('null','    gt_status_t result = GT_ERR_INVALID_ARG;\n    if (status) {\n        *status = result;\n', '    gt_status_t result = GT_ERR_INVALID_ARG;\n    if (status) {\n        *status = GT_OK;\n',None),
           ('zero','if (!ssh || !timeout_ms) {','if (!ssh) {',None),
-          ('cancel','if (cancelled && cancelled(context)) return GT_ERR_CANCELLED;','if (false && cancelled && cancelled(context)) return GT_ERR_CANCELLED;','version-cancel'),
+          ('cancel','    if (cancelled && cancelled(context)) {\n','    if (false && cancelled && cancelled(context)) {\n','version-cancel'),
           ('budget','const int64_t deadline = mono_ms() + timeout_ms;','const int64_t deadline = mono_ms() + 5000;','version-timeout'),
           ('abort','gt__ssh_abort(ssh);','(void)ssh;','version-timeout'),
-          ('io','if (libssh2_session_last_errno(session) != LIBSSH2_ERROR_EAGAIN) {\n      result = GT_ERR_IO;', 'if (libssh2_session_last_errno(session) != LIBSSH2_ERROR_EAGAIN) {\n      result = GT_ERR_UNSUPPORTED;','subsystem-deny'),
-          ('success','if (status) *status = GT_OK;\n    return out;', 'if (status) *status = GT_ERR_IO;\n    return out;','normal'),
+          ('io','        if (libssh2_session_last_errno(session) != LIBSSH2_ERROR_EAGAIN) {\n            result = GT_ERR_IO;\n', '        if (libssh2_session_last_errno(session) != LIBSSH2_ERROR_EAGAIN) {\n            result = GT_ERR_UNSUPPORTED;\n','subsystem-deny'),
+          ('success','            *status = GT_OK;\n', '            *status = GT_ERR_IO;\n','normal'),
         ]
         for name,old,new,case in cases:
           text=clean.decode();start=text.index('static gt_status_t open_status(');end=text.index('static void attrs_to_stat(',start)
@@ -86,9 +86,9 @@ int main(void) {
             run(['cmake','--build',unavailable,'--clean-first','--target','test_api'],'unavailable-build')
             run(['cc','-std=c11','-I'+str(work/'core/include'),probe,unavailable/'libghosterm_core.a','-lpthread','-o',work/'unavailable-probe'],'unavailable-link')
         no_library();run([work/'unavailable-probe'],'unavailable-baseline')
-        old='if (status) *status = (!ssh || !timeout_ms) ? GT_ERR_INVALID_ARG : GT_ERR_UNSUPPORTED;'
+        old='        *status = (!ssh || !timeout_ms) ? GT_ERR_INVALID_ARG : GT_ERR_UNSUPPORTED;\n'
         assert clean.decode().count(old)==1
-        source.write_text(clean.decode().replace(old,old.replace('GT_ERR_UNSUPPORTED','GT_OK'))+'\n/* '+MARK+' */\n')
+        source.write_text(clean.decode().replace(old,'        *status = (!ssh || !timeout_ms) ? GT_ERR_INVALID_ARG : GT_OK;\n')+'\n/* '+MARK+' */\n')
         no_library();run([work/'unavailable-probe'],'unavailable-red',True);run([unavailable/'test_api'],'unavailable-control')
         source.write_bytes(clean);no_library();run([work/'unavailable-probe'],'unavailable-restored')
         assert hashlib.sha256(source.read_bytes()).digest()==hashes[production[0]]

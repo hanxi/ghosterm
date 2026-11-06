@@ -46,12 +46,12 @@ def main():
         if red:cmd += ['--expect-platform-assertion','android']
         run(label,cmd,budget=300)
     cases=[
-      ('jni-resource-digest','bytes,at+33,65,(const jbyte *)d->sha256','bytes,at+33,64,(const jbyte *)d->sha256+1','retainedSnapshotOutlivesSessionAndRemainsCharged'),
-      ('jni-resource-read','if(n)(*e)->SetByteArrayRegion(e,bytes,0,(jsize)n,(const jbyte *)data);','if(n)data[0]^=1;if(n)(*e)->SetByteArrayRegion(e,bytes,0,(jsize)n,(const jbyte *)data);','retainedSnapshotOutlivesSessionAndRemainsCharged'),
-      ('jni-resource-owner','jlong v[6]={status,(jlong)r.owner,','jlong v[6]={status,(jlong)(r.owner+1),','retainedSnapshotOutlivesSessionAndRemainsCharged'),
-      ('jni-resource-confirmation','r.state,r.confirmed,r.cancel_requested,(jlong)r.generation','r.state,1,r.cancel_requested,(jlong)r.generation','queuedCancellationAndLostAreDifferent'),
-      ('jni-resource-denial','jlong v[2]={status,(jlong)handle};','jlong v[2]={(status?0:status),(jlong)handle};','scopeAndCapabilityDenialDoesNotReserve'),
-      ('jni-store-session-charge','(jlong)u.scopes,(jlong)u.sessions','(jlong)u.scopes,0','retainedSnapshotOutlivesSessionAndRemainsCharged'),
+      ('jni-resource-digest','    (*e)->SetByteArrayRegion(e, bytes, at + 33, 65, (const jbyte *)d->sha256);\n','    (*e)->SetByteArrayRegion(e, bytes, at + 33, 64, (const jbyte *)d->sha256 + 1);\n','retainedSnapshotOutlivesSessionAndRemainsCharged'),
+      ('jni-resource-read','        (*e)->SetByteArrayRegion(e, bytes, 0, (jsize)n, (const jbyte *)data);\n','        data[0] ^= 1;\n    }\n    if (n) {\n        (*e)->SetByteArrayRegion(e, bytes, 0, (jsize)n, (const jbyte *)data);\n','retainedSnapshotOutlivesSessionAndRemainsCharged'),
+      ('jni-resource-owner','                  (jlong)r.owner,\n','                  (jlong)(r.owner + 1),\n','retainedSnapshotOutlivesSessionAndRemainsCharged'),
+      ('jni-resource-confirmation','                  r.state,\n                  r.confirmed,\n','                  r.state,\n                  1,\n','queuedCancellationAndLostAreDifferent'),
+      ('jni-resource-denial','    jlong v[2] = {status, (jlong)handle};\n','    jlong v[2] = {(status ? 0 : status), (jlong)handle};\n','scopeAndCapabilityDenialDoesNotReserve'),
+      ('jni-store-session-charge','    jlong v[4] = {(jlong)u.reserved_bytes, (jlong)u.resources, (jlong)u.scopes, (jlong)u.sessions};\n','    jlong v[4] = {(jlong)u.reserved_bytes, (jlong)u.resources, (jlong)u.scopes, 0};\n','retainedSnapshotOutlivesSessionAndRemainsCharged'),
     ]
     try:
         for label,old,_,_ in cases:

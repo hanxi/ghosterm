@@ -44,15 +44,15 @@ def main():
         ('zero-written', 'FileJournalProductTest#destinationQuotaCountsResidueFromAnotherTaskAndReportsZeroWrittenBytes', ((executor, 'bytes=out.bytesWritten.toULong(),error=out.cleanupError', 'bytes=snapshot.size.toULong(),error=out.cleanupError', 1),)),
         ('visible-reason', 'FileJournalProductTest#destinationQuotaCountsResidueFromAnotherTaskAndReportsZeroWrittenBytes', ((executor, 'out.cleanupError ?: out.rejectionReason ?:', 'out.cleanupError ?:', 1),)),
         ('scan-bound', 'LocalPublicationBudgetTest#requestDirectoryScanIsBoundedWithoutDeletingEntries', ((budget, 'if(++tasks>directoryLimit)', 'if(false)', 1),)),
-        ('child-nofollow', 'LocalPublicationBudgetTest#globalScopeRejectsSymlinkedRequestInsteadOfFollowingIt', ((native, 'openat(directory,value,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC)', 'openat(directory,value,O_RDONLY|O_DIRECTORY|O_CLOEXEC)', 1),)),
-        ('child-cloexec', 'LocalPublicationBudgetTest#childDirectoryUsesCloexecAndRejectsTraversal', ((native, 'openat(directory,value,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC)', 'openat(directory,value,O_RDONLY|O_DIRECTORY|O_NOFOLLOW)', 1),)),
+        ('child-nofollow', 'LocalPublicationBudgetTest#globalScopeRejectsSymlinkedRequestInsteadOfFollowingIt', ((native, '    int fd = openat(directory, value, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);\n', '    int fd = openat(directory, value, O_RDONLY | O_DIRECTORY | O_CLOEXEC);\n', 1),)),
+        ('child-cloexec', 'LocalPublicationBudgetTest#childDirectoryUsesCloexecAndRejectsTraversal', ((native, '    int fd = openat(directory, value, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);\n', '    int fd = openat(directory, value, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);\n', 1),)),
         ('scope-membership', 'LocalPublicationBudgetTest#scopeMembershipAndPrivatePermissionsAreRequired', ((budget, 'check(found)', 'check(true)', 1),)),
         ('unknown-structure', 'LocalPublicationBudgetTest#unknownRequestStructureIsNotSilentlyExcludedFromBudget', ((budget, 'else -> throw IOException("任务暂存目录包含未知结构，未删除任何文件")', 'else -> Unit', 1),)),
         ('private-mode', 'LocalPublicationBudgetTest#scopeMembershipAndPrivatePermissionsAreRequired', ((budget, ' && (stat.st_mode and 511)==448', '', 1),)),
     ]
     cases += [('borrowed-parent', 'LocalPublicationBudgetTest#childDirectoryUsesCloexecAndRejectsTraversal', ((native,
-        'int fd=openat(directory,value,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);',
-        'int fd=openat(directory,value,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);\n    if(fd>=0)close(directory);',1),))]
+        '    int fd = openat(directory, value, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);\n    int error = errno;\n',
+        '    int fd = openat(directory, value, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);\n    if (fd >= 0) {\n        close(directory);\n    }\n    int error = errno;\n',1),))]
     selected = args.selected or list(range(1, len(cases) + 1))
     if len(selected) != len(set(selected)) or any(n < 1 or n > len(cases) for n in selected):
         raise RuntimeError('Invalid or duplicate mutation case')

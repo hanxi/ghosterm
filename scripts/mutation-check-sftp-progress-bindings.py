@@ -45,7 +45,7 @@ if(bad)puts("FAIL: unavailable observed transfer must fail and emit no progress"
                 run(['cc','-std=c11','-I'+str(work/'core/include'),probe,no/'libghosterm_core.a','-lpthread','-o',work/'probe'],label+'-link')
             no_build('no-baseline');run([work/'probe'],'no-baseline')
             for kind in ('receive','create'):
-                old='gt__set_error("sftp '+kind+': libssh2 unavailable");\n  return GT_ERR_UNSUPPORTED;'
+                old='gt__set_error("sftp '+kind+': libssh2 unavailable");\n    return GT_ERR_UNSUPPORTED;'
                 assert clean.count(old)==1
                 source.write_text(clean.replace(old,old.replace('GT_ERR_UNSUPPORTED','GT_OK'))+'\n/* '+MARK+' */\n')
                 no_build('no-'+kind);run([work/'probe'],'no-'+kind+'-red','FAIL: unavailable observed transfer')

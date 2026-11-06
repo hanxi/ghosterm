@@ -84,10 +84,10 @@ add_subdirectory([[{core}]] core)
           ('zero-blocking','libssh2_session_set_blocking(e->sess, 0);','/* blocking read on zero budget */','idle',False),
           ('restore-blocking','libssh2_session_set_blocking(e->sess, previous_blocking);','(void)previous_blocking;','idle',False),
           ('restore-timeout','libssh2_session_set_timeout(e->sess, previous_timeout);','(void)previous_timeout;','idle',False),
-          ('unknown-output','if (rc != 1) return false;','if (rc != 1) { if (exit_code) *exit_code = 0; return false; }','status',False),
+          ('unknown-output','    if (rc != 1) {\n        return false;\n','    if (rc != 1) {\n        if (exit_code) {\n            *exit_code = 0;\n        }\n        return false;\n','status',False),
           ('query-close','int rc = libssh2_ghosterm_channel_exit_status(e->chan, &value);','libssh2_channel_close(e->chan); int rc = libssh2_ghosterm_channel_exit_status(e->chan, &value);','status',False),
-          ('late-state','if (!e || !buf || cap == 0 || cap > INT_MAX) return GT_EXEC_READ_ERROR;',
-           'if (!e || !buf || cap == 0 || cap > INT_MAX) return GT_EXEC_READ_ERROR; if (libssh2_channel_eof(e->chan)) return GT_EXEC_READ_EOF;','legacy-late',True),
+          ('late-state','    int64_t start = exec_mono_ms();\n',
+           '    if (libssh2_channel_eof(e->chan)) {\n        return GT_EXEC_READ_EOF;\n    }\n    int64_t start = exec_mono_ms();\n','legacy-late',True),
         ]
         names={case[0] for case in core_cases}|{'presence','malformed','duplicate','range','absent-zero','stub-output'}
         if args.case and any(x not in names for x in args.case):raise RuntimeError('Unknown mutation case')
@@ -126,9 +126,9 @@ add_subdirectory([[{core}]] core)
             off=work/'off';run('off-configure',['cmake','-S',core,'-B',off,'-DGHOSTERM_WITH_LIBSSH2=OFF'])
             def off_build(label):run(label,['cmake','--build',off,'--target','test_bridge_ssh','test_config','-j','2'])
             off_build('off-baseline-build');run('off-baseline',[off/'test_bridge_ssh','unsupported'])
-            path=core/'src/ssh.c';text=original.decode();old='(void)e; (void)code; return false;'
+            path=core/'src/ssh.c';text=original.decode();old='    (void)code;\n    return false;\n'
             if text.count(old)!=1:raise RuntimeError('Ambiguous stub anchor')
-            path.write_text(text.replace(old,'(void)e; if(code) *code = 0; return false; /* '+MARK+' */'))
+            path.write_text(text.replace(old,'    if (code) {\n        *code = 0;\n    }\n    return false; /* GT_EXEC_STATE_MUTATION */\n'))
             off_build('off-mutant-build');run('off-target',[off/'test_bridge_ssh','unsupported'],1,True)
             run('off-control',[off/'test_config',core/'tests/fixtures']);path.write_bytes(original)
             off_build('off-restored-build');run('off-restored',[off/'test_bridge_ssh','unsupported'])

@@ -39,32 +39,31 @@ const char *gt_config_host_pattern(const gt_config_t *cfg, size_t index);
  * explicit_value is NULL unless the target main-file block sets this field;
  * an earlier rule/Include may still win over that explicit value. */
 typedef struct {
-  const char *explicit_value;
-  const char *source_path;
-  const char *source_header;
-  size_t source_line;
-  bool source_included;
-  bool effective_is_explicit;
+    const char *explicit_value;
+    const char *source_path;
+    const char *source_header;
+    size_t source_line;
+    bool source_included;
+    bool effective_is_explicit;
 } gt_config_field_info_t;
 
 typedef struct {
-  const char *header;
-  const char *source_path;
-  size_t source_line;
-  size_t pattern_count;
-  size_t matching_blocks; /* literal alias occurrences by block, case-insensitive */
-  bool included;
-  gt_config_field_info_t hostname;
-  gt_config_field_info_t user;
-  gt_config_field_info_t port;
+    const char *header;
+    const char *source_path;
+    size_t source_line;
+    size_t pattern_count;
+    size_t matching_blocks; /* literal alias occurrences by block, case-insensitive */
+    bool included;
+    gt_config_field_info_t hostname;
+    gt_config_field_info_t user;
+    gt_config_field_info_t port;
 } gt_config_host_info_t;
 
 /* Inspect the first literal Host block for alias, including its shared patterns
  * and the winning source for HostName/User/Port. Does not modify cfg.
  * GT_ERR_NOT_FOUND for no literal block, GT_ERR_INVALID_ARG for invalid input.
  * Only a single main-file block is editable by the alias-based edit API. */
-int gt_config_inspect_host(const gt_config_t *cfg, const char *alias,
-                           gt_config_host_info_t *out);
+int gt_config_inspect_host(const gt_config_t *cfg, const char *alias, gt_config_host_info_t *out);
 
 /* IdentityFile is cumulative, not first-wins. Enumerate parsed entries from
  * matching rules and from the first literal Host block, in source order.
@@ -79,16 +78,19 @@ int gt_config_inspect_host(const gt_config_t *cfg, const char *alias,
  * UNSUPPORTED before any entry is returned. INVALID_ARG for invalid input.
  * out is zeroed on every non-OK result. */
 typedef struct {
-  const char *value;
-  const char *source_path;
-  const char *source_header;
-  size_t source_line;
-  bool included;
-  bool explicit_value;
-  bool effective;
+    const char *value;
+    const char *source_path;
+    const char *source_header;
+    size_t source_line;
+    bool included;
+    bool explicit_value;
+    bool effective;
 } gt_config_identity_info_t;
-int gt_config_identity_at(const gt_config_t *cfg, const char *alias,
-                          size_t index, gt_config_identity_info_t *out);
+
+int gt_config_identity_at(const gt_config_t *cfg,
+                          const char *alias,
+                          size_t index,
+                          gt_config_identity_info_t *out);
 
 /* Current ordinary SSH client profile, shared by native hosts. Enumerate from
  * index 0: UNSUPPORTED supplies one borrowed issue; OK means end (zeroed out).
@@ -99,13 +101,16 @@ int gt_config_identity_at(const gt_config_t *cfg, const char *alias,
  * INVALID_ARG for null/empty host or null output/config. A clear result does not
  * establish platform availability, credentials, or remote capabilities. */
 typedef struct {
-  const char *keyword;
-  const char *source_path;
-  size_t source_line;
-  bool included;
+    const char *keyword;
+    const char *source_path;
+    size_t source_line;
+    bool included;
 } gt_config_connection_issue_t;
-int gt_config_check_connection(const gt_config_t *cfg, const char *host,
-                               size_t index, gt_config_connection_issue_t *out);
+
+int gt_config_check_connection(const gt_config_t *cfg,
+                               const char *host,
+                               size_t index,
+                               gt_config_connection_issue_t *out);
 
 /* ------------------------------------------------------------------ */
 /* 默认 IdentityFile 候选链策略                                        */
@@ -120,18 +125,18 @@ int gt_config_check_connection(const gt_config_t *cfg, const char *host,
  * 故此处做成显式策略，而不是写死的常量。每条链都有出处，见 const 定义处注释。
  */
 typedef enum {
-  GT_IDENTITY_POLICY_OPENSSH_9_6 = 0,   /* 7 条（上游 V_9_6_P1 readconf.c） */
-  GT_IDENTITY_POLICY_OPENSSH_10_3 = 1,  /* 5 条（本机 `ssh -G -F /dev/null` 实测） */
-  GT_IDENTITY_POLICY_OPENSSH_MASTER = 2,/* 6 条（上游 master，含抗量子混合密钥） */
-  GT_IDENTITY_POLICY_NONE = 3,          /* 不回落：只返回显式条目 */
-  GT_IDENTITY_POLICY_CUSTOM = 4,        /* 使用 custom_identity_files */
+    GT_IDENTITY_POLICY_OPENSSH_9_6 = 0,    /* 7 条（上游 V_9_6_P1 readconf.c） */
+    GT_IDENTITY_POLICY_OPENSSH_10_3 = 1,   /* 5 条（本机 `ssh -G -F /dev/null` 实测） */
+    GT_IDENTITY_POLICY_OPENSSH_MASTER = 2, /* 6 条（上游 master，含抗量子混合密钥） */
+    GT_IDENTITY_POLICY_NONE = 3,           /* 不回落：只返回显式条目 */
+    GT_IDENTITY_POLICY_CUSTOM = 4,         /* 使用 custom_identity_files */
 } gt_identity_policy_t;
 
 /* 求值选项：NULL 时 default_user 取当前进程用户，policy 取 OPENSSH_9_6。 */
 typedef struct {
-  const char *default_user;              /* NULL → 当前进程用户 */
-  gt_identity_policy_t identity_policy;  /* 默认候选链策略 */
-  const char *const *custom_identity_files; /* POLICY_CUSTOM 时的链（NULL 结尾） */
+    const char *default_user;                 /* NULL → 当前进程用户 */
+    gt_identity_policy_t identity_policy;     /* 默认候选链策略 */
+    const char *const *custom_identity_files; /* POLICY_CUSTOM 时的链（NULL 结尾） */
 } gt_resolve_opts_t;
 
 /* ------------------------------------------------------------------ */
@@ -139,16 +144,16 @@ typedef struct {
 /* ------------------------------------------------------------------ */
 
 typedef struct {
-  char *user;
-  char *hostname;
-  int port;
-  int forward_agent;        /* -1 = 未知；0/1 */
-  int compression;          /* -1 = 未知；0/1 */
-  int server_alive_interval;
-  char **identity_files;    /* NULL 结尾 */
-  char **proxy_jump;        /* NULL 结尾（已按 ',' 拆分） */
-  char **setenv;            /* NULL 结尾（形如 "K=V"） */
-  char **local_forward;     /* NULL 结尾（已按 ssh -G 归一化） */
+    char *user;
+    char *hostname;
+    int port;
+    int forward_agent; /* -1 = 未知；0/1 */
+    int compression;   /* -1 = 未知；0/1 */
+    int server_alive_interval;
+    char **identity_files; /* NULL 结尾 */
+    char **proxy_jump;     /* NULL 结尾（已按 ',' 拆分） */
+    char **setenv;         /* NULL 结尾（形如 "K=V"） */
+    char **local_forward;  /* NULL 结尾（已按 ssh -G 归一化） */
 } gt_resolved_t;
 
 /*
@@ -156,8 +161,8 @@ typedef struct {
  * IdentityFile 跨匹配块累积，无显式条目时按 identity_policy 回落；
  * SetEnv 只取首个匹配指令；ProxyJump 按 ',' 拆分；LocalForward 归一化。
  */
-gt_resolved_t *gt_config_resolve(const gt_config_t *cfg, const char *host,
-                                 const gt_resolve_opts_t *opts);
+gt_resolved_t *
+gt_config_resolve(const gt_config_t *cfg, const char *host, const gt_resolve_opts_t *opts);
 void gt_resolved_free(gt_resolved_t *r);
 
 /* ------------------------------------------------------------------ */
@@ -171,9 +176,12 @@ void gt_resolved_free(gt_resolved_t *r);
  *   - 缓冲区不足 → 返回所需长度（> cap），不写入半个值。
  * 返回值：写入字节数（不含结尾 NUL），或 -1。
  */
-int gt_config_effective(const gt_config_t *cfg, const char *host,
-                        const char *key, const gt_resolve_opts_t *opts,
-                        char *buf, size_t cap);
+int gt_config_effective(const gt_config_t *cfg,
+                        const char *host,
+                        const char *key,
+                        const gt_resolve_opts_t *opts,
+                        char *buf,
+                        size_t cap);
 
 /* 支持集（用于对拍与 UI 的「生效配置」面板）。key_count 写入 *count。 */
 const char *const *gt_config_supported_keys(size_t *count);
@@ -195,8 +203,8 @@ const char *const *gt_config_supported_keys(size_t *count);
  * 2 空格缩进 + 空格分隔，追加到块尾。
  */
 typedef struct {
-  const char *keyword;
-  const char *const *values; /* NULL 结尾 */
+    const char *keyword;
+    const char *const *values; /* NULL 结尾 */
 } gt_config_edit_t;
 
 /*
@@ -207,8 +215,8 @@ typedef struct {
  * 除点名的目标行外，其余行**逐字节不变**（本函数的头号不变量）。
  * 成功返回 GT_OK，失败返回 GT_ERR_*（错误见 gt_last_error）。
  */
-int gt_config_edit(gt_config_t *cfg, const char *alias,
-                   const gt_config_edit_t *edits, size_t nedits, bool reset);
+int gt_config_edit(
+    gt_config_t *cfg, const char *alias, const gt_config_edit_t *edits, size_t nedits, bool reset);
 
 /* Rename one positive literal token in one main-file Host header. New names:
  * 1..128 ASCII letters/digits/._-, first character a letter/digit.

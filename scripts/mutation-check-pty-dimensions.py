@@ -68,16 +68,16 @@ def main():
             if rc!=1 or 'FAIL ' not in out:raise RuntimeError('pty-dimensions mutation lacks ordinary assertion/'+mode+': '+out)
         elif rc:raise RuntimeError('pty-dimensions baseline/control failed/'+mode+': '+out)
     specs=(
-        ('open width overflow ignored','io/pty-size.h','width>UINT16_MAX','(width && false)','unit','admission','unit','defaults'),
-        ('open height overflow ignored','io/pty-size.h','height>UINT16_MAX','(height && false)','unit','admission','unit','defaults'),
-        ('maximum width rejected','io/pty-size.h','width>UINT16_MAX','width>=UINT16_MAX','unit','flow','unit','admission'),
-        ('maximum height rejected','io/pty-size.h','height>UINT16_MAX','height>=UINT16_MAX','unit','defaults','unit','admission'),
+        ('open width overflow ignored','io/pty-size.h','    if (width > UINT16_MAX || height > UINT16_MAX) {\n','    if ((width && false) || height > UINT16_MAX) {\n','unit','admission','unit','defaults'),
+        ('open height overflow ignored','io/pty-size.h','    if (width > UINT16_MAX || height > UINT16_MAX) {\n','    if (width > UINT16_MAX || (height && false)) {\n','unit','admission','unit','defaults'),
+        ('maximum width rejected','io/pty-size.h','    if (width > UINT16_MAX || height > UINT16_MAX) {\n','    if (width >= UINT16_MAX || height > UINT16_MAX) {\n','unit','flow','unit','admission'),
+        ('maximum height rejected','io/pty-size.h','    if (width > UINT16_MAX || height > UINT16_MAX) {\n','    if (width > UINT16_MAX || height >= UINT16_MAX) {\n','unit','defaults','unit','admission'),
         ('open zero cells rejected','io/pty-size.h','!opening && (!cols || !rows)','(opening || !opening) && (!cols || !rows)','unit','defaults','unit','admission'),
         ('resize zero cols admitted','io/pty-size.h','(!cols || !rows)','((cols && false) || !rows)','unit','flow','unit','admission'),
         ('resize zero rows admitted','io/pty-size.h','(!cols || !rows)','(!cols || (rows && false))','unit','flow','unit','admission'),
         ('overflow misclassified','io/pty-size.h','return GT_ERR_UNSUPPORTED','return GT_ERR_INVALID_ARG','unit','flow','unit','admission'),
-        ('open check too late','io/pty_posix.c','if(gt__pty_size_check(o->cols','if(false && gt__pty_size_check(o->cols','unit','admission','unit','defaults'),
-        ('resize rejection ignored','io/pty_posix.c','if(size_status!=GT_OK)','if(false && size_status!=GT_OK)','unit','flow','unit','admission'),
+        ('open check too late','io/pty_posix.c','    if (gt__pty_size_check(o->cols, o->rows, o->px_width, o->px_height, true) != GT_OK) {\n','    if (false && gt__pty_size_check(o->cols, o->rows, o->px_width, o->px_height, true) != GT_OK) {\n','unit','admission','unit','defaults'),
+        ('resize rejection ignored','io/pty_posix.c','    if (size_status != GT_OK) {\n','    if (false && size_status != GT_OK) {\n','unit','flow','unit','admission'),
     )
 
     try:

@@ -35,8 +35,8 @@ int main(void) {
   run(['cmake','--build',str(build),'--clean-first','--target','test_api'])
   run(['cc','-std=c11','-I'+str(work/'core/include'),str(probe),str(build/'libghosterm_core.a'),'-lpthread','-o',str(work/'probe')])
  build_probe();run([str(work/'probe')]);run([str(build/'test_api')])
- copy=work/'core/src/ssh.c';clean=copy.read_bytes();text=clean.decode();old='if (status) *status = GT_ERR_UNSUPPORTED;';assert text.count(old)==1
- copy.write_text(text.replace(old,'if (status) *status = GT_OK; /* GT_SSH_SHELL_UNAVAILABLE_MUTATION */'))
+ copy=work/'core/src/ssh.c';clean=copy.read_bytes();text=clean.decode();old='        *status = GT_ERR_UNSUPPORTED;\n';assert text.count(old)==1
+ copy.write_text(text.replace(old,'        *status = GT_OK; /* GT_SSH_SHELL_UNAVAILABLE_MUTATION */\n'))
  build_probe();run([str(work/'probe')],red=True);run([str(build/'test_api')])
  copy.write_bytes(clean);build_probe();run([str(work/'probe')]);assert hashlib.sha256(copy.read_bytes()).digest()==before
  assert hashlib.sha256(source.read_bytes()).digest()==before

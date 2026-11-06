@@ -51,8 +51,8 @@ def main():
                 run(['cmake','--build',unavailable,'--clean-first','--target','test_api'],'unavailable-build')
                 run(['cc','-std=c11','-Wall','-Wextra','-Werror','-I'+str(work/'core/include'),probe,unavailable/'libghosterm_core.a','-lpthread','-o',work/'no-library'],'unavailable-link')
             no_library();run([work/'no-library'],'unavailable-baseline')
-            old='int gt_ssh_abort(gt_ssh_t *ssh) { return ssh ? GT_ERR_UNSUPPORTED : GT_ERR_INVALID_ARG; }';assert clean.count(old)==1
-            source.write_text(clean.replace(old,old.replace('GT_ERR_UNSUPPORTED','GT_OK'))+'\n/* '+MARK+' */\n')
+            old='    return ssh ? GT_ERR_UNSUPPORTED : GT_ERR_INVALID_ARG;\n';assert clean.count(old)==1
+            source.write_text(clean.replace(old,'    return ssh ? GT_OK : GT_ERR_INVALID_ARG;\n')+'\n/* '+MARK+' */\n')
             no_library();run([work/'no-library'],'unavailable-red','FAIL: abort unavailable');run([unavailable/'test_api'],'unavailable-control')
             source.write_text(clean);no_library();run([work/'no-library'],'unavailable-restored');same(source,snapshots[sources[0]])
             print('PASS SSH abort unavailable: real archive / target red / API green / restored green / SHA256',flush=True)

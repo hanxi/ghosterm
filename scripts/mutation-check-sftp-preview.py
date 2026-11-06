@@ -50,8 +50,8 @@ def main():
                 ('readonly','LIBSSH2_FXF_READ, 0','LIBSSH2_FXF_READ | LIBSSH2_FXF_WRITE, 0','allow'),
                 ('extra-byte','capacity + 1 - count','capacity - count','overflow'),
                 ('short-file','attributes.filesize != count','false && attributes.filesize != count','shrink'),
-                ('close','if (result != 0) status = GT_ERR_IO;','if (result != 0) status = GT_OK;','preview-close-deny'),
-                ('handle-free','if (file) libssh2_sftp_close(file);','(void)file;','preview-read-cancel'),
+                ('close','            if (result != 0) {\n                status = GT_ERR_IO;\n','            if (result != 0) {\n                status = GT_OK;\n','preview-close-deny'),
+                ('handle-free','        if (file) {\n            libssh2_sftp_close(file);\n        }\n','        (void)file;\n','preview-read-cancel'),
                 ('abort','gt__ssh_abort(sftp->ssh);','(void)sftp;','preview-close-deny'),
                 ('publish','memcpy(buffer, bytes, count);','memset(buffer, 0, count);','normal'),
                 ('mode-restore','libssh2_session_set_blocking(session, blocking);','(void)blocking;','normal'),
@@ -63,7 +63,7 @@ def main():
             split=preview.index('  SFTP_LOCK(sftp);')
             variants.append(('cancel',preview[:split]+preview[split:].replace('cancelled, context','NULL, NULL'),'late-cancel'))
             # LSTAT and FSTAT protect different moments; each guard has its own fault.
-            type_guard='if (!(attributes.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) ||\n      (attributes.permissions & LIBSSH2_SFTP_S_IFMT) != LIBSSH2_SFTP_S_IFREG) {'
+            type_guard='if (!(attributes.flags & LIBSSH2_SFTP_ATTR_PERMISSIONS) ||\n        (attributes.permissions & LIBSSH2_SFTP_S_IFMT) != LIBSSH2_SFTP_S_IFREG) {'
             size_guard='if ((attributes.flags & LIBSSH2_SFTP_ATTR_SIZE) && attributes.filesize > capacity) {'
             for name,old,action in [('type',type_guard,'preview-unknown-type'),('size',size_guard,'preview-oversize')]:
                 assert preview.count(old)==2
@@ -87,8 +87,8 @@ def main():
                 run(['cmake','--build',unavailable,'--clean-first','--target','test_api'],'unavailable-build')
                 run(['cc','-std=c11','-Wall','-Wextra','-Werror','-I'+str(work/'core/include'),probe,unavailable/'libghosterm_core.a','-lpthread','-o',work/'no-lib'],'unavailable-link')
             compile_unavailable();run([work/'no-lib'],'unavailable-baseline')
-            old='gt__set_error("sftp preview: libssh2 unavailable");\n  return GT_ERR_UNSUPPORTED;'; assert clean.count(old)==1
-            source.write_text(clean.replace(old,old.replace('GT_ERR_UNSUPPORTED','GT_OK'))+'\n/* '+MARK+' */\n')
+            old='    gt__set_error("sftp preview: libssh2 unavailable");\n    return GT_ERR_UNSUPPORTED;\n'; assert clean.count(old)==1
+            source.write_text(clean.replace(old,'    gt__set_error("sftp preview: libssh2 unavailable");\n    return GT_OK;\n')+'\n/* '+MARK+' */\n')
             compile_unavailable();run([work/'no-lib'],'unavailable-red','FAIL: unavailable preview');run([unavailable/'test_api'],'unavailable-control')
             source.write_text(clean);compile_unavailable();run([work/'no-lib'],'unavailable-restored');assert hashlib.sha256(source.read_bytes()).digest()==hashlib.sha256(snapshots[sources[0]]).digest()
             print('PASS preview unavailable: real archive / target red / API green / restored green / SHA256',flush=True)

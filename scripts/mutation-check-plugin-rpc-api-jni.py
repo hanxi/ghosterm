@@ -47,9 +47,9 @@ def main():
         run(label,cmd,budget=300)
     cases=[
       ('jni-input-snapshot','(jbyte *)q.input);','(jbyte *)q.input+1);','bidirectionalSnapshotsSurviveForgetAndClose'),
-      ('jni-ticket','jlong values[3]={status,(jlong)q.ticket,q.input_size};','jlong values[3]={status,(jlong)(q.ticket+1),q.input_size};','bidirectionalSnapshotsSurviveForgetAndClose'),
-      ('jni-confirmation','r.state,r.cancel_requested,r.deadline_elapsed,r.confirmed,r.outcome_size','r.state,r.cancel_requested,r.deadline_elapsed,1,r.outcome_size','queuedCancellationAndBackpressureAreExplicit'),
-      ('jni-scope-status','jlong values[3]={status,(jlong)q.ticket,q.input_size};','jlong values[3]={(status?0:status),(jlong)q.ticket,q.input_size};','validationScopeAndDisabledFeature'),
+      ('jni-ticket','    jlong values[3] = {status, (jlong)q.ticket, q.input_size};\n','    jlong values[3] = {status, (jlong)(q.ticket + 1), q.input_size};\n','bidirectionalSnapshotsSurviveForgetAndClose'),
+      ('jni-confirmation','                       r.confirmed,\n','                       1,\n','queuedCancellationAndBackpressureAreExplicit'),
+      ('jni-scope-status','    jlong values[3] = {status, (jlong)q.ticket, q.input_size};\n','    jlong values[3] = {(status ? 0 : status), (jlong)q.ticket, q.input_size};\n','validationScopeAndDisabledFeature'),
     ]
     try:
         for label,old,_,_ in cases:

@@ -13,19 +13,19 @@ def execute(root,build,test):
     protocol='publishProtocolPreservesRejectedUnknownAndQueryFailure'
     cancel='publishTimeoutAndCancellationReleaseOwner'
     cases=[
-        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5 && kind!=6 && kind!=7)','if(status!=GT_OK && kind!=3 && kind!=6 && kind!=7)',protocol),
-        ('paths',native,'files,path,destination,publish_directory','files,destination,path,publish_directory',good),
-        ('directory',native,'files,path,destination,publish_directory','files,path,destination,(publish_directory && false)','publishDirectoryPreservesEmptyDirectory'),
-        ('size',native,'publish_directory,expected_size,&outcome','publish_directory,0,&outcome',good),
-        ('budget',native,'publish_directory,expected_size,&outcome,budget,stopped,s);','publish_directory,expected_size,&outcome,50,stopped,s);',cancel),
-        ('remote',native,'u32(&p,outcome.remote_status);length=8;','u32(&p,0);length=8;','publishMissingSourcePreservesServerStatus'),
-        ('unknown',native,'u32(&p,(uint32_t)outcome.state);u32(&p,outcome.remote_status);','u32(&p,(uint32_t)(outcome.state==GT_SFTP_PUBLISH_UNKNOWN?GT_SFTP_PUBLISH_REJECTED:outcome.state));u32(&p,outcome.remote_status);',protocol),
+        ('outcome',native,'        if (status != GT_OK && kind != 3 && kind != 5 && kind != 6 && kind != 7) {\n','        if (status != GT_OK && kind != 3 && kind != 6 && kind != 7) {\n',protocol),
+        ('paths',native,'                                                    path,\n                                                    destination,\n','                                                    destination,\n                                                    path,\n',good),
+        ('directory',native,'                                                    publish_directory,\n','                                                    (publish_directory && false),\n','publishDirectoryPreservesEmptyDirectory'),
+        ('size',native,'                status = gt_sftp_publish_controlled(files,\n                                                    path,\n                                                    destination,\n                                                    publish_directory,\n                                                    expected_size,\n                                                    &outcome,\n                                                    budget,\n                                                    stopped,\n                                                    s);\n','                status = gt_sftp_publish_controlled(\n                    files, path, destination, publish_directory, 0, &outcome, budget, stopped, s);\n',good),
+        ('budget',native,'                                                    &outcome,\n                                                    budget,\n','                                                    &outcome,\n                                                    50,\n',cancel),
+        ('remote',native,'                                                    s);\n                uint8_t *p = result;\n                u32(&p, (uint32_t)outcome.state);\n                u32(&p, outcome.remote_status);\n','                                                    s);\n                uint8_t *p = result;\n                u32(&p, (uint32_t)outcome.state);\n                u32(&p, 0);\n','publishMissingSourcePreservesServerStatus'),
+        ('unknown',native,'                                                    s);\n                uint8_t *p = result;\n                u32(&p, (uint32_t)outcome.state);\n','                                                    s);\n                uint8_t *p = result;\n                u32(&p,\n                    (uint32_t)(outcome.state == GT_SFTP_PUBLISH_UNKNOWN ? GT_SFTP_PUBLISH_REJECTED\n                                                                        : outcome.state));\n',protocol),
         ('status',kotlin,'return RemotePublicationResult(status,','return RemotePublicationResult(0,',protocol),
         ('throw-status',kotlin,'if(status != 0 && kind!=3 && kind!=5)','if(status != 0 && kind!=3)',protocol),
         ('cancel',kotlin,'if(!completed) close()','if(!completed) Unit',cancel),
     ]
     # Removal has the same argument prefix; mutate only the publication branch.
-    text=originals[native].decode();start=text.index('else if(kind==5)');end=text.index('else if(kind==6)',start)
+    text=originals[native].decode();start=text.index('else if (kind == 5)');end=text.index('else if (kind == 6)',start)
     piece=text[start:end]
     cases=[(label,path,piece,piece.replace(old,new),method) if label in ('paths','directory','size','budget','remote','unknown') else (label,path,old,new,method)
         for label,path,old,new,method in cases]

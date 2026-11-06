@@ -46,7 +46,7 @@ def main():
             raise RuntimeError(output)
 
     cases = [
-        ('marker', native, 'end, entry.marker, entry.hosts', 'end, "", entry.hosts',
+        ('marker', native, '                                entry.marker,\n', '                                "",\n',
          'sourceRecordsKeepMarkersMalformedRowsAndExactByteRanges'),
         ('range', native, 'entry.byte_end);', 'entry.byte_end - 1);',
          'sourceRecordsKeepMarkersMalformedRowsAndExactByteRanges'),

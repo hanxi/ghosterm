@@ -61,19 +61,19 @@ def main():
    for name in expected:assert re.search(r'Test\s+#\d+: '+re.escape(name)+r'\s+\.+\s+Passed',output),name
   rebuild('baseline');suite('baseline')
   cases=[
-   ('module-digest',' || strcmp(hex,m->sha256)',' || false','invalid'),
-   ('role-binding','if((unsigned)actual_role!=(unsigned)c->role)','if(false && (unsigned)actual_role!=(unsigned)c->role)','invalid'),
-   ('copy-source','memcpy(copy->source,m->source,m->size);','memset(copy->source,32,m->size);','roundtrip'),
-   ('native-module-boundary','!strcmp(base,"host:/bootstrap.js")','true','native-import'),
-   ('cpu-budget','now>=r->deadline','now>=r->deadline+60000','cpu'),
-   ('atomics-block','JS_SetCanBlock(r->engine,false);','JS_SetCanBlock(r->engine,true);','atomics'),
-   ('memory-budget','r->heap_limit=memory;','r->heap_limit=128*1024*1024;','memory'),
-   ('job-budget','if(*used>=r->jobs_per_step)','if(*used>=4096)','jobs'),
-   ('unhandled-rejection','if(!handled){if(r->unhandled_count==64)','if(false && !handled){if(r->unhandled_count==64)','unhandled'),
-   ('handled-rejection','if(handled){JS_FreeValue(ctx,r->unhandled[i]);','if(false && handled){JS_FreeValue(ctx,r->unhandled[i]);','handled'),
-   ('stop-signal','if(r)atomic_store_explicit(&r->stopped,true,memory_order_relaxed);','if(r)atomic_store_explicit(&r->stopped,false,memory_order_relaxed);','stop'),
+   ('module-digest','            strcmp(hex, m->sha256)) {\n','            false) {\n','invalid'),
+   ('role-binding','    if ((unsigned)actual_role != (unsigned)c->role) {\n','    if (false && (unsigned)actual_role != (unsigned)c->role) {\n','invalid'),
+   ('copy-source','        memcpy(copy->source, m->source, m->size);\n','        memset(copy->source, 32, m->size);\n','roundtrip'),
+   ('native-module-boundary','    if (!strcmp(name, "host:/native") && !strcmp(base, "host:/bootstrap.js")) {\n','    if (!strcmp(name, "host:/native") && true) {\n','native-import'),
+   ('cpu-budget','    if (!runtime_now(&now) || now >= r->deadline) {\n','    if (!runtime_now(&now) || now >= r->deadline + 60000) {\n','cpu'),
+   ('atomics-block','    JS_SetCanBlock(r->engine, false);\n','    JS_SetCanBlock(r->engine, true);\n','atomics'),
+   ('memory-budget','    r->heap_limit = memory;\n','    r->heap_limit = 128 * 1024 * 1024;\n','memory'),
+   ('job-budget','        if (*used >= r->jobs_per_step) {\n','        if (*used >= 4096) {\n','jobs'),
+   ('unhandled-rejection','    if (!handled) {\n','    if (false && !handled) {\n','unhandled'),
+   ('handled-rejection','            if (handled) {\n','            if (false && handled) {\n','handled'),
+   ('stop-signal','        atomic_store_explicit(&r->stopped, true, memory_order_relaxed);\n','        atomic_store_explicit(&r->stopped, false, memory_order_relaxed);\n','stop'),
    ('engine-release',' runtime_free_engine(r);',' /* engine retained */','roundtrip'),
-   ('handoff-revoke','gt_ext_session_revoke(r->session);}\nstatic int runtime_interrupt','(void)r->session;}\nstatic int runtime_interrupt','boundary'),
+   ('handoff-revoke','        r->info.error = error;\n    }\n    gt_ext_session_revoke(r->session);\n','        r->info.error = error;\n    }\n    (void)r->session;\n','boundary'),
   ]
   if args.mutate:
    path=core/'src/extension/runtime-quickjs.inc';original=path.read_bytes()

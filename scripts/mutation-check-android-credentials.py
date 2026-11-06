@@ -17,8 +17,8 @@ def execute(root, build, test):
     encrypted = 'encryptedPrivateKeyRetriesWithFreshRequestAndCorrectPassphrase'
     password = 'passwordOnlyRetriesAndActivityRecreationClearsTypedPassword'
     cases = [
-        ('key-retry', core, 'if(s->pem && rc==LIBSSH2_ERROR_FILE)error=GT_ERR_AUTH;',
-         'if(false && s->pem && rc==LIBSSH2_ERROR_FILE)error=GT_ERR_AUTH;', encrypted),
+        ('key-retry', core, '                if (s->pem && rc == LIBSSH2_ERROR_FILE) {\n',
+         '                if (false && s->pem && rc == LIBSSH2_ERROR_FILE) {\n', encrypted),
         ('key-hint', vault, 'StoredIdentity(id,name.trim(),requirement == 1)',
          'StoredIdentity(id,name.trim(),false)', encrypted),
         ('passphrase', model, '.privateKey(prompt,checkNotNull(material),passphrase)',

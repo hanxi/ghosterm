@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Rebuild isolated CLI mutations; assertion red / same archive config / restore."""
-import argparse, hashlib, json, os, shutil, signal, subprocess, tempfile
+import argparse, hashlib, json, os, re, shutil, signal, subprocess, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MARK = 'GT_GTERM_MUTATION'
@@ -15,8 +15,8 @@ def main():
         ('host-nul', ' || memchr(text, 0, used)', '', 'host-nul'),
         ('host-link', 'O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK', 'O_RDONLY | O_CLOEXEC | O_NONBLOCK', 'host-link'),
         ('directory-link', 'open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)', 'open(directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC)', 'directory-link'),
-        ('unknown-exit', 'failure(kind, info.code, info.error == GT_EXT_PACKAGE_UNKNOWN ? 3', 'failure(kind, info.code, info.error == GT_EXT_PACKAGE_UNKNOWN ? 4', 'unknown'),
-        ('package-digest', 'json_string(metadata.publisher);\n    fputs(",\\"packageDigest\\":", stdout); json_string(metadata.package_digest);', 'json_string(metadata.publisher);\n    fputs(",\\"packageDigest\\":", stdout); json_string(metadata.manifest_digest);', 'compatible'),
+        ('unknown-exit', '                         info.error == GT_EXT_PACKAGE_UNKNOWN       ? 3\n', '                         info.error == GT_EXT_PACKAGE_UNKNOWN       ? 4\n', 'unknown'),
+        ('package-digest', '    json_string(metadata.publisher);\n    fputs(",\\"packageDigest\\":", stdout);\n    json_string(metadata.package_digest);\n', '    json_string(metadata.publisher);\n    fputs(",\\"packageDigest\\":", stdout);\n    json_string(metadata.manifest_digest);\n', 'compatible'),
         ('terminal-escape', 'c < 32 || c >= 127', 'c < 32 || c > 0x10ffff', 'compatible'),
         ('activation-exit', '"COMMAND_ACTIVATION_UNAVAILABLE", 4', '"COMMAND_ACTIVATION_UNAVAILABLE", 0', 'no-activation'),
     ]
@@ -25,7 +25,7 @@ def main():
             ('tty', 'if (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO))', 'if (false && (isatty(STDIN_FILENO) || isatty(STDOUT_FILENO)))', 'tty'),
             ('trust-digest', 'if (strcmp(metadata.package_digest, trusted))', 'if (false && strcmp(metadata.package_digest, trusted))', 'digest'),
             ('selected-command', 'if (!selected)', 'if (false && !selected)', 'command'),
-            ('consent', 'if (state == GT_EXT_SESSION_ACTIVE) break;', 'if (state < GT_EXT_SESSION_ENDING) break;', 'deny'),
+            ('consent', '        if (state == GT_EXT_SESSION_ACTIVE) {\n', '        if (state < GT_EXT_SESSION_ENDING) {\n', 'deny'),
             ('arguments', '(size_t)(argc - at - 3)', '0', 'roundtrip'),
             ('dispose-error', ' || info.dispose_error', '', 'dispose-error'),
             ('method-role', 'm->receiver = GT_EXT_EXECUTOR;', 'm->receiver = GT_EXT_HOST;', 'roundtrip'),
@@ -35,12 +35,12 @@ def main():
             ('resolve-digest', 'if (strcmp(metadata.package_digest, expected))', 'if (false && strcmp(metadata.package_digest, expected))', 'digest'),
             ('resolve-selection', 'true, selected_id, selected_digest, &package', 'true, selected_id, selected_digest ? NULL : selected_digest, &package', 'select'),
             ('resolve-side', 'registry, command, true, selected_id', 'registry, command, false, selected_id', 'unique'),
-            ('resolve-conflict', 'kind = "conflict"; result = 8;', 'kind = "not-found"; result = 10;', 'conflict'),
+            ('resolve-conflict', '            kind = "conflict";\n            result = 8;\n', '            kind = "not-found";\n            result = 10;\n', 'conflict'),
             ('resolve-source', 'registry, package, GT_EXT_REGISTRY_SOURCE_ALLOWED, NULL', 'registry, package, GT_EXT_REGISTRY_SOURCE_UNKNOWN, NULL', 'unique'),
             ('resolve-limit', '(unsigned)(argc - at - 2) / 2 > GT_EXT_REGISTRY_PACKAGES_MAX', 'false', 'limit'),
         ]
     if args.session_loss:
-        cases = [('blocked-writer-eof', 'if(complete) {', 'if(!complete)return s->info.phase; if(complete) {', 'lost')]
+        cases = [('blocked-writer-eof', '        /* A blocked writer must not starve incoming control frames or EOF. */\n        if (complete) {\n', '        /* A blocked writer must not starve incoming control frames or EOF. */\n        if (!complete) {\n            return s->info.phase;\n        }\n        if (complete) {\n', 'lost')]
     for _, old, _, _ in cases: assert original.decode().count(old) == 1, old
     work = Path(tempfile.mkdtemp(prefix='gterm-mutations-', dir=ROOT / 'tmp'))
     source = work / 'source'; logs = work / 'logs'; logs.mkdir()
@@ -61,7 +61,7 @@ def main():
         p = subprocess.run(['bash', '-c', shell, 'gterm', str(ROOT), *map(str, command)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=310)
         output = p.stdout + p.stderr; (logs / (label + '.log')).write_text(output)
         commands.append(dict(label=label, returncode=p.returncode))
-        if red: assert p.returncode == 1 and p.stdout.startswith('FAIL ') and not any(x in output for x in ['AddressSanitizer', 'runtime error:', 'Traceback']), label + output
+        if red: assert p.returncode == 1 and (re.search(r'^FAIL[: ]', output, re.M) if args.session_loss else p.stdout.startswith('FAIL ')) and not any(x in output for x in ['AddressSanitizer', 'runtime error:', 'Traceback']), label + output
         else: assert p.returncode == 0, label + output
         return output
     try:
@@ -76,10 +76,16 @@ def main():
             if args.session_loss:
                 (build / 'core/CMakeFiles/ghosterm_core.dir/src/extension/session.c.o').unlink(missing_ok=True)
                 (build / 'core/libghosterm_core.a').unlink(missing_ok=True)
-            out = run(label, ['cmake', '--build', build, '--target', 'gterm', 'test_gterm_stdio', 'test_config', '-j', '4'])
+                (build / 'core/CMakeFiles/test_bridge_session.dir/tests/test_bridge_session.c.o').unlink(missing_ok=True)
+                (build / 'core/test_bridge_session').unlink(missing_ok=True)
+            out = run(label, ['cmake', '--build', build, '--target', 'gterm', 'test_gterm_stdio', 'test_config', *(['test_bridge_session'] if args.session_loss else []), '-j', '4'])
             if args.session_loss: assert 'session.c.o' in out and 'Linking C static library' in out
             assert ('stdio.c.o' if args.stdio else 'main.c.o') in out and 'Linking C executable gterm' in out
         def test(label, case=None, red=False):
+            if args.session_loss:
+                # A controlled WAIT/EOF boundary makes starvation deterministic.
+                run(label + '-session', [build / 'core/test_bridge_session', 'lost'], red)
+                if red: return
             run(label, ['python3', ROOT / ('scripts/test-gterm-resolve.py' if args.resolve else 'scripts/test-gterm-stdio.py' if args.stdio else 'scripts/test-gterm.py'), *(['--build', build] if args.stdio else ['--binary', build / 'gterm']), *(['--case', case] if case else [])], red)
         rebuild('baseline-build'); test('baseline')
         for label, old, new, case in cases:

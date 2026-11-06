@@ -122,8 +122,8 @@ echo "== I3：写回泄漏被含内容 =="
 cat > "$MUTDIR/gtmut_i3.py" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = '    if (n->included) continue;'
-new = '    if (0) { /* GT_MUTATION_MARK */ }'
+old = '        if (n->included) {\n            continue;\n'
+new = '        if (0) { /* GT_MUTATION_MARK */\n'
 assert old in s, "I3 anchor missing"
 open(p, 'w').write(s.replace(old, new, 1))
 PY

@@ -8,11 +8,15 @@
 #include "base/allocator.h"
 #include <stdbool.h>
 #define GT_PLUGIN_MEMORY_DEFAULT (128u * 1024u * 1024u)
-typedef struct {size_t limit,used,peak;} gt_plugin_memory_info_t;
-void *gt__plugin_memory_alloc(const gt_allocator_t *,size_t);
-void *gt__plugin_memory_calloc(size_t,size_t);
+
+typedef struct {
+    size_t limit, used, peak;
+} gt_plugin_memory_info_t;
+
+void *gt__plugin_memory_alloc(const gt_allocator_t *, size_t);
+void *gt__plugin_memory_calloc(size_t, size_t);
 /* Wipes n bytes before invoking the upstream release. NULL is a no-op. */
-void gt__plugin_memory_free(const gt_allocator_t *,void *,size_t);
+void gt__plugin_memory_free(const gt_allocator_t *, void *, size_t);
 gt_plugin_memory_info_t gt__plugin_memory_info(void);
 /* Native policy/test entry; succeeds only when no reservations exist. A failed
  * attempt changes nothing. Zero is invalid; there is no unbounded mode. */

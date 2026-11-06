@@ -35,8 +35,8 @@ def main():
                 ('empty-limit','max_bytes > INT64_MAX || !out_count','!max_bytes || max_bytes > INT64_MAX || !out_count','normal'),
                 ('append','(flags & O_APPEND)','((flags & O_APPEND) && false)','normal'),
                 ('nonempty','local_before.st_size != 0','(local_before.st_size != 0 && false)','normal'),
-                ('count-reset','if (out_count) *out_count = 0;','if (out_count) *out_count = 99;','normal'),
-                ('offset','pwrite(destination_fd, bytes + written, (size_t)length - written, (off_t)(count + written))','(lseek(destination_fd, 0, SEEK_SET), pwrite(destination_fd, bytes + written, (size_t)length - written, (off_t)(count + written)))','normal'),
+                ('count-reset','        *out_count = 0;\n','        *out_count = 99;\n','normal'),
+                ('offset','            ssize_t n = pwrite(destination_fd,\n                               bytes + written,\n                               (size_t)length - written,\n                               (off_t)(count + written));\n','            ssize_t n = (lseek(destination_fd, 0, SEEK_SET),\n                         pwrite(destination_fd,\n                                bytes + written,\n                                (size_t)length - written,\n                                (off_t)(count + written)));\n','normal'),
                 ('kind','!= LIBSSH2_SFTP_S_IFREG','== LIBSSH2_SFTP_S_IFREG','allow'),
                 ('open-read','path, LIBSSH2_FXF_READ, 0','path, LIBSSH2_FXF_WRITE, 0','allow'),
                 ('bound','(uint64_t)length > remaining','((uint64_t)length > remaining && false)','overflow'),
@@ -45,12 +45,12 @@ def main():
                 ('source-mtime','before->mtime != a->mtime','(before->mtime != a->mtime && false)','receive-finalstat-changed-mtime'),
                 ('missing-size','if ((before->flags & LIBSSH2_SFTP_ATTR_SIZE) &&','if (false && (before->flags & LIBSSH2_SFTP_ATTR_SIZE) &&','receive-finalstat-missing-size'),
                 ('local-size','(uint64_t)local_after.st_size != count','((uint64_t)local_after.st_size != count && false)','normal'),
-                ('close','if (result != 0) status = GT_ERR_IO;','if (result != 0) status = GT_OK;','receive-close-deny'),
+                ('close','            if (result != 0) {\n                status = GT_ERR_IO;\n','            if (result != 0) {\n                status = GT_OK;\n','receive-close-deny'),
                 ('budget','mono_ms() + timeout_ms;','mono_ms() + 20;','receive-open-timeout'),
                 ('abort','gt__ssh_abort(sftp->ssh);','(void)sftp;','receive-close-deny'),
                 ('restore','libssh2_session_set_timeout(session, timeout);','libssh2_session_set_timeout(session, timeout + 1);','allow'),
                 ('short-write','written += (size_t)n;','written = (size_t)length;','normal'),
-                ('eintr','if (n < 0 && errno == EINTR) continue;','if (n < 0 && errno == EINTR) { status = GT_ERR_IO; goto finished; }','normal'),
+                ('eintr','            if (n < 0 && errno == EINTR) {\n                continue;\n','            if (n < 0 && errno == EINTR) {\n                status = GT_ERR_IO;\n                goto finished;\n','normal'),
             ]
             variants=[]
             for name,old,new,case in cases:
@@ -70,8 +70,8 @@ def main():
                 run(['cmake','--build',no,'--clean-first','--target','test_config'],'no-build')
                 run(['cc','-std=c11','-I'+str(work/'core/include'),probe,no/'libghosterm_core.a','-lpthread','-o',work/'probe'],'no-link')
             no_build();run([work/'probe'],'no-baseline')
-            old='gt__set_error("sftp receive: libssh2 unavailable");\n  return GT_ERR_UNSUPPORTED;';assert clean.count(old)==1
-            source.write_text(clean.replace(old,old.replace('GT_ERR_UNSUPPORTED','GT_OK'))+'\n/* '+MARK+' */\n');no_build();run([work/'probe'],'no-red','FAIL: unavailable receive');run([no/'test_config',work/'core/tests/fixtures'],'no-control')
+            old='    gt__set_error("sftp receive: libssh2 unavailable");\n    return GT_ERR_UNSUPPORTED;\n';assert clean.count(old)==1
+            source.write_text(clean.replace(old,'    gt__set_error("sftp receive: libssh2 unavailable");\n    return GT_OK;\n')+'\n/* '+MARK+' */\n');no_build();run([work/'probe'],'no-red','FAIL: unavailable receive');run([no/'test_config',work/'core/tests/fixtures'],'no-control')
             source.write_text(clean);no_build();run([work/'probe'],'no-restored')
             assert source.read_bytes()==snapshots[paths[0]]
             print('PASS receive unavailable: real archive / target red / config green / restored green / SHA256',flush=True)

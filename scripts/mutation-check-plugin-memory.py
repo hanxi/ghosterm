@@ -21,20 +21,20 @@ LEX='core/src/base/json-reader.inc'
 JSON='core/src/extension/package-json.c'
 RT='core/src/extension/runtime-quickjs.inc'
 CASES=[
- ('total-limit',MEM,'bool ok=n<=memory.limit-memory.used;','bool ok=true;','test_plugin_memory','budget'),
- ('failure-rollback',MEM,'if(!p)uncharge(n);','/* reservation retained after failed allocator */','test_plugin_memory','budget'),
- ('release-after-callback',MEM,'if(!p)return;gt__secure_erase(p,n);if(a)a->release(a->context,p,n);else free(p);uncharge(n);','if(!p)return;uncharge(n);gt__secure_erase(p,n);if(a)a->release(a->context,p,n);else free(p);','test_plugin_memory','budget'),
- ('release-wipe',MEM,'gt__secure_erase(p,n);','/* wipe omitted */','test_plugin_memory','budget'),
- ('live-limit-change',MEM,'bool ok=limit && !memory.used;','bool ok=limit;','test_plugin_memory','budget'),
- ('queue-account','core/src/extension/frame.c','d->bytes = gt__plugin_memory_alloc(&a,limit);','d->bytes = a.allocate(a.context,limit);','test_plugin_memory','queue'),
- ('json-demand',LEX,'if(!json_strings(d,d->strings_size+1))','if(!json_strings(d,GT_JSON_BYTES))','test_package_json','small-memory'),
- ('json-buffer-release',JSON,'json_buffers_free(d);return result;','return result;','test_package_json','growth'),
- ('json-rehash',LEX,'keys[slot]=d->keys[i];','keys[slot]=0;','test_package_json','growth-duplicate'),
- ('json-oom-kind',LEX,'if(!p)return fail(d,GT_JSON_MEMORY);','if(!p)return fail(d,GT_JSON_LIMIT);','test_package_json','global-memory'),
- ('runtime-source-account',RT,'copy->source=gt__plugin_memory_alloc(NULL,m->size+1);','copy->source=malloc(m->size+1);','test_runtime','roundtrip'),
- ('runtime-heap-account',RT,'runtime_allocation_t *p=gt__plugin_memory_alloc(NULL,bytes);','runtime_allocation_t *p=malloc(bytes);','test_runtime','global-memory'),
- ('runtime-local-limit',RT,'r->heap_limit=memory;','r->heap_limit=128*1024*1024;','test_runtime','caught-memory'),
- ('runtime-oom-classification',RT,'r->memory_failed?GT_RUNTIME_MEMORY:GT_RUNTIME_SCRIPT','GT_RUNTIME_SCRIPT','test_runtime','caught-memory'),
+ ('total-limit',MEM,'    bool ok = n <= memory.limit - memory.used;\n','    bool ok = true;\n','test_plugin_memory','budget'),
+ ('failure-rollback',MEM,'    void *p = a ? a->allocate(a->context, n) : malloc(n);\n    if (!p) {\n        uncharge(n);\n    }\n','    void *p = a ? a->allocate(a->context, n)\n                : malloc(n); /* reservation retained after failed allocator */\n','test_plugin_memory','budget'),
+ ('release-after-callback',MEM,'    gt__secure_erase(p, n);\n    if (a) {\n        a->release(a->context, p, n);\n    } else {\n        free(p);\n    }\n    uncharge(n);\n','    uncharge(n);\n    gt__secure_erase(p, n);\n    if (a) {\n        a->release(a->context, p, n);\n    } else {\n        free(p);\n    }\n','test_plugin_memory','budget'),
+ ('release-wipe',MEM,'        return;\n    }\n    gt__secure_erase(p, n);\n','        return; /* wipe omitted */\n    }\n','test_plugin_memory','budget'),
+ ('live-limit-change',MEM,'    bool ok = limit && !memory.used;\n','    bool ok = limit;\n','test_plugin_memory','budget'),
+ ('queue-account','core/src/extension/frame.c','    d->bytes = gt__plugin_memory_alloc(&a, limit);\n','    d->bytes = a.allocate(a.context, limit);\n','test_plugin_memory','queue'),
+ ('json-demand',LEX,'    if (!json_strings(d, d->strings_size + 1)) {\n','    if (!json_strings(d, GT_JSON_BYTES)) {\n','test_package_json','small-memory'),
+ ('json-buffer-release',JSON,'    json_buffers_free(d);\n    return result;\n','    return result;\n','test_package_json','growth'),
+ ('json-rehash',LEX,'                keys[slot] = d->keys[i];\n','                keys[slot] = 0;\n','test_package_json','growth-duplicate'),
+ ('json-oom-kind',LEX,'    if (!p) {\n        return fail(d, GT_JSON_MEMORY);\n','    if (!p) {\n        return fail(d, GT_JSON_LIMIT);\n','test_package_json','global-memory'),
+ ('runtime-source-account',RT,'        copy->source = gt__plugin_memory_alloc(NULL, m->size + 1);\n','        copy->source = malloc(m->size + 1);\n','test_runtime','roundtrip'),
+ ('runtime-heap-account',RT,'    runtime_allocation_t *p = gt__plugin_memory_alloc(NULL, bytes);\n','    runtime_allocation_t *p = malloc(bytes);\n','test_runtime','global-memory'),
+ ('runtime-local-limit',RT,'    r->heap_limit = memory;\n','    r->heap_limit = 128 * 1024 * 1024;\n','test_runtime','caught-memory'),
+ ('runtime-oom-classification',RT,'                 : r->memory_failed                                      ? GT_RUNTIME_MEMORY\n                                                                         : GT_RUNTIME_SCRIPT);\n','                                                                         : GT_RUNTIME_SCRIPT);\n','test_runtime','caught-memory'),
 ]
 
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()

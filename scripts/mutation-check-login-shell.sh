@@ -124,12 +124,12 @@ echo "== L3：close 时只发单个 child（不打整组） =="
 python3 - "$SRC" <<'PYEOF'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = "    if (!group_is_ours && pg > 0) kill(-pg, SIGHUP);\n    kill(t->child, SIGHUP);"
-new = "    kill(t->child, SIGHUP); /* GT_MUTATION_MARK：不打整组 */"
+old = '        if (!group_is_ours && pg > 0) {\n            kill(-pg, SIGHUP);\n        }\n        kill(t->child, SIGHUP);\n'
+new = '        kill(t->child, SIGHUP); /* GT_MUTATION_MARK：不打整组 */\n'
 assert old in s, "L3(a) 锚点缺失"
 s = s.replace(old, new, 1)
-old2 = "      if (!group_is_ours && pg > 0) kill(-pg, SIGKILL);\n      kill(t->child, SIGKILL);"
-new2 = "      kill(t->child, SIGKILL); /* GT_MUTATION_MARK：不打整组 */"
+old2 = '            if (!group_is_ours && pg > 0) {\n                kill(-pg, SIGKILL);\n            }\n            kill(t->child, SIGKILL);\n'
+new2 = '            kill(t->child, SIGKILL); /* GT_MUTATION_MARK：不打整组 */\n'
 assert old2 in s, "L3(b) 锚点缺失"
 open(p, 'w').write(s.replace(old2, new2, 1))
 PYEOF

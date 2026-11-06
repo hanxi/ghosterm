@@ -14,44 +14,54 @@ extern "C" {
 typedef struct gt_tmux gt_tmux_t;
 #define GT_TMUX_CANDIDATE_MAX 64
 #define GT_TMUX_VERSION_MAX 128
+
 typedef struct {
-  char path[GT_TMUX_PATH_MAX];
-  char version[GT_TMUX_VERSION_MAX];
-  gt_status_t status; /* OK, UNSUPPORTED, or IO/PROTOCOL when unknown */
+    char path[GT_TMUX_PATH_MAX];
+    char version[GT_TMUX_VERSION_MAX];
+    gt_status_t status; /* OK, UNSUPPORTED, or IO/PROTOCOL when unknown */
 } gt_tmux_candidate_t;
 
 typedef struct {
-  const char *executable; /* absolute path or NULL: login-shell command -v */
-  const char
-      *socket_path; /* absolute path or NULL: tmux default, then locked */
-  const char *login_shell; /* local only, NULL uses SHELL or /bin/sh */
-  uint32_t timeout_ms;     /* 0 = 5000, per high-level operation */
-  bool (*cancelled)(void *);
-  void *context;
+    const char *executable;  /* absolute path or NULL: login-shell command -v */
+    const char *socket_path; /* absolute path or NULL: tmux default, then locked */
+    const char *login_shell; /* local only, NULL uses SHELL or /bin/sh */
+    uint32_t timeout_ms;     /* 0 = 5000, per high-level operation */
+    bool (*cancelled)(void *);
+    void *context;
 } gt_tmux_opts_t;
+
 typedef struct {
-  uint64_t server_pid, server_started, id, created;
-  uint32_t windows, attached;
-  /* -1 = unknown. destroy: 0 off, 1 on, 2 keep-last, 3 keep-group. */
-  int32_t destroy_unattached, exit_unattached;
-  char name[GT_TMUX_NAME_MAX];
-  char socket_path[GT_TMUX_PATH_MAX];
+    uint64_t server_pid, server_started, id, created;
+    uint32_t windows, attached;
+    /* -1 = unknown. destroy: 0 off, 1 on, 2 keep-last, 3 keep-group. */
+    int32_t destroy_unattached, exit_unattached;
+    char name[GT_TMUX_NAME_MAX];
+    char socket_path[GT_TMUX_PATH_MAX];
 } gt_tmux_session_t;
-typedef enum { GT_TMUX_SERVER_RUNNING, GT_TMUX_SERVER_ABSENT } gt_tmux_server_t;
+
 typedef enum {
-  GT_TMUX_CREATE,
-  GT_TMUX_RENAME,
-  GT_TMUX_TERMINATE
+    GT_TMUX_SERVER_RUNNING,
+    GT_TMUX_SERVER_ABSENT
+} gt_tmux_server_t;
+
+typedef enum {
+    GT_TMUX_CREATE,
+    GT_TMUX_RENAME,
+    GT_TMUX_TERMINATE
 } gt_tmux_operation_t;
+
 typedef enum {
-  GT_TMUX_CONFIRMED,
-  GT_TMUX_REJECTED,
-  GT_TMUX_UNKNOWN
+    GT_TMUX_CONFIRMED,
+    GT_TMUX_REJECTED,
+    GT_TMUX_UNKNOWN
 } gt_tmux_result_t;
+
 /* PATH order, first candidate is the default. Unknown versions stay unknown.
  * All-or-error: no partial candidate list on invalid output or timeout. */
-int gt_tmux_discover(gt_ssh_t *ssh, const gt_tmux_opts_t *opts,
-                     gt_tmux_candidate_t *candidates, size_t capacity,
+int gt_tmux_discover(gt_ssh_t *ssh,
+                     const gt_tmux_opts_t *opts,
+                     gt_tmux_candidate_t *candidates,
+                     size_t capacity,
                      size_t *count);
 /* ssh=NULL selects local. Resolves path and verifies tmux >=3.2a.
  * Optional out_status distinguishes NOT_FOUND from UNSUPPORTED, IO and PROTOCOL. */
@@ -59,13 +69,15 @@ gt_tmux_t *gt_tmux_open(gt_ssh_t *ssh, const gt_tmux_opts_t *opts, gt_status_t *
 void gt_tmux_close(gt_tmux_t *tmux);
 /* All-or-error snapshot. A failed refresh clears count; caller discards old UI
  * selection. ABSENT is distinct from a successfully parsed empty list. */
-int gt_tmux_list(gt_tmux_t *, gt_tmux_session_t *, size_t capacity,
-                 size_t *count, gt_tmux_server_t *server);
+int gt_tmux_list(
+    gt_tmux_t *, gt_tmux_session_t *, size_t capacity, size_t *count, gt_tmux_server_t *server);
 /* Target is mandatory except CREATE; exact ID + server/creation/name/socket
  * revalidated before use. Non-OK may still have UNKNOWN result: never replay.
  */
-int gt_tmux_change(gt_tmux_t *, gt_tmux_operation_t,
-                   const gt_tmux_session_t *target, const char *name,
+int gt_tmux_change(gt_tmux_t *,
+                   gt_tmux_operation_t,
+                   const gt_tmux_session_t *target,
+                   const char *name,
                    gt_tmux_result_t *result);
 /* Creates an ordinary interactive transport after fresh target validation.
  * Remote attach validates both management and execution SSH endpoints within
@@ -73,9 +85,11 @@ int gt_tmux_change(gt_tmux_t *, gt_tmux_operation_t,
  * -N attach-session only. Closing it closes the client, never kills session.
  * Local: attach_ssh=NULL; remote: dedicated authenticated attach_ssh required.
  */
-gt_transport_t *gt_tmux_attach(gt_tmux_t *, const gt_tmux_session_t *,
+gt_transport_t *gt_tmux_attach(gt_tmux_t *,
+                               const gt_tmux_session_t *,
                                gt_ssh_t *attach_ssh,
-                               const gt_shell_opts_t *size, gt_status_t *out_status);
+                               const gt_shell_opts_t *size,
+                               gt_status_t *out_status);
 #ifdef __cplusplus
 }
 #endif

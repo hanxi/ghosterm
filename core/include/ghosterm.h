@@ -37,28 +37,28 @@ const char *gt_version(void);
 /* ------------------------------------------------------------------ */
 
 typedef enum {
-  GT_EVENT_NONE = 0,
-  GT_EVENT_STATUS,   /* 连接/会话状态变化 */
-  GT_EVENT_PROGRESS, /* 传输进度（已按 ~16ms 合帧） */
-  GT_EVENT_JOB_DONE, /* job 结束：成功 / 失败 / 取消，见 code 三态 */
-  GT_EVENT_LOG,      /* 诊断日志（不是终端字节流） */
+    GT_EVENT_NONE = 0,
+    GT_EVENT_STATUS,   /* 连接/会话状态变化 */
+    GT_EVENT_PROGRESS, /* 传输进度（已按 ~16ms 合帧） */
+    GT_EVENT_JOB_DONE, /* job 结束：成功 / 失败 / 取消，见 code 三态 */
+    GT_EVENT_LOG,      /* 诊断日志（不是终端字节流） */
 } gt_event_kind_t;
 
 /* GT_EVENT_JOB_DONE 的 code 三态。 */
 typedef enum {
-  GT_JOB_OK = 0,
-  GT_JOB_FAILED = 1,
-  GT_JOB_CANCELLED = 2,
+    GT_JOB_OK = 0,
+    GT_JOB_FAILED = 1,
+    GT_JOB_CANCELLED = 2,
 } gt_job_result_t;
 
 #define GT_EVENT_MESSAGE_MAX 512
 
 typedef struct {
-  gt_event_kind_t kind;
-  uint64_t session_id; /* 0 = 全局 */
-  uint64_t job_id;     /* 0 = 非 job 事件 */
-  int32_t code;        /* 含义随 kind；JOB_DONE 用 gt_job_result_t */
-  char message[GT_EVENT_MESSAGE_MAX];
+    gt_event_kind_t kind;
+    uint64_t session_id; /* 0 = 全局 */
+    uint64_t job_id;     /* 0 = 非 job 事件 */
+    int32_t code;        /* 含义随 kind；JOB_DONE 用 gt_job_result_t */
+    char message[GT_EVENT_MESSAGE_MAX];
 } gt_event_t;
 
 /*

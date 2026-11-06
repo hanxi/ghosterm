@@ -14,20 +14,20 @@ def execute(root, build, test):
     if any(MARK.encode() in data for data in originals.values()):raise RuntimeError('Residual mutation')
     vt='unknownHostTrustKeyAuthenticationAndRemotePtyReachVt'
     cases=[
-      ('deferred',native,'s->options.defer_credentials=true;','s->options.defer_credentials=false;',vt),
-      ('identity',native,'.host=s->host,','.host="127.0.0.1",',vt),
-      ('rejection',native,'response==1?GT_HOSTKEY_ACCEPT:GT_HOSTKEY_REJECT','GT_HOSTKEY_ACCEPT','rejectionStopsBeforeCredentialsAndDoesNotSaveTrust'),
-      ('save-error',native,'info.phase=GT_SSH_AUTH_PHASE_FAILED; info.error=status; publish(s,&info); goto done;\n            }','info.phase=GT_SSH_AUTH_PHASE_FAILED; info.error=GT_ERR_HOST_KEY; publish(s,&info); goto done;\n            }','savingTrustFailureStopsBeforeCredentials'),
+      ('deferred',native,'    s->options.defer_credentials = true;\n','    s->options.defer_credentials = false;\n',vt),
+      ('identity',native,'    gt_ssh_opts_t opts = {\n        .host = s->host, .port = s->port, .username = s->user, .known_hosts_path = s->known_hosts};\n','    gt_ssh_opts_t opts = {.host = "127.0.0.1",\n                          .port = s->port,\n                          .username = s->user,\n                          .known_hosts_path = s->known_hosts};\n',vt),
+      ('rejection',native,'                status = gt_ssh_authenticator_decide(\n                    auth, response == 1 ? GT_HOSTKEY_ACCEPT : GT_HOSTKEY_REJECT);\n','                status = gt_ssh_authenticator_decide(auth, GT_HOSTKEY_ACCEPT);\n','rejectionStopsBeforeCredentialsAndDoesNotSaveTrust'),
+      ('save-error',native,'                info.error = status;\n','                info.error = GT_ERR_HOST_KEY;\n','savingTrustFailureStopsBeforeCredentials'),
       ('revoked',binding,'SSHHostState.entries[f[3].toInt()]','SSHHostState.entries[if (f[3] == "4") 2 else f[3].toInt()]','revokedMismatchAndUnsupportedStayDistinct'),
-      ('methods',native,'"%d",info.auth_methods);','"%d",0);',vt),
-      ('stale-request',native,'(uint64_t)request==s->request','request>0','wrongKeyRetriesWithNewRequestAndClearsSecrets'),
-      ('request-generation',native,'s->request++; s->waiting=true;','s->request=1; s->waiting=true;','wrongKeyRetriesWithNewRequestAndClearsSecrets'),
+      ('methods',native,'    snprintf(number[5], sizeof number[5], "%d", info.auth_methods);\n','    snprintf(number[5], sizeof number[5], "%d", 0);\n',vt),
+      ('stale-request',native,'    bool valid = s->waiting && !s->response && (uint64_t)request == s->request && phase;\n','    bool valid = s->waiting && !s->response && request > 0 && phase;\n','wrongKeyRetriesWithNewRequestAndClearsSecrets'),
+      ('request-generation',native,'        s->request++;\n','        s->request = 1;\n','wrongKeyRetriesWithNewRequestAndClearsSecrets'),
       ('owner',kotlin,' && prompt.owner == handle','', 'promptsCannotCrossSessionsAndUnsupportedPasswordsAreCleared'),
       ('wipe',kotlin,'first.fill(0); second.fill(0)','second.fill(0)',vt),
-      ('deadline',native,'s->options.timeout_ms=(uint32_t)timeout;','s->options.timeout_ms=60000;','deadlineContinuesWhileWaitingForCredentials'),
+      ('deadline',native,'    s->options.timeout_ms = (uint32_t)timeout;\n','    s->options.timeout_ms = 60000;\n','deadlineContinuesWhileWaitingForCredentials'),
       ('feed',session,'gat_surface_feed(s->surface, output, (size_t)length);','if (!s->remote) gat_surface_feed(s->surface, output, (size_t)length);',vt),
-      ('resize',session,'(s->transport && gt_transport_resize','(!s->remote && s->transport && gt_transport_resize',vt),
-      ('cancel',session,'atomic_store(&s->stop, true); }','atomic_store(&s->stop, false); }','cancelInvalidatesHandleAndReleasesNativeOwner'),
+      ('resize',session,'            if ((s->transport &&\n','            if ((!s->remote && s->transport &&\n',vt),
+      ('cancel',session,'        atomic_store(&s->stop, true);\n','        atomic_store(&s->stop, false);\n','cancelInvalidatesHandleAndReleasesNativeOwner'),
     ]
     try:
         for label,path,old,new,method in cases:

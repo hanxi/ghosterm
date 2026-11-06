@@ -45,7 +45,7 @@ def main():
  ('phase falsely reports TCP','(gt_ssh_auth_phase_t)gt__ssh_connector_step(a->connector)','(gt_ssh_auth_phase_t)(gt__ssh_connector_step(a->connector),0)','bridge'),
  ('host unknown folded known','.host = (gt_ssh_auth_host_state_t)i.host,','.host = GT_SSH_AUTH_HOST_KNOWN,','bridge'),
  ('fingerprint omitted','memcpy(out->fingerprint, i.fingerprint, sizeof(out->fingerprint));','memset(out->fingerprint,0,sizeof(out->fingerprint));','bridge'),
- ('second take leaves stale alias','if (out)\n    *out = NULL;\n  return a && out &&','return a && out &&','bridge'),
+ ('second take leaves stale alias','    if (out) {\n        *out = NULL;\n    }\n    return a && out && gt__ssh_connector_take(a->connector, out);\n','    return a && out && gt__ssh_connector_take(a->connector, out);\n','bridge'),
  ('authenticator owner leaked','gt__ssh_connector_close(a->connector);','(void)a->connector;','bridge'),
  ]
  try:

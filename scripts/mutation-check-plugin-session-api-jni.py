@@ -46,10 +46,10 @@ def main():
         if red:cmd += ['--expect-platform-assertion','android']
         run(label,cmd,budget=300)
     cases=[
-      ('jni-session-worker','if(s && owner && !pthread_equal(s->owner,pthread_self()))','if(s && false && owner && !pthread_equal(s->owner,pthread_self()))','workerOwnershipAndCrossThreadStop'),
-      ('jni-adoption-generation','s->id=successor;values[1]','(void)successor;values[1]','staleChannelAndSessionGenerationsCannotStopNewOwner'),
-      ('jni-session-unknown','i.phase,i.end,i.error,i.decision,','i.phase,i.end,i.error,1,','consentLeaseAndRevocationRemainScoped'),
-      ('jni-session-lease-epoch','l.epoch>>(56-n*8)','(l.epoch+1)>>(56-n*8)','consentLeaseAndRevocationRemainScoped'),
+      ('jni-session-worker','    if (s && owner && !pthread_equal(s->owner, pthread_self())) {\n','    if (s && false && owner && !pthread_equal(s->owner, pthread_self())) {\n','workerOwnershipAndCrossThreadStop'),
+      ('jni-adoption-generation','        s->id = successor;\n','        (void)successor;\n','staleChannelAndSessionGenerationsCannotStopNewOwner'),
+      ('jni-session-unknown','                   i.decision,\n','                   1,\n','consentLeaseAndRevocationRemainScoped'),
+      ('jni-session-lease-epoch','        encoded[99 + n] = (uint8_t)(l.epoch >> (56 - n * 8));\n','        encoded[99 + n] = (uint8_t)((l.epoch + 1) >> (56 - n * 8));\n','consentLeaseAndRevocationRemainScoped'),
     ]
     try:
         for label,old,_,_ in cases:

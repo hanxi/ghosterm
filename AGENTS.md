@@ -96,6 +96,11 @@ runtime catalog，四组变异护本地创建、启动偏好、分屏目录与�
 
 ## 验收闸门（合并前必须全绿）
 
+项目自有 C 代码另按 `docs/reference/c-coding-style.md` 排版，使用 clang-format 19.1.7：
+`python3 scripts/format-c.py --check` 必须通过。独立 `c-format.yml` 在 push main / PR /
+手动触发时执行同一只读检查；不改离线 `gate.sh`，不计入下文二十份变异验证。
+新增原因：统一 C 代码可读性并防止后续提交产生排版漂移。
+
 ```bash
 bash scripts/gate.sh        # 离线闸门：C 核心构建 + ssh_config 对拍 + ABI 冒烟
 bash scripts/build-core.sh  # 只构建核心（快速）

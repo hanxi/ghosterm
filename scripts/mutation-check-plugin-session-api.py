@@ -39,19 +39,19 @@ def main():
         run(label+'-ssh',['python3',ROOT/'scripts/test-plugin-channel.py','--session','--binary',build/'test_ext_session','--source-root',source],budget=120)
     api='core/src/extension/session-api.c';channel='core/src/extension/channel.c'
     cases=[
-      ('ownership-cleared',api,'*owned=NULL;*out=s;','*out=s;','native','invalid'),
+      ('ownership-cleared',api,'    *owned = NULL;\n    *out = s;\n','    *out = s;\n','native','invalid'),
       ('capacity-release',api,'gt__ext_channel_retire(s->channel);','(void)s->channel;','native','capacity'),
       ('pristine-write',channel,' || c->info.accepted ||',' || false ||','native','dirty-write'),
       ('pristine-read',channel,' || c->info.received ||',' || false ||','native','dirty-read'),
-      ('provider-kind',channel,'c->ssh!=ssh ||','(false && c->ssh!=ssh) ||','native','config'),
-      ('features-explicit',api,'if(config->features ||','if((false && config->features) ||','native','config'),
-      ('peer-evidence',api,'memcpy(out->peer.identity,i.peer.identity,sizeof(out->peer.identity));','memset(out->peer.identity,0,sizeof(out->peer.identity));','native','allow'),
-      ('unknown-keeps-waiting',api,'decision==GT_EXT_DECISION_ALLOW?GT_BRIDGE_DECISION_ALLOW:','decision==GT_EXT_DECISION_UNKNOWN?GT_BRIDGE_DECISION_ALLOW:decision==GT_EXT_DECISION_ALLOW?GT_BRIDGE_DECISION_ALLOW:','native','allow'),
-      ('deny-preserved',api,'decision==GT_EXT_DECISION_DENY?GT_BRIDGE_DECISION_DENY:','decision==GT_EXT_DECISION_DENY?GT_BRIDGE_DECISION_ALLOW:','native','deny'),
-      ('lease-epoch',api,'out->epoch=l.epoch;','out->epoch=l.epoch+1;','native','allow'),
-      ('close-error-visible',api,'s->cleanup_error=GT_ERR_IO;','s->cleanup_error=GT_OK;','boundary','close-error'),
-      ('destroy-error-retained',api,'if(status!=GT_OK){s->cleanup_error=status;return status;}','if(false && status!=GT_OK){s->cleanup_error=status;return status;}','boundary','destroy-error'),
-      ('destroy-history',api,'if(s->released)return s->sources?GT_EXT_DRAINING:GT_EXT_RELEASED;','if(false && s->released)return s->sources?GT_EXT_DRAINING:GT_EXT_RELEASED;','boundary','destroy-error'),
+      ('provider-kind',channel,'    if (!c || !out || !c->stream || c->closed || c->ssh != ssh || c->info.phase != GT_EXT_READY ||\n        channel_stopped(c) || c->info.accepted || c->info.received || c->write_size) {\n','    if (!c || !out || !c->stream || c->closed || (false && c->ssh != ssh) ||\n        c->info.phase != GT_EXT_READY || channel_stopped(c) || c->info.accepted ||\n        c->info.received || c->write_size) {\n','native','config'),
+      ('features-explicit',api,'    if (config->features ||\n','    if ((false && config->features) ||\n','native','config'),
+      ('peer-evidence',api,'    memcpy(out->peer.identity, i.peer.identity, sizeof(out->peer.identity));\n','    memset(out->peer.identity, 0, sizeof(out->peer.identity));\n','native','allow'),
+      ('unknown-keeps-waiting',api,'                                     decision == GT_EXT_DECISION_ALLOW ? GT_BRIDGE_DECISION_ALLOW\n','                                     decision == GT_EXT_DECISION_UNKNOWN ? GT_BRIDGE_DECISION_ALLOW\n                                     : decision == GT_EXT_DECISION_ALLOW ? GT_BRIDGE_DECISION_ALLOW\n','native','allow'),
+      ('deny-preserved',api,'                                         ? GT_BRIDGE_DECISION_DENY\n','                                         ? GT_BRIDGE_DECISION_ALLOW\n','native','deny'),
+      ('lease-epoch',api,'    out->epoch = l.epoch;\n','    out->epoch = l.epoch + 1;\n','native','allow'),
+      ('close-error-visible',api,'        s->cleanup_error = GT_ERR_IO;\n','        s->cleanup_error = GT_OK;\n','boundary','close-error'),
+      ('destroy-error-retained',api,'    gt_status_t status = gt__bridge_session_destroy(s->inner);\n    if (status != GT_OK) {\n','    gt_status_t status = gt__bridge_session_destroy(s->inner);\n    if (false && status != GT_OK) {\n','boundary','destroy-error'),
+      ('destroy-history',api,'    if (s->released) {\n','    if (false && s->released) {\n','boundary','destroy-error'),
     ]
     swift_cases=[
       ('swift-decision','decision: Decision(rawValue: i.decision.rawValue) ?? .unknown','decision: .allow','testNativeConsentAndScopedLease'),

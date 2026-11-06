@@ -60,9 +60,9 @@ def execute(root,build,test):
             if name in ('await-close','late-success'):
                 text=originals[native].decode()
                 if name=='await-close':
-                    text=text.replace('gt_sftp_close(files);gt_ssh_close(ssh);','if(directory_fence>=0)usleep(300000);gt_sftp_close(files);gt_ssh_close(ssh);')
+                    text=text.replace('    gt_sftp_close(files);\n','    if (directory_fence >= 0) {\n        usleep(300000);\n    }\n    gt_sftp_close(files);\n')
                 else:
-                    text=text.replace('if(directory_fence>=0){close(directory_fence);directory_fence=-1;}','if(directory_fence>=0){usleep(300000);close(directory_fence);directory_fence=-1;}')
+                    text=text.replace('            close(directory_fence);\n','            usleep(300000);\n            close(directory_fence);\n')
                 assert text!=originals[native].decode()
                 native.write_text(text+'\n// '+MARK+'\n')
                 build(label+'-delayed-baseline');test(label+'-delayed-baseline',selection,True)

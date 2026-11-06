@@ -13,28 +13,75 @@ extern "C" {
 #define GT_EXT_RUNTIME_SOURCE_MAX 1048576u
 #define GT_EXT_RUNTIME_ROOTS_MAX 8u
 typedef struct gt_ext_runtime gt_ext_runtime_t;
-typedef enum {GT_EXT_RUNTIME_CREATED,GT_EXT_RUNTIME_STARTING,GT_EXT_RUNTIME_ACTIVE,GT_EXT_RUNTIME_FAILED,GT_EXT_RUNTIME_STOPPED,GT_EXT_RUNTIME_CLOSED} gt_ext_runtime_phase_t;
-typedef enum {GT_EXT_RUNTIME_NONE,GT_EXT_RUNTIME_SCRIPT,GT_EXT_RUNTIME_MEMORY,GT_EXT_RUNTIME_CPU,GT_EXT_RUNTIME_CANCELLED,GT_EXT_RUNTIME_JOBS,GT_EXT_RUNTIME_PROTOCOL,GT_EXT_RUNTIME_IO,GT_EXT_RUNTIME_EXPIRED} gt_ext_runtime_error_t;
-typedef struct {const char *name;const void *source;size_t size;char sha256[65];} gt_ext_runtime_module_t;
+
+typedef enum {
+    GT_EXT_RUNTIME_CREATED,
+    GT_EXT_RUNTIME_STARTING,
+    GT_EXT_RUNTIME_ACTIVE,
+    GT_EXT_RUNTIME_FAILED,
+    GT_EXT_RUNTIME_STOPPED,
+    GT_EXT_RUNTIME_CLOSED
+} gt_ext_runtime_phase_t;
+
+typedef enum {
+    GT_EXT_RUNTIME_NONE,
+    GT_EXT_RUNTIME_SCRIPT,
+    GT_EXT_RUNTIME_MEMORY,
+    GT_EXT_RUNTIME_CPU,
+    GT_EXT_RUNTIME_CANCELLED,
+    GT_EXT_RUNTIME_JOBS,
+    GT_EXT_RUNTIME_PROTOCOL,
+    GT_EXT_RUNTIME_IO,
+    GT_EXT_RUNTIME_EXPIRED
+} gt_ext_runtime_error_t;
+
+typedef struct {
+    const char *name;
+    const void *source;
+    size_t size;
+    char sha256[65];
+} gt_ext_runtime_module_t;
+
 /* Native-authorized directory scope. IDs are plugin-visible labels, not paths.
  * Caller validates ACL/mount policy. Core copies ID and CLOEXEC fd duplicate;
  * does not consume the caller fd. Limit 1..16 MiB; <=8 unique ASCII IDs. */
-typedef struct {const char *id;int directory_fd;uint64_t byte_limit;} gt_ext_runtime_root_t;
+typedef struct {
+    const char *id;
+    int directory_fd;
+    uint64_t byte_limit;
+} gt_ext_runtime_root_t;
+
 /* Raw invocation data, not shell or decoded/schema-validated options. Native
  * caller supplies the selected canonical command. Copied before adoption;
  * <=32 UTF-8 arguments, <=4096 bytes each, <=16384 bytes including NULs. */
-typedef struct {const char *command;const char *const *argv;size_t argc;} gt_ext_invocation_t;
 typedef struct {
- const gt_ext_runtime_module_t *modules;size_t module_count;const char *entry;
- gt_ext_role_t role;uint64_t memory_bytes,stack_bytes;uint32_t cpu_ms,jobs_per_step,activation_ms;
- const gt_ext_runtime_root_t *roots;size_t root_count;
- const gt_ext_invocation_t *invocation;
+    const char *command;
+    const char *const *argv;
+    size_t argc;
+} gt_ext_invocation_t;
+
+typedef struct {
+    const gt_ext_runtime_module_t *modules;
+    size_t module_count;
+    const char *entry;
+    gt_ext_role_t role;
+    uint64_t memory_bytes, stack_bytes;
+    uint32_t cpu_ms, jobs_per_step, activation_ms;
+    const gt_ext_runtime_root_t *roots;
+    size_t root_count;
+    const gt_ext_invocation_t *invocation;
 } gt_ext_runtime_config_t;
+
 typedef struct {
- gt_ext_runtime_phase_t phase;gt_ext_runtime_error_t error;gt_status_t cleanup_error;
- gt_ext_session_end_t session_end;gt_status_t session_error;bool dispose_error,engine_released;
- uint64_t steps,jobs,module_bytes;
+    gt_ext_runtime_phase_t phase;
+    gt_ext_runtime_error_t error;
+    gt_status_t cleanup_error;
+    gt_ext_session_end_t session_end;
+    gt_status_t session_error;
+    bool dispose_error, engine_released;
+    uint64_t steps, jobs, module_bytes;
 } gt_ext_runtime_info_t;
+
 /* Local build fact, not package compatibility/permission or activation success.
  * OFF is UNSUPPORTED. No implicit backend, install, network or gateway fallback. */
 gt_status_t gt_ext_runtime_support(void);
@@ -52,17 +99,23 @@ gt_status_t gt_ext_runtime_support(void);
  * Process/UI services and App installation follow.
  * 0 limits select 16 MiB heap / 256 KiB stack / 25ms CPU / 32 jobs / 5s activation.
  * Maximum 128 MiB / 1 MiB / 1s / 128 jobs / 60s. Heap excludes source/native IO. */
-gt_status_t gt_ext_runtime_open(gt_ext_session_t **session,const gt_ext_runtime_config_t *,gt_ext_runtime_t **);
+gt_status_t gt_ext_runtime_open(gt_ext_session_t **session,
+                                const gt_ext_runtime_config_t *,
+                                gt_ext_runtime_t **);
 /* Uses CHECKED fixed bytes and the built-in SDK. No caller module/entry override.
  * Verifies negotiated package identity and required grants. associated is a
  * trusted native command association decision, not plugin-controlled consent.
  * Retains package bytes, consumes Session only on success. Stopped owners refuse.
  * Caller still enforces publisher/source policy before executing any package. */
-gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,gt_ext_package_t *,const gt_ext_runtime_config_t *,bool associated,gt_ext_runtime_t **);
+gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,
+                                        gt_ext_package_t *,
+                                        const gt_ext_runtime_config_t *,
+                                        bool associated,
+                                        gt_ext_runtime_t **);
 /* Owner drives zero-wait native IO and bounded JS work; never call on UI thread.
  * Business outcomes remain separate from runtime lifecycle/error observations. */
 gt_ext_runtime_phase_t gt_ext_runtime_step(gt_ext_runtime_t *);
-bool gt_ext_runtime_info(const gt_ext_runtime_t *,gt_ext_runtime_info_t *);
+bool gt_ext_runtime_info(const gt_ext_runtime_t *, gt_ext_runtime_info_t *);
 /* Only sets cancellation; caller schedules/wakes owner. Stop may not race destroy. */
 void gt_ext_runtime_stop(gt_ext_runtime_t *);
 /* Revokes first, bounds cooperative dispose, destroys engine before native close.

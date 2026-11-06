@@ -11,6 +11,11 @@ void gaj_tmux_target_free(gaj_tmux_target *);
 /* Called only by the terminal's native IO owner. The management owner
  * serializes validation/attach, then moves the ordinary transport to caller.
  * Cancellation waits for the command to release the borrowed attach SSH. */
-gt_transport_t *gaj_tmux_attach(gaj_tmux_target *, gt_ssh_t *,
-    const gt_shell_opts_t *, atomic_bool *, gt_status_t *, char *error, size_t capacity);
+gt_transport_t *gaj_tmux_attach(gaj_tmux_target *,
+                                gt_ssh_t *,
+                                const gt_shell_opts_t *,
+                                atomic_bool *,
+                                gt_status_t *,
+                                char *error,
+                                size_t capacity);
 #endif

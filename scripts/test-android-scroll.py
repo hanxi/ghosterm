@@ -57,9 +57,9 @@ if '--mutate' in sys.argv[1:]:
     original = production.read_bytes()
     altered = work / 'history-only-surface.c'
     source = original.decode()
-    anchor = '    if (!delta) return true;'
+    anchor = '    }\n    bool tracking = false;\n'
     assert source.count(anchor) == 1
-    altered.write_text(source.replace(anchor, anchor + '\n    gat_surface_scroll(s, delta); return true;'))
+    altered.write_text(source.replace(anchor, '    }\n    gat_surface_scroll(s, delta);\n    return true;\n    bool tracking = false;\n'))
     mutant = work / 'history-only-test'
     subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-I', work / 'out/include',
                     '-I', java / 'include', '-I', java / 'include' / platform, '-I', ROOT / 'terminal/android/native',

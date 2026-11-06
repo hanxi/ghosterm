@@ -46,8 +46,8 @@ def main():
             raise RuntimeError(output)
 
     cases = [
-        ('include', native, 'entry.included ? "1" : "0", entry.explicit_value ? "1" : "0"',
-         '"0", entry.explicit_value ? "1" : "0"', 'includeSourcesRemainReadOnlyAndValuesAreCopied'),
+        ('include', native, '                                entry.included ? "1" : "0",\n',
+         '                                "0",\n', 'includeSourcesRemainReadOnlyAndValuesAreCopied'),
         ('unsupported', native, 'if (rc != GT_ERR_NOT_FOUND) {',
          'if (rc != GT_ERR_NOT_FOUND && rc != GT_ERR_UNSUPPORTED) {', 'unsupportedAndMissingSourcesNeverBecomeEmptySuccess'),
         ('ownership', binding, 'it[4] == "1", it[5] == "1", it[6] == "1"',

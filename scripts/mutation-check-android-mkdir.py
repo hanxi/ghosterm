@@ -17,16 +17,16 @@ def execute(root,build,test):
     stale='nativeCancellationRejectsStaleRequestsAndRecycledHandles'
     fence='nativeFenceRemainsOwnedUntilCancelledConnectionActuallyCloses'
     cases=[
-        ('paths',native,'files,path,destination,&outcome,budget,mkdir_stopped,s);','files,destination,path,&outcome,budget,mkdir_stopped,s);',real),
-        ('budget',native,'files,path,destination,&outcome,budget,mkdir_stopped,s);','files,path,destination,&outcome,50,mkdir_stopped,s);','oneDeadlineCoversEveryProtocolStage'),
-        ('outcome',native,'if(status!=GT_OK && kind!=3 && kind!=5 && kind!=6 && kind!=7)','if(status!=GT_OK && kind!=3 && kind!=5 && kind!=7)',protocol),
+        ('paths',native,'                    files, path, destination, &outcome, budget, mkdir_stopped, s);\n','                    files, destination, path, &outcome, budget, mkdir_stopped, s);\n',real),
+        ('budget',native,'                    files, path, destination, &outcome, budget, mkdir_stopped, s);\n','                    files, path, destination, &outcome, 50, mkdir_stopped, s);\n','oneDeadlineCoversEveryProtocolStage'),
+        ('outcome',native,'        if (status != GT_OK && kind != 3 && kind != 5 && kind != 6 && kind != 7) {\n','        if (status != GT_OK && kind != 3 && kind != 5 && kind != 7) {\n',protocol),
         ('remote-status',native,'u32(&p, outcome.remote_status);','u32(&p, 0);',protocol),
         ('created',native,'u32(&p, (uint32_t)outcome.state);','u32(&p, (uint32_t)(outcome.state==GT_SFTP_MKDIR_CREATED?GT_SFTP_MKDIR_UNKNOWN:outcome.state));',cancel),
         ('unknown',native,'u32(&p, (uint32_t)outcome.state);','u32(&p, (uint32_t)(outcome.state==GT_SFTP_MKDIR_UNKNOWN?GT_SFTP_MKDIR_REJECTED:outcome.state));',protocol),
-        ('cancel-core',native,'files,path,destination,&outcome,budget,mkdir_stopped,s);','files,path,destination,&outcome,budget,(true?NULL:mkdir_stopped),s);',cancel),
-        ('cancel-id',native,'s->request==(uint64_t)request && s->kind==6','s->kind==6',stale),
-        ('cancel-generation',native,'file_session *s = registry[slot].generation==generation ? registry[slot].value : NULL;','file_session *s = generation ? registry[slot].value : NULL;',stale),
-        ('fence-early',native,'if(kind==6){directory_fence=release_fd;release_fd=-1;}','if(kind==6){close(release_fd);release_fd=-1;}',fence),
+        ('cancel-core',native,'                    files, path, destination, &outcome, budget, mkdir_stopped, s);\n','                    files, path, destination, &outcome, budget, (true ? NULL : mkdir_stopped), s);\n',cancel),
+        ('cancel-id',native,'    if (s->request == (uint64_t)request && s->kind == 6 && !s->complete) {\n','    if (s->kind == 6 && !s->complete) {\n',stale),
+        ('cancel-generation',native,'                                                                              jlong id,\n                                                                              jlong request) {\n    (void)env;\n    (void)self;\n    if (id <= 0 || request <= 0) {\n        return;\n    }\n    size_t slot = (uint64_t)id % FILE_SLOTS;\n    uint64_t generation = (uint64_t)id / FILE_SLOTS;\n    pthread_mutex_lock(&registry_mutex);\n    file_session *s = registry[slot].generation == generation ? registry[slot].value : NULL;\n','                                                                              jlong id,\n                                                                              jlong request) {\n    (void)env;\n    (void)self;\n    if (id <= 0 || request <= 0) {\n        return;\n    }\n    size_t slot = (uint64_t)id % FILE_SLOTS;\n    uint64_t generation = (uint64_t)id / FILE_SLOTS;\n    pthread_mutex_lock(&registry_mutex);\n    file_session *s = generation ? registry[slot].value : NULL;\n',stale),
+        ('fence-early',native,'        if (kind == 6) {\n            directory_fence = release_fd;\n','        if (kind == 6) {\n            close(release_fd);\n',fence),
         ('status',kotlin,'outcome=RemoteDirectoryCreationResult(status,RemoteDirectoryCreationState.entries[state],remote,','outcome=RemoteDirectoryCreationResult(0,RemoteDirectoryCreationState.entries[state],remote,',protocol),
         ('request-once',kotlin,'check(started.compareAndSet(false,true)) { "目录请求不能重复执行" }','check(true) { "目录请求不能重复执行" }',real),
         ('cancel-owner',kotlin,'if(active!=null) NativeFiles.cancelMkdir(active.first,active.second)','if(active!=null) worker?.cancel()',cancel),

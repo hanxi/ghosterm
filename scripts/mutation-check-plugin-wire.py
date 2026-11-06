@@ -54,22 +54,22 @@ def main():
         run('configure',['cmake','-S',source,'-B',build,'-DCMAKE_BUILD_TYPE=Debug','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
         rebuild('baseline');suite('baseline');control('baseline')
         cases=[
-          ('decoded-duplicates','json-reader.inc',[('return fail(d,GT_JSON_DUPLICATE);','return true;')],'duplicate-escaped-root'),
-          ('key-scope','json-reader.inc',[('UINT64_C(14695981039346656037)^n->parent','UINT64_C(14695981039346656037)'),('o->parent==n->parent && o->key_size','o->parent && n->parent && o->key_size')],'valid-response-success'),
-          ('utf8-surrogate','json-reader.inc',[('cp<minimum || cp>0x10ffff || (cp>=0xd800 && cp<=0xdfff)','cp<minimum || cp>0x10ffff')],'utf8-surrogate'),
-          ('lone-surrogate','json-reader.inc',[('else if(cp>=0xdc00 && cp<=0xdfff)','else if(cp>0xdc00 && cp<=0xdfff)')],'surrogate-low'),
-          ('byte-limit','wire.c',[('if(size>GT_BRIDGE_FRAME_MAX)','if(false)')],'bytes-65537'),
+          ('decoded-duplicates','json-reader.inc',[('            return fail(d, GT_JSON_DUPLICATE);\n','            return true;\n')],'duplicate-escaped-root'),
+          ('key-scope','json-reader.inc',[('    uint64_t hash = UINT64_C(14695981039346656037) ^ n->parent;\n','    uint64_t hash = UINT64_C(14695981039346656037);\n'),('        if (o->parent == n->parent && o->key_size == n->key_size &&\n','        if (o->parent && n->parent && o->key_size == n->key_size &&\n')],'valid-response-success'),
+          ('utf8-surrogate','json-reader.inc',[('            if (cp < minimum || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) {\n','            if (cp < minimum || cp > 0x10ffff) {\n')],'utf8-surrogate'),
+          ('lone-surrogate','json-reader.inc',[('                    } else if (cp >= 0xdc00 && cp <= 0xdfff) {\n','                    } else if (cp > 0xdc00 && cp <= 0xdfff) {\n')],'surrogate-low'),
+          ('byte-limit','wire.c',[('    if (size > GT_BRIDGE_FRAME_MAX) {\n','    if (false) {\n')],'bytes-65537'),
           ('node-limit','wire.h',[('#define GT_BRIDGE_WIRE_NODES_MAX 4096u','#define GT_BRIDGE_WIRE_NODES_MAX 4097u')],'nodes-4084'),
           ('depth-limit','wire.h',[('#define GT_BRIDGE_WIRE_DEPTH_MAX 32u','#define GT_BRIDGE_WIRE_DEPTH_MAX 33u')],'depth-31'),
-          ('counter-overflow','wire.c',[('if(value>(UINT64_MAX-v)/10)return false;','/* unchecked overflow */')],'counter-overflow'),
-          ('exact-integer','json-reader.inc',[('if(shift<0 && (uint64_t)(-shift)>digits-1-last)return false;','(void)last; /* rounded fractional protocol value */')],'integer-rounded'),
-          ('schema-bypass','wire.c',[('if(!wire_schema_0(d,1))','if(false && !wire_schema_0(d,1))')],'unknown-root-field'),
-          ('base64-padbits','wire.c',[('if(padding==2 && (n<4 || (sextet(s[n-3])&15)))return false;','if(padding==2 && n<4)return false;')],'base64-invalid-0'),
-          ('semver-prerelease','wire.c',[('numeric && at-start>1','numeric && at-start>2')],'semver-2'),
-          ('failed-output','wire.c',[('if(out)memset(out,0,sizeof(*out));if(!d)','(void)out;if(!d)')],'duplicate-root'),
-          ('failed-view','wire.c',[('d->allocator=a;d->input=bytes;','d->allocator=a;d->valid=true;d->input=bytes;')],'duplicate-root'),
-          ('wiped-release','wire.c',[('gt_allocator_t a=d->allocator;gt__secure_erase(d,sizeof(*d));gt__plugin_memory_free(&a,d,sizeof(*d));','gt_allocator_t a=d->allocator;a.release(a.context,d,sizeof(*d));')],'valid-request'),
-          ('allocator-release','wire.c',[('gt_allocator_t a=d->allocator;gt__secure_erase(d,sizeof(*d));gt__plugin_memory_free(&a,d,sizeof(*d));','gt_allocator_t a=d->allocator;gt__secure_erase(d,sizeof(*d));(void)a;')],'valid-request'),
+          ('counter-overflow','wire.c',[("        unsigned v = s[i] - '0';\n        if (value > (UINT64_MAX - v) / 10) {\n            return false;\n        }\n","        unsigned v = s[i] - '0'; /* unchecked overflow */\n")],'counter-overflow'),
+          ('exact-integer','json-reader.inc',[('    if (shift < 0 && (uint64_t)(-shift) > digits - 1 - last) {\n        return false;\n    }\n','    (void)last; /* rounded fractional protocol value */\n')],'integer-rounded'),
+          ('schema-bypass','wire.c',[('    if (!wire_schema_0(d, 1)) {\n','    if (false && !wire_schema_0(d, 1)) {\n')],'unknown-root-field'),
+          ('base64-padbits','wire.c',[('            if (padding == 2 && (n < 4 || (sextet(s[n - 3]) & 15))) {\n','            if (padding == 2 && n < 4) {\n')],'base64-invalid-0'),
+          ('semver-prerelease','wire.c',[("            if (at == start || (numeric && at - start > 1 && s[start] == '0')) {\n","            if (at == start || (numeric && at - start > 2 && s[start] == '0')) {\n")],'semver-2'),
+          ('failed-output','wire.c',[('    if (out) {\n        memset(out, 0, sizeof(*out));\n    }\n','    (void)out;\n')],'duplicate-root'),
+          ('failed-view','wire.c',[('    d->input = bytes;\n','    d->valid = true;\n    d->input = bytes;\n')],'duplicate-root'),
+          ('wiped-release','wire.c',[('    gt__secure_erase(d, sizeof(*d));\n    gt__plugin_memory_free(&a, d, sizeof(*d));\n','    a.release(a.context, d, sizeof(*d));\n')],'valid-request'),
+          ('allocator-release','wire.c',[('    gt__plugin_memory_free(&a, d, sizeof(*d));\n','    (void)a;\n')],'valid-request'),
         ]
         results=[]
         for label,name,changes,mode in cases:

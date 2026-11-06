@@ -32,15 +32,15 @@ def main():
             start=clean.index('/* Validate before any IO;');end=clean.index('int gt_sftp_stat(',start);piece=clean[start:end]
             cases=[
                 ('zero-budget','!out || !timeout_ms','!out','normal'),
-                ('jobs','if (has_jobs) return GT_ERR_INVALID_ARG;','if (has_jobs && false) return GT_ERR_INVALID_ARG;','normal'),
+                ('jobs','        return GT_ERR_INVALID_ARG;\n    }\n    const int64_t deadline = mono_ms() + timeout_ms;\n    int status = open_status(deadline, cancelled, context);\n    if (status != GT_OK) {\n        return status;\n    }\n    pthread_mutex_lock(&sftp->qlock);\n    bool has_jobs = sftp->all_head != NULL;\n    pthread_mutex_unlock(&sftp->qlock);\n    if (has_jobs) {\n','        return GT_ERR_INVALID_ARG;\n    }\n    const int64_t deadline = mono_ms() + timeout_ms;\n    int status = open_status(deadline, cancelled, context);\n    if (status != GT_OK) {\n        return status;\n    }\n    pthread_mutex_lock(&sftp->qlock);\n    bool has_jobs = sftp->all_head != NULL;\n    pthread_mutex_unlock(&sftp->qlock);\n    if (has_jobs && false) {\n','normal'),
                 ('reset','{GT_SFTP_MKDIR_NOT_ATTEMPTED, 0};','{GT_SFTP_MKDIR_COMPLETE, 99};','normal'),
                 ('parent','!mkdir_parent(parent)','(!mkdir_parent(parent) && false)','normal'),
                 ('name', "strchr(name, '/')", "(strchr(name, '/') && false)", 'normal'),
                 ('name-limit','strlen(name) > 255','(strlen(name) > 255 && false)','normal'),
                 ('path-limit','strlen(parent) + strlen(name) + (parent[1] ? 1 : 0) >= 65536','(strlen(parent) + strlen(name) + (parent[1] ? 1 : 0) >= 65536 && false)','normal'),
-                ('root','if (parent[1]) strcat(path, "/");','if (true) strcat(path, "/");','root'),
+                ('root','    if (parent[1]) {\n','    if (true) {\n','root'),
                 ('mode','(unsigned)strlen(path), 0700);','(unsigned)strlen(path), 0755);','normal'),
-                ('conflict','if (result == 0) { out->state = GT_SFTP_MKDIR_CONFLICT;','if (false && result == 0) { out->state = GT_SFTP_MKDIR_CONFLICT;','conflict'),
+                ('conflict','    }\n    if (result == 0) {\n','    }\n    if (false && result == 0) {\n','conflict'),
                 ('absence','out->remote_status != LIBSSH2_FX_NO_SUCH_FILE','false','mkdir-target-deny'),
                 ('unknown','if (publish_rejected(out->remote_status))','if (out->remote_status || publish_rejected(out->remote_status))','mkdir-create-unknown'),
                 ('reject','out->state = GT_SFTP_MKDIR_REJECTED;','out->state = GT_SFTP_MKDIR_UNKNOWN;','mkdir-create-deny'),
@@ -49,7 +49,7 @@ def main():
                 ('nul', "memchr(canonical, '\\0', (size_t)result)", "(memchr(canonical, '\\0', (size_t)result) && false)", 'mkdir-child-real-nul'),
                 ('empty','if (!dot || (dots & dot))','if (false && (!dot || (dots & dot)))','nonempty'),
                 ('dots','if (!dot || (dots & dot))','if (!dot || ((dots & dot) && false))','duplicate-dot'),
-                ('late-cancel','else { out->state = GT_SFTP_MKDIR_COMPLETE; status = GT_OK; }','else { status = open_status(deadline, cancelled, context); if(status != GT_OK) goto finished; out->state = GT_SFTP_MKDIR_COMPLETE; status = GT_OK; }','normal'),
+                ('late-cancel','                out->state = GT_SFTP_MKDIR_COMPLETE;\n','                status = open_status(deadline, cancelled, context);\n                if (status != GT_OK) {\n                    goto finished;\n                }\n                out->state = GT_SFTP_MKDIR_COMPLETE;\n','normal'),
                 ('abort','gt__ssh_abort(sftp->ssh);','(void)sftp;','mkdir-create-deny'),
                 ('restore','libssh2_session_set_timeout(session, timeout);','libssh2_session_set_timeout(session, timeout + 1);','allow'),
             ]
@@ -60,9 +60,9 @@ def main():
                 position=piece.index(parent_check) if offset==0 else piece.rindex(parent_check)
                 changed=piece[:position]+piece[position:].replace(parent_check,'status = GT_OK;',1)
                 cases.append((label,piece,changed,case))
-            close_check='if (result != 0) { out->remote_status = publish_remote_error(sftp, result); status = GT_ERR_IO; }'
+            close_check='if (result != 0) {\n                out->remote_status = publish_remote_error(sftp, result);\n                status = GT_ERR_IO;\n            }'
             cases.append(('close',close_check,close_check.replace('result != 0','result != 0 && false'),'mkdir-close-deny'))
-            cases.append(('total-budget',piece,piece.replace('const int64_t deadline','int64_t deadline').replace('status = mkdir_realpath(sftp, session, socket, parent,','deadline = mono_ms() + timeout_ms; status = mkdir_realpath(sftp, session, socket, parent,'),'total-budget'))
+            cases.append(('total-budget',piece,piece.replace('const int64_t deadline','int64_t deadline').replace('    status = mkdir_realpath(sftp,\n','    deadline = mono_ms() + timeout_ms;\n    status = mkdir_realpath(sftp,\n'),'total-budget'))
             variants=[]
             for name,old,new,case in cases:
                 assert piece.count(old)==1,(name,piece.count(old));variants.append((name,piece.replace(old,new),case))
@@ -81,7 +81,7 @@ def main():
                 run(['cmake','--build',no,'--clean-first','--target','test_config'],'no-build')
                 run(['cc','-std=c11','-I'+str(work/'core/include'),probe,no/'libghosterm_core.a','-lpthread','-o',work/'probe'],'no-link')
             no_build();run([work/'probe'],'no-baseline')
-            old='gt__set_error("sftp mkdir controlled: libssh2 unavailable");\n  return GT_ERR_UNSUPPORTED;';assert clean.count(old)==1
+            old='gt__set_error("sftp mkdir controlled: libssh2 unavailable");\n    return GT_ERR_UNSUPPORTED;';assert clean.count(old)==1
             source.write_text(clean.replace(old,old.replace('GT_ERR_UNSUPPORTED','GT_OK'))+'\n/* '+MARK+' */\n');no_build();run([work/'probe'],'no-red','FAIL: unavailable mkdir');run([no/'test_config',work/'core/tests/fixtures'],'no-control')
             source.write_text(clean);no_build();run([work/'probe'],'no-restored')
             assert source.read_bytes()==snapshots[paths[0]]

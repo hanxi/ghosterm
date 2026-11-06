@@ -69,7 +69,7 @@ def main():
                  'if (gt__kh_split_line(snapshot->text + start, &entry) && entry.recognized)', 'visible records include malformed'),
                 ('nul', '|| memchr(text, 0, length)', '', 'embedded NUL rejected'),
                 ('limit', 'snapshot->count == 4096', 'snapshot->count == 4097', 'record limit explicit failure'),
-                ('clear', 'if (out) memset(out, 0, sizeof *out);', 'if (false && out) memset(out, 0, sizeof *out);', 'end clears output'),
+                ('clear', '    if (out) {\n', '    if (false && out) {\n', 'end clears output'),
             ]
             for label, before, after, reason in cases:
                 text = clean.decode()

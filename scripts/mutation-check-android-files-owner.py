@@ -14,23 +14,23 @@ def execute(root,build,test):
     hashes={p:hashlib.sha256(b).digest() for p,b in originals.items()}
     if any(MARK.encode() in b for b in originals.values()):raise RuntimeError('Residual file owner mutation')
     cases=[
-        ('close-abort',native,'if(ssh)(void)gt_ssh_abort(ssh);','if(ssh && false)(void)gt_ssh_abort(ssh);','idleCloseAbortsBeforeWaitingForPeer'),
-        ('socket-shutdown',core,'do { result = shutdown(ssh->sock, SHUT_RDWR); } while (result < 0 && errno == EINTR);','do { result = 0; } while (result < 0 && errno == EINTR);','idleCloseAbortsBeforeWaitingForPeer'),
-        ('request-budget',native,'s->budget=(uint32_t)budget;','s->budget=5000;','directoryRequestUsesItsOwnBudget'),
-        ('dispose-stop',native,'registry[slot].value=NULL;atomic_store(&s->stop,true);','registry[slot].value=NULL;','directoryCancellationReleasesOwner'),
+        ('close-abort',native,'    if (ssh) {\n','    if (ssh && false) {\n','idleCloseAbortsBeforeWaitingForPeer'),
+        ('socket-shutdown',core,'            result = shutdown(ssh->sock, SHUT_RDWR);\n','            result = 0;\n','idleCloseAbortsBeforeWaitingForPeer'),
+        ('request-budget',native,'        s->budget = (uint32_t)budget;\n','        s->budget = 5000;\n','directoryRequestUsesItsOwnBudget'),
+        ('dispose-stop',native,'        atomic_store(&s->stop, true);\n    }\n','    }\n','directoryCancellationReleasesOwner'),
         ('cancel-directory',kotlin,'if(!completed) close()','if(!completed) Unit','directoryCancellationReleasesOwner'),
         ('cancel-preview',kotlin,'if(!completed) close()','if(!completed) Unit','previewCancellationReleasesOwner'),
         ('preview-limit',native,'#define PREVIEW_LIMIT (256 * 1024)','#define PREVIEW_LIMIT (512 * 1024)','oversizedAndLinkedPreviewFailWithoutPublishing'),
-        ('metadata-size',native,'(st->has_size?8u:0u)','8u','unknownMetadataAndInvalidNamesRemainExplicit'),
-        ('metadata-type',native,'(st->is_regular?4u:0u)','4u','unknownMetadataAndInvalidNamesRemainExplicit'),
+        ('metadata-size',native,'            (st->is_dir ? 1u : 0u) | (st->is_symlink ? 2u : 0u) | (st->is_regular ? 4u : 0u) |\n                (st->has_size ? 8u : 0u));\n','            (st->is_dir ? 1u : 0u) | (st->is_symlink ? 2u : 0u) | (st->is_regular ? 4u : 0u) | 8u);\n','unknownMetadataAndInvalidNamesRemainExplicit'),
+        ('metadata-type',native,'            (st->is_dir ? 1u : 0u) | (st->is_symlink ? 2u : 0u) | (st->is_regular ? 4u : 0u) |\n                (st->has_size ? 8u : 0u));\n','            (st->is_dir ? 1u : 0u) | (st->is_symlink ? 2u : 0u) | 4u | (st->has_size ? 8u : 0u));\n','unknownMetadataAndInvalidNamesRemainExplicit'),
         ('preview-data',kotlin,'bytes.copyOfRange(8, bytes.size)','bytes.copyOfRange(8, if(kind==2) 8 else bytes.size)','realDirectoryAndPreviewPreserveMetadataAndBytes'),
         ('raw-nul',kotlin,'check(bytes.none { it == 0.toByte() }) { "此文件不是可预览的 UTF-8 文本" }','check(true) { "此文件不是可预览的 UTF-8 文本" }','realDirectoryAndPreviewPreserveMetadataAndBytes'),
         ('utf8',kotlin,'.onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)\n        .decode(ByteBuffer.wrap(bytes))','.onMalformedInput(CodingErrorAction.REPLACE).onUnmappableCharacter(CodingErrorAction.REPLACE)\n        .decode(ByteBuffer.wrap(bytes))','unknownMetadataAndInvalidNamesRemainExplicit'),
         ('file-auth-scope',kotlin,'prompt.scope === this','true','authenticationScopesAndStalePromptsCannotCrossConnections'),
         ('terminal-auth-scope',terminal,'prompt.scope == null','true','authenticationScopesAndStalePromptsCannotCrossConnections'),
         ('secret-erase',kotlin,'finally { first.fill(0); second.fill(0) }','finally { /* erasure omitted */ }','authenticationScopesAndStalePromptsCannotCrossConnections'),
-        ('result-id',native,'if(s->request!=(uint64_t)request || !request)fail(env,"文件请求已失效");','if(!request)fail(env,"文件请求已失效");','requestIdsAndRecycledHandlesRejectStaleCalls'),
-        ('generation',native,'file_session *s=registry[slot].generation==generation?registry[slot].value:NULL;','file_session *s=(generation?registry[slot].value:NULL);','requestIdsAndRecycledHandlesRejectStaleCalls'),
+        ('result-id',native,'    if (s->request != (uint64_t)request || !request) {\n','    if (!request) {\n','requestIdsAndRecycledHandlesRejectStaleCalls'),
+        ('generation',native,'        return NULL;\n    }\n    size_t slot = (uint64_t)id % FILE_SLOTS;\n    uint64_t generation = (uint64_t)id / FILE_SLOTS;\n    pthread_mutex_lock(&registry_mutex);\n    file_session *s = registry[slot].generation == generation ? registry[slot].value : NULL;\n','        return NULL;\n    }\n    size_t slot = (uint64_t)id % FILE_SLOTS;\n    uint64_t generation = (uint64_t)id / FILE_SLOTS;\n    pthread_mutex_lock(&registry_mutex);\n    file_session *s = (generation ? registry[slot].value : NULL);\n','requestIdsAndRecycledHandlesRejectStaleCalls'),
         ('path-nul',kotlin,"path.isNotEmpty() && '\\u0000' !in path && timeoutMillis",'path.isNotEmpty() && timeoutMillis','malformedPathsAreRejectedWithoutBreakingConnection'),
     ]
     selected=os.environ.get('ANDROID_FILES_OWNER_MUTATIONS','').split(',')

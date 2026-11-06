@@ -17,14 +17,14 @@ def execute(root,build,test):
     for stage,method in [('channel','cancelChannelOpenReleasesOwner'),('pty','cancelPtyRequestReleasesOwner'),('shell','cancelShellRequestReleasesOwner')]:
         cases.append(('cancel-'+stage,native,'return atomic_load((atomic_bool *)context);','return atomic_load((atomic_bool *)context) && false;',method))
     for stage,method in [('channel','channelOpenUsesRemainingConnectionBudget'),('pty','ptyRequestUsesRemainingConnectionBudget'),('shell','shellRequestUsesRemainingConnectionBudget')]:
-        cases.append(('budget-'+stage,native,'(uint32_t)(remaining<5000?remaining:5000)','(uint32_t)(remaining<5000?5000:remaining)',method))
+        cases.append(('budget-'+stage,native,'    uint32_t budget = (uint32_t)(remaining < 5000 ? remaining : 5000);\n','    uint32_t budget = (uint32_t)(remaining < 5000 ? 5000 : remaining);\n',method))
     cases += [
-        ('timeout-status',core,'if (gt__command_now() >= b->deadline)\n    return GT_ERR_IO;','if (gt__command_now() >= b->deadline)\n    return GT_ERR_CANCELLED;','shellRequestUsesRemainingConnectionBudget'),
-        ('pty-refused',session,'opened==GT_ERR_UNSUPPORTED?"服务器拒绝远端 PTY/shell"','false?"服务器拒绝远端 PTY/shell"','ptyRefusalDoesNotFallBackToShell'),
-        ('shell-refused',session,'opened==GT_ERR_UNSUPPORTED?"服务器拒绝远端 PTY/shell"','false?"服务器拒绝远端 PTY/shell"','shellRefusalIsExplicit'),
-        ('channel-refused',session,'opened==GT_ERR_IO?"打开远端 PTY/shell 失败或超时"','false?"打开远端 PTY/shell 失败或超时"','channelRefusalIsIoAndSendsNoPty'),
-        ('pty-disconnected',core,'*status = rc == LIBSSH2_ERROR_CHANNEL_REQUEST_DENIED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;\n      gt__set_error("SSH: server refused PTY");','*status = GT_ERR_UNSUPPORTED;\n      gt__set_error("SSH: server refused PTY");','ptyDisconnectIsNotRefusal'),
-        ('shell-disconnected',core,'*status = rc == LIBSSH2_ERROR_CHANNEL_REQUEST_DENIED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;\n    gt__set_error("SSH: server refused exec/shell");','*status = GT_ERR_UNSUPPORTED;\n    gt__set_error("SSH: server refused exec/shell");','shellDisconnectIsNotRefusal'),
+        ('timeout-status',core,'    if (gt__command_now() >= b->deadline) {\n        return GT_ERR_IO;\n','    if (gt__command_now() >= b->deadline) {\n        return GT_ERR_CANCELLED;\n','shellRequestUsesRemainingConnectionBudget'),
+        ('pty-refused',session,'                   opened == GT_ERR_UNSUPPORTED ? "服务器拒绝远端 PTY/shell"\n                   : opened == GT_ERR_IO        ? "打开远端 PTY/shell 失败或超时"\n                                                : "无法打开远端 PTY/shell");\n','                   false                 ? "服务器拒绝远端 PTY/shell"\n                   : opened == GT_ERR_IO ? "打开远端 PTY/shell 失败或超时"\n                                         : "无法打开远端 PTY/shell");\n','ptyRefusalDoesNotFallBackToShell'),
+        ('shell-refused',session,'                   opened == GT_ERR_UNSUPPORTED ? "服务器拒绝远端 PTY/shell"\n                   : opened == GT_ERR_IO        ? "打开远端 PTY/shell 失败或超时"\n                                                : "无法打开远端 PTY/shell");\n','                   false                 ? "服务器拒绝远端 PTY/shell"\n                   : opened == GT_ERR_IO ? "打开远端 PTY/shell 失败或超时"\n                                         : "无法打开远端 PTY/shell");\n','shellRefusalIsExplicit'),
+        ('channel-refused',session,'                   : opened == GT_ERR_IO        ? "打开远端 PTY/shell 失败或超时"\n','                   : false                      ? "打开远端 PTY/shell 失败或超时"\n','channelRefusalIsIoAndSendsNoPty'),
+        ('pty-disconnected',core,'            *status = rc == LIBSSH2_ERROR_CHANNEL_REQUEST_DENIED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;\n','            *status = GT_ERR_UNSUPPORTED;\n','ptyDisconnectIsNotRefusal'),
+        ('shell-disconnected',core,'    if (rc) {\n        *status = rc == LIBSSH2_ERROR_CHANNEL_REQUEST_DENIED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;\n','    if (rc) {\n        *status = GT_ERR_UNSUPPORTED;\n','shellDisconnectIsNotRefusal'),
         ('product-cancel',model,'attempt.job?.cancel(); attempt.connection?.close();','/* cancellation omitted */','productCancellationDropsLateShellAndNewRequestIsIndependent'),
     ]
     selected=os.environ.get('ANDROID_SSH_CHANNEL_MUTATIONS','').split(',')

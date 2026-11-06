@@ -50,12 +50,12 @@ def main():
         if red:cmd += ['--expect-platform-assertion','android']
         run(label,cmd,budget=300)
     cases=[
-      ('jni-source-hashed','cpp','(jlong)i.hashed,(jlong)i.read_bytes','0,(jlong)i.read_bytes','fileReceiptAndBorrowPinSurviveParentClose'),
-      ('jni-source-read','cpp','(jlong)i.read_bytes,(jlong)i.accepted','0,(jlong)i.accepted','fileReceiptAndBorrowPinSurviveParentClose'),
-      ('jni-source-sha','cpp','bytes,at+33,65,(const jbyte *)d->sha256','bytes,at+33,64,(const jbyte *)d->sha256+1','fileReceiptAndBorrowPinSurviveParentClose'),
-      ('jni-source-confirmation','cpp','i.transfer_state,i.confirmed,i.cancel_requested','i.transfer_state,1,i.cancel_requested','closedSessionSettlesUnknownWithoutFreeingSourceEarly'),
-      ('jni-source-unknown-phase','cpp','jlong v[16]={i.phase,i.error','jlong v[16]={(i.phase==GT_EXT_SOURCE_UNCERTAIN?GT_EXT_SOURCE_STOPPED:i.phase),i.error','closedSessionSettlesUnknownWithoutFreeingSourceEarly'),
-      ('jni-source-cleanup-error','cpp','i.phase,i.error,i.cleanup_error,i.closed','i.phase,i.error,i.error,i.closed','changeAndCancelBeforeSendDoNotPublish'),
+      ('jni-source-hashed','cpp','                   (jlong)i.hashed,\n','                   0,\n','fileReceiptAndBorrowPinSurviveParentClose'),
+      ('jni-source-read','cpp','                   (jlong)i.read_bytes,\n','                   0,\n','fileReceiptAndBorrowPinSurviveParentClose'),
+      ('jni-source-sha','cpp','    (*e)->SetByteArrayRegion(e, bytes, at + 33, 65, (const jbyte *)d->sha256);\n','    (*e)->SetByteArrayRegion(e, bytes, at + 33, 64, (const jbyte *)d->sha256 + 1);\n','fileReceiptAndBorrowPinSurviveParentClose'),
+      ('jni-source-confirmation','cpp','                   i.confirmed,\n','                   1,\n','closedSessionSettlesUnknownWithoutFreeingSourceEarly'),
+      ('jni-source-unknown-phase','cpp','    jlong v[16] = {i.phase,\n','    jlong v[16] = {(i.phase == GT_EXT_SOURCE_UNCERTAIN ? GT_EXT_SOURCE_STOPPED : i.phase),\n','closedSessionSettlesUnknownWithoutFreeingSourceEarly'),
+      ('jni-source-cleanup-error','cpp','                   i.error,\n                   i.cleanup_error,\n','                   i.error,\n                   i.error,\n','changeAndCancelBeforeSendDoNotPublish'),
       ('kotlin-source-strict-path','kotlin','.onMalformedInput(CodingErrorAction.REPORT)','.onMalformedInput(CodingErrorAction.REPLACE)','malformedUtf16AndNulDoNotSelectReplacementFile'),
     ]
     try:

@@ -92,11 +92,8 @@ echo "== O1：可见性不下发（shim 变空操作） =="
 python3 - "$SHIM" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
-old = """void gt_ghostty_surface_set_occlusion(gt_ghostty_surface_t *s, bool visible) {
-  if (!s || !s->surface) return;"""
-new = """void gt_ghostty_surface_set_occlusion(gt_ghostty_surface_t *s, bool visible) {
-  (void)s; (void)visible; return; /* GT_MUTATION_MARK：可见性不下发 */
-  if (!s || !s->surface) return;"""
+old = 'void gt_ghostty_surface_set_occlusion(gt_ghostty_surface_t *s, bool visible) {\n    if (!s || !s->surface) {\n'
+new = 'void gt_ghostty_surface_set_occlusion(gt_ghostty_surface_t *s, bool visible) {\n    (void)s;\n    (void)visible;\n    return; /* GT_MUTATION_MARK：可见性不下发 */\n    if (!s || !s->surface) {\n'
 assert old in s, "O1 锚点缺失"
 open(p, 'w').write(s.replace(old, new, 1))
 PY

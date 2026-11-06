@@ -44,15 +44,15 @@ typedef struct gt_ghostty_surface gt_ghostty_surface_t;
  *     不注册就不回答——程序据此判定「此终端不支持」，我们不假装支持。
  */
 typedef struct {
-  void *userdata;
-  void (*write)(void *ud, const uint8_t *data, size_t len);
-  void (*resize)(void *ud, uint16_t cols, uint16_t rows);
-  void (*title)(void *ud, const char *title);
-  void (*program_status)(void *ud, const ghostty_program_status_s *report);
-  /* OSC 133：与 program_status 同线程纪律，事件只在回调期间有效。 */
-  void (*semantic_prompt)(void *ud, const ghostty_semantic_prompt_s *event);
-  /* OSC 7 工作目录；字符串只在回调期间有效，要留存请自行拷贝。 */
-  void (*pwd)(void *ud, const char *pwd);
+    void *userdata;
+    void (*write)(void *ud, const uint8_t *data, size_t len);
+    void (*resize)(void *ud, uint16_t cols, uint16_t rows);
+    void (*title)(void *ud, const char *title);
+    void (*program_status)(void *ud, const ghostty_program_status_s *report);
+    /* OSC 133：与 program_status 同线程纪律，事件只在回调期间有效。 */
+    void (*semantic_prompt)(void *ud, const ghostty_semantic_prompt_s *event);
+    /* OSC 7 工作目录；字符串只在回调期间有效，要留存请自行拷贝。 */
+    void (*pwd)(void *ud, const char *pwd);
 } gt_host_callbacks_t;
 
 /* 创建 app（内含默认配置 + 最小 runtime 回调）。失败返回 NULL 并置错误串。 */
@@ -82,7 +82,8 @@ void gt_ghostty_app_set_focus(gt_ghostty_app_t *app, bool focused);
  *   scale   —— backing scale factor（Retina=2.0）；
  * 失败返回 NULL 并置错误串。
  */
-gt_ghostty_surface_t *gt_ghostty_surface_new(gt_ghostty_app_t *app, void *nsview,
+gt_ghostty_surface_t *gt_ghostty_surface_new(gt_ghostty_app_t *app,
+                                             void *nsview,
                                              double scale,
                                              const gt_host_callbacks_t *cbs);
 void gt_ghostty_surface_free(gt_ghostty_surface_t *s);
@@ -124,8 +125,7 @@ void gt_ghostty_surface_set_focus(gt_ghostty_surface_t *s, bool focused);
 void gt_ghostty_surface_set_occlusion(gt_ghostty_surface_t *s, bool visible);
 
 /* 把 transport 读到的字节喂进终端。可由任意线程调用。 */
-void gt_ghostty_surface_process_output(gt_ghostty_surface_t *s, const uint8_t *data,
-                                       size_t len);
+void gt_ghostty_surface_process_output(gt_ghostty_surface_t *s, const uint8_t *data, size_t len);
 
 /* 屏幕尺寸（像素）变化 → 重算网格并触发 resize 回调。主线程。 */
 void gt_ghostty_surface_set_size(gt_ghostty_surface_t *s, uint32_t w, uint32_t h);
@@ -164,16 +164,20 @@ void gt_ghostty_surface_text(gt_ghostty_surface_t *s, const char *text, size_t l
  * libghostty 用它在 keycodes 表里反查物理键（见 embedded.zig KeyEvent.core）。
  * `codepoint` 为未加修饰的码点（可 0）；`mods` 见 ghostty_input_mods_e。
  */
-void gt_ghostty_surface_key_press(gt_ghostty_surface_t *s, uint32_t native_keycode,
-                                  uint32_t codepoint, int mods);
+void gt_ghostty_surface_key_press(gt_ghostty_surface_t *s,
+                                  uint32_t native_keycode,
+                                  uint32_t codepoint,
+                                  int mods);
 
 /*
  * 同上，但带上该键产生的 UTF-8 文本（可打印字符走这条）。`text` 可为 NULL/空。
  * 键盘真实输入用这个：libghostty 优先用 text，其次按物理键编码。
  */
-void gt_ghostty_surface_key_text(gt_ghostty_surface_t *s, uint32_t native_keycode,
-                                 uint32_t codepoint, const char *text, int mods);
-
+void gt_ghostty_surface_key_text(gt_ghostty_surface_t *s,
+                                 uint32_t native_keycode,
+                                 uint32_t codepoint,
+                                 const char *text,
+                                 int mods);
 
 /*
  * 输入法（IME）的**预编辑 / 组合中**文本（ghostty 的 preedit 语义）。
@@ -195,8 +199,8 @@ void gt_ghostty_surface_preedit(gt_ghostty_surface_t *s, const char *text, size_
  * `NSTextInputClient.firstRect(forCharacterRange:)` 里用它把候选窗贴到光标。
  * 组合中（有 preedit）时 width 为预编辑串的宽度，否则为 0。任一指针可为 NULL。
  */
-void gt_ghostty_surface_ime_point(gt_ghostty_surface_t *s, double *x, double *y,
-                                  double *width, double *height);
+void gt_ghostty_surface_ime_point(
+    gt_ghostty_surface_t *s, double *x, double *y, double *width, double *height);
 
 /*
  * 送一段**已提交**的文本（输入法提交、听写等）：**键入语义**，不是粘贴。
@@ -207,8 +211,7 @@ void gt_ghostty_surface_ime_point(gt_ghostty_surface_t *s, double *x, double *y,
  * 实现上走 `ghostty_surface_key`（keycode=0、无修饰键、只发 press），
  * libghostty 会把 text 原样编码下发。
  */
-void gt_ghostty_surface_committed_text(gt_ghostty_surface_t *s, const char *text,
-                                       size_t len);
+void gt_ghostty_surface_committed_text(gt_ghostty_surface_t *s, const char *text, size_t len);
 
 /* ------------------------------------------------------------------ */
 /* 鼠标事件                                                              */
@@ -221,8 +224,7 @@ void gt_ghostty_surface_committed_text(gt_ghostty_surface_t *s, const char *text
  *   mods   —— ghostty_input_mods_e 位掩码。
  * 返回 libghostty 是否消费了此事件（程序开了鼠标捕获时为 true）。主线程。
  */
-bool gt_ghostty_surface_mouse_button(gt_ghostty_surface_t *s, int state,
-                                     int button, int mods);
+bool gt_ghostty_surface_mouse_button(gt_ghostty_surface_t *s, int state, int button, int mods);
 
 /*
  * 鼠标位置（移动 / 拖拽）。
@@ -230,8 +232,7 @@ bool gt_ghostty_surface_mouse_button(gt_ghostty_surface_t *s, int state,
  *   mods  —— ghostty_input_mods_e 位掩码。
  * 主线程。
  */
-void gt_ghostty_surface_mouse_pos(gt_ghostty_surface_t *s, double x, double y,
-                                  int mods);
+void gt_ghostty_surface_mouse_pos(gt_ghostty_surface_t *s, double x, double y, int mods);
 
 /*
  * 鼠标滚轮 / 触控板滚动。
@@ -239,8 +240,10 @@ void gt_ghostty_surface_mouse_pos(gt_ghostty_surface_t *s, double x, double y,
  *   scroll_mods —— ghostty_input_scroll_mods_t 打包位（precision | momentum）。
  * 主线程。
  */
-void gt_ghostty_surface_mouse_scroll(gt_ghostty_surface_t *s, double dx,
-                                     double dy, int scroll_mods);
+void gt_ghostty_surface_mouse_scroll(gt_ghostty_surface_t *s,
+                                     double dx,
+                                     double dy,
+                                     int scroll_mods);
 
 /*
  * 鼠标是否被终端程序捕获（如 vim / less 开启了鼠标报告）。
@@ -254,8 +257,7 @@ bool gt_ghostty_surface_mouse_captured(gt_ghostty_surface_t *s);
  *   pressure —— 0.0~1.0。
  * 主线程。
  */
-void gt_ghostty_surface_mouse_pressure(gt_ghostty_surface_t *s, uint32_t stage,
-                                       double pressure);
+void gt_ghostty_surface_mouse_pressure(gt_ghostty_surface_t *s, uint32_t stage, double pressure);
 
 /*
  * 把「现在是深色还是浅色」告诉 libghostty。
@@ -318,21 +320,18 @@ int gt_ghostty_app_reload_config(gt_ghostty_app_t *app, const char *path);
  *      缓冲（实测 panic: incorrect alignment）。强类型的指针参数才有对齐
  *      保证，所以这里一个类型一个入口。
  */
-bool gt_ghostty_config_get_float(gt_ghostty_app_t *app, const char *key,
-                                 float *out);
-bool gt_ghostty_config_get_bool(gt_ghostty_app_t *app, const char *key,
-                                bool *out);
+bool gt_ghostty_config_get_float(gt_ghostty_app_t *app, const char *key, float *out);
+bool gt_ghostty_config_get_bool(gt_ghostty_app_t *app, const char *key, bool *out);
 /* f64 键（如 background-opacity）用这个——类型不符会得到 0 或 false。 */
-bool gt_ghostty_config_get_double(gt_ghostty_app_t *app, const char *key,
-                                  double *out);
+bool gt_ghostty_config_get_double(gt_ghostty_app_t *app, const char *key, double *out);
 
 /*
  * 颜色键（如 `background`、`unfocused-split-fill`）用这个。分离入口的理由同
  * 上面：libghostty 的 out 参数按类型做 @alignCast，且键名长度按字节精确匹配。
  * 键不存在或类型不符返回 false（**不写 out**）。
  */
-bool gt_ghostty_config_get_color(gt_ghostty_app_t *app, const char *key,
-                                 uint8_t *r, uint8_t *g, uint8_t *b);
+bool gt_ghostty_config_get_color(
+    gt_ghostty_app_t *app, const char *key, uint8_t *r, uint8_t *g, uint8_t *b);
 
 /*
  * 配置诊断条数（0 = 配置干净）。**这才是判断配置是否有效的口径**：

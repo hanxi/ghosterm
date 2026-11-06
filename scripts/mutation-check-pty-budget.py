@@ -24,32 +24,32 @@ def main():
     subprocess.run(['bash',str(ROOT/'scripts/build-core.sh')],check=True,stdout=subprocess.DEVNULL)
     original=SOURCE.read_bytes();text=original.decode()
     variants=[
-        ('invalid options fork before rejecting','if(thread_options) {',
-         'if(false && thread_options) {','invalid','flow'),
-        ('waiter thread replaced with caller','*out=t->waiter;return GT_OK;',
-         '(void)t;*out=pthread_self();return GT_OK;','thread','flow'),
-        ('non PTY falsely supported','if(backend->ops!=&pty_ops)return GT_ERR_UNSUPPORTED;',
-         'if(backend->ops!=&pty_ops)return GT_OK;','invalid','flow'),
-        ('allocation domain bypassed','h=a->allocate(a->context,sizeof(*h)+bytes)',
-         'h=malloc(sizeof(*h)+bytes)','failures','invalid'),
-        ('release size wrong','a.release(a.context,h,sizeof(*h)+h->meta.bytes);',
-         'a.release(a.context,h,sizeof(*h)+h->meta.bytes-1);','failures','invalid'),
-        ('old backlog content discarded','memcpy(next,p,h->meta.bytes<bytes?h->meta.bytes:bytes);',
-         'memset(next,0,h->meta.bytes<bytes?h->meta.bytes:bytes);','flow','invalid'),
-        ('allocation failure destroys old backlog','void *next=pty_allocate(a,bytes);if(!next)return NULL;',
-         'void *next=pty_allocate(a,bytes);if(!next){pty_free(p);return NULL;}','pressure','invalid'),
+        ('invalid options fork before rejecting','    if (thread_options) {\n',
+         '    if (false && thread_options) {\n','invalid','flow'),
+        ('waiter thread replaced with caller','    *out = t->waiter;\n',
+         '    (void)t;\n    *out = pthread_self();\n','thread','flow'),
+        ('non PTY falsely supported','    if (backend->ops != &pty_ops) {\n        return GT_ERR_UNSUPPORTED;\n',
+         '    if (backend->ops != &pty_ops) {\n        return GT_OK;\n','invalid','flow'),
+        ('allocation domain bypassed','    pty_allocation_t *h = a->allocate(a->context, sizeof(*h) + bytes);\n',
+         '    pty_allocation_t *h = malloc(sizeof(*h) + bytes);\n','failures','invalid'),
+        ('release size wrong','    a.release(a.context, h, sizeof(*h) + h->meta.bytes);\n',
+         '    a.release(a.context, h, sizeof(*h) + h->meta.bytes - 1);\n','failures','invalid'),
+        ('old backlog content discarded','    memcpy(next, p, h->meta.bytes < bytes ? h->meta.bytes : bytes);\n',
+         '    memset(next, 0, h->meta.bytes < bytes ? h->meta.bytes : bytes);\n','flow','invalid'),
+        ('allocation failure destroys old backlog','    if (!next) {\n        return NULL;\n',
+         '    if (!next) {\n        pty_free(p);\n        return NULL;\n','pressure','invalid'),
         ('backlog cap ignored','len > GT_PTY_WTAIL_MAX - t->wtail_len',
          'false','pressure','flow'),
-        ('parent environment array leaked','  pty_free(env);\n  pty_free(term_kv);',
-         '  /* env leaked */\n  pty_free(term_kv);','failures','invalid'),
-        ('backend object leaked on close','  pty_free(t->wtail);\n  pty_free(t);',
-         '  pty_free(t->wtail); /* object leaked */','failures','invalid'),
+        ('parent environment array leaked','    /* 父进程：子进程已持有各自的内存副本，可安全释放临时数组。 */\n    pty_free(env);\n',
+         '    /* 父进程：子进程已持有各自的内存副本，可安全释放临时数组。 */\n    /* env leaked */\n','failures','invalid'),
+        ('backend object leaked on close','    pty_free(t->wtail);\n    pty_free(t);\n',
+         '    pty_free(t->wtail); /* object leaked */\n','failures','invalid'),
     ]
     if sys.platform=='darwin':
-        variants.append(('waiter stack options omitted','gt__thread_create(&t->waiter,pty_waiter,t,thread_options)',
-                         'gt__thread_create(&t->waiter,pty_waiter,t,((void)thread_options,NULL))','thread','flow'))
-        variants.append(('login OOM silently falls back','if(is_shell && !dash0)',
-                         'if(false && is_shell && !dash0)','failures','flow'))
+        variants.append(('waiter stack options omitted','    if (gt__thread_create(&t->waiter, pty_waiter, t, thread_options) != 0) {\n',
+                         '    if (gt__thread_create(&t->waiter, pty_waiter, t, ((void)thread_options, NULL)) != 0) {\n','thread','flow'))
+        variants.append(('login OOM silently falls back','    if (is_shell && !dash0) {\n',
+                         '    if (false && is_shell && !dash0) {\n','failures','flow'))
     with tempfile.TemporaryDirectory(prefix='pty-budget-',dir=ROOT/'tmp') as directory:
         work=Path(directory);source=work/SOURCE.name;binary=work/'probe'
         def build(content):

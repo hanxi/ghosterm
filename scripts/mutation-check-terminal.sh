@@ -157,11 +157,8 @@ echo "== T3：砍掉逐个 surface 下发（只剩 app 级） =="
 mutate "T3" "$SHIM" <<'PY_T3'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old = """  for (size_t i = 0; i < a->surface_count; i++) {
-    struct gt_ghostty_surface *s = a->surfaces[i];
-    if (s && s->surface) ghostty_surface_set_color_scheme(s->surface, scheme);
-  }"""
-new = "  /* GT_MUTATION_MARK：砍掉逐个 surface 下发 */"
+old = '    for (size_t i = 0; i < a->surface_count; i++) {\n        struct gt_ghostty_surface *s = a->surfaces[i];\n        if (s && s->surface) {\n            ghostty_surface_set_color_scheme(s->surface, scheme);\n        }\n    }\n'
+new = '    /* GT_MUTATION_MARK：砍掉逐个 surface 下发 */\n'
 assert old in s, "T3 锚点缺失"
 open(p,'w').write(s.replace(old,new,1))
 PY_T3
@@ -186,21 +183,8 @@ echo "== T4：砍掉 reload_config 动作处理 =="
 mutate "T4" "$SHIM" <<'PY_T4'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old = """  if (action.tag == GHOSTTY_ACTION_RELOAD_CONFIG) {
-    struct gt_ghostty_app *a = ghostty_app_userdata(app);
-    if (a && a->app && a->config) {
-      if (target.tag == GHOSTTY_TARGET_APP) {
-        ghostty_app_update_config(a->app, a->config);
-        return true;
-      }
-      if (target.tag == GHOSTTY_TARGET_SURFACE && target.target.surface) {
-        ghostty_surface_update_config(target.target.surface, a->config);
-        return true;
-      }
-    }
-    return false;
-  }"""
-new = "  /* GT_MUTATION_MARK：不消费 reload_config */"
+old = '    if (action.tag == GHOSTTY_ACTION_RELOAD_CONFIG) {\n        struct gt_ghostty_app *a = ghostty_app_userdata(app);\n        if (a && a->app && a->config) {\n            if (target.tag == GHOSTTY_TARGET_APP) {\n                ghostty_app_update_config(a->app, a->config);\n                return true;\n            }\n            if (target.tag == GHOSTTY_TARGET_SURFACE && target.target.surface) {\n                ghostty_surface_update_config(target.target.surface, a->config);\n                return true;\n            }\n        }\n        return false;\n    }\n'
+new = '    /* GT_MUTATION_MARK：不消费 reload_config */\n'
 assert old in s, "T4 锚点缺失"
 open(p,'w').write(s.replace(old,new,1))
 PY_T4
