@@ -1,3 +1,4 @@
+#include "extension/memory.h"
 #include "extension/frame.h"
 #include <stdlib.h>
 #include <string.h>
@@ -31,11 +32,11 @@ gt_status_t gt__bridge_decoder_new(size_t limit, const gt_allocator_t *input, gt
   gt_allocator_t a;
   gt_status_t status = parameters(limit, input, &a);
   if (status != GT_OK) return status;
-  gt_bridge_decoder_t *d = a.allocate(a.context, sizeof(*d));
+  gt_bridge_decoder_t *d = gt__plugin_memory_alloc(&a,sizeof(*d));
   if (!d) return GT_ERR_IO;
   *d = (gt_bridge_decoder_t){.allocator = a, .limit = limit};
-  d->bytes = a.allocate(a.context, limit);
-  if (!d->bytes) { a.release(a.context, d, sizeof(*d)); return GT_ERR_IO; }
+  d->bytes = gt__plugin_memory_alloc(&a,limit);
+  if (!d->bytes) { gt__plugin_memory_free(&a,d, sizeof(*d)); return GT_ERR_IO; }
   *out = d;
   return GT_OK;
 }
@@ -85,8 +86,8 @@ gt_status_t gt__bridge_decoder_finish(gt_bridge_decoder_t *d) {
 void gt__bridge_decoder_free(gt_bridge_decoder_t *d) {
   if (!d) return;
   gt_allocator_t a = d->allocator;
-  a.release(a.context, d->bytes, d->limit);
-  a.release(a.context, d, sizeof(*d));
+  gt__plugin_memory_free(&a,d->bytes, d->limit);
+  gt__plugin_memory_free(&a,d, sizeof(*d));
 }
 gt_status_t gt__bridge_writer_new(size_t limit, const gt_allocator_t *input, gt_bridge_writer_t **out) {
   if (!out) return GT_ERR_INVALID_ARG;
@@ -94,11 +95,11 @@ gt_status_t gt__bridge_writer_new(size_t limit, const gt_allocator_t *input, gt_
   gt_allocator_t a;
   gt_status_t status = parameters(limit, input, &a);
   if (status != GT_OK) return status;
-  gt_bridge_writer_t *w = a.allocate(a.context, sizeof(*w));
+  gt_bridge_writer_t *w = gt__plugin_memory_alloc(&a,sizeof(*w));
   if (!w) return GT_ERR_IO;
   *w = (gt_bridge_writer_t){.allocator = a, .limit = limit, .failure = {GT_BRIDGE_WAIT, 0, GT_OK}};
-  w->bytes = a.allocate(a.context, limit + 4);
-  if (!w->bytes) { a.release(a.context, w, sizeof(*w)); return GT_ERR_IO; }
+  w->bytes = gt__plugin_memory_alloc(&a,limit + 4);
+  if (!w->bytes) { gt__plugin_memory_free(&a,w, sizeof(*w)); return GT_ERR_IO; }
   *out = w;
   return GT_OK;
 }
@@ -131,6 +132,6 @@ void gt__bridge_writer_free(gt_bridge_writer_t *w) {
   /* Provider must have completed writes or been closed before freeing pending
    * buffers: a future SSH provider can retain an EAGAIN continuation address. */
   gt_allocator_t a = w->allocator;
-  a.release(a.context, w->bytes, w->limit + 4);
-  a.release(a.context, w, sizeof(*w));
+  gt__plugin_memory_free(&a,w->bytes, w->limit + 4);
+  gt__plugin_memory_free(&a,w, sizeof(*w));
 }

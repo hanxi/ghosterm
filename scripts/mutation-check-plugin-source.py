@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import hashlib,json,os,re,shutil,signal,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_SOURCE_MUTATION'
-MODES=re.search(r'foreach\(mode (roundtrip large empty.*?)\)',(ROOT/'core/CMakeLists.txt').read_text()).group(1).split()
+MODES=re.search(r'foreach\(mode ([^)]*)\)\s+add_test\(NAME bridge_source_\$\{mode\}',(ROOT/'core/CMakeLists.txt').read_text()).group(1).split()
 INPUTS=sorted({str(p.relative_to(ROOT)) for folder in ('core/src','core/include') for p in (ROOT/folder).rglob('*') if p.is_file() and p.suffix in ('.c','.h','.inc')})+['core/CMakeLists.txt','core/tests/test_bridge_source.c','core/tests/test_bridge_transfer.c','core/tests/test_bridge_rpc.c','core/tests/test_bridge_session.c','core/tests/test_bridge_ssh.c','packages/plugin-sdk/schema/bridge-v1.candidate.json','packages/plugin-sdk/schema/bridge-v1.cases.json','scripts/generate-plugin-wire.py','scripts/test-plugin-session.py','scripts/test-plugin-route.py','scripts/test-plugin-ssh.py','scripts/test-plugin-ssh-stream.py','scripts/mutation-check-plugin-source.py']
 def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
@@ -70,7 +70,7 @@ def main():
       ('queued-failure',[('s->info.error==GT_BRIDGE_SOURCE_CLOSED?GT_BRIDGE_SOURCE_STOPPED:GT_BRIDGE_SOURCE_FAILED','s->info.error==GT_BRIDGE_SOURCE_CLOSED?GT_BRIDGE_SOURCE_STOPPED:GT_BRIDGE_SOURCE_STOPPED')],'queued-change'),
       ('close-error',[('if(!closed)return GT_BRIDGE_SOURCE_IO;','if(!closed)return GT_BRIDGE_SOURCE_OK;')],'close-error'),
       ('owned-root',[('s->directory[0]=fcntl(config->root_fd,F_DUPFD_CLOEXEC,3);','s->directory[0]=config->root_fd;')],'close-root'),
-      ('owner-release',[('a.release(a.context,s,sizeof(*s));return GT_BRIDGE_SOURCE_OK;','(void)a;return GT_BRIDGE_SOURCE_OK;')],'allocation'),
+      ('owner-release',[('gt__plugin_memory_free(&a,s,sizeof(*s));return GT_BRIDGE_SOURCE_OK;','(void)a;return GT_BRIDGE_SOURCE_OK;')],'allocation'),
     ]
     try:
         if MARK.encode() in (ROOT/'core/src/extension/source.c').read_bytes():print('Residual source mutation',file=sys.stderr);raise SystemExit(2)

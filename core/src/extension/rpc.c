@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "extension/memory.h"
 #include "extension/rpc.h"
 #include "extension/session.h"
 #include "base/secure-random.h"
@@ -87,10 +88,10 @@ static void rpc_tick(gt_bridge_rpc_t *r,uint64_t now) {
 }
 gt_status_t gt__bridge_rpc_new(gt_bridge_session_t *session,gt_bridge_wire_t *wire,const gt_allocator_t *allocator,gt_bridge_rpc_t **out) {
   if(out)*out=NULL;if(!session || !wire || !allocator || !out)return GT_ERR_INVALID_ARG;
-  gt_bridge_rpc_t *r=allocator->allocate(allocator->context,sizeof(*r));if(!r)return GT_ERR_IO;memset(r,0,sizeof(*r));r->allocator=*allocator;r->session=session;r->wire=wire;
+  gt_bridge_rpc_t *r=gt__plugin_memory_alloc(allocator,sizeof(*r));if(!r)return GT_ERR_IO;memset(r,0,sizeof(*r));r->allocator=*allocator;r->session=session;r->wire=wire;
   r->methods=gt__bridge_session_methods(session,&r->method_count,&r->role);r->credit_pending[0]=r->credit_pending[1]=GT_BRIDGE_RPC_WINDOW;*out=r;return GT_OK;
 }
-void gt__bridge_rpc_free(gt_bridge_rpc_t *r){if(r){gt_allocator_t a=r->allocator;gt__secure_erase(r,sizeof(*r));a.release(a.context,r,sizeof(*r));}}
+void gt__bridge_rpc_free(gt_bridge_rpc_t *r){if(r){gt_allocator_t a=r->allocator;gt__secure_erase(r,sizeof(*r));gt__plugin_memory_free(&a,r,sizeof(*r));}}
 void gt__bridge_rpc_end(gt_bridge_rpc_t *r){if(!r || r->ended)return;r->ended=true;for(size_t i=0;i<GT_BRIDGE_RPC_SLOTS;i++){rpc_out_t *o=&r->out[i];if(o->used && !o->confirmed && !o->local_terminal){if(o->id[0])rpc_local(o,GT_BRIDGE_RPC_UNKNOWN,rpc_unknown);else rpc_local(o,GT_BRIDGE_RPC_CANCELLED,rpc_cancelled);}r->in[i].cancel_requested=true;}}
 gt_bridge_rpc_status_t gt__bridge_rpc_start(gt_bridge_rpc_t *r,const void *lease,const char *method,const void *input,size_t input_size,uint32_t timeout,uint64_t now,uint64_t *handle) {
   if(handle)*handle=0;if(!r || !handle || !method || strnlen(method,129)>128 || !timeout || timeout>3600000 || timeout>UINT64_MAX-now)return GT_BRIDGE_RPC_INVALID;

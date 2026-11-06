@@ -40,7 +40,7 @@ def main():
   ('read-offset','if(offset>size)return GT_PACKAGE_INVALID;','if(offset>size)return GT_PACKAGE_OK;','roundtrip'),
   ('chunk-cap','cap>GT_PACKAGE_CHUNK_MAX','false','roundtrip'),
   ('sha256-content','if(!gt__sha256_final(&s->hash,e->sha256))','if(!gt__sha256_final(&s->hash,e->sha256) || (e->sha256[0]=\'0\',false))','roundtrip'),
-  ('memory-wiped','gt__secure_erase(p,n);s->allocator.release','/* no erase */s->allocator.release','roundtrip'),
+  ('memory-wiped','gt__secure_erase(p,n);gt__plugin_memory_free(&s->allocator,p,n);','s->allocator.release(s->allocator.context,p,n);','roundtrip'),
   ('root-cloexec','s->root=openat(c->directory_fd,".",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);','s->root=openat(c->directory_fd,".",O_RDONLY|O_DIRECTORY|O_NOFOLLOW);','roundtrip'),
   ('file-cloexec','O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK','O_RDONLY|O_NOFOLLOW|O_NONBLOCK','roundtrip'),
   ('destroy-error-visible','return failed?GT_PACKAGE_IO:GT_PACKAGE_OK;','(void)failed;return GT_PACKAGE_OK;','boundary:destroy-error'),

@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE 1
+#include "extension/memory.h"
 #include "extension/source.h"
 #include "base/sha256.h"
 #include "base/secure-random.h"
@@ -78,7 +79,7 @@ gt_bridge_source_status_t gt__bridge_source_open(const gt_bridge_source_config_t
  if(out)*out=NULL;if(!config || !out || !config->session || config->root_fd<0 || !config->relative_path || !config->mime || !config->byte_limit || config->byte_limit>GT_BRIDGE_RESOURCE_BYTES_MAX)return GT_BRIDGE_SOURCE_INVALID;
  gt_bridge_source_status_t status=source_authority(config->session,&config->lease);if(status!=GT_BRIDGE_SOURCE_OK)return status;if(!source_mime(config->mime))return GT_BRIDGE_SOURCE_INVALID;
  gt_allocator_t a=allocator?*allocator:(gt_allocator_t){NULL,source_allocate,source_release};if(!a.allocate || !a.release)return GT_BRIDGE_SOURCE_INVALID;
- gt_bridge_source_t *s=a.allocate(a.context,sizeof(*s));if(!s)return GT_BRIDGE_SOURCE_IO;memset(s,0,sizeof(*s));s->allocator=a;s->session=config->session;s->lease=config->lease;s->file=-1;for(size_t i=0;i<GT_BRIDGE_SOURCE_DEPTH;i++)s->directory[i]=-1;
+ gt_bridge_source_t *s=gt__plugin_memory_alloc(&a,sizeof(*s));if(!s)return GT_BRIDGE_SOURCE_IO;memset(s,0,sizeof(*s));s->allocator=a;s->session=config->session;s->lease=config->lease;s->file=-1;for(size_t i=0;i<GT_BRIDGE_SOURCE_DEPTH;i++)s->directory[i]=-1;
  status=source_path(s,config->relative_path);gt_bridge_session_info_t session;if(status==GT_BRIDGE_SOURCE_OK && !gt__bridge_session_info(s->session,&session))status=GT_BRIDGE_SOURCE_IO;
  if(status==GT_BRIDGE_SOURCE_OK){s->limit=config->byte_limit<session.budgets.resource_bytes?config->byte_limit:session.budgets.resource_bytes;if(fstat(config->root_fd,&s->roots[0]))status=GT_BRIDGE_SOURCE_IO;else if(!S_ISDIR(s->roots[0].st_mode) || !s->roots[0].st_nlink)status=GT_BRIDGE_SOURCE_UNSUPPORTED;}
  if(status==GT_BRIDGE_SOURCE_OK)status=source_access(s);
@@ -96,7 +97,7 @@ gt_bridge_source_status_t gt__bridge_source_open(const gt_bridge_source_config_t
   else s->roots[i+1]=after;
  }
  if(status==GT_BRIDGE_SOURCE_OK)status=source_check(s);
- if(status!=GT_BRIDGE_SOURCE_OK){if(!source_close_fds(s))status=GT_BRIDGE_SOURCE_IO;gt__secure_erase(s,sizeof(*s));a.release(a.context,s,sizeof(*s));return status;}
+ if(status!=GT_BRIDGE_SOURCE_OK){if(!source_close_fds(s))status=GT_BRIDGE_SOURCE_IO;gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(&a,s,sizeof(*s));return status;}
  strcpy(s->info.descriptor.mime,config->mime);strcpy(s->info.descriptor.display_name,s->names[s->count-1]);s->info.descriptor.size_known=true;s->info.descriptor.size=(uint64_t)s->version.st_size;s->info.phase=GT_BRIDGE_SOURCE_HASHING;gt__sha256_init(&s->hash);*out=s;return GT_BRIDGE_SOURCE_OK;
 }
 static gt_bridge_source_status_t source_transfer_status(gt_bridge_resource_status_t status){switch(status){case GT_BRIDGE_RESOURCE_OK:return GT_BRIDGE_SOURCE_OK;case GT_BRIDGE_RESOURCE_WAIT:return GT_BRIDGE_SOURCE_WAIT;case GT_BRIDGE_RESOURCE_DENIED:return GT_BRIDGE_SOURCE_DENIED;case GT_BRIDGE_RESOURCE_UNSUPPORTED:return GT_BRIDGE_SOURCE_UNSUPPORTED;case GT_BRIDGE_RESOURCE_LIMIT:return GT_BRIDGE_SOURCE_LIMIT;case GT_BRIDGE_RESOURCE_CLOSED:return GT_BRIDGE_SOURCE_CLOSED;default:return GT_BRIDGE_SOURCE_IO;}}
@@ -151,5 +152,5 @@ gt_bridge_source_status_t gt__bridge_source_close(gt_bridge_source_t *s){
 gt_bridge_source_status_t gt__bridge_source_destroy(gt_bridge_source_t *s){
  if(!s)return GT_BRIDGE_SOURCE_INVALID;gt_bridge_source_status_t status=gt__bridge_source_close(s);if(status!=GT_BRIDGE_SOURCE_OK)return status;
  if(s->info.transfer_handle){status=source_transfer_status(gt__bridge_session_forget_resource(s->session,&s->lease,s->info.transfer_handle));if(status!=GT_BRIDGE_SOURCE_OK)return status;}
- gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));a.release(a.context,s,sizeof(*s));return GT_BRIDGE_SOURCE_OK;
+ gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(&a,s,sizeof(*s));return GT_BRIDGE_SOURCE_OK;
 }

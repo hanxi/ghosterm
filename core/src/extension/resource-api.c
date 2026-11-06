@@ -1,3 +1,4 @@
+#include "extension/memory.h"
 #include "extension/session-owner.h"
 #include "base/secure-random.h"
 #include <stdlib.h>
@@ -23,9 +24,9 @@ static gt_ext_resource_descriptor_t resource_metadata(const gt_bridge_resource_d
  gt_ext_resource_descriptor_t d={.generation=p->generation,.size=p->size,.size_known=p->size_known};memcpy(d.resource_id,p->resource_id,33);memcpy(d.sha256,p->sha256,65);memcpy(d.mime,p->mime,129);memcpy(d.display_name,p->display_name,1025);return d;
 }
 gt_ext_resource_status_t gt_ext_resource_store_open(const gt_ext_resource_store_config_t *c,gt_ext_resource_store_t **out){
- if(out)*out=NULL;if(!c || !out)return GT_EXT_RESOURCE_INVALID;gt_ext_resource_store_t *s=calloc(1,sizeof(*s));if(!s)return GT_EXT_RESOURCE_IO;
+ if(out)*out=NULL;if(!c || !out)return GT_EXT_RESOURCE_INVALID;gt_ext_resource_store_t *s=gt__plugin_memory_calloc(1,sizeof(*s));if(!s)return GT_EXT_RESOURCE_IO;
  gt_bridge_resource_config_t p={c->directory_fd,c->total_bytes,c->resource_bytes,c->slots};gt_ext_resource_status_t status=resource_status(gt__bridge_resource_open(&p,NULL,&s->inner));
- if(status!=GT_EXT_RESOURCE_OK){free(s);return status;}s->total_bytes=c->total_bytes;*out=s;return GT_EXT_RESOURCE_OK;
+ if(status!=GT_EXT_RESOURCE_OK){gt__plugin_memory_free(NULL,s,sizeof(*s));return status;}s->total_bytes=c->total_bytes;*out=s;return GT_EXT_RESOURCE_OK;
 }
 bool gt_ext_resource_store_usage(const gt_ext_resource_store_t *s,gt_ext_resource_usage_t *out){
  if(out)memset(out,0,sizeof(*out));if(!s || !out)return false;gt_bridge_resource_usage_t u;if(!gt__bridge_resource_usage(s->inner,&u))return false;out->reserved_bytes=u.reserved_bytes;out->resources=u.resources;out->scopes=u.scopes;out->sessions=s->sessions;return true;
@@ -50,7 +51,7 @@ gt_ext_resource_status_t gt_ext_resource_store_release(gt_ext_resource_store_t *
 gt_ext_resource_status_t gt_ext_resource_store_destroy(gt_ext_resource_store_t **owned){
  if(!owned || !*owned)return GT_EXT_RESOURCE_INVALID;gt_ext_resource_store_t *s=*owned;if(s->sessions)return GT_EXT_RESOURCE_WAIT;
  gt__bridge_resource_collect_retired(s->inner);gt_ext_resource_status_t status=resource_status(gt__bridge_resource_destroy(s->inner));
- if(status==GT_EXT_RESOURCE_OK || status==GT_EXT_RESOURCE_IO){gt__secure_erase(s,sizeof(*s));free(s);*owned=NULL;}return status;
+ if(status==GT_EXT_RESOURCE_OK || status==GT_EXT_RESOURCE_IO){gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(NULL,s,sizeof(*s));*owned=NULL;}return status;
 }
 static gt_ext_resource_status_t resource_scope(gt_ext_session_t *s,const gt_ext_lease_t *lease){
  if(!s || !lease)return GT_EXT_RESOURCE_INVALID;if(!s->store)return GT_EXT_RESOURCE_UNSUPPORTED;gt_bridge_lease_t l=resource_lease(lease);return gt__bridge_session_scope(s->inner,&l)?GT_EXT_RESOURCE_OK:GT_EXT_RESOURCE_DENIED;

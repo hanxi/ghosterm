@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "extension/memory.h"
 #include "extension/runtime-resource.h"
 #include "base/secure-random.h"
 #include <fcntl.h>
@@ -36,9 +37,9 @@ gt_status_t gt__runtime_resources_open(gt_ext_session_t *session,gt_ext_resource
  if(out)*out=NULL;if(!out || !session || !lease || !clock || count>GT_RUNTIME_ROOTS_MAX || (count && !roots))return GT_ERR_INVALID_ARG;if(!store)return GT_ERR_UNSUPPORTED;
  /* Preflight all PODs before duplicating anything. Native caller owns policy. */
  for(size_t i=0;i<count;i++){struct stat st;if(!root_id(roots[i].id) || !roots[i].byte_limit || roots[i].byte_limit>16777216 || roots[i].directory_fd<0 || fstat(roots[i].directory_fd,&st) || !S_ISDIR(st.st_mode))return GT_ERR_INVALID_ARG;for(size_t j=0;j<i;j++)if(!strcmp(roots[i].id,roots[j].id))return GT_ERR_INVALID_ARG;}
- gt_runtime_resources_t *r=calloc(1,sizeof(*r));if(!r)return GT_ERR_IO;r->session=session;r->store=store;r->lease=*lease;r->clock_context=clock_context;r->clock=clock;r->next=1;
+ gt_runtime_resources_t *r=gt__plugin_memory_calloc(1,sizeof(*r));if(!r)return GT_ERR_IO;r->session=session;r->store=store;r->lease=*lease;r->clock_context=clock_context;r->clock=clock;r->next=1;
  for(size_t i=0;i<GT_RUNTIME_ROOTS_MAX;i++)r->roots[i].fd=-1;
- for(size_t i=0;i<count;i++){int fd=fcntl(roots[i].directory_fd,F_DUPFD_CLOEXEC,3);if(fd<0){for(size_t j=0;j<r->root_count;j++)close(r->roots[j].fd);free(r);return GT_ERR_IO;}r->roots[i].fd=fd;r->roots[i].limit=roots[i].byte_limit;strcpy(r->roots[i].id,roots[i].id);r->root_count++;}
+ for(size_t i=0;i<count;i++){int fd=fcntl(roots[i].directory_fd,F_DUPFD_CLOEXEC,3);if(fd<0){for(size_t j=0;j<r->root_count;j++)close(r->roots[j].fd);gt__plugin_memory_free(NULL,r,sizeof(*r));return GT_ERR_IO;}r->roots[i].fd=fd;r->roots[i].limit=roots[i].byte_limit;strcpy(r->roots[i].id,roots[i].id);r->root_count++;}
  *out=r;return GT_OK;
 }
 size_t gt__runtime_resources_roots(const gt_runtime_resources_t *r){return r?r->root_count:0;}
@@ -93,5 +94,5 @@ gt_runtime_resource_status_t gt__runtime_resources_destroy(gt_runtime_resources_
  for(size_t i=0;i<GT_RUNTIME_PINS_MAX;i++)if(r->pins[i].id){gt_runtime_resource_status_t s=gt__runtime_resources_release(r,r->pins[i].id);if(s!=GT_RUNTIME_RESOURCE_OK && (result==GT_RUNTIME_RESOURCE_OK || result==GT_RUNTIME_RESOURCE_WAIT))result=s;}
  if(result!=GT_RUNTIME_RESOURCE_OK)return result;
  bool error=false;for(size_t i=0;i<r->root_count;i++)if(r->roots[i].fd>=0){int fd=r->roots[i].fd;r->roots[i].fd=-1;if(close(fd))error=true;}if(error)return GT_RUNTIME_RESOURCE_IO;
- gt__secure_erase(r,sizeof(*r));free(r);*out=NULL;return GT_RUNTIME_RESOURCE_OK;
+ gt__secure_erase(r,sizeof(*r));gt__plugin_memory_free(NULL,r,sizeof(*r));*out=NULL;return GT_RUNTIME_RESOURCE_OK;
 }

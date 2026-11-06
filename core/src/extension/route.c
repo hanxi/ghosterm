@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "extension/memory.h"
 #include "extension/route.h"
 #include "ssh/wire.h"
 #include "internal.h"
@@ -160,7 +161,7 @@ static gt_bridge_close_t close_step(gt_bridge_stream_t *base,int ms) {
 }
 static void destroy(gt_bridge_stream_t *base) {
   route_t *r=(route_t *)base;close(r->wake[0]);close(r->wake[1]);
-  gt_allocator_t a=r->allocator;a.release(a.context,r,sizeof(*r));
+  gt_allocator_t a=r->allocator;gt__plugin_memory_free(&a,r,sizeof(*r));
 }
 static const gt_bridge_stream_ops_t ops={read_stream,write_stream,wake,close_step,destroy};
 
@@ -190,7 +191,7 @@ gt_status_t gt__bridge_route_open(gt_ssh_t **owned,const gt_bridge_route_hop_t *
     }
   }
   uint64_t now;if(!hops[0].connector.clock(hops[0].connector.clock_context,&now))return GT_ERR_IO;
-  route_t *r=a.allocate(a.context,sizeof(*r));if(!r)return GT_ERR_IO;
+  route_t *r=gt__plugin_memory_alloc(&a,sizeof(*r));if(!r)return GT_ERR_IO;
   memset(r,0,sizeof(*r));r->allocator=a;r->options=o;r->started=r->now=now;r->wake[0]=r->wake[1]=-1;
   r->info.count=count;r->info.phase=GT_BRIDGE_ROUTE_AUTH;memcpy(r->command,command,length+1);
   (void)gt__bridge_stream_init(&r->base,&ops);
@@ -203,12 +204,12 @@ gt_status_t gt__bridge_route_open(gt_ssh_t **owned,const gt_bridge_route_hop_t *
   for(size_t i=0;i<2;i++)if(fcntl(r->wake[i],F_SETFL,O_NONBLOCK)<0 || fcntl(r->wake[i],F_SETFD,FD_CLOEXEC)<0)goto failed;
   gt_status_t status=gt__ssh_connector_open(&r->material[0],&r->config[0],&a,&r->auth);
   if(status!=GT_OK) {
-    close(r->wake[0]);close(r->wake[1]);a.release(a.context,r,sizeof(*r));return status;
+    close(r->wake[0]);close(r->wake[1]);gt__plugin_memory_free(&a,r,sizeof(*r));return status;
   }
   for(size_t i=0;i<count;i++)owned[i]=NULL;
   *out=&r->base;return GT_OK;
 failed:
   if(r->wake[0]>=0)close(r->wake[0]);if(r->wake[1]>=0)close(r->wake[1]);
-  a.release(a.context,r,sizeof(*r));return GT_ERR_IO;
+  gt__plugin_memory_free(&a,r,sizeof(*r));return GT_ERR_IO;
 #endif
 }

@@ -58,7 +58,7 @@ def main():
       ('retain-pin',api,'return resource_status(gt__bridge_resource_retain(s->inner,ref->owner,&l,&r));','return s && l.epoch && r.handle?GT_EXT_RESOURCE_OK:GT_EXT_RESOURCE_INVALID;','test_ext_resource','retain'),
       ('release-ref-clear',api,'gt__secure_erase(ref,sizeof(*ref));','(void)ref;','test_ext_resource','roundtrip'),
       ('retired-scope-collect',api,'gt__bridge_resource_collect_retired(s->inner);','(void)s->inner;','test_ext_resource_boundary','retired-close'),
-      ('destroy-consumed-pointer',api,'free(s);*owned=NULL;','free(s);','test_ext_resource_boundary','directory-close'),
+      ('destroy-consumed-pointer',api,'gt__plugin_memory_free(NULL,s,sizeof(*s));*owned=NULL;','gt__plugin_memory_free(NULL,s,sizeof(*s));','test_ext_resource_boundary','directory-close'),
       ('finish-source-eof',api,'&l,handle,complete));','&l,handle,(complete || true)));','test_ext_resource','roundtrip'),
       ('accepted-bytes',api,'return resource_status(gt__bridge_session_write_resource(s->inner,&l,handle,p,n,accepted));','gt_ext_resource_status_t result=resource_status(gt__bridge_session_write_resource(s->inner,&l,handle,p,n,accepted));*accepted=0;return result;','test_ext_resource','roundtrip'),
       ('confirmation-fact',api,'out->confirmed=r.confirmed;','out->confirmed=true;','test_ext_resource','queued-cancel'),

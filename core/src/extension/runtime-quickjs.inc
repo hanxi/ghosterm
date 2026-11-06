@@ -1,4 +1,5 @@
 /* Included only in the explicitly enabled, content-pinned engine build. */
+#include "extension/memory.h"
 #include "extension/session-owner.h"
 #include "base/sha256.h"
 #include "base/secure-random.h"
@@ -9,14 +10,36 @@
 #include <stdlib.h>
 #include <time.h>
 typedef struct {char name[256];char *source;size_t size;} runtime_module_t;
+typedef union {max_align_t alignment;size_t size;} runtime_allocation_t;
 struct gt_bridge_runtime {
  gt_ext_session_t *session;gt_ext_lease_t lease;gt_ext_role_t role;
  gt_runtime_resources_t *resources;
  runtime_module_t modules[64];size_t count;char entry[256];
  JSRuntime *engine;JSContext *context;JSValue module,space,pump,dispose,unhandled[64];size_t unhandled_count;
  atomic_bool stopped;uint64_t deadline,activation_deadline;uint32_t cpu_ms,jobs_per_step,activation_ms;
- gt_runtime_info_t info;bool started,rejected,interrupted;
+ gt_runtime_info_t info;bool started,rejected,interrupted,memory_failed;
+ size_t heap_used,heap_limit;
 };
+static void *runtime_malloc(void *opaque,size_t n){
+ gt_bridge_runtime_t *r=opaque;if(!n)n=1;
+ if(n>SIZE_MAX-sizeof(runtime_allocation_t) || n+sizeof(runtime_allocation_t)>r->heap_limit-r->heap_used){r->memory_failed=true;return NULL;}
+ size_t bytes=n+sizeof(runtime_allocation_t);runtime_allocation_t *p=gt__plugin_memory_alloc(NULL,bytes);
+ if(!p){r->memory_failed=true;return NULL;}p->size=n;r->heap_used+=bytes;return p+1;
+}
+static void runtime_free(void *opaque,void *p){
+ if(!p)return;gt_bridge_runtime_t *r=opaque;runtime_allocation_t *h=(runtime_allocation_t *)p-1;size_t bytes=h->size+sizeof(*h);
+ gt__plugin_memory_free(NULL,h,bytes);r->heap_used-=bytes;
+}
+static void *runtime_calloc(void *opaque,size_t count,size_t n){
+ gt_bridge_runtime_t *r=opaque;if(count && n>SIZE_MAX/count){r->memory_failed=true;return NULL;}
+ void *p=runtime_malloc(r,count*n);if(p)memset(p,0,count*n);return p;
+}
+static void *runtime_realloc(void *opaque,void *p,size_t n){
+ if(!p)return runtime_malloc(opaque,n);if(!n){runtime_free(opaque,p);return NULL;}
+ size_t old=((runtime_allocation_t *)p-1)->size;void *next=runtime_malloc(opaque,n);
+ if(next){memcpy(next,p,n<old?n:old);runtime_free(opaque,p);}return next;
+}
+static size_t runtime_usable(const void *p){return p?((const runtime_allocation_t *)p-1)->size:0;}
 static const char *runtime_status[]={"ok","wait","invalid","denied","unsupported","closed"};
 static const char *runtime_states[]={"queued","pending","succeeded","failed","cancelled","unknown"};
 static bool runtime_now(uint64_t *out){struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return false;*out=(uint64_t)t.tv_sec*1000+(uint64_t)t.tv_nsec/1000000;return true;}
@@ -29,7 +52,7 @@ static int runtime_interrupt(JSContext *ctx,void *opaque){
 }
 static void runtime_exception(gt_bridge_runtime_t *r){
  JSValue e=JS_GetException(r->context);JS_FreeValue(r->context,e);
- runtime_fail(r,atomic_load_explicit(&r->stopped,memory_order_relaxed)?GT_RUNTIME_CANCELLED:r->interrupted?GT_RUNTIME_CPU:GT_RUNTIME_SCRIPT);
+ runtime_fail(r,atomic_load_explicit(&r->stopped,memory_order_relaxed)?GT_RUNTIME_CANCELLED:r->interrupted?GT_RUNTIME_CPU:r->memory_failed?GT_RUNTIME_MEMORY:GT_RUNTIME_SCRIPT);
 }
 static void runtime_rejection(JSContext *ctx,JSValueConst promise,JSValueConst reason,bool handled,void *opaque){
  (void)reason;gt_bridge_runtime_t *r=opaque;
@@ -116,7 +139,7 @@ static void runtime_free_engine(gt_bridge_runtime_t *r){
  for(size_t i=0;i<r->unhandled_count;i++)JS_FreeValue(r->context,r->unhandled[i]);r->unhandled_count=0;
  if(r->context){JS_FreeValue(r->context,r->module);JS_FreeValue(r->context,r->space);JS_FreeValue(r->context,r->pump);JS_FreeValue(r->context,r->dispose);JS_FreeContext(r->context);r->context=NULL;}if(r->engine){JS_FreeRuntime(r->engine);r->engine=NULL;}
 }
-static void runtime_free_modules(gt_bridge_runtime_t *r){for(size_t i=0;i<r->count;i++)free(r->modules[i].source);}
+static void runtime_free_modules(gt_bridge_runtime_t *r){for(size_t i=0;i<r->count;i++){gt__plugin_memory_free(NULL,r->modules[i].source,r->modules[i].size+1);r->modules[i].source=NULL;}}
 gt_status_t gt__bridge_runtime_open(gt_ext_session_t **session,const gt_runtime_config_t *c,gt_bridge_runtime_t **out){
  if(out)*out=NULL;if(!out || !session || !*session || !c || !c->modules || !c->module_count || c->module_count>64 || !runtime_name(c->entry) || strncmp(c->entry,"plugin:/",8) || (c->role!=GT_EXT_HOST && c->role!=GT_EXT_EXECUTOR) || c->root_count>GT_RUNTIME_ROOTS_MAX || (c->root_count && !c->roots))return GT_ERR_INVALID_ARG;
  if(c->root_count && !(*session)->store)return GT_ERR_UNSUPPORTED;
@@ -125,20 +148,23 @@ gt_status_t gt__bridge_runtime_open(gt_ext_session_t **session,const gt_runtime_
  size_t memory=c->memory_bytes?c->memory_bytes:16*1024*1024,stack=c->stack_bytes?c->stack_bytes:256*1024;uint32_t cpu=c->cpu_ms?c->cpu_ms:25,jobs=c->jobs_per_step?c->jobs_per_step:32;
  if(c->activation_ms>60000)return GT_ERR_INVALID_ARG;
  if(memory<1024*1024 || memory>128*1024*1024 || stack<64*1024 || stack>1024*1024 || cpu>1000 || jobs>128)return GT_ERR_INVALID_ARG;
- gt_bridge_runtime_t *r=calloc(1,sizeof(*r));if(!r)return GT_ERR_IO;atomic_init(&r->stopped,false);r->cpu_ms=cpu;r->jobs_per_step=jobs;r->activation_ms=c->activation_ms?c->activation_ms:5000;r->role=c->role;strcpy(r->entry,c->entry);r->module=r->space=r->pump=r->dispose=JS_UNDEFINED;
+ gt_bridge_runtime_t *r=gt__plugin_memory_calloc(1,sizeof(*r));if(!r)return GT_ERR_IO;atomic_init(&r->stopped,false);r->cpu_ms=cpu;r->jobs_per_step=jobs;r->activation_ms=c->activation_ms?c->activation_ms:5000;r->role=c->role;strcpy(r->entry,c->entry);r->module=r->space=r->pump=r->dispose=JS_UNDEFINED;
  gt_status_t status=GT_ERR_INVALID_ARG;bool entry=false;
  for(size_t i=0;i<c->module_count;i++){
   const gt_runtime_module_t *m=&c->modules[i];if(!runtime_name(m->name) || !m->source || !m->size || m->size>128*1024 || memchr(m->source,0,m->size) || r->info.module_bytes+m->size>1024*1024 || strnlen(m->sha256,65)!=64)goto fail;
   for(size_t j=0;j<i;j++)if(!strcmp(m->name,r->modules[j].name))goto fail;
   gt_sha256_t hash;char hex[65];gt__sha256_init(&hash);if(!gt__sha256_update(&hash,m->source,m->size) || !gt__sha256_final(&hash,hex) || strcmp(hex,m->sha256)){status=GT_ERR_PROTOCOL;goto fail;}
-  runtime_module_t *copy=&r->modules[r->count++];strcpy(copy->name,m->name);copy->source=malloc(m->size+1);if(!copy->source){status=GT_ERR_IO;goto fail;}memcpy(copy->source,m->source,m->size);copy->source[m->size]=0;copy->size=m->size;r->info.module_bytes+=m->size;if(!strcmp(m->name,c->entry))entry=true;
+  runtime_module_t *copy=&r->modules[r->count++];strcpy(copy->name,m->name);copy->size=m->size;copy->source=gt__plugin_memory_alloc(NULL,m->size+1);if(!copy->source){status=GT_ERR_IO;goto fail;}memcpy(copy->source,m->source,m->size);copy->source[m->size]=0;r->info.module_bytes+=m->size;if(!strcmp(m->name,c->entry))entry=true;
  }
- if(!entry)goto fail;r->engine=JS_NewRuntime();if(!r->engine){status=GT_ERR_IO;goto fail;}JS_SetMemoryLimit(r->engine,memory);JS_SetCanBlock(r->engine,false);JS_SetMaxStackSize(r->engine,stack);r->context=JS_NewContext(r->engine);if(!r->context){status=GT_ERR_IO;goto fail;}
+ /* The allocator is the authoritative local and shared limit. An additional
+  * QuickJS limit could reject before our allocator observes the failure, hiding
+  * a caught OOM from the native sticky error / lease revocation. */
+ if(!entry)goto fail;r->heap_limit=memory;const JSMallocFunctions functions={runtime_calloc,runtime_malloc,runtime_free,runtime_realloc,runtime_usable};r->engine=JS_NewRuntime2(&functions,r);if(!r->engine){status=GT_ERR_IO;goto fail;}JS_SetCanBlock(r->engine,false);JS_SetMaxStackSize(r->engine,stack);r->context=JS_NewContext(r->engine);if(!r->context){status=GT_ERR_IO;goto fail;}
  JS_SetContextOpaque(r->context,r);JS_SetModuleLoaderFunc(r->engine,runtime_normalize,runtime_load,r);JS_SetInterruptHandler(r->engine,runtime_interrupt,r);JS_SetHostPromiseRejectionTracker(r->engine,runtime_rejection,r);
  if(!gt_ext_session_lease(*session,&r->lease))goto fail;
  if((*session)->store){status=gt__runtime_resources_open(*session,(*session)->store,&r->lease,c->roots,c->root_count,NULL,runtime_resource_clock,&r->resources);if(status!=GT_OK)goto fail;}
  r->session=*session;*session=NULL;*out=r;return GT_OK;
-fail:runtime_free_engine(r);if(r->resources)(void)gt__runtime_resources_destroy(&r->resources);runtime_free_modules(r);gt__secure_erase(r,sizeof(*r));free(r);return status;
+fail:runtime_free_engine(r);if(r->resources)(void)gt__runtime_resources_destroy(&r->resources);runtime_free_modules(r);gt__secure_erase(r,sizeof(*r));gt__plugin_memory_free(NULL,r,sizeof(*r));return status;
 }
 static bool runtime_start(gt_bridge_runtime_t *r){
  char script[4096];int n=snprintf(script,sizeof(script),
@@ -156,7 +182,8 @@ static bool runtime_start(gt_bridge_runtime_t *r){
 static bool runtime_jobs(gt_bridge_runtime_t *r,uint32_t *used){
  while(JS_IsJobPending(r->engine)){
   if(*used>=r->jobs_per_step){runtime_fail(r,GT_RUNTIME_JOBS);return false;}
-  JSContext *ctx=NULL;if(JS_ExecutePendingJob(r->engine,&ctx)<0){runtime_exception(r);return false;}(*used)++;r->info.jobs++;if(r->info.phase>=GT_RUNTIME_FAILED)return false;
+  JSContext *ctx=NULL;if(JS_ExecutePendingJob(r->engine,&ctx)<0){runtime_exception(r);return false;}(*used)++;r->info.jobs++;
+  if(r->memory_failed){runtime_fail(r,GT_RUNTIME_MEMORY);return false;}if(r->info.phase>=GT_RUNTIME_FAILED)return false;
  }return true;
 }
 gt_runtime_phase_t gt__bridge_runtime_step(gt_bridge_runtime_t *r){
@@ -178,7 +205,8 @@ gt_runtime_phase_t gt__bridge_runtime_step(gt_bridge_runtime_t *r){
   if(state<0){runtime_fail(r,GT_RUNTIME_SCRIPT);return r->info.phase;}if(state>0)r->info.phase=GT_RUNTIME_ACTIVE;
   if(!runtime_jobs(r,&used))return r->info.phase;
  }
- if(r->rejected || r->unhandled_count)runtime_fail(r,GT_RUNTIME_SCRIPT);
+ if(r->memory_failed)runtime_fail(r,GT_RUNTIME_MEMORY);
+ else if(r->rejected || r->unhandled_count)runtime_fail(r,GT_RUNTIME_SCRIPT);
  else if(r->info.phase==GT_RUNTIME_STARTING && (!runtime_now(&now) || now>=r->activation_deadline))runtime_fail(r,GT_RUNTIME_EXPIRED);
  return r->info.phase;
 }
@@ -189,10 +217,11 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r){
  gt_ext_session_revoke(r->session);gt_ext_session_stop(r->session);gt__runtime_resources_stop(r->resources);atomic_store_explicit(&r->stopped,true,memory_order_relaxed);
  if(r->context && JS_IsFunction(r->context,r->dispose)){JSValue v=JS_Call(r->context,r->dispose,JS_UNDEFINED,0,NULL);if(JS_IsException(v)){JSValue error=JS_GetException(r->context);JS_FreeValue(r->context,error);r->info.dispose_error=true;}JS_FreeValue(r->context,v);}
  runtime_free_engine(r);
+ runtime_free_modules(r);
  gt_ext_close_t close=gt_ext_session_close(r->session,0);
  if(r->resources){gt_runtime_resource_status_t status=gt__runtime_resources_destroy(&r->resources);if(status!=GT_RUNTIME_RESOURCE_OK){if(status==GT_RUNTIME_RESOURCE_WAIT)return GT_EXT_DRAINING;r->info.cleanup_error=GT_ERR_IO;return GT_EXT_CLOSE_ERROR;}if(close==GT_EXT_DRAINING)close=gt_ext_session_close(r->session,0);}
  if(close!=GT_EXT_RELEASED){if(close==GT_EXT_CLOSE_ERROR)r->info.cleanup_error=GT_ERR_IO;return close;}
  gt_ext_session_info_t snapshot;if(gt_ext_session_info(r->session,&snapshot)){r->info.session_end=snapshot.end;r->info.session_error=snapshot.error;}
  gt_status_t status=gt_ext_session_destroy(&r->session);if(status!=GT_OK){r->info.cleanup_error=status;return GT_EXT_CLOSE_ERROR;}r->info.cleanup_error=GT_OK;r->info.phase=GT_RUNTIME_CLOSED;return GT_EXT_RELEASED;
 }
-gt_status_t gt__bridge_runtime_destroy(gt_bridge_runtime_t **out){if(!out || !*out || (*out)->info.phase!=GT_RUNTIME_CLOSED)return GT_ERR_INVALID_ARG;gt_bridge_runtime_t *r=*out;runtime_free_modules(r);gt__secure_erase(r,sizeof(*r));free(r);*out=NULL;return GT_OK;}
+gt_status_t gt__bridge_runtime_destroy(gt_bridge_runtime_t **out){if(!out || !*out || (*out)->info.phase!=GT_RUNTIME_CLOSED)return GT_ERR_INVALID_ARG;gt_bridge_runtime_t *r=*out;runtime_free_modules(r);gt__secure_erase(r,sizeof(*r));gt__plugin_memory_free(NULL,r,sizeof(*r));*out=NULL;return GT_OK;}

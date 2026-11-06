@@ -18,11 +18,13 @@ option(GHOSTERM_BUILD_TESTS "Build host executables and register tests" ${GHOSTE
 add_library(ghosterm_core STATIC
   src/base/secure-random.c
   src/base/sha256.c
+  src/extension/memory.c
   src/extension/stream.c
   src/extension/fd-stream.c
   src/extension/frame.c
   src/extension/wire.c
   src/extension/package-snapshot.c
+  src/extension/package-json.c
   src/extension/session.c
   src/extension/rpc.c
   src/extension/resource.c
@@ -100,6 +102,21 @@ if(GHOSTERM_WITH_PLUGIN_JS)
     set_tests_properties(plugin_compiler_oom_${mode} PROPERTIES TIMEOUT 120)
   endforeach()
 endif()
+
+add_executable(test_plugin_memory tests/test_plugin_memory.c)
+target_include_directories(test_plugin_memory PRIVATE src)
+target_link_libraries(test_plugin_memory PRIVATE ghosterm_core)
+target_compile_options(test_plugin_memory PRIVATE -Wall -Wextra -Werror)
+foreach(mode budget race queue)
+  add_test(NAME plugin_memory_${mode} COMMAND test_plugin_memory ${mode})
+endforeach()
+add_executable(test_package_json tests/test_package_json.c)
+target_include_directories(test_package_json PRIVATE src)
+target_link_libraries(test_package_json PRIVATE ghosterm_core)
+target_compile_options(test_package_json PRIVATE -Wall -Wextra -Werror)
+foreach(mode valid duplicate surrogate utf8 bom trailing fractional unsafe negative exact syntax-only large bytes-limit nodes nodes-limit depth depth-limit empty-keys small-memory growth growth-duplicate oom dense-string global-memory)
+  add_test(NAME plugin_package_json_${mode} COMMAND test_package_json ${mode})
+endforeach()
 
 add_executable(test_package_snapshot tests/test_package_snapshot.c)
 target_include_directories(test_package_snapshot PRIVATE src)
@@ -190,7 +207,7 @@ if(GHOSTERM_WITH_PLUGIN_JS)
       set_tests_properties(ext_runtime_${mode} PROPERTIES TIMEOUT 30)
     endforeach()
     set_tests_properties(runtime_boundary_outbound PROPERTIES TIMEOUT 30)
-    foreach(mode invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop activation-timeout peer-loss)
+    foreach(mode invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory caught-memory global-memory repeat-close many-1 many-4 many-10 stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop activation-timeout peer-loss)
       add_test(NAME runtime_${mode} COMMAND test_runtime ${mode} ${GHOSTERM_PLUGIN_SDK_DIR})
       add_test(NAME ext_runtime_${mode} COMMAND test_ext_runtime ${mode} ${GHOSTERM_PLUGIN_SDK_DIR})
       set_tests_properties(ext_runtime_${mode} PROPERTIES TIMEOUT 30)

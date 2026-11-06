@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第二十七批。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第三十二批内存提交收口。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -2764,6 +2764,37 @@ private field / 闭包 / 120 case switch 的逐分配失败与销毁归零。无
 本地收据和最终输入摘要见 `tmp/plugin-oom-work/result.json`；变异原件、栈和未通过日志保留。
 后续按共享内存 / 按需 JSON、正则 OOM、原生元数据分别收口；实际插件、授权 / 视图、
 gterm 与完整 SDK / 安装仍待接，外部网关只预留。
+
+### P0 第三十二批：共享内存与按需 JSON 独立提交（2026-11-06）
+
+将第三十批已经通过的内存候选从未验收的包校验器中拆出，基于第三十一批七份引擎补丁，
+作为独立可构建切片提交。私有 `memory.h/.c` 统一 native owner / 字节队列 / 包字节快照 /
+源码 / JS 的 requested / reserved heap；默认候选 128 MiB，预约计入并发峰值，失败归还，
+实际 release 完成后才卸账，释放前擦除。不是进程 RSS / PSS、栈、UI、外部库或磁盘总额。
+每实例 heap / stack / CPU / jobs 保持独立，内存失败 sticky，不能继续持有 ACTIVE / lease。
+
+`base/json-reader.inc` 提取 wire 的严格词法与精确整数逻辑，wire 保留原固定布局 / 预算；
+私有包 JSON 改为按需表增长、重建 key 索引、递归返回后重新取地址，并逐检查释放工作缓冲。
+本次只提交解析器，不提交 metadata validator、package-check、快照 view 或元数据加载。
+JSON 的 16 MiB 输入、节点 / 层级 / 重键 / UTF-8 / 整数 / 工作预算仍显式执行。
+
+**最终独立源码验收。** 默认 `build-core.sh` / `gate.sh` 为 465 CTest / 154 ABI，显式
+JS ON / SSH ON 完整 Core 550 项通过。内存 runner 从包检查中解耦后精确发现 / 执行
+91 项（3 共享预算＋24 JSON＋两组各 32 runtime），十四组编译后正常断言红、同 archive
+配置绿、重建恢复与源码 / SDK SHA256 通过。runtime 旧十三组、33 私有场景、四配置拒绝
+另完整复验，NDK 28.2 arm64 API29 的实际 archive / ELF 编译链接通过，未设备执行。
+均为手工 ASan/UBSan，无 LSan，不增加 macOS CI 二十份，不新增公共 ABI / 平台产品文件。
+
+第三十批逐族旧释放保护、严格 C11、1 / 4 / 10 实例和百次 RPC 开关的历史定量记录保持原
+范围；本次不把它们称作新引擎下所有变异再跑。独立源码收据 / 输入摘要另汇总在
+`tmp/plugin-oom-work/memory-result.json`，核心日志为同目录 `memory-slice-gate.log` /
+`memory-slice-on-tests.log`，新十四组与 runtime 原件位于 `tmp/pms/tmp/`。
+
+**失败与范围。** 全候选默认闸门在并发验证时遇到一次 tmux login 命令期限，保留失败；
+没有改断言或放宽期限。独立内存默认 / enabled 全套通过。隔离副本初次 runtime 探针漏了
+`.gitmodules`、随后缺离线 npm 缓存，均在起跑阶段失败而不计绿；补齐同源文件 / 已有缓存后
+完整重跑。App 激活 / 回收、包快照复用、真实业务与平台进程内存仍待接；包元数据继续因
+优化 ASan 的正则 OOM 越界未验收，下一批独立处理，不接 App 或未来网关。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

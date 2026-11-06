@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "extension/memory.h"
 #include "extension/backends/ssh_exec.h"
 #include "internal.h"
 #include "ssh/wire.h"
@@ -315,7 +316,7 @@ static void destroy(gt_bridge_stream_t *base) {
   ssh_stream_t *s = (ssh_stream_t *)base;
   close(s->wake[0]); close(s->wake[1]);
   gt_allocator_t a = s->allocator;
-  a.release(a.context, s, sizeof(*s));
+  gt__plugin_memory_free(&a,s, sizeof(*s));
 }
 static const gt_bridge_stream_ops_t ops = {stream_read, stream_write, wake, close_step, destroy};
 
@@ -335,7 +336,7 @@ static gt_status_t stream_open(gt_ssh_t **owned, const char *command,uint16_t ta
   if (flags < 0 || !(flags & O_NONBLOCK)) return GT_ERR_INVALID_ARG;
   int64_t now = milliseconds();
   if (now < 0) return GT_ERR_IO;
-  ssh_stream_t *s = a.allocate(a.context, sizeof(*s));
+  ssh_stream_t *s = gt__plugin_memory_alloc(&a,sizeof(*s));
   if (!s) return GT_ERR_IO;
   memset(s, 0, sizeof(*s)); s->wake[0] = s->wake[1] = -1;
   s->allocator = a; s->stderr_limit = o.stderr_limit; s->admission_end = now + o.admission_ms;
@@ -373,7 +374,7 @@ static gt_status_t stream_open(gt_ssh_t **owned, const char *command,uint16_t ta
 failed:
   if (s->wake[0] >= 0) close(s->wake[0]);
   if (s->wake[1] >= 0) close(s->wake[1]);
-  a.release(a.context, s, sizeof(*s)); return GT_ERR_IO;
+  gt__plugin_memory_free(&a,s, sizeof(*s)); return GT_ERR_IO;
 }
 gt_status_t gt__bridge_ssh_open(gt_ssh_t **owned,const char *command,
  const gt_bridge_ssh_options_t *options,const gt_allocator_t *allocator,gt_bridge_stream_t **out) {

@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "extension/memory.h"
 #include "extension/session.h"
 #include "extension/transfer.h"
 #include "base/secure-random.h"
@@ -370,7 +371,7 @@ static void free_parts(gt_bridge_session_t *s) {
   gt__bridge_transfer_free(s->resources);
   gt__bridge_rpc_free(s->rpc);
   gt__bridge_writer_free(s->writer);gt__bridge_decoder_free(s->decoder);gt__bridge_wire_free(s->wire);
-  gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));a.release(a.context,s,sizeof(*s));
+  gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(&a,s,sizeof(*s));
 }
 gt_status_t gt__bridge_session_destroy(gt_bridge_session_t *s) {
   if(!s || !s->released)return GT_ERR_INVALID_ARG;
@@ -397,7 +398,7 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,gt_bridge_role_t 
   for(size_t i=0;i<config->required_count;i++)if(!contains(config->available,config->available_count,config->required[i]))return GT_ERR_UNSUPPORTED;
   gt_allocator_t a=allocator?*allocator:(gt_allocator_t){NULL,allocate,release};if(!a.allocate || !a.release)return GT_ERR_INVALID_ARG;
   uint64_t now,end;if(!config->clock(config->clock_context,&now) || !add_time(now,config->handshake_ms,&end))return GT_ERR_IO;
-  gt_bridge_session_t *s=a.allocate(a.context,sizeof(*s));if(!s)return GT_ERR_IO;
+  gt_bridge_session_t *s=gt__plugin_memory_alloc(&a,sizeof(*s));if(!s)return GT_ERR_IO;
   memset(s,0,sizeof(*s));s->allocator=a;s->config=*config;s->role=role;s->stream=*owned;s->now=now;s->network_end=end;s->consent_ms=config->consent_ms;
   atomic_init(&s->stopping,false);s->info.budgets=config->budgets;s->info.peer=config->peer;
   gt_status_t status=gt__bridge_wire_new(&a,&s->wire);

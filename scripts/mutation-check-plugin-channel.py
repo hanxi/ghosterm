@@ -52,7 +52,7 @@ def main():
       ('capacity',[('if(count>=GT_EXT_CHANNEL_LIMIT)','if(false && count>=GT_EXT_CHANNEL_LIMIT)')],'boundary','allocation'),
       ('allocation-unwind',[('if(!c)atomic_fetch_sub_explicit','if(false && !c)atomic_fetch_sub_explicit')],'boundary','allocation'),
       ('constructor-unwind',[('if(status!=GT_OK){channel_free(c);return status;}','if(status!=GT_OK){return status;}')],'boundary','constructor-failure'),
-      ('owner-release',[('free(c);atomic_fetch_sub_explicit','free(c);return;atomic_fetch_sub_explicit')],'boundary','allocation'),
+      ('owner-release',[('gt__plugin_memory_free(NULL,c,sizeof(*c));atomic_fetch_sub_explicit','gt__plugin_memory_free(NULL,c,sizeof(*c));return;atomic_fetch_sub_explicit')],'boundary','allocation'),
       ('owner-cleared',[('channel_free(c);*owned=NULL;return GT_OK;','channel_free(c);return GT_OK;')],'boundary','allocation'),
       ('accepted-overflow',[('if(UINT64_MAX-c->info.accepted<n)','if(false && UINT64_MAX-c->info.accepted<n)')],'boundary','counter'),
       ('failure-preserved',[('if(c->info.phase==GT_EXT_FAILED || c->info.phase==GT_EXT_STOPPED)return c->info.phase;','if(false && (c->info.phase==GT_EXT_FAILED || c->info.phase==GT_EXT_STOPPED))return c->info.phase;')],'native','failure-stop'),

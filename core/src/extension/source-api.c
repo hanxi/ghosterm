@@ -1,3 +1,4 @@
+#include "extension/memory.h"
 #include "ghosterm/extension_source.h"
 #include "extension/session-owner.h"
 #include "extension/source.h"
@@ -28,8 +29,8 @@ gt_ext_source_status_t gt_ext_source_open(gt_ext_session_t *s,const gt_ext_lease
  if(s->sources>=GT_EXT_SOURCE_LIMIT)return GT_EXT_SOURCE_LIMIT_REACHED;
  gt_bridge_lease_t l;memcpy(l.connection,lease->connection,33);memcpy(l.instance,lease->instance,33);memcpy(l.token,lease->token,33);l.epoch=lease->epoch;
  gt_bridge_source_config_t c={.session=s->inner,.lease=l,.root_fd=config->root_fd,.relative_path=config->relative_path,.mime=config->mime,.byte_limit=config->byte_limit};
- gt_ext_source_t *source=calloc(1,sizeof(*source));if(!source)return GT_EXT_SOURCE_IO;
- gt_ext_source_status_t status=ext_source_status(gt__bridge_source_open(&c,NULL,&source->inner));if(status!=GT_EXT_SOURCE_OK){gt__secure_erase(source,sizeof(*source));free(source);return status;}
+ gt_ext_source_t *source=gt__plugin_memory_calloc(1,sizeof(*source));if(!source)return GT_EXT_SOURCE_IO;
+ gt_ext_source_status_t status=ext_source_status(gt__bridge_source_open(&c,NULL,&source->inner));if(status!=GT_EXT_SOURCE_OK){gt__secure_erase(source,sizeof(*source));gt__plugin_memory_free(NULL,source,sizeof(*source));return status;}
  source->session=s;s->sources++;*out=source;return GT_EXT_SOURCE_OK;
 }
 gt_ext_source_phase_t gt_ext_source_step(gt_ext_source_t *s){return s?ext_source_phase(gt__bridge_source_step(s->inner)):GT_EXT_SOURCE_FAILED;}
@@ -50,5 +51,5 @@ gt_ext_source_status_t gt_ext_source_close(gt_ext_source_t *s){
 gt_ext_source_status_t gt_ext_source_destroy(gt_ext_source_t **owned){
  if(!owned || !*owned)return GT_EXT_SOURCE_INVALID;gt_ext_source_t *s=*owned;gt_ext_source_status_t status=ext_source_status(gt__bridge_source_destroy(s->inner));
  if(status!=GT_EXT_SOURCE_OK){if(status==GT_EXT_SOURCE_IO)s->cleanup_error=status;return status;}
- s->session->sources--;gt__secure_erase(s,sizeof(*s));free(s);*owned=NULL;return GT_EXT_SOURCE_OK;
+ s->session->sources--;gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(NULL,s,sizeof(*s));*owned=NULL;return GT_EXT_SOURCE_OK;
 }

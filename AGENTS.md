@@ -582,6 +582,15 @@ unused 编译错误与仍 PASS 的身份变异均拒收，补读取前判据后�
 故第二十九批仍未验收 / 未提交。本片不接 App、不增公共 ABI、平台产品或 CI 二十份；
 失败 / 范围 / 收据见插件计划第三十一批，后续按独立切片继续。
 
+**插件共享内存 / 按需 JSON 第三十二批（2026-11-06）**：从未验收包校验器拆出独立提交；
+私有进程 requested / reserved heap、native owner / 队列 / 字节快照 / 源码 / JS 共用预算，
+动态 JSON 保持严格词法 / 精确整数 / 重键与旧 wire 预算，不含 metadata 校验 / 执行授权。
+独立源码默认 465 CTest / 154 ABI、JS ON / SSH ON 550 项、内存十四组 / 91 项、runtime
+十三组 / 33 场景 / 四配置拒绝通过；目标为编译后正常断言红、同 archive 配置绿、重建恢复
+与 SHA256，ASan/UBSan，无 LSan。NDK arm64 API29 实际 ELF 只编译链接，未设备执行。
+既有三十批定量 / 逐族释放证据不冒充本轮全重跑。无新 ABI / 平台产品 / App / CI 二十份；
+包 metadata 仍因正则 OOM 未验收，范围 / 失败 / 收据见插件计划第三十二批。
+
 `android-foreground` 以 `ANDROID_SERIAL=设备 python3 scripts/test-android-foreground.py` 验八项真实服务/页面定向，`mutation-check-android-foreground.py` 手工验 23 组；护真实 promotion、调度阻断、权限/类型、代次与请求取消、通知隐私/路由和生命周期。`test-android-foreground-system.py` 另验真实系统超时、stop-app 后新 PID 只读历史、通知拒绝及系统设置渠道关闭；`mutation-check-android-foreground-system.py` 有九组相应场景变异，含开启通知后补发及渠道恢复的状态检查。每组须编译后目标单条 JUnit 断言红、同 APK 配置对照绿、恢复绿与 SHA256，崩溃/编译失败不算目标红。系统设置及权限须恢复，stop-app 被中断的 staging 不计通过。§9.74 的 30 组与 §9.75 追加的两组均为分轮证据，不称一轮全量；完整 483 项仅 API 36 arm64 / 4 KB 页模拟器。以上均属手工覆盖，不增加 macOS CI 20 份，也不代表整个 A6 或发行矩阵完成。
 
 `android-file-journal` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-file-journal.py` 手工执行 20 组，护事务回滚、损坏/版本/容量、严格 JSON 与 UTF-8、检查点顺序、已知结果保留、历史加载/删除和队列阻断。`mutation-check-android-file-journal-crash.py` 在同样的设备环境下另验四组真实 SIGKILL/新 PID 恢复变异（含创建身份与阻止普通失败冒充死亡）；`test-android-file-journal-crash.py` 提供本机/SAF 六个中断点，新增创建标记已落盘、内容未写入边界。API 29 的 run-as 信号被 SELinux 拒绝，测试使用请求/PID/边界绑定的命令与 ack，由应用仅 SIGKILL 自身，宿主确认旧 PID 消失；不使用 root 或修改策略。远端以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFileJournalTest ANDROID_FILE_JOURNAL_REMOTE_MUTATE=1 bash scripts/test-android-ssh.sh` 执行四组变异及四个真实中断点，单独复验场景将 MUTATE 换为 CRASH。新进程只加载只读记录，核对实际文件/文档与清除记录不删文件，不自动重放任务、不恢复凭据。每组须真实编译后目标红、同 APK 配置对照绿、恢复绿与 SHA256；数量、失败与已运行范围见 Android 实现计划 §9.73，不将专项通过记为整个 A6 或断电恢复完成。

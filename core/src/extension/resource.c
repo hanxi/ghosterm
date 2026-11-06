@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE 1
+#include "extension/memory.h"
 #include "extension/resource.h"
 #include "base/sha256.h"
 #include "base/secure-random.h"
@@ -115,10 +116,10 @@ gt_bridge_resource_status_t gt__bridge_resource_open(const gt_bridge_resource_co
   struct stat st;if(fstat(config->directory_fd,&st))return GT_BRIDGE_RESOURCE_IO;
   if(!S_ISDIR(st.st_mode) || st.st_uid!=geteuid() || (st.st_mode&07777)!=0700)return GT_BRIDGE_RESOURCE_DENIED;
   gt_allocator_t a=allocator?*allocator:(gt_allocator_t){NULL,resource_allocate,resource_free};if(!a.allocate || !a.release)return GT_BRIDGE_RESOURCE_INVALID;
-  gt_bridge_resource_store_t *s=a.allocate(a.context,sizeof(*s));if(!s)return GT_BRIDGE_RESOURCE_IO;
+  gt_bridge_resource_store_t *s=gt__plugin_memory_alloc(&a,sizeof(*s));if(!s)return GT_BRIDGE_RESOURCE_IO;
   memset(s,0,sizeof(*s));s->allocator=a;s->config=*config;
   s->config.directory_fd=fcntl(config->directory_fd,F_DUPFD_CLOEXEC,0);
-  if(s->config.directory_fd<0){gt__secure_erase(s,sizeof(*s));a.release(a.context,s,sizeof(*s));return GT_BRIDGE_RESOURCE_IO;}
+  if(s->config.directory_fd<0){gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(&a,s,sizeof(*s));return GT_BRIDGE_RESOURCE_IO;}
   *out=s;return GT_BRIDGE_RESOURCE_OK;
 }
 gt_bridge_resource_status_t gt__bridge_resource_bind(gt_bridge_resource_store_t *s,const gt_bridge_lease_t *lease,uint64_t budget,uint64_t *owner){
@@ -217,5 +218,5 @@ void gt__bridge_resource_collect_retired(gt_bridge_resource_store_t *s){
 }
 gt_bridge_resource_status_t gt__bridge_resource_destroy(gt_bridge_resource_store_t *s){
   if(!s)return GT_BRIDGE_RESOURCE_INVALID;if(s->resources)return GT_BRIDGE_RESOURCE_WAIT;for(size_t i=0;i<GT_BRIDGE_RESOURCE_SCOPES;i++)if(s->scopes[i].handle)return GT_BRIDGE_RESOURCE_WAIT;
-  gt_allocator_t a=s->allocator;int directory=s->config.directory_fd;gt__secure_erase(s,sizeof(*s));a.release(a.context,s,sizeof(*s));return close(directory)?GT_BRIDGE_RESOURCE_IO:GT_BRIDGE_RESOURCE_OK;
+  gt_allocator_t a=s->allocator;int directory=s->config.directory_fd;gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(&a,s,sizeof(*s));return close(directory)?GT_BRIDGE_RESOURCE_IO:GT_BRIDGE_RESOURCE_OK;
 }

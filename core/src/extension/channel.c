@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "extension/memory.h"
 #include "ghosterm/extension.h"
 #include "extension/route.h"
 #include "extension/channel-owner.h"
@@ -21,10 +22,10 @@ static bool channel_clock(void *ctx,uint64_t *out){(void)ctx;struct timespec t;i
 static gt_ext_channel_t *channel_new(void){
   unsigned count=atomic_load_explicit(&channel_count,memory_order_relaxed);
   do{if(count>=GT_EXT_CHANNEL_LIMIT)return NULL;}while(!atomic_compare_exchange_weak_explicit(&channel_count,&count,count+1,memory_order_acq_rel,memory_order_relaxed));
-  gt_ext_channel_t *c=calloc(1,sizeof(*c));if(!c)atomic_fetch_sub_explicit(&channel_count,1,memory_order_release);return c;
+  gt_ext_channel_t *c=gt__plugin_memory_calloc(1,sizeof(*c));if(!c)atomic_fetch_sub_explicit(&channel_count,1,memory_order_release);return c;
 }
 #endif
-static void channel_free(gt_ext_channel_t *c){gt__secure_erase(c,sizeof(*c));free(c);atomic_fetch_sub_explicit(&channel_count,1,memory_order_release);}
+static void channel_free(gt_ext_channel_t *c){gt__secure_erase(c,sizeof(*c));gt__plugin_memory_free(NULL,c,sizeof(*c));atomic_fetch_sub_explicit(&channel_count,1,memory_order_release);}
 static gt_ext_stage_t channel_stage(gt_bridge_route_phase_t p){switch(p){case GT_BRIDGE_ROUTE_AUTH:return GT_EXT_STAGE_AUTH;case GT_BRIDGE_ROUTE_FORWARD:return GT_EXT_STAGE_FORWARD;case GT_BRIDGE_ROUTE_EXEC:return GT_EXT_STAGE_EXEC;default:return GT_EXT_STAGE_STREAM;}}
 static gt_ssh_auth_phase_t channel_auth_phase(gt_ssh_connector_phase_t p){switch(p){
   case GT_SSH_CONNECT_TCP:return GT_SSH_AUTH_PHASE_TCP;case GT_SSH_CONNECT_NEGOTIATING:return GT_SSH_AUTH_PHASE_NEGOTIATING;case GT_SSH_CONNECT_HOSTKEY:return GT_SSH_AUTH_PHASE_HOSTKEY;

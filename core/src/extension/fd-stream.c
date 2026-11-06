@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "extension/memory.h"
 #include "extension/stream.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -110,7 +111,7 @@ static void destroy(gt_bridge_stream_t *base) {
   fd_stream_t *s = (fd_stream_t *)base;
   close(s->wake[0]); close(s->wake[1]);
   gt_allocator_t a = s->allocator;
-  a.release(a.context, s, sizeof(*s));
+  gt__plugin_memory_free(&a,s, sizeof(*s));
 }
 static const gt_bridge_stream_ops_t ops = {fd_read, fd_write, wake, close_step, destroy};
 
@@ -143,7 +144,7 @@ gt_status_t gt__bridge_fd_open(int input, int output, const gt_allocator_t *allo
         ((i == 1 || count == 1) && mode == O_RDONLY)) return GT_ERR_INVALID_ARG;
   }
   gt_allocator_t a = allocator ? *allocator : (gt_allocator_t){NULL, allocate, release};
-  fd_stream_t *s = a.allocate(a.context, sizeof(*s));
+  fd_stream_t *s = gt__plugin_memory_alloc(&a,sizeof(*s));
   if (!s) return GT_ERR_IO;
   *s = (fd_stream_t){.allocator = a, .input = input, .output = output, .wake = {-1, -1}};
   if (pipe(s->wake)) goto fail;
@@ -167,6 +168,6 @@ gt_status_t gt__bridge_fd_open(int input, int output, const gt_allocator_t *allo
 fail:
   if (s->wake[0] >= 0) close(s->wake[0]);
   if (s->wake[1] >= 0) close(s->wake[1]);
-  a.release(a.context, s, sizeof(*s));
+  gt__plugin_memory_free(&a,s, sizeof(*s));
   return GT_ERR_IO;
 }

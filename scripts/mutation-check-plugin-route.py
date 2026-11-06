@@ -92,7 +92,7 @@ def main():
              'gt__ssh_connector_info(r->auth,&r->info.authentication[0]);','echo3'),
             ('alias-ownership','extension/route.c','if(owned[j]==owned[i])return GT_ERR_INVALID_ARG;',
              '(void)j;','allocation'),
-            ('route-release','extension/route.c','gt_allocator_t a=r->allocator;a.release(a.context,r,sizeof(*r));',
+            ('route-release','extension/route.c','gt_allocator_t a=r->allocator;gt__plugin_memory_free(&a,r,sizeof(*r));',
              'gt_allocator_t a=r->allocator;(void)a;','allocation'),
             ('parent-release','ssh.c','if(gt__bridge_stream_destroy(ssh->wire)!=GT_OK)return GT_ERR_IO;',
              '/* leaked parent stream owner */','echo3'),

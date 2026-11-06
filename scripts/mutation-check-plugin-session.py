@@ -66,7 +66,7 @@ def main():
           ('late-read','if(!tick(s))return s->info.phase; /* no activation from late read bytes */','/* omitted read deadline recheck */','late-read'),
           ('late-write','if(!tick(s))return s->info.phase; /* time may advance during the write */','/* omitted write deadline recheck */','late-write'),
           ('expired-effect','s->info.end==GT_BRIDGE_END_EXPIRED && s->info.decision!=GT_BRIDGE_DECISION_ALLOW?','s->info.end==GT_BRIDGE_END_EXPIRED?','expired-after-allow'),
-          ('owner-release','gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));a.release(a.context,s,sizeof(*s));','gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));(void)a;','allow'),
+          ('owner-release','gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(&a,s,sizeof(*s));','gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));(void)a;','allow'),
         ]
         path=source/'src/extension/session.c';original=path.read_bytes();results=[]
         for label,old,new,mode in cases:

@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE 1
+#include "extension/memory.h"
 #include "extension/package-snapshot.h"
 #include "base/sha256.h"
 #include "base/secure-random.h"
@@ -24,7 +25,7 @@ struct gt_package_snapshot {
 };
 static void *package_alloc(void *ctx,size_t n){(void)ctx;return malloc(n);}
 static void package_free(void *ctx,void *p,size_t n){(void)ctx;(void)n;free(p);}
-static void package_release(gt_package_snapshot_t *s,void *p,size_t n){if(p){gt__secure_erase(p,n);s->allocator.release(s->allocator.context,p,n);}}
+static void package_release(gt_package_snapshot_t *s,void *p,size_t n){if(p){gt__secure_erase(p,n);gt__plugin_memory_free(&s->allocator,p,n);}}
 static gt_package_status_t package_fail(gt_package_snapshot_t *s,gt_package_status_t error){s->status=error;return error;}
 static bool package_same(const struct stat *a,const struct stat *b){
 #if defined(__APPLE__)
@@ -88,8 +89,8 @@ gt_package_status_t gt__package_capture_open(const gt_package_capture_config_t *
  if(!out || !c || c->directory_fd<0 || !c->members || c->members>GT_PACKAGE_MEMBERS_MAX || !c->entries || c->entries>GT_PACKAGE_ENTRIES_MAX || !c->member_bytes || c->member_bytes>GT_PACKAGE_MEMBER_BYTES_MAX || !c->total_bytes || c->total_bytes>GT_PACKAGE_TOTAL_BYTES_MAX)return GT_PACKAGE_INVALID;
  gt_allocator_t allocator=a?*a:(gt_allocator_t){NULL,package_alloc,package_free};if(!allocator.allocate || !allocator.release)return GT_PACKAGE_INVALID;
  struct stat original;if(fstat(c->directory_fd,&original))return GT_PACKAGE_IO;if(!S_ISDIR(original.st_mode))return GT_PACKAGE_INVALID;
- gt_package_snapshot_t *s=allocator.allocate(allocator.context,sizeof(*s));if(!s)return GT_PACKAGE_NOMEM;memset(s,0,sizeof(*s));s->allocator=allocator;s->config=*c;s->root=-1;s->file=-1;s->status=GT_PACKAGE_WAIT;
- size_t allocation=(c->entries+1)*sizeof(*s->entries);s->entries=allocator.allocate(allocator.context,allocation);if(!s->entries){gt__package_snapshot_destroy(&s);return GT_PACKAGE_NOMEM;}memset(s->entries,0,allocation);
+ gt_package_snapshot_t *s=gt__plugin_memory_alloc(&allocator,sizeof(*s));if(!s)return GT_PACKAGE_NOMEM;memset(s,0,sizeof(*s));s->allocator=allocator;s->config=*c;s->root=-1;s->file=-1;s->status=GT_PACKAGE_WAIT;
+ size_t allocation=(c->entries+1)*sizeof(*s->entries);s->entries=gt__plugin_memory_alloc(&allocator,allocation);if(!s->entries){gt__package_snapshot_destroy(&s);return GT_PACKAGE_NOMEM;}memset(s->entries,0,allocation);
  s->root=openat(c->directory_fd,".",O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
  gt_package_status_t status=GT_PACKAGE_OK;struct stat observed;
  if(s->root<0 || fstat(s->root,&observed))status=GT_PACKAGE_IO;else if(!package_same(&original,&observed))status=GT_PACKAGE_CHANGED;
@@ -150,9 +151,9 @@ gt_package_status_t gt__package_capture_step(gt_package_snapshot_t *s){
  if((!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode)) || (S_ISREG(st.st_mode) && st.st_nlink!=1))return package_fail(s,GT_PACKAGE_INVALID);
  if(S_ISREG(st.st_mode) && (st.st_size<0 || (uint64_t)st.st_size>s->config.member_bytes || (uint64_t)st.st_size>s->config.total_bytes-s->total || s->count==s->config.members))return package_fail(s,GT_PACKAGE_LIMIT);
  package_entry_t *e=&s->entries[s->used++];e->path_bytes=n;e->parent=(uint16_t)s->active_directory;e->observed=st;e->directory=S_ISDIR(st.st_mode);
- e->path=s->allocator.allocate(s->allocator.context,n+1);if(!e->path)return package_fail(s,GT_PACKAGE_NOMEM);memcpy(e->path,path,n+1);
+ e->path=gt__plugin_memory_alloc(&s->allocator,n+1);if(!e->path)return package_fail(s,GT_PACKAGE_NOMEM);memcpy(e->path,path,n+1);
  if(e->directory)return GT_PACKAGE_WAIT;
- if(st.st_size){e->data=s->allocator.allocate(s->allocator.context,(size_t)st.st_size);if(!e->data)return package_fail(s,GT_PACKAGE_NOMEM);}
+ if(st.st_size){e->data=gt__plugin_memory_alloc(&s->allocator,(size_t)st.st_size);if(!e->data)return package_fail(s,GT_PACKAGE_NOMEM);}
  s->members[s->count++]=e;s->total+=(uint64_t)st.st_size;s->active_member=s->used-1;s->read_at=0;gt__sha256_init(&s->hash);
  /* NONBLOCK prevents a raced replacement FIFO from blocking before fstat. */
  s->file=openat(dirfd(s->directory),d->d_name,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK);
@@ -180,5 +181,5 @@ gt_package_status_t gt__package_snapshot_destroy(gt_package_snapshot_t **out){
  if(!out || !*out)return GT_PACKAGE_INVALID;gt_package_snapshot_t *s=*out;*out=NULL;bool failed=false;
  if(s->file>=0 && close(s->file))failed=true;if(s->directory && closedir(s->directory))failed=true;if(s->root>=0 && close(s->root))failed=true;
  for(size_t i=1;i<s->used;i++){package_entry_t *e=&s->entries[i];package_release(s,e->path,e->path_bytes+1);package_release(s,e->data,(size_t)e->observed.st_size);}
- package_release(s,s->entries,(s->config.entries+1)*sizeof(*s->entries));gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));a.release(a.context,s,sizeof(*s));return failed?GT_PACKAGE_IO:GT_PACKAGE_OK;
+ package_release(s,s->entries,(s->config.entries+1)*sizeof(*s->entries));gt_allocator_t a=s->allocator;gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(&a,s,sizeof(*s));return failed?GT_PACKAGE_IO:GT_PACKAGE_OK;
 }

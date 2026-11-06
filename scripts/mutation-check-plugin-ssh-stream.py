@@ -85,7 +85,7 @@ def main():
              'if (false)','admission-deadline'),
             ('abort-before-free','extension/backends/ssh_exec.c','gt__ssh_abort(s->ssh); /* dedicated socket only, before library cleanup */',
              '/* skipped dedicated socket abort */','cancel'),
-            ('allocator-release','extension/backends/ssh_exec.c','a.release(a.context, s, sizeof(*s));\n}',
+            ('allocator-release','extension/backends/ssh_exec.c','gt__plugin_memory_free(&a,s, sizeof(*s));\n}',
              '(void)a; /* leaked owner */\n}','allocation'),
             ('reuse-terminal','ssh.c','ssh->channel_started || ssh->bridge_owned)return GT_ERR_INVALID_ARG;',
              'ssh->bridge_owned)return GT_ERR_INVALID_ARG;','isolation'),

@@ -1,3 +1,4 @@
+#include "extension/memory.h"
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE 1
 #include "ghosterm.h"
@@ -16,16 +17,16 @@ static int boundary_close;
 static unsigned boundary_allocations;
 static const uint8_t *boundary_borrow;
 static size_t boundary_borrow_size;
-static void *boundary_calloc(size_t n,size_t size){boundary_allocations++;return boundary_fail_allocation?NULL:calloc(n,size);}
+static void *boundary_calloc(size_t n,size_t size){boundary_allocations++;return boundary_fail_allocation?NULL:gt__plugin_memory_calloc(n,size);}
 static gt_bridge_io_t boundary_write(gt_bridge_stream_t *s,const void *p,size_t n,int ms){gt_bridge_io_t r=gt__bridge_stream_write(s,p,n,ms);if(r.state==GT_BRIDGE_WAIT){boundary_borrow=p;boundary_borrow_size=n;}if(boundary_stop_write)gt_ext_channel_stop(boundary_owner);return r;}
 static gt_bridge_io_t boundary_read(gt_bridge_stream_t *s,void *p,size_t n,int ms){gt_bridge_io_t r=gt__bridge_stream_read(s,p,n,ms);if(boundary_stop_read)gt_ext_channel_stop(boundary_owner);return r;}
 static gt_bridge_close_t boundary_close_step(gt_bridge_stream_t *s,int ms){if(boundary_close)return boundary_close==1?GT_BRIDGE_DRAINING:GT_BRIDGE_CLOSE_ERROR;return gt__bridge_stream_close(s,ms);}
-#define calloc boundary_calloc
+#define gt__plugin_memory_calloc boundary_calloc
 #define gt__bridge_stream_write boundary_write
 #define gt__bridge_stream_read boundary_read
 #define gt__bridge_stream_close boundary_close_step
 #include "../src/extension/channel.c"
-#undef calloc
+#undef gt__plugin_memory_calloc
 #undef gt__bridge_stream_write
 #undef gt__bridge_stream_read
 #undef gt__bridge_stream_close

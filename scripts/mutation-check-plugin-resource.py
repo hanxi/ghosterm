@@ -64,7 +64,7 @@ def main():
       ('anonymous-file','resource.c','if(unlinkat(s->config.directory_fd,name,0))','if(false && unlinkat(s->config.directory_fd,name,0))','roundtrip'),
       ('failed-cleanup-charge','resource.c',' || unlinkat(s->config.directory_fd,item->name,0))return GT_BRIDGE_RESOURCE_IO;',' || unlinkat(s->config.directory_fd,item->name,0)){item->name[0]=0;}','io-cleanup'),
       ('cleanup-identity','resource.c','st.st_dev!=item->device || st.st_ino!=item->inode || !S_ISREG(st.st_mode) || unlinkat','false || unlinkat','cleanup-race'),
-      ('owner-erase','resource.c','gt__secure_erase(s,sizeof(*s));a.release','/* no erase */a.release','allocation'),
+      ('owner-erase','resource.c','gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(&a,s,sizeof(*s));','a.release(a.context,s,sizeof(*s));','allocation'),
       ('sha-round','sha256.c','0x428a2f98,','0x428a2f99,','hash'),
       ('sha-bit-length','sha256.c','uint64_t bits=s->bytes*8;','uint64_t bits=s->bytes;','hash'),
       ('sha-overflow','sha256.c',' || n>UINT64_MAX/8-s->bytes','', 'hash'),

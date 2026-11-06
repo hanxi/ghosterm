@@ -60,7 +60,7 @@ def main():
       ('snapshot-scope','transfer.c',[('if(!gt__bridge_session_scope(t->session,lease))return GT_BRIDGE_RESOURCE_DENIED;if(!t->snapshot_count)','if(false && !gt__bridge_session_scope(t->session,lease))return GT_BRIDGE_RESOURCE_DENIED;if(!t->snapshot_count)')],'native-scope'),
       ('retire-session','transfer.c',[('t->cleanup_pending=gt__bridge_resource_retire(t->store,t->owner,&t->lease)!=GT_BRIDGE_RESOURCE_OK;','t->cleanup_pending=false;')],'snapshot'),
       ('last-pin','resource.c',[('if(scope->retiring && !scope->resources && !failed)','if(false && scope->retiring && !scope->resources && !failed)')],'snapshot'),
-      ('owner-release','transfer.c',[('gt__secure_erase(t,sizeof(*t));a.release(a.context,t,sizeof(*t));','gt__secure_erase(t,sizeof(*t));(void)a;')],'roundtrip'),
+      ('owner-release','transfer.c',[('gt__secure_erase(t,sizeof(*t));gt__plugin_memory_free(&a,t,sizeof(*t));','gt__secure_erase(t,sizeof(*t));(void)a;')],'roundtrip'),
       ('cleanup-retry','session.c',[('if(cleanup!=GT_OK)return cleanup;','if(false && cleanup!=GT_OK)return cleanup;')],'destroy-retry'),
       ('io-stop-recheck','transfer.c',[('if(!transfer_live(t))return GT_ERR_CANCELLED;','if(false && !transfer_live(t))return GT_ERR_CANCELLED;')],'stop-finish'),
       ('peer-resource-id','transfer.c',[('return !memcmp(id,expected,33);','return true;')],'peer-id'),

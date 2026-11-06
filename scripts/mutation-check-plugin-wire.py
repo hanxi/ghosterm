@@ -7,7 +7,7 @@ import sys
 import hashlib,json,os,shutil,signal,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1]
 MARK='GT_PLUGIN_WIRE_MUTATION'
-INPUTS=['core/src/extension/wire.c','core/src/extension/wire.h','core/src/extension/wire-schema.inc',
+INPUTS=['core/src/base/json-reader.inc','core/src/extension/package-json.c','core/src/extension/package-json.h','core/src/extension/wire.c','core/src/extension/wire.h','core/src/extension/wire-schema.inc',
         'core/src/extension/frame.h','core/src/base/secure-random.h','core/tests/test_bridge_wire.c','core/CMakeLists.txt',
         'packages/plugin-sdk/schema/bridge-v1.candidate.json','packages/plugin-sdk/schema/bridge-v1.cases.json',
         'scripts/generate-plugin-wire.py','scripts/test-plugin-wire.py','scripts/probes/plugin-wire-reference.mjs',
@@ -15,6 +15,8 @@ INPUTS=['core/src/extension/wire.c','core/src/extension/wire.h','core/src/extens
         'scripts/mutation-check-plugin-wire.py']
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def main():
+    for name in ('core/src/extension/wire.c','core/src/extension/wire.h','core/src/base/json-reader.inc'):
+        if MARK.encode() in (ROOT/name).read_bytes():print('Residual mutation: '+name,file=sys.stderr);raise SystemExit(2)
     work=Path(tempfile.mkdtemp(prefix='plugin-wire-mutations-',dir=ROOT/'tmp'));logs=work/'logs';logs.mkdir()
     source=work/'source';build=work/'build';hashes={name:digest(ROOT/name) for name in INPUTS};commands=[]
     env={**os.environ,'TMPDIR':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
@@ -28,7 +30,7 @@ def main():
         # GNU make can rebuild .o/.a within one second without relinking tests.
         binaries=['test_bridge_wire', 'test_config']
         for name in ['libghosterm_core.a',*binaries]:(build/name).unlink(missing_ok=True)
-        objects=[('ghosterm_core','src/extension/wire.c'),('test_bridge_wire','tests/test_bridge_wire.c')]
+        objects=[('ghosterm_core','src/extension/wire.c'),('ghosterm_core','src/extension/package-json.c'),('test_bridge_wire','tests/test_bridge_wire.c')]
         for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
         run(label+'-build',['cmake','--build',build,'--target','test_bridge_wire','test_config','-j','2'])
         link_log=(logs/(label+'-build.log')).read_text()
@@ -52,26 +54,26 @@ def main():
         run('configure',['cmake','-S',source,'-B',build,'-DCMAKE_BUILD_TYPE=Debug','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
         rebuild('baseline');suite('baseline');control('baseline')
         cases=[
-          ('decoded-duplicates','wire.c',[('return fail(d,GT_BRIDGE_WIRE_DUPLICATE);','return true;')],'duplicate-escaped-root'),
-          ('key-scope','wire.c',[('UINT64_C(14695981039346656037)^n->parent','UINT64_C(14695981039346656037)'),('o->parent==n->parent && o->key_size','o->parent && n->parent && o->key_size')],'valid-response-success'),
-          ('utf8-surrogate','wire.c',[('cp<minimum || cp>0x10ffff || (cp>=0xd800 && cp<=0xdfff)','cp<minimum || cp>0x10ffff')],'utf8-surrogate'),
-          ('lone-surrogate','wire.c',[('else if(cp>=0xdc00 && cp<=0xdfff)','else if(cp>0xdc00 && cp<=0xdfff)')],'surrogate-low'),
+          ('decoded-duplicates','json-reader.inc',[('return fail(d,GT_JSON_DUPLICATE);','return true;')],'duplicate-escaped-root'),
+          ('key-scope','json-reader.inc',[('UINT64_C(14695981039346656037)^n->parent','UINT64_C(14695981039346656037)'),('o->parent==n->parent && o->key_size','o->parent && n->parent && o->key_size')],'valid-response-success'),
+          ('utf8-surrogate','json-reader.inc',[('cp<minimum || cp>0x10ffff || (cp>=0xd800 && cp<=0xdfff)','cp<minimum || cp>0x10ffff')],'utf8-surrogate'),
+          ('lone-surrogate','json-reader.inc',[('else if(cp>=0xdc00 && cp<=0xdfff)','else if(cp>0xdc00 && cp<=0xdfff)')],'surrogate-low'),
           ('byte-limit','wire.c',[('if(size>GT_BRIDGE_FRAME_MAX)','if(false)')],'bytes-65537'),
           ('node-limit','wire.h',[('#define GT_BRIDGE_WIRE_NODES_MAX 4096u','#define GT_BRIDGE_WIRE_NODES_MAX 4097u')],'nodes-4084'),
           ('depth-limit','wire.h',[('#define GT_BRIDGE_WIRE_DEPTH_MAX 32u','#define GT_BRIDGE_WIRE_DEPTH_MAX 33u')],'depth-31'),
           ('counter-overflow','wire.c',[('if(value>(UINT64_MAX-v)/10)return false;','/* unchecked overflow */')],'counter-overflow'),
-          ('exact-integer','wire.c',[('if(shift<0 && (uint64_t)(-shift)>digits-1-last)return false;','(void)last; /* rounded fractional protocol value */')],'integer-rounded'),
+          ('exact-integer','json-reader.inc',[('if(shift<0 && (uint64_t)(-shift)>digits-1-last)return false;','(void)last; /* rounded fractional protocol value */')],'integer-rounded'),
           ('schema-bypass','wire.c',[('if(!wire_schema_0(d,1))','if(false && !wire_schema_0(d,1))')],'unknown-root-field'),
           ('base64-padbits','wire.c',[('if(padding==2 && (n<4 || (sextet(s[n-3])&15)))return false;','if(padding==2 && n<4)return false;')],'base64-invalid-0'),
           ('semver-prerelease','wire.c',[('numeric && at-start>1','numeric && at-start>2')],'semver-2'),
           ('failed-output','wire.c',[('if(out)memset(out,0,sizeof(*out));if(!d)','(void)out;if(!d)')],'duplicate-root'),
           ('failed-view','wire.c',[('d->allocator=a;d->input=bytes;','d->allocator=a;d->valid=true;d->input=bytes;')],'duplicate-root'),
-          ('wiped-release','wire.c',[('gt_allocator_t a=d->allocator;gt__secure_erase(d,sizeof(*d));a.release(a.context,d,sizeof(*d));','gt_allocator_t a=d->allocator;a.release(a.context,d,sizeof(*d));')],'valid-request'),
-          ('allocator-release','wire.c',[('gt_allocator_t a=d->allocator;gt__secure_erase(d,sizeof(*d));a.release(a.context,d,sizeof(*d));','gt_allocator_t a=d->allocator;gt__secure_erase(d,sizeof(*d));(void)a;')],'valid-request'),
+          ('wiped-release','wire.c',[('gt_allocator_t a=d->allocator;gt__secure_erase(d,sizeof(*d));gt__plugin_memory_free(&a,d,sizeof(*d));','gt_allocator_t a=d->allocator;a.release(a.context,d,sizeof(*d));')],'valid-request'),
+          ('allocator-release','wire.c',[('gt_allocator_t a=d->allocator;gt__secure_erase(d,sizeof(*d));gt__plugin_memory_free(&a,d,sizeof(*d));','gt_allocator_t a=d->allocator;gt__secure_erase(d,sizeof(*d));(void)a;')],'valid-request'),
         ]
         results=[]
         for label,name,changes,mode in cases:
-            path=source/'src/extension'/name;original=path.read_bytes();text=original.decode()
+            path=source/('src/base' if name=='json-reader.inc' else 'src/extension')/name;original=path.read_bytes();text=original.decode()
             for old,new in changes:
                 if text.count(old)!=1:raise RuntimeError('Ambiguous mutation anchor: '+label)
                 text=text.replace(old,new+' /* '+MARK+' */')

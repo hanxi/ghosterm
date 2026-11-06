@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "extension/memory.h"
 #include "ghosterm/extension_session.h"
 #include "ghosterm/extension_rpc.h"
 #include "extension/session-owner.h"
@@ -39,7 +40,7 @@ static gt_status_t ext_session_open_owned(gt_ext_channel_t **owned,gt_ext_role_t
  c.budgets=(gt_bridge_budgets_t){config->budgets.fragment_bytes,config->budgets.message_bytes,config->budgets.resource_bytes};
  c.handshake_ms=config->handshake_ms;c.consent_ms=config->consent_ms;c.peer.kind=config->peer.kind==GT_EXT_PEER_SSH?GT_BRIDGE_PEER_SSH:GT_BRIDGE_PEER_LOCAL;
  memcpy(c.peer.identity,config->peer.identity,sizeof(c.peer.identity));c.clock=config->clock?config->clock:ext_session_clock;c.clock_context=config->clock_context;
- gt_ext_session_t *s=calloc(1,sizeof(*s));if(!s)return GT_ERR_IO;
+ gt_ext_session_t *s=gt__plugin_memory_calloc(1,sizeof(*s));if(!s)return GT_ERR_IO;
  s->requests=requests;c.rpc_enabled=requests;c.rpc_method_count=count;
  s->store=store;c.resource_store=store?store->inner:NULL;c.resource_scope_bytes=scope;
  for(size_t i=0;i<count;i++){
@@ -47,7 +48,7 @@ static gt_status_t ext_session_open_owned(gt_ext_channel_t **owned,gt_ext_role_t
   m->receiver=(uint8_t)methods[i].receiver;m->input=ext_input;m->output=ext_output;m->context=&s->methods[i];
  }
  status=gt__bridge_session_open(&stream,role==GT_EXT_HOST?GT_BRIDGE_HOST:GT_BRIDGE_EXECUTOR,&c,NULL,&s->inner);
- if(status!=GT_OK){gt__secure_erase(s,sizeof(*s));free(s);return status;}
+ if(status!=GT_OK){gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(NULL,s,sizeof(*s));return status;}
  if(store)store->sessions++;s->channel=*owned;gt__ext_channel_commit(s->channel);*owned=NULL;*out=s;return GT_OK;
 }
 gt_status_t gt_ext_session_open(gt_ext_channel_t **owned,gt_ext_role_t role,const gt_ext_session_config_t *config,gt_ext_session_t **out){
@@ -104,7 +105,7 @@ gt_ext_close_t gt_ext_session_close(gt_ext_session_t *s,int ms){
 }
 gt_status_t gt_ext_session_destroy(gt_ext_session_t **owned){
  if(!owned || !*owned || !(*owned)->released || (*owned)->sources)return GT_ERR_INVALID_ARG;gt_ext_session_t *s=*owned;gt_status_t status=gt__bridge_session_destroy(s->inner);
- if(status!=GT_OK){s->cleanup_error=status;return status;}if(s->store)s->store->sessions--;gt__ext_channel_retire(s->channel);gt__secure_erase(s,sizeof(*s));free(s);*owned=NULL;return GT_OK;
+ if(status!=GT_OK){s->cleanup_error=status;return status;}if(s->store)s->store->sessions--;gt__ext_channel_retire(s->channel);gt__secure_erase(s,sizeof(*s));gt__plugin_memory_free(NULL,s,sizeof(*s));*owned=NULL;return GT_OK;
 }
 static gt_bridge_lease_t ext_lease(const gt_ext_lease_t *p){gt_bridge_lease_t l;memcpy(l.connection,p->connection,33);memcpy(l.instance,p->instance,33);memcpy(l.token,p->token,33);l.epoch=p->epoch;return l;}
 static gt_ext_rpc_status_t ext_rpc_status(gt_bridge_rpc_status_t p){switch(p){case GT_BRIDGE_RPC_OK:return GT_EXT_RPC_OK;case GT_BRIDGE_RPC_WAIT:return GT_EXT_RPC_WAIT;case GT_BRIDGE_RPC_INVALID:return GT_EXT_RPC_INVALID;case GT_BRIDGE_RPC_DENIED:return GT_EXT_RPC_DENIED;case GT_BRIDGE_RPC_UNSUPPORTED:return GT_EXT_RPC_UNSUPPORTED;case GT_BRIDGE_RPC_CLOSED:return GT_EXT_RPC_CLOSED;}return GT_EXT_RPC_INVALID;}

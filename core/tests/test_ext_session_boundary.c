@@ -1,20 +1,21 @@
+#include "extension/memory.h"
 #define main ext_session_fixture_main
 #include "test_ext_session.c"
 #undef main
 #include "extension/session.h"
 #include "extension/channel-owner.h"
 static bool facade_allocation_failure,facade_open_failure,facade_close_error,facade_draining,facade_destroy_error;
-static void *facade_calloc(size_t count,size_t size){if(facade_allocation_failure)return NULL;return calloc(count,size);}
+static void *facade_calloc(size_t count,size_t size){if(facade_allocation_failure)return NULL;return gt__plugin_memory_calloc(count,size);}
 static gt_status_t facade_open(gt_bridge_stream_t **p,gt_bridge_role_t role,const gt_bridge_session_config_t *c,const gt_allocator_t *a,gt_bridge_session_t **s){if(facade_open_failure){*s=NULL;return GT_ERR_IO;}return gt__bridge_session_open(p,role,c,a,s);}
 static gt_bridge_close_t facade_close(gt_bridge_session_t *s,int ms){if(facade_close_error)return GT_BRIDGE_CLOSE_ERROR;if(facade_draining)return GT_BRIDGE_DRAINING;return gt__bridge_session_close(s,ms);}
 static gt_status_t facade_destroy(gt_bridge_session_t *s){return facade_destroy_error?GT_ERR_IO:gt__bridge_session_destroy(s);}
 /* Actual facade; inject only allocator and private provider failure boundaries. */
-#define calloc facade_calloc
+#define gt__plugin_memory_calloc facade_calloc
 #define gt__bridge_session_open facade_open
 #define gt__bridge_session_close facade_close
 #define gt__bridge_session_destroy facade_destroy
 #include "../src/extension/session-api.c"
-#undef calloc
+#undef gt__plugin_memory_calloc
 #undef gt__bridge_session_open
 #undef gt__bridge_session_close
 #undef gt__bridge_session_destroy

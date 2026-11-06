@@ -133,7 +133,7 @@ def main():
          ('fixed-capacity', 'rpc.h', '#define GT_BRIDGE_RPC_SLOTS 64u', '#define GT_BRIDGE_RPC_SLOTS 65u', 'full'),
          ('owner-release',
           'rpc.c',
-          'gt__secure_erase(r,sizeof(*r));a.release(a.context,r,sizeof(*r));',
+          'gt__secure_erase(r,sizeof(*r));gt__plugin_memory_free(&a,r,sizeof(*r));',
           'gt__secure_erase(r,sizeof(*r));(void)a;',
           'roundtrip')]
         results=[]

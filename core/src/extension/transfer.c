@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include "extension/memory.h"
 #include "extension/transfer.h"
 #include "base/secure-random.h"
 #include "base/sha256.h"
@@ -88,10 +89,10 @@ static gt_status_t transfer_pump(gt_bridge_transfer_t *t){
 }
 gt_status_t gt__bridge_transfer_new(gt_bridge_session_t *session,gt_bridge_wire_t *wire,gt_bridge_resource_store_t *store,uint64_t budget,const gt_allocator_t *a,gt_bridge_transfer_t **out){
   if(out)*out=NULL;if(!session || !wire || !store || !budget || !a || !out)return GT_ERR_INVALID_ARG;
-  gt_bridge_transfer_t *t=a->allocate(a->context,sizeof(*t));if(!t)return GT_ERR_IO;memset(t,0,sizeof(*t));t->allocator=*a;t->session=session;t->wire=wire;t->store=store;t->scope_budget=budget;
+  gt_bridge_transfer_t *t=gt__plugin_memory_alloc(a,sizeof(*t));if(!t)return GT_ERR_IO;memset(t,0,sizeof(*t));t->allocator=*a;t->session=session;t->wire=wire;t->store=store;t->scope_budget=budget;
   size_t count;(void)gt__bridge_session_methods(session,&count,&t->role);t->credit_pending=GT_BRIDGE_TRANSFER_WINDOW;*out=t;return GT_OK;
 }
-void gt__bridge_transfer_free(gt_bridge_transfer_t *t){if(t){gt_allocator_t a=t->allocator;gt__secure_erase(t,sizeof(*t));a.release(a.context,t,sizeof(*t));}}
+void gt__bridge_transfer_free(gt_bridge_transfer_t *t){if(t){gt_allocator_t a=t->allocator;gt__secure_erase(t,sizeof(*t));gt__plugin_memory_free(&a,t,sizeof(*t));}}
 void gt__bridge_transfer_end(gt_bridge_transfer_t *t){
   if(!t || t->ended)return;t->ended=true;transfer_discard_chunks(t);
   if(t->out.used && !t->out.result.confirmed && t->out.result.state!=GT_BRIDGE_TRANSFER_CANCELLED)t->out.result.state=t->out.started?GT_BRIDGE_TRANSFER_UNKNOWN:GT_BRIDGE_TRANSFER_CANCELLED;

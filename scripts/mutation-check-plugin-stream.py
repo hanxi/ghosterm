@@ -105,7 +105,7 @@ def main():
              "if (r == GT_BRIDGE_RELEASED || r == GT_BRIDGE_DRAINING) s->closed = true;", "lifecycle"),
             ("stopped-write", "stream.c", "if (stopped(s)) return (gt_bridge_io_t){GT_BRIDGE_CLOSED, 0, GT_ERR_CANCELLED};\n  if (n > GT_BRIDGE_IO_QUANTUM) n = GT_BRIDGE_IO_QUANTUM;\n  return checked(s->ops->write",
              "if (n > GT_BRIDGE_IO_QUANTUM) n = GT_BRIDGE_IO_QUANTUM;\n  return checked(s->ops->write", "lifecycle"),
-            ("allocator-release", "frame.c", "a.release(a.context, d->bytes, d->limit);",
+            ("allocator-release", "frame.c", "gt__plugin_memory_free(&a,d->bytes, d->limit);",
              "/* missing payload release */", "allocation"),
         ]
         results = []
