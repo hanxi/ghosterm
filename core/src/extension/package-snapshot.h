@@ -28,6 +28,8 @@ typedef struct {
  int directory_fd;size_t members,entries;uint64_t member_bytes,total_bytes;
 } gt_package_capture_config_t;
 typedef struct {const char *path;uint64_t bytes;char sha256[65];} gt_package_member_t;
+/* Bounded relative UTF-8 syntax only; not NFC/casefold or existence/trust. */
+bool gt__package_path_valid(const char *,size_t);
 /* All limits explicit and bounded by the constants above. directory_fd borrowed,
  * its directory offset is untouched; owned opens are read-only and CLOEXEC.
  * Allocator context outlives destroy. Failed open leaves *out NULL. */

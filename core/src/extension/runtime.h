@@ -4,6 +4,7 @@
 #define GT_BRIDGE_RUNTIME_H
 #include "ghosterm/extension_rpc.h"
 #include "extension/runtime-resource.h"
+#include "extension/package-check.h"
 typedef struct gt_bridge_runtime gt_bridge_runtime_t;
 typedef enum {GT_RUNTIME_CREATED,GT_RUNTIME_STARTING,GT_RUNTIME_ACTIVE,GT_RUNTIME_FAILED,GT_RUNTIME_STOPPED,GT_RUNTIME_CLOSED} gt_runtime_phase_t;
 typedef enum {GT_RUNTIME_NONE,GT_RUNTIME_SCRIPT,GT_RUNTIME_MEMORY,GT_RUNTIME_CPU,GT_RUNTIME_CANCELLED,GT_RUNTIME_JOBS,GT_RUNTIME_PROTOCOL,GT_RUNTIME_IO,GT_RUNTIME_EXPIRED} gt_runtime_error_t;
@@ -22,6 +23,14 @@ typedef struct {gt_runtime_phase_t phase;gt_runtime_error_t error;gt_status_t cl
  * Construction copies everything and executes no plugin. Success alone clears
  * *session. Default build has no engine and returns UNSUPPORTED, never success. */
 gt_status_t gt__bridge_runtime_open(gt_ext_session_t **session,const gt_runtime_config_t *,gt_bridge_runtime_t **);
+/* Package path: modules/module_count/entry must be empty. Retains fixed checked
+ * bytes, uses only the embedded host SDK, binds side/id/version/digest and SDK
+ * version to the admitted Session and verifies currently implemented required
+ * services/scopes. Association is an explicit native command selection, not a
+ * publisher/source grant. Constructor runs no plugin. Caller keeps its package
+ * reference; success alone consumes *session. No filesystem loader or cache. */
+gt_status_t gt__bridge_runtime_open_package(gt_ext_session_t **session,gt_package_checked_t *,
+ const gt_runtime_config_t *,bool command_associated,gt_bridge_runtime_t **);
 /* Native IO uses zero wait; execute/evaluate and each job share one CPU budget.
  * A nonempty queue at jobs_per_step is JOBS failure, not successful draining.
  * Limits govern JS; blocking native services still need independent budgets. */

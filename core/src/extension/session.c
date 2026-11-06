@@ -3,6 +3,7 @@
 #include "extension/session.h"
 #include "extension/transfer.h"
 #include "base/secure-random.h"
+#include "extension/sdk-identity.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -387,7 +388,7 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,gt_bridge_role_t 
      !text_safe(config->client_digest,65) || !text_safe(config->executor_digest,65) || !text_safe(config->host_version,65) || !text_safe(config->sdk_version,65) ||
      config->required_count>16 || config->available_count>16 || !names_valid(config->required,config->required_count) || !names_valid(config->available,config->available_count) ||
      !local_budgets(config->budgets) || !config->clock || !config->handshake_ms || config->handshake_ms>60000 || !config->consent_ms || config->consent_ms>600000)return GT_ERR_INVALID_ARG;
-  if(strcmp(config->sdk_version,"1.0.0"))return GT_ERR_UNSUPPORTED;
+  if(strcmp(config->sdk_version,GT_PLUGIN_SDK_API_VERSION))return GT_ERR_UNSUPPORTED;
   if(config->rpc_method_count>16 || (!config->rpc_enabled && config->rpc_method_count))return GT_ERR_INVALID_ARG;
   if((!config->resource_store && config->resource_scope_bytes) || (config->resource_store && (!config->resource_scope_bytes || config->resource_scope_bytes>GT_BRIDGE_RESOURCE_TOTAL_MAX)))return GT_ERR_INVALID_ARG;
   for(size_t i=0;i<config->rpc_method_count;i++) {
@@ -422,6 +423,10 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **owned,gt_bridge_role_t 
     if(!queue(s,GT_BRIDGE_HELLO,GT_BRIDGE_SESSION_WAIT_OFFER)){status=s->info.error;free_parts(s);return status;}
   } else s->info.phase=GT_BRIDGE_SESSION_WAIT_HELLO;
   *owned=NULL;*out=s;return GT_OK;
+}
+bool gt__bridge_session_package_matches(const gt_bridge_session_t *s,gt_bridge_role_t role,const char *id,const char *version,const char *digest,const char *sdk){
+ if(!s || !id || !version || !digest || !sdk || s->role!=role)return false;
+ return !strcmp(s->config.plugin_id,id) && !strcmp(s->config.plugin_version,version) && !strcmp(role==GT_BRIDGE_HOST?s->config.client_digest:s->config.executor_digest,digest) && !strcmp(s->config.sdk_version,sdk);
 }
 const gt_bridge_rpc_method_t *gt__bridge_session_methods(const gt_bridge_session_t *s,size_t *count,gt_bridge_role_t *role){if(!s || !count || !role)return NULL;*count=s->config.rpc_method_count;*role=s->role;return s->config.rpc_methods;}
 gt_bridge_rpc_status_t gt__bridge_session_request(gt_bridge_session_t *s,const gt_bridge_lease_t *lease,const char *method,const void *input,size_t size,uint32_t timeout,uint64_t *handle){if(handle)*handle=0;if(!s || !s->rpc)return GT_BRIDGE_RPC_UNSUPPORTED;if(!tick(s))return GT_BRIDGE_RPC_CLOSED;return gt__bridge_rpc_start(s->rpc,lease,method,input,size,timeout,s->now,handle);}

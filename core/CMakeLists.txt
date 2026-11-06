@@ -26,6 +26,7 @@ add_library(ghosterm_core STATIC
   src/extension/package-snapshot.c
   src/extension/package-json.c
   src/extension/package-check.c
+  src/extension/package-runtime.c
   src/extension/session.c
   src/extension/rpc.c
   src/extension/resource.c
@@ -71,6 +72,7 @@ if(GHOSTERM_WITH_PLUGIN_JS)
   endif()
   include(cmake/PluginJS.cmake)
   include(cmake/PackageValidator.cmake)
+  include(cmake/PluginSDK.cmake)
 endif()
 option(GHOSTERM_WITH_LIBSSH2 "Build the libssh2 SSH/SFTP backend" ON)
 set(GHOSTERM_SSH2_TARGET "" CACHE STRING "Explicit target for a cross-compiled libssh2 backend")
@@ -122,6 +124,8 @@ foreach(mode budget race queue)
 endforeach()
 add_test(NAME plugin_package_validator_inputs COMMAND ${Python3_EXECUTABLE}
   ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check-plugin-package-validator.py --root ${CMAKE_CURRENT_SOURCE_DIR}/..)
+add_test(NAME plugin_runtime_sdk_inputs COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check-plugin-runtime-sdk.py --root ${CMAKE_CURRENT_SOURCE_DIR}/..)
 add_executable(test_package_json tests/test_package_json.c)
 target_include_directories(test_package_json PRIVATE src)
 target_link_libraries(test_package_json PRIVATE ghosterm_core)
@@ -129,6 +133,18 @@ target_compile_options(test_package_json PRIVATE -Wall -Wextra -Werror)
 foreach(mode valid duplicate surrogate utf8 bom trailing fractional unsafe negative exact syntax-only large bytes-limit nodes nodes-limit depth depth-limit empty-keys small-memory growth growth-duplicate oom dense-string global-memory)
   add_test(NAME plugin_package_json_${mode} COMMAND test_package_json ${mode})
 endforeach()
+add_executable(test_package_runtime tests/test_package_runtime.c)
+target_include_directories(test_package_runtime PRIVATE src)
+target_link_libraries(test_package_runtime PRIVATE ghosterm_core)
+target_compile_options(test_package_runtime PRIVATE -Wall -Wextra -Werror)
+if(GHOSTERM_WITH_PLUGIN_JS)
+  foreach(mode roundtrip client unicode long-path relative dynamic cycle frozen unused share retained thread id version digest role sdk-version nonportable service association associated ungranted inactive revoked invalid allocation source-memory source-limit source-total module-count module-boundary missing escape native node network binary nul utf8)
+    add_test(NAME plugin_package_runtime_${mode} COMMAND test_package_runtime ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+    set_tests_properties(plugin_package_runtime_${mode} PROPERTIES TIMEOUT 60)
+  endforeach()
+else()
+  add_test(NAME plugin_package_runtime_disabled COMMAND test_package_runtime disabled)
+endif()
 add_executable(test_package_check tests/test_package_check.c)
 target_include_directories(test_package_check PRIVATE src)
 target_link_libraries(test_package_check PRIVATE ghosterm_core)

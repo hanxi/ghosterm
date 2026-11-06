@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第三十四批原生元数据收口。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第三十五批私有包加载首片。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片（Android 仅编译）。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -146,7 +146,7 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九至二十八批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI，第二十七批接 runtime-resource / ResourceBroker 与显式授权根，第二十八批补原生目录字节快照采集。第三十四批已接私有原生元数据校验；默认关闭 JS 后端，包模块加载接线、App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
+以下为实现布局；第九至二十八批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI，第二十七批接 runtime-resource / ResourceBroker 与显式授权根，第二十八批补原生目录字节快照采集。第三十四批已接私有原生元数据校验，第三十五批已接私有固定包 / SDK 加载；默认关闭 JS 后端，公共包门面、App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
 
 ```text
 core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
@@ -3088,6 +3088,48 @@ macOS CI 二十份。没有修改平台产品源码，不借 native ELF 宣称 A
 策略，空目录 Unicode / 完整文件系统 casefold 仍未实现。来源签名 / 信任、模块闭包与 SDK
 identity、Session digest 绑定、注册 / 安装替换 / 多包复用、App 授权 / 原生视图、gterm /
 完整 SDK 与真实业务插件继续；本片只是 metadata-only 私有接缝，未来网关不实现。
+
+### P0 第三十五批：私有包加载与固定 SDK 首片（2026-11-06）
+
+新增 `package-runtime.h/.c` 与私有 `gt__bridge_runtime_open_package`。已兼容的固定
+包快照绑定已授权 Session 的角色、插件 id / version、对应侧 package digest 和 SDK
+版本后，才交接 Session；必需能力逐项核对，不支持的服务显式拒绝，命令冲突要求 native
+调用方明确关联。元数据兼容本身仍不授予执行或发布者信任，本片没有公共 ABI / App 激活。
+
+包模块只从原快照取 `.js/.mjs` 字节；SDK 五个模块由锁定 TypeScript 生成，
+`@ghosterm/plugin-sdk` 映射到宿主固定模块。每次加载校验 UTF-8、SHA256、单模块
+128 KiB、累计 1 MiB 和 64 模块上限；相对 / 动态 / 循环导入有实际引擎测试。
+不重开来源目录，拒绝目录逃逸、Node / 网络和业务代码直接导入 native adapter。
+SDK 版本、协议和模块摘要由 `sdk-version.json` / 生成收据维护；CMake 离线检查输入
+与产物，不在普通构建调用 Node。SDK 内容摘要目前用于本地构建身份，尚未增加握手字段。
+
+checked owner 引用计数支持多个 worker / runtime 共享不变快照；每个引擎仍独立编译，
+不共享 QuickJS 对象。调用方先释放自己的引用不影响存活 runtime；最后引用执行原关闭
+和擦除，错误可见。自定义 allocator context 必须跨越所有引用存活期。本片不是注册表 /
+安装缓存或完整静态模块图预审；按实际导入加载，未导入成员不执行。
+
+**当前生产输入的手工证据：**
+
+- 默认 `gate.sh`：469 CTest / 154 ABI；JS ON / SSH ON 完整 Core：617 项。
+- 包加载 39 项在上述 Debug 和隔离优化 ASan/UBSan 各通过；后者无 LSan。
+- `mutation-check-plugin-package-runtime.py` 十一组编译后正常断言红、同 archive
+  配置对照绿、恢复重建绿与 SHA256；最终收据覆盖 547 份输入，与当前生产输入一致。
+- 旧 metadata 包摘要 / 必需服务复制 / 最后关闭错误三组同样复验通过；其余旧变异
+  不称本轮重跑。隔离 runner 已同步 SDK 构建依赖。
+- SDK 离线五模块校验通过；Apple / JNI 引用对拍为 150 / 4、116 / 38。
+- NDK 28.2 arm64 / API29 的 archive 和 `test_package_runtime` ELF 编译链接通过。
+  当前没有在线设备，**本批 Android 未执行**，不沿用旧 metadata 设备结果。
+
+收据：`tmp/pkgload-mjtygom9/logs/result.json`、`tmp/pkgcheck-0noc04c9/logs/result.json`；
+完整日志为 `tmp/plugin-package-runtime-gate.log` / `plugin-package-runtime-full.log`，
+NDK 日志为 `tmp/plugin-package-runtime-android-build.log`。不增加 macOS CI 二十份，
+没有平台产品源码变更，不代表 App / 真机 / 发行验证。
+
+**失败保留。** 初次 39 项暴露旧手工模块入口检查提前拒绝包入口，修复后完整通过。
+新变异 runner 首次缺编译 SDK 而配置拒绝；第二次关联授权变异引入未使用参数导致编译
+失败，均未计目标红。修正后十一组完整重跑。NDK 首次旧构建目录尚无新 target，重新
+配置后编译通过。设备执行、更多加载 / 关闭 / OOM 故障保护仍须续验；公共包门面、来源
+信任、安装替换、App 授权 / 原生视图、gterm、完整 SDK 和实际业务插件继续按后续切片推进。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

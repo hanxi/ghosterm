@@ -64,6 +64,10 @@ gt_status_t gt__bridge_session_open(gt_bridge_stream_t **,gt_bridge_role_t,
 gt_bridge_session_phase_t gt__bridge_session_step(gt_bridge_session_t *,int ms);
 bool gt__bridge_session_info(const gt_bridge_session_t *,gt_bridge_session_info_t *);
 bool gt__bridge_session_runtime_admissible(const gt_bridge_session_t *);
+/* Compare the locally retained handshake metadata, never peer self-claims.
+ * Separate from current lease/scope checks; no authorization is granted here. */
+bool gt__bridge_session_package_matches(const gt_bridge_session_t *,gt_bridge_role_t,
+ const char *id,const char *version,const char *digest,const char *sdk_version);
 /* Owner-only command from the native authorization path; token binds the
  * displayed decision to this offer. UNKNOWN waits, never grants or rejects. */
 gt_status_t gt__bridge_session_decide(gt_bridge_session_t *,const char *,gt_bridge_decision_t);

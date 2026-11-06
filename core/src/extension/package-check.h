@@ -23,7 +23,7 @@ typedef struct {
  const atomic_bool *stop;void *clock_context;bool (*clock)(void *,uint64_t *);
 } gt_package_check_config_t;
 typedef struct {
- char id[129],version[65],publisher[513],license[513],entry[4097],runtime[16],variant[129];
+ char id[129],version[65],publisher[513],license[513],entry[4097],runtime[16],variant[129],sdk_version[65];
  char package_digest[65],manifest_digest[65]; /* raw integrity.json / plugin.json SHA256 */
  char requires[16][129],optional_missing[16][129];size_t requires_count,optional_missing_count;
  uint16_t protocols[8];size_t protocol_count;bool executor,association_required;
@@ -41,5 +41,10 @@ typedef struct {
 gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,const gt_package_check_config_t *,const gt_allocator_t *,gt_package_checked_t **out,gt_package_check_report_t *);
 bool gt__package_checked_info(const gt_package_checked_t *,gt_package_check_info_t *);
 bool gt__package_checked_member(const gt_package_checked_t *,const char *,gt_package_member_t *,const uint8_t **,size_t *);
+/* Retain while holding an existing reference. Immutable reads may then run on
+ * independent workers. Custom allocator context must outlive all references
+ * and support whichever worker performs the final release. Not a global cache.
+ * Destroy releases only this reference, consumes even on final close error. */
+bool gt__package_checked_retain(gt_package_checked_t *,gt_package_checked_t **);
 gt_package_status_t gt__package_checked_destroy(gt_package_checked_t **);
 #endif

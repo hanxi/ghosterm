@@ -60,6 +60,7 @@ static bool package_path(const char *p,size_t n){
  }
  return true;
 }
+bool gt__package_path_valid(const char *p,size_t n){return p && package_path(p,n);}
 static const char *package_leaf(const package_entry_t *e){const char *slash=strrchr(e->path,'/');return slash?slash+1:e->path;}
 /* Reopen directory ancestry from the pinned root, one component at a time.
  * No path resolution through an unverified intermediate directory or symlink;

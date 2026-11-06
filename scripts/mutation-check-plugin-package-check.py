@@ -74,8 +74,9 @@ def main():
   return out
  try:
   shutil.copytree(ROOT/'core',source/'core',ignore=shutil.ignore_patterns('build','build-*'));shutil.copytree(ROOT/'packages/plugin-sdk',source/'packages/plugin-sdk');shutil.copytree(ROOT/'patches/quickjs-ng',source/'patches/quickjs-ng');(source/'vendor').mkdir();(source/'vendor/quickjs-ng').symlink_to(ROOT/'vendor/quickjs-ng',target_is_directory=True);(source/'tmp').mkdir();(source/'scripts').mkdir()
-  for name in ['generate-plugin-package-validator.mjs','check-plugin-package-validator.py']:shutil.copyfile(ROOT/'scripts'/name,source/'scripts'/name)
+  for name in ['generate-plugin-package-validator.mjs','check-plugin-package-validator.py','generate-plugin-runtime-sdk.mjs','check-plugin-runtime-sdk.py']:shutil.copyfile(ROOT/'scripts'/name,source/'scripts'/name)
   shutil.copytree(ROOT/'scripts/fixtures/plugin-package-tools',source/'scripts/fixtures/plugin-package-tools')
+  shutil.copytree(ROOT/'scripts/fixtures/plugin-sdk-tools',source/'scripts/fixtures/plugin-sdk-tools')
   tools={}
   for kind,fixture in [('package','plugin-package-tools'),('sdk','plugin-sdk-tools')]:
    tools[kind]=work/(kind+'-tools');tools[kind].mkdir()

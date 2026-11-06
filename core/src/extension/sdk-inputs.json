@@ -1,0 +1,51 @@
+{
+  "format": 1,
+  "typescript": "5.9.3",
+  "sdkApiVersion": "1.0.0",
+  "bridgeProtocol": 1,
+  "candidate": true,
+  "sdkDigest": "e59705ea876fdec6250eb9e37e6792d71d8e9c2d259235d8f47db79f22c0d7c6",
+  "modules": [
+    {
+      "name": "sdk:/codec.js",
+      "bytes": 5823,
+      "sha256": "facefc9e47a539ef5c768eb3e6380246a361ea5a7419dcc654e6ed62b3280bee"
+    },
+    {
+      "name": "sdk:/index.js",
+      "bytes": 174,
+      "sha256": "52087a78cbbb8828a6cbd518080bdfdf49a42488f3ba0db57cf79cb9cd3f573d"
+    },
+    {
+      "name": "sdk:/resources.js",
+      "bytes": 13492,
+      "sha256": "cdf4fd23a32235a138f33ef279f36636c68b76799aeb926bff3bd350bc0ae748"
+    },
+    {
+      "name": "sdk:/session.js",
+      "bytes": 11805,
+      "sha256": "31b838dd4bb3bc095c81c264224ebf5c3d7bc1d30c8eaf4fd780893ee9d3cb86"
+    },
+    {
+      "name": "sdk:/wire-contract.js",
+      "bytes": 295,
+      "sha256": "7f4418cd9d771351e33ffadb8ebe86298d21b211ed911e26b6cf59301b7c626e"
+    }
+  ],
+  "inputs": {
+    "packages/plugin-sdk/portable/codec.ts": "3e43b923457d1c117afaf2939eaa8c12fcda2c8c8da76bb8bc3fcaea6f23adf8",
+    "packages/plugin-sdk/portable/index.ts": "4cbe9b2917a85ed3c087bc240a6eab8acab5a2baad670ebedc9abf5612f99a14",
+    "packages/plugin-sdk/portable/resources.ts": "79678114de0cb9f3004dfa6b56f2d44ba18eab4b65d4b957b6f890e7d573cb31",
+    "packages/plugin-sdk/portable/session.ts": "e9ebe829939c4eb37865fafbafc4a4a5d69497a3cecf8426f6a088386ec9dc63",
+    "packages/plugin-sdk/portable/wire-contract.ts": "a99e7998716305ac5226b44b72cd7ece5ea97c0ed9515effd4de8843b4997e8a",
+    "packages/plugin-sdk/tsconfig.json": "67ce48546e5e46b66dded387cc9f3ebbcbac8bd195e55f7b4481823bab2e8a5d",
+    "packages/plugin-sdk/sdk-version.json": "68e8a1714c833bd0c12c844b8401cdb562977eb2cd9568a4bd1569e827ab5cdc",
+    "scripts/fixtures/plugin-sdk-tools/package.json": "609d8fa44da91aff8576b4532701626dc9c760d4c7ad30d499da3b129eceb527",
+    "scripts/fixtures/plugin-sdk-tools/package-lock.json": "e4b50ca634076f9890034059110666023b2b9e0c3df7095323ca051c645d2098",
+    "scripts/generate-plugin-runtime-sdk.mjs": "e324063ec399bb876872cec51b0f4b5b4d85e81ad17e41f0316a4b9d5f3acefa"
+  },
+  "outputs": {
+    "core/src/extension/sdk-code.inc": "8a59e61b582afa30bf599f4546f42cc2f2eb732ad9d1ac15bc77e1b4594cbcac",
+    "core/src/extension/sdk-identity.h": "43d70d03819dfa202e46382fcfc346e9fcfec40219ca594607d50048f120d9b5"
+  }
+}
