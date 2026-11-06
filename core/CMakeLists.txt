@@ -22,6 +22,7 @@ add_library(ghosterm_core STATIC
   src/extension/fd-stream.c
   src/extension/frame.c
   src/extension/wire.c
+  src/extension/package-snapshot.c
   src/extension/session.c
   src/extension/rpc.c
   src/extension/resource.c
@@ -90,6 +91,26 @@ endif()
 if(GHOSTERM_BUILD_TESTS)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 enable_testing()
+
+add_executable(test_package_snapshot tests/test_package_snapshot.c)
+target_include_directories(test_package_snapshot PRIVATE src)
+target_link_libraries(test_package_snapshot PRIVATE ghosterm_core)
+target_compile_options(test_package_snapshot PRIVATE -Wall -Wextra -Werror)
+foreach(mode roundtrip frozen directory-offset empty member-limit entry-limit byte-limit
+    total-limit physical-self-count symlink-file symlink-dir fifo socket bad-backslash
+    bad-colon bad-trailing-dot bad-trailing-space bad-control unicode deep path-limit
+    race-symlink race-fifo race-replacement allocation close-live invalid
+    max-members max-entries max-bytes hardlink entry-exact)
+  add_test(NAME plugin_package_snapshot_${mode} COMMAND test_package_snapshot ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+endforeach()
+add_executable(test_package_snapshot_boundary tests/test_package_snapshot_boundary.c)
+target_include_directories(test_package_snapshot_boundary PRIVATE src)
+target_link_libraries(test_package_snapshot_boundary PRIVATE ghosterm_core)
+target_compile_options(test_package_snapshot_boundary PRIVATE -Wall -Wextra -Werror)
+foreach(mode bad-utf8 duplicate-entry case-entry read-error read-truncated read-grown
+    namespace-change readdir-error destroy-error)
+  add_test(NAME plugin_package_snapshot_boundary_${mode} COMMAND test_package_snapshot_boundary ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+endforeach()
 if(GHOSTERM_WITH_PLUGIN_CHANNEL)
   add_executable(test_runtime_resources tests/test_runtime_resources.c)
   target_include_directories(test_runtime_resources PRIVATE src)

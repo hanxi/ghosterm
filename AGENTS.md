@@ -560,6 +560,19 @@ BEGIN 的未杀死变异均拒收；修正预约 / 部分发送屏障及已不�
 tmux / SAF 根 / 真机 / WAN / 签名发行，App 批准 / 视图 / 激活、包校验 / gterm / 完整 SDK /
 实际插件与多实例继续；网关不实现。收据与失败范围见插件计划第二十七批。
 
+**插件物理包快照第二十八批（2026-11-06）**：私有 `package-snapshot.h/.c` 从真实目录 fd
+采集固定字节 / SHA256，非 UI owner 分步读取；最多 1024 文件、单文件 16 MiB、内容 64 MiB，
+另限 4096 文件 / 目录条目，integrity / signature 计物理预算。逐组件 no-follow、独立目录
+游标、只读 NONBLOCK / CLOEXEC、打开前后身份、EOF / 目录复核，拒绝链接 / 特殊文件、
+非法路径 / UTF-8 / ASCII 大小写碰撞；完成前和失败后不暴露内容，错误保持、析构擦除。
+32 本机 / 配置＋9 syscall 边界、28 组真实编译变异、四份残留预扫通过；目标正常断言红、
+同 archive 配置绿、重编译恢复 / SHA256，ASan/UBSan、无 LSan，不增加 CI 二十份。
+默认 Core 438 CTest / 154 ABI、Apple 150/4、JNI 116/38；provider / SSH / JS OFF 同 41 项，
+macOS / NDK 严格 C11 与 Android Debug bridge AAR 编译通过。原元数据 96 项 / 6 变异另验。
+unused 编译错误与仍 PASS 的身份变异均拒收，补读取前判据后完整重跑。采集不是原子目录 /
+元数据可信证明，不授予执行；原生 manifest / integrity / Unicode / 来源策略 / 模块加载、
+批准 / 视图 / gterm / 完整插件继续；无设备 / App / 发行结论，网关不实现。见插件计划第二十八批。
+
 `android-foreground` 以 `ANDROID_SERIAL=设备 python3 scripts/test-android-foreground.py` 验八项真实服务/页面定向，`mutation-check-android-foreground.py` 手工验 23 组；护真实 promotion、调度阻断、权限/类型、代次与请求取消、通知隐私/路由和生命周期。`test-android-foreground-system.py` 另验真实系统超时、stop-app 后新 PID 只读历史、通知拒绝及系统设置渠道关闭；`mutation-check-android-foreground-system.py` 有九组相应场景变异，含开启通知后补发及渠道恢复的状态检查。每组须编译后目标单条 JUnit 断言红、同 APK 配置对照绿、恢复绿与 SHA256，崩溃/编译失败不算目标红。系统设置及权限须恢复，stop-app 被中断的 staging 不计通过。§9.74 的 30 组与 §9.75 追加的两组均为分轮证据，不称一轮全量；完整 483 项仅 API 36 arm64 / 4 KB 页模拟器。以上均属手工覆盖，不增加 macOS CI 20 份，也不代表整个 A6 或发行矩阵完成。
 
 `android-file-journal` 以 `ANDROID_SERIAL=设备 python3 scripts/mutation-check-android-file-journal.py` 手工执行 20 组，护事务回滚、损坏/版本/容量、严格 JSON 与 UTF-8、检查点顺序、已知结果保留、历史加载/删除和队列阻断。`mutation-check-android-file-journal-crash.py` 在同样的设备环境下另验四组真实 SIGKILL/新 PID 恢复变异（含创建身份与阻止普通失败冒充死亡）；`test-android-file-journal-crash.py` 提供本机/SAF 六个中断点，新增创建标记已落盘、内容未写入边界。API 29 的 run-as 信号被 SELinux 拒绝，测试使用请求/PID/边界绑定的命令与 ack，由应用仅 SIGKILL 自身，宿主确认旧 PID 消失；不使用 root 或修改策略。远端以 `ANDROID_SERIAL=设备 ANDROID_SSH_TEST_CLASS=com.hanxi.ghosterm.RemoteFileJournalTest ANDROID_FILE_JOURNAL_REMOTE_MUTATE=1 bash scripts/test-android-ssh.sh` 执行四组变异及四个真实中断点，单独复验场景将 MUTATE 换为 CRASH。新进程只加载只读记录，核对实际文件/文档与清除记录不删文件，不自动重放任务、不恢复凭据。每组须真实编译后目标红、同 APK 配置对照绿、恢复绿与 SHA256；数量、失败与已运行范围见 Android 实现计划 §9.73，不将专项通过记为整个 A6 或断电恢复完成。

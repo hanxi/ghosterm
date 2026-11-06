@@ -142,7 +142,7 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九至二十七批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI，第二十七批接 runtime-resource / ResourceBroker 与显式授权根。默认关闭 JS 后端；App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
+以下为实现布局；第九至二十八批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI，第二十七批接 runtime-resource / ResourceBroker 与显式授权根，第二十八批补原生目录字节快照采集。默认关闭 JS 后端；包元数据原生校验 / 加载接线、App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
 
 ```text
 core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
@@ -164,6 +164,7 @@ core/src/extension/
   frame.h / frame.c    已实现：候选长度前缀、增量 decoder 与单帧 writer
   wire.h / wire.c      已实现 S4a：有界原始 UTF-8 / JSON、生成的 envelope schema 校验
   wire-schema.inc     从 SDK 候选生成，脚本 --check 对拍；不是另一份手写 schema
+  package-snapshot.h / package-snapshot.c   已实现：有界物理目录采集、逐文件 SHA256 与字节副本；元数据 / 信任校验待接
   session.h / session.c  已实现 S4b / S4c1：单实例握手 / 明确决定 / scoped lease / 可选请求 / 关闭
   rpc.h / rpc.c        已实现 S4c1：固定 method、双向请求 / 结果、独立 credit、取消与重复保护
   route.h / route.c    已实现 S3：显式跳板链、逐跳身份 / 认证、总建路期限及 owner 生命周期
@@ -2664,6 +2665,65 @@ lint 通过。仅本机 / 模拟器证据，没有新 SSH / tmux 组合、物理
 下一片推进包快照校验、原生批准 / 资源视图及 gterm 前台入口；完整 PluginContext / 进程 / 事件
 服务、安装 / 实际插件 / 多实例继续。App 尚未启用，不将本批记为整个 SDK / 插件完成；未来网关
 继续只预留。
+
+### P0 第二十八批：原生插件包物理快照（2026-11-06）
+
+基于 `704445a`。前六批的包检查器只校验调用方提供的 observed 清单；新增私有
+`package-snapshot.h/.c`，从真实 POSIX 目录 fd 采集文件字节与 SHA256，供后续原生元数据
+校验、批准与 runtime 加载共同持有。公共 ABI / 平台绑定、终端字节路径和 JS 默认开关未变。
+完成校验后，加载器须消费这份副本，不能重新按路径读取源目录。
+
+**边界。** 单个非 UI owner 显式提供预算：最多 1024 个普通文件、单文件 16 MiB、内容合计
+64 MiB；另限 4096 个物理文件 / 目录条目，根不计数，空目录计费。`integrity.json` /
+`signature` 也计物理预算。路径至多 4096 UTF-8 字节 / 1024 标量；拒绝非法 UTF-8、控制
+字符、反斜杠、冒号、空 / 点组件、组件尾随点或空格、ASCII 大小写碰撞。拒绝符号链接、
+硬链接及 FIFO / socket / 设备，目录只供遍历，不伪造 regular 成员。
+
+借用根 fd，`openat(".")` 取得独立游标 / CLOEXEC 句柄；逐组件 no-follow 重开目录并核对
+身份，深路径不按深度长期保留 fd。普通文件只读 / NONBLOCK / CLOEXEC 打开后再核对身份，
+防止被换成 FIFO 时阻塞打开。每 step 读取最多 16 KiB，实际字节增量 hash；预期长度后另读
+一字节确认 EOF，再核对文件 / 命名位置，最后逐项复核及根检查。不是硬磁盘期限或原子
+文件系统快照；观察到变化报 CHANGED。后续完整性校验仍须逐个匹配固定副本，不能把多次
+命名空间观察误称为某一时刻的原子目录。
+
+完成前或失败后不暴露成员 / 内容；错误保持至 destroy。完成后按路径字节排序，支持查找
+及最多 16 KiB 的副本读取，源目录修改 / 删除不改变副本。释放前擦除内容 / 路径 / 工作区，
+借用 fd 不消费；destroy 遇 close 错误仍消费对象并报 IO，不重关已消费 fd。内容与元数据
+各自有界；多个包的进程总预约、实例引用与安装替换由后续包 owner 接入。
+
+**验收。** 32 项本机目录 / 配置和 9 项确定性 syscall 边界，共 41 项接入 CTest。包含实际
+1024 文件、4096 空目录、4 × 16 MiB 分块读取及独立已知 SHA256、100 层路径、路径越限、
+借用游标、旧副本、四处分配失败、擦除与 fd 归零。替换测试在观测后 / open 前换文件、链接
+或 FIFO，另断言读取替换内容前拒绝。边界测试编译生产实现，仅替换 syscall 观察；覆盖
+非法 UTF-8、重复 / 大小写条目、读取错误 / 截断 / 增长、目录变化、readdir 与 close 错误。
+主测试单独链接真实 Core archive。
+
+`python3 scripts/mutation-check-plugin-package-snapshot.py` 最终完整 **28 组** ASan / UBSan
+通过：每组实际重编译 Core、两份测试、archive / executable，正常目标断言红、同 archive
+配置对照绿、重编译恢复绿及 SHA256，最后完整 41 项再绿。无 LSan，不以编译错误 / 崩溃 /
+timeout 计红。初轮 UTF-8 变异的 unused 编译错误拒收；随后身份变异被读后检查挡住、目标仍
+PASS 也拒收，补读取前判据后重新完整执行。四份受测源 / 头 / 测试残留预扫各验 exit 2，
+在创建工作目录 / 子进程前拒绝。手工变异，不增加 macOS CI 二十份。
+
+默认 `build-core.sh` / `gate.sh` 为 **438 CTest / 154 ABI**；Apple 150/4、JNI 116/38 对拍
+保持。provider / SSH / JS 全 OFF 档另编译并过同 41 项；macOS / NDK 28.2 arm64 API29
+分别严格 C11 / pedantic-errors 编译。本轮 Android Debug bridge AAR 实际编译含新源的
+Core archive，核对 Ninja / 对象收据；私有函数尚未被 JNI 产品引用，不称已在设备执行。
+原元数据 **96 场景 / 6 变异**另复验，仍为开发工具证据，不拼接成原生元数据校验已接通。
+
+| 范围 | 本地收据 |
+|---|---|
+| 最终 28 组 / 41 项 / 输入摘要 | `tmp/pkgcap-en6mw3au/logs/result.json` |
+| 全闸门 / Android bridge | `tmp/plugin-package-snapshot-gate-final-inputs.log` / `tmp/plugin-package-snapshot-android-final.log` |
+| provider OFF / 严格编译 | `tmp/pkgcap-off-p_pqvlhw/result.json` |
+| 预扫 / 原元数据复验 | `tmp/plugin-package-snapshot-preflight.json` / `tmp/plugin-package-snapshot-metadata-regression.log` |
+
+源码 / 构件 / 日志摘要、提交和所属临时目录清理登记在
+`tmp/plugin-package-snapshot-evidence.json`。尚须将 strict JSON / manifest / integrity 全覆盖、
+NFC / Unicode 大小写策略、来源 / 签名、宿主版本 / 能力与命令冲突校验接到固定字节，再接
+运行时模块闭包与包引用。capture 成功只表示得到可供校验的物理副本，不授予执行权限。
+原生批准 / 视图、gterm 前台入口、完整 SDK / 进程、实际插件 / 多实例与安装继续，整个插件
+目标未完成；未来网关只预留、不实现。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 
