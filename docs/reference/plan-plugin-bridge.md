@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第三十六批公开包门面。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第三十七批私有命令注册表。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -180,7 +180,7 @@ core/src/extension/
   resource.h / resource.c  已实现 S4c2a / S4c2b：共享预算、匿名暂存、完整发布 / 快照引用 / 退役交接
   transfer.h / transfer.c  已实现 S4c2b：资源流 credit / seq、发布回执、取消及 Session / RPC 共存
   source.h / source.c    已实现 S4c2c：显式授权根 fd、逐层 no-follow、同句柄两遍读取 / EOF / 文件变化检查
-  registry.c     插件元数据、版本与能力匹配
+  registry.c / registry.h   已接私有进程内命令注册 / 冲突 / 摘要选择；公共门面与安装待接
   runtime.h / runtime.c / runtime-quickjs.inc  已接可选私有 runtime：复制模块、受限 SDK、JS 预算、逐 Session RPC 与关闭；其余宿主能力待接
   js/            JS 引擎 C 适配与宿主 API，不依赖端代码
 core/tests/      分帧、生命周期、权限、资源和互操作测试
@@ -3201,6 +3201,50 @@ Android 初次 ABI 拒绝未接两项，补齐引用后通过；默认 Zig 路�
 后续继续：更多包关闭错误 / OOM 与平台取消竞态、来源信任与注册 / 安装替换、App 根
 授权 / 激活 / 原生视图、完整 SDK、gterm IPC 和业务插件。当前公开门面不承担发布者签名
 验证或自动授权；不增加后台服务和外部网关。
+
+### P0 第三十七批：私有命令元数据与进程内注册表（2026-11-06）
+
+checked owner 在完整 manifest 校验后保留命令路径、标题、参数 schema 与视图声明，
+以一次按实际命令数扩展的分配与固定包共同释放。命令 token 以单空格规范连接，保留
+标题 / schema UTF-8；不解析 shell、不重读安装目录、不创建业务 JS runtime。
+八个 64 字节 token、256 个四字节 Unicode 字符、八视图及 64 命令逐项断言通过。
+
+`registry.h/.c` 为单 worker、最多 32 个 id＋side 槽的私有进程内 owner。注册前由 native
+调用方明确提供来源策略观察：unknown / denied 分开，allowed 只表示调用方允许登记，
+不是 Core 验证签名或授予运行权限。注册引用 checked 字节；同 id＋side 替换须对拍预期
+旧摘要，先保留新引用再交换。移除与解析同样防过期摘要，关闭错误在已提交变更后显式返回，
+不重试旧 fd；已获取引用及旧运行实例继续持有原包。两侧独立，不按版本号或安装顺序抢占。
+
+解析输入是**完整声明的规范命令**，不是 argv：未找到精确声明不向祖先回退。相等或按
+完整 token 的前缀重叠均视为冲突，显式 id＋digest 选择只能选当前存在且贡献该命令的包。
+`fixturex` 不与 `fixture` 冲突；关联不是持久批准，不跨升级静默沿用。注册表不开放公共
+ABI，不承担持久安装、下载、来源认证、进程执行或 gterm 参数解析。
+
+**当前验收。** 默认 `gate.sh` 470 CTest / 162 ABI，enabled JS / SSH 完整 627 项通过；
+Apple / JNI 仍为 158 / 4、124 / 38。新增真实目录注册测试覆盖来源三态、重复登记、前缀 /
+精确冲突、两侧隔离、规范 token、旧摘要替换 / 移除 / 选择、32 槽满后的已有选择、全局
+内存耗尽构造拒绝和归还所有引用。优化 ASan/UBSan 的十二组变异（四命令字段＋八注册
+决策）完整通过，目标正常断言红、同 archive 配置绿、恢复绿与 SHA256，无 LSan；旧
+metadata 消费快照 / 必需服务复制 / 最后关闭错误三组复验通过。
+
+优化 ASan/UBSan（无 LSan）另执行 72 份固定目录 / Node 对拍夹具与兼容夹具的全部
+1554 个分配失败点；检查无部分 owner、失败保留原快照与释放恢复。原件
+`tmp/pkg-native-19iaqrif/logs/result.json` 的输入与当前逐项一致；日志为
+`tmp/plugin-registry-oom.log`。该 sweep 不代表所有可能 manifest 的 OOM 穷举。
+
+原件 `tmp/pkgload-jcvju5js/logs/result.json`，旧 metadata 原件
+`tmp/pkgcheck-abu5zxvt/logs/result.json`；前者最终输入核对一致，后者在新增边界 fixture /
+runner 前运行，生产源码未变，不称测试输入全集一致。默认 / enabled 日志为
+`tmp/plugin-registry-gate.log` / `tmp/plugin-registry-on-tests.log`。
+
+NDK 28.2 / arm64 / API29 实际 archive 与 registry ELF 真编译，并在本轮独立 API36 /
+arm64 / 4 KiB 页模拟器 `emulator-5580` 执行完整 registry 测试通过；主机与设备 ELF
+SHA256 同为 `60144d56958c23259ffa2e73964b125f9307a6ec768535a001672c80236df3d3`，
+设备测试目录已清理。构建 / 执行日志 `tmp/plugin-registry-android-build.log` /
+`tmp/plugin-registry-device-test.log`，不冒充 App / 真实设备或发行测试。
+
+本片无平台产品 / 公共 ABI 改动，不增加 CI 二十份。安装原子切换、签名 / 受信开发目录
+授权、公共注册门面与命令列表、App 授权 / 视图、完整 SDK、gterm IPC 和业务插件继续。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

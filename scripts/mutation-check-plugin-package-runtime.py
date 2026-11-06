@@ -24,7 +24,7 @@ CASES=[
 ]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');args=parser.parse_args()
+ parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--public',action='store_true');parser.add_argument('--registry',action='store_true');args=parser.parse_args();assert not (args.public and args.registry)
  cases=CASES
  executable='test_package_runtime';pattern='^plugin_package_runtime_';objects=['runtime','package-runtime','session']
  if args.public:
@@ -38,6 +38,23 @@ def main():
    ('stopped-adoption',runtime,'if(atomic_load_explicit(&package->stopped,memory_order_relaxed))return GT_ERR_CANCELLED;','if(false && atomic_load_explicit(&package->stopped,memory_order_relaxed))return GT_ERR_CANCELLED;','load-stop'),
   ]
   executable='test_ext_package';pattern='^ext_package_';objects=['package-api','runtime-api','runtime','package-runtime','session']
+ if args.registry:
+  registry='core/src/extension/registry.c'
+  cases=[
+   ('command-separator', 'core/src/extension/package-check-js.inc', "if(j)out->path[used++]=' ';", "if(j)out->path[used++]='-';", None),
+   ('command-title', 'core/src/extension/package-check-js.inc', 'out->title,sizeof(out->title)', 'out->title,sizeof(out->title)-1', None),
+   ('command-count', 'core/src/extension/package-check-js.inc', 'n>=1 && n<=64;', 'n>=1 && n<64;', None),
+   ('command-views', 'core/src/extension/package-check-js.inc', 'if(ok)out->view_count=count;', 'if(ok)out->view_count=0;', None),
+   ('source-unknown',registry,'if(source==GT_REGISTRY_SOURCE_UNKNOWN)return GT_REGISTRY_UNKNOWN;','if(source==GT_REGISTRY_SOURCE_UNKNOWN)return GT_REGISTRY_DENIED;',None),
+   ('source-denied',registry,'if(source==GT_REGISTRY_SOURCE_DENIED)return GT_REGISTRY_DENIED;','if(source==GT_REGISTRY_SOURCE_DENIED)return GT_REGISTRY_UNKNOWN;',None),
+   ('conflict',registry,'if(!id && overlaps>1)return GT_REGISTRY_CONFLICT;','if(false && !id && overlaps>1)return GT_REGISTRY_CONFLICT;',None),
+   ('replace-digest',registry,'if(strcmp(entry->digest,expected))return GT_REGISTRY_STALE;','if(false && strcmp(entry->digest,expected))return GT_REGISTRY_STALE;',None),
+   ('remove-digest',registry,'if(strcmp(e->digest,expected))return GT_REGISTRY_STALE;','if(false && strcmp(e->digest,expected))return GT_REGISTRY_STALE;',None),
+   ('selection-digest',registry,'if(strcmp(digest,e->digest))return GT_REGISTRY_STALE;','if(false && strcmp(digest,e->digest))return GT_REGISTRY_STALE;',None),
+   ('prefix-token',registry,"(x==y || (x<y?b[n]:a[n])==' ')",'true',None),
+   ('side',registry,'!e->package || e->executor!=executor','!e->package || (false && e->executor!=executor)',None),
+  ]
+  executable='test_plugin_registry';pattern='^plugin_registry$';objects=['registry','package-check']
  for _,name,old,_,_ in cases:
   data=(ROOT/name).read_text();assert MARK not in data and data.count(old)==1,name
  work=Path(tempfile.mkdtemp(prefix='pkgload-',dir=ROOT/'tmp'));source=work/'source';build=work/'build';logs=work/'logs';logs.mkdir();commands=[]
@@ -64,7 +81,7 @@ def main():
    out=run(label+'-build',['cmake','--build',build,'--target',executable,'test_config','-j','4'])
    for name in objects:assert 'src/extension/'+name+'.c.o' in out
    assert 'Linking C static library' in out and 'Linking C executable '+executable in out
-  def target(label,mode,red=False):run(label,[build/executable,mode,source/'tmp'],red)
+  def target(label,mode,red=False):run(label,[build/executable,*([mode] if mode else []),source/'tmp'],red)
   rebuild('baseline');run('baseline',['ctest','--test-dir',build,'-R',pattern,'--output-on-failure'])
   for label,name,old,new,mode in cases:
    path=source/name;original=path.read_bytes()

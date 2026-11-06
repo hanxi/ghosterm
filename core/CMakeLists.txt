@@ -27,6 +27,7 @@ add_library(ghosterm_core STATIC
   src/extension/package-json.c
   src/extension/package-check.c
   src/extension/package-runtime.c
+  src/extension/registry.c
   src/extension/package-api.c
   src/extension/session.c
   src/extension/rpc.c
@@ -134,6 +135,13 @@ target_compile_options(test_package_json PRIVATE -Wall -Wextra -Werror)
 foreach(mode valid duplicate surrogate utf8 bom trailing fractional unsafe negative exact syntax-only large bytes-limit nodes nodes-limit depth depth-limit empty-keys small-memory growth growth-duplicate oom dense-string global-memory)
   add_test(NAME plugin_package_json_${mode} COMMAND test_package_json ${mode})
 endforeach()
+if(GHOSTERM_WITH_PLUGIN_JS)
+  add_executable(test_plugin_registry tests/test_plugin_registry.c)
+  target_include_directories(test_plugin_registry PRIVATE src)
+  target_link_libraries(test_plugin_registry PRIVATE ghosterm_core)
+  target_compile_options(test_plugin_registry PRIVATE -Wall -Wextra -Werror)
+  add_test(NAME plugin_registry COMMAND test_plugin_registry ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+endif()
 add_executable(test_ext_package tests/test_ext_package.c)
 target_include_directories(test_ext_package PRIVATE src)
 target_link_libraries(test_ext_package PRIVATE ghosterm_core)

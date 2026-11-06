@@ -13,6 +13,10 @@ typedef struct {char path[4097];size_t size;char digest[65];} load_member_t;
 static void json_text(char *out,size_t cap,const char *text){
  size_t at=0;CHECK(cap>=3);out[at++]='"';for(;*text;text++){CHECK(at+3<cap);if(*text=='"' || *text=='\\')out[at++]='\\';out[at++]=*text;}out[at++]='"';out[at]=0;
 }
+static void load_replace(char *text,size_t capacity,const char *old,const char *replacement){
+ char *at=strstr(text,old);CHECK(at);size_t before=(size_t)(at-text),tail=strlen(at+strlen(old)),n=strlen(replacement);
+ CHECK(before+n+tail<capacity);memmove(at+n,at+strlen(old),tail+1);memcpy(at,replacement,n);
+}
 static void load_write(load_fixture_t *f,load_member_t *m,const char *name,const void *bytes,size_t size){
  char path[4097];CHECK(strlen(name)<sizeof(path));strcpy(path,name);
  for(char *at=path;*at;at++)if(*at=='/'){*at=0;CHECK(!mkdirat(f->fd,path,0700) || errno==EEXIST);*at='/';}
@@ -51,6 +55,24 @@ static void load_fixture(load_fixture_t *f,const char *mode,const char *temp){
  if(client)CHECK(snprintf(side,sizeof(side),"\"client\":{\"runtime\":\"portable-js\",\"entry\":%s,\"requires\":[%s]}",entry_json,service?"\"session.rpc\",\"ui.chat\"":"\"session.rpc\"")>0);
  if(!client)CHECK(snprintf(side,sizeof(side),"\"executor\":{\"variants\":[{\"id\":\"portable\",\"runtime\":\"%s\",\"entry\":%s,\"requires\":[%s]%s}]}",nonportable?"node":"portable-js",entry_json,service?"\"session.rpc\",\"ui.chat\"":"\"session.rpc\"",nonportable?",\"runtimeVersionRange\":\">=20.0.0\"":"")>0);
  CHECK(snprintf(manifest_json,sizeof(manifest_json),"{\"schemaVersion\":1,\"id\":\"org.ghosterm.fixture\",\"pluginVersion\":\"0.1.0\",\"sdkApiRange\":\">=%s <2.0.0\",\"bridgeProtocolRange\":[1],\"publisher\":\"fixture\",\"license\":\"MIT\",\"commands\":[{\"path\":[\"fixture\"],\"title\":\"Fixture\",\"argsSchema\":\"schemas/input.json\"}],%s,\"permissions\":[]}",old_sdk?"0.1.0":"1.0.0",side)>0);
+ if(!strcmp(mode,"registry-other") || !strcmp(mode,"registry-prefix") || !strcmp(mode,"registry-neighbor"))load_replace(manifest_json,sizeof(manifest_json),"org.ghosterm.fixture","org.ghosterm.other");
+ if(!strncmp(mode,"registry-slot-",14)){char id[64];CHECK(snprintf(id,sizeof(id),"org.ghosterm.slot%s",mode+14)>0);load_replace(manifest_json,sizeof(manifest_json),"org.ghosterm.fixture",id);}
+ if(!strcmp(mode,"registry-prefix"))load_replace(manifest_json,sizeof(manifest_json),"[\"fixture\"]","[\"fixture\",\"child\"]");
+ if(!strcmp(mode,"registry-neighbor"))load_replace(manifest_json,sizeof(manifest_json),"[\"fixture\"]","[\"fixturex\"]");
+
+ if(!strcmp(mode,"command-boundary")){
+  char tokens[600]="[",title[1025]={0},replacement[1300];size_t used=1;
+  for(size_t i=0;i<8;i++){if(i)tokens[used++]=',';tokens[used++]='"';memset(tokens+used,'a'+(int)i,64);used+=64;tokens[used++]='"';}tokens[used++]=']';tokens[used]=0;
+  load_replace(manifest_json,sizeof(manifest_json),"[\"fixture\"]",tokens);
+  for(size_t i=0;i<256;i++)memcpy(title+i*4,"😀",4);
+  CHECK(snprintf(replacement,sizeof(replacement),"\"title\":\"%s\",\"views\":[\"chat\",\"approval\",\"diff\",\"table\",\"task\",\"form\",\"resource\",\"web-content\"]",title)>0);
+  load_replace(manifest_json,sizeof(manifest_json),"\"title\":\"Fixture\"",replacement);
+ }
+ if(!strcmp(mode,"command-many")){
+  char commands[12000]="";size_t used=0;
+  for(size_t i=0;i<64;i++){int n=snprintf(commands+used,sizeof(commands)-used,"%s{\"path\":[\"cmd%zu\"],\"title\":\"Command %zu\",\"argsSchema\":\"schemas/input.json\"}",i?",":"",i,i);CHECK(n>0 && (size_t)n<sizeof(commands)-used);used+=(size_t)n;}
+  load_replace(manifest_json,sizeof(manifest_json),"{\"path\":[\"fixture\"],\"title\":\"Fixture\",\"argsSchema\":\"schemas/input.json\"}",commands);
+ }
  load_member_t *members=calloc(128,sizeof(*members));CHECK(members);size_t count=0;
  load_write(f,&members[count++],"plugin.json",manifest_json,strlen(manifest_json));
  load_write(f,&members[count++],"README","fixture",7);load_write(f,&members[count++],"LICENSES/MIT.txt","fixture license",15);load_write(f,&members[count++],"schemas/input.json","{}",2);
@@ -77,6 +99,18 @@ static void load_fixture(load_fixture_t *f,const char *mode,const char *temp){
  bool conflict=!strcmp(mode,"association") || !strcmp(mode,"associated");CHECK(snprintf(registry,sizeof(registry),"[%s]",manifest_json)>0);
  clock_tester_t clock={.mode="compatible"};gt_allocator_t allocator={&f->memory,alloc,release};gt_package_check_config_t config={.host_json=facts,.host_size=strlen(facts),.clock_context=&clock,.clock=clock_test,.registry_json=conflict?registry:NULL,.registry_size=conflict?strlen(registry):0};gt_package_check_report_t report;
  gt_package_check_status_t result=gt__package_check(&snapshot,&config,&allocator,&f->package,&report);if(result!=GT_PACKAGE_CHECK_COMPATIBLE)fprintf(stderr,"metadata %s: %u %s\n",mode,result,report.code);CHECK(result==GT_PACKAGE_CHECK_COMPATIBLE && !snapshot && f->package && gt__package_checked_info(f->package,&f->info));CHECK(!f->info.authorization_granted && !f->info.publisher_authenticated && f->memory.live==1);
+ gt_package_command_t command;size_t command_count=!strcmp(mode,"command-many")?64:1;
+ CHECK(gt__package_checked_command_count(f->package)==command_count && gt__package_checked_command(f->package,0,&command));
+ if(!strcmp(mode,"command-boundary")){
+  CHECK(strlen(command.path)==519 && strlen(command.title)==1024 && command.view_count==8 && !strcmp(command.views[7],"web-content"));
+  for(size_t i=0;i<8;i++)for(size_t j=0;j<64;j++)CHECK(command.path[i*65+j]=='a'+(int)i);
+  for(size_t i=0;i<256;i++)CHECK(!memcmp(command.title+i*4,"😀",4));
+ }else if(!strcmp(mode,"command-many")){
+  for(size_t i=0;i<64;i++){char path[64],title[64];snprintf(path,sizeof(path),"cmd%zu",i);snprintf(title,sizeof(title),"Command %zu",i);CHECK(gt__package_checked_command(f->package,i,&command));CHECK(!strcmp(command.path,path) && !strcmp(command.title,title));}
+ }else CHECK(!strcmp(command.path,!strcmp(mode,"registry-prefix")?"fixture child":!strcmp(mode,"registry-neighbor")?"fixturex":"fixture") && !strcmp(command.title,"Fixture") && command.view_count==0);
+ CHECK(!strcmp(command.args_schema,"schemas/input.json"));
+ memset(&command,0x55,sizeof(command));CHECK(!gt__package_checked_command(f->package,command_count,&command) && !command.path[0] && !command.title[0]);
+
 }
 static void load_clear(load_fixture_t *f){if(f->package)CHECK(gt__package_checked_destroy(&f->package)==GT_PACKAGE_OK);CHECK(!f->memory.live && f->memory.wiped);CHECK(!clear(f->fd) && !close(f->fd) && !rmdir(f->root));}
 static void load_pair(rpc_pair_t *p,const load_fixture_t *f,const char *mode){

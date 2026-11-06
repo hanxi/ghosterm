@@ -37,7 +37,7 @@ def main():
   ('required-service-copy',BACKEND,'if(ok)*count=n;','if(ok)*count=0;','native:compatible'),
   ('association-visible',BACKEND,'info->association_required=JS_ToBool(c,association)==1;','info->association_required=false;','fixture:registry-conflict'),
   ('failure-info-wiped',C,'if(out)memset(out,0,sizeof(*out));','(void)out;','native:hash'),
-  ('destroy-error-visible',C,'gt__plugin_memory_free(&a,p,sizeof(*p));return status;}','gt__plugin_memory_free(&a,p,sizeof(*p));(void)status;return GT_PACKAGE_OK;}','boundary:destroy-error'),
+  ('destroy-error-visible',C,'gt__plugin_memory_free(&a,p,bytes);return status;}','gt__plugin_memory_free(&a,p,bytes);(void)status;return GT_PACKAGE_OK;}','boundary:destroy-error'),
   ('snapshot-view-hidden',SNAPSHOT,'if(bytes)*bytes=NULL;','(void)bytes;','native:compatible'),
   ('code-copy-wiped',BACKEND,'check_wipe_free(&state,code,GT_PACKAGE_VALIDATOR_BYTES+1);','if(code)state.allocator.release(state.allocator.context,code,GT_PACKAGE_VALIDATOR_BYTES+1);','native:compatible'),
   ('hash-required',JS,'actual.sha256 !== member.sha256','false','fixture:hash-mismatch'),

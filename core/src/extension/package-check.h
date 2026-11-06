@@ -9,6 +9,12 @@
 #include "extension/package-snapshot.h"
 #include <stdatomic.h>
 typedef struct gt_package_checked gt_package_checked_t;
+/* Fixed validated command contribution. ASCII tokens are joined by one space;
+ * title/schema retain exact UTF-8. No command selection or execution grant. */
+typedef struct {char path[520],title[1025],args_schema[4097];char views[8][16];size_t view_count;} gt_package_command_t;
+bool gt__package_checked_command(const gt_package_checked_t *,size_t,gt_package_command_t *);
+size_t gt__package_checked_command_count(const gt_package_checked_t *);
+
 typedef enum {
  GT_PACKAGE_CHECK_COMPATIBLE,GT_PACKAGE_CHECK_INVALID,GT_PACKAGE_CHECK_UNKNOWN,
  GT_PACKAGE_CHECK_UNSUPPORTED,GT_PACKAGE_CHECK_DENIED,GT_PACKAGE_CHECK_LIMIT,

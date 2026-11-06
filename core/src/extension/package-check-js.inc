@@ -47,6 +47,21 @@ static bool check_protocols(JSContext *c,JSValueConst result,gt_package_check_in
  JSValue array=JS_GetPropertyStr(c,result,"protocols"),length=JS_GetPropertyStr(c,array,"length");uint32_t n=0;bool ok=JS_IsArray(array) && !JS_ToUint32(c,&n,length) && n>=1 && n<=8;JS_FreeValue(c,length);
  for(uint32_t i=0;i<n && ok;i++){JSValue v=JS_GetPropertyUint32(c,array,i);uint32_t protocol=0;ok=!JS_ToUint32(c,&protocol,v) && protocol>=1 && protocol<=65535;JS_FreeValue(c,v);if(ok)out->protocols[i]=(uint16_t)protocol;}JS_FreeValue(c,array);if(ok)out->protocol_count=n;return ok;
 }
+static bool check_command(JSContext *c,JSValueConst commands,uint32_t index,gt_package_command_t *out){
+ JSValue command=JS_GetPropertyUint32(c,commands,index),path=JS_GetPropertyStr(c,command,"path"),length=JS_GetPropertyStr(c,path,"length");uint32_t count=0;
+ bool ok=JS_IsArray(path) && !JS_ToUint32(c,&count,length) && count>=1 && count<=8;JS_FreeValue(c,length);size_t used=0;
+ for(uint32_t j=0;j<count && ok;j++){
+  JSValue value=JS_GetPropertyUint32(c,path,j);size_t n=0;const char *token=JS_IsString(value)?JS_ToCStringLen(c,&n,value):NULL;
+  ok=token && n>=1 && n<=64 && token[0]>='a' && token[0]<='z';
+  for(size_t k=0;k<n && ok;k++)ok=(token[k]>='a' && token[k]<='z') || (token[k]>='0' && token[k]<='9') || token[k]=='-';
+  if(ok){if(j)out->path[used++]=' ';memcpy(out->path+used,token,n);used+=n;out->path[used]=0;}JS_FreeCString(c,token);JS_FreeValue(c,value);
+ }
+ JS_FreeValue(c,path);ok=ok && check_string(c,command,"title",out->title,sizeof(out->title)) && check_string(c,command,"argsSchema",out->args_schema,sizeof(out->args_schema));
+ JSValue views=JS_GetPropertyStr(c,command,"views");count=0;
+ if(!JS_IsUndefined(views)){length=JS_GetPropertyStr(c,views,"length");ok=ok && JS_IsArray(views) && !JS_ToUint32(c,&count,length) && count<=8;JS_FreeValue(c,length);}
+ for(uint32_t j=0;j<count && ok;j++){JSValue value=JS_GetPropertyUint32(c,views,j);size_t n=0;const char *v=JS_IsString(value)?JS_ToCStringLen(c,&n,value):NULL;ok=v && n<sizeof(out->views[j]) && !memchr(v,0,n);if(ok){memcpy(out->views[j],v,n);out->views[j][n]=0;}JS_FreeCString(c,v);JS_FreeValue(c,value);}
+ if(ok)out->view_count=count;JS_FreeValue(c,views);JS_FreeValue(c,command);return ok;
+}
 gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,const gt_package_check_config_t *config,const gt_allocator_t *allocator,gt_package_checked_t **out,gt_package_check_report_t *report){
  if(out)*out=NULL;check_report(report,GT_PACKAGE_CHECK_INVALID,"INVALID_ARGUMENT");
  if(!snapshot || !*snapshot || !config || !out || !report || (!config->host_json && config->host_size) || (!config->registry_json && config->registry_size))return GT_PACKAGE_CHECK_INVALID;
@@ -84,7 +99,14 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,con
  }
  answer=JS_Call(c,fn,api,5,args);if(JS_IsException(answer)){check_exception(&state,report);goto done;}if(!check_budget(&state)){check_exception(&state,report);goto done;}if(state.memory){check_report(report,GT_PACKAGE_CHECK_MEMORY,"ENGINE_MEMORY");goto done;}
  {JSValue ok=JS_GetPropertyStr(c,answer,"ok");int good=JS_ToBool(c,ok);JS_FreeValue(c,ok);if(good!=1){char error[65],kind[32];if(!check_string(c,answer,"code",error,sizeof(error)) || !check_string(c,answer,"state",kind,sizeof(kind))){check_exception(&state,report);goto done;}gt_package_check_status_t status=!strcmp(kind,"invalid")?GT_PACKAGE_CHECK_INVALID:!strcmp(kind,"unknown")?GT_PACKAGE_CHECK_UNKNOWN:!strcmp(kind,"unsupported")?GT_PACKAGE_CHECK_UNSUPPORTED:!strcmp(kind,"denied")?GT_PACKAGE_CHECK_DENIED:GT_PACKAGE_CHECK_INTERNAL;check_report(report,status,error);goto done;}}
- checked=gt__plugin_memory_alloc(&state.allocator,sizeof(*checked));if(!checked){check_report(report,GT_PACKAGE_CHECK_MEMORY,"NATIVE_MEMORY");goto done;}memset(checked,0,sizeof(*checked));checked->allocator=state.allocator;atomic_init(&checked->references,1);
+ {JSValue commands=JS_GetPropertyStr(c,args[0],"commands"),length=JS_GetPropertyStr(c,commands,"length");uint32_t n=0;bool valid=JS_IsArray(commands) && !JS_ToUint32(c,&n,length) && n>=1 && n<=64;JS_FreeValue(c,length);
+  if(!valid){JS_FreeValue(c,commands);check_exception(&state,report);goto done;}
+  size_t allocation=sizeof(*checked)+n*sizeof(gt_package_command_t);checked=gt__plugin_memory_alloc(&state.allocator,allocation);
+  if(!checked){JS_FreeValue(c,commands);check_report(report,GT_PACKAGE_CHECK_MEMORY,"NATIVE_MEMORY");goto done;}
+  memset(checked,0,allocation);checked->allocation_size=allocation;checked->command_count=n;checked->allocator=state.allocator;atomic_init(&checked->references,1);
+  for(uint32_t i=0;i<n && valid;i++)valid=check_command(c,commands,i,&checked->commands[i]);JS_FreeValue(c,commands);
+  if(!valid){check_exception(&state,report);goto done;}
+ }
  {gt_package_check_info_t *info=&checked->info;JSValue identity=JS_GetPropertyStr(c,answer,"identity"),result=JS_GetPropertyStr(c,answer,"result"),association=JS_GetPropertyStr(c,answer,"associationRequired");char side[16]={0},authorization[32]={0};JSValue authenticated=JS_GetPropertyStr(c,result,"publisherAuthenticated");
   bool ok=check_string(c,args[3],"sdkVersion",info->sdk_version,sizeof(info->sdk_version)) && check_string(c,identity,"id",info->id,sizeof(info->id)) && check_string(c,identity,"version",info->version,sizeof(info->version)) && check_string(c,identity,"publisher",info->publisher,sizeof(info->publisher)) && check_string(c,identity,"license",info->license,sizeof(info->license)) && check_string(c,identity,"runtime",info->runtime,sizeof(info->runtime)) && check_string(c,result,"entry",info->entry,sizeof(info->entry)) && check_string(c,result,"side",side,sizeof(side)) && check_string(c,result,"authorization",authorization,sizeof(authorization)) && !strcmp(authorization,"not-granted") && JS_IsBool(authenticated) && JS_ToBool(c,authenticated)==0 && JS_IsBool(association) && check_strings(c,identity,"requires",info->requires,&info->requires_count) && check_strings(c,result,"optionalMissing",info->optional_missing,&info->optional_missing_count) && check_protocols(c,result,info);
   ok=ok && (!strcmp(side,"client") || !strcmp(side,"executor"));info->executor=!strcmp(side,"executor");info->association_required=JS_ToBool(c,association)==1;
@@ -97,6 +119,6 @@ done:
  check_wipe_free(&state,code,GT_PACKAGE_VALIDATOR_BYTES+1);gt__package_json_destroy(&json);
  if(report->status==GT_PACKAGE_CHECK_COMPATIBLE && !check_budget(&state))check_exception(&state,report);
  if(report->status==GT_PACKAGE_CHECK_COMPATIBLE){checked->snapshot=*snapshot;*snapshot=NULL;*out=checked;}
- else if(checked)check_wipe_free(&state,checked,sizeof(*checked));
+ else if(checked)check_wipe_free(&state,checked,checked->allocation_size);
  return report->status;
 }
