@@ -11,6 +11,7 @@
 typedef struct {char name[256];char *source;size_t size;} runtime_module_t;
 struct gt_bridge_runtime {
  gt_ext_session_t *session;gt_ext_lease_t lease;gt_ext_role_t role;
+ gt_runtime_resources_t *resources;
  runtime_module_t modules[64];size_t count;char entry[256];
  JSRuntime *engine;JSContext *context;JSValue module,space,pump,dispose,unhandled[64];size_t unhandled_count;
  atomic_bool stopped;uint64_t deadline,activation_deadline;uint32_t cpu_ms,jobs_per_step,activation_ms;
@@ -19,6 +20,7 @@ struct gt_bridge_runtime {
 static const char *runtime_status[]={"ok","wait","invalid","denied","unsupported","closed"};
 static const char *runtime_states[]={"queued","pending","succeeded","failed","cancelled","unknown"};
 static bool runtime_now(uint64_t *out){struct timespec t;if(clock_gettime(CLOCK_MONOTONIC,&t))return false;*out=(uint64_t)t.tv_sec*1000+(uint64_t)t.tv_nsec/1000000;return true;}
+static bool runtime_resource_clock(void *opaque,uint64_t *out){(void)opaque;return runtime_now(out);}
 static void runtime_fail(gt_bridge_runtime_t *r,gt_runtime_error_t error){if(r->info.phase!=GT_RUNTIME_FAILED && r->info.phase!=GT_RUNTIME_STOPPED){r->info.phase=error==GT_RUNTIME_CANCELLED?GT_RUNTIME_STOPPED:GT_RUNTIME_FAILED;r->info.error=error;}gt_ext_session_revoke(r->session);}
 static int runtime_interrupt(JSContext *ctx,void *opaque){
  (void)ctx;gt_bridge_runtime_t *r=opaque;uint64_t now;
@@ -64,7 +66,7 @@ static bool runtime_handle(JSContext *ctx,JSValueConst v,uint64_t *out){
  for(size_t i=0;i<n && ok;i++){if(s[i]<'0' || s[i]>'9' || value>(UINT64_MAX-(unsigned)(s[i]-'0'))/10)ok=false;else value=value*10+(unsigned)(s[i]-'0');}
  JS_FreeCString(ctx,s);if(ok)*out=value;return ok;
 }
-static int runtime_set(JSContext *c,JSValue object,const char *key,JSValue value){return JS_SetPropertyStr(c,object,key,value);}
+static int runtime_set(JSContext *c,JSValue object,const char *key,JSValue value){if(JS_IsException(value))return -1;return JS_SetPropertyStr(c,object,key,value);}
 static JSValue runtime_native(JSContext *c,JSValueConst self,int argc,JSValueConst *argv,int op){
  (void)self;gt_bridge_runtime_t *r=JS_GetContextOpaque(c);if(!r || !r->session)return JS_ThrowInternalError(c,"runtime closed");
  if(op==7){gt_ext_session_revoke(r->session);return JS_UNDEFINED;}
@@ -97,13 +99,15 @@ static JSValue runtime_native(JSContext *c,JSValueConst self,int argc,JSValueCon
  return JS_NewString(c,runtime_status[status]);
 invalid:return JS_ThrowTypeError(c,"invalid native request");
 }
+#include "extension/runtime-resource-js.inc"
 static int runtime_bind(JSContext *c,JSModuleDef *module){
  const char *names[]={"request","result","cancel","forget","take","check","respond","revoke","alive"};
- for(int i=0;i<9;i++)if(JS_SetModuleExport(c,module,names[i],JS_NewCFunctionMagic(c,runtime_native,names[i],0,JS_CFUNC_generic_magic,i)))return -1;return 0;
+ for(int i=0;i<9;i++)if(JS_SetModuleExport(c,module,names[i],JS_NewCFunctionMagic(c,runtime_native,names[i],0,JS_CFUNC_generic_magic,i)))return -1;
+ for(int i=0;i<9;i++)if(JS_SetModuleExport(c,module,runtime_resource_exports[i],JS_NewCFunctionMagic(c,runtime_resource_native,runtime_resource_exports[i],0,JS_CFUNC_generic_magic,i)))return -1;return 0;
 }
 static JSModuleDef *runtime_load(JSContext *ctx,const char *name,void *opaque){
  gt_bridge_runtime_t *r=opaque;
- if(!strcmp(name,"host:/native")){JSModuleDef *m=JS_NewCModule(ctx,name,runtime_bind);if(!m)return NULL;const char *names[]={"request","result","cancel","forget","take","check","respond","revoke","alive"};for(int i=0;i<9;i++)if(JS_AddModuleExport(ctx,m,names[i]))return NULL;return m;}
+ if(!strcmp(name,"host:/native")){JSModuleDef *m=JS_NewCModule(ctx,name,runtime_bind);if(!m)return NULL;const char *names[]={"request","result","cancel","forget","take","check","respond","revoke","alive"};for(int i=0;i<9;i++)if(JS_AddModuleExport(ctx,m,names[i]))return NULL;for(int i=0;i<9;i++)if(JS_AddModuleExport(ctx,m,runtime_resource_exports[i]))return NULL;return m;}
  for(size_t i=0;i<r->count;i++)if(!strcmp(name,r->modules[i].name)){JSValue v=JS_Eval(ctx,r->modules[i].source,r->modules[i].size,name,JS_EVAL_TYPE_MODULE|JS_EVAL_FLAG_COMPILE_ONLY);if(JS_IsException(v))return NULL;JSModuleDef *m=JS_VALUE_GET_PTR(v);JS_FreeValue(ctx,v);return m;}
  JS_ThrowReferenceError(ctx,"module unavailable");return NULL;
 }
@@ -114,7 +118,8 @@ static void runtime_free_engine(gt_bridge_runtime_t *r){
 }
 static void runtime_free_modules(gt_bridge_runtime_t *r){for(size_t i=0;i<r->count;i++)free(r->modules[i].source);}
 gt_status_t gt__bridge_runtime_open(gt_ext_session_t **session,const gt_runtime_config_t *c,gt_bridge_runtime_t **out){
- if(out)*out=NULL;if(!out || !session || !*session || !c || !c->modules || !c->module_count || c->module_count>64 || !runtime_name(c->entry) || strncmp(c->entry,"plugin:/",8) || (c->role!=GT_EXT_HOST && c->role!=GT_EXT_EXECUTOR))return GT_ERR_INVALID_ARG;
+ if(out)*out=NULL;if(!out || !session || !*session || !c || !c->modules || !c->module_count || c->module_count>64 || !runtime_name(c->entry) || strncmp(c->entry,"plugin:/",8) || (c->role!=GT_EXT_HOST && c->role!=GT_EXT_EXECUTOR) || c->root_count>GT_RUNTIME_ROOTS_MAX || (c->root_count && !c->roots))return GT_ERR_INVALID_ARG;
+ if(c->root_count && !(*session)->store)return GT_ERR_UNSUPPORTED;
  gt_ext_session_info_t info;if(!gt_ext_session_info(*session,&info) || info.phase!=GT_EXT_SESSION_ACTIVE || !(*session)->requests || (*session)->sources || !gt__bridge_session_runtime_admissible((*session)->inner))return GT_ERR_INVALID_ARG;
  gt_bridge_role_t actual_role;size_t method_count;gt__bridge_session_methods((*session)->inner,&method_count,&actual_role);if((unsigned)actual_role!=(unsigned)c->role)return GT_ERR_INVALID_ARG;
  size_t memory=c->memory_bytes?c->memory_bytes:16*1024*1024,stack=c->stack_bytes?c->stack_bytes:256*1024;uint32_t cpu=c->cpu_ms?c->cpu_ms:25,jobs=c->jobs_per_step?c->jobs_per_step:32;
@@ -130,17 +135,19 @@ gt_status_t gt__bridge_runtime_open(gt_ext_session_t **session,const gt_runtime_
  }
  if(!entry)goto fail;r->engine=JS_NewRuntime();if(!r->engine){status=GT_ERR_IO;goto fail;}JS_SetMemoryLimit(r->engine,memory);JS_SetCanBlock(r->engine,false);JS_SetMaxStackSize(r->engine,stack);r->context=JS_NewContext(r->engine);if(!r->context){status=GT_ERR_IO;goto fail;}
  JS_SetContextOpaque(r->context,r);JS_SetModuleLoaderFunc(r->engine,runtime_normalize,runtime_load,r);JS_SetInterruptHandler(r->engine,runtime_interrupt,r);JS_SetHostPromiseRejectionTracker(r->engine,runtime_rejection,r);
- if(!gt_ext_session_lease(*session,&r->lease))goto fail;r->session=*session;*session=NULL;*out=r;return GT_OK;
-fail:runtime_free_engine(r);runtime_free_modules(r);gt__secure_erase(r,sizeof(*r));free(r);return status;
+ if(!gt_ext_session_lease(*session,&r->lease))goto fail;
+ if((*session)->store){status=gt__runtime_resources_open(*session,(*session)->store,&r->lease,c->roots,c->root_count,NULL,runtime_resource_clock,&r->resources);if(status!=GT_OK)goto fail;}
+ r->session=*session;*session=NULL;*out=r;return GT_OK;
+fail:runtime_free_engine(r);if(r->resources)(void)gt__runtime_resources_destroy(&r->resources);runtime_free_modules(r);gt__secure_erase(r,sizeof(*r));free(r);return status;
 }
 static bool runtime_start(gt_bridge_runtime_t *r){
  char script[4096];int n=snprintf(script,sizeof(script),
  "import {SessionChannel} from 'sdk:/index.js';import * as port from 'host:/native';import {activate} from '%s';"
  "const session=new SessionChannel(port);let state=0,disposable;const cancellation=Object.freeze({get cancelled(){return !port.alive()}});"
- "const context=Object.freeze({session,side:'%s',instanceId:'%s',epoch:'%" PRIu64 "',cancellation});"
- "export function pump(){session.step();return state}export function dispose(){session.dispose();try{disposable?.dispose()}catch{}}"
+ "%sconst context=Object.freeze({session,side:'%s',instanceId:'%s',epoch:'%" PRIu64 "',cancellation%s});"
+ "export function pump(){session.step();resources?.step();return state}export function dispose(){session.dispose();resources?.dispose();try{disposable?.dispose()}catch{}}"
  "Promise.resolve().then(()=>activate(context)).then(value=>{if(!value || typeof value.dispose!=='function')throw Error('entry');disposable=value;state=1},()=>{state=-1}).catch(()=>{state=-1});",
- r->entry,r->role==GT_EXT_HOST?"client":"executor",r->lease.instance,r->lease.epoch);
+ r->entry,r->resources?"const {ResourceBroker}=await import('sdk:/resources.js');const resources=new ResourceBroker(port);":"const resources=undefined;",r->role==GT_EXT_HOST?"client":"executor",r->lease.instance,r->lease.epoch,r->resources?",resources":"");
  if(n<0 || (size_t)n>=sizeof(script)){runtime_fail(r,GT_RUNTIME_PROTOCOL);return false;}
  JSValue compiled=JS_Eval(r->context,script,(size_t)n,"host:/bootstrap.js",JS_EVAL_TYPE_MODULE|JS_EVAL_FLAG_COMPILE_ONLY);if(JS_IsException(compiled)){runtime_exception(r);return false;}
  JSModuleDef *m=JS_VALUE_GET_PTR(compiled);r->module=JS_EvalFunction(r->context,compiled);if(JS_IsException(r->module)){r->module=JS_UNDEFINED;runtime_exception(r);return false;}
@@ -158,6 +165,8 @@ gt_runtime_phase_t gt__bridge_runtime_step(gt_bridge_runtime_t *r){
  uint64_t now;if(!runtime_now(&now)){runtime_fail(r,GT_RUNTIME_IO);return r->info.phase;}r->deadline=now+r->cpu_ms;r->interrupted=false;r->info.steps++;
  gt_ext_session_phase_t native=gt_ext_session_step(r->session,0);gt_ext_session_info_t info;if(gt_ext_session_info(r->session,&info)){r->info.session_end=info.end;r->info.session_error=info.error;}
  if(native!=GT_EXT_SESSION_ACTIVE){runtime_fail(r,GT_RUNTIME_PROTOCOL);return r->info.phase;}
+ gt__runtime_resources_step(r->resources);
+ if(!runtime_now(&now)){runtime_fail(r,GT_RUNTIME_IO);return r->info.phase;}r->deadline=now+r->cpu_ms;
  if(!r->started){r->started=true;r->activation_deadline=now+r->activation_ms;r->info.phase=GT_RUNTIME_STARTING;if(!runtime_start(r))return r->info.phase;}
  uint32_t used=0;if(!runtime_jobs(r,&used))return r->info.phase;
  JSPromiseStateEnum module=JS_PromiseState(r->context,r->module);
@@ -177,10 +186,12 @@ bool gt__bridge_runtime_info(const gt_bridge_runtime_t *r,gt_runtime_info_t *out
 void gt__bridge_runtime_stop(gt_bridge_runtime_t *r){if(r)atomic_store_explicit(&r->stopped,true,memory_order_relaxed);}
 gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r){
  if(!r)return GT_EXT_CLOSE_ERROR;if(r->info.phase==GT_RUNTIME_CLOSED)return GT_EXT_RELEASED;
- gt_ext_session_revoke(r->session);gt_ext_session_stop(r->session);atomic_store_explicit(&r->stopped,true,memory_order_relaxed);
+ gt_ext_session_revoke(r->session);gt_ext_session_stop(r->session);gt__runtime_resources_stop(r->resources);atomic_store_explicit(&r->stopped,true,memory_order_relaxed);
  if(r->context && JS_IsFunction(r->context,r->dispose)){JSValue v=JS_Call(r->context,r->dispose,JS_UNDEFINED,0,NULL);if(JS_IsException(v)){JSValue error=JS_GetException(r->context);JS_FreeValue(r->context,error);r->info.dispose_error=true;}JS_FreeValue(r->context,v);}
  runtime_free_engine(r);
- gt_ext_close_t close=gt_ext_session_close(r->session,0);if(close!=GT_EXT_RELEASED){if(close==GT_EXT_CLOSE_ERROR)r->info.cleanup_error=GT_ERR_IO;return close;}
+ gt_ext_close_t close=gt_ext_session_close(r->session,0);
+ if(r->resources){gt_runtime_resource_status_t status=gt__runtime_resources_destroy(&r->resources);if(status!=GT_RUNTIME_RESOURCE_OK){if(status==GT_RUNTIME_RESOURCE_WAIT)return GT_EXT_DRAINING;r->info.cleanup_error=GT_ERR_IO;return GT_EXT_CLOSE_ERROR;}if(close==GT_EXT_DRAINING)close=gt_ext_session_close(r->session,0);}
+ if(close!=GT_EXT_RELEASED){if(close==GT_EXT_CLOSE_ERROR)r->info.cleanup_error=GT_ERR_IO;return close;}
  gt_ext_session_info_t snapshot;if(gt_ext_session_info(r->session,&snapshot)){r->info.session_end=snapshot.end;r->info.session_error=snapshot.error;}
  gt_status_t status=gt_ext_session_destroy(&r->session);if(status!=GT_OK){r->info.cleanup_error=status;return GT_EXT_CLOSE_ERROR;}r->info.cleanup_error=GT_OK;r->info.phase=GT_RUNTIME_CLOSED;return GT_EXT_RELEASED;
 }

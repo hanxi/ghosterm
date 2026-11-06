@@ -51,7 +51,20 @@ SDK 每次最多 take 8 个请求、保留 64 个发送观察与 64 个处理中
 quickjs-libc 的 QuickJS-NG 0.18.0 中，调用实际公开 C Session / socketpair；并独立对拍 codec schema。
 `confirmation` 单独注入不一致 native adapter 状态，不能算真实网络成功。
 
-runtime 已通过 native adapter 接 Session 请求与受限 activate / dispose；尚未实现完整 PluginContext、
-事件 / UI / 资源 / 进程服务、模块安装器、App 页面 / 激活入口、gterm IPC 或多实例调度。
+资源首片使用 `context.resources`，由受信 bootstrap 绑定原 Session / Store。native caller 提供
+最多八个授权根 fd / ID / 文件上限；JS 的 `workspaces` 只有标识，`publish` 接相对路径并等待真实
+发布回执。`take()` mint 的本地 ResourceRef 才能 open / read，复制的 metadata 不能获取权限；
+发布结果只是对端关联 metadata。顺序流每次 read 返回 `Promise<Outcome<ReadChunk>>`，字节为
+独立 Uint8Array；读取失败保留，不能变成 EOF 成功。流 / Source 的权限、配额、native 期限与
+回执仍由 Core 负责，原 worker 推进，dispose / runtime close 收回全部 owning pin。
+
+资源库实现位于 `portable/resources.ts`，聚合入口只导出类型；插件通过宿主 context 使用它，
+不自行构造 native port。无 Store 的 runtime 没有资源服务，无根的资源 Session 只接收。
+当前只支持授权 POSIX 目录与已封存快照，不含 SAF 根 / 任意路径 / OS 沙箱承诺。
+验证：`python3 scripts/mutation-check-plugin-runtime-resources.py`；三项 adapter 故障观测不当作
+真实网络 / 磁盘证据。完整行为、限额、原生绑定和证据见插件计划第二十七批。
+
+runtime 已接 Session / 资源及受限 activate / dispose；尚未实现完整 PluginContext、
+事件 / UI / 进程服务、模块安装器、App 页面 / 激活入口、gterm IPC 或多实例调度。
 运行时门面验证见 `python3 scripts/mutation-check-plugin-runtime-api.py`；Android 显式测试档另见
 `scripts/mutation-check-plugin-runtime-api-jni.py --device 设备`。未来网关只预留，不在当前实现范围。

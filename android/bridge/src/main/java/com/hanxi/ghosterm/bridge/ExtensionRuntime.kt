@@ -11,9 +11,10 @@ class ExtensionRuntime private constructor(private val worker: Thread,
     enum class Phase { CREATED, STARTING, ACTIVE, FAILED, STOPPED, CLOSED }
     enum class Failure { NONE, SCRIPT, MEMORY, CPU, CANCELLED, JOBS, PROTOCOL, IO, EXPIRED }
     data class Module(val name: String, val source: ByteArray, val sha256: String)
+    data class WorkspaceRoot(val id: String, val directoryFd: Int, val byteLimit: Long)
     data class Config(val modules: List<Module>, val entry: String, val role: ExtensionSession.Role,
         val memoryBytes: Long = 0, val stackBytes: Long = 0, val cpuMilliseconds: Int = 0,
-        val jobsPerStep: Int = 0, val activationMilliseconds: Int = 0)
+        val jobsPerStep: Int = 0, val activationMilliseconds: Int = 0, val roots: List<WorkspaceRoot> = emptyList())
     data class Info(val phase: Phase, val error: Failure, val cleanupError: Int, val sessionEnd: ExtensionSession.End,
         val sessionError: Int, val disposeError: Boolean, val engineReleased: Boolean,
         val steps: ULong, val jobs: ULong, val moduleBytes: ULong)
@@ -62,11 +63,16 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             }.toTypedArray()
             val digests = modules.map { require(it.sha256.matches(Regex("[a-f0-9]{64}"))); encode(it.sha256, 64) }.toTypedArray()
             val entry = encode(config.entry, 255)
+            require(config.roots.size <= 8)
+            val roots = config.roots.toList()
+            val rootNames = roots.map { encode(it.id, 64) }.toTypedArray()
+            val rootFds = roots.map { it.directoryFd }.toIntArray()
+            val rootLimits = roots.map { require(it.byteLimit >= 0); it.byteLimit }.toLongArray()
             val limits = longArrayOf(config.role.ordinal.toLong(), config.memoryBytes, config.stackBytes,
                 config.cpuMilliseconds.toLong(), config.jobsPerStep.toLong(), config.activationMilliseconds.toLong())
             // Allocate Java owner and all arguments before Core takes Session.
             val result = ExtensionRuntime(worker, session.runtimeStore())
-            val values = session.adoptRuntime { NativeExtensionRuntime.open(it, names, sources, digests, entry, limits) }
+            val values = session.adoptRuntime { NativeExtensionRuntime.open(it, names, sources, digests, entry, limits, rootNames, rootFds, rootLimits) }
             check(values.size == 2)
             if (values[0] != 0L) throw ExtensionChannelException(values[0].toInt(), "运行时未接管会话")
             check(values[1] > 0); result.handle = values[1]; return result
@@ -76,7 +82,7 @@ class ExtensionRuntime private constructor(private val worker: Thread,
 internal object NativeExtensionRuntime {
     init { System.loadLibrary("ghosterm_android") }
     external fun support(): Int
-    external fun open(session: Long, names: Array<ByteArray>, sources: Array<ByteArray>, digests: Array<ByteArray>, entry: ByteArray, limits: LongArray): LongArray
+    external fun open(session: Long, names: Array<ByteArray>, sources: Array<ByteArray>, digests: Array<ByteArray>, entry: ByteArray, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray): LongArray
     external fun step(handle: Long): Int
     external fun info(handle: Long): LongArray
     external fun stop(handle: Long)

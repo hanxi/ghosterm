@@ -69,6 +69,8 @@ def main():
         ('swift-module-size', 'value.size = m.source.count', 'value.size = 0', 'testAdoptionAndActualPluginRPC'),
         ('swift-explicit-destroy', 'let status = gt_ext_runtime_destroy(&raw);', 'let status = GT_OK;', 'testExplicitCloseInertsHandle'),
         ('swift-owner-reaper', 'owner.async { value.run() }', 'owner.async { }', 'testDroppedRuntimeCleansOnOwnerQueue'),
+        ('swift-root-id', 'copy(Data(root.id.utf8))', 'copy(Data("other".utf8))', 'testScopedPublicationCopiesRootAndWaitsForReceipt'),
+        ('swift-root-budget', 'byte_limit: root.byteLimit', 'byte_limit: min(root.byteLimit, 32768)', 'testScopedPublicationCopiesRootAndWaitsForReceipt'),
     ]
     known = {c[0] for c in cases + swift_cases}
     if set(args.case) - known:
@@ -199,7 +201,7 @@ def main():
             def swift_run(label, method=None, red=False):
                 output = run(label, ['swift', 'test', '--package-path', package, '--filter', 'ExtensionRuntimeTests.' + method if method else 'ExtensionRuntime'], budget=240, red='swift' if red else None)
                 if not red:
-                    count = 1 if method else 8
+                    count = 1 if method else 11
                     assert re.search(r'Executed ' + str(count) + r' tests?, with 0 failures \(0 unexpected\)', output)
                     assert 'skipped' not in output.lower()
 
@@ -219,7 +221,7 @@ def main():
             swift_run('swift-final')
         for name, digest in hashes.items():
             assert sha(ROOT / name) == digest, name
-        receipt = dict(accepted=True, inputs_sha256=hashes, core_groups=[c[0] for c in cases], swift_groups=[c[0] for c in swift_cases], public_cases=31, private_cases=27, swift_tests=0 if args.core_only else 8, commands=commands, c_sanitizers=['address', 'undefined'], leak_sanitizer=False, core_sha256=sha(build / 'libghosterm_core.a'), engine_sha256=sha(build / 'libghosterm_quickjs.a'), sdk_sha256={p.name: sha(p) for p in sdk.glob('*.js')}, scope='public C facade / owner admission / native Swift worker; no App activation, gateway, physical device, WAN or release')
+        receipt = dict(accepted=True, inputs_sha256=hashes, core_groups=[c[0] for c in cases], swift_groups=[c[0] for c in swift_cases], public_cases=31, private_cases=27, swift_tests=0 if args.core_only else 11, commands=commands, c_sanitizers=['address', 'undefined'], leak_sanitizer=False, core_sha256=sha(build / 'libghosterm_core.a'), engine_sha256=sha(build / 'libghosterm_quickjs.a'), sdk_sha256={p.name: sha(p) for p in sdk.glob('*.js')}, scope='public C facade / owner admission / native Swift worker; no App activation, gateway, physical device, WAN or release')
         (logs / 'result.json').write_text(json.dumps(receipt, indent=2) + '\n')
         shutil.rmtree(source)
         print('PUBLIC RUNTIME MUTATIONS PASS; logs: ' + str(logs), flush=True)

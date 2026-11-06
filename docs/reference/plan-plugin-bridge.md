@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第二十六批。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求首片及可选 JS runtime 公共门面已分片验证。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-06 第二十七批。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -142,7 +142,7 @@ Client 插件在 JS worker 中运行，不接收终端原始输出。平台门�
 
 ## 2 代码模块与实现接缝
 
-以下为实现布局；第九至二十六批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI。默认关闭 JS 后端；App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
+以下为实现布局；第九至二十七批已新增字节流 / frame / route / wire / Session / RPC / Store / transfer / scoped source、SSH exec 后端及公共门面，纳入 Core 构建。公共通道、Session、请求、资源和 source 已接两端 worker；第二十四批接 Portable SDK 请求边界，第二十五批接可选 QuickJS-NG / native RPC adapter，第二十六批补 `extension_runtime.h` / `runtime-api.c` 和 Swift / Kotlin / JNI，第二十七批接 runtime-resource / ResourceBroker 与显式授权根。默认关闭 JS 后端；App 根授权 / 控制器 / 激活、完整 SDK 服务与其余生产模块仍待接。
 
 ```text
 core/include/ghosterm/extension.h   已实现 S4d1：公共 opaque channel / 路线 / IO / 关闭 POD
@@ -158,6 +158,7 @@ core/src/extension/
   resource-api.c   已实现 S4d4：公共 Store 与资源流门面、借用计数、发布快照 / 读取 / 引用交接
   source-api.c   已实现 S4d5：公开文件来源门面、Session pin、原失败与关闭错误分开
   runtime-api.c   已实现：公共 runtime 门面；runtime.c / runtime-quickjs.inc 为可选 backend
+  runtime-resource.h / runtime-resource.c / runtime-resource-js.inc   已实现：原生授权根 / Source / 快照 owner 与受限 JS adapter
   stream.h / stream.c   私有有序双向字节通道契约，不带终端 / 插件业务语义
   fd-stream.c    已实现：显式接管 pipe / stream socket；非阻塞 IO 与停止唤醒
   frame.h / frame.c    已实现：候选长度前缀、增量 decoder 与单帧 writer
@@ -2574,6 +2575,95 @@ enabled-only 测试类不在默认 DEX；原生 linked 符号另证无 JS_NewRun
 视图 / 激活、完整 PluginContext / SDK 文件进程服务、gterm IPC、包安装、实际插件及多实例继续。
 下一片先补 runtime 的受控资源 / scoped source 服务，复用既有 C 原语与预算，再接 App / gterm；
 不将公共门面当整个插件完成，未来网关继续只预留。
+
+### P0 第二十七批：runtime 受控文件发布与 ResourceBroker（2026-11-06）
+
+**已接通的路径。** 新私有 `runtime-resource.h/.c` 复用既有公开 Source / Session / Store；
+`runtime-resource-js.inc` 为受限 bootstrap 增加九项 resource port 操作，Portable SDK 增加
+`resources.ts`。真实插件可从已授权目录发布文件，等待对端发布回执；接收端可取得本地 owning
+ResourceRef、开启有界顺序流、按块读取及释放。文件内容经 Uint8Array，资源协议与 Core 原语沿用
+现有链路。没有将文件拼入 JSON、加入终端 UI 字节路径、执行 shell 或实现网关。
+
+公共 `gt_ext_runtime_config_t` 新增 roots / root_count 及 Root POD，**结构布局变更，消费者须同步
+重编译**；公开函数仍 **154**，Apple **150 引用 / 4 未用**、JNI **116 / 38**。Swift WorkspaceRoot
+及临时 C POD 数组、Kotlin 严格 UTF-8 编码 / 原 worker、JNI 根标识 / fd / limit 数组已同步。
+
+**授权根与资源所有权。** native caller 显式提供根目录 fd、ASCII 标识和每文件上限；Root 不是
+终端 cwd、远端自报路径或可从资源 ID 恢复的凭据。构造先验证所有根，再复制标识及 CLOEXEC fd；
+最多八根、每根上限 1–16 MiB，原 fd 保留给 caller。App 的根选择 / ACL 与挂载策略仍由后续原生
+授权控制器负责；Core 不宣称 OS / 同 UID 沙箱。JS 仅获得根标识和相对路径入口，Source 每次继续
+核对原 lease、file.readScoped / resource.receive、目录与普通文件、NOFOLLOW / 版本 / EOF / 摘要。
+已有 Session / Store scope 配额仍生效。无 Store 时不安装 context.resources；有资源 Session 但
+无根时只接收。要求根却没有资源 Session 明确 UNSUPPORTED，构造失败保留旧 Session。
+
+发布端返回的 ResourceMetadata 只用于关联对端已发布结果。本地读取必须经 take 从真实 Store
+交接，Native 单独持有 owning snapshot；JS Map 绑定具体 ResourceRef 对象。复制 / 序列化其
+metadata 不生成读取权限，端口中也没有 lease、fd 或 native snapshot token。原生单调句柄与
+source / snapshot 类型分开检查，销毁前一直计费；Store 在匹配 scope 下确认已不存在时，同步
+清掉本地 owning slot。取消 / 撤销后禁止新读取，清理 release 仍可执行。
+
+**预算与结果。** 每 runtime 最多十六个 Source 观察、六十四个快照 pin；每个 native step
+轮换至多一次 16 KiB Source 操作，快照读取另共用每 step 16 KiB 额度。SDK 每 pump 至多完成
+八个读请求；队列有界，WAIT 继续由原 worker 推进，没有 UI 线程轮询或额外后台线程。每次发布
+有 1–3,600,000 ms native 期限，包含 hash / send / receipt，时钟失败记 IO；期限不等于磁盘硬
+实时承诺。JS CPU 计时在本轮 native 资源工作后重新取点，磁盘阻塞仍受既有明确限制。
+
+open 支持已封存且大小已知的本地快照；每 ref 仅一个顺序流，native 核对总字节预算、offset、
+期限与撤销。部分块按实际字节推进，EOF 必须与已知长度一致；读失败被保存，后续 read 不改报 EOF。
+publication 只在 Core 确认且成功状态一致时成功；已发送无回执 UNKNOWN 优先保留，取消不推断无
+副作用，确认后到来的截止不覆盖已确认结果。BUSY / INTEGRITY / PROTOCOL 使用既有 wire 错误码。
+
+Native 在调用 Source / take 前准备返回容器，接管后的 POD 分配失败立即撤销，native owner 仍
+负责清理；通用属性写入也拒绝 JS_EXCEPTION 值。close 撤销 / 停止、释放 engine、停止 Session，
+随后释放全部 Source / snapshot / 根 fd，最后才 destroy Session。IO 与 WAIT 保留 owner；多个
+Source 同时清理时 IO 不被后续 WAIT 覆盖。已消费 fd 只关闭一次，重试不再触碰该数字。
+
+**实际验证。** 新 **32 个具名 C / QuickJS 场景**：十七个 owner / close 边界、十五个 JS 场景。
+包括实际 256 KiB / 空文件、相反方向的分块读取、对象复制拒绝、未释放 ref 的关闭、原 fd 关闭
+后继续发布、未授权 / 无资源 Session / 非法根、取消、期限 / 时钟、轮换限额与撤销。snapshot OOM
+先观察真实 native pin，再在 JS 描述对象分配边界注入实际 QuickJS OOM 异常，核对 MEMORY、撤销、
+Store 占用和 fd 恢复；不是自然耗尽堆的证明。三个 SDK adapter 故障分别提供未确认成功、截短 EOF
+与首次 IO / 后续伪 EOF；SDK 必须拒绝，**这些故障观测不是网络回执或真实磁盘 IO 故障**。同一
+程序随后另走正常 native 文件发布。close 边界真实 close 后返回 EIO，另一 Source 已在对端预约
+且只发送部分数据；IO 优先级、重试和已不存在快照的 slot 回收均有保护。
+
+新 **21 C / native adapter + 5 SDK + 2 Swift + 3 JNI-Kotlin = 31 组**手工变异分套通过。资源
+专项二十六组均真正重编 TS / Core object / archive / executable，正常单条 C 断言红、同 archive
+配置绿、恢复重建绿和 SHA256；两端根标识 / 限额传递另经实际 XCTest 或 JUnit 单条断言红、同库 /
+APK Core 对照绿、恢复与摘要。公开门面十九 C / 原六 Swift / 原七 JNI、旧私有 runtime 十三与
+SDK 九组在本批另分轮复验，累计 **85 组**；后续补齐的清理与 adapter 边界以最终资源专项及两端
+功能复验为准，不将历史输入摘要称同轮最终源码。ASan / UBSan，无 LSan，不增加 CI 二十份。
+
+Swift 开启档 **11 项**、API 36 arm64 / 4 KiB 页模拟器开启档 **11 项**通过；新增原生根复制 /
+真实 256 KiB 发布、接收读取 / 伪造引用拒绝 / 释放，以及无资源 Session 保留三项。默认 Swift
+单项、Android 关闭档单项与同 APK Core 三项通过，enabled-only 类不在默认 DEX。开启 APK 附原样
+QuickJS MIT，SDK 只在测试 APK；安装后的实际字节、包内 SDK / 许可另验。默认 Core **397 CTest /
+154 ABI**；无 SSH 档十七 owner 场景、关闭 provider / 关闭 JS 的能力与导出、四次严格 C11 编译、
+macOS App 实际 executable 重链、Android Debug / 测试 APK / 未签名 Release / 实际 R8 与四模块
+lint 通过。仅本机 / 模拟器证据，没有新 SSH / tmux 组合、物理设备、SAF 根、WAN 或签名发行结论。
+
+保留的失败：SDK POD OOM 用例缺 Darwin feature 宏、close fixture 旧 main 宏冲突均为编译失败；
+截短 EOF 变异初版破坏 TS narrowing，拒收后改为删除该判据本身。IO 优先级初探没有证明 BEGIN
+到达对端，变异未杀死，拒收；改为核对真实预约与部分发送后通过。已不存在的 ref 回收另补
+实际 Store 删除边界，不以清空 JS Map 代替 native 释放。这些失败均未计作通过。
+
+| 范围 | 本地收据 |
+|---|---|
+| 最终资源 32 项 / 26 变异 | `tmp/plugin-runtime-resources-mutations-19e5599x/logs/result.json` |
+| 原公开 C / Swift、两组新根字段 | `tmp/plugin-runtime-api-mutations-x8bpfumx/logs/result.json` |
+| 原 JNI / 三组新根字段 | `tmp/plugin-runtime-api-jni-mutations-rs_jekw4/logs/result.json` |
+| 原私有 runtime / SDK | `tmp/plugin-runtime-g_8l8i3g/logs/result.json` / `tmp/plugin-sdk-r5qt_n23/logs/result.json` |
+| 最新 native 32 / Swift 11 | `tmp/plugin-runtime-resources-native-1v9tymct/accepted-result.json` |
+| 最新 Android 11 / 默认四项、实际 R8 / 四 lint | `tmp/plugin-runtime-resources-final-android/result.json` |
+| 无 SSH / provider OFF / 严格 C11 | `tmp/plugin-runtime-resources-variants-5c3h54ji/result.json` |
+| 默认 gate / App 实际重链 | `tmp/plugin-runtime-resources-gate-final.log` / `tmp/plugin-runtime-resources-macos-app-final.json` |
+| 三份 runner 实际 main 残留预扫 | `tmp/plugin-runtime-resources-preflight-final-e1pd0he3/result.json` |
+
+最终源摘要、测试发现、预扫、构件和拥有的模拟器 / 临时目录清理登记在
+`tmp/plugin-runtime-resources-evidence.json`。函数集合保留不代表 Config POD 兼容旧二进制。
+下一片推进包快照校验、原生批准 / 资源视图及 gterm 前台入口；完整 PluginContext / 进程 / 事件
+服务、安装 / 实际插件 / 多实例继续。App 尚未启用，不将本批记为整个 SDK / 插件完成；未来网关
+继续只预留。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

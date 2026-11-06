@@ -3,6 +3,7 @@
 #include "ghosterm.h"
 #define gt_bridge_runtime_t gt_ext_runtime_t
 #define gt_runtime_module_t gt_ext_runtime_module_t
+#define gt_runtime_root_t gt_ext_runtime_root_t
 #define gt_runtime_config_t gt_ext_runtime_config_t
 #define gt_runtime_info_t gt_ext_runtime_info_t
 #define gt__bridge_runtime_open gt_ext_runtime_open

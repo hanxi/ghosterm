@@ -3,6 +3,7 @@
 #ifndef GT_BRIDGE_RUNTIME_H
 #define GT_BRIDGE_RUNTIME_H
 #include "ghosterm/extension_rpc.h"
+#include "extension/runtime-resource.h"
 typedef struct gt_bridge_runtime gt_bridge_runtime_t;
 typedef enum {GT_RUNTIME_CREATED,GT_RUNTIME_STARTING,GT_RUNTIME_ACTIVE,GT_RUNTIME_FAILED,GT_RUNTIME_STOPPED,GT_RUNTIME_CLOSED} gt_runtime_phase_t;
 typedef enum {GT_RUNTIME_NONE,GT_RUNTIME_SCRIPT,GT_RUNTIME_MEMORY,GT_RUNTIME_CPU,GT_RUNTIME_CANCELLED,GT_RUNTIME_JOBS,GT_RUNTIME_PROTOCOL,GT_RUNTIME_IO,GT_RUNTIME_EXPIRED} gt_runtime_error_t;
@@ -10,6 +11,7 @@ typedef struct {const char *name;const void *source;size_t size;char sha256[65];
 typedef struct {
  const gt_runtime_module_t *modules;size_t module_count;const char *entry;
  gt_ext_role_t role;size_t memory_bytes,stack_bytes;uint32_t cpu_ms,jobs_per_step,activation_ms;
+ const gt_runtime_root_t *roots;size_t root_count;
 } gt_runtime_config_t;
 typedef struct {gt_runtime_phase_t phase;gt_runtime_error_t error;gt_status_t cleanup_error;gt_ext_session_end_t session_end;gt_status_t session_error;bool dispose_error,engine_released;uint64_t steps,jobs;size_t module_bytes;} gt_runtime_info_t;
 /* Requires ACTIVE, requests-enabled, exclusive Session with no source or prior

@@ -3,3 +3,4 @@ export type { Codec, Json } from "./codec.js";
 export { SessionChannel } from "./session.js";
 export type { Call, Method, NativePort, NativeResult, Outcome, RequestContext, Status } from "./session.js";
 export type { ErrorCode } from "./wire-contract.js";
+export type { ResourceBroker, ResourceRef, ResourceMetadata, ResourceBudget, ScopedResourceInput, BoundedReadStream, ReadChunk } from "./resources.js";

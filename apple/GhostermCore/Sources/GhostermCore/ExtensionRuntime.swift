@@ -11,14 +11,20 @@ public final class ExtensionRuntime {
         public init(name: String, source: Data, sha256: String) { self.name = name; self.source = source; self.sha256 = sha256 }
     }
     public struct Config {
+        public struct WorkspaceRoot {
+            public let id: String, directoryFD: Int32, byteLimit: UInt64
+            public init(id: String, directoryFD: Int32, byteLimit: UInt64) { self.id = id; self.directoryFD = directoryFD; self.byteLimit = byteLimit }
+        }
         public let modules: [Module], entry: String, role: ExtensionSession.Role
+        public let roots: [WorkspaceRoot]
         public let memoryBytes: UInt64, stackBytes: UInt64
         public let cpuMilliseconds: UInt32, jobsPerStep: UInt32, activationMilliseconds: UInt32
         public init(modules: [Module], entry: String, role: ExtensionSession.Role,
                     memoryBytes: UInt64 = 0, stackBytes: UInt64 = 0, cpuMilliseconds: UInt32 = 0,
-                    jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0) {
+                    jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0, roots: [WorkspaceRoot] = []) {
             self.modules = modules; self.entry = entry; self.role = role; self.memoryBytes = memoryBytes; self.stackBytes = stackBytes
             self.cpuMilliseconds = cpuMilliseconds; self.jobsPerStep = jobsPerStep; self.activationMilliseconds = activationMilliseconds
+            self.roots = roots
         }
     }
     public struct Info {
@@ -35,7 +41,7 @@ public final class ExtensionRuntime {
     }
     public init(session: ExtensionSession, config: Config) throws {
         owner = session.runtimeOwner; store = session.runtimeStore
-        guard !config.modules.isEmpty, config.modules.count <= 64, !config.entry.utf8.contains(0), config.entry.utf8.count <= 255 else { throw GhostermError.failed("运行时模块配置无效") }
+        guard !config.modules.isEmpty, config.modules.count <= 64, !config.entry.utf8.contains(0), config.entry.utf8.count <= 255, config.roots.count <= 8 else { throw GhostermError.failed("运行时模块配置无效") }
         var buffers: [UnsafeMutableRawPointer] = []
         defer { buffers.forEach { $0.deallocate() } }
         func copy(_ data: Data) -> UnsafeMutableRawPointer {
@@ -55,12 +61,17 @@ public final class ExtensionRuntime {
             modules.append(value)
         }
         let entry = UnsafePointer(copy(Data(config.entry.utf8)).assumingMemoryBound(to: CChar.self))
-        raw = try modules.withUnsafeBufferPointer { values in
+        var roots: [gt_ext_runtime_root_t] = []
+        for root in config.roots {
+            guard !root.id.utf8.contains(0), root.id.utf8.count <= 64 else { throw GhostermError.failed("运行时授权根标识无效") }
+            roots.append(gt_ext_runtime_root_t(id: UnsafePointer(copy(Data(root.id.utf8)).assumingMemoryBound(to: CChar.self)), directory_fd: root.directoryFD, byte_limit: root.byteLimit))
+        }
+        raw = try roots.withUnsafeBufferPointer { scopes in try modules.withUnsafeBufferPointer { values in
             var c = gt_ext_runtime_config_t(modules: values.baseAddress, module_count: values.count, entry: entry,
                 role: gt_ext_role_t(rawValue: config.role.rawValue), memory_bytes: config.memoryBytes, stack_bytes: config.stackBytes,
-                cpu_ms: config.cpuMilliseconds, jobs_per_step: config.jobsPerStep, activation_ms: config.activationMilliseconds)
+                cpu_ms: config.cpuMilliseconds, jobs_per_step: config.jobsPerStep, activation_ms: config.activationMilliseconds, roots: scopes.baseAddress, root_count: scopes.count)
             return try session.adoptRuntime(config: &c)
-        }
+        } }
     }
     public func step() throws -> Phase { Phase(rawValue: gt_ext_runtime_step(try pointer()).rawValue) ?? .failed }
     public func info() throws -> Info {

@@ -45,6 +45,9 @@ def main():
             ('cpp', 'if(s && owner && !pthread_equal(s->owner,pthread_self())){pthread_mutex_unlock(&extension_lock);if(!quiet)extension_error(e,"运行时必须在原 IO worker 调用");', 'if(s && false && owner && !pthread_equal(s->owner,pthread_self())){pthread_mutex_unlock(&extension_lock);if(!quiet)extension_error(e,"运行时必须在原 IO worker 调用");'),
             ('kotlin', 'check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper() && handle != 0L)', 'check(handle != 0L)')], 'stopFromMainAndOtherWorkerRejected'),
         ('kotlin-cpu-error', [('kotlin', 'Failure.entries[v[1].toInt()]', 'if (v[1] == 3L) Failure.SCRIPT else Failure.entries[v[1].toInt()]')], 'cpuAndImportFailuresRemainDistinct'),
+        ('jni-root-id', [('cpp', 'root_ids[i],descriptors[i],(uint64_t)root_budgets[i]', '"other",descriptors[i],(uint64_t)root_budgets[i]')], 'scopedPublicationCopiesRootAndWaitsForReceipt'),
+        ('jni-root-budget', [('cpp', 'root_ids[i],descriptors[i],(uint64_t)root_budgets[i]', 'root_ids[i],descriptors[i],32768')], 'scopedPublicationCopiesRootAndWaitsForReceipt'),
+        ('kotlin-root-id', [('kotlin', 'roots.map { encode(it.id, 64) }', 'roots.map { encode("other", 64) }')], 'scopedPublicationCopiesRootAndWaitsForReceipt'),
     ]
     known = {c[0] for c in cases}
     if set(args.case) - known:
@@ -151,7 +154,7 @@ def main():
 
         all_tests = 'com.hanxi.ghosterm.ExtensionRuntimeTest,com.hanxi.ghosterm.ExtensionRuntimeAvailabilityTest'
         rebuild('baseline')
-        instrumentation('baseline-tests', all_tests, 8)
+        instrumentation('baseline-tests', all_tests, 11)
         for label, changes, method in cases:
             try:
                 for key, old, new in changes:
@@ -171,7 +174,7 @@ def main():
             rebuild(label + '-restored', any(k == 'kotlin' for k, _, _ in changes))
             instrumentation(label + '-restored-target', 'com.hanxi.ghosterm.ExtensionRuntimeTest#' + method, 1)
             print(label + ': actual JNI/Kotlin compile/shared link / JUnit assertion red / same APK Core green / restored / SHA256', flush=True)
-        instrumentation('final-tests', all_tests, 8)
+        instrumentation('final-tests', all_tests, 11)
         for name, digest in hashes.items():
             assert sha(ROOT / name) == digest, name
         (logs / 'result.json').write_text(json.dumps(dict(accepted=True, groups=[c[0] for c in cases], device=args.device, properties=props, page_size=page, inputs_sha256=hashes, commands=commands, app_sha256=sha(apk), test_apk_sha256=sha(tests), sdk_sha256={p.name: sha(p) for p in sdk.glob('*.js')}, scope='native worker runtime / real JS RPC / API-selected simulator; no App activation UI, SSH, WAN, physical device, release or gateway'), indent=2) + '\n')
