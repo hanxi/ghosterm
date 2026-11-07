@@ -47,7 +47,7 @@ def stalled_peer():
         listener.close()
 
 @contextmanager
-def chain(work,count,public,keys,agent,mode):
+def chain(work,count,public,keys,agent,mode,*,sftp=False):
     with ExitStack() as stack:
         ports=[]
         for _ in range(count):
@@ -69,6 +69,8 @@ def chain(work,count,public,keys,agent,mode):
                 f'AllowTcpForwarding {"local" if forward else "no"}\n'
                 +(f'PermitOpen 127.0.0.1:{ports[i+1]}\n' if forward else '')
                 +f'MaxSessions {0 if i+1<count else 10}\nPrintMotd no\nPrintLastLog no\nSetEnv HOME={empty} ZDOTDIR={empty} TMPDIR={work}\n')
+            if sftp and i+1 == count:
+                with config.open('a') as output: output.write(f'Subsystem sftp internal-sftp -d {shlex.quote(str(work))}\n')
             support=subprocess.run(['/usr/sbin/sshd','-T','-f',str(config),'-o','PerSourcePenalties=no'],capture_output=True,timeout=5)
             if support.returncode==0:
                 with config.open('a') as output:output.write('PerSourcePenalties no\n')

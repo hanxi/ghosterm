@@ -63,6 +63,58 @@ gt_status_t gt_ssh_authenticator_supply(gt_ssh_authenticator_t *, gt_ssh_t **);
  * aliases. */
 bool gt_ssh_authenticator_take(gt_ssh_authenticator_t *, gt_ssh_t **);
 void gt_ssh_authenticator_close(gt_ssh_authenticator_t *);
+/* Managed authentication chain, maximum eight independently verified hops.
+ * One non-UI serial owner for every operation, including disposal. Only hop 0
+ * has a resolved family/address (4 or 6); later hops use family 0 and via_host
+ * as the preceding server's direct-tcpip destination. No local inner DNS/dial.
+ * All clocks/contexts must match; NULL clock selects CLOCK_MONOTONIC.
+ * Options/strings are copied. Clock context must outlive disposal. */
+#define GT_SSH_ROUTE_MAX_HOPS 8u
+typedef struct gt_ssh_route gt_ssh_route_t;
+
+typedef struct {
+    gt_ssh_auth_options_t authentication;
+    const char *via_host; /* NULL for first hop, nonempty thereafter */
+} gt_ssh_route_hop_t;
+
+typedef enum {
+    GT_SSH_ROUTE_AUTHENTICATING,
+    GT_SSH_ROUTE_FORWARDING,
+    GT_SSH_ROUTE_READY,
+    GT_SSH_ROUTE_FAILED,
+    GT_SSH_ROUTE_CANCELLED
+} gt_ssh_route_phase_t;
+
+typedef struct {
+    gt_ssh_route_phase_t phase;
+    gt_status_t error;
+    uint32_t hop, count; /* zero-based current hop */
+    bool deadline;
+    gt_ssh_auth_info_t authentication; /* current hop only */
+} gt_ssh_route_info_t;
+
+/* Success consumes/clears every fresh SSH handle, failure retains all.
+ * total_ms=0 selects 60000; valid explicit budgets are 1..60000. The total
+ * deadline includes user decisions and credential retries, never resets at
+ * a hop boundary. Deferred credentials follow the single-hop contract above. */
+gt_status_t gt_ssh_route_open(gt_ssh_t **owned,
+                              const gt_ssh_route_hop_t *,
+                              uint32_t count,
+                              uint32_t total_ms,
+                              gt_ssh_route_t **);
+gt_ssh_route_phase_t gt_ssh_route_step(gt_ssh_route_t *);
+bool gt_ssh_route_info(const gt_ssh_route_t *, gt_ssh_route_info_t *);
+gt_status_t gt_ssh_route_decide(gt_ssh_route_t *, gt_hostkey_decision_t);
+gt_status_t gt_ssh_route_supply(gt_ssh_route_t *, gt_ssh_t **);
+/* READY once: borrowed handle, valid only until disposal starts. Close every
+ * PTY/SFTP child BEFORE disposing the route. Never call gt_ssh_close on this
+ * handle or transfer it to another owning API. Route retains the entire chain.
+ * Only controlled PTY/SFTP operations are currently supported on inner hops. */
+gt_status_t gt_ssh_route_borrow(gt_ssh_route_t *, gt_ssh_t **);
+/* Cancel/close one nonblocking step. Retain and retry while released=false,
+ * including on error; never drop the owner. On release frees and clears *route.
+ * NULL *route is already released. No protocol replay or background worker. */
+gt_status_t gt_ssh_route_dispose(gt_ssh_route_t **, bool *released);
 #ifdef __cplusplus
 }
 #endif

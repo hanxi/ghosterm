@@ -53,27 +53,27 @@ final class SSHAuthTests: XCTestCase {
     func testSFTPConfigurationAdmissionUsesAliasAndShowsSource() throws {
         let dir = (try isolatedKnownHosts() as NSString).deletingLastPathComponent
         let config = dir + "/ssh-config"
-        let text = "Host gatehost\n HostName 127.0.0.1\n ProxyJump gateway\n"
+        let text = "Host gatehost\n HostName 127.0.0.1\n ProxyCommand /usr/bin/false\n"
         try text.write(toFile: config, atomically: true, encoding: .utf8)
         let model = isolatedAppModel(configPath: config, knownHostsPath: dir + "/known_hosts")
         let interaction = RecordingInteraction(); model.interaction = interaction
         model.openSFTP(for: "gatehost")
-        XCTAssertTrue(waitUntil(model, timeout: 3) { $0.status.contains("proxyjump") }, model.status)
+        XCTAssertTrue(waitUntil(model, timeout: 3) { $0.status.contains("proxycommand") }, model.status)
         XCTAssertTrue(model.status.contains(config + ":3"), model.status)
         XCTAssertEqual(interaction.hostKeyPrompts, 0)
         XCTAssertTrue(interaction.prompts.isEmpty)
         XCTAssertNil(model.remoteFiles?.panel)
-        XCTAssertEqual(model.sshTarget(for: "gatehost").connectionIssues.map(\.keyword), ["proxyjump"])
-        XCTAssertEqual(model.remoteTarget(for: "gatehost").connectionIssues.map(\.keyword), ["proxyjump"])
+        XCTAssertEqual(model.sshTarget(for: "gatehost").connectionIssues.map(\.keyword), ["proxycommand"])
+        XCTAssertEqual(model.remoteTarget(for: "gatehost").connectionIssues.map(\.keyword), ["proxycommand"])
         XCTAssertEqual(try String(contentsOfFile: config, encoding: .utf8), text)
         model.connect(to: .host("gatehost"))
         XCTAssertTrue(waitUntil(model, timeout: 3) { $0.tabs.activeTab?.status.isFailed == true })
         let terminal = try XCTUnwrap(model.tabs.activeTab)
-        if case .failed(let message) = terminal.status { XCTAssertTrue(message.contains("proxyjump"), message) }
+        if case .failed(let message) = terminal.status { XCTAssertTrue(message.contains("proxycommand"), message) }
         model.openFilesPanel(for: terminal)
-        XCTAssertTrue(waitUntil(model, timeout: 3) { $0.tabs.activeTab?.filesPanelError?.contains("proxyjump") == true })
+        XCTAssertTrue(waitUntil(model, timeout: 3) { $0.tabs.activeTab?.filesPanelError?.contains("proxycommand") == true })
         model.showTmux(for: .host("gatehost"))
-        XCTAssertTrue(waitUntil(model, timeout: 3) { $0.tmuxChooser?.message.contains("proxyjump") == true })
+        XCTAssertTrue(waitUntil(model, timeout: 3) { $0.tmuxChooser?.message.contains("proxycommand") == true })
         XCTAssertEqual(interaction.hostKeyPrompts, 0)
         XCTAssertTrue(interaction.prompts.isEmpty)
         model.dismissTmux()

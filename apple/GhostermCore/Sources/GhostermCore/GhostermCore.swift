@@ -237,6 +237,19 @@ public final class SSHConfig {
         try check(rc)
     }
 
+    /// Bounded raw effective value; unlike typed comma splitting, preserves
+    /// empty ProxyJump components so malformed routes cannot become valid ones.
+    public func effective(host: String, key: String) throws -> String {
+        var buffer = [CChar](repeating: 0, count: 8193)
+        let size = host.withCString { h in key.withCString { k in
+            gt_config_effective(handle, h, k, nil, &buffer, buffer.count)
+        } }
+        guard size >= 0, size < buffer.count else {
+            throw GhostermError.failed("SSH 配置值无效或超过 8192 字节")
+        }
+        return String(cString: buffer)
+    }
+
     public func connectionIssues(host: String) throws -> [SSHConnectionIssue] {
         var issues: [SSHConnectionIssue] = []
         while issues.count < 256 {
@@ -350,7 +363,10 @@ public final class SSHSession {
         init(_ d: @escaping HostKeyDecider) { decider = d }
     }
 
-    init(adopting handle: OpaquePointer) { self.handle = handle }
+    private var routeRelease: (() -> Void)?
+    init(adopting handle: OpaquePointer, routeRelease: (() -> Void)? = nil) {
+        self.handle = handle; self.routeRelease = routeRelease
+    }
 
     public init(_ opts: SSHOptions) throws {
         var h: OpaquePointer?
@@ -406,13 +422,15 @@ public final class SSHSession {
     public func close() {
         guard !closed else { return }
         closed = true
-        gt_ssh_close(handle)
+        if let release = routeRelease { routeRelease = nil; release() }
+        else { gt_ssh_close(handle) }
     }
 
     private var releaseOwner: DispatchQueue?
     public func releaseOn(_ owner: DispatchQueue) { releaseOwner = owner }
     deinit {
-        if !closed, let releaseOwner {
+        if !closed, let release = routeRelease { release() }
+        else if !closed, let releaseOwner {
             let raw = handle
             releaseOwner.async { gt_ssh_close(raw) }
         } else { close() }

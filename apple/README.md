@@ -137,9 +137,9 @@ Android §9.59 另新增平台数据层 SafFilePublisher，经 ContentResolver �
 
 修复顺序与验收触发场景见[macOS 实施顺序](../docs/reference/roadmap.md#macos-修复顺序与验收触发场景)。当前代码注释中的“安全写回”“原子写”等描述是目标契约，实际 `try?` 备份及 remove→move 路径尚未兑现，不能把注释当作通过证据。
 
-**配置求值不等于连接执行**：共享 `gt_config_check_connection` 检查当前普通 SSH 档位可执行的显式指令，并返回关键词及来源；`HostListModel` 在求值同一份配置时复制结果，`SSHConnectionTarget` / `RemoteTarget` 携带该快照。`SSHAuthenticationFlow.start` 在创建定时器及解析器前拒绝不支持项，普通 SSH、独立/内嵌 SFTP 和 tmux 共用。ProxyJump、转发、环境注入等能力仍未实现，不会因检查接口存在而变为支持。
+**配置求值不等于连接执行**：共享 `gt_config_check_connection` 检查当前普通 SSH 档位可执行的显式指令，并返回关键词及来源；`HostListModel` 在求值同一份配置时复制结果，`SSHConnectionTarget` / `RemoteTarget` 携带该快照。`SSHAuthenticationFlow.start` 在创建定时器及解析器前拒绝不支持项，普通 SSH、独立/内嵌 SFTP 和 tmux 共用。macOS 普通终端、独立/内嵌 SFTP 另由 `SSHConfiguredRoute` 和 `SSHRouteAuthenticationFlow` 消费 ProxyJump：每跳独立身份、信任和凭据，只有首跳本机 DNS，目标复核后交接受管路线。原单跳底层仍拒绝 ProxyJump；tmux 管理入口明确不支持，统一连接面板仍可选择普通终端。转发、环境注入等其它未实现项仍拒绝。
 
-校验遵守已知标量 first-wins、累积列表、Host 否定模式与 Include 来源；未知适用指令和任何 Match 条件保守拒绝，仍保留配置原字节，不执行 Match exec。普通字段只接受本档位实现的值，显式关闭部分未实现功能可通过；详细准入表、保守边界和实际验证见 [§9.24](../docs/reference/android-implementation.md#924-共享连接配置准入与两端接线2026-10-30)。检查不等于完整 OpenSSH 兼容，也不新增跳板/转发实现。非法端口可保留在配置编辑器中，转换为 UInt16 不再崩溃，其配置问题会阻止建连。
+校验遵守已知标量 first-wins、累积列表、Host 否定模式与 Include 来源；未知适用指令和任何 Match 条件保守拒绝，仍保留配置原字节，不执行 Match exec。普通字段只接受本档位实现的值，显式关闭部分未实现功能可通过；详细准入表、保守边界和实际验证见 [§9.24](../docs/reference/android-implementation.md#924-共享连接配置准入与两端接线2026-10-30)。检查不等于完整 OpenSSH 兼容；上述 macOS 路线只新增 ProxyJump，不新增转发实现。非法端口可保留在配置编辑器中，转换为 UInt16 不再崩溃，其配置问题会阻止建连。
 
 ### SSH 地址选择与取消边界
 

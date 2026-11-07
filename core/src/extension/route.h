@@ -53,6 +53,18 @@ gt_status_t gt__bridge_route_open(gt_ssh_t **owned,
                                   const gt_bridge_route_options_t *,
                                   const gt_allocator_t *,
                                   gt_bridge_stream_t **);
+/* Session mode retains the final authenticated session and every forwarding
+ * owner. Borrow exactly once after READY, on the same IO owner. Never close the
+ * borrowed session: close all PTY/SFTP children first, then cooperatively close
+ * and destroy this route. Its stop flag and wake descriptors must stay alive
+ * until all nested owners are released. Stream IO is unsupported in this mode. */
+gt_status_t gt__bridge_route_open_session(gt_ssh_t **owned,
+                                          const gt_bridge_route_hop_t *,
+                                          size_t count,
+                                          const gt_bridge_route_options_t *,
+                                          const gt_allocator_t *,
+                                          gt_bridge_stream_t **);
+gt_status_t gt__bridge_route_borrow_session(gt_bridge_stream_t *, gt_ssh_t **);
 gt_bridge_route_phase_t gt__bridge_route_step(gt_bridge_stream_t *, int ms);
 bool gt__bridge_route_info(const gt_bridge_stream_t *, gt_bridge_route_info_t *);
 gt_status_t gt__bridge_route_decide(gt_bridge_stream_t *, gt_hostkey_decision_t);

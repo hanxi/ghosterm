@@ -1100,6 +1100,21 @@ int gt_config_effective(const gt_config_t *cfg,
         gt__set_error("effective: 不支持的键 '%s'（支持集见 gt_config_supported_keys）", key);
         return -1;
     }
+    /* A route consumer must not silently turn a malformed ProxyJump directive
+   * into a direct connection or discard extra arguments via K_SCALAR. */
+    if (!strcmp(key, "proxyjump")) {
+        for (size_t i = 0; i < cfg->nnodes; i++) {
+            const gt_node_t *n = &cfg->nodes[i];
+            if (!n->keyword || strcmp(n->keyword, "proxyjump") ||
+                (n->block >= 0 && !block_matches(&cfg->blocks[n->block], host))) {
+                continue;
+            }
+            if (n->nargs != 1 || !*n->args[0]) {
+                gt__set_error("effective: malformed ProxyJump directive");
+                return -1;
+            }
+        }
+    }
     effmap_t m;
     effmap_build(&m, cfg, host, opts);
     size_t need = slot_join(&m.slot[idx], buf, cap);

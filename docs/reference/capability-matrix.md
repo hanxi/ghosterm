@@ -13,7 +13,7 @@
 | 能力 | 状态 | 证据 |
 |---|---|---|
 | C ABI（`ghosterm.h` v0，未冻结） | 🟡 | [插件计划第二十六批](plan-plugin-bridge.md) 当前 154 符号，Apple 150/4、JNI 116/38，通道 / Session / JSON 请求 / 资源 Store / 保留快照、scoped source 与可选 runtime 已接 native worker，原生根授权、完整业务 schema 及 App 插件页面待接；§9.122–§9.123 的 94 符号、Apple 90/4、JNI 56/38 为历史切片；§9.122 增加受控显式删除，§9.123 已接 Android 历史清理与独立记录；含受控读取到 fd、非覆盖发布和单目录创建。Android 只读文件页面与暂存层已消费，macOS 产品仍待迁移；§9.57 已补发布入口及两端绑定，原草稿对拍失败保留为历史。接口未冻结，消费者须同步重编译 |
-| 插件 SSH / Session / 请求 / 资源 / scoped source worker（视图待接） | 🟡 | [插件计划第九至二十三批](plan-plugin-bridge.md)：公共通道十一项、Session 十项、请求八项、资源十六项、文件来源七项 ABI / Swift queue / JNI worker；Core 378 CTest / 147 ABI。Source 26 本机 / 3 真实关闭边界及两三跳四 SSH 场景、Swift 8、API 36 arm64 / 4 KiB 页 Android 8 项通过；双向各 256 KiB 与八十个确认 RPC，Source / 资源 / RPC 独立完成记录各六份。Source 只读授权根 fd 内普通文件、同 fd 两遍核验，最多每 Session 16 个，成功 destroy 前 pin 父对象；关闭 IO 与原失败分开，无外泄 transfer handle。新 24 C / 5 Swift / 6 JNI / 1 Kotlin 与旧私有 Source / 公开 Session / 资源的 73 C / 6 Swift 分套通过，共 115 组手工变异，不增加 CI 二十份。关闭 provider / 无 SSH 档仍为 147 导出，缺能力明确不支持。上述为第二十三批历史范围；第二十六批已接可选 runtime 公共门面。App 根授权 / 批准 / 视图、完整 SDK 服务 / gterm IPC / 完整多实例未接，产品尚未消费 ProxyJump；不是完整插件档。其它端 / 物理设备 / 封闭内网 / WAN 未验，网关只预留、不实现 |
+| 插件 SSH / Session / 请求 / 资源 / scoped source worker（视图待接） | 🟡 | [插件计划第九至二十三批](plan-plugin-bridge.md)：公共通道十一项、Session 十项、请求八项、资源十六项、文件来源七项 ABI / Swift queue / JNI worker；Core 378 CTest / 147 ABI。Source 26 本机 / 3 真实关闭边界及两三跳四 SSH 场景、Swift 8、API 36 arm64 / 4 KiB 页 Android 8 项通过；双向各 256 KiB 与八十个确认 RPC，Source / 资源 / RPC 独立完成记录各六份。Source 只读授权根 fd 内普通文件、同 fd 两遍核验，最多每 Session 16 个，成功 destroy 前 pin 父对象；关闭 IO 与原失败分开，无外泄 transfer handle。新 24 C / 5 Swift / 6 JNI / 1 Kotlin 与旧私有 Source / 公开 Session / 资源的 73 C / 6 Swift 分套通过，共 115 组手工变异，不增加 CI 二十份。关闭 provider / 无 SSH 档仍为 147 导出，缺能力明确不支持。上述为第二十三批历史范围；第二十六批已接可选 runtime 公共门面。App 根授权 / 批准 / 视图、完整 SDK 服务 / gterm IPC / 完整多实例未接，该历史批次产品尚未消费 ProxyJump；后续 macOS 普通连接支持见下方独立条目，不代表完整插件档。其它端 / 物理设备 / 封闭内网 / WAN 未验，网关只预留、不实现 |
 | Portable 插件 SDK（请求首片） | 🟡 | [插件计划第二十四批](plan-plugin-bridge.md)：strict TypeScript / ES2020、类型化请求与对象 / 文本 / 整数 codec、schema / 取消 / Outcome / 撤销边界；Core/QuickJS-NG 0.18.0 上 16 场景（13 真实 RPC、纯值 / 入队前拒绝 / 故障 adapter 各一）、36 Ajv 对拍、四类静态负向及九组编译后变异通过，均为手工 / 本机 ASan/UBSan 证据。上述为第二十四批范围；第二十五 / 二十六批已接受控 runtime / native adapter 与两端 worker。完整 PluginContext / 资源进程服务 / App 消费仍待接，不把 SDK 当整个插件完成。未来网关未实现 |
 | Core 可选 JS runtime / 两端 worker（App 未启用） | 🟡 | [插件计划第二十五至二十七批](plan-plugin-bridge.md)：QuickJS-NG pin / 输入固定，默认 OFF。公共 runtime / roots 配置、Swift / Kotlin / JNI 与 ResourceBroker 已接；当前 Config POD 布局变更须重编译，Core 397 CTest / 154 ABI、Apple 150/4、JNI 116/38。第二十七批 32 C / QuickJS 场景、Swift / API36 arm64 4KiB 页模拟器 Android 各 11 项；真实授权目录 256 KiB / 空文件发布、回执、快照分块读、伪造 ref 拒绝、取消 / 期限 / OOM / 关闭已分片验证，另三 adapter 故障不算真实端点故障。新 31 变异及旧相关复验共 85 组分套手工，ASan/UBSan，无 LSan、不增加 CI 二十份；最新资源专项 26 组完整通过。Config 只接 native 显式授权 POSIX 根，资源 ID 不是读取权限；无 Store 明确缺服务，不实现 cwd / TTY 猜测、SAF 根或 OS 沙箱。App 激活 / 根授权 / 资源视图、完整 SDK / 进程 / gterm / 包安装 / 实际插件 / 多实例仍待接；非本轮 SSH / WAN / 真机 / 签名发行结论，未来网关未实现 |
 | 插件物理目录快照 | 🟡 | [插件计划第二十八批](plan-plugin-bridge.md)：私有 C owner 从目录 fd 采集固定字节 / SHA256；1024 文件、16 MiB 单文件 / 64 MiB 内容、另限 4096 物理条目，链接 / 特殊文件 / 非法路径拒绝。32 本机 / 配置＋9 syscall 边界、28 组编译后 ASan/UBSan 变异通过，Core 438 CTest / 154 ABI；provider / SSH / JS OFF 同 41 项、严格 C11 与 NDK / Android bridge 编译。该批仅物理副本，后续私有元数据校验见第三十四批；来源 / 模块加载未接，不授予执行；无 App / 设备 / 安装或发行结论，网关未实现 |
@@ -151,7 +151,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 
 | 面 | 已实现与证据 | 未完成或证据边界 |
 |---|---|---|
-| SSH 与认证 | `AppModel` / `SSHAuthenticationFlow` 共用可取消认证；真实 sshd→shell→网格→resize；hostkey 未知/拒绝/变化/撤销分开。撤销及不支持规则经 SFTP 产品入口验证，不弹信任/凭据框 | 未支持配置已在解析地址前阻断，仍未执行跳板/转发等高级选项；私钥材料生产路径仍从受限文件读取，见路线图 P0。哈希主机名与主机证书未实现；本片验了 SSH/SFTP/tmux 配置拒绝入口，未新增终端网格或 tmux 成功会话证据 |
+| SSH 与认证 | `AppModel` / `SSHAuthenticationFlow` 共用可取消认证；真实 sshd→shell→网格→resize；hostkey 未知/拒绝/变化/撤销分开。撤销及不支持规则经 SFTP 产品入口验证，不弹信任/凭据框 | 未支持配置已在解析地址前阻断，macOS 普通终端/SFTP 已接 ProxyJump；tmux 管理与转发等其它高级选项仍不支持；私钥材料生产路径仍从受限文件读取，见路线图 P0。哈希主机名与主机证书未实现；本片验了 SSH/SFTP/tmux 配置拒绝入口，未新增终端网格或 tmux 成功会话证据 |
 | 本地 shell | 普通 PTY、登录语义、cwd、控制终端、背压、关闭与描述符隔离；`4924a2d` 清空子进程继承的信号屏蔽，补齐 ssh/tmux 的尺寸通知 | 普通会话不承诺跨 App 退出保活；信号/真实窗口证据见上方 POSIX PTY 行，不扩大为全部平台 |
 | 提示符鼠标残留清理 🟡 | 普通本地 zsh 自动加载随包钩子；Bash/远端有带备份的独立安装器。macOS 26.6.2 / tmux 3.6a 的三层隔离 SSH 断线回到本地提示符、真实 AppKit 按下/松开、原 PID/键盘与正常 TUI 字节对照通过；五项启动组合及四组自动接线变异另有记录 | `.direct` / 自定义启动参数（仅 `-i` 除外）/ 其它 shell 不走自动接线；远端需远端安装，前台程序未退出时不触发。实际硬件休眠/用户远端未验，Codex 输入框未复现，不称其缺陷已修复；见[操作与证据](../how-to/mouse-report-recovery.md) |
 | 标签导航 | `TabWindowController` 单窗口；顶部/侧边切换、UUID 重排与关闭、唯一加号、搜索/菜单、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；无精简侧栏、无主机分组 | 跨重启标签持久化未做（偏好已持久化）；本机证据不能代替 macOS 15 CI |
@@ -202,3 +202,11 @@ macOS 缺口的修复顺序与失败场景见[路线图](roadmap.md#macos-修复
 **证据入口**：最新完整宿主为 `4cbfcf4` 的 App 349 项：347 通过、1 项开发态主题资源跳过、1 项键盘设置页像素失败；恢复旧终端源码也复现，该历史轮未记全绿。键盘设置页布局后由字体切片修正并通过关联定向（56 通过/1 开发态资源跳过），未重跑完整宿主。该提交已修复跨屏 DPI/Metal 比例/像素尺寸同步，三项原生回归、六组手工变异、Terminal 28 项及 release 构建通过，真实双屏视觉复验仍待完成，见[跨屏记录](optional-tmux-implementation.md#后续跨显示器缩放修复2026-10-31)。[标签/窗格计划](plan-tab-chrome-refactor.md)的 341 项/1 跳过保留为历史通过记录；真实桌面激活/全屏另列，不扩大到未运行系统。[工作区交接](workspace-handoff.md)保留已验范围与缺口，`workspace` 21 组变异仍属手工证据。
 
 **发行边界**：源码 SwiftPM 声明 macOS 13，但目前发行包为 arm64，每轮嵌入依赖的 minos 决定实际系统下限；2026-11-04 读取的线上清单为 macOS 15.0（Mac `3345893`），Homebrew cask 的下限单独核对；不能据源码声明推断包可在 13 上安装。自包含/ad-hoc 已有包证据，Developer ID/公证仍待实际证书与包验收，见[构建与安装](../how-to/dev-build.md)。
+
+macOS ProxyJump 独立整合（2026-11-07）：🟡 普通终端、独立/内嵌 SFTP 按
+ssh_config 展开最多八跳；逐跳信任/凭据、只解析首跳、取消/旧回复及目标快照保护。
+隔离服务两/三跳十八项真实场景含上传、下载、改名、权限和删除，七项配置路线、
+十一项离线/凭据与六项统一连接面板回归分轮通过；统一面板拒绝 tmux 管理后仍可
+选择普通终端。Core 474 CTest / 176 ABI、macOS App 原生构建与 Android Debug
+构建通过；Android 普通连接尚未接 ProxyJump。真实内网、全部服务器、大文件及
+完整客户端矩阵未验。具体变异及整合收据见插件计划的独立整合节；未发布。

@@ -53,6 +53,7 @@ add_library(ghosterm_core STATIC
   src/io/ssh_shell.c
   src/ssh.c
   src/ssh/authenticator.c
+  src/ssh/route-api.c
   src/tmux/command.c
   src/tmux/tmux.c
   src/sftp.c
@@ -502,6 +503,22 @@ if(SSH2_FOUND)
 else()
   add_test(NAME bridge_route_unsupported COMMAND test_bridge_route unsupported)
 endif()
+if(SSH2_FOUND)
+  add_executable(test_ssh_jump tests/test_ssh_jump.c)
+  target_include_directories(test_ssh_jump PRIVATE src ${SSH2_INCLUDE_DIRS})
+  target_link_libraries(test_ssh_jump PRIVATE ghosterm_core)
+  target_compile_definitions(test_ssh_jump PRIVATE GT_HAVE_LIBSSH2=1)
+  target_compile_options(test_ssh_jump PRIVATE -Wall -Wextra -Werror)
+  add_test(NAME ssh_jump_io COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-ssh-jump.py --binary $<TARGET_FILE:test_ssh_jump>)
+  set_tests_properties(ssh_jump_io PROPERTIES TIMEOUT 120)
+  add_test(NAME ssh_jump_owner COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-ssh-jump.py --binary $<TARGET_FILE:test_ssh_jump> --route-owner)
+  set_tests_properties(ssh_jump_owner PROPERTIES TIMEOUT 120)
+  add_test(NAME ssh_jump_public_owner COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-ssh-jump.py --binary $<TARGET_FILE:test_ssh_jump> --public-route-owner)
+  set_tests_properties(ssh_jump_public_owner PROPERTIES TIMEOUT 120)
+endif()
 add_executable(test_bridge_ssh tests/test_bridge_ssh.c)
 target_include_directories(test_bridge_ssh PRIVATE src)
 target_link_libraries(test_bridge_ssh PRIVATE ghosterm_core)
@@ -777,6 +794,17 @@ else()
   add_test(NAME ssh_connector_unsupported COMMAND test_ssh_connector unsupported)
 endif()
 
+if(NOT SSH2_FOUND)
+  add_executable(test_ssh_route_unavailable tests/test_ssh_route_unavailable.c)
+  target_link_libraries(test_ssh_route_unavailable PRIVATE ghosterm_core)
+  target_compile_options(test_ssh_route_unavailable PRIVATE -Wall -Wextra -Werror)
+  add_test(NAME ssh_route_unavailable COMMAND test_ssh_route_unavailable)
+endif()
+add_executable(test_ssh_route_api tests/test_ssh_route_api.c)
+target_include_directories(test_ssh_route_api PRIVATE src)
+target_compile_options(test_ssh_route_api PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(test_ssh_route_api PRIVATE ghosterm_core)
+add_test(NAME ssh_route_api COMMAND test_ssh_route_api)
 add_executable(test_ssh_auth_bridge tests/test_ssh_auth_bridge.c)
 target_include_directories(test_ssh_auth_bridge PRIVATE src)
 target_compile_options(test_ssh_auth_bridge PRIVATE -Wall -Wextra -Werror)

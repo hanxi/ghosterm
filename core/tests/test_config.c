@@ -681,6 +681,28 @@ int main(int argc, char **argv) {
         }
     }
 
+    {
+        const char *bad[] = {"Host a\n ProxyJump\n",
+                             "Host a\n ProxyJump first extra\n",
+                             "Host a\n ProxyJump \"\"\n",
+                             "Host a\n ProxyJump\n ProxyJump valid\n"};
+        for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+            gt_config_t *route = gt_config_parse(bad[i], strlen(bad[i]));
+            CHECK(route != NULL, "route syntax fixture parsed");
+            if (!route) {
+                continue;
+            }
+            char value[128] = "untouched";
+            CHECK(gt_config_effective(route, "a", "proxyjump", NULL, value, sizeof value) < 0,
+                  "malformed ProxyJump must not become a truncated/direct route");
+            CHECK(strcmp(value, "untouched") == 0, "invalid route does not publish partial value");
+            CHECK(gt_config_effective(route, "unrelated", "proxyjump", NULL, value, sizeof value) ==
+                      0,
+                  "invalid unrelated block does not affect target");
+            gt_config_free(route);
+        }
+    }
+
     gt_config_free(cfg);
     free(conf_text);
     free(tsv);

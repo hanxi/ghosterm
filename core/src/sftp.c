@@ -17,6 +17,7 @@
  */
 #include "ghosterm.h"
 #include "internal.h"
+#include "ssh/wire.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -35,6 +36,7 @@
 #include <fcntl.h>
 
 #include "internal.h"
+#include "ssh/wire.h"
 
 #define SFTP_LOCK(s) gt__ssh_io_lock((s)->ssh)
 #define SFTP_UNLOCK(s) gt__ssh_io_unlock((s)->ssh)
@@ -234,8 +236,10 @@ gt_sftp_t *gt_ssh_sftp_controlled(gt_ssh_t *ssh,
             events |= POLLOUT;
         }
         struct pollfd wait = {socket, events ? events : POLLIN, 0};
-        int rc = poll(&wait, 1, 10);
-        if ((rc < 0 && errno != EINTR) || (rc > 0 && (wait.revents & (POLLERR | POLLNVAL)))) {
+        int rc = gt__ssh_wire_depth(ssh) > 1 ? gt__ssh_wire_wait(ssh, wait.events, 10, NULL, 0)
+                                             : poll(&wait, 1, 10);
+        if ((rc < 0 && (gt__ssh_wire_depth(ssh) > 1 || errno != EINTR)) ||
+            (rc > 0 && (wait.revents & (POLLERR | POLLNVAL)))) {
             result = GT_ERR_IO;
             break;
         }
@@ -362,7 +366,8 @@ static void attrs_to_stat(const LIBSSH2_SFTP_ATTRIBUTES *a, gt_sftp_stat_t *out)
 }
 
 /* Controlled read-only directory transaction for a dedicated IO owner. */
-static int browse_wait(LIBSSH2_SESSION *session,
+static int browse_wait(gt_ssh_t *ssh,
+                       LIBSSH2_SESSION *session,
                        int socket,
                        int64_t deadline,
                        bool (*cancelled)(void *),
@@ -380,8 +385,10 @@ static int browse_wait(LIBSSH2_SESSION *session,
         events |= POLLOUT;
     }
     struct pollfd wait = {socket, events ? events : POLLIN, 0};
-    int result = poll(&wait, 1, 10);
-    if ((result < 0 && errno != EINTR) || (result > 0 && (wait.revents & (POLLERR | POLLNVAL)))) {
+    int result = gt__ssh_wire_depth(ssh) > 1 ? gt__ssh_wire_wait(ssh, wait.events, 10, NULL, 0)
+                                             : poll(&wait, 1, 10);
+    if ((result < 0 && (gt__ssh_wire_depth(ssh) > 1 || errno != EINTR)) ||
+        (result > 0 && (wait.revents & (POLLERR | POLLNVAL)))) {
         return GT_ERR_IO;
     }
     return open_status(deadline, cancelled, context);
@@ -456,7 +463,7 @@ int gt_sftp_browse_controlled(gt_sftp_t *sftp,
         if (result != LIBSSH2_ERROR_EAGAIN) {
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -481,7 +488,7 @@ int gt_sftp_browse_controlled(gt_sftp_t *sftp,
             status = GT_ERR_IO;
             goto finished;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -495,7 +502,7 @@ int gt_sftp_browse_controlled(gt_sftp_t *sftp,
         LIBSSH2_SFTP_ATTRIBUTES attributes = {0};
         result = libssh2_sftp_readdir_ex(directory, name, sizeof name, NULL, 0, &attributes);
         if (result == LIBSSH2_ERROR_EAGAIN) {
-            status = browse_wait(session, socket, deadline, cancelled, context);
+            status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
             if (status != GT_OK) {
                 goto finished;
             }
@@ -559,7 +566,7 @@ int gt_sftp_browse_controlled(gt_sftp_t *sftp,
             }
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -681,7 +688,7 @@ int gt_sftp_preview_controlled(gt_sftp_t *sftp,
         if (result != LIBSSH2_ERROR_EAGAIN) {
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -712,7 +719,7 @@ int gt_sftp_preview_controlled(gt_sftp_t *sftp,
             status = GT_ERR_IO;
             goto finished;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -727,7 +734,7 @@ int gt_sftp_preview_controlled(gt_sftp_t *sftp,
         if (result != LIBSSH2_ERROR_EAGAIN) {
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -752,7 +759,7 @@ int gt_sftp_preview_controlled(gt_sftp_t *sftp,
         }
         ssize_t length = libssh2_sftp_read(file, (char *)bytes + count, capacity + 1 - count);
         if (length == LIBSSH2_ERROR_EAGAIN) {
-            status = browse_wait(session, socket, deadline, cancelled, context);
+            status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
             if (status != GT_OK) {
                 goto finished;
             }
@@ -784,7 +791,7 @@ int gt_sftp_preview_controlled(gt_sftp_t *sftp,
             }
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -900,7 +907,7 @@ static int receive_transfer(gt_sftp_t *sftp,
         if (result != LIBSSH2_ERROR_EAGAIN) {
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -926,7 +933,7 @@ static int receive_transfer(gt_sftp_t *sftp,
             status = GT_ERR_IO;
             goto finished;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -940,7 +947,7 @@ static int receive_transfer(gt_sftp_t *sftp,
         if (result != LIBSSH2_ERROR_EAGAIN) {
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -968,7 +975,7 @@ static int receive_transfer(gt_sftp_t *sftp,
         size_t wanted = remaining < sizeof bytes ? (size_t)remaining + 1 : sizeof bytes;
         ssize_t length = libssh2_sftp_read(file, bytes, wanted);
         if (length == LIBSSH2_ERROR_EAGAIN) {
-            status = browse_wait(session, socket, deadline, cancelled, context);
+            status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
             if (status != GT_OK) {
                 goto finished;
             }
@@ -1020,7 +1027,7 @@ static int receive_transfer(gt_sftp_t *sftp,
         if (result != LIBSSH2_ERROR_EAGAIN) {
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -1057,7 +1064,7 @@ static int receive_transfer(gt_sftp_t *sftp,
             }
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -1158,7 +1165,7 @@ static int create_transfer(gt_sftp_t *sftp,
             status = GT_ERR_IO;
             goto finished;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -1193,7 +1200,7 @@ static int create_transfer(gt_sftp_t *sftp,
             ssize_t written =
                 libssh2_sftp_write(file, (char *)buffer + offset, (size_t)count - offset);
             if (written == 0 || written == LIBSSH2_ERROR_EAGAIN) {
-                status = browse_wait(session, socket, deadline, cancelled, context);
+                status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
                 if (status != GT_OK) {
                     goto finished;
                 }
@@ -1240,7 +1247,7 @@ static int create_transfer(gt_sftp_t *sftp,
             }
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -1435,7 +1442,7 @@ static int publish_lstat(gt_sftp_t *sftp,
         if (*result != LIBSSH2_ERROR_EAGAIN) {
             return GT_OK;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             return status;
         }
@@ -1576,7 +1583,7 @@ int gt_sftp_publish_controlled(gt_sftp_t *sftp,
                 out->remote_status == LIBSSH2_FX_OP_UNSUPPORTED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -1636,7 +1643,7 @@ static int mkdir_realpath(gt_sftp_t *sftp,
         }
         int result = libssh2_sftp_realpath(sftp->sftp, path, canonical, 65536);
         if (result == LIBSSH2_ERROR_EAGAIN) {
-            status = browse_wait(session, socket, deadline, cancelled, context);
+            status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
             if (status != GT_OK) {
                 return status;
             }
@@ -1770,7 +1777,7 @@ int gt_sftp_mkdir_controlled(gt_sftp_t *sftp,
                 out->remote_status == LIBSSH2_FX_OP_UNSUPPORTED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;
             goto finished;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -1810,7 +1817,7 @@ int gt_sftp_mkdir_controlled(gt_sftp_t *sftp,
             status = GT_ERR_IO;
             goto finished;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -1824,7 +1831,7 @@ int gt_sftp_mkdir_controlled(gt_sftp_t *sftp,
         char entry[4096];
         result = libssh2_sftp_readdir_ex(directory, entry, sizeof entry, NULL, 0, &attributes);
         if (result == LIBSSH2_ERROR_EAGAIN) {
-            status = browse_wait(session, socket, deadline, cancelled, context);
+            status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
             if (status != GT_OK) {
                 goto finished;
             }
@@ -1864,7 +1871,7 @@ int gt_sftp_mkdir_controlled(gt_sftp_t *sftp,
             }
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }
@@ -2036,7 +2043,7 @@ int gt_sftp_remove_controlled(gt_sftp_t *sftp,
                 out->remote_status == LIBSSH2_FX_OP_UNSUPPORTED ? GT_ERR_UNSUPPORTED : GT_ERR_IO;
             break;
         }
-        status = browse_wait(session, socket, deadline, cancelled, context);
+        status = browse_wait(sftp->ssh, session, socket, deadline, cancelled, context);
         if (status != GT_OK) {
             goto finished;
         }

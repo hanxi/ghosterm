@@ -156,7 +156,8 @@ public final class AppModel: ObservableObject {
     @Published public var preferences: AppPreferences
 
     private var startedInitialSessions = false
-    private var authentications: [UUID: (DispatchQueue, SSHAuthenticationFlow)] = [:]
+    private var authentications: [UUID: (DispatchQueue, SSHAuthenticationOperation)] = [:]
+    var sshCredentialStorage: SSHCredentialSelector.Storage = .platform
     @Published public var tmuxChooser: TmuxChooser?
 
 
@@ -230,6 +231,9 @@ public final class AppModel: ObservableObject {
     }
 
     public func reload() {
+        for (id, (owner, flow)) in authentications {
+            cancelledConnects.add(id); owner.async { flow.cancel() }
+        }
         do {
             let model = try HostListModel(path: configPath)
             hosts = model.hosts
@@ -279,7 +283,7 @@ public final class AppModel: ObservableObject {
                 let backend = try await model.makeSFTPFileBackend(
                     user: user, host: host, port: port,
                     identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID,
-                    connectionIssues: entry?.connectionIssues ?? [])
+                    connectionIssues: entry?.connectionIssues ?? [], alias: pattern)
                 if model.cancelledConnects.take(paneID) { return }
                 guard let p = model.tab(withID: tabID)?.filePanes.first(where: { $0.id == paneID }) else { return }
                 let remotePanel = FilesPanelModel(backend: backend)
@@ -366,7 +370,7 @@ public final class AppModel: ObservableObject {
                 let backend = try await model.makeSFTPFileBackend(
                     user: target.user, host: target.host, port: target.port,
                     identityFiles: identityFiles, knownHosts: khPath, cancelID: paneID,
-                    connectionIssues: target.connectionIssues)
+                    connectionIssues: target.connectionIssues, alias: target.pattern)
                 if model.cancelledConnects.take(paneID) { return }
                 guard let t = model.tab(withID: tabID), t.remoteFiles?.id == paneID else { return }
                 let panelModel = FilesPanelModel(backend: backend)
@@ -385,13 +389,13 @@ public final class AppModel: ObservableObject {
     public nonisolated func makeSFTPFileBackend(user: String, host: String, port: UInt16,
                                                 identityFiles: [String],
                                                 knownHosts: String,
-                                                cancelID: UUID, connectionIssues: [SSHConnectionIssue] = []) async throws -> SFTPFileBackend {
+                                                cancelID: UUID, connectionIssues: [SSHConnectionIssue] = [], alias: String? = nil) async throws -> SFTPFileBackend {
         let owner = DispatchQueue(label: "dev.ghosterm.files-connect")
-        let target = SSHConnectionTarget(alias: host, host: host, user: user, port: port,
+        let target = SSHConnectionTarget(alias: alias ?? host, host: host, user: user, port: port,
             knownHosts: knownHosts, identityPaths: identityFiles, connectionIssues: connectionIssues)
         let ssh = try await authenticate(target, id: cancelID, owner: owner)
         let sftp: SFTPSession = try await withCheckedThrowingContinuation { continuation in
-            owner.async { do { continuation.resume(returning: try ssh.sftp()) } catch { continuation.resume(throwing: error) } }
+            owner.async { do { continuation.resume(returning: try ssh.sftp(timeoutMilliseconds: 5000)) } catch { continuation.resume(throwing: error) } }
         }
         return SFTPFileBackend(session: ssh, sftp: sftp, user: user, host: host,
                                initialPath: ".")
@@ -821,7 +825,17 @@ public final class AppModel: ObservableObject {
     /// optional management/attach. Prompts stay on main; DNS/libssh2 on owner.
     func authenticate(_ target: SSHConnectionTarget, id: UUID, owner: DispatchQueue) async throws -> SSHSession {
         if cancelledConnects.contains(id) { throw ConnectCancelled() }
-        let selector = SSHCredentialSelector(target: target, ask: { [weak self] kind in
+        if target.connectionIssues.contains(where: { $0.keyword == "proxyjump" }) {
+            let targets = try configuredSSHRoute(for: [target.alias])
+            guard targets.count > 1 else { throw GhostermError.failed("SSH 跳板配置已改变，请重新连接") }
+            guard let finalTarget = targets.last, finalTarget.host == target.host,
+                  finalTarget.user == target.user, finalTarget.port == target.port,
+                  finalTarget.knownHosts == target.knownHosts, finalTarget.identityPaths == target.identityPaths else {
+                throw GhostermError.failed("SSH 目标配置已改变，请重新连接")
+            }
+            return try await authenticateRoute(targets, alias: target.alias, id: id, owner: owner)
+        }
+        let selector = SSHCredentialSelector(target: target, storage: sshCredentialStorage, ask: { [weak self] kind in
             guard let self, !self.cancelledConnects.contains(id) else { return nil }
             let prompt = CredentialPrompt(host: target.host, port: target.port, user: target.user, kind: kind)
             self.pendingCredential = prompt; defer { self.pendingCredential = nil }
@@ -846,6 +860,48 @@ public final class AppModel: ObservableObject {
             owner.async { flow.start() }
         }
     }
+    private func authenticateRoute(_ targets: [SSHConnectionTarget], alias: String, id: UUID, owner: DispatchQueue) async throws -> SSHSession {
+        let valid = { [weak self] in
+            guard let self, !self.cancelledConnects.contains(id), self.loadError == nil else { return false }
+            return (try? self.configuredSSHRoute(for: [alias])) == targets
+        }
+        let selectors = targets.map { target in
+            SSHCredentialSelector(target: target, storage: sshCredentialStorage, ask: { [weak self] kind in
+                guard let self, valid() else { return nil }
+                let prompt = CredentialPrompt(host: target.host, port: target.port, user: target.user, kind: kind)
+                self.pendingCredential = prompt; defer { self.pendingCredential = nil }
+                let answer = self.interaction?.askCredential(prompt)
+                return valid() ? answer : nil
+            }, hostkey: { [weak self] type, fingerprint in
+                guard let self, valid() else { return .unknown }
+                let prompt = HostKeyPrompt(host: target.host, port: target.port, keyType: type, fingerprint: fingerprint)
+                self.pendingHostKey = prompt; defer { self.pendingHostKey = nil }
+                let decision = self.interaction?.confirmHostKey(prompt) ?? .unknown
+                return valid() ? decision : .unknown
+            }, notice: { [weak self] message in self?.statusMessage = message })
+        }
+        let prompts = selectors.map { selector -> SSHAuthenticationPrompts in
+            let original = selector.prompts
+            return SSHAuthenticationPrompts(credential: { request, attempt, done in
+                guard valid() else { done(.failure(ConnectCancelled())); return }
+                original.credential(request, attempt) { result in done(valid() ? result : .failure(ConnectCancelled())) }
+            }, hostkey: original.hostkey, cancelled: original.cancelled, methods: original.methods,
+                accepted: { request, attempt in if valid() { original.accepted(request, attempt) } })
+        }
+        let connection: SSHSession = try await withCheckedThrowingContinuation { continuation in
+            var request: UInt64 = 0
+            let flow = SSHRouteAuthenticationFlow(owner: owner, options: targets.map {
+                SSHOptions(host: $0.host, port: $0.port, username: $0.user, knownHostsPath: $0.knownHosts)
+            }, prompts: prompts, nextID: { guard request < UInt64.max else { return nil }; request += 1; return request }, completion: { [weak self] result in
+                if case .success(let value) = result { value.connection.releaseOn(owner) }
+                DispatchQueue.main.async { self?.authentications.removeValue(forKey: id) }
+                continuation.resume(with: result.map { $0.connection }.mapError { $0 as Error })
+            })
+            authentications[id] = (owner, flow); owner.async { flow.start() }
+        }
+        guard valid() else { owner.async { connection.close() }; throw ConnectCancelled() }
+        return connection
+    }
     func cancelConnection(_ id: UUID) {
         cancelledConnects.add(id)
         if let (owner, flow) = authentications[id] { owner.async { flow.cancel() } }
@@ -856,6 +912,11 @@ public final class AppModel: ObservableObject {
         return SSHConnectionTarget(alias: pattern, host: entry?.hostname ?? pattern,
             user: entry?.user ?? NSUserName(), port: UInt16(clamping: entry?.port ?? 22),
             knownHosts: knownHostsPath, identityPaths: expandTilde(entry?.identityFiles ?? []), connectionIssues: entry?.connectionIssues ?? [])
+    }
+
+    func configuredSSHRoute(for aliases: [String]) throws -> [SSHConnectionTarget] {
+        guard loadError == nil, let configModel else { throw GhostermError.failed("SSH 配置尚未载入") }
+        return try configModel.sshRoute(aliases: aliases, knownHosts: knownHostsPath)
     }
 
 }

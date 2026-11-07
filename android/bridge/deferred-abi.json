@@ -36,5 +36,12 @@
   "gt_transport_child_cwd": "A2/A3: 原生终端 owner 接入时绑定",
   "gt_transport_kind": "A2/A3: 原生终端 owner 接入时绑定",
   "gt_transport_open_ssh_command": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_open_ssh_shell": "A3: 普通远端终端已改用带剩余预算与取消的 controlled 入口"
+  "gt_transport_open_ssh_shell": "A3: 普通远端终端已改用带剩余预算与取消的 controlled 入口",
+  "gt_ssh_route_open": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
+  "gt_ssh_route_step": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
+  "gt_ssh_route_info": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
+  "gt_ssh_route_decide": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
+  "gt_ssh_route_supply": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
+  "gt_ssh_route_borrow": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
+  "gt_ssh_route_dispose": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending."
 }

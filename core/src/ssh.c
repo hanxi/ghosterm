@@ -1593,12 +1593,9 @@ int gt__ssh_borrow(gt_ssh_t *ssh, void **session, int *socket) {
     if (!ssh || !ssh->connected || !session || !socket || ssh->bridge_owned) {
         return GT_ERR_INVALID_ARG;
     }
-    if (ssh->wire) {
-        return GT_ERR_UNSUPPORTED;
-    }
     ssh->channel_started = true;
     *session = ssh->session;
-    *socket = ssh->sock;
+    *socket = gt__ssh_wire_descriptor(ssh);
     return GT_OK;
 }
 
@@ -1787,6 +1784,10 @@ static int command_wait(gt_ssh_t *ssh, const gt_command_budget_t *b, bool distin
     }
     if (direction & LIBSSH2_SESSION_BLOCK_OUTBOUND) {
         events |= POLLOUT;
+    }
+    if (ssh->wire) {
+        return gt__ssh_wire_wait(ssh, events ? events : POLLIN, 10, NULL, 0) < 0 ? GT_ERR_IO
+                                                                                 : GT_OK;
     }
     struct pollfd p = {ssh->sock, events ? events : POLLIN, 0};
     int rc = poll(&p, 1, 10);
@@ -1997,12 +1998,6 @@ static void *ssh_interactive_open(gt_ssh_t *ssh,
                                   bool distinct_timeout) {
     if (out_status) {
         *out_status = GT_ERR_INVALID_ARG;
-    }
-    if (ssh && ssh->wire) {
-        if (out_status) {
-            *out_status = GT_ERR_UNSUPPORTED;
-        }
-        return NULL;
     }
     if (!ssh || !ssh->session || ssh->bridge_owned) {
         return NULL;

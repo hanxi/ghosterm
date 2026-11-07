@@ -50,6 +50,10 @@ public final class HostListModel {
     /// 所有 Host 模式（含通配块——编辑器要能改 `Host *`，M1 遗留项）。
     public var allPatterns: [String] { config.hostPatterns }
 
+    func sshRoute(aliases: [String], knownHosts: String?) throws -> [SSHConnectionTarget] {
+        try SSHConfiguredRoute.resolve(config: config, aliases: aliases, knownHosts: knownHosts)
+    }
+
     /// 通配模式（`*` / `?`）：不是可点主机，但编辑器可见可改。
     public var wildcardPatterns: [String] {
         config.hostPatterns.filter { $0.contains("*") || $0.contains("?") }

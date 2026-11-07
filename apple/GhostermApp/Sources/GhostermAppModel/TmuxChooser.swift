@@ -89,6 +89,9 @@ public final class TmuxChooser: ObservableObject, Identifiable {
         guard !cancellation.isCancelled else { throw GhostermError.failed("连接已取消") }
         guard let sshTarget, let model else { return nil }
         let id = UUID(); authID = id; defer { model.finishChooserAuthentication(id); authID = nil }
+        guard !sshTarget.connectionIssues.contains(where: { $0.keyword == "proxyjump" }) else {
+            throw GhostermError.failed("tmux 管理暂不支持 ProxyJump；可使用普通 SSH 终端")
+        }
         return try await model.authenticate(sshTarget, id: id, owner: owner)
     }
     public func refresh() {

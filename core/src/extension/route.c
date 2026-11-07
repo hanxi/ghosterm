@@ -22,6 +22,7 @@ typedef struct {
     gt_bridge_stream_t *leaf;
     uint64_t started, now;
     int wake[2];
+    bool session_mode, borrowed;
 } route_t;
 
 static const gt_bridge_stream_ops_t ops;
@@ -154,6 +155,9 @@ gt_bridge_route_phase_t gt__bridge_route_step(gt_bridge_stream_t *base, int ms) 
                                                      &r->allocator,
                                                      &r->leaf);
                 r->info.phase = GT_BRIDGE_ROUTE_FORWARD;
+            } else if (r->session_mode) {
+                r->info.phase = GT_BRIDGE_ROUTE_READY;
+                break;
             } else {
                 status = gt__bridge_ssh_open(
                     &r->ready, r->command, &r->options.stream, &r->allocator, &r->leaf);
@@ -249,6 +253,9 @@ bool gt__bridge_route_info(const gt_bridge_stream_t *base, gt_bridge_route_info_
 }
 
 static gt_bridge_io_t transfer(route_t *r, void *p, size_t n, int ms, bool writing) {
+    if (r->session_mode) {
+        return (gt_bridge_io_t){GT_BRIDGE_ERROR, 0, GT_ERR_UNSUPPORTED};
+    }
     if (r->info.phase != GT_BRIDGE_ROUTE_READY) {
         return (gt_bridge_io_t){
             GT_BRIDGE_ERROR, 0, r->info.error ? r->info.error : GT_ERR_INVALID_ARG};
@@ -329,17 +336,19 @@ static void destroy(gt_bridge_stream_t *base) {
 
 static const gt_bridge_stream_ops_t ops = {read_stream, write_stream, wake, close_step, destroy};
 
-gt_status_t gt__bridge_route_open(gt_ssh_t **owned,
-                                  const gt_bridge_route_hop_t *hops,
-                                  size_t count,
-                                  const char *command,
-                                  const gt_bridge_route_options_t *options,
-                                  const gt_allocator_t *allocator,
-                                  gt_bridge_stream_t **out) {
+static gt_status_t open_route(gt_ssh_t **owned,
+                              const gt_bridge_route_hop_t *hops,
+                              size_t count,
+                              const char *command,
+                              bool session_mode,
+                              const gt_bridge_route_options_t *options,
+                              const gt_allocator_t *allocator,
+                              gt_bridge_stream_t **out) {
     if (out) {
         *out = NULL;
     }
 #ifndef GT_HAVE_LIBSSH2
+    (void)session_mode;
     (void)owned;
     (void)hops;
     (void)count;
@@ -348,11 +357,12 @@ gt_status_t gt__bridge_route_open(gt_ssh_t **owned,
     (void)allocator;
     return GT_ERR_UNSUPPORTED;
 #else
-    if (!owned || !hops || !count || count > GT_BRIDGE_ROUTE_MAX_HOPS || !command || !out) {
+    if (!owned || !hops || !count || count > GT_BRIDGE_ROUTE_MAX_HOPS ||
+        (!session_mode && !command) || !out) {
         return GT_ERR_INVALID_ARG;
     }
-    size_t length = strnlen(command, GT_BRIDGE_SSH_COMMAND_MAX + 1);
-    if (!length || length > GT_BRIDGE_SSH_COMMAND_MAX) {
+    size_t length = session_mode ? 0 : strnlen(command, GT_BRIDGE_SSH_COMMAND_MAX + 1);
+    if ((!session_mode && !length) || length > GT_BRIDGE_SSH_COMMAND_MAX) {
         return GT_ERR_INVALID_ARG;
     }
     gt_bridge_route_options_t o =
@@ -404,7 +414,10 @@ gt_status_t gt__bridge_route_open(gt_ssh_t **owned,
     r->wake[0] = r->wake[1] = -1;
     r->info.count = count;
     r->info.phase = GT_BRIDGE_ROUTE_AUTH;
-    memcpy(r->command, command, length + 1);
+    r->session_mode = session_mode;
+    if (!session_mode) {
+        memcpy(r->command, command, length + 1);
+    }
     (void)gt__bridge_stream_init(&r->base, &ops);
     for (size_t i = 0; i < count; i++) {
         r->material[i] = owned[i];
@@ -446,4 +459,43 @@ failed:
     gt__plugin_memory_free(&a, r, sizeof(*r));
     return GT_ERR_IO;
 #endif
+}
+
+gt_status_t gt__bridge_route_open(gt_ssh_t **owned,
+                                  const gt_bridge_route_hop_t *hops,
+                                  size_t count,
+                                  const char *command,
+                                  const gt_bridge_route_options_t *options,
+                                  const gt_allocator_t *allocator,
+                                  gt_bridge_stream_t **out) {
+    return open_route(owned, hops, count, command, false, options, allocator, out);
+}
+
+gt_status_t gt__bridge_route_open_session(gt_ssh_t **owned,
+                                          const gt_bridge_route_hop_t *hops,
+                                          size_t count,
+                                          const gt_bridge_route_options_t *options,
+                                          const gt_allocator_t *allocator,
+                                          gt_bridge_stream_t **out) {
+    return open_route(owned, hops, count, NULL, true, options, allocator, out);
+}
+
+gt_status_t gt__bridge_route_borrow_session(gt_bridge_stream_t *base, gt_ssh_t **out) {
+    if (out) {
+        *out = NULL;
+    }
+    if (!base || base->ops != &ops || !out) {
+        return GT_ERR_INVALID_ARG;
+    }
+    route_t *r = (route_t *)base;
+    if (!r->session_mode) {
+        return GT_ERR_UNSUPPORTED;
+    }
+    if (base->closed || stopping(r) || r->info.phase != GT_BRIDGE_ROUTE_READY || r->borrowed ||
+        !r->ready) {
+        return GT_ERR_INVALID_ARG;
+    }
+    r->borrowed = true;
+    *out = r->ready;
+    return GT_OK;
 }

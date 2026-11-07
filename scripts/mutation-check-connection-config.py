@@ -12,6 +12,8 @@ def main():
     if MARK.encode() in original: raise RuntimeError('residual mutation')
     logs=ROOT/'tmp/connection-config-mutations'; logs.mkdir(parents=True,exist_ok=True)
     cases=[
+      ('route-arguments', '\n            if (n->nargs != 1 || !*n->args[0]) {', '\n            if (false) {', 'raw route rejects malformed arguments'),
+      ('route-scope', '(n->block >= 0 && !block_matches(&cfg->blocks[n->block], host))) {', '(false && n->block >= 0 && !block_matches(&cfg->blocks[n->block], host))) {', 'raw route excludes unrelated blocks'),
       ('jump','        return !strcasecmp(value, "none");\n','        return true;\n','jump rejected'),
       ('scope','        if (!conditional && n->block >= 0 && !block_matches(&cfg->blocks[n->block], host)) {\n','        if (false && !conditional && n->block >= 0 &&\n            !block_matches(&cfg->blocks[n->block], host)) {\n','other host excluded'),
       ('precedence','            shadowed = seen[key];\n','            shadowed = false && seen[key];\n','shadowed value ignored'),

@@ -102,3 +102,105 @@ private func setupString<T>(_ tuple: T) -> String {
         String(decoding: bytes.prefix(while: { $0 != 0 }), as: UTF8.self)
     }
 }
+
+/// Serial-owner authentication chain. Taking the session transfers the whole
+/// route lifetime to it; close its PTY/SFTP children before closing the session.
+public final class SSHRoute {
+    public struct Hop {
+        public let options: SSHOptions
+        public let address: SSHAddress?
+        public let viaHost: String?
+        public let credential: SSHCredential?
+        public init(options: SSHOptions, address: SSHAddress? = nil, viaHost: String? = nil,
+                    credential: SSHCredential? = nil) {
+            self.options = options; self.address = address; self.viaHost = viaHost; self.credential = credential
+        }
+    }
+    public enum Phase: UInt32 { case authenticating, forwarding, ready, failed, cancelled }
+    public struct Info {
+        public let phase: Phase
+        public let error: Int32
+        public let hop, count: UInt32
+        public let deadline: Bool
+        public let authentication: SSHAuthenticator.Info
+    }
+    private let owner: DispatchQueue
+    private var raw: OpaquePointer?
+    private func checkOwner() { dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread) }
+    public init(hops: [Hop], timeoutMilliseconds: UInt32 = 60000, owner: DispatchQueue) throws {
+        self.owner = owner; checkOwner()
+        guard (1...8).contains(hops.count), hops.enumerated().allSatisfy({ index, hop in
+            index == 0 ? hop.address?.bytes.count == 16 && hop.viaHost == nil : hop.address == nil && hop.viaHost != nil
+        }), !hops.contains(where: { $0.viaHost?.utf8.contains(0) == true }) else {
+            throw GhostermError.failed("SSH 跳板配置无效")
+        }
+        var handles: [OpaquePointer?] = []
+        var names: [UnsafeMutablePointer<CChar>?] = []
+        defer { handles.forEach { gt_ssh_close($0) }; names.forEach { free($0) } }
+        var configs: [gt_ssh_route_hop_t] = []
+        for hop in hops {
+            handles.append(try SSHAuthenticator.unlockedSSH(options: hop.options, credential: hop.credential))
+            let name = hop.viaHost.flatMap { strdup($0) }; names.append(name)
+            if hop.viaHost != nil && name == nil { throw GhostermError.failed("无法分配跳板地址") }
+            var config = gt_ssh_route_hop_t()
+            config.via_host = name.map { UnsafePointer($0) }
+            config.authentication.defer_credentials = hop.credential == nil
+            config.authentication.timeout_ms = timeoutMilliseconds
+            if let address = hop.address {
+                config.authentication.family = address.family; config.authentication.scope = address.scope
+                withUnsafeMutableBytes(of: &config.authentication.address) { $0.copyBytes(from: address.bytes) }
+            }
+            configs.append(config)
+        }
+        let result = gt_ssh_route_open(&handles, &configs, UInt32(hops.count), timeoutMilliseconds, &raw)
+        guard result == GT_OK else { throw GhostermError.status(Int32(result.rawValue), "无法启动 SSH 跳板认证") }
+    }
+    public func step() -> Phase { checkOwner(); return Phase(rawValue: gt_ssh_route_step(raw).rawValue) ?? .failed }
+    public var info: Info? {
+        checkOwner(); var value = gt_ssh_route_info_t()
+        guard gt_ssh_route_info(raw, &value) else { return nil }
+        let a = value.authentication
+        return Info(phase: Phase(rawValue: value.phase.rawValue) ?? .failed, error: Int32(value.error.rawValue),
+                    hop: value.hop, count: value.count, deadline: value.deadline,
+                    authentication: SSHAuthenticator.Info(phase: SSHAuthenticator.Phase(rawValue: a.phase.rawValue) ?? .failed,
+                        host: SSHAuthenticator.Host(rawValue: a.host.rawValue) ?? .unchecked, error: Int32(a.error.rawValue),
+                        deadline: a.deadline, methods: a.auth_methods, keyType: setupString(a.key_type), fingerprint: setupString(a.fingerprint)))
+    }
+    public func decide(_ decision: HostKeyDecision) -> Int32 {
+        checkOwner(); return Int32(gt_ssh_route_decide(raw, gt_hostkey_decision_t(rawValue: decision.rawValue)).rawValue)
+    }
+    public func supply(options: SSHOptions, credential: SSHCredential) throws {
+        checkOwner(); var material: OpaquePointer? = try SSHAuthenticator.unlockedSSH(options: options, credential: credential)
+        defer { gt_ssh_close(material) }
+        let result = gt_ssh_route_supply(raw, &material)
+        guard result == GT_OK else { throw GhostermError.status(Int32(result.rawValue), "提交跳板认证材料失败") }
+    }
+    public func take() -> SSHSession? {
+        checkOwner(); var session: OpaquePointer?
+        guard let route = raw, gt_ssh_route_borrow(route, &session) == GT_OK, let session else { return nil }
+        raw = nil
+        let owner = self.owner
+        return SSHSession(adopting: session, routeRelease: { SSHRouteDisposal.start(route, owner: owner) })
+    }
+    public func close() { checkOwner(); if let raw { self.raw = nil; SSHRouteDisposal.start(raw, owner: owner) } }
+    deinit { if let raw { SSHRouteDisposal.start(raw, owner: owner) } }
+}
+
+// An in-flight cleanup retains its raw owner across retries, including errors.
+// Never discard a partially released chain or block the UI/serial IO queue.
+private final class SSHRouteDisposal {
+    private var raw: OpaquePointer?
+    private let owner: DispatchQueue
+    private init(_ raw: OpaquePointer, owner: DispatchQueue) { self.raw = raw; self.owner = owner }
+    static func start(_ raw: OpaquePointer, owner: DispatchQueue) {
+        let cleanup = SSHRouteDisposal(raw, owner: owner)
+        owner.async { cleanup.step() }
+    }
+    private func step() {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        var released = false
+        let status = gt_ssh_route_dispose(&raw, &released)
+        if released { return }
+        owner.asyncAfter(deadline: .now() + (status == GT_OK ? 0.001 : 0.01)) { self.step() }
+    }
+}

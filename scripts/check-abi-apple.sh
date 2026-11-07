@@ -18,7 +18,6 @@ mkdir -p "$TMP"
 # 故意未绑定到 Apple 的 core 符号（每行 "符号 理由"）。
 # 口径：未实现的子系统（M4 的 SFTP）与宿主尚未使用的基础设施。
 ALLOW_UNBOUND=$(cat <<'EOF'
-gt_config_effective      通用视图（ssh -G 对拍用）：UI 暂只需要 typed 视图
 gt_config_supported_keys 支持集枚举：同上，UI 未做「生效配置」面板
 gt_sftp_receive_controllable Android 暂停首片；Apple 仍消费原有受控观察接口
 gt_sftp_create_controllable Android 暂停首片；Apple 仍消费原有受控观察接口

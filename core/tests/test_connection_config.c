@@ -141,6 +141,27 @@ int main(int argc, char **argv) {
           "included source preserved");
     gt_config_free(cfg);
     unlink(path);
+    const char *bad_route[] = {"Host web\n ProxyJump\n",
+                               "Host web\n ProxyJump first extra\n",
+                               "Host web\n ProxyJump \"\"\n"};
+    bool refused = true, unrelated = true;
+    for (size_t i = 0; i < sizeof bad_route / sizeof bad_route[0]; i++) {
+        cfg = gt_config_parse(bad_route[i], strlen(bad_route[i]));
+        CHECK(cfg != NULL, "route fixture");
+        if (!cfg) {
+            return 1;
+        }
+        char value[64] = "unchanged";
+        refused = (gt_config_effective(cfg, "web", "proxyjump", NULL, value, sizeof value) < 0 &&
+                   !strcmp(value, "unchanged")) &&
+                  refused;
+        unrelated =
+            (gt_config_effective(cfg, "other", "proxyjump", NULL, value, sizeof value) == 0) &&
+            unrelated;
+        gt_config_free(cfg);
+    }
+    CHECK(refused, "raw route rejects malformed arguments");
+    CHECK(unrelated, "raw route excludes unrelated blocks");
     printf("connection config: %d failures\n", failures);
     return failures ? 1 : 0;
 }

@@ -28,7 +28,7 @@ def main():
         ('UNKNOWN','} else { decision = GT_HOSTKEY_UNKNOWN; }','} else { decision = GT_HOSTKEY_ACCEPT; }'),
         ('MISMATCH','if (kh == KH_MISMATCH) { decision = GT_HOSTKEY_REJECT;','if (kh == KH_MISMATCH) { decision = GT_HOSTKEY_ACCEPT;'),
         ('TOFU','int saved = kh_append(ssh->kh_path, ssh->host, port, ktype, b64, &kh);','int saved = GT_OK;'),
-        ('resize','if (libssh2_channel_request_pty_size(sh->chan, cols ? cols : 80, rows ? rows : 24) != 0) {','(void)cols; (void)rows; if (false) {'),
+        ('resize','if (libssh2_channel_request_pty_size_ex(\n            sh->chan, cols ? cols : 80, rows ? rows : 24, (int)px_w, (int)px_h) != 0) {','(void)cols; (void)rows; if (false) {'),
       ],
       'sftp':[('F1', '  out->size = out->has_size ? a->filesize : 0;', '  out->size = 0; /* GT_MUTATION_MARK */'), ('F2', '    strcpy(e->full_path + off, name);', '    strcpy(e->full_path + off, "x"); /* GT_MUTATION_MARK */'), ('F3', '        if (fwrite(buf, 1, (size_t)n, f) != (size_t)n) {\n            rc = GT_JOB_FAILED;\n            break;\n        }\n', '        if (fwrite("", 1, 0, f) != (size_t)n) {\n            rc = GT_JOB_FAILED;\n            break;\n        } /* GT_MUTATION_MARK */\n'), ('F4', 'static void emit_job_done(uint64_t job_id, int result, const char *detail) {', 'static void emit_job_done(uint64_t job_id, int result, const char *detail) {\n  result = GT_JOB_OK; /* GT_MUTATION_MARK: 三态折叠 */'), ('F5', '    int r = remove_all_rec(sftp, ents[i].full_path, depth + 1);', '    int r = gt_sftp_remove(sftp, ents[i].full_path); /* GT_MUTATION_MARK */'), ('F6', '  a.permissions = (unsigned long)(mode & 07777);', '  a.permissions = (unsigned long)((mode & 0) | 0644); /* GT_MUTATION_MARK */'), ('F7', '    if (e->stat.is_dir && (max_depth < 0 || depth < max_depth)) {', '    if (e->stat.is_dir) { (void)max_depth; /* GT_MUTATION_MARK */'), ('F8', '        if (atomic_load(&j->paused)) {\n            usleep(20 * 1000);\n            continue;\n        }\n', '        if (atomic_load(&j->paused) && false) {\n            usleep(20 * 1000);\n            continue;\n        } /* GT_MUTATION_MARK */\n')],
       'exec':[
@@ -49,7 +49,7 @@ def main():
             args=[build/'test_config',ROOT/'core/tests/fixtures'] if control else ['bash',ROOT/'core/tests/scripts/ssh_e2e.sh',build/target]
             code,out=run(args)
             marker='FAIL ' if group=='credentials' else 'FAIL:'
-            status_red = code == 1 if group == 'exec' else code != 0
+            status_red = code == 1 and not any(marker in out for marker in ['AddressSanitizer', 'runtime error:', 'UndefinedBehaviorSanitizer'])
             valid=(status_red and (expected or marker) in out) if red else code==0 and 'SKIP' not in out
             if not valid:print(out,flush=True);raise RuntimeError(group+' expected '+('red' if red else 'green'))
         check();check(control=True)
