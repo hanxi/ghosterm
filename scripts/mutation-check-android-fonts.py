@@ -34,7 +34,7 @@ def main():
     cases = [('renderer-font', 'NerdFontTest#installedRendererCoversNerdSymbolsAndRetainsSystemTextFallback', (
         (manifest, 'paint.typeface=face;metricsPaint.typeface=face', 'paint.typeface=Typeface.MONOSPACE;metricsPaint.typeface=face', 1),
     )), ('symbol-fit', 'NerdFontTest#privateUseInkFitsWithoutRelyingOnCellClipping', (
-        (manifest, 'if (cp !in 0xe000..0xf8ff && cp !in 0xf0000..0xffffd && cp !in 0x100000..0x10fffd)', 'if (true)', 1),
+        (manifest, 'if (!fitsSymbolCell(cell.text))', 'if (true)', 1),
     )), ('normal-symbol-fit', 'NerdFontTest#normalAndBlockCursorUseTheCompleteFittedGlyph', (
         (manifest, 'drawCellText(canvas, cell, left, top)', 'canvas.drawText(cell.text, left, top + baseline, paint)', 1),
     )), ('cursor-symbol-fit', 'NerdFontTest#normalAndBlockCursorUseTheCompleteFittedGlyph', (
@@ -43,8 +43,19 @@ def main():
         (manifest, 'symbolPlacements.evictAll()', '/* stale symbol metrics */', 1),
     )), ('symbol-raster-edge', 'NerdFontTest#privateUseInkFitsWithoutRelyingOnCellClipping', (
         (manifest, 'val inset = minOf(1f, width / 4, height / 4)', 'val inset = 0f', 1),
+    )), ('unicode-symbol-fit', 'NerdFontTest#promptSymbolsFitWithoutClipping', (
+        (manifest, 'if (!fitsSymbolCell(cell.text))', 'if (Character.getType(cell.text.codePointAt(0)) != Character.PRIVATE_USE.toInt())', 1),
+    )), ('bitmap-emoji-bounds', 'NerdFontTest#colorEmojiFitWithoutClipping', (
+        (manifest, 'paint.getTextBounds(cell.text, 0, cell.text.length, symbolRasterBounds)', 'symbolRasterBounds.setEmpty()', 1),
+    )), ('joining-edges', 'NerdFontTest#textBaselineAndJoiningEdgesRemainUnchanged', (
+        (manifest, 'if (cp in 0x2500..0x259f) return false', 'if (cp in 0x2500..0x259f) return true', 1),
+    )), ('bitmap-italic-bounds', 'NerdFontTest#colorEmojiFitWithoutClipping', (
+        (manifest, 'if (symbolOutline.isEmpty && !symbolRasterBounds.isEmpty)', 'if (false)', 1),
     ))]
-    selected = args.selected or list(range(1, len(cases) + 1))
+    sdk = int(helper.run([*adb, 'shell', 'getprop', 'ro.build.version.sdk']).stdout.strip())
+    selected = args.selected or (list(range(1, 10)) + ([10] if sdk == 29 else []))
+    if 10 in selected and sdk != 29:
+        raise RuntimeError('Bitmap italic metrics regression requires the API 29 test device')
     if len(selected) != len(set(selected)) or any(n < 1 or n > len(cases) for n in selected):
         raise RuntimeError('Invalid or duplicate mutation case')
     for number in selected:

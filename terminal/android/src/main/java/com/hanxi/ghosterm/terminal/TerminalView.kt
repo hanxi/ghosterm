@@ -132,6 +132,7 @@ class TerminalView(context: Context) : View(context) {
     private val symbolPlacements = android.util.LruCache<SymbolKey, SymbolPlacement>(256)
     private val symbolBounds = android.graphics.RectF()
     private val symbolOutline = android.graphics.Path()
+    private val symbolRasterBounds = Rect()
     private val fill = Paint()
     private var cellWidth = 1
     private var cellHeight = 1
@@ -686,12 +687,24 @@ class TerminalView(context: Context) : View(context) {
         canvas.clipRect(0, 0, width, height)
         try { drawTerminal(canvas) } finally { canvas.restoreToCount(checkpoint) }
     }
+    private fun fitsSymbolCell(text: String): Boolean {
+        val cp = text.codePointAt(0)
+        if (cp < 0x80) return text.contains('\u20e3') || text.contains('\ufe0f')
+        // Box drawing and block elements must meet the edges of adjoining cells.
+        if (cp in 0x2500..0x259f) return false
+        return when (Character.getType(cp)) {
+            Character.PRIVATE_USE.toInt(), Character.MATH_SYMBOL.toInt(),
+            Character.CURRENCY_SYMBOL.toInt(), Character.MODIFIER_SYMBOL.toInt(),
+            Character.OTHER_SYMBOL.toInt(), Character.DASH_PUNCTUATION.toInt(),
+            Character.START_PUNCTUATION.toInt(), Character.END_PUNCTUATION.toInt(),
+            Character.CONNECTOR_PUNCTUATION.toInt(), Character.OTHER_PUNCTUATION.toInt(),
+            Character.INITIAL_QUOTE_PUNCTUATION.toInt(), Character.FINAL_QUOTE_PUNCTUATION.toInt() -> true
+            else -> text.contains('\u20e3') || text.contains('\ufe0f')
+        }
+    }
     private fun drawCellText(canvas: Canvas, cell: TerminalCell, left: Float, top: Float) {
         if (cell.text.isEmpty()) return
-        val cp = cell.text.codePointAt(0)
-        // Nerd symbols live in the Unicode private-use areas. Keep ordinary text,
-        // combining marks and emoji on their original baseline and grid.
-        if (cp !in 0xe000..0xf8ff && cp !in 0xf0000..0xffffd && cp !in 0x100000..0x10fffd) {
+        if (!fitsSymbolCell(cell.text)) {
             canvas.drawText(cell.text, left, top + baseline, paint)
             return
         }
@@ -700,6 +713,21 @@ class TerminalView(context: Context) : View(context) {
             symbolOutline.reset()
             paint.getTextPath(cell.text, 0, cell.text.length, 0f, 0f, symbolOutline)
             symbolOutline.computeBounds(symbolBounds, true)
+            // Color emoji may have bitmap ink and no vector outline. Measure the
+            // complete shaped cluster too (selectors, ZWJ, skin tones and flags).
+            paint.getTextBounds(cell.text, 0, cell.text.length, symbolRasterBounds)
+            if (!symbolRasterBounds.isEmpty) symbolBounds.union(
+                symbolRasterBounds.left.toFloat(), symbolRasterBounds.top.toFloat(),
+                symbolRasterBounds.right.toFloat(), symbolRasterBounds.bottom.toFloat())
+            // Older Android bitmap emoji metrics omit synthetic italic overhang.
+            // Include the sheared bitmap rectangle when there is no outline.
+            if (symbolOutline.isEmpty && !symbolRasterBounds.isEmpty) {
+                val topSkew = symbolRasterBounds.top * paint.textSkewX
+                val bottomSkew = symbolRasterBounds.bottom * paint.textSkewX
+                symbolBounds.union(
+                    symbolRasterBounds.left + minOf(0f, topSkew, bottomSkew), symbolRasterBounds.top.toFloat(),
+                    symbolRasterBounds.right + maxOf(0f, topSkew, bottomSkew), symbolRasterBounds.bottom.toFloat())
+            }
             val width = (cellWidth * cell.width).toFloat()
             val height = cellHeight.toFloat()
             // Text rasterization can extend beyond outline bounds after scaling.

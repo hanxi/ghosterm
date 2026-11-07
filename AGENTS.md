@@ -190,6 +190,8 @@ app 侧的检测入口只有一处：**关于窗口**（`Ghosterm → 关于 Gho
 
 **远端统一入口（2026-11-06）**：远端主机面板自动探测/列举 tmux，普通终端可直接打开；创建/attach 仍显式选择，直达偏好按端点隔离且可撤销。macOS 24 项与 Release 构建、Android 专用 API 29 arm64 / 4 KiB 页 8＋38 项分轮、未签名 Release/R8 与四模块 lint 通过；Swift 新四组、默认入口旧四组、Android 新三＋旧五组均正常断言红、独立配置绿、恢复绿与 SHA256。C 格式 208 文件、隔离 HEAD Core 470/169 通过；原工作区并行插件 SDK 摘要失败单列，不记整仓绿。不增加 CI 二十份脚本，未发行，非 API 36/真机/完整客户端验收；原件与前置失败见 `docs/reference/optional-tmux-implementation.md` 及 Android 实施计划 §9.211。
 
+**Android Unicode 符号与 emoji 裁切（§9.212）**：箭头/分支/警告等普通符号与彩色组合 emoji 共用完整字形适配，补位图边界与 API 29 斜体剪切范围；保留 VT 一/两列分配、正文基线及框线接缝。API 29 字体 8 项、API 36 字体/本地终端/本地 Kitty/字体切换 45 项通过，两设备 APK 与构建产物摘要一致。字体变异原六＋新三组在 API 36、专属 `--case 10` 在 API 29，共十组分轮正常断言红/同 APK 配置绿/恢复绿/SHA256。Debug/测试 APK、未签名 Release/R8、四模块 lint、C 格式 208 文件及 ABI 169 通过；原工作区 Core 469/470 的既有插件 SDK 摘要失败单列，未记整仓绿。旧实现裁切、遗漏标点、PTY 列宽假设与 API 29 斜体/测试网格异常保留。手工 arm64 / 4 KiB 页模拟器证据，不增加 CI 二十份；未发行，非真机/厂商字体或完整客户端验收。
+
 ### C ABI 符号表（改 `core/include/ghosterm.h` 或 `core/src/*` 时另加）
 
 `ghosterm.h` 是**单一事实来源**。新增/删除/改签名后必须：
