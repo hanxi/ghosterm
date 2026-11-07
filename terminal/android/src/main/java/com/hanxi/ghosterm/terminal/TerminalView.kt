@@ -704,6 +704,25 @@ class TerminalView(context: Context) : View(context) {
     }
     private fun drawCellText(canvas: Canvas, cell: TerminalCell, left: Float, top: Float) {
         if (cell.text.isEmpty()) return
+        // Powerline rounded caps join a solid status segment along the full cell
+        // edge. Font bearings and the icon safety inset would leave visible gaps.
+        if (cell.text == "\ue0b4" || cell.text == "\ue0b6") {
+            val width = (cellWidth * cell.width).toFloat()
+            val height = cellHeight.toFloat()
+            val checkpoint = canvas.save()
+            // Arc rasterization can put faint coverage beyond its mathematical
+            // bounds at some densities. The cell edge is the separator boundary.
+            canvas.clipRect(left, top, left + width, top + height)
+            if (cell.text == "\ue0b4") {
+                canvas.drawArc(left - width, top, left + width, top + height,
+                    -90f, 180f, false, paint)
+            } else {
+                canvas.drawArc(left, top, left + 2 * width, top + height,
+                    90f, 180f, false, paint)
+            }
+            canvas.restoreToCount(checkpoint)
+            return
+        }
         if (!fitsSymbolCell(cell.text)) {
             canvas.drawText(cell.text, left, top + baseline, paint)
             return

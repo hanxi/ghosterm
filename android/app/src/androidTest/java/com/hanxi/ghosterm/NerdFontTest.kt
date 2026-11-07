@@ -61,6 +61,36 @@ class NerdFontTest {
         symbols+listOf(0xf489,0xebc5,0xe0b2).map { String(Character.toChars(it)) }, listOf(1))
     @Test fun promptSymbolsFitWithoutClipping() = assertInkFits(promptSymbols, listOf(1,2))
     @Test fun colorEmojiFitWithoutClipping() = assertInkFits(emojiSymbols, listOf(1,2), requireColor=true)
+    @Test fun roundedPowerlineCapsJoinStatusBackground() {
+        for(face in listOf("system","jetbrains_mono","source_code_pro")) {
+            TerminalFonts.prepare(ui.activity,face)
+            ui.runOnIdle {
+                view.surface=null
+                for(size in listOf(8f,12f,24f,32f)) for(line in listOf(1f,1.85f)) {
+                    view.updateStyle(TerminalStyle(fontId=face,fontSize=size,lineHeight=line))
+                    val width=dimension("cellWidth");val height=dimension("cellHeight")
+                    val image=Bitmap.createBitmap(width+8,height+8,Bitmap.Config.ARGB_8888)
+                    try {
+                        for(icon in listOf("\ue0b4","\ue0b6")) for(flags in listOf(0,1,2,3)) {
+                            image.eraseColor(Color.TRANSPARENT)
+                            paint().apply { color=Color.WHITE;isFakeBoldText=flags and 1!=0;textSkewX=if(flags and 2!=0) -.2f else 0f }
+                            drawUnclipped(Canvas(image),TerminalCell(Color.BLACK,Color.WHITE,flags,1,icon),4f,4f)
+                            val edge=if(icon=="\ue0b4") 4 else 4+width-1
+                            val label="$face $size/$line $icon flags=$flags"
+                            for(y in 1 until height-1) assertTrue("Full-height joining edge: $label y=$y",
+                                Color.alpha(image.getPixel(edge,y+4))>200)
+                            assertTrue("Rounded outer corner: $label",Color.alpha(image.getPixel(
+                                if(icon=="\ue0b4") 4+width-1 else 4,4))<32)
+                            for(y in 0 until image.height) for(x in 0 until image.width) {
+                                if(x !in 4 until width+4 || y !in 4 until height+4)
+                                    assertEquals("No adjacent-cell spill: $label",0,Color.alpha(image.getPixel(x,y)))
+                            }
+                        }
+                    } finally { image.recycle() }
+                }
+            }
+        }
+    }
     private fun assertInkFits(icons: List<String>, columns: List<Int>, requireColor: Boolean = false) {
         for(face in listOf("system","jetbrains_mono","source_code_pro")) {
             TerminalFonts.prepare(ui.activity,face)
@@ -111,7 +141,7 @@ class NerdFontTest {
                 appearance=view.style.appearance.copy(blink=false,cursorText=0xffffff)))
             view.requestFocus()
             assertTrue("Fixture: focused renderer",view.hasFocus() && view.hasWindowFocus())
-            for(icon in listOf("\uf489")+promptSymbols+emojiSymbols) for(cols in listOf(1,2)) {
+            for(icon in listOf("\uf489","\ue0b4","\ue0b6")+promptSymbols+emojiSymbols) for(cols in listOf(1,2)) {
                 val width=dimension("cellWidth")*cols;val height=dimension("cellHeight")
                 val cell=TerminalCell(Color.BLACK,Color.WHITE,0,cols,icon)
                 val expected=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888)

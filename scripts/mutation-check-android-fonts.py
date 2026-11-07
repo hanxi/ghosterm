@@ -51,9 +51,11 @@ def main():
         (manifest, 'if (cp in 0x2500..0x259f) return false', 'if (cp in 0x2500..0x259f) return true', 1),
     )), ('bitmap-italic-bounds', 'NerdFontTest#colorEmojiFitWithoutClipping', (
         (manifest, 'if (symbolOutline.isEmpty && !symbolRasterBounds.isEmpty)', 'if (false)', 1),
+    )), ('rounded-powerline-edges', 'NerdFontTest#roundedPowerlineCapsJoinStatusBackground', (
+        (manifest, 'if (cell.text == "\\ue0b4" || cell.text == "\\ue0b6")', 'if (false)', 1),
     ))]
     sdk = int(helper.run([*adb, 'shell', 'getprop', 'ro.build.version.sdk']).stdout.strip())
-    selected = args.selected or (list(range(1, 10)) + ([10] if sdk == 29 else []))
+    selected = args.selected or (list(range(1, 10)) + ([10] if sdk == 29 else []) + [11])
     if 10 in selected and sdk != 29:
         raise RuntimeError('Bitmap italic metrics regression requires the API 29 test device')
     if len(selected) != len(set(selected)) or any(n < 1 or n > len(cases) for n in selected):

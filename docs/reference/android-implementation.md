@@ -4735,3 +4735,17 @@ Debug/测试 APK、未签名 Release/R8 与 app/bridge/data/terminal 四模块 r
 失败保留：旧实现新增箭头/emoji 两项正常断言失败；首次扩展适配遗漏 `‼` 的标点类别；PTY 测试初次错误假定默认 VS16 警告占两列，随后按实际 VT 模式分别验证；API 29 首轮斜体彩色 `✅` 越界，以及小视口/尺寸更新期间读取超出网格行数的测试异常均未计通过。已补全位图斜体边界、测试行数保护并以实际 1080×2400 视口重跑。C 格式检查初次缺工具未执行，安装锁定 19.1.7 后才通过。构建、失败、最终组合、源码摘要和生产 Canvas 位图在 `tmp/symbol-fit/`。
 
 本片未发行，为手工模拟器专项，不增加 macOS CI 二十份；不是用户真机、厂商字体、实际 zsh/Codex 客户端全流程或 Android 全客户端验收。
+
+### 9.213 Android tmux 状态栏实心半圆接缝（2026-11-07）
+
+`U+E0B4/U+E0B6` 原先进入普通私用区图标的等比缩小与 1px 留边路径，不能沿完整格高连接背景色块。`TerminalView.drawCellText` 改为按 VT 已分配的单元格宽高绘制左右半椭圆，限制弧线栅格覆盖在本格内；普通层和块状光标复用，保留前景色/透明度，不修改字符列宽或 tmux 配置。此片仅覆盖实心左右半圆，空心弧线和其它 Powerline 分隔符不在本片验收范围。
+
+新增 `roundedPowerlineCapsJoinStatusBackground`，检查三字体、8/12/24/32 sp、两档行高和四种样式的连续直边、圆弧外角与无相邻格污染；原普通层/光标层测试补入两半圆。`mutation-check-android-fonts.py --case 11` 将半圆回退到旧字体路径，默认集合同步加入该组。
+
+测试对象为本次创建的 `ghosterm_powerline_36`（emulator-5582，API 36 arm64），没有复用并行插件任务的模拟器。初轮 320×640 / 160dpi 新半圆变异通过，但字体组合为 8/9，最小斜体旗帜 emoji 可见像素不足；1080×2400 / 420dpi 首轮为 8/9，半圆有 alpha=8 的边界外像素，随后补单元格裁切。这两轮不能记完整绿。首次构建因缺默认 Zig 路径、首次 lint 因误指定纯 Kotlin domain 的 lintRelease 任务失败，修正工具路径与四个 Android 模块后再运行。原始记录在 `tmp/powerline-check/`。
+
+整仓 Core 为 473/474，`plugin_runtime_sdk_inputs` 的 `core/src/extension/sdk-code.inc` 摘要失败；工作区已有并行插件修改，未改该面，不记整仓闸门绿。另跑 ABI 176 符号及 API 冒烟 59 项通过。此片未发行，不增加 macOS CI 二十份，不代表真机、API 29 或完整客户端验收。
+
+补裁切后的最终 API 36 / 4 KiB 页、1080×2400 / 420dpi 字体组合 **9 项通过**（65.867 秒，`fonts-final.log`）；新第十一组变异在最终源上再次通过，正常单条断言红、同 APK Core 配置绿、复原绿和 SHA256，原件 `tmp/android-font-mutations/1794040021422097000/`。原有十组变异未在本片重跑。
+
+最终生产源 Debug/测试 APK、未签名 Release/R8 与 app/bridge/data/terminal 四模块 release lint 通过（`release-lint-restored.log`）；设备已关闭，保留日志，不安装到用户设备。
