@@ -19,6 +19,15 @@ struct gaj_ssh {
     pthread_mutex_t mutex;
     char *host, *user, *known_hosts;
     uint16_t port;
+
+    struct {
+        char *host, *user;
+        uint16_t port;
+    } hops[8];
+
+    size_t hop_count;
+    uint32_t hop;
+    gt_ssh_route_t *route;
     gt_ssh_auth_options_t options;
     ssh_address addresses[GAJ_SSH_MAX_ADDRESSES];
     size_t address_count;
@@ -89,7 +98,8 @@ gaj_ssh *gaj_ssh_new(JNIEnv *env,
                      jbyteArray known_hosts,
                      jobjectArray addresses,
                      jintArray scopes,
-                     jint timeout) {
+                     jint timeout,
+                     jobjectArray route) {
     if (port < 1 || port > 65535 || timeout < 1 || timeout > 60000 || !addresses || !scopes) {
         fail(env, "SSH 地址或超时无效");
         return NULL;
@@ -125,6 +135,52 @@ gaj_ssh *gaj_ssh_new(JNIEnv *env,
     if (s->known_hosts[0] != '/') {
         fail(env, "主机信任路径必须为绝对路径");
         goto invalid;
+    }
+    jsize fields = route ? (*env)->GetArrayLength(env, route) : 0;
+    if (fields < 0 || fields > 21 || fields % 3) {
+        fail(env, "SSH 跳板参数无效");
+        goto invalid;
+    }
+    s->hop_count = (size_t)fields / 3 + 1;
+    for (size_t i = 0; i < s->hop_count; i++) {
+        if (i + 1 == s->hop_count) {
+            s->hops[i].host = strdup(s->host);
+            s->hops[i].user = strdup(s->user);
+            s->hops[i].port = (uint16_t)port;
+        } else {
+            char *values[3] = {0};
+            for (size_t j = 0; j < 3 && !(*env)->ExceptionCheck(env); j++) {
+                jbyteArray item = (*env)->GetObjectArrayElement(env, route, (jsize)(i * 3 + j));
+                values[j] = copy(env, item, 4096, false);
+                if (item) {
+                    (*env)->DeleteLocalRef(env, item);
+                }
+            }
+            s->hops[i].host = values[0];
+            s->hops[i].user = values[1];
+            unsigned parsed = 0;
+            if (values[2]) {
+                for (char *p = values[2]; *p; p++) {
+                    if (*p < '0' || *p > '9' || parsed > 6553) {
+                        parsed = 65536;
+                        break;
+                    }
+                    parsed = parsed * 10 + (unsigned)(*p - '0');
+                }
+            }
+            free(values[2]);
+            if (!parsed || parsed > 65535) {
+                fail(env, "SSH 跳板端口无效");
+                goto invalid;
+            }
+            s->hops[i].port = (uint16_t)parsed;
+        }
+        if (!s->hops[i].host || !s->hops[i].user) {
+            if (!(*env)->ExceptionCheck(env)) {
+                fail(env, "SSH 跳板内存不足");
+            }
+            goto invalid;
+        }
     }
     s->port = (uint16_t)port;
     s->options.timeout_ms = (uint32_t)timeout;
@@ -181,6 +237,10 @@ void gaj_ssh_free(gaj_ssh *s) {
     }
     erase(s->first);
     erase(s->second);
+    for (size_t i = 0; i < 8; i++) {
+        free(s->hops[i].host);
+        free(s->hops[i].user);
+    }
     free(s->host);
     free(s->user);
     free(s->known_hosts);
@@ -189,7 +249,7 @@ void gaj_ssh_free(gaj_ssh *s) {
 }
 
 /* Only the IO owner calls publish. No UI callback can call Core or mutate info. */
-static void publish(gaj_ssh *s, const gt_ssh_auth_info_t *info) {
+static void publish_hop(gaj_ssh *s, const gt_ssh_auth_info_t *info, uint32_t hop) {
     pthread_mutex_lock(&s->mutex);
     bool prompt =
         info->phase == GT_SSH_AUTH_PHASE_HOSTKEY || info->phase == GT_SSH_AUTH_PHASE_CREDENTIALS;
@@ -201,7 +261,12 @@ static void publish(gaj_ssh *s, const gt_ssh_auth_info_t *info) {
         s->waiting = false;
     }
     s->info = *info;
+    s->hop = hop;
     pthread_mutex_unlock(&s->mutex);
+}
+
+static void publish(gaj_ssh *s, const gt_ssh_auth_info_t *info) {
+    publish_hop(s, info, 0);
 }
 
 static bool milliseconds(uint64_t *value) {
@@ -213,7 +278,180 @@ static bool milliseconds(uint64_t *value) {
     return true;
 }
 
+/* Only the serial IO owner releases the borrowed final session and its chain. */
+void gaj_ssh_close(gaj_ssh *s, gt_ssh_t *ssh) {
+    if (!s || !s->route) {
+        gt_ssh_close(ssh);
+        return;
+    }
+    bool released = false;
+    while (!released) {
+        (void)gt_ssh_route_dispose(&s->route, &released);
+        if (!released) {
+            struct timespec pause = {.tv_nsec = 1000000};
+            nanosleep(&pause, NULL);
+        }
+    }
+}
+
+static gt_ssh_t *connect_route(gaj_ssh *s, atomic_bool *stop) {
+    gt_ssh_t *result = NULL;
+    uint32_t active_hop = 0;
+    uint64_t started = 0, now = 0;
+    gt_ssh_auth_info_t info = {0};
+    if (!milliseconds(&started)) {
+        info.error = GT_ERR_INTERNAL;
+        goto failed;
+    }
+    s->deadline = started + s->options.timeout_ms;
+    for (size_t candidate = 0; candidate < s->address_count; candidate++) {
+        gt_ssh_t *handles[8] = {0};
+        gt_ssh_route_hop_t hops[8] = {0};
+        if (!milliseconds(&now) || now >= s->deadline) {
+            info.error = GT_ERR_IO;
+            info.deadline = true;
+            goto failed;
+        }
+        uint64_t candidate_started = now;
+        gt_status_t status = GT_OK;
+        for (size_t i = 0; i < s->hop_count; i++) {
+            gt_ssh_opts_t opts = {.host = s->hops[i].host,
+                                  .port = s->hops[i].port,
+                                  .username = s->hops[i].user,
+                                  .known_hosts_path = s->known_hosts};
+            handles[i] = gt_ssh_new(&opts);
+            if (!handles[i]) {
+                status = GT_ERR_INTERNAL;
+            }
+            hops[i].authentication.defer_credentials = true;
+            if (i) {
+                hops[i].via_host = s->hops[i].host;
+            } else {
+                hops[i].authentication.family = s->addresses[candidate].family;
+                hops[i].authentication.scope = s->addresses[candidate].scope;
+                memcpy(hops[i].authentication.address, s->addresses[candidate].bytes, 16);
+            }
+        }
+        if (status == GT_OK) {
+            status = gt_ssh_route_open(
+                handles, hops, (uint32_t)s->hop_count, (uint32_t)(s->deadline - now), &s->route);
+        }
+        for (size_t i = 0; i < s->hop_count; i++) {
+            gt_ssh_close(handles[i]);
+        }
+        if (status != GT_OK) {
+            info.error = status;
+            goto failed;
+        }
+        bool retry = false, was_tcp = true;
+        while (!atomic_load(stop)) {
+            gt_ssh_route_info_t route = {0};
+            (void)gt_ssh_route_step(s->route);
+            if (!gt_ssh_route_info(s->route, &route) || !milliseconds(&now)) {
+                info.error = GT_ERR_INTERNAL;
+                goto failed;
+            }
+            info = route.authentication;
+            /* Forwarding has no credential or hostkey prompt. */
+            if (route.phase == GT_SSH_ROUTE_FORWARDING) {
+                info.phase = GT_SSH_AUTH_PHASE_NEGOTIATING;
+            }
+            bool tcp_failure = was_tcp && route.hop == 0 && route.phase == GT_SSH_ROUTE_FAILED &&
+                               route.error == GT_ERR_IO && !route.deadline;
+            bool tcp_stalled = route.hop == 0 && info.phase == GT_SSH_AUTH_PHASE_TCP &&
+                               now - candidate_started >= GAJ_SSH_TCP_CANDIDATE_MS;
+            if (candidate + 1 < s->address_count && now < s->deadline &&
+                (tcp_failure || tcp_stalled)) {
+                retry = true;
+                break;
+            }
+            was_tcp = route.hop == 0 && info.phase == GT_SSH_AUTH_PHASE_TCP;
+            active_hop = route.hop;
+            if (route.phase == GT_SSH_ROUTE_READY) {
+                status = gt_ssh_route_borrow(s->route, &result);
+                if (status != GT_OK) {
+                    info.error = status;
+                    goto failed;
+                }
+                pthread_mutex_lock(&s->mutex);
+                s->connected = s->addresses[candidate];
+                s->has_connected = true;
+                pthread_mutex_unlock(&s->mutex);
+                info.phase = GT_SSH_AUTH_PHASE_TAKEN;
+                publish_hop(s, &info, active_hop);
+                return result;
+            }
+            if (route.phase == GT_SSH_ROUTE_FAILED || route.phase == GT_SSH_ROUTE_CANCELLED) {
+                info.error = route.error;
+                info.deadline = route.deadline;
+                goto failed;
+            }
+            publish_hop(s, &info, active_hop);
+            pthread_mutex_lock(&s->mutex);
+            int response = s->response;
+            char *first = s->first, *second = s->second;
+            s->response = 0;
+            s->first = NULL;
+            s->second = NULL;
+            pthread_mutex_unlock(&s->mutex);
+            if (response) {
+                status = GT_ERR_CANCELLED;
+                if (!atomic_load(stop) && response <= 2) {
+                    status = gt_ssh_route_decide(
+                        s->route, response == 1 ? GT_HOSTKEY_ACCEPT : GT_HOSTKEY_REJECT);
+                } else if (!atomic_load(stop)) {
+                    gt_ssh_opts_t opts = {.host = s->hops[route.hop].host,
+                                          .port = s->hops[route.hop].port,
+                                          .username = s->hops[route.hop].user,
+                                          .known_hosts_path = s->known_hosts};
+                    gt_ssh_t *material = gt_ssh_new(&opts);
+                    status = material ? (response == 3
+                                             ? gt_ssh_auth_password(material, first)
+                                             : gt_ssh_auth_private_key(material, first, second))
+                                      : GT_ERR_INTERNAL;
+                    if (status == GT_OK) {
+                        status = gt_ssh_route_supply(s->route, &material);
+                    }
+                    gt_ssh_close(material);
+                }
+                erase(first);
+                erase(second);
+                if (status != GT_OK) {
+                    info.error = status;
+                    goto failed;
+                }
+            }
+            struct timespec pause = {.tv_nsec = 10000000};
+            nanosleep(&pause, NULL);
+        }
+        gaj_ssh_close(s, NULL);
+        if (!retry) {
+            info.error = GT_ERR_CANCELLED;
+            goto failed;
+        }
+    }
+failed:
+    info.phase = atomic_load(stop) ? GT_SSH_AUTH_PHASE_CANCELLED : GT_SSH_AUTH_PHASE_FAILED;
+    if (atomic_load(stop)) {
+        info.error = GT_ERR_CANCELLED;
+    }
+    publish_hop(s, &info, active_hop);
+    gaj_ssh_close(s, NULL);
+    pthread_mutex_lock(&s->mutex);
+    erase(s->first);
+    erase(s->second);
+    s->first = NULL;
+    s->second = NULL;
+    s->response = 0;
+    s->waiting = false;
+    pthread_mutex_unlock(&s->mutex);
+    return NULL;
+}
+
 gt_ssh_t *gaj_ssh_connect(gaj_ssh *s, atomic_bool *stop) {
+    if (s->hop_count > 1) {
+        return connect_route(s, stop);
+    }
     gt_ssh_opts_t opts = {
         .host = s->host, .port = s->port, .username = s->user, .known_hosts_path = s->known_hosts};
     gt_ssh_t *ssh = NULL, *result = NULL;
@@ -464,8 +702,10 @@ jobjectArray gaj_ssh_info(JNIEnv *env, gaj_ssh *s) {
     pthread_mutex_lock(&s->mutex);
     gt_ssh_auth_info_t info = s->info;
     uint64_t request = s->waiting ? s->request : 0;
+    uint32_t hop = s->hop;
     pthread_mutex_unlock(&s->mutex);
-    char number[6][32];
+    char number[7][32];
+    snprintf(number[6], sizeof number[6], "%u", hop);
     snprintf(number[0], sizeof number[0], "%llu", (unsigned long long)request);
     snprintf(number[1], sizeof number[1], "%d", info.phase);
     snprintf(number[2], sizeof number[2], "%d", info.error);
@@ -479,13 +719,14 @@ jobjectArray gaj_ssh_info(JNIEnv *env, gaj_ssh *s) {
                             number[4],
                             number[5],
                             info.key_type,
-                            info.fingerprint};
+                            info.fingerprint,
+                            number[6]};
     jclass type = (*env)->FindClass(env, "[B");
     if (!type) {
         return NULL;
     }
-    jobjectArray out = (*env)->NewObjectArray(env, 8, type, NULL);
-    for (int i = 0; out && i < 8 && !(*env)->ExceptionCheck(env); i++) {
+    jobjectArray out = (*env)->NewObjectArray(env, 9, type, NULL);
+    for (int i = 0; out && i < 9 && !(*env)->ExceptionCheck(env); i++) {
         size_t n = strlen(fields[i]);
         jbyteArray value = (*env)->NewByteArray(env, (jsize)n);
         if (!value) {

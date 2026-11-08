@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <arpa/inet.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -452,65 +453,6 @@ done:
     return result;
 }
 
-/* Recheck and resolve the actual connection target from ONE AST. Included files
- * may change between list display and click; never connect using stale list fields. */
-JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_ConfigBridge_preparedConnectionBytes(
-    JNIEnv *env, jobject self, jbyteArray input, jbyteArray name) {
-    (void)self;
-    gt_config_t *cfg = parse(env, input);
-    if (!cfg) {
-        return NULL;
-    }
-    char *alias = utf8(env, name);
-    gt_resolved_t *host = NULL;
-    jobjectArray result = NULL;
-    if (!alias) {
-        goto done;
-    }
-    gt_config_connection_issue_t issue = {0};
-    if (gt_config_check_connection(cfg, alias, 0, &issue) != GT_OK) {
-        fail(env, "SSH 配置不支持连接，请重新载入并检查指令来源");
-        goto done;
-    }
-    gt_resolve_opts_t opts = {.default_user = "", .identity_policy = GT_IDENTITY_POLICY_NONE};
-    host = gt_config_resolve(cfg, alias, &opts);
-    if (!host) {
-        fail(env, "无法求值 SSH 连接目标");
-        goto done;
-    }
-    size_t identities = 0;
-    while (host->identity_files && host->identity_files[identities]) {
-        if (++identities > 256) {
-            fail(env, "身份文件条目过多");
-            goto done;
-        }
-    }
-    jclass type = (*env)->FindClass(env, "[B");
-    if (!type) {
-        goto done;
-    }
-    result = (*env)->NewObjectArray(env, (jsize)(3 + identities), type, NULL);
-    char port[24];
-    snprintf(port, sizeof port, "%d", host->port);
-    for (size_t i = 0; result && i < 3 + identities && !(*env)->ExceptionCheck(env); i++) {
-        const char *text = i == 0   ? host->hostname
-                           : i == 1 ? host->user
-                           : i == 2 ? port
-                                    : host->identity_files[i - 3];
-        jbyteArray value = bytes(env, text ? text : "");
-        if (!value) {
-            break;
-        }
-        (*env)->SetObjectArrayElement(env, result, (jsize)i, value);
-        (*env)->DeleteLocalRef(env, value);
-    }
-done:
-    gt_resolved_free(host);
-    free(alias);
-    gt_config_free(cfg);
-    return result;
-}
-
 JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_ConfigBridge_removeHostBytes(
     JNIEnv *env, jobject self, jbyteArray input, jbyteArray name) {
     (void)self;
@@ -535,6 +477,235 @@ JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_ConfigBridge_removeH
     result = bytes(env, serialized);
     free(serialized);
 done:
+    free(alias);
+    gt_config_free(cfg);
+    return result;
+}
+
+/* Resolve every hop from one AST so Includes cannot change between hops. */
+typedef struct {
+    gt_resolved_t *hosts[8];
+    char *aliases[8];
+    const char *visiting[8];
+    size_t count, depth;
+} android_route;
+
+static bool route_append(JNIEnv *env,
+                         const gt_config_t *cfg,
+                         android_route *r,
+                         const char *alias,
+                         const char *user,
+                         int port,
+                         bool expand) {
+    if (!*alias || r->count + r->depth >= 8) {
+        goto invalid;
+    }
+    for (size_t i = 0; i < r->depth; i++) {
+        if (!strcasecmp(r->visiting[i], alias)) {
+            goto invalid;
+        }
+    }
+    r->visiting[r->depth++] = alias;
+    gt_resolved_t *h = NULL;
+    char jump[8193];
+    int jump_length = gt_config_effective(cfg, alias, "proxyjump", NULL, jump, sizeof jump);
+    if (jump_length < 0 || (size_t)jump_length >= sizeof jump) {
+        goto failed;
+    }
+    for (size_t i = 0;; i++) {
+        gt_config_connection_issue_t issue = {0};
+        int status = gt_config_check_connection(cfg, alias, i, &issue);
+        if (status == GT_OK) {
+            break;
+        }
+        if (status != GT_ERR_UNSUPPORTED || !issue.keyword || strcmp(issue.keyword, "proxyjump")) {
+            goto failed;
+        }
+    }
+    gt_resolve_opts_t opts = {.default_user = "", .identity_policy = GT_IDENTITY_POLICY_NONE};
+    h = gt_config_resolve(cfg, alias, &opts);
+    if (!h) {
+        goto failed;
+    }
+    if (user) {
+        char *replacement = strdup(user);
+        if (!replacement) {
+            goto failed;
+        }
+        free(h->user);
+        h->user = replacement;
+    }
+    if (port) {
+        h->port = port;
+    }
+    if (h->port < 1 || h->port > 65535) {
+        goto failed;
+    }
+    if (*jump && strcasecmp(jump, "none")) {
+        char *next = jump;
+        unsigned index = 0;
+        while (next) {
+            char *item = next, *comma = strchr(item, ',');
+            next = comma ? comma + 1 : NULL;
+            if (comma) {
+                *comma = 0;
+            }
+            if (!*item || ++index >= 8) {
+                goto failed;
+            }
+            for (const unsigned char *p = (unsigned char *)item; *p; p++) {
+                if (*p <= 32 || *p == 127) {
+                    goto failed;
+                }
+            }
+            if (!strncmp(item, "ssh://", 6)) {
+                item += 6;
+            }
+            if (strpbrk(item, "/%?#")) {
+                goto failed;
+            }
+            char *hop_user = NULL, *at = strchr(item, '@');
+            if (at) {
+                *at = 0;
+                hop_user = item;
+                item = at + 1;
+                if (!*hop_user || strchr(item, '@')) {
+                    goto failed;
+                }
+            }
+            char *hop_host = item, *port_text = NULL;
+            if (*item == '[') {
+                char *end = strchr(++hop_host, ']');
+                if (!end) {
+                    goto failed;
+                }
+                *end = 0;
+                unsigned char address[16];
+                if (inet_pton(AF_INET6, hop_host, address) != 1) {
+                    goto failed;
+                }
+                if (end[1]) {
+                    if (end[1] != ':') {
+                        goto failed;
+                    }
+                    port_text = end + 2;
+                }
+            } else {
+                char *colon = strchr(item, ':');
+                if (colon) {
+                    *colon = 0;
+                    port_text = colon + 1;
+                }
+                if (strpbrk(hop_host, "[]")) {
+                    goto failed;
+                }
+            }
+            if (!*hop_host || strlen(hop_host) > 255 || *hop_host == '-' || strchr(hop_host, '*')) {
+                goto failed;
+            }
+            int hop_port = 0;
+            if (port_text) {
+                if (!*port_text) {
+                    goto failed;
+                }
+                for (char *p = port_text; *p; p++) {
+                    if (*p < '0' || *p > '9' || hop_port > 6553) {
+                        goto failed;
+                    }
+                    hop_port = hop_port * 10 + *p - '0';
+                }
+                if (hop_port < 1 || hop_port > 65535) {
+                    goto failed;
+                }
+            }
+            if (expand && !route_append(env, cfg, r, hop_host, hop_user, hop_port, index == 1)) {
+                goto failed;
+            }
+        }
+    }
+    for (size_t i = 0; i < r->count; i++) {
+        gt_resolved_t *prior = r->hosts[i];
+        if (!strcasecmp(prior->hostname, h->hostname) && prior->port == h->port &&
+            !strcmp(prior->user, h->user)) {
+            goto failed;
+        }
+    }
+    if (r->count >= 8) {
+        goto failed;
+    }
+    char *saved = strdup(alias);
+    if (!saved) {
+        goto failed;
+    }
+    r->aliases[r->count] = saved;
+    r->hosts[r->count++] = h;
+    r->depth--;
+    return true;
+failed:
+    gt_resolved_free(h);
+    r->depth--;
+invalid:
+    if (!(*env)->ExceptionCheck(env)) {
+        fail(env, "ProxyJump 路线无效或含不支持配置（含目标最多八跳）");
+    }
+    return false;
+}
+
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_ConfigBridge_preparedRouteBytes(
+    JNIEnv *env, jobject self, jbyteArray input, jbyteArray name) {
+    (void)self;
+    gt_config_t *cfg = parse(env, input);
+    if (!cfg) {
+        return NULL;
+    }
+    char *alias = utf8(env, name);
+    android_route route = {0};
+    jobjectArray result = NULL;
+    if (!alias || !route_append(env, cfg, &route, alias, NULL, 0, true)) {
+        goto done;
+    }
+    size_t fields = 0;
+    for (size_t i = 0; i < route.count; i++) {
+        fields += 5;
+        for (size_t j = 0; route.hosts[i]->identity_files && route.hosts[i]->identity_files[j];
+             j++) {
+            if (j >= 256) {
+                fail(env, "身份文件条目过多");
+                goto done;
+            }
+            fields++;
+        }
+    }
+    jclass type = (*env)->FindClass(env, "[B");
+    if (!type) {
+        goto done;
+    }
+    result = (*env)->NewObjectArray(env, (jsize)fields, type, NULL);
+    jsize out = 0;
+    for (size_t i = 0; result && i < route.count && !(*env)->ExceptionCheck(env); i++) {
+        gt_resolved_t *h = route.hosts[i];
+        size_t count = 0;
+        while (h->identity_files && h->identity_files[count]) {
+            count++;
+        }
+        char port[24], identities[24];
+        snprintf(port, sizeof port, "%d", h->port);
+        snprintf(identities, sizeof identities, "%zu", count);
+        const char *head[] = {route.aliases[i], h->hostname, h->user, port, identities};
+        for (size_t j = 0; j < 5 + count && !(*env)->ExceptionCheck(env); j++) {
+            jbyteArray value = bytes(env, j < 5 ? head[j] : h->identity_files[j - 5]);
+            if (!value) {
+                break;
+            }
+            (*env)->SetObjectArrayElement(env, result, out++, value);
+            (*env)->DeleteLocalRef(env, value);
+        }
+    }
+done:
+    for (size_t i = 0; i < route.count; i++) {
+        gt_resolved_free(route.hosts[i]);
+        free(route.aliases[i]);
+    }
     free(alias);
     gt_config_free(cfg);
     return result;

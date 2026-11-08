@@ -122,9 +122,9 @@ data class SessionState(val phase: Int, val exitCode: Int?, val child: Int, val 
 internal object NativeSession {
     init { System.loadLibrary("ghosterm_android") }
     external fun create(home: ByteArray): Long
-    external fun createRemote(host: ByteArray, port: Int, user: ByteArray, knownHosts: ByteArray, addresses: Array<ByteArray>, scopes: IntArray, timeout: Int): Long
+    external fun createRemote(host: ByteArray, port: Int, user: ByteArray, knownHosts: ByteArray, addresses: Array<ByteArray>, scopes: IntArray, timeout: Int, route: Array<ByteArray> = emptyArray()): Long
     external fun createRemoteTmux(host: ByteArray,port: Int,user: ByteArray,knownHosts: ByteArray,
-        addresses: Array<ByteArray>,scopes: IntArray,timeout: Int,manager: Long,snapshot: Long,index: Int): Long
+        addresses: Array<ByteArray>,scopes: IntArray,timeout: Int,manager: Long,snapshot: Long,index: Int,route: Array<ByteArray> = emptyArray()): Long
     external fun readAuthentication(handle: Long): Array<ByteArray>
     external fun respondAuthentication(handle: Long, request: Long, kind: Int, first: ByteArray, second: ByteArray)
     external fun dispose(handle: Long)

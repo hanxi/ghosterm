@@ -13,7 +13,7 @@ def load(name, file):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
-    parser.add_argument('--case', choices=['pty', 'pty-echo', 'pty-idle', 'pty-cancel', 'sftp', 'cancel', 'open-cancel', 'wait-error', 'read-wait-error'], action='append')
+    parser.add_argument('--case', choices=['tmux', 'pty', 'pty-echo', 'pty-idle', 'pty-cancel', 'sftp', 'cancel', 'open-cancel', 'wait-error', 'read-wait-error'], action='append')
     parser.add_argument('--hops', type=int, choices=[2, 3], action='append')
     parser.add_argument('--public-route-owner', action='store_true')
     parser.add_argument('--route-owner', action='store_true')
@@ -34,6 +34,11 @@ def main():
         for count in args.hops or [2, 3]:
             folder = work/str(count); folder.mkdir()
             ports, known, _ = stack.enter_context(routes.chain(folder, count, public, keys, agent, 'echo', sftp=True))
+            tmux = shutil.which('tmux')
+            if 'tmux' in (args.case or []):
+                require = helpers.require if hasattr(helpers, 'require') else routes.require
+                require(tmux is not None, 'tmux fixture requires tmux')
+                stack.callback(lambda path=folder/'tmux-route': subprocess.run([tmux, '-S', str(path), 'kill-server'], capture_output=True))
             fixture = folder/'payload'; fixture.write_bytes(bytes((i * 17 + 3) & 255 for i in range(262144)))
             echo = folder/'payload.echo'
             echo.write_text('#!'+sys.executable+'\nimport os, tty, sys, time\ntty.setraw(0)\nos.write(1,b"JUMP_READY\\n")\nif sys.argv[1]=="idle": time.sleep(30)\ndata=bytearray()\nwhile len(data)<262144:\n chunk=os.read(0,262144-len(data))\n if not chunk: raise SystemExit(2)\n data.extend(chunk)\nwhile data:\n n=os.write(1,data)\n del data[:n]\n')
@@ -51,7 +56,9 @@ def main():
                 if args.expect_assertion:
                     accepted = result.returncode == 1 and result.stderr.count(b'FAIL jump:') == 1 and not any(marker in result.stderr for marker in [b'AddressSanitizer', b'runtime error:', b'UndefinedBehaviorSanitizer'])
                 else: accepted = result.returncode == 0 and b'SSH JUMP IO PASS' in result.stdout
-                if not accepted: raise AssertionError(label+' failed: '+str(logs))
+                if not accepted:
+                    sys.stderr.buffer.write(result.stdout + result.stderr)
+                    raise AssertionError(label+' failed: '+str(logs))
                 results.append(label); print(label+(': assertion red' if args.expect_assertion else ': PASS'), flush=True)
     for path in work.rglob('*'):
         if path.is_file():

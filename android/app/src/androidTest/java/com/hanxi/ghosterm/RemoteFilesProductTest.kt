@@ -375,7 +375,7 @@ class RemoteFilesProductTest {
         assertTrue(sessions().sessions.isEmpty())
     }
     @Test fun configurationGuardAndRejectedTrustKeepLocalLocation() {
-        load(" ProxyJump forbidden.example\n");open()
+        load(" ProxyCommand false\n");open()
         ui.waitUntil { hosts().error!=null }
         ui.onNodeWithTag("file-connect-error").assertTextContains("不支持 SSH 配置",substring=true)
         assertNull(sessions().connecting);assertNull(files().location.endpoint.remoteAlias);assertEquals(0,owners())
@@ -414,7 +414,7 @@ class RemoteFilesProductTest {
         ui.onNode(hasText("返回") or hasContentDescription("返回")).performClick();ui.waitUntil { !files().visible }
         assertEquals(1,owners())
         ui.runOnIdle { files().disconnectAll() };ui.waitUntil { owners()==0 }
-        load(" ProxyJump forbidden.example\n")
+        load(" ProxyCommand false\n")
         ui.onNodeWithText("本机文件").performClick();ui.waitUntil { !files().loading }
         assertEquals(com.hanxi.ghosterm.domain.FileEndpoint.APP,files().location.endpoint)
         assertNull(files().error);assertEquals(0,owners())

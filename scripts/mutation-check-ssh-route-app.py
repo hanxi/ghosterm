@@ -4,11 +4,12 @@ import argparse, hashlib, json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--file-operations',action='store_true');parser.add_argument('--case',action='append',default=[]);args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--file-operations',action='store_true');parser.add_argument('--core-tmux',action='store_true');parser.add_argument('--case',action='append',default=[]);args=parser.parse_args()
     work=Path(tempfile.mkdtemp(prefix='ram-',dir=ROOT/'tmp'));logs=work/'logs';logs.mkdir()
     for folder in ['core','scripts','patches','apple/GhostermCore','apple/GhostermTerminal','apple/GhostermApp']:
         shutil.copytree(ROOT/folder,work/folder,symlinks=True,ignore=shutil.ignore_patterns('build','.build','.swiftpm','__pycache__'))
-    (work/'core/build').symlink_to(ROOT/'core/build',target_is_directory=True)
+    if not args.core_tmux: (work/'core/build').symlink_to(ROOT/'core/build',target_is_directory=True)
+    (work/'packages').symlink_to(ROOT/'packages',target_is_directory=True)
     (work/'build').mkdir();(work/'build/host-native').symlink_to((ROOT/'build/host-native').resolve(),target_is_directory=True)
     (work/'build/GhosttyKit.xcframework').symlink_to((ROOT/'build/GhosttyKit.xcframework').resolve(),target_is_directory=True)
     (work/'tmp').mkdir()
@@ -17,10 +18,17 @@ def main():
     def run(cmd,label,environment=env):
         p=subprocess.run(list(map(str,cmd)),cwd=work,env=environment,capture_output=True,text=True,timeout=120)
         (logs/(label+'.log')).write_text(p.stdout+p.stderr)
-        assert p.returncode==0, (label,logs)
+        if p.returncode:
+            print(p.stdout+p.stderr,flush=True)
+            raise AssertionError((label,logs))
         if label.endswith('-control'):
             assert 'Executed 1 test, with 0 failures (0 unexpected)' in p.stdout+p.stderr
-    def compile(label):run(['xcrun','swift','build','--build-tests','--package-path',package,'--scratch-path',build],label+'-build')
+    if args.core_tmux:
+        sdk=subprocess.check_output(['xcrun','--sdk','macosx','--show-sdk-path'],env=env,text=True).strip()
+        run(['cmake','-S',work/'core','-B',work/'core/build','-DGHOSTERM_BUILD_TESTS=OFF','-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0','-DCMAKE_OSX_SYSROOT='+sdk],'core-configure')
+    def compile(label):
+        if args.core_tmux: run(['cmake','--build',work/'core/build','-j4'],label+'-core-build')
+        run(['xcrun','swift','build','--build-tests','--package-path',package,'--scratch-path',build],label+'-build')
     compile('baseline')
     bundles=list(build.rglob('GhostermAppTests.xctest'));assert len(bundles)==1
     test=['xcrun','xctest','-XCTest','GhostermAppTests.SSHRouteAppTests/testConfiguredRouteProducts',str(bundles[0])]
@@ -61,7 +69,7 @@ sys.exit(p.returncode)
     originals={n:p.read_bytes() for n,p in paths.items()}
     hashes={n:hashlib.sha256(b).hexdigest() for n,b in originals.items()}
     cases=[
-      ('tmux-admission','TmuxChooser.swift','guard !sshTarget.connectionIssues.contains(where: { $0.keyword == "proxyjump" }) else {','guard true else {','pty'),
+      ('tmux-admission','TmuxChooser.swift','return try await model.authenticate(sshTarget, id: id, owner: owner)','throw GhostermError.failed("tmux 管理暂不支持 ProxyJump")','tmux'),
       ('target-snapshot','AppModel.swift','finalTarget.host == target.host','true','target-change'),
       ('dns-error','SSHRouteAuthenticationFlow.swift','if error is SSHAddressResolver.Failure { fail(3,','if error is SSHAddressResolver.Failure { fail(8,','dns-error'),
       ('route-entry','AppModel.swift','if target.connectionIssues.contains(where: { $0.keyword == "proxyjump" }) {','if false && target.connectionIssues.contains(where: { $0.keyword == "proxyjump" }) {','pty'),
@@ -75,6 +83,11 @@ sys.exit(p.returncode)
       ('first-hop-dns','SSHRouteAuthenticationFlow.swift','lookup(options[0].host, false, owner)','lookup(options[1].host, false, owner)','dns'),
       ('reload-cancel','AppModel.swift','cancelledConnects.add(id); owner.async { flow.cancel() }','_ = id; _ = owner; _ = flow','open-cancel'),
     ]
+    if args.core_tmux:
+        paths['ssh.c']=work/'core/src/ssh.c'
+        originals['ssh.c']=paths['ssh.c'].read_bytes()
+        hashes['ssh.c']=hashlib.sha256(originals['ssh.c']).hexdigest()
+        cases=[('tmux-command','ssh.c','    memset(r, 0, sizeof *r);\n    if (gt__command_expired(b))','    memset(r, 0, sizeof *r);\n    if (ssh && ssh->wire) return GT_ERR_UNSUPPORTED;\n    if (gt__command_expired(b))','tmux')]
     if args.file_operations:
         cases=[
           ('mkdir','SFTPFileBackend.swift','try queue.sync { try sftp.mkdir(path: path, mode: mode) }','_ = path; _ = mode','wait-error'),
@@ -90,7 +103,7 @@ sys.exit(p.returncode)
     try:
         if args.file_operations: check('baseline-operations','wait-error')
         else:
-            check('baseline-terminal','pty');check('baseline-files','sftp');check('baseline-replies','read-wait-error');check('baseline-dns','dns');check('baseline-deadline','deadline');check('baseline-dns-error','dns-error');check('baseline-target-change','target-change')
+            check('baseline-terminal','pty');check('baseline-files','sftp');check('baseline-replies','read-wait-error');check('baseline-dns','dns');check('baseline-deadline','deadline');check('baseline-dns-error','dns-error');check('baseline-target-change','target-change');check('baseline-tmux','tmux')
         for label,name,old,new,case in cases:
             source=originals[name].decode();assert source.count(old)==1
             paths[name].write_text(source.replace(old,new));compile(label);check(label,case,True)
@@ -101,7 +114,7 @@ sys.exit(p.returncode)
     finally:
         for name,data in originals.items():
             paths[name].write_bytes(data)
-            assert (ROOT/'apple/GhostermApp/Sources/GhostermAppModel'/name).read_bytes()==data
+            assert (ROOT/paths[name].relative_to(work)).read_bytes()==data
     (logs/'result.json').write_text(json.dumps({'accepted':True,'mutations':[c[0] for c in cases],'sources_sha256':hashes},indent=2)+'\n')
     for p in work.iterdir():
         if p==logs:continue

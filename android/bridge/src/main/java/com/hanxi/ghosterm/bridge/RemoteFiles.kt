@@ -508,7 +508,7 @@ class RemoteFileSession(connection: ResolvedSSHConnection) : AuthenticatedSSH {
 
 internal object NativeFiles {
     init { System.loadLibrary("ghosterm_android") }
-    external fun create(host: ByteArray, port: Int, user: ByteArray, known: ByteArray, addresses: Array<ByteArray>, scopes: IntArray, timeout: Int, completionFd: Int): Long
+    external fun create(host: ByteArray, port: Int, user: ByteArray, known: ByteArray, addresses: Array<ByteArray>, scopes: IntArray, timeout: Int, completionFd: Int, route: Array<ByteArray> = emptyArray()): Long
     external fun authentication(handle: Long): Array<ByteArray>
     external fun respond(handle: Long, request: Long, kind: Int, first: ByteArray, second: ByteArray)
     external fun state(handle: Long): IntArray

@@ -44,13 +44,15 @@ class TerminalSession(val id: UUID, val title: String, internal val connection: 
 }
 
 /** Activity ViewModel lifetime survives rotation; navigating never closes a session. */
-class SSHAttempt(val target: PreparedSSH, internal val filesReady: ((RemoteFileSession, String) -> Unit)? = null) {
+class SSHAttempt(target: PreparedSSH, internal val filesReady: ((RemoteFileSession, String) -> Unit)? = null) {
+    var target by mutableStateOf(target.copy(identityFiles = target.identityFiles.toList(), jumps = target.jumps.map { it.copy(identityFiles = it.identityFiles.toList()) })); internal set
+    val missingUsernameTarget: PreparedSSH? get() = target.jumps.firstOrNull { it.user.isBlank() } ?: target.takeIf { username.isBlank() }
     internal var tmuxReady: ((RemoteTmuxSession,String)->Unit)? = null
     internal var tmuxTarget: RemoteTmuxTarget? = null
     internal var tmuxName: String? = null
     internal var taskLabel: String? = null
     internal var taskCancelled: (() -> Unit)? = null
-    val passiveProgress get() = !failed && username.isNotBlank() &&
+    val passiveProgress get() = !failed && missingUsernameTarget == null &&
         ((auth?.request ?: 0) <= 0 ||
             (auth?.phase != SSHAuthPhase.HOSTKEY && (auth?.phase != SSHAuthPhase.CREDENTIALS || automaticAuthentication)))
     internal var automaticAuthentication by mutableStateOf(false)
@@ -74,9 +76,11 @@ class SSHAttempt(val target: PreparedSSH, internal val filesReady: ((RemoteFileS
     internal var manuallySubmittedIdentity = false
     var rememberIdentity by mutableStateOf(true)
     internal var rememberedIdentityId: String? = null
+    val authenticationTarget: PreparedSSH get() = if (job == null) missingUsernameTarget ?: target else target.jumps.getOrNull(auth?.hop ?: 0) ?: target
+    val authenticationUsername: String get() = if (authenticationTarget === target) username else authenticationTarget.user
     val authenticationIdentityFiles: List<String> get() = rememberedIdentityId?.let {
         listOf(com.hanxi.ghosterm.data.IdentityReferences.encode(it))
-    } ?: target.identityFiles
+    } ?: authenticationTarget.identityFiles
 }
 
 class SessionsViewModel @JvmOverloads constructor(application: Application, private val resolver: SSHResolver = AndroidSSHResolver,
@@ -232,7 +236,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         selectingNewRemote = false; choosingRemote = null
         val attempt = SSHAttempt(target); connecting = attempt
         protectInBackground()
-        if (target.user.isNotBlank()) startConnection(attempt)
+        if (attempt.missingUsernameTarget == null) startConnection(attempt)
     }
     fun connect(target: PreparedSSH) {
         if (connecting != null) return
@@ -244,19 +248,19 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         selectingNewRemote = false; choosingRemote = null
         val attempt = SSHAttempt(target); connecting = attempt
         protectInBackground()
-        if (target.user.isNotBlank()) startConnection(attempt)
+        if (attempt.missingUsernameTarget == null) startConnection(attempt)
     }
     /** File authentication uses the same policy and UI, but never creates a terminal. */
     fun connectFiles(target: PreparedSSH, ready: (RemoteFileSession, String) -> Unit) {
         if(connecting != null) return
         val attempt = SSHAttempt(target,ready); connecting = attempt
-        if(target.user.isNotBlank()) startConnection(attempt)
+        if(attempt.missingUsernameTarget == null) startConnection(attempt)
     }
     fun connectTmux(target: PreparedSSH,ready: (RemoteTmuxSession,String)->Unit): UUID? {
         if(connecting!=null)return null
         val attempt=SSHAttempt(target).also { it.tmuxReady=ready }
         connecting=attempt
-        if(target.user.isNotBlank())startConnection(attempt)
+        if(attempt.missingUsernameTarget == null)startConnection(attempt)
         return attempt.id
     }
     fun attachTmux(target: PreparedSSH,selection: RemoteTmuxTarget,name: String): Boolean {
@@ -264,7 +268,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         val attempt=SSHAttempt(target).also { it.tmuxTarget=selection;it.tmuxName=name;it.message="正在连接后台会话客户端…" }
         connecting=attempt
         protectInBackground()
-        if(target.user.isNotBlank())startConnection(attempt)
+        if(attempt.missingUsernameTarget == null)startConnection(attempt)
         return true
     }
     /** The task owns these sessions. Authentication only lends the existing credential UI;
@@ -287,14 +291,14 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                         val repository = ConfigRepository(File(getApplication<Application>().filesDir, "home/.ssh"))
                         val snapshot = repository.load()
                         check(snapshot.hosts.any { it.alias == identity.alias }) { "来源主机配置已移除，请重新选择位置" }
-                        val issues = repository.connectionIssues(snapshot, identity.alias)
+                        val issues = repository.connectionIssues(snapshot, identity.alias).filter { it.keyword != "proxyjump" }
                         check(issues.isEmpty()) { "不支持 SSH 配置：" + issues.joinToString("、") { it.description } }
                         val prepared = repository.prepareConnection(snapshot, identity.alias)
                         check(prepared.host == identity.host && prepared.port == identity.port &&
                             (prepared.user.isBlank() || prepared.user == identity.user)) { "主机地址或用户已改变，请重新选择位置" }
                         prepared.copy(user = identity.user, identityFiles = prepared.identityFiles.toList())
                     }
-                    val addresses = withContext(Dispatchers.IO) { resolver.resolve(target.host) }
+                    val addresses = withContext(Dispatchers.IO) { resolver.resolve(target.jumps.firstOrNull()?.host ?: target.host) }
                     ensureActive()
                     check(addresses.isNotEmpty()) { "没有可用的主机地址" }
                     val known = withContext(Dispatchers.IO) {
@@ -307,7 +311,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                     targets[role] = target
                     ResolvedSSHConnection(target.host,target.port,target.user,known.absolutePath,
                         addresses.map { ResolvedSSHAddress(it.address,(it as? Inet6Address)?.scopeId ?: 0) },
-                        remaining.coerceAtMost(60_000).toInt())
+                        remaining.coerceAtMost(60_000).toInt(), target.jumps)
                 }
             }, authenticate = { role, endpoint, connection ->
                 authenticateFileTask(id,role,endpoint,targets.getValue(role),connection,label,cancelled)
@@ -335,6 +339,14 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                         ensureActive()
                         check(connecting === attempt) { "任务认证请求已失效：$requestId" }
                         val auth = connection.authentication()
+                        if (attempt.auth?.hop != null && attempt.auth?.hop != auth.hop) {
+                            attempt.credentialJob?.join()
+                            rememberSuccessfulIdentity(attempt)?.let { identityMemoryWarning = it }
+                            attempt.triedIdentityIds.clear(); attempt.automaticKeyRequests.clear()
+                            attempt.submittedIdentityId = null; attempt.manuallySubmittedIdentity = false
+                            attempt.rememberedIdentityId = null; attempt.manualCredentials = false
+                            attempt.credentialError = null; attempt.credentialBusy = false; listed = false
+                        }
                         publishAuthentication(attempt,auth,listed)
                         val state = connection.state()
                         if(state.ready) { rememberSuccessfulIdentity(attempt)?.let { identityMemoryWarning = it }; break }
@@ -377,7 +389,10 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         if (user.isBlank() || user.length > 256 || user.any { it.isWhitespace() || it.isISOControl() }) {
             attempt.credentialError = "请填写有效的远端用户名"; return
         }
-        attempt.username = user; startConnection(attempt)
+        val missingJump = attempt.target.jumps.indexOfFirst { it.user.isBlank() }
+        if (missingJump >= 0) attempt.target = attempt.target.copy(jumps = attempt.target.jumps.mapIndexed { index, hop -> if (index == missingJump) hop.copy(user = user) else hop })
+        else attempt.username = user
+        if (attempt.missingUsernameTarget == null) startConnection(attempt)
     }
     private fun startConnection(attempt: SSHAttempt) {
         if (!attempt.forFiles && attempt.tmuxReady == null) protectInBackground()
@@ -386,7 +401,8 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
             try {
                 val deadline = SystemClock.elapsedRealtime() + connectionBudgetMillis
                 withTimeout(connectionBudgetMillis) {
-                    val addresses = if(attempt.tmuxTarget==null) withContext(Dispatchers.IO) { resolver.resolve(attempt.target.host) } else emptyList()
+                    check(attempt.target.jumps.all { it.user.isNotBlank() }) { "请在 SSH 配置中为每个跳板填写 User" }
+                    val addresses = if(attempt.tmuxTarget==null) withContext(Dispatchers.IO) { resolver.resolve(attempt.target.jumps.firstOrNull()?.host ?: attempt.target.host) } else emptyList()
                     ensureActive()
                     check(connecting === attempt && (attempt.tmuxTarget!=null || addresses.isNotEmpty())) { "连接请求已取消或没有可用地址" }
                     val candidates = addresses.map { ResolvedSSHAddress(it.address, (it as? Inet6Address)?.scopeId ?: 0) }
@@ -396,7 +412,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                         val knownHosts = File(getApplication<Application>().filesDir, "home/.ssh/known_hosts")
                         check(knownHosts.parentFile!!.isDirectory || knownHosts.parentFile!!.mkdirs()) { "无法准备主机信任目录" }
                         val request = attempt.tmuxTarget?.connection(remaining.coerceAtMost(60_000).toInt()) ?: ResolvedSSHConnection(attempt.target.host, attempt.target.port, attempt.username,
-                            knownHosts.absolutePath, candidates, remaining.coerceAtMost(60_000).toInt())
+                            knownHosts.absolutePath, candidates, remaining.coerceAtMost(60_000).toInt(), attempt.target.jumps)
                         owned = if(attempt.tmuxReady!=null) RemoteTmuxSession(request)
                             else if(attempt.forFiles) RemoteFileSession(request)
                             else attempt.tmuxTarget?.let { RemoteSession(request,it) } ?: RemoteSession(request)
@@ -409,6 +425,14 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                         ensureActive()
                         val connection = checkNotNull(owned)
                         val auth = connection.authentication()
+                        if (attempt.auth?.hop != null && attempt.auth?.hop != auth.hop) {
+                            attempt.credentialJob?.join()
+                            rememberSuccessfulIdentity(attempt)?.let { identityMemoryWarning = it }
+                            attempt.triedIdentityIds.clear(); attempt.automaticKeyRequests.clear()
+                            attempt.submittedIdentityId = null; attempt.manuallySubmittedIdentity = false
+                            attempt.rememberedIdentityId = null; attempt.manualCredentials = false
+                            attempt.credentialError = null; attempt.credentialBusy = false; listed = false
+                        }
                         publishAuthentication(attempt,auth,listed)
                         if(attempt.forFiles && auth.phase in listOf(SSHAuthPhase.READY,SSHAuthPhase.TAKEN))
                             attempt.message = "正在打开远端文件…"
@@ -478,7 +502,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
     private suspend fun loadIdentities(attempt: SSHAttempt) {
         val (identities, remembered) = withContext(Dispatchers.IO) {
             val identities = vault.list()
-            identities to rememberedIdentities.find(attempt.target, attempt.username, identities)
+            identities to rememberedIdentities.find(attempt.authenticationTarget, attempt.authenticationUsername, identities)
         }
         attempt.identities = identities
         attempt.rememberedIdentityId = remembered?.id
@@ -489,7 +513,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         return try {
             withContext(Dispatchers.IO) {
                 ensureActive()
-                rememberedIdentities.record(attempt.target, attempt.username, id, attempt.rememberIdentity)
+                rememberedIdentities.record(attempt.authenticationTarget, attempt.authenticationUsername, id, attempt.rememberIdentity)
             }
             null
         } catch (cancel: CancellationException) { throw cancel }

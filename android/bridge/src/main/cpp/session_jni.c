@@ -377,7 +377,7 @@ static void *owner(void *context) {
             pthread_mutex_unlock(&s->mutex);
             gt_transport_close(s->transport);
             s->transport = NULL;
-            gt_ssh_close(s->ssh);
+            gaj_ssh_close(s->remote, s->ssh);
             s->ssh = NULL;
             s->revision++;
             (void)publish(s);
@@ -435,7 +435,7 @@ finished:
     /* Never join or free on the UI thread. Registry close only cancels. */
     gt_transport_close(s->transport);
     s->transport = NULL;
-    gt_ssh_close(s->ssh);
+    gaj_ssh_close(s->remote, s->ssh);
     s->ssh = NULL;
     gat_surface_free(s->surface);
     s->surface = NULL;
@@ -546,7 +546,8 @@ Java_com_hanxi_ghosterm_bridge_NativeSession_createRemote(JNIEnv *env,
                                                           jbyteArray known_hosts,
                                                           jobjectArray addresses,
                                                           jintArray scopes,
-                                                          jint timeout) {
+                                                          jint timeout,
+                                                          jobjectArray route) {
     (void)self;
     if (!gat_android_png_init(env)) {
         if (!(*env)->ExceptionCheck(env)) {
@@ -554,7 +555,8 @@ Java_com_hanxi_ghosterm_bridge_NativeSession_createRemote(JNIEnv *env,
         }
         return 0;
     }
-    gaj_ssh *remote = gaj_ssh_new(env, host, port, user, known_hosts, addresses, scopes, timeout);
+    gaj_ssh *remote =
+        gaj_ssh_new(env, host, port, user, known_hosts, addresses, scopes, timeout, route);
     if (!remote) {
         return 0;
     }
@@ -580,7 +582,8 @@ Java_com_hanxi_ghosterm_bridge_NativeSession_createRemoteTmux(JNIEnv *env,
                                                               jint timeout,
                                                               jlong manager,
                                                               jlong snapshot,
-                                                              jint index) {
+                                                              jint index,
+                                                              jobjectArray route) {
     (void)self;
     if (!gat_android_png_init(env)) {
         if (!(*env)->ExceptionCheck(env)) {
@@ -592,7 +595,7 @@ Java_com_hanxi_ghosterm_bridge_NativeSession_createRemoteTmux(JNIEnv *env,
     if (!target) {
         return 0;
     }
-    gaj_ssh *remote = gaj_ssh_new(env, host, port, user, known, addresses, scopes, timeout);
+    gaj_ssh *remote = gaj_ssh_new(env, host, port, user, known, addresses, scopes, timeout, route);
     if (!remote) {
         gaj_tmux_target_free(target);
         return 0;

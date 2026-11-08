@@ -1,5 +1,4 @@
 {
-  "gt_config_effective": "当前主机页通过 resolve/inspect/check_connection 获取类型化结果，尚无通用逐键求值消费者",
   "gt_config_parse_file": "当前配置事务读取快照后调用 parse；不直接让 Core 读取主配置文件",
   "gt_config_supported_keys": "当前原文编辑器保留未知指令，不依赖支持键枚举；后续字段目录需要时绑定",
   "gt_core_poll_events": "A6: 单消费者事件泵与任务控制接入时绑定",
@@ -36,12 +35,5 @@
   "gt_transport_child_cwd": "A2/A3: 原生终端 owner 接入时绑定",
   "gt_transport_kind": "A2/A3: 原生终端 owner 接入时绑定",
   "gt_transport_open_ssh_command": "A2/A3: 原生终端 owner 接入时绑定",
-  "gt_transport_open_ssh_shell": "A3: 普通远端终端已改用带剩余预算与取消的 controlled 入口",
-  "gt_ssh_route_open": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
-  "gt_ssh_route_step": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
-  "gt_ssh_route_info": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
-  "gt_ssh_route_decide": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
-  "gt_ssh_route_supply": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
-  "gt_ssh_route_borrow": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending.",
-  "gt_ssh_route_dispose": "Managed ProxyJump owner: public Core/Apple binding slice; Android route UI and JNI consumer pending."
+  "gt_transport_open_ssh_shell": "A3: 普通远端终端已改用带剩余预算与取消的 controlled 入口"
 }

@@ -423,7 +423,7 @@ finished:
         (void)gt_ssh_abort(ssh);
     }
     gt_sftp_close(files);
-    gt_ssh_close(ssh);
+    gaj_ssh_close(s->auth, ssh);
     pthread_mutex_lock(&s->mutex);
     s->phase = stopped(s) ? 3 : 2;
     s->error = stopped(s) ? GT_ERR_CANCELLED : status;
@@ -446,9 +446,10 @@ JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeFiles_create(JNIEnv
                                                                           jobjectArray addresses,
                                                                           jintArray scopes,
                                                                           jint timeout,
-                                                                          jint completion_fd) {
+                                                                          jint completion_fd,
+                                                                          jobjectArray route) {
     (void)self;
-    gaj_ssh *auth = gaj_ssh_new(env, host, port, user, known, addresses, scopes, timeout);
+    gaj_ssh *auth = gaj_ssh_new(env, host, port, user, known, addresses, scopes, timeout, route);
     if (!auth) {
         return 0;
     }

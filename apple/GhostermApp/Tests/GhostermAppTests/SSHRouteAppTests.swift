@@ -123,6 +123,40 @@ final class SSHRouteAppTests: XCTestCase {
                 if mode == "open-cancel" && path == "/fixture/identity-1" { _ = releaseKey.wait(timeout: .now() + 10) }
                 return path.hasPrefix("/fixture/identity-") ? pem : nil },
             secret: { _, _ in nil }, save: { _, _, _ in XCTFail("Unexpected credential save") }, remove: { _, _ in })
+        if mode == "tmux" {
+            let socket = (known as NSString).deletingLastPathComponent + "/tmux-route"
+            let chooser = TmuxChooser(model: model, target: .host("destination"),
+                options: .init(socketPath: socket), unified: true)
+            model.tmuxChooser = chooser
+            defer { model.dismissTmux() }
+            chooser.refresh()
+            guard wait({ !chooser.busy }), chooser.canOperate else { return XCTFail("Jump tmux discovery/list failed: \(chooser.message)") }
+            XCTAssertFalse(chooser.candidates.isEmpty)
+            XCTAssertTrue(chooser.sessions.isEmpty)
+            chooser.change(.create, name: "route-test")
+            guard wait({ !chooser.busy }), let created = chooser.sessions.first else { return XCTFail("Jump tmux create failed: \(chooser.message)") }
+            chooser.selectedID = created.id
+            chooser.change(.rename, name: "route-renamed")
+            guard wait({ !chooser.busy }), let renamed = chooser.sessions.first else { return XCTFail("Jump tmux rename failed: \(chooser.message)") }
+            XCTAssertEqual(renamed.name, "route-renamed")
+            chooser.selectedID = renamed.id
+            chooser.connectSelected()
+            guard wait({ model.tabs.activeTab?.activePane?.isRunning == true }) else { return XCTFail("Jump tmux attach failed: \(chooser.message)") }
+            let pane = try XCTUnwrap(model.tabs.activeTab?.activePane)
+            let surface = try XCTUnwrap(pane.surface)
+            surface.setSize(width: 640, height: 400)
+            surface.sendCommandLine("printf 'TMUX_%s\\n' ROUTE")
+            XCTAssertTrue(wait({ surface.readText()?.contains("TMUX_ROUTE") == true }), "Attached tmux bytes did not reach final hop")
+            XCTAssertEqual(keys.values.count, ports.count * 2)
+            model.disconnectForTesting()
+            let cleanup = TmuxChooser(model: model, target: .host("destination"), options: .init(socketPath: socket))
+            model.tmuxChooser = cleanup; cleanup.refresh()
+            guard wait({ !cleanup.busy }), let selected = cleanup.sessions.first else { return XCTFail("Jump tmux relist failed: \(cleanup.message)") }
+            cleanup.selectedID = selected.id; cleanup.change(.terminate)
+            guard wait({ !cleanup.busy }) else { return XCTFail("Jump tmux terminate timed out") }
+            XCTAssertTrue(cleanup.canOperate && cleanup.sessions.isEmpty, cleanup.message)
+            print("SSH JUMP IO PASS"); return
+        }
         if mode == "read-wait-error" {
             let targets = try model.configuredSSHRoute(for: ["destination"])
             let owner = DispatchQueue(label: "route.replay")
@@ -202,12 +236,12 @@ final class SSHRouteAppTests: XCTestCase {
             }
         } else {
             if mode == "pty" {
-                // main's unified chooser probes tmux first. Unsupported management
-                // must remain explicit while its ordinary terminal action works.
+                // The unified chooser authenticates its own route for discovery.
                 model.openHost(.host("destination"), forceChooser: true)
                 guard let chooser = model.tmuxChooser else { return XCTFail("Missing connection chooser") }
                 guard wait({ !chooser.busy }) else { return XCTFail("Chooser probe did not finish") }
-                XCTAssertTrue(chooser.message.contains("tmux 管理暂不支持 ProxyJump"), chooser.message)
+                XCTAssertFalse(chooser.message.contains("ProxyJump"), chooser.message)
+                XCTAssertEqual(keys.values.count, ports.count)
                 XCTAssertTrue(interaction.hosts.isEmpty)
                 chooser.openTerminal()
                 XCTAssertNil(model.tmuxChooser)

@@ -12,7 +12,9 @@ gaj_ssh *gaj_ssh_new(JNIEnv *,
                      jbyteArray known_hosts,
                      jobjectArray addresses,
                      jintArray scopes,
-                     jint timeout);
+                     jint timeout,
+                     jobjectArray route);
+void gaj_ssh_close(gaj_ssh *, gt_ssh_t *);
 void gaj_ssh_free(gaj_ssh *);
 gt_ssh_t *gaj_ssh_connect(gaj_ssh *, atomic_bool *stop);
 gt_transport_t *

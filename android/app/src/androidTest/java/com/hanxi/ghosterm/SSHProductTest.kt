@@ -211,10 +211,10 @@ class SSHProductTest {
         assertTrue(sessions().sessions.filter { it.remoteAlias != null }.all { it.state.connected })
     }
     @Test fun unsupportedConfigNeverStartsConnectionOrRequestsCredentials() {
-        load(extra = " ProxyJump unsupported\n")
+        load(extra = " ProxyCommand false\n")
         ui.openOrdinaryHost(alias)
         ui.waitUntil(10000) { !hosts().busy }
-        assertTrue(hosts().error!!.contains("proxyjump"))
+        assertTrue(hosts().error!!.contains("proxycommand"))
         assertNull(sessions().connecting); assertTrue(sessions().sessions.isEmpty()); assertFalse(known.exists())
         ui.onNodeWithText("认证并连接").assertDoesNotExist()
     }

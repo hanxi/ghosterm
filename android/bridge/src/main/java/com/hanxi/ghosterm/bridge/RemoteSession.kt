@@ -10,25 +10,27 @@ class ResolvedSSHAddress(address: ByteArray, val scope: Int = 0) {
  * timeoutMillis is the REMAINING total authentication budget after DNS.
  */
 class ResolvedSSHConnection(val host: String, val port: Int, val user: String,
-    val knownHosts: String, addresses: List<ResolvedSSHAddress>, val timeoutMillis: Int = 60_000) {
+    val knownHosts: String, addresses: List<ResolvedSSHAddress>, val timeoutMillis: Int = 60_000, jumps: List<PreparedSSH> = emptyList()) {
+    val jumps = jumps.map { it.copy(identityFiles = it.identityFiles.toList(), jumps = emptyList()) }
+    private fun route(): Array<ByteArray> = this.jumps.flatMap { listOf(it.host, it.user, it.port.toString()) }.map { it.toByteArray(Charsets.UTF_8) }.toTypedArray()
     private val candidates = addresses.toList()
     constructor(host: String, port: Int, user: String, knownHosts: String,
         address: ByteArray, scope: Int = 0, timeoutMillis: Int = 60_000) :
         this(host, port, user, knownHosts, listOf(ResolvedSSHAddress(address, scope)), timeoutMillis)
     internal fun openFiles(completionFd: Int): Long = NativeFiles.create(host.toByteArray(Charsets.UTF_8), port,
         user.toByteArray(Charsets.UTF_8), knownHosts.toByteArray(Charsets.UTF_8),
-        candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis, completionFd)
+        candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis, completionFd, route())
     internal fun open(): Long = NativeSession.createRemote(host.toByteArray(Charsets.UTF_8), port,
         user.toByteArray(Charsets.UTF_8), knownHosts.toByteArray(Charsets.UTF_8),
-        candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis)
+        candidates.map { it.bytes() }.toTypedArray(), candidates.map { it.scope }.toIntArray(), timeoutMillis, route())
     internal fun openTmux(fence: Int,budget: Int,socket: ByteArray): Long =
         NativeTmux.create(host.toByteArray(Charsets.UTF_8),port,user.toByteArray(Charsets.UTF_8),
             knownHosts.toByteArray(Charsets.UTF_8),candidates.map { it.bytes() }.toTypedArray(),
-            candidates.map { it.scope }.toIntArray(),timeoutMillis,fence,budget,socket)
+            candidates.map { it.scope }.toIntArray(),timeoutMillis,fence,budget,socket,route())
     internal fun openTmuxTarget(manager: Long,snapshot: Long,index: Int): Long =
         NativeSession.createRemoteTmux(host.toByteArray(Charsets.UTF_8),port,user.toByteArray(Charsets.UTF_8),
             knownHosts.toByteArray(Charsets.UTF_8),candidates.map { it.bytes() }.toTypedArray(),
-            candidates.map { it.scope }.toIntArray(),timeoutMillis,manager,snapshot,index)
+            candidates.map { it.scope }.toIntArray(),timeoutMillis,manager,snapshot,index,route())
 }
 
 /** Shared authentication control only; terminal bytes never cross this interface. */
@@ -52,7 +54,7 @@ enum class SSHAuthPhase { TCP, NEGOTIATING, HOSTKEY, AUTHENTICATING, READY, TAKE
 enum class SSHHostState { UNCHECKED, KNOWN, UNKNOWN, MISMATCH, REVOKED }
 class SSHAuthState internal constructor(internal val owner: Long, val request: Long, val phase: SSHAuthPhase,
     val error: Int, val host: SSHHostState, val deadline: Boolean, val methods: Int,
-    val keyType: String, val fingerprint: String, internal val scope: Any? = null) {
+    val keyType: String, val fingerprint: String, internal val scope: Any? = null, val hop: Int = 0) {
     val description: String get() = when (phase) {
         SSHAuthPhase.TCP -> "正在连接 SSH…"
         SSHAuthPhase.NEGOTIATING -> "正在协商 SSH…"
@@ -74,10 +76,10 @@ class SSHAuthState internal constructor(internal val owner: Long, val request: L
     }
     internal companion object {
         fun decode(owner: Long, fields: Array<ByteArray>, scope: Any? = null): SSHAuthState {
-            check(fields.size == 8) { "SSH 状态格式无效" }
+            check(fields.size == 9) { "SSH 状态格式无效" }
             val f = fields.map { it.toString(Charsets.UTF_8) }
             return SSHAuthState(owner, f[0].toLong(), SSHAuthPhase.entries[f[1].toInt()], f[2].toInt(),
-                SSHHostState.entries[f[3].toInt()], f[4] == "1", f[5].toInt(), f[6], f[7], scope)
+                SSHHostState.entries[f[3].toInt()], f[4] == "1", f[5].toInt(), f[6], f[7], scope, f[8].toInt().also { check(it in 0..7) })
         }
     }
 }

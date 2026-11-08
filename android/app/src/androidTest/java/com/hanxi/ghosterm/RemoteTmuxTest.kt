@@ -254,9 +254,9 @@ class RemoteTmuxTest {
         val scope=actual.javaClass.getDeclaredField("scope").apply { isAccessible=true }.get(foreign)
         // Independent native registries can have equal numeric handles. Keep
         // the destination's actual request but lend another owner's scope.
-        val constructor=SSHAuthState::class.java.declaredConstructors.single { it.parameterCount==10 }
+        val constructor=SSHAuthState::class.java.declaredConstructors.single { it.parameterCount==11 }
         val collision=constructor.newInstance(id,actual.request,actual.phase,actual.error,actual.host,
-            actual.deadline,actual.methods,actual.keyType,actual.fingerprint,scope) as SSHAuthState
+            actual.deadline,actual.methods,actual.keyType,actual.fingerprint,scope,actual.hop) as SSHAuthState
         val secret=tmux.getString("pem").toByteArray()
         try { second.privateKey(collision,secret);fail("equal numeric handle must not bypass authentication scope") }
         catch(expected: IllegalStateException) { assertTrue(expected.message!!.contains("不属于")) }

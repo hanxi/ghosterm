@@ -1896,9 +1896,6 @@ int gt__command_ssh(gt_ssh_t *ssh,
                     const gt_command_budget_t *b,
                     gt_command_result_t *r) {
     memset(r, 0, sizeof *r);
-    if (ssh && ssh->wire) {
-        return GT_ERR_UNSUPPORTED;
-    }
     if (gt__command_expired(b)) {
         return GT_ERR_CANCELLED;
     }

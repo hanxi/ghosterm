@@ -89,7 +89,9 @@ class SSHConnectionModelTest {
             include.writeText("Host target\n HostName second.test\n User other\n Port 2203\n")
             val second = ConfigBridge.prepareConnection(bytes,"target")
             assertEquals("second.test",second.host); assertEquals("other",second.user); assertEquals(2203,second.port)
-            include.appendText(" ProxyJump blocked\n")
+            include.appendText(" ProxyJump gateway\n")
+            assertEquals(listOf("gateway"), ConfigBridge.prepareConnection(bytes,"target").jumps.map { it.alias })
+            include.appendText(" ProxyCommand false\n")
             assertThrows(IllegalStateException::class.java) { ConfigBridge.prepareConnection(bytes,"target") }
             assertArrayEquals(before,bytes)
         } finally { directory.deleteRecursively() }

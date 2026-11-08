@@ -118,12 +118,12 @@ class HostScreenTest {
             File(directory, "home/.ssh/config").readText())
     }
     @Test fun hostClickReportsUnsupportedConfigurationAndLeavesEditorAvailable() {
-        val text = "Host gateway-target\n HostName 127.0.0.1\n ProxyJump gateway\n"
+        val text = "Host gateway-target\n HostName 127.0.0.1\n ProxyCommand false\n"
         load(text)
         ui.onNodeWithText("gateway-target").performClick()
         ui.waitUntil(10_000) { !model.busy }
-        assertEquals("不支持 SSH 配置：proxyjump（当前配置:3）", model.error)
-        ui.onNodeWithText("不支持 SSH 配置：proxyjump（当前配置:3）").assertIsDisplayed()
+        assertEquals("不支持 SSH 配置：proxycommand（当前配置:3）", model.error)
+        ui.onNodeWithText("不支持 SSH 配置：proxycommand（当前配置:3）").assertIsDisplayed()
         assertEquals(text, File(directory, "home/.ssh/config").readText())
         ui.onAllNodesWithContentDescription("主机操作").onFirst().performScrollTo().performClick();ui.onNodeWithText("编辑主机").performClick()
         ui.onNodeWithText("主机地址").assertTextContains("127.0.0.1")

@@ -4749,3 +4749,62 @@ Debug/测试 APK、未签名 Release/R8 与 app/bridge/data/terminal 四模块 r
 补裁切后的最终 API 36 / 4 KiB 页、1080×2400 / 420dpi 字体组合 **9 项通过**（65.867 秒，`fonts-final.log`）；新第十一组变异在最终源上再次通过，正常单条断言红、同 APK Core 配置绿、复原绿和 SHA256，原件 `tmp/android-font-mutations/1794040021422097000/`。原有十组变异未在本片重跑。
 
 最终生产源 Debug/测试 APK、未签名 Release/R8 与 app/bridge/data/terminal 四模块 release lint 通过（`release-lint-restored.log`）；设备已关闭，保留日志，不安装到用户设备。
+
+### 9.214 ProxyJump 普通终端/SFTP 与 tmux（2026-11-08）
+
+普通终端、文件浏览/任务认证、tmux 管理和 attach 接入共享受管 SSH 路线。
+配置路线在同一 AST 内求值，保留每跳别名、HostName、User、Port 和 IdentityFile；
+支持首跳继承、逗号列表、显式 user/port、URI、括号 IPv6 和 none，拒绝循环、重复
+目标、超八跳及非法语法。其它未实现指令仍拒绝，原单跳 Core 准入没有放宽。
+缺少跳板用户名在 DNS 前询问，不修改原 PreparedSSH 或配置文件。
+
+只有首跳使用 Android DNS 与候选地址，后续跳板通过 direct-tcpip 连接；所有阶段共用
+剩余认证预算。JNI 提示快照携带当前跳号，request 仍在整条路线内单调递增。
+产品提示展示当前跳板身份，切换跳板清除凭据尝试/已选身份；每跳分别核验 known_hosts。
+终端字节仍走 native Transport → Surface，SFTP/tmux 保持独立 owner；释放先关子通道，
+再持续推进整条路线的 disposal。tmux attach 保留管理连接选定的首跳地址及路线，
+重新认证并复核目标，不重新解析或退回直连。
+
+macOS 同步移除 tmux 的入口拒绝，共享受控命令执行支持 nested wire，仍沿用总预算、
+取消、完成标记与 UNKNOWN 结果；管理连接和 attach 连接分别认证，不共用终端链路。
+
+测试脚本：`scripts/test-android-proxyjump.py` 使用明确指定的专用模拟器，仅将首跳
+和内存夹具端口 adb reverse 到本次创建的两/三跳 loopback sshd。私钥仅在内存提供，
+设备只写公开 known_hosts；tmux 使用本轮独立 socket，退出时回收自有服务器。
+`ProxyJumpTest` 覆盖配置、缺用户名、产品 DNS/逐跳提示、内层拒绝/取消、终端网格、
+SFTP 浏览与 tmux 探测/创建/改名/attach/终止。它是专项，不是全客户端回归。
+
+验收分轮记账：
+
+- 专用 API 29 / API 36 arm64、4 KiB 页模拟器分别完成两/三跳各五项，共每设备十项；
+  每种跳数另跑同 APK Core 配置对照。最终输入与安装 APK 摘要见
+  `tmp/aj-lolnx8xu/logs/receipt.json`（29）和 `tmp/aj-_s4p1phh/logs/receipt.json`（36）。
+- `mutation-check-android-proxyjump.py` 九个不同保护组分轮通过（首七组、attach 一组、
+  缺用户名一组）：编译成功后单条正常断言红、同 APK 配置对照绿、恢复绿与源码 SHA256。
+  原件分别在 `tmp/ajm-captvne_/`、`tmp/ajm-j_3wzswh/`、`tmp/ajm-qau5mh11/`。
+- 原 SSH 配置求值/来源、模型、主机页拒绝、普通 SSH 拒绝与单跳 tmux 组合 49 项通过；
+  配置准入、总预算、用户名三组旧变异迁移后分轮复验通过。原件在
+  `tmp/proxyjump-all/regression49/` 与 `tmp/proxyjump-all/android-old-username.log`。
+  受影响的文件页面配置拒绝/重新连接另两项通过，见 `tmp/proxyjump-all/android-files-regression.log`。
+- macOS 两/三跳普通终端、独立/内嵌 SFTP 与新增 tmux 操作共二十个真实场景通过，
+  另含配置/认证离线回归；入口拒绝与 Core 命令拒绝两组变异正常断言红、独立配置绿、
+  恢复绿与 SHA256。记录分别在 `tmp/ra-pvyi6x_p/logs/`、`tmp/ram-h4sw_j4e/logs/`、
+  `tmp/ram-wx5dmhuw/logs/`。变异在工程隔离副本执行。
+- macOS Release 原生构建、Android Debug/测试 APK、未签名 Release/R8 与 app/bridge/data/
+  terminal 四模块 release lint 通过。C 格式 212 文件、Apple ABI 173/3、JNI 139/37 通过。
+  隔离 HEAD 加本次 Core 修改的 `gate.sh` 为 474 CTest / 176 ABI 全绿，见
+  `tmp/proxyjump-all/gate-isolated-final.log`；原工作区 473/474 的插件 SDK 输入摘要失败
+  单列，不覆盖原有未提交插件文件，不称整个脏工作区全绿。
+
+前置失败保留：首次 Android 构建缺显式 Zig 路径；新增测试误用了不存在的终端输入方法；
+旧 tmux 测试反射构造未跟随跳号字段而使初轮 49 项中一项失败，修正后重跑 49 项全绿。
+attach 变异首轮只触发防御异常，增加路线快照断言后才记正常目标红。用户名旧变异因
+匹配多处而未执行，收窄锚点后通过；Core 变异的首轮锚点不唯一及收据路径错误未计绿。
+隔离 Core 初轮目录过长导致 agent Unix socket 启动失败，同时缺锁定 SSH 夹具工具链
+链接；改用短目录并补链接后完整重跑通过。初轮 macOS 入口变异出现两条断言失败，
+改用真实 tmux 生命周期的单条前置断言后通过。以上均不冒充正常变异红。
+
+这是手工隔离服务/模拟器专项，未发布，不增加 macOS CI 二十份脚本；未验真机、
+厂商网络/输入法、封闭内网/WAN、全部服务器和文件故障矩阵，不记完整客户端完成。
+文件任务从持久端点重开时仍重新读取配置；跳板 User 须写在 ssh_config 中，不继承
+先前浏览器连接中临时输入的跳板用户名。

@@ -151,7 +151,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 
 | 面 | 已实现与证据 | 未完成或证据边界 |
 |---|---|---|
-| SSH 与认证 | `AppModel` / `SSHAuthenticationFlow` 共用可取消认证；真实 sshd→shell→网格→resize；hostkey 未知/拒绝/变化/撤销分开。撤销及不支持规则经 SFTP 产品入口验证，不弹信任/凭据框 | 未支持配置已在解析地址前阻断，macOS 普通终端/SFTP 已接 ProxyJump；tmux 管理与转发等其它高级选项仍不支持；私钥材料生产路径仍从受限文件读取，见路线图 P0。哈希主机名与主机证书未实现；本片验了 SSH/SFTP/tmux 配置拒绝入口，未新增终端网格或 tmux 成功会话证据 |
+| SSH 与认证 | `AppModel` / `SSHAuthenticationFlow` 共用可取消认证；真实 sshd→shell→网格→resize；hostkey 未知/拒绝/变化/撤销分开。撤销及不支持规则经 SFTP 产品入口验证，不弹信任/凭据框 | 未支持配置已在解析地址前阻断，macOS 普通终端/SFTP/tmux 与 Android 普通连接已接 ProxyJump；转发等其它高级选项仍不支持；私钥材料生产路径仍从受限文件读取，见路线图 P0。哈希主机名与主机证书未实现；本片验了 SSH/SFTP/tmux 配置拒绝入口，未新增终端网格或 tmux 成功会话证据 |
 | 本地 shell | 普通 PTY、登录语义、cwd、控制终端、背压、关闭与描述符隔离；`4924a2d` 清空子进程继承的信号屏蔽，补齐 ssh/tmux 的尺寸通知 | 普通会话不承诺跨 App 退出保活；信号/真实窗口证据见上方 POSIX PTY 行，不扩大为全部平台 |
 | 提示符鼠标残留清理 🟡 | 普通本地 zsh 自动加载随包钩子；Bash/远端有带备份的独立安装器。macOS 26.6.2 / tmux 3.6a 的三层隔离 SSH 断线回到本地提示符、真实 AppKit 按下/松开、原 PID/键盘与正常 TUI 字节对照通过；五项启动组合及四组自动接线变异另有记录 | `.direct` / 自定义启动参数（仅 `-i` 除外）/ 其它 shell 不走自动接线；远端需远端安装，前台程序未退出时不触发。实际硬件休眠/用户远端未验，Codex 输入框未复现，不称其缺陷已修复；见[操作与证据](../how-to/mouse-report-recovery.md) |
 | 标签导航 | `TabWindowController` 单窗口；顶部/侧边切换、UUID 重排与关闭、唯一加号、搜索/菜单、Ctrl+Tab / Ctrl+Shift+Tab 循环切换；无精简侧栏、无主机分组 | 跨重启标签持久化未做（偏好已持久化）；本机证据不能代替 macOS 15 CI |
@@ -203,10 +203,18 @@ macOS 缺口的修复顺序与失败场景见[路线图](roadmap.md#macos-修复
 
 **发行边界**：源码 SwiftPM 声明 macOS 13，但目前发行包为 arm64，每轮嵌入依赖的 minos 决定实际系统下限；2026-11-04 读取的线上清单为 macOS 15.0（Mac `3345893`），Homebrew cask 的下限单独核对；不能据源码声明推断包可在 13 上安装。自包含/ad-hoc 已有包证据，Developer ID/公证仍待实际证书与包验收，见[构建与安装](../how-to/dev-build.md)。
 
-macOS ProxyJump 独立整合（2026-11-07）：🟡 普通终端、独立/内嵌 SFTP 按
+macOS ProxyJump 独立整合历史范围（2026-11-07；后续扩展见下）：🟡 普通终端、独立/内嵌 SFTP 按
 ssh_config 展开最多八跳；逐跳信任/凭据、只解析首跳、取消/旧回复及目标快照保护。
 隔离服务两/三跳十八项真实场景含上传、下载、改名、权限和删除，七项配置路线、
 十一项离线/凭据与六项统一连接面板回归分轮通过；统一面板拒绝 tmux 管理后仍可
 选择普通终端。Core 474 CTest / 176 ABI、macOS App 原生构建与 Android Debug
 构建通过；Android 普通连接尚未接 ProxyJump。真实内网、全部服务器、大文件及
 完整客户端矩阵未验。具体变异及整合收据见插件计划的独立整合节；未发布。
+
+ProxyJump 两端入口扩展（2026-11-08）：🟡 macOS 与 Android 的普通终端、SFTP、
+tmux 管理及 attach 共用逐跳信任/认证。Android 从同一配置 AST 展开含目标最多八跳，
+仅解析首跳，后续地址由跳板解析；缺少跳板用户名先交互询问，逐跳身份缓存隔离，
+关闭子通道后释放整条路线。ProxyCommand 与其它未实现项仍明确拒绝。
+已验范围、分轮变异、首轮失败与构建收据见
+[Android §9.214](android-implementation.md#9214-proxyjump-普通终端sftp-与-tmux2026-11-08)。
+仅工程隔离 SSH 服务和专用模拟器证据，未发布，不代表真机、WAN 或完整服务器矩阵。

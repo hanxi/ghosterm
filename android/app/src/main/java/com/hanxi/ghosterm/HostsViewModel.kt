@@ -180,7 +180,7 @@ class HostsViewModel(application: Application) : AndroidViewModel(application) {
     fun checkConnection(host: Host, connect: (com.hanxi.ghosterm.bridge.PreparedSSH) -> Unit) {
         val base = snapshot ?: return
         work {
-            val issues = withContext(Dispatchers.IO) { repository.connectionIssues(base, host.alias) }
+            val issues = withContext(Dispatchers.IO) { repository.connectionIssues(base, host.alias).filter { it.keyword != "proxyjump" } }
             if (issues.isNotEmpty()) error = "不支持 SSH 配置：" + issues.joinToString("、") { it.description }
             else connect(withContext(Dispatchers.IO) { repository.prepareConnection(base, host.alias) })
         }

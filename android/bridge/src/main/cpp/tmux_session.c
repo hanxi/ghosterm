@@ -345,7 +345,7 @@ finished:
     }
     gt_tmux_close(s->tmux);
     s->tmux = NULL;
-    gt_ssh_close(ssh);
+    gaj_ssh_close(s->auth, ssh);
     pthread_mutex_lock(&s->mutex);
     s->phase = atomic_load(&s->stop) ? 3 : 2;
     s->error = atomic_load(&s->stop) ? GT_ERR_CANCELLED : status;
@@ -367,13 +367,14 @@ JNIEXPORT jlong JNICALL Java_com_hanxi_ghosterm_bridge_NativeTmux_create(JNIEnv 
                                                                          jint timeout,
                                                                          jint fence,
                                                                          jint budget,
-                                                                         jbyteArray socket) {
+                                                                         jbyteArray socket,
+                                                                         jobjectArray route) {
     (void)self;
     if (budget < 1 || budget > 60000) {
         fail(env, "后台操作超时无效");
         return 0;
     }
-    gaj_ssh *auth = gaj_ssh_new(env, host, port, user, known, addresses, scopes, timeout);
+    gaj_ssh *auth = gaj_ssh_new(env, host, port, user, known, addresses, scopes, timeout, route);
     if (!auth) {
         return 0;
     }

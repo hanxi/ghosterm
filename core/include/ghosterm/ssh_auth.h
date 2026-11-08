@@ -109,7 +109,8 @@ gt_status_t gt_ssh_route_supply(gt_ssh_route_t *, gt_ssh_t **);
 /* READY once: borrowed handle, valid only until disposal starts. Close every
  * PTY/SFTP child BEFORE disposing the route. Never call gt_ssh_close on this
  * handle or transfer it to another owning API. Route retains the entire chain.
- * Only controlled PTY/SFTP operations are currently supported on inner hops. */
+ * Controlled PTY/SFTP and tmux operations support inner hops; unbounded
+ * exec/SFTP entry points remain unsupported. */
 gt_status_t gt_ssh_route_borrow(gt_ssh_route_t *, gt_ssh_t **);
 /* Cancel/close one nonblocking step. Retain and retry while released=false,
  * including on error; never drop the owner. On release frees and clears *route.

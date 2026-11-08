@@ -32,7 +32,7 @@ fun SSHConnectionDialog(model: SessionsViewModel, presenter: java.util.UUID? = n
     // Trust, credential, username and failure prompts still require a dialog.
     if (attempt.passiveProgress) return
     val prompt = attempt.auth
-    var username by remember(attempt.id) { mutableStateOf(attempt.username) }
+    var username by remember(attempt.id, attempt.missingUsernameTarget?.alias) { mutableStateOf(attempt.missingUsernameTarget?.user ?: attempt.username) }
     var secret by remember(attempt.id, prompt?.request) { mutableStateOf("") }
     var identityId by remember(attempt.id, prompt?.request) { mutableStateOf<String?>(null) }
     var otherIdentity by remember(attempt.id, prompt?.request) { mutableStateOf(false) }
@@ -45,7 +45,7 @@ fun SSHConnectionDialog(model: SessionsViewModel, presenter: java.util.UUID? = n
     var passwordMode by remember(attempt.id, prompt?.request) { mutableStateOf(prompt?.methods?.and(1) == 0) }
     DisposableEffect(attempt.id, prompt?.request) { onDispose { secret = "" } }
     val selected = attempt.identities.firstOrNull { it.id == identityId }
-    val needsUser = attempt.username.isBlank() && !attempt.failed
+    val needsUser = attempt.missingUsernameTarget != null && !attempt.failed
     val hostkey = prompt?.phase == SSHAuthPhase.HOSTKEY && !attempt.failed
     val credentials = prompt?.phase == SSHAuthPhase.CREDENTIALS && !attempt.failed
     val ready = prompt != null && prompt.request > 0 && !attempt.credentialBusy && !model.identityPickerPending
@@ -56,8 +56,8 @@ fun SSHConnectionDialog(model: SessionsViewModel, presenter: java.util.UUID? = n
             Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 attempt.taskLabel?.let { Text(it, modifier = Modifier.testTag("ssh-task-role")) }
-                Text("${attempt.target.alias} · ${attempt.target.host}:${attempt.target.port}")
-                if (attempt.username.isNotBlank()) Text("用户：${attempt.username}")
+                Text("${attempt.authenticationTarget.alias} · ${attempt.authenticationTarget.host}:${attempt.authenticationTarget.port}")
+                if (attempt.username.isNotBlank()) Text("用户：${attempt.authenticationUsername}")
                 when {
                     needsUser -> {
                         Text("配置没有指定用户名。本次填写不会修改 SSH 配置。")

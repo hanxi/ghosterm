@@ -30,11 +30,21 @@ object ConfigBridge {
             .chunked(4).map { ConnectionIssue(it[0], it[1], it[2].toInt(), it[3] == "1") }
 
     fun prepareConnection(configuration: ByteArray, alias: String): PreparedSSH {
-        val fields = preparedConnectionBytes(configuration, alias.toByteArray(Charsets.UTF_8)).map { it.toString(Charsets.UTF_8) }
-        check(fields.size >= 3)
-        return PreparedSSH(alias, fields[0], fields[1], fields[2].toInt(), fields.drop(3))
+        val fields = preparedRouteBytes(configuration, alias.toByteArray(Charsets.UTF_8)).map { it.toString(Charsets.UTF_8) }
+        val route = mutableListOf<PreparedSSH>()
+        var offset = 0
+        while (offset < fields.size) {
+            check(fields.size - offset >= 5 && route.size < 8)
+            val count = fields[offset + 4].toInt()
+            check(count in 0..256 && fields.size - offset >= 5 + count)
+            route += PreparedSSH(fields[offset], fields[offset + 1], fields[offset + 2], fields[offset + 3].toInt(),
+                fields.subList(offset + 5, offset + 5 + count).toList())
+            offset += 5 + count
+        }
+        check(route.isNotEmpty())
+        return route.last().copy(jumps = route.dropLast(1))
     }
-    private external fun preparedConnectionBytes(configuration: ByteArray, alias: ByteArray): Array<ByteArray>
+    private external fun preparedRouteBytes(configuration: ByteArray, alias: ByteArray): Array<ByteArray>
     fun identities(configuration: ByteArray, alias: String): List<ConfigIdentityInfo> =
         identityBytes(configuration, alias.toByteArray(Charsets.UTF_8)).map { it.toString(Charsets.UTF_8) }
             .also { check(it.size % 7 == 0) { "身份来源记录不完整" } }
@@ -51,6 +61,6 @@ data class ConnectionIssue(val keyword: String, val sourcePath: String, val sour
     val description: String get() = "$keyword（${sourcePath.ifEmpty { "当前配置" }}:$sourceLine）"
 }
 
-data class PreparedSSH(val alias: String, val host: String, val user: String, val port: Int, val identityFiles: List<String>)
+data class PreparedSSH(val alias: String, val host: String, val user: String, val port: Int, val identityFiles: List<String>, val jumps: List<PreparedSSH> = emptyList())
 data class ConfigIdentityInfo(val value: String, val sourcePath: String, val sourceHeader: String,
     val sourceLine: Int, val included: Boolean, val explicitValue: Boolean, val effective: Boolean)
