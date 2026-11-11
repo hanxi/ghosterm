@@ -36,7 +36,8 @@ function add(name, change = () => {}, code = 'COMPATIBLE', state = 'invalid', na
   let result;
   if (!native) {
     try {
-      result = inspect(JSON.parse(f.files['plugin.json']), JSON.parse(f.files['integrity.json']), observed, f.host);
+      const schemas = Object.create(null); for (const [name, data] of Object.entries(f.files)) if (name.startsWith('schemas/') && name.endsWith('.json')) schemas[name] = JSON.parse(data);
+      result = inspect(JSON.parse(f.files['plugin.json']), JSON.parse(f.files['integrity.json']), observed, f.host, schemas);
       if (!Array.isArray(f.registry) || f.registry.length > 64 || f.registry.some(m => !validateManifest(m))) throw new PackageCheckError('REGISTRY_UNKNOWN', 'unknown');
       result.associationRequired = commandConflicts([...f.registry, f.manifest]).some(c => c.first === f.manifest.id || c.second === f.manifest.id);
       assert.equal(code, 'COMPATIBLE', name + ': oracle unexpectedly compatible');
@@ -84,6 +85,9 @@ add('duplicate-permission', f => { f.manifest.permissions.push({ ...f.manifest.p
 add('undeclared-permission', f => { f.manifest.permissions.push({ side: 'executor', capability: 'network.fetch', purpose: 'fixture', scope: 'instance' }); }, 'UNDECLARED_PERMISSION');
 add('reserved-command', f => { f.manifest.commands[0].path = ['plugin']; }, 'RESERVED_COMMAND');
 add('command-prefix', f => { f.manifest.commands.push({ ...f.manifest.commands[0], path: ['fixture', 'child'] }); }, 'COMMAND_CONFLICT');
+add('argument-schema-cli', f => { f.files['schemas/input.json'] = JSON.stringify({ type: 'object', properties: { path: { type: 'string' }, count: { type: 'integer', minimum: 0 }, force: { type: 'boolean' } }, required: ['path', 'count', 'force'], additionalProperties: false, 'x-ghosterm-cli': { version: 1, fields: { path: { position: 0 }, count: { option: 'count', default: 2 }, force: { option: 'force', default: false } } } }); });
+add('argument-schema-gap', f => { f.files['schemas/input.json'] = JSON.stringify({ type: 'object', properties: { path: { type: 'string' }, other: { type: 'string' } }, required: ['path', 'other'], additionalProperties: false, 'x-ghosterm-cli': { version: 1, fields: { path: { position: 0 }, other: { position: 2 } } } }); }, 'ARGUMENT_SCHEMA');
+add('argument-schema-malformed-json', f => { f.files['schemas/input.json'] = '{"type":'; }, 'ARGUMENT_SCHEMA_JSON', 'invalid', true);
 add('missing-entry', f => { f.manifest.client.entry = 'client/missing.js'; }, 'MISSING_REFERENCED_MEMBER');
 add('entry-not-js', f => { f.manifest.client.entry = 'README'; }, 'SCRIPT_ENTRY');
 add('bad-range', f => { f.manifest.sdkApiRange = 'NOT A RANGE'; }, 'VERSION_RANGE');

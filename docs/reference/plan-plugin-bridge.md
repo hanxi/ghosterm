@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第四十六批 Portable SDK 类型化 argv 解码。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码。命令解析结果尚未自动绑定 manifest `argsSchema` 或驱动 App 激活；App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-12 第四十七批 原生包检查绑定 argv schema。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射。CLI 仍未直接按 `argsSchema` 解码或驱动 App 激活；App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3626,6 +3626,27 @@ TypeScript 包不在 npm cache 中而未运行，显式 `--fetch` 取得固定�
 本批只给插件作者可复用的类型化 argv 解码器；包 manifest 与 codec schema 的一致性检查、
 CLI 直接按 `argsSchema` 解码、App 命令选择/激活、授权 UI、生产本机 IPC 与远端部署仍未完成。
 手工验证不增加 macOS CI 二十份，不记 P0、SDK、gterm 或整体插件计划完成。
+
+### P0 第四十七批：原生包检查绑定 argv schema（2026-11-12）
+
+原生包检查器从已捕获的不可变包快照读取 `schemas/*.json`，单文件最多 64 KiB、合计最多
+256 KiB；先由 C JSON 预检器拒绝无效 UTF-8、重复键、超深/超量文档和语法错误，再将同一快照字节
+解析出的 schema 传入受信 metadata 校验器。每条 manifest command 的 `argsSchema` 必须有对应
+对象 schema。若有 `x-ghosterm-cli`，校验器检查 v1 版本、`properties` 与 `fields` 一一对应、
+`required` 精确覆盖字段、禁止额外属性、字段名/类型、位置参数从零连续且不超过 32、选项名唯一，
+以及选项默认值符合 schema 类型及整数/字符串边界。没有 CLI 扩展的旧 schema 仍可通过，只要求
+其包内内容存在且为有界有效 JSON。该检查仅证明包快照内部引用和映射一致，不授予激活权限，也未
+让 gterm 自动解析 argv。
+
+原生包探针增加有效 CLI 映射、位置序号缺口和畸形 schema JSON 三类真实目录夹具。
+`test-plugin-package.py` 的 96 个 metadata fixture 通过。`mutation-check-plugin-package-check.py`
+有效 CLI 映射先由 sanitizer 原生检查器直接接受；再对“位置参数缺口”和“跳过 schema JSON 预检”两组执行真实 ASan/UBSan 编译变异：目标断言红、
+`test_config` 独立配置对照绿、恢复后目标绿且源码 SHA256 一致；基线/恢复各 50 个原生包检查、
+JSON、validator 与 compiler CTest 均通过。运行收据曾写入工程 `tmp/pkgcheck-*/logs/`，验收完成后已清理。
+Core 离线 gate 474 CTest / 176 ABI 通过，C 格式检查 212 文件通过。第一次误用关闭 JS 后端的
+`core/build/test_package_check` 做定向夹具不是有效原生后端证据，未计通过；以变异脚本建立的
+QuickJS-NG + sanitizer 隔离构建为准。本批不改公共 C ABI，不增加 macOS CI 二十份；CLI 直接
+schema 解码、App 授权/激活、安装来源信任与业务插件仍未完成。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

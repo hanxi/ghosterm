@@ -49,9 +49,9 @@ function fixture(change = () => {}) {
   const integrity = { schemaVersion: 1, members: observed.map(({ path, bytes, sha256 }) => ({ path, bytes, sha256 })) };
   const raw = JSON.stringify(integrity);
   observed.push({ path: 'integrity.json', bytes: Buffer.byteLength(raw), sha256: createHash('sha256').update(raw).digest('hex'), kind: 'regular' });
-  return { manifest, host, observed, integrity };
+  return { manifest, host, observed, integrity, texts };
 }
-function execute(input, inspect = inspector()) { return inspect(input.manifest, input.integrity, input.observed, input.host); }
+function execute(input, inspect = inspector()) { const schemas = Object.create(null); for (const [name, text] of Object.entries(input.texts)) if (name.startsWith('schemas/') && name.endsWith('.json')) schemas[name] = JSON.parse(text); return inspect(input.manifest, input.integrity, input.observed, input.host, schemas); }
 function compatible(input, inspect) {
   const result = execute(input, inspect);
   assert.equal(result.kind, 'compatible');

@@ -75,7 +75,7 @@ export function createPackageInspector({ validateManifest, validateIntegrity, se
   function range(value) {
     if (!semver.validRange(value)) fail('VERSION_RANGE');
   }
-  function references(manifest, members) {
+  function references(manifest, members, schemas) {
     const requireMember = path => {
       canonicalMemberPath(path);
       if (!members.has(path) || excluded.has(path)) fail('MISSING_REFERENCED_MEMBER');
@@ -84,7 +84,45 @@ export function createPackageInspector({ validateManifest, validateIntegrity, se
       requireMember(path);
       if (!/\.(?:mjs|js)$/.test(path)) fail('SCRIPT_ENTRY');
     };
-    for (const command of manifest.commands) requireMember(command.argsSchema);
+    for (const command of manifest.commands) {
+      requireMember(command.argsSchema);
+      const schema = schemas[command.argsSchema];
+      if (!schema || typeof schema !== 'object' || Array.isArray(schema)) fail('ARGUMENT_SCHEMA_MISSING');
+      const cli = schema['x-ghosterm-cli'];
+      if (cli !== undefined) {
+        if (!cli || typeof cli !== 'object' || Array.isArray(cli) || cli.version !== 1 ||
+            !cli.fields || typeof cli.fields !== 'object' || Array.isArray(cli.fields) ||
+            !schema.properties || typeof schema.properties !== 'object' || Array.isArray(schema.properties) ||
+            !Array.isArray(schema.required)) fail('ARGUMENT_SCHEMA');
+        const fields = Object.keys(cli.fields), properties = Object.keys(schema.properties);
+        if (fields.length !== properties.length || fields.some(name => !Object.hasOwn(schema.properties, name)) ||
+            schema.required.length !== fields.length || schema.required.some(name => typeof name !== 'string' || !fields.includes(name)) ||
+            new Set(schema.required).size !== schema.required.length || schema.additionalProperties !== false) fail('ARGUMENT_SCHEMA');
+        const positions = [], options = new Set();
+        for (const name of fields) {
+          const field = cli.fields[name], property = schema.properties[name];
+          if (!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(name) || ['constructor', 'prototype'].includes(name)) fail('ARGUMENT_SCHEMA');
+          if (!field || typeof field !== 'object' || Array.isArray(field) || !property || typeof property !== 'object' || Array.isArray(property)) fail('ARGUMENT_SCHEMA');
+          if (Number.isSafeInteger(field.position) && Object.keys(field).length === 1) {
+            if (field.position < 0 || field.position >= 32 || positions[field.position]) fail('ARGUMENT_SCHEMA');
+            positions[field.position] = name;
+          } else if (typeof field.option === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(field.option) && Object.keys(field).length === 2 && Object.hasOwn(field, 'default')) {
+            if (options.has(field.option)) fail('ARGUMENT_SCHEMA');
+            options.add(field.option);
+          } else fail('ARGUMENT_SCHEMA');
+          if (!['string', 'integer', 'boolean'].includes(property.type) ||
+              (property.type === 'integer' && (property.minimum !== undefined && !Number.isSafeInteger(property.minimum) || property.maximum !== undefined && !Number.isSafeInteger(property.maximum))) ||
+              property.default !== undefined) fail('ARGUMENT_SCHEMA');
+          if (Object.hasOwn(field, 'default')) {
+            const value = field.default;
+            if (property.type === 'string' ? typeof value !== 'string' || (property.maxLength !== undefined && [...value].length > property.maxLength)
+              : property.type === 'boolean' ? typeof value !== 'boolean'
+                : !Number.isSafeInteger(value) || (property.minimum !== undefined && value < property.minimum) || (property.maximum !== undefined && value > property.maximum)) fail('ARGUMENT_SCHEMA');
+          }
+        }
+        for (let i = 0; i < positions.length; i++) if (!positions[i]) fail('ARGUMENT_SCHEMA');
+      }
+    }
     if (manifest.client) script(manifest.client.entry);
     const ids = new Set();
     for (const variant of manifest.executor?.variants ?? []) {
@@ -136,7 +174,7 @@ export function createPackageInspector({ validateManifest, validateIntegrity, se
     if (fact.state !== 'available' || !semver.valid(fact.version)) fail('DEPENDENCY_UNKNOWN', 'unknown');
     return fact;
   }
-  return function inspect(manifest, integrity, observed, host) {
+  return function inspect(manifest, integrity, observed, host, schemas = Object.create(null)) {
     if (!validateManifest(manifest)) fail('MANIFEST_SCHEMA');
     if (!validateIntegrity(integrity)) fail('INTEGRITY_SCHEMA');
     const members = indexMembers(observed);
@@ -157,7 +195,8 @@ export function createPackageInspector({ validateManifest, validateIntegrity, se
         !(members.has('README') || members.has('README.md')) ||
         ![...members.keys()].some(path => path.startsWith('LICENSES/'))) fail('REQUIRED_PACKAGE_MEMBER');
     range(manifest.sdkApiRange);
-    references(manifest, members);
+    if (!schemas || typeof schemas !== 'object' || Array.isArray(schemas)) fail('ARGUMENT_SCHEMA_CATALOG');
+    references(manifest, members, schemas);
     declarations(manifest);
     if (commandConflicts([manifest]).length) fail('COMMAND_CONFLICT');
     if (!host || !['client', 'executor'].includes(host.side) || !semver.valid(host.sdkVersion)) fail('HOST_UNKNOWN', 'unknown');

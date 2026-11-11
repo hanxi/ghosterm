@@ -317,6 +317,7 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
         return GT_PACKAGE_CHECK_INVALID;
     }
     size_t count = 0;
+    size_t schema_total = 0;
     uint64_t bytes = 0;
     if (!gt__package_snapshot_count(*snapshot, &count, &bytes)) {
         return check_report(report, GT_PACKAGE_CHECK_INVALID, "CAPTURE_NOT_READY");
@@ -350,7 +351,8 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
     JSRuntime *engine = NULL;
     JSContext *c = NULL;
     JSValue api = JS_UNDEFINED, fn = JS_UNDEFINED, answer = JS_UNDEFINED,
-            args[5] = {JS_UNDEFINED, JS_UNDEFINED, JS_UNDEFINED, JS_UNDEFINED, JS_UNDEFINED};
+            args[6] = {
+                JS_UNDEFINED, JS_UNDEFINED, JS_UNDEFINED, JS_UNDEFINED, JS_UNDEFINED, JS_UNDEFINED};
     char *code = NULL;
     if (!gt__package_json_open(&state.allocator, &json)) {
         check_report(report, GT_PACKAGE_CHECK_MEMORY, "NATIVE_MEMORY");
@@ -469,7 +471,8 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
     args[4] = config->registry_json
                   ? check_json(&state, c, config->registry_json, config->registry_size)
                   : JS_NewArray(c);
-    for (size_t i = 0; i < 5; i++) {
+    args[5] = JS_NewObjectProto(c, JS_NULL);
+    for (size_t i = 0; i < 6; i++) {
         if (JS_IsException(args[i])) {
             check_exception(&state, report);
             goto done;
@@ -480,6 +483,40 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
         if (!gt__package_snapshot_member(*snapshot, i, &member)) {
             check_report(report, GT_PACKAGE_CHECK_INTERNAL, "CATALOG_FAILURE");
             goto done;
+        }
+        size_t path_size = strlen(member.path);
+        if (path_size > 12 && !strncmp(member.path, "schemas/", 8) &&
+            !strcmp(member.path + path_size - 5, ".json")) {
+            const uint8_t *schema_bytes = NULL;
+            size_t schema_size = 0;
+            if (member.bytes > 65536 || schema_total > 262144 - member.bytes ||
+                !gt__package_snapshot_view(*snapshot, i, &schema_bytes, &schema_size) ||
+                schema_size != member.bytes) {
+                check_report(report, GT_PACKAGE_CHECK_LIMIT, "ARGUMENT_SCHEMA_BYTES");
+                goto done;
+            }
+            schema_total += schema_size;
+            gt_package_json_error_t schema_error =
+                gt__package_json_check(json, schema_bytes, schema_size, false);
+            if (schema_error != GT_PACKAGE_JSON_OK) {
+                check_report(report,
+                             schema_error == GT_PACKAGE_JSON_MEMORY  ? GT_PACKAGE_CHECK_MEMORY
+                             : schema_error == GT_PACKAGE_JSON_LIMIT ? GT_PACKAGE_CHECK_LIMIT
+                                                                     : GT_PACKAGE_CHECK_INVALID,
+                             schema_error == GT_PACKAGE_JSON_MEMORY  ? "NATIVE_MEMORY"
+                             : schema_error == GT_PACKAGE_JSON_LIMIT ? "JSON_LIMIT"
+                                                                     : "ARGUMENT_SCHEMA_JSON");
+                goto done;
+            }
+            JSValue schema = check_json(&state, c, schema_bytes, schema_size);
+            if (JS_IsException(schema)) {
+                check_exception(&state, report);
+                goto done;
+            }
+            if (JS_SetPropertyStr(c, args[5], member.path, schema) < 0) {
+                check_exception(&state, report);
+                goto done;
+            }
         }
         JSValue entry = JS_NewObjectProto(c, JS_NULL);
         if (JS_IsException(entry)) {
@@ -499,7 +536,7 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
             goto done;
         }
     }
-    answer = JS_Call(c, fn, api, 5, args);
+    answer = JS_Call(c, fn, api, 6, args);
     if (JS_IsException(answer)) {
         check_exception(&state, report);
         goto done;
@@ -611,7 +648,7 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
     check_report(report, GT_PACKAGE_CHECK_COMPATIBLE, "COMPATIBLE");
 done:
     if (c) {
-        for (size_t i = 0; i < 5; i++) {
+        for (size_t i = 0; i < 6; i++) {
             JS_FreeValue(c, args[i]);
         }
         JS_FreeValue(c, answer);
