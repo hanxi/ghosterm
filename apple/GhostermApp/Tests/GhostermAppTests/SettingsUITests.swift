@@ -21,7 +21,6 @@ final class SettingsUITests: XCTestCase {
     override class func setUp() {
         super.setUp()
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
         TestWindows.enterAutomationMode()
     }
 

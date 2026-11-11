@@ -37,7 +37,7 @@ import XCTest
     }
 
     private func exercise(sshArguments: [String]?) async throws {
-        _ = NSApplication.shared; NSApplication.shared.setActivationPolicy(.accessory)
+        _ = NSApplication.shared; TestWindows.enterAutomationMode()
         let root = sessionTestDirectory().deletingLastPathComponent()
             .appendingPathComponent("resize-" + String(UUID().uuidString.prefix(8)))
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

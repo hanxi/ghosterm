@@ -5,15 +5,16 @@ import XCTest
 @MainActor final class TerminalClipboardTests: XCTestCase {
     func testMenuCopyAndPaste() throws {
         _ = NSApplication.shared
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.prohibited)
         let app = try TerminalApp.shared()
         let surface = try TerminalSurface(app: app)
         let host = TerminalHostView(surface: surface)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.alphaValue = 0
         window.contentView = host
         window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
-        window.orderFrontRegardless()
+        window.order(.below, relativeTo: 0)
         window.makeFirstResponder(host)
         let previous = NSPasteboard.general.string(forType: .string)
         defer {

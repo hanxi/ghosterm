@@ -8,7 +8,6 @@ import XCTest
 final class ConnectionChooserTests: XCTestCase {
     override class func setUp() {
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
         TestWindows.enterAutomationMode()
     }
 

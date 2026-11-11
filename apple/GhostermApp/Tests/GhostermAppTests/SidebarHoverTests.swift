@@ -7,7 +7,7 @@ import XCTest
 @MainActor final class SidebarHoverTests: XCTestCase {
     override class func setUp() {
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
+        TestWindows.enterAutomationMode()
     }
 
     func testHoverChangesRowRendering() throws {

@@ -15,7 +15,7 @@ import XCTest
         XCTAssertTrue(predicate(), file: file, line: line)
     }
     private func fixture(delayCreate: Bool = false, longParent: Bool = false) throws -> (URL, String, String) {
-        _ = NSApplication.shared; NSApplication.shared.setActivationPolicy(.accessory)
+        _ = NSApplication.shared; TestWindows.enterAutomationMode()
         var parent = sessionTestDirectory().deletingLastPathComponent()
         if longParent { parent.appendPathComponent("runner-path") }
         let root = parent.appendingPathComponent("tmux-" + String(UUID().uuidString.prefix(8)))

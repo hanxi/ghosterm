@@ -19,7 +19,7 @@ final class TerminalIMETests: XCTestCase {
     override class func setUp() {
         super.setUp()
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.setActivationPolicy(.prohibited)
     }
 
     private func makeHost() throws -> (TerminalSurface, TerminalHostView) {

@@ -12,7 +12,7 @@ final class SplitDividerTests: XCTestCase {
     override class func setUp() {
         super.setUp()
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
+        TestWindows.enterAutomationMode()
     }
 
     /// 横分屏：线子层被清、divider view 本体仍可交互。

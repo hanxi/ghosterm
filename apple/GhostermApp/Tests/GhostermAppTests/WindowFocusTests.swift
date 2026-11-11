@@ -18,7 +18,7 @@ final class WindowFocusTests: XCTestCase {
     override class func setUp() {
         super.setUp()
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
+        TestWindows.enterAutomationMode()
     }
 
     /// 测试进程里造不出真的 key 窗口（没有用户点击去激活 app），于是用一个

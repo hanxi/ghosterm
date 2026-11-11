@@ -13,7 +13,7 @@ import XCTest
 
     init(window: NSWindow? = nil, requestClose: @escaping () -> Void = {}) throws {
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
+        TestWindows.enterAutomationMode()
         directory = sessionTestDirectory()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         model = isolatedAppModel(configPath: directory.appendingPathComponent("config").path,

@@ -22,7 +22,7 @@ final class SplitExitTests: XCTestCase {
     override class func setUp() {
         super.setUp()
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
+        TestWindows.enterAutomationMode()
     }
 
     private func makeModel() throws -> AppModel {

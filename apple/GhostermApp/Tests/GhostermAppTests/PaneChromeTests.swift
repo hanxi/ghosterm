@@ -18,7 +18,7 @@ final class PaneChromeTests: XCTestCase {
     override class func setUp() {
         super.setUp()
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
+        TestWindows.enterAutomationMode()
     }
 
     // MARK: - 抓帧（与 SidebarChromeTests 同口径）

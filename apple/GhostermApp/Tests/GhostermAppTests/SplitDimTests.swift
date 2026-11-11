@@ -15,7 +15,7 @@ final class SplitDimTests: XCTestCase {
     override class func setUp() {
         super.setUp()
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
+        TestWindows.enterAutomationMode()
     }
 
     private let bg = SplitDim.RGB(r: 40, g: 44, b: 52)

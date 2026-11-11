@@ -15,12 +15,18 @@ enum WindowPresentation {
     /// 只摆位置，不显示（给 `showWindow` 这类会自己上屏的路径用）。
     static func prepare(_ window: NSWindow?) {
         guard offscreenForAutomation, let window else { return }
+        window.alphaValue = 0
         window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
     }
 
     /// 显示并置前；自动化测试里离屏。
     static func present(_ window: NSWindow) {
-        prepare(window)
+        if offscreenForAutomation {
+            prepare(window)
+            window.order(.below, relativeTo: 0)
+            window.makeKey()
+            return
+        }
         window.makeKeyAndOrderFront(nil)
     }
 }

@@ -9,11 +9,11 @@ import XCTest
 
 final class TerminalSurfaceTests: XCTestCase {
     /// libghostty 需要一个已初始化的 NSApplication（它挂 Metal 层、读屏幕
-    /// scale 都走 AppKit）。测试进程里没有 window，故显式起一个 accessory app。
+    /// scale 都走 AppKit）。测试进程里没有 window，故显式初始化禁止激活的 app。
     override class func setUp() {
         super.setUp()
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.setActivationPolicy(.prohibited)
     }
 
     /// 无窗口的 NSView 也能作渲染锚点（libghostty 只把它当 layer 宿主）。

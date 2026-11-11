@@ -8,11 +8,13 @@ import XCTest
     private final class ScreenWindow: NSWindow {
         var screenScale: CGFloat = 2
         override var backingScaleFactor: CGFloat { screenScale }
+        // This offscreen fixture tests requested viewport geometry, not the user's display bounds.
+        override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
     }
 
     private func exercise(screenNotification: Bool) throws {
         _ = NSApplication.shared
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.prohibited)
         let app = try TerminalApp.shared()
         app.startEventLoop()
         let surface = try TerminalSurface(app: app)
@@ -20,9 +22,10 @@ import XCTest
         let window = ScreenWindow(contentRect: host.frame, styleMask: [.titled, .resizable],
                                   backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.alphaValue = 0
         window.contentView = host
         window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
-        window.orderFrontRegardless()
+        window.order(.below, relativeTo: 0)
         defer { window.close() }
         host.layout()
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))

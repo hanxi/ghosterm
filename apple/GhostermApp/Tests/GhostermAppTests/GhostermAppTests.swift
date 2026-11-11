@@ -68,7 +68,7 @@ final class SessionSmokeTests: XCTestCase {
     override class func setUp() {
         super.setUp()
         _ = NSApplication.shared
-        NSApplication.shared.setActivationPolicy(.accessory)
+        TestWindows.enterAutomationMode()
     }
 
     /// 本地 shell → transport → libghostty 网格。读的是网格文本。

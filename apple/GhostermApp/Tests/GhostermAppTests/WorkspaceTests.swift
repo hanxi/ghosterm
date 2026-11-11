@@ -7,7 +7,7 @@ import XCTest
 @testable import GhostermAppModel
 
 @MainActor final class WorkspaceTests: XCTestCase {
-    override class func setUp() { _ = NSApplication.shared; NSApplication.shared.setActivationPolicy(.accessory) }
+    override class func setUp() { _ = NSApplication.shared; TestWindows.enterAutomationMode() }
     func testDefaultAAndDockingPreserveAllPaneIdentities() throws {
         let tab = TerminalTab(kind: .ssh(.init(pattern: "a", user: "u", host: "a", port: 22)), pane: TerminalPane())
         let local = WorkspaceFilePane(remote: false, panel: FilesPanelModel(backend: LocalFileBackend()))
