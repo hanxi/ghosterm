@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第四十七批 原生包检查绑定 argv schema。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射。CLI 仍未直接按 `argsSchema` 解码或驱动 App 激活；App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-12 第四十八批 精确绑定 argsSchema 包路径。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定。CLI 仍未直接按 `argsSchema` 解码或驱动 App 激活；App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3647,6 +3647,21 @@ Core 离线 gate 474 CTest / 176 ABI 通过，C 格式检查 212 文件通过。
 `core/build/test_package_check` 做定向夹具不是有效原生后端证据，未计通过；以变异脚本建立的
 QuickJS-NG + sanitizer 隔离构建为准。本批不改公共 C ABI，不增加 macOS CI 二十份；CLI 直接
 schema 解码、App 授权/激活、安装来源信任与业务插件仍未完成。
+
+### P0 第四十八批：按 manifest 引用路径绑定 argv schema（2026-11-12）
+
+第 47 批复查发现，`argsSchema` 使用通用 packagePath，允许引用包内任意路径；仅装载
+`schemas/*.json` 会把合法根目录 schema 错报为缺失。现改为读取已解析 manifest 中每个 command
+的实际 `argsSchema` 字符串，按确切路径从同一不可变快照查找、限额、JSON 预检并加入校验器输入。
+多个 command 共享 schema 时按快照成员去重计量；不再解析无关 JSON 资源。保持每个唯一引用最多
+64 KiB、所有唯一引用合计最多 256 KiB。
+
+原生包夹具新增 `command.json` 根路径有效映射，基线 C/QuickJS sanitizer 检查直接接受；
+`mutation-check-plugin-package-check.py` 的位置缺口、畸形 JSON、schema 错绑三组最终变异均为正常
+断言红、独立配置对照绿、恢复绿与源码 SHA256 一致，完整一轮结果写于 `tmp/pkgcheck-*/logs/`
+并在验收后清理。最初“完全不注入 schema”的变异触发 `-Werror` 未使用参数编译失败，未计目标红；
+改为注入到错误路径后编译成功并触发目标断言红。初衷错误的目录前缀限制已由根路径夹具覆盖。
+本批未改公共 C ABI；CLI 按 schema 解码和 App 激活仍待完成。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

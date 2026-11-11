@@ -51,7 +51,8 @@ def main():
   ('digest-not-publisher',JS,'publisherAuthenticated: false','publisherAuthenticated: true','native:compatible'),
   ('compatibility-not-grant',JS,"authorization: 'not-granted'","authorization: 'granted'",'native:compatible'),
   ('argument-position-gap',JS,"for (let i = 0; i < positions.length; i++) if (!positions[i]) fail('ARGUMENT_SCHEMA');","for (let i = 0; i < positions.length; i++) if (false) fail('ARGUMENT_SCHEMA');",'fixture:argument-schema-gap'),
-  ('argument-schema-json',BACKEND,'            if (schema_error != GT_PACKAGE_JSON_OK) {\n','            if (false) {\n','fixture:argument-schema-malformed-json'),
+  ('argument-schema-json',BACKEND,'        gt_package_json_error_t error = gt__package_json_check(json, bytes, size, false);\n        if (error != GT_PACKAGE_JSON_OK) {\n','        gt_package_json_error_t error = gt__package_json_check(json, bytes, size, false);\n        if (false) {\n','fixture:argument-schema-malformed-json'),
+  ('argument-schema-exact-path',BACKEND,'JS_SetPropertyStr(c, schemas, path_copy, schema)','JS_SetPropertyStr(c, schemas, "wrong.json", schema)','fixture:argument-schema-root-cli'),
  ]
  known={c[0] for c in cases}
  if set(args.case)-known:parser.error('unknown case')
@@ -114,7 +115,7 @@ def main():
    discovered=json.loads(run(label+'-discovery',['ctest','--test-dir',build,'--show-only=json-v1']))['tests'];selected=[t for t in discovered if re.match(r'^plugin_package_(check|json|validator|compiler)',t['name'])];assert len(selected)==50,len(selected)
    out=run(label,['ctest','--test-dir',build,'-R','^plugin_package_(check|json|validator|compiler)','--output-on-failure']);assert '100% tests passed out of 50' in out
    for t in selected:assert re.search(r'Test\s+#\d+: '+re.escape(t['name'])+r'\s+\.+\s+Passed',out),t['name']
-  rebuild('baseline');suite('baseline');run('baseline-control',[build/'test_config',source/'core/tests/fixtures']);target('baseline-cli-schema','fixture:argument-schema-cli')
+  rebuild('baseline');suite('baseline');run('baseline-control',[build/'test_config',source/'core/tests/fixtures']);target('baseline-cli-schema','fixture:argument-schema-cli');target('baseline-root-cli-schema','fixture:argument-schema-root-cli')
   for label,name,old,new,mode in cases:
    touched=[name,*GENERATED] if name==JS else [name];original={n:(source/n).read_bytes() for n in touched}
    try:

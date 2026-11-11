@@ -221,6 +221,105 @@ static JSValue check_json(package_check_owner_t *s, JSContext *c, const void *by
     return value;
 }
 
+static bool check_argument_schemas(package_check_owner_t *s,
+                                   JSContext *c,
+                                   JSValueConst manifest,
+                                   const gt_package_snapshot_t *snapshot,
+                                   gt_package_json_t *json,
+                                   JSValue schemas,
+                                   gt_package_check_report_t *report) {
+    JSValue commands = JS_GetPropertyStr(c, manifest, "commands"),
+            length = JS_GetPropertyStr(c, commands, "length");
+    uint32_t count = 0;
+    if (!JS_IsArray(commands) || JS_ToUint32(c, &count, length) || count > 64) {
+        JS_FreeValue(c, length);
+        JS_FreeValue(c, commands);
+        check_report(report, GT_PACKAGE_CHECK_INVALID, "ARGUMENT_SCHEMA_MANIFEST");
+        return false;
+    }
+    JS_FreeValue(c, length);
+    size_t indices[64], schema_count = 0, total = 0;
+    bool ok = true;
+    for (uint32_t i = 0; i < count && ok; i++) {
+        JSValue command = JS_GetPropertyUint32(c, commands, i);
+        JSValue value = JS_GetPropertyStr(c, command, "argsSchema");
+        size_t path_size = 0;
+        const char *path = JS_IsString(value) ? JS_ToCStringLen(c, &path_size, value) : NULL;
+        char path_copy[4097];
+        bool valid_path =
+            path && path_size && path_size < sizeof(path_copy) && !memchr(path, 0, path_size);
+        if (valid_path) {
+            memcpy(path_copy, path, path_size);
+            path_copy[path_size] = 0;
+        }
+        JS_FreeCString(c, path);
+        JS_FreeValue(c, value);
+        JS_FreeValue(c, command);
+        if (!valid_path) {
+            check_report(report, GT_PACKAGE_CHECK_INVALID, "ARGUMENT_SCHEMA_PATH");
+            ok = false;
+            break;
+        }
+        size_t index = 0;
+        if (gt__package_snapshot_find(snapshot, path_copy, &index) != GT_PACKAGE_OK) {
+            check_report(report, GT_PACKAGE_CHECK_INVALID, "ARGUMENT_SCHEMA_MISSING");
+            ok = false;
+            break;
+        }
+        bool duplicate = false;
+        for (size_t j = 0; j < schema_count; j++) {
+            if (indices[j] == index) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            continue;
+        }
+        gt_package_member_t member;
+        const uint8_t *bytes = NULL;
+        size_t size = 0;
+        if (!gt__package_snapshot_member(snapshot, index, &member) || member.bytes > 65536 ||
+            member.bytes > 262144 - total ||
+            !gt__package_snapshot_view(snapshot, index, &bytes, &size) || size != member.bytes) {
+            check_report(report, GT_PACKAGE_CHECK_LIMIT, "ARGUMENT_SCHEMA_BYTES");
+            ok = false;
+            break;
+        }
+        total += size;
+        gt_package_json_error_t error = gt__package_json_check(json, bytes, size, false);
+        if (error != GT_PACKAGE_JSON_OK) {
+            check_report(report,
+                         error == GT_PACKAGE_JSON_MEMORY  ? GT_PACKAGE_CHECK_MEMORY
+                         : error == GT_PACKAGE_JSON_LIMIT ? GT_PACKAGE_CHECK_LIMIT
+                                                          : GT_PACKAGE_CHECK_INVALID,
+                         error == GT_PACKAGE_JSON_MEMORY  ? "NATIVE_MEMORY"
+                         : error == GT_PACKAGE_JSON_LIMIT ? "JSON_LIMIT"
+                                                          : "ARGUMENT_SCHEMA_JSON");
+            ok = false;
+            break;
+        }
+        JSValue schema = check_json(s, c, bytes, size);
+        if (JS_IsException(schema)) {
+            check_exception(s, report);
+            ok = false;
+            break;
+        }
+        if (JS_SetPropertyStr(c, schemas, path_copy, schema) < 0) {
+            check_exception(s, report);
+            ok = false;
+            break;
+        }
+        indices[schema_count++] = index;
+        if (!check_budget(s)) {
+            check_exception(s, report);
+            ok = false;
+        }
+    }
+    JS_FreeValue(c, commands);
+    return ok;
+}
+
 static bool check_protocols(JSContext *c, JSValueConst result, gt_package_check_info_t *out) {
     JSValue array = JS_GetPropertyStr(c, result, "protocols"),
             length = JS_GetPropertyStr(c, array, "length");
@@ -317,7 +416,6 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
         return GT_PACKAGE_CHECK_INVALID;
     }
     size_t count = 0;
-    size_t schema_total = 0;
     uint64_t bytes = 0;
     if (!gt__package_snapshot_count(*snapshot, &count, &bytes)) {
         return check_report(report, GT_PACKAGE_CHECK_INVALID, "CAPTURE_NOT_READY");
@@ -478,45 +576,14 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
             goto done;
         }
     }
+    if (!check_argument_schemas(&state, c, args[0], *snapshot, json, args[5], report)) {
+        goto done;
+    }
     for (size_t i = 0; i < count; i++) {
         gt_package_member_t member;
         if (!gt__package_snapshot_member(*snapshot, i, &member)) {
             check_report(report, GT_PACKAGE_CHECK_INTERNAL, "CATALOG_FAILURE");
             goto done;
-        }
-        size_t path_size = strlen(member.path);
-        if (path_size > 12 && !strncmp(member.path, "schemas/", 8) &&
-            !strcmp(member.path + path_size - 5, ".json")) {
-            const uint8_t *schema_bytes = NULL;
-            size_t schema_size = 0;
-            if (member.bytes > 65536 || schema_total > 262144 - member.bytes ||
-                !gt__package_snapshot_view(*snapshot, i, &schema_bytes, &schema_size) ||
-                schema_size != member.bytes) {
-                check_report(report, GT_PACKAGE_CHECK_LIMIT, "ARGUMENT_SCHEMA_BYTES");
-                goto done;
-            }
-            schema_total += schema_size;
-            gt_package_json_error_t schema_error =
-                gt__package_json_check(json, schema_bytes, schema_size, false);
-            if (schema_error != GT_PACKAGE_JSON_OK) {
-                check_report(report,
-                             schema_error == GT_PACKAGE_JSON_MEMORY  ? GT_PACKAGE_CHECK_MEMORY
-                             : schema_error == GT_PACKAGE_JSON_LIMIT ? GT_PACKAGE_CHECK_LIMIT
-                                                                     : GT_PACKAGE_CHECK_INVALID,
-                             schema_error == GT_PACKAGE_JSON_MEMORY  ? "NATIVE_MEMORY"
-                             : schema_error == GT_PACKAGE_JSON_LIMIT ? "JSON_LIMIT"
-                                                                     : "ARGUMENT_SCHEMA_JSON");
-                goto done;
-            }
-            JSValue schema = check_json(&state, c, schema_bytes, schema_size);
-            if (JS_IsException(schema)) {
-                check_exception(&state, report);
-                goto done;
-            }
-            if (JS_SetPropertyStr(c, args[5], member.path, schema) < 0) {
-                check_exception(&state, report);
-                goto done;
-            }
         }
         JSValue entry = JS_NewObjectProto(c, JS_NULL);
         if (JS_IsException(entry)) {
