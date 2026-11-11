@@ -1,4 +1,4 @@
-import { BoundaryError, Codec, compareUint64, decode, encode, integer, object, snapshot, text, uint64, utf8Bytes } from "../portable/index.js";
+import { boolean, commandArguments, option, positional, Json, BoundaryError, Codec, compareUint64, decode, encode, integer, object, snapshot, text, uint64, utf8Bytes } from "../portable/index.js";
 import { Method, NativePort, NativeResult, Outcome, SessionChannel, Status } from "../portable/index.js";
 declare function native(op: string, side: number, ...args: (string | number)[]): unknown;
 const root = globalThis as typeof globalThis & { tick?: () => void };
@@ -49,7 +49,38 @@ function codecs(): void {
   check(text(1).parse("😀") === "😀", "unicode scalar schema length");
   rejects(() => text(1).parse("😀😀"), "SCHEMA");
 }
+function argumentsCodec(): void {
+  const args = commandArguments({ path: positional(text(100), 0), lines: option(integer(-10, 100), "lines", 10), wrap: option(boolean(), "wrap", false) });
+  const read = (input: unknown) => { try { return args.parse(input); } catch { throw new Error("ASSERT valid argv accepted"); } };
+  const value = read(["--lines=-2", "--wrap", "中文😀"]);
+  check(value.path === "中文😀" && value.lines === -2 && value.wrap && Object.isFrozen(value), "typed options and immutable result");
+  const literal = read(["--", "--wrap"]); check(literal.path === "--wrap" && !literal.wrap && literal.lines === 10, "separator and defaults");
+  const empty = read(["--lines", "0", "--wrap=false", ""]); check(empty.path === "" && empty.lines === 0 && !empty.wrap, "empty and explicit false");
+  check(read(["';throw Error('injected');//"]).path === "';throw Error('injected');//", "literal shell syntax");
+  rejects(() => args.parse(["p", "--lines=1", "--lines=2"]), "ARGUMENT_DUPLICATE");
+  rejects(() => args.parse(["p", "--unknown"]), "ARGUMENT_UNKNOWN");
+  rejects(() => args.parse(["p", "--lines", "--wrap"]), "ARGUMENT_MISSING");
+  rejects(() => args.parse([]), "ARGUMENT_MISSING"); rejects(() => args.parse(["p", "extra"]), "ARGUMENT_EXTRA");
+  for (const v of ["01", "-0", "+1", "1e1", " 1", "9007199254740992"]) rejects(() => args.parse(["p", "--lines=" + v]), "ARGUMENT_VALUE");
+  rejects(() => args.parse(["p", "--lines=101"]), "SCHEMA");
+  rejects(() => args.parse(["p", "--wrap=1"]), "ARGUMENT_VALUE");
+  rejects(() => args.parse(["bad\0path"]), "ARGUMENT_VALUE");
+  rejects(() => args.parse(Array(33).fill("x")), "ARGUMENT_LIMIT");
+  rejects(() => args.parse(["中".repeat(1366)]), "ARGUMENT_LIMIT");
+  rejects(() => args.parse(Array(5).fill("x".repeat(4096))), "ARGUMENT_LIMIT");
+  rejects(() => args.parse(["\ud800"]), "UTF16");
+  let calls = 0; const getter = { get 0() { calls++; return "p"; }, length: 1 };
+  rejects(() => args.parse(getter), "JSON_ACCESSOR"); check(calls === 0, "argv accessor not invoked");
+  rejects(() => commandArguments({ a: positional(text(), 1) }), "ARGUMENT_SCHEMA");
+  rejects(() => commandArguments({ a: positional(text(), 0), b: positional(text(), 0) }), "ARGUMENT_SCHEMA");
+  rejects(() => commandArguments({ a: option(text(), "same", ""), b: option(text(), "same", "") }), "ARGUMENT_SCHEMA");
+  rejects(() => option(integer(0, 1), "count", 2), "SCHEMA");
+  const schema = args.schema as Readonly<Record<string, Json>>;
+  check(Object.isFrozen(schema) && JSON.stringify(schema["x-ghosterm-cli"]) === '{"version":1,"fields":{"path":{"position":0},"lines":{"option":"lines","default":10},"wrap":{"option":"wrap","default":false}}}', "generated argv contract");
+}
+
 export async function run(mode: string): Promise<void> {
+  if (mode === "arguments") { argumentsCodec(); return; }
   if (mode === "codec") { codecs(); return; }
   const h = new SessionChannel(port(0)), e = new SessionChannel(port(1));
   root.tick = () => { h.step(); e.step(); };

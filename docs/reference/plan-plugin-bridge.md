@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-06 第四十五批显式开发包命令解析。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择。App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-12 第四十六批 Portable SDK 类型化 argv 解码。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码。命令解析结果尚未自动绑定 manifest `argsSchema` 或驱动 App 激活；App 授权 / 视图 / 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3593,6 +3593,39 @@ Core 夹具，修为解析子进程明确输出的收据路径后复验。配置
 
 后续 2026-11-08 已补 Android 普通终端/SFTP 与两端 tmux 管理/attach 的 ProxyJump；
 分轮证据见 Android 实施计划 §9.214，不据此扩大插件 SDK 的完成范围。
+
+### P0 第四十六批：Portable SDK 类型化 argv 解码（2026-11-12）
+
+Portable SDK 新增 `boolean()`、`positional()`、`option()` 与 `commandArguments()`。
+命令声明为 schema 同时生成 v1 `x-ghosterm-cli` 映射；位置参数必须从零连续且最多 32 项，
+选项名与字段名受限，默认值须通过对应 codec。调用时只接受原始字符串数组：最多 32 个
+token、每 token 最多 4096 UTF-8 字节、总计最多 16384 字节；拒绝 NUL、畸形 UTF-16、
+未知/重复选项、缺失/多余位置参数、不规范或越安全整数的数值及隐式布尔转换。
+文本/整数选项支持 `--name=value` 与 `--name value`；布尔支持旗标或 `--name=true|false`，
+并支持 `--` 位置参数分隔符。结果经对象 codec
+验证并冻结。没有 shell、环境变量、文件系统、短选项、别名或自动类型猜测。
+
+`test-plugin-sdk.py` 的 QuickJS-NG fixture 检查默认值、中文/空参数、shell 样式文本仍为
+普通数据、数值边界、分隔符、重复/未知参数、token 与字节限额、accessor 拒绝、对象冻结和
+生成 schema。`test-gterm-stdio.py --case arguments-codec` 另通过真实 gterm child 与公共
+HOST Session，确认原始 argv 穿过审批后到达真实 Executor，再由 Portable SDK 解码后完成 RPC。
+类型边界也由 TypeScript 编译检查。固定工具生成物由
+`scripts/generate-plugin-runtime-sdk.mjs --check` 对拍，不改公共 C ABI。
+
+完整 QuickJS / C 运行和编译后变异收据：`tmp/plugin-sdk-argv-mutations.log`、
+`tmp/plugin-sdk-c2gdaim0/logs/result.json`（15 组，ASan/UBSan，无 LSan）；运行时 SDK
+固定身份 `8544ddbf2c1ce825f30dc012418db2a02405b2e0f6b5bbf3d0b943f7c167676f`，并通过生成器
+`--check`。原生 CLI 构建及 stdio 用例：`tmp/gterm-argv-cmake.log`、
+`tmp/gterm-argv-build.log`、`tmp/gterm-argv-stdio.log`（13 项全绿）；Core gate 为
+474 CTest / 176 ABI，C 格式检查 212 文件，日志 `tmp/plugin-argv-gate.log` 与
+`tmp/plugin-argv-format.log`。初轮禁用重复检查的变异导致 TypeScript 编译失败，之后旧锚点
+又与解析变量重命名不符；这两类驱动失败均不计目标红。修正解析变量和变异锚点后，最终
+15 组均为正常断言红、独立配置绿、恢复绿及 SHA256 对拍。首次插件 SDK 离线基线因锁定
+TypeScript 包不在 npm cache 中而未运行，显式 `--fetch` 取得固定依赖后才进行完整验收。
+
+本批只给插件作者可复用的类型化 argv 解码器；包 manifest 与 codec schema 的一致性检查、
+CLI 直接按 `argsSchema` 解码、App 命令选择/激活、授权 UI、生产本机 IPC 与远端部署仍未完成。
+手工验证不增加 macOS CI 二十份，不记 P0、SDK、gterm 或整体插件计划完成。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

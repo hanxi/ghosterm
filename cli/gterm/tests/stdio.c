@@ -67,23 +67,45 @@ int main(int argc, char **argv) {
             close(fd[1]);
         }
         const char *trusted = !strcmp(mode, "digest") ? client_digest : package_digest;
-        execl(binary,
-              binary,
-              "relay",
-              "--stdio",
-              "--trust-development-digest",
-              trusted,
-              "--client-digest",
-              client_digest,
-              "--method",
-              "fixture.echo",
-              "--",
-              directory,
-              !strcmp(mode, "command") ? "other" : "fixture",
-              "中文",
-              "",
-              "';throw Error('injected');//",
-              (char *)NULL);
+        if (!strcmp(mode, "arguments-codec")) {
+            execl(binary,
+                  binary,
+                  "relay",
+                  "--stdio",
+                  "--trust-development-digest",
+                  trusted,
+                  "--client-digest",
+                  client_digest,
+                  "--method",
+                  "fixture.echo",
+                  "--",
+                  directory,
+                  "fixture",
+                  "中文",
+                  "",
+                  "';throw Error('injected');//",
+                  "--count=17",
+                  "--wrap",
+                  (char *)NULL);
+        } else {
+            execl(binary,
+                  binary,
+                  "relay",
+                  "--stdio",
+                  "--trust-development-digest",
+                  trusted,
+                  "--client-digest",
+                  client_digest,
+                  "--method",
+                  "fixture.echo",
+                  "--",
+                  directory,
+                  !strcmp(mode, "command") ? "other" : "fixture",
+                  "中文",
+                  "",
+                  "';throw Error('injected');//",
+                  (char *)NULL);
+        }
         _exit(127);
     }
     if (pipes) {

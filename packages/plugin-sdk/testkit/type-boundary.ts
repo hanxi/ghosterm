@@ -28,3 +28,15 @@ context.process.spawn("tool");
 context.invocation?.arguments.push("late");
 // @ts-expect-error invocation arguments are strings, not decoded typed options
 const argumentCount: number | undefined = context.invocation?.arguments[0]; void argumentCount;
+
+import { boolean, commandArguments, option, positional } from "../portable/index.js";
+const argumentsCodec = commandArguments({ path: positional(text(), 0), count: option(integer(0, 10), "count", 1), wrap: option(boolean(), "wrap", false) });
+const parsed = argumentsCodec.parse(["file", "--count=2"]);
+const typedPath: string = parsed.path; const typedCount: number = parsed.count; const typedWrap: boolean = parsed.wrap;
+void typedPath; void typedCount; void typedWrap;
+// @ts-expect-error decoded integer is not string
+const wrongCount: string = parsed.count; void wrongCount;
+// @ts-expect-error immutable parsed fields
+parsed.path = "changed";
+// @ts-expect-error default must match the declared codec
+option(integer(0, 10), "count", "1");

@@ -9,7 +9,7 @@ import shutil, signal, subprocess, sys, tempfile
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 MARK = 'GT_PLUGIN_SDK_MUTATION'
-CASES = ['codec', 'roundtrip', 'input', 'incoming-schema', 'output-schema', 'result-schema',
+CASES = ['arguments', 'codec', 'roundtrip', 'input', 'incoming-schema', 'output-schema', 'result-schema',
          'queued-cancel', 'queued-timeout', 'sent-cancel', 'sent-timeout', 'dispose', 'stale',
          'admission', 'capacity', 'outcomes', 'confirmation']
 def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -88,6 +88,12 @@ let count=0;for(const text of ['', '中', '😀😀', '😀😀😀', 1, null])f
 ''')
         run('schema-parity', ['node', parity])
         cases = [
+            ('argv-duplicate', 'codec.ts', 'if (seen.has(resolvedKey)) fail("ARGUMENT_DUPLICATE");', 'if (false && seen.has(resolvedKey)) fail("ARGUMENT_DUPLICATE");', 'arguments'),
+            ('argv-count', 'codec.ts', 'argv.length > 32', 'argv.length > 64', 'arguments'),
+            ('argv-bytes', 'codec.ts', 'bytes > 16384', 'bytes > 32768', 'arguments'),
+            ('argv-separator', 'codec.ts', 'literal = true; continue;', 'literal = false; continue;', 'arguments'),
+            ('argv-default', 'codec.ts', 'const result: Record<string, Scalar> = { ...defaults }', 'const result: Record<string, Scalar> = {}', 'arguments'),
+            ('argv-negative-zero', 'codec.ts', ' || value === "-0"', '', 'arguments'),
             ('input-schema', 'session.ts', 'encode(method.input.parse(snapshot(input)))', 'encode(snapshot(input))', 'input'),
             ('result-schema', 'session.ts', 'value: codec.parse(o.value)', 'value: (void codec, o.value as T)', 'result-schema'),
             ('late-check', 'session.ts', 'if (!this.#live || item.cancelled || this.#port.check(ticket) !== "ok")', 'if (false && (!this.#live || item.cancelled || this.#port.check(ticket) !== "ok"))', 'sent-cancel'),
@@ -115,7 +121,7 @@ let count=0;for(const text of ['', '中', '😀😀', '😀😀😀', 1, null])f
                        inputs_sha256=hashes, commands=commands, engine=engine.ENGINES['quickjs-ng'],
                        emitted_sha256={p.name:sha(p) for p in modules.glob('*.js')}, binary_sha256=sha(binary),
                        core_sha256=sha(core/'libghosterm_core.a'), sanitizers=['address','undefined'], leak_sanitizer=False,
-                       simulated_adapter_cases=['confirmation'], pure_value_cases=['codec'], pre_admission_cases=['input'],
+                       simulated_adapter_cases=['confirmation'], pure_value_cases=['arguments','codec'], pre_admission_cases=['input'],
                        scope='portable SDK and macOS C/QuickJS conformance; no production runtime/native JS adapter, App UI, device, SSH, gateway or release claim')
         (logs/'result.json').write_text(json.dumps(receipt,indent=2)+'\n')
         shutil.rmtree(source); shutil.rmtree(core); shutil.rmtree(engine_root); shutil.rmtree(target)

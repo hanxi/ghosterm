@@ -1,6 +1,6 @@
 # Portable SDK 候选
 
-当前实现类型化请求边界，不是完整插件运行时，也没有发布 npm 包或冻结 v1 API。
+当前实现类型化请求边界和命令 argv 解码器，不是完整插件运行时，也没有发布 npm 包或冻结 v1 API。
 生产源在 `portable/`；它只使用 ES2020，没有 Node、DOM、定时器、文件或网络入口。
 `schema/bridge-v1.candidate.json` 是 wire 错误定义的事实来源；
 `python3 scripts/generate-plugin-sdk.py --check` 对拍生成的 `wire-contract.ts`。
@@ -30,6 +30,31 @@ codec 同时提供 TypeScript 推断、运行时解析与可独立验证的 JSON
 整数子集，不是任意 JSON Schema 解释器。参数在入队前复制，接收参数与成功结果再验业务 codec。
 字节上限按 UTF-8 计算；非法 UTF-16、非有限数、不安全整数、访问器、toJSON、环、稀疏数组及
 原型污染键拒绝。uint64 以规范十进制字符串保持精确，不能经过 Number 四舍五入。
+
+Executor 的 `context.invocation.arguments` 始终是只读原始字符串，不是 shell 命令，也不会假装
+已按包的 `argsSchema` 解码。插件可用同一组 codec 显式声明和解析参数：
+
+```typescript
+import { commandArguments, integer, option, positional, text } from "./portable/index.js";
+import type { PluginContext } from "./portable/index.js";
+
+const previewArgs = commandArguments({
+  path: positional(text(3072), 0),
+  lines: option(integer(1, 200), "lines", 40),
+});
+
+function preview(context: PluginContext) {
+  const args = previewArgs.parse(context.invocation?.arguments ?? []);
+  return { path: args.path, lines: args.lines };
+}
+```
+
+`commandArguments` 的 JSON Schema 带有候选扩展 `x-ghosterm-cli`，记录位置、选项名和默认值；
+它可用于生成文档或包 schema，但目前不会自动与 manifest 的 `argsSchema` 对拍。
+位置从 0 开始且连续，至多 32 个；argv 总计不超过 32 个 token、16 KiB UTF-8，单 token
+至多 4096 字节。整数不接受前导零、`-0`、指数或不安全精度；布尔只接受 `--flag` 或
+`--flag=true|false`。文本/整数选项可写 `--name=value` 或 `--name value`，`--` 后都作为
+位置数据。缺失、多余、重复和未知参数会显式报错；不会执行字符串里的 shell 内容。
 
 受信 native adapter 绑定唯一 Session / 原 lease / 串行 owner；它必须继续使用 Core 对方向、能力、
 实例、代次和期限的校验。JS 不持有 lease、fd 或私钥。`NativePort` 是宿主契约；Core 的显式可选 QuickJS-NG 后端已接真实 Session，
