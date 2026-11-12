@@ -4563,7 +4563,7 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 
 ### P2 实施第四十二批：Preview 用户操作控件可访问性标识（2026-11-13）
 
-在生产 `ExtensionsPane` 为包文件夹选择、按包批准 / 拒绝、SSH 与 Executor 参数、启动、Native consent 决定及停止释放控件增加稳定 `accessibilityIdentifier`。标识不包含包摘要或凭据；参数输入项按包 ID 区分。生产行为和默认 JS-off 策略未变。离屏 `NSHostingView` accessibility tree 探针只枚举到滚动视图 / Cell，没有暴露 Button 标识或可执行按压动作；因此这些标识目前不构成无窗口真实 UI 点击证据。
+在生产 `ExtensionsPane` 为包文件夹选择、按包批准 / 拒绝、SSH 与 Executor 参数、启动、Native consent 决定及停止释放控件增加稳定 `accessibilityIdentifier`。标识不包含包摘要或凭据；参数输入项按包 ID 区分。生产行为和默认 JS-off 策略未变。离屏 `NSHostingView` 及屏外 `orderBack` 窗口的 accessibility tree 探针只枚举到滚动视图 / Cell，没有暴露 Button 标识或可执行按压动作；定向探针因此以“找不到按钮”断言失败，未造成前台窗口。标识目前不构成后台真实 UI 点击证据。
 
 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" GHOSTERM_APP_TEST_FILTER=testResourceBrowserRendersASelectedVerifiedResource bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，定向 SwiftUI 资源浏览测试 1 项通过；随 gate 执行的 headless WebKit probe 复验 CSS / PNG 像素刷新为初始红 4096、蓝 39104，更新后红 4096、绿 39104。测试期间没有激活或显示窗口。
 
