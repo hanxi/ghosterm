@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 import org.json.JSONArray
 import java.security.MessageDigest
+import android.util.Base64
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -174,6 +175,107 @@ class ExtensionChannelTest {
             }
         } finally {
             runCatching { controller.close() }
+            knownHosts.delete()
+            packageDir.deleteRecursively()
+        }
+    }
+
+    @Test fun controllerReceivesOfficialPreviewOverTwoHopSSH() = runBlocking {
+        assumeTrue("requires the explicit JS-enabled Android build", BuildConfig.PLUGIN_JS_ENABLED)
+        val payload = fixture
+        val ports = payload.getJSONObject("two").getJSONArray("ports")
+        val packageDir = File(instrumentation.targetContext.cacheDir, "official-preview-${System.nanoTime()}")
+        check(packageDir.mkdir())
+        val packageFiles = payload.getJSONObject("previewPackageFiles")
+        val names = packageFiles.keys()
+        while (names.hasNext()) {
+            val name = names.next()
+            val targetFile = File(packageDir, name)
+            check(targetFile.canonicalPath.startsWith(packageDir.canonicalPath + File.separator))
+            check(targetFile.parentFile!!.mkdirs() || targetFile.parentFile!!.isDirectory)
+            targetFile.writeBytes(Base64.decode(packageFiles.getString(name), Base64.DEFAULT))
+        }
+        val clientDigest = MessageDigest.getInstance("SHA-256").digest(File(packageDir, "integrity.json").readBytes())
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
+        assertEquals(payload.getString("previewPackageDigest"), clientDigest)
+        val knownHosts = File(packageDir.parentFile, "preview-known-${System.nanoTime()}")
+            .apply { writeText(payload.getJSONObject("two").getString("known")) }
+        val user = payload.getString("user")
+        val target = PreparedSSH("dest", "127.0.0.1", user, ports.getInt(1), emptyList(),
+            listOf(PreparedSSH("jump", "route-hop-0.invalid", user, ports.getInt(0), emptyList())))
+        val rootDirectory = payload.getString("previewWorkspace")
+        val controller = ExtensionController(
+            ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"),
+                listOf("session.rpc", "resource.receive", "file.readScoped")), instrumentation.targetContext)
+        try {
+            assertEquals(0, ExtensionRuntime.supportStatus())
+            val reviewed = controller.review(packageDir)
+            assertEquals("org.ghosterm.preview", reviewed.id)
+            assertEquals(listOf("resource.receive"), reviewed.requiredCapabilities)
+            assertEquals(com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK,
+                controller.approve(reviewed.id, reviewed.digest))
+            val request = listOf("env", "TMPDIR=" + payload.getString("previewRemoteTmp"),
+                payload.getString("gtermBinary"), "relay", "--stdio", "--trust-development-digest", reviewed.digest,
+                "--client-digest", reviewed.digest, "--root", "workspace", rootDirectory, "--",
+                payload.getString("previewPackageDirectory"), "preview", "fixture.txt")
+                .joinToString(" ", transform = ::shellQuote) + " 2>" + shellQuote(payload.getString("previewRemoteStderr")) +
+                "; printf '%s' \"\$?\" > " + shellQuote(payload.getString("previewRemoteExit"))
+            var route = controller.openSSHChannel(target,
+                java.net.InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), knownHosts, request)
+            val deadline = SystemClock.elapsedRealtime() + 90000
+            while (route.info.phase != 1 && route.info.phase != 2) {
+                when (route.authentication.phase) {
+                    SSHAuthPhase.HOSTKEY -> controller.decideSSHHost(route.authentication, true)
+                    SSHAuthPhase.CREDENTIALS -> controller.submitSSHPrivateKey(
+                        route.authentication, payload.getString("pem").toByteArray(), byteArrayOf())
+                    SSHAuthPhase.FAILED, SSHAuthPhase.CANCELLED -> fail(route.authentication.description)
+                    else -> Unit
+                }
+                assertTrue("two-hop Preview route timed out", SystemClock.elapsedRealtime() < deadline)
+                route = controller.stepSSHChannel(5)
+            }
+            assertEquals("${route.info.error}", 1, route.info.phase)
+            var session = controller.adoptSSHSession(reviewed.id, reviewed.digest, reviewed.digest,
+                "0.1.0", target.alias, emptyList(), additionalRequiredCapabilities = listOf("file.readScoped"))
+            val consentDeadline = SystemClock.elapsedRealtime() + 15000
+            while (session.info.phase != ExtensionSession.Phase.CONSENT) {
+                assertTrue("Preview Session ended before consent: ${session.info}",
+                    SystemClock.elapsedRealtime() < consentDeadline)
+                session = controller.stepSession(5)
+            }
+            session = controller.decideSession(session.info.consentToken, ExtensionSession.Decision.ALLOW)
+            while (session.info.phase != ExtensionSession.Phase.ACTIVE) {
+                assertTrue("Preview Session did not become active: ${session.info}",
+                    SystemClock.elapsedRealtime() < deadline)
+                session = controller.stepSession(5)
+            }
+            var runtime = controller.activateClient(reviewed.id, reviewed.digest, "preview", listOf("fixture.txt"))
+            while (runtime.info.phase in setOf(ExtensionRuntime.Phase.CREATED, ExtensionRuntime.Phase.STARTING)) {
+                assertTrue("Preview Client Runtime timed out: ${runtime.info}",
+                    SystemClock.elapsedRealtime() < deadline)
+                runtime = controller.stepRuntime()
+            }
+            assertEquals("Preview Client Runtime failed: ${runtime.info}", ExtensionRuntime.Phase.ACTIVE, runtime.info.phase)
+            var content: com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content? = null
+            while (content == null && SystemClock.elapsedRealtime() < deadline) {
+                controller.stepRuntime()
+                val (status, received) = controller.takeRuntimeResource()
+                assertTrue("Preview resource receive failed: $status",
+                    status == com.hanxi.ghosterm.bridge.ExtensionResourceStore.Status.OK ||
+                        status == com.hanxi.ghosterm.bridge.ExtensionResourceStore.Status.WAIT)
+                content = received
+                if (content == null) SystemClock.sleep(5)
+            }
+            assertNotNull("Android Host did not receive the real gterm Preview resource", content)
+            val expected = "Android Preview over two-hop SSH\n".toByteArray()
+            assertArrayEquals(expected, content!!.bytes)
+            assertEquals("text/plain", content.descriptor.mime)
+            assertEquals("fixture.txt", content.descriptor.displayName)
+            assertEquals(expected.size.toLong(), content.descriptor.size)
+            assertEquals(MessageDigest.getInstance("SHA-256").digest(expected)
+                .joinToString("") { "%02x".format(it.toInt() and 255) }, content.descriptor.sha256)
+        } finally {
+            controller.close()
             knownHosts.delete()
             packageDir.deleteRecursively()
         }

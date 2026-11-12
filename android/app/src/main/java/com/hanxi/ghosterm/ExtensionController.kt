@@ -175,7 +175,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
     /** Transfer a ready SSH relay to a HOST Session using only the already
      * approved fixed Client package and caller-selected Executor identity. */
     suspend fun adoptSSHSession(pluginID: String, packageDigest: String, executorDigest: String,
-        hostVersion: String, peerIdentity: String, methods: List<ExtensionSession.Method>): SessionState = onWorker {
+        hostVersion: String, peerIdentity: String, methods: List<ExtensionSession.Method>,
+        additionalRequiredCapabilities: List<String> = emptyList()): SessionState = onWorker {
         check(session == null && runtime == null) { "此 controller 已有活动插件 Session" }
         val key = Key(pluginID, packageDigest)
         val record = records[key] ?: error("插件包摘要已失效")
@@ -189,10 +190,16 @@ class ExtensionController(profile: HostProfile, context: Context) {
         check(metadata.id == pluginID && metadata.packageDigest == packageDigest && !metadata.executor) {
             "固定包不是所选 Client 包"
         }
+        check(metadata.requires.size + additionalRequiredCapabilities.size <= 16 &&
+            additionalRequiredCapabilities.all { it in hostCapabilities } &&
+            (metadata.requires + additionalRequiredCapabilities).distinct().size ==
+                metadata.requires.size + additionalRequiredCapabilities.size) {
+            "附加 Session 能力必须由 Host 支持且不能重复"
+        }
         val receiveStore = if ("resource.receive" in metadata.requires) resourceStoreOnWorker() else null
         val owned = ExtensionSession.adopt(bytes, ExtensionSession.Role.HOST,
             ExtensionSession.Config(metadata.id, metadata.version, metadata.packageDigest, executorDigest,
-                hostVersion, metadata.sdkVersion, metadata.requires, hostCapabilities,
+                hostVersion, metadata.sdkVersion, metadata.requires + additionalRequiredCapabilities, hostCapabilities,
                 budgets = ExtensionSession.Budgets(resourceBytes = RESOURCE_BYTES.toInt()),
                 peerKind = ExtensionSession.PeerKind.SSH, peerIdentity = peerIdentity, methods = methods.toList()), resourceStore = receiveStore,
             resourceScopeBytes = RESOURCE_SESSION_BYTES)

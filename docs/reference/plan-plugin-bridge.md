@@ -4426,3 +4426,12 @@ Fixture 的 stylesheet 与 PNG 都通过生产 `PluginResourceHTMLSchemeHandler`
 默认 JS-off 与 JS-enabled 的 Android debug / androidTest 编译通过。API 36 arm64 无窗口模拟器：`PluginResourcePreviewTest` **2 项通过**（严格 UTF-8、文本预算、真实 PNG 解码像素、超预算拒绝），`PluginResourcePreviewUiTest` **1 项通过**（静态 HTML 源码提示与 PNG Image 节点），插件 Runtime 专项 12 项在前一批已通过。Android ABI 对拍 140 引用 / 37 登记未用，无公共 C ABI 变化。
 
 这证明资源面板与预览 renderer 可接收注入快照并绘制，但未覆盖真实 `gterm preview` 经 Android SSH Controller / consent / Runtime 到面板的端到端交互、Android Markdown 格式化和真实设备矩阵；不记 P2 闭环完成。
+
+
+### P2 实施第三十批：Android 官方 Preview 双跳 SSH 收件端到端（2026-11-12）
+
+新增 API 36 arm64 headless 模拟器端到端：测试从仓库固定的 `plugins/official/preview` 读取并校验同一包摘要，通过两跳隔离 SSH、逐跳 hostkey / 私钥认证，运行真实 JS-enabled `gterm relay --stdio`；Android Controller 审查并批准官方 Client 包、接管 SSH Session、显式批准包含 `file.readScoped` 的能力集合、启动 Client Runtime，并从 ResourceStore 收到资源。测试逐字节校验 `fixture.txt` 内容、MIME、显示名、长度和 SHA-256。`scripts/test-plugin-preview-android.py` 负责安装当前构建 APK、创建本机双跳 SSH 与受控 fixture，断言远端隔离 ResourceStore 临时文件在结束后清空；所有模拟器均 `-no-window`，不弹前台测试窗口。
+
+握手排查确认 Client manifest 的 `resource.receive` 与已选 Executor 的 `file.readScoped` 需求不同。Android `adoptSSHSession` 因此接受显式附加 Session 能力，但仅允许 HostProfile 支持且不与 Client manifest 重复的能力；本测试只在命令显式提供 `--root workspace <fixture>` 时请求 `file.readScoped`。Host 主动关闭长驻 Preview Session 后，远端以协议定义的结果未知结束（状态 7）；脚本确认并保留该三态结果，不把资源已送达伪报为 Executor 业务成功。
+
+JS-enabled Android debug / androidTest APK 编译通过；`python3 scripts/test-plugin-preview-android.py --android emulator-5556 --gterm tmp/gterm-build/gterm` 通过（API 36，真实双跳 SSH / Session consent / Runtime / ResourceStore 收件，`OK (1 test)`）。官方 Preview README 的内容摘要此前落后于生成文件，按 `scripts/build-plugin-preview.py` 重建 `integrity.json` 后摘要一致。该证据不代表真机、API 29 / 16 KiB 页或完整产品面板 UI 验收；HTML / Markdown 在 Android 的格式化呈现与后续 P3–P6 仍待完成，不记 P2 闭环完成。不改公共 C ABI，不增加 macOS CI 二十份。
