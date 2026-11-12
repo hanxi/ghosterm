@@ -4135,3 +4135,10 @@ AppModel 维护单一活动插件运行状态；UI 观察 Session / Runtime phas
 新增 `gt_ext_package_read_command_schema`，只按已检查命令路径查找其 manifest 声明的 `argsSchema`，并从该 package owner 持有的不可变 checked snapshot 读取字节；不回读原目录，不暴露任意成员读取，限制 64 KiB，支持先查询长度再拷贝。Swift `ExtensionPackage.commandSchema` 与 Android JNI/Kotlin 门面已同步，Core `test_ext_package` 覆盖长度查询、实际内容和未知命令拒绝。
 
 `bash scripts/gate.sh` 全绿：CTest 474 项、公共 ABI 177 项、未实现入口检查通过。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/apple-app-gate.sh` 全绿：Apple 绑定对拍 174 项 / 3 项登记未用，ssh e2e 通过，GhostermApp 386 项、4 项 skip、0 失败。`python3 scripts/check-abi-android.py` 对拍 140 引用 / 37 登记未用。Android Kotlin/JNI 原生构建未运行：本机没有 Java Runtime；该 ABI 来源对拍不替代 Android 编译。此批只提供不可变 schema 字节读取，尚未实现 consent 前 `x-ghosterm-cli` 解码或 UI 展示；下一批应复用 SDK v1 契约在 consent 前校验 argv，不将原始 argv 冒充 decoded values。不增加 macOS CI 二十份。
+
+
+### P0 第九十三批：consent 前解码 Client argv
+
+macOS Controller 现从按 package ID + digest 精确选中的已批准包 owner 读取 command schema，并在开始 SSH / relay 前按 SDK v1 `x-ghosterm-cli` 规则解码原始 argv。支持连续位置参数、长选项两种赋值形式、布尔旗标、`--`、标量默认值、Unicode scalar 文本长度及安全整数 / schema 范围检查；未知、重复、缺失、额外和非法参数会在网络连接及 consent 前拒绝。Consent 卡片同时保留用户输入 argv 并显示按固定快照解出的 JSON 对象；不映射且 argv 为空时显示无映射。激活后的 Core Runtime 仍独立重复权威解码。
+
+新增两项 XCTest 覆盖成功解码与默认值、整数 / 布尔类型，以及未知映射、非法整数、缺失位置项、重复选项和空映射边界。一次完整 Apple gate 发现测试内位置参数计数把选项 token 也算入，修正后定向两项与最终完整 gate 均通过；最终 gate：Apple ABI 174 引用 / 3 登记未用，SSH e2e 通过，GhostermApp 388 项、4 项 skip、0 失败。此为 Swift consent 预览解码；Core Runtime 仍是激活行为的最终校验者。Android UI consent 流尚未接入，需后续按 SDK 契约接入并保持 JNI 绑定验证；不增加 macOS CI 二十份。

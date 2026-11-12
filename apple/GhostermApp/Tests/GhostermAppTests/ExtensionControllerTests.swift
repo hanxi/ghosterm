@@ -32,6 +32,25 @@ final class ExtensionControllerTests: XCTestCase {
             hostMethods: ["same"], command: "fixture.run")))
     }
 
+    func testCheckedCommandSchemaDecodesSDKCLIArguments() throws {
+        let schema = #"{"type":"object","properties":{"path":{"type":"string","minLength":0,"maxLength":40},"lines":{"type":"integer","minimum":1,"maximum":100},"wrap":{"type":"boolean"}},"required":["path","lines","wrap"],"additionalProperties":false,"x-ghosterm-cli":{"version":1,"fields":{"path":{"position":0},"lines":{"option":"lines","default":10},"wrap":{"option":"wrap","default":false}}}}"#.data(using: .utf8)!
+        XCTAssertEqual(try ExtensionCLIArguments.decode(schema: schema,
+            arguments: ["report.txt", "--lines=20", "--wrap"]),
+            #"{"lines":20,"path":"report.txt","wrap":true}"#)
+        XCTAssertEqual(try ExtensionCLIArguments.decode(schema: schema,
+            arguments: ["report.txt"]), #"{"lines":10,"path":"report.txt","wrap":false}"#)
+    }
+
+    func testCheckedCommandSchemaRejectsInvalidArgumentsBeforeConsent() throws {
+        let schema = #"{"type":"object","properties":{"path":{"type":"string","maxLength":40},"count":{"type":"integer","minimum":1,"maximum":10}},"x-ghosterm-cli":{"version":1,"fields":{"path":{"position":0},"count":{"option":"count","default":2}}}}"#.data(using: .utf8)!
+        XCTAssertThrowsError(try ExtensionCLIArguments.decode(schema: schema, arguments: ["a", "--count", "01"]))
+        XCTAssertThrowsError(try ExtensionCLIArguments.decode(schema: schema, arguments: ["--count=3"]))
+        XCTAssertThrowsError(try ExtensionCLIArguments.decode(schema: schema, arguments: ["a", "--count=3", "--count=4"]))
+        let noMapping = #"{"type":"object","properties":{}}"#.data(using: .utf8)!
+        XCTAssertNil(try ExtensionCLIArguments.decode(schema: noMapping, arguments: []))
+        XCTAssertThrowsError(try ExtensionCLIArguments.decode(schema: noMapping, arguments: ["unexpected"]))
+    }
+
     @MainActor
     func testControllerOwnsSSHChannelAndAuthenticationOnWorker() async throws {
         guard let host = ProcessInfo.processInfo.environment["GHOSTERM_SSH_HOST"],

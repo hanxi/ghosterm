@@ -171,6 +171,8 @@ struct ExtensionsPane: View {
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             Text("参数：\(run.arguments.isEmpty ? "无" : run.arguments.map { String(reflecting: $0) }.joined(separator: " "))")
                 .font(DS.Font.caption).textSelection(.enabled)
+            Text("按已检查 argsSchema 解码：\(run.decodedArguments ?? "无映射（空参数）")")
+                .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             Text("Executor RPC：\(run.methods.isEmpty ? "无" : run.methods.joined(separator: ", "))")
                 .font(DS.Font.caption)
             Text("Host RPC：\(run.hostMethods.isEmpty ? "无" : run.hostMethods.joined(separator: ", "))")

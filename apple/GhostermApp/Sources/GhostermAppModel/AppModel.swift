@@ -49,6 +49,7 @@ public final class AppModel: ObservableObject {
         public let packageDigest: String
         public let command: String
         public let arguments: [String]
+        public let decodedArguments: String?
         public let executorDigest: String
         public let peerIdentity: String
         public let remoteCommand: String
@@ -1090,6 +1091,8 @@ public final class AppModel: ObservableObject {
             guard (methods.isEmpty && hostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
                 throw GhostermError.failed("此 Client 包未声明 session.rpc，不能协商 RPC 方法")
             }
+            let decodedArguments = try await extensionController.decodeArguments(packageID: packageID,
+                packageDigest: packageDigest, command: command, arguments: arguments)
             let bootstrap = try ExtensionRelayBootstrap.build(.init(executable: executable,
                 executorDirectory: executorDirectory, executorDigest: executorDigest,
                 clientDigest: packageDigest, methods: methods, hostMethods: hostMethods,
@@ -1108,7 +1111,8 @@ public final class AppModel: ObservableObject {
                 hostVersion: version, peerIdentity: sshAlias, methods: rpcMethods)
             extensionRunInvocation = (packageID, packageDigest, command, arguments)
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
-                command: command, arguments: arguments, executorDigest: executorDigest,
+                command: command, arguments: arguments, decodedArguments: decodedArguments,
+                executorDigest: executorDigest,
                 peerIdentity: sshAlias, remoteCommand: bootstrap, methods: methods, hostMethods: hostMethods,
                 session: session, runtime: nil)
             let deadline = ProcessInfo.processInfo.systemUptime + 60
@@ -1232,7 +1236,8 @@ public final class AppModel: ObservableObject {
     private func updateExtensionRun(session: ExtensionController.SessionState) {
         guard let run = extensionRun else { return }
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
-            command: run.command, arguments: run.arguments, executorDigest: run.executorDigest,
+            command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
+            executorDigest: run.executorDigest,
             peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
             methods: run.methods, hostMethods: run.hostMethods,
             session: session, runtime: run.runtime)
@@ -1241,7 +1246,8 @@ public final class AppModel: ObservableObject {
     private func updateExtensionRun(runtime: ExtensionController.RuntimeState) {
         guard let run = extensionRun else { return }
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
-            command: run.command, arguments: run.arguments, executorDigest: run.executorDigest,
+            command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
+            executorDigest: run.executorDigest,
             peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
             methods: run.methods, hostMethods: run.hostMethods,
             session: run.session, runtime: runtime)
