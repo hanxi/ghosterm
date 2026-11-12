@@ -8,6 +8,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.ExtensionChannel
 import com.hanxi.ghosterm.bridge.AuthenticatedSSH
 import com.hanxi.ghosterm.bridge.SSHAuthPhase
+import com.hanxi.ghosterm.bridge.PreparedSSH
 import kotlinx.coroutines.runBlocking
 import java.io.DataInputStream
 import java.io.File
@@ -228,9 +229,9 @@ class ExtensionChannelTest {
         val entry = payload.getJSONObject("two"); val ports = entry.getJSONArray("ports")
         val dir = File(instrumentation.targetContext.cacheDir, "extension-controller-ssh-${System.nanoTime()}")
         check(dir.mkdir())
-        val known = File(dir, "known_hosts").apply {
-            writeText(entry.getString("known").replace("route-hop-1.invalid", "127.0.0.1"))
-        }
+        // Deliberately start without trust so this worker test exercises both
+        // hostkey decisions as well as per-hop credentials.
+        val known = File(dir, "known_hosts").apply { writeText("") }
         val target = PreparedSSH("dest", "127.0.0.1", payload.getString("user"), ports.getInt(1), emptyList(),
             listOf(PreparedSSH("jump", "route-hop-0.invalid", payload.getString("user"), ports.getInt(0), emptyList())))
         val controller = ExtensionController(
@@ -267,7 +268,7 @@ class ExtensionChannelTest {
         }
     }
 
-    @Test fun sessionsAttemptRoutesPluginPromptsThroughController() = runBlocking {
+    @Test fun sessionsAttemptRoutesPluginPromptsThroughController() = runBlocking<Unit> {
         assumeTrue("requires the explicit JS-enabled Android build", BuildConfig.PLUGIN_JS_ENABLED)
         val payload = fixture; val entry = payload.getJSONObject("two"); val ports = entry.getJSONArray("ports")
         val instrumentation = this@ExtensionChannelTest.instrumentation

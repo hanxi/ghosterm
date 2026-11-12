@@ -3,6 +3,7 @@ package com.hanxi.ghosterm
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
 import android.content.ContentResolver
@@ -16,8 +17,9 @@ import com.hanxi.ghosterm.bridge.ExtensionChannel
 import com.hanxi.ghosterm.bridge.ExtensionSession
 import com.hanxi.ghosterm.bridge.ExtensionRuntime
 import com.hanxi.ghosterm.bridge.SSHAuthState
+import com.hanxi.ghosterm.bridge.PreparedSSH
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
@@ -81,7 +83,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private data class Record(val packageBytes: ExtensionPackage, val review: Review, var source: Source)
 
     private val thread = HandlerThread("ghosterm-extension-controller", Thread.NORM_PRIORITY).apply { start() }
-    private val dispatcher: ExecutorCoroutineDispatcher = Handler(thread.looper).asCoroutineDispatcher("ghosterm-extension-controller")
+    private val dispatcher: CoroutineDispatcher = Handler(thread.looper).asCoroutineDispatcher("ghosterm-extension-controller")
     private val resolver: ContentResolver = context.applicationContext.contentResolver
     private val stagingRoot = File(context.applicationContext.cacheDir, "extension-package-review")
     private val hostJSON = profile.json()
@@ -268,8 +270,12 @@ class ExtensionController(profile: HostProfile, context: Context) {
     suspend fun review(directory: File): Review = onWorker {
         checkOpen()
         require(directory.isAbsolute && directory.path.isNotBlank() && '\u0000' !in directory.path && directory.path.toByteArray().size <= 4096)
-        val fd = Os.open(directory.path, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC, 0)
-        val packageBytes = try { ExtensionPackage.capture(fd) } finally { Os.close(fd) }
+        val fd = Os.open(directory.path, OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC, 0)
+        val packageBytes = try {
+            ParcelFileDescriptor.dup(fd).use { ExtensionPackage.capture(it.fd) }
+        } finally {
+            Os.close(fd)
+        }
         try {
             var phase = packageBytes.step()
             var steps = 1
@@ -390,7 +396,6 @@ class ExtensionController(profile: HostProfile, context: Context) {
             }
         } finally {
             if (cleanupComplete.get()) {
-                dispatcher.close()
                 thread.quitSafely()
             }
         }

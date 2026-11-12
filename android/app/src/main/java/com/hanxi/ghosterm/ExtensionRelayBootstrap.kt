@@ -40,7 +40,7 @@ object ExtensionRelayBootstrap {
 
     private fun parseStringArray(source: String, limit: Int, label: String): List<String> {
         require(source.toByteArray().size <= 65536) { "$label JSON 超过 64 KiB" }
-        try {
+        return try {
             JsonReader(StringReader(source)).use { reader ->
                 reader.isLenient = false
                 require(reader.peek() == JsonToken.BEGIN_ARRAY) { "$label 必须是 JSON 字符串数组" }
