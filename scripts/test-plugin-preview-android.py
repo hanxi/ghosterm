@@ -11,6 +11,7 @@ import os
 import pwd
 import secrets
 import shutil
+import shlex
 import socketserver
 import struct
 import subprocess
@@ -34,6 +35,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--android", required=True, help="explicit test device or headless emulator serial")
     parser.add_argument("--gterm", type=Path, required=True, help="JS-enabled gterm executable")
+    parser.add_argument("--test", default="com.hanxi.ghosterm.ExtensionChannelTest#controllerReceivesOfficialPreviewOverTwoHopSSH",
+                        help="single instrumentation class#method (defaults to the isolated Controller E2E)")
     args = parser.parse_args()
     gterm = args.gterm.resolve()
     package_source = ROOT / "plugins/official/preview"
@@ -70,6 +73,11 @@ def main():
     remote_tmp.mkdir()
     remote_stderr = work / "remote-gterm.stderr"
     remote_exit = work / "remote-gterm.exit"
+    remote_wrapper = work / "gterm-preview-wrapper"
+    remote_wrapper.write_text("#!/bin/sh\n" + shlex.quote(str(gterm)) + " \"$@\" 2>" +
+                              shlex.quote(str(remote_stderr)) + "\nstatus=$?\nprintf '%s' \"$status\" > " +
+                              shlex.quote(str(remote_exit)) + "\nexit \"$status\"\n")
+    remote_wrapper.chmod(0o700)
     fixture_token = secrets.token_hex(24)
     apk = ROOT / "android/app/build/outputs/apk/debug/app-debug.apk"
     test_apk = ROOT / "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
@@ -100,6 +108,7 @@ def main():
                     "previewRemoteStderr": str(remote_stderr),
                     "previewRemoteExit": str(remote_exit),
                     "gtermBinary": str(gterm),
+                    "previewGtermWrapper": str(remote_wrapper),
                 }
                 payload = json.dumps(fixture, separators=(",", ":")).encode()
                 if len(payload) > 1048576:
@@ -123,7 +132,7 @@ def main():
                                        check=True, capture_output=True, timeout=15)
                     output = subprocess.run(
                         [*device, "shell", "am", "instrument", "-w", "-r",
-                         "-e", "class", "com.hanxi.ghosterm.ExtensionChannelTest#controllerReceivesOfficialPreviewOverTwoHopSSH",
+                         "-e", "class", args.test,
                          "-e", "fixturePort", str(fixture_port), "-e", "fixtureToken", fixture_token,
                          "com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner"],
                         cwd=ROOT, capture_output=True, text=True, timeout=240)
@@ -132,7 +141,7 @@ def main():
                     if output.returncode or "OK (1 test)" not in transcript or "FAILURES!!!" in transcript or "INSTRUMENTATION_FAILED" in transcript:
                         remote_error = remote_stderr.read_text(errors="replace") if remote_stderr.exists() else ""
                         remote_status = remote_exit.read_text(errors="replace") if remote_exit.exists() else "not-exited"
-                        raise RuntimeError(f"Android official Preview instrumentation failed ({output.returncode}); remote exit={remote_status}; stderr={remote_error}")
+                        raise RuntimeError(f"Android Preview instrumentation failed ({output.returncode}); remote exit={remote_status}; stderr={remote_error}")
                     deadline = time.monotonic() + 15
                     while not remote_exit.exists() and time.monotonic() < deadline:
                         time.sleep(0.05)
