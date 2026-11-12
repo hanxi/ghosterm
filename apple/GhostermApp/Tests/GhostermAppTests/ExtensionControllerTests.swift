@@ -48,13 +48,14 @@ final class ExtensionControllerTests: XCTestCase {
     }
 
     func testPluginResourceMarkdownDecoderRequiresMarkdownAndEnforcesBudget() throws {
-        let bytes = Data("# Notes\n\n**safe** text".utf8)
+        let bytes = Data("# Notes\n\n**safe** [external](https://example.invalid)".utf8)
         let decoded = try XCTUnwrap(PluginResourceMarkdownDecoder.decode(
             bytes, mime: "text/markdown; charset=utf-8", displayName: "notes.md"))
-        XCTAssertEqual(String(decoded.characters), "Notessafe text")
+        XCTAssertEqual(String(decoded.characters), "Notessafe external")
         XCTAssertTrue(decoded.runs.contains {
             $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true
         })
+        XCTAssertFalse(decoded.runs.contains { $0.link != nil }, "Markdown links must not navigate out of the preview")
         XCTAssertNil(PluginResourceMarkdownDecoder.decode(bytes, mime: "text/html", displayName: "page.html"))
         XCTAssertNil(PluginResourceMarkdownDecoder.decode(Data([0xff]), mime: "text/markdown", displayName: "x.md"))
         XCTAssertNil(PluginResourceMarkdownDecoder.decode(

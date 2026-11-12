@@ -17,7 +17,12 @@ public enum PluginResourceMarkdownDecoder {
                               baseURL: URL? = nil) -> AttributedString? {
         guard supports(mime: mime, displayName: displayName), data.count <= maximumBytes,
               let text = String(data: data, encoding: .utf8) else { return nil }
-        return try? AttributedString(markdown: text, options: .init(interpretedSyntax: .full),
-                                     baseURL: baseURL)
+        guard var result = try? AttributedString(markdown: text,
+                                                 options: .init(interpretedSyntax: .full),
+                                                 baseURL: baseURL) else { return nil }
+        for run in result.runs where run.link != nil {
+            result[run.range].link = nil
+        }
+        return result
     }
 }

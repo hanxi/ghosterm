@@ -4346,3 +4346,10 @@ Markdown parser 使用文档自身的 `ghosterm-resource` URL 作为 base URL，
 `testMarkdownPreviewDrawsAnExplicitImageSnapshot` 定向通过。随后完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **401 项、5 skip、0 失败**。
 
 这仍只证明 Markdown raster image 的离屏绘制；HTML WKWebView 子资源实际绘制与导航运行时、Preview 专属交互流程仍待专项验收。不改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第二十批：Markdown 外链失活（2026-11-12）
+
+`AttributedString(markdown:)` 默认保留链接目标，可能让 SwiftUI `Text` 将外部链接变成可点击跳转。Markdown decoder 现在在返回解析结果前清除所有 link URL 属性，同时保留链接文字与强调样式；图片 URL 属性独立保留并继续走受限附件 resolver。Markdown 预览因此不会发起用户触发的外部导航。
+
+扩展 decoder 测试确认外链文字及强调属性保留、link 属性被清除；定向测试通过。完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **401 项、5 skip、0 失败**。HTML 主框架导航与附件的既有限制不变；Markdown 预览不新增通用链接交互。
