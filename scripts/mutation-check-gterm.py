@@ -28,7 +28,7 @@ def main():
             ('consent', '        if (state == GT_EXT_SESSION_ACTIVE) {\n', '        if (state < GT_EXT_SESSION_ENDING) {\n', 'deny'),
             ('arguments', '(size_t)(argc - at - 3)', '0', 'roundtrip'),
             ('dispose-error', ' || info.dispose_error', '', 'dispose-error'),
-            ('method-role', 'm->receiver = GT_EXT_EXECUTOR;', 'm->receiver = GT_EXT_HOST;', 'roundtrip'),
+            ('method-role', 'm->receiver = !strcmp(argv[at], "--host-method") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'm->receiver = !strcmp(argv[at], "--host-method") ? GT_EXT_EXECUTOR : GT_EXT_EXECUTOR;', 'host-method'),
         ]
     if args.resolve:
         cases = [

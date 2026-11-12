@@ -41,10 +41,11 @@ int main(int argc, char **argv) {
     bool preview =
         argc >= 7 && (!strcmp(argv[4], "preview") || !strcmp(argv[4], "preview-unicode"));
     bool preview_unicode = preview && !strcmp(argv[4], "preview-unicode");
-    CHECK(argc == 5 || (preview && argc == (preview_unicode ? 8 : 7)));
+    bool process_config = argc == 9 && !strcmp(argv[4], "process-config");
+    CHECK(argc == 5 || (preview && argc == (preview_unicode ? 8 : 7)) || process_config);
     CHECK(!atexit(cleanup));
     const char *binary = argv[1], *directory = argv[2], *package_digest = argv[3], *mode = argv[4];
-    const char *workspace = preview ? argv[5] : NULL;
+    const char *workspace = preview || process_config ? argv[5] : NULL;
     const char *store_directory = preview ? argv[6] : NULL;
     const char *preview_path = preview_unicode ? argv[7] : "site/index.md";
     char client_digest[65];
@@ -74,7 +75,33 @@ int main(int argc, char **argv) {
             close(fd[1]);
         }
         const char *trusted = !strcmp(mode, "digest") ? client_digest : package_digest;
-        if (preview) {
+        if (process_config) {
+            execl(binary,
+                  binary,
+                  "relay",
+                  "--stdio",
+                  "--trust-development-digest",
+                  package_digest,
+                  "--client-digest",
+                  client_digest,
+                  "--root",
+                  "workspace",
+                  workspace,
+                  "--process-program",
+                  "cat",
+                  argv[6],
+                  argv[7],
+                  argv[8],
+                  "--method",
+                  "fixture.echo",
+                  "--",
+                  directory,
+                  "fixture",
+                  "中文",
+                  "",
+                  "';throw Error('injected');//",
+                  (char *)NULL);
+        } else if (preview) {
             if (preview_unicode) {
                 execl(binary,
                       binary,
@@ -200,7 +227,7 @@ int main(int argc, char **argv) {
     }
     gt_ext_channel_t *channel = NULL;
     CHECK(gt_ext_channel_open_fd(fd[0], pipes ? fd[1] : fd[0], &channel) == GT_OK);
-    gt_ext_session_config_t c = {.required_count = preview ? 2 : 1,
+    gt_ext_session_config_t c = {.required_count = preview ? 2 : (process_config ? 3 : 1),
                                  .available_count = 1,
                                  .budgets = {768, 65536, 262144},
                                  .handshake_ms = 5000,
@@ -213,7 +240,15 @@ int main(int argc, char **argv) {
     strcpy(c.host_version, "0.1.0");
     strcpy(c.client_digest, client_digest);
     strcpy(c.executor_digest, package_digest);
-    if (preview) {
+    if (process_config) {
+        c.available_count = 3;
+        strcpy(c.required[0], "session.rpc");
+        strcpy(c.required[1], "process.spawn");
+        strcpy(c.required[2], "process.pipes");
+        strcpy(c.available[0], "session.rpc");
+        strcpy(c.available[1], "process.spawn");
+        strcpy(c.available[2], "process.pipes");
+    } else if (preview) {
         c.available_count = 2;
         c.features = GT_EXT_FEATURE_RESOURCES | GT_EXT_FEATURE_REQUESTS;
         strcpy(c.required[0], "resource.receive");
@@ -255,7 +290,7 @@ int main(int argc, char **argv) {
         CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &c, methods, method_count, &session) ==
               GT_OK);
     }
-    uint64_t deadline = now() + 10000, consent_at = 0, handle = 0;
+    uint64_t deadline = now() + 10000, consent_at = 0, handle = 0, process_ready_at = 0;
     bool confirmed = false, host_method_confirmed = false, decided = false, signalled = false,
          lost = false;
     bool preview_main = false, preview_asset = false;
@@ -345,6 +380,15 @@ int main(int argc, char **argv) {
             }
         } else if (info.phase == GT_EXT_SESSION_ACTIVE && !handle) {
             CHECK(strcmp(mode, "deny") && strcmp(mode, "cancel"));
+            if (process_config) {
+                if (!process_ready_at) {
+                    process_ready_at = now() + 100;
+                }
+                if (now() < process_ready_at) {
+                    idle();
+                    continue;
+                }
+            }
             if (strcmp(mode, "arguments-invalid")) {
                 CHECK(gt_ext_session_lease(session, &lease));
                 const char *input = "{\"text\":\"stdio\",\"count\":17}";

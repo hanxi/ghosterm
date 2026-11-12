@@ -24,6 +24,13 @@ typedef struct {
     char directory[PATH_MAX];
 } resource_owner_t;
 
+typedef struct {
+    const char *name;
+    const char *executable;
+    const char *version;
+    const char *sha256;
+} process_program_t;
+
 static int diagnostic(const char *message, int code) {
     fprintf(stderr, "gterm: %s\n", message);
     return code;
@@ -190,9 +197,15 @@ static bool close_owners(gt_ext_runtime_t **runtime,
 int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     const char *trusted = NULL, *client = NULL;
     gt_ext_rpc_method_t methods[GT_EXT_RPC_METHODS_MAX] = {0};
+    process_program_t process_programs[GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX] = {0};
     source_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
     gt_ext_runtime_root_t runtime_roots[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
+    gt_ext_process_program_mapping_t runtime_programs[GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX] = {0};
+    gt_ext_process_environment_t runtime_environment[GT_EXT_RUNTIME_PROCESS_ENV_MAX] = {0};
+    char environment_values[4][4097] = {{0}};
     size_t method_count = 0;
+    size_t process_program_count = 0;
+    size_t process_environment_count = 0;
     size_t root_count = 0;
     int at = 0;
     for (; at < argc && strcmp(argv[at], "--");) {
@@ -203,6 +216,15 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
             roots[root_count++] =
                 (source_root_t){.id = argv[at + 1], .path = argv[at + 2], .fd = -1};
             at += 3;
+            continue;
+        }
+        if (!strcmp(argv[at], "--process-program")) {
+            if (at + 4 >= argc || process_program_count == GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX) {
+                return diagnostic("missing or excess process program mapping", 2);
+            }
+            process_programs[process_program_count++] =
+                (process_program_t){argv[at + 1], argv[at + 2], argv[at + 3], argv[at + 4]};
+            at += 5;
             continue;
         }
         if (at + 1 >= argc) {
@@ -248,6 +270,10 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         result = diagnostic("resource root unavailable or invalid", 2);
         goto done;
     }
+    if (process_program_count && !root_count) {
+        result = diagnostic("process mappings require an explicit workspace root", 4);
+        goto done;
+    }
     for (size_t i = 0; i < root_count; i++) {
         runtime_roots[i] = roots[i].runtime;
     }
@@ -279,21 +305,22 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     if (phase != GT_EXT_PACKAGE_CAPTURED) {
         goto done;
     }
-    const char *host = root_count && resource_store_available
-                           ? "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
+    const bool process_available = process_program_count && root_count;
+    char host_json[512];
+    int host_size = snprintf(host_json,
+                             sizeof(host_json),
+                             "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
                              "\",\"protocols\":[" GTERM_PROTOCOL
-                             "],\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\","
-                             "\"resource.receive\",\"file.readScoped\"]}"
-                       : resource_store_available
-                           ? "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
-                             "\",\"protocols\":[" GTERM_PROTOCOL
-                             "],\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\","
-                             "\"resource.receive\"]}"
-                           : "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
-                             "\",\"protocols\":[" GTERM_PROTOCOL
-                             "],\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\"]}";
+                             "],\"runtimes\":[\"portable-js\"],"
+                             "\"capabilities\":[\"session.rpc\"%s%s%s]}",
+                             process_available ? ",\"process.spawn\",\"process.pipes\"" : "",
+                             resource_store_available ? ",\"resource.receive\"" : "",
+                             root_count && resource_store_available ? ",\"file.readScoped\"" : "");
+    if (host_size <= 0 || (size_t)host_size >= sizeof(host_json)) {
+        goto done;
+    }
     stage = "package compatibility check";
-    gt_ext_package_check_config_t check = {.host_json = host};
+    gt_ext_package_check_config_t check = {.host_json = host_json};
     if (gt_ext_package_check(package, &check) != GT_EXT_PACKAGE_CHECKED) {
         gt_ext_package_info_t info;
         if (gt_ext_package_info(package, &info)) {
@@ -345,6 +372,10 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     strcpy(config.host_version, "0.1.0");
     strcpy(config.sdk_version, metadata.sdk_version);
     strcpy(config.available[0], "session.rpc");
+    if (process_available) {
+        strcpy(config.available[config.available_count++], "process.spawn");
+        strcpy(config.available[config.available_count++], "process.pipes");
+    }
     if (resource_store_available) {
         strcpy(config.available[config.available_count++], "resource.receive");
         if (root_count) {
@@ -353,6 +384,7 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     }
     config.required_count = metadata.requires_count;
     bool rpc = false, receive_resources = false, scoped_reads = false;
+    bool process_spawn = false, process_pipes = false;
     for (size_t i = 0; i < config.required_count; i++) {
         strcpy(config.required[i], metadata.requires[i]);
         if (!strcmp(metadata.requires[i], "session.rpc")) {
@@ -361,6 +393,10 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
             receive_resources = true;
         } else if (!strcmp(metadata.requires[i], "file.readScoped")) {
             scoped_reads = true;
+        } else if (!strcmp(metadata.requires[i], "process.spawn")) {
+            process_spawn = true;
+        } else if (!strcmp(metadata.requires[i], "process.pipes")) {
+            process_pipes = true;
         }
     }
     if ((receive_resources && !resource_store_available) || (scoped_reads && !root_count) ||
@@ -368,8 +404,47 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         result = diagnostic("resource capability requires an available store and explicit root", 4);
         goto done;
     }
+    if ((process_spawn || process_pipes) &&
+        (!process_available || !process_spawn || !process_pipes)) {
+        result = diagnostic(
+            "process capabilities require explicit program mappings and a workspace root", 4);
+        goto done;
+    }
+    if (process_program_count && !process_spawn) {
+        result = diagnostic(
+            "process mappings require both process.spawn and process.pipes in the package", 4);
+        goto done;
+    }
     if (receive_resources) {
         config.features |= GT_EXT_FEATURE_RESOURCES;
+    }
+    if (process_spawn) {
+        /* Executor children receive only selected user environment values.
+         * Do not inherit arbitrary variables such as SSH_AUTH_SOCK or secrets. */
+        static const char *const selected_names[] = {
+            "HOME", "PATH", "XDG_CONFIG_HOME", "CODEX_HOME"};
+        for (size_t i = 0; i < sizeof(selected_names) / sizeof(selected_names[0]); i++) {
+            const char *value = getenv(selected_names[i]);
+            if (!value || !value[0]) {
+                continue;
+            }
+            size_t length = strnlen(value, sizeof(environment_values[0]));
+            if (length >= sizeof(environment_values[0])) {
+                result = diagnostic("selected process environment value exceeds its limit", 4);
+                goto done;
+            }
+            strcpy(environment_values[process_environment_count], value);
+            runtime_environment[process_environment_count] =
+                (gt_ext_process_environment_t){selected_names[i],
+                                              environment_values[process_environment_count]};
+            process_environment_count++;
+        }
+        for (size_t i = 0; i < process_program_count; i++) {
+            runtime_programs[i] = (gt_ext_process_program_mapping_t){process_programs[i].name,
+                                                                     process_programs[i].executable,
+                                                                     process_programs[i].version,
+                                                                     process_programs[i].sha256};
+        }
     }
     if (method_count && !rpc) {
         result = diagnostic("methods require a declared session.rpc capability", 4);
@@ -429,7 +504,15 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     gt_ext_runtime_config_t runtime_config = {.role = GT_EXT_EXECUTOR,
                                               .invocation = &invocation,
                                               .roots = root_count ? runtime_roots : NULL,
-                                              .root_count = root_count};
+                                              .root_count = root_count,
+                                              .process_programs =
+                                                  process_spawn ? runtime_programs : NULL,
+                                              .process_program_count =
+                                                  process_spawn ? process_program_count : 0,
+                                              .process_environment =
+                                                  process_spawn ? runtime_environment : NULL,
+                                              .process_environment_count =
+                                                  process_spawn ? process_environment_count : 0};
     if (gt_ext_runtime_open_package(&session, package, &runtime_config, true, &runtime) != GT_OK) {
         goto done;
     }

@@ -36,12 +36,15 @@ def run_preview_runtime(build,work,package):
  assert 'PASS stdio preview-unicode' in r.stdout,r.stdout
  print(r.stdout,end='')
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--build',type=Path,required=True);p.add_argument('--case',choices=['arguments-codec','arguments-invalid','host-method','roundtrip','deny','cancel','digest','peer-digest','command','dispose-error','pipes','active-cancel','lost','pending-loss','silent','tty','preview-runtime']);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--build',type=Path,required=True);p.add_argument('--case',choices=['arguments-codec','arguments-invalid','host-method','roundtrip','deny','cancel','digest','peer-digest','command','dispose-error','pipes','active-cancel','lost','pending-loss','silent','tty','preview-runtime','process-config']);a=p.parse_args()
  work=Path(tempfile.mkdtemp(prefix='gterm-stdio-',dir=ROOT/'tmp'));package=work/'package';package.mkdir()
  try:
   if a.case=='preview-runtime':
    run_preview_runtime(a.build.resolve(),work,package);return
-  manifest=dict(schemaVersion=1,id='org.ghosterm.fixture',pluginVersion='0.1.0',sdkApiRange='^1.0.0',bridgeProtocolRange=[1],publisher='fixture',license='MIT',commands=[dict(path=['fixture'],title='Fixture',argsSchema='schemas/input.json')],executor=dict(variants=[dict(id='portable',runtime='portable-js',entry='executor/index.js',requires=['session.rpc'])]),permissions=[])
+  process_config=a.case=='process-config'
+  required=['session.rpc','process.spawn','process.pipes'] if process_config else ['session.rpc']
+  permissions=[dict(side='executor',capability='process.spawn',programs=['cat'],purpose='fixture process mapping',scope='instance')] if process_config else []
+  manifest=dict(schemaVersion=1,id='org.ghosterm.fixture',pluginVersion='0.1.0',sdkApiRange='^1.0.0',bridgeProtocolRange=[1],publisher='fixture',license='MIT',commands=[dict(path=['fixture'],title='Fixture',argsSchema='schemas/input.json')],executor=dict(variants=[dict(id='portable',runtime='portable-js',entry='executor/index.js',requires=required)]),permissions=permissions)
   plugin="import {object,text,integer} from '@ghosterm/plugin-sdk';export function activate(ctx){if(ctx.invocation.command!=='fixture'||ctx.invocation.arguments[0]!=='中文'||ctx.invocation.arguments[1]!==''||ctx.invocation.arguments[2]!==\"';throw Error('injected');//\")throw Error('argv');const codec=object({text:text(40),count:integer(0,100)});ctx.session.register({name:'fixture.echo',input:codec,output:codec},async(v,c)=>{c.check();return v});return {dispose(){}}}"
   properties={name:{'type':'string','maxLength':100} for name in ['first','empty','literal']}
   cli_fields={name:{'position':i} for i,name in enumerate(['first','empty','literal'])}
@@ -84,15 +87,27 @@ def main():
    if case=='arguments-codec':
     code=code.replace("const codec=", "const a=commandArguments({first:positional(text(100),0),empty:positional(text(100),1),literal:positional(text(100),2),count:option(integer(0,100),'count',0),wrap:option(boolean(),'wrap',false)}).parse(ctx.invocation.arguments);const h=ctx.invocation.decodedArguments;if(a.first!=='中文'||a.empty!==''||a.literal!==ctx.invocation.arguments[2]||a.count!==17||!a.wrap||!Object.isFrozen(a)||!h||h.first!==a.first||h.empty!==a.empty||h.literal!==a.literal||h.count!==a.count||h.wrap!==a.wrap||!Object.isFrozen(h))throw Error('decoded argv');const codec=")
    if case=='pending-loss':code=code.replace('c.check();return v','c.check();return await new Promise(()=>{})')
+   if case=='process-config':code=code.replace('if(ctx.invocation.command',"if(!ctx.process)throw Error('process service missing');if(ctx.invocation.command")
    (package/'executor/index.js').write_text(code)
    for member in members:
     if member['path']=='executor/index.js': member.update(bytes=len(code.encode()),sha256=hashlib.sha256(code.encode()).hexdigest())
    (package/'integrity.json').write_text(json.dumps(dict(schemaVersion=1,members=members)));digest=hashlib.sha256((package/'integrity.json').read_bytes()).hexdigest()
-   r=subprocess.run([str(build/'test_gterm_stdio'),str(build/'gterm'),str(package),digest,case],capture_output=True,text=True,timeout=20)
+   command=[str(build/'test_gterm_stdio'),str(build/'gterm'),str(package),digest,case]
+   if case=='process-config':
+    workspace=work/'process-workspace';workspace.mkdir()
+    command += [str(workspace),'/bin/cat','fixture-1',hashlib.sha256(Path('/bin/cat').read_bytes()).hexdigest()]
+   r=subprocess.run(command,capture_output=True,text=True,timeout=20)
    if "ABNORMAL" in r.stderr or "AddressSanitizer" in r.stderr or "runtime error:" in r.stderr:raise RuntimeError(r.stderr)
    assert r.returncode==0,(case,r.returncode,r.stdout,r.stderr)
    assert 'PASS stdio '+case in r.stdout,r.stdout
    print(r.stdout,end='')
+   if case=='process-config':
+    blocked=subprocess.run([str(build/'gterm'),'relay','--stdio','--trust-development-digest',digest,
+      '--client-digest','d'*64,'--root','workspace',str(workspace),'--',str(package),'fixture'],
+      input='',capture_output=True,text=True,timeout=20)
+    assert blocked.returncode==4 and 'package compatibility failed' in blocked.stderr,(
+      'process-required package without Host mapping must be unsupported',blocked.returncode,blocked.stderr)
+    print('PASS stdio process-config-unavailable')
   if a.case is None:run_preview_runtime(build,work,package)
  finally:shutil.rmtree(work)
 if __name__=='__main__':

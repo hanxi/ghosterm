@@ -48,7 +48,7 @@ python3 scripts/mutation-check-gterm.py
 显式 stdio Executor 由持有专属 pipe/socket 的原生 Host 启动：
 
 ```text
-gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 [--method NAME]... [--host-method NAME]... -- DIRECTORY COMMAND [ARG...]
+gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 [--method NAME]... [--host-method NAME]... [--root ID DIRECTORY]... [--process-program NAME ABSOLUTE_PATH VERSION SHA256]... -- DIRECTORY COMMAND [ARG...]
 ```
 
 这是当前的前台启动协议，不是向交互终端写回的通道；stdin/stdout 任一为 TTY 都拒绝。
@@ -63,6 +63,8 @@ Host 必须管理专属 stdio 的对端归属；本入口不实现本机 socket 
 必须由包声明 session.rpc。
 具体业务 schema 仍由 SDK codec 检查，本入口没有实现任意 JSON Schema 服务。
 当前 stdio Executor 提供 `session.rpc` 与有界 ResourceStore；只有显式配置 `--root ID DIRECTORY` 时才提供 `file.readScoped`。每个根以 `O_NOFOLLOW` 打开、验证为当前用户拥有的目录，最多 8 个、每个最多 16 MiB；插件只看到 ID 与相对路径，不看到宿主绝对路径。资源 Store 在 `$TMPDIR` 下创建随机 `0700` 子目录，总预算 16 MiB、单资源 1 MiB、8 个槽位，Session 结束时按 owner 顺序关闭并移除。需要 `resource.receive` 的 Executor 使用带资源 feature 的 Session；缺少 Store 或必需根时明确拒绝。`file.readScoped` 必须与 `resource.receive` 一起声明，普通 argv 仍通过显式启动参数传入。
+
+Native 启动器可为 Executor 明确配置 `--process-program NAME ABSOLUTE_PATH VERSION SHA256`；该映射来自本次用户/Host 设置，不由插件包选择。只有同时存在至少一个显式 workspace root 和映射时，兼容性事实及 Session 才开放 `process.spawn` / `process.pipes`。Core 在 Runtime open 时核对绝对可执行文件 SHA-256，并在每次 spawn 前复核文件身份；程序名还必须出现在已审查包的 `process.spawn` manifest scope。`VERSION` 是 Native Host 提供的版本声明，gterm/Core 不会自行运行 `--version` 探针，Codex adapter 会将它与锁定版本比较。子进程只收到 gterm 选择的 `HOME`、`PATH`、`XDG_CONFIG_HOME`、`CODEX_HOME`（若存在），不会继承其余 SSH/gterm 环境。Host mapping 当前是显式命令参数；不要把摘要/版本当成来自插件自身的声明。
 
 示例：
 

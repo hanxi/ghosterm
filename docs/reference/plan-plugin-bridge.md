@@ -4808,3 +4808,11 @@ JS-enabled `scripts/test-plugin-runtime.py --mutate --fetch` 通过：原 Runtim
 新增 fake Executor 行为用例：app-server 对 initialize 返回 JSON-RPC error 后，`ready` 正常拒绝，且断言 Host 收到 terminate、release 完成、`reaped=true` 并返回退出状态。`node --experimental-strip-types --test scripts/test-plugin-codex-protocol.mjs` 19 项通过（包含锁定 Codex CLI 0.166.0 的无模型 initialize / thread/start / stop-reap）；`python3 -B scripts/check-plugin-codex-protocol.py` 与 `git diff --check` 通过。`python3 -B scripts/mutation-check-plugin-codex-init-reap.py` 通过：移除失败路径 reap 后目标断言红、独立 Executor grant 拒绝对照绿、恢复后目标绿并核对 SHA256。本批无公共 ABI 变化、不增加 macOS CI 二十份。
 
 该修复只保证初始化失败的子进程清理，不补产品 Host mapping、真实 turn / approval、原生 chat / diff UI 或 P3 闭环。
+
+### P3 实施第二十二批：gterm stdio Executor 配置受限 process service
+
+`gterm relay --stdio` 现接受 Native 启动器显式给出的 `--process-program NAME ABSOLUTE_PATH VERSION SHA256`。包兼容性观察与 Executor Session 只在有至少一个显式 workspace root、包声明 `process.spawn` + `process.pipes`、且 Native 提供程序映射时暴露这两项能力；仅传映射但包未声明进程权限、或包声明能力而 Host 未配置映射时均拒绝。映射和环境不是包 manifest 自选值：核心 ProcessService 按 manifest 程序范围核对映射、校验 executable SHA-256 / 文件身份，并由已有 Runtime process service 执行。当前只把 Native `gterm` 环境中的 `HOME`、`PATH`、`XDG_CONFIG_HOME`、`CODEX_HOME` 选择性传给子进程，不继承任意变量或 `SSH_AUTH_SOCK`。`VERSION` 由 Native Host 设置；gterm/Core 不自行执行 `--version` 探针，Codex helper 仍按版本锁拒绝不匹配声明。
+
+`scripts/test-gterm-stdio.py --case process-config` 以真实隔离 stdio Session、Core Runtime、QuickJS 与 `/bin/cat` 固定摘要配置验证插件拿到 Host process service；同一 process 包不配置映射时以 unsupported 拒绝。此前 stdio 全集 17 项通过，该新增配置/缺失配置两项随后分开通过。`python3 -B scripts/mutation-check-gterm.py --stdio` 七组变异目标红 / 同配置对照绿 / 源码恢复与 SHA-256 均通过；初次 runner 启动因本机缺少 lockfile 对应的 npm 离线缓存未执行，缓存锁定工具包后才完成整轮。过程中发现变异 runner 的 method-role 源码锚点早已失配，已对齐到当前真实实现后验证。
+
+`bash scripts/gate.sh` 通过：481/481 CTest、177 个公共 ABI 符号双向对拍及未实现入口检查。不改 `ghosterm.h`，不增加 macOS CI 二十份。clang-format 19.1.7 未安装，故本轮 `scripts/format-c.py --check` 未能执行。此批接上 gterm 远端 Executor Host 配置和 Core service；macOS / Android 设置界面尚未收集并传递这些映射，Host 版本探测、真实 Codex turn / approval、native UI 仍待完成，P3 不记闭环。
