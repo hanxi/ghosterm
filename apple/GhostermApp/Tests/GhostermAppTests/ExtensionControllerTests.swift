@@ -13,6 +13,63 @@ final class ExtensionControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testControllerOwnsSSHChannelAndAuthenticationOnWorker() async throws {
+        guard let host = ProcessInfo.processInfo.environment["GHOSTERM_SSH_HOST"],
+              let portText = ProcessInfo.processInfo.environment["GHOSTERM_SSH_PORT"],
+              let keyPath = ProcessInfo.processInfo.environment["GHOSTERM_SSH_KEY"],
+              let knownHosts = ProcessInfo.processInfo.environment["GHOSTERM_SSH_KNOWN_HOSTS"],
+              let user = ProcessInfo.processInfo.environment["GHOSTERM_SSH_USER"],
+              let port = UInt16(portText) else {
+            throw XCTSkip("requires the local sshd fixture from apple-app-gate")
+        }
+        let address: [UInt8] = [127, 0, 0, 1] + Array(repeating: 0, count: 12)
+        let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
+            protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc"])
+        let controller = try ExtensionController(profile: profile)
+        var finished = false
+        let deadline = ProcessInfo.processInfo.systemUptime + 20
+        do {
+            var state = try await controller.openSSHChannel(hops: [
+                .init(host: host, port: port, username: user, knownHostsPath: knownHosts,
+                      addressFamily: 4, addressBytes: address),
+            ], bootstrap: "exec true")
+            while state.phase != ExtensionChannel.Phase.ready.rawValue {
+                XCTAssertLessThan(ProcessInfo.processInfo.systemUptime, deadline,
+                                  "Controller SSH channel did not become ready: \(state)")
+                let index = Int(state.hop)
+                if state.authentication.indices.contains(index) {
+                    let auth = state.authentication[index]
+                    if auth.phase == SSHAuthenticator.Phase.hostkey.rawValue {
+                        let accepted = try await controller.decideSSHHost(hop: state.hop,
+                            challenge: state.challenge, decision: HostKeyDecision.accept.rawValue)
+                        XCTAssertEqual(accepted, 0)
+                    } else if auth.phase == SSHAuthenticator.Phase.credentials.rawValue {
+                        let pem = try String(contentsOfFile: keyPath, encoding: .utf8)
+                        let submitted = try await controller.submitSSHCredential(hop: state.hop,
+                            challenge: state.challenge, credential: .privateKey(pem: pem, passphrase: nil))
+                        XCTAssertEqual(submitted, 0)
+                    } else if auth.phase == SSHAuthenticator.Phase.failed.rawValue {
+                        XCTFail("Controller SSH authentication failed: \(auth.error)")
+                    }
+                }
+                state = try await controller.stepSSHChannel(milliseconds: 5)
+            }
+            XCTAssertEqual(state.phase, ExtensionChannel.Phase.ready.rawValue)
+            finished = true
+        } catch {
+            await controller.close()
+            throw error
+        }
+        XCTAssertTrue(finished)
+        var closed = false
+        for _ in 0..<4 where !closed {
+            closed = await controller.close()
+            if !closed { try await Task.sleep(nanoseconds: 10_000_000) }
+        }
+        XCTAssertTrue(closed, "Controller must close its SSH channel before releasing the worker")
+    }
+
+    @MainActor
     func testReviewDoesNotApproveAndResolutionRequiresExactApproval() async throws {
         guard ExtensionRuntime.supportStatus == 0 else {
             throw XCTSkip("requires the explicit JS-enabled Core profile")

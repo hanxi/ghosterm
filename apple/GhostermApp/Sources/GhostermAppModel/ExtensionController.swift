@@ -79,12 +79,94 @@ public actor ExtensionController {
         public let command: Command?
     }
 
+    public struct SSHHop: Sendable {
+        public let host: String
+        public let port: UInt16
+        public let username: String
+        public let knownHostsPath: String?
+        public let addressFamily: UInt8?
+        public let addressBytes: [UInt8]?
+        public let scope: UInt32
+        public let viaHost: String?
+
+        public init(host: String, port: UInt16, username: String, knownHostsPath: String?,
+                    addressFamily: UInt8? = nil, addressBytes: [UInt8]? = nil,
+                    scope: UInt32 = 0, viaHost: String? = nil) {
+            self.host = host; self.port = port; self.username = username
+            self.knownHostsPath = knownHostsPath; self.addressFamily = addressFamily
+            self.addressBytes = addressBytes; self.scope = scope; self.viaHost = viaHost
+        }
+    }
+
+    public enum SSHCredential: Sendable {
+        case password(String)
+        case privateKey(pem: String, passphrase: String?)
+    }
+
+    public struct Authentication: Sendable {
+        public let phase: UInt32
+        public let hostState: UInt32
+        public let error: Int32
+        public let deadline: Bool
+        public let methods: Int32
+        public let keyType: String
+        public let fingerprint: String
+    }
+
+    public struct ChannelState: Sendable {
+        public let phase: UInt32
+        public let stage: UInt32
+        public let error: Int32
+        public let cleanupError: Int32
+        public let hop: UInt32
+        public let challenge: UInt64
+        public let authentication: [Authentication]
+        public let diagnostic: String
+    }
+
+    public struct RPCMethod: Sendable {
+        public let name: String
+        public let capability: String
+        public let receiver: UInt32
+        public let inputShape: UInt32
+        public let outputShape: UInt32
+
+        public init(name: String, capability: String, receiver: UInt32,
+                    inputShape: UInt32 = 1, outputShape: UInt32 = 1) {
+            self.name = name; self.capability = capability; self.receiver = receiver
+            self.inputShape = inputShape; self.outputShape = outputShape
+        }
+    }
+
+    public struct SessionState: Sendable {
+        public let packageID: String
+        public let packageDigest: String
+        public let phase: UInt32
+        public let end: UInt32
+        public let error: Int32
+        public let cleanupError: Int32
+        public let consentToken: String
+    }
+
+    public struct RuntimeState: Sendable {
+        public let packageID: String
+        public let packageDigest: String
+        public let command: String
+        public let phase: UInt32
+        public let failure: UInt32
+        public let cleanupError: Int32
+        public let disposeError: Int32
+    }
+
     public enum ControllerError: Error, Sendable {
         case invalidHostProfile
         case invalidPackageURL
         case packageCapture(String)
         case packageCheck(String)
         case registry(UInt32)
+        case channelUnavailable
+        case sessionUnavailable
+        case runtimeUnavailable
         case closed
     }
 
@@ -119,8 +201,59 @@ public actor ExtensionController {
                                  selectedDigest: selectedDigest)
     }
 
+    public func openSSHChannel(hops: [SSHHop], bootstrap: String) async throws -> ChannelState {
+        try await worker.openSSHChannel(hops: hops, bootstrap: bootstrap)
+    }
+
+    public func stepSSHChannel(milliseconds: Int32 = 0) async throws -> ChannelState {
+        try await worker.stepSSHChannel(milliseconds: milliseconds)
+    }
+
+    public func decideSSHHost(hop: UInt32, challenge: UInt64, decision: UInt32) async throws -> Int32 {
+        try await worker.decideSSHHost(hop: hop, challenge: challenge, decision: decision)
+    }
+
+    public func submitSSHCredential(hop: UInt32, challenge: UInt64,
+                                    credential: SSHCredential) async throws -> Int32 {
+        try await worker.submitSSHCredential(hop: hop, challenge: challenge, credential: credential)
+    }
+
+    public func adoptSSHSession(pluginID: String, packageDigest: String, executorDigest: String,
+                                hostVersion: String, peerIdentity: String,
+                                methods: [RPCMethod]) async throws -> SessionState {
+        try await worker.adoptSSHSession(pluginID: pluginID, packageDigest: packageDigest,
+                                         executorDigest: executorDigest, hostVersion: hostVersion,
+                                         peerIdentity: peerIdentity, methods: methods)
+    }
+
+    public func stepSession(milliseconds: Int32 = 0) async throws -> SessionState {
+        try await worker.stepSession(milliseconds: milliseconds)
+    }
+
+    public func decideSession(consentToken: String, allow: Bool) async throws -> SessionState {
+        try await worker.decideSession(consentToken: consentToken, allow: allow)
+    }
+
+    public func activateClient(pluginID: String, packageDigest: String, command: String,
+                               arguments: [String]) async throws -> RuntimeState {
+        try await worker.activateClient(pluginID: pluginID, packageDigest: packageDigest,
+                                        command: command, arguments: arguments)
+    }
+
+    public func stepRuntime() async throws -> RuntimeState {
+        try await worker.stepRuntime()
+    }
+
+    public func stopRuntime() async throws { try await worker.stopRuntime() }
+
+    public func stopSession() async throws { try await worker.stopSession() }
+
+    public func stopSSHChannel() async throws { try await worker.stopSSHChannel() }
+
+    public func releaseFinished() async throws { try await worker.releaseFinished() }
+
     /// Explicitly releases package and registry owners. Repeated close is safe.
-    public func close() async { await worker.close() }
+    @discardableResult public func close() async -> Bool { await worker.close() }
 
     private final class Worker: @unchecked Sendable {
         private let queue = DispatchQueue(label: "org.ghosterm.extension-controller")
@@ -134,8 +267,23 @@ public actor ExtensionController {
         }
         private var packages: [String: Record] = [:]
         private var closed = false
+        private var closeComplete = false
+        private var closeResult = false
+        private var channel: ExtensionChannel?
+        private var session: ExtensionSession?
+        private var sessionPackageKey: String?
+        private var runtime: ExtensionRuntime?
+        private var runtimePackageKey: String?
+        private var runtimeCommand: String?
+        private let hostCapabilities: [String]
 
-        init(hostJSON: String) { self.hostJSON = hostJSON }
+        init(hostJSON: String) {
+            self.hostJSON = hostJSON
+            if let data = hostJSON.data(using: .utf8),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                self.hostCapabilities = object["capabilities"] as? [String] ?? []
+            } else { self.hostCapabilities = [] }
+        }
 
         func review(directory: URL) async throws -> PackageReview {
             try await perform { try self.reviewOnQueue(directory: directory) }
@@ -150,17 +298,312 @@ public actor ExtensionController {
                                                         selectedDigest: selectedDigest) }
         }
 
-        func close() async {
-            _ = try? await perform {
-                guard !self.closed else { return () }
+        func openSSHChannel(hops input: [SSHHop], bootstrap: String) async throws -> ChannelState {
+            try await perform {
+                try self.checkOpen()
+                guard self.channel == nil, self.session == nil, self.runtime == nil else {
+                    throw ControllerError.channelUnavailable
+                }
+                guard (1...8).contains(input.count), !bootstrap.isEmpty,
+                      !bootstrap.utf8.contains(0), bootstrap.utf8.count <= 4096 else {
+                    throw ControllerError.invalidHostProfile
+                }
+                let hops = try input.enumerated().map { index, hop -> ExtensionChannel.Hop in
+                    guard !hop.host.isEmpty, !hop.username.isEmpty,
+                          !hop.host.utf8.contains(0), !hop.username.utf8.contains(0),
+                          hop.port > 0,
+                          (hop.knownHostsPath?.utf8.contains(0) != true),
+                          (hop.viaHost?.utf8.contains(0) != true) else {
+                        throw ControllerError.invalidHostProfile
+                    }
+                    let address: SSHAddress?
+                    if index == 0 {
+                        guard hop.viaHost == nil, let family = hop.addressFamily, let bytes = hop.addressBytes,
+                              (family == 4 || family == 6), bytes.count == 16 else {
+                            throw ControllerError.invalidHostProfile
+                        }
+                        address = SSHAddress(family: family, bytes: bytes, scope: hop.scope)
+                    } else {
+                        guard hop.addressFamily == nil, hop.addressBytes == nil,
+                              let via = hop.viaHost, !via.isEmpty else {
+                            throw ControllerError.invalidHostProfile
+                        }
+                        address = nil
+                    }
+                    let options = SSHOptions(host: hop.host, port: hop.port, username: hop.username,
+                                             knownHostsPath: hop.knownHostsPath)
+                    return ExtensionChannel.Hop(options: options, address: address, viaHost: hop.viaHost)
+                }
+                let channel = try ExtensionChannel(hops: hops, bootstrap: bootstrap, owner: self.queue)
+                self.channel = channel
+                _ = try channel.step(milliseconds: 0)
+                return try self.channelState(channel)
+            }
+        }
+
+        func stepSSHChannel(milliseconds: Int32) async throws -> ChannelState {
+            try await perform {
+                try self.checkOpen()
+                guard milliseconds >= 0, let channel = self.channel else { throw ControllerError.channelUnavailable }
+                _ = try channel.step(milliseconds: milliseconds)
+                return try self.channelState(channel)
+            }
+        }
+
+        func decideSSHHost(hop: UInt32, challenge: UInt64, decision: UInt32) async throws -> Int32 {
+            try await perform {
+                try self.checkOpen()
+                guard let channel = self.channel,
+                      let value = HostKeyDecision(rawValue: decision) else { throw ControllerError.channelUnavailable }
+                return try channel.decide(hop: hop, challenge: challenge, decision: value)
+            }
+        }
+
+        func submitSSHCredential(hop: UInt32, challenge: UInt64,
+                                 credential: SSHCredential) async throws -> Int32 {
+            try await perform {
+                try self.checkOpen()
+                guard let channel = self.channel else { throw ControllerError.channelUnavailable }
+                let value: GhostermCore.SSHCredential
+                switch credential {
+                case .password(let password): value = .password(password)
+                case .privateKey(let pem, let passphrase): value = .privateKey(pem: pem, passphrase: passphrase)
+                }
+                return try channel.supply(hop: hop, challenge: challenge, credential: value)
+            }
+        }
+
+        func adoptSSHSession(pluginID: String, packageDigest: String, executorDigest: String,
+                             hostVersion: String, peerIdentity: String,
+                             methods input: [RPCMethod]) async throws -> SessionState {
+            try await perform {
+                try self.checkOpen()
+                guard self.session == nil, self.runtime == nil, let channel = self.channel else {
+                    throw ControllerError.channelUnavailable
+                }
+                let packageKey = self.key(pluginID, packageDigest)
+                guard let record = self.packages[packageKey], record.source == .allowed else {
+                    throw ControllerError.registry(ExtensionRegistry.Status.unknown.rawValue)
+                }
+                guard executorDigest.utf8.count == 64,
+                      executorDigest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+                      !hostVersion.isEmpty, hostVersion.utf8.count <= 64,
+                      !peerIdentity.isEmpty, peerIdentity.utf8.count <= 255,
+                      !hostVersion.utf8.contains(0), !peerIdentity.utf8.contains(0),
+                      (try channel.info()).phase == .ready else { throw ControllerError.channelUnavailable }
+                let metadata = try record.package.metadata()
+                guard metadata.id == pluginID, metadata.packageDigest == packageDigest,
+                      !metadata.executor, metadata.requires.allSatisfy(self.hostCapabilities.contains),
+                      input.count <= 16 else { throw ControllerError.registry(ExtensionRegistry.Status.unsupported.rawValue) }
+                let methods = try input.map { method -> ExtensionSession.Method in
+                    guard let receiver = ExtensionSession.Role(rawValue: method.receiver),
+                          let inputShape = ExtensionSession.JSONShape(rawValue: method.inputShape),
+                          let outputShape = ExtensionSession.JSONShape(rawValue: method.outputShape) else {
+                        throw ControllerError.invalidHostProfile
+                    }
+                    return ExtensionSession.Method(name: method.name, capability: method.capability,
+                                                   receiver: receiver, inputShape: inputShape,
+                                                   outputShape: outputShape)
+                }
+                let session = try ExtensionSession(channel: channel, role: .host,
+                    config: .init(pluginID: metadata.id, pluginVersion: metadata.version,
+                                  clientDigest: metadata.packageDigest, executorDigest: executorDigest,
+                                  hostVersion: hostVersion, sdkVersion: metadata.sdkVersion,
+                                  required: metadata.requires, available: self.hostCapabilities,
+                                  peerKind: .ssh, peerIdentity: peerIdentity, methods: methods))
+                self.channel = nil
+                self.session = session
+                self.sessionPackageKey = packageKey
+                return try self.sessionState(session, packageKey: packageKey)
+            }
+        }
+
+        func stepSession(milliseconds: Int32) async throws -> SessionState {
+            try await perform {
+                try self.checkOpen()
+                guard milliseconds >= 0, let session = self.session,
+                      let packageKey = self.sessionPackageKey else { throw ControllerError.sessionUnavailable }
+                _ = try session.step(milliseconds: milliseconds)
+                return try self.sessionState(session, packageKey: packageKey)
+            }
+        }
+
+        func decideSession(consentToken: String, allow: Bool) async throws -> SessionState {
+            try await perform {
+                try self.checkOpen()
+                guard let session = self.session, let packageKey = self.sessionPackageKey else {
+                    throw ControllerError.sessionUnavailable
+                }
+                let info = try session.info()
+                guard info.phase == .consent, info.consentToken == consentToken,
+                      try session.decide(ticket: consentToken, decision: allow ? .allow : .deny) == 0 else {
+                    throw ControllerError.sessionUnavailable
+                }
+                return try self.sessionState(session, packageKey: packageKey)
+            }
+        }
+
+        func activateClient(pluginID: String, packageDigest: String, command: String,
+                            arguments: [String]) async throws -> RuntimeState {
+            try await perform {
+                try self.checkOpen()
+                guard let session = self.session, let sessionKey = self.sessionPackageKey,
+                      sessionKey == self.key(pluginID, packageDigest),
+                      try session.info().phase == .active,
+                      let record = self.packages[sessionKey], record.source == .allowed,
+                      record.review.commands.contains(where: { $0.path == command }) else {
+                    throw ControllerError.sessionUnavailable
+                }
+                let selected = try self.registryOnQueue().resolve(command: command, executor: false,
+                                                                   selectedID: pluginID,
+                                                                   selectedDigest: packageDigest)
+                guard selected.status == .ok, let exact = selected.package,
+                      selected.command?.path == command else {
+                    try? selected.package?.close()
+                    throw ControllerError.registry(selected.status.rawValue)
+                }
+                try exact.close()
+                let runtime = try ExtensionRuntime(session: session, package: record.package,
+                                                   role: .host, associated: true,
+                                                   invocation: .init(command: command, arguments: arguments))
+                self.session = nil; self.sessionPackageKey = nil
+                self.runtime = runtime; self.runtimePackageKey = sessionKey
+                self.runtimeCommand = command
+                return try self.runtimeState(runtime, packageKey: sessionKey, command: command)
+            }
+        }
+
+        func stepRuntime() async throws -> RuntimeState {
+            try await perform {
+                try self.checkOpen()
+                guard let runtime = self.runtime, let packageKey = self.runtimePackageKey,
+                      let command = self.runtimeCommand else { throw ControllerError.runtimeUnavailable }
+                _ = try runtime.step()
+                return try self.runtimeState(runtime, packageKey: packageKey, command: command)
+            }
+        }
+
+        func stopRuntime() async throws {
+            try await perform {
+                try self.checkOpen()
+                guard let runtime = self.runtime else { throw ControllerError.runtimeUnavailable }
+                runtime.stop()
+            }
+        }
+
+        func stopSession() async throws {
+            try await perform {
+                try self.checkOpen()
+                guard let session = self.session else { throw ControllerError.sessionUnavailable }
+                session.stop()
+            }
+        }
+
+        func stopSSHChannel() async throws {
+            try await perform {
+                try self.checkOpen()
+                guard let channel = self.channel else { throw ControllerError.channelUnavailable }
+                channel.stop()
+            }
+        }
+
+        func releaseFinished() async throws {
+            try await perform {
+                try self.checkOpen()
+                try self.releaseOwners(forceStop: false)
+            }
+        }
+
+        func close() async -> Bool {
+            (try? await perform {
                 self.closed = true
-                // The registry owns references to every approved package. Drop
-                // those references first so package.close() can synchronously
-                // destroy each remaining owner before AppKit is told to exit.
-                if let registry = self.registry { _ = try? registry.close() }
-                self.registry = nil
-                for record in self.packages.values { try? record.package.close() }
-                self.packages.removeAll()
+                if self.closeComplete { return self.closeResult }
+                do {
+                    try self.releaseOwners(forceStop: true)
+                    var cleanupFailed = false
+                    if let registry = self.registry {
+                        do {
+                            if try registry.close() != .ok { cleanupFailed = true }
+                        } catch { cleanupFailed = true }
+                    }
+                    self.registry = nil
+                    for record in self.packages.values {
+                        do { try record.package.close() } catch { cleanupFailed = true }
+                    }
+                    self.packages.removeAll()
+                    self.closeComplete = true
+                    self.closeResult = !cleanupFailed
+                    return self.closeResult
+                } catch { return false }
+            }) ?? false
+        }
+
+        private func channelState(_ channel: ExtensionChannel) throws -> ChannelState {
+            let info = try channel.info()
+            return ChannelState(phase: info.phase.rawValue, stage: info.stage.rawValue,
+                                error: info.error, cleanupError: info.cleanupError,
+                                hop: info.hop, challenge: info.challenge,
+                                authentication: info.authentication.map {
+                                    Authentication(phase: $0.phase.rawValue, hostState: $0.host.rawValue,
+                                                   error: $0.error, deadline: $0.deadline, methods: $0.methods,
+                                                   keyType: $0.keyType, fingerprint: $0.fingerprint)
+                                }, diagnostic: String(decoding: info.diagnostic, as: UTF8.self))
+        }
+
+        private func sessionState(_ session: ExtensionSession, packageKey: String) throws -> SessionState {
+            let info = try session.info()
+            guard let record = packages[packageKey] else { throw ControllerError.sessionUnavailable }
+            return SessionState(packageID: record.review.id, packageDigest: record.review.digest,
+                                phase: info.phase.rawValue, end: info.end.rawValue, error: info.error,
+                                cleanupError: info.cleanupError, consentToken: info.consentToken)
+        }
+
+        private func runtimeState(_ runtime: ExtensionRuntime, packageKey: String,
+                                  command: String) throws -> RuntimeState {
+            let info = try runtime.info()
+            guard let record = packages[packageKey] else { throw ControllerError.runtimeUnavailable }
+            return RuntimeState(packageID: record.review.id, packageDigest: record.review.digest,
+                                command: command, phase: info.phase.rawValue, failure: info.error.rawValue,
+                                cleanupError: info.cleanupError, disposeError: info.disposeError ? 1 : 0)
+        }
+
+        private func releaseOwners(forceStop: Bool) throws {
+            if let runtime {
+                if forceStop { runtime.stop() }
+                else {
+                    let phase = try runtime.info().phase
+                    guard phase != .created, phase != .starting, phase != .active else {
+                        throw ControllerError.runtimeUnavailable
+                    }
+                }
+                var released = false
+                for _ in 0..<32 { if try runtime.closeStep() { released = true; break } }
+                guard released else { throw ControllerError.runtimeUnavailable }
+                self.runtime = nil; runtimePackageKey = nil; runtimeCommand = nil
+            }
+            if let session {
+                if forceStop { session.stop() }
+                else {
+                    let phase = try session.info().phase
+                    guard phase == .ended || phase == .closed else { throw ControllerError.sessionUnavailable }
+                }
+                var released = false
+                for _ in 0..<32 { if try session.closeStep() { released = true; break } }
+                guard released else { throw ControllerError.sessionUnavailable }
+                self.session = nil; sessionPackageKey = nil
+            }
+            if let channel {
+                if forceStop { channel.stop() }
+                else {
+                    let phase = try channel.info().phase
+                    guard phase == .failed || phase == .stopped || phase == .closed else {
+                        throw ControllerError.channelUnavailable
+                    }
+                }
+                var released = false
+                for _ in 0..<32 { if try channel.closeStep() { released = true; break } }
+                guard released else { throw ControllerError.channelUnavailable }
+                self.channel = nil
             }
         }
 

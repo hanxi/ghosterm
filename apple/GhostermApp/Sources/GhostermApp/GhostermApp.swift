@@ -146,10 +146,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !pluginShutdownPending else { return .terminateCancel }
         pluginShutdownPending = true
         Task { @MainActor [weak self, weak sender] in
-            await extensionController.close()
+            let closed = await extensionController.close()
             guard let self, let sender else { return }
             self.pluginShutdownPending = false
-            sender.reply(toApplicationShouldTerminate: true)
+            if closed {
+                sender.reply(toApplicationShouldTerminate: true)
+            } else {
+                let alert = NSAlert()
+                alert.messageText = "插件资源尚未释放"
+                alert.informativeText = "Ghosterm 保留了仍在关闭的插件资源。请稍后重试退出。"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "好")
+                alert.runModal()
+                sender.reply(toApplicationShouldTerminate: false)
+            }
         }
         return .terminateLater
     }
