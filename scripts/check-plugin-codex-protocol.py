@@ -60,13 +60,35 @@ def main():
             "TurnInterruptParams": types / "v2/TurnInterruptParams.ts",
             "CommandExecutionRequestApprovalParams": types / "v2/CommandExecutionRequestApprovalParams.ts",
             "FileChangeRequestApprovalParams": types / "v2/FileChangeRequestApprovalParams.ts",
+            "CommandExecutionRequestApprovalResponse": types / "v2/CommandExecutionRequestApprovalResponse.ts",
+            "FileChangeRequestApprovalResponse": types / "v2/FileChangeRequestApprovalResponse.ts",
             "ServerRequestResolvedNotification": types / "v2/ServerRequestResolvedNotification.ts",
+            "CommandExecutionApprovalDecision": types / "v2/CommandExecutionApprovalDecision.ts",
+            "FileChangeApprovalDecision": types / "v2/FileChangeApprovalDecision.ts",
         }
         for name, required in lock["requiredFields"].items():
             text = type_paths[name].read_text(encoding="utf-8")
             missing = [field for field in required if not re.search(rf"\b{re.escape(field)}\s*:", text)]
             if missing:
                 raise SystemExit(f"{name} from {version} is missing locked fields: {', '.join(missing)}")
+
+        for name, required in lock["requiredDecisions"].items():
+            text = type_paths[name].read_text(encoding="utf-8")
+            match = re.search(rf"export type {re.escape(name)}\s*=\s*(.*?);", text, re.DOTALL)
+            if not match:
+                raise SystemExit(f"{name} from {version} is not an exported type alias")
+            definition = match.group(1)
+            actual = set(re.findall(r'"([^"]+)"', definition))
+            actual.update(re.findall(r'\{\s*"([^"]+)"\s*:', definition))
+            if actual != set(required):
+                missing = sorted(set(required) - actual)
+                unlocked = sorted(actual - set(required))
+                detail = []
+                if missing:
+                    detail.append("missing " + ", ".join(missing))
+                if unlocked:
+                    detail.append("unlocked " + ", ".join(unlocked))
+                raise SystemExit(f"{name} from {version} decision lock mismatch: {'; '.join(detail)}")
 
         generated_schemas = list(schema.glob("*.schemas.json"))
         definitions = set()
@@ -79,7 +101,7 @@ def main():
         if not definitions:
             raise SystemExit("Codex app-server schema generator produced no definitions")
         print("CODEX APP-SERVER PROTOCOL PASS: " + version +
-              "; stable initialize/thread/turn, stream events, and approval callbacks match the lock")
+              "; stable initialize/thread/turn, stream events, approval callbacks, and exact decision unions match the lock")
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

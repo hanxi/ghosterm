@@ -50,9 +50,31 @@
       "itemId",
       "startedAtMs"
     ],
+    "CommandExecutionRequestApprovalResponse": [
+      "decision"
+    ],
+    "FileChangeRequestApprovalResponse": [
+      "decision"
+    ],
     "ServerRequestResolvedNotification": [
       "threadId",
       "requestId"
+    ]
+  },
+  "requiredDecisions": {
+    "CommandExecutionApprovalDecision": [
+      "accept",
+      "acceptForSession",
+      "decline",
+      "cancel",
+      "acceptWithExecpolicyAmendment",
+      "applyNetworkPolicyAmendment"
+    ],
+    "FileChangeApprovalDecision": [
+      "accept",
+      "acceptForSession",
+      "decline",
+      "cancel"
     ]
   }
 }

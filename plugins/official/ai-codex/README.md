@@ -8,6 +8,12 @@ The lock was derived from the official Codex CLI `codex-cli 0.166.0` generators 
 python3 scripts/check-plugin-codex-protocol.py
 ```
 
+The checker also locks the complete stable decision unions used by command and
+file-change approval responses. `accept`, `acceptForSession`, `decline`, and
+`cancel` remain distinct; command approvals additionally include the two
+structured policy-amendment decisions. A newer CLI decision is a compatibility
+change that must be reviewed before updating the lock.
+
 The first adapter must initialize each app-server connection once, send the `initialized` notification, then use the locked `thread/start`, `turn/start`, and `turn/interrupt` requests. It must preserve the JSON-RPC request id for server-initiated command and file-change approval responses. Pending UI decisions are scoped by thread, turn, item, and request id; `serverRequest/resolved`, interruption, completion, process exit, and channel loss invalidate the pending decision. An unconfirmed decision stays unknown and is never replayed.
 
 The locked schema is only a compatibility baseline. It does not claim a live Codex turn, process pipe service, native chat / approval / diff views, or end-to-end Ghosterm integration. Those remain subsequent P3 work. See the [official Codex app-server protocol](https://learn.chatgpt.com/docs/app-server).
