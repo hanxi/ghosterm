@@ -13,7 +13,7 @@ require("node:fs");
 // @ts-expect-error portable code has no ambient timers
 setTimeout(() => {}, 1);
 
-import type { PluginContext, CapabilityAccess, PluginEntry } from "../portable/index.js";
+import type { PluginContext, CapabilityAccess, PluginEntry, ProcessRead } from "../portable/index.js";
 declare const context: PluginContext;
 const access: CapabilityAccess = context.capabilities.query("session.rpc"); void access;
 const entry: PluginEntry = { activate(ctx) { const side: "client" | "executor" = ctx.side; void side; return { dispose() {} }; } }; void entry;
@@ -21,8 +21,24 @@ const entry: PluginEntry = { activate(ctx) { const side: "client" | "executor" =
 const approved: boolean = context.capabilities.query("session.rpc"); void approved;
 // @ts-expect-error activation metadata is immutable
 context.side = "client";
-// @ts-expect-error no unimplemented ambient process service
-context.process.spawn("tool");
+if (context.process && context.invocation?.workspaceHandle) {
+  const spawned = context.process.spawn({
+    program: "codex",
+    argv: ["app-server", "--listen", "stdio://"],
+    cwd: context.invocation.workspaceHandle,
+    envPolicy: "selected-user-environment",
+    cancellation: context.cancellation,
+  });
+  void spawned.then(async child => {
+    const output: ProcessRead = child.readStdout(16_384); void output;
+    child.signal("terminate");
+    await child.release();
+  });
+  // @ts-expect-error paths are not workspace capabilities
+  context.process.spawn({ program: "codex", argv: [], cwd: "/workspace", envPolicy: "selected-user-environment", cancellation: context.cancellation });
+  // @ts-expect-error plugins cannot choose arbitrary environment variables
+  context.process.spawn({ program: "codex", argv: [], cwd: context.invocation.workspaceHandle, envPolicy: { SECRET: "value" }, cancellation: context.cancellation });
+}
 
 // @ts-expect-error raw arguments are immutable
 context.invocation?.arguments.push("late");
