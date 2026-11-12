@@ -48,7 +48,7 @@ python3 scripts/mutation-check-gterm.py
 显式 stdio Executor 由持有专属 pipe/socket 的原生 Host 启动：
 
 ```text
-gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 [--method NAME]... -- DIRECTORY COMMAND [ARG...]
+gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 [--method NAME]... [--host-method NAME]... -- DIRECTORY COMMAND [ARG...]
 ```
 
 这是当前的前台启动协议，不是向交互终端写回的通道；stdin/stdout 任一为 TTY 都拒绝。
@@ -58,8 +58,9 @@ Host 必须管理专属 stdio 的对端归属；本入口不实现本机 socket 
 `--trust-development-digest` 是调用方对这份固定开发包字节的显式来源选择，不是发布者
 签名认证，也不代替 Host 的本次 Session 决定。包捕获、完整性/兼容检查、摘要和完整
 命令贡献匹配均在启动协议前完成。Host 按实际 Client/Executor 摘要核对和授权；拒绝、
-取消或不匹配不得激活插件。`--method` 可重复至 16 项，显式开放接收端为 Executor、
-输入/输出根类型为 object、能力为 session.rpc 的方法；必须由包声明 session.rpc。
+取消或不匹配不得激活插件。`--method` 与 `--host-method` 合计可重复至 16 项，分别
+开放接收端为 Executor 与 Host、输入/输出根类型为 object、能力为 session.rpc 的方法；
+必须由包声明 session.rpc。
 具体业务 schema 仍由 SDK codec 检查，本入口没有实现任意 JSON Schema 服务。
 当前 Host 能力事实只有 portable JS 和 session.rpc，其它必需服务明确失败。
 

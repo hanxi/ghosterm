@@ -19,7 +19,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
     data class ActiveSession(
         val packageID: String, val packageDigest: String, val command: ExtensionController.Command,
-        val arguments: List<String>, val methods: List<String>, val executorDigest: String,
+        val arguments: List<String>, val methods: List<String>, val hostMethods: List<String>, val executorDigest: String,
         val peerIdentity: String, val info: ExtensionSession.Info,
     )
 
@@ -63,12 +63,14 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
                 val adopted = owner.adoptSSHSession(entry.review.id, entry.review.digest,
                     request.executorDigest, "0.1.0", target.alias,
-                    request.methods.map { method ->
-                        ExtensionSession.Method(method, "session.rpc", ExtensionSession.Role.EXECUTOR,
+                    (request.methods.map { it to ExtensionSession.Role.EXECUTOR } +
+                        request.hostMethods.map { it to ExtensionSession.Role.HOST }).map { (method, receiver) ->
+                        ExtensionSession.Method(method, "session.rpc", receiver,
                             ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
                     })
                 activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
-                    request.arguments.toList(), request.methods.toList(), request.executorDigest, target.alias, adopted.info)
+                    request.arguments.toList(), request.methods.toList(), request.hostMethods.toList(),
+                    request.executorDigest, target.alias, adopted.info)
                 launchBusy = false
                 viewModelScope.launch { advanceToConsent(owner) }
                 true

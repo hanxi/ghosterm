@@ -86,12 +86,13 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
             trusted = argv[at + 1];
         } else if (!strcmp(argv[at], "--client-digest") && !client) {
             client = argv[at + 1];
-        } else if (!strcmp(argv[at], "--method") && method_count < GT_EXT_RPC_METHODS_MAX &&
+        } else if ((!strcmp(argv[at], "--method") || !strcmp(argv[at], "--host-method")) &&
+                   method_count < GT_EXT_RPC_METHODS_MAX &&
                    strlen(argv[at + 1]) <= 128) {
             gt_ext_rpc_method_t *m = &methods[method_count++];
             strcpy(m->method, argv[at + 1]);
             strcpy(m->capability, "session.rpc");
-            m->receiver = GT_EXT_EXECUTOR;
+            m->receiver = !strcmp(argv[at], "--host-method") ? GT_EXT_HOST : GT_EXT_EXECUTOR;
             m->input_shape = m->output_shape = GT_EXT_JSON_OBJECT;
         } else {
             return diagnostic("invalid or duplicate stdio option", 2);

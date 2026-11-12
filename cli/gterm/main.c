@@ -26,7 +26,7 @@ static int usage(void) {
           "DIGEST [DIRECTORY DIGEST]...\n"
           "       gterm plugin check [--host-json FILE] -- DIRECTORY\n"
           "       gterm relay --stdio --trust-development-digest SHA256 --client-digest SHA256 "
-          "[--method NAME]... -- DIRECTORY COMMAND [ARG...]\n"
+          "[--method NAME]... [--host-method NAME]... -- DIRECTORY COMMAND [ARG...]\n"
           "Host JSON is caller-supplied compatibility evidence, not a grant.\n",
           stderr);
     return 2;

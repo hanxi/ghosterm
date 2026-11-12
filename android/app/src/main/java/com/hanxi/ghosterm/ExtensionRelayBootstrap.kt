@@ -14,6 +14,7 @@ object ExtensionRelayBootstrap {
         val executorDigest: String,
         val clientDigest: String,
         val methods: List<String>,
+        val hostMethods: List<String> = emptyList(),
         val command: String,
         val arguments: List<String> = emptyList(),
     )
@@ -25,6 +26,14 @@ object ExtensionRelayBootstrap {
         val methods = parseStringArray(source, 16, "RPC 方法")
         require(methods.distinct().size == methods.size && methods.all(::validMethod)) {
             "RPC 方法名无效或重复"
+        }
+        return methods
+    }
+
+    fun parseHostMethodsJson(source: String): List<String> {
+        val methods = parseStringArray(source, 16, "Host RPC 方法")
+        require(methods.distinct().size == methods.size && methods.all(::validMethod)) {
+            "Host RPC 方法名无效或重复"
         }
         return methods
     }
@@ -64,6 +73,10 @@ object ExtensionRelayBootstrap {
             request.methods.all(::validMethod)) {
             "RPC 方法名无效（最多 16 个）"
         }
+        require(request.methods.size + request.hostMethods.size <= 16 && request.hostMethods.distinct().size == request.hostMethods.size &&
+            request.hostMethods.all(::validMethod) && request.hostMethods.none { it in request.methods }) {
+            "Host RPC 方法名无效、重复或与 Executor 方法冲突（最多 16 个）"
+        }
         require(request.arguments.size <= 32) { "命令参数最多 32 项" }
         val argv = buildList {
             add(request.executable)
@@ -71,6 +84,7 @@ object ExtensionRelayBootstrap {
             add("--trust-development-digest"); add(request.executorDigest)
             add("--client-digest"); add(request.clientDigest)
             request.methods.forEach { add("--method"); add(it) }
+            request.hostMethods.forEach { add("--host-method"); add(it) }
             add("--"); add(request.executorDirectory); add(request.command)
             addAll(request.arguments)
         }
