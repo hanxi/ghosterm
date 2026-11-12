@@ -4,10 +4,25 @@
 #include "stdio.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+
+typedef struct {
+    const char *id;
+    const char *path;
+    int fd;
+    gt_ext_runtime_root_t runtime;
+} source_root_t;
+
+typedef struct {
+    gt_ext_resource_store_t *store;
+    char directory[PATH_MAX];
+} resource_owner_t;
 
 static int diagnostic(const char *message, int code) {
     fprintf(stderr, "gterm: %s\n", message);
@@ -31,8 +46,92 @@ static void idle(void) {
     nanosleep(&t, NULL);
 }
 
-static bool
-close_owners(gt_ext_runtime_t **runtime, gt_ext_session_t **session, gt_ext_channel_t **channel) {
+static bool root_id(const char *id) {
+    if (!id || !((id[0] >= 'A' && id[0] <= 'Z') || (id[0] >= 'a' && id[0] <= 'z')) ||
+        strlen(id) > 64) {
+        return false;
+    }
+    for (size_t i = 1; id[i]; i++) {
+        if (!((id[i] >= 'A' && id[i] <= 'Z') || (id[i] >= 'a' && id[i] <= 'z') ||
+              (id[i] >= '0' && id[i] <= '9') || id[i] == '-' || id[i] == '_' || id[i] == '.')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool open_roots(source_root_t *roots, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        if (!root_id(roots[i].id) || !roots[i].path || !roots[i].path[0] ||
+            strlen(roots[i].path) >= PATH_MAX) {
+            return false;
+        }
+        for (size_t j = 0; j < i; j++) {
+            if (!strcmp(roots[i].id, roots[j].id)) {
+                return false;
+            }
+        }
+        roots[i].fd = open(roots[i].path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        struct stat info;
+        if (roots[i].fd < 0 || fstat(roots[i].fd, &info) || !S_ISDIR(info.st_mode) ||
+            info.st_uid != geteuid()) {
+            return false;
+        }
+        roots[i].runtime = (gt_ext_runtime_root_t){roots[i].id, roots[i].fd, 16777216};
+    }
+    return true;
+}
+
+static bool open_resource_owner(resource_owner_t *owner) {
+    const char *temporary = getenv("TMPDIR");
+    if (!temporary || !temporary[0]) {
+        temporary = "/tmp";
+    }
+    const char *separator = temporary[strlen(temporary) - 1] == '/' ? "" : "/";
+    int size = snprintf(owner->directory,
+                        sizeof(owner->directory),
+                        "%s%sghosterm-resource-XXXXXX",
+                        temporary,
+                        separator);
+    if (size <= 0 || (size_t)size >= sizeof(owner->directory) || !mkdtemp(owner->directory)) {
+        owner->directory[0] = 0;
+        return false;
+    }
+    int fd = open(owner->directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) {
+        return false;
+    }
+    gt_ext_resource_store_config_t config = {fd, 16777216, 1048576, 8};
+    gt_ext_resource_status_t status = gt_ext_resource_store_open(&config, &owner->store);
+    int closed = close(fd);
+    return status == GT_EXT_RESOURCE_OK && !closed;
+}
+
+static bool close_resource_owner(resource_owner_t *owner) {
+    bool ok = true;
+    if (owner->store) {
+        gt_ext_resource_status_t status = gt_ext_resource_store_destroy(&owner->store);
+        if (status != GT_EXT_RESOURCE_OK || owner->store) {
+            ok = false;
+        }
+    }
+    if (owner->directory[0]) {
+        if (rmdir(owner->directory) && errno != ENOENT) {
+            ok = false;
+        } else {
+            owner->directory[0] = 0;
+        }
+    }
+    return ok;
+}
+
+static bool close_owners(gt_ext_runtime_t **runtime,
+                         gt_ext_session_t **session,
+                         gt_ext_channel_t **channel,
+                         resource_owner_t *resource_owner,
+                         source_root_t *roots,
+                         size_t root_count) {
+    bool ok = true;
     if (*runtime) {
         gt_ext_runtime_stop(*runtime);
         for (unsigned i = 0; i < 100; i++) {
@@ -45,40 +144,67 @@ close_owners(gt_ext_runtime_t **runtime, gt_ext_session_t **session, gt_ext_chan
         bool observed = gt_ext_runtime_info(*runtime, &info);
         if (gt_ext_runtime_destroy(runtime) != GT_OK || !observed || info.dispose_error ||
             info.cleanup_error != GT_OK) {
-            return false;
+            ok = false;
         }
     }
     if (*session) {
         gt_ext_session_stop(*session);
+        bool released = false;
         for (unsigned i = 0; i < 100; i++) {
             if (gt_ext_session_close(*session, 1) == GT_EXT_RELEASED) {
+                released = true;
                 break;
             }
         }
-        if (gt_ext_session_destroy(session) != GT_OK) {
-            return false;
+        if (!released || gt_ext_session_destroy(session) != GT_OK) {
+            ok = false;
         }
+    }
+    if (!close_resource_owner(resource_owner)) {
+        ok = false;
     }
     if (*channel) {
         gt_ext_channel_stop(*channel);
+        bool released = false;
         for (unsigned i = 0; i < 100; i++) {
             if (gt_ext_channel_close(*channel, 1) == GT_EXT_RELEASED) {
+                released = true;
                 break;
             }
         }
-        if (gt_ext_channel_destroy(channel) != GT_OK) {
-            return false;
+        if (!released || gt_ext_channel_destroy(channel) != GT_OK) {
+            ok = false;
         }
     }
-    return true;
+    for (size_t i = 0; i < root_count; i++) {
+        if (roots[i].fd >= 0) {
+            if (close(roots[i].fd)) {
+                ok = false;
+            }
+            roots[i].fd = -1;
+        }
+    }
+    return ok;
 }
 
 int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     const char *trusted = NULL, *client = NULL;
     gt_ext_rpc_method_t methods[GT_EXT_RPC_METHODS_MAX] = {0};
+    source_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
+    gt_ext_runtime_root_t runtime_roots[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
     size_t method_count = 0;
+    size_t root_count = 0;
     int at = 0;
-    for (; at < argc && strcmp(argv[at], "--"); at += 2) {
+    for (; at < argc && strcmp(argv[at], "--");) {
+        if (!strcmp(argv[at], "--root")) {
+            if (at + 2 >= argc || root_count == GT_EXT_RUNTIME_ROOTS_MAX) {
+                return diagnostic("missing or excess resource root", 2);
+            }
+            roots[root_count++] =
+                (source_root_t){.id = argv[at + 1], .path = argv[at + 2], .fd = -1};
+            at += 3;
+            continue;
+        }
         if (at + 1 >= argc) {
             return diagnostic("missing stdio option value", 2);
         }
@@ -96,6 +222,7 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         } else {
             return diagnostic("invalid or duplicate stdio option", 2);
         }
+        at += 2;
     }
     if (!digest(trusted) || !digest(client) || at + 2 >= argc || strcmp(argv[at], "--")) {
         return diagnostic(
@@ -114,10 +241,23 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     gt_ext_channel_t *channel = NULL;
     gt_ext_session_t *session = NULL;
     gt_ext_runtime_t *runtime = NULL;
+    resource_owner_t resource_owner = {0};
     int result = 5;
+    const char *stage = "Executor startup";
+    if (!open_roots(roots, root_count)) {
+        result = diagnostic("resource root unavailable or invalid", 2);
+        goto done;
+    }
+    for (size_t i = 0; i < root_count; i++) {
+        runtime_roots[i] = roots[i].runtime;
+    }
+    bool resource_store_available = open_resource_owner(&resource_owner);
+    stage = "package capture";
     int fd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (fd < 0) {
-        return diagnostic("package directory unavailable", 5);
+        result = diagnostic("package directory unavailable", 5);
+        stage = "package directory";
+        goto done;
     }
     gt_ext_package_config_t capture = {fd, 1024, 4096, 16777216, 67108864};
     gt_status_t status = gt_ext_package_open(&capture, &package);
@@ -139,9 +279,20 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     if (phase != GT_EXT_PACKAGE_CAPTURED) {
         goto done;
     }
-    const char *host = "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
-                       "\",\"protocols\":[" GTERM_PROTOCOL
-                       "],\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\"]}";
+    const char *host = root_count && resource_store_available
+                           ? "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
+                             "\",\"protocols\":[" GTERM_PROTOCOL
+                             "],\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\","
+                             "\"resource.receive\",\"file.readScoped\"]}"
+                       : resource_store_available
+                           ? "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
+                             "\",\"protocols\":[" GTERM_PROTOCOL
+                             "],\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\","
+                             "\"resource.receive\"]}"
+                           : "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
+                             "\",\"protocols\":[" GTERM_PROTOCOL
+                             "],\"runtimes\":[\"portable-js\"],\"capabilities\":[\"session.rpc\"]}";
+    stage = "package compatibility check";
     gt_ext_package_check_config_t check = {.host_json = host};
     if (gt_ext_package_check(package, &check) != GT_EXT_PACKAGE_CHECKED) {
         gt_ext_package_info_t info;
@@ -149,6 +300,9 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
             result = info.error == GT_EXT_PACKAGE_UNSUPPORTED ? 4
                      : info.error == GT_EXT_PACKAGE_UNKNOWN   ? 3
                                                               : 5;
+            if (info.code[0]) {
+                fprintf(stderr, "gterm: package compatibility failed (%s)\n", info.code);
+            }
         }
         goto done;
     }
@@ -191,13 +345,31 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     strcpy(config.host_version, "0.1.0");
     strcpy(config.sdk_version, metadata.sdk_version);
     strcpy(config.available[0], "session.rpc");
+    if (resource_store_available) {
+        strcpy(config.available[config.available_count++], "resource.receive");
+        if (root_count) {
+            strcpy(config.available[config.available_count++], "file.readScoped");
+        }
+    }
     config.required_count = metadata.requires_count;
-    bool rpc = false;
+    bool rpc = false, receive_resources = false, scoped_reads = false;
     for (size_t i = 0; i < config.required_count; i++) {
         strcpy(config.required[i], metadata.requires[i]);
         if (!strcmp(metadata.requires[i], "session.rpc")) {
             rpc = true;
+        } else if (!strcmp(metadata.requires[i], "resource.receive")) {
+            receive_resources = true;
+        } else if (!strcmp(metadata.requires[i], "file.readScoped")) {
+            scoped_reads = true;
         }
+    }
+    if ((receive_resources && !resource_store_available) || (scoped_reads && !root_count) ||
+        (scoped_reads && !receive_resources)) {
+        result = diagnostic("resource capability requires an available store and explicit root", 4);
+        goto done;
+    }
+    if (receive_resources) {
+        config.features |= GT_EXT_FEATURE_RESOURCES;
     }
     if (method_count && !rpc) {
         result = diagnostic("methods require a declared session.rpc capability", 4);
@@ -214,16 +386,30 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         }
         goto done;
     }
+    stage = "stdio channel open";
     status = gt_ext_channel_open_fd(input, output, &channel);
     if (status != GT_OK) {
         close(input);
         close(output);
         goto done;
     }
-    if (gt_ext_session_open_rpc(
-            &channel, GT_EXT_EXECUTOR, &config, methods, method_count, &session) != GT_OK) {
+    stage = "Session owner open";
+    gt_status_t session_status =
+        receive_resources
+            ? gt_ext_session_open_resources(&channel,
+                                            GT_EXT_EXECUTOR,
+                                            &config,
+                                            methods,
+                                            method_count,
+                                            resource_owner.store,
+                                            16777216,
+                                            &session)
+            : gt_ext_session_open_rpc(
+                  &channel, GT_EXT_EXECUTOR, &config, methods, method_count, &session);
+    if (session_status != GT_OK) {
         goto done;
     }
+    stage = "Session handshake";
     for (;;) {
         if (*cancelled) {
             result = 130;
@@ -239,13 +425,18 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
             goto done;
         }
     }
-    gt_ext_runtime_config_t runtime_config = {.role = GT_EXT_EXECUTOR, .invocation = &invocation};
+    stage = "runtime activation";
+    gt_ext_runtime_config_t runtime_config = {.role = GT_EXT_EXECUTOR,
+                                              .invocation = &invocation,
+                                              .roots = root_count ? runtime_roots : NULL,
+                                              .root_count = root_count};
     if (gt_ext_runtime_open_package(&session, package, &runtime_config, true, &runtime) != GT_OK) {
         goto done;
     }
     if (gt_ext_package_destroy(&package) != GT_OK) {
         goto done;
     }
+    stage = "runtime execution";
     bool activated = false;
     for (;;) {
         if (*cancelled) {
@@ -269,17 +460,19 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         idle();
     }
 done:
-    if (!close_owners(&runtime, &session, &channel)) {
+    if (!close_owners(&runtime, &session, &channel, &resource_owner, roots, root_count)) {
         result = 5;
+        stage = "owner cleanup";
     }
     if (package && gt_ext_package_destroy(&package) != GT_OK) {
         result = 5;
+        stage = "package cleanup";
     }
     if (result) {
         diagnostic(result == 6     ? "executor denied"
                    : result == 7   ? "executor channel outcome unknown"
                    : result == 130 ? "executor cancelled"
-                                   : "executor failed",
+                                   : stage,
                    result);
     }
     return result;

@@ -403,6 +403,7 @@ static res_store_t network_store;
 static uint64_t network_handle;
 static size_t network_written, network_read;
 static bool network_finish, network_received, network_recorded;
+static bool network_scoped;
 static gt_ext_resource_snapshot_t network_snapshot;
 
 static gt_ext_session_t *res_network_adopt(gt_ext_channel_t **c,
@@ -412,14 +413,22 @@ static gt_ext_session_t *res_network_adopt(gt_ext_channel_t **c,
                                            size_t count) {
     network_store = res_store(1048576);
     cfg->features |= GT_EXT_FEATURE_RESOURCES;
-    cfg->required_count = 2;
-    cfg->available_count = 3;
-    strcpy(cfg->required[1], "resource.receive");
-    strcpy(cfg->available[2], "resource.receive");
+    size_t extra = network_scoped ? 2 : 1;
+    CHECK(cfg->required_count + extra <= GT_EXT_CAPS_MAX &&
+          cfg->available_count + extra <= GT_EXT_CAPS_MAX);
+    strcpy(cfg->required[cfg->required_count++], "resource.receive");
+    strcpy(cfg->available[cfg->available_count++], "resource.receive");
+    if (network_scoped) {
+        strcpy(cfg->required[cfg->required_count++], "file.readScoped");
+        strcpy(cfg->available[cfg->available_count++], "file.readScoped");
+    }
     gt_ext_session_t *s = NULL;
-    CHECK(gt_ext_session_open_resources(c, role, cfg, m, count, network_store.s, 1048576, &s) ==
-              GT_OK &&
-          !*c);
+    gt_status_t status =
+        gt_ext_session_open_resources(c, role, cfg, m, count, network_store.s, 1048576, &s);
+    if (status != GT_OK || *c) {
+        fprintf(stderr, "resource SSH Session open failed: %d\n", status);
+        CHECK(false);
+    }
     return s;
 }
 
@@ -483,6 +492,44 @@ static bool res_network_progress(gt_ext_session_t *s, const gt_ext_lease_t *l) {
     }
     return done;
 }
+
+static bool res_gterm_receive(gt_ext_session_t *session, const gt_ext_lease_t *lease) {
+    (void)session;
+    if (network_received) {
+        return true;
+    }
+    if (!network_snapshot.handle) {
+        gt_ext_resource_status_t status =
+            gt_ext_session_take_resource(session, lease, &network_snapshot);
+        CHECK(status == GT_EXT_RESOURCE_WAIT || status == GT_EXT_RESOURCE_OK);
+        if (status == GT_EXT_RESOURCE_WAIT) {
+            return false;
+        }
+        gt_ext_resource_info_t info;
+        CHECK(gt_ext_resource_store_info(network_store.s, lease, &network_snapshot, &info) ==
+                  GT_EXT_RESOURCE_OK &&
+              info.published && info.descriptor.size == 18 && info.descriptor.size_known &&
+              !strcmp(info.descriptor.mime, "text/plain") &&
+              !strcmp(info.descriptor.display_name, "fixture.txt") &&
+              !strcmp(info.descriptor.sha256,
+                      "0d363e3363fa30f108097e817502b240bd40e471f13d70118e41de65bb3e9509"));
+    }
+    uint8_t data[64];
+    size_t size = 0;
+    CHECK(gt_ext_resource_store_read(
+              network_store.s, lease, &network_snapshot, 0, data, sizeof(data), &size) ==
+          GT_EXT_RESOURCE_OK);
+    CHECK(size == 18 && !memcmp(data, "resource over SSH\n", size));
+    size_t eof = 1;
+    CHECK(gt_ext_resource_store_read(
+              network_store.s, lease, &network_snapshot, size, data, 1, &eof) ==
+              GT_EXT_RESOURCE_OK &&
+          eof == 0);
+    CHECK(gt_ext_resource_store_release(network_store.s, lease, &network_snapshot) ==
+          GT_EXT_RESOURCE_OK);
+    network_received = true;
+    return true;
+}
 #ifndef EXT_RESOURCE_MAIN
 #define EXT_RESOURCE_MAIN main
 #endif
@@ -499,6 +546,15 @@ int EXT_RESOURCE_MAIN(int argc, char **argv) {
     }
 #ifdef GT_HAVE_LIBSSH2
     else if (argc > 3) {
+        if (!strcmp(argv[1], "gterm") || !strcmp(argv[1], "gterm-resource")) {
+            network_scoped = !strcmp(argv[1], "gterm-resource");
+            rpc_adopt_hook = res_network_adopt;
+            rpc_progress_hook = network_scoped ? res_gterm_receive : NULL;
+            rpc_gterm_network(argc, argv);
+            res_store_drop(&network_store);
+            CHECK(ext_fds() == before);
+            return 0;
+        }
         rpc_adopt_hook = res_network_adopt;
         rpc_progress_hook = res_network_progress;
         rpc_network(argc, argv);

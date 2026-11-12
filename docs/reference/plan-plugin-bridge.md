@@ -4204,4 +4204,13 @@ AppModel 仅在 Portable JS Runtime 可用且成功准备 Application Support �
 
 `testPluginResourceImageDecoderEnforcesFormatAndPixelBudget` 用内存生成的 2×2 PNG 验证正常缩略图、低于源像素数的预算拒绝和 SVG MIME 拒绝。先有一次定向测试启动失败：`TMPDIR` 错配到不存在的 `apple/GhostermApp/tmp`，SwiftPM 未执行；改为工程根 `tmp/` 后定向测试通过。最终完整验证 `apple-app-gate.sh` 通过：Apple ABI **174 引用 / 3 登记未用**，隔离 sshd e2e 通过，GhostermAppTests **389 项、4 skip、0 失败**。全程 headless；未改公共 C ABI，不增加 macOS CI 二十份。
 
-真实远端 `gterm` 资源 producer 与 App 端到端仍未接通；当前 stdio Executor 仅声明并运行 RPC。HTML / Markdown 附件、preview 插件以及资源 UI 生命周期专门验收仍待完成，不记 P2 完成。
+本批之后，真实远端 `gterm` producer 已能经 2 / 3 跳 SSH 向 Core Host ResourceStore 发布受控资源；该证据不覆盖 Swift `ExtensionController` 与 App UI 的端到端接收。HTML / Markdown 附件、preview 插件以及资源 UI 生命周期专门验收仍待完成，不记 P2 完成。
+
+
+### P2 实施第五批：gterm Executor 远端受控资源发布（2026-11-12）
+
+`gterm relay --stdio` 为显式 `--root ID DIRECTORY` 打开的目录建立受控 source root：ID 唯一且限 ASCII，路径以 `O_NOFOLLOW` 打开并校验目录及 owner；最多 8 个 root，每个最多 16 MiB。未配置 root 时不暴露 `file.readScoped`。Executor ResourceStore 在 `TMPDIR` 下创建随机私有目录，总预算 16 MiB、单项 1 MiB、8 个槽位；仅包声明 `resource.receive` 时才协商 Session resource feature，`file.readScoped` 必须同时声明 `resource.receive` 且有显式 root。缺少依赖时显式拒绝，不把 cwd、包目录或 home 自动加入授权范围。退出时按 Runtime、Session、Store、channel 顺序关闭，并释放 root fd；即使较早 owner 清理报错，也继续尝试清理后续临时资源并以失败结束。
+
+SSH fixture 的 QuickJS Executor 先完成双向 RPC，再从显式 `workspace` root 发布 `fixture.txt`。Core Host 实际核对 receipt、已发布状态、长度 18、`text/plain`、显示名、SHA-256、完整内容和 EOF。`scripts/test-gterm-ssh.py --resource` 的 2 跳 / 3 跳 SSH 用例均通过；既有 RPC 2 跳 / 3 跳用例也通过。`scripts/test-gterm-stdio.py` 15 项、`scripts/test-gterm.py` 12 项通过；`clang-format 19.1.7` 检查本批 3 个 C 文件通过，`git diff --check` 通过。全程无前台测试窗口，测试 TMPDIR 指向工程 `tmp/`。
+
+这验证真实 gterm Executor 到 Core Host 的 SSH 资源传输，不覆盖 macOS Swift `ExtensionController` 的 SSH Session resource 协商、AppModel 收件或 UI 生命周期；该 App 端到端及其专门生命周期断言仍待完成。HTML / Markdown 附件与首个 preview 插件仍待实现，不记 P2 完成。未改公共 ABI，不增加 macOS CI 二十份。

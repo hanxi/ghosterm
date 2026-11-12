@@ -661,7 +661,9 @@ static void rpc_network(int argc, char **argv) {
 
 static void rpc_gterm_network(int argc, char **argv) {
     unsigned count = (unsigned)atoi(argv[2]);
-    CHECK(count >= 2 && count <= 3 && argc == (int)(8 + count));
+    bool resources = !strcmp(argv[1], "gterm-resource");
+    CHECK((!strcmp(argv[1], "gterm") || resources) && count >= 2 && count <= 3 &&
+          argc == (int)(8 + count));
     gt_ext_test_port = (uint16_t)atoi(argv[8]);
     uint8_t prefix[4];
     CHECK(read(0, prefix, sizeof(prefix)) == (ssize_t)sizeof(prefix));
@@ -725,10 +727,11 @@ static void rpc_gterm_network(int argc, char **argv) {
                                        .input_shape = GT_EXT_JSON_OBJECT,
                                        .output_shape = GT_EXT_JSON_OBJECT}};
     gt_ext_session_t *session = NULL;
-    CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &config, methods, 2, &session) == GT_OK);
+    session = rpc_adopt(&channel, GT_EXT_HOST, &config, methods, 2);
     uint64_t echo_handle = 0;
     gt_ext_lease_t lease;
     bool decided = false, echo_confirmed = false, host_call_answered = false;
+    bool resource_confirmed = !resources;
     while (ext_info(session).phase < GT_EXT_SESSION_ENDED) {
         gt_ext_session_step(session, 5);
         CHECK(ext_now() < deadline);
@@ -742,6 +745,9 @@ static void rpc_gterm_network(int argc, char **argv) {
             continue;
         }
         CHECK(gt_ext_session_lease(session, &lease));
+        if (resources && rpc_progress_hook && rpc_progress_hook(session, &lease)) {
+            resource_confirmed = true;
+        }
         if (!echo_handle) {
             const char input[] = "{\"text\":\"over-ssh\",\"count\":17}";
             CHECK(gt_ext_session_request(session,
@@ -770,14 +776,31 @@ static void rpc_gterm_network(int argc, char **argv) {
                 echo_confirmed = true;
             }
         }
-        if (echo_confirmed && host_call_answered) {
+        if (echo_confirmed && host_call_answered && resource_confirmed) {
             gt_ext_session_revoke(session);
             break;
         }
     }
-    CHECK(decided && echo_confirmed && host_call_answered && gt_ext_test_dials == 1);
+    if (!(decided && echo_confirmed && host_call_answered && resource_confirmed &&
+          gt_ext_test_dials == 1)) {
+        gt_ext_session_info_t info = ext_info(session);
+        fprintf(stderr,
+                "gterm resource result decided=%d echo=%d host=%d resource=%d dials=%u phase=%d "
+                "end=%d error=%d\n",
+                decided,
+                echo_confirmed,
+                host_call_answered,
+                resource_confirmed,
+                gt_ext_test_dials,
+                info.phase,
+                info.end,
+                info.error);
+        CHECK(false);
+    }
     ext_drop(&session);
-    printf("PASS gterm bidirectional RPC over SSH (%u hops)\n", count);
+    printf("PASS gterm %s over SSH (%u hops)\n",
+           resources ? "RPC and resource transfer" : "bidirectional RPC",
+           count);
 }
 #endif
 #ifndef EXT_RPC_MAIN
@@ -798,6 +821,10 @@ int EXT_RPC_MAIN(int argc, char **argv) {
 #ifdef GT_HAVE_LIBSSH2
     if (argc > 2) {
         if (!strcmp(argv[1], "gterm")) {
+            rpc_gterm_network(argc, argv);
+            return 0;
+        }
+        if (!strcmp(argv[1], "gterm-resource")) {
             rpc_gterm_network(argc, argv);
             return 0;
         }

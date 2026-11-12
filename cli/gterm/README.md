@@ -62,7 +62,16 @@ Host 必须管理专属 stdio 的对端归属；本入口不实现本机 socket 
 开放接收端为 Executor 与 Host、输入/输出根类型为 object、能力为 session.rpc 的方法；
 必须由包声明 session.rpc。
 具体业务 schema 仍由 SDK codec 检查，本入口没有实现任意 JSON Schema 服务。
-当前 Host 能力事实只有 portable JS 和 session.rpc，其它必需服务明确失败。
+当前 stdio Executor 提供 `session.rpc` 与有界 ResourceStore；只有显式配置 `--root ID DIRECTORY` 时才提供 `file.readScoped`。每个根以 `O_NOFOLLOW` 打开、验证为当前用户拥有的目录，最多 8 个、每个最多 16 MiB；插件只看到 ID 与相对路径，不看到宿主绝对路径。资源 Store 在 `$TMPDIR` 下创建随机 `0700` 子目录，总预算 16 MiB、单资源 1 MiB、8 个槽位，Session 结束时按 owner 顺序关闭并移除。需要 `resource.receive` 的 Executor 使用带资源 feature 的 Session；缺少 Store 或必需根时明确拒绝。`file.readScoped` 必须与 `resource.receive` 一起声明，普通 argv 仍通过显式启动参数传入。
+
+示例：
+
+```sh
+gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 \
+  --root workspace ./project -- DIRECTORY COMMAND [ARG...]
+```
+
+调用方负责在 Executor 所在机器选择并授权该根；没有自动把当前目录、包目录或用户主目录加入资源范围。
 
 实际 command/argv 不拼 shell，不把多 token 命令猜成某个包；COMMAND 参数是完整规范命令。
 固定 checked 包的 stdio 调用会在 `activate()` 前按对应 `argsSchema` 的 v1
