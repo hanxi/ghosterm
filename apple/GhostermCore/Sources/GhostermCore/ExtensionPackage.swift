@@ -50,6 +50,18 @@ public final class ExtensionPackage {
             return Command(command)
         }
     }
+    public func commandSchema(path: String) throws -> Data {
+        let p = try pointer(on: owner)
+        var size = 0
+        let query = path.withCString { gt_ext_package_read_command_schema(p, $0, nil, 0, &size) }
+        guard query, size > 0, size <= 65536 else { throw GhostermError.failed("插件命令参数 schema 不可读或超限") }
+        var data = Data(count: size)
+        let ok = data.withUnsafeMutableBytes { bytes in
+            path.withCString { gt_ext_package_read_command_schema(p, $0, bytes.bindMemory(to: UInt8.self).baseAddress, size, &size) }
+        }
+        guard ok else { throw GhostermError.failed("插件命令参数 schema 读取失败") }
+        return data
+    }
     public func step() throws -> Phase { Phase(rawValue: gt_ext_package_step(try pointer(on: owner)).rawValue) ?? .failed }
     public func check(hostJSON: String?, registryJSON: String? = nil, memoryBytes: UInt64 = 0,
                       stackBytes: UInt64 = 0, cpuMilliseconds: UInt32 = 0) throws -> Phase {

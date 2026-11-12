@@ -71,6 +71,43 @@ bool gt_ext_package_command(const gt_ext_package_t *p,
     return true;
 }
 
+bool gt_ext_package_read_command_schema(const gt_ext_package_t *p,
+                                        const char *path,
+                                        uint8_t *output,
+                                        size_t capacity,
+                                        size_t *size) {
+    if (size) {
+        *size = 0;
+    }
+    if (!p || !path || !size || (!output && capacity) ||
+        p->info.phase != GT_EXT_PACKAGE_CHECKED) {
+        return false;
+    }
+    size_t n = strnlen(path, sizeof(((gt_package_command_t *)0)->path));
+    if (!n || n >= sizeof(((gt_package_command_t *)0)->path)) {
+        return false;
+    }
+    gt_package_command_t command;
+    bool found = false;
+    for (size_t i = 0; i < gt__package_checked_command_count(p->checked); i++) {
+        if (gt__package_checked_command(p->checked, i, &command) && !strcmp(command.path, path)) {
+            found = true;
+            break;
+        }
+    }
+    if (!found || !command.args_schema[0]) return false;
+    gt_package_member_t member;
+    const uint8_t *bytes = NULL;
+    size_t length = 0;
+    if (!gt__package_checked_member(p->checked, command.args_schema, &member, &bytes, &length) ||
+        member.bytes != length || length > 65536) return false;
+    *size = length;
+    if (!output) return capacity == 0;
+    if (capacity < length) return false;
+    memcpy(output, bytes, length);
+    return true;
+}
+
 gt_ext_registry_status_t gt_ext_registry_open(gt_ext_registry_t **out) {
     if (out) {
         *out = NULL;

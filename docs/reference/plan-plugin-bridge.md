@@ -4128,3 +4128,10 @@ JS-enabled 的首次有效运行发现测试夹具带了产品明确不支持的
 AppModel 维护单一活动插件运行状态；UI 观察 Session / Runtime phase、failure 和 cleanup 字段，可停止 Runtime / Session 并调用 worker `releaseFinished` 回收 owner。请求 RPC 的 `session.rpc` 前置条件从 worker 返回的固定包 metadata `requiredCapabilities` 检查，不信任界面自报。设置页继续明确标注安装 / 持久信任、业务 Host handler 与插件视图尚未接入。Consent 前尚未把 `argsSchema` 解码为 SDK `decodedArguments` 展示；当前显示用户输入的精确 argv，Native Runtime 激活时仍执行固定包 schema 解码，前置语义展示仍待完善。
 
 最终 JS-enabled App gate（core 配置 `GHOSTERM_WITH_PLUGIN_JS=ON`、环境 `GHOSTERM_CORE_TEST_PLUGIN_JS=1`）通过：Apple ABI 173 引用 / 3 登记未用，GhostermApp 386 项、2 项 skip、0 失败；认证 e2e 与 ProxyJump 路由专项均通过。默认 JS-off 档完整 gate 通过 386 项、4 项 skip、0 失败。最后 consent 卡片新增远端启动命令展示后，定向 XCTest 与完整 App 产品 / 测试编译通过；`core/build` 已恢复 `GHOSTERM_WITH_PLUGIN_JS=OFF`。临时文件在 `tmp/` 并已清理，不改公共 C ABI，不增加 macOS CI 二十份。没有把现有 Native RPC / sshd 夹具结果宣称为产品 UI 到远端业务 Executor 的整链证据。
+
+
+### P0 第九十二批：读取已检查命令参数 schema
+
+新增 `gt_ext_package_read_command_schema`，只按已检查命令路径查找其 manifest 声明的 `argsSchema`，并从该 package owner 持有的不可变 checked snapshot 读取字节；不回读原目录，不暴露任意成员读取，限制 64 KiB，支持先查询长度再拷贝。Swift `ExtensionPackage.commandSchema` 与 Android JNI/Kotlin 门面已同步，Core `test_ext_package` 覆盖长度查询、实际内容和未知命令拒绝。
+
+`bash scripts/gate.sh` 全绿：CTest 474 项、公共 ABI 177 项、未实现入口检查通过。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/apple-app-gate.sh` 全绿：Apple 绑定对拍 174 项 / 3 项登记未用，ssh e2e 通过，GhostermApp 386 项、4 项 skip、0 失败。`python3 scripts/check-abi-android.py` 对拍 140 引用 / 37 登记未用。Android Kotlin/JNI 原生构建未运行：本机没有 Java Runtime；该 ABI 来源对拍不替代 Android 编译。此批只提供不可变 schema 字节读取，尚未实现 consent 前 `x-ghosterm-cli` 解码或 UI 展示；下一批应复用 SDK v1 契约在 consent 前校验 argv，不将原始 argv 冒充 decoded values。不增加 macOS CI 二十份。

@@ -65,6 +65,17 @@ int main(int argc, char **argv) {
         CHECK(gt_ext_package_command_count(package, &count) && count == 1);
         CHECK(gt_ext_package_command(package, 0, &command) && !strcmp(command.path, "fixture") &&
               !strcmp((char *)command.args_schema, "schemas/input.json"));
+        size_t schema_size = 0;
+        CHECK(gt_ext_package_read_command_schema(package, "fixture", NULL, 0, &schema_size) &&
+              schema_size == 2);
+        uint8_t schema[2] = {0};
+        CHECK(gt_ext_package_read_command_schema(package, "fixture", schema, sizeof(schema),
+                                                 &schema_size) &&
+              schema_size == 2 && !memcmp(schema, "{}", 2));
+        schema_size = 99;
+        CHECK(!gt_ext_package_read_command_schema(package, "missing", schema, sizeof(schema),
+                                                  &schema_size) &&
+              schema_size == 0);
         memset(&command, 0x55, sizeof(command));
         CHECK(!gt_ext_package_command(package, 1, &command) && !command.path[0]);
         gt_ext_registry_t *registry = NULL;

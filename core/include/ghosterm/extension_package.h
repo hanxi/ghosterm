@@ -74,6 +74,11 @@ gt_ext_package_phase_t gt_ext_package_check(gt_ext_package_t *,
                                             const gt_ext_package_check_config_t *);
 bool gt_ext_package_info(const gt_ext_package_t *, gt_ext_package_info_t *);
 bool gt_ext_package_metadata(const gt_ext_package_t *, gt_ext_package_metadata_t *);
+/* Reads only the argsSchema member declared by this checked command from the
+ * immutable checked snapshot. Query required size with output=NULL/capacity=0.
+ * Schemas over 64 KiB are rejected. No source directory access. */
+bool gt_ext_package_read_command_schema(const gt_ext_package_t *, const char *command,
+                                        uint8_t *output, size_t capacity, size_t *size);
 /* Only stop is cross-thread, and may not race destroy. */
 void gt_ext_package_stop(gt_ext_package_t *);
 /* Releases this owner's reference; running instances retain their fixed bytes.

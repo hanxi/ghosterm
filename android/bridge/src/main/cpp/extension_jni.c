@@ -2742,6 +2742,49 @@ JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPac
     return result;
 }
 
+JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_commandSchema(
+    JNIEnv *e, jobject self, jlong id, jbyteArray command) {
+    (void)self;
+    jsize path_size = command ? (*e)->GetArrayLength(e, command) : 0;
+    if (path_size <= 0 || path_size >= 520) {
+        extension_error(e, "插件命令路径无效");
+        return NULL;
+    }
+    char *path = malloc((size_t)path_size + 1);
+    if (!path) {
+        return NULL;
+    }
+    (*e)->GetByteArrayRegion(e, command, 0, path_size, (jbyte *)path);
+    if ((*e)->ExceptionCheck(e) || memchr(path, 0, (size_t)path_size)) {
+        free(path);
+        return NULL;
+    }
+    path[path_size] = 0;
+    extension_slot_t *s = package_pin(e, id, true, false);
+    if (!s) {
+        free(path);
+        return NULL;
+    }
+    size_t size = 0;
+    bool ok = gt_ext_package_read_command_schema(s->package, path, NULL, 0, &size) && size <= 65536;
+    uint8_t *bytes = ok ? malloc(size ? size : 1) : NULL;
+    if (ok && !bytes) {
+        ok = false;
+    }
+    if (ok) {
+        ok = gt_ext_package_read_command_schema(s->package, path, bytes, size, &size);
+    }
+    extension_unpin(s);
+    free(path);
+    jbyteArray result = ok ? (*e)->NewByteArray(e, (jsize)size) : NULL;
+    if (result && size) {
+        (*e)->SetByteArrayRegion(e, result, 0, (jsize)size, (const jbyte *)bytes);
+    }
+    free(bytes);
+    if (!result) extension_error(e, "插件命令参数 schema 读取失败");
+    return result;
+}
+
 static extension_slot_t *registry_pin(JNIEnv *e, jlong id) {
     pthread_mutex_lock(&extension_lock);
     extension_slot_t *s = NULL;
