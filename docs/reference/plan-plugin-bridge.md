@@ -1,8 +1,8 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第一百零二批 macOS 受限 HTML 资源预览。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
+日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 HTML 外部附件映射与首个 preview 插件、资源 UI 生命周期专门视图断言；macOS App 已接资源能力协商、有界接收、UTF-8 文本、预算内静态图片、有界 Markdown 与禁脚本/网络的单文档 HTML 预览；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 P2 preview 产品闭环完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 HTML 外部附件映射、资源 UI 生命周期专门视图断言、官方 Preview 完整交互与多格式附件收集；macOS App 已接资源能力协商、有界接收、UTF-8 文本、预算内静态图片、有界 Markdown 与禁脚本/网络的单文档 HTML 预览；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 P2 preview 产品闭环完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -4274,3 +4274,12 @@ JS-on `ExtensionControllerTests` 通过 **9 项、2 skip**；已有审查夹具�
 新增 decoder XCTest 检查 UTF-8/预算、MIME、文档内容和 CSP 指令。Apple gate 通过：Apple ABI 174 引用 / 3 登记未用，GhostermAppTests **393 项、5 skip、0 失败**。第一轮 gate 执行中，无前台 UI。
 
 此片只显示单个 HTML 文档，不支持相对路径 CSS/图片附件映射；未验证浏览器视觉输出或导航策略运行时，只完成构建与 decoder 断言。官方 `preview <path>` 双端包和资源列表 / 选择 / UI 生命周期专门验收仍待完成；不改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第十二批：首个官方 Preview 插件与真实 App 接收（2026-11-12）
+
+新增 `plugins/official/preview` 双端 Portable JS 包：Client 声明 `resource.receive` 并由原生 App 负责显示；Executor 提供 `preview <path> [--max-bytes N]`，argv 通过 `x-ghosterm-cli` 由 Host 解码，默认预算 256 KiB、最大 1 MiB。Executor 只接受显式 `workspace` 根中的相对路径，通过 `ResourceBroker.publish` 传输单一不可变快照；不自动发现 cwd/home/包目录，不递归扫描附件。MIME 只按白名单后缀映射 Markdown、HTML、PNG/JPEG/GIF/WebP 与纯文本，其它格式作为二进制。`scripts/build-plugin-preview.py` 可重建 / 校验固定成员摘要。
+
+随即将既有 macOS App SSH E2E 改为加载该 checked-in 官方包，而非临时构造同形 fixture。JS-enabled App / Core 与真实隔离 sshd 下，AppModel 以官方 `preview fixture.txt` 命令通过 consent，Executor 从显式测试根发布文件，App 收到后逐字节校验内容、MIME、文件名、长度与 SHA-256，再停止并释放运行。专项定向 E2E **通过**；JS-off 的完整 Apple gate 对该特例保持既有显式 SKIP 规则。`gterm plugin check` 对该目录报告 compatible；`scripts/build-plugin-preview.py --check` 通过。测试 CLI/headless，产物和 sshd 临时目录均在工程 `tmp/`。
+
+仍未实现 Markdown/HTML 相对附件收集与映射、资源选择/列表交互及视图生命周期专项断言；当前 Preview Client 是受控空入口，通用资源 UI 提供已支持的格式展示，不宣称完整文档浏览器。插件安装 / 持久信任仍未接入。不改公共 ABI，不增加 macOS CI 二十份。

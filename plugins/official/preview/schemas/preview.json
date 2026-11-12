@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "path": { "type": "string", "maxLength": 3072 },
+    "maxBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+  },
+  "required": ["path", "maxBytes"],
+  "additionalProperties": false,
+  "x-ghosterm-cli": {
+    "version": 1,
+    "fields": {
+      "path": { "position": 0 },
+      "maxBytes": { "option": "max-bytes", "default": 262144 }
+    }
+  }
+}

@@ -382,65 +382,17 @@ final class ExtensionControllerTests: XCTestCase {
         }
 
         let base = sessionTestDirectory().appendingPathComponent("gterm-resource-" + UUID().uuidString)
-        let package = base.appendingPathComponent("package", isDirectory: true)
+        let repositoryRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let package = repositoryRoot.appendingPathComponent("plugins/official/preview", isDirectory: true)
         let sourceRoot = base.appendingPathComponent("source", isDirectory: true)
-        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: sourceRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
 
         let resourceBytes = Data("resource from AppModel over SSH\n".utf8)
         try resourceBytes.write(to: sourceRoot.appendingPathComponent("fixture.txt"))
-        let manifest: [String: Any] = [
-            "schemaVersion": 1,
-            "id": "org.ghosterm.app-resource-fixture",
-            "pluginVersion": "0.1.0",
-            "sdkApiRange": "^1.0.0",
-            "bridgeProtocolRange": [1],
-            "publisher": "fixture",
-            "license": "MIT",
-            "commands": [["path": ["fixture"], "title": "Fixture", "argsSchema": "schemas/input.json"]],
-            "client": ["runtime": "portable-js", "entry": "client/index.js",
-                       "requires": ["session.rpc", "resource.receive"]],
-            "executor": ["variants": [["id": "portable", "runtime": "portable-js",
-                                         "entry": "executor/index.js",
-                                         "requires": ["session.rpc", "resource.receive", "file.readScoped"]]]],
-            "permissions": [
-                ["side": "client", "capability": "resource.receive",
-                 "purpose": "Receive the Executor's explicitly published resource.", "scope": "instance"],
-                ["side": "executor", "capability": "resource.receive",
-                 "purpose": "Publish the explicitly selected fixture file to the Client.", "scope": "instance"],
-                ["side": "executor", "capability": "file.readScoped",
-                 "purpose": "Read a file from the explicitly selected source directory.", "scope": "instance"],
-            ],
-        ]
-        let schema = #"{"type":"object","properties":{},"required":[],"additionalProperties":false}"#
-        let executor = "import {object,text,integer} from '@ghosterm/plugin-sdk';" +
-            "export async function activate(ctx){" +
-            "const codec=object({text:text(40),count:integer(0,100)});" +
-            "const transfer=ctx.resources.publish({root:'workspace',relativePath:'fixture.txt',mediaType:'text/plain'}," +
-            "{byteLimit:'1024',timeoutMs:30000});const result=await transfer.outcome;" +
-            "if(result.kind!=='success'||result.value.size.bytes!=='32')throw Error('receipt');" +
-            "return {dispose(){}}}"
-        let files: [(String, Data)] = [
-            ("plugin.json", try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])),
-            ("README.md", Data("fixture\n".utf8)),
-            ("LICENSES/MIT.txt", Data("MIT\n".utf8)),
-            ("schemas/input.json", Data(schema.utf8)),
-            ("client/index.js", Data("export function activate(){return {dispose(){}}}".utf8)),
-            ("executor/index.js", Data(executor.utf8)),
-        ]
-        var members: [[String: Any]] = []
-        for (path, bytes) in files {
-            let destination = package.appendingPathComponent(path)
-            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
-                                                    withIntermediateDirectories: true)
-            try bytes.write(to: destination)
-            members.append(["path": path, "bytes": bytes.count,
-                            "sha256": SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()])
-        }
-        let integrity = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "members": members],
-                                                   options: [.sortedKeys])
-        try integrity.write(to: package.appendingPathComponent("integrity.json"))
+        let integrity = try Data(contentsOf: package.appendingPathComponent("integrity.json"))
         let executorDigest = SHA256.hash(data: integrity).map { String(format: "%02x", $0) }.joined()
 
         let config = base.appendingPathComponent("ssh_config")
@@ -464,7 +416,7 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertEqual(approved, 0)
 
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest,
-            command: "fixture", arguments: [], sshAlias: "plugin-resource-fixture",
+            command: "preview", arguments: ["fixture.txt"], sshAlias: "plugin-resource-fixture",
             executable: gterm, executorDirectory: package.path, executorDigest: executorDigest,
             methods: [], hostMethods: [],
             scopedRoots: [.init(id: "workspace", directory: sourceRoot.path)])

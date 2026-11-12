@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "org.ghosterm.preview",
+  "pluginVersion": "0.1.0",
+  "sdkApiRange": "^1.0.0",
+  "bridgeProtocolRange": [1],
+  "publisher": "Ghosterm",
+  "license": "MIT",
+  "commands": [
+    {
+      "path": ["preview"],
+      "title": "Preview a scoped file",
+      "argsSchema": "schemas/preview.json",
+      "views": ["resource"]
+    }
+  ],
+  "client": {
+    "runtime": "portable-js",
+    "entry": "client/index.js",
+    "requires": ["resource.receive"]
+  },
+  "executor": {
+    "variants": [
+      {
+        "id": "portable",
+        "runtime": "portable-js",
+        "entry": "executor/index.js",
+        "requires": ["resource.receive", "file.readScoped"]
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "side": "client",
+      "capability": "resource.receive",
+      "purpose": "Receive the explicitly selected file preview from its Executor.",
+      "scope": "instance"
+    },
+    {
+      "side": "executor",
+      "capability": "resource.receive",
+      "purpose": "Publish a bounded snapshot for the requested preview command.",
+      "scope": "instance"
+    },
+    {
+      "side": "executor",
+      "capability": "file.readScoped",
+      "purpose": "Read only the requested relative path inside the user's selected workspace root.",
+      "scope": "instance"
+    }
+  ]
+}
