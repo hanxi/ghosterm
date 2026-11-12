@@ -40,6 +40,7 @@ struct ExtensionsPane: View {
                 Spacer()
                 Button("选择文件夹…") { importing = true }
                     .disabled(model.extensionController == nil)
+                    .accessibilityIdentifier("plugin-package-import")
             }
 
             if model.extensionController == nil {
@@ -77,23 +78,35 @@ struct ExtensionsPane: View {
                     if entry.decision == "已批准（本进程）" {
                         VStack(alignment: .leading, spacing: DS.Padding.s) {
                             TextField("SSH 主机别名", text: $entry.sshAlias)
+                                .accessibilityIdentifier("plugin-ssh-alias-\(entry.review.id)")
                             TextField("远端 gterm 可执行文件", text: $entry.executable)
+                                .accessibilityIdentifier("plugin-executable-\(entry.review.id)")
                             TextField("Executor 包目录", text: $entry.executorDirectory)
+                                .accessibilityIdentifier("plugin-executor-directory-\(entry.review.id)")
                             TextField("Executor SHA-256", text: $entry.executorDigest)
                                 .font(.system(size: 11, design: .monospaced))
+                                .accessibilityIdentifier("plugin-executor-digest-\(entry.review.id)")
                             TextField("完整命令路径", text: $entry.command)
+                                .accessibilityIdentifier("plugin-command-\(entry.review.id)")
                             TextField("命令参数 JSON 字符串数组", text: $entry.argumentsJSON)
+                                .accessibilityIdentifier("plugin-arguments-\(entry.review.id)")
                             TextField("Executor RPC allowlist JSON", text: $entry.methodsJSON)
+                                .accessibilityIdentifier("plugin-executor-methods-\(entry.review.id)")
                             TextField("Host RPC allowlist JSON", text: $entry.hostMethodsJSON)
+                                .accessibilityIdentifier("plugin-host-methods-\(entry.review.id)")
                             TextField("远端资源目录（留空则不开放）", text: $entry.resourceRoot)
+                                .accessibilityIdentifier("plugin-resource-root-\(entry.review.id)")
                             Button("连接并启动 Client 命令") { launch(entry) }
                                 .disabled(model.extensionRunBusy || model.extensionRun != nil)
+                                .accessibilityIdentifier("plugin-launch-\(entry.review.id)")
                         }
                     } else {
                         HStack {
                             Button("批准此摘要") { decide(entry: entry, approve: true) }
                                 .disabled(entry.decision == "已批准（本进程）")
+                                .accessibilityIdentifier("plugin-approve-\(entry.review.id)")
                             Button("拒绝") { decide(entry: entry, approve: false) }
+                                .accessibilityIdentifier("plugin-deny-\(entry.review.id)")
                         }
                     }
                 }
@@ -191,8 +204,10 @@ struct ExtensionsPane: View {
                     .font(DS.Font.caption).foregroundStyle(.secondary)
                 HStack {
                     Button("拒绝并结束") { Task { await model.decideExtensionConsent(allow: false) } }
+                        .accessibilityIdentifier("plugin-consent-deny")
                     Button("批准并启动") { Task { await model.decideExtensionConsent(allow: true) } }
                         .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("plugin-consent-allow")
                 }
                 .disabled(model.extensionRunBusy)
             } else {
@@ -212,6 +227,7 @@ struct ExtensionsPane: View {
                     Task { await model.stopExtensionRun() }
                 }
                 .disabled(model.extensionRunBusy)
+                .accessibilityIdentifier("plugin-stop")
             }
         }
         .padding(DS.Padding.m)
