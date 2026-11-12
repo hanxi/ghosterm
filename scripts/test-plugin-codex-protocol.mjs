@@ -9,7 +9,7 @@ import { CodexAppServerClient, CodexOutcomeUnknownError, CodexProtocolError } fr
   "../plugins/official/ai-codex/protocol/client.ts";
 import { CodexLineDecoder, CodexLineDecoderError, MAX_APP_SERVER_LINE_BYTES } from
   "../plugins/official/ai-codex/protocol/line-decoder.ts";
-import { CodexAppServerStdio, CODEX_PENDING_WRITE_MAX } from
+import { CodexAppServerStdio, CODEX_PENDING_WRITE_MAX, CODEX_PIPE_CHUNK_MAX } from
   "../plugins/official/ai-codex/protocol/stdio.ts";
 import { spawnCodexAppServer } from "../plugins/official/ai-codex/protocol/process.ts";
 
@@ -155,6 +155,30 @@ test("stdio EOF inside a JSON record fails closed and leaves the request outcome
   connection.close();
 });
 
+test("stdout EOF does not stop later stderr drainage", () => {
+  const stderr = [{ state: "wait" }];
+  let retained = 0;
+  const connection = new CodexAppServerStdio({
+    writeStdin: bytes => ({ state: "data", count: bytes.length }),
+    readStdout: () => ({ state: "eof" }),
+    readStderr: () => {
+      const result = stderr.shift() ?? { state: "eof" };
+      if (result.state === "data") retained += result.bytes.length;
+      return result;
+    },
+    closeStdin() {},
+  });
+  connection.step();
+  assert.equal(connection.drained, false);
+  stderr.push({ state: "data", bytes: new Uint8Array(CODEX_PIPE_CHUNK_MAX) });
+  connection.step();
+  assert.equal(retained, CODEX_PIPE_CHUNK_MAX);
+  assert.equal(connection.drained, false);
+  connection.step();
+  assert.equal(connection.drained, true);
+  connection.close();
+});
+
 test("PluginContext process grant launches Codex through the bounded stdio adapter", async () => {
   const writes = [];
   const reads = [];
@@ -222,6 +246,37 @@ test("PluginContext process integration rejects non-Executor or missing live gra
   context.capabilities.query = name => name === "process.spawn" ? "allowed" : "revoked";
   await assert.rejects(spawnCodexAppServer(context, clientInfo), /authorized Executor process grant/);
   assert.equal(spawned, false);
+});
+
+test("naturally exited Codex child drains both pipes and is reaped without an explicit stop", async () => {
+  let released = false;
+  let signalled = false;
+  const child = {
+    verifiedVersion: "0.166.0",
+    writeStdin(bytes) { return { state: "data", count: bytes.length }; },
+    readStdout() { return { state: "eof" }; },
+    readStderr() { return { state: "eof" }; },
+    closeStdin() {},
+    signal() { signalled = true; },
+    poll() { return { state: "exited", code: 0, signal: null }; },
+    async release() { released = true; },
+  };
+  const context = {
+    side: "executor",
+    capabilities: { query: () => "allowed" },
+    cancellation: { cancelled: false },
+    invocation: { workspaceHandle: { id: "workspace-root" } },
+    process: { async spawn() { return child; } },
+  };
+  const server = await spawnCodexAppServer(context, clientInfo);
+  const ready = assert.rejects(server.ready, error => error instanceof CodexOutcomeUnknownError);
+  server.step();
+  await ready;
+  await server.stop();
+  assert.deepEqual(server.exit, { state: "exited", code: 0, signal: null });
+  assert.equal(server.reaped, true);
+  assert.equal(released, true);
+  assert.equal(signalled, false);
 });
 
 test("runs initialize and thread/start against the pinned real server, without a turn", async () => {

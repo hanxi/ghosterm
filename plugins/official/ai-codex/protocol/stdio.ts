@@ -63,17 +63,18 @@ export class CodexAppServerStdio {
 
   get failure(): Error | undefined { return this.#failure; }
   get closed(): boolean { return this.#closed; }
+  /** True after both output pipes have reached EOF and buffered bytes were read. */
+  get drained(): boolean { return this.#stdoutEOF && this.#stderrEOF; }
 
   /** One bounded, zero-wait IO slice. Stderr is drained but never retained/logged. */
   step(): void {
-    if (this.#closed || this.#failure || this.#stdoutEOF) return;
+    if (this.#closed || this.#failure || (this.#stdoutEOF && this.#stderrEOF)) return;
     try {
-      let budget = CODEX_PIPE_CHUNK_MAX;
-      this.#flushWrites(budget);
-      budget = CODEX_PIPE_CHUNK_MAX;
-      this.#drainStdout(budget);
-      budget = CODEX_PIPE_CHUNK_MAX;
-      this.#drainStderr(budget);
+      if (!this.#stdoutEOF) {
+        this.#flushWrites(CODEX_PIPE_CHUNK_MAX);
+        this.#drainStdout(CODEX_PIPE_CHUNK_MAX);
+      }
+      if (!this.#stderrEOF) this.#drainStderr(CODEX_PIPE_CHUNK_MAX);
     } catch (error) {
       this.#fail(error instanceof Error ? error : new Error(String(error)));
     }

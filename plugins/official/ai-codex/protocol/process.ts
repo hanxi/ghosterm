@@ -1,11 +1,14 @@
 import type { PluginContext } from "../../../../packages/plugin-sdk/portable/index.js";
 import { CodexAppServerStdio } from "./stdio.ts";
 import type { ClientInfo } from "./client.ts";
+import type { ProcessExit } from "../../../../packages/plugin-sdk/portable/process.js";
 
 /** A Codex server launched through the Host-authorized Executor process service. */
 export interface CodexAppServerProcess {
   readonly stdio: CodexAppServerStdio;
   readonly ready: Promise<unknown>;
+  readonly exit: ProcessExit | undefined;
+  readonly reaped: boolean;
   /** One bounded nonblocking IO slice; the Host must call this from its worker. */
   step(): void;
   /** Close protocol state, request termination, and wait for OS reaping. */
@@ -38,17 +41,36 @@ export async function spawnCodexAppServer(
   const stdio = new CodexAppServerStdio(child);
   const ready = stdio.client.initialize(clientInfo);
   let stopped = false;
+  let exit: ProcessExit | undefined;
+  let reaped = false;
+  let releasePromise: Promise<void> | undefined;
+  const release = (): Promise<void> => {
+    if (!releasePromise) {
+      stdio.close();
+      releasePromise = child.release().then(() => { reaped = true; });
+      // step() may observe natural exit without a caller awaiting stop(). Keep
+      // the rejection observed here; stop() returns the same rejecting promise.
+      void releasePromise.catch(() => {});
+    }
+    return releasePromise;
+  };
   return {
     stdio,
     ready,
-    step() { stdio.step(); },
+    get exit() { return exit; },
+    get reaped() { return reaped; },
+    step() {
+      if (releasePromise) return;
+      stdio.step();
+      exit = child.poll();
+      if (exit.state === "exited" && stdio.drained) void release();
+    },
     async stop() {
-      if (!stopped) {
+      if (!stopped && !releasePromise) {
         stopped = true;
-        stdio.close();
         child.signal("terminate");
       }
-      await child.release();
+      await release();
     },
   };
 }
