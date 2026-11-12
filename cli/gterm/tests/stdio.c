@@ -38,12 +38,15 @@ static void idle(void) {
 }
 
 int main(int argc, char **argv) {
-    bool preview = argc == 7 && !strcmp(argv[4], "preview");
-    CHECK(argc == 5 || preview);
+    bool preview =
+        argc >= 7 && (!strcmp(argv[4], "preview") || !strcmp(argv[4], "preview-unicode"));
+    bool preview_unicode = preview && !strcmp(argv[4], "preview-unicode");
+    CHECK(argc == 5 || (preview && argc == (preview_unicode ? 8 : 7)));
     CHECK(!atexit(cleanup));
     const char *binary = argv[1], *directory = argv[2], *package_digest = argv[3], *mode = argv[4];
     const char *workspace = preview ? argv[5] : NULL;
     const char *store_directory = preview ? argv[6] : NULL;
+    const char *preview_path = preview_unicode ? argv[7] : "site/index.md";
     char client_digest[65];
     memset(client_digest, 'd', 64);
     client_digest[64] = 0;
@@ -72,24 +75,43 @@ int main(int argc, char **argv) {
         }
         const char *trusted = !strcmp(mode, "digest") ? client_digest : package_digest;
         if (preview) {
-            execl(binary,
-                  binary,
-                  "relay",
-                  "--stdio",
-                  "--trust-development-digest",
-                  package_digest,
-                  "--client-digest",
-                  client_digest,
-                  "--root",
-                  "workspace",
-                  workspace,
-                  "--",
-                  directory,
-                  "preview",
-                  "site/index.md",
-                  "--assets",
-                  "site/theme\\,dark.css",
-                  (char *)NULL);
+            if (preview_unicode) {
+                execl(binary,
+                      binary,
+                      "relay",
+                      "--stdio",
+                      "--trust-development-digest",
+                      package_digest,
+                      "--client-digest",
+                      client_digest,
+                      "--root",
+                      "workspace",
+                      workspace,
+                      "--",
+                      directory,
+                      "preview",
+                      preview_path,
+                      (char *)NULL);
+            } else {
+                execl(binary,
+                      binary,
+                      "relay",
+                      "--stdio",
+                      "--trust-development-digest",
+                      package_digest,
+                      "--client-digest",
+                      client_digest,
+                      "--root",
+                      "workspace",
+                      workspace,
+                      "--",
+                      directory,
+                      "preview",
+                      preview_path,
+                      "--assets",
+                      "site/theme\\,dark.css",
+                      (char *)NULL);
+            }
         } else if (!strcmp(mode, "arguments-codec")) {
             execl(binary,
                   binary,
@@ -277,21 +299,22 @@ int main(int argc, char **argv) {
                 gt_ext_resource_info_t resource_info;
                 CHECK(gt_ext_resource_store_info(
                           store, &resource_lease, &snapshot, &resource_info) == GT_EXT_RESOURCE_OK);
+                const char *main_name =
+                    preview_unicode ? strrchr(preview_path, '/') + 1 : "site/index.md";
                 const char *name =
-                    !strcmp(resource_info.descriptor.display_name, "site/index.md")
-                        ? "site/index.md"
-                    : !strcmp(resource_info.descriptor.display_name, "site/theme,dark.css")
+                    !strcmp(resource_info.descriptor.display_name, main_name) ? main_name
+                    : !preview_unicode &&
+                            !strcmp(resource_info.descriptor.display_name, "site/theme,dark.css")
                         ? "site/theme,dark.css"
                         : NULL;
                 CHECK(name);
-                const char *mime = !strcmp(name, "site/index.md") ? "text/markdown" : "text/css";
-                const char *expected_bytes = !strcmp(name, "site/index.md")
-                                                 ? "# Preview runtime fixture\n"
-                                                 : "body { color: rgb(1, 2, 3); }\n";
+                bool markdown = !strcmp(name, main_name);
+                const char *mime = markdown ? "text/markdown" : "text/css";
+                const char *expected_bytes =
+                    markdown ? "# Preview runtime fixture\n" : "body { color: rgb(1, 2, 3); }\n";
                 const char *expected_sha256 =
-                    !strcmp(name, "site/index.md")
-                        ? "75a7f6f9435ed30b30df8d0e4b1f9c49b29442158dd8c815a540358daecff365"
-                        : "39eac723d7bb8a05bea2aa57d7b528eb83ed8f8dfe18e4f9659997457961a497";
+                    markdown ? "75a7f6f9435ed30b30df8d0e4b1f9c49b29442158dd8c815a540358daecff365"
+                             : "39eac723d7bb8a05bea2aa57d7b528eb83ed8f8dfe18e4f9659997457961a497";
                 size_t expected_size = strlen(expected_bytes), read_size = 0;
                 char bytes[128] = {0};
                 CHECK(!strcmp(resource_info.descriptor.mime, mime) &&
@@ -302,7 +325,7 @@ int main(int argc, char **argv) {
                           store, &resource_lease, &snapshot, 0, bytes, sizeof(bytes), &read_size) ==
                           GT_EXT_RESOURCE_OK &&
                       read_size == expected_size && !memcmp(bytes, expected_bytes, expected_size));
-                if (!strcmp(name, "site/index.md")) {
+                if (markdown) {
                     CHECK(!preview_main);
                     preview_main = true;
                 } else {
@@ -311,7 +334,7 @@ int main(int argc, char **argv) {
                 }
                 CHECK(gt_ext_resource_store_release(store, &resource_lease, &snapshot) ==
                       GT_EXT_RESOURCE_OK);
-                if (preview_main && preview_asset && !preview_complete_at) {
+                if (preview_main && (preview_unicode || preview_asset) && !preview_complete_at) {
                     preview_complete_at = now();
                 }
             } else {
@@ -411,7 +434,7 @@ int main(int argc, char **argv) {
         CHECK(gt_ext_session_info(session, &info) && !info.received);
     }
     if (preview) {
-        CHECK(preview_main && preview_asset && decided && consent_at);
+        CHECK(preview_main && (preview_unicode || preview_asset) && decided && consent_at);
     }
     if (!strcmp(mode, "roundtrip") || !strcmp(mode, "dispose-error") || pipes ||
         !strcmp(mode, "active-cancel") || !strcmp(mode, "lost")) {

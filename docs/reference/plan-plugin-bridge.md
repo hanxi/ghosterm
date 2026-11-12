@@ -4592,3 +4592,9 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 回看第四十五批发现其 C Host 夹具检查了收到快照的 MIME、长度和完整字节，却没有显式把传输描述符 SHA-256 对拍到两个受控源文件。现加入 Markdown 与逗号 CSS fixture 的固定摘要断言，并要求 `size_known` 为真；保留 ResourceStore 读回字节比较，防止只对元数据或只对内容的单边通过。
 
 重新配置并构建 JS-enabled `gterm` / `test_gterm_stdio`，完整 `python3 scripts/test-gterm-stdio.py --build tmp/gterm-build` 通过（15 个既有 stdio 场景及 `PASS stdio preview`）。先将官方 pip wheel `clang-format==19.1.7` 安装到工程 `tmp/` 临时目录，再以 `PYTHONPATH` / `CLANG_FORMAT` 指向该只读工具运行 `python3 scripts/format-c.py --check`，仓库纳管 C 文件 214 份全绿；本次修改文件由同一版本格式化后，C 格式闸门复验通过。没有改生产代码或公共 ABI。此批加固本机 QuickJS / scoped filesystem / ResourceStore 证据，不覆盖 SSH、UI 或页面授权，也不增加 macOS CI 二十份；P2 生命周期 / 平台矩阵与 P3–P6 仍待完成。
+
+### P2 实施第四十七批：512 码点 Preview 路径真实文件系统 E2E（2026-11-13）
+
+在第四十五批本机官方 Preview E2E 上增加 `preview-unicode` 真实运行场景：构造恰为 512 个 Unicode code point 的相对 Markdown 路径，分成 31 个合法文件系统分量（每段最多 68 UTF-8 字节），经 gterm 原生 args schema 解码、QuickJS Executor `relativePath()`、31 层以内的 Core scoped source 遍历及 C ResourceStore 收件。测试核验 ResourceStore 将超长显示路径裁为最终文件名后，Markdown MIME、固定 SHA-256、长度与正文仍一致。原 Node stub 的 512 / 513 边界样本也改为同一合法分量结构，并断言每个 UTF-8 分量不超过 255 字节。
+
+首次 harness 尝试用 Python 的完整路径名递归创建所有目录，在 macOS `mkdir` 阶段因累积绝对路径达到系统路径上限报 `ENAMETOOLONG`，尚未启动 gterm；改用逐层 `dir_fd` 创建后通过，前次夹具失败不记产品断言红。JS-enabled gterm 构建后，默认 `python3 scripts/test-gterm-stdio.py --build tmp/gterm-build` 的 15 个既有 case、`PASS stdio preview` 与 `PASS stdio preview-unicode` 全通过；`node --check scripts/test-plugin-preview.mjs`、`node scripts/test-plugin-preview.mjs`、官方包 `--check`（摘要 `d624de6db315a5d3df6836a7ce43e241e89b6ad6a7dc1152324bcdde2ba06762`）、clang-format 19.1.7 全仓 214 文件及 `git diff --check` 通过。此证据只覆盖本机真实文件系统 / QuickJS / C ResourceStore，不替代远端 SSH、macOS/Android 产品 UI、用户授权或 P2 / P3–P6 完成；不改公共 ABI，不增加 macOS CI 二十份。

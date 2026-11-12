@@ -42,8 +42,12 @@ const commaAsset = await run({
 assert.equal(commaAsset[1].input.relativePath, "site/theme,dark.css",
   "a comma in one canonical filename must not become two attachment paths");
 
-const unicodePathAtLimit = `${Array(255).fill("😀").join("/")}/ab`;
+const unicodePathParts = ["😀".repeat(14), ...Array(15).fill("😀".repeat(16)),
+  ...Array(14).fill("😀".repeat(15)), `${"😀".repeat(15)}.md`];
+const unicodePathAtLimit = unicodePathParts.join("/");
 assert.equal([...unicodePathAtLimit].length, 512);
+assert.equal(unicodePathParts.length, 31);
+assert.ok(unicodePathParts.every((part) => Buffer.byteLength(part) <= 255));
 const unicodePathPublications = await run({
   path: unicodePathAtLimit,
   assets: "",
@@ -51,7 +55,7 @@ const unicodePathPublications = await run({
 });
 assert.equal(unicodePathPublications[0].input.relativePath, unicodePathAtLimit,
   "the Executor path bound must use Unicode code points like argsSchema.maxLength");
-const unicodePathOverLimit = `${Array(255).fill("😀").join("/")}/abc`;
+const unicodePathOverLimit = `${unicodePathAtLimit}x`;
 assert.equal([...unicodePathOverLimit].length, 513);
 await assert.rejects(() => run({ path: unicodePathOverLimit, assets: "", maxBytes: 65536 }),
   /canonical relative path/);

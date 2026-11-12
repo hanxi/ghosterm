@@ -17,6 +17,24 @@ def run_preview_runtime(build,work,package):
  assert r.returncode==0,('preview-runtime',r.returncode,r.stdout,r.stderr)
  assert 'PASS stdio preview' in r.stdout,r.stdout
  print(r.stdout,end='')
+ unicode_parts=['😀'*14]+['😀'*16]*15+['😀'*15]*14+['😀'*15+'.md']
+ unicode_path='/'.join(unicode_parts)
+ assert len(unicode_path)==512 and len(unicode_parts)==31
+ unicode_workspace=work/'unicode-workspace';unicode_workspace.mkdir()
+ current_fd=os.open(unicode_workspace,os.O_RDONLY|os.O_DIRECTORY)
+ for component in unicode_parts[:-1]:
+  os.mkdir(component,dir_fd=current_fd)
+  next_fd=os.open(component,os.O_RDONLY|os.O_DIRECTORY,dir_fd=current_fd)
+  os.close(current_fd);current_fd=next_fd
+ file_fd=os.open(unicode_parts[-1],os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600,dir_fd=current_fd)
+ os.write(file_fd,b'# Preview runtime fixture\n')
+ os.close(file_fd);os.close(current_fd)
+ unicode_store=work/'unicode-resource-store';unicode_store.mkdir(mode=0o700)
+ r=subprocess.run([str(build/'test_gterm_stdio'),str(build/'gterm'),str(package),digest,'preview-unicode',str(unicode_workspace),str(unicode_store),unicode_path],capture_output=True,text=True,timeout=45,env=env)
+ if 'ABNORMAL' in r.stderr or 'AddressSanitizer' in r.stderr or 'runtime error:' in r.stderr:raise RuntimeError(r.stderr)
+ assert r.returncode==0,('preview-unicode',r.returncode,r.stdout,r.stderr)
+ assert 'PASS stdio preview-unicode' in r.stdout,r.stdout
+ print(r.stdout,end='')
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--build',type=Path,required=True);p.add_argument('--case',choices=['arguments-codec','arguments-invalid','host-method','roundtrip','deny','cancel','digest','peer-digest','command','dispose-error','pipes','active-cancel','lost','pending-loss','silent','tty','preview-runtime']);a=p.parse_args()
  work=Path(tempfile.mkdtemp(prefix='gterm-stdio-',dir=ROOT/'tmp'));package=work/'package';package.mkdir()
