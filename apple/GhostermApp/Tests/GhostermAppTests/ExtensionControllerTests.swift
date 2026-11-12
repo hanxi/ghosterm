@@ -12,6 +12,25 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertFalse(AppModel.extensionHostCapabilities.contains("session.resources"))
     }
 
+    func testResourceCapabilityRequiresAnExplicitPrivateDirectory() throws {
+        let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
+            protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc", "session.resources"])
+        XCTAssertThrowsError(try ExtensionController(profile: profile))
+    }
+
+    func testControllerWithoutResourceCapabilityCannotTakeResources() async throws {
+        let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
+            protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc"])
+        let controller = try ExtensionController(profile: profile)
+        do {
+            _ = try await controller.takeSessionResource()
+            XCTFail("resource access must require the advertised and provisioned capability")
+        } catch ExtensionController.ControllerError.resourceUnavailable {
+        }
+        let closed = await controller.close()
+        XCTAssertTrue(closed)
+    }
+
     func testRelayBootstrapValidatesAndQuotesEveryArgument() throws {
         let digest = String(repeating: "a", count: 64)
         let request = ExtensionRelayBootstrap.Request(

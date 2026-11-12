@@ -177,6 +177,15 @@ public actor ExtensionController {
         public let request: HostRPCRequest?
     }
 
+    public struct ReceivedResource: Sendable, Equatable {
+        public let resourceID: String
+        public let sha256: String
+        public let mime: String
+        public let displayName: String
+        public let size: UInt64
+        public let bytes: Data
+    }
+
     public enum ControllerError: Error, Sendable {
         case invalidHostProfile
         case invalidPackageURL
@@ -186,13 +195,18 @@ public actor ExtensionController {
         case channelUnavailable
         case sessionUnavailable
         case runtimeUnavailable
+        case resourceUnavailable
         case closed
     }
 
     private let worker: Worker
 
-    public init(profile: HostProfile) throws {
-        worker = Worker(hostJSON: try profile.json())
+    public init(profile: HostProfile, resourceDirectory: URL? = nil) throws {
+        guard !profile.capabilities.contains("session.resources") ||
+                (resourceDirectory?.isFileURL == true && resourceDirectory?.path.isEmpty == false) else {
+            throw ControllerError.invalidHostProfile
+        }
+        worker = Worker(hostJSON: try profile.json(), resourceDirectory: resourceDirectory)
     }
 
     /// Reads a user-selected directory through a no-follow directory descriptor,
@@ -278,6 +292,12 @@ public actor ExtensionController {
         try await worker.pollHostRPCRequest()
     }
 
+    /// Takes one completely received resource and copies its bounded snapshot
+    /// on the Session owner. `nil` means no resource is ready yet.
+    public func takeSessionResource(maxBytes: UInt64 = 262144) async throws -> ReceivedResource? {
+        try await worker.takeSessionResource(maxBytes: maxBytes)
+    }
+
     public func respondHostRPC(ticket: UInt64, outcome: Data) async throws -> UInt32 {
         try await worker.respondHostRPC(ticket: ticket, outcome: outcome)
     }
@@ -296,6 +316,7 @@ public actor ExtensionController {
     private final class Worker: @unchecked Sendable {
         private let queue = DispatchQueue(label: "org.ghosterm.extension-controller")
         private let hostJSON: String
+        private let resourceDirectory: URL?
         private var registry: ExtensionRegistry?
         private enum SourceDecision: Equatable { case unknown, denied, allowed }
         private struct Record {
@@ -313,10 +334,16 @@ public actor ExtensionController {
         private var runtime: ExtensionRuntime?
         private var runtimePackageKey: String?
         private var runtimeCommand: String?
+        private var resourceStore: ExtensionResourceStore?
+        private var resourceRootFD: Int32 = -1
+        private var resourceDirectoryName: String?
+        private var resourceDirectoryDevice: dev_t?
+        private var resourceDirectoryInode: ino_t?
         private let hostCapabilities: [String]
 
-        init(hostJSON: String) {
+        init(hostJSON: String, resourceDirectory: URL?) {
             self.hostJSON = hostJSON
+            self.resourceDirectory = resourceDirectory
             if let data = hostJSON.data(using: .utf8),
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 self.hostCapabilities = object["capabilities"] as? [String] ?? []
@@ -456,12 +483,14 @@ public actor ExtensionController {
                                                    receiver: receiver, inputShape: inputShape,
                                                    outputShape: outputShape)
                 }
+                let resourceStore = try self.openResourceStoreIfNeeded()
                 let session = try ExtensionSession(channel: channel, role: .host,
                     config: .init(pluginID: metadata.id, pluginVersion: metadata.version,
                                   clientDigest: metadata.packageDigest, executorDigest: executorDigest,
                                   hostVersion: hostVersion, sdkVersion: metadata.sdkVersion,
                                   required: metadata.requires, available: self.hostCapabilities,
-                                  peerKind: .ssh, peerIdentity: peerIdentity, methods: methods))
+                                  peerKind: .ssh, peerIdentity: peerIdentity, methods: methods),
+                    resourceStore: resourceStore)
                 self.channel = nil
                 self.session = session
                 self.sessionPackageKey = packageKey
@@ -549,6 +578,40 @@ public actor ExtensionController {
                                    method: $0.method, input: $0.input)
                 }
                 return HostRPCPoll(status: UInt32(status.rawValue), request: snapshot)
+            }
+        }
+
+        func takeSessionResource(maxBytes: UInt64) async throws -> ReceivedResource? {
+            try await perform {
+                try self.checkOpen()
+                guard maxBytes <= 1048576, let session = self.session,
+                      self.hostCapabilities.contains("session.resources"),
+                      let lease = try session.lease() else { throw ControllerError.resourceUnavailable }
+                let (status, snapshot) = try session.takeResource(lease)
+                guard status != .wait else { return nil }
+                guard status == .ok, let snapshot else { throw ControllerError.resourceUnavailable }
+                do {
+                    let descriptor = snapshot.descriptor
+                    guard descriptor.sizeKnown, descriptor.size <= maxBytes,
+                          descriptor.size <= UInt64(Int.max) else { throw ControllerError.resourceUnavailable }
+                    var bytes = Data(); bytes.reserveCapacity(Int(descriptor.size))
+                    var offset: UInt64 = 0
+                    while offset < descriptor.size {
+                        let capacity = Int(min(UInt64(16384), descriptor.size - offset))
+                        let (readStatus, chunk) = try snapshot.read(offset: offset, capacity: capacity)
+                        guard readStatus == .ok, !chunk.isEmpty, chunk.count <= capacity else {
+                            throw ControllerError.resourceUnavailable
+                        }
+                        bytes.append(chunk); offset += UInt64(chunk.count)
+                    }
+                    guard try snapshot.close() == .ok else { throw ControllerError.resourceUnavailable }
+                    return ReceivedResource(resourceID: descriptor.resourceID, sha256: descriptor.sha256,
+                                            mime: descriptor.mime, displayName: descriptor.displayName,
+                                            size: descriptor.size, bytes: bytes)
+                } catch {
+                    _ = try? snapshot.close()
+                    throw error
+                }
             }
         }
 
@@ -675,6 +738,7 @@ public actor ExtensionController {
                 guard released else { throw ControllerError.sessionUnavailable }
                 self.session = nil; sessionPackageKey = nil
             }
+            try closeResourceStore()
             if let channel {
                 if forceStop { channel.stop() }
                 else {
@@ -687,6 +751,95 @@ public actor ExtensionController {
                 for _ in 0..<32 { if try channel.closeStep() { released = true; break } }
                 guard released else { throw ControllerError.channelUnavailable }
                 self.channel = nil
+            }
+        }
+
+        private func openResourceStoreIfNeeded() throws -> ExtensionResourceStore? {
+            guard hostCapabilities.contains("session.resources") else { return nil }
+            if let resourceStore { return resourceStore }
+            guard let directory = resourceDirectory, directory.isFileURL,
+                  !directory.path.isEmpty, !directory.path.utf8.contains(0),
+                  directory.path.utf8.count <= 4096 else { throw ControllerError.resourceUnavailable }
+            let rootFD = directory.path.withCString {
+                open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            }
+            guard rootFD >= 0 else { throw ControllerError.resourceUnavailable }
+            var rootInfo = stat()
+            guard fstat(rootFD, &rootInfo) == 0, (rootInfo.st_mode & S_IFMT) == S_IFDIR,
+                  rootInfo.st_uid == geteuid() else {
+                _ = Darwin.close(rootFD)
+                throw ControllerError.resourceUnavailable
+            }
+            let name = "resource-" + UUID().uuidString.lowercased()
+            let created = name.withCString { mkdirat(rootFD, $0, 0o700) }
+            guard created == 0 else {
+                _ = Darwin.close(rootFD)
+                throw ControllerError.resourceUnavailable
+            }
+            let directoryFD = name.withCString {
+                openat(rootFD, $0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            }
+            guard directoryFD >= 0 else {
+                _ = name.withCString { unlinkat(rootFD, $0, AT_REMOVEDIR) }
+                _ = Darwin.close(rootFD)
+                throw ControllerError.resourceUnavailable
+            }
+            var childInfo = stat()
+            guard fstat(directoryFD, &childInfo) == 0,
+                  (childInfo.st_mode & S_IFMT) == S_IFDIR,
+                  childInfo.st_uid == geteuid() else {
+                _ = Darwin.close(directoryFD)
+                _ = name.withCString { unlinkat(rootFD, $0, AT_REMOVEDIR) }
+                _ = Darwin.close(rootFD)
+                throw ControllerError.resourceUnavailable
+            }
+            do {
+                let store = try ExtensionResourceStore(directoryFD: directoryFD, owner: queue)
+                _ = Darwin.close(directoryFD)
+                self.resourceRootFD = rootFD
+                self.resourceDirectoryName = name
+                self.resourceDirectoryDevice = childInfo.st_dev
+                self.resourceDirectoryInode = childInfo.st_ino
+                self.resourceStore = store
+                return store
+            } catch {
+                _ = Darwin.close(directoryFD)
+                _ = name.withCString { unlinkat(rootFD, $0, AT_REMOVEDIR) }
+                _ = Darwin.close(rootFD)
+                throw ControllerError.resourceUnavailable
+            }
+        }
+
+        private func closeResourceStore() throws {
+            if let resourceStore {
+                let status = try resourceStore.close()
+                if status == .ok || status == .io { self.resourceStore = nil }
+                guard status == .ok else { throw ControllerError.resourceUnavailable }
+            }
+            if let name = resourceDirectoryName, resourceRootFD >= 0 {
+                var current = stat()
+                let observed = name.withCString {
+                    fstatat(resourceRootFD, $0, &current, AT_SYMLINK_NOFOLLOW)
+                }
+                if observed == 0 {
+                    guard (current.st_mode & S_IFMT) == S_IFDIR,
+                          current.st_dev == resourceDirectoryDevice,
+                          current.st_ino == resourceDirectoryInode else {
+                        throw ControllerError.resourceUnavailable
+                    }
+                    guard name.withCString({ unlinkat(resourceRootFD, $0, AT_REMOVEDIR) }) == 0 else {
+                        throw ControllerError.resourceUnavailable
+                    }
+                } else {
+                    guard errno == ENOENT else { throw ControllerError.resourceUnavailable }
+                }
+                resourceDirectoryName = nil
+                resourceDirectoryDevice = nil
+                resourceDirectoryInode = nil
+            }
+            if resourceRootFD >= 0 {
+                guard Darwin.close(resourceRootFD) == 0 else { throw ControllerError.resourceUnavailable }
+                resourceRootFD = -1
             }
         }
 

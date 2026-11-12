@@ -1,8 +1,8 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第九十六批 SDK 有界 UTF-8 文本读取。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
+日期：2026-11-05，更新至 2026-11-12 第九十七批 macOS Host 资源 owner 接线。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 Host 资源服务、原生资源视图与首个 preview 插件；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 App 产品资源闭环已接入。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 原生资源视图与首个 preview 插件；macOS Controller 已增加显式可选的 worker-owned Host ResourceStore 与有界快照读取 API，普通 App 尚不声明 `session.resources`；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 App 产品资源闭环已接入。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -4167,3 +4167,12 @@ Swift Core wrapper、macOS AppModel 和 Android JNI/Kotlin wrapper 均调用公�
 实际 Core / QuickJS runtime 测试覆盖 ASCII 与 emoji / CJK 解码、空文本、overlong UTF-8 拒绝和大小预算拒绝；资源专项变异还会把 UTF-8 两字节前导范围放宽，确认非法输入断言能捕获回归。该批仅完成 SDK 数据读取能力，未接入 Host 文件资源服务、原生资源页面或预览插件，不得记 P2 预览闭环完成。
 
 验证：`python3 scripts/mutation-check-plugin-runtime-resources.py` 最终通过 **36 项资源 CTest** 和 **27 组变异**，每组均为真实断言目标红、同归档 Core 配置对照绿、复原绿及 SHA256 对拍；另检查 SDK 固定嵌入产物。变异脚本补齐隔离 Core 检出所需的锁定 package-validator / SDK 生成输入，并在 SDK 源码变异时重生成嵌入模块。普通 `bash scripts/gate.sh` 通过 **474 CTest / 177 ABI**；clang-format 19.1.7 检查 **214 个受管 C 文件**通过。没有修改公共 ABI 或平台绑定，不增加 macOS CI 二十份。此前单轮测试准备曾因隔离检出缺生成器输入、SDK 变异后未重生成产物而中止；修正后完整脚本重跑通过。新增 JS 测试 C 代码格式化后与上述专项、gate 一致。
+
+
+### P2 实施首批：macOS Host ResourceStore owner 与有界接收 API（2026-11-12）
+
+`ExtensionController` 的 `adoptSSHSession` 现可在 Host profile 明确声明 `session.resources` 且调用方提供私有目录时，为当前 Session 创建独占 ResourceStore。根目录通过 `O_NOFOLLOW` 打开并校验目录 owner；每个 Session 在根下创建随机名 `0700` 子目录，Store 在原 Controller worker 队列创建和使用。关闭顺序为 Runtime、Session、Store；Store 成功销毁后只移除本轮创建的空子目录，并用设备号 / inode 复核目录身份。可重试的 Store 关闭等待会保留 Store；终态 IO 错误会保留父 fd 与目录身份，Controller 不报告关闭成功。未显式配置目录或能力时不创建 Store；`AppModel.extensionHostCapabilities` 仍仅为 `session.rpc`。
+
+新增 `takeSessionResource(maxBytes:)`，在 worker 上取一份已完整接收的快照，默认最多 256 KiB、硬上限 1 MiB，分块读回 `Data` 后释放 Core snapshot；无就绪资源返回 nil。这个 API 为原生资源 view 提供有界数据入口，不做 SFTP 读取，也不影响来源文件。
+
+验证：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$(pwd)/tmp" bash scripts/apple-app-gate.sh` 通过，Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 运行，GhostermAppTests **388 项、4 skip、0 失败**；Controller 定向组 8 项、3 skip、0 失败（缺 sshd 夹具的两项、JS-off 档包审查一项按原契约 skip）。两个新增测试固定无资源能力时拒绝读取、声明资源能力却未给私有目录时拒绝 Controller 创建。尚未通过真实远端 resource producer / Session resources 传输、快照展示或 UI 生命周期验收；普通 App 仍不声明该能力。未改公共 ABI，不增加 macOS CI 二十份。
