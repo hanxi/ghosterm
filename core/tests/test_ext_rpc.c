@@ -393,19 +393,57 @@ static void rpc_native(const char *mode) {
     rpc_drop(&f);
 }
 
-static void rpc_executor(const char *proof_root) {
+static void rpc_executor_mode(const char *proof_root,
+                              const char *plugin_id,
+                              const char *client_digest,
+                              const char *executor_digest,
+                              const char *host_version,
+                              const char *peer_identity) {
     CHECK(!isatty(0) && !isatty(1));
     gt_ext_channel_t *c = NULL;
     CHECK(gt_ext_channel_open_fd(0, 1, &c) == GT_OK);
     gt_ext_session_config_t cfg = ext_config();
     cfg.features = GT_EXT_FEATURE_REQUESTS;
+    if (plugin_id) {
+        CHECK(strlen(plugin_id) < sizeof(cfg.plugin_id));
+        CHECK(strlen(client_digest) == 64 && strlen(executor_digest) == 64);
+        CHECK(strlen(host_version) < sizeof(cfg.host_version));
+        CHECK(strlen(peer_identity) < sizeof(cfg.peer.identity));
+        strcpy(cfg.plugin_id, plugin_id);
+        strcpy(cfg.client_digest, client_digest);
+        strcpy(cfg.executor_digest, executor_digest);
+        strcpy(cfg.host_version, host_version);
+        /* The Android endpoint owns SSH; this stdio Executor's local
+         * transport is the peer from its process perspective. */
+        cfg.peer.kind = GT_EXT_PEER_LOCAL;
+        strcpy(cfg.peer.identity, peer_identity);
+        cfg.required_count = cfg.available_count = 1;
+        strcpy(cfg.required[0], "session.rpc");
+        strcpy(cfg.available[0], "session.rpc");
+    }
     gt_ext_rpc_method_t m[4];
     rpc_methods(m);
-    gt_ext_session_t *s = rpc_adopt(&c, GT_EXT_EXECUTOR, &cfg, m, 4);
+    if (plugin_id) {
+        for (size_t i = 0; i < 4; i++) {
+            strcpy(m[i].capability, "session.rpc");
+        }
+        m[2].receiver = GT_EXT_EXECUTOR;
+    }
+    gt_ext_session_t *s = NULL;
+    if (plugin_id) {
+        gt_status_t opened = gt_ext_session_open_rpc(&c, GT_EXT_EXECUTOR, &cfg, m, 4, &s);
+        if (opened != GT_OK) {
+            fprintf(stderr, "android executor session open status=%d\n", opened);
+        }
+        CHECK(opened == GT_OK && s && !c);
+    } else {
+        s = rpc_adopt(&c, GT_EXT_EXECUTOR, &cfg, m, 4);
+    }
     gt_ext_lease_t l = {0};
     unsigned completed = 0, handled = 0;
     uint64_t pending = 0, end = ext_now() + 25000;
     bool done = false;
+    unsigned target = plugin_id ? 1u : 80u;
     while (ext_info(s).phase < GT_EXT_SESSION_ENDED) {
         gt_ext_session_step(s, 5);
         CHECK(ext_now() < end);
@@ -414,10 +452,15 @@ static void rpc_executor(const char *proof_root) {
         }
         CHECK(gt_ext_session_lease(s, &l));
         bool extra_ready = !rpc_progress_hook || rpc_progress_hook(s, &l);
-        if (!pending && (completed < 80 || (handled == 80 && extra_ready))) {
-            const char *method = completed < 80 ? "fixture.ask" : "fixture.done";
+        /* Wait for the Client's own request before calling its registered Host
+         * handler. That request proves activation has installed the handler. */
+        bool client_ready = !plugin_id || handled > 0;
+        if (client_ready && !pending &&
+            (completed < target || (!plugin_id && handled == 80 && extra_ready))) {
+            const char *method = completed < target ? "fixture.ask" : "fixture.done";
+            const char *input = "{\"text\":\"bridge\",\"count\":17}";
             CHECK(gt_ext_session_request(
-                      s, &l, method, "{\"text\":\"bridge\"}", 17, 10000, &pending) ==
+                      s, &l, method, input, (uint32_t)strlen(input), 10000, &pending) ==
                       GT_EXT_RPC_OK &&
                   pending);
         }
@@ -425,22 +468,39 @@ static void rpc_executor(const char *proof_root) {
         gt_ext_rpc_status_t status = gt_ext_session_take_request(s, &l, &q);
         CHECK(status == GT_EXT_RPC_WAIT || status == GT_EXT_RPC_OK);
         if (status == GT_EXT_RPC_OK) {
-            CHECK(!strcmp(q.method, "fixture.echo"));
+            CHECK(!strcmp(q.method, "fixture.echo") ||
+                  (plugin_id && !strcmp(q.method, "fixture.done")));
             rpc_reply(s, &l, &q);
             handled++;
         }
         if (pending) {
             gt_ext_rpc_result_t r = rpc_result(s, &l, pending);
             if (r.confirmed) {
+                if (r.state != GT_EXT_RPC_SUCCEEDED && plugin_id) {
+                    fprintf(stderr,
+                            "android executor RPC outcome state=%d size=%u body=%.*s\n",
+                            r.state,
+                            r.outcome_size,
+                            (int)r.outcome_size,
+                            r.outcome);
+                }
                 CHECK(r.state == GT_EXT_RPC_SUCCEEDED);
                 CHECK(gt_ext_session_forget_request(s, &l, pending) == GT_EXT_RPC_OK);
                 pending = 0;
-                if (completed == 80) {
-                    done = true;
-                    break;
+                if (plugin_id) {
+                    completed++;
+                } else {
+                    if (completed == 80) {
+                        done = true;
+                        break;
+                    }
+                    completed++;
                 }
-                completed++;
             }
+        }
+        if (plugin_id && completed == target && handled == 2) {
+            done = true;
+            break;
         }
     }
     if (ext_info(s).end == GT_EXT_END_DENIED) {
@@ -448,15 +508,39 @@ static void rpc_executor(const char *proof_root) {
         ext_drop(&s);
         return;
     }
-    CHECK(done && completed == 80 && handled == 80);
+    if (plugin_id) {
+        if (!done || completed != 1 || handled != 2) {
+            fprintf(stderr,
+                    "android executor incomplete done=%d completed=%u handled=%u\n",
+                    done,
+                    completed,
+                    handled);
+        }
+        CHECK(done && completed == 1 && handled == 2);
+    } else {
+        CHECK(done && completed == 80 && handled == 80);
+    }
     char path[4096];
     CHECK(snprintf(path, sizeof(path), "%s/rpc-proof-XXXXXX", proof_root) > 0);
     int fd = mkstemp(path);
     CHECK(fd >= 0);
-    const char *proof = "{\"completed\":80,\"handled\":80,\"done\":true}\n";
+    const char *proof = plugin_id ? "{\"completed\":1,\"handled\":2,\"done\":true}\n"
+                                  : "{\"completed\":80,\"handled\":80,\"done\":true}\n";
     CHECK(write(fd, proof, strlen(proof)) == (ssize_t)strlen(proof) && !close(fd));
+    if (plugin_id) {
+        end = ext_now() + 5000;
+        while (ext_info(s).phase < GT_EXT_SESSION_ENDED && ext_now() < end) {
+            gt_ext_session_step(s, 5);
+        }
+        CHECK(ext_info(s).phase >= GT_EXT_SESSION_ENDED);
+    }
     ext_drop(&s);
 }
+
+static void rpc_executor(const char *proof_root) {
+    rpc_executor_mode(proof_root, NULL, NULL, NULL, NULL, NULL);
+}
+
 #ifdef GT_HAVE_LIBSSH2
 static void rpc_network(int argc, char **argv) {
     unsigned count = (unsigned)atoi(argv[2]);
@@ -704,6 +788,11 @@ int EXT_RPC_MAIN(int argc, char **argv) {
     if (!strcmp(argv[1], "--executor")) {
         CHECK(argc == 3);
         rpc_executor(argv[2]);
+        return 0;
+    }
+    if (!strcmp(argv[1], "--android-executor")) {
+        CHECK(argc == 8);
+        rpc_executor_mode(argv[2], argv[3], argv[4], argv[5], argv[6], argv[7]);
         return 0;
     }
 #ifdef GT_HAVE_LIBSSH2

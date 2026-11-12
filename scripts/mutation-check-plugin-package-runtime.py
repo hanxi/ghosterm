@@ -79,6 +79,7 @@ def main():
   executable='test_runtime';pattern='^(ext_)?runtime_(capabilities|dispose-throw)$';objects=['runtime']
  if args.invocation:
   cases=[
+   ('schema-terminator',ENGINE,'    json[size] = 0;\n','    json[size - 1] = 0;\n','package:registry'),
    ('invocation-command',ENGINE,'    if (!token) {\n','    if (false && !token) {\n','invocation'),
    ('invocation-utf8',ENGINE,'        if (sizes[i] > 4096 || sizes[i] + 1 > 16384 - total ||\n            !gt__runtime_source_utf8(input->argv[i], sizes[i])) {\n','        if (sizes[i] > 4096 || sizes[i] + 1 > 16384 - total || false) {\n','invocation'),
    ('invocation-argument-limit',ENGINE,'        if (sizes[i] > 4096 || sizes[i] + 1 > 16384 - total ||\n','        if (false || sizes[i] + 1 > 16384 - total ||\n','invocation'),

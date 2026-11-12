@@ -9,6 +9,8 @@ import com.hanxi.ghosterm.bridge.ExtensionChannel
 import com.hanxi.ghosterm.bridge.AuthenticatedSSH
 import com.hanxi.ghosterm.bridge.SSHAuthPhase
 import com.hanxi.ghosterm.bridge.PreparedSSH
+import com.hanxi.ghosterm.bridge.ExtensionSession
+import com.hanxi.ghosterm.bridge.ExtensionRuntime
 import kotlinx.coroutines.runBlocking
 import java.io.DataInputStream
 import java.io.File
@@ -16,6 +18,8 @@ import java.lang.reflect.InvocationTargetException
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
+import org.json.JSONArray
+import java.security.MessageDigest
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -42,6 +46,128 @@ class ExtensionChannelTest {
         val fds = ParcelFileDescriptor.createSocketPair()
         val a = fds[0].detachFd(); val b = fds[1].detachFd()
         return ExtensionChannel.adoptDescriptors(a, a) to ExtensionChannel.adoptDescriptors(b, b)
+    }
+
+    private fun clientPackage(id: String): File {
+        val root = File(instrumentation.targetContext.cacheDir, "extension-client-e2e-${System.nanoTime()}")
+        check(root.mkdirs())
+        fun array(values: List<Any>) = JSONArray(values)
+        val manifest = JSONObject().put("schemaVersion", 1).put("id", id).put("pluginVersion", "0.1.0")
+            .put("sdkApiRange", "^1.0.0").put("bridgeProtocolRange", array(listOf(1)))
+            .put("publisher", "fixture").put("license", "MIT")
+            .put("commands", array(listOf(JSONObject().put("path", array(listOf("fixture")))
+                .put("title", "Fixture").put("argsSchema", "schemas/input.json"))))
+            .put("client", JSONObject().put("runtime", "portable-js").put("entry", "client/index.js")
+                .put("requires", array(listOf("session.rpc"))))
+            .put("permissions", JSONArray())
+        val entry = """import {object,text,integer} from '@ghosterm/plugin-sdk';
+            export function activate(ctx){
+              const codec=object({text:text(40),count:integer(0,100)});
+              const echo={name:'fixture.echo',input:codec,output:codec};
+              const ask={name:'fixture.ask',input:codec,output:codec};
+              const done={name:'fixture.done',input:codec,output:codec};
+              ctx.session.register(ask,async value=>value);
+              ctx.session.request(echo,{text:'bridge',count:17},10000).outcome.then(result=>{
+                if(result.kind==='success'&&result.value.text==='bridge'&&result.value.count===17)
+                  ctx.session.request(done,result.value,10000);
+              });
+              return {dispose(){}};
+            }""".trimIndent()
+        val schema = JSONObject().put("type", "object").put("properties", JSONObject())
+            .put("required", JSONArray()).put("additionalProperties", false)
+        val files = linkedMapOf("plugin.json" to manifest.toString().toByteArray(),
+            "README" to "fixture".toByteArray(), "LICENSES/MIT.txt" to "MIT".toByteArray(),
+            "schemas/input.json" to schema.toString().toByteArray(), "client/index.js" to entry.toByteArray())
+        val members = JSONArray()
+        for ((path, bytes) in files) {
+            val target = File(root, path); check(target.parentFile!!.mkdirs() || target.parentFile!!.isDirectory)
+            target.writeBytes(bytes)
+            val hash = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
+            members.put(JSONObject().put("path", path).put("bytes", bytes.size).put("sha256", hash))
+        }
+        File(root, "integrity.json").writeText(JSONObject().put("schemaVersion", 1).put("members", members).toString())
+        return root
+    }
+
+    private fun shellQuote(value: String) = "'" + value.replace("'", "'\\''") + "'"
+
+    @Test fun controllerRunsClientRuntimeOverTwoHopSSH() = runBlocking {
+        assumeTrue("requires the explicit JS-enabled Android build", BuildConfig.PLUGIN_JS_ENABLED)
+        val payload = fixture; val ports = payload.getJSONObject("two").getJSONArray("ports")
+        val packageDir = clientPackage("org.ghosterm.android-client-e2e")
+        val knownHosts = File(packageDir.parentFile, "extension-client-known-${System.nanoTime()}")
+            .apply { writeText(payload.getJSONObject("two").getString("known")) }
+        val target = PreparedSSH("dest", "127.0.0.1", payload.getString("user"), ports.getInt(1), emptyList(),
+            listOf(PreparedSSH("jump", "route-hop-0.invalid", payload.getString("user"), ports.getInt(0), emptyList())))
+        val controller = ExtensionController(
+            ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"), listOf("session.rpc")),
+            instrumentation.targetContext)
+        try {
+            assertEquals(0, ExtensionRuntime.supportStatus())
+            val reviewed = controller.review(packageDir)
+            assertEquals(com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK,
+                controller.approve(reviewed.id, reviewed.digest))
+            val command = "exec " + listOf(payload.getString("rpcExecutorBinary"), "--android-executor",
+                payload.getString("rpcAndroidProofRoot"), reviewed.id, reviewed.digest,
+                payload.getString("rpcExecutorDigest"), "0.1.0", target.alias).joinToString(" ", transform = ::shellQuote) +
+                " 2>" + shellQuote(File(payload.getString("rpcAndroidProofRoot"), "android-executor.stderr").path)
+            var route = controller.openSSHChannel(target, java.net.InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)),
+                knownHosts, command)
+            val deadline = SystemClock.elapsedRealtime() + 90000
+            while (route.info.phase != 1 && route.info.phase != 2) {
+                when (route.authentication.phase) {
+                    SSHAuthPhase.HOSTKEY -> controller.decideSSHHost(route.authentication, true)
+                    SSHAuthPhase.CREDENTIALS -> controller.submitSSHPrivateKey(route.authentication, payload.getString("pem").toByteArray(), byteArrayOf())
+                    SSHAuthPhase.FAILED, SSHAuthPhase.CANCELLED -> fail(route.authentication.description)
+                    else -> Unit
+                }
+                assertTrue("two-hop Client Runtime route timed out", SystemClock.elapsedRealtime() < deadline)
+                route = controller.stepSSHChannel(5)
+            }
+            assertEquals("${route.info.error}", 1, route.info.phase)
+            val methods = listOf(
+                ExtensionSession.Method("fixture.echo", "session.rpc", ExtensionSession.Role.EXECUTOR,
+                    ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT),
+                ExtensionSession.Method("fixture.ask", "session.rpc", ExtensionSession.Role.HOST,
+                    ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT),
+                ExtensionSession.Method("fixture.done", "session.rpc", ExtensionSession.Role.EXECUTOR,
+                    ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT),
+                ExtensionSession.Method("fixture.denied", "session.rpc", ExtensionSession.Role.EXECUTOR,
+                    ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT))
+            var session = controller.adoptSSHSession(reviewed.id, reviewed.digest, payload.getString("rpcExecutorDigest"),
+                "0.1.0", target.alias, methods)
+            val handshakeDeadline = SystemClock.elapsedRealtime() + 15000
+            while (session.info.phase != ExtensionSession.Phase.CONSENT) {
+                assertTrue("Client Session ended before consent: phase=${session.info.phase}, end=${session.info.end}, error=${session.info.error}",
+                    SystemClock.elapsedRealtime() < handshakeDeadline)
+                session = controller.stepSession(5)
+            }
+            session = controller.decideSession(session.info.consentToken, ExtensionSession.Decision.ALLOW)
+            while (session.info.phase != ExtensionSession.Phase.ACTIVE) {
+                assertTrue("Client Session did not become active", SystemClock.elapsedRealtime() < deadline)
+                session = controller.stepSession(5)
+            }
+            var runtime = controller.activateClient(reviewed.id, reviewed.digest, "fixture", emptyList())
+            assertEquals(ExtensionRuntime.Phase.CREATED, runtime.info.phase)
+            while (runtime.info.phase == ExtensionRuntime.Phase.CREATED || runtime.info.phase == ExtensionRuntime.Phase.STARTING) {
+                assertTrue("Client Runtime did not become active", SystemClock.elapsedRealtime() < deadline)
+                runtime = controller.stepRuntime()
+                assertTrue("Client Runtime failed: ${runtime.info}",
+                    runtime.info.phase == ExtensionRuntime.Phase.STARTING || runtime.info.phase == ExtensionRuntime.Phase.ACTIVE)
+                SystemClock.sleep(2)
+            }
+            assertEquals(ExtensionRuntime.Phase.ACTIVE, runtime.info.phase)
+            repeat(100) {
+                SystemClock.sleep(1)
+                runtime = controller.stepRuntime()
+                assertEquals("Client Runtime stopped during the bidirectional RPC exchange: ${runtime.info}",
+                    ExtensionRuntime.Phase.ACTIVE, runtime.info.phase)
+            }
+        } finally {
+            runCatching { controller.close() }
+            knownHosts.delete()
+            packageDir.deleteRecursively()
+        }
     }
     private fun read(channel: ExtensionChannel, count: Int): ByteArray {
         val out = ByteArray(count); var at = 0; val deadline = SystemClock.elapsedRealtime() + 15000

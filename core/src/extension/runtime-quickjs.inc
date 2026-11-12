@@ -341,7 +341,16 @@ static JSValue runtime_decode_arguments(gt_bridge_runtime_t *r, JSContext *c, JS
         member.bytes != size) {
         return JS_ThrowInternalError(c, "checked argument schema unavailable");
     }
-    JSValue schema = JS_ParseJSON(c, (const char *)bytes, size, "checked-argument-schema");
+    char *json = gt__plugin_memory_alloc(NULL, size + 1);
+    if (!json) {
+        r->memory_failed = true;
+        runtime_fail(r, GT_RUNTIME_MEMORY);
+        return JS_ThrowOutOfMemory(c);
+    }
+    memcpy(json, bytes, size);
+    json[size] = 0;
+    JSValue schema = JS_ParseJSON(c, json, size, "checked-argument-schema");
+    gt__plugin_memory_free(NULL, json, size + 1);
     if (JS_IsException(schema)) {
         return JS_EXCEPTION;
     }
