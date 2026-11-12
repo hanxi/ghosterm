@@ -65,6 +65,36 @@ function metadata(v: NativeResourceDescriptor): ResourceMetadata {
   return Object.freeze({ id: v.id, generation: v.generation, sha256: v.sha256, displayName: v.displayName, mediaType: v.mediaType,
     size: v.sizeKnown ? Object.freeze({ kind: "known" as const, bytes: v.bytes }) : Object.freeze({ kind: "unknown" as const }) });
 }
+const TEXT_READ_MAX_BYTES = 1048576;
+function decodeUtf8(bytes: Uint8Array): string {
+  const output: string[] = [], units: number[] = [];
+  const flush = () => { if (units.length) output.push(String.fromCharCode(...units.splice(0))); };
+  for (let i = 0; i < bytes.length;) {
+    const a = bytes[i++]!;
+    let cp: number;
+    if (a <= 0x7f) cp = a;
+    else if (a >= 0xc2 && a <= 0xdf) {
+      const b = bytes[i++]; if (b === undefined || b < 0x80 || b > 0xbf) fail("RESOURCE_UTF8");
+      cp = ((a & 0x1f) << 6) | (b & 0x3f);
+    } else if (a >= 0xe0 && a <= 0xef) {
+      const b = bytes[i++], c = bytes[i++];
+      if (b === undefined || c === undefined || b < (a === 0xe0 ? 0xa0 : 0x80) ||
+          b > (a === 0xed ? 0x9f : 0xbf) || c < 0x80 || c > 0xbf) fail("RESOURCE_UTF8");
+      cp = ((a & 0x0f) << 12) | ((b & 0x3f) << 6) | (c & 0x3f);
+    } else if (a >= 0xf0 && a <= 0xf4) {
+      const b = bytes[i++], c = bytes[i++], d = bytes[i++];
+      if (b === undefined || c === undefined || d === undefined ||
+          b < (a === 0xf0 ? 0x90 : 0x80) || b > (a === 0xf4 ? 0x8f : 0xbf) ||
+          c < 0x80 || c > 0xbf || d < 0x80 || d > 0xbf) fail("RESOURCE_UTF8");
+      cp = ((a & 7) << 18) | ((b & 0x3f) << 12) | ((c & 0x3f) << 6) | (d & 0x3f);
+    } else fail("RESOURCE_UTF8");
+    if (cp <= 0xffff) units.push(cp);
+    else { const value = cp - 0x10000; units.push(0xd800 | (value >> 10), 0xdc00 | (value & 0x3ff)); }
+    if (units.length >= 4096) flush();
+  }
+  flush();
+  return output.join("");
+}
 /** Native Session/Source/Store own permission, deadlines, credit and receipts.
  * step() only observes those facts, at most 8 read completions per pump. */
 export class ResourceBroker {
@@ -141,6 +171,38 @@ export class ResourceBroker {
       if (local.done) return Promise.resolve<Outcome<ReadChunk>>({ kind: "success", value: { bytes: new Uint8Array(), done: true } });
       return new Promise<Outcome<ReadChunk>>(settle => { local.pending = { settle }; });
     } }) };
+  }
+  /** Reads a known-size, bounded snapshot as strict UTF-8. The ResourceRef
+   * remains owned by the caller, which must release it after reading. */
+  async readText(ref: ResourceRef, limits: ResourceBudget, maxBytes = TEXT_READ_MAX_BYTES): Promise<Outcome<string>> {
+    budget(limits);
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > TEXT_READ_MAX_BYTES) fail("RESOURCE_TEXT_BUDGET");
+    if (!this.#live) return { kind: "cancelled", effect: "none" };
+    if (!this.#refs.has(ref)) return failure("INVALID_INPUT");
+    if (ref.size.kind !== "known" || compareUint64(ref.size.bytes, String(maxBytes)) > 0) {
+      return failure("RESOURCE_LIMIT");
+    }
+    const byteLimit = compareUint64(limits.byteLimit, String(maxBytes)) > 0 ? String(maxBytes) : limits.byteLimit;
+    const opened = this.open(ref, { byteLimit, timeoutMs: limits.timeoutMs });
+    if (opened.status !== "ok" || !opened.stream) return statusFailure(opened.status);
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const item = await opened.stream.read();
+        if (item.kind !== "success") return item;
+        size += item.value.bytes.length;
+        if (size > maxBytes) return failure("RESOURCE_LIMIT");
+        chunks.push(item.value.bytes);
+        if (item.value.done) break;
+      }
+      if (String(size) !== ref.size.bytes) return failure("PROTOCOL");
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      try { return { kind: "success", value: decodeUtf8(bytes) }; }
+      catch { return failure("INVALID_INPUT"); }
+    } catch { return { kind: "unknown", reason: "RESOURCE_READ_REJECTED" }; }
   }
   release(ref: ResourceRef): ResourceStatus {
     const local = this.#refs.get(ref); if (!local) return "invalid";

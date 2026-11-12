@@ -4,7 +4,7 @@
   "sdkApiVersion": "1.0.0",
   "bridgeProtocol": 1,
   "candidate": true,
-  "sdkDigest": "8544ddbf2c1ce825f30dc012418db2a02405b2e0f6b5bbf3d0b943f7c167676f",
+  "sdkDigest": "33f21ca72f9ff5126040855655f8e3c68a8c8f5aa4d8d8d93dffd7d873d1614c",
   "modules": [
     {
       "name": "sdk:/codec.js",
@@ -18,8 +18,8 @@
     },
     {
       "name": "sdk:/resources.js",
-      "bytes": 13492,
-      "sha256": "cdf4fd23a32235a138f33ef279f36636c68b76799aeb926bff3bd350bc0ae748"
+      "bytes": 17434,
+      "sha256": "b60c343441ca2c8c24bb5d82ef36a07bb2df7d60c4acdaf163a1b495dc131414"
     },
     {
       "name": "sdk:/session.js",
@@ -35,7 +35,7 @@
   "inputs": {
     "packages/plugin-sdk/portable/codec.ts": "409066af0c26b305b8c527f270268bafb70a3ba420e9cd32449ff657d3708245",
     "packages/plugin-sdk/portable/index.ts": "c0ce53b622efb33af864c30319b5d064dc1ed44164846eeebf891b2b77ff4354",
-    "packages/plugin-sdk/portable/resources.ts": "79678114de0cb9f3004dfa6b56f2d44ba18eab4b65d4b957b6f890e7d573cb31",
+    "packages/plugin-sdk/portable/resources.ts": "2ff026cc68988b96a1a2e1884db8f770bc40d08f300ebbf785668beff694f93d",
     "packages/plugin-sdk/portable/session.ts": "e9ebe829939c4eb37865fafbafc4a4a5d69497a3cecf8426f6a088386ec9dc63",
     "packages/plugin-sdk/portable/wire-contract.ts": "a99e7998716305ac5226b44b72cd7ece5ea97c0ed9515effd4de8843b4997e8a",
     "packages/plugin-sdk/tsconfig.json": "67ce48546e5e46b66dded387cc9f3ebbcbac8bd195e55f7b4481823bab2e8a5d",
@@ -45,7 +45,7 @@
     "scripts/generate-plugin-runtime-sdk.mjs": "e324063ec399bb876872cec51b0f4b5b4d85e81ad17e41f0316a4b9d5f3acefa"
   },
   "outputs": {
-    "core/src/extension/sdk-code.inc": "94e3ea9556aa4d551e70650c695297932f41ab88d0ccd66ef7ba4a181d489e04",
-    "core/src/extension/sdk-identity.h": "f46bac10b6e85041e5bedc885020c40828ace8226d2c93faec2d10e976d5fb33"
+    "core/src/extension/sdk-code.inc": "d95fd62338fe7c8ccd280ae6cb2efdc22d8b99a9c3a2a96103e084fdca71e19e",
+    "core/src/extension/sdk-identity.h": "1f312869bf9b2cf00dfd2479e4eab8b2d7c99afdc75b9e3054e12a63b796ac9f"
   }
 }

@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第九十五批 Android 双档原生与 instrumentation 源码构建。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
+日期：2026-11-05，更新至 2026-11-12 第九十六批 SDK 有界 UTF-8 文本读取。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
 
 **仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 Host 资源服务、原生资源视图与首个 preview 插件；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 App 产品资源闭环已接入。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
@@ -4158,3 +4158,12 @@ Swift Core wrapper、macOS AppModel 和 Android JNI/Kotlin wrapper 均调用公�
 复核发现本机仓库已有锁定 JDK 17、Android SDK / NDK 与 Zig 0.16.0；此前“缺 Java Runtime”只描述系统默认 `java`，并非工程工具链不存在。修正 `scripts/build-android-native.py` 的 Zig fallback：优先使用 `ZIG` 或 PATH，未设置时改用仓库长期锁定的 `build/android-toolchain/zig-aarch64-macos-0.16.0/zig`，不再依赖清理后不存在的 `tmp/zig`。先显式传入锁定工具链验证 `scripts/build-android.sh` 默认 JS-off 的 `:app:assembleDebug :app:assembleDebugAndroidTest` 与 `-PghostermPluginJs=true` 同两 task 均成功，覆盖插件专用 `pluginRuntimeTest` 源集编译与对应 JNI / CMake 档；修复 fallback 后清除 `ZIG` 环境变量再次运行默认 JS-off 构建，native dependencies、JNI/CMake、Kotlin 与两个 APK 构建再次通过。各档均通过图标、外观资源检查与 Android ABI 对拍（140 引用 / 37 登记未用）。
 
 没有记设备行为通过：本机没有已定义 AVD。首次无窗口 API 36 隔离 AVD 启动时，emulator 把 crash database 写入系统 /tmp，故立即停止并清理。第二次通过 ANDROID_EMU_CRASH_REPORTING_DATABASE 将 crash database 成功定向到工程 tmp/，但其默认 gRPC JWT discovery / JWK 仍写入 ~/Library/Caches/TemporaryItems/avd/running/；这超出仓库临时文件边界，也立即停止并清理。第三次设置 ANDROID_EMULATOR_LAUNCHER_DIR 后，启动日志仍指向同一用户缓存路径；同样停止进程并清理，未运行 instrumentation。设备执行、双跳 SSH 行为仍待找到能让所有 emulator 临时物均落在工程内的设备环境验证。不改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P0 第九十六批：SDK 有界 UTF-8 文本读取（2026-11-12）
+
+在 portable `ResourceBroker` 增加 `readText(ref, budget, maxBytes)`：只接受已知长度资源，默认上限 1 MiB，调用方可收紧但不能放宽；预先检查声明长度，读取后校验实际长度，并严格拒绝非法 UTF-8。该方法不释放 `ResourceRef`，调用方须显式 `release`。
+
+实际 Core / QuickJS runtime 测试覆盖 ASCII 与 emoji / CJK 解码、空文本、overlong UTF-8 拒绝和大小预算拒绝；资源专项变异还会把 UTF-8 两字节前导范围放宽，确认非法输入断言能捕获回归。该批仅完成 SDK 数据读取能力，未接入 Host 文件资源服务、原生资源页面或预览插件，不得记 P2 预览闭环完成。
+
+验证：`python3 scripts/mutation-check-plugin-runtime-resources.py` 最终通过 **36 项资源 CTest** 和 **27 组变异**，每组均为真实断言目标红、同归档 Core 配置对照绿、复原绿及 SHA256 对拍；另检查 SDK 固定嵌入产物。变异脚本补齐隔离 Core 检出所需的锁定 package-validator / SDK 生成输入，并在 SDK 源码变异时重生成嵌入模块。普通 `bash scripts/gate.sh` 通过 **474 CTest / 177 ABI**；clang-format 19.1.7 检查 **214 个受管 C 文件**通过。没有修改公共 ABI 或平台绑定，不增加 macOS CI 二十份。此前单轮测试准备曾因隔离检出缺生成器输入、SDK 变异后未重生成产物而中止；修正后完整脚本重跑通过。新增 JS 测试 C 代码格式化后与上述专项、gate 一致。

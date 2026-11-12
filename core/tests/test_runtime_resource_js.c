@@ -47,10 +47,11 @@ static void resource_js_pump(pub_source_fixture_t *f, gt_ext_runtime_t *r) {
     CHECK(p < GT_EXT_RUNTIME_FAILED || (resource_js_expect_oom && p == GT_EXT_RUNTIME_FAILED));
 }
 
-static void resource_js_receive(pub_source_fixture_t *f, gt_ext_runtime_t *r, size_t size) {
+static void
+resource_js_receive(pub_source_fixture_t *f, gt_ext_runtime_t *r, size_t size, const char *name) {
     int fd = open(f->directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     CHECK(fd >= 0);
-    gt_ext_source_config_t cfg = {fd, "file.bin", "application/octet-stream", 262144};
+    gt_ext_source_config_t cfg = {fd, name, "application/octet-stream", 262144};
     gt_ext_source_t *s = NULL;
     CHECK(gt_ext_source_open(f->pair.rpc.pair.h, &f->pair.rpc.h, &cfg, &s) == GT_EXT_SOURCE_OK &&
           !close(fd));
@@ -75,14 +76,24 @@ int RESOURCE_JS_MAIN(int argc, char **argv) {
     CHECK(argc == 3);
     res_root = argv[2];
     const char *mode = argv[1];
-    size_t before = ext_fds(), size = !strcmp(mode, "large") || !strcmp(mode, "read-large") ||
+    bool read_text = !strncmp(mode, "read-text", 9);
+    size_t before = ext_fds(), size = !strcmp(mode, "read-text")           ? 8
+                                      : !strcmp(mode, "read-text-invalid") ? 2
+                                      : !strcmp(mode, "read-text-limit")   ? 3
+                                      : !strcmp(mode, "large") || !strcmp(mode, "read-large") ||
                                               !strcmp(mode, "close-live")
                                           ? 262144
-                                      : !strcmp(mode, "empty") || !strcmp(mode, "read-empty") ? 0
-                                                                                              : 3;
+                                      : !strcmp(mode, "empty") || !strcmp(mode, "read-empty") ||
+                                              !strcmp(mode, "read-text-empty")
+                                          ? 0
+                                          : 3;
     pub_source_fixture_t f = {.root = -1};
     pub_pair(&f.pair, !strcmp(mode, "ungranted") ? "ungranted" : "roundtrip");
-    pub_file(&f, size, "file.bin");
+    pub_file(&f,
+             size,
+             !strcmp(mode, "read-text")           ? "utf8.bin"
+             : !strcmp(mode, "read-text-invalid") ? "invalid.bin"
+                                                  : "file.bin");
     const char *names[] = {
         "index.js", "codec.js", "session.js", "wire-contract.js", "resources.js"};
     char *text[5];
@@ -93,10 +104,47 @@ int RESOURCE_JS_MAIN(int argc, char **argv) {
         CHECK(snprintf(ids[i], sizeof(ids[i]), "sdk:/%s", names[i]) > 0);
         resource_js_digest(&modules[i], ids[i], text[i]);
     }
-    bool receive = !strcmp(mode, "read") || !strcmp(mode, "read-large") ||
+    bool receive = read_text || !strcmp(mode, "read") || !strcmp(mode, "read-large") ||
                    !strcmp(mode, "read-empty") || !strcmp(mode, "leak-ref") ||
                    !strcmp(mode, "read-oom");
     char plugin[4096];
+    char receive_code[2048];
+    if (read_text) {
+        const char *check =
+            !strcmp(mode, "read-text") ? "if(textResult.kind!=='success'||textResult.value!=='"
+                                         "A\\uD83D\\uDE00\\u4E2D')throw Error('text')"
+            : !strcmp(mode, "read-text-empty")
+                ? "if(textResult.kind!=='success'||textResult.value!=='')throw Error('empty')"
+            : !strcmp(mode, "read-text-invalid")
+                ? "if(textResult.kind!=='failed'||textResult.error.code!=='INVALID_INPUT')throw "
+                  "Error('utf8')"
+                : "if(textResult.kind!=='failed'||textResult.error.code!=='RESOURCE_LIMIT')throw "
+                  "Error('limit')";
+        CHECK(snprintf(receive_code,
+                       sizeof(receive_code),
+                       "const t=ctx.resources.take();if(t.status!=='ok')throw Error('take');const "
+                       "forged=await "
+                       "ctx.resources.readText({...t.ref},{byteLimit:'262144',timeoutMs:10000},8);"
+                       "if(forged.kind!=='failed'||forged.error.code!=='INVALID_INPUT')throw "
+                       "Error('forged');const textResult=await "
+                       "ctx.resources.readText(t.ref,{byteLimit:'262144',timeoutMs:10000},%s);%s;"
+                       "if(ctx.resources.release(t.ref)!=='ok')throw Error('release');",
+                       !strcmp(mode, "read-text-limit") ? "2" : "8",
+                       check) > 0);
+    } else {
+        strcpy(
+            receive_code,
+            "const t=ctx.resources.take();if(t.status!=='ok')throw "
+            "Error('take');if(ctx.resources.open({...t.ref},{byteLimit:'262144',timeoutMs:10000})."
+            "status!=='invalid')throw Error('forged');const "
+            "o=ctx.resources.open(t.ref,{byteLimit:'262144',timeoutMs:10000});if(o.status!=='ok')"
+            "throw Error('open');let at=0;for(;;){const chunk=await "
+            "o.stream.read();c.check();if(chunk.kind!=='success')throw Error('read');for(const b "
+            "of "
+            "chunk.value.bytes){if(b!==(t.ref.size.bytes==='3'?'abc'.charCodeAt(at):at%251))throw "
+            "Error('byte');at++}if(chunk.value.done)break}if(String(at)!==t.ref.size.bytes)throw "
+            "Error('length');if(ctx.resources.release(t.ref)!=='ok')throw Error('release');");
+    }
     int n = snprintf(
         plugin,
         sizeof(plugin),
@@ -111,19 +159,7 @@ int RESOURCE_JS_MAIN(int argc, char **argv) {
                 : "const "
                   "call=ctx.resources.publish({root:'workspace',relativePath:'file.bin',mediaType:'"
                   "application/octet-stream'},{byteLimit:'262144',timeoutMs:10000});",
-        receive
-            ? "const t=ctx.resources.take();if(t.status!=='ok')throw "
-              "Error('take');if(ctx.resources.open({...t.ref},{byteLimit:'262144',timeoutMs:10000})"
-              ".status!=='invalid')throw Error('forged');const "
-              "o=ctx.resources.open(t.ref,{byteLimit:'262144',timeoutMs:10000});if(o.status!=='ok')"
-              "throw Error('open');let at=0;for(;;){const chunk=await "
-              "o.stream.read();c.check();if(chunk.kind!=='success')throw Error('read');for(const b "
-              "of "
-              "chunk.value.bytes){if(b!==(t.ref.size.bytes==='3'?'abc'.charCodeAt(at):at%251))"
-              "throw "
-              "Error('byte');at++}if(chunk.value.done)break}if(String(at)!==t.ref.size.bytes)throw "
-              "Error('length');if(ctx.resources.release(t.ref)!=='ok')throw Error('release');"
-            : "");
+        receive ? receive_code : "");
     CHECK(n > 0 && (size_t)n < sizeof(plugin));
     if (!strncmp(mode, "adapter-", 8)) {
         /* Fault adapter observations exercise SDK rejection paths. These are NOT
@@ -273,7 +309,12 @@ int RESOURCE_JS_MAIN(int argc, char **argv) {
         }
         CHECK(resource_js_info(runtime).phase == GT_EXT_RUNTIME_ACTIVE);
         if (receive) {
-            resource_js_receive(&f, runtime, size);
+            resource_js_receive(&f,
+                                runtime,
+                                size,
+                                !strcmp(mode, "read-text")           ? "utf8.bin"
+                                : !strcmp(mode, "read-text-invalid") ? "invalid.bin"
+                                                                     : "file.bin");
         }
         uint64_t request =
             rpc_start(&f.pair.rpc, false, "{\"text\":\"check\",\"count\":17}", 10000);

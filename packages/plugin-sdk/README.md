@@ -82,6 +82,9 @@ quickjs-libc 的 QuickJS-NG 0.18.0 中，调用实际公开 C Session / socketpa
 发布结果只是对端关联 metadata。顺序流每次 read 返回 `Promise<Outcome<ReadChunk>>`，字节为
 独立 Uint8Array；读取失败保留，不能变成 EOF 成功。流 / Source 的权限、配额、native 期限与
 回执仍由 Core 负责，原 worker 推进，dispose / runtime close 收回全部 owning pin。
+`readText(ref, budget, maxBytes)` 提供已知长度文本的便捷读取，最大 1 MiB，拒绝超限、长度不符和
+非严格 UTF-8；它不会释放引用，调用方仍须在完成后 `release(ref)`。它是 SDK 数据能力，不代表 App
+资源页面或预览器已接入。
 
 资源库实现位于 `portable/resources.ts`，聚合入口只导出类型；插件通过宿主 context 使用它，
 不自行构造 native port。无 Store 的 runtime 没有资源服务，无根的资源 Session 只接收。

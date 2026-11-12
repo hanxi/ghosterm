@@ -11,7 +11,7 @@ ADAPTER='core/src/extension/runtime-resource-js.inc'
 FACADE='core/src/extension/runtime-api.c'
 SDK='packages/plugin-sdk/portable/resources.ts'
 OWNER_MODES='invalid parent ungranted symlink capacity expired clock cancel close-sent roundtrip large empty read-expired read-clock revoked fairness'.split()
-JS_MODES='roundtrip large empty read read-large read-empty leak-ref cancel ungranted close-live invalid-root adapter-unconfirmed adapter-truncated adapter-read-error'.split()
+JS_MODES='roundtrip large empty read read-large read-empty read-text read-text-empty read-text-invalid read-text-limit leak-ref cancel ungranted close-live invalid-root adapter-unconfirmed adapter-truncated adapter-read-error'.split()
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
  parser=argparse.ArgumentParser();parser.add_argument('--case',action='append',default=[]);args=parser.parse_args()
@@ -38,6 +38,7 @@ def main():
   ('native-receipt',ADAPTER,'            runtime_set(c, out, "confirmed", JS_NewBool(c, p.source.confirmed)) < 0 ||\n','            runtime_set(c, out, "confirmed", JS_NewBool(c, false)) < 0 ||\n','js','roundtrip'),
   ('native-read-bytes',ADAPTER,'            runtime_set(c, out, "bytes", JS_NewUint8ArrayCopy(c, bytes, read)) < 0) {\n','            runtime_set(c, out, "bytes", JS_NewUint8ArrayCopy(c, bytes, 0)) < 0) {\n','js','read'),
   ('sdk-copied-reference',SDK,'const local = this.#refs.get(ref); if (!local) return { status: "invalid" };','const local = this.#refs.values().next().value; if (!local) return { status: "invalid" };','js','read'),
+  ('sdk-utf8-lead-validation',SDK,'a >= 0xc2 && a <= 0xdf','a >= 0xc0 && a <= 0xdf','js','read-text-invalid'),
   ('sdk-explicit-release',SDK,'const status = this.#port.resourceRelease(local.handle);','const status = "ok" as ResourceStatus;','js','read'),
   ('sdk-unconfirmed-receipt',SDK,'!result.confirmed || result.transferState !== "succeeded"','result.transferState !== "succeeded"','js','adapter-unconfirmed'),
   ('sdk-truncated-eof',SDK,'(!result.bytes.length && local.at !== BigInt(size.bytes))','false','js','adapter-truncated'),
@@ -49,9 +50,10 @@ def main():
  if set(args.case)-known:parser.error('unknown case')
  if args.case:cases=[c for c in cases if c[0] in args.case]
  for label,name,old,*_ in cases:
-  if (ROOT/name).read_text().count(old)!=1:raise RuntimeError('missing/ambiguous anchor: '+label)
+  expected_count=2 if label in {'root-count-facade','root-fd-facade'} else 1
+  if (ROOT/name).read_text().count(old)!=expected_count:raise RuntimeError('missing/ambiguous anchor: '+label)
  inputs=[p for folder in ['core','packages/plugin-sdk'] for p in (ROOT/folder).rglob('*') if p.is_file() and not any(x.startswith('build') for x in p.relative_to(ROOT/folder).parts)]
- inputs+=[Path(__file__),ROOT/'scripts/fixtures/plugin-sdk-tools/package.json',ROOT/'scripts/fixtures/plugin-sdk-tools/package-lock.json']
+ inputs+=[Path(__file__),ROOT/'scripts/generate-plugin-package-validator.mjs',ROOT/'scripts/generate-plugin-runtime-sdk.mjs',ROOT/'scripts/fixtures/plugin-sdk-tools/package.json',ROOT/'scripts/fixtures/plugin-sdk-tools/package-lock.json',ROOT/'scripts/fixtures/plugin-package-tools/package.json',ROOT/'scripts/fixtures/plugin-package-tools/package-lock.json']
  hashes={str(p.relative_to(ROOT)):sha(p) for p in inputs};work=Path(tempfile.mkdtemp(prefix='plugin-runtime-resources-mutations-',dir=ROOT/'tmp'));logs=work/'logs';logs.mkdir();source=work/'source';commands=[]
  env=dict(os.environ,TMPDIR=str(work),DEVELOPER_DIR='/Applications/Xcode.app/Contents/Developer',ASAN_OPTIONS='detect_leaks=0:abort_on_error=1',UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1')
  def run(label,cmd,red=False,budget=180):
@@ -62,14 +64,16 @@ def main():
   if not valid:raise RuntimeError(label+'\n'+out)
   return out
  try:
-  shutil.copytree(ROOT/'core',source/'core',ignore=shutil.ignore_patterns('build','build-*'));shutil.copytree(ROOT/'packages/plugin-sdk',source/'packages/plugin-sdk');(source/'vendor').mkdir();(source/'vendor/quickjs-ng').symlink_to(ROOT/'vendor/quickjs-ng',target_is_directory=True)
+  shutil.copytree(ROOT/'core',source/'core',ignore=shutil.ignore_patterns('build','build-*'));shutil.copytree(ROOT/'packages/plugin-sdk',source/'packages/plugin-sdk');shutil.copytree(ROOT/'scripts/fixtures/plugin-package-tools',source/'scripts/fixtures/plugin-package-tools');shutil.copytree(ROOT/'scripts/fixtures/plugin-sdk-tools',source/'scripts/fixtures/plugin-sdk-tools');(source/'scripts').mkdir(exist_ok=True);shutil.copyfile(ROOT/'scripts/generate-plugin-package-validator.mjs',source/'scripts/generate-plugin-package-validator.mjs');shutil.copyfile(ROOT/'scripts/generate-plugin-runtime-sdk.mjs',source/'scripts/generate-plugin-runtime-sdk.mjs');(source/'vendor').mkdir();(source/'vendor/quickjs-ng').symlink_to(ROOT/'vendor/quickjs-ng',target_is_directory=True)
   tools=work/'tools';tools.mkdir()
   for name in ['package.json','package-lock.json']:shutil.copyfile(ROOT/'scripts/fixtures/plugin-sdk-tools'/name,tools/name)
   for name,e in json.loads((tools/'package-lock.json').read_text())['packages'].items():
    if name and (not e['resolved'].startswith('https://registry.npmjs.org/') or not e['integrity'].startswith('sha512-')):raise RuntimeError('unpinned tool')
   npmrc=work/'empty.npmrc';npmrc.touch();env['NPM_CONFIG_USERCONFIG']=str(npmrc)
   run('tools',['npm','ci','--prefix',tools,'--ignore-scripts','--no-audit','--no-fund','--offline','--cache',ROOT/'tmp/plugin-sdk-npm-cache']);sdk=work/'sdk';core=source/'core';build=work/'build'
-  def compile_sdk(label):run(label+'-typescript',['node',tools/'node_modules/typescript/bin/tsc','-p',source/'packages/plugin-sdk/tsconfig.json','--outDir',sdk])
+  def compile_sdk(label):
+   run(label+'-embedded-sdk',['node',source/'scripts/generate-plugin-runtime-sdk.mjs','--tools',tools])
+   run(label+'-typescript',['node',tools/'node_modules/typescript/bin/tsc','-p',source/'packages/plugin-sdk/tsconfig.json','--outDir',sdk])
   compile_sdk('baseline');run('configure',['cmake','-S',core,'-B',build,'-DGHOSTERM_WITH_PLUGIN_JS=ON','-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_PLUGIN_SDK_DIR='+str(sdk),'-DCMAKE_BUILD_TYPE=RelWithDebInfo','-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
   binaries=['test_runtime_resources','test_runtime_resource_js','test_runtime_resource_oom','test_runtime_resource_close','test_config']
   objects=[('ghosterm_core','src/extension/'+n+'.c') for n in ['runtime','runtime-resource','runtime-api']]+[(n,'tests/'+n+'.c') for n in binaries[:-1]]
@@ -84,7 +88,7 @@ def main():
    expected={'plugin_resource_owner_'+m for m in OWNER_MODES}|{'plugin_resource_js_'+m for m in JS_MODES}|{'plugin_resource_js_snapshot_oom','plugin_resource_owner_close_error'}
    discovered=json.loads(run(label+'-discovery',['ctest','--test-dir',build,'--show-only=json-v1']));assert {t['name'] for t in discovered['tests'] if t['name'].startswith(('plugin_resource_owner_','plugin_resource_js_'))}==expected
    out=run(label,['ctest','--test-dir',build,'-R','^plugin_resource_(js|owner)_','--output-on-failure'],budget=120)
-   assert '100% tests passed out of 32' in out
+   assert '100% tests passed out of 36' in out
    for name in expected:assert re.search(r'Test\s+#\d+: '+re.escape(name)+r'\s+\.+\s+Passed',out),name
   rebuild('baseline');suite('baseline');run('baseline-control',[build/'test_config',core/'tests/fixtures'])
   for label,name,old,new,kind,mode in cases:

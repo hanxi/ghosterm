@@ -57,6 +57,19 @@ static void pub_file(pub_source_fixture_t *f, size_t size, const char *name) {
     CHECK(f->root >= 0);
     int fd = open(f->file, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
     CHECK(fd >= 0);
+    static const uint8_t utf8[] = {'A', 0xf0, 0x9f, 0x98, 0x80, 0xe4, 0xb8, 0xad};
+    static const uint8_t invalid_utf8[] = {0xc0, 0xaf};
+    if (!strcmp(name, "utf8.bin")) {
+        CHECK(size == sizeof(utf8) && write(fd, utf8, sizeof(utf8)) == (ssize_t)sizeof(utf8));
+        CHECK(!close(fd));
+        return;
+    }
+    if (!strcmp(name, "invalid.bin")) {
+        CHECK(size == sizeof(invalid_utf8) &&
+              write(fd, invalid_utf8, sizeof(invalid_utf8)) == (ssize_t)sizeof(invalid_utf8));
+        CHECK(!close(fd));
+        return;
+    }
     uint8_t bytes[16384];
     for (size_t at = 0; at < size;) {
         size_t n = size - at;
