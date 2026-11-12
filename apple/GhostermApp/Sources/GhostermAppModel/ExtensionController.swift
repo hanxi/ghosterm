@@ -149,10 +149,13 @@ public actor ExtensionController {
             _ = try? await perform {
                 guard !self.closed else { return () }
                 self.closed = true
-                for record in self.packages.values { try? record.package.close() }
-                self.packages.removeAll()
+                // The registry owns references to every approved package. Drop
+                // those references first so package.close() can synchronously
+                // destroy each remaining owner before AppKit is told to exit.
                 if let registry = self.registry { _ = try? registry.close() }
                 self.registry = nil
+                for record in self.packages.values { try? record.package.close() }
+                self.packages.removeAll()
             }
         }
 

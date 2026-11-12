@@ -94,5 +94,9 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertEqual(hiddenDenied.status, 2, "Denied command must not shadow the other UNKNOWN candidate")
         XCTAssertEqual(secondReview.commands.map(\.path), ["fixture"])
         await controller.close()
+        do {
+            _ = try await controller.resolve(command: "fixture")
+            XCTFail("closed controller must reject further work")
+        } catch { }
     }
 }
