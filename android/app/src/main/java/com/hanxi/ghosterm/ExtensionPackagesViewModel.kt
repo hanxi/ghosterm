@@ -9,16 +9,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.hanxi.ghosterm.bridge.ExtensionRuntime
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /** Per-AppModel review state. Trust is deliberately process-local in this slice. */
 class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(application) {
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
 
-    private val controller: ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
+    internal val controller: ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
         runCatching {
             ExtensionController(
                 ExtensionController.HostProfile(
@@ -84,8 +81,4 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
-    override fun onCleared() {
-        val owner = controller
-        if (owner != null) CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { owner.close() }
-    }
 }

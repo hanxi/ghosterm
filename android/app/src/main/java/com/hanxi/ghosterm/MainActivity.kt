@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel(), settings: SettingsViewModel = viewModel(), about: AboutViewModel = viewModel(), tmux: TmuxViewModel = viewModel(), extensions: ExtensionPackagesViewModel = viewModel()) {
+    SideEffect { sessions.attachExtensionController(extensions.controller) }
     var recoveryOwner by remember { mutableStateOf<java.util.UUID?>(null) }
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current

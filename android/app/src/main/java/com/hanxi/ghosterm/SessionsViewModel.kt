@@ -86,6 +86,15 @@ class SSHAttempt(target: PreparedSSH, internal val filesReady: ((RemoteFileSessi
 class SessionsViewModel @JvmOverloads constructor(application: Application, private val resolver: SSHResolver = AndroidSSHResolver,
     private val connectionBudgetMillis: Long = 60_000, private val monitorSessions: Boolean = true,
     settings: AppSettings? = (application as? GhostermApplication)?.settings) : AndroidViewModel(application) {
+    private var extensionController: ExtensionController? = null
+
+    /** The root AppModel supplies the same process-screen owner used by plugin
+     * review, so SSH attempts and package review share one native worker. */
+    internal fun attachExtensionController(controller: ExtensionController?) {
+        check(extensionController == null || extensionController === controller) { "不能替换活动插件控制器" }
+        extensionController = controller
+    }
+
     private val processTerminals = monitorSessions && application is GhostermApplication
     private val terminalStore = if (processTerminals) (application as GhostermApplication).terminalStore else TerminalSessionStore()
     val sessions = terminalStore.sessions
@@ -604,6 +613,9 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         connecting?.let { cancelConnection(it.id) }
         background?.detached(this)
         if (!processTerminals) sessions.forEach { it.connection.close() }
+        extensionController?.let { owner ->
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { owner.close() }
+        }
         super.onCleared()
     }
 }
