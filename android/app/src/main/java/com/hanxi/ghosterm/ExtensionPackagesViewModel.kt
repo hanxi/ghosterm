@@ -56,6 +56,10 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             entry.review.commands.none { it.path == command.path }) {
             error = "只能启动本进程已批准摘要中的命令"; return
         }
+        if ((request.methods.isNotEmpty() || request.hostMethods.isNotEmpty()) &&
+            "session.rpc" !in entry.review.requiredCapabilities) {
+            error = "此 Client 包未声明 session.rpc，不能协商 RPC 方法"; return
+        }
         if (activeSession != null || activeRuntime != null) { error = "此插件控制器已有活动 Session"; return }
         launchBusy = true; error = null
         val id = sessions.connectExtensionRoute(target, request) { ready ->
