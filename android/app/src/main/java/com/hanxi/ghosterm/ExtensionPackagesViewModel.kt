@@ -19,7 +19,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
     data class ActiveSession(
         val packageID: String, val packageDigest: String, val command: ExtensionController.Command,
-        val executorDigest: String, val peerIdentity: String, val info: ExtensionSession.Info,
+        val arguments: List<String>, val executorDigest: String, val peerIdentity: String, val info: ExtensionSession.Info,
     )
 
     internal val controller: ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
@@ -63,7 +63,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 val adopted = owner.adoptSSHSession(entry.review.id, entry.review.digest,
                     request.executorDigest, "0.1.0", target.alias, emptyList())
                 activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
-                    request.executorDigest, target.alias, adopted.info)
+                    request.arguments.toList(), request.executorDigest, target.alias, adopted.info)
                 launchBusy = false
                 viewModelScope.launch { advanceToConsent(owner) }
                 true
@@ -105,7 +105,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                             ExtensionSession.Phase.ACTIVE -> {
                                 val active = checkNotNull(activeSession)
                                 activeRuntime = owner.activateClient(active.packageID, active.packageDigest,
-                                    active.command.path, emptyList())
+                                    active.command.path, active.arguments)
                                 launchBusy = false
                                 viewModelScope.launch { advanceRuntime(owner) }
                                 break

@@ -3960,3 +3960,10 @@ Android 编译与 instrumentation 因环境没有 Java Runtime 未执行；不�
 设置页现在只对本进程已批准的固定 Client 摘要显示“启动此命令”。启动表单要求用户选择现有 SSH 配置主机，并明确填写远端 `gterm`、Executor 包目录及 64 位 Executor 摘要；用户确认后由 `HostsViewModel` 解析同一 SSH 配置，再调用 `SessionsViewModel.connectExtensionRoute`。现有 SSH hostkey / 凭据界面完成认证后，route callback 把 channel 按固定 Client ID / digest 与用户 Executor digest 接入 HOST Session。App 只依据 Native Session 当前 CONSENT 阶段和原样 consent token 显示允许 / 拒绝；允许后才按精确 registry 选择激活所选 Client 命令，并持续驱动 Runtime。运行中的 Runtime / Session 可请求停止；结束后显式释放 owner，继续保留已审查包。
 
 当前调用者显式发送零个命令参数和零个 Host RPC 方法；界面如实提示需要 argv 或依赖 Host RPC 的插件可能无法运行。没有自动部署 / 安装 Executor。此批建立生产调用链首片，不代表实际远端 Executor 已对拍、通用命令参数 / Host RPC / 插件视图已实现或 P0–P6 完成。`git diff --check` 通过；宿主缺 Java Runtime，Android 编译 / instrumentation 未启动，不记行为通过。未改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P0 第七十批：Android 命令参数 JSON argv 输入（2026-11-12）
+
+插件启动表单新增最大 64 KiB 的 JSON 字符串数组参数输入，最多 32 项；拒绝非字符串 JSON 项，由同一 `ExtensionRelayBootstrap` 校验 NUL / 换行 / 单项长度 / relay 总长度，并逐 token POSIX 引用。解析结果与命令一起留在 App 侧启动快照中，consent 通过后原样交给精确 Client Runtime 的 `argsSchema` decoder；不自行拆 shell、不把 JSON 对象或数字隐式转换为 argv。
+
+Host RPC 方法仍未实现；依赖 Host RPC 的命令会受限，界面明确提示。该批未执行测试；源码 `git diff --check` 待本批提交前检查。Android 编译与 instrumentation 仍因宿主缺 Java Runtime 无法启动，不记通过。未改公共 C ABI，不增加 macOS CI 二十份。

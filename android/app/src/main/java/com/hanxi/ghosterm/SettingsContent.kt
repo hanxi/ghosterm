@@ -354,6 +354,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     var executable by remember { mutableStateOf("gterm") }
     var executorDirectory by remember { mutableStateOf("") }
     var executorDigest by remember { mutableStateOf("") }
+    var argumentsJson by remember { mutableStateOf("[]") }
     var problem by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest = onDismiss,
         title = { Text("启动 ${command.title}") },
@@ -379,9 +380,11 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     label = { Text("远端 Executor 包目录") })
                 OutlinedTextField(executorDigest, { executorDigest = it }, singleLine = true,
                     label = { Text("Executor 包 SHA-256") })
+                OutlinedTextField(argumentsJson, { argumentsJson = it }, minLines = 2, maxLines = 4,
+                    label = { Text("命令 argv（JSON 字符串数组）") }, placeholder = { Text("[\"--limit\", \"10\"]") })
                 Text("将通过 SSH 明确启动指定目录中的 Executor。开发摘要是本次显式信任选择，不代表发布者签名认证；不会自动下载或安装。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("本入口目前不传命令参数，也未提供 Host 侧 RPC 方法；需要参数或调用 Host RPC 的插件可能无法完成启动。",
+                Text("参数必须是 JSON 字符串数组，逐项作为 argv 传入，不会再拆分或执行 shell。Host 侧 RPC 方法尚未实现，依赖它的插件可能无法完成运行。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
@@ -390,7 +393,8 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
             TextButton(enabled = selectedHost in hostAliases && executable.isNotBlank() && executorDirectory.isNotBlank(), onClick = {
                 try {
                     val request = ExtensionRelayBootstrap.Request(executable.trim(), executorDirectory,
-                        executorDigest.trim(), entry.review.digest, emptyList(), command.path)
+                        executorDigest.trim(), entry.review.digest, emptyList(), command.path,
+                        ExtensionRelayBootstrap.parseArgumentsJson(argumentsJson))
                     ExtensionRelayBootstrap.build(request)
                     onLaunch(selectedHost, request)
                 } catch (failure: IllegalArgumentException) {

@@ -1,5 +1,7 @@
 package com.hanxi.ghosterm
 
+import org.json.JSONArray
+
 /** Builds the explicit remote command accepted by the SSH extension route.
  * Values are argv tokens quoted for the remote POSIX shell; this does not
  * discover or install gterm. */
@@ -14,6 +16,21 @@ object ExtensionRelayBootstrap {
         val arguments: List<String> = emptyList(),
     )
 
+    /** Accept a JSON string array so the UI never invents a shell tokenizer. */
+    fun parseArgumentsJson(source: String): List<String> {
+        require(source.toByteArray().size <= 65536) { "命令参数 JSON 超过 64 KiB" }
+        val values = try { JSONArray(source) }
+        catch (_: Exception) { throw IllegalArgumentException("命令参数必须是 JSON 字符串数组") }
+        require(values.length() <= 32) { "命令参数最多 32 项" }
+        return buildList(values.length()) {
+            for (index in 0 until values.length()) {
+                val value = values.get(index)
+                require(value is String) { "命令参数必须是 JSON 字符串数组" }
+                add(value)
+            }
+        }
+    }
+
     fun build(request: Request): String {
         require(request.executable.isNotBlank()) { "请指定远端 gterm 可执行文件" }
         require(request.executorDirectory.isNotBlank()) { "请指定远端 Executor 包目录" }
@@ -24,6 +41,7 @@ object ExtensionRelayBootstrap {
             request.methods.all { it.matches(Regex("[A-Za-z][A-Za-z0-9_.-]{0,127}")) }) {
             "RPC 方法名无效（最多 16 个）"
         }
+        require(request.arguments.size <= 32) { "命令参数最多 32 项" }
         val argv = buildList {
             add(request.executable)
             add("relay"); add("--stdio")
