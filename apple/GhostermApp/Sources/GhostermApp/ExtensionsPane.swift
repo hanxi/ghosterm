@@ -277,7 +277,7 @@ struct PluginResourceBrowser: View {
             .frame(width: 190)
             .frame(maxHeight: 360)
             if let selectedResource {
-                PluginResourcePreviewCard(resource: selectedResource)
+                PluginResourcePreviewCard(resource: selectedResource, resources: resources)
                     .id(selectedResource.resourceID)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("plugin-resource-preview-\(selectedResource.resourceID)")
@@ -290,6 +290,7 @@ struct PluginResourceBrowser: View {
 
 private struct PluginResourcePreviewCard: View {
     let resource: ExtensionController.ReceivedResource
+    let resources: [ExtensionController.ReceivedResource]
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.Padding.xs) {
@@ -298,7 +299,7 @@ private struct PluginResourcePreviewCard: View {
             Text("\(resource.mime) · \(resource.size) 字节 · SHA-256 \(resource.sha256)")
                 .font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
             if PluginResourceHTMLDecoder.supports(mime: resource.mime) {
-                PluginResourceHTMLPreview(resource: resource)
+                PluginResourceHTMLPreview(resource: resource, resources: resources)
             } else if resource.mime.lowercased().hasPrefix("image/") {
                 PluginResourceImagePreview(data: resource.bytes, mime: resource.mime)
             } else if PluginResourceMarkdownDecoder.supports(
@@ -381,16 +382,17 @@ private struct PluginResourceMarkdownPreview: View {
 
 private struct PluginResourceHTMLPreview: View {
     let resource: ExtensionController.ReceivedResource
+    let resources: [ExtensionController.ReceivedResource]
     @State private var document: String?
     @State private var rejected = false
 
     var body: some View {
         Group {
-            if let document {
-                PluginResourceHTMLWebView(document: document)
+            if let document, PluginResourceHTMLAssetResolver.documentURL(resource.displayName) != nil {
+                PluginResourceHTMLWebView(document: document, resource: resource, resources: resources)
                     .frame(minHeight: 180, maxHeight: 420)
             } else if rejected {
-                Text("HTML 无法解析或超过 256 KiB 预览上限。脚本、网络、图片和外部附件均不会加载。")
+                Text("HTML 无法解析、路径无效或超过 256 KiB 预览上限。脚本和网络请求禁止；只加载本次显式收到的同目录 CSS / 图片。")
                     .font(DS.Font.caption).foregroundStyle(.secondary)
             } else {
                 ProgressView("检查 HTML…").controlSize(.small)
@@ -399,6 +401,11 @@ private struct PluginResourceHTMLPreview: View {
         .task(id: resource.sha256) {
             let bytes = resource.bytes
             let mime = resource.mime
+            guard PluginResourceHTMLAssetResolver.documentURL(resource.displayName) != nil else {
+                document = nil
+                rejected = true
+                return
+            }
             guard let decoded = await PluginResourceDecodeTask.run({
                 PluginResourceHTMLDecoder.document(bytes, mime: mime)
             }) else { return }
@@ -410,45 +417,71 @@ private struct PluginResourceHTMLPreview: View {
 
 private struct PluginResourceHTMLWebView: NSViewRepresentable {
     let document: String
+    let resource: ExtensionController.ReceivedResource
+    let resources: [ExtensionController.ReceivedResource]
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(resource: resource, resources: resources)
+    }
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        configuration.setURLSchemeHandler(context.coordinator.schemeHandler,
+                                          forURLScheme: "ghosterm-resource")
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
-        context.coordinator.load(document, in: webView)
+        context.coordinator.update(document: document, resource: resource, resources: resources,
+                                   in: webView)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.load(document, in: webView)
+        context.coordinator.update(document: document, resource: resource, resources: resources,
+                                   in: webView)
     }
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private var loadedDocument: String?
-        private var allowsInitialAboutBlank = false
+        private var resourceFingerprint = ""
+        private var baseURL: URL?
+        let schemeHandler: PluginResourceHTMLSchemeHandler
 
-        func load(_ document: String, in webView: WKWebView) {
-            guard loadedDocument != document else { return }
+        init(resource: ExtensionController.ReceivedResource,
+             resources: [ExtensionController.ReceivedResource]) {
+            schemeHandler = PluginResourceHTMLSchemeHandler(document: resource, resources: resources)
+            super.init()
+        }
+
+        func update(document: String, resource: ExtensionController.ReceivedResource,
+                    resources: [ExtensionController.ReceivedResource], in webView: WKWebView) {
+            let fingerprint = resources.map { "\($0.resourceID):\($0.sha256)" }.joined(separator: ",")
+            if fingerprint != resourceFingerprint {
+                resourceFingerprint = fingerprint
+                schemeHandler.update(document: resource, resources: resources)
+                if let loadedDocument, let baseURL {
+                    webView.loadHTMLString(loadedDocument, baseURL: baseURL)
+                }
+            }
+            let target = PluginResourceHTMLAssetResolver.documentURL(resource.displayName)
+            guard loadedDocument != document || baseURL != target, let target else { return }
             loadedDocument = document
-            allowsInitialAboutBlank = true
-            webView.loadHTMLString(document, baseURL: nil)
+            baseURL = target
+            webView.loadHTMLString(document, baseURL: target)
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            let isInitialDocument = allowsInitialAboutBlank &&
-                navigationAction.navigationType == .other &&
-                (navigationAction.targetFrame == nil || navigationAction.targetFrame?.isMainFrame == true) &&
-                navigationAction.request.url?.absoluteString == "about:blank"
-            if isInitialDocument {
-                allowsInitialAboutBlank = false
+            let url = navigationAction.request.url
+            let isDocumentLoad = (navigationAction.navigationType == .other ||
+                                  navigationAction.navigationType == .reload) &&
+                navigationAction.targetFrame?.isMainFrame == true &&
+                (url?.absoluteString == "about:blank" || url == baseURL)
+            if isDocumentLoad {
                 decisionHandler(.allow)
             } else {
                 decisionHandler(.cancel)
@@ -457,7 +490,8 @@ private struct PluginResourceHTMLWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                      decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-            decisionHandler(navigationResponse.response.url?.absoluteString == "about:blank" ? .allow : .cancel)
+            let url = navigationResponse.response.url
+            decisionHandler(url?.absoluteString == "about:blank" || url == baseURL ? .allow : .cancel)
         }
 
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,

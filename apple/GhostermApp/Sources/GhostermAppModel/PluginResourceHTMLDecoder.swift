@@ -14,7 +14,7 @@ public enum PluginResourceHTMLDecoder {
     public static func document(_ data: Data, mime: String) -> String? {
         guard supports(mime: mime), data.count <= maximumBytes,
               let source = String(data: data, encoding: .utf8) else { return nil }
-        let policy = "default-src 'none'; script-src 'none'; style-src 'none'; img-src 'none'; " +
+        let policy = "default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self'; " +
             "font-src 'none'; media-src 'none'; connect-src 'none'; object-src 'none'; " +
             "frame-src 'none'; child-src 'none'; form-action 'none'; base-uri 'none'"
         return "<!doctype html><html><head><meta charset=\"utf-8\">" +

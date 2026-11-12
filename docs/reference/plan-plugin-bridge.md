@@ -4317,3 +4317,14 @@ Core Source 发布元数据的 `displayName` 在 1024 字节可表示范围内�
 Core `test_bridge_source` 对多层路径、含字面 shell 元字符 / 中文的路径、硬链接测试路径和最大目录深度，逐项对拍快照 `displayName` 等于规范化目录链。`bash scripts/gate.sh` 全绿：CTest **474 项**、公共 ABI **177 项**、未实现入口检查通过。插件侧 `scripts/test-plugin-preview.mjs` 通过；`scripts/build-plugin-preview.py` 重建与 `--check` 均通过；Core 改动没有公共 ABI 变化。
 
 此批提供稳定相对路径身份，不加载任何附件。下一步需在 macOS App 安全地将 HTML/CSS 引用映射到同一 Preview 资源路径下已收到的快照，并覆盖目录越界、缺失附件和跨 Preview 隔离；Markdown 图片映射仍待完成。不增加 macOS CI 二十份。
+
+
+### P2 实施第十七批：受限 HTML 相对附件映射（2026-11-12）
+
+HTML 资源以自身 workspace 相对路径作为 `ghosterm-resource://preview/<path>` 基准 URL。WKWebView 配置仅注册该自定义 scheme；其 handler 只服务当前 HTML 资源之后、下一个 HTML/Markdown 文档之前显式收到的最多六个同目录 CSS / PNG / JPEG / GIF / WebP 快照，且逐项要求字节数与 metadata 匹配并受 1 MiB 限额。重复路径、外目录、未列入快照、未知 MIME 和 SVG 不提供。收到附件增量时更新 handler 并从原始静态文档重载，使先到的主文档可等待后到附件。
+
+HTML CSP 仍为 `default-src 'none'`、`script-src 'none'`、`connect-src 'none'` 等限制，仅把 `style-src` / `img-src` 收紧开放到文档自身 origin；该 origin 只有 `ghosterm-resource` handler，且主框架导航只允许 `about:blank` 初始加载或当前静态文档 URL。没有文件 URL、任意目录读取、网络放行、JS 或用户导航。
+
+新增 resolver XCTest 对拍显式 CSS / PNG 字节、同目录边界、兄弟目录、下一个 Preview 边界、未收到资源、`..`、外部 host 和 SVG 拒绝；独立 scheme-task 测试对拍 WebKit handler 返回的 MIME 与原始字节。定向 `PluginResourceUITests` **5 项通过**；最终 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **398 项、5 skip、0 失败**。测试 CLI/headless，唯一临时 WebKit 窗口明确 `orderOut` 并已在实验中撤销。
+
+曾试加实际 WKWebView 子资源加载 XCTest；xctest 在异步 teardown 时 SIGSEGV，诊断栈位于 XCTest deallocation 检查，已撤回该不稳定测试和专用观测代码，随后资源定向 5 项复验通过。该失败不计为产品通过或闸门红；也不宣称真实 WKWebView/CSS/图片像素渲染已验收。Markdown 附件映射与 Preview 专属交互仍待完成。不改公共 C ABI，不增加 macOS CI 二十份。

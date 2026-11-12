@@ -2,6 +2,7 @@ import AppKit
 import GhostermAppModel
 import SwiftUI
 import XCTest
+import WebKit
 @testable import GhostermApp
 
 final class PluginResourceUITests: XCTestCase {
@@ -62,11 +63,71 @@ final class PluginResourceUITests: XCTestCase {
         XCTAssertGreaterThan(visible, 20, "selected resource and preview should render nonempty content")
     }
 
+    func testHTMLAssetResolverServesOnlyExplicitSameDirectoryBundleResources() throws {
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("<img src='images/logo.png'>".utf8))
+        let stylesheet = resource("css", path: "site/styles/site.css", mime: "text/css", bytes: Data("body { color: red }".utf8))
+        let image = resource("image", path: "site/images/logo.png", mime: "image/png", bytes: Data([1, 2, 3]))
+        let siblingEscape = resource("escape", path: "site2/images/logo.png", mime: "image/png", bytes: Data([4]))
+        let nextDocument = resource("next", path: "site/next.html", mime: "text/html", bytes: Data("next".utf8))
+        let laterAsset = resource("later", path: "site/later.png", mime: "image/png", bytes: Data([5]))
+        let resources = [main, stylesheet, image, siblingEscape, nextDocument, laterAsset]
+
+        XCTAssertEqual(PluginResourcePreviewAssets.after(main, in: resources).map(\.resourceID),
+                       [stylesheet.resourceID, image.resourceID])
+        let resolver = PluginResourceHTMLAssetResolver(document: main, resources: resources)
+        let cssURL = try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/styles/site.css"))
+        XCTAssertEqual(resolver.resolve(cssURL)?.mime, "text/css")
+        XCTAssertEqual(resolver.resolve(cssURL)?.data, stylesheet.bytes)
+        let imageURL = try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/images/logo.png"))
+        XCTAssertEqual(resolver.resolve(imageURL)?.data, image.bytes)
+        XCTAssertNil(resolver.resolve(URL(string: "https://example.invalid/site/images/logo.png")!))
+        XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://other/site/images/logo.png")!))
+        XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site2/images/logo.png")!))
+        XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/later.png")!))
+        XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/../site2/images/logo.png")!))
+        XCTAssertNil(PluginResourceHTMLAssetResolver.documentURL("site/../index.html"))
+        XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/blocked.svg")!))
+    }
+
+    @MainActor
+    func testHTMLSchemeHandlerReturnsTheVerifiedSnapshotBytes() throws {
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("<img src='logo.png'>".utf8))
+        let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: Data([9, 8, 7]))
+        let handler = PluginResourceHTMLSchemeHandler(document: main, resources: [main, image])
+        let request = URLRequest(url: try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/logo.png")))
+        let task = CapturedSchemeTask(request: request)
+
+        handler.webView(WKWebView(frame: .zero), start: task)
+
+        XCTAssertEqual(task.response?.mimeType, "image/png")
+        XCTAssertEqual(task.data, image.bytes)
+        XCTAssertTrue(task.finished)
+        XCTAssertNil(task.error)
+    }
+
     private func resource(_ id: String) -> ExtensionController.ReceivedResource {
-        let bytes = Data("preview \(id)".utf8)
+        resource(id, path: "\(id).txt", mime: "text/plain", bytes: Data("preview \(id)".utf8))
+    }
+
+    private func resource(_ id: String, path: String, mime: String,
+                          bytes: Data) -> ExtensionController.ReceivedResource {
         return ExtensionController.ReceivedResource(resourceID: id,
-            sha256: String(repeating: "a", count: 64), mime: "text/plain",
-            displayName: "\(id).txt", size: UInt64(bytes.count), bytes: bytes)
+            sha256: String(repeating: "a", count: 64), mime: mime,
+            displayName: path, size: UInt64(bytes.count), bytes: bytes)
+    }
+
+    private final class CapturedSchemeTask: NSObject, WKURLSchemeTask {
+        let request: URLRequest
+        private(set) var response: URLResponse?
+        private(set) var data = Data()
+        private(set) var finished = false
+        private(set) var error: Error?
+
+        init(request: URLRequest) { self.request = request }
+        func didReceive(_ response: URLResponse) { self.response = response }
+        func didReceive(_ data: Data) { self.data.append(data) }
+        func didFinish() { finished = true }
+        func didFailWithError(_ error: Error) { self.error = error }
     }
 
     private actor DecodeGate {
