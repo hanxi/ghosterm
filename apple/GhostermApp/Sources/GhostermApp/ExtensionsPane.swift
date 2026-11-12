@@ -1,4 +1,5 @@
 import GhostermAppModel
+import GhostermCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -13,6 +14,18 @@ struct ExtensionsPane: View {
     private struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
         var decision: String = "尚未批准"
+        var sshAlias = ""
+        var executable = "gterm"
+        var executorDirectory = ""
+        var executorDigest = ""
+        var command = ""
+        var argumentsJSON = "[]"
+        var methodsJSON = "[]"
+        var hostMethodsJSON = "[]"
+        init(review: ExtensionController.PackageReview) {
+            self.review = review
+            self.command = review.commands.first?.path ?? ""
+        }
         var id: String { review.id + ":" + review.digest }
     }
 
@@ -57,10 +70,26 @@ struct ExtensionsPane: View {
                         .font(DS.Font.caption)
                     Text("能力授权：\(entry.review.authorizationGranted ? "已授予" : "未授予")；来源批准不会授予能力。")
                         .font(DS.Font.caption).foregroundStyle(.secondary)
-                    HStack {
-                        Button("批准此摘要") { decide(entry: entry, approve: true) }
-                            .disabled(entry.decision == "已批准（本进程）")
-                        Button("拒绝") { decide(entry: entry, approve: false) }
+                    if entry.decision == "已批准（本进程）" {
+                        VStack(alignment: .leading, spacing: DS.Padding.s) {
+                            TextField("SSH 主机别名", text: $entry.sshAlias)
+                            TextField("远端 gterm 可执行文件", text: $entry.executable)
+                            TextField("Executor 包目录", text: $entry.executorDirectory)
+                            TextField("Executor SHA-256", text: $entry.executorDigest)
+                                .font(.system(size: 11, design: .monospaced))
+                            TextField("完整命令路径", text: $entry.command)
+                            TextField("命令参数 JSON 字符串数组", text: $entry.argumentsJSON)
+                            TextField("Executor RPC allowlist JSON", text: $entry.methodsJSON)
+                            TextField("Host RPC allowlist JSON", text: $entry.hostMethodsJSON)
+                            Button("连接并启动 Client 命令") { launch(entry) }
+                                .disabled(model.extensionRunBusy || model.extensionRun != nil)
+                        }
+                    } else {
+                        HStack {
+                            Button("批准此摘要") { decide(entry: entry, approve: true) }
+                                .disabled(entry.decision == "已批准（本进程）")
+                            Button("拒绝") { decide(entry: entry, approve: false) }
+                        }
                     }
                 }
                 .padding(DS.Padding.m)
@@ -68,7 +97,11 @@ struct ExtensionsPane: View {
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
             }
 
-            SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装、持久信任和运行时激活尚未接入。")
+            if let run = model.extensionRun { activeRun(run) }
+            if let message = model.extensionRunIssue {
+                Text(message).foregroundStyle(.red).textSelection(.enabled)
+            }
+            SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装与持久信任尚未接入。Host RPC 业务 handler 和插件视图仍在开发中。")
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in
             switch result {
@@ -106,5 +139,69 @@ struct ExtensionsPane: View {
                 issue = "无法保存来源裁决：\(error)"
             }
         }
+    }
+
+    private func launch(_ entry: Entry) {
+        do {
+            let arguments = try ExtensionRelayBootstrap.parseArgumentsJSON(entry.argumentsJSON)
+            let methods = try ExtensionRelayBootstrap.parseMethodsJSON(entry.methodsJSON)
+            let hostMethods = try ExtensionRelayBootstrap.parseHostMethodsJSON(entry.hostMethodsJSON)
+            guard !entry.sshAlias.isEmpty else { throw GhostermCore.GhostermError.failed("请填写 SSH 主机别名") }
+            Task {
+                await model.startExtensionClient(packageID: entry.review.id,
+                    packageDigest: entry.review.digest, command: entry.command,
+                    arguments: arguments, sshAlias: entry.sshAlias,
+                    executable: entry.executable, executorDirectory: entry.executorDirectory,
+                    executorDigest: entry.executorDigest, methods: methods, hostMethods: hostMethods)
+            }
+        } catch { issue = "插件启动参数无效：\(error)" }
+    }
+
+    @ViewBuilder
+    private func activeRun(_ run: AppModel.ExtensionRun) -> some View {
+        VStack(alignment: .leading, spacing: DS.Padding.s) {
+            Text("插件运行").font(DS.Font.labelEmphasis)
+            Text("\(run.packageID) · \(run.command) · \(run.peerIdentity)")
+                .font(DS.Font.caption).textSelection(.enabled)
+            Text("Client 摘要：\(run.packageDigest)")
+                .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            Text("Executor 摘要：\(run.executorDigest)")
+                .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            Text("远端启动命令：\(run.remoteCommand)")
+                .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+            Text("参数：\(run.arguments.isEmpty ? "无" : run.arguments.map { String(reflecting: $0) }.joined(separator: " "))")
+                .font(DS.Font.caption).textSelection(.enabled)
+            Text("Executor RPC：\(run.methods.isEmpty ? "无" : run.methods.joined(separator: ", "))")
+                .font(DS.Font.caption)
+            Text("Host RPC：\(run.hostMethods.isEmpty ? "无" : run.hostMethods.joined(separator: ", "))")
+                .font(DS.Font.caption)
+            if let session = run.session,
+               session.phase == GhostermCore.ExtensionSession.Phase.consent.rawValue {
+                Text("远端请求建立 Native Session。请核对上方固定包摘要、远端身份、命令、参数与本次 RPC allowlist；批准后 Client JavaScript 才会激活。")
+                    .font(DS.Font.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button("拒绝并结束") { Task { await model.decideExtensionConsent(allow: false) } }
+                    Button("批准并启动") { Task { await model.decideExtensionConsent(allow: true) } }
+                        .buttonStyle(.borderedProminent)
+                }
+                .disabled(model.extensionRunBusy)
+            } else {
+                if let session = run.session {
+                    Text("Session phase：\(session.phase) · end：\(session.end) · cleanup：\(session.cleanupError)")
+                        .font(DS.Font.caption).textSelection(.enabled)
+                }
+                if let runtime = run.runtime {
+                    Text("Runtime phase：\(runtime.phase) · failure：\(runtime.failure) · cleanup：\(runtime.cleanupError)")
+                        .font(DS.Font.caption).textSelection(.enabled)
+                }
+                Button(model.extensionRunBusy ? "正在停止…" : "停止并释放插件") {
+                    Task { await model.stopExtensionRun() }
+                }
+                .disabled(model.extensionRunBusy)
+            }
+        }
+        .padding(DS.Padding.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
     }
 }

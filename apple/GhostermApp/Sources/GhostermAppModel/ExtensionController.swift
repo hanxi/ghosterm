@@ -77,6 +77,13 @@ public actor ExtensionController {
         public let packageID: String?
         public let packageDigest: String?
         public let command: Command?
+        public let requiredCapabilities: [String]
+
+        public init(status: UInt32, packageID: String?, packageDigest: String?,
+                    command: Command?, requiredCapabilities: [String] = []) {
+            self.status = status; self.packageID = packageID; self.packageDigest = packageDigest
+            self.command = command; self.requiredCapabilities = requiredCapabilities
+        }
     }
 
     public struct SSHHop: Sendable {
@@ -824,7 +831,8 @@ public actor ExtensionController {
             return Resolution(status: ExtensionRegistry.Status.ok.rawValue,
                               packageID: metadata.id, packageDigest: metadata.packageDigest,
                               command: Command(path: command.path, title: command.title,
-                                               argsSchema: command.argsSchema, views: command.views))
+                                               argsSchema: command.argsSchema, views: command.views),
+                              requiredCapabilities: metadata.requires)
         }
 
         private func overlaps(_ lhs: String, _ rhs: String) -> Bool {

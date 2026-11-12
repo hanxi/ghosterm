@@ -44,6 +44,25 @@ public final class AppModel: ObservableObject {
     /// offered until a build explicitly includes that runtime.
     public let extensionController: ExtensionController?
 
+    public struct ExtensionRun: Sendable {
+        public let packageID: String
+        public let packageDigest: String
+        public let command: String
+        public let arguments: [String]
+        public let executorDigest: String
+        public let peerIdentity: String
+        public let remoteCommand: String
+        public let methods: [String]
+        public let hostMethods: [String]
+        public let session: ExtensionController.SessionState?
+        public let runtime: ExtensionController.RuntimeState?
+    }
+
+    @Published public private(set) var extensionRun: ExtensionRun?
+    @Published public private(set) var extensionRunBusy = false
+    @Published public private(set) var extensionRunIssue: String?
+    private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String])?
+
     /// 界面外观偏好（跟随系统 / 浅色 / 深色）与终端色板事件（`theme =
     /// light:X,dark:Y` 靠它选边）。**改了要同时喂两个消费者**：AppKit 的
     /// `NSApp.appearance`（我们的界面）与 libghostty 的
@@ -1049,6 +1068,189 @@ public final class AppModel: ObservableObject {
             try? await extensionController.releaseFinished()
             throw error
         }
+    }
+
+    /// Reviews the exact approved Client command, starts its remote Executor,
+    /// completes SSH authentication and Native Session negotiation, then
+    /// leaves the UI at the explicit Native consent decision.
+    public func startExtensionClient(packageID: String, packageDigest: String, command: String,
+                                     arguments: [String], sshAlias: String, executable: String,
+                                     executorDirectory: String, executorDigest: String,
+                                     methods: [String], hostMethods: [String]) async {
+        guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
+        guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
+        extensionRunBusy = true; extensionRunIssue = nil
+        do {
+            let selected = try await extensionController.resolve(command: command, selectedID: packageID,
+                                                                  selectedDigest: packageDigest)
+            guard selected.status == 0, selected.packageID == packageID,
+                  selected.packageDigest == packageDigest, selected.command?.path == command else {
+                throw GhostermError.failed("只能启动本进程已批准摘要中的精确 Client 命令")
+            }
+            guard (methods.isEmpty && hostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
+                throw GhostermError.failed("此 Client 包未声明 session.rpc，不能协商 RPC 方法")
+            }
+            let bootstrap = try ExtensionRelayBootstrap.build(.init(executable: executable,
+                executorDirectory: executorDirectory, executorDigest: executorDigest,
+                clientDigest: packageDigest, methods: methods, hostMethods: hostMethods,
+                command: command, arguments: arguments))
+            _ = try await authenticatePluginSSHChannel(alias: sshAlias, bootstrap: bootstrap)
+            let rpcMethods = methods.map {
+                ExtensionController.RPCMethod(name: $0, capability: "session.rpc",
+                    receiver: GhostermCore.ExtensionSession.Role.executor.rawValue)
+            } + hostMethods.map {
+                ExtensionController.RPCMethod(name: $0, capability: "session.rpc",
+                    receiver: GhostermCore.ExtensionSession.Role.host.rawValue)
+            }
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
+            let session = try await extensionController.adoptSSHSession(pluginID: packageID,
+                packageDigest: packageDigest, executorDigest: executorDigest,
+                hostVersion: version, peerIdentity: sshAlias, methods: rpcMethods)
+            extensionRunInvocation = (packageID, packageDigest, command, arguments)
+            extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
+                command: command, arguments: arguments, executorDigest: executorDigest,
+                peerIdentity: sshAlias, remoteCommand: bootstrap, methods: methods, hostMethods: hostMethods,
+                session: session, runtime: nil)
+            let deadline = ProcessInfo.processInfo.systemUptime + 60
+            var current = session
+            while current.phase != GhostermCore.ExtensionSession.Phase.consent.rawValue &&
+                  current.phase != GhostermCore.ExtensionSession.Phase.active.rawValue &&
+                  current.phase != GhostermCore.ExtensionSession.Phase.ended.rawValue &&
+                  current.phase != GhostermCore.ExtensionSession.Phase.closed.rawValue {
+                try Task.checkCancellation()
+                guard ProcessInfo.processInfo.systemUptime < deadline else {
+                    throw GhostermError.failed("插件 Session 握手超过 60 秒")
+                }
+                current = try await extensionController.stepSession(milliseconds: 10)
+                updateExtensionRun(session: current)
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            guard current.phase == GhostermCore.ExtensionSession.Phase.consent.rawValue else {
+                throw GhostermError.failed("插件 Session 未进入待授权状态（phase \(current.phase)）")
+            }
+        } catch {
+            extensionRunIssue = "插件启动失败：\(error)"
+            try? await extensionController.stopSession()
+            try? await extensionController.stopSSHChannel()
+            try? await extensionController.releaseFinished()
+            extensionRun = nil; extensionRunInvocation = nil
+        }
+        extensionRunBusy = false
+    }
+
+    public func decideExtensionConsent(allow: Bool) async {
+        guard let extensionController, let run = extensionRun,
+              let session = run.session,
+              session.phase == GhostermCore.ExtensionSession.Phase.consent.rawValue,
+              !session.consentToken.isEmpty, !extensionRunBusy else { return }
+        extensionRunBusy = true; extensionRunIssue = nil
+        do {
+            var current = try await extensionController.decideSession(consentToken: session.consentToken, allow: allow)
+            updateExtensionRun(session: current)
+            let deadline = ProcessInfo.processInfo.systemUptime + 60
+            if allow {
+                while current.phase != GhostermCore.ExtensionSession.Phase.active.rawValue &&
+                      current.phase != GhostermCore.ExtensionSession.Phase.ended.rawValue &&
+                      current.phase != GhostermCore.ExtensionSession.Phase.closed.rawValue {
+                    try Task.checkCancellation()
+                    guard ProcessInfo.processInfo.systemUptime < deadline else {
+                        throw GhostermError.failed("插件 Session 授权握手超过 60 秒")
+                    }
+                    current = try await extensionController.stepSession(milliseconds: 10)
+                    updateExtensionRun(session: current)
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                }
+                guard current.phase == GhostermCore.ExtensionSession.Phase.active.rawValue,
+                      let invocation = extensionRunInvocation else {
+                    throw GhostermError.failed("插件 Session 未进入 ACTIVE")
+                }
+                let runtime = try await extensionController.activateClient(pluginID: invocation.packageID,
+                    packageDigest: invocation.digest, command: invocation.command,
+                    arguments: invocation.arguments)
+                updateExtensionRun(runtime: runtime)
+                Task { await self.advanceExtensionRuntime() }
+            } else {
+                while current.phase != GhostermCore.ExtensionSession.Phase.ended.rawValue &&
+                      current.phase != GhostermCore.ExtensionSession.Phase.closed.rawValue {
+                    current = try await extensionController.stepSession(milliseconds: 10)
+                    updateExtensionRun(session: current)
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                }
+            }
+        } catch { extensionRunIssue = "插件授权失败：\(error)" }
+        extensionRunBusy = false
+    }
+
+    public func stopExtensionRun() async {
+        guard let extensionController, extensionRun != nil, !extensionRunBusy else { return }
+        extensionRunBusy = true; extensionRunIssue = nil
+        do {
+            if extensionRun?.runtime != nil {
+                try await extensionController.stopRuntime()
+                var stopped = false
+                for _ in 0..<200 {
+                    let state = try await extensionController.stepRuntime()
+                    updateExtensionRun(runtime: state)
+                    if !Self.runtimeIsRunning(state.phase) { stopped = true; break }
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                }
+                guard stopped else { throw GhostermError.failed("插件 Runtime 未在停止期限内结束，保留 owner 供重试") }
+            }
+            if let session = extensionRun?.session,
+               session.phase != GhostermCore.ExtensionSession.Phase.ended.rawValue,
+               session.phase != GhostermCore.ExtensionSession.Phase.closed.rawValue {
+                try await extensionController.stopSession()
+                var ended = false
+                for _ in 0..<200 {
+                    let state = try await extensionController.stepSession(milliseconds: 10)
+                    updateExtensionRun(session: state)
+                    if state.phase == GhostermCore.ExtensionSession.Phase.ended.rawValue ||
+                       state.phase == GhostermCore.ExtensionSession.Phase.closed.rawValue { ended = true; break }
+                    try await Task.sleep(nanoseconds: 20_000_000)
+                }
+                guard ended else { throw GhostermError.failed("插件 Session 未在停止期限内结束，保留 owner 供重试") }
+            }
+            try await extensionController.releaseFinished()
+            extensionRun = nil; extensionRunInvocation = nil
+        } catch { extensionRunIssue = "释放插件资源失败：\(error)" }
+        extensionRunBusy = false
+    }
+
+    private func advanceExtensionRuntime() async {
+        guard let extensionController else { return }
+        do {
+            while true {
+                try Task.checkCancellation()
+                let state = try await extensionController.stepRuntime()
+                updateExtensionRun(runtime: state)
+                if !Self.runtimeIsRunning(state.phase) { return }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+        } catch { extensionRunIssue = "插件 Runtime 运行失败：\(error)" }
+    }
+
+    private func updateExtensionRun(session: ExtensionController.SessionState) {
+        guard let run = extensionRun else { return }
+        extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
+            command: run.command, arguments: run.arguments, executorDigest: run.executorDigest,
+            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
+            methods: run.methods, hostMethods: run.hostMethods,
+            session: session, runtime: run.runtime)
+    }
+
+    private func updateExtensionRun(runtime: ExtensionController.RuntimeState) {
+        guard let run = extensionRun else { return }
+        extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
+            command: run.command, arguments: run.arguments, executorDigest: run.executorDigest,
+            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
+            methods: run.methods, hostMethods: run.hostMethods,
+            session: run.session, runtime: runtime)
+    }
+
+    private static func runtimeIsRunning(_ phase: UInt32) -> Bool {
+        phase == GhostermCore.ExtensionRuntime.Phase.created.rawValue ||
+        phase == GhostermCore.ExtensionRuntime.Phase.starting.rawValue ||
+        phase == GhostermCore.ExtensionRuntime.Phase.active.rawValue
     }
 
     private func resolvePluginAddress(_ host: String) async throws -> SSHAddress {
