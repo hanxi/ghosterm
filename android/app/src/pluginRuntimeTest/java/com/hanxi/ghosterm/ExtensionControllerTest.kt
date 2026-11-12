@@ -61,6 +61,11 @@ class ExtensionControllerTest {
             val first = controller.review(firstDir)
             val second = controller.review(secondDir)
             assertEquals(listOf("fixture"), first.commands.map { it.path })
+            assertEquals("portable-js", first.runtime)
+            assertEquals(listOf("session.rpc"), first.requiredCapabilities)
+            assertTrue(first.optionalMissingCapabilities.isEmpty())
+            assertFalse(first.authorizationGranted)
+            assertFalse(first.publisherAuthenticated)
             assertFalse(first.sourceApproved)
             assertEquals(com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.CONFLICT,
                 controller.resolve("fixture").status)

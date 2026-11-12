@@ -64,6 +64,11 @@ final class ExtensionControllerTests: XCTestCase {
         let secondReview = try await controller.review(directory: secondRoot)
         XCTAssertEqual(review.id, "org.ghosterm.controller-fixture")
         XCTAssertEqual(review.commands.map(\.path), ["fixture"])
+        XCTAssertEqual(review.runtime, "portable-js")
+        XCTAssertEqual(review.requiredCapabilities, ["session.rpc"])
+        XCTAssertTrue(review.optionalMissingCapabilities.isEmpty)
+        XCTAssertFalse(review.authorizationGranted)
+        XCTAssertFalse(review.publisherAuthenticated)
         XCTAssertFalse(review.sourceApproved)
 
         let ambiguous = try await controller.resolve(command: "fixture")

@@ -46,9 +46,17 @@ struct ExtensionsPane: View {
                     }
                     Text("版本 \(entry.review.version) · 发布者 \(entry.review.publisher) · \(entry.review.license)")
                         .font(DS.Font.caption).foregroundStyle(.secondary)
+                    Text("运行时：\(entry.review.runtime) · 发布者身份：\(entry.review.publisherAuthenticated ? "已认证" : "未认证")")
+                        .font(DS.Font.caption).foregroundStyle(.secondary)
+                    Text("声明的必需能力：\(entry.review.requiredCapabilities.isEmpty ? "无" : entry.review.requiredCapabilities.joined(separator: ", "))")
+                        .font(DS.Font.caption)
+                    Text("缺失的可选能力：\(entry.review.optionalMissingCapabilities.isEmpty ? "无" : entry.review.optionalMissingCapabilities.joined(separator: ", "))")
+                        .font(DS.Font.caption).foregroundStyle(.secondary)
                     Text("摘要：\(entry.review.digest)").font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                     Text("命令：\(entry.review.commands.map(\.path).joined(separator: ", "))")
                         .font(DS.Font.caption)
+                    Text("能力授权：\(entry.review.authorizationGranted ? "已授予" : "未授予")；来源批准不会授予能力。")
+                        .font(DS.Font.caption).foregroundStyle(.secondary)
                     HStack {
                         Button("批准此摘要") { decide(entry: entry, approve: true) }
                             .disabled(entry.decision == "已批准（本进程）")

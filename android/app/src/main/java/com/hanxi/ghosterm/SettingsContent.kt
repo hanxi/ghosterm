@@ -229,11 +229,15 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                             Text(entry.review.id, Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.titleMedium)
                             Text("版本 ${entry.review.version} · 发布者 ${entry.review.publisher}", Modifier.padding(horizontal=16.dp), style=MaterialTheme.typography.bodyMedium)
                             Text("许可证 ${entry.review.license}", Modifier.padding(horizontal=16.dp), style=MaterialTheme.typography.bodySmall)
+                            Text("运行时 ${entry.review.runtime} · 发布者身份 ${if (entry.review.publisherAuthenticated) "已认证" else "未认证"}", Modifier.padding(horizontal=16.dp), style=MaterialTheme.typography.bodySmall)
+                            Text("声明的必需能力：${entry.review.requiredCapabilities.joinToString().ifEmpty { "无" }}", Modifier.padding(horizontal=16.dp), style=MaterialTheme.typography.bodySmall)
+                            Text("缺失的可选能力：${entry.review.optionalMissingCapabilities.joinToString().ifEmpty { "无" }}", Modifier.padding(horizontal=16.dp), style=MaterialTheme.typography.bodySmall)
                             Text("SHA-256 ${entry.review.digest}", Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.bodySmall)
                             entry.review.commands.forEach { command ->
                                 Text("命令 ${command.path} · ${command.title}", Modifier.padding(horizontal=16.dp, vertical=2.dp), style=MaterialTheme.typography.bodySmall)
                             }
                             Text(entry.decision, Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.labelMedium)
+                            Text("能力授权 ${if (entry.review.authorizationGranted) "已授予" else "未授予"}；来源批准不会授予能力。", Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.bodySmall, color=MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.End) {
                                 TextButton(onClick={ extensions.decide(entry, false) }, enabled=!extensions.busy) { Text("拒绝") }
                                 TextButton(onClick={ extensions.decide(entry, true) }, enabled=!extensions.busy) { Text("批准此摘要") }

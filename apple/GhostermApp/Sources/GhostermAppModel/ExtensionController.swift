@@ -61,6 +61,11 @@ public actor ExtensionController {
         public let publisher: String
         public let license: String
         public let digest: String
+        public let runtime: String
+        public let requiredCapabilities: [String]
+        public let optionalMissingCapabilities: [String]
+        public let authorizationGranted: Bool
+        public let publisherAuthenticated: Bool
         public let commands: [Command]
         /// Newly imported packages remain untrusted until `approve` is called.
         public let sourceApproved: Bool
@@ -224,7 +229,12 @@ public actor ExtensionController {
                 }
                 let review = PackageReview(id: metadata.id, version: metadata.version,
                                            publisher: metadata.publisher, license: metadata.license,
-                                           digest: metadata.packageDigest, commands: commands,
+                                           digest: metadata.packageDigest, runtime: metadata.runtime,
+                                           requiredCapabilities: metadata.requires,
+                                           optionalMissingCapabilities: metadata.optionalMissing,
+                                           authorizationGranted: metadata.authorizationGranted,
+                                           publisherAuthenticated: metadata.publisherAuthenticated,
+                                           commands: commands,
                                            sourceApproved: false)
                 packages[packageKey] = Record(package: package, review: review, source: .unknown)
                 return review

@@ -56,7 +56,10 @@ class ExtensionController(profile: HostProfile, context: Context) {
     data class Command(val path: String, val title: String, val argsSchema: String, val views: List<String>)
     data class Review(
         val id: String, val version: String, val publisher: String, val license: String,
-        val digest: String, val commands: List<Command>, val sourceApproved: Boolean = false,
+        val digest: String, val runtime: String, val requiredCapabilities: List<String>,
+        val optionalMissingCapabilities: List<String>, val authorizationGranted: Boolean,
+        val publisherAuthenticated: Boolean,
+        val commands: List<Command>, val sourceApproved: Boolean = false,
     )
     data class Resolution(
         val status: ExtensionRegistry.Status,
@@ -96,7 +99,9 @@ class ExtensionController(profile: HostProfile, context: Context) {
             val key = Key(metadata.id, metadata.packageDigest)
             check(key !in records) { "相同 ID 与摘要的包已审查" }
             val value = Review(metadata.id, metadata.version, metadata.publisher, metadata.license,
-                metadata.packageDigest, packageBytes.commands().map { Command(it.path, it.title, it.argsSchema, it.views) })
+                metadata.packageDigest, metadata.runtime, metadata.requires.toList(), metadata.optionalMissing.toList(),
+                metadata.authorizationGranted, metadata.publisherAuthenticated,
+                packageBytes.commands().map { Command(it.path, it.title, it.argsSchema, it.views) })
             records[key] = Record(packageBytes, value, Source.UNKNOWN)
             value
         } catch (error: Throwable) {

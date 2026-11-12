@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第五十七批 Android 插件控制器取消安全关闭。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定，第四十九批在激活前按已检查的 schema 解码并暴露冻结的 `invocation.decodedArguments`，第五十批把相同参数契约接入 Apple 与 Android 的包运行时集成夹具，第五十一批新增 macOS AppModel `ExtensionController` actor 负责 fixed package review、精确来源裁决与 Client 命令选择，第五十二批加入设置页插件包选择、审查摘要和显式批准 / 拒绝入口，第五十三批将控制器关闭接入 App 正常退出等待流程，第五十四批修正 registry / package 的释放顺序，第五十五批新增 Android AppModel worker-owned package review / source decision controller，第五十六批接入 Android SAF 私有暂存与设置审查入口，第五十七批修复 Android 插件控制器在调用协程取消时仍可靠释放 owner 的关闭顺序。普通构建的 JS 后端仍默认关闭，插件安装、持久信任、Client runtime 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-12 第五十八批两端插件审查能力明细。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定，第四十九批在激活前按已检查的 schema 解码并暴露冻结的 `invocation.decodedArguments`，第五十批把相同参数契约接入 Apple 与 Android 的包运行时集成夹具，第五十一批新增 macOS AppModel `ExtensionController` actor 负责 fixed package review、精确来源裁决与 Client 命令选择，第五十二批加入设置页插件包选择、审查摘要和显式批准 / 拒绝入口，第五十三批将控制器关闭接入 App 正常退出等待流程，第五十四批修正 registry / package 的释放顺序，第五十五批新增 Android AppModel worker-owned package review / source decision controller，第五十六批接入 Android SAF 私有暂存与设置审查入口，第五十七批修复 Android 插件控制器在调用协程取消时仍可靠释放 owner 的关闭顺序，第五十八批让两端审查 UI 显示包请求能力、发布者认证与授权事实。普通构建的 JS 后端仍默认关闭，插件安装、持久信任、Client runtime 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3876,3 +3876,10 @@ Android 设置新增插件分类与审查页。系统文件选择器只授予本
 `ExtensionController.close()` 在首个调用进入清理后，将 registry 与 package owner 的串行释放切到 `NonCancellable` 上下文，并在 `finally` 关闭 dispatcher、停止 HandlerThread。调用方协程若在关闭期间取消，不再留下“closed 已置位但清理没执行”的不可重试状态。
 
 Android 原生编译与 instrumentation 仍受缺少 Java Runtime 阻塞；本修复没有被编译或设备验证，也不记绿色。未修改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P0 第五十八批：两端插件审查能力明细（2026-11-12）
+
+Core 固定包元数据已经包含 Client runtime、必需能力、缺失的可选能力、能力授权是否已授予及发布者身份是否认证；此前两端 `PackageReview` 丢弃了这些值，批准 UI 只显示包身份 / 命令，用户无法在信任来源前看见包声明的请求。现在 Swift 与 Kotlin 控制器都把元数据原样带入 Review，macOS 与 Android 页面展示运行时、必需能力、缺失可选能力、发布者认证状态与授权状态，并明确来源批准本身不会授予能力。控制器测试断言这些字段来自测试包的固定 manifest/check 结果。
+
+`swift build --package-path apple/GhostermApp --scratch-path tmp/plugin-review-swift` 通过，包含 GhostermAppModel 与 SwiftUI app 源码编译。`swift test ... --filter ExtensionControllerTests` 编译生产模块与应用，但测试 target 因 Command Line Tools 环境缺少 XCTest 模块而终止，未运行测试；不记测试通过。Android 编译仍因缺 Java Runtime 未运行。未改公共 C ABI，不增加 macOS CI 二十份。
