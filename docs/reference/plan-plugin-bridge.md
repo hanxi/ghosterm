@@ -4563,8 +4563,8 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 
 ### P2 实施第四十二批：Preview 用户操作控件可访问性标识（2026-11-13）
 
-为后续不激活窗口的 macOS UI 驱动，在生产 `ExtensionsPane` 为包文件夹选择、按包批准 / 拒绝、SSH 与 Executor 参数、启动、Native consent 决定及停止释放控件增加稳定 `accessibilityIdentifier`。标识不包含包摘要或凭据；参数输入项按包 ID 区分，动作项可由 UI 自动化按固定名称定位。生产行为和默认 JS-off 策略未变。
+在生产 `ExtensionsPane` 为包文件夹选择、按包批准 / 拒绝、SSH 与 Executor 参数、启动、Native consent 决定及停止释放控件增加稳定 `accessibilityIdentifier`。标识不包含包摘要或凭据；参数输入项按包 ID 区分。生产行为和默认 JS-off 策略未变。离屏 `NSHostingView` accessibility tree 探针只枚举到滚动视图 / Cell，没有暴露 Button 标识或可执行按压动作；因此这些标识目前不构成无窗口真实 UI 点击证据。
 
 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" GHOSTERM_APP_TEST_FILTER=testResourceBrowserRendersASelectedVerifiedResource bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，定向 SwiftUI 资源浏览测试 1 项通过；随 gate 执行的 headless WebKit probe 复验 CSS / PNG 像素刷新为初始红 4096、蓝 39104，更新后红 4096、绿 39104。测试期间没有激活或显示窗口。
 
-尝试把 WebKit 像素快照再嵌入 `PluginResourceBrowser` XCTest 时，三次定向轮均在 XCTest 进程中 `SIGSEGV`，没有形成断言红或有效产品像素证据；该实验已撤回，现存独立生产 coordinator / scheme-handler probe 仍通过。此批的 accessibility 标识只为 UI 驱动铺垫，**不代表**文件 importer / 页面批准 / 启动 / consent / SSH 收件已形成单次点击链；API 36 最终 Android 测试源码复验、16 KiB 页、用户真机、P2 生命周期和完整格式矩阵及 P3–P6 仍未完成。不改公共 C ABI，不增加 macOS CI 二十份。
+尝试把 WebKit 像素快照再嵌入 `PluginResourceBrowser` XCTest 时，三次定向轮均在 XCTest 进程中 `SIGSEGV`，没有形成断言红或有效产品像素证据；该实验已撤回，现存独立生产 coordinator / scheme-handler probe 仍通过。此批的 accessibility 标识**不代表**文件 importer / 页面批准 / 启动 / consent / SSH 收件已形成单次点击链。补跑 API 36 最终源码时，API 36 arm64 无窗口 AVD 即使设置工程内 `TMPDIR`、`ANDROID_USER_HOME` / `ANDROID_AVD_HOME` / `ANDROID_EMULATOR_HOME`，并使用 `-grpc 8554 -crash-report-mode disabled`，Android Emulator 仍在工程外创建 `~/Library/Caches/TemporaryItems/avd/running/pid_62535.ini`；首轮还将 crash DB 写至 `/tmp/android-hanxi/`。两轮都在启动后立即停止，未连接 adb 或运行 instrumentation；仅此临时路径限制导致的设备复验未执行，不能记测试失败或通过。已清理工程 `tmp/` 下本轮 AVD、gterm、SDK、工具与日志。API 36 最终 Android 测试源码复验、16 KiB 页、用户真机、P2 生命周期和完整格式矩阵及 P3–P6 仍未完成。不改公共 C ABI，不增加 macOS CI 二十份。
