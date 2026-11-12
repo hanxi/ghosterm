@@ -76,9 +76,11 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     onConfig: () -> Unit, onImport: () -> Unit,
     onIdentities: () -> Unit, onKnownHosts: () -> Unit, onAbout: () -> Unit,
     fonts:TerminalFontsViewModel=viewModel(), extensions: ExtensionPackagesViewModel=viewModel(),
-    onPickPlugin: () -> Unit = {}) {
+    onPickPlugin: () -> Unit = {}, hostAliases: List<String> = emptyList(),
+    onLaunchPlugin: (ExtensionPackagesViewModel.Entry, ExtensionController.Command, String, ExtensionRelayBootstrap.Request) -> Unit = { _, _, _, _ -> }) {
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
     var fontPreview by remember { mutableStateOf<Int?>(null) }
+    var launchSelection by remember { mutableStateOf<Pair<ExtensionPackagesViewModel.Entry, ExtensionController.Command>?>(null) }
     val savedSections = rememberSaveableStateHolder()
     val p = model.candidate
     val enabled = model.canEdit
@@ -235,6 +237,13 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                             Text("SHA-256 ${entry.review.digest}", Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.bodySmall)
                             entry.review.commands.forEach { command ->
                                 Text("命令 ${command.path} · ${command.title}", Modifier.padding(horizontal=16.dp, vertical=2.dp), style=MaterialTheme.typography.bodySmall)
+                                if (entry.decision == "已批准（本进程）") {
+                                    TextButton(onClick = { launchSelection = entry to command },
+                                        enabled = !extensions.launchBusy && !connectionsBusy,
+                                        modifier = Modifier.padding(start = 8.dp).testTag("plugin-launch-${command.path}")) {
+                                        Text("启动此命令…")
+                                    }
+                                }
                             }
                             Text(entry.decision, Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.labelMedium)
                             Text("能力授权 ${if (entry.review.authorizationGranted) "已授予" else "未授予"}；来源批准不会授予能力。", Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.bodySmall, color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -244,12 +253,59 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                             }
                         }
                     }
+                    extensions.activeSession?.let { active ->
+                        Text("Session：${active.info.phase} · ${active.packageID} · ${active.info.peerIdentity}",
+                            Modifier.padding(top = 8.dp).testTag("plugin-session-state"), style = MaterialTheme.typography.bodySmall)
+                    }
+                    extensions.activeRuntime?.let { active ->
+                        Text("Runtime：${active.info.phase} · ${active.command} · steps ${active.info.steps}",
+                            Modifier.padding(top = 4.dp).testTag("plugin-runtime-state"), style = MaterialTheme.typography.bodySmall)
+                        if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
+                                com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
+                                com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {
+                            TextButton(onClick = extensions::stopRuntime, enabled = !extensions.launchBusy) { Text("停止插件") }
+                        } else {
+                            TextButton(onClick = extensions::releaseFinished, enabled = !extensions.launchBusy) { Text("释放插件资源") }
+                        }
+                    }
+                    if (extensions.activeRuntime == null && (extensions.activeSession?.info?.phase ==
+                            com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ENDED || extensions.activeSession?.info?.phase ==
+                            com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CLOSED)) {
+                        TextButton(onClick = extensions::releaseFinished, enabled = !extensions.launchBusy) { Text("释放插件 Session") }
+                    }
+                    if (extensions.activeRuntime == null && extensions.activeSession?.info?.phase ==
+                        com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ACTIVE) {
+                        TextButton(onClick = extensions::stopSession, enabled = !extensions.launchBusy) { Text("停止插件 Session") }
+                    }
                 }
             }
         }
         if(!showStatusAtTop) Text(status,Modifier.padding(vertical=12.dp).testTag("settings-save-status"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
     }
+    }
+    launchSelection?.let { (entry, command) ->
+        PluginLaunchDialog(entry, command, hostAliases, onDismiss = { launchSelection = null }) { alias, request ->
+            launchSelection = null
+            onLaunchPlugin(entry, command, alias, request)
+        }
+    }
+    extensions.activeSession?.takeIf { it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT }?.let { active ->
+        val reviewed = extensions.entries.firstOrNull { it.review.id == active.packageID && it.review.digest == active.packageDigest }
+        AlertDialog(onDismissRequest = { if (!extensions.launchBusy) extensions.decideConsent(false) },
+            title = { Text("插件权限请求") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${active.packageID} · ${active.command.title}")
+                    Text("SSH 主机：${active.info.peerIdentity}")
+                    Text("Executor 版本：${active.info.peerHostVersion}")
+                    Text("需要能力：${reviewed?.review?.requiredCapabilities?.joinToString().orEmpty().ifBlank { "无" }}")
+                    Text("仅批准当前连接中的能力授权。Client 包摘要和 SSH Executor 摘要均固定；发布者身份未认证不代表可信。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = { TextButton(onClick = { extensions.decideConsent(true) }, enabled = !extensions.launchBusy) { Text("允许并启动") } },
+            dismissButton = { TextButton(onClick = { extensions.decideConsent(false) }, enabled = !extensions.launchBusy) { Text("拒绝") } })
     }
     when {
         model.resetConfirmation -> AlertDialog(onDismissRequest = model::cancelReset,
@@ -284,6 +340,65 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
             }
         }
     }
+}
+
+@Composable private fun PluginLaunchDialog(
+    entry: ExtensionPackagesViewModel.Entry,
+    command: ExtensionController.Command,
+    hostAliases: List<String>,
+    onDismiss: () -> Unit,
+    onLaunch: (String, ExtensionRelayBootstrap.Request) -> Unit,
+) {
+    var selectedHost by remember(entry.review.id, command.path) { mutableStateOf(hostAliases.firstOrNull().orEmpty()) }
+    var hostMenu by remember { mutableStateOf(false) }
+    var executable by remember { mutableStateOf("gterm") }
+    var executorDirectory by remember { mutableStateOf("") }
+    var executorDigest by remember { mutableStateOf("") }
+    var problem by remember { mutableStateOf<String?>(null) }
+    AlertDialog(onDismissRequest = onDismiss,
+        title = { Text("启动 ${command.title}") },
+        text = {
+            Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(command.path, style = MaterialTheme.typography.bodySmall)
+                if (hostAliases.isEmpty()) Text("当前没有可用的 SSH 主机配置。", color = MaterialTheme.colorScheme.error)
+                else {
+                    Box {
+                        OutlinedButton(onClick = { hostMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (selectedHost.isBlank()) "选择 SSH 主机" else selectedHost)
+                        }
+                        DropdownMenu(expanded = hostMenu, onDismissRequest = { hostMenu = false }) {
+                            hostAliases.forEach { alias ->
+                                DropdownMenuItem(text = { Text(alias) }, onClick = { selectedHost = alias; hostMenu = false })
+                            }
+                        }
+                    }
+                }
+                OutlinedTextField(executable, { executable = it }, singleLine = true, label = { Text("远端 gterm 可执行文件") })
+                OutlinedTextField(executorDirectory, { executorDirectory = it }, singleLine = true,
+                    label = { Text("远端 Executor 包目录") })
+                OutlinedTextField(executorDigest, { executorDigest = it }, singleLine = true,
+                    label = { Text("Executor 包 SHA-256") })
+                Text("将通过 SSH 明确启动指定目录中的 Executor。开发摘要是本次显式信任选择，不代表发布者签名认证；不会自动下载或安装。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("本入口目前不传命令参数，也未提供 Host 侧 RPC 方法；需要参数或调用 Host RPC 的插件可能无法完成启动。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = selectedHost in hostAliases && executable.isNotBlank() && executorDirectory.isNotBlank(), onClick = {
+                try {
+                    val request = ExtensionRelayBootstrap.Request(executable.trim(), executorDirectory,
+                        executorDigest.trim(), entry.review.digest, emptyList(), command.path)
+                    ExtensionRelayBootstrap.build(request)
+                    onLaunch(selectedHost, request)
+                } catch (failure: IllegalArgumentException) {
+                    problem = failure.message ?: "插件启动参数无效"
+                }
+            }) { Text("连接并请求授权") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
 }
 
 @Composable private fun SettingsNotice(message: String, actions: @Composable RowScope.() -> Unit) {

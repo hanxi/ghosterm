@@ -3953,3 +3953,10 @@ Android 编译与 instrumentation 因环境没有 Java Runtime 未执行；不�
 `SessionsViewModel.connectExtensionRoute` 不再接受 caller 拼好的 shell 字符串，改为接收 `ExtensionRelayBootstrap.Request` 并在进入 attempt 前统一构造 / 校验 argv。这样明确的远端 `gterm` 路径、Executor/Client 摘要、方法和插件命令参数经过同一处引用与长度校验后，才会进入共享 SSH 认证流程；无 JS runtime 时仍明确不启动。当前尚无 App UI caller，也没有 Session consent / Runtime 与远端 Executor 启动的整条生产调用链。
 
 静态 `git diff --check` 通过；当前宿主缺 Java Runtime，Android Kotlin 编译及 instrumentation 未能启动，不记通过。未改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P0 第六十九批：Android 插件命令 SSH / consent / runtime UI 首条调用链（2026-11-12）
+
+设置页现在只对本进程已批准的固定 Client 摘要显示“启动此命令”。启动表单要求用户选择现有 SSH 配置主机，并明确填写远端 `gterm`、Executor 包目录及 64 位 Executor 摘要；用户确认后由 `HostsViewModel` 解析同一 SSH 配置，再调用 `SessionsViewModel.connectExtensionRoute`。现有 SSH hostkey / 凭据界面完成认证后，route callback 把 channel 按固定 Client ID / digest 与用户 Executor digest 接入 HOST Session。App 只依据 Native Session 当前 CONSENT 阶段和原样 consent token 显示允许 / 拒绝；允许后才按精确 registry 选择激活所选 Client 命令，并持续驱动 Runtime。运行中的 Runtime / Session 可请求停止；结束后显式释放 owner，继续保留已审查包。
+
+当前调用者显式发送零个命令参数和零个 Host RPC 方法；界面如实提示需要 argv 或依赖 Host RPC 的插件可能无法运行。没有自动部署 / 安装 Executor。此批建立生产调用链首片，不代表实际远端 Executor 已对拍、通用命令参数 / Host RPC / 插件视图已实现或 P0–P6 完成。`git diff --check` 通过；宿主缺 Java Runtime，Android 编译 / instrumentation 未启动，不记行为通过。未改公共 C ABI，不增加 macOS CI 二十份。

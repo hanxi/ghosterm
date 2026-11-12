@@ -91,9 +91,9 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private val records = linkedMapOf<Key, Record>() // worker-confined
     private var registry: ExtensionRegistry? = null // worker-confined
     @Volatile private var channel: ExtensionChannel? = null // stop alone may cross threads
-    private var session: ExtensionSession? = null
+    @Volatile private var session: ExtensionSession? = null
     private var sessionPackageKey: Key? = null
-    private var runtime: ExtensionRuntime? = null
+    @Volatile private var runtime: ExtensionRuntime? = null
     private var runtimePackageKey: Key? = null
     private var runtimeCommand: String? = null
 
@@ -241,6 +241,28 @@ class ExtensionController(profile: HostProfile, context: Context) {
         current.step()
         val key = checkNotNull(runtimePackageKey)
         RuntimeState(key.id, key.digest, checkNotNull(runtimeCommand), current.info())
+    }
+
+    /** Runtime stop is the only Native runtime operation allowed off-worker. */
+    fun requestStopRuntime() { runtime?.stop() }
+    /** Session stop is the only Native Session operation allowed off-worker. */
+    fun requestStopSession() { session?.stop() }
+
+    /** Release a completed or stopped flow while retaining reviewed packages. */
+    suspend fun releaseFinished() = onWorker {
+        runtime?.let { current ->
+            check(current.info().phase !in setOf(ExtensionRuntime.Phase.CREATED, ExtensionRuntime.Phase.STARTING,
+                ExtensionRuntime.Phase.ACTIVE)) { "请先停止仍在运行的插件" }
+            current.close()
+            runtime = null; runtimePackageKey = null; runtimeCommand = null
+        }
+        session?.let { current ->
+            check(current.info().phase in setOf(ExtensionSession.Phase.ENDED, ExtensionSession.Phase.CLOSED)) {
+                "不能释放仍活动或等待授权的插件 Session"
+            }
+            current.close()
+            session = null; sessionPackageKey = null
+        }
     }
 
     suspend fun review(directory: File): Review = onWorker {

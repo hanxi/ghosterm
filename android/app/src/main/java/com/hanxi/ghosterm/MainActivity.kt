@@ -347,7 +347,15 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                             onImport = { import.launch(arrayOf("*/*")) },
                             onIdentities = { hosts.identities(); identities.enter() },
                             onKnownHosts = { hosts.knownHosts(); knownHosts.enter() }, onAbout = hosts::about,
-                            extensions = extensions, onPickPlugin = ::pickPluginFolder)
+                            extensions = extensions, onPickPlugin = ::pickPluginFolder,
+                            hostAliases = hosts.snapshot?.hosts?.map { it.alias }.orEmpty(),
+                            onLaunchPlugin = { entry, command, alias, request ->
+                                val host = hosts.snapshot?.hosts?.singleOrNull { it.alias == alias }
+                                if (host == null) extensions.reportError("所选 SSH 主机已不存在，请重新载入配置")
+                                else hosts.checkConnection(host) { prepared ->
+                                    extensions.launch(entry, command, prepared, request, sessions)
+                                }
+                            })
                         Page.ABOUT -> AboutContent(about, runtime)
                     }
                 }

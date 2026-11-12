@@ -3,7 +3,7 @@ package com.hanxi.ghosterm
 /** Builds the explicit remote command accepted by the SSH extension route.
  * Values are argv tokens quoted for the remote POSIX shell; this does not
  * discover or install gterm. */
-internal object ExtensionRelayBootstrap {
+object ExtensionRelayBootstrap {
     data class Request(
         val executable: String,
         val executorDirectory: String,
