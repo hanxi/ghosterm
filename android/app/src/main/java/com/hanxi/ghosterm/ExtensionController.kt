@@ -16,6 +16,7 @@ import com.hanxi.ghosterm.bridge.ExtensionRegistry
 import com.hanxi.ghosterm.bridge.ExtensionChannel
 import com.hanxi.ghosterm.bridge.ExtensionSession
 import com.hanxi.ghosterm.bridge.ExtensionRuntime
+import com.hanxi.ghosterm.bridge.ExtensionResourceStore
 import com.hanxi.ghosterm.bridge.SSHAuthState
 import com.hanxi.ghosterm.bridge.PreparedSSH
 import kotlinx.coroutines.Dispatchers
@@ -84,7 +85,9 @@ class ExtensionController(profile: HostProfile, context: Context) {
 
     private val thread = HandlerThread("ghosterm-extension-controller", Thread.NORM_PRIORITY).apply { start() }
     private val dispatcher: CoroutineDispatcher = Handler(thread.looper).asCoroutineDispatcher("ghosterm-extension-controller")
-    private val resolver: ContentResolver = context.applicationContext.contentResolver
+    private val appContext = context.applicationContext
+    private val resolver: ContentResolver = appContext.contentResolver
+    private val resourceDirectory = File(appContext.cacheDir, "plugin-resources-${UUID.randomUUID()}")
     private val stagingRoot = File(context.applicationContext.cacheDir, "extension-package-review")
     private val hostJSON = profile.json()
     private val hostCapabilities = profile.capabilities.toList()
@@ -98,6 +101,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
     @Volatile private var runtime: ExtensionRuntime? = null
     private var runtimePackageKey: Key? = null
     private var runtimeCommand: String? = null
+    private var resourceStore: ExtensionResourceStore? = null
 
     /** Create an explicitly requested gterm relay route. This does not install,
      * discover, or start a remote Executor; the caller supplies its exact command. */
@@ -185,10 +189,13 @@ class ExtensionController(profile: HostProfile, context: Context) {
         check(metadata.id == pluginID && metadata.packageDigest == packageDigest && !metadata.executor) {
             "固定包不是所选 Client 包"
         }
+        val receiveStore = if ("resource.receive" in metadata.requires) resourceStoreOnWorker() else null
         val owned = ExtensionSession.adopt(bytes, ExtensionSession.Role.HOST,
             ExtensionSession.Config(metadata.id, metadata.version, metadata.packageDigest, executorDigest,
                 hostVersion, metadata.sdkVersion, metadata.requires, hostCapabilities,
-                ExtensionSession.PeerKind.SSH, peerIdentity, methods = methods.toList()))
+                budgets = ExtensionSession.Budgets(resourceBytes = RESOURCE_BYTES.toInt()),
+                peerKind = ExtensionSession.PeerKind.SSH, peerIdentity = peerIdentity, methods = methods.toList()), resourceStore = receiveStore,
+            resourceScopeBytes = RESOURCE_SESSION_BYTES)
         channel = null; session = owned; sessionPackageKey = key
         SessionState(pluginID, packageDigest, owned.info())
     }
@@ -236,6 +243,11 @@ class ExtensionController(profile: HostProfile, context: Context) {
         session = null; sessionPackageKey = null; runtime = active
         runtimePackageKey = Key(pluginID, packageDigest); runtimeCommand = command
         RuntimeState(pluginID, packageDigest, command, active.info())
+    }
+
+    suspend fun takeRuntimeResource(): Pair<ExtensionResourceStore.Status, ExtensionResourceStore.Content?> = onWorker {
+        val current = runtime ?: return@onWorker ExtensionResourceStore.Status.CLOSED to null
+        current.takeResourceData(RESOURCE_BYTES)
     }
 
     suspend fun stepRuntime(): RuntimeState = onWorker {
@@ -377,6 +389,10 @@ class ExtensionController(profile: HostProfile, context: Context) {
                     val previous = failure
                     if (previous == null) failure = next else previous.addSuppressed(next)
                 }
+                resourceStore?.let { current -> current.close(); resourceStore = null }
+                if (resourceDirectory.exists() && !resourceDirectory.deleteRecursively()) {
+                    throw IllegalStateException("插件资源私有目录清理失败")
+                }
                 // Registry owns references to approved packages; release it first.
                 registry?.let { current ->
                     val status = current.closeStatus()
@@ -429,6 +445,24 @@ class ExtensionController(profile: HostProfile, context: Context) {
         }
     }
 
+    private fun resourceStoreOnWorker(): ExtensionResourceStore {
+        checkWorker()
+        resourceStore?.let { return it }
+        check(resourceDirectory.exists() || resourceDirectory.mkdirs()) { "无法创建插件资源私有目录" }
+        Os.chmod(resourceDirectory.path, 448)
+        val fd = Os.open(resourceDirectory.path,
+            OsConstants.O_RDONLY or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC, 0)
+        return try {
+            check(Os.fstat(fd).st_mode and OsConstants.S_IFMT == OsConstants.S_IFDIR) {
+                "插件资源私有路径不是目录"
+            }
+            ParcelFileDescriptor.dup(fd).use { descriptor ->
+                ExtensionResourceStore(descriptor.fd, totalBytes = RESOURCE_SESSION_BYTES,
+                    resourceBytes = RESOURCE_BYTES, slots = 64).also { resourceStore = it }
+            }
+        } finally { Os.close(fd) }
+    }
+
     private fun registryOnWorker(): ExtensionRegistry {
         checkOpen(); checkWorker()
         return registry ?: ExtensionRegistry().also { registry = it }
@@ -442,6 +476,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
 
     companion object {
         private const val CAPTURE_STEP_LIMIT = 100_000
+        private const val RESOURCE_BYTES = 1L * 1024 * 1024
+        private const val RESOURCE_SESSION_BYTES = 8L * 1024 * 1024
         private const val TREE_ENTRY_LIMIT = 4096
         private const val TREE_MEMBER_BYTES = 16L * 1024L * 1024L
         private const val TREE_TOTAL_BYTES = 64L * 1024L * 1024L

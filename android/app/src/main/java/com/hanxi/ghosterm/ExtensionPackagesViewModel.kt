@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.hanxi.ghosterm.bridge.ExtensionRuntime
+import com.hanxi.ghosterm.bridge.ExtensionResourceStore
 import com.hanxi.ghosterm.bridge.ExtensionSession
 import com.hanxi.ghosterm.bridge.PreparedSSH
 import kotlinx.coroutines.CancellationException
@@ -28,7 +29,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             ExtensionController(
                 ExtensionController.HostProfile(
                     sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf("portable-js"),
-                    capabilities = listOf("session.rpc")),
+                    capabilities = listOf("session.rpc", "resource.receive")),
                 application.applicationContext)
         }.getOrNull()
     } else null
@@ -43,6 +44,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     var activeSession: ActiveSession? by mutableStateOf(null)
         private set
     var activeRuntime: ExtensionController.RuntimeState? by mutableStateOf(null)
+        private set
+    var receivedResources: List<ExtensionResourceStore.Content> by mutableStateOf(emptyList())
         private set
     var launchBusy by mutableStateOf(false)
         private set
@@ -182,7 +185,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         viewModelScope.launch {
             try {
                 owner.releaseFinished()
-                activeRuntime = null; activeSession = null
+                activeRuntime = null; activeSession = null; receivedResources = emptyList()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Throwable) { error = "释放插件资源失败：${failure.message ?: failure.javaClass.simpleName}" }
             finally { launchBusy = false }
@@ -210,6 +213,17 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             while (true) {
                 val state = owner.stepRuntime()
                 activeRuntime = state
+                val (resourceStatus, content) = owner.takeRuntimeResource()
+                if (resourceStatus == ExtensionResourceStore.Status.OK && content != null) {
+                    val resources = receivedResources
+                    if (resources.none { it.descriptor.resourceId == content.descriptor.resourceId }) {
+                        receivedResources = (resources + content).takeLast(8)
+                    }
+                } else if (resourceStatus !in setOf(ExtensionResourceStore.Status.WAIT,
+                        ExtensionResourceStore.Status.NOT_FOUND, ExtensionResourceStore.Status.CLOSED,
+                        ExtensionResourceStore.Status.UNSUPPORTED)) {
+                    error = "读取插件资源失败：$resourceStatus"
+                }
                 if (state.info.phase !in setOf(ExtensionRuntime.Phase.ACTIVE, ExtensionRuntime.Phase.STARTING,
                         ExtensionRuntime.Phase.CREATED)) return
                 delay(50)

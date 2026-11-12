@@ -1,6 +1,7 @@
 package com.hanxi.ghosterm
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -276,6 +279,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                                 Modifier.testTag("plugin-runtime-result"), style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error)
                         }
+                        PluginResourcesPanel(extensions.receivedResources)
                         if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {
@@ -364,6 +368,83 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
             }
         }
     }
+}
+
+@Composable internal fun PluginResourcesPanel(resources: List<com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content>) {
+    if (resources.isEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("plugin-resources"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("收到的预览资源", style = MaterialTheme.typography.titleSmall)
+        resources.forEach { resource ->
+            GhostermGroup(Modifier.fillMaxWidth().testTag("plugin-resource-${resource.descriptor.resourceId}")) {
+                Text(resource.descriptor.displayName, Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.titleSmall)
+                Text("${resource.descriptor.mime} · ${resource.bytes.size} 字节 · SHA-256 ${resource.descriptor.sha256}",
+                    Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
+                PluginResourceBody(resource)
+            }
+        }
+    }
+}
+
+@Composable private fun PluginResourceBody(resource: com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content) {
+    val mime = resource.descriptor.mime.substringBefore(';').lowercase()
+    if (mime in setOf("image/png", "image/jpeg", "image/gif", "image/webp")) {
+        val bitmap by produceState<android.graphics.Bitmap?>(null, resource.descriptor.sha256) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                decodePluginResourceBitmap(resource.bytes)
+            }
+        }
+        if (bitmap != null) {
+            Image(bitmap!!.asImageBitmap(), contentDescription = resource.descriptor.displayName,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp).padding(12.dp).testTag("plugin-resource-image"), contentScale = ContentScale.Fit)
+        } else {
+            Text("图片无法安全解码或尺寸超出预览范围", Modifier.padding(16.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        }
+        return
+    }
+    if (mime.startsWith("text/") || mime == "application/json" || mime == "application/xml") {
+        val preview = decodePluginResourceText(resource.bytes)
+        if (preview != null) {
+            SelectionContainer {
+                Text(preview, Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState()).padding(12.dp),
+                    maxLines = 80, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface)
+            }
+        } else {
+            Text("文本不是有效 UTF-8 或超出显示预算", Modifier.padding(16.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        }
+        if (mime == "text/html") Text("HTML 按源码显示，不执行脚本或加载网络内容。",
+            Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
+        return
+    }
+    Text("此格式已安全接收；当前只显示文件信息。", Modifier.padding(16.dp),
+        color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+}
+
+internal fun decodePluginResourceText(bytes: ByteArray): String? {
+    if (bytes.size > 1048576) return null
+    return try {
+        val decoder = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+        decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString().take(8192)
+    } catch (_: java.nio.charset.CharacterCodingException) { null }
+}
+
+internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitmap? {
+    if (bytes.isEmpty() || bytes.size > 1048576) return null
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0 || bounds.outWidth > 32768 || bounds.outHeight > 32768 ||
+        bounds.outWidth.toLong() * bounds.outHeight > 268435456L) return null
+    val options = android.graphics.BitmapFactory.Options()
+    var sample = 1
+    while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048 ||
+        (bounds.outWidth.toLong() / sample) * (bounds.outHeight.toLong() / sample) > 4194304L) sample *= 2
+    options.inSampleSize = sample
+    return runCatching { android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }.getOrNull()
 }
 
 @Composable private fun PluginLaunchDialog(

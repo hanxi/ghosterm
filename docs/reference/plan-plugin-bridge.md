@@ -4416,3 +4416,13 @@ Fixture 的 stylesheet 与 PNG 都通过生产 `PluginResourceHTMLSchemeHandler`
 新增 API 36 arm64 headless 模拟器用例，覆盖 Runtime 接管、Host Runtime 激活、对端发送 `abc`、资源内容及 metadata 读取、回执确认和发送记录清理。单项通过，`ExtensionRuntimeTest` **12 项通过**。中途误启动的 1109 项全量 instrumentation 在 11 项后中止，及一次取消后的测试进程重启失败均不计通过；随后单项和专项整类稳定复跑通过。无前台测试窗口，不改公共 C ABI。
 
 这只接通 Android Runtime 到原生收件快照的数据桥；资源预览产品 UI、附件导航/呈现和真实设备验收仍待完成，不记 P2 闭环。
+
+### P2 实施第二十九批：Android 官方资源预览首片（2026-11-12）
+
+把 `resource.receive` 接入 Android Client HostProfile；仅当已批准固定包声明此能力时，Controller 才在 worker 上创建 0700 私有 ResourceStore，并把 store 随 Session / Runtime 接管。单项资源上限 1 MiB，会话总量 8 MiB；Controller close 先关闭 Runtime / Session / Store，再删除本次随机私有目录。Runtime worker 每轮只轮询已接收资源，ViewModel 最多保留 8 个本进程快照，释放 Runtime 时清空。
+
+插件设置中的活动 Runtime 面板现在列出收到资源的名称、MIME、字节数与 SHA-256。严格 UTF-8 文本仅显示有界源码（最多 8192 字符）；HTML 明确按源码呈现，不执行脚本或加载外链。PNG / JPEG / GIF / WebP 在后台解码，拒绝空 / 超 1 MiB / 超尺寸输入，并将图像采样到最长边 2048、最多 4 Mi 像素后绘制；其它二进制只显示元数据。
+
+默认 JS-off 与 JS-enabled 的 Android debug / androidTest 编译通过。API 36 arm64 无窗口模拟器：`PluginResourcePreviewTest` **2 项通过**（严格 UTF-8、文本预算、真实 PNG 解码像素、超预算拒绝），`PluginResourcePreviewUiTest` **1 项通过**（静态 HTML 源码提示与 PNG Image 节点），插件 Runtime 专项 12 项在前一批已通过。Android ABI 对拍 140 引用 / 37 登记未用，无公共 C ABI 变化。
+
+这证明资源面板与预览 renderer 可接收注入快照并绘制，但未覆盖真实 `gterm preview` 经 Android SSH Controller / consent / Runtime 到面板的端到端交互、Android Markdown 格式化和真实设备矩阵；不记 P2 闭环完成。
