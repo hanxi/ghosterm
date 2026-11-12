@@ -1,8 +1,8 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件及 P2 Android Preview 第三十七批。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。API 29 / API 36 arm64 无窗口 AVD 均通过真实双跳 Preview 收件后生产资源面板正文断言；API 29 / API 36 还通过同目录 Markdown PNG 像素绘制；完整 MainActivity / Settings 页面交互、16 KiB 页与真机仍待验。**
+日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件及 P2 Android Preview 第三十七批。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation，默认参数解码与未知 option 启动前拒绝均有设备断言。API 29 / API 36 arm64 无窗口 AVD 也通过真实双跳 Preview 收件后生产资源面板正文断言，并通过同目录 Markdown PNG 像素绘制；完整 MainActivity / Settings 页面交互、16 KiB 页与真机仍待验。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 官方 Preview 的完整交互与端到端验证。独立 headless WebKit probe 已通过真实 WKWebView CSS / PNG 绘制，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；AppModel / SwiftUI 实际接收后的完整端到端交互仍未完成。Android 资源预览的产品 UI 与设备验收；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P0 技术风险关闭与协议候选冻结；P2 官方 Preview 的完整交互与端到端验证。独立 headless WebKit probe 已通过真实 WKWebView CSS / PNG 绘制，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；AppModel / SwiftUI 实际接收后的完整端到端交互仍未完成。Android 资源预览的完整产品 UI 与设备验收；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -4497,3 +4497,9 @@ API 36 arm64 无窗口模拟器的 `PluginResourcePreviewTest` 与 `PluginResour
 为满足临时文件边界，AVD 的 `HOME`、`ANDROID_AVD_HOME`、`ANDROID_EMULATOR_HOME`、crash database 与 launcher 路径均指向工程 `tmp/android-home`，emulator 以 `-no-window` 运行；启动日志确认 gRPC running 文件也位于该目录。首次运行因未预装 debug / androidTest APK，instrumentation runner 不存在；安装对应 JS-enabled APK 后，第一次复跑遇到随机 adb reverse 端口占用，未进入 instrumentation；重新启动独立 SSH fixture 后整项通过。上述前置失败不计目标断言红。结束时 AVD 与本批目录关闭清理。
 
 这补齐第九十四批参数行为的 API 36 设备证据，不代表 API 29 参数行为、16 KiB 页或真机矩阵；P0 风险关闭 / 协议候选冻结仍待审计，不增加 macOS CI 二十份。
+
+### P0 第九十八批：API 29 Android Core argv decoder 双跳 instrumentation（2026-11-12）
+
+在 API 29 / arm64 无窗口 AVD 重跑第九十七批的真实两跳 SSH Client Runtime instrumentation。`ExtensionChannelTest.controllerRunsClientRuntimeOverTwoHopSSH` 对固定包默认布尔参数解码为 `{"wrap":false}`、未知 `--unknown` 在 SSH route 前拒绝及远端 RPC 完成证明执行断言；JUnit `OK (1 test)`，`getconf PAGE_SIZE` 为 4096。设备 APK 与 API 36 同源，脚本输出 `PUBLIC CHANNEL PASS`。
+
+AVD 的 HOME、AVD、emulator、crash database 与 launcher 目录均在工程 `tmp/android-home`，无窗口启动；instrumentation 与 SSH 夹具日志也位于 `tmp/`。测试结束关闭 AVD 并删除本批全部临时目录。至此第九十四批参数行为在 API 29 / API 36 均有实际设备证据；不代表 16 KiB 页、用户真机或 P0 协议冻结审计完成，不增加 macOS CI 二十份。
