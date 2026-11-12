@@ -3,8 +3,12 @@
 The P3 protocol adapter is in `protocol/client.ts`; it handles initialization,
 thread / turn request correlation, streamed notifications, approval request IDs,
 and unknown outcomes on pipe closure. `protocol/line-decoder.ts` frames bounded
-UTF-8 JSON lines without Node or DOM APIs. A host-owned process service must
-still provide the stdio pipes. This is not yet an installable or complete plugin.
+UTF-8 JSON lines without Node or DOM APIs. `protocol/process.ts` launches the
+Host mapping named `codex` through `PluginContext.process` after checking the
+Executor role, current `process.spawn` / `process.pipes` grants, and opaque
+authorized workspace handle. It returns the adapter with explicit bounded
+`step()` and `stop()` lifecycle. This is not yet an installable or complete
+plugin; product Host mappings and UI are not wired.
 
 The lock was derived from the official Codex CLI `codex-cli 0.166.0` generators with experimental APIs disabled. Recheck the installed CLI and its generated JSON Schema and TypeScript surface with:
 
@@ -26,6 +30,6 @@ recorded separately from generated payload types and checked with the adapter:
 node --experimental-strip-types --test scripts/test-plugin-codex-protocol.mjs
 ```
 
-The protocol client initializes each connection once, sends `initialized`, and exposes the locked `thread/start`, `turn/start`, and `turn/interrupt` calls. It preserves each server-initiated approval request id and validates the distinct stable command/file response shapes. `serverRequest/resolved` expires a pending approval; pipe closure rejects unfinished outbound calls as unknown without replay. `protocol/stdio.ts` now composes that client and the bounded line decoder over a Host-injected nonblocking pipe surface. It limits each IO slice, bounds queued writes, and drains stderr without retaining it. Core also has a private POSIX child-process owner primitive with bounded nonblocking stdio reads/writes, process-group signals, and leader reaping. Neither piece is wired to the extension Runtime or PluginContext: production authorization, deadlines, termination escalation, app lifecycle ownership, and GUI event delivery remain unimplemented.
+The protocol client initializes each connection once, sends `initialized`, and exposes the locked `thread/start`, `turn/start`, and `turn/interrupt` calls. It preserves each server-initiated approval request id and validates the distinct stable command/file response shapes. `serverRequest/resolved` expires a pending approval; pipe closure rejects unfinished outbound calls as unknown without replay. `protocol/stdio.ts` composes that client and the bounded line decoder over a Host-injected nonblocking pipe surface. It limits each IO slice, bounds queued writes, and drains stderr without retaining it. `protocol/process.ts` connects this adapter to the portable Host process contract; Core's QuickJS Runtime supplies that contract only when its checked Executor package, live grants, Host executable mapping, and authorized workspace root all agree. Isolated tests cover the helper with a fake Host child and the production stdio adapter with the pinned real CLI separately. They do not yet prove the full Core Runtime launches the real Codex server, nor a live turn, approval UI, app lifecycle ownership, per-child deadline/output quota, executable identity revalidation, or GUI event delivery.
 
 The locked schema is only a compatibility baseline. It does not claim a live Codex turn, process pipe service, native chat / approval / diff views, or end-to-end Ghosterm integration. Those remain subsequent P3 work. See the [official Codex app-server protocol](https://learn.chatgpt.com/docs/app-server).

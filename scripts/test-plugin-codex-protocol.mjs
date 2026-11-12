@@ -11,6 +11,7 @@ import { CodexLineDecoder, CodexLineDecoderError, MAX_APP_SERVER_LINE_BYTES } fr
   "../plugins/official/ai-codex/protocol/line-decoder.ts";
 import { CodexAppServerStdio, CODEX_PENDING_WRITE_MAX } from
   "../plugins/official/ai-codex/protocol/stdio.ts";
+import { spawnCodexAppServer } from "../plugins/official/ai-codex/protocol/process.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const lock = JSON.parse(readFileSync(join(root, "plugins/official/ai-codex/protocol/app-server.lock.json"), "utf8"));
@@ -152,6 +153,75 @@ test("stdio EOF inside a JSON record fails closed and leaves the request outcome
   await assert.rejects(pending, error => error instanceof CodexOutcomeUnknownError);
   assert.equal(connection.failure?.name, "CodexLineDecoderError");
   connection.close();
+});
+
+test("PluginContext process grant launches Codex through the bounded stdio adapter", async () => {
+  const writes = [];
+  const reads = [];
+  let signalled;
+  let released = false;
+  const child = {
+    verifiedVersion: "0.166.0",
+    writeStdin(bytes) {
+      const text = new TextDecoder().decode(bytes);
+      writes.push(text);
+      const request = JSON.parse(text.trim());
+      reads.push(new TextEncoder().encode(JSON.stringify({
+        id: request.id, result: { userAgent: "fixture" },
+      }) + "\n"));
+      return { state: "data", count: bytes.length };
+    },
+    readStdout(maxBytes) {
+      const bytes = reads.shift();
+      return bytes ? { state: "data", bytes: bytes.subarray(0, maxBytes) } : { state: "wait" };
+    },
+    readStderr() { return { state: "wait" }; },
+    closeStdin() {},
+    signal(signal) { signalled = signal; },
+    poll() { return { state: "exited", code: 0, signal: null }; },
+    async release() { released = true; },
+  };
+  let spawnOptions;
+  const context = {
+    side: "executor",
+    capabilities: { query: () => "allowed" },
+    cancellation: { cancelled: false },
+    invocation: { workspaceHandle: { id: "workspace-root" } },
+    process: { async spawn(options) { spawnOptions = options; return child; } },
+  };
+  const server = await spawnCodexAppServer(context, clientInfo);
+  assert.deepEqual({
+    program: spawnOptions.program,
+    argv: spawnOptions.argv,
+    cwd: spawnOptions.cwd,
+    envPolicy: spawnOptions.envPolicy,
+    cancellation: spawnOptions.cancellation,
+  }, {
+    program: "codex", argv: ["app-server"], cwd: { id: "workspace-root" },
+    envPolicy: "selected-user-environment", cancellation: context.cancellation,
+  });
+  server.step();
+  assert.equal((await server.ready).userAgent, "fixture");
+  assert.match(writes[0], /"method":"initialize"/);
+  await server.stop();
+  assert.equal(signalled, "terminate");
+  assert.equal(released, true);
+});
+
+test("PluginContext process integration rejects non-Executor or missing live grants", async () => {
+  let spawned = false;
+  const context = {
+    side: "client",
+    capabilities: { query: () => "allowed" },
+    cancellation: { cancelled: false },
+    invocation: { workspaceHandle: { id: "workspace-root" } },
+    process: { async spawn() { spawned = true; throw new Error("must not spawn"); } },
+  };
+  await assert.rejects(spawnCodexAppServer(context, clientInfo), /authorized Executor process grant/);
+  context.side = "executor";
+  context.capabilities.query = name => name === "process.spawn" ? "allowed" : "revoked";
+  await assert.rejects(spawnCodexAppServer(context, clientInfo), /authorized Executor process grant/);
+  assert.equal(spawned, false);
 });
 
 test("runs initialize and thread/start against the pinned real server, without a turn", async () => {
