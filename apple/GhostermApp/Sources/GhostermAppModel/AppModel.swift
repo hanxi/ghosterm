@@ -21,7 +21,20 @@ import Foundation
 @MainActor
 public final class AppModel: ObservableObject {
     /// Capabilities implemented by the App-facing Client runtime path.
-    public static let extensionHostCapabilities = ["session.rpc", "resource.receive"]
+    public static let extensionHostCapabilities = ["session.rpc", "resource.receive", "file.readScoped"]
+
+    /// The wire protocol carries semantic versions with three numeric
+    /// components. Apple's marketing version commonly omits the patch (for
+    /// example, `16.0`), so normalize that form before opening a Session.
+    public static func extensionHostProtocolVersion(_ marketingVersion: String?) -> String {
+        guard let marketingVersion, !marketingVersion.isEmpty else { return "0.1.0" }
+        let components = marketingVersion.split(separator: ".", omittingEmptySubsequences: false)
+        guard (2...3).contains(components.count), components.allSatisfy({ component in
+            !component.isEmpty && component.utf8.allSatisfy { (48...57).contains($0) } &&
+                (component.count == 1 || component.first != "0")
+        }) else { return "0.1.0" }
+        return components.count == 2 ? marketingVersion + ".0" : marketingVersion
+    }
 
     public enum Target: Hashable {
         case localShell
@@ -1109,10 +1122,12 @@ public final class AppModel: ObservableObject {
                 ExtensionController.RPCMethod(name: $0, capability: "session.rpc",
                     receiver: GhostermCore.ExtensionSession.Role.host.rawValue)
             }
-            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
+            let version = Self.extensionHostProtocolVersion(
+                Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
             let session = try await extensionController.adoptSSHSession(pluginID: packageID,
                 packageDigest: packageDigest, executorDigest: executorDigest,
-                hostVersion: version, peerIdentity: sshAlias, methods: rpcMethods)
+                hostVersion: version, peerIdentity: sshAlias, methods: rpcMethods,
+                additionalRequiredCapabilities: scopedRoots.isEmpty ? [] : ["file.readScoped"])
             extensionRunInvocation = (packageID, packageDigest, command, arguments)
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
@@ -1134,7 +1149,7 @@ public final class AppModel: ObservableObject {
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
             guard current.phase == GhostermCore.ExtensionSession.Phase.consent.rawValue else {
-                throw GhostermError.failed("插件 Session 未进入待授权状态（phase \(current.phase)）")
+                throw GhostermError.failed("插件 Session 未进入待授权状态（phase \(current.phase), end \(current.end), error \(current.error), cleanup \(current.cleanupError)）")
             }
         } catch {
             extensionRunIssue = "插件启动失败：\(error)"
@@ -1192,6 +1207,7 @@ public final class AppModel: ObservableObject {
     public func stopExtensionRun() async {
         guard let extensionController, extensionRun != nil, !extensionRunBusy else { return }
         extensionRunBusy = true; extensionRunIssue = nil
+        let runtimeOwnsSession = extensionRun?.runtime != nil
         do {
             if extensionRun?.runtime != nil {
                 try await extensionController.stopRuntime()
@@ -1204,7 +1220,7 @@ public final class AppModel: ObservableObject {
                 }
                 guard stopped else { throw GhostermError.failed("插件 Runtime 未在停止期限内结束，保留 owner 供重试") }
             }
-            if let session = extensionRun?.session,
+            if !runtimeOwnsSession, let session = extensionRun?.session,
                session.phase != GhostermCore.ExtensionSession.Phase.ended.rawValue,
                session.phase != GhostermCore.ExtensionSession.Phase.closed.rawValue {
                 try await extensionController.stopSession()

@@ -10,7 +10,16 @@ import XCTest
 final class ExtensionControllerTests: XCTestCase {
     @MainActor
     func testClientHostProfileOnlyAdvertisesIntegratedCapabilities() {
-        XCTAssertEqual(AppModel.extensionHostCapabilities, ["session.rpc", "resource.receive"])
+        XCTAssertEqual(AppModel.extensionHostCapabilities,
+                       ["session.rpc", "resource.receive", "file.readScoped"])
+    }
+
+    @MainActor
+    func testHostProtocolVersionNormalizesAppleMarketingVersion() {
+        XCTAssertEqual(AppModel.extensionHostProtocolVersion("16.0"), "16.0.0")
+        XCTAssertEqual(AppModel.extensionHostProtocolVersion("1.2.3"), "1.2.3")
+        XCTAssertEqual(AppModel.extensionHostProtocolVersion("01.2"), "0.1.0")
+        XCTAssertEqual(AppModel.extensionHostProtocolVersion(nil), "0.1.0")
     }
 
     func testResourceCapabilityRequiresAnExplicitPrivateDirectory() throws {
@@ -330,5 +339,137 @@ final class ExtensionControllerTests: XCTestCase {
             _ = try await controller.resolve(command: "fixture")
             XCTFail("closed controller must reject further work")
         } catch { }
+    }
+
+    @MainActor
+    func testAppModelReceivesScopedResourceFromRemoteGterm() async throws {
+        guard ExtensionRuntime.supportStatus == 0,
+              let gterm = ProcessInfo.processInfo.environment["GHOSTERM_TEST_GTERM"],
+              let host = ProcessInfo.processInfo.environment["GHOSTERM_SSH_HOST"],
+              let port = ProcessInfo.processInfo.environment["GHOSTERM_SSH_PORT"],
+              let keyPath = ProcessInfo.processInfo.environment["GHOSTERM_SSH_KEY"],
+              let user = ProcessInfo.processInfo.environment["GHOSTERM_SSH_USER"] else {
+            throw XCTSkip("requires JS-enabled Core and isolated gterm/sshd fixture")
+        }
+
+        let base = sessionTestDirectory().appendingPathComponent("gterm-resource-" + UUID().uuidString)
+        let package = base.appendingPathComponent("package", isDirectory: true)
+        let sourceRoot = base.appendingPathComponent("source", isDirectory: true)
+        try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sourceRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let resourceBytes = Data("resource from AppModel over SSH\n".utf8)
+        try resourceBytes.write(to: sourceRoot.appendingPathComponent("fixture.txt"))
+        let manifest: [String: Any] = [
+            "schemaVersion": 1,
+            "id": "org.ghosterm.app-resource-fixture",
+            "pluginVersion": "0.1.0",
+            "sdkApiRange": "^1.0.0",
+            "bridgeProtocolRange": [1],
+            "publisher": "fixture",
+            "license": "MIT",
+            "commands": [["path": ["fixture"], "title": "Fixture", "argsSchema": "schemas/input.json"]],
+            "client": ["runtime": "portable-js", "entry": "client/index.js",
+                       "requires": ["session.rpc", "resource.receive"]],
+            "executor": ["variants": [["id": "portable", "runtime": "portable-js",
+                                         "entry": "executor/index.js",
+                                         "requires": ["session.rpc", "resource.receive", "file.readScoped"]]]],
+            "permissions": [
+                ["side": "client", "capability": "resource.receive",
+                 "purpose": "Receive the Executor's explicitly published resource.", "scope": "instance"],
+                ["side": "executor", "capability": "resource.receive",
+                 "purpose": "Publish the explicitly selected fixture file to the Client.", "scope": "instance"],
+                ["side": "executor", "capability": "file.readScoped",
+                 "purpose": "Read a file from the explicitly selected source directory.", "scope": "instance"],
+            ],
+        ]
+        let schema = #"{"type":"object","properties":{},"required":[],"additionalProperties":false}"#
+        let executor = "import {object,text,integer} from '@ghosterm/plugin-sdk';" +
+            "export async function activate(ctx){" +
+            "const codec=object({text:text(40),count:integer(0,100)});" +
+            "const transfer=ctx.resources.publish({root:'workspace',relativePath:'fixture.txt',mediaType:'text/plain'}," +
+            "{byteLimit:'1024',timeoutMs:30000});const result=await transfer.outcome;" +
+            "if(result.kind!=='success'||result.value.size.bytes!=='32')throw Error('receipt');" +
+            "return {dispose(){}}}"
+        let files: [(String, Data)] = [
+            ("plugin.json", try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])),
+            ("README.md", Data("fixture\n".utf8)),
+            ("LICENSES/MIT.txt", Data("MIT\n".utf8)),
+            ("schemas/input.json", Data(schema.utf8)),
+            ("client/index.js", Data("export function activate(){return {dispose(){}}}".utf8)),
+            ("executor/index.js", Data(executor.utf8)),
+        ]
+        var members: [[String: Any]] = []
+        for (path, bytes) in files {
+            let destination = package.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try bytes.write(to: destination)
+            members.append(["path": path, "bytes": bytes.count,
+                            "sha256": SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()])
+        }
+        let integrity = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "members": members],
+                                                   options: [.sortedKeys])
+        try integrity.write(to: package.appendingPathComponent("integrity.json"))
+        let executorDigest = SHA256.hash(data: integrity).map { String(format: "%02x", $0) }.joined()
+
+        let config = base.appendingPathComponent("ssh_config")
+        let knownHosts = base.appendingPathComponent("known_hosts")
+        try Data("""
+        Host plugin-resource-fixture
+          HostName \(host)
+          Port \(port)
+          User \(user)
+          IdentityFile \(keyPath)
+        """.utf8).write(to: config)
+        try Data().write(to: knownHosts)
+        let model = isolatedAppModel(configPath: config.path, knownHostsPath: knownHosts.path)
+        guard let controller = model.extensionController else {
+            throw XCTSkip("QuickJS-enabled AppModel plugin owner is unavailable")
+        }
+        defer { Task { await model.stopExtensionRun(); await controller.close() } }
+        model.interaction = AcceptAllInteraction()
+        let review = try await controller.review(directory: package)
+        let approved = try await controller.approve(id: review.id, digest: review.digest)
+        XCTAssertEqual(approved, 0)
+
+        await model.startExtensionClient(packageID: review.id, packageDigest: review.digest,
+            command: "fixture", arguments: [], sshAlias: "plugin-resource-fixture",
+            executable: gterm, executorDirectory: package.path, executorDigest: executorDigest,
+            methods: [], hostMethods: [],
+            scopedRoots: [.init(id: "workspace", directory: sourceRoot.path)])
+        guard model.extensionRunIssue == nil, let consentRun = model.extensionRun,
+              consentRun.session?.phase == ExtensionSession.Phase.consent.rawValue else {
+            XCTFail(model.extensionRunIssue ?? "Client Session did not reach Native consent")
+            return
+        }
+        XCTAssertTrue(consentRun.remoteCommand
+            .contains("'--root' 'workspace' '\(sourceRoot.path)'"))
+
+        await model.decideExtensionConsent(allow: true)
+        let deadline = ProcessInfo.processInfo.systemUptime + 35
+        while model.extensionRun?.receivedResources.isEmpty == true &&
+              ProcessInfo.processInfo.systemUptime < deadline {
+            if let issue = model.extensionRunIssue { XCTFail("resource runtime failed: \(issue)"); break }
+            if let runtime = model.extensionRun?.runtime,
+               runtime.phase == GhostermCore.ExtensionRuntime.Phase.failed.rawValue {
+                XCTFail("resource runtime entered failed state: \(runtime)")
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let resource = try XCTUnwrap(model.extensionRun?.receivedResources.first,
+            "\(model.extensionRunIssue ?? "gterm resource did not reach AppModel"); runtime=\(String(describing: model.extensionRun?.runtime)), session=\(String(describing: model.extensionRun?.session))")
+        XCTAssertEqual(resource.bytes, resourceBytes)
+        XCTAssertEqual(resource.mime, "text/plain")
+        XCTAssertEqual(resource.displayName, "fixture.txt")
+        XCTAssertEqual(resource.size, UInt64(resourceBytes.count))
+        XCTAssertEqual(resource.sha256, SHA256.hash(data: resourceBytes).map { String(format: "%02x", $0) }.joined())
+        await model.stopExtensionRun()
+        XCTAssertNil(model.extensionRun)
+        XCTAssertNil(model.extensionRunIssue)
+        let closed = await controller.close()
+        XCTAssertTrue(closed)
     }
 }

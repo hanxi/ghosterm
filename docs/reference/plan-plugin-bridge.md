@@ -4243,3 +4243,16 @@ JS-on `ExtensionControllerTests` 通过 **9 项、2 skip**；已有审查夹具�
 `testRelayBootstrapValidatesAndQuotesEveryArgument` 新增含空格的根目录引用、非法 ID 和重复 ID 断言；最终 ID 语法与 Core source-root 校验一致（小写字母起始，后续小写字母、数字、点、下划线或连字符）。完整 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用、隔离 sshd e2e、GhostermAppTests **389 项、4 skip、0 失败**。之后对齐 ID 语法并重跑该定向 XCTest，**1 项通过**；`git diff --check` 通过。全程终端 headless 执行，测试后清理 `tmp/`。
 
 本批只使 UI 可显式授权 Executor 目录并验证命令构造，尚未证明 UI 填写后完整真实远端 `gterm` 经 AppModel / ExtensionController 收件；资源接收生命周期、HTML / Markdown 附件和 preview 插件仍待完成，不记 P2 完成。未改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第九批：真实 SSH 到 AppModel 资源接收与 QuickJS 跨线程栈顶（2026-11-12）
+
+接通并复验完整 macOS 路线：经隔离本机 sshd 启动双包真实 `gterm` Executor，由 AppModel 完成 SSH、Session consent、Client Runtime，再通过 Session ResourceStore 收到 Executor 发布的 `fixture.txt`。夹具显式声明 Client / Executor 两侧 `resource.receive`，Executor 另声明 `file.readScoped`，且权限均按 side 登记；根目录仅通过 `--root workspace <directory>` 授权。断言命令带正确 root、资源原字节、MIME、名称、长度、SHA-256 一致，停止后 `ExtensionRun` 与错误状态清空。`testAppModelReceivesScopedResourceFromRemoteGterm` 在 JS-on Core 与隔离 sshd 下修复后连续 **3 次通过**；所有脚本、SSH fixture 和 Swift 临时目录均在工程 `tmp/`，无前台测试窗口。
+
+端到端初轮偶发 `Maximum call stack size exceeded`，定位为 QuickJS-NG 的 stack top 记在 Runtime 创建线程，但串行 DispatchQueue 会把后续 Runtime `step` / `close` 调用调度到不同 OS 线程。Core 现于 Runtime 创建、每次 step 与 close 前调用上游 `JS_UpdateStackTop`，没有改 vendor 或公开 ABI。新增 `runtime_thread-handoff` / `ext_runtime_thread-handoff`：主线程创建、在与主栈地址明确分离的 mmap pthread 栈深处激活、回主线程释放。`mutation-check-plugin-runtime-api.py --core-only --case quickjs-thread-stack-top` sanitizer 闸门覆盖 **78 项** Runtime / owner 测试；移除 step 栈顶更新的变异按普通断言红，同 archive 的 Core 配置对照绿，恢复后全组绿、SHA256 一致。
+
+真实 App E2E 还暴露 Apple marketing version 常省略 patch；新增严格的 `x.y` 到 wire `x.y.0` 规范化。HostProfile 显式支持 `file.readScoped`，只有用户给出 scoped root 时才把该能力加入 Native Session required 集合；Controller 检查追加能力必须受 Host 支持且无重复。Runtime 已接管 Session 后停止运行不再尝试用已清空的旧 Session owner 二次关闭。
+
+验证：`bash scripts/gate.sh` 通过，JS-off Core **474 CTest / 177 ABI 符号**；Apple `apple-app-gate.sh` 通过，Apple ABI **174 引用 / 3 登记未用**、真实隔离 sshd、GhostermAppTests **391 项、5 skip、0 失败**；C 格式全仓 **214 文件**和 `git diff --check` 通过。第一轮 Core 总闸门因历史 `core/build` 缓存仍是 JS-on、且其临时 SDK 输入已清理，导致 97 个 JS fixture 因输入缺失失败；切回项目默认 JS-off 后上述总闸门通过，JS-on Runtime 行为由 sanitizer 变异档及本批真实 App E2E 单独验证。
+
+本批关闭了真实 gterm → AppModel 接收这一缺口，但不代表完成 Preview 产品面。资源列表 / 选择 / UI 生命周期仍缺专门视图断言，HTML / Markdown 附件与首个 preview 插件仍未实现；P2 继续进行，不增加 macOS CI 二十份。

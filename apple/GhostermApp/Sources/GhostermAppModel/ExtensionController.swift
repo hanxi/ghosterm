@@ -261,10 +261,12 @@ public actor ExtensionController {
 
     public func adoptSSHSession(pluginID: String, packageDigest: String, executorDigest: String,
                                 hostVersion: String, peerIdentity: String,
-                                methods: [RPCMethod]) async throws -> SessionState {
+                                methods: [RPCMethod],
+                                additionalRequiredCapabilities: [String] = []) async throws -> SessionState {
         try await worker.adoptSSHSession(pluginID: pluginID, packageDigest: packageDigest,
                                          executorDigest: executorDigest, hostVersion: hostVersion,
-                                         peerIdentity: peerIdentity, methods: methods)
+                                         peerIdentity: peerIdentity, methods: methods,
+                                         additionalRequiredCapabilities: additionalRequiredCapabilities)
     }
 
     public func stepSession(milliseconds: Int32 = 0) async throws -> SessionState {
@@ -453,7 +455,8 @@ public actor ExtensionController {
 
         func adoptSSHSession(pluginID: String, packageDigest: String, executorDigest: String,
                              hostVersion: String, peerIdentity: String,
-                             methods input: [RPCMethod]) async throws -> SessionState {
+                             methods input: [RPCMethod],
+                             additionalRequiredCapabilities: [String]) async throws -> SessionState {
             try await perform {
                 try self.checkOpen()
                 guard self.session == nil, self.runtime == nil, let channel = self.channel else {
@@ -472,7 +475,14 @@ public actor ExtensionController {
                 let metadata = try record.package.metadata()
                 guard metadata.id == pluginID, metadata.packageDigest == packageDigest,
                       !metadata.executor, metadata.requires.allSatisfy(self.hostCapabilities.contains),
+                      additionalRequiredCapabilities.count <= 16,
+                      Set(additionalRequiredCapabilities).count == additionalRequiredCapabilities.count,
+                      additionalRequiredCapabilities.allSatisfy(self.hostCapabilities.contains),
                       input.count <= 16 else { throw ControllerError.registry(ExtensionRegistry.Status.unsupported.rawValue) }
+                var requiredCapabilities = metadata.requires
+                for capability in additionalRequiredCapabilities where !requiredCapabilities.contains(capability) {
+                    requiredCapabilities.append(capability)
+                }
                 let methods = try input.map { method -> ExtensionSession.Method in
                     guard let receiver = ExtensionSession.Role(rawValue: method.receiver),
                           let inputShape = ExtensionSession.JSONShape(rawValue: method.inputShape),
@@ -488,7 +498,7 @@ public actor ExtensionController {
                     config: .init(pluginID: metadata.id, pluginVersion: metadata.version,
                                   clientDigest: metadata.packageDigest, executorDigest: executorDigest,
                                   hostVersion: hostVersion, sdkVersion: metadata.sdkVersion,
-                                  required: metadata.requires, available: self.hostCapabilities,
+                                  required: requiredCapabilities, available: self.hostCapabilities,
                                   peerKind: .ssh, peerIdentity: peerIdentity, methods: methods),
                     resourceStore: resourceStore)
                 self.channel = nil

@@ -23,7 +23,8 @@ API = 'core/src/extension/runtime-api.c'
 SWIFT = 'apple/GhostermCore/Sources/GhostermCore/ExtensionRuntime.swift'
 RPC = 'core/src/extension/rpc.c'
 TRANSFER = 'core/src/extension/transfer.c'
-MODES = 'invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop activation-timeout peer-loss'.split()
+RUNTIME = 'core/src/extension/runtime-quickjs.inc'
+MODES = 'invocation capabilities dispose-throw invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory caught-memory global-memory repeat-close many-1 many-4 many-10 stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop activation-timeout peer-loss thread-handoff'.split()
 OWNERS = 'outgoing-owner taken-owner untaken-peer resource-owner'.split()
 
 
@@ -37,7 +38,7 @@ def main():
     parser.add_argument('--case', action='append', default=[])
     args = parser.parse_args()
     # Before mkdir/copy/build or any subprocess, check every mutation input.
-    for name in [API, SWIFT, RPC, TRANSFER]:
+    for name in [API, SWIFT, RPC, TRANSFER, RUNTIME]:
         if MARK in (ROOT / name).read_text():
             print('residual public runtime mutation: ' + name, file=sys.stderr)
             raise SystemExit(2)
@@ -58,6 +59,10 @@ def main():
         ('step-advances', API, 'ext_runtime_phase(gt__bridge_runtime_step(r->inner))', 'GT_EXT_RUNTIME_CREATED', 'test_ext_runtime', 'roundtrip'),
         ('stop-effect', API, '        gt__bridge_runtime_stop(r->inner);\n', '        (void)r->inner;\n', 'test_ext_runtime', 'stop'),
         ('destroy-failure-retains', API, '    gt_status_t status = gt__bridge_runtime_destroy(&r->inner);\n    if (status != GT_OK) {\n', '    gt_status_t status = gt__bridge_runtime_destroy(&r->inner);\n    if (false && status != GT_OK) {\n', 'test_ext_runtime', 'roundtrip'),
+        ('quickjs-thread-stack-top', RUNTIME,
+         '    JS_UpdateStackTop(r->engine);\n    if (atomic_load_explicit(&r->stopped, memory_order_relaxed)) {\n',
+         '    if (atomic_load_explicit(&r->stopped, memory_order_relaxed)) {\n',
+         'test_ext_runtime', 'thread-handoff'),
         ('outgoing-owner', RPC, '        if (r->out[i].used || (r->in[i].used && r->in[i].taken && !r->in[i].done)) {\n', '        if ((false && r->out[i].used) || (r->in[i].used && r->in[i].taken && !r->in[i].done)) {\n', 'test_ext_runtime_ownership', 'outgoing-owner'),
         ('taken-owner', RPC, 'r->in[i].used && r->in[i].taken && !r->in[i].done', 'false && r->in[i].used && r->in[i].taken && !r->in[i].done', 'test_ext_runtime_ownership', 'taken-owner'),
         ('resource-owner', TRANSFER, 'return t && t->out.used;', 'return t && false && t->out.used;', 'test_ext_runtime_ownership', 'resource-owner'),
@@ -92,7 +97,7 @@ def main():
             rel = p.relative_to(ROOT / folder)
             if p.is_file() and not any(x.startswith('build') or x in ['.build', '.swiftpm', 'node_modules'] for x in rel.parts):
                 inputs.append(p)
-    inputs += [Path(__file__), ROOT / 'scripts/fixtures/plugin-sdk-tools/package.json', ROOT / 'scripts/fixtures/plugin-sdk-tools/package-lock.json']
+    inputs += [Path(__file__), ROOT / 'scripts/fixtures/plugin-sdk-tools/package.json', ROOT / 'scripts/fixtures/plugin-sdk-tools/package-lock.json', ROOT / 'scripts/fixtures/plugin-package-tools/package.json', ROOT / 'scripts/fixtures/plugin-package-tools/package-lock.json', ROOT / 'scripts/generate-plugin-package-validator.mjs', ROOT / 'scripts/generate-plugin-runtime-sdk.mjs']
     hashes = {str(p.relative_to(ROOT)): sha(p) for p in inputs}
     work = Path(tempfile.mkdtemp(prefix='plugin-runtime-api-mutations-', dir=ROOT / 'tmp'))
     source, logs = work / 'source', work / 'logs'
@@ -120,6 +125,17 @@ def main():
         shutil.copytree(ROOT / 'core', source / 'core', ignore=shutil.ignore_patterns('build', 'build-*'))
         shutil.copytree(ROOT / 'apple/GhostermCore', source / 'apple/GhostermCore', symlinks=True, ignore=shutil.ignore_patterns('.build', '.swiftpm'))
         shutil.copytree(ROOT / 'packages/plugin-sdk', source / 'packages/plugin-sdk')
+        fixture_tools = source / 'scripts/fixtures/plugin-package-tools'
+        fixture_tools.mkdir(parents=True)
+        for name in ['package.json', 'package-lock.json']:
+            shutil.copyfile(ROOT / 'scripts/fixtures/plugin-package-tools' / name, fixture_tools / name)
+        (source / 'scripts').mkdir(exist_ok=True)
+        shutil.copyfile(ROOT / 'scripts/generate-plugin-package-validator.mjs', source / 'scripts/generate-plugin-package-validator.mjs')
+        runtime_tools = source / 'scripts/fixtures/plugin-sdk-tools'
+        runtime_tools.mkdir(parents=True)
+        for name in ['package.json', 'package-lock.json']:
+            shutil.copyfile(ROOT / 'scripts/fixtures/plugin-sdk-tools' / name, runtime_tools / name)
+        shutil.copyfile(ROOT / 'scripts/generate-plugin-runtime-sdk.mjs', source / 'scripts/generate-plugin-runtime-sdk.mjs')
         (source / 'tmp').mkdir()
         (source / 'vendor').mkdir()
         (source / 'vendor/quickjs-ng').symlink_to(ROOT / 'vendor/quickjs-ng', target_is_directory=True)
@@ -163,7 +179,7 @@ def main():
             out = run(label, ['ctest', '--test-dir', build, '-R', '^(ext_runtime_|runtime_)', '--output-on-failure'], budget=90)
             for name in expected | private:
                 assert re.search(r'Test\s+#\d+: ' + re.escape(name) + r'\s+\.+\s+Passed', out), name
-            assert '100% tests passed out of 58' in out
+            assert '100% tests passed out of 78' in out
 
         def target(label, binary, mode, red=False):
             cmd = [build / binary]

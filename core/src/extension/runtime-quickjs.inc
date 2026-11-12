@@ -944,6 +944,9 @@ static gt_status_t runtime_open(gt_ext_session_t **session,
         status = GT_ERR_IO;
         goto fail;
     }
+    /* The native owner serializes calls, but a dispatch queue may move them
+     * between OS threads. QuickJS caches the stack top at runtime creation. */
+    JS_UpdateStackTop(r->engine);
     JS_SetCanBlock(r->engine, false);
     JS_SetMaxStackSize(r->engine, stack);
     r->context = JS_NewContext(r->engine);
@@ -1141,6 +1144,7 @@ gt_runtime_phase_t gt__bridge_runtime_step(gt_bridge_runtime_t *r) {
     if (r->info.phase >= GT_RUNTIME_FAILED) {
         return r->info.phase;
     }
+    JS_UpdateStackTop(r->engine);
     if (atomic_load_explicit(&r->stopped, memory_order_relaxed)) {
         runtime_fail(r, GT_RUNTIME_CANCELLED);
         return r->info.phase;
@@ -1256,6 +1260,9 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
     }
     if (r->info.phase == GT_RUNTIME_CLOSED) {
         return GT_EXT_RELEASED;
+    }
+    if (r->engine) {
+        JS_UpdateStackTop(r->engine);
     }
     gt_ext_session_revoke(r->session);
     gt_ext_session_stop(r->session);

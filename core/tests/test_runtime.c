@@ -8,6 +8,10 @@
 #endif
 #include "base/sha256.h"
 #include "extension/memory.h"
+#include <sys/mman.h>
+#ifndef MAP_ANON
+#define MAP_ANON MAP_ANONYMOUS
+#endif
 
 static void module(gt_runtime_module_t *m, const char *name, const char *text) {
     m->name = name;
@@ -62,6 +66,32 @@ static void *rt_stop(void *p) {
     return NULL;
 }
 
+typedef struct {
+    gt_bridge_runtime_t *runtime;
+    uint32_t phase;
+} rt_thread_handoff_t;
+
+static volatile unsigned char rt_thread_stack_sink;
+
+static void rt_activate_deep(rt_thread_handoff_t *handoff, unsigned depth) {
+    volatile unsigned char frame[32768];
+    frame[depth] = (unsigned char)depth;
+    if (depth) {
+        rt_activate_deep(handoff, depth - 1);
+    } else {
+        handoff->phase = gt__bridge_runtime_step(handoff->runtime);
+    }
+    rt_thread_stack_sink ^= frame[depth];
+}
+
+static void *rt_activate_on_thread(void *p) {
+    rt_thread_handoff_t *handoff = p;
+    for (unsigned i = 0; i < 100 && handoff->phase < GT_RUNTIME_ACTIVE; i++) {
+        rt_activate_deep(handoff, 16);
+    }
+    return NULL;
+}
+
 static const char *echo_plugin =
     "import {object,text,integer} from '@ghosterm/plugin-sdk';"
     "const codec=object({text:text(40),count:integer(0,100)});"
@@ -95,6 +125,9 @@ static void runtime_case(const char *mode, const char *root) {
             "Error('injected');//"
             "\"||i.arguments[2]!==''||!Object.isFrozen(i)||!Object.isFrozen(i.arguments))throw "
             "Error('invocation');return {dispose(){}}}";
+    }
+    if (!strcmp(mode, "thread-handoff")) {
+        plugin = "export function activate(){return {dispose(){}}}";
     }
     if (!strcmp(mode, "capabilities")) {
         plugin =
@@ -297,7 +330,23 @@ static void runtime_case(const char *mode, const char *root) {
             scripts[i] = NULL;
         }
         memset(modules, 0, sizeof(modules));
-        if (!strcmp(mode, "stop")) {
+        if (!strcmp(mode, "thread-handoff")) {
+            rt_thread_handoff_t handoff = {rt, GT_RUNTIME_CREATED};
+            pthread_t thread;
+            const size_t stack_size = 4 * 1024 * 1024;
+            volatile unsigned char main_stack_anchor = 0;
+            void *thread_stack =
+                mmap(NULL, stack_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+            CHECK(thread_stack != MAP_FAILED && (uintptr_t)thread_stack + stack_size <
+                                                    (uintptr_t)&main_stack_anchor - 256 * 1024);
+            pthread_attr_t attributes;
+            CHECK(!pthread_attr_init(&attributes) &&
+                  !pthread_attr_setstack(&attributes, thread_stack, stack_size) &&
+                  !pthread_create(&thread, &attributes, rt_activate_on_thread, &handoff));
+            CHECK(!pthread_attr_destroy(&attributes) && !pthread_join(thread, NULL) &&
+                  !munmap(thread_stack, stack_size));
+            CHECK(handoff.phase == GT_RUNTIME_ACTIVE && rt_info(rt).steps > 0);
+        } else if (!strcmp(mode, "stop")) {
             pthread_t t;
             CHECK(!pthread_create(&t, NULL, rt_stop, rt) && !pthread_join(t, NULL));
             CHECK(gt__bridge_runtime_step(rt) == GT_RUNTIME_STOPPED &&
@@ -329,7 +378,7 @@ static void runtime_case(const char *mode, const char *root) {
                           !strcmp(mode, "prototype") || !strcmp(mode, "roundtrip") ||
                           !strcmp(mode, "relative") || !strcmp(mode, "handled") ||
                           !strcmp(mode, "top-await") || !strcmp(mode, "dispose-loop") ||
-                          !strcmp(mode, "peer-loss");
+                          !strcmp(mode, "peer-loss") || !strcmp(mode, "thread-handoff");
             CHECK(info.phase == (active ? GT_RUNTIME_ACTIVE : GT_RUNTIME_FAILED) && info.steps > 0);
             if (!strcmp(mode, "cpu") || !strcmp(mode, "top-cpu")) {
                 CHECK(info.error == GT_RUNTIME_CPU);
