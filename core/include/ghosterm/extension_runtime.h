@@ -65,11 +65,13 @@ typedef struct {
 } gt_ext_invocation_t;
 
 /* Trusted Host resolution for a manifest-scoped process program. The Host
- * verifies executable/version before passing this mapping; no PATH lookup. */
+ * supplies its verified version and SHA-256; Core verifies the file digest and
+ * rechecks file identity before spawn. No PATH lookup. */
 typedef struct {
     const char *name;
     const char *executable;
     const char *verified_version;
+    const char *verified_sha256;
 } gt_ext_process_program_mapping_t;
 
 /* Explicit environment entry selected by the Host. Values are copied by the

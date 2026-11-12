@@ -40,9 +40,10 @@ public final class ExtensionRuntime {
             public init(id: String, directoryFD: Int32, byteLimit: UInt64) { self.id = id; self.directoryFD = directoryFD; self.byteLimit = byteLimit }
         }
         public struct ProcessProgram {
-            public let name: String, executable: String, verifiedVersion: String
-            public init(name: String, executable: String, verifiedVersion: String) {
+            public let name: String, executable: String, verifiedVersion: String, verifiedSHA256: String
+            public init(name: String, executable: String, verifiedVersion: String, verifiedSHA256: String) {
                 self.name = name; self.executable = executable; self.verifiedVersion = verifiedVersion
+                self.verifiedSHA256 = verifiedSHA256
             }
         }
         public struct ProcessEnvironment {
@@ -115,11 +116,14 @@ public final class ExtensionRuntime {
         for program in config.processPrograms {
             guard !program.name.utf8.contains(0), !program.executable.utf8.contains(0), !program.verifiedVersion.utf8.contains(0),
                   program.name.utf8.count <= 128, program.executable.hasPrefix("/"), program.executable.utf8.count <= 4096,
-                  !program.verifiedVersion.isEmpty, program.verifiedVersion.utf8.count <= 128 else { throw GhostermError.failed("进程程序映射无效") }
+                  !program.verifiedVersion.isEmpty, program.verifiedVersion.utf8.count <= 128,
+                  program.verifiedSHA256.utf8.count == 64,
+                  program.verifiedSHA256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw GhostermError.failed("进程程序映射无效") }
             programs.append(gt_ext_process_program_mapping_t(
                 name: UnsafePointer(copy(Data(program.name.utf8)).assumingMemoryBound(to: CChar.self)),
                 executable: UnsafePointer(copy(Data(program.executable.utf8)).assumingMemoryBound(to: CChar.self)),
-                verified_version: UnsafePointer(copy(Data(program.verifiedVersion.utf8)).assumingMemoryBound(to: CChar.self))))
+                verified_version: UnsafePointer(copy(Data(program.verifiedVersion.utf8)).assumingMemoryBound(to: CChar.self)),
+                verified_sha256: UnsafePointer(copy(Data(program.verifiedSHA256.utf8)).assumingMemoryBound(to: CChar.self))))
         }
         var environment: [gt_ext_process_environment_t] = []
         for item in config.processEnvironment {
@@ -163,12 +167,14 @@ public final class ExtensionRuntime {
         for program in processPrograms {
             guard !program.name.utf8.contains(0), !program.executable.utf8.contains(0), !program.verifiedVersion.utf8.contains(0),
                   program.name.utf8.count <= 128, program.executable.hasPrefix("/"), program.executable.utf8.count <= 4096,
-                  !program.verifiedVersion.isEmpty, program.verifiedVersion.utf8.count <= 128 else { throw GhostermError.failed("进程程序映射无效") }
-            let n = Array(program.name.utf8CString), e = Array(program.executable.utf8CString), v = Array(program.verifiedVersion.utf8CString)
-            let np = UnsafeMutablePointer<CChar>.allocate(capacity: n.count), ep = UnsafeMutablePointer<CChar>.allocate(capacity: e.count), vp = UnsafeMutablePointer<CChar>.allocate(capacity: v.count)
-            np.initialize(from: n, count: n.count); ep.initialize(from: e, count: e.count); vp.initialize(from: v, count: v.count)
-            names += [np, ep, vp]
-            programs.append(gt_ext_process_program_mapping_t(name: UnsafePointer(np), executable: UnsafePointer(ep), verified_version: UnsafePointer(vp)))
+                  !program.verifiedVersion.isEmpty, program.verifiedVersion.utf8.count <= 128,
+                  program.verifiedSHA256.utf8.count == 64,
+                  program.verifiedSHA256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw GhostermError.failed("进程程序映射无效") }
+            let n = Array(program.name.utf8CString), e = Array(program.executable.utf8CString), v = Array(program.verifiedVersion.utf8CString), d = Array(program.verifiedSHA256.utf8CString)
+            let np = UnsafeMutablePointer<CChar>.allocate(capacity: n.count), ep = UnsafeMutablePointer<CChar>.allocate(capacity: e.count), vp = UnsafeMutablePointer<CChar>.allocate(capacity: v.count), dp = UnsafeMutablePointer<CChar>.allocate(capacity: d.count)
+            np.initialize(from: n, count: n.count); ep.initialize(from: e, count: e.count); vp.initialize(from: v, count: v.count); dp.initialize(from: d, count: d.count)
+            names += [np, ep, vp, dp]
+            programs.append(gt_ext_process_program_mapping_t(name: UnsafePointer(np), executable: UnsafePointer(ep), verified_version: UnsafePointer(vp), verified_sha256: UnsafePointer(dp)))
         }
         var environment: [gt_ext_process_environment_t] = []
         for item in processEnvironment {

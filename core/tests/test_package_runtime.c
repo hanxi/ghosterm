@@ -8,7 +8,11 @@
 #include "extension/runtime.h"
 #include "extension/package-runtime.h"
 #include "extension/sdk-identity.h"
+#include "base/sha256.h"
+#include <errno.h>
+#include <fcntl.h>
 #include <time.h>
+#include <unistd.h>
 
 typedef struct {
     char root[4096];
@@ -37,6 +41,33 @@ static void json_text(char *out, size_t cap, const char *text) {
     }
     out[at++] = '"';
     out[at] = 0;
+}
+
+static bool process_file_digest(const char *path, char digest[65]) {
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return false;
+    }
+    gt_sha256_t hash;
+    gt__sha256_init(&hash);
+    unsigned char buffer[32768];
+    bool ok = true;
+    for (;;) {
+        ssize_t count = read(fd, buffer, sizeof(buffer));
+        if (count > 0) {
+            ok = gt__sha256_update(&hash, buffer, (size_t)count);
+            if (!ok) {
+                break;
+            }
+        } else if (!count) {
+            break;
+        } else if (errno != EINTR) {
+            ok = false;
+            break;
+        }
+    }
+    close(fd);
+    return ok && gt__sha256_final(&hash, digest);
 }
 
 static void load_replace(char *text, size_t capacity, const char *old, const char *replacement) {
@@ -121,6 +152,7 @@ static const char *load_process_output =
 
 static bool load_process_mode(const char *mode) {
     return !strcmp(mode, "process") || !strcmp(mode, "process-close") ||
+           !strcmp(mode, "process-identity") || !strcmp(mode, "process-digest") ||
            !strcmp(mode, "process-deadline") || !strcmp(mode, "process-deadline-live") ||
            !strcmp(mode, "process-output");
 }
@@ -151,6 +183,7 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
     bool process = load_process_mode(mode);
     const char *script = !strcmp(mode, "process")                 ? load_process_roundtrip
                          : !strcmp(mode, "process-close")         ? load_process_kept
+                         : !strcmp(mode, "process-identity")      ? load_process_kept
                          : !strcmp(mode, "process-deadline")      ? load_process_deadline
                          : !strcmp(mode, "process-deadline-live") ? load_process_deadline_live
                          : !strcmp(mode, "process-output")        ? load_process_output
@@ -653,8 +686,27 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
                                       .cpu_ms = 1000,
                                       .activation_ms = 10000,
                                       .jobs_per_step = 128};
-        const gt_ext_process_program_mapping_t process_programs[] = {
-            {"cat", "/bin/cat", "fixture-1"}, {"env", "/usr/bin/env", "fixture-1"}};
+        gt_ext_process_program_mapping_t process_programs[] = {
+            {"cat", "/bin/cat", "fixture-1", NULL}, {"env", "/usr/bin/env", "fixture-1", NULL}};
+        char identity_cat_path[4097];
+        const char *cat_path = process_programs[0].executable;
+        if (!strcmp(mode, "process-identity")) {
+            CHECK(
+                snprintf(identity_cat_path, sizeof(identity_cat_path), "%s/verified-cat", f.root) >
+                    0 &&
+                symlink("/bin/cat", identity_cat_path) == 0);
+            cat_path = identity_cat_path;
+            process_programs[0].executable = cat_path;
+        }
+        char process_digests[2][65];
+        CHECK(process_file_digest(process_programs[0].executable, process_digests[0]) &&
+              process_file_digest(process_programs[1].executable, process_digests[1]));
+        process_programs[0].verified_sha256 = process_digests[0];
+        process_programs[1].verified_sha256 = process_digests[1];
+        if (!strcmp(mode, "process-digest")) {
+            process_programs[0].verified_sha256 =
+                "0000000000000000000000000000000000000000000000000000000000000000";
+        }
         const gt_ext_process_environment_t process_environment = {"GT_FIXTURE_ENV", "approved"};
         const gt_runtime_root_t process_root = {"workspace", f.fd, 16777216};
         const gt_ext_invocation_t process_invocation = {"fixture", NULL, 0};
@@ -686,6 +738,9 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
         if (!strcmp(mode, "inactive") || !strcmp(mode, "revoked") || !strcmp(mode, "invalid")) {
             expected = GT_ERR_INVALID_ARG;
         }
+        if (!strcmp(mode, "process-digest")) {
+            expected = GT_ERR_AUTH;
+        }
         if (!strcmp(mode, "invalid")) {
             config.entry = "plugin:/override.js";
         }
@@ -705,7 +760,7 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
         gt_ext_session_t *original = *owned;
         gt_status_t result = gt__bridge_runtime_open_package(
             owned, f.package, &config, !strcmp(mode, "associated"), &r);
-        if (result != expected) {
+        if (result != expected && strcmp(mode, "process-digest")) {
             fprintf(stderr, "open %s: actual=%u expected=%u\n", mode, result, expected);
         }
         CHECK(result == expected);
@@ -752,15 +807,19 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
                 CHECK(ext_fds() == fds && gt__plugin_memory_info().used == before.used);
                 return 0;
             }
+            if (!strcmp(mode, "process-identity")) {
+                CHECK(!unlink(identity_cat_path) &&
+                      symlink("/usr/bin/env", identity_cat_path) == 0);
+            }
             size_t before_process_run = ext_fds();
             load_run(r, peer);
             gt__plugin_memory_free(NULL, reservation, reserved);
             bool memory = !strcmp(mode, "source-limit") || !strcmp(mode, "source-total") ||
                           !strcmp(mode, "module-count") || !strcmp(mode, "source-memory");
             bool script = !strcmp(mode, "missing") || !strcmp(mode, "escape") ||
-                          !strcmp(mode, "native") || !strcmp(mode, "node") ||
-                          !strcmp(mode, "network") || !strcmp(mode, "binary") ||
-                          !strcmp(mode, "nul") || !strcmp(mode, "utf8");
+                          !strcmp(mode, "process-identity") || !strcmp(mode, "native") ||
+                          !strcmp(mode, "node") || !strcmp(mode, "network") ||
+                          !strcmp(mode, "binary") || !strcmp(mode, "nul") || !strcmp(mode, "utf8");
             CHECK(load_info(r).phase == (memory || script ? GT_RUNTIME_FAILED : GT_RUNTIME_ACTIVE));
             if (!strcmp(mode, "process-close")) {
                 CHECK(load_info(r).phase == GT_RUNTIME_ACTIVE &&

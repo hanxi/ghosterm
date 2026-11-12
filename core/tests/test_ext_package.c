@@ -120,7 +120,11 @@ int main(int argc, char **argv) {
         .role = GT_EXT_EXECUTOR, .cpu_ms = 1000, .activation_ms = 10000, .jobs_per_step = 128};
     gt_ext_runtime_t *r = NULL;
     if (!strcmp(mode, "process-config")) {
-        const gt_ext_process_program_mapping_t program = {"codex", "/usr/bin/codex", "0.166.0"};
+        const gt_ext_process_program_mapping_t program = {
+            "codex",
+            "/usr/bin/codex",
+            "0.166.0",
+            "0000000000000000000000000000000000000000000000000000000000000000"};
         runtime.process_programs = &program;
         runtime.process_program_count = 1;
         CHECK(gt_ext_runtime_open_package(&pair.pair.e, package, &runtime, false, &r) ==
