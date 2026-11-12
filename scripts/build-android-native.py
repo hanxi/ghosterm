@@ -84,7 +84,7 @@ def main():
         raise RuntimeError(f'Install Android NDK {NDK} under {sdk}')
     host = 'darwin-x86_64' if os.uname().sysname == 'Darwin' else 'linux-x86_64'
     toolchain = ndk / 'toolchains/llvm/prebuilt' / host
-    zig = os.environ.get('ZIG') or shutil.which('zig') or str(ROOT / 'tmp/zig/zig-aarch64-macos-0.16.0/zig')
+    zig = os.environ.get('ZIG') or shutil.which('zig') or str(ROOT / 'build/android-toolchain/zig-aarch64-macos-0.16.0/zig')
     if subprocess.check_output([zig, 'version'], text=True).strip() != '0.16.0':
         raise RuntimeError('Zig 0.16.0 required')
     vendor = ROOT / 'vendor/ghostty'

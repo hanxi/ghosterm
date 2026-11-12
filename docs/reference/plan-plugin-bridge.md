@@ -4149,3 +4149,10 @@ macOS Controller 现从按 package ID + digest 精确选中的已批准包 owner
 将 QuickJS SDK v1 argv decoder 提取为共享 Core 私有源码；新增 `gt_ext_package_decode_command_arguments`，在固定 checked package owner 内精确匹配命令并从该包快照解析 schema，以独立 QuickJS 实例执行同一 decoder。实例限制 4 MiB heap / 512 KiB stack，输入仍受 32 项、单项 4096 字节、总计 16 KiB 和严格 UTF-8 限制。Runtime 激活和 consent 前预览现在引用同一 decoder 实现，不暴露任意包成员读取接口。原第九十二批的只读 schema 字节 API 被此 API 取代并移除。
 
 Swift Core wrapper、macOS AppModel 和 Android JNI/Kotlin wrapper 均调用公共 Core 解码 API。两端都在 SSH route 创建前预检；坏参数拒绝启动；授权 UI 同时展示原 argv 与 Core 解码 JSON。Android 双跳 SSH instrumentation fixture 增加默认布尔参数成功解码和未知 option 拒绝断言。`GHOSTERM_CORE_TEST_PLUGIN_JS=1 GHOSTERM_PLUGIN_SDK_DIR=tmp/plugin-sdk-compiled bash scripts/gate.sh` 通过：639 项 CTest、177 个 ABI 符号；JS-off Core gate 通过 474 项及 177 个符号。JS-on Apple gate 通过 386 项、2 skip；JS-off Apple gate 通过 386 项、4 skip。`python3 scripts/check-abi-android.py` 通过 140 引用 / 37 登记未用。Android instrumentation / Kotlin/JNI 构建未运行，因为主机没有 Java Runtime。clang-format 19.1.7 在工程 `tmp/` 临时安装后，`python3 scripts/format-c.py --check` 全仓 212 个文件通过；格式化后的 JS-on `ext_package_cli-arguments` 定向复验通过。Android 设备验收仍待补，不增加 macOS CI 二十份。
+
+
+### P0 第九十五批：Android 双档原生与 instrumentation 源码构建（2026-11-12）
+
+复核发现本机仓库已有锁定 JDK 17、Android SDK / NDK 与 Zig 0.16.0；此前“缺 Java Runtime”只描述系统默认 `java`，并非工程工具链不存在。修正 `scripts/build-android-native.py` 的 Zig fallback：优先使用 `ZIG` 或 PATH，未设置时改用仓库长期锁定的 `build/android-toolchain/zig-aarch64-macos-0.16.0/zig`，不再依赖清理后不存在的 `tmp/zig`。先显式传入锁定工具链验证 `scripts/build-android.sh` 默认 JS-off 的 `:app:assembleDebug :app:assembleDebugAndroidTest` 与 `-PghostermPluginJs=true` 同两 task 均成功，覆盖插件专用 `pluginRuntimeTest` 源集编译与对应 JNI / CMake 档；修复 fallback 后清除 `ZIG` 环境变量再次运行默认 JS-off 构建，native dependencies、JNI/CMake、Kotlin 与两个 APK 构建再次通过。各档均通过图标、外观资源检查与 Android ABI 对拍（140 引用 / 37 登记未用）。
+
+没有记设备行为通过：本机没有已定义 AVD。尝试建立的无窗口 API 36 隔离 AVD 在 `TMPDIR` 指向仓库 `tmp/` 时仍由 emulator 自行写系统 `/tmp` crash data；立即停止该进程并清理本次 AVD / crash data 与工程 `tmp/`。按临时文件约束不继续使用此 emulator；instrumentation 设备执行、双跳 SSH 行为仍待在临时路径可控的设备环境验证。不改公共 C ABI，不增加 macOS CI 二十份。
