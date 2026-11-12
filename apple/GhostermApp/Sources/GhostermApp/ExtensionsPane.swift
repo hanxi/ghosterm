@@ -104,7 +104,7 @@ struct ExtensionsPane: View {
             if let message = model.extensionRunIssue {
                 Text(message).foregroundStyle(.red).textSelection(.enabled)
             }
-            SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装与持久信任尚未接入。资源面板目前只显示校验摘要与有界 UTF-8 文本，图片和 HTML 预览仍在开发中。")
+            SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装与持久信任尚未接入。资源面板支持有界 UTF-8、Markdown 和静态图片预览；HTML 预览仍在开发中。")
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in
             switch result {
@@ -212,6 +212,9 @@ struct ExtensionsPane: View {
                                 .font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
                             if resource.mime.lowercased().hasPrefix("image/") {
                                 PluginResourceImagePreview(data: resource.bytes, mime: resource.mime)
+                            } else if PluginResourceMarkdownDecoder.supports(
+                                mime: resource.mime, displayName: resource.displayName) {
+                                PluginResourceMarkdownPreview(resource: resource)
                             } else if let preview = String(data: resource.bytes.prefix(16384), encoding: .utf8) {
                                 Text(preview.isEmpty ? "空文本资源" : preview)
                                     .font(.system(size: 11, design: .monospaced))
@@ -265,6 +268,36 @@ private struct PluginResourceImagePreview: View {
             }.value
             guard !Task.isCancelled else { return }
             image = decoded
+            rejected = decoded == nil
+        }
+    }
+}
+
+private struct PluginResourceMarkdownPreview: View {
+    let resource: ExtensionController.ReceivedResource
+    @State private var markdown: AttributedString?
+    @State private var rejected = false
+
+    var body: some View {
+        Group {
+            if let markdown {
+                Text(markdown).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+            } else if rejected {
+                Text("Markdown 无法解析或超过 256 KiB 预览上限。")
+                    .font(DS.Font.caption).foregroundStyle(.secondary)
+            } else {
+                ProgressView("检查 Markdown…").controlSize(.small)
+            }
+        }
+        .task(id: resource.sha256) {
+            let bytes = resource.bytes
+            let mime = resource.mime
+            let name = resource.displayName
+            let decoded = await Task.detached(priority: .utility) {
+                PluginResourceMarkdownDecoder.decode(bytes, mime: mime, displayName: name)
+            }.value
+            guard !Task.isCancelled else { return }
+            markdown = decoded
             rejected = decoded == nil
         }
     }

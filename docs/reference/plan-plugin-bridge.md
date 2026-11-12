@@ -1,8 +1,8 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第一百批 macOS 静态资源预览。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
+日期：2026-11-05，更新至 2026-11-12 第一百零一批 macOS Markdown 资源预览。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 真实远端 `gterm` producer 端到端验收、HTML / Markdown 附件与首个 preview 插件；macOS App 已接资源能力协商、有界接收、UTF-8 文本和预算内静态图片预览；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 P2 preview 产品闭环完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 HTML 附件与首个 preview 插件、资源 UI 生命周期专门视图断言；macOS App 已接资源能力协商、有界接收、UTF-8 文本、预算内静态图片和有界 Markdown 预览；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 P2 preview 产品闭环完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -4256,3 +4256,12 @@ JS-on `ExtensionControllerTests` 通过 **9 项、2 skip**；已有审查夹具�
 验证：`bash scripts/gate.sh` 通过，JS-off Core **474 CTest / 177 ABI 符号**；Apple `apple-app-gate.sh` 通过，Apple ABI **174 引用 / 3 登记未用**、真实隔离 sshd、GhostermAppTests **391 项、5 skip、0 失败**；C 格式全仓 **214 文件**和 `git diff --check` 通过。第一轮 Core 总闸门因历史 `core/build` 缓存仍是 JS-on、且其临时 SDK 输入已清理，导致 97 个 JS fixture 因输入缺失失败；切回项目默认 JS-off 后上述总闸门通过，JS-on Runtime 行为由 sanitizer 变异档及本批真实 App E2E 单独验证。
 
 本批关闭了真实 gterm → AppModel 接收这一缺口，但不代表完成 Preview 产品面。资源列表 / 选择 / UI 生命周期仍缺专门视图断言，HTML / Markdown 附件与首个 preview 插件仍未实现；P2 继续进行，不增加 macOS CI 二十份。
+
+
+### P2 实施第十批：macOS 有界 Markdown 资源预览（2026-11-12）
+
+资源面板对 MIME 为 `text/markdown` / `text/x-markdown` 或 `.md` / `.markdown` 文件名的资源，使用 Foundation Markdown parser 转为 SwiftUI 原生文本样式；解析在 utility 队列执行，输入最多 256 KiB。大文件、非法 UTF-8 或解析失败显示明确拒绝状态。HTML MIME 不会进入 Markdown 解码器，也不执行脚本或加载网页内容；普通 UTF-8 与图片仍走原有受限路径。设置提示已更新为准确列出当前格式支持。
+
+新增 decoder 测试覆盖 Markdown 强调标记、MIME 参数规范化、HTML 拒绝、非法 UTF-8 和超过预算拒绝。首轮完整 gate 发现 Foundation 将标题与正文的 `AttributedString.characters` 表示合并，不保留预期换行；修正为检查解析后文本与强调属性后，全量 Apple gate 通过：ABI 174 引用 / 3 登记未用，GhostermAppTests **392 项、5 skip、0 失败**。测试 CLI/headless 执行，临时目录指向工程 `tmp/`。
+
+仍未实现 HTML 安全预览及其附件映射、官方 `preview <path>` Client/Executor 包和专门的资源列表/选择/视图生命周期断言；本批不代表 P2 preview 产品闭环完成。不改公共 ABI，不增加 macOS CI 二十份。
