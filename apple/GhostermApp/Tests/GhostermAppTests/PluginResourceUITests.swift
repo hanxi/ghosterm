@@ -89,6 +89,23 @@ final class PluginResourceUITests: XCTestCase {
         XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/blocked.svg")!))
     }
 
+    func testMarkdownImageResolvesOnlyToAnExplicitScopedSnapshot() throws {
+        let source = Data("![logo](images/logo.png)".utf8)
+        let main = resource("markdown", path: "site/index.md", mime: "text/markdown", bytes: source)
+        let imageData = Data([1, 2, 3])
+        let image = resource("logo", path: "site/images/logo.png", mime: "image/png", bytes: imageData)
+        let markdown = try XCTUnwrap(PluginResourceMarkdownDecoder.decode(
+            source, mime: main.mime, displayName: main.displayName,
+            baseURL: PluginResourceHTMLAssetResolver.documentURL(main.displayName)))
+        let imageURL = try XCTUnwrap(markdown.runs.first(where: { $0.imageURL != nil })?.imageURL?.absoluteURL)
+        let resolver = PluginResourceHTMLAssetResolver(document: main, resources: [main, image])
+
+        XCTAssertEqual(resolver.resolve(imageURL)?.data, imageData)
+        XCTAssertEqual(resolver.resolve(imageURL)?.mime, "image/png")
+        XCTAssertNil(resolver.resolve(URL(string: "https://example.invalid/logo.png")!))
+        XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/other.png")!))
+    }
+
     @MainActor
     func testHTMLSchemeHandlerReturnsTheVerifiedSnapshotBytes() throws {
         let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("<img src='logo.png'>".utf8))

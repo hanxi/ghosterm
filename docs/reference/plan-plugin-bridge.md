@@ -4328,3 +4328,12 @@ HTML CSP 仍为 `default-src 'none'`、`script-src 'none'`、`connect-src 'none'
 新增 resolver XCTest 对拍显式 CSS / PNG 字节、同目录边界、兄弟目录、下一个 Preview 边界、未收到资源、`..`、外部 host 和 SVG 拒绝；独立 scheme-task 测试对拍 WebKit handler 返回的 MIME 与原始字节。定向 `PluginResourceUITests` **5 项通过**；最终 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **398 项、5 skip、0 失败**。测试 CLI/headless，唯一临时 WebKit 窗口明确 `orderOut` 并已在实验中撤销。
 
 曾试加实际 WKWebView 子资源加载 XCTest；xctest 在异步 teardown 时 SIGSEGV，诊断栈位于 XCTest deallocation 检查，已撤回该不稳定测试和专用观测代码，随后资源定向 5 项复验通过。该失败不计为产品通过或闸门红；也不宣称真实 WKWebView/CSS/图片像素渲染已验收。Markdown 附件映射与 Preview 专属交互仍待完成。不改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第十八批：Markdown 显式图片附件映射（2026-11-12）
+
+Markdown parser 使用文档自身的 `ghosterm-resource` URL 作为 base URL，提取 Foundation `imageURL` 属性后，只向同 HTML 预览共用的资源 resolver 请求显式收到的同目录快照。图片 MIME 必须是受支持的 raster 类型，之后仍走已有 ImageIO 解码和 16,777,216 像素上限；外部网络 URL、缺失附件、未列入快照和其它目录均不会加载。SwiftUI 按 Markdown 文本 run 与图片段顺序显示内容。
+
+新增断言覆盖相对图片 URL 解析到 Preview 资源 scheme，以及只返回同目录已收到 PNG 快照、拒绝外部 URL 和未授权路径。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" swift test --package-path apple/GhostermApp --filter testMarkdownImageResolvesOnlyToAnExplicitScopedSnapshot` 定向通过。完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **400 项、5 skip、0 失败**。测试 CLI/headless，在 `tmp/` 生成临时产物。
+
+本批没有增加真实 SwiftUI Markdown 图片像素截图断言；HTML 真实 WKWebView 子资源渲染也仍未验收。Preview 专属选择/附件查看交互与端到端视觉行为继续待完成。不改公共 ABI，不增加 macOS CI 二十份。

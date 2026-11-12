@@ -13,9 +13,11 @@ public enum PluginResourceMarkdownDecoder {
             || ext == "md" || ext == "markdown"
     }
 
-    public static func decode(_ data: Data, mime: String, displayName: String) -> AttributedString? {
+    public static func decode(_ data: Data, mime: String, displayName: String,
+                              baseURL: URL? = nil) -> AttributedString? {
         guard supports(mime: mime, displayName: displayName), data.count <= maximumBytes,
               let text = String(data: data, encoding: .utf8) else { return nil }
-        return try? AttributedString(markdown: text, options: .init(interpretedSyntax: .full))
+        return try? AttributedString(markdown: text, options: .init(interpretedSyntax: .full),
+                                     baseURL: baseURL)
     }
 }

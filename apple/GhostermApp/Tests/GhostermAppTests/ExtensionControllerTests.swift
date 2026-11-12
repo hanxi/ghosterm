@@ -62,6 +62,17 @@ final class ExtensionControllerTests: XCTestCase {
             mime: "text/markdown", displayName: "large.md"))
     }
 
+    func testPluginMarkdownImageResolvesAgainstItsScopedDocumentBaseURL() throws {
+        let source = Data("before ![logo](images/logo.png) after".utf8)
+        let baseURL = try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/index.md"))
+        let markdown = try XCTUnwrap(PluginResourceMarkdownDecoder.decode(
+            source, mime: "text/markdown", displayName: "site/index.md", baseURL: baseURL))
+        let imageRun = try XCTUnwrap(markdown.runs.first(where: { $0.imageURL != nil }))
+        let imageURL = try XCTUnwrap(imageRun.imageURL?.absoluteURL)
+        XCTAssertEqual(imageURL.absoluteString,
+                       "ghosterm-resource://preview/site/images/logo.png")
+    }
+
     func testPluginResourceHTMLDecoderCreatesNetworkAndScriptRestrictedDocument() throws {
         let source = Data("<h1>Preview</h1><script>fetch('https://example.invalid')</script>".utf8)
         let document = try XCTUnwrap(PluginResourceHTMLDecoder.document(source, mime: "text/html; charset=utf-8"))

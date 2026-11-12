@@ -106,7 +106,7 @@ struct ExtensionsPane: View {
             if let message = model.extensionRunIssue {
                 Text(message).foregroundStyle(.red).textSelection(.enabled)
             }
-            SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装与持久信任尚未接入。资源面板支持有界 UTF-8、Markdown、静态图片和受限 HTML 预览；HTML 外部附件映射仍在开发中。")
+            SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装与持久信任尚未接入。资源面板支持有界 UTF-8、Markdown、静态图片和受限 HTML 预览；文档图片只使用本次显式收到的同目录附件。")
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in
             switch result {
@@ -304,7 +304,7 @@ private struct PluginResourcePreviewCard: View {
                 PluginResourceImagePreview(data: resource.bytes, mime: resource.mime)
             } else if PluginResourceMarkdownDecoder.supports(
                 mime: resource.mime, displayName: resource.displayName) {
-                PluginResourceMarkdownPreview(resource: resource)
+                PluginResourceMarkdownPreview(resource: resource, resources: resources)
             } else if let preview = String(data: resource.bytes.prefix(16384), encoding: .utf8) {
                 Text(preview.isEmpty ? "空文本资源" : preview)
                     .font(.system(size: 11, design: .monospaced))
@@ -353,13 +353,24 @@ private struct PluginResourceImagePreview: View {
 
 private struct PluginResourceMarkdownPreview: View {
     let resource: ExtensionController.ReceivedResource
+    let resources: [ExtensionController.ReceivedResource]
     @State private var markdown: AttributedString?
     @State private var rejected = false
 
     var body: some View {
         Group {
             if let markdown {
-                Text(markdown).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: DS.Padding.xs) {
+                    ForEach(segments(from: markdown)) { segment in
+                        if let text = segment.text {
+                            Text(text).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else if let asset = segment.asset {
+                            PluginResourceImagePreview(data: asset.data, mime: asset.mime)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             } else if rejected {
                 Text("Markdown 无法解析或超过 256 KiB 预览上限。")
                     .font(DS.Font.caption).foregroundStyle(.secondary)
@@ -371,12 +382,47 @@ private struct PluginResourceMarkdownPreview: View {
             let bytes = resource.bytes
             let mime = resource.mime
             let name = resource.displayName
+            let baseURL = PluginResourceHTMLAssetResolver.documentURL(name)
             guard let decoded = await PluginResourceDecodeTask.run({
-                PluginResourceMarkdownDecoder.decode(bytes, mime: mime, displayName: name)
+                PluginResourceMarkdownDecoder.decode(bytes, mime: mime, displayName: name,
+                                                     baseURL: baseURL)
             }) else { return }
             markdown = decoded
             rejected = decoded == nil
         }
+    }
+
+    private func segments(from markdown: AttributedString) -> [Segment] {
+        let resolver = PluginResourceHTMLAssetResolver(document: resource, resources: resources)
+        var result: [Segment] = []
+        var text = AttributedString()
+
+        func flushText() {
+            guard !text.characters.isEmpty else { return }
+            result.append(Segment(id: result.count, text: text, asset: nil))
+            text = AttributedString()
+        }
+
+        for run in markdown.runs {
+            let part = AttributedString(markdown[run.range])
+            if let imageURL = run.imageURL,
+               let asset = resolver.resolve(imageURL.absoluteURL), asset.mime.hasPrefix("image/") {
+                flushText()
+                result.append(Segment(id: result.count, text: nil,
+                                      asset: PluginResourceHTMLAssetResolver.Asset(data: asset.data,
+                                                                                  mime: asset.mime)))
+            } else {
+                text.append(part)
+            }
+        }
+        flushText()
+        return result
+    }
+
+    private struct Segment: Identifiable {
+        let id: Int
+        let text: AttributedString?
+        let asset: PluginResourceHTMLAssetResolver.Asset?
     }
 }
 
