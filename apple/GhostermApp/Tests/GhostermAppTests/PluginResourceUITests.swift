@@ -1,5 +1,7 @@
 import AppKit
+import CoreGraphics
 import GhostermAppModel
+import ImageIO
 import SwiftUI
 import XCTest
 import WebKit
@@ -61,6 +63,30 @@ final class PluginResourceUITests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(visible, 20, "selected resource and preview should render nonempty content")
+    }
+
+    @MainActor
+    func testMarkdownPreviewDrawsAnExplicitImageSnapshot() async throws {
+        let markdownBytes = Data("Before ![red sample](images/sample.png) after".utf8)
+        let imageBytes = try solidRedPNG()
+        let markdown = resource("markdown", path: "site/index.md", mime: "text/markdown",
+                                bytes: markdownBytes)
+        let image = resource("sample", path: "site/images/sample.png", mime: "image/png",
+                             bytes: imageBytes)
+        let view = PluginResourceBrowser(resources: [markdown, image],
+            selection: .constant(PluginResourceSelection(resourceID: markdown.resourceID)))
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(x: 0, y: 0, width: 720, height: 420)
+
+        for _ in 0..<40 {
+            host.layoutSubtreeIfNeeded()
+            if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                if redPixelCount(in: bitmap) > 10 { return }
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTFail("the explicitly received Markdown image should render in the selected preview")
     }
 
     func testHTMLAssetResolverServesOnlyExplicitSameDirectoryBundleResources() throws {
@@ -131,6 +157,33 @@ final class PluginResourceUITests: XCTestCase {
         return ExtensionController.ReceivedResource(resourceID: id,
             sha256: String(repeating: "a", count: 64), mime: mime,
             displayName: path, size: UInt64(bytes.count), bytes: bytes)
+    }
+
+    private func solidRedPNG() throws -> Data {
+        let pixels = Data((0..<16 * 16).flatMap { _ in [UInt8(0xff), 0, 0, 0xff] })
+        let provider = try XCTUnwrap(CGDataProvider(data: pixels as CFData))
+        let image = try XCTUnwrap(CGImage(width: 16, height: 16, bitsPerComponent: 8,
+            bitsPerPixel: 32, bytesPerRow: 64, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider,
+            decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        let encoded = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(encoded, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return encoded as Data
+    }
+
+    private func redPixelCount(in bitmap: NSBitmapImageRep) -> Int {
+        var count = 0
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: 2) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                if color.redComponent > 0.8 && color.greenComponent < 0.3 && color.blueComponent < 0.3 {
+                    count += 1
+                }
+            }
+        }
+        return count
     }
 
     private final class CapturedSchemeTask: NSObject, WKURLSchemeTask {

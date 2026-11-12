@@ -4337,3 +4337,12 @@ Markdown parser 使用文档自身的 `ghosterm-resource` URL 作为 base URL，
 新增断言覆盖相对图片 URL 解析到 Preview 资源 scheme，以及只返回同目录已收到 PNG 快照、拒绝外部 URL 和未授权路径。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" swift test --package-path apple/GhostermApp --filter testMarkdownImageResolvesOnlyToAnExplicitScopedSnapshot` 定向通过。完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **400 项、5 skip、0 失败**。测试 CLI/headless，在 `tmp/` 生成临时产物。
 
 本批没有增加真实 SwiftUI Markdown 图片像素截图断言；HTML 真实 WKWebView 子资源渲染也仍未验收。Preview 专属选择/附件查看交互与端到端视觉行为继续待完成。不改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第十九批：Markdown 附件实际绘制像素断言（2026-11-12）
+
+在无 `NSWindow` 的 `NSHostingView` 中渲染真实 Markdown 预览和显式收到的 16×16 红色 PNG 快照，轮询异步 Markdown / ImageIO 解码完成后的位图，断言预览实际绘制了红色像素。该检查覆盖 SwiftUI Markdown 分段、同目录附件 resolver、图片 decoder 和最终视图绘制，不只验证 URL / 字节映射。测试不创建前台窗口。
+
+`testMarkdownPreviewDrawsAnExplicitImageSnapshot` 定向通过。随后完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **401 项、5 skip、0 失败**。
+
+这仍只证明 Markdown raster image 的离屏绘制；HTML WKWebView 子资源实际绘制与导航运行时、Preview 专属交互流程仍待专项验收。不改公共 ABI，不增加 macOS CI 二十份。
