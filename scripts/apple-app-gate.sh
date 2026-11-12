@@ -54,6 +54,7 @@ fi
 echo "   ok"
 
 WORK=""
+HTML_CAPTURE=""
 cleanup() {
   [ -n "$WORK" ] && [ -f "$WORK/sshd.pid" ] && kill "$(cat "$WORK/sshd.pid")" 2>/dev/null
   [ -n "$WORK" ] && rm -rf "$WORK"
@@ -104,6 +105,12 @@ if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keyg
     if [ -n "${GHOSTERM_TEST_GTERM:-}" ]; then
       ENVARGS+=(GHOSTERM_TEST_GTERM="$GHOSTERM_TEST_GTERM")
     fi
+    if [ -n "${GHOSTERM_TEST_GTERM:-}" ] &&
+       { [ -z "${GHOSTERM_APP_TEST_FILTER:-}" ] ||
+         [[ "$GHOSTERM_APP_TEST_FILTER" == *testAppModelReceivesScopedResourceFromRemoteGterm* ]]; }; then
+      HTML_CAPTURE="$WORK/html-preview-capture"
+      ENVARGS+=(GHOSTERM_HTML_PROBE_CAPTURE="$HTML_CAPTURE")
+    fi
     echo "== SSH e2e：真 sshd 已在 127.0.0.1:$PORT =="
   else
     echo "SKIP apple-app-gate e2e: sshd 未能起（本机环境限制）；其余用例仍跑"
@@ -129,6 +136,16 @@ if grep -q "skipped" "$TMP/apple-app-test.log" && [ "${#ENVARGS[@]}" -eq 0 ]; th
 fi
 
 echo "== 4/4 受限 HTML Preview：真实 WebKit 子资源绘制 =="
-bash "$ROOT/scripts/test-plugin-html-webkit.sh"
+if [ -n "$HTML_CAPTURE" ]; then
+  for relative in site/web/index.html site/web/style.css site/web/image.png; do
+    if [ ! -s "$HTML_CAPTURE/$relative" ]; then
+      echo "apple-app-gate: AppModel HTML receipt capture is missing $relative" >&2
+      exit 1
+    fi
+  done
+  GHOSTERM_HTML_PROBE_CAPTURE="$HTML_CAPTURE" bash "$ROOT/scripts/test-plugin-html-webkit.sh"
+else
+  bash "$ROOT/scripts/test-plugin-html-webkit.sh"
+fi
 
 echo "APPLE APP GATE PASS"

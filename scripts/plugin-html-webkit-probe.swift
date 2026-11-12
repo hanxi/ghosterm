@@ -47,12 +47,20 @@ struct Probe {
     static func main() throws {
         let app = NSApplication.shared
         _ = app.setActivationPolicy(.prohibited)
-        let htmlBytes = Data("<html><head><link rel='stylesheet' href='style.css'></head><body><img width='64' height='64' src='image.png'></body></html>".utf8)
-        let html = ExtensionController.ReceivedResource(resourceID: "html", sha256: String(repeating: "a", count: 64), mime: "text/html", displayName: "site/index.html", size: UInt64(htmlBytes.count), bytes: htmlBytes)
-        let cssBytes = Data("body { margin: 0; background: rgb(0, 0, 255); }".utf8)
-        let css = ExtensionController.ReceivedResource(resourceID: "css", sha256: String(repeating: "b", count: 64), mime: "text/css", displayName: "site/style.css", size: UInt64(cssBytes.count), bytes: cssBytes)
-        let pngBytes = try solidRedPNG()
-        let image = ExtensionController.ReceivedResource(resourceID: "image", sha256: String(repeating: "c", count: 64), mime: "image/png", displayName: "site/image.png", size: UInt64(pngBytes.count), bytes: pngBytes)
+        let captureRoot = ProcessInfo.processInfo.environment["GHOSTERM_HTML_PROBE_CAPTURE"]
+            .map { URL(fileURLWithPath: $0, isDirectory: true) }
+        func bytes(_ relativePath: String, fallback: Data) throws -> Data {
+            guard let captureRoot else { return fallback }
+            return try Data(contentsOf: captureRoot.appendingPathComponent(relativePath))
+        }
+        let htmlBytes = try bytes("site/web/index.html", fallback: Data(
+            "<html><head><link rel='stylesheet' href='style.css'></head><body><img width='64' height='64' src='image.png'></body></html>".utf8))
+        let html = ExtensionController.ReceivedResource(resourceID: "html", sha256: String(repeating: "a", count: 64), mime: "text/html", displayName: "site/web/index.html", size: UInt64(htmlBytes.count), bytes: htmlBytes)
+        let cssBytes = try bytes("site/web/style.css", fallback: Data(
+            "body { margin: 0; background: rgb(0, 0, 255); }".utf8))
+        let css = ExtensionController.ReceivedResource(resourceID: "css", sha256: String(repeating: "b", count: 64), mime: "text/css", displayName: "site/web/style.css", size: UInt64(cssBytes.count), bytes: cssBytes)
+        let pngBytes = try bytes("site/web/image.png", fallback: solidRedPNG())
+        let image = ExtensionController.ReceivedResource(resourceID: "image", sha256: String(repeating: "c", count: 64), mime: "image/png", displayName: "site/web/image.png", size: UInt64(pngBytes.count), bytes: pngBytes)
         let resources = [html, css, image]
         let document = try PluginResourceHTMLDecoder.document(htmlBytes, mime: html.mime).unwrap()
         let coordinator = PluginResourceHTMLCoordinator(resource: html, resources: resources)
@@ -76,7 +84,7 @@ struct Probe {
         let greenCSSBytes = Data("body { margin: 0; background: rgb(0, 255, 0); }".utf8)
         let greenCSS = ExtensionController.ReceivedResource(resourceID: "css",
             sha256: String(repeating: "d", count: 64), mime: "text/css",
-            displayName: "site/style.css", size: UInt64(greenCSSBytes.count), bytes: greenCSSBytes)
+            displayName: "site/web/style.css", size: UInt64(greenCSSBytes.count), bytes: greenCSSBytes)
         coordinator.update(document: document, resource: html,
                            resources: [html, greenCSS, image], in: webView)
         while !delegate.done && Date() < deadline {
@@ -91,7 +99,8 @@ struct Probe {
         guard delegate.results.count == 2 else { throw ProbeError.failed("timed out waiting for refreshed snapshot") }
         let initial = delegate.results[0]
         let refreshed = delegate.results[1]
-        print("WebKit rendered custom-scheme CSS and PNG before/after resource refresh: initial red=\(initial.red), blue=\(initial.blue); refreshed red=\(refreshed.red), green=\(refreshed.green)")
+        let source = captureRoot == nil ? "isolated fixture" : "AppModel SSH receipt snapshots"
+        print("WebKit rendered custom-scheme CSS and PNG from \(source): initial red=\(initial.red), blue=\(initial.blue); refreshed red=\(refreshed.red), green=\(refreshed.green)")
         guard initial.red > 20, initial.blue > 100,
               refreshed.red > 20, refreshed.green > 100 else {
             throw ProbeError.failed("expected explicit red image and blue-to-green CSS refresh")

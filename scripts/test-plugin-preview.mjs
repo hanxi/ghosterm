@@ -34,6 +34,15 @@ assert.deepEqual(publications.map(({ input }) => [input.relativePath, input.medi
 assert.ok(publications.every(({ input }) => input.root === "workspace"));
 assert.ok(publications.every(({ limits }) => limits.byteLimit === "65536"));
 
+const htmlPage = await run({
+  path: "site/web/index.html",
+  assets: "site/web/style.css,site/web/image.png",
+  maxBytes: 262144,
+});
+assert.deepEqual(htmlPage.map(({ input }) => input.relativePath), [
+  "site/web/index.html", "site/web/style.css", "site/web/image.png",
+], "an HTML main document may publish its explicit CSS and image snapshots");
+
 const commaAsset = await run({
   path: "site/index.md",
   assets: "site/theme\\,dark.css",

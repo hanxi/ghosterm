@@ -408,13 +408,20 @@ final class ExtensionControllerTests: XCTestCase {
         let package = repositoryRoot.appendingPathComponent("plugins/official/preview", isDirectory: true)
         let sourceRoot = base.appendingPathComponent("source", isDirectory: true)
         let imageDirectory = sourceRoot.appendingPathComponent("site/images", isDirectory: true)
+        let webDirectory = sourceRoot.appendingPathComponent("site/web", isDirectory: true)
         try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: webDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
 
         let markdownBytes = Data("![sample](images/sample.png)\nresource from AppModel over SSH\n".utf8)
         let imageBytes = try solidRedPNG()
+        let htmlBytes = Data("<html><head><link rel='stylesheet' href='style.css'></head><body><img width='64' height='64' src='image.png'></body></html>".utf8)
+        let cssBytes = Data("body { margin: 0; background: rgb(0, 0, 255); }".utf8)
         try markdownBytes.write(to: sourceRoot.appendingPathComponent("site/index.md"))
         try imageBytes.write(to: imageDirectory.appendingPathComponent("sample.png"))
+        try htmlBytes.write(to: webDirectory.appendingPathComponent("index.html"))
+        try cssBytes.write(to: webDirectory.appendingPathComponent("style.css"))
+        try imageBytes.write(to: webDirectory.appendingPathComponent("image.png"))
         let integrity = try Data(contentsOf: package.appendingPathComponent("integrity.json"))
         let executorDigest = SHA256.hash(data: integrity).map { String(format: "%02x", $0) }.joined()
 
@@ -441,7 +448,8 @@ final class ExtensionControllerTests: XCTestCase {
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest,
             command: "preview", arguments: ["site/index.md", "--assets", "site/images/sample.png"],
             sshAlias: "plugin-resource-fixture",
-            executable: gterm, executorDirectory: package.path, executorDigest: executorDigest,
+            executable: gterm, executorDirectory: package.path,
+            executorDigest: executorDigest,
             methods: [], hostMethods: [],
             scopedRoots: [.init(id: "workspace", directory: sourceRoot.path)])
         guard model.extensionRunIssue == nil, let consentRun = model.extensionRun,
@@ -459,7 +467,9 @@ final class ExtensionControllerTests: XCTestCase {
             if let issue = model.extensionRunIssue { XCTFail("resource runtime failed: \(issue)"); break }
             if let runtime = model.extensionRun?.runtime,
                runtime.phase == GhostermCore.ExtensionRuntime.Phase.failed.rawValue {
-                XCTFail("resource runtime entered failed state: \(runtime)")
+                XCTFail("resource runtime entered failed state: \(runtime); " +
+                    "session=\(String(describing: model.extensionRun?.session)); " +
+                    "resources=\(model.extensionRun?.receivedResources.count ?? 0)")
                 break
             }
             try await Task.sleep(nanoseconds: 50_000_000)
@@ -477,7 +487,6 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertEqual(image.mime, "image/png")
         XCTAssertEqual(image.size, UInt64(imageBytes.count))
         XCTAssertEqual(image.sha256, SHA256.hash(data: imageBytes).map { String(format: "%02x", $0) }.joined())
-
         let pane = NSHostingView(rootView: ExtensionsPane(model: model))
         pane.frame = NSRect(x: 0, y: 0, width: 1440, height: 1500)
         var recognizedPreview = ""
@@ -505,6 +514,64 @@ final class ExtensionControllerTests: XCTestCase {
             "the production ExtensionsPane must render the exact resource received by AppModel; OCR: \(recognizedPreview)")
         XCTAssertGreaterThan(redPixels, 10,
             "the production ExtensionsPane must render the explicitly received Markdown PNG attachment")
+
+        await model.stopExtensionRun()
+        XCTAssertNil(model.extensionRun)
+        XCTAssertNil(model.extensionRunIssue)
+
+        await model.startExtensionClient(packageID: review.id, packageDigest: review.digest,
+            command: "preview", arguments: ["site/web/index.html", "--assets",
+                "site/web/style.css,site/web/image.png"],
+            sshAlias: "plugin-resource-fixture",
+            executable: gterm, executorDirectory: package.path,
+            executorDigest: executorDigest, methods: [], hostMethods: [],
+            scopedRoots: [.init(id: "workspace", directory: sourceRoot.path)])
+        guard model.extensionRunIssue == nil, let htmlConsent = model.extensionRun,
+              htmlConsent.session?.phase == ExtensionSession.Phase.consent.rawValue else {
+            XCTFail(model.extensionRunIssue ?? "HTML Preview Session did not reach Native consent")
+            return
+        }
+        XCTAssertTrue(htmlConsent.remoteCommand
+            .contains("'--root' 'workspace' '\(sourceRoot.path)'"))
+        await model.decideExtensionConsent(allow: true)
+        let htmlDeadline = ProcessInfo.processInfo.systemUptime + 35
+        while model.extensionRun != nil && (model.extensionRun?.receivedResources.count ?? 0) < 3 &&
+              ProcessInfo.processInfo.systemUptime < htmlDeadline {
+            if let issue = model.extensionRunIssue { XCTFail("HTML resource runtime failed: \(issue)"); break }
+            if let runtime = model.extensionRun?.runtime,
+               runtime.phase == GhostermCore.ExtensionRuntime.Phase.failed.rawValue {
+                XCTFail("HTML resource runtime failed: \(runtime); " +
+                    "session=\(String(describing: model.extensionRun?.session))")
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let htmlResources = try XCTUnwrap(model.extensionRun?.receivedResources,
+            "HTML Preview resources did not reach AppModel; runtime=\(String(describing: model.extensionRun?.runtime))")
+        XCTAssertEqual(htmlResources.count, 3)
+        let html = try XCTUnwrap(htmlResources.first { $0.displayName == "site/web/index.html" })
+        XCTAssertEqual(html.bytes, htmlBytes)
+        XCTAssertEqual(html.mime, "text/html")
+        XCTAssertEqual(html.size, UInt64(htmlBytes.count))
+        XCTAssertEqual(html.sha256, SHA256.hash(data: htmlBytes).map { String(format: "%02x", $0) }.joined())
+        let css = try XCTUnwrap(htmlResources.first { $0.displayName == "site/web/style.css" })
+        XCTAssertEqual(css.bytes, cssBytes)
+        XCTAssertEqual(css.mime, "text/css")
+        XCTAssertEqual(css.size, UInt64(cssBytes.count))
+        XCTAssertEqual(css.sha256, SHA256.hash(data: cssBytes).map { String(format: "%02x", $0) }.joined())
+        let htmlImage = try XCTUnwrap(htmlResources.first { $0.displayName == "site/web/image.png" })
+        XCTAssertEqual(htmlImage.bytes, imageBytes)
+        XCTAssertEqual(htmlImage.mime, "image/png")
+        XCTAssertEqual(htmlImage.size, UInt64(imageBytes.count))
+        XCTAssertEqual(htmlImage.sha256, SHA256.hash(data: imageBytes).map { String(format: "%02x", $0) }.joined())
+        if let capturePath = ProcessInfo.processInfo.environment["GHOSTERM_HTML_PROBE_CAPTURE"] {
+            let captureDirectory = URL(fileURLWithPath: capturePath, isDirectory: true)
+                .appendingPathComponent("site/web", isDirectory: true)
+            try FileManager.default.createDirectory(at: captureDirectory, withIntermediateDirectories: true)
+            try html.bytes.write(to: captureDirectory.appendingPathComponent("index.html"))
+            try css.bytes.write(to: captureDirectory.appendingPathComponent("style.css"))
+            try htmlImage.bytes.write(to: captureDirectory.appendingPathComponent("image.png"))
+        }
 
         await model.stopExtensionRun()
         XCTAssertNil(model.extensionRun)
