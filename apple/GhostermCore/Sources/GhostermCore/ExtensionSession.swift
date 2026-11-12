@@ -27,6 +27,10 @@ public final class ExtensionSession {
         public let handle: UInt64, requestID: String, state: RPCState, cancelRequested: Bool, deadlineElapsed: Bool, confirmed: Bool, outcome: Data
     }
     public struct RPCRequest { public let ticket: UInt64, requestID: String, method: String, input: Data }
+    public struct ResourceContent: Sendable, Equatable {
+        public let resourceID: String, sha256: String, mime: String, displayName: String
+        public let size: UInt64, bytes: Data
+    }
     public struct Budgets {
         public let fragmentBytes: UInt32, messageBytes: UInt32, resourceBytes: UInt32
         public init(fragmentBytes: UInt32 = 768, messageBytes: UInt32 = 65536, resourceBytes: UInt32 = 262144) {
@@ -198,6 +202,47 @@ public final class ExtensionSession {
         let status = ExtensionResourceStore.Status(gt_ext_session_take_resource(try pointer(), &l, &v))
         guard status == .ok, let resourceStore else { return (status, nil) }
         return (status, ExtensionResourceStore.Snapshot(store: resourceStore, lease: lease, native: v))
+    }
+    /// Takes one completed resource, copies it under a hard size budget, then
+    /// releases the snapshot on this Session's IO owner. `.wait` means no
+    /// resource is ready. Only a finalized snapshot with known size is copied.
+    public func takeResourceData(_ lease: Lease, maxBytes: UInt64) throws -> (ExtensionResourceStore.Status, ResourceContent?) {
+        guard maxBytes <= 1048576 else { return (.limit, nil) }
+        let (status, snapshot) = try takeResource(lease)
+        guard status == .ok, let snapshot else { return (status, nil) }
+        do {
+            let descriptor = snapshot.descriptor
+            guard descriptor.sizeKnown else {
+                let released = try snapshot.close()
+                return (released == .ok ? .unsupported : released, nil)
+            }
+            guard descriptor.size <= maxBytes, descriptor.size <= UInt64(Int.max) else {
+                let released = try snapshot.close()
+                return (released == .ok ? .limit : released, nil)
+            }
+            var bytes = Data(); bytes.reserveCapacity(Int(descriptor.size))
+            var offset: UInt64 = 0
+            while offset < descriptor.size {
+                let capacity = Int(min(UInt64(16384), descriptor.size - offset))
+                let (readStatus, chunk) = try snapshot.read(offset: offset, capacity: capacity)
+                guard readStatus == .ok else {
+                    let released = try snapshot.close()
+                    return (released == .ok ? readStatus : released, nil)
+                }
+                guard !chunk.isEmpty, chunk.count <= capacity else {
+                    let released = try snapshot.close()
+                    return (released == .ok ? .protocol : released, nil)
+                }
+                bytes.append(chunk); offset += UInt64(chunk.count)
+            }
+            guard try snapshot.close() == .ok else { return (.io, nil) }
+            return (.ok, ResourceContent(resourceID: descriptor.resourceID, sha256: descriptor.sha256,
+                                         mime: descriptor.mime, displayName: descriptor.displayName,
+                                         size: descriptor.size, bytes: bytes))
+        } catch {
+            _ = try? snapshot.close()
+            throw error
+        }
     }
     public func openSource(_ lease: Lease, rootFD: Int32, relativePath: String, mime: String = "application/octet-stream", byteLimit: UInt64 = 262144) throws -> ExtensionFileSource.Admission {
         let p = try pointer(); guard !relativePath.utf8.contains(0), relativePath.utf8.count <= 4096, !mime.utf8.contains(0), mime.utf8.count <= 128 else { throw GhostermError.failed("源文件参数无效或超限") }

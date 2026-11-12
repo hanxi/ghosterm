@@ -587,31 +587,12 @@ public actor ExtensionController {
                 guard maxBytes <= 1048576, let session = self.session,
                       self.hostCapabilities.contains("session.resources"),
                       let lease = try session.lease() else { throw ControllerError.resourceUnavailable }
-                let (status, snapshot) = try session.takeResource(lease)
+                let (status, content) = try session.takeResourceData(lease, maxBytes: maxBytes)
                 guard status != .wait else { return nil }
-                guard status == .ok, let snapshot else { throw ControllerError.resourceUnavailable }
-                do {
-                    let descriptor = snapshot.descriptor
-                    guard descriptor.sizeKnown, descriptor.size <= maxBytes,
-                          descriptor.size <= UInt64(Int.max) else { throw ControllerError.resourceUnavailable }
-                    var bytes = Data(); bytes.reserveCapacity(Int(descriptor.size))
-                    var offset: UInt64 = 0
-                    while offset < descriptor.size {
-                        let capacity = Int(min(UInt64(16384), descriptor.size - offset))
-                        let (readStatus, chunk) = try snapshot.read(offset: offset, capacity: capacity)
-                        guard readStatus == .ok, !chunk.isEmpty, chunk.count <= capacity else {
-                            throw ControllerError.resourceUnavailable
-                        }
-                        bytes.append(chunk); offset += UInt64(chunk.count)
-                    }
-                    guard try snapshot.close() == .ok else { throw ControllerError.resourceUnavailable }
-                    return ReceivedResource(resourceID: descriptor.resourceID, sha256: descriptor.sha256,
-                                            mime: descriptor.mime, displayName: descriptor.displayName,
-                                            size: descriptor.size, bytes: bytes)
-                } catch {
-                    _ = try? snapshot.close()
-                    throw error
-                }
+                guard status == .ok, let content else { throw ControllerError.resourceUnavailable }
+                return ReceivedResource(resourceID: content.resourceID, sha256: content.sha256,
+                                        mime: content.mime, displayName: content.displayName,
+                                        size: content.size, bytes: content.bytes)
             }
         }
 

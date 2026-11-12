@@ -62,6 +62,70 @@ final class ExtensionResourceTests: XCTestCase {
             if data.isEmpty { break }; XCTAssertEqual(data, size == 3 ? Data("abc".utf8).subdata(in: at..<(at + data.count)) : Data((at..<(at + data.count)).map { UInt8($0 % 251) })); at += data.count }
         XCTAssertEqual(at, size)
     }
+    private func sendWithoutTaking(_ s: ExtensionSession, _ l: ExtensionSession.Lease,
+                                   _ h: ExtensionSession, _ e: ExtensionSession,
+                                   size: Int = 3, unknown: Bool = false) throws {
+        let admission = try s.sendResource(l, descriptor: descriptor(size, unknown: unknown))
+        XCTAssertEqual(admission.status, .ok)
+        let handle = try XCTUnwrap(admission.handle)
+        var written = 0
+        while written < size {
+            let end = min(size, written + 768)
+            let bytes = size == 3 ? Data("abc".utf8).subdata(in: written..<end)
+                                  : Data((written..<end).map { UInt8($0 % 251) })
+            let (status, accepted) = try s.writeResource(l, handle: handle, bytes: bytes)
+            XCTAssertTrue(status == .ok || status == .wait)
+            written += accepted
+            try pump(h, e)
+        }
+        XCTAssertEqual(try s.finishResource(l, handle: handle, sourceComplete: true), .ok)
+        var confirmed = false
+        for _ in 0..<50000 {
+            try pump(h, e)
+            if let result = try s.resourceResult(l, handle: handle).1, result.confirmed {
+                XCTAssertEqual(result.state, .succeeded)
+                confirmed = true
+                break
+            }
+        }
+        XCTAssertTrue(confirmed)
+        XCTAssertEqual(try s.forgetResource(l, handle: handle), .ok)
+    }
+    func testBoundedResourceDataCopiesAndReleasesSnapshot() {
+        worker { q in
+            let (hs, hd) = try self.store(q), (es, ed) = try self.store(q)
+            defer { try? FileManager.default.removeItem(at: hd); try? FileManager.default.removeItem(at: ed) }
+            let (h, e, hl, el) = try self.pair(q, hs, es)
+            try self.sendWithoutTaking(h, hl, h, e)
+            let (status, content) = try e.takeResourceData(el, maxBytes: 3)
+            XCTAssertEqual(status, .ok)
+            XCTAssertEqual(content?.bytes, Data("abc".utf8))
+            XCTAssertEqual(content?.size, 3)
+            XCTAssertEqual(content?.sha256, self.descriptor(3).sha256)
+            XCTAssertEqual(try es.usage().resources, 0)
+
+            try self.sendWithoutTaking(h, hl, h, e, size: 3)
+            let (limited, rejected) = try e.takeResourceData(el, maxBytes: 2)
+            XCTAssertEqual(limited, .limit)
+            XCTAssertNil(rejected)
+            XCTAssertEqual(try es.usage().resources, 0)
+
+            try self.sendWithoutTaking(h, hl, h, e, size: 0)
+            let (emptyStatus, empty) = try e.takeResourceData(el, maxBytes: 0)
+            XCTAssertEqual(emptyStatus, .ok)
+            XCTAssertEqual(empty?.bytes, Data())
+            XCTAssertEqual(empty?.size, 0)
+
+            try self.sendWithoutTaking(h, hl, h, e, size: 3, unknown: true)
+            let (unknownSourceStatus, unknownSource) = try e.takeResourceData(el, maxBytes: 3)
+            XCTAssertEqual(unknownSourceStatus, .ok)
+            XCTAssertEqual(unknownSource?.bytes, Data("abc".utf8))
+            XCTAssertEqual(unknownSource?.size, 3)
+            XCTAssertEqual(try es.usage().resources, 0)
+            try self.close(h); try self.close(e)
+            XCTAssertEqual(try hs.close(), .ok); XCTAssertEqual(try es.close(), .ok)
+        }
+    }
     func testRetainedSnapshotOutlivesSessionAndRemainsCharged() {
         worker { q in
             let (hs, hd) = try self.store(q), (es, ed) = try self.store(q); defer { try? FileManager.default.removeItem(at: hd); try? FileManager.default.removeItem(at: ed) }

@@ -1,8 +1,8 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第九十七批 macOS Host 资源 owner 接线。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
+日期：2026-11-05，更新至 2026-11-12 第九十八批 Swift Session 有界资源数据 API。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 原生资源视图与首个 preview 插件；macOS Controller 已增加显式可选的 worker-owned Host ResourceStore 与有界快照读取 API，普通 App 尚不声明 `session.resources`；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 App 产品资源闭环已接入。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 原生资源视图与首个 preview 插件；macOS Controller / Core Swift Session 已接 worker-owned Host ResourceStore 与有界快照数据读取 API，普通 App 尚不声明 `session.resources`；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 App 产品资源闭环已接入。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -4176,3 +4176,12 @@ Swift Core wrapper、macOS AppModel 和 Android JNI/Kotlin wrapper 均调用公�
 新增 `takeSessionResource(maxBytes:)`，在 worker 上取一份已完整接收的快照，默认最多 256 KiB、硬上限 1 MiB，分块读回 `Data` 后释放 Core snapshot；无就绪资源返回 nil。这个 API 为原生资源 view 提供有界数据入口，不做 SFTP 读取，也不影响来源文件。
 
 验证：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$(pwd)/tmp" bash scripts/apple-app-gate.sh` 通过，Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 运行，GhostermAppTests **388 项、4 skip、0 失败**；Controller 定向组 8 项、3 skip、0 失败（缺 sshd 夹具的两项、JS-off 档包审查一项按原契约 skip）。两个新增测试固定无资源能力时拒绝读取、声明资源能力却未给私有目录时拒绝 Controller 创建。尚未通过真实远端 resource producer / Session resources 传输、快照展示或 UI 生命周期验收；普通 App 仍不声明该能力。未改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第二批：Swift Session 有界资源数据读取（2026-11-12）
+
+将快照读取抽为 `ExtensionSession.takeResourceData(lease:maxBytes:)`，并由 macOS Controller 调用。API 在 Session 原 owner 上接收完整快照，默认上限由 Controller 设为 256 KiB、硬限 1 MiB，已知长度内容以 16 KiB 分块复制；若快照仍无已知长度、超过预算或读取 / 释放失败，均显式返回错误状态；本地双端测试还证明线上的未知长度源在完成校验后由 ResourceStore 固化为真实长度，随后可安全读取。成功或大小拒绝都会释放 ResourceStore snapshot，空文件可用 0 字节预算成功返回。Controller 返回的 `ReceivedResource` 仅携带 Core 已验证过的描述信息与有界内存数据。
+
+Core Swift 双 Session / socketpair 夹具用真实 `sendResource` / `writeResource` / `finishResource` 发送端验证：`abc` 与 SHA256 完整一致，2 字节上限拒绝 3 字节资源并归还计费，0 字节上限成功接收空资源；wire 上 size unknown 的已完成资源也固化为 3 字节并正确读取。`ExtensionResourceTests` 组 8 项、2 项需显式 SSH memory fixture 的用例 skip、0 失败；本批新增资源读取用例定向通过。随后 `apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e，GhostermAppTests 388 项、4 skip、0 失败。
+
+当前仍没有以真实远端 gterm producer 验证 `ExtensionController.takeSessionResource` 的 Session resources 传输，也没有原生资源页面或 preview 插件；普通 App 不声明 `session.resources`。本批仅加 Swift 绑定 API，不改公共 C ABI，不增加 macOS CI 二十份。
