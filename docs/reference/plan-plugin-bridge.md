@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第五十批跨端运行时参数夹具。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定，第四十九批在激活前按已检查的 schema 解码并暴露冻结的 `invocation.decodedArguments`，第五十批把相同参数契约接入 Apple 与 Android 的包运行时集成夹具。App 命令选择 / 激活、授权 / 视图、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-12 第五十一批 App 插件控制器首片。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定，第四十九批在激活前按已检查的 schema 解码并暴露冻结的 `invocation.decodedArguments`，第五十批把相同参数契约接入 Apple 与 Android 的包运行时集成夹具，第五十一批新增 macOS AppModel `ExtensionController` actor 负责 fixed package review、精确来源裁决与 Client 命令选择。App 原生授权 UI / 视图、Client runtime 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3679,6 +3679,16 @@ sanitizer 检查均接受；`mutation-check-plugin-package-check.py` 的位置�
 Apple `ExtensionPackageTests.testFixedPackageAdoptionAndRPC` 在 JS 开启的 Core / QuickJS 真构建上通过，覆盖包检查、注册 / 精确选择、删源文件后的固定快照启动、激活与 RPC。`mutation-check-plugin-package-swift.py --build core/build --invocation` 两组（invocation 字段传递、空 argv 元素保真）分别真实编译后正常 XCTest 断言红、独立 Core 配置对照绿、恢复绿及源码 / 预构建归档 SHA256 一致。Android 无连接设备；`compileDebugAndroidTestKotlin -PghostermPluginJs=true` 对已启用 runtime 的 instrumentation 源码编译通过，未执行设备测试，不计 Android runtime 行为验收。
 
 本批没有修改生产绑定或公共 ABI，只同步其真实包集成夹具；待 Android 专用设备上执行同一测试后，才能把本契约记为双端运行行为通过。App 命令选择 / 激活、授权 UI、生产 IPC、安装来源信任及真实业务插件仍待完成。
+
+### P0 第五十一批：macOS AppModel 插件控制器首片（2026-11-12）
+
+新增 `GhostermAppModel.ExtensionController` actor，以私有串行 worker 独占 Swift package owner 与 Core registry。`review(directory:)` 仅接受文件 URL，以 `O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC` 打开根目录，在 worker 上采集不可变快照、执行 host compatibility check，并返回 package digest、publisher、license 与命令摘要；此时只存在于控制器内存，尚未加入可执行 registry。待审包会参与无选择命令的 overlap 冲突检测，不能被已批准的同名命令遮蔽。
+
+`approve(id:digest:)` 是独立、精确绑定审查摘要的来源裁决入口，只有成功后才把 Client 包加入 registry；`deny` 会从 registry 移除已批准条目。`resolve` 使用 Client 侧注册项，并区分 unknown、denied、stale、conflict 与可选成功；选择只返回不可变命令摘要，不创建 JS runtime、Session 或权限 lease。Core registry 的 `put(UNKNOWN/DENIED)` 本身仅返回状态且不保存包，控制器因此保留待审包和来源状态，并仅在显式批准后调用 allowed。
+
+`ExtensionControllerTests.testReviewDoesNotApproveAndResolutionRequiresExactApproval` 构造真实完整性清单包，验证 review 不自动授权、UNKNOWN 不可解析、精确批准后可选命令、拒绝后移除运行项。JS 开启档下 macOS AppModel / XCTest 编译及该用例通过。首次用默认 JS 关闭档运行时 Core 明确返回 `GT_ERR_UNSUPPORTED`；这是默认配置拒绝能力的预期结果，不计插件控制器成功。Core 构建档在验收后恢复默认 JS OFF。未修改公共 ABI。
+
+这只是 AppModel controller，不含 AppModel 生命周期接线、文件选择 / 原生授权 UI、持久安装 / 来源信任、Client runtime 激活或本机 IPC。HostProfile 仅是受宿主控制的兼容事实输入，不能替代真实平台服务能力；没有用户裁决时包始终 UNKNOWN。不增加 macOS CI 二十份，不记 App 激活或整体插件计划完成。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 
