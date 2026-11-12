@@ -87,6 +87,7 @@ android {
 }
 tasks.named("preBuild").configure { dependsOn(writeSourceMetadata) }
 dependencies {
+    implementation(libs.commonmark)
     implementation(project(":bridge"))
     implementation(project(":data"))
     implementation(project(":domain"))
@@ -105,6 +106,7 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
 
 // This is a child executable for instrumentation tests, packaged only in the
 // test APK. The release application has no terminal test binary or hook.

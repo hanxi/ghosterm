@@ -19,6 +19,19 @@ import java.io.ByteArrayOutputStream
 class PluginResourcePreviewUiTest {
     @get:Rule val ui = createAndroidComposeRule<ComponentActivity>()
 
+    @Test fun markdownResourceUsesFormattedPreviewAndExplainsDisabledExternalContent() {
+        val markdown = ExtensionResourceStore.Content(
+            ExtensionResourceStore.Descriptor("c".repeat(64), "text/markdown", "readme.md", 72),
+            "# Preview\n\n**formatted** [link](https://example.com) ![image](other.png)".toByteArray())
+        ui.setContent { PluginResourcesPanel(listOf(markdown)) }
+        ui.waitUntil(10_000) {
+            ui.onAllNodesWithTag("plugin-resource-markdown").fetchSemanticsNodes().isNotEmpty()
+        }
+        ui.onNodeWithTag("plugin-resource-markdown").assertExists()
+        ui.onNodeWithText("Markdown 链接不打开；图片与外部资源不加载。", substring = true).assertExists()
+        ui.onNodeWithText("[图片: image]", substring = true).assertExists()
+    }
+
     @Test fun receivedTextIsShownAsSourceAndImageIsRendered() {
         val text = ExtensionResourceStore.Content(
             ExtensionResourceStore.Descriptor("a".repeat(64), "text/html", "index.html", 14),

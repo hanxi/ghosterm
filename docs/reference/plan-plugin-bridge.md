@@ -4451,3 +4451,11 @@ JS-enabled Android debug / androidTest APK 编译通过；`python3 scripts/test-
 API 36 arm64 无窗口模拟器的 `PluginResourcePreviewUiTest` **3 项通过**。首次运行启动表单断言误用 `performScrollTo`；Compose Dialog 没有向该节点暴露父滚动语义，失败发生在目标点击前。移除该测试操作后整类复跑通过；该首次错误未计产品红。JS-off debug / androidTest 编译通过，测试后关闭 AVD 并清理本批 `tmp/` 内容。
 
 此证据覆盖生产启动与 consent 组件，但没有驱动完整 Settings 页面与真实 SSH 会话同时运行；完整真实交互、16 KiB 页和真机仍待验，不改公共 C ABI，不增加 macOS CI 二十份。
+
+### P2 实施第三十三批：Android Markdown 安全格式化预览（2026-11-12）
+
+Android 收到 Markdown 快照后以 CommonMark 解析并在原生 Compose 文本中格式化标题、强调、行内 / 块代码等内容。链接只保留可读文字、不保留跳转目标；图片替换为 alt 文本；原始 HTML 作为文字转义显示。解析严格要求 UTF-8，源文件最多 256 KiB、渲染 HTML 最多 1 MiB，解析在后台 dispatcher 执行。新增 commonmark-java BSD 2-Clause 许可登记。当前资源描述没有 workspace 相对路径，因此本批不请求 Markdown/CSS/图片附件；UI 明示不加载外部内容。
+
+`PluginResourcePreviewTest` 与 `PluginResourcePreviewUiTest` 在 API 36 arm64 无窗口模拟器合计 **8 项通过**，覆盖 Markdown 格式化、安全移除链接 / 图片目标、HTML 转义、MIME/扩展识别、非法 UTF-8 / 字节预算和实际 Compose 预览；JS-off debug / androidTest APK 编译通过。首轮目标断言发现链接 AST 解包时错误使用插入方向、导致链接文字丢失；修复后完整 8 项复跑通过。测试 AVD 位于工程 `tmp/`，已停止并清理。
+
+本批只完成 Android 单个 Markdown 快照的格式化展示；完整 Settings + SSH 收件交互、Markdown 显式图片附件映射、Preview 资源选择 / 列表生命周期、16 KiB 页与真机仍待验，不记 P2 闭环完成。不改公共 ABI，不增加 macOS CI 二十份。

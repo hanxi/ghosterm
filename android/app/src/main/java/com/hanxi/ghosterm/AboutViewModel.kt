@@ -41,6 +41,7 @@ enum class AboutLicense(val title: String, val fileName: String) {
     NERD_FONTS("Nerd Fonts · 字体与图标许可", "NerdFontsSymbols.txt"),
     JETBRAINS_MONO("JetBrains Mono · OFL", "JetBrainsMono-OFL.txt"),
     SOURCE_CODE_PRO("Source Code Pro · OFL", "SourceCodePro-OFL.txt"),
+    COMMONMARK("commonmark-java · BSD 2-Clause", "CommonMark-BSD-2-Clause.txt"),
     TERMINAL_THEMES("iTerm2 Color Schemes · MIT", "TerminalThemes-MIT.txt")
 }
 sealed interface AboutDocument {

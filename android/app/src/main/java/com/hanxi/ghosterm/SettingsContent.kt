@@ -381,6 +381,10 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
         }
         return
     }
+    if (PluginResourceMarkdownDecoder.supports(mime, resource.descriptor.displayName)) {
+        PluginMarkdownBody(resource)
+        return
+    }
     if (mime.startsWith("text/") || mime == "application/json" || mime == "application/xml") {
         val preview = decodePluginResourceText(resource.bytes)
         if (preview != null) {
@@ -409,6 +413,52 @@ internal fun decodePluginResourceText(bytes: ByteArray): String? {
             .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
         decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString().take(8192)
     } catch (_: java.nio.charset.CharacterCodingException) { null }
+}
+
+@Composable private fun PluginMarkdownBody(resource: com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content) {
+    val rendered by produceState<String?>(null, resource.descriptor.sha256) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            PluginResourceMarkdownDecoder.decode(resource.bytes)
+        }
+    }
+    if (rendered == null) {
+        Text("Markdown 不是有效 UTF-8 或超出预览预算", Modifier.padding(16.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+    } else {
+        SelectionContainer {
+            Text(pluginMarkdownAnnotatedString(rendered!!),
+                Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(12.dp)
+                    .testTag("plugin-resource-markdown"),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        Text("Markdown 链接不打开；图片与外部资源不加载。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+internal fun pluginMarkdownAnnotatedString(html: String): androidx.compose.ui.text.AnnotatedString {
+    val spanned = androidx.core.text.HtmlCompat.fromHtml(html, androidx.core.text.HtmlCompat.FROM_HTML_MODE_COMPACT)
+    return androidx.compose.ui.text.buildAnnotatedString {
+        append(spanned.toString())
+        val styles = spanned.getSpans(0, spanned.length, Any::class.java)
+        for (span in styles) {
+            val start = spanned.getSpanStart(span).coerceAtLeast(0)
+            val end = spanned.getSpanEnd(span).coerceAtMost(spanned.length)
+            if (start >= end) continue
+            val style = when (span) {
+                is android.text.style.StyleSpan -> androidx.compose.ui.text.SpanStyle(
+                    fontWeight = if (span.style and android.graphics.Typeface.BOLD != 0) androidx.compose.ui.text.font.FontWeight.Bold else null,
+                    fontStyle = if (span.style and android.graphics.Typeface.ITALIC != 0) androidx.compose.ui.text.font.FontStyle.Italic else null)
+                is android.text.style.TypefaceSpan -> if (span.family == "monospace") androidx.compose.ui.text.SpanStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) else null
+                is android.text.style.UnderlineSpan -> androidx.compose.ui.text.SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
+                is android.text.style.StrikethroughSpan -> androidx.compose.ui.text.SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
+                is android.text.style.RelativeSizeSpan -> androidx.compose.ui.text.SpanStyle(fontSize = (span.sizeChange * 14).sp)
+                else -> null
+            }
+            if (style != null) addStyle(style, start, end)
+        }
+    }
 }
 
 internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitmap? {
