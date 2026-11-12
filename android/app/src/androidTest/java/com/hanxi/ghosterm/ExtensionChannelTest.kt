@@ -7,6 +7,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.ExtensionChannel
 import com.hanxi.ghosterm.bridge.AuthenticatedSSH
+import com.hanxi.ghosterm.bridge.SSHAuthPhase
+import kotlinx.coroutines.runBlocking
 import java.io.DataInputStream
 import java.io.File
 import java.lang.reflect.InvocationTargetException
@@ -219,4 +221,45 @@ class ExtensionChannelTest {
     @Test fun explicitHostRejection() = network("two", unknown = true, deny = true)
     @Test fun forwardingDeniedIsVisible() = network("denied", forwardDenied = true)
     @Test fun credentialRetryRejectsOldChallenge() = network("two", retry = true)
+
+    @Test fun controllerOwnsRealSshAuthenticationWorker() = runBlocking {
+        val payload = fixture
+        val entry = payload.getJSONObject("two"); val ports = entry.getJSONArray("ports")
+        val dir = File(instrumentation.targetContext.cacheDir, "extension-controller-ssh-${System.nanoTime()}")
+        check(dir.mkdir())
+        val known = File(dir, "known_hosts").apply { writeText(entry.getString("known")) }
+        val hops = (0 until ports.length()).map { i ->
+            ExtensionChannel.Hop("route-hop-$i.invalid", ports.getInt(i), payload.getString("user"), known.path,
+                if (i == 0) null else "127.0.0.1")
+        }
+        val controller = ExtensionController(
+            ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"), listOf("session.rpc")),
+            instrumentation.targetContext)
+        try {
+            var state = controller.openSSHChannel(hops, 4, byteArrayOf(127, 0, 0, 1) + ByteArray(12),
+                bootstrap = payload.getString("bootstrap"))
+            val deadline = SystemClock.elapsedRealtime() + 25000
+            var keyAnswers = 0
+            while (state.info.phase != 1 && state.info.phase != 2) {
+                when (state.authentication.phase) {
+                    SSHAuthPhase.HOSTKEY -> controller.decideSSHHost(state.authentication, true)
+                    SSHAuthPhase.CREDENTIALS -> {
+                        val key = payload.getString("pem").toByteArray()
+                        controller.submitSSHPrivateKey(state.authentication, key, byteArrayOf())
+                        assertTrue(key.all { it == 0.toByte() }); keyAnswers++
+                    }
+                    SSHAuthPhase.FAILED, SSHAuthPhase.CANCELLED -> fail(state.authentication.description)
+                    else -> Unit
+                }
+                assertTrue("controller-owned SSH route timed out", SystemClock.elapsedRealtime() < deadline)
+                state = controller.stepSSHChannel(5)
+            }
+            assertEquals("${state.info.error}", 1, state.info.phase)
+            assertEquals(ports.length(), keyAnswers)
+        } finally {
+            runCatching { controller.closeSSHChannel() }
+            controller.close()
+            assertTrue(dir.deleteRecursively())
+        }
+    }
 }
