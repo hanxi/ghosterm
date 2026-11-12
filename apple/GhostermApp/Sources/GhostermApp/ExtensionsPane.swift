@@ -2,6 +2,7 @@ import GhostermAppModel
 import GhostermCore
 import SwiftUI
 import UniformTypeIdentifiers
+import CoreGraphics
 
 /// Native review and explicit in-memory source decision for a fixed package.
 /// This page does not claim to install, persist trust, or activate a plugin.
@@ -204,7 +205,9 @@ struct ExtensionsPane: View {
                                 .font(DS.Font.caption).textSelection(.enabled)
                             Text("\(resource.mime) · \(resource.size) 字节 · SHA-256 \(resource.sha256)")
                                 .font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
-                            if let preview = String(data: resource.bytes.prefix(16384), encoding: .utf8) {
+                            if resource.mime.lowercased().hasPrefix("image/") {
+                                PluginResourceImagePreview(data: resource.bytes, mime: resource.mime)
+                            } else if let preview = String(data: resource.bytes.prefix(16384), encoding: .utf8) {
                                 Text(preview.isEmpty ? "空文本资源" : preview)
                                     .font(.system(size: 11, design: .monospaced))
                                     .textSelection(.enabled).lineLimit(12)
@@ -227,5 +230,37 @@ struct ExtensionsPane: View {
         .padding(DS.Padding.m)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+    }
+}
+
+private struct PluginResourceImagePreview: View {
+    let data: Data
+    let mime: String
+    @State private var image: CGImage?
+    @State private var rejected = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable().scaledToFit().frame(maxHeight: 360)
+            } else if rejected {
+                Text("图片格式不受支持或超过 16,777,216 像素解码上限。")
+                    .font(DS.Font.caption).foregroundStyle(.secondary)
+            } else {
+                ProgressView("检查图片…")
+                    .controlSize(.small)
+            }
+        }
+        .task(id: data) {
+            let bytes = data
+            let contentType = mime
+            let decoded = await Task.detached(priority: .utility) {
+                PluginResourceImageDecoder.decode(bytes, mime: contentType)
+            }.value
+            guard !Task.isCancelled else { return }
+            image = decoded
+            rejected = decoded == nil
+        }
     }
 }

@@ -1,8 +1,10 @@
 import CryptoKit
+import CoreGraphics
 import Darwin
 import Foundation
 import GhostermAppModel
 import GhostermCore
+import ImageIO
 import XCTest
 
 final class ExtensionControllerTests: XCTestCase {
@@ -15,6 +17,25 @@ final class ExtensionControllerTests: XCTestCase {
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
             protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc", "session.resources"])
         XCTAssertThrowsError(try ExtensionController(profile: profile))
+    }
+
+    func testPluginResourceImageDecoderEnforcesFormatAndPixelBudget() throws {
+        let pixels = Data(repeating: 0xff, count: 2 * 2 * 4)
+        let provider = CGDataProvider(data: pixels as CFData)!
+        let sourceImage = CGImage(width: 2, height: 2, bitsPerComponent: 8, bitsPerPixel: 32,
+            bytesPerRow: 8, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider,
+            decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        let encoded = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(encoded, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, sourceImage, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let data = encoded as Data
+
+        let decoded = try XCTUnwrap(PluginResourceImageDecoder.decode(data, mime: "image/png"))
+        XCTAssertEqual(decoded.width, 2)
+        XCTAssertNil(PluginResourceImageDecoder.decode(data, mime: "image/png", maxPixels: 3))
+        XCTAssertNil(PluginResourceImageDecoder.decode(data, mime: "image/svg+xml"))
     }
 
     func testControllerWithoutResourceCapabilityCannotTakeResources() async throws {
