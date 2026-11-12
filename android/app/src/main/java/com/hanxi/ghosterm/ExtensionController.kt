@@ -12,6 +12,8 @@ import android.provider.DocumentsContract
 import android.database.Cursor
 import com.hanxi.ghosterm.bridge.ExtensionPackage
 import com.hanxi.ghosterm.bridge.ExtensionRegistry
+import com.hanxi.ghosterm.bridge.ExtensionChannel
+import com.hanxi.ghosterm.bridge.SSHAuthState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
@@ -67,6 +69,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
         val packageDigest: String? = null,
         val command: Command? = null,
     )
+    data class ChannelState(val info: ExtensionChannel.Info, val authentication: SSHAuthState)
 
     private data class Key(val id: String, val digest: String)
     private data class Record(val packageBytes: ExtensionPackage, val review: Review, var source: Source)
@@ -79,6 +82,53 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private val closed = AtomicBoolean(false)
     private val records = linkedMapOf<Key, Record>() // worker-confined
     private var registry: ExtensionRegistry? = null // worker-confined
+    private var channel: ExtensionChannel? = null // same worker; later Session/Runtime owners must be adopted here
+
+    /** Create an explicitly requested gterm relay route. This does not install,
+     * discover, or start a remote Executor; the caller supplies its exact command. */
+    suspend fun openSSHChannel(hops: List<ExtensionChannel.Hop>, family: Int, address: ByteArray,
+        scope: Int = 0, bootstrap: String): ChannelState = onWorker {
+        check(channel == null) { "已有插件通道占用此控制器" }
+        val opened = ExtensionChannel.ssh(hops, family, address.copyOf(), scope, bootstrap)
+        channel = opened
+        try {
+            opened.step(0)
+            ChannelState(opened.info(), opened.authentication())
+        } catch (failure: Throwable) {
+            opened.stop()
+            throw failure
+        }
+    }
+
+    /** Poll and expose authentication state without ever invoking the
+     * thread-affine channel from the UI coroutine's thread. */
+    suspend fun stepSSHChannel(milliseconds: Int = 0): ChannelState = onWorker {
+        val current = checkNotNull(channel) { "插件通道尚未打开" }
+        current.step(milliseconds)
+        ChannelState(current.info(), current.authentication())
+    }
+
+    suspend fun decideSSHHost(prompt: SSHAuthState, accept: Boolean) = onWorker {
+        checkNotNull(channel) { "插件通道尚未打开" }.decide(prompt, accept)
+    }
+
+    suspend fun submitSSHPassword(prompt: SSHAuthState, password: ByteArray) {
+        try { onWorker { checkNotNull(channel) { "插件通道尚未打开" }.password(prompt, password) } }
+        finally { password.fill(0) }
+    }
+
+    suspend fun submitSSHPrivateKey(prompt: SSHAuthState, pem: ByteArray, passphrase: ByteArray) {
+        try { onWorker { checkNotNull(channel) { "插件通道尚未打开" }.privateKey(prompt, pem, passphrase) } }
+        finally { pem.fill(0); passphrase.fill(0) }
+    }
+
+    suspend fun stopSSHChannel() {
+        onWorker { channel?.stop() }
+    }
+
+    suspend fun closeSSHChannel() = onWorker {
+        channel?.let { current -> current.close(); channel = null }
+    }
 
     suspend fun review(directory: File): Review = onWorker {
         checkOpen()
@@ -161,6 +211,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
         try {
             withContext(NonCancellable + dispatcher) {
                 checkWorker()
+                channel?.let { runCatching { it.close() } }
+                channel = null
                 // Registry owns references to approved packages; release it first.
                 registry?.let { runCatching { it.closeStatus() } }
                 registry = null
