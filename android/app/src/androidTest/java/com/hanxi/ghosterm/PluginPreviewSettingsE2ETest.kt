@@ -211,9 +211,13 @@ class PluginPreviewSettingsE2ETest {
             ui.onNodeWithText("需要能力：resource.receive, file.readScoped").assertExists()
             ui.onNodeWithText("允许并启动").performClick()
 
-            await("MainActivity Settings did not receive Preview resource") {
-                extensions.receivedResources.any { it.descriptor.displayName == "fixture.txt" }
-            }
+            val resourceDeadline = SystemClock.elapsedRealtime() + 60_000
+            while (extensions.receivedResources.none { it.descriptor.displayName == "fixture.txt" } &&
+                SystemClock.elapsedRealtime() < resourceDeadline) SystemClock.sleep(20)
+            assertTrue("MainActivity Settings did not receive Preview resource: " +
+                "error=${main { extensions.error }} runtime=${main { extensions.activeRuntime }} " +
+                "session=${main { extensions.activeSession?.info }}",
+                extensions.receivedResources.any { it.descriptor.displayName == "fixture.txt" })
             val received = extensions.receivedResources.single { it.descriptor.displayName == "fixture.txt" }
             assertArrayEquals("Android Preview over two-hop SSH\n".toByteArray(), received.bytes)
             assertEquals("text/plain", received.descriptor.mime)

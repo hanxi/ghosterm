@@ -4625,3 +4625,12 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 以锁定 JDK 17 和 SDK API 36 / arm64-v8a Google APIs 系统镜像创建无窗口 AVD，JS-enabled Android Debug / androidTest 构建通过（Android ABI 140 引用 / 37 登记未用；Gradle 6 项执行、134 项缓存通过）。`test-plugin-preview-android.py` 在 API 36 / arm64-v8a 上确认 `OK (1 test)` 与 `ANDROID OFFICIAL PREVIEW E2E PASS`：生产 MainActivity Settings 的系统 SAF 选包、摘要批准、真实双跳 SSH、逐跳认证、Session consent、Client Runtime、ResourceStore 收件及暂存文件清理均通过。远端 `gterm` 使用本轮从源码构建的 JS-enabled 二进制。
 
 本轮只关闭 API 36 最终源码复验缺口，不扩展 API 29 之外的其它版本，不覆盖 16 KiB 页、用户真机或 P2 完整 importer / 启动 / consent 单次点击链。模拟器与 AVD、gterm 构建、HOME、测试夹具均在工程 `tmp/`，验收后关闭并清理本轮目录；不改公共 C ABI，不增加 macOS CI 二十份。P2 其它缺口及 P3–P6 仍待完成。
+
+
+### P2 实施第五十二批：API 36 / 16 KiB 页真实 SSH Preview 收件（2026-11-13）
+
+在 `PluginPreviewSettingsE2ETest#realTwoHopPreviewReceiptAppearsInMainActivitySettings` 上，使用锁定 Android API 36 `google_apis_ps16k` arm64-v8a 系统镜像，设备内 `getconf PAGE_SIZE` 实测为 `16384`。无窗口 Emulator 的 `HOME` / `ANDROID_AVD_HOME` / `TMPDIR` 均指向工程 `tmp/`。JS-enabled Debug / androidTest 构建通过，Android ABI 对拍 140 引用 / 37 登记未用；JS-enabled host `gterm` 从源码构建。
+
+首次测试运行未在原 30 秒资源等待内观察到 Preview 收件，脚本如实失败，远端包装器记录退出 5 / `runtime execution`；该轮不计通过。为便于后续排查，instrumentation 失败消息现包含 AppModel error、Runtime state 与 Session state，并将该实际资源等待的上限放宽为 60 秒。随后同设备连续三次 `OK (1 test)`，包括一次先清除 Ghosterm App 与 instrumentation 应用数据再安装 / 启动的轮次；每次均确认真实 MainActivity Settings、系统 SAF 选包、摘要批准、双跳 SSH、Session consent、Client Runtime、Preview ResourceStore 收件与远端暂存清理，runner 输出 `ANDROID OFFICIAL PREVIEW E2E PASS`。保留首次失败记录，不把重跑覆盖成从未失败。
+
+本批提供 API 36 / 16 KiB 页模拟器档的真实 SSH 收件证据，不代表用户真机、厂商设备或完整生命周期 / 多格式矩阵。AVD、HOME、gterm 构建与测试夹具均位于工程 `tmp/`，设备关闭后已清理；共享 `tmp/android-build` 保留。新增仅为 instrumentation 超时诊断，无公共 ABI 变更，不增加 macOS CI 二十份。P2 单次 macOS UI 点击链、真机与其它生命周期缺口，以及 P3–P6 仍未完成。
