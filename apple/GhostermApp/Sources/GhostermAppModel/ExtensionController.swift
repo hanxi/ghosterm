@@ -184,6 +184,16 @@ public actor ExtensionController {
         public let displayName: String
         public let size: UInt64
         public let bytes: Data
+
+        public init(resourceID: String, sha256: String, mime: String,
+                    displayName: String, size: UInt64, bytes: Data) {
+            self.resourceID = resourceID
+            self.sha256 = sha256
+            self.mime = mime
+            self.displayName = displayName
+            self.size = size
+            self.bytes = bytes
+        }
     }
 
     public enum ControllerError: Error, Sendable {

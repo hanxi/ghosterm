@@ -2,7 +2,7 @@
 
 日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 HTML 外部附件映射、资源 UI 生命周期专门视图断言、官方 Preview 完整交互与多格式附件收集；macOS App 已接资源能力协商、有界接收、UTF-8 文本、预算内静态图片、有界 Markdown 与禁脚本/网络的单文档 HTML 预览；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 P2 preview 产品闭环完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 HTML 外部附件映射、异步预览任务取消 / 晚到结果的视图生命周期断言、官方 Preview 完整交互与多格式附件收集；macOS App 已接资源能力协商、有界接收、UTF-8 文本、预算内静态图片、有界 Markdown 与禁脚本/网络的单文档 HTML 预览；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 P2 preview 产品闭环完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -4283,3 +4283,12 @@ JS-on `ExtensionControllerTests` 通过 **9 项、2 skip**；已有审查夹具�
 随即将既有 macOS App SSH E2E 改为加载该 checked-in 官方包，而非临时构造同形 fixture。JS-enabled App / Core 与真实隔离 sshd 下，AppModel 以官方 `preview fixture.txt` 命令通过 consent，Executor 从显式测试根发布文件，App 收到后逐字节校验内容、MIME、文件名、长度与 SHA-256，再停止并释放运行。专项定向 E2E **通过**；JS-off 的完整 Apple gate 对该特例保持既有显式 SKIP 规则。`gterm plugin check` 对该目录报告 compatible；`scripts/build-plugin-preview.py --check` 通过。测试 CLI/headless，产物和 sshd 临时目录均在工程 `tmp/`。
 
 仍未实现 Markdown/HTML 相对附件收集与映射、资源选择/列表交互及视图生命周期专项断言；当前 Preview Client 是受控空入口，通用资源 UI 提供已支持的格式展示，不宣称完整文档浏览器。插件安装 / 持久信任仍未接入。不改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第十三批：资源列表选择与停止生命周期（2026-11-12）
+
+资源面板改为左侧按 Resource ID 稳定选择、右侧只渲染当前资源预览；接收新资源时保持用户已有选择，所选资源离开当前列表后选择仍有效的首项，列表清空（运行停止 / 收件状态销毁）时清空选择。预览卡片按 resource ID 建立 SwiftUI identity，切换资源会销毁旧图片 / Markdown / HTML 子视图及其异步解码任务，避免跨资源复用本地预览状态。资源名称、MIME、长度、摘要继续对应已选资源。
+
+新增 selection 状态测试覆盖初次选择、追加保持、移除回退、拒绝晚到的过期 ID 和 run-stop 清空；离屏 `NSHostingView` 测试固定已验证文本资源的列表与选中预览实际绘制非空。Apple gate 通过：ABI 174 引用 / 3 登记未用，GhostermAppTests **395 项、5 skip、0 失败**。此前一次 gate 因 Core 构建缓存仍处于 JS-on、与普通 App JS-off 链接组合不匹配而在链接阶段失败；显式恢复 Core JS-off 后完整 gate 通过。全程 headless，无前台窗口。
+
+异步任务取消 / 晚到结果的定向延迟故障断言仍未增加；该视图片段不证明所有格式的真实浏览器渲染和取消时序。HTML 外部附件映射、多格式附件收集和 Preview 专属交互仍待完成。不改公共 ABI，不增加 macOS CI 二十份。

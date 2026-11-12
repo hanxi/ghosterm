@@ -12,6 +12,7 @@ struct ExtensionsPane: View {
     @State private var importing = false
     @State private var entries: [Entry] = []
     @State private var issue: String?
+    @State private var resourceSelection = PluginResourceSelection()
 
     private struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
@@ -205,32 +206,7 @@ struct ExtensionsPane: View {
                 }
                 if !run.receivedResources.isEmpty {
                     Text("本次运行收到的资源").font(DS.Font.labelEmphasis)
-                    ForEach(Array(run.receivedResources.enumerated()), id: \.offset) { _, resource in
-                        VStack(alignment: .leading, spacing: DS.Padding.xs) {
-                            Text(resource.displayName.isEmpty ? "未命名资源" : resource.displayName)
-                                .font(DS.Font.caption).textSelection(.enabled)
-                            Text("\(resource.mime) · \(resource.size) 字节 · SHA-256 \(resource.sha256)")
-                                .font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
-                            if PluginResourceHTMLDecoder.supports(mime: resource.mime) {
-                                PluginResourceHTMLPreview(resource: resource)
-                            } else if resource.mime.lowercased().hasPrefix("image/") {
-                                PluginResourceImagePreview(data: resource.bytes, mime: resource.mime)
-                            } else if PluginResourceMarkdownDecoder.supports(
-                                mime: resource.mime, displayName: resource.displayName) {
-                                PluginResourceMarkdownPreview(resource: resource)
-                            } else if let preview = String(data: resource.bytes.prefix(16384), encoding: .utf8) {
-                                Text(preview.isEmpty ? "空文本资源" : preview)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .textSelection(.enabled).lineLimit(12)
-                            } else {
-                                Text("此资源不是有效 UTF-8 文本；当前显示摘要，不解码为图片或 HTML。")
-                                    .font(DS.Font.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(DS.Padding.s)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.background, in: RoundedRectangle(cornerRadius: DS.Radius.control))
-                    }
+                    PluginResourceBrowser(resources: run.receivedResources, selection: $resourceSelection)
                 }
                 Button(model.extensionRunBusy ? "正在停止…" : "停止并释放插件") {
                     Task { await model.stopExtensionRun() }
@@ -241,6 +217,105 @@ struct ExtensionsPane: View {
         .padding(DS.Padding.m)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+        .onChange(of: model.extensionRun?.receivedResources.map(\.resourceID) ?? []) { identifiers in
+            resourceSelection.reconcile(identifiers)
+        }
+    }
+}
+
+struct PluginResourceSelection: Equatable {
+    private(set) var resourceID: String?
+
+    mutating func select(_ resourceID: String, available: [String]) {
+        guard available.contains(resourceID) else { return }
+        self.resourceID = resourceID
+    }
+
+    mutating func reconcile(_ available: [String]) {
+        guard let current = resourceID, available.contains(current) else {
+            resourceID = available.first
+            return
+        }
+    }
+}
+
+struct PluginResourceBrowser: View {
+    let resources: [ExtensionController.ReceivedResource]
+    @Binding var selection: PluginResourceSelection
+
+    private var identifiers: [String] { resources.map(\.resourceID) }
+    private var selectedResource: ExtensionController.ReceivedResource? {
+        resources.first { $0.resourceID == selection.resourceID }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DS.Padding.s) {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: DS.Padding.xs) {
+                    ForEach(resources, id: \.resourceID) { resource in
+                        Button {
+                            selection.select(resource.resourceID, available: identifiers)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(resource.displayName.isEmpty ? "未命名资源" : resource.displayName)
+                                    .lineLimit(1)
+                                Text("\(resource.mime) · \(resource.size) 字节")
+                                    .font(DS.Font.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(DS.Padding.s)
+                            .background(selection.resourceID == resource.resourceID
+                                ? Color.accentColor.opacity(0.16) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: DS.Radius.control))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("plugin-resource-select-\(resource.resourceID)")
+                    }
+                }
+            }
+            .frame(width: 190)
+            .frame(maxHeight: 360)
+            if let selectedResource {
+                PluginResourcePreviewCard(resource: selectedResource)
+                    .id(selectedResource.resourceID)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("plugin-resource-preview-\(selectedResource.resourceID)")
+            }
+        }
+        .onAppear { selection.reconcile(identifiers) }
+        .onChange(of: identifiers) { selection.reconcile($0) }
+    }
+}
+
+private struct PluginResourcePreviewCard: View {
+    let resource: ExtensionController.ReceivedResource
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Padding.xs) {
+            Text(resource.displayName.isEmpty ? "未命名资源" : resource.displayName)
+                .font(DS.Font.caption).textSelection(.enabled)
+            Text("\(resource.mime) · \(resource.size) 字节 · SHA-256 \(resource.sha256)")
+                .font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
+            if PluginResourceHTMLDecoder.supports(mime: resource.mime) {
+                PluginResourceHTMLPreview(resource: resource)
+            } else if resource.mime.lowercased().hasPrefix("image/") {
+                PluginResourceImagePreview(data: resource.bytes, mime: resource.mime)
+            } else if PluginResourceMarkdownDecoder.supports(
+                mime: resource.mime, displayName: resource.displayName) {
+                PluginResourceMarkdownPreview(resource: resource)
+            } else if let preview = String(data: resource.bytes.prefix(16384), encoding: .utf8) {
+                Text(preview.isEmpty ? "空文本资源" : preview)
+                    .font(.system(size: 11, design: .monospaced))
+                    .textSelection(.enabled).lineLimit(12)
+            } else {
+                Text("此资源不是有效 UTF-8 文本；当前显示摘要，不解码为图片或 HTML。")
+                    .font(DS.Font.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(DS.Padding.s)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: DS.Radius.control))
     }
 }
 
