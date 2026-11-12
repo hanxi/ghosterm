@@ -246,7 +246,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
             }
         } finally { exact.close() }
         val active = ExtensionRuntime.adoptPackage(current, record.packageBytes, ExtensionSession.Role.HOST,
-            associated = true, invocation = ExtensionRuntime.Invocation(command, arguments.toList()))
+            associated = true, cpuMilliseconds = CLIENT_RUNTIME_CPU_MILLISECONDS,
+            invocation = ExtensionRuntime.Invocation(command, arguments.toList()))
         session = null; sessionPackageKey = null; runtime = active
         runtimePackageKey = Key(pluginID, packageDigest); runtimeCommand = command
         RuntimeState(pluginID, packageDigest, command, active.info())
@@ -484,6 +485,10 @@ class ExtensionController(profile: HostProfile, context: Context) {
     companion object {
         private const val CAPTURE_STEP_LIMIT = 100_000
         private const val RESOURCE_BYTES = 1L * 1024 * 1024
+        // Runtime executes on its dedicated worker. This bounded slice covers
+        // cold QuickJS module startup on 16 KiB arm64 systems without running
+        // plugin code on the UI thread.
+        private const val CLIENT_RUNTIME_CPU_MILLISECONDS = 100
         private const val RESOURCE_SESSION_BYTES = 8L * 1024 * 1024
         private const val TREE_ENTRY_LIMIT = 4096
         private const val TREE_MEMBER_BYTES = 16L * 1024L * 1024L

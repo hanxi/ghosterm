@@ -224,6 +224,20 @@ class PluginPreviewSettingsE2ETest {
             ui.onNodeWithTag("plugin-runtime-state").assertExists()
             ui.onNodeWithTag("plugin-resource-${received.descriptor.resourceId}").performScrollTo().assertExists()
             ui.onNodeWithText("Android Preview over two-hop SSH", substring = true).assertExists()
+
+            ui.onNodeWithText("停止插件").performScrollTo().performClick()
+            await("Settings stop action did not stop the Client Runtime: ${main { extensions.activeRuntime }}") {
+                extensions.activeRuntime?.info?.phase == com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STOPPED
+            }
+            ui.onNodeWithText("释放插件资源").performScrollTo().performClick()
+            await("Settings release action did not clear the Session, Runtime, and resource receipt: " +
+                "runtime=${main { extensions.activeRuntime }} session=${main { extensions.activeSession }} " +
+                "resources=${main { extensions.receivedResources.size }} error=${main { extensions.error }}") {
+                extensions.activeRuntime == null && extensions.activeSession == null &&
+                    extensions.receivedResources.isEmpty() && !extensions.launchBusy
+            }
+            assertNull("stopping and releasing the received Preview must not leave an AppModel error",
+                extensions.error)
         } finally {
             var closeFailure: Throwable? = null
             try { runBlocking { controller.close() } } catch (failure: Throwable) { closeFailure = failure }
