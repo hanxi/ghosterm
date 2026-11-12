@@ -2,11 +2,21 @@ import CryptoKit
 import Darwin
 import Foundation
 import GhostermAppModel
+import GhostermCore
 import XCTest
 
 final class ExtensionControllerTests: XCTestCase {
     @MainActor
+    func testClientHostProfileOnlyAdvertisesIntegratedCapabilities() {
+        XCTAssertEqual(AppModel.extensionHostCapabilities, ["session.rpc"])
+        XCTAssertFalse(AppModel.extensionHostCapabilities.contains("session.resources"))
+    }
+
+    @MainActor
     func testReviewDoesNotApproveAndResolutionRequiresExactApproval() async throws {
+        guard ExtensionRuntime.supportStatus == 0 else {
+            throw XCTSkip("requires the explicit JS-enabled Core profile")
+        }
         let root = sessionTestDirectory().appendingPathComponent("extension-controller-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }

@@ -20,6 +20,11 @@ import Foundation
 
 @MainActor
 public final class AppModel: ObservableObject {
+    /// Capabilities implemented by the App-facing Client runtime path.
+    /// Core ResourceStore support alone does not make session.resources a
+    /// product capability until the App has an owning resource service/view.
+    public static let extensionHostCapabilities = ["session.rpc"]
+
     public enum Target: Hashable {
         case localShell
         case host(String)
@@ -177,7 +182,7 @@ public final class AppModel: ObservableObject {
         if ExtensionRuntime.supportStatus == 0 {
             let profile = try? ExtensionController.HostProfile(
                 side: .client, sdkVersion: "1.0.0", protocols: [1],
-                runtimes: ["portable-js"], capabilities: ["session.rpc", "session.resources"])
+                runtimes: ["portable-js"], capabilities: Self.extensionHostCapabilities)
             self.extensionController = profile.flatMap { try? ExtensionController(profile: $0) }
         } else {
             self.extensionController = nil
