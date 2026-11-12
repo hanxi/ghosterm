@@ -3939,3 +3939,10 @@ Android 编译与 instrumentation 因环境没有 Java Runtime 未执行；不�
 `ExtensionController` 新增在 SSH channel ready 后按精确 ID + digest、仅对 ALLOWED Client 包创建 HOST `ExtensionSession` 的 API；Session 配置使用固定包要求、宿主当前能力、用户选定的 Executor digest、显式方法清单和目标身份。Native Session consent token 必须匹配当前 CONSENT 阶段才接受决定。Client Runtime 仅能在 Session 到达 ACTIVE 后启动，并再次通过 registry 对拍精确 package digest 与 command；运行参数交给已检查的包 `argsSchema` decoder。成功 adoption 按 channel → session → runtime 移交 owner；controller close 按 runtime → session → channel → registry → package 逆序关闭。
 
 复核发现 Android 设置页此前把尚未由 app 实现 ResourceStore / resource UI 的 `session.resources` 声明进 Client HostProfile，可能让包检查错误报告能力可用；现收窄为当前已接的 `session.rpc`。本批尚无 App 命令选择 / consent UI caller 和实际远端 gterm 对拍，Android 编译 / instrumentation 也受缺少 Java Runtime 阻塞；没有记作行为通过。未修改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P0 第六十七批：Android 显式 Executor SSH 启动 argv 构造（2026-11-12）
+
+新增 `ExtensionRelayBootstrap`，把调用方明确提供的远端 `gterm` 路径、固定 Executor 目录与摘要、当前 Client 摘要、RPC 方法清单及命令参数编码成单条 POSIX shell `exec`。每个值作为独立 argv token 做单引号引用，内嵌单引号按 POSIX 规则转义；校验摘要、方法数量/名称、NUL/换行、单参数长度和现有 1024 字节路由上限。该构造器不探测、不安装、不选择远端 Executor，也不把开发摘要等同发布者认证。
+
+本批只落启动 argv 构造接缝，设置页尚无生产调用方；Session consent / Client Runtime 调用链和实际远端 `gterm` / 双跳 fixture 验证仍待完成。当前宿主缺 Java Runtime，Android Kotlin 编译及 instrumentation 未能启动，不记通过。未改公共 C ABI，不增加 macOS CI 二十份。
