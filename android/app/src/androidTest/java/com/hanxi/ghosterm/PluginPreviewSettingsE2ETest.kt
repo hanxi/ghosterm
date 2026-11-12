@@ -9,6 +9,7 @@ import android.provider.DocumentsContract
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.ui.test.*
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -170,7 +171,8 @@ class PluginPreviewSettingsE2ETest {
             val request = ExtensionRelayBootstrap.Request(
                 executable = payload.getString("previewGtermWrapper"), executorDirectory = payload.getString("previewPackageDirectory"),
                 executorDigest = digest, clientDigest = digest, methods = emptyList(), command = "preview",
-                arguments = listOf("fixture.txt"), workspaceRootDirectory = payload.getString("previewWorkspace"))
+                arguments = listOf("docs/preview.md", "--assets", "docs/marker.png"),
+                workspaceRootDirectory = payload.getString("previewWorkspace"))
 
             System.out.println("Preview launch id=${entry.review.id} digestMatches=${entry.review.digest == request.clientDigest} " +
                 "decision=${entry.decision} command=${command.path} args=${request.arguments.size}:${request.arguments.firstOrNull()}")
@@ -200,7 +202,7 @@ class PluginPreviewSettingsE2ETest {
             }
             assertNotNull("SSH route was not adopted: attempt=${main { sessions.connecting?.message }} " +
                 "error=${main { extensions.error }}", main { extensions.activeSession })
-            assertEquals("{\"assets\":\"\",\"maxBytes\":262144,\"path\":\"fixture.txt\"}",
+            assertEquals("{\"assets\":\"docs/marker.png\",\"maxBytes\":262144,\"path\":\"docs/preview.md\"}",
                 main { extensions.activeSession!!.decodedArguments })
             await("Settings page did not reach Session consent: session=${main { extensions.activeSession?.info }} " +
                 "error=${main { extensions.error }}") {
@@ -212,18 +214,38 @@ class PluginPreviewSettingsE2ETest {
             ui.onNodeWithText("允许并启动").performClick()
 
             val resourceDeadline = SystemClock.elapsedRealtime() + 60_000
-            while (extensions.receivedResources.none { it.descriptor.displayName == "fixture.txt" } &&
+            while (extensions.receivedResources.none { it.descriptor.displayName == "docs/preview.md" } &&
                 SystemClock.elapsedRealtime() < resourceDeadline) SystemClock.sleep(20)
             assertTrue("MainActivity Settings did not receive Preview resource: " +
                 "error=${main { extensions.error }} runtime=${main { extensions.activeRuntime }} " +
                 "session=${main { extensions.activeSession?.info }}",
-                extensions.receivedResources.any { it.descriptor.displayName == "fixture.txt" })
-            val received = extensions.receivedResources.single { it.descriptor.displayName == "fixture.txt" }
-            assertArrayEquals("Android Preview over two-hop SSH\n".toByteArray(), received.bytes)
-            assertEquals("text/plain", received.descriptor.mime)
+                extensions.receivedResources.any { it.descriptor.displayName == "docs/preview.md" })
+            await("Settings did not receive both the Markdown document and its explicit image attachment") {
+                extensions.receivedResources.map { it.descriptor.displayName }.toSet() ==
+                    setOf("docs/preview.md", "docs/marker.png")
+            }
+            val received = extensions.receivedResources.single { it.descriptor.displayName == "docs/preview.md" }
+            val expectedMarkdown = "# Android Preview\n\n![red marker](marker.png)\n\nAndroid Markdown over two-hop SSH\n"
+            assertArrayEquals(expectedMarkdown.toByteArray(), received.bytes)
+            assertEquals("text/markdown", received.descriptor.mime)
+            val image = extensions.receivedResources.single { it.descriptor.displayName == "docs/marker.png" }
+            assertEquals("image/png", image.descriptor.mime)
             ui.onNodeWithTag("plugin-runtime-state").assertExists()
             ui.onNodeWithTag("plugin-resource-${received.descriptor.resourceId}").performScrollTo().assertExists()
-            ui.onNodeWithText("Android Preview over two-hop SSH", substring = true).assertExists()
+            ui.onNodeWithTag("plugin-resource-markdown").assertExists()
+            ui.waitUntil(10_000) {
+                ui.onAllNodesWithTag("plugin-resource-markdown-inline-image").fetchSemanticsNodes().isNotEmpty()
+            }
+            ui.onNodeWithTag("plugin-resource-markdown-inline-image").assertExists()
+            ui.onNodeWithText("Android Markdown over two-hop SSH", substring = true).assertExists()
+            val preview = ui.onNodeWithTag("plugin-resource-markdown").captureToImage().asAndroidBitmap()
+            var redPixels = 0
+            for (y in 0 until preview.height) for (x in 0 until preview.width) {
+                val color = preview.getPixel(x, y)
+                if (android.graphics.Color.red(color) > 240 && android.graphics.Color.green(color) < 32 &&
+                    android.graphics.Color.blue(color) < 32) redPixels++
+            }
+            assertTrue("real SSH Markdown attachment should draw red pixels; got $redPixels", redPixels > 0)
 
             ui.onNodeWithText("停止插件").performScrollTo().performClick()
             await("Settings stop action did not stop the Client Runtime: ${main { extensions.activeRuntime }}") {

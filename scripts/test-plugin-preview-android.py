@@ -19,6 +19,7 @@ import sys
 import tempfile
 import threading
 import time
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
@@ -65,10 +66,22 @@ def main():
     shutil.copytree(package_source, package)
     integrity = (package / "integrity.json").read_bytes()
     digest = hashlib.sha256(integrity).hexdigest()
-    fixture_text = b"Android Preview over two-hop SSH\n"
+    fixture_markdown = b"# Android Preview\n\n![red marker](marker.png)\n\nAndroid Markdown over two-hop SSH\n"
     workspace = work / "workspace"
-    workspace.mkdir()
-    (workspace / "fixture.txt").write_bytes(fixture_text)
+    markdown_dir = workspace / "docs"
+    markdown_dir.mkdir(parents=True)
+    (markdown_dir / "preview.md").write_bytes(fixture_markdown)
+    # Small deterministic RGBA PNG, generated in the isolated fixture.
+    width = height = 32
+    scanline = b"\x00" + bytes((255, 0, 0, 255)) * width
+    raw = scanline * height
+    def png_chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xffffffff)
+    image_bytes = (b"\x89PNG\r\n\x1a\n" +
+                   png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) +
+                   png_chunk(b"IDAT", zlib.compress(raw)) + png_chunk(b"IEND", b""))
+    (markdown_dir / "marker.png").write_bytes(image_bytes)
     remote_tmp = work / "remote-tmp"
     remote_tmp.mkdir()
     remote_stderr = work / "remote-gterm.stderr"
@@ -175,7 +188,7 @@ def main():
                 data = path.read_bytes()
                 if b"PRIVATE KEY-----" in data or b"openssh-key-v1\0" in data:
                     raise RuntimeError("temporary fixture serialized private-key material")
-        print(f"ANDROID OFFICIAL PREVIEW E2E PASS: API {api_level}, {abi}, device {args.android}; real two-hop SSH, consent, Client Runtime, ResourceStore receipt")
+        print(f"ANDROID OFFICIAL PREVIEW E2E PASS: API {api_level}, {abi}, device {args.android}; real two-hop SSH, consent, Markdown+PNG Settings rendering, stop/release, remote cleanup")
     finally:
         shutil.rmtree(work)
 
