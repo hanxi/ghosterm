@@ -1,4 +1,5 @@
-/* Candidate wire: uint32 big-endian length + 1..65536 opaque bytes.
+/* Frozen wire v1 framing (current route: SSH exec/stdio): uint32 big-endian
+ * length + 1..65536 opaque bytes.
  * Framing only: JSON/UTF-8/schema, identity and authorization belong above it.
  * Bad prefix is terminal: never scan for a plausible later frame. */
 #ifndef GT_BRIDGE_FRAME_H

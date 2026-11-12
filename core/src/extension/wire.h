@@ -1,4 +1,4 @@
-/* Private S4 wire candidate: bounded UTF-8 JSON + generated envelope schema.
+/* Frozen logical wire v1: bounded UTF-8 JSON + generated envelope schema.
  * Validation is not host authentication, consent, method permission or delivery.
  * No allocation during parse. Owner-thread only; raw payload views are borrowed
  * until the next parse/free. Any failed parse invalidates the previous view.

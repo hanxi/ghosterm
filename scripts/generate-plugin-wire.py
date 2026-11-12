@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the bounded C validator for the bridge candidate, or check drift.
+"""Generate the bounded C validator for frozen bridge wire v1, or check drift.
 
 This is deliberately a compiler for the keywords actually used by this schema,
 not an advertised general JSON Schema engine. Unknown keywords/patterns fail.

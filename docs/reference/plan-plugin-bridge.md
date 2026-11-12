@@ -1,14 +1,14 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件及 P2 Android Preview 第三十七批。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation，默认参数解码与未知 option 启动前拒绝均有设备断言。API 29 / API 36 arm64 无窗口 AVD 也通过真实双跳 Preview 收件后生产资源面板正文断言，并通过同目录 Markdown PNG 像素绘制；完整 MainActivity / Settings 页面交互、16 KiB 页与真机仍待验。**
+日期：2026-11-05，更新至 2026-11-12 P0 wire v1 冻结复核。状态：**P0 技术风险探针与首个 wire v1 envelope 已关闭并冻结；当前生产双向业务只走无 PTY SSH exec，普通 TTY 回包明确不支持，QuickJS-NG 0.18.0 为首选引擎。Core / gterm 与 macOS、Android 首条 SSH 插件调用链已接入 wire v1；独立 local IPC 后端仍未实现。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation，默认参数解码与未知 option 启动前拒绝均有设备断言。API 29 / API 36 arm64 无窗口 AVD 也通过真实双跳 Preview 收件后生产资源面板正文断言，并通过同目录 Markdown PNG 像素绘制；完整 MainActivity / Settings 页面交互、16 KiB 页与真机仍待验。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结；P2 官方 Preview 的完整交互与端到端验证。独立 headless WebKit probe 已通过真实 WKWebView CSS / PNG 绘制，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；AppModel / SwiftUI 实际接收后的完整端到端交互仍未完成。Android 资源预览的完整产品 UI 与设备验收；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P2 官方 Preview 的完整交互与端到端验证。独立 headless WebKit probe 已通过真实 WKWebView CSS / PNG 绘制，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；AppModel / SwiftUI 实际接收后的完整端到端交互仍未完成。Android 资源预览的完整产品 UI 与设备验收；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
 
-> 除实施记录明确列出的已实现部分，本计划中的目录、API、命令、协议字段、预算、运行时与包后缀均为设计草案。P0 探针通过后才能冻结兼容契约。方案获认可不代表这些能力已实现，也不改变 [AGENTS.md](../../AGENTS.md) 的架构、退役和验收规则。
+> 除实施记录明确列出的已实现部分，本计划中的目录、API、命令、运行时与包后缀仍为设计草案。P0 关闭记录冻结的仅是逻辑 wire v1 envelope 与 SSH exec 长度帧格式；独立 local IPC、TTY carrier、gateway、公开 C ABI 名称、包格式、安装信任和协商宿主预算均未因此冻结或视为已实现。方案获认可不代表这些能力已实现，也不改变 [AGENTS.md](../../AGENTS.md) 的架构、退役和验收规则。
 
 本计划中的变异验证、故障注入和逐分配 OOM 扫描用于验证本项目及锁定依赖的错误处理与修复。
 协作时应列明具体测试对象、授权范围、失败判据与预期修复；术语和 AI 安全提示的排查见
@@ -43,7 +43,7 @@
 
 - **D03** **原生工作区与原生标准组件。** 插件声明 chat / diff / table / task / form 语义，自定义 Web 内容只承担文档或图表。
 
-- **D04** **首版双向通道优先独立、无 PTY 的 SSH exec / stdio。** 受管多跳逐跳认证，TTY 只作受限发现 / 单向候选；不从手工嵌套 shell 猜测目标或重建 SFTP。未来网关只保留 Transport 接缝，不实现。
+- **D04** **首版双向通道为独立、无 PTY 的 SSH exec / stdio。** 受管多跳逐跳认证；TTY 不承载业务回包，不从手工嵌套 shell 猜测目标或重建 SFTP。未来网关只保留 Transport 接缝，不实现。
 
 - **D05** **业务插件不处理终端字节流。** 协议分帧和资源 IO 在 C / Transport owner，TerminalSurface 不知道 SSH 或插件业务。
 
@@ -51,7 +51,7 @@
 
 - **D07** **实现状态与能力诚实分开。** GUI 能展示不等于有本地执行器；未具备的能力返回 GT_ERR_UNSUPPORTED。
 
-- **D08** **协议 v1 与 SDK v1 先是候选。** 格式、命名与预算须经过两个平台、真实 SSH 和 tmux 探针才能进入兼容承诺。
+- **D08** **wire v1 envelope 已冻结；SDK v1 与产品命名仍为候选。** envelope 在 macOS / Android Core、真实 SSH 与 tmux 限缩探针后冻结；函数名、包后缀和发行兼容策略仍待对应阶段验收。
 
 ### 业务扩展范围
 
@@ -653,7 +653,7 @@ gterm plugin link ./dist --side executor
 
 分开解决输出透传、输入归属、业务消息和资源完整性；不把图形协议作为依赖。
 
-标准 TTY 文件协议可作为传输子集的互操作候选；本方案还需要持续 RPC、多个逻辑流和优先级。P0 对比 Kitty 文件传输 / trzsz 与受限 bridge framing 的真实链路，能复用的子集继续复用；扩展需要显式协商，不擅自改包后声称兼容。首个规范冻结前，任何私有 carrier 都只用于隔离探针。
+当前 SSH exec 使用冻结的 wire v1 长度帧和逻辑 envelope；未来 local IPC / gateway 可以复用逻辑 envelope，但须各自实现并通过 conformance，不能据冻结声称后端已存在。P0 对比确认 Kitty OSC 5113 / trzsz 文件动作不能替代持续 RPC、多逻辑流、credit 与结果事实；本协议不声称兼容或复用其 wire。TTY carrier 未选定、未冻结、未在产品中承载业务回包；未来若实现，必须独立定义并协商，不能改变 wire v1。
 
 ### 逻辑帧与传输编码
 
@@ -675,14 +675,15 @@ gterm plugin link ./dist --side executor
 }
 ```
 
-这是符合当前候选 envelope 的业务示例，不是可以直接粘贴到 shell 的字节。字段名、格式和 ID 约束仍待 P0 冻结；S4c1 仅允许显式启用并注册且获授权的 request，示例 method 尚未接实际插件。不同插件的 payload 仍需各自 schema；未知 method 必须返回错误，不能当成功丢弃。
+这是符合冻结 wire v1 envelope 的业务示例，不是可以直接粘贴到 shell 的字节。S4c1 仅允许显式启用并注册且获授权的 request，示例 method 尚未接实际插件。不同插件的 payload 仍需各自 schema；未知 method 必须返回错误，不能当成功丢弃。
 
 | 通道 | 编码 | 校验边界 |
 | --- | --- | --- |
-| 本机 stdio / IPC | 固定长度前缀 + 有界 metadata / payload；不引入 TTY 转义 | 最大帧、UTF-8 / JSON、类型、实例归属、EOF 的半帧；本地 IPC 另验证当前用户 / 客户端 |
-| 独立 SSH exec / stdio（首片） | 与本机 IPC 共用长度前缀与逻辑帧 | 无 PTY；stdout 只承载协议，stderr 独立有界排空；绑定实际目标与固定接收者，不依赖终端 pane |
-| TTY carrier | 候选私有 DCS 前缀 + 有界文本编码分片 + ST；实际前缀与 tmux 包装由 P0 冻结 | 增量 parser 跨 read 分块；不宣称占用已登记标准序列；可识别但未授权只允许小型 offer |
-| tmux 包装 | 按探测结果使用 DCS passthrough / 明确前台 relay | 层数、转义膨胀、长度上限、可见性；不根据环境变量猜测最终可用性 |
+| 当前 gterm / Core conformance stdio | 固定长度前缀 + 有界 metadata / payload；生产双向产品路线为 SSH exec | 最大帧、UTF-8 / JSON、类型、实例归属、EOF 的半帧 |
+| 未来 local IPC | 计划复用冻结 wire v1；后端尚未实现 | 接入时另验 peer 用户 / 客户端身份及 owner 生命周期 |
+| 独立 SSH exec / stdio（首片） | 使用冻结长度前缀与逻辑 wire v1 | 无 PTY；stdout 只承载协议，stderr 独立有界排空；绑定实际目标与固定接收者，不依赖终端 pane |
+| TTY carrier | 未选择；不承载本计划支持的双向业务 | 无 TTY 回包授权；任何未来 carrier 须单独设计 / 协商，不能回写未知 pane |
+| TTY / tmux 包装 | 当前不承载插件业务；TTY 双向回包不支持 | 未来 carrier / relay 须独立验证输入归属并显式协商 |
 | 未来 gateway | 经认证的 WSS / 平台网关，承载同一逻辑帧 | 外层认证、来源 / 用户隔离与过期；不向浏览器发 SSH 私钥，不开放匿名执行入口 |
 
 解析器在普通态遇到非本协议字节须逐字节透传，不能破坏未知 OSC / APC / DCS、Kitty 图形或剪贴板协议。遇到已识别并接受的损坏 bridge 帧则丢弃该协议帧并终止扩展实例，不让载荷落入终端。前缀未完整时只缓存有限探测窗口，超时后按原字节恢复，不能吞掉普通输出或无限等。
@@ -922,7 +923,7 @@ ExtensionPlatformServices
 
 ### 进度跟踪
 
-- [ ] P0 技术探针与协议候选
+- [x] P0 技术探针与 SSH exec wire v1 envelope 冻结（P0 第一至第四批、第九十七至第一百批）
 - [ ] P1 C 通道与资源闭环
 - [ ] P2 插件运行时与 preview
 - [ ] P3 Codex 双向对话
@@ -3771,11 +3772,11 @@ Apple `ExtensionPackageTests.testFixedPackageAdoptionAndRPC` 在 JS 开启的 Co
 
 保留明确的技术出口，避免把尚未证明的假设固化到 SDK。
 
-- **Q01** **TTY 双向路由。** 必须证明回应进入对应前台接收者。证明不了则限制拓扑或要求明确路由，保留单向资源能力；不拿心跳 / pane ID 代替路由隔离。
+- **Q01 已关闭（限缩拓扑）。** 多客户端 tmux 的输入归属负向已证明普通 TTY 回写不安全；当前产品只在用户选择并认证的无 PTY SSH exec 路线上启用双向业务。该通道由独立 owner 持有，不从 TTY offer、pane ID 或自报主机名猜测目标；TTY 双向保持不支持。证据见 P0 第三批、第十二批、第九十七 / 九十八批及 macOS 第八十九至九十一批。
 
-- **Q02** **标准协议复用范围。** 文件子集可独立互操作，持续 RPC / 多流是否需要新的外层 carrier 由 P0 对比决定；冻结前不声称兼容 Kitty / trzsz。
+- **Q02 已关闭（不宣称 wire 兼容）。** 固定版 trzsz 文件互通证明标准文件子集可传文件，但其 action / ack、持续 RPC、多流、credit 和用户授权语义不满足本协议；Kitty OSC 5113 也不承载这些 session 语义。当前 SSH exec 使用独立 wire v1；不声称兼容 Kitty / trzsz。证据见 P0 第四批及第十三至十八批。
 
-- **Q03** **JS 引擎与宿主成本。** 比较 QuickJS 候选在两端的 C11 构建、异步 IO 与取消、限额和维护。达不到指标就保留 Exec 探针，不以 Node 全平台嵌入代替能力验证。
+- **Q03 已关闭（选择 QuickJS-NG）。** QuickJS-NG 0.18.0 在 macOS 与 Android NDK 以 C11 构建，并通过受限模块、Promise job、内存 / 栈 / CPU、native IO 期限取消及多实例隔离探针；QuickJS 原版保留为比较证据，不作为产品后端。JS 仍显式 opt-in，不能推导为普通 App 默认启用或恶意第三方沙箱已完成。证据见 P0 第二批、第二十五至三十三批及第九十五批。
 
 - **Q04** **原生组件的最小公共语义。** 用 preview + Codex + 第二个 AI 后端检验。遇到独有能力时显式扩展，不伪造“所有工具都等价”的通用事件。
 
@@ -4510,4 +4511,14 @@ AVD 的 HOME、AVD、emulator、crash database 与 launcher 目录均在工程 `
 
 随后 `TMPDIR="$PWD/tmp" python3 scripts/mutation-check-plugin-wire.py` 在隔离 Core 副本内完成 16 组 sanitizer 变异。恢复后的当前基线为 **618 项**；所有变异均真实编译，正常 C 断言目标红、同库 ssh_config 对照绿、wire 全套恢复绿、生成 schema 对拍通过且输入 SHA256 一致。覆盖重复键 / key scope、UTF-8 与 surrogate、字节 / node / depth 限制、counter 溢出、精确整数、schema 入口、Base64 pad bits、SemVer、失败输出 / view 清零、workspace 擦除与 allocator 释放。ASan / UBSan 错误、崩溃及编译失败不计目标红；本轮未运行 LSan。变异后生产源码未变。
 
-本复核更新了 schema 实例数与 offer 大小的当前证据，但不冻结 wire v1 或 TTY carrier：标准协议适用范围、受支持拓扑和跨端互操作边界仍需在 P0 关闭记录中作显式裁决。测试日志和 npm cache 均在验收后从 `tmp/` 清理；不改公共 ABI，不增加 macOS CI 二十份。
+本复核更新了 schema 实例数与 offer 大小的当前证据；该批记录当时尚未完成 wire v1 冻结裁决，最终结论见第一百批。TTY carrier 仍不冻结。测试日志和 npm cache 均在验收后从 `tmp/` 清理；不改公共 ABI，不增加 macOS CI 二十份。
+
+### P0 第一百批：关闭技术风险并冻结 SSH exec wire v1（2026-11-12）
+
+**裁决范围。** 冻结 `bridge-v1.candidate.json` 中的逻辑 envelope 字段 / message shape，以及 SSH exec / stdio 使用的四字节大端长度帧：payload 为 1–65,536 字节；Core 对原始 UTF-8 JSON 的 64 KiB、32 层 / 4096 个 value node、重复 key、精确整数和生成 schema 执行严格校验。未来不兼容 envelope 变更必须提升 `wireVersion`。保留探索期文件路径和 `.candidate.json` 文件名，不把路径名当草案状态。该冻结不包含 TTY 编码、独立 local IPC 后端、gateway、C ABI 函数名、包格式 / `.gtp`、安装信任或协商出来的 Session / ResourceStore 策略预算。
+
+**P0 风险裁决。** Q01 按拓扑限缩关闭：多客户端 tmux 输入归属不可靠，生产双向会话只用用户明确选择并逐跳认证的无 PTY SSH exec；不回写 TTY，不根据 pane / offer 推断路由。Q02 关闭为独立协议决策：trzsz 文件传输成功不等于 session / RPC / 授权协议兼容，Kitty OSC 5113 也不是持续会话协议；不复用或声称兼容两者。Q03 选择锁定的 QuickJS-NG 0.18.0，普通 App 的 JS 开关仍默认关闭。两端实际 SSH / Client Runtime、Android API 29 / 36 参数行为及既有 tmux 负向证据见对应批次；未来 local IPC / gateway 只可作为新 provider 复用逻辑 envelope，并须先过 conformance。
+
+**冻结复核证据。** 当前源 `scripts/test-plugin-schema.py --fetch --mutate` 通过 82 个 schema 实例和四组 Ajv 变异，offer 为 703 字节；`scripts/test-plugin-wire.py --reference --fetch` 通过 Ajv 对拍 271 个 schema 实例及 Core wire 618 项；冻结 metadata 与生成器一致（`python3 scripts/generate-plugin-wire.py --check`）。最终输入下 `scripts/mutation-check-plugin-wire.py` 16 组真实 C sanitizer 变异全部通过目标红 / 同库配置绿 / 恢复绿 / SHA256；Core wire raw parser 与 generated envelope 均有证据。冻结 `$id` 的 `$ref` 更新后，package metadata 96 fixtures / 6 mutations 和 package-validator generator 对拍通过。`TMPDIR="$PWD/tmp" bash scripts/gate.sh` 最终通过 474/474 CTest、177 个 ABI 符号及未实现入口检查；首次 gate 因 capsule 摘要未随 schema ID 更新失败，按锁定 Ajv 生成 capsule 后复跑全绿。格式检查见本批提交前结果。测试后 `tmp/` 的 AVD、npm cache、mutation workspace 与日志均清理。
+
+P0 技术探针与首个 SSH exec wire v1 envelope 现关闭；SDK v1、命令 / 包命名、持久安装 / 信任、TTY carrier、local IPC 实现、gateway、Q04–Q07、P1 后续平台 conformance 和 P2–P6 仍按各自计划推进。本裁决不表示整个插件计划完成，不增加 macOS CI 二十份。

@@ -2,7 +2,7 @@
 
 当前实现类型化请求边界和命令 argv 解码器，不是完整插件运行时，也没有发布 npm 包或冻结 v1 API。
 生产源在 `portable/`；它只使用 ES2020，没有 Node、DOM、定时器、文件或网络入口。
-`schema/bridge-v1.candidate.json` 是 wire 错误定义的事实来源；
+`schema/bridge-v1.candidate.json`（保留探索期文件名）是仓库内 wire v1 envelope 的冻结事实来源；
 `python3 scripts/generate-plugin-sdk.py --check` 对拍生成的 `wire-contract.ts`。
 
 ```typescript

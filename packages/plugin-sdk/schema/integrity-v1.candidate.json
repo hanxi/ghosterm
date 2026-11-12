@@ -35,7 +35,7 @@
             "maximum": 16777216
           },
           "sha256": {
-            "$ref": "https://ghosterm.invalid/plugin-schema/bridge-v1.candidate.json#/$defs/digest"
+            "$ref": "https://ghosterm.invalid/plugin-schema/bridge-v1.json#/$defs/digest"
           }
         }
       }

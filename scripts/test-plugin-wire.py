@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C wire conformance against the shared candidate and raw-byte adversarial input.
+"""C wire v1 conformance against its shared schema and raw-byte adversarial input.
 
 Default is stdlib + built C binary, including in CTest. --reference additionally
 compares schema instances with pinned Ajv; its npm cache is offline unless the

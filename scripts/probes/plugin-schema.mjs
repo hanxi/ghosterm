@@ -57,7 +57,7 @@ assert(Buffer.byteLength(JSON.stringify(large), 'utf8') > 65536);
 assert(validator(large), 'large generic plugin payload should be limited by its envelope/owner, not silently truncated');
 assert(!accepts(validator, large), 'UTF-8 envelope budget not enforced');
 const offerBytes = Buffer.byteLength(JSON.stringify(fixtures.get('valid-offer').frame), 'utf8');
-assert(offerBytes <= 768, 'candidate offer does not fit probe fragment');
+assert(offerBytes <= 768, 'wire v1 offer does not fit the tested reference fragment');
 console.log(`PASS schema ${fixtures.size} instances; UTF-8 envelope budget; offer ${offerBytes} bytes`);
 
 let mutationCount = 0;
@@ -87,5 +87,5 @@ if (mutate === '--mutate') {
     mutationCount++;
   }
 }
-console.log(JSON.stringify({ candidate: true, schemaDraft: '2020-12', instances: fixtures.size,
+console.log(JSON.stringify({ wireVersion: 1, frozenEnvelope: true, schemaDraft: '2020-12', instances: fixtures.size,
   mutations: mutationCount, offerBytes, lexicalOrChannelConformance: false }));

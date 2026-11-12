@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P0 schema candidate conformance. Explicit --fetch installs pinned dev tools.
+"""Frozen wire v1 envelope conformance. Explicit --fetch installs pinned dev tools.
 
 All npm cache/modules/temp live in repository tmp/. Offline by default, with
 integrity-locked npm ci, lifecycle scripts/audit disabled, no production SDK.
@@ -65,7 +65,7 @@ def main():
         print(result.stdout.decode(), end='', flush=True)
         if any(sha(ROOT / name) != digest for name, digest in hashes.items()):
             raise RuntimeError('schema inputs changed during run')
-    print(json.dumps({'candidate': True, 'inputSHA256': hashes,
+    print(json.dumps({'wireVersion': 1, 'frozenEnvelope': True, 'inputSHA256': hashes,
                       'devTools': {name: package['version'] for name, package in lock['packages'].items() if name}}, sort_keys=True))
 
 
