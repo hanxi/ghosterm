@@ -117,6 +117,71 @@ enum PluginResourceHTMLNavigationPolicy {
     }
 }
 
+@MainActor
+enum PluginResourceHTMLWebViewConfiguration {
+    static func make(schemeHandler: PluginResourceHTMLSchemeHandler) -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "ghosterm-resource")
+        return configuration
+    }
+}
+
+@MainActor
+final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    private var loadedDocument: String?
+    private var resourceFingerprint = ""
+    private var baseURL: URL?
+    let schemeHandler: PluginResourceHTMLSchemeHandler
+
+    init(resource: ExtensionController.ReceivedResource,
+         resources: [ExtensionController.ReceivedResource]) {
+        schemeHandler = PluginResourceHTMLSchemeHandler(document: resource, resources: resources)
+        super.init()
+    }
+
+    func update(document: String, resource: ExtensionController.ReceivedResource,
+                resources: [ExtensionController.ReceivedResource], in webView: WKWebView) {
+        let fingerprint = resources.map { "\($0.resourceID):\($0.sha256)" }.joined(separator: ",")
+        if fingerprint != resourceFingerprint {
+            resourceFingerprint = fingerprint
+            schemeHandler.update(document: resource, resources: resources)
+            if let loadedDocument, let baseURL {
+                webView.loadHTMLString(loadedDocument, baseURL: baseURL)
+            }
+        }
+        let target = PluginResourceHTMLAssetResolver.documentURL(resource.displayName)
+        guard loadedDocument != document || baseURL != target, let target else { return }
+        loadedDocument = document
+        baseURL = target
+        webView.loadHTMLString(document, baseURL: target)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        let allowed = PluginResourceHTMLNavigationPolicy.permitsAction(
+            type: navigationAction.navigationType,
+            isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
+            url: navigationAction.request.url, documentURL: baseURL)
+        decisionHandler(allowed ? .allow : .cancel)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        let allowed = PluginResourceHTMLNavigationPolicy.permitsResponse(
+            url: navigationResponse.response.url, isMainFrame: navigationResponse.isForMainFrame,
+            documentURL: baseURL)
+        decisionHandler(allowed ? .allow : .cancel)
+    }
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        nil
+    }
+}
+
 final class PluginResourceHTMLSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Sendable {
     private let lock = NSLock()
     private var resolver: PluginResourceHTMLAssetResolver

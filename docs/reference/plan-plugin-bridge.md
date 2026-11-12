@@ -4392,3 +4392,11 @@ Fixture 的 stylesheet 与 PNG 都通过生产 `PluginResourceHTMLSchemeHandler`
 将独立 HTML WebKit 绘制 probe 接入 `scripts/apple-app-gate.sh` 第 4 阶段，避免 CSS / image custom-scheme 渲染只依赖偶发手工执行。完整 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用、隔离 sshd e2e 通过、GhostermAppTests **403 项、5 skip、0 失败**，随后 probe 实际绘制红 PNG 与蓝 CSS 背景并通过。
 
 测试窗口按 headless probe 约定禁止激活并先 orderOut；所有临时输出在仓库 `tmp/` 并于退出时清理。不改公共 ABI，不增加 macOS CI 二十份。
+
+### P2 实施第二十六批：独立 probe 复用生产 WebKit Coordinator（2026-11-12）
+
+将 SwiftUI 预览使用的 WKWebView 配置和 Coordinator 从私有 `NSViewRepresentable` 抽到生产 `PluginResourceHTMLWebViewConfiguration` / `PluginResourceHTMLCoordinator`。产品视图和独立 headless probe 现在共用 JavaScript 禁用、popup 禁用、scheme handler 安装、资源快照刷新、HTML 加载和 action / response 导航策略；probe 的轻量代理只负责接收完成回调与像素截图，并将导航决策转交给生产 Coordinator。
+
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/test-plugin-html-webkit.sh` 通过，仍以真实 WebKit 绘制红 PNG 与蓝 CSS 像素验证。完整 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用、隔离 sshd e2e 通过、GhostermAppTests **403 项、5 skip、0 失败**，以及生产 Coordinator 驱动的 WebKit probe。测试 CLI/headless，窗口禁止激活且在加载前隐藏；probe 专属临时目录由脚本清理。不改公共 ABI，不增加 macOS CI 二十份。
+
+本批让真实绘制 probe 覆盖 SwiftUI 产品实际使用的配置和 Coordinator，但仍未实例化完整 SwiftUI / AppModel 收件交互；完整 Preview 产品端到端、Android 资源预览产品 UI 与设备验收及后续 P3–P6 均未完成，不记 P2 闭环完成。

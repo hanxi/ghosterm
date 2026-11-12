@@ -6,24 +6,22 @@ import WebKit
 import GhostermAppModel
 
 @MainActor
-final class CaptureDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
+final class CaptureDelegate: NSObject, WKNavigationDelegate {
+    let coordinator: PluginResourceHTMLCoordinator
     var done = false
     var result: (Int, Int)?
     var failure: String?
-    var documentURL: URL?
+
+    init(coordinator: PluginResourceHTMLCoordinator) { self.coordinator = coordinator }
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(PluginResourceHTMLNavigationPolicy.permitsAction(
-            type: action.navigationType, isMainFrame: action.targetFrame?.isMainFrame == true,
-            url: action.request.url, documentURL: documentURL) ? .allow : .cancel)
+        coordinator.webView(webView, decidePolicyFor: action, decisionHandler: decisionHandler)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        decisionHandler(PluginResourceHTMLNavigationPolicy.permitsResponse(
-            url: response.response.url, isMainFrame: response.isForMainFrame,
-            documentURL: documentURL) ? .allow : .cancel)
+        coordinator.webView(webView, decidePolicyFor: response, decisionHandler: decisionHandler)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -42,8 +40,6 @@ final class CaptureDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         failure = "navigation failed: \(error)"; done = true
     }
 
-    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
-                 for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? { nil }
 }
 
 @MainActor
@@ -60,21 +56,17 @@ struct Probe {
         let image = ExtensionController.ReceivedResource(resourceID: "image", sha256: String(repeating: "c", count: 64), mime: "image/png", displayName: "site/image.png", size: UInt64(pngBytes.count), bytes: pngBytes)
         let resources = [html, css, image]
         let document = try PluginResourceHTMLDecoder.document(htmlBytes, mime: html.mime).unwrap()
-        let baseURL = try PluginResourceHTMLAssetResolver.documentURL(html.displayName).unwrap()
-        let handler = PluginResourceHTMLSchemeHandler(document: html, resources: resources)
-        let configuration = WKWebViewConfiguration()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        configuration.setURLSchemeHandler(handler, forURLScheme: "ghosterm-resource")
+        let coordinator = PluginResourceHTMLCoordinator(resource: html, resources: resources)
+        let configuration = PluginResourceHTMLWebViewConfiguration.make(schemeHandler: coordinator.schemeHandler)
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 240, height: 180), configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 180), styleMask: .borderless, backing: .buffered, defer: false)
-        let delegate = CaptureDelegate()
-        delegate.documentURL = baseURL
+        let delegate = CaptureDelegate(coordinator: coordinator)
         webView.navigationDelegate = delegate
-        webView.uiDelegate = delegate
+        webView.uiDelegate = coordinator
         window.orderOut(nil)
         window.contentView = webView
-        webView.loadHTMLString(document, baseURL: baseURL)
+        coordinator.update(document: document, resource: html, resources: resources, in: webView)
         let deadline = Date().addingTimeInterval(10)
         while !delegate.done && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
         webView.stopLoading()
