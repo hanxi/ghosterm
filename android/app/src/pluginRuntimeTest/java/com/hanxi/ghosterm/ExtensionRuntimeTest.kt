@@ -214,6 +214,62 @@ class ExtensionRuntimeTest {
             assertEquals(expected.size, at); snap.close()
         } finally { r.close(); p.h.close(); p.e.close(); hs.close(); es.close(); check(hd.deleteRecursively() && ed.deleteRecursively() && dir.deleteRecursively()) }
     }
+    @Test fun nativeHostCanReadIncomingResourceAfterRuntimeAdoption() {
+        val (hs, hd) = store(); val (es, ed) = store(); val p = pair(hs, es)
+        val plugin = "export function activate(){return {dispose(){}}}"
+        var runtime: ExtensionRuntime? = null
+        try {
+            runtime = ExtensionRuntime.adopt(p.h, config(plugin, role = ExtensionSession.Role.HOST, resources = true))
+            val activationDeadline = android.os.SystemClock.elapsedRealtime() + 10000
+            while (runtime.info().phase in setOf(ExtensionRuntime.Phase.CREATED, ExtensionRuntime.Phase.STARTING)) {
+                runtime.step(); p.e.step()
+                assertTrue("Host Runtime activation timed out", android.os.SystemClock.elapsedRealtime() < activationDeadline)
+            }
+            assertEquals("Host Runtime activation failed: ${runtime.info()}",
+                ExtensionRuntime.Phase.ACTIVE, runtime.info().phase)
+
+            val payload = "abc".toByteArray()
+            val descriptor = ExtensionResourceStore.Descriptor(
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+                "text/plain", "readme.txt", payload.size.toLong())
+            val admission = p.e.sendResource(p.el, descriptor)
+            assertEquals(ExtensionResourceStore.Status.OK, admission.status)
+            val transfer = admission.handle!!
+            var written = 0
+            var finished = false
+            var received: ExtensionResourceStore.Content? = null
+            val transferDeadline = android.os.SystemClock.elapsedRealtime() + 10000
+            while (received == null && android.os.SystemClock.elapsedRealtime() < transferDeadline) {
+                if (written < payload.size) {
+                    val (status, accepted) = p.e.writeResource(p.el, transfer, payload, written)
+                    assertTrue(status == ExtensionResourceStore.Status.OK || status == ExtensionResourceStore.Status.WAIT)
+                    written += accepted
+                }
+                if (written == payload.size && !finished) {
+                    assertEquals(ExtensionResourceStore.Status.OK, p.e.finishResource(p.el, transfer, true))
+                    finished = true
+                }
+                runtime.step(); p.e.step()
+                val (status, content) = runtime.takeResourceData(payload.size.toLong())
+                assertTrue(status == ExtensionResourceStore.Status.OK || status == ExtensionResourceStore.Status.WAIT)
+                received = content
+            }
+            assertArrayEquals(payload, received?.bytes)
+            assertTrue(received?.descriptor?.resourceId?.isNotEmpty() == true)
+            assertEquals(descriptor.sha256, received?.descriptor?.sha256)
+            assertEquals(descriptor.displayName, received?.descriptor?.displayName)
+            val receiptDeadline = android.os.SystemClock.elapsedRealtime() + 10000
+            while (p.e.resourceResult(p.el, transfer).second?.confirmed != true &&
+                android.os.SystemClock.elapsedRealtime() < receiptDeadline) { runtime.step(); p.e.step() }
+            assertTrue("resource receipt was not confirmed", p.e.resourceResult(p.el, transfer).second?.confirmed == true)
+            assertEquals(ExtensionResourceStore.Status.OK, p.e.forgetResource(p.el, transfer))
+        } finally {
+            runtime?.close()
+            p.e.close()
+            hs.close(); es.close()
+            check(hd.deleteRecursively() && ed.deleteRecursively())
+        }
+    }
     @Test fun resourceReadRejectsCopiedReferenceAndReleasesPin() {
         val (hs, hd) = store(); val (es, ed) = store(); val p = pair(hs, es)
         val plugin = "import {object,text,integer} from '@ghosterm/plugin-sdk';export function activate(ctx){const codec=object({text:text(40),count:integer(0,100)});ctx.session.register({name:'fixture.echo',input:codec,output:codec},async(v,c)=>{const t=ctx.resources.take();if(t.status!=='ok'||ctx.resources.open({...t.ref},{byteLimit:'3',timeoutMs:1000}).status!=='invalid')throw Error('ref');const o=ctx.resources.open(t.ref,{byteLimit:'3',timeoutMs:1000});if(o.status!=='ok')throw Error('open');const a=await o.stream.read();c.check();const b=await o.stream.read();c.check();if(a.kind!=='success'||String(a.value.bytes)!=='97,98,99'||b.kind!=='success'||!b.value.done||ctx.resources.release(t.ref)!=='ok')throw Error('read');return v});return {dispose(){}}}"

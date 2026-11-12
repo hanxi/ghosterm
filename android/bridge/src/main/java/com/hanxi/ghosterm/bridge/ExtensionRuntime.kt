@@ -7,7 +7,7 @@ import java.nio.charset.CodingErrorAction
 /** Trusted native package snapshot; same worker as the consumed Session.
  * Stop alone is cross-thread. No finalizer, auto-install or implicit backend. */
 class ExtensionRuntime private constructor(private val worker: Thread,
-    @Suppress("unused") private val store: ExtensionResourceStore?) : AutoCloseable {
+    private val store: ExtensionResourceStore?, private var borrowedLease: ExtensionSession.Lease?) : AutoCloseable {
     enum class Phase { CREATED, STARTING, ACTIVE, FAILED, STOPPED, CLOSED }
     enum class Failure { NONE, SCRIPT, MEMORY, CPU, CANCELLED, JOBS, PROTOCOL, IO, EXPIRED }
     data class Module(val name: String, val source: ByteArray, val sha256: String)
@@ -32,12 +32,19 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             ExtensionSession.End.entries[v[3].toInt()], v[4].toInt(), v[5] != 0L, v[6] != 0L,
             v[7].toULong(), v[8].toULong(), v[9].toULong())
     }
+    fun takeResourceData(maxBytes: Long = 262144): Pair<ExtensionResourceStore.Status, ExtensionResourceStore.Content?> {
+        owner(); require(maxBytes in 0..1048576)
+        if (info().phase != Phase.ACTIVE) return ExtensionResourceStore.Status.CLOSED to null
+        val currentStore = store ?: return ExtensionResourceStore.Status.UNSUPPORTED to null
+        val lease = borrowedLease ?: return ExtensionResourceStore.Status.UNSUPPORTED to null
+        return currentStore.consume(lease, NativeExtensionRuntime.takeResource(handle, lease.bytes), maxBytes)
+    }
     fun stop() { val id = handle; if (id != 0L) NativeExtensionRuntime.stop(id) }
     fun closeStep(): Boolean {
         if (handle == 0L) return true
         owner(); return when (NativeExtensionRuntime.close(handle)) {
             0 -> false
-            1 -> { handle = 0L; true }
+            1 -> { handle = 0L; borrowedLease?.bytes?.fill(0); borrowedLease = null; true }
             else -> throw ExtensionChannelException(3, "运行时关闭错误，保留 owner")
         }
     }
@@ -70,7 +77,7 @@ class ExtensionRuntime private constructor(private val worker: Thread,
             val budgets = scopes.map { require(it.byteLimit >= 0); it.byteLimit }.toLongArray()
             val limits = longArrayOf(role.ordinal.toLong(), memoryBytes, stackBytes, cpuMilliseconds.toLong(), jobsPerStep.toLong(), activationMilliseconds.toLong())
             val invocationBytes = invocationBytes(invocation)
-            val result = ExtensionRuntime(worker, session.runtimeStore())
+            val result = ExtensionRuntime(worker, session.runtimeStore(), session.runtimeLease())
             val values = session.adoptRuntime { NativeExtensionRuntime.openPackage(it, packageId, associated, limits, names, fds, budgets, invocationBytes.first, invocationBytes.second) }
             check(values.size == 2)
             if (values[0] != 0L) throw ExtensionChannelException(values[0].toInt(), "插件包运行时未接管会话")
@@ -97,7 +104,7 @@ class ExtensionRuntime private constructor(private val worker: Thread,
                 config.cpuMilliseconds.toLong(), config.jobsPerStep.toLong(), config.activationMilliseconds.toLong())
             val invocationBytes = invocationBytes(config.invocation)
             // Allocate Java owner and all arguments before Core takes Session.
-            val result = ExtensionRuntime(worker, session.runtimeStore())
+            val result = ExtensionRuntime(worker, session.runtimeStore(), session.runtimeLease())
             val values = session.adoptRuntime { NativeExtensionRuntime.open(it, names, sources, digests, entry, limits, rootNames, rootFds, rootLimits, invocationBytes.first, invocationBytes.second) }
             check(values.size == 2)
             if (values[0] != 0L) throw ExtensionChannelException(values[0].toInt(), "运行时未接管会话")
@@ -112,6 +119,7 @@ internal object NativeExtensionRuntime {
     external fun openPackage(session: Long, packageHandle: Long, associated: Boolean, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray, command: ByteArray? = null, arguments: Array<ByteArray>? = null): LongArray
     external fun step(handle: Long): Int
     external fun info(handle: Long): LongArray
+    external fun takeResource(handle: Long, lease: ByteArray): Array<Any>
     external fun stop(handle: Long)
     external fun close(handle: Long): Int
 }

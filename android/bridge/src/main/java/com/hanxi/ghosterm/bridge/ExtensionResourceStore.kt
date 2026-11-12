@@ -8,6 +8,7 @@ class ExtensionResourceStore(directoryFd: Int, totalBytes: Long = 1048576, resou
     enum class Status { OK, WAIT, INVALID, DENIED, CLOSED, PROTOCOL, LIMIT, IO, UNSUPPORTED, NOT_FOUND }
     data class Descriptor(val sha256: String, val mime: String, val displayName: String, val size: Long,
         val sizeKnown: Boolean = true, val resourceId: String = "", val generation: Long = 0)
+    data class Content(val descriptor: Descriptor, val bytes: ByteArray)
     data class Usage(val reservedBytes: Long, val resources: Long, val scopes: Long, val sessions: Long)
     data class Info(val descriptor: Descriptor, val received: Long, val reserved: Long, val references: Long, val published: Boolean)
     class Snapshot internal constructor(private val store: ExtensionResourceStore, private val lease: ExtensionSession.Lease,
@@ -64,6 +65,33 @@ class ExtensionResourceStore(directoryFd: Int, totalBytes: Long = 1048576, resou
     override fun close() { val status = closeStep(); check(status == Status.OK || status == Status.CLOSED) { "资源 Store 尚未释放或发生关闭错误：$status" } }
     internal fun snapshot(lease: ExtensionSession.Lease, v: LongArray, b: ByteArray): Snapshot =
         Snapshot(this, lease, v[1], v[2], b.copyOfRange(0, 33), resourceDescriptor(b, 33, v[3], v[4], v[5] != 0L))
+    internal fun consume(lease: ExtensionSession.Lease, packet: Array<Any>, maxBytes: Long): Pair<Status, Content?> {
+        require(maxBytes in 0..1048576)
+        val values = packet[0] as LongArray
+        val bytes = packet[1] as ByteArray
+        check(values.size == 6 && bytes.size == 1285)
+        val status = Status.entries[values[0].toInt()]
+        if (status != Status.OK) return status to null
+        val snapshot = snapshot(lease, values, bytes)
+        try {
+            val descriptor = snapshot.descriptor
+            if (!descriptor.sizeKnown) return Status.UNSUPPORTED to null
+            if (descriptor.size > maxBytes || descriptor.size > Int.MAX_VALUE) return Status.LIMIT to null
+            val content = ByteArray(descriptor.size.toInt())
+            var offset = 0
+            while (offset < content.size) {
+                val capacity = minOf(16384, content.size - offset)
+                val (readStatus, chunk) = snapshot.read(offset.toLong(), capacity)
+                if (readStatus != Status.OK) return readStatus to null
+                if (chunk.isEmpty() || chunk.size > capacity) return Status.PROTOCOL to null
+                chunk.copyInto(content, offset)
+                offset += chunk.size
+            }
+            return Status.OK to Content(descriptor, content)
+        } finally {
+            snapshot.close()
+        }
+    }
     internal fun discard(lease: ExtensionSession.Lease, packet: Array<Any>) {
         val v = packet[0] as LongArray; val b = packet[1] as ByteArray
         NativeExtensionResourceStore.discard(nativeHandle(), lease.bytes, v, b)

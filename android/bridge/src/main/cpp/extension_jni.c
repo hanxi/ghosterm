@@ -11,6 +11,7 @@ typedef struct {
     uint64_t id;
     gt_ext_channel_t *channel;
     gt_ext_session_t *session;
+    gt_ext_session_t *runtime_session;
     gt_ext_resource_store_t *store;
     gt_ext_runtime_t *runtime;
     gt_ext_package_t *package;
@@ -2008,6 +2009,55 @@ static extension_slot_t *runtime_pin(JNIEnv *e, jlong id, bool owner, bool quiet
     return s;
 }
 
+JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_takeResource(
+    JNIEnv *e, jobject self, jlong id, jbyteArray lease) {
+    (void)self;
+    jlongArray meta;
+    jbyteArray bytes;
+    jobjectArray result = session_rpc_arrays(e, 6, 1285, &meta, &bytes);
+    if (!result) {
+        return NULL;
+    }
+    gt_ext_lease_t l;
+    if (!session_rpc_lease(e, lease, &l)) {
+        return NULL;
+    }
+    extension_slot_t *s = runtime_pin(e, id, true, false);
+    if (!s) {
+        extension_erase(&l, sizeof(l));
+        return NULL;
+    }
+    if (!s->runtime_session || !s->store) {
+        extension_unpin(s);
+        extension_erase(&l, sizeof(l));
+        extension_error(e, "运行时没有资源接收服务");
+        return NULL;
+    }
+    gt_ext_resource_snapshot_t snapshot;
+    memset(&snapshot, 0, sizeof(snapshot));
+    gt_ext_resource_status_t status =
+        gt_ext_session_take_resource(s->runtime_session, &l, &snapshot);
+    jlong values[6] = {status,
+                       (jlong)snapshot.owner,
+                       (jlong)snapshot.handle,
+                       (jlong)snapshot.descriptor.generation,
+                       (jlong)snapshot.descriptor.size,
+                       snapshot.descriptor.size_known};
+    (*e)->SetLongArrayRegion(e, meta, 0, 6, values);
+    (*e)->SetByteArrayRegion(e, bytes, 0, 33, (const jbyte *)snapshot.token);
+    resource_descriptor_bytes(e, bytes, 33, &snapshot.descriptor);
+    if ((*e)->ExceptionCheck(e)) {
+        if (status == GT_EXT_RESOURCE_OK) {
+            (void)gt_ext_resource_store_release(s->store, &l, &snapshot);
+        }
+        gt_ext_session_stop(s->runtime_session);
+    }
+    extension_unpin(s);
+    extension_erase(&snapshot, sizeof(snapshot));
+    extension_erase(&l, sizeof(l));
+    return result;
+}
+
 JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_support(JNIEnv *e,
                                                                                      jobject self) {
     (void)e;
@@ -2198,6 +2248,7 @@ static jlongArray runtime_open(JNIEnv *e,
             s->retiring = true;
         }
         pthread_mutex_unlock(&extension_lock);
+        gt_ext_session_t *borrowed_session = s->session;
         status = exclusive ? (p ? gt_ext_runtime_open_package(
                                       &s->session, p->package, &c, associated, &s->runtime)
                                 : gt_ext_runtime_open(&s->session, &c, &s->runtime))
@@ -2209,6 +2260,7 @@ static jlongArray runtime_open(JNIEnv *e,
         pthread_mutex_lock(&extension_lock);
         if (status == GT_OK) {
             s->id = successor;
+            s->runtime_session = borrowed_session;
             values[1] = (jlong)s->id;
         }
         s->retiring = false;

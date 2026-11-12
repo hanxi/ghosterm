@@ -4408,3 +4408,11 @@ Fixture 的 stylesheet 与 PNG 都通过生产 `PluginResourceHTMLSchemeHandler`
 修复 `PluginResourceHTMLSchemeHandler` 以带 `Cache-Control: no-store, no-cache, must-revalidate` 的 `HTTPURLResponse` 返回资源。若无法构造带缓存策略的响应则明确报 `.badServerResponse`，不退回可缓存响应。Scheme handler XCTest 另核对响应缓存头。最终完整 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用、隔离 sshd e2e 通过、GhostermAppTests **403 项、5 skip、0 失败**；WebKit probe 两阶段像素为初始红 4096 / 蓝 39104，更新后红 4096 / 绿 39104。CLI/headless，无激活窗口，probe 临时目录退出时清理。不改公共 ABI，不增加 macOS CI 二十份。
 
 本批证明同一个已选文档的显式附件快照变化会反映到真实 WKWebView；仍未验证完整 SwiftUI / AppModel 收件交互，也未完成 Android 资源预览产品 UI 与设备验收、插件安装 / 持久信任和后续 P3–P6，不记 P2 闭环完成。
+
+### P2 实施第二十八批：Android Runtime 收件资源桥（2026-11-12）
+
+补齐 Android Native Runtime 接管 Session 后的宿主收件路径：JNI Runtime slot 保留被接管的 Session owner，`ExtensionRuntime.takeResourceData(maxBytes)` 在原 IO worker 读取已接收资源，按 16 KiB 分块复制成受限内容快照，并在成功、限额拒绝及读取错误路径释放 native snapshot；默认上限 256 KiB，调用上限 1 MiB，未知大小明确返回 UNSUPPORTED。资源字节不经过 UI 线程或事件队列。Runtime 关闭时清除借用 lease 副本。
+
+新增 API 36 arm64 headless 模拟器用例，覆盖 Runtime 接管、Host Runtime 激活、对端发送 `abc`、资源内容及 metadata 读取、回执确认和发送记录清理。单项通过，`ExtensionRuntimeTest` **12 项通过**。中途误启动的 1109 项全量 instrumentation 在 11 项后中止，及一次取消后的测试进程重启失败均不计通过；随后单项和专项整类稳定复跑通过。无前台测试窗口，不改公共 C ABI。
+
+这只接通 Android Runtime 到原生收件快照的数据桥；资源预览产品 UI、附件导航/呈现和真实设备验收仍待完成，不记 P2 闭环。
