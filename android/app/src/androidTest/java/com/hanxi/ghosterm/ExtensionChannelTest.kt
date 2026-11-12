@@ -21,6 +21,10 @@ import org.json.JSONObject
 import org.json.JSONArray
 import java.security.MessageDigest
 import android.util.Base64
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import org.junit.Rule
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -28,6 +32,7 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ExtensionChannelTest {
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val fixture: JSONObject by lazy {
         val args = InstrumentationRegistry.getArguments()
@@ -283,18 +288,27 @@ class ExtensionChannelTest {
                 if (content == null) SystemClock.sleep(5)
             }
             assertNotNull("Android Host did not receive the real gterm Preview resource", content)
+            val received = content!!
             val expected = "Android Preview over two-hop SSH\n".toByteArray()
-            assertArrayEquals(expected, content!!.bytes)
-            assertEquals("text/plain", content.descriptor.mime)
-            assertEquals("fixture.txt", content.descriptor.displayName)
-            assertEquals(expected.size.toLong(), content.descriptor.size)
+            assertArrayEquals(expected, received.bytes)
+            assertEquals("text/plain", received.descriptor.mime)
+            assertEquals("fixture.txt", received.descriptor.displayName)
+            assertEquals(expected.size.toLong(), received.descriptor.size)
             assertEquals(MessageDigest.getInstance("SHA-256").digest(expected)
-                .joinToString("") { "%02x".format(it.toInt() and 255) }, content.descriptor.sha256)
+                .joinToString("") { "%02x".format(it.toInt() and 255) }, received.descriptor.sha256)
+            compose.setContent { PluginResourcesPanel(listOf(received)) }
+            compose.waitUntil(10_000) {
+                compose.onAllNodes(androidx.compose.ui.test.hasTestTag("plugin-resource-${received.descriptor.resourceId}"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("plugin-resource-${received.descriptor.resourceId}").assertExists()
+            compose.onNodeWithText("Android Preview over two-hop SSH", substring = true).assertExists()
         } finally {
             controller.close()
             knownHosts.delete()
             packageDir.deleteRecursively()
         }
+        Unit
     }
     private fun read(channel: ExtensionChannel, count: Int): ByteArray {
         val out = ByteArray(count); var at = 0; val deadline = SystemClock.elapsedRealtime() + 15000

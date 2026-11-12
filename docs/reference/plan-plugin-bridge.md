@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
+日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件及 P2 Android Preview 第三十五批。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。Android API 36 真实双跳 Preview 资源收件后，现已在同一 instrumentation 中直接渲染生产资源面板并核对内容；完整 MainActivity / Settings 页面交互、API 29 / 16 KiB 页与真机仍待验。**
 
 **仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 官方 Preview 的完整交互与端到端验证。独立 headless WebKit probe 已通过真实 WKWebView CSS / PNG 绘制，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；AppModel / SwiftUI 实际接收后的完整端到端交互仍未完成。Android 资源预览的产品 UI 与设备验收；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
@@ -4467,3 +4467,11 @@ Android 的资源 descriptor 没有单独 `relativePath` 字段，但 Core scope
 API 36 arm64 无窗口模拟器的 `PluginResourcePreviewTest` 与 `PluginResourcePreviewUiTest` 合计 **10 项通过**。新增路径解析负向覆盖，包括 `..`、编码越界、子目录、外链和 protocol-relative URL；UI 用同目录 16×16 红色 PNG，捕获实际 Markdown 文本节点并断言红色附件像素存在，同时验证越界 / 外链仍显示 alt 文本。Android JS-off debug / androidTest 编译通过，测试 AVD 位于 `tmp/`，已关闭并清理。
 
 此批只证明同一活动资源列表内按 canonical `displayName` 做唯一同目录 raster 映射；没有接入完整真实 SSH 页面会话截图、跨多个 Runtime 的面板交互、16 KiB 页或用户真机矩阵，不记 P2 闭环完成。不改公共 ABI，不增加 macOS CI 二十份。
+
+### P2 实施第三十五批：真实 Android Preview 收件后渲染生产资源面板（2026-11-12）
+
+扩展 `ExtensionChannelTest.controllerReceivesOfficialPreviewOverTwoHopSSH`：保留真实双跳 SSH、逐跳 hostkey / 私钥认证、官方 Preview 固定包审查、Session consent、Client Runtime 和 ResourceStore 收件；在原有字节 / MIME / 显示名 / 长度 / SHA-256 对拍通过后，将同一收到的 `Content` 交给 Settings 页面实际使用的 `PluginResourcesPanel`，断言资源 ID 卡片与正文出现在 Compose 语义树中。该路径不再用 UI 测试自造资源快照。JS-enabled Android debug / androidTest 以 `scripts/build-android.sh -PghostermPluginJs=true ...` 构建通过；`scripts/test-plugin-preview-android.py --android emulator-5580 --gterm tmp/plugin-preview-product/gterm-build/gterm` 在 API 36 arm64 无窗口模拟器通过，`OK (1 test)`。脚本同时确认远端资源暂存目录在结束时清空。
+
+首次 instrumentation runner 初始化报 JUnit 测试方法返回类型不是 `void`，原因是新增 Compose 断言使表达式体推导为 UI 断言对象；测试方法显式返回 `Unit` 后重新构建并整条 E2E 复跑通过。失败发生在测试类加载期，没有进入产品断言，不记为目标红。第一次 npm 离线安装因缓存未命中而 `ENOTCACHED`，改用固定 lockfile 在线安装后构建成功；不属于产品测试结果。临时 JS SDK、gterm 构建、AVD 与测试 fixture 均位于工程 `tmp/`，测试结束已清理 / 关闭。
+
+此批实际 Compose 宿主只挂载生产资源面板组件，并非完整 `MainActivity` / Settings 导航；完整产品页面启动表单、真实 SSH consent 与收到资源状态的同屏交互、16 KiB 页和用户真机验收仍待完成，不记 P2 闭环完成。不改公共 ABI，不增加 macOS CI 二十份。
