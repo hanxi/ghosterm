@@ -153,16 +153,19 @@ class ExtensionController(profile: HostProfile, context: Context) {
 
     suspend fun close() {
         if (!closed.compareAndSet(false, true)) return
-        withContext(dispatcher) {
-            checkWorker()
-            // Registry owns references to approved packages; release it first.
-            registry?.let { runCatching { it.closeStatus() } }
-            registry = null
-            records.values.forEach { runCatching { it.packageBytes.close() } }
-            records.clear()
+        try {
+            withContext(NonCancellable + dispatcher) {
+                checkWorker()
+                // Registry owns references to approved packages; release it first.
+                registry?.let { runCatching { it.closeStatus() } }
+                registry = null
+                records.values.forEach { runCatching { it.packageBytes.close() } }
+                records.clear()
+            }
+        } finally {
+            dispatcher.close()
+            thread.quitSafely()
         }
-        dispatcher.close()
-        thread.quitSafely()
     }
 
     private suspend fun setSource(id: String, digest: String, source: Source): ExtensionRegistry.Status = onWorker {
