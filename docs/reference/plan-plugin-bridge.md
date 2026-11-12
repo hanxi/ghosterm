@@ -4301,3 +4301,10 @@ JS-on `ExtensionControllerTests` 通过 **9 项、2 skip**；已有审查夹具�
 新增 `testCancelledPreviewDecodeDiscardsLateResult`：用 actor continuation 确认 worker 已开始后取消父预览任务，再释放解码结果；断言 worker 观察到取消且晚到值被丢弃。该定向 XCTest 通过。最终 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **396 项、5 skip、0 失败**。所有测试 CLI/headless 执行，没有前台测试窗口；临时目录位于工程 `tmp/`。
 
 此批只验资源预览解码任务的取消传播与晚到结果丢弃，不证明同步 ImageIO / Markdown 解析可被中断；HTML 相对附件映射、多格式附件收集和 Preview 专属交互仍待完成。不改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第十五批：Preview 显式附件资源发布（2026-11-12）
+
+官方 Preview 命令新增 `--assets path1,path2`，允许用户显式列出最多六个同 `workspace` 根内的 CSS / raster image 附件；不递归扫描、不从 HTML 内容自动猜路径。仅 HTML / Markdown 文档可带附件，其他附件 MIME 被拒；路径拒绝绝对路径、`.` / `..`、空分量、重复项、主文件重复及反斜杠。主文档和附件分别经 `ResourceBroker.publish` 作为独立受控快照传输，单项遵循 `--max-bytes`（默认 256 KiB、上限 1 MiB），每次最多七个资源槽位。
+
+新增 `scripts/test-plugin-preview.mjs` 覆盖主文件 / CSS / PNG 的路径、MIME、root 与预算，及路径越界、重复、数量上限、错误附件格式拒绝。脚本通过；`scripts/build-plugin-preview.py` 重建摘要通过；JS-on `gterm plugin check` 对官方包报告 compatible；`git diff --check` 通过。此批仅让用户显式发布关联文件，不表示相对 URL 已在 HTML / Markdown 预览中加载；Swift 端路径身份保留、安全资源映射与浏览器 / Markdown 渲染仍待完成。不改公共 C ABI，不增加 macOS CI 二十份。
