@@ -4441,4 +4441,4 @@ JS-enabled Android debug / androidTest APK 编译通过；`python3 scripts/test-
 
 把端到端夹具确认的 `file.readScoped` 授权接进实际 Android 启动路径：启动对话框新增可选的远端 workspace 根目录，留空时不传 `--root`、不把该能力放进 Session；填写后使用固定 ID `workspace` 构造经 POSIX shell 引用的 `--root workspace <directory>`，并只在 HostProfile 支持时追加 Session 能力。Native consent 现在显示由同一请求生成的完整远端启动命令和该次确切能力集合，便于批准前复核路径 / argv。
 
-新增 instrumentation 源码断言：留空根不生成参数；含空格与 Unicode 的明确根正确引用；空白及换行根拒绝。JS-off Android debug / androidTest APK 编译通过。当前工作区没有已定义 AVD，因此新断言只编译、未运行，不记设备行为通过；上一批 API 36 双跳 E2E 已直接验证 `--root workspace` 的真实 Executor 行为。真实设备上的启动表单 / consent UI、API 29、16 KiB 页与完整插件资源面板流程仍待验，不改公共 C ABI，不增加 macOS CI 二十份。
+新增 instrumentation 断言：留空根不生成参数；含空格与 Unicode 的明确根正确引用；空白及换行根拒绝。JS-off Android debug / androidTest APK 编译通过；该单项随后在 API 36 与 API 29 的 arm64 无窗口模拟器分别 **1 项通过**。上一批 API 36 双跳 E2E 另已直接验证 `--root workspace` 的真实 Executor 行为。启动表单 / consent 的完整 UI 交互、16 KiB 页与完整插件资源面板流程仍待验；两模拟器均在 `tmp/` 内创建并关闭，临时 AVD 已清理。不改公共 C ABI，不增加 macOS CI 二十份。
