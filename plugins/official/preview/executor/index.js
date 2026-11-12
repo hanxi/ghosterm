@@ -31,7 +31,24 @@ function attachmentPaths(value, mainPath) {
   if (!relativePath(mainPath)) throw new Error("preview path must be a canonical relative path of at most 512 characters");
   if (value === "") return [];
   if (typeof value !== "string") throw new Error("preview assets must be a comma-separated path list");
-  const paths = value.split(",");
+  const paths = [];
+  let path = "";
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    if (character === "\\") {
+      if (value[index + 1] !== ",") {
+        throw new Error("preview asset list has an invalid escape before a non-comma character");
+      }
+      path += ",";
+      index++;
+    } else if (character === ",") {
+      paths.push(path);
+      path = "";
+    } else {
+      path += character;
+    }
+  }
+  paths.push(path);
   if (paths.length > MAX_ASSETS || paths.some(path => !relativePath(path)) ||
       new Set(paths).size !== paths.length || paths.includes(mainPath)) {
     throw new Error(`preview accepts at most ${MAX_ASSETS} unique relative attachment paths`);

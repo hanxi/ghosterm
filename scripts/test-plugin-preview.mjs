@@ -34,6 +34,14 @@ assert.deepEqual(publications.map(({ input }) => [input.relativePath, input.medi
 assert.ok(publications.every(({ input }) => input.root === "workspace"));
 assert.ok(publications.every(({ limits }) => limits.byteLimit === "65536"));
 
+const commaAsset = await run({
+  path: "site/index.md",
+  assets: "site/theme\\,dark.css",
+  maxBytes: 65536,
+});
+assert.equal(commaAsset[1].input.relativePath, "site/theme,dark.css",
+  "a comma in one canonical filename must not become two attachment paths");
+
 const unicodePathAtLimit = `${Array(255).fill("😀").join("/")}/ab`;
 assert.equal([...unicodePathAtLimit].length, 512);
 const unicodePathPublications = await run({
@@ -55,6 +63,11 @@ for (const assets of ["../secret.txt", "/etc/passwd", "site/a.css,,site/b.png", 
     resources: { workspaces: ["workspace"], publish() { assert.fail("invalid assets must be rejected before publishing"); } },
   };
   await assert.rejects(() => activate(invalid), /relative attachment paths/);
+}
+
+for (const assets of ["site/a\\x.png", "site/a\\"]) {
+  await assert.rejects(() => run({ path: "site/index.md", assets, maxBytes: 65536 }),
+    /invalid escape/);
 }
 
 const nonCanonicalMain = {
