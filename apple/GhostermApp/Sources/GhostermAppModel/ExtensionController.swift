@@ -202,7 +202,7 @@ public actor ExtensionController {
     private let worker: Worker
 
     public init(profile: HostProfile, resourceDirectory: URL? = nil) throws {
-        guard !profile.capabilities.contains("session.resources") ||
+        guard !profile.capabilities.contains("resource.receive") ||
                 (resourceDirectory?.isFileURL == true && resourceDirectory?.path.isEmpty == false) else {
             throw ControllerError.invalidHostProfile
         }
@@ -584,7 +584,7 @@ public actor ExtensionController {
         func takeSessionResource(maxBytes: UInt64) async throws -> ReceivedResource? {
             try await perform {
                 try self.checkOpen()
-                guard maxBytes <= 1048576, self.hostCapabilities.contains("session.resources") else {
+                guard maxBytes <= 1048576, self.hostCapabilities.contains("resource.receive") else {
                     throw ControllerError.resourceUnavailable
                 }
                 let status: ExtensionResourceStore.Status
@@ -747,7 +747,7 @@ public actor ExtensionController {
         }
 
         private func openResourceStoreIfNeeded() throws -> ExtensionResourceStore? {
-            guard hostCapabilities.contains("session.resources") else { return nil }
+            guard hostCapabilities.contains("resource.receive") else { return nil }
             if let resourceStore { return resourceStore }
             guard let directory = resourceDirectory, directory.isFileURL,
                   !directory.path.isEmpty, !directory.path.utf8.contains(0),

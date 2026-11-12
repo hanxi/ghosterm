@@ -55,7 +55,7 @@ class ExtensionControllerTest {
         val secondDir = packageDirectory("org.ghosterm.controller-second")
         val controller = ExtensionController(ExtensionController.HostProfile(
             sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf("portable-js"),
-            capabilities = listOf("session.rpc", "session.resources")),
+            capabilities = listOf("session.rpc", "resource.receive")),
             InstrumentationRegistry.getInstrumentation().targetContext)
         try {
             val first = controller.review(firstDir)

@@ -4225,3 +4225,12 @@ SSH fixture 的 QuickJS Executor 先完成双向 RPC，再从显式 `workspace` 
 验收中先后记录两次未通过：完整 gate 首轮发现第五批 SSH resource helper 在无 libssh2 的 test inclusion 下触发 `-Werror=unused-function`；已将 helper 限定在 `GT_HAVE_LIBSSH2`。修复后第二轮 App 链接因 core/build CMake 缓存仍为 JS-on，而默认 App 未链接 QuickJS；显式切回 JS-off 后最终完整 gate 通过。测试均在命令行 / 无前台窗口运行，临时文件位于工程 `tmp/` 并清理。
 
 本批证明 Runtime handoff 后 native 收件路径可用，但测试使用 Swift socketpair Executor，尚不覆盖远端 gterm 经 macOS `ExtensionController` / AppModel 的 SSH 端到端；该真实 App route、资源 UI 生命周期断言、HTML / Markdown 附件与 preview 插件仍待完成，不记 P2 完成。
+
+
+### P2 实施第七批：统一 Host Resource capability wire name（2026-11-12）
+
+为准备真实 App SSH 端到端测试，对照 SDK / Core / gterm 的能力表发现 macOS HostProfile 错把能力名写为 `session.resources`，而协议、Executor manifest 和 runtime resource gate 使用 `resource.receive`。因此 App 虽创建了 ResourceStore，却会在 package compatibility / Session capability 协商处与真实 gterm Executor 不匹配。本批将 App HostProfile、Store owner 创建、资源读取 capability check 与测试统一为 `resource.receive`；Android 插件 Runtime 测试 profile 同步该 wire name。没有增加另一套产品能力别名。
+
+JS-on `ExtensionControllerTests` 通过 **9 项、2 skip**；已有审查夹具现声明 `session.rpc` + `resource.receive`，并使用 ResourceStore 私有目录验证 required capability 无缺失。JS-off `apple-app-gate.sh` 最终通过：Apple ABI 174 引用 / 3 登记未用、真实本机 sshd e2e、GhostermAppTests **389 项、4 skip、0 失败**。Android `TMPDIR="$PWD/tmp" bash scripts/build-android.sh -PghostermPluginJs=true :app:assembleDebug :app:assembleDebugAndroidTest` 通过，包含 arm64 JNI/CMake、插件 JS 档与 instrumentation APK 编译；没有运行 Android 设备行为。
+
+此项修复协议能力名对齐，但还没有用完整双包、真实远端 `gterm` 命令走通 macOS `ExtensionController` 从 SSH READY、HostProfile resource 协商、Client Runtime 到有界资源接收；该端到端、接收 UI 生命周期断言、HTML / Markdown 附件与 preview 插件仍待完成，不记 P2 完成。测试 headless，工程 `tmp/` 已清理；普通 Core/App 档恢复 JS-off。

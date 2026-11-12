@@ -21,7 +21,7 @@ import Foundation
 @MainActor
 public final class AppModel: ObservableObject {
     /// Capabilities implemented by the App-facing Client runtime path.
-    public static let extensionHostCapabilities = ["session.rpc", "session.resources"]
+    public static let extensionHostCapabilities = ["session.rpc", "resource.receive"]
 
     public enum Target: Hashable {
         case localShell

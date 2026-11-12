@@ -10,12 +10,12 @@ import XCTest
 final class ExtensionControllerTests: XCTestCase {
     @MainActor
     func testClientHostProfileOnlyAdvertisesIntegratedCapabilities() {
-        XCTAssertEqual(AppModel.extensionHostCapabilities, ["session.rpc", "session.resources"])
+        XCTAssertEqual(AppModel.extensionHostCapabilities, ["session.rpc", "resource.receive"])
     }
 
     func testResourceCapabilityRequiresAnExplicitPrivateDirectory() throws {
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
-            protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc", "session.resources"])
+            protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc", "resource.receive"])
         XCTAssertThrowsError(try ExtensionController(profile: profile))
     }
 
@@ -217,7 +217,7 @@ final class ExtensionControllerTests: XCTestCase {
             "publisher": "fixture",
             "license": "MIT",
             "commands": [["path": ["fixture"], "title": "Fixture", "argsSchema": "schemas/input.json"]],
-            "client": ["runtime": "portable-js", "entry": "client/index.js", "requires": ["session.rpc"]],
+            "client": ["runtime": "portable-js", "entry": "client/index.js", "requires": ["session.rpc", "resource.receive"]],
             "permissions": [],
         ]
         let schema = #"{"type":"object","properties":{"wrap":{"type":"boolean"}},"required":["wrap"],"additionalProperties":false,"x-ghosterm-cli":{"version":1,"fields":{"wrap":{"option":"wrap","default":false}}}}"#
@@ -251,10 +251,12 @@ final class ExtensionControllerTests: XCTestCase {
         files["plugin.json"] = try JSONSerialization.data(withJSONObject: secondManifest, options: [.sortedKeys])
         try writePackage(files, to: secondRoot)
 
+        let resourceDirectory = root.appendingPathComponent("resources")
+        try FileManager.default.createDirectory(at: resourceDirectory, withIntermediateDirectories: true)
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
                                                           protocols: [1], runtimes: ["portable-js"],
-                                                          capabilities: ["session.rpc"])
-        let controller = try ExtensionController(profile: profile)
+                                                          capabilities: ["session.rpc", "resource.receive"])
+        let controller = try ExtensionController(profile: profile, resourceDirectory: resourceDirectory)
         defer { Task { await controller.close() } }
 
         let review = try await controller.review(directory: root)
@@ -262,7 +264,7 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertEqual(review.id, "org.ghosterm.controller-fixture")
         XCTAssertEqual(review.commands.map(\.path), ["fixture"])
         XCTAssertEqual(review.runtime, "portable-js")
-        XCTAssertEqual(review.requiredCapabilities, ["session.rpc"])
+        XCTAssertEqual(review.requiredCapabilities, ["session.rpc", "resource.receive"])
         XCTAssertTrue(review.optionalMissingCapabilities.isEmpty)
         XCTAssertFalse(review.authorizationGranted)
         XCTAssertFalse(review.publisherAuthenticated)
