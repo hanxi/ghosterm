@@ -34,6 +34,11 @@ public final class AppModel: ObservableObject {
 
     public let terminalApp: TerminalApp?
 
+    /// App-scoped package review and source-decision owner. The ordinary App
+    /// build keeps the optional JS backend disabled, so no controller is
+    /// offered until a build explicitly includes that runtime.
+    public let extensionController: ExtensionController?
+
     /// 界面外观偏好（跟随系统 / 浅色 / 深色）与终端色板事件（`theme =
     /// light:X,dark:Y` 靠它选边）。**改了要同时喂两个消费者**：AppKit 的
     /// `NSApp.appearance`（我们的界面）与 libghostty 的
@@ -169,6 +174,14 @@ public final class AppModel: ObservableObject {
             ?? SettingsStore(terminalConfigPath: SettingsStore.defaultTerminalConfigPath())
         self.preferences = AppPreferences(defaults: defaults)
         self.appearance = AppearancePreference.current
+        if ExtensionRuntime.supportStatus == 0 {
+            let profile = try? ExtensionController.HostProfile(
+                side: .client, sdkVersion: "1.0.0", protocols: [1],
+                runtimes: ["portable-js"], capabilities: ["session.rpc", "session.resources"])
+            self.extensionController = profile.flatMap { try? ExtensionController(profile: $0) }
+        } else {
+            self.extensionController = nil
+        }
         // 终端配置**无效**时：留用引擎的**默认配置**（app 还得在），并把错误
         // 显式报出去（启动告警 / 设置页）。**不能**因为一行写错的 `theme`
         // 就把 terminalApp 丢掉——那样整个窗口连一个终端都开不了（实测：

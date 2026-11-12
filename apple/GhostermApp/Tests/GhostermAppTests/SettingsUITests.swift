@@ -44,15 +44,15 @@ final class SettingsUITests: XCTestCase {
 
     // MARK: - 页签
 
-    /// 页签就是这四项（会话 / 高级 / 关于**不再有**——删掉的页在这里钉住，
+    /// 页签固定在主设置入口；关于仍由独立窗口提供。
     /// 免得哪天又长回来）。
     ///
     /// 「关于」移出设置是有意的：它不是可调的设置项，macOS 的惯例是菜单项
     /// 直接开一张小窗口（见 `AboutWindow`）。
-    func testPanesAreTheFourExpectedOnes() {
+    func testPanesExposeExpectedSettingsAndExtensionReview() {
         XCTAssertEqual(SettingsView.Pane.allCases.map(\.rawValue),
-                       ["通用", "外观", "键盘", "配置文件"],
-                       "设置页签应为这四项（会话 / 高级 / 关于已移除）")
+                       ["通用", "外观", "键盘", "配置文件", "插件"],
+                       "设置页签应包含插件包审查入口")
         // 每一项都得有自己的图标（标题栏那一排就是图标 + 名字）。
         for pane in SettingsView.Pane.allCases {
             XCTAssertFalse(pane.symbol.isEmpty, "\(pane.rawValue) 缺图标")

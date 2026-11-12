@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第五十一批 App 插件控制器首片。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定，第四十九批在激活前按已检查的 schema 解码并暴露冻结的 `invocation.decodedArguments`，第五十批把相同参数契约接入 Apple 与 Android 的包运行时集成夹具，第五十一批新增 macOS AppModel `ExtensionController` actor 负责 fixed package review、精确来源裁决与 Client 命令选择。App 原生授权 UI / 视图、Client runtime 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-12 第五十二批 macOS 插件包审查入口。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定，第四十九批在激活前按已检查的 schema 解码并暴露冻结的 `invocation.decodedArguments`，第五十批把相同参数契约接入 Apple 与 Android 的包运行时集成夹具，第五十一批新增 macOS AppModel `ExtensionController` actor 负责 fixed package review、精确来源裁决与 Client 命令选择，第五十二批加入设置页插件包选择、审查摘要和显式批准 / 拒绝入口。普通构建的 JS 后端仍默认关闭，插件安装、持久信任、Client runtime 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3834,3 +3834,10 @@ Apple `ExtensionPackageTests.testFixedPackageAdoptionAndRPC` 在 JS 开启的 Co
 - [S8 · Android 本地 Web 内容](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content)：资源 loader 与内容映射，非插件 OS 沙箱。
 
 - [S8 · Apple 资源 scheme](https://developer.apple.com/documentation/webkit/wkurlschemehandler)：内容资源加载，保持原生宿主与资源范围。
+
+
+### P0 第五十二批：macOS 插件包审查与来源裁决 UI（2026-11-12）
+
+AppModel 持有可选 `ExtensionController`：只有当前 Core 构件明确报告 QuickJS runtime 可用时才创建 Client profile，普通 JS OFF 构建不声明插件运行时能力。设置页新增「插件」页，可选择文件夹、显示通过固定快照和兼容检查的包 ID / 版本 / 发布者 / 许可 / digest / 命令，并对该精确摘要显式批准或拒绝；审查失败可见。批准状态明确标为「本进程」，不写入安装目录或持久信任库。
+
+设置页闸门更新为包含新页签，并保留每页固定窗口高度。普通构建显示 JS runtime 未启用，不允许误把包审查 / 授权呈现为可用。此片没有激活 Client runtime、建立 Session / SSH route、持久安装、生产 IPC、平台变异验证或真实插件运行；拒绝 / 批准目前在 AppModel owner 生命周期内有效。未修改公共 ABI，不增加 macOS CI 二十份，也不记 P0 或插件产品完成。

@@ -43,6 +43,7 @@ struct SettingsView: View {
         case appearance = "外观"
         case keyboard = "键盘"
         case configuration = "配置文件"
+        case extensions = "插件"
 
         var id: String { rawValue }
 
@@ -54,6 +55,7 @@ struct SettingsView: View {
             case .appearance: return "paintpalette"
             case .keyboard: return "keyboard"
             case .configuration: return "doc.text"
+            case .extensions: return "puzzlepiece.extension"
             }
         }
 
@@ -77,6 +79,7 @@ struct SettingsView: View {
             case .appearance: return 580
             case .keyboard: return 640
             case .configuration: return 445
+            case .extensions: return 500
             }
         }
     }
@@ -116,6 +119,7 @@ struct SettingsView: View {
             case .appearance: AppearancePane(model: model)
             case .keyboard: KeyboardPane()
             case .configuration: ConfigurationPane(model: model)
+            case .extensions: ExtensionsPane(model: model)
             }
         }
         .padding(.horizontal, DS.Padding.xl)
