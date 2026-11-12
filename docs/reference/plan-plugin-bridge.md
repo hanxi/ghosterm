@@ -3656,9 +3656,10 @@ schema 解码、App 授权/激活、安装来源信任与业务插件仍未完�
 多个 command 共享 schema 时按快照成员去重计量；不再解析无关 JSON 资源。保持每个唯一引用最多
 64 KiB、所有唯一引用合计最多 256 KiB。
 
-原生包夹具新增 `command.json` 根路径有效映射，基线 C/QuickJS sanitizer 检查直接接受；
-`mutation-check-plugin-package-check.py` 的位置缺口、畸形 JSON、schema 错绑三组最终变异均为正常
-断言红、独立配置对照绿、恢复绿与源码 SHA256 一致，完整一轮结果写于 `tmp/pkgcheck-*/logs/`
+原生包夹具新增 `command.json` 根路径有效映射，96 个 metadata fixture 与基线 C/QuickJS
+sanitizer 检查均接受；`mutation-check-plugin-package-check.py` 的位置缺口、畸形 JSON、schema
+错绑三组最终变异均为正常断言红、独立配置对照绿、恢复绿与源码 SHA256 一致，完整一轮结果写于
+`tmp/pkgcheck-*/logs/`
 并在验收后清理。最初“完全不注入 schema”的变异触发 `-Werror` 未使用参数编译失败，未计目标红；
 改为注入到错误路径后编译成功并触发目标断言红。初衷错误的目录前缀限制已由根路径夹具覆盖。
 本批未改公共 C ABI；CLI 按 schema 解码和 App 激活仍待完成。
