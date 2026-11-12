@@ -4616,3 +4616,12 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 扩展 `testAppModelReceivesScopedResourceFromRemoteGterm`：来源根现包含 `site/index.md` 和显式 `site/images/sample.png`，真实远端命令传 `--assets site/images/sample.png`。AppModel 必须收齐且分别对拍 Markdown / PNG 的原始字节、MIME、路径显示名、已知长度与 SHA-256；随后将生产 `ExtensionsPane` 挂到离屏 `NSHostingView`，Vision OCR 检查 Markdown 正文，位图采样检查 ResourceBrowser 的 Markdown 同目录图片实际出现红色像素。没有创建或显示 `NSWindow`，不经过 HTML / WebKit 路径。
 
 用 JS-enabled `tmp/plugin-app-e2e-gterm/gterm` 与隔离本机 sshd 执行 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" GHOSTERM_TEST_GTERM="$PWD/tmp/plugin-app-e2e-gterm/gterm" GHOSTERM_APP_TEST_FILTER=testAppModelReceivesScopedResourceFromRemoteGterm bash scripts/apple-app-gate.sh` 通过：真实 SSH / consent / Client Runtime / 两项资源收件 / SwiftUI OCR + PNG 像素目标测试 1 项、0 失败；Apple ABI 174 引用 / 3 登记未用，独立 WebKit CSS / PNG 刷新绘制 probe 通过。只新增 macOS 真实双跳路径上的 Markdown + PNG 闭环证据，不覆盖 HTML WebKit 在真实收件视图中的生命周期、完整 importer / 页面批准 UI 点击、API 36 最终源码档、16 KiB 页或用户真机；不改公共 C ABI，不增加 macOS CI 二十份，P2 / P3–P6 仍待完成。
+
+
+### P2 实施第五十一批：API 36 最终源码复验与 Emulator 临时目录收敛（2026-11-13）
+
+补跑第四十批后清理诊断与调度修改后的最终 `PluginPreviewSettingsE2ETest#realTwoHopPreviewReceiptAppearsInMainActivitySettings`。为避免先前 API 36 Emulator 在工程外创建 running marker，本轮将独立 `HOME`、`ANDROID_AVD_HOME`、AVD 数据目录与 `TMPDIR` 全部指向工程 `tmp/`；启动日志确认 marker 落在 `tmp/android-home/Library/Caches/TemporaryItems/avd/running/`。未使用用户设备或外部服务。
+
+以锁定 JDK 17 和 SDK API 36 / arm64-v8a Google APIs 系统镜像创建无窗口 AVD，JS-enabled Android Debug / androidTest 构建通过（Android ABI 140 引用 / 37 登记未用；Gradle 6 项执行、134 项缓存通过）。`test-plugin-preview-android.py` 在 API 36 / arm64-v8a 上确认 `OK (1 test)` 与 `ANDROID OFFICIAL PREVIEW E2E PASS`：生产 MainActivity Settings 的系统 SAF 选包、摘要批准、真实双跳 SSH、逐跳认证、Session consent、Client Runtime、ResourceStore 收件及暂存文件清理均通过。远端 `gterm` 使用本轮从源码构建的 JS-enabled 二进制。
+
+本轮只关闭 API 36 最终源码复验缺口，不扩展 API 29 之外的其它版本，不覆盖 16 KiB 页、用户真机或 P2 完整 importer / 启动 / consent 单次点击链。模拟器与 AVD、gterm 构建、HOME、测试夹具均在工程 `tmp/`，验收后关闭并清理本轮目录；不改公共 C ABI，不增加 macOS CI 二十份。P2 其它缺口及 P3–P6 仍待完成。
