@@ -22,6 +22,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.withStyle
@@ -293,14 +295,18 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     extensions.activeSession?.takeIf { it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT }?.let { active ->
         val reviewed = extensions.entries.firstOrNull { it.review.id == active.packageID && it.review.digest == active.packageDigest }
         AlertDialog(onDismissRequest = { if (!extensions.launchBusy) extensions.decideConsent(false) },
+            properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
             title = { Text("插件权限请求") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("${active.packageID} · ${active.command.title}")
                     Text("SSH 主机：${active.info.peerIdentity}")
                     Text("Executor 版本：${active.info.peerHostVersion}")
+                    Text("即将传入的 argv：", style = MaterialTheme.typography.labelMedium)
+                    SelectionContainer { Text(org.json.JSONArray(active.arguments).toString(),
+                        Modifier.testTag("plugin-consent-argv"), style = MaterialTheme.typography.bodySmall) }
                     Text("需要能力：${reviewed?.review?.requiredCapabilities?.joinToString().orEmpty().ifBlank { "无" }}")
-                    Text("仅批准当前连接中的能力授权。Client 包摘要和 SSH Executor 摘要均固定；发布者身份未认证不代表可信。",
+                    Text("仅批准当前连接中的能力授权。授权窗口启用系统安全窗口标记；仍请避免把秘密放进命令参数。Client 包摘要和 SSH Executor 摘要均固定；发布者身份未认证不代表可信。",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             },
@@ -357,6 +363,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     var argumentsJson by remember { mutableStateOf("[]") }
     var problem by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest = onDismiss,
+        properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
         title = { Text("启动 ${command.title}") },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),

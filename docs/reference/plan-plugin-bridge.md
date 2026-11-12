@@ -3967,3 +3967,10 @@ Android 编译与 instrumentation 因环境没有 Java Runtime 未执行；不�
 插件启动表单新增最大 64 KiB 的 JSON 字符串数组参数输入，最多 32 项；拒绝非字符串 JSON 项，由同一 `ExtensionRelayBootstrap` 校验 NUL / 换行 / 单项长度 / relay 总长度，并逐 token POSIX 引用。解析结果与命令一起留在 App 侧启动快照中，consent 通过后原样交给精确 Client Runtime 的 `argsSchema` decoder；不自行拆 shell、不把 JSON 对象或数字隐式转换为 argv。
 
 Host RPC 方法仍未实现；依赖 Host RPC 的命令会受限，界面明确提示。该批未执行测试；源码 `git diff --check` 待本批提交前检查。Android 编译与 instrumentation 仍因宿主缺 Java Runtime 无法启动，不记通过。未改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P0 第七十一批：consent 前展示精确插件 argv（2026-11-12）
+
+Native consent 对话框现在展示命令路径与用户输入的完整 argv JSON，采用系统安全窗口标记，并保留能力摘要、SSH 对端和固定摘要提示。这样用户在批准前可以核对实际将交给命令的参数；参数快照沿用第七十批同一个解析结果，不做二次 shell 分词。
+
+Android 包审查门面当前只向 App 暴露 `argsSchema` 成员路径，不暴露固定包内 schema 字节；权威 v1 CLI decoder 仍在 Core Runtime 激活路径中。因此本批未实现 consent 前 schema 解码，参数与 schema 不匹配仍可能在允许后激活时被 Core 拒绝。避免在 Kotlin 重写第二份可能漂移的 schema decoder；后续需通过绑定固定 package snapshot 的 Core API 或等价方案解决。`git diff --check` 通过；宿主缺 Java Runtime，Android 编译 / instrumentation 未启动，不记行为通过。未改公共 C ABI，不增加 macOS CI 二十份。
