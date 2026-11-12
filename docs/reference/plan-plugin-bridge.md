@@ -4400,3 +4400,11 @@ Fixture 的 stylesheet 与 PNG 都通过生产 `PluginResourceHTMLSchemeHandler`
 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/test-plugin-html-webkit.sh` 通过，仍以真实 WebKit 绘制红 PNG 与蓝 CSS 像素验证。完整 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用、隔离 sshd e2e 通过、GhostermAppTests **403 项、5 skip、0 失败**，以及生产 Coordinator 驱动的 WebKit probe。测试 CLI/headless，窗口禁止激活且在加载前隐藏；probe 专属临时目录由脚本清理。不改公共 ABI，不增加 macOS CI 二十份。
 
 本批让真实绘制 probe 覆盖 SwiftUI 产品实际使用的配置和 Coordinator，但仍未实例化完整 SwiftUI / AppModel 收件交互；完整 Preview 产品端到端、Android 资源预览产品 UI 与设备验收及后续 P3–P6 均未完成，不记 P2 闭环完成。
+
+### P2 实施第二十七批：HTML 附件快照更新后的 WebKit 缓存失效（2026-11-12）
+
+把 headless WebKit probe 扩为两阶段像素验收：先加载蓝色 CSS 与红色 PNG，再通过生产 Coordinator 更新同一 `resourceID` 的 CSS 字节与 SHA-256，验证画面变为绿色且 PNG 仍为红色。新增断言首次揭示同一 `ghosterm-resource:` URL 被 WebKit 缓存，资源快照虽已替换，重新加载仍绘制旧 CSS；该红是实际产品回归，不作为通过。
+
+修复 `PluginResourceHTMLSchemeHandler` 以带 `Cache-Control: no-store, no-cache, must-revalidate` 的 `HTTPURLResponse` 返回资源。若无法构造带缓存策略的响应则明确报 `.badServerResponse`，不退回可缓存响应。Scheme handler XCTest 另核对响应缓存头。最终完整 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用、隔离 sshd e2e 通过、GhostermAppTests **403 项、5 skip、0 失败**；WebKit probe 两阶段像素为初始红 4096 / 蓝 39104，更新后红 4096 / 绿 39104。CLI/headless，无激活窗口，probe 临时目录退出时清理。不改公共 ABI，不增加 macOS CI 二十份。
+
+本批证明同一个已选文档的显式附件快照变化会反映到真实 WKWebView；仍未验证完整 SwiftUI / AppModel 收件交互，也未完成 Android 资源预览产品 UI 与设备验收、插件安装 / 持久信任和后续 P3–P6，不记 P2 闭环完成。

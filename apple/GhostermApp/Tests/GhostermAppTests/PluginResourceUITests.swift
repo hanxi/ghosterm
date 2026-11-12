@@ -168,6 +168,8 @@ final class PluginResourceUITests: XCTestCase {
         handler.webView(WKWebView(frame: .zero), start: task)
 
         XCTAssertEqual(task.response?.mimeType, "image/png")
+        XCTAssertEqual((task.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Cache-Control"),
+                       "no-store, no-cache, must-revalidate")
         XCTAssertEqual(task.data, image.bytes)
         XCTAssertTrue(task.finished)
         XCTAssertNil(task.error)

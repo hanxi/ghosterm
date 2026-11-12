@@ -8,9 +8,9 @@ import GhostermAppModel
 @MainActor
 final class CaptureDelegate: NSObject, WKNavigationDelegate {
     let coordinator: PluginResourceHTMLCoordinator
-    var done = false
-    var result: (Int, Int)?
+    var results: [(red: Int, blue: Int, green: Int)] = []
     var failure: String?
+    var done: Bool { results.count == 2 || failure != nil }
 
     init(coordinator: PluginResourceHTMLCoordinator) { self.coordinator = coordinator }
 
@@ -27,17 +27,16 @@ final class CaptureDelegate: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         webView.takeSnapshot(with: nil) { [weak self] image, error in
             guard let self else { return }
-            if let error { failure = "snapshot: \(error)"; done = true; return }
+            if let error { failure = "snapshot: \(error)"; return }
             guard let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-                failure = "snapshot returned no CGImage"; done = true; return
+                failure = "snapshot returned no CGImage"; return
             }
-            result = countPixels(cg)
-            done = true
+            results.append(countPixels(cg))
         }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        failure = "navigation failed: \(error)"; done = true
+        failure = "navigation failed: \(error)"
     }
 
 }
@@ -68,16 +67,35 @@ struct Probe {
         window.contentView = webView
         coordinator.update(document: document, resource: html, resources: resources, in: webView)
         let deadline = Date().addingTimeInterval(10)
-        while !delegate.done && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        while delegate.results.isEmpty && delegate.failure == nil && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        guard delegate.failure == nil, delegate.results.count == 1 else {
+            throw ProbeError.failed(delegate.failure ?? "timed out waiting for initial snapshot")
+        }
+        let greenCSSBytes = Data("body { margin: 0; background: rgb(0, 255, 0); }".utf8)
+        let greenCSS = ExtensionController.ReceivedResource(resourceID: "css",
+            sha256: String(repeating: "d", count: 64), mime: "text/css",
+            displayName: "site/style.css", size: UInt64(greenCSSBytes.count), bytes: greenCSSBytes)
+        coordinator.update(document: document, resource: html,
+                           resources: [html, greenCSS, image], in: webView)
+        while !delegate.done && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         window.contentView = nil
         window.close()
         if let failure = delegate.failure { throw ProbeError.failed(failure) }
-        guard let (red, blue) = delegate.result else { throw ProbeError.failed("timed out waiting for WebKit snapshot") }
-        print("WebKit rendered custom-scheme CSS and PNG: red=\(red), blue=\(blue)")
-        guard red > 20, blue > 100 else { throw ProbeError.failed("expected CSS blue background and explicit red image") }
+        guard delegate.results.count == 2 else { throw ProbeError.failed("timed out waiting for refreshed snapshot") }
+        let initial = delegate.results[0]
+        let refreshed = delegate.results[1]
+        print("WebKit rendered custom-scheme CSS and PNG before/after resource refresh: initial red=\(initial.red), blue=\(initial.blue); refreshed red=\(refreshed.red), green=\(refreshed.green)")
+        guard initial.red > 20, initial.blue > 100,
+              refreshed.red > 20, refreshed.green > 100 else {
+            throw ProbeError.failed("expected explicit red image and blue-to-green CSS refresh")
+        }
     }
 }
 
@@ -97,20 +115,21 @@ func solidRedPNG() throws -> Data {
     return encoded as Data
 }
 
-func countPixels(_ image: CGImage) -> (Int, Int) {
+func countPixels(_ image: CGImage) -> (red: Int, blue: Int, green: Int) {
     let data = NSMutableData(length: image.width * image.height * 4)!
     let context = CGContext(data: data.mutableBytes, width: image.width, height: image.height,
         bitsPerComponent: 8, bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
     let bytes = data.bytes.assumingMemoryBound(to: UInt8.self)
-    var red = 0; var blue = 0
+    var red = 0; var blue = 0; var green = 0
     for index in 0..<(image.width * image.height) {
         let offset = index * 4
         if bytes[offset] > 180 && bytes[offset + 1] < 80 && bytes[offset + 2] < 80 { red += 1 }
         if bytes[offset + 2] > 180 && bytes[offset] < 80 && bytes[offset + 1] < 80 { blue += 1 }
+        if bytes[offset + 1] > 180 && bytes[offset] < 80 && bytes[offset + 2] < 80 { green += 1 }
     }
-    return (red, blue)
+    return (red, blue, green)
 }
 
 extension Optional {

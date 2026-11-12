@@ -209,9 +209,15 @@ final class PluginResourceHTMLSchemeHandler: NSObject, WKURLSchemeHandler, @unch
             urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
-        let response = URLResponse(url: url, mimeType: asset.mime,
-                                   expectedContentLength: asset.data.count,
-                                   textEncodingName: asset.mime == "text/css" ? "utf-8" : nil)
+        guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                             headerFields: [
+                                                 "Content-Type": asset.mime,
+                                                 "Cache-Control": "no-store, no-cache, must-revalidate",
+                                                 "Content-Length": String(asset.data.count),
+                                             ]) else {
+            urlSchemeTask.didFailWithError(URLError(.badServerResponse))
+            return
+        }
         urlSchemeTask.didReceive(response)
         urlSchemeTask.didReceive(asset.data)
         urlSchemeTask.didFinish()
