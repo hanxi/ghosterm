@@ -4675,6 +4675,12 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 
 ### P3 实施第三批：官方 app-server 无模型存活握手
 
-新增 `scripts/test-plugin-codex-app-server.py`：在仓库 `tmp/` 内创建一次性 `HOME`、XDG 配置与项目目录，实际启动锁定版本的 `codex app-server`，完成 `initialize`、`initialized` 与只创建本地 thread 的 `thread/start`，随后结束子进程。该探针没有发 `turn/start`，不访问模型、用户配置或工作区，不代表插件集成。
+初始探针在仓库 `tmp/` 内创建一次性 `HOME`、XDG 配置与项目目录，实际启动锁定版本的 `codex app-server`，完成 `initialize`、`initialized` 与只创建本地 thread 的 `thread/start`，随后结束子进程。该探针没有发 `turn/start`，不访问模型、用户配置或工作区，不代表插件集成；之后由第四批协议客户端测试取代。
 
 真实回复发现 `codex-cli 0.166.0` 的 app-server stdout JSON-RPC 消息省略 `jsonrpc` 字段，尽管请求采用 `"jsonrpc":"2.0"`。首轮按标准字段严格检查而失败；按真实上游行为记录在 `app-server.lock.json`，之后重新启动真实 server，初始化、thread/start 关联与协议类型锁均通过。消息包络行为需与 schema 生成的 payload 分开管理，后续 adapter 不可无条件要求 server 回包带该字段。探针清理一次性 HOME；不启动 turn、不改公共 ABI、不增加 macOS CI 二十份。进程管道 owner、请求 / 审批事件桥与真实 turn 仍未实现，P3 不记完成。
+
+### P3 实施第四批：Codex app-server 协议客户端
+
+新增 `plugins/official/ai-codex/protocol/client.ts`，以 Host 注入的 `writeLine` 接管协议，不自行创建进程。客户端只在初始化完成后接受 thread / turn / interrupt；将 server-initiated command / file approval 保留在原 request id 下，按真实 schema 区分决定类型，并允许 `serverRequest/resolved` 使未决批准过期。结构化策略决定进一步校验为命令执行策略字符串列表、或 `{host, action: allow|deny}` 网络规则。重复 / 未知响应 ID、超限行和坏 envelope 转为协议失败；进程关闭时所有未完成 outbound request 以 `CodexOutcomeUnknownError` 结束，不自动重发。
+
+`node --experimental-strip-types --test scripts/test-plugin-codex-protocol.mjs` 的五项通过：审批 ID 与文件批准决定约束、完整策略 amendment 形状、resolved 过期、关闭后结果未知且不重试，以及通过该生产协议客户端对真实锁定版本 app-server 完成 initialize / thread/start。严格类型检查使用锁定 TypeScript 5.9.3 通过；`python3 -B scripts/check-plugin-codex-protocol.py` 同样通过。真实测试只创建隔离本地 thread、不发 turn，不调用模型；临时 HOME 在 `tmp/` 清理。仍未实现 Host process pipe owner、完整流式 UI、真实 turn / approval 往返或安装入口，不计 P3 完成；不改公共 ABI、不增加 macOS CI 二十份。
