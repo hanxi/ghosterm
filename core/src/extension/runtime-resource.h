@@ -50,6 +50,7 @@ gt_status_t gt__runtime_resources_open(gt_ext_session_t *,
                                        gt_runtime_resources_t **);
 size_t gt__runtime_resources_roots(const gt_runtime_resources_t *);
 const char *gt__runtime_resources_root(const gt_runtime_resources_t *, size_t);
+int gt__runtime_resources_root_fd(const gt_runtime_resources_t *, size_t);
 gt_runtime_resource_status_t gt__runtime_resources_publish(gt_runtime_resources_t *,
                                                            const char *,
                                                            const char *,

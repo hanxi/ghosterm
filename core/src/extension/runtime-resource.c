@@ -228,6 +228,10 @@ const char *gt__runtime_resources_root(const gt_runtime_resources_t *r, size_t i
     return r && i < r->root_count ? r->roots[i].id : NULL;
 }
 
+int gt__runtime_resources_root_fd(const gt_runtime_resources_t *r, size_t i) {
+    return r && i < r->root_count ? r->roots[i].fd : -1;
+}
+
 gt_runtime_resource_status_t gt__runtime_resources_publish(gt_runtime_resources_t *r,
                                                            const char *root,
                                                            const char *path,

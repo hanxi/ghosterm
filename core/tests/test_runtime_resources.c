@@ -167,6 +167,10 @@ int RUNTIME_RESOURCE_MAIN(int argc, char **argv) {
           !gt__runtime_resources_root(sender, 1));
     struct stat root_st;
     CHECK(!fstat(f.root, &root_st));
+    struct stat delegated_root_st;
+    CHECK(gt__runtime_resources_root_fd(sender, 0) >= 0 &&
+          !fstat(gt__runtime_resources_root_fd(sender, 0), &delegated_root_st) &&
+          delegated_root_st.st_dev == root_st.st_dev && delegated_root_st.st_ino == root_st.st_ino);
     unsigned roots = 0;
     for (int fd = 3; fd < 1024; fd++) {
         struct stat st;
