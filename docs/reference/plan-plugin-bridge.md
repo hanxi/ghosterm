@@ -4586,3 +4586,9 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 将官方 `plugins/official/preview` 固定包纳入 `scripts/test-gterm-stdio.py` 默认 conformance。独立真实 gterm 子进程在 QuickJS 中执行 Preview Executor，通过显式 `workspace` root 读取 Markdown 和字面逗号 CSS 附件；测试 Host 以公共 C `gt_ext_session_open_resources` / ResourceStore 接收两份已验证快照，并逐项核验相对显示名、MIME、长度及实际内容，释放引用后有序结束 Session。Host 与 Executor 协商真实 `REQUESTS | RESOURCES` feature；测试设置 `TMPDIR` 指向本轮工程 `tmp/` 夹具，退出时脚本清理夹具。
 
 `cmake -S cli/gterm -B tmp/gterm-build -DGHOSTERM_GTERM_TESTS=ON -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=OFF`、构建 `gterm test_gterm_stdio` 与 `python3 scripts/test-gterm-stdio.py --build tmp/gterm-build` 通过，包含 15 个既有 stdio 场景及新增 `PASS stdio preview`；官方 Preview 的 package `--check`、Executor `node --check`、`node scripts/test-plugin-preview.mjs`、Python harness 语法与 `git diff --check` 通过。该证据覆盖真实 QuickJS → scoped filesystem → C ResourceStore / stdio wire，不覆盖远端 SSH、macOS / Android UI、页面授权或完整用户启动链；不改公共 C ABI，不增加 macOS CI 二十份。P2 完整产品交互、API 36 最终源码设备复验、16 KiB 页、用户真机与 P3–P6 仍待完成。
+
+### P2 实施第四十六批：真实 Preview 快照的 SHA-256 描述符对拍（2026-11-13）
+
+回看第四十五批发现其 C Host 夹具检查了收到快照的 MIME、长度和完整字节，却没有显式把传输描述符 SHA-256 对拍到两个受控源文件。现加入 Markdown 与逗号 CSS fixture 的固定摘要断言，并要求 `size_known` 为真；保留 ResourceStore 读回字节比较，防止只对元数据或只对内容的单边通过。
+
+重新配置并构建 JS-enabled `gterm` / `test_gterm_stdio`，完整 `python3 scripts/test-gterm-stdio.py --build tmp/gterm-build` 通过（15 个既有 stdio 场景及 `PASS stdio preview`）。没有改生产代码或公共 ABI；C 格式闸门仍因环境未安装要求的 clang-format 19.1.7 未能执行。此批加固本机 QuickJS / scoped filesystem / ResourceStore 证据，不覆盖 SSH、UI 或页面授权，也不增加 macOS CI 二十份；P2 生命周期 / 平台矩阵与 P3–P6 仍待完成。

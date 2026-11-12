@@ -274,10 +274,15 @@ int main(int argc, char **argv) {
                 const char *expected_bytes = !strcmp(name, "site/index.md")
                                                  ? "# Preview runtime fixture\n"
                                                  : "body { color: rgb(1, 2, 3); }\n";
+                const char *expected_sha256 = !strcmp(name, "site/index.md")
+                                                  ? "75a7f6f9435ed30b30df8d0e4b1f9c49b29442158dd8c815a540358daecff365"
+                                                  : "39eac723d7bb8a05bea2aa57d7b528eb83ed8f8dfe18e4f9659997457961a497";
                 size_t expected_size = strlen(expected_bytes), read_size = 0;
                 char bytes[128] = {0};
                 CHECK(!strcmp(resource_info.descriptor.mime, mime) &&
+                      resource_info.descriptor.size_known &&
                       resource_info.descriptor.size == expected_size &&
+                      !strcmp(resource_info.descriptor.sha256, expected_sha256) &&
                       gt_ext_resource_store_read(store, &resource_lease, &snapshot, 0, bytes,
                                                  sizeof(bytes), &read_size) == GT_EXT_RESOURCE_OK &&
                       read_size == expected_size && !memcmp(bytes, expected_bytes, expected_size));
