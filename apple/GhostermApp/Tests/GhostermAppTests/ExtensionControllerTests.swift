@@ -407,11 +407,14 @@ final class ExtensionControllerTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent()
         let package = repositoryRoot.appendingPathComponent("plugins/official/preview", isDirectory: true)
         let sourceRoot = base.appendingPathComponent("source", isDirectory: true)
-        try FileManager.default.createDirectory(at: sourceRoot, withIntermediateDirectories: true)
+        let imageDirectory = sourceRoot.appendingPathComponent("site/images", isDirectory: true)
+        try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: base) }
 
-        let resourceBytes = Data("resource from AppModel over SSH\n".utf8)
-        try resourceBytes.write(to: sourceRoot.appendingPathComponent("fixture.txt"))
+        let markdownBytes = Data("![sample](images/sample.png)\nresource from AppModel over SSH\n".utf8)
+        let imageBytes = try solidRedPNG()
+        try markdownBytes.write(to: sourceRoot.appendingPathComponent("site/index.md"))
+        try imageBytes.write(to: imageDirectory.appendingPathComponent("sample.png"))
         let integrity = try Data(contentsOf: package.appendingPathComponent("integrity.json"))
         let executorDigest = SHA256.hash(data: integrity).map { String(format: "%02x", $0) }.joined()
 
@@ -436,7 +439,8 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertEqual(approved, 0)
 
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest,
-            command: "preview", arguments: ["fixture.txt"], sshAlias: "plugin-resource-fixture",
+            command: "preview", arguments: ["site/index.md", "--assets", "site/images/sample.png"],
+            sshAlias: "plugin-resource-fixture",
             executable: gterm, executorDirectory: package.path, executorDigest: executorDigest,
             methods: [], hostMethods: [],
             scopedRoots: [.init(id: "workspace", directory: sourceRoot.path)])
@@ -450,7 +454,7 @@ final class ExtensionControllerTests: XCTestCase {
 
         await model.decideExtensionConsent(allow: true)
         let deadline = ProcessInfo.processInfo.systemUptime + 35
-        while model.extensionRun?.receivedResources.isEmpty == true &&
+        while model.extensionRun != nil && (model.extensionRun?.receivedResources.count ?? 0) < 2 &&
               ProcessInfo.processInfo.systemUptime < deadline {
             if let issue = model.extensionRunIssue { XCTFail("resource runtime failed: \(issue)"); break }
             if let runtime = model.extensionRun?.runtime,
@@ -460,17 +464,24 @@ final class ExtensionControllerTests: XCTestCase {
             }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        let resource = try XCTUnwrap(model.extensionRun?.receivedResources.first,
-            "\(model.extensionRunIssue ?? "gterm resource did not reach AppModel"); runtime=\(String(describing: model.extensionRun?.runtime)), session=\(String(describing: model.extensionRun?.session))")
-        XCTAssertEqual(resource.bytes, resourceBytes)
-        XCTAssertEqual(resource.mime, "text/plain")
-        XCTAssertEqual(resource.displayName, "fixture.txt")
-        XCTAssertEqual(resource.size, UInt64(resourceBytes.count))
-        XCTAssertEqual(resource.sha256, SHA256.hash(data: resourceBytes).map { String(format: "%02x", $0) }.joined())
+        let resources = try XCTUnwrap(model.extensionRun?.receivedResources,
+            "\(model.extensionRunIssue ?? "gterm resources did not reach AppModel"); runtime=\(String(describing: model.extensionRun?.runtime)), session=\(String(describing: model.extensionRun?.session))")
+        XCTAssertEqual(resources.count, 2)
+        let markdown = try XCTUnwrap(resources.first { $0.displayName == "site/index.md" })
+        XCTAssertEqual(markdown.bytes, markdownBytes)
+        XCTAssertEqual(markdown.mime, "text/markdown")
+        XCTAssertEqual(markdown.size, UInt64(markdownBytes.count))
+        XCTAssertEqual(markdown.sha256, SHA256.hash(data: markdownBytes).map { String(format: "%02x", $0) }.joined())
+        let image = try XCTUnwrap(resources.first { $0.displayName == "site/images/sample.png" })
+        XCTAssertEqual(image.bytes, imageBytes)
+        XCTAssertEqual(image.mime, "image/png")
+        XCTAssertEqual(image.size, UInt64(imageBytes.count))
+        XCTAssertEqual(image.sha256, SHA256.hash(data: imageBytes).map { String(format: "%02x", $0) }.joined())
 
         let pane = NSHostingView(rootView: ExtensionsPane(model: model))
         pane.frame = NSRect(x: 0, y: 0, width: 1440, height: 1500)
         var recognizedPreview = ""
+        var redPixels = 0
         for _ in 0..<30 {
             pane.layoutSubtreeIfNeeded()
             if let bitmap = pane.bitmapImageRepForCachingDisplay(in: pane.bounds) {
@@ -483,18 +494,49 @@ final class ExtensionControllerTests: XCTestCase {
                     recognizedPreview = (request.results ?? [])
                         .compactMap { $0.topCandidates(1).first?.string }
                         .joined(separator: " ")
-                    if recognizedPreview.lowercased().contains("resource from appmodel over ssh") { break }
+                    redPixels = redPixelCount(in: bitmap)
+                    if recognizedPreview.lowercased().contains("resource from appmodel over ssh") &&
+                       redPixels > 10 { break }
                 }
             }
             try await Task.sleep(for: .milliseconds(100))
         }
         XCTAssertTrue(recognizedPreview.lowercased().contains("resource from appmodel over ssh"),
             "the production ExtensionsPane must render the exact resource received by AppModel; OCR: \(recognizedPreview)")
+        XCTAssertGreaterThan(redPixels, 10,
+            "the production ExtensionsPane must render the explicitly received Markdown PNG attachment")
 
         await model.stopExtensionRun()
         XCTAssertNil(model.extensionRun)
         XCTAssertNil(model.extensionRunIssue)
         let closed = await controller.close()
         XCTAssertTrue(closed)
+    }
+
+    private func solidRedPNG() throws -> Data {
+        let pixels = Data((0..<16 * 16).flatMap { _ in [UInt8(0xff), 0, 0, 0xff] })
+        let provider = try XCTUnwrap(CGDataProvider(data: pixels as CFData))
+        let image = try XCTUnwrap(CGImage(width: 16, height: 16, bitsPerComponent: 8,
+            bitsPerPixel: 32, bytesPerRow: 64, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider,
+            decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        let encoded = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(encoded, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return encoded as Data
+    }
+
+    private func redPixelCount(in bitmap: NSBitmapImageRep) -> Int {
+        var count = 0
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: 2) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                if color.redComponent > 0.8 && color.greenComponent < 0.3 && color.blueComponent < 0.3 {
+                    count += 1
+                }
+            }
+        }
+        return count
     }
 }

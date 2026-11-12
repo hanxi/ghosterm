@@ -4610,3 +4610,9 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 在 `PluginResourceUITests` 增加由 `ObservableObject` 驱动的生产 `PluginResourceBrowser` 离屏视图：Vision OCR 先识别默认选中资源正文，再确认选择切到第二个快照时正文同步切换；删除当前所选快照后，选择回退到仍存活的资源且正文恢复；清空资源列表模拟 Run stop 后，selection 归零并且两个正文标记都从画面消失。该测试使用 `NSHostingView` 位图，不创建或显示 `NSWindow`，不依赖 accessibility 按钮查询。
 
 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" GHOSTERM_APP_TEST_FILTER=testResourceBrowserSelectionTracksRemovalAndRunStop bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，目标 Swift 测试 1 项、0 失败；gate 内真实 WebKit CSS / PNG 刷新像素 probe 通过（初始红 4096 / 蓝 39104，刷新红 4096 / 绿 39104）。门内 sshd 和临时目录清理完成。此项补专用视图状态 / Run stop 展示证据，不代表完整 `fileImporter` / 页面批准 / 启动 / consent 按钮点击链，不补 API 36 最终源码设备档、16 KiB 页或用户真机；不改公共 C ABI，不增加 macOS CI 二十份，P2 / P3–P6 仍未完成。
+
+### P2 实施第五十批：真实 SSH Preview Markdown 与 PNG 附件进入 macOS AppModel / SwiftUI（2026-11-13）
+
+扩展 `testAppModelReceivesScopedResourceFromRemoteGterm`：来源根现包含 `site/index.md` 和显式 `site/images/sample.png`，真实远端命令传 `--assets site/images/sample.png`。AppModel 必须收齐且分别对拍 Markdown / PNG 的原始字节、MIME、路径显示名、已知长度与 SHA-256；随后将生产 `ExtensionsPane` 挂到离屏 `NSHostingView`，Vision OCR 检查 Markdown 正文，位图采样检查 ResourceBrowser 的 Markdown 同目录图片实际出现红色像素。没有创建或显示 `NSWindow`，不经过 HTML / WebKit 路径。
+
+用 JS-enabled `tmp/plugin-app-e2e-gterm/gterm` 与隔离本机 sshd 执行 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" GHOSTERM_TEST_GTERM="$PWD/tmp/plugin-app-e2e-gterm/gterm" GHOSTERM_APP_TEST_FILTER=testAppModelReceivesScopedResourceFromRemoteGterm bash scripts/apple-app-gate.sh` 通过：真实 SSH / consent / Client Runtime / 两项资源收件 / SwiftUI OCR + PNG 像素目标测试 1 项、0 失败；Apple ABI 174 引用 / 3 登记未用，独立 WebKit CSS / PNG 刷新绘制 probe 通过。只新增 macOS 真实双跳路径上的 Markdown + PNG 闭环证据，不覆盖 HTML WebKit 在真实收件视图中的生命周期、完整 importer / 页面批准 UI 点击、API 36 最终源码档、16 KiB 页或用户真机；不改公共 C ABI，不增加 macOS CI 二十份，P2 / P3–P6 仍待完成。
