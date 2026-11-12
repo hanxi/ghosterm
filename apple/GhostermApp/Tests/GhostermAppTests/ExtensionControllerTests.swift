@@ -12,6 +12,26 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertFalse(AppModel.extensionHostCapabilities.contains("session.resources"))
     }
 
+    func testRelayBootstrapValidatesAndQuotesEveryArgument() throws {
+        let digest = String(repeating: "a", count: 64)
+        let request = ExtensionRelayBootstrap.Request(
+            executable: "/opt/gterm", executorDirectory: "/opt/plugins/executor",
+            executorDigest: digest, clientDigest: digest, methods: ["fixture.echo"],
+            hostMethods: ["host.confirm"], command: "fixture.run",
+            arguments: ["space value", "it's quoted"])
+        XCTAssertEqual(try ExtensionRelayBootstrap.build(request),
+            "exec '/opt/gterm' 'relay' '--stdio' '--trust-development-digest' '\(digest)' " +
+            "'--client-digest' '\(digest)' '--method' 'fixture.echo' '--host-method' 'host.confirm' " +
+            "'--' '/opt/plugins/executor' 'fixture.run' 'space value' 'it'\\''s quoted'")
+        XCTAssertEqual(try ExtensionRelayBootstrap.parseArgumentsJSON(#"["a", "b c"]"#), ["a", "b c"])
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.parseArgumentsJSON(#"["ok"] false"#))
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.parseMethodsJSON(#"["bad..name"]"#))
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.build(.init(
+            executable: "/opt/gterm", executorDirectory: "/opt/executor",
+            executorDigest: digest, clientDigest: digest, methods: ["same"],
+            hostMethods: ["same"], command: "fixture.run")))
+    }
+
     @MainActor
     func testControllerOwnsSSHChannelAndAuthenticationOnWorker() async throws {
         guard let host = ProcessInfo.processInfo.environment["GHOSTERM_SSH_HOST"],
