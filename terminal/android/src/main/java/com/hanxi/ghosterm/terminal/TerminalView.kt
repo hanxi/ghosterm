@@ -42,13 +42,14 @@ class TerminalView(context: Context) : View(context) {
         set(value) {
             if (field == value) return
             field = value
-            if (!value) { hideKeyboard(); heldKeys.clear(); pendingAccents.clear(); connection?.cancel(); ctrl = 0 }
+            if (!value) { cancelOscClipboard(); hideKeyboard(); heldKeys.clear(); pendingAccents.clear(); connection?.cancel(); ctrl = 0 }
         }
     var surface: TerminalSurface? = null
         set(value) {
             if (field === value) return
             releaseHeldKeys()
             resetTextActions()
+            cancelOscClipboard()
             connection?.cancel(); connection = null
             field?.visible(false);field = value;value?.visible(running);currentGraphics=null; currentFrame = null; lastSize = null; inputFrameDeadline = 0L
             ctrl = 0; updateSize(); invalidate()
@@ -121,6 +122,53 @@ class TerminalView(context: Context) : View(context) {
     private var dragJob: Job? = null
     private var dragScroll = 0
     private var orderDrag = false
+    private var oscClipboardDialog: AlertDialog? = null
+    private var oscClipboardPending: Pair<TerminalSurface, Long>? = null
+
+    private fun cancelOscClipboard() {
+        val pending = oscClipboardPending; oscClipboardPending = null
+        oscClipboardDialog?.dismiss(); oscClipboardDialog = null
+        pending?.let { (target, id) -> target.replyClipboard(id, false) }
+    }
+
+    private fun pollOscClipboard() {
+        val target = surface ?: return
+        val request = target.clipboardRequest()
+        if (oscClipboardPending?.let { it.first !== target || it.second != request?.id } == true) cancelOscClipboard()
+        if (request == null || oscClipboardPending != null) return
+        if (!inputEnabled || !isAttachedToWindow || !isShown || !hasWindowFocus()) {
+            target.replyClipboard(request.id, false); return
+        }
+        if (!request.read) {
+            try {
+                clipboard.setPrimaryClip(ClipData.newPlainText("终端文本", request.text))
+                target.replyClipboard(request.id, true)
+            } catch (error: Exception) {
+                target.replyClipboard(request.id, false); onError("无法写入剪贴板")
+            }
+            return
+        }
+        oscClipboardPending = target to request.id
+        oscClipboardDialog = AlertDialog.Builder(context)
+            .setTitle("允许终端程序读取剪贴板？")
+            .setMessage("剪贴板文本将发送到当前终端程序。")
+            .setNegativeButton("拒绝") { _, _ -> cancelOscClipboard() }
+            .setPositiveButton("允许一次") { _, _ ->
+                if (surface === target && oscClipboardPending == target to request.id && isAttachedToWindow && isShown &&
+                    target.clipboardRequest()?.id == request.id) {
+                    try {
+                        // Do not coerce URIs or other clipboard objects to terminal text.
+                        val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString() ?: ""
+                        target.replyClipboard(request.id, true, text)
+                    } catch (error: Exception) { target.replyClipboard(request.id, false); onError("无法读取剪贴板") }
+                }
+                cancelOscClipboard()
+            }
+            .setOnCancelListener { cancelOscClipboard() }
+            .create()
+        oscClipboardDialog?.show()
+    }
+
     private val clipboard get() = context.getSystemService(ClipboardManager::class.java)
     private val handleRadius get() = 10f * resources.displayMetrics.density
     private val inputMethod get() = context.getSystemService(InputMethodManager::class.java)
@@ -177,6 +225,7 @@ class TerminalView(context: Context) : View(context) {
         override fun run() {
             if (!running) return
             dispatch {
+                pollOscClipboard()
                 surface?.graphics(currentGraphics?.revision ?: 0)?.let { currentGraphics=it;invalidate() }
                 surface?.frame(currentFrame?.revision ?: 0)?.let {
                     currentFrame = it; invalidate(); connection?.anchor(); actionMode?.invalidateContentRect()
@@ -248,6 +297,7 @@ class TerminalView(context: Context) : View(context) {
         updateKeepAwake()
         val next = isAttachedToWindow && isShown && windowVisibility == VISIBLE
         if (next == running) return
+        if (!next) cancelOscClipboard()
         running = next
         dispatch { surface?.visible(next) }
         if (running) post(tick) else removeCallbacks(tick)
@@ -264,6 +314,7 @@ class TerminalView(context: Context) : View(context) {
         cancelAutomaticKeyboard(); keepScreenOn = false
         releaseHeldKeys()
         resetTextActions()
+        cancelOscClipboard()
         ctrl = 0
         dispatch { surface?.visible(false) }
         running = false; removeCallbacks(tick); connection?.cancel(); connection = null

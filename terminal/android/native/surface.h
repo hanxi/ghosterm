@@ -9,6 +9,10 @@ typedef struct gat_surface gat_surface;
 typedef struct gat_graphics_frame gat_graphics_frame;
 typedef bool (*gat_write_fn)(void *, const uint8_t *, size_t);
 gat_surface *gat_surface_new(gat_write_fn write, void *context, const char **error);
+/* Clipboard callbacks run synchronously on the owner. Read returns malloc-owned
+ * UTF-8 bytes; false denies access. Only the standard text clipboard is exposed. */
+typedef bool (*gat_clipboard_fn)(void *, bool read, uint8_t **bytes, size_t *length);
+void gat_surface_set_clipboard(gat_surface *surface, gat_clipboard_fn callback);
 void gat_surface_free(gat_surface *surface);
 void gat_surface_feed(gat_surface *surface, const uint8_t *bytes, size_t length);
 bool gat_surface_resize(

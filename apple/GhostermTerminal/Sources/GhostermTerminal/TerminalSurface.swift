@@ -297,6 +297,10 @@ public final class TerminalSurface {
         var onProgramStatus: ((ProgramStatusReport) -> Void)?
         var onSemanticPrompt: ((SemanticPromptEvent) -> Void)?
         var onPwd: ((String) -> Void)?
+        var clipboardDeny: ((UnsafeMutableRawPointer) -> Void)?
+        var clipboardRead: ((UnsafeMutableRawPointer) -> Bool)?
+        var clipboardConfirm: ((UnsafeMutableRawPointer, String, Bool) -> Void)?
+        var clipboardWrite: ((String, Bool) -> Void)?
     }
     private let box = CallbackBox()
 
@@ -344,6 +348,24 @@ public final class TerminalSurface {
             box.onPwd?(String(cString: pwd))
         }
 
+        cbs.clipboard_read = { ud, request in
+            guard let ud, let request else { return false }
+            return Unmanaged<CallbackBox>.fromOpaque(ud).takeUnretainedValue().clipboardRead?(request) ?? false
+        }
+        cbs.clipboard_confirm = { ud, request, bytes, count, read in
+            guard let ud, let request else { return }
+            let box = Unmanaged<CallbackBox>.fromOpaque(ud).takeUnretainedValue()
+            guard let bytes, let text = String(bytes: UnsafeRawBufferPointer(start: bytes, count: count), encoding: .utf8) else {
+                box.clipboardDeny?(request); return
+            }
+            box.clipboardConfirm?(request, text, read)
+        }
+        cbs.clipboard_write = { ud, bytes, count, confirm in
+            guard let ud, let bytes,
+                  let text = String(bytes: UnsafeRawBufferPointer(start: bytes, count: count), encoding: .utf8) else { return }
+            Unmanaged<CallbackBox>.fromOpaque(ud).takeUnretainedValue().clipboardWrite?(text, confirm)
+        }
+
         let scale = view.window?.backingScaleFactor
             ?? NSScreen.main?.backingScaleFactor ?? 2.0
         let made = gt_ghostty_surface_new(app.raw, Unmanaged.passUnretained(view).toOpaque(), scale, &cbs)
@@ -358,10 +380,74 @@ public final class TerminalSurface {
         self.box.onProgramStatus = { [weak self] r in self?.onProgramStatus?(r) }
         self.box.onSemanticPrompt = { [weak self] e in self?.onSemanticPrompt?(e) }
         self.box.onPwd = { [weak self] p in self?.onPwd?(p) }
+        self.box.clipboardDeny = { [weak self] request in
+            guard let self else { return }
+            gt_ghostty_surface_clipboard_deny(self.raw, request)
+        }
+        self.box.clipboardRead = { [weak self] request in
+            guard let self else { return false }
+            let text = NSPasteboard.general.string(forType: .string) ?? ""
+            text.withCString { gt_ghostty_surface_clipboard_complete(self.raw, request, $0, text.utf8.count, false) }
+            return true
+        }
+        self.box.clipboardConfirm = { [weak self] request, text, read in
+            guard let self else { return }
+            let raw = self.raw
+            self.confirmClipboard(text: text, read: read) { allowed in
+                if allowed {
+                    text.withCString { gt_ghostty_surface_clipboard_complete(raw, request, $0, text.utf8.count, true) }
+                } else { gt_ghostty_surface_clipboard_deny(raw, request) }
+            }
+        }
+        self.box.clipboardWrite = { [weak self] text, confirm in
+            guard let self else { return }
+            let write = {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }
+            if confirm { self.confirmClipboard(text: text, read: false) { if $0 { write() } } }
+            else { write() }
+        }
+    }
+
+    // One outstanding prompt per surface; no clipboard contents in logs or persistence.
+    internal var clipboardConfirmation: ((Bool, String, @escaping (Bool) -> Void) -> Void)?
+    private var clipboardGeneration = 0
+    private var clipboardDecision: ((Bool) -> Void)?
+    private var clipboardAlert: NSAlert?
+
+    private func confirmClipboard(text: String, read: Bool, completion: @escaping (Bool) -> Void) {
+        guard clipboardDecision == nil else { completion(false); return }
+        clipboardGeneration += 1
+        let generation = clipboardGeneration
+        clipboardDecision = completion
+        let decide: (Bool) -> Void = { [weak self] allowed in
+            guard let self, self.clipboardGeneration == generation, let pending = self.clipboardDecision else { return }
+            self.clipboardDecision = nil; self.clipboardAlert = nil
+            pending(allowed)
+        }
+        if let clipboardConfirmation { clipboardConfirmation(read, text, decide); return }
+        guard let window = view.window, window.isVisible, !window.isMiniaturized else { decide(false); return }
+        let alert = NSAlert()
+        alert.messageText = read ? "允许终端程序读取剪贴板？" : "允许终端程序写入剪贴板？"
+        alert.informativeText = read ? "剪贴板文本将发送到当前终端程序。" : "当前剪贴板文本将被替换。"
+        alert.addButton(withTitle: "拒绝"); alert.addButton(withTitle: "允许一次")
+        clipboardAlert = alert
+        alert.beginSheetModal(for: window) { decide($0 == .alertSecondButtonReturn) }
+    }
+
+    private func cancelClipboard() {
+        let decision = clipboardDecision; clipboardDecision = nil
+        if let alert = clipboardAlert, let parent = alert.window.sheetParent {
+            parent.endSheet(alert.window)
+        }
+        clipboardAlert = nil
+        decision?(false)
     }
 
     /// 释放 C surface。**必须在主线程**——见下面的说明。
     deinit {
+        if Thread.isMainThread { cancelClipboard() }
         // libghostty 的 `Surface.deinit` 会 `join` 它自己的 io / renderer 线程，
         // 而回调正是在 io 线程上派发的。若最后一个强引用恰好是在 io 线程的
         // 一次回调里被释放的（ARC 的临时引用，实测 1/20 复现），deinit 就会
@@ -374,10 +460,14 @@ public final class TerminalSurface {
         // （各回调闭包都是 `[weak self]`，self 已在销毁中 → 回调即 no-op。）
         let raw = self.raw
         let box = self.box
+        let decision = clipboardDecision
+        let alert = clipboardAlert
         if Thread.isMainThread {
             gt_ghostty_surface_free(raw)
         } else {
             DispatchQueue.main.async {
+                if let alert, let parent = alert.window.sheetParent { parent.endSheet(alert.window) }
+                decision?(false)
                 withExtendedLifetime(box) { gt_ghostty_surface_free(raw) }
             }
         }
@@ -431,6 +521,7 @@ public final class TerminalSurface {
     /// 「不可见」，引擎就会停掉绘制（省 CPU/GPU）；切回来它会自己重画。见
     /// CGhostty 头里 `gt_ghostty_surface_set_occlusion` 的说明。主线程调用。
     public func setVisible(_ visible: Bool) {
+        if !visible { cancelClipboard() }
         gt_ghostty_surface_set_occlusion(raw, visible)
     }
 

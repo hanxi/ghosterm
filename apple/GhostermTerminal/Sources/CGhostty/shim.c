@@ -117,30 +117,58 @@ static bool cb_action(ghostty_app_t app, ghostty_target_s target, ghostty_action
     return false;
 }
 
+/* Runtime clipboard callbacks run during the main-thread app tick. Only the
+ * standard text clipboard is exposed; selection/binary requests are unsupported. */
+static const ghostty_clipboard_content_s *
+clipboard_text(const ghostty_clipboard_content_s *contents, size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        if (contents[i].mime && strcmp(contents[i].mime, "text/plain") == 0) {
+            return &contents[i];
+        }
+    }
+    return NULL;
+}
+
 static ghostty_clipboard_read_result_e cb_read_clipboard(void *ud,
                                                          ghostty_clipboard_e clipboard,
                                                          void *state,
                                                          const char *const *mimes,
                                                          size_t mime_count,
                                                          bool listing) {
-    (void)ud;
-    (void)clipboard;
-    (void)state;
-    (void)mimes;
-    (void)mime_count;
-    (void)listing;
-    /* M1 不做剪贴板；显式报「不可用」，不假装成功（铁律 #6）。 */
-    return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE;
+    gt_ghostty_surface_t *s = ud;
+    bool text = false;
+    for (size_t i = 0; i < mime_count; i++) {
+        if (strcmp(mimes[i], "text/plain") == 0) {
+            text = true;
+        }
+    }
+    if (!s || clipboard != GHOSTTY_CLIPBOARD_STANDARD || listing || !text ||
+        !s->cbs.clipboard_read) {
+        return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED;
+    }
+    return s->cbs.clipboard_read(s->cbs.userdata, state) ? GHOSTTY_CLIPBOARD_READ_STARTED
+                                                         : GHOSTTY_CLIPBOARD_READ_UNAVAILABLE;
 }
 
 static void cb_confirm_read_clipboard(void *ud,
                                       const ghostty_clipboard_confirm_s *req,
                                       void *state,
                                       ghostty_clipboard_request_e type) {
-    (void)ud;
-    (void)req;
-    (void)state;
-    (void)type;
+    gt_ghostty_surface_t *s = ud;
+    const ghostty_clipboard_content_s *text = clipboard_text(req->contents, req->contents_len);
+    bool supported =
+        type == GHOSTTY_CLIPBOARD_REQUEST_PASTE || type == GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ;
+    if (!s || !supported || !text || !s->cbs.clipboard_confirm) {
+        if (s) {
+            ghostty_surface_deny_clipboard_request(s->surface, state);
+        }
+        return;
+    }
+    s->cbs.clipboard_confirm(s->cbs.userdata,
+                             state,
+                             text->data,
+                             text->len,
+                             type == GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ);
 }
 
 static void cb_write_clipboard(void *ud,
@@ -148,11 +176,28 @@ static void cb_write_clipboard(void *ud,
                                const ghostty_clipboard_content_s *contents,
                                size_t count,
                                bool confirm) {
-    (void)ud;
-    (void)clipboard;
-    (void)contents;
-    (void)count;
-    (void)confirm;
+    gt_ghostty_surface_t *s = ud;
+    if (!s || clipboard != GHOSTTY_CLIPBOARD_STANDARD || !s->cbs.clipboard_write) {
+        return;
+    }
+    const ghostty_clipboard_content_s *text = clipboard_text(contents, count);
+    if (count == 0) {
+        s->cbs.clipboard_write(s->cbs.userdata, "", 0, confirm);
+    } else if (text) {
+        s->cbs.clipboard_write(s->cbs.userdata, text->data, text->len, confirm);
+    }
+}
+
+void gt_ghostty_surface_clipboard_complete(
+    gt_ghostty_surface_t *s, void *request, const char *text, size_t len, bool confirmed) {
+    ghostty_clipboard_content_s content = {.mime = "text/plain", .data = text, .len = len};
+    ghostty_clipboard_complete_s complete = {
+        .contents = &content, .contents_len = 1, .confirmed = confirmed};
+    ghostty_surface_complete_clipboard_request(s->surface, &complete, request);
+}
+
+void gt_ghostty_surface_clipboard_deny(gt_ghostty_surface_t *s, void *request) {
+    ghostty_surface_deny_clipboard_request(s->surface, request);
 }
 
 static void host_write(void *ud, const unsigned char *data, size_t len) {

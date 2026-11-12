@@ -17,6 +17,7 @@ struct gat_surface {
     GhosttyMouseEncoder mouse_encoder;
     GhosttyMouseEvent mouse;
     gat_write_fn write;
+    gat_clipboard_fn clipboard;
     void *context;
     bool write_ok;
     uint16_t cw, ch;
@@ -29,6 +30,77 @@ static void reply(GhosttyTerminal terminal, void *context, const uint8_t *bytes,
     if (!s->write(s->context, bytes, length)) {
         s->write_ok = false;
     }
+}
+
+static void
+clipboard_write(GhosttyTerminal terminal, void *context, const GhosttyClipboardWrite *req) {
+    (void)terminal;
+    gat_surface *s = context;
+    GhosttyClipboardWriteReply result = {.size = sizeof(result),
+                                         .result = GHOSTTY_CLIPBOARD_WRITE_RESULT_UNSUPPORTED};
+    if (req->location != GHOSTTY_CLIPBOARD_LOCATION_STANDARD || !s->clipboard) {
+        goto done;
+    }
+    uint8_t *bytes = (uint8_t *)"";
+    size_t length = 0;
+    if (req->contents_len) {
+        bool found = false;
+        for (size_t i = 0; i < req->contents_len; i++) {
+            GhosttyClipboardContent content = req->contents[i];
+            if (content.mime.len == 10 && memcmp(content.mime.ptr, "text/plain", 10) == 0) {
+                bytes = (uint8_t *)content.data.ptr;
+                length = content.data.len;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            goto done;
+        }
+    }
+    result.result = s->clipboard(s->context, false, &bytes, &length)
+                        ? GHOSTTY_CLIPBOARD_WRITE_RESULT_SUCCESS
+                        : GHOSTTY_CLIPBOARD_WRITE_RESULT_DENIED;
+done:
+    req->reply(req, &result);
+}
+
+static void
+clipboard_read(GhosttyTerminal terminal, void *context, const GhosttyClipboardRead *req) {
+    (void)terminal;
+    gat_surface *s = context;
+    GhosttyClipboardReadReply result = {.size = sizeof(result),
+                                        .result = GHOSTTY_CLIPBOARD_READ_RESULT_UNSUPPORTED};
+    uint8_t *bytes = NULL;
+    size_t length = 0;
+    GhosttyClipboardContent content = {.mime = {.ptr = (const uint8_t *)"text/plain", .len = 10}};
+    if (req->location != GHOSTTY_CLIPBOARD_LOCATION_STANDARD || !s->clipboard || req->list) {
+        goto done;
+    }
+    bool text = false;
+    for (size_t i = 0; i < req->mimes_len; i++) {
+        if (req->mimes[i].len == 10 && memcmp(req->mimes[i].ptr, "text/plain", 10) == 0) {
+            text = true;
+        }
+    }
+    if (!text) {
+        goto done;
+    }
+    result.result = GHOSTTY_CLIPBOARD_READ_RESULT_DENIED;
+    if (s->clipboard(s->context, true, &bytes, &length)) {
+        content.data.ptr = bytes;
+        content.data.len = length;
+        result.result = GHOSTTY_CLIPBOARD_READ_RESULT_SUCCESS;
+        result.contents = &content;
+        result.contents_len = 1;
+    }
+done:
+    req->reply(req, &result);
+    free(bytes);
+}
+
+void gat_surface_set_clipboard(gat_surface *s, gat_clipboard_fn callback) {
+    s->clipboard = callback;
 }
 
 gat_surface *gat_surface_new(gat_write_fn write, void *context, const char **error) {
@@ -69,6 +141,12 @@ gat_surface *gat_surface_new(gat_write_fn write, void *context, const char **err
     INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_USERDATA, s), "无法设置 VT 上下文");
     INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, (const void *)reply),
          "无法设置 VT 输入回调");
+    INIT(ghostty_terminal_set(
+             s->terminal, GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE, (const void *)clipboard_write),
+         "无法设置剪贴板写入回调");
+    INIT(ghostty_terminal_set(
+             s->terminal, GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ, (const void *)clipboard_read),
+         "无法设置剪贴板读取回调");
     INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &background),
          "无法设置终端背景色");
     INIT(ghostty_terminal_set(s->terminal, GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, &foreground),

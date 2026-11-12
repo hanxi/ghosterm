@@ -4,9 +4,7 @@
  * 为什么需要它（而不是让 Swift 直接调 ghostty_*）：
  *   1. `ghostty_runtime_config_s` / `ghostty_surface_config_s` 里嵌函数指针与
  *      匿名 union，Swift 侧逐个摆弄易错且噪音大；
- *   2. 嵌入侧只关心 4 件事（喂输出、收输入、收 resize、收标题），其余
- *      （clipboard / action / wakeup）在 M1 是明确的 no-op，写在这里比散在
- *      Swift 里更好审；
+ *   2. 统一转发输入、尺寸、标题与低频剪贴板请求；
  *   3. 这里**不含任何业务语义**——字节流怎么来（SSH / 本地）由调用方决定。
  *
  * 线程纪律：write/resize 回调由 libghostty 的 termio 线程调用；
@@ -53,7 +51,16 @@ typedef struct {
     void (*semantic_prompt)(void *ud, const ghostty_semantic_prompt_s *event);
     /* OSC 7 工作目录；字符串只在回调期间有效，要留存请自行拷贝。 */
     void (*pwd)(void *ud, const char *pwd);
+    /* Main-thread runtime callbacks. Request tokens belong to the engine until
+     * completed/denied; contents are borrowed only for the callback duration. */
+    bool (*clipboard_read)(void *ud, void *request);
+    void (*clipboard_confirm)(void *ud, void *request, const char *text, size_t len, bool read);
+    void (*clipboard_write)(void *ud, const char *text, size_t len, bool confirm);
 } gt_host_callbacks_t;
+
+void gt_ghostty_surface_clipboard_complete(
+    gt_ghostty_surface_t *s, void *request, const char *text, size_t len, bool confirmed);
+void gt_ghostty_surface_clipboard_deny(gt_ghostty_surface_t *s, void *request);
 
 /* 创建 app（内含默认配置 + 最小 runtime 回调）。失败返回 NULL 并置错误串。 */
 gt_ghostty_app_t *gt_ghostty_app_new(void);

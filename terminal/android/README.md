@@ -48,3 +48,5 @@ Kitty 图形及动画已接入同一 Surface：RGB/RGBA、系统 PNG、压缩分
 正文可选系统等宽、JetBrains Mono、Source Code Pro 或经验证导入的 TTF/OTF；Nerd 符号独立回退。原有三主题和同源 Ghostty 主题库、字体预算与验证入口见[外观参考](../../docs/reference/android-terminal-appearance.md)。
 
 触屏轻点在鼠标模式下也请求系统 IME，同时由 VT 编码原鼠标操作；长按选字保留。快捷键按系统延迟/间隔连发，松手、取消、失焦或移除即停止。默认隐藏状态栏、横滑辅助键及固定菜单属于宿主 `TerminalScreen`，不在 surface 中识别 tmux（§9.201–§9.204）。
+
+OSC 52 标准文本剪贴板已接：前台终端写入系统剪贴板，读取逐次询问；隐藏、离页、切换和关闭拒绝未决请求，30 秒未答复超时。终端 owner 等待期间释放 session 锁，UI 只轮询低频请求；VT 解析和协议回包仍留在 owner。文本大小沿用引擎与系统剪贴板边界，不转换 URI，不开放 primary/selection 或二进制剪贴板。专项与手工变异见 [OSC 52](../../docs/reference/osc52.md)。

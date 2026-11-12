@@ -7,6 +7,9 @@ interface TerminalSurface {
     fun frame(after: Long): TerminalFrame?
     fun graphics(after: Long): TerminalGraphics? = null
     fun visible(value: Boolean) {}
+    /** Low-frequency OSC clipboard request; IDs are scoped to this surface. */
+    fun clipboardRequest(): TerminalClipboardRequest? = null
+    fun replyClipboard(id: Long, allowed: Boolean, text: String = "") {}
     fun resize(cols: Int, rows: Int, cellWidth: Int, cellHeight: Int)
     fun commit(text: String)
     /** Layout character without modifiers, for VT keyboard protocols; zero means unavailable. */
@@ -107,3 +110,6 @@ data class TerminalFrame(
         }
     }
 }
+
+/** Text only; size bounds belong to the engine and platform clipboard. Reads require explicit user confirmation. */
+data class TerminalClipboardRequest(val id: Long, val read: Boolean, val text: String)

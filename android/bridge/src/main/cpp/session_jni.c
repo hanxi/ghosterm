@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -36,6 +37,11 @@ typedef struct session {
     size_t refs;
     atomic_bool stop, frame_requested, graphics_requested, visible;
     pthread_mutex_t mutex;
+    pthread_cond_t clipboard_condition;
+    uint64_t clipboard_sequence, clipboard_id;
+    bool clipboard_read, clipboard_done, clipboard_allowed;
+    uint8_t *clipboard_bytes;
+    size_t clipboard_length;
     char *home;
     gaj_ssh *remote;
     gaj_tmux_target *tmux_target;
@@ -95,6 +101,8 @@ static void release(session *s) {
     free(s->action_result);
     free(s->frame);
     free(s->home);
+    free(s->clipboard_bytes);
+    pthread_cond_destroy(&s->clipboard_condition);
     pthread_mutex_destroy(&s->mutex);
     free(s);
 }
@@ -156,6 +164,51 @@ static bool publish(session *s) {
     pthread_mutex_unlock(&s->mutex);
     free(previous);
     return true;
+}
+
+/* The owner waits with the session lock released. JNI only copies this low
+ * frequency request; UI work never receives PTY output. Dispose/leave wakes it. */
+static bool clipboard_request(void *context, bool read, uint8_t **bytes, size_t *length) {
+    session *s = context;
+    pthread_mutex_lock(&s->mutex);
+    if (atomic_load(&s->stop) || !atomic_load(&s->visible)) {
+        pthread_mutex_unlock(&s->mutex);
+        return false;
+    }
+    s->clipboard_bytes = malloc(read || !*length ? 1 : *length);
+    if (!s->clipboard_bytes) {
+        pthread_mutex_unlock(&s->mutex);
+        return false;
+    }
+    if (!read && *length) {
+        memcpy(s->clipboard_bytes, *bytes, *length);
+    }
+    s->clipboard_length = read ? 0 : *length;
+    s->clipboard_id = ++s->clipboard_sequence;
+    s->clipboard_read = read;
+    s->clipboard_done = false;
+    s->clipboard_allowed = false;
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += 30;
+    while (!s->clipboard_done && !atomic_load(&s->stop) && atomic_load(&s->visible)) {
+        if (pthread_cond_timedwait(&s->clipboard_condition, &s->mutex, &deadline) == ETIMEDOUT) {
+            break;
+        }
+    }
+    bool allowed = s->clipboard_done && s->clipboard_allowed && !atomic_load(&s->stop) &&
+                   atomic_load(&s->visible);
+    if (read && allowed) {
+        *bytes = s->clipboard_bytes;
+        *length = s->clipboard_length;
+        s->clipboard_bytes = NULL;
+    }
+    free(s->clipboard_bytes);
+    s->clipboard_bytes = NULL;
+    s->clipboard_length = 0;
+    s->clipboard_id = 0;
+    pthread_mutex_unlock(&s->mutex);
+    return allowed;
 }
 
 static void *owner(void *context) {
@@ -245,6 +298,7 @@ static void *owner(void *context) {
         failed(s, engine_error);
         goto finished;
     }
+    gat_surface_set_clipboard(s->surface, clipboard_request);
     pthread_mutex_lock(&s->mutex);
     s->state = 1;
     pthread_mutex_unlock(&s->mutex);
@@ -453,6 +507,15 @@ static jlong start_session(JNIEnv *env, session *s) {
         fail(env, "无法初始化终端锁");
         return 0;
     }
+    if (pthread_cond_init(&s->clipboard_condition, NULL)) {
+        pthread_mutex_destroy(&s->mutex);
+        gaj_ssh_free(s->remote);
+        gaj_tmux_target_free(s->tmux_target);
+        free(s->home);
+        free(s);
+        fail(env, "无法初始化剪贴板等待");
+        return 0;
+    }
     atomic_init(&s->stop, false);
     atomic_init(&s->frame_requested, true);
     atomic_init(&s->graphics_requested, true);
@@ -659,6 +722,9 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_dispose(JNIE
     }
     pthread_mutex_unlock(&registry_mutex);
     if (s) {
+        pthread_mutex_lock(&s->mutex);
+        pthread_cond_broadcast(&s->clipboard_condition);
+        pthread_mutex_unlock(&s->mutex);
         release(s);
     }
 }
@@ -790,7 +856,14 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_setVisibilit
     if (!s) {
         return;
     }
+    pthread_mutex_lock(&s->mutex);
     atomic_store(&s->visible, visible);
+    if (!visible) {
+        s->clipboard_allowed = false;
+        s->clipboard_done = true;
+        pthread_cond_broadcast(&s->clipboard_condition);
+    }
+    pthread_mutex_unlock(&s->mutex);
     if (visible) {
         atomic_store(&s->graphics_requested, true);
         atomic_store(&s->frame_requested, true);
@@ -985,4 +1058,72 @@ Java_com_hanxi_ghosterm_bridge_NativeSession_readGraphicsMetrics(JNIEnv *env, jo
         (*env)->SetLongArrayRegion(env, result, 0, 3, values);
     }
     return result;
+}
+
+/* Snapshot: 8-byte request id, read flag, UTF-8 payload. Never a native pointer. */
+JNIEXPORT jbyteArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeSession_readClipboard(JNIEnv *env, jobject self, jlong id) {
+    (void)self;
+    session *s = borrow(env, id);
+    if (!s) {
+        return NULL;
+    }
+    pthread_mutex_lock(&s->mutex);
+    jbyteArray result = NULL;
+    if (s->clipboard_id && !s->clipboard_done) {
+        result = (*env)->NewByteArray(env, (jsize)(9 + s->clipboard_length));
+        if (result) {
+            uint8_t header[9];
+            for (int i = 0; i < 8; i++) {
+                header[i] = (uint8_t)(s->clipboard_id >> (i * 8));
+            }
+            header[8] = s->clipboard_read;
+            (*env)->SetByteArrayRegion(env, result, 0, 9, (const jbyte *)header);
+            if (s->clipboard_length) {
+                (*env)->SetByteArrayRegion(
+                    env, result, 9, (jsize)s->clipboard_length, (const jbyte *)s->clipboard_bytes);
+            }
+        }
+    }
+    pthread_mutex_unlock(&s->mutex);
+    release(s);
+    return result;
+}
+
+JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeSession_replyClipboard(
+    JNIEnv *env, jobject self, jlong id, jlong request, jboolean allowed, jbyteArray data) {
+    (void)self;
+    session *s = borrow(env, id);
+    if (!s) {
+        return;
+    }
+    pthread_mutex_lock(&s->mutex);
+    if (s->clipboard_id == (uint64_t)request && !s->clipboard_done) {
+        size_t length = data ? (size_t)(*env)->GetArrayLength(env, data) : 0;
+        /* Clipboard replies go through VT, not the user input command budget. */
+        bool ok = allowed;
+        if (ok && s->clipboard_read) {
+            uint8_t *copy = malloc(length ? length : 1);
+            if (!copy) {
+                ok = false;
+            } else {
+                if (length) {
+                    (*env)->GetByteArrayRegion(env, data, 0, (jsize)length, (jbyte *)copy);
+                }
+                if ((*env)->ExceptionCheck(env)) {
+                    free(copy);
+                    ok = false;
+                } else {
+                    free(s->clipboard_bytes);
+                    s->clipboard_bytes = copy;
+                    s->clipboard_length = length;
+                }
+            }
+        }
+        s->clipboard_allowed = ok;
+        s->clipboard_done = true;
+        pthread_cond_broadcast(&s->clipboard_condition);
+    }
+    pthread_mutex_unlock(&s->mutex);
+    release(s);
 }

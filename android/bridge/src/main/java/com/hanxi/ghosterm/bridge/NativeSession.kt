@@ -3,6 +3,7 @@ package com.hanxi.ghosterm.bridge
 import com.hanxi.ghosterm.terminal.KeyAction
 import com.hanxi.ghosterm.terminal.TerminalFrame
 import com.hanxi.ghosterm.terminal.TerminalGraphics
+import com.hanxi.ghosterm.terminal.TerminalClipboardRequest
 import com.hanxi.ghosterm.terminal.TerminalSurface
 import com.hanxi.ghosterm.terminal.TerminalAppearance
 import java.io.Closeable
@@ -19,6 +20,19 @@ open class NativeTerminalSession internal constructor(private var handle: Long, 
     @Synchronized override fun graphics(after: Long): TerminalGraphics? =
         if(handle==0L) null else NativeSession.readGraphics(handle,after)?.let(TerminalGraphics::decode)
     @Synchronized override fun visible(value: Boolean) { if(handle!=0L) NativeSession.setVisibility(handle,value) }
+    @Synchronized override fun clipboardRequest(): TerminalClipboardRequest? {
+        if (handle == 0L) return null
+        val bytes = NativeSession.readClipboard(handle) ?: return null
+        val id = (0..7).fold(0L) { value, i -> value or ((bytes[i].toLong() and 255) shl (8 * i)) }
+        val text = try { Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes, 9, bytes.size - 9)).toString() }
+        catch (_: java.nio.charset.CharacterCodingException) {
+            NativeSession.replyClipboard(handle, id, false, byteArrayOf()); return null
+        }
+        return TerminalClipboardRequest(id, bytes[8].toInt() != 0, text)
+    }
+    @Synchronized override fun replyClipboard(id: Long, allowed: Boolean, text: String) {
+        if (handle != 0L) NativeSession.replyClipboard(handle, id, allowed, text.toByteArray(Charsets.UTF_8))
+    }
     @Synchronized override fun resize(cols: Int, rows: Int, cellWidth: Int, cellHeight: Int) {
         check(handle != 0L) { "终端会话已关闭" }
         NativeSession.setSize(handle, cols, rows, cellWidth, cellHeight)
@@ -134,6 +148,8 @@ internal object NativeSession {
     external fun readGraphics(handle: Long, after: Long): Array<Any>?
     external fun setVisibility(handle: Long, visible: Boolean)
     external fun readFrame(handle: Long, after: Long): IntArray?
+    external fun readClipboard(handle: Long): ByteArray?
+    external fun replyClipboard(handle: Long, request: Long, allowed: Boolean, data: ByteArray)
     external fun readState(handle: Long): IntArray
     external fun readError(handle: Long): ByteArray
     external fun beginAction(handle: Long, kind: Int, x: Int, y: Int, text: ByteArray): Long

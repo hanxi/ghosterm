@@ -103,7 +103,7 @@ macOS 的功能键由 full libghostty 根据普通光标、应用光标或 Kitty
 
 macOS 已由 `TabWindowController` 单窗口管理顶部/侧边标签；`WorkspaceLayout` 是终端与文件窗格唯一可写布局，`WorkspaceHostView` 保持宿主身份。旧多窗口标签组、独立双栏文件组件已退役。文件/配置等控制面经平台模型与绑定进入 Core，不经过终端字节通路。
 
-平台接线须独立记账：macOS `TerminalHostView` 的标准 `copy:` / `paste:` 已经连接真实选区、系统剪贴板和模式感知粘贴；full 引擎剪贴板回调仍占位，标准菜单路径也未提供粘贴确认。配置事务、主机表单、私钥存储和传输异常也仍有缺口，详见[macOS 当前实现与限制](../reference/capability-matrix.md#macos-当前实现与限制)。Android 的原生实现不能作为这些 Apple 路径已完成的证据。
+平台接线须独立记账：macOS `TerminalHostView` 的标准 `copy:` / `paste:` 已经连接真实选区、系统剪贴板和模式感知粘贴；full 引擎标准文本剪贴板回调与 OSC 52 已接（见 [专项边界](../reference/osc52.md)），标准菜单路径仍未提供粘贴确认。配置事务、主机表单、私钥存储和传输异常也仍有缺口，详见[macOS 当前实现与限制](../reference/capability-matrix.md#macos-当前实现与限制)。Android 的原生实现不能作为这些 Apple 路径已完成的证据。
 
 文件控制面应把网络工作和队列等待放在异步 owner，UI 只接收状态。异步读取还须绑定请求身份：macOS 当前目录导航没有代次，串行执行仍会发布已经被新意图替代的中间结果；历史栈应随成功导航提交，目录树缓存须在刷新时失效。实际缺口见 [Apple 导航边界](../../apple/README.md#目录导航与缓存边界)。macOS 当前 `SFTPFileBackend` 的 `queue.sync` 保证串行，却没有保证调用方不阻塞；`TransferManager` 在 MainActor 同步调用它，属于待修的响应性缺口。搜索 token 目前只防止旧结果覆盖页面，不等于后端任务取消；文件树把加载失败缓存为空、本地搜索和递归权限忽略遍历异常，也是控制面的待修缺口；详情与修复边界见 [Apple 文件查询与线程边界](../../apple/README.md#文件查询与线程边界)。
 
