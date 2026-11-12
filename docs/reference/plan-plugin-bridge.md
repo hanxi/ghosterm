@@ -4292,3 +4292,12 @@ JS-on `ExtensionControllerTests` 通过 **9 项、2 skip**；已有审查夹具�
 新增 selection 状态测试覆盖初次选择、追加保持、移除回退、拒绝晚到的过期 ID 和 run-stop 清空；离屏 `NSHostingView` 测试固定已验证文本资源的列表与选中预览实际绘制非空。Apple gate 通过：ABI 174 引用 / 3 登记未用，GhostermAppTests **395 项、5 skip、0 失败**。此前一次 gate 因 Core 构建缓存仍处于 JS-on、与普通 App JS-off 链接组合不匹配而在链接阶段失败；显式恢复 Core JS-off 后完整 gate 通过。全程 headless，无前台窗口。
 
 异步任务取消 / 晚到结果的定向延迟故障断言仍未增加；该视图片段不证明所有格式的真实浏览器渲染和取消时序。HTML 外部附件映射、多格式附件收集和 Preview 专属交互仍待完成。不改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第十四批：预览解码取消与晚到结果（2026-11-12）
+
+图片、Markdown、HTML 预览统一通过 `PluginResourceDecodeTask` 在 utility detached task 执行有界解码。视图任务取消时将取消传给 worker；同步解码即使已经运行到完成，取消后的结果也会被丢弃，不再写入已切换或已销毁的预览状态。
+
+新增 `testCancelledPreviewDecodeDiscardsLateResult`：用 actor continuation 确认 worker 已开始后取消父预览任务，再释放解码结果；断言 worker 观察到取消且晚到值被丢弃。该定向 XCTest 通过。最终 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **396 项、5 skip、0 失败**。所有测试 CLI/headless 执行，没有前台测试窗口；临时目录位于工程 `tmp/`。
+
+此批只验资源预览解码任务的取消传播与晚到结果丢弃，不证明同步 ImageIO / Markdown 解析可被中断；HTML 相对附件映射、多格式附件收集和 Preview 专属交互仍待完成。不改公共 ABI，不增加 macOS CI 二十份。

@@ -341,10 +341,9 @@ private struct PluginResourceImagePreview: View {
         .task(id: data) {
             let bytes = data
             let contentType = mime
-            let decoded = await Task.detached(priority: .utility) {
+            guard let decoded = await PluginResourceDecodeTask.run({
                 PluginResourceImageDecoder.decode(bytes, mime: contentType)
-            }.value
-            guard !Task.isCancelled else { return }
+            }) else { return }
             image = decoded
             rejected = decoded == nil
         }
@@ -371,10 +370,9 @@ private struct PluginResourceMarkdownPreview: View {
             let bytes = resource.bytes
             let mime = resource.mime
             let name = resource.displayName
-            let decoded = await Task.detached(priority: .utility) {
+            guard let decoded = await PluginResourceDecodeTask.run({
                 PluginResourceMarkdownDecoder.decode(bytes, mime: mime, displayName: name)
-            }.value
-            guard !Task.isCancelled else { return }
+            }) else { return }
             markdown = decoded
             rejected = decoded == nil
         }
@@ -401,10 +399,9 @@ private struct PluginResourceHTMLPreview: View {
         .task(id: resource.sha256) {
             let bytes = resource.bytes
             let mime = resource.mime
-            let decoded = await Task.detached(priority: .utility) {
+            guard let decoded = await PluginResourceDecodeTask.run({
                 PluginResourceHTMLDecoder.document(bytes, mime: mime)
-            }.value
-            guard !Task.isCancelled else { return }
+            }) else { return }
             document = decoded
             rejected = decoded == nil
         }

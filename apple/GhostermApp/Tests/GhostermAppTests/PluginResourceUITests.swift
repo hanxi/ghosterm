@@ -5,6 +5,20 @@ import XCTest
 @testable import GhostermApp
 
 final class PluginResourceUITests: XCTestCase {
+    func testCancelledPreviewDecodeDiscardsLateResult() async {
+        let gate = DecodeGate()
+        let decode = Task {
+            await PluginResourceDecodeTask.run { await gate.decode() }
+        }
+        await gate.waitUntilStarted()
+        decode.cancel()
+        await gate.finish(with: "stale document")
+        let result = await decode.value
+        let workerWasCancelled = await gate.workerObservedCancellation()
+        XCTAssertNil(result, "a late decode must not update a replaced preview")
+        XCTAssertTrue(workerWasCancelled, "the detached decode must receive cancellation")
+    }
+
     func testResourceSelectionReconcilesAppendRemovalAndRunStop() {
         let first = resource("first")
         let second = resource("second")
@@ -53,5 +67,33 @@ final class PluginResourceUITests: XCTestCase {
         return ExtensionController.ReceivedResource(resourceID: id,
             sha256: String(repeating: "a", count: 64), mime: "text/plain",
             displayName: "\(id).txt", size: UInt64(bytes.count), bytes: bytes)
+    }
+
+    private actor DecodeGate {
+        private var started = false
+        private var startWaiter: CheckedContinuation<Void, Never>?
+        private var resultWaiter: CheckedContinuation<String, Never>?
+        private var cancelledAtReturn = false
+
+        func decode() async -> String {
+            started = true
+            startWaiter?.resume()
+            startWaiter = nil
+            let value = await withCheckedContinuation { resultWaiter = $0 }
+            cancelledAtReturn = Task.isCancelled
+            return value
+        }
+
+        func waitUntilStarted() async {
+            guard !started else { return }
+            await withCheckedContinuation { startWaiter = $0 }
+        }
+
+        func finish(with value: String) {
+            resultWaiter?.resume(returning: value)
+            resultWaiter = nil
+        }
+
+        func workerObservedCancellation() -> Bool { cancelledAtReturn }
     }
 }
