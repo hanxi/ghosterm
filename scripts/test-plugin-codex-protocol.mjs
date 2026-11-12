@@ -9,6 +9,8 @@ import { CodexAppServerClient, CodexOutcomeUnknownError, CodexProtocolError } fr
   "../plugins/official/ai-codex/protocol/client.ts";
 import { CodexLineDecoder, CodexLineDecoderError, MAX_APP_SERVER_LINE_BYTES } from
   "../plugins/official/ai-codex/protocol/line-decoder.ts";
+import { CodexAppServerStdio, CODEX_PENDING_WRITE_MAX } from
+  "../plugins/official/ai-codex/protocol/stdio.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const lock = JSON.parse(readFileSync(join(root, "plugins/official/ai-codex/protocol/app-server.lock.json"), "utf8"));
@@ -84,6 +86,74 @@ test("rejects oversized and truncated stdout records", () => {
   assert.throws(() => invalidUTF8.push(new Uint8Array([0xff, 0x0a])), CodexLineDecoderError);
 });
 
+test("stdio owner bounds writes, handles partial IO, and drains stderr without retaining it", async () => {
+  const output = [], errors = [];
+  let writesBlocked = true;
+  let stdout = { state: "wait" }, stderr = { state: "wait" };
+  const pipes = {
+    writeStdin(bytes) {
+      if (writesBlocked) return { state: "wait" };
+      const count = Math.min(3, bytes.length);
+      output.push(...bytes.subarray(0, count));
+      return { state: "data", count };
+    },
+    readStdout(maxBytes) {
+      if (stdout.state === "data" && stdout.bytes.length > maxBytes) {
+        const bytes = stdout.bytes.subarray(0, maxBytes);
+        stdout = { state: "data", bytes: stdout.bytes.subarray(maxBytes) };
+        return { state: "data", bytes };
+      }
+      const result = stdout;
+      stdout = { state: "wait" };
+      return result;
+    },
+    readStderr(maxBytes) {
+      if (stderr.state === "data" && stderr.bytes.length > maxBytes) {
+        const bytes = stderr.bytes.subarray(0, maxBytes);
+        stderr = { state: "data", bytes: stderr.bytes.subarray(maxBytes) };
+        errors.push(bytes.length);
+        return { state: "data", bytes };
+      }
+      const result = stderr;
+      if (result.state === "data") errors.push(result.bytes.length);
+      stderr = { state: "wait" };
+      return result;
+    },
+    closeStdin() {},
+  };
+  const connection = new CodexAppServerStdio(pipes);
+  const initializing = connection.client.initialize(clientInfo);
+  assert.equal(connection.client.active, false);
+  connection.step();
+  writesBlocked = false;
+  for (let i = 0; i < 100; i++) connection.step();
+  assert.ok(output.length > 0);
+  assert.match(new TextDecoder().decode(Uint8Array.from(output)), /"method":"initialize"/);
+  stdout = { state: "data", bytes: new TextEncoder().encode('{"id":1,"result":{"userAgent":"fixture"}}\n') };
+  stderr = { state: "data", bytes: new Uint8Array(CODEX_PENDING_WRITE_MAX) };
+  for (let i = 0; i < 64; i++) connection.step();
+  assert.equal((await initializing).userAgent, "fixture");
+  assert.equal(errors.reduce((sum, size) => sum + size, 0), CODEX_PENDING_WRITE_MAX);
+  connection.close();
+});
+
+test("stdio EOF inside a JSON record fails closed and leaves the request outcome unknown", async () => {
+  let stdout = { state: "data", bytes: new TextEncoder().encode('{"id":1,"result":') };
+  const connection = new CodexAppServerStdio({
+    writeStdin: bytes => ({ state: "data", count: bytes.length }),
+    readStdout: () => { const result = stdout; stdout = { state: "wait" }; return result; },
+    readStderr: () => ({ state: "wait" }),
+    closeStdin() {},
+  });
+  const pending = connection.client.initialize(clientInfo);
+  connection.step();
+  stdout = { state: "eof" };
+  connection.step();
+  await assert.rejects(pending, error => error instanceof CodexOutcomeUnknownError);
+  assert.equal(connection.failure?.name, "CodexLineDecoderError");
+  connection.close();
+});
+
 test("runs initialize and thread/start against the pinned real server, without a turn", async () => {
   const executable = process.env.GHOSTERM_CODEX ?? "codex";
   const version = execFileSync(executable, ["--version"], { cwd: root, encoding: "utf8" }).trim();
@@ -95,18 +165,30 @@ test("runs initialize and thread/start against the pinned real server, without a
   const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: config, TMPDIR: join(root, "tmp") };
   for (const key of ["CODEX_HOME", "OPENAI_API_KEY", "CODEX_API_KEY"]) delete env[key];
   const child = spawn(executable, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
-  const stderr = [];
-  child.stderr.on("data", chunk => { if (stderr.join("").length < 16_384) stderr.push(String(chunk)); });
-  let protocolFailure;
+  const stdoutChunks = [], stderrChunks = [];
   let exited = false;
   child.on("exit", () => { exited = true; });
-  const client = new CodexAppServerClient(line => child.stdin.write(`${line}\n`));
-  client.onProtocolError(error => { protocolFailure = error; });
-  const decoder = new CodexLineDecoder(line => client.receiveLine(line));
-  child.stdout.on("data", chunk => {
-    try { decoder.push(chunk); }
-    catch (error) { protocolFailure = error; client.close(); }
+  child.stdout.on("data", chunk => stdoutChunks.push(Uint8Array.from(chunk)));
+  child.stderr.on("data", chunk => stderrChunks.push(Uint8Array.from(chunk)));
+  const readQueue = (queue, maxBytes) => {
+    if (!queue.length) return { state: exited ? "eof" : "wait" };
+    const head = queue[0];
+    const bytes = head.subarray(0, maxBytes);
+    if (bytes.length === head.length) queue.shift();
+    else queue[0] = head.subarray(maxBytes);
+    return { state: "data", bytes };
+  };
+  const connection = new CodexAppServerStdio({
+    readStdout: maxBytes => readQueue(stdoutChunks, maxBytes),
+    readStderr: maxBytes => readQueue(stderrChunks, maxBytes),
+    writeStdin: bytes => {
+      if (child.stdin.destroyed || !child.stdin.writable) return { state: "closed" };
+      child.stdin.write(Buffer.from(bytes));
+      return { state: "data", count: bytes.length };
+    },
+    closeStdin: () => child.stdin.end(),
   });
+  const pump = setInterval(() => connection.step(), 2);
 
   const withTimeout = (promise, ms = 20_000) => {
     let timer;
@@ -115,16 +197,16 @@ test("runs initialize and thread/start against the pinned real server, without a
     })]).finally(() => clearTimeout(timer));
   };
   try {
-    const initialization = await withTimeout(client.initialize(clientInfo));
+    const initialization = await withTimeout(connection.client.initialize(clientInfo));
     assert.equal(typeof initialization.userAgent, "string");
-    const started = await withTimeout(client.threadStart({ cwd, approvalPolicy: "on-request", sandbox: "read-only" }));
+    const started = await withTimeout(connection.client.threadStart({ cwd, approvalPolicy: "on-request", sandbox: "read-only" }));
     assert.equal(typeof started.thread?.id, "string");
-    assert.equal(protocolFailure, undefined, protocolFailure?.message);
-    decoder.finish();
+    assert.equal(connection.failure, undefined, connection.failure?.message);
     assert.equal(exited, false);
-    console.log(`CODEX APP-SERVER ADAPTER PASS: ${version}; initialize, initialized, thread/start; no turn/model request`);
+    console.log(`CODEX APP-SERVER STDIO PASS: ${version}; initialize, initialized, thread/start through bounded pipe owner; no turn/model request`);
   } finally {
-    client.close();
+    clearInterval(pump);
+    connection.close();
     child.kill("SIGTERM");
     await withTimeout(new Promise(resolveExit => child.once("exit", resolveExit)), 3_000).catch(() => {});
     if (!exited) child.kill("SIGKILL");
