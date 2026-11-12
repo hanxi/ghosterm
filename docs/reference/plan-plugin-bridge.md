@@ -4707,4 +4707,10 @@ Runtime 尚未接入 process service 时，先收紧内部 POSIX child owner 的
 
 Native checked package 过去只保留 `process.spawn` capability 名称，后续宿主无法从不可变 checked metadata 获得此包在 Executor 侧声明的程序 allowlist。现在 package metadata checker 要求 Executor 的 `process.spawn` permission 明确列出 1–16 个程序名；Client 仍先报端角色错误。成功检查结果携带 `processPrograms`，Core `gt_package_check_info_t` 将它复制为最多 16 个固定名称。该列表只是经过结构与完整性检查的包声明，不代表用户授权、host 可用性、实际路径或 executable identity；每次 spawn 仍须实时核查 Session grant 和 Host 映射。
 
-`scripts/test-plugin-package.py --mutate` 通过 97 项 named fixture 与六组目标红 / Client 对照绿 / 恢复 SHA 验证；首次离线 npm 运行因锁定 semver 未缓存而未执行，按 lock integrity 获取后重跑。首次新增权限检查还让一个 Client 负向 fixture 先报程序范围错误；将规则限于 Executor 后通过。JS-enabled Core build 下 package checker 24 项 CTest 全绿；`test-plugin-package-native.py` 对真实目录的 process-program-scope 与缺失范围拒绝两项通过。生成器 `--check` 与 metadata capsule 离线校验通过。完整 `bash scripts/gate.sh` 为 478/478 CTest、177 ABI 符号对拍及未实现入口检查全绿；全仓 C 格式检查覆盖 217 个文件通过。此为程序范围数据接线，不是 process spawn 执行或 Runtime 授权验收；不改公共 `ghosterm.h` / ABI、不增加 macOS CI 二十份。
+`scripts/test-plugin-package.py --mutate` 通过 97 项 named fixture 与六组目标红 / Client 对照绿 / 恢复 SHA 验证；首次离线 npm 运行因锁定 semver 未缓存而未执行，按 lock integrity 获取后重跑。首次新增权限检查还让一个 Client 负向 fixture 先报程序范围错误；将规则限于 Executor 后通过。JS-enabled Core build 下 package checker 24 项 CTest 全绿；`test-plugin-package-native.py` 对真实目录的 process-program-scope 与缺失范围拒绝两项通过。生成器 `--check` 与 metadata capsule 离线校验通过。完整 `bash scripts/gate.sh` 为 478/478 CTest、177 ABI 符号对拍及未实现入口错误检查全绿；全仓 C 格式检查覆盖 217 个文件通过。此为程序范围数据接线，不是 process spawn 执行或 Runtime 授权验收；不改公共 `ghosterm.h` / ABI、不增加 macOS CI 二十份。
+
+### P3 实施第九批：Core 子进程授权执行层
+
+新增私有 `process-service.{h,c}`：打开时只复制 checked package 中 Executor 的 `processPrograms` 和可信 Host 提供的程序名→绝对可执行路径映射；不启动子进程，也不把映射当作包授权。每次 spawn 必须重新取得当前 Session 对 `process.spawn` 的 `ALLOWED`，并同时匹配包声明程序名与 Host 映射，未声明程序返回 `GT_ERR_AUTH`，已声明但 Host 无映射返回 `GT_ERR_UNSUPPORTED`；实际创建仍交给要求显式 cwd fd、argv 和环境 allowlist 的 POSIX owner。该层是 Core 内部构件，尚未被 Runtime / PluginContext 调用，调用方仍负责持有并停止、回收子进程；没有进程配额、deadline 或 executable identity/version 验证。
+
+`bash scripts/build-core.sh` 编译通过；`bash scripts/gate.sh` 全绿（480/480 CTest、177 公共 ABI 符号对拍、未实现入口错误检查）；`python3 scripts/format-c.py --check` 通过（217 个 C 文件）。本批没有公共 ABI 变化。该代码路径尚无独立授权行为测试，整套闸门只证明既有测试未回归及新组件可编译；下一批须将该层接到 Runtime 并为 grant、allowlist、映射缺失、撤销和子进程释放补行为验收，不将本批记作 P3 完成。

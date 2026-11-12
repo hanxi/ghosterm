@@ -43,6 +43,7 @@ add_library(ghosterm_core STATIC
   src/extension/runtime.c
   src/extension/runtime-resource.c
   src/extension/process-owner.c
+  src/extension/process-service.c
   src/extension/runtime-api.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
