@@ -368,6 +368,48 @@ test("PluginContext process grant launches Codex through the bounded stdio adapt
   assert.equal(released, true);
 });
 
+test("Codex initialize rejection terminates and reaps its owned child", async () => {
+  let response;
+  let signalled;
+  let released = false;
+  const child = {
+    verifiedVersion: lock.codexCliVersion,
+    writeStdin(bytes) {
+      const request = JSON.parse(new TextDecoder().decode(bytes).trim());
+      response = new TextEncoder().encode(JSON.stringify({
+        id: request.id, error: { code: -32000, message: "fixture initialization rejected" },
+      }) + "\n");
+      return { state: "data", count: bytes.length };
+    },
+    readStdout(maxBytes) {
+      if (!response) return { state: "wait" };
+      const bytes = response.subarray(0, maxBytes);
+      response = response.subarray(maxBytes);
+      if (!response.length) response = undefined;
+      return { state: "data", bytes };
+    },
+    readStderr() { return { state: "wait" }; },
+    closeStdin() {},
+    signal(value) { signalled = value; },
+    poll() { return { state: "exited", code: 0, signal: null }; },
+    async release() { released = true; },
+  };
+  const context = {
+    side: "executor",
+    capabilities: { query: () => "allowed" },
+    cancellation: { cancelled: false },
+    invocation: { workspaceHandle: { id: "workspace-root" } },
+    process: { async spawn() { return child; } },
+  };
+  const server = await spawnCodexAppServer(context, clientInfo);
+  server.step();
+  await assert.rejects(server.ready, /fixture initialization rejected/);
+  assert.equal(signalled, "terminate");
+  assert.equal(released, true);
+  assert.equal(server.reaped, true);
+  assert.deepEqual(server.exit, { state: "exited", code: 0, signal: null });
+});
+
 test("PluginContext process integration rejects non-Executor or missing live grants", async () => {
   let spawned = false;
   const context = {

@@ -53,7 +53,6 @@ export async function spawnCodexAppServer(
     );
   }
   const stdio = new CodexAppServerStdio(child);
-  const ready = stdio.client.initialize(clientInfo);
   let stopped = false;
   let exit: ProcessExit | undefined;
   let reaped = false;
@@ -78,6 +77,12 @@ export async function spawnCodexAppServer(
     }
     await release();
   };
+  const ready = stdio.client.initialize(clientInfo).catch(async error => {
+    // Initialization failure means the process cannot serve this protocol
+    // session. Reap it here even when the caller only awaits `ready`.
+    await stop();
+    throw error;
+  });
   return {
     stdio,
     ready,

@@ -4800,3 +4800,11 @@ JS-enabled `scripts/test-plugin-runtime.py --mutate --fetch` 通过：原 Runtim
 `node --experimental-strip-types --test scripts/test-plugin-codex-protocol.mjs` 18 项通过，覆盖事件顺序、批准过期 / 单次响应、active turn interrupt、关闭 unknown、跨 thread 拒绝及真实 CLI thread/start / stop-reap。`python3 -B scripts/check-plugin-codex-protocol.py`、TypeScript 5.9.3 strict / ES2022 / 无 DOM 编译、`node --check` 与 `git diff --check` 通过。`python3 -B scripts/mutation-check-plugin-codex-conversation.py` 通过：移除 turn 与通用通知两处 thread identity guards 时目标断言红、独立批准协议对照绿、复原后目标绿并核对 SHA256。无公共 ABI 变更，不增加 macOS CI 二十份。
 
 该 facade 仍是 Host 可消费的协议模型，不是 `gterm` / App 产品 Host mapping 或原生 chat / approval / diff UI；测试中的 turn/item 通知来自隔离 fixture，没有真实模型 turn 或 approval action。P3 仍未闭环。
+
+### P3 实施第二十一批：Codex 初始化失败时终止并回收 Executor
+
+生产 `spawnCodexAppServer()` 在 child 已启动后立即发送 `initialize`，此前 `ready` Promise 若因 JSON-RPC error、协议损坏或 EOF 拒绝，只把失败交给调用方；调用方若只等待初始化结果，Executor child 会继续存活。现在 `ready` 的失败分支共用 helper 的幂等 `stop()`，先请求 terminate，再等待 Host `release()` 完成 reap，并原样向调用方传播初始化错误。版本不匹配和正常对话关闭仍复用既有关闭 / reap 路径。
+
+新增 fake Executor 行为用例：app-server 对 initialize 返回 JSON-RPC error 后，`ready` 正常拒绝，且断言 Host 收到 terminate、release 完成、`reaped=true` 并返回退出状态。`node --experimental-strip-types --test scripts/test-plugin-codex-protocol.mjs` 19 项通过（包含锁定 Codex CLI 0.166.0 的无模型 initialize / thread/start / stop-reap）；`python3 -B scripts/check-plugin-codex-protocol.py` 与 `git diff --check` 通过。`python3 -B scripts/mutation-check-plugin-codex-init-reap.py` 通过：移除失败路径 reap 后目标断言红、独立 Executor grant 拒绝对照绿、恢复后目标绿并核对 SHA256。本批无公共 ABI 变化、不增加 macOS CI 二十份。
+
+该修复只保证初始化失败的子进程清理，不补产品 Host mapping、真实 turn / approval、原生 chat / diff UI 或 P3 闭环。
