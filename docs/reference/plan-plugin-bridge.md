@@ -4591,4 +4591,4 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 
 回看第四十五批发现其 C Host 夹具检查了收到快照的 MIME、长度和完整字节，却没有显式把传输描述符 SHA-256 对拍到两个受控源文件。现加入 Markdown 与逗号 CSS fixture 的固定摘要断言，并要求 `size_known` 为真；保留 ResourceStore 读回字节比较，防止只对元数据或只对内容的单边通过。
 
-重新配置并构建 JS-enabled `gterm` / `test_gterm_stdio`，完整 `python3 scripts/test-gterm-stdio.py --build tmp/gterm-build` 通过（15 个既有 stdio 场景及 `PASS stdio preview`）。没有改生产代码或公共 ABI；C 格式闸门仍因环境未安装要求的 clang-format 19.1.7 未能执行。此批加固本机 QuickJS / scoped filesystem / ResourceStore 证据，不覆盖 SSH、UI 或页面授权，也不增加 macOS CI 二十份；P2 生命周期 / 平台矩阵与 P3–P6 仍待完成。
+重新配置并构建 JS-enabled `gterm` / `test_gterm_stdio`，完整 `python3 scripts/test-gterm-stdio.py --build tmp/gterm-build` 通过（15 个既有 stdio 场景及 `PASS stdio preview`）。先将官方 pip wheel `clang-format==19.1.7` 安装到工程 `tmp/` 临时目录，再以 `PYTHONPATH` / `CLANG_FORMAT` 指向该只读工具运行 `python3 scripts/format-c.py --check`，仓库纳管 C 文件 214 份全绿；本次修改文件由同一版本格式化后，C 格式闸门复验通过。没有改生产代码或公共 ABI。此批加固本机 QuickJS / scoped filesystem / ResourceStore 证据，不覆盖 SSH、UI 或页面授权，也不增加 macOS CI 二十份；P2 生命周期 / 平台矩阵与 P3–P6 仍待完成。

@@ -72,10 +72,24 @@ int main(int argc, char **argv) {
         }
         const char *trusted = !strcmp(mode, "digest") ? client_digest : package_digest;
         if (preview) {
-            execl(binary, binary, "relay", "--stdio", "--trust-development-digest",
-                  package_digest, "--client-digest", client_digest, "--root", "workspace",
-                  workspace, "--", directory, "preview", "site/index.md", "--assets",
-                  "site/theme\\,dark.css", (char *)NULL);
+            execl(binary,
+                  binary,
+                  "relay",
+                  "--stdio",
+                  "--trust-development-digest",
+                  package_digest,
+                  "--client-digest",
+                  client_digest,
+                  "--root",
+                  "workspace",
+                  workspace,
+                  "--",
+                  directory,
+                  "preview",
+                  "site/index.md",
+                  "--assets",
+                  "site/theme\\,dark.css",
+                  (char *)NULL);
         } else if (!strcmp(mode, "arguments-codec")) {
             execl(binary,
                   binary,
@@ -213,8 +227,8 @@ int main(int argc, char **argv) {
         gt_ext_resource_store_config_t resource_config = {store_fd, 1048576, 262144, 8};
         CHECK(gt_ext_resource_store_open(&resource_config, &store) == GT_EXT_RESOURCE_OK);
         CHECK(!close(store_fd));
-        CHECK(gt_ext_session_open_resources(&channel, GT_EXT_HOST, &c, NULL, 0, store,
-                                            1048576, &session) == GT_OK);
+        CHECK(gt_ext_session_open_resources(
+                  &channel, GT_EXT_HOST, &c, NULL, 0, store, 1048576, &session) == GT_OK);
     } else {
         CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &c, methods, method_count, &session) ==
               GT_OK);
@@ -261,30 +275,32 @@ int main(int argc, char **argv) {
                 gt_ext_session_take_resource(session, &resource_lease, &snapshot);
             if (received == GT_EXT_RESOURCE_OK) {
                 gt_ext_resource_info_t resource_info;
-                CHECK(gt_ext_resource_store_info(store, &resource_lease, &snapshot,
-                                                 &resource_info) == GT_EXT_RESOURCE_OK);
-                const char *name = !strcmp(resource_info.descriptor.display_name, "site/index.md")
-                                       ? "site/index.md"
-                                   : !strcmp(resource_info.descriptor.display_name,
-                                             "site/theme,dark.css")
-                                       ? "site/theme,dark.css"
-                                       : NULL;
+                CHECK(gt_ext_resource_store_info(
+                          store, &resource_lease, &snapshot, &resource_info) == GT_EXT_RESOURCE_OK);
+                const char *name =
+                    !strcmp(resource_info.descriptor.display_name, "site/index.md")
+                        ? "site/index.md"
+                    : !strcmp(resource_info.descriptor.display_name, "site/theme,dark.css")
+                        ? "site/theme,dark.css"
+                        : NULL;
                 CHECK(name);
                 const char *mime = !strcmp(name, "site/index.md") ? "text/markdown" : "text/css";
                 const char *expected_bytes = !strcmp(name, "site/index.md")
                                                  ? "# Preview runtime fixture\n"
                                                  : "body { color: rgb(1, 2, 3); }\n";
-                const char *expected_sha256 = !strcmp(name, "site/index.md")
-                                                  ? "75a7f6f9435ed30b30df8d0e4b1f9c49b29442158dd8c815a540358daecff365"
-                                                  : "39eac723d7bb8a05bea2aa57d7b528eb83ed8f8dfe18e4f9659997457961a497";
+                const char *expected_sha256 =
+                    !strcmp(name, "site/index.md")
+                        ? "75a7f6f9435ed30b30df8d0e4b1f9c49b29442158dd8c815a540358daecff365"
+                        : "39eac723d7bb8a05bea2aa57d7b528eb83ed8f8dfe18e4f9659997457961a497";
                 size_t expected_size = strlen(expected_bytes), read_size = 0;
                 char bytes[128] = {0};
                 CHECK(!strcmp(resource_info.descriptor.mime, mime) &&
                       resource_info.descriptor.size_known &&
                       resource_info.descriptor.size == expected_size &&
                       !strcmp(resource_info.descriptor.sha256, expected_sha256) &&
-                      gt_ext_resource_store_read(store, &resource_lease, &snapshot, 0, bytes,
-                                                 sizeof(bytes), &read_size) == GT_EXT_RESOURCE_OK &&
+                      gt_ext_resource_store_read(
+                          store, &resource_lease, &snapshot, 0, bytes, sizeof(bytes), &read_size) ==
+                          GT_EXT_RESOURCE_OK &&
                       read_size == expected_size && !memcmp(bytes, expected_bytes, expected_size));
                 if (!strcmp(name, "site/index.md")) {
                     CHECK(!preview_main);
