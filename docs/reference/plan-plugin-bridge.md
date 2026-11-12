@@ -4369,3 +4369,10 @@ Markdown parser 使用文档自身的 `ghosterm-resource` URL 作为 base URL，
 继续收紧 WKWebView 响应回调：即使 URL 与当前文档相同，非主框架的 navigation response 也拒绝；`nil` 响应 URL 不会因 `nil == nil` 被误准入。响应与 action 现在都各自校验主框架身份。
 
 定向导航策略测试新增同 URL 子框架和双方 URL 为空的拒绝断言，及主框架当前文档允许断言，通过。完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **402 项、5 skip、0 失败**。
+
+
+### P2 实施第二十三批：HTML 附件快照预算与歧义拒绝（2026-11-12）
+
+补齐 HTML 附件 resolver 的负向边界覆盖：相对路径重复时两份都拒绝；资源字节长度与 metadata 不符时拒绝；单项超过 1 MiB 时拒绝；文档后的第七个附件不会进入可服务集合。此前测试已覆盖外目录、下一个 Preview 文档隔离、未列入快照、外部 host 与 SVG。
+
+`testHTMLAssetResolverRejectsDuplicateInvalidAndOverLimitSnapshots` 定向通过。完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **403 项、5 skip、0 失败**。

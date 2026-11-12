@@ -115,6 +115,31 @@ final class PluginResourceUITests: XCTestCase {
         XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/blocked.svg")!))
     }
 
+    func testHTMLAssetResolverRejectsDuplicateInvalidAndOverLimitSnapshots() {
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let duplicateA = resource("duplicate-a", path: "site/logo.png", mime: "image/png", bytes: Data([1]))
+        let duplicateB = resource("duplicate-b", path: "site/logo.png", mime: "image/png", bytes: Data([2]))
+        let badLength = ExtensionController.ReceivedResource(resourceID: "bad-length",
+            sha256: String(repeating: "c", count: 64), mime: "image/png",
+            displayName: "site/bad-length.png", size: 2, bytes: Data([3]))
+        let oversized = resource("oversized", path: "site/oversized.png", mime: "image/png",
+                                 bytes: Data(repeating: 4, count: 1_048_577))
+        let firstAllowed = resource("first", path: "site/first.png", mime: "image/png", bytes: Data([5]))
+        let secondAllowed = resource("second", path: "site/second.png", mime: "image/png", bytes: Data([6]))
+        let beyondSix = resource("seventh", path: "site/seventh.png", mime: "image/png", bytes: Data([7]))
+        let resources = [main, duplicateA, duplicateB, badLength, oversized,
+                         firstAllowed, secondAllowed, beyondSix]
+        let resolver = PluginResourceHTMLAssetResolver(document: main, resources: resources)
+
+        XCTAssertEqual(PluginResourcePreviewAssets.after(main, in: resources).count, 6)
+        XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/logo.png")!))
+        XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/bad-length.png")!))
+        XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/oversized.png")!))
+        XCTAssertNotNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/first.png")!))
+        XCTAssertNotNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/second.png")!))
+        XCTAssertNil(resolver.resolve(URL(string: "ghosterm-resource://preview/site/seventh.png")!))
+    }
+
     func testMarkdownImageResolvesOnlyToAnExplicitScopedSnapshot() throws {
         let source = Data("![logo](images/logo.png)".utf8)
         let main = resource("markdown", path: "site/index.md", mime: "text/markdown", bytes: source)
