@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件及 P2 Android Preview 第三十六批。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。API 29 / API 36 arm64 无窗口 AVD 均通过真实双跳 Preview 收件后生产资源面板正文断言；完整 MainActivity / Settings 页面交互、16 KiB 页与真机仍待验。**
+日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件及 P2 Android Preview 第三十七批。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。API 29 / API 36 arm64 无窗口 AVD 均通过真实双跳 Preview 收件后生产资源面板正文断言；API 29 / API 36 还通过同目录 Markdown PNG 像素绘制；完整 MainActivity / Settings 页面交互、16 KiB 页与真机仍待验。**
 
 **仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 官方 Preview 的完整交互与端到端验证。独立 headless WebKit probe 已通过真实 WKWebView CSS / PNG 绘制，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；AppModel / SwiftUI 实际接收后的完整端到端交互仍未完成。Android 资源预览的产品 UI 与设备验收；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
@@ -4483,3 +4483,9 @@ API 36 arm64 无窗口模拟器的 `PluginResourcePreviewTest` 与 `PluginResour
 本批发现端到端脚本之前将成功信息硬编码为 API 36，可能把其它明确设备的通过误报平台；现在脚本在创建临时 fixture 之前从指定 adb serial 读取并校验 SDK / ABI，成功消息按真实设备属性生成，API 29 修复后重新复跑通过。AVD 启动日志包含非致命 SwiftShader ColorBuffer 警告，测试未崩溃、Compose 语义断言通过；本批不据此宣称 API 29 的图片像素截图验收。测试 AVD、gterm build 和 fixture 均位于工程 `tmp/`，关闭后清理；远端 ResourceStore 暂存清理由 E2E 脚本核验。
 
 本批补的是 API 29 真实桥接与资源面板文字显示，不覆盖完整 `MainActivity` / Settings 导航、API 29 图片像素、16 KiB 页或用户真机，不记 P2 闭环完成。不改公共 ABI，不增加 macOS CI 二十份。
+
+### P2 实施第三十七批：API 29 Markdown 附件像素绘制（2026-11-12）
+
+在 API 29 / arm64 / 4 KiB 页无窗口 AVD 上，使用 JS-enabled App / androidTest APK 定向运行 `PluginResourcePreviewUiTest#markdownRendersOnlyAnExplicitSameDirectoryRasterSnapshot`。Compose 捕获生产 Markdown 资源面板文本节点位图，并在其中检查真实 PNG 的红色像素；同一断言也验证越目录与外链图片只显示 alt 文本。结果 `OK (1 test)`；API 29 PAGESIZE 为 4096。API 36 的相同像素测试已由第三十四批执行。AVD 停止并清理；启动日志有非致命 SwiftShader ColorBuffer 警告，但测试进程无崩溃且像素断言通过。
+
+此批补齐 Markdown 同目录 PNG 的 API 29 离屏像素证据，不代表完整 MainActivity / Settings 页、16 KiB 页、真机或 P2 完成。不改公共 ABI，不增加 macOS CI 二十份。
