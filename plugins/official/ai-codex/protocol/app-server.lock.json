@@ -1,0 +1,58 @@
+{
+  "format": 1,
+  "codexCliVersion": "codex-cli 0.166.0",
+  "experimentalApi": false,
+  "clientRequests": [
+    "initialize",
+    "thread/start",
+    "turn/start",
+    "turn/interrupt"
+  ],
+  "clientNotifications": [
+    "initialized"
+  ],
+  "serverRequests": [
+    "item/commandExecution/requestApproval",
+    "item/fileChange/requestApproval"
+  ],
+  "serverNotifications": [
+    "turn/started",
+    "turn/completed",
+    "item/started",
+    "item/completed",
+    "item/agentMessage/delta",
+    "item/commandExecution/outputDelta",
+    "item/fileChange/patchUpdated",
+    "serverRequest/resolved"
+  ],
+  "requiredFields": {
+    "InitializeParams": [
+      "clientInfo"
+    ],
+    "ThreadStartParams": [],
+    "TurnStartParams": [
+      "threadId",
+      "input"
+    ],
+    "TurnInterruptParams": [
+      "threadId",
+      "turnId"
+    ],
+    "CommandExecutionRequestApprovalParams": [
+      "threadId",
+      "turnId",
+      "itemId",
+      "startedAtMs"
+    ],
+    "FileChangeRequestApprovalParams": [
+      "threadId",
+      "turnId",
+      "itemId",
+      "startedAtMs"
+    ],
+    "ServerRequestResolvedNotification": [
+      "threadId",
+      "requestId"
+    ]
+  }
+}
