@@ -574,6 +574,127 @@ static void rpc_network(int argc, char **argv) {
     ext_drop(&s);
     printf("PASS ext_rpc_%s_%u\n", argv[1], count);
 }
+
+static void rpc_gterm_network(int argc, char **argv) {
+    unsigned count = (unsigned)atoi(argv[2]);
+    CHECK(count >= 2 && count <= 3 && argc == (int)(8 + count));
+    gt_ext_test_port = (uint16_t)atoi(argv[8]);
+    uint8_t prefix[4];
+    CHECK(read(0, prefix, sizeof(prefix)) == (ssize_t)sizeof(prefix));
+    size_t key_size = ((size_t)prefix[0] << 24) | ((size_t)prefix[1] << 16) |
+                      ((size_t)prefix[2] << 8) | prefix[3];
+    CHECK(key_size > 0 && key_size < 8192);
+    char *key = calloc(1, key_size + 1);
+    CHECK(key);
+    for (size_t offset = 0; offset < key_size;) {
+        ssize_t n = read(0, key + offset, key_size - offset);
+        CHECK(n > 0);
+        offset += (size_t)n;
+    }
+    gt_ssh_t *owned[GT_EXT_MAX_HOPS] = {0};
+    gt_ext_ssh_hop_t hops[GT_EXT_MAX_HOPS] = {0};
+    for (unsigned i = 0; i < count; i++) {
+        char host[64];
+        CHECK(snprintf(host, sizeof(host), "route-hop-%u.invalid", i) > 0);
+        gt_ssh_opts_t options = {.host = host,
+                                 .port = (uint16_t)atoi(argv[8 + i]),
+                                 .username = argv[3],
+                                 .known_hosts_path = argv[4]};
+        owned[i] = gt_ssh_new(&options);
+        CHECK(owned[i] && gt_ssh_auth_private_key(owned[i], key, NULL) == GT_OK);
+        hops[i].authentication = (gt_ssh_auth_options_t){
+            .family = i ? 0 : 4, .address = {127, 0, 0, 1}, .timeout_ms = 5000};
+        if (i) {
+            hops[i].via_host = "127.0.0.1";
+        }
+    }
+    memset(key, 0, key_size);
+    free(key);
+
+    gt_ext_channel_t *channel = NULL;
+    CHECK(gt_ext_channel_open_ssh(owned, hops, count, argv[5], NULL, &channel) == GT_OK);
+    uint64_t deadline = ext_now() + 30000;
+    while (gt_ext_channel_step(channel, 5) != GT_EXT_READY) {
+        gt_ext_channel_info_t info;
+        CHECK(gt_ext_channel_info(channel, &info) && info.phase == GT_EXT_CONNECTING &&
+              ext_now() < deadline);
+    }
+
+    gt_ext_session_config_t config = ext_config();
+    config.features = GT_EXT_FEATURE_REQUESTS;
+    config.peer = (gt_ext_peer_t){GT_EXT_PEER_SSH, "gterm-ssh-fixture"};
+    config.required_count = config.available_count = 1;
+    strcpy(config.plugin_id, "org.ghosterm.fixture");
+    strcpy(config.client_digest, argv[6]);
+    strcpy(config.executor_digest, argv[7]);
+    strcpy(config.required[0], "session.rpc");
+    strcpy(config.available[0], "session.rpc");
+
+    gt_ext_rpc_method_t methods[2] = {{.method = "fixture.echo",
+                                       .capability = "session.rpc",
+                                       .receiver = GT_EXT_EXECUTOR,
+                                       .input_shape = GT_EXT_JSON_OBJECT,
+                                       .output_shape = GT_EXT_JSON_OBJECT},
+                                      {.method = "fixture.ask",
+                                       .capability = "session.rpc",
+                                       .receiver = GT_EXT_HOST,
+                                       .input_shape = GT_EXT_JSON_OBJECT,
+                                       .output_shape = GT_EXT_JSON_OBJECT}};
+    gt_ext_session_t *session = NULL;
+    CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &config, methods, 2, &session) == GT_OK);
+    uint64_t echo_handle = 0;
+    gt_ext_lease_t lease;
+    bool decided = false, echo_confirmed = false, host_call_answered = false;
+    while (ext_info(session).phase < GT_EXT_SESSION_ENDED) {
+        gt_ext_session_step(session, 5);
+        CHECK(ext_now() < deadline);
+        gt_ext_session_info_t info = ext_info(session);
+        if (info.phase == GT_EXT_SESSION_CONSENT) {
+            CHECK(!decided && gt_ext_session_decide(
+                                  session, info.consent_token, GT_EXT_DECISION_ALLOW) == GT_OK);
+            decided = true;
+        }
+        if (info.phase != GT_EXT_SESSION_ACTIVE) {
+            continue;
+        }
+        CHECK(gt_ext_session_lease(session, &lease));
+        if (!echo_handle) {
+            const char input[] = "{\"text\":\"over-ssh\",\"count\":17}";
+            CHECK(gt_ext_session_request(session,
+                                         &lease,
+                                         "fixture.echo",
+                                         input,
+                                         (uint32_t)strlen(input),
+                                         10000,
+                                         &echo_handle) == GT_EXT_RPC_OK);
+        }
+        if (!host_call_answered) {
+            gt_ext_rpc_request_t request;
+            gt_ext_rpc_status_t status = gt_ext_session_take_request(session, &lease, &request);
+            CHECK(status == GT_EXT_RPC_WAIT || status == GT_EXT_RPC_OK);
+            if (status == GT_EXT_RPC_OK) {
+                CHECK(!strcmp(request.method, "fixture.ask"));
+                rpc_reply(session, &lease, &request);
+                host_call_answered = true;
+            }
+        }
+        if (echo_handle && !echo_confirmed) {
+            gt_ext_rpc_result_t result = rpc_result(session, &lease, echo_handle);
+            if (result.confirmed) {
+                CHECK(result.state == GT_EXT_RPC_SUCCEEDED && strstr(result.outcome, "over-ssh"));
+                CHECK(gt_ext_session_forget_request(session, &lease, echo_handle) == GT_EXT_RPC_OK);
+                echo_confirmed = true;
+            }
+        }
+        if (echo_confirmed && host_call_answered) {
+            gt_ext_session_revoke(session);
+            break;
+        }
+    }
+    CHECK(decided && echo_confirmed && host_call_answered && gt_ext_test_dials == 1);
+    ext_drop(&session);
+    printf("PASS gterm bidirectional RPC over SSH (%u hops)\n", count);
+}
 #endif
 #ifndef EXT_RPC_MAIN
 #define EXT_RPC_MAIN main
@@ -587,6 +708,10 @@ int EXT_RPC_MAIN(int argc, char **argv) {
     }
 #ifdef GT_HAVE_LIBSSH2
     if (argc > 2) {
+        if (!strcmp(argv[1], "gterm")) {
+            rpc_gterm_network(argc, argv);
+            return 0;
+        }
         rpc_network(argc, argv);
         return 0;
     }
