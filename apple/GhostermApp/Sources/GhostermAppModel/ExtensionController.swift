@@ -584,10 +584,21 @@ public actor ExtensionController {
         func takeSessionResource(maxBytes: UInt64) async throws -> ReceivedResource? {
             try await perform {
                 try self.checkOpen()
-                guard maxBytes <= 1048576, let session = self.session,
-                      self.hostCapabilities.contains("session.resources"),
-                      let lease = try session.lease() else { throw ControllerError.resourceUnavailable }
-                let (status, content) = try session.takeResourceData(lease, maxBytes: maxBytes)
+                guard maxBytes <= 1048576, self.hostCapabilities.contains("session.resources") else {
+                    throw ControllerError.resourceUnavailable
+                }
+                let status: ExtensionResourceStore.Status
+                let content: ExtensionSession.ResourceContent?
+                if let session = self.session {
+                    guard try session.info().phase == .active,
+                          let lease = try session.lease() else { return nil }
+                    (status, content) = try session.takeResourceData(lease, maxBytes: maxBytes)
+                } else if let runtime = self.runtime {
+                    guard try runtime.info().phase == .active else { return nil }
+                    (status, content) = try runtime.takeResourceData(maxBytes: maxBytes)
+                } else {
+                    throw ControllerError.resourceUnavailable
+                }
                 guard status != .wait else { return nil }
                 guard status == .ok, let content else { throw ControllerError.resourceUnavailable }
                 return ReceivedResource(resourceID: content.resourceID, sha256: content.sha256,

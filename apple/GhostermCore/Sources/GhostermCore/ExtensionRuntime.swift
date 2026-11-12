@@ -58,6 +58,7 @@ public final class ExtensionRuntime {
     }
     public static var supportStatus: Int32 { Int32(gt_ext_runtime_support().rawValue) }
     private let owner: DispatchQueue, stopLock = NSLock()
+    private let session: ExtensionSession?
     private let store: ExtensionResourceStore?
     private var raw: OpaquePointer?
     private func pointer() throws -> OpaquePointer {
@@ -65,7 +66,7 @@ public final class ExtensionRuntime {
         guard let raw else { throw GhostermError.failed("插件运行时已释放") }; return raw
     }
     public init(session: ExtensionSession, config: Config) throws {
-        owner = session.runtimeOwner; store = session.runtimeStore
+        self.session = session; owner = session.runtimeOwner; store = session.runtimeStore
         guard !config.modules.isEmpty, config.modules.count <= 64, !config.entry.utf8.contains(0), config.entry.utf8.count <= 255, config.roots.count <= 8 else { throw GhostermError.failed("运行时模块配置无效") }
         var buffers: [UnsafeMutableRawPointer] = []
         defer { buffers.forEach { $0.deallocate() } }
@@ -102,7 +103,7 @@ public final class ExtensionRuntime {
                 associated: Bool = false, memoryBytes: UInt64 = 0, stackBytes: UInt64 = 0,
                 cpuMilliseconds: UInt32 = 0, jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0,
                 roots: [Config.WorkspaceRoot] = [], invocation: Invocation? = nil) throws {
-        owner = session.runtimeOwner; store = session.runtimeStore
+        self.session = session; owner = session.runtimeOwner; store = session.runtimeStore
         guard roots.count <= 8 else { throw GhostermError.failed("运行时授权根超限") }
         var names: [UnsafeMutablePointer<CChar>] = []
         defer { names.forEach { $0.deallocate() } }
@@ -129,6 +130,14 @@ public final class ExtensionRuntime {
             sessionError: Int32(v.session_error.rawValue), disposeError: v.dispose_error, engineReleased: v.engine_released,
             steps: v.steps, jobs: v.jobs, moduleBytes: v.module_bytes)
     }
+    /// Pulls one completed incoming resource while this Runtime owns the Session.
+    /// The data is copied and its Core snapshot released on the Session owner.
+    public func takeResourceData(maxBytes: UInt64 = 262144) throws -> (ExtensionResourceStore.Status, ExtensionSession.ResourceContent?) {
+        guard try info().phase == .active else { return (.closed, nil) }
+        guard maxBytes <= 1048576 else { return (.limit, nil) }
+        guard let session else { return (.closed, nil) }
+        return try session.takeRuntimeResourceData(maxBytes: maxBytes)
+    }
     public func stop() { stopLock.lock(); defer { stopLock.unlock() }; if let raw { gt_ext_runtime_stop(raw) } }
     @discardableResult public func closeStep() throws -> Bool {
         let p = try pointer(); let close = gt_ext_runtime_close(p)
@@ -136,21 +145,25 @@ public final class ExtensionRuntime {
         guard close == GT_EXT_RELEASED else { return false }
         stopLock.lock(); let status = gt_ext_runtime_destroy(&raw); stopLock.unlock()
         guard status == GT_OK else { throw GhostermError.failed("运行时仍有未释放资源") }
+        session?.clearRuntimeBorrow()
         ExtensionResourceStore.retryPendingClose(on: owner); return true
     }
     public static var pendingCloseCount: Int { ExtensionRuntimeCleanup.count }
     public static func retryPendingClose(on owner: DispatchQueue) { ExtensionRuntimeCleanup.retry(owner) }
-    deinit { if let raw { ExtensionRuntimeCleanup.enqueue(raw, owner: owner) } }
+    deinit { if let raw { ExtensionRuntimeCleanup.enqueue(raw, owner: owner, session: session) } }
 }
 private final class ExtensionRuntimeCleanup {
     private static let lock = NSLock()
     private static var entries: [UUID: ExtensionRuntimeCleanup] = [:]
     private let id = UUID(), owner: DispatchQueue
+    private let session: ExtensionSession?
     private var raw: OpaquePointer?
-    init(_ raw: OpaquePointer, owner: DispatchQueue) { self.raw = raw; self.owner = owner }
+    init(_ raw: OpaquePointer, owner: DispatchQueue, session: ExtensionSession?) {
+        self.raw = raw; self.owner = owner; self.session = session
+    }
     static var count: Int { lock.lock(); defer { lock.unlock() }; return entries.count }
-    static func enqueue(_ raw: OpaquePointer, owner: DispatchQueue) {
-        let value = ExtensionRuntimeCleanup(raw, owner: owner); lock.lock(); entries[value.id] = value; lock.unlock(); owner.async { value.run() }
+    static func enqueue(_ raw: OpaquePointer, owner: DispatchQueue, session: ExtensionSession?) {
+        let value = ExtensionRuntimeCleanup(raw, owner: owner, session: session); lock.lock(); entries[value.id] = value; lock.unlock(); owner.async { value.run() }
     }
     static func retry(_ owner: DispatchQueue) {
         dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
@@ -163,6 +176,7 @@ private final class ExtensionRuntimeCleanup {
             if close == GT_EXT_CLOSE_ERROR { return }
             if close == GT_EXT_RELEASED {
                 guard gt_ext_runtime_destroy(&self.raw) == GT_OK else { return }
+                session?.clearRuntimeBorrow()
                 Self.lock.lock(); Self.entries.removeValue(forKey: id); Self.lock.unlock(); ExtensionResourceStore.retryPendingClose(on: owner); return
             }
         }

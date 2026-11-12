@@ -64,6 +64,8 @@ public final class ExtensionSession {
     private let owner: DispatchQueue, stopLock = NSLock()
     private let resourceStore: ExtensionResourceStore?
     private var raw: OpaquePointer?
+    private var runtimeBorrowedRaw: OpaquePointer?
+    private var runtimeBorrowedLease: Lease?
     private func pointer() throws -> OpaquePointer {
         dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
         guard let raw else { throw GhostermError.failed("插件会话已释放") }; return raw
@@ -207,9 +209,16 @@ public final class ExtensionSession {
     /// releases the snapshot on this Session's IO owner. `.wait` means no
     /// resource is ready. Only a finalized snapshot with known size is copied.
     public func takeResourceData(_ lease: Lease, maxBytes: UInt64) throws -> (ExtensionResourceStore.Status, ResourceContent?) {
+        try takeResourceData(try pointer(), lease: lease, maxBytes: maxBytes)
+    }
+    private func takeResourceData(_ session: OpaquePointer, lease: Lease,
+                                  maxBytes: UInt64) throws -> (ExtensionResourceStore.Status, ResourceContent?) {
         guard maxBytes <= 1048576 else { return (.limit, nil) }
-        let (status, snapshot) = try takeResource(lease)
-        guard status == .ok, let snapshot else { return (status, nil) }
+        guard let resourceStore else { return (.unsupported, nil) }
+        var l = lease.raw, native = gt_ext_resource_snapshot_t()
+        let status = ExtensionResourceStore.Status(gt_ext_session_take_resource(session, &l, &native))
+        guard status == .ok else { return (status, nil) }
+        let snapshot = ExtensionResourceStore.Snapshot(store: resourceStore, lease: lease, native: native)
         do {
             let descriptor = snapshot.descriptor
             guard descriptor.sizeKnown else {
@@ -244,6 +253,15 @@ public final class ExtensionSession {
             throw error
         }
     }
+    /// Reads from the Session after its opaque owner has been adopted by a Runtime.
+    /// The Runtime retains this wrapper and clears the borrowed pointer before releasing it.
+    internal func takeRuntimeResourceData(maxBytes: UInt64) throws -> (ExtensionResourceStore.Status, ResourceContent?) {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        guard let runtimeBorrowedRaw, let runtimeBorrowedLease else {
+            return (.closed, nil)
+        }
+        return try takeResourceData(runtimeBorrowedRaw, lease: runtimeBorrowedLease, maxBytes: maxBytes)
+    }
     public func openSource(_ lease: Lease, rootFD: Int32, relativePath: String, mime: String = "application/octet-stream", byteLimit: UInt64 = 262144) throws -> ExtensionFileSource.Admission {
         let p = try pointer(); guard !relativePath.utf8.contains(0), relativePath.utf8.count <= 4096, !mime.utf8.contains(0), mime.utf8.count <= 128 else { throw GhostermError.failed("源文件参数无效或超限") }
         let source = ExtensionFileSource(owner: owner); var l = lease.raw, rawSource: OpaquePointer?
@@ -257,19 +275,30 @@ public final class ExtensionSession {
     public func stop() { stopLock.lock(); defer { stopLock.unlock() }; if let raw { gt_ext_session_stop(raw) } }
     internal var runtimeOwner: DispatchQueue { dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread); return owner }
     internal var runtimeStore: ExtensionResourceStore? { resourceStore }
+    internal func clearRuntimeBorrow() {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        runtimeBorrowedRaw = nil
+        runtimeBorrowedLease = nil
+    }
     internal func adoptRuntime(config: inout gt_ext_runtime_config_t) throws -> OpaquePointer {
-        _ = try pointer(); stopLock.lock(); defer { stopLock.unlock() }
+        let adoptedSession = try pointer(), adoptedLease = try lease()
+        guard let adoptedLease else { throw GhostermError.failed("Runtime 接管前没有活动 Session lease") }
+        stopLock.lock(); defer { stopLock.unlock() }
         var runtime: OpaquePointer?
         let status = gt_ext_runtime_open(&raw, &config, &runtime)
         guard status == GT_OK, let runtime else { throw GhostermError.status(Int32(status.rawValue), "运行时未接管会话") }
+        if resourceStore != nil { runtimeBorrowedRaw = adoptedSession; runtimeBorrowedLease = adoptedLease }
         return runtime
     }
     internal func adoptPackageRuntime(package: ExtensionPackage, config: inout gt_ext_runtime_config_t, associated: Bool) throws -> OpaquePointer {
-        _ = try pointer(); let bytes = try package.pointer(on: owner)
+        let adoptedSession = try pointer(), adoptedLease = try lease()
+        guard let adoptedLease else { throw GhostermError.failed("Runtime 接管前没有活动 Session lease") }
+        let bytes = try package.pointer(on: owner)
         stopLock.lock(); defer { stopLock.unlock() }
         var runtime: OpaquePointer?
         let status = gt_ext_runtime_open_package(&raw, bytes, &config, associated, &runtime)
         guard status == GT_OK, let runtime else { throw GhostermError.status(Int32(status.rawValue), "插件包运行时未接管会话") }
+        if resourceStore != nil { runtimeBorrowedRaw = adoptedSession; runtimeBorrowedLease = adoptedLease }
         return runtime
     }
     @discardableResult public func closeStep(milliseconds: Int32 = 0) throws -> Bool {

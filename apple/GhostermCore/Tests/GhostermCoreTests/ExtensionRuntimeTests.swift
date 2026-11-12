@@ -22,6 +22,55 @@ final class ExtensionRuntimeTests: XCTestCase {
             try runtimeClose(r); try runtimeClose(h); XCTAssertGreaterThan(saved.moduleBytes, 0)
         }
     }
+    func testNativeHostCanTakeResourceAfterRuntimeAdoptsSession() {
+        runtimeWorker(self) { q in
+            let (hs, hd) = try runtimeStore(q), (es, ed) = try runtimeStore(q)
+            defer { try? FileManager.default.removeItem(at: hd); try? FileManager.default.removeItem(at: ed) }
+            let (h, e, _, el) = try runtimePair(q, hostStore: hs, executorStore: es)
+            let hostPlugin = "export function activate(){return {dispose(){}}}"
+            let runtime = try ExtensionRuntime(session: h,
+                config: .init(modules: runtimeModules(hostPlugin, resources: true),
+                              entry: "plugin:/entry.js", role: .host, cpuMilliseconds: 500))
+            for _ in 0..<100 { if try runtime.step() == .active { break } }
+            XCTAssertEqual(try runtime.info().phase, .active)
+
+            let bytes = Data("resource while runtime owns session\n".utf8)
+            let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+            let descriptor = ExtensionResourceStore.Descriptor(sha256: digest, mime: "text/plain",
+                                                                 displayName: "fixture.txt", size: UInt64(bytes.count))
+            let transfer = try XCTUnwrap(e.sendResource(el, descriptor: descriptor).handle)
+            XCTAssertEqual(try e.writeResource(el, handle: transfer, bytes: bytes).1, bytes.count)
+            XCTAssertEqual(try e.finishResource(el, handle: transfer, sourceComplete: true), .ok)
+
+            var received: ExtensionSession.ResourceContent?
+            for _ in 0..<1000 {
+                _ = try e.step()
+                _ = try runtime.step()
+                let (status, content) = try runtime.takeResourceData(maxBytes: 1024)
+                if status == .ok { received = content; break }
+                XCTAssertEqual(status, .wait)
+            }
+            let content = try XCTUnwrap(received)
+            XCTAssertEqual(content.bytes, bytes)
+            XCTAssertEqual(content.size, UInt64(bytes.count))
+            XCTAssertEqual(content.mime, "text/plain")
+            XCTAssertEqual(content.displayName, "fixture.txt")
+            XCTAssertEqual(content.sha256, digest)
+            for _ in 0..<20 {
+                _ = try e.step()
+                _ = try runtime.step()
+                if try e.resourceResult(el, handle: transfer).1?.confirmed == true { break }
+            }
+            XCTAssertEqual(try e.resourceResult(el, handle: transfer).1?.confirmed, true)
+            XCTAssertEqual(try es.usage().resources, 0)
+            try runtimeClose(runtime)
+            XCTAssertEqual(try h.takeRuntimeResourceData(maxBytes: 1).0, .closed)
+            try runtimeClose(e)
+            XCTAssertEqual(try hs.usage().resources, 0)
+            XCTAssertEqual(try hs.close(), .ok)
+            XCTAssertEqual(try es.close(), .ok)
+        }
+    }
     func testExistingRequestRejectsAdoption() {
         runtimeWorker(self) { q in
             let (h, e, _, el) = try runtimePair(q), handle = try XCTUnwrap(e.request(el, method: "fixture.ask", input: Data("{}".utf8)).handle)

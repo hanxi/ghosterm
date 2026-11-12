@@ -4214,3 +4214,14 @@ AppModel 仅在 Portable JS Runtime 可用且成功准备 Application Support �
 SSH fixture 的 QuickJS Executor 先完成双向 RPC，再从显式 `workspace` root 发布 `fixture.txt`。Core Host 实际核对 receipt、已发布状态、长度 18、`text/plain`、显示名、SHA-256、完整内容和 EOF。`scripts/test-gterm-ssh.py --resource` 的 2 跳 / 3 跳 SSH 用例均通过；既有 RPC 2 跳 / 3 跳用例也通过。`scripts/test-gterm-stdio.py` 15 项、`scripts/test-gterm.py` 12 项通过；`clang-format 19.1.7` 检查本批 3 个 C 文件通过，`git diff --check` 通过。全程无前台测试窗口，测试 TMPDIR 指向工程 `tmp/`。
 
 这验证真实 gterm Executor 到 Core Host 的 SSH 资源传输，不覆盖 macOS Swift `ExtensionController` 的 SSH Session resource 协商、AppModel 收件或 UI 生命周期；该 App 端到端及其专门生命周期断言仍待完成。HTML / Markdown 附件与首个 preview 插件仍待实现，不记 P2 完成。未改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第六批：Runtime 接管 Session 后的原生资源读取（2026-11-12）
+
+复核 AppModel 资源轮询发现：`activateClient` 成功后，Controller 将 Session 所有权交给 `ExtensionRuntime` 并清空旧 Session owner；此前 `takeSessionResource` 仍只从旧 Session 读取，所以 Runtime 激活后每次轮询都会报 `resourceUnavailable`，App 端无法显示收到的资源。现由 Swift `ExtensionRuntime` 保留受控 Session wrapper，在同一串行 owner 上从已接管的 Session 复制一份有界快照；Runtime 尚未 ACTIVE 或已经结束时不尝试取资源。Runtime 正常释放或 deferred cleanup 成功后清空借用的 Session 指针 / lease；Controller 在 Session 与 Runtime 两种所有权阶段分别路由读取。没有新增 C ABI。
+
+新增 `testNativeHostCanTakeResourceAfterRuntimeAdoptsSession`：真实双端 Swift Core / socketpair Session 由 Host Runtime 接管后，Executor 发送文本资源；Host Runtime API 验证长度、MIME、显示名、SHA-256、字节内容和 sender receipt，快照释放后 Store 计费归零，Runtime 关闭后借用句柄为 closed。JS-on `ExtensionRuntimeTests` 全组 **11 项通过**，包括 Runtime drop/reaper、显式 close 和 incoming resource broker；JS-on macOS `ExtensionControllerTests` 编译并通过 9 项、2 skip。最终默认 JS-off `apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests 389 项、4 skip、0 失败。
+
+验收中先后记录两次未通过：完整 gate 首轮发现第五批 SSH resource helper 在无 libssh2 的 test inclusion 下触发 `-Werror=unused-function`；已将 helper 限定在 `GT_HAVE_LIBSSH2`。修复后第二轮 App 链接因 core/build CMake 缓存仍为 JS-on，而默认 App 未链接 QuickJS；显式切回 JS-off 后最终完整 gate 通过。测试均在命令行 / 无前台窗口运行，临时文件位于工程 `tmp/` 并清理。
+
+本批证明 Runtime handoff 后 native 收件路径可用，但测试使用 Swift socketpair Executor，尚不覆盖远端 gterm 经 macOS `ExtensionController` / AppModel 的 SSH 端到端；该真实 App route、资源 UI 生命周期断言、HTML / Markdown 附件与 preview 插件仍待完成，不记 P2 完成。

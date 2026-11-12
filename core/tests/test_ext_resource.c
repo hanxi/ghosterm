@@ -493,6 +493,7 @@ static bool res_network_progress(gt_ext_session_t *s, const gt_ext_lease_t *l) {
     return done;
 }
 
+#ifdef GT_HAVE_LIBSSH2
 static bool res_gterm_receive(gt_ext_session_t *session, const gt_ext_lease_t *lease) {
     (void)session;
     if (network_received) {
@@ -530,6 +531,7 @@ static bool res_gterm_receive(gt_ext_session_t *session, const gt_ext_lease_t *l
     network_received = true;
     return true;
 }
+#endif
 #ifndef EXT_RESOURCE_MAIN
 #define EXT_RESOURCE_MAIN main
 #endif
