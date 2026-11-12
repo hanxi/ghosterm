@@ -158,6 +158,18 @@ public actor ExtensionController {
         public let disposeError: Int32
     }
 
+    public struct HostRPCRequest: Sendable {
+        public let ticket: UInt64
+        public let requestID: String
+        public let method: String
+        public let input: Data
+    }
+
+    public struct HostRPCPoll: Sendable {
+        public let status: UInt32
+        public let request: HostRPCRequest?
+    }
+
     public enum ControllerError: Error, Sendable {
         case invalidHostProfile
         case invalidPackageURL
@@ -242,6 +254,17 @@ public actor ExtensionController {
 
     public func stepRuntime() async throws -> RuntimeState {
         try await worker.stepRuntime()
+    }
+
+    /// Pulls one Client -> Host request from an active, consented Session.
+    /// The caller decides how to present and handle the method, then responds
+    /// with a bounded JSON outcome using `respondHostRPC`.
+    public func pollHostRPCRequest() async throws -> HostRPCPoll {
+        try await worker.pollHostRPCRequest()
+    }
+
+    public func respondHostRPC(ticket: UInt64, outcome: Data) async throws -> UInt32 {
+        try await worker.respondHostRPC(ticket: ticket, outcome: outcome)
     }
 
     public func stopRuntime() async throws { try await worker.stopRuntime() }
@@ -480,6 +503,38 @@ public actor ExtensionController {
                       let command = self.runtimeCommand else { throw ControllerError.runtimeUnavailable }
                 _ = try runtime.step()
                 return try self.runtimeState(runtime, packageKey: packageKey, command: command)
+            }
+        }
+
+        func pollHostRPCRequest() async throws -> HostRPCPoll {
+            try await perform {
+                try self.checkOpen()
+                guard let session = self.session,
+                      (try session.info()).phase == .active,
+                      let lease = try session.lease(),
+                      try session.access(lease, capability: "session.rpc") == .allowed else {
+                    throw ControllerError.sessionUnavailable
+                }
+                let (status, request) = try session.takeRequest(lease)
+                let snapshot = request.map {
+                    HostRPCRequest(ticket: $0.ticket, requestID: $0.requestID,
+                                   method: $0.method, input: $0.input)
+                }
+                return HostRPCPoll(status: UInt32(status.rawValue), request: snapshot)
+            }
+        }
+
+        func respondHostRPC(ticket: UInt64, outcome: Data) async throws -> UInt32 {
+            try await perform {
+                try self.checkOpen()
+                guard ticket > 0, !outcome.isEmpty, outcome.count <= 3072,
+                      let session = self.session,
+                      (try session.info()).phase == .active,
+                      let lease = try session.lease(),
+                      try session.access(lease, capability: "session.rpc") == .allowed else {
+                    throw ControllerError.sessionUnavailable
+                }
+                return UInt32(try session.respond(lease, ticket: ticket, outcome: outcome).rawValue)
             }
         }
 
