@@ -1,6 +1,7 @@
 import type { PluginContext } from "../../../../packages/plugin-sdk/portable/index.js";
 import { CodexAppServerStdio } from "./stdio.ts";
-import type { ClientInfo } from "./client.ts";
+import { CodexProtocolError, type ClientInfo } from "./client.ts";
+import { CODEX_CLI_VERSION } from "./version.ts";
 import type { ProcessExit } from "../../../../packages/plugin-sdk/portable/process.js";
 
 /** A Codex server launched through the Host-authorized Executor process service. */
@@ -38,6 +39,16 @@ export async function spawnCodexAppServer(
     envPolicy: "selected-user-environment",
     cancellation: context.cancellation,
   });
+  if (child.verifiedVersion !== CODEX_CLI_VERSION) {
+    try {
+      child.signal("terminate");
+    } finally {
+      await child.release();
+    }
+    throw new CodexProtocolError(
+      `Codex version mismatch: expected ${CODEX_CLI_VERSION}, got ${child.verifiedVersion}`,
+    );
+  }
   const stdio = new CodexAppServerStdio(child);
   const ready = stdio.client.initialize(clientInfo);
   let stopped = false;

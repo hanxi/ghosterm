@@ -28,6 +28,11 @@ def main():
     parser.add_argument("--codex", default="codex", help="official Codex CLI executable")
     args = parser.parse_args()
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    version_source = (LOCK.parent / "version.ts").read_text(encoding="utf-8")
+    version_match = re.search(r'^export const CODEX_CLI_VERSION = "([^"]+)";$',
+                              version_source, re.MULTILINE)
+    if not version_match or version_match.group(1) != lock.get("codexCliVersion"):
+        raise SystemExit("Codex runtime version constant differs from the app-server lock")
     if lock.get("serverEnvelope", {}).get("jsonrpcVersionField") not in ("omitted", "2.0"):
         raise SystemExit("app-server lock has an unsupported server jsonrpc version-field policy")
     version = run([args.codex, "--version"], env=None).strip()

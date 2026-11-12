@@ -12,9 +12,11 @@ import { CodexLineDecoder, CodexLineDecoderError, MAX_APP_SERVER_LINE_BYTES } fr
 import { CodexAppServerStdio, CODEX_PENDING_WRITE_MAX, CODEX_PIPE_CHUNK_MAX } from
   "../plugins/official/ai-codex/protocol/stdio.ts";
 import { spawnCodexAppServer } from "../plugins/official/ai-codex/protocol/process.ts";
+import { CODEX_CLI_VERSION } from "../plugins/official/ai-codex/protocol/version.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const lock = JSON.parse(readFileSync(join(root, "plugins/official/ai-codex/protocol/app-server.lock.json"), "utf8"));
+assert.equal(CODEX_CLI_VERSION, lock.codexCliVersion);
 const clientInfo = { name: "ghosterm-protocol-test", title: "Ghosterm protocol test", version: "0.0.0" };
 
 function fakeActiveClient() {
@@ -185,7 +187,7 @@ test("PluginContext process grant launches Codex through the bounded stdio adapt
   let signalled;
   let released = false;
   const child = {
-    verifiedVersion: "0.166.0",
+    verifiedVersion: lock.codexCliVersion,
     writeStdin(bytes) {
       const text = new TextDecoder().decode(bytes);
       writes.push(text);
@@ -248,11 +250,39 @@ test("PluginContext process integration rejects non-Executor or missing live gra
   assert.equal(spawned, false);
 });
 
+test("stops and reaps a Host child whose verified version differs from the protocol lock", async () => {
+  let signalled;
+  let released = false;
+  let wrote = false;
+  const context = {
+    side: "executor",
+    capabilities: { query: () => "allowed" },
+    cancellation: { cancelled: false },
+    invocation: { workspaceHandle: { id: "workspace-root" } },
+    process: { async spawn() {
+      return {
+        verifiedVersion: "codex-cli 0.165.0",
+        writeStdin() { wrote = true; return { state: "closed" }; },
+        readStdout() { return { state: "eof" }; },
+        readStderr() { return { state: "eof" }; },
+        closeStdin() {},
+        signal(value) { signalled = value; },
+        poll() { return { state: "exited", code: 0, signal: null }; },
+        async release() { released = true; },
+      };
+    } },
+  };
+  await assert.rejects(spawnCodexAppServer(context, clientInfo), /Codex version mismatch/);
+  assert.equal(signalled, "terminate");
+  assert.equal(released, true);
+  assert.equal(wrote, false);
+});
+
 test("naturally exited Codex child drains both pipes and is reaped without an explicit stop", async () => {
   let released = false;
   let signalled = false;
   const child = {
-    verifiedVersion: "0.166.0",
+    verifiedVersion: lock.codexCliVersion,
     writeStdin(bytes) { return { state: "data", count: bytes.length }; },
     readStdout() { return { state: "eof" }; },
     readStderr() { return { state: "eof" }; },
