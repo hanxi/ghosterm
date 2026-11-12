@@ -75,8 +75,15 @@ gt_status_t gt_ext_runtime_open(gt_ext_session_t **session,
     if (!session || !*session || !config || !config->modules || !config->module_count ||
         config->module_count > GT_EXT_RUNTIME_MODULES_MAX || config->memory_bytes > SIZE_MAX ||
         config->stack_bytes > SIZE_MAX || config->root_count > GT_EXT_RUNTIME_ROOTS_MAX ||
-        (config->root_count && !config->roots)) {
+        (config->root_count && !config->roots) ||
+        config->process_program_count > GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX ||
+        (config->process_program_count && !config->process_programs) ||
+        config->process_environment_count > GT_EXT_RUNTIME_PROCESS_ENV_MAX ||
+        (config->process_environment_count && !config->process_environment)) {
         return GT_ERR_INVALID_ARG;
+    }
+    if (config->process_program_count || config->process_environment_count) {
+        return GT_ERR_UNSUPPORTED;
     }
     gt_runtime_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX];
     for (size_t i = 0; i < config->root_count; i++) {
@@ -132,8 +139,15 @@ gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,
     if (!session || !*session || !package || package->info.phase != GT_EXT_PACKAGE_CHECKED ||
         !config || config->modules || config->module_count || config->entry ||
         config->memory_bytes > SIZE_MAX || config->stack_bytes > SIZE_MAX ||
-        config->root_count > GT_EXT_RUNTIME_ROOTS_MAX || (config->root_count && !config->roots)) {
+        config->root_count > GT_EXT_RUNTIME_ROOTS_MAX || (config->root_count && !config->roots) ||
+        config->process_program_count > GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX ||
+        (config->process_program_count && !config->process_programs) ||
+        config->process_environment_count > GT_EXT_RUNTIME_PROCESS_ENV_MAX ||
+        (config->process_environment_count && !config->process_environment)) {
         return GT_ERR_INVALID_ARG;
+    }
+    if (config->process_program_count || config->process_environment_count) {
+        return GT_ERR_UNSUPPORTED;
     }
     if (atomic_load_explicit(&package->stopped, memory_order_relaxed)) {
         return GT_ERR_CANCELLED;

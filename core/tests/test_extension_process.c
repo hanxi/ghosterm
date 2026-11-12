@@ -113,7 +113,8 @@ static int process_program_policy(void) {
     info.process_program_count = 2;
     strcpy(info.process_programs[0], "codex");
     strcpy(info.process_programs[1], "git");
-    const gt_ext_process_program_mapping_t mappings[] = {{"codex", "/opt/ghosterm/bin/codex"}};
+    const gt_ext_process_program_mapping_t mappings[] = {
+        {"codex", "/opt/ghosterm/bin/codex", "0.166.0"}};
     const char *executable = (const char *)1;
     CHECK(gt__ext_process_service_resolve(
               &info, mappings, 1, GT_EXT_ACCESS_ALLOWED, "codex", &executable) == GT_OK &&
@@ -131,7 +132,7 @@ static int process_program_policy(void) {
               &info, mappings, 1, GT_EXT_ACCESS_ALLOWED, "git", &executable) ==
               GT_ERR_UNSUPPORTED &&
           executable == NULL);
-    gt_ext_process_program_mapping_t invalid = {"codex", "relative/codex"};
+    gt_ext_process_program_mapping_t invalid = {"codex", "relative/codex", "0.166.0"};
     CHECK(gt__ext_process_service_resolve(
               &info, &invalid, 1, GT_EXT_ACCESS_ALLOWED, "codex", &executable) ==
               GT_ERR_INVALID_ARG &&

@@ -4720,3 +4720,9 @@ Native checked package 过去只保留 `process.spawn` capability 名称，后�
 portable SDK 增加 `ProcessService` / `ProcessChild`、有界非阻塞 stdio 结果、显式 signal/poll/release，以及不含路径或 fd 的 `WorkspaceHandle`。`PluginContext.process` 与 `Invocation.workspaceHandle` 是可选值；进程环境策略限定为 `selected-user-environment`，不会把任意环境字典交给插件。Runtime 尚未构造这些对象，现有插件不会因此获得进程能力；本批冻结的是无 Node / DOM 的 SDK 类型面，不是可运行实现或授权验收。
 
 Runtime SDK 生成物扩为六个固定模块；`python3 -B scripts/check-plugin-runtime-sdk.py`、锁定 TypeScript 5.9.3 strict `--noEmit` 与 `python3 -B scripts/test-plugin-sdk.py --fetch` 通过。`testkit/type-boundary.ts` 编译验证合法 spawn 参数、pipe 生命周期和拒绝路径 cwd / 任意环境对象。SDK conformance 从隔离构建验证 portable 模块与 C/QuickJS SDK，不验证本批新增 Host ProcessChild 的真实实现。测试使用锁定 QuickJS-NG 0.18.0 源包并在仓库 `tmp/` 中构建，结束后已清理本批 SDK 工具、构建日志与下载包。下一步仍需 Native Runtime / Host API 接线和真实子进程行为测试；P3 不记完成。
+
+### P3 实施第十一批：Host 进程配置跨端边界
+
+公共 Runtime 配置新增 Host 已核验的程序名 / 绝对 executable / verified version 映射，以及显式选定的 environment 条目；Swift `ExtensionRuntime.Config` 可承载这些值，Android JNI 明确传空配置。当前 Core Runtime 对任一非空进程配置都返回 `GT_ERR_UNSUPPORTED`，避免在 native service 和 `ctx.process` 尚未连接时静默接受。程序路径仍不做 PATH 搜索；版本字段由可信 Host 提供，但尚无启动时 identity/version 复验。
+
+新增 `ext_package_process-config` JS-enabled C 测试验证该配置明确被拒绝、Session/package 所有权不被消费。`python3 -B scripts/test-plugin-runtime.py --fetch` 通过（原 Runtime suite 加该边界用例），`bash scripts/gate.sh` 481/481 CTest、177 ABI 符号对拍通过，C 格式检查 219 文件通过；Apple `swift build --target GhostermCore` 与 Android JS-enabled CMake 的 `ghosterm_core` / `ghosterm_android` 构建通过。`swift test` 因工具链未提供 XCTest 未执行；Gradle 因本机没有可用 Java Runtime 未执行，Android 本轮证据限 JNI/Core native build。隔离 QuickJS 构建与下载文件已从 `tmp/` 清理。Runtime 仍未保存这些配置、创建进程 owner 或暴露 `ctx.process`，P3 不记完成。

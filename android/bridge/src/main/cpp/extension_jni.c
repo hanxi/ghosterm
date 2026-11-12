@@ -2228,6 +2228,10 @@ static jlongArray runtime_open(JNIEnv *e,
                                      .activation_ms = (uint32_t)v[5],
                                      .roots = roots,
                                      .root_count = (size_t)root_count,
+                                     .process_programs = NULL,
+                                     .process_program_count = 0,
+                                     .process_environment = NULL,
+                                     .process_environment_count = 0,
                                      .invocation = command ? &invocation : NULL};
         extension_slot_t *p = package_id ? package_pin(e, package_id, true, false) : NULL;
         if (package_id && !p) {

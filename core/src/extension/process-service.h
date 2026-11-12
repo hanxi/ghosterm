@@ -7,11 +7,6 @@
 
 #define GT_EXT_PROCESS_PROGRAMS_MAX 16u
 
-typedef struct {
-    const char *name;
-    const char *executable;
-} gt_ext_process_program_mapping_t;
-
 typedef struct gt_ext_process_service gt_ext_process_service_t;
 
 /* Shared policy decision used by the live Session path and focused tests. */

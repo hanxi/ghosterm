@@ -13,6 +13,7 @@ foreach(_gt_group inputs outputs)
     set(_gt_required
       packages/plugin-sdk/portable/codec.ts
       packages/plugin-sdk/portable/index.ts
+      packages/plugin-sdk/portable/process.ts
       packages/plugin-sdk/portable/resources.ts
       packages/plugin-sdk/portable/session.ts
       packages/plugin-sdk/portable/wire-contract.ts

@@ -39,17 +39,31 @@ public final class ExtensionRuntime {
             public let id: String, directoryFD: Int32, byteLimit: UInt64
             public init(id: String, directoryFD: Int32, byteLimit: UInt64) { self.id = id; self.directoryFD = directoryFD; self.byteLimit = byteLimit }
         }
+        public struct ProcessProgram {
+            public let name: String, executable: String, verifiedVersion: String
+            public init(name: String, executable: String, verifiedVersion: String) {
+                self.name = name; self.executable = executable; self.verifiedVersion = verifiedVersion
+            }
+        }
+        public struct ProcessEnvironment {
+            public let name: String, value: String
+            public init(name: String, value: String) { self.name = name; self.value = value }
+        }
         public let modules: [Module], entry: String, role: ExtensionSession.Role
         public let roots: [WorkspaceRoot]
+        public let processPrograms: [ProcessProgram], processEnvironment: [ProcessEnvironment]
         public let invocation: Invocation?
         public let memoryBytes: UInt64, stackBytes: UInt64
         public let cpuMilliseconds: UInt32, jobsPerStep: UInt32, activationMilliseconds: UInt32
         public init(modules: [Module], entry: String, role: ExtensionSession.Role,
                     memoryBytes: UInt64 = 0, stackBytes: UInt64 = 0, cpuMilliseconds: UInt32 = 0,
-                    jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0, roots: [WorkspaceRoot] = [], invocation: Invocation? = nil) {
+                    jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0, roots: [WorkspaceRoot] = [],
+                    processPrograms: [ProcessProgram] = [], processEnvironment: [ProcessEnvironment] = [],
+                    invocation: Invocation? = nil) {
             self.modules = modules; self.entry = entry; self.role = role; self.memoryBytes = memoryBytes; self.stackBytes = stackBytes
             self.cpuMilliseconds = cpuMilliseconds; self.jobsPerStep = jobsPerStep; self.activationMilliseconds = activationMilliseconds
-            self.roots = roots; self.invocation = invocation
+            self.roots = roots; self.processPrograms = processPrograms; self.processEnvironment = processEnvironment
+            self.invocation = invocation
         }
     }
     public struct Info {
@@ -67,7 +81,8 @@ public final class ExtensionRuntime {
     }
     public init(session: ExtensionSession, config: Config) throws {
         self.session = session; owner = session.runtimeOwner; store = session.runtimeStore
-        guard !config.modules.isEmpty, config.modules.count <= 64, !config.entry.utf8.contains(0), config.entry.utf8.count <= 255, config.roots.count <= 8 else { throw GhostermError.failed("运行时模块配置无效") }
+        guard !config.modules.isEmpty, config.modules.count <= 64, !config.entry.utf8.contains(0), config.entry.utf8.count <= 255,
+              config.roots.count <= 8, config.processPrograms.count <= 16, config.processEnvironment.count <= 32 else { throw GhostermError.failed("运行时模块配置无效") }
         var buffers: [UnsafeMutableRawPointer] = []
         defer { buffers.forEach { $0.deallocate() } }
         func copy(_ data: Data) -> UnsafeMutableRawPointer {
@@ -92,19 +107,42 @@ public final class ExtensionRuntime {
             guard !root.id.utf8.contains(0), root.id.utf8.count <= 64 else { throw GhostermError.failed("运行时授权根标识无效") }
             roots.append(gt_ext_runtime_root_t(id: UnsafePointer(copy(Data(root.id.utf8)).assumingMemoryBound(to: CChar.self)), directory_fd: root.directoryFD, byte_limit: root.byteLimit))
         }
-        raw = try Self.withInvocation(config.invocation) { invocation in try roots.withUnsafeBufferPointer { scopes in try modules.withUnsafeBufferPointer { values in
+        var programs: [gt_ext_process_program_mapping_t] = []
+        for program in config.processPrograms {
+            guard !program.name.utf8.contains(0), !program.executable.utf8.contains(0), !program.verifiedVersion.utf8.contains(0),
+                  program.name.utf8.count <= 128, program.executable.hasPrefix("/"), program.executable.utf8.count <= 4096,
+                  !program.verifiedVersion.isEmpty, program.verifiedVersion.utf8.count <= 128 else { throw GhostermError.failed("进程程序映射无效") }
+            programs.append(gt_ext_process_program_mapping_t(
+                name: UnsafePointer(copy(Data(program.name.utf8)).assumingMemoryBound(to: CChar.self)),
+                executable: UnsafePointer(copy(Data(program.executable.utf8)).assumingMemoryBound(to: CChar.self)),
+                verified_version: UnsafePointer(copy(Data(program.verifiedVersion.utf8)).assumingMemoryBound(to: CChar.self))))
+        }
+        var environment: [gt_ext_process_environment_t] = []
+        for item in config.processEnvironment {
+            guard !item.name.utf8.contains(0), !item.value.utf8.contains(0), item.name.utf8.count <= 128,
+                  item.value.utf8.count <= 4096 else { throw GhostermError.failed("进程环境项无效") }
+            environment.append(gt_ext_process_environment_t(
+                name: UnsafePointer(copy(Data(item.name.utf8)).assumingMemoryBound(to: CChar.self)),
+                value: UnsafePointer(copy(Data(item.value.utf8)).assumingMemoryBound(to: CChar.self))))
+        }
+        raw = try Self.withInvocation(config.invocation) { invocation in try roots.withUnsafeBufferPointer { scopes in
+            try programs.withUnsafeBufferPointer { programValues in try environment.withUnsafeBufferPointer { environmentValues in try modules.withUnsafeBufferPointer { values in
             var c = gt_ext_runtime_config_t(modules: values.baseAddress, module_count: values.count, entry: entry,
                 role: gt_ext_role_t(rawValue: config.role.rawValue), memory_bytes: config.memoryBytes, stack_bytes: config.stackBytes,
-                cpu_ms: config.cpuMilliseconds, jobs_per_step: config.jobsPerStep, activation_ms: config.activationMilliseconds, roots: scopes.baseAddress, root_count: scopes.count, invocation: invocation)
+                cpu_ms: config.cpuMilliseconds, jobs_per_step: config.jobsPerStep, activation_ms: config.activationMilliseconds,
+                roots: scopes.baseAddress, root_count: scopes.count, process_programs: programValues.baseAddress,
+                process_program_count: programValues.count, process_environment: environmentValues.baseAddress,
+                process_environment_count: environmentValues.count, invocation: invocation)
             return try session.adoptRuntime(config: &c)
-        } } }
+        } } } } }
     }
     public init(session: ExtensionSession, package: ExtensionPackage, role: ExtensionSession.Role,
                 associated: Bool = false, memoryBytes: UInt64 = 0, stackBytes: UInt64 = 0,
                 cpuMilliseconds: UInt32 = 0, jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0,
-                roots: [Config.WorkspaceRoot] = [], invocation: Invocation? = nil) throws {
+                roots: [Config.WorkspaceRoot] = [], processPrograms: [Config.ProcessProgram] = [],
+                processEnvironment: [Config.ProcessEnvironment] = [], invocation: Invocation? = nil) throws {
         self.session = session; owner = session.runtimeOwner; store = session.runtimeStore
-        guard roots.count <= 8 else { throw GhostermError.failed("运行时授权根超限") }
+        guard roots.count <= 8, processPrograms.count <= 16, processEnvironment.count <= 32 else { throw GhostermError.failed("运行时授权根或进程配置超限") }
         var names: [UnsafeMutablePointer<CChar>] = []
         defer { names.forEach { $0.deallocate() } }
         var scopes: [gt_ext_runtime_root_t] = []
@@ -114,13 +152,37 @@ public final class ExtensionRuntime {
             name.initialize(from: bytes, count: bytes.count); names.append(name)
             scopes.append(gt_ext_runtime_root_t(id: UnsafePointer(name), directory_fd: root.directoryFD, byte_limit: root.byteLimit))
         }
+        var programs: [gt_ext_process_program_mapping_t] = []
+        for program in processPrograms {
+            guard !program.name.utf8.contains(0), !program.executable.utf8.contains(0), !program.verifiedVersion.utf8.contains(0),
+                  program.name.utf8.count <= 128, program.executable.hasPrefix("/"), program.executable.utf8.count <= 4096,
+                  !program.verifiedVersion.isEmpty, program.verifiedVersion.utf8.count <= 128 else { throw GhostermError.failed("进程程序映射无效") }
+            let n = Array(program.name.utf8CString), e = Array(program.executable.utf8CString), v = Array(program.verifiedVersion.utf8CString)
+            let np = UnsafeMutablePointer<CChar>.allocate(capacity: n.count), ep = UnsafeMutablePointer<CChar>.allocate(capacity: e.count), vp = UnsafeMutablePointer<CChar>.allocate(capacity: v.count)
+            np.initialize(from: n, count: n.count); ep.initialize(from: e, count: e.count); vp.initialize(from: v, count: v.count)
+            names += [np, ep, vp]
+            programs.append(gt_ext_process_program_mapping_t(name: UnsafePointer(np), executable: UnsafePointer(ep), verified_version: UnsafePointer(vp)))
+        }
+        var environment: [gt_ext_process_environment_t] = []
+        for item in processEnvironment {
+            guard !item.name.utf8.contains(0), !item.value.utf8.contains(0), item.name.utf8.count <= 128,
+                  item.value.utf8.count <= 4096 else { throw GhostermError.failed("进程环境项无效") }
+            let n = Array(item.name.utf8CString), v = Array(item.value.utf8CString)
+            let np = UnsafeMutablePointer<CChar>.allocate(capacity: n.count), vp = UnsafeMutablePointer<CChar>.allocate(capacity: v.count)
+            np.initialize(from: n, count: n.count); vp.initialize(from: v, count: v.count)
+            names += [np, vp]
+            environment.append(gt_ext_process_environment_t(name: UnsafePointer(np), value: UnsafePointer(vp)))
+        }
         raw = try Self.withInvocation(invocation) { invocation in try scopes.withUnsafeBufferPointer { values in
+            try programs.withUnsafeBufferPointer { programValues in try environment.withUnsafeBufferPointer { environmentValues in
             var c = gt_ext_runtime_config_t(modules: nil, module_count: 0, entry: nil,
                 role: gt_ext_role_t(rawValue: role.rawValue), memory_bytes: memoryBytes, stack_bytes: stackBytes,
                 cpu_ms: cpuMilliseconds, jobs_per_step: jobsPerStep, activation_ms: activationMilliseconds,
-                roots: values.baseAddress, root_count: values.count, invocation: invocation)
+                roots: values.baseAddress, root_count: values.count, process_programs: programValues.baseAddress,
+                process_program_count: programValues.count, process_environment: environmentValues.baseAddress,
+                process_environment_count: environmentValues.count, invocation: invocation)
             return try session.adoptPackageRuntime(package: package, config: &c, associated: associated)
-        } }
+        } } } }
     }
     public func step() throws -> Phase { Phase(rawValue: gt_ext_runtime_step(try pointer()).rawValue) ?? .failed }
     public func info() throws -> Info {

@@ -44,13 +44,13 @@ def main():
   base=['cmake','-S',core,'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_JS=ON','-DGHOSTERM_BUILD_TESTS=ON','-DGHOSTERM_PLUGIN_SDK_DIR='+str(sdk),'-DCMAKE_BUILD_TYPE=RelWithDebInfo']
   run('configure',[*base,'-B',build,'-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'],budget=120)
   def rebuild(label):
-   objects=[('ghosterm_core','src/extension/runtime.c'),('test_runtime','tests/test_runtime.c'),('test_runtime_boundary','tests/test_runtime_boundary.c')]
+   objects=[('ghosterm_core','src/extension/runtime.c'),('test_runtime','tests/test_runtime.c'),('test_runtime_boundary','tests/test_runtime_boundary.c'),('test_ext_package','tests/test_ext_package.c')]
    for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
-   for name in ['libghosterm_core.a','test_runtime','test_runtime_boundary','test_config']:(build/name).unlink(missing_ok=True)
-   out=run(label+'-build',['cmake','--build',build,'--target','test_runtime','test_runtime_boundary','test_config','-j','2'],budget=300)
+   for name in ['libghosterm_core.a','test_runtime','test_runtime_boundary','test_ext_package','test_config']:(build/name).unlink(missing_ok=True)
+   out=run(label+'-build',['cmake','--build',build,'--target','test_runtime','test_runtime_boundary','test_ext_package','test_config','-j','2'],budget=300)
    for owner,name in objects:
     assert 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' in out,(label,name)
-   for name in ['test_runtime','test_runtime_boundary','test_config']:assert 'Linking C executable '+name in out,(label,name)
+   for name in ['test_runtime','test_runtime_boundary','test_ext_package','test_config']:assert 'Linking C executable '+name in out,(label,name)
    assert 'Linking C static library libghosterm_core.a' in out
   def suite(label):
    expected={'runtime_'+m for m in MODES}|{'runtime_boundary_outbound'}
@@ -59,6 +59,8 @@ def main():
    output=run(label,['ctest','--test-dir',build,'-R','^runtime_','--output-on-failure'],budget=90)
    assert '100% tests passed out of '+str(len(expected)) in output
    for name in expected:assert re.search(r'Test\s+#\d+: '+re.escape(name)+r'\s+\.+\s+Passed',output),name
+   process_config=run(label+'-process-config',['ctest','--test-dir',build,'-R','^ext_package_process-config$','--output-on-failure'],budget=90)
+   assert '100% tests passed out of 1' in process_config and 'ext_package_process-config' in process_config
   rebuild('baseline');suite('baseline')
   cases=[
    ('module-digest','            strcmp(hex, m->sha256)) {\n','            false) {\n','invalid'),
@@ -112,7 +114,7 @@ def main():
    binary=android_build/'test_runtime';nm=ndk/'toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-nm';exports=run('android-symbols',[nm,'--defined-only',binary]);assert 'gt__bridge_runtime_open' in exports and 'JS_NewRuntime' in exports;assert binary.read_bytes()[:4]==b'\x7fELF'
    android=dict(abi='arm64-v8a',api=29,executed=False,binary_sha256=sha(binary),core_sha256=sha(android_build/'libghosterm_core.a'),engine_sha256=sha(android_build/'libghosterm_quickjs.a'))
   for name,h in hashes.items():assert sha(ROOT/name)==h,name
-  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in cases] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC; no public runtime ABI, App enable, OS effects, gterm, physical devices, WAN or gateway')
+  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in cases] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,process_config_test='explicit unsupported until host service is wired',guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC; process config rejected pending runtime service; no App enable, OS effects, gterm, physical devices, WAN or gateway')
   (logs/'result.json').write_text(json.dumps(receipt,indent=2)+'\n');shutil.rmtree(source);print('PLUGIN RUNTIME PASS; logs: '+str(logs),flush=True)
  except BaseException as error:(logs/'failure.txt').write_text(repr(error)+'\n');raise
 def stop(n,_frame):raise KeyboardInterrupt('signal '+str(n))

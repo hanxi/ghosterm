@@ -11,6 +11,7 @@ struct gt_ext_process_service {
     size_t mapping_count;
     char mapping_names[GT_EXT_PROCESS_PROGRAMS_MAX][129];
     char executables[GT_EXT_PROCESS_PROGRAMS_MAX][4097];
+    char verified_versions[GT_EXT_PROCESS_PROGRAMS_MAX][129];
 };
 
 static bool valid_program_name(const char *name) {
@@ -105,7 +106,10 @@ gt_status_t gt__ext_process_service_open(gt_ext_session_t *session,
         if (!valid_program_name(mappings[i].name) || !mappings[i].executable ||
             mappings[i].executable[0] != '/' ||
             strnlen(mappings[i].executable, sizeof(service->executables[0])) >=
-                sizeof(service->executables[0])) {
+                sizeof(service->executables[0]) ||
+            !mappings[i].verified_version || !mappings[i].verified_version[0] ||
+            strnlen(mappings[i].verified_version, sizeof(service->verified_versions[0])) >=
+                sizeof(service->verified_versions[0])) {
             free(service);
             return GT_ERR_INVALID_ARG;
         }
@@ -116,6 +120,7 @@ gt_status_t gt__ext_process_service_open(gt_ext_session_t *session,
             }
         }
         strcpy(service->executables[i], mappings[i].executable);
+        strcpy(service->verified_versions[i], mappings[i].verified_version);
         /* Mapping order is retained; names share the same indexed table. */
     }
     /* Reuse the program table tail for mapped names, preserving separate
@@ -148,8 +153,8 @@ gt_status_t gt__ext_process_service_spawn(gt_ext_process_service_t *service,
     memcpy(info.process_programs, service->programs, sizeof(service->programs));
     gt_ext_process_program_mapping_t mappings[GT_EXT_PROCESS_PROGRAMS_MAX];
     for (size_t i = 0; i < service->mapping_count; i++) {
-        mappings[i] =
-            (gt_ext_process_program_mapping_t){service->mapping_names[i], service->executables[i]};
+        mappings[i] = (gt_ext_process_program_mapping_t){
+            service->mapping_names[i], service->executables[i], service->verified_versions[i]};
     }
     const char *executable = NULL;
     gt_status_t resolved = gt__ext_process_service_resolve(

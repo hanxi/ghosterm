@@ -12,6 +12,8 @@ extern "C" {
 #define GT_EXT_RUNTIME_MODULE_MAX 131072u
 #define GT_EXT_RUNTIME_SOURCE_MAX 1048576u
 #define GT_EXT_RUNTIME_ROOTS_MAX 8u
+#define GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX 16u
+#define GT_EXT_RUNTIME_PROCESS_ENV_MAX 32u
 typedef struct gt_ext_runtime gt_ext_runtime_t;
 
 typedef enum {
@@ -60,6 +62,21 @@ typedef struct {
     size_t argc;
 } gt_ext_invocation_t;
 
+/* Trusted Host resolution for a manifest-scoped process program. The Host
+ * verifies executable/version before passing this mapping; no PATH lookup. */
+typedef struct {
+    const char *name;
+    const char *executable;
+    const char *verified_version;
+} gt_ext_process_program_mapping_t;
+
+/* Explicit environment entry selected by the Host. Values are copied by the
+ * Runtime and passed only to children whose Session grant is live. */
+typedef struct {
+    const char *name;
+    const char *value;
+} gt_ext_process_environment_t;
+
 typedef struct {
     const gt_ext_runtime_module_t *modules;
     size_t module_count;
@@ -69,6 +86,10 @@ typedef struct {
     uint32_t cpu_ms, jobs_per_step, activation_ms;
     const gt_ext_runtime_root_t *roots;
     size_t root_count;
+    const gt_ext_process_program_mapping_t *process_programs;
+    size_t process_program_count;
+    const gt_ext_process_environment_t *process_environment;
+    size_t process_environment_count;
     const gt_ext_invocation_t *invocation;
 } gt_ext_runtime_config_t;
 
