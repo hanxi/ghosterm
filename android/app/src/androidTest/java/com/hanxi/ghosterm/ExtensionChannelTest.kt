@@ -16,6 +16,7 @@ import java.net.Socket
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -227,8 +228,10 @@ class ExtensionChannelTest {
         val entry = payload.getJSONObject("two"); val ports = entry.getJSONArray("ports")
         val dir = File(instrumentation.targetContext.cacheDir, "extension-controller-ssh-${System.nanoTime()}")
         check(dir.mkdir())
-        val known = File(dir, "known_hosts").apply { writeText(entry.getString("known")) }
-        val target = PreparedSSH("dest", "route-hop-1.invalid", payload.getString("user"), ports.getInt(1), emptyList(),
+        val known = File(dir, "known_hosts").apply {
+            writeText(entry.getString("known").replace("route-hop-1.invalid", "127.0.0.1"))
+        }
+        val target = PreparedSSH("dest", "127.0.0.1", payload.getString("user"), ports.getInt(1), emptyList(),
             listOf(PreparedSSH("jump", "route-hop-0.invalid", payload.getString("user"), ports.getInt(0), emptyList())))
         val controller = ExtensionController(
             ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"), listOf("session.rpc")),
@@ -261,6 +264,61 @@ class ExtensionChannelTest {
             runCatching { controller.closeSSHChannel() }
             controller.close()
             assertTrue(dir.deleteRecursively())
+        }
+    }
+
+    @Test fun sessionsAttemptRoutesPluginPromptsThroughController() = runBlocking {
+        assumeTrue("requires the explicit JS-enabled Android build", BuildConfig.PLUGIN_JS_ENABLED)
+        val payload = fixture; val entry = payload.getJSONObject("two"); val ports = entry.getJSONArray("ports")
+        val instrumentation = this@ExtensionChannelTest.instrumentation
+        val folder = File(instrumentation.targetContext.cacheDir, "extension-attempt-${System.nanoTime()}").apply { check(mkdir()) }
+        val application = object : android.app.Application() {
+            init { attachBaseContext(instrumentation.targetContext) }
+            override fun getFilesDir() = folder
+        }
+        val target = PreparedSSH("dest", "127.0.0.1", payload.getString("user"), ports.getInt(1), emptyList(),
+            listOf(PreparedSSH("jump", "route-hop-0.invalid", payload.getString("user"), ports.getInt(0), emptyList())))
+        val owner = ExtensionController(
+            ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"), listOf("session.rpc")),
+            instrumentation.targetContext)
+        val store = androidx.lifecycle.ViewModelStore(); lateinit var model: SessionsViewModel
+        instrumentation.runOnMainSync {
+            model = SessionsViewModel(application, SSHResolver { listOf(java.net.InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))) },
+                monitorSessions = false)
+            store.put("plugin-route", model); model.attachExtensionController(owner)
+        }
+        val bootstrap = File(instrumentation.targetContext.cacheDir, "extension-relay-${System.nanoTime()}").apply {
+            writeText(payload.getString("bootstrap"))
+        }
+        val seen = mutableSetOf<Long>(); var hostPrompt = false; var credentialPrompt = false
+        var cancelledAttempt: kotlinx.coroutines.Job? = null
+        try {
+            instrumentation.runOnMainSync {
+                val id = model.connectExtensionRoute(target, bootstrap.readText()) { error("route must stop at auth in this test") }
+                assertNotNull(id)
+            }
+            val deadline = SystemClock.elapsedRealtime() + 25000
+            while (!credentialPrompt && SystemClock.elapsedRealtime() < deadline) {
+                instrumentation.runOnMainSync {
+                    val attempt = model.connecting ?: return@runOnMainSync
+                    val prompt = attempt.auth ?: return@runOnMainSync
+                    if (prompt.request <= 0 || !seen.add(prompt.request)) return@runOnMainSync
+                    when (prompt.phase) {
+                        SSHAuthPhase.HOSTKEY -> { hostPrompt = true; model.decide(attempt.id, prompt, true) }
+                        SSHAuthPhase.CREDENTIALS -> { credentialPrompt = true; cancelledAttempt = attempt.job; model.cancelConnection(attempt.id) }
+                        SSHAuthPhase.FAILED, SSHAuthPhase.CANCELLED -> fail(prompt.description)
+                        else -> Unit
+                    }
+                }
+                SystemClock.sleep(10)
+            }
+            assertTrue("plugin SSH hostkey prompt was not published", hostPrompt)
+            assertTrue("plugin SSH credential prompt was not published", credentialPrompt)
+            cancelledAttempt?.join()
+        } finally {
+            instrumentation.runOnMainSync { model.connecting?.let { model.cancelConnection(it.id) }; store.clear() }
+            runCatching { owner.close() }
+            bootstrap.delete(); folder.deleteRecursively()
         }
     }
 }

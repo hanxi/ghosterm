@@ -52,6 +52,10 @@ class SSHAttempt(target: PreparedSSH, internal val filesReady: ((RemoteFileSessi
     internal var tmuxName: String? = null
     internal var taskLabel: String? = null
     internal var taskCancelled: (() -> Unit)? = null
+    internal var extensionBootstrap: String? = null
+    internal var extensionOwner: ExtensionController? = null
+    internal var extensionState: ExtensionController.ChannelState? = null
+    internal var extensionOnReady: (suspend (ExtensionController.ChannelState) -> Boolean)? = null
     val passiveProgress get() = !failed && missingUsernameTarget == null &&
         ((auth?.request ?: 0) <= 0 ||
             (auth?.phase != SSHAuthPhase.HOSTKEY && (auth?.phase != SSHAuthPhase.CREDENTIALS || automaticAuthentication)))
@@ -259,6 +263,24 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         protectInBackground()
         if (attempt.missingUsernameTarget == null) startConnection(attempt)
     }
+    /** Start an explicitly selected Client plugin's SSH relay. `bootstrap` is
+     * the caller's exact gterm command; the callback must adopt the ready
+     * channel into a Session before the attempt relinquishes ownership. */
+    internal fun connectExtensionRoute(target: PreparedSSH, bootstrap: String,
+        onReady: suspend (ExtensionController.ChannelState) -> Boolean): UUID? {
+        if (connecting != null) return null
+        val owner = extensionController ?: return null
+        if (!BuildConfig.PLUGIN_JS_ENABLED || bootstrap.isBlank() || '\u0000' in bootstrap || bootstrap.toByteArray().size > 1024) return null
+        val attempt = SSHAttempt(target).also {
+            it.extensionBootstrap = bootstrap
+            it.extensionOwner = owner
+            it.extensionOnReady = onReady
+            it.message = "正在建立插件 SSH 通道…"
+        }
+        connecting = attempt; protectInBackground()
+        if (attempt.missingUsernameTarget == null) startConnection(attempt)
+        return attempt.id
+    }
     /** File authentication uses the same policy and UI, but never creates a terminal. */
     fun connectFiles(target: PreparedSSH, ready: (RemoteFileSession, String) -> Unit) {
         if(connecting != null) return
@@ -407,6 +429,7 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         if (!attempt.forFiles && attempt.tmuxReady == null) protectInBackground()
         attempt.job = viewModelScope.launch {
             var owned: AuthenticatedSSH? = null
+            var extensionTransferred = false
             try {
                 val deadline = SystemClock.elapsedRealtime() + connectionBudgetMillis
                 withTimeout(connectionBudgetMillis) {
@@ -417,9 +440,16 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                     val candidates = addresses.map { ResolvedSSHAddress(it.address, (it as? Inet6Address)?.scopeId ?: 0) }
                     val remaining = deadline - SystemClock.elapsedRealtime()
                     check(remaining > 0) { "SSH 连接超时" }
-                    withContext(Dispatchers.IO) {
-                        val knownHosts = File(getApplication<Application>().filesDir, "home/.ssh/known_hosts")
-                        check(knownHosts.parentFile!!.isDirectory || knownHosts.parentFile!!.mkdirs()) { "无法准备主机信任目录" }
+                    val knownHosts = withContext(Dispatchers.IO) {
+                        File(getApplication<Application>().filesDir, "home/.ssh/known_hosts").also {
+                            check(it.parentFile!!.isDirectory || it.parentFile!!.mkdirs()) { "无法准备主机信任目录" }
+                        }
+                    }
+                    if (attempt.extensionBootstrap != null) {
+                        val owner = checkNotNull(attempt.extensionOwner)
+                        attempt.extensionState = owner.openSSHChannel(
+                            attempt.target.copy(user = attempt.username), addresses.first(), knownHosts, attempt.extensionBootstrap!!)
+                    } else withContext(Dispatchers.IO) {
                         val request = attempt.tmuxTarget?.connection(remaining.coerceAtMost(60_000).toInt()) ?: ResolvedSSHConnection(attempt.target.host, attempt.target.port, attempt.username,
                             knownHosts.absolutePath, candidates, remaining.coerceAtMost(60_000).toInt(), attempt.target.jumps)
                         owned = if(attempt.tmuxReady!=null) RemoteTmuxSession(request)
@@ -432,8 +462,12 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                     var listed = false
                     while (true) {
                         ensureActive()
-                        val connection = checkNotNull(owned)
-                        val auth = connection.authentication()
+                        val extensionState = attempt.extensionState?.let { previous ->
+                            if (previous.info.phase == 0) checkNotNull(attempt.extensionOwner).stepSSHChannel(5) else previous
+                        }
+                        if (extensionState != null) attempt.extensionState = extensionState
+                        val connection = owned
+                        val auth = extensionState?.authentication ?: checkNotNull(connection).authentication()
                         if (attempt.auth?.hop != null && attempt.auth?.hop != auth.hop) {
                             attempt.credentialJob?.join()
                             rememberSuccessfulIdentity(attempt)?.let { identityMemoryWarning = it }
@@ -450,6 +484,15 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                         val tmuxState=(connection as? RemoteTmuxSession)?.state()
                         if(attempt.tmuxReady!=null && auth.phase in listOf(SSHAuthPhase.READY,SSHAuthPhase.TAKEN))
                             attempt.message="正在准备后台会话管理…"
+                        if (extensionState?.info?.phase == 1) {
+                            val readyState = checkNotNull(extensionState)
+                            val callback = checkNotNull(attempt.extensionOnReady) { "插件通道缺少 Session 接管器" }
+                            val transferred = callback(readyState)
+                            check(transferred) { "插件 SSH 通道尚未被 Session 接管" }
+                            extensionTransferred = true
+                            attempt.connection = null; connecting = null
+                            break
+                        }
                         if (terminalState?.connected == true || fileState?.ready == true || tmuxState?.ready==true) {
                             val identityWarning = rememberSuccessfulIdentity(attempt)
                             if(connection is RemoteTmuxSession) {
@@ -471,9 +514,11 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                             identityWarning?.let { identityMemoryWarning = it }
                             break
                         }
-                        if (terminalState?.terminal == true || fileState?.finished == true || tmuxState?.finished==true || auth.phase == SSHAuthPhase.FAILED || auth.phase == SSHAuthPhase.CANCELLED) {
+                        if (terminalState?.terminal == true || fileState?.finished == true || tmuxState?.finished==true ||
+                            extensionState?.info?.phase == 2 || auth.phase == SSHAuthPhase.FAILED || auth.phase == SSHAuthPhase.CANCELLED) {
                             attempt.message = if (auth.phase == SSHAuthPhase.FAILED) auth.description else
-                                terminalState?.description ?: if(tmuxState!=null) "后台连接失败（错误 "+tmuxState.error+"）"
+                                extensionState?.let { "插件 SSH 通道失败（错误 ${it.info.error}）" }
+                                    ?: terminalState?.description ?: if(tmuxState!=null) "后台连接失败（错误 "+tmuxState.error+"）"
                                 else "无法打开远端文件（错误 ${fileState?.error}）"
                             attempt.failed = true; break
                         }
@@ -491,12 +536,20 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
             } catch (cancel: CancellationException) { throw cancel }
             catch (failure: Exception) {
                 if (connecting === attempt) { attempt.message = failure.message ?: "SSH 连接失败"; attempt.failed = true }
-            } finally { attempt.credentialJob?.cancel(); owned?.close(); attempt.connection = null }
+            } finally {
+                attempt.credentialJob?.cancel(); owned?.close(); attempt.connection = null
+                if (!extensionTransferred && attempt.extensionBootstrap != null) {
+                    try { withContext(NonCancellable) { attempt.extensionOwner?.closeSSHChannel() } }
+                    catch (failure: Exception) { attempt.credentialError = "插件 SSH 通道关闭未完成：${failure.message ?: "可重试"}" }
+                }
+            }
         }
     }
     fun cancelConnection(id: UUID) {
         val attempt = connecting?.takeIf { it.id == id } ?: return
-        connecting = null; attempt.taskCancelled?.invoke(); attempt.credentialJob?.cancel(); attempt.job?.cancel(); attempt.connection?.close(); attempt.connection = null
+        connecting = null; attempt.taskCancelled?.invoke(); attempt.credentialJob?.cancel()
+        attempt.extensionOwner?.requestStopSSHChannel()
+        attempt.job?.cancel(); attempt.connection?.close(); attempt.connection = null
     }
     private fun current(id: UUID, prompt: SSHAuthState): SSHAttempt {
         val attempt = checkNotNull(connecting?.takeIf { it.id == id && !it.failed }) { "连接请求已失效" }
@@ -504,8 +557,15 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         return attempt
     }
     fun decide(id: UUID, prompt: SSHAuthState, accept: Boolean) {
-        try { current(id,prompt).connection!!.decide(prompt,accept) }
-        catch (_: Exception) { connecting?.takeIf { it.id == id }?.credentialError = "主机确认已失效，请等待当前连接状态" }
+        try {
+            val attempt = current(id, prompt)
+            val owner = attempt.extensionOwner
+            if (owner == null) attempt.connection!!.decide(prompt, accept)
+            else viewModelScope.launch {
+                try { current(id, prompt); owner.decideSSHHost(prompt, accept) }
+                catch (_: Exception) { connecting?.takeIf { it.id == id }?.credentialError = "主机确认已失效，请等待当前连接状态" }
+            }
+        } catch (_: Exception) { connecting?.takeIf { it.id == id }?.credentialError = "主机确认已失效，请等待当前连接状态" }
     }
     fun manualAuthentication(id: UUID) { connecting?.takeIf { it.id==id }?.manualCredentials=true }
     private suspend fun loadIdentities(attempt: SSHAttempt) {
@@ -537,9 +597,21 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         useIdentity(attempt.id,prompt,candidate,ByteArray(0),automatic=true)
     }
     fun password(id: UUID, prompt: SSHAuthState, secret: ByteArray) {
-        try { current(id,prompt).let { it.manualCredentials=true;it.submittedIdentityId=null;it.manuallySubmittedIdentity=false;it.connection!!.password(prompt,secret) } }
-        catch (_: Exception) { connecting?.takeIf { it.id == id }?.credentialError = "凭据请求已失效或不支持此方式" }
-        finally { secret.fill(0) }
+        val attempt = try { current(id, prompt) } catch (_: Exception) { secret.fill(0); return }
+        attempt.manualCredentials = true; attempt.submittedIdentityId = null; attempt.manuallySubmittedIdentity = false
+        val owner = attempt.extensionOwner
+        if (owner == null) {
+            try { attempt.connection!!.password(prompt, secret) }
+            catch (_: Exception) { connecting?.takeIf { it.id == id }?.credentialError = "凭据请求已失效或不支持此方式" }
+            finally { secret.fill(0) }
+        } else {
+            val job = viewModelScope.launch {
+                try { current(id, prompt); owner.submitSSHPassword(prompt, secret) }
+                catch (_: Exception) { connecting?.takeIf { it.id == id }?.credentialError = "凭据请求已失效或不支持此方式" }
+                finally { secret.fill(0) }
+            }
+            job.invokeOnCompletion { secret.fill(0) }
+        }
     }
     fun useIdentity(id: UUID, prompt: SSHAuthState, identity: StoredIdentity, passphrase: ByteArray, automatic: Boolean = false) {
         val attempt = try { current(id,prompt) } catch (_: Exception) { passphrase.fill(0); return }
@@ -551,7 +623,11 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
             var material: ByteArray? = null
             try {
                 withContext(Dispatchers.IO) { material = vault.unlock(identity) }
-                current(id,prompt).connection!!.privateKey(prompt,checkNotNull(material),passphrase)
+                val currentAttempt = current(id,prompt)
+                val unlocked = checkNotNull(material)
+                val owner = currentAttempt.extensionOwner
+                if (owner == null) currentAttempt.connection!!.privateKey(prompt, unlocked, passphrase)
+                else owner.submitSSHPrivateKey(prompt, unlocked, passphrase)
                 attempt.submittedIdentityId=identity.id
                 attempt.manuallySubmittedIdentity=!automatic
             } catch (cancel: CancellationException) { throw cancel }

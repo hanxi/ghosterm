@@ -85,7 +85,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private val cleanupComplete = AtomicBoolean(false)
     private val records = linkedMapOf<Key, Record>() // worker-confined
     private var registry: ExtensionRegistry? = null // worker-confined
-    private var channel: ExtensionChannel? = null // same worker; later Session/Runtime owners must be adopted here
+    @Volatile private var channel: ExtensionChannel? = null // stop alone may cross threads
 
     /** Create an explicitly requested gterm relay route. This does not install,
      * discover, or start a remote Executor; the caller supplies its exact command. */
@@ -148,6 +148,9 @@ class ExtensionController(profile: HostProfile, context: Context) {
     suspend fun stopSSHChannel() {
         onWorker { channel?.stop() }
     }
+
+    /** Cancellation wakeup only; native stop is explicitly cross-thread safe. */
+    fun requestStopSSHChannel() { channel?.stop() }
 
     suspend fun closeSSHChannel() = onWorker {
         channel?.let { current -> current.close(); channel = null }
