@@ -4489,3 +4489,11 @@ API 36 arm64 无窗口模拟器的 `PluginResourcePreviewTest` 与 `PluginResour
 在 API 29 / arm64 / 4 KiB 页无窗口 AVD 上，使用 JS-enabled App / androidTest APK 定向运行 `PluginResourcePreviewUiTest#markdownRendersOnlyAnExplicitSameDirectoryRasterSnapshot`。Compose 捕获生产 Markdown 资源面板文本节点位图，并在其中检查真实 PNG 的红色像素；同一断言也验证越目录与外链图片只显示 alt 文本。结果 `OK (1 test)`；API 29 PAGESIZE 为 4096。API 36 的相同像素测试已由第三十四批执行。AVD 停止并清理；启动日志有非致命 SwiftShader ColorBuffer 警告，但测试进程无崩溃且像素断言通过。
 
 此批补齐 Markdown 同目录 PNG 的 API 29 离屏像素证据，不代表完整 MainActivity / Settings 页、16 KiB 页、真机或 P2 完成。不改公共 ABI，不增加 macOS CI 二十份。
+
+### P0 第九十七批：Android Core argv decoder 双跳 instrumentation（2026-11-12）
+
+针对第九十四批统一 Core consent / Runtime 参数解码，使用 `scripts/test-plugin-channel.py --rpc --android-client-runtime --android emulator-5554 --binary core/build/test_ext_rpc` 在 API 36 / arm64 无窗口 AVD 执行真实两跳 SSH Client Runtime instrumentation。`ExtensionChannelTest.controllerRunsClientRuntimeOverTwoHopSSH` 断言固定包默认布尔值解码为 `{"wrap":false}`、未知 `--unknown` 在 SSH route 前被拒绝；同时验证远端 RPC 完成证明恰为 `completed=1, handled=2, done=true` 且 Executor stderr 为空。JUnit `OK (1 test)`，远端证明存在；`getconf PAGE_SIZE` 为 4096。
+
+为满足临时文件边界，AVD 的 `HOME`、`ANDROID_AVD_HOME`、`ANDROID_EMULATOR_HOME`、crash database 与 launcher 路径均指向工程 `tmp/android-home`，emulator 以 `-no-window` 运行；启动日志确认 gRPC running 文件也位于该目录。首次运行因未预装 debug / androidTest APK，instrumentation runner 不存在；安装对应 JS-enabled APK 后，第一次复跑遇到随机 adb reverse 端口占用，未进入 instrumentation；重新启动独立 SSH fixture 后整项通过。上述前置失败不计目标断言红。结束时 AVD 与本批目录关闭清理。
+
+这补齐第九十四批参数行为的 API 36 设备证据，不代表 API 29 参数行为、16 KiB 页或真机矩阵；P0 风险关闭 / 协议候选冻结仍待审计，不增加 macOS CI 二十份。
