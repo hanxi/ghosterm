@@ -228,22 +228,22 @@ class ExtensionChannelTest {
         val dir = File(instrumentation.targetContext.cacheDir, "extension-controller-ssh-${System.nanoTime()}")
         check(dir.mkdir())
         val known = File(dir, "known_hosts").apply { writeText(entry.getString("known")) }
-        val hops = (0 until ports.length()).map { i ->
-            ExtensionChannel.Hop("route-hop-$i.invalid", ports.getInt(i), payload.getString("user"), known.path,
-                if (i == 0) null else "127.0.0.1")
-        }
+        val target = PreparedSSH("dest", "route-hop-1.invalid", payload.getString("user"), ports.getInt(1), emptyList(),
+            listOf(PreparedSSH("jump", "route-hop-0.invalid", payload.getString("user"), ports.getInt(0), emptyList())))
         val controller = ExtensionController(
             ExtensionController.HostProfile("1.0.0", listOf(1), listOf("portable-js"), listOf("session.rpc")),
             instrumentation.targetContext)
         try {
-            var state = controller.openSSHChannel(hops, 4, byteArrayOf(127, 0, 0, 1) + ByteArray(12),
-                bootstrap = payload.getString("bootstrap"))
+            var state = controller.openSSHChannel(target, java.net.InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)),
+                known, payload.getString("bootstrap"))
             val deadline = SystemClock.elapsedRealtime() + 25000
             var keyAnswers = 0
+            val hostkeyHops = mutableListOf<Int>(); val credentialHops = mutableListOf<Int>()
             while (state.info.phase != 1 && state.info.phase != 2) {
                 when (state.authentication.phase) {
-                    SSHAuthPhase.HOSTKEY -> controller.decideSSHHost(state.authentication, true)
+                    SSHAuthPhase.HOSTKEY -> { hostkeyHops += state.authentication.hop; controller.decideSSHHost(state.authentication, true) }
                     SSHAuthPhase.CREDENTIALS -> {
+                        credentialHops += state.authentication.hop
                         val key = payload.getString("pem").toByteArray()
                         controller.submitSSHPrivateKey(state.authentication, key, byteArrayOf())
                         assertTrue(key.all { it == 0.toByte() }); keyAnswers++
@@ -256,6 +256,7 @@ class ExtensionChannelTest {
             }
             assertEquals("${state.info.error}", 1, state.info.phase)
             assertEquals(ports.length(), keyAnswers)
+            assertEquals(listOf(0, 1), hostkeyHops); assertEquals(listOf(0, 1), credentialHops)
         } finally {
             runCatching { controller.closeSSHChannel() }
             controller.close()

@@ -25,6 +25,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -98,6 +100,26 @@ class ExtensionController(profile: HostProfile, context: Context) {
             opened.stop()
             throw failure
         }
+    }
+
+    /** Consume the same resolved OpenSSH route as terminal/SFTP connections.
+     * DNS is already resolved by the caller; only hop zero receives an address
+     * and every inner connector targets that hop's configured HostName. */
+    suspend fun openSSHChannel(target: PreparedSSH, address: InetAddress, knownHosts: File,
+        bootstrap: String): ChannelState {
+        require(knownHosts.isAbsolute && '\u0000' !in knownHosts.path && knownHosts.path.toByteArray().size <= 4096)
+        val route = target.jumps + target
+        require(route.size in 1..8 && route.all { it.user.isNotBlank() })
+        val hops = route.mapIndexed { index, hop ->
+            ExtensionChannel.Hop(hop.host, hop.port, hop.user, knownHosts.path,
+                if (index == 0) null else hop.host)
+        }
+        val raw = address.address
+        require(raw.size == 4 || raw.size == 16)
+        val family = if (raw.size == 4) 4 else 6
+        val packed = ByteArray(16).also { raw.copyInto(it) }
+        val scope = (address as? Inet6Address)?.scopeId ?: 0
+        return openSSHChannel(hops, family, packed, scope, bootstrap)
     }
 
     /** Poll and expose authentication state without ever invoking the
