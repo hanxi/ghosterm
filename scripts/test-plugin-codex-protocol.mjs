@@ -3,11 +3,12 @@ import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createInterface } from "node:readline";
 import test from "node:test";
 
 import { CodexAppServerClient, CodexOutcomeUnknownError, CodexProtocolError } from
   "../plugins/official/ai-codex/protocol/client.ts";
+import { CodexLineDecoder, CodexLineDecoderError, MAX_APP_SERVER_LINE_BYTES } from
+  "../plugins/official/ai-codex/protocol/line-decoder.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const lock = JSON.parse(readFileSync(join(root, "plugins/official/ai-codex/protocol/app-server.lock.json"), "utf8"));
@@ -62,6 +63,27 @@ test("closing a pipe reports outstanding operation as unknown without retry", as
   assert.equal(writes.filter(message => message.method === "thread/start").length, 1);
 });
 
+test("decodes split UTF-8 and multiple JSON lines with CRLF support", () => {
+  const lines = [];
+  const decoder = new CodexLineDecoder(line => lines.push(line));
+  const bytes = new TextEncoder().encode('{"text":"雪😀"}\r\n{"next":true}\n');
+  decoder.push(bytes.subarray(0, 13));
+  decoder.push(bytes.subarray(13, 17));
+  decoder.push(bytes.subarray(17));
+  decoder.finish();
+  assert.deepEqual(lines, ['{"text":"雪😀"}', '{"next":true}']);
+});
+
+test("rejects oversized and truncated stdout records", () => {
+  const oversized = new CodexLineDecoder(() => {});
+  assert.throws(() => oversized.push(new Uint8Array(MAX_APP_SERVER_LINE_BYTES + 1)), CodexLineDecoderError);
+  const truncated = new CodexLineDecoder(() => {});
+  truncated.push(new TextEncoder().encode('{"partial":'));
+  assert.throws(() => truncated.finish(), CodexLineDecoderError);
+  const invalidUTF8 = new CodexLineDecoder(() => {});
+  assert.throws(() => invalidUTF8.push(new Uint8Array([0xff, 0x0a])), CodexLineDecoderError);
+});
+
 test("runs initialize and thread/start against the pinned real server, without a turn", async () => {
   const executable = process.env.GHOSTERM_CODEX ?? "codex";
   const version = execFileSync(executable, ["--version"], { cwd: root, encoding: "utf8" }).trim();
@@ -73,7 +95,6 @@ test("runs initialize and thread/start against the pinned real server, without a
   const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: config, TMPDIR: join(root, "tmp") };
   for (const key of ["CODEX_HOME", "OPENAI_API_KEY", "CODEX_API_KEY"]) delete env[key];
   const child = spawn(executable, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
-  const stdout = createInterface({ input: child.stdout });
   const stderr = [];
   child.stderr.on("data", chunk => { if (stderr.join("").length < 16_384) stderr.push(String(chunk)); });
   let protocolFailure;
@@ -81,7 +102,11 @@ test("runs initialize and thread/start against the pinned real server, without a
   child.on("exit", () => { exited = true; });
   const client = new CodexAppServerClient(line => child.stdin.write(`${line}\n`));
   client.onProtocolError(error => { protocolFailure = error; });
-  stdout.on("line", line => client.receiveLine(line));
+  const decoder = new CodexLineDecoder(line => client.receiveLine(line));
+  child.stdout.on("data", chunk => {
+    try { decoder.push(chunk); }
+    catch (error) { protocolFailure = error; client.close(); }
+  });
 
   const withTimeout = (promise, ms = 20_000) => {
     let timer;
@@ -95,11 +120,11 @@ test("runs initialize and thread/start against the pinned real server, without a
     const started = await withTimeout(client.threadStart({ cwd, approvalPolicy: "on-request", sandbox: "read-only" }));
     assert.equal(typeof started.thread?.id, "string");
     assert.equal(protocolFailure, undefined, protocolFailure?.message);
+    decoder.finish();
     assert.equal(exited, false);
     console.log(`CODEX APP-SERVER ADAPTER PASS: ${version}; initialize, initialized, thread/start; no turn/model request`);
   } finally {
     client.close();
-    stdout.close();
     child.kill("SIGTERM");
     await withTimeout(new Promise(resolveExit => child.once("exit", resolveExit)), 3_000).catch(() => {});
     if (!exited) child.kill("SIGKILL");

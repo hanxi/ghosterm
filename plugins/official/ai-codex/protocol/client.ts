@@ -77,6 +77,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const low = value.charCodeAt(++index);
+      if (!(low >= 0xdc00 && low <= 0xdfff)) throw new CodexProtocolError("invalid UTF-16 string");
+      bytes += 4;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      throw new CodexProtocolError("invalid UTF-16 string");
+    } else {
+      bytes += unit <= 0x7f ? 1 : unit <= 0x7ff ? 2 : 3;
+    }
+  }
+  return bytes;
+}
+
 function idKey(value: unknown): string | null {
   if (typeof value === "string") return `s:${value}`;
   if (typeof value === "number" && Number.isSafeInteger(value)) return `n:${value}`;
@@ -151,7 +168,10 @@ export class CodexAppServerClient {
   /** Host feeds one complete UTF-8 line. Codex 0.166.0 omits `jsonrpc` on replies. */
   receiveLine(line: string): void {
     if (this.phase === "closed" || this.phase === "failed") return;
-    if (new TextEncoder().encode(line).byteLength > MAX_LINE_BYTES) {
+    let lineBytes: number;
+    try { lineBytes = utf8ByteLength(line); }
+    catch { this.protocolFailure("app-server line contains invalid UTF-16"); return; }
+    if (lineBytes > MAX_LINE_BYTES) {
       this.protocolFailure("app-server line exceeds 1 MiB");
       return;
     }
@@ -251,7 +271,7 @@ export class CodexAppServerClient {
   private write(message: Record<string, unknown>): void {
     if (this.phase === "closed" || this.phase === "failed") throw new CodexProtocolError("app-server is closed");
     const line = JSON.stringify(message);
-    if (new TextEncoder().encode(line).byteLength > MAX_LINE_BYTES) {
+    if (utf8ByteLength(line) > MAX_LINE_BYTES) {
       throw new CodexProtocolError("outgoing app-server line exceeds 1 MiB");
     }
     this.writeLine(line);

@@ -2,8 +2,9 @@
 
 The P3 protocol adapter is in `protocol/client.ts`; it handles initialization,
 thread / turn request correlation, streamed notifications, approval request IDs,
-and unknown outcomes on pipe closure. A host-owned process service must still
-provide the stdio pipes. This is not yet an installable or complete plugin.
+and unknown outcomes on pipe closure. `protocol/line-decoder.ts` frames bounded
+UTF-8 JSON lines without Node or DOM APIs. A host-owned process service must
+still provide the stdio pipes. This is not yet an installable or complete plugin.
 
 The lock was derived from the official Codex CLI `codex-cli 0.166.0` generators with experimental APIs disabled. Recheck the installed CLI and its generated JSON Schema and TypeScript surface with:
 
