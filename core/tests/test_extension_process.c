@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "extension/process-owner.h"
+#include "extension/process-service.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -103,6 +104,38 @@ static int spawn_checks(void) {
           GT_ERR_INVALID_ARG);
     close(regular_fd);
     close(cwd_fd);
+    return 0;
+}
+
+static int process_program_policy(void) {
+    gt_package_check_info_t info = {0};
+    info.executor = true;
+    info.process_program_count = 2;
+    strcpy(info.process_programs[0], "codex");
+    strcpy(info.process_programs[1], "git");
+    const gt_ext_process_program_mapping_t mappings[] = {{"codex", "/opt/ghosterm/bin/codex"}};
+    const char *executable = (const char *)1;
+    CHECK(gt__ext_process_service_resolve(
+              &info, mappings, 1, GT_EXT_ACCESS_ALLOWED, "codex", &executable) == GT_OK &&
+          !strcmp(executable, "/opt/ghosterm/bin/codex"));
+    CHECK(gt__ext_process_service_resolve(
+              &info, mappings, 1, GT_EXT_ACCESS_DENIED, "codex", &executable) == GT_ERR_AUTH &&
+          executable == NULL);
+    CHECK(gt__ext_process_service_resolve(
+              &info, mappings, 1, GT_EXT_ACCESS_REVOKED, "codex", &executable) == GT_ERR_AUTH &&
+          executable == NULL);
+    CHECK(gt__ext_process_service_resolve(
+              &info, mappings, 1, GT_EXT_ACCESS_ALLOWED, "sh", &executable) == GT_ERR_AUTH &&
+          executable == NULL);
+    CHECK(gt__ext_process_service_resolve(
+              &info, mappings, 1, GT_EXT_ACCESS_ALLOWED, "git", &executable) ==
+              GT_ERR_UNSUPPORTED &&
+          executable == NULL);
+    gt_ext_process_program_mapping_t invalid = {"codex", "relative/codex"};
+    CHECK(gt__ext_process_service_resolve(
+              &info, &invalid, 1, GT_EXT_ACCESS_ALLOWED, "codex", &executable) ==
+              GT_ERR_INVALID_ARG &&
+          executable == NULL);
     return 0;
 }
 
@@ -276,6 +309,9 @@ int main(int argc, char **argv) {
     (void)atexit(cleanup_process);
     if (!strcmp(argv[1], "spawn")) {
         return spawn_checks();
+    }
+    if (!strcmp(argv[1], "policy")) {
+        return process_program_policy();
     }
     if (!strcmp(argv[1], "environment")) {
         return environment_policy();

@@ -14,6 +14,14 @@ typedef struct {
 
 typedef struct gt_ext_process_service gt_ext_process_service_t;
 
+/* Shared policy decision used by the live Session path and focused tests. */
+gt_status_t gt__ext_process_service_resolve(const gt_package_check_info_t *,
+                                            const gt_ext_process_program_mapping_t *,
+                                            size_t,
+                                            gt_ext_access_t,
+                                            const char *,
+                                            const char **);
+
 /* Copies the checked package's Executor program scope and trusted Host
  * executable mappings. Construction does not spawn or authorize a child. */
 gt_status_t gt__ext_process_service_open(gt_ext_session_t *,
