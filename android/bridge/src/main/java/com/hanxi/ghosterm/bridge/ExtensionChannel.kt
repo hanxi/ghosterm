@@ -8,6 +8,7 @@ class ExtensionChannelException(val status: Int, message: String) : IllegalState
  * belong to that worker's protocol decoder, never a UI/event queue. closeStep
  * retains this owner until actual release; no finalizer or automatic reconnect. */
 class ExtensionChannel private constructor(private val worker: Thread, private val hops: List<Hop>) : AutoCloseable, AuthenticatedSSH {
+    enum class Stage(val nativeValue: Int) { NONE(0), AUTHENTICATION(1), FORWARD(2), EXEC(3), STREAM(4) }
     enum class Decision(val nativeValue: Int) { ACCEPT(0), REJECT(1), UNKNOWN(2) }
     data class Hop(val host: String, val port: Int, val user: String, val knownHosts: String? = null,
                    val viaHost: String? = null, val timeoutMilliseconds: Int = 60000)

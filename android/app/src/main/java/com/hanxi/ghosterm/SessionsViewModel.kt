@@ -460,12 +460,28 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
                     check(connecting === attempt) { "连接请求已取消" }
                     attempt.connection = owned
                     var listed = false
+                    var extensionAddressIndex = 0
                     while (true) {
                         ensureActive()
                         val extensionState = attempt.extensionState?.let { previous ->
                             if (previous.info.phase == 0) checkNotNull(attempt.extensionOwner).stepSSHChannel(5) else previous
                         }
                         if (extensionState != null) attempt.extensionState = extensionState
+                        if (extensionState?.info?.phase == 2 &&
+                            extensionState.info.failureStage == com.hanxi.ghosterm.bridge.ExtensionChannel.Stage.AUTHENTICATION.nativeValue &&
+                            extensionState.authentication.phase == SSHAuthPhase.FAILED &&
+                            extensionState.authentication.request == 0L &&
+                            extensionAddressIndex + 1 < addresses.size) {
+                            val owner = checkNotNull(attempt.extensionOwner)
+                            attempt.message = "当前地址未完成 SSH 握手，正在尝试下一个地址…"
+                            owner.requestStopSSHChannel()
+                            owner.closeSSHChannel()
+                            extensionAddressIndex++
+                            attempt.extensionState = owner.openSSHChannel(
+                                attempt.target.copy(user = attempt.username), addresses[extensionAddressIndex],
+                                knownHosts, checkNotNull(attempt.extensionBootstrap))
+                            continue
+                        }
                         val connection = owned
                         val auth = extensionState?.authentication ?: checkNotNull(connection).authentication()
                         if (attempt.auth?.hop != null && attempt.auth?.hop != auth.hop) {
