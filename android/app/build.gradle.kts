@@ -96,6 +96,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.coroutines.android)
     androidTestImplementation(libs.android.test.junit)
     androidTestImplementation(libs.android.test.runner)
     // Match the Espresso version already used at runtime by the Compose tests.

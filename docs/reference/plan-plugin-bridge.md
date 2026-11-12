@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第五十四批插件 owner 关闭顺序修正。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定，第四十九批在激活前按已检查的 schema 解码并暴露冻结的 `invocation.decodedArguments`，第五十批把相同参数契约接入 Apple 与 Android 的包运行时集成夹具，第五十一批新增 macOS AppModel `ExtensionController` actor 负责 fixed package review、精确来源裁决与 Client 命令选择，第五十二批加入设置页插件包选择、审查摘要和显式批准 / 拒绝入口，第五十三批将控制器关闭接入 App 正常退出等待流程，第五十四批修正 registry / package 的释放顺序。普通构建的 JS 后端仍默认关闭，插件安装、持久信任、Client runtime 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-12 第五十五批 Android App 插件控制器首片。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定，第四十九批在激活前按已检查的 schema 解码并暴露冻结的 `invocation.decodedArguments`，第五十批把相同参数契约接入 Apple 与 Android 的包运行时集成夹具，第五十一批新增 macOS AppModel `ExtensionController` actor 负责 fixed package review、精确来源裁决与 Client 命令选择，第五十二批加入设置页插件包选择、审查摘要和显式批准 / 拒绝入口，第五十三批将控制器关闭接入 App 正常退出等待流程，第五十四批修正 registry / package 的释放顺序，第五十五批新增 Android AppModel worker-owned package review / source decision controller。普通构建的 JS 后端仍默认关闭，插件安装、持久信任、Client runtime 激活、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3855,3 +3855,10 @@ AppModel 持有可选 `ExtensionController`：只有当前 Core 构件明确报�
 ExtensionController 关闭顺序调整为先销毁 registry，再同步关闭控制器仍持有的 package，最后清空 package 记录。registry 会保留已批准 package 的原生引用；此前先调用 `package.close()` 会因引用仍在而失败，后续析构则只能异步排入队列，可能晚于 AppKit 的退出答复。现在包 owner 的显式关闭发生在正常退出等待完成之前。
 
 控制器测试增加关闭后拒绝新操作的断言。该片针对原生引用释放次序，不扩展到尚未接入的活动 runtime / Session / route。
+
+
+### P0 第五十五批：Android App 插件控制器首片（2026-11-12）
+
+新增 Android `ExtensionController`，通过专属 `HandlerThread` 串行拥有原生 `ExtensionPackage` 与 `ExtensionRegistry`。固定本地 package 目录时使用 `O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC` 打开根 fd，采集并完成 client host compatibility check 后保留 package snapshot；相同 ID + digest 去重。显式批准才进入 allowed registry，拒绝会移除既有 allowed 项；无选择 resolve 将 UNKNOWN / ALLOWED 重叠命令一同计入冲突。关闭先销毁 registry，再同步关闭 package。新增 JS-on instrumentation fixture 覆盖 review、冲突、精确批准、拒绝和关闭。
+
+这一片只有 Android AppModel owner API，没有 SAF 文件夹导入、设置 UI、持久信任、Session / SSH route 或 runtime 激活。普通 App 构建仍按 `ghostermPluginJs=false` 默认关闭后端。尝试执行 `:app:compileDebugKotlin` 时系统未找到任何 Java Runtime，Gradle 未能启动，因此 Android 原生编译和 instrumentation 尚未通过；该环境限制已记录，不记为测试红或绿。没有修改公共 C ABI。
