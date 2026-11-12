@@ -4353,3 +4353,12 @@ Markdown parser 使用文档自身的 `ghosterm-resource` URL 作为 base URL，
 `AttributedString(markdown:)` 默认保留链接目标，可能让 SwiftUI `Text` 将外部链接变成可点击跳转。Markdown decoder 现在在返回解析结果前清除所有 link URL 属性，同时保留链接文字与强调样式；图片 URL 属性独立保留并继续走受限附件 resolver。Markdown 预览因此不会发起用户触发的外部导航。
 
 扩展 decoder 测试确认外链文字及强调属性保留、link 属性被清除；定向测试通过。完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **401 项、5 skip、0 失败**。HTML 主框架导航与附件的既有限制不变；Markdown 预览不新增通用链接交互。
+
+
+### P2 实施第二十一批：HTML 导航策略可测化（2026-11-12）
+
+把 WKWebView 导航准入提取为纯策略：只允许当前静态文档的初次主框架加载 / reload，以及 `about:blank`；拒绝链接点击、子框架、其它同 scheme 文档、外部 URL 和缺失响应 URL。`WKNavigationDelegate` 的 action / response 回调现在共用该策略，减少实际 delegate 与单元断言之间的漂移。
+
+新增策略测试覆盖允许与拒绝分支，定向通过。尝试重做真实 WKWebView / 附件截图 XCTest 后，xctest 再次 SIGSEGV；最新 crash report 的主线程栈落在 `objc_release` / autorelease pool drain，经 XCTest `_assertInvalidObjectsDeallocatedAfterScope` 等待阶段。该测试未保留、未计成功，也未留下前台窗口；本批记录实际失败，不把它算成正常断言红或产品行为结果。Markdown raster 图片已有稳定的真实 SwiftUI 离屏像素验收；WebKit HTML 像素渲染仍待独立进程或平台端到端方案验证。
+
+完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **402 项、5 skip、0 失败**。不改公共 ABI，不增加 macOS CI 二十份。

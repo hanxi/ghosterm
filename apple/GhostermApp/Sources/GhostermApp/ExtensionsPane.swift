@@ -522,12 +522,10 @@ private struct PluginResourceHTMLWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            let url = navigationAction.request.url
-            let isDocumentLoad = (navigationAction.navigationType == .other ||
-                                  navigationAction.navigationType == .reload) &&
-                navigationAction.targetFrame?.isMainFrame == true &&
-                (url?.absoluteString == "about:blank" || url == baseURL)
-            if isDocumentLoad {
+            if PluginResourceHTMLNavigationPolicy.permitsAction(
+                type: navigationAction.navigationType,
+                isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
+                url: navigationAction.request.url, documentURL: baseURL) {
                 decisionHandler(.allow)
             } else {
                 decisionHandler(.cancel)
@@ -536,8 +534,8 @@ private struct PluginResourceHTMLWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                      decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-            let url = navigationResponse.response.url
-            decisionHandler(url?.absoluteString == "about:blank" || url == baseURL ? .allow : .cancel)
+            decisionHandler(PluginResourceHTMLNavigationPolicy.permitsResponse(
+                url: navigationResponse.response.url, documentURL: baseURL) ? .allow : .cancel)
         }
 
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,

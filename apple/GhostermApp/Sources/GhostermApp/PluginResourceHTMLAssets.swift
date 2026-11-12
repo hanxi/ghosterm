@@ -103,6 +103,20 @@ enum PluginResourcePreviewAssets {
     }
 }
 
+enum PluginResourceHTMLNavigationPolicy {
+    static func permitsAction(type: WKNavigationType, isMainFrame: Bool, url: URL?,
+                              documentURL: URL?) -> Bool {
+        guard isMainFrame, type == .other || type == .reload, let url else { return false }
+        if url.absoluteString == "about:blank" { return true }
+        return documentURL != nil && url == documentURL
+    }
+
+    static func permitsResponse(url: URL?, documentURL: URL?) -> Bool {
+        guard let url else { return false }
+        return url.absoluteString == "about:blank" || (documentURL != nil && url == documentURL)
+    }
+}
+
 final class PluginResourceHTMLSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Sendable {
     private let lock = NSLock()
     private var resolver: PluginResourceHTMLAssetResolver

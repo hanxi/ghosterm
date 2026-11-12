@@ -148,6 +148,29 @@ final class PluginResourceUITests: XCTestCase {
         XCTAssertNil(task.error)
     }
 
+    func testHTMLNavigationPolicyAllowsOnlyTheCurrentStaticDocument() throws {
+        let document = try XCTUnwrap(PluginResourceHTMLAssetResolver.documentURL("site/index.html"))
+        XCTAssertTrue(PluginResourceHTMLNavigationPolicy.permitsAction(
+            type: .other, isMainFrame: true, url: document, documentURL: document))
+        XCTAssertTrue(PluginResourceHTMLNavigationPolicy.permitsAction(
+            type: .other, isMainFrame: true, url: URL(string: "about:blank"), documentURL: document))
+        XCTAssertTrue(PluginResourceHTMLNavigationPolicy.permitsAction(
+            type: .reload, isMainFrame: true, url: document, documentURL: document))
+        XCTAssertFalse(PluginResourceHTMLNavigationPolicy.permitsAction(
+            type: .linkActivated, isMainFrame: true,
+            url: URL(string: "https://example.invalid"), documentURL: document))
+        XCTAssertFalse(PluginResourceHTMLNavigationPolicy.permitsAction(
+            type: .other, isMainFrame: false, url: document, documentURL: document))
+        XCTAssertFalse(PluginResourceHTMLNavigationPolicy.permitsAction(
+            type: .other, isMainFrame: true,
+            url: URL(string: "ghosterm-resource://preview/site/other.html"), documentURL: document))
+        XCTAssertTrue(PluginResourceHTMLNavigationPolicy.permitsResponse(
+            url: document, documentURL: document))
+        XCTAssertFalse(PluginResourceHTMLNavigationPolicy.permitsResponse(
+            url: URL(string: "https://example.invalid"), documentURL: document))
+        XCTAssertFalse(PluginResourceHTMLNavigationPolicy.permitsResponse(url: nil, documentURL: nil))
+    }
+
     private func resource(_ id: String) -> ExtensionController.ReceivedResource {
         resource(id, path: "\(id).txt", mime: "text/plain", bytes: Data("preview \(id)".utf8))
     }
