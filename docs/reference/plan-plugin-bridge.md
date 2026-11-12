@@ -4234,3 +4234,12 @@ SSH fixture 的 QuickJS Executor 先完成双向 RPC，再从显式 `workspace` 
 JS-on `ExtensionControllerTests` 通过 **9 项、2 skip**；已有审查夹具现声明 `session.rpc` + `resource.receive`，并使用 ResourceStore 私有目录验证 required capability 无缺失。JS-off `apple-app-gate.sh` 最终通过：Apple ABI 174 引用 / 3 登记未用、真实本机 sshd e2e、GhostermAppTests **389 项、4 skip、0 失败**。Android `TMPDIR="$PWD/tmp" bash scripts/build-android.sh -PghostermPluginJs=true :app:assembleDebug :app:assembleDebugAndroidTest` 通过，包含 arm64 JNI/CMake、插件 JS 档与 instrumentation APK 编译；没有运行 Android 设备行为。
 
 此项修复协议能力名对齐，但还没有用完整双包、真实远端 `gterm` 命令走通 macOS `ExtensionController` 从 SSH READY、HostProfile resource 协商、Client Runtime 到有界资源接收；该端到端、接收 UI 生命周期断言、HTML / Markdown 附件与 preview 插件仍待完成，不记 P2 完成。测试 headless，工程 `tmp/` 已清理；普通 Core/App 档恢复 JS-off。
+
+
+### P2 实施第八批：macOS Client 显式配置 Executor 资源根目录（2026-11-12）
+
+真实资源链路还缺少产品入口为 Executor 配置显式 `--root ID DIRECTORY`。启动 UI 新增可选的远端资源目录字段，空值不开放目录；填写后固定以 `workspace` ID 作为受控 source root，随 `ExtensionRelayBootstrap.Request` 生成已 shell 引用的 gterm 参数，并在 Native consent 前显示完整远端启动命令供复核。路径没有自动取 cwd、包目录或 home；gterm 仍负责以 `O_NOFOLLOW` 打开并校验远端目录与 owner。Bootstrap 对 root 数量（最多 8）、唯一 ASCII ID 和非空路径做本地拒绝，保留逐参数长度、换行 / NUL 和整条 SSH 命令长度限制。
+
+`testRelayBootstrapValidatesAndQuotesEveryArgument` 新增含空格的根目录引用、非法 ID 和重复 ID 断言；最终 ID 语法与 Core source-root 校验一致（小写字母起始，后续小写字母、数字、点、下划线或连字符）。完整 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用、隔离 sshd e2e、GhostermAppTests **389 项、4 skip、0 失败**。之后对齐 ID 语法并重跑该定向 XCTest，**1 项通过**；`git diff --check` 通过。全程终端 headless 执行，测试后清理 `tmp/`。
+
+本批只使 UI 可显式授权 Executor 目录并验证命令构造，尚未证明 UI 填写后完整真实远端 `gterm` 经 AppModel / ExtensionController 收件；资源接收生命周期、HTML / Markdown 附件和 preview 插件仍待完成，不记 P2 完成。未改公共 C ABI，不增加 macOS CI 二十份。

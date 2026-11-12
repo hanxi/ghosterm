@@ -23,6 +23,7 @@ struct ExtensionsPane: View {
         var argumentsJSON = "[]"
         var methodsJSON = "[]"
         var hostMethodsJSON = "[]"
+        var resourceRoot = ""
         init(review: ExtensionController.PackageReview) {
             self.review = review
             self.command = review.commands.first?.path ?? ""
@@ -82,6 +83,7 @@ struct ExtensionsPane: View {
                             TextField("命令参数 JSON 字符串数组", text: $entry.argumentsJSON)
                             TextField("Executor RPC allowlist JSON", text: $entry.methodsJSON)
                             TextField("Host RPC allowlist JSON", text: $entry.hostMethodsJSON)
+                            TextField("远端资源目录（留空则不开放）", text: $entry.resourceRoot)
                             Button("连接并启动 Client 命令") { launch(entry) }
                                 .disabled(model.extensionRunBusy || model.extensionRun != nil)
                         }
@@ -147,13 +149,16 @@ struct ExtensionsPane: View {
             let arguments = try ExtensionRelayBootstrap.parseArgumentsJSON(entry.argumentsJSON)
             let methods = try ExtensionRelayBootstrap.parseMethodsJSON(entry.methodsJSON)
             let hostMethods = try ExtensionRelayBootstrap.parseHostMethodsJSON(entry.hostMethodsJSON)
+            let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.resourceRoot.isEmpty
+                ? [] : [.init(id: "workspace", directory: entry.resourceRoot)]
             guard !entry.sshAlias.isEmpty else { throw GhostermCore.GhostermError.failed("请填写 SSH 主机别名") }
             Task {
                 await model.startExtensionClient(packageID: entry.review.id,
                     packageDigest: entry.review.digest, command: entry.command,
                     arguments: arguments, sshAlias: entry.sshAlias,
                     executable: entry.executable, executorDirectory: entry.executorDirectory,
-                    executorDigest: entry.executorDigest, methods: methods, hostMethods: hostMethods)
+                    executorDigest: entry.executorDigest, methods: methods, hostMethods: hostMethods,
+                    scopedRoots: roots)
             }
         } catch { issue = "插件启动参数无效：\(error)" }
     }

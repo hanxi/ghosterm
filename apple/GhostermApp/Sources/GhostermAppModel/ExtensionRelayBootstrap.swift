@@ -4,6 +4,15 @@ import GhostermCore
 /// Builds the explicit POSIX command used to start the reviewed Executor over
 /// SSH. This does not discover, install, or trust a remote gterm binary.
 public enum ExtensionRelayBootstrap {
+    public struct ScopedRoot: Sendable, Equatable {
+        public let id: String
+        public let directory: String
+
+        public init(id: String, directory: String) {
+            self.id = id; self.directory = directory
+        }
+    }
+
     public struct Request: Sendable {
         public let executable: String
         public let executorDirectory: String
@@ -11,15 +20,18 @@ public enum ExtensionRelayBootstrap {
         public let clientDigest: String
         public let methods: [String]
         public let hostMethods: [String]
+        public let scopedRoots: [ScopedRoot]
         public let command: String
         public let arguments: [String]
 
         public init(executable: String, executorDirectory: String, executorDigest: String,
                     clientDigest: String, methods: [String], hostMethods: [String] = [],
+                    scopedRoots: [ScopedRoot] = [],
                     command: String, arguments: [String] = []) {
             self.executable = executable; self.executorDirectory = executorDirectory
             self.executorDigest = executorDigest; self.clientDigest = clientDigest
             self.methods = methods; self.hostMethods = hostMethods
+            self.scopedRoots = scopedRoots
             self.command = command; self.arguments = arguments
         }
     }
@@ -59,10 +71,16 @@ public enum ExtensionRelayBootstrap {
             throw invalid("RPC 方法无效、重复或超过 16 项")
         }
         guard request.arguments.count <= 32 else { throw invalid("命令参数最多 32 项") }
+        guard request.scopedRoots.count <= 8,
+              Set(request.scopedRoots.map(\.id)).count == request.scopedRoots.count,
+              request.scopedRoots.allSatisfy({ validRootID($0.id) && !$0.directory.isEmpty }) else {
+            throw invalid("受控目录必须有唯一的 ASCII ID 和非空远端路径，最多 8 项")
+        }
         let argv = [request.executable, "relay", "--stdio", "--trust-development-digest", request.executorDigest,
                     "--client-digest", request.clientDigest]
             + request.methods.flatMap { ["--method", $0] }
             + request.hostMethods.flatMap { ["--host-method", $0] }
+            + request.scopedRoots.flatMap { ["--root", $0.id, $0.directory] }
             + ["--", request.executorDirectory, request.command] + request.arguments
         guard argv.allSatisfy({
             !$0.utf8.contains(0) && !$0.contains("\n") && !$0.contains("\r") && $0.utf8.count <= 4096
@@ -97,6 +115,14 @@ public enum ExtensionRelayBootstrap {
             return false
         }
         return !previousSeparator
+    }
+
+    private static func validRootID(_ value: String) -> Bool {
+        let bytes = Array(value.utf8)
+        guard let first = bytes.first, bytes.count <= 64, (97...122).contains(first) else { return false }
+        return bytes.dropFirst().allSatisfy {
+            (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95 || $0 == 46
+        }
     }
 
     private static func isDigest(_ value: String) -> Bool {

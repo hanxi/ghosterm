@@ -62,6 +62,15 @@ final class ExtensionControllerTests: XCTestCase {
             "exec '/opt/gterm' 'relay' '--stdio' '--trust-development-digest' '\(digest)' " +
             "'--client-digest' '\(digest)' '--method' 'fixture.echo' '--host-method' 'host.confirm' " +
             "'--' '/opt/plugins/executor' 'fixture.run' 'space value' 'it'\\''s quoted'")
+        let rooted = ExtensionRelayBootstrap.Request(
+            executable: "/opt/gterm", executorDirectory: "/opt/plugins/executor",
+            executorDigest: digest, clientDigest: digest, methods: [],
+            scopedRoots: [.init(id: "workspace", directory: "/srv/project files")],
+            command: "fixture.run")
+        XCTAssertEqual(try ExtensionRelayBootstrap.build(rooted),
+            "exec '/opt/gterm' 'relay' '--stdio' '--trust-development-digest' '\(digest)' " +
+            "'--client-digest' '\(digest)' '--root' 'workspace' '/srv/project files' " +
+            "'--' '/opt/plugins/executor' 'fixture.run'")
         XCTAssertEqual(try ExtensionRelayBootstrap.parseArgumentsJSON(#"["a", "b c"]"#), ["a", "b c"])
         XCTAssertThrowsError(try ExtensionRelayBootstrap.parseArgumentsJSON(#"["ok"] false"#))
         XCTAssertThrowsError(try ExtensionRelayBootstrap.parseMethodsJSON(#"["bad..name"]"#))
@@ -69,6 +78,17 @@ final class ExtensionControllerTests: XCTestCase {
             executable: "/opt/gterm", executorDirectory: "/opt/executor",
             executorDigest: digest, clientDigest: digest, methods: ["same"],
             hostMethods: ["same"], command: "fixture.run")))
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.build(.init(
+            executable: "/opt/gterm", executorDirectory: "/opt/executor",
+            executorDigest: digest, clientDigest: digest, methods: [],
+            scopedRoots: [.init(id: "../workspace", directory: "/srv/project")],
+            command: "fixture.run")))
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.build(.init(
+            executable: "/opt/gterm", executorDirectory: "/opt/executor",
+            executorDigest: digest, clientDigest: digest, methods: [],
+            scopedRoots: [.init(id: "workspace", directory: "/srv/a"),
+                          .init(id: "workspace", directory: "/srv/b")],
+            command: "fixture.run")))
     }
 
     @MainActor

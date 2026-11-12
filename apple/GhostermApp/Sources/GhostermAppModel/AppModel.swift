@@ -1079,7 +1079,8 @@ public final class AppModel: ObservableObject {
     public func startExtensionClient(packageID: String, packageDigest: String, command: String,
                                      arguments: [String], sshAlias: String, executable: String,
                                      executorDirectory: String, executorDigest: String,
-                                     methods: [String], hostMethods: [String]) async {
+                                     methods: [String], hostMethods: [String],
+                                     scopedRoots: [ExtensionRelayBootstrap.ScopedRoot] = []) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
         extensionRunBusy = true; extensionRunIssue = nil
@@ -1098,6 +1099,7 @@ public final class AppModel: ObservableObject {
             let bootstrap = try ExtensionRelayBootstrap.build(.init(executable: executable,
                 executorDirectory: executorDirectory, executorDigest: executorDigest,
                 clientDigest: packageDigest, methods: methods, hostMethods: hostMethods,
+                scopedRoots: scopedRoots,
                 command: command, arguments: arguments))
             _ = try await authenticatePluginSSHChannel(alias: sshAlias, bootstrap: bootstrap)
             let rpcMethods = methods.map {
