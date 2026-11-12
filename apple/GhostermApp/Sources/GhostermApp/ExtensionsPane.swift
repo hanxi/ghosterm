@@ -101,7 +101,7 @@ struct ExtensionsPane: View {
             if let message = model.extensionRunIssue {
                 Text(message).foregroundStyle(.red).textSelection(.enabled)
             }
-            SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装与持久信任尚未接入。Host RPC 业务 handler 和插件视图仍在开发中。")
+            SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装与持久信任尚未接入。资源面板目前只显示校验摘要与有界 UTF-8 文本，图片和 HTML 预览仍在开发中。")
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in
             switch result {
@@ -195,6 +195,28 @@ struct ExtensionsPane: View {
                 if let runtime = run.runtime {
                     Text("Runtime phase：\(runtime.phase) · failure：\(runtime.failure) · cleanup：\(runtime.cleanupError)")
                         .font(DS.Font.caption).textSelection(.enabled)
+                }
+                if !run.receivedResources.isEmpty {
+                    Text("本次运行收到的资源").font(DS.Font.labelEmphasis)
+                    ForEach(Array(run.receivedResources.enumerated()), id: \.offset) { _, resource in
+                        VStack(alignment: .leading, spacing: DS.Padding.xs) {
+                            Text(resource.displayName.isEmpty ? "未命名资源" : resource.displayName)
+                                .font(DS.Font.caption).textSelection(.enabled)
+                            Text("\(resource.mime) · \(resource.size) 字节 · SHA-256 \(resource.sha256)")
+                                .font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
+                            if let preview = String(data: resource.bytes.prefix(16384), encoding: .utf8) {
+                                Text(preview.isEmpty ? "空文本资源" : preview)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .textSelection(.enabled).lineLimit(12)
+                            } else {
+                                Text("此资源不是有效 UTF-8 文本；当前显示摘要，不解码为图片或 HTML。")
+                                    .font(DS.Font.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(DS.Padding.s)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.background, in: RoundedRectangle(cornerRadius: DS.Radius.control))
+                    }
                 }
                 Button(model.extensionRunBusy ? "正在停止…" : "停止并释放插件") {
                     Task { await model.stopExtensionRun() }

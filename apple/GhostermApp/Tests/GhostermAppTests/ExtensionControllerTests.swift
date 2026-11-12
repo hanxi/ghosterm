@@ -8,8 +8,7 @@ import XCTest
 final class ExtensionControllerTests: XCTestCase {
     @MainActor
     func testClientHostProfileOnlyAdvertisesIntegratedCapabilities() {
-        XCTAssertEqual(AppModel.extensionHostCapabilities, ["session.rpc"])
-        XCTAssertFalse(AppModel.extensionHostCapabilities.contains("session.resources"))
+        XCTAssertEqual(AppModel.extensionHostCapabilities, ["session.rpc", "session.resources"])
     }
 
     func testResourceCapabilityRequiresAnExplicitPrivateDirectory() throws {

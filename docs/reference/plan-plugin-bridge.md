@@ -1,8 +1,8 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第九十八批 Swift Session 有界资源数据 API。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
+日期：2026-11-05，更新至 2026-11-12 第九十九批 macOS 资源接收面板。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 原生资源视图与首个 preview 插件；macOS Controller / Core Swift Session 已接 worker-owned Host ResourceStore 与有界快照数据读取 API，普通 App 尚不声明 `session.resources`；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 App 产品资源闭环已接入。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 真实远端 `gterm` producer 端到端验收、图片 / HTML 预览与首个 preview 插件；macOS App 已接资源能力协商、有界接收和 UTF-8 文本视图；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 P2 preview 产品闭环完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -4184,4 +4184,15 @@ Swift Core wrapper、macOS AppModel 和 Android JNI/Kotlin wrapper 均调用公�
 
 Core Swift 双 Session / socketpair 夹具用真实 `sendResource` / `writeResource` / `finishResource` 发送端验证：`abc` 与 SHA256 完整一致，2 字节上限拒绝 3 字节资源并归还计费，0 字节上限成功接收空资源；wire 上 size unknown 的已完成资源也固化为 3 字节并正确读取。`ExtensionResourceTests` 组 8 项、2 项需显式 SSH memory fixture 的用例 skip、0 失败；本批新增资源读取用例定向通过。随后 `apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e，GhostermAppTests 388 项、4 skip、0 失败。
 
-当前仍没有以真实远端 gterm producer 验证 `ExtensionController.takeSessionResource` 的 Session resources 传输，也没有原生资源页面或 preview 插件；普通 App 不声明 `session.resources`。本批仅加 Swift 绑定 API，不改公共 C ABI，不增加 macOS CI 二十份。
+当前仍没有以真实远端 gterm producer 验证 `ExtensionController.takeSessionResource` 的 Session resources 传输，也没有资源页面或 preview 插件；当时普通 App 不声明 `session.resources`。本批仅加 Swift 绑定 API，不改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第三批：macOS App 接收并显示有界 UTF-8 资源（2026-11-12）
+
+AppModel 仅在 Portable JS Runtime 可用且成功准备 Application Support 下的 `Ghosterm/PluginResources` 私有目录时，创建声明 `session.rpc` 与 `session.resources` 的 Client HostProfile；目录无法准备时插件运行时保持不可用，不会报告资源能力可用。Controller 的 ResourceStore 根目录仍按 `O_NOFOLLOW`、目录类型与 owner 校验，按 Session 创建随机 `0700` 子目录并在 owner 生命周期结束时校验身份后清理。
+
+授权并启动后，AppModel runtime owner 每轮驱动 Runtime 后最多取一份完整资源快照，单资源上限 1 MiB；本次运行最多保留 16 项、累计 8 MiB，超过界限会显示错误且不留在 AppModel。收到内容展示已验证的显示名、MIME、长度和 SHA-256；仅当资源为有效 UTF-8 时显示前 16 KiB 文本片段，非 UTF-8 只显示元数据，不把内容解释为 HTML 或解码成图片。停止运行后随 `ExtensionRun` 丢弃内存内容，原始资源仍由 Core Store 管理并按 Session 清理。
+
+`ExtensionControllerTests.testClientHostProfileOnlyAdvertisesIntegratedCapabilities` 更新为固定 App 现已接入的两项能力；既有 Controller 测试仍固定未配置私有目录时不能创建资源能力。验证：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$(pwd)/tmp" bash scripts/apple-app-gate.sh` 通过，Apple ABI **174 引用 / 3 登记未用**，隔离 sshd e2e 通过，GhostermAppTests **388 项、4 skip、0 失败**；`git diff --check` 通过。全程 headless，无前台测试窗口。未改公共 C ABI，不增加 macOS CI 二十份。
+
+尚缺真实远端 `gterm` producer 到 App 的资源 Session 端到端验收、资源接收 UI 生命周期专门断言、静态图片预算解码 / 展示、HTML / Markdown 预览与 preview 插件，因此 P2 仍未完成。

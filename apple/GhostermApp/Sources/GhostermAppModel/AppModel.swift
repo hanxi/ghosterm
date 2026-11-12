@@ -21,9 +21,7 @@ import Foundation
 @MainActor
 public final class AppModel: ObservableObject {
     /// Capabilities implemented by the App-facing Client runtime path.
-    /// Core ResourceStore support alone does not make session.resources a
-    /// product capability until the App has an owning resource service/view.
-    public static let extensionHostCapabilities = ["session.rpc"]
+    public static let extensionHostCapabilities = ["session.rpc", "session.resources"]
 
     public enum Target: Hashable {
         case localShell
@@ -57,6 +55,7 @@ public final class AppModel: ObservableObject {
         public let hostMethods: [String]
         public let session: ExtensionController.SessionState?
         public let runtime: ExtensionController.RuntimeState?
+        public let receivedResources: [ExtensionController.ReceivedResource]
     }
 
     @Published public private(set) var extensionRun: ExtensionRun?
@@ -199,11 +198,14 @@ public final class AppModel: ObservableObject {
             ?? SettingsStore(terminalConfigPath: SettingsStore.defaultTerminalConfigPath())
         self.preferences = AppPreferences(defaults: defaults)
         self.appearance = AppearancePreference.current
-        if ExtensionRuntime.supportStatus == 0 {
+        if ExtensionRuntime.supportStatus == 0,
+           let resourceDirectory = Self.pluginResourceDirectory() {
             let profile = try? ExtensionController.HostProfile(
                 side: .client, sdkVersion: "1.0.0", protocols: [1],
                 runtimes: ["portable-js"], capabilities: Self.extensionHostCapabilities)
-            self.extensionController = profile.flatMap { try? ExtensionController(profile: $0) }
+            self.extensionController = profile.flatMap {
+                try? ExtensionController(profile: $0, resourceDirectory: resourceDirectory)
+            }
         } else {
             self.extensionController = nil
         }
@@ -1114,7 +1116,7 @@ public final class AppModel: ObservableObject {
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
                 peerIdentity: sshAlias, remoteCommand: bootstrap, methods: methods, hostMethods: hostMethods,
-                session: session, runtime: nil)
+                session: session, runtime: nil, receivedResources: [])
             let deadline = ProcessInfo.processInfo.systemUptime + 60
             var current = session
             while current.phase != GhostermCore.ExtensionSession.Phase.consent.rawValue &&
@@ -1227,6 +1229,9 @@ public final class AppModel: ObservableObject {
                 try Task.checkCancellation()
                 let state = try await extensionController.stepRuntime()
                 updateExtensionRun(runtime: state)
+                if let resource = try await extensionController.takeSessionResource(maxBytes: 1048576) {
+                    appendExtensionResource(resource)
+                }
                 if !Self.runtimeIsRunning(state.phase) { return }
                 try await Task.sleep(nanoseconds: 50_000_000)
             }
@@ -1240,7 +1245,7 @@ public final class AppModel: ObservableObject {
             executorDigest: run.executorDigest,
             peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
             methods: run.methods, hostMethods: run.hostMethods,
-            session: session, runtime: run.runtime)
+            session: session, runtime: run.runtime, receivedResources: run.receivedResources)
     }
 
     private func updateExtensionRun(runtime: ExtensionController.RuntimeState) {
@@ -1250,7 +1255,35 @@ public final class AppModel: ObservableObject {
             executorDigest: run.executorDigest,
             peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
             methods: run.methods, hostMethods: run.hostMethods,
-            session: run.session, runtime: runtime)
+            session: run.session, runtime: runtime, receivedResources: run.receivedResources)
+    }
+
+    private func appendExtensionResource(_ resource: ExtensionController.ReceivedResource) {
+        guard let run = extensionRun else { return }
+        let total = run.receivedResources.reduce(UInt64(0)) { $0 + $1.size }
+        guard run.receivedResources.count < 16, resource.size <= 1048576,
+              total <= 8388608, resource.size <= 8388608 - total else {
+            extensionRunIssue = "插件资源超过本次界面的数量或总大小上限"
+            return
+        }
+        extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
+            command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
+            executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
+            remoteCommand: run.remoteCommand, methods: run.methods, hostMethods: run.hostMethods,
+            session: run.session, runtime: run.runtime,
+            receivedResources: run.receivedResources + [resource])
+    }
+
+    private static func pluginResourceDirectory() -> URL? {
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let directory = base.appendingPathComponent("Ghosterm/PluginResources", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+            return directory
+        } catch { return nil }
     }
 
     private static func runtimeIsRunning(_ phase: UInt32) -> Bool {
