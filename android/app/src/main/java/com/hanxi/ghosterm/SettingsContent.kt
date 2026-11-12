@@ -311,31 +311,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
         }
     }
     extensions.activeSession?.takeIf { it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT }?.let { active ->
-        AlertDialog(onDismissRequest = { if (!extensions.launchBusy) extensions.decideConsent(false) },
-            properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
-            title = { Text("插件权限请求") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("${active.packageID} · ${active.command.title}")
-                    Text("SSH 主机：${active.info.peerIdentity}")
-                    Text("Executor 版本：${active.info.peerHostVersion}")
-                    Text("远端完整启动命令：", style = MaterialTheme.typography.labelMedium)
-                    SelectionContainer { Text(active.remoteCommand,
-                        Modifier.testTag("plugin-consent-remote-command"), style = MaterialTheme.typography.bodySmall) }
-                    Text("即将传入的 argv：", style = MaterialTheme.typography.labelMedium)
-                    SelectionContainer { Text(org.json.JSONArray(active.arguments).toString(),
-                        Modifier.testTag("plugin-consent-argv"), style = MaterialTheme.typography.bodySmall) }
-                    Text("按固定包 argsSchema 解码：${active.decodedArguments ?: "无映射（空参数）"}",
-                        Modifier.testTag("plugin-consent-decoded-arguments"), style = MaterialTheme.typography.bodySmall)
-                    Text("允许 Client 调用的 Executor RPC：${active.methods.joinToString().ifBlank { "无" }}")
-                    Text("允许 Executor 调用的 Host RPC：${active.hostMethods.joinToString().ifBlank { "无" }}")
-                    Text("需要能力：${active.requiredCapabilities.joinToString().ifBlank { "无" }}")
-                    Text("仅批准当前连接中的能力授权。授权窗口启用系统安全窗口标记；仍请避免把秘密放进命令参数。Client 包摘要和 SSH Executor 摘要均固定；发布者身份未认证不代表可信。",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            },
-            confirmButton = { TextButton(onClick = { extensions.decideConsent(true) }, enabled = !extensions.launchBusy) { Text("允许并启动") } },
-            dismissButton = { TextButton(onClick = { extensions.decideConsent(false) }, enabled = !extensions.launchBusy) { Text("拒绝") } })
+        PluginConsentDialog(active, extensions.launchBusy, extensions::decideConsent)
     }
     when {
         model.resetConfirmation -> AlertDialog(onDismissRequest = model::cancelReset,
@@ -449,7 +425,39 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     return runCatching { android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }.getOrNull()
 }
 
-@Composable private fun PluginLaunchDialog(
+@Composable internal fun PluginConsentDialog(
+    active: ExtensionPackagesViewModel.ActiveSession,
+    busy: Boolean,
+    onDecision: (Boolean) -> Unit,
+) {
+    AlertDialog(onDismissRequest = { if (!busy) onDecision(false) },
+        properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
+        title = { Text("插件权限请求") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${active.packageID} · ${active.command.title}")
+                Text("SSH 主机：${active.info.peerIdentity}")
+                Text("Executor 版本：${active.info.peerHostVersion}")
+                Text("远端完整启动命令：", style = MaterialTheme.typography.labelMedium)
+                SelectionContainer { Text(active.remoteCommand,
+                    Modifier.testTag("plugin-consent-remote-command"), style = MaterialTheme.typography.bodySmall) }
+                Text("即将传入的 argv：", style = MaterialTheme.typography.labelMedium)
+                SelectionContainer { Text(org.json.JSONArray(active.arguments).toString(),
+                    Modifier.testTag("plugin-consent-argv"), style = MaterialTheme.typography.bodySmall) }
+                Text("按固定包 argsSchema 解码：${active.decodedArguments ?: "无映射（空参数）"}",
+                    Modifier.testTag("plugin-consent-decoded-arguments"), style = MaterialTheme.typography.bodySmall)
+                Text("允许 Client 调用的 Executor RPC：${active.methods.joinToString().ifBlank { "无" }}")
+                Text("允许 Executor 调用的 Host RPC：${active.hostMethods.joinToString().ifBlank { "无" }}")
+                Text("需要能力：${active.requiredCapabilities.joinToString().ifBlank { "无" }}")
+                Text("仅批准当前连接中的能力授权。授权窗口启用系统安全窗口标记；仍请避免把秘密放进命令参数。Client 包摘要和 SSH Executor 摘要均固定；发布者身份未认证不代表可信。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onDecision(true) }, enabled = !busy) { Text("允许并启动") } },
+        dismissButton = { TextButton(onClick = { onDecision(false) }, enabled = !busy) { Text("拒绝") } })
+}
+
+@Composable internal fun PluginLaunchDialog(
     entry: ExtensionPackagesViewModel.Entry,
     command: ExtensionController.Command,
     hostAliases: List<String>,
@@ -488,11 +496,12 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 }
                 OutlinedTextField(executable, { executable = it }, singleLine = true, label = { Text("远端 gterm 可执行文件") })
                 OutlinedTextField(executorDirectory, { executorDirectory = it }, singleLine = true,
-                    label = { Text("远端 Executor 包目录") })
+                    modifier = Modifier.testTag("plugin-executor-directory"), label = { Text("远端 Executor 包目录") })
                 OutlinedTextField(workspaceRootDirectory, { workspaceRootDirectory = it }, singleLine = true,
+                    modifier = Modifier.testTag("plugin-workspace-root"),
                     label = { Text("可选：允许 Executor 读取的工作区目录") })
                 OutlinedTextField(executorDigest, { executorDigest = it }, singleLine = true,
-                    label = { Text("Executor 包 SHA-256") })
+                    modifier = Modifier.testTag("plugin-executor-digest"), label = { Text("Executor 包 SHA-256") })
                 OutlinedTextField(argumentsJson, { argumentsJson = it }, minLines = 2, maxLines = 4,
                     label = { Text("命令 argv（JSON 字符串数组）") }, placeholder = { Text("[\"--limit\", \"10\"]") })
                 OutlinedTextField(methodsJson, { methodsJson = it }, minLines = 2, maxLines = 4,

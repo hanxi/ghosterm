@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.hanxi.ghosterm.bridge.ExtensionResourceStore
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,5 +37,44 @@ class PluginResourcePreviewUiTest {
             ui.onAllNodes(androidx.compose.ui.test.hasTestTag("plugin-resource-image")).fetchSemanticsNodes().isNotEmpty()
         }
         ui.onNodeWithTag("plugin-resource-image").assertExists()
+    }
+
+    @Test fun launchDialogPreservesAnExplicitWorkspaceRootInTheSSHRequest() {
+        val digest = "a".repeat(64)
+        val command = ExtensionController.Command("preview", "Preview", "{}", listOf("resource"))
+        val review = ExtensionController.Review("org.ghosterm.preview", "0.1.0", "Ghosterm", "MIT",
+            digest, "portable-js", listOf("resource.receive"), emptyList(), true, false, listOf(command))
+        var captured: ExtensionRelayBootstrap.Request? = null
+        ui.setContent {
+            PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), command,
+                listOf("host"), onDismiss = {}, onLaunch = { _, request -> captured = request })
+        }
+        val root = "/home/user's space/工作区"
+        ui.onNodeWithTag("plugin-executor-directory").performTextInput("/opt/preview")
+        ui.onNodeWithTag("plugin-executor-digest").performTextInput("b".repeat(64))
+        ui.onNodeWithTag("plugin-workspace-root").performTextInput(root)
+        ui.onNodeWithText("连接并请求授权").performClick()
+        assertEquals(root, captured?.workspaceRootDirectory)
+        assertTrue(ExtensionRelayBootstrap.build(checkNotNull(captured)).contains("--root' 'workspace'"))
+        assertTrue(ExtensionRelayBootstrap.build(checkNotNull(captured)).contains("'/home/user'\\''s space/工作区'"))
+    }
+
+    @Test fun consentDialogShowsTheExactRemoteCommandAndCapabilitySet() {
+        val command = ExtensionController.Command("preview", "Preview", "{}", listOf("resource"))
+        val info = com.hanxi.ghosterm.bridge.ExtensionSession.Info(
+            com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT,
+            com.hanxi.ghosterm.bridge.ExtensionSession.End.NONE, 0, 0,
+            com.hanxi.ghosterm.bridge.ExtensionSession.Decision.UNKNOWN, "connection", "instance", "token",
+            "0.1.0", 1, 1000, 1, 1, com.hanxi.ghosterm.bridge.ExtensionSession.Budgets(),
+            com.hanxi.ghosterm.bridge.ExtensionSession.PeerKind.SSH, "preview-host")
+        val active = ExtensionPackagesViewModel.ActiveSession("org.ghosterm.preview", "a".repeat(64), command,
+            listOf("fixture.txt"), "{\"path\":\"fixture.txt\"}", emptyList(), emptyList(), "b".repeat(64),
+            "preview-host", "exec 'gterm' '--root' 'workspace' '/safe/root'", listOf("resource.receive", "file.readScoped"), info)
+        var decision: Boolean? = null
+        ui.setContent { PluginConsentDialog(active, busy = false, onDecision = { decision = it }) }
+        ui.onNodeWithTag("plugin-consent-remote-command").assertTextEquals(active.remoteCommand)
+        ui.onNodeWithText("需要能力：resource.receive, file.readScoped").assertExists()
+        ui.onNodeWithText("允许并启动").performClick()
+        assertEquals(true, decision)
     }
 }

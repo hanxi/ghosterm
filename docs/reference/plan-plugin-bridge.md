@@ -4442,3 +4442,12 @@ JS-enabled Android debug / androidTest APK 编译通过；`python3 scripts/test-
 把端到端夹具确认的 `file.readScoped` 授权接进实际 Android 启动路径：启动对话框新增可选的远端 workspace 根目录，留空时不传 `--root`、不把该能力放进 Session；填写后使用固定 ID `workspace` 构造经 POSIX shell 引用的 `--root workspace <directory>`，并只在 HostProfile 支持时追加 Session 能力。Native consent 现在显示由同一请求生成的完整远端启动命令和该次确切能力集合，便于批准前复核路径 / argv。
 
 新增 instrumentation 断言：留空根不生成参数；含空格与 Unicode 的明确根正确引用；空白及换行根拒绝。JS-off Android debug / androidTest APK 编译通过；该单项随后在 API 36 与 API 29 的 arm64 无窗口模拟器分别 **1 项通过**。上一批 API 36 双跳 E2E 另已直接验证 `--root workspace` 的真实 Executor 行为。启动表单 / consent 的完整 UI 交互、16 KiB 页与完整插件资源面板流程仍待验；两模拟器均在 `tmp/` 内创建并关闭，临时 AVD 已清理。不改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第三十二批：Android Preview 启动与 consent UI 断言（2026-11-12）
+
+将生产 Native consent 对话框抽为可单独组合的 `PluginConsentDialog`，保留 Secure Window 标志、拒绝 / 允许逻辑和原生文案。Compose instrumentation 实际输入带空格、单引号和 Unicode 的工作区路径，点击启动表单并检查它被原样放进 `ExtensionRelayBootstrap.Request` 且形成正确 POSIX quoting；另渲染 consent 组件，核对完整远端命令、`resource.receive` / `file.readScoped` 集合并验证允许回调。原有 HTML 源码提示和 PNG 预览 UI 断言仍在同一测试类。
+
+API 36 arm64 无窗口模拟器的 `PluginResourcePreviewUiTest` **3 项通过**。首次运行启动表单断言误用 `performScrollTo`；Compose Dialog 没有向该节点暴露父滚动语义，失败发生在目标点击前。移除该测试操作后整类复跑通过；该首次错误未计产品红。JS-off debug / androidTest 编译通过，测试后关闭 AVD 并清理本批 `tmp/` 内容。
+
+此证据覆盖生产启动与 consent 组件，但没有驱动完整 Settings 页面与真实 SSH 会话同时运行；完整真实交互、16 KiB 页和真机仍待验，不改公共 C ABI，不增加 macOS CI 二十份。
