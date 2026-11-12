@@ -937,6 +937,40 @@ public final class AppModel: ObservableObject {
         return try configModel.sshRoute(aliases: aliases, knownHosts: knownHostsPath)
     }
 
+    /// Opens the optional plugin channel through the same resolved ssh_config
+    /// / ProxyJump route as terminal and SFTP connections. DNS is resolved only
+    /// for the first hop; inner hostnames are forwarded through direct-tcpip.
+    public func openPluginSSHChannel(alias: String, bootstrap: String) async throws -> ExtensionController.ChannelState {
+        guard let extensionController else { throw GhostermError.failed("此构建未启用插件运行时") }
+        let targets = try configuredSSHRoute(for: [alias])
+        guard let first = targets.first else { throw GhostermError.failed("SSH 配置没有生成连接路线") }
+        let address = try await resolvePluginAddress(first.host)
+        let hops = targets.enumerated().map { index, target in
+            ExtensionController.SSHHop(host: target.host, port: target.port, username: target.user,
+                knownHostsPath: target.knownHosts,
+                addressFamily: index == 0 ? address.family : nil,
+                addressBytes: index == 0 ? address.bytes : nil,
+                scope: index == 0 ? address.scope : 0,
+                viaHost: index == 0 ? nil : target.host)
+        }
+        return try await extensionController.openSSHChannel(hops: hops, bootstrap: bootstrap)
+    }
+
+    private func resolvePluginAddress(_ host: String) async throws -> SSHAddress {
+        let owner = DispatchQueue(label: "org.ghosterm.plugin-dns")
+        return try await withCheckedThrowingContinuation { continuation in
+            owner.async {
+                _ = SSHAddressResolver.resolve(host: host, owner: owner) { result in
+                    switch result {
+                    case .success(let address): continuation.resume(returning: address)
+                    case .failure(let error):
+                        continuation.resume(throwing: GhostermError.failed("无法解析插件 SSH 首跳地址：\(error)"))
+                    }
+                }
+            }
+        }
+    }
+
 }
 
 // MARK: - UI 交互协议与请求模型
