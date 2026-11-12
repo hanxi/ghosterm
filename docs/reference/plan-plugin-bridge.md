@@ -4580,3 +4580,9 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 `--assets` 仍以逗号分隔最多六个附件；为保留 POSIX 文件名中的字面逗号，列表语法新增 `\,` escape。Executor 只把反斜杠逗号解为文件名逗号，独立路径分隔符仍拆项；反斜杠后不是逗号或反斜杠位于末尾均在任何资源发布前报错。规范路径校验仍拒绝解码后包含反斜杠的路径。README 明示了 CLI 用法。
 
 `scripts/test-plugin-preview.mjs` 覆盖含逗号单个 CSS 文件映射、非逗号 escape 和尾部 escape 拒绝，并保留普通多附件、重复项、路径越界、类型和 Unicode 长度场景。`node --check` 检查 Executor / runner 语法，`node scripts/test-plugin-preview.mjs` 通过；包摘要以 `python3 scripts/build-plugin-preview.py` 重建并由 `--check` 验证。此 runner 使用隔离 ResourceBroker stub；不改公共 C ABI，不增加 macOS CI 二十份，也不代表真实 Core / filesystem / SSH 的逗号文件名 E2E。P2 完整产品交互、API 36 最终源码设备复验、16 KiB 页、用户真机与 P3–P6 仍待完成。
+
+### P2 实施第四十五批：官方 Preview 的 QuickJS 与 C ResourceStore 本机端到端（2026-11-13）
+
+将官方 `plugins/official/preview` 固定包纳入 `scripts/test-gterm-stdio.py` 默认 conformance。独立真实 gterm 子进程在 QuickJS 中执行 Preview Executor，通过显式 `workspace` root 读取 Markdown 和字面逗号 CSS 附件；测试 Host 以公共 C `gt_ext_session_open_resources` / ResourceStore 接收两份已验证快照，并逐项核验相对显示名、MIME、长度及实际内容，释放引用后有序结束 Session。Host 与 Executor 协商真实 `REQUESTS | RESOURCES` feature；测试设置 `TMPDIR` 指向本轮工程 `tmp/` 夹具，退出时脚本清理夹具。
+
+`cmake -S cli/gterm -B tmp/gterm-build -DGHOSTERM_GTERM_TESTS=ON -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=OFF`、构建 `gterm test_gterm_stdio` 与 `python3 scripts/test-gterm-stdio.py --build tmp/gterm-build` 通过，包含 15 个既有 stdio 场景及新增 `PASS stdio preview`；官方 Preview 的 package `--check`、Executor `node --check`、`node scripts/test-plugin-preview.mjs`、Python harness 语法与 `git diff --check` 通过。该证据覆盖真实 QuickJS → scoped filesystem → C ResourceStore / stdio wire，不覆盖远端 SSH、macOS / Android UI、页面授权或完整用户启动链；不改公共 C ABI，不增加 macOS CI 二十份。P2 完整产品交互、API 36 最终源码设备复验、16 KiB 页、用户真机与 P3–P6 仍待完成。

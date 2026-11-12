@@ -96,8 +96,7 @@ python3 scripts/test-gterm-stdio.py --build tmp/gterm-build --case tty
 python3 scripts/mutation-check-gterm.py --stdio
 ```
 
-此进程测试以真实独立 child 与公共 native HOST Session 往返，不模拟 wire 成功。App
-原生授权页面、实际 SSH 启动矩阵、本机 IPC、官方 preview 与其它业务插件尚未完成。
+此进程测试以真实独立 child 与公共 native HOST Session 往返，不模拟 wire 成功；默认套件也用锁定 QuickJS 执行官方 Preview 包，通过真实 `file.readScoped` 和 C ResourceStore 收取并校验主文档与附件。该夹具使用本机隔离 stdio peer，不替代 App 原生授权页面、实际 SSH 启动矩阵、本机 IPC 或其它业务插件验收。
 
 `plugin resolve` 对显式列出的开发包解析一条完整 Executor 命令：
 

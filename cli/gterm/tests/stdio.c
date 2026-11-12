@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -37,9 +38,12 @@ static void idle(void) {
 }
 
 int main(int argc, char **argv) {
-    CHECK(argc == 5);
+    bool preview = argc == 7 && !strcmp(argv[4], "preview");
+    CHECK(argc == 5 || preview);
     CHECK(!atexit(cleanup));
     const char *binary = argv[1], *directory = argv[2], *package_digest = argv[3], *mode = argv[4];
+    const char *workspace = preview ? argv[5] : NULL;
+    const char *store_directory = preview ? argv[6] : NULL;
     char client_digest[65];
     memset(client_digest, 'd', 64);
     client_digest[64] = 0;
@@ -67,7 +71,12 @@ int main(int argc, char **argv) {
             close(fd[1]);
         }
         const char *trusted = !strcmp(mode, "digest") ? client_digest : package_digest;
-        if (!strcmp(mode, "arguments-codec")) {
+        if (preview) {
+            execl(binary, binary, "relay", "--stdio", "--trust-development-digest",
+                  package_digest, "--client-digest", client_digest, "--root", "workspace",
+                  workspace, "--", directory, "preview", "site/index.md", "--assets",
+                  "site/theme\\,dark.css", (char *)NULL);
+        } else if (!strcmp(mode, "arguments-codec")) {
             execl(binary,
                   binary,
                   "relay",
@@ -155,21 +164,30 @@ int main(int argc, char **argv) {
     }
     gt_ext_channel_t *channel = NULL;
     CHECK(gt_ext_channel_open_fd(fd[0], pipes ? fd[1] : fd[0], &channel) == GT_OK);
-    gt_ext_session_config_t c = {.required_count = 1,
+    gt_ext_session_config_t c = {.required_count = preview ? 2 : 1,
                                  .available_count = 1,
                                  .budgets = {768, 65536, 262144},
                                  .handshake_ms = 5000,
                                  .consent_ms = 60000,
                                  .peer = {GT_EXT_PEER_LOCAL, "test-explicit-child"},
                                  .features = GT_EXT_FEATURE_REQUESTS};
-    strcpy(c.plugin_id, "org.ghosterm.fixture");
+    strcpy(c.plugin_id, preview ? "org.ghosterm.preview" : "org.ghosterm.fixture");
     strcpy(c.plugin_version, "0.1.0");
     strcpy(c.sdk_version, "1.0.0");
     strcpy(c.host_version, "0.1.0");
     strcpy(c.client_digest, client_digest);
     strcpy(c.executor_digest, package_digest);
-    strcpy(c.required[0], "session.rpc");
-    strcpy(c.available[0], "session.rpc");
+    if (preview) {
+        c.available_count = 2;
+        c.features = GT_EXT_FEATURE_RESOURCES | GT_EXT_FEATURE_REQUESTS;
+        strcpy(c.required[0], "resource.receive");
+        strcpy(c.required[1], "file.readScoped");
+        strcpy(c.available[0], "resource.receive");
+        strcpy(c.available[1], "file.readScoped");
+    } else {
+        strcpy(c.required[0], "session.rpc");
+        strcpy(c.available[0], "session.rpc");
+    }
     if (!strcmp(mode, "peer-digest")) {
         strcpy(c.client_digest, package_digest);
     }
@@ -188,11 +206,24 @@ int main(int argc, char **argv) {
         method_count++;
     }
     gt_ext_session_t *session = NULL;
-    CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &c, methods, method_count, &session) ==
-          GT_OK);
+    gt_ext_resource_store_t *store = NULL;
+    if (preview) {
+        int store_fd = open(store_directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        CHECK(store_fd >= 0);
+        gt_ext_resource_store_config_t resource_config = {store_fd, 1048576, 262144, 8};
+        CHECK(gt_ext_resource_store_open(&resource_config, &store) == GT_EXT_RESOURCE_OK);
+        CHECK(!close(store_fd));
+        CHECK(gt_ext_session_open_resources(&channel, GT_EXT_HOST, &c, NULL, 0, store,
+                                            1048576, &session) == GT_OK);
+    } else {
+        CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &c, methods, method_count, &session) ==
+              GT_OK);
+    }
     uint64_t deadline = now() + 10000, consent_at = 0, handle = 0;
     bool confirmed = false, host_method_confirmed = false, decided = false, signalled = false,
          lost = false;
+    bool preview_main = false, preview_asset = false;
+    uint64_t preview_complete_at = 0;
     gt_ext_lease_t lease;
     int status = 0;
     bool ended = false;
@@ -222,7 +253,53 @@ int main(int argc, char **argv) {
                 }
             }
         }
-        if (info.phase == GT_EXT_SESSION_ACTIVE && !handle) {
+        if (info.phase == GT_EXT_SESSION_ACTIVE && preview) {
+            gt_ext_lease_t resource_lease;
+            CHECK(gt_ext_session_lease(session, &resource_lease));
+            gt_ext_resource_snapshot_t snapshot;
+            gt_ext_resource_status_t received =
+                gt_ext_session_take_resource(session, &resource_lease, &snapshot);
+            if (received == GT_EXT_RESOURCE_OK) {
+                gt_ext_resource_info_t resource_info;
+                CHECK(gt_ext_resource_store_info(store, &resource_lease, &snapshot,
+                                                 &resource_info) == GT_EXT_RESOURCE_OK);
+                const char *name = !strcmp(resource_info.descriptor.display_name, "site/index.md")
+                                       ? "site/index.md"
+                                   : !strcmp(resource_info.descriptor.display_name,
+                                             "site/theme,dark.css")
+                                       ? "site/theme,dark.css"
+                                       : NULL;
+                CHECK(name);
+                const char *mime = !strcmp(name, "site/index.md") ? "text/markdown" : "text/css";
+                const char *expected_bytes = !strcmp(name, "site/index.md")
+                                                 ? "# Preview runtime fixture\n"
+                                                 : "body { color: rgb(1, 2, 3); }\n";
+                size_t expected_size = strlen(expected_bytes), read_size = 0;
+                char bytes[128] = {0};
+                CHECK(!strcmp(resource_info.descriptor.mime, mime) &&
+                      resource_info.descriptor.size == expected_size &&
+                      gt_ext_resource_store_read(store, &resource_lease, &snapshot, 0, bytes,
+                                                 sizeof(bytes), &read_size) == GT_EXT_RESOURCE_OK &&
+                      read_size == expected_size && !memcmp(bytes, expected_bytes, expected_size));
+                if (!strcmp(name, "site/index.md")) {
+                    CHECK(!preview_main);
+                    preview_main = true;
+                } else {
+                    CHECK(!preview_asset);
+                    preview_asset = true;
+                }
+                CHECK(gt_ext_resource_store_release(store, &resource_lease, &snapshot) ==
+                      GT_EXT_RESOURCE_OK);
+                if (preview_main && preview_asset && !preview_complete_at) {
+                    preview_complete_at = now();
+                }
+            } else {
+                CHECK(received == GT_EXT_RESOURCE_WAIT);
+            }
+            if (preview_complete_at && now() - preview_complete_at >= 250) {
+                gt_ext_session_revoke(session);
+            }
+        } else if (info.phase == GT_EXT_SESSION_ACTIVE && !handle) {
             CHECK(strcmp(mode, "deny") && strcmp(mode, "cancel"));
             if (strcmp(mode, "arguments-invalid")) {
                 CHECK(gt_ext_session_lease(session, &lease));
@@ -312,6 +389,9 @@ int main(int argc, char **argv) {
         gt_ext_session_info_t info;
         CHECK(gt_ext_session_info(session, &info) && !info.received);
     }
+    if (preview) {
+        CHECK(preview_main && preview_asset && decided && consent_at);
+    }
     if (!strcmp(mode, "roundtrip") || !strcmp(mode, "dispose-error") || pipes ||
         !strcmp(mode, "active-cancel") || !strcmp(mode, "lost")) {
         CHECK(confirmed && decided && consent_at);
@@ -346,6 +426,10 @@ int main(int argc, char **argv) {
         }
     }
     CHECK(gt_ext_session_destroy(&session) == GT_OK);
+    if (store) {
+        CHECK(gt_ext_resource_store_destroy(&store) == GT_EXT_RESOURCE_OK && !store);
+        CHECK(!rmdir(store_directory));
+    }
     printf("PASS stdio %s\n", mode);
     return 0;
 }

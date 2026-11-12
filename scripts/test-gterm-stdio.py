@@ -3,10 +3,26 @@
 import argparse,hashlib,json,os,pty,shutil,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
+def run_preview_runtime(build,work,package):
+ shutil.rmtree(package);shutil.copytree(ROOT/'plugins/official/preview',package)
+ workspace=work/'workspace';site=workspace/'site';site.mkdir(parents=True)
+ (site/'index.md').write_text('# Preview runtime fixture\n')
+ (site/'theme,dark.css').write_text('body { color: rgb(1, 2, 3); }\n')
+ store=work/'resource-store';store.mkdir(mode=0o700)
+ runtime_tmp=work/'runtime-tmp';runtime_tmp.mkdir(mode=0o700)
+ digest=hashlib.sha256((package/'integrity.json').read_bytes()).hexdigest()
+ env=os.environ.copy();env['TMPDIR']=str(runtime_tmp)
+ r=subprocess.run([str(build/'test_gterm_stdio'),str(build/'gterm'),str(package),digest,'preview',str(workspace),str(store)],capture_output=True,text=True,timeout=45,env=env)
+ if 'ABNORMAL' in r.stderr or 'AddressSanitizer' in r.stderr or 'runtime error:' in r.stderr:raise RuntimeError(r.stderr)
+ assert r.returncode==0,('preview-runtime',r.returncode,r.stdout,r.stderr)
+ assert 'PASS stdio preview' in r.stdout,r.stdout
+ print(r.stdout,end='')
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--build',type=Path,required=True);p.add_argument('--case',choices=['arguments-codec','arguments-invalid','host-method','roundtrip','deny','cancel','digest','peer-digest','command','dispose-error','pipes','active-cancel','lost','pending-loss','silent','tty']);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--build',type=Path,required=True);p.add_argument('--case',choices=['arguments-codec','arguments-invalid','host-method','roundtrip','deny','cancel','digest','peer-digest','command','dispose-error','pipes','active-cancel','lost','pending-loss','silent','tty','preview-runtime']);a=p.parse_args()
  work=Path(tempfile.mkdtemp(prefix='gterm-stdio-',dir=ROOT/'tmp'));package=work/'package';package.mkdir()
  try:
+  if a.case=='preview-runtime':
+   run_preview_runtime(a.build.resolve(),work,package);return
   manifest=dict(schemaVersion=1,id='org.ghosterm.fixture',pluginVersion='0.1.0',sdkApiRange='^1.0.0',bridgeProtocolRange=[1],publisher='fixture',license='MIT',commands=[dict(path=['fixture'],title='Fixture',argsSchema='schemas/input.json')],executor=dict(variants=[dict(id='portable',runtime='portable-js',entry='executor/index.js',requires=['session.rpc'])]),permissions=[])
   plugin="import {object,text,integer} from '@ghosterm/plugin-sdk';export function activate(ctx){if(ctx.invocation.command!=='fixture'||ctx.invocation.arguments[0]!=='中文'||ctx.invocation.arguments[1]!==''||ctx.invocation.arguments[2]!==\"';throw Error('injected');//\")throw Error('argv');const codec=object({text:text(40),count:integer(0,100)});ctx.session.register({name:'fixture.echo',input:codec,output:codec},async(v,c)=>{c.check();return v});return {dispose(){}}}"
   properties={name:{'type':'string','maxLength':100} for name in ['first','empty','literal']}
@@ -59,6 +75,7 @@ def main():
    assert r.returncode==0,(case,r.returncode,r.stdout,r.stderr)
    assert 'PASS stdio '+case in r.stdout,r.stdout
    print(r.stdout,end='')
+  if a.case is None:run_preview_runtime(build,work,package)
  finally:shutil.rmtree(work)
 if __name__=='__main__':
  try:main()
