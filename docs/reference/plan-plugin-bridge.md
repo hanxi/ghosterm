@@ -3981,3 +3981,10 @@ Android 包审查门面当前只向 App 暴露 `argsSchema` 成员路径，不�
 复核发现 `org.json.JSONArray` 的 Android tokenizer 可能接受宽松语法，不能作为“严格 JSON”保证。现在使用 `JsonReader` 关闭 lenient 模式，只接受一个完整数组，元素必须是 JSON 字符串；拒绝尾随内容、对象 / 数字 / null、超过 32 项和超过 64 KiB 的输入。POSIX argv 引用及 Core `argsSchema` 解码边界不变。
 
 `git diff --check` 提交前执行；未运行测试。Android 编译 / instrumentation 仍受宿主缺 Java Runtime 阻塞，不记通过。consent 前仍未按 schema 解码，见第七十一批。未改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P0 第七十三批：持续观察 Native consent 到期（2026-11-12）
+
+修复 Session 首次进入 CONSENT 后 App 停止 step 的生命周期缺口。Android ViewModel 现在在 Native consent 等待期间以低频持续 `stepSession`，直到收到用户决定后的阶段或 Native 过期 / 结束阶段；因此过期 token 会从界面移除，显示真实 ended 状态并可释放 Session，不会让过期请求一直卡在旧授权对话框中。用户决定继续由 `ExtensionController.decideSession` 对拍当前 Native token。
+
+`git diff --check` 提交前执行；未运行测试。Android 编译 / instrumentation 仍因宿主缺 Java Runtime 未启动，不记通过。未改公共 C ABI，不增加 macOS CI 二十份。

@@ -174,9 +174,12 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             while (true) {
                 val state = owner.stepSession(10)
                 updateSession(state)
-                if (state.info.phase in setOf(ExtensionSession.Phase.CONSENT, ExtensionSession.Phase.ENDED,
-                        ExtensionSession.Phase.CLOSED, ExtensionSession.Phase.ACTIVE)) return
-                delay(20)
+                when (state.info.phase) {
+                    ExtensionSession.Phase.CONSENT -> delay(100)
+                    ExtensionSession.Phase.ENDED, ExtensionSession.Phase.CLOSED,
+                    ExtensionSession.Phase.ACTIVE, ExtensionSession.Phase.WAIT_DECISION -> return
+                    else -> delay(20)
+                }
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Throwable) { error = "插件 Session 握手失败：${failure.message ?: failure.javaClass.simpleName}" }
