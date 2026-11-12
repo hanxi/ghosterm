@@ -19,28 +19,38 @@ object ExtensionRelayBootstrap {
     )
 
     /** Accept a JSON string array so the UI never invents a shell tokenizer. */
-    fun parseArgumentsJson(source: String): List<String> {
-        require(source.toByteArray().size <= 65536) { "命令参数 JSON 超过 64 KiB" }
+    fun parseArgumentsJson(source: String): List<String> = parseStringArray(source, 32, "命令参数")
+
+    fun parseMethodsJson(source: String): List<String> {
+        val methods = parseStringArray(source, 16, "RPC 方法")
+        require(methods.distinct().size == methods.size && methods.all(::validMethod)) {
+            "RPC 方法名无效或重复"
+        }
+        return methods
+    }
+
+    private fun parseStringArray(source: String, limit: Int, label: String): List<String> {
+        require(source.toByteArray().size <= 65536) { "$label JSON 超过 64 KiB" }
         try {
             JsonReader(StringReader(source)).use { reader ->
                 reader.isLenient = false
-                require(reader.peek() == JsonToken.BEGIN_ARRAY) { "命令参数必须是 JSON 字符串数组" }
+                require(reader.peek() == JsonToken.BEGIN_ARRAY) { "$label 必须是 JSON 字符串数组" }
                 reader.beginArray()
                 val result = buildList {
                     while (reader.hasNext()) {
-                        require(size < 32) { "命令参数最多 32 项" }
-                        require(reader.peek() == JsonToken.STRING) { "命令参数必须是 JSON 字符串数组" }
+                        require(size < limit) { "$label 最多 $limit 项" }
+                        require(reader.peek() == JsonToken.STRING) { "$label 必须是 JSON 字符串数组" }
                         add(reader.nextString())
                     }
                 }
                 reader.endArray()
-                require(reader.peek() == JsonToken.END_DOCUMENT) { "命令参数 JSON 后不能有额外内容" }
+                require(reader.peek() == JsonToken.END_DOCUMENT) { "$label JSON 后不能有额外内容" }
                 result
             }
         } catch (failure: IllegalArgumentException) {
             throw failure
         } catch (failure: Exception) {
-            throw IllegalArgumentException("命令参数必须是有效的严格 JSON 字符串数组", failure)
+            throw IllegalArgumentException("$label 必须是有效的严格 JSON 字符串数组", failure)
         }
     }
 
@@ -51,7 +61,7 @@ object ExtensionRelayBootstrap {
         require(request.clientDigest.matches(Regex("[a-f0-9]{64}"))) { "Client 摘要必须是 64 位小写 SHA-256" }
         require(request.command.isNotBlank()) { "请指定完整插件命令" }
         require(request.methods.size <= 16 && request.methods.distinct().size == request.methods.size &&
-            request.methods.all { it.matches(Regex("[A-Za-z][A-Za-z0-9_.-]{0,127}")) }) {
+            request.methods.all(::validMethod)) {
             "RPC 方法名无效（最多 16 个）"
         }
         require(request.arguments.size <= 32) { "命令参数最多 32 项" }
@@ -71,6 +81,9 @@ object ExtensionRelayBootstrap {
             require(it.toByteArray().size <= 1024) { "远端启动命令超过 SSH 插件路由上限" }
         }
     }
+
+    private fun validMethod(value: String): Boolean = value.length <= 128 &&
+        value.matches(Regex("[a-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*"))
 
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }

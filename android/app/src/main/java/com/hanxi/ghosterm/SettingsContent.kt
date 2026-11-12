@@ -305,6 +305,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     Text("即将传入的 argv：", style = MaterialTheme.typography.labelMedium)
                     SelectionContainer { Text(org.json.JSONArray(active.arguments).toString(),
                         Modifier.testTag("plugin-consent-argv"), style = MaterialTheme.typography.bodySmall) }
+                    Text("允许 Client 调用的 Executor RPC：${active.methods.joinToString().ifBlank { "无" }}")
                     Text("需要能力：${reviewed?.review?.requiredCapabilities?.joinToString().orEmpty().ifBlank { "无" }}")
                     Text("仅批准当前连接中的能力授权。授权窗口启用系统安全窗口标记；仍请避免把秘密放进命令参数。Client 包摘要和 SSH Executor 摘要均固定；发布者身份未认证不代表可信。",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -361,6 +362,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     var executorDirectory by remember { mutableStateOf("") }
     var executorDigest by remember { mutableStateOf("") }
     var argumentsJson by remember { mutableStateOf("[]") }
+    var methodsJson by remember { mutableStateOf("[]") }
     var problem by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest = onDismiss,
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
@@ -389,9 +391,11 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     label = { Text("Executor 包 SHA-256") })
                 OutlinedTextField(argumentsJson, { argumentsJson = it }, minLines = 2, maxLines = 4,
                     label = { Text("命令 argv（JSON 字符串数组）") }, placeholder = { Text("[\"--limit\", \"10\"]") })
+                OutlinedTextField(methodsJson, { methodsJson = it }, minLines = 2, maxLines = 4,
+                    label = { Text("允许调用的 Executor RPC 方法") }, placeholder = { Text("[\"task.run\"]") })
                 Text("将通过 SSH 明确启动指定目录中的 Executor。开发摘要是本次显式信任选择，不代表发布者签名认证；不会自动下载或安装。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("参数必须是 JSON 字符串数组，逐项作为 argv 传入，不会再拆分或执行 shell。Host 侧 RPC 方法尚未实现，依赖它的插件可能无法完成运行。",
+                Text("argv 和 RPC 方法均需填写 JSON 字符串数组。RPC 名称是本次允许列表；每项固定声明 session.rpc / Executor 接收 / object 输入与输出。本批只支持 Client 调用 Executor；App 提供的 Host 回调方法仍未实现。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
@@ -400,7 +404,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
             TextButton(enabled = selectedHost in hostAliases && executable.isNotBlank() && executorDirectory.isNotBlank(), onClick = {
                 try {
                     val request = ExtensionRelayBootstrap.Request(executable.trim(), executorDirectory,
-                        executorDigest.trim(), entry.review.digest, emptyList(), command.path,
+                        executorDigest.trim(), entry.review.digest, ExtensionRelayBootstrap.parseMethodsJson(methodsJson), command.path,
                         ExtensionRelayBootstrap.parseArgumentsJson(argumentsJson))
                     ExtensionRelayBootstrap.build(request)
                     onLaunch(selectedHost, request)
