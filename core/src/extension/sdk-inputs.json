@@ -40,7 +40,7 @@
   "inputs": {
     "packages/plugin-sdk/portable/codec.ts": "409066af0c26b305b8c527f270268bafb70a3ba420e9cd32449ff657d3708245",
     "packages/plugin-sdk/portable/index.ts": "21998966fe957b7db5fbc1781a8c60f5f74c95739d7775f6b3d54c6e276967f8",
-    "packages/plugin-sdk/portable/process.ts": "bc37ed8e27a5c8fa1b8155ae38ba8a785bb24208630186e45094e9532be258b3",
+    "packages/plugin-sdk/portable/process.ts": "a4743c9851ecce5a3fd5b0dfebc08105f53482360156a303ed6c8ce57ed694ed",
     "packages/plugin-sdk/portable/resources.ts": "2ff026cc68988b96a1a2e1884db8f770bc40d08f300ebbf785668beff694f93d",
     "packages/plugin-sdk/portable/session.ts": "e9ebe829939c4eb37865fafbafc4a4a5d69497a3cecf8426f6a088386ec9dc63",
     "packages/plugin-sdk/portable/wire-contract.ts": "a99e7998716305ac5226b44b72cd7ece5ea97c0ed9515effd4de8843b4997e8a",

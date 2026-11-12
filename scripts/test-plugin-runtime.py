@@ -63,6 +63,8 @@ def main():
    assert '100% tests passed out of 1' in process_config and 'ext_package_process-config' in process_config
    process_runtime=run(label+'-process-runtime',['ctest','--test-dir',build,'-R','^plugin_package_runtime_process$','--output-on-failure'],budget=90)
    assert '100% tests passed out of 1' in process_runtime and 'plugin_package_runtime_process' in process_runtime
+   process_limits=run(label+'-process-limits',['ctest','--test-dir',build,'-R','^plugin_package_runtime_process-(deadline|deadline-live|output)$','--output-on-failure'],budget=90)
+   assert '100% tests passed out of 3' in process_limits and 'plugin_package_runtime_process-deadline' in process_limits and 'plugin_package_runtime_process-deadline-live' in process_limits and 'plugin_package_runtime_process-output' in process_limits
   rebuild('baseline');suite('baseline')
   cases=[
    ('module-digest','            strcmp(hex, m->sha256)) {\n','            false) {\n','invalid'),
@@ -79,6 +81,8 @@ def main():
    ('engine-release','    runtime_free_engine(r);\n    if (!runtime_free_modules(r)) {','    /* engine retained */\n    if (!runtime_free_modules(r)) {','roundtrip'),
    ('process-facade', 'r->process_service ? "Object.freeze({spawn:port.processSpawn})" : "undefined"', '"undefined"', 'package-process'),
    ('process-close-reap', 'if (runtime_process_live(r)) {', 'if (false && runtime_process_live(r)) {', 'package-process-close'),
+   ('process-deadline', 'now >= slot->deadline &&\n            !runtime_process_stop(slot, GT_RUNTIME_PROCESS_STOP_DEADLINE, now)', 'now < slot->deadline &&\n            !runtime_process_stop(slot, GT_RUNTIME_PROCESS_STOP_DEADLINE, now)', 'package-process-deadline-live'),
+   ('process-output-limit', 'if (io.count > r->process_output_limit - r->process_output_bytes) {', 'if (false && io.count > r->process_output_limit - r->process_output_bytes) {', 'package-process-output'),
    ('handoff-revoke','        r->info.error = error;\n    }\n    gt_ext_session_revoke(r->session);\n','        r->info.error = error;\n    }\n    (void)r->session;\n','boundary'),
   ]
   if args.mutate:
@@ -118,7 +122,7 @@ def main():
    binary=android_build/'test_runtime';nm=ndk/'toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-nm';exports=run('android-symbols',[nm,'--defined-only',binary]);assert 'gt__bridge_runtime_open' in exports and 'JS_NewRuntime' in exports;assert binary.read_bytes()[:4]==b'\x7fELF'
    android=dict(abi='arm64-v8a',api=29,executed=False,binary_sha256=sha(binary),core_sha256=sha(android_build/'libghosterm_core.a'),engine_sha256=sha(android_build/'libghosterm_quickjs.a'))
   for name,h in hashes.items():assert sha(ROOT/name)==h,name
-  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in cases] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,process_runtime_tests=['authorized cat/env stdio roundtrip with selected-environment isolation','runtime close stops and reaps an owned child'],process_config_test='undeclared process mapping rejected; checked package process scope exercised by Runtime integration',guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC / Executor process.spawn; no App enable, gterm, physical devices, WAN or gateway')
+  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in cases] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,process_runtime_tests=['authorized cat/env stdio roundtrip with selected-environment isolation','runtime close stops and reaps an owned child','per-child deadline does not fire early and terminates on expiry','aggregate process output quota'],process_config_test='undeclared process mapping rejected; checked package process scope exercised by Runtime integration',guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC / Executor process.spawn; no App enable, gterm, physical devices, WAN or gateway')
   (logs/'result.json').write_text(json.dumps(receipt,indent=2)+'\n');shutil.rmtree(source);print('PLUGIN RUNTIME PASS; logs: '+str(logs),flush=True)
  except BaseException as error:(logs/'failure.txt').write_text(repr(error)+'\n');raise
 def stop(n,_frame):raise KeyboardInterrupt('signal '+str(n))

@@ -55,14 +55,17 @@ public final class ExtensionRuntime {
         public let invocation: Invocation?
         public let memoryBytes: UInt64, stackBytes: UInt64
         public let cpuMilliseconds: UInt32, jobsPerStep: UInt32, activationMilliseconds: UInt32
+        public let processLifetimeMilliseconds: UInt32, processOutputBytes: UInt64
         public init(modules: [Module], entry: String, role: ExtensionSession.Role,
                     memoryBytes: UInt64 = 0, stackBytes: UInt64 = 0, cpuMilliseconds: UInt32 = 0,
                     jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0, roots: [WorkspaceRoot] = [],
                     processPrograms: [ProcessProgram] = [], processEnvironment: [ProcessEnvironment] = [],
+                    processLifetimeMilliseconds: UInt32 = 0, processOutputBytes: UInt64 = 0,
                     invocation: Invocation? = nil) {
             self.modules = modules; self.entry = entry; self.role = role; self.memoryBytes = memoryBytes; self.stackBytes = stackBytes
             self.cpuMilliseconds = cpuMilliseconds; self.jobsPerStep = jobsPerStep; self.activationMilliseconds = activationMilliseconds
             self.roots = roots; self.processPrograms = processPrograms; self.processEnvironment = processEnvironment
+            self.processLifetimeMilliseconds = processLifetimeMilliseconds; self.processOutputBytes = processOutputBytes
             self.invocation = invocation
         }
     }
@@ -82,7 +85,8 @@ public final class ExtensionRuntime {
     public init(session: ExtensionSession, config: Config) throws {
         self.session = session; owner = session.runtimeOwner; store = session.runtimeStore
         guard !config.modules.isEmpty, config.modules.count <= 64, !config.entry.utf8.contains(0), config.entry.utf8.count <= 255,
-              config.roots.count <= 8, config.processPrograms.count <= 16, config.processEnvironment.count <= 32 else { throw GhostermError.failed("运行时模块配置无效") }
+              config.roots.count <= 8, config.processPrograms.count <= 16, config.processEnvironment.count <= 32,
+              config.processLifetimeMilliseconds <= 3600000, config.processOutputBytes <= 268435456 else { throw GhostermError.failed("运行时模块配置无效") }
         var buffers: [UnsafeMutableRawPointer] = []
         defer { buffers.forEach { $0.deallocate() } }
         func copy(_ data: Data) -> UnsafeMutableRawPointer {
@@ -132,7 +136,8 @@ public final class ExtensionRuntime {
                 cpu_ms: config.cpuMilliseconds, jobs_per_step: config.jobsPerStep, activation_ms: config.activationMilliseconds,
                 roots: scopes.baseAddress, root_count: scopes.count, process_programs: programValues.baseAddress,
                 process_program_count: programValues.count, process_environment: environmentValues.baseAddress,
-                process_environment_count: environmentValues.count, invocation: invocation)
+                process_environment_count: environmentValues.count, process_lifetime_ms: config.processLifetimeMilliseconds,
+                process_output_bytes: config.processOutputBytes, invocation: invocation)
             return try session.adoptRuntime(config: &c)
         } } } } }
     }
@@ -140,9 +145,11 @@ public final class ExtensionRuntime {
                 associated: Bool = false, memoryBytes: UInt64 = 0, stackBytes: UInt64 = 0,
                 cpuMilliseconds: UInt32 = 0, jobsPerStep: UInt32 = 0, activationMilliseconds: UInt32 = 0,
                 roots: [Config.WorkspaceRoot] = [], processPrograms: [Config.ProcessProgram] = [],
-                processEnvironment: [Config.ProcessEnvironment] = [], invocation: Invocation? = nil) throws {
+                processEnvironment: [Config.ProcessEnvironment] = [], processLifetimeMilliseconds: UInt32 = 0,
+                processOutputBytes: UInt64 = 0, invocation: Invocation? = nil) throws {
         self.session = session; owner = session.runtimeOwner; store = session.runtimeStore
-        guard roots.count <= 8, processPrograms.count <= 16, processEnvironment.count <= 32 else { throw GhostermError.failed("运行时授权根或进程配置超限") }
+        guard roots.count <= 8, processPrograms.count <= 16, processEnvironment.count <= 32,
+              processLifetimeMilliseconds <= 3600000, processOutputBytes <= 268435456 else { throw GhostermError.failed("运行时授权根或进程配置超限") }
         var names: [UnsafeMutablePointer<CChar>] = []
         defer { names.forEach { $0.deallocate() } }
         var scopes: [gt_ext_runtime_root_t] = []
@@ -180,7 +187,8 @@ public final class ExtensionRuntime {
                 cpu_ms: cpuMilliseconds, jobs_per_step: jobsPerStep, activation_ms: activationMilliseconds,
                 roots: values.baseAddress, root_count: values.count, process_programs: programValues.baseAddress,
                 process_program_count: programValues.count, process_environment: environmentValues.baseAddress,
-                process_environment_count: environmentValues.count, invocation: invocation)
+                process_environment_count: environmentValues.count, process_lifetime_ms: processLifetimeMilliseconds,
+                process_output_bytes: processOutputBytes, invocation: invocation)
             return try session.adoptPackageRuntime(package: package, config: &c, associated: associated)
         } } } }
     }

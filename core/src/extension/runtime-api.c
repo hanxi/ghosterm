@@ -79,10 +79,13 @@ gt_status_t gt_ext_runtime_open(gt_ext_session_t **session,
         config->process_program_count > GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX ||
         (config->process_program_count && !config->process_programs) ||
         config->process_environment_count > GT_EXT_RUNTIME_PROCESS_ENV_MAX ||
-        (config->process_environment_count && !config->process_environment)) {
+        (config->process_environment_count && !config->process_environment) ||
+        config->process_lifetime_ms > GT_EXT_RUNTIME_PROCESS_LIFETIME_MS_MAX ||
+        config->process_output_bytes > GT_EXT_RUNTIME_PROCESS_OUTPUT_BYTES_MAX) {
         return GT_ERR_INVALID_ARG;
     }
-    if (config->process_program_count || config->process_environment_count) {
+    if (config->process_program_count || config->process_environment_count ||
+        config->process_lifetime_ms || config->process_output_bytes) {
         return GT_ERR_UNSUPPORTED;
     }
     gt_runtime_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX];
@@ -143,7 +146,9 @@ gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,
         config->process_program_count > GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX ||
         (config->process_program_count && !config->process_programs) ||
         config->process_environment_count > GT_EXT_RUNTIME_PROCESS_ENV_MAX ||
-        (config->process_environment_count && !config->process_environment)) {
+        (config->process_environment_count && !config->process_environment) ||
+        config->process_lifetime_ms > GT_EXT_RUNTIME_PROCESS_LIFETIME_MS_MAX ||
+        config->process_output_bytes > GT_EXT_RUNTIME_PROCESS_OUTPUT_BYTES_MAX) {
         return GT_ERR_INVALID_ARG;
     }
     if (atomic_load_explicit(&package->stopped, memory_order_relaxed)) {
@@ -166,6 +171,8 @@ gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,
                              .process_program_count = config->process_program_count,
                              .process_environment = config->process_environment,
                              .process_environment_count = config->process_environment_count,
+                             .process_lifetime_ms = config->process_lifetime_ms,
+                             .process_output_bytes = config->process_output_bytes,
                              .invocation = config->invocation};
     gt_ext_runtime_t *r = gt__plugin_memory_calloc(1, sizeof(*r));
     if (!r) {

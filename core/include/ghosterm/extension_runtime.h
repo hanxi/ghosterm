@@ -14,6 +14,8 @@ extern "C" {
 #define GT_EXT_RUNTIME_ROOTS_MAX 8u
 #define GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX 16u
 #define GT_EXT_RUNTIME_PROCESS_ENV_MAX 32u
+#define GT_EXT_RUNTIME_PROCESS_LIFETIME_MS_MAX 3600000u
+#define GT_EXT_RUNTIME_PROCESS_OUTPUT_BYTES_MAX (256u * 1024u * 1024u)
 typedef struct gt_ext_runtime gt_ext_runtime_t;
 
 typedef enum {
@@ -90,6 +92,11 @@ typedef struct {
     size_t process_program_count;
     const gt_ext_process_environment_t *process_environment;
     size_t process_environment_count;
+    /* Per-child wall-clock maximum and aggregate bytes returned by child stdout
+     * plus stderr for this Runtime. Zero selects finite defaults (10 minutes,
+     * 64 MiB). Nonzero values are Host policy, not plugin-controlled. */
+    uint32_t process_lifetime_ms;
+    uint64_t process_output_bytes;
     const gt_ext_invocation_t *invocation;
 } gt_ext_runtime_config_t;
 

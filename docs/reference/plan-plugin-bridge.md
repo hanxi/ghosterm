@@ -4749,3 +4749,12 @@ JS-enabled `scripts/test-plugin-runtime.py --mutate --fetch` 隔离构建通过�
 修复 `CodexAppServerStdio.step()` 在 stdout EOF 后提前返回、导致 stderr 尚有数据时不再被读取的缺陷；现在 stdout / stderr 分别追踪 EOF，各自在单次 step 内最多消费 16 KiB，stdout 关闭后仍持续排空 stderr。`CodexAppServerProcess` 记录 leader 退出状态，只有 stdout 和 stderr 都到 EOF 后才关闭 adapter 并自动调用 Host `release()`；调用者仍可显式 `stop()` 运行中的 child。真实 runner 可能仍让继承 pipe 的后代延迟 EOF；Runtime close 的进程组 TERM/KILL 回收仍是最终兜底。
 
 `node --experimental-strip-types --test scripts/test-plugin-codex-protocol.mjs` 13 项通过：新增 stdout 先 EOF、stderr 后续仍读满一个 16 KiB slice、自然退出后双流 EOF 自动 release/reap 两项。真实锁定 Codex 0.166.0 initialize / initialized / thread/start 继续通过，未发 turn。TypeScript 5.9.3 strict / ES2022 无 DOM 类型检查与 `git diff --check` 通过。测试迭代中先有 fixture 将 32 字节 stderr 预期为仍未到 EOF，但 adapter 在同一预算内正确继续读到 EOF；之后把 fixture 扩为完整 16 KiB slice。另一轮测试缺少常量导入导致测试脚本 ReferenceError；两者均为测试假设/夹具问题，不计产品断言红。逐子进程 deadline、累计输出配额、启动 executable identity 复验和真实 Runtime→Codex turn/approval E2E 仍待完成；本批不改公共 ABI，不增加 macOS CI 二十份，P3 不记完成。
+
+
+### P3 实施第十五批：Runtime 子进程时限与输出配额
+
+Host Runtime 配置现可指定每个 child 的最长存活时间与该 Runtime 下所有 child stdout/stderr 的累计读取上限；零值采用 10 分钟 / 64 MiB 默认值，最大分别为 1 小时 / 256 MiB。超时或超额时 Runtime 发 SIGTERM，250 ms 后仍存活则升级 SIGKILL；超额读取返回 `RESOURCE_LIMIT` 并丢弃越限数据。child `poll()` 在退出后报告 `terminationReason=deadline|output-limit`。Runtime 必须持续 step 才会处理时限与信号升级；配额统计 Host 实际读取的管道字节。Apple Swift 配置透传已更新，Android JNI 明确使用默认值；普通非 package Runtime 对非零进程限额仍返回 unsupported。
+
+JS-enabled `scripts/test-plugin-runtime.py --mutate --fetch` 通过，包括 Runtime 基线、真实 `cat`/`env` pipe 场景及 17 组变异；deadline 变异使用长时限用例检查不得提前终止，输出变异检查越限必须正常断言失败，每组均为真实编译目标红、配置对照绿、复原及 SHA256。随后 `bash scripts/gate.sh` 481/481 CTest、177 个公共 ABI 符号对拍和未实现入口检查通过；clang-format 19.1.7 检查 219 个 C 文件通过；Apple `GhostermCore` Swift build、Android `:bridge:externalNativeBuildDebug` native build、Runtime SDK 离线输入与生成器检查、`git diff --check` 通过。按最终格式复验后再次运行离线 gate，仍全绿。没有改 `ghosterm.h`，不增加 macOS CI 二十份。
+
+本批只验证隔离 Core Runtime 的 `/bin/cat` 与 `/usr/bin/env` 子进程行为及平台绑定编译，不代表产品 Host 已配置可信 executable 映射，也不代表 Codex turn / approval 集成。配额是在 Runtime 消费管道时执行；尚未完成启动 executable identity/version 复验、App Host 映射、完整插件入口、真实 turn / approval UI 与 E2E，P3 不记完成。

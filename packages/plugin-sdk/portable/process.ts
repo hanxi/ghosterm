@@ -11,7 +11,8 @@ export type ProcessWrite = { readonly state: "data"; readonly count: number } |
   { readonly state: "error"; readonly error: Error };
 export type ProcessExit =
   { readonly state: "running" } |
-  { readonly state: "exited"; readonly code: number | null; readonly signal: number | null };
+  { readonly state: "exited"; readonly code: number | null; readonly signal: number | null;
+    readonly terminationReason?: "deadline" | "output-limit" };
 
 /** Nonblocking stdio plus explicit child lifecycle, supplied by the Host. */
 export interface ProcessChild {

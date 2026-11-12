@@ -14,13 +14,25 @@
 #include <time.h>
 
 #define GT_RUNTIME_PROCESS_CHILDREN 16u
+#define GT_RUNTIME_PROCESS_LIFETIME_DEFAULT_MS 600000u
+#define GT_RUNTIME_PROCESS_OUTPUT_DEFAULT_BYTES (64u * 1024u * 1024u)
+#define GT_RUNTIME_PROCESS_STOP_GRACE_MS 250u
+
+typedef enum {
+    GT_RUNTIME_PROCESS_STOP_NONE,
+    GT_RUNTIME_PROCESS_STOP_DEADLINE,
+    GT_RUNTIME_PROCESS_STOP_OUTPUT_LIMIT
+} runtime_process_stop_reason_t;
 
 typedef struct {
     uint64_t id;
     gt_ext_process_t *process;
+    uint64_t deadline, stop_deadline;
     char verified_version[129];
     JSValue release_promise;
     JSValue release_resolver;
+    runtime_process_stop_reason_t stop_reason;
+    bool killed;
     bool releasing;
 } runtime_process_child_t;
 
@@ -45,6 +57,8 @@ struct gt_bridge_runtime {
     char *process_environment_block;
     const char *process_environment[GT_EXT_RUNTIME_PROCESS_ENV_MAX];
     size_t process_environment_count, process_environment_bytes;
+    uint32_t process_lifetime_ms;
+    uint64_t process_output_limit, process_output_bytes;
     runtime_process_child_t process_children[GT_RUNTIME_PROCESS_CHILDREN];
     uint64_t next_process_id, process_stop_deadline;
     runtime_module_t modules[64];
@@ -612,6 +626,37 @@ static JSValue runtime_process_error(JSContext *c, gt_status_t status) {
     return error;
 }
 
+static JSValue runtime_process_limit_error(JSContext *c) {
+    JSValue error = JS_NewError(c);
+    if (JS_IsException(error) ||
+        runtime_set(c, error, "message", JS_NewString(c, "process output quota exceeded")) < 0 ||
+        runtime_set(c, error, "code", JS_NewString(c, "RESOURCE_LIMIT")) < 0) {
+        JS_FreeValue(c, error);
+        return JS_EXCEPTION;
+    }
+    return error;
+}
+
+static bool runtime_process_stop(runtime_process_child_t *slot,
+                                 runtime_process_stop_reason_t reason,
+                                 uint64_t now) {
+    if (slot->stop_reason != GT_RUNTIME_PROCESS_STOP_NONE) {
+        return true;
+    }
+    if (now > UINT64_MAX - GT_RUNTIME_PROCESS_STOP_GRACE_MS) {
+        return false;
+    }
+    if (gt__ext_process_signal(slot->process, SIGTERM) != GT_OK) {
+        gt_ext_process_info_t info;
+        if (gt__ext_process_poll(slot->process, &info) != GT_OK || !info.exited) {
+            return false;
+        }
+    }
+    slot->stop_reason = reason;
+    slot->stop_deadline = now + GT_RUNTIME_PROCESS_STOP_GRACE_MS;
+    return true;
+}
+
 static JSValue runtime_process_resolved_promise(JSContext *c, JSValue value) {
     JSValue resolving[2];
     JSValue promise = JS_NewPromiseCapability(c, resolving);
@@ -675,10 +720,35 @@ static JSValue runtime_process_child_call(
         if (JS_IsException(result)) {
             return result;
         }
-        if (io.state == GT_EXT_PROCESS_DATA &&
-            runtime_set(c, result, "bytes", JS_NewUint8ArrayCopy(c, bytes, io.count)) < 0) {
-            JS_FreeValue(c, result);
-            return JS_EXCEPTION;
+        if (io.state == GT_EXT_PROCESS_DATA) {
+            if (io.count > r->process_output_limit - r->process_output_bytes) {
+                uint64_t now;
+                if (!runtime_now(&now) ||
+                    !runtime_process_stop(slot, GT_RUNTIME_PROCESS_STOP_OUTPUT_LIMIT, now)) {
+                    JS_FreeValue(c, result);
+                    return JS_ThrowInternalError(c, "cannot stop process after output quota");
+                }
+                JSValue error = runtime_process_limit_error(c);
+                if (JS_IsException(error)) {
+                    JS_FreeValue(c, result);
+                    return JS_EXCEPTION;
+                }
+                if (runtime_set(c, result, "state", JS_NewString(c, "error")) < 0) {
+                    JS_FreeValue(c, error);
+                    JS_FreeValue(c, result);
+                    return JS_EXCEPTION;
+                }
+                if (runtime_set(c, result, "error", error) < 0) {
+                    JS_FreeValue(c, result);
+                    return JS_EXCEPTION;
+                }
+            } else {
+                r->process_output_bytes += io.count;
+                if (runtime_set(c, result, "bytes", JS_NewUint8ArrayCopy(c, bytes, io.count)) < 0) {
+                    JS_FreeValue(c, result);
+                    return JS_EXCEPTION;
+                }
+            }
         }
         if (io.state == GT_EXT_PROCESS_ERROR &&
             runtime_set(c, result, "error", runtime_process_error(c, io.error)) < 0) {
@@ -760,6 +830,15 @@ static JSValue runtime_process_child_call(
                              result,
                              "signal",
                              info.term_signal ? JS_NewInt32(c, info.term_signal) : JS_NULL) < 0)) {
+                JS_FreeValue(c, result);
+                return JS_EXCEPTION;
+            }
+            const char *reason = slot->stop_reason == GT_RUNTIME_PROCESS_STOP_DEADLINE ? "deadline"
+                                 : slot->stop_reason == GT_RUNTIME_PROCESS_STOP_OUTPUT_LIMIT
+                                     ? "output-limit"
+                                     : NULL;
+            if (reason &&
+                runtime_set(c, result, "terminationReason", JS_NewString(c, reason)) < 0) {
                 JS_FreeValue(c, result);
                 return JS_EXCEPTION;
             }
@@ -896,8 +975,15 @@ static JSValue runtime_process_spawn_call(
         }
         return JS_ThrowInternalError(c, "authorized process could not start");
     }
+    uint64_t now;
+    if (!runtime_now(&now) || now > UINT64_MAX - r->process_lifetime_ms) {
+        (void)gt__ext_process_signal(slot->process, SIGKILL);
+        (void)gt__ext_process_destroy(&slot->process);
+        return JS_ThrowInternalError(c, "process deadline clock unavailable");
+    }
     r->next_process_id++;
     slot->id = r->next_process_id;
+    slot->deadline = now + r->process_lifetime_ms;
     strcpy(slot->verified_version, version);
     slot->release_promise = JS_UNDEFINED;
     slot->release_resolver = JS_UNDEFINED;
@@ -932,6 +1018,22 @@ static bool runtime_process_step(gt_bridge_runtime_t *r) {
         gt_status_t status = gt__ext_process_poll(slot->process, &info);
         if (status != GT_OK) {
             return false;
+        }
+        uint64_t now;
+        if (!runtime_now(&now)) {
+            return false;
+        }
+        if (!info.exited && slot->stop_reason == GT_RUNTIME_PROCESS_STOP_NONE &&
+            now >= slot->deadline &&
+            !runtime_process_stop(slot, GT_RUNTIME_PROCESS_STOP_DEADLINE, now)) {
+            return false;
+        }
+        if (!info.exited && slot->stop_reason != GT_RUNTIME_PROCESS_STOP_NONE && !slot->killed &&
+            now >= slot->stop_deadline) {
+            if (gt__ext_process_signal(slot->process, SIGKILL) != GT_OK) {
+                return false;
+            }
+            slot->killed = true;
         }
         if ((info.exited && slot->releasing) || (r->process_stopping && info.exited)) {
             if (slot->releasing) {
@@ -1344,7 +1446,9 @@ static gt_status_t runtime_open(gt_ext_session_t **session,
         c->process_program_count > GT_EXT_PROCESS_PROGRAMS_MAX ||
         (c->process_program_count && !c->process_programs) ||
         c->process_environment_count > GT_EXT_RUNTIME_PROCESS_ENV_MAX ||
-        (c->process_environment_count && !c->process_environment)) {
+        (c->process_environment_count && !c->process_environment) ||
+        c->process_lifetime_ms > GT_EXT_RUNTIME_PROCESS_LIFETIME_MS_MAX ||
+        c->process_output_bytes > GT_EXT_RUNTIME_PROCESS_OUTPUT_BYTES_MAX) {
         return GT_ERR_INVALID_ARG;
     }
     gt_ext_session_info_t info;
@@ -1504,12 +1608,19 @@ static gt_status_t runtime_open(gt_ext_session_t **session,
             }
         }
         if (process_required != pipes_required ||
-            ((c->process_program_count || c->process_environment_count) &&
+            ((c->process_program_count || c->process_environment_count || c->process_lifetime_ms ||
+              c->process_output_bytes) &&
              (!process_required || !pipes_required))) {
             status = GT_ERR_UNSUPPORTED;
             goto fail;
         }
         if (process_required) {
+            r->process_lifetime_ms = c->process_lifetime_ms
+                                         ? c->process_lifetime_ms
+                                         : GT_RUNTIME_PROCESS_LIFETIME_DEFAULT_MS;
+            r->process_output_limit = c->process_output_bytes
+                                          ? c->process_output_bytes
+                                          : GT_RUNTIME_PROCESS_OUTPUT_DEFAULT_BYTES;
             status = gt__ext_process_service_open(*session,
                                                   &r->lease,
                                                   package,
@@ -1817,10 +1928,14 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
         r->process_stopping = true;
         r->process_stop_deadline = now + 250;
         for (size_t i = 0; i < GT_RUNTIME_PROCESS_CHILDREN; i++) {
-            if (r->process_children[i].process &&
-                gt__ext_process_signal(r->process_children[i].process, SIGTERM) != GT_OK) {
-                r->info.cleanup_error = GT_ERR_IO;
-                return GT_EXT_CLOSE_ERROR;
+            runtime_process_child_t *slot = &r->process_children[i];
+            if (slot->process) {
+                gt_ext_process_info_t info;
+                if (gt__ext_process_poll(slot->process, &info) != GT_OK ||
+                    (!info.exited && gt__ext_process_signal(slot->process, SIGTERM) != GT_OK)) {
+                    r->info.cleanup_error = GT_ERR_IO;
+                    return GT_EXT_CLOSE_ERROR;
+                }
             }
         }
     }
@@ -1846,10 +1961,14 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
         }
         if (!r->process_killed && now >= r->process_stop_deadline) {
             for (size_t i = 0; i < GT_RUNTIME_PROCESS_CHILDREN; i++) {
-                if (r->process_children[i].process &&
-                    gt__ext_process_signal(r->process_children[i].process, SIGKILL) != GT_OK) {
-                    r->info.cleanup_error = GT_ERR_IO;
-                    return GT_EXT_CLOSE_ERROR;
+                runtime_process_child_t *slot = &r->process_children[i];
+                if (slot->process) {
+                    gt_ext_process_info_t info;
+                    if (gt__ext_process_poll(slot->process, &info) != GT_OK ||
+                        (!info.exited && gt__ext_process_signal(slot->process, SIGKILL) != GT_OK)) {
+                        r->info.cleanup_error = GT_ERR_IO;
+                        return GT_EXT_CLOSE_ERROR;
+                    }
                 }
             }
             r->process_killed = true;

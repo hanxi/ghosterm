@@ -49,6 +49,8 @@ typedef struct {
     size_t process_program_count;
     const gt_ext_process_environment_t *process_environment;
     size_t process_environment_count;
+    uint32_t process_lifetime_ms;
+    uint64_t process_output_bytes;
     const gt_ext_invocation_t *invocation;
 } gt_runtime_config_t;
 

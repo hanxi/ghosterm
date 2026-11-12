@@ -100,6 +100,30 @@ static const char *load_process_kept =
     "cwd:ctx.invocation.workspaceHandle,envPolicy:'selected-user-environment',"
     "cancellation:ctx.cancellation});"
     "return {dispose(){}};}";
+static const char *load_process_deadline =
+    "let child;export async function activate(ctx){child=await ctx.process.spawn({program:'cat',"
+    "argv:['cat'],cwd:ctx.invocation.workspaceHandle,envPolicy:'selected-user-environment',"
+    "cancellation:ctx.cancellation});return {dispose(){const p=child.poll();if(p.state!=="
+    "'exited'||p.terminationReason!=='deadline')throw Error('deadline not reported')}};}";
+static const char *load_process_deadline_live =
+    "let child;export async function activate(ctx){child=await ctx.process.spawn({program:'cat',"
+    "argv:['cat'],cwd:ctx.invocation.workspaceHandle,envPolicy:'selected-user-environment',"
+    "cancellation:ctx.cancellation});return {dispose(){if(child.poll().terminationReason)"
+    "throw Error('deadline fired early')}};}";
+static const char *load_process_output =
+    "export async function activate(ctx){const child=await ctx.process.spawn({program:'cat',"
+    "argv:['cat'],cwd:ctx.invocation.workspaceHandle,envPolicy:'selected-user-environment',"
+    "cancellation:ctx.cancellation});child.writeStdin(new Uint8Array([65,66]));child.closeStdin();"
+    "return {dispose(){let limited=false;for(let i=0;i<8&&!limited;i++){const "
+    "read=child.readStdout(2);"
+    "if(read.state==='error')limited=read.error.code==='RESOURCE_LIMIT';}"
+    "if(!limited)throw Error('output quota not reported')}};}";
+
+static bool load_process_mode(const char *mode) {
+    return !strcmp(mode, "process") || !strcmp(mode, "process-close") ||
+           !strcmp(mode, "process-deadline") || !strcmp(mode, "process-deadline-live") ||
+           !strcmp(mode, "process-output");
+}
 
 static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) {
     memset(f, 0, sizeof(*f));
@@ -124,10 +148,13 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         }
         strcat(entry, "index.js");
     }
-    bool process = !strcmp(mode, "process") || !strcmp(mode, "process-close");
-    const char *script = !strcmp(mode, "process")         ? load_process_roundtrip
-                         : !strcmp(mode, "process-close") ? load_process_kept
-                                                          : load_echo;
+    bool process = load_process_mode(mode);
+    const char *script = !strcmp(mode, "process")                 ? load_process_roundtrip
+                         : !strcmp(mode, "process-close")         ? load_process_kept
+                         : !strcmp(mode, "process-deadline")      ? load_process_deadline
+                         : !strcmp(mode, "process-deadline-live") ? load_process_deadline_live
+                         : !strcmp(mode, "process-output")        ? load_process_output
+                                                                  : load_echo;
     if (!strcmp(mode, "relative")) {
         script = "import {value} from '../shared/value.js';export function "
                  "activate(){if(value!==42)throw Error('relative');return {dispose(){}}}";
@@ -476,7 +503,7 @@ static void load_pair(rpc_pair_t *p, const load_fixture_t *f, const char *mode) 
     c.available_count = 1;
     strcpy(c.required[0], "session.rpc");
     strcpy(c.available[0], "session.rpc");
-    if (!strcmp(mode, "process") || !strcmp(mode, "process-close")) {
+    if (load_process_mode(mode)) {
         c.required_count = c.available_count = 3;
         strcpy(c.required[1], "process.spawn");
         strcpy(c.required[2], "process.pipes");
@@ -520,12 +547,18 @@ static gt_runtime_info_t load_info(gt_bridge_runtime_t *r) {
     return out;
 }
 
+static bool load_dispose_must_succeed;
+
 static void load_drop(gt_bridge_runtime_t **r) {
     for (unsigned i = 0; i < 2000; i++) {
         gt_ext_close_t state = gt__bridge_runtime_close(*r);
         CHECK(state == GT_EXT_DRAINING || state == GT_EXT_RELEASED);
+        if (load_dispose_must_succeed) {
+            CHECK(!load_info(*r).dispose_error);
+        }
         if (state == GT_EXT_RELEASED) {
             CHECK(load_info(*r).engine_released && gt__bridge_runtime_destroy(r) == GT_OK && !*r);
+            load_dispose_must_succeed = false;
             return;
         }
         struct timespec delay = {0, 1000000};
@@ -625,7 +658,7 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
         const gt_ext_process_environment_t process_environment = {"GT_FIXTURE_ENV", "approved"};
         const gt_runtime_root_t process_root = {"workspace", f.fd, 16777216};
         const gt_ext_invocation_t process_invocation = {"fixture", NULL, 0};
-        if (!strcmp(mode, "process") || !strcmp(mode, "process-close")) {
+        if (load_process_mode(mode)) {
             config.process_programs = process_programs;
             config.process_program_count = 2;
             config.process_environment = &process_environment;
@@ -633,6 +666,10 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
             config.roots = &process_root;
             config.root_count = 1;
             config.invocation = &process_invocation;
+            config.process_lifetime_ms = !strcmp(mode, "process-deadline")        ? 10
+                                         : !strcmp(mode, "process-deadline-live") ? 10000
+                                                                                  : 600000;
+            config.process_output_bytes = !strcmp(mode, "process-output") ? 1 : 1048576;
         }
         gt_status_t expected = GT_OK;
         if (!strcmp(mode, "id") || !strcmp(mode, "version") || !strcmp(mode, "digest") ||
@@ -728,6 +765,18 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
             if (!strcmp(mode, "process-close")) {
                 CHECK(load_info(r).phase == GT_RUNTIME_ACTIVE &&
                       ext_fds() >= before_process_run + 3);
+            }
+            if (!strcmp(mode, "process-deadline") || !strcmp(mode, "process-deadline-live") ||
+                !strcmp(mode, "process-output")) {
+                struct timespec delay = {0, 2000000};
+                unsigned waits = !strcmp(mode, "process-deadline") ? 40 : 10;
+                for (unsigned i = 0; i < waits; i++) {
+                    if (!strcmp(mode, "process-deadline")) {
+                        (void)gt__bridge_runtime_step(r);
+                    }
+                    (void)nanosleep(&delay, NULL);
+                }
+                load_dispose_must_succeed = true;
             }
             if (memory) {
                 CHECK(load_info(r).error == GT_RUNTIME_MEMORY);
