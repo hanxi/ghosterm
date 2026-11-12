@@ -1,8 +1,8 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 Android MainActivity Settings E2E。状态：**P0 技术风险探针与首个 wire v1 envelope 已关闭并冻结；当前生产双向业务只走无 PTY SSH exec，普通 TTY 回包明确不支持，QuickJS-NG 0.18.0 为首选引擎。Core / gterm 与 macOS、Android 首条 SSH 插件调用链已接入 wire v1；独立 local IPC 后端仍未实现。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation。API 29 / API 36 arm64 无窗口 AVD 现通过真实双跳 Preview 到生产 MainActivity Settings 页、Session consent、Client Runtime 与资源面板收件；同目录 Markdown PNG 像素绘制也有两档设备证据。16 KiB 页与用户真机仍待验。**
+日期：2026-11-05，更新至 2026-11-13 Android MainActivity Settings SAF E2E。状态：**P0 技术风险探针与首个 wire v1 envelope 已关闭并冻结；当前生产双向业务只走无 PTY SSH exec，普通 TTY 回包明确不支持，QuickJS-NG 0.18.0 为首选引擎。Core / gterm 与 macOS、Android 首条 SSH 插件调用链已接入 wire v1；独立 local IPC 后端仍未实现。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation。API 29 / API 36 arm64 无窗口 AVD 已通过真实系统 SAF 文件夹选择、Settings 来源摘要批准、双跳 Preview、Session consent、Client Runtime 与资源面板收件；同目录 Markdown PNG 像素绘制也有两档设备证据。16 KiB 页与用户真机仍待验。**
 
-**仍未完成：** P2 官方 Preview 的完整交互与端到端验证。独立 headless WebKit probe 已通过真实 WKWebView CSS / PNG 绘制，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；AppModel / SwiftUI 实际接收后的完整端到端交互仍未完成。Android MainActivity Settings 的真实 SSH 收件与 consent 已在 API 29 / 36 模拟器通过；16 KiB 页、用户真机及完整生命周期 / 多格式矩阵仍待验。插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P2 官方 Preview 的完整交互与端到端验证。独立 headless WebKit probe 已通过真实 WKWebView CSS / PNG 绘制，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；AppModel / SwiftUI 实际接收后的完整端到端交互仍未完成。Android MainActivity Settings 的真实 SAF 选包 / 页面批准、SSH 收件与 consent 已在 API 29 / 36 模拟器通过；16 KiB 页、用户真机及完整生命周期 / 多格式矩阵仍待验。插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -4540,3 +4540,13 @@ Android `PluginResourcesPanel` 从同时展开全部资源改为可选择列表�
 早期试跑的 harness 曾因 Settings VM 请求仍用裸 `gterm`，使远端停在 `WAIT_OFFER`；改用实际构建二进制 wrapper 后复跑通过。另一次 hostkey 触屏节点不可见、重复消费同一认证 request 导致挑战过期，修正为按 `(request, hop, phase)` 单次处理并经生产 `SessionsViewModel.decide` 接受 hostkey；这些轮次均不计目标红。最终 API 29 / 36 设备、远端结果侧车与资源清理检查全部通过，模拟器及 AVD / HOME / gterm 构建和脚本临时文件在 `tmp/`，现已关闭清理。
 
 此批证明完整 MainActivity Settings 页面承载真实双跳 SSH Preview 收件、Session consent 和实际正文展示；不覆盖 SAF 选包 / 页面批准交互、16 KiB 页、用户真机与完整生命周期 / 多格式矩阵，故不记 P2 闭环。不改公共 C ABI，不增加 macOS CI 二十份。
+
+### P2 实施第四十批：Android Settings SAF 选包与摘要批准（2026-11-13）
+
+新增测试专用 `DocumentsProvider`，由生产 `ACTION_OPEN_DOCUMENT_TREE` / DocumentsUI 展示官方 Preview 固定包目录；独立控制 provider 将脚本固定的包字节写入测试应用私有目录，目录选择经系统 picker 返回 MainActivity 后交由生产 `ExtensionPackagesViewModel.reviewTree` / `ExtensionController.reviewTree` 完成有界暂存与审查。测试从 Settings 页面实际点击「批准此摘要」，等待批准流程释放 ViewModel busy 状态，再从 Settings 同一路径启动该摘要并完成双跳 SSH、逐跳 hostkey / 内存私钥处理、Session consent、Client Runtime、`fixture.txt` ResourceStore 回执与生产资源面板正文核对。测试 provider 安装 / 清理递归移除嵌套成员；脚本识别 instrumentation assumption skip，避免把 `OK (1 test)` 的 skipped 测试当作已执行。
+
+JS-enabled debug / androidTest 构建通过，Android ABI 对拍 140 引用 / 37 登记未用。最终收敛后的 `PluginPreviewSettingsE2ETest#realTwoHopPreviewReceiptAppearsInMainActivitySettings` 在 API 29 / arm64 / 4 KiB 页无窗口 AVD **1 项通过**，脚本确认真实双跳 Preview E2E、远端结果侧车及 ResourceStore 暂存清理。API 36 / arm64 / 4 KiB 页无窗口 AVD 上，同一 SAF / Settings 批准 / 双跳 / consent / Runtime 场景亦有 **1 项通过**；该 API 36 轮运行时的 instrumentation 含额外参数解码诊断调用，随后移除诊断调用并调整测试启动调度后只在 API 29 复验最终测试源码，故 API 36 最终源码档仍需补跑。
+
+前置失败如实保留：第一次运行误装 JS-off APK，JUnit 把测试报告为 assumption skip，旧脚本错误地继续等待远端 Executor 侧车；本批已让 harness 对 skip 明确失败。早期实际交互轮曾在启动路径报告 `argsSchema` 不匹配，随后通过等待批准 ViewModel busy 释放、在主线程调用生产 ViewModel launch 收敛；API 29 最终轮通过。一次与其它 Android Gradle 构建并行的编译出现大量无关资源 / 符号缺失，串行构建复绿，不计实现失败或通过。一个诊断命令显式提交空 `--assets=` 的解码结果不稳定；官方本批命令仅使用 `fixture.txt` 默认参数，此显式空选项不纳入通过证据，留待 CLI 参数覆盖阶段核验。
+
+API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目录均在工程 `tmp/`；API 29 emulator 已关闭，本批 AVD 与 gterm 构建目录及截图已清理。`tmp/android-build` 因共享构建工具链而保留。此批补齐 Android SAF 实际选包与 Settings 摘要批准切片，但不代表 API 36 最终源码复验、16 KiB 页、用户真机、SwiftUI/AppModel 闭环或 P2 完成；不改公共 C ABI，不增加 macOS CI 二十份。

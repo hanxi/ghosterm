@@ -138,6 +138,8 @@ def main():
                         cwd=ROOT, capture_output=True, text=True, timeout=240)
                     transcript = output.stdout + output.stderr
                     print(transcript, end="", flush=True)
+                    if "INSTRUMENTATION_STATUS_CODE: -4" in transcript or "assumption failed:" in transcript:
+                        raise RuntimeError("Android Preview instrumentation was skipped instead of executed")
                     if output.returncode or "OK (1 test)" not in transcript or "FAILURES!!!" in transcript or "INSTRUMENTATION_FAILED" in transcript:
                         remote_error = remote_stderr.read_text(errors="replace") if remote_stderr.exists() else ""
                         remote_status = remote_exit.read_text(errors="replace") if remote_exit.exists() else "not-exited"

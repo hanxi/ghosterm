@@ -19,6 +19,14 @@
         </activity>
         <provider android:name="com.hanxi.ghosterm.PreviewReceiverControl"
             android:authorities="com.hanxi.ghosterm.test.previewcontrol" android:exported="true" />
+        <provider android:name="com.hanxi.ghosterm.PreviewPackageDocumentsProvider"
+            android:authorities="com.hanxi.ghosterm.test.preview-package"
+            android:exported="true" android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
+        </provider>
+        <provider android:name="com.hanxi.ghosterm.PreviewPackageFixtureControlProvider"
+            android:authorities="com.hanxi.ghosterm.test.preview-package-control" android:exported="true" />
         <provider android:name="com.hanxi.ghosterm.FixtureDocumentsProvider"
             android:authorities="com.hanxi.ghosterm.test.documents"
             android:exported="true" android:grantUriPermissions="true"

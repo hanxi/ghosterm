@@ -1,7 +1,12 @@
 package com.hanxi.ghosterm
 
 import android.os.SystemClock
+import android.os.Bundle
 import android.util.Base64
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -53,24 +58,67 @@ class PluginPreviewSettingsE2ETest {
         fail(label)
     }
 
+    private fun systemNodes(): List<AccessibilityNodeInfo> {
+        val result = mutableListOf<AccessibilityNodeInfo>()
+        fun visit(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            result += node
+            for (index in 0 until node.childCount) visit(node.getChild(index))
+        }
+        visit(instrumentation.uiAutomation.rootInActiveWindow)
+        return result
+    }
+
+    private fun clickSystem(vararg labels: String): Boolean {
+        for (match in systemNodes().filter { it.isVisibleToUser &&
+            (it.text?.toString() in labels || it.contentDescription?.toString() in labels) }) {
+            when (tapLegacyDocumentRow(instrumentation, match)) {
+                true -> return true
+                false -> continue
+                null -> Unit
+            }
+            var node: AccessibilityNodeInfo? = match
+            while (node != null) {
+                if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                node = node.parent
+            }
+        }
+        return false
+    }
+
+    private fun awaitSystem(label: String, predicate: () -> Boolean) {
+        val deadline = SystemClock.elapsedRealtime() + 15_000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (predicate()) return
+            SystemClock.sleep(40)
+        }
+        fail("$label: ${systemNodes().take(35).joinToString { "${it.text}/${it.contentDescription}" }}")
+    }
+
     @Test fun realTwoHopPreviewReceiptAppearsInMainActivitySettings() {
         assumeTrue("requires the explicit JS-enabled Android build", BuildConfig.PLUGIN_JS_ENABLED)
         val payload = fixture
         val ports = payload.getJSONObject("two").getJSONArray("ports")
-        val packageDir = File(instrumentation.targetContext.cacheDir, "preview-settings-${System.nanoTime()}")
-        check(packageDir.mkdir())
         val packageFiles = payload.getJSONObject("previewPackageFiles")
         val names = packageFiles.keys()
+        val providerFiles = JSONObject()
         while (names.hasNext()) {
             val name = names.next()
-            val file = File(packageDir, name)
-            check(file.canonicalPath.startsWith(packageDir.canonicalPath + File.separator))
-            check(file.parentFile!!.mkdirs() || file.parentFile!!.isDirectory)
-            file.writeBytes(Base64.decode(packageFiles.getString(name), Base64.DEFAULT))
+            providerFiles.put(name, packageFiles.getString(name))
         }
-        val digest = MessageDigest.getInstance("SHA-256").digest(File(packageDir, "integrity.json").readBytes())
+        val digest = MessageDigest.getInstance("SHA-256").digest(
+            Base64.decode(packageFiles.getString("integrity.json"), Base64.DEFAULT))
             .joinToString("") { "%02x".format(it.toInt() and 255) }
         assertEquals(payload.getString("previewPackageDigest"), digest)
+
+        val targetContext = instrumentation.targetContext
+        val treeUri = DocumentsContract.buildTreeDocumentUri(PreviewPackageDocumentsProvider.AUTHORITY, "preview-root")
+        val providerUri = Uri.parse("content://com.hanxi.ghosterm.test.preview-package-control")
+        val grantFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+        val installResult = targetContext.contentResolver.call(providerUri, "install", null,
+            Bundle().apply { putString("files", providerFiles.toString()) })
+        assertTrue(installResult?.getString("error") ?: "SAF package fixture install failed",
+            installResult?.getBoolean("ok") == true)
 
         val knownHosts = File(instrumentation.targetContext.filesDir, "home/.ssh/known_hosts")
         check(knownHosts.parentFile!!.isDirectory || knownHosts.parentFile!!.mkdirs())
@@ -85,23 +133,52 @@ class PluginPreviewSettingsE2ETest {
         try {
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
-            ui.onNodeWithText("选择插件文件夹").assertExists()
-
-            val review = runBlocking { controller.review(packageDir) }
-            assertEquals("org.ghosterm.preview", review.id)
-            assertEquals(com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK,
-                runBlocking { controller.approve(review.id, review.digest) })
+            ui.onNodeWithText("选择插件文件夹").performScrollTo().performClick()
+            awaitSystem("DocumentsUI did not open") {
+                systemNodes().any { it.packageName?.toString()?.contains("documentsui") == true }
+            }
+            awaitSystem("DocumentsUI roots did not open") {
+                clickSystem("Show roots", "Open navigation drawer", "显示根目录", "显示位置")
+            }
+            awaitSystem("Preview package provider did not open") {
+                clickSystem("Ghosterm Official Preview Package Fixture")
+            }
+            awaitSystem("SAF folder selection was not accepted") {
+                clickSystem("Use this folder", "USE THIS FOLDER", "使用此文件夹",
+                    "ALLOW ACCESS TO \"GHOSTERM OFFICIAL PREVIEW PACKAGE FIXTURE\"")
+            }
+            awaitSystem("SAF read permission was not accepted") {
+                clickSystem("Allow", "ALLOW", "允许") ||
+                    systemNodes().none { it.packageName?.toString()?.contains("documentsui") == true }
+            }
+            awaitSystem("DocumentsUI did not return to the product Settings page") {
+                systemNodes().none { it.packageName?.toString()?.contains("documentsui") == true }
+            }
+            await("Settings page did not review the SAF package") {
+                !extensions.busy && extensions.entries.any { it.review.id == "org.ghosterm.preview" }
+            }
+            val pending = main { extensions.entries.single { it.review.id == "org.ghosterm.preview" } }
+            assertEquals(digest, pending.review.digest)
+            ui.onNodeWithText("批准此摘要").performScrollTo().performClick()
+            await("Settings page did not approve the reviewed package") {
+                !extensions.busy &&
+                    extensions.entries.singleOrNull { it.review.id == "org.ghosterm.preview" }?.decision == "已批准（本进程）"
+            }
+            val entry = main { extensions.entries.single { it.review.id == "org.ghosterm.preview" } }
+            val review = entry.review
             val command = review.commands.single { it.path == "preview" }
-            val entry = ExtensionPackagesViewModel.Entry(review, "已批准（本进程）")
             val request = ExtensionRelayBootstrap.Request(
                 executable = payload.getString("previewGtermWrapper"), executorDirectory = payload.getString("previewPackageDirectory"),
                 executorDigest = digest, clientDigest = digest, methods = emptyList(), command = "preview",
                 arguments = listOf("fixture.txt"), workspaceRootDirectory = payload.getString("previewWorkspace"))
 
-            extensions.launch(entry, command, target, request, sessions)
+            System.out.println("Preview launch id=${entry.review.id} digestMatches=${entry.review.digest == request.clientDigest} " +
+                "decision=${entry.decision} command=${command.path} args=${request.arguments.size}:${request.arguments.firstOrNull()}")
+            main { extensions.launch(entry, command, target, request, sessions) }
             val authDeadline = SystemClock.elapsedRealtime() + 90_000
             var handledPrompt: Triple<Long, Int, SSHAuthPhase>? = null
-            while (main { extensions.activeSession == null } && SystemClock.elapsedRealtime() < authDeadline) {
+            while (main { extensions.activeSession == null && extensions.error == null } &&
+                SystemClock.elapsedRealtime() < authDeadline) {
                 val attempt = main { sessions.connecting }
                 val prompt = attempt?.auth
                 val currentPrompt = prompt?.let { Triple(it.request, it.hop, it.phase) }
@@ -123,6 +200,8 @@ class PluginPreviewSettingsE2ETest {
             }
             assertNotNull("SSH route was not adopted: attempt=${main { sessions.connecting?.message }} " +
                 "error=${main { extensions.error }}", main { extensions.activeSession })
+            assertEquals("{\"assets\":\"\",\"maxBytes\":262144,\"path\":\"fixture.txt\"}",
+                main { extensions.activeSession!!.decodedArguments })
             await("Settings page did not reach Session consent: session=${main { extensions.activeSession?.info }} " +
                 "error=${main { extensions.error }}") {
                 extensions.activeSession?.info?.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT
@@ -145,7 +224,9 @@ class PluginPreviewSettingsE2ETest {
             var closeFailure: Throwable? = null
             try { runBlocking { controller.close() } } catch (failure: Throwable) { closeFailure = failure }
             if (originalKnownHosts == null) knownHosts.delete() else knownHosts.writeBytes(originalKnownHosts)
-            packageDir.deleteRecursively()
+            targetContext.contentResolver.call(providerUri, "cleanup", null, Bundle().apply {
+                putString("uri", treeUri.toString()); putInt("flags", grantFlags)
+            })
             closeFailure?.let { throw it }
         }
     }
