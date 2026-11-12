@@ -44,6 +44,15 @@ def main():
     if check.returncode:
         raise SystemExit(check.stdout + check.stderr)
 
+    work_device = ROOT / "build/android-toolchain/sdk/platform-tools/adb"
+    device = [str(work_device), "-s", args.android]
+    api_level = subprocess.run([*device, "shell", "getprop", "ro.build.version.sdk"],
+                               check=True, capture_output=True, text=True, timeout=15).stdout.strip()
+    abi = subprocess.run([*device, "shell", "getprop", "ro.product.cpu.abi"],
+                         check=True, capture_output=True, text=True, timeout=15).stdout.strip()
+    if not api_level.isdigit() or not abi:
+        raise RuntimeError(f"could not identify explicit Android test device {args.android}: API={api_level!r}, ABI={abi!r}")
+
     work = Path(tempfile.mkdtemp(prefix="plugin-preview-android-", dir=ROOT / "tmp"))
     routes = load("preview_android_routes", ROOT / "scripts/test-plugin-route.py")
     keys_helper = load("preview_android_keys", ROOT / "scripts/test-plugin-ssh.py")
@@ -62,8 +71,6 @@ def main():
     remote_stderr = work / "remote-gterm.stderr"
     remote_exit = work / "remote-gterm.exit"
     fixture_token = secrets.token_hex(24)
-    work_device = ROOT / "build/android-toolchain/sdk/platform-tools/adb"
-    device = [str(work_device), "-s", args.android]
     apk = ROOT / "android/app/build/outputs/apk/debug/app-debug.apk"
     test_apk = ROOT / "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 
@@ -157,7 +164,7 @@ def main():
                 data = path.read_bytes()
                 if b"PRIVATE KEY-----" in data or b"openssh-key-v1\0" in data:
                     raise RuntimeError("temporary fixture serialized private-key material")
-        print("ANDROID OFFICIAL PREVIEW E2E PASS: API 36 device, real two-hop SSH, consent, Client Runtime, ResourceStore receipt")
+        print(f"ANDROID OFFICIAL PREVIEW E2E PASS: API {api_level}, {abi}, device {args.android}; real two-hop SSH, consent, Client Runtime, ResourceStore receipt")
     finally:
         shutil.rmtree(work)
 
