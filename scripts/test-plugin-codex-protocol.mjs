@@ -11,6 +11,7 @@ import { CodexLineDecoder, CodexLineDecoderError, MAX_APP_SERVER_LINE_BYTES } fr
   "../plugins/official/ai-codex/protocol/line-decoder.ts";
 import { CodexAppServerStdio, CODEX_PENDING_WRITE_MAX, CODEX_PIPE_CHUNK_MAX } from
   "../plugins/official/ai-codex/protocol/stdio.ts";
+import { CodexConversation } from "../plugins/official/ai-codex/protocol/conversation.ts";
 import { spawnCodexAppServer } from "../plugins/official/ai-codex/protocol/process.ts";
 import { CODEX_CLI_VERSION } from "../plugins/official/ai-codex/protocol/version.ts";
 
@@ -26,6 +27,17 @@ function fakeActiveClient() {
   assert.equal(writes[0].method, "initialize");
   client.receiveLine(JSON.stringify({ id: writes[0].id, result: { userAgent: "fixture" } }));
   return starting.then(() => ({ client, writes }));
+}
+
+function turnFixture(id, status) {
+  return { id, rootTurnId: null, items: [], itemsView: "full", status,
+    error: null, startedAt: 1, completedAt: status === "inProgress" ? null : 2, durationMs: 1 };
+}
+
+function commandItemFixture(id) {
+  return { type: "commandExecution", id, pluginId: null, scriptPath: null, command: "echo ok",
+    cwd: "/isolated", processId: null, source: "agent", status: "inProgress", commandActions: [],
+    aggregatedOutput: null, exitCode: null, durationMs: null };
 }
 
 test("preserves approval ids, exact decision classes, and single response", async () => {
@@ -74,6 +86,111 @@ test("turn/start emits the stable thread input shape", async () => {
       input: [{ type: "text", text: "hello", text_elements: [] }] } });
   client.receiveLine(JSON.stringify({ id: writes.at(-1).id, result: { turn: { id: "turn-a", status: "inProgress" } } }));
   await pending;
+});
+
+test("conversation preserves turn, item, approval, resolution, and completion order", async () => {
+  const { client, writes } = await fakeActiveClient();
+  const conversation = new CodexConversation(client);
+  const events = [];
+  conversation.onEvent(event => events.push(event));
+
+  const opening = conversation.startThread({ cwd: "/isolated" });
+  const threadRequest = writes.at(-1);
+  client.receiveLine(JSON.stringify({ id: threadRequest.id, result: { thread: { id: "thread-a" } } }));
+  assert.equal(await opening, "thread-a");
+
+  const starting = conversation.sendMessage("hello", "user-message-1");
+  const turnRequest = writes.at(-1);
+  client.receiveLine(JSON.stringify({ method: "turn/started", params: {
+    threadId: "thread-a", turn: turnFixture("turn-a", "inProgress"),
+  } }));
+  client.receiveLine(JSON.stringify({ id: "approval-a", method: "item/commandExecution/requestApproval",
+    params: { threadId: "thread-a", turnId: "turn-a", itemId: "item-command", startedAtMs: 1 } }));
+  client.receiveLine(JSON.stringify({ method: "serverRequest/resolved", params: {
+    threadId: "thread-a", requestId: "approval-a",
+  } }));
+  client.receiveLine(JSON.stringify({ method: "item/started", params: {
+    threadId: "thread-a", turnId: "turn-a", item: commandItemFixture("item-command"), startedAtMs: 1,
+  } }));
+  client.receiveLine(JSON.stringify({ id: "approval-b", method: "item/commandExecution/requestApproval",
+    params: { threadId: "thread-a", turnId: "turn-a", itemId: "item-command", startedAtMs: 2 } }));
+  conversation.respondApproval("approval-b", "accept");
+  assert.throws(() => conversation.respondApproval("approval-b", "accept"), CodexProtocolError);
+  client.receiveLine(JSON.stringify({ id: turnRequest.id, result: { turn: { id: "turn-a" } } }));
+  assert.equal(await starting, "turn-a");
+  client.receiveLine(JSON.stringify({ method: "item/agentMessage/delta", params: {
+    threadId: "thread-a", turnId: "turn-a", itemId: "item-message", delta: "done",
+  } }));
+  client.receiveLine(JSON.stringify({ method: "turn/completed", params: {
+    threadId: "thread-a", turn: turnFixture("turn-a", "completed"),
+  } }));
+
+  assert.deepEqual(events.map(event => event.kind), [
+    "notification", "approval-request", "approval-resolved", "notification", "approval-request",
+    "notification", "notification",
+  ]);
+  assert.deepEqual(events.map(event => event.sequence), [1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(conversation.state, "ready");
+  assert.equal(conversation.currentTurnID, undefined);
+  await conversation.close();
+});
+
+test("conversation interrupts only its active turn and reports closed work as unknown", async () => {
+  const { client, writes } = await fakeActiveClient();
+  const conversation = new CodexConversation(client);
+  const opening = conversation.startThread({});
+  const threadRequest = writes.at(-1);
+  client.receiveLine(JSON.stringify({ id: threadRequest.id, result: { thread: { id: "thread-b" } } }));
+  await opening;
+  await assert.rejects(conversation.interrupt(), CodexProtocolError);
+
+  const starting = conversation.sendMessage("work");
+  const turnRequest = writes.at(-1);
+  client.receiveLine(JSON.stringify({ id: turnRequest.id, result: { turn: { id: "turn-b" } } }));
+  assert.equal(await starting, "turn-b");
+  const interrupting = conversation.interrupt();
+  assert.deepEqual(writes.at(-1).params, { threadId: "thread-b", turnId: "turn-b" });
+  const interruptRequest = writes.at(-1);
+  client.receiveLine(JSON.stringify({ id: interruptRequest.id, result: {} }));
+  await interrupting;
+  client.receiveLine(JSON.stringify({ method: "turn/completed", params: {
+    threadId: "thread-b", turn: turnFixture("turn-b", "interrupted"),
+  } }));
+  assert.equal(conversation.state, "ready");
+
+  const events = [];
+  conversation.onEvent(event => events.push(event));
+  const uncertain = conversation.sendMessage("uncertain");
+  const unknownRequest = writes.at(-1);
+  const rejected = assert.rejects(uncertain, CodexOutcomeUnknownError);
+  await conversation.close();
+  await rejected;
+  assert.equal(events.at(-1).kind, "closed");
+  assert.equal(events.at(-1).outcome, "unknown");
+  assert.equal(conversation.state, "closed");
+  assert.equal(writes.filter(message => message.id === unknownRequest.id).length, 1);
+});
+
+test("conversation fails closed on turn events from a different thread", async () => {
+  const { client, writes } = await fakeActiveClient();
+  const conversation = new CodexConversation(client);
+  const events = [];
+  conversation.onEvent(event => events.push(event));
+  const opening = conversation.startThread({});
+  const threadRequest = writes.at(-1);
+  client.receiveLine(JSON.stringify({ id: threadRequest.id, result: { thread: { id: "thread-owned" } } }));
+  await opening;
+  const pending = conversation.sendMessage("hello");
+  const turnRequest = writes.at(-1);
+  client.receiveLine(JSON.stringify({ method: "turn/started", params: {
+    threadId: "thread-other", turn: turnFixture("turn-other", "inProgress"),
+  } }));
+  assert.equal(conversation.state, "failed");
+  assert.equal(events.at(-1).kind, "protocol-error");
+  const rejected = assert.rejects(pending, CodexOutcomeUnknownError);
+  await conversation.close();
+  await rejected;
+  assert.equal(writes.filter(message => message.id === turnRequest.id).length, 1);
 });
 
 test("closing a pipe reports outstanding operation as unknown without retry", async () => {
@@ -386,6 +503,7 @@ test("runs the production process helper against the pinned real server, without
     process: processService,
   };
   const server = await spawnCodexAppServer(context, clientInfo);
+  const conversation = server.createConversation();
   const pump = setInterval(() => server.step(), 2);
 
   const withTimeout = (promise, ms = 20_000) => {
@@ -397,14 +515,16 @@ test("runs the production process helper against the pinned real server, without
   try {
     const initialization = await withTimeout(server.ready);
     assert.equal(typeof initialization.userAgent, "string");
-    const started = await withTimeout(server.stdio.client.threadStart({ cwd, approvalPolicy: "on-request", sandbox: "read-only" }));
-    assert.equal(typeof started.thread?.id, "string");
+    const threadID = await withTimeout(conversation.startThread({ cwd, approvalPolicy: "on-request", sandbox: "read-only" }));
+    assert.equal(typeof threadID, "string");
     assert.equal(server.stdio.failure, undefined, server.stdio.failure?.message);
     assert.deepEqual(server.exit, { state: "running" });
-    console.log(`CODEX APP-SERVER HELPER PASS: ${version}; verified mapping, initialize, initialized, thread/start, bounded pipes; no turn/model request`);
+    console.log(`CODEX APP-SERVER HELPER PASS: ${version}; verified mapping, initialize, initialized, conversation thread/start, bounded pipes; no turn/model request`);
   } finally {
     clearInterval(pump);
-    await withTimeout(server.stop(), 3_000).catch(() => {});
+    const closing = conversation.close();
+    assert.equal(conversation.close(), closing);
+    await withTimeout(closing, 3_000).catch(() => {});
     if (child && !childExit) child.kill("SIGKILL");
     rmSync(temp, { recursive: true, force: true });
   }

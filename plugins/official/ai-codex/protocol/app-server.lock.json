@@ -71,6 +71,44 @@
     "ServerRequestResolvedNotification": [
       "threadId",
       "requestId"
+    ],
+    "TurnStartedNotification": [
+      "threadId",
+      "turn"
+    ],
+    "TurnCompletedNotification": [
+      "threadId",
+      "turn"
+    ],
+    "ItemStartedNotification": [
+      "threadId",
+      "turnId",
+      "item",
+      "startedAtMs"
+    ],
+    "ItemCompletedNotification": [
+      "threadId",
+      "turnId",
+      "item",
+      "completedAtMs"
+    ],
+    "AgentMessageDeltaNotification": [
+      "threadId",
+      "turnId",
+      "itemId",
+      "delta"
+    ],
+    "CommandExecutionOutputDeltaNotification": [
+      "threadId",
+      "turnId",
+      "itemId",
+      "delta"
+    ],
+    "FileChangePatchUpdatedNotification": [
+      "threadId",
+      "turnId",
+      "itemId",
+      "changes"
     ]
   },
   "requiredDecisions": {
@@ -101,6 +139,44 @@
     "TurnStartParams": [
       "threadId:string",
       "input:Array<UserInput>"
+    ],
+    "TurnStartedNotification": [
+      "threadId:string",
+      "turn:Turn"
+    ],
+    "TurnCompletedNotification": [
+      "threadId:string",
+      "turn:Turn"
+    ],
+    "ItemStartedNotification": [
+      "item:ThreadItem",
+      "threadId:string",
+      "turnId:string",
+      "startedAtMs:number"
+    ],
+    "ItemCompletedNotification": [
+      "item:ThreadItem",
+      "threadId:string",
+      "turnId:string",
+      "completedAtMs:number"
+    ],
+    "AgentMessageDeltaNotification": [
+      "threadId:string",
+      "turnId:string",
+      "itemId:string",
+      "delta:string"
+    ],
+    "CommandExecutionOutputDeltaNotification": [
+      "threadId:string",
+      "turnId:string",
+      "itemId:string",
+      "delta:string"
+    ],
+    "FileChangePatchUpdatedNotification": [
+      "threadId:string",
+      "turnId:string",
+      "itemId:string",
+      "changes:Array<FileUpdateChange>"
     ]
   },
   "lockedTypeFragments": {

@@ -3,6 +3,7 @@ import { CodexAppServerStdio } from "./stdio.ts";
 import { CodexProtocolError, type ClientInfo } from "./client.ts";
 import { CODEX_CLI_VERSION } from "./version.ts";
 import type { ProcessExit } from "../../../../packages/plugin-sdk/portable/process.js";
+import { CodexConversation } from "./conversation.ts";
 
 /** A Codex server launched through the Host-authorized Executor process service. */
 export interface CodexAppServerProcess {
@@ -10,6 +11,8 @@ export interface CodexAppServerProcess {
   readonly ready: Promise<unknown>;
   readonly exit: ProcessExit | undefined;
   readonly reaped: boolean;
+  /** Conversation facade whose close() also stops and reaps this child. */
+  createConversation(): CodexConversation;
   /** One bounded nonblocking IO slice; the Host must call this from its worker. */
   step(): void;
   /** Close protocol state, request termination, and wait for OS reaping. */
@@ -68,23 +71,25 @@ export async function spawnCodexAppServer(
     }
     return releasePromise;
   };
+  const stop = async (): Promise<void> => {
+    if (!stopped && !releasePromise) {
+      stopped = true;
+      child.signal("terminate");
+    }
+    await release();
+  };
   return {
     stdio,
     ready,
     get exit() { return exit; },
     get reaped() { return reaped; },
+    createConversation() { return new CodexConversation(stdio.client, stop); },
     step() {
       if (releasePromise) return;
       stdio.step();
       exit = child.poll();
       if (exit.state === "exited" && stdio.drained) void release();
     },
-    async stop() {
-      if (!stopped && !releasePromise) {
-        stopped = true;
-        child.signal("terminate");
-      }
-      await release();
-    },
+    stop,
   };
 }

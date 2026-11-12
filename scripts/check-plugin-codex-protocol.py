@@ -79,6 +79,13 @@ def main():
             "UserInput": types / "v2/UserInput.ts",
             "TextElement": types / "v2/TextElement.ts",
             "ByteRange": types / "v2/ByteRange.ts",
+            "TurnStartedNotification": types / "v2/TurnStartedNotification.ts",
+            "TurnCompletedNotification": types / "v2/TurnCompletedNotification.ts",
+            "ItemStartedNotification": types / "v2/ItemStartedNotification.ts",
+            "ItemCompletedNotification": types / "v2/ItemCompletedNotification.ts",
+            "AgentMessageDeltaNotification": types / "v2/AgentMessageDeltaNotification.ts",
+            "CommandExecutionOutputDeltaNotification": types / "v2/CommandExecutionOutputDeltaNotification.ts",
+            "FileChangePatchUpdatedNotification": types / "v2/FileChangePatchUpdatedNotification.ts",
         }
         for name, required in lock["requiredFields"].items():
             text = type_paths[name].read_text(encoding="utf-8")
@@ -157,6 +164,14 @@ def main():
                 if wrapper in properties:
                     return variant, properties[wrapper]
             schema_require(False, f"{name}.{wrapper} variant is missing")
+
+        for name, required in lock["requiredFields"].items():
+            if not name.endswith("Notification"):
+                continue
+            definition = definitions.get(name, {})
+            schema_require(set(required) <= set(definition.get("required", [])) and
+                           set(required) <= set(definition.get("properties", {})),
+                           f"{name} required notification fields")
 
         exec_variant, exec_payload = decision_variant(
             "CommandExecutionApprovalDecision", "acceptWithExecpolicyAmendment")
