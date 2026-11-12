@@ -4503,3 +4503,11 @@ API 36 arm64 无窗口模拟器的 `PluginResourcePreviewTest` 与 `PluginResour
 在 API 29 / arm64 无窗口 AVD 重跑第九十七批的真实两跳 SSH Client Runtime instrumentation。`ExtensionChannelTest.controllerRunsClientRuntimeOverTwoHopSSH` 对固定包默认布尔参数解码为 `{"wrap":false}`、未知 `--unknown` 在 SSH route 前拒绝及远端 RPC 完成证明执行断言；JUnit `OK (1 test)`，`getconf PAGE_SIZE` 为 4096。设备 APK 与 API 36 同源，脚本输出 `PUBLIC CHANNEL PASS`。
 
 AVD 的 HOME、AVD、emulator、crash database 与 launcher 目录均在工程 `tmp/android-home`，无窗口启动；instrumentation 与 SSH 夹具日志也位于 `tmp/`。测试结束关闭 AVD 并删除本批全部临时目录。至此第九十四批参数行为在 API 29 / API 36 均有实际设备证据；不代表 16 KiB 页、用户真机或 P0 协议冻结审计完成，不增加 macOS CI 二十份。
+
+### P0 第九十九批：当前 wire schema 与 C parser 冻结前复核（2026-11-12）
+
+复跑 `TMPDIR="$PWD/tmp" python3 scripts/test-plugin-schema.py --fetch --mutate`：当前 schema 的 82 个实例、UTF-8 envelope 预算与 703 字节 offer 通过；四组 Ajv 变异（额外 root 字段、wire version、epoch 前导零、未知 response outcome）均为目标断言红、对照绿、恢复绿和输入字节不变。脚本收据标注 `lexicalOrChannelConformance=false`，因此这项只证明 JSON Schema / 开发工具，不作为 Core 原始字节或生产通道证据。
+
+随后 `TMPDIR="$PWD/tmp" python3 scripts/mutation-check-plugin-wire.py` 在隔离 Core 副本内完成 16 组 sanitizer 变异。恢复后的当前基线为 **618 项**；所有变异均真实编译，正常 C 断言目标红、同库 ssh_config 对照绿、wire 全套恢复绿、生成 schema 对拍通过且输入 SHA256 一致。覆盖重复键 / key scope、UTF-8 与 surrogate、字节 / node / depth 限制、counter 溢出、精确整数、schema 入口、Base64 pad bits、SemVer、失败输出 / view 清零、workspace 擦除与 allocator 释放。ASan / UBSan 错误、崩溃及编译失败不计目标红；本轮未运行 LSan。变异后生产源码未变。
+
+本复核更新了 schema 实例数与 offer 大小的当前证据，但不冻结 wire v1 或 TTY carrier：标准协议适用范围、受支持拓扑和跨端互操作边界仍需在 P0 关闭记录中作显式裁决。测试日志和 npm cache 均在验收后从 `tmp/` 清理；不改公共 ABI，不增加 macOS CI 二十份。
