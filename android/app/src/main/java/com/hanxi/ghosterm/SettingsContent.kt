@@ -258,10 +258,23 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     extensions.activeSession?.let { active ->
                         Text("Session：${active.info.phase} · ${active.packageID} · ${active.info.peerIdentity}",
                             Modifier.padding(top = 8.dp).testTag("plugin-session-state"), style = MaterialTheme.typography.bodySmall)
+                        if (active.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.ENDED ||
+                            active.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CLOSED) {
+                            Text("Session 结束：${active.info.end} · Core ${active.info.error} · 清理 ${active.info.cleanupError}",
+                                Modifier.testTag("plugin-session-end"), style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     extensions.activeRuntime?.let { active ->
                         Text("Runtime：${active.info.phase} · ${active.command} · steps ${active.info.steps}",
                             Modifier.padding(top = 4.dp).testTag("plugin-runtime-state"), style = MaterialTheme.typography.bodySmall)
+                        if (active.info.phase == com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.FAILED ||
+                            active.info.sessionEnd != com.hanxi.ghosterm.bridge.ExtensionSession.End.NONE ||
+                            active.info.sessionError != 0 || active.info.cleanupError != 0) {
+                            Text("Runtime 结果：${active.info.error} · Session ${active.info.sessionEnd}/${active.info.sessionError} · 清理 ${active.info.cleanupError}",
+                                Modifier.testTag("plugin-runtime-result"), style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error)
+                        }
                         if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {
