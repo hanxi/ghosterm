@@ -84,13 +84,16 @@ export async function activate(context) {
   if (attachments.length && mainType !== "text/html" && mainType !== "text/markdown") {
     throw new Error("preview attachments are supported only for HTML and Markdown documents");
   }
-  await publish(context, args.path, mainType, args.maxBytes);
-  for (const path of attachments) {
+  const attachmentTypes = attachments.map((path) => {
     const type = mediaType(path);
     if (type !== "text/css" && !type.startsWith("image/")) {
       throw new Error(`preview attachment type is not allowed: ${path}`);
     }
-    await publish(context, path, type, args.maxBytes);
+    return type;
+  });
+  await publish(context, args.path, mainType, args.maxBytes);
+  for (let index = 0; index < attachments.length; index++) {
+    await publish(context, attachments[index], attachmentTypes[index], args.maxBytes);
   }
   return { dispose() {} };
 }

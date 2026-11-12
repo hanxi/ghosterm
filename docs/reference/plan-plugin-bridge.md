@@ -4598,3 +4598,9 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 在第四十五批本机官方 Preview E2E 上增加 `preview-unicode` 真实运行场景：构造恰为 512 个 Unicode code point 的相对 Markdown 路径，分成 31 个合法文件系统分量（每段最多 68 UTF-8 字节），经 gterm 原生 args schema 解码、QuickJS Executor `relativePath()`、31 层以内的 Core scoped source 遍历及 C ResourceStore 收件。测试核验 ResourceStore 将超长显示路径裁为最终文件名后，Markdown MIME、固定 SHA-256、长度与正文仍一致。原 Node stub 的 512 / 513 边界样本也改为同一合法分量结构，并断言每个 UTF-8 分量不超过 255 字节。
 
 首次 harness 尝试用 Python 的完整路径名递归创建所有目录，在 macOS `mkdir` 阶段因累积绝对路径达到系统路径上限报 `ENAMETOOLONG`，尚未启动 gterm；改用逐层 `dir_fd` 创建后通过，前次夹具失败不记产品断言红。JS-enabled gterm 构建后，默认 `python3 scripts/test-gterm-stdio.py --build tmp/gterm-build` 的 15 个既有 case、`PASS stdio preview` 与 `PASS stdio preview-unicode` 全通过；`node --check scripts/test-plugin-preview.mjs`、`node scripts/test-plugin-preview.mjs`、官方包 `--check`（摘要 `d624de6db315a5d3df6836a7ce43e241e89b6ad6a7dc1152324bcdde2ba06762`）、clang-format 19.1.7 全仓 214 文件及 `git diff --check` 通过。此证据只覆盖本机真实文件系统 / QuickJS / C ResourceStore，不替代远端 SSH、macOS/Android 产品 UI、用户授权或 P2 / P3–P6 完成；不改公共 ABI，不增加 macOS CI 二十份。
+
+### P2 实施第四十八批：附件与主文档类型在发布前整体校验（2026-11-13）
+
+复查官方 Preview Executor 发现，它先发布主文档，再逐项判断附件 MIME；若后续附件是 JavaScript 等不支持格式，激活会失败，但主资源已经进入 ResourceStore。现先解析并校验全部附件类型，再发布主文档与附件，保证任何参数 / 类型不合法都不会产生部分资源副作用。
+
+`scripts/test-plugin-preview.mjs` 将多附件中末项非法的用例改为断言发布次数为零，并新增“不支持附件的主文档格式”同样零发布断言；正常 HTML / Markdown + CSS / image 发布、逗号转义、512/513 码点、重复项、越界及过量场景继续通过。`node --check`、Node Preview suite、官方包构建及 `--check` 通过，包摘要为 `f5242d8e3bb9077ffb3ce6929cfce991d48a804a3d6d6a798db60d2ef7290689`。重新构建 QuickJS gterm 并运行默认 stdio suite：15 个既有场景、实际官方包 `preview` 与 `preview-unicode` 均通过。此批改官方 Executor / integrity 但不改公共 ABI；仅验证本机 stdio，不覆盖产品 UI / SSH / 授权链，不增加 macOS CI 二十份，P2 与 P3–P6 仍待完成。

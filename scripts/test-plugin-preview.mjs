@@ -93,16 +93,35 @@ await assert.rejects(() => activate(tooMany), /at most 6/);
 const wrongType = {
   side: "executor",
   invocation: { command: "preview", decodedArguments: {
-    path: "site/index.html", assets: "site/run.js", maxBytes: 65536,
+    path: "site/index.html", assets: "site/theme.css,site/run.js", maxBytes: 65536,
   } },
+  publications: [],
   resources: {
     workspaces: ["workspace"],
     publish(input) {
-      assert.equal(input.relativePath, "site/index.html");
+      wrongType.publications.push(input.relativePath);
       return { outcome: Promise.resolve({ kind: "success", value: { id: "main" } }) };
     },
   },
 };
 await assert.rejects(() => activate(wrongType), /attachment type is not allowed/);
+assert.deepEqual(wrongType.publications, [], "invalid attachments must be rejected before any resource publication");
+
+const unsupportedMain = {
+  side: "executor",
+  invocation: { command: "preview", decodedArguments: {
+    path: "site/readme.txt", assets: "site/theme.css", maxBytes: 65536,
+  } },
+  publications: [],
+  resources: {
+    workspaces: ["workspace"],
+    publish(input) {
+      unsupportedMain.publications.push(input.relativePath);
+      return { outcome: Promise.resolve({ kind: "success", value: { id: "main" } }) };
+    },
+  },
+};
+await assert.rejects(() => activate(unsupportedMain), /attachments are supported only/);
+assert.deepEqual(unsupportedMain.publications, [], "unsupported main formats must be rejected before publication");
 
 console.log("plugin preview assets: PASS");
