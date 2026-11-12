@@ -246,7 +246,19 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
     load_write(f, &members[count++], "plugin.json", manifest_json, strlen(manifest_json));
     load_write(f, &members[count++], "README", "fixture", 7);
     load_write(f, &members[count++], "LICENSES/MIT.txt", "fixture license", 15);
-    load_write(f, &members[count++], "schemas/input.json", "{}", 2);
+    const char *argument_schema = "{}";
+    if (!strcmp(mode, "cli-arguments")) {
+        argument_schema =
+            "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\","
+            "\"maxLength\":40},\"lines\":{\"type\":\"integer\",\"minimum\":1,"
+            "\"maximum\":100},\"wrap\":{\"type\":\"boolean\"}},"
+            "\"required\":[\"path\",\"lines\",\"wrap\"],\"additionalProperties\":false,"
+            "\"x-ghosterm-cli\":{\"version\":1,\"fields\":{\"path\":{"
+            "\"position\":0},\"lines\":{\"option\":\"lines\",\"default\":10},"
+            "\"wrap\":{\"option\":\"wrap\",\"default\":false}}}}";
+    }
+    load_write(
+        f, &members[count++], "schemas/input.json", argument_schema, strlen(argument_schema));
     char *large = NULL;
     size_t source_size = strlen(script);
     if (!strcmp(mode, "source-limit")) {

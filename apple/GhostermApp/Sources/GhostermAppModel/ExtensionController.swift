@@ -1,5 +1,4 @@
 import Darwin
-import CoreFoundation
 import Foundation
 import GhostermCore
 
@@ -346,8 +345,7 @@ public actor ExtensionController {
                       record.review.commands.contains(where: { $0.path == command }) else {
                     throw ControllerError.registry(ExtensionRegistry.Status.stale.rawValue)
                 }
-                let schema = try record.package.commandSchema(path: command)
-                return try ExtensionCLIArguments.decode(schema: schema, arguments: arguments)
+                return try record.package.decodeCommandArguments(path: command, arguments: arguments)
             }
         }
 
@@ -878,114 +876,6 @@ public actor ExtensionController {
                 }
             }
             return componentLength > 0
-        }
-    }
-}
-
-public enum ExtensionCLIArguments {
-    private enum Failure: Error { case invalid }
-    private enum Kind { case string, integer, boolean }
-    private struct Field { let name: String; let kind: Kind; let option: String?; let position: Int?; let fallback: Any?; let property: [String: Any] }
-
-    public static func decode(schema data: Data, arguments: [String]) throws -> String? {
-        guard data.count <= 65536, let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Failure.invalid }
-        guard let cli = root["x-ghosterm-cli"] as? [String: Any] else {
-            guard arguments.isEmpty else { throw Failure.invalid }
-            return nil
-        }
-        guard (cli["version"] as? Int) == 1,
-              let rawFields = cli["fields"] as? [String: [String: Any]], rawFields.count <= 32,
-              let properties = root["properties"] as? [String: [String: Any]] else { throw Failure.invalid }
-        var fields: [Field] = [], positions: [Int: String] = [:], options: [String: String] = [:]
-        for name in rawFields.keys.sorted() {
-            guard let raw = rawFields[name], let property = properties[name],
-                  name.range(of: "^[A-Za-z][A-Za-z0-9_]{0,63}$", options: .regularExpression) != nil,
-                  let type = property["type"] as? String else { throw Failure.invalid }
-            let kind: Kind
-            switch type { case "string": kind = .string; case "integer": kind = .integer; case "boolean": kind = .boolean; default: throw Failure.invalid }
-            let option = raw["option"] as? String
-            let position = raw["position"] as? Int
-            guard (option == nil) != (position == nil) else { throw Failure.invalid }
-            if let option {
-                guard option.range(of: "^[a-z][a-z0-9-]{0,63}$", options: .regularExpression) != nil,
-                      options[option] == nil, let fallback = raw["default"], scalar(fallback, matches: kind) else { throw Failure.invalid }
-                options[option] = name
-            }
-            if let position {
-                guard (0..<32).contains(position), positions[position] == nil else { throw Failure.invalid }
-                positions[position] = name
-            }
-            fields.append(Field(name: name, kind: kind, option: option, position: position,
-                                fallback: raw["default"], property: property))
-        }
-        let orderedPositions = positions.keys.sorted()
-        guard orderedPositions == Array(0..<orderedPositions.count) else { throw Failure.invalid }
-        guard arguments.count <= 32 else { throw Failure.invalid }
-        var totalBytes = 0
-        for arg in arguments {
-            let count = arg.utf8.count
-            guard !arg.utf8.contains(0), count <= 4096 else { throw Failure.invalid }
-            totalBytes += count + 1
-        }
-        guard totalBytes <= 16384 else { throw Failure.invalid }
-        var values: [String: Any] = [:]
-        for field in fields where field.option != nil { values[field.name] = field.fallback }
-        var seen = Set<String>(), position = 0, literal = false, index = 0
-        while index < arguments.count {
-            let arg = arguments[index]
-            if !literal && arg == "--" { literal = true; index += 1; continue }
-            let name: String, rawValue: String
-            if !literal && arg.hasPrefix("--") {
-                let body = String(arg.dropFirst(2)), split = body.firstIndex(of: "=")
-                let option = split.map { String(body[..<$0]) } ?? body
-                guard let fieldName = options[option], let field = fields.first(where: { $0.name == fieldName }) else { throw Failure.invalid }
-                name = fieldName
-                if let split { rawValue = String(body[body.index(after: split)...]) }
-                else if field.kind == .boolean { rawValue = "true" }
-                else {
-                    index += 1
-                    guard index < arguments.count, !arguments[index].hasPrefix("--") else { throw Failure.invalid }
-                    rawValue = arguments[index]
-                }
-            } else {
-                guard let fieldName = positions[position] else { throw Failure.invalid }
-                name = fieldName; rawValue = arg; position += 1
-            }
-            guard !seen.contains(name), let field = fields.first(where: { $0.name == name }) else { throw Failure.invalid }
-            seen.insert(name)
-            let value: Any
-            switch field.kind {
-            case .string:
-                let length = rawValue.unicodeScalars.count
-                let minimum = field.property["minLength"] as? Int ?? 0
-                let maximum = field.property["maxLength"] as? Int ?? 4096
-                guard length >= minimum, length <= maximum else { throw Failure.invalid }
-                value = rawValue
-            case .integer:
-                guard rawValue.range(of: "^-?(0|[1-9][0-9]*)$", options: .regularExpression) != nil,
-                      rawValue != "-0", let number = Int64(rawValue), abs(Double(number)) <= 9007199254740991 else { throw Failure.invalid }
-                let numeric = Double(number)
-                if let minimum = field.property["minimum"] as? Double, numeric < minimum { throw Failure.invalid }
-                if let maximum = field.property["maximum"] as? Double, numeric > maximum { throw Failure.invalid }
-                value = number
-            case .boolean:
-                guard rawValue == "true" || rawValue == "false" else { throw Failure.invalid }
-                value = rawValue == "true"
-            }
-            values[name] = value
-            index += 1
-        }
-        guard position == positions.count else { throw Failure.invalid }
-        let data = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys, .fragmentsAllowed])
-        guard data.count <= 65536, let text = String(data: data, encoding: .utf8) else { throw Failure.invalid }
-        return text
-    }
-
-    private static func scalar(_ value: Any, matches kind: Kind) -> Bool {
-        switch kind {
-        case .string: return value is String
-        case .integer: return !(value is Bool) && value is NSNumber && String(describing: value).range(of: "^-?(0|[1-9][0-9]*)$", options: .regularExpression) != nil
-        case .boolean: return CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID()
         }
     }
 }

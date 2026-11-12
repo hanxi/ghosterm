@@ -319,6 +319,8 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     Text("即将传入的 argv：", style = MaterialTheme.typography.labelMedium)
                     SelectionContainer { Text(org.json.JSONArray(active.arguments).toString(),
                         Modifier.testTag("plugin-consent-argv"), style = MaterialTheme.typography.bodySmall) }
+                    Text("按固定包 argsSchema 解码：${active.decodedArguments ?: "无映射（空参数）"}",
+                        Modifier.testTag("plugin-consent-decoded-arguments"), style = MaterialTheme.typography.bodySmall)
                     Text("允许 Client 调用的 Executor RPC：${active.methods.joinToString().ifBlank { "无" }}")
                     Text("允许 Executor 调用的 Host RPC：${active.hostMethods.joinToString().ifBlank { "无" }}")
                     Text("需要能力：${reviewed?.review?.requiredCapabilities?.joinToString().orEmpty().ifBlank { "无" }}")

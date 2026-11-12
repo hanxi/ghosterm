@@ -2,6 +2,7 @@
 #include "extension/memory.h"
 #include "extension/session-owner.h"
 #include "extension/package-runtime.h"
+#include "extension/package-cli-decoder.h"
 #include "base/sha256.h"
 #include "base/secure-random.h"
 #include <quickjs.h>
@@ -293,40 +294,6 @@ static int runtime_set(JSContext *c, JSValue object, const char *key, JSValue va
     return JS_SetPropertyStr(c, object, key, value);
 }
 
-static const char runtime_cli_decoder[] =
-    "(schema,argv)=>{const cli=schema['x-ghosterm-cli'];if(!cli){if(!argv.length)return undefined;"
-    "throw Error('ARGUMENT_SCHEMA_UNSUPPORTED')}if(cli.version!==1)throw "
-    "Error('ARGUMENT_SCHEMA_UNSUPPORTED');"
-    "const fields=cli.fields,properties=schema.properties,"
-    "positions=[],options=new Map(),types=Object.create(null),defaults=Object.create(null);"
-    "for(const name of Object.keys(fields)){const field=fields[name],prop=properties[name];"
-    "if(Number.isInteger(field.position))positions[field.position]=name;else{options.set(field."
-    "option,name);"
-    "defaults[name]=field.default}types[name]=prop.type}const "
-    "out=Object.assign(Object.create(null),defaults),"
-    "seen=new Set();let position=0,literal=false;for(let i=0;i<argv.length;i++){const arg=argv[i];"
-    "if(!literal&&arg==='--'){literal=true;continue}let "
-    "name,value;if(!literal&&arg.startsWith('--')){"
-    "const "
-    "equals=arg.indexOf('='),option=arg.slice(2,equals<0?undefined:equals);name=options.get(option)"
-    ";"
-    "if(!name)throw Error('ARGUMENT_UNKNOWN');if(equals>=0)value=arg.slice(equals+1);"
-    "else if(types[name]==='boolean')value='true';else{value=argv[++i];"
-    "if(typeof value!=='string'||value.startsWith('--'))throw Error('ARGUMENT_MISSING')}}"
-    "else{name=positions[position++];if(!name)throw Error('ARGUMENT_EXTRA');value=arg}"
-    "if(seen.has(name))throw Error('ARGUMENT_DUPLICATE');seen.add(name);let decoded=value;"
-    "if(types[name]==='integer'){if(!/^-?(0|[1-9][0-9]*)$/.test(value)||value==='-0'||"
-    "!Number.isSafeInteger(Number(value)))throw Error('ARGUMENT_VALUE');decoded=Number(value)}"
-    "else if(types[name]==='boolean'){if(value!=='true'&&value!=='false')throw "
-    "Error('ARGUMENT_VALUE');"
-    "decoded=value==='true'}const prop=properties[name];if(types[name]==='string'&&"
-    "([...decoded].length<(prop.minLength??0)||([...decoded].length>(prop.maxLength??4096))))"
-    "throw Error('ARGUMENT_VALUE');if(types[name]==='integer'&&((prop.minimum!==undefined&&"
-    "decoded<prop.minimum)||(prop.maximum!==undefined&&decoded>prop.maximum)))throw "
-    "Error('ARGUMENT_VALUE');"
-    "out[name]=decoded}if(position!==positions.length)throw Error('ARGUMENT_MISSING');"
-    "return Object.freeze(out)}";
-
 static JSValue runtime_decode_arguments(gt_bridge_runtime_t *r, JSContext *c, JSValueConst argv) {
     if (!r->argument_schema[0]) {
         return JS_UNDEFINED;
@@ -355,8 +322,8 @@ static JSValue runtime_decode_arguments(gt_bridge_runtime_t *r, JSContext *c, JS
         return JS_EXCEPTION;
     }
     JSValue decoder = JS_Eval(c,
-                              runtime_cli_decoder,
-                              sizeof(runtime_cli_decoder) - 1,
+                              gt__package_cli_decoder,
+                              sizeof(gt__package_cli_decoder) - 1,
                               "host:/cli-arguments.js",
                               JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT);
     if (JS_IsException(decoder)) {

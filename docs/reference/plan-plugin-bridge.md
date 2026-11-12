@@ -4141,4 +4141,11 @@ AppModel 维护单一活动插件运行状态；UI 观察 Session / Runtime phas
 
 macOS Controller 现从按 package ID + digest 精确选中的已批准包 owner 读取 command schema，并在开始 SSH / relay 前按 SDK v1 `x-ghosterm-cli` 规则解码原始 argv。支持连续位置参数、长选项两种赋值形式、布尔旗标、`--`、标量默认值、Unicode scalar 文本长度及安全整数 / schema 范围检查；未知、重复、缺失、额外和非法参数会在网络连接及 consent 前拒绝。Consent 卡片同时保留用户输入 argv 并显示按固定快照解出的 JSON 对象；不映射且 argv 为空时显示无映射。激活后的 Core Runtime 仍独立重复权威解码。
 
-新增两项 XCTest 覆盖成功解码与默认值、整数 / 布尔类型，以及未知映射、非法整数、缺失位置项、重复选项和空映射边界。一次完整 Apple gate 发现测试内位置参数计数把选项 token 也算入，修正后定向两项与最终完整 gate 均通过；最终 gate：Apple ABI 174 引用 / 3 登记未用，SSH e2e 通过，GhostermApp 388 项、4 项 skip、0 失败。此为 Swift consent 预览解码；Core Runtime 仍是激活行为的最终校验者。Android UI consent 流尚未接入，需后续按 SDK 契约接入并保持 JNI 绑定验证；不增加 macOS CI 二十份。
+新增两项 XCTest 覆盖成功解码与默认值、整数 / 布尔类型，以及未知映射、非法整数、缺失位置项、重复选项和空映射边界。一次完整 Apple gate 发现测试内位置参数计数把选项 token 也算入，修正后定向两项与最终完整 gate 均通过；该批后续的共享 Core decoder 重构见第九十四批。第九十三批最终 gate：Apple ABI 174 引用 / 3 登记未用，SSH e2e 通过，GhostermApp 388 项、4 项 skip、0 失败。不增加 macOS CI 二十份。
+
+
+### P0 第九十四批：统一 Core consent 与 Runtime 参数解码
+
+将 QuickJS SDK v1 argv decoder 提取为共享 Core 私有源码；新增 `gt_ext_package_decode_command_arguments`，在固定 checked package owner 内精确匹配命令并从该包快照解析 schema，以独立 QuickJS 实例执行同一 decoder。实例限制 4 MiB heap / 512 KiB stack，输入仍受 32 项、单项 4096 字节、总计 16 KiB 和严格 UTF-8 限制。Runtime 激活和 consent 前预览现在引用同一 decoder 实现，不暴露任意包成员读取接口。原第九十二批的只读 schema 字节 API 被此 API 取代并移除。
+
+Swift Core wrapper、macOS AppModel 和 Android JNI/Kotlin wrapper 均调用公共 Core 解码 API。两端都在 SSH route 创建前预检；坏参数拒绝启动；授权 UI 同时展示原 argv 与 Core 解码 JSON。Android 双跳 SSH instrumentation fixture 增加默认布尔参数成功解码和未知 option 拒绝断言。`GHOSTERM_CORE_TEST_PLUGIN_JS=1 GHOSTERM_PLUGIN_SDK_DIR=tmp/plugin-sdk-compiled bash scripts/gate.sh` 通过：639 项 CTest、177 个 ABI 符号；JS-off Core gate 通过 474 项及 177 个符号。JS-on Apple gate 通过 386 项、2 skip；JS-off Apple gate 通过 386 项、4 skip。`python3 scripts/check-abi-android.py` 通过 140 引用 / 37 登记未用。Android instrumentation / Kotlin/JNI 构建未运行，因为主机没有 Java Runtime。clang-format 19.1.7 在工程 `tmp/` 临时安装后，`python3 scripts/format-c.py --check` 全仓 212 个文件通过；格式化后的 JS-on `ext_package_cli-arguments` 定向复验通过。Android 设备验收仍待补，不增加 macOS CI 二十份。

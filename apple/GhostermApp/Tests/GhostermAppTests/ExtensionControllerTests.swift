@@ -32,25 +32,6 @@ final class ExtensionControllerTests: XCTestCase {
             hostMethods: ["same"], command: "fixture.run")))
     }
 
-    func testCheckedCommandSchemaDecodesSDKCLIArguments() throws {
-        let schema = #"{"type":"object","properties":{"path":{"type":"string","minLength":0,"maxLength":40},"lines":{"type":"integer","minimum":1,"maximum":100},"wrap":{"type":"boolean"}},"required":["path","lines","wrap"],"additionalProperties":false,"x-ghosterm-cli":{"version":1,"fields":{"path":{"position":0},"lines":{"option":"lines","default":10},"wrap":{"option":"wrap","default":false}}}}"#.data(using: .utf8)!
-        XCTAssertEqual(try ExtensionCLIArguments.decode(schema: schema,
-            arguments: ["report.txt", "--lines=20", "--wrap"]),
-            #"{"lines":20,"path":"report.txt","wrap":true}"#)
-        XCTAssertEqual(try ExtensionCLIArguments.decode(schema: schema,
-            arguments: ["report.txt"]), #"{"lines":10,"path":"report.txt","wrap":false}"#)
-    }
-
-    func testCheckedCommandSchemaRejectsInvalidArgumentsBeforeConsent() throws {
-        let schema = #"{"type":"object","properties":{"path":{"type":"string","maxLength":40},"count":{"type":"integer","minimum":1,"maximum":10}},"x-ghosterm-cli":{"version":1,"fields":{"path":{"position":0},"count":{"option":"count","default":2}}}}"#.data(using: .utf8)!
-        XCTAssertThrowsError(try ExtensionCLIArguments.decode(schema: schema, arguments: ["a", "--count", "01"]))
-        XCTAssertThrowsError(try ExtensionCLIArguments.decode(schema: schema, arguments: ["--count=3"]))
-        XCTAssertThrowsError(try ExtensionCLIArguments.decode(schema: schema, arguments: ["a", "--count=3", "--count=4"]))
-        let noMapping = #"{"type":"object","properties":{}}"#.data(using: .utf8)!
-        XCTAssertNil(try ExtensionCLIArguments.decode(schema: noMapping, arguments: []))
-        XCTAssertThrowsError(try ExtensionCLIArguments.decode(schema: noMapping, arguments: ["unexpected"]))
-    }
-
     @MainActor
     func testControllerOwnsSSHChannelAndAuthenticationOnWorker() async throws {
         guard let host = ProcessInfo.processInfo.environment["GHOSTERM_SSH_HOST"],
@@ -200,7 +181,7 @@ final class ExtensionControllerTests: XCTestCase {
             "client": ["runtime": "portable-js", "entry": "client/index.js", "requires": ["session.rpc"]],
             "permissions": [],
         ]
-        let schema = #"{"type":"object","properties":{},"required":[],"additionalProperties":false}"#
+        let schema = #"{"type":"object","properties":{"wrap":{"type":"boolean"}},"required":["wrap"],"additionalProperties":false,"x-ghosterm-cli":{"version":1,"fields":{"wrap":{"option":"wrap","default":false}}}}"#
         var files: [String: Data] = [
             "plugin.json": try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]),
             "README": Data("fixture".utf8),
@@ -257,6 +238,14 @@ final class ExtensionControllerTests: XCTestCase {
 
         let approved = try await controller.approve(id: review.id, digest: review.digest)
         XCTAssertEqual(approved, 0)
+        let decodedArguments = try await controller.decodeArguments(packageID: review.id,
+            packageDigest: review.digest, command: "fixture", arguments: [])
+        XCTAssertEqual(decodedArguments, #"{"wrap":false}"#)
+        do {
+            _ = try await controller.decodeArguments(packageID: review.id, packageDigest: review.digest,
+                command: "fixture", arguments: ["--unknown"])
+            XCTFail("schema-invalid argv must fail before consent")
+        } catch { }
         let stillAmbiguous = try await controller.resolve(command: "fixture")
         XCTAssertEqual(stillAmbiguous.status, 7, "Approval must not hide another pending command")
         let selected = try await controller.resolve(command: "fixture", selectedID: review.id,

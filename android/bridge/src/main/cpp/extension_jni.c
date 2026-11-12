@@ -2742,47 +2742,95 @@ JNIEXPORT jobjectArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPac
     return result;
 }
 
-JNIEXPORT jbyteArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_commandSchema(
-    JNIEnv *e, jobject self, jlong id, jbyteArray command) {
+JNIEXPORT jbyteArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_decodeCommandArguments(
+    JNIEnv *e, jobject self, jlong id, jbyteArray command, jobjectArray input) {
     (void)self;
     jsize path_size = command ? (*e)->GetArrayLength(e, command) : 0;
-    if (path_size <= 0 || path_size >= 520) {
-        extension_error(e, "插件命令路径无效");
+    jsize count = input ? (*e)->GetArrayLength(e, input) : 0;
+    if (path_size <= 0 || path_size >= 520 || count > 32 || !input) {
+        extension_error(e, "插件命令参数无效");
         return NULL;
     }
     char *path = malloc((size_t)path_size + 1);
+    char *tokens[32] = {0};
+    const char *argv[32] = {0};
     if (!path) {
+        extension_error(e, "插件命令参数内存不足");
         return NULL;
     }
     (*e)->GetByteArrayRegion(e, command, 0, path_size, (jbyte *)path);
     if ((*e)->ExceptionCheck(e) || memchr(path, 0, (size_t)path_size)) {
-        free(path);
-        return NULL;
+        goto invalid;
     }
     path[path_size] = 0;
-    extension_slot_t *s = package_pin(e, id, true, false);
-    if (!s) {
+    for (jsize i = 0; i < count; i++) {
+        jbyteArray item = (jbyteArray)(*e)->GetObjectArrayElement(e, input, i);
+        jsize n = item ? (*e)->GetArrayLength(e, item) : -1;
+        if (n < 0 || n > 4096) {
+            if (item) {
+                (*e)->DeleteLocalRef(e, item);
+            }
+            goto invalid;
+        }
+        tokens[i] = malloc((size_t)n + 1);
+        if (!tokens[i]) {
+            if (item) {
+                (*e)->DeleteLocalRef(e, item);
+            }
+            goto invalid;
+        }
+        (*e)->GetByteArrayRegion(e, item, 0, n, (jbyte *)tokens[i]);
+        (*e)->DeleteLocalRef(e, item);
+        if ((*e)->ExceptionCheck(e) || memchr(tokens[i], 0, (size_t)n)) {
+            goto invalid;
+        }
+        tokens[i][n] = 0;
+        argv[i] = tokens[i];
+    }
+    {
+        extension_slot_t *s = package_pin(e, id, true, false);
+        if (!s) {
+            goto invalid;
+        }
+        size_t size = 0;
+        gt_status_t status = gt_ext_package_decode_command_arguments(
+            s->package, path, argv, (size_t)count, NULL, 0, &size);
+        uint8_t *decoded = status == GT_OK && size <= 65536 ? malloc(size ? size : 1) : NULL;
+        if (status == GT_OK && !decoded) {
+            status = GT_ERR_IO;
+        }
+        if (status == GT_OK && size) {
+            status = gt_ext_package_decode_command_arguments(
+                s->package, path, argv, (size_t)count, (char *)decoded, size, &size);
+        }
+        extension_unpin(s);
+        jbyteArray result = NULL;
+        if (status == GT_OK) {
+            result = (*e)->NewByteArray(e, (jsize)size);
+            if (result && size) {
+                (*e)->SetByteArrayRegion(e, result, 0, (jsize)size, (jbyte *)decoded);
+            }
+        }
+        free(decoded);
+        for (jsize i = 0; i < count; i++) {
+            free(tokens[i]);
+        }
         free(path);
-        return NULL;
+        if (!result && !(*e)->ExceptionCheck(e)) {
+            extension_error(e, "插件参数与 argsSchema 不匹配");
+        }
+        return result;
     }
-    size_t size = 0;
-    bool ok = gt_ext_package_read_command_schema(s->package, path, NULL, 0, &size) && size <= 65536;
-    uint8_t *bytes = ok ? malloc(size ? size : 1) : NULL;
-    if (ok && !bytes) {
-        ok = false;
+invalid:
+    for (jsize i = 0; i < count; i++) {
+        free(tokens[i]);
     }
-    if (ok) {
-        ok = gt_ext_package_read_command_schema(s->package, path, bytes, size, &size);
-    }
-    extension_unpin(s);
     free(path);
-    jbyteArray result = ok ? (*e)->NewByteArray(e, (jsize)size) : NULL;
-    if (result && size) {
-        (*e)->SetByteArrayRegion(e, result, 0, (jsize)size, (const jbyte *)bytes);
+    if (!(*e)->ExceptionCheck(e)) {
+        extension_error(e, "插件命令参数无效");
     }
-    free(bytes);
-    if (!result) extension_error(e, "插件命令参数 schema 读取失败");
-    return result;
+    return NULL;
 }
 
 static extension_slot_t *registry_pin(JNIEnv *e, jlong id) {

@@ -347,6 +347,16 @@ class ExtensionController(profile: HostProfile, context: Context) {
         }
     }
 
+    suspend fun decodeClientArguments(pluginID: String, packageDigest: String,
+        command: String, arguments: List<String>): String? = onWorker {
+        checkOpen()
+        val record = records[Key(pluginID, packageDigest)] ?: error("插件包摘要已失效")
+        check(record.source == Source.ALLOWED && record.review.commands.any { it.path == command }) {
+            "命令不属于已批准的固定插件包"
+        }
+        record.packageBytes.decodeCommandArguments(command, arguments)
+    }
+
     suspend fun close() {
         closed.set(true)
         if (cleanupComplete.get()) return

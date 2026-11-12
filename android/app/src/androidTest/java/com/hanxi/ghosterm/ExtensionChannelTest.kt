@@ -73,8 +73,11 @@ class ExtensionChannelTest {
               });
               return {dispose(){}};
             }""".trimIndent()
-        val schema = JSONObject().put("type", "object").put("properties", JSONObject())
-            .put("required", JSONArray()).put("additionalProperties", false)
+        val schema = JSONObject().put("type", "object")
+            .put("properties", JSONObject().put("wrap", JSONObject().put("type", "boolean")))
+            .put("required", JSONArray().put("wrap")).put("additionalProperties", false)
+            .put("x-ghosterm-cli", JSONObject().put("version", 1).put("fields",
+                JSONObject().put("wrap", JSONObject().put("option", "wrap").put("default", false))))
         val files = linkedMapOf("plugin.json" to manifest.toString().toByteArray(),
             "README" to "fixture".toByteArray(), "LICENSES/MIT.txt" to "MIT".toByteArray(),
             "schemas/input.json" to schema.toString().toByteArray(), "client/index.js" to entry.toByteArray())
@@ -107,6 +110,12 @@ class ExtensionChannelTest {
             val reviewed = controller.review(packageDir)
             assertEquals(com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK,
                 controller.approve(reviewed.id, reviewed.digest))
+            assertEquals("{\"wrap\":false}", controller.decodeClientArguments(
+                reviewed.id, reviewed.digest, "fixture", emptyList()))
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking { controller.decodeClientArguments(reviewed.id, reviewed.digest,
+                    "fixture", listOf("--unknown")) }
+            }
             val command = "exec " + listOf(payload.getString("rpcExecutorBinary"), "--android-executor",
                 payload.getString("rpcAndroidProofRoot"), reviewed.id, reviewed.digest,
                 payload.getString("rpcExecutorDigest"), "0.1.0", target.alias).joinToString(" ", transform = ::shellQuote) +

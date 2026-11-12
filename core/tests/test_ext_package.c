@@ -18,7 +18,7 @@ int main(int argc, char **argv) {
     size_t fds = ext_fds();
     gt_plugin_memory_info_t before = gt__plugin_memory_info();
     load_fixture_t f;
-    load_fixture(&f, "roundtrip", argv[2]);
+    load_fixture(&f, !strcmp(mode, "cli-arguments") ? mode : "roundtrip", argv[2]);
     gt_ext_package_config_t capture = {f.fd, 1024, 4096, 16777216, 67108864};
     CHECK(gt_ext_package_open(&capture, &package) == GT_OK && package);
     gt_ext_package_metadata_t metadata;
@@ -59,23 +59,30 @@ int main(int argc, char **argv) {
     CHECK(!strcmp(metadata.id, f.info.id) &&
           !strcmp(metadata.package_digest, f.info.package_digest) && metadata.requires_count == 1 &&
           !metadata.authorization_granted && !metadata.publisher_authenticated);
+    if (!strcmp(mode, "cli-arguments")) {
+        const char *arguments[] = {"report.txt", "--lines=20", "--wrap"};
+        size_t size = 0;
+        CHECK(gt_ext_package_decode_command_arguments(
+                  package, "fixture", arguments, 3, NULL, 0, &size) == GT_OK &&
+              size > 0);
+        char decoded[256] = {0};
+        CHECK(size < sizeof(decoded));
+        CHECK(gt_ext_package_decode_command_arguments(
+                  package, "fixture", arguments, 3, decoded, sizeof(decoded), &size) == GT_OK);
+        CHECK(strstr(decoded, "\"path\":\"report.txt\"") && strstr(decoded, "\"lines\":20") &&
+              strstr(decoded, "\"wrap\":true"));
+        const char *invalid[] = {"report.txt", "--lines=01"};
+        CHECK(gt_ext_package_decode_command_arguments(
+                  package, "fixture", invalid, 2, decoded, sizeof(decoded), &size) ==
+              GT_ERR_INVALID_ARG);
+        goto done;
+    }
     if (!strcmp(mode, "registry")) {
         uint32_t count = 0;
         gt_ext_package_command_t command;
         CHECK(gt_ext_package_command_count(package, &count) && count == 1);
         CHECK(gt_ext_package_command(package, 0, &command) && !strcmp(command.path, "fixture") &&
               !strcmp((char *)command.args_schema, "schemas/input.json"));
-        size_t schema_size = 0;
-        CHECK(gt_ext_package_read_command_schema(package, "fixture", NULL, 0, &schema_size) &&
-              schema_size == 2);
-        uint8_t schema[2] = {0};
-        CHECK(gt_ext_package_read_command_schema(package, "fixture", schema, sizeof(schema),
-                                                 &schema_size) &&
-              schema_size == 2 && !memcmp(schema, "{}", 2));
-        schema_size = 99;
-        CHECK(!gt_ext_package_read_command_schema(package, "missing", schema, sizeof(schema),
-                                                  &schema_size) &&
-              schema_size == 0);
         memset(&command, 0x55, sizeof(command));
         CHECK(!gt_ext_package_command(package, 1, &command) && !command.path[0]);
         gt_ext_registry_t *registry = NULL;

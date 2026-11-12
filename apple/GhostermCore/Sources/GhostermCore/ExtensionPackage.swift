@@ -50,17 +50,33 @@ public final class ExtensionPackage {
             return Command(command)
         }
     }
-    public func commandSchema(path: String) throws -> Data {
+    public func decodeCommandArguments(path: String, arguments: [String]) throws -> String? {
         let p = try pointer(on: owner)
-        var size = 0
-        let query = path.withCString { gt_ext_package_read_command_schema(p, $0, nil, 0, &size) }
-        guard query, size > 0, size <= 65536 else { throw GhostermError.failed("插件命令参数 schema 不可读或超限") }
-        var data = Data(count: size)
-        let ok = data.withUnsafeMutableBytes { bytes in
-            path.withCString { gt_ext_package_read_command_schema(p, $0, bytes.bindMemory(to: UInt8.self).baseAddress, size, &size) }
+        guard arguments.count <= 32, arguments.allSatisfy({ !$0.utf8.contains(0) && $0.utf8.count <= 4096 }),
+              arguments.reduce(0, { $0 + $1.utf8.count + 1 }) <= 16384 else {
+            throw GhostermError.failed("插件命令参数超限或无效")
         }
-        guard ok else { throw GhostermError.failed("插件命令参数 schema 读取失败") }
-        return data
+        var storage: [UnsafeMutablePointer<CChar>] = []
+        defer { storage.forEach { $0.deallocate() } }
+        for text in arguments {
+            let bytes = Array(text.utf8CString), value = UnsafeMutablePointer<CChar>.allocate(capacity: bytes.count)
+            value.initialize(from: bytes, count: bytes.count); storage.append(value)
+        }
+        let argv: [UnsafePointer<CChar>?] = storage.map { UnsafePointer($0) }
+        return try path.withCString { command in try argv.withUnsafeBufferPointer { values in
+            var size = 0
+            let query = gt_ext_package_decode_command_arguments(p, command, values.baseAddress,
+                                                                 values.count, nil, 0, &size)
+            guard query == GT_OK, size <= 65536 else { throw GhostermError.failed("插件参数与 argsSchema 不匹配") }
+            if size == 0 { return nil }
+            var result = [CChar](repeating: 0, count: size)
+            let status = result.withUnsafeMutableBufferPointer { buffer in
+                gt_ext_package_decode_command_arguments(p, command, values.baseAddress,
+                    values.count, buffer.baseAddress, size, &size)
+            }
+            guard status == GT_OK else { throw GhostermError.failed("插件参数与 argsSchema 不匹配") }
+            return String(decoding: result.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        } }
     }
     public func step() throws -> Phase { Phase(rawValue: gt_ext_package_step(try pointer(on: owner)).rawValue) ?? .failed }
     public func check(hostJSON: String?, registryJSON: String? = nil, memoryBytes: UInt64 = 0,

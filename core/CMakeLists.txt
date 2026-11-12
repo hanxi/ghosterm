@@ -30,6 +30,7 @@ add_library(ghosterm_core STATIC
   src/extension/registry.c
   src/extension/registry-api.c
   src/extension/package-api.c
+  src/extension/package-arguments.c
   src/extension/session.c
   src/extension/rpc.c
   src/extension/resource.c
@@ -149,7 +150,7 @@ target_include_directories(test_ext_package PRIVATE src)
 target_link_libraries(test_ext_package PRIVATE ghosterm_core)
 target_compile_options(test_ext_package PRIVATE -Wall -Wextra -Werror)
 if(GHOSTERM_WITH_PLUGIN_JS)
-  foreach(mode registry roundtrip capture-stop check-stop unknown override load-stop mismatch)
+  foreach(mode registry roundtrip capture-stop check-stop unknown override load-stop mismatch cli-arguments)
     add_test(NAME ext_package_${mode} COMMAND test_ext_package ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
     set_tests_properties(ext_package_${mode} PROPERTIES TIMEOUT 60)
   endforeach()

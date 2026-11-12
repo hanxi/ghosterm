@@ -48,7 +48,14 @@ class ExtensionPackage private constructor(private val worker: Thread) : AutoClo
             Command(v[0], v[1], v[2], v.drop(3))
         }
     }
-    fun commandSchema(path: String): ByteArray = NativeExtensionPackage.commandSchema(pointer(), encode(path, 519))
+    fun decodeCommandArguments(path: String, arguments: List<String>): String? {
+        require(arguments.size <= 32)
+        val result = NativeExtensionPackage.decodeCommandArguments(pointer(), encode(path, 519),
+            arguments.map { encode(it, 4096) }.toTypedArray())
+        if (result.isEmpty()) return null
+        return Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(result)).toString()
+    }
     fun stop() { val id = handle; if (id != 0L) NativeExtensionPackage.stop(id) }
     fun closeStep(): Boolean {
         if (handle == 0L) return true
@@ -87,7 +94,7 @@ internal object NativeExtensionPackage {
     external fun metadataNumbers(handle: Long): LongArray
     external fun commandCount(handle: Long): Int
     external fun command(handle: Long, index: Int): Array<ByteArray>
-    external fun commandSchema(handle: Long, path: ByteArray): ByteArray
+    external fun decodeCommandArguments(handle: Long, path: ByteArray, arguments: Array<ByteArray>): ByteArray
     external fun code(handle: Long): ByteArray
     external fun stop(handle: Long)
     external fun close(handle: Long): Int

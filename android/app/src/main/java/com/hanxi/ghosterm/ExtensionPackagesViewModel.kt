@@ -19,7 +19,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
     data class ActiveSession(
         val packageID: String, val packageDigest: String, val command: ExtensionController.Command,
-        val arguments: List<String>, val methods: List<String>, val hostMethods: List<String>, val executorDigest: String,
+        val arguments: List<String>, val decodedArguments: String?, val methods: List<String>, val hostMethods: List<String>, val executorDigest: String,
         val peerIdentity: String, val info: ExtensionSession.Info,
     )
 
@@ -62,37 +62,46 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         }
         if (activeSession != null || activeRuntime != null) { error = "此插件控制器已有活动 Session"; return }
         launchBusy = true; error = null
-        val id = sessions.connectExtensionRoute(target, request) { ready ->
+        viewModelScope.launch {
             try {
-                check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
-                val adopted = owner.adoptSSHSession(entry.review.id, entry.review.digest,
-                    request.executorDigest, "0.1.0", target.alias,
-                    (request.methods.map { it to ExtensionSession.Role.EXECUTOR } +
-                        request.hostMethods.map { it to ExtensionSession.Role.HOST }).map { (method, receiver) ->
-                        ExtensionSession.Method(method, "session.rpc", receiver,
-                            ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
-                    })
-                activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
-                    request.arguments.toList(), request.methods.toList(), request.hostMethods.toList(),
-                    request.executorDigest, target.alias, adopted.info)
-                launchBusy = false
-                viewModelScope.launch { advanceToConsent(owner) }
-                true
+                val decoded = owner.decodeClientArguments(entry.review.id, entry.review.digest,
+                    command.path, request.arguments)
+                val id = sessions.connectExtensionRoute(target, request) { ready ->
+                    try {
+                        check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
+                        val adopted = owner.adoptSSHSession(entry.review.id, entry.review.digest,
+                            request.executorDigest, "0.1.0", target.alias,
+                            (request.methods.map { it to ExtensionSession.Role.EXECUTOR } +
+                                request.hostMethods.map { it to ExtensionSession.Role.HOST }).map { (method, receiver) ->
+                                ExtensionSession.Method(method, "session.rpc", receiver,
+                                    ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
+                            })
+                        activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
+                            request.arguments.toList(), decoded, request.methods.toList(), request.hostMethods.toList(),
+                            request.executorDigest, target.alias, adopted.info)
+                        launchBusy = false
+                        viewModelScope.launch { advanceToConsent(owner) }
+                        true
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Throwable) {
+                        error = "插件 Session 接管失败：${failure.message ?: failure.javaClass.simpleName}"
+                        launchBusy = false
+                        false
+                    }
+                }
+                if (id == null) {
+                    launchBusy = false
+                    error = "无法开始插件 SSH 连接；请确认没有其它连接正在进行"
+                } else {
+                    while (sessions.connecting?.id == id) delay(25)
+                    if (activeSession == null) launchBusy = false
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
-                error = "插件 Session 接管失败：${failure.message ?: failure.javaClass.simpleName}"
+                error = "插件参数校验或启动失败：${failure.message ?: failure.javaClass.simpleName}"
                 launchBusy = false
-                false
-            }
-        }
-        if (id == null) {
-            launchBusy = false
-            error = "无法开始插件 SSH 连接；请确认没有其它连接正在进行"
-        } else {
-            viewModelScope.launch {
-                while (sessions.connecting?.id == id) delay(25)
-                if (activeSession == null) launchBusy = false
             }
         }
     }
