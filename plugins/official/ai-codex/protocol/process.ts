@@ -58,7 +58,10 @@ export async function spawnCodexAppServer(
   const release = (): Promise<void> => {
     if (!releasePromise) {
       stdio.close();
-      releasePromise = child.release().then(() => { reaped = true; });
+      releasePromise = child.release().then(() => {
+        reaped = true;
+        exit = child.poll();
+      });
       // step() may observe natural exit without a caller awaiting stop(). Keep
       // the rejection observed here; stop() returns the same rejecting promise.
       void releasePromise.catch(() => {});

@@ -309,7 +309,7 @@ test("naturally exited Codex child drains both pipes and is reaped without an ex
   assert.equal(signalled, false);
 });
 
-test("runs initialize and thread/start against the pinned real server, without a turn", async () => {
+test("runs the production process helper against the pinned real server, without a turn", async () => {
   const executable = process.env.GHOSTERM_CODEX ?? "codex";
   const version = execFileSync(executable, ["--version"], { cwd: root, encoding: "utf8" }).trim();
   assert.equal(version, lock.codexCliVersion);
@@ -317,33 +317,59 @@ test("runs initialize and thread/start against the pinned real server, without a
   const temp = mkdtempSync(join(root, "tmp", "codex-protocol-live-"));
   const home = join(temp, "home"), config = join(temp, "config"), cwd = join(temp, "project");
   for (const path of [home, config, cwd]) mkdirSync(path);
-  const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: config, TMPDIR: join(root, "tmp") };
-  for (const key of ["CODEX_HOME", "OPENAI_API_KEY", "CODEX_API_KEY"]) delete env[key];
-  const child = spawn(executable, ["app-server"], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
-  const stdoutChunks = [], stderrChunks = [];
-  let exited = false;
-  child.on("exit", () => { exited = true; });
-  child.stdout.on("data", chunk => stdoutChunks.push(Uint8Array.from(chunk)));
-  child.stderr.on("data", chunk => stderrChunks.push(Uint8Array.from(chunk)));
-  const readQueue = (queue, maxBytes) => {
-    if (!queue.length) return { state: exited ? "eof" : "wait" };
+  const env = { HOME: home, XDG_CONFIG_HOME: config, TMPDIR: join(root, "tmp"), PATH: process.env.PATH ?? "" };
+  const readQueue = (queue, ended, maxBytes) => {
+    if (!queue.length) return { state: ended() ? "eof" : "wait" };
     const head = queue[0];
     const bytes = head.subarray(0, maxBytes);
     if (bytes.length === head.length) queue.shift();
     else queue[0] = head.subarray(maxBytes);
     return { state: "data", bytes };
   };
-  const connection = new CodexAppServerStdio({
-    readStdout: maxBytes => readQueue(stdoutChunks, maxBytes),
-    readStderr: maxBytes => readQueue(stderrChunks, maxBytes),
-    writeStdin: bytes => {
-      if (child.stdin.destroyed || !child.stdin.writable) return { state: "closed" };
-      child.stdin.write(Buffer.from(bytes));
-      return { state: "data", count: bytes.length };
-    },
-    closeStdin: () => child.stdin.end(),
-  });
-  const pump = setInterval(() => connection.step(), 2);
+  let child;
+  let childExit;
+  let exitPromise;
+  const processService = { async spawn(options) {
+    assert.equal(options.program, "codex");
+    assert.deepEqual(options.argv, ["app-server"]);
+    assert.equal(options.cwd.id, "isolated-codex-project");
+    assert.equal(options.envPolicy, "selected-user-environment");
+    child = spawn(executable, [...options.argv], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    const stdoutChunks = [], stderrChunks = [];
+    let stdoutEnded = false, stderrEnded = false;
+    child.stdout.on("data", chunk => stdoutChunks.push(Uint8Array.from(chunk)));
+    child.stderr.on("data", chunk => stderrChunks.push(Uint8Array.from(chunk)));
+    child.stdout.on("end", () => { stdoutEnded = true; });
+    child.stderr.on("end", () => { stderrEnded = true; });
+    exitPromise = new Promise(resolveExit => child.once("exit", (code, signal) => {
+      childExit = { state: "exited", code, signal: signal === null ? null : signal };
+      resolveExit();
+    }));
+    child.stdin.on("error", () => {});
+    return {
+      verifiedVersion: version,
+      readStdout(maxBytes) { return readQueue(stdoutChunks, () => stdoutEnded, maxBytes); },
+      readStderr(maxBytes) { return readQueue(stderrChunks, () => stderrEnded, maxBytes); },
+      writeStdin(bytes) {
+        if (!child.stdin.writable || child.stdin.destroyed) return { state: "closed" };
+        child.stdin.write(Buffer.from(bytes));
+        return { state: "data", count: bytes.length };
+      },
+      closeStdin() { child.stdin.end(); },
+      signal(value) { child.kill(value === "kill" ? "SIGKILL" : "SIGTERM"); },
+      poll() { return childExit ?? { state: "running" }; },
+      async release() { await exitPromise; },
+    };
+  } };
+  const context = {
+    side: "executor",
+    capabilities: { query: () => "allowed" },
+    cancellation: { cancelled: false },
+    invocation: { workspaceHandle: { id: "isolated-codex-project" } },
+    process: processService,
+  };
+  const server = await spawnCodexAppServer(context, clientInfo);
+  const pump = setInterval(() => server.step(), 2);
 
   const withTimeout = (promise, ms = 20_000) => {
     let timer;
@@ -352,19 +378,19 @@ test("runs initialize and thread/start against the pinned real server, without a
     })]).finally(() => clearTimeout(timer));
   };
   try {
-    const initialization = await withTimeout(connection.client.initialize(clientInfo));
+    const initialization = await withTimeout(server.ready);
     assert.equal(typeof initialization.userAgent, "string");
-    const started = await withTimeout(connection.client.threadStart({ cwd, approvalPolicy: "on-request", sandbox: "read-only" }));
+    const started = await withTimeout(server.stdio.client.threadStart({ cwd, approvalPolicy: "on-request", sandbox: "read-only" }));
     assert.equal(typeof started.thread?.id, "string");
-    assert.equal(connection.failure, undefined, connection.failure?.message);
-    assert.equal(exited, false);
-    console.log(`CODEX APP-SERVER STDIO PASS: ${version}; initialize, initialized, thread/start through bounded pipe owner; no turn/model request`);
+    assert.equal(server.stdio.failure, undefined, server.stdio.failure?.message);
+    assert.deepEqual(server.exit, { state: "running" });
+    console.log(`CODEX APP-SERVER HELPER PASS: ${version}; verified mapping, initialize, initialized, thread/start, bounded pipes; no turn/model request`);
   } finally {
     clearInterval(pump);
-    connection.close();
-    child.kill("SIGTERM");
-    await withTimeout(new Promise(resolveExit => child.once("exit", resolveExit)), 3_000).catch(() => {});
-    if (!exited) child.kill("SIGKILL");
+    await withTimeout(server.stop(), 3_000).catch(() => {});
+    if (child && !childExit) child.kill("SIGKILL");
     rmSync(temp, { recursive: true, force: true });
   }
+  assert.deepEqual(server.exit?.state, "exited");
+  assert.equal(server.reaped, true);
 });
