@@ -9,18 +9,23 @@ import org.commonmark.node.SoftLineBreak
 import org.commonmark.node.Text
 import org.commonmark.parser.Parser
 import org.commonmark.renderer.html.HtmlRenderer
+import java.net.URI
 
 internal object PluginResourceMarkdownDecoder {
     private const val MAX_SOURCE_BYTES = 262144
     private const val MAX_RENDERED_HTML_CHARS = 1048576
-    private val parser = Parser.builder().build()
-    private val renderer = HtmlRenderer.builder().escapeHtml(true).sanitizeUrls(true).build()
+    data class ImageReference(val marker: String, val alt: String, val destination: String)
+    data class Decoded(val html: String, val images: List<ImageReference>)
 
     fun supports(mime: String, displayName: String): Boolean =
         mime.substringBefore(';').trim().lowercase() in setOf("text/markdown", "text/x-markdown") ||
             displayName.substringAfterLast('.', "").lowercase() in setOf("md", "markdown")
 
     fun decode(bytes: ByteArray): String? {
+        return decodeDocument(bytes)?.html
+    }
+
+    fun decodeDocument(bytes: ByteArray): Decoded? {
         if (bytes.isEmpty() || bytes.size > MAX_SOURCE_BYTES) return null
         val source = try {
             Charsets.UTF_8.newDecoder()
@@ -30,16 +35,40 @@ internal object PluginResourceMarkdownDecoder {
         } catch (_: java.nio.charset.CharacterCodingException) {
             return null
         }
-        val document = parser.parse(source)
-        sanitize(document)
-        return renderer.render(document).takeIf { it.length <= MAX_RENDERED_HTML_CHARS }
+        val tokenPrefix = generateSequence(0) { it + 1 }
+            .map { "GHOSTERM_PREVIEW_IMAGE_${it}_" }
+            .first { !source.contains(it) }
+        val images = mutableListOf<ImageReference>()
+        val document = Parser.builder().build().parse(source)
+        sanitize(document, tokenPrefix, images)
+        val html = HtmlRenderer.builder().escapeHtml(true).sanitizeUrls(true).build().render(document)
+            .takeIf { it.length <= MAX_RENDERED_HTML_CHARS } ?: return null
+        return Decoded(html, images.toList())
     }
 
-    private fun sanitize(parent: Node) {
+    fun resolveSameDirectoryImage(documentPath: String, destination: String): String? {
+        if (!isCanonicalWorkspacePath(documentPath)) return null
+        val uri = try { URI(destination) } catch (_: Exception) { return null }
+        if (uri.isAbsolute || uri.rawAuthority != null || uri.rawQuery != null || uri.rawFragment != null) return null
+        val path = uri.path ?: return null
+        if (path.isEmpty() || path == "." || path == ".." || path.contains('/') || path.contains('\\') ||
+            path.any { it == '\u0000' }) return null
+        val directory = documentPath.substringBeforeLast('/', "")
+        val candidate = if (directory.isEmpty()) path else "$directory/$path"
+        return candidate.takeIf(::isCanonicalWorkspacePath)
+    }
+
+    fun isCanonicalWorkspacePath(path: String): Boolean {
+        if (path.isEmpty() || path.startsWith('/') || path.startsWith('\\') || path.contains('\\') || path.length > 1024) return false
+        val parts = path.split('/')
+        return parts.all { part -> part.isNotEmpty() && part != "." && part != ".." && part.none { it == '\u0000' } }
+    }
+
+    private fun sanitize(parent: Node, tokenPrefix: String, images: MutableList<ImageReference>) {
         var child = parent.firstChild
         while (child != null) {
             val next = child.next
-            sanitize(child)
+            sanitize(child, tokenPrefix, images)
             when (child) {
                 is Link -> {
                     var nested = child.firstChild
@@ -66,7 +95,9 @@ internal object PluginResourceMarkdownDecoder {
                         }
                         appendText(child.firstChild)
                     }.trim()
-                    Text(if (alt.isEmpty()) "[图片]" else "[图片: $alt]").also { child.insertBefore(it) }
+                    val marker = "$tokenPrefix${images.size}END"
+                    images += ImageReference(marker, alt, child.destination)
+                    Text(marker).also { child.insertBefore(it) }
                     child.unlink()
                 }
             }

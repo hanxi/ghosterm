@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -358,13 +360,16 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     style = MaterialTheme.typography.titleSmall)
                 Text("${resource.descriptor.mime} · ${resource.bytes.size} 字节 · SHA-256 ${resource.descriptor.sha256}",
                     Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
-                PluginResourceBody(resource)
+                PluginResourceBody(resource, resources)
             }
         }
     }
 }
 
-@Composable private fun PluginResourceBody(resource: com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content) {
+@Composable private fun PluginResourceBody(
+    resource: com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content,
+    resources: List<com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content>,
+) {
     val mime = resource.descriptor.mime.substringBefore(';').lowercase()
     if (mime in setOf("image/png", "image/jpeg", "image/gif", "image/webp")) {
         val bitmap by produceState<android.graphics.Bitmap?>(null, resource.descriptor.sha256) {
@@ -382,7 +387,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
         return
     }
     if (PluginResourceMarkdownDecoder.supports(mime, resource.descriptor.displayName)) {
-        PluginMarkdownBody(resource)
+        PluginMarkdownBody(resource, resources)
         return
     }
     if (mime.startsWith("text/") || mime == "application/json" || mime == "application/xml") {
@@ -415,21 +420,60 @@ internal fun decodePluginResourceText(bytes: ByteArray): String? {
     } catch (_: java.nio.charset.CharacterCodingException) { null }
 }
 
-@Composable private fun PluginMarkdownBody(resource: com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content) {
-    val rendered by produceState<String?>(null, resource.descriptor.sha256) {
+private data class ResolvedMarkdownImage(
+    val reference: PluginResourceMarkdownDecoder.ImageReference,
+    val resource: com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content,
+)
+
+internal data class RenderedPluginMarkdown(
+    val text: androidx.compose.ui.text.AnnotatedString,
+    val inlineContent: Map<String, InlineTextContent>,
+)
+
+@Composable private fun PluginMarkdownBody(
+    resource: com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content,
+    resources: List<com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content>,
+) {
+    val decoded by produceState<PluginResourceMarkdownDecoder.Decoded?>(null, resource.descriptor.sha256) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            PluginResourceMarkdownDecoder.decode(resource.bytes)
+            PluginResourceMarkdownDecoder.decodeDocument(resource.bytes)
         }
     }
-    if (rendered == null) {
+    val resolved = remember(decoded, resource.descriptor.displayName, resources) {
+        val document = decoded ?: return@remember emptyList()
+        document.images.mapNotNull { image ->
+            val path = PluginResourceMarkdownDecoder.resolveSameDirectoryImage(resource.descriptor.displayName, image.destination)
+                ?: return@mapNotNull null
+            val candidates = resources.filter { candidate ->
+                candidate.descriptor.displayName == path &&
+                    PluginResourceMarkdownDecoder.isCanonicalWorkspacePath(candidate.descriptor.displayName) &&
+                    candidate.descriptor.mime.substringBefore(';').lowercase() in setOf("image/png", "image/jpeg", "image/gif", "image/webp") &&
+                    candidate.descriptor.sizeKnown && candidate.descriptor.size == candidate.bytes.size.toLong() &&
+                    candidate.bytes.size in 1..1048576
+            }
+            candidates.singleOrNull()?.let { ResolvedMarkdownImage(image, it) }
+        }
+    }
+    val bitmaps by produceState<Map<String, android.graphics.Bitmap>>(emptyMap(), resource.descriptor.sha256, resolved) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            resolved.mapNotNull { item ->
+                decodePluginResourceBitmap(item.resource.bytes)?.let { item.reference.marker to it }
+            }.toMap()
+        }
+    }
+    val rendered = remember(decoded, bitmaps) {
+        decoded?.let { pluginMarkdownAnnotatedString(it, bitmaps) }
+    }
+    if (decoded == null) {
         Text("Markdown 不是有效 UTF-8 或超出预览预算", Modifier.padding(16.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-    } else {
+    } else if (rendered != null) {
         SelectionContainer {
-            Text(pluginMarkdownAnnotatedString(rendered!!),
+            Text(rendered.text,
                 Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(12.dp)
                     .testTag("plugin-resource-markdown"),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface,
+                inlineContent = rendered.inlineContent,
             )
         }
         Text("Markdown 链接不打开；图片与外部资源不加载。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -437,28 +481,63 @@ internal fun decodePluginResourceText(bytes: ByteArray): String? {
     }
 }
 
-internal fun pluginMarkdownAnnotatedString(html: String): androidx.compose.ui.text.AnnotatedString {
-    val spanned = androidx.core.text.HtmlCompat.fromHtml(html, androidx.core.text.HtmlCompat.FROM_HTML_MODE_COMPACT)
-    return androidx.compose.ui.text.buildAnnotatedString {
-        append(spanned.toString())
-        val styles = spanned.getSpans(0, spanned.length, Any::class.java)
-        for (span in styles) {
-            val start = spanned.getSpanStart(span).coerceAtLeast(0)
-            val end = spanned.getSpanEnd(span).coerceAtMost(spanned.length)
-            if (start >= end) continue
-            val style = when (span) {
-                is android.text.style.StyleSpan -> androidx.compose.ui.text.SpanStyle(
-                    fontWeight = if (span.style and android.graphics.Typeface.BOLD != 0) androidx.compose.ui.text.font.FontWeight.Bold else null,
-                    fontStyle = if (span.style and android.graphics.Typeface.ITALIC != 0) androidx.compose.ui.text.font.FontStyle.Italic else null)
-                is android.text.style.TypefaceSpan -> if (span.family == "monospace") androidx.compose.ui.text.SpanStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) else null
-                is android.text.style.UnderlineSpan -> androidx.compose.ui.text.SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
-                is android.text.style.StrikethroughSpan -> androidx.compose.ui.text.SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
-                is android.text.style.RelativeSizeSpan -> androidx.compose.ui.text.SpanStyle(fontSize = (span.sizeChange * 14).sp)
-                else -> null
+internal fun pluginMarkdownAnnotatedString(
+    decoded: PluginResourceMarkdownDecoder.Decoded,
+    bitmaps: Map<String, android.graphics.Bitmap>,
+): RenderedPluginMarkdown {
+    val spanned = androidx.core.text.HtmlCompat.fromHtml(decoded.html, androidx.core.text.HtmlCompat.FROM_HTML_MODE_COMPACT)
+    val source = spanned.toString()
+    val spans = spanned.getSpans(0, spanned.length, Any::class.java)
+    val inlineContent = linkedMapOf<String, InlineTextContent>()
+    val text = androidx.compose.ui.text.buildAnnotatedString {
+        fun appendStyledRange(start: Int, end: Int) {
+            if (end <= start) return
+            val outputStart = length
+            append(source.substring(start, end))
+            for (span in spans) {
+                val spanStart = spanned.getSpanStart(span).coerceAtLeast(start)
+                val spanEnd = spanned.getSpanEnd(span).coerceAtMost(end)
+                if (spanStart >= spanEnd) continue
+                val style = when (span) {
+                    is android.text.style.StyleSpan -> androidx.compose.ui.text.SpanStyle(
+                        fontWeight = if (span.style and android.graphics.Typeface.BOLD != 0) androidx.compose.ui.text.font.FontWeight.Bold else null,
+                        fontStyle = if (span.style and android.graphics.Typeface.ITALIC != 0) androidx.compose.ui.text.font.FontStyle.Italic else null)
+                    is android.text.style.TypefaceSpan -> if (span.family == "monospace") androidx.compose.ui.text.SpanStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) else null
+                    is android.text.style.UnderlineSpan -> androidx.compose.ui.text.SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
+                    is android.text.style.StrikethroughSpan -> androidx.compose.ui.text.SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
+                    is android.text.style.RelativeSizeSpan -> androidx.compose.ui.text.SpanStyle(fontSize = (span.sizeChange * 14).sp)
+                    else -> null
+                }
+                if (style != null) addStyle(style, outputStart + spanStart - start, outputStart + spanEnd - start)
             }
-            if (style != null) addStyle(style, start, end)
         }
+        var cursor = 0
+        for (image in decoded.images) {
+            val markerAt = source.indexOf(image.marker, cursor)
+            if (markerAt < 0) continue
+            appendStyledRange(cursor, markerAt)
+            val bitmap = bitmaps[image.marker]
+            if (bitmap == null) {
+                append(if (image.alt.isEmpty()) "[图片]" else "[图片: ${image.alt}]")
+            } else {
+                val id = "plugin-markdown-image-${inlineContent.size}"
+                val maxSide = 96f
+                val scale = minOf(1f, maxSide / maxOf(bitmap.width, bitmap.height))
+                val widthSp = (bitmap.width * scale).coerceAtLeast(1f).sp
+                val heightSp = (bitmap.height * scale).coerceAtLeast(1f).sp
+                inlineContent[id] = InlineTextContent(
+                    androidx.compose.ui.text.Placeholder(widthSp, heightSp,
+                        androidx.compose.ui.text.PlaceholderVerticalAlign.TextCenter)) {
+                    Image(bitmap.asImageBitmap(), image.alt.ifEmpty { null },
+                        Modifier.fillMaxSize().testTag("plugin-resource-markdown-inline-image"), contentScale = ContentScale.Fit)
+                }
+                appendInlineContent(id, image.alt.ifEmpty { "图片" })
+            }
+            cursor = markerAt + image.marker.length
+        }
+        appendStyledRange(cursor, source.length)
     }
+    return RenderedPluginMarkdown(text, inlineContent)
 }
 
 internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitmap? {

@@ -4454,8 +4454,16 @@ API 36 arm64 无窗口模拟器的 `PluginResourcePreviewUiTest` **3 项通过**
 
 ### P2 实施第三十三批：Android Markdown 安全格式化预览（2026-11-12）
 
-Android 收到 Markdown 快照后以 CommonMark 解析并在原生 Compose 文本中格式化标题、强调、行内 / 块代码等内容。链接只保留可读文字、不保留跳转目标；图片替换为 alt 文本；原始 HTML 作为文字转义显示。解析严格要求 UTF-8，源文件最多 256 KiB、渲染 HTML 最多 1 MiB，解析在后台 dispatcher 执行。新增 commonmark-java BSD 2-Clause 许可登记。当前资源描述没有 workspace 相对路径，因此本批不请求 Markdown/CSS/图片附件；UI 明示不加载外部内容。
+Android 收到 Markdown 快照后以 CommonMark 解析并在原生 Compose 文本中格式化标题、强调、行内 / 块代码等内容。链接只保留可读文字、不保留跳转目标；图片替换为 alt 文本；原始 HTML 作为文字转义显示。解析严格要求 UTF-8，源文件最多 256 KiB、渲染 HTML 最多 1 MiB，解析在后台 dispatcher 执行。新增 commonmark-java BSD 2-Clause 许可登记。当前 Android Descriptor 没有独立的 workspace 相对路径字段；该路径身份的校验 / 映射留待后续批次，因此本批不请求 Markdown/CSS/图片附件，UI 明示不加载外部内容。
 
 `PluginResourcePreviewTest` 与 `PluginResourcePreviewUiTest` 在 API 36 arm64 无窗口模拟器合计 **8 项通过**，覆盖 Markdown 格式化、安全移除链接 / 图片目标、HTML 转义、MIME/扩展识别、非法 UTF-8 / 字节预算和实际 Compose 预览；JS-off debug / androidTest APK 编译通过。首轮目标断言发现链接 AST 解包时错误使用插入方向、导致链接文字丢失；修复后完整 8 项复跑通过。测试 AVD 位于工程 `tmp/`，已停止并清理。
 
 本批只完成 Android 单个 Markdown 快照的格式化展示；完整 Settings + SSH 收件交互、Markdown 显式图片附件映射、Preview 资源选择 / 列表生命周期、16 KiB 页与真机仍待验，不记 P2 闭环完成。不改公共 ABI，不增加 macOS CI 二十份。
+
+### P2 实施第三十四批：Android Markdown 同目录附件快照映射（2026-11-12）
+
+Android 的资源 descriptor 没有单独 `relativePath` 字段，但 Core scoped source 会把规范化 workspace 相对路径写入 `displayName`。Markdown decoder 保留图片引用供 UI 解析；只有文档路径和图片目标都能通过规范化检查、图片目标是同目录单个文件名、且活动 Runtime 已显式收到唯一匹配资源时才加载。快照还须是 PNG / JPEG / GIF / WebP，已知长度须与字节数相同且不超过 1 MiB，再复用有尺寸 / 像素预算的 decoder。Compose 将有效 raster snapshot 内联绘制；外链、绝对路径、越目录 / 子目录、歧义、缺失、错误 MIME、错误长度或解码失败均只显示 alt 文本。不新增网络访问或公共 ABI。
+
+API 36 arm64 无窗口模拟器的 `PluginResourcePreviewTest` 与 `PluginResourcePreviewUiTest` 合计 **10 项通过**。新增路径解析负向覆盖，包括 `..`、编码越界、子目录、外链和 protocol-relative URL；UI 用同目录 16×16 红色 PNG，捕获实际 Markdown 文本节点并断言红色附件像素存在，同时验证越界 / 外链仍显示 alt 文本。Android JS-off debug / androidTest 编译通过，测试 AVD 位于 `tmp/`，已关闭并清理。
+
+此批只证明同一活动资源列表内按 canonical `displayName` 做唯一同目录 raster 映射；没有接入完整真实 SSH 页面会话截图、跨多个 Runtime 的面板交互、16 KiB 页或用户真机矩阵，不记 P2 闭环完成。不改公共 ABI，不增加 macOS CI 二十份。

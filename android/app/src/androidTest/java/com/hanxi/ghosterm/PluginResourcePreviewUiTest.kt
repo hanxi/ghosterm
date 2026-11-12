@@ -3,6 +3,7 @@ package com.hanxi.ghosterm
 import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.*
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -18,6 +19,34 @@ import java.io.ByteArrayOutputStream
 @RunWith(AndroidJUnit4::class)
 class PluginResourcePreviewUiTest {
     @get:Rule val ui = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun markdownRendersOnlyAnExplicitSameDirectoryRasterSnapshot() {
+        val bitmap = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.RED) }
+        val imageBytes = ByteArrayOutputStream().use { output ->
+            assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)); output.toByteArray()
+        }
+        bitmap.recycle()
+        val markdown = ExtensionResourceStore.Content(
+            ExtensionResourceStore.Descriptor("d".repeat(64), "text/markdown", "docs/readme.md", 35),
+            "![diagram](diagram.png) ![outside](../outside.png) ![remote](https://example.com/a.png)".toByteArray())
+        val image = ExtensionResourceStore.Content(
+            ExtensionResourceStore.Descriptor("e".repeat(64), "image/png", "docs/diagram.png", imageBytes.size.toLong()), imageBytes)
+        ui.setContent { PluginResourcesPanel(listOf(markdown, image)) }
+        ui.waitUntil(10_000) {
+            ui.onAllNodesWithTag("plugin-resource-markdown-inline-image").fetchSemanticsNodes().isNotEmpty()
+        }
+        ui.onNodeWithTag("plugin-resource-markdown-inline-image").assertExists()
+        val preview = ui.onNodeWithTag("plugin-resource-markdown").captureToImage().asAndroidBitmap()
+        var redPixels = 0
+        for (y in 0 until preview.height) for (x in 0 until preview.width) {
+            val color = preview.getPixel(x, y)
+            if (android.graphics.Color.red(color) > 240 && android.graphics.Color.green(color) < 32 &&
+                android.graphics.Color.blue(color) < 32) redPixels++
+        }
+        assertTrue("expected Markdown attachment pixels, got $redPixels", redPixels > 0)
+        ui.onNodeWithText("[图片: outside]", substring = true).assertExists()
+        ui.onNodeWithText("[图片: remote]", substring = true).assertExists()
+    }
 
     @Test fun markdownResourceUsesFormattedPreviewAndExplainsDisabledExternalContent() {
         val markdown = ExtensionResourceStore.Content(

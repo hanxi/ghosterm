@@ -10,26 +10,38 @@ import java.io.ByteArrayOutputStream
 @RunWith(AndroidJUnit4::class)
 class PluginResourcePreviewTest {
     @Test fun markdownIsFormattedWithoutLinksImagesOrRawHtml() {
-        val rendered = PluginResourceMarkdownDecoder.decode(
+        val decoded = PluginResourceMarkdownDecoder.decodeDocument(
             "# Title\n\nA **bold** [link](https://example.com) ![diagram](https://example.com/a.png)\n\n<script>alert(1)</script>".toByteArray())
-        assertNotNull(rendered)
+        assertNotNull(decoded)
+        val rendered = decoded!!.html
         assertTrue(rendered!!.contains("<h1>Title</h1>"))
         assertTrue(rendered.contains("<strong>bold</strong>"))
         assertTrue(rendered.contains("link"))
         assertFalse(rendered.contains("href="))
-        assertTrue(rendered.contains("[图片: diagram]"))
+        assertEquals("diagram", decoded.images.single().alt)
+        assertEquals("https://example.com/a.png", decoded.images.single().destination)
         assertFalse(rendered.contains("<img"))
         assertTrue(rendered.contains("&lt;script&gt;alert(1)&lt;/script&gt;"))
-        val annotated = pluginMarkdownAnnotatedString(rendered)
-        assertTrue(annotated.text.contains("link"))
-        assertTrue(annotated.text.contains("[图片: diagram]"))
-        assertTrue(annotated.text.contains("<script>alert(1)</script>"))
-        assertTrue(annotated.spanStyles.any {
+        val annotated = pluginMarkdownAnnotatedString(decoded, emptyMap())
+        assertTrue(annotated.text.text.contains("link"))
+        assertTrue(annotated.text.text.contains("[图片: diagram]"))
+        assertTrue(annotated.text.text.contains("<script>alert(1)</script>"))
+        assertTrue(annotated.text.spanStyles.any {
             it.item.fontWeight == androidx.compose.ui.text.font.FontWeight.Bold
         })
         assertFalse(PluginResourceMarkdownDecoder.supports("text/html", "page.html"))
         assertTrue(PluginResourceMarkdownDecoder.supports("text/markdown; charset=utf-8", "page.bin"))
         assertTrue(PluginResourceMarkdownDecoder.supports("application/octet-stream", "page.markdown"))
+    }
+
+    @Test fun markdownAttachmentResolverAcceptsOnlyCanonicalSameDirectorySiblings() {
+        assertEquals("docs/diagram.png", PluginResourceMarkdownDecoder.resolveSameDirectoryImage("docs/readme.md", "diagram.png"))
+        assertEquals("diagram.png", PluginResourceMarkdownDecoder.resolveSameDirectoryImage("readme.md", "diagram.png"))
+        assertNull(PluginResourceMarkdownDecoder.resolveSameDirectoryImage("docs/readme.md", "../outside.png"))
+        assertNull(PluginResourceMarkdownDecoder.resolveSameDirectoryImage("docs/readme.md", "sub/diagram.png"))
+        assertNull(PluginResourceMarkdownDecoder.resolveSameDirectoryImage("docs/readme.md", "https://example.com/diagram.png"))
+        assertNull(PluginResourceMarkdownDecoder.resolveSameDirectoryImage("docs/readme.md", "//example.com/diagram.png"))
+        assertNull(PluginResourceMarkdownDecoder.resolveSameDirectoryImage("docs/readme.md", "%2e%2e/outside.png"))
     }
 
     @Test fun markdownRejectsMalformedUtf8AndOversizePayloads() {
