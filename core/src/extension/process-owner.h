@@ -7,6 +7,9 @@
 #define GT_EXT_PROCESS_ARGUMENTS_MAX 64u
 #define GT_EXT_PROCESS_ARGUMENT_MAX 4096u
 #define GT_EXT_PROCESS_ARGUMENT_BYTES_MAX 16384u
+#define GT_EXT_PROCESS_ENVIRONMENT_MAX 32u
+#define GT_EXT_PROCESS_ENVIRONMENT_VALUE_MAX 4096u
+#define GT_EXT_PROCESS_ENVIRONMENT_BYTES_MAX 16384u
 #define GT_EXT_PROCESS_IO_MAX 16384u
 
 typedef struct gt_ext_process gt_ext_process_t;
@@ -33,11 +36,15 @@ typedef struct {
 
 /* Absolute executable, raw argv, no shell or PATH search. The caller is a
  * trusted native host that has already applied the process.spawn grant and
- * program allowlist. Process starts in the caller's current directory and
- * environment. Pipes are nonblocking and exclusively owned by this owner. */
+ * program allowlist. cwd_fd must name an open directory; only the explicit
+ * environment entries are inherited. No ambient caller cwd/environment leaks.
+ * Pipes are nonblocking and exclusively owned by this owner. */
 gt_status_t gt__ext_process_spawn(const char *executable,
                                   const char *const *argv,
                                   size_t argc,
+                                  int cwd_fd,
+                                  const char *const *environment,
+                                  size_t environment_count,
                                   gt_ext_process_t **out);
 gt_ext_process_io_t gt__ext_process_write(gt_ext_process_t *, const void *, size_t);
 gt_ext_process_io_t gt__ext_process_read_stdout(gt_ext_process_t *, void *, size_t);

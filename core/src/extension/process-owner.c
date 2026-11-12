@@ -9,10 +9,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
-
-extern char **environ;
 
 struct gt_ext_process {
     pid_t pid;
@@ -109,14 +108,57 @@ static bool arguments_valid(const char *exe, const char *const *argv, size_t arg
     return argv[0][0] != '\0';
 }
 
+static bool environment_valid(const char *const *environment, size_t count) {
+    if ((count && !environment) || count > GT_EXT_PROCESS_ENVIRONMENT_MAX) {
+        return false;
+    }
+    size_t total = 0;
+    for (size_t i = 0; i < count; i++) {
+        const char *entry = environment[i];
+        if (!entry) {
+            return false;
+        }
+        size_t size = strnlen(entry, GT_EXT_PROCESS_ENVIRONMENT_VALUE_MAX + 1u);
+        const char *equal = memchr(entry, '=', size);
+        if (!equal || equal == entry || size > GT_EXT_PROCESS_ENVIRONMENT_VALUE_MAX ||
+            size + 1 > GT_EXT_PROCESS_ENVIRONMENT_BYTES_MAX - total) {
+            return false;
+        }
+        size_t key_size = (size_t)(equal - entry);
+        for (size_t j = 0; j < key_size; j++) {
+            char c = entry[j];
+            bool valid = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' ||
+                         (j > 0 && c >= '0' && c <= '9');
+            if (!valid) {
+                return false;
+            }
+        }
+        for (size_t j = 0; j < i; j++) {
+            const char *previous_equal = strchr(environment[j], '=');
+            if (previous_equal && (size_t)(previous_equal - environment[j]) == key_size &&
+                !memcmp(environment[j], entry, key_size)) {
+                return false;
+            }
+        }
+        total += size + 1;
+    }
+    return true;
+}
+
 gt_status_t gt__ext_process_spawn(const char *executable,
                                   const char *const *argv,
                                   size_t argc,
+                                  int cwd_fd,
+                                  const char *const *environment,
+                                  size_t environment_count,
                                   gt_ext_process_t **out) {
     if (out) {
         *out = NULL;
     }
-    if (!out || !arguments_valid(executable, argv, argc)) {
+    struct stat cwd_stat;
+    if (!out || !arguments_valid(executable, argv, argc) ||
+        !environment_valid(environment, environment_count) || cwd_fd < 0 ||
+        fstat(cwd_fd, &cwd_stat) || !S_ISDIR(cwd_stat.st_mode)) {
         return GT_ERR_INVALID_ARG;
     }
     int input[2] = {-1, -1};      /* child reads [0], parent writes [1] */
@@ -142,9 +184,11 @@ gt_status_t gt__ext_process_spawn(const char *executable,
     int max_fd = (int)max_open_fd;
     gt_ext_process_t *process = calloc(1, sizeof(*process));
     char **child_argv = calloc(argc + 1, sizeof(*child_argv));
-    if (!process || !child_argv) {
+    char **child_environment = calloc(environment_count + 1, sizeof(*child_environment));
+    if (!process || !child_argv || !child_environment) {
         free(process);
         free(child_argv);
+        free(child_environment);
         close_pipe(input);
         close_pipe(output);
         close_pipe(errors);
@@ -154,6 +198,9 @@ gt_status_t gt__ext_process_spawn(const char *executable,
     process->stdin_fd = process->stdout_fd = process->stderr_fd = -1;
     for (size_t i = 0; i < argc; i++) {
         child_argv[i] = (char *)argv[i];
+    }
+    for (size_t i = 0; i < environment_count; i++) {
+        child_environment[i] = (char *)environment[i];
     }
 
     pid_t pid = fork();
@@ -175,6 +222,11 @@ gt_status_t gt__ext_process_spawn(const char *executable,
             (void)write(exec_error[1], &error, sizeof(error));
             _exit(126);
         }
+        if (fchdir(cwd_fd)) {
+            int error = errno;
+            (void)write(exec_error[1], &error, sizeof(error));
+            _exit(126);
+        }
         if (dup2(input[0], STDIN_FILENO) < 0 || dup2(output[1], STDOUT_FILENO) < 0 ||
             dup2(errors[1], STDERR_FILENO) < 0) {
             int error = errno;
@@ -186,12 +238,13 @@ gt_status_t gt__ext_process_spawn(const char *executable,
                 (void)close(fd);
             }
         }
-        execve(executable, child_argv, environ);
+        execve(executable, child_argv, child_environment);
         int error = errno;
         (void)write(exec_error[1], &error, sizeof(error));
         _exit(127);
     }
     free(child_argv);
+    free(child_environment);
     if (pid < 0) {
         close_pipe(input);
         close_pipe(output);

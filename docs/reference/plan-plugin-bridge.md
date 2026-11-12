@@ -4697,6 +4697,12 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 
 `node --experimental-strip-types --test scripts/test-plugin-codex-protocol.mjs` 九项全绿：原协议 / 行边界用例、partial write / WAIT / 大 stderr drain、截断 EOF 的 unknown 结果，以及真实锁定 `codex-cli 0.166.0` 经生产 stdio adapter 完成 initialize、initialized、thread/start。真实测试只创建隔离 HOME 和本地 thread，不发 turn、不调用模型；进程在仓库 `tmp/` 环境下清理。TypeScript 5.9.3 `--strict` / ES2022 检查通过，`python3 -B scripts/check-plugin-codex-protocol.py` 的 stable schema / 决策锁复验通过。测试早期发现一项 stdio fake 只消费 16 KiB、断言却期待整段 1 MiB stderr 已排空；改为逐 slice 驱动 64 次后通过，此为测试驱动假设错误，不记产品断言红。手工证据，不增加 macOS CI 二十份，P3 仍未完成。
 
+### P3 实施第八批：子进程 cwd 与环境显式隔离
+
+Runtime 尚未接入 process service 时，先收紧内部 POSIX child owner 的启动边界：spawn 必须传入有效目录 fd 和显式环境数组；child 在 exec 前 `fchdir` 到该目录，`execve` 只收到该环境 allowlist，不再继承宿主完整环境。环境最多 32 项、单项不超过 4 KiB、合计不超过 16 KiB；变量名按 ASCII 标识符校验、重复键和缺少 `=` 拒绝。工作目录 fd 必须指向目录。argv 仍按原来的有界 raw argv 传递，不经 shell 或 PATH 查找。
+
+新增 cwd 与 environment 两个 CTest，并扩展 spawn 参数负例：`/usr/bin/env` 只看到显式测试变量，即使父环境另设 secret-marker 也不泄漏；`/bin/pwd` 运行于传入的父目录 fd；缺分隔符、非法 key、重复变量与非目录 fd 均拒绝。聚焦六项全绿。`bash scripts/gate.sh` 在该实现下通过（480/480 CTest、177 ABI 符号双向对拍、未实现入口检查）；全仓 C 格式检查覆盖 217 文件通过。子进程仍无 Runtime / PluginContext grant 接线、进程配额或 deadline；cwd/env 策略目前由可信 Native caller 提供。本批未改公共 ABI，不增加 macOS CI 二十份，P3 仍未完成。
+
 ### P3 实施第七批：保留 process.spawn manifest 程序范围
 
 Native checked package 过去只保留 `process.spawn` capability 名称，后续宿主无法从不可变 checked metadata 获得此包在 Executor 侧声明的程序 allowlist。现在 package metadata checker 要求 Executor 的 `process.spawn` permission 明确列出 1–16 个程序名；Client 仍先报端角色错误。成功检查结果携带 `processPrograms`，Core `gt_package_check_info_t` 将它复制为最多 16 个固定名称。该列表只是经过结构与完整性检查的包声明，不代表用户授权、host 可用性、实际路径或 executable identity；每次 spawn 仍须实时核查 Session grant 和 Host 映射。
