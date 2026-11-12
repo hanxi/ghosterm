@@ -26,6 +26,7 @@ struct ExtensionsPane: View {
         var methodsJSON = "[]"
         var hostMethodsJSON = "[]"
         var resourceRoot = ""
+        var processProgramsJSON = "[]"
         init(review: ExtensionController.PackageReview) {
             self.review = review
             self.command = review.commands.first?.path ?? ""
@@ -96,6 +97,11 @@ struct ExtensionsPane: View {
                                 .accessibilityIdentifier("plugin-host-methods-\(entry.review.id)")
                             TextField("远端资源目录（留空则不开放）", text: $entry.resourceRoot)
                                 .accessibilityIdentifier("plugin-resource-root-\(entry.review.id)")
+                            TextField("远端进程映射 JSON", text: $entry.processProgramsJSON, axis: .vertical)
+                                .lineLimit(2...5)
+                                .accessibilityIdentifier("plugin-process-programs-\(entry.review.id)")
+                            Text("映射格式：[{\"name\":\"codex\",\"executable\":\"/绝对路径\",\"version\":\"0.166.0\",\"sha256\":\"64 位摘要\"}]。配置进程映射还需提供 workspace root；摘要由远端 Core 实际核对。")
+                                .font(DS.Font.caption).foregroundStyle(.secondary)
                             Button("连接并启动 Client 命令") { launch(entry) }
                                 .disabled(model.extensionRunBusy || model.extensionRun != nil)
                                 .accessibilityIdentifier("plugin-launch-\(entry.review.id)")
@@ -164,6 +170,7 @@ struct ExtensionsPane: View {
             let arguments = try ExtensionRelayBootstrap.parseArgumentsJSON(entry.argumentsJSON)
             let methods = try ExtensionRelayBootstrap.parseMethodsJSON(entry.methodsJSON)
             let hostMethods = try ExtensionRelayBootstrap.parseHostMethodsJSON(entry.hostMethodsJSON)
+            let processPrograms = try ExtensionRelayBootstrap.parseProcessProgramsJSON(entry.processProgramsJSON)
             let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.resourceRoot.isEmpty
                 ? [] : [.init(id: "workspace", directory: entry.resourceRoot)]
             guard !entry.sshAlias.isEmpty else { throw GhostermCore.GhostermError.failed("请填写 SSH 主机别名") }
@@ -173,7 +180,7 @@ struct ExtensionsPane: View {
                     arguments: arguments, sshAlias: entry.sshAlias,
                     executable: entry.executable, executorDirectory: entry.executorDirectory,
                     executorDigest: entry.executorDigest, methods: methods, hostMethods: hostMethods,
-                    scopedRoots: roots)
+                    scopedRoots: roots, processPrograms: processPrograms)
             }
         } catch { issue = "插件启动参数无效：\(error)" }
     }
@@ -202,6 +209,8 @@ struct ExtensionsPane: View {
                session.phase == GhostermCore.ExtensionSession.Phase.consent.rawValue {
                 Text("远端请求建立 Native Session。请核对上方固定包摘要、远端身份、命令、参数与本次 RPC allowlist；批准后 Client JavaScript 才会激活。")
                     .font(DS.Font.caption).foregroundStyle(.secondary)
+                Text("请求能力：\(run.requiredCapabilities.joined(separator: ", "))")
+                    .font(DS.Font.caption).textSelection(.enabled)
                 HStack {
                     Button("拒绝并结束") { Task { await model.decideExtensionConsent(allow: false) } }
                         .accessibilityIdentifier("plugin-consent-deny")

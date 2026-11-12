@@ -73,20 +73,24 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 val id = sessions.connectExtensionRoute(target, request) { ready ->
                     try {
                         check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
+                        val extraCapabilities = buildList {
+                            if (request.workspaceRootDirectory != null) add("file.readScoped")
+                            if (request.processPrograms.isNotEmpty()) {
+                                add("process.spawn")
+                                add("process.pipes")
+                            }
+                        }
                         val adopted = owner.adoptSSHSession(entry.review.id, entry.review.digest,
                             request.executorDigest, "0.1.0", target.alias,
                             (request.methods.map { it to ExtensionSession.Role.EXECUTOR } +
                                 request.hostMethods.map { it to ExtensionSession.Role.HOST }).map { (method, receiver) ->
                                 ExtensionSession.Method(method, "session.rpc", receiver,
                                     ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
-                            }, additionalRequiredCapabilities =
-                                if (request.workspaceRootDirectory == null) emptyList() else listOf("file.readScoped"))
+                            }, additionalRequiredCapabilities = extraCapabilities)
                         activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
                             request.arguments.toList(), decoded, request.methods.toList(), request.hostMethods.toList(),
                             request.executorDigest, target.alias, ExtensionRelayBootstrap.build(request),
-                            (entry.review.requiredCapabilities +
-                                if (request.workspaceRootDirectory == null) emptyList() else listOf("file.readScoped"))
-                                .distinct(), adopted.info)
+                            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info)
                         launchBusy = false
                         viewModelScope.launch { advanceToConsent(owner) }
                         true

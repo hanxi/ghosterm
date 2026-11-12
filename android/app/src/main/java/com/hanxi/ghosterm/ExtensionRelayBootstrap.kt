@@ -8,6 +8,13 @@ import java.io.StringReader
  * Values are argv tokens quoted for the remote POSIX shell; this does not
  * discover or install gterm. */
 object ExtensionRelayBootstrap {
+    data class ProcessProgram(
+        val name: String,
+        val executable: String,
+        val version: String,
+        val sha256: String,
+    )
+
     data class Request(
         val executable: String,
         val executorDirectory: String,
@@ -18,6 +25,7 @@ object ExtensionRelayBootstrap {
         val command: String,
         val arguments: List<String> = emptyList(),
         val workspaceRootDirectory: String? = null,
+        val processPrograms: List<ProcessProgram> = emptyList(),
     )
 
     /** Accept a JSON string array so the UI never invents a shell tokenizer. */
@@ -37,6 +45,57 @@ object ExtensionRelayBootstrap {
             "Host RPC 方法名无效或重复"
         }
         return methods
+    }
+
+    fun parseProcessProgramsJson(source: String): List<ProcessProgram> {
+        require(source.toByteArray().size <= 65536) { "进程映射 JSON 超过 64 KiB" }
+        return try {
+            JsonReader(StringReader(source)).use { reader ->
+                reader.isLenient = false
+                require(reader.peek() == JsonToken.BEGIN_ARRAY) { "进程映射必须是 JSON 对象数组" }
+                reader.beginArray()
+                val result = buildList {
+                    while (reader.hasNext()) {
+                        require(size < 16) { "进程映射最多 16 项" }
+                        reader.beginObject()
+                        var name: String? = null
+                        var executable: String? = null
+                        var version: String? = null
+                        var sha256: String? = null
+                        val seen = mutableSetOf<String>()
+                        while (reader.hasNext()) {
+                            val key = reader.nextName()
+                            require(seen.add(key) && key in setOf("name", "executable", "version", "sha256")) {
+                                "进程映射对象字段重复或未知"
+                            }
+                            require(reader.peek() == JsonToken.STRING) { "进程映射字段必须是字符串" }
+                            when (key) {
+                                "name" -> name = reader.nextString()
+                                "executable" -> executable = reader.nextString()
+                                "version" -> version = reader.nextString()
+                                "sha256" -> sha256 = reader.nextString()
+                            }
+                        }
+                        reader.endObject()
+                        require(seen == setOf("name", "executable", "version", "sha256")) {
+                            "进程映射必须且只能包含 name、executable、version、sha256"
+                        }
+                        add(ProcessProgram(checkNotNull(name), checkNotNull(executable),
+                            checkNotNull(version), checkNotNull(sha256)))
+                    }
+                }
+                reader.endArray()
+                require(reader.peek() == JsonToken.END_DOCUMENT) { "进程映射 JSON 后不能有额外内容" }
+                require(result.distinctBy { it.name }.size == result.size && result.all(::validProcessProgram)) {
+                    "进程映射字段无效、重复或超过限制"
+                }
+                result
+            }
+        } catch (failure: IllegalArgumentException) {
+            throw failure
+        } catch (failure: Exception) {
+            throw IllegalArgumentException("进程映射必须是有效的严格 JSON 对象数组", failure)
+        }
     }
 
     private fun parseStringArray(source: String, limit: Int, label: String): List<String> {
@@ -82,6 +141,11 @@ object ExtensionRelayBootstrap {
             "Host RPC 方法名无效、重复或与 Executor 方法冲突（最多 16 个）"
         }
         require(request.arguments.size <= 32) { "命令参数最多 32 项" }
+        require(request.processPrograms.size <= 16 && request.processPrograms.distinctBy { it.name }.size == request.processPrograms.size &&
+            request.processPrograms.all(::validProcessProgram) &&
+            (request.processPrograms.isEmpty() || request.workspaceRootDirectory != null)) {
+            "进程映射必须唯一有效，并且需要显式 workspace root"
+        }
         val argv = buildList {
             add(request.executable)
             add("relay"); add("--stdio")
@@ -90,6 +154,9 @@ object ExtensionRelayBootstrap {
             request.methods.forEach { add("--method"); add(it) }
             request.hostMethods.forEach { add("--host-method"); add(it) }
             request.workspaceRootDirectory?.let { add("--root"); add("workspace"); add(it) }
+            request.processPrograms.forEach {
+                add("--process-program"); add(it.name); add(it.executable); add(it.version); add(it.sha256)
+            }
             add("--"); add(request.executorDirectory); add(request.command)
             addAll(request.arguments)
         }
@@ -103,6 +170,16 @@ object ExtensionRelayBootstrap {
 
     private fun validMethod(value: String): Boolean = value.length <= 128 &&
         value.matches(Regex("[a-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*"))
+
+    private fun validProcessProgram(program: ProcessProgram): Boolean =
+        program.name.length in 1..128 && program.name.all {
+            it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '.' || it == '_' || it == '-'
+        } && program.executable.startsWith('/') && program.executable.toByteArray().size <= 4096 &&
+        program.version.isNotBlank() && program.version.toByteArray().size <= 128 &&
+        '\u0000' !in program.name && '\n' !in program.name && '\r' !in program.name &&
+        '\u0000' !in program.executable && '\n' !in program.executable && '\r' !in program.executable &&
+        '\u0000' !in program.version && '\n' !in program.version && '\r' !in program.version &&
+        program.sha256.matches(Regex("[a-f0-9]{64}"))
 
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }

@@ -190,16 +190,23 @@ class ExtensionController(profile: HostProfile, context: Context) {
         check(metadata.id == pluginID && metadata.packageDigest == packageDigest && !metadata.executor) {
             "固定包不是所选 Client 包"
         }
+        val remoteProcessCapabilities = listOf("process.spawn", "process.pipes")
+        val requestedRemoteProcess = additionalRequiredCapabilities.any { it in remoteProcessCapabilities }
+        val remoteProcessPairComplete = remoteProcessCapabilities.all { it in additionalRequiredCapabilities }
         check(metadata.requires.size + additionalRequiredCapabilities.size <= 16 &&
-            additionalRequiredCapabilities.all { it in hostCapabilities } &&
+            additionalRequiredCapabilities.all { it in hostCapabilities || it in remoteProcessCapabilities } &&
+            (!requestedRemoteProcess || remoteProcessPairComplete) &&
             (metadata.requires + additionalRequiredCapabilities).distinct().size ==
                 metadata.requires.size + additionalRequiredCapabilities.size) {
             "附加 Session 能力必须由 Host 支持且不能重复"
         }
         val receiveStore = if ("resource.receive" in metadata.requires) resourceStoreOnWorker() else null
+        val sessionAvailable = hostCapabilities + remoteProcessCapabilities.filter {
+            requestedRemoteProcess && it !in hostCapabilities
+        }
         val owned = ExtensionSession.adopt(bytes, ExtensionSession.Role.HOST,
             ExtensionSession.Config(metadata.id, metadata.version, metadata.packageDigest, executorDigest,
-                hostVersion, metadata.sdkVersion, metadata.requires + additionalRequiredCapabilities, hostCapabilities,
+                hostVersion, metadata.sdkVersion, metadata.requires + additionalRequiredCapabilities, sessionAvailable,
                 budgets = ExtensionSession.Budgets(resourceBytes = RESOURCE_BYTES.toInt()),
                 peerKind = ExtensionSession.PeerKind.SSH, peerIdentity = peerIdentity, methods = methods.toList()), resourceStore = receiveStore,
             resourceScopeBytes = RESOURCE_SESSION_BYTES)

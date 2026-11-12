@@ -4816,3 +4816,11 @@ JS-enabled `scripts/test-plugin-runtime.py --mutate --fetch` 通过：原 Runtim
 `scripts/test-gterm-stdio.py --case process-config` 以真实隔离 stdio Session、Core Runtime、QuickJS 与 `/bin/cat` 固定摘要配置验证插件拿到 Host process service；同一 process 包不配置映射时以 unsupported 拒绝。此前 stdio 全集 17 项通过，该新增配置/缺失配置两项随后分开通过。`python3 -B scripts/mutation-check-gterm.py --stdio` 七组变异目标红 / 同配置对照绿 / 源码恢复与 SHA-256 均通过；初次 runner 启动因本机缺少 lockfile 对应的 npm 离线缓存未执行，缓存锁定工具包后才完成整轮。过程中发现变异 runner 的 method-role 源码锚点早已失配，已对齐到当前真实实现后验证。
 
 `bash scripts/gate.sh` 通过：481/481 CTest、177 个公共 ABI 符号双向对拍及未实现入口检查。不改 `ghosterm.h`，不增加 macOS CI 二十份。clang-format 19.1.7 未安装，故本轮 `scripts/format-c.py --check` 未能执行。此批接上 gterm 远端 Executor Host 配置和 Core service；macOS / Android 设置界面尚未收集并传递这些映射，Host 版本探测、真实 Codex turn / approval、native UI 仍待完成，P3 不记闭环。
+
+### P3 实施第二十三批：macOS / Android 启动设置传递 Host 进程映射
+
+两端插件启动表单现可输入严格 JSON 数组形式的远端进程映射（逻辑名、绝对 executable 路径、Host 声明版本、SHA-256）。校验拒绝未知/缺失字段、重复程序名、相对路径、非法摘要和超限数量；进程映射必须与显式 workspace root 一起提交。Bootstrap 将每个映射编码为单独的 `--process-program` argv token，最终仍执行统一 POSIX quoting 与 1024 字节 SSH 命令上限检查。Apple / Android Native Session 仅在本次存在映射时，把 `process.spawn` + `process.pipes` 加入额外 required 和本次 available capability；Client 包兼容性 profile 不因此宣称本地提供 Executor 进程服务。Consent 页面显示所需能力；Apple 显示本次 required capabilities，Android 另显示能力清单；远端启动命令展示实际映射值。gterm/Core 仍负责目标 Host executable 的实际 SHA-256 / 文件身份核验。
+
+Apple `apple-app-gate.sh` 的 `testRelayBootstrapValidatesAndQuotesEveryArgument` 定向通过（1 项、0 失败），覆盖映射编码、严格解析、相对路径拒绝和缺少 root 拒绝；Apple ABI 174 引用 / 3 登记未用对拍通过，headless WebKit CSS/PNG 绘制 probe 通过。Android 使用仓库 JDK 17 和离线依赖执行 `:app:compileDebugKotlin :app:compileDebugAndroidTestKotlin`，BUILD SUCCESSFUL；新增 Android instrumentation 用例覆盖映射解析、quote、摘要和缺少 root 拒绝，但本批没有启动 AVD 或执行 instrumentation。`git diff --check` 通过；无 C ABI 变化，不增加 macOS CI 二十份。
+
+此批让两端 Native 启动表单能够提交显式远端 process mapping，并在 Session consent 中展示 process capability 请求；尚未完成 Android 仪器运行 / 真机验证、用户点击整链 UI E2E、独立远端 `--version` 探测、真实 Codex app-server turn / approval 与原生 chat/diff UI，故 P3 仍未闭环。

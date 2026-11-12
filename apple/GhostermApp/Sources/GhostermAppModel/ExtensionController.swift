@@ -483,11 +483,20 @@ public actor ExtensionController {
                       !hostVersion.utf8.contains(0), !peerIdentity.utf8.contains(0),
                       (try channel.info()).phase == .ready else { throw ControllerError.channelUnavailable }
                 let metadata = try record.package.metadata()
+                let remoteProcessCapabilityList = ["process.spawn", "process.pipes"]
+                let remoteProcessCapabilities = Set(remoteProcessCapabilityList)
+                let requestedRemoteProcess = !Set(additionalRequiredCapabilities)
+                    .intersection(remoteProcessCapabilities).isEmpty
+                let remoteProcessPairComplete = Set(additionalRequiredCapabilities)
+                    .intersection(remoteProcessCapabilities) == remoteProcessCapabilities
                 guard metadata.id == pluginID, metadata.packageDigest == packageDigest,
                       !metadata.executor, metadata.requires.allSatisfy(self.hostCapabilities.contains),
                       additionalRequiredCapabilities.count <= 16,
                       Set(additionalRequiredCapabilities).count == additionalRequiredCapabilities.count,
-                      additionalRequiredCapabilities.allSatisfy(self.hostCapabilities.contains),
+                      additionalRequiredCapabilities.allSatisfy({
+                          self.hostCapabilities.contains($0) || remoteProcessCapabilities.contains($0)
+                      }),
+                      !requestedRemoteProcess || remoteProcessPairComplete,
                       input.count <= 16 else { throw ControllerError.registry(ExtensionRegistry.Status.unsupported.rawValue) }
                 var requiredCapabilities = metadata.requires
                 for capability in additionalRequiredCapabilities where !requiredCapabilities.contains(capability) {
@@ -504,11 +513,13 @@ public actor ExtensionController {
                                                    outputShape: outputShape)
                 }
                 let resourceStore = try self.openResourceStoreIfNeeded()
+                let sessionAvailable = self.hostCapabilities + remoteProcessCapabilityList
+                    .filter { requestedRemoteProcess && !self.hostCapabilities.contains($0) }
                 let session = try ExtensionSession(channel: channel, role: .host,
                     config: .init(pluginID: metadata.id, pluginVersion: metadata.version,
                                   clientDigest: metadata.packageDigest, executorDigest: executorDigest,
                                   hostVersion: hostVersion, sdkVersion: metadata.sdkVersion,
-                                  required: requiredCapabilities, available: self.hostCapabilities,
+                                  required: requiredCapabilities, available: sessionAvailable,
                                   peerKind: .ssh, peerIdentity: peerIdentity, methods: methods),
                     resourceStore: resourceStore)
                 self.channel = nil

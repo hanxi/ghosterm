@@ -13,6 +13,18 @@ public enum ExtensionRelayBootstrap {
         }
     }
 
+    public struct ProcessProgram: Sendable, Equatable {
+        public let name: String
+        public let executable: String
+        public let version: String
+        public let sha256: String
+
+        public init(name: String, executable: String, version: String, sha256: String) {
+            self.name = name; self.executable = executable
+            self.version = version; self.sha256 = sha256
+        }
+    }
+
     public struct Request: Sendable {
         public let executable: String
         public let executorDirectory: String
@@ -21,17 +33,20 @@ public enum ExtensionRelayBootstrap {
         public let methods: [String]
         public let hostMethods: [String]
         public let scopedRoots: [ScopedRoot]
+        public let processPrograms: [ProcessProgram]
         public let command: String
         public let arguments: [String]
 
         public init(executable: String, executorDirectory: String, executorDigest: String,
                     clientDigest: String, methods: [String], hostMethods: [String] = [],
                     scopedRoots: [ScopedRoot] = [],
+                    processPrograms: [ProcessProgram] = [],
                     command: String, arguments: [String] = []) {
             self.executable = executable; self.executorDirectory = executorDirectory
             self.executorDigest = executorDigest; self.clientDigest = clientDigest
             self.methods = methods; self.hostMethods = hostMethods
             self.scopedRoots = scopedRoots
+            self.processPrograms = processPrograms
             self.command = command; self.arguments = arguments
         }
     }
@@ -56,6 +71,33 @@ public enum ExtensionRelayBootstrap {
         return methods
     }
 
+    public static func parseProcessProgramsJSON(_ source: String) throws -> [ProcessProgram] {
+        guard source.utf8.count <= 65536, let data = source.data(using: .utf8) else {
+            throw invalid("进程映射 JSON 超过 64 KiB 或不是 UTF-8")
+        }
+        do {
+            guard let values = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  values.count <= 16 else { throw invalid("进程映射必须是最多 16 项的 JSON 对象数组") }
+            let expected: Set<String> = ["name", "executable", "version", "sha256"]
+            let programs = try values.map { value -> ProcessProgram in
+                guard Set(value.keys) == expected,
+                      let name = value["name"] as? String,
+                      let executable = value["executable"] as? String,
+                      let version = value["version"] as? String,
+                      let sha256 = value["sha256"] as? String else {
+                    throw invalid("每个进程映射必须且只能包含 name、executable、version、sha256")
+                }
+                return ProcessProgram(name: name, executable: executable, version: version, sha256: sha256)
+            }
+            guard Set(programs.map(\.name)).count == programs.count,
+                  programs.allSatisfy(validProcessProgram) else {
+                throw invalid("进程映射字段无效、重复或超过限制")
+            }
+            return programs
+        } catch let error as GhostermError { throw error }
+        catch { throw invalid("进程映射必须是严格 JSON 对象数组") }
+    }
+
     public static func build(_ request: Request) throws -> String {
         guard !request.executable.isEmpty, !request.executorDirectory.isEmpty,
               !request.command.isEmpty else { throw invalid("请指定 gterm、Executor 目录和完整插件命令") }
@@ -76,11 +118,20 @@ public enum ExtensionRelayBootstrap {
               request.scopedRoots.allSatisfy({ validRootID($0.id) && !$0.directory.isEmpty }) else {
             throw invalid("受控目录必须有唯一的 ASCII ID 和非空远端路径，最多 8 项")
         }
+        guard request.processPrograms.count <= 16,
+              Set(request.processPrograms.map(\.name)).count == request.processPrograms.count,
+              request.processPrograms.allSatisfy(validProcessProgram),
+              request.processPrograms.isEmpty || !request.scopedRoots.isEmpty else {
+            throw invalid("进程映射必须唯一有效，并且需要至少一个显式 workspace root")
+        }
         let argv = [request.executable, "relay", "--stdio", "--trust-development-digest", request.executorDigest,
                     "--client-digest", request.clientDigest]
             + request.methods.flatMap { ["--method", $0] }
             + request.hostMethods.flatMap { ["--host-method", $0] }
             + request.scopedRoots.flatMap { ["--root", $0.id, $0.directory] }
+            + request.processPrograms.flatMap {
+                ["--process-program", $0.name, $0.executable, $0.version, $0.sha256]
+            }
             + ["--", request.executorDirectory, request.command] + request.arguments
         guard argv.allSatisfy({
             !$0.utf8.contains(0) && !$0.contains("\n") && !$0.contains("\r") && $0.utf8.count <= 4096
@@ -123,6 +174,20 @@ public enum ExtensionRelayBootstrap {
         return bytes.dropFirst().allSatisfy {
             (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95 || $0 == 46
         }
+    }
+
+    private static func validProcessProgram(_ program: ProcessProgram) -> Bool {
+        let name = program.name.utf8
+        let validName = !name.isEmpty && name.count <= 128 && name.allSatisfy {
+            (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) ||
+                $0 == 46 || $0 == 95 || $0 == 45
+        }
+        return validName && program.executable.hasPrefix("/") &&
+            program.executable.utf8.count <= 4096 && !program.executable.contains("\n") &&
+            !program.executable.contains("\r") && !program.executable.utf8.contains(0) &&
+            !program.version.isEmpty && program.version.utf8.count <= 128 &&
+            !program.version.contains("\n") && !program.version.contains("\r") &&
+            !program.version.utf8.contains(0) && isDigest(program.sha256)
     }
 
     private static func isDigest(_ value: String) -> Bool {

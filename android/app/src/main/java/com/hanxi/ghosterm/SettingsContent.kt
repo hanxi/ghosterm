@@ -621,6 +621,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var argumentsJson by remember { mutableStateOf("[]") }
     var methodsJson by remember { mutableStateOf("[]") }
     var hostMethodsJson by remember { mutableStateOf("[]") }
+    var processProgramsJson by remember { mutableStateOf("[]") }
     var problem by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest = onDismiss,
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
@@ -656,9 +657,13 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     label = { Text("允许调用的 Executor RPC 方法") }, placeholder = { Text("[\"task.run\"]") })
                 OutlinedTextField(hostMethodsJson, { hostMethodsJson = it }, minLines = 2, maxLines = 4,
                     label = { Text("允许 Executor 调用的 Host RPC 方法") }, placeholder = { Text("[\"host.confirm\"]") })
+                OutlinedTextField(processProgramsJson, { processProgramsJson = it }, minLines = 2, maxLines = 5,
+                    modifier = Modifier.testTag("plugin-process-programs"),
+                    label = { Text("远端 Executor 进程映射（可选）") },
+                    placeholder = { Text("[{\"name\":\"codex\",\"executable\":\"/path/codex\",\"version\":\"0.166.0\",\"sha256\":\"…\"}]") })
                 Text("仅填写后才会把该目录作为 workspace 显式传给 Executor；留空时不开放文件读取。将通过 SSH 明确启动指定目录中的 Executor。开发摘要是本次显式信任选择，不代表发布者签名认证；不会自动下载或安装。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("argv 和两类 RPC 方法均需填写 JSON 字符串数组。方法名是本次连接的允许列表；输入与输出固定为 object。Host 方法由 Client 插件通过 Portable SDK 注册 handler；未注册的方法会返回 UNSUPPORTED。",
+                Text("argv 和两类 RPC 方法均需填写 JSON 字符串数组。进程映射是 Native Host 对远端程序路径、版本和摘要的显式选择，须同时提供 workspace root；批准后才请求 process.spawn / process.pipes。子进程不会继承任意环境变量。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
@@ -670,7 +675,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         executorDigest.trim(), entry.review.digest, ExtensionRelayBootstrap.parseMethodsJson(methodsJson),
                         ExtensionRelayBootstrap.parseHostMethodsJson(hostMethodsJson), command.path,
                         ExtensionRelayBootstrap.parseArgumentsJson(argumentsJson),
-                        workspaceRootDirectory.takeUnless { it.isBlank() })
+                        workspaceRootDirectory.takeUnless { it.isBlank() },
+                        ExtensionRelayBootstrap.parseProcessProgramsJson(processProgramsJson))
                     ExtensionRelayBootstrap.build(request)
                     onLaunch(selectedHost, request)
                 } catch (failure: IllegalArgumentException) {

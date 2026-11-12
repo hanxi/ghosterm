@@ -70,6 +70,30 @@ class ExtensionChannelTest {
         }
     }
 
+    @Test fun relayBootstrapAddsOnlyValidatedNativeProcessMappings() {
+        val digest = "c".repeat(64)
+        val root = "/srv/work space"
+        val mapping = ExtensionRelayBootstrap.ProcessProgram(
+            "codex", "/home/user/.local/bin/codex", "0.166.0", digest)
+        val request = ExtensionRelayBootstrap.Request(
+            executable = "gterm", executorDirectory = "/opt/plugin", executorDigest = "a".repeat(64),
+            clientDigest = "b".repeat(64), methods = emptyList(), command = "ai codex",
+            workspaceRootDirectory = root, processPrograms = listOf(mapping))
+        val command = ExtensionRelayBootstrap.build(request)
+        assertTrue(command.contains("'--root' 'workspace' '$root'"))
+        assertTrue(command.contains("'--process-program' 'codex' '/home/user/.local/bin/codex' '0.166.0' '$digest'"))
+        assertTrue(command.endsWith("'--' '/opt/plugin' 'ai codex'"))
+        assertEquals(mapping, ExtensionRelayBootstrap.parseProcessProgramsJson(
+            "[{\"name\":\"codex\",\"executable\":\"/home/user/.local/bin/codex\",\"version\":\"0.166.0\",\"sha256\":\"$digest\"}]").single())
+        assertThrows(IllegalArgumentException::class.java) {
+            ExtensionRelayBootstrap.parseProcessProgramsJson(
+                "[{\"name\":\"codex\",\"executable\":\"relative\",\"version\":\"0.166.0\",\"sha256\":\"$digest\"}]")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            ExtensionRelayBootstrap.build(request.copy(workspaceRootDirectory = null))
+        }
+    }
+
     private fun clientPackage(id: String): File {
         val root = File(instrumentation.targetContext.cacheDir, "extension-client-e2e-${System.nanoTime()}")
         check(root.mkdirs())

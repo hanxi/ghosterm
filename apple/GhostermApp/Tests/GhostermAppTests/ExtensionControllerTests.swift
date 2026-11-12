@@ -129,6 +129,27 @@ final class ExtensionControllerTests: XCTestCase {
             "exec '/opt/gterm' 'relay' '--stdio' '--trust-development-digest' '\(digest)' " +
             "'--client-digest' '\(digest)' '--root' 'workspace' '/srv/project files' " +
             "'--' '/opt/plugins/executor' 'fixture.run'")
+        let mapped = ExtensionRelayBootstrap.Request(
+            executable: "/opt/gterm", executorDirectory: "/opt/plugins/executor",
+            executorDigest: digest, clientDigest: digest, methods: [],
+            scopedRoots: [.init(id: "workspace", directory: "/srv/project")],
+            processPrograms: [.init(name: "codex", executable: "/home/user/.local/bin/codex",
+                                    version: "0.166.0", sha256: digest)],
+            command: "fixture.run")
+        XCTAssertEqual(try ExtensionRelayBootstrap.build(mapped),
+            "exec '/opt/gterm' 'relay' '--stdio' '--trust-development-digest' '\(digest)' " +
+            "'--client-digest' '\(digest)' '--root' 'workspace' '/srv/project' " +
+            "'--process-program' 'codex' '/home/user/.local/bin/codex' '0.166.0' '\(digest)' " +
+            "'--' '/opt/plugins/executor' 'fixture.run'")
+        XCTAssertEqual(try ExtensionRelayBootstrap.parseProcessProgramsJSON(
+            "[{\"name\":\"codex\",\"executable\":\"/usr/local/bin/codex\",\"version\":\"0.166.0\",\"sha256\":\"\(digest)\"}]").count, 1)
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.parseProcessProgramsJSON(
+            "[{\"name\":\"codex\",\"executable\":\"relative/codex\",\"version\":\"0.166.0\",\"sha256\":\"\(digest)\"}]"))
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.build(.init(
+            executable: "/opt/gterm", executorDirectory: "/opt/executor",
+            executorDigest: digest, clientDigest: digest, methods: [],
+            processPrograms: [.init(name: "codex", executable: "/usr/local/bin/codex",
+                                    version: "0.166.0", sha256: digest)], command: "fixture.run")))
         XCTAssertEqual(try ExtensionRelayBootstrap.parseArgumentsJSON(#"["a", "b c"]"#), ["a", "b c"])
         XCTAssertThrowsError(try ExtensionRelayBootstrap.parseArgumentsJSON(#"["ok"] false"#))
         XCTAssertThrowsError(try ExtensionRelayBootstrap.parseMethodsJSON(#"["bad..name"]"#))

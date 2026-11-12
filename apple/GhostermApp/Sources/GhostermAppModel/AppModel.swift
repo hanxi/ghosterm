@@ -66,6 +66,7 @@ public final class AppModel: ObservableObject {
         public let remoteCommand: String
         public let methods: [String]
         public let hostMethods: [String]
+        public let requiredCapabilities: [String]
         public let session: ExtensionController.SessionState?
         public let runtime: ExtensionController.RuntimeState?
         public let receivedResources: [ExtensionController.ReceivedResource]
@@ -1093,7 +1094,8 @@ public final class AppModel: ObservableObject {
                                      arguments: [String], sshAlias: String, executable: String,
                                      executorDirectory: String, executorDigest: String,
                                      methods: [String], hostMethods: [String],
-                                     scopedRoots: [ExtensionRelayBootstrap.ScopedRoot] = []) async {
+                                     scopedRoots: [ExtensionRelayBootstrap.ScopedRoot] = [],
+                                     processPrograms: [ExtensionRelayBootstrap.ProcessProgram] = []) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
         extensionRunBusy = true; extensionRunIssue = nil
@@ -1112,8 +1114,10 @@ public final class AppModel: ObservableObject {
             let bootstrap = try ExtensionRelayBootstrap.build(.init(executable: executable,
                 executorDirectory: executorDirectory, executorDigest: executorDigest,
                 clientDigest: packageDigest, methods: methods, hostMethods: hostMethods,
-                scopedRoots: scopedRoots,
+                scopedRoots: scopedRoots, processPrograms: processPrograms,
                 command: command, arguments: arguments))
+            let additionalCapabilities = (scopedRoots.isEmpty ? [] : ["file.readScoped"]) +
+                (processPrograms.isEmpty ? [] : ["process.spawn", "process.pipes"])
             _ = try await authenticatePluginSSHChannel(alias: sshAlias, bootstrap: bootstrap)
             let rpcMethods = methods.map {
                 ExtensionController.RPCMethod(name: $0, capability: "session.rpc",
@@ -1127,12 +1131,13 @@ public final class AppModel: ObservableObject {
             let session = try await extensionController.adoptSSHSession(pluginID: packageID,
                 packageDigest: packageDigest, executorDigest: executorDigest,
                 hostVersion: version, peerIdentity: sshAlias, methods: rpcMethods,
-                additionalRequiredCapabilities: scopedRoots.isEmpty ? [] : ["file.readScoped"])
+                additionalRequiredCapabilities: additionalCapabilities)
             extensionRunInvocation = (packageID, packageDigest, command, arguments)
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
                 peerIdentity: sshAlias, remoteCommand: bootstrap, methods: methods, hostMethods: hostMethods,
+                requiredCapabilities: Array(Set(selected.requiredCapabilities + additionalCapabilities)).sorted(),
                 session: session, runtime: nil, receivedResources: [])
             let deadline = ProcessInfo.processInfo.systemUptime + 60
             var current = session
@@ -1263,6 +1268,7 @@ public final class AppModel: ObservableObject {
             executorDigest: run.executorDigest,
             peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
             methods: run.methods, hostMethods: run.hostMethods,
+            requiredCapabilities: run.requiredCapabilities,
             session: session, runtime: run.runtime, receivedResources: run.receivedResources)
     }
 
@@ -1273,6 +1279,7 @@ public final class AppModel: ObservableObject {
             executorDigest: run.executorDigest,
             peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
             methods: run.methods, hostMethods: run.hostMethods,
+            requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: runtime, receivedResources: run.receivedResources)
     }
 
@@ -1288,6 +1295,7 @@ public final class AppModel: ObservableObject {
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
             remoteCommand: run.remoteCommand, methods: run.methods, hostMethods: run.hostMethods,
+            requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: run.runtime,
             receivedResources: run.receivedResources + [resource])
     }
