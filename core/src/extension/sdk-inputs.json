@@ -4,7 +4,7 @@
   "sdkApiVersion": "1.0.0",
   "bridgeProtocol": 1,
   "candidate": true,
-  "sdkDigest": "33f21ca72f9ff5126040855655f8e3c68a8c8f5aa4d8d8d93dffd7d873d1614c",
+  "sdkDigest": "0c80b421fc17f6e7dcdab241f9fe4ace4a0e35b4a7d0946649e0e53b9bb7e8d2",
   "modules": [
     {
       "name": "sdk:/codec.js",
@@ -15,6 +15,11 @@
       "name": "sdk:/index.js",
       "bytes": 221,
       "sha256": "7f34d23bbf354ba133b33530c6de6166e24cb3df63ba6b7ec57d04efed7123d3"
+    },
+    {
+      "name": "sdk:/process.js",
+      "bytes": 11,
+      "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
     },
     {
       "name": "sdk:/resources.js",
@@ -34,7 +39,8 @@
   ],
   "inputs": {
     "packages/plugin-sdk/portable/codec.ts": "409066af0c26b305b8c527f270268bafb70a3ba420e9cd32449ff657d3708245",
-    "packages/plugin-sdk/portable/index.ts": "c0ce53b622efb33af864c30319b5d064dc1ed44164846eeebf891b2b77ff4354",
+    "packages/plugin-sdk/portable/index.ts": "21998966fe957b7db5fbc1781a8c60f5f74c95739d7775f6b3d54c6e276967f8",
+    "packages/plugin-sdk/portable/process.ts": "bc37ed8e27a5c8fa1b8155ae38ba8a785bb24208630186e45094e9532be258b3",
     "packages/plugin-sdk/portable/resources.ts": "2ff026cc68988b96a1a2e1884db8f770bc40d08f300ebbf785668beff694f93d",
     "packages/plugin-sdk/portable/session.ts": "e9ebe829939c4eb37865fafbafc4a4a5d69497a3cecf8426f6a088386ec9dc63",
     "packages/plugin-sdk/portable/wire-contract.ts": "a99e7998716305ac5226b44b72cd7ece5ea97c0ed9515effd4de8843b4997e8a",
@@ -42,10 +48,10 @@
     "packages/plugin-sdk/sdk-version.json": "68e8a1714c833bd0c12c844b8401cdb562977eb2cd9568a4bd1569e827ab5cdc",
     "scripts/fixtures/plugin-sdk-tools/package.json": "609d8fa44da91aff8576b4532701626dc9c760d4c7ad30d499da3b129eceb527",
     "scripts/fixtures/plugin-sdk-tools/package-lock.json": "e4b50ca634076f9890034059110666023b2b9e0c3df7095323ca051c645d2098",
-    "scripts/generate-plugin-runtime-sdk.mjs": "e324063ec399bb876872cec51b0f4b5b4d85e81ad17e41f0316a4b9d5f3acefa"
+    "scripts/generate-plugin-runtime-sdk.mjs": "82ff7f2464024d22f055a46afe4ec1aaaa77b062e869d7a626a37baad6e793c8"
   },
   "outputs": {
-    "core/src/extension/sdk-code.inc": "d95fd62338fe7c8ccd280ae6cb2efdc22d8b99a9c3a2a96103e084fdca71e19e",
-    "core/src/extension/sdk-identity.h": "1f312869bf9b2cf00dfd2479e4eab8b2d7c99afdc75b9e3054e12a63b796ac9f"
+    "core/src/extension/sdk-code.inc": "dea9d34f0843d1c1b9360f3e575e04eb944a5aeab7ebd2fca8eed90524246f7d",
+    "core/src/extension/sdk-identity.h": "bef0472d10a65c4683cdd26b16dfd54c7d6dad37c33d37b9685dfc9298ea1719"
   }
 }

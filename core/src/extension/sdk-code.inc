@@ -28,6 +28,9 @@ static const char *const sdk_chunks_1[]={
 "export { boolean, commandArguments, option, positional, BoundaryError, compareUint64, decode, encode, integer, object, snapshot, text, uint64, utf8Bytes } from \"./codec.js\";\012export { SessionChannel } from \"./session.js\";\012"
 };
 static const char *const sdk_chunks_2[]={
+"export {};\012"
+};
+static const char *const sdk_chunks_3[]={
 "var __classPrivateFieldSet = (this && this.__classPrivateFieldSet) || function (receiver, state, value, kind, f) {\012    if (kind === \"m\") throw new TypeError(\"Private method is not writable\");\012    if (kind === \"a\" && !f) throw new TypeError(\"Private accessor was defined without a setter\");\012    if (typeof state === \"function\" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError(\"Cannot write private member to an object whose class did not declare it\");\012    return (kind === \"a\" ? f.call(recei",
 "ver, value) : f ? f.value = value : state.set(receiver, value)), value;\012};\012var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (receiver, state, kind, f) {\012    if (kind === \"a\" && !f) throw new TypeError(\"Private accessor was defined without a getter\");\012    if (typeof state === \"function\" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError(\"Cannot read private member from an object whose class did not declare it\");\012    return kind === \"m\" ? f : kind === \"a\" ? f.",
 "call(receiver) : f ? f.value : state.get(receiver);\012};\012var _ResourceBroker_port, _ResourceBroker_publications, _ResourceBroker_refs, _ResourceBroker_live, _ResourceBroker_stepping;\012import { compareUint64, fail, uint64, utf8Bytes } from \"./codec.js\";\012function failure(code, effect = \"none\") {\012    return { kind: \"failed\", error: { code, message: code, effect } };\012}\012function statusFailure(status, effect = \"none\") {\012    if (status === \"unknown\")\012        return { kind: \"unknown\", reason: \"RESOURCE_RESULT_UNKNOWN\"",
@@ -64,7 +67,7 @@ static const char *const sdk_chunks_2[]={
 "r_refs, \"f\")) {\012            local.pending?.settle({ kind: \"cancelled\", effect: \"none\" });\012            delete local.pending;\012            this.release(ref);\012        }\012    }\012    get retained() { return __classPrivateFieldGet(this, _ResourceBroker_publications, \"f\").size + __classPrivateFieldGet(this, _ResourceBroker_refs, \"f\").size; }\012}\012_ResourceBroker_port = new WeakMap(), _ResourceBroker_publications = new WeakMap(), _ResourceBroker_refs = new WeakMap(), _ResourceBroker_live = new WeakMap(), _ResourceBroker_",
 "stepping = new WeakMap();\012"
 };
-static const char *const sdk_chunks_3[]={
+static const char *const sdk_chunks_4[]={
 "var __classPrivateFieldSet = (this && this.__classPrivateFieldSet) || function (receiver, state, value, kind, f) {\012    if (kind === \"m\") throw new TypeError(\"Private method is not writable\");\012    if (kind === \"a\" && !f) throw new TypeError(\"Private accessor was defined without a setter\");\012    if (typeof state === \"function\" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError(\"Cannot write private member to an object whose class did not declare it\");\012    return (kind === \"a\" ? f.call(recei",
 "ver, value) : f ? f.value = value : state.set(receiver, value)), value;\012};\012var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (receiver, state, kind, f) {\012    if (kind === \"a\" && !f) throw new TypeError(\"Private accessor was defined without a getter\");\012    if (typeof state === \"function\" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError(\"Cannot read private member from an object whose class did not declare it\");\012    return kind === \"m\" ? f : kind === \"a\" ? f.",
 "call(receiver) : f ? f.value : state.get(receiver);\012};\012var _SessionChannel_live, _SessionChannel_stepping, _SessionChannel_pending, _SessionChannel_incoming, _SessionChannel_handlers, _SessionChannel_port;\012import { decode, encode, fail, snapshot, uint64 } from \"./codec.js\";\012import { ERROR_CODES, MESSAGE_MAX, REASON_MAX } from \"./wire-contract.js\";\012function methodName(name) { if (!/^[a-z][A-Za-z0-9_.-]{0,127}$/.test(name))\012    fail(\"METHOD\"); }\012function failure(code) { return { kind: \"failed\", error: { code,",
@@ -90,13 +93,14 @@ static const char *const sdk_chunks_3[]={
 "pending, \"f\").values())\012            item.cancel();\012        __classPrivateFieldGet(this, _SessionChannel_handlers, \"f\").clear();\012    }\012    get retained() { return __classPrivateFieldGet(this, _SessionChannel_pending, \"f\").size + __classPrivateFieldGet(this, _SessionChannel_incoming, \"f\").size; }\012}\012_SessionChannel_live = new WeakMap(), _SessionChannel_stepping = new WeakMap(), _SessionChannel_pending = new WeakMap(), _SessionChannel_incoming = new WeakMap(), _SessionChannel_handlers = new WeakMap(), _SessionC",
 "hannel_port = new WeakMap();\012"
 };
-static const char *const sdk_chunks_4[]={
+static const char *const sdk_chunks_5[]={
 "// Generated by scripts/generate-plugin-sdk.py; do not hand edit.\012export const ERROR_CODES = [\"UNSUPPORTED\", \"DENIED\", \"EXPIRED\", \"INVALID_INPUT\", \"RESOURCE_LIMIT\", \"CANCELLED\", \"IO\", \"PROTOCOL\", \"INTERNAL\", \"BUSY\", \"INTEGRITY\"];\012export const MESSAGE_MAX = 1024;\012export const REASON_MAX = 1024;\012"
 };
 static const runtime_sdk_module_t sdk_modules[]={
  {"sdk:/codec.js",11619u,"7b994c04a94048d4e48ccf023b67b8ff3ee1687ef20989e710d2a3d904632de1",sdk_chunks_0,sizeof(sdk_chunks_0)/sizeof(sdk_chunks_0[0])},
  {"sdk:/index.js",221u,"7f34d23bbf354ba133b33530c6de6166e24cb3df63ba6b7ec57d04efed7123d3",sdk_chunks_1,sizeof(sdk_chunks_1)/sizeof(sdk_chunks_1[0])},
- {"sdk:/resources.js",17434u,"b60c343441ca2c8c24bb5d82ef36a07bb2df7d60c4acdaf163a1b495dc131414",sdk_chunks_2,sizeof(sdk_chunks_2)/sizeof(sdk_chunks_2[0])},
- {"sdk:/session.js",11805u,"31b838dd4bb3bc095c81c264224ebf5c3d7bc1d30c8eaf4fd780893ee9d3cb86",sdk_chunks_3,sizeof(sdk_chunks_3)/sizeof(sdk_chunks_3[0])},
- {"sdk:/wire-contract.js",295u,"7f4418cd9d771351e33ffadb8ebe86298d21b211ed911e26b6cf59301b7c626e",sdk_chunks_4,sizeof(sdk_chunks_4)/sizeof(sdk_chunks_4[0])}
+ {"sdk:/process.js",11u,"8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",sdk_chunks_2,sizeof(sdk_chunks_2)/sizeof(sdk_chunks_2[0])},
+ {"sdk:/resources.js",17434u,"b60c343441ca2c8c24bb5d82ef36a07bb2df7d60c4acdaf163a1b495dc131414",sdk_chunks_3,sizeof(sdk_chunks_3)/sizeof(sdk_chunks_3[0])},
+ {"sdk:/session.js",11805u,"31b838dd4bb3bc095c81c264224ebf5c3d7bc1d30c8eaf4fd780893ee9d3cb86",sdk_chunks_4,sizeof(sdk_chunks_4)/sizeof(sdk_chunks_4[0])},
+ {"sdk:/wire-contract.js",295u,"7f4418cd9d771351e33ffadb8ebe86298d21b211ed911e26b6cf59301b7c626e",sdk_chunks_5,sizeof(sdk_chunks_5)/sizeof(sdk_chunks_5[0])}
 };

@@ -4,7 +4,7 @@ import argparse, ast, hashlib, json, re
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BASE = 'core/src/extension/sdk-'
-NAMES = ['codec', 'index', 'resources', 'session', 'wire-contract']
+NAMES = ['codec', 'index', 'process', 'resources', 'session', 'wire-contract']
 INPUTS = {'packages/plugin-sdk/portable/'+n+'.ts' for n in NAMES} | {
     'packages/plugin-sdk/tsconfig.json', 'packages/plugin-sdk/sdk-version.json',
     'scripts/fixtures/plugin-sdk-tools/package.json', 'scripts/fixtures/plugin-sdk-tools/package-lock.json',
@@ -42,5 +42,5 @@ def main():
     assert digest == manifest['sdkDigest']
     header = (root/(BASE+'identity.h')).read_text()
     assert '#define GT_PLUGIN_SDK_DIGEST "'+digest+'"' in header
-    print('RUNTIME SDK OFFLINE INPUTS PASS: 5 modules / '+digest)
+    print('RUNTIME SDK OFFLINE INPUTS PASS: 6 modules / '+digest)
 if __name__ == '__main__': main()

@@ -4714,3 +4714,9 @@ Native checked package 过去只保留 `process.spawn` capability 名称，后�
 新增私有 `process-service.{h,c}`：打开时只复制 checked package 中 Executor 的 `processPrograms` 和可信 Host 提供的程序名→绝对可执行路径映射；不启动子进程，也不把映射当作包授权。每次 spawn 必须重新取得当前 Session 对 `process.spawn` 的 `ALLOWED`，并同时匹配包声明程序名与 Host 映射，未声明程序返回 `GT_ERR_AUTH`，已声明但 Host 无映射返回 `GT_ERR_UNSUPPORTED`；实际创建仍交给要求显式 cwd fd、argv 和环境 allowlist 的 POSIX owner。该层是 Core 内部构件，尚未被 Runtime / PluginContext 调用，调用方仍负责持有并停止、回收子进程；没有进程配额、deadline 或 executable identity/version 验证。
 
 `extension_process_policy` 针对性 CTest 覆盖允许映射、拒绝 / 撤销 grant、包未声明程序、Host 缺映射和非绝对 executable；策略函数由真实 spawn 路径共用。该用例用合成 checked metadata / access 状态验证决策表，不替代真实 Session + checked package 的集成验证。`bash scripts/gate.sh` 全绿（481/481 CTest、177 公共 ABI 符号对拍、未实现入口错误检查）；`python3 scripts/format-c.py --check` 通过（219 个 C 文件）。本批没有公共 ABI 变化。下一批须将该层接到 Runtime / PluginContext，并为真实 grant 撤销、子进程配额 / deadline、停止回收与 Codex pipe API 补集成和行为验收，不将本批记作 P3 完成。
+
+### P3 实施第十批：portable SDK 子进程契约
+
+portable SDK 增加 `ProcessService` / `ProcessChild`、有界非阻塞 stdio 结果、显式 signal/poll/release，以及不含路径或 fd 的 `WorkspaceHandle`。`PluginContext.process` 与 `Invocation.workspaceHandle` 是可选值；进程环境策略限定为 `selected-user-environment`，不会把任意环境字典交给插件。Runtime 尚未构造这些对象，现有插件不会因此获得进程能力；本批冻结的是无 Node / DOM 的 SDK 类型面，不是可运行实现或授权验收。
+
+Runtime SDK 生成物扩为六个固定模块；`python3 -B scripts/check-plugin-runtime-sdk.py`、锁定 TypeScript 5.9.3 strict `--noEmit` 与 `python3 -B scripts/test-plugin-sdk.py --fetch` 通过。SDK conformance 从隔离构建验证已有 portable 模块与 C/QuickJS SDK，不验证本批新增 Host ProcessChild 的真实实现。测试使用锁定 QuickJS-NG 0.18.0 源包并在仓库 `tmp/` 中构建，结束后已清理本批 SDK 工具、构建日志、formatter 和下载包。下一步仍需 Native Runtime / Host API 接线和真实子进程行为测试；P3 不记完成。
