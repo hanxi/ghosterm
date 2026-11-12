@@ -87,6 +87,26 @@ int main(int argc, char **argv) {
                   "--count=17",
                   "--wrap",
                   (char *)NULL);
+        } else if (!strcmp(mode, "host-method")) {
+            execl(binary,
+                  binary,
+                  "relay",
+                  "--stdio",
+                  "--trust-development-digest",
+                  trusted,
+                  "--client-digest",
+                  client_digest,
+                  "--method",
+                  "fixture.echo",
+                  "--host-method",
+                  "fixture.ask",
+                  "--",
+                  directory,
+                  "fixture",
+                  "中文",
+                  "",
+                  "';throw Error('injected');//",
+                  (char *)NULL);
         } else if (!strcmp(mode, "arguments-invalid")) {
             execl(binary,
                   binary,
@@ -153,15 +173,26 @@ int main(int argc, char **argv) {
     if (!strcmp(mode, "peer-digest")) {
         strcpy(c.client_digest, package_digest);
     }
-    gt_ext_rpc_method_t method = {.method = "fixture.echo",
-                                  .capability = "session.rpc",
-                                  .receiver = GT_EXT_EXECUTOR,
-                                  .input_shape = GT_EXT_JSON_OBJECT,
-                                  .output_shape = GT_EXT_JSON_OBJECT};
+    gt_ext_rpc_method_t methods[2] = {{.method = "fixture.echo",
+                                       .capability = "session.rpc",
+                                       .receiver = GT_EXT_EXECUTOR,
+                                       .input_shape = GT_EXT_JSON_OBJECT,
+                                       .output_shape = GT_EXT_JSON_OBJECT}};
+    size_t method_count = 1;
+    if (!strcmp(mode, "host-method")) {
+        methods[1] = (gt_ext_rpc_method_t){.method = "fixture.ask",
+                                           .capability = "session.rpc",
+                                           .receiver = GT_EXT_HOST,
+                                           .input_shape = GT_EXT_JSON_OBJECT,
+                                           .output_shape = GT_EXT_JSON_OBJECT};
+        method_count++;
+    }
     gt_ext_session_t *session = NULL;
-    CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &c, &method, 1, &session) == GT_OK);
+    CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &c, methods, method_count, &session) ==
+          GT_OK);
     uint64_t deadline = now() + 10000, consent_at = 0, handle = 0;
-    bool confirmed = false, decided = false, signalled = false, lost = false;
+    bool confirmed = false, host_method_confirmed = false, decided = false, signalled = false,
+         lost = false;
     gt_ext_lease_t lease;
     int status = 0;
     bool ended = false;
@@ -202,6 +233,26 @@ int main(int argc, char **argv) {
                       handle);
             }
         }
+        if (info.phase == GT_EXT_SESSION_ACTIVE && !host_method_confirmed &&
+            !strcmp(mode, "host-method")) {
+            gt_ext_rpc_request_t request;
+            gt_ext_rpc_status_t request_status =
+                gt_ext_session_take_request(session, &lease, &request);
+            CHECK(request_status == GT_EXT_RPC_WAIT || request_status == GT_EXT_RPC_OK);
+            if (request_status == GT_EXT_RPC_OK) {
+                CHECK(!strcmp(request.method, "fixture.ask"));
+                char outcome[GT_EXT_RPC_BODY_MAX + 1];
+                int size = snprintf(outcome,
+                                    sizeof(outcome),
+                                    "{\"kind\":\"success\",\"value\":%.*s}",
+                                    (int)request.input_size,
+                                    request.input);
+                CHECK(size > 0 && (size_t)size < sizeof(outcome));
+                CHECK(gt_ext_session_respond(
+                          session, &lease, request.ticket, outcome, (size_t)size) == GT_EXT_RPC_OK);
+                host_method_confirmed = true;
+            }
+        }
         if (handle && !confirmed) {
             gt_ext_rpc_result_t result;
             CHECK(gt_ext_session_request_result(session, &lease, handle, &result) == GT_EXT_RPC_OK);
@@ -210,7 +261,14 @@ int main(int argc, char **argv) {
                 lost = true;
             }
             if (result.confirmed && strcmp(mode, "pending-loss")) {
-                CHECK(result.state == GT_EXT_RPC_SUCCEEDED && strstr(result.outcome, "stdio"));
+                if (result.state != GT_EXT_RPC_SUCCEEDED || !strstr(result.outcome, "stdio")) {
+                    fprintf(stderr,
+                            "RPC state %d outcome %.*s\n",
+                            (int)result.state,
+                            (int)result.outcome_size,
+                            result.outcome);
+                    CHECK(false);
+                }
                 confirmed = true;
                 CHECK(gt_ext_session_forget_request(session, &lease, handle) == GT_EXT_RPC_OK);
                 if (!strcmp(mode, "active-cancel")) {
@@ -220,7 +278,9 @@ int main(int argc, char **argv) {
                     CHECK(!shutdown(fd[0], SHUT_RDWR));
                     lost = true;
                 } else {
-                    gt_ext_session_revoke(session);
+                    if (strcmp(mode, "host-method") || host_method_confirmed) {
+                        gt_ext_session_revoke(session);
+                    }
                 }
             }
         }
@@ -255,6 +315,9 @@ int main(int argc, char **argv) {
     if (!strcmp(mode, "roundtrip") || !strcmp(mode, "dispose-error") || pipes ||
         !strcmp(mode, "active-cancel") || !strcmp(mode, "lost")) {
         CHECK(confirmed && decided && consent_at);
+    }
+    if (!strcmp(mode, "host-method")) {
+        CHECK(confirmed && host_method_confirmed && decided && consent_at);
     }
     if (!strcmp(mode, "cancel")) {
         CHECK(signalled && !handle);
