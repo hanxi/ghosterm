@@ -2,7 +2,7 @@
 
 日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 官方 Preview 的完整交互与端到端验证，尤其是受控 HTML 的真实 WKWebView 像素渲染 / 导航运行时验收；Android 资源预览的产品 UI 与设备验收；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 官方 Preview 的完整交互与端到端验证。独立 headless WebKit probe 已通过真实 WKWebView CSS / PNG 绘制，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；AppModel / SwiftUI 实际接收后的完整端到端交互仍未完成。Android 资源预览的产品 UI 与设备验收；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -4376,3 +4376,12 @@ Markdown parser 使用文档自身的 `ghosterm-resource` URL 作为 base URL，
 补齐 HTML 附件 resolver 的负向边界覆盖：相对路径重复时两份都拒绝；资源字节长度与 metadata 不符时拒绝；单项超过 1 MiB 时拒绝；文档后的第七个附件不会进入可服务集合。此前测试已覆盖外目录、下一个 Preview 文档隔离、未列入快照、外部 host 与 SVG。
 
 `testHTMLAssetResolverRejectsDuplicateInvalidAndOverLimitSnapshots` 定向通过。完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **403 项、5 skip、0 失败**。
+
+
+### P2 实施第二十四批：独立 headless WebKit HTML 附件绘制验证（2026-11-12）
+
+此前 WKWebView 集成 XCTest 在 XCTest 对象释放检查中反复 SIGSEGV，无法作为稳定测试宿主。新增 `scripts/test-plugin-html-webkit.sh`：在单独的 headless macOS 进程编译并运行 probe，直接编入生产 `PluginResourceHTMLAssets.swift`、HTML / Markdown decoder；仅为资源快照值提供最小数据结构 stub。probe 禁止 App 激活，创建 borderless 窗口后立即 `orderOut`，再让 WebKit 加载静态 HTML。
+
+Fixture 的 stylesheet 与 PNG 都通过生产 `PluginResourceHTMLSchemeHandler` 从显式快照提供；HTML 加载 CSS 蓝色背景和红色图片，导航 delegate 使用生产 `PluginResourceHTMLNavigationPolicy`。probe 调用 WKWebView snapshot 并核对像素：红色 **4096**、蓝色 **39104**。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/test-plugin-html-webkit.sh` 通过；脚本退出时清理专属 `tmp/plugin-html-webkit-probe/`，Swift 临时目录也限制在其下。
+
+该验证覆盖真实 WebKit 自定义 scheme、CSP、CSS / raster image 像素绘制及 production handler / policy，但不实例化 App 的私有 SwiftUI `NSViewRepresentable` Coordinator，也不覆盖真实 SSH → AppModel → SwiftUI 的资源到达时序；完整 Preview 产品端到端仍待验收。不改公共 ABI，不增加 macOS CI 二十份。
