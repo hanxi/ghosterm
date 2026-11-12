@@ -2,6 +2,9 @@
   "format": 1,
   "codexCliVersion": "codex-cli 0.166.0",
   "experimentalApi": false,
+  "serverEnvelope": {
+    "jsonrpcVersionField": "omitted"
+  },
   "clientRequests": [
     "initialize",
     "thread/start",
@@ -30,6 +33,15 @@
       "clientInfo"
     ],
     "ThreadStartParams": [],
+    "ThreadStartResponse": [
+      "thread",
+      "model",
+      "modelProvider",
+      "cwd",
+      "approvalPolicy",
+      "approvalsReviewer",
+      "sandbox"
+    ],
     "TurnStartParams": [
       "threadId",
       "input"

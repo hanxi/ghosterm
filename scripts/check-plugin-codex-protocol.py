@@ -28,6 +28,8 @@ def main():
     parser.add_argument("--codex", default="codex", help="official Codex CLI executable")
     args = parser.parse_args()
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    if lock.get("serverEnvelope", {}).get("jsonrpcVersionField") not in ("omitted", "2.0"):
+        raise SystemExit("app-server lock has an unsupported server jsonrpc version-field policy")
     version = run([args.codex, "--version"], env=None).strip()
     if version != lock["codexCliVersion"]:
         raise SystemExit(f"Codex protocol version mismatch: expected {lock['codexCliVersion']}, got {version}")
@@ -56,6 +58,7 @@ def main():
         type_paths = {
             "InitializeParams": types / "InitializeParams.ts",
             "ThreadStartParams": types / "v2/ThreadStartParams.ts",
+            "ThreadStartResponse": types / "v2/ThreadStartResponse.ts",
             "TurnStartParams": types / "v2/TurnStartParams.ts",
             "TurnInterruptParams": types / "v2/TurnInterruptParams.ts",
             "CommandExecutionRequestApprovalParams": types / "v2/CommandExecutionRequestApprovalParams.ts",
