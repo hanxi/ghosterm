@@ -74,6 +74,7 @@ enum GhostermUI {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: AppModel?
     private var windowController: TabWindowController?
+    private var pluginShutdownPending = false
     /// 观察系统外观变化（跟随系统时终端配色要跟着换）。
     private var appearanceObserver: NSKeyValueObservation?
 
@@ -140,7 +141,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "退出")
         alert.addButton(withTitle: "取消")
-        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+        guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+        guard let extensionController = model.extensionController else { return .terminateNow }
+        guard !pluginShutdownPending else { return .terminateCancel }
+        pluginShutdownPending = true
+        Task { @MainActor [weak self, weak sender] in
+            await extensionController.close()
+            guard let self, let sender else { return }
+            self.pluginShutdownPending = false
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     /// 切回本 App：报「活动」。
