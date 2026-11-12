@@ -13,7 +13,7 @@ import java.util.UUID
 enum class SettingsSection(val title: String, val subtitle: String) {
     APPEARANCE("外观与终端", "配色、字号、行距与光标"), INPUT("输入与键盘", "辅助键、Ctrl 和键盘唤起"),
     SESSIONS("会话与连接", "屏幕常亮与连接资料"), FILES("文件操作", "隐藏文件、排序与粘贴习惯"),
-    SECURITY("身份与主机验证", "密钥信息与已验证主机")
+    SECURITY("身份与主机验证", "密钥信息与已验证主机"), PLUGINS("插件", "审查固定包并裁决来源信任")
 }
 
 /** Candidate edits are local; only the app owner's confirmed snapshot applies globally. */

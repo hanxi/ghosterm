@@ -85,7 +85,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel(), settings: SettingsViewModel = viewModel(), about: AboutViewModel = viewModel(), tmux: TmuxViewModel = viewModel()) {
+fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoViewModel = viewModel(), sessions: SessionsViewModel = viewModel(), identities: IdentitiesViewModel = viewModel(), knownHosts: KnownHostsViewModel = viewModel(), files: FilesViewModel = viewModel(), fileTasks: FileTasksViewModel = viewModel(), settings: SettingsViewModel = viewModel(), about: AboutViewModel = viewModel(), tmux: TmuxViewModel = viewModel(), extensions: ExtensionPackagesViewModel = viewModel()) {
     var recoveryOwner by remember { mutableStateOf<java.util.UUID?>(null) }
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -93,6 +93,13 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
     val runtime by runtimeModel.state.collectAsState()
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) hosts.readImport(uri) }
     val identityImport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(),identities::completeImport)
+    val pluginTreePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val uri = result.data?.data
+        if (result.resultCode == Activity.RESULT_OK && uri != null) extensions.reviewTree(uri)
+    }
+    fun pickPluginFolder() {
+        pluginTreePicker.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+    }
     val storageContext=LocalContext.current
     var storageAccessRequested by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     fun finishStorageAccess() {
@@ -338,7 +345,8 @@ fun GhostermApp(hosts: HostsViewModel = viewModel(), runtimeModel: RuntimeInfoVi
                             onConfig = hosts::config,
                             onImport = { import.launch(arrayOf("*/*")) },
                             onIdentities = { hosts.identities(); identities.enter() },
-                            onKnownHosts = { hosts.knownHosts(); knownHosts.enter() }, onAbout = hosts::about)
+                            onKnownHosts = { hosts.knownHosts(); knownHosts.enter() }, onAbout = hosts::about,
+                            extensions = extensions, onPickPlugin = ::pickPluginFolder)
                         Page.ABOUT -> AboutContent(about, runtime)
                     }
                 }

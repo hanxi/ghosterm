@@ -84,6 +84,14 @@ class SettingsScreenTest {
     }
     private fun disk(key: String): Any = JSONObject(file.readText()).getJSONObject("values").get(key)
 
+    @Test fun pluginSettingsKeepDefaultJsOffStateExplicit() {
+        assertFalse("Fixture requires the ordinary JS-off app variant", BuildConfig.PLUGIN_JS_ENABLED)
+        section(SettingsSection.PLUGINS)
+        ui.onNodeWithText("JavaScript 插件运行时不可用").assertExists()
+        ui.onNodeWithText("插件包不会被加载或执行。", substring = true).assertExists()
+        ui.onNodeWithText("选择插件文件夹").assertDoesNotExist()
+    }
+
     private fun assertApplicationAppearance(dark: Boolean) {
         ui.waitForIdle()
         // Observe the window buffer and native system-bar controller, not only a model enum.

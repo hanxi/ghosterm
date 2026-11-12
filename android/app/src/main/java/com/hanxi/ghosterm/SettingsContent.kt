@@ -75,7 +75,8 @@ private fun AppPreferences.label(key: PreferenceKey) = if(key==PreferenceKey.TER
 fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connectionsBusy: Boolean,
     onConfig: () -> Unit, onImport: () -> Unit,
     onIdentities: () -> Unit, onKnownHosts: () -> Unit, onAbout: () -> Unit,
-    fonts:TerminalFontsViewModel=viewModel()) {
+    fonts:TerminalFontsViewModel=viewModel(), extensions: ExtensionPackagesViewModel=viewModel(),
+    onPickPlugin: () -> Unit = {}) {
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
     var fontPreview by remember { mutableStateOf<Int?>(null) }
     val savedSections = rememberSaveableStateHolder()
@@ -112,7 +113,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                 Text("按你的习惯，调整 Ghosterm。",Modifier.padding(top=8.dp,bottom=16.dp),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 @Composable fun category(section: SettingsSection, summary: String) {
                     val icon=when(section) { SettingsSection.APPEARANCE->UiIcon.Terminal;SettingsSection.INPUT->UiIcon.Keyboard
-                        SettingsSection.FILES->UiIcon.Folder;SettingsSection.SESSIONS->UiIcon.Server;SettingsSection.SECURITY->UiIcon.Shield }
+                        SettingsSection.FILES,SettingsSection.PLUGINS->UiIcon.Folder;SettingsSection.SESSIONS->UiIcon.Server;SettingsSection.SECURITY->UiIcon.Shield }
                     GhostermActionRow(section.title,summary,icon,Modifier.testTag("settings-section-${section.name}")) { model.open(section) }
                 }
                 GhostermSectionLabel("显示与操作")
@@ -126,6 +127,8 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     category(SettingsSection.SESSIONS,if(p.keepAwake) "前台终端保持常亮" else "使用系统息屏设置");GhostermDivider()
                     category(SettingsSection.SECURITY,"密钥信息与已验证主机")
                 }
+                GhostermSectionLabel("扩展")
+                GhostermGroup { category(SettingsSection.PLUGINS, if (extensions.runtimeAvailable) "审查固定包；批准仅限本进程" else "JavaScript 插件运行时不可用") }
                 TextButton(onConfig,enabled=configAvailable && !connectionsBusy,modifier=Modifier.heightIn(min=48.dp)) {
                     GhostermIcon(UiIcon.File);Spacer(Modifier.width(8.dp));Text("查看 SSH 配置")
                 }
@@ -209,6 +212,35 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                 GhostermSectionLabel("已保存的验证记录")
                 GhostermGroup { GhostermActionRow("主机验证记录","查看指纹与已验证的主机",UiIcon.Shield,enabled=!connectionsBusy,onClick=onKnownHosts) }
                 SettingsNote("只显示身份信息；私钥材料和口令不会出现在此页面。")
+            }
+            SettingsSection.PLUGINS -> {
+                GhostermSectionLabel("插件包来源")
+                if (!extensions.runtimeAvailable) {
+                    SettingsNote("当前构建未启用可用的 JavaScript 插件运行时。插件包不会被加载或执行。")
+                } else {
+                    SettingsNote("选择一个插件包文件夹进行固定快照与元数据审查。批准只对当前进程中的该包摘要有效；此页面不会安装或启动插件。")
+                    Button(onClick=onPickPlugin, enabled=!extensions.busy, modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) {
+                        Text("选择插件文件夹")
+                    }
+                    if (extensions.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical=8.dp))
+                    extensions.error?.let { SettingsNotice(it) {} }
+                    extensions.entries.forEach { entry ->
+                        GhostermGroup(Modifier.padding(top=8.dp)) {
+                            Text(entry.review.id, Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.titleMedium)
+                            Text("版本 ${entry.review.version} · 发布者 ${entry.review.publisher}", Modifier.padding(horizontal=16.dp), style=MaterialTheme.typography.bodyMedium)
+                            Text("许可证 ${entry.review.license}", Modifier.padding(horizontal=16.dp), style=MaterialTheme.typography.bodySmall)
+                            Text("SHA-256 ${entry.review.digest}", Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.bodySmall)
+                            entry.review.commands.forEach { command ->
+                                Text("命令 ${command.path} · ${command.title}", Modifier.padding(horizontal=16.dp, vertical=2.dp), style=MaterialTheme.typography.bodySmall)
+                            }
+                            Text(entry.decision, Modifier.padding(horizontal=16.dp, vertical=4.dp), style=MaterialTheme.typography.labelMedium)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.End) {
+                                TextButton(onClick={ extensions.decide(entry, false) }, enabled=!extensions.busy) { Text("拒绝") }
+                                TextButton(onClick={ extensions.decide(entry, true) }, enabled=!extensions.busy) { Text("批准此摘要") }
+                            }
+                        }
+                    }
+                }
             }
         }
         if(!showStatusAtTop) Text(status,Modifier.padding(vertical=12.dp).testTag("settings-save-status"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
