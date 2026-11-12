@@ -13,11 +13,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # SwiftPM 走 xcrun 已是 26.5，所以只有 CMake 这条路径要钉。
 SYSROOT="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
 SYSROOT_FLAG=()
+CORE_PLUGIN_JS_FLAG=()
+case "${GHOSTERM_BUILD_PLUGIN_JS:-0}" in
+  0) CORE_PLUGIN_JS_FLAG=(-DGHOSTERM_WITH_PLUGIN_JS=OFF) ;;
+  1) CORE_PLUGIN_JS_FLAG=(-DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_BUILD_TESTS=OFF) ;;
+  *) echo "GHOSTERM_BUILD_PLUGIN_JS must be 0 or 1" >&2; exit 2 ;;
+esac
 # 显式保持与 App/Helper 的 macOS 13 下限一致；只钉 SDK 而不钉部署目标会把
 # 静态库对象标成 SDK 版本（26.5），Swift 链接时误以为库只支持 macOS 26.5。
 [ -n "$SYSROOT" ] && SYSROOT_FLAG=(-DCMAKE_OSX_SYSROOT="$SYSROOT" -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0)
 
 python3 "$ROOT/scripts/build-host-ssh2.py"
 
-cmake -S "$ROOT/core" -B "$ROOT/core/build" -DCMAKE_BUILD_TYPE=Debug "${SYSROOT_FLAG[@]}" >/dev/null
+cmake -S "$ROOT/core" -B "$ROOT/core/build" -DCMAKE_BUILD_TYPE=Debug "${SYSROOT_FLAG[@]}" "${CORE_PLUGIN_JS_FLAG[@]}" >/dev/null
 cmake --build "$ROOT/core/build"

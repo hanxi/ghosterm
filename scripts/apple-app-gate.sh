@@ -33,10 +33,24 @@ fi
 echo "== 0/4 C ABI 绑定对拍（Apple 侧引用 ↔ 头文件声明） =="
 bash "$ROOT/scripts/check-abi-apple.sh"
 
+PLUGIN_JS_PROFILE=0
+if [ -n "${GHOSTERM_TEST_GTERM:-}" ]; then
+  if [ ! -x "$GHOSTERM_TEST_GTERM" ]; then
+    echo "apple-app-gate: GHOSTERM_TEST_GTERM is not executable" >&2; exit 2
+  fi
+  PLUGIN_JS_PROFILE=1
+fi
+
 echo "== 构建 C 核心（宿主经 GhostermCore 链接它） =="
-bash "$ROOT/scripts/build-core.sh" >"$TMP/apple-app-core.log" 2>&1 || {
-  tail -20 "$TMP/apple-app-core.log" >&2; exit 1
-}
+if [ "$PLUGIN_JS_PROFILE" = 1 ]; then
+  GHOSTERM_BUILD_PLUGIN_JS=1 bash "$ROOT/scripts/build-core.sh" >"$TMP/apple-app-core.log" 2>&1 || {
+    tail -20 "$TMP/apple-app-core.log" >&2; exit 1
+  }
+else
+  bash "$ROOT/scripts/build-core.sh" >"$TMP/apple-app-core.log" 2>&1 || {
+    tail -20 "$TMP/apple-app-core.log" >&2; exit 1
+  }
+fi
 echo "   ok"
 
 WORK=""
@@ -84,6 +98,12 @@ if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keyg
              GHOSTERM_SSH_USER="$(id -un)"
              GHOSTERM_SSH_KEY="$WORK/clientkey"
              GHOSTERM_SSH_KNOWN_HOSTS="$WORK/known_hosts")
+    if [ "$PLUGIN_JS_PROFILE" = 1 ]; then
+      ENVARGS+=(GHOSTERM_CORE_TEST_PLUGIN_JS=1)
+    fi
+    if [ -n "${GHOSTERM_TEST_GTERM:-}" ]; then
+      ENVARGS+=(GHOSTERM_TEST_GTERM="$GHOSTERM_TEST_GTERM")
+    fi
     echo "== SSH e2e：真 sshd 已在 127.0.0.1:$PORT =="
   else
     echo "SKIP apple-app-gate e2e: sshd 未能起（本机环境限制）；其余用例仍跑"
@@ -94,7 +114,11 @@ else
 fi
 
 echo "== 3/3 GhostermApp 构建 + 测试 =="
-( cd "$PKG" && "${ENVARGS[@]}" swift test ) >"$TMP/apple-app-test.log" 2>&1 || {
+SWIFT_TEST_ARGS=()
+if [ -n "${GHOSTERM_APP_TEST_FILTER:-}" ]; then
+  SWIFT_TEST_ARGS+=(--filter "$GHOSTERM_APP_TEST_FILTER")
+fi
+( cd "$PKG" && "${ENVARGS[@]}" swift test "${SWIFT_TEST_ARGS[@]}" ) >"$TMP/apple-app-test.log" 2>&1 || {
   echo "apple-app-gate: swift test 失败" >&2
   grep -E "(^|: )error:|Test Case .* failed|Fatal error:|unexpected signal|panic" "$TMP/apple-app-test.log" >&2 | head -30
   exit 1

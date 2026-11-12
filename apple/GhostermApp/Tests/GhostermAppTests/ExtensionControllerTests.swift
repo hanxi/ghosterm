@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import CoreGraphics
 import Darwin
@@ -5,7 +6,10 @@ import Foundation
 import GhostermAppModel
 import GhostermCore
 import ImageIO
+import SwiftUI
 import XCTest
+import Vision
+@testable import GhostermApp
 
 final class ExtensionControllerTests: XCTestCase {
     @MainActor
@@ -463,6 +467,30 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertEqual(resource.displayName, "fixture.txt")
         XCTAssertEqual(resource.size, UInt64(resourceBytes.count))
         XCTAssertEqual(resource.sha256, SHA256.hash(data: resourceBytes).map { String(format: "%02x", $0) }.joined())
+
+        let pane = NSHostingView(rootView: ExtensionsPane(model: model))
+        pane.frame = NSRect(x: 0, y: 0, width: 1440, height: 1500)
+        var recognizedPreview = ""
+        for _ in 0..<30 {
+            pane.layoutSubtreeIfNeeded()
+            if let bitmap = pane.bitmapImageRepForCachingDisplay(in: pane.bounds) {
+                pane.cacheDisplay(in: pane.bounds, to: bitmap)
+                if let image = bitmap.cgImage {
+                    let request = VNRecognizeTextRequest()
+                    request.recognitionLevel = .accurate
+                    request.usesLanguageCorrection = false
+                    try VNImageRequestHandler(cgImage: image).perform([request])
+                    recognizedPreview = (request.results ?? [])
+                        .compactMap { $0.topCandidates(1).first?.string }
+                        .joined(separator: " ")
+                    if recognizedPreview.lowercased().contains("resource from appmodel over ssh") { break }
+                }
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(recognizedPreview.lowercased().contains("resource from appmodel over ssh"),
+            "the production ExtensionsPane must render the exact resource received by AppModel; OCR: \(recognizedPreview)")
+
         await model.stopExtensionRun()
         XCTAssertNil(model.extensionRun)
         XCTAssertNil(model.extensionRunIssue)
