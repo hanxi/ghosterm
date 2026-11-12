@@ -34,6 +34,20 @@ assert.deepEqual(publications.map(({ input }) => [input.relativePath, input.medi
 assert.ok(publications.every(({ input }) => input.root === "workspace"));
 assert.ok(publications.every(({ limits }) => limits.byteLimit === "65536"));
 
+const unicodePathAtLimit = `${Array(255).fill("😀").join("/")}/ab`;
+assert.equal([...unicodePathAtLimit].length, 512);
+const unicodePathPublications = await run({
+  path: unicodePathAtLimit,
+  assets: "",
+  maxBytes: 65536,
+});
+assert.equal(unicodePathPublications[0].input.relativePath, unicodePathAtLimit,
+  "the Executor path bound must use Unicode code points like argsSchema.maxLength");
+const unicodePathOverLimit = `${Array(255).fill("😀").join("/")}/abc`;
+assert.equal([...unicodePathOverLimit].length, 513);
+await assert.rejects(() => run({ path: unicodePathOverLimit, assets: "", maxBytes: 65536 }),
+  /canonical relative path/);
+
 for (const assets of ["../secret.txt", "/etc/passwd", "site/a.css,,site/b.png", "site/index.html", "site/a.css,site/a.css"]) {
   const invalid = {
     side: "executor",

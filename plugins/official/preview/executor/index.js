@@ -22,7 +22,7 @@ function mediaType(path) {
 }
 
 function relativePath(path) {
-  return typeof path === "string" && path.length > 0 && path.length <= 512 &&
+  return typeof path === "string" && path.length > 0 && [...path].length <= 512 &&
     !path.startsWith("/") && !path.includes("\\") && !path.includes("\0") &&
     !path.split("/").some(part => !part || part === "." || part === "..");
 }
