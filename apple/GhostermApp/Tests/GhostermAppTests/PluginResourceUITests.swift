@@ -165,10 +165,14 @@ final class PluginResourceUITests: XCTestCase {
             type: .other, isMainFrame: true,
             url: URL(string: "ghosterm-resource://preview/site/other.html"), documentURL: document))
         XCTAssertTrue(PluginResourceHTMLNavigationPolicy.permitsResponse(
-            url: document, documentURL: document))
+            url: document, isMainFrame: true, documentURL: document))
         XCTAssertFalse(PluginResourceHTMLNavigationPolicy.permitsResponse(
-            url: URL(string: "https://example.invalid"), documentURL: document))
-        XCTAssertFalse(PluginResourceHTMLNavigationPolicy.permitsResponse(url: nil, documentURL: nil))
+            url: URL(string: "https://example.invalid"), isMainFrame: true,
+            documentURL: document))
+        XCTAssertFalse(PluginResourceHTMLNavigationPolicy.permitsResponse(
+            url: document, isMainFrame: false, documentURL: document))
+        XCTAssertFalse(PluginResourceHTMLNavigationPolicy.permitsResponse(
+            url: nil, isMainFrame: true, documentURL: nil))
     }
 
     private func resource(_ id: String) -> ExtensionController.ReceivedResource {

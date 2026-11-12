@@ -4362,3 +4362,10 @@ Markdown parser 使用文档自身的 `ghosterm-resource` URL 作为 base URL，
 新增策略测试覆盖允许与拒绝分支，定向通过。尝试重做真实 WKWebView / 附件截图 XCTest 后，xctest 再次 SIGSEGV；最新 crash report 的主线程栈落在 `objc_release` / autorelease pool drain，经 XCTest `_assertInvalidObjectsDeallocatedAfterScope` 等待阶段。该测试未保留、未计成功，也未留下前台窗口；本批记录实际失败，不把它算成正常断言红或产品行为结果。Markdown raster 图片已有稳定的真实 SwiftUI 离屏像素验收；WebKit HTML 像素渲染仍待独立进程或平台端到端方案验证。
 
 完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **402 项、5 skip、0 失败**。不改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第二十二批：HTML 响应主框架边界（2026-11-12）
+
+继续收紧 WKWebView 响应回调：即使 URL 与当前文档相同，非主框架的 navigation response 也拒绝；`nil` 响应 URL 不会因 `nil == nil` 被误准入。响应与 action 现在都各自校验主框架身份。
+
+定向导航策略测试新增同 URL 子框架和双方 URL 为空的拒绝断言，及主框架当前文档允许断言，通过。完整 `scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，隔离 sshd e2e 通过，GhostermAppTests **402 项、5 skip、0 失败**。

@@ -111,8 +111,8 @@ enum PluginResourceHTMLNavigationPolicy {
         return documentURL != nil && url == documentURL
     }
 
-    static func permitsResponse(url: URL?, documentURL: URL?) -> Bool {
-        guard let url else { return false }
+    static func permitsResponse(url: URL?, isMainFrame: Bool, documentURL: URL?) -> Bool {
+        guard isMainFrame, let url else { return false }
         return url.absoluteString == "about:blank" || (documentURL != nil && url == documentURL)
     }
 }

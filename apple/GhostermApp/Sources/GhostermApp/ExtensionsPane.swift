@@ -535,7 +535,8 @@ private struct PluginResourceHTMLWebView: NSViewRepresentable {
         func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                      decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
             decisionHandler(PluginResourceHTMLNavigationPolicy.permitsResponse(
-                url: navigationResponse.response.url, documentURL: baseURL) ? .allow : .cancel)
+                url: navigationResponse.response.url, isMainFrame: navigationResponse.isForMainFrame,
+                documentURL: baseURL) ? .allow : .cancel)
         }
 
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
