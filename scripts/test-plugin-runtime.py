@@ -6,7 +6,7 @@ import argparse,hashlib,json,os,re,shutil,signal,subprocess,sys,tempfile
 from pathlib import Path
 sys.dont_write_bytecode=True
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_RUNTIME_MUTATION'
-MODES='invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory caught-memory global-memory repeat-close many-1 many-4 many-10 stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop activation-timeout peer-loss'.split()
+MODES='invocation capabilities dispose-throw invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory caught-memory global-memory repeat-close many-1 many-4 many-10 stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop activation-timeout peer-loss'.split()
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
  parser=argparse.ArgumentParser();parser.add_argument('--mutate',action='store_true');parser.add_argument('--fetch',action='store_true');parser.add_argument('--android-build',action='store_true');args=parser.parse_args()

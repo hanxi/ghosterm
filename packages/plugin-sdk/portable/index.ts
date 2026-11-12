@@ -15,8 +15,10 @@ export interface Disposable { dispose(): void; }
  * optional resources exist only for a native resource-enabled Session. */
 export interface Invocation {
   readonly command: string;
-  /** Raw data, never shell text or schema-validated options. Decode explicitly. */
+  /** Raw argv preserved exactly; never shell text. */
   readonly arguments: readonly string[];
+  /** Host-decoded scalar options from the checked argsSchema CLI mapping. */
+  readonly decodedArguments?: Readonly<Record<string, string | number | boolean>>;
 }
 export interface PluginContext {
   readonly invocation?: Invocation;

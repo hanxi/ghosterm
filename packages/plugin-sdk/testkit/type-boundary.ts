@@ -28,6 +28,12 @@ context.process.spawn("tool");
 context.invocation?.arguments.push("late");
 // @ts-expect-error invocation arguments are strings, not decoded typed options
 const argumentCount: number | undefined = context.invocation?.arguments[0]; void argumentCount;
+const decodedArguments = context.invocation?.decodedArguments;
+if (decodedArguments) {
+  const count: string | number | boolean | undefined = decodedArguments.count; void count;
+  // @ts-expect-error host-decoded invocation values are readonly
+  decodedArguments.count = 2;
+}
 
 import { boolean, commandArguments, option, positional } from "../portable/index.js";
 const argumentsCodec = commandArguments({ path: positional(text(), 0), count: option(integer(0, 10), "count", 1), wrap: option(boolean(), "wrap", false) });

@@ -63,8 +63,12 @@ Host 必须管理专属 stdio 的对端归属；本入口不实现本机 socket 
 具体业务 schema 仍由 SDK codec 检查，本入口没有实现任意 JSON Schema 服务。
 当前 Host 能力事实只有 portable JS 和 session.rpc，其它必需服务明确失败。
 
-实际 command/argv 只作为只读调用数据交给插件，不拼 shell，不把多 token 命令猜成某个
-包；COMMAND 参数是完整规范命令。跨包命令发现与关联、CLI 参数 schema 解码仍待接。
+实际 command/argv 不拼 shell，不把多 token 命令猜成某个包；COMMAND 参数是完整规范命令。
+固定 checked 包的 stdio 调用会在 `activate()` 前按对应 `argsSchema` 的 v1
+`x-ghosterm-cli` 映射解码，插件收到冻结的 `invocation.decodedArguments`，同时保留只读原始
+`invocation.arguments`。缺少 CLI 映射却带有参数时拒绝激活；无参数且没有映射时
+`decodedArguments` 为 undefined。Portable SDK `commandArguments()` 与宿主结果遵循相同语法，
+stdio conformance 会逐字段对拍。跨包命令发现与关联之外，App 授权 UI 和安装信任仍待接。
 不会自动下载、安装、连接其它执行环境或使用另一身份。
 
 进程保持前台，收到 Host 关闭或 SIGINT/SIGTERM 后释放 runtime/Session/包引用。stdio

@@ -34,6 +34,8 @@ struct gt_bridge_runtime {
     gt_status_t module_cleanup_error;
     char *invocation;
     size_t invocation_size, argument_count, argument_offsets[32];
+    char argument_schema[GT_PACKAGE_PATH_BYTES_MAX + 1];
+    JSValue decoded_arguments;
     JSRuntime *engine;
     JSContext *context;
     JSValue module, space, pump, dispose, unhandled[64];
@@ -291,6 +293,78 @@ static int runtime_set(JSContext *c, JSValue object, const char *key, JSValue va
     return JS_SetPropertyStr(c, object, key, value);
 }
 
+static const char runtime_cli_decoder[] =
+    "(schema,argv)=>{const cli=schema['x-ghosterm-cli'];if(!cli){if(!argv.length)return undefined;"
+    "throw Error('ARGUMENT_SCHEMA_UNSUPPORTED')}if(cli.version!==1)throw "
+    "Error('ARGUMENT_SCHEMA_UNSUPPORTED');"
+    "const fields=cli.fields,properties=schema.properties,"
+    "positions=[],options=new Map(),types=Object.create(null),defaults=Object.create(null);"
+    "for(const name of Object.keys(fields)){const field=fields[name],prop=properties[name];"
+    "if(Number.isInteger(field.position))positions[field.position]=name;else{options.set(field."
+    "option,name);"
+    "defaults[name]=field.default}types[name]=prop.type}const "
+    "out=Object.assign(Object.create(null),defaults),"
+    "seen=new Set();let position=0,literal=false;for(let i=0;i<argv.length;i++){const arg=argv[i];"
+    "if(!literal&&arg==='--'){literal=true;continue}let "
+    "name,value;if(!literal&&arg.startsWith('--')){"
+    "const "
+    "equals=arg.indexOf('='),option=arg.slice(2,equals<0?undefined:equals);name=options.get(option)"
+    ";"
+    "if(!name)throw Error('ARGUMENT_UNKNOWN');if(equals>=0)value=arg.slice(equals+1);"
+    "else if(types[name]==='boolean')value='true';else{value=argv[++i];"
+    "if(typeof value!=='string'||value.startsWith('--'))throw Error('ARGUMENT_MISSING')}}"
+    "else{name=positions[position++];if(!name)throw Error('ARGUMENT_EXTRA');value=arg}"
+    "if(seen.has(name))throw Error('ARGUMENT_DUPLICATE');seen.add(name);let decoded=value;"
+    "if(types[name]==='integer'){if(!/^-?(0|[1-9][0-9]*)$/.test(value)||value==='-0'||"
+    "!Number.isSafeInteger(Number(value)))throw Error('ARGUMENT_VALUE');decoded=Number(value)}"
+    "else if(types[name]==='boolean'){if(value!=='true'&&value!=='false')throw "
+    "Error('ARGUMENT_VALUE');"
+    "decoded=value==='true'}const prop=properties[name];if(types[name]==='string'&&"
+    "([...decoded].length<(prop.minLength??0)||([...decoded].length>(prop.maxLength??4096))))"
+    "throw Error('ARGUMENT_VALUE');if(types[name]==='integer'&&((prop.minimum!==undefined&&"
+    "decoded<prop.minimum)||(prop.maximum!==undefined&&decoded>prop.maximum)))throw "
+    "Error('ARGUMENT_VALUE');"
+    "out[name]=decoded}if(position!==positions.length)throw Error('ARGUMENT_MISSING');"
+    "return Object.freeze(out)}";
+
+static JSValue runtime_decode_arguments(gt_bridge_runtime_t *r, JSContext *c, JSValueConst argv) {
+    if (!r->argument_schema[0]) {
+        return JS_UNDEFINED;
+    }
+    if (!JS_IsUndefined(r->decoded_arguments)) {
+        return JS_DupValue(c, r->decoded_arguments);
+    }
+    gt_package_member_t member;
+    const uint8_t *bytes = NULL;
+    size_t size = 0;
+    if (!gt__package_checked_member(r->package, r->argument_schema, &member, &bytes, &size) ||
+        member.bytes != size) {
+        return JS_ThrowInternalError(c, "checked argument schema unavailable");
+    }
+    JSValue schema = JS_ParseJSON(c, (const char *)bytes, size, "checked-argument-schema");
+    if (JS_IsException(schema)) {
+        return JS_EXCEPTION;
+    }
+    JSValue decoder = JS_Eval(c,
+                              runtime_cli_decoder,
+                              sizeof(runtime_cli_decoder) - 1,
+                              "host:/cli-arguments.js",
+                              JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT);
+    if (JS_IsException(decoder)) {
+        JS_FreeValue(c, schema);
+        return JS_EXCEPTION;
+    }
+    JSValue values[2] = {schema, JS_DupValue(c, argv)};
+    JSValue decoded = JS_Call(c, decoder, JS_UNDEFINED, 2, values);
+    JS_FreeValue(c, values[0]);
+    JS_FreeValue(c, values[1]);
+    JS_FreeValue(c, decoder);
+    if (!JS_IsException(decoded)) {
+        r->decoded_arguments = JS_DupValue(c, decoded);
+    }
+    return decoded;
+}
+
 static JSValue
 runtime_native(JSContext *c, JSValueConst self, int argc, JSValueConst *argv, int op) {
     (void)self;
@@ -329,6 +403,17 @@ runtime_native(JSContext *c, JSValueConst self, int argc, JSValueConst *argv, in
             }
         }
         if (runtime_set(c, result, "command", JS_NewString(c, r->invocation)) < 0) {
+            JS_FreeValue(c, result);
+            JS_FreeValue(c, args);
+            return JS_EXCEPTION;
+        }
+        JSValue decoded = runtime_decode_arguments(r, c, args);
+        if (JS_IsException(decoded)) {
+            JS_FreeValue(c, result);
+            JS_FreeValue(c, args);
+            return JS_EXCEPTION;
+        }
+        if (runtime_set(c, result, "decodedArguments", decoded) < 0) {
             JS_FreeValue(c, result);
             JS_FreeValue(c, args);
             return JS_EXCEPTION;
@@ -663,6 +748,7 @@ static void runtime_free_engine(gt_bridge_runtime_t *r) {
     }
     r->unhandled_count = 0;
     if (r->context) {
+        JS_FreeValue(r->context, r->decoded_arguments);
         JS_FreeValue(r->context, r->module);
         JS_FreeValue(r->context, r->space);
         JS_FreeValue(r->context, r->pump);
@@ -732,6 +818,7 @@ static gt_status_t runtime_invocation(gt_bridge_runtime_t *r,
             if (gt__package_checked_command(package, i, &declared) &&
                 !strcmp(declared.path, input->command)) {
                 found = true;
+                memcpy(r->argument_schema, declared.args_schema, strlen(declared.args_schema) + 1);
                 break;
             }
         }
@@ -820,7 +907,7 @@ static gt_status_t runtime_open(gt_ext_session_t **session,
     if (!package) {
         strcpy(r->entry, c->entry);
     }
-    r->module = r->space = r->pump = r->dispose = JS_UNDEFINED;
+    r->module = r->space = r->pump = r->dispose = r->decoded_arguments = JS_UNDEFINED;
     gt_status_t status = runtime_invocation(r, c->invocation, package);
     if (status != GT_OK) {
         goto fail;

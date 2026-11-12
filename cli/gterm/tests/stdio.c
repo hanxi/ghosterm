@@ -87,6 +87,25 @@ int main(int argc, char **argv) {
                   "--count=17",
                   "--wrap",
                   (char *)NULL);
+        } else if (!strcmp(mode, "arguments-invalid")) {
+            execl(binary,
+                  binary,
+                  "relay",
+                  "--stdio",
+                  "--trust-development-digest",
+                  trusted,
+                  "--client-digest",
+                  client_digest,
+                  "--method",
+                  "fixture.echo",
+                  "--",
+                  directory,
+                  "fixture",
+                  "中文",
+                  "",
+                  "';throw Error('injected');//",
+                  "--count=101",
+                  (char *)NULL);
         } else {
             execl(binary,
                   binary,
@@ -174,12 +193,14 @@ int main(int argc, char **argv) {
         }
         if (info.phase == GT_EXT_SESSION_ACTIVE && !handle) {
             CHECK(strcmp(mode, "deny") && strcmp(mode, "cancel"));
-            CHECK(gt_ext_session_lease(session, &lease));
-            const char *input = "{\"text\":\"stdio\",\"count\":17}";
-            CHECK(gt_ext_session_request(
-                      session, &lease, "fixture.echo", input, strlen(input), 3000, &handle) ==
-                      GT_EXT_RPC_OK &&
-                  handle);
+            if (strcmp(mode, "arguments-invalid")) {
+                CHECK(gt_ext_session_lease(session, &lease));
+                const char *input = "{\"text\":\"stdio\",\"count\":17}";
+                CHECK(gt_ext_session_request(
+                          session, &lease, "fixture.echo", input, strlen(input), 3000, &handle) ==
+                          GT_EXT_RPC_OK &&
+                      handle);
+            }
         }
         if (handle && !confirmed) {
             gt_ext_rpc_result_t result;
@@ -218,6 +239,7 @@ int main(int argc, char **argv) {
         return 2;
     }
     int expected = !strcmp(mode, "digest") || !strcmp(mode, "deny") ? 6
+                   : !strcmp(mode, "arguments-invalid")             ? 5
                    : !strcmp(mode, "command")                       ? 2
                    : !strcmp(mode, "peer-digest") || !strcmp(mode, "lost") ||
                            !strcmp(mode, "pending-loss") || !strcmp(mode, "silent")
@@ -251,6 +273,9 @@ int main(int argc, char **argv) {
     }
     if (!strcmp(mode, "silent")) {
         CHECK(!decided && !handle);
+    }
+    if (!strcmp(mode, "arguments-invalid")) {
+        CHECK(decided && !handle);
     }
     for (unsigned i = 0; i < 100; i++) {
         if (gt_ext_session_close(session, 1) == GT_EXT_RELEASED) {
