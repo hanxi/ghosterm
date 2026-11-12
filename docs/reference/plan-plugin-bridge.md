@@ -4305,6 +4305,15 @@ JS-on `ExtensionControllerTests` 通过 **9 项、2 skip**；已有审查夹具�
 
 ### P2 实施第十五批：Preview 显式附件资源发布（2026-11-12）
 
-官方 Preview 命令新增 `--assets path1,path2`，允许用户显式列出最多六个同 `workspace` 根内的 CSS / raster image 附件；不递归扫描、不从 HTML 内容自动猜路径。仅 HTML / Markdown 文档可带附件，其他附件 MIME 被拒；路径拒绝绝对路径、`.` / `..`、空分量、重复项、主文件重复及反斜杠。主文档和附件分别经 `ResourceBroker.publish` 作为独立受控快照传输，单项遵循 `--max-bytes`（默认 256 KiB、上限 1 MiB），每次最多七个资源槽位。
+官方 Preview 命令新增 `--assets path1,path2`，允许用户显式列出最多六个同 `workspace` 根内的 CSS / raster image 附件；不递归扫描、不从 HTML 内容自动猜路径。仅 HTML / Markdown 文档可带附件，其他附件 MIME 被拒；主文档及附件均须为不超过 512 字符的 canonical 相对路径，并拒绝绝对路径、`.` / `..`、空分量、重复项、主文件重复及反斜杠。主文档和附件分别经 `ResourceBroker.publish` 作为独立受控快照传输，单项遵循 `--max-bytes`（默认 256 KiB、上限 1 MiB），每次最多七个资源槽位。
 
 新增 `scripts/test-plugin-preview.mjs` 覆盖主文件 / CSS / PNG 的路径、MIME、root 与预算，及路径越界、重复、数量上限、错误附件格式拒绝。脚本通过；`scripts/build-plugin-preview.py` 重建摘要通过；JS-on `gterm plugin check` 对官方包报告 compatible；`git diff --check` 通过。此批仅让用户显式发布关联文件，不表示相对 URL 已在 HTML / Markdown 预览中加载；Swift 端路径身份保留、安全资源映射与浏览器 / Markdown 渲染仍待完成。不改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第十六批：保留资源的 workspace 相对路径（2026-11-12）
+
+Core Source 发布元数据的 `displayName` 在 1024 字节可表示范围内改为相对路径的规范化版本，而不是只保留 basename；因此 `site/index.html` 与 `site/theme.css` 的层级身份可以随快照到达 Host。输入中的冗余 `/` 和 `.` 分量按已打开的目录链规范化；`..` 仍拒绝。超过可表示范围时为兼容通用 Source 调用回落为末级文件名；官方 Preview 已将所有路径限制为 512 字符，不触发回落。
+
+Core `test_bridge_source` 对多层路径、含字面 shell 元字符 / 中文的路径、硬链接测试路径和最大目录深度，逐项对拍快照 `displayName` 等于规范化目录链。`bash scripts/gate.sh` 全绿：CTest **474 项**、公共 ABI **177 项**、未实现入口检查通过。插件侧 `scripts/test-plugin-preview.mjs` 通过；`scripts/build-plugin-preview.py` 重建与 `--check` 均通过；Core 改动没有公共 ABI 变化。
+
+此批提供稳定相对路径身份，不加载任何附件。下一步需在 macOS App 安全地将 HTML/CSS 引用映射到同一 Preview 资源路径下已收到的快照，并覆盖目录越界、缺失附件和跨 Preview 隔离；Markdown 图片映射仍待完成。不增加 macOS CI 二十份。

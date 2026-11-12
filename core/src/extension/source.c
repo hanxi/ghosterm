@@ -162,6 +162,24 @@ static gt_bridge_source_status_t source_path(gt_bridge_source_t *s, const char *
     return s->count ? GT_BRIDGE_SOURCE_OK : GT_BRIDGE_SOURCE_INVALID;
 }
 
+static void source_display_name(const gt_bridge_source_t *s, char out[1025]) {
+    size_t at = 0;
+    for (size_t i = 0; i < s->count; i++) {
+        size_t n = strlen(s->names[i]);
+        size_t separator = i ? 1 : 0;
+        if (n + separator > 1024 - at) {
+            strcpy(out, s->names[s->count - 1]);
+            return;
+        }
+        if (separator) {
+            out[at++] = '/';
+        }
+        memcpy(out + at, s->names[i], n);
+        at += n;
+    }
+    out[at] = 0;
+}
+
 static bool source_inode(const struct stat *a, const struct stat *b) {
     return a->st_dev == b->st_dev && a->st_ino == b->st_ino &&
            (a->st_mode & S_IFMT) == (b->st_mode & S_IFMT);
@@ -381,7 +399,7 @@ gt_bridge_source_status_t gt__bridge_source_open(const gt_bridge_source_config_t
         return status;
     }
     strcpy(s->info.descriptor.mime, config->mime);
-    strcpy(s->info.descriptor.display_name, s->names[s->count - 1]);
+    source_display_name(s, s->info.descriptor.display_name);
     s->info.descriptor.size_known = true;
     s->info.descriptor.size = (uint64_t)s->version.st_size;
     s->info.phase = GT_BRIDGE_SOURCE_HASHING;

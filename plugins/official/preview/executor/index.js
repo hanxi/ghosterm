@@ -21,13 +21,18 @@ function mediaType(path) {
   return MIME_BY_EXTENSION[extension] || "application/octet-stream";
 }
 
+function relativePath(path) {
+  return typeof path === "string" && path.length > 0 && path.length <= 512 &&
+    !path.startsWith("/") && !path.includes("\\") && !path.includes("\0") &&
+    !path.split("/").some(part => !part || part === "." || part === "..");
+}
+
 function attachmentPaths(value, mainPath) {
+  if (!relativePath(mainPath)) throw new Error("preview path must be a canonical relative path of at most 512 characters");
   if (value === "") return [];
   if (typeof value !== "string") throw new Error("preview assets must be a comma-separated path list");
   const paths = value.split(",");
-  if (paths.length > MAX_ASSETS || paths.some(path => !path || path.length > 512 ||
-      path.startsWith("/") || path.includes("\\") || path.includes("\0") ||
-      path.split("/").some(part => !part || part === "." || part === "..")) ||
+  if (paths.length > MAX_ASSETS || paths.some(path => !relativePath(path)) ||
       new Set(paths).size !== paths.length || paths.includes(mainPath)) {
     throw new Error(`preview accepts at most ${MAX_ASSETS} unique relative attachment paths`);
   }

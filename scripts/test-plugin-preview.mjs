@@ -43,6 +43,13 @@ for (const assets of ["../secret.txt", "/etc/passwd", "site/a.css,,site/b.png", 
   await assert.rejects(() => activate(invalid), /relative attachment paths/);
 }
 
+const nonCanonicalMain = {
+  side: "executor",
+  invocation: { command: "preview", decodedArguments: { path: "site/../index.html", assets: "", maxBytes: 65536 } },
+  resources: { workspaces: ["workspace"], publish() { assert.fail("invalid main path must be rejected before publishing"); } },
+};
+await assert.rejects(() => activate(nonCanonicalMain), /canonical relative path/);
+
 const tooMany = {
   side: "executor",
   invocation: { command: "preview", decodedArguments: {

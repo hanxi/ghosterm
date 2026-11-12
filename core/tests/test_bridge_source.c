@@ -368,7 +368,18 @@ static void source_normal(const char *mode) {
           out.read_bytes == size && out.accepted == size && s->send_eof &&
           source_largest <= GT_BRIDGE_SOURCE_QUANTUM);
     gt_bridge_snapshot_t snapshot = transfer_take(&f, false);
-    CHECK(!strcmp(snapshot.descriptor.display_name, s->names[s->count - 1]));
+    char expected_name[1025];
+    size_t expected_at = 0;
+    for (size_t i = 0; i < s->count; i++) {
+        if (i) {
+            expected_name[expected_at++] = '/';
+        }
+        size_t name_size = strlen(s->names[i]);
+        memcpy(expected_name + expected_at, s->names[i], name_size);
+        expected_at += name_size;
+    }
+    expected_name[expected_at] = 0;
+    CHECK(!strcmp(snapshot.descriptor.display_name, expected_name));
     transfer_verify(&f, false, &snapshot, size, true);
     /* Source changes after confirmed publication cannot rewrite that result. */
     CHECK(!unlinkat(files.root, cfg.relative_path, 0));
