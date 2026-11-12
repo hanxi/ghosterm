@@ -90,6 +90,77 @@ final class ExtensionControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testAppModelAuthenticatesConfiguredPluginSSHRoute() async throws {
+        guard let host = ProcessInfo.processInfo.environment["GHOSTERM_SSH_HOST"],
+              let port = ProcessInfo.processInfo.environment["GHOSTERM_SSH_PORT"],
+              let keyPath = ProcessInfo.processInfo.environment["GHOSTERM_SSH_KEY"],
+              let user = ProcessInfo.processInfo.environment["GHOSTERM_SSH_USER"] else {
+            throw XCTSkip("requires the local sshd fixture from apple-app-gate")
+        }
+        let root = sessionTestDirectory().appendingPathComponent("plugin-route-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = root.appendingPathComponent("ssh_config")
+        let knownHosts = root.appendingPathComponent("known_hosts")
+        try Data("""
+        Host plugin-fixture
+          HostName \(host)
+          Port \(port)
+          User \(user)
+          IdentityFile \(keyPath)
+        """.utf8).write(to: config)
+        try Data().write(to: knownHosts)
+
+        let model = isolatedAppModel(configPath: config.path, knownHostsPath: knownHosts.path)
+        guard let controller = model.extensionController else {
+            throw XCTSkip("requires the native plugin channel runtime")
+        }
+        defer { Task { await controller.close() } }
+        model.interaction = AcceptAllInteraction()
+        let state = try await model.authenticatePluginSSHChannel(alias: "plugin-fixture", bootstrap: "exec true")
+        XCTAssertEqual(state.phase, ExtensionChannel.Phase.ready.rawValue)
+        try await controller.stopSSHChannel()
+        try await controller.releaseFinished()
+        let closed = await controller.close()
+        XCTAssertTrue(closed)
+    }
+
+    @MainActor
+    func testPluginSSHRouteUsesConfiguredProxyJumpAndOnlyResolvesFirstHop() async throws {
+        let root = sessionTestDirectory().appendingPathComponent("plugin-proxyjump-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = root.appendingPathComponent("ssh_config")
+        let knownHosts = root.appendingPathComponent("known_hosts")
+        try Data("""
+        Host plugin-jump
+          HostName 127.0.0.1
+          Port 2221
+          User jump-user
+        Host plugin-target
+          HostName 192.0.2.19
+          Port 2222
+          User target-user
+          ProxyJump plugin-jump
+        """.utf8).write(to: config)
+        try Data().write(to: knownHosts)
+        let model = isolatedAppModel(configPath: config.path, knownHostsPath: knownHosts.path)
+        let hops = try await model.resolvePluginSSHRoute(alias: "plugin-target")
+        XCTAssertEqual(hops.count, 2)
+        XCTAssertEqual(hops[0].host, "127.0.0.1")
+        XCTAssertEqual(hops[0].port, 2221)
+        XCTAssertEqual(hops[0].username, "jump-user")
+        XCTAssertEqual(hops[0].addressFamily, 4)
+        XCTAssertEqual(hops[0].addressBytes?.prefix(4), [127, 0, 0, 1])
+        XCTAssertNil(hops[0].viaHost)
+        XCTAssertEqual(hops[1].host, "192.0.2.19")
+        XCTAssertEqual(hops[1].port, 2222)
+        XCTAssertEqual(hops[1].username, "target-user")
+        XCTAssertNil(hops[1].addressFamily)
+        XCTAssertEqual(hops[1].viaHost, "192.0.2.19")
+    }
+
+    @MainActor
     func testReviewDoesNotApproveAndResolutionRequiresExactApproval() async throws {
         guard ExtensionRuntime.supportStatus == 0 else {
             throw XCTSkip("requires the explicit JS-enabled Core profile")

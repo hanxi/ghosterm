@@ -942,10 +942,17 @@ public final class AppModel: ObservableObject {
     /// for the first hop; inner hostnames are forwarded through direct-tcpip.
     public func openPluginSSHChannel(alias: String, bootstrap: String) async throws -> ExtensionController.ChannelState {
         guard let extensionController else { throw GhostermError.failed("此构建未启用插件运行时") }
+        let hops = try await resolvePluginSSHRoute(alias: alias)
+        return try await extensionController.openSSHChannel(hops: hops, bootstrap: bootstrap)
+    }
+
+    /// Resolves the product ssh_config route and the first hop's address for
+    /// use by the Native plugin channel; later hops stay name-based.
+    public func resolvePluginSSHRoute(alias: String) async throws -> [ExtensionController.SSHHop] {
         let targets = try configuredSSHRoute(for: [alias])
         guard let first = targets.first else { throw GhostermError.failed("SSH 配置没有生成连接路线") }
         let address = try await resolvePluginAddress(first.host)
-        let hops = targets.enumerated().map { index, target in
+        return targets.enumerated().map { index, target in
             ExtensionController.SSHHop(host: target.host, port: target.port, username: target.user,
                 knownHostsPath: target.knownHosts,
                 addressFamily: index == 0 ? address.family : nil,
@@ -953,7 +960,95 @@ public final class AppModel: ObservableObject {
                 scope: index == 0 ? address.scope : 0,
                 viaHost: index == 0 ? nil : target.host)
         }
-        return try await extensionController.openSSHChannel(hops: hops, bootstrap: bootstrap)
+    }
+
+    /// Opens the configured plugin route and answers each Native SSH
+    /// challenge through the App's existing host-key and Keychain credential
+    /// flows. Caller owns subsequent Session / consent / Runtime work.
+    public func authenticatePluginSSHChannel(alias: String, bootstrap: String) async throws -> ExtensionController.ChannelState {
+        guard let extensionController else { throw GhostermError.failed("此构建未启用插件运行时") }
+        let targets = try configuredSSHRoute(for: [alias])
+        guard !targets.isEmpty else { throw GhostermError.failed("SSH 配置没有生成连接路线") }
+        var state = try await openPluginSSHChannel(alias: alias, bootstrap: bootstrap)
+        let selectors = targets.map { target in
+            SSHCredentialSelector(target: target, storage: sshCredentialStorage, ask: { [weak self] kind in
+                guard let self else { return nil }
+                let prompt = CredentialPrompt(host: target.host, port: target.port, user: target.user, kind: kind)
+                return self.interaction?.askCredential(prompt)
+            }, hostkey: { _, _ in .unknown }, notice: { [weak self] message in
+                self?.statusMessage = message
+            })
+        }
+        var attempts = Array(repeating: UInt32(0), count: targets.count)
+        var credentialRequests = Array(repeating: UInt64(0), count: targets.count)
+        var lastHandledChallenge: UInt64?
+        let deadline = ProcessInfo.processInfo.systemUptime + 60
+        do {
+            while state.phase == ExtensionChannel.Phase.connecting.rawValue {
+                try Task.checkCancellation()
+                guard ProcessInfo.processInfo.systemUptime < deadline else {
+                    throw GhostermError.failed("插件 SSH 认证超过 60 秒")
+                }
+                guard try configuredSSHRoute(for: [alias]) == targets else {
+                    throw GhostermError.failed("SSH 配置在插件认证期间发生变化")
+                }
+                let index = Int(state.hop)
+                if state.authentication.indices.contains(index), state.challenge > 0,
+                   state.challenge != lastHandledChallenge {
+                    let auth = state.authentication[index]
+                    if auth.phase == SSHAuthenticator.Phase.hostkey.rawValue {
+                        let prompt = HostKeyPrompt(host: targets[index].host, port: targets[index].port,
+                                                   keyType: auth.keyType, fingerprint: auth.fingerprint)
+                        let decision = interaction?.confirmHostKey(prompt) ?? .unknown
+                        guard decision != .unknown else {
+                            throw GhostermError.failed("未确认插件 SSH 主机密钥，连接已取消")
+                        }
+                        let result = try await extensionController.decideSSHHost(hop: state.hop,
+                            challenge: state.challenge, decision: decision.rawValue)
+                        guard result == 0 else { throw GhostermError.failed("无法保存插件 SSH 主机信任记录") }
+                        lastHandledChallenge = state.challenge
+                    } else if auth.phase == SSHAuthenticator.Phase.credentials.rawValue {
+                        attempts[index] &+= 1
+                        let prompts = selectors[index].prompts
+                        prompts.methods(state.challenge, auth.methods, auth.error)
+                        let credential = try await withCheckedThrowingContinuation { continuation in
+                            prompts.credential(state.challenge, attempts[index]) { result in
+                                continuation.resume(with: result)
+                            }
+                        } as GhostermCore.SSHCredential
+                        let submitted: Int32
+                        switch credential {
+                        case .password(let value):
+                            submitted = try await extensionController.submitSSHCredential(hop: state.hop,
+                                challenge: state.challenge, credential: .password(value))
+                        case .privateKey(let pem, let passphrase):
+                            submitted = try await extensionController.submitSSHCredential(hop: state.hop,
+                                challenge: state.challenge, credential: .privateKey(pem: pem, passphrase: passphrase))
+                        }
+                        guard submitted == 0 else { throw GhostermError.failed("插件 SSH 凭据已被拒绝") }
+                        credentialRequests[index] = state.challenge
+                        lastHandledChallenge = state.challenge
+                    } else if auth.phase == SSHAuthenticator.Phase.failed.rawValue {
+                        throw GhostermError.status(auth.error, "插件 SSH 第 \(index + 1) 跳认证失败")
+                    }
+                }
+                state = try await extensionController.stepSSHChannel(milliseconds: 10)
+                if state.phase == ExtensionChannel.Phase.connecting.rawValue {
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+            }
+            guard state.phase == ExtensionChannel.Phase.ready.rawValue else {
+                throw GhostermError.status(state.error, "插件 SSH 通道未能就绪")
+            }
+            for index in selectors.indices where credentialRequests[index] > 0 {
+                selectors[index].prompts.accepted(credentialRequests[index], attempts[index])
+            }
+            return state
+        } catch {
+            try? await extensionController.stopSSHChannel()
+            try? await extensionController.releaseFinished()
+            throw error
+        }
     }
 
     private func resolvePluginAddress(_ host: String) async throws -> SSHAddress {

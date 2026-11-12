@@ -37,6 +37,9 @@ struct SettingsView: View {
     }
 
     private var pane: SettingsView.Pane { selection.pane }
+    private var paneHeight: CGFloat {
+        pane == .extensions && model.extensionController != nil ? 144 : pane.height
+    }
 
     enum Pane: String, CaseIterable, Identifiable {
         case general = "通用"
@@ -109,7 +112,7 @@ struct SettingsView: View {
         ScrollView {
             paneBody
         }
-        .frame(height: pane.height)
+        .frame(height: paneHeight)
     }
 
     private var paneBody: some View {
