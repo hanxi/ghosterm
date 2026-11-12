@@ -75,10 +75,13 @@ class ExtensionControllerTest {
                 controller.approve(first.id, first.digest))
             assertEquals(com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.CONFLICT,
                 controller.resolve("fixture").status)
+            File(firstDir, "plugin.json").writeText("{}")
+            File(firstDir, "client/index.js").writeText("throw Error('changed after review')")
             val selected = controller.resolve("fixture", first.id, first.digest)
             assertEquals(com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.OK, selected.status)
             assertEquals(first.digest, selected.packageDigest)
             assertEquals("fixture", selected.command?.path)
+            assertEquals("Fixture", selected.command?.title)
             assertEquals(com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.DENIED,
                 controller.deny(first.id, first.digest))
             assertEquals(com.hanxi.ghosterm.bridge.ExtensionRegistry.Status.DENIED,
