@@ -82,6 +82,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private val stagingRoot = File(context.applicationContext.cacheDir, "extension-package-review")
     private val hostJSON = profile.json()
     private val closed = AtomicBoolean(false)
+    private val cleanupComplete = AtomicBoolean(false)
     private val records = linkedMapOf<Key, Record>() // worker-confined
     private var registry: ExtensionRegistry? = null // worker-confined
     private var channel: ExtensionChannel? = null // same worker; later Session/Runtime owners must be adopted here
@@ -229,21 +230,54 @@ class ExtensionController(profile: HostProfile, context: Context) {
     }
 
     suspend fun close() {
-        if (!closed.compareAndSet(false, true)) return
+        closed.set(true)
+        if (cleanupComplete.get()) return
         try {
             withContext(NonCancellable + dispatcher) {
+                if (cleanupComplete.get()) return@withContext
                 checkWorker()
-                channel?.let { runCatching { it.close() } }
-                channel = null
+                // Channel close can retain its native owner while it drains.
+                // Do not release packages or stop this worker until a retry
+                // actually reports that the channel owner is gone.
+                channel?.let { current -> current.close(); channel = null }
+
+                var failure: Throwable? = null
+                fun recordFailure(next: Throwable) {
+                    val previous = failure
+                    if (previous == null) failure = next else previous.addSuppressed(next)
+                }
                 // Registry owns references to approved packages; release it first.
-                registry?.let { runCatching { it.closeStatus() } }
-                registry = null
-                records.values.forEach { runCatching { it.packageBytes.close() } }
-                records.clear()
+                registry?.let { current ->
+                    val status = current.closeStatus()
+                    registry = null
+                    if (status != ExtensionRegistry.Status.OK) {
+                        recordFailure(IllegalStateException("插件注册表关闭失败：$status"))
+                    }
+                }
+                val iterator = records.iterator()
+                while (iterator.hasNext()) {
+                    val record = iterator.next().value
+                    try {
+                        record.packageBytes.close()
+                        iterator.remove()
+                    } catch (error: Throwable) {
+                        recordFailure(error)
+                        if (!record.packageBytes.hasOwner) iterator.remove()
+                    }
+                }
+                if (records.isNotEmpty()) {
+                    val error = IllegalStateException("仍有插件包 owner 未释放；保留 controller worker 供重试")
+                    failure?.let(error::addSuppressed)
+                    throw error
+                }
+                cleanupComplete.set(true)
+                failure?.let { throw it }
             }
         } finally {
-            dispatcher.close()
-            thread.quitSafely()
+            if (cleanupComplete.get()) {
+                dispatcher.close()
+                thread.quitSafely()
+            }
         }
     }
 

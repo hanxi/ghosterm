@@ -10,6 +10,8 @@ class ExtensionPackage private constructor(private val worker: Thread) : AutoClo
     enum class Failure { NONE, INVALID, UNKNOWN, UNSUPPORTED, DENIED, LIMIT, MEMORY, CANCELLED, IO, INTERNAL, CHANGED }
     data class Info(val phase: Phase, val error: Failure, val code: String, val members: ULong, val bytes: ULong)
     @Volatile private var handle = 0L
+    /** True only after Core released this fixed package owner. */
+    val hasOwner: Boolean get() = handle != 0L
     internal fun pointer(): Long {
         check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper() && handle != 0L) {
             "插件包已释放或不在原非 UI worker"
