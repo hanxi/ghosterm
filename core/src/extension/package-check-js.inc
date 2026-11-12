@@ -690,6 +690,11 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
             JS_ToBool(c, authenticated) == 0 && JS_IsBool(association) &&
             check_strings(c, identity, "requires", info->requires, &info->requires_count) &&
             check_strings(c,
+                          identity,
+                          "processPrograms",
+                          info->process_programs,
+                          &info->process_program_count) &&
+            check_strings(c,
                           result,
                           "optionalMissing",
                           info->optional_missing,

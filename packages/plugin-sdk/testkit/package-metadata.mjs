@@ -147,6 +147,10 @@ export function createPackageInspector({ validateManifest, validateIntegrity, se
       const key = permission.side + ':' + permission.capability;
       if (permissionKeys.has(key)) fail('DUPLICATE_PERMISSION');
       permissionKeys.add(key);
+      if (permission.side === 'executor' && permission.capability === 'process.spawn' &&
+          (!Array.isArray(permission.programs) || permission.programs.length < 1)) {
+        fail('PROCESS_PROGRAM_SCOPE_REQUIRED');
+      }
       if (!sides[permission.side].some(side => [...side.requires, ...(side.optional ?? [])].includes(permission.capability))) {
         fail('UNDECLARED_PERMISSION');
       }
@@ -243,9 +247,14 @@ export function createPackageInspector({ validateManifest, validateIntegrity, se
             verified.schemaDigest !== members.get(dependency.schema).sha256) fail('ADAPTER_UNKNOWN', 'unknown');
       }
     }
+    const processPrograms = host.side === 'executor'
+      ? manifest.permissions.filter(permission => permission.side === 'executor' &&
+          permission.capability === 'process.spawn').flatMap(permission => permission.programs ?? [])
+      : [];
     return {
       kind: 'compatible', side: host.side, variantId: selected.id ?? null,
       entry: selected.entry ?? selected.executable, protocols,
+      processPrograms,
       optionalMissing: (selected.optional ?? []).filter(capability => !host.capabilities.includes(capability) || host.deniedCapabilities?.includes(capability)),
       authorization: 'not-granted', publisherAuthenticated: false,
     };

@@ -53,9 +53,11 @@ function add(name, change = () => {}, code = 'COMPATIBLE', state = 'invalid', na
   const registryFile = path.join(directory, 'registry.json'); fs.writeFileSync(registryFile, f.rawRegistry ?? JSON.stringify(f.registry));
   const status = code === 'COMPATIBLE' ? 0 : ({ invalid: 1, unknown: 2, unsupported: 3, denied: 4, limit: 5 })[state]; assert(Number.isInteger(status), name);
   vectors.push({ name, directory: pkg, hostFile, registryFile, status, code, nativeOnly: native,
-    ...(result ? { expected: { id: f.manifest.id, version: f.manifest.pluginVersion, entry: result.entry, runtime: f.host.side === 'client' ? f.manifest.client.runtime : f.manifest.executor.variants.find(v => v.id === result.variantId).runtime, variant: result.variantId ?? '', executor: f.host.side === 'executor', protocols: result.protocols, optionalMissing: result.optionalMissing, associationRequired: result.associationRequired, authorizationGranted: false, publisherAuthenticated: false, packageDigest: hash(f.files['integrity.json']), manifestDigest: hash(f.files['plugin.json']) } } : {}) });
+    ...(result ? { expected: { id: f.manifest.id, version: f.manifest.pluginVersion, entry: result.entry, runtime: f.host.side === 'client' ? f.manifest.client.runtime : f.manifest.executor.variants.find(v => v.id === result.variantId).runtime, variant: result.variantId ?? '', executor: f.host.side === 'executor', protocols: result.protocols, optionalMissing: result.optionalMissing, processPrograms: result.processPrograms, associationRequired: result.associationRequired, authorizationGranted: false, publisherAuthenticated: false, packageDigest: hash(f.files['integrity.json']), manifestDigest: hash(f.files['plugin.json']) } } : {}) });
 }
 add('client'); add('executor', f => { f.host.side = 'executor'; });
+add('process-program-scope', f => dependency(f));
+add('process-program-scope-required', f => { dependency(f); delete f.manifest.permissions.find(p => p.capability === 'process.spawn').programs; }, 'PROCESS_PROGRAM_SCOPE_REQUIRED');
 add('client-only', f => { delete f.manifest.executor; f.manifest.permissions = []; });
 add('executor-only', f => { delete f.manifest.client; f.host.side = 'executor'; });
 add('node', f => node(f));

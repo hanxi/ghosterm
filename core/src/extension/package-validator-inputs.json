@@ -5,13 +5,13 @@
     "packages/plugin-sdk/schema/bridge-v1.candidate.json": "bab041ad11244aa7a01fadf5875dce656a8a00c8a72a7fcf917528bb834d34b1",
     "packages/plugin-sdk/schema/manifest-v1.candidate.json": "8ff7cb0f047e1e123829301c78ccbbefac7e1780c1a4e6dbc07b8bea885a61c6",
     "packages/plugin-sdk/schema/integrity-v1.candidate.json": "35ad554b03c8efc108afce1e9fd419b7b470574be95a49f7fcecd0c3fc0ce3f9",
-    "packages/plugin-sdk/testkit/package-metadata.mjs": "f594f05b9295a40406840c7c1f5d22a9a5f37571516aad453c938165dc27df84",
-    "scripts/generate-plugin-package-validator.mjs": "338f804519fb9cf790bae4eccb9a8fee5454b3233dcd6bffb554fcea15022d36",
+    "packages/plugin-sdk/testkit/package-metadata.mjs": "838a2fe24aa111205b51b1d2af7d16e9aa8e49b84f26abe9664a84ba4f701606",
+    "scripts/generate-plugin-package-validator.mjs": "236e879adf04de7307e3f89af5d09eeb2f1749bea2c5fc90961c385fb1ad8805",
     "scripts/fixtures/plugin-package-tools/package.json": "f72e84dba5c4edb0eb9698cd904a1c8be18e805e690d22c26cf2b0e6c0a36c4c",
     "scripts/fixtures/plugin-package-tools/package-lock.json": "bca93b49c98cd080ca8258e35ed2295b55a0e832f45578e55f9ce4d0e52291c8"
   },
   "outputs": {
-    "core/src/extension/package-validator-code.inc": "640df500470b825665731e83930de3decc376f91bdda43cc90cc9b4d14d186b3",
+    "core/src/extension/package-validator-code.inc": "49c7d22aceb2896ce8fcb8ca81d32e674a473fca835c480e90efaa14ae25d72b",
     "core/src/extension/package-validator-LICENSES.txt": "714d7eefbfd9cf54ecae358d410b712a76139b293276dbe964de9342ffdc640e"
   },
   "modules": {
@@ -45,6 +45,6 @@
     "semver": "7.7.3",
     "fast-deep-equal": "3.1.3"
   },
-  "bundleSHA256": "6a1de7fc4611912811562edde20073f4490810ca8722fc15d560dbad4237559d",
-  "bundleBytes": 168530
+  "bundleSHA256": "8422180f8e289d4380bc4ce11c4492d54691b6093e31a5676fdb82bcb78f6e67",
+  "bundleBytes": 169073
 }

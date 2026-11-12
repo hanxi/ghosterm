@@ -123,7 +123,12 @@ add('exec-compatible', () => compatible(execFixture((m, h) => {
 })));
 add('explicit-variant', () => compatible(execFixture((m, h) => { m.executor.variants.push({ ...m.executor.variants[0], id: 'other' }); h.variantId = 'portable'; })));
 add('prerelease-explicit', () => compatible(fixture((m, h) => { m.sdkApiRange = '>=0.1.0-beta.1 <0.2.0'; h.sdkVersion = '0.1.0-beta.2'; })));
-add('dependency-range-compatible', () => compatible(processFixture()));
+add('dependency-range-compatible', () => {
+  const result = compatible(processFixture());
+  assert.deepEqual(result.processPrograms, ['tool']);
+});
+add('process-spawn-needs-program-scope', () => rejects('PROCESS_PROGRAM_SCOPE_REQUIRED',
+  processFixture('range', manifest => { delete manifest.permissions.find(p => p.capability === 'process.spawn').programs; })));
 add('adapter-verified-fact', () => {
   const f = processFixture('adapter-verified'); f.host.adapters = { tool: { state: 'verified', version: '1.2.3', schemaDigest: f.observed.find(m => m.path === 'schemas/version-map.json').sha256 } };
   compatible(f);

@@ -57,7 +57,10 @@ typedef struct {
         sdk_version[65];
     char package_digest[65], manifest_digest[65]; /* raw integrity.json / plugin.json SHA256 */
     char requires[16][129], optional_missing[16][129];
-    size_t requires_count, optional_missing_count;
+    /* Names from the Executor process.spawn permission. This is an untrusted
+     * manifest scope observation, not an authorization grant or executable path. */
+    char process_programs[16][129];
+    size_t requires_count, optional_missing_count, process_program_count;
     uint16_t protocols[8];
     size_t protocol_count;
     bool executor, association_required;

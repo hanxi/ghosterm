@@ -480,14 +480,14 @@ int main(int argc, char **argv) {
         CHECK(checked && !snapshot && gt__package_checked_info(checked, &info));
         CHECK(!info.authorization_granted && !info.publisher_authenticated);
         CHECK(info.protocol_count && info.requires_count <= 16 &&
-              info.optional_missing_count <= 16);
+              info.optional_missing_count <= 16 && info.process_program_count <= 16);
         if (!probe) {
             CHECK(!strcmp(info.id, "org.ghosterm.fixture") &&
                   !strcmp(info.entry, "client/index.js") && !strcmp(info.version, "0.1.0") &&
                   !info.executor && !info.association_required && info.requires_count == 1 &&
                   !strcmp(info.requires[0], "ui.resource") && info.optional_missing_count == 1 &&
-                  !strcmp(info.optional_missing[0], "ui.diff") && info.protocol_count == 1 &&
-                  info.protocols[0] == 1);
+                  !strcmp(info.optional_missing[0], "ui.diff") && info.process_program_count == 0 &&
+                  info.protocol_count == 1 && info.protocols[0] == 1);
         }
         gt_package_member_t member;
         CHECK(gt__package_checked_member(checked, "plugin.json", &member, &view, &view_size));
@@ -572,6 +572,13 @@ int main(int argc, char **argv) {
                 putchar(',');
             }
             quote(info.optional_missing[i]);
+        }
+        printf("],\"processPrograms\":[");
+        for (size_t i = 0; i < info.process_program_count; i++) {
+            if (i) {
+                putchar(',');
+            }
+            quote(info.process_programs[i]);
         }
         putchar(']');
     }
