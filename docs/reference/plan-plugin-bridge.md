@@ -4382,6 +4382,13 @@ Markdown parser 使用文档自身的 `ghosterm-resource` URL 作为 base URL，
 
 此前 WKWebView 集成 XCTest 在 XCTest 对象释放检查中反复 SIGSEGV，无法作为稳定测试宿主。新增 `scripts/test-plugin-html-webkit.sh`：在单独的 headless macOS 进程编译并运行 probe，直接编入生产 `PluginResourceHTMLAssets.swift`、HTML / Markdown decoder；仅为资源快照值提供最小数据结构 stub。probe 禁止 App 激活，创建 borderless 窗口后立即 `orderOut`，再让 WebKit 加载静态 HTML。
 
-Fixture 的 stylesheet 与 PNG 都通过生产 `PluginResourceHTMLSchemeHandler` 从显式快照提供；HTML 加载 CSS 蓝色背景和红色图片，导航 delegate 使用生产 `PluginResourceHTMLNavigationPolicy`。probe 调用 WKWebView snapshot 并核对像素：红色 **4096**、蓝色 **39104**。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/test-plugin-html-webkit.sh` 通过；脚本退出时清理专属 `tmp/plugin-html-webkit-probe/`，Swift 临时目录也限制在其下。
+Fixture 的 stylesheet 与 PNG 都通过生产 `PluginResourceHTMLSchemeHandler` 从显式快照提供；HTML 加载 CSS 蓝色背景和红色图片，导航 delegate 使用生产 `PluginResourceHTMLNavigationPolicy`。probe 调用 WKWebView snapshot 并核对像素：红色 **4096**、蓝色 **39104**。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/test-plugin-html-webkit.sh` 通过；脚本退出时清理专属 `tmp/plugin-html-webkit-probe/`，Swift 临时目录也限制在其下。现已接入 `scripts/apple-app-gate.sh` 第 4/4 阶段，后续 Apple gate 会持续验证这条真实 WebKit 渲染路径。
 
 该验证覆盖真实 WebKit 自定义 scheme、CSP、CSS / raster image 像素绘制及 production handler / policy，但不实例化 App 的私有 SwiftUI `NSViewRepresentable` Coordinator，也不覆盖真实 SSH → AppModel → SwiftUI 的资源到达时序；完整 Preview 产品端到端仍待验收。不改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第二十五批：HTML WebKit probe 纳入 Apple gate（2026-11-12）
+
+将独立 HTML WebKit 绘制 probe 接入 `scripts/apple-app-gate.sh` 第 4 阶段，避免 CSS / image custom-scheme 渲染只依赖偶发手工执行。完整 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用、隔离 sshd e2e 通过、GhostermAppTests **403 项、5 skip、0 失败**，随后 probe 实际绘制红 PNG 与蓝 CSS 背景并通过。
+
+测试窗口按 headless probe 约定禁止激活并先 orderOut；所有临时输出在仓库 `tmp/` 并于退出时清理。不改公共 ABI，不增加 macOS CI 二十份。

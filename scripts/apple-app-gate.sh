@@ -8,6 +8,7 @@
 #   2. SessionController + libghostty：本地 PTY / SSH shell 的字节流真的进了
 #      终端网格（断言读的是 ghostty_surface_read_text，不是自己记的账）；
 #   3. SSH e2e：起本机真 sshd 注入 GHOSTERM_SSH_*（无 sshd 显式 SKIP）。
+#   4. HTML preview：真实 WebKit custom-scheme CSS / image 像素绘制。
 #
 # 前置：scripts/build-ghostty.sh 已产出补丁版 GhosttyKit.xcframework。
 # 普通 AppModel 夹具只使用本地 PTY / SSH，不需要 sessiond 或 runtime catalog。
@@ -102,5 +103,8 @@ sed -n 's/^.*Executed \(.*\)/\   执行: \1/p' "$TMP/apple-app-test.log" | tail 
 if grep -q "skipped" "$TMP/apple-app-test.log" && [ "${#ENVARGS[@]}" -eq 0 ]; then
   echo "   （SSH e2e 已 SKIP；本地 PTY + 主机列表用例仍为绿）"
 fi
+
+echo "== 4/4 受限 HTML Preview：真实 WebKit 子资源绘制 =="
+bash "$ROOT/scripts/test-plugin-html-webkit.sh"
 
 echo "APPLE APP GATE PASS"
