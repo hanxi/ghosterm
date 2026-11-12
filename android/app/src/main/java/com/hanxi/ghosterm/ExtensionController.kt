@@ -13,6 +13,8 @@ import android.database.Cursor
 import com.hanxi.ghosterm.bridge.ExtensionPackage
 import com.hanxi.ghosterm.bridge.ExtensionRegistry
 import com.hanxi.ghosterm.bridge.ExtensionChannel
+import com.hanxi.ghosterm.bridge.ExtensionSession
+import com.hanxi.ghosterm.bridge.ExtensionRuntime
 import com.hanxi.ghosterm.bridge.SSHAuthState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
@@ -72,6 +74,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
         val command: Command? = null,
     )
     data class ChannelState(val info: ExtensionChannel.Info, val authentication: SSHAuthState)
+    data class SessionState(val packageID: String, val packageDigest: String, val info: ExtensionSession.Info)
+    data class RuntimeState(val packageID: String, val packageDigest: String, val command: String, val info: ExtensionRuntime.Info)
 
     private data class Key(val id: String, val digest: String)
     private data class Record(val packageBytes: ExtensionPackage, val review: Review, var source: Source)
@@ -81,11 +85,17 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private val resolver: ContentResolver = context.applicationContext.contentResolver
     private val stagingRoot = File(context.applicationContext.cacheDir, "extension-package-review")
     private val hostJSON = profile.json()
+    private val hostCapabilities = profile.capabilities.toList()
     private val closed = AtomicBoolean(false)
     private val cleanupComplete = AtomicBoolean(false)
     private val records = linkedMapOf<Key, Record>() // worker-confined
     private var registry: ExtensionRegistry? = null // worker-confined
     @Volatile private var channel: ExtensionChannel? = null // stop alone may cross threads
+    private var session: ExtensionSession? = null
+    private var sessionPackageKey: Key? = null
+    private var runtime: ExtensionRuntime? = null
+    private var runtimePackageKey: Key? = null
+    private var runtimeCommand: String? = null
 
     /** Create an explicitly requested gterm relay route. This does not install,
      * discover, or start a remote Executor; the caller supplies its exact command. */
@@ -154,6 +164,83 @@ class ExtensionController(profile: HostProfile, context: Context) {
 
     suspend fun closeSSHChannel() = onWorker {
         channel?.let { current -> current.close(); channel = null }
+    }
+
+    /** Transfer a ready SSH relay to a HOST Session using only the already
+     * approved fixed Client package and caller-selected Executor identity. */
+    suspend fun adoptSSHSession(pluginID: String, packageDigest: String, executorDigest: String,
+        hostVersion: String, peerIdentity: String, methods: List<ExtensionSession.Method>): SessionState = onWorker {
+        check(session == null && runtime == null) { "此 controller 已有活动插件 Session" }
+        val key = Key(pluginID, packageDigest)
+        val record = records[key] ?: error("插件包摘要已失效")
+        check(record.source == Source.ALLOWED) { "插件来源尚未获本进程批准" }
+        require(executorDigest.matches(Regex("[a-f0-9]{64}"))) { "Executor 摘要无效" }
+        require(hostVersion.isNotBlank() && hostVersion.toByteArray().size <= 64 && '\u0000' !in hostVersion)
+        require(peerIdentity.isNotBlank() && peerIdentity.toByteArray().size <= 255 && '\u0000' !in peerIdentity)
+        val bytes = checkNotNull(channel) { "插件 SSH 通道尚未打开" }
+        check(bytes.info().phase == 1) { "插件 SSH 通道尚未就绪" }
+        val metadata = record.packageBytes.metadata()
+        check(metadata.id == pluginID && metadata.packageDigest == packageDigest && !metadata.executor) {
+            "固定包不是所选 Client 包"
+        }
+        val owned = ExtensionSession.adopt(bytes, ExtensionSession.Role.HOST,
+            ExtensionSession.Config(metadata.id, metadata.version, metadata.packageDigest, executorDigest,
+                hostVersion, metadata.sdkVersion, metadata.requires, hostCapabilities,
+                ExtensionSession.PeerKind.SSH, peerIdentity, methods = methods.toList()))
+        channel = null; session = owned; sessionPackageKey = key
+        SessionState(pluginID, packageDigest, owned.info())
+    }
+
+    suspend fun stepSession(milliseconds: Int = 0): SessionState = onWorker {
+        val current = checkNotNull(session) { "插件 Session 尚未接管" }
+        current.step(milliseconds)
+        val key = checkNotNull(sessionPackageKey)
+        SessionState(key.id, key.digest, current.info())
+    }
+
+    suspend fun decideSession(consentToken: String, decision: ExtensionSession.Decision): SessionState = onWorker {
+        val current = checkNotNull(session) { "插件 Session 尚未接管" }
+        val info = current.info()
+        check(info.phase == ExtensionSession.Phase.CONSENT && info.consentToken == consentToken) {
+            "插件授权请求已失效"
+        }
+        check(current.decide(consentToken, decision) == 0) { "插件授权决定未被接收" }
+        val key = checkNotNull(sessionPackageKey)
+        SessionState(key.id, key.digest, current.info())
+    }
+
+    /** Activate only after native Session consent reaches ACTIVE. The command
+     * is resolved against the exact approved package snapshot before runtime
+     * adopts the Session. */
+    suspend fun activateClient(pluginID: String, packageDigest: String, command: String,
+        arguments: List<String>): RuntimeState = onWorker {
+        val current = checkNotNull(session) { "插件 Session 尚未接管" }
+        check(current.info().phase == ExtensionSession.Phase.ACTIVE) { "插件 Session 尚未获得授权" }
+        check(sessionPackageKey == Key(pluginID, packageDigest)) { "插件 Session 与所选包不匹配" }
+        val record = records[Key(pluginID, packageDigest)] ?: error("插件包摘要已失效")
+        check(record.source == Source.ALLOWED && record.review.commands.any { it.path == command }) {
+            "命令不属于已批准的固定插件包"
+        }
+        val selected = registryOnWorker().resolve(command, executor = false, selectedId = pluginID,
+            selectedDigest = packageDigest)
+        val exact = selected.packageBytes ?: error("命令解析失败：${selected.status}")
+        try {
+            check(selected.command?.path == command && exact.metadata().packageDigest == packageDigest) {
+                "命令解析没有返回精确插件包"
+            }
+        } finally { exact.close() }
+        val active = ExtensionRuntime.adoptPackage(current, record.packageBytes, ExtensionSession.Role.HOST,
+            associated = true, invocation = ExtensionRuntime.Invocation(command, arguments.toList()))
+        session = null; sessionPackageKey = null; runtime = active
+        runtimePackageKey = Key(pluginID, packageDigest); runtimeCommand = command
+        RuntimeState(pluginID, packageDigest, command, active.info())
+    }
+
+    suspend fun stepRuntime(): RuntimeState = onWorker {
+        val current = checkNotNull(runtime) { "插件 Runtime 尚未启动" }
+        current.step()
+        val key = checkNotNull(runtimePackageKey)
+        RuntimeState(key.id, key.digest, checkNotNull(runtimeCommand), current.info())
     }
 
     suspend fun review(directory: File): Review = onWorker {
@@ -239,6 +326,9 @@ class ExtensionController(profile: HostProfile, context: Context) {
             withContext(NonCancellable + dispatcher) {
                 if (cleanupComplete.get()) return@withContext
                 checkWorker()
+                // Close consumers before the transport/package owners they borrow.
+                runtime?.let { current -> current.close(); runtime = null; runtimePackageKey = null; runtimeCommand = null }
+                session?.let { current -> current.close(); session = null; sessionPackageKey = null }
                 // Channel close can retain its native owner while it drains.
                 // Do not release packages or stop this worker until a retry
                 // actually reports that the channel owner is gone.

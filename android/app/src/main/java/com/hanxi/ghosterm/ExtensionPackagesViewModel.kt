@@ -20,7 +20,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             ExtensionController(
                 ExtensionController.HostProfile(
                     sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf("portable-js"),
-                    capabilities = listOf("session.rpc", "session.resources")),
+                    capabilities = listOf("session.rpc")),
                 application.applicationContext)
         }.getOrNull()
     } else null
