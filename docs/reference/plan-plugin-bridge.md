@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第四十九批 gterm 激活前按 argsSchema 解码。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定，第四十九批在激活前按已检查的 schema 解码并暴露冻结的 `invocation.decodedArguments`。App 命令选择 / 激活、授权 / 视图、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
+日期：2026-11-05，更新至 2026-11-12 第五十批跨端运行时参数夹具。状态：**P0 继续验收；独立 SSH / 受管多跳、握手 / 请求 / 资源 / scoped source 的 C ABI 与两端 worker、Portable SDK 请求及资源首片、可选 JS runtime 公共门面已分片验证。第三十一至三十三批已修复当前包语料暴露的编译 OOM；第三十四批已验收私有原生包元数据校验，第三十五批已接私有固定包 / SDK 加载首片，第三十六批已接公开包门面与两端 worker，并验真实包 RPC；第三十七批接私有命令注册与摘要选择，第三十八批接公共门面与两端 worker，第三十九批接独立 gterm 诊断 / 包检查，第四十批补运行时能力观察及关闭异常；第四十一批修复 NDK 对照路径，第四十二批贯通原始命令调用信息，第四十三批接显式受信开发包的前台 stdio Executor，第四十四批修复发送阻塞下的断流推进，第四十五批接 CLI 跨包命令解析与冲突选择，第四十六批在 Portable SDK 提供命令 argv schema 与受限类型解码，第四十七批将包内 schema 字节交给原生包校验并核验 v1 CLI 映射，第四十八批修正 schema 文件的路径绑定，第四十九批在激活前按已检查的 schema 解码并暴露冻结的 `invocation.decodedArguments`，第五十批把相同参数契约接入 Apple 与 Android 的包运行时集成夹具。App 命令选择 / 激活、授权 / 视图、完整 SDK 服务、gterm IPC 与实际业务插件仍待完成**。本计划承接用户认可的 [HTML 评审稿](../design/plugin-bridge/index.html)，作为后续代码切片、插件规范与跨平台验收的维护入口。HTML 保留为交互评审快照；后续规范变化以本文件为主。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -3671,6 +3671,14 @@ sanitizer 检查均接受；`mutation-check-plugin-package-check.py` 的位置�
 `test-gterm-stdio.py` 的 `arguments-codec` 真实 gterm 子进程用例对比 Portable SDK 与 host 解码结果、原始 argv 保真及对象冻结；`arguments-invalid` 传入越界整数并断言无 RPC / 无激活。完整 stdio 14 项通过。JS 开启的 gterm 构建成功；`test-plugin-runtime.py --fetch` 在 ASan/UBSan 下 36 个运行时 CTest、依赖/配置守卫与 ABI 对拍通过。专项脚本最初因预期列表落后于实际 CTest 的三个新增 runtime 用例而在清单断言失败；同步 `invocation`、`capabilities`、`dispose-throw` 后重跑通过。SDK 类型边界、运行时 SDK 生成 `--check`（固定摘要 `8544ddbf2c1ce825f30dc012418db2a02405b2e0f6b5bbf3d0b943f7c167676f`）与 C 格式检查 212 文件通过。Core gate 通过：474 CTest / 176 ABI。
 
 本批仅把已受信固定包的参数解码接到 stdio Executor；独立 App 命令路由 / 激活、授权 UI、生产 IPC、安装来源信任与真实业务插件仍待完成。不增加 macOS CI 二十份，不记整体插件计划完成。
+
+### P0 第五十批：两端包运行时夹具验证 host argv 解码（2026-11-12）
+
+第四十九批完成后复查端绑定发现，Apple XCTest 与 Android instrumentation 原有固定包 RPC 夹具仍使用空 `{}` args schema，同时以非空 argv 创建 Executor。这些用例会在新的激活前校验下失败，且 gterm 单独通过不足以证明两端使用同一行为。现将两个夹具改成相同的 v1 `x-ghosterm-cli` 三位置参数 schema；插件入口同时断言原始 argv 未变、`invocation.decodedArguments` 解出相同值且结果被冻结。包清单、固定源摘要、Session 与 RPC 行为保持原有覆盖范围。
+
+Apple `ExtensionPackageTests.testFixedPackageAdoptionAndRPC` 在 JS 开启的 Core / QuickJS 真构建上通过，覆盖包检查、注册 / 精确选择、删源文件后的固定快照启动、激活与 RPC。`mutation-check-plugin-package-swift.py --build core/build --invocation` 两组（invocation 字段传递、空 argv 元素保真）分别真实编译后正常 XCTest 断言红、独立 Core 配置对照绿、恢复绿及源码 / 预构建归档 SHA256 一致。Android 无连接设备；`compileDebugAndroidTestKotlin -PghostermPluginJs=true` 对已启用 runtime 的 instrumentation 源码编译通过，未执行设备测试，不计 Android runtime 行为验收。
+
+本批没有修改生产绑定或公共 ABI，只同步其真实包集成夹具；待 Android 专用设备上执行同一测试后，才能把本契约记为双端运行行为通过。App 命令选择 / 激活、授权 UI、生产 IPC、安装来源信任及真实业务插件仍待完成。
 
 ### P0 关闭技术风险并冻结第一份协议候选
 

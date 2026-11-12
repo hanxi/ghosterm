@@ -17,9 +17,10 @@ final class ExtensionPackageTests: XCTestCase {
             let manifest: [String: Any] = ["schemaVersion": 1, "id": "org.ghosterm.fixture", "pluginVersion": "0.1.0", "sdkApiRange": "^1.0.0", "bridgeProtocolRange": [1],
                 "publisher": "测试 publisher", "license": "MIT", "commands": [["path": ["fixture"], "title": "Fixture", "argsSchema": "schemas/input.json"]],
                 "executor": ["variants": [["id": "portable", "runtime": "portable-js", "entry": entry, "requires": ["session.rpc"]]]], "permissions": []]
-            let invokedEcho = runtimeEcho.replacingOccurrences(of: "activate(ctx){", with: "activate(ctx){if(!ctx.invocation||ctx.invocation.command!=='fixture'||ctx.invocation.arguments[0]!=='中文'||ctx.invocation.arguments[1]!==''||ctx.invocation.arguments[2]!==\"';throw Error('injected');//\")throw Error('invocation');")
+            let invokedEcho = runtimeEcho.replacingOccurrences(of: "activate(ctx){", with: "activate(ctx){const a=ctx.invocation?.decodedArguments;if(!ctx.invocation||ctx.invocation.command!=='fixture'||ctx.invocation.arguments[0]!=='中文'||ctx.invocation.arguments[1]!==''||ctx.invocation.arguments[2]!==\"';throw Error('injected');//\"||!a||a.first!=='中文'||a.empty!==''||a.literal!==ctx.invocation.arguments[2]||!Object.isFrozen(a))throw Error('invocation');")
+            let argumentSchema = #"{"type":"object","properties":{"first":{"type":"string","maxLength":100},"empty":{"type":"string","maxLength":100},"literal":{"type":"string","maxLength":100}},"required":["first","empty","literal"],"additionalProperties":false,"x-ghosterm-cli":{"version":1,"fields":{"first":{"position":0},"empty":{"position":1},"literal":{"position":2}}}}"#
             let files: [String: Data] = ["plugin.json": try JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys]),
-                "README": Data("fixture".utf8), "LICENSES/MIT.txt": Data("fixture".utf8), "schemas/input.json": Data("{}".utf8), entry: Data(invokedEcho.utf8)]
+                "README": Data("fixture".utf8), "LICENSES/MIT.txt": Data("fixture".utf8), "schemas/input.json": Data(argumentSchema.utf8), entry: Data(invokedEcho.utf8)]
             var members: [[String: Any]] = []
             for (path, bytes) in files {
                 let url = dir.appendingPathComponent(path)
