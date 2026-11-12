@@ -73,6 +73,12 @@ def main():
             "ServerRequestResolvedNotification": types / "v2/ServerRequestResolvedNotification.ts",
             "CommandExecutionApprovalDecision": types / "v2/CommandExecutionApprovalDecision.ts",
             "FileChangeApprovalDecision": types / "v2/FileChangeApprovalDecision.ts",
+            "ExecPolicyAmendment": types / "v2/ExecPolicyAmendment.ts",
+            "NetworkPolicyAmendment": types / "v2/NetworkPolicyAmendment.ts",
+            "NetworkPolicyRuleAction": types / "v2/NetworkPolicyRuleAction.ts",
+            "UserInput": types / "v2/UserInput.ts",
+            "TextElement": types / "v2/TextElement.ts",
+            "ByteRange": types / "v2/ByteRange.ts",
         }
         for name, required in lock["requiredFields"].items():
             text = type_paths[name].read_text(encoding="utf-8")
@@ -98,18 +104,104 @@ def main():
                     detail.append("unlocked " + ", ".join(unlocked))
                 raise SystemExit(f"{name} from {version} decision lock mismatch: {'; '.join(detail)}")
 
+        for name, expected in lock.get("lockedTypeExpressions", {}).items():
+            text = re.sub(r"/\*.*?\*/", "", type_paths[name].read_text(encoding="utf-8"), flags=re.DOTALL)
+            match = re.search(rf"export type {re.escape(name)}\s*=\s*(.*?);", text, re.DOTALL)
+            if not match:
+                raise SystemExit(f"{name} from {version} is not an exported type alias")
+            actual = re.sub(r"\s+", "", re.sub(r"/\*.*?\*/", "", match.group(1), flags=re.DOTALL))
+            if actual != expected:
+                raise SystemExit(f"{name} from {version} differs from the pinned stable shape")
+
+        def normalized_alias(name):
+            text = re.sub(r"/\*.*?\*/", "", type_paths[name].read_text(encoding="utf-8"), flags=re.DOTALL)
+            match = re.search(rf"export type {re.escape(name)}\s*=\s*(.*?);", text, re.DOTALL)
+            if not match:
+                raise SystemExit(f"{name} from {version} is not an exported type alias")
+            return re.sub(r"\s+", "", match.group(1))
+
+        for name, declarations in lock.get("lockedFieldDeclarations", {}).items():
+            actual = normalized_alias(name)
+            missing = [declaration for declaration in declarations if declaration not in actual]
+            if missing:
+                raise SystemExit(f"{name} from {version} field shape mismatch: {', '.join(missing)}")
+
+        for name, fragments in lock.get("lockedTypeFragments", {}).items():
+            actual = normalized_alias(name)
+            missing = [fragment for fragment in fragments if fragment not in actual]
+            if missing:
+                raise SystemExit(f"{name} from {version} is missing locked variants: {', '.join(missing)}")
+
         generated_schemas = list(schema.glob("*.schemas.json"))
-        definitions = set()
+        definitions = {}
         for path in generated_schemas:
             definitions.update(json.loads(path.read_text(encoding="utf-8")).get("definitions", {}))
-        required_definitions = set(type_paths) | {"ClientRequest", "ClientNotification", "ServerRequest", "ServerNotification"}
-        if not generated_schemas or not required_definitions <= definitions:
-            missing = sorted(required_definitions - definitions)
+        # TS aliases such as `Array<string>` are inlined by the official JSON
+        # Schema generator and therefore have no named schema definition.
+        schema_type_names = set(type_paths) - {"ExecPolicyAmendment"}
+        required_definitions = schema_type_names | {"ClientRequest", "ClientNotification", "ServerRequest", "ServerNotification"}
+        if not generated_schemas or not required_definitions <= set(definitions):
+            missing = sorted(required_definitions - set(definitions))
             raise SystemExit("Codex app-server schema generator is missing locked definitions: " + ", ".join(missing))
         if not definitions:
             raise SystemExit("Codex app-server schema generator produced no definitions")
+
+        def schema_require(condition, detail):
+            if not condition:
+                raise SystemExit(f"Codex JSON Schema from {version} shape mismatch: {detail}")
+
+        def decision_variant(name, wrapper):
+            definition = definitions.get(name, {})
+            for variant in definition.get("oneOf", []):
+                properties = variant.get("properties", {})
+                if wrapper in properties:
+                    return variant, properties[wrapper]
+            schema_require(False, f"{name}.{wrapper} variant is missing")
+
+        exec_variant, exec_payload = decision_variant(
+            "CommandExecutionApprovalDecision", "acceptWithExecpolicyAmendment")
+        exec_body = exec_payload.get("properties", {}).get("execpolicy_amendment", {})
+        schema_require("acceptWithExecpolicyAmendment" in exec_variant.get("required", []) and
+                       "execpolicy_amendment" in exec_payload.get("required", []) and
+                       exec_body.get("type") == "array" and
+                       exec_body.get("items", {}).get("type") == "string",
+                       "acceptWithExecpolicyAmendment.execpolicy_amendment")
+        network_variant, network_payload = decision_variant(
+            "CommandExecutionApprovalDecision", "applyNetworkPolicyAmendment")
+        network_body = network_payload.get("properties", {}).get("network_policy_amendment", {})
+        schema_require("applyNetworkPolicyAmendment" in network_variant.get("required", []) and
+                       "network_policy_amendment" in network_payload.get("required", []) and
+                       network_body.get("$ref", "").endswith("/NetworkPolicyAmendment"),
+                       "applyNetworkPolicyAmendment.network_policy_amendment")
+        network_schema = definitions.get("NetworkPolicyAmendment", {})
+        network_properties = network_schema.get("properties", {})
+        schema_require({"host", "action"} <= set(network_schema.get("required", [])) and
+                       network_properties.get("host", {}).get("type") == "string" and
+                       network_properties.get("action", {}).get("$ref", "").endswith("/NetworkPolicyRuleAction") and
+                       set(definitions.get("NetworkPolicyRuleAction", {}).get("enum", [])) == {"allow", "deny"},
+                       "NetworkPolicyAmendment host/action")
+
+        turn_schema = definitions.get("TurnStartParams", {})
+        turn_properties = turn_schema.get("properties", {})
+        schema_require({"threadId", "input"} <= set(turn_schema.get("required", [])) and
+                       turn_properties.get("threadId", {}).get("type") == "string" and
+                       turn_properties.get("input", {}).get("type") == "array" and
+                       turn_properties.get("input", {}).get("items", {}).get("$ref", "").endswith("/UserInput"),
+                       "TurnStartParams threadId/input")
+        text_input = next((variant for variant in definitions.get("UserInput", {}).get("oneOf", [])
+                           if variant.get("properties", {}).get("type", {}).get("enum") == ["text"]), {})
+        text_properties = text_input.get("properties", {})
+        schema_require(text_properties.get("text", {}).get("type") == "string" and
+                       text_properties.get("text_elements", {}).get("type") == "array" and
+                       text_properties.get("text_elements", {}).get("items", {}).get("$ref", "").endswith("/TextElement"),
+                       "UserInput text/text_elements")
+        element_properties = definitions.get("TextElement", {}).get("properties", {})
+        byte_range = element_properties.get("byteRange", {})
+        schema_require(byte_range.get("allOf", [{}])[0].get("$ref", "").endswith("/ByteRange") and
+                       {"start", "end"} <= set(definitions.get("ByteRange", {}).get("required", [])),
+                       "TextElement.byteRange")
         print("CODEX APP-SERVER PROTOCOL PASS: " + version +
-              "; stable initialize/thread/turn, stream events, approval callbacks, and exact decision unions match the lock")
+              "; stable initialize/thread/turn, generated approval types, and JSON Schema payload shapes match the lock")
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

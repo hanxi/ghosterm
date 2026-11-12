@@ -53,10 +53,27 @@ test("validates structured command policy amendments against the pinned schema",
   const { client, writes } = await fakeActiveClient();
   client.receiveLine(JSON.stringify({ id: "command-1", method: "item/commandExecution/requestApproval",
     params: { threadId: "thread-a", turnId: "turn-b", itemId: "item-c" } }));
-  assert.throws(() => client.respond("command-1", { acceptWithExecpolicyAmendment: ["ok", 1] }), CodexProtocolError);
-  assert.throws(() => client.respond("command-1", { applyNetworkPolicyAmendment: { host: "example.test", action: "ask" } }), CodexProtocolError);
-  client.respond("command-1", { applyNetworkPolicyAmendment: { host: "example.test", action: "deny" } });
-  assert.deepEqual(writes.at(-1).result, { decision: { applyNetworkPolicyAmendment: { host: "example.test", action: "deny" } } });
+  assert.throws(() => client.respond("command-1", { acceptWithExecpolicyAmendment: ["echo ok"] }), CodexProtocolError);
+  assert.throws(() => client.respond("command-1", { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["ok", 1] } }), CodexProtocolError);
+  assert.throws(() => client.respond("command-1", { applyNetworkPolicyAmendment: { host: "example.test", action: "deny" } }), CodexProtocolError);
+  assert.throws(() => client.respond("command-1", { applyNetworkPolicyAmendment: { network_policy_amendment: { host: "example.test", action: "ask" } } }), CodexProtocolError);
+  client.respond("command-1", { applyNetworkPolicyAmendment: { network_policy_amendment: { host: "example.test", action: "deny" } } });
+  assert.deepEqual(writes.at(-1).result, { decision: { applyNetworkPolicyAmendment: {
+    network_policy_amendment: { host: "example.test", action: "deny" },
+  } } });
+});
+
+test("turn/start emits the stable thread input shape", async () => {
+  const { client, writes } = await fakeActiveClient();
+  const pending = client.turnStart({
+    threadId: "thread-a",
+    input: [{ type: "text", text: "hello", text_elements: [] }],
+  });
+  assert.deepEqual(writes.at(-1), { jsonrpc: "2.0", id: writes.at(-1).id,
+    method: "turn/start", params: { threadId: "thread-a",
+      input: [{ type: "text", text: "hello", text_elements: [] }] } });
+  client.receiveLine(JSON.stringify({ id: writes.at(-1).id, result: { turn: { id: "turn-a", status: "inProgress" } } }));
+  await pending;
 });
 
 test("closing a pipe reports outstanding operation as unknown without retry", async () => {

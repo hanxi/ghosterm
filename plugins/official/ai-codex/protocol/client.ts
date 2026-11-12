@@ -19,7 +19,20 @@ export interface ThreadStartParams {
 
 export interface TurnStartParams {
   readonly threadId: string;
-  readonly input: readonly unknown[];
+  readonly input: readonly TurnTextInput[];
+  readonly clientUserMessageId?: string | null;
+}
+
+/** First supported chat input. Other app-server UserInput variants stay unsupported. */
+export interface TurnTextInput {
+  readonly type: "text";
+  readonly text: string;
+  readonly text_elements: readonly TurnTextElement[];
+}
+
+export interface TurnTextElement {
+  readonly byteRange: { readonly start: number; readonly end: number };
+  readonly placeholder: string | null;
 }
 
 export interface TurnInterruptParams {
@@ -34,9 +47,16 @@ export interface ServerRequest {
 }
 
 export type BasicApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+export interface ExecPolicyAmendment {
+  readonly execpolicy_amendment: readonly string[];
+}
+export interface NetworkPolicyAmendment {
+  readonly host: string;
+  readonly action: "allow" | "deny";
+}
 export type CommandExecutionApprovalDecision = BasicApprovalDecision |
-  { readonly acceptWithExecpolicyAmendment: readonly string[] } |
-  { readonly applyNetworkPolicyAmendment: { readonly host: string; readonly action: "allow" | "deny" } };
+  { readonly acceptWithExecpolicyAmendment: ExecPolicyAmendment } |
+  { readonly applyNetworkPolicyAmendment: { readonly network_policy_amendment: NetworkPolicyAmendment } };
 export type FileChangeApprovalDecision = BasicApprovalDecision;
 export type ApprovalDecision = CommandExecutionApprovalDecision | FileChangeApprovalDecision;
 
@@ -219,10 +239,14 @@ export class CodexAppServerClient {
       const keys = Object.keys(decision);
       const payload = Object.values(decision)[0];
       if (keys.length === 1 && keys[0] === "acceptWithExecpolicyAmendment") {
-        valid = Array.isArray(payload) && payload.every(value => typeof value === "string");
+        valid = isRecord(payload) && Object.keys(payload).length === 1 &&
+          Array.isArray(payload.execpolicy_amendment) &&
+          payload.execpolicy_amendment.every(value => typeof value === "string");
       } else if (keys.length === 1 && keys[0] === "applyNetworkPolicyAmendment" && isRecord(payload)) {
-        valid = Object.keys(payload).length === 2 && typeof payload.host === "string" &&
-          (payload.action === "allow" || payload.action === "deny");
+        const amendment = payload.network_policy_amendment;
+        valid = Object.keys(payload).length === 1 && isRecord(amendment) &&
+          Object.keys(amendment).length === 2 && typeof amendment.host === "string" &&
+          (amendment.action === "allow" || amendment.action === "deny");
       } else {
         valid = false;
       }

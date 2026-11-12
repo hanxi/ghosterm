@@ -88,5 +88,24 @@
       "decline",
       "cancel"
     ]
+  },
+  "lockedTypeExpressions": {
+    "CommandExecutionApprovalDecision": "\"accept\"|\"acceptForSession\"|{\"acceptWithExecpolicyAmendment\":{execpolicy_amendment:ExecPolicyAmendment,}}|{\"applyNetworkPolicyAmendment\":{network_policy_amendment:NetworkPolicyAmendment,}}|\"decline\"|\"cancel\"",
+    "ExecPolicyAmendment": "Array<string>",
+    "NetworkPolicyAmendment": "{host:string,action:NetworkPolicyRuleAction,}",
+    "NetworkPolicyRuleAction": "\"allow\"|\"deny\"",
+    "TextElement": "{byteRange:ByteRange,placeholder:string|null,}",
+    "ByteRange": "{start:number,end:number,}"
+  },
+  "lockedFieldDeclarations": {
+    "TurnStartParams": [
+      "threadId:string",
+      "input:Array<UserInput>"
+    ]
+  },
+  "lockedTypeFragments": {
+    "UserInput": [
+      "{\"type\":\"text\",text:string,text_elements:Array<TextElement>,}"
+    ]
   }
 }
