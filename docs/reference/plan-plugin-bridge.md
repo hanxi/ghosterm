@@ -1,8 +1,8 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-12 第一百零一批 macOS Markdown 资源预览。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
+日期：2026-11-05，更新至 2026-11-12 第一百零二批 macOS 受限 HTML 资源预览。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 HTML 附件与首个 preview 插件、资源 UI 生命周期专门视图断言；macOS App 已接资源能力协商、有界接收、UTF-8 文本、预算内静态图片和有界 Markdown 预览；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 P2 preview 产品闭环完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 HTML 外部附件映射与首个 preview 插件、资源 UI 生命周期专门视图断言；macOS App 已接资源能力协商、有界接收、UTF-8 文本、预算内静态图片、有界 Markdown 与禁脚本/网络的单文档 HTML 预览；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 P2 preview 产品闭环完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -4265,3 +4265,12 @@ JS-on `ExtensionControllerTests` 通过 **9 项、2 skip**；已有审查夹具�
 新增 decoder 测试覆盖 Markdown 强调标记、MIME 参数规范化、HTML 拒绝、非法 UTF-8 和超过预算拒绝。首轮完整 gate 发现 Foundation 将标题与正文的 `AttributedString.characters` 表示合并，不保留预期换行；修正为检查解析后文本与强调属性后，全量 Apple gate 通过：ABI 174 引用 / 3 登记未用，GhostermAppTests **392 项、5 skip、0 失败**。测试 CLI/headless 执行，临时目录指向工程 `tmp/`。
 
 仍未实现 HTML 安全预览及其附件映射、官方 `preview <path>` Client/Executor 包和专门的资源列表/选择/视图生命周期断言；本批不代表 P2 preview 产品闭环完成。不改公共 ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第十一批：macOS 静态 HTML 资源预览（2026-11-12）
+
+资源面板识别 `text/html`，以不超过 256 KiB 的严格 UTF-8 文档为输入，通过原生 WKWebView 展示静态内容。文档外层注入 `default-src 'none'` CSP，禁止脚本、样式、图片、字体、媒体、网络、对象、子框架、表单和 base URL；WKWebView 另禁 JavaScript，并仅放行初始 `about:blank` 文档导航，拦截后续导航和弹窗。解码或预算失败显示明确状态。没有开启任意文件访问、网络资源加载或 JS bridge。
+
+新增 decoder XCTest 检查 UTF-8/预算、MIME、文档内容和 CSP 指令。Apple gate 通过：Apple ABI 174 引用 / 3 登记未用，GhostermAppTests **393 项、5 skip、0 失败**。第一轮 gate 执行中，无前台 UI。
+
+此片只显示单个 HTML 文档，不支持相对路径 CSS/图片附件映射；未验证浏览器视觉输出或导航策略运行时，只完成构建与 decoder 断言。官方 `preview <path>` 双端包和资源列表 / 选择 / UI 生命周期专门验收仍待完成；不改公共 ABI，不增加 macOS CI 二十份。

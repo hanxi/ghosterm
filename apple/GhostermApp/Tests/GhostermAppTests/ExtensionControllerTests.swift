@@ -62,6 +62,20 @@ final class ExtensionControllerTests: XCTestCase {
             mime: "text/markdown", displayName: "large.md"))
     }
 
+    func testPluginResourceHTMLDecoderCreatesNetworkAndScriptRestrictedDocument() throws {
+        let source = Data("<h1>Preview</h1><script>fetch('https://example.invalid')</script>".utf8)
+        let document = try XCTUnwrap(PluginResourceHTMLDecoder.document(source, mime: "text/html; charset=utf-8"))
+        XCTAssertTrue(document.contains("<h1>Preview</h1>"))
+        XCTAssertTrue(document.contains("script-src 'none'"))
+        XCTAssertTrue(document.contains("default-src 'none'"))
+        XCTAssertTrue(document.contains("connect-src 'none'"))
+        XCTAssertTrue(document.contains("frame-src 'none'"))
+        XCTAssertNil(PluginResourceHTMLDecoder.document(source, mime: "text/markdown"))
+        XCTAssertNil(PluginResourceHTMLDecoder.document(Data([0xff]), mime: "text/html"))
+        XCTAssertNil(PluginResourceHTMLDecoder.document(
+            Data(repeating: 0x61, count: PluginResourceHTMLDecoder.maximumBytes + 1), mime: "text/html"))
+    }
+
     func testControllerWithoutResourceCapabilityCannotTakeResources() async throws {
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
             protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc"])

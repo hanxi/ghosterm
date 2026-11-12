@@ -3,6 +3,7 @@ import GhostermCore
 import SwiftUI
 import UniformTypeIdentifiers
 import CoreGraphics
+import WebKit
 
 /// Native review and explicit in-memory source decision for a fixed package.
 /// This page does not claim to install, persist trust, or activate a plugin.
@@ -104,7 +105,7 @@ struct ExtensionsPane: View {
             if let message = model.extensionRunIssue {
                 Text(message).foregroundStyle(.red).textSelection(.enabled)
             }
-            SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装与持久信任尚未接入。资源面板支持有界 UTF-8、Markdown 和静态图片预览；HTML 预览仍在开发中。")
+            SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装与持久信任尚未接入。资源面板支持有界 UTF-8、Markdown、静态图片和受限 HTML 预览；HTML 外部附件映射仍在开发中。")
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in
             switch result {
@@ -210,7 +211,9 @@ struct ExtensionsPane: View {
                                 .font(DS.Font.caption).textSelection(.enabled)
                             Text("\(resource.mime) · \(resource.size) 字节 · SHA-256 \(resource.sha256)")
                                 .font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
-                            if resource.mime.lowercased().hasPrefix("image/") {
+                            if PluginResourceHTMLDecoder.supports(mime: resource.mime) {
+                                PluginResourceHTMLPreview(resource: resource)
+                            } else if resource.mime.lowercased().hasPrefix("image/") {
                                 PluginResourceImagePreview(data: resource.bytes, mime: resource.mime)
                             } else if PluginResourceMarkdownDecoder.supports(
                                 mime: resource.mime, displayName: resource.displayName) {
@@ -299,6 +302,95 @@ private struct PluginResourceMarkdownPreview: View {
             guard !Task.isCancelled else { return }
             markdown = decoded
             rejected = decoded == nil
+        }
+    }
+}
+
+private struct PluginResourceHTMLPreview: View {
+    let resource: ExtensionController.ReceivedResource
+    @State private var document: String?
+    @State private var rejected = false
+
+    var body: some View {
+        Group {
+            if let document {
+                PluginResourceHTMLWebView(document: document)
+                    .frame(minHeight: 180, maxHeight: 420)
+            } else if rejected {
+                Text("HTML 无法解析或超过 256 KiB 预览上限。脚本、网络、图片和外部附件均不会加载。")
+                    .font(DS.Font.caption).foregroundStyle(.secondary)
+            } else {
+                ProgressView("检查 HTML…").controlSize(.small)
+            }
+        }
+        .task(id: resource.sha256) {
+            let bytes = resource.bytes
+            let mime = resource.mime
+            let decoded = await Task.detached(priority: .utility) {
+                PluginResourceHTMLDecoder.document(bytes, mime: mime)
+            }.value
+            guard !Task.isCancelled else { return }
+            document = decoded
+            rejected = decoded == nil
+        }
+    }
+}
+
+private struct PluginResourceHTMLWebView: NSViewRepresentable {
+    let document: String
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        webView.setValue(false, forKey: "drawsBackground")
+        context.coordinator.load(document, in: webView)
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.load(document, in: webView)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+        private var loadedDocument: String?
+        private var allowsInitialAboutBlank = false
+
+        func load(_ document: String, in webView: WKWebView) {
+            guard loadedDocument != document else { return }
+            loadedDocument = document
+            allowsInitialAboutBlank = true
+            webView.loadHTMLString(document, baseURL: nil)
+        }
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            let isInitialDocument = allowsInitialAboutBlank &&
+                navigationAction.navigationType == .other &&
+                (navigationAction.targetFrame == nil || navigationAction.targetFrame?.isMainFrame == true) &&
+                navigationAction.request.url?.absoluteString == "about:blank"
+            if isInitialDocument {
+                allowsInitialAboutBlank = false
+                decisionHandler(.allow)
+            } else {
+                decisionHandler(.cancel)
+            }
+        }
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                     decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            decisionHandler(navigationResponse.response.url?.absoluteString == "about:blank" ? .allow : .cancel)
+        }
+
+        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                     for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+            nil
         }
     }
 }
