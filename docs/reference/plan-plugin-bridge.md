@@ -2,7 +2,7 @@
 
 日期：2026-11-05，更新至 2026-11-12 第一百零三批官方 Preview 插件。状态：**P0 继续验收；SSH / ProxyJump 插件通道、Native Session consent、固定 Client 包 Runtime、双向 RPC、Core 共享 argv schema decoder 已接入 macOS 与 Android 首条产品调用链。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批新增参数行为的 Android instrumentation 尚未实测，不能以 APK 编译代替设备证据。**
 
-**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 HTML 外部附件映射、异步预览任务取消 / 晚到结果的视图生命周期断言、官方 Preview 完整交互与多格式附件收集；macOS App 已接资源能力协商、有界接收、UTF-8 文本、预算内静态图片、有界 Markdown 与禁脚本/网络的单文档 HTML 预览；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称 P2 preview 产品闭环完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
+**仍未完成：** P0 技术风险关闭与协议候选冻结、受控设备上的 Android 双跳 / 参数行为验收；P2 官方 Preview 的完整交互与端到端验证，尤其是受控 HTML 的真实 WKWebView 像素渲染 / 导航运行时验收；Android 资源预览的产品 UI 与设备验收；插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P2 的资源选择与停止生命周期、异步解码取消 / 晚到结果、显式附件发布、HTML 受限附件映射、Markdown 图片映射与离屏绘制已有分批实现和测试，但不能据此称 Preview 产品闭环完成。核心资源协议、ResourceStore、scoped source、SDK ResourceBroker 与 C ABI 已分批实现，但不能据此称整体 P2 完成。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
