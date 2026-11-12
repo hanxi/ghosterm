@@ -3946,3 +3946,10 @@ Android 编译与 instrumentation 因环境没有 Java Runtime 未执行；不�
 新增 `ExtensionRelayBootstrap`，把调用方明确提供的远端 `gterm` 路径、固定 Executor 目录与摘要、当前 Client 摘要、RPC 方法清单及命令参数编码成单条 POSIX shell `exec`。每个值作为独立 argv token 做单引号引用，内嵌单引号按 POSIX 规则转义；校验摘要、方法数量/名称、NUL/换行、单参数长度和现有 1024 字节路由上限。该构造器不探测、不安装、不选择远端 Executor，也不把开发摘要等同发布者认证。
 
 本批只落启动 argv 构造接缝，设置页尚无生产调用方；Session consent / Client Runtime 调用链和实际远端 `gterm` / 双跳 fixture 验证仍待完成。当前宿主缺 Java Runtime，Android Kotlin 编译及 instrumentation 未能启动，不记通过。未改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P0 第六十八批：SSHAttempt 只接收结构化 relay 请求（2026-11-12）
+
+`SessionsViewModel.connectExtensionRoute` 不再接受 caller 拼好的 shell 字符串，改为接收 `ExtensionRelayBootstrap.Request` 并在进入 attempt 前统一构造 / 校验 argv。这样明确的远端 `gterm` 路径、Executor/Client 摘要、方法和插件命令参数经过同一处引用与长度校验后，才会进入共享 SSH 认证流程；无 JS runtime 时仍明确不启动。当前尚无 App UI caller，也没有 Session consent / Runtime 与远端 Executor 启动的整条生产调用链。
+
+静态 `git diff --check` 通过；当前宿主缺 Java Runtime，Android Kotlin 编译及 instrumentation 未能启动，不记通过。未改公共 C ABI，不增加 macOS CI 二十份。

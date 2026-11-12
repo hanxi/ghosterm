@@ -287,14 +287,15 @@ class ExtensionChannelTest {
                 monitorSessions = false)
             store.put("plugin-route", model); model.attachExtensionController(owner)
         }
-        val bootstrap = File(instrumentation.targetContext.cacheDir, "extension-relay-${System.nanoTime()}").apply {
-            writeText(payload.getString("bootstrap"))
-        }
         val seen = mutableSetOf<Long>(); var hostPrompt = false; var credentialPrompt = false
         var cancelledAttempt: kotlinx.coroutines.Job? = null
         try {
             instrumentation.runOnMainSync {
-                val id = model.connectExtensionRoute(target, bootstrap.readText()) { error("route must stop at auth in this test") }
+                val request = ExtensionRelayBootstrap.Request(
+                    executable = "gterm", executorDirectory = "/opt/ghosterm/executor",
+                    executorDigest = "a".repeat(64), clientDigest = "b".repeat(64),
+                    methods = emptyList(), command = "fixture.run")
+                val id = model.connectExtensionRoute(target, request) { error("route must stop at auth in this test") }
                 assertNotNull(id)
             }
             val deadline = SystemClock.elapsedRealtime() + 25000
@@ -318,7 +319,7 @@ class ExtensionChannelTest {
         } finally {
             instrumentation.runOnMainSync { model.connecting?.let { model.cancelConnection(it.id) }; store.clear() }
             runCatching { owner.close() }
-            bootstrap.delete(); folder.deleteRecursively()
+            folder.deleteRecursively()
         }
     }
 }

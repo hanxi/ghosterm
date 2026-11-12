@@ -263,14 +263,14 @@ class SessionsViewModel @JvmOverloads constructor(application: Application, priv
         protectInBackground()
         if (attempt.missingUsernameTarget == null) startConnection(attempt)
     }
-    /** Start an explicitly selected Client plugin's SSH relay. `bootstrap` is
-     * the caller's exact gterm command; the callback must adopt the ready
-     * channel into a Session before the attempt relinquishes ownership. */
-    internal fun connectExtensionRoute(target: PreparedSSH, bootstrap: String,
+    /** Start an explicitly selected Client plugin's SSH relay. The callback
+     * must adopt the ready channel into a Session before ownership transfers. */
+    internal fun connectExtensionRoute(target: PreparedSSH, request: ExtensionRelayBootstrap.Request,
         onReady: suspend (ExtensionController.ChannelState) -> Boolean): UUID? {
         if (connecting != null) return null
         val owner = extensionController ?: return null
-        if (!BuildConfig.PLUGIN_JS_ENABLED || bootstrap.isBlank() || '\u0000' in bootstrap || bootstrap.toByteArray().size > 1024) return null
+        if (!BuildConfig.PLUGIN_JS_ENABLED) return null
+        val bootstrap = ExtensionRelayBootstrap.build(request)
         val attempt = SSHAttempt(target).also {
             it.extensionBootstrap = bootstrap
             it.extensionOwner = owner
