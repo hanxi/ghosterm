@@ -3974,3 +3974,10 @@ Host RPC 方法仍未实现；依赖 Host RPC 的命令会受限，界面明确�
 Native consent 对话框现在展示命令路径与用户输入的完整 argv JSON，采用系统安全窗口标记，并保留能力摘要、SSH 对端和固定摘要提示。这样用户在批准前可以核对实际将交给命令的参数；参数快照沿用第七十批同一个解析结果，不做二次 shell 分词。
 
 Android 包审查门面当前只向 App 暴露 `argsSchema` 成员路径，不暴露固定包内 schema 字节；权威 v1 CLI decoder 仍在 Core Runtime 激活路径中。因此本批未实现 consent 前 schema 解码，参数与 schema 不匹配仍可能在允许后激活时被 Core 拒绝。避免在 Kotlin 重写第二份可能漂移的 schema decoder；后续需通过绑定固定 package snapshot 的 Core API 或等价方案解决。`git diff --check` 通过；宿主缺 Java Runtime，Android 编译 / instrumentation 未启动，不记行为通过。未改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P0 第七十二批：Android 参数输入改用严格 JSON reader（2026-11-12）
+
+复核发现 `org.json.JSONArray` 的 Android tokenizer 可能接受宽松语法，不能作为“严格 JSON”保证。现在使用 `JsonReader` 关闭 lenient 模式，只接受一个完整数组，元素必须是 JSON 字符串；拒绝尾随内容、对象 / 数字 / null、超过 32 项和超过 64 KiB 的输入。POSIX argv 引用及 Core `argsSchema` 解码边界不变。
+
+`git diff --check` 提交前执行；未运行测试。Android 编译 / instrumentation 仍受宿主缺 Java Runtime 阻塞，不记通过。consent 前仍未按 schema 解码，见第七十一批。未改公共 C ABI，不增加 macOS CI 二十份。

@@ -1,6 +1,8 @@
 package com.hanxi.ghosterm
 
-import org.json.JSONArray
+import android.util.JsonReader
+import android.util.JsonToken
+import java.io.StringReader
 
 /** Builds the explicit remote command accepted by the SSH extension route.
  * Values are argv tokens quoted for the remote POSIX shell; this does not
@@ -19,15 +21,26 @@ object ExtensionRelayBootstrap {
     /** Accept a JSON string array so the UI never invents a shell tokenizer. */
     fun parseArgumentsJson(source: String): List<String> {
         require(source.toByteArray().size <= 65536) { "命令参数 JSON 超过 64 KiB" }
-        val values = try { JSONArray(source) }
-        catch (_: Exception) { throw IllegalArgumentException("命令参数必须是 JSON 字符串数组") }
-        require(values.length() <= 32) { "命令参数最多 32 项" }
-        return buildList(values.length()) {
-            for (index in 0 until values.length()) {
-                val value = values.get(index)
-                require(value is String) { "命令参数必须是 JSON 字符串数组" }
-                add(value)
+        try {
+            JsonReader(StringReader(source)).use { reader ->
+                reader.isLenient = false
+                require(reader.peek() == JsonToken.BEGIN_ARRAY) { "命令参数必须是 JSON 字符串数组" }
+                reader.beginArray()
+                val result = buildList {
+                    while (reader.hasNext()) {
+                        require(size < 32) { "命令参数最多 32 项" }
+                        require(reader.peek() == JsonToken.STRING) { "命令参数必须是 JSON 字符串数组" }
+                        add(reader.nextString())
+                    }
+                }
+                reader.endArray()
+                require(reader.peek() == JsonToken.END_DOCUMENT) { "命令参数 JSON 后不能有额外内容" }
+                result
             }
+        } catch (failure: IllegalArgumentException) {
+            throw failure
+        } catch (failure: Exception) {
+            throw IllegalArgumentException("命令参数必须是有效的严格 JSON 字符串数组", failure)
         }
     }
 
