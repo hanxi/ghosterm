@@ -4522,3 +4522,11 @@ AVD 的 HOME、AVD、emulator、crash database 与 launcher 目录均在工程 `
 **冻结复核证据。** 当前源 `scripts/test-plugin-schema.py --fetch --mutate` 通过 82 个 schema 实例和四组 Ajv 变异，offer 为 703 字节；`scripts/test-plugin-wire.py --reference --fetch` 通过 Ajv 对拍 271 个 schema 实例及 Core wire 618 项；冻结 metadata 与生成器一致（`python3 scripts/generate-plugin-wire.py --check`）。最终输入下 `scripts/mutation-check-plugin-wire.py` 16 组真实 C sanitizer 变异全部通过目标红 / 同库配置绿 / 恢复绿 / SHA256；Core wire raw parser 与 generated envelope 均有证据。冻结 `$id` 的 `$ref` 更新后，package metadata 96 fixtures / 6 mutations 和 package-validator generator 对拍通过。`TMPDIR="$PWD/tmp" bash scripts/gate.sh` 最终通过 474/474 CTest、177 个 ABI 符号及未实现入口检查；首次 gate 因 capsule 摘要未随 schema ID 更新失败，按锁定 Ajv 生成 capsule 后复跑全绿。格式检查见本批提交前结果。测试后 `tmp/` 的 AVD、npm cache、mutation workspace 与日志均清理。
 
 P0 技术探针与首个 SSH exec wire v1 envelope 现关闭；SDK v1、命令 / 包命名、持久安装 / 信任、TTY carrier、local IPC 实现、gateway、Q04–Q07、P1 后续平台 conformance 和 P2–P6 仍按各自计划推进。本裁决不表示整个插件计划完成，不增加 macOS CI 二十份。
+
+### P2 实施第三十八批：Android 收件资源选择与移除回退（2026-11-12）
+
+Android `PluginResourcesPanel` 从同时展开全部资源改为可选择列表，默认选中首个收件资源，只渲染当前预览；当前选择的资源从新快照列表移除后自动回退到仍存在的首项。原有静态文本、图片、Markdown 及附件解析继续以完整活动快照列表为解析范围。新增 Compose 断言验证只显示当前资源、切换预览及所选资源移除后的回退。
+
+`bash scripts/build-android.sh :app:assembleDebug :app:assembleDebugAndroidTest`（JS-off）构建通过，Android ABI 对拍为 140 引用 / 37 登记未用。API 36 / arm64 / 4 KiB 页无窗口模拟器运行 `PluginResourcePreviewUiTest` **6 项全通过**；API 29 / arm64 / 4 KiB 页无窗口模拟器运行新增选择 / 移除回退项 **1 项通过**。首次定向运行误用多个方法名的单一 `class` 参数，并且旧测试快照没有唯一 `resourceId`；该轮未作为产品失败或通过证据，修正调用方式与测试夹具后以上述结果复验。模拟器、AVD、HOME 和构建临时文件均在 `tmp/`，设备已关闭并清理本批目录。
+
+本批只覆盖生产资源面板组件的选择行为；完整 `MainActivity` / Settings 页面与真实 SSH 收件同屏交互、16 KiB 页及用户真机矩阵仍待完成，P2 不记闭环。不改公共 C ABI，不增加 macOS CI 二十份。

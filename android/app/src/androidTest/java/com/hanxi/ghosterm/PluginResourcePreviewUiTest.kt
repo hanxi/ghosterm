@@ -27,10 +27,12 @@ class PluginResourcePreviewUiTest {
         }
         bitmap.recycle()
         val markdown = ExtensionResourceStore.Content(
-            ExtensionResourceStore.Descriptor("d".repeat(64), "text/markdown", "docs/readme.md", 35),
+            ExtensionResourceStore.Descriptor("d".repeat(64), "text/markdown", "docs/readme.md", 35,
+                resourceId = "markdown-resource"),
             "![diagram](diagram.png) ![outside](../outside.png) ![remote](https://example.com/a.png)".toByteArray())
         val image = ExtensionResourceStore.Content(
-            ExtensionResourceStore.Descriptor("e".repeat(64), "image/png", "docs/diagram.png", imageBytes.size.toLong()), imageBytes)
+            ExtensionResourceStore.Descriptor("e".repeat(64), "image/png", "docs/diagram.png", imageBytes.size.toLong(),
+                resourceId = "diagram-resource"), imageBytes)
         ui.setContent { PluginResourcesPanel(listOf(markdown, image)) }
         ui.waitUntil(10_000) {
             ui.onAllNodesWithTag("plugin-resource-markdown-inline-image").fetchSemanticsNodes().isNotEmpty()
@@ -63,7 +65,7 @@ class PluginResourcePreviewUiTest {
 
     @Test fun receivedTextIsShownAsSourceAndImageIsRendered() {
         val text = ExtensionResourceStore.Content(
-            ExtensionResourceStore.Descriptor("a".repeat(64), "text/html", "index.html", 14),
+            ExtensionResourceStore.Descriptor("a".repeat(64), "text/html", "index.html", 14, resourceId = "html-resource"),
             "<script>x</script>".toByteArray())
         val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.RED) }
         val imageBytes = ByteArrayOutputStream().use { output ->
@@ -71,14 +73,43 @@ class PluginResourcePreviewUiTest {
         }
         bitmap.recycle()
         val image = ExtensionResourceStore.Content(
-            ExtensionResourceStore.Descriptor("b".repeat(64), "image/png", "image.png", imageBytes.size.toLong()), imageBytes)
+            ExtensionResourceStore.Descriptor("b".repeat(64), "image/png", "image.png", imageBytes.size.toLong(),
+                resourceId = "image-resource"), imageBytes)
         ui.setContent { PluginResourcesPanel(listOf(text, image)) }
         ui.onNodeWithText("<script>x</script>").assertExists()
         ui.onNodeWithText("HTML 按源码显示，不执行脚本或加载网络内容。").assertExists()
+        ui.onNodeWithTag("plugin-resource-select-${image.descriptor.resourceId}").performClick()
         ui.waitUntil(10_000) {
             ui.onAllNodes(androidx.compose.ui.test.hasTestTag("plugin-resource-image")).fetchSemanticsNodes().isNotEmpty()
         }
         ui.onNodeWithTag("plugin-resource-image").assertExists()
+    }
+
+    @Test fun selectingAResourceShowsOnlyItsPreviewAndFallsBackAfterRemoval() {
+        val first = ExtensionResourceStore.Content(
+            ExtensionResourceStore.Descriptor("1".repeat(64), "text/plain", "first.txt", 5,
+                resourceId = "first-resource"), "first".toByteArray())
+        val second = ExtensionResourceStore.Content(
+            ExtensionResourceStore.Descriptor("2".repeat(64), "text/plain", "second.txt", 6,
+                resourceId = "second-resource"), "second".toByteArray())
+        val resources = androidx.compose.runtime.mutableStateOf(listOf(first, second))
+        ui.setContent { PluginResourcesPanel(resources.value) }
+
+        ui.onNodeWithTag("plugin-resource-${first.descriptor.resourceId}").assertExists()
+        ui.onNodeWithText("first").assertExists()
+        ui.onNodeWithTag("plugin-resource-${second.descriptor.resourceId}").assertDoesNotExist()
+
+        ui.onNodeWithTag("plugin-resource-select-${second.descriptor.resourceId}").performClick()
+        ui.onNodeWithTag("plugin-resource-${second.descriptor.resourceId}").assertExists()
+        ui.onNodeWithText("second").assertExists()
+        ui.onNodeWithTag("plugin-resource-${first.descriptor.resourceId}").assertDoesNotExist()
+
+        ui.runOnUiThread { resources.value = listOf(first) }
+        ui.waitUntil(10_000) {
+            ui.onAllNodesWithTag("plugin-resource-${first.descriptor.resourceId}").fetchSemanticsNodes().isNotEmpty()
+        }
+        ui.onNodeWithText("first").assertExists()
+        ui.onNodeWithTag("plugin-resource-${second.descriptor.resourceId}").assertDoesNotExist()
     }
 
     @Test fun launchDialogPreservesAnExplicitWorkspaceRootInTheSSHRequest() {

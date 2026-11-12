@@ -352,9 +352,28 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
 
 @Composable internal fun PluginResourcesPanel(resources: List<com.hanxi.ghosterm.bridge.ExtensionResourceStore.Content>) {
     if (resources.isEmpty()) return
+    val resourceIds = resources.map { it.descriptor.resourceId }
+    var selectedResourceId by remember { mutableStateOf(resourceIds.first()) }
+    LaunchedEffect(resourceIds) {
+        if (selectedResourceId !in resourceIds) selectedResourceId = resourceIds.first()
+    }
     Column(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("plugin-resources"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("收到的预览资源", style = MaterialTheme.typography.titleSmall)
-        resources.forEach { resource ->
+        GhostermGroup(Modifier.fillMaxWidth().testTag("plugin-resource-list")) {
+            resources.forEach { resource ->
+                val selected = resource.descriptor.resourceId == selectedResourceId
+                TextButton(
+                    onClick = { selectedResourceId = resource.descriptor.resourceId },
+                    modifier = Modifier.fillMaxWidth().testTag("plugin-resource-select-${resource.descriptor.resourceId}"),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text("${if (selected) "✓ " else ""}${resource.descriptor.displayName}",
+                        Modifier.fillMaxWidth(), color = if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        }
+        resources.singleOrNull { it.descriptor.resourceId == selectedResourceId }?.let { resource ->
             GhostermGroup(Modifier.fillMaxWidth().testTag("plugin-resource-${resource.descriptor.resourceId}")) {
                 Text(resource.descriptor.displayName, Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.titleSmall)
