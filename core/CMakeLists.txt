@@ -42,6 +42,7 @@ add_library(ghosterm_core STATIC
   src/extension/source-api.c
   src/extension/runtime.c
   src/extension/runtime-resource.c
+  src/extension/process-owner.c
   src/extension/runtime-api.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
@@ -237,6 +238,14 @@ add_executable(test_runtime tests/test_runtime.c)
 target_include_directories(test_runtime PRIVATE src)
 target_link_libraries(test_runtime PRIVATE ghosterm_core)
 target_compile_options(test_runtime PRIVATE -Wall -Wextra -Werror)
+add_executable(test_extension_process tests/test_extension_process.c)
+target_include_directories(test_extension_process PRIVATE src)
+target_link_libraries(test_extension_process PRIVATE ghosterm_core)
+target_compile_options(test_extension_process PRIVATE -Wall -Wextra -Werror)
+foreach(mode spawn roundtrip broken-pipe terminate)
+  add_test(NAME extension_process_${mode} COMMAND test_extension_process ${mode})
+  set_tests_properties(extension_process_${mode} PROPERTIES TIMEOUT 10)
+endforeach()
 if(GHOSTERM_WITH_PLUGIN_JS)
   add_executable(test_runtime_resource_js tests/test_runtime_resource_js.c)
   target_include_directories(test_runtime_resource_js PRIVATE src)
