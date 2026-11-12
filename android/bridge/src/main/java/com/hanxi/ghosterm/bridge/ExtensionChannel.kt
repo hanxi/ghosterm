@@ -7,7 +7,7 @@ class ExtensionChannelException(val status: Int, message: String) : IllegalState
 /** Native plugin transport. Construct and drive on one non-main worker. Bytes
  * belong to that worker's protocol decoder, never a UI/event queue. closeStep
  * retains this owner until actual release; no finalizer or automatic reconnect. */
-class ExtensionChannel private constructor(private val worker: Thread, private val hops: List<Hop>) : AutoCloseable {
+class ExtensionChannel private constructor(private val worker: Thread, private val hops: List<Hop>) : AutoCloseable, AuthenticatedSSH {
     enum class Decision(val nativeValue: Int) { ACCEPT(0), REJECT(1), UNKNOWN(2) }
     data class Hop(val host: String, val port: Int, val user: String, val knownHosts: String? = null,
                    val viaHost: String? = null, val timeoutMilliseconds: Int = 60000)
@@ -60,6 +60,52 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
     }
     fun decide(hop: Int, challenge: Long, decision: Decision): Int {
         owner(); return NativeExtensionChannel.decide(handle, hop, challenge, decision.nativeValue)
+    }
+    /** Presents the current route-authentication challenge through the same
+     * credential UI contract as ordinary SSH sessions. The challenge token
+     * and this channel identity are rechecked on every response. */
+    override fun authentication(): SSHAuthState {
+        owner()
+        val current = info()
+        val hop = current.hop
+        val auth = current.authentication.getOrNull(hop)
+            ?: return SSHAuthState(handle, 0, SSHAuthPhase.FAILED, current.error, SSHHostState.UNCHECKED,
+                current.setupExpired, 0, "", "", this, hop)
+        return SSHAuthState(handle, current.challenge,
+            SSHAuthPhase.entries.getOrElse(auth.phase) { SSHAuthPhase.FAILED }, auth.error,
+            SSHHostState.entries.getOrElse(auth.host) { SSHHostState.UNCHECKED }, auth.deadline,
+            auth.methods, auth.keyType, auth.fingerprint, this, hop)
+    }
+    override fun decide(prompt: SSHAuthState, accept: Boolean) {
+        checkPrompt(prompt, SSHAuthPhase.HOSTKEY)
+        val status = decide(prompt.hop, prompt.request, if (accept) Decision.ACCEPT else Decision.REJECT)
+        val accepted = status == 0 || (!accept && status == 5) // A Core DENIED result is the expected explicit rejection.
+        check(accepted) { "SSH 主机确认已失效（Core $status）" }
+    }
+    override fun password(prompt: SSHAuthState, password: ByteArray) {
+        try {
+            checkPrompt(prompt, SSHAuthPhase.CREDENTIALS)
+            val status = supply(prompt.hop, prompt.request, 1, password)
+            check(status == 0) { "SSH 密码请求已失效（Core $status）" }
+        } finally { password.fill(0) }
+    }
+    override fun privateKey(prompt: SSHAuthState, pem: ByteArray, passphrase: ByteArray) {
+        try {
+            checkPrompt(prompt, SSHAuthPhase.CREDENTIALS)
+            val status = supply(prompt.hop, prompt.request, 2, pem, passphrase)
+            check(status == 0) { "SSH 私钥请求已失效（Core $status）" }
+        } finally { pem.fill(0); passphrase.fill(0) }
+    }
+    private fun checkPrompt(prompt: SSHAuthState, phase: SSHAuthPhase) {
+        owner()
+        check(prompt.owner == handle && prompt.scope === this && prompt.request > 0 && prompt.hop in hops.indices) {
+            "SSH 认证请求不属于此插件通道"
+        }
+        val current = info()
+        check(current.challenge == prompt.request && current.hop == prompt.hop &&
+            current.authentication.getOrNull(prompt.hop)?.phase == phase.ordinal) {
+            "SSH 认证请求已失效"
+        }
     }
     /** Caller supplies unlocked material only after the native challenge. Byte
      * arrays are erased on return (String secrets are deliberately not used). */

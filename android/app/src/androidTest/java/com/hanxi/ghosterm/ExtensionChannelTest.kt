@@ -6,6 +6,7 @@ import android.system.Os
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.ExtensionChannel
+import com.hanxi.ghosterm.bridge.AuthenticatedSSH
 import java.io.DataInputStream
 import java.io.File
 import java.lang.reflect.InvocationTargetException
@@ -149,8 +150,10 @@ class ExtensionChannelTest {
                 known.path, if (i == 0) null else "127.0.0.1")
         }
         val channel = ExtensionChannel.ssh(hops, 4, byteArrayOf(127, 0, 0, 1) + ByteArray(12), bootstrap = payload.getString("bootstrap"))
+        val authentication: AuthenticatedSSH = channel
         try {
             val deadline = SystemClock.elapsedRealtime() + 25000; var supplies = 0; var lastChallenge = 0L; var badChallenge = 0L
+            var staleCredentialPrompt: com.hanxi.ghosterm.bridge.SSHAuthState? = null
             while (true) {
                 val phase = channel.step(5); val info = channel.info()
                 check(SystemClock.elapsedRealtime() < deadline)
@@ -158,12 +161,17 @@ class ExtensionChannelTest {
                     assertTrue(info.challenge > lastChallenge); lastChallenge = info.challenge
                     assertEquals(1, channel.decide(info.hop + 1, info.challenge, ExtensionChannel.Decision.ACCEPT))
                     val auth = info.authentication[info.hop]
+                    val prompt = authentication.authentication()
+                    assertEquals(info.challenge, prompt.request)
+                    assertEquals(info.hop, prompt.hop)
+                    assertEquals(auth.phase, prompt.phase.ordinal)
                     if (auth.phase == 2) {
                         assertEquals(2, auth.host); assertTrue(auth.fingerprint.startsWith("SHA256:"))
                         assertEquals(0, channel.decide(info.hop, info.challenge, ExtensionChannel.Decision.UNKNOWN))
                         assertEquals(info.challenge, channel.info().challenge)
-                        assertEquals(if (deny) 5 else 0, channel.decide(info.hop, info.challenge, if (deny) ExtensionChannel.Decision.REJECT else ExtensionChannel.Decision.ACCEPT))
-                        assertTrue(channel.decide(info.hop, info.challenge, ExtensionChannel.Decision.ACCEPT) != 0)
+                        if (deny) authentication.decide(prompt, false)
+                        else authentication.decide(prompt, true)
+                        assertThrows(IllegalStateException::class.java) { authentication.decide(prompt, true) }
                     } else {
                         assertEquals(8, auth.phase)
                         assertTrue(auth.host == 1 || (auth.host == 2 && auth.decision == ExtensionChannel.Decision.ACCEPT.nativeValue))
@@ -171,13 +179,18 @@ class ExtensionChannelTest {
                         assertEquals(1, channel.supply(info.hop, info.challenge + 1, 2, rejected))
                         assertTrue(rejected.all { it == 0.toByte() })
                         val bad = retry && info.hop == 0 && badChallenge == 0L
-                        if (bad) badChallenge = info.challenge
+                        if (bad) { badChallenge = info.challenge; staleCredentialPrompt = prompt }
                         else if (retry && info.hop == 0) {
                             assertEquals(4, auth.error); assertTrue(info.challenge > badChallenge)
                             assertEquals(1, channel.supply(0, badChallenge, 2, payload.getString("pem").toByteArray()))
+                            val staleSecret = payload.getString("pem").toByteArray()
+                            assertThrows(IllegalStateException::class.java) {
+                                authentication.privateKey(checkNotNull(staleCredentialPrompt), staleSecret)
+                            }
+                            assertTrue(staleSecret.all { it == 0.toByte() })
                         }
                         val key = payload.getString(if (bad) "wrongPem" else "pem").toByteArray()
-                        assertEquals(0, channel.supply(info.hop, info.challenge, 2, key))
+                        authentication.privateKey(prompt, key)
                         assertTrue(key.all { it == 0.toByte() }); supplies++
                     }
                 }
