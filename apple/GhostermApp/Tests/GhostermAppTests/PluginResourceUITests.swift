@@ -1,9 +1,11 @@
 import AppKit
+import Combine
 import CoreGraphics
 import GhostermAppModel
 import ImageIO
 import SwiftUI
 import XCTest
+import Vision
 import WebKit
 @testable import GhostermApp
 
@@ -39,6 +41,55 @@ final class PluginResourceUITests: XCTestCase {
         XCTAssertEqual(selection.resourceID, first.resourceID, "a late stale selection must be ignored")
         selection.reconcile([])
         XCTAssertNil(selection.resourceID, "stopping a run must clear its resource selection")
+    }
+
+    @MainActor
+    func testResourceBrowserSelectionTracksRemovalAndRunStop() async throws {
+        let first = resource("first", path: "first.txt", mime: "text/plain",
+                             bytes: Data("first-preview-token".utf8))
+        let second = resource("second", path: "second.txt", mime: "text/plain",
+                              bytes: Data("second-preview-token".utf8))
+        let model = ResourceBrowserHarnessModel(resources: [first, second])
+        model.selection.reconcile([first.resourceID, second.resourceID])
+        let host = NSHostingView(rootView: ResourceBrowserHarness(model: model))
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 440)
+
+        func waitForPreview(_ expected: String, absent: String? = nil) async throws {
+            for _ in 0..<40 {
+                host.layoutSubtreeIfNeeded()
+                if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    let text = try recognizedText(in: bitmap)
+                    if text.contains(expected) && (absent.map { !text.contains($0) } ?? true) {
+                        return
+                    }
+                }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            XCTFail("expected selected preview text \(expected); current selection: \(String(describing: model.selection.resourceID))")
+        }
+
+        try await waitForPreview("first-preview-token", absent: "second-preview-token")
+        model.selection.select(second.resourceID, available: [first.resourceID, second.resourceID])
+        try await waitForPreview("second-preview-token", absent: "first-preview-token")
+
+        model.resources = [first]
+        try await waitForPreview("first-preview-token", absent: "second-preview-token")
+        XCTAssertEqual(model.selection.resourceID, first.resourceID,
+                       "removing the selected snapshot must reconcile to a live resource")
+
+        model.resources = []
+        for _ in 0..<40 where model.selection.resourceID != nil {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertNil(model.selection.resourceID, "stopping the run must clear the selected resource")
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let text = try recognizedText(in: bitmap)
+        XCTAssertFalse(text.contains("first-preview-token"))
+        XCTAssertFalse(text.contains("second-preview-token"))
     }
 
     @MainActor
@@ -240,6 +291,16 @@ final class PluginResourceUITests: XCTestCase {
         return count
     }
 
+    private func recognizedText(in bitmap: NSBitmapImageRep) throws -> String {
+        let image = try XCTUnwrap(bitmap.cgImage)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        try VNImageRequestHandler(cgImage: image).perform([request])
+        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+            .joined(separator: " ")
+    }
+
     private final class CapturedSchemeTask: NSObject, WKURLSchemeTask {
         let request: URLRequest
         private(set) var response: URLResponse?
@@ -280,5 +341,24 @@ final class PluginResourceUITests: XCTestCase {
         }
 
         func workerObservedCancellation() -> Bool { cancelledAtReturn }
+    }
+}
+
+@MainActor
+private final class ResourceBrowserHarnessModel: ObservableObject {
+    @Published var resources: [ExtensionController.ReceivedResource]
+    @Published var selection = PluginResourceSelection()
+
+    init(resources: [ExtensionController.ReceivedResource]) {
+        self.resources = resources
+    }
+}
+
+@MainActor
+private struct ResourceBrowserHarness: View {
+    @ObservedObject var model: ResourceBrowserHarnessModel
+
+    var body: some View {
+        PluginResourceBrowser(resources: model.resources, selection: $model.selection)
     }
 }

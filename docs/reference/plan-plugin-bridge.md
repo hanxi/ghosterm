@@ -4604,3 +4604,9 @@ API 29 AVD（约 2.9 GiB）、gterm 临时构建、截图与本批 harness 目�
 复查官方 Preview Executor 发现，它先发布主文档，再逐项判断附件 MIME；若后续附件是 JavaScript 等不支持格式，激活会失败，但主资源已经进入 ResourceStore。现先解析并校验全部附件类型，再发布主文档与附件，保证任何参数 / 类型不合法都不会产生部分资源副作用。
 
 `scripts/test-plugin-preview.mjs` 将多附件中末项非法的用例改为断言发布次数为零，并新增“不支持附件的主文档格式”同样零发布断言；正常 HTML / Markdown + CSS / image 发布、逗号转义、512/513 码点、重复项、越界及过量场景继续通过。`node --check`、Node Preview suite、官方包构建及 `--check` 通过，包摘要为 `f5242d8e3bb9077ffb3ce6929cfce991d48a804a3d6d6a798db60d2ef7290689`。重新构建 QuickJS gterm 并运行默认 stdio suite：15 个既有场景、实际官方包 `preview` 与 `preview-unicode` 均通过。隔离 `tmp/` 副本恢复“先发布主文档、再拒绝非法附件”的旧逻辑时，零发布断言按预期红；仅反转该目标断言的独立对照绿；恢复现行源码后 suite 绿且生产源 SHA256 前后一致。此批改官方 Executor / integrity 但不改公共 ABI；仅验证本机 stdio，不覆盖产品 UI / SSH / 授权链，不增加 macOS CI 二十份，P2 与 P3–P6 仍待完成。
+
+### P2 实施第四十九批：macOS 资源浏览选择与停止生命周期离屏视图断言（2026-11-13）
+
+在 `PluginResourceUITests` 增加由 `ObservableObject` 驱动的生产 `PluginResourceBrowser` 离屏视图：Vision OCR 先识别默认选中资源正文，再确认选择切到第二个快照时正文同步切换；删除当前所选快照后，选择回退到仍存活的资源且正文恢复；清空资源列表模拟 Run stop 后，selection 归零并且两个正文标记都从画面消失。该测试使用 `NSHostingView` 位图，不创建或显示 `NSWindow`，不依赖 accessibility 按钮查询。
+
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer TMPDIR="$PWD/tmp" GHOSTERM_APP_TEST_FILTER=testResourceBrowserSelectionTracksRemovalAndRunStop bash scripts/apple-app-gate.sh` 通过：Apple ABI 174 引用 / 3 登记未用，目标 Swift 测试 1 项、0 失败；gate 内真实 WebKit CSS / PNG 刷新像素 probe 通过（初始红 4096 / 蓝 39104，刷新红 4096 / 绿 39104）。门内 sshd 和临时目录清理完成。此项补专用视图状态 / Run stop 展示证据，不代表完整 `fileImporter` / 页面批准 / 启动 / consent 按钮点击链，不补 API 36 最终源码设备档、16 KiB 页或用户真机；不改公共 C ABI，不增加 macOS CI 二十份，P2 / P3–P6 仍未完成。
