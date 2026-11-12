@@ -311,7 +311,6 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
         }
     }
     extensions.activeSession?.takeIf { it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT }?.let { active ->
-        val reviewed = extensions.entries.firstOrNull { it.review.id == active.packageID && it.review.digest == active.packageDigest }
         AlertDialog(onDismissRequest = { if (!extensions.launchBusy) extensions.decideConsent(false) },
             properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
             title = { Text("插件权限请求") },
@@ -320,6 +319,9 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                     Text("${active.packageID} · ${active.command.title}")
                     Text("SSH 主机：${active.info.peerIdentity}")
                     Text("Executor 版本：${active.info.peerHostVersion}")
+                    Text("远端完整启动命令：", style = MaterialTheme.typography.labelMedium)
+                    SelectionContainer { Text(active.remoteCommand,
+                        Modifier.testTag("plugin-consent-remote-command"), style = MaterialTheme.typography.bodySmall) }
                     Text("即将传入的 argv：", style = MaterialTheme.typography.labelMedium)
                     SelectionContainer { Text(org.json.JSONArray(active.arguments).toString(),
                         Modifier.testTag("plugin-consent-argv"), style = MaterialTheme.typography.bodySmall) }
@@ -327,7 +329,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                         Modifier.testTag("plugin-consent-decoded-arguments"), style = MaterialTheme.typography.bodySmall)
                     Text("允许 Client 调用的 Executor RPC：${active.methods.joinToString().ifBlank { "无" }}")
                     Text("允许 Executor 调用的 Host RPC：${active.hostMethods.joinToString().ifBlank { "无" }}")
-                    Text("需要能力：${reviewed?.review?.requiredCapabilities?.joinToString().orEmpty().ifBlank { "无" }}")
+                    Text("需要能力：${active.requiredCapabilities.joinToString().ifBlank { "无" }}")
                     Text("仅批准当前连接中的能力授权。授权窗口启用系统安全窗口标记；仍请避免把秘密放进命令参数。Client 包摘要和 SSH Executor 摘要均固定；发布者身份未认证不代表可信。",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -458,6 +460,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var hostMenu by remember { mutableStateOf(false) }
     var executable by remember { mutableStateOf("gterm") }
     var executorDirectory by remember { mutableStateOf("") }
+    var workspaceRootDirectory by remember { mutableStateOf("") }
     var executorDigest by remember { mutableStateOf("") }
     var argumentsJson by remember { mutableStateOf("[]") }
     var methodsJson by remember { mutableStateOf("[]") }
@@ -486,6 +489,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 OutlinedTextField(executable, { executable = it }, singleLine = true, label = { Text("远端 gterm 可执行文件") })
                 OutlinedTextField(executorDirectory, { executorDirectory = it }, singleLine = true,
                     label = { Text("远端 Executor 包目录") })
+                OutlinedTextField(workspaceRootDirectory, { workspaceRootDirectory = it }, singleLine = true,
+                    label = { Text("可选：允许 Executor 读取的工作区目录") })
                 OutlinedTextField(executorDigest, { executorDigest = it }, singleLine = true,
                     label = { Text("Executor 包 SHA-256") })
                 OutlinedTextField(argumentsJson, { argumentsJson = it }, minLines = 2, maxLines = 4,
@@ -494,7 +499,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     label = { Text("允许调用的 Executor RPC 方法") }, placeholder = { Text("[\"task.run\"]") })
                 OutlinedTextField(hostMethodsJson, { hostMethodsJson = it }, minLines = 2, maxLines = 4,
                     label = { Text("允许 Executor 调用的 Host RPC 方法") }, placeholder = { Text("[\"host.confirm\"]") })
-                Text("将通过 SSH 明确启动指定目录中的 Executor。开发摘要是本次显式信任选择，不代表发布者签名认证；不会自动下载或安装。",
+                Text("仅填写后才会把该目录作为 workspace 显式传给 Executor；留空时不开放文件读取。将通过 SSH 明确启动指定目录中的 Executor。开发摘要是本次显式信任选择，不代表发布者签名认证；不会自动下载或安装。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("argv 和两类 RPC 方法均需填写 JSON 字符串数组。方法名是本次连接的允许列表；输入与输出固定为 object。Host 方法由 Client 插件通过 Portable SDK 注册 handler；未注册的方法会返回 UNSUPPORTED。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -507,7 +512,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     val request = ExtensionRelayBootstrap.Request(executable.trim(), executorDirectory,
                         executorDigest.trim(), entry.review.digest, ExtensionRelayBootstrap.parseMethodsJson(methodsJson),
                         ExtensionRelayBootstrap.parseHostMethodsJson(hostMethodsJson), command.path,
-                        ExtensionRelayBootstrap.parseArgumentsJson(argumentsJson))
+                        ExtensionRelayBootstrap.parseArgumentsJson(argumentsJson),
+                        workspaceRootDirectory.takeUnless { it.isBlank() })
                     ExtensionRelayBootstrap.build(request)
                     onLaunch(selectedHost, request)
                 } catch (failure: IllegalArgumentException) {

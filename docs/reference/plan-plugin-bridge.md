@@ -4435,3 +4435,10 @@ Fixture 的 stylesheet 与 PNG 都通过生产 `PluginResourceHTMLSchemeHandler`
 握手排查确认 Client manifest 的 `resource.receive` 与已选 Executor 的 `file.readScoped` 需求不同。Android `adoptSSHSession` 因此接受显式附加 Session 能力，但仅允许 HostProfile 支持且不与 Client manifest 重复的能力；本测试只在命令显式提供 `--root workspace <fixture>` 时请求 `file.readScoped`。Host 主动关闭长驻 Preview Session 后，远端以协议定义的结果未知结束（状态 7）；脚本确认并保留该三态结果，不把资源已送达伪报为 Executor 业务成功。
 
 JS-enabled Android debug / androidTest APK 编译通过；`python3 scripts/test-plugin-preview-android.py --android emulator-5556 --gterm tmp/gterm-build/gterm` 通过（API 36，真实双跳 SSH / Session consent / Runtime / ResourceStore 收件，`OK (1 test)`）。官方 Preview README 的内容摘要此前落后于生成文件，按 `scripts/build-plugin-preview.py` 重建 `integrity.json` 后摘要一致。该证据不代表真机、API 29 / 16 KiB 页或完整产品面板 UI 验收；HTML / Markdown 在 Android 的格式化呈现与后续 P3–P6 仍待完成，不记 P2 闭环完成。不改公共 C ABI，不增加 macOS CI 二十份。
+
+
+### P2 实施第三十一批：Android 显式资源根与 consent 命令复核（2026-11-12）
+
+把端到端夹具确认的 `file.readScoped` 授权接进实际 Android 启动路径：启动对话框新增可选的远端 workspace 根目录，留空时不传 `--root`、不把该能力放进 Session；填写后使用固定 ID `workspace` 构造经 POSIX shell 引用的 `--root workspace <directory>`，并只在 HostProfile 支持时追加 Session 能力。Native consent 现在显示由同一请求生成的完整远端启动命令和该次确切能力集合，便于批准前复核路径 / argv。
+
+新增 instrumentation 源码断言：留空根不生成参数；含空格与 Unicode 的明确根正确引用；空白及换行根拒绝。JS-off Android debug / androidTest APK 编译通过。当前工作区没有已定义 AVD，因此新断言只编译、未运行，不记设备行为通过；上一批 API 36 双跳 E2E 已直接验证 `--root workspace` 的真实 Executor 行为。真实设备上的启动表单 / consent UI、API 29、16 KiB 页与完整插件资源面板流程仍待验，不改公共 C ABI，不增加 macOS CI 二十份。

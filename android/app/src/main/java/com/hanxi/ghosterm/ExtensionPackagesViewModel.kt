@@ -21,7 +21,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     data class ActiveSession(
         val packageID: String, val packageDigest: String, val command: ExtensionController.Command,
         val arguments: List<String>, val decodedArguments: String?, val methods: List<String>, val hostMethods: List<String>, val executorDigest: String,
-        val peerIdentity: String, val info: ExtensionSession.Info,
+        val peerIdentity: String, val remoteCommand: String, val requiredCapabilities: List<String>,
+        val info: ExtensionSession.Info,
     )
 
     internal val controller: ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
@@ -29,7 +30,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             ExtensionController(
                 ExtensionController.HostProfile(
                     sdkVersion = "1.0.0", protocols = listOf(1), runtimes = listOf("portable-js"),
-                    capabilities = listOf("session.rpc", "resource.receive")),
+                    capabilities = listOf("session.rpc", "resource.receive", "file.readScoped")),
                 application.applicationContext)
         }.getOrNull()
     } else null
@@ -78,10 +79,14 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                                 request.hostMethods.map { it to ExtensionSession.Role.HOST }).map { (method, receiver) ->
                                 ExtensionSession.Method(method, "session.rpc", receiver,
                                     ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
-                            })
+                            }, additionalRequiredCapabilities =
+                                if (request.workspaceRootDirectory == null) emptyList() else listOf("file.readScoped"))
                         activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
                             request.arguments.toList(), decoded, request.methods.toList(), request.hostMethods.toList(),
-                            request.executorDigest, target.alias, adopted.info)
+                            request.executorDigest, target.alias, ExtensionRelayBootstrap.build(request),
+                            (entry.review.requiredCapabilities +
+                                if (request.workspaceRootDirectory == null) emptyList() else listOf("file.readScoped"))
+                                .distinct(), adopted.info)
                         launchBusy = false
                         viewModelScope.launch { advanceToConsent(owner) }
                         true

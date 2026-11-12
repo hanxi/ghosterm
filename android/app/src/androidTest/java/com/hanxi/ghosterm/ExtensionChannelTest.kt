@@ -49,6 +49,22 @@ class ExtensionChannelTest {
         return ExtensionChannel.adoptDescriptors(a, a) to ExtensionChannel.adoptDescriptors(b, b)
     }
 
+    @Test fun relayBootstrapAddsOnlyAnExplicitWorkspaceRoot() {
+        fun request(root: String?) = ExtensionRelayBootstrap.Request(
+            executable = "gterm", executorDirectory = "/opt/plugin", executorDigest = "a".repeat(64),
+            clientDigest = "b".repeat(64), methods = emptyList(), command = "preview",
+            arguments = listOf("fixture.txt"), workspaceRootDirectory = root)
+        val noRoot = ExtensionRelayBootstrap.build(request(null))
+        assertFalse(noRoot.contains("--root"))
+        val withRoot = ExtensionRelayBootstrap.build(request("/home/test user/\u5de5\u4f5c\u533a"))
+        assertTrue(withRoot.contains("'--root' 'workspace' '/home/test user/\u5de5\u4f5c\u533a'"))
+        assertTrue(withRoot.endsWith("'--' '/opt/plugin' 'preview' 'fixture.txt'"))
+        assertThrows(IllegalArgumentException::class.java) { ExtensionRelayBootstrap.build(request("  ")) }
+        assertThrows(IllegalArgumentException::class.java) {
+            ExtensionRelayBootstrap.build(request("/home/test\nmalicious"))
+        }
+    }
+
     private fun clientPackage(id: String): File {
         val root = File(instrumentation.targetContext.cacheDir, "extension-client-e2e-${System.nanoTime()}")
         check(root.mkdirs())

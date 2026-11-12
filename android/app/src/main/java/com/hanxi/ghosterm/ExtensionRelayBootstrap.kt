@@ -17,6 +17,7 @@ object ExtensionRelayBootstrap {
         val hostMethods: List<String> = emptyList(),
         val command: String,
         val arguments: List<String> = emptyList(),
+        val workspaceRootDirectory: String? = null,
     )
 
     /** Accept a JSON string array so the UI never invents a shell tokenizer. */
@@ -69,6 +70,9 @@ object ExtensionRelayBootstrap {
         require(request.executorDigest.matches(Regex("[a-f0-9]{64}"))) { "Executor 摘要必须是 64 位小写 SHA-256" }
         require(request.clientDigest.matches(Regex("[a-f0-9]{64}"))) { "Client 摘要必须是 64 位小写 SHA-256" }
         require(request.command.isNotBlank()) { "请指定完整插件命令" }
+        require(request.workspaceRootDirectory == null || request.workspaceRootDirectory.isNotBlank()) {
+            "资源工作区目录不能为空；留空表示不授权目录"
+        }
         require(request.methods.size <= 16 && request.methods.distinct().size == request.methods.size &&
             request.methods.all(::validMethod)) {
             "RPC 方法名无效（最多 16 个）"
@@ -85,6 +89,7 @@ object ExtensionRelayBootstrap {
             add("--client-digest"); add(request.clientDigest)
             request.methods.forEach { add("--method"); add(it) }
             request.hostMethods.forEach { add("--host-method"); add(it) }
+            request.workspaceRootDirectory?.let { add("--root"); add("workspace"); add(it) }
             add("--"); add(request.executorDirectory); add(request.command)
             addAll(request.arguments)
         }
