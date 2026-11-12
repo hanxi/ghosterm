@@ -172,7 +172,7 @@ gt_status_t gt__runtime_resources_open(gt_ext_session_t *session,
     if (!out || !session || !lease || !clock || count > GT_RUNTIME_ROOTS_MAX || (count && !roots)) {
         return GT_ERR_INVALID_ARG;
     }
-    if (!store) {
+    if (!store && !count) {
         return GT_ERR_UNSUPPORTED;
     }
     /* Preflight all PODs before duplicating anything. Native caller owns policy. */
@@ -244,6 +244,9 @@ gt_runtime_resource_status_t gt__runtime_resources_publish(gt_runtime_resources_
     }
     if (!r || !out || !root || !path || !mime || !timeout || timeout > 3600000) {
         return GT_RUNTIME_RESOURCE_INVALID;
+    }
+    if (!r->store) {
+        return GT_RUNTIME_RESOURCE_UNSUPPORTED;
     }
     if (r->stopped) {
         return GT_RUNTIME_RESOURCE_CLOSED;

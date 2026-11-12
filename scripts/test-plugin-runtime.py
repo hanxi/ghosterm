@@ -15,7 +15,7 @@ def main():
  inputs=[p for folder in ['core','packages/plugin-sdk'] for p in (ROOT/folder).rglob('*') if p.is_file() and 'build' not in p.relative_to(ROOT/folder).parts and p.suffix in ['.c','.h','.inc','.cmake','.json','.ts','.md']]
  inputs += [ROOT/p for p in ['core/CMakeLists.txt','.gitmodules','scripts/test-plugin-runtime.py','scripts/fixtures/plugin-sdk-tools/package.json','scripts/fixtures/plugin-sdk-tools/package-lock.json']]
  hashes={str(p.relative_to(ROOT)):sha(p) for p in inputs};work=Path(tempfile.mkdtemp(prefix='plugin-runtime-',dir=ROOT/'tmp'));logs=work/'logs';logs.mkdir();source=work/'source';commands=[]
- env={**os.environ,'TMPDIR':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
+ env={**os.environ,'TMPDIR':str(work),'GT_FIXTURE_PARENT_SECRET':'must-not-leak','ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
  def run(label,cmd,budget=180,red=False,negative=None):
   shell='. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require plugin-runtime; shift; gt_timeout "$@"'
   p=subprocess.run(['bash','-c',shell,'plugin-runtime',str(ROOT),str(budget),*map(str,cmd)],cwd=ROOT,env=env,capture_output=True,text=True,timeout=budget+10);out=p.stdout+p.stderr;(logs/(label+'.log')).write_text(out);commands.append(dict(label=label,returncode=p.returncode,assertion=red,configuration_negative=negative))
@@ -44,13 +44,13 @@ def main():
   base=['cmake','-S',core,'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_JS=ON','-DGHOSTERM_BUILD_TESTS=ON','-DGHOSTERM_PLUGIN_SDK_DIR='+str(sdk),'-DCMAKE_BUILD_TYPE=RelWithDebInfo']
   run('configure',[*base,'-B',build,'-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'],budget=120)
   def rebuild(label):
-   objects=[('ghosterm_core','src/extension/runtime.c'),('test_runtime','tests/test_runtime.c'),('test_runtime_boundary','tests/test_runtime_boundary.c'),('test_ext_package','tests/test_ext_package.c')]
+   objects=[('ghosterm_core','src/extension/runtime.c'),('test_runtime','tests/test_runtime.c'),('test_runtime_boundary','tests/test_runtime_boundary.c'),('test_ext_package','tests/test_ext_package.c'),('test_package_runtime','tests/test_package_runtime.c')]
    for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
-   for name in ['libghosterm_core.a','test_runtime','test_runtime_boundary','test_ext_package','test_config']:(build/name).unlink(missing_ok=True)
-   out=run(label+'-build',['cmake','--build',build,'--target','test_runtime','test_runtime_boundary','test_ext_package','test_config','-j','2'],budget=300)
+   for name in ['libghosterm_core.a','test_runtime','test_runtime_boundary','test_ext_package','test_package_runtime','test_config']:(build/name).unlink(missing_ok=True)
+   out=run(label+'-build',['cmake','--build',build,'--target','test_runtime','test_runtime_boundary','test_ext_package','test_package_runtime','test_config','-j','2'],budget=300)
    for owner,name in objects:
     assert 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' in out,(label,name)
-   for name in ['test_runtime','test_runtime_boundary','test_ext_package','test_config']:assert 'Linking C executable '+name in out,(label,name)
+   for name in ['test_runtime','test_runtime_boundary','test_ext_package','test_package_runtime','test_config']:assert 'Linking C executable '+name in out,(label,name)
    assert 'Linking C static library libghosterm_core.a' in out
   def suite(label):
    expected={'runtime_'+m for m in MODES}|{'runtime_boundary_outbound'}
@@ -61,6 +61,8 @@ def main():
    for name in expected:assert re.search(r'Test\s+#\d+: '+re.escape(name)+r'\s+\.+\s+Passed',output),name
    process_config=run(label+'-process-config',['ctest','--test-dir',build,'-R','^ext_package_process-config$','--output-on-failure'],budget=90)
    assert '100% tests passed out of 1' in process_config and 'ext_package_process-config' in process_config
+   process_runtime=run(label+'-process-runtime',['ctest','--test-dir',build,'-R','^plugin_package_runtime_process$','--output-on-failure'],budget=90)
+   assert '100% tests passed out of 1' in process_runtime and 'plugin_package_runtime_process' in process_runtime
   rebuild('baseline');suite('baseline')
   cases=[
    ('module-digest','            strcmp(hex, m->sha256)) {\n','            false) {\n','invalid'),
@@ -74,14 +76,16 @@ def main():
    ('unhandled-rejection','    if (!handled) {\n','    if (false && !handled) {\n','unhandled'),
    ('handled-rejection','            if (handled) {\n','            if (false && handled) {\n','handled'),
    ('stop-signal','        atomic_store_explicit(&r->stopped, true, memory_order_relaxed);\n','        atomic_store_explicit(&r->stopped, false, memory_order_relaxed);\n','stop'),
-   ('engine-release',' runtime_free_engine(r);',' /* engine retained */','roundtrip'),
+   ('engine-release','    runtime_free_engine(r);\n    if (!runtime_free_modules(r)) {','    /* engine retained */\n    if (!runtime_free_modules(r)) {','roundtrip'),
+   ('process-facade', 'r->process_service ? "Object.freeze({spawn:port.processSpawn})" : "undefined"', '"undefined"', 'package-process'),
+   ('process-close-reap', 'if (runtime_process_live(r)) {', 'if (false && runtime_process_live(r)) {', 'package-process-close'),
    ('handoff-revoke','        r->info.error = error;\n    }\n    gt_ext_session_revoke(r->session);\n','        r->info.error = error;\n    }\n    (void)r->session;\n','boundary'),
   ]
   if args.mutate:
    path=core/'src/extension/runtime-quickjs.inc';original=path.read_bytes()
    for label,old,new,mode in cases:
     assert old in original.decode(),label;path.write_text(original.decode().replace(old,new)+'\n/* '+MARK+' */\n')
-    target=[build/'test_runtime_boundary',sdk] if mode=='boundary' else [build/'test_runtime',mode,sdk]
+    target=[build/'test_runtime_boundary',sdk] if mode=='boundary' else [build/'test_package_runtime',mode.removeprefix('package-'),ROOT/'tmp'] if mode.startswith('package-') else [build/'test_runtime',mode,sdk]
     try:
      rebuild(label);run(label+'-target',target,budget=30,red=True);run(label+'-control',[build/'test_config',core/'tests/fixtures'])
     finally:path.write_bytes(original)
@@ -114,7 +118,7 @@ def main():
    binary=android_build/'test_runtime';nm=ndk/'toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-nm';exports=run('android-symbols',[nm,'--defined-only',binary]);assert 'gt__bridge_runtime_open' in exports and 'JS_NewRuntime' in exports;assert binary.read_bytes()[:4]==b'\x7fELF'
    android=dict(abi='arm64-v8a',api=29,executed=False,binary_sha256=sha(binary),core_sha256=sha(android_build/'libghosterm_core.a'),engine_sha256=sha(android_build/'libghosterm_quickjs.a'))
   for name,h in hashes.items():assert sha(ROOT/name)==h,name
-  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in cases] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,process_config_test='explicit unsupported until host service is wired',guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC; process config rejected pending runtime service; no App enable, OS effects, gterm, physical devices, WAN or gateway')
+  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in cases] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,process_runtime_tests=['authorized cat/env stdio roundtrip with selected-environment isolation','runtime close stops and reaps an owned child'],process_config_test='undeclared process mapping rejected; checked package process scope exercised by Runtime integration',guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC / Executor process.spawn; no App enable, gterm, physical devices, WAN or gateway')
   (logs/'result.json').write_text(json.dumps(receipt,indent=2)+'\n');shutil.rmtree(source);print('PLUGIN RUNTIME PASS; logs: '+str(logs),flush=True)
  except BaseException as error:(logs/'failure.txt').write_text(repr(error)+'\n');raise
 def stop(n,_frame):raise KeyboardInterrupt('signal '+str(n))

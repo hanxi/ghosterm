@@ -146,9 +146,6 @@ gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,
         (config->process_environment_count && !config->process_environment)) {
         return GT_ERR_INVALID_ARG;
     }
-    if (config->process_program_count || config->process_environment_count) {
-        return GT_ERR_UNSUPPORTED;
-    }
     if (atomic_load_explicit(&package->stopped, memory_order_relaxed)) {
         return GT_ERR_CANCELLED;
     }
@@ -165,6 +162,10 @@ gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,
                              .activation_ms = config->activation_ms,
                              .roots = roots,
                              .root_count = config->root_count,
+                             .process_programs = config->process_programs,
+                             .process_program_count = config->process_program_count,
+                             .process_environment = config->process_environment,
+                             .process_environment_count = config->process_environment_count,
                              .invocation = config->invocation};
     gt_ext_runtime_t *r = gt__plugin_memory_calloc(1, sizeof(*r));
     if (!r) {

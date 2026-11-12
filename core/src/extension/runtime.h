@@ -5,6 +5,7 @@
 #include "ghosterm/extension_runtime.h"
 #include "extension/runtime-resource.h"
 #include "extension/package-check.h"
+#include "extension/process-service.h"
 typedef struct gt_bridge_runtime gt_bridge_runtime_t;
 
 typedef enum {
@@ -44,6 +45,10 @@ typedef struct {
     uint32_t cpu_ms, jobs_per_step, activation_ms;
     const gt_runtime_root_t *roots;
     size_t root_count;
+    const gt_ext_process_program_mapping_t *process_programs;
+    size_t process_program_count;
+    const gt_ext_process_environment_t *process_environment;
+    size_t process_environment_count;
     const gt_ext_invocation_t *invocation;
 } gt_runtime_config_t;
 

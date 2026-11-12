@@ -10,7 +10,19 @@
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <time.h>
+
+#define GT_RUNTIME_PROCESS_CHILDREN 16u
+
+typedef struct {
+    uint64_t id;
+    gt_ext_process_t *process;
+    char verified_version[129];
+    JSValue release_promise;
+    JSValue release_resolver;
+    bool releasing;
+} runtime_process_child_t;
 
 typedef struct {
     char *name;
@@ -28,6 +40,13 @@ struct gt_bridge_runtime {
     gt_ext_lease_t lease;
     gt_ext_role_t role;
     gt_runtime_resources_t *resources;
+    gt_ext_process_service_t *process_service;
+    bool resources_enabled;
+    char *process_environment_block;
+    const char *process_environment[GT_EXT_RUNTIME_PROCESS_ENV_MAX];
+    size_t process_environment_count, process_environment_bytes;
+    runtime_process_child_t process_children[GT_RUNTIME_PROCESS_CHILDREN];
+    uint64_t next_process_id, process_stop_deadline;
     runtime_module_t modules[64];
     size_t count;
     char entry[GT_RUNTIME_MODULE_NAME_MAX + 1];
@@ -46,6 +65,7 @@ struct gt_bridge_runtime {
     uint32_t cpu_ms, jobs_per_step, activation_ms;
     gt_runtime_info_t info;
     bool started, rejected, interrupted, memory_failed;
+    bool process_stopping, process_killed, dispose_called;
     size_t heap_used, heap_limit;
 };
 
@@ -400,6 +420,20 @@ runtime_native(JSContext *c, JSValueConst self, int argc, JSValueConst *argv, in
         }
         return result;
     }
+    if (op == 11) {
+        if (gt__runtime_resources_roots(r->resources) != 1) {
+            return JS_UNDEFINED;
+        }
+        JSValue workspace = JS_NewObjectProto(c, JS_NULL);
+        if (JS_IsException(workspace) ||
+            runtime_set(
+                c, workspace, "id", JS_NewString(c, gt__runtime_resources_root(r->resources, 0))) <
+                0) {
+            JS_FreeValue(c, workspace);
+            return JS_EXCEPTION;
+        }
+        return workspace;
+    }
     /* Observe the live scoped grant, never cache it in JS or expose its lease. */
     if (op == 9) {
         if (argc != 1 || !JS_IsString(argv[0])) {
@@ -549,6 +583,390 @@ invalid:
 
 #include "extension/runtime-resource-js.inc"
 
+static runtime_process_child_t *runtime_process_find(gt_bridge_runtime_t *r, uint64_t id) {
+    for (size_t i = 0; i < GT_RUNTIME_PROCESS_CHILDREN; i++) {
+        if (r->process_children[i].process && r->process_children[i].id == id) {
+            return &r->process_children[i];
+        }
+    }
+    return NULL;
+}
+
+static JSValue runtime_process_state(JSContext *c, const char *state) {
+    JSValue result = JS_NewObjectProto(c, JS_NULL);
+    if (JS_IsException(result) || runtime_set(c, result, "state", JS_NewString(c, state)) < 0) {
+        JS_FreeValue(c, result);
+        return JS_EXCEPTION;
+    }
+    return result;
+}
+
+static JSValue runtime_process_error(JSContext *c, gt_status_t status) {
+    JSValue error = JS_NewError(c);
+    if (JS_IsException(error) ||
+        runtime_set(c, error, "message", JS_NewString(c, "process pipe I/O failed")) < 0 ||
+        runtime_set(c, error, "code", JS_NewInt32(c, status)) < 0) {
+        JS_FreeValue(c, error);
+        return JS_EXCEPTION;
+    }
+    return error;
+}
+
+static JSValue runtime_process_resolved_promise(JSContext *c, JSValue value) {
+    JSValue resolving[2];
+    JSValue promise = JS_NewPromiseCapability(c, resolving);
+    if (JS_IsException(promise)) {
+        return promise;
+    }
+    JSValue result = JS_Call(c, resolving[0], JS_UNDEFINED, 1, (JSValueConst *)&value);
+    JS_FreeValue(c, resolving[0]);
+    JS_FreeValue(c, resolving[1]);
+    if (JS_IsException(result)) {
+        JS_FreeValue(c, promise);
+        JS_FreeValue(c, JS_GetException(c));
+        return JS_EXCEPTION;
+    }
+    JS_FreeValue(c, result);
+    return promise;
+}
+
+static JSValue
+runtime_process_method(JSContext *c, JSCFunctionData *function, int op, uint64_t id) {
+    JSValue data = JS_NewInt64(c, (int64_t)id);
+    if (JS_IsException(data)) {
+        return data;
+    }
+    JSValue method = JS_NewCFunctionData(c, function, 0, op, 1, &data);
+    JS_FreeValue(c, data);
+    return method;
+}
+
+static JSValue runtime_process_child_call(
+    JSContext *c, JSValueConst self, int argc, JSValueConst *argv, int op, JSValueConst *data) {
+    (void)self;
+    gt_bridge_runtime_t *r = JS_GetContextOpaque(c);
+    int64_t raw_id = 0;
+    if (!r || !JS_IsNumber(data[0]) || JS_ToInt64(c, &raw_id, data[0]) || raw_id <= 0) {
+        return JS_ThrowInternalError(c, "process handle unavailable");
+    }
+    runtime_process_child_t *slot = runtime_process_find(r, (uint64_t)raw_id);
+    if (!slot) {
+        if (op == 7) {
+            return JS_UNDEFINED;
+        }
+        return JS_ThrowInternalError(c, "process closed");
+    }
+    if (op == 1 || op == 2) {
+        double requested = 0;
+        if (argc != 1 || !JS_IsNumber(argv[0]) || JS_ToFloat64(c, &requested, argv[0]) ||
+            requested < 1 || requested > GT_EXT_PROCESS_IO_MAX || requested != (size_t)requested) {
+            return JS_ThrowTypeError(c, "invalid process read size");
+        }
+        uint8_t bytes[GT_EXT_PROCESS_IO_MAX];
+        gt_ext_process_io_t io =
+            op == 1 ? gt__ext_process_read_stdout(slot->process, bytes, (size_t)requested)
+                    : gt__ext_process_read_stderr(slot->process, bytes, (size_t)requested);
+        const char *state = io.state == GT_EXT_PROCESS_DATA     ? "data"
+                            : io.state == GT_EXT_PROCESS_WAIT   ? "wait"
+                            : io.state == GT_EXT_PROCESS_EOF    ? "eof"
+                            : io.state == GT_EXT_PROCESS_CLOSED ? "closed"
+                                                                : "error";
+        JSValue result = runtime_process_state(c, state);
+        if (JS_IsException(result)) {
+            return result;
+        }
+        if (io.state == GT_EXT_PROCESS_DATA &&
+            runtime_set(c, result, "bytes", JS_NewUint8ArrayCopy(c, bytes, io.count)) < 0) {
+            JS_FreeValue(c, result);
+            return JS_EXCEPTION;
+        }
+        if (io.state == GT_EXT_PROCESS_ERROR &&
+            runtime_set(c, result, "error", runtime_process_error(c, io.error)) < 0) {
+            JS_FreeValue(c, result);
+            return JS_EXCEPTION;
+        }
+        return result;
+    }
+    if (op == 3) {
+        if (argc != 1 || JS_GetTypedArrayType(argv[0]) != JS_TYPED_ARRAY_UINT8) {
+            return JS_ThrowTypeError(c, "expected Uint8Array");
+        }
+        size_t offset = 0, size = 0, element = 0;
+        JSValue buffer = JS_GetTypedArrayBuffer(c, argv[0], &offset, &size, &element);
+        if (JS_IsException(buffer)) {
+            return JS_EXCEPTION;
+        }
+        size_t buffer_size = 0;
+        uint8_t *base = JS_GetArrayBuffer(c, &buffer_size, buffer);
+        if (!base || element != 1 || offset > buffer_size || size > buffer_size - offset) {
+            JS_FreeValue(c, buffer);
+            return JS_ThrowTypeError(c, "invalid process bytes");
+        }
+        gt_ext_process_io_t io = gt__ext_process_write(slot->process, base + offset, size);
+        JS_FreeValue(c, buffer);
+        const char *state = io.state == GT_EXT_PROCESS_DATA     ? "data"
+                            : io.state == GT_EXT_PROCESS_WAIT   ? "wait"
+                            : io.state == GT_EXT_PROCESS_CLOSED ? "closed"
+                                                                : "error";
+        JSValue result = runtime_process_state(c, state);
+        if (JS_IsException(result) ||
+            (io.state == GT_EXT_PROCESS_DATA &&
+             runtime_set(c, result, "count", JS_NewUint32(c, (uint32_t)io.count)) < 0) ||
+            (io.state == GT_EXT_PROCESS_ERROR &&
+             runtime_set(c, result, "error", runtime_process_error(c, io.error)) < 0)) {
+            JS_FreeValue(c, result);
+            return JS_EXCEPTION;
+        }
+        return result;
+    }
+    if (op == 4) {
+        return argc == 0 && gt__ext_process_close_stdin(slot->process) == GT_OK
+                   ? JS_UNDEFINED
+                   : JS_ThrowInternalError(c, "cannot close process stdin");
+    }
+    if (op == 5) {
+        if (argc != 1 || !JS_IsString(argv[0])) {
+            return JS_ThrowTypeError(c, "invalid process signal");
+        }
+        const char *signal_name = JS_ToCString(c, argv[0]);
+        if (!signal_name) {
+            return JS_EXCEPTION;
+        }
+        int signal_number = !strcmp(signal_name, "terminate") ? SIGTERM
+                            : !strcmp(signal_name, "kill")    ? SIGKILL
+                                                              : 0;
+        JS_FreeCString(c, signal_name);
+        if (!signal_number || gt__ext_process_signal(slot->process, signal_number) != GT_OK) {
+            return JS_ThrowTypeError(c, "unsupported process signal");
+        }
+        return JS_UNDEFINED;
+    }
+    if (op == 6 || op == 7) {
+        if (argc) {
+            return JS_ThrowTypeError(c, "invalid process operation");
+        }
+        gt_ext_process_info_t info;
+        if (gt__ext_process_poll(slot->process, &info) != GT_OK) {
+            return JS_ThrowInternalError(c, "cannot observe process");
+        }
+        if (op == 6) {
+            JSValue result = runtime_process_state(c, info.exited ? "exited" : "running");
+            if (!JS_IsException(result) && info.exited &&
+                (runtime_set(c,
+                             result,
+                             "code",
+                             info.term_signal ? JS_NULL : JS_NewInt32(c, info.exit_code)) < 0 ||
+                 runtime_set(c,
+                             result,
+                             "signal",
+                             info.term_signal ? JS_NewInt32(c, info.term_signal) : JS_NULL) < 0)) {
+                JS_FreeValue(c, result);
+                return JS_EXCEPTION;
+            }
+            return result;
+        }
+        if (info.exited) {
+            if (gt__ext_process_destroy(&slot->process) != GT_OK) {
+                return JS_ThrowInternalError(c, "cannot release process");
+            }
+            JS_FreeValue(c, slot->release_resolver);
+            JS_FreeValue(c, slot->release_promise);
+            memset(slot, 0, sizeof(*slot));
+            slot->release_resolver = JS_UNDEFINED;
+            slot->release_promise = JS_UNDEFINED;
+            return runtime_process_resolved_promise(c, JS_UNDEFINED);
+        }
+        if (slot->releasing) {
+            return JS_DupValue(c, slot->release_promise);
+        }
+        JSValue resolvers[2];
+        JSValue promise = JS_NewPromiseCapability(c, resolvers);
+        if (JS_IsException(promise)) {
+            return promise;
+        }
+        slot->release_promise = JS_DupValue(c, promise);
+        slot->release_resolver = resolvers[0];
+        JS_FreeValue(c, resolvers[1]);
+        slot->releasing = true;
+        return promise;
+    }
+    return JS_ThrowTypeError(c, "invalid process operation");
+}
+
+static JSValue runtime_process_spawn_call(
+    JSContext *c, JSValueConst self, int argc, JSValueConst *argv, int magic) {
+    (void)self;
+    (void)magic;
+    gt_bridge_runtime_t *r = JS_GetContextOpaque(c);
+    if (!r || !r->process_service || argc != 1 || !JS_IsObject(argv[0]) ||
+        atomic_load_explicit(&r->stopped, memory_order_relaxed)) {
+        return JS_ThrowInternalError(c, "process service unavailable");
+    }
+    const char *program = NULL, *cwd = NULL, *policy = NULL;
+    JSValue value = JS_GetPropertyStr(c, argv[0], "program");
+    bool ok = resource_string(c, value, 128, &program);
+    JS_FreeValue(c, value);
+    value = JS_GetPropertyStr(c, argv[0], "cwd");
+    JSValue cwd_id = JS_IsObject(value) ? JS_GetPropertyStr(c, value, "id") : JS_UNDEFINED;
+    ok = ok && resource_string(c, cwd_id, 64, &cwd);
+    JS_FreeValue(c, cwd_id);
+    JS_FreeValue(c, value);
+    value = JS_GetPropertyStr(c, argv[0], "envPolicy");
+    ok = ok && resource_string(c, value, 64, &policy) &&
+         !strcmp(policy, "selected-user-environment");
+    JS_FreeValue(c, value);
+    if (!ok) {
+        JS_FreeCString(c, program);
+        JS_FreeCString(c, cwd);
+        JS_FreeCString(c, policy);
+        return JS_ThrowTypeError(c, "invalid process spawn options");
+    }
+    int cwd_fd = -1;
+    for (size_t i = 0; i < gt__runtime_resources_roots(r->resources); i++) {
+        if (!strcmp(cwd, gt__runtime_resources_root(r->resources, i))) {
+            cwd_fd = gt__runtime_resources_root_fd(r->resources, i);
+            break;
+        }
+    }
+    JS_FreeCString(c, cwd);
+    JS_FreeCString(c, policy);
+    if (cwd_fd < 0) {
+        JS_FreeCString(c, program);
+        return JS_ThrowTypeError(c, "workspace is outside the authorized roots");
+    }
+    JSValue args_value = JS_GetPropertyStr(c, argv[0], "argv");
+    JSValue length_value = JS_GetPropertyStr(c, args_value, "length");
+    uint32_t count = 0;
+    bool valid = JS_IsArray(args_value) && !JS_ToUint32(c, &count, length_value) && count > 0 &&
+                 count <= GT_EXT_PROCESS_ARGUMENTS_MAX;
+    JS_FreeValue(c, length_value);
+    const char *args[GT_EXT_PROCESS_ARGUMENTS_MAX] = {0};
+    JSValue held[GT_EXT_PROCESS_ARGUMENTS_MAX];
+    memset(held, 0, sizeof(held));
+    for (uint32_t i = 0; valid && i < count; i++) {
+        held[i] = JS_GetPropertyUint32(c, args_value, i);
+        args[i] = JS_ToCString(c, held[i]);
+        valid = args[i] != NULL;
+    }
+    JS_FreeValue(c, args_value);
+    if (!valid) {
+        for (uint32_t i = 0; i < count; i++) {
+            if (args[i]) {
+                JS_FreeCString(c, args[i]);
+            }
+            JS_FreeValue(c, held[i]);
+        }
+        JS_FreeCString(c, program);
+        return JS_ThrowTypeError(c, "invalid process argv");
+    }
+    if (r->next_process_id >= INT64_MAX) {
+        for (uint32_t i = 0; i < count; i++) {
+            JS_FreeCString(c, args[i]);
+            JS_FreeValue(c, held[i]);
+        }
+        JS_FreeCString(c, program);
+        return JS_ThrowInternalError(c, "process handle space exhausted");
+    }
+    runtime_process_child_t *slot = NULL;
+    for (size_t i = 0; i < GT_RUNTIME_PROCESS_CHILDREN; i++) {
+        if (!r->process_children[i].process) {
+            slot = &r->process_children[i];
+            break;
+        }
+    }
+    gt_status_t status = slot ? gt__ext_process_service_spawn(r->process_service,
+                                                              program,
+                                                              args,
+                                                              count,
+                                                              cwd_fd,
+                                                              r->process_environment,
+                                                              r->process_environment_count,
+                                                              &slot->process)
+                              : GT_ERR_UNSUPPORTED;
+    for (uint32_t i = 0; i < count; i++) {
+        JS_FreeCString(c, args[i]);
+        JS_FreeValue(c, held[i]);
+    }
+    const char *version = gt__ext_process_service_version(r->process_service, program);
+    JS_FreeCString(c, program);
+    if (status != GT_OK || !slot || !version) {
+        if (slot && slot->process) {
+            (void)gt__ext_process_signal(slot->process, SIGKILL);
+            (void)gt__ext_process_destroy(&slot->process);
+        }
+        return JS_ThrowInternalError(c, "authorized process could not start");
+    }
+    r->next_process_id++;
+    slot->id = r->next_process_id;
+    strcpy(slot->verified_version, version);
+    slot->release_promise = JS_UNDEFINED;
+    slot->release_resolver = JS_UNDEFINED;
+    slot->releasing = false;
+    JSValue child = JS_NewObjectProto(c, JS_NULL);
+    if (JS_IsException(child) ||
+        runtime_set(c, child, "verifiedVersion", JS_NewString(c, slot->verified_version)) < 0) {
+        JS_FreeValue(c, child);
+        return JS_EXCEPTION;
+    }
+    const char *names[] = {
+        "readStdout", "readStderr", "writeStdin", "closeStdin", "signal", "poll", "release"};
+    for (int i = 0; i < 7; i++) {
+        JSValue method = runtime_process_method(c, runtime_process_child_call, i + 1, slot->id);
+        if (runtime_set(c, child, names[i], method) < 0) {
+            JS_FreeValue(c, child);
+            return JS_EXCEPTION;
+        }
+    }
+    JSValue promise = runtime_process_resolved_promise(c, child);
+    JS_FreeValue(c, child);
+    return promise;
+}
+
+static bool runtime_process_step(gt_bridge_runtime_t *r) {
+    for (size_t i = 0; i < GT_RUNTIME_PROCESS_CHILDREN; i++) {
+        runtime_process_child_t *slot = &r->process_children[i];
+        if (!slot->process) {
+            continue;
+        }
+        gt_ext_process_info_t info;
+        gt_status_t status = gt__ext_process_poll(slot->process, &info);
+        if (status != GT_OK) {
+            return false;
+        }
+        if ((info.exited && slot->releasing) || (r->process_stopping && info.exited)) {
+            if (slot->releasing) {
+                JSValue result = JS_Call(r->context,
+                                         slot->release_resolver,
+                                         JS_UNDEFINED,
+                                         1,
+                                         (JSValueConst[]){JS_UNDEFINED});
+                if (JS_IsException(result)) {
+                    JS_FreeValue(r->context, JS_GetException(r->context));
+                }
+                JS_FreeValue(r->context, result);
+                JS_FreeValue(r->context, slot->release_resolver);
+                JS_FreeValue(r->context, slot->release_promise);
+            }
+            if (gt__ext_process_destroy(&slot->process) != GT_OK) {
+                return false;
+            }
+            memset(slot, 0, sizeof(*slot));
+            slot->release_resolver = JS_UNDEFINED;
+            slot->release_promise = JS_UNDEFINED;
+        }
+    }
+    return true;
+}
+
+static bool runtime_process_live(const gt_bridge_runtime_t *r) {
+    for (size_t i = 0; i < GT_RUNTIME_PROCESS_CHILDREN; i++) {
+        if (r->process_children[i].process) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static int runtime_bind(JSContext *c, JSModuleDef *module) {
     const char *names[] = {"request",
                            "result",
@@ -560,8 +978,9 @@ static int runtime_bind(JSContext *c, JSModuleDef *module) {
                            "revoke",
                            "alive",
                            "access",
-                           "invocation"};
-    for (int i = 0; i < 11; i++) {
+                           "invocation",
+                           "workspaceHandle"};
+    for (int i = 0; i < 12; i++) {
         if (JS_SetModuleExport(
                 c,
                 module,
@@ -582,6 +1001,14 @@ static int runtime_bind(JSContext *c, JSModuleDef *module) {
                                                     i))) {
             return -1;
         }
+    }
+    if (JS_SetModuleExport(
+            c,
+            module,
+            "processSpawn",
+            JS_NewCFunctionMagic(
+                c, runtime_process_spawn_call, "processSpawn", 1, JS_CFUNC_generic_magic, 0))) {
+        return -1;
     }
     return 0;
 }
@@ -680,8 +1107,10 @@ static JSModuleDef *runtime_load(JSContext *ctx, const char *name, void *opaque)
                                "revoke",
                                "alive",
                                "access",
-                               "invocation"};
-        for (int i = 0; i < 11; i++) {
+                               "invocation",
+                               "workspaceHandle",
+                               "processSpawn"};
+        for (int i = 0; i < 13; i++) {
             if (JS_AddModuleExport(ctx, m, names[i])) {
                 return NULL;
             }
@@ -750,6 +1179,13 @@ static bool runtime_free_modules(gt_bridge_runtime_t *r) {
     gt__plugin_memory_free(NULL, r->invocation, r->invocation_size);
     r->invocation = NULL;
     r->invocation_size = 0;
+    if (r->process_environment_block) {
+        gt__secure_erase(r->process_environment_block, r->process_environment_bytes);
+        gt__plugin_memory_free(NULL, r->process_environment_block, r->process_environment_bytes);
+        r->process_environment_block = NULL;
+        r->process_environment_bytes = r->process_environment_count = 0;
+        memset(r->process_environment, 0, sizeof(r->process_environment));
+    }
     if (r->package && gt__package_checked_destroy(&r->package) != GT_PACKAGE_OK) {
         r->module_cleanup_error = GT_ERR_IO;
         return false;
@@ -830,6 +1266,67 @@ static gt_status_t runtime_invocation(gt_bridge_runtime_t *r,
     return GT_OK;
 }
 
+static gt_status_t runtime_process_environment_copy(gt_bridge_runtime_t *r,
+                                                    const gt_runtime_config_t *config) {
+    if (config->process_environment_count > GT_EXT_RUNTIME_PROCESS_ENV_MAX ||
+        (config->process_environment_count && !config->process_environment)) {
+        return GT_ERR_INVALID_ARG;
+    }
+    size_t total = 0;
+    size_t name_sizes[GT_EXT_RUNTIME_PROCESS_ENV_MAX], value_sizes[GT_EXT_RUNTIME_PROCESS_ENV_MAX];
+    for (size_t i = 0; i < config->process_environment_count; i++) {
+        const gt_ext_process_environment_t *entry = &config->process_environment[i];
+        if (!entry->name || !entry->value) {
+            return GT_ERR_INVALID_ARG;
+        }
+        name_sizes[i] = strnlen(entry->name, 129);
+        value_sizes[i] = strnlen(entry->value, GT_EXT_PROCESS_ENVIRONMENT_VALUE_MAX + 1);
+        if (!name_sizes[i] || name_sizes[i] > 128 ||
+            value_sizes[i] > GT_EXT_PROCESS_ENVIRONMENT_VALUE_MAX ||
+            name_sizes[i] + value_sizes[i] + 2 > GT_EXT_PROCESS_ENVIRONMENT_VALUE_MAX) {
+            return GT_ERR_INVALID_ARG;
+        }
+        for (size_t j = 0; j < name_sizes[i]; j++) {
+            char c = entry->name[j];
+            if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' ||
+                  (j > 0 && c >= '0' && c <= '9'))) {
+                return GT_ERR_INVALID_ARG;
+            }
+        }
+        for (size_t previous = 0; previous < i; previous++) {
+            if (name_sizes[previous] == name_sizes[i] &&
+                !memcmp(config->process_environment[previous].name, entry->name, name_sizes[i])) {
+                return GT_ERR_INVALID_ARG;
+            }
+        }
+        if (name_sizes[i] + value_sizes[i] + 2 > GT_EXT_PROCESS_ENVIRONMENT_BYTES_MAX - total) {
+            return GT_ERR_INVALID_ARG;
+        }
+        total += name_sizes[i] + value_sizes[i] + 2;
+    }
+    if (!total) {
+        return GT_OK;
+    }
+    r->process_environment_block = gt__plugin_memory_alloc(NULL, total);
+    if (!r->process_environment_block) {
+        return GT_ERR_IO;
+    }
+    r->process_environment_bytes = total;
+    size_t at = 0;
+    for (size_t i = 0; i < config->process_environment_count; i++) {
+        const gt_ext_process_environment_t *entry = &config->process_environment[i];
+        r->process_environment[i] = r->process_environment_block + at;
+        memcpy(r->process_environment_block + at, entry->name, name_sizes[i]);
+        at += name_sizes[i];
+        r->process_environment_block[at++] = '=';
+        memcpy(r->process_environment_block + at, entry->value, value_sizes[i]);
+        at += value_sizes[i];
+        r->process_environment_block[at++] = 0;
+    }
+    r->process_environment_count = config->process_environment_count;
+    return GT_OK;
+}
+
 static gt_status_t runtime_open(gt_ext_session_t **session,
                                 const gt_runtime_config_t *c,
                                 gt_package_checked_t *package,
@@ -843,11 +1340,12 @@ static gt_status_t runtime_open(gt_ext_session_t **session,
                       !runtime_name(c->entry) || strncmp(c->entry, "plugin:/", 8))) ||
         (package && (c->modules || c->module_count || c->entry)) ||
         (c->role != GT_EXT_HOST && c->role != GT_EXT_EXECUTOR) ||
-        c->root_count > GT_RUNTIME_ROOTS_MAX || (c->root_count && !c->roots)) {
+        c->root_count > GT_RUNTIME_ROOTS_MAX || (c->root_count && !c->roots) ||
+        c->process_program_count > GT_EXT_PROCESS_PROGRAMS_MAX ||
+        (c->process_program_count && !c->process_programs) ||
+        c->process_environment_count > GT_EXT_RUNTIME_PROCESS_ENV_MAX ||
+        (c->process_environment_count && !c->process_environment)) {
         return GT_ERR_INVALID_ARG;
-    }
-    if (c->root_count && !(*session)->store) {
-        return GT_ERR_UNSUPPORTED;
     }
     gt_ext_session_info_t info;
     if (!gt_ext_session_info(*session, &info) || info.phase != GT_EXT_SESSION_ACTIVE ||
@@ -885,6 +1383,10 @@ static gt_status_t runtime_open(gt_ext_session_t **session,
     }
     r->module = r->space = r->pump = r->dispose = r->decoded_arguments = JS_UNDEFINED;
     gt_status_t status = runtime_invocation(r, c->invocation, package);
+    if (status == GT_OK) {
+        status = runtime_process_environment_copy(r, c);
+    }
+    bool process_required = false, pipes_required = false;
     if (status != GT_OK) {
         goto fail;
     }
@@ -991,13 +1493,39 @@ static gt_status_t runtime_open(gt_ext_session_t **session,
                 status = GT_ERR_UNSUPPORTED;
                 goto fail;
             }
+            if (!strcmp(name, "process.spawn") || !strcmp(name, "process.pipes")) {
+                if (!package_info.executor || !package_info.process_program_count ||
+                    !c->process_program_count || !c->root_count) {
+                    status = GT_ERR_UNSUPPORTED;
+                    goto fail;
+                }
+                process_required |= !strcmp(name, "process.spawn");
+                pipes_required |= !strcmp(name, "process.pipes");
+            }
+        }
+        if (process_required != pipes_required ||
+            ((c->process_program_count || c->process_environment_count) &&
+             (!process_required || !pipes_required))) {
+            status = GT_ERR_UNSUPPORTED;
+            goto fail;
+        }
+        if (process_required) {
+            status = gt__ext_process_service_open(*session,
+                                                  &r->lease,
+                                                  package,
+                                                  c->process_programs,
+                                                  c->process_program_count,
+                                                  &r->process_service);
+            if (status != GT_OK) {
+                goto fail;
+            }
         }
         if (!gt__package_checked_retain(package, &r->package)) {
             status = GT_ERR_IO;
             goto fail;
         }
     }
-    if ((*session)->store) {
+    if ((*session)->store || process_required) {
         status = gt__runtime_resources_open(*session,
                                             (*session)->store,
                                             &r->lease,
@@ -1009,6 +1537,7 @@ static gt_status_t runtime_open(gt_ext_session_t **session,
         if (status != GT_OK) {
             goto fail;
         }
+        r->resources_enabled = (*session)->store != NULL;
     }
     r->session = *session;
     *session = NULL;
@@ -1016,6 +1545,9 @@ static gt_status_t runtime_open(gt_ext_session_t **session,
     return GT_OK;
 fail:
     runtime_free_engine(r);
+    if (r->process_service) {
+        (void)gt__ext_process_service_destroy(&r->process_service);
+    }
     if (r->resources) {
         (void)gt__runtime_resources_destroy(&r->resources);
     }
@@ -1065,24 +1597,28 @@ static bool runtime_start(gt_bridge_runtime_t *r) {
         "{activate} from %s;"
         "const session=new SessionChannel(port);let state=0,disposable;const "
         "cancellation=Object.freeze({get cancelled(){return !port.alive()}});"
-        "%sconst "
-        "invocation=port.invocation();if(invocation){Object.freeze(invocation.arguments);Object."
-        "freeze(invocation)}const "
+        "%sconst process=%s;const "
+        "invocation=port.invocation();if(invocation){Object.freeze(invocation.arguments);const "
+        "workspace=port.workspaceHandle();if(workspace)invocation.workspaceHandle=Object.freeze("
+        "workspace);"
+        "Object.freeze(invocation)}const "
         "context=Object.freeze({invocation,session,side:'%s',instanceId:'%s',epoch:'%" PRIu64
-        "',cancellation,capabilities:Object.freeze({query(name){return port.access(name)}})%s});"
+        "',cancellation,capabilities:Object.freeze({query(name){return port.access(name)}})%s%s});"
         "export function pump(){session.step();resources?.step();return state}export function "
         "dispose(){session.dispose();resources?.dispose();disposable?.dispose()}"
         "Promise.resolve().then(()=>activate(context)).then(value=>{if(!value || typeof "
         "value.dispose!=='function')throw "
         "Error('entry');disposable=value;state=1},()=>{state=-1}).catch(()=>{state=-1});",
         quoted,
-        r->resources ? "const {ResourceBroker}=await import('sdk:/resources.js');const "
-                       "resources=new ResourceBroker(port);"
-                     : "const resources=undefined;",
+        r->resources_enabled ? "const {ResourceBroker}=await import('sdk:/resources.js');const "
+                               "resources=new ResourceBroker(port);"
+                             : "const resources=undefined;",
+        r->process_service ? "Object.freeze({spawn:port.processSpawn})" : "undefined",
         r->role == GT_EXT_HOST ? "client" : "executor",
         r->lease.instance,
         r->lease.epoch,
-        r->resources ? ",resources" : "");
+        r->resources_enabled ? ",resources" : "",
+        r->process_service ? ",process" : "");
     if (n < 0 || (size_t)n >= sizeof(script)) {
         runtime_fail(r, GT_RUNTIME_PROTOCOL);
         return false;
@@ -1147,6 +1683,10 @@ gt_runtime_phase_t gt__bridge_runtime_step(gt_bridge_runtime_t *r) {
     JS_UpdateStackTop(r->engine);
     if (atomic_load_explicit(&r->stopped, memory_order_relaxed)) {
         runtime_fail(r, GT_RUNTIME_CANCELLED);
+        return r->info.phase;
+    }
+    if (!runtime_process_step(r)) {
+        runtime_fail(r, GT_RUNTIME_IO);
         return r->info.phase;
     }
     uint64_t now;
@@ -1268,7 +1808,23 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
     gt_ext_session_stop(r->session);
     gt__runtime_resources_stop(r->resources);
     atomic_store_explicit(&r->stopped, true, memory_order_relaxed);
-    if (r->context && JS_IsFunction(r->context, r->dispose)) {
+    if (!r->process_stopping) {
+        uint64_t now;
+        if (!runtime_now(&now)) {
+            r->info.cleanup_error = GT_ERR_IO;
+            return GT_EXT_CLOSE_ERROR;
+        }
+        r->process_stopping = true;
+        r->process_stop_deadline = now + 250;
+        for (size_t i = 0; i < GT_RUNTIME_PROCESS_CHILDREN; i++) {
+            if (r->process_children[i].process &&
+                gt__ext_process_signal(r->process_children[i].process, SIGTERM) != GT_OK) {
+                r->info.cleanup_error = GT_ERR_IO;
+                return GT_EXT_CLOSE_ERROR;
+            }
+        }
+    }
+    if (!r->dispose_called && r->context && JS_IsFunction(r->context, r->dispose)) {
         JSValue v = JS_Call(r->context, r->dispose, JS_UNDEFINED, 0, NULL);
         if (JS_IsException(v)) {
             JSValue error = JS_GetException(r->context);
@@ -1276,6 +1832,36 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
             r->info.dispose_error = true;
         }
         JS_FreeValue(r->context, v);
+    }
+    r->dispose_called = true;
+    if (!runtime_process_step(r)) {
+        r->info.cleanup_error = GT_ERR_IO;
+        return GT_EXT_CLOSE_ERROR;
+    }
+    if (runtime_process_live(r)) {
+        uint64_t now;
+        if (!runtime_now(&now)) {
+            r->info.cleanup_error = GT_ERR_IO;
+            return GT_EXT_CLOSE_ERROR;
+        }
+        if (!r->process_killed && now >= r->process_stop_deadline) {
+            for (size_t i = 0; i < GT_RUNTIME_PROCESS_CHILDREN; i++) {
+                if (r->process_children[i].process &&
+                    gt__ext_process_signal(r->process_children[i].process, SIGKILL) != GT_OK) {
+                    r->info.cleanup_error = GT_ERR_IO;
+                    return GT_EXT_CLOSE_ERROR;
+                }
+            }
+            r->process_killed = true;
+        }
+        return GT_EXT_DRAINING;
+    }
+    if (r->process_service) {
+        gt_status_t process_status = gt__ext_process_service_destroy(&r->process_service);
+        if (process_status != GT_OK) {
+            r->info.cleanup_error = process_status;
+            return GT_EXT_CLOSE_ERROR;
+        }
     }
     runtime_free_engine(r);
     if (!runtime_free_modules(r)) {

@@ -184,3 +184,16 @@ gt_status_t gt__ext_process_service_destroy(gt_ext_process_service_t **service) 
     *service = NULL;
     return GT_OK;
 }
+
+const char *gt__ext_process_service_version(const gt_ext_process_service_t *service,
+                                            const char *program) {
+    if (!service || !program) {
+        return NULL;
+    }
+    for (size_t i = 0; i < service->mapping_count; i++) {
+        if (!strcmp(program, service->mapping_names[i])) {
+            return service->verified_versions[i];
+        }
+    }
+    return NULL;
+}

@@ -8,6 +8,7 @@
 #include "extension/runtime.h"
 #include "extension/package-runtime.h"
 #include "extension/sdk-identity.h"
+#include <time.h>
 
 typedef struct {
     char root[4096];
@@ -74,6 +75,32 @@ static const char *load_echo =
     "ctx.session.register({name:ctx.side==='executor'?'fixture.echo':'fixture.ask',input:codec,"
     "output:codec},async v=>v);return {dispose(){}};}";
 
+static const char *load_process_roundtrip =
+    "export async function activate(ctx){if(!ctx.process)throw Error('process unavailable');"
+    "const child=await "
+    "ctx.process.spawn({program:'cat',argv:['cat'],cwd:ctx.invocation.workspaceHandle,"
+    "envPolicy:'selected-user-environment',cancellation:ctx.cancellation});"
+    "if(child.verifiedVersion!=='fixture-1')throw Error('version');"
+    "const write=child.writeStdin(new Uint8Array([65,66,67]));"
+    "if(write.state!=='data'||write.count!==3)throw Error('write');child.closeStdin();"
+    "let output;for(let i=0;i<200000&&!output;i++){const read=child.readStdout(16);"
+    "if(read.state==='data')output=read.bytes;else if(read.state==='error')throw Error('read');}"
+    "if(!output||output.length!==3||output[0]!==65||output[1]!==66||output[2]!==67)"
+    "throw Error('roundtrip');await child.release();"
+    "const env=await ctx.process.spawn({program:'env',argv:['env'],"
+    "cwd:ctx.invocation.workspaceHandle,envPolicy:'selected-user-environment',"
+    "cancellation:ctx.cancellation});env.closeStdin();let envBytes;"
+    "for(let i=0;i<200000&&!envBytes;i++){const read=env.readStdout(128);"
+    "if(read.state==='data')envBytes=read.bytes;else if(read.state==='error')throw Error('env "
+    "read');}"
+    "if(!envBytes||String.fromCharCode(...envBytes)!=='GT_FIXTURE_ENV=approved\\n')"
+    "throw Error('environment');await env.release();return {dispose(){}};}";
+static const char *load_process_kept =
+    "export async function activate(ctx){await ctx.process.spawn({program:'cat',argv:['cat'],"
+    "cwd:ctx.invocation.workspaceHandle,envPolicy:'selected-user-environment',"
+    "cancellation:ctx.cancellation});"
+    "return {dispose(){}};}";
+
 static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) {
     memset(f, 0, sizeof(*f));
     f->fd = -1;
@@ -97,7 +124,10 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         }
         strcat(entry, "index.js");
     }
-    const char *script = load_echo;
+    bool process = !strcmp(mode, "process") || !strcmp(mode, "process-close");
+    const char *script = !strcmp(mode, "process")         ? load_process_roundtrip
+                         : !strcmp(mode, "process-close") ? load_process_kept
+                                                          : load_echo;
     if (!strcmp(mode, "relative")) {
         script = "import {value} from '../shared/value.js';export function "
                  "activate(){if(value!==42)throw Error('relative');return {dispose(){}}}";
@@ -165,7 +195,9 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                        "\"entry\":%s,\"requires\":[%s]%s}]}",
                        nonportable ? "node" : "portable-js",
                        entry_json,
-                       service ? "\"session.rpc\",\"ui.chat\"" : "\"session.rpc\"",
+                       process   ? "\"session.rpc\",\"process.spawn\",\"process.pipes\""
+                       : service ? "\"session.rpc\",\"ui.chat\""
+                                 : "\"session.rpc\"",
                        nonportable ? ",\"runtimeVersionRange\":\">=20.0.0\"" : "") > 0);
     }
     CHECK(snprintf(manifest_json,
@@ -177,6 +209,14 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                    "\"argsSchema\":\"schemas/input.json\"}],%s,\"permissions\":[]}",
                    old_sdk ? "0.1.0" : "1.0.0",
                    side) > 0);
+    if (process) {
+        load_replace(manifest_json,
+                     sizeof(manifest_json),
+                     "\"permissions\":[]",
+                     "\"permissions\":[{\"side\":\"executor\",\"capability\":"
+                     "\"process.spawn\",\"purpose\":\"runtime fixture\",\"scope\":"
+                     "\"instance\",\"programs\":[\"cat\",\"env\"]}]");
+    }
     if (!strcmp(mode, "registry-other") || !strcmp(mode, "registry-prefix") ||
         !strcmp(mode, "registry-neighbor")) {
         load_replace(
@@ -347,11 +387,15 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
     CHECK(snprintf(facts,
                    sizeof(facts),
                    "{\"side\":\"%s\",\"sdkVersion\":\"%s\",\"protocols\":[1],\"runtimes\":[\"%s\"],"
-                   "\"capabilities\":[\"session.rpc\",\"ui.chat\"],\"programs\":{\"node\":{"
-                   "\"state\":\"available\",\"version\":\"22.0.0\"}}}",
+                   "\"capabilities\":[%s],\"programs\":{\"node\":{"
+                   "\"state\":\"available\",\"version\":\"22.0.0\"},\"cat\":{"
+                   "\"state\":\"available\",\"version\":\"fixture-1\"},\"env\":{"
+                   "\"state\":\"available\",\"version\":\"fixture-1\"}}}",
                    client ? "client" : "executor",
                    old_sdk ? "0.1.1" : GT_PLUGIN_SDK_API_VERSION,
-                   nonportable ? "node" : "portable-js") > 0);
+                   nonportable ? "node" : "portable-js",
+                   process ? "\"session.rpc\",\"process.spawn\",\"process.pipes\""
+                           : "\"session.rpc\",\"ui.chat\"") > 0);
     bool conflict = !strcmp(mode, "association") || !strcmp(mode, "associated");
     CHECK(snprintf(registry, sizeof(registry), "[%s]", manifest_json) > 0);
     clock_tester_t clock = {.mode = "compatible"};
@@ -432,6 +476,13 @@ static void load_pair(rpc_pair_t *p, const load_fixture_t *f, const char *mode) 
     c.available_count = 1;
     strcpy(c.required[0], "session.rpc");
     strcpy(c.available[0], "session.rpc");
+    if (!strcmp(mode, "process") || !strcmp(mode, "process-close")) {
+        c.required_count = c.available_count = 3;
+        strcpy(c.required[1], "process.spawn");
+        strcpy(c.required[2], "process.pipes");
+        strcpy(c.available[1], "process.spawn");
+        strcpy(c.available[2], "process.pipes");
+    }
     if (!strcmp(mode, "id")) {
         strcpy(c.plugin_id, "org.ghosterm.other");
     }
@@ -470,13 +521,15 @@ static gt_runtime_info_t load_info(gt_bridge_runtime_t *r) {
 }
 
 static void load_drop(gt_bridge_runtime_t **r) {
-    for (unsigned i = 0; i < 200; i++) {
+    for (unsigned i = 0; i < 2000; i++) {
         gt_ext_close_t state = gt__bridge_runtime_close(*r);
         CHECK(state == GT_EXT_DRAINING || state == GT_EXT_RELEASED);
         if (state == GT_EXT_RELEASED) {
             CHECK(load_info(*r).engine_released && gt__bridge_runtime_destroy(r) == GT_OK && !*r);
             return;
         }
+        struct timespec delay = {0, 1000000};
+        (void)nanosleep(&delay, NULL);
     }
     CHECK(false);
 }
@@ -567,6 +620,20 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
                                       .cpu_ms = 1000,
                                       .activation_ms = 10000,
                                       .jobs_per_step = 128};
+        const gt_ext_process_program_mapping_t process_programs[] = {
+            {"cat", "/bin/cat", "fixture-1"}, {"env", "/usr/bin/env", "fixture-1"}};
+        const gt_ext_process_environment_t process_environment = {"GT_FIXTURE_ENV", "approved"};
+        const gt_runtime_root_t process_root = {"workspace", f.fd, 16777216};
+        const gt_ext_invocation_t process_invocation = {"fixture", NULL, 0};
+        if (!strcmp(mode, "process") || !strcmp(mode, "process-close")) {
+            config.process_programs = process_programs;
+            config.process_program_count = 2;
+            config.process_environment = &process_environment;
+            config.process_environment_count = 1;
+            config.roots = &process_root;
+            config.root_count = 1;
+            config.invocation = &process_invocation;
+        }
         gt_status_t expected = GT_OK;
         if (!strcmp(mode, "id") || !strcmp(mode, "version") || !strcmp(mode, "digest") ||
             !strcmp(mode, "role")) {
@@ -648,6 +715,7 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
                 CHECK(ext_fds() == fds && gt__plugin_memory_info().used == before.used);
                 return 0;
             }
+            size_t before_process_run = ext_fds();
             load_run(r, peer);
             gt__plugin_memory_free(NULL, reservation, reserved);
             bool memory = !strcmp(mode, "source-limit") || !strcmp(mode, "source-total") ||
@@ -657,6 +725,10 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
                           !strcmp(mode, "network") || !strcmp(mode, "binary") ||
                           !strcmp(mode, "nul") || !strcmp(mode, "utf8");
             CHECK(load_info(r).phase == (memory || script ? GT_RUNTIME_FAILED : GT_RUNTIME_ACTIVE));
+            if (!strcmp(mode, "process-close")) {
+                CHECK(load_info(r).phase == GT_RUNTIME_ACTIVE &&
+                      ext_fds() >= before_process_run + 3);
+            }
             if (memory) {
                 CHECK(load_info(r).error == GT_RUNTIME_MEMORY);
             }

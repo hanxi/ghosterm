@@ -102,7 +102,8 @@ gt_status_t gt__runtime_package_entry(gt_package_checked_t *package,
     for (size_t i = 0; i < info.requires_count; i++) {
         const char *name = info.requires[i];
         if (strcmp(name, "session.rpc") && strcmp(name, "file.readScoped") &&
-            strcmp(name, "resource.receive")) {
+            strcmp(name, "resource.receive") && strcmp(name, "process.spawn") &&
+            strcmp(name, "process.pipes")) {
             return GT_ERR_UNSUPPORTED;
         }
         if (gt__bridge_session_access(session, lease, name) != GT_BRIDGE_ACCESS_ALLOWED) {

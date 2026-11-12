@@ -35,5 +35,6 @@ gt_status_t gt__ext_process_service_spawn(gt_ext_process_service_t *,
                                           const char *const *,
                                           size_t,
                                           gt_ext_process_t **);
+const char *gt__ext_process_service_version(const gt_ext_process_service_t *, const char *);
 gt_status_t gt__ext_process_service_destroy(gt_ext_process_service_t **);
 #endif
