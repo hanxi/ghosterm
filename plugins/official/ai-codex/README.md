@@ -109,3 +109,19 @@ thread result and thread/started event. Native Runtime close tears down the rout
 the gterm peer reports channel loss and still must complete owner cleanup. This
 stdio fixture does not prove SSH or product UI behavior. gterm forwards only its
 selected HOME, PATH, XDG_CONFIG_HOME, CODEX_HOME and TMPDIR values to children.
+
+On macOS, exercise the existing Native AppModel flow over the gate's owned
+loopback sshd with the same built package and CLI:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 -B scripts/test-plugin-codex-app.py --gterm tmp/codex-gterm/gterm
+```
+
+This explicitly reviews/approves the package, waits for Session consent, starts a
+real thread, validates the actual thread/started notification in AppModel, then
+stops and releases the run. The remote launcher supplies a fresh HOME / CODEX_HOME
+and workspace before invoking gterm, so the fixture does not use the account's
+Codex configuration. No model turn is sent. This is AppModel integration evidence;
+import dialogs, buttons, ProxyJump/tmux, device behavior and model approvals still
+need their own acceptance evidence. RPC-only sessions negotiate requests without
+resource transfer, and a process cwd alone grants no scoped file-read capability.

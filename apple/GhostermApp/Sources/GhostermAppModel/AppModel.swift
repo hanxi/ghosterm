@@ -222,7 +222,8 @@ public final class AppModel: ObservableObject {
 
 
     public init(configPath: String? = nil, knownHostsPath: String? = nil,
-                settings: SettingsStore? = nil, defaults: UserDefaults = .standard) {
+                settings: SettingsStore? = nil, defaults: UserDefaults = .standard,
+                pluginResourceDirectory: URL? = nil) {
         self.configPath = configPath ?? AppModel.defaultConfigPath()
         self.knownHostsPath = knownHostsPath ?? AppModel.defaultKnownHostsPath()
         self.settings = settings
@@ -230,7 +231,7 @@ public final class AppModel: ObservableObject {
         self.preferences = AppPreferences(defaults: defaults)
         self.appearance = AppearancePreference.current
         if ExtensionRuntime.supportStatus == 0,
-           let resourceDirectory = Self.pluginResourceDirectory() {
+           let resourceDirectory = pluginResourceDirectory ?? Self.pluginResourceDirectory() {
             let profile = try? ExtensionController.HostProfile(
                 side: .client, sdkVersion: "1.0.0", protocols: [1],
                 runtimes: ["portable-js"], capabilities: Self.extensionHostCapabilities)
@@ -1133,7 +1134,8 @@ public final class AppModel: ObservableObject {
                 clientDigest: packageDigest, methods: methods, hostMethods: hostMethods,
                 scopedRoots: scopedRoots, processPrograms: processPrograms,
                 command: command, arguments: arguments))
-            let additionalCapabilities = (scopedRoots.isEmpty ? [] : ["file.readScoped"]) +
+            let additionalCapabilities = (scopedRoots.isEmpty || !selected.requiredCapabilities.contains("resource.receive")
+                ? [] : ["file.readScoped"]) +
                 (processPrograms.isEmpty ? [] : ["process.spawn", "process.pipes"])
             _ = try await authenticatePluginSSHChannel(alias: sshAlias, bootstrap: bootstrap)
             let rpcMethods = methods.map {
@@ -1383,12 +1385,15 @@ public final class AppModel: ObservableObject {
                 try Task.checkCancellation()
                 let state = try await extensionController.stepRuntime()
                 updateExtensionRun(runtime: state)
+                if !Self.runtimeIsRunning(state.phase) { return }
                 try await reapPendingCodexRPCs()
-                try await pumpCodexHostEvent()
-                if let resource = try await extensionController.takeSessionResource(maxBytes: 1048576) {
+                if state.phase == GhostermCore.ExtensionRuntime.Phase.active.rawValue {
+                    try await pumpCodexHostEvent()
+                }
+                if extensionRun?.requiredCapabilities.contains("resource.receive") == true,
+                   let resource = try await extensionController.takeSessionResource(maxBytes: 1048576) {
                     appendExtensionResource(resource)
                 }
-                if !Self.runtimeIsRunning(state.phase) { return }
                 try await Task.sleep(nanoseconds: 50_000_000)
             }
         } catch { extensionRunIssue = "插件 Runtime 运行失败：\(error)" }

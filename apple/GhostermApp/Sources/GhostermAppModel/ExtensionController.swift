@@ -532,7 +532,8 @@ public actor ExtensionController {
                                                    receiver: receiver, inputShape: inputShape,
                                                    outputShape: outputShape)
                 }
-                let resourceStore = try self.openResourceStoreIfNeeded()
+                let resourceStore = requiredCapabilities.contains("resource.receive")
+                    ? try self.openResourceStoreIfNeeded() : nil
                 let sessionAvailable = self.hostCapabilities + remoteProcessCapabilityList
                     .filter { requestedRemoteProcess && !self.hostCapabilities.contains($0) }
                 let session = try ExtensionSession(channel: channel, role: .host,

@@ -91,7 +91,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                     try {
                         check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
                         val extraCapabilities = buildList {
-                            if (request.workspaceRootDirectory != null) add("file.readScoped")
+                            if (request.workspaceRootDirectory != null &&
+                                "resource.receive" in entry.review.requiredCapabilities) add("file.readScoped")
                             if (request.processPrograms.isNotEmpty()) {
                                 add("process.spawn")
                                 add("process.pipes")

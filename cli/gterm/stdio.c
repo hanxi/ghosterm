@@ -501,6 +501,9 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     stage = "runtime activation";
     gt_ext_runtime_config_t runtime_config = {
         .role = GT_EXT_EXECUTOR,
+        /* Cold process/protocol activation over SSH exceeded the default 25ms.
+         * Keep a finite Host-selected worker slice, matching the Android Host. */
+        .cpu_ms = 100,
         .invocation = &invocation,
         .roots = root_count ? runtime_roots : NULL,
         .root_count = root_count,
