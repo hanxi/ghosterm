@@ -4,6 +4,8 @@
 
 **仍未完成：** P2 官方 Preview 的完整交互与端到端验证。真实双跳 SSH 资源现已到达 macOS AppModel 并由生产 `ExtensionsPane` 实际绘制；macOS `fileImporter` 选包、页面摘要批准、启动表单、真实 consent 按钮与收件之间的完整用户点击链仍未串成一次 UI E2E。headless WebKit probe 已用合成夹具及真实 AppModel / SSH 收件快照分别验证 CSS / PNG 绘制、资源刷新，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；它仍不替代 SwiftUI 内嵌 WebKit 的用户点击链。Android MainActivity Settings 的真实 SAF 选包 / 页面批准、SSH 收件、Markdown + PNG 绘制、停止 / 释放已在 API 29 / 36 常规页模拟器及 API 36 / 16 KiB 页模拟器分批通过。用户真机及完整生命周期 / 多格式矩阵仍待验。插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P3 已验证官方 CLI stable schema、策略决定和 turn/item 通知字段，生产 conversation facade 与真实 CLI 的无模型 thread/start/关闭链已组合；两端已有原生 turn / approval 控件、结构化消息 / 工具活动和有界 diff 预览；官方目录包可构建，仍没有真实产品 turn / approval 往返、完整 diff 审阅、完整双端 UI E2E 或 Ghosterm 插件闭环。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
+**最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批携带点击时的快照版本，原生和 Executor 分别核对。组件与分轮变异、API 29 / 36 模拟器证据见文末第四十四至四十六批；完整文档及版本化审批经真实 RPC 到原生 UI 的整链、模型调用和完整交互仍未验收，不能据此关闭 P3。
+
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
@@ -5040,3 +5042,19 @@ JS-enabled Debug / androidTest、未签名 Release / R8、app / bridge / termina
 候选包 strict TypeScript / compiled Executor fixture / 离线重建 --check 另通过，integrity 摘要保持 `6eb5c14ef29526a7abca58eacfcf8fabc596cde56182e8668c50da209cb78e9f`；本批只更新源码 README，随包 PACKAGE.md 未改。首轮 --check 因前批清理后的 npm 临时缓存缺失报 ENOTCACHED，按锁定清单 --fetch 后重跑离线检查通过，该环境准备失败未计通过。Python 语法与 git diff --check 通过。
 
 无公共 C ABI、插件权限或候选包运行时产物变化；默认 App 仍 JS-off，不增加 macOS CI 二十份。所有设备均以 -no-window 运行，HOME / AVD / TMPDIR 和运行标记均在工程 tmp/，crash reporting 禁用；关闭后清理一次性镜像和测试产物。此为组件 / 模拟器证据，非真实模型 turn / approval、正向完整快照经实际 RPC 到界面的整链、审批版本绑定、真机 / 16 KiB 页或完整客户端验收；P3–P6 继续未完成。
+
+### P3 实施第四十六批：文件审批绑定已读取的快照版本
+
+macOS / Android 的文件审批现保留请求原始 thread / turn / item 身份，缺失或超限身份拒绝。批准按钮仅在该请求拥有完整、无错误、字节齐备且仍属当前时间线的文档时启用；点击时捕获 snapshotID，原生响应入口再次核对捕获值与当前完整文档。新版本到达后不能把旧点击替换为新版本批准；取消 / 读取失败或过期后需用户重新读取并核对，拒绝仍可用。本批不以「读取完整」声称用户已审阅。
+
+候选业务 RPC `codex.approval.respond` 改为必需三字段 requestID / decisionJSON / snapshotID。文件接受发送所捕获版本，命令决定和文件 decline / cancel 发送空字符串；旧两字段调用显式 schema 失败，不保留兼容降级。Executor 保存原始审批对象，以该请求的 thread / turn / item 查询当前快照，拒绝错误归属、替换、逐出、超限或缺失版本，且同步核对后立即把决定入队，中间无 await。accept / acceptForSession 均受此约束，decline / cancel 不依赖快照；重复 / 过期审批仍由原流程拒绝。这里绑定的是 Executor 已捕获的 app-server 文档，不比较工作区当前文件字节，不改变官方 CLI stable schema、wire v1、插件权限或公共 C ABI。
+
+Swift 身份比较继续按 UTF-8 精确核对；审批请求 ID 的前台查找 / 移除也改用精确字节，原生行标识用原 ID 字节的 base64，避免规范等价但不同的 Unicode ID 共用行或同时消失。新增测试实际保留两个不同 ID，移除一个后只剩另一个；Android 字符串原有精确语义保留。
+
+编译后 Executor 夹具经生产 codec 校验输入，再驱动真实协议 / stdio helper 的隔离假子进程：缺少版本、其它 item 的版本、变更后的旧版本和超限后的 acceptForSession 均拒绝，当前版本仅响应一次，无补丁仍可拒绝；原始 Codex 回包不携带 snapshotID。独立 Store 用例核对不同 thread / turn / Unicode item 与 clear 后的拒绝。`mutation-check-plugin-codex-changes.py` 新两组归属 / 旧版本保护及既有身份 / 大小 / wire 三组，最终五组正常编译后单条 AssertionError 红、独立协议对照绿、恢复绿及 SHA256 通过。首轮夹具误在 stdio flush 前检查管道写入，断言失败未计通过；修正为推进到真实 pipe write 再核验后通过，没有更改产品判据。
+
+Native policy 覆盖完整 / 缺失 / 未完成 / 错误 / 当前引用变化 / 外来身份或文档。Swift 新一组与 Kotlin 新一组审批 scope 变异均真实编译后正常单条断言红、同构件独立元数据对照绿、恢复绿及 SHA256；Swift 最终源码复验通过。Kotlin 执行生产读取控制器及审批 helper，读端口 / 解码器是注入夹具，不冒充真实 RPC。所有新触及的变异执行统一走 gt_timeout。最终 Apple 定向 gate 37 项、3 项默认 JS-off 跳过、零失败；Apple ABI 174 引用 / 3 登记未用及隔离 WebKit CSS / PNG 通过。首轮 SwiftUI disabled 修饰器误接条件语句而编译失败，修正挂接 HStack 后通过，该编译失败不计变异红。
+
+API 29 / API 36 专用 arm64 / 4 KiB 无窗口模拟器的 JSON / Compose / Host events / NativeSmoke 最终同源组合各 17 项、零失败 / 跳过，包含更新后的审批身份解码 / 拒绝断言；两设备安装 APK 与构建产物 SHA256 一致（app `ae92bcd40724333b050f22c353dbaae533f90a647791192560d25abca2049016`，test `8eac4b3d58c5aed1cad6e0af65ec0d5b0fae404e020b4dc4a8217fc6e4802152`）。这些设备测试不覆盖完整批准按钮到 RPC 的用户点击链。macOS 默认 / JS-enabled arm64 Release、Android JS-enabled Debug / androidTest / 未签名 Release / R8、默认 JS-off Release、app / bridge / terminal / data 四模块 lint 和 Android ABI 140 引用 / 37 登记未用通过。Core 显式恢复 JS=OFF / tests=ON 后，离线 gate 的 481/481 CTest、177 个 ABI 及未实现入口检查通过，不沿用 enabled 档关闭测试的 CMake 缓存。
+
+候选包 strict TypeScript、compiled Executor fixture 与离线 --check 通过；随包 PACKAGE.md 已同步新输入契约，integrity 摘要为 `5a372c0715bcc7684950f3f876321ecc8c46903e910e1f48599e8baeb5f62e79`。Python / Node 语法及 git diff --check 另验。所有窗口保持后台，AVD / HOME / 运行标记与临时工具都在工程 tmp/，模拟器退出后清理；不增加 macOS CI 二十份。正向完整文档与版本化审批经实际 RPC 到原生 UI 的端到端、真实模型 turn / approval、完整点击 / tmux / 物理设备矩阵及 P3–P6 其余要求仍未完成。

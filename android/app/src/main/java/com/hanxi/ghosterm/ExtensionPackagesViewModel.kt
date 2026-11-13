@@ -179,14 +179,30 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
-    fun respondCodexApproval(id: String, allow: Boolean) {
-        if (!canCallCodex("codex.approval.respond") || codex.approvals.none { it.id == id }) return
+    internal fun codexApprovalSnapshot(approval: CodexPendingApproval, review: CodexChangeReviewState? = changeReview.state.value) =
+        approval.identity?.reviewedSnapshot(review, ::currentChange)
+
+    fun respondCodexApproval(id: String, allow: Boolean, snapshotID: String? = null) {
+        if (!canCallCodex("codex.approval.respond")) return
+        val approval = codex.approvals.firstOrNull { it.id == id } ?: return
+        val fileApproval = approval.method == "item/fileChange/requestApproval"
+        if (allow && fileApproval && (snapshotID == null || snapshotID != codexApprovalSnapshot(approval))) {
+            error = "请先读取并核对当前完整补丁，再批准此版本。"
+            return
+        }
         callCodex("Codex 审批响应失败") {
-            val decision = JSONObject.quote(if (allow) "accept" else "decline")
-            val value = codexRPC("codex.approval.respond", JSONObject()
-                .put("requestID", id).put("decisionJSON", decision))
-            check(value.optBoolean("accepted", false)) { "Executor 未接受审批决定" }
-            codex = codex.copy(approvals = codex.approvals.filterNot { it.id == id })
+            val generation = rpcGeneration
+            try {
+                val decision = JSONObject.quote(if (allow) "accept" else "decline")
+                val value = codexRPC("codex.approval.respond", JSONObject()
+                    .put("requestID", id).put("decisionJSON", decision)
+                    .put("snapshotID", if (allow && fileApproval) snapshotID else ""))
+                check(value.optBoolean("accepted", false)) { "Executor 未接受审批决定" }
+                codex = codex.copy(approvals = codex.approvals.filterNot { it.id == id })
+            } catch (failure: Exception) {
+                if (generation === rpcGeneration && allow && fileApproval) changeReview.cancel()
+                throw failure
+            }
         }
     }
 

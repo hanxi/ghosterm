@@ -98,7 +98,10 @@ function fixtureContext({ side = "executor", command = "ai codex", allowed = tru
       return child;
     } },
     session: {
-      register(method, handler) { assert(!handlers.has(method.name)); handlers.set(method.name, handler); },
+      register(method, handler) {
+        assert(!handlers.has(method.name));
+        handlers.set(method.name, (input, request) => handler(method.input.parse(input), request));
+      },
       request(method, input, timeoutMs) {
         assert.equal(typeof input, "object", "Native Host methods require object input");
         assert.equal(typeof input.event, "string");
@@ -142,7 +145,7 @@ await driveUntil(disposable, () => turnResult !== undefined && fixture.events.so
 assert.deepEqual(turnResult, { turnID: "turn-test" });
 
 const approval = fixture.handlers.get("codex.approval.respond")({
-  requestID: "s:approval-41", decisionJSON: "\"accept\"",
+  requestID: "s:approval-41", decisionJSON: "\"accept\"", snapshotID: "",
 }, { check() {} });
 assert.deepEqual(await approval, { accepted: true });
 await driveUntil(disposable, () => fixture.events.some(event =>
@@ -221,7 +224,7 @@ await driveUntil(expiredDisposable, () => expired.events.some(event =>
   JSON.parse(event.input).notification?.method === "turn/completed"), "completion without approval resolution");
 const expiredWrites = expired.child.writes.length;
 assert.throws(() => expired.handlers.get("codex.approval.respond")({
-  requestID: "s:approval-41", decisionJSON: "\"accept\"",
+  requestID: "s:approval-41", decisionJSON: "\"accept\"", snapshotID: "",
 }, { check() {} }), /unknown or expired|not pending/,
 "Executor must refuse approval after turn completion without a backend resolution");
 assert.equal(expired.child.writes.length, expiredWrites, "an expired approval must not reach the child pipe");
@@ -274,6 +277,82 @@ assert.equal(snapshots.retainedBytes, 0);
 assert.equal(snapshots.retainedItems, 0);
 assert.equal(snapshots.read(evicted.snapshotID, 0).status, "expired");
 assert.notEqual(capture("old", "new").snapshotID, evicted.snapshotID);
+
+// Drive the real Executor entry over an isolated fake app-server pipe. No model or user files.
+const bound = fixtureContext();
+const boundDisposable = activate(bound.context);
+let boundStarted, boundTurn;
+bound.handlers.get("codex.thread.start")({}, { check() {} }).then(value => { boundStarted = value; });
+await driveUntil(boundDisposable, () => boundStarted !== undefined, "bound approval thread");
+bound.handlers.get("codex.turn.send")({ text: "review patch" }, { check() {} }).then(value => { boundTurn = value; });
+await driveUntil(boundDisposable, () => boundTurn !== undefined && bound.events.some(event =>
+  JSON.parse(event.input).notification?.method === "item/fileChange/patchUpdated"), "bound patch capture");
+function boundPatch(itemID = "item-3") {
+  const rows = bound.events.map(event => JSON.parse(event.input)).filter(event =>
+    event.notification?.method === "item/fileChange/patchUpdated" && event.notification.params.itemId === itemID);
+  return rows.at(-1)?.notification.params._ghosterm.snapshotID;
+}
+async function fileApproval(id, itemID = "item-3") {
+  bound.child.line({ id, method: "item/fileChange/requestApproval", params: {
+    threadId: "thread-test", turnId: "turn-test", itemId: itemID, startedAtMs: 1,
+  } });
+  await driveUntil(boundDisposable, () => bound.events.some(event => JSON.parse(event.input).request?.id === id),
+    "file approval request");
+}
+function decideFile(id, snapshotID, decision = "accept") {
+  return bound.handlers.get("codex.approval.respond")({ requestID: `s:${id}`,
+    decisionJSON: JSON.stringify(decision), snapshotID }, { check() {} });
+}
+await fileApproval("file-1");
+const oldPatch = boundPatch();
+assert.throws(() => bound.handlers.get("codex.approval.respond")({
+  requestID: "s:file-1", decisionJSON: '"accept"',
+}, { check() {} }), /SCHEMA/, "approval codec requires an explicit snapshot field");
+let boundWrites = bound.child.writes.length;
+assert.throws(() => decideFile("file-1", ""), /patch changed or expired/,
+  "file approval must require a complete snapshot revision");
+assert.equal(bound.child.writes.length, boundWrites, "missing patch revision must not write to Codex");
+bound.child.line({ method: "item/fileChange/patchUpdated", params: { threadId: "thread-test", turnId: "turn-test",
+  itemId: "other-item", changes: [{ path: "other", kind: { type: "add" }, diff: "+other" }] } });
+await driveUntil(boundDisposable, () => boundPatch("other-item") !== undefined, "other item patch");
+assert.throws(() => decideFile("file-1", boundPatch("other-item")), /patch changed or expired/,
+  "file approval revision must belong to its exact thread turn and item");
+bound.child.line({ method: "item/fileChange/patchUpdated", params: { threadId: "thread-test", turnId: "turn-test",
+  itemId: "item-3", changes: [{ path: "src/example.ts", kind: { type: "update", move_path: null }, diff: "+new revision" }] } });
+await driveUntil(boundDisposable, () => boundPatch() !== oldPatch, "replacement patch");
+boundWrites = bound.child.writes.length;
+assert.throws(() => decideFile("file-1", oldPatch), /patch changed or expired/,
+  "changed patch must reject a stale approval before pipe write");
+assert.equal(bound.child.writes.length, boundWrites, "a stale approval must not write to Codex");
+assert.deepEqual(decideFile("file-1", boundPatch()), { accepted: true });
+await driveUntil(boundDisposable, () => bound.child.writes.some(value => value.id === "file-1"), "accepted patch pipe write");
+assert.deepEqual(bound.child.writes.find(value => value.id === "file-1"),
+  { jsonrpc: "2.0", id: "file-1", result: { decision: "accept" } });
+assert.throws(() => decideFile("file-1", boundPatch()), /unknown or expired/);
+await fileApproval("file-no-patch", "unavailable-item");
+assert.deepEqual(decideFile("file-no-patch", "", "decline"), { accepted: true },
+  "decline must remain possible without a patch snapshot");
+await fileApproval("file-oversize");
+const beforeOversize = boundPatch();
+bound.child.line({ method: "item/fileChange/patchUpdated", params: { threadId: "thread-test", turnId: "turn-test",
+  itemId: "item-3", changes: [{ path: "large", kind: { type: "add" }, diff: "x".repeat(CODEX_CHANGE_MAX_BYTES) }] } });
+await driveUntil(boundDisposable, () => bound.handlers.get("codex.change.read")(
+  { snapshotID: beforeOversize, offset: 0 }, { check() {} }).status === "expired", "oversize invalidation");
+assert.throws(() => decideFile("file-oversize", beforeOversize, "acceptForSession"), /patch changed or expired/,
+  "unavailable patch must reject all accepting decision classes");
+boundDisposable.dispose();
+for (let i = 0; i < 8; i++) await Promise.resolve();
+assert.equal(bound.child.reaped, true);
+
+const revisionStore = new CodexChangeStore();
+const revision = revisionStore.capture("item/fileChange/patchUpdated", { threadId: "t", turnId: "u", itemId: "é",
+  changes: [{ path: "a", kind: { type: "add" }, diff: "+a" }] })._ghosterm.snapshotID;
+assert.equal(revisionStore.isCurrent(revision, "t", "u", "é"), true);
+for (const identity of [["other", "u", "é"], ["t", "other", "é"], ["t", "u", "e\u0301"]]) {
+  assert.equal(revisionStore.isCurrent(revision, ...identity), false, "approval identity must match exact bytes");
+}
+revisionStore.clear();
+assert.equal(revisionStore.isCurrent(revision, "t", "u", "é"), false);
 
 let turnCancelled = false;
 let cancelledTurnFailure;

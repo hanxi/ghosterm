@@ -18,6 +18,11 @@ CASES = (
      'oversized snapshots must be unavailable'),
     ('wire', 'encode({ kind: "success", value });', 'void value;',
      'complete snapshot chunks must fit the RPC outcome body'),
+    ('approval-scope', 'this.snapshots.get(JSON.stringify([threadID, turnID, itemID]))',
+     '[...this.snapshots.values()].find(value => value.id === snapshotID)',
+     'file approval revision must belong to its exact thread turn and item'),
+    ('approval-revision', 'snapshot.id === snapshotID', '(snapshot.id === snapshotID || snapshotID === "change-1")',
+     'changed patch must reject a stale approval before pipe write'),
 )
 
 
@@ -26,7 +31,10 @@ def sha(path):
 
 
 def run(command, root, env, *, assertion=None):
-    result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True, timeout=300)
+    bounded = ['bash', '-c',
+               '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require codex-changes; shift; gt_timeout 300 "$@"',
+               'codex-changes', str(ROOT), *command]
+    result = subprocess.run(bounded, cwd=root, env=env, capture_output=True, text=True)
     output = result.stdout + result.stderr
     if assertion is None:
         valid = result.returncode == 0
@@ -40,6 +48,7 @@ def run(command, root, env, *, assertion=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fetch', action='store_true', help='fetch integrity-locked developer tools')
+    parser.add_argument('--case', action='append', choices=[case[0] for case in CASES])
     args = parser.parse_args()
     (ROOT / 'tmp').mkdir(exist_ok=True)
     inputs = [SOURCE, 'plugins/official/ai-codex/executor/index.ts', 'scripts/test-plugin-codex-entry.mjs']
@@ -77,7 +86,8 @@ def main():
         run(strict, work, env)
         if 'CODEX EXECUTOR ENTRY PASS' not in run(entry, work, env):
             raise RuntimeError('Baseline entry assertions did not execute')
-        for name, old, new, assertion in CASES:
+        selected = [case for case in CASES if not args.case or case[0] in args.case]
+        for name, old, new, assertion in selected:
             if original.count(old.encode()) != 1:
                 raise RuntimeError(f'{name}: mutation anchor changed')
             target.write_bytes(original.replace(old.encode(), new.encode(), 1))
@@ -94,7 +104,7 @@ def main():
             print(f'PASS {name}: compiled assertion red / independent control green / restored green / SHA256', flush=True)
     if {name: sha(ROOT / name) for name in inputs} != before:
         raise RuntimeError('Original source changed during isolated mutations')
-    print('CODEX CHANGE MUTATIONS PASS: 3 groups', flush=True)
+    print(f'CODEX CHANGE MUTATIONS PASS: {len(selected)} groups', flush=True)
 
 
 if __name__ == '__main__':

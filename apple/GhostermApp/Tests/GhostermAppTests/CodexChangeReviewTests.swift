@@ -68,6 +68,29 @@ final class CodexChangeReviewTests: XCTestCase {
         marker["snapshotBytes"] = reference.totalUnits - 1; XCTAssertNil(decode())
     }
 
+    func testApprovalRequiresACompleteCurrentDocumentForItsExactIdentity() throws {
+        let (reference, data) = try fixture()
+        var assembler = CodexChangeAssembler(reference: reference)
+        for chunk in chunks(data, reference: reference) { try assembler.append(chunk) }
+        let document = try assembler.document()
+        let identity = CodexApprovalIdentity(threadID: "thread", turnID: "turn", itemID: "item")
+        let review = CodexChangeReviewState(reference: reference, receivedBytes: data.count, document: document, issue: nil)
+        XCTAssertEqual(identity.reviewedSnapshot(review, isCurrent: { _ in true }), reference.snapshotID)
+        XCTAssertNil(identity.reviewedSnapshot(nil, isCurrent: { _ in true }))
+        XCTAssertNil(identity.reviewedSnapshot(review, isCurrent: { _ in false }), "Changed patch must not authorize an old review")
+        XCTAssertNil(identity.reviewedSnapshot(CodexChangeReviewState(reference: reference, receivedBytes: 0,
+            document: document, issue: nil), isCurrent: { _ in true }))
+        XCTAssertNil(identity.reviewedSnapshot(CodexChangeReviewState(reference: reference, receivedBytes: data.count,
+            document: nil, issue: nil), isCurrent: { _ in true }))
+        XCTAssertNil(identity.reviewedSnapshot(CodexChangeReviewState(reference: reference, receivedBytes: data.count,
+            document: document, issue: "failed"), isCurrent: { _ in true }))
+        XCTAssertNil(CodexApprovalIdentity(threadID: "other", turnID: "turn", itemID: "item")
+            .reviewedSnapshot(review, isCurrent: { _ in true }))
+        let changed = CodexChangeReference(snapshotID: reference.snapshotID, threadID: "thréad", turnID: "turn", itemID: "item",
+            totalUnits: reference.totalUnits, totalBytes: reference.totalBytes)
+        XCTAssertFalse(CodexApprovalIdentity(threadID: "thre\u{301}ad", turnID: "turn", itemID: "item").matches(changed))
+    }
+
     func testTimelineKeepsReadableSnapshotWhenEveryPreviewFileWasOmitted() throws {
         let (reference, _) = try fixture()
         let marker: [String: Any] = ["snapshotID": reference.snapshotID, "snapshotUnits": reference.totalUnits,

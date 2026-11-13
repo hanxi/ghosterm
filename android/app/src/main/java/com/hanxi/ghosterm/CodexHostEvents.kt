@@ -17,7 +17,7 @@ internal data class CodexTimelineEntry(val id: String, val title: String, val de
     val fileChanges: List<CodexFileChange> = emptyList(), val omittedChangeCount: Int = 0,
     val changeReference: CodexChangeReference? = null, val changeUnavailable: Boolean = false)
 internal data class CodexPendingApproval(val id: String, val method: String, val paramsJSON: String,
-    val itemID: String?)
+    val itemID: String?, val identity: CodexApprovalIdentity? = null)
 internal data class CodexHostState(
     val sequence: Long = 0,
     val rawEvents: List<String> = emptyList(),
@@ -91,7 +91,14 @@ internal object CodexHostEvents {
                 require(requestParams is JSONObject || requestParams is JSONArray) { "Codex approval params are invalid" }
                 val itemID = (requestParams as? JSONObject)?.optString("itemId")
                     ?.takeIf { it.isNotBlank() && it.toByteArray(Charsets.UTF_8).size <= 128 }
-                approval = CodexPendingApproval(id, requestMethod, prettyJSON(requestParams), itemID)
+                val identity = if (requestMethod == "item/fileChange/requestApproval") {
+                    val fields = requestParams as? JSONObject
+                    fun part(name: String): String = requireNotNull(fields?.opt(name) as? String).also {
+                        require(it.isNotEmpty() && codexChangeUtf8(it).size <= 128) { "Codex approval identity is invalid" }
+                    }
+                    CodexApprovalIdentity(part("threadId"), part("turnId"), part("itemId"))
+                } else null
+                approval = CodexPendingApproval(id, requestMethod, prettyJSON(requestParams), itemID, identity)
             }
             "approval-resolved" -> resolved = requestKey(event.opt("requestID"))
         }

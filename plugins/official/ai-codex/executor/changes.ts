@@ -35,6 +35,12 @@ export class CodexChangeStore {
   get retainedBytes(): number { return this.bytes; }
   get retainedItems(): number { return this.snapshots.size; }
 
+  isCurrent(snapshotID: string, threadID: unknown, turnID: unknown, itemID: unknown): boolean {
+    if (![threadID, turnID, itemID].every(value => typeof value === "string" && value.length > 0)) return false;
+    const snapshot = this.snapshots.get(JSON.stringify([threadID, turnID, itemID]));
+    return snapshot !== undefined && snapshot.id === snapshotID;
+  }
+
   capture(method: string, params: unknown): unknown {
     if (!record(params)) return params;
     const nested = (method === "item/started" || method === "item/completed") &&

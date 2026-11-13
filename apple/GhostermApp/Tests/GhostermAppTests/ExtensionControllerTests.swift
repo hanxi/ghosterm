@@ -42,11 +42,16 @@ final class ExtensionControllerTests: XCTestCase {
         let fileChange = try XCTUnwrap(AppModel.decodeCodexApproval([
             "id": NSNumber(value: 42),
             "method": "item/fileChange/requestApproval",
-            "params": ["itemId": "change-1", "changes": [["path": "src/main.c"]]],
+            "params": ["threadId": "thread", "turnId": "turn", "itemId": "change-1", "changes": [["path": "src/main.c"]]],
         ]))
         XCTAssertEqual(fileChange.id, "n:42")
         XCTAssertEqual(fileChange.method, "item/fileChange/requestApproval")
         XCTAssertEqual(fileChange.itemID, "change-1")
+        XCTAssertEqual(fileChange.identity?.threadID, "thread")
+        XCTAssertEqual(fileChange.identity?.turnID, "turn")
+        XCTAssertNil(AppModel.decodeCodexApproval([
+            "id": 43, "method": "item/fileChange/requestApproval", "params": ["itemId": "missing-thread-turn"],
+        ]))
     }
 
     @MainActor
@@ -63,11 +68,30 @@ final class ExtensionControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testCanonicallyEquivalentApprovalIDsKeepSeparateRowsAndDecisions() throws {
+        func approval(_ id: String) throws -> AppModel.CodexPendingApproval {
+            try XCTUnwrap(AppModel.decodeCodexApproval([
+                "id": id, "method": "item/commandExecution/requestApproval", "params": [:],
+            ]))
+        }
+        let first = try approval("é")
+        let second = try approval("e\u{301}")
+        XCTAssertNotEqual(first.stableID, second.stableID)
+        let model = isolatedAppModel()
+        model.applyCodexApprovalEvent(kind: "approval-request", added: first)
+        model.applyCodexApprovalEvent(kind: "approval-request", added: second)
+        model.applyCodexApprovalEvent(kind: "approval-resolved", removedID: first.id)
+        XCTAssertEqual(model.codexPendingApprovals.count, 1)
+        XCTAssertTrue(model.codexPendingApprovals[0].id.utf8.elementsEqual(second.id.utf8))
+    }
+
+    @MainActor
     func testCodexApprovalButtonsExpireOnCompletionAndUncertainTerminalEvents() throws {
         for kind in ["notification", "protocol-error", "closed", "outcome-unknown"] {
             let model = isolatedAppModel()
             let approval = try XCTUnwrap(AppModel.decodeCodexApproval([
-                "id": 42, "method": "item/fileChange/requestApproval", "params": ["itemId": "change"],
+                "id": 42, "method": "item/fileChange/requestApproval",
+                "params": ["threadId": "thread", "turnId": "turn", "itemId": "change"],
             ]))
             model.applyCodexApprovalEvent(kind: "approval-request", added: approval)
             XCTAssertEqual(model.codexPendingApprovals.map(\.id), ["n:42"])

@@ -1,5 +1,30 @@
 import Foundation
 
+public struct CodexApprovalIdentity: Sendable, Equatable {
+    public let threadID: String
+    public let turnID: String
+    public let itemID: String
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.threadID.utf8.elementsEqual(rhs.threadID.utf8) &&
+        lhs.turnID.utf8.elementsEqual(rhs.turnID.utf8) && lhs.itemID.utf8.elementsEqual(rhs.itemID.utf8)
+    }
+
+    func matches(_ reference: CodexChangeReference) -> Bool {
+        threadID.utf8.elementsEqual(reference.threadID.utf8) &&
+        turnID.utf8.elementsEqual(reference.turnID.utf8) && itemID.utf8.elementsEqual(reference.itemID.utf8)
+    }
+
+    func reviewedSnapshot(_ review: CodexChangeReviewState?, isCurrent: (CodexChangeReference) -> Bool) -> String? {
+        guard let review, let document = review.document, review.issue == nil,
+              review.receivedBytes == review.reference.totalBytes, matches(review.reference),
+              document.threadId.utf8.elementsEqual(threadID.utf8),
+              document.turnId.utf8.elementsEqual(turnID.utf8),
+              document.itemId.utf8.elementsEqual(itemID.utf8), isCurrent(review.reference) else { return nil }
+        return review.reference.snapshotID
+    }
+}
+
 public struct CodexChangeReference: Sendable, Equatable {
     public let snapshotID: String
     public let threadID: String

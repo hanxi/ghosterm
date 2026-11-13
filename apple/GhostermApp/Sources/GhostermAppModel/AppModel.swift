@@ -79,6 +79,8 @@ public final class AppModel: ObservableObject {
         public let method: String
         public let paramsJSON: String
         public let itemID: String?
+        public let identity: CodexApprovalIdentity?
+        public var stableID: String { Data(id.utf8).base64EncodedString() }
     }
 
     @Published public private(set) var extensionRun: ExtensionRun?
@@ -1328,11 +1330,20 @@ public final class AppModel: ObservableObject {
         } catch { if generation == extensionRunGeneration { extensionRunIssue = "Codex 中断失败：\(error)" } }
     }
 
-    public func respondCodexApproval(id: String, allow: Bool) async {
+    public func codexApprovalSnapshot(_ approval: CodexPendingApproval) -> String? {
+        approval.identity?.reviewedSnapshot(codexChangeReview, isCurrent: currentCodexChange)
+    }
+
+    public func respondCodexApproval(id: String, allow: Bool, snapshotID: String? = nil) async {
         guard let run = extensionRun, run.command == "ai codex", !extensionRunBusy, !codexCallBusy,
               run.runtime?.phase == ExtensionRuntime.Phase.active.rawValue,
-              codexPendingApprovals.contains(where: { $0.id == id }),
+              let approval = codexPendingApprovals.first(where: { $0.id.utf8.elementsEqual(id.utf8) }),
               run.methods.contains("codex.approval.respond") else { return }
+        let fileApproval = approval.method == "item/fileChange/requestApproval"
+        if allow && fileApproval && (snapshotID == nil || snapshotID != codexApprovalSnapshot(approval)) {
+            extensionRunIssue = "请先读取并核对当前完整补丁，再批准此版本。"
+            return
+        }
         let generation = extensionRunGeneration
         codexCallBusy = true
         defer { if generation == extensionRunGeneration { codexCallBusy = false } }
@@ -1340,10 +1351,17 @@ public final class AppModel: ObservableObject {
             struct Responded: Decodable { let accepted: Bool }
             let decisionJSON = String(data: try JSONEncoder().encode(allow ? "accept" : "decline"), encoding: .utf8)!
             let result: Responded = try await callCodexExecutor("codex.approval.respond",
-                input: ["requestID": id, "decisionJSON": decisionJSON])
+                input: ["requestID": id, "decisionJSON": decisionJSON,
+                        "snapshotID": allow && fileApproval ? snapshotID! : ""])
             guard result.accepted else { throw GhostermError.failed("Executor 未接受审批决定") }
-            codexPendingApprovals.removeAll { $0.id == id }
-        } catch { if generation == extensionRunGeneration { extensionRunIssue = "Codex 审批响应失败：\(error)" } }
+            codexPendingApprovals.removeAll { $0.id.utf8.elementsEqual(id.utf8) }
+        } catch {
+            if generation == extensionRunGeneration {
+                if allow && fileApproval { cancelCodexChangeReview() }
+                extensionRunIssue = "Codex 审批响应失败：\(error)" +
+                    (allow && fileApproval ? "；请重新读取完整补丁后核对。" : "")
+            }
+        }
     }
 
     private struct CodexRPCEnvelope<Value: Decodable>: Decodable {
@@ -1603,7 +1621,7 @@ public final class AppModel: ObservableObject {
         var approvalToRemove: String?
         if event.kind == "approval-request" {
             guard let approval = Self.decodeCodexApproval(rawEvent?["request"]),
-                  !codexPendingApprovals.contains(where: { $0.id == approval.id }),
+                  !codexPendingApprovals.contains(where: { $0.id.utf8.elementsEqual(approval.id.utf8) }),
                   codexPendingApprovals.count < 32 else {
                 try await rejectCodexEvent(extensionController, ticket: request.ticket,
                                            message: "Invalid or excessive Codex approval request")
@@ -1661,7 +1679,7 @@ public final class AppModel: ObservableObject {
     func applyCodexApprovalEvent(kind: String, notificationMethod: String? = nil,
                                 added: CodexPendingApproval? = nil, removedID: String? = nil) {
         if let added { codexPendingApprovals.append(added) }
-        if let removedID { codexPendingApprovals.removeAll { $0.id == removedID } }
+        if let removedID { codexPendingApprovals.removeAll { $0.id.utf8.elementsEqual(removedID.utf8) } }
         if (kind == "notification" && notificationMethod == "turn/completed") ||
            ["protocol-error", "closed", "outcome-unknown"].contains(kind) {
             codexPendingApprovals = []
@@ -1687,7 +1705,15 @@ public final class AppModel: ObservableObject {
               let data = try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]),
               let paramsJSON = String(data: data, encoding: .utf8) else { return nil }
         let itemID = (object["params"] as? [String: Any])?["itemId"] as? String
-        return CodexPendingApproval(id: id, method: method, paramsJSON: paramsJSON, itemID: itemID)
+        var identity: CodexApprovalIdentity?
+        if method == "item/fileChange/requestApproval" {
+            let fields = object["params"] as? [String: Any]
+            guard let thread = fields?["threadId"] as? String, !thread.isEmpty, thread.utf8.count <= 128,
+                  let turn = fields?["turnId"] as? String, !turn.isEmpty, turn.utf8.count <= 128,
+                  let itemID, !itemID.isEmpty, itemID.utf8.count <= 128 else { return nil }
+            identity = CodexApprovalIdentity(threadID: thread, turnID: turn, itemID: itemID)
+        }
+        return CodexPendingApproval(id: id, method: method, paramsJSON: paramsJSON, itemID: itemID, identity: identity)
     }
 
     static func codexRequestKey(_ value: Any?) -> String? {

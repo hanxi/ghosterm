@@ -32,6 +32,8 @@ CASES = (
      'testNativeReadOnlyViewContainsLinesBeyondTheOldPreviewLimit', 'Full diff text must remain read only'),
     ('unicode', VIEW, '!view.string.utf8.elementsEqual(text.utf8)', 'view.string != text', 1,
      'testNativeTextUpdatePreservesExactUnicodeBytes', 'Full diff must update byte-distinct Unicode text'),
+    ('approval-scope', ASSEMBLER, 'isCurrent(review.reference)', 'true', 1,
+     'testApprovalRequiresACompleteCurrentDocumentForItsExactIdentity', 'Changed patch must not authorize an old review'),
 )
 
 
@@ -40,7 +42,10 @@ def sha(path):
 
 
 def run(command, source, env, *, assertion=None):
-    result = subprocess.run(command, cwd=source, env=env, capture_output=True, text=True, timeout=300)
+    bounded = ['bash', '-c',
+               '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require codex-review; shift; gt_timeout 300 "$@"',
+               'codex-review', str(ROOT), *command]
+    result = subprocess.run(bounded, cwd=source, env=env, capture_output=True, text=True)
     output = result.stdout + result.stderr
     if assertion:
         valid = result.returncode != 0 and assertion in output and 'Executed 1 test, with 1 failure' in output

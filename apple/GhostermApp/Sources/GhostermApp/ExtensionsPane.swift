@@ -290,7 +290,8 @@ struct ExtensionsPane: View {
             }
             if !model.codexPendingApprovals.isEmpty {
                 Text("Codex 等待中的批准请求").font(DS.Font.labelEmphasis)
-                ForEach(model.codexPendingApprovals) { approval in
+                ForEach(model.codexPendingApprovals, id: \.stableID) { approval in
+                    let snapshotID = model.codexApprovalSnapshot(approval)
                     VStack(alignment: .leading, spacing: DS.Padding.xs) {
                         Text(approval.method).font(DS.Font.caption).textSelection(.enabled)
                         if approval.method == "item/fileChange/requestApproval",
@@ -314,11 +315,16 @@ struct ExtensionsPane: View {
                         HStack {
                             Button("拒绝") { Task { await model.respondCodexApproval(id: approval.id, allow: false) } }
                                 .accessibilityIdentifier("plugin-codex-approval-deny")
-                            Button("批准一次") { Task { await model.respondCodexApproval(id: approval.id, allow: true) } }
+                            Button("批准一次") { Task { await model.respondCodexApproval(id: approval.id, allow: true, snapshotID: snapshotID) } }
                                 .buttonStyle(.borderedProminent)
                                 .accessibilityIdentifier("plugin-codex-approval-allow")
+                                .disabled(approval.method == "item/fileChange/requestApproval" && snapshotID == nil)
                         }
                         .disabled(model.codexCallBusy)
+                        if approval.method == "item/fileChange/requestApproval" && snapshotID == nil {
+                            Text("先读取并核对当前完整补丁，才能批准此版本。")
+                                .font(DS.Font.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

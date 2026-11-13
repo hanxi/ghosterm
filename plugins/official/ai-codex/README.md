@@ -45,8 +45,9 @@ automatically installed or trusted. See `PACKAGE.md` for mapping and consent.
 
 The product UI renders bounded file paths, change kinds, moves, and colored diff lines,
 and associates file approvals with the corresponding item. Oversized patches show
-an explicit partial-preview or omitted-event notice. Complete diff review and the
-product path against a live Codex turn and approval remain unverified. Validate
+an explicit partial-preview or omitted-event notice. Native complete readers and
+revision-bound approvals have component evidence; their product path against a
+live Codex turn and approval remains unverified. Validate
 the Executor entry with an isolated fake Host and fake app-server (no model or
 external service):
 
@@ -86,8 +87,9 @@ item's ID so readers cannot mix revisions. Identical documents keep their ID;
 oversized updates invalidate old content and advertise snapshotUnavailable=limit.
 Stopping the Executor clears all snapshots. IDs belong to that Runtime instance
 and must never be reused across Native Session caches. This is the complete-read
-backend contract; Native full diff retrieval, rendering, and approval/review
-binding remain unfinished. No extra resource or scoped-file permission is added.
+backend contract. Native complete readers and the revision binding described
+below are implemented; their positive Agent-to-RPC-to-UI path remains unverified.
+No extra resource or scoped-file permission is added.
 
 The lock was derived from the official Codex CLI `codex-cli 0.166.0` generators with experimental APIs disabled. Recheck the installed CLI and its generated JSON Schema and TypeScript surface with:
 
@@ -179,13 +181,21 @@ per AppModel, with at most 512 KiB serialized input, 8192 files, and 16 KiB per
 path. Cancellation, replacement, unavailable runtime, and terminal failure clear
 the review; late callbacks cannot repopulate another review. Reads have an
 aggregate publication deadline and no automatic retry. Reading a complete patch
-is not yet bound to the file-approval RPC version; that protection and a positive
-full-patch RPC-to-UI E2E remain pending. The Android native reader uses strict
+does not prove human review. File acceptance now carries the exact snapshot ID
+captured when its button was clicked; Native policy requires a complete current
+document with the approval's exact thread/turn/item identity. The Executor checks
+the current captured revision synchronously before enqueueing its response, and
+rejects stale, unrelated, evicted or unavailable snapshots. It does not compare
+the actual workspace filesystem bytes. `codex.approval.respond` requires
+`requestID`, `decisionJSON`, and `snapshotID`; command decisions and file
+decline/cancel send an empty snapshot ID. This replaces the candidate two-field
+input, so old callers receive a schema error. A positive full-patch RPC-to-UI E2E
+and real model approval remain pending. The Android native reader uses strict
 streaming JSON, exact Kotlin string identity, a selectable read-only Compose
 text field, and the same publication limits. Default App builds still have the
 optional plugin JS runtime disabled.
 
-Run the macOS component tests and isolated seven-group mutations against the
+Run the macOS component tests and isolated eight-group mutations against the
 default Core build (the first command configures that matching profile):
 
 ```sh
@@ -210,7 +220,7 @@ ANDROID_SERIAL=emulator-5586 python3 -B scripts/mutation-check-android-codex-rev
 
 The JSON, timeline, Compose and Core combination passed 17 cases on each of the
 disposable API 29 and API 36 arm64 / 4 KiB headless emulators. Component fixtures
-do not replace real Agent requests, approval-version binding, or the complete
+do not replace real Agent requests, approval-version binding E2E, or the complete
 Settings-to-SSH-to-review user flow.
 
 The AppModel SSH runner's direct selection now also holds a disposable wrapper

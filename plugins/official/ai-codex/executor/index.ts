@@ -1,6 +1,6 @@
 import { BoundaryError, boolean, encode, integer, object, text, utf8Bytes, type Call, type Disposable, type PluginContext,
   type RequestContext } from "@ghosterm/plugin-sdk";
-import type { ApprovalDecision, RequestID } from "../protocol/client.ts";
+import type { ApprovalDecision, RequestID, ServerRequest } from "../protocol/client.ts";
 import { CodexProtocolError } from "../protocol/client.ts";
 import type { CodexConversationEvent } from "../protocol/conversation.ts";
 import { spawnCodexAppServer, type CodexAppServerProcess } from "../protocol/process.ts";
@@ -11,7 +11,7 @@ const threadResult = object({ threadID: text(128) });
 const messageInput = object({ text: text(2048) });
 const turnResult = object({ turnID: text(128) });
 const interruptResult = object({ accepted: boolean() });
-const approvalInput = object({ requestID: text(140), decisionJSON: text(2048) });
+const approvalInput = object({ requestID: text(140), decisionJSON: text(2048), snapshotID: text(128) });
 const eventText = text(3072);
 const eventAck = object({ accepted: boolean() });
 const EVENT_QUEUE_LIMIT = 16;
@@ -161,7 +161,7 @@ export function activate(context: PluginContext): Disposable {
   let interruptedTurnRequest: RequestContext | undefined;
   let interruptPromise: Promise<void> | undefined;
   const events: string[] = [];
-  const approvals = new Map<string, RequestID>();
+  const approvals = new Map<string, ServerRequest>();
   const changes = new CodexChangeStore();
   const eventMethod = { name: "codex.event", input: object({ event: eventText }), output: eventAck } as const;
 
@@ -215,7 +215,7 @@ export function activate(context: PluginContext): Disposable {
       unsubscribe = conversation.onEvent(event => {
         try {
           if (event.kind === "approval-request") {
-            approvals.set(requestKey(event.request.id), event.request.id);
+            approvals.set(requestKey(event.request.id), event.request);
             if (approvals.size > 32) throw new CodexProtocolError("too many pending Codex approvals");
           } else if (event.kind === "approval-resolved") {
             approvals.delete(requestKey(event.requestID));
@@ -270,10 +270,19 @@ export function activate(context: PluginContext): Disposable {
 
   context.session.register({ name: "codex.approval.respond", input: approvalInput, output: interruptResult }, (input, request) => {
     request.check();
-    const id = approvals.get(input.requestID);
-    if (!conversation || id === undefined) throw new CodexProtocolError("Codex approval is unknown or expired");
+    const pending = approvals.get(input.requestID);
+    if (!conversation || closing || failure || !pending) throw new CodexProtocolError("Codex approval is unknown or expired");
     const decision = JSON.parse(input.decisionJSON) as ApprovalDecision;
-    conversation.respondApproval(id, decision);
+    if (pending.method === "item/fileChange/requestApproval" && decision !== "decline" && decision !== "cancel") {
+      const params = pending.params;
+      if (!changes.isCurrent(input.snapshotID, params.threadId, params.turnId, params.itemId)) {
+        throw new CodexProtocolError("Codex patch changed or expired; read the current complete snapshot before approval");
+      }
+    } else if (pending.method === "item/commandExecution/requestApproval" && input.snapshotID !== "") {
+      throw new CodexProtocolError("Command approval must not carry a file snapshot");
+    }
+    // No asynchronous work between checking the captured revision and enqueueing its response.
+    conversation.respondApproval(pending.id, decision);
     approvals.delete(input.requestID);
     return { accepted: true };
   });

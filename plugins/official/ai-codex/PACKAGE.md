@@ -24,9 +24,18 @@ The Client has no JavaScript event handler: supported Native Hosts receive
 codex.event and provide thread, turn, interrupt and approval controls. Events use
 an object with an event JSON string. Diff previews are bounded and may be partial;
 the UI identifies truncation. Unknown effects are never automatically replayed.
-The Executor also exposes complete patch snapshots through `codex.change.read`;
-Native full-patch review controls are still being implemented. Existing partial
-previews do not prove that a user has reviewed the complete change.
+The Executor also exposes complete patch snapshots through `codex.change.read`.
+Supported Native Hosts require a validated current complete document before
+enabling file approval. `codex.approval.respond` now requires all three fields:
+`requestID`, `decisionJSON`, and `snapshotID`. File acceptance sends the snapshot
+ID captured at the button click; the Executor verifies its current captured
+thread/turn/item revision synchronously before enqueueing the Codex response.
+Command decisions and file decline/cancel send an empty snapshot ID. Stale,
+evicted, oversized or missing revisions cannot authorize file acceptance;
+decline remains available. This candidate business RPC shape replaces the old
+two-field input; old callers fail schema validation. No wire v1 or CLI stable
+schema changes. Reading a complete patch does not prove human review, and this
+check does not compare the workspace's current filesystem bytes.
 Stopping the Runtime closes the protocol and terminates/reaps the owned child.
 
 This is an unsigned candidate package. Integrity detects changed content; it does

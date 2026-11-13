@@ -692,6 +692,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
 
 @Composable private fun PluginCodexPanel(extensions: ExtensionPackagesViewModel) {
     val state = extensions.codex
+    val review by extensions.changeReview.state.collectAsState()
     var showEvents by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(top = 12.dp).testTag("plugin-codex-panel"),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -717,6 +718,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
         if (state.approvals.isNotEmpty()) {
             Text("等待中的 Codex 批准请求", style = MaterialTheme.typography.labelLarge)
             state.approvals.forEach { approval ->
+                val snapshotID = extensions.codexApprovalSnapshot(approval, review)
                 Card(Modifier.fillMaxWidth().testTag("plugin-codex-approval-${approval.id}")) {
                     Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(approval.method, style = MaterialTheme.typography.labelMedium)
@@ -735,8 +737,12 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             TextButton(onClick = { extensions.respondCodexApproval(approval.id, false) },
                                 enabled = !state.callBusy, modifier = Modifier.testTag("plugin-codex-approval-deny")) { Text("拒绝") }
-                            TextButton(onClick = { extensions.respondCodexApproval(approval.id, true) },
-                                enabled = !state.callBusy, modifier = Modifier.testTag("plugin-codex-approval-allow")) { Text("批准一次") }
+                            TextButton(onClick = { extensions.respondCodexApproval(approval.id, true, snapshotID) },
+                                enabled = !state.callBusy && (approval.method != "item/fileChange/requestApproval" || snapshotID != null),
+                                modifier = Modifier.testTag("plugin-codex-approval-allow")) { Text("批准一次") }
+                        }
+                        if (approval.method == "item/fileChange/requestApproval" && snapshotID == null) {
+                            Text("先读取并核对当前完整补丁，才能批准此版本。", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }

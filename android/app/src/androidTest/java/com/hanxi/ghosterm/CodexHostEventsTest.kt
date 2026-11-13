@@ -20,10 +20,10 @@ class CodexHostEventsTest {
     @Test fun notificationSequenceMergesMessageDeltasAndRejectsGaps() {
         var state = CodexHostState()
         val first = CodexHostEvents.decode(rpc(1, "notification",
-            "\"notification\":{\"method\":\"item/agentMessage/delta\",\"params\":{\"itemId\":\"m1\",\"delta\":\"hello\"}}"))
+            "\"notification\":{\"method\":\"item/agentMessage/delta\",\"params\":{\"threadId\":\"thread\",\"turnId\":\"turn\",\"itemId\":\"m1\",\"delta\":\"hello\"}}"))
         state = CodexHostEvents.accept(state, first)
         val second = CodexHostEvents.decode(rpc(2, "notification",
-            "\"notification\":{\"method\":\"item/agentMessage/delta\",\"params\":{\"itemId\":\"m1\",\"delta\":\" world\"}}"))
+            "\"notification\":{\"method\":\"item/agentMessage/delta\",\"params\":{\"threadId\":\"thread\",\"turnId\":\"turn\",\"itemId\":\"m1\",\"delta\":\" world\"}}"))
         state = CodexHostEvents.accept(state, second)
         assertEquals(2, state.sequence)
         assertEquals(1, state.timeline.size)
@@ -34,12 +34,13 @@ class CodexHostEventsTest {
 
     @Test fun approvalsAreBoundedAndResolvedByTypedRequestID() {
         val event = CodexHostEvents.decode(rpc(1, "approval-request",
-            "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{\"itemId\":\"change-1\"}}"))
+            "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{\"threadId\":\"thread\",\"turnId\":\"turn\",\"itemId\":\"change-1\"}}"))
         var state = CodexHostEvents.accept(CodexHostState(), event)
         assertEquals("n:42", state.approvals.single().id)
         assertEquals("change-1", state.approvals.single().itemID)
+        assertEquals(CodexApprovalIdentity("thread", "turn", "change-1"), state.approvals.single().identity)
         val duplicate = CodexHostEvents.decode(rpc(2, "approval-request",
-            "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{}}"))
+            "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{\"threadId\":\"thread\",\"turnId\":\"turn\",\"itemId\":\"change-1\"}}"))
         assertThrows(IllegalArgumentException::class.java) { CodexHostEvents.accept(state, duplicate) }
         val resolved = CodexHostEvents.decode(rpc(2, "approval-resolved", "\"requestID\":42"))
         state = CodexHostEvents.accept(state, resolved)
@@ -47,6 +48,10 @@ class CodexHostEventsTest {
     }
 
     @Test fun approvalRejectsBooleanIDsAndUnknownMethods() {
+        assertThrows(IllegalArgumentException::class.java) {
+            CodexHostEvents.decode(rpc(1, "approval-request",
+                "\"request\":{\"id\":1,\"method\":\"item/fileChange/requestApproval\",\"params\":{\"itemId\":\"missing-thread-turn\"}}"))
+        }
         assertThrows(IllegalArgumentException::class.java) {
             CodexHostEvents.decode(rpc(1, "approval-request",
                 "\"request\":{\"id\":true,\"method\":\"item/commandExecution/requestApproval\",\"params\":{}}"))
@@ -60,7 +65,7 @@ class CodexHostEventsTest {
     @Test fun turnCompletionAndUncertainTerminalEventsExpirePendingApprovals() {
         for (terminal in listOf("notification", "protocol-error", "closed", "outcome-unknown")) {
             val pending = CodexHostEvents.decode(rpc(1, "approval-request",
-                "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{\"itemId\":\"change\"}}"))
+                "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{\"threadId\":\"thread\",\"turnId\":\"turn\",\"itemId\":\"change\"}}"))
             val state = CodexHostEvents.accept(CodexHostState(turnActive = true), pending)
             val payload = if (terminal == "notification")
                 "\"notification\":{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread\",\"turn\":{\"id\":\"turn\",\"status\":\"interrupted\"}}}"

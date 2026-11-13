@@ -46,6 +46,21 @@ internal data class CodexChangeReviewState(val reference: CodexChangeReference, 
     val loading get() = document == null && issue == null
 }
 
+internal data class CodexApprovalIdentity(val threadID: String, val turnID: String, val itemID: String) {
+    fun matches(reference: CodexChangeReference) = threadID == reference.threadID &&
+        turnID == reference.turnID && itemID == reference.itemID
+
+    fun reviewedSnapshot(review: CodexChangeReviewState?, isCurrent: (CodexChangeReference) -> Boolean): String? {
+        review ?: return null
+        val document = review.document ?: return null
+        val reference = review.reference
+        if (review.issue != null || review.receivedBytes != reference.totalBytes || !matches(reference) ||
+            document.threadID != threadID || document.turnID != turnID || document.itemID != itemID ||
+            !isCurrent(reference)) return null
+        return reference.snapshotID
+    }
+}
+
 /** Pure Kotlin assembly; no partial content is published and no text is normalized. */
 internal class CodexChangeAssembler(val reference: CodexChangeReference) {
     private val bytes = ByteArrayOutputStream()

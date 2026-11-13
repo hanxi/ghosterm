@@ -21,6 +21,7 @@ CASES = (
      'changed reference must discard late data'),
     ('encoding', '.onMalformedInput(CodingErrorAction.REPORT)', '.onMalformedInput(CodingErrorAction.REPLACE)', 1,
      'malformed surrogate must not become replacement UTF8 bytes'),
+    ('approval-scope', '!isCurrent(reference)', 'false', 1, 'changed patch must not authorize an old review'),
 )
 
 

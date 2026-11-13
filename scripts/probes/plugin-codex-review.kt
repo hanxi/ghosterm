@@ -71,6 +71,16 @@ fun main(arguments: Array<String>) = runBlocking {
         val job = controller.load(reference, { true }, { offset -> parts.first { it.offset == offset } }, ::doc)
         job.join()
         expect(controller.state.value?.document?.files?.single()?.diff == text, "complete document must be published")
+        val identity = CodexApprovalIdentity("thread", "turn", "item")
+        val reviewed = checkNotNull(controller.state.value)
+        expect(identity.reviewedSnapshot(reviewed) { true } == reference.snapshotID, "complete current patch may be approved")
+        expect(identity.reviewedSnapshot(null) { true } == null, "missing review must not authorize a patch")
+        expect(identity.reviewedSnapshot(reviewed.copy(document = null)) { true } == null, "partial review must not authorize a patch")
+        expect(identity.reviewedSnapshot(reviewed.copy(receivedBytes = 0)) { true } == null, "incomplete bytes must not authorize a patch")
+        expect(identity.reviewedSnapshot(reviewed) { false } == null, "changed patch must not authorize an old review")
+        expect(identity.copy(turnID = "other").reviewedSnapshot(reviewed) { true } == null, "approval must match the review identity")
+        expect(identity.reviewedSnapshot(reviewed.copy(document = reviewed.document!!.copy(itemID = "other"))) { true } == null,
+            "foreign decoded document must not authorize a patch")
 
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<CodexChangeChunk>()
