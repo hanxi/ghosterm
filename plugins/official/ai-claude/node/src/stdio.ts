@@ -88,7 +88,14 @@ export class ClaudeStdioBridge {
 
   private validate(method: string, params: Record<string, Json>): void {
     switch (method) {
-      case "start": case "poll": case "interrupt": case "stop": fields(params, []); break;
+      case "start": case "interrupt": case "stop": fields(params, []); break;
+      case "poll":
+        fields(params, params.maxEvents === undefined ? [] : ["maxEvents"]);
+        if (params.maxEvents !== undefined && (!Number.isSafeInteger(params.maxEvents) ||
+            typeof params.maxEvents !== "number" || params.maxEvents < 1 || params.maxEvents > 32)) {
+          throw new ClaudeStdioProtocolError("Invalid Claude poll batch limit");
+        }
+        break;
       case "send": fields(params, ["text"]); text(params.text, 65_536); break;
       case "approve":
         fields(params, ["reference", "allow"]); reference(params.reference);
@@ -118,13 +125,25 @@ export class ClaudeStdioBridge {
       case "approve": return { accepted: this.approvals.decide(reference(params.reference), params.allow as boolean) };
       case "answer": return { accepted: this.approvals.answer(reference(params.reference), params.answers as Record<string, string>) };
       case "poll": {
-        const first = this.approvalNext ? "approval" : "session", second = this.approvalNext ? "session" : "approval";
-        this.approvalNext = !this.approvalNext;
-        for (const source of [first, second]) {
-          const event = source === "approval" ? this.approvals.takeEvent() : this.session.takeEvent();
-          if (event) return { source, event };
+        const take = () => {
+          const first = this.approvalNext ? "approval" : "session", second = this.approvalNext ? "session" : "approval";
+          this.approvalNext = !this.approvalNext;
+          for (const source of [first, second]) {
+            const event = source === "approval" ? this.approvals.takeEvent() : this.session.takeEvent();
+            if (event) return { source, event };
+          }
+          return undefined;
+        };
+        if (params.maxEvents === undefined) return take() ?? { source: "none", phase: this.session.phase };
+        const events = []; let bytes = 0;
+        // The final event can be a complete 512 KiB SDK message. Stop before
+        // taking another; 4 KiB prefix plus one event stays under 600,000 bytes
+        // and the Portable decoder's node bound. No consumed event is discarded.
+        while (events.length < Number(params.maxEvents) && bytes < 4096) {
+          const item = take(); if (!item) break;
+          events.push(item); bytes += Buffer.byteLength(JSON.stringify(item));
         }
-        return { source: "none", phase: this.session.phase };
+        return { source: "batch", events, phase: this.session.phase };
       }
       case "stop": this.explicitStopValue = true; this.close(); return { phase: this.session.phase, pendingMessageID: this.session.pendingMessageID ?? null };
       default: throw new ClaudeStdioProtocolError("Unsupported Claude stdio method");

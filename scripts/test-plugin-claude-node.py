@@ -115,6 +115,15 @@ CASES = (
     ('session-approval-turn', 'session.ts', 'this.profile.approvals.beginTurn(uuid);', '/* mutation: omit submitted turn binding */',
      'Claude session streams correlated input and ordered immutable SDK events across turns',
      'Claude session must bind approval identity to its submitted input'),
+    ('poll-batch-count', 'stdio.ts', 'events.length < Number(params.maxEvents)', 'events.length < 33',
+     'Claude stdio poll batches bound count and bytes without losing fair ordered events',
+     'Claude batch must honor requested count and alternate event sources'),
+    ('poll-batch-bytes', 'stdio.ts', 'bytes < 4096', 'bytes < 600000',
+     'Claude stdio poll batches bound count and bytes without losing fair ordered events',
+     'Claude batch must bound the prefix before one complete large event'),
+    ('poll-batch-range', 'stdio.ts', 'params.maxEvents > 32', 'params.maxEvents > 33',
+     'Claude stdio rejects invalid explicit poll batch limits before consuming events',
+     'Claude poll batch limits must reject out-of-range and noninteger values'),
 )
 
 
@@ -162,7 +171,7 @@ def main():
         run(compiler, environment)
         if args.real_cli: test_environment['GHOSTERM_CLAUDE_REAL_CLI'] = '1'
         output = run(tests, test_environment, seconds=90)
-        expected = 27 if args.real_cli else 25
+        expected = 29 if args.real_cli else 27
         if f'ℹ pass {expected}\n' not in output or 'ℹ fail 0' not in output or 'ℹ skipped 0' not in output:
             raise RuntimeError('Claude test count/skip receipt mismatch:\n' + output)
         print(output, end='', flush=True)

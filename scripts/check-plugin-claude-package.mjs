@@ -51,5 +51,5 @@ assert.equal(versions.CLAUDE_SDK_VERSION, nodePackage.dependencies["@anthropic-a
 const ownerSource = fs.readFileSync(new URL("../plugins/official/ai-claude/node/src/profile.ts", import.meta.url), "utf8");
 assert(ownerSource.includes(`CLAUDE_SDK_VERSION = "${versions.CLAUDE_SDK_VERSION}"`));
 assert(ownerSource.includes(`CLAUDE_CLI_VERSION = "${versions.CLAUDE_CLI_VERSION}"`));
-assert.equal(manifest.commands[0].views, undefined, "candidate must not advertise unconnected Native chat views");
+assert.equal(manifest.commands[0].views, undefined, "candidate must not advertise a portable Native view contribution");
 assert(!fs.existsSync(path.join(directory, "node_modules")), "SDK dependencies are not bundled in Portable package");

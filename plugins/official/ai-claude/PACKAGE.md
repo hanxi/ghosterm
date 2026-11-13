@@ -19,8 +19,10 @@ read and forget complete receipts to release their budget. Status can expose an
 observed receipt after RPC cancellation, without retrying the action. Explicit
 stop waits for observed exit and Core process release.
 
-Native chat/approval/question UI is not connected. This candidate advertises no
-Native views and does not implement generic runtime:node package loading. Normal
-App builds keep plugins disabled. Real model/authentication/tool/SSH/device and
+macOS provides experimental Native conversation, approval and question controls
+for this command, using a matching external Node component from this checkout.
+Other Host UIs remain unfinished. This candidate advertises no portable Native
+view contribution and does not implement generic runtime:node package loading. Normal
+App builds keep plugins disabled. Real model/authentication/tool/device and
 whole-process resource/lifecycle verification remain incomplete. This is a
 development bridge, not a released Claude conversation product.

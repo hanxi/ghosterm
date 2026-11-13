@@ -102,31 +102,9 @@ struct CodexCompleteChangesView: View {
 struct CodexCompleteDiffText: NSViewRepresentable {
     let text: String
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.hasHorizontalScroller = true
-        scroll.borderType = .bezelBorder
-        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
-        view.isEditable = false
-        view.isSelectable = true
-        view.isRichText = false
-        view.isAutomaticLinkDetectionEnabled = false
-        view.isContinuousSpellCheckingEnabled = false
-        view.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        view.isHorizontallyResizable = true
-        view.isVerticallyResizable = true
-        view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        view.textContainer?.containerSize = view.maxSize
-        view.textContainer?.widthTracksTextView = false
-        view.identifier = NSUserInterfaceItemIdentifier("plugin-codex-full-diff-text")
-        view.setAccessibilityLabel("完整补丁内容")
-        scroll.documentView = view
-        return scroll
+        ConversationReadOnlyText.makeTextView(identifier: "plugin-codex-full-diff-text", label: "完整补丁内容")
     }
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let view = scroll.documentView as? NSTextView,
-              !view.string.utf8.elementsEqual(text.utf8) else { return }
-        view.string = text
-        view.textColor = .labelColor
+        ConversationReadOnlyText.updateText(text, in: scroll)
     }
 }

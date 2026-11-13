@@ -519,6 +519,52 @@ test("Claude stdio dispatches explicit actions and identical retries never send 
   } finally { await stopFixture(value); }
 });
 
+test("Claude stdio poll batches bound count and bytes without losing fair ordered events", async () => {
+  const value = stdioFixture(); const { session, child, broker, bridge } = value;
+  try {
+    await session.start(); session.send("explicit batch fixture");
+    await until(() => child.sent.some(item => item.type === "user"), "batch input missing");
+    for (let i = 0; i < 30; i++) child.emitFrame({ type: "system", subtype: "batch-fixture", index: i, payload: "x".repeat(1000) });
+    const large = "中😀".repeat(50_000);
+    child.emitFrame({ type: "system", subtype: "batch-large", index: 30, payload: large });
+    for (let i = 0; i < 3; i++) child.permission(`batch-approval-${i}`);
+    await until(() => broker.pending.length === 3, "batch approvals missing");
+    const first = JSON.parse(await bridge.handle(stdioRequest("poll", 1, { maxEvents: 4 }))).result;
+    assert.deepEqual(first.events.map(item => item.source), ["approval", "session", "approval", "session"],
+      "Claude batch must honor requested count and alternate event sources");
+    const all = [...first.events]; let sequence = 1;
+    for (let i = 0; i < 40 && !all.some(item => item.event.message?.subtype === "batch-large"); i++) {
+      const response = await bridge.handle(stdioRequest("poll", ++sequence, { maxEvents: 32 }));
+      assert(Buffer.byteLength(response) <= 600_000);
+      const result = JSON.parse(response).result;
+      assert.equal(result.source, "batch"); assert(result.events.length <= 32);
+      const big = result.events.findIndex(item => item.event.message?.subtype === "batch-large");
+      if (big >= 0) {
+        assert.equal(big, result.events.length - 1);
+        assert(result.events.slice(0, big).reduce((sum, item) => sum + Buffer.byteLength(JSON.stringify(item)), 0) < 4096,
+          "Claude batch must bound the prefix before one complete large event");
+      }
+      all.push(...result.events);
+    }
+    const messages = all.filter(item => item.source === "session").map(item => item.event);
+    assert.deepEqual(messages.map(item => item.message.index), Array.from({ length: 31 }, (_, i) => i));
+    assert.deepEqual(messages.map(item => item.sequence), Array.from({ length: 31 }, (_, i) => i + 1));
+    assert.equal(messages.at(-1).message.payload, large, "Claude batching must retain a whole large SDK event");
+    assert.equal(all.filter(item => item.source === "approval").length, 3);
+  } finally { await stopFixture(value); }
+});
+
+test("Claude stdio rejects invalid explicit poll batch limits before consuming events", async () => {
+  for (const maxEvents of [0, 33, 1.5, true, "2", null]) {
+    const value = stdioFixture();
+    try {
+      await value.session.start();
+      await assert.rejects(value.bridge.handle(stdioRequest("poll", 1, { maxEvents })), /batch limit/,
+        "Claude poll batch limits must reject out-of-range and noninteger values");
+    } finally { await stopFixture(value); }
+  }
+});
+
 test("Claude stdio changed or evicted sequences cannot authorize another action", async () => {
   for (const evicted of [false, true]) {
     const value = stdioFixture(); const { bridge, session } = value;

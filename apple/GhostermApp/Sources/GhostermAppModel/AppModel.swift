@@ -100,6 +100,7 @@ public final class AppModel: ObservableObject {
     private var lastCodexEventSequence: UInt64 = 0
     private var pendingExtensionRPCHandles: Set<UInt64> = []
     private var claudeRPC: ClaudeRPCClient?
+    @Published public private(set) var claudeConversation: ClaudeConversation?
 
     /// 界面外观偏好（跟随系统 / 浅色 / 深色）与终端色板事件（`theme =
     /// light:X,dark:Y` 靠它选边）。**改了要同时喂两个消费者**：AppKit 的
@@ -1162,6 +1163,7 @@ public final class AppModel: ObservableObject {
                 additionalRequiredCapabilities: additionalCapabilities)
             extensionRunInvocation = (packageID, packageDigest, command, arguments)
             claudeRPC?.invalidate(); claudeRPC = nil
+            claudeConversation?.invalidate(); claudeConversation = nil
             extensionRunGeneration = UUID()
             codexCallBusy = false
             lastCodexEventSequence = 0
@@ -1250,6 +1252,7 @@ public final class AppModel: ObservableObject {
     public func stopExtensionRun() async {
         guard let extensionController, extensionRun != nil, !extensionRunBusy else { return }
         claudeRPC?.invalidate(); claudeRPC = nil
+        claudeConversation?.invalidate(); claudeConversation = nil
         extensionRunGeneration = UUID()
         codexCallBusy = false
         cancelCodexChangeReview()
@@ -1556,6 +1559,7 @@ public final class AppModel: ObservableObject {
         } catch {
             if Task.isCancelled || generation != extensionRunGeneration { return }
             claudeRPC?.invalidate()
+            claudeConversation?.invalidate()
             cancelCodexChangeReview()
             codexPendingApprovals = []
             extensionRunIssue = "插件 Runtime 运行失败：\(error)"
@@ -1578,6 +1582,7 @@ public final class AppModel: ObservableObject {
         guard let run = extensionRun else { return }
         if !Self.runtimeIsRunning(runtime.phase) {
             claudeRPC?.invalidate()
+            claudeConversation?.invalidate()
             codexPendingApprovals = []
             cancelCodexChangeReview()
         }
@@ -1589,6 +1594,20 @@ public final class AppModel: ObservableObject {
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: runtime, receivedResources: run.receivedResources,
             codexEvents: run.codexEvents)
+        if run.command == "ai claude", runtime.phase == ExtensionRuntime.Phase.active.rawValue,
+           ClaudeRPCClient.methods.allSatisfy(run.methods.contains),
+           claudeConversation == nil {
+            let generation = extensionRunGeneration
+            claudeConversation = ClaudeConversation(request: { [weak self] method, parameters in
+                guard let self else { throw CancellationError() }
+                try self.checkExtensionRunGeneration(generation)
+                return try await self.requestClaudeAction(method: method, parameters: parameters)
+            }, isCurrent: { [weak self] in
+                guard let self else { return false }
+                return generation == self.extensionRunGeneration && !self.extensionRunBusy &&
+                    self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+            })
+        }
     }
 
     private func appendExtensionResource(_ resource: ExtensionController.ReceivedResource) {

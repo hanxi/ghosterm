@@ -180,6 +180,7 @@ struct ExtensionsPane: View {
                     "codex.turn.interrupt", "codex.approval.respond"])).sorted()
                 hostMethods = Array(Set(hostMethods + ["codex.event"])).sorted()
             }
+            if entry.command == "ai claude" { methods = Array(Set(methods + ClaudeRPCClient.methods)).sorted() }
             let processPrograms = try ExtensionRelayBootstrap.parseProcessProgramsJSON(entry.processProgramsJSON)
             let processEnvironment = try ExtensionRelayBootstrap.parseProcessEnvironmentJSON(entry.processEnvironmentJSON)
             let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.resourceRoot.isEmpty
@@ -245,6 +246,12 @@ struct ExtensionsPane: View {
                     PluginResourceBrowser(resources: run.receivedResources, selection: $resourceSelection)
                 }
                 codexControls(run: run)
+                if run.command == "ai claude", let conversation = model.claudeConversation {
+                    ClaudeConversationView(model: conversation)
+                } else if run.command == "ai claude", run.runtime?.phase == ExtensionRuntime.Phase.active.rawValue {
+                    Text("本次会话未提供完整的 Claude 操作能力。")
+                        .foregroundStyle(.red)
+                }
                 Button(model.extensionRunBusy ? "正在停止…" : "停止并释放插件") {
                     Task { await model.stopExtensionRun() }
                 }
@@ -319,15 +326,10 @@ struct ExtensionsPane: View {
                         } else {
                             Text(approval.paramsJSON).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                         }
-                        HStack {
-                            Button("拒绝") { Task { await model.respondCodexApproval(id: approval.id, allow: false) } }
-                                .accessibilityIdentifier("plugin-codex-approval-deny")
-                            Button("批准一次") { Task { await model.respondCodexApproval(id: approval.id, allow: true, snapshotID: snapshotID) } }
-                                .buttonStyle(.borderedProminent)
-                                .accessibilityIdentifier("plugin-codex-approval-allow")
-                                .disabled(approval.method == "item/fileChange/requestApproval" && snapshotID == nil)
-                        }
-                        .disabled(model.codexCallBusy)
+                        ConversationDecisionButtons(prefix: "plugin-codex-approval", busy: model.codexCallBusy,
+                            canAllow: approval.method != "item/fileChange/requestApproval" || snapshotID != nil,
+                            deny: { Task { await model.respondCodexApproval(id: approval.id, allow: false) } },
+                            allow: { Task { await model.respondCodexApproval(id: approval.id, allow: true, snapshotID: snapshotID) } })
                         if approval.method == "item/fileChange/requestApproval" && snapshotID == nil {
                             Text("先读取并核对当前完整补丁，才能批准此版本。")
                                 .font(DS.Font.caption).foregroundStyle(.secondary)
@@ -337,15 +339,9 @@ struct ExtensionsPane: View {
             }
             if let threadID = model.codexThreadID {
                 Text("Codex thread：\(threadID)").font(DS.Font.caption).textSelection(.enabled)
-                HStack {
-                    TextField("发送给 Codex", text: $model.codexMessageDraft, axis: .vertical)
-                        .lineLimit(1...4)
-                        .accessibilityIdentifier("plugin-codex-message")
-                    Button(model.codexCallBusy ? "正在发送…" : "发送") {
-                        Task { await model.sendCodexMessage() }
-                    }
-                    .disabled(model.codexCallBusy || model.codexTurnActive || model.codexMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("plugin-codex-send")
+                ConversationComposer(placeholder: "发送给 Codex", draft: $model.codexMessageDraft,
+                    busy: model.codexCallBusy, canSend: !model.codexTurnActive, prefix: "plugin-codex") {
+                    Task { await model.sendCodexMessage() }
                 }
                 if model.codexTurnActive {
                     Button(model.codexCallBusy ? "正在处理中…" : "中断当前 turn") {

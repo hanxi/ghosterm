@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 const config = JSON.parse(readFileSync(process.argv[3], "utf8"));
@@ -53,8 +53,16 @@ const session = new ClaudeNodeSession({ cwd: config.cwd, executable: config.exec
   environment: Object.fromEntries(config.environmentNames.map(name => [name, process.env[name]])), tools: ["Bash", "AskUserQuestion"],
   approvals: broker, abortController: new AbortController(), spawn: () => child });
 const bridge = new ClaudeStdioBridge(session, broker);
+let diagnosticWritten = false;
+const diagnostics = setInterval(() => {
+  if (!diagnosticWritten && session.failure) {
+    writeFileSync(join(config.cwd, "sdk-fixture-failure.txt"), String(session.failure.stack ?? session.failure)); diagnosticWritten = true;
+  }
+}, 25);
+diagnostics.unref();
 try { process.exitCode = await serveClaudeStdio(process.stdin, process.stdout, bridge) === "stopped" ? 0 : 7; }
 finally {
+  clearInterval(diagnostics);
   bridge.close();
   const end = Date.now() + 5000;
   while (!child.killed && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 5));

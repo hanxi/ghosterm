@@ -3,9 +3,10 @@
 The Portable Client/Executor candidate builds into a directory package with
 `plugin.json`, integrity metadata and eight private RPC methods. Its supervisor
 starts the separately configured Node component only on an explicit `start`.
-Native chat/approval/question UI and generic Node/Exec package loading remain
-unfinished; the candidate declares no Native views. The App and gterm package
-profiles continue to support Portable JS only.
+macOS has experimental Native conversation, tool approval and question controls
+for this command. Other Hosts and generic Node/Exec package loading remain
+unfinished; the candidate declares no portable Native view contribution. The App
+and gterm package profiles continue to support Portable JS only.
 
 `node/` contains an authored MIT component with a separately locked dependency on
 Claude Agent SDK **0.3.323** and its matching native CLI **2.1.323**. The supplied
@@ -33,8 +34,8 @@ Tool approval preserves the original input and never adopts permission-update
 suggestions. `AskUserQuestion` requires explicit answers to every question; it
 cannot be accepted by an ordinary allow button. Multi-select answers use the
 SDK's string answer representation, and explicit free text is supported. Option
-previews are not rendered. These are private Node objects, not frozen wire v1
-messages or Native UI components.
+previews are not rendered. These remain private Node objects, not frozen wire v1
+messages; the macOS Host projects them into its own Native controls.
 
 Limits: 32 pending / 64 retained requests, one MiB of retained serialized request
 identity, 64 KiB tool input, 32 JSON levels / 4096 nodes, eight pending duplicate
@@ -118,7 +119,12 @@ are rejected. Start/interrupt reply with `requested: true`; readiness and actual
 interrupt receipts remain separate poll observations. Ready proves SDK control
 initialization, not usable credentials or a successful model request. Poll fairly takes one
 session/approval event, or returns the current phase without inventing an event.
-There is no unsolicited output. Writes await completion before dispatching the
+An optional `poll` parameter `{maxEvents: N}` (integer 1..32) requests a bounded
+`source: "batch"` response. It takes complete events while the accumulated prefix
+is below 4 KiB, including the full last event even if that crosses the prefix
+limit. Default empty params retain the single-event shape. Rebuild the external
+Node component from the matching checkout before using the macOS controls; an
+older component rejects the new params. There is no unsolicited output. Writes await completion before dispatching the
 next command; framing rejects malformed UTF-8 and partial EOF. Protocol requests
 cannot change executable/cwd/environment or trigger an installation.
 
@@ -170,9 +176,31 @@ The launch command still has the existing SSH route length bound. The Native
 `AppModel.requestClaudeAction` adapter requires the current active Client Runtime
 and all eight RPC methods. It uploads exact compact parameter JSON and returns
 complete vendor reply bytes, preserving distinct Unicode spellings. After an
-uncertain call it refuses further effects in that run. Native chat controls and
-observed-receipt recovery UI remain to be connected; this API is not a conversation
-page or evidence of a real model turn.
+uncertain call it refuses further effects in that run. Observed-receipt recovery
+UI remains incomplete. The macOS conversation now uses
+this adapter for explicit start/send/interrupt/stop, immutable tool approvals and
+all-question answers. A ready backend is not proof of authentication or a model
+result. The controls preserve unknown outcomes and original draft text after an
+unconfirmed send, reject stale turn references and do not retry automatically.
+Each visible/history collection retains at most 128 records and 2 MiB, with
+omission counts and selectable complete content for retained records. Android
+and other Host conversation adapters remain unfinished.
+
+The offscreen macOS integration runner is:
+
+```sh
+python3 -B scripts/test-plugin-claude-app.py --gterm <JS-enabled-gterm> --route both --fetch
+python3 -B scripts/mutation-check-claude-conversation.py
+```
+
+The UI runner uses owned loopback sshd targets, actual production Native controls,
+Portable package and locked SDK with a named in-memory CLI protocol fixture. It
+clicks tool approval and all four question choices, then stops and observes reap,
+over direct SSH and ProxyJump. Package approval and text draft setup are injected;
+this does not test the full installation/input flow. It sends no real model
+request or real tool command and supplies no personal account. Whole-process RSS,
+sustained model streaming/backpressure, real authentication and device matrices
+remain unverified. The mutation runner requires the ordinary JS=OFF Core profile.
 
 From the repository root:
 
