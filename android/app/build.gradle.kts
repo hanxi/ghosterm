@@ -75,7 +75,7 @@ android {
     sourceSets["main"].assets.srcDir("../../build/android-native/assets")
     sourceSets["main"].assets.srcDir(sourceAssets)
     if (pluginJsEnabled) {
-        sourceSets["main"].assets.srcDir(runtimeLicenseAssets)
+        sourceSets["main"].assets.srcDir(files(runtimeLicenseAssets).builtBy(copyRuntimeLicense))
         sourceSets["androidTest"].java.srcDir("src/pluginRuntimeTest/java")
         if (runtimeSdkDirectory != null) sourceSets["androidTest"].assets.srcDir(runtimeSdkDirectory)
     }
@@ -134,6 +134,3 @@ val buildTestPty = tasks.register<Exec>("buildTestPty") {
 }
 android.sourceSets.getByName("androidTest").jniLibs.srcDir(testPtyLibraries)
 tasks.matching { it.name == "preDebugAndroidTestBuild" }.configureEach { dependsOn(buildTestPty) }
-if (copyRuntimeLicense != null) tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
-    dependsOn(copyRuntimeLicense)
-}
