@@ -22,6 +22,59 @@ final class ExtensionRuntimeTests: XCTestCase {
             try runtimeClose(r); try runtimeClose(h); XCTAssertGreaterThan(saved.moduleBytes, 0)
         }
     }
+    func testNativeHostRuntimeCanCallRemoteExecutorAndPollItsOutcome() {
+        runtimeWorker(self) { q in
+            let (h, e, _, el) = try runtimePair(q)
+            let hostPlugin = "export function activate(){return {dispose(){}}}"
+            let runtime = try ExtensionRuntime(session: h,
+                config: .init(modules: runtimeModules(hostPlugin), entry: "plugin:/entry.js",
+                              role: .host, cpuMilliseconds: 500))
+            for _ in 0..<100 { if try runtime.step() == .active { break } }
+            XCTAssertEqual(try runtime.info().phase, .active)
+
+            let input = Data("{\"threadId\":\"thread-a\"}".utf8)
+            let admission = try runtime.request(method: "fixture.echo", input: input,
+                                                timeoutMilliseconds: 10000)
+            XCTAssertEqual(admission.status, .ok)
+            let handle = try XCTUnwrap(admission.handle)
+            var received: ExtensionSession.RPCRequest?
+            for _ in 0..<2000 {
+                _ = try runtime.step(); _ = try e.step()
+                let (status, request) = try e.takeRequest(el)
+                if let request { XCTAssertEqual(status, .ok); received = request; break }
+                XCTAssertEqual(status, .wait)
+            }
+            let request = try XCTUnwrap(received)
+            XCTAssertEqual(request.method, "fixture.echo")
+            XCTAssertEqual(request.input, input)
+            let outcome = Data("{\"kind\":\"success\",\"value\":{\"threadId\":\"thread-a\",\"turnId\":\"turn-b\"}}".utf8)
+            XCTAssertEqual(try e.respond(el, ticket: request.ticket, outcome: outcome), .ok)
+
+            var result: ExtensionSession.RPCResult?
+            for _ in 0..<2000 {
+                _ = try runtime.step(); _ = try e.step()
+                let (status, value) = try runtime.requestResult(handle: handle)
+                XCTAssertEqual(status, .ok)
+                if value?.confirmed == true { result = value; break }
+            }
+            let completed = try XCTUnwrap(result)
+            XCTAssertEqual(completed.state, .succeeded)
+            XCTAssertEqual(completed.outcome, outcome)
+            XCTAssertEqual(try runtime.forgetRequest(handle: handle), .ok)
+            try runtimeClose(runtime); try runtimeClose(e)
+        }
+    }
+    func testRuntimeRequestRequiresAnActiveHostRuntime() {
+        runtimeWorker(self) { q in
+            let (h, e, _, _) = try runtimePair(q)
+            let hostPlugin = "export function activate(){return {dispose(){}}}"
+            let runtime = try ExtensionRuntime(session: h,
+                config: .init(modules: runtimeModules(hostPlugin), entry: "plugin:/entry.js",
+                              role: .host, cpuMilliseconds: 500))
+            XCTAssertThrowsError(try runtime.request(method: "fixture.echo", input: Data("{}".utf8)))
+            try runtimeClose(runtime); try runtimeClose(e)
+        }
+    }
     func testNativeHostCanTakeResourceAfterRuntimeAdoptsSession() {
         runtimeWorker(self) { q in
             let (hs, hd) = try runtimeStore(q), (es, ed) = try runtimeStore(q)

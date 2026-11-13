@@ -4842,3 +4842,13 @@ macOS 的 `JSONSerialization` 会将 JSON object 转为字典，重复成员键�
 锁文件新增 `InitializeResponse.userAgent` 必需字段和 `string` 类型；checker 同时对拍锁定 CLI 生成的 TypeScript 与 JSON Schema。实际锁定 `codex-cli 0.166.0` 的生产 helper 测试运行 initialize / initialized / thread/start，真实响应报告 `ghosterm-protocol-test/0.166.0 (...)`，无 turn / 模型请求。版本错误清理用例断言 terminate、release、reaped 和退出快照。`node --experimental-strip-types --test scripts/test-plugin-codex-protocol.mjs` 20/20 通过；`python3 -B scripts/check-plugin-codex-protocol.py` 通过；TypeScript 5.9.3 strict / ES2022 / 无 DOM 检查、`node --check` 与 `git diff --check` 通过。`mutation-check-plugin-codex-version.py` 现在分别对 Host 声明版本 guard 与真实 app-server 响应版本 guard 做目标红、独立有效握手对照绿、源码恢复与 SHA256，两组通过。
 
 实现过程中尝试的 descriptor-pinned `fexecve` 路线在当前 macOS SDK 编译时报 `fexecve` 未声明；该 C 探索已撤回，编译失败单独记录，不计断言红或通过，本批没有 C 源码改动。当前交付验证的是已启动后端身份，不是独立远端 `codex --version` 预检；Native mapping 仍须提供可信期望版本，产品 App Host / Core Runtime / SSH 完整接线、真实 turn 与 approval UI 仍待完成。本批无公共 ABI 变化，不增加 macOS CI 二十份，P3 不记闭环。
+
+### P3 实施第二十六批：活动 Runtime 的 Host→Executor RPC 调用面
+
+此前 Swift 侧可让 Executor 调用 Host RPC，却没有让 Native Host 通过已接管 Session 调用远端 Executor。现在 `ExtensionRuntime` 暴露 request、poll result、cancel、forget，`ExtensionController` 提供相应 Native façade；新请求要求 Runtime 已 active，所有操作通过 Runtime 保留的 Session lease。句柄由调用方保存，未知结果不自动重试。`RPCAdmission` / 状态 / 结果标为 Sendable，以便从 AppModel actor 安全返回值。
+
+同时修正 QuickJS Runtime 的 root 前置条件：未关联资源 Session 的旧式 Runtime 若配置 scoped roots，现在返回 `GT_ERR_UNSUPPORTED`，避免接受实际无法兑现的目录能力。
+
+验证：JS-enabled GhostermCore Runtime 测试 13/13 通过，包含真实 Host/Executor Session 配对、Runtime 接管 Host Session、发送 `fixture.echo`、Executor 返回协议 outcome、Host 轮询并 forget；无活动 Runtime 的请求拒绝测试通过。`scripts/gate.sh` 通过（481/481 CTest、177 个 ABI 符号对拍）；clang-format 19.1.7 检查 219 个 C 文件通过。`apple-app-gate.sh` 定向控制器用例通过（1 项），Apple ABI 174 引用 / 3 登记未用对拍及 headless WebKit probe 通过；`git diff --check` 通过。没有公共 ABI 变化，不增加 macOS CI 二十份。
+
+此批提供 Native Host 调用 Executor RPC 的 Swift 接缝，不代表 UI 已驱动 Codex turn / approval，也没有真实 SSH 产品链或原生 chat/diff UI；P3 仍未闭环。

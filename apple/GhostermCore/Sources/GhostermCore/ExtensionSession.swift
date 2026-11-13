@@ -14,16 +14,16 @@ public final class ExtensionSession {
     }
     public enum End: UInt32 { case none, denied, revoked, expired, incompatible, `protocol`, lost, peer, local, `internal` }
     public enum JSONShape: UInt32 { case any, object, array, string, boolean, number, null }
-    public enum RPCStatus: UInt32 { case ok, wait, invalid, denied, unsupported, closed }
-    public enum RPCState: UInt32 { case queued, pending, succeeded, failed, cancelled, unknown }
+    public enum RPCStatus: UInt32, Sendable { case ok, wait, invalid, denied, unsupported, closed }
+    public enum RPCState: UInt32, Sendable { case queued, pending, succeeded, failed, cancelled, unknown }
     public struct Method {
         public let name: String, capability: String, receiver: Role, inputShape: JSONShape, outputShape: JSONShape
         public init(name: String, capability: String, receiver: Role, inputShape: JSONShape = .any, outputShape: JSONShape = .any) {
             self.name = name; self.capability = capability; self.receiver = receiver; self.inputShape = inputShape; self.outputShape = outputShape
         }
     }
-    public struct RPCAdmission { public let status: RPCStatus, handle: UInt64? }
-    public struct RPCResult {
+    public struct RPCAdmission: Sendable { public let status: RPCStatus, handle: UInt64? }
+    public struct RPCResult: Sendable {
         public let handle: UInt64, requestID: String, state: RPCState, cancelRequested: Bool, deadlineElapsed: Bool, confirmed: Bool, outcome: Data
     }
     public struct RPCRequest { public let ticket: UInt64, requestID: String, method: String, input: Data }
@@ -262,6 +262,42 @@ public final class ExtensionSession {
         }
         return try takeResourceData(runtimeBorrowedRaw, lease: runtimeBorrowedLease, maxBytes: maxBytes)
     }
+    private func runtimePointer() throws -> (OpaquePointer, Lease) {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        guard let runtimeBorrowedRaw, let runtimeBorrowedLease else {
+            throw GhostermError.failed("插件 Runtime 未持有活动 Session")
+        }
+        return (runtimeBorrowedRaw, runtimeBorrowedLease)
+    }
+    internal func requestRuntime(method: String, input: Data, timeoutMilliseconds: UInt32) throws -> RPCAdmission {
+        let (p, lease) = try runtimePointer()
+        guard !method.utf8.contains(0) else { throw GhostermError.failed("请求方法含 NUL") }
+        var l = lease.raw, handle: UInt64 = 0
+        let status = method.withCString { name in
+            input.withUnsafeBytes { gt_ext_session_request(p, &l, name, $0.baseAddress, $0.count, timeoutMilliseconds, &handle) }
+        }
+        let value = RPCStatus(rawValue: status.rawValue) ?? .invalid
+        return RPCAdmission(status: value, handle: value == .ok ? handle : nil)
+    }
+    internal func cancelRuntimeRequest(handle: UInt64) throws -> RPCStatus {
+        let (p, lease) = try runtimePointer(); var l = lease.raw
+        return RPCStatus(rawValue: gt_ext_session_cancel_request(p, &l, handle).rawValue) ?? .invalid
+    }
+    internal func runtimeRequestResult(handle: UInt64) throws -> (RPCStatus, RPCResult?) {
+        let (p, lease) = try runtimePointer(); var l = lease.raw, value = gt_ext_rpc_result_t()
+        let status = RPCStatus(rawValue: gt_ext_session_request_result(p, &l, handle, &value).rawValue) ?? .invalid
+        guard status == .ok else { return (status, nil) }
+        guard value.outcome_size <= 3072 else { throw GhostermError.failed("请求结果超限") }
+        let data = withUnsafeBytes(of: value.outcome) { Data($0.prefix(Int(value.outcome_size))) }
+        return (status, RPCResult(handle: value.handle, requestID: sessionString(value.request_id),
+            state: RPCState(rawValue: value.state.rawValue) ?? .unknown,
+            cancelRequested: value.cancel_requested, deadlineElapsed: value.deadline_elapsed,
+            confirmed: value.confirmed, outcome: data))
+    }
+    internal func forgetRuntimeRequest(handle: UInt64) throws -> RPCStatus {
+        let (p, lease) = try runtimePointer(); var l = lease.raw
+        return RPCStatus(rawValue: gt_ext_session_forget_request(p, &l, handle).rawValue) ?? .invalid
+    }
     public func openSource(_ lease: Lease, rootFD: Int32, relativePath: String, mime: String = "application/octet-stream", byteLimit: UInt64 = 262144) throws -> ExtensionFileSource.Admission {
         let p = try pointer(); guard !relativePath.utf8.contains(0), relativePath.utf8.count <= 4096, !mime.utf8.contains(0), mime.utf8.count <= 128 else { throw GhostermError.failed("源文件参数无效或超限") }
         let source = ExtensionFileSource(owner: owner); var l = lease.raw, rawSource: OpaquePointer?
@@ -287,7 +323,7 @@ public final class ExtensionSession {
         var runtime: OpaquePointer?
         let status = gt_ext_runtime_open(&raw, &config, &runtime)
         guard status == GT_OK, let runtime else { throw GhostermError.status(Int32(status.rawValue), "运行时未接管会话") }
-        if resourceStore != nil { runtimeBorrowedRaw = adoptedSession; runtimeBorrowedLease = adoptedLease }
+        runtimeBorrowedRaw = adoptedSession; runtimeBorrowedLease = adoptedLease
         return runtime
     }
     internal func adoptPackageRuntime(package: ExtensionPackage, config: inout gt_ext_runtime_config_t, associated: Bool) throws -> OpaquePointer {
@@ -298,7 +334,7 @@ public final class ExtensionSession {
         var runtime: OpaquePointer?
         let status = gt_ext_runtime_open_package(&raw, bytes, &config, associated, &runtime)
         guard status == GT_OK, let runtime else { throw GhostermError.status(Int32(status.rawValue), "插件包运行时未接管会话") }
-        if resourceStore != nil { runtimeBorrowedRaw = adoptedSession; runtimeBorrowedLease = adoptedLease }
+        runtimeBorrowedRaw = adoptedSession; runtimeBorrowedLease = adoptedLease
         return runtime
     }
     @discardableResult public func closeStep(milliseconds: Int32 = 0) throws -> Bool {

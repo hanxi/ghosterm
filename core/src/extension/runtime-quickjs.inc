@@ -1457,6 +1457,9 @@ static gt_status_t runtime_open(gt_ext_session_t **session,
         !gt__bridge_session_runtime_admissible((*session)->inner)) {
         return GT_ERR_INVALID_ARG;
     }
+    if (!package && c->root_count && !(*session)->store) {
+        return GT_ERR_UNSUPPORTED;
+    }
     gt_bridge_role_t actual_role;
     size_t method_count;
     gt__bridge_session_methods((*session)->inner, &method_count, &actual_role);

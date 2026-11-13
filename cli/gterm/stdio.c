@@ -310,8 +310,7 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     int host_size = snprintf(host_json,
                              sizeof(host_json),
                              "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
-                             "\",\"protocols\":[" GTERM_PROTOCOL
-                             "],\"runtimes\":[\"portable-js\"],"
+                             "\",\"protocols\":[" GTERM_PROTOCOL "],\"runtimes\":[\"portable-js\"],"
                              "\"capabilities\":[\"session.rpc\"%s%s%s]}",
                              process_available ? ",\"process.spawn\",\"process.pipes\"" : "",
                              resource_store_available ? ",\"resource.receive\"" : "",
@@ -434,9 +433,8 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
                 goto done;
             }
             strcpy(environment_values[process_environment_count], value);
-            runtime_environment[process_environment_count] =
-                (gt_ext_process_environment_t){selected_names[i],
-                                              environment_values[process_environment_count]};
+            runtime_environment[process_environment_count] = (gt_ext_process_environment_t){
+                selected_names[i], environment_values[process_environment_count]};
             process_environment_count++;
         }
         for (size_t i = 0; i < process_program_count; i++) {
@@ -501,18 +499,15 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         }
     }
     stage = "runtime activation";
-    gt_ext_runtime_config_t runtime_config = {.role = GT_EXT_EXECUTOR,
-                                              .invocation = &invocation,
-                                              .roots = root_count ? runtime_roots : NULL,
-                                              .root_count = root_count,
-                                              .process_programs =
-                                                  process_spawn ? runtime_programs : NULL,
-                                              .process_program_count =
-                                                  process_spawn ? process_program_count : 0,
-                                              .process_environment =
-                                                  process_spawn ? runtime_environment : NULL,
-                                              .process_environment_count =
-                                                  process_spawn ? process_environment_count : 0};
+    gt_ext_runtime_config_t runtime_config = {
+        .role = GT_EXT_EXECUTOR,
+        .invocation = &invocation,
+        .roots = root_count ? runtime_roots : NULL,
+        .root_count = root_count,
+        .process_programs = process_spawn ? runtime_programs : NULL,
+        .process_program_count = process_spawn ? process_program_count : 0,
+        .process_environment = process_spawn ? runtime_environment : NULL,
+        .process_environment_count = process_spawn ? process_environment_count : 0};
     if (gt_ext_runtime_open_package(&session, package, &runtime_config, true, &runtime) != GT_OK) {
         goto done;
     }

@@ -214,6 +214,29 @@ public final class ExtensionRuntime {
         guard let session else { return (.closed, nil) }
         return try session.takeRuntimeResourceData(maxBytes: maxBytes)
     }
+    /// Sends one Host -> Executor RPC using the Session now owned by this Runtime.
+    /// The caller must retain the handle and poll its result; unknown outcomes
+    /// are never retried automatically.
+    public func request(method: String, input: Data,
+                        timeoutMilliseconds: UInt32 = 30000) throws -> ExtensionSession.RPCAdmission {
+        guard try info().phase == .active, let session else {
+            throw GhostermError.failed("插件 Runtime 未处于活动状态")
+        }
+        return try session.requestRuntime(method: method, input: input,
+                                          timeoutMilliseconds: timeoutMilliseconds)
+    }
+    public func requestResult(handle: UInt64) throws -> (ExtensionSession.RPCStatus, ExtensionSession.RPCResult?) {
+        guard let session else { throw GhostermError.failed("插件 Runtime 未持有 Session") }
+        return try session.runtimeRequestResult(handle: handle)
+    }
+    public func cancelRequest(handle: UInt64) throws -> ExtensionSession.RPCStatus {
+        guard let session else { throw GhostermError.failed("插件 Runtime 未持有 Session") }
+        return try session.cancelRuntimeRequest(handle: handle)
+    }
+    public func forgetRequest(handle: UInt64) throws -> ExtensionSession.RPCStatus {
+        guard let session else { throw GhostermError.failed("插件 Runtime 未持有 Session") }
+        return try session.forgetRuntimeRequest(handle: handle)
+    }
     public func stop() { stopLock.lock(); defer { stopLock.unlock() }; if let raw { gt_ext_runtime_stop(raw) } }
     @discardableResult public func closeStep() throws -> Bool {
         let p = try pointer(); let close = gt_ext_runtime_close(p)

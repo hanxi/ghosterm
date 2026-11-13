@@ -297,6 +297,26 @@ public actor ExtensionController {
         try await worker.stepRuntime()
     }
 
+    /// Sends a Native Host -> remote Executor call through the Session owned by
+    /// the active Client Runtime. The returned handle is never retried for the caller.
+    public func requestExecutorRPC(method: String, input: Data,
+                                   timeoutMilliseconds: UInt32 = 30000) async throws -> ExtensionSession.RPCAdmission {
+        try await worker.requestExecutorRPC(method: method, input: input,
+                                             timeoutMilliseconds: timeoutMilliseconds)
+    }
+
+    public func executorRPCResult(handle: UInt64) async throws -> (ExtensionSession.RPCStatus, ExtensionSession.RPCResult?) {
+        try await worker.executorRPCResult(handle: handle)
+    }
+
+    public func cancelExecutorRPC(handle: UInt64) async throws -> ExtensionSession.RPCStatus {
+        try await worker.cancelExecutorRPC(handle: handle)
+    }
+
+    public func forgetExecutorRPC(handle: UInt64) async throws -> ExtensionSession.RPCStatus {
+        try await worker.forgetExecutorRPC(handle: handle)
+    }
+
     /// Pulls one Client -> Host request from an active, consented Session.
     /// The caller decides how to present and handle the method, then responds
     /// with a bounded JSON outcome using `respondHostRPC`.
@@ -591,6 +611,40 @@ public actor ExtensionController {
                       let command = self.runtimeCommand else { throw ControllerError.runtimeUnavailable }
                 _ = try runtime.step()
                 return try self.runtimeState(runtime, packageKey: packageKey, command: command)
+            }
+        }
+
+        func requestExecutorRPC(method: String, input: Data,
+                                timeoutMilliseconds: UInt32) async throws -> ExtensionSession.RPCAdmission {
+            try await perform {
+                try self.checkOpen()
+                guard let runtime = self.runtime else { throw ControllerError.runtimeUnavailable }
+                return try runtime.request(method: method, input: input,
+                                           timeoutMilliseconds: timeoutMilliseconds)
+            }
+        }
+
+        func executorRPCResult(handle: UInt64) async throws -> (ExtensionSession.RPCStatus, ExtensionSession.RPCResult?) {
+            try await perform {
+                try self.checkOpen()
+                guard let runtime = self.runtime else { throw ControllerError.runtimeUnavailable }
+                return try runtime.requestResult(handle: handle)
+            }
+        }
+
+        func cancelExecutorRPC(handle: UInt64) async throws -> ExtensionSession.RPCStatus {
+            try await perform {
+                try self.checkOpen()
+                guard let runtime = self.runtime else { throw ControllerError.runtimeUnavailable }
+                return try runtime.cancelRequest(handle: handle)
+            }
+        }
+
+        func forgetExecutorRPC(handle: UInt64) async throws -> ExtensionSession.RPCStatus {
+            try await perform {
+                try self.checkOpen()
+                guard let runtime = self.runtime else { throw ControllerError.runtimeUnavailable }
+                return try runtime.forgetRequest(handle: handle)
             }
         }
 
