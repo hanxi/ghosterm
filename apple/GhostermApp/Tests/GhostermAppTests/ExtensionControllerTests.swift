@@ -61,6 +61,56 @@ final class ExtensionControllerTests: XCTestCase {
         ]))
     }
 
+    func testCodexTimelineCombinesMessageAndToolOutputDeltas() throws {
+        func data(_ value: [String: Any]) throws -> Data {
+            try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+        }
+        var timeline: [CodexTimelineEntry] = []
+        timeline = CodexTimelineReducer.apply(timeline, sequence: 1, method: "item/started", params: try data([
+            "threadId": "thread-a", "turnId": "turn-a", "startedAtMs": 1,
+            "item": ["type": "agentMessage", "id": "message-a", "text": ""],
+        ]))
+        timeline = CodexTimelineReducer.apply(timeline, sequence: 2, method: "item/agentMessage/delta", params: try data([
+            "threadId": "thread-a", "turnId": "turn-a", "itemId": "message-a", "delta": "Hello ",
+        ]))
+        timeline = CodexTimelineReducer.apply(timeline, sequence: 3, method: "item/agentMessage/delta", params: try data([
+            "threadId": "thread-a", "turnId": "turn-a", "itemId": "message-a", "delta": "world",
+        ]))
+        XCTAssertEqual(timeline.count, 1)
+        XCTAssertEqual(timeline[0].title, "Codex")
+        XCTAssertEqual(timeline[0].detail, "Hello world")
+
+        timeline = CodexTimelineReducer.apply(timeline, sequence: 4, method: "item/started", params: try data([
+            "threadId": "thread-a", "turnId": "turn-a", "startedAtMs": 2,
+            "item": ["type": "commandExecution", "id": "command-a", "command": "git status",
+                     "cwd": "/work/project", "status": "inProgress"],
+        ]))
+        timeline = CodexTimelineReducer.apply(timeline, sequence: 5, method: "item/commandExecution/outputDelta", params: try data([
+            "threadId": "thread-a", "turnId": "turn-a", "itemId": "command-a", "delta": "clean\n",
+        ]))
+        timeline = CodexTimelineReducer.apply(timeline, sequence: 6, method: "item/commandExecution/outputDelta", params: try data([
+            "threadId": "thread-a", "turnId": "turn-a", "itemId": "command-a", "delta": "done\n",
+        ]))
+        let command = try XCTUnwrap(timeline.first { $0.id == "item:command-a" })
+        XCTAssertEqual(command.title, "命令执行")
+        XCTAssertTrue(command.detail.contains("git status"))
+        XCTAssertTrue(command.detail.contains("/work/project"))
+        XCTAssertTrue(command.detail.contains("clean\ndone\n"))
+    }
+
+    func testCodexTimelineBoundsHistoryAndEntrySize() throws {
+        let params = try JSONSerialization.data(withJSONObject: ["delta": String(repeating: "x", count: 40000)])
+        let large = CodexTimelineReducer.apply([], sequence: 1, method: "unknown/event", params: params)
+        XCTAssertEqual(large.count, 1)
+        XCTAssertLessThanOrEqual(large[0].detail.utf8.count, 32768)
+        var entries: [CodexTimelineEntry] = []
+        for index in 1...140 {
+            let bytes = try JSONSerialization.data(withJSONObject: ["status": "done"])
+            entries = CodexTimelineReducer.apply(entries, sequence: UInt64(index), method: "turn/completed", params: bytes)
+        }
+        XCTAssertLessThanOrEqual(entries.count, 128)
+    }
+
     func testResourceCapabilityRequiresAnExplicitPrivateDirectory() throws {
         let profile = try ExtensionController.HostProfile(side: .client, sdkVersion: "1.0.0",
             protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc", "resource.receive"])

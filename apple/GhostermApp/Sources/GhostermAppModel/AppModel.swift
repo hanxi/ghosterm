@@ -88,6 +88,7 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var codexCallBusy = false
     @Published public private(set) var codexTurnActive = false
     @Published public private(set) var codexPendingApprovals: [CodexPendingApproval] = []
+    @Published public private(set) var codexTimeline: [CodexTimelineEntry] = []
     private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String])?
     private var lastCodexEventSequence: UInt64 = 0
     private var pendingCodexRPCHandles: Set<UInt64> = []
@@ -1153,6 +1154,7 @@ public final class AppModel: ObservableObject {
             codexMessageDraft = ""
             codexTurnActive = false
             codexPendingApprovals = []
+            codexTimeline = []
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
@@ -1264,6 +1266,7 @@ public final class AppModel: ObservableObject {
             codexThreadID = nil; codexMessageDraft = ""
             codexTurnActive = false
             codexPendingApprovals = []
+            codexTimeline = []
             pendingCodexRPCHandles.removeAll()
         } catch { extensionRunIssue = "释放插件资源失败：\(error)" }
         extensionRunBusy = false
@@ -1509,6 +1512,16 @@ public final class AppModel: ObservableObject {
         if event.kind == "notification" {
             if event.notification?.method == "turn/started" { codexTurnActive = true }
             if event.notification?.method == "turn/completed" { codexTurnActive = false }
+            if let notification = rawEvent?["notification"] as? [String: Any],
+               let method = notification["method"] as? String,
+               let params = notification["params"], JSONSerialization.isValidJSONObject(params),
+               let data = try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]) {
+                codexTimeline = CodexTimelineReducer.apply(codexTimeline, sequence: event.sequence,
+                    method: method, params: data)
+            }
+        } else if event.kind != "approval-request" && event.kind != "approval-resolved" {
+            codexTimeline = CodexTimelineReducer.apply(codexTimeline, sequence: event.sequence,
+                method: event.kind, params: Data(encoded.utf8))
         }
     }
 

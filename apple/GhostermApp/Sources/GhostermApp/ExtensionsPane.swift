@@ -237,57 +237,7 @@ struct ExtensionsPane: View {
                     Text("本次运行收到的资源").font(DS.Font.labelEmphasis)
                     PluginResourceBrowser(resources: run.receivedResources, selection: $resourceSelection)
                 }
-                if !run.codexEvents.isEmpty {
-                    Text("Codex 协议事件（原始 JSON）").font(DS.Font.labelEmphasis)
-                    ForEach(Array(run.codexEvents.enumerated()), id: \.offset) { _, event in
-                        Text(event).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                    }
-                }
-                if run.command == "ai codex" {
-                    if !model.codexPendingApprovals.isEmpty {
-                        Text("Codex 等待中的批准请求").font(DS.Font.labelEmphasis)
-                        ForEach(model.codexPendingApprovals) { approval in
-                            VStack(alignment: .leading, spacing: DS.Padding.xs) {
-                                Text(approval.method).font(DS.Font.caption).textSelection(.enabled)
-                                Text(approval.paramsJSON).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                                HStack {
-                                    Button("拒绝") { Task { await model.respondCodexApproval(id: approval.id, allow: false) } }
-                                        .accessibilityIdentifier("plugin-codex-approval-deny")
-                                    Button("批准一次") { Task { await model.respondCodexApproval(id: approval.id, allow: true) } }
-                                        .buttonStyle(.borderedProminent)
-                                        .accessibilityIdentifier("plugin-codex-approval-allow")
-                                }
-                                .disabled(model.codexCallBusy)
-                            }
-                        }
-                    }
-                    if let threadID = model.codexThreadID {
-                        Text("Codex thread：\(threadID)").font(DS.Font.caption).textSelection(.enabled)
-                        HStack {
-                            TextField("发送给 Codex", text: $model.codexMessageDraft, axis: .vertical)
-                                .lineLimit(1...4)
-                                .accessibilityIdentifier("plugin-codex-message")
-                            Button(model.codexCallBusy ? "正在发送…" : "发送") {
-                                Task { await model.sendCodexMessage() }
-                            }
-                            .disabled(model.codexCallBusy || model.codexTurnActive || model.codexMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            .accessibilityIdentifier("plugin-codex-send")
-                        }
-                        if model.codexTurnActive {
-                            Button(model.codexCallBusy ? "正在处理中…" : "中断当前 turn") {
-                                Task { await model.interruptCodexTurn() }
-                            }
-                            .disabled(model.codexCallBusy || !run.methods.contains("codex.turn.interrupt"))
-                            .accessibilityIdentifier("plugin-codex-interrupt")
-                        }
-                    } else {
-                        Button(model.codexCallBusy ? "正在启动…" : "启动 Codex 对话") {
-                            Task { await model.startCodexThread() }
-                        }
-                        .disabled(model.codexCallBusy || !run.methods.contains("codex.thread.start"))
-                        .accessibilityIdentifier("plugin-codex-start-thread")
-                    }
-                }
+                codexControls(run: run)
                 Button(model.extensionRunBusy ? "正在停止…" : "停止并释放插件") {
                     Task { await model.stopExtensionRun() }
                 }
@@ -300,6 +250,79 @@ struct ExtensionsPane: View {
         .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
         .onChange(of: model.extensionRun?.receivedResources.map(\.resourceID) ?? []) { identifiers in
             resourceSelection.reconcile(identifiers)
+        }
+    }
+
+    @ViewBuilder
+    private func codexControls(run: AppModel.ExtensionRun) -> some View {
+        if run.command == "ai codex" {
+            if !model.codexTimeline.isEmpty {
+                Text("Codex 对话与工具活动").font(DS.Font.labelEmphasis)
+                ForEach(model.codexTimeline) { item in
+                    VStack(alignment: .leading, spacing: DS.Padding.xs) {
+                        Text(item.title).font(DS.Font.labelEmphasis)
+                        if !item.detail.isEmpty {
+                            Text(item.detail).font(.system(size: 12, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(DS.Padding.s)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.background.opacity(0.55), in: RoundedRectangle(cornerRadius: DS.Radius.control))
+                    .accessibilityIdentifier("plugin-codex-timeline-\(item.id)")
+                }
+            }
+            if !run.codexEvents.isEmpty {
+                DisclosureGroup("原始 Codex 协议事件（\(run.codexEvents.count)）") {
+                    ForEach(Array(run.codexEvents.enumerated()), id: \.offset) { _, event in
+                        Text(event).font(.system(size: 10, design: .monospaced)).textSelection(.enabled)
+                    }
+                }
+            }
+            if !model.codexPendingApprovals.isEmpty {
+                Text("Codex 等待中的批准请求").font(DS.Font.labelEmphasis)
+                ForEach(model.codexPendingApprovals) { approval in
+                    VStack(alignment: .leading, spacing: DS.Padding.xs) {
+                        Text(approval.method).font(DS.Font.caption).textSelection(.enabled)
+                        Text(approval.paramsJSON).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                        HStack {
+                            Button("拒绝") { Task { await model.respondCodexApproval(id: approval.id, allow: false) } }
+                                .accessibilityIdentifier("plugin-codex-approval-deny")
+                            Button("批准一次") { Task { await model.respondCodexApproval(id: approval.id, allow: true) } }
+                                .buttonStyle(.borderedProminent)
+                                .accessibilityIdentifier("plugin-codex-approval-allow")
+                        }
+                        .disabled(model.codexCallBusy)
+                    }
+                }
+            }
+            if let threadID = model.codexThreadID {
+                Text("Codex thread：\(threadID)").font(DS.Font.caption).textSelection(.enabled)
+                HStack {
+                    TextField("发送给 Codex", text: $model.codexMessageDraft, axis: .vertical)
+                        .lineLimit(1...4)
+                        .accessibilityIdentifier("plugin-codex-message")
+                    Button(model.codexCallBusy ? "正在发送…" : "发送") {
+                        Task { await model.sendCodexMessage() }
+                    }
+                    .disabled(model.codexCallBusy || model.codexTurnActive || model.codexMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("plugin-codex-send")
+                }
+                if model.codexTurnActive {
+                    Button(model.codexCallBusy ? "正在处理中…" : "中断当前 turn") {
+                        Task { await model.interruptCodexTurn() }
+                    }
+                    .disabled(model.codexCallBusy || !run.methods.contains("codex.turn.interrupt"))
+                    .accessibilityIdentifier("plugin-codex-interrupt")
+                }
+            } else {
+                Button(model.codexCallBusy ? "正在启动…" : "启动 Codex 对话") {
+                    Task { await model.startCodexThread() }
+                }
+                .disabled(model.codexCallBusy || !run.methods.contains("codex.thread.start"))
+                .accessibilityIdentifier("plugin-codex-start-thread")
+            }
         }
     }
 }

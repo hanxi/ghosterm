@@ -192,7 +192,14 @@ note "core/build/libghosterm_core.a"
 # ------------------------------------------------------------------ 3. release 构建
 step "3/9 SwiftPM release 构建"
 ( cd "$ROOT/apple/GhostermApp" && swift build -c release --arch "$ARCH" ) >"$WORK/swift-build.log" 2>&1 \
-  || { tail -30 "$WORK/swift-build.log" >&2; fail "swift build 失败（完整日志 $WORK/swift-build.log）"; }
+  || {
+    if grep -qE 'error:|fatal error:' "$WORK/swift-build.log"; then
+      grep -n -B3 -A6 -E 'error:|fatal error:' "$WORK/swift-build.log" | tail -120 >&2
+    else
+      tail -50 "$WORK/swift-build.log" >&2
+    fi
+    fail "swift build 失败（完整日志 $WORK/swift-build.log）"
+  }
 BIN="$ROOT/apple/GhostermApp/.build/release/GhostermApp"
 [ -x "$BIN" ] || fail "找不到 release 产物 $BIN"
 note "${BIN}（$(du -h "$BIN" | awk '{print $1}')）"

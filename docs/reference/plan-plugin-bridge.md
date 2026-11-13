@@ -4884,3 +4884,9 @@ JS-enabled Runtime CTest 新增 `runtime_step`：真实 QuickJS 插件只在 Dis
 `codex.event` 收件器现在按 Executor 的 RequestID 编码规则保留字符串 / 安全整数 ID，验证 command-execution / file-change approval 方法并显示有界 JSON 参数。每个待处理请求提供“批准一次”与“拒绝”按钮；决定经 `codex.approval.respond` Host→Executor RPC 发送，只有成功 outcome 才从 UI pending 列表移除，随后 `serverRequest/resolved` 事件也会清除过期项。重复 ID、无效 ID / 方法、超过 32 项及畸形请求都会 DENIED 并使 Runtime pump 失败关闭，不自动批准。
 
 新增 `ExtensionControllerTests` 两项单测：验证字符串 / 数值 request ID 编码、command 与 file-change 两种批准请求参数快照，以及布尔 ID / 未知方法 / 缺 params 拒绝。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter ExtensionControllerTests` 通过（16 项、4 项依赖 SSH / JS fixture 跳过、0 失败）。完整 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/apple-app-gate.sh` 通过：406 项、5 项跳过、0 失败；真实本地 SSH 基线与受限 HTML WebKit 子资源绘制也通过。`git diff --check` 通过；无 C ABI 变化，不增加 macOS CI 二十份。批准项当前以原始 JSON 展示，尚无 command/file diff 语义化 UI；真实 Codex tool / approval 产品往返、Android UI 和专用端到端验收仍待完成，P3 不记闭环。
+
+### P3 实施第三十二批：macOS Codex 对话与工具活动时间线
+
+新增有界原生时间线，将 agent message 增量合并成消息，将 command execution 的命令、目录、状态、退出码与分段输出合并成工具卡片，并显示文件变更、turn 状态、协议错误和结果未知。历史最多 128 项 / 256 KiB，单条详情最多 32 KiB；原始协议事件移入可折叠区域，approval 决策仍保留在同一面板。时间线随插件运行创建与停止清空。为降低 SwiftUI result builder 的类型检查负担，Codex 专属区域抽成独立 `codexControls(run:)`。
+
+`ExtensionControllerTests` 新增时间线增量合并与条目 / 历史限额两项。干净 SwiftPM release 构建通过；完整 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer bash scripts/apple-app-gate.sh` 通过：408 项、5 项跳过、0 失败，真实本地 SSH 基线和受限 HTML WebKit 子资源绘制通过。`git diff --check` 通过。GitHub Actions run `43346407706` 的 macOS 包构建在 `swift build -c release` 失败，runner 为 macOS 15 / Xcode 16.4 / Swift 6.1.2；现存 job 日志只保留脚本输出尾部，实际 `error:` 行未上传，故编译根因尚未确认，本机 Xcode 27.1 / Swift 6.3.3 的干净 release 通过不能证明 CI 工具链问题已解决。同步修正 `scripts/package-mac.sh`：后续 SwiftPM 失败优先打印错误上下文，日志无错误标记时打印更长尾部，便于下一次 CI 定位。尚无 Xcode 16.4 复跑证据；真实 Codex app-server UI 往返 / turn 与 Android 原生 UI 仍待完成，P3 不记闭环。
