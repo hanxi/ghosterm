@@ -14,7 +14,8 @@ internal data class CodexDiffLine(val index: Int, val text: String, val kind: Ki
 internal data class CodexFileChange(val path: String, val kind: String, val movePath: String?,
     val lines: List<CodexDiffLine>, val diffTruncated: Boolean)
 internal data class CodexTimelineEntry(val id: String, val title: String, val detail: String,
-    val fileChanges: List<CodexFileChange> = emptyList(), val omittedChangeCount: Int = 0)
+    val fileChanges: List<CodexFileChange> = emptyList(), val omittedChangeCount: Int = 0,
+    val changeReference: CodexChangeReference? = null, val changeUnavailable: Boolean = false)
 internal data class CodexPendingApproval(val id: String, val method: String, val paramsJSON: String,
     val itemID: String?)
 internal data class CodexHostState(
@@ -83,7 +84,7 @@ internal object CodexHostEvents {
             }
             "approval-request" -> {
                 val requestObject = event.optJSONObject("request") ?: error("Codex approval request is missing")
-                val id = requestKey(requestObject.opt("id")) ?: error("Codex approval request ID is invalid")
+                val id = requireNotNull(requestKey(requestObject.opt("id"))) { "Codex approval request ID is invalid" }
                 val requestMethod = requestObject.optString("method", "")
                 require(requestMethod in approvalMethods) { "Unsupported Codex approval method" }
                 val requestParams = requestObject.opt("params")
@@ -156,7 +157,9 @@ internal object CodexHostEvents {
                     return replace(entries, CodexTimelineEntry("item:$itemID", "文件变更", "",
                         fileChanges = fileChanges(item.opt("changes"), marker),
                         omittedChangeCount = (marker?.optInt("omittedChanges", 0)?.coerceAtLeast(0) ?: 0) +
-                            ((item.optJSONArray("changes")?.length() ?: 0) - 8).coerceAtLeast(0)))
+                            ((item.optJSONArray("changes")?.length() ?: 0) - 8).coerceAtLeast(0),
+                        changeReference = CodexChangeJson.reference(marker, objectValue.opt("threadId"),
+                            objectValue.opt("turnId"), itemID), changeUnavailable = marker?.has("snapshotUnavailable") == true))
                 }
                 val previous = entries.firstOrNull { it.id == "item:$itemID" }?.detail
                 val (title, detail) = when (type) {
@@ -189,7 +192,9 @@ internal object CodexHostEvents {
                 return replace(entries, CodexTimelineEntry("item:$itemID", "文件变更", "",
                     fileChanges(objectValue.opt("changes"), marker),
                     (marker?.optInt("omittedChanges", 0)?.coerceAtLeast(0) ?: 0) +
-                        ((objectValue.optJSONArray("changes")?.length() ?: 0) - 8).coerceAtLeast(0)))
+                        ((objectValue.optJSONArray("changes")?.length() ?: 0) - 8).coerceAtLeast(0),
+                    changeReference = CodexChangeJson.reference(marker, objectValue.opt("threadId"),
+                        objectValue.opt("turnId"), itemID), changeUnavailable = marker?.has("snapshotUnavailable") == true))
             }
         }
         val title = when (method) {

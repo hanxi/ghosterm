@@ -708,6 +708,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                             Text(item.detail, style = MaterialTheme.typography.bodySmall,
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                         }
+                        item.changeReference?.let { CodexChangeSnapshotControl(extensions, it) }
+                        if (item.changeUnavailable) Text("完整补丁超过读取上限，当前只有部分预览。", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -720,8 +722,10 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         Text(approval.method, style = MaterialTheme.typography.labelMedium)
                         if (approval.method == "item/fileChange/requestApproval") {
                             val item = approval.itemID?.let { id -> state.timeline.firstOrNull { it.id == "item:$id" } }
-                            if (item != null && item.fileChanges.isNotEmpty()) {
-                                PluginCodexFileChanges(item.fileChanges, item.omittedChangeCount)
+                            if (item != null) {
+                                if (item.fileChanges.isNotEmpty()) PluginCodexFileChanges(item.fileChanges, item.omittedChangeCount)
+                                item.changeReference?.let { CodexChangeSnapshotControl(extensions, it) }
+                                if (item.changeUnavailable) Text("完整补丁超过读取上限，当前只有部分预览。", style = MaterialTheme.typography.bodySmall)
                             } else Text("正在等待 Codex 提供补丁内容。", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else SelectionContainer {

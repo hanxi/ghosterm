@@ -13,8 +13,12 @@ import com.hanxi.ghosterm.bridge.ExtensionResourceStore
 import com.hanxi.ghosterm.bridge.ExtensionSession
 import com.hanxi.ghosterm.bridge.PreparedSSH
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** Per-AppModel review state. Trust is deliberately process-local in this slice. */
@@ -23,6 +27,9 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     private val codexHostMethods = listOf("codex.event")
     private val pendingCodexRPCHandles = mutableSetOf<Long>()
     private val activeCodexRPCHandles = mutableSetOf<Long>()
+    private var sessionGeneration = Any()
+    private var rpcGeneration = Any()
+    internal val changeReview = CodexChangeReviewController(viewModelScope)
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
     data class ActiveSession(
         val packageID: String, val packageDigest: String, val command: ExtensionController.Command,
@@ -66,6 +73,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             methods = (request.methods + codexExecutorMethods).distinct(),
             hostMethods = (request.hostMethods + codexHostMethods).distinct()) else request
         if (launchBusy) return
+        if (activeSession != null) { error = "请先停止并释放当前插件 Session。"; return }
         if (sessions.connecting != null) { error = "当前已有 SSH 连接请求，请完成或取消后再启动插件"; return }
         if (entry.decision != "已批准（本进程）" || entry.review.digest != launchRequest.clientDigest ||
             entry.review.commands.none { it.path == command.path }) {
@@ -105,6 +113,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                                 ExtensionSession.Method(method, "session.rpc", receiver,
                                     ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
                             }, additionalRequiredCapabilities = extraCapabilities)
+                        sessionGeneration = Any(); rpcGeneration = Any(); changeReview.cancel()
+                        codex = CodexHostState(); pendingCodexRPCHandles.clear(); activeCodexRPCHandles.clear()
                         activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
                             launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
                             launchRequest.executorDigest, target.alias, ExtensionRelayBootstrap.build(launchRequest),
@@ -180,55 +190,101 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
-    private fun canCallCodex(method: String): Boolean = !codex.callBusy &&
+    private fun canCallCodex(method: String): Boolean = !launchBusy && !codex.callBusy &&
         activeSession?.command?.path == "ai codex" && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE &&
         method in activeSession?.methods.orEmpty()
 
     private fun callCodex(message: String, block: suspend () -> Unit) {
         if (codex.callBusy) return
+        val generation = rpcGeneration
+        codex = codex.copy(callBusy = true)
         viewModelScope.launch {
-            codex = codex.copy(callBusy = true)
             try { block() }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Throwable) { error = "$message：${failure.message ?: failure.javaClass.simpleName}" }
-            finally { codex = codex.copy(callBusy = false) }
+            catch (failure: Throwable) { if (generation === rpcGeneration) error = "$message：${failure.message ?: failure.javaClass.simpleName}" }
+            finally { if (generation === rpcGeneration) codex = codex.copy(callBusy = false) }
         }
     }
 
     private suspend fun codexRPC(method: String, input: JSONObject): JSONObject {
+        val generation = rpcGeneration
+        checkRPCGeneration(generation)
         val owner = controller ?: error("插件 Host 不可用")
-        check(method in activeSession?.methods.orEmpty()) { "Codex RPC 未在本次 Session allowlist 中" }
-        val admission = owner.requestRuntimeExecutor(method, input.toString().toByteArray(Charsets.UTF_8), 30000)
+        check(!launchBusy && method in activeSession?.methods.orEmpty()) { "Codex RPC 未在本次 Session allowlist 中" }
+        val admission = withContext(NonCancellable) {
+            owner.requestRuntimeExecutor(method, input.toString().toByteArray(Charsets.UTF_8), 30000)
+        }
         check(admission.status == ExtensionSession.RPCStatus.OK) { "Codex RPC admission 失败：${admission.status}" }
         val handle = checkNotNull(admission.handle)
-        pendingCodexRPCHandles += handle
-        activeCodexRPCHandles += handle
+        if (generation === rpcGeneration) {
+            pendingCodexRPCHandles += handle
+            activeCodexRPCHandles += handle
+        }
         var confirmed = false
+        var outcome: JSONObject? = null
         try {
+            checkRPCGeneration(generation)
             val deadline = SystemClock.elapsedRealtime() + 35000
             while (SystemClock.elapsedRealtime() < deadline) {
+                checkRPCGeneration(generation)
                 val (status, result) = owner.runtimeExecutorRequestResult(handle)
+                checkRPCGeneration(generation)
                 check(status == ExtensionSession.RPCStatus.OK) { "Codex RPC result 失败：$status" }
                 if (result?.confirmed == true) {
                     confirmed = true
                     check(result.state == ExtensionSession.RPCState.SUCCEEDED) {
                         "Codex RPC 结果未成功确认：${result.state}"
                     }
-                    return CodexHostEvents.decodeOutcome(result.outcome)
+                    outcome = CodexHostEvents.decodeOutcome(result.outcome)
+                    break
                 }
                 delay(20)
             }
-            error("Codex RPC 超时；结果未知，不会自动重试")
+            check(outcome != null) { "Codex RPC 超时；结果未知，不会自动重试" }
         } finally {
-            activeCodexRPCHandles -= handle
-            if (confirmed) {
-                val forgotten = owner.forgetRuntimeExecutorRequest(handle)
-                if (forgotten != ExtensionSession.RPCStatus.OK) error("无法释放 Codex RPC 结果句柄：$forgotten")
-                pendingCodexRPCHandles -= handle
-            } else {
-                owner.cancelRuntimeExecutorRequest(handle)
+            withContext(NonCancellable) {
+                if (generation === rpcGeneration) {
+                    activeCodexRPCHandles -= handle
+                    if (confirmed) {
+                        val forgotten = owner.forgetRuntimeExecutorRequest(handle)
+                        if (generation === rpcGeneration) {
+                            if (forgotten != ExtensionSession.RPCStatus.OK) error("无法释放 Codex RPC 结果句柄：$forgotten")
+                            pendingCodexRPCHandles -= handle
+                        }
+                    } else owner.cancelRuntimeExecutorRequest(handle)
+                }
             }
         }
+        checkRPCGeneration(generation)
+        return checkNotNull(outcome)
+    }
+
+    private suspend fun checkRPCGeneration(generation: Any) {
+        currentCoroutineContext().ensureActive()
+        if (generation !== rpcGeneration) throw CancellationException("Plugin Session changed")
+    }
+
+    internal val canReadCodexChanges get() = !launchBusy && activeSession?.command?.path == "ai codex" &&
+        activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE && "codex.change.read" in activeSession?.methods.orEmpty()
+
+    internal fun loadCodexChanges(reference: CodexChangeReference) {
+        if (!canReadCodexChanges || !currentChange(reference)) return
+        val generation = rpcGeneration
+        changeReview.load(reference,
+            isCurrent = { generation === rpcGeneration && canReadCodexChanges && currentChange(reference) },
+            read = { offset -> CodexChangeJson.chunk(codexRPC("codex.change.read",
+                JSONObject().put("snapshotID", reference.snapshotID).put("offset", offset))) },
+            decode = CodexChangeJson::document)
+    }
+
+    private fun currentChange(reference: CodexChangeReference) = codex.threadID == reference.threadID &&
+        codex.timeline.any { it.changeReference == reference }
+
+    private fun invalidateCodexCalls() {
+        rpcGeneration = Any()
+        changeReview.cancel()
+        activeCodexRPCHandles.clear()
+        codex = codex.copy(callBusy = false)
     }
 
     fun decideConsent(allow: Boolean) {
@@ -274,6 +330,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     fun stopRuntime() {
         val owner = controller ?: return
         if (launchBusy || activeRuntime == null) return
+        invalidateCodexCalls()
         launchBusy = true
         owner.requestStopRuntime()
     }
@@ -282,6 +339,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         val owner = controller ?: return
         val current = activeSession ?: return
         if (launchBusy || current.info.phase != ExtensionSession.Phase.ACTIVE || activeRuntime != null) return
+        invalidateCodexCalls()
         launchBusy = true
         owner.requestStopSession()
         viewModelScope.launch {
@@ -305,6 +363,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         viewModelScope.launch {
             try {
                 owner.releaseFinished()
+                sessionGeneration = Any(); invalidateCodexCalls()
                 activeRuntime = null; activeSession = null; receivedResources = emptyList()
                 codex = CodexHostState(); pendingCodexRPCHandles.clear(); activeCodexRPCHandles.clear()
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -330,12 +389,16 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     }
 
     private suspend fun advanceRuntime(owner: ExtensionController) {
+        val generation = sessionGeneration
         try {
             while (true) {
                 val state = owner.stepRuntime()
+                if (generation !== sessionGeneration) return
                 activeRuntime = state
                 reapCodexRPCs(owner)
+                if (generation !== sessionGeneration) return
                 val (resourceStatus, content) = owner.takeRuntimeResource()
+                if (generation !== sessionGeneration) return
                 if (resourceStatus == ExtensionResourceStore.Status.OK && content != null) {
                     val resources = receivedResources
                     if (resources.none { it.descriptor.resourceId == content.descriptor.resourceId }) {
@@ -352,6 +415,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 if (state.info.phase !in setOf(ExtensionRuntime.Phase.ACTIVE, ExtensionRuntime.Phase.STARTING,
                         ExtensionRuntime.Phase.CREATED)) {
                     codex = codex.copy(approvals = emptyList())
+                    changeReview.cancel()
                     return
                 }
                 delay(50)
@@ -359,15 +423,17 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
+            if (generation !== sessionGeneration) return
+            changeReview.cancel()
             codex = codex.copy(approvals = emptyList())
             error = "插件 Runtime 运行失败：${failure.message ?: failure.javaClass.simpleName}"
-        } finally {
-            launchBusy = false
-        }
+        } finally { if (generation === sessionGeneration) launchBusy = false }
     }
 
     private suspend fun pumpCodexHostEvent(owner: ExtensionController) {
+        val generation = sessionGeneration
         val (status, request) = owner.takeRuntimeRequest()
+        if (generation !== sessionGeneration) return
         if (status == ExtensionSession.RPCStatus.WAIT) return
         check(status == ExtensionSession.RPCStatus.OK && request != null) { "读取 Codex Host RPC 失败：$status" }
         if (request.method != "codex.event" || "codex.event" !in activeSession?.hostMethods.orEmpty()) {
@@ -383,7 +449,11 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             throw IllegalStateException("Codex Executor event rejected: ${failure.message}", failure)
         }
         respondCodexEvent(owner, request.ticket, true, null)
+        if (generation !== sessionGeneration) return
         codex = next
+        changeReview.invalidate(::currentChange)
+        if (next.rawEvents.lastOrNull()?.let { JSONObject(it).optString("kind") } in
+            setOf("protocol-error", "closed", "outcome-unknown")) changeReview.cancel()
     }
 
     private suspend fun respondCodexEvent(owner: ExtensionController, ticket: Long, accepted: Boolean, message: String?) {
@@ -396,15 +466,18 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     }
 
     private suspend fun reapCodexRPCs(owner: ExtensionController) {
+        val generation = sessionGeneration
         for (handle in pendingCodexRPCHandles.toList()) {
             if (handle in activeCodexRPCHandles) continue
             val (status, result) = owner.runtimeExecutorRequestResult(handle)
+            if (generation !== sessionGeneration) return
             if (status == ExtensionSession.RPCStatus.CLOSED) {
                 pendingCodexRPCHandles -= handle
                 continue
             }
             if (status != ExtensionSession.RPCStatus.OK || result == null || !result.confirmed) continue
             val statusAfter = owner.forgetRuntimeExecutorRequest(handle)
+            if (generation !== sessionGeneration) return
             if (statusAfter == ExtensionSession.RPCStatus.OK) pendingCodexRPCHandles -= handle
             else error = "无法释放终态 Codex RPC 句柄：$statusAfter"
         }

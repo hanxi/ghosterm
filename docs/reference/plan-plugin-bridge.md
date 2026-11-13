@@ -5022,3 +5022,21 @@ CodexTimeline 现保留完整快照引用，即使预览的 changes 已全部省
 真实 AppModel SSH 专项扩为四项（direct 两项、jump 两项），零失败 / 跳过。新增受控包装器在 exec Codex 之前以 FIFO 阻塞；实际观察 child 已启动后，停止仍在等 initialize 的 thread/start，核对旧错误 / busy 没有留下，再以真实 CLI 建立替代 Session 并成功创建 thread。包装器不伪造 app-server 回包，也不把阻塞阶段当 CLI 已初始化。仍没有模型 turn 或用户登录配置。完整 Apple gate 为 428 项、2 跳过、零失败；跳过是独立 owned route fixture 与开发态随包主题检查。Preview 实际 SSH 收件驱动的 WebKit CSS / PNG 探针、Apple ABI 174 引用 / 3 登记未用通过。随后收紧入队取消句柄登记并补 Unicode 更新后的最终默认档 35 项组合（含十五项新组件）为 3 跳过 / 零失败；不冒充重新跑过 428 全套。匹配 JS-enabled 与默认两档 macOS arm64 release 均通过；恢复默认 Core JS=OFF / tests=ON 后，离线 gate 481/481 CTest、177 公共 ABI 与未实现入口检查通过。Python 语法与 git diff --check 通过。
 
 本批只改 macOS Native 与专项测试 / 文档，无公共 C ABI、插件权限或 Android 产品源码变更；不增加 CI 二十份。测试窗口保持后台，工程 tmp/ 产物验收后清理；能力矩阵标 🟡，限定上述组件 / 真实 SSH 生命周期证据。正向完整文档经真实 RPC 到 UI 的整链、审批与版本绑定、Android 完整审阅、真实模型 turn / approval、完整点击 / 字号 / 无障碍 / tmux / 设备矩阵仍未完成，P3–P6 继续推进。
+
+### P3 实施第四十五批：Android 完整补丁读取与只读审阅
+
+Android 时间线与文件审批卡片接入完整快照引用、读取 / 取消 / 字节进度 / 失效错误及文件选择器。全部预览文件被省略时仍保留引用，超过快照上限明确提示。一次保留一份完整文档，Compose BasicTextField 显示选中文件的完整 diff，可选择而不可编辑；不打开路径、不执行链接或写文件。读完不等于用户已审阅，本批仍没有将批准与补丁版本绑定。
+
+CodexChangeReference / Assembler 拒绝布尔 / 小数计数、非规范 ID、超限或无效元数据；按 UTF-16 连续偏移拼接，逐块拒绝不完整代理对、空进度、身份 / 总量 / EOF 不匹配，核对最终 UTF-8 字节数。完整输入上限 512 KiB、8192 个文件、每路径 16 KiB、2048 分块和 120 秒发布期限。独立 worker 使用 Android 严格流式 JsonReader 解码固定 schema，重复 / 未知字段、错误类型 / 版本 / 路径拒绝，thread / turn / item 按原始 Kotlin 字符串精确核对，不折叠 Unicode 规范等价。未完成或解码失败不发布正文；序列化预算不等于 JVM / Compose / RSS 上限。
+
+读取代次与 Session 代次独立，取消、替换、停止、终态或当前引用改变使旧结果失效；过期上下文超时也清除 loading。RPC 在入队、轮询、释放及返回调用方前检查代次，取消入队仍观察同一 Session 的句柄，旧回调不改写新会话 busy / 错误 / 文档。停止期间拒绝新动作，Runtime pump 保留推进旧关闭链的职责。这里只对读取控制器做执行级晚到结果验证；完整 AppModel / 真实 RPC 的 Android 停止重建与界面销毁链仍待端到端验收。
+
+`scripts/test-android-codex-review.py --mutate` 用已缓存的 Kotlin 编译器实际执行生产 assembler / coroutine controller；完整 Unicode、连续偏移、实际字节、EOF / 未完成、取消后替换、未取消但 scope 改变、expired、超时与解码失败通过。六组身份 / 偏移 / UTF-16 / 实际字节 / scope / 严格编码变异均真实编译后正常 AssertionError 红、同构件独立 reference 对照绿、恢复绿与 SHA256。读取端口和完整解码器在 JVM 夹具中由测试注入，不冒充 Android JSON、真实 RPC 或 Agent 结果；所有有界执行经仓库 gt_timeout。
+
+`mutation-check-android-codex-review.py` 的只读 / 文档身份 / schema 三组在专用 API 36 无窗口设备通过：每组真实编译、单条正常断言红、同 APK Core 配置字节对照绿、恢复绿及源码 SHA256。Android JSON / Compose / Host timeline / NativeSmoke 最终同源组合在 API 29 / API 36 各 17 项、零失败 / 跳过；包含十文件 / 600 行正文、602 行实际排版与末行无省略、选择最后文件、不可编辑 / 可选择、Unicode 版本替换、严格元数据 / schema / 身份 / 编码 / 文件上限和全省略预览的引用保留。两设备均为 arm64 / 4 KiB 页，两安装 APK 与构建产物逐字节 SHA256 一致。最终 app / test APK 分别为 `b273005860b57e93f3f85bc640a88548b4e128ea818e061546ad084d5d45654e` / `340bc3f67b5b4d4b09f42f7a521956afc5f976e851fdef0ebd67a6c6756f5575`。
+
+JS-enabled Debug / androidTest、未签名 Release / R8、app / bridge / terminal / data 四模块 lint 与默认 JS-off Release 构建通过。离线 Core gate 481/481、177 个公共 ABI、未实现入口及 Android ABI 140 引用 / 37 登记未用通过。首次设备轮装到旧 Debug APK，三组 runner 缺类初始化失败未计正常断言红；补建主 APK 后，旧审批布尔 ID 测试发现 error 抛状态异常而断言要求参数异常，已改 requireNotNull 保留拒绝断言并在最终组合通过。误对纯 JVM domain 模块请求 lintRelease 的任务选择失败另记，修正为上述四个 Android 模块后通过。API 36 Emulator console 退出未使进程及时结束，确认专属 PID 后 TERM 关闭，不将此维护情况记作产品失败或通过。
+
+候选包 strict TypeScript / compiled Executor fixture / 离线重建 --check 另通过，integrity 摘要保持 `6eb5c14ef29526a7abca58eacfcf8fabc596cde56182e8668c50da209cb78e9f`；本批只更新源码 README，随包 PACKAGE.md 未改。首轮 --check 因前批清理后的 npm 临时缓存缺失报 ENOTCACHED，按锁定清单 --fetch 后重跑离线检查通过，该环境准备失败未计通过。Python 语法与 git diff --check 通过。
+
+无公共 C ABI、插件权限或候选包运行时产物变化；默认 App 仍 JS-off，不增加 macOS CI 二十份。所有设备均以 -no-window 运行，HOME / AVD / TMPDIR 和运行标记均在工程 tmp/，crash reporting 禁用；关闭后清理一次性镜像和测试产物。此为组件 / 模拟器证据，非真实模型 turn / approval、正向完整快照经实际 RPC 到界面的整链、审批版本绑定、真机 / 16 KiB 页或完整客户端验收；P3–P6 继续未完成。

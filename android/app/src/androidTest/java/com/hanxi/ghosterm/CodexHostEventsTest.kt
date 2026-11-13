@@ -86,4 +86,24 @@ class CodexHostEventsTest {
         assertEquals(CodexDiffLine.Kind.HUNK, item.fileChanges.single().lines.first().kind)
         assertTrue(item.fileChanges.single().diffTruncated)
     }
+
+    @Test fun completeSnapshotReferenceSurvivesAnEntirelyOmittedPreview() {
+        val marker = JSONObject().put("snapshotID", "change-7").put("snapshotUnits", 50)
+            .put("snapshotBytes", 60).put("omittedChanges", 10)
+        val params = JSONObject().put("threadId", "thread").put("turnId", "turn").put("itemId", "item")
+            .put("changes", org.json.JSONArray()).put("_ghosterm", marker)
+        val notification = JSONObject().put("method", "item/fileChange/patchUpdated").put("params", params)
+        val event = CodexHostEvents.decode(rpc(1, "notification", "\"notification\":$notification"))
+        val state = CodexHostEvents.accept(CodexHostState(), event)
+        val item = state.timeline.single()
+        assertTrue(item.fileChanges.isEmpty())
+        assertEquals(10, item.omittedChangeCount)
+        assertEquals("change-7", item.changeReference?.snapshotID)
+        assertEquals("thread", item.changeReference?.threadID)
+        val completed = JSONObject().put("method", "item/completed").put("params", JSONObject()
+            .put("threadId", "thread").put("turnId", "turn").put("item", JSONObject().put("id", "item")
+                .put("type", "fileChange").put("changes", org.json.JSONArray()).put("_ghosterm", marker)))
+        val next = CodexHostEvents.accept(state, CodexHostEvents.decode(rpc(2, "notification", "\"notification\":$completed")))
+        assertEquals(item.changeReference, next.timeline.single().changeReference)
+    }
 }

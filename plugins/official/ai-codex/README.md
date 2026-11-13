@@ -169,7 +169,7 @@ need their own acceptance evidence. RPC-only sessions negotiate requests without
 resource transfer, and a process cwd alone grants no scoped file-read capability.
 
 
-macOS now preserves full snapshot references even when the preview has no room
+macOS and Android now preserve full snapshot references even when the preview has no room
 for any file, and offers `读取完整补丁` in timeline and file-approval rows. It
 assembles contiguous UTF-16 chunks, verifies total UTF-8 bytes and exact
 thread/turn/item identity, then decodes the complete document on a worker. Only a
@@ -179,8 +179,11 @@ per AppModel, with at most 512 KiB serialized input, 8192 files, and 16 KiB per
 path. Cancellation, replacement, unavailable runtime, and terminal failure clear
 the review; late callbacks cannot repopulate another review. Reads have an
 aggregate publication deadline and no automatic retry. Reading a complete patch
-is not yet bound to the file-approval RPC version; that protection and Android
-full review remain pending.
+is not yet bound to the file-approval RPC version; that protection and a positive
+full-patch RPC-to-UI E2E remain pending. The Android native reader uses strict
+streaming JSON, exact Kotlin string identity, a selectable read-only Compose
+text field, and the same publication limits. Default App builds still have the
+optional plugin JS runtime disabled.
 
 Run the macOS component tests and isolated seven-group mutations against the
 default Core build (the first command configures that matching profile):
@@ -189,6 +192,26 @@ default Core build (the first command configures that matching profile):
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer GHOSTERM_APP_TEST_FILTER=CodexChangeReviewTests bash scripts/apple-app-gate.sh
 python3 -B scripts/mutation-check-plugin-codex-review.py
 ```
+
+Android assembly and cancellation can also run on the host JVM using the cached
+Android Kotlin compiler; this does not exercise Android JSON or Compose:
+
+```sh
+python3 -B scripts/test-android-codex-review.py --mutate
+```
+
+For the explicit test device, the following builds and installs JS-enabled Debug
+and test APKs, proves three single-assertion failures after real compilation,
+checks the same APK's independent Core control, and restores source SHA-256:
+
+```sh
+ANDROID_SERIAL=emulator-5586 python3 -B scripts/mutation-check-android-codex-review.py
+```
+
+The JSON, timeline, Compose and Core combination passed 17 cases on each of the
+disposable API 29 and API 36 arm64 / 4 KiB headless emulators. Component fixtures
+do not replace real Agent requests, approval-version binding, or the complete
+Settings-to-SSH-to-review user flow.
 
 The AppModel SSH runner's direct selection now also holds a disposable wrapper
 at a FIFO before exec of Codex, observes its actual start, stops that pending
