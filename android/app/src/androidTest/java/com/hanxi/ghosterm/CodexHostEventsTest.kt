@@ -14,7 +14,7 @@ class CodexHostEventsTest {
     private fun rpc(sequence: Int, kind: String, payload: String): ExtensionSession.RPCRequest {
         val event = "{\"sequence\":$sequence,\"kind\":\"$kind\",$payload}"
         return ExtensionSession.RPCRequest(1, "event-$sequence", "codex.event",
-            JSONObject.quote(event).toByteArray(Charsets.UTF_8))
+            JSONObject().put("event", event).toString().toByteArray(Charsets.UTF_8))
     }
 
     @Test fun notificationSequenceMergesMessageDeltasAndRejectsGaps() {
@@ -34,12 +34,12 @@ class CodexHostEventsTest {
 
     @Test fun approvalsAreBoundedAndResolvedByTypedRequestID() {
         val event = CodexHostEvents.decode(rpc(1, "approval-request",
-            "\"request\":{\"id\":42,\"method\":\"item/commandExecution/requestApproval\",\"params\":{\"command\":\"echo ok\"}}"))
+            "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{\"itemId\":\"change-1\"}}"))
         var state = CodexHostEvents.accept(CodexHostState(), event)
         assertEquals("n:42", state.approvals.single().id)
-        assertTrue(state.approvals.single().paramsJSON.contains("echo ok"))
+        assertEquals("change-1", state.approvals.single().itemID)
         val duplicate = CodexHostEvents.decode(rpc(2, "approval-request",
-            "\"request\":{\"id\":42,\"method\":\"item/commandExecution/requestApproval\",\"params\":{}}"))
+            "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{}}"))
         assertThrows(IllegalArgumentException::class.java) { CodexHostEvents.accept(state, duplicate) }
         val resolved = CodexHostEvents.decode(rpc(2, "approval-resolved", "\"requestID\":42"))
         state = CodexHostEvents.accept(state, resolved)
@@ -55,5 +55,20 @@ class CodexHostEventsTest {
             CodexHostEvents.decode(rpc(1, "approval-request",
                 "\"request\":{\"id\":\"req-1\",\"method\":\"other/requestApproval\",\"params\":{}}"))
         }
+    }
+
+    @Test fun filePatchUpdatesProduceBoundedTypedDiffEntries() {
+        val event = CodexHostEvents.decode(rpc(1, "notification",
+            "\"notification\":{\"method\":\"item/fileChange/patchUpdated\",\"params\":{" +
+                "\"itemId\":\"change-1\",\"changes\":[{\"path\":\"src/A.kt\",\"kind\":{\"type\":\"update\",\"move_path\":null}," +
+                "\"diff\":\"@@ -1 +1 @@\\n-old\\n+new\\n…（diff 已截断）\"}]," +
+                "\"_ghosterm\":{\"truncated\":true,\"omittedChanges\":2,\"diffTruncated\":true}}}"))
+        val state = CodexHostEvents.accept(CodexHostState(), event)
+        val item = state.timeline.single()
+        assertEquals("文件变更", item.title)
+        assertEquals(2, item.omittedChangeCount)
+        assertEquals("src/A.kt", item.fileChanges.single().path)
+        assertEquals(CodexDiffLine.Kind.HUNK, item.fileChanges.single().lines.first().kind)
+        assertTrue(item.fileChanges.single().diffTruncated)
     }
 }

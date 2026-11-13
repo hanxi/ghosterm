@@ -261,7 +261,9 @@ struct ExtensionsPane: View {
                 ForEach(model.codexTimeline) { item in
                     VStack(alignment: .leading, spacing: DS.Padding.xs) {
                         Text(item.title).font(DS.Font.labelEmphasis)
-                        if !item.detail.isEmpty {
+                        if !item.fileChanges.isEmpty {
+                            CodexFileChangesView(changes: item.fileChanges, omittedCount: item.omittedFileCount)
+                        } else if !item.detail.isEmpty {
                             Text(item.detail).font(.system(size: 12, design: .monospaced))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -285,7 +287,17 @@ struct ExtensionsPane: View {
                 ForEach(model.codexPendingApprovals) { approval in
                     VStack(alignment: .leading, spacing: DS.Padding.xs) {
                         Text(approval.method).font(DS.Font.caption).textSelection(.enabled)
-                        Text(approval.paramsJSON).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                        if approval.method == "item/fileChange/requestApproval",
+                           let itemID = approval.itemID,
+                           let entry = model.codexTimeline.first(where: { $0.id == "item:\(itemID)" }),
+                           !entry.fileChanges.isEmpty {
+                            CodexFileChangesView(changes: entry.fileChanges, omittedCount: entry.omittedFileCount)
+                        } else if approval.method == "item/fileChange/requestApproval" {
+                            Text("正在等待 Codex 提供补丁内容。")
+                                .font(DS.Font.caption).foregroundStyle(.secondary)
+                        } else {
+                            Text(approval.paramsJSON).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                        }
                         HStack {
                             Button("拒绝") { Task { await model.respondCodexApproval(id: approval.id, allow: false) } }
                                 .accessibilityIdentifier("plugin-codex-approval-deny")
@@ -322,6 +334,46 @@ struct ExtensionsPane: View {
                 }
                 .disabled(model.codexCallBusy || !run.methods.contains("codex.thread.start"))
                 .accessibilityIdentifier("plugin-codex-start-thread")
+            }
+        }
+    }
+}
+
+private struct CodexFileChangesView: View {
+    let changes: [CodexFileChange]
+    var omittedCount = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Padding.xs) {
+            ForEach(changes) { change in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: DS.Padding.xs) {
+                        Text(change.kind == "add" ? "新增" : change.kind == "delete" ? "删除" : "修改")
+                            .font(DS.Font.caption).foregroundStyle(change.kind == "delete" ? .red : .secondary)
+                        Text(change.path).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                        if let movePath = change.movePath, !movePath.isEmpty {
+                            Text("→ \(movePath)").font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                        }
+                    }
+                    ForEach(change.lines) { line in
+                        Text(line.text.isEmpty ? " " : line.text)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(line.kind == .added ? .green : line.kind == .removed ? .red :
+                                line.kind == .hunk ? .blue : .secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if change.diffTruncated {
+                        Text("补丁内容较长，当前显示部分预览。")
+                            .font(DS.Font.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(DS.Padding.xs)
+                .background(.background.opacity(0.45), in: RoundedRectangle(cornerRadius: DS.Radius.control))
+            }
+            if omittedCount > 0 {
+                Text("另有 \(omittedCount) 个文件未包含在本次预览中。")
+                    .font(DS.Font.caption).foregroundStyle(.secondary)
             }
         }
     }

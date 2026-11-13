@@ -8,8 +8,15 @@ import org.json.JSONTokener
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 
-internal data class CodexTimelineEntry(val id: String, val title: String, val detail: String)
-internal data class CodexPendingApproval(val id: String, val method: String, val paramsJSON: String)
+internal data class CodexDiffLine(val index: Int, val text: String, val kind: Kind) {
+    enum class Kind { CONTEXT, ADDED, REMOVED, HUNK }
+}
+internal data class CodexFileChange(val path: String, val kind: String, val movePath: String?,
+    val lines: List<CodexDiffLine>, val diffTruncated: Boolean)
+internal data class CodexTimelineEntry(val id: String, val title: String, val detail: String,
+    val fileChanges: List<CodexFileChange> = emptyList(), val omittedChangeCount: Int = 0)
+internal data class CodexPendingApproval(val id: String, val method: String, val paramsJSON: String,
+    val itemID: String?)
 internal data class CodexHostState(
     val sequence: Long = 0,
     val rawEvents: List<String> = emptyList(),
@@ -56,7 +63,8 @@ internal object CodexHostEvents {
     fun decode(request: ExtensionSession.RPCRequest): CodexHostEvent {
         require(request.method == "codex.event") { "Host method is not registered" }
         val source = strictUtf8(request.input)
-        val encoded = parse(source) as? String ?: error("Codex event input must be a JSON string")
+        val envelope = parse(source) as? JSONObject ?: error("Codex event input must be an object")
+        val encoded = envelope.opt("event") as? String ?: error("Codex event string is missing")
         require(encoded.toByteArray(Charsets.UTF_8).size <= MAX_EVENT_BYTES) { "Codex event exceeds the size limit" }
         val event = parse(encoded) as? JSONObject ?: error("Codex event must be an object")
         val sequence = safeInteger(event.opt("sequence")) ?: error("Codex event sequence is invalid")
@@ -80,7 +88,9 @@ internal object CodexHostEvents {
                 require(requestMethod in approvalMethods) { "Unsupported Codex approval method" }
                 val requestParams = requestObject.opt("params")
                 require(requestParams is JSONObject || requestParams is JSONArray) { "Codex approval params are invalid" }
-                approval = CodexPendingApproval(id, requestMethod, prettyJSON(requestParams))
+                val itemID = (requestParams as? JSONObject)?.optString("itemId")
+                    ?.takeIf { it.isNotBlank() && it.toByteArray(Charsets.UTF_8).size <= 128 }
+                approval = CodexPendingApproval(id, requestMethod, prettyJSON(requestParams), itemID)
             }
             "approval-resolved" -> resolved = requestKey(event.opt("requestID"))
         }
@@ -137,6 +147,13 @@ internal object CodexHostEvents {
             val itemID = item.optString("id", "")
             val type = item.optString("type", "")
             if (itemID.isNotEmpty() && type.isNotEmpty()) {
+                if (type == "fileChange") {
+                    val marker = item.optJSONObject("_ghosterm")
+                    return replace(entries, CodexTimelineEntry("item:$itemID", "文件变更", "",
+                        fileChanges = fileChanges(item.opt("changes"), marker),
+                        omittedChangeCount = (marker?.optInt("omittedChanges", 0)?.coerceAtLeast(0) ?: 0) +
+                            ((item.optJSONArray("changes")?.length() ?: 0) - 8).coerceAtLeast(0)))
+                }
                 val previous = entries.firstOrNull { it.id == "item:$itemID" }?.detail
                 val (title, detail) = when (type) {
                     "agentMessage" -> "Codex" to item.optString("text", previous.orEmpty())
@@ -163,8 +180,13 @@ internal object CodexHostEvents {
         }
         if (method == "item/fileChange/patchUpdated" && objectValue != null) {
             val itemID = objectValue.optString("itemId", "")
-            if (itemID.isNotEmpty()) return replace(entries, CodexTimelineEntry("item:$itemID", "文件变更",
-                prettyJSON(objectValue.opt("changes").takeUnless { it === JSONObject.NULL } ?: value)))
+            if (itemID.isNotEmpty()) {
+                val marker = objectValue.optJSONObject("_ghosterm")
+                return replace(entries, CodexTimelineEntry("item:$itemID", "文件变更", "",
+                    fileChanges(objectValue.opt("changes"), marker),
+                    (marker?.optInt("omittedChanges", 0)?.coerceAtLeast(0) ?: 0) +
+                        ((objectValue.optJSONArray("changes")?.length() ?: 0) - 8).coerceAtLeast(0)))
+            }
         }
         val title = when (method) {
             "turn/started" -> "Turn 已启动"
@@ -194,12 +216,44 @@ internal object CodexHostEvents {
         }
     }.joinToString("\n")
 
+    private fun fileChanges(value: Any?, marker: JSONObject?): List<CodexFileChange> {
+        val source = value as? JSONArray ?: return emptyList()
+        val result = mutableListOf<CodexFileChange>()
+        for (index in 0 until minOf(source.length(), 8)) {
+            val change = source.optJSONObject(index) ?: continue
+            val path = change.optString("path", "")
+            val kindObject = change.optJSONObject("kind") ?: continue
+            val kind = kindObject.optString("type", "")
+            val diff = change.optString("diff", "")
+            if (path.isBlank() || path.toByteArray(Charsets.UTF_8).size > 512 || kind !in setOf("add", "delete", "update")) continue
+            val movePath = if (kind == "update") kindObject.optString("move_path").takeIf { it.isNotBlank() } else null
+            val allLines = diff.split('\n')
+            val lines = allLines.take(256).mapIndexed { lineIndex, text ->
+                val lineKind = when {
+                    text.startsWith("@@") -> CodexDiffLine.Kind.HUNK
+                    text.startsWith('+') -> CodexDiffLine.Kind.ADDED
+                    text.startsWith('-') -> CodexDiffLine.Kind.REMOVED
+                    else -> CodexDiffLine.Kind.CONTEXT
+                }
+                CodexDiffLine(lineIndex, text, lineKind)
+            }
+            result += CodexFileChange(path, kind, movePath, lines,
+                allLines.size > lines.size || diff.contains("…（diff 已截断）") || marker?.optBoolean("diffTruncated", false) == true)
+        }
+        return result
+    }
+
     private fun replace(entries: List<CodexTimelineEntry>, incoming: CodexTimelineEntry): List<CodexTimelineEntry> {
         val bounded = incoming.copy(title = bounded(incoming.title), detail = bounded(incoming.detail))
         val result = entries.toMutableList()
         val index = result.indexOfFirst { it.id == bounded.id }
         if (index >= 0) result[index] = bounded else result += bounded
-        while (result.size > MAX_EVENTS || result.sumOf { it.detail.toByteArray(Charsets.UTF_8).size } > MAX_HISTORY_BYTES) {
+        while (result.size > MAX_EVENTS || result.sumOf { entry ->
+                entry.title.toByteArray(Charsets.UTF_8).size + entry.detail.toByteArray(Charsets.UTF_8).size +
+                    entry.fileChanges.sumOf { file -> file.path.toByteArray(Charsets.UTF_8).size +
+                        (file.movePath?.toByteArray(Charsets.UTF_8)?.size ?: 0) +
+                        file.lines.sumOf { it.text.toByteArray(Charsets.UTF_8).size } }
+            } > MAX_HISTORY_BYTES) {
             val remove = result.indexOfFirst { it.id != bounded.id }.takeIf { it >= 0 } ?: result.lastIndex
             if (remove < 0) break
             result.removeAt(remove)

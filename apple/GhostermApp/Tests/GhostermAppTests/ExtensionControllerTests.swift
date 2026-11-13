@@ -42,10 +42,11 @@ final class ExtensionControllerTests: XCTestCase {
         let fileChange = try XCTUnwrap(AppModel.decodeCodexApproval([
             "id": NSNumber(value: 42),
             "method": "item/fileChange/requestApproval",
-            "params": ["changes": [["path": "src/main.c"]]],
+            "params": ["itemId": "change-1", "changes": [["path": "src/main.c"]]],
         ]))
         XCTAssertEqual(fileChange.id, "n:42")
         XCTAssertEqual(fileChange.method, "item/fileChange/requestApproval")
+        XCTAssertEqual(fileChange.itemID, "change-1")
     }
 
     @MainActor
@@ -109,6 +110,24 @@ final class ExtensionControllerTests: XCTestCase {
             entries = CodexTimelineReducer.apply(entries, sequence: UInt64(index), method: "turn/completed", params: bytes)
         }
         XCTAssertLessThanOrEqual(entries.count, 128)
+    }
+
+    func testCodexTimelineParsesBoundedFilePatchForApprovalReview() throws {
+        let params: [String: Any] = [
+            "threadId": "thread-a", "turnId": "turn-a", "itemId": "change-1",
+            "changes": [["path": "src/A.kt", "kind": ["type": "update", "move_path": NSNull()],
+                         "diff": "@@ -1 +1 @@\n-old\n+new\n…（diff 已截断）"]],
+            "_ghosterm": ["truncated": true, "omittedChanges": 2, "diffTruncated": true],
+        ]
+        let bytes = try JSONSerialization.data(withJSONObject: params, options: [.sortedKeys])
+        let entries = CodexTimelineReducer.apply([], sequence: 1, method: "item/fileChange/patchUpdated", params: bytes)
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.id, "item:change-1")
+        XCTAssertEqual(entry.omittedFileCount, 2)
+        XCTAssertEqual(entry.fileChanges.first?.path, "src/A.kt")
+        XCTAssertEqual(entry.fileChanges.first?.kind, "update")
+        XCTAssertEqual(entry.fileChanges.first?.lines.map(\.kind), [.hunk, .removed, .added, .context])
+        XCTAssertEqual(entry.fileChanges.first?.diffTruncated, true)
     }
 
     func testResourceCapabilityRequiresAnExplicitPrivateDirectory() throws {

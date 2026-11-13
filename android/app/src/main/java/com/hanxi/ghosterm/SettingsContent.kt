@@ -703,7 +703,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 Card(Modifier.fillMaxWidth().testTag("plugin-codex-timeline-${item.id}")) {
                     Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(item.title, style = MaterialTheme.typography.labelLarge)
-                        if (item.detail.isNotEmpty()) SelectionContainer {
+                        if (item.fileChanges.isNotEmpty()) PluginCodexFileChanges(item.fileChanges, item.omittedChangeCount)
+                        else if (item.detail.isNotEmpty()) SelectionContainer {
                             Text(item.detail, style = MaterialTheme.typography.bodySmall,
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                         }
@@ -717,8 +718,16 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 Card(Modifier.fillMaxWidth().testTag("plugin-codex-approval-${approval.id}")) {
                     Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(approval.method, style = MaterialTheme.typography.labelMedium)
-                        SelectionContainer { Text(approval.paramsJSON, style = MaterialTheme.typography.bodySmall,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
+                        if (approval.method == "item/fileChange/requestApproval") {
+                            val item = approval.itemID?.let { id -> state.timeline.firstOrNull { it.id == "item:$id" } }
+                            if (item != null && item.fileChanges.isNotEmpty()) {
+                                PluginCodexFileChanges(item.fileChanges, item.omittedChangeCount)
+                            } else Text("正在等待 Codex 提供补丁内容。", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else SelectionContainer {
+                            Text(approval.paramsJSON, style = MaterialTheme.typography.bodySmall,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             TextButton(onClick = { extensions.respondCodexApproval(approval.id, false) },
                                 enabled = !state.callBusy, modifier = Modifier.testTag("plugin-codex-approval-deny")) { Text("拒绝") }
@@ -755,6 +764,36 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
             }
         }
+    }
+}
+
+@Composable private fun PluginCodexFileChanges(changes: List<CodexFileChange>, omittedCount: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        changes.forEach { change ->
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("${when (change.kind) { "add" -> "新增"; "delete" -> "删除"; else -> "修改" }} · ${change.path}" +
+                        (change.movePath?.let { " → $it" } ?: ""), style = MaterialTheme.typography.labelMedium,
+                        fontFamily = FontFamily.Monospace)
+                    change.lines.forEach { line ->
+                        val color = when (line.kind) {
+                            CodexDiffLine.Kind.ADDED -> MaterialTheme.colorScheme.primary
+                            CodexDiffLine.Kind.REMOVED -> MaterialTheme.colorScheme.error
+                            CodexDiffLine.Kind.HUNK -> MaterialTheme.colorScheme.tertiary
+                            CodexDiffLine.Kind.CONTEXT -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        SelectionContainer {
+                            Text(line.text.ifEmpty { " " }, style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace, color = color)
+                        }
+                    }
+                    if (change.diffTruncated) Text("补丁内容较长，当前显示部分预览。",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (omittedCount > 0) Text("另有 $omittedCount 个文件未包含在本次预览中。",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

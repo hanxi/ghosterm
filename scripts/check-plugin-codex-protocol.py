@@ -87,6 +87,8 @@ def main():
             "AgentMessageDeltaNotification": types / "v2/AgentMessageDeltaNotification.ts",
             "CommandExecutionOutputDeltaNotification": types / "v2/CommandExecutionOutputDeltaNotification.ts",
             "FileChangePatchUpdatedNotification": types / "v2/FileChangePatchUpdatedNotification.ts",
+            "FileUpdateChange": types / "v2/FileUpdateChange.ts",
+            "PatchChangeKind": types / "v2/PatchChangeKind.ts",
         }
         for name, required in lock["requiredFields"].items():
             text = type_paths[name].read_text(encoding="utf-8")
@@ -216,6 +218,21 @@ def main():
                        text_properties.get("text_elements", {}).get("type") == "array" and
                        text_properties.get("text_elements", {}).get("items", {}).get("$ref", "").endswith("/TextElement"),
                        "UserInput text/text_elements")
+
+        file_change = definitions.get("FileUpdateChange", {})
+        file_change_properties = file_change.get("properties", {})
+        schema_require({"path", "kind", "diff"} <= set(file_change.get("required", [])) and
+                       file_change_properties.get("path", {}).get("type") == "string" and
+                       file_change_properties.get("kind", {}).get("$ref", "").endswith("/PatchChangeKind") and
+                       file_change_properties.get("diff", {}).get("type") == "string",
+                       "FileUpdateChange path/kind/diff")
+        patch_kind = definitions.get("PatchChangeKind", {})
+        patch_variants = {variant.get("properties", {}).get("type", {}).get("enum", [None])[0]: variant
+                          for variant in patch_kind.get("oneOf", [])}
+        update_properties = patch_variants.get("update", {}).get("properties", {})
+        schema_require(set(patch_variants) == {"add", "delete", "update"} and
+                       update_properties.get("move_path", {}).get("type") == ["string", "null"],
+                       "PatchChangeKind add/delete/update/move_path")
         element_properties = definitions.get("TextElement", {}).get("properties", {})
         byte_range = element_properties.get("byteRange", {})
         schema_require(byte_range.get("allOf", [{}])[0].get("$ref", "").endswith("/ByteRange") and

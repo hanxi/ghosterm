@@ -35,6 +35,9 @@ class FakeCodexChild {
         params: { threadId: "thread-test", turnId: "turn-test", itemId: "item-1", startedAtMs: 1 } });
       this.line({ method: "item/agentMessage/delta", params: { threadId: "thread-test",
         turnId: "turn-test", itemId: "item-2", delta: "hello" } });
+      this.line({ method: "item/fileChange/patchUpdated", params: { threadId: "thread-test",
+        turnId: "turn-test", itemId: "item-3", changes: [{ path: "src/example.ts",
+          kind: { type: "update", move_path: null }, diff: "@@ -1 +1 @@\n" + "+x".repeat(5000) }] } });
       this.line({ id: message.id, result: { turn: { id: "turn-test", status: "inProgress" } } });
     } else if (message.id === "approval-41") {
       assert.deepEqual(message.result, { decision: "accept" });
@@ -90,7 +93,10 @@ function fixtureContext({ side = "executor", command = "ai codex", allowed = tru
     session: {
       register(method, handler) { assert(!handlers.has(method.name)); handlers.set(method.name, handler); },
       request(method, input, timeoutMs) {
-        events.push({ method: method.name, input, timeoutMs });
+        assert.equal(typeof input, "object", "Native Host methods require object input");
+        assert.equal(typeof input.event, "string");
+        method.input.parse(input);
+        events.push({ method: method.name, input: input.event, timeoutMs });
         return { outcome: Promise.resolve({ kind: "success", value: { accepted: true } }), cancel() {} };
       },
     },
@@ -136,6 +142,12 @@ await driveUntil(disposable, () => fixture.events.some(event =>
   event.method === "codex.event" && event.input.includes("turn/completed")), "turn completion delivery");
 assert.equal(fixture.child.writes.filter(value => value.id === "approval-41").length, 1);
 assert(fixture.events.some(event => event.input.includes("item/agentMessage/delta")));
+const fileChangeEvent = JSON.parse(fixture.events.find(event => event.input.includes("patchUpdated")).input);
+assert.equal(fileChangeEvent.notification.params._ghosterm.truncated, true);
+assert.equal(fileChangeEvent.notification.params._ghosterm.diffTruncated, true);
+assert(fileChangeEvent.notification.params.changes[0].diff.includes("diff 已截断"));
+assert(new TextEncoder().encode(JSON.stringify({ event: JSON.stringify(fileChangeEvent) })).length <= 3072,
+  "file change diff events must fit the complete Native RPC body");
 assert(fixture.events.every(event => event.method === "codex.event" && event.timeoutMs === 30000));
 
 let turnCancelled = false;

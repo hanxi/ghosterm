@@ -112,6 +112,11 @@
       "turnId",
       "itemId",
       "changes"
+    ],
+    "FileUpdateChange": [
+      "path",
+      "kind",
+      "diff"
     ]
   },
   "requiredDecisions": {
@@ -135,6 +140,7 @@
     "ExecPolicyAmendment": "Array<string>",
     "NetworkPolicyAmendment": "{host:string,action:NetworkPolicyRuleAction,}",
     "NetworkPolicyRuleAction": "\"allow\"|\"deny\"",
+    "PatchChangeKind": "{\"type\":\"add\"}|{\"type\":\"delete\"}|{\"type\":\"update\",move_path:string|null,}",
     "TextElement": "{byteRange:ByteRange,placeholder:string|null,}",
     "ByteRange": "{start:number,end:number,}"
   },
@@ -183,6 +189,11 @@
       "turnId:string",
       "itemId:string",
       "changes:Array<FileUpdateChange>"
+    ],
+    "FileUpdateChange": [
+      "path:string",
+      "kind:PatchChangeKind",
+      "diff:string"
     ]
   },
   "lockedTypeFragments": {

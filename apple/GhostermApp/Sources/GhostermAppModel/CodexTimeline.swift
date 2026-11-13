@@ -1,14 +1,35 @@
 import Foundation
 
+public struct CodexDiffLine: Identifiable, Sendable, Equatable {
+    public enum Kind: Sendable, Equatable { case context, added, removed, hunk }
+    public let id: Int
+    public let text: String
+    public let kind: Kind
+}
+
+public struct CodexFileChange: Identifiable, Sendable, Equatable {
+    public let path: String
+    public let kind: String
+    public let movePath: String?
+    public let lines: [CodexDiffLine]
+    public let diffTruncated: Bool
+    public var id: String { path }
+}
+
 public struct CodexTimelineEntry: Identifiable, Sendable, Equatable {
     public let id: String
     public let title: String
     public let detail: String
+    public let fileChanges: [CodexFileChange]
+    public let omittedFileCount: Int
 
-    public init(id: String, title: String, detail: String) {
+    public init(id: String, title: String, detail: String, fileChanges: [CodexFileChange] = [],
+                omittedFileCount: Int = 0) {
         self.id = id
         self.title = title
         self.detail = detail
+        self.fileChanges = fileChanges
+        self.omittedFileCount = omittedFileCount
     }
 }
 
@@ -37,6 +58,13 @@ enum CodexTimelineReducer {
         let item = value["item"] as? [String: Any]
         if method == "item/started" || method == "item/completed", let item,
            let itemID = item["id"] as? String, let type = item["type"] as? String {
+            if type == "fileChange" {
+                let marker = item["_ghosterm"] as? [String: Any]
+                return replacing(entries, with: CodexTimelineEntry(id: "item:\(itemID)", title: "文件变更",
+                    detail: "", fileChanges: fileChanges(item["changes"], marker: marker),
+                    omittedFileCount: max(0, marker?["omittedChanges"] as? Int ?? 0) +
+                        max(0, ((item["changes"] as? [Any])?.count ?? 0) - 8)))
+            }
             let (title, detail) = itemPresentation(item, type: type, previous: entries.first { $0.id == "item:\(itemID)" }?.detail)
             return replacing(entries, with: CodexTimelineEntry(id: "item:\(itemID)", title: title, detail: detail))
         }
@@ -57,8 +85,11 @@ enum CodexTimelineReducer {
         }
 
         if method == "item/fileChange/patchUpdated", let itemID = value["itemId"] as? String {
-            let detail = json(value["changes"] ?? value)
-            return replacing(entries, with: CodexTimelineEntry(id: "item:\(itemID)", title: "文件变更", detail: detail))
+            let marker = value["_ghosterm"] as? [String: Any]
+            return replacing(entries, with: CodexTimelineEntry(id: "item:\(itemID)", title: "文件变更",
+                detail: "", fileChanges: fileChanges(value["changes"], marker: marker),
+                omittedFileCount: max(0, marker?["omittedChanges"] as? Int ?? 0) +
+                    max(0, ((value["changes"] as? [Any])?.count ?? 0) - 8)))
         }
 
         let title: String
@@ -74,6 +105,38 @@ enum CodexTimelineReducer {
             detail = json(value)
         }
         return replacing(entries, with: CodexTimelineEntry(id: "event:\(sequence)", title: title, detail: detail))
+    }
+
+    private static func fileChanges(_ value: Any?, marker: Any?) -> [CodexFileChange] {
+        let truncated = (marker as? [String: Any])?["diffTruncated"] as? Bool == true
+        guard let changes = value as? [[String: Any]] else { return [] }
+        return changes.prefix(8).compactMap { change in
+            guard let path = change["path"] as? String, !path.isEmpty, path.utf8.count <= 512,
+                  let kindObject = change["kind"] as? [String: Any],
+                  let kind = kindObject["type"] as? String, ["add", "delete", "update"].contains(kind),
+                  let diff = change["diff"] as? String else { return nil }
+            let movePath = kind == "update" ? kindObject["move_path"] as? String : nil
+            var used = 0
+            let boundedDiff = String(diff.prefix(while: { character in
+                let count = String(character).utf8.count
+                guard used + count <= 32768 else { return false }
+                used += count
+                return true
+            }))
+            let allLines = boundedDiff.split(separator: "\n", omittingEmptySubsequences: false)
+            let lines = allLines.prefix(256).enumerated().map { index, line -> CodexDiffLine in
+                let text = String(line)
+                let lineKind: CodexDiffLine.Kind
+                if text.hasPrefix("@@") { lineKind = .hunk }
+                else if text.hasPrefix("+") { lineKind = .added }
+                else if text.hasPrefix("-") { lineKind = .removed }
+                else { lineKind = .context }
+                return CodexDiffLine(id: index, text: text, kind: lineKind)
+            }
+            return CodexFileChange(path: path, kind: kind, movePath: movePath, lines: lines,
+                diffTruncated: truncated || used < diff.utf8.count || allLines.count > lines.count ||
+                    diff.contains("…（diff 已截断）"))
+        }
     }
 
     private static func itemPresentation(_ item: [String: Any], type: String,
@@ -111,16 +174,24 @@ enum CodexTimelineReducer {
 
     private static func replacing(_ entries: [CodexTimelineEntry], with entry: CodexTimelineEntry) -> [CodexTimelineEntry] {
         var result = entries
-        let boundedEntry = CodexTimelineEntry(id: entry.id, title: bounded(entry.title), detail: bounded(entry.detail))
+        let boundedEntry = CodexTimelineEntry(id: entry.id, title: bounded(entry.title), detail: bounded(entry.detail),
+            fileChanges: entry.fileChanges, omittedFileCount: entry.omittedFileCount)
         if let index = result.firstIndex(where: { $0.id == entry.id }) { result[index] = boundedEntry }
         else { result.append(boundedEntry) }
-        while result.count > maximumEntries || result.reduce(0, { $0 + $1.detail.utf8.count }) > maximumTimelineBytes {
+        while result.count > maximumEntries || result.reduce(0, { $0 + retainedBytes($1) }) > maximumTimelineBytes {
             guard !result.isEmpty else { break }
             let oldestOther = result.firstIndex(where: { $0.id != entry.id })
             guard let index = oldestOther ?? (result.count == 1 ? result.startIndex : nil) else { break }
             result.remove(at: index)
         }
         return result
+    }
+
+    private static func retainedBytes(_ entry: CodexTimelineEntry) -> Int {
+        entry.title.utf8.count + entry.detail.utf8.count + entry.fileChanges.reduce(0) { bytes, file in
+            bytes + file.path.utf8.count + (file.movePath?.utf8.count ?? 0) +
+                file.lines.reduce(0) { $0 + $1.text.utf8.count }
+        }
     }
 
     private static func bounded(_ value: String) -> String {

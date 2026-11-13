@@ -4914,3 +4914,11 @@ Android `ExtensionRuntime` / `ExtensionController` 新增 Native Host→Executor
 Android `ai codex` 启动现在固定加入 thread / turn / interrupt / approval Executor RPC 与 `codex.event` Host method，并要求显式工作区授权及名为 `codex` 的版本 / 摘要映射。Runtime pump 在每轮 step 后消费一条事件，严格 UTF-8 / JSON 解码、连续序号与已知事件类型校验；单条 3072 字节、原始历史 128 项 / 256 KiB、待审批 32 项、单条展示 32 KiB 均有限额。无效或超限事件显式 DENIED 并停止 Runtime。原生页面现有对话启动、发消息、中断、逐次批准 / 拒绝、合并消息与工具输出的活动时间线，以及可折叠原始事件检查；不自动批准、不对未知 RPC 结果重试。
 
 Android 主代码及 instrumentation Kotlin 源码以 Gradle `--rerun-tasks` 强制编译通过；JS-enabled `:app:assembleDebugAndroidTest` 通过。instrumentation 未执行：无已连接设备，本批不启动 AVD、不弹出窗口。`git diff --check` 通过。CI run `43346407706` 的 SwiftPM 失败诊断缺失已由第三十二批调整 `scripts/package-mac.sh`：后续失败会打印错误上下文，找不到错误标记时打印较长尾部；本机 Swift 6.3.3 在失败提交 `27c4010` 的隔离检出上 `swift build -c release --arch arm64` 通过，但仍无 macOS 15 / Xcode 16.4 / Swift 6.1.2 复跑，不能据此关闭工具链差异。无公共 C ABI 变化，不增加 macOS CI 二十份。真实 Codex turn / approval 产品往返、Android 设备运行、语义化文件 diff 与用户点击整链仍待完成；P3 不记闭环。
+
+### P3 实施第三十七批：两端有界补丁预览与事件输入形状修正
+
+macOS / Android 时间线现按锁定 `FileUpdateChange` 的 path / kind / diff 展示新增、删除、修改、移动目标及着色 diff 行；文件审批按 itemId 关联对应补丁，未收到内容时明确显示等待。每次最多展示八个文件、每文件最多 256 行；补丁字段计入历史内存预算。协议锁及 checker 增加 `FileUpdateChange` / `PatchChangeKind` 的实际 TypeScript 和 JSON Schema 对拍，取自本机官方 codex-cli 0.166.0 生成物，不调用模型。
+
+修复产品链上的输入形状不匹配：Native / gterm 方法登记要求 OBJECT，而旧 Executor 直接发送 JSON string。`codex.event` 现统一使用 `{event: string}`，两端解码同步，Executor 用完整编码后的输入核对 3072 字节 RPC 上限。大补丁此前触发 BODY_LIMIT 并终止 child；现在保留原路径和变更类型，提供有界 diff 前缀及省略文件数。其他超大通知显示显式省略提示；审批请求过大仍失败关闭，不截断授权参数。该机制只提供部分补丁预览，不代表完整 diff 审阅已完成。
+
+验证：锁定官方协议 checker、Executor strict TypeScript / portable SDK emission 与隔离 fake Host / fake app-server 用例通过，新增大补丁限额、截断提示和 OBJECT input 断言。初次离线工具安装因 ENOTCACHED 未进入测试；随后 `--fetch` 拉取锁定工具后通过。macOS arm64 release 构建、Codex 定向 XCTest 五项（零失败）、JS-enabled Android App / instrumentation 源码及测试 APK 构建通过；Android instrumentation 本轮未执行。所有运行无前台窗口，临时生成物与构建 scratch 验收后清理。`git diff --check` 通过；无公共 C ABI 变化，不增加 macOS CI 二十份。真实 Codex turn / approval 产品往返、Android 设备运行、完整 diff 内容传递 / 审阅、官方可安装包与用户点击整链仍待完成，P3 不记闭环。

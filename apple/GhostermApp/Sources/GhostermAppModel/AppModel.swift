@@ -78,6 +78,7 @@ public final class AppModel: ObservableObject {
         public let id: String
         public let method: String
         public let paramsJSON: String
+        public let itemID: String?
     }
 
     @Published public private(set) var extensionRun: ExtensionRun?
@@ -1460,7 +1461,8 @@ public final class AppModel: ObservableObject {
         let encoded: String
         let event: CodexHostEvent
         do {
-            encoded = try JSONDecoder().decode(String.self, from: request.input)
+            struct EventInput: Decodable { let event: String }
+            encoded = try JSONDecoder().decode(EventInput.self, from: request.input).event
             event = try JSONDecoder().decode(CodexHostEvent.self, from: Data(encoded.utf8))
         } catch {
             let failure = Data(#"{"kind":"failed","error":{"code":"DENIED","message":"Malformed Codex event","effect":"none"}}"#.utf8)
@@ -1542,7 +1544,8 @@ public final class AppModel: ObservableObject {
               let params = object["params"], JSONSerialization.isValidJSONObject(params),
               let data = try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]),
               let paramsJSON = String(data: data, encoding: .utf8) else { return nil }
-        return CodexPendingApproval(id: id, method: method, paramsJSON: paramsJSON)
+        let itemID = (object["params"] as? [String: Any])?["itemId"] as? String
+        return CodexPendingApproval(id: id, method: method, paramsJSON: paramsJSON, itemID: itemID)
     }
 
     static func codexRequestKey(_ value: Any?) -> String? {
