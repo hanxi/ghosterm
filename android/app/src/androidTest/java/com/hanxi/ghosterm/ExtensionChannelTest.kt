@@ -90,6 +90,10 @@ class ExtensionChannelTest {
                 "[{\"name\":\"codex\",\"executable\":\"relative\",\"version\":\"0.166.0\",\"sha256\":\"$digest\"}]")
         }
         assertThrows(IllegalArgumentException::class.java) {
+            ExtensionRelayBootstrap.parseProcessProgramsJson(
+                "[{\"name\":\"codex\",\"\\u006eame\":\"other\",\"executable\":\"/usr/local/bin/codex\",\"version\":\"0.166.0\",\"sha256\":\"$digest\"}]")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
             ExtensionRelayBootstrap.build(request.copy(workspaceRootDirectory = null))
         }
     }

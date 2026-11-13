@@ -4824,3 +4824,12 @@ JS-enabled `scripts/test-plugin-runtime.py --mutate --fetch` 通过：原 Runtim
 Apple `apple-app-gate.sh` 的 `testRelayBootstrapValidatesAndQuotesEveryArgument` 定向通过（1 项、0 失败），覆盖映射编码、严格解析、相对路径拒绝和缺少 root 拒绝；Apple ABI 174 引用 / 3 登记未用对拍通过，headless WebKit CSS/PNG 绘制 probe 通过。Android 使用仓库 JDK 17 和离线依赖执行 `:app:compileDebugKotlin :app:compileDebugAndroidTestKotlin`，BUILD SUCCESSFUL；新增 Android instrumentation 用例覆盖映射解析、quote、摘要和缺少 root 拒绝，但本批没有启动 AVD 或执行 instrumentation。`git diff --check` 通过；无 C ABI 变化，不增加 macOS CI 二十份。
 
 此批让两端 Native 启动表单能够提交显式远端 process mapping，并在 Session consent 中展示 process capability 请求；尚未完成 Android 仪器运行 / 真机验证、用户点击整链 UI E2E、独立远端 `--version` 探测、真实 Codex app-server turn / approval 与原生 chat/diff UI，故 P3 仍未闭环。
+
+
+### P3 实施第二十四批：macOS 进程映射拒绝重复 JSON 键
+
+macOS 的 `JSONSerialization` 会将 JSON object 转为字典，重复成员键可能在业务校验前被折叠；这与 Android `JsonReader` 按原始字段拒绝重复键的行为不一致。现在 macOS 在解码映射对象前先扫描原始 JSON，递归拒绝重复键（包括转义后语义相同的键），并限制嵌套深度；随后仍由 Foundation 完成完整 JSON 语法与字段类型校验。两端回归用例均覆盖 `name` 与 `\u006eame` 的重复写法。
+
+`apple-app-gate.sh` 定向 `testRelayBootstrapValidatesAndQuotesEveryArgument` 通过（1 项、0 失败），Apple ABI 174 引用 / 3 登记未用对拍和 headless WebKit CSS/PNG probe 通过。Android 使用仓库 JDK 17 与离线依赖执行 `:app:compileDebugKotlin :app:compileDebugAndroidTestKotlin`，BUILD SUCCESSFUL；未启动 AVD，故 Android 仪器断言尚未执行。`git diff --check` 待提交前复核。本批不改 C ABI，不增加 macOS CI 二十份。
+
+本批收紧的是 Native 进程映射输入一致性；独立远端 `--version` 探测、Android 仪器运行 / 真机验证、完整点击链、真实 Codex turn / approval 与原生 chat/diff UI 仍待完成，P3 不记闭环。

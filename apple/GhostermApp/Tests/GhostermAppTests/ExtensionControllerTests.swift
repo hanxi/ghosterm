@@ -145,6 +145,8 @@ final class ExtensionControllerTests: XCTestCase {
             "[{\"name\":\"codex\",\"executable\":\"/usr/local/bin/codex\",\"version\":\"0.166.0\",\"sha256\":\"\(digest)\"}]").count, 1)
         XCTAssertThrowsError(try ExtensionRelayBootstrap.parseProcessProgramsJSON(
             "[{\"name\":\"codex\",\"executable\":\"relative/codex\",\"version\":\"0.166.0\",\"sha256\":\"\(digest)\"}]"))
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.parseProcessProgramsJSON(
+            "[{\"name\":\"codex\",\"\\u006eame\":\"other\",\"executable\":\"/usr/local/bin/codex\",\"version\":\"0.166.0\",\"sha256\":\"\(digest)\"}]"))
         XCTAssertThrowsError(try ExtensionRelayBootstrap.build(.init(
             executable: "/opt/gterm", executorDirectory: "/opt/executor",
             executorDigest: digest, clientDigest: digest, methods: [],

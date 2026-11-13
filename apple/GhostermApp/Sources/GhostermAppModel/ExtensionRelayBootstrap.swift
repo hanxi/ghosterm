@@ -76,6 +76,8 @@ public enum ExtensionRelayBootstrap {
             throw invalid("进程映射 JSON 超过 64 KiB 或不是 UTF-8")
         }
         do {
+            var scanner = JSONDuplicateKeyScanner(data: data)
+            try scanner.validate()
             guard let values = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
                   values.count <= 16 else { throw invalid("进程映射必须是最多 16 项的 JSON 对象数组") }
             let expected: Set<String> = ["name", "executable", "version", "sha256"]
@@ -201,4 +203,102 @@ public enum ExtensionRelayBootstrap {
     }
 
     private static func invalid(_ message: String) -> GhostermError { .failed(message) }
+
+    /// JSONSerialization keeps only one value when an object repeats a key.
+    /// Scan the original bytes first so the macOS form matches Android's strict
+    /// JsonReader behavior instead of silently accepting an ambiguous mapping.
+    private struct JSONDuplicateKeyScanner {
+        private let bytes: [UInt8]
+        private var index = 0
+
+        init(data: Data) { bytes = Array(data) }
+
+        mutating func validate() throws {
+            try value(depth: 0)
+            whitespace()
+            guard index == bytes.count else { throw invalid("JSON 后存在额外内容") }
+        }
+
+        private mutating func value(depth: Int) throws {
+            guard depth <= 64 else { throw invalid("JSON 嵌套过深") }
+            whitespace()
+            guard index < bytes.count else { throw invalid("JSON 值缺失") }
+            switch bytes[index] {
+            case 0x7b: try object(depth: depth + 1)
+            case 0x5b: try array(depth: depth + 1)
+            case 0x22: _ = try string()
+            default:
+                let start = index
+                while index < bytes.count,
+                      ![0x2c, 0x5d, 0x7d, 0x20, 0x09, 0x0a, 0x0d].contains(bytes[index]) {
+                    index += 1
+                }
+                guard index > start else { throw invalid("JSON 值无效") }
+            }
+        }
+
+        private mutating func object(depth: Int) throws {
+            index += 1
+            whitespace()
+            if consume(0x7d) { return }
+            var keys = Set<String>()
+            while true {
+                whitespace()
+                guard index < bytes.count, bytes[index] == 0x22 else {
+                    throw invalid("JSON 对象键无效")
+                }
+                let key = try string()
+                guard keys.insert(key).inserted else { throw invalid("JSON 对象包含重复键") }
+                whitespace()
+                guard consume(0x3a) else { throw invalid("JSON 对象缺少冒号") }
+                try value(depth: depth)
+                whitespace()
+                if consume(0x7d) { return }
+                guard consume(0x2c) else { throw invalid("JSON 对象分隔符无效") }
+            }
+        }
+
+        private mutating func array(depth: Int) throws {
+            index += 1
+            whitespace()
+            if consume(0x5d) { return }
+            while true {
+                try value(depth: depth)
+                whitespace()
+                if consume(0x5d) { return }
+                guard consume(0x2c) else { throw invalid("JSON 数组分隔符无效") }
+            }
+        }
+
+        private mutating func string() throws -> String {
+            let start = index
+            index += 1
+            while index < bytes.count {
+                if bytes[index] == 0x22 {
+                    index += 1
+                    let encoded = Data(bytes[start..<index])
+                    guard let result = try? JSONDecoder().decode(String.self, from: encoded) else {
+                        throw invalid("JSON 字符串无效")
+                    }
+                    return result
+                }
+                if bytes[index] == 0x5c {
+                    index += 1
+                    guard index < bytes.count else { break }
+                }
+                index += 1
+            }
+            throw invalid("JSON 字符串未结束")
+        }
+
+        private mutating func whitespace() {
+            while index < bytes.count, [0x20, 0x09, 0x0a, 0x0d].contains(bytes[index]) { index += 1 }
+        }
+
+        private mutating func consume(_ byte: UInt8) -> Bool {
+            guard index < bytes.count, bytes[index] == byte else { return false }
+            index += 1
+            return true
+        }
+    }
 }
