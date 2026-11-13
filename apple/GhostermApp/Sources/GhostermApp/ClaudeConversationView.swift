@@ -43,6 +43,19 @@ struct ClaudeConversationView: View {
                 }
             }
             if let issue = model.issue { Text(issue).foregroundStyle(.red).textSelection(.enabled) }
+            if model.phase == .unknown {
+                Button("查看未确认操作回包") { Task { await model.observeOutcome() } }
+                    .disabled(!model.canObserve).accessibilityIdentifier("plugin-claude-observe")
+                Text("仅查看本次连接中的回包；原操作保持未知。继续操作需停止并释放本次插件。")
+                    .font(DS.Font.caption).foregroundStyle(.secondary)
+            }
+            if let observation = model.observation {
+                ClaudeObservationView(observation: observation)
+            }
+            if let issue = model.observationIssue {
+                Text(issue).foregroundStyle(.red).textSelection(.enabled)
+                    .accessibilityIdentifier("plugin-claude-observation-issue")
+            }
             if !model.records.isEmpty {
                 DisclosureGroup("原始 Claude 记录（\(model.records.count)）") {
                     ForEach(model.records) { record in
@@ -140,5 +153,32 @@ private struct ClaudePromptView: View {
             result.append(value)
         }
         return result
+    }
+}
+
+private struct ClaudeObservationView: View {
+    let observation: ClaudeRPCClient.Observation
+    var body: some View {
+        VStack(alignment: .leading, spacing: DS.Padding.xs) {
+            Text(title).font(DS.Font.labelEmphasis).accessibilityIdentifier("plugin-claude-observation-status")
+            Text("操作：\(observation.method) · 输入：\(observation.inputID ?? "未取得") · 回包：\(observation.responseID ?? "未取得")")
+                .font(DS.Font.caption).textSelection(.enabled)
+            if let phase = observation.backendPhase { Text("执行端进程观察：\(phase)").font(DS.Font.caption) }
+            if let failure = observation.failure, !failure.isEmpty { Text("执行端诊断：\(failure)").font(DS.Font.caption) }
+            if let raw = observation.response {
+                ConversationReadOnlyText(text: String(decoding: raw, as: UTF8.self),
+                    identifier: "plugin-claude-observed-response", label: "完整已观察回包")
+                    .frame(height: 200)
+            }
+            Text("回包不代表模型任务已完成；不会据此重试或恢复对话。")
+                .font(DS.Font.caption).foregroundStyle(.secondary)
+        }
+    }
+    private var title: String {
+        switch observation.source {
+        case .unavailable: return "尚未观察到可关联的完整回包；不代表操作未执行"
+        case .executor: return "已读取执行端保留回包；原操作确认仍未知"
+        case .received: return "本机已保留完整回包；原操作确认仍未知"
+        }
     }
 }

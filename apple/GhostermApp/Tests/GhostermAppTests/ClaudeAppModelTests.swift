@@ -90,6 +90,33 @@ final class ClaudeAppModelTests: XCTestCase {
         try await wait("Native Claude adapter was not attached to the active Runtime") { model.claudeConversation != nil }
         let conversation = try XCTUnwrap(model.claudeConversation)
         defer { print("CLAUDE_FIXTURE_STATE phase=\(conversation.phase.rawValue) busy=\(conversation.busy) ownerBusy=\(model.extensionRunBusy) runtime=\(model.extensionRun?.runtime?.phase ?? 999) issue=\(conversation.issue ?? "none") ownerIssue=\(model.extensionRunIssue ?? "none")") }
+        if env["GHOSTERM_TEST_CLAUDE_OBSERVATION"] == "1" {
+            // Cancel only after MainActor admission has created the real adapter
+            // and yielded to native RPC. No wall-clock guess about helper effects.
+            conversation.draft = "保留未确认草稿 中文😀"
+            let starting = Task { await conversation.start() }
+            try await wait("Claude startup never entered native admission") { conversation.busy }
+            starting.cancel(); await starting.value
+            XCTAssertEqual(conversation.phase, .unknown)
+            let issue = conversation.issue
+            try await probe.press("查看未确认操作回包")
+            try await wait("Production AppModel observation was not published") {
+                conversation.observation != nil || conversation.observationIssue != nil
+            }
+            XCTAssertNil(conversation.observationIssue)
+            XCTAssertEqual(conversation.observation?.method, "start")
+            XCTAssertEqual(conversation.issue, issue)
+            XCTAssertEqual(conversation.phase, .unknown)
+            XCTAssertEqual(conversation.draft, "保留未确认草稿 中文😀")
+            XCTAssertFalse(conversation.canSend || conversation.canStart || conversation.canStop || conversation.canInterrupt)
+            // Cancellation can precede dispatch. An absent receipt remains an
+            // observation, never evidence that the original request did not run.
+            print("CLAUDE_OBSERVATION_CANCEL source=\(String(describing: conversation.observation?.source)) bytes=\(conversation.observation?.response?.count ?? 0)")
+            try await probe.press("停止并释放插件")
+            try await wait("Cancelled Runtime owner was not released") { model.extensionRun == nil || model.extensionRunIssue != nil }
+            XCTAssertNil(model.extensionRunIssue)
+            return
+        }
         try await probe.press("启动Claude对话")
         try await wait("SDK control initialization did not reach ready") { conversation.phase == .ready || conversation.issue != nil }
         let failureFile = workspace.appendingPathComponent("sdk-fixture-failure.txt")

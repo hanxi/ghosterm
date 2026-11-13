@@ -1407,6 +1407,19 @@ public final class AppModel: ObservableObject {
         return try await claudeRPC!.request(method: method, parameters: parameters)
     }
 
+    /// Current-Runtime observation only; never creates a replacement adapter.
+    public func observeClaudeOutcome() async throws -> ClaudeRPCClient.Observation {
+        let generation = extensionRunGeneration
+        try checkExtensionRunGeneration(generation)
+        guard !extensionRunBusy, extensionRun?.command == "ai claude",
+              extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue,
+              ClaudeRPCClient.methods.allSatisfy({ extensionRun?.methods.contains($0) == true }),
+              let claudeRPC else { throw GhostermError.failed("原 Claude Runtime 已不可观察") }
+        let result = try await claudeRPC.observe()
+        try checkExtensionRunGeneration(generation)
+        return result
+    }
+
     private func callExtensionExecutor(_ method: String, inputBytes: Data, command: String) async throws -> Data {
         let generation = extensionRunGeneration
         try checkExtensionRunGeneration(generation)
@@ -1602,6 +1615,10 @@ public final class AppModel: ObservableObject {
                 guard let self else { throw CancellationError() }
                 try self.checkExtensionRunGeneration(generation)
                 return try await self.requestClaudeAction(method: method, parameters: parameters)
+            }, observe: { [weak self] in
+                guard let self else { throw CancellationError() }
+                try self.checkExtensionRunGeneration(generation)
+                return try await self.observeClaudeOutcome()
             }, isCurrent: { [weak self] in
                 guard let self else { return false }
                 return generation == self.extensionRunGeneration && !self.extensionRunBusy &&

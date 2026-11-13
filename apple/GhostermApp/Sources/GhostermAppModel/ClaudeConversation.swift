@@ -37,6 +37,10 @@ public final class ClaudeConversation: ObservableObject {
     @Published public private(set) var omittedRecords = 0
     @Published public private(set) var omittedEntries = 0
     @Published public private(set) var issue: String?
+    @Published public private(set) var observation: ClaudeRPCClient.Observation?
+    @Published public private(set) var observationIssue: String?
+    private let observe: (@MainActor () async throws -> ClaudeRPCClient.Observation)?
+    private var detached = false
     private let request: ClaudeRPCClient.RPC
     private let isCurrent: @MainActor () -> Bool
     private var valid = true
@@ -47,8 +51,25 @@ public final class ClaudeConversation: ObservableObject {
     private var polling: Task<Void, Never>?
     private var finishedInputs: [Data] = []
 
-    public init(request: @escaping ClaudeRPCClient.RPC, isCurrent: @escaping @MainActor () -> Bool = { true }) {
-        self.request = request; self.isCurrent = isCurrent
+    public init(request: @escaping ClaudeRPCClient.RPC, observe: (@MainActor () async throws -> ClaudeRPCClient.Observation)? = nil, isCurrent: @escaping @MainActor () -> Bool = { true }) {
+        self.request = request; self.observe = observe; self.isCurrent = isCurrent
+    }
+    public var canObserve: Bool { !detached && isCurrent() && phase == .unknown && !busy && observe != nil }
+    /// This does not adopt a recovered send ID, resume polling or enable actions.
+    public func observeOutcome() async {
+        guard canObserve, let observe else { return }
+        let expected = generation; busy = true; observationIssue = nil
+        defer { if expected == generation { busy = false } }
+        do {
+            let result = try await observe()
+            try Task.checkCancellation()
+            guard !detached, expected == generation, isCurrent() else { throw CancellationError() }
+            observation = result
+        } catch {
+            if !detached && expected == generation && isCurrent() {
+                observationIssue = "回包观察未能确认：\(error)"
+            }
+        }
     }
     public var canStart: Bool { valid && isCurrent() && phase == .new && !busy }
     public var canSend: Bool { valid && isCurrent() && phase == .ready && activeMessageID == nil && !busy }
@@ -128,7 +149,7 @@ public final class ClaudeConversation: ObservableObject {
     }
     /// A detached/replaced Runtime cannot keep sending or accept late replies.
     public func invalidate() {
-        generation = UUID(); valid = false; polling?.cancel(); polling = nil; busy = false; pending = []
+        generation = UUID(); detached = true; valid = false; polling?.cancel(); polling = nil; busy = false; pending = []
         if ![.closed, .failed, .lost].contains(phase) { phase = .unknown; issue = "连接观察已结束；未确认的结果保持未知。" }
     }
 

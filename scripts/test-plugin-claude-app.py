@@ -15,6 +15,7 @@ def main():
     parser.add_argument('--gterm', type=Path, required=True)
     parser.add_argument('--package', type=Path, default=ROOT / 'build/plugins/ai-claude')
     parser.add_argument('--fetch', action='store_true')
+    parser.add_argument('--observation', action='store_true', help='cancel an admitted start and exercise the production read-only observation button')
     parser.add_argument('--route', choices=['direct', 'jump', 'both'], default='both')
     args = parser.parse_args()
     gterm, package = args.gterm.resolve(strict=True), args.package.resolve(strict=True)
@@ -33,6 +34,8 @@ def main():
                            GHOSTERM_AUTOMATION_OFFSCREEN='1',
                            GHOSTERM_APP_TEST_FILTER='ClaudeAppModelTests' if args.route == 'both' else
                                'ClaudeAppModelTests.testClaudeConversationOver' + ('DirectSSH' if args.route == 'direct' else 'ProxyJump'))
+        environment.pop('GHOSTERM_TEST_CLAUDE_OBSERVATION', None)
+        if args.observation: environment['GHOSTERM_TEST_CLAUDE_OBSERVATION'] = '1'
         for name in list(environment):
             if name.startswith('GHOSTERM_SSH_'): del environment[name]
         environment.pop('GHOSTERM_TEST_CODEX_JUMP', None)
@@ -45,7 +48,8 @@ def main():
         log = (ROOT / 'tmp/apple-app-test.log').read_text()
         if f'Executed {expected} test' not in log or '0 failures' not in log or 'skipped' in log.lower():
             raise RuntimeError('Native Claude SDK fixture cases did not all execute without skips/failures')
-        print(f'CLAUDE APP PASS: {expected} owned SSH cases; production Native controls/Node/SDK, explicit no-model CLI fixture')
+        scope = 'admitted cancellation/production observation UI; no claim that SDK started' if args.observation else 'production Native controls/Node/SDK, explicit no-model CLI fixture'
+        print(f'CLAUDE APP PASS: {expected} owned SSH cases; {scope}')
 
 
 if __name__ == '__main__': main()

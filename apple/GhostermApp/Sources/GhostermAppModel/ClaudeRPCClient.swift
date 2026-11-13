@@ -11,6 +11,22 @@ public final class ClaudeRPCClient {
     public static let methods = ["claude.input.open", "claude.input.append", "claude.input.seal",
         "claude.input.discard", "claude.call", "claude.response.read", "claude.response.forget", "claude.status"]
     private let rpc: RPC
+    public struct Observation: Equatable {
+        public enum Source: Equatable { case unavailable, executor, received }
+        public let source: Source
+        public let method: String
+        public let inputID: String?
+        public let responseID: String?
+        public let response: Data?
+        public let backendPhase: String?
+        public let failure: String?
+        public let exitJSON: String?
+        public let reaped: Bool?
+    }
+    private var scopeOpen = true
+    private var lastMethod: String?
+    private var dispatched = false
+    private var completeResponse: Data?
     private var valid = true
     private var busy = false
     private var sequence = 0
@@ -18,7 +34,7 @@ public final class ClaudeRPCClient {
     public private(set) var lastResponseID: String?
 
     public init(rpc: @escaping RPC) { self.rpc = rpc }
-    public func invalidate() { valid = false }
+    public func invalidate() { scopeOpen = false; valid = false }
 
     /// Parameters use the child's compact JSON representation and are never
     /// reserialized through Swift dictionaries (which can merge Unicode keys).
@@ -34,6 +50,8 @@ public final class ClaudeRPCClient {
         }
         try ExtensionRelayBootstrap.validateJSON(parameters)
         guard let text = String(data: parameters, encoding: .utf8) else { throw Failure.invalidParameters }
+        lastInputID = nil; lastResponseID = nil; completeResponse = nil
+        lastMethod = method; dispatched = false
         busy = true
         defer { busy = false }
         do {
@@ -55,42 +73,97 @@ public final class ClaudeRPCClient {
             }
             let sealed: Status = try await call("claude.input.seal", ["inputID": opened.inputID])
             try requireOK(sealed.status)
+            dispatched = true
             let receipt: Receipt = try await call("claude.call", ["method": method, "inputID": opened.inputID])
             try requireOK(receipt.status)
             guard Self.identifier(receipt.responseID, prefix: "response-"),
                   (1...600_000).contains(receipt.totalUnits),
                   receipt.totalBytes >= receipt.totalUnits, receipt.totalBytes <= 600_000 else { throw Failure.invalidResponse }
             lastResponseID = receipt.responseID
-            var result = Data(), received = 0
-            while received < receipt.totalUnits {
-                let page: Page = try await call("claude.response.read", ["responseID": receipt.responseID, "offset": received])
-                try requireOK(page.status)
-                let count = page.content.utf16.count
-                guard page.responseID == receipt.responseID, page.offset == received,
-                      page.totalUnits == receipt.totalUnits, page.totalBytes == receipt.totalBytes,
-                      count > 0, count <= 256, page.nextOffset == received + count,
-                      page.nextOffset <= receipt.totalUnits, page.done == (page.nextOffset == receipt.totalUnits),
-                      result.count + page.content.utf8.count <= receipt.totalBytes else { throw Failure.invalidResponse }
-                result.append(contentsOf: page.content.utf8); received = page.nextOffset
-            }
-            guard result.count == receipt.totalBytes else { throw Failure.invalidResponse }
-            try ExtensionRelayBootstrap.validateJSON(result)
-            let response = try JSONDecoder().decode(ChildResponse.self, from: result)
-            let fields = try JSONSerialization.jsonObject(with: result) as? [String: Any]
-            let expected: Set<String> = response.ok ? ["version", "id", "sequence", "ok", "result"]
-                : ["version", "id", "sequence", "ok", "error", "phase"]
-            let next = sequence + 1
-            guard response.version == 1, response.sequence == next, response.id == "command-\(next)",
-                  fields.map({ Set($0.keys) }) == expected,
-                  response.ok || response.error == "ACTION_REJECTED" else { throw Failure.invalidResponse }
+            let result = try await readResponse(receipt)
+            completeResponse = result
             let forgotten: Accepted = try await call("claude.response.forget", ["responseID": receipt.responseID])
             guard forgotten.accepted else { throw Failure.invalidResponse }
-            sequence = next
+            sequence += 1
             return result
         } catch {
             valid = false
             throw error
         }
+    }
+
+    /// Explicit observation only. The original RPC and conversation remain
+    /// unknown; reading never dispatches, forgets, advances sequence or reopens effects.
+    public func observe() async throws -> Observation {
+        try checkObservation()
+        guard !busy else { throw Failure.busy }
+        guard !valid, let method = lastMethod else { throw Failure.closed }
+        busy = true
+        defer { busy = false }
+        func snapshot(_ source: Observation.Source, response: Data? = nil, backend: Backend? = nil) -> Observation {
+            Observation(source: source, method: method, inputID: lastInputID, responseID: lastResponseID,
+                response: response, backendPhase: backend?.phase, failure: backend?.failure,
+                exitJSON: backend?.exitJSON, reaped: backend?.reaped)
+        }
+        if let completeResponse { return snapshot(.received, response: completeResponse) }
+        guard dispatched, let inputID = lastInputID else { return snapshot(.unavailable) }
+        let backend: Backend = try await call("claude.status", [:], observing: true)
+        guard !backend.phase.isEmpty, backend.phase.utf8.count <= 32, backend.failure.utf8.count <= 32,
+              backend.exitJSON.utf8.count <= 256 else { throw Failure.invalidResponse }
+        // The protocol permits null. Validate exactly one JSON value through
+        // the existing strict container parser without accepting trailing data.
+        let exit = try ClaudeJSON.parse(Data(("[" + backend.exitJSON + "]").utf8))
+        guard exit.elements?.count == 1 else { throw Failure.invalidResponse }
+        if backend.inputID.isEmpty && backend.responseID.isEmpty { return snapshot(.unavailable, backend: backend) }
+        guard backend.inputID.utf8.elementsEqual(inputID.utf8),
+              Self.identifier(backend.responseID, prefix: "response-"),
+              lastResponseID == nil || lastResponseID == backend.responseID else { throw Failure.invalidResponse }
+        lastResponseID = backend.responseID
+        // A zero-offset read supplies bounded lengths; the shared reader checks
+        // every subsequent page and the original child command identity.
+        let first: Page = try await call("claude.response.read", ["responseID": backend.responseID, "offset": 0], observing: true)
+        try requireOK(first.status)
+        let receipt = Receipt(status: "ok", responseID: backend.responseID,
+            totalUnits: first.totalUnits, totalBytes: first.totalBytes)
+        let raw = try await readResponse(receipt, observing: true, first: first)
+        try checkObservation()
+        completeResponse = raw
+        return snapshot(.executor, response: raw, backend: backend)
+    }
+
+    private func checkObservation() throws {
+        try Task.checkCancellation()
+        guard scopeOpen else { throw Failure.closed }
+    }
+    private func readResponse(_ receipt: Receipt, observing: Bool = false, first: Page? = nil) async throws -> Data {
+        guard Self.identifier(receipt.responseID, prefix: "response-"),
+              (1...600_000).contains(receipt.totalUnits), receipt.totalBytes >= receipt.totalUnits,
+              receipt.totalBytes <= 600_000 else { throw Failure.invalidResponse }
+        var result = Data(), received = 0
+        while received < receipt.totalUnits {
+            let page: Page
+            if received == 0, let first { page = first }
+            else { page = try await call("claude.response.read", ["responseID": receipt.responseID, "offset": received], observing: observing) }
+            try requireOK(page.status)
+            let count = page.content.utf16.count
+            guard page.responseID == receipt.responseID, page.offset == received,
+                  page.totalUnits == receipt.totalUnits, page.totalBytes == receipt.totalBytes,
+                  count > 0, count <= 256, page.nextOffset == received + count,
+                  page.nextOffset <= receipt.totalUnits, page.done == (page.nextOffset == receipt.totalUnits),
+                  result.count + page.content.utf8.count <= receipt.totalBytes else { throw Failure.invalidResponse }
+            result.append(contentsOf: page.content.utf8); received = page.nextOffset
+        }
+        guard result.count == receipt.totalBytes else { throw Failure.invalidResponse }
+        try ExtensionRelayBootstrap.validateJSON(result)
+        let response = try JSONDecoder().decode(ChildResponse.self, from: result)
+        let fields = try JSONSerialization.jsonObject(with: result) as? [String: Any]
+        let expected: Set<String> = response.ok ? ["version", "id", "sequence", "ok", "result"]
+            : ["version", "id", "sequence", "ok", "error", "phase"]
+        let next = sequence + 1
+        guard response.version == 1, response.sequence == next, response.id == "command-\(next)",
+              fields.map({ Set($0.keys) }) == expected,
+              response.ok || response.error == "ACTION_REJECTED" else { throw Failure.invalidResponse }
+        return result
     }
 
     private func check() throws {
@@ -100,12 +173,13 @@ public final class ClaudeRPCClient {
     private func requireOK(_ status: String) throws {
         guard status == "ok" else { throw Failure.refused(status) }
     }
-    private func call<Value: Decodable>(_ method: String, _ input: [String: Any]) async throws -> Value {
-        try check()
+    private func call<Value: Decodable>(_ method: String, _ input: [String: Any], observing: Bool = false) async throws -> Value {
+        guard !observing || ["claude.status", "claude.response.read"].contains(method) else { throw Failure.closed }
+        if observing { try checkObservation() } else { try check() }
         let encoded = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys, .withoutEscapingSlashes])
         guard encoded.count <= 3072 else { throw Failure.invalidParameters }
         let result = try await rpc(method, encoded)
-        try check()
+        if observing { try checkObservation() } else { try check() }
         guard result.count <= 3072 else { throw Failure.invalidResponse }
         try ExtensionRelayBootstrap.validateJSON(result)
         let envelope = try JSONDecoder().decode(Envelope<Value>.self, from: result)
@@ -126,6 +200,10 @@ public final class ClaudeRPCClient {
     private struct Page: Decodable {
         let status: String; let responseID: String; let offset: Int; let nextOffset: Int
         let totalUnits: Int; let totalBytes: Int; let content: String; let done: Bool
+    }
+    private struct Backend: Decodable {
+        let phase: String; let failure: String; let exitJSON: String; let reaped: Bool
+        let responseID: String; let inputID: String
     }
     private struct ChildResponse: Decodable {
         let version: Int; let id: String; let sequence: Int; let ok: Bool; let error: String?
