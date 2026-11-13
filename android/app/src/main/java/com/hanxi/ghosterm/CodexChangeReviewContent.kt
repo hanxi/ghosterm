@@ -60,12 +60,7 @@ import androidx.compose.ui.unit.dp
                 Text(file.path, Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), fontFamily = FontFamily.Monospace)
                 file.movePath?.let { Text("→ $it", Modifier.horizontalScroll(rememberScrollState()), fontFamily = FontFamily.Monospace) }
                 key(selection, document) {
-                    Box(Modifier.fillMaxWidth().height(300.dp).verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState())) {
-                        BasicTextField(value = file.diff, onValueChange = {}, readOnly = true,
-                            modifier = Modifier.widthIn(min = 280.dp).testTag("plugin-codex-full-diff-text"),
-                            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurface))
-                    }
+                    ConversationReadOnlyText(file.diff, "plugin-codex-full-diff-text")
                 }
             }
         }

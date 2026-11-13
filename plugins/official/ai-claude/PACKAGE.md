@@ -19,7 +19,7 @@ read and forget complete receipts to release their budget. Status can expose an
 observed receipt after RPC cancellation, without retrying the action. Explicit
 stop waits for observed exit and Core process release.
 
-macOS provides experimental Native conversation, approval and question controls
+macOS and Android provide experimental Native conversation, approval and question controls
 for this command, using a matching external Node component from this checkout.
 Other Host UIs remain unfinished. This candidate advertises no portable Native
 view contribution and does not implement generic runtime:node package loading. Normal

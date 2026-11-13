@@ -9,7 +9,8 @@ ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_RUNTIME_MUTATION'
 MODES='invocation capabilities dispose-throw invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory caught-memory global-memory repeat-close many-1 many-4 many-10 stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop activation-timeout peer-loss thread-handoff step'.split()
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- parser=argparse.ArgumentParser();parser.add_argument('--mutate',action='store_true');parser.add_argument('--fetch',action='store_true');parser.add_argument('--android-build',action='store_true');args=parser.parse_args()
+ parser=argparse.ArgumentParser();parser.add_argument('--mutate',action='store_true');parser.add_argument('--case',action='append',help='run named mutation groups only; requires --mutate');parser.add_argument('--fetch',action='store_true');parser.add_argument('--android-build',action='store_true');args=parser.parse_args()
+ if args.case and not args.mutate:parser.error('--case requires --mutate')
  runtime=ROOT/'core/src/extension/runtime-quickjs.inc'
  if MARK in runtime.read_text():print('residual runtime mutation',file=sys.stderr);raise SystemExit(2)
  inputs=[p for folder in ['core','packages/plugin-sdk'] for p in (ROOT/folder).rglob('*') if p.is_file() and 'build' not in p.relative_to(ROOT/folder).parts and p.suffix in ['.c','.h','.inc','.cmake','.json','.ts','.md']]
@@ -44,13 +45,13 @@ def main():
   base=['cmake','-S',core,'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_JS=ON','-DGHOSTERM_BUILD_TESTS=ON','-DGHOSTERM_PLUGIN_SDK_DIR='+str(sdk),'-DCMAKE_BUILD_TYPE=RelWithDebInfo']
   run('configure',[*base,'-B',build,'-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'],budget=120)
   def rebuild(label):
-   objects=[('ghosterm_core','src/extension/runtime.c'),('ghosterm_core','src/extension/process-service.c'),('test_runtime','tests/test_runtime.c'),('test_runtime_boundary','tests/test_runtime_boundary.c'),('test_ext_package','tests/test_ext_package.c'),('test_package_runtime','tests/test_package_runtime.c')]
+   objects=[('ghosterm_core','src/extension/runtime.c'),('ghosterm_core','src/extension/process-service.c'),('test_runtime','tests/test_runtime.c'),('test_runtime_boundary','tests/test_runtime_boundary.c'),('test_runtime_cpu_clock','tests/test_runtime_cpu_clock.c'),('test_ext_package','tests/test_ext_package.c'),('test_package_runtime','tests/test_package_runtime.c')]
    for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
-   for name in ['libghosterm_core.a','test_runtime','test_runtime_boundary','test_ext_package','test_package_runtime','test_config']:(build/name).unlink(missing_ok=True)
-   out=run(label+'-build',['cmake','--build',build,'--target','test_runtime','test_runtime_boundary','test_ext_package','test_package_runtime','test_config','-j','2'],budget=300)
+   for name in ['libghosterm_core.a','test_runtime','test_runtime_boundary','test_runtime_cpu_clock','test_ext_package','test_package_runtime','test_config']:(build/name).unlink(missing_ok=True)
+   out=run(label+'-build',['cmake','--build',build,'--target','test_runtime','test_runtime_boundary','test_runtime_cpu_clock','test_ext_package','test_package_runtime','test_config','-j','2'],budget=300)
    for owner,name in objects:
     assert 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' in out,(label,name)
-   for name in ['test_runtime','test_runtime_boundary','test_ext_package','test_package_runtime','test_config']:assert 'Linking C executable '+name in out,(label,name)
+   for name in ['test_runtime','test_runtime_boundary','test_runtime_cpu_clock','test_ext_package','test_package_runtime','test_config']:assert 'Linking C executable '+name in out,(label,name)
    assert 'Linking C static library libghosterm_core.a' in out
   def suite(label):
    expected={'runtime_'+m for m in MODES}|{'runtime_boundary_outbound'}
@@ -59,6 +60,8 @@ def main():
    output=run(label,['ctest','--test-dir',build,'-R','^runtime_','--output-on-failure'],budget=90)
    assert '100% tests passed out of '+str(len(expected)) in output
    for name in expected:assert re.search(r'Test\s+#\d+: '+re.escape(name)+r'\s+\.+\s+Passed',output),name
+   clock=run(label+'-cpu-clock',['ctest','--test-dir',build,'-R','^plugin_cpu_clock_','--output-on-failure'],budget=30)
+   assert '100% tests passed out of 4' in clock
    process_config=run(label+'-process-config',['ctest','--test-dir',build,'-R','^ext_package_process-config$','--output-on-failure'],budget=90)
    assert '100% tests passed out of 1' in process_config and 'ext_package_process-config' in process_config
    process_runtime=run(label+'-process-runtime',['ctest','--test-dir',build,'-R','^plugin_package_runtime_process$','--output-on-failure'],budget=90)
@@ -71,7 +74,7 @@ def main():
    ('role-binding','    if ((unsigned)actual_role != (unsigned)c->role) {\n','    if (false && (unsigned)actual_role != (unsigned)c->role) {\n','invalid'),
    ('copy-source','        memcpy(copy->source, m->source, m->size);\n','        memset(copy->source, 32, m->size);\n','roundtrip'),
    ('native-module-boundary','    if (!strcmp(name, "host:/native") && !strcmp(base, "host:/bootstrap.js")) {\n','    if (!strcmp(name, "host:/native") && true) {\n','native-import'),
-   ('cpu-budget','    if (!runtime_now(&now) || now >= r->deadline) {\n','    if (!runtime_now(&now) || now >= r->deadline + 60000) {\n','cpu'),
+   ('cpu-budget','    if (!runtime_cpu_now(&now) || now >= r->deadline) {\n','    if (!runtime_cpu_now(&now) || now >= r->deadline + 60000) {\n','cpu'),
    ('atomics-block','    JS_SetCanBlock(r->engine, false);\n','    JS_SetCanBlock(r->engine, true);\n','atomics'),
    ('memory-budget','    r->heap_limit = memory;\n','    r->heap_limit = 128 * 1024 * 1024;\n','memory'),
    ('job-budget','        if (*used >= r->jobs_per_step) {\n','        if (*used >= 4096) {\n','jobs'),
@@ -88,8 +91,10 @@ def main():
    ('process-executable-digest', 'strcmp(actual_sha256, mappings[i].verified_sha256)', 'false', 'package-process-digest'),
    ('handoff-revoke','        r->info.error = error;\n    }\n    gt_ext_session_revoke(r->session);\n','        r->info.error = error;\n    }\n    (void)r->session;\n','boundary'),
   ]
+  if args.case and set(args.case)-{c[0] for c in cases}:parser.error('unknown mutation case')
+  selected=[c for c in cases if not args.case or c[0] in args.case]
   if args.mutate:
-   for label,old,new,mode in cases:
+   for label,old,new,mode in selected:
     path=core/('src/extension/process-service.c' if label in ('process-executable-identity','process-executable-digest') else 'src/extension/runtime-quickjs.inc');original=path.read_bytes()
     assert old in original.decode(),label;path.write_text(original.decode().replace(old,new)+'\n/* '+MARK+' */\n')
     target=[build/'test_runtime_boundary',sdk] if mode=='boundary' else [build/'test_package_runtime',mode.removeprefix('package-'),ROOT/'tmp'] if mode.startswith('package-') else [build/'test_runtime',mode,sdk]
@@ -125,7 +130,7 @@ def main():
    binary=android_build/'test_runtime';nm=ndk/'toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-nm';exports=run('android-symbols',[nm,'--defined-only',binary]);assert 'gt__bridge_runtime_open' in exports and 'JS_NewRuntime' in exports;assert binary.read_bytes()[:4]==b'\x7fELF'
    android=dict(abi='arm64-v8a',api=29,executed=False,binary_sha256=sha(binary),core_sha256=sha(android_build/'libghosterm_core.a'),engine_sha256=sha(android_build/'libghosterm_quickjs.a'))
   for name,h in hashes.items():assert sha(ROOT/name)==h,name
-  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in cases] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,process_runtime_tests=['authorized cat/env stdio roundtrip with selected-environment isolation','runtime close stops and reaps an owned child','Host verified executable digest checked at Runtime open','executable path identity rechecked before spawn','per-child deadline does not fire early and terminates on expiry','aggregate process output quota'],process_config_test='undeclared process mapping rejected; checked package process scope exercised by Runtime integration',guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC / Executor process.spawn; no App enable, gterm, physical devices, WAN or gateway')
+  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in selected] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,runtime_clock_tests=4,process_runtime_tests=['authorized cat/env stdio roundtrip with selected-environment isolation','runtime close stops and reaps an owned child','Host verified executable digest checked at Runtime open','executable path identity rechecked before spawn','per-child deadline does not fire early and terminates on expiry','aggregate process output quota'],process_config_test='undeclared process mapping rejected; checked package process scope exercised by Runtime integration',guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC / Executor process.spawn; no App enable, gterm, physical devices, WAN or gateway')
   (logs/'result.json').write_text(json.dumps(receipt,indent=2)+'\n');shutil.rmtree(source);print('PLUGIN RUNTIME PASS; logs: '+str(logs),flush=True)
  except BaseException as error:(logs/'failure.txt').write_text(repr(error)+'\n');raise
 def stop(n,_frame):raise KeyboardInterrupt('signal '+str(n))

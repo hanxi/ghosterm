@@ -5255,3 +5255,31 @@ Node 后端最终 `python3 -B scripts/test-plugin-claude-node.py --mutate --real
 共用 RPC 再以 `test-plugin-codex-patch-android.py --headless-api 29 --route both` 验实际 MainActivity Settings → 自建 SSH / ProxyJump → gterm → 明确假 app-server：**两路各一项通过、零跳过**，覆盖 thread、原生完整补丁读取、旧版本拒绝、批准与停止。两次前置失败均未计绿：并行 Release/R8 时包审查 CPU_BUDGET；其后并行设备 / 变异时远端 gterm 的 runtime error=CPU，Android 观察为协议失败、RPC 结果未知。其它构建和变异进程退出后按原预算串行两路通过；这不是并行负载、真实模型或完整客户端验收，也不据此宣称 CPU 预算适用于所有机器。
 
 后续继续 Android Claude 原生消息 / 审批 / 用户问题控件、实际 SDK / SSH 往返、未知收据观察恢复、真实认证 / 模型 / 工具与通用 Node / Exec 包加载。所有本轮 AVD 使用 -no-window、自有工程 tmp/、禁用 crash reporting；所属进程退出后清理临时文件，保留默认 Core JS=OFF / tests=ON，仅本地 main 提交。
+
+
+### P4 实施第九批：Android Claude 原生对话与 SDK 整链（2026-11-14）
+
+Android `ClaudeConversation` 为当前 ACTIVE Runtime 的 Main owner；通过原八方法完整文档 adapter 显式启动、发送、轮询、中断与停止。原生 Settings 展示消息、完整只读内容、原始 vendor 记录和省略计数；工具参数不可修改，决定只传原引用与 allow / deny。AskUserQuestion 每题默认未选，支持原选项单选 / 多选与显式自由文本，全部回答后才可提交，普通批准不能代答。问题投影必须与原 input 一致，引用 / turn / 序号严格匹配，等待中重新核对引用，busy 时控件禁用；中断 receipt 不完成输入，未知结果保留 UUID / 草稿且不重放。原 Runtime 失效与晚到响应隔离，终态内容保留到显式释放；完整消息与原始记录各限 128 条 / 2 MiB，单条 600,000 字节。Codex 与 Claude 共用 composer / 决定按钮 / 可选择的只读文本，保持原 Codex 标签和业务语义。JSON 动作编码保留不同 Unicode 键并按 JavaScript 整数索引顺序编码。
+
+真实 SDK 联调定位并修复两处 Core 缺陷，未修改 vendor：
+
+- `package-arguments.c` 原来把没有终止 NUL 的 checked schema 字节直接传给 `JS_ParseJSON`。锁定 QuickJS 要求 `buf[len] == 0`；临时诊断捕获 `SyntaxError: unexpected data at the end`，对应 Android 间歇参数拒绝。现在复制到计入全局 heap 的有界 scratch，显式补 NUL，解析后释放；OOM 返回 IO。真实生产 decoder 的夹具在逻辑末尾放可访问非 NUL 数据，旧实现正常断言红。四项尾部 / OOM / 容量 / 缺命令检查与三组 ASan/UBSan 隔离变异通过：正常断言红、同 archive 配置绿、恢复绿与 SHA256，无 LSan 声明。JNI 失败诊断保留 Core 状态码；未改公开签名。
+- `runtime-quickjs.inc` 原先用单调墙钟计算 JS CPU 预算，宿主 spawn 等待也被算入；本机 OPEN_MAX=1,048,575，子进程关闭继承 fd 时父线程等待，ProxyJump 联调观察到远端 CPU 失败。现在仅 JS 执行预算使用 `CLOCK_THREAD_CPUTIME_ID`，启动 / 资源 / 子进程寿命和停止 grace 仍使用单调墙钟，未放宽数值预算。真实 Runtime / QuickJS 夹具在 interrupt 回调注入一次 700ms native 等待，旧实现正常断言红，修复后等待、启动墙钟超限、高 CPU 循环限制与串行线程交接四项通过。两组 ASan/UBSan 变异分别将 CPU 改回墙钟、启动改用 CPU，均正常断言红、同 archive 配置绿、恢复绿与 SHA256。首版夹具缺 errno 导入的编译失败、修改模块长度导致的前置断言红不计根因证据；最终夹具不修改实际模块。原生服务仍需自身时限，本改动不保证任意 native 调用可中断。
+
+
+Core 默认 JS-off / tests-on 离线 gate **481/481 CTest、177 ABI**；独立 JS-enabled Core 全量 **681/681 CTest**，包括新增八项边界 / 时钟检查。上述三个 schema / 两个 clock 变异组使用 ASan/UBSan，不将普通全量说成 sanitizer 全量。clang-format **19.1.7 / 224 文件**、Apple **174 引用 / 3 登记未用**和 Android **140 / 37**对拍、Claude 候选包重新构建逐字节 `--check` 通过。公共 C ABI / 各端签名不变，默认 Core 仍 JS=OFF / tests=ON。
+
+
+`test-plugin-claude-android.py --headless-api 36 --conversation --mutate` 最终完整 **37 组**通过（既有 16＋新增 21）：真实编译、单条普通 JUnit 断言红、同 APK Core 配置绿、恢复绿及 SHA256，首尾各完整 **32 项**组合通过，安装 APK 摘要与构建产物一致；原工作区生产 Kotlin 字节不变。新增保护覆盖问答不能普通批准 / 必须全部回答、排队引用重核、result / turn / owner / 顺序隔离、中断过期与 receipt、消息 / 记录各字节与条数限额、原问题投影、启动失败可见性、整数 / Unicode 键、真实批准按钮、默认未选、busy 禁用与共用只读文本。明确为内存 RPC 夹具，不作为 SDK / CLI / 模型证据。最终 JS-enabled Debug / 测试 APK、未签名 Release / R8 与 app / bridge / terminal / data 四模块 release lint 通过。
+
+
+最终生产 JS-enabled APK 在自有 **API 29 / 36 arm64 / 4 KiB 页**各完整 **32 项**组合通过；每次安装读取 APK SHA256 与实际构建产物对拍。`test-plugin-claude-sdk-android.py --route all` 在两档各三项零失败 / 跳过：实际 MainActivity Settings → 自建直连 / ProxyJump SSH → gterm → 生产 Portable 候选包 → Node → 锁定 SDK，点击显式启动 / 发送 / 工具批准 / 四题选项与提交 / 停止 / 释放，核对 SDK fixture audit 的一份工具批准及四份原问题答案、关联 result 和 Node stop/reap。第三项对实际批准包重复 200 次空 argv 解码，并核对无效参数保留 Core 1 状态。候选审查批准和启动配置由测试程序设置，输入 / 交互走实际控件；未覆盖完整导入配置体验。SDK 为真实 **0.3.323**、匹配 CLI **2.1.323** 只做 profile 身份核验，实际 CLI 协议端是明确内存夹具，不执行真实 CLI / 账号 / 模型 / 工具。此批不重复声明此前独立真实 CLI 无模型初始化为新设备证据。API 29 整链后仅更新包 README 的 Android Host 说明，重建 `--check` 后由 API 36 验最终候选；Portable 代码未变。
+
+Node 关闭 / reap 回包已确认；gterm 退出允许两种有界、明确区分的收据：0 且无 stderr，或 7 且为已知 channel outcome unknown、cleanup=0 的精确诊断。后者是 Runtime 生命周期观察不明，不能冒充 Node 未回收或所有层均正常完成。本次两设备实际两路均为上述 7；对话终态内容保持可读直到显式释放。共用控件另由 `test-plugin-codex-patch-android.py --route both` 在 API 29 验生产 Settings → SSH / ProxyJump → 明确假 app-server，**两路各一项通过、零跳过**：完整补丁、旧版本拒绝、实际批准和停止保持。
+
+前置失败均保留而未计绿：旧 Core 非 NUL schema 的 Native 参数拒绝、临时诊断缺 log 链接导致编译失败；consent dialog 被错误 `performScrollTo` 的测试操作失败，改为真实按钮直接点击；修复 schema 后一轮直连通过、ProxyJump 的 CPU 误计失败。临时 Android trace 与链接改动已逐字节恢复，再应用生产修复并重新构建；没有将编译失败或生命周期不明充作目标断言红。此前 31 项组合只代表当时源码，最终另以 32 项与完整 37 组重新取证。
+
+
+旧 Runtime runner 同步 CPU 时钟锚点，并为新增四项时钟 fixture 单独发现 / 执行，不混入其它现存 runner 的私有 runtime 支持集。`test-plugin-runtime.py --mutate --case cpu-budget --fetch` 的 ASan/UBSan 复验通过：既有 **38 项 Runtime**、新增 **4 项 clock**、配置及六项受控进程回归首尾通过，旧 CPU 一组实际重编译后普通断言红、同 archive 配置绿、恢复绿及 SHA256，四个配置 / pin / 内容守卫与 ABI **177** 通过。此为旧 CPU 组定向复验，未称其余十九组本轮重跑。新增 CTest 使用 `plugin_cpu_clock_` 前缀，原 memory / public runtime runner 的精确支持集不被无对应 executable 的条目污染。
+
+本批不改 Portable SDK / 冻结 wire v1 / 公共 C ABI，不增加 macOS CI 二十份，不发行。所有 AVD `-no-window`，自有 loopback 目标、隔离 HOME / config / workspace、无个人账户；测试与所属进程退出后清理工程 tmp/，仅本地 main 分批提交。剩余其它 Host UI、完整安装 / 启动配置体验、未知收据观察恢复 UI、通用 Node / Exec 包加载、真实认证 / 模型 / 工具、持续流量 / 背压 / 整进程及真实设备矩阵；不关闭 P4 或整个计划。

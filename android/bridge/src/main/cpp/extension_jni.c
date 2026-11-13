@@ -4,6 +4,7 @@
 #include <jni.h>
 #include <limits.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -3085,7 +3086,9 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionPackage_decodeCommandArguments(
         }
         free(path);
         if (!result && !(*e)->ExceptionCheck(e)) {
-            extension_error(e, "插件参数与 argsSchema 不匹配");
+            char message[128];
+            snprintf(message, sizeof(message), "插件命令参数读取失败：Core %d", (int)status);
+            extension_error(e, message);
         }
         return result;
     }

@@ -31,6 +31,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     private var sessionGeneration = Any()
     private var rpcGeneration = Any()
     private var claudeRPC: ClaudeRPCClient? = null
+    internal var claudeConversation: ClaudeConversation? by mutableStateOf(null)
+        private set
     private var handshakeJob: Job? = null
     internal val changeReview = CodexChangeReviewController(viewModelScope)
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
@@ -124,6 +126,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                             }, additionalRequiredCapabilities = extraCapabilities)
                         sessionGeneration = Any(); rpcGeneration = Any(); changeReview.cancel()
                         claudeRPC?.invalidate(); claudeRPC = null
+                        claudeConversation?.invalidate(); claudeConversation = null
                         codex = CodexHostState(); pendingExtensionRPCHandles.clear(); activeExtensionRPCHandles.clear()
                         activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
                             launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
@@ -327,6 +330,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         codex.timeline.any { it.changeReference == reference }
 
     private fun invalidateExtensionCalls() {
+        claudeConversation?.invalidate()
         claudeRPC?.invalidate(); claudeRPC = null
         rpcGeneration = Any()
         changeReview.cancel()
@@ -416,6 +420,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 owner.releaseFinished()
                 sessionGeneration = Any(); invalidateExtensionCalls()
                 activeRuntime = null; activeSession = null; receivedResources = emptyList()
+                claudeConversation = null
                 codex = CodexHostState(); pendingExtensionRPCHandles.clear(); activeExtensionRPCHandles.clear()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Throwable) { error = "释放插件资源失败：${failure.message ?: failure.javaClass.simpleName}" }
@@ -446,6 +451,13 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 val state = owner.stepRuntime()
                 if (generation !== sessionGeneration) return
                 activeRuntime = state
+                if (state.command == "ai claude" && state.info.phase == ExtensionRuntime.Phase.ACTIVE && claudeConversation == null &&
+                    ClaudeRPCClient.methods.all { it in activeSession?.methods.orEmpty() }) {
+                    val expected = rpcGeneration
+                    claudeConversation = ClaudeConversation(viewModelScope, ::requestClaudeAction, isCurrent = {
+                        expected === rpcGeneration && !launchBusy && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE
+                    })
+                }
                 reapExtensionRPCs(owner)
                 if (generation !== sessionGeneration) return
                 val (resourceStatus, content) = owner.takeRuntimeResource()
@@ -466,6 +478,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 if (state.info.phase !in setOf(ExtensionRuntime.Phase.ACTIVE, ExtensionRuntime.Phase.STARTING,
                         ExtensionRuntime.Phase.CREATED)) {
                     claudeRPC?.invalidate()
+                    claudeConversation?.invalidate()
                     codex = codex.copy(approvals = emptyList())
                     changeReview.cancel()
                     return
@@ -477,6 +490,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         } catch (failure: Throwable) {
             if (generation !== sessionGeneration) return
             claudeRPC?.invalidate()
+            claudeConversation?.invalidate()
             changeReview.cancel()
             codex = codex.copy(approvals = emptyList())
             error = "插件 Runtime 运行失败：${failure.message ?: failure.javaClass.simpleName}"
@@ -587,6 +601,11 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 busy = false
             }
         }
+    }
+
+    override fun onCleared() {
+        sessionGeneration = Any(); invalidateExtensionCalls()
+        super.onCleared()
     }
 
 }

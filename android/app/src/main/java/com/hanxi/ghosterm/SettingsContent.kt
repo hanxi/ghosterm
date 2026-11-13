@@ -283,6 +283,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                         }
                         PluginResourcesPanel(extensions.receivedResources)
                         if (active.command == "ai codex") PluginCodexPanel(extensions)
+                        if (active.command == "ai claude") extensions.claudeConversation?.let { ClaudeConversationContent(it) }
                         if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {
@@ -672,7 +673,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (command.path == "ai codex") Text("Codex 会自动登记固定的 thread / turn / approval 与事件 RPC。还需添加 name 为 codex、版本填 codex-cli 0.166.0 的进程映射，并核对可执行文件 SHA-256；否则启动会被拒绝或版本锁校验失败。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (command.path == "ai claude") Text("Claude 需要名为 claude-node 的 Node 20 或更新版本映射，并用 prefixArguments 选择已安装的桥接入口与 --profile 文件；SDK 0.3.323 / CLI 2.1.323 依赖须在执行机器上准备。不会自动安装或改用本机账号；Android 对话页面仍在接入中。",
+                if (command.path == "ai claude") Text("Claude 需要名为 claude-node 的 Node 20 或更新版本映射，并用 prefixArguments 选择已安装的桥接入口与 --profile 文件；SDK 0.3.323 / CLI 2.1.323 依赖须在执行机器上准备。不会自动安装或改用本机账号；仅在显式启动对话后初始化后端。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
@@ -741,13 +742,10 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                             Text(approval.paramsJSON, style = MaterialTheme.typography.bodySmall,
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                         }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            TextButton(onClick = { extensions.respondCodexApproval(approval.id, false) },
-                                enabled = !state.callBusy, modifier = Modifier.testTag("plugin-codex-approval-deny")) { Text("拒绝") }
-                            TextButton(onClick = { extensions.respondCodexApproval(approval.id, true, snapshotID) },
-                                enabled = !state.callBusy && (approval.method != "item/fileChange/requestApproval" || snapshotID != null),
-                                modifier = Modifier.testTag("plugin-codex-approval-allow")) { Text("批准一次") }
-                        }
+                        ConversationDecisions("plugin-codex-approval", state.callBusy,
+                            approval.method != "item/fileChange/requestApproval" || snapshotID != null,
+                            deny = { extensions.respondCodexApproval(approval.id, false) },
+                            allow = { extensions.respondCodexApproval(approval.id, true, snapshotID) })
                         if (approval.method == "item/fileChange/requestApproval" && snapshotID == null) {
                             Text("先读取并核对当前完整补丁，才能批准此版本。", style = MaterialTheme.typography.bodySmall)
                         }
@@ -761,16 +759,10 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 Text(if (state.callBusy) "正在启动…" else "启动 Codex 对话")
             }
         } else {
-            OutlinedTextField(state.messageDraft, extensions::editCodexMessage,
-                modifier = Modifier.fillMaxWidth().testTag("plugin-codex-message"),
-                label = { Text("发送给 Codex") }, minLines = 1, maxLines = 4)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = extensions::sendCodexMessage,
-                    enabled = !state.callBusy && !state.turnActive && state.messageDraft.isNotBlank(),
-                    modifier = Modifier.testTag("plugin-codex-send")) { Text(if (state.callBusy) "正在处理…" else "发送") }
-                if (state.turnActive) TextButton(onClick = extensions::interruptCodexTurn,
-                    enabled = !state.callBusy, modifier = Modifier.testTag("plugin-codex-interrupt")) { Text("中断当前 turn") }
-            }
+            ConversationComposer(state.messageDraft, extensions::editCodexMessage, state.callBusy,
+                !state.turnActive, "plugin-codex", "发送给 Codex", extensions::sendCodexMessage)
+            if (state.turnActive) TextButton(onClick = extensions::interruptCodexTurn,
+                enabled = !state.callBusy, modifier = Modifier.testTag("plugin-codex-interrupt")) { Text("中断当前 turn") }
         }
         if (state.rawEvents.isNotEmpty()) {
             TextButton(onClick = { showEvents = !showEvents }, modifier = Modifier.testTag("plugin-codex-raw-toggle")) {

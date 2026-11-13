@@ -1,6 +1,7 @@
 #include "ghosterm/extension_package.h"
 #include "extension/package-owner.h"
 #include "extension/package-runtime.h"
+#include "extension/memory.h"
 #include <string.h>
 
 #ifdef GT_HAVE_PLUGIN_JS
@@ -66,8 +67,18 @@ static gt_status_t decode_checked(const gt_ext_package_t *p,
         JS_FreeRuntime(runtime);
         return GT_ERR_IO;
     }
-    JSValue schema =
-        JS_ParseJSON(context, (const char *)schema_bytes, schema_size, "checked-argument-schema");
+    /* Checked members are exact byte buffers. QuickJS requires a readable NUL
+     * at buf[len], so never borrow the next snapshot byte as a terminator. */
+    char *schema_json = gt__plugin_memory_alloc(NULL, schema_size + 1);
+    if (!schema_json) {
+        JS_FreeContext(context);
+        JS_FreeRuntime(runtime);
+        return GT_ERR_IO;
+    }
+    memcpy(schema_json, schema_bytes, schema_size);
+    schema_json[schema_size] = 0;
+    JSValue schema = JS_ParseJSON(context, schema_json, schema_size, "checked-argument-schema");
+    gt__plugin_memory_free(NULL, schema_json, schema_size + 1);
     JSValue arguments = JS_NewArray(context);
     bool ok = !JS_IsException(schema) && !JS_IsException(arguments);
     for (size_t i = 0; i < argc && ok; i++) {

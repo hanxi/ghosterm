@@ -3,8 +3,8 @@
 The Portable Client/Executor candidate builds into a directory package with
 `plugin.json`, integrity metadata and eight private RPC methods. Its supervisor
 starts the separately configured Node component only on an explicit `start`.
-macOS has experimental Native conversation, tool approval and question controls
-for this command. Other Hosts and generic Node/Exec package loading remain
+macOS and Android have experimental Native conversation, tool approval and
+question controls for this command. Other Hosts and generic Node/Exec package loading remain
 unfinished; the candidate declares no portable Native view contribution. The App
 and gterm package profiles continue to support Portable JS only.
 
@@ -35,7 +35,7 @@ suggestions. `AskUserQuestion` requires explicit answers to every question; it
 cannot be accepted by an ordinary allow button. Multi-select answers use the
 SDK's string answer representation, and explicit free text is supported. Option
 previews are not rendered. These remain private Node objects, not frozen wire v1
-messages; the macOS Host projects them into its own Native controls.
+messages; macOS and Android project them into their own Native controls.
 
 Limits: 32 pending / 64 retained requests, one MiB of retained serialized request
 identity, 64 KiB tool input, 32 JSON levels / 4096 nodes, eight pending duplicate
@@ -177,25 +177,36 @@ The launch command still has the existing SSH route length bound. The Native
 and all eight RPC methods. It uploads exact compact parameter JSON and returns
 complete vendor reply bytes, preserving distinct Unicode spellings. After an
 uncertain call it refuses further effects in that run. Observed-receipt recovery
-UI remains incomplete. The macOS conversation now uses
+UI remains incomplete. The macOS and Android conversations use
 this adapter for explicit start/send/interrupt/stop, immutable tool approvals and
 all-question answers. A ready backend is not proof of authentication or a model
 result. The controls preserve unknown outcomes and original draft text after an
 unconfirmed send, reject stale turn references and do not retry automatically.
 Each visible/history collection retains at most 128 records and 2 MiB, with
 omission counts and selectable complete content for retained records. Android
-conversation controls and other Host adapters remain unfinished. Android now has
-the matching fixed-argument/environment-name launch form and an ACTIVE Runtime
-complete-document adapter, tested with an explicit in-memory document fixture.
-That does not establish an Android-to-SDK conversation or real model turn.
+also has the matching fixed-argument/environment-name launch form and ACTIVE
+Runtime complete-document adapter. Other Host adapters, real authentication and
+model turns remain unfinished.
 
 Android document/launch checks use the prepared local Android toolchain and an
 owned no-window AVD; they make no SDK/CLI/model request:
 
 ```sh
-python3 -B scripts/test-plugin-claude-android.py --headless-api 36 --mutate
-python3 -B scripts/test-plugin-claude-android.py --headless-api 29 --plugin-js
+python3 -B scripts/test-plugin-claude-android.py --headless-api 36 --conversation --mutate
+python3 -B scripts/test-plugin-claude-android.py --headless-api 29 --conversation --plugin-js
 ```
+
+The Android Native SDK runner requires already built JS-enabled Debug and test
+APKs. It creates an owned no-window AVD and uses the same explicit CLI fixture:
+
+```sh
+python3 -B scripts/test-plugin-claude-sdk-android.py --headless-api 29 --gterm <JS-enabled-gterm> --route all --fetch
+```
+
+`--route all` checks direct SSH, ProxyJump and repeated checked-package argument
+decoding. It uses real Settings controls for start/send/tool approval/questions
+and stop; package approval and launch configuration are injected. It neither
+executes an actual model/tool nor proves the complete installation flow.
 
 The offscreen macOS integration runner is:
 

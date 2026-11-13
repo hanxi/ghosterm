@@ -37,16 +37,44 @@ CASES = [
 ]
 
 
+CONVERSATION_CASES = [
+    ('chat-question-not-allow', 'ClaudeConversation.kt', 'allow && prompt.isQuestion', 'false', 'ClaudeConversationTest#questionsNeedEveryAnswerAndJavaScriptKeyOrder'),
+    ('chat-all-answers', 'ClaudeConversation.kt', 'answers.any { it.isEmpty() || ClaudeJson.utf8(it).size > 2048 }', 'false', 'ClaudeConversationTest#questionsNeedEveryAnswerAndJavaScriptKeyOrder'),
+    ('chat-queued-reference', 'ClaudeConversation.kt', 'checkPrompt(reference)\n            val reply = call("approve"', 'val reply = call("approve"', 'ClaudeConversationTest#queuedDecisionRechecksExpiryAfterAnInFlightPoll'),
+    ('chat-result-identity', 'ClaudeConversation.kt', 'id != current.activeMessageID', 'false', 'ClaudeConversationTest#foreignResultsAndWrongTurnPromptsKeepTheInputUnknown'),
+    ('chat-prompt-turn', 'ClaudeConversation.kt', 'require(current.phase == Phase.RUNNING && prompt.turnID == current.activeMessageID)', 'require(current.phase == Phase.RUNNING)', 'ClaudeConversationTest#foreignResultsAndWrongTurnPromptsKeepTheInputUnknown'),
+    ('chat-interrupt-expiry', 'ClaudeConversation.kt', 'current.copy(phase = Phase.INTERRUPTING, pending = emptyList())', 'current.copy(phase = Phase.INTERRUPTING)', 'ClaudeConversationTest#interruptReceiptDoesNotCompleteTheInput'),
+    ('chat-interrupt-not-result', 'ClaudeConversation.kt', 'append("receipt:$sessionSequence",', 'current = current.copy(activeMessageID = null); append("receipt:$sessionSequence",', 'ClaudeConversationTest#interruptReceiptDoesNotCompleteTheInput'),
+    ('chat-owner-after-reply', 'ClaudeConversation.kt', 'generation !== expected || !isCurrent()', 'generation !== expected', 'ClaudeConversationTest#ownerChangeRejectsLateSendAndKeepsTheDraft'),
+    ('chat-ordered-events', 'ClaudeConversation.kt', '(sequence as Number).toLong() == sessionSequence + 1', 'true', 'ClaudeConversationTest#outOfOrderEventsFailObservationAndExpiredDecisionIsNotRetried'),
+    ('chat-record-bytes', 'ClaudeConversation.kt', 'records.sumOf { it.byteCount } > 2097152', 'false', 'ClaudeConversationTest#historyCountsBytesAndKeepsEmptyPollsOutOfRawRecords'),
+    ('chat-entry-bytes', 'ClaudeConversation.kt', 'entries.sumOf { it.byteCount } > 2097152', 'false', 'ClaudeConversationTest#historyCountsBytesAndKeepsEmptyPollsOutOfRawRecords'),
+    ('chat-record-count', 'ClaudeConversation.kt', 'records.size > 128', 'false', 'ClaudeConversationTest#historyCountsBytesAndKeepsEmptyPollsOutOfRawRecords'),
+    ('chat-entry-count', 'ClaudeConversation.kt', 'entries.size > 128', 'false', 'ClaudeConversationTest#historyCountsBytesAndKeepsEmptyPollsOutOfRawRecords'),
+    ('chat-question-projection', 'ClaudeConversation.kt', 'if (isQuestion) require(questions(input.getJSONArray("questions")) == questions)', 'if (false) require(questions(input.getJSONArray("questions")) == questions)', 'ClaudeConversationTest#questionProjectionCannotChangeTheOriginalInput'),
+    ('chat-startup-error', 'ClaudeConversation.kt', 'else if (next != Phase.CLOSED) "后端初始化或连接失败；请检查执行端配置和依赖。" else current.issue', 'else current.issue', 'ClaudeConversationTest#closedStartupIsVisibleWithoutAnyInputAndLocaleDoesNotChangePhases'),
+    ('chat-integer-keys', 'ClaudeJson.kt', 'val ordered = keys.filter { index(it) != null }.sortedBy { index(it) } + keys.filter { index(it) == null }', 'val ordered = keys', 'ClaudeConversationTest#questionsNeedEveryAnswerAndJavaScriptKeyOrder'),
+    ('chat-unicode-keys', 'ClaudeJson.kt', 'value.forEach { character ->', 'value.replace("\\u0301", "").forEach { character ->', 'ClaudeConversationTest#questionsNeedEveryAnswerAndJavaScriptKeyOrder'),
+    ('chat-allow-button', 'ConversationControls.kt', 'TextButton(onClick = allow,', 'TextButton(onClick = deny,', 'ClaudeConversationUiTest#realStartSendAndToolButtonsApproveTheImmutableInputOnce'),
+    ('chat-no-default-answer', 'ClaudeConversationContent.kt', 'val selected: Set<Int> = emptySet()', 'val selected: Set<Int> = setOf(0)', 'ClaudeConversationUiTest#everyQuestionStartsUnselectedAndFreeTextRequiresAnExplicitAnswer'),
+    ('chat-busy-ui', 'ClaudeConversationContent.kt', 'ClaudePrompt(model, prompt, model.canRespond(prompt.reference))', 'ClaudePrompt(model, prompt, true)', 'ClaudeConversationUiTest#realStartSendAndToolButtonsApproveTheImmutableInputOnce'),
+    ('chat-readonly', 'ConversationControls.kt', 'readOnly = true', 'readOnly = false', 'CodexChangeReviewUiTest#fullDiffIsSelectableReadOnlyAndLastFileIsReachable'),
+]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument('--android')
     target.add_argument('--headless-api', choices=['29', '36'])
     parser.add_argument('--mutate', action='store_true')
+    parser.add_argument('--conversation', action='store_true', help='include Native conversation state, controls and shared diff regressions')
     parser.add_argument('--plugin-js', action='store_true', help='also compile the optional JS-enabled Android Host profile')
-    parser.add_argument('--case', action='append', choices=[case[0] for case in CASES])
+    parser.add_argument('--case', action='append', choices=[case[0] for case in CASES + CONVERSATION_CASES])
     args = parser.parse_args()
     if args.case and not args.mutate: parser.error('--case requires --mutate')
+    if args.case and not args.conversation and any(name.startswith('chat-') for name in args.case):
+        parser.error('chat mutation cases require --conversation')
     (ROOT / 'tmp').mkdir(exist_ok=True)
     spec = importlib.util.spec_from_file_location('owned_headless', ROOT / 'scripts/test-plugin-codex-patch-android.py')
     headless = importlib.util.module_from_spec(spec); spec.loader.exec_module(headless)
@@ -97,11 +125,12 @@ def execute(args, serial):
                 digest = run([*adb, 'shell', 'sha256sum', installed]).split()[0]
                 if digest != hashlib.sha256(apk.read_bytes()).hexdigest(): raise RuntimeError('Installed APK digest mismatch')
         def test(label, target=None, red=False):
-            selected = 'com.hanxi.ghosterm.' + target if target else ','.join('com.hanxi.ghosterm.' + name for name in ['ClaudeRPCClientTest', 'ClaudeLaunchTest'])
+            classes = ['ClaudeRPCClientTest', 'ClaudeLaunchTest'] + (['ClaudeConversationTest', 'ClaudeConversationUiTest', 'CodexChangeReviewUiTest'] if args.conversation else [])
+            selected = 'com.hanxi.ghosterm.' + target if target else ','.join('com.hanxi.ghosterm.' + name for name in classes)
             output = run([*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', selected,
                 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
             (work / (label + '-test.log')).write_text(output)
-            count = 1 if target else 13
+            count = 1 if target else (32 if args.conversation else 13)
             valid = (re.search(r'Tests run: 1,\s+Failures: 1', output) and
                 any(mark in output for mark in ['java.lang.AssertionError', 'org.junit.ComparisonFailure'])) if red else f'OK ({count} test' in output
             if red and any(mark in output for mark in ['TimeoutException', 'AppNotIdleException', 'Process crashed', 'timed out']):
@@ -111,8 +140,8 @@ def execute(args, serial):
                 expected = 'ordinary single assertion red' if red else 'executed green suite'
                 raise RuntimeError(label + ': expected ' + expected + '\n' + output)
             return output
-        build('baseline'); test('baseline'); print('BASELINE PASS: 13 device RPC/launch/form checks', flush=True)
-        for name, file, old, new, target in CASES if args.mutate else []:
+        build('baseline'); test('baseline'); print(f'BASELINE PASS: {32 if args.conversation else 13} device RPC/launch/conversation checks', flush=True)
+        for name, file, old, new, target in (CASES + (CONVERSATION_CASES if args.conversation else [])) if args.mutate else []:
             if args.case and name not in args.case: continue
             path = source / SOURCE / file; original = path.read_bytes()
             if original.count(old.encode()) != 1: raise RuntimeError(name + ': mutation anchor mismatch')

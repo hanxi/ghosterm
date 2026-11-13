@@ -86,7 +86,8 @@ gt_status_t gt__bridge_runtime_open_package(gt_ext_session_t **session,
                                             const gt_runtime_config_t *,
                                             bool command_associated,
                                             gt_bridge_runtime_t **);
-/* Native IO uses zero wait; execute/evaluate and each job share one CPU budget.
+/* Native IO uses zero wait; execute/evaluate and each job share one owner-thread
+ * CPU budget. Waiting does not consume CPU; activation uses a wall deadline.
  * A nonempty queue at jobs_per_step is JOBS failure, not successful draining.
  * Limits govern JS; blocking native services still need independent budgets. */
 gt_runtime_phase_t gt__bridge_runtime_step(gt_bridge_runtime_t *);

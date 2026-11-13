@@ -16,7 +16,7 @@ helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 SOURCE = ROOT / 'android/app/src/main/java/com/hanxi/ghosterm'
 CASES = (
-    ('readonly', 'CodexChangeReviewContent.kt', 'readOnly = true', 'readOnly = false',
+    ('readonly', 'ConversationControls.kt', 'readOnly = true', 'readOnly = false',
      'CodexChangeReviewUiTest#fullDiffIsSelectableReadOnlyAndLastFileIsReachable'),
     ('identity', 'CodexChangeJson.kt',
      'thread == reference.threadID && turn == reference.turnID && item == reference.itemID', 'true',

@@ -7,10 +7,43 @@ import java.nio.ByteBuffer
 import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
 import org.json.JSONObject
+import org.json.JSONArray
 
 /** Validate before JSONObject's permissive parser. Java strings keep distinct
  * Unicode spellings; raw parameter/vendor bytes are never reserialized. */
 internal object ClaudeJson {
+    private val numberPattern = Regex("-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
+
+    /** Action params use JSON.stringify's strings and integer-index key order.
+     * Vendor records are retained separately as their original byte strings. */
+    fun compact(value: Any?): String = when (value) {
+        null, JSONObject.NULL -> "null"
+        is String -> quote(value)
+        is Boolean, is Int, is Long -> value.toString()
+        is JSONArray -> (0 until value.length()).joinToString(",", "[", "]") { compact(value.get(it)) }
+        is JSONObject -> {
+            fun index(key: String): Long? = key.toLongOrNull()?.takeIf { it in 0..4294967294L && key == it.toString() }
+            val keys = value.keys().asSequence().toList()
+            val ordered = keys.filter { index(it) != null }.sortedBy { index(it) } + keys.filter { index(it) == null }
+            ordered.joinToString(",", "{", "}") { quote(it) + ":" + compact(value.get(it)) }
+        }
+        else -> error("Unsupported Claude action JSON value")
+    }
+
+    private fun quote(value: String): String {
+        utf8(value)
+        return buildString {
+            append('"')
+            value.forEach { character ->
+                append(when (character) {
+                    '"' -> "\\\""; '\\' -> "\\\\"; '\b' -> "\\b"; '\t' -> "\\t"; '\n' -> "\\n"; '\r' -> "\\r"; '\u000C' -> "\\f"
+                    in '\u0000'..'\u001F' -> "\\u" + character.code.toString(16).padStart(4, '0')
+                    else -> character.toString()
+                })
+            }
+            append('"')
+        }
+    }
     fun utf8(value: String): ByteArray {
         val bytes = Charsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(value))
@@ -43,7 +76,7 @@ internal object ClaudeJson {
                         reader.endArray()
                     }
                     JsonToken.STRING -> string()
-                    JsonToken.NUMBER -> require(reader.nextString().matches(Regex("-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")))
+                    JsonToken.NUMBER -> require(reader.nextString().matches(numberPattern))
                     JsonToken.BOOLEAN -> reader.nextBoolean()
                     JsonToken.NULL -> reader.nextNull()
                     else -> error("Invalid Claude JSON value")

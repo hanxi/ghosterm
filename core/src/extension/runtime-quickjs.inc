@@ -162,6 +162,17 @@ static bool runtime_now(uint64_t *out) {
     return true;
 }
 
+/* Native I/O may block inside a JS host call. Only executing owner-thread CPU
+ * consumes the JS budget; activation and resource lifetimes use runtime_now. */
+static bool runtime_cpu_now(uint64_t *out) {
+    struct timespec t;
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t)) {
+        return false;
+    }
+    *out = (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
+    return true;
+}
+
 static bool runtime_resource_clock(void *opaque, uint64_t *out) {
     (void)opaque;
     return runtime_now(out);
@@ -183,7 +194,7 @@ static int runtime_interrupt(JSContext *ctx, void *opaque) {
         r->interrupted = true;
         return 1;
     }
-    if (!runtime_now(&now) || now >= r->deadline) {
+    if (!runtime_cpu_now(&now) || now >= r->deadline) {
         r->interrupted = true;
         return 1;
     }
@@ -1835,12 +1846,12 @@ gt_runtime_phase_t gt__bridge_runtime_step(gt_bridge_runtime_t *r) {
         runtime_fail(r, GT_RUNTIME_IO);
         return r->info.phase;
     }
-    uint64_t now;
-    if (!runtime_now(&now)) {
+    uint64_t now, cpu_now;
+    if (!runtime_cpu_now(&cpu_now)) {
         runtime_fail(r, GT_RUNTIME_IO);
         return r->info.phase;
     }
-    r->deadline = now + r->cpu_ms;
+    r->deadline = cpu_now + r->cpu_ms;
     r->interrupted = false;
     r->info.steps++;
     gt_ext_session_phase_t native = gt_ext_session_step(r->session, 0);
@@ -1854,11 +1865,11 @@ gt_runtime_phase_t gt__bridge_runtime_step(gt_bridge_runtime_t *r) {
         return r->info.phase;
     }
     gt__runtime_resources_step(r->resources);
-    if (!runtime_now(&now)) {
+    if (!runtime_now(&now) || !runtime_cpu_now(&cpu_now)) {
         runtime_fail(r, GT_RUNTIME_IO);
         return r->info.phase;
     }
-    r->deadline = now + r->cpu_ms;
+    r->deadline = cpu_now + r->cpu_ms;
     if (!r->started) {
         r->started = true;
         r->activation_deadline = now + r->activation_ms;
