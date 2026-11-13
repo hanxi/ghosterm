@@ -151,7 +151,7 @@ SAF 新文档写入为 🟡：§9.59 的 API 36 arm64 / 4 KB 页模拟器上，1
 
 | 面 | 已实现与证据 | 未完成或证据边界 |
 |---|---|---|
-| Codex 完整补丁审阅 🟡 | macOS / Android 实验 JS-enabled Host 已接快照元数据、分页校验、取消 / 晚到结果隔离及只读完整文件视图；审批携带点击时版本，原生完整文档 / 身份和 Executor 当前快照双重核对。组件、分轮变异、API 29 / 36 arm64 / 4 KiB 设备证据及覆盖范围见[插件计划第四十四至四十六批](plan-plugin-bridge.md) | 默认 App 构建仍 JS-off；完整文档正向经实际 RPC 到原生界面、审批版本绑定的真实端到端以及模型 / 完整设备矩阵未完成；不以组件夹具代替真实 Agent 验收 |
+| Codex 完整补丁审阅 🟡 | macOS / Android 实验 JS-enabled Host 已接分页校验、取消 / 晚到隔离及只读全文；审批核对点击版本、完整文档身份及 Executor 当前快照。macOS 直连 / ProxyJump 已验明确假 app-server 的完整文档经真实 SSH / RPC 到生产视图、鼠标点击读取 / 批准 / 停止及旧版本拒绝。组件、变异与 API 29 / 36 arm64 / 4 KiB 证据见[插件计划第四十四至四十七批](plan-plugin-bridge.md) | 默认 App 仍 JS-off；假 app-server 不代表真实模型或文件修改。Android RPC 到 UI 整链、安装 / 完整交互 / 无障碍 / 性能 / 设备矩阵仍未完成 |
 | SSH 与认证 | `AppModel` / `SSHAuthenticationFlow` 共用可取消认证；真实 sshd→shell→网格→resize；hostkey 未知/拒绝/变化/撤销分开。撤销及不支持规则经 SFTP 产品入口验证，不弹信任/凭据框 | 未支持配置已在解析地址前阻断，macOS 普通终端/SFTP/tmux 与 Android 普通连接已接 ProxyJump；转发等其它高级选项仍不支持；私钥材料生产路径仍从受限文件读取，见路线图 P0。哈希主机名与主机证书未实现；本片验了 SSH/SFTP/tmux 配置拒绝入口，未新增终端网格或 tmux 成功会话证据 |
 | 本地 shell | 普通 PTY、登录语义、cwd、控制终端、背压、关闭与描述符隔离；`4924a2d` 清空子进程继承的信号屏蔽，补齐 ssh/tmux 的尺寸通知 | 普通会话不承诺跨 App 退出保活；信号/真实窗口证据见上方 POSIX PTY 行，不扩大为全部平台 |
 | 提示符鼠标残留清理 🟡 | 普通本地 zsh 自动加载随包钩子；Bash/远端有带备份的独立安装器。macOS 26.6.2 / tmux 3.6a 的三层隔离 SSH 断线回到本地提示符、真实 AppKit 按下/松开、原 PID/键盘与正常 TUI 字节对照通过；五项启动组合及四组自动接线变异另有记录 | `.direct` / 自定义启动参数（仅 `-i` 除外）/ 其它 shell 不走自动接线；远端需远端安装，前台程序未退出时不触发。实际硬件休眠/用户远端未验，Codex 输入框未复现，不称其缺陷已修复；见[操作与证据](../how-to/mouse-report-recovery.md) |

@@ -36,6 +36,9 @@ decline remains available. This candidate business RPC shape replaces the old
 two-field input; old callers fail schema validation. No wire v1 or CLI stable
 schema changes. Reading a complete patch does not prove human review, and this
 check does not compare the workspace's current filesystem bytes.
+Revision mismatches return `accepted: false`: the RPC reply is confirmed, but no
+approval was written. Unclassified handler exceptions and transport loss still
+remain unknown; this does not turn interrupted work into a rejection.
 Stopping the Runtime closes the protocol and terminates/reaps the owned child.
 
 This is an unsigned candidate package. Integrity detects changed content; it does

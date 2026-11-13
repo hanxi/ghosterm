@@ -39,6 +39,10 @@ function boundedPrefix(value: string, maximumBytes: number): string {
 function fitEvent(value: unknown): string | undefined {
   const serialized = JSON.stringify(value);
   if (serialized === undefined) return undefined;
+  // UTF-8 plus the outer event wrapper cannot fit if UTF-16 units alone exceed
+  // the frozen body cap. Avoid copying/scanning a complete large patch twice
+  // just to discover that it needs the bounded preview below.
+  if (serialized.length > 3072) return undefined;
   try {
     // Session.request wraps the event string in another JSON object. Check that
     // exact wire shape so quoting and multibyte text cannot exceed the Core cap.
@@ -60,7 +64,12 @@ function boundedFileChangeParams(params: unknown, sequence: number, method: stri
   if (!changes) return undefined;
   const location = record.changes === changes ? "root" : "item";
   const diffBudgets = [1200, 800, 400, 0];
-  for (let count = Math.min(changes.length, 8); count > 0; count--) {
+  const first = changes[0];
+  // Every nonempty prefix retains this path verbatim. If it alone exceeds the
+  // wire cap, none of the diff-budget attempts can possibly fit.
+  const impossiblePrefix = typeof first === "object" && first !== null && !Array.isArray(first) &&
+    typeof first.path === "string" && first.path.length > 3072;
+  for (let count = impossiblePrefix ? 0 : Math.min(changes.length, 8); count > 0; count--) {
     for (const diffBudget of diffBudgets) {
       const bounded = changes.slice(0, count).map(change => {
         if (typeof change !== "object" || change === null || Array.isArray(change)) {
@@ -276,7 +285,9 @@ export function activate(context: PluginContext): Disposable {
     if (pending.method === "item/fileChange/requestApproval" && decision !== "decline" && decision !== "cancel") {
       const params = pending.params;
       if (!changes.isCurrent(input.snapshotID, params.threadId, params.turnId, params.itemId)) {
-        throw new CodexProtocolError("Codex patch changed or expired; read the current complete snapshot before approval");
+        // This check precedes any child write. Express a business refusal;
+        // an arbitrary thrown handler error correctly becomes UNKNOWN in SDK.
+        return { accepted: false };
       }
     } else if (pending.method === "item/commandExecution/requestApproval" && input.snapshotID !== "") {
       throw new CodexProtocolError("Command approval must not carry a file snapshot");

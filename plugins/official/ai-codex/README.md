@@ -189,8 +189,11 @@ rejects stale, unrelated, evicted or unavailable snapshots. It does not compare
 the actual workspace filesystem bytes. `codex.approval.respond` requires
 `requestID`, `decisionJSON`, and `snapshotID`; command decisions and file
 decline/cancel send an empty snapshot ID. This replaces the candidate two-field
-input, so old callers receive a schema error. A positive full-patch RPC-to-UI E2E
-and real model approval remain pending. The Android native reader uses strict
+input, so old callers receive a schema error. A revision mismatch returns the
+confirmed business result `accepted: false` without writing an approval;
+unclassified handler errors and interrupted transport remain unknown. The
+macOS full-patch RPC-to-UI fixture is described below; real model approval and
+Android RPC-to-UI E2E remain pending. The Android native reader uses strict
 streaming JSON, exact Kotlin string identity, a selectable read-only Compose
 text field, and the same publication limits. Default App builds still have the
 optional plugin JS runtime disabled.
@@ -227,5 +230,31 @@ The AppModel SSH runner's direct selection now also holds a disposable wrapper
 at a FIFO before exec of Codex, observes its actual start, stops that pending
 thread request, and establishes a replacement Session with the real CLI. Thus
 `--route direct` requires two passing cases and `--route both` requires four;
-`--route jump` still requires two. This does not claim a real model turn, a
-positive full-patch RPC-to-UI E2E, or verified human review of an approval.
+`--route jump` still requires two. This does not claim a real model turn or
+verified human review of an approval.
+
+The separate patch runner uses a clearly identified Python app-server protocol
+fixture, not the official CLI or a model. It sends two complete 166178-byte
+documents through real owned SSH / gterm / QuickJS / Native RPC, each containing
+ten files, a 4096-character path component and 600 Unicode diff lines per file.
+The first path forces every preview file to be omitted. On both direct and
+ProxyJump routes, the production Extensions pane receives local AppKit mouse
+events for consent, thread start, send, full reads, approval and stop. It checks
+the complete readonly NSTextView text, disabled unread approvals, replacement
+invalidation, confirmed stale-version refusal, and the original approval ID and
+decision at the child. Package review/start and message draft setup use AppModel
+APIs; this does not cover installation UI or keyboard typing. Rendering uses a
+transparent offscreen window with controlled occlusion state, not hardware focus
+or accessibility validation. The fixture never applies a patch or calls a model.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 -B scripts/test-plugin-codex-patch-app.py --gterm tmp/codex-gterm/gterm --route both
+python3 -B scripts/mutation-check-plugin-codex-stdio.py
+```
+
+The stdio owner now separates line decoding from one-line business dispatch in
+successive slices, retains at most 32 decoded lines, and continues draining stderr
+while dispatching. Queued replies are processed before observing stdout EOF.
+This fixes the representative large-document CPU failure at the existing runtime
+budget; it does not establish the full maximum-size or cold-start performance
+matrix. Exact RPC byte checks remain in place after inexpensive preview pruning.

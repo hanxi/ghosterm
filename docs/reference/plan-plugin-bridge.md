@@ -5058,3 +5058,21 @@ Native policy 覆盖完整 / 缺失 / 未完成 / 错误 / 当前引用变化 / 
 API 29 / API 36 专用 arm64 / 4 KiB 无窗口模拟器的 JSON / Compose / Host events / NativeSmoke 最终同源组合各 17 项、零失败 / 跳过，包含更新后的审批身份解码 / 拒绝断言；两设备安装 APK 与构建产物 SHA256 一致（app `ae92bcd40724333b050f22c353dbaae533f90a647791192560d25abca2049016`，test `8eac4b3d58c5aed1cad6e0af65ec0d5b0fae404e020b4dc4a8217fc6e4802152`）。这些设备测试不覆盖完整批准按钮到 RPC 的用户点击链。macOS 默认 / JS-enabled arm64 Release、Android JS-enabled Debug / androidTest / 未签名 Release / R8、默认 JS-off Release、app / bridge / terminal / data 四模块 lint 和 Android ABI 140 引用 / 37 登记未用通过。Core 显式恢复 JS=OFF / tests=ON 后，离线 gate 的 481/481 CTest、177 个 ABI 及未实现入口检查通过，不沿用 enabled 档关闭测试的 CMake 缓存。
 
 候选包 strict TypeScript、compiled Executor fixture 与离线 --check 通过；随包 PACKAGE.md 已同步新输入契约，integrity 摘要为 `5a372c0715bcc7684950f3f876321ecc8c46903e910e1f48599e8baeb5f62e79`。Python / Node 语法及 git diff --check 另验。所有窗口保持后台，AVD / HOME / 运行标记与临时工具都在工程 tmp/，模拟器退出后清理；不增加 macOS CI 二十份。正向完整文档与版本化审批经实际 RPC 到原生 UI 的端到端、真实模型 turn / approval、完整点击 / tmux / 物理设备矩阵及 P3–P6 其余要求仍未完成。
+
+### P3 实施第四十七批：macOS 完整补丁 RPC 与生产视图往返
+
+新增 `test-plugin-codex-patch-app.py`，明确映射工程内一次性 Python app-server 协议夹具，不调用真实 CLI / 模型、不应用补丁。实际链路是 owned loopback sshd → gterm Executor / QuickJS → Host RPC → AppModel → 生产 ExtensionsPane。直连与仅允许转发的 ProxyJump 两项均零失败 / 跳过，最终源码复跑两项仍通过。夹具的版本报告自述 no model，Host 的锁定版本映射仅声明测试使用的 wire 版本，不将假回包记作官方 CLI 或真实 Agent 证据。
+
+两版文档各 166178 UTF-8 字节、十份文件、每份 600 行 Unicode diff 与末行，首路径含 4096 字符分量，令所有文件预览均被省略。实际生产界面以本地 AppKit mouseDown / mouseUp 完成同意启动、创建 thread、发送、读取两版全文、批准和停止；生产 NSTextView 的逐字节正文、不可编辑 / 可选择核对通过。未读批准按钮保持禁用，更新使旧审阅失效；通过真实 RPC 绕过 Native 策略发送旧 token 仍被 Executor 明确拒绝，重新完整读取后才将原始 Unicode request ID 与 accept 写回子进程，snapshotID 不混入官方响应。测试不以读取完成声称人已审阅，也不比较工作区文件当前字节。
+
+Package review / approve / start 与消息 draft 通过 AppModel API 准备，不冒充安装入口、键盘输入或完整用户点击链。渲染使用 alpha=0、禁止激活、后台排序且 frame 固定在所有屏幕外的窗口，并显式控制测试窗口 occlusionState；OCR 仅定位该离屏位图中的实际按钮，事件投递仅到本测试窗口，不移动系统鼠标。不是硬件焦点、系统无障碍或真实遮挡验收。前置 AX / 透明位图定位失败与 AppKit 重排后位置断言失败均未计通过；最终窗口子类在调整尺寸时固定离屏位置，捕获前检查全部屏幕，违规直接终止本用例，没有不透明 / 前台后备方案。
+
+整链前置运行发现同一大文档在固定 100ms Runtime 执行片内同步完成 UTF-8 解码、协议校验与快照捕获会触发 CPU 错误；Host 随后协议失败、待决 RPC 结果未知。该错误单列，不当正常断言红。现在 stdio 将解码与每片一行的业务处理分开，最多保留 32 条已解码行，排空前不读取 stdout EOF，分发期间继续排空 stderr；close / failure 清队列。预览另以 UTF-16 长度下界及首路径长度跳过必定放不下的尝试，保留候选最终实际 wire 字节校验。没有提高 CPU、内存或 RPC 上限，最终同一负载两路通过；不据此记完整最大输入 / 冷启动性能矩阵通过。
+
+真实 RPC 还暴露旧版本拒绝原来抛普通 handler 异常，按 SDK 契约应得到 unknown，不能称明确拒绝。现仅在尚未向 child 写入的版本校验分支返回既有业务结果 `accepted:false`；外层 success 确认服务已回包，不表示审批已接受。其它未分类异常、管道丢失与中断继续 unknown，不改全局 SDK 语义。首次整链在此状态断言失败，修正业务返回后最终两路通过。
+
+完整协议 25/25 通过，含真实锁定 CLI 0.166.0 的 initialize / thread/start 无模型 helper；另复验真实 CLI 的 AppModel 直连 / ProxyJump / 拒绝跳板 / 停止后重建四项，零失败 / 跳过。新 `mutation-check-plugin-codex-stdio.py` 的分片、队列上限、stderr 三组与既有快照 / 大小 / wire / 归属 / 旧版本五组，均在工程 tmp/ 源码副本 strict TypeScript 编译后单条正常 AssertionError 红、同变异独立协议对照绿、恢复绿和 SHA256 通过。新分片变异初次先撞到 EOF 状态断言并留下未处理 promise，未计验收；补直接通知分发判据及 promise 观察后最终三组通过。旧协议夹具假设一步完成 initialize，曾挂起；确认所属进程后终止，改为有上限的 owner step 推进再通过，不将挂起当断言红。
+
+候选包 strict TypeScript、compiled Executor fixture 与离线重建 `--check` 通过，最终 integrity 摘要 `442b052c310b87adfc5aa5b61e21184e9db1631f6ff4d279b17f1ce23a5e8858`。无公共 C ABI、wire、权限、Android 产品源码或默认 JS-off 决定变化；本批没有运行 Android 设备。真实模型 turn / approval、Android 完整 RPC 到界面、安装 / 完整交互 / 无障碍 / tmux / 性能 / 物理设备矩阵与 P3–P6 其余要求继续未完成，不增加 macOS CI 二十份。
+
+最终显式恢复默认 Core JS=OFF / tests=ON 后，离线 gate 481/481 CTest、177 公共 ABI 及未实现入口检查通过。默认档 Apple 定向组合 39 项、5 跳过 / 零失败：三个原有 JS-enabled 专项及两个新 owned 协议夹具用例按环境跳过；新两项在上述专用 enabled runner 中均实际执行通过。Swift debug 构建、Apple ABI 174 引用 / 3 登记未用、实际隔离 WebKit CSS / PNG 像素探针、Python 语法与 git diff --check 通过。未将定向组记作全量 Apple 回归。所有执行保持后台，所属 SSH / Executor / 测试进程退出后清理工程 tmp/；这批本地提交不代表已推送或发行。

@@ -5,7 +5,7 @@ import GhostermCore
 @testable import GhostermAppModel
 import XCTest
 
-private final class CodexRouteInteraction: AppInteraction {
+final class CodexRouteInteraction: AppInteraction {
     var hosts: [HostKeyPrompt] = []
     var reject = false
     func confirmHostKey(_ prompt: HostKeyPrompt) -> HostKeyDecision {

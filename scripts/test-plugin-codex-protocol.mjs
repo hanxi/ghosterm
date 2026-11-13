@@ -9,7 +9,7 @@ import { CodexAppServerClient, CodexOutcomeUnknownError, CodexProtocolError } fr
   "../plugins/official/ai-codex/protocol/client.ts";
 import { CodexLineDecoder, CodexLineDecoderError, MAX_APP_SERVER_LINE_BYTES } from
   "../plugins/official/ai-codex/protocol/line-decoder.ts";
-import { CodexAppServerStdio, CODEX_PENDING_WRITE_MAX, CODEX_PIPE_CHUNK_MAX } from
+import { CodexAppServerStdio, CODEX_PENDING_WRITE_MAX, CODEX_PIPE_CHUNK_MAX, CODEX_PENDING_LINES_MAX } from
   "../plugins/official/ai-codex/protocol/stdio.ts";
 import { CodexConversation } from "../plugins/official/ai-codex/protocol/conversation.ts";
 import { spawnCodexAppServer } from "../plugins/official/ai-codex/protocol/process.ts";
@@ -19,6 +19,17 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const lock = JSON.parse(readFileSync(join(root, "plugins/official/ai-codex/protocol/app-server.lock.json"), "utf8"));
 assert.equal(CODEX_CLI_VERSION, lock.codexCliVersion);
 const clientInfo = { name: "ghosterm-protocol-test", title: "Ghosterm protocol test", version: "0.0.0" };
+
+async function pumpInitialization(server) {
+  let finished = false;
+  void server.ready.then(() => { finished = true; }, () => { finished = true; });
+  for (let step = 0; step < 20 && !finished; step++) {
+    server.step();
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+  assert(finished, "initialization must settle under bounded owner-driven steps");
+}
 
 function fakeActiveClient() {
   const writes = [];
@@ -339,6 +350,75 @@ test("stdio EOF inside a JSON record fails closed and leaves the request outcome
   connection.close();
 });
 
+test("stdio decodes and dispatches in separate slices before observing EOF", async () => {
+  const response = new TextEncoder().encode('{"method":"fixture.note","params":{}}\n' +
+    '{"id":1,"result":{"userAgent":"fixture/0.166.0"}}\n');
+  const stdout = [{ state: "data", bytes: response }, { state: "eof" }];
+  const connection = new CodexAppServerStdio({
+    writeStdin: bytes => ({ state: "data", count: bytes.length }),
+    readStdout: () => stdout.shift() ?? { state: "eof" },
+    readStderr: () => ({ state: "eof" }), closeStdin() {},
+  });
+  let events = 0;
+  connection.client.onNotification(() => events++);
+  const ready = connection.client.initialize(clientInfo);
+  void ready.catch(() => {});
+  connection.step();
+  await Promise.resolve();
+  assert.equal(events, 0, "decoding must defer business dispatch to the next owner slice");
+  assert.equal(connection.drained, false);
+  connection.step();
+  assert.equal(events, 1);
+  connection.step();
+  assert.equal((await ready).userAgent, "fixture/0.166.0", "queued reply must survive until dispatch before EOF");
+  connection.step();
+  assert.equal(connection.drained, true);
+  assert.equal(connection.failure, undefined);
+  connection.close();
+});
+
+test("stdio bounds its decoded line queue before business dispatch", () => {
+  const lines = new TextEncoder().encode('{"method":"fixture.note","params":{}}\n'.repeat(CODEX_PENDING_LINES_MAX + 1));
+  let taken = false;
+  const connection = new CodexAppServerStdio({
+    writeStdin: bytes => ({ state: "data", count: bytes.length }),
+    readStdout: () => taken ? { state: "wait" } : (taken = true, { state: "data", bytes: lines }),
+    readStderr: () => ({ state: "wait" }), closeStdin() {},
+  });
+  let events = 0;
+  connection.client.onNotification(() => events++);
+  connection.step();
+  assert.match(connection.failure?.message ?? "", /decoded line queue is full/,
+    "decoded line queue must reject overflow");
+  assert.equal(events, 0);
+  connection.close();
+});
+
+test("stdio continues stderr drainage while dispatching queued lines", async () => {
+  const output = new TextEncoder().encode('{"id":1,"result":{"userAgent":"fixture/0.166.0"}}\n' +
+    '{"method":"fixture.note","params":{}}\n');
+  let stdoutTaken = false, stderrRead = 0, drained = 0, events = 0;
+  const connection = new CodexAppServerStdio({
+    writeStdin: bytes => ({ state: "data", count: bytes.length }),
+    readStdout: () => stdoutTaken ? { state: "eof" } : (stdoutTaken = true, { state: "data", bytes: output }),
+    readStderr: () => {
+      stderrRead++;
+      if (stderrRead === 1) return { state: "wait" };
+      if (stderrRead === 2) { drained += CODEX_PIPE_CHUNK_MAX; return { state: "data", bytes: new Uint8Array(CODEX_PIPE_CHUNK_MAX) }; }
+      return { state: "eof" };
+    }, closeStdin() {},
+  });
+  connection.client.onNotification(() => events++);
+  const ready = connection.client.initialize(clientInfo);
+  connection.step(); connection.step(); await ready;
+  assert.equal(drained, CODEX_PIPE_CHUNK_MAX, "business dispatch must not block stderr drainage");
+  connection.step(); connection.step();
+  assert.equal(events, 1);
+  assert.equal(connection.drained, true);
+  assert.equal(connection.failure, undefined);
+  connection.close();
+});
+
 test("stdout EOF does not stop later stderr drainage", () => {
   const stderr = [{ state: "wait" }];
   let retained = 0;
@@ -408,7 +488,7 @@ test("PluginContext process grant launches Codex through the bounded stdio adapt
     program: "codex", argv: ["codex", "app-server"], cwd: { id: "workspace-root" },
     envPolicy: "selected-user-environment", cancellation: context.cancellation,
   });
-  server.step();
+  await pumpInitialization(server);
   assert.equal((await server.ready).userAgent, "ghosterm-protocol-test/0.166.0 (fixture)");
   assert.match(writes[0], /"method":"initialize"/);
   await server.stop();
@@ -450,7 +530,7 @@ test("Codex initialize rejection terminates and reaps its owned child", async ()
     process: { async spawn() { return child; } },
   };
   const server = await spawnCodexAppServer(context, clientInfo);
-  server.step();
+  await pumpInitialization(server);
   await assert.rejects(server.ready, /fixture initialization rejected/);
   assert.equal(signalled, "terminate");
   assert.equal(released, true);
@@ -536,7 +616,7 @@ test("initialize response version mismatch stops and reaps its child", async () 
     process: { async spawn() { return child; } },
   };
   const server = await spawnCodexAppServer(context, clientInfo);
-  server.step();
+  await pumpInitialization(server);
   await assert.rejects(server.ready, /Codex app-server version mismatch: expected 0\.166\.0, got 0\.165\.0/);
   assert.equal(signalled, "terminate");
   assert.equal(released, true);

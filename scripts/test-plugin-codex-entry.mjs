@@ -309,19 +309,19 @@ assert.throws(() => bound.handlers.get("codex.approval.respond")({
   requestID: "s:file-1", decisionJSON: '"accept"',
 }, { check() {} }), /SCHEMA/, "approval codec requires an explicit snapshot field");
 let boundWrites = bound.child.writes.length;
-assert.throws(() => decideFile("file-1", ""), /patch changed or expired/,
+assert.deepEqual(decideFile("file-1", ""), { accepted: false },
   "file approval must require a complete snapshot revision");
 assert.equal(bound.child.writes.length, boundWrites, "missing patch revision must not write to Codex");
 bound.child.line({ method: "item/fileChange/patchUpdated", params: { threadId: "thread-test", turnId: "turn-test",
   itemId: "other-item", changes: [{ path: "other", kind: { type: "add" }, diff: "+other" }] } });
 await driveUntil(boundDisposable, () => boundPatch("other-item") !== undefined, "other item patch");
-assert.throws(() => decideFile("file-1", boundPatch("other-item")), /patch changed or expired/,
+assert.deepEqual(decideFile("file-1", boundPatch("other-item")), { accepted: false },
   "file approval revision must belong to its exact thread turn and item");
 bound.child.line({ method: "item/fileChange/patchUpdated", params: { threadId: "thread-test", turnId: "turn-test",
   itemId: "item-3", changes: [{ path: "src/example.ts", kind: { type: "update", move_path: null }, diff: "+new revision" }] } });
 await driveUntil(boundDisposable, () => boundPatch() !== oldPatch, "replacement patch");
 boundWrites = bound.child.writes.length;
-assert.throws(() => decideFile("file-1", oldPatch), /patch changed or expired/,
+assert.deepEqual(decideFile("file-1", oldPatch), { accepted: false },
   "changed patch must reject a stale approval before pipe write");
 assert.equal(bound.child.writes.length, boundWrites, "a stale approval must not write to Codex");
 assert.deepEqual(decideFile("file-1", boundPatch()), { accepted: true });
@@ -338,7 +338,7 @@ bound.child.line({ method: "item/fileChange/patchUpdated", params: { threadId: "
   itemId: "item-3", changes: [{ path: "large", kind: { type: "add" }, diff: "x".repeat(CODEX_CHANGE_MAX_BYTES) }] } });
 await driveUntil(boundDisposable, () => bound.handlers.get("codex.change.read")(
   { snapshotID: beforeOversize, offset: 0 }, { check() {} }).status === "expired", "oversize invalidation");
-assert.throws(() => decideFile("file-oversize", beforeOversize, "acceptForSession"), /patch changed or expired/,
+assert.deepEqual(decideFile("file-oversize", beforeOversize, "acceptForSession"), { accepted: false },
   "unavailable patch must reject all accepting decision classes");
 boundDisposable.dispose();
 for (let i = 0; i < 8; i++) await Promise.resolve();
