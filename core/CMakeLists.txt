@@ -45,6 +45,7 @@ add_library(ghosterm_core STATIC
   src/extension/runtime-resource.c
   src/extension/process-owner.c
   src/extension/process-service.c
+  src/extension/process-rpc.c
   src/extension/runtime-api.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
@@ -169,6 +170,18 @@ if(GHOSTERM_WITH_PLUGIN_JS)
 else()
   add_test(NAME ext_package_disabled COMMAND test_ext_package disabled)
 endif()
+add_executable(test_process_rpc tests/test_process_rpc.c)
+target_include_directories(test_process_rpc PRIVATE src)
+target_link_libraries(test_process_rpc PRIVATE ghosterm_core)
+target_compile_options(test_process_rpc PRIVATE -Wall -Wextra -Werror)
+foreach(mode roundtrip incoming-cancel backpressure cancel timeout revoke capacity access lifetime allocation invalid
+    version numeric-id leading-zero overflow sequence duplicate escaped-key unknown-field unknown-op missing
+    utf8 nul nested-duplicate timeout-fraction duplicate-methods replay oversize pipe-exec
+    adoption global-memory message-boundary body-boundary body-limit depth semantic-rejection
+    method-filter methods-limit late-reply-timeout reuse)
+  add_test(NAME plugin_process_rpc_${mode} COMMAND test_process_rpc ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+  set_tests_properties(plugin_process_rpc_${mode} PROPERTIES TIMEOUT 30)
+endforeach()
 add_executable(test_package_runtime tests/test_package_runtime.c)
 target_include_directories(test_package_runtime PRIVATE src)
 target_link_libraries(test_package_runtime PRIVATE ghosterm_core)
