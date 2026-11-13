@@ -27,6 +27,7 @@ struct ExtensionsPane: View {
         var hostMethodsJSON = "[]"
         var resourceRoot = ""
         var processProgramsJSON = "[]"
+        var processEnvironmentJSON = "[]"
         init(review: ExtensionController.PackageReview) {
             self.review = review
             self.command = review.commands.first?.path ?? ""
@@ -100,7 +101,11 @@ struct ExtensionsPane: View {
                             TextField("远端进程映射 JSON", text: $entry.processProgramsJSON, axis: .vertical)
                                 .lineLimit(2...5)
                                 .accessibilityIdentifier("plugin-process-programs-\(entry.review.id)")
-                            Text("映射格式：[{\"name\":\"codex\",\"executable\":\"/绝对路径\",\"version\":\"0.166.0\",\"sha256\":\"64 位摘要\"}]。配置进程映射还需提供 workspace root；摘要由远端 Core 实际核对。")
+                            Text("映射字段：name、executable、version、sha256；可选 prefixArguments 字符串数组用于固定解释器入口和 profile 参数。还需提供 workspace root；可执行摘要由远端 Core 核对。")
+                                .font(DS.Font.caption).foregroundStyle(.secondary)
+                            TextField("执行端环境变量名称 JSON 数组", text: $entry.processEnvironmentJSON)
+                                .accessibilityIdentifier("plugin-process-environment-\(entry.review.id)")
+                            Text("只填写执行机器上的变量名，例如 [\"CLAUDE_CONFIG_DIR\"]；不要填写凭据值。缺失的显式变量会报错。")
                                 .font(DS.Font.caption).foregroundStyle(.secondary)
                             Button("连接并启动 Client 命令") { launch(entry) }
                                 .disabled(model.extensionRunBusy || model.extensionRun != nil)
@@ -176,6 +181,7 @@ struct ExtensionsPane: View {
                 hostMethods = Array(Set(hostMethods + ["codex.event"])).sorted()
             }
             let processPrograms = try ExtensionRelayBootstrap.parseProcessProgramsJSON(entry.processProgramsJSON)
+            let processEnvironment = try ExtensionRelayBootstrap.parseProcessEnvironmentJSON(entry.processEnvironmentJSON)
             let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.resourceRoot.isEmpty
                 ? [] : [.init(id: "workspace", directory: entry.resourceRoot)]
             guard !entry.sshAlias.isEmpty else { throw GhostermCore.GhostermError.failed("请填写 SSH 主机别名") }
@@ -185,7 +191,8 @@ struct ExtensionsPane: View {
                     arguments: arguments, sshAlias: entry.sshAlias,
                     executable: entry.executable, executorDirectory: entry.executorDirectory,
                     executorDigest: entry.executorDigest, methods: methods, hostMethods: hostMethods,
-                    scopedRoots: roots, processPrograms: processPrograms)
+                    scopedRoots: roots, processPrograms: processPrograms,
+                    processEnvironmentNames: processEnvironment)
             }
         } catch { issue = "插件启动参数无效：\(error)" }
     }

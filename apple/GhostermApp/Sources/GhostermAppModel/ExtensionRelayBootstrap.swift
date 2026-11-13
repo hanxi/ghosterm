@@ -18,10 +18,13 @@ public enum ExtensionRelayBootstrap {
         public let executable: String
         public let version: String
         public let sha256: String
+        public let prefixArguments: [String]
 
-        public init(name: String, executable: String, version: String, sha256: String) {
+        public init(name: String, executable: String, version: String, sha256: String,
+                    prefixArguments: [String] = []) {
             self.name = name; self.executable = executable
             self.version = version; self.sha256 = sha256
+            self.prefixArguments = prefixArguments
         }
     }
 
@@ -34,6 +37,7 @@ public enum ExtensionRelayBootstrap {
         public let hostMethods: [String]
         public let scopedRoots: [ScopedRoot]
         public let processPrograms: [ProcessProgram]
+        public let processEnvironmentNames: [String]
         public let command: String
         public let arguments: [String]
 
@@ -41,12 +45,14 @@ public enum ExtensionRelayBootstrap {
                     clientDigest: String, methods: [String], hostMethods: [String] = [],
                     scopedRoots: [ScopedRoot] = [],
                     processPrograms: [ProcessProgram] = [],
+                    processEnvironmentNames: [String] = [],
                     command: String, arguments: [String] = []) {
             self.executable = executable; self.executorDirectory = executorDirectory
             self.executorDigest = executorDigest; self.clientDigest = clientDigest
             self.methods = methods; self.hostMethods = hostMethods
             self.scopedRoots = scopedRoots
             self.processPrograms = processPrograms
+            self.processEnvironmentNames = processEnvironmentNames
             self.command = command; self.arguments = arguments
         }
     }
@@ -82,14 +88,17 @@ public enum ExtensionRelayBootstrap {
                   values.count <= 16 else { throw invalid("进程映射必须是最多 16 项的 JSON 对象数组") }
             let expected: Set<String> = ["name", "executable", "version", "sha256"]
             let programs = try values.map { value -> ProcessProgram in
-                guard Set(value.keys) == expected,
+                guard Set(value.keys).subtracting(["prefixArguments"]) == expected,
                       let name = value["name"] as? String,
                       let executable = value["executable"] as? String,
                       let version = value["version"] as? String,
                       let sha256 = value["sha256"] as? String else {
                     throw invalid("每个进程映射必须且只能包含 name、executable、version、sha256")
                 }
-                return ProcessProgram(name: name, executable: executable, version: version, sha256: sha256)
+                let prefix = value["prefixArguments"] == nil ? [] : value["prefixArguments"] as? [String]
+                guard let prefix else { throw invalid("prefixArguments 必须是字符串数组") }
+                return ProcessProgram(name: name, executable: executable, version: version, sha256: sha256,
+                                      prefixArguments: prefix)
             }
             guard Set(programs.map(\.name)).count == programs.count,
                   programs.allSatisfy(validProcessProgram) else {
@@ -126,6 +135,10 @@ public enum ExtensionRelayBootstrap {
               request.processPrograms.isEmpty || !request.scopedRoots.isEmpty else {
             throw invalid("进程映射必须唯一有效，并且需要至少一个显式 workspace root")
         }
+        try validateEnvironmentNames(request.processEnvironmentNames)
+        guard request.processEnvironmentNames.isEmpty || !request.processPrograms.isEmpty else {
+            throw invalid("显式进程环境需要配置进程映射")
+        }
         // Keep each expression small for the Swift 6.1 compiler used by CI.
         var argv: [String] = [request.executable, "relay", "--stdio", "--trust-development-digest",
                               request.executorDigest, "--client-digest", request.clientDigest]
@@ -141,6 +154,12 @@ public enum ExtensionRelayBootstrap {
         for program in request.processPrograms {
             argv.append(contentsOf: ["--process-program", program.name, program.executable,
                                       program.version, program.sha256])
+            for argument in program.prefixArguments {
+                argv.append(contentsOf: ["--process-argument", program.name, argument])
+            }
+        }
+        for name in request.processEnvironmentNames {
+            argv.append(contentsOf: ["--process-environment", name])
         }
         argv.append(contentsOf: ["--", request.executorDirectory, request.command])
         argv.append(contentsOf: request.arguments)
@@ -193,12 +212,34 @@ public enum ExtensionRelayBootstrap {
             (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) ||
                 $0 == 46 || $0 == 95 || $0 == 45
         }
-        return validName && program.executable.hasPrefix("/") &&
+        let prefixValid = program.prefixArguments.count <= 16 && program.prefixArguments.allSatisfy {
+            $0.utf8.count <= 4096 && !$0.utf8.contains(0) && !$0.contains("\n") && !$0.contains("\r")
+        } && program.prefixArguments.reduce(0, { $0 + $1.utf8.count + 1 }) <= 16384
+        return prefixValid && validName && program.executable.hasPrefix("/") &&
             program.executable.utf8.count <= 4096 && !program.executable.contains("\n") &&
             !program.executable.contains("\r") && !program.executable.utf8.contains(0) &&
             !program.version.isEmpty && program.version.utf8.count <= 128 &&
             !program.version.contains("\n") && !program.version.contains("\r") &&
             !program.version.utf8.contains(0) && isDigest(program.sha256)
+    }
+
+    public static func parseProcessEnvironmentJSON(_ source: String) throws -> [String] {
+        let names = try parseStringArray(source, limit: 27, label: "执行端环境变量名称")
+        try validateEnvironmentNames(names)
+        return names
+    }
+
+    private static func validateEnvironmentNames(_ names: [String]) throws {
+        let defaults: Set<String> = ["HOME", "PATH", "XDG_CONFIG_HOME", "CODEX_HOME", "TMPDIR"]
+        guard names.count <= 27, Set(names).count == names.count,
+              names.allSatisfy({ name in
+                  let bytes = Array(name.utf8)
+                  guard let first = bytes.first, bytes.count <= 128, !defaults.contains(name),
+                        (65...90).contains(first) || (97...122).contains(first) || first == 95 else { return false }
+                  return bytes.dropFirst().allSatisfy {
+                      (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 95
+                  }
+              }) else { throw invalid("执行端环境变量名称非法、重复或与默认候选重复") }
     }
 
     private static func isDigest(_ value: String) -> Bool {
@@ -216,6 +257,12 @@ public enum ExtensionRelayBootstrap {
     /// JSONSerialization keeps only one value when an object repeats a key.
     /// Scan the original bytes first so the macOS form matches Android's strict
     /// JsonReader behavior instead of silently accepting an ambiguous mapping.
+    static func validateJSON(_ data: Data) throws {
+        var scanner = JSONDuplicateKeyScanner(data: data)
+        try scanner.validate()
+        _ = try JSONSerialization.jsonObject(with: data)
+    }
+
     private struct JSONDuplicateKeyScanner {
         private let bytes: [UInt8]
         private var index = 0
@@ -250,14 +297,14 @@ public enum ExtensionRelayBootstrap {
             index += 1
             whitespace()
             if consume(0x7d) { return }
-            var keys = Set<String>()
+            var keys = Set<Data>()
             while true {
                 whitespace()
                 guard index < bytes.count, bytes[index] == 0x22 else {
                     throw invalid("JSON 对象键无效")
                 }
                 let key = try string()
-                guard keys.insert(key).inserted else { throw invalid("JSON 对象包含重复键") }
+                guard keys.insert(Data(key.utf8)).inserted else { throw invalid("JSON 对象包含重复键") }
                 whitespace()
                 guard consume(0x3a) else { throw invalid("JSON 对象缺少冒号") }
                 try value(depth: depth)

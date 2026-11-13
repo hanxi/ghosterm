@@ -98,7 +98,8 @@ public final class AppModel: ObservableObject {
     private var extensionRunGeneration = UUID()
     private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String])?
     private var lastCodexEventSequence: UInt64 = 0
-    private var pendingCodexRPCHandles: Set<UInt64> = []
+    private var pendingExtensionRPCHandles: Set<UInt64> = []
+    private var claudeRPC: ClaudeRPCClient?
 
     /// 界面外观偏好（跟随系统 / 浅色 / 深色）与终端色板事件（`theme =
     /// light:X,dark:Y` 靠它选边）。**改了要同时喂两个消费者**：AppKit 的
@@ -1119,7 +1120,8 @@ public final class AppModel: ObservableObject {
                                      executorDirectory: String, executorDigest: String,
                                      methods: [String], hostMethods: [String],
                                      scopedRoots: [ExtensionRelayBootstrap.ScopedRoot] = [],
-                                     processPrograms: [ExtensionRelayBootstrap.ProcessProgram] = []) async {
+                                     processPrograms: [ExtensionRelayBootstrap.ProcessProgram] = [],
+                                     processEnvironmentNames: [String] = []) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
         extensionRunBusy = true; extensionRunIssue = nil
@@ -1139,6 +1141,7 @@ public final class AppModel: ObservableObject {
                 executorDirectory: executorDirectory, executorDigest: executorDigest,
                 clientDigest: packageDigest, methods: methods, hostMethods: hostMethods,
                 scopedRoots: scopedRoots, processPrograms: processPrograms,
+                processEnvironmentNames: processEnvironmentNames,
                 command: command, arguments: arguments))
             let additionalCapabilities = (scopedRoots.isEmpty || !selected.requiredCapabilities.contains("resource.receive")
                 ? [] : ["file.readScoped"]) +
@@ -1158,6 +1161,7 @@ public final class AppModel: ObservableObject {
                 hostVersion: version, peerIdentity: sshAlias, methods: rpcMethods,
                 additionalRequiredCapabilities: additionalCapabilities)
             extensionRunInvocation = (packageID, packageDigest, command, arguments)
+            claudeRPC?.invalidate(); claudeRPC = nil
             extensionRunGeneration = UUID()
             codexCallBusy = false
             lastCodexEventSequence = 0
@@ -1245,6 +1249,7 @@ public final class AppModel: ObservableObject {
 
     public func stopExtensionRun() async {
         guard let extensionController, extensionRun != nil, !extensionRunBusy else { return }
+        claudeRPC?.invalidate(); claudeRPC = nil
         extensionRunGeneration = UUID()
         codexCallBusy = false
         cancelCodexChangeReview()
@@ -1282,7 +1287,7 @@ public final class AppModel: ObservableObject {
             codexTurnActive = false
             codexPendingApprovals = []
             codexTimeline = []
-            pendingCodexRPCHandles.removeAll()
+            pendingExtensionRPCHandles.removeAll()
         } catch { extensionRunIssue = "释放插件资源失败：\(error)" }
         extensionRunBusy = false
     }
@@ -1370,19 +1375,48 @@ public final class AppModel: ObservableObject {
     }
 
     private func callCodexExecutor<Value: Decodable>(_ method: String, input: [String: Any]) async throws -> Value {
+        let bytes = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
+        let outcome = try await callExtensionExecutor(method, inputBytes: bytes, command: "ai codex")
+        let envelope = try JSONDecoder().decode(CodexRPCEnvelope<Value>.self, from: outcome)
+        guard envelope.kind == "success", let value = envelope.value else {
+            throw GhostermError.failed("Codex RPC 返回了无效结果 envelope")
+        }
+        return value
+    }
+
+    /// Complete vendor records for the Native Claude conversation adapter.
+    /// A replacement run never reuses the previous adapter or child sequence.
+    public func requestClaudeAction(method: String, parameters: Data) async throws -> Data {
+        let generation = extensionRunGeneration
+        try checkExtensionRunGeneration(generation)
+        guard !extensionRunBusy, extensionRun?.command == "ai claude",
+              extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue,
+              ClaudeRPCClient.methods.allSatisfy({ extensionRun?.methods.contains($0) == true }) else {
+            throw GhostermError.failed("Claude 需要本次已授权的 ACTIVE Runtime 和完整 RPC allowlist")
+        }
+        if claudeRPC == nil {
+            claudeRPC = ClaudeRPCClient { [weak self] name, input in
+                guard let self else { throw CancellationError() }
+                try self.checkExtensionRunGeneration(generation)
+                return try await self.callExtensionExecutor(name, inputBytes: input, command: "ai claude")
+            }
+        }
+        return try await claudeRPC!.request(method: method, parameters: parameters)
+    }
+
+    private func callExtensionExecutor(_ method: String, inputBytes: Data, command: String) async throws -> Data {
         let generation = extensionRunGeneration
         try checkExtensionRunGeneration(generation)
         guard let extensionController, let run = extensionRun,
-              !extensionRunBusy, run.command == "ai codex", run.methods.contains(method) else {
-            throw GhostermError.failed("Codex RPC 未在本次 Session allowlist 中")
+              !extensionRunBusy, run.command == command, run.methods.contains(method) else {
+            throw GhostermError.failed("插件 RPC 未在本次 Session allowlist 中")
         }
-        let inputBytes = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
         let admission = try await extensionController.requestExecutorRPC(method: method, input: inputBytes)
         guard admission.status == .ok, let handle = admission.handle else {
-            throw GhostermError.failed("Codex RPC 未能进入发送队列（status \(admission.status.rawValue)）")
+            throw GhostermError.failed("插件 RPC 未能进入发送队列（status \(admission.status.rawValue)）")
         }
         var completed = false
-        defer { if !completed && generation == extensionRunGeneration { pendingCodexRPCHandles.insert(handle) } }
+        defer { if !completed && generation == extensionRunGeneration { pendingExtensionRPCHandles.insert(handle) } }
         try checkExtensionRunGeneration(generation)
         let deadline = ProcessInfo.processInfo.systemUptime + 30
         do {
@@ -1394,23 +1428,19 @@ public final class AppModel: ObservableObject {
                    result.state != .queued, result.state != .pending {
                     let forget = try await extensionController.forgetExecutorRPC(handle: handle)
                     try checkExtensionRunGeneration(generation)
-                    guard forget == .ok else { throw GhostermError.failed("Codex RPC 结果未能释放") }
+                    guard forget == .ok else { throw GhostermError.failed("插件 RPC 结果未能释放") }
                     completed = true
                     guard result.state == .succeeded, result.confirmed else {
-                        throw GhostermError.failed("Codex RPC 结果为 \(result.state)，执行效果未知或失败")
+                        throw GhostermError.failed("插件 RPC 结果为 \(result.state)，执行效果未知或失败")
                     }
-                    let envelope = try JSONDecoder().decode(CodexRPCEnvelope<Value>.self, from: result.outcome)
-                    guard envelope.kind == "success", let value = envelope.value else {
-                        throw GhostermError.failed("Codex RPC 返回了无效结果 envelope")
-                    }
-                    return value
+                    return result.outcome
                 }
                 try Task.checkCancellation()
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
             try checkExtensionRunGeneration(generation)
             _ = try await extensionController.cancelExecutorRPC(handle: handle)
-            throw GhostermError.failed("Codex RPC 等待超过 30 秒，结果可能未知")
+            throw GhostermError.failed("插件 RPC 等待超过 30 秒，结果可能未知")
         } catch {
             // Do not retry or discard an unresolved handle: Core retains its
             // unknown outcome until the caller explicitly observes it.
@@ -1511,7 +1541,7 @@ public final class AppModel: ObservableObject {
                 try checkExtensionRunGeneration(generation)
                 updateExtensionRun(runtime: state)
                 if !Self.runtimeIsRunning(state.phase) { return }
-                try await reapPendingCodexRPCs()
+                try await reapPendingExtensionRPCs()
                 try checkExtensionRunGeneration(generation)
                 if state.phase == GhostermCore.ExtensionRuntime.Phase.active.rawValue {
                     try await pumpCodexHostEvent()
@@ -1525,6 +1555,7 @@ public final class AppModel: ObservableObject {
             }
         } catch {
             if Task.isCancelled || generation != extensionRunGeneration { return }
+            claudeRPC?.invalidate()
             cancelCodexChangeReview()
             codexPendingApprovals = []
             extensionRunIssue = "插件 Runtime 运行失败：\(error)"
@@ -1546,6 +1577,7 @@ public final class AppModel: ObservableObject {
     private func updateExtensionRun(runtime: ExtensionController.RuntimeState) {
         guard let run = extensionRun else { return }
         if !Self.runtimeIsRunning(runtime.phase) {
+            claudeRPC?.invalidate()
             codexPendingApprovals = []
             cancelCodexChangeReview()
         }
@@ -1726,10 +1758,10 @@ public final class AppModel: ObservableObject {
         return nil
     }
 
-    private func reapPendingCodexRPCs() async throws {
+    private func reapPendingExtensionRPCs() async throws {
         guard let extensionController else { return }
         let generation = extensionRunGeneration
-        for handle in pendingCodexRPCHandles.sorted() {
+        for handle in pendingExtensionRPCHandles.sorted() {
             try checkExtensionRunGeneration(generation)
             let (status, result) = try await extensionController.executorRPCResult(handle: handle)
             try checkExtensionRunGeneration(generation)
@@ -1738,7 +1770,7 @@ public final class AppModel: ObservableObject {
             let forgotten = try await extensionController.forgetExecutorRPC(handle: handle)
             try checkExtensionRunGeneration(generation)
             guard forgotten == .ok else { throw GhostermError.failed("无法释放已结束的 Codex RPC 结果") }
-            pendingCodexRPCHandles.remove(handle)
+            pendingExtensionRPCHandles.remove(handle)
         }
     }
 

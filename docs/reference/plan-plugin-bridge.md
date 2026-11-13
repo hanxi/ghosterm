@@ -6,7 +6,7 @@
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
-**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 执行端入口；可处理显式输入、原始有序 SDK 消息、关联结果、中断与关闭。第五批增加可构建的 ai-claude Portable 目录候选包：八个 RPC 上传一次性完整参数、保留和分页读取完整回包，并在动作前预约回复预算。编译后的生产 Executor 已经原生 HOST Session / gterm 启动 Host 固定配置的 Node；真实 SDK 配受控 CLI 协议夹具完成长文本、工具批准与逐题回答，真实匹配 CLI 另验禁网无模型初始化 / stop / reap。已修复跨显式输入复用后端 request ID 导致旧批准重放的风险，并将所选依赖闭包的 Node 下限设为 20。尚无通用 Node / Exec 包运行档、原生 chat / approval / question 页面或真实模型会话；当前 App / gterm 的包 runtime 继续只支持 Portable JS，P4 仍未完成。具体版本、变异和限制见文末 P4 第一至五批。
+**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 执行端入口；可处理显式输入、原始有序 SDK 消息、关联结果、中断与关闭。第五批增加可构建的 ai-claude Portable 目录候选包：八个 RPC 上传一次性完整参数、保留和分页读取完整回包，并在动作前预约回复预算。编译后的生产 Executor 已经原生 HOST Session / gterm 启动 Host 固定配置的 Node；真实 SDK 配受控 CLI 协议夹具完成长文本、工具批准与逐题回答，真实匹配 CLI 另验禁网无模型初始化 / stop / reap。已修复跨显式输入复用后端 request ID 导致旧批准重放的风险，并将所选依赖闭包的 Node 下限设为 20。尚无通用 Node / Exec 包运行档、原生 chat / approval / question 页面或真实模型会话；当前 App / gterm 的包 runtime 继续只支持 Portable JS，P4 仍未完成。第六批补齐 macOS 启动表单的固定参数 / 执行端环境名称，并接入绑定本次 ACTIVE Runtime 的完整参数 / 回包 Swift 适配；原生聊天控件仍待接线。具体版本、变异和限制见文末 P4 第一至六批。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -5192,3 +5192,21 @@ SDK / CLI pin 仍为 **0.3.323 / 2.1.323**。锁定闭包里的 `@hono/node-serv
 Node 后端最终 `python3 -B scripts/test-plugin-claude-node.py --mutate --real-cli` 为 **27 项 / 31 组**：旧二十六项 / 二十九组，加跨输入旧批准拒绝一项及 broker / session 输入身份两组；既有会话测试增加实际输入 UUID 对拍。均为真实编译后的普通断言红、独立对照绿、恢复绿与 SHA256，实际 SDK 控制夹具及无模型 CLI 专项保持分列。默认 JS=OFF / tests=ON 的离线 gate **481/481 CTest、177 ABI**，clang-format 19.1.7 全仓 **222 文件**、脚本语法、包 metadata / integrity / 重建一致性及 git diff --check 通过。无公共 ABI / wire / 平台原生源码变化；新 C peer 与 gterm 以 -Wall -Wextra -Werror 构建，不借前批 Apple / Android 编译记本批页面证据。
 
 全部自动测试保持后台；所属进程结束后清理工程 tmp 的缓存、依赖、探针与日志，保留可审查候选包。仅本地分批提交，不表示发行，不增加 macOS CI 二十份。P4 继续欠 SDK / CLI 产品模式选择、通用 Node / Exec package runtime、两端 Native chat / approval / question、真实认证 / 模型 / 工具 / 中断、SSH / tmux 及完整资源 / 设备矩阵；P2–P6 其它缺口保持未完成。
+
+### P4 实施第六批：macOS 启动配置与 Native 完整文档适配（2026-11-14）
+
+继续接原生 Claude 前发现两个前置缺口：macOS `ProcessProgram` 只有可执行文件身份，无法经 App 启动第五批要求的 Node entry / `--profile`；Native 也没有跨小帧上传 / 读完整 child 回包的适配。本批补齐这两条生产接线，不将其记作聊天页面完成。
+
+`ExtensionRelayBootstrap.ProcessProgram` 新增默认空的 `prefixArguments`。原四字段 JSON 继续有效，可选字段只能为字符串数组；重复键、未知字段、非字符串、NUL / 换行、单项 / 合计字节及十六项上限在启动前拒绝。参数按数组原顺序逐个生成 `--process-argument`，空参数、Unicode、引号及 `--profile` 都按字面引用。另有 `processEnvironmentNames` 与名称 JSON parser，要求最多二十七个不重复的 ASCII 环境标识符，不与 CLI 默认五候选重复；只发执行端变量名，不发送客户端的值。缺进程映射时不能额外选环境。`AppModel.startExtensionClient` 和真实启动表单现传递这两类配置，保留原有 1024 字节 SSH bootstrap 上限，不靠截断绕过它。表单编译已验，未声称已走用户点击整链。
+
+新增 MainActor `ClaudeRPCClient`：上传原始 compact JSON 参数，不经 Swift Dictionary 重序列化，避免 Unicode 等价但 UTF-8 不同的键被合并。共享 JSON 重复键扫描也改用解码后 UTF-8 Data 身份；相同字节的转义键仍会被拦。每片上传 / 原生 RPC 保持 3072 字节内，按 UTF-16 offset 且不拆代理对；完整回包最多 600,000 字节，逐页核对 responseID、offset / nextOffset、units / bytes、done、进展与累计字节，最终再验严格 JSON、child version / id / sequence / 字段集合。验证后才 forget，原始 vendor 记录按 Data 返回，不翻译为 Codex 事件。实际业务拒绝仍留在 vendor envelope，传输成功不等于动作成功。
+
+`AppModel.requestClaudeAction` 只接受当前 `ai claude`、ACTIVE Client Runtime 与完整八方法 allowlist，通过原 Session owner 发送；权限仍由 Core 实时检查。Codex 与 Claude 共用原生 RPC admission / 等待 / unknown / forget 逻辑，Codex 保留自己的业务解码。每次 run 更换或停止使旧 Claude adapter 失效；失效后晚到回包不能继续读入替代 run，重叠动作不能派发。一次 RPC 不明 / 参数上传失败 / 回包错误之后，该 adapter 拒绝新动作，不暗中重试或重建 child；已知 input / response ID 仅保留作观察。观察恢复 UI 尚未接入，当前仍须显式结束 run，不借此声称完整 unknown 恢复体验已完成。
+
+新增 **8 项** XCTest 验完整 Unicode 输入 / 输出及字节不同的等价键、七类页面元数据错误、child 身份 / 同值重复键 / 缺字段、在途失效与 busy、unknown 不重发、无效输入与未激活 AppModel 拒绝，以及启动前缀 / 环境的字面顺序、引号、空值和拒绝。它使用明确的文档 RPC fixture，没有模拟为真实 SDK / CLI / SSH。与既有 ExtensionController / CodexChangeReview 组合 **45 项、4 项跳过、零失败**；跳过项为默认 JS-off / 未提供本机 SSH 夹具的既有用例，不把它们算运行绿。已有 diff 视图测试使用 TestWindows 离屏呈现，没有前台窗口。
+
+`python3 -B scripts/mutation-check-claude-swift.py` 在工程 tmp 隔离复制生产 Swift 包，以真实 Xcode 编译、单条正常 XCTest 断言红、同构件独立 XCTest 绿、复原绿及 SHA256 完成 **十二组**：完整上传、页身份 / 字节 / 完成位、child id / sequence、重复键、晚到作用域、unknown 不重发、固定参数、环境选择和十六项上限。每组核对实际编译过对应 Swift 文件，既支持经典 frontend 日志，也支持本机 SwiftPM 的 Xcode build 日志；最初仅匹配旧日志格式导致的 runner 拒收未计通过。原 duplicate 负例先被 JSONDecoder 的首值策略独立拦截，不能证明 scanner；改为同值重复键后得到目标断言红，没有删掉其它身份约束换绿。
+
+本机 **Swift 6.4 / macOS arm64 Release** 与上述定向测试通过，Apple ABI **174 引用 / 3 登记未用**；不冒充云端 Swift 6.1.2。默认 JS=OFF / tests=ON 的 Core gate **481/481 CTest、177 ABI** 通过。C 生产源码、公共 ABI、Portable SDK / 候选包字节与 Android 源码未改。本批不增加 CI 二十份；macOS chat / approval / question 的完整状态与控件、Claude 的实际 AppModel / SSH 往返、Android 接入、真实认证 / 模型 / 工具与通用 Node runtime 等仍未完成。继续按原计划推进，不将此 Native 数据入口视作整个 P4 验收。
+
+共享 RPC 路径另以 `scripts/test-plugin-codex-app.py --gterm tmp/claude-regression-gterm/gterm --route both` 回归：本轮自建 loopback sshd / 跳板、真实锁定 Codex 0.166.0、已构建官方包，**四项零跳过 / 零失败**，涵盖直接 / 跳板 thread/start、跳板主机密钥拒绝与停止中的旧请求不得影响替代会话。只做无模型初始化 / thread / event / stop，不发送模型输入；它验证的是被共用的旧路径，不作为 Claude SSH 产品证据。Apple gate 的 ABI 和隔离 WebKit CSS / PNG 绘制同时通过。随后恢复默认 Core JS=OFF / tests=ON 并再验离线 gate 与上述 45 项组合；clang-format 19.1.7 全仓 **222 文件**、脚本语法和 git diff --check 通过。测试窗口全部后台 / 离屏，所属进程退出后清理 tmp；仅本地提交，不表示发行。

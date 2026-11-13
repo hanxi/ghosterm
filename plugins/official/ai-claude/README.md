@@ -163,6 +163,17 @@ separate modes use the real pinned SDK with an in-memory CLI protocol fixture fo
 large-input approval/question round trips, and the real matching CLI for no-model
 initialization/stop/reap. Neither is evidence of a model turn or Native chat UI.
 
+The macOS development launch form now accepts optional `prefixArguments` on each
+process mapping and a separate JSON array of executing-machine environment names.
+Names select values on that machine; they never copy values from the client.
+The launch command still has the existing SSH route length bound. The Native
+`AppModel.requestClaudeAction` adapter requires the current active Client Runtime
+and all eight RPC methods. It uploads exact compact parameter JSON and returns
+complete vendor reply bytes, preserving distinct Unicode spellings. After an
+uncertain call it refuses further effects in that run. Native chat controls and
+observed-receipt recovery UI remain to be connected; this API is not a conversation
+page or evidence of a real model turn.
+
 From the repository root:
 
 ```sh
