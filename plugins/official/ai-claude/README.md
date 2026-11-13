@@ -176,11 +176,11 @@ The launch command still has the existing SSH route length bound. The Native
 `AppModel.requestClaudeAction` adapter requires the current active Client Runtime
 and all eight RPC methods. It uploads exact compact parameter JSON and returns
 complete vendor reply bytes, preserving distinct Unicode spellings. After an
-uncertain call it refuses further effects in that run. macOS offers explicit read-only observation of a retained receipt after an
-uncertain operation. It binds the original input/response and command identity,
-keeps the original outcome unknown, and never resends or resumes the conversation.
-The Android observation UI remains unfinished. The macOS and Android conversations use
-this adapter for explicit start/send/interrupt/stop, immutable tool approvals and
+uncertain call it refuses further effects in that run. macOS and Android offer
+explicit read-only observation of a retained receipt after an uncertain operation.
+They bind the original input/response and command identity, keep the original
+outcome unknown and require explicit Runtime stop/release before further business
+actions. The macOS and Android conversations use this adapter for explicit start/send/interrupt/stop, immutable tool approvals and
 all-question answers. A ready backend is not proof of authentication or a model
 result. The controls preserve unknown outcomes and original draft text after an
 unconfirmed send, reject stale turn references and do not retry automatically.
@@ -194,8 +194,8 @@ Android document/launch checks use the prepared local Android toolchain and an
 owned no-window AVD; they make no SDK/CLI/model request:
 
 ```sh
-python3 -B scripts/test-plugin-claude-android.py --headless-api 36 --conversation --mutate
-python3 -B scripts/test-plugin-claude-android.py --headless-api 29 --conversation --plugin-js
+python3 -B scripts/test-plugin-claude-android.py --headless-api 36 --observation --mutate
+python3 -B scripts/test-plugin-claude-android.py --headless-api 29 --observation --plugin-js
 ```
 
 The Android Native SDK runner requires already built JS-enabled Debug and test
@@ -206,15 +206,22 @@ python3 -B scripts/test-plugin-claude-sdk-android.py --headless-api 29 --gterm <
 ```
 
 `--route all` checks direct SSH, ProxyJump and repeated checked-package argument
-decoding. It uses real Settings controls for start/send/tool approval/questions
-and stop; package approval and launch configuration are injected. It neither
+decoding. `--observation --route both` instead holds one actual SDK poll reply in
+the owned CLI fixture until the unmodified native RPC deadline expires, releases
+it explicitly and compares the complete retained response in Native read-only UI.
+It audits that observation sends no further helper commands. This keeps the SSH
+Runtime alive; it does not test reconnecting a lost transport. The normal routes
+use real Settings controls for start/send/tool approval/questions and stop;
+package approval and launch configuration are injected. Neither scenario
 executes an actual model/tool nor proves the complete installation flow.
 
 The offscreen macOS integration runner is:
 
 ```sh
 python3 -B scripts/test-plugin-claude-app.py --gterm <JS-enabled-gterm> --route both --fetch
+python3 -B scripts/test-plugin-claude-app.py --gterm <JS-enabled-gterm> --route both --retained-reply
 python3 -B scripts/mutation-check-claude-conversation.py
+python3 -B scripts/mutation-check-claude-observation.py
 ```
 
 The UI runner uses owned loopback sshd targets, actual production Native controls,

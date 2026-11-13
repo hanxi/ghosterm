@@ -62,17 +62,37 @@ CONVERSATION_CASES = [
 ]
 
 
+OBSERVATION_CASES = [
+    ('observe-input', 'ClaudeRPCClient.kt', 'observedInput == inputID', 'true', 'ClaudeObservationTest#foreignInputOrResponseCannotBeAdopted'),
+    ('observe-response', 'ClaudeRPCClient.kt', 'lastResponseID == null || lastResponseID == responseID', 'true', 'ClaudeObservationTest#foreignInputOrResponseCannotBeAdopted'),
+    ('observe-first-binding', 'ClaudeRPCClient.kt', 'lastResponseID = responseID\n            val first', 'val first', 'ClaudeObservationTest#failedReadCannotChangeTheFirstResponseIdentity'),
+    ('observe-before-forget', 'ClaudeRPCClient.kt', 'completeResponse = raw.copyOf()\n            val forgotten', 'completeResponse = null\n            val forgotten', 'ClaudeObservationTest#lostForgetUsesValidatedBytesWithoutAnotherRPC'),
+    ('observe-next-reset', 'ClaudeRPCClient.kt', 'lastInputID = null; lastResponseID = null; completeResponse = null', '/* old identity retained */', 'ClaudeObservationTest#failedNewOpenCannotReadPreviousIdentityOrCache'),
+    ('observe-scope', 'ClaudeRPCClient.kt', 'check(scopeOpen)', 'check(true)', 'ClaudeObservationTest#invalidationRejectsObservationBeforeAndAfterAwait'),
+    ('observe-child-sequence', 'ClaudeRPCClient.kt', 'integer(response, "sequence") == next', 'true', 'ClaudeObservationTest#observedPagesAndChildIdentityKeepAllChecks'),
+    ('observe-immutable', 'ClaudeRPCClient.kt', 'val response get() = record?.copyOf()', 'val response get() = record', 'ClaudeObservationTest#observedByteArraysCannotMutateTheRetainedRecord'),
+    ('observe-exit-value', 'ClaudeRPCClient.kt', 'exitValue.length() == 1', 'true', 'ClaudeObservationTest#malformedExitObservationCannotAuthorizeRead'),
+    ('observe-owner', 'ClaudeConversation.kt', 'check(!detached && generation === expected && isCurrent())', 'check(!detached && generation === expected)', 'ClaudeObservationUiTest#detachedOrReplacedOwnerRejectsLateObservation'),
+    ('observe-unknown', 'ClaudeConversation.kt', 'current.copy(observation = result)', 'current.copy(observation = result, phase = Phase.READY)', 'ClaudeObservationUiTest#observationNeverResumesOrClearsTheDraft'),
+    ('observe-button', 'ClaudeConversationContent.kt', 'onClick = model::observeOutcome', 'onClick = model::send', 'ClaudeObservationUiTest#actualObserveButtonShowsCompleteSelectableReadonlyReceipt'),
+]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument('--android')
     target.add_argument('--headless-api', choices=['29', '36'])
     parser.add_argument('--mutate', action='store_true')
+    parser.add_argument('--observation', action='store_true', help='include unknown-outcome observation checks and Native controls')
     parser.add_argument('--conversation', action='store_true', help='include Native conversation state, controls and shared diff regressions')
     parser.add_argument('--plugin-js', action='store_true', help='also compile the optional JS-enabled Android Host profile')
-    parser.add_argument('--case', action='append', choices=[case[0] for case in CASES + CONVERSATION_CASES])
+    parser.add_argument('--case', action='append', choices=[case[0] for case in CASES + CONVERSATION_CASES + OBSERVATION_CASES])
     args = parser.parse_args()
+    if args.observation: args.conversation = True
     if args.case and not args.mutate: parser.error('--case requires --mutate')
+    if args.case and not args.observation and any(name.startswith('observe-') for name in args.case):
+        parser.error('observe cases require --observation')
     if args.case and not args.conversation and any(name.startswith('chat-') for name in args.case):
         parser.error('chat mutation cases require --conversation')
     (ROOT / 'tmp').mkdir(exist_ok=True)
@@ -125,12 +145,12 @@ def execute(args, serial):
                 digest = run([*adb, 'shell', 'sha256sum', installed]).split()[0]
                 if digest != hashlib.sha256(apk.read_bytes()).hexdigest(): raise RuntimeError('Installed APK digest mismatch')
         def test(label, target=None, red=False):
-            classes = ['ClaudeRPCClientTest', 'ClaudeLaunchTest'] + (['ClaudeConversationTest', 'ClaudeConversationUiTest', 'CodexChangeReviewUiTest'] if args.conversation else [])
+            classes = ['ClaudeRPCClientTest', 'ClaudeLaunchTest'] + (['ClaudeConversationTest', 'ClaudeConversationUiTest', 'CodexChangeReviewUiTest'] if args.conversation else []) + (['ClaudeObservationTest', 'ClaudeObservationUiTest'] if args.observation else [])
             selected = 'com.hanxi.ghosterm.' + target if target else ','.join('com.hanxi.ghosterm.' + name for name in classes)
             output = run([*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class', selected,
                 'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'])
             (work / (label + '-test.log')).write_text(output)
-            count = 1 if target else (32 if args.conversation else 13)
+            count = 1 if target else (48 if args.observation else 32 if args.conversation else 13)
             valid = (re.search(r'Tests run: 1,\s+Failures: 1', output) and
                 any(mark in output for mark in ['java.lang.AssertionError', 'org.junit.ComparisonFailure'])) if red else f'OK ({count} test' in output
             if red and any(mark in output for mark in ['TimeoutException', 'AppNotIdleException', 'Process crashed', 'timed out']):
@@ -140,8 +160,8 @@ def execute(args, serial):
                 expected = 'ordinary single assertion red' if red else 'executed green suite'
                 raise RuntimeError(label + ': expected ' + expected + '\n' + output)
             return output
-        build('baseline'); test('baseline'); print(f'BASELINE PASS: {32 if args.conversation else 13} device RPC/launch/conversation checks', flush=True)
-        for name, file, old, new, target in (CASES + (CONVERSATION_CASES if args.conversation else [])) if args.mutate else []:
+        build('baseline'); test('baseline'); print(f'BASELINE PASS: {48 if args.observation else 32 if args.conversation else 13} device RPC/launch/conversation checks', flush=True)
+        for name, file, old, new, target in (CASES + (CONVERSATION_CASES if args.conversation else []) + (OBSERVATION_CASES if args.observation else [])) if args.mutate else []:
             if args.case and name not in args.case: continue
             path = source / SOURCE / file; original = path.read_bytes()
             if original.count(old.encode()) != 1: raise RuntimeError(name + ': mutation anchor mismatch')

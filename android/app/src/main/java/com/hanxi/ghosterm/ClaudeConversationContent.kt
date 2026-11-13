@@ -44,6 +44,23 @@ import androidx.compose.ui.unit.dp
             }
         }
         state.issue?.let { Text(it, Modifier.testTag("plugin-claude-issue"), color = MaterialTheme.colorScheme.error) }
+        if (state.phase == ClaudeConversation.Phase.UNKNOWN) {
+            TextButton(onClick = model::observeOutcome, enabled = model.canObserve,
+                modifier = Modifier.testTag("plugin-claude-observe")) { Text("查看未确认操作回包") }
+            Text("仅查看本次连接中的回包；原操作保持未知。继续操作需停止并释放本次插件。", style = MaterialTheme.typography.bodySmall)
+        }
+        state.observation?.let { observed ->
+            Text(when (observed.source) {
+                ClaudeRPCClient.Observation.Source.UNAVAILABLE -> "尚未观察到可关联的完整回包；不代表操作未执行"
+                ClaudeRPCClient.Observation.Source.EXECUTOR -> "已读取执行端保留回包；原操作确认仍未知"
+                ClaudeRPCClient.Observation.Source.RECEIVED -> "本机已保留完整回包；原操作确认仍未知"
+            }, Modifier.testTag("plugin-claude-observation-status"))
+            observed.text?.let { ConversationReadOnlyText(it, "plugin-claude-observed-response") }
+            ClaudeCompleteText("回包关联信息", "操作：${observed.method}\n输入：${observed.inputID ?: "未取得"}\n回包：${observed.responseID ?: "未取得"}\n" +
+                "进程观察：${observed.backendPhase ?: "未取得"}\n诊断：${observed.failure.orEmpty()}", "plugin-claude-observation-metadata")
+            Text("回包不代表模型任务已完成；不会据此重试或恢复对话。", style = MaterialTheme.typography.bodySmall)
+        }
+        state.observationIssue?.let { Text(it, Modifier.testTag("plugin-claude-observation-issue"), color = MaterialTheme.colorScheme.error) }
         if (state.records.isNotEmpty()) {
             var show by remember { mutableStateOf(false) }
             TextButton(onClick = { show = !show }, modifier = Modifier.testTag("plugin-claude-raw-toggle")) { Text("原始 Claude 记录（${state.records.size}）") }

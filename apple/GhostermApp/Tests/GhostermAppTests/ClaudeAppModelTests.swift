@@ -34,6 +34,7 @@ final class ClaudeAppModelTests: XCTestCase {
         let root = repository.appendingPathComponent("tmp/cv-" + UUID().uuidString.prefix(5))
         for directory in ["w", "h", "c"] { try FileManager.default.createDirectory(at: root.appendingPathComponent(directory), withIntermediateDirectories: true) }
         let workspace = root.appendingPathComponent("w"), package = root.appendingPathComponent("k")
+        if env["GHOSTERM_TEST_CLAUDE_RETAINED"] == "1" { try Data().write(to: workspace.appendingPathComponent("hold-observation")) }
         try FileManager.default.copyItem(at: URL(fileURLWithPath: packagePath), to: package)
         let entry = root.appendingPathComponent("e.mjs")
         try FileManager.default.createSymbolicLink(at: entry, withDestinationURL: repository.appendingPathComponent("scripts/fixtures/claude-node-sdk.mjs"))
@@ -90,6 +91,48 @@ final class ClaudeAppModelTests: XCTestCase {
         try await wait("Native Claude adapter was not attached to the active Runtime") { model.claudeConversation != nil }
         let conversation = try XCTUnwrap(model.claudeConversation)
         defer { print("CLAUDE_FIXTURE_STATE phase=\(conversation.phase.rawValue) busy=\(conversation.busy) ownerBusy=\(model.extensionRunBusy) runtime=\(model.extensionRun?.runtime?.phase ?? 999) issue=\(conversation.issue ?? "none") ownerIssue=\(model.extensionRunIssue ?? "none")") }
+        if env["GHOSTERM_TEST_CLAUDE_RETAINED"] == "1" {
+            conversation.draft = "超时后保留草稿 中文😀"
+            try await probe.press("启动Claude对话")
+            let held = workspace.appendingPathComponent("observation-held.json")
+            let audit = workspace.appendingPathComponent("observation-calls.json")
+            try await wait("Real SDK fixture did not hold its marker reply") { FileManager.default.fileExists(atPath: held.path) }
+            let original = try Data(contentsOf: held), originalAudit = try Data(contentsOf: audit)
+            XCTAssertGreaterThan(original.count, 3072)
+            let heldAt = ProcessInfo.processInfo.systemUptime
+            try await wait("Native RPC did not expire while stdout was held") { conversation.phase == .unknown }
+            let elapsed = ProcessInfo.processInfo.systemUptime - heldAt, issue = conversation.issue
+            XCTAssertGreaterThan(elapsed, 15, "A live Runtime and the real deadline, not an immediate failure, must cause unknown")
+            XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
+            XCTAssertNotNil(issue)
+            try Data().write(to: workspace.appendingPathComponent("observation-release"))
+            let observationEnd = ProcessInfo.processInfo.systemUptime + 20
+            repeat {
+                try await probe.press("查看未确认操作回包")
+                try await wait("Observation did not settle") { !conversation.busy }
+                if conversation.observation?.source == .executor { break }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            } while ProcessInfo.processInfo.systemUptime < observationEnd
+            XCTAssertNil(conversation.observationIssue)
+            let observed = try XCTUnwrap(conversation.observation)
+            XCTAssertEqual(observed.source, .executor); XCTAssertEqual(observed.method, "poll")
+            XCTAssertEqual(observed.response, original)
+            XCTAssertEqual(try Data(contentsOf: audit), originalAudit, "First observation cannot issue another helper command")
+            XCTAssertEqual(conversation.issue, issue); XCTAssertEqual(conversation.phase, .unknown)
+            XCTAssertEqual(conversation.draft, "超时后保留草稿 中文😀")
+            try await wait("Complete read-only response was not rendered") { probe.textViews().contains { $0.identifier?.rawValue == "plugin-claude-observed-response" } }
+            let text = try XCTUnwrap(probe.textViews().first { $0.identifier?.rawValue == "plugin-claude-observed-response" })
+            XCTAssertTrue(text.string.utf8.elementsEqual(String(decoding: original, as: UTF8.self).utf8) && !text.isEditable && text.isSelectable)
+            try await probe.press("查看未确认操作回包")
+            try await wait("Cached observation did not settle") { !conversation.busy }
+            XCTAssertEqual(try Data(contentsOf: audit), originalAudit, "Cached observation cannot issue another helper command")
+            XCTAssertFalse(conversation.canStart || conversation.canSend || conversation.canInterrupt || conversation.canStop)
+            print("CLAUDE_RETAINED_REPLY bytes=\(original.count) heldSeconds=\(elapsed) issue=\(issue ?? "none")")
+            try await probe.press("停止并释放插件")
+            try await wait("Observed Runtime resources not released") { model.extensionRun == nil || model.extensionRunIssue != nil }
+            XCTAssertNil(model.extensionRunIssue)
+            return
+        }
         if env["GHOSTERM_TEST_CLAUDE_OBSERVATION"] == "1" {
             // Cancel only after MainActor admission has created the real adapter
             // and yielded to native RPC. No wall-clock guess about helper effects.

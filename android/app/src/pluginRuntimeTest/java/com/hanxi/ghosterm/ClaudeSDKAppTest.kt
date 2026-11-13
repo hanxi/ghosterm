@@ -34,6 +34,15 @@ class ClaudeSDKAppTest {
             return JSONObject(ByteArray(count).also(input::readFully).toString(Charsets.UTF_8))
         }
     }
+    private fun control(command: String): JSONObject {
+        val args = InstrumentationRegistry.getArguments()
+        Socket("127.0.0.1", args.getString("fixturePort")!!.toInt()).use { socket ->
+            socket.soTimeout = 5000
+            socket.getOutputStream().write((args.getString("fixtureToken") + " $command\n").toByteArray())
+            val input = DataInputStream(socket.getInputStream()); val size = input.readInt(); require(size in 1..1048576)
+            return JSONObject(ByteArray(size).also(input::readFully).toString(Charsets.UTF_8))
+        }
+    }
     private fun <T> main(block: () -> T): T {
         var result: T? = null; instrumentation.runOnMainSync { result = block() }
         @Suppress("UNCHECKED_CAST") return result as T
@@ -120,6 +129,50 @@ class ClaudeSDKAppTest {
             ui.onNodeWithText("允许并启动").performClick()
             await("Native Claude adapter missing") { extensions.claudeConversation != null }
             val model = main { checkNotNull(extensions.claudeConversation) }; conversation = model
+            if (payload.optBoolean("observation")) {
+                main { model.editDraft("超时后保留草稿 中文😀") }
+                ui.onNodeWithTag("plugin-claude-start").performScrollTo().performClick()
+                val heldDeadline = SystemClock.elapsedRealtime() + 45000
+                var held = control("state")
+                while (!held.getBoolean("held") && SystemClock.elapsedRealtime() < heldDeadline) { SystemClock.sleep(50); held = control("state") }
+                assertTrue("Real SDK fixture did not produce the bounded marker reply", held.getBoolean("held"))
+                val original = Base64.decode(held.getString("response"), Base64.DEFAULT)
+                assertTrue("Held reply must exercise full pagination", original.size > 3072)
+                await("Original native RPC did not reach its genuine timeout") { model.state.value.phase == ClaudeConversation.Phase.UNKNOWN }
+                val issue = model.state.value.issue
+                assertNotNull(issue)
+                assertTrue("The genuine native deadline must cause the unknown outcome: $issue", issue!!.contains("超时") || issue.contains("TIMED_OUT") || issue.contains("EXPIRED"))
+                control("release")
+                val observedDeadline = SystemClock.elapsedRealtime() + 20000
+                do {
+                    ui.onNodeWithTag("plugin-claude-observe").performScrollTo().performClick()
+                    await("Observation did not settle") { !model.state.value.busy }
+                    if (model.state.value.observation?.source == ClaudeRPCClient.Observation.Source.EXECUTOR) break
+                    SystemClock.sleep(100)
+                } while (SystemClock.elapsedRealtime() < observedDeadline)
+                assertNull(model.state.value.observationIssue)
+                val observed = checkNotNull(model.state.value.observation)
+                assertEquals(ClaudeRPCClient.Observation.Source.EXECUTOR, observed.source)
+                assertEquals("poll", observed.method)
+                assertArrayEquals("Retained vendor reply must match the actual held SDK bridge response", original, observed.response)
+                assertEquals(issue, model.state.value.issue); assertEquals(ClaudeConversation.Phase.UNKNOWN, model.state.value.phase)
+                assertEquals("超时后保留草稿 中文😀", model.state.value.draft)
+                ui.onNodeWithTag("plugin-claude-observed-response").performScrollTo().assertTextEquals(original.toString(Charsets.UTF_8))
+                    .assert(SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsActions.SetText))
+                ui.onNodeWithTag("plugin-claude-send").performScrollTo().assertIsNotEnabled()
+                val before = control("state").getJSONArray("calls").toString()
+                assertEquals("Reading the first retained receipt cannot issue another helper command", held.getJSONArray("calls").toString(), before)
+                ui.onNodeWithTag("plugin-claude-observe").performScrollTo().performClick()
+                await("Cached observation did not settle") { !model.state.value.busy }
+                assertEquals("Read-only observation cannot issue another helper command", before, control("state").getJSONArray("calls").toString())
+                assertTrue(!model.canStart && !model.canSend && !model.canInterrupt && !model.canStop)
+                ui.onNodeWithText("停止插件").performScrollTo().performClick()
+                await("Runtime stop after observed timeout missing") { extensions.activeRuntime?.info?.phase == ExtensionRuntime.Phase.STOPPED }
+                ui.onNodeWithText("释放插件资源").performScrollTo().performClick()
+                await("Observed Runtime resources not released") { extensions.activeSession == null && extensions.activeRuntime == null && !extensions.launchBusy }
+                assertNull(extensions.error)
+                return
+            }
             ui.onNodeWithTag("plugin-claude-start").performScrollTo().performClick()
             await("SDK control readiness missing") { model.state.value.phase == ClaudeConversation.Phase.READY || model.state.value.issue != null }
             assertNull(model.state.value.issue)

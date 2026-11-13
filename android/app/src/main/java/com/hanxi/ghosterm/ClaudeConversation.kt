@@ -19,7 +19,8 @@ import java.util.Locale
  * rechecked after waiting, and uncertain outcomes never authorize a retry. */
 internal class ClaudeConversation(private val scope: CoroutineScope,
     private val request: suspend (String, ByteArray) -> ByteArray,
-    private val isCurrent: () -> Boolean = { true }) {
+    private val isCurrent: () -> Boolean = { true },
+    private val observe: (suspend () -> ClaudeRPCClient.Observation)? = null) {
     enum class Phase { NEW, STARTING, READY, RUNNING, INTERRUPTING, CLOSED, FAILED, LOST, UNKNOWN }
     data class Reference(val scope: String, val requestID: String, val token: String) {
         fun json() = JSONObject().put("scope", scope).put("requestID", requestID).put("token", token)
@@ -33,12 +34,14 @@ internal class ClaudeConversation(private val scope: CoroutineScope,
     data class Record(val id: Int, val json: String, val byteCount: Int)
     data class State(val phase: Phase = Phase.NEW, val busy: Boolean = false, val draft: String = "",
         val activeMessageID: String? = null, val pending: List<Prompt> = emptyList(), val entries: List<Entry> = emptyList(),
-        val records: List<Record> = emptyList(), val omittedEntries: Int = 0, val omittedRecords: Int = 0, val issue: String? = null)
+        val records: List<Record> = emptyList(), val omittedEntries: Int = 0, val omittedRecords: Int = 0, val issue: String? = null,
+        val observation: ClaudeRPCClient.Observation? = null, val observationIssue: String? = null)
     private val mutable = MutableStateFlow(State())
     val state = mutable.asStateFlow()
     private var current: State
         get() = mutable.value
         set(value) { mutable.value = value }
+    private var detached = false
     private var valid = true
     private var generation = Any()
     private var transferring = false
@@ -47,6 +50,23 @@ internal class ClaudeConversation(private val scope: CoroutineScope,
     private var recordSequence = 0
     private val finishedInputs = mutableListOf<String>()
     private fun main() { check(Looper.myLooper() == Looper.getMainLooper()) { "Claude conversation requires Main owner" } }
+    val canObserve get() = !detached && isCurrent() && current.phase == Phase.UNKNOWN && !current.busy && observe != null
+    fun observeOutcome() {
+        main(); val observer = observe ?: return
+        if (!canObserve) return
+        val expected = generation; current = current.copy(busy = true, observationIssue = null)
+        scope.launch {
+            try {
+                val result = observer()
+                main(); currentCoroutineContext().ensureActive()
+                check(!detached && generation === expected && isCurrent()) { "Claude observation owner changed" }
+                current = current.copy(observation = result)
+            } catch (failure: Exception) {
+                if (!detached && generation === expected && isCurrent()) current = current.copy(
+                    observationIssue = "回包观察未能确认：${failure.message ?: failure.javaClass.simpleName}")
+            } finally { if (generation === expected) current = current.copy(busy = false) }
+        }
+    }
     val canStart get() = valid && isCurrent() && current.phase == Phase.NEW && !current.busy
     val canSend get() = valid && isCurrent() && current.phase == Phase.READY && current.activeMessageID == null && !current.busy
     val canInterrupt get() = valid && isCurrent() && current.phase == Phase.RUNNING && current.activeMessageID != null && !current.busy
@@ -117,7 +137,7 @@ internal class ClaudeConversation(private val scope: CoroutineScope,
         }
     }
     fun invalidate() {
-        main(); generation = Any(); valid = false; polling?.cancel(); polling = null
+        main(); generation = Any(); detached = true; valid = false; polling?.cancel(); polling = null
         current = current.copy(busy = false, pending = emptyList())
         if (current.phase !in setOf(Phase.CLOSED, Phase.FAILED, Phase.LOST)) current = current.copy(
             phase = Phase.UNKNOWN, issue = "连接观察已结束；未确认的结果保持未知。")

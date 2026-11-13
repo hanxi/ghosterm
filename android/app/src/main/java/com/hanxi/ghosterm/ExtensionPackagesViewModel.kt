@@ -255,6 +255,16 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         return client.request(method, parameters)
     }
 
+    internal suspend fun observeClaudeOutcome(): ClaudeRPCClient.Observation {
+        val generation = rpcGeneration
+        checkRPCGeneration(generation)
+        check(!launchBusy && activeSession?.command?.path == "ai claude" &&
+            activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE &&
+            ClaudeRPCClient.methods.all { it in activeSession?.methods.orEmpty() }) { "原 Claude Runtime 已不可观察" }
+        val client = checkNotNull(claudeRPC) { "没有本次 Claude 操作适配器" }
+        return client.observe().also { checkRPCGeneration(generation) }
+    }
+
     private suspend fun requestExtensionRPC(method: String, input: ByteArray): ByteArray {
         val generation = rpcGeneration
         checkRPCGeneration(generation)
@@ -456,7 +466,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                     val expected = rpcGeneration
                     claudeConversation = ClaudeConversation(viewModelScope, ::requestClaudeAction, isCurrent = {
                         expected === rpcGeneration && !launchBusy && activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE
-                    })
+                    }, observe = ::observeClaudeOutcome)
                 }
                 reapExtensionRPCs(owner)
                 if (generation !== sessionGeneration) return

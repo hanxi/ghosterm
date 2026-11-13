@@ -64,6 +64,7 @@ def execute(args, component, helper):
         with tempfile.TemporaryDirectory(prefix='', dir=ROOT / 'tmp') as temporary:
             owned = Path(temporary)
             for name in ['w', 'h', 'c']: (owned / name).mkdir()
+            if args.observation: (owned / 'w/hold-observation').touch()
             target_package = owned / 'k'; shutil.copytree(package, target_package)
             entry = owned / 'e.mjs'; entry.symlink_to(ROOT / 'scripts/fixtures/claude-node-sdk.mjs')
             native = next(component.glob('node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/claude'))
@@ -83,15 +84,24 @@ def execute(args, component, helper):
                 host_keys = [keys.add_memory_key(agent, f'claude-sdk-hop-{index}') for index in range(2)]
                 route_dir = owned / 'route'; route_dir.mkdir()
                 with routes.chain(route_dir, 2, public, host_keys, agent, 'echo') as (ports, _, _):
-                    payload = dict(fixture='ghosterm-claude-sdk', ports=ports, user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode(),
+                    payload = dict(fixture='ghosterm-claude-sdk', observation=args.observation, ports=ports, user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode(),
                         packageFiles=package_files, packageDigest=package_digest, packageDirectory=str(target_package), workspace=str(owned / 'w'),
                         node=str(node), nodeVersion=node_version, nodeDigest=node_digest, entry=str(entry), profile=str(profile), gtermWrapper=str(wrapper))
                     token = secrets.token_hex(24)
                     class Handler(socketserver.StreamRequestHandler):
                         def handle(self):
                             self.connection.settimeout(5)
-                            if self.rfile.readline(128).rstrip(b'\n') != token.encode(): return
-                            data = json.dumps(payload, separators=(',', ':')).encode()
+                            request = self.rfile.readline(128).rstrip(b'\n').split(b' ', 1)
+                            if request[0] != token.encode(): return
+                            command = request[1].decode('ascii') if len(request) == 2 else 'fixture'
+                            if command == 'fixture': value = payload
+                            elif args.observation and command in ['state', 'release']:
+                                if command == 'release': (owned / 'w/observation-release').touch()
+                                held = owned / 'w/observation-held.json'; calls = owned / 'w/observation-calls.json'
+                                value = dict(held=held.exists(), response=base64.b64encode(held.read_bytes()).decode() if held.exists() else '',
+                                    calls=json.loads(calls.read_text()) if calls.exists() else [])
+                            else: return
+                            data = json.dumps(value, separators=(',', ':')).encode()
                             if len(data) > 1048576: raise RuntimeError('Fixture exceeds one MiB')
                             self.wfile.write(struct.pack('>I', len(data)) + data)
                     with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
@@ -121,8 +131,12 @@ def execute(args, component, helper):
                             unknown = 'gterm: runtime phase=3 error=6 session-end=6 session-error=3 cleanup=0\ngterm: executor channel outcome unknown'
                             if not (status == '0' and not stderr or status == '7' and stderr == unknown):
                                 raise RuntimeError(f'Remote lifecycle did not confirm cleanup: {status}; {stderr}')
-                            print(f'PASS {route}: Node stop/reap confirmed; gterm exit={status}; explicit CLI fixture, no model', flush=True)
+                            if args.observation:
+                                print(f'PASS {route}: actual native timeout, exact retained reply {(owned / "w/observation-held.json").stat().st_size} bytes, readonly Native UI, global stop/release; gterm exit={status}; no model', flush=True)
+                            else:
+                                print(f'PASS {route}: Node stop/reap confirmed; gterm exit={status}; explicit CLI fixture, no model', flush=True)
                         finally:
+                            if args.observation: (owned / 'w/observation-release').touch()
                             run([*adb, 'shell', 'am', 'force-stop', 'com.hanxi.ghosterm'])
                             for value in reversed(mapped): run([*adb, 'reverse', '--remove', f'tcp:{value}'])
                             server.shutdown(); thread.join(5)
@@ -142,7 +156,9 @@ def main():
     parser.add_argument('--package', type=Path, default=ROOT / 'build/plugins/ai-claude')
     parser.add_argument('--route', choices=['direct', 'jump', 'both', 'arguments', 'all'], default='both')
     parser.add_argument('--fetch', action='store_true')
+    parser.add_argument('--observation', action='store_true', help='hold a real poll reply through the native deadline and read the retained document')
     args = parser.parse_args(); (ROOT / 'tmp').mkdir(exist_ok=True)
+    if args.observation and args.route in ['arguments', 'all']: parser.error('--observation requires direct, jump or both')
     if sys.platform != 'darwin': parser.error('Owned SDK fixture currently requires macOS sandbox-exec; no fallback')
     helper = load('claude_sdk_owned_android', ROOT / 'scripts/test-plugin-codex-patch-android.py')
     with tempfile.TemporaryDirectory(prefix='claude-android-sdk-', dir=ROOT / 'tmp') as temporary:

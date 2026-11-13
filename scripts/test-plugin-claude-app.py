@@ -16,8 +16,10 @@ def main():
     parser.add_argument('--package', type=Path, default=ROOT / 'build/plugins/ai-claude')
     parser.add_argument('--fetch', action='store_true')
     parser.add_argument('--observation', action='store_true', help='cancel an admitted start and exercise the production read-only observation button')
+    parser.add_argument('--retained-reply', action='store_true', help='hold an actual SDK poll reply through the native deadline, then read the retained document')
     parser.add_argument('--route', choices=['direct', 'jump', 'both'], default='both')
     args = parser.parse_args()
+    if args.observation and args.retained_reply: parser.error('--observation and --retained-reply are separate scenarios')
     gterm, package = args.gterm.resolve(strict=True), args.package.resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix='claude-app-sdk-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary); node = work / 'node'
@@ -34,6 +36,8 @@ def main():
                            GHOSTERM_AUTOMATION_OFFSCREEN='1',
                            GHOSTERM_APP_TEST_FILTER='ClaudeAppModelTests' if args.route == 'both' else
                                'ClaudeAppModelTests.testClaudeConversationOver' + ('DirectSSH' if args.route == 'direct' else 'ProxyJump'))
+        environment.pop('GHOSTERM_TEST_CLAUDE_RETAINED', None)
+        if args.retained_reply: environment['GHOSTERM_TEST_CLAUDE_RETAINED'] = '1'
         environment.pop('GHOSTERM_TEST_CLAUDE_OBSERVATION', None)
         if args.observation: environment['GHOSTERM_TEST_CLAUDE_OBSERVATION'] = '1'
         for name in list(environment):
@@ -49,6 +53,7 @@ def main():
         if f'Executed {expected} test' not in log or '0 failures' not in log or 'skipped' in log.lower():
             raise RuntimeError('Native Claude SDK fixture cases did not all execute without skips/failures')
         scope = 'admitted cancellation/production observation UI; no claim that SDK started' if args.observation else 'production Native controls/Node/SDK, explicit no-model CLI fixture'
+        if args.retained_reply: scope = 'actual SDK poll reply held through native timeout, exact retained document/Native readonly UI; no model'
         print(f'CLAUDE APP PASS: {expected} owned SSH cases; {scope}')
 
 

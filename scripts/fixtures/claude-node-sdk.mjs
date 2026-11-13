@@ -3,12 +3,14 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 const config = JSON.parse(readFileSync(process.argv[3], "utf8"));
 const component = resolve(dirname(config.executable), "../../..");
 const { ClaudeApprovalBroker, ClaudeNodeSession, ClaudeStdioBridge, serveClaudeStdio } = await import(pathToFileURL(join(component, "dist/index.js")));
+const observationMode = existsSync(join(config.cwd, "hold-observation"));
+const observationText = "只读观察中文😀/\n".repeat(800);
 const command = "fixture only 中文😀\n".repeat(1000);
 const questions = Array.from({ length: 4 }, (_, i) => ({ question: `question-${i}-${"问😀".repeat(80)}`, header: `Q${i}`,
   multiSelect: false, options: [{ label: "One", description: "First" }, { label: "Two", description: "Second" }] }));
@@ -24,6 +26,7 @@ class Fixture extends EventEmitter {
       if (value.type === "control_request" && value.request.subtype === "initialize") {
         this.frame({ type: "control_response", response: { subtype: "success", request_id: value.request_id,
           response: { commands: [], agents: [], models: [], account: {}, output_style: "default", available_output_styles: [] } } });
+        if (observationMode) this.frame({ type: "system", subtype: "fixture-observation", text: observationText });
       } else if (value.type === "user") {
         this.uuid = value.uuid; this.userText = value.message.content;
         this.frame({ type: "control_request", request_id: "fixture-审批😀", request: { subtype: "can_use_tool", tool_name: "Bash",
@@ -53,6 +56,30 @@ const session = new ClaudeNodeSession({ cwd: config.cwd, executable: config.exec
   environment: Object.fromEntries(config.environmentNames.map(name => [name, process.env[name]])), tools: ["Bash", "AskUserQuestion"],
   approvals: broker, abortController: new AbortController(), spawn: () => child });
 const bridge = new ClaudeStdioBridge(session, broker);
+if (observationMode) {
+  const original = bridge.handle.bind(bridge), calls = [];
+  let held = false;
+  bridge.handle = async line => {
+    const request = JSON.parse(line);
+    assert(calls.length < 1024, "owned observation audit is bounded");
+    calls.push({ id: request.id, sequence: request.sequence, method: request.method });
+    const audit = join(config.cwd, "observation-calls.json");
+    writeFileSync(audit + ".new", JSON.stringify(calls), { mode: 0o600 }); renameSync(audit + ".new", audit);
+    const raw = await original(line), response = JSON.parse(raw);
+    if (!held && request.method === "poll" && response.ok && response.result.events?.some(item =>
+      item.event?.message?.subtype === "fixture-observation")) {
+      held = true;
+      // Preserve the actual response verbatim. Delay only this owned fixture's
+      // stdout until the original native RPC has reached its real timeout.
+      const heldFile = join(config.cwd, "observation-held.json");
+      writeFileSync(heldFile + ".new", raw, { mode: 0o600 }); renameSync(heldFile + ".new", heldFile);
+      const end = Date.now() + 90000;
+      while (!existsSync(join(config.cwd, "observation-release")) && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 20));
+      assert(existsSync(join(config.cwd, "observation-release")), "owned held response was not explicitly released");
+    }
+    return raw;
+  };
+}
 let diagnosticWritten = false;
 const diagnostics = setInterval(() => {
   if (!diagnosticWritten && session.failure) {
