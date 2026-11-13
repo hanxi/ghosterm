@@ -357,7 +357,7 @@ test("PluginContext process grant launches Codex through the bounded stdio adapt
     envPolicy: spawnOptions.envPolicy,
     cancellation: spawnOptions.cancellation,
   }, {
-    program: "codex", argv: ["app-server"], cwd: { id: "workspace-root" },
+    program: "codex", argv: ["codex", "app-server"], cwd: { id: "workspace-root" },
     envPolicy: "selected-user-environment", cancellation: context.cancellation,
   });
   server.step();
@@ -506,7 +506,7 @@ test("naturally exited Codex child drains both pipes and is reaped without an ex
     readStderr() { return { state: "eof" }; },
     closeStdin() {},
     signal() { signalled = true; },
-    poll() { return { state: "exited", code: 0, signal: null }; },
+    poll() { assert.equal(released, false, "poll must not use a released Native handle"); return { state: "exited", code: 0, signal: null }; },
     async release() { released = true; },
   };
   const context = {
@@ -549,10 +549,10 @@ test("runs the production process helper against the pinned real server, without
   let exitPromise;
   const processService = { async spawn(options) {
     assert.equal(options.program, "codex");
-    assert.deepEqual(options.argv, ["app-server"]);
+    assert.deepEqual(options.argv, ["codex", "app-server"]);
     assert.equal(options.cwd.id, "isolated-codex-project");
     assert.equal(options.envPolicy, "selected-user-environment");
-    child = spawn(executable, [...options.argv], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    child = spawn(executable, options.argv.slice(1), { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
     const stdoutChunks = [], stderrChunks = [];
     let stdoutEnded = false, stderrEnded = false;
     child.stdout.on("data", chunk => stdoutChunks.push(Uint8Array.from(chunk)));

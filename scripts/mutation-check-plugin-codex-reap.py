@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify Codex stop reports the Host child exit after reap."""
+"""Verify Codex uses full POSIX argv and never polls a released child handle."""
 from __future__ import annotations
 
 import hashlib
@@ -10,9 +10,9 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET = "runs the production process helper against the pinned real server"
+TARGET = "naturally exited Codex child drains both pipes and is reaped without an explicit stop"
 CONTROL = "PluginContext process integration rejects non-Executor or missing live grants"
-OLD = "        exit = child.poll();\n"
+OLD = '        exit = observed.state === "exited" ? observed : { state: "exited", code: null, signal: null };\n'
 
 
 def digest(path: Path) -> str:
@@ -52,11 +52,11 @@ def main() -> None:
         original = target.read_bytes()
         before = hashlib.sha256(original).hexdigest()
         if OLD.encode() not in original:
-            raise RuntimeError("post-reap exit poll source anchor changed")
+            raise RuntimeError("pre-release exit snapshot source anchor changed")
 
         run(work, TARGET, expect_pass=True)
         try:
-            target.write_bytes(original.replace(OLD.encode(), b"", 1))
+            target.write_bytes(original.replace(OLD.encode(), b"        exit = child.poll();\n", 1))
             run(work, TARGET, expect_pass=False)
             run(work, CONTROL, expect_pass=True)
         finally:
@@ -64,7 +64,20 @@ def main() -> None:
         if digest(target) != before:
             raise RuntimeError("restored source digest mismatch")
         run(work, TARGET, expect_pass=True)
-        print("CODEX REAP MUTATION PASS: target red / independent control green / restored / SHA256")
+        argv_anchor = b'argv: ["codex", "app-server"]'
+        if argv_anchor not in original:
+            raise RuntimeError("complete POSIX argv anchor changed")
+        argv_target = "PluginContext process grant launches Codex through the bounded stdio adapter"
+        try:
+            target.write_bytes(original.replace(argv_anchor, b'argv: ["app-server"]', 1))
+            run(work, argv_target, expect_pass=False)
+            run(work, CONTROL, expect_pass=True)
+        finally:
+            target.write_bytes(original)
+        if digest(target) != before:
+            raise RuntimeError("argv restoration digest mismatch")
+        run(work, argv_target, expect_pass=True)
+        print("CODEX REAP/ARGV MUTATION PASS: two target assertion reds / independent control greens / restored / SHA256")
     finally:
         shutil.rmtree(work)
 

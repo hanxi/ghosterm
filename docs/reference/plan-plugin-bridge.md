@@ -4932,3 +4932,13 @@ macOS / Android 时间线现按锁定 `FileUpdateChange` 的 path / kind / diff 
 本机新建 JS-enabled gterm 后，用显式调用方 Client / Executor profile 对实际生成目录做原生 package check，均 compatible 且 authorizationGranted=false / publisherAuthenticated=false；Executor 缺进程能力返回 CAPABILITY_UNSUPPORTED。隔离副本改动生成 Client JS 后，原生读取返回 MEMBER_MISMATCH，未执行该改动。初版空参数 schema 漏写显式 required 数组，原生对拍报 ARGUMENT_SCHEMA；补 `required: []` 后通过，该前置失败不记通过。schema checker 和 git diff --check 通过；所有验证在后台命令行运行，tmp/ 生成物与 gterm 构建验收后清理，保留 build/ 下可审查产物。无 C ABI / 平台源码变化，不增加 macOS CI 二十份。
 
 此批建立了可由现有目录导入流程消费的候选产物及编译后双端入口证据；未实际点击安装 / 启动、未通过真实 QuickJS Runtime 的完整 Codex 产品 SSH turn / approval、未执行模型或接触用户项目。运行时版本核验仍由受权后的 Host 声明和 initialize userAgent 执行，manifest 不伪称已获得独立后端探测证据。完整 diff 传递 / 审阅、真实 Codex 往返、Android 设备档和 P3 其它验收仍待完成。
+
+### P3 实施第三十九批：真实 Native Runtime / gterm / 锁定 CLI 无模型闭环
+
+新增 `test_gterm_codex` 与 `scripts/test-plugin-codex-runtime.py`，在工程 tmp/ 的一次性 HOME / CODEX_HOME / workspace 中运行本机锁定 CLI。读取实际版本和 executable SHA-256，通过生成包的原生固定快照检查、真实 Session consent、Client QuickJS Runtime / gterm Executor QuickJS Runtime，发送 Native Host thread/start，断言成功 threadID，并接收 / 确认 CLI 实际产生的 thread/started 事件。没有发送 turn/start、调用模型或读取用户项目 / Codex 登录配置。Native Runtime 关闭释放后，gterm 必须以通道丢失状态 7 退出且完成自身 owner 清理（清理失败为 5）；不将该路径描述为正常 END 或业务成功。
+
+真实链发现并修复两处此前 fake Host 未覆盖的问题。Core ProcessService 使用包含 argv[0] 的完整 POSIX argv，Codex helper 原先只传 app-server，实际 CLI 进入交互终端模式并报 stdin is not a terminal；现传 `["codex", "app-server"]`，Node test adapter 也显式去掉 argv[0] 再交给 Node spawn。另一个问题是 helper 在 child.release 后再次 poll 已失效原生句柄；现于释放前保存观察，release 只证明 exited/reaped，尚未观察到的 code / signal 保留 null，不捏造退出 0。自然退出测试现在拒绝 release 后 poll。更新旧 reap 变异锚点并加入 argv 变异：两组目标正常断言红、独立 grant 拒绝对照绿、复原绿与 SHA256 通过。
+
+gterm 的选择性子进程环境补入显式 TMPDIR（仍无任意变量继承），使测试及用户指定临时目录可传递到实际 Codex child；故早期未转发 TMPDIR 的尝试不能作为临时目录约束通过证据。失败诊断只输出 Runtime / Session 的枚举状态和清理码，不输出异常正文、stderr 内容或凭据。定位时在隔离输入上使用的临时诊断插桩已移除，原 Core runtime-quickjs.inc 与原件一致。初始夹具 close 枚举名写错、临时诊断锚点过宽导致的编译失败，漏登记方法的夹具版本、process-closed / unknown 及错期待关闭码 0 的失败均不计通过或正常断言红。
+
+最终真实包 Runtime 夹具通过；直接协议 suite 20/20、既有 stdio 全集 17 项及 process-config 两项通过。官方协议 checker、生成包 strict TS / compiled entry fixture、离线重建 --check、clang-format 19.1.7 全仓 220 文件及 git diff --check 通过。最终候选包摘要为 `f028bdc7466c7b8c3334ac5f051a8eb545ce3feaaedc418c5062a6655068dd2f`；所有验证无前台窗口，临时夹具 / gterm / formatter 与诊断目录验收后清理，保留 build/ 下可审查包。未改公共 C ABI，不增加 macOS CI 二十份。本批仍是本机 stdio + 真实 CLI 的无模型证据，不替代 SSH、App UI、模型 turn / approval、完整 diff 审阅、Android 设备或 P3 完整验收。

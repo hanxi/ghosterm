@@ -52,7 +52,7 @@ export async function spawnCodexAppServer(
 
   const child = await process.spawn({
     program: "codex",
-    argv: ["app-server"],
+    argv: ["codex", "app-server"],
     cwd,
     envPolicy: "selected-user-environment",
     cancellation: context.cancellation,
@@ -75,9 +75,12 @@ export async function spawnCodexAppServer(
   const release = (): Promise<void> => {
     if (!releasePromise) {
       stdio.close();
+      const observed = child.poll();
       releasePromise = child.release().then(() => {
         reaped = true;
-        exit = child.poll();
+        // release invalidates the Native child handle. Its contract proves exit
+        // and reap, but supplies no final exit code when the last poll was live.
+        exit = observed.state === "exited" ? observed : { state: "exited", code: null, signal: null };
       });
       // step() may observe natural exit without a caller awaiting stop(). Keep
       // the rejection observed here; stop() returns the same rejecting promise.

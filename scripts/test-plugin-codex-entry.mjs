@@ -89,7 +89,7 @@ function fixtureContext({ side = "executor", command = "ai codex", allowed = tru
     process: { async spawn(options) {
       spawnCount++;
       if (!allowed) throw new Error("spawn attempted without Executor process grants");
-      assert.deepEqual(options, { program: "codex", argv: ["app-server"], cwd: { id: "workspace" },
+      assert.deepEqual(options, { program: "codex", argv: ["codex", "app-server"], cwd: { id: "workspace" },
         envPolicy: "selected-user-environment", cancellation: context.cancellation });
       return child;
     } },

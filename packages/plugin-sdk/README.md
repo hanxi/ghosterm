@@ -100,3 +100,5 @@ runtime 已接 Session / 资源及受限 activate / dispose；尚未实现完整
 事件 / UI / 进程服务、模块安装器、App 页面 / 激活入口、gterm IPC 或多实例调度。
 运行时门面验证见 `python3 scripts/mutation-check-plugin-runtime-api.py`；Android 显式测试档另见
 `scripts/mutation-check-plugin-runtime-api-jni.py --device 设备`。未来网关只预留，不在当前实现范围。
+
+`ProcessSpawnOptions.argv` 使用完整 POSIX argv，必须包括 argv[0]；它不用于查找可执行文件，实际程序仍由 Host 的 `program` 映射决定。例如 Codex 使用 `["codex", "app-server"]`。`ProcessChild.release()` 完成后原生句柄失效，不得再读写、signal 或 poll；需要的状态必须在 release 前观察并保存。release 只证明退出和回收，不能补出先前未知的退出码。

@@ -202,7 +202,7 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     gt_ext_runtime_root_t runtime_roots[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
     gt_ext_process_program_mapping_t runtime_programs[GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX] = {0};
     gt_ext_process_environment_t runtime_environment[GT_EXT_RUNTIME_PROCESS_ENV_MAX] = {0};
-    char environment_values[4][4097] = {{0}};
+    char environment_values[5][4097] = {{0}};
     size_t method_count = 0;
     size_t process_program_count = 0;
     size_t process_environment_count = 0;
@@ -421,7 +421,7 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         /* Executor children receive only selected user environment values.
          * Do not inherit arbitrary variables such as SSH_AUTH_SOCK or secrets. */
         static const char *const selected_names[] = {
-            "HOME", "PATH", "XDG_CONFIG_HOME", "CODEX_HOME"};
+            "HOME", "PATH", "XDG_CONFIG_HOME", "CODEX_HOME", "TMPDIR"};
         for (size_t i = 0; i < sizeof(selected_names) / sizeof(selected_names[0]); i++) {
             const char *value = getenv(selected_names[i]);
             if (!value || !value[0]) {
@@ -533,6 +533,16 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
             result = activated && info.session_end == GT_EXT_END_PEER ? 0
                      : info.session_end == GT_EXT_END_LOST            ? 7
                                                                       : 5;
+            if (result) {
+                fprintf(
+                    stderr,
+                    "gterm: runtime phase=%u error=%u session-end=%u session-error=%d cleanup=%d\n",
+                    (unsigned)info.phase,
+                    (unsigned)info.error,
+                    (unsigned)info.session_end,
+                    (int)info.session_error,
+                    (int)info.cleanup_error);
+            }
             break;
         }
         idle();
