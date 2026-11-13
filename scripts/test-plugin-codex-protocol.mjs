@@ -25,7 +25,7 @@ function fakeActiveClient() {
   const client = new CodexAppServerClient(line => writes.push(JSON.parse(line)));
   const starting = client.initialize(clientInfo);
   assert.equal(writes[0].method, "initialize");
-  client.receiveLine(JSON.stringify({ id: writes[0].id, result: { userAgent: "fixture" } }));
+  client.receiveLine(JSON.stringify({ id: writes[0].id, result: { userAgent: "ghosterm-protocol-test/0.166.0 (fixture)" } }));
   return starting.then(() => ({ client, writes }));
 }
 
@@ -266,10 +266,10 @@ test("stdio owner bounds writes, handles partial IO, and drains stderr without r
   for (let i = 0; i < 100; i++) connection.step();
   assert.ok(output.length > 0);
   assert.match(new TextDecoder().decode(Uint8Array.from(output)), /"method":"initialize"/);
-  stdout = { state: "data", bytes: new TextEncoder().encode('{"id":1,"result":{"userAgent":"fixture"}}\n') };
+  stdout = { state: "data", bytes: new TextEncoder().encode('{"id":1,"result":{"userAgent":"ghosterm-protocol-test/0.166.0 (fixture)"}}\n') };
   stderr = { state: "data", bytes: new Uint8Array(CODEX_PENDING_WRITE_MAX) };
   for (let i = 0; i < 64; i++) connection.step();
-  assert.equal((await initializing).userAgent, "fixture");
+  assert.equal((await initializing).userAgent, "ghosterm-protocol-test/0.166.0 (fixture)");
   assert.equal(errors.reduce((sum, size) => sum + size, 0), CODEX_PENDING_WRITE_MAX);
   connection.close();
 });
@@ -327,7 +327,7 @@ test("PluginContext process grant launches Codex through the bounded stdio adapt
       writes.push(text);
       const request = JSON.parse(text.trim());
       reads.push(new TextEncoder().encode(JSON.stringify({
-        id: request.id, result: { userAgent: "fixture" },
+        id: request.id, result: { userAgent: "ghosterm-protocol-test/0.166.0 (fixture)" },
       }) + "\n"));
       return { state: "data", count: bytes.length };
     },
@@ -361,7 +361,7 @@ test("PluginContext process grant launches Codex through the bounded stdio adapt
     envPolicy: "selected-user-environment", cancellation: context.cancellation,
   });
   server.step();
-  assert.equal((await server.ready).userAgent, "fixture");
+  assert.equal((await server.ready).userAgent, "ghosterm-protocol-test/0.166.0 (fixture)");
   assert.match(writes[0], /"method":"initialize"/);
   await server.stop();
   assert.equal(signalled, "terminate");
@@ -452,6 +452,48 @@ test("stops and reaps a Host child whose verified version differs from the proto
   assert.equal(signalled, "terminate");
   assert.equal(released, true);
   assert.equal(wrote, false);
+});
+
+test("initialize response version mismatch stops and reaps its child", async () => {
+  let response;
+  let signalled;
+  let released = false;
+  const child = {
+    verifiedVersion: lock.codexCliVersion,
+    writeStdin(bytes) {
+      const request = JSON.parse(new TextDecoder().decode(bytes).trim());
+      response = new TextEncoder().encode(JSON.stringify({
+        id: request.id, result: { userAgent: "ghosterm-protocol-test/0.165.0 (fixture)" },
+      }) + "\n");
+      return { state: "data", count: bytes.length };
+    },
+    readStdout(maxBytes) {
+      if (!response) return { state: "wait" };
+      const bytes = response.subarray(0, maxBytes);
+      response = response.subarray(maxBytes);
+      if (!response.length) response = undefined;
+      return { state: "data", bytes };
+    },
+    readStderr() { return { state: "wait" }; },
+    closeStdin() {},
+    signal(value) { signalled = value; },
+    poll() { return { state: "exited", code: 0, signal: null }; },
+    async release() { released = true; },
+  };
+  const context = {
+    side: "executor",
+    capabilities: { query: () => "allowed" },
+    cancellation: { cancelled: false },
+    invocation: { workspaceHandle: { id: "workspace-root" } },
+    process: { async spawn() { return child; } },
+  };
+  const server = await spawnCodexAppServer(context, clientInfo);
+  server.step();
+  await assert.rejects(server.ready, /Codex app-server version mismatch: expected 0\.166\.0, got 0\.165\.0/);
+  assert.equal(signalled, "terminate");
+  assert.equal(released, true);
+  assert.equal(server.reaped, true);
+  assert.deepEqual(server.exit, { state: "exited", code: 0, signal: null });
 });
 
 test("naturally exited Codex child drains both pipes and is reaped without an explicit stop", async () => {

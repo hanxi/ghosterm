@@ -32,6 +32,9 @@
     "InitializeParams": [
       "clientInfo"
     ],
+    "InitializeResponse": [
+      "userAgent"
+    ],
     "ThreadStartParams": [],
     "ThreadStartResponse": [
       "thread",
@@ -136,6 +139,9 @@
     "ByteRange": "{start:number,end:number,}"
   },
   "lockedFieldDeclarations": {
+    "InitializeResponse": [
+      "userAgent:string"
+    ],
     "TurnStartParams": [
       "threadId:string",
       "input:Array<UserInput>"

@@ -62,6 +62,7 @@ def main():
 
         type_paths = {
             "InitializeParams": types / "InitializeParams.ts",
+            "InitializeResponse": types / "InitializeResponse.ts",
             "ThreadStartParams": types / "v2/ThreadStartParams.ts",
             "ThreadStartResponse": types / "v2/ThreadStartResponse.ts",
             "TurnStartParams": types / "v2/TurnStartParams.ts",
@@ -156,6 +157,11 @@ def main():
         def schema_require(condition, detail):
             if not condition:
                 raise SystemExit(f"Codex JSON Schema from {version} shape mismatch: {detail}")
+
+        initialize_response = definitions.get("InitializeResponse", {})
+        schema_require("userAgent" in initialize_response.get("required", []) and
+                       initialize_response.get("properties", {}).get("userAgent", {}).get("type") == "string",
+                       "InitializeResponse.userAgent")
 
         def decision_variant(name, wrapper):
             definition = definitions.get(name, {})

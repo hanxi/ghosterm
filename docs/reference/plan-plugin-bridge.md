@@ -4833,3 +4833,12 @@ macOS 的 `JSONSerialization` 会将 JSON object 转为字典，重复成员键�
 `apple-app-gate.sh` 定向 `testRelayBootstrapValidatesAndQuotesEveryArgument` 通过（1 项、0 失败），Apple ABI 174 引用 / 3 登记未用对拍和 headless WebKit CSS/PNG probe 通过。Android 使用仓库 JDK 17 与离线依赖执行 `:app:compileDebugKotlin :app:compileDebugAndroidTestKotlin`，BUILD SUCCESSFUL；未启动 AVD，故 Android 仪器断言尚未执行。`git diff --check` 待提交前复核。本批不改 C ABI，不增加 macOS CI 二十份。
 
 本批收紧的是 Native 进程映射输入一致性；独立远端 `--version` 探测、Android 仪器运行 / 真机验证、完整点击链、真实 Codex turn / approval 与原生 chat/diff UI 仍待完成，P3 不记闭环。
+
+
+### P3 实施第二十五批：以真实 initialize 响应核验 Codex 后端版本
+
+此前 `verifiedVersion` 只来自 Native Host mapping 声明；即使该值匹配 `codex-cli 0.166.0`，也没有证明刚启动的 app-server 自报同一版本。现在 Executor helper 在用户已批准的 Session 内完成 `initialize` 后，读取必需的 `InitializeResponse.userAgent`，取第一个 token 的 `/` 后版本段并与协议锁比较。只有匹配才 resolve `ready` 并允许调用方继续 thread/turn；缺失、格式异常或版本不符会走统一失败关闭，terminate 并等待 Host release/reap。没有在 Session consent 前运行探针，也不另起 `--version` 子进程。
+
+锁文件新增 `InitializeResponse.userAgent` 必需字段和 `string` 类型；checker 同时对拍锁定 CLI 生成的 TypeScript 与 JSON Schema。实际锁定 `codex-cli 0.166.0` 的生产 helper 测试运行 initialize / initialized / thread/start，真实响应报告 `ghosterm-protocol-test/0.166.0 (...)`，无 turn / 模型请求。版本错误清理用例断言 terminate、release、reaped 和退出快照。`node --experimental-strip-types --test scripts/test-plugin-codex-protocol.mjs` 20/20 通过；`python3 -B scripts/check-plugin-codex-protocol.py` 通过；TypeScript 5.9.3 strict / ES2022 / 无 DOM 检查、`node --check` 与 `git diff --check` 通过。`mutation-check-plugin-codex-version.py` 现在分别对 Host 声明版本 guard 与真实 app-server 响应版本 guard 做目标红、独立有效握手对照绿、源码恢复与 SHA256，两组通过。
+
+实现过程中尝试的 descriptor-pinned `fexecve` 路线在当前 macOS SDK 编译时报 `fexecve` 未声明；该 C 探索已撤回，编译失败单独记录，不计断言红或通过，本批没有 C 源码改动。当前交付验证的是已启动后端身份，不是独立远端 `codex --version` 预检；Native mapping 仍须提供可信期望版本，产品 App Host / Core Runtime / SSH 完整接线、真实 turn 与 approval UI 仍待完成。本批无公共 ABI 变化，不增加 macOS CI 二十份，P3 不记闭环。

@@ -5,6 +5,21 @@ import { CODEX_CLI_VERSION } from "./version.ts";
 import type { ProcessExit } from "../../../../packages/plugin-sdk/portable/process.js";
 import { CodexConversation } from "./conversation.ts";
 
+function appServerVersion(userAgent: unknown): string | undefined {
+  if (typeof userAgent !== "string") return undefined;
+  const identity = userAgent.split(/\s/, 1)[0];
+  const separator = identity.lastIndexOf("/");
+  return separator > 0 ? identity.slice(separator + 1) : undefined;
+}
+
+function expectedAppServerVersion(): string {
+  const prefix = "codex-cli ";
+  if (!CODEX_CLI_VERSION.startsWith(prefix)) {
+    throw new CodexProtocolError("Codex CLI version lock has an unsupported format");
+  }
+  return CODEX_CLI_VERSION.slice(prefix.length);
+}
+
 /** A Codex server launched through the Host-authorized Executor process service. */
 export interface CodexAppServerProcess {
   readonly stdio: CodexAppServerStdio;
@@ -77,7 +92,16 @@ export async function spawnCodexAppServer(
     }
     await release();
   };
-  const ready = stdio.client.initialize(clientInfo).catch(async error => {
+  const ready = stdio.client.initialize(clientInfo).then(result => {
+    const reportedVersion = appServerVersion((result as { userAgent?: unknown }).userAgent);
+    const expectedVersion = expectedAppServerVersion();
+    if (reportedVersion !== expectedVersion) {
+      throw new CodexProtocolError(
+        `Codex app-server version mismatch: expected ${expectedVersion}, got ${reportedVersion ?? "unknown"}`,
+      );
+    }
+    return result;
+  }).catch(async error => {
     // Initialization failure means the process cannot serve this protocol
     // session. Reap it here even when the caller only awaits `ready`.
     await stop();

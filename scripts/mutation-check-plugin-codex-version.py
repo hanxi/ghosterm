@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the Codex adapter rejects a mismatched Host-reported CLI version."""
+"""Verify Host and app-server version locks both reject mismatches."""
 from __future__ import annotations
 
 import hashlib
@@ -11,9 +11,12 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = "stops and reaps a Host child whose verified version differs from the protocol lock"
+SERVER_TARGET = "initialize response version mismatch stops and reaps its child"
 CONTROL = "PluginContext process grant launches Codex through the bounded stdio adapter"
 OLD = 'if (child.verifiedVersion !== CODEX_CLI_VERSION) {'
 MUTANT = 'if (false && child.verifiedVersion !== CODEX_CLI_VERSION) {'
+SERVER_OLD = 'if (reportedVersion !== expectedVersion) {'
+SERVER_MUTANT = 'if (false && reportedVersion !== expectedVersion) {'
 
 
 def digest(path: Path) -> str:
@@ -53,20 +56,22 @@ def main() -> None:
         target = work / "plugins/official/ai-codex/protocol/process.ts"
         original = target.read_bytes()
         before = hashlib.sha256(original).hexdigest()
-        if OLD.encode() not in original:
-            raise RuntimeError("version guard source anchor changed")
-
-        run(work, TARGET, expect_pass=True)
-        try:
-            target.write_bytes(original.replace(OLD.encode(), MUTANT.encode(), 1))
-            run(work, TARGET, expect_pass=False)
-            run(work, CONTROL, expect_pass=True)
-        finally:
-            target.write_bytes(original)
-        if digest(target) != before:
-            raise RuntimeError("restored source digest mismatch")
-        run(work, TARGET, expect_pass=True)
-        print("CODEX VERSION MUTATION PASS: target red / independent control green / restored / SHA256")
+        for name, old, mutant in ((TARGET, OLD, MUTANT),
+                                  (SERVER_TARGET, SERVER_OLD, SERVER_MUTANT)):
+            if old.encode() not in original:
+                raise RuntimeError(f"version guard source anchor changed: {name}")
+            run(work, name, expect_pass=True)
+            try:
+                target.write_bytes(original.replace(old.encode(), mutant.encode(), 1))
+                run(work, name, expect_pass=False)
+                run(work, CONTROL, expect_pass=True)
+            finally:
+                target.write_bytes(original)
+            if digest(target) != before:
+                raise RuntimeError("restored source digest mismatch")
+            run(work, name, expect_pass=True)
+            print(f"{name}: target red / independent control green / restored / SHA256", flush=True)
+        print("CODEX VERSION MUTATION PASS")
     finally:
         shutil.rmtree(work)
 
