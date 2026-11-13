@@ -221,6 +221,16 @@ export class CodexAppServerClient {
       const resolvedKey = idKey(message.params.requestId);
       if (resolvedKey !== null) this.serverRequests.delete(resolvedKey);
     }
+    if (message.method === "turn/completed" && isRecord(message.params) &&
+        typeof message.params.threadId === "string" && isRecord(message.params.turn) &&
+        typeof message.params.turn.id === "string") {
+      const { threadId, turn } = message.params;
+      for (const [key, request] of this.serverRequests) {
+        if (request.params.threadId === threadId && request.params.turnId === turn.id) {
+          this.serverRequests.delete(key);
+        }
+      }
+    }
     const event: ServerNotification = { method: message.method, ...(message.params === undefined ? {} : { params: message.params }) };
     for (const listener of this.notifications) listener(event);
   }

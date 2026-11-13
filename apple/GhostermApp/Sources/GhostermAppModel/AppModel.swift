@@ -1317,6 +1317,7 @@ public final class AppModel: ObservableObject {
 
     public func respondCodexApproval(id: String, allow: Bool) async {
         guard let run = extensionRun, run.command == "ai codex", !codexCallBusy,
+              run.runtime?.phase == ExtensionRuntime.Phase.active.rawValue,
               codexPendingApprovals.contains(where: { $0.id == id }),
               run.methods.contains("codex.approval.respond") else { return }
         codexCallBusy = true
@@ -1396,7 +1397,11 @@ public final class AppModel: ObservableObject {
                 }
                 try await Task.sleep(nanoseconds: 50_000_000)
             }
-        } catch { extensionRunIssue = "插件 Runtime 运行失败：\(error)" }
+        } catch {
+            if Task.isCancelled { return }
+            codexPendingApprovals = []
+            extensionRunIssue = "插件 Runtime 运行失败：\(error)"
+        }
     }
 
     private func updateExtensionRun(session: ExtensionController.SessionState) {
@@ -1413,6 +1418,7 @@ public final class AppModel: ObservableObject {
 
     private func updateExtensionRun(runtime: ExtensionController.RuntimeState) {
         guard let run = extensionRun else { return }
+        if !Self.runtimeIsRunning(runtime.phase) { codexPendingApprovals = [] }
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest,
@@ -1508,8 +1514,8 @@ public final class AppModel: ObservableObject {
             throw GhostermError.failed("无法确认 Codex Executor 事件")
         }
         lastCodexEventSequence = event.sequence
-        if let approvalToAdd { codexPendingApprovals.append(approvalToAdd) }
-        if let approvalToRemove { codexPendingApprovals.removeAll { $0.id == approvalToRemove } }
+        applyCodexApprovalEvent(kind: event.kind, notificationMethod: event.notification?.method,
+            added: approvalToAdd, removedID: approvalToRemove)
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
@@ -1529,6 +1535,17 @@ public final class AppModel: ObservableObject {
         } else if event.kind != "approval-request" && event.kind != "approval-resolved" {
             codexTimeline = CodexTimelineReducer.apply(codexTimeline, sequence: event.sequence,
                 method: event.kind, params: Data(encoded.utf8))
+        }
+    }
+
+    /// Applies only after the incoming Host RPC has been validated and acknowledged.
+    func applyCodexApprovalEvent(kind: String, notificationMethod: String? = nil,
+                                added: CodexPendingApproval? = nil, removedID: String? = nil) {
+        if let added { codexPendingApprovals.append(added) }
+        if let removedID { codexPendingApprovals.removeAll { $0.id == removedID } }
+        if (kind == "notification" && notificationMethod == "turn/completed") ||
+           ["protocol-error", "closed", "outcome-unknown"].contains(kind) {
+            codexPendingApprovals = []
         }
     }
 

@@ -4968,3 +4968,19 @@ Codex AppModel 专项现可选择 direct / jump / both。双跳使用两个工�
 Runner 清除继承的 SSH 夹具端点，只接受 gate 自建的隔离服务；要求所选测试数量恰好一致且零跳过。gate 持有两个 daemon 的实际子进程 PID，退出时先终止并 wait，再清理文件；无需依赖 pidfile 是否已写入。两种正向路线均继续使用全新 HOME / CODEX_HOME / workspace，启动参数与 Session consent 仍由生产流程处理，没有模型 turn 或用户登录配置。
 
 最终 `--route both` 三项零失败 / 跳过，另一次 `--route jump` 两项零失败 / 跳过；Swift debug 构建、Apple ABI 174 引用 / 3 登记未用、隔离 WebKit CSS / PNG 像素探针、shell / Python 语法及 git diff --check 通过。前置尝试曾在单跳用例出现 Runtime CPU 错误，该失败不计通过；本批未调整 CPU 上限，最终三项通过不代表完整冷启动 / 性能矩阵。未修改产品源码或公共 ABI，不增加 CI 二十份；测试保持后台，临时产物验收后清理。真实模型 turn / approval、完整 diff、tmux / 绕行负例、完整 UI 点击链、Android 设备与 P3–P6 其它要求仍待完成。
+
+
+### P3 实施第四十二批：turn 结束与不确定终态的审批过期
+
+发现并修复未回答审批在 turn/completed 后仍可写回后端的问题。协议 Client 现按原始 threadId + turnId 移除对应 server request，保留其它 turn / thread 及不同类型 ID 的审批；conversation 在结束 / 协议失败时清除审批，并要求响应属于当前 running turn；Executor 同步清空过期映射。无需后端补发 serverRequest/resolved，不发送默认批准 / 拒绝，也不把过期画成工具已执行。
+
+两端原生 Host 在 turn/completed、protocol-error、closed、outcome-unknown 时移除审批按钮，Runtime 失败或退出也清除待答项；macOS 的答复入口另要求 Runtime ACTIVE。未知结果保留原有 turn 状态，不凭清按钮伪造完成。Swift 新增的生产审批状态入口只在 Host RPC 校验与确认成功后应用；单测验证普通工具通知保留按钮、四类结束状态清除按钮且不伪造时间线。Android 增加对应状态轨迹 instrumentation 源码。
+
+旧实现上的两条新协议回归均以正常 AssertionError 失败，修复后完整协议 22/22 通过；生成包 strict TypeScript / compiled Executor fixture（含无 resolved 的 interrupted turn 后答复拒绝、子进程管道零新增写入）及离线重建 --check 通过，候选包 integrity 摘要为 56f4bda28c4d5f4f4b7871d940910ee2fddb4eb7e0bb10f656a46799acecef87。新 mutation-check-plugin-codex-expiry.py 在工程 tmp/ 的源码副本分别去掉 Client 与 Swift 面板的 completion 过期保护，两组均真实编译后单条正常断言红、同变异独立对照绿、恢复绿与 SHA256；原工作区输入未改。既有 conversation 跨 thread 变异与锁定官方 CLI 的 schema checker 复验通过。
+
+macOS arm64 release 与定向 Apple gate 通过：20 项中 17 通过 / 3 因默认 JS-off 跳过 / 零失败；新审批按钮测试未跳过，Apple ABI 174 引用 / 3 登记未用及隔离 WebKit CSS / PNG 探针通过。Android JS-enabled debugAndroidTest 源码 / APK、未签名 release / R8 / lintRelease 与普通 JS-off release 构建通过。无连接设备，新增 Android instrumentation 未运行，不能记设备行为绿。构建首轮另发现许可证资源任务缺 lint 依赖，修正与产物范围见下节；该失败不计验收通过。git diff --check 通过，临时目录验收后清理，所有测试保持后台。无公共 ABI 变更，不增加 CI 二十份；这批是审批生命周期保护，不替代真实模型 turn / approval、完整 diff、完整 UI 点击链、tmux 负例或设备矩阵，P3–P6 继续未完成。
+
+
+### Android 插件许可证资源任务依赖修复（3b8ba384）
+
+本批组合构建发现 generateReleaseLintVitalReportModel 读取 copyRuntimeLicense 的目录却没有任务依赖；此前仅给 merge*Assets 手工加 dependsOn，不能覆盖 lint 消费者。资源目录现用 FileCollection.builtBy 绑定生产任务，依赖由所有资源消费者继承，移除按任务名猜测的局部接线。修复后 JS-enabled assembleDebugAndroidTest / assembleRelease / lintRelease 通过，实际 R8 任务执行；普通 JS-off assembleRelease 另通过。检查实际两档 unsigned APK：默认档没有可选 QuickJS 许可资源；切回 enabled 后 assets/licenses/QuickJSNG-MIT.txt 与 vendor/quickjs-ng/LICENSE 逐字节一致。首次 Gradle 配置失败保留为失败记录，不把它计作正常变异红；无设备安装或发行证据。

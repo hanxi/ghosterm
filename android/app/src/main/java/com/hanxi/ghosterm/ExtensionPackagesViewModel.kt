@@ -350,12 +350,16 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                     pumpCodexHostEvent(owner)
                 }
                 if (state.info.phase !in setOf(ExtensionRuntime.Phase.ACTIVE, ExtensionRuntime.Phase.STARTING,
-                        ExtensionRuntime.Phase.CREATED)) return
+                        ExtensionRuntime.Phase.CREATED)) {
+                    codex = codex.copy(approvals = emptyList())
+                    return
+                }
                 delay(50)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
+            codex = codex.copy(approvals = emptyList())
             error = "插件 Runtime 运行失败：${failure.message ?: failure.javaClass.simpleName}"
         } finally {
             launchBusy = false

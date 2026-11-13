@@ -118,6 +118,10 @@ internal object CodexHostEvents {
             }
             "approval-resolved" -> event.resolvedRequestID?.let { id -> approvals.removeAll { it.id == id } }
         }
+        if ((event.kind == "notification" && event.method == "turn/completed") ||
+            event.kind in setOf("protocol-error", "closed", "outcome-unknown")) {
+            approvals.clear()
+        }
         var turnActive = state.turnActive
         var timeline = state.timeline
         if (event.kind == "notification") {

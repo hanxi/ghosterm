@@ -57,6 +57,21 @@ class CodexHostEventsTest {
         }
     }
 
+    @Test fun turnCompletionAndUncertainTerminalEventsExpirePendingApprovals() {
+        for (terminal in listOf("notification", "protocol-error", "closed", "outcome-unknown")) {
+            val pending = CodexHostEvents.decode(rpc(1, "approval-request",
+                "\"request\":{\"id\":42,\"method\":\"item/fileChange/requestApproval\",\"params\":{\"itemId\":\"change\"}}"))
+            val state = CodexHostEvents.accept(CodexHostState(turnActive = true), pending)
+            val payload = if (terminal == "notification")
+                "\"notification\":{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread\",\"turn\":{\"id\":\"turn\",\"status\":\"interrupted\"}}}"
+            else "\"outcome\":\"unknown\""
+            val expired = CodexHostEvents.accept(state, CodexHostEvents.decode(rpc(2, terminal, payload)))
+            assertTrue(terminal, expired.approvals.isEmpty())
+            assertEquals(terminal != "notification", expired.turnActive)
+            assertEquals(2, expired.rawEvents.size)
+        }
+    }
+
     @Test fun filePatchUpdatesProduceBoundedTypedDiffEntries() {
         val event = CodexHostEvents.decode(rpc(1, "notification",
             "\"notification\":{\"method\":\"item/fileChange/patchUpdated\",\"params\":{" +

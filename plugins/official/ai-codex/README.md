@@ -53,7 +53,20 @@ external service):
 ```sh
 python3 -B scripts/test-plugin-codex-entry.py --fetch
 python3 -B scripts/mutation-check-plugin-codex-entry.py
+python3 -B scripts/mutation-check-plugin-codex-expiry.py --apple
 ```
+
+Turn completion expires unanswered approvals for that thread and turn even when
+the backend sends no separate `serverRequest/resolved` notification. The
+conversation refuses approvals outside its active turn, and the Executor drops
+its corresponding request handles. Native Hosts remove approval buttons on turn
+completion, protocol failure, unknown outcomes, and closure; runtime failures also
+invalidate pending buttons while preserving uncertain turn results. Expiry does
+not send an approval or invent a tool outcome. The expiry mutation runner uses
+disposable source copies, strict TypeScript checking, and optional real Swift
+compilation to verify assertion failures, independent controls, restoration, and
+source digests. Its locked tools use the package builder's cache; add `--fetch`
+when that cache is empty.
 
 The lock was derived from the official Codex CLI `codex-cli 0.166.0` generators with experimental APIs disabled. Recheck the installed CLI and its generated JSON Schema and TypeScript surface with:
 

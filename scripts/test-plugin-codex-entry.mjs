@@ -153,6 +153,31 @@ assert(new TextEncoder().encode(JSON.stringify({ event: JSON.stringify(fileChang
   "file change diff events must fit the complete Native RPC body");
 assert(fixture.events.every(event => event.method === "codex.event" && event.timeoutMs === 30000));
 
+const expired = fixtureContext();
+const expiredDisposable = activate(expired.context);
+let expiredStart;
+expired.handlers.get("codex.thread.start")({}, { check() {} }).then(value => { expiredStart = value; });
+await driveUntil(expiredDisposable, () => expiredStart !== undefined, "expiry fixture thread");
+let expiredTurn;
+expired.handlers.get("codex.turn.send")({ text: "wait for approval" }, { check() {} })
+  .then(value => { expiredTurn = value; });
+await driveUntil(expiredDisposable, () => expiredTurn !== undefined && expired.events.some(event =>
+  JSON.parse(event.input).kind === "approval-request"), "pending approval before completion");
+expired.child.line({ method: "turn/completed", params: {
+  threadId: "thread-test", turn: turnFixture("interrupted"),
+} });
+await driveUntil(expiredDisposable, () => expired.events.some(event =>
+  JSON.parse(event.input).notification?.method === "turn/completed"), "completion without approval resolution");
+const expiredWrites = expired.child.writes.length;
+assert.throws(() => expired.handlers.get("codex.approval.respond")({
+  requestID: "s:approval-41", decisionJSON: "\"accept\"",
+}, { check() {} }), /unknown or expired|not pending/,
+"Executor must refuse approval after turn completion without a backend resolution");
+assert.equal(expired.child.writes.length, expiredWrites, "an expired approval must not reach the child pipe");
+expiredDisposable.dispose();
+for (let i = 0; i < 8; i++) await Promise.resolve();
+assert.equal(expired.child.reaped, true);
+
 let turnCancelled = false;
 let cancelledTurnFailure;
 const cancelledTurn = fixture.handlers.get("codex.turn.send")({ text: "cancel me" }, {

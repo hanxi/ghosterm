@@ -200,6 +200,9 @@ export function activate(context: PluginContext): Disposable {
             if (approvals.size > 32) throw new CodexProtocolError("too many pending Codex approvals");
           } else if (event.kind === "approval-resolved") {
             approvals.delete(requestKey(event.requestID));
+          } else if ((event.kind === "notification" && event.notification.method === "turn/completed") ||
+                     event.kind === "protocol-error" || event.kind === "closed" || event.kind === "outcome-unknown") {
+            approvals.clear();
           }
           if (events.length >= EVENT_QUEUE_LIMIT) throw new CodexProtocolError("Codex event queue is full");
           events.push(eventPayload(event));

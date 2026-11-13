@@ -61,6 +61,54 @@ test("server resolution expires an unanswered approval", async () => {
   assert.throws(() => client.respond(17, "accept"), CodexProtocolError);
 });
 
+test("turn completion expires only matching unanswered approvals without writing a decision", async () => {
+  const { client, writes } = await fakeActiveClient();
+  for (const [id, threadId, turnId] of [[17, "thread-a", "turn-a"],
+    ["17", "thread-a", "turn-b"], [18, "thread-b", "turn-a"]]) {
+    client.receiveLine(JSON.stringify({ id, method: "item/fileChange/requestApproval",
+      params: { threadId, turnId, itemId: "change" } }));
+  }
+  client.receiveLine(JSON.stringify({ method: "turn/completed", params: {
+    threadId: "thread-a", turn: turnFixture("turn-a", "interrupted"),
+  } }));
+  const count = writes.length;
+  assert.throws(() => client.respond(17, "accept"), CodexProtocolError,
+    "completed turn approval must expire before any decision is written");
+  assert.equal(writes.length, count);
+  client.respond("17", "decline");
+  client.respond(18, "decline");
+  assert.deepEqual(writes.slice(-2).map(value => value.id), ["17", 18]);
+});
+
+test("conversation refuses an old approval after completion and during a new turn", async () => {
+  const { client, writes } = await fakeActiveClient();
+  const conversation = new CodexConversation(client);
+  const opening = conversation.startThread({});
+  client.receiveLine(JSON.stringify({ id: writes.at(-1).id, result: { thread: { id: "thread-a" } } }));
+  await opening;
+  const starting = conversation.sendMessage("first");
+  client.receiveLine(JSON.stringify({ id: writes.at(-1).id, result: { turn: { id: "turn-a" } } }));
+  await starting;
+  client.receiveLine(JSON.stringify({ id: "old", method: "item/commandExecution/requestApproval",
+    params: { threadId: "thread-a", turnId: "turn-a", itemId: "command", startedAtMs: 1 } }));
+  client.receiveLine(JSON.stringify({ method: "turn/completed", params: {
+    threadId: "thread-a", turn: turnFixture("turn-a", "completed"),
+  } }));
+  const count = writes.length;
+  assert.throws(() => conversation.respondApproval("old", "accept"), CodexProtocolError,
+    "conversation must refuse a completed turn approval");
+  assert.equal(writes.length, count);
+  const next = conversation.sendMessage("second");
+  client.receiveLine(JSON.stringify({ id: writes.at(-1).id, result: { turn: { id: "turn-b" } } }));
+  await next;
+  assert.throws(() => conversation.respondApproval("old", "accept"), CodexProtocolError);
+  client.receiveLine(JSON.stringify({ id: "new", method: "item/commandExecution/requestApproval",
+    params: { threadId: "thread-a", turnId: "turn-b", itemId: "command", startedAtMs: 2 } }));
+  conversation.respondApproval("new", "decline");
+  assert.equal(writes.at(-1).id, "new");
+  await conversation.close();
+});
+
 test("validates structured command policy amendments against the pinned schema", async () => {
   const { client, writes } = await fakeActiveClient();
   client.receiveLine(JSON.stringify({ id: "command-1", method: "item/commandExecution/requestApproval",

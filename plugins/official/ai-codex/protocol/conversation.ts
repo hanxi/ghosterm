@@ -152,7 +152,9 @@ export class CodexConversation {
 
   respondApproval(requestID: RequestID, decision: ApprovalDecision): void {
     const key = requestKey(requestID);
-    if (!this.approvals.has(key)) {
+    const request = this.approvals.get(key);
+    if (this.stateValue !== "running" || !this.activeTurnID || !request ||
+        request.params.turnId !== this.activeTurnID) {
       throw new CodexProtocolError("approval is not pending for this conversation");
     }
     this.client.respond(requestID, decision);
@@ -233,6 +235,7 @@ export class CodexConversation {
         }
         this.completedTurnID = turn.id;
         this.activeTurnID = undefined;
+        this.approvals.clear();
         this.stateValue = "ready";
       }
     }
@@ -246,6 +249,7 @@ export class CodexConversation {
 
   private fail(error: Error): void {
     if (this.stateValue !== "closed") this.stateValue = "failed";
+    this.approvals.clear();
     this.emit({ kind: "protocol-error", error });
   }
 

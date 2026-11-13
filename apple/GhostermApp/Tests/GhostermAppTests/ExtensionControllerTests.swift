@@ -62,6 +62,23 @@ final class ExtensionControllerTests: XCTestCase {
         ]))
     }
 
+    @MainActor
+    func testCodexApprovalButtonsExpireOnCompletionAndUncertainTerminalEvents() throws {
+        for kind in ["notification", "protocol-error", "closed", "outcome-unknown"] {
+            let model = isolatedAppModel()
+            let approval = try XCTUnwrap(AppModel.decodeCodexApproval([
+                "id": 42, "method": "item/fileChange/requestApproval", "params": ["itemId": "change"],
+            ]))
+            model.applyCodexApprovalEvent(kind: "approval-request", added: approval)
+            XCTAssertEqual(model.codexPendingApprovals.map(\.id), ["n:42"])
+            model.applyCodexApprovalEvent(kind: "notification", notificationMethod: "item/started")
+            XCTAssertEqual(model.codexPendingApprovals.count, 1)
+            model.applyCodexApprovalEvent(kind: kind, notificationMethod: kind == "notification" ? "turn/completed" : nil)
+            XCTAssertTrue(model.codexPendingApprovals.isEmpty, kind)
+            XCTAssertTrue(model.codexTimeline.isEmpty, "Expiring buttons must not fabricate a tool result")
+        }
+    }
+
     func testCodexTimelineCombinesMessageAndToolOutputDeltas() throws {
         func data(_ value: [String: Any]) throws -> Data {
             try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
