@@ -7,7 +7,7 @@ import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-TEST = 'CodexAppModelTests.testCodexThreadThroughAppModelAndIsolatedSSH'
+TEST = 'CodexAppModelTests.testCodex(ThreadThroughAppModelAndIsolatedSSH|StoppedThreadRequestCannotAffectReplacementSession)'
 
 
 def main():
@@ -21,7 +21,7 @@ def main():
     package = args.package.resolve(strict=True)
     codex = Path(shutil.which(args.codex) or args.codex).resolve(strict=True)
     selected = TEST if args.route == 'direct' else ('CodexAppModelTests.*Jump' if args.route == 'jump' else 'CodexAppModelTests')
-    expected = {'direct': 1, 'jump': 2, 'both': 3}[args.route]
+    expected = {'direct': 2, 'jump': 2, 'both': 4}[args.route]
     env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), GHOSTERM_TEST_GTERM=str(gterm),
                GHOSTERM_TEST_CODEX=str(codex), GHOSTERM_TEST_CODEX_PACKAGE=str(package),
                GHOSTERM_APP_TEST_FILTER=selected)

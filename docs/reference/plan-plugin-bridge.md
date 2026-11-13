@@ -4997,3 +4997,18 @@ macOS arm64 release 与定向 Apple gate 通过：20 项中 17 通过 / 3 因默
 strict TypeScript、实际编译包 Executor 夹具与离线重建 --check 通过：完整还原超出预览的 diff、十份被省略文件、4096 字符路径、Unicode / 控制字符；逐块核对实际 outcome 字节数、连续 offset / 总量、EOF / 非法偏移、代理对边界、替换 / 过期、相同内容稳定 ID、单项 / 合计 / 数量预算及 stop 后不可读。新增 mutation-check-plugin-codex-changes.py 在工程 tmp/ 源码副本去掉快照身份、大小或 wire 保护，三组均 strict 编译后正常单条 AssertionError 红、同副本独立协议对照绿、恢复绿及 SHA256。首次 identity 变异在另一条正确的数据选择断言先红，因收据未匹配而中断；补具名断言后最终三组通过，首次不计验收通过。
 
 真实 Native Client Runtime / gterm Executor / 锁定 CLI 的无模型 thread / 事件 / 关闭链通过，另经实际 RPC 断言未知快照明确返回 expired、空内容、done=false。macOS AppModel 单跳 / 双跳 / 拒绝跳板三项专项零失败 / 跳过，Apple ABI 174 引用 / 3 登记未用、Swift debug 构建与隔离 WebKit CSS / PNG 探针通过；此 SSH 专项不产生真实补丁。Android JS-enabled debugAndroidTest / 未签名 release / R8 / lintRelease 构建通过，无连接设备，本批未运行 instrumentation。clang-format 19.1.7 全仓 220 文件、Python 语法与 git diff --check 通过；默认 Core 恢复 JS=OFF / tests=ON 后，完整 gate 的 481/481 CTest、177 公共 ABI 与未实现入口检查通过。最终包 integrity 摘要为 6eb5c14ef29526a7abca58eacfcf8fabc596cde56182e8668c50da209cb78e9f。所有测试保持后台，临时产物验收后清理；不增加 CI 二十份。Native 完整读取 / 校验 / 审阅及审批版本绑定、真实模型 turn / approval、完整 UI / tmux / 设备矩阵与 P3–P6 其余要求继续未完成。
+
+
+### P3 实施第四十四批：macOS 完整补丁读取与原生只读审阅
+
+CodexTimeline 现保留完整快照引用，即使预览的 changes 已全部省略；超限快照另显示明确提示。macOS 时间线及文件审批卡片接入「读取完整补丁」，显示字节进度 / 取消 / 读取错误，只有完整校验后的文档进入文件选择器与原生只读 NSTextView。一次只缓存一份完整文档，不把 256 行预览当全文；原生视图按选中文件显示全部 diff，路径可横向滚动、正文可选择 / 复制，不打开文件、不执行链接或写入修改。本批没有将「读完」伪称用户已审阅，也没有完成批准与补丁版本的绑定。
+
+新增 CodexChangeReference / Chunk / Assembler：拒绝布尔计数、非规范 snapshot ID、超出 512 KiB 的元数据；校验 snapshot 身份、连续 UTF-16 偏移、总 UTF-8 字节 / UTF-16 单元、进度与 EOF，最后在独立 worker 解码并逐字节匹配 thread / turn / item 身份，不借 Swift 字符串规范等价折叠身份。完整文档限 8192 文件、每路径 16 KiB，非法类型 / 版本或未读完不发布。读取最多 2048 分块，采用 120 秒发布期限，不自动重试；已在途的 RPC 仍服从原来的单次期限，不声称硬实时中止。未声称该序列化字节预算等于 AppKit / RSS 总内存上限。
+
+读取代次和 Session 代次独立：取消、替换、终态及停止使旧读取失效；每次 await 后校验上下文，晚到结果 / 错误不能覆盖新审阅。Native RPC 的入队 / 轮询 / forget 与 Runtime pump 增加本次运行代次检查，旧运行不轮询或遗忘新运行的同号句柄；刚入队便取消的同会话请求仍加入本会话待观察集合，旧会话句柄不插入新集合。停止时复位 busy，停止期间不接受新 Codex 动作；旧命令的 defer / 错误不改写新运行。
+
+十五项 CodexChangeReviewTests 零失败 / 跳过：完整 Unicode 与十文件文档、600 行正文及末行、全部预览省略时引用仍存在、元数据 / 身份 / 偏移 / 长度 / EOF / 状态拒绝、未完成不发布、取消旧读后新读保留、未取消但上下文变化的晚到数据丢弃、关闭与 expired 结果不成文档，以及真实生产 NSTextView 的完整正文 / 不可编辑 / 可选择。切换等价但字节不同的 Unicode 文本时，视图缓存也按 UTF-8 精确更新，避免复制旧文件拼写。新增 mutation-check-plugin-codex-review.py 在工程 tmp/ 的三个 Swift package 源码副本运行，身份、偏移、UTF-16、实际字节数、晚到 scope 与只读六组均真实 Swift 编译后单条正常断言红、同构件独立元数据对照绿、恢复绿及 SHA256；最终源码六组复验通过。Unicode 精确更新新增一组以同样判据另跑通过，七个不同保护按 6＋1 分轮记账；未改原工作区。
+
+真实 AppModel SSH 专项扩为四项（direct 两项、jump 两项），零失败 / 跳过。新增受控包装器在 exec Codex 之前以 FIFO 阻塞；实际观察 child 已启动后，停止仍在等 initialize 的 thread/start，核对旧错误 / busy 没有留下，再以真实 CLI 建立替代 Session 并成功创建 thread。包装器不伪造 app-server 回包，也不把阻塞阶段当 CLI 已初始化。仍没有模型 turn 或用户登录配置。完整 Apple gate 为 428 项、2 跳过、零失败；跳过是独立 owned route fixture 与开发态随包主题检查。Preview 实际 SSH 收件驱动的 WebKit CSS / PNG 探针、Apple ABI 174 引用 / 3 登记未用通过。随后收紧入队取消句柄登记并补 Unicode 更新后的最终默认档 35 项组合（含十五项新组件）为 3 跳过 / 零失败；不冒充重新跑过 428 全套。匹配 JS-enabled 与默认两档 macOS arm64 release 均通过；恢复默认 Core JS=OFF / tests=ON 后，离线 gate 481/481 CTest、177 公共 ABI 与未实现入口检查通过。Python 语法与 git diff --check 通过。
+
+本批只改 macOS Native 与专项测试 / 文档，无公共 C ABI、插件权限或 Android 产品源码变更；不增加 CI 二十份。测试窗口保持后台，工程 tmp/ 产物验收后清理；能力矩阵标 🟡，限定上述组件 / 真实 SSH 生命周期证据。正向完整文档经真实 RPC 到 UI 的整链、审批与版本绑定、Android 完整审阅、真实模型 turn / approval、完整点击 / 字号 / 无障碍 / tmux / 设备矩阵仍未完成，P3–P6 继续推进。

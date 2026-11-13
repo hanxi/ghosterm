@@ -90,6 +90,10 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var codexTurnActive = false
     @Published public private(set) var codexPendingApprovals: [CodexPendingApproval] = []
     @Published public private(set) var codexTimeline: [CodexTimelineEntry] = []
+    @Published public private(set) var codexChangeReview: CodexChangeReviewState?
+    private var codexChangeReadGeneration = UUID()
+    private var codexChangeReadTask: Task<Void, Never>?
+    private var extensionRunGeneration = UUID()
     private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String])?
     private var lastCodexEventSequence: UInt64 = 0
     private var pendingCodexRPCHandles: Set<UInt64> = []
@@ -1152,12 +1156,15 @@ public final class AppModel: ObservableObject {
                 hostVersion: version, peerIdentity: sshAlias, methods: rpcMethods,
                 additionalRequiredCapabilities: additionalCapabilities)
             extensionRunInvocation = (packageID, packageDigest, command, arguments)
+            extensionRunGeneration = UUID()
+            codexCallBusy = false
             lastCodexEventSequence = 0
             codexThreadID = nil
             codexMessageDraft = ""
             codexTurnActive = false
             codexPendingApprovals = []
             codexTimeline = []
+            cancelCodexChangeReview()
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
@@ -1236,6 +1243,9 @@ public final class AppModel: ObservableObject {
 
     public func stopExtensionRun() async {
         guard let extensionController, extensionRun != nil, !extensionRunBusy else { return }
+        extensionRunGeneration = UUID()
+        codexCallBusy = false
+        cancelCodexChangeReview()
         extensionRunBusy = true; extensionRunIssue = nil
         let runtimeOwnsSession = extensionRun?.runtime != nil
         do {
@@ -1276,52 +1286,56 @@ public final class AppModel: ObservableObject {
     }
 
     public func startCodexThread() async {
-        guard let run = extensionRun, run.command == "ai codex", !codexCallBusy,
+        guard let run = extensionRun, run.command == "ai codex", !extensionRunBusy, !codexCallBusy,
               run.methods.contains("codex.thread.start") else { return }
+        let generation = extensionRunGeneration
         codexCallBusy = true
-        defer { codexCallBusy = false }
+        defer { if generation == extensionRunGeneration { codexCallBusy = false } }
         do {
             struct Started: Decodable { let threadID: String }
             let value: Started = try await callCodexExecutor("codex.thread.start", input: [:])
             codexThreadID = value.threadID
-        } catch { extensionRunIssue = "无法启动 Codex 对话：\(error)" }
+        } catch { if generation == extensionRunGeneration { extensionRunIssue = "无法启动 Codex 对话：\(error)" } }
     }
 
     public func sendCodexMessage() async {
-        guard let run = extensionRun, run.command == "ai codex", codexThreadID != nil,
+        guard let run = extensionRun, run.command == "ai codex", !extensionRunBusy, codexThreadID != nil,
               !codexTurnActive,
               !codexCallBusy, run.methods.contains("codex.turn.send") else { return }
         let text = codexMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        let generation = extensionRunGeneration
         codexCallBusy = true
         codexTurnActive = true
-        defer { codexCallBusy = false }
+        defer { if generation == extensionRunGeneration { codexCallBusy = false } }
         do {
             struct Sent: Decodable { let turnID: String }
             let _: Sent = try await callCodexExecutor("codex.turn.send", input: ["text": text])
             codexMessageDraft = ""
-        } catch { extensionRunIssue = "Codex 消息发送失败：\(error)" }
+        } catch { if generation == extensionRunGeneration { extensionRunIssue = "Codex 消息发送失败：\(error)" } }
     }
 
     public func interruptCodexTurn() async {
-        guard let run = extensionRun, run.command == "ai codex", codexTurnActive,
+        guard let run = extensionRun, run.command == "ai codex", !extensionRunBusy, codexTurnActive,
               !codexCallBusy, run.methods.contains("codex.turn.interrupt") else { return }
+        let generation = extensionRunGeneration
         codexCallBusy = true
-        defer { codexCallBusy = false }
+        defer { if generation == extensionRunGeneration { codexCallBusy = false } }
         do {
             struct Interrupted: Decodable { let accepted: Bool }
             let result: Interrupted = try await callCodexExecutor("codex.turn.interrupt", input: [:])
             guard result.accepted else { throw GhostermError.failed("Executor 未接受中断请求") }
-        } catch { extensionRunIssue = "Codex 中断失败：\(error)" }
+        } catch { if generation == extensionRunGeneration { extensionRunIssue = "Codex 中断失败：\(error)" } }
     }
 
     public func respondCodexApproval(id: String, allow: Bool) async {
-        guard let run = extensionRun, run.command == "ai codex", !codexCallBusy,
+        guard let run = extensionRun, run.command == "ai codex", !extensionRunBusy, !codexCallBusy,
               run.runtime?.phase == ExtensionRuntime.Phase.active.rawValue,
               codexPendingApprovals.contains(where: { $0.id == id }),
               run.methods.contains("codex.approval.respond") else { return }
+        let generation = extensionRunGeneration
         codexCallBusy = true
-        defer { codexCallBusy = false }
+        defer { if generation == extensionRunGeneration { codexCallBusy = false } }
         do {
             struct Responded: Decodable { let accepted: Bool }
             let decisionJSON = String(data: try JSONEncoder().encode(allow ? "accept" : "decline"), encoding: .utf8)!
@@ -1329,7 +1343,7 @@ public final class AppModel: ObservableObject {
                 input: ["requestID": id, "decisionJSON": decisionJSON])
             guard result.accepted else { throw GhostermError.failed("Executor 未接受审批决定") }
             codexPendingApprovals.removeAll { $0.id == id }
-        } catch { extensionRunIssue = "Codex 审批响应失败：\(error)" }
+        } catch { if generation == extensionRunGeneration { extensionRunIssue = "Codex 审批响应失败：\(error)" } }
     }
 
     private struct CodexRPCEnvelope<Value: Decodable>: Decodable {
@@ -1337,9 +1351,11 @@ public final class AppModel: ObservableObject {
         let value: Value?
     }
 
-    private func callCodexExecutor<Value: Decodable>(_ method: String, input: [String: String]) async throws -> Value {
+    private func callCodexExecutor<Value: Decodable>(_ method: String, input: [String: Any]) async throws -> Value {
+        let generation = extensionRunGeneration
+        try checkExtensionRunGeneration(generation)
         guard let extensionController, let run = extensionRun,
-              run.command == "ai codex", run.methods.contains(method) else {
+              !extensionRunBusy, run.command == "ai codex", run.methods.contains(method) else {
             throw GhostermError.failed("Codex RPC 未在本次 Session allowlist 中")
         }
         let inputBytes = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
@@ -1348,14 +1364,18 @@ public final class AppModel: ObservableObject {
             throw GhostermError.failed("Codex RPC 未能进入发送队列（status \(admission.status.rawValue)）")
         }
         var completed = false
-        defer { if !completed { pendingCodexRPCHandles.insert(handle) } }
+        defer { if !completed && generation == extensionRunGeneration { pendingCodexRPCHandles.insert(handle) } }
+        try checkExtensionRunGeneration(generation)
         let deadline = ProcessInfo.processInfo.systemUptime + 30
         do {
             while ProcessInfo.processInfo.systemUptime < deadline {
+                try checkExtensionRunGeneration(generation)
                 let (status, result) = try await extensionController.executorRPCResult(handle: handle)
+                try checkExtensionRunGeneration(generation)
                 if status == .ok, let result,
                    result.state != .queued, result.state != .pending {
                     let forget = try await extensionController.forgetExecutorRPC(handle: handle)
+                    try checkExtensionRunGeneration(generation)
                     guard forget == .ok else { throw GhostermError.failed("Codex RPC 结果未能释放") }
                     completed = true
                     guard result.state == .succeeded, result.confirmed else {
@@ -1370,6 +1390,7 @@ public final class AppModel: ObservableObject {
                 try Task.checkCancellation()
                 try await Task.sleep(nanoseconds: 20_000_000)
             }
+            try checkExtensionRunGeneration(generation)
             _ = try await extensionController.cancelExecutorRPC(handle: handle)
             throw GhostermError.failed("Codex RPC 等待超过 30 秒，结果可能未知")
         } catch {
@@ -1379,26 +1400,114 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    private func checkExtensionRunGeneration(_ generation: UUID) throws {
+        try Task.checkCancellation()
+        guard generation == extensionRunGeneration else { throw CancellationError() }
+    }
+
+    public var canReadCodexChanges: Bool {
+        !extensionRunBusy && extensionRun?.command == "ai codex" &&
+        extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue &&
+        extensionRun?.methods.contains("codex.change.read") == true
+    }
+
+    public func loadCodexChanges(_ reference: CodexChangeReference) {
+        guard canReadCodexChanges, currentCodexChange(reference) else { return }
+        beginCodexChangeRead(reference: reference, read: { [weak self] offset in
+            guard let self else { throw CancellationError() }
+            return try await self.callCodexExecutor("codex.change.read",
+                input: ["snapshotID": reference.snapshotID, "offset": offset])
+        }, isCurrent: { [weak self] in self?.currentCodexChange(reference) == true && self?.canReadCodexChanges == true })
+    }
+
+    private func currentCodexChange(_ reference: CodexChangeReference) -> Bool {
+        codexThreadID?.utf8.elementsEqual(reference.threadID.utf8) == true &&
+        codexTimeline.contains { $0.changeReference == reference }
+    }
+
+    public func cancelCodexChangeReview() {
+        codexChangeReadGeneration = UUID()
+        codexChangeReadTask?.cancel()
+        codexChangeReadTask = nil
+        codexChangeReview = nil
+    }
+
+    /// The injected read boundary also exercises asynchronous invalidation in tests.
+    @discardableResult
+    func beginCodexChangeRead(reference: CodexChangeReference,
+                              read: @escaping @MainActor (Int) async throws -> CodexChangeChunk,
+                              isCurrent: @escaping @MainActor () -> Bool) -> Task<Void, Never> {
+        cancelCodexChangeReview()
+        let token = codexChangeReadGeneration
+        codexChangeReview = CodexChangeReviewState(reference: reference, receivedBytes: 0, document: nil, issue: nil)
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.codexChangeReadGeneration == token { self.codexChangeReadTask = nil } }
+            var assembler = CodexChangeAssembler(reference: reference)
+            let deadline = ProcessInfo.processInfo.systemUptime + 120
+            do {
+                for _ in 0..<2048 {
+                    try Task.checkCancellation()
+                    guard self.codexChangeReadGeneration == token else { return }
+                    guard isCurrent() else { self.cancelCodexChangeReview(); return }
+                    guard ProcessInfo.processInfo.systemUptime < deadline else { throw CodexChangeReadError.incomplete }
+                    let chunk = try await read(assembler.nextOffset)
+                    try Task.checkCancellation()
+                    guard ProcessInfo.processInfo.systemUptime < deadline else { throw CodexChangeReadError.incomplete }
+                    guard self.codexChangeReadGeneration == token else { return }
+                    guard isCurrent() else { self.cancelCodexChangeReview(); return }
+                    try assembler.append(chunk)
+                    self.codexChangeReview = CodexChangeReviewState(reference: reference,
+                        receivedBytes: assembler.receivedBytes, document: nil, issue: nil)
+                    if assembler.done {
+                        let complete = assembler
+                        let document = try await Task.detached(priority: .userInitiated) { try complete.document() }.value
+                        try Task.checkCancellation()
+                        guard ProcessInfo.processInfo.systemUptime < deadline else { throw CodexChangeReadError.incomplete }
+                        guard self.codexChangeReadGeneration == token else { return }
+                        guard isCurrent() else { self.cancelCodexChangeReview(); return }
+                        self.codexChangeReview = CodexChangeReviewState(reference: reference,
+                            receivedBytes: assembler.receivedBytes, document: document, issue: nil)
+                        return
+                    }
+                }
+                throw CodexChangeReadError.incomplete
+            } catch {
+                guard self.codexChangeReadGeneration == token else { return }
+                guard !Task.isCancelled, isCurrent() else { self.cancelCodexChangeReview(); return }
+                self.codexChangeReview = CodexChangeReviewState(reference: reference,
+                    receivedBytes: assembler.receivedBytes, document: nil, issue: error.localizedDescription)
+            }
+        }
+        codexChangeReadTask = task
+        return task
+    }
+
     private func advanceExtensionRuntime() async {
         guard let extensionController else { return }
+        let generation = extensionRunGeneration
         do {
             while true {
                 try Task.checkCancellation()
                 let state = try await extensionController.stepRuntime()
+                try checkExtensionRunGeneration(generation)
                 updateExtensionRun(runtime: state)
                 if !Self.runtimeIsRunning(state.phase) { return }
                 try await reapPendingCodexRPCs()
+                try checkExtensionRunGeneration(generation)
                 if state.phase == GhostermCore.ExtensionRuntime.Phase.active.rawValue {
                     try await pumpCodexHostEvent()
                 }
                 if extensionRun?.requiredCapabilities.contains("resource.receive") == true,
                    let resource = try await extensionController.takeSessionResource(maxBytes: 1048576) {
+                    try checkExtensionRunGeneration(generation)
                     appendExtensionResource(resource)
                 }
                 try await Task.sleep(nanoseconds: 50_000_000)
             }
         } catch {
-            if Task.isCancelled { return }
+            if Task.isCancelled || generation != extensionRunGeneration { return }
+            cancelCodexChangeReview()
             codexPendingApprovals = []
             extensionRunIssue = "插件 Runtime 运行失败：\(error)"
         }
@@ -1418,7 +1527,10 @@ public final class AppModel: ObservableObject {
 
     private func updateExtensionRun(runtime: ExtensionController.RuntimeState) {
         guard let run = extensionRun else { return }
-        if !Self.runtimeIsRunning(runtime.phase) { codexPendingApprovals = [] }
+        if !Self.runtimeIsRunning(runtime.phase) {
+            codexPendingApprovals = []
+            cancelCodexChangeReview()
+        }
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest,
@@ -1455,7 +1567,9 @@ public final class AppModel: ObservableObject {
 
     private func pumpCodexHostEvent() async throws {
         guard let extensionController, let run = extensionRun, run.command == "ai codex" else { return }
+        let generation = extensionRunGeneration
         let poll = try await extensionController.pollHostRPCRequest()
+        try checkExtensionRunGeneration(generation)
         guard let request = poll.request else {
             guard poll.status == UInt32(GhostermCore.ExtensionSession.RPCStatus.wait.rawValue) else {
                 throw GhostermError.failed("读取 Codex Executor Host RPC 失败（status \(poll.status)）")
@@ -1513,6 +1627,7 @@ public final class AppModel: ObservableObject {
         guard try await extensionController.respondHostRPC(ticket: request.ticket, outcome: success) == 0 else {
             throw GhostermError.failed("无法确认 Codex Executor 事件")
         }
+        try checkExtensionRunGeneration(generation)
         lastCodexEventSequence = event.sequence
         applyCodexApprovalEvent(kind: event.kind, notificationMethod: event.notification?.method,
             added: approvalToAdd, removedID: approvalToRemove)
@@ -1536,6 +1651,10 @@ public final class AppModel: ObservableObject {
             codexTimeline = CodexTimelineReducer.apply(codexTimeline, sequence: event.sequence,
                 method: event.kind, params: Data(encoded.utf8))
         }
+        if let review = codexChangeReview,
+           !codexTimeline.contains(where: { $0.changeReference == review.reference }) {
+            cancelCodexChangeReview()
+        }
     }
 
     /// Applies only after the incoming Host RPC has been validated and acknowledged.
@@ -1547,6 +1666,7 @@ public final class AppModel: ObservableObject {
            ["protocol-error", "closed", "outcome-unknown"].contains(kind) {
             codexPendingApprovals = []
         }
+        if ["protocol-error", "closed", "outcome-unknown"].contains(kind) { cancelCodexChangeReview() }
     }
 
     private func rejectCodexEvent(_ controller: ExtensionController, ticket: UInt64,
@@ -1582,11 +1702,15 @@ public final class AppModel: ObservableObject {
 
     private func reapPendingCodexRPCs() async throws {
         guard let extensionController else { return }
+        let generation = extensionRunGeneration
         for handle in pendingCodexRPCHandles.sorted() {
+            try checkExtensionRunGeneration(generation)
             let (status, result) = try await extensionController.executorRPCResult(handle: handle)
+            try checkExtensionRunGeneration(generation)
             guard status == .ok, let result,
                   result.state != .queued, result.state != .pending else { continue }
             let forgotten = try await extensionController.forgetExecutorRPC(handle: handle)
+            try checkExtensionRunGeneration(generation)
             guard forgotten == .ok else { throw GhostermError.failed("无法释放已结束的 Codex RPC 结果") }
             pendingCodexRPCHandles.remove(handle)
         }

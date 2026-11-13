@@ -22,14 +22,19 @@ public struct CodexTimelineEntry: Identifiable, Sendable, Equatable {
     public let detail: String
     public let fileChanges: [CodexFileChange]
     public let omittedFileCount: Int
+    public let changeReference: CodexChangeReference?
+    public let changeUnavailable: Bool
 
     public init(id: String, title: String, detail: String, fileChanges: [CodexFileChange] = [],
-                omittedFileCount: Int = 0) {
+                omittedFileCount: Int = 0, changeReference: CodexChangeReference? = nil,
+                changeUnavailable: Bool = false) {
         self.id = id
         self.title = title
         self.detail = detail
         self.fileChanges = fileChanges
         self.omittedFileCount = omittedFileCount
+        self.changeReference = changeReference
+        self.changeUnavailable = changeUnavailable
     }
 }
 
@@ -63,7 +68,9 @@ enum CodexTimelineReducer {
                 return replacing(entries, with: CodexTimelineEntry(id: "item:\(itemID)", title: "文件变更",
                     detail: "", fileChanges: fileChanges(item["changes"], marker: marker),
                     omittedFileCount: max(0, marker?["omittedChanges"] as? Int ?? 0) +
-                        max(0, ((item["changes"] as? [Any])?.count ?? 0) - 8)))
+                        max(0, ((item["changes"] as? [Any])?.count ?? 0) - 8),
+                    changeReference: CodexChangeReference.decode(marker: marker, thread: value["threadId"],
+                        turn: value["turnId"], item: itemID), changeUnavailable: marker?["snapshotUnavailable"] != nil))
             }
             let (title, detail) = itemPresentation(item, type: type, previous: entries.first { $0.id == "item:\(itemID)" }?.detail)
             return replacing(entries, with: CodexTimelineEntry(id: "item:\(itemID)", title: title, detail: detail))
@@ -89,7 +96,9 @@ enum CodexTimelineReducer {
             return replacing(entries, with: CodexTimelineEntry(id: "item:\(itemID)", title: "文件变更",
                 detail: "", fileChanges: fileChanges(value["changes"], marker: marker),
                 omittedFileCount: max(0, marker?["omittedChanges"] as? Int ?? 0) +
-                    max(0, ((value["changes"] as? [Any])?.count ?? 0) - 8)))
+                    max(0, ((value["changes"] as? [Any])?.count ?? 0) - 8),
+                changeReference: CodexChangeReference.decode(marker: marker, thread: value["threadId"],
+                    turn: value["turnId"], item: itemID), changeUnavailable: marker?["snapshotUnavailable"] != nil))
         }
 
         let title: String
@@ -175,7 +184,8 @@ enum CodexTimelineReducer {
     private static func replacing(_ entries: [CodexTimelineEntry], with entry: CodexTimelineEntry) -> [CodexTimelineEntry] {
         var result = entries
         let boundedEntry = CodexTimelineEntry(id: entry.id, title: bounded(entry.title), detail: bounded(entry.detail),
-            fileChanges: entry.fileChanges, omittedFileCount: entry.omittedFileCount)
+            fileChanges: entry.fileChanges, omittedFileCount: entry.omittedFileCount,
+            changeReference: entry.changeReference, changeUnavailable: entry.changeUnavailable)
         if let index = result.firstIndex(where: { $0.id == entry.id }) { result[index] = boundedEntry }
         else { result.append(boundedEntry) }
         while result.count > maximumEntries || result.reduce(0, { $0 + retainedBytes($1) }) > maximumTimelineBytes {

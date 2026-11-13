@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 import GhostermCore
 @testable import GhostermAppModel
@@ -34,7 +35,12 @@ final class CodexAppModelTests: XCTestCase {
     }
 
     @MainActor
-    private func runCodexThread(useJump: Bool, rejectJump: Bool = false) async throws {
+    func testCodexStoppedThreadRequestCannotAffectReplacementSession() async throws {
+        try await runCodexThread(useJump: false, stopDuringStart: true)
+    }
+
+    @MainActor
+    private func runCodexThread(useJump: Bool, rejectJump: Bool = false, stopDuringStart: Bool = false) async throws {
         let environment = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0,
               let gterm = environment["GHOSTERM_TEST_GTERM"],
@@ -82,8 +88,15 @@ final class CodexAppModelTests: XCTestCase {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertEqual(reported, "codex-cli 0.166.0")
         guard version.terminationStatus == 0, reported == "codex-cli 0.166.0" else { return }
-        let executableDigest = SHA256.hash(data: try Data(contentsOf: codex)).map { String(format: "%02x", $0) }.joined()
         func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
+        let blocked = root.appendingPathComponent("blocked")
+        let barrier = root.appendingPathComponent("started")
+        let fifo = root.appendingPathComponent("wait")
+        if stopDuringStart {
+            XCTAssertEqual(mkfifo(fifo.path, 0o600), 0)
+            try Data("#!/bin/sh\nprintf ready >\(quote(barrier.path))\nread ignored <\(quote(fifo.path))\nexec \(quote(codex.path)) \"$@\"\n".utf8).write(to: blocked)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: blocked.path)
+        }
         // sshd uses the test account's shell. Reset the Executor environment before
         // gterm runs so the real CLI cannot read that account's Codex settings.
         let launcher = root.appendingPathComponent("g")
@@ -132,12 +145,16 @@ final class CodexAppModelTests: XCTestCase {
         XCTAssertEqual(review.id, "org.ghosterm.ai-codex")
         let approved = try await controller.approve(id: review.id, digest: review.digest)
         XCTAssertEqual(approved, 0)
-        await model.startExtensionClient(packageID: review.id, packageDigest: review.digest,
-            command: "ai codex", arguments: [], sshAlias: "codex-fixture", executable: launcher.path,
-            executorDirectory: package.path, executorDigest: review.digest,
-            methods: ["codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond", "codex.change.read"],
-            hostMethods: ["codex.event"], scopedRoots: [.init(id: "workspace", directory: workspace.path)],
-            processPrograms: [.init(name: "codex", executable: codex.path, version: reported, sha256: executableDigest)])
+        func launch(_ program: URL) async throws {
+            let executableDigest = SHA256.hash(data: try Data(contentsOf: program)).map { String(format: "%02x", $0) }.joined()
+            await model.startExtensionClient(packageID: review.id, packageDigest: review.digest,
+                command: "ai codex", arguments: [], sshAlias: "codex-fixture", executable: launcher.path,
+                executorDirectory: package.path, executorDigest: review.digest,
+                methods: ["codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond", "codex.change.read"],
+                hostMethods: ["codex.event"], scopedRoots: [.init(id: "workspace", directory: workspace.path)],
+                processPrograms: [.init(name: "codex", executable: program.path, version: reported, sha256: executableDigest)])
+        }
+        try await launch(stopDuringStart ? blocked : codex)
         if rejectJump {
             XCTAssertNotNil(model.extensionRunIssue)
             XCTAssertNil(model.extensionRun)
@@ -160,7 +177,7 @@ final class CodexAppModelTests: XCTestCase {
                        Set(["session.rpc", "process.spawn", "process.pipes"]),
                        "A process working directory must not add file/resource capabilities")
         await model.decideExtensionConsent(allow: true)
-        let deadline = ProcessInfo.processInfo.systemUptime + 35
+        var deadline = ProcessInfo.processInfo.systemUptime + 35
         while model.extensionRun?.runtime?.phase != ExtensionRuntime.Phase.active.rawValue &&
               ProcessInfo.processInfo.systemUptime < deadline && model.extensionRunIssue == nil {
             try await Task.sleep(for: .milliseconds(20))
@@ -169,6 +186,34 @@ final class CodexAppModelTests: XCTestCase {
         XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
         guard model.extensionRunIssue == nil,
               model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue else { return }
+        if stopDuringStart {
+            let pending = Task { await model.startCodexThread() }
+            let barrierDeadline = ProcessInfo.processInfo.systemUptime + 10
+            while !FileManager.default.fileExists(atPath: barrier.path) &&
+                  ProcessInfo.processInfo.systemUptime < barrierDeadline && model.extensionRunIssue == nil {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertTrue(FileManager.default.fileExists(atPath: barrier.path), "Owned Codex child must actually be blocked before stop")
+            XCTAssertTrue(model.codexCallBusy)
+            XCTAssertNil(model.codexThreadID)
+            await model.stopExtensionRun()
+            await pending.value
+            XCTAssertNil(model.extensionRunIssue)
+            XCTAssertNil(model.extensionRun)
+            XCTAssertFalse(model.codexCallBusy)
+            try await launch(codex)
+            XCTAssertEqual(model.extensionRun?.session?.phase, ExtensionSession.Phase.consent.rawValue)
+            await model.decideExtensionConsent(allow: true)
+            let replacementDeadline = ProcessInfo.processInfo.systemUptime + 10
+            while model.extensionRun?.runtime?.phase != ExtensionRuntime.Phase.active.rawValue &&
+                  ProcessInfo.processInfo.systemUptime < replacementDeadline && model.extensionRunIssue == nil {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertNil(model.extensionRunIssue)
+            XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
+            XCTAssertFalse(model.codexCallBusy)
+            deadline = ProcessInfo.processInfo.systemUptime + 35
+        }
         await model.startCodexThread()
         if let issue = model.extensionRunIssue {
             let diagnostics = (try? Data(contentsOf: executorLog)).map { String(decoding: $0.prefix(4096), as: UTF8.self) } ?? ""

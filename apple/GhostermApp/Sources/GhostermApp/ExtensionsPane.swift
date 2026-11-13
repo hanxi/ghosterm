@@ -268,6 +268,12 @@ struct ExtensionsPane: View {
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        if let reference = item.changeReference {
+                            CodexChangeSnapshotControl(model: model, reference: reference)
+                        } else if item.changeUnavailable {
+                            Text("完整补丁超过读取上限，当前只有部分预览。")
+                                .font(DS.Font.caption).foregroundStyle(.secondary)
+                        }
                     }
                     .padding(DS.Padding.s)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -289,9 +295,16 @@ struct ExtensionsPane: View {
                         Text(approval.method).font(DS.Font.caption).textSelection(.enabled)
                         if approval.method == "item/fileChange/requestApproval",
                            let itemID = approval.itemID,
-                           let entry = model.codexTimeline.first(where: { $0.id == "item:\(itemID)" }),
-                           !entry.fileChanges.isEmpty {
-                            CodexFileChangesView(changes: entry.fileChanges, omittedCount: entry.omittedFileCount)
+                           let entry = model.codexTimeline.first(where: { $0.id == "item:\(itemID)" }) {
+                            if !entry.fileChanges.isEmpty {
+                                CodexFileChangesView(changes: entry.fileChanges, omittedCount: entry.omittedFileCount)
+                            }
+                            if let reference = entry.changeReference {
+                                CodexChangeSnapshotControl(model: model, reference: reference)
+                            } else if entry.changeUnavailable {
+                                Text("完整补丁超过读取上限，当前只有部分预览。")
+                                    .font(DS.Font.caption).foregroundStyle(.secondary)
+                            }
                         } else if approval.method == "item/fileChange/requestApproval" {
                             Text("正在等待 Codex 提供补丁内容。")
                                 .font(DS.Font.caption).foregroundStyle(.secondary)
