@@ -3,7 +3,7 @@ import CryptoKit
 import CoreGraphics
 import Darwin
 import Foundation
-import GhostermAppModel
+@testable import GhostermAppModel
 import GhostermCore
 import ImageIO
 import SwiftUI
@@ -24,6 +24,41 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertEqual(AppModel.extensionHostProtocolVersion("1.2.3"), "1.2.3")
         XCTAssertEqual(AppModel.extensionHostProtocolVersion("01.2"), "0.1.0")
         XCTAssertEqual(AppModel.extensionHostProtocolVersion(nil), "0.1.0")
+    }
+
+    @MainActor
+    func testCodexApprovalRequestPreservesStringAndNumericRequestIDs() throws {
+        let command = try XCTUnwrap(AppModel.decodeCodexApproval([
+            "id": "approval-1",
+            "method": "item/commandExecution/requestApproval",
+            "params": ["command": ["git", "status"], "cwd": "/work/project"],
+        ]))
+        XCTAssertEqual(command.id, "s:approval-1")
+        XCTAssertEqual(command.method, "item/commandExecution/requestApproval")
+        let commandParams = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(command.paramsJSON.utf8)) as? [String: Any])
+        XCTAssertEqual(commandParams["command"] as? [String], ["git", "status"])
+        XCTAssertEqual(commandParams["cwd"] as? String, "/work/project")
+
+        let fileChange = try XCTUnwrap(AppModel.decodeCodexApproval([
+            "id": NSNumber(value: 42),
+            "method": "item/fileChange/requestApproval",
+            "params": ["changes": [["path": "src/main.c"]]],
+        ]))
+        XCTAssertEqual(fileChange.id, "n:42")
+        XCTAssertEqual(fileChange.method, "item/fileChange/requestApproval")
+    }
+
+    @MainActor
+    func testCodexApprovalRejectsMalformedIDsAndUnknownMethods() {
+        XCTAssertNil(AppModel.decodeCodexApproval([
+            "id": NSNumber(value: true), "method": "item/fileChange/requestApproval", "params": [:],
+        ]))
+        XCTAssertNil(AppModel.decodeCodexApproval([
+            "id": 1, "method": "workspace/delete", "params": [:],
+        ]))
+        XCTAssertNil(AppModel.decodeCodexApproval([
+            "id": 1, "method": "item/fileChange/requestApproval",
+        ]))
     }
 
     func testResourceCapabilityRequiresAnExplicitPrivateDirectory() throws {

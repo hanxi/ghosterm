@@ -14,6 +14,7 @@
 // 老测试与无头冒烟（--ssh-smoke）继续可用，语义仍是「现在屏幕上是什么」。
 import AppKit
 import Combine
+import CoreFoundation
 import GhostermCore
 import GhostermTerminal
 import Foundation
@@ -73,6 +74,12 @@ public final class AppModel: ObservableObject {
         public let codexEvents: [String]
     }
 
+    public struct CodexPendingApproval: Identifiable, Sendable, Equatable {
+        public let id: String
+        public let method: String
+        public let paramsJSON: String
+    }
+
     @Published public private(set) var extensionRun: ExtensionRun?
     @Published public private(set) var extensionRunBusy = false
     @Published public private(set) var extensionRunIssue: String?
@@ -80,6 +87,7 @@ public final class AppModel: ObservableObject {
     @Published public var codexMessageDraft = ""
     @Published public private(set) var codexCallBusy = false
     @Published public private(set) var codexTurnActive = false
+    @Published public private(set) var codexPendingApprovals: [CodexPendingApproval] = []
     private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String])?
     private var lastCodexEventSequence: UInt64 = 0
     private var pendingCodexRPCHandles: Set<UInt64> = []
@@ -1144,6 +1152,7 @@ public final class AppModel: ObservableObject {
             codexThreadID = nil
             codexMessageDraft = ""
             codexTurnActive = false
+            codexPendingApprovals = []
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
@@ -1254,6 +1263,7 @@ public final class AppModel: ObservableObject {
             extensionRun = nil; extensionRunInvocation = nil
             codexThreadID = nil; codexMessageDraft = ""
             codexTurnActive = false
+            codexPendingApprovals = []
             pendingCodexRPCHandles.removeAll()
         } catch { extensionRunIssue = "释放插件资源失败：\(error)" }
         extensionRunBusy = false
@@ -1297,6 +1307,22 @@ public final class AppModel: ObservableObject {
             let result: Interrupted = try await callCodexExecutor("codex.turn.interrupt", input: [:])
             guard result.accepted else { throw GhostermError.failed("Executor 未接受中断请求") }
         } catch { extensionRunIssue = "Codex 中断失败：\(error)" }
+    }
+
+    public func respondCodexApproval(id: String, allow: Bool) async {
+        guard let run = extensionRun, run.command == "ai codex", !codexCallBusy,
+              codexPendingApprovals.contains(where: { $0.id == id }),
+              run.methods.contains("codex.approval.respond") else { return }
+        codexCallBusy = true
+        defer { codexCallBusy = false }
+        do {
+            struct Responded: Decodable { let accepted: Bool }
+            let decisionJSON = String(data: try JSONEncoder().encode(allow ? "accept" : "decline"), encoding: .utf8)!
+            let result: Responded = try await callCodexExecutor("codex.approval.respond",
+                input: ["requestID": id, "decisionJSON": decisionJSON])
+            guard result.accepted else { throw GhostermError.failed("Executor 未接受审批决定") }
+            codexPendingApprovals.removeAll { $0.id == id }
+        } catch { extensionRunIssue = "Codex 审批响应失败：\(error)" }
     }
 
     private struct CodexRPCEnvelope<Value: Decodable>: Decodable {
@@ -1442,6 +1468,21 @@ public final class AppModel: ObservableObject {
         }
         let kinds = ["notification", "approval-request", "approval-resolved", "outcome-unknown", "protocol-error", "closed"]
         let retainedBytes = run.codexEvents.reduce(0) { $0 + $1.utf8.count }
+        let rawEvent = (try? JSONSerialization.jsonObject(with: Data(encoded.utf8))) as? [String: Any]
+        var approvalToAdd: CodexPendingApproval?
+        var approvalToRemove: String?
+        if event.kind == "approval-request" {
+            guard let approval = Self.decodeCodexApproval(rawEvent?["request"]),
+                  !codexPendingApprovals.contains(where: { $0.id == approval.id }),
+                  codexPendingApprovals.count < 32 else {
+                try await rejectCodexEvent(extensionController, ticket: request.ticket,
+                                           message: "Invalid or excessive Codex approval request")
+                throw GhostermError.failed("Codex Executor approval 请求无效")
+            }
+            approvalToAdd = approval
+        } else if event.kind == "approval-resolved" {
+            approvalToRemove = Self.codexRequestKey(rawEvent?["requestID"])
+        }
         guard lastCodexEventSequence < UInt64.max,
               event.sequence == lastCodexEventSequence + 1, kinds.contains(event.kind),
               encoded.utf8.count <= 3072, run.codexEvents.count < 128,
@@ -1457,6 +1498,8 @@ public final class AppModel: ObservableObject {
             throw GhostermError.failed("无法确认 Codex Executor 事件")
         }
         lastCodexEventSequence = event.sequence
+        if let approvalToAdd { codexPendingApprovals.append(approvalToAdd) }
+        if let approvalToRemove { codexPendingApprovals.removeAll { $0.id == approvalToRemove } }
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
@@ -1467,6 +1510,36 @@ public final class AppModel: ObservableObject {
             if event.notification?.method == "turn/started" { codexTurnActive = true }
             if event.notification?.method == "turn/completed" { codexTurnActive = false }
         }
+    }
+
+    private func rejectCodexEvent(_ controller: ExtensionController, ticket: UInt64,
+                                  message: String) async throws {
+        let encodedMessage = String(data: try JSONEncoder().encode(message), encoding: .utf8)!
+        let outcome = Data("{\"kind\":\"failed\",\"error\":{\"code\":\"DENIED\",\"message\":\(encodedMessage),\"effect\":\"none\"}}".utf8)
+        guard try await controller.respondHostRPC(ticket: ticket, outcome: outcome) == 0 else {
+            throw GhostermError.failed("无法拒绝无效的 Codex 事件")
+        }
+    }
+
+    static func decodeCodexApproval(_ value: Any?) -> CodexPendingApproval? {
+        guard let object = value as? [String: Any],
+              let id = codexRequestKey(object["id"]),
+              let method = object["method"] as? String,
+              method == "item/commandExecution/requestApproval" || method == "item/fileChange/requestApproval",
+              let params = object["params"], JSONSerialization.isValidJSONObject(params),
+              let data = try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]),
+              let paramsJSON = String(data: data, encoding: .utf8) else { return nil }
+        return CodexPendingApproval(id: id, method: method, paramsJSON: paramsJSON)
+    }
+
+    static func codexRequestKey(_ value: Any?) -> String? {
+        if let value = value as? String, !value.isEmpty, value.utf8.count <= 128 { return "s:\(value)" }
+        if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+           number.doubleValue.isFinite, number.doubleValue.rounded(.towardZero) == number.doubleValue,
+           abs(number.doubleValue) <= 9_007_199_254_740_991 {
+            return "n:\(number.stringValue)"
+        }
+        return nil
     }
 
     private func reapPendingCodexRPCs() async throws {

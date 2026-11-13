@@ -244,6 +244,23 @@ struct ExtensionsPane: View {
                     }
                 }
                 if run.command == "ai codex" {
+                    if !model.codexPendingApprovals.isEmpty {
+                        Text("Codex 等待中的批准请求").font(DS.Font.labelEmphasis)
+                        ForEach(model.codexPendingApprovals) { approval in
+                            VStack(alignment: .leading, spacing: DS.Padding.xs) {
+                                Text(approval.method).font(DS.Font.caption).textSelection(.enabled)
+                                Text(approval.paramsJSON).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                                HStack {
+                                    Button("拒绝") { Task { await model.respondCodexApproval(id: approval.id, allow: false) } }
+                                        .accessibilityIdentifier("plugin-codex-approval-deny")
+                                    Button("批准一次") { Task { await model.respondCodexApproval(id: approval.id, allow: true) } }
+                                        .buttonStyle(.borderedProminent)
+                                        .accessibilityIdentifier("plugin-codex-approval-allow")
+                                }
+                                .disabled(model.codexCallBusy)
+                            }
+                        }
+                    }
                     if let threadID = model.codexThreadID {
                         Text("Codex thread：\(threadID)").font(DS.Font.caption).textSelection(.enabled)
                         HStack {
