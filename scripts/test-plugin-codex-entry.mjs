@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { CODEX_CLI_VERSION } from "../plugins/official/ai-codex/protocol/version.ts";
-import { activate } from "../plugins/official/ai-codex/executor/index.ts";
+import { pathToFileURL } from "node:url";
+const { activate } = await import(process.env.GHOSTERM_CODEX_PACKAGE_ENTRY
+  ? pathToFileURL(process.env.GHOSTERM_CODEX_PACKAGE_ENTRY).href
+  : "../plugins/official/ai-codex/executor/index.ts");
 
 class FakeCodexChild {
   verifiedVersion = CODEX_CLI_VERSION;

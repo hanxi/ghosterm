@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "id": "org.ghosterm.ai-codex",
+  "pluginVersion": "0.1.0",
+  "sdkApiRange": "^1.0.0",
+  "bridgeProtocolRange": [
+    1
+  ],
+  "publisher": "Ghosterm",
+  "license": "MIT",
+  "commands": [
+    {
+      "path": [
+        "ai",
+        "codex"
+      ],
+      "title": "Codex conversation",
+      "argsSchema": "schemas/command.json",
+      "views": [
+        "chat",
+        "approval",
+        "diff"
+      ]
+    }
+  ],
+  "client": {
+    "runtime": "portable-js",
+    "entry": "client/index.js",
+    "requires": [
+      "session.rpc"
+    ]
+  },
+  "executor": {
+    "variants": [
+      {
+        "id": "portable-stdio",
+        "runtime": "portable-js",
+        "entry": "executor/index.js",
+        "requires": [
+          "session.rpc",
+          "process.spawn",
+          "process.pipes"
+        ]
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "side": "client",
+      "capability": "session.rpc",
+      "purpose": "Exchange explicit conversation requests and bounded Codex events with the selected Executor.",
+      "scope": "instance"
+    },
+    {
+      "side": "executor",
+      "capability": "session.rpc",
+      "purpose": "Receive conversation actions and return app-server events to the Native Host.",
+      "scope": "instance"
+    },
+    {
+      "side": "executor",
+      "capability": "process.spawn",
+      "programs": [
+        "codex"
+      ],
+      "purpose": "Start only the user-configured Codex app-server in the explicitly authorized workspace.",
+      "scope": "instance"
+    },
+    {
+      "side": "executor",
+      "capability": "process.pipes",
+      "purpose": "Exchange bounded JSON-RPC messages with the authorized Codex child and reap it on shutdown.",
+      "scope": "instance"
+    }
+  ]
+}

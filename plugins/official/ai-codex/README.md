@@ -25,9 +25,25 @@ retry requests with unknown outcomes. Cancelling thread initialization also stop
 the child before `thread/start`; cancelling an active turn requests an interrupt
 and leaves the RPC outcome subject to the Session's unknown-result semantics.
 
-This directory is not yet a separately installable official package: package
-manifest / integrity metadata and catalog registration are still missing. The
-product UI renders bounded file paths, change kinds, moves, and colored diff lines,
+Build the runtime-only candidate package before importing it into Ghosterm:
+
+```sh
+python3 -B scripts/build-plugin-codex.py --fetch
+python3 -B scripts/build-plugin-codex.py --fetch --check
+```
+
+The output is `build/plugins/ai-codex/` (override with `--out`). It contains the
+Client and Executor JavaScript dependency closure, manifest, argument and backend
+protocol schemas, license, instructions, and deterministic integrity index. The
+builder uses the locked TypeScript 5.9.3 toolchain, checks imports and schemas, and
+exercises the compiled entries with the isolated fake Host / app-server fixture.
+`--check` rebuilds in repository `tmp/` and compares every output byte. `--fetch`
+permits fetching the integrity-locked developer tools; omit it for offline builds
+when those tools are cached. Import the output directory through the existing
+package review UI; source directories are not installation artifacts. Nothing is
+automatically installed or trusted. See `PACKAGE.md` for mapping and consent.
+
+The product UI renders bounded file paths, change kinds, moves, and colored diff lines,
 and associates file approvals with the corresponding item. Oversized patches show
 an explicit partial-preview or omitted-event notice. Complete diff review and the
 product path against a live Codex turn and approval remain unverified. Validate
