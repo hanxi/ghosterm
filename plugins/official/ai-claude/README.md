@@ -1,7 +1,7 @@
 # Claude Node backend component (candidate)
 
 These are the initial P4 backend slices. This is **not an importable Ghosterm plugin**:
-there is no `plugin.json`, gterm Node/Exec runtime, Native page, wire method or
+there is no `plugin.json`, gterm Node/Exec runtime, Native page, Ghosterm RPC method or
 Native conversation adapter yet. The existing gterm and App profiles still advertise
 Portable JS only. An unsupported Node variant must remain unsupported.
 
@@ -69,6 +69,61 @@ buffered frames to drain. EOF remains a loss observation; an already-received
 correlated result is preserved. SDK close/abort requests do not prove OS reaping:
 the embedding owner must still observe exit and enforce its child/pipeline
 limits. These counters do not cover SDK internal queues or process RSS.
+
+The compiled `node/dist/cli.js` is now a foreground **standalone Node executor**:
+
+```sh
+node node/dist/cli.js --profile /explicit/owner/profile.json
+```
+
+It needs the separately installed, locked dependency closure. It does not install
+anything. The profile is a bounded, current-user-owned regular file opened without
+following its final symlink. It has exactly these fields:
+
+```json
+{"version":1,"cwd":"/explicit/workspace","executable":"/explicit/claude","cliVersion":"2.1.323","sha256":"<64 lowercase hex characters>","environmentNames":["HOME","CLAUDE_CONFIG_DIR","TMPDIR","PATH"],"tools":[]}
+```
+
+The launcher supplies the listed environment variables; no value is guessed or
+read from a wire request. Do not put credentials in this file. Authentication
+variables, if needed later, must be explicitly selected from the executing
+machine's environment and use a supported SDK authentication method. Missing
+variables fail rather than falling back to another HOME or identity. The executor
+checks the CLI file SHA-256, locked SDK metadata and the real CLI `--version`, then
+rechecks executable consistency immediately before SDK spawn. This does not
+eliminate same-user filesystem races or validate the whole installed dependency
+tree. The profile does not prove a Core grant or provide an OS sandbox.
+
+The private stdio protocol uses UTF-8 newline-delimited canonical JSON (sorted
+object keys, no whitespace/duplicate keys, JSON.stringify-style strings/numbers),
+with 64 KiB inbound frames. A request is `{version:1,id,sequence,method,params}`.
+Sequences start at one and increase by one. An exact retained duplicate returns
+the same reply; changed/evicted sequences fail, never replaying effects. At most
+32 replies / two MiB of serialized requests and replies are cached after each
+response; one in-flight request/response has separate bounded temporary storage.
+The high-water sequence is preserved after cache eviction.
+Responses include both id and sequence, plus `ok` and result/error. A parent must
+correlate both fields and wait for its response before issuing the next command.
+
+Methods: `start`, `send` (`text`), `interrupt`, `approve` (`reference`, boolean
+`allow`), `answer` (`reference`, `answers`), `poll` and `stop`. Unmentioned params
+are rejected. Start/interrupt reply with `requested: true`; readiness and actual
+interrupt receipts remain separate poll observations. Ready proves SDK control
+initialization, not usable credentials or a successful model request. Poll fairly takes one
+session/approval event, or returns the current phase without inventing an event.
+There is no unsolicited output. Writes await completion before dispatching the
+next command; framing rejects malformed UTF-8 and partial EOF. Protocol requests
+cannot change executable/cwd/environment or trigger an installation.
+
+The executor closes its SDK scope on EOF, error, signal, explicit stop or its
+finite deadline. It drains/discards child stderr and requests cancellation once
+the cumulative count exceeds 16 MiB (in-flight bytes can exceed that threshold), observes its
+owned CLI exit, and escalates TERM to KILL with bounded waits if necessary.
+Exit 0 means explicit stop and observed direct-child cleanup, not business
+success; 7 is transport EOF, 130 cancellation, 4 missing dependency, 2 invalid
+profile/invocation and 5 protocol/runtime/cleanup failure. SDK descendants,
+whole-process RSS and the complete gterm process-group lifecycle remain unverified.
+The standalone executor is not yet a gterm Node runtime or a shippable plugin.
 
 From the repository root:
 

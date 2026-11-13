@@ -6,7 +6,7 @@
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
-**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置和流式会话适配器；可处理显式输入、原始有序 SDK 消息、关联结果、中断与关闭。真实 SDK 控制回调、流式协议夹具及匹配 CLI 的禁网无模型初始化分别取证。它尚无可导入插件包、gterm Node / Exec 档、原生页面或真实模型会话；当前 App / gterm 继续只支持 Portable JS，P4 仍未完成。具体版本、变异和限制见文末 P4 第一、二批。
+**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 执行端入口；可处理显式输入、原始有序 SDK 消息、关联结果、中断与关闭。真实 SDK 协议夹具及独立 Node 进程经真实匹配 CLI 的禁网无模型初始化 / 停止 / EOF 分别取证。它尚无可导入插件包、gterm Node / Exec 档、原生页面或真实模型会话；当前 App / gterm 继续只支持 Portable JS，P4 仍未完成。具体版本、变异和限制见文末 P4 第一至三批。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -5136,3 +5136,21 @@ API 29 / API 36 的 arm64 / 4 KiB 页设备各有直连 / ProxyJump 两条完整
 最终 **十九组变异**为旧十一＋新八：新保护包括结果关联、turn / interrupt 审批过期、receipt 不能完成 turn、EOF 不能当成功、未读字节额度、消费后累计输出额度及关闭时未决消息身份。均在隔离副本 strict 编译后单条正常 AssertionError 红、同构件独立拒绝对照绿、恢复绿及原始输入 SHA256；编译 / 崩溃 / 超时不作正常红。复现仍为 `python3 -B scripts/test-plugin-claude-node.py --fetch --mutate --real-cli`，已有 npm 缓存时可省 `--fetch`。默认 JS=OFF / tests=ON 的离线 gate 另通过 **481/481 CTest、177 ABI** 与未实现入口检查；Python / Node 语法及 git diff --check 通过。
 
 本批不改 Core、公共 ABI、Portable SDK 或平台源码，不增加 macOS CI 二十份；不以旧平台结果认定新会话已在 App 可用。验收后清理依赖、缓存、夹具和日志，无自动测试前台窗口；本地提交不代表推送或发行。**仍待完成** ai-claude 包与 SDK / CLI 模式选择、gterm Node / Exec 档及受控 owner、原生 chat / approval / question 消费、真实授权认证 / 模型 / 工具 / 中断、SSH / tmux、完整预算与设备矩阵，P4 及整个计划继续未完成。
+
+### P4 实施第三批：独立 Node stdio 入口与真实 CLI 子进程（2026-11-13）
+
+`node/src/cli.ts`、`executor.ts` 和 `stdio.ts` 提供独立前台 Node 执行端，调用形状为 `node dist/cli.js --profile ABSOLUTE_FILE`。这批没有给 gterm 宣告 Node runtime 可用：当前仍不能由 Ghosterm 导入 / 启动 ai-claude 包，后续需将此进程入口接入 gterm、固定包字节及原生授权 / 视图。现有 Node、SDK / CLI / TypeScript pin 不变，不捆绑 App、不自动装依赖或改用系统 Claude。
+
+profile 限 64 KiB、当前用户拥有的普通文件，最终路径不跟符号链接，以 nonblocking 打开后验证文件类型；捕获后只接受版本、绝对 cwd / executable、CLI 版本 / SHA256、环境变量名称清单和工具集合。环境值从执行机器已明确列出的变量取得，缺失直接失败，文件和协议均不搬运认证值；是否能实际使用所选认证方式仍待真实专项。启动前校验 SDK 元数据版本、CLI 文件 SHA256 / 文件身份和真实 `--version`，SDK spawn 前再核对文件一致性。它不消除同用户路径竞态，也不证明整个依赖树完整、发布者可信或已获 Core lease；不是 OS 沙箱。
+
+私有 child 协议是 UTF-8 / 换行 canonical JSON，**不属于冻结 wire v1**。64 KiB 入站帧，固定 version / id / sequence / method / params；对象键排序、JSON.stringify 形式，拒绝重复键 / 非规范表示、非法 UTF-8、残缺 EOF 和未知字段。sequence 从一连续递增，完全相同且仍保留的请求共享 / 回放同一个回复；改内容、跳号或已逐出的旧 sequence 直接关闭作用域，不重复动作。每次回包完成后缓存裁剪至 32 项 / 2 MiB 序列化请求与回复；另有单个受限在途请求 / 回包缓冲，不把此计数当进程 heap 或 RSS。
+
+固定方法为 start / send / interrupt / approve / answer / poll / stop。协议不能指定可执行路径、cwd、环境或安装依赖；批准必须为 boolean，用户问题仍逐题回答。start / interrupt 立即回 requested，只表示本地接收请求；SDK 初始化状态、真实 interrupt receipt 和后端结果仍须 poll，ready 也不等于认证或模型调用成功。poll 交替优先取一个会话 / 审批事件，没有事件时返回当前 phase；不主动推无限事件。stdout 写完成前不处理下一请求，避免把下游背压变成无界输出队列。父调用方须匹配 id 与 sequence，并等待回包后再发下一命令。
+
+EOF、协议 / IO 错误、信号、显式 stop 和有限期限均关闭 SDK 作用域。直接 CLI 子进程的 stderr 只丢弃不记录，累计超过 16 MiB 请求取消；已在途字节可能越过阈值，不声称是精确硬截断。退出路径有界等待其实际 exit，必要时 TERM→KILL；未观测 exit 或 child 错误不能返回零。退出 **0** 仅为显式 stop 及直接 child 清理成功，**7** 是 stdin EOF，**130** 取消，**4** 缺依赖，**2** 参数 / profile / 预检失败，**5** 协议 / 运行 / 清理失败；不借零退出码声称业务成功。SDK 后代进程、外部 SIGKILL、整个进程组和平台生命周期矩阵未在本片验收。
+
+六项新 stdio 测试经真实 SDK / 明确内存 CLI 夹具验证动作分发、pending / settled 重复、旧序号、配置注入 / 规范 JSON / 决定类型、所有单处分块的 Unicode 帧、非法编码 / 长帧 / 残缺 EOF、真实 Writable 背压及断线 / 破管关闭。新增第七项是**真实独立 Node 子进程**在禁网 / 拒绝 securityd 的测试环境内，以固定摘要的真实匹配 CLI 完成 SDK 初始化，再分轮验证 stop=0、EOF=7、错误 SHA=2；实际等待 Node 入口及其已观察直接 child 的退出。HOME / config / workspace 均为工程 tmp/ 自有目录，只发 start / poll / stop，不发送模型 prompt、不执行工具、不选用个人登录。旧真实 CLI / 会话测试保留。最终同源 **26/26、零失败 / 跳过**，非 App / SSH / 真实认证证据。
+
+最终 **29 组**为旧十九＋新十：新增保护重试、陈旧 / 改内容的 sequence、规范 JSON、方法 scope、帧额度、严格 UTF-8、stdout 背压、EOF 区分及 CLI 摘要拒绝。每组隔离副本 strict 编译成功后单条正常 AssertionError 红、同构件独立拒绝对照绿、恢复绿及原始输入 SHA256；SDK 崩溃 / 编译失败 / 超时不作正常红。复现为 `python3 -B scripts/test-plugin-claude-node.py --fetch --mutate --real-cli`；不带真实 CLI 时为 24 项 / 28 组，不能借此声称真实进程专项已跑。默认 JS=OFF / tests=ON 的离线 gate 另通过 **481/481 CTest、177 ABI** 及未实现入口检查。Python / Node 语法与 git diff --check 通过；本批不改 Core、Portable SDK、公共 ABI 或原生平台源码，不增加 CI 二十份。
+
+无自动测试前台窗口，诊断副本用完先行清理，全部所属进程退出后再清理依赖 / npm 缓存 / 夹具 / 日志。本批仅本地提交、不表示发行。P4 继续欠 ai-claude 包、gterm Node / Exec 执行档 / 受控进程配置、原生 chat / approval / question 复用、真实授权认证 / 模型 / 工具 / 中断、SSH / tmux 及完整资源 / 设备矩阵；P2–P6 的其余要求保持未完成。

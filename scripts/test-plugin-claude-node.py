@@ -75,6 +75,40 @@ CASES = (
     ('session-close-identity', 'session.ts', 'const pendingMessageID = this.active ?? null;', 'const pendingMessageID = null;',
      'Claude session EOF and explicit close preserve an unresolved input as unknown',
      'Claude close must preserve unresolved input identity'),
+    ('stdio-retry', 'stdio.ts', 'return previous.reply;', 'return Promise.resolve("{}");',
+     'Claude stdio dispatches explicit actions and identical retries never send twice',
+     'Claude stdio pending retry must share its request'),
+    ('stdio-old-sequence', 'stdio.ts', 'sequence !== this.sequence + 1', 'sequence > this.sequence + 1',
+     'Claude stdio changed or evicted sequences cannot authorize another action',
+     'Claude stdio stale or changed sequence must fail closed'),
+    ('stdio-changed-replay', 'stdio.ts', 'previous.identity !== line', 'false',
+     'Claude stdio changed or evicted sequences cannot authorize another action',
+     'Claude stdio stale or changed sequence must fail closed'),
+    ('stdio-canonical', 'stdio.ts', 'JSON.stringify(value) !== line', 'false',
+     'Claude stdio refuses configuration injection ambiguous JSON and nonexplicit decisions',
+     'Claude stdio invalid frame must not dispatch'),
+    ('stdio-method-scope', 'stdio.ts', 'this.validate(method, params!);', '/* mutation: skip method shape */',
+     'Claude stdio refuses configuration injection ambiguous JSON and nonexplicit decisions',
+     'Claude stdio invalid frame must not dispatch'),
+    ('stdio-frame-budget', 'stdio.ts',
+     'if (used + size > FRAME_MAX) throw new ClaudeStdioProtocolError("Claude stdio frame limit");',
+     'if (used + size > FRAME_MAX) return "eof";',
+     'Claude stdio framing preserves split UTF8 and rejects malformed or incomplete byte frames',
+     'Claude stdio invalid bytes must fail'),
+    ('stdio-utf8', 'stdio.ts', 'new TextDecoder("utf-8", { fatal: true })', 'new TextDecoder("utf-8", { fatal: false })',
+     'Claude stdio framing preserves split UTF8 and rejects malformed or incomplete byte frames',
+     'Claude stdio invalid bytes must fail'),
+    ('stdio-backpressure', 'stdio.ts',
+     'await new Promise<void>((resolve, reject) => output.write(response + "\\n", error => error ? reject(error) : resolve()));',
+     'await Promise.resolve(output.write(response + "\\n", () => {}));',
+     'Claude stdio write backpressure prevents dispatching the next action',
+     'Claude stdio must respect response backpressure before dispatch'),
+    ('stdio-eof', 'stdio.ts', 'return "eof";', 'return "stopped";',
+     'Claude stdio transport loss and broken output close their SDK scope without a stop receipt',
+     'Claude stdio EOF must not become an explicit stop'),
+    ('executor-sha', 'executor.ts', 'if (hash.digest("hex") !== expected)', 'if (false)',
+     'real Node executor pipes initialize stop and EOF against the locked no-network CLI',
+     'real Node executor must distinguish stop EOF and invalid profile'),
 )
 
 
@@ -122,13 +156,16 @@ def main():
         run(compiler, environment)
         if args.real_cli: test_environment['GHOSTERM_CLAUDE_REAL_CLI'] = '1'
         output = run(tests, test_environment, seconds=90)
-        expected = 19 if args.real_cli else 18
+        expected = 26 if args.real_cli else 24
         if f'ℹ pass {expected}\n' not in output or 'ℹ fail 0' not in output or 'ℹ skipped 0' not in output:
             raise RuntimeError('Claude test count/skip receipt mismatch:\n' + output)
         print(output, end='', flush=True)
         test_environment.pop('GHOSTERM_CLAUDE_REAL_CLI', None)
+        cases = [case for case in CASES if args.real_cli or case[0] != 'executor-sha']
         if args.mutate:
-            for name, file, old, new, target, assertion in CASES:
+            for name, file, old, new, target, assertion in cases:
+                if name == 'executor-sha': test_environment['GHOSTERM_CLAUDE_REAL_CLI'] = '1'
+                else: test_environment.pop('GHOSTERM_CLAUDE_REAL_CLI', None)
                 source = package / 'src' / file
                 original = source.read_bytes()
                 if original.count(old.encode()) != 1: raise RuntimeError(f'{name}: mutation anchor changed')
@@ -148,7 +185,7 @@ def main():
                 run(compiler, environment); one(target)
                 print(f'PASS {name}: compiled assertion red / same build independent control green / restored green / SHA256', flush=True)
     if {str(path): sha(path) for path in inputs} != before: raise RuntimeError('Original Claude inputs changed during isolated tests')
-    print(f'CLAUDE NODE BRIDGE PASS: {expected} tests; {len(CASES) if args.mutate else 0} mutation groups; no model request', flush=True)
+    print(f'CLAUDE NODE BRIDGE PASS: {expected} tests; {len(cases) if args.mutate else 0} mutation groups; no model request', flush=True)
 
 
 if __name__ == '__main__':

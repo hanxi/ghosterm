@@ -4,3 +4,4 @@ export { claudeOptions, CLAUDE_SDK_VERSION, CLAUDE_CLI_VERSION } from "./profile
 export type { ClaudeNodeProfile } from "./profile.js";
 export { ClaudeNodeSession } from "./session.js";
 export type { ClaudeSessionPhase, ClaudeSessionEvent, ClaudeSessionLimits } from "./session.js";
+export { ClaudeStdioBridge, ClaudeStdioProtocolError, serveClaudeStdio } from "./stdio.js";

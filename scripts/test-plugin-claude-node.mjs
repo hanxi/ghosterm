@@ -6,12 +6,13 @@ import { join, resolve } from "node:path";
 import { EventEmitter, once } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { spawn, execFileSync } from "node:child_process";
-import { readFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 
 const directory = resolve(process.env.GHOSTERM_CLAUDE_NODE_PACKAGE);
 const require = createRequire(join(directory, "package.json"));
 const sdk = await import(pathToFileURL(require.resolve("@anthropic-ai/claude-agent-sdk")));
-const { ClaudeApprovalBroker, ClaudeNodeSession, claudeOptions, CLAUDE_CLI_VERSION, CLAUDE_SDK_VERSION } =
+const { ClaudeApprovalBroker, ClaudeNodeSession, ClaudeStdioBridge, serveClaudeStdio, claudeOptions, CLAUDE_CLI_VERSION, CLAUDE_SDK_VERSION } =
   await import(pathToFileURL(join(directory, "dist/index.js")));
 assert.equal(JSON.parse(readFileSync(join(directory, "node_modules/@anthropic-ai/claude-agent-sdk/package.json"))).version, CLAUDE_SDK_VERSION);
 const context = (id = "request-1", signal = new AbortController().signal) =>
@@ -450,6 +451,199 @@ test("pinned real Claude SDK routes its control protocol through the production 
     assert(!child.sent.some(value => value.type === "user"), "SDK control test must not send a model prompt");
   } finally { broker.close(); warm.close(); }
   await until(() => child.killed, "SDK close must eventually stop its owned fixture process");
+});
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
+  return value;
+}
+function stdioRequest(method, sequence, params = {}) {
+  return JSON.stringify(canonical({ version: 1, id: `command-${sequence}`, sequence, method, params }));
+}
+function stdioFixture() {
+  const broker = new ClaudeApprovalBroker("stdio"), child = new ProtocolFixture(); let spawns = 0;
+  const session = new ClaudeNodeSession(profile(broker, () => { spawns++; return child; }));
+  const bridge = new ClaudeStdioBridge(session, broker);
+  return { broker, child, session, bridge, get spawns() { return spawns; } };
+}
+async function stdioReady(value) {
+  await value.bridge.handle(stdioRequest("start", 1));
+  await until(() => value.session.phase === "ready", "stdio session did not initialize");
+}
+
+test("Claude stdio dispatches explicit actions and identical retries never send twice", async () => {
+  const value = stdioFixture(); const { bridge, session, child, broker } = value;
+  try {
+    const start = stdioRequest("start", 1);
+    const first = bridge.handle(start), duplicate = bridge.handle(start);
+    assert.strictEqual(first, duplicate, "Claude stdio pending retry must share its request");
+    assert.equal(JSON.parse(await first).result.requested, true);
+    await until(() => session.phase === "ready", "stdio start must reach SDK ready");
+    assert.equal(value.spawns, 1);
+    const send = stdioRequest("send", 2, { text: "fixture stdio 中文😀" });
+    const response = await bridge.handle(send);
+    assert.equal(await bridge.handle(send), response, "Claude stdio retry must replay its identical response");
+    const id = JSON.parse(response).result.messageID;
+    await until(() => child.sent.some(item => item.type === "user"), "stdio send not delivered to SDK");
+    assert.equal(child.sent.filter(item => item.type === "user").length, 1, "Claude stdio replay must not duplicate an SDK input");
+    child.permission("stdio-tool");
+    await until(() => broker.pending.length === 1, "SDK stdio approval missing");
+    const poll = JSON.parse(await bridge.handle(stdioRequest("poll", 3)));
+    assert.equal(poll.result.source, "approval");
+    const reference = poll.result.event.request.reference;
+    assert.equal(JSON.parse(await bridge.handle(stdioRequest("approve", 4, { reference, allow: true }))).result.accepted, true);
+    child.permission("stdio-question", "AskUserQuestion", questionInput);
+    await until(() => broker.pending.length === 1, "SDK stdio question missing");
+    const questionRef = broker.pending[0].reference;
+    const answer = JSON.parse(await bridge.handle(stdioRequest("answer", 5, { reference: questionRef, answers: { "Which format?": "Short" } })));
+    assert.equal(answer.result.accepted, true);
+    const interrupt = JSON.parse(await bridge.handle(stdioRequest("interrupt", 6)));
+    assert.equal(interrupt.result.requested, true); assert.equal(interrupt.result.phase, "interrupting");
+    const stop = JSON.parse(await bridge.handle(stdioRequest("stop", 7)));
+    assert.equal(stop.result.pendingMessageID, id); assert(bridge.explicitStop);
+    assert.throws(() => session.send("late"));
+  } finally { await stopFixture(value); }
+});
+
+test("Claude stdio changed or evicted sequences cannot authorize another action", async () => {
+  for (const evicted of [false, true]) {
+    const value = stdioFixture(); const { bridge, session } = value;
+    const first = stdioRequest("poll", 1);
+    await bridge.handle(first);
+    if (evicted) for (let n = 2; n <= 40; n++) await bridge.handle(stdioRequest("poll", n));
+    const stale = evicted ? first : stdioRequest("start", 1);
+    await assert.rejects(bridge.handle(stale), /replay|sequence/, "Claude stdio stale or changed sequence must fail closed");
+    assert.equal(session.phase, "closed"); assert.equal(value.spawns, 0);
+    assert.equal(bridge.explicitStop, false);
+  }
+});
+
+test("Claude stdio refuses configuration injection ambiguous JSON and nonexplicit decisions", async () => {
+  const ref = { scope: "stdio", requestID: "one", token: "test" };
+  const frames = [stdioRequest("start", 1, { executable: "/untrusted/claude" }),
+    stdioRequest("approve", 1, { reference: ref, allow: "yes" }), stdioRequest("answer", 1, { reference: ref, answers: { q: false } }),
+    stdioRequest("unknown", 1), stdioRequest("poll", 2), " " + stdioRequest("poll", 1),
+    '{"id":"command-1","method":"poll","method":"start","params":{},"sequence":1,"version":1}',
+    stdioRequest("poll", 1).replace('"version":1', '"version":2'), "x".repeat(65_537)];
+  for (const frame of frames) {
+    const value = stdioFixture();
+    try {
+      await assert.rejects(value.bridge.handle(frame), undefined, "Claude stdio invalid frame must not dispatch");
+      assert.equal(value.spawns, 0); assert.equal(value.session.phase, "closed");
+    } finally { value.bridge.close(); if (value.spawns) await stopFixture(value); }
+  }
+});
+
+test("Claude stdio framing preserves split UTF8 and rejects malformed or incomplete byte frames", async () => {
+  const request = Buffer.from(stdioRequest("poll", 1).replace("command-1", "审批😀"));
+  for (let split = 0; split <= request.length; split++) {
+    const value = stdioFixture(), input = new PassThrough(), output = new PassThrough(); let transcript = "";
+    output.on("data", chunk => { transcript += chunk.toString(); });
+    const serving = serveClaudeStdio(input, output, value.bridge);
+    input.write(request.subarray(0, split)); input.write(request.subarray(split)); input.write("\n");
+    await until(() => transcript.includes("\n"), "split UTF8 frame was not handled");
+    input.write(stdioRequest("stop", 2) + "\n");
+    assert.equal(await serving, "stopped");
+    assert.equal(JSON.parse(transcript.split("\n")[0]).id, "审批😀");
+    input.destroy(); output.destroy();
+  }
+  const invalidUtf8 = Buffer.from(stdioRequest("poll", 1)); invalidUtf8[invalidUtf8.indexOf("command-1")] = 255;
+  for (const bytes of [Buffer.from([255, 10]), Buffer.from('{"unfinished":'), Buffer.alloc(65_537, 120), invalidUtf8]) {
+    const value = stdioFixture(), input = new PassThrough(), output = new PassThrough();
+    output.resume(); const serving = serveClaudeStdio(input, output, value.bridge);
+    try {
+      if (bytes === invalidUtf8) input.write(Buffer.concat([bytes, Buffer.from("\n" + stdioRequest("stop", 2) + "\n")]));
+      else input.end(bytes);
+      await assert.rejects(serving, undefined, "Claude stdio invalid bytes must fail");
+      assert(value.bridge.stopped);
+    } finally { input.destroy(); output.destroy(); }
+  }
+});
+
+test("Claude stdio write backpressure prevents dispatching the next action", async () => {
+  const value = stdioFixture(), input = new PassThrough(); let release; let writes = 0;
+  const output = new Writable({ write: (_, __, done) => { if (++writes === 1) release = done; else done(); } });
+  const serving = serveClaudeStdio(input, output, value.bridge);
+  void serving.catch(() => {});
+  try {
+    input.write(stdioRequest("poll", 1) + "\n");
+    await until(() => release !== undefined, "response write not started");
+    input.write(stdioRequest("start", 2) + "\n");
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(value.spawns, 0, "Claude stdio must respect response backpressure before dispatch");
+    release(); await until(() => value.session.phase === "ready", "start did not proceed after drain");
+    input.write(stdioRequest("stop", 3) + "\n"); assert.equal(await serving, "stopped");
+  } finally { input.destroy(); output.destroy(); await stopFixture(value); }
+});
+
+test("Claude stdio transport loss and broken output close their SDK scope without a stop receipt", async () => {
+  for (const broken of [false, true]) {
+    const value = stdioFixture(), input = new PassThrough();
+    await stdioReady(value);
+    const output = broken ? new Writable({ write: (_, __, done) => done(new Error("fixture pipe failure")) }) : new PassThrough();
+    if (!broken) output.resume();
+    const serving = serveClaudeStdio(input, output, value.bridge);
+    try {
+      if (broken) { input.write(stdioRequest("poll", 2) + "\n"); await assert.rejects(serving); }
+      else { input.end(); assert.equal(await serving, "eof", "Claude stdio EOF must not become an explicit stop"); }
+      assert.equal(value.bridge.explicitStop, false); assert(value.broker.closed);
+      await until(() => value.child.killed, "lost protocol must eventually stop SDK child");
+    } finally { input.destroy(); output.destroy(); await stopFixture(value); }
+  }
+});
+
+if (process.env.GHOSTERM_CLAUDE_REAL_CLI === "1") test("real Node executor pipes initialize stop and EOF against the locked no-network CLI", async () => {
+  const base = mkdtempSync(join(process.env.TMPDIR, "claude-executor-"));
+  const binary = require.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`);
+  const digest = createHash("sha256").update(readFileSync(binary)).digest("hex");
+  try {
+    for (const mode of ["stop", "eof", "wrong-digest"]) {
+      const work = join(base, mode); mkdirSync(work);
+      for (const name of ["home", "config", "workspace"]) mkdirSync(join(work, name));
+      const environment = { HOME: join(work, "home"), CLAUDE_CONFIG_DIR: join(work, "config"), TMPDIR: process.env.TMPDIR,
+        PATH: process.env.PATH, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
+      const profilePath = join(work, "profile.json");
+      writeFileSync(profilePath, JSON.stringify({ version: 1, cwd: join(work, "workspace"), executable: binary,
+        cliVersion: CLAUDE_CLI_VERSION, sha256: mode === "wrong-digest" ? "0".repeat(64) : digest,
+        environmentNames: Object.keys(environment), tools: [] }));
+      const helper = spawn("/usr/bin/sandbox-exec", ["-p", '(version 1)(allow default)(deny network*)(deny mach-lookup (global-name "com.apple.securityd"))',
+        process.execPath, join(directory, "dist/cli.js"), "--profile", profilePath], { env: environment, stdio: ["pipe", "pipe", "pipe"] });
+      const exit = once(helper, "exit"); let stdout = "", stderr = "", sequence = 0;
+      helper.stdout.on("data", bytes => { stdout += bytes.toString(); }); helper.stderr.on("data", bytes => { stderr += bytes.toString(); });
+      async function call(method) {
+        const n = ++sequence;
+        helper.stdin.write(stdioRequest(method, n) + "\n");
+        await until(() => stdout.split("\n").filter(Boolean).some(line => JSON.parse(line).sequence === n), "real Node executor reply missing");
+        const value = stdout.split("\n").filter(Boolean).map(line => JSON.parse(line)).find(value => value.sequence === n);
+        assert.equal(value.ok, true); return value.result;
+      }
+      try {
+        if (mode === "wrong-digest") helper.stdin.end();
+        if (mode !== "wrong-digest") {
+          assert.equal((await call("start")).requested, true);
+          let ready = false;
+          for (let n = 0; n < 200 && !ready; n++) {
+            const value = await call("poll"); ready = value.phase === "ready";
+            if (!ready) await new Promise(resolve => setTimeout(resolve, 10));
+          }
+          assert(ready, "real Node executor must initialize its owned CLI");
+          if (mode === "stop") assert.equal((await call("stop")).phase, "closed");
+          else helper.stdin.end();
+        }
+        const [code, signal] = await Promise.race([exit, new Promise((_, reject) => {
+          const timeout = setTimeout(() => reject(new Error("real executor did not stop")), 10_000); timeout.unref();
+          exit.finally(() => clearTimeout(timeout));
+        })]);
+        assert.equal(code, mode === "stop" ? 0 : mode === "eof" ? 7 : 2, "real Node executor must distinguish stop EOF and invalid profile");
+        assert.equal(signal, null);
+        assert.equal(stderr, mode === "wrong-digest" ? "claude-node: PROFILE_OR_RUNTIME_ERROR\n" : "");
+        if (mode === "wrong-digest") assert.equal(stdout, "");
+      } finally {
+        if (helper.exitCode === null && helper.signalCode === null) { helper.kill("SIGKILL"); await exit; }
+      }
+    }
+  } finally { rmSync(base, { recursive: true, force: true }); }
 });
 
 if (process.env.GHOSTERM_CLAUDE_REAL_CLI === "1") test("locked real Claude CLI initializes and exits without a prompt in an isolated no-network process", async () => {
