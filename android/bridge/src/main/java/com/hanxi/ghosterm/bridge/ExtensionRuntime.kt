@@ -58,6 +58,34 @@ class ExtensionRuntime private constructor(private val worker: Thread,
         val lease = borrowedLease ?: return ExtensionSession.RPCStatus.CLOSED
         return ExtensionSession.RPCStatus.entries[NativeExtensionRuntime.respondHostRequest(handle, lease.bytes, ticket, outcome)]
     }
+    fun requestExecutor(method: String, input: ByteArray, timeoutMilliseconds: Int = 30000): ExtensionSession.RPCAdmission {
+        owner(); require(info().phase == Phase.ACTIVE); require(timeoutMilliseconds in 1..300000)
+        require('\u0000' !in method)
+        val lease = borrowedLease ?: return ExtensionSession.RPCAdmission(ExtensionSession.RPCStatus.CLOSED, null)
+        val v = NativeExtensionRuntime.requestExecutor(handle, lease.bytes, method.toByteArray(), input, timeoutMilliseconds)
+        check(v.size == 2)
+        val status = ExtensionSession.RPCStatus.entries[v[0].toInt()]
+        return ExtensionSession.RPCAdmission(status, if (status == ExtensionSession.RPCStatus.OK) v[1] else null)
+    }
+    fun executorRequestResult(request: Long): Pair<ExtensionSession.RPCStatus, ExtensionSession.RPCResult?> {
+        owner()
+        val lease = borrowedLease ?: return ExtensionSession.RPCStatus.CLOSED to null
+        val fields = NativeExtensionRuntime.executorRequestResult(handle, lease.bytes, request)
+        val v = fields[0] as LongArray; val bytes = fields[1] as ByteArray
+        check(v.size == 7 && bytes.size == 3106 && v[6] in 0..3072)
+        val status = ExtensionSession.RPCStatus.entries[v[0].toInt()]
+        if (status != ExtensionSession.RPCStatus.OK) return status to null
+        return status to ExtensionSession.RPCResult(v[1], runtimeRpcText(bytes, 0, 33),
+            ExtensionSession.RPCState.entries[v[2].toInt()], v[3] != 0L, v[4] != 0L,
+            v[5] != 0L, bytes.copyOfRange(33, 33 + v[6].toInt()))
+    }
+    fun cancelExecutorRequest(request: Long): ExtensionSession.RPCStatus = executorRequestAction(0, request)
+    fun forgetExecutorRequest(request: Long): ExtensionSession.RPCStatus = executorRequestAction(1, request)
+    private fun executorRequestAction(action: Int, request: Long): ExtensionSession.RPCStatus {
+        owner()
+        val lease = borrowedLease ?: return ExtensionSession.RPCStatus.CLOSED
+        return ExtensionSession.RPCStatus.entries[NativeExtensionRuntime.executorRequestAction(handle, lease.bytes, action, request)]
+    }
     fun stop() { val id = handle; if (id != 0L) NativeExtensionRuntime.stop(id) }
     fun closeStep(): Boolean {
         if (handle == 0L) return true
@@ -141,6 +169,9 @@ internal object NativeExtensionRuntime {
     external fun takeResource(handle: Long, lease: ByteArray): Array<Any>
     external fun takeHostRequest(handle: Long, lease: ByteArray): Array<Any>
     external fun respondHostRequest(handle: Long, lease: ByteArray, ticket: Long, outcome: ByteArray): Int
+    external fun requestExecutor(handle: Long, lease: ByteArray, method: ByteArray, input: ByteArray, timeout: Int): LongArray
+    external fun executorRequestResult(handle: Long, lease: ByteArray, request: Long): Array<Any>
+    external fun executorRequestAction(handle: Long, lease: ByteArray, action: Int, request: Long): Int
     external fun stop(handle: Long)
     external fun close(handle: Long): Int
 }

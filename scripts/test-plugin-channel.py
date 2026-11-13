@@ -105,7 +105,7 @@ def main():
     if args.android_client_runtime:
         reports=list((proofs/'android-client-runtime').glob('rpc-proof-*'))
         assert len(reports)==1,'Android controller did not produce its own remote RPC completion proof'
-        assert json.loads(reports[0].read_text())==dict(completed=1,handled=2,done=True),reports[0]
+        assert json.loads(reports[0].read_text())==dict(completed=1,handled=3,done=True),reports[0]
         stderr=proofs/'android-client-runtime'/'android-executor.stderr'
         assert not stderr.exists() or not stderr.read_bytes(),stderr
     if args.resources and not args.expect_assertion and not args.expect_platform_assertion:

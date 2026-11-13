@@ -214,8 +214,13 @@ class ExtensionChannelTest {
                 SystemClock.sleep(2)
             }
             assertEquals(ExtensionRuntime.Phase.ACTIVE, runtime.info.phase)
+            val outgoing = controller.requestRuntimeExecutor("fixture.echo",
+                "{\"text\":\"native\",\"count\":23}".toByteArray())
+            assertEquals(ExtensionSession.RPCStatus.OK, outgoing.status)
+            val outgoingHandle = checkNotNull(outgoing.handle)
             var nativeRequestHandled = false
-            repeat(100) {
+            var outgoingConfirmed = false
+            for (iteration in 0 until 1000) {
                 SystemClock.sleep(1)
                 runtime = controller.stepRuntime()
                 assertEquals("Client Runtime stopped during the bidirectional RPC exchange: ${runtime.info}",
@@ -229,8 +234,21 @@ class ExtensionChannelTest {
                         "{\"kind\":\"success\",\"value\":{\"text\":\"bridge\",\"count\":17}}".toByteArray()))
                     nativeRequestHandled = true
                 }
+                if (!outgoingConfirmed) {
+                    val (resultStatus, result) = controller.runtimeExecutorRequestResult(outgoingHandle)
+                    assertEquals(ExtensionSession.RPCStatus.OK, resultStatus)
+                    if (result?.confirmed == true) {
+                        assertEquals(ExtensionSession.RPCState.SUCCEEDED, result.state)
+                        assertEquals("{\"kind\":\"success\",\"value\":{\"text\":\"native\",\"count\":23}}",
+                            result.outcome.toString(Charsets.UTF_8))
+                        assertEquals(ExtensionSession.RPCStatus.OK, controller.forgetRuntimeExecutorRequest(outgoingHandle))
+                        outgoingConfirmed = true
+                    }
+                }
+                if (nativeRequestHandled && outgoingConfirmed) break
             }
             assertTrue("Native Host did not receive an Executor request through the adopted Runtime", nativeRequestHandled)
+            assertTrue("Native Host Executor RPC did not reach a confirmed outcome", outgoingConfirmed)
         } finally {
             runCatching { controller.close() }
             knownHosts.delete()

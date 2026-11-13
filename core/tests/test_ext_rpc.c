@@ -498,7 +498,7 @@ static void rpc_executor_mode(const char *proof_root,
                 }
             }
         }
-        if (plugin_id && completed == target && handled == 2) {
+        if (plugin_id && completed == target && handled == 3) {
             done = true;
             break;
         }
@@ -509,14 +509,14 @@ static void rpc_executor_mode(const char *proof_root,
         return;
     }
     if (plugin_id) {
-        if (!done || completed != 1 || handled != 2) {
+        if (!done || completed != 1 || handled != 3) {
             fprintf(stderr,
                     "android executor incomplete done=%d completed=%u handled=%u\n",
                     done,
                     completed,
                     handled);
         }
-        CHECK(done && completed == 1 && handled == 2);
+        CHECK(done && completed == 1 && handled == 3);
     } else {
         CHECK(done && completed == 80 && handled == 80);
     }
@@ -524,7 +524,7 @@ static void rpc_executor_mode(const char *proof_root,
     CHECK(snprintf(path, sizeof(path), "%s/rpc-proof-XXXXXX", proof_root) > 0);
     int fd = mkstemp(path);
     CHECK(fd >= 0);
-    const char *proof = plugin_id ? "{\"completed\":1,\"handled\":2,\"done\":true}\n"
+    const char *proof = plugin_id ? "{\"completed\":1,\"handled\":3,\"done\":true}\n"
                                   : "{\"completed\":80,\"handled\":80,\"done\":true}\n";
     CHECK(write(fd, proof, strlen(proof)) == (ssize_t)strlen(proof) && !close(fd));
     if (plugin_id) {

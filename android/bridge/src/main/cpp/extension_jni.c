@@ -2136,6 +2136,137 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_res
     return status;
 }
 
+JNIEXPORT jlongArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_requestExecutor(JNIEnv *e,
+                                                                      jobject self,
+                                                                      jlong id,
+                                                                      jbyteArray lease,
+                                                                      jbyteArray method,
+                                                                      jbyteArray input,
+                                                                      jint timeout) {
+    (void)self;
+    jlongArray result = (*e)->NewLongArray(e, 2);
+    if (!result) {
+        return NULL;
+    }
+    gt_ext_lease_t l = {0};
+    if (!session_rpc_lease(e, lease, &l)) {
+        return NULL;
+    }
+    char *name = extension_text(e, method, 128);
+    char *json = name ? extension_text(e, input, GT_EXT_RPC_BODY_MAX) : NULL;
+    if (!name || !json) {
+        free(name);
+        free(json);
+        extension_erase(&l, sizeof(l));
+        return NULL;
+    }
+    extension_slot_t *s = runtime_pin(e, id, true, false);
+    if (!s) {
+        free(name);
+        free(json);
+        extension_erase(&l, sizeof(l));
+        return NULL;
+    }
+    uint64_t handle = 0;
+    gt_ext_rpc_status_t status =
+        s->runtime_session ? gt_ext_session_request(s->runtime_session,
+                                                    &l,
+                                                    name,
+                                                    json,
+                                                    (size_t)(*e)->GetArrayLength(e, input),
+                                                    (uint32_t)timeout,
+                                                    &handle)
+                           : GT_EXT_RPC_CLOSED;
+    extension_unpin(s);
+    free(name);
+    free(json);
+    extension_erase(&l, sizeof(l));
+    jlong values[2] = {status, (jlong)handle};
+    (*e)->SetLongArrayRegion(e, result, 0, 2, values);
+    return result;
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_executorRequestResult(
+    JNIEnv *e, jobject self, jlong id, jbyteArray lease, jlong request) {
+    (void)self;
+    jlongArray meta;
+    jbyteArray bytes;
+    jobjectArray result = session_rpc_arrays(e, 7, 33 + GT_EXT_RPC_BODY_MAX + 1, &meta, &bytes);
+    if (!result) {
+        return NULL;
+    }
+    gt_ext_lease_t l = {0};
+    if (!session_rpc_lease(e, lease, &l)) {
+        return NULL;
+    }
+    extension_slot_t *s = runtime_pin(e, id, true, false);
+    if (!s) {
+        extension_erase(&l, sizeof(l));
+        return NULL;
+    }
+    gt_ext_rpc_result_t r;
+    memset(&r, 0, sizeof(r));
+    gt_ext_rpc_status_t status =
+        s->runtime_session
+            ? gt_ext_session_request_result(s->runtime_session, &l, (uint64_t)request, &r)
+            : GT_EXT_RPC_CLOSED;
+    jlong values[7] = {status,
+                       (jlong)r.handle,
+                       r.state,
+                       r.cancel_requested,
+                       r.deadline_elapsed,
+                       r.confirmed,
+                       r.outcome_size};
+    (*e)->SetLongArrayRegion(e, meta, 0, 7, values);
+    (*e)->SetByteArrayRegion(e, bytes, 0, 33, (const jbyte *)r.request_id);
+    if (r.outcome_size) {
+        (*e)->SetByteArrayRegion(e, bytes, 33, (jsize)r.outcome_size, (const jbyte *)r.outcome);
+    }
+    if ((*e)->ExceptionCheck(e) && s->runtime_session) {
+        gt_ext_session_stop(s->runtime_session);
+    }
+    extension_unpin(s);
+    extension_erase(&l, sizeof(l));
+    extension_erase(&r, sizeof(r));
+    return result;
+}
+
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_executorRequestAction(
+    JNIEnv *e, jobject self, jlong id, jbyteArray lease, jint action, jlong request) {
+    (void)self;
+    gt_ext_lease_t l = {0};
+    if (!session_rpc_lease(e, lease, &l)) {
+        return GT_EXT_RPC_INVALID;
+    }
+    extension_slot_t *s = runtime_pin(e, id, true, false);
+    if (!s) {
+        extension_erase(&l, sizeof(l));
+        return GT_EXT_RPC_INVALID;
+    }
+    gt_ext_rpc_status_t status = GT_EXT_RPC_CLOSED;
+    if (s->runtime_session) {
+        switch (action) {
+            case 0:
+                status = gt_ext_session_cancel_request(s->runtime_session, &l, (uint64_t)request);
+                break;
+            case 1:
+                status = gt_ext_session_forget_request(s->runtime_session, &l, (uint64_t)request);
+                break;
+            case 2:
+                status = gt_ext_session_check_request(s->runtime_session, &l, (uint64_t)request);
+                break;
+            default:
+                status = GT_EXT_RPC_INVALID;
+                break;
+        }
+    }
+    extension_unpin(s);
+    extension_erase(&l, sizeof(l));
+    return status;
+}
+
 JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_support(JNIEnv *e,
                                                                                      jobject self) {
     (void)e;

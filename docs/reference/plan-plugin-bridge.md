@@ -4902,3 +4902,9 @@ JS-enabled Runtime CTest 新增 `runtime_step`：真实 QuickJS 插件只在 Dis
 Android `ExtensionRuntime` 新增 Runtime-owned Host request 收件与答复；JNI 经已保留的 `runtime_session` 转发到 Core Session，并继续要求原非 UI worker 与活动 lease。Session lease 不再依赖资源 Store，因此 RPC-only Runtime 也能在 Session 所有权移交后继续使用受控 RPC。`ExtensionController` 提供挂在同一 worker 上的 suspend façade。双跳 SSH instrumentation fixture 现在让 Executor 发来的 `fixture.ask` 不被 Client JS 注册，断言 Native Host 经 Runtime 取到 method / 输入并用同一 ticket 返回成功 outcome。
 
 验证：JS-enabled `:app:assembleDebugAndroidTest` 通过，实际包含 Android bridge Kotlin / JNI CMake arm64-v8a / App 与 AndroidTest Kotlin 编译；`scripts/format-c.py --check` 使用 clang-format 19.1.7 检查全仓 219 个 C 文件通过；NDK arm64 Android API 29 `-Wall -Wextra -Werror -fsyntax-only` 与 `git diff --check` 通过。仪器测试本轮未执行：没有已连接 Android 设备，且不启动模拟器窗口；测试 APK 已编译，不把编译当运行通过。临时 JDK / clang-format 位于工程 `tmp/`，验收后清理。无公共 ABI 变化，不增加 macOS CI 二十份。此批只完成 Android Runtime Native RPC bridge，不代表真实 Codex app-server 产品往返、Android 原生 Codex UI、approval / diff 语义展示或完整用户点击链；P3 不记闭环。
+
+### P3 实施第三十五批：Android Runtime 的 Native Host→Executor RPC 调用
+
+Android `ExtensionRuntime` / `ExtensionController` 新增 Native Host→Executor request admission、result 查询、cancel 与 forget；请求创建要求 Runtime ACTIVE，结果轮询与清理沿用 Runtime 所持 Session lease，不要求 Runtime 仍 ACTIVE，以便停止后收敛未决句柄。JNI 继续通过 `runtime_session` 调用 Core，不改公共 ABI。双跳 SSH instrumentation 夹具同时发出一条 Native Host `fixture.echo` 并等到确认结果，再接收 / 答复 Executor 的 `fixture.ask`；独立 Executor 完成证明从两条请求调整为三条。
+
+验证：`bash scripts/gate.sh` 通过（481/481 CTest、177 公共 ABI 符号、未实现入口检查）；clang-format 19.1.7 全仓 219 个 C 文件检查通过；NDK arm64 Android API 29 `-Wall -Wextra -Werror -fsyntax-only` 通过；JS-enabled `:app:assembleDebugAndroidTest` 通过，包含 JNI CMake / Kotlin / instrumentation 源码编译；`git diff --check` 通过。双跳 Android 仪器往返本轮未执行：没有已连接设备；可用 AVD 先前存在工程临时目录之外写 pid / crash 数据的记录，本轮不启动它，避免违反临时目录约束，也不弹出测试窗口。工程 `tmp/` 下临时 JDK / clang-format 已清理。无公共 ABI 变化，不增加 macOS CI 二十份。Android Codex 控件、真实 app-server 往返与 P3 其它闭环仍待完成。
