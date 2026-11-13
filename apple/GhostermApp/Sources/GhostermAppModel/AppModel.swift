@@ -70,12 +70,14 @@ public final class AppModel: ObservableObject {
         public let session: ExtensionController.SessionState?
         public let runtime: ExtensionController.RuntimeState?
         public let receivedResources: [ExtensionController.ReceivedResource]
+        public let codexEvents: [String]
     }
 
     @Published public private(set) var extensionRun: ExtensionRun?
     @Published public private(set) var extensionRunBusy = false
     @Published public private(set) var extensionRunIssue: String?
     private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String])?
+    private var lastCodexEventSequence: UInt64 = 0
 
     /// 界面外观偏好（跟随系统 / 浅色 / 深色）与终端色板事件（`theme =
     /// light:X,dark:Y` 靠它选边）。**改了要同时喂两个消费者**：AppKit 的
@@ -1133,12 +1135,13 @@ public final class AppModel: ObservableObject {
                 hostVersion: version, peerIdentity: sshAlias, methods: rpcMethods,
                 additionalRequiredCapabilities: additionalCapabilities)
             extensionRunInvocation = (packageID, packageDigest, command, arguments)
+            lastCodexEventSequence = 0
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
                 peerIdentity: sshAlias, remoteCommand: bootstrap, methods: methods, hostMethods: hostMethods,
                 requiredCapabilities: Array(Set(selected.requiredCapabilities + additionalCapabilities)).sorted(),
-                session: session, runtime: nil, receivedResources: [])
+                session: session, runtime: nil, receivedResources: [], codexEvents: [])
             let deadline = ProcessInfo.processInfo.systemUptime + 60
             var current = session
             while current.phase != GhostermCore.ExtensionSession.Phase.consent.rawValue &&
@@ -1252,6 +1255,7 @@ public final class AppModel: ObservableObject {
                 try Task.checkCancellation()
                 let state = try await extensionController.stepRuntime()
                 updateExtensionRun(runtime: state)
+                try await pumpCodexHostEvent()
                 if let resource = try await extensionController.takeSessionResource(maxBytes: 1048576) {
                     appendExtensionResource(resource)
                 }
@@ -1269,7 +1273,8 @@ public final class AppModel: ObservableObject {
             peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
             methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
-            session: session, runtime: run.runtime, receivedResources: run.receivedResources)
+            session: session, runtime: run.runtime, receivedResources: run.receivedResources,
+            codexEvents: run.codexEvents)
     }
 
     private func updateExtensionRun(runtime: ExtensionController.RuntimeState) {
@@ -1280,7 +1285,8 @@ public final class AppModel: ObservableObject {
             peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
             methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
-            session: run.session, runtime: runtime, receivedResources: run.receivedResources)
+            session: run.session, runtime: runtime, receivedResources: run.receivedResources,
+            codexEvents: run.codexEvents)
     }
 
     private func appendExtensionResource(_ resource: ExtensionController.ReceivedResource) {
@@ -1297,7 +1303,65 @@ public final class AppModel: ObservableObject {
             remoteCommand: run.remoteCommand, methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: run.runtime,
-            receivedResources: run.receivedResources + [resource])
+            receivedResources: run.receivedResources + [resource], codexEvents: run.codexEvents)
+    }
+
+    private struct CodexHostEvent: Decodable {
+        let sequence: UInt64
+        let kind: String
+    }
+
+    private func pumpCodexHostEvent() async throws {
+        guard let extensionController, let run = extensionRun, run.command == "ai codex" else { return }
+        let poll = try await extensionController.pollHostRPCRequest()
+        guard let request = poll.request else {
+            guard poll.status == UInt32(GhostermCore.ExtensionSession.RPCStatus.wait.rawValue) else {
+                throw GhostermError.failed("读取 Codex Executor Host RPC 失败（status \(poll.status)）")
+            }
+            return
+        }
+        guard request.method == "codex.event", run.hostMethods.contains("codex.event") else {
+            let failure = Data(#"{"kind":"failed","error":{"code":"DENIED","message":"Host method is not registered","effect":"none"}}"#.utf8)
+            guard try await extensionController.respondHostRPC(ticket: request.ticket, outcome: failure) == 0 else {
+                throw GhostermError.failed("无法拒绝未注册的插件 Host RPC")
+            }
+            return
+        }
+        let encoded: String
+        let event: CodexHostEvent
+        do {
+            encoded = try JSONDecoder().decode(String.self, from: request.input)
+            event = try JSONDecoder().decode(CodexHostEvent.self, from: Data(encoded.utf8))
+        } catch {
+            let failure = Data(#"{"kind":"failed","error":{"code":"DENIED","message":"Malformed Codex event","effect":"none"}}"#.utf8)
+            guard try await extensionController.respondHostRPC(ticket: request.ticket, outcome: failure) == 0 else {
+                throw GhostermError.failed("无法拒绝格式错误的 Codex 事件")
+            }
+            throw GhostermError.failed("Codex Executor 发送了格式错误的事件")
+        }
+        let kinds = ["notification", "approval-request", "approval-resolved", "outcome-unknown", "protocol-error", "closed"]
+        let retainedBytes = run.codexEvents.reduce(0) { $0 + $1.utf8.count }
+        guard lastCodexEventSequence < UInt64.max,
+              event.sequence == lastCodexEventSequence + 1, kinds.contains(event.kind),
+              encoded.utf8.count <= 3072, run.codexEvents.count < 128,
+              retainedBytes <= 262144 - encoded.utf8.count else {
+            let failure = Data(#"{"kind":"failed","error":{"code":"DENIED","message":"Invalid or excessive Codex event","effect":"none"}}"#.utf8)
+            guard try await extensionController.respondHostRPC(ticket: request.ticket, outcome: failure) == 0 else {
+                throw GhostermError.failed("无法拒绝无效的 Codex 事件")
+            }
+            throw GhostermError.failed("Codex Executor 事件序列无效或超过 Host 限额")
+        }
+        let success = Data(#"{"kind":"success","value":{"accepted":true}}"#.utf8)
+        guard try await extensionController.respondHostRPC(ticket: request.ticket, outcome: success) == 0 else {
+            throw GhostermError.failed("无法确认 Codex Executor 事件")
+        }
+        lastCodexEventSequence = event.sequence
+        extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
+            command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
+            executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
+            remoteCommand: run.remoteCommand, methods: run.methods, hostMethods: run.hostMethods,
+            requiredCapabilities: run.requiredCapabilities, session: run.session, runtime: run.runtime,
+            receivedResources: run.receivedResources, codexEvents: run.codexEvents + [encoded])
     }
 
     private static func pluginResourceDirectory() -> URL? {

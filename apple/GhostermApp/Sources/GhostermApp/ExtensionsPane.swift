@@ -232,6 +232,12 @@ struct ExtensionsPane: View {
                     Text("本次运行收到的资源").font(DS.Font.labelEmphasis)
                     PluginResourceBrowser(resources: run.receivedResources, selection: $resourceSelection)
                 }
+                if !run.codexEvents.isEmpty {
+                    Text("Codex 协议事件（原始 JSON）").font(DS.Font.labelEmphasis)
+                    ForEach(Array(run.codexEvents.enumerated()), id: \.offset) { _, event in
+                        Text(event).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                    }
+                }
                 Button(model.extensionRunBusy ? "正在停止…" : "停止并释放插件") {
                     Task { await model.stopExtensionRun() }
                 }
