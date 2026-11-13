@@ -16,7 +16,7 @@ setTimeout(() => {}, 1);
 import type { PluginContext, CapabilityAccess, PluginEntry, ProcessRead } from "../portable/index.js";
 declare const context: PluginContext;
 const access: CapabilityAccess = context.capabilities.query("session.rpc"); void access;
-const entry: PluginEntry = { activate(ctx) { const side: "client" | "executor" = ctx.side; void side; return { dispose() {} }; } }; void entry;
+const entry: PluginEntry = { activate(ctx) { const side: "client" | "executor" = ctx.side; void side; return { step() {}, dispose() {} }; } }; void entry;
 // @ts-expect-error observation is not boolean consent
 const approved: boolean = context.capabilities.query("session.rpc"); void approved;
 // @ts-expect-error activation metadata is immutable

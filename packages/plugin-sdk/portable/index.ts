@@ -11,7 +11,8 @@ export type { WorkspaceHandle, ProcessRead, ProcessWrite, ProcessExit, ProcessCh
 export type CapabilityAccess = "unknown" | "allowed" | "denied" | "revoked" | "unsupported";
 export interface CapabilitySet { query(name: string): CapabilityAccess; }
 export interface CancellationToken { readonly cancelled: boolean; }
-export interface Disposable { dispose(): void; }
+/** Optional bounded worker hook. Called once per native Runtime pump after activation. */
+export interface Disposable { step?(): void; dispose(): void; }
 /** UI remains unavailable. Optional resources/processes exist only when the
  * native Host has configured the corresponding service and Session capability. */
 export interface Invocation {

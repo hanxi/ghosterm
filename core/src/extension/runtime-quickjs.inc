@@ -1718,7 +1718,8 @@ static bool runtime_start(gt_bridge_runtime_t *r) {
         "Object.freeze(invocation)}const "
         "context=Object.freeze({invocation,session,side:'%s',instanceId:'%s',epoch:'%" PRIu64
         "',cancellation,capabilities:Object.freeze({query(name){return port.access(name)}})%s%s});"
-        "export function pump(){session.step();resources?.step();return state}export function "
+        "export function pump(){session.step();resources?.step();if(state>0&&typeof "
+        "disposable.step==='function')disposable.step();return state}export function "
         "dispose(){session.dispose();resources?.dispose();disposable?.dispose()}"
         "Promise.resolve().then(()=>activate(context)).then(value=>{if(!value || typeof "
         "value.dispose!=='function')throw "

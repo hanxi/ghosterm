@@ -128,6 +128,12 @@ static void runtime_case(const char *mode, const char *root) {
     }
     if (!strcmp(mode, "thread-handoff")) {
         plugin = "export function activate(){return {dispose(){}}}";
+    } else if (!strcmp(mode, "step")) {
+        plugin = "import {object,text,integer} from '@ghosterm/plugin-sdk';"
+                 "const codec=object({text:text(40),count:integer(0,100)});"
+                 "export function activate(ctx){let sent=false;return {step(){if(!sent){sent=true;"
+                 "ctx.session.request({name:'fixture.ask',input:codec,output:codec},{text:'step',"
+                 "count:1},1000)}},dispose(){}}}";
     }
     if (!strcmp(mode, "capabilities")) {
         plugin =
@@ -353,22 +359,28 @@ static void runtime_case(const char *mode, const char *root) {
                   rt_info(rt).error == GT_RUNTIME_CANCELLED);
         } else {
             unsigned reverse = 0;
-            for (unsigned i = 0; i < 20000 && rt_info(rt).phase < GT_RUNTIME_ACTIVE; i++) {
+            for (unsigned i = 0; i < 20000 && (rt_info(rt).phase < GT_RUNTIME_ACTIVE ||
+                                               (!strcmp(mode, "step") && !reverse));
+                 i++) {
                 gt_ext_session_step(pair.pair.h, 0);
                 gt__bridge_runtime_step(rt);
-                if (!strcmp(mode, "reverse") || !strcmp(mode, "prototype")) {
+                if (!strcmp(mode, "reverse") || !strcmp(mode, "prototype") ||
+                    !strcmp(mode, "step")) {
                     gt_ext_rpc_request_t q;
                     gt_ext_rpc_status_t status =
                         gt_ext_session_take_request(pair.pair.h, &pair.h, &q);
                     CHECK(status == GT_EXT_RPC_OK || status == GT_EXT_RPC_WAIT);
                     if (status == GT_EXT_RPC_OK) {
                         CHECK(!strcmp(q.method, "fixture.ask"));
+                        if (!strcmp(mode, "step")) {
+                            CHECK(strstr(q.input, "\"text\":\"step\""));
+                        }
                         rpc_reply(pair.pair.h, &pair.h, &q);
                         reverse++;
                     }
                 }
             }
-            if (!strcmp(mode, "reverse") || !strcmp(mode, "prototype")) {
+            if (!strcmp(mode, "reverse") || !strcmp(mode, "prototype") || !strcmp(mode, "step")) {
                 CHECK(reverse == 1);
             }
             gt_runtime_info_t info = rt_info(rt);
@@ -378,7 +390,8 @@ static void runtime_case(const char *mode, const char *root) {
                           !strcmp(mode, "prototype") || !strcmp(mode, "roundtrip") ||
                           !strcmp(mode, "relative") || !strcmp(mode, "handled") ||
                           !strcmp(mode, "top-await") || !strcmp(mode, "dispose-loop") ||
-                          !strcmp(mode, "peer-loss") || !strcmp(mode, "thread-handoff");
+                          !strcmp(mode, "peer-loss") || !strcmp(mode, "thread-handoff") ||
+                          !strcmp(mode, "step");
             CHECK(info.phase == (active ? GT_RUNTIME_ACTIVE : GT_RUNTIME_FAILED) && info.steps > 0);
             if (!strcmp(mode, "cpu") || !strcmp(mode, "top-cpu")) {
                 CHECK(info.error == GT_RUNTIME_CPU);

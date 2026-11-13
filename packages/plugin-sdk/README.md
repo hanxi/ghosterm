@@ -71,6 +71,10 @@ SDK 每次最多 take 8 个请求、保留 64 个发送观察与 64 个处理中
 发送并清空接收账目，不等待插件配合；owner 仍须继续推进 terminal result / forget 和 native 关闭。
 未完成 Promise 由受控 runtime 销毁 context 强制回收；SDK 本身不能终止任意 JS 或原生阻塞调用。
 
+`Disposable.step()` 是可选的有界 worker hook；Native Runtime 每次 pump 在 Session / ResourceBroker
+之后调用一次。stdio 协议适配器可在此推进一次非阻塞子进程 IO slice。实现必须遵守 Runtime CPU / Promise job
+预算，不得阻塞等待、创建无限同步循环或自行启动定时器。
+
 验证：`python3 scripts/test-plugin-sdk.py --mutate`，默认离线；缺锁定工具缓存时显式加 `--fetch`。
 工具 TypeScript / Ajv 以 lock integrity 固定，临时文件只在仓库 `tmp/`。同一 TS 产物在无 Node / DOM /
 quickjs-libc 的 QuickJS-NG 0.18.0 中，调用实际公开 C Session / socketpair；并独立对拍 codec schema。

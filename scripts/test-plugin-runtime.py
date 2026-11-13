@@ -6,7 +6,7 @@ import argparse,hashlib,json,os,re,shutil,signal,subprocess,sys,tempfile
 from pathlib import Path
 sys.dont_write_bytecode=True
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_RUNTIME_MUTATION'
-MODES='invocation capabilities dispose-throw invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory caught-memory global-memory repeat-close many-1 many-4 many-10 stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop activation-timeout peer-loss thread-handoff'.split()
+MODES='invocation capabilities dispose-throw invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory caught-memory global-memory repeat-close many-1 many-4 many-10 stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop activation-timeout peer-loss thread-handoff step'.split()
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
  parser=argparse.ArgumentParser();parser.add_argument('--mutate',action='store_true');parser.add_argument('--fetch',action='store_true');parser.add_argument('--android-build',action='store_true');args=parser.parse_args()
@@ -75,6 +75,7 @@ def main():
    ('atomics-block','    JS_SetCanBlock(r->engine, false);\n','    JS_SetCanBlock(r->engine, true);\n','atomics'),
    ('memory-budget','    r->heap_limit = memory;\n','    r->heap_limit = 128 * 1024 * 1024;\n','memory'),
    ('job-budget','        if (*used >= r->jobs_per_step) {\n','        if (*used >= 4096) {\n','jobs'),
+   ('disposable-step','        "disposable.step===\'function\')disposable.step();return state}export function "\n','        "false&&disposable.step===\'function\')disposable.step();return state}export function "\n','step'),
    ('unhandled-rejection','    if (!handled) {\n','    if (false && !handled) {\n','unhandled'),
    ('handled-rejection','            if (handled) {\n','            if (false && handled) {\n','handled'),
    ('stop-signal','        atomic_store_explicit(&r->stopped, true, memory_order_relaxed);\n','        atomic_store_explicit(&r->stopped, false, memory_order_relaxed);\n','stop'),
