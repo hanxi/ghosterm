@@ -262,6 +262,23 @@ public final class ExtensionSession {
         }
         return try takeResourceData(runtimeBorrowedRaw, lease: runtimeBorrowedLease, maxBytes: maxBytes)
     }
+    internal func takeRuntimeRequest() throws -> (RPCStatus, RPCRequest?) {
+        let (session, lease) = try runtimePointer()
+        var rawLease = lease.raw, value = gt_ext_rpc_request_t()
+        let status = RPCStatus(rawValue: gt_ext_session_take_request(session, &rawLease, &value).rawValue) ?? .invalid
+        guard status == .ok else { return (status, nil) }
+        guard value.input_size <= 3072 else { stop(); throw GhostermError.failed("请求内容超限") }
+        let data = withUnsafeBytes(of: value.input) { Data($0.prefix(Int(value.input_size))) }
+        return (status, RPCRequest(ticket: value.ticket, requestID: sessionString(value.request_id),
+            method: sessionString(value.method), input: data))
+    }
+    internal func respondRuntimeRequest(ticket: UInt64, outcome: Data) throws -> RPCStatus {
+        let (session, lease) = try runtimePointer()
+        var rawLease = lease.raw
+        return outcome.withUnsafeBytes {
+            RPCStatus(rawValue: gt_ext_session_respond(session, &rawLease, ticket, $0.baseAddress, $0.count).rawValue) ?? .invalid
+        }
+    }
     private func runtimePointer() throws -> (OpaquePointer, Lease) {
         dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
         guard let runtimeBorrowedRaw, let runtimeBorrowedLease else {

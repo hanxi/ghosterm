@@ -2,6 +2,7 @@
  * No production engine dependency, module loader or JS native adapter yet. */
 #define EXT_RPC_MAIN sdk_fixture_unused_main
 #include "../../core/tests/test_ext_rpc.c"
+#include "extension/session-owner.h"
 #include <inttypes.h>
 #include <quickjs.h>
 static rpc_pair_t pair;
@@ -74,9 +75,27 @@ static JSValue native(JSContext *c, JSValueConst self, int argc, JSValueConst *a
                                          ? gt_ext_session_forget_request(s, l, h)
                                          : gt_ext_session_check_request(s, l, h);
         out = JS_NewString(c, statuses[status]);
-    } else if (!strcmp(op, "take")) {
+    } else if (!strcmp(op, "take") || !strcmp(op, "takeNative")) {
         gt_ext_rpc_request_t q;
-        gt_ext_rpc_status_t status = gt_ext_session_take_request(s, l, &q);
+        gt_ext_rpc_status_t status;
+        if (!strcmp(op, "takeNative")) {
+            CHECK(argc == 2);
+            status = gt_ext_session_take_request(s, l, &q);
+        } else {
+            CHECK(argc <= 18);
+            const char *methods[16] = {0};
+            size_t count = 0;
+            for (int i = 2; i < argc; i++) {
+                size_t n = 0;
+                methods[count] = JS_ToCStringLen(c, &n, argv[i]);
+                CHECK(methods[count] && n > 0 && n <= 128);
+                count++;
+            }
+            status = gt__ext_session_take_request_methods(s, l, methods, count, &q);
+            for (size_t i = 0; i < count; i++) {
+                JS_FreeCString(c, methods[i]);
+            }
+        }
         CHECK(status == GT_EXT_RPC_OK || status == GT_EXT_RPC_WAIT || status == GT_EXT_RPC_CLOSED ||
               status == GT_EXT_RPC_DENIED);
         if (status != GT_EXT_RPC_OK) {

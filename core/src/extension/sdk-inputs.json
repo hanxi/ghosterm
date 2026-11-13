@@ -4,7 +4,7 @@
   "sdkApiVersion": "1.0.0",
   "bridgeProtocol": 1,
   "candidate": true,
-  "sdkDigest": "0c80b421fc17f6e7dcdab241f9fe4ace4a0e35b4a7d0946649e0e53b9bb7e8d2",
+  "sdkDigest": "3e26d62d926c417ba7be1d3e9bc8cae7b22637d8b299bce6659417e70896fb76",
   "modules": [
     {
       "name": "sdk:/codec.js",
@@ -28,8 +28,8 @@
     },
     {
       "name": "sdk:/session.js",
-      "bytes": 11805,
-      "sha256": "31b838dd4bb3bc095c81c264224ebf5c3d7bc1d30c8eaf4fd780893ee9d3cb86"
+      "bytes": 12105,
+      "sha256": "414ff5896acbf59704f84e738a977cdff7cbafa4dcc08d248bf1c0d6dd77c540"
     },
     {
       "name": "sdk:/wire-contract.js",
@@ -42,7 +42,7 @@
     "packages/plugin-sdk/portable/index.ts": "bf1bb8b9b4e40cbb2951605a00f166642550aa158eb0264ede8f7cd673e82616",
     "packages/plugin-sdk/portable/process.ts": "a4743c9851ecce5a3fd5b0dfebc08105f53482360156a303ed6c8ce57ed694ed",
     "packages/plugin-sdk/portable/resources.ts": "2ff026cc68988b96a1a2e1884db8f770bc40d08f300ebbf785668beff694f93d",
-    "packages/plugin-sdk/portable/session.ts": "e9ebe829939c4eb37865fafbafc4a4a5d69497a3cecf8426f6a088386ec9dc63",
+    "packages/plugin-sdk/portable/session.ts": "48bbf9f07c8ad44460bec58087905eb2cfdcd40a9e30462b26885b252ddcbb07",
     "packages/plugin-sdk/portable/wire-contract.ts": "a99e7998716305ac5226b44b72cd7ece5ea97c0ed9515effd4de8843b4997e8a",
     "packages/plugin-sdk/tsconfig.json": "67ce48546e5e46b66dded387cc9f3ebbcbac8bd195e55f7b4481823bab2e8a5d",
     "packages/plugin-sdk/sdk-version.json": "68e8a1714c833bd0c12c844b8401cdb562977eb2cd9568a4bd1569e827ab5cdc",
@@ -51,7 +51,7 @@
     "scripts/generate-plugin-runtime-sdk.mjs": "82ff7f2464024d22f055a46afe4ec1aaaa77b062e869d7a626a37baad6e793c8"
   },
   "outputs": {
-    "core/src/extension/sdk-code.inc": "dea9d34f0843d1c1b9360f3e575e04eb944a5aeab7ebd2fca8eed90524246f7d",
-    "core/src/extension/sdk-identity.h": "bef0472d10a65c4683cdd26b16dfd54c7d6dad37c33d37b9685dfc9298ea1719"
+    "core/src/extension/sdk-code.inc": "2d1459694abc76aa551f01d3898ddf5b98482731f6e098bf19eb419f999e9d7d",
+    "core/src/extension/sdk-identity.h": "5e8f1167369d8674cbd6a2f28c805e6677df10a87d8a3aea13b54fc6a157adb8"
   }
 }

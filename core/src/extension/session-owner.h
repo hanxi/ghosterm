@@ -20,4 +20,10 @@ struct gt_ext_session {
     gt_ext_resource_store_t *store;
     size_t sources;
 };
+
+gt_ext_rpc_status_t gt__ext_session_take_request_methods(gt_ext_session_t *,
+                                                         const gt_ext_lease_t *,
+                                                         const char *const *,
+                                                         size_t,
+                                                         gt_ext_rpc_request_t *);
 #endif

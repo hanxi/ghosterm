@@ -162,6 +162,11 @@ gt__bridge_session_forget_request(gt_bridge_session_t *, const gt_bridge_lease_t
 gt_bridge_rpc_status_t gt__bridge_session_take_request(gt_bridge_session_t *,
                                                        const gt_bridge_lease_t *,
                                                        gt_bridge_rpc_request_t *);
+gt_bridge_rpc_status_t gt__bridge_session_take_request_methods(gt_bridge_session_t *,
+                                                               const gt_bridge_lease_t *,
+                                                               const char *const *,
+                                                               size_t,
+                                                               gt_bridge_rpc_request_t *);
 gt_bridge_rpc_status_t
 gt__bridge_session_check_request(gt_bridge_session_t *, const gt_bridge_lease_t *, uint64_t ticket);
 gt_bridge_rpc_status_t gt__bridge_session_respond(

@@ -64,6 +64,47 @@ final class ExtensionRuntimeTests: XCTestCase {
             try runtimeClose(runtime); try runtimeClose(e)
         }
     }
+    func testHostRuntimeReceivesAndRepliesToExecutorRequestAfterAdoptingSession() {
+        runtimeWorker(self) { q in
+            let (h, e, _, el) = try runtimePair(q)
+            let hostPlugin = "import {object,text,integer} from '@ghosterm/plugin-sdk';export function activate(ctx){const codec=object({text:text(40),count:integer(0,100)});ctx.session.register({name:'fixture.echo',input:codec,output:codec},value=>value);return {dispose(){}}}"
+            let runtime = try ExtensionRuntime(session: h,
+                config: .init(modules: runtimeModules(hostPlugin), entry: "plugin:/entry.js",
+                              role: .host, cpuMilliseconds: 500))
+            for _ in 0..<100 { if try runtime.step() == .active { break } }
+            let runtimeInfo = try runtime.info()
+            XCTAssertEqual(runtimeInfo.phase, .active, "Runtime error: \(runtimeInfo.error)")
+
+            let input = Data("{\"sequence\":1,\"kind\":\"notification\"}".utf8)
+            let handle = try XCTUnwrap(e.request(el, method: "fixture.ask", input: input,
+                                                  timeoutMilliseconds: 10000).handle)
+            var received: ExtensionSession.RPCRequest?
+            for _ in 0..<1000 {
+                _ = try e.step(); _ = try runtime.step()
+                let (status, request) = try runtime.takeHostRequest()
+                if let request { XCTAssertEqual(status, .ok); received = request; break }
+                XCTAssertEqual(status, .wait)
+            }
+            let request = try XCTUnwrap(received)
+            XCTAssertEqual(request.method, "fixture.ask")
+            XCTAssertEqual(request.input, input)
+            let outcome = Data("{\"kind\":\"success\",\"value\":{\"accepted\":true}}".utf8)
+            XCTAssertEqual(try runtime.respondHostRequest(ticket: request.ticket, outcome: outcome), .ok)
+
+            var result: ExtensionSession.RPCResult?
+            for _ in 0..<1000 {
+                _ = try e.step(); _ = try runtime.step()
+                let (status, value) = try e.requestResult(el, handle: handle)
+                XCTAssertEqual(status, .ok)
+                if value?.confirmed == true { result = value; break }
+            }
+            let completed = try XCTUnwrap(result)
+            XCTAssertEqual(completed.state, .succeeded)
+            XCTAssertEqual(completed.outcome, outcome)
+            XCTAssertEqual(try e.forgetRequest(el, handle: handle), .ok)
+            try runtimeClose(runtime); try runtimeClose(e)
+        }
+    }
     func testRuntimeRequestRequiresAnActiveHostRuntime() {
         runtimeWorker(self) { q in
             let (h, e, _, _) = try runtimePair(q)

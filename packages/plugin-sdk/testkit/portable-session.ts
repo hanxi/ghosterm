@@ -13,7 +13,7 @@ function port(side: number): NativePort {
     result: h => native("result", side, h) as NativeResult,
     cancel: h => native("cancel", side, h) as Status,
     forget: h => native("forget", side, h) as Status,
-    take: () => native("take", side) as ReturnType<NativePort["take"]>,
+    take: methods => native("take", side, ...methods) as ReturnType<NativePort["take"]>,
     check: h => native("check", side, h) as Status,
     respond: (h, json) => native("respond", side, h, json) as Status,
     revoke: () => { native("revoke", side); },
@@ -90,6 +90,15 @@ export async function run(mode: string): Promise<void> {
     const mutable = { ...input }, call = h.request(echo, mutable, 1000); mutable.text = "changed";
     success(await call.outcome); success(await e.request(ask, input, 1000).outcome);
     check(native("effects", 0) === 2 && h.retained === 0 && e.retained === 0, "two directions released");
+  } else if (mode === "native-owned") {
+    h.register(echo, value => value);
+    const call = e.request(ask, input, 1000);
+    await cycles(3);
+    const request = native("takeNative", 0) as { readonly ticket: string; readonly method: string; readonly json: string } | null;
+    check(request?.method === "fixture.ask", "unregistered request remains for Native Host");
+    check(native("respond", 0, request.ticket, '{"kind":"success","value":{"text":"native","count":17}}') === "ok", "native Host response");
+    const result = await call.outcome;
+    check(result.kind === "success" && result.value.text === "native" && result.value.count === 17, "Native Host outcome");
   } else if (mode === "input") {
     const before = native("requests", 0);
     rejects(() => h.request(echo, { text: "x", count: 101 }, 1000), "SCHEMA");

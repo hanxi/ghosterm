@@ -592,6 +592,45 @@ gt_ext_rpc_status_t gt_ext_session_take_request(gt_ext_session_t *s,
     return GT_EXT_RPC_OK;
 }
 
+gt_ext_rpc_status_t gt__ext_session_take_request_methods(gt_ext_session_t *s,
+                                                         const gt_ext_lease_t *lease,
+                                                         const char *const *methods,
+                                                         size_t method_count,
+                                                         gt_ext_rpc_request_t *out) {
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    if (!out || method_count > 16 || (method_count && !methods)) {
+        return GT_EXT_RPC_INVALID;
+    }
+    for (size_t i = 0; i < method_count; i++) {
+        if (!methods[i] || !methods[i][0] || strnlen(methods[i], 129) > 128) {
+            return GT_EXT_RPC_INVALID;
+        }
+    }
+    gt_ext_rpc_status_t status = ext_rpc_check(s, lease);
+    if (status != GT_EXT_RPC_OK) {
+        return status;
+    }
+    gt_bridge_lease_t l = ext_lease(lease);
+    gt_bridge_rpc_request_t r;
+    status = ext_rpc_status(
+        gt__bridge_session_take_request_methods(s->inner, &l, methods, method_count, &r));
+    if (status != GT_EXT_RPC_OK) {
+        return status;
+    }
+    if (!r.input || !r.input_size || r.input_size > GT_EXT_RPC_BODY_MAX) {
+        gt__bridge_session_stop(s->inner);
+        return GT_EXT_RPC_INVALID;
+    }
+    out->ticket = r.ticket;
+    memcpy(out->request_id, r.request_id, sizeof(out->request_id));
+    memcpy(out->method, r.method, sizeof(out->method));
+    out->input_size = (uint32_t)r.input_size;
+    memcpy(out->input, r.input, r.input_size);
+    return GT_EXT_RPC_OK;
+}
+
 gt_ext_rpc_status_t
 gt_ext_session_check_request(gt_ext_session_t *s, const gt_ext_lease_t *lease, uint64_t ticket) {
     gt_ext_rpc_status_t status = ext_rpc_check(s, lease);

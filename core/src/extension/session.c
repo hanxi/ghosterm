@@ -1227,6 +1227,14 @@ gt_bridge_rpc_status_t gt__bridge_session_forget_request(gt_bridge_session_t *s,
 gt_bridge_rpc_status_t gt__bridge_session_take_request(gt_bridge_session_t *s,
                                                        const gt_bridge_lease_t *lease,
                                                        gt_bridge_rpc_request_t *out) {
+    return gt__bridge_session_take_request_methods(s, lease, NULL, 0, out);
+}
+
+gt_bridge_rpc_status_t gt__bridge_session_take_request_methods(gt_bridge_session_t *s,
+                                                               const gt_bridge_lease_t *lease,
+                                                               const char *const *methods,
+                                                               size_t method_count,
+                                                               gt_bridge_rpc_request_t *out) {
     if (out) {
         memset(out, 0, sizeof(*out));
     }
@@ -1236,7 +1244,7 @@ gt_bridge_rpc_status_t gt__bridge_session_take_request(gt_bridge_session_t *s,
     if (!tick(s)) {
         return GT_BRIDGE_RPC_CLOSED;
     }
-    return gt__bridge_rpc_take(s->rpc, lease, s->now, out);
+    return gt__bridge_rpc_take_methods(s->rpc, lease, s->now, methods, method_count, out);
 }
 
 gt_bridge_rpc_status_t gt__bridge_session_check_request(gt_bridge_session_t *s,

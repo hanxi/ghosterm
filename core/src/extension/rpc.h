@@ -84,6 +84,12 @@ bool gt__bridge_rpc_result(
 gt_bridge_rpc_status_t gt__bridge_rpc_forget(gt_bridge_rpc_t *, const void *, uint64_t);
 gt_bridge_rpc_status_t
 gt__bridge_rpc_take(gt_bridge_rpc_t *, const void *, uint64_t, gt_bridge_rpc_request_t *);
+gt_bridge_rpc_status_t gt__bridge_rpc_take_methods(gt_bridge_rpc_t *,
+                                                   const void *,
+                                                   uint64_t,
+                                                   const char *const *,
+                                                   size_t,
+                                                   gt_bridge_rpc_request_t *);
 gt_bridge_rpc_status_t gt__bridge_rpc_check(gt_bridge_rpc_t *, const void *, uint64_t, uint64_t);
 gt_bridge_rpc_status_t
 gt__bridge_rpc_respond(gt_bridge_rpc_t *, const void *, uint64_t, const void *, size_t, uint64_t);

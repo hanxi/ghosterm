@@ -69,12 +69,12 @@ def main():
                 for p in (emitted/folder).glob('*.js'): shutil.copyfile(p, modules/p.name)
             probe = source/'scripts/probes/plugin-sdk.c'; obj = target/'sdk.o'; binary = target/'sdk'
             obj.unlink(missing_ok=True); binary.unlink(missing_ok=True)
-            run(label+'-cc', [cc, *flags, '-Wall', '-Wextra', '-Werror', '-I', source/'core/include', '-c', probe, '-o', obj])
+            run(label+'-cc', [cc, *flags, '-Wall', '-Wextra', '-Werror', '-I', source/'core/include', '-I', source/'core/src', '-c', probe, '-o', obj])
             run(label+'-link', [cc, *flags, obj, *objects, core/'libghosterm_core.a', '-lm', '-pthread', '-o', binary])
             assert obj.is_file() and binary.is_file()
             return binary
         binary = compile_sdk('baseline')
-        for case in CASES: run('baseline-'+case, [binary, modules, case], budget=20)
+        for case in CASES + ['native-owned']: run('baseline-'+case, [binary, modules, case], budget=20)
         # Compare emitted codec schemas against independent, pinned Ajv. This is
         # developer tooling only; portable modules do not import Ajv or Node.
         parity = work/'schema-parity.mjs'

@@ -651,13 +651,18 @@ public actor ExtensionController {
         func pollHostRPCRequest() async throws -> HostRPCPoll {
             try await perform {
                 try self.checkOpen()
-                guard let session = self.session,
-                      (try session.info()).phase == .active,
-                      let lease = try session.lease(),
-                      try session.access(lease, capability: "session.rpc") == .allowed else {
+                let status: ExtensionSession.RPCStatus
+                let request: ExtensionSession.RPCRequest?
+                if let session = self.session,
+                   (try session.info()).phase == .active,
+                   let lease = try session.lease(),
+                   try session.access(lease, capability: "session.rpc") == .allowed {
+                    (status, request) = try session.takeRequest(lease)
+                } else if let runtime = self.runtime, try runtime.info().phase == .active {
+                    (status, request) = try runtime.takeHostRequest()
+                } else {
                     throw ControllerError.sessionUnavailable
                 }
-                let (status, request) = try session.takeRequest(lease)
                 let snapshot = request.map {
                     HostRPCRequest(ticket: $0.ticket, requestID: $0.requestID,
                                    method: $0.method, input: $0.input)
@@ -695,14 +700,19 @@ public actor ExtensionController {
         func respondHostRPC(ticket: UInt64, outcome: Data) async throws -> UInt32 {
             try await perform {
                 try self.checkOpen()
-                guard ticket > 0, !outcome.isEmpty, outcome.count <= 3072,
-                      let session = self.session,
-                      (try session.info()).phase == .active,
-                      let lease = try session.lease(),
-                      try session.access(lease, capability: "session.rpc") == .allowed else {
+                guard ticket > 0, !outcome.isEmpty, outcome.count <= 3072 else {
                     throw ControllerError.sessionUnavailable
                 }
-                return UInt32(try session.respond(lease, ticket: ticket, outcome: outcome).rawValue)
+                if let session = self.session,
+                   (try session.info()).phase == .active,
+                   let lease = try session.lease(),
+                   try session.access(lease, capability: "session.rpc") == .allowed {
+                    return UInt32(try session.respond(lease, ticket: ticket, outcome: outcome).rawValue)
+                }
+                guard let runtime = self.runtime, try runtime.info().phase == .active else {
+                    throw ControllerError.sessionUnavailable
+                }
+                return UInt32(try runtime.respondHostRequest(ticket: ticket, outcome: outcome).rawValue)
             }
         }
 

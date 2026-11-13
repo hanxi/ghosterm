@@ -17,7 +17,7 @@ export interface NativePort {
   result(handle: string): NativeResult;
   cancel(handle: string): Status;
   forget(handle: string): Status;
-  take(): { readonly ticket: string; readonly method: string; readonly json: string } | null;
+  take(methods: readonly string[]): { readonly ticket: string; readonly method: string; readonly json: string } | null;
   check(ticket: string): Status;
   respond(ticket: string, json: string): Status;
   revoke(): void;
@@ -122,8 +122,10 @@ export class SessionChannel {
         if (item.reply !== undefined && this.#port.respond(ticket, item.reply) === "ok") this.#incoming.delete(ticket);
       }
       if (!this.#live) return;
-      for (let n = 0; n < 8 && this.#incoming.size < 64; n++) {
-        const request = this.#port.take(); if (!request) break;
+      // Only dispatch methods with a JS handler. Unregistered requests remain
+      // available to the Native Host owner after Runtime.step().
+      for (let n = 0; n < 8 && this.#incoming.size < 64 && this.#handlers.size > 0; n++) {
+        const request = this.#port.take([...this.#handlers.keys()]); if (!request) break;
         const ticket = uint64(request.ticket, true);
         if (this.#incoming.has(ticket)) fail("TICKET_REUSE");
         const item: Incoming = { cancelled: false }; this.#incoming.set(ticket, item);

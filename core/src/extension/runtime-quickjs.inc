@@ -524,8 +524,39 @@ runtime_native(JSContext *c, JSValueConst self, int argc, JSValueConst *argv, in
         return out;
     }
     if (op == 4) {
+        if (argc != 1 || !JS_IsArray(argv[0])) {
+            goto invalid;
+        }
+        int64_t count = 0;
+        if (JS_GetLength(c, argv[0], &count) || count < 0 || count > 16) {
+            goto invalid;
+        }
+        const char *methods[16] = {0};
+        size_t method_count = 0;
+        for (uint32_t i = 0; i < (uint32_t)count; i++) {
+            JSValue item = JS_GetPropertyUint32(c, argv[0], i);
+            size_t size = 0;
+            if (!JS_IsString(item)) {
+                JS_FreeValue(c, item);
+                goto invalid;
+            }
+            methods[method_count] = JS_ToCStringLen(c, &size, item);
+            JS_FreeValue(c, item);
+            if (!methods[method_count] || !size || size > 128 ||
+                memchr(methods[method_count], 0, size)) {
+                for (size_t j = 0; j <= method_count; j++) {
+                    JS_FreeCString(c, methods[j]);
+                }
+                goto invalid;
+            }
+            method_count++;
+        }
         gt_ext_rpc_request_t q;
-        status = gt_ext_session_take_request(r->session, &r->lease, &q);
+        status =
+            gt__ext_session_take_request_methods(r->session, &r->lease, methods, method_count, &q);
+        for (size_t i = 0; i < method_count; i++) {
+            JS_FreeCString(c, methods[i]);
+        }
         if (status == GT_EXT_RPC_WAIT || status == GT_EXT_RPC_CLOSED ||
             status == GT_EXT_RPC_DENIED) {
             return JS_NULL;

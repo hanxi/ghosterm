@@ -519,6 +519,15 @@ gt_bridge_rpc_status_t gt__bridge_rpc_take(gt_bridge_rpc_t *r,
                                            const void *lease,
                                            uint64_t now,
                                            gt_bridge_rpc_request_t *out) {
+    return gt__bridge_rpc_take_methods(r, lease, now, NULL, 0, out);
+}
+
+gt_bridge_rpc_status_t gt__bridge_rpc_take_methods(gt_bridge_rpc_t *r,
+                                                   const void *lease,
+                                                   uint64_t now,
+                                                   const char *const *methods,
+                                                   size_t method_count,
+                                                   gt_bridge_rpc_request_t *out) {
     if (out) {
         memset(out, 0, sizeof(*out));
     }
@@ -532,7 +541,11 @@ gt_bridge_rpc_status_t gt__bridge_rpc_take(gt_bridge_rpc_t *r,
     rpc_in_t *slot = NULL;
     for (size_t i = 0; i < GT_BRIDGE_RPC_SLOTS; i++) {
         rpc_in_t *p = &r->in[i];
-        if (p->used && !p->done && !p->taken && (!slot || p->ticket < slot->ticket)) {
+        bool selected = methods == NULL;
+        for (size_t m = 0; !selected && m < method_count; m++) {
+            selected = methods[m] && !strcmp(methods[m], p->method_name);
+        }
+        if (selected && p->used && !p->done && !p->taken && (!slot || p->ticket < slot->ticket)) {
             slot = p;
         }
     }

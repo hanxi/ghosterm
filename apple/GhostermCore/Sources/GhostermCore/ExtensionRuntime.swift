@@ -214,6 +214,21 @@ public final class ExtensionRuntime {
         guard let session else { return (.closed, nil) }
         return try session.takeRuntimeResourceData(maxBytes: maxBytes)
     }
+    /// Takes one Executor -> Host request while this Runtime owns the Session.
+    public func takeHostRequest() throws -> (ExtensionSession.RPCStatus, ExtensionSession.RPCRequest?) {
+        guard try info().phase == .active, let session else {
+            throw GhostermError.failed("插件 Runtime 未处于活动状态")
+        }
+        return try session.takeRuntimeRequest()
+    }
+    /// Replies to one Executor -> Host request while this Runtime owns the Session.
+    public func respondHostRequest(ticket: UInt64, outcome: Data) throws -> ExtensionSession.RPCStatus {
+        guard try info().phase == .active, ticket > 0, !outcome.isEmpty,
+              outcome.count <= 3072, let session else {
+            throw GhostermError.failed("插件 Host RPC 回复无效")
+        }
+        return try session.respondRuntimeRequest(ticket: ticket, outcome: outcome)
+    }
     /// Sends one Host -> Executor RPC using the Session now owned by this Runtime.
     /// The caller must retain the handle and poll its result; unknown outcomes
     /// are never retried automatically.
