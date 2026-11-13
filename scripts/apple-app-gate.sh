@@ -55,11 +55,21 @@ echo "   ok"
 
 WORK=""
 HTML_CAPTURE=""
+SRV=""
+JUMP_SRV=""
 cleanup() {
-  [ -n "$WORK" ] && [ -f "$WORK/sshd.pid" ] && kill "$(cat "$WORK/sshd.pid")" 2>/dev/null
+  local server
+  for server in "$JUMP_SRV" "$SRV"; do
+    if [ -n "$server" ]; then
+      kill "$server" 2>/dev/null || true
+      wait "$server" 2>/dev/null || true
+    fi
+  done
   [ -n "$WORK" ] && rm -rf "$WORK"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 ENVARGS=()
 if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keygen >/dev/null 2>&1; then
@@ -99,6 +109,38 @@ if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keyg
              GHOSTERM_SSH_USER="$(id -un)"
              GHOSTERM_SSH_KEY="$WORK/clientkey"
              GHOSTERM_SSH_KNOWN_HOSTS="$WORK/known_hosts")
+    if [ "${GHOSTERM_TEST_CODEX_JUMP:-0}" = 1 ]; then
+      JUMP_PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
+      ssh-keygen -t ed25519 -f "$WORK/jump-hostkey" -N '' -q </dev/null
+      {
+        echo "Port $JUMP_PORT"; echo "ListenAddress 127.0.0.1"
+        echo "HostKey $WORK/jump-hostkey"; echo "PidFile $WORK/jump.pid"
+        echo "AuthorizedKeysFile $WORK/authorized_keys"
+        echo "PubkeyAuthentication yes"; echo "PasswordAuthentication no"
+        echo "KbdInteractiveAuthentication no"; echo "UsePAM no"; echo "StrictModes no"
+        echo "PerSourcePenalties no"; echo "LogLevel ERROR"; echo "PermitUserRC no"
+        echo "AllowAgentForwarding no"; echo "AllowStreamLocalForwarding no"
+        echo "AllowTcpForwarding local"; echo "PermitOpen 127.0.0.1:$PORT"
+        echo "MaxSessions 0"
+      } > "$WORK/jump-config"
+      "$SSHD" -f "$WORK/jump-config" -D -e 2>"$WORK/jump.log" &
+      JUMP_SRV=$!
+      jump_ready=0
+      for _ in $(seq 1 50); do
+        if python3 -c "import socket,sys;s=socket.socket();s.settimeout(0.2);sys.exit(0 if s.connect_ex(('127.0.0.1',$JUMP_PORT))==0 else 1)"; then
+          jump_ready=1; break
+        fi
+        kill -0 "$JUMP_SRV" 2>/dev/null || break
+        sleep 0.1
+      done
+      if [ "$jump_ready" != 1 ]; then
+        echo "apple-app-gate: requested jump fixture failed" >&2
+        cat "$WORK/jump.log" >&2
+        exit 1
+      fi
+      ENVARGS+=(GHOSTERM_SSH_JUMP_HOST=127.0.0.1 GHOSTERM_SSH_JUMP_PORT="$JUMP_PORT")
+      echo "== Codex jump fixture: 127.0.0.1:${JUMP_PORT} -> 127.0.0.1:${PORT} =="
+    fi
     if [ "$PLUGIN_JS_PROFILE" = 1 ]; then
       ENVARGS+=(GHOSTERM_CORE_TEST_PLUGIN_JS=1)
     fi

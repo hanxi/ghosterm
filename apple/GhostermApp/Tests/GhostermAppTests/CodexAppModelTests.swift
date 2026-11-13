@@ -4,9 +4,37 @@ import GhostermCore
 @testable import GhostermAppModel
 import XCTest
 
+private final class CodexRouteInteraction: AppInteraction {
+    var hosts: [HostKeyPrompt] = []
+    var reject = false
+    func confirmHostKey(_ prompt: HostKeyPrompt) -> HostKeyDecision {
+        hosts.append(prompt)
+        return reject ? .reject : .accept
+    }
+    func askCredential(_ prompt: CredentialPrompt) -> CredentialAnswer? {
+        XCTFail("Unexpected credential prompt in the owned key fixture")
+        return nil
+    }
+}
+
 final class CodexAppModelTests: XCTestCase {
     @MainActor
     func testCodexThreadThroughAppModelAndIsolatedSSH() async throws {
+        try await runCodexThread(useJump: false)
+    }
+
+    @MainActor
+    func testCodexThreadThroughAppModelAndProxyJump() async throws {
+        try await runCodexThread(useJump: true)
+    }
+
+    @MainActor
+    func testCodexJumpHostKeyRejectionDoesNotStartSession() async throws {
+        try await runCodexThread(useJump: true, rejectJump: true)
+    }
+
+    @MainActor
+    private func runCodexThread(useJump: Bool, rejectJump: Bool = false) async throws {
         let environment = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0,
               let gterm = environment["GHOSTERM_TEST_GTERM"],
@@ -17,6 +45,11 @@ final class CodexAppModelTests: XCTestCase {
               let key = environment["GHOSTERM_SSH_KEY"],
               let user = environment["GHOSTERM_SSH_USER"] else {
             throw XCTSkip("requires the explicitly configured Codex package, pinned CLI and isolated SSH fixture")
+        }
+        let jumpHost = environment["GHOSTERM_SSH_JUMP_HOST"]
+        let jumpPort = environment["GHOSTERM_SSH_JUMP_PORT"]
+        if useJump && (jumpHost == nil || jumpPort == nil) {
+            throw XCTSkip("requires the explicitly requested forwarding-only jump sshd")
         }
         let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -55,18 +88,24 @@ final class CodexAppModelTests: XCTestCase {
         // gterm runs so the real CLI cannot read that account's Codex settings.
         let launcher = root.appendingPathComponent("g")
         let executorLog = root.appendingPathComponent("executor.log")
+        let executorStarted = root.appendingPathComponent("executor-started")
         let assignments = childEnvironment.sorted { $0.key < $1.key }.map { quote("\($0.key)=\($0.value)") }.joined(separator: " ")
-        try Data("#!/bin/sh\nexec /usr/bin/env -i \(assignments) \(quote(gterm)) \"$@\" 2>\(quote(executorLog.path))\n".utf8).write(to: launcher)
+        try Data("#!/bin/sh\nprintf started >\(quote(executorStarted.path))\nexec /usr/bin/env -i \(assignments) \(quote(gterm)) \"$@\" 2>\(quote(executorLog.path))\n".utf8).write(to: launcher)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: launcher.path)
         let config = root.appendingPathComponent("ssh_config")
         let knownHosts = root.appendingPathComponent("known_hosts")
-        try Data("""
+        var configuration = """
         Host codex-fixture
           HostName \(host)
           Port \(port)
           User \(user)
           IdentityFile \(key)
-        """.utf8).write(to: config)
+        """ + "\n"
+        if useJump {
+            configuration += "  ProxyJump codex-jump\n"
+            configuration += "Host codex-jump\n  HostName \(jumpHost!)\n  Port \(jumpPort!)\n  User \(user)\n  IdentityFile \(key)\n"
+        }
+        try Data(configuration.utf8).write(to: config)
         try Data().write(to: knownHosts)
         let model = isolatedAppModel(configPath: config.path, knownHostsPath: knownHosts.path)
         let controller = try XCTUnwrap(model.extensionController)
@@ -76,7 +115,18 @@ final class CodexAppModelTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
         cleanupOnReturn = false
-        model.interaction = AcceptAllInteraction()
+        let interaction = CodexRouteInteraction()
+        interaction.reject = rejectJump
+        model.interaction = interaction
+        let hops = try await model.resolvePluginSSHRoute(alias: "codex-fixture")
+        XCTAssertEqual(hops.count, useJump ? 2 : 1)
+        guard hops.count == (useJump ? 2 : 1) else { return }
+        if useJump {
+            XCTAssertEqual(hops[0].port, UInt16(jumpPort!))
+            XCTAssertEqual(hops[1].port, UInt16(port))
+            XCTAssertNotNil(hops[0].addressBytes)
+            XCTAssertNil(hops[1].addressBytes, "Only the first hop is resolved/dialed natively")
+        }
         let package = URL(fileURLWithPath: packagePath)
         let review = try await controller.review(directory: package)
         XCTAssertEqual(review.id, "org.ghosterm.ai-codex")
@@ -88,6 +138,17 @@ final class CodexAppModelTests: XCTestCase {
             methods: ["codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond"],
             hostMethods: ["codex.event"], scopedRoots: [.init(id: "workspace", directory: workspace.path)],
             processPrograms: [.init(name: "codex", executable: codex.path, version: reported, sha256: executableDigest)])
+        if rejectJump {
+            XCTAssertNotNil(model.extensionRunIssue)
+            XCTAssertNil(model.extensionRun)
+            XCTAssertNil(model.codexThreadID)
+            XCTAssertEqual(interaction.hosts.map(\.port), [UInt16(jumpPort!)!])
+            XCTAssertFalse(FileManager.default.fileExists(atPath: executorStarted.path))
+            return
+        }
+        XCTAssertEqual(interaction.hosts.map(\.port), useJump ? [UInt16(jumpPort!)!, UInt16(port)!] : [UInt16(port)!])
+        XCTAssertEqual(Set(interaction.hosts.map(\.fingerprint)).count, useJump ? 2 : 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: executorStarted.path))
         XCTAssertNil(model.extensionRunIssue)
         guard model.extensionRun?.session?.phase == ExtensionSession.Phase.consent.rawValue else {
             XCTFail(model.extensionRunIssue ?? "Codex Session did not reach consent")

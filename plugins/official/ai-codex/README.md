@@ -115,13 +115,21 @@ loopback sshd with the same built package and CLI:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 -B scripts/test-plugin-codex-app.py --gterm tmp/codex-gterm/gterm
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 -B scripts/test-plugin-codex-app.py --gterm tmp/codex-gterm/gterm --route both
 ```
 
 This explicitly reviews/approves the package, waits for Session consent, starts a
 real thread, validates the actual thread/started notification in AppModel, then
 stops and releases the run. The remote launcher supplies a fresh HOME / CODEX_HOME
 and workspace before invoking gterm, so the fixture does not use the account's
-Codex configuration. No model turn is sent. This is AppModel integration evidence;
-import dialogs, buttons, ProxyJump/tmux, device behavior and model approvals still
+Codex configuration. `--route both` also creates a second loopback sshd with its
+own host key. The jump permits forwarding only to the target and forbids remote
+command sessions. The additional cases verify both host-key prompts and a real
+Codex thread through ProxyJump, and reject the jump host key before the Executor
+launcher can run. `--route jump` runs just those two cases. The runner requires
+the exact selected test count with no skips, and ignores inherited SSH fixture
+endpoints. Both daemons are stopped and waited for before their files are removed.
+No model turn is sent. This is AppModel integration evidence;
+import dialogs, buttons, tmux, device behavior and model approvals still
 need their own acceptance evidence. RPC-only sessions negotiate requests without
 resource transfer, and a process cwd alone grants no scoped file-read capability.
