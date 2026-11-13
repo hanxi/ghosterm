@@ -4984,3 +4984,16 @@ macOS arm64 release 与定向 Apple gate 通过：20 项中 17 通过 / 3 因默
 ### Android 插件许可证资源任务依赖修复（3b8ba384）
 
 本批组合构建发现 generateReleaseLintVitalReportModel 读取 copyRuntimeLicense 的目录却没有任务依赖；此前仅给 merge*Assets 手工加 dependsOn，不能覆盖 lint 消费者。资源目录现用 FileCollection.builtBy 绑定生产任务，依赖由所有资源消费者继承，移除按任务名猜测的局部接线。修复后 JS-enabled assembleDebugAndroidTest / assembleRelease / lintRelease 通过，实际 R8 任务执行；普通 JS-off assembleRelease 另通过。检查实际两档 unsigned APK：默认档没有可选 QuickJS 许可资源；切回 enabled 后 assets/licenses/QuickJSNG-MIT.txt 与 vendor/quickjs-ng/LICENSE 逐字节一致。首次 Gradle 配置失败保留为失败记录，不把它计作正常变异红；无设备安装或发行证据。
+
+
+### P3 实施第四十三批：完整补丁快照与分页读取后端
+
+新增 Executor 内存中的 CodexChangeStore 与 codex.change.read，只保存锁定 app-server 已送来的完整 changes 文档，不读取工作区文件、不写文件、不增加资源 / 文件权限或 C ABI。文档格式为 schemaVersion=1、threadId / turnId / itemId 与原始 changes 数组。通知的 _ghosterm marker 提供 snapshotID / snapshotUnits / snapshotBytes；路径或其它字段使预览完全放不下时，仍保留固定身份、完整快照引用与省略数量，不丢弃完整文档。原生面板当前仍显示旧有界预览，本批没有新增完整审阅按钮或批准与快照的绑定，不记完整 diff UI 已完成。
+
+分页按 UTF-16 code unit offset 读取，不拆代理对；服务端以实际 success outcome（包含 wrapper）校验 3072 字节边界。回复的 status=ok / expired / invalid 分开，只有 ok 且 done=true 才是完整内容结束；失效 / 无效无数据且 done=false。外层 RPC 成功只确认服务已回复，不把 expired 等同于内容可用。连接丢失继续沿用 Session unknown，不伪造业务状态。快照引用仅属于当前 Runtime；Native 后续读取器须同时核对 Session 身份、文档 thread / turn / item、连续 offset、总 UTF-8 bytes 与 UTF-16 units。
+
+单文档 512 KiB、最多 16 项 / 合计 1 MiB；新条目逐出最旧快照。同一 item 内容改变会替换 ID，旧分页不能混入新版本；相同文档保留 ID。超限更新先废弃旧版本并给 snapshotUnavailable=limit，不能悄悄继续读取旧内容；stop 清空全部数据且同一个 Store 不复用 ID。包内说明补全五项 Executor RPC allowlist；Android 默认方法表、Swift SSH 夹具及 C Native Runtime 夹具同步登记新方法。候选包现含九个 JS 模块，未改 SDK / wire 或包权限。
+
+strict TypeScript、实际编译包 Executor 夹具与离线重建 --check 通过：完整还原超出预览的 diff、十份被省略文件、4096 字符路径、Unicode / 控制字符；逐块核对实际 outcome 字节数、连续 offset / 总量、EOF / 非法偏移、代理对边界、替换 / 过期、相同内容稳定 ID、单项 / 合计 / 数量预算及 stop 后不可读。新增 mutation-check-plugin-codex-changes.py 在工程 tmp/ 源码副本去掉快照身份、大小或 wire 保护，三组均 strict 编译后正常单条 AssertionError 红、同副本独立协议对照绿、恢复绿及 SHA256。首次 identity 变异在另一条正确的数据选择断言先红，因收据未匹配而中断；补具名断言后最终三组通过，首次不计验收通过。
+
+真实 Native Client Runtime / gterm Executor / 锁定 CLI 的无模型 thread / 事件 / 关闭链通过，另经实际 RPC 断言未知快照明确返回 expired、空内容、done=false。macOS AppModel 单跳 / 双跳 / 拒绝跳板三项专项零失败 / 跳过，Apple ABI 174 引用 / 3 登记未用、Swift debug 构建与隔离 WebKit CSS / PNG 探针通过；此 SSH 专项不产生真实补丁。Android JS-enabled debugAndroidTest / 未签名 release / R8 / lintRelease 构建通过，无连接设备，本批未运行 instrumentation。clang-format 19.1.7 全仓 220 文件、Python 语法与 git diff --check 通过；默认 Core 恢复 JS=OFF / tests=ON 后，完整 gate 的 481/481 CTest、177 公共 ABI 与未实现入口检查通过。最终包 integrity 摘要为 6eb5c14ef29526a7abca58eacfcf8fabc596cde56182e8668c50da209cb78e9f。所有测试保持后台，临时产物验收后清理；不增加 CI 二十份。Native 完整读取 / 校验 / 审阅及审批版本绑定、真实模型 turn / approval、完整 UI / tmux / 设备矩阵与 P3–P6 其余要求继续未完成。

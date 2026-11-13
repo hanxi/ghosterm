@@ -14,10 +14,19 @@ Client and Executor and process.spawn / process.pipes to the Executor only.
 The adapter verifies both the Host version declaration and initialize userAgent.
 Missing mappings or a version mismatch fail explicitly.
 
+Include these Executor methods in the reviewed RPC allowlist:
+`codex.thread.start`, `codex.turn.send`, `codex.turn.interrupt`,
+`codex.approval.respond`, and `codex.change.read`. The Native Host method is
+`codex.event`. Adding the read method grants no filesystem capability; it reads
+only bounded in-memory patches already received from this Codex child.
+
 The Client has no JavaScript event handler: supported Native Hosts receive
 codex.event and provide thread, turn, interrupt and approval controls. Events use
 an object with an event JSON string. Diff previews are bounded and may be partial;
 the UI identifies truncation. Unknown effects are never automatically replayed.
+The Executor also exposes complete patch snapshots through `codex.change.read`;
+Native full-patch review controls are still being implemented. Existing partial
+previews do not prove that a user has reviewed the complete change.
 Stopping the Runtime closes the protocol and terminates/reaps the owned child.
 
 This is an unsigned candidate package. Integrity detects changed content; it does

@@ -91,6 +91,8 @@ int main(int argc, char **argv) {
               "codex.turn.interrupt",
               "--method",
               "codex.approval.respond",
+              "--method",
+              "codex.change.read",
               "--host-method",
               "codex.event",
               "--",
@@ -120,20 +122,21 @@ int main(int argc, char **argv) {
         strcpy(config.required[i], capabilities[i]);
         strcpy(config.available[i], capabilities[i]);
     }
-    gt_ext_rpc_method_t methods[5] = {0};
+    gt_ext_rpc_method_t methods[6] = {0};
     const char *names[] = {"codex.thread.start",
                            "codex.turn.send",
                            "codex.turn.interrupt",
                            "codex.approval.respond",
+                           "codex.change.read",
                            "codex.event"};
-    for (size_t i = 0; i < 5; i++) {
+    for (size_t i = 0; i < 6; i++) {
         strcpy(methods[i].method, names[i]);
         strcpy(methods[i].capability, "session.rpc");
-        methods[i].receiver = i == 4 ? GT_EXT_HOST : GT_EXT_EXECUTOR;
+        methods[i].receiver = i == 5 ? GT_EXT_HOST : GT_EXT_EXECUTOR;
         methods[i].input_shape = methods[i].output_shape = GT_EXT_JSON_OBJECT;
     }
     gt_ext_session_t *session = NULL;
-    CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &config, methods, 5, &session) == GT_OK);
+    CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &config, methods, 6, &session) == GT_OK);
     uint64_t deadline = now() + 30000;
     bool consent = false;
     while (now() < deadline) {
@@ -217,6 +220,31 @@ int main(int argc, char **argv) {
         idle();
     }
     CHECK(started && event_seen);
+    const char missing_change[] = "{\"snapshotID\":\"change-missing\",\"offset\":0}";
+    CHECK(gt_ext_session_request(native_session,
+                                 &lease,
+                                 "codex.change.read",
+                                 missing_change,
+                                 sizeof(missing_change) - 1,
+                                 10000,
+                                 &handle) == GT_EXT_RPC_OK);
+    bool change_checked = false;
+    while (now() < deadline && !change_checked) {
+        CHECK(gt_ext_runtime_step(runtime) == GT_EXT_RUNTIME_ACTIVE);
+        gt_ext_rpc_result_t result;
+        CHECK(gt_ext_session_request_result(native_session, &lease, handle, &result) ==
+              GT_EXT_RPC_OK);
+        if (result.confirmed) {
+            CHECK(result.state == GT_EXT_RPC_SUCCEEDED &&
+                  strstr(result.outcome, "\"status\":\"expired\"") &&
+                  strstr(result.outcome, "\"done\":false") &&
+                  strstr(result.outcome, "\"content\":\"\""));
+            CHECK(gt_ext_session_forget_request(native_session, &lease, handle) == GT_EXT_RPC_OK);
+            change_checked = true;
+        }
+        idle();
+    }
+    CHECK(change_checked);
     gt_ext_runtime_stop(runtime);
     gt_ext_close_t closed;
     do {
@@ -237,6 +265,6 @@ int main(int argc, char **argv) {
     }
     CHECK(reaped == expected_child && WIFEXITED(status) && WEXITSTATUS(status) == 7);
     puts("PASS Codex checked package / Native Client Runtime / gterm Executor / real CLI thread "
-         "and event / close");
+         "and event / explicit expired change status / close");
     return 0;
 }

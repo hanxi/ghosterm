@@ -1,9 +1,10 @@
-import { BoundaryError, boolean, encode, object, text, utf8Bytes, type Call, type Disposable, type PluginContext,
+import { BoundaryError, boolean, encode, integer, object, text, utf8Bytes, type Call, type Disposable, type PluginContext,
   type RequestContext } from "@ghosterm/plugin-sdk";
 import type { ApprovalDecision, RequestID } from "../protocol/client.ts";
 import { CodexProtocolError } from "../protocol/client.ts";
 import type { CodexConversationEvent } from "../protocol/conversation.ts";
 import { spawnCodexAppServer, type CodexAppServerProcess } from "../protocol/process.ts";
+import { CODEX_CHANGE_MAX_BYTES, CodexChangeStore } from "./changes.ts";
 
 const empty = object({});
 const threadResult = object({ threadID: text(128) });
@@ -14,6 +15,10 @@ const approvalInput = object({ requestID: text(140), decisionJSON: text(2048) })
 const eventText = text(3072);
 const eventAck = object({ accepted: boolean() });
 const EVENT_QUEUE_LIMIT = 16;
+const changeInput = object({ snapshotID: text(128), offset: integer(0, CODEX_CHANGE_MAX_BYTES) });
+const changeResult = object({ status: text(16), snapshotID: text(128), offset: integer(0, CODEX_CHANGE_MAX_BYTES),
+  nextOffset: integer(0, CODEX_CHANGE_MAX_BYTES), totalUnits: integer(0, CODEX_CHANGE_MAX_BYTES),
+  totalBytes: integer(0, CODEX_CHANGE_MAX_BYTES), content: text(3072), done: boolean() });
 
 function requestKey(id: RequestID): string {
   return typeof id === "string" ? `s:${id}` : `n:${id}`;
@@ -72,7 +77,9 @@ function boundedFileChangeParams(params: unknown, sequence: number, method: stri
       });
       const visible = bounded.map(change => change.value);
       const omitted = changes.length - visible.length;
-      const marker = { truncated: true, omittedChanges: omitted,
+      const originalMarker = location === "root" ? record._ghosterm : nestedItem?._ghosterm;
+      const marker = { ...(typeof originalMarker === "object" && originalMarker !== null ? originalMarker : {}),
+        truncated: true, omittedChanges: omitted,
         diffTruncated: bounded.some(change => change.truncated) };
       const limitedParams = location === "root"
         ? { ...record, changes: visible, _ghosterm: marker }
@@ -81,15 +88,25 @@ function boundedFileChangeParams(params: unknown, sequence: number, method: stri
       if (payload) return payload;
     }
   }
-  return undefined;
+  // Long paths or unrelated backend fields must not hide a readable snapshot.
+  const originalMarker = location === "root" ? record._ghosterm : nestedItem?._ghosterm;
+  const marker = { ...(typeof originalMarker === "object" && originalMarker !== null ? originalMarker : {}),
+    truncated: true, omittedChanges: changes.length, diffTruncated: true };
+  const identity = { threadId: record.threadId, turnId: record.turnId };
+  const minimalParams = location === "root"
+    ? { ...identity, itemId: record.itemId, changes: [], _ghosterm: marker }
+    : { ...identity, item: { id: nestedItem?.id, type: "fileChange", changes: [], _ghosterm: marker } };
+  return fitEvent({ sequence, kind: "notification", notification: { method, params: minimalParams } });
 }
 
-function eventPayload(event: CodexConversationEvent): string {
+function eventPayload(event: CodexConversationEvent, changes: CodexChangeStore): string {
   let value: unknown;
+  const notificationParams = event.kind === "notification"
+    ? changes.capture(event.notification.method, event.notification.params) : undefined;
   switch (event.kind) {
     case "notification":
       value = { sequence: event.sequence, kind: event.kind,
-        notification: { method: event.notification.method, params: event.notification.params ?? null } };
+        notification: { method: event.notification.method, params: notificationParams ?? null } };
       break;
     case "approval-request":
       value = { sequence: event.sequence, kind: event.kind,
@@ -113,7 +130,7 @@ function eventPayload(event: CodexConversationEvent): string {
   const fit = fitEvent(value);
   if (fit) return fit;
   if (event.kind === "notification" && ["item/fileChange/patchUpdated", "item/started", "item/completed"].includes(event.notification.method)) {
-    const bounded = boundedFileChangeParams(event.notification.params, event.sequence, event.notification.method);
+    const bounded = boundedFileChangeParams(notificationParams, event.sequence, event.notification.method);
     if (bounded) return bounded;
   }
   if (event.kind === "notification") {
@@ -145,6 +162,7 @@ export function activate(context: PluginContext): Disposable {
   let interruptPromise: Promise<void> | undefined;
   const events: string[] = [];
   const approvals = new Map<string, RequestID>();
+  const changes = new CodexChangeStore();
   const eventMethod = { name: "codex.event", input: object({ event: eventText }), output: eventAck } as const;
 
   const close = (): Promise<void> => {
@@ -154,6 +172,7 @@ export function activate(context: PluginContext): Disposable {
     unsubscribe = undefined;
     events.length = 0;
     approvals.clear();
+    changes.clear();
     flight?.cancel();
     const active = conversation;
     conversation = undefined;
@@ -205,7 +224,7 @@ export function activate(context: PluginContext): Disposable {
             approvals.clear();
           }
           if (events.length >= EVENT_QUEUE_LIMIT) throw new CodexProtocolError("Codex event queue is full");
-          events.push(eventPayload(event));
+          events.push(eventPayload(event, changes));
         } catch (error) {
           failure = error instanceof Error ? error : new Error(String(error));
         }
@@ -257,6 +276,12 @@ export function activate(context: PluginContext): Disposable {
     conversation.respondApproval(id, decision);
     approvals.delete(input.requestID);
     return { accepted: true };
+  });
+
+  context.session.register({ name: "codex.change.read", input: changeInput, output: changeResult }, (input, request) => {
+    request.check();
+    if (closing || failure || !conversation) throw new CodexProtocolError("Codex change snapshots are unavailable");
+    return changes.read(input.snapshotID, input.offset);
   });
 
   const disposable: Disposable = {

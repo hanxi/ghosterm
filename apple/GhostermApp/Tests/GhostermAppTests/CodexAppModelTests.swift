@@ -135,7 +135,7 @@ final class CodexAppModelTests: XCTestCase {
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest,
             command: "ai codex", arguments: [], sshAlias: "codex-fixture", executable: launcher.path,
             executorDirectory: package.path, executorDigest: review.digest,
-            methods: ["codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond"],
+            methods: ["codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond", "codex.change.read"],
             hostMethods: ["codex.event"], scopedRoots: [.init(id: "workspace", directory: workspace.path)],
             processPrograms: [.init(name: "codex", executable: codex.path, version: reported, sha256: executableDigest)])
         if rejectJump {

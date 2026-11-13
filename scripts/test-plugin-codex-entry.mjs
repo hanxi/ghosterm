@@ -4,6 +4,10 @@ import { pathToFileURL } from "node:url";
 const { activate } = await import(process.env.GHOSTERM_CODEX_PACKAGE_ENTRY
   ? pathToFileURL(process.env.GHOSTERM_CODEX_PACKAGE_ENTRY).href
   : "../plugins/official/ai-codex/executor/index.ts");
+const { CodexChangeStore, CODEX_CHANGE_MAX_BYTES, CODEX_CHANGES_MAX_BYTES, CODEX_CHANGES_MAX_ITEMS } =
+  await import(process.env.GHOSTERM_CODEX_PACKAGE_ENTRY
+    ? new URL("changes.js", pathToFileURL(process.env.GHOSTERM_CODEX_PACKAGE_ENTRY)).href
+    : "../plugins/official/ai-codex/executor/changes.ts");
 
 class FakeCodexChild {
   verifiedVersion = CODEX_CLI_VERSION;
@@ -120,7 +124,7 @@ const fixture = fixtureContext();
 const disposable = activate(fixture.context);
 assert.equal(fixture.spawnCount, 0, "activation must not spawn before an admitted thread request");
 assert.deepEqual([...fixture.handlers.keys()], [
-  "codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond",
+  "codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond", "codex.change.read",
 ]);
 
 const start = fixture.handlers.get("codex.thread.start")({}, { check() {} });
@@ -149,6 +153,53 @@ const fileChangeEvent = JSON.parse(fixture.events.find(event => event.input.incl
 assert.equal(fileChangeEvent.notification.params._ghosterm.truncated, true);
 assert.equal(fileChangeEvent.notification.params._ghosterm.diffTruncated, true);
 assert(fileChangeEvent.notification.params.changes[0].diff.includes("diff 已截断"));
+const snapshotID = fileChangeEvent.notification.params._ghosterm.snapshotID;
+assert.equal(typeof snapshotID, "string", "a partial preview must retain its complete snapshot reference");
+function readComplete(read, snapshotID) {
+  let content = "", offset = 0, totalBytes;
+  for (let count = 0; count < 4096; count++) {
+    const chunk = read(snapshotID, offset);
+    assert.equal(chunk.status, "ok");
+    assert.equal(chunk.snapshotID, snapshotID);
+    assert.equal(chunk.offset, offset);
+    assert.equal(chunk.nextOffset, offset + chunk.content.length);
+    assert(new TextEncoder().encode(JSON.stringify({ kind: "success", value: chunk })).length <= 3072,
+      "complete snapshot chunks must fit the RPC outcome body");
+    totalBytes ??= chunk.totalBytes;
+    assert.equal(chunk.totalBytes, totalBytes);
+    content += chunk.content;
+    offset = chunk.nextOffset;
+    if (chunk.done) {
+      assert.equal(offset, chunk.totalUnits);
+      assert.equal(new TextEncoder().encode(content).length, totalBytes);
+      return JSON.parse(content);
+    }
+    assert(chunk.content.length > 0);
+  }
+  assert.fail("snapshot read did not finish within its bounded budget");
+}
+const completeChange = readComplete((snapshotID, offset) => fixture.handlers.get("codex.change.read")(
+  { snapshotID, offset }, { check() {} }), snapshotID);
+assert.equal(completeChange.itemId, "item-3");
+assert.equal(completeChange.changes[0].diff, "@@ -1 +1 @@\n" + "+x".repeat(5000));
+const widePath = "p".repeat(4096);
+fixture.child.line({ method: "item/fileChange/patchUpdated", params: {
+  threadId: "thread-test", turnId: "turn-test", itemId: "wide-item",
+  changes: Array.from({ length: 10 }, (_, index) => ({
+    path: index === 0 ? widePath : `src/file-${index}.ts`, kind: { type: "add" }, diff: `+complete ${index}`,
+  })),
+  backendDetail: "x".repeat(4000),
+} });
+await driveUntil(disposable, () => fixture.events.some(event =>
+  JSON.parse(event.input).notification?.params?.itemId === "wide-item"), "minimal preview retaining full snapshot");
+const wide = JSON.parse(fixture.events.find(event => JSON.parse(event.input).notification?.params?.itemId === "wide-item").input);
+assert.deepEqual(wide.notification.params.changes, []);
+assert.equal(wide.notification.params._ghosterm.omittedChanges, 10);
+const wideDocument = readComplete((snapshotID, offset) => fixture.handlers.get("codex.change.read")(
+  { snapshotID, offset }, { check() {} }), wide.notification.params._ghosterm.snapshotID);
+assert.equal(wideDocument.changes[0].path, widePath, "snapshot identity must select the requested document");
+assert.equal(wideDocument.changes.length, 10, "complete snapshots must retain files omitted from the preview");
+assert.equal(wideDocument.changes[9].diff, "+complete 9");
 assert(new TextEncoder().encode(JSON.stringify({ event: JSON.stringify(fileChangeEvent) })).length <= 3072,
   "file change diff events must fit the complete Native RPC body");
 assert(fixture.events.every(event => event.method === "codex.event" && event.timeoutMs === 30000));
@@ -178,6 +229,52 @@ expiredDisposable.dispose();
 for (let i = 0; i < 8; i++) await Promise.resolve();
 assert.equal(expired.child.reaped, true);
 
+const snapshots = new CodexChangeStore();
+function capture(itemId, diff, method = "item/fileChange/patchUpdated") {
+  const item = { id: itemId, type: "fileChange", changes: [
+    { path: "完整/😀.ts", kind: { type: "update", move_path: "new/path.ts" }, diff },
+  ] };
+  const stamped = snapshots.capture(method, { threadId: "thread", turnId: "turn",
+    ...(method === "item/fileChange/patchUpdated" ? { itemId, changes: item.changes } : { item }) });
+  return method === "item/fileChange/patchUpdated" ? stamped._ghosterm : stamped.item._ghosterm;
+}
+const unicodeDiff = '😀' + '中文'.repeat(1000) + '😀中文\\\u0000"\n'.repeat(2000);
+const unicode = capture("unicode", unicodeDiff, "item/started");
+assert.equal(capture("unicode", unicodeDiff, "item/completed").snapshotID, unicode.snapshotID,
+  "an identical backend patch must not invalidate an in-progress review");
+assert.equal(readComplete((id, at) => snapshots.read(id, at), unicode.snapshotID).changes[0].diff, unicodeDiff);
+const eof = snapshots.read(unicode.snapshotID, unicode.snapshotUnits);
+assert.equal(eof.status, "ok");
+assert.equal(eof.done, true);
+assert.equal(eof.content, "");
+assert.equal(snapshots.read(unicode.snapshotID, unicode.snapshotUnits + 1).status, "invalid");
+const firstChunk = snapshots.read(unicode.snapshotID, 0);
+const surrogate = firstChunk.content.indexOf("😀");
+assert(surrogate >= 0);
+assert.equal(snapshots.read(unicode.snapshotID, surrogate + 1).status, "invalid");
+assert.equal(snapshots.read(unicode.snapshotID, -1).status, "invalid");
+const replacement = capture("unicode", "replacement", "item/completed");
+assert.notEqual(replacement.snapshotID, unicode.snapshotID);
+assert.equal(snapshots.read(unicode.snapshotID, 0).status, "expired", "changed snapshot IDs must not read replacement content");
+assert.equal(snapshots.read(unicode.snapshotID, firstChunk.nextOffset).status, "expired");
+const overLimit = capture("unicode", "x".repeat(CODEX_CHANGE_MAX_BYTES));
+assert.equal(overLimit.snapshotUnavailable, "limit", "oversized snapshots must be unavailable");
+assert.equal(snapshots.read(replacement.snapshotID, 0).status, "expired");
+assert.equal(snapshots.retainedBytes, 0);
+const evicted = capture("old", "old");
+for (let i = 0; i < CODEX_CHANGES_MAX_ITEMS; i++) capture(`small-${i}`, "small");
+assert.equal(snapshots.retainedItems, CODEX_CHANGES_MAX_ITEMS);
+assert.equal(snapshots.read(evicted.snapshotID, 0).status, "expired");
+for (let i = 0; i < 4; i++) {
+  capture(`large-${i}`, "x".repeat(350000));
+  assert(snapshots.retainedBytes <= CODEX_CHANGES_MAX_BYTES);
+}
+snapshots.clear();
+assert.equal(snapshots.retainedBytes, 0);
+assert.equal(snapshots.retainedItems, 0);
+assert.equal(snapshots.read(evicted.snapshotID, 0).status, "expired");
+assert.notEqual(capture("old", "new").snapshotID, evicted.snapshotID);
+
 let turnCancelled = false;
 let cancelledTurnFailure;
 const cancelledTurn = fixture.handlers.get("codex.turn.send")({ text: "cancel me" }, {
@@ -196,6 +293,8 @@ disposable.dispose();
 for (let i = 0; i < 8; i++) await Promise.resolve();
 assert.equal(fixture.child.reaped, true, "disposing the Executor must stop and reap Codex");
 assert.equal(fixture.child.signals, 1, "repeated disposal must not signal the child twice");
+assert.throws(() => fixture.handlers.get("codex.change.read")({ snapshotID, offset: 0 }, { check() {} }),
+  /snapshots are unavailable/, "closed Executors must not retain readable snapshot access");
 
 const denied = fixtureContext({ allowed: false });
 const deniedDisposable = activate(denied.context);

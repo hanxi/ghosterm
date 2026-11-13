@@ -19,7 +19,7 @@ import org.json.JSONObject
 
 /** Per-AppModel review state. Trust is deliberately process-local in this slice. */
 class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(application) {
-    private val codexExecutorMethods = listOf("codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond")
+    private val codexExecutorMethods = listOf("codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond", "codex.change.read")
     private val codexHostMethods = listOf("codex.event")
     private val pendingCodexRPCHandles = mutableSetOf<Long>()
     private val activeCodexRPCHandles = mutableSetOf<Long>()

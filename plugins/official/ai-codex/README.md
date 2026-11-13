@@ -54,6 +54,7 @@ external service):
 python3 -B scripts/test-plugin-codex-entry.py --fetch
 python3 -B scripts/mutation-check-plugin-codex-entry.py
 python3 -B scripts/mutation-check-plugin-codex-expiry.py --apple
+python3 -B scripts/mutation-check-plugin-codex-changes.py
 ```
 
 Turn completion expires unanswered approvals for that thread and turn even when
@@ -67,6 +68,26 @@ disposable source copies, strict TypeScript checking, and optional real Swift
 compilation to verify assertion failures, independent controls, restoration, and
 source digests. Its locked tools use the package builder's cache; add `--fetch`
 when that cache is empty.
+
+`executor/changes.ts` retains complete backend change documents independently of
+the preview limit. A document contains schemaVersion=1, threadId, turnId, itemId,
+and the original changes array. Its preview `_ghosterm` marker carries snapshotID,
+snapshotUnits and snapshotBytes, including when paths or other fields leave no
+room for a partial diff. `codex.change.read({snapshotID, offset})` returns status,
+the same ID, offset/nextOffset, totalUnits/totalBytes, content and done. Offsets
+count UTF-16 code units, never split a surrogate pair, and every success outcome
+fits the frozen 3072-byte RPC body budget. Only status=ok with done=true denotes
+the end of complete content; expired/invalid statuses contain no data and are not
+completion or approval. Session loss still yields the channel's unknown outcome.
+
+Each snapshot is at most 512 KiB of serialized UTF-8 JSON. The store retains at
+most 16 items and 1 MiB total, evicts oldest entries, and replaces a changed
+item's ID so readers cannot mix revisions. Identical documents keep their ID;
+oversized updates invalidate old content and advertise snapshotUnavailable=limit.
+Stopping the Executor clears all snapshots. IDs belong to that Runtime instance
+and must never be reused across Native Session caches. This is the complete-read
+backend contract; Native full diff retrieval, rendering, and approval/review
+binding remain unfinished. No extra resource or scoped-file permission is added.
 
 The lock was derived from the official Codex CLI `codex-cli 0.166.0` generators with experimental APIs disabled. Recheck the installed CLI and its generated JSON Schema and TypeScript surface with:
 
