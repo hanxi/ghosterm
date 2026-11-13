@@ -4960,6 +4960,14 @@ gterm 的选择性子进程环境补入显式 TMPDIR（仍无任意变量继承�
 
 本机 Xcode Swift 6.4 的 macOS arm64 release 构建通过；Apple 定向 gate 的 ExtensionControllerTests 共 19 项，16 通过、3 项因默认未启用 JS runtime 跳过、零失败，包括启动参数逐字断言、引号转义、目录与进程映射验证。ABI Apple 174 引用 / 3 登记未用及隔离 WebKit CSS / PNG 探针通过，git diff --check 通过。临时产物清理，测试保持后台。尚未复跑云端 Swift 6.1.2，不据此声称原 CI 已绿；无公共 ABI 变化，不增加 CI 二十份，也不改变 P3 未完成状态。
 
+### macOS CI 编译修复续批：时间线字节统计（2026-11-13）
+
+最新 main `6568e882` 的 dev CI `43410551123` 已越过上述 argv 表达式，但在同一 Swift 6.1.2 / Xcode 16.4 环境报 `CodexTimeline.swift:201` 类型检查超时。`retainedBytes` 将标题、正文、文件路径、可选移动路径及每行 diff 的 UTF-8 计数连成嵌套 reduce 表达式；现改为显式 Int 累加及两层循环，保留所有原统计字段和时间线预算，不提高编译器超时阈值。
+
+本机显式选择 Xcode 的 Swift 6.4 后，macOS arm64 release 构建通过；Apple 定向 gate 的 ExtensionControllerTests / CodexChangeReviewTests 共 35 项、3 项默认 JS-off 跳过、零失败，包含时间线预算、文件补丁解析与完整文档审阅。Apple ABI 174 引用 / 3 登记未用及隔离 WebKit CSS / PNG 绘制通过。首次误用系统 CommandLineTools 时因找不到 XCTest 编译失败，未计通过；切换 DEVELOPER_DIR 后完成上述复验。本机工具链较云端新，仍需以新提交的云端运行核验 Swift 6.1.2；不将本机绿等同于 CI 已恢复。不改公共 ABI，不增加 CI 二十份，不改变插件计划未完成状态。
+
+默认 Core JS=OFF / tests=ON 的离线 gate 另通过 481/481 CTest、177 个 ABI 符号及未实现入口检查；git diff --check 通过。测试窗口保持后台，临时产物验收后清理。
+
 
 ### P3 实施第四十一批：Codex AppModel ProxyJump 与拒绝跳板主机密钥
 

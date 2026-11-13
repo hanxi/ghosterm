@@ -198,10 +198,17 @@ enum CodexTimelineReducer {
     }
 
     private static func retainedBytes(_ entry: CodexTimelineEntry) -> Int {
-        entry.title.utf8.count + entry.detail.utf8.count + entry.fileChanges.reduce(0) { bytes, file in
-            bytes + file.path.utf8.count + (file.movePath?.utf8.count ?? 0) +
-                file.lines.reduce(0) { $0 + $1.text.utf8.count }
+        // Keep byte accounting simple enough for the Swift 6.1 compiler used by CI.
+        var bytes = entry.title.utf8.count
+        bytes += entry.detail.utf8.count
+        for file in entry.fileChanges {
+            bytes += file.path.utf8.count
+            bytes += file.movePath?.utf8.count ?? 0
+            for line in file.lines {
+                bytes += line.text.utf8.count
+            }
         }
+        return bytes
     }
 
     private static func bounded(_ value: String) -> String {
