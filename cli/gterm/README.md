@@ -48,7 +48,7 @@ python3 scripts/mutation-check-gterm.py
 显式 stdio Executor 由持有专属 pipe/socket 的原生 Host 启动：
 
 ```text
-gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 [--method NAME]... [--host-method NAME]... [--root ID DIRECTORY]... [--process-program NAME ABSOLUTE_PATH VERSION SHA256]... -- DIRECTORY COMMAND [ARG...]
+gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 [--method NAME]... [--host-method NAME]... [--root ID DIRECTORY]... [--process-program NAME ABSOLUTE_PATH VERSION SHA256]... [--process-argument NAME VALUE]... [--process-environment NAME]... -- DIRECTORY COMMAND [ARG...]
 ```
 
 这是当前的前台启动协议，不是向交互终端写回的通道；stdin/stdout 任一为 TTY 都拒绝。
@@ -65,6 +65,31 @@ Host 必须管理专属 stdio 的对端归属；本入口不实现本机 socket 
 当前 stdio Executor 提供 `session.rpc` 与有界 ResourceStore；只有显式配置 `--root ID DIRECTORY` 时才提供 `file.readScoped`。每个根以 `O_NOFOLLOW` 打开、验证为当前用户拥有的目录，最多 8 个、每个最多 16 MiB；插件只看到 ID 与相对路径，不看到宿主绝对路径。资源 Store 在 `$TMPDIR` 下创建随机 `0700` 子目录，总预算 16 MiB、单资源 1 MiB、8 个槽位，Session 结束时按 owner 顺序关闭并移除。需要 `resource.receive` 的 Executor 使用带资源 feature 的 Session；缺少 Store 或必需根时明确拒绝。`file.readScoped` 必须与 `resource.receive` 一起声明，普通 argv 仍通过显式启动参数传入。
 
 Native 启动器可为 Executor 明确配置 `--process-program NAME ABSOLUTE_PATH VERSION SHA256`；该映射来自本次用户/Host 设置，不由插件包选择。只有同时存在至少一个显式 workspace root 和映射时，兼容性事实及 Session 才开放 `process.spawn` / `process.pipes`。Core 在 Runtime open 时核对绝对可执行文件 SHA-256，并在每次 spawn 前复核文件身份；程序名还必须出现在已审查包的 `process.spawn` manifest scope。`VERSION` 是 Native Host 提供的版本声明，gterm/Core 不会自行运行 `--version` 探针，Codex adapter 会将它与锁定版本比较。子进程只收到 gterm 选择的 `HOME`、`PATH`、`XDG_CONFIG_HOME`、`CODEX_HOME`（若存在），不会继承其余 SSH/gterm 环境。Host mapping 当前是显式命令参数；不要把摘要/版本当成来自插件自身的声明。
+
+映射之后可重复 `--process-argument NAME VALUE` 固定该程序的启动参数；VALUE 即使以
+`--` 开头也按字面值消费。每个映射最多 16 项、每项 4096 字节、合计 16384 字节（含 NUL）。
+Core 复制全部字符串，在插件 argv[0] 后、插件 argv[1...] 前插入，不拼 shell，最终合并 argv
+仍须满足原 64 项 / 16 KiB 限额。空参数保留，argv[0] 仍须非空。程序映射与固定值均由 Host
+选择，插件不能替换固定项；若固定入口本身允许后续参数覆盖配置，Host 仍须按该入口的规则选择
+参数。本功能不核验参数所指脚本 / profile / 依赖树的字节，也不提供 OS 沙箱。
+
+`--process-environment NAME` 额外选择执行机器已有的环境变量，最多 27 个额外名称，
+与原五个默认候选一起受 32 项上限约束；重复 / 非法名称拒绝，显式名称缺值或空值报不支持。
+值不经 wire 传输，不打印到诊断；未选择的变量不继承。只有包声明、Host 配置与本次 Session
+共同允许进程服务时才可使用。`TMPDIR` 是五个默认候选之一；没有自动搬运客户端凭据或改用身份。
+
+例如，持有已审查 Node 后端与 profile 的可信启动器可将程序名映射到绝对 Node 可执行文件，
+固定脚本、`--profile` 与 profile 路径，再显式选择后端所需的执行端环境。此为 Portable
+Supervisor 调用外部 Node 进程的接缝，不等于 gterm 已实现通用 `runtime: node` 包加载。
+真实原生 HOST Session → gterm → Node → 锁版 Claude CLI 的无模型 conformance：
+
+```sh
+python3 -B scripts/test-gterm-node.py --build tmp/gterm-build --fetch
+python3 -B scripts/mutation-check-process-prefix.py --sdk tmp/compiled-sdk --gterm-build tmp/gterm-build
+```
+
+第二条先在工程内隔离副本验证十一项 C 边界与十组 ASan/UBSan 变异，指定 gterm fixture build
+后再验两组真实 Node 管道变异；不运行模型 / 工具，不代替 App 授权页面或 Node 包安装验收。
 
 示例：
 

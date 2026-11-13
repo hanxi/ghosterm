@@ -687,7 +687,8 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
                                       .activation_ms = 10000,
                                       .jobs_per_step = 128};
         gt_ext_process_program_mapping_t process_programs[] = {
-            {"cat", "/bin/cat", "fixture-1", NULL}, {"env", "/usr/bin/env", "fixture-1", NULL}};
+            {"cat", "/bin/cat", "fixture-1", NULL, NULL, 0},
+            {"env", "/usr/bin/env", "fixture-1", NULL, NULL, 0}};
         char identity_cat_path[4097];
         const char *cat_path = process_programs[0].executable;
         if (!strcmp(mode, "process-identity")) {

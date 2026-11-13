@@ -124,7 +124,9 @@ int main(int argc, char **argv) {
             "codex",
             "/usr/bin/codex",
             "0.166.0",
-            "0000000000000000000000000000000000000000000000000000000000000000"};
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            NULL,
+            0};
         runtime.process_programs = &program;
         runtime.process_program_count = 1;
         CHECK(gt_ext_runtime_open_package(&pair.pair.e, package, &runtime, false, &r) ==

@@ -41,7 +41,8 @@ int main(int argc, char **argv) {
     bool preview =
         argc >= 7 && (!strcmp(argv[4], "preview") || !strcmp(argv[4], "preview-unicode"));
     bool preview_unicode = preview && !strcmp(argv[4], "preview-unicode");
-    bool process_config = argc == 9 && !strcmp(argv[4], "process-config");
+    bool process_prefix = argc == 11 && !strcmp(argv[4], "process-prefix");
+    bool process_config = (argc == 9 && !strcmp(argv[4], "process-config")) || process_prefix;
     CHECK(argc == 5 || (preview && argc == (preview_unicode ? 8 : 7)) || process_config);
     CHECK(!atexit(cleanup));
     const char *binary = argv[1], *directory = argv[2], *package_digest = argv[3], *mode = argv[4];
@@ -75,7 +76,48 @@ int main(int argc, char **argv) {
             close(fd[1]);
         }
         const char *trusted = !strcmp(mode, "digest") ? client_digest : package_digest;
-        if (process_config) {
+        if (process_prefix) {
+            execl(binary,
+                  binary,
+                  "relay",
+                  "--stdio",
+                  "--trust-development-digest",
+                  package_digest,
+                  "--client-digest",
+                  client_digest,
+                  "--root",
+                  "workspace",
+                  workspace,
+                  "--process-program",
+                  "cat",
+                  argv[6],
+                  argv[7],
+                  argv[8],
+                  "--process-argument",
+                  "cat",
+                  argv[9],
+                  "--process-argument",
+                  "cat",
+                  "--profile",
+                  "--process-argument",
+                  "cat",
+                  argv[10],
+                  "--process-environment",
+                  "CLAUDE_CONFIG_DIR",
+                  "--process-environment",
+                  "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+                  "--process-environment",
+                  "GT_GTERM_NODE_EXTRA",
+                  "--method",
+                  "fixture.echo",
+                  "--",
+                  directory,
+                  "fixture",
+                  "中文",
+                  "",
+                  "';throw Error('injected');//",
+                  (char *)NULL);
+        } else if (process_config) {
             execl(binary,
                   binary,
                   "relay",
@@ -290,7 +332,8 @@ int main(int argc, char **argv) {
         CHECK(gt_ext_session_open_rpc(&channel, GT_EXT_HOST, &c, methods, method_count, &session) ==
               GT_OK);
     }
-    uint64_t deadline = now() + 10000, consent_at = 0, handle = 0, process_ready_at = 0;
+    uint64_t deadline = now() + (process_prefix ? 30000 : 10000), consent_at = 0, handle = 0,
+             process_ready_at = 0;
     bool confirmed = false, host_method_confirmed = false, decided = false, signalled = false,
          lost = false;
     bool preview_main = false, preview_asset = false;
@@ -392,9 +435,13 @@ int main(int argc, char **argv) {
             if (strcmp(mode, "arguments-invalid")) {
                 CHECK(gt_ext_session_lease(session, &lease));
                 const char *input = "{\"text\":\"stdio\",\"count\":17}";
-                CHECK(gt_ext_session_request(
-                          session, &lease, "fixture.echo", input, strlen(input), 3000, &handle) ==
-                          GT_EXT_RPC_OK &&
+                CHECK(gt_ext_session_request(session,
+                                             &lease,
+                                             "fixture.echo",
+                                             input,
+                                             strlen(input),
+                                             process_prefix ? 25000 : 3000,
+                                             &handle) == GT_EXT_RPC_OK &&
                       handle);
             }
         }

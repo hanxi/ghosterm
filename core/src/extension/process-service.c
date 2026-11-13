@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "extension/process-service.h"
+#include "extension/memory.h"
 #include "base/sha256.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -21,6 +22,9 @@ struct gt_ext_process_service {
     char verified_sha256[GT_EXT_PROCESS_PROGRAMS_MAX][65];
     struct stat executable_identity[GT_EXT_PROCESS_PROGRAMS_MAX];
     int executable_fds[GT_EXT_PROCESS_PROGRAMS_MAX];
+    size_t prefix_argc[GT_EXT_PROCESS_PROGRAMS_MAX];
+    size_t prefix_offsets[GT_EXT_PROCESS_PROGRAMS_MAX][GT_EXT_RUNTIME_PROCESS_PREFIX_MAX];
+    char prefix_bytes[GT_EXT_PROCESS_PROGRAMS_MAX][GT_EXT_RUNTIME_PROCESS_PREFIX_BYTES_MAX];
 };
 
 static bool stat_identity_equal(const struct stat *a, const struct stat *b) {
@@ -157,7 +161,7 @@ gt_status_t gt__ext_process_service_open(gt_ext_session_t *session,
         info.process_program_count > GT_EXT_PROCESS_PROGRAMS_MAX) {
         return GT_ERR_UNSUPPORTED;
     }
-    gt_ext_process_service_t *service = calloc(1, sizeof(*service));
+    gt_ext_process_service_t *service = gt__plugin_memory_calloc(1, sizeof(*service));
     if (!service) {
         return GT_ERR_IO;
     }
@@ -168,7 +172,7 @@ gt_status_t gt__ext_process_service_open(gt_ext_session_t *session,
     }
     for (size_t i = 0; i < info.process_program_count; i++) {
         if (!valid_program_name(info.process_programs[i])) {
-            free(service);
+            gt__plugin_memory_free(NULL, service, sizeof(*service));
             return GT_ERR_PROTOCOL;
         }
         strcpy(service->programs[i], info.process_programs[i]);
@@ -182,7 +186,9 @@ gt_status_t gt__ext_process_service_open(gt_ext_session_t *session,
             !mappings[i].verified_version || !mappings[i].verified_version[0] ||
             strnlen(mappings[i].verified_version, sizeof(service->verified_versions[0])) >=
                 sizeof(service->verified_versions[0]) ||
-            !valid_sha256(mappings[i].verified_sha256)) {
+            !valid_sha256(mappings[i].verified_sha256) ||
+            mappings[i].prefix_argc > GT_EXT_RUNTIME_PROCESS_PREFIX_MAX ||
+            (mappings[i].prefix_argc && !mappings[i].prefix_argv)) {
             gt__ext_process_service_destroy(&service);
             return GT_ERR_INVALID_ARG;
         }
@@ -193,6 +199,23 @@ gt_status_t gt__ext_process_service_open(gt_ext_session_t *session,
             }
         }
         service->mapping_count = i + 1;
+        size_t prefix_bytes = 0;
+        for (size_t j = 0; j < mappings[i].prefix_argc; j++) {
+            if (!mappings[i].prefix_argv[j]) {
+                gt__ext_process_service_destroy(&service);
+                return GT_ERR_INVALID_ARG;
+            }
+            size_t bytes = strnlen(mappings[i].prefix_argv[j], GT_EXT_PROCESS_ARGUMENT_MAX + 1);
+            if (bytes > GT_EXT_PROCESS_ARGUMENT_MAX ||
+                bytes + 1 > GT_EXT_RUNTIME_PROCESS_PREFIX_BYTES_MAX - prefix_bytes) {
+                gt__ext_process_service_destroy(&service);
+                return GT_ERR_INVALID_ARG;
+            }
+            service->prefix_offsets[i][j] = prefix_bytes;
+            memcpy(service->prefix_bytes[i] + prefix_bytes, mappings[i].prefix_argv[j], bytes + 1);
+            prefix_bytes += bytes + 1;
+        }
+        service->prefix_argc[i] = mappings[i].prefix_argc;
         strcpy(service->mapping_names[i], mappings[i].name);
         strcpy(service->executables[i], mappings[i].executable);
         strcpy(service->verified_versions[i], mappings[i].verified_version);
@@ -228,7 +251,8 @@ gt_status_t gt__ext_process_service_spawn(gt_ext_process_service_t *service,
     if (out) {
         *out = NULL;
     }
-    if (!service || !program || !out) {
+    if (!service || !program || !out || !argv || !argc || argc > GT_EXT_PROCESS_ARGUMENTS_MAX ||
+        !argv[0]) {
         return GT_ERR_INVALID_ARG;
     }
     gt_package_check_info_t info = {0};
@@ -240,7 +264,9 @@ gt_status_t gt__ext_process_service_spawn(gt_ext_process_service_t *service,
         mappings[i] = (gt_ext_process_program_mapping_t){service->mapping_names[i],
                                                          service->executables[i],
                                                          service->verified_versions[i],
-                                                         service->verified_sha256[i]};
+                                                         service->verified_sha256[i],
+                                                         NULL,
+                                                         0};
     }
     const char *executable = NULL;
     gt_status_t resolved = gt__ext_process_service_resolve(
@@ -262,8 +288,24 @@ gt_status_t gt__ext_process_service_spawn(gt_ext_process_service_t *service,
                 !stat_identity_equal(&service->executable_identity[i], &fd_identity)) {
                 return GT_ERR_AUTH;
             }
-            return gt__ext_process_spawn(
-                executable, argv, argc, cwd_fd, environment, environment_count, out);
+            if (service->prefix_argc[i] > GT_EXT_PROCESS_ARGUMENTS_MAX - argc) {
+                return GT_ERR_INVALID_ARG;
+            }
+            const char *combined[GT_EXT_PROCESS_ARGUMENTS_MAX];
+            combined[0] = argv[0];
+            for (size_t j = 0; j < service->prefix_argc[i]; j++) {
+                combined[j + 1] = service->prefix_bytes[i] + service->prefix_offsets[i][j];
+            }
+            for (size_t j = 1; j < argc; j++) {
+                combined[j + service->prefix_argc[i]] = argv[j];
+            }
+            return gt__ext_process_spawn(executable,
+                                         combined,
+                                         argc + service->prefix_argc[i],
+                                         cwd_fd,
+                                         environment,
+                                         environment_count,
+                                         out);
         }
     }
     return GT_ERR_UNSUPPORTED;
@@ -278,7 +320,7 @@ gt_status_t gt__ext_process_service_destroy(gt_ext_process_service_t **service) 
             close((*service)->executable_fds[i]);
         }
     }
-    free(*service);
+    gt__plugin_memory_free(NULL, *service, sizeof(**service));
     *service = NULL;
     return GT_OK;
 }

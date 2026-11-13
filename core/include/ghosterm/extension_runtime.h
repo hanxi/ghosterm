@@ -14,6 +14,8 @@ extern "C" {
 #define GT_EXT_RUNTIME_ROOTS_MAX 8u
 #define GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX 16u
 #define GT_EXT_RUNTIME_PROCESS_ENV_MAX 32u
+#define GT_EXT_RUNTIME_PROCESS_PREFIX_MAX 16u
+#define GT_EXT_RUNTIME_PROCESS_PREFIX_BYTES_MAX 16384u
 #define GT_EXT_RUNTIME_PROCESS_LIFETIME_MS_MAX 3600000u
 #define GT_EXT_RUNTIME_PROCESS_OUTPUT_BYTES_MAX (256u * 1024u * 1024u)
 typedef struct gt_ext_runtime gt_ext_runtime_t;
@@ -66,12 +68,19 @@ typedef struct {
 
 /* Trusted Host resolution for a manifest-scoped process program. The Host
  * supplies its verified version and SHA-256; Core verifies the file digest and
- * rechecks file identity before spawn. No PATH lookup. */
+ * rechecks file identity before spawn. No PATH lookup. Optional Host prefix
+ * arguments are copied and placed after caller argv[0], before caller argv[1..].
+ * <=16 arguments, <=4096 bytes each, <=16384 bytes including NULs; the final
+ * combined argv must also fit the existing process argument count/byte limits.
+ * Prefix values are trusted Host configuration, never plugin-supplied authority.
+ * Executable pinning does not validate scripts/dependencies named in arguments. */
 typedef struct {
     const char *name;
     const char *executable;
     const char *verified_version;
     const char *verified_sha256;
+    const char *const *prefix_argv;
+    size_t prefix_argc;
 } gt_ext_process_program_mapping_t;
 
 /* Explicit environment entry selected by the Host. Values are copied by the

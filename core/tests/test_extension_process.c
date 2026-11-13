@@ -117,7 +117,9 @@ static int process_program_policy(void) {
         {"codex",
          "/opt/ghosterm/bin/codex",
          "0.166.0",
-         "0000000000000000000000000000000000000000000000000000000000000000"}};
+         "0000000000000000000000000000000000000000000000000000000000000000",
+         NULL,
+         0}};
     const char *executable = (const char *)1;
     CHECK(gt__ext_process_service_resolve(
               &info, mappings, 1, GT_EXT_ACCESS_ALLOWED, "codex", &executable) == GT_OK &&
@@ -139,7 +141,9 @@ static int process_program_policy(void) {
         "codex",
         "relative/codex",
         "0.166.0",
-        "0000000000000000000000000000000000000000000000000000000000000000"};
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        NULL,
+        0};
     CHECK(gt__ext_process_service_resolve(
               &info, &invalid, 1, GT_EXT_ACCESS_ALLOWED, "codex", &executable) ==
               GT_ERR_INVALID_ARG &&

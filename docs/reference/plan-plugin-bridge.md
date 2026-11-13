@@ -6,7 +6,7 @@
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
-**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 执行端入口；可处理显式输入、原始有序 SDK 消息、关联结果、中断与关闭。真实 SDK 协议夹具及独立 Node 进程经真实匹配 CLI 的禁网无模型初始化 / 停止 / EOF 分别取证。它尚无可导入插件包、gterm Node / Exec 档、原生页面或真实模型会话；当前 App / gterm 继续只支持 Portable JS，P4 仍未完成。具体版本、变异和限制见文末 P4 第一至三批。
+**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 执行端入口；可处理显式输入、原始有序 SDK 消息、关联结果、中断与关闭。真实 SDK 协议夹具及匹配 CLI 的禁网无模型专项分别取证；第四批进一步验证原生 HOST Session 批准后，经 gterm Portable Supervisor、Host 固定进程参数和显式环境选择启动独立 Node，完成真实 CLI 初始化 / stop / reap。它尚无可导入 ai-claude 包、通用 gterm Node / Exec 包运行档、原生页面或真实模型会话；当前 App / gterm 的包 runtime 继续只支持 Portable JS，P4 仍未完成。具体版本、变异和限制见文末 P4 第一至四批。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -5154,3 +5154,23 @@ EOF、协议 / IO 错误、信号、显式 stop 和有限期限均关闭 SDK 作
 最终 **29 组**为旧十九＋新十：新增保护重试、陈旧 / 改内容的 sequence、规范 JSON、方法 scope、帧额度、严格 UTF-8、stdout 背压、EOF 区分及 CLI 摘要拒绝。每组隔离副本 strict 编译成功后单条正常 AssertionError 红、同构件独立拒绝对照绿、恢复绿及原始输入 SHA256；SDK 崩溃 / 编译失败 / 超时不作正常红。复现为 `python3 -B scripts/test-plugin-claude-node.py --fetch --mutate --real-cli`；不带真实 CLI 时为 24 项 / 28 组，不能借此声称真实进程专项已跑。默认 JS=OFF / tests=ON 的离线 gate 另通过 **481/481 CTest、177 ABI** 及未实现入口检查。Python / Node 语法与 git diff --check 通过；本批不改 Core、Portable SDK、公共 ABI 或原生平台源码，不增加 CI 二十份。
 
 无自动测试前台窗口，诊断副本用完先行清理，全部所属进程退出后再清理依赖 / npm 缓存 / 夹具 / 日志。本批仅本地提交、不表示发行。P4 继续欠 ai-claude 包、gterm Node / Exec 执行档 / 受控进程配置、原生 chat / approval / question 复用、真实授权认证 / 模型 / 工具 / 中断、SSH / tmux 及完整资源 / 设备矩阵；P2–P6 的其余要求保持未完成。
+
+### P4 实施第四批：Host 固定进程参数与真实 gterm / Node 授权链（2026-11-13）
+
+现有进程映射仅有可执行文件 / 版本 / SHA256，不能固定解释器所需的后端入口和 profile 参数。本片在 `gt_ext_process_program_mapping_t` 增加 Host 的 `prefix_argv` / `prefix_argc`，Core 逐字节复制后，在插件 argv[0] 后、其余 argv 前插入；不是拼 shell，也不把 Host 的配置权交给插件。每映射最多十六项、每项 4096 字节、累计 16384 字节含 NUL；最终 argv 仍受原六十四项 / 16 KiB 限额。每次 spawn 仍先核对实时 Session 授权、manifest 程序 scope 与已验可执行文件身份。新增字符串存储及原 process service 统一进共享 requested-heap 预算，构造失败 / 销毁擦除归还，预算不足不创建子进程。
+
+**BREAKING 配置布局。** 函数符号集仍为 **177**，但公共映射结构扩展，消费者必须同步重编译。Swift 两个 runtime 构造入口已加入参数校验及临时 C 指针数组，默认空参数保持现有调用；Core 在构造期间完成拷贝。Android 当前本机桥未暴露程序映射，仍传 NULL / 0；JNI 按新头重编译，不能据此称 Android 本机 Node 已接。最终 Apple **174 引用 / 3 登记未用**，JNI **140 / 37** 对拍一致。无旧布局兼容层，不改变 wire v1 或 Portable SDK 接口。
+
+gterm 新增可重复的 `--process-argument NAME VALUE`，要求已存在该名称映射，开头为 `--` 的值照字面消费；另以 `--process-environment NAME` 从执行机器显式选择额外变量，不搬运客户端的值或记录到日志。名称只允许 ASCII 环境标识符，重复 / 超限拒绝；显式名称缺值报不支持，不回退其它 HOME / 身份。原五个环境候选继续保留，额外最多二十七项，最终 env 仍遵守 Core 的项数 / 字节限额。这是可信启动器对外部后端的选择：参数所指脚本、profile 及 SDK 依赖树并未因此成为已捕获包字节，也不提供 OS 沙箱或消除同用户路径竞态。
+
+新增十一项真实 C 专项验证复制后原字符串 / 指针表改变、Unicode / 空值 / shell 特殊字面量、前缀与插件参数顺序、参数 / 合计字节、合并计数 / 字节上限与精确六十四项边界、撤销和共享预算不足。首轮 **8/10** 暴露原 process owner 将所有空 argv 都判非法；现仅禁止空 argv[0]，保留其余空值，再加入共享预算证据，最终 **11/11**。连同既有七项实际 runtime 进程 / 摘要 / 身份 / 期限 / 输出专项共 **18/18** 通过，非 JS-enabled Core 全量。默认 JS=OFF / tests=ON 的离线 gate 另通过 **481/481 CTest、177 ABI** 与未实现入口检查。
+
+`scripts/test-gterm-node.py` 的真实链为 **原生 HOST Session consent → gterm → Core 授权进程服务 → 固定参数的 Node → 前三批的生产 Claude stdio 入口 → 锁定 CLI**。包仍是明确的 Portable 测试 Supervisor，非官方 ai-claude 包。Host 指定 Node 文件 / 版本 / 摘要、受信测试入口、`--profile` 和自有 profile；fixture 检查额外变量的精确值及未选择父变量不存在，随后只发送 start / poll / stop，等待真实 CLI 和 Node 的退出 / Core reap，最后才完成原生 RPC。父端 deadline 与 RPC 期限仅该新 fixture 分别为三十 / 二十五秒，以容纳版本 / 初始化；既有场景期限不改。所有进程位于 macOS 禁网 / 拒绝 securityd 的隔离测试范围，HOME / config / workspace 在工程 tmp/，不选个人登录，不发送模型 prompt / 执行工具。依赖仍为锁定 SDK 0.3.323 / CLI 2.1.323，Node 26.4.0；不是 SSH、原生页面或模型证据。
+
+同 runner 另验五项启动前拒绝：未知程序的固定参数、十七项参数、非法环境名称、显式变量缺失、默认名称重复；检查退出码 / 固定诊断及 stdout 无协议输出。既有真实 stdio 回归共 **十九项**（原十五、Preview 两项、process-config 允许 / 不可用两项）通过。首次联调夹具缺必需 README / 许可文件，在 package check 报 `REQUIRED_PACKAGE_MEMBER`，未激活；补齐夹具后通过，没有放宽包验证或安装信任。
+
+`scripts/mutation-check-process-prefix.py --sdk tmp/process-prefix-sdk --gterm-build tmp/process-prefix-build` 在工程内隔离副本先跑十一项 ASan/UBSan 基线，再执行 **十二组**：十个 Core 保护空参数、精确计数 / 字节边界、逐项长度、保留前缀 / 顺序 / 插件尾参、实时 grant、共享 heap，两个 CLI 变异护固定参数绑定与额外环境选择；后两组经同一真实 Native / gterm / Node / CLI 链取证。每组均删除相关 object / archive / executable 后真实重编译，单条正常 C 断言红、同构件独立 ssh_config 对照绿、复原绿及生产输入 SHA256；后两组复原还重跑真实 Node 链与五项拒绝。无 LSan，不计崩溃 / 编译错误 / sanitizer / 超时为正常红。不带 `--gterm-build` 只有十组 Core，不借此记十二组完成。
+
+前置脚本错误保留：直接在 gterm build 顶层执行 CTest 得到零测试，后改为 core 子目录并加 `--no-tests=error`，零跑不算绿；首次启用 Core 测试未提供编译 SDK，configure 明确拒绝；变异隔离副本最初缺 validator 输入，随后独立配置对照漏传夹具目录，均未计通过。最终十二组已完成上述完整证据。
+
+最终 **clang-format 19.1.7 全仓 221 文件**、Python / fixture JS 语法、git diff --check、干净 scratch 的 macOS arm64 Release 与 Android arm64 JNI Debug 构建通过；不以编译代替设备行为。原生构建、Node 与所有自动测试均无前台窗口，所属进程结束后清理临时安装 / 依赖 / 夹具 / 日志。不增加 macOS CI 二十份；本批本地提交，不表示发行。仍须实现官方 ai-claude 包 / SDK-CLI 模式选择、通用 Node / Exec 包运行档、原生 chat / approval / question、真实认证 / 模型 / 工具 / 中断、SSH / tmux 与完整预算 / 设备矩阵；默认 App 仍 JS-off，整个计划继续未完成。

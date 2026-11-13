@@ -124,6 +124,12 @@ success; 7 is transport EOF, 130 cancellation, 4 missing dependency, 2 invalid
 profile/invocation and 5 protocol/runtime/cleanup failure. SDK descendants,
 whole-process RSS and the complete gterm process-group lifecycle remain unverified.
 The standalone executor is not yet a gterm Node runtime or a shippable plugin.
+An owned conformance fixture now launches it through a real native HOST Session,
+gterm's Portable Supervisor and Host-fixed process arguments. Additional selected
+environment names stay on the executing machine. The fixture verifies an exact
+selected value and exclusion of an unselected parent marker, initializes the real
+CLI without a model prompt, stops it and waits for direct-child cleanup. This is
+not a production ai-claude package, generic Node package loader or Native chat UI.
 
 From the repository root:
 

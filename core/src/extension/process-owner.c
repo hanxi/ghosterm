@@ -99,7 +99,7 @@ static bool arguments_valid(const char *exe, const char *const *argv, size_t arg
             return false;
         }
         size_t length = strnlen(argv[i], GT_EXT_PROCESS_ARGUMENT_MAX + 1u);
-        if (!length || length > GT_EXT_PROCESS_ARGUMENT_MAX ||
+        if ((!length && i == 0) || length > GT_EXT_PROCESS_ARGUMENT_MAX ||
             total > GT_EXT_PROCESS_ARGUMENT_BYTES_MAX - (length + 1u)) {
             return false;
         }

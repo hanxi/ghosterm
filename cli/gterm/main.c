@@ -27,7 +27,9 @@ static int usage(void) {
           "       gterm plugin check [--host-json FILE] -- DIRECTORY\n"
           "       gterm relay --stdio --trust-development-digest SHA256 --client-digest SHA256 "
           "[--method NAME]... [--host-method NAME]... [--root ID DIRECTORY]... "
-          "[--process-program NAME ABSOLUTE_PATH VERSION SHA256]... -- DIRECTORY COMMAND [ARG...]\n"
+          "[--process-program NAME ABSOLUTE_PATH VERSION SHA256]... "
+          "[--process-argument NAME VALUE]... [--process-environment NAME]... "
+          "-- DIRECTORY COMMAND [ARG...]\n"
           "Host JSON is caller-supplied compatibility evidence, not a grant.\n",
           stderr);
     return 2;

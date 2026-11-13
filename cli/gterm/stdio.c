@@ -29,6 +29,8 @@ typedef struct {
     const char *executable;
     const char *version;
     const char *sha256;
+    const char *prefix[GT_EXT_RUNTIME_PROCESS_PREFIX_MAX];
+    size_t prefix_count;
 } process_program_t;
 
 static int diagnostic(const char *message, int code) {
@@ -202,7 +204,9 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     gt_ext_runtime_root_t runtime_roots[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
     gt_ext_process_program_mapping_t runtime_programs[GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX] = {0};
     gt_ext_process_environment_t runtime_environment[GT_EXT_RUNTIME_PROCESS_ENV_MAX] = {0};
-    char environment_values[5][4097] = {{0}};
+    char environment_values[GT_EXT_RUNTIME_PROCESS_ENV_MAX][4097] = {{0}};
+    const char *extra_environment[GT_EXT_RUNTIME_PROCESS_ENV_MAX - 5] = {0};
+    size_t extra_environment_count = 0;
     size_t method_count = 0;
     size_t process_program_count = 0;
     size_t process_environment_count = 0;
@@ -223,8 +227,52 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
                 return diagnostic("missing or excess process program mapping", 2);
             }
             process_programs[process_program_count++] =
-                (process_program_t){argv[at + 1], argv[at + 2], argv[at + 3], argv[at + 4]};
+                (process_program_t){.name = argv[at + 1],
+                                    .executable = argv[at + 2],
+                                    .version = argv[at + 3],
+                                    .sha256 = argv[at + 4]};
             at += 5;
+            continue;
+        }
+        if (!strcmp(argv[at], "--process-argument")) {
+            if (at + 2 >= argc) {
+                return diagnostic("missing fixed process argument", 2);
+            }
+            size_t selected = process_program_count;
+            for (size_t i = 0; i < process_program_count; i++) {
+                if (!strcmp(process_programs[i].name, argv[at + 1])) {
+                    selected = i;
+                    break;
+                }
+            }
+            if (selected == process_program_count ||
+                process_programs[selected].prefix_count == GT_EXT_RUNTIME_PROCESS_PREFIX_MAX) {
+                return diagnostic("fixed argument requires an earlier mapping and available slot",
+                                  2);
+            }
+            process_program_t *program = &process_programs[selected];
+            program->prefix[program->prefix_count++] = argv[at + 2];
+            at += 3;
+            continue;
+        }
+        if (!strcmp(argv[at], "--process-environment")) {
+            if (at + 1 >= argc || extra_environment_count == GT_EXT_RUNTIME_PROCESS_ENV_MAX - 5) {
+                return diagnostic("missing or excess selected environment name", 2);
+            }
+            const char *name = argv[at + 1];
+            size_t length = strlen(name);
+            if (!length || length > 128) {
+                return diagnostic("invalid selected environment name", 2);
+            }
+            for (size_t i = 0; i < length; i++) {
+                char c = name[i];
+                if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' ||
+                      (i && c >= '0' && c <= '9'))) {
+                    return diagnostic("invalid selected environment name", 2);
+                }
+            }
+            extra_environment[extra_environment_count++] = name;
+            at += 2;
             continue;
         }
         if (at + 1 >= argc) {
@@ -414,6 +462,10 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
             "process mappings require both process.spawn and process.pipes in the package", 4);
         goto done;
     }
+    if (extra_environment_count && !process_spawn) {
+        result = diagnostic("selected environment requires an authorized process service", 4);
+        goto done;
+    }
     if (receive_resources) {
         config.features |= GT_EXT_FEATURE_RESOURCES;
     }
@@ -422,9 +474,25 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
          * Do not inherit arbitrary variables such as SSH_AUTH_SOCK or secrets. */
         static const char *const selected_names[] = {
             "HOME", "PATH", "XDG_CONFIG_HOME", "CODEX_HOME", "TMPDIR"};
-        for (size_t i = 0; i < sizeof(selected_names) / sizeof(selected_names[0]); i++) {
-            const char *value = getenv(selected_names[i]);
+        size_t default_count = sizeof(selected_names) / sizeof(selected_names[0]);
+        for (size_t i = 0; i < default_count + extra_environment_count; i++) {
+            const char *name =
+                i < default_count ? selected_names[i] : extra_environment[i - default_count];
+            bool duplicate = false;
+            for (size_t j = 0; j < process_environment_count; j++) {
+                duplicate |= !strcmp(runtime_environment[j].name, name);
+            }
+            if (duplicate) {
+                result = diagnostic("duplicate selected process environment name", 2);
+                goto done;
+            }
+            const char *value = getenv(name);
             if (!value || !value[0]) {
+                if (i >= default_count) {
+                    result =
+                        diagnostic("explicitly selected process environment is unavailable", 4);
+                    goto done;
+                }
                 continue;
             }
             size_t length = strnlen(value, sizeof(environment_values[0]));
@@ -433,15 +501,18 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
                 goto done;
             }
             strcpy(environment_values[process_environment_count], value);
-            runtime_environment[process_environment_count] = (gt_ext_process_environment_t){
-                selected_names[i], environment_values[process_environment_count]};
+            runtime_environment[process_environment_count] =
+                (gt_ext_process_environment_t){name, environment_values[process_environment_count]};
             process_environment_count++;
         }
         for (size_t i = 0; i < process_program_count; i++) {
-            runtime_programs[i] = (gt_ext_process_program_mapping_t){process_programs[i].name,
-                                                                     process_programs[i].executable,
-                                                                     process_programs[i].version,
-                                                                     process_programs[i].sha256};
+            runtime_programs[i] =
+                (gt_ext_process_program_mapping_t){process_programs[i].name,
+                                                   process_programs[i].executable,
+                                                   process_programs[i].version,
+                                                   process_programs[i].sha256,
+                                                   process_programs[i].prefix,
+                                                   process_programs[i].prefix_count};
         }
     }
     if (method_count && !rpc) {

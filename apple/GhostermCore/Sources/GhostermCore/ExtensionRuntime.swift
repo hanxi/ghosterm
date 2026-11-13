@@ -41,9 +41,11 @@ public final class ExtensionRuntime {
         }
         public struct ProcessProgram {
             public let name: String, executable: String, verifiedVersion: String, verifiedSHA256: String
-            public init(name: String, executable: String, verifiedVersion: String, verifiedSHA256: String) {
+            public let prefixArguments: [String]
+            public init(name: String, executable: String, verifiedVersion: String, verifiedSHA256: String,
+                        prefixArguments: [String] = []) {
                 self.name = name; self.executable = executable; self.verifiedVersion = verifiedVersion
-                self.verifiedSHA256 = verifiedSHA256
+                self.verifiedSHA256 = verifiedSHA256; self.prefixArguments = prefixArguments
             }
         }
         public struct ProcessEnvironment {
@@ -69,6 +71,26 @@ public final class ExtensionRuntime {
             self.processLifetimeMilliseconds = processLifetimeMilliseconds; self.processOutputBytes = processOutputBytes
             self.invocation = invocation
         }
+    }
+    private static func copyProcessPrefix(_ values: [String], storage: inout [UnsafeMutableRawPointer]) throws -> UnsafePointer<UnsafePointer<CChar>?>? {
+        guard values.count <= 16 else { throw GhostermError.failed("固定进程参数数量超限") }
+        var total = 0
+        for value in values {
+            total += value.utf8.count + 1
+            guard !value.utf8.contains(0), value.utf8.count <= 4096, total <= 16384 else {
+                throw GhostermError.failed("固定进程参数无效或超限")
+            }
+        }
+        guard !values.isEmpty else { return nil }
+        let vector = UnsafeMutablePointer<UnsafePointer<CChar>?>.allocate(capacity: values.count)
+        vector.initialize(repeating: nil, count: values.count)
+        storage.append(UnsafeMutableRawPointer(vector))
+        for (index, value) in values.enumerated() {
+            let bytes = Array(value.utf8CString), pointer = UnsafeMutablePointer<CChar>.allocate(capacity: bytes.count)
+            pointer.initialize(from: bytes, count: bytes.count); storage.append(UnsafeMutableRawPointer(pointer))
+            vector[index] = UnsafePointer(pointer)
+        }
+        return UnsafePointer(vector)
     }
     public struct Info {
         public let phase: Phase, error: Failure, cleanupError: Int32, sessionEnd: ExtensionSession.End, sessionError: Int32
@@ -123,7 +145,8 @@ public final class ExtensionRuntime {
                 name: UnsafePointer(copy(Data(program.name.utf8)).assumingMemoryBound(to: CChar.self)),
                 executable: UnsafePointer(copy(Data(program.executable.utf8)).assumingMemoryBound(to: CChar.self)),
                 verified_version: UnsafePointer(copy(Data(program.verifiedVersion.utf8)).assumingMemoryBound(to: CChar.self)),
-                verified_sha256: UnsafePointer(copy(Data(program.verifiedSHA256.utf8)).assumingMemoryBound(to: CChar.self))))
+                verified_sha256: UnsafePointer(copy(Data(program.verifiedSHA256.utf8)).assumingMemoryBound(to: CChar.self)),
+                prefix_argv: try Self.copyProcessPrefix(program.prefixArguments, storage: &buffers), prefix_argc: program.prefixArguments.count))
         }
         var environment: [gt_ext_process_environment_t] = []
         for item in config.processEnvironment {
@@ -155,7 +178,9 @@ public final class ExtensionRuntime {
         guard roots.count <= 8, processPrograms.count <= 16, processEnvironment.count <= 32,
               processLifetimeMilliseconds <= 3600000, processOutputBytes <= 268435456 else { throw GhostermError.failed("运行时授权根或进程配置超限") }
         var names: [UnsafeMutablePointer<CChar>] = []
+        var prefixStorage: [UnsafeMutableRawPointer] = []
         defer { names.forEach { $0.deallocate() } }
+        defer { prefixStorage.forEach { $0.deallocate() } }
         var scopes: [gt_ext_runtime_root_t] = []
         for root in roots {
             guard !root.id.utf8.contains(0), root.id.utf8.count <= 64 else { throw GhostermError.failed("运行时授权根标识无效") }
@@ -174,7 +199,8 @@ public final class ExtensionRuntime {
             let np = UnsafeMutablePointer<CChar>.allocate(capacity: n.count), ep = UnsafeMutablePointer<CChar>.allocate(capacity: e.count), vp = UnsafeMutablePointer<CChar>.allocate(capacity: v.count), dp = UnsafeMutablePointer<CChar>.allocate(capacity: d.count)
             np.initialize(from: n, count: n.count); ep.initialize(from: e, count: e.count); vp.initialize(from: v, count: v.count); dp.initialize(from: d, count: d.count)
             names += [np, ep, vp, dp]
-            programs.append(gt_ext_process_program_mapping_t(name: UnsafePointer(np), executable: UnsafePointer(ep), verified_version: UnsafePointer(vp), verified_sha256: UnsafePointer(dp)))
+            programs.append(gt_ext_process_program_mapping_t(name: UnsafePointer(np), executable: UnsafePointer(ep), verified_version: UnsafePointer(vp), verified_sha256: UnsafePointer(dp),
+                prefix_argv: try Self.copyProcessPrefix(program.prefixArguments, storage: &prefixStorage), prefix_argc: program.prefixArguments.count))
         }
         var environment: [gt_ext_process_environment_t] = []
         for item in processEnvironment {
