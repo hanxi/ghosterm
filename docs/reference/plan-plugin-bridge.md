@@ -4872,3 +4872,9 @@ JS-enabled Runtime CTest 新增 `runtime_step`：真实 QuickJS 插件只在 Dis
 此前 Executor 已把协议事件作为 `codex.event` Host RPC 发送，但 AppModel 的 Runtime pump 只收资源、没有消费 Host RPC。本批在每轮 Runtime step 后轮询一条 Host RPC：仅接受启动配置中显式登记的 `codex.event`，解码 JSON string envelope，要求事件序号连续、类型属于已知 Codex event 集合；每次运行最多保留 128 条 / 256 KiB，单条不超过 RPC 上限。成功后回传 SDK 约定的 success outcome 并把原始 JSON 放入 `ExtensionRun.codexEvents`，插件面板暂以只读原始事件展示。未知方法和格式错误显式返回 DENIED；序列错误或限额超出拒绝后结束 Runtime pump，不重放事件。
 
 `bash scripts/apple-app-gate.sh` 的 C ABI 对拍（Apple 174 引用 / 3 登记未用）、Core 构建及本机 sshd 启动均通过；随后 `swift test` 因当前工具链没有 XCTest（`no such module 'XCTest'`）失败，不能计 App 测试通过。独立 `swift build --target GhostermAppModel` 与 `swift build --target GhostermApp` 通过，`git diff --check` 通过。无 C ABI 变化，不增加 macOS CI 二十份。本批尚无事件 RPC 的真实双端集成测试；面板是原始协议事件检查视图，仍未实现 chat / tool / approval 原生交互、用户点击整链 UI E2E 或真实 Codex 模型 turn，P3 不记完成。
+
+### P3 实施第三十批：macOS Codex thread / turn 的最小原生操作入口
+
+在第二十九批 Host 事件收件基础上，`ai codex` 命令启动时自动把官方四个 Executor 方法与 `codex.event` 加入本次 Session 方法集合；用户已批准 Client 包并通过 Session consent 后，可在插件面板启动 thread、发送文本、观察活动 turn，并请求 interrupt。Host 调用通过活动 Runtime 的 RPC handle 发起，轮询明确等待成功 outcome，成功后 forget handle；失败 / unknown 不自动重试，超时或取消留下的 handle 由 Runtime pump 在 outcome 终态后 forget。`turn/started` / `turn/completed` 事件更新活动态；发送期间和活动 turn 期间禁用重复发送。
+
+`swift build --target GhostermApp` 通过，覆盖 `GhostermAppModel` 和原生 App target；输出仅有既存 Sendable / NSApp 警告。`git diff --check` 通过。`apple-app-gate.sh` 在 XCTest 导入阶段仍因工具链缺少 XCTest 而失败，故本批没有单元或 UI 测试证据。无 C ABI 变化、不增加 macOS CI 二十份。该入口尚未处理 approval 请求的可视化决策、消息/工具结构化渲染、RPC handler 的真实双端测试或完整 Codex 模型 turn；P3 不记完成。

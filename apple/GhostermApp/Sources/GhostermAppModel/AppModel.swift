@@ -76,8 +76,13 @@ public final class AppModel: ObservableObject {
     @Published public private(set) var extensionRun: ExtensionRun?
     @Published public private(set) var extensionRunBusy = false
     @Published public private(set) var extensionRunIssue: String?
+    @Published public private(set) var codexThreadID: String?
+    @Published public var codexMessageDraft = ""
+    @Published public private(set) var codexCallBusy = false
+    @Published public private(set) var codexTurnActive = false
     private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String])?
     private var lastCodexEventSequence: UInt64 = 0
+    private var pendingCodexRPCHandles: Set<UInt64> = []
 
     /// 界面外观偏好（跟随系统 / 浅色 / 深色）与终端色板事件（`theme =
     /// light:X,dark:Y` 靠它选边）。**改了要同时喂两个消费者**：AppKit 的
@@ -1136,6 +1141,9 @@ public final class AppModel: ObservableObject {
                 additionalRequiredCapabilities: additionalCapabilities)
             extensionRunInvocation = (packageID, packageDigest, command, arguments)
             lastCodexEventSequence = 0
+            codexThreadID = nil
+            codexMessageDraft = ""
+            codexTurnActive = false
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
@@ -1244,8 +1252,98 @@ public final class AppModel: ObservableObject {
             }
             try await extensionController.releaseFinished()
             extensionRun = nil; extensionRunInvocation = nil
+            codexThreadID = nil; codexMessageDraft = ""
+            codexTurnActive = false
+            pendingCodexRPCHandles.removeAll()
         } catch { extensionRunIssue = "释放插件资源失败：\(error)" }
         extensionRunBusy = false
+    }
+
+    public func startCodexThread() async {
+        guard let run = extensionRun, run.command == "ai codex", !codexCallBusy,
+              run.methods.contains("codex.thread.start") else { return }
+        codexCallBusy = true
+        defer { codexCallBusy = false }
+        do {
+            struct Started: Decodable { let threadID: String }
+            let value: Started = try await callCodexExecutor("codex.thread.start", input: [:])
+            codexThreadID = value.threadID
+        } catch { extensionRunIssue = "无法启动 Codex 对话：\(error)" }
+    }
+
+    public func sendCodexMessage() async {
+        guard let run = extensionRun, run.command == "ai codex", codexThreadID != nil,
+              !codexTurnActive,
+              !codexCallBusy, run.methods.contains("codex.turn.send") else { return }
+        let text = codexMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        codexCallBusy = true
+        codexTurnActive = true
+        defer { codexCallBusy = false }
+        do {
+            struct Sent: Decodable { let turnID: String }
+            let _: Sent = try await callCodexExecutor("codex.turn.send", input: ["text": text])
+            codexMessageDraft = ""
+        } catch { extensionRunIssue = "Codex 消息发送失败：\(error)" }
+    }
+
+    public func interruptCodexTurn() async {
+        guard let run = extensionRun, run.command == "ai codex", codexTurnActive,
+              !codexCallBusy, run.methods.contains("codex.turn.interrupt") else { return }
+        codexCallBusy = true
+        defer { codexCallBusy = false }
+        do {
+            struct Interrupted: Decodable { let accepted: Bool }
+            let result: Interrupted = try await callCodexExecutor("codex.turn.interrupt", input: [:])
+            guard result.accepted else { throw GhostermError.failed("Executor 未接受中断请求") }
+        } catch { extensionRunIssue = "Codex 中断失败：\(error)" }
+    }
+
+    private struct CodexRPCEnvelope<Value: Decodable>: Decodable {
+        let kind: String
+        let value: Value?
+    }
+
+    private func callCodexExecutor<Value: Decodable>(_ method: String, input: [String: String]) async throws -> Value {
+        guard let extensionController, let run = extensionRun,
+              run.command == "ai codex", run.methods.contains(method) else {
+            throw GhostermError.failed("Codex RPC 未在本次 Session allowlist 中")
+        }
+        let inputBytes = try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
+        let admission = try await extensionController.requestExecutorRPC(method: method, input: inputBytes)
+        guard admission.status == .ok, let handle = admission.handle else {
+            throw GhostermError.failed("Codex RPC 未能进入发送队列（status \(admission.status.rawValue)）")
+        }
+        var completed = false
+        defer { if !completed { pendingCodexRPCHandles.insert(handle) } }
+        let deadline = ProcessInfo.processInfo.systemUptime + 30
+        do {
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                let (status, result) = try await extensionController.executorRPCResult(handle: handle)
+                if status == .ok, let result,
+                   result.state != .queued, result.state != .pending {
+                    let forget = try await extensionController.forgetExecutorRPC(handle: handle)
+                    guard forget == .ok else { throw GhostermError.failed("Codex RPC 结果未能释放") }
+                    completed = true
+                    guard result.state == .succeeded, result.confirmed else {
+                        throw GhostermError.failed("Codex RPC 结果为 \(result.state)，执行效果未知或失败")
+                    }
+                    let envelope = try JSONDecoder().decode(CodexRPCEnvelope<Value>.self, from: result.outcome)
+                    guard envelope.kind == "success", let value = envelope.value else {
+                        throw GhostermError.failed("Codex RPC 返回了无效结果 envelope")
+                    }
+                    return value
+                }
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            _ = try await extensionController.cancelExecutorRPC(handle: handle)
+            throw GhostermError.failed("Codex RPC 等待超过 30 秒，结果可能未知")
+        } catch {
+            // Do not retry or discard an unresolved handle: Core retains its
+            // unknown outcome until the caller explicitly observes it.
+            throw error
+        }
     }
 
     private func advanceExtensionRuntime() async {
@@ -1255,6 +1353,7 @@ public final class AppModel: ObservableObject {
                 try Task.checkCancellation()
                 let state = try await extensionController.stepRuntime()
                 updateExtensionRun(runtime: state)
+                try await reapPendingCodexRPCs()
                 try await pumpCodexHostEvent()
                 if let resource = try await extensionController.takeSessionResource(maxBytes: 1048576) {
                     appendExtensionResource(resource)
@@ -1309,6 +1408,8 @@ public final class AppModel: ObservableObject {
     private struct CodexHostEvent: Decodable {
         let sequence: UInt64
         let kind: String
+        let notification: Notification?
+        struct Notification: Decodable { let method: String }
     }
 
     private func pumpCodexHostEvent() async throws {
@@ -1362,6 +1463,22 @@ public final class AppModel: ObservableObject {
             remoteCommand: run.remoteCommand, methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities, session: run.session, runtime: run.runtime,
             receivedResources: run.receivedResources, codexEvents: run.codexEvents + [encoded])
+        if event.kind == "notification" {
+            if event.notification?.method == "turn/started" { codexTurnActive = true }
+            if event.notification?.method == "turn/completed" { codexTurnActive = false }
+        }
+    }
+
+    private func reapPendingCodexRPCs() async throws {
+        guard let extensionController else { return }
+        for handle in pendingCodexRPCHandles.sorted() {
+            let (status, result) = try await extensionController.executorRPCResult(handle: handle)
+            guard status == .ok, let result,
+                  result.state != .queued, result.state != .pending else { continue }
+            let forgotten = try await extensionController.forgetExecutorRPC(handle: handle)
+            guard forgotten == .ok else { throw GhostermError.failed("无法释放已结束的 Codex RPC 结果") }
+            pendingCodexRPCHandles.remove(handle)
+        }
     }
 
     private static func pluginResourceDirectory() -> URL? {

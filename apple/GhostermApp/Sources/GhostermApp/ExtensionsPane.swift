@@ -168,8 +168,13 @@ struct ExtensionsPane: View {
     private func launch(_ entry: Entry) {
         do {
             let arguments = try ExtensionRelayBootstrap.parseArgumentsJSON(entry.argumentsJSON)
-            let methods = try ExtensionRelayBootstrap.parseMethodsJSON(entry.methodsJSON)
-            let hostMethods = try ExtensionRelayBootstrap.parseHostMethodsJSON(entry.hostMethodsJSON)
+            var methods = try ExtensionRelayBootstrap.parseMethodsJSON(entry.methodsJSON)
+            var hostMethods = try ExtensionRelayBootstrap.parseHostMethodsJSON(entry.hostMethodsJSON)
+            if entry.command == "ai codex" {
+                methods = Array(Set(methods + ["codex.thread.start", "codex.turn.send",
+                    "codex.turn.interrupt", "codex.approval.respond"])).sorted()
+                hostMethods = Array(Set(hostMethods + ["codex.event"])).sorted()
+            }
             let processPrograms = try ExtensionRelayBootstrap.parseProcessProgramsJSON(entry.processProgramsJSON)
             let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.resourceRoot.isEmpty
                 ? [] : [.init(id: "workspace", directory: entry.resourceRoot)]
@@ -236,6 +241,34 @@ struct ExtensionsPane: View {
                     Text("Codex 协议事件（原始 JSON）").font(DS.Font.labelEmphasis)
                     ForEach(Array(run.codexEvents.enumerated()), id: \.offset) { _, event in
                         Text(event).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                    }
+                }
+                if run.command == "ai codex" {
+                    if let threadID = model.codexThreadID {
+                        Text("Codex thread：\(threadID)").font(DS.Font.caption).textSelection(.enabled)
+                        HStack {
+                            TextField("发送给 Codex", text: $model.codexMessageDraft, axis: .vertical)
+                                .lineLimit(1...4)
+                                .accessibilityIdentifier("plugin-codex-message")
+                            Button(model.codexCallBusy ? "正在发送…" : "发送") {
+                                Task { await model.sendCodexMessage() }
+                            }
+                            .disabled(model.codexCallBusy || model.codexTurnActive || model.codexMessageDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .accessibilityIdentifier("plugin-codex-send")
+                        }
+                        if model.codexTurnActive {
+                            Button(model.codexCallBusy ? "正在处理中…" : "中断当前 turn") {
+                                Task { await model.interruptCodexTurn() }
+                            }
+                            .disabled(model.codexCallBusy || !run.methods.contains("codex.turn.interrupt"))
+                            .accessibilityIdentifier("plugin-codex-interrupt")
+                        }
+                    } else {
+                        Button(model.codexCallBusy ? "正在启动…" : "启动 Codex 对话") {
+                            Task { await model.startCodexThread() }
+                        }
+                        .disabled(model.codexCallBusy || !run.methods.contains("codex.thread.start"))
+                        .accessibilityIdentifier("plugin-codex-start-thread")
                     }
                 }
                 Button(model.extensionRunBusy ? "正在停止…" : "停止并释放插件") {
