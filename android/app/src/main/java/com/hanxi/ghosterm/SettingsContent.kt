@@ -623,6 +623,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var methodsJson by remember { mutableStateOf("[]") }
     var hostMethodsJson by remember { mutableStateOf("[]") }
     var processProgramsJson by remember { mutableStateOf("[]") }
+    var processEnvironmentJson by remember { mutableStateOf("[]") }
     var problem by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest = onDismiss,
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
@@ -662,11 +663,16 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     modifier = Modifier.testTag("plugin-process-programs"),
                     label = { Text("远端 Executor 进程映射（可选）") },
                     placeholder = { Text("[{\"name\":\"codex\",\"executable\":\"/path/codex\",\"version\":\"0.166.0\",\"sha256\":\"…\"}]") })
+                OutlinedTextField(processEnvironmentJson, { processEnvironmentJson = it }, minLines = 2, maxLines = 4,
+                    modifier = Modifier.testTag("plugin-process-environment"),
+                    label = { Text("额外执行端环境名称（可选）") }, placeholder = { Text("[\"CLAUDE_CONFIG_DIR\"]") })
                 Text("仅填写后才会把该目录作为 workspace 显式传给 Executor；留空时不开放文件读取。将通过 SSH 明确启动指定目录中的 Executor。开发摘要是本次显式信任选择，不代表发布者签名认证；不会自动下载或安装。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("argv 和两类 RPC 方法均需填写 JSON 字符串数组。进程映射是 Native Host 对远端程序路径、版本和摘要的显式选择，须同时提供 workspace root；批准后才请求 process.spawn / process.pipes。子进程不会继承任意环境变量。",
+                Text("argv、RPC 方法和环境名称填写 JSON 字符串数组。进程映射可用 prefixArguments 指定固定参数，须同时提供 workspace root；批准后才请求 process.spawn / process.pipes。环境名称只选择远端执行机器上的值，不传本机值；子进程不会继承任意环境变量。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (command.path == "ai codex") Text("Codex 会自动登记固定的 thread / turn / approval 与事件 RPC。还需添加 name 为 codex、版本填 codex-cli 0.166.0 的进程映射，并核对可执行文件 SHA-256；否则启动会被拒绝或版本锁校验失败。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (command.path == "ai claude") Text("Claude 需要名为 claude-node 的 Node 20 或更新版本映射，并用 prefixArguments 选择已安装的桥接入口与 --profile 文件；SDK 0.3.323 / CLI 2.1.323 依赖须在执行机器上准备。不会自动安装或改用本机账号；Android 对话页面仍在接入中。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
@@ -679,7 +685,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         ExtensionRelayBootstrap.parseHostMethodsJson(hostMethodsJson), command.path,
                         ExtensionRelayBootstrap.parseArgumentsJson(argumentsJson),
                         workspaceRootDirectory.takeUnless { it.isBlank() },
-                        ExtensionRelayBootstrap.parseProcessProgramsJson(processProgramsJson))
+                        ExtensionRelayBootstrap.parseProcessProgramsJson(processProgramsJson),
+                        ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson))
                     ExtensionRelayBootstrap.build(request)
                     onLaunch(selectedHost, request)
                 } catch (failure: IllegalArgumentException) {

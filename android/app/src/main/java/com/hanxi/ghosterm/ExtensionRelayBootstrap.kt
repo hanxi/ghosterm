@@ -3,6 +3,8 @@ package com.hanxi.ghosterm
 import android.util.JsonReader
 import android.util.JsonToken
 import java.io.StringReader
+import java.nio.CharBuffer
+import java.nio.charset.CodingErrorAction
 
 /** Builds the explicit remote command accepted by the SSH extension route.
  * Values are argv tokens quoted for the remote POSIX shell; this does not
@@ -13,6 +15,7 @@ object ExtensionRelayBootstrap {
         val executable: String,
         val version: String,
         val sha256: String,
+        val prefixArguments: List<String> = emptyList(),
     )
 
     data class Request(
@@ -26,6 +29,7 @@ object ExtensionRelayBootstrap {
         val arguments: List<String> = emptyList(),
         val workspaceRootDirectory: String? = null,
         val processPrograms: List<ProcessProgram> = emptyList(),
+        val processEnvironmentNames: List<String> = emptyList(),
     )
 
     /** Accept a JSON string array so the UI never invents a shell tokenizer. */
@@ -62,11 +66,16 @@ object ExtensionRelayBootstrap {
                         var executable: String? = null
                         var version: String? = null
                         var sha256: String? = null
+                        var prefixArguments = emptyList<String>()
                         val seen = mutableSetOf<String>()
                         while (reader.hasNext()) {
                             val key = reader.nextName()
-                            require(seen.add(key) && key in setOf("name", "executable", "version", "sha256")) {
+                            require(seen.add(key) && key in setOf("name", "executable", "version", "sha256", "prefixArguments")) {
                                 "进程映射对象字段重复或未知"
+                            }
+                            if (key == "prefixArguments") {
+                                prefixArguments = stringArray(reader, 16, "固定进程参数")
+                                continue
                             }
                             require(reader.peek() == JsonToken.STRING) { "进程映射字段必须是字符串" }
                             when (key) {
@@ -77,11 +86,11 @@ object ExtensionRelayBootstrap {
                             }
                         }
                         reader.endObject()
-                        require(seen == setOf("name", "executable", "version", "sha256")) {
-                            "进程映射必须且只能包含 name、executable、version、sha256"
+                        require(seen - "prefixArguments" == setOf("name", "executable", "version", "sha256")) {
+                            "进程映射须包含 name、executable、version、sha256，可另提供 prefixArguments"
                         }
                         add(ProcessProgram(checkNotNull(name), checkNotNull(executable),
-                            checkNotNull(version), checkNotNull(sha256)))
+                            checkNotNull(version), checkNotNull(sha256), prefixArguments.toList()))
                     }
                 }
                 reader.endArray()
@@ -96,6 +105,29 @@ object ExtensionRelayBootstrap {
         } catch (failure: Exception) {
             throw IllegalArgumentException("进程映射必须是有效的严格 JSON 对象数组", failure)
         }
+    }
+
+    fun parseProcessEnvironmentJson(source: String): List<String> =
+        parseStringArray(source, 27, "执行端环境变量名称").also(::validateEnvironmentNames)
+
+    private fun validateEnvironmentNames(names: List<String>) {
+        val defaults = setOf("HOME", "PATH", "XDG_CONFIG_HOME", "CODEX_HOME", "TMPDIR")
+        require(names.size <= 27 && names.distinct().size == names.size && names.all {
+            it.length <= 128 && it.matches(Regex("[A-Za-z_][A-Za-z0-9_]*")) && it !in defaults
+        }) { "执行端环境变量名称非法、重复或与默认候选重复" }
+    }
+
+    private fun stringArray(reader: JsonReader, limit: Int, label: String): List<String> {
+        require(reader.peek() == JsonToken.BEGIN_ARRAY) { "$label 必须是 JSON 字符串数组" }
+        reader.beginArray()
+        val result = buildList {
+            while (reader.hasNext()) {
+                require(size < limit && reader.peek() == JsonToken.STRING) { "$label 类型错误或超过 $limit 项" }
+                add(reader.nextString())
+            }
+        }
+        reader.endArray()
+        return result
     }
 
     private fun parseStringArray(source: String, limit: Int, label: String): List<String> {
@@ -146,6 +178,10 @@ object ExtensionRelayBootstrap {
             (request.processPrograms.isEmpty() || request.workspaceRootDirectory != null)) {
             "进程映射必须唯一有效，并且需要显式 workspace root"
         }
+        validateEnvironmentNames(request.processEnvironmentNames)
+        require(request.processEnvironmentNames.isEmpty() || request.processPrograms.isNotEmpty()) {
+            "选择执行端环境名称需要固定进程映射"
+        }
         val argv = buildList {
             add(request.executable)
             add("relay"); add("--stdio")
@@ -156,11 +192,13 @@ object ExtensionRelayBootstrap {
             request.workspaceRootDirectory?.let { add("--root"); add("workspace"); add(it) }
             request.processPrograms.forEach {
                 add("--process-program"); add(it.name); add(it.executable); add(it.version); add(it.sha256)
+                it.prefixArguments.forEach { argument -> add("--process-argument"); add(it.name); add(argument) }
             }
+            request.processEnvironmentNames.forEach { add("--process-environment"); add(it) }
             add("--"); add(request.executorDirectory); add(request.command)
             addAll(request.arguments)
         }
-        require(argv.all { '\u0000' !in it && '\n' !in it && '\r' !in it && it.toByteArray().size <= 4096 }) {
+        require(argv.all { validArgument(it, 4096) }) {
             "远端启动参数包含不支持的字符或过长"
         }
         return "exec " + argv.joinToString(" ", transform = ::quote).also {
@@ -172,14 +210,22 @@ object ExtensionRelayBootstrap {
         value.matches(Regex("[a-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*"))
 
     private fun validProcessProgram(program: ProcessProgram): Boolean =
+        program.prefixArguments.size <= 16 && program.prefixArguments.all { validArgument(it, 4096) } &&
+        program.prefixArguments.sumOf { it.toByteArray().size + 1 } <= 16384 &&
         program.name.length in 1..128 && program.name.all {
             it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '.' || it == '_' || it == '-'
-        } && program.executable.startsWith('/') && program.executable.toByteArray().size <= 4096 &&
-        program.version.isNotBlank() && program.version.toByteArray().size <= 128 &&
+        } && program.executable.startsWith('/') && validArgument(program.executable, 4096) &&
+        program.version.isNotBlank() && validArgument(program.version, 128) &&
         '\u0000' !in program.name && '\n' !in program.name && '\r' !in program.name &&
         '\u0000' !in program.executable && '\n' !in program.executable && '\r' !in program.executable &&
         '\u0000' !in program.version && '\n' !in program.version && '\r' !in program.version &&
         program.sha256.matches(Regex("[a-f0-9]{64}"))
+
+    private fun validArgument(value: String, limit: Int): Boolean =
+        '\u0000' !in value && '\n' !in value && '\r' !in value && runCatching {
+            Charsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(value)).remaining() <= limit
+        }.getOrDefault(false)
 
     private fun quote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }

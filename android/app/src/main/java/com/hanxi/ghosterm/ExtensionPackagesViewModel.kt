@@ -26,10 +26,11 @@ import org.json.JSONObject
 class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(application) {
     private val codexExecutorMethods = listOf("codex.thread.start", "codex.turn.send", "codex.turn.interrupt", "codex.approval.respond", "codex.change.read")
     private val codexHostMethods = listOf("codex.event")
-    private val pendingCodexRPCHandles = mutableSetOf<Long>()
-    private val activeCodexRPCHandles = mutableSetOf<Long>()
+    private val pendingExtensionRPCHandles = mutableSetOf<Long>()
+    private val activeExtensionRPCHandles = mutableSetOf<Long>()
     private var sessionGeneration = Any()
     private var rpcGeneration = Any()
+    private var claudeRPC: ClaudeRPCClient? = null
     private var handshakeJob: Job? = null
     internal val changeReview = CodexChangeReviewController(viewModelScope)
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
@@ -73,7 +74,9 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         val owner = controller ?: return
         val launchRequest = if (command.path == "ai codex") request.copy(
             methods = (request.methods + codexExecutorMethods).distinct(),
-            hostMethods = (request.hostMethods + codexHostMethods).distinct()) else request
+            hostMethods = (request.hostMethods + codexHostMethods).distinct())
+        else if (command.path == "ai claude") request.copy(methods = (request.methods + ClaudeRPCClient.methods).distinct())
+        else request
         if (launchBusy) return
         if (activeSession != null) { error = "请先停止并释放当前插件 Session。"; return }
         if (sessions.connecting != null) { error = "当前已有 SSH 连接请求，请完成或取消后再启动插件"; return }
@@ -88,6 +91,10 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         if (command.path == "ai codex" && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
                 launchRequest.processPrograms.none { it.name == "codex" })) {
             error = "ai codex 需要明确授权工作区，并配置名为 codex 的固定进程映射"; return
+        }
+        if (command.path == "ai claude" && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
+                launchRequest.processPrograms.none { it.name == "claude-node" })) {
+            error = "ai claude 需要明确授权工作区，并配置名为 claude-node 的固定进程映射"; return
         }
         if (activeSession != null || activeRuntime != null) { error = "此插件控制器已有活动 Session"; return }
         try { ExtensionRelayBootstrap.build(launchRequest) }
@@ -116,7 +123,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                                     ExtensionSession.JSONShape.OBJECT, ExtensionSession.JSONShape.OBJECT)
                             }, additionalRequiredCapabilities = extraCapabilities)
                         sessionGeneration = Any(); rpcGeneration = Any(); changeReview.cancel()
-                        codex = CodexHostState(); pendingCodexRPCHandles.clear(); activeCodexRPCHandles.clear()
+                        claudeRPC?.invalidate(); claudeRPC = null
+                        codex = CodexHostState(); pendingExtensionRPCHandles.clear(); activeExtensionRPCHandles.clear()
                         activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
                             launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
                             launchRequest.executorDigest, target.alias, ExtensionRelayBootstrap.build(launchRequest),
@@ -225,22 +233,41 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
-    private suspend fun codexRPC(method: String, input: JSONObject): JSONObject {
+    private suspend fun codexRPC(method: String, input: JSONObject): JSONObject =
+        CodexHostEvents.decodeOutcome(requestExtensionRPC(method, input.toString().toByteArray(Charsets.UTF_8)))
+
+    internal suspend fun requestClaudeAction(method: String, parameters: ByteArray): ByteArray {
+        check(!launchBusy && activeSession?.command?.path == "ai claude" &&
+            activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE &&
+            ClaudeRPCClient.methods.all { it in activeSession?.methods.orEmpty() }) {
+            "Claude 操作需要当前 ACTIVE Runtime 和完整八方法 allowlist"
+        }
+        val client = claudeRPC ?: run {
+            val generation = rpcGeneration
+            ClaudeRPCClient { rpcMethod, bytes ->
+                checkRPCGeneration(generation)
+                requestExtensionRPC(rpcMethod, bytes).also { checkRPCGeneration(generation) }
+            }.also { claudeRPC = it }
+        }
+        return client.request(method, parameters)
+    }
+
+    private suspend fun requestExtensionRPC(method: String, input: ByteArray): ByteArray {
         val generation = rpcGeneration
         checkRPCGeneration(generation)
         val owner = controller ?: error("插件 Host 不可用")
-        check(!launchBusy && method in activeSession?.methods.orEmpty()) { "Codex RPC 未在本次 Session allowlist 中" }
+        check(!launchBusy && method in activeSession?.methods.orEmpty()) { "插件 RPC 未在本次 Session allowlist 中" }
         val admission = withContext(NonCancellable) {
-            owner.requestRuntimeExecutor(method, input.toString().toByteArray(Charsets.UTF_8), 30000)
+            owner.requestRuntimeExecutor(method, input, 30000)
         }
-        check(admission.status == ExtensionSession.RPCStatus.OK) { "Codex RPC admission 失败：${admission.status}" }
+        check(admission.status == ExtensionSession.RPCStatus.OK) { "插件 RPC admission 失败：${admission.status}" }
         val handle = checkNotNull(admission.handle)
         if (generation === rpcGeneration) {
-            pendingCodexRPCHandles += handle
-            activeCodexRPCHandles += handle
+            pendingExtensionRPCHandles += handle
+            activeExtensionRPCHandles += handle
         }
         var confirmed = false
-        var outcome: JSONObject? = null
+        var outcome: ByteArray? = null
         try {
             checkRPCGeneration(generation)
             val deadline = SystemClock.elapsedRealtime() + 35000
@@ -248,27 +275,27 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 checkRPCGeneration(generation)
                 val (status, result) = owner.runtimeExecutorRequestResult(handle)
                 checkRPCGeneration(generation)
-                check(status == ExtensionSession.RPCStatus.OK) { "Codex RPC result 失败：$status" }
+                check(status == ExtensionSession.RPCStatus.OK) { "插件 RPC result 失败：$status" }
                 if (result?.confirmed == true) {
                     confirmed = true
                     check(result.state == ExtensionSession.RPCState.SUCCEEDED) {
-                        "Codex RPC 结果未成功确认：${result.state}"
+                        "插件 RPC 结果未成功确认：${result.state}"
                     }
-                    outcome = CodexHostEvents.decodeOutcome(result.outcome)
+                    outcome = result.outcome.copyOf()
                     break
                 }
                 delay(20)
             }
-            check(outcome != null) { "Codex RPC 超时；结果未知，不会自动重试" }
+            check(outcome != null) { "插件 RPC 超时；结果未知，不会自动重试" }
         } finally {
             withContext(NonCancellable) {
                 if (generation === rpcGeneration) {
-                    activeCodexRPCHandles -= handle
+                    activeExtensionRPCHandles -= handle
                     if (confirmed) {
                         val forgotten = owner.forgetRuntimeExecutorRequest(handle)
                         if (generation === rpcGeneration) {
-                            if (forgotten != ExtensionSession.RPCStatus.OK) error("无法释放 Codex RPC 结果句柄：$forgotten")
-                            pendingCodexRPCHandles -= handle
+                            if (forgotten != ExtensionSession.RPCStatus.OK) error("无法释放插件 RPC 结果句柄：$forgotten")
+                            pendingExtensionRPCHandles -= handle
                         }
                     } else owner.cancelRuntimeExecutorRequest(handle)
                 }
@@ -299,10 +326,11 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     private fun currentChange(reference: CodexChangeReference) = codex.threadID == reference.threadID &&
         codex.timeline.any { it.changeReference == reference }
 
-    private fun invalidateCodexCalls() {
+    private fun invalidateExtensionCalls() {
+        claudeRPC?.invalidate(); claudeRPC = null
         rpcGeneration = Any()
         changeReview.cancel()
-        activeCodexRPCHandles.clear()
+        activeExtensionRPCHandles.clear()
         codex = codex.copy(callBusy = false)
     }
 
@@ -353,7 +381,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     fun stopRuntime() {
         val owner = controller ?: return
         if (launchBusy || activeRuntime == null) return
-        invalidateCodexCalls()
+        invalidateExtensionCalls()
         launchBusy = true
         owner.requestStopRuntime()
     }
@@ -362,7 +390,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         val owner = controller ?: return
         val current = activeSession ?: return
         if (launchBusy || current.info.phase != ExtensionSession.Phase.ACTIVE || activeRuntime != null) return
-        invalidateCodexCalls()
+        invalidateExtensionCalls()
         launchBusy = true
         owner.requestStopSession()
         viewModelScope.launch {
@@ -386,9 +414,9 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         viewModelScope.launch {
             try {
                 owner.releaseFinished()
-                sessionGeneration = Any(); invalidateCodexCalls()
+                sessionGeneration = Any(); invalidateExtensionCalls()
                 activeRuntime = null; activeSession = null; receivedResources = emptyList()
-                codex = CodexHostState(); pendingCodexRPCHandles.clear(); activeCodexRPCHandles.clear()
+                codex = CodexHostState(); pendingExtensionRPCHandles.clear(); activeExtensionRPCHandles.clear()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Throwable) { error = "释放插件资源失败：${failure.message ?: failure.javaClass.simpleName}" }
             finally { launchBusy = false }
@@ -418,7 +446,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 val state = owner.stepRuntime()
                 if (generation !== sessionGeneration) return
                 activeRuntime = state
-                reapCodexRPCs(owner)
+                reapExtensionRPCs(owner)
                 if (generation !== sessionGeneration) return
                 val (resourceStatus, content) = owner.takeRuntimeResource()
                 if (generation !== sessionGeneration) return
@@ -437,6 +465,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                 }
                 if (state.info.phase !in setOf(ExtensionRuntime.Phase.ACTIVE, ExtensionRuntime.Phase.STARTING,
                         ExtensionRuntime.Phase.CREATED)) {
+                    claudeRPC?.invalidate()
                     codex = codex.copy(approvals = emptyList())
                     changeReview.cancel()
                     return
@@ -447,6 +476,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             throw cancelled
         } catch (failure: Throwable) {
             if (generation !== sessionGeneration) return
+            claudeRPC?.invalidate()
             changeReview.cancel()
             codex = codex.copy(approvals = emptyList())
             error = "插件 Runtime 运行失败：${failure.message ?: failure.javaClass.simpleName}"
@@ -488,21 +518,21 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             ExtensionSession.RPCStatus.OK) { "无法确认 Codex Host RPC" }
     }
 
-    private suspend fun reapCodexRPCs(owner: ExtensionController) {
+    private suspend fun reapExtensionRPCs(owner: ExtensionController) {
         val generation = sessionGeneration
-        for (handle in pendingCodexRPCHandles.toList()) {
-            if (handle in activeCodexRPCHandles) continue
+        for (handle in pendingExtensionRPCHandles.toList()) {
+            if (handle in activeExtensionRPCHandles) continue
             val (status, result) = owner.runtimeExecutorRequestResult(handle)
             if (generation !== sessionGeneration) return
             if (status == ExtensionSession.RPCStatus.CLOSED) {
-                pendingCodexRPCHandles -= handle
+                pendingExtensionRPCHandles -= handle
                 continue
             }
             if (status != ExtensionSession.RPCStatus.OK || result == null || !result.confirmed) continue
             val statusAfter = owner.forgetRuntimeExecutorRequest(handle)
             if (generation !== sessionGeneration) return
-            if (statusAfter == ExtensionSession.RPCStatus.OK) pendingCodexRPCHandles -= handle
-            else error = "无法释放终态 Codex RPC 句柄：$statusAfter"
+            if (statusAfter == ExtensionSession.RPCStatus.OK) pendingExtensionRPCHandles -= handle
+            else error = "无法释放终态插件 RPC 句柄：$statusAfter"
         }
     }
 

@@ -184,7 +184,18 @@ result. The controls preserve unknown outcomes and original draft text after an
 unconfirmed send, reject stale turn references and do not retry automatically.
 Each visible/history collection retains at most 128 records and 2 MiB, with
 omission counts and selectable complete content for retained records. Android
-and other Host conversation adapters remain unfinished.
+conversation controls and other Host adapters remain unfinished. Android now has
+the matching fixed-argument/environment-name launch form and an ACTIVE Runtime
+complete-document adapter, tested with an explicit in-memory document fixture.
+That does not establish an Android-to-SDK conversation or real model turn.
+
+Android document/launch checks use the prepared local Android toolchain and an
+owned no-window AVD; they make no SDK/CLI/model request:
+
+```sh
+python3 -B scripts/test-plugin-claude-android.py --headless-api 36 --mutate
+python3 -B scripts/test-plugin-claude-android.py --headless-api 29 --plugin-js
+```
 
 The offscreen macOS integration runner is:
 
