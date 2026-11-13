@@ -7,18 +7,57 @@ import test from "node:test";
 
 import { CodexAppServerClient, CodexOutcomeUnknownError, CodexProtocolError } from
   "../plugins/official/ai-codex/protocol/client.ts";
-import { CodexLineDecoder, CodexLineDecoderError, MAX_APP_SERVER_LINE_BYTES } from
+import { CodexLineDecoder, CodexLineDecoderError, MAX_APP_SERVER_LINE_BYTES, APP_SERVER_DECODE_CHUNK_BYTES } from
   "../plugins/official/ai-codex/protocol/line-decoder.ts";
 import { CodexAppServerStdio, CODEX_PENDING_WRITE_MAX, CODEX_PIPE_CHUNK_MAX, CODEX_PENDING_LINES_MAX } from
   "../plugins/official/ai-codex/protocol/stdio.ts";
 import { CodexConversation } from "../plugins/official/ai-codex/protocol/conversation.ts";
 import { spawnCodexAppServer } from "../plugins/official/ai-codex/protocol/process.ts";
 import { CODEX_CLI_VERSION } from "../plugins/official/ai-codex/protocol/version.ts";
+import { utf8ByteLength } from "../plugins/official/ai-codex/protocol/utf8.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const lock = JSON.parse(readFileSync(join(root, "plugins/official/ai-codex/protocol/app-server.lock.json"), "utf8"));
 assert.equal(CODEX_CLI_VERSION, lock.codexCliVersion);
 const clientInfo = { name: "ghosterm-protocol-test", title: "Ghosterm protocol test", version: "0.0.0" };
+
+test("UTF-8 length preserves every scalar width and rejects unpaired surrogates", () => {
+  const encoder = new TextEncoder();
+  for (let point = 0; point <= 0x10ffff; point++) {
+    if (point >= 0xd800 && point <= 0xdfff) continue;
+    const value = String.fromCodePoint(point);
+    assert.equal(utf8ByteLength(value), encoder.encode(value).length, `UTF-8 scalar byte width must be exact: ${point}`);
+  }
+  for (const invalid of ["\ud800", "\udfff", "a\ud800b", "\ud800\ud800", "😀\udfff", "\ud800😀"]) {
+    assert.throws(() => utf8ByteLength(invalid), /invalid UTF-16/, "unpaired surrogates must never receive a byte count");
+  }
+  const mixed = "a\0\r\n%é中😀𐀀\uffff".repeat(12000);
+  assert.equal(utf8ByteLength(mixed), encoder.encode(mixed).length, "mixed full-document UTF-8 bytes must remain exact");
+});
+
+test("prepared protocol messages dispatch once and cannot deliver after close", () => {
+  const client = new CodexAppServerClient(() => {});
+  const events = [];
+  client.onNotification(event => events.push(event.method));
+  const dispatch = client.prepareLine('{"method":"fixture.note","params":{}}');
+  assert.equal(typeof dispatch, "function");
+  assert.deepEqual(events, []);
+  dispatch(); dispatch();
+  assert.deepEqual(events, ["fixture.note"], "prepared protocol frames must dispatch once");
+  const late = client.prepareLine('{"method":"fixture.late","params":{}}');
+  client.close(); late();
+  assert.deepEqual(events, ["fixture.note"], "prepared frames must not deliver into a closed client");
+});
+
+test("prepared protocol messages still reject invalid UTF-16 JSON and envelopes", () => {
+  for (const line of ["\ud800", "{", '[]', '{"jsonrpc":"1.0","method":"fixture.note"}']) {
+    const client = new CodexAppServerClient(() => {});
+    let errors = 0, events = 0;
+    client.onProtocolError(() => errors++); client.onNotification(() => events++);
+    assert.equal(client.prepareLine(line), undefined, "preparation must validate the complete original frame");
+    assert.equal(errors, 1); assert.equal(events, 0);
+  }
+});
 
 async function pumpInitialization(server) {
   let finished = false;
@@ -282,6 +321,51 @@ test("rejects oversized and truncated stdout records", () => {
   assert.throws(() => invalidUTF8.push(new Uint8Array([0xff, 0x0a])), CodexLineDecoderError);
 });
 
+test("incremental line decoding preserves split code points at block and pipe boundaries", () => {
+  for (const prefix of [8188, 8189, 8190, 8191, 8192, 8193]) {
+    for (const chunk of [1, 2, 3, 7, 2048, 8191, 8192, 16384]) {
+      const line = "x".repeat(prefix) + "é中😀last";
+      const bytes = new TextEncoder().encode(line + "\r\nsecond😀\n");
+      const lines = [];
+      const decoder = new CodexLineDecoder(value => lines.push(value));
+      assert.doesNotThrow(() => {
+        for (let at = 0; at < bytes.length; at += chunk) decoder.push(bytes.subarray(at, at + chunk));
+        decoder.finish();
+      }, "incremental UTF-8 must retain an incomplete code point across decode blocks");
+      assert.deepEqual(lines, [line, "second😀"], "incremental UTF-8 must preserve every split code point");
+    }
+  }
+});
+
+test("incremental line decoding rejects malformed completed blocks before newline", () => {
+  for (const invalid of [[0xe0, 0x80, 0x80], [0xed, 0xa0, 0x80], [0xf4, 0x90, 0x80, 0x80], [0xc0, 0x80], [0x80]]) {
+    const bytes = new Uint8Array(APP_SERVER_DECODE_CHUNK_BYTES * 2 + invalid.length);
+    bytes.fill(0x78); bytes.set(invalid, APP_SERVER_DECODE_CHUNK_BYTES - 1);
+    const decoder = new CodexLineDecoder(() => assert.fail("invalid partial line must never publish"));
+    assert.throws(() => decoder.push(bytes), /invalid UTF-8/,
+      "invalid UTF-8 must fail in a completed decode block before newline");
+    assert.throws(() => decoder.push(new Uint8Array([0x0a])), /decoder is failed/);
+  }
+});
+
+test("incremental line decoding retains aggregate byte and partial EOF limits", () => {
+  const block = new Uint8Array(APP_SERVER_DECODE_CHUNK_BYTES).fill(0x78);
+  const lines = [];
+  const decoder = new CodexLineDecoder(value => lines.push(value));
+  for (let at = 0; at < MAX_APP_SERVER_LINE_BYTES; at += block.length) decoder.push(block);
+  assert.equal(lines.length, 0);
+  decoder.push(new Uint8Array([0x0a]));
+  assert.equal(lines[0], "x".repeat(MAX_APP_SERVER_LINE_BYTES));
+  const overflow = new CodexLineDecoder(() => assert.fail("oversized line must never publish"));
+  for (let at = 0; at < MAX_APP_SERVER_LINE_BYTES; at += block.length) overflow.push(block);
+  assert.throws(() => overflow.push(new Uint8Array([0x78])), /exceeds 1 MiB/,
+    "flushed fragments must retain the complete line byte budget");
+  const partial = new CodexLineDecoder(() => assert.fail("partial line must never publish"));
+  partial.push(block);
+  assert.throws(() => partial.finish(), /inside a JSON line/,
+    "fully decoded fragments must still reject EOF before newline");
+});
+
 test("stdio owner bounds writes, handles partial IO, and drains stderr without retaining it", async () => {
   const output = [], errors = [];
   let writesBlocked = true;
@@ -368,7 +452,10 @@ test("stdio decodes and dispatches in separate slices before observing EOF", asy
   assert.equal(events, 0, "decoding must defer business dispatch to the next owner slice");
   assert.equal(connection.drained, false);
   connection.step();
+  assert.equal(events, 0, "JSON validation must defer business dispatch to its own owner slice");
+  connection.step();
   assert.equal(events, 1);
+  connection.step();
   connection.step();
   assert.equal((await ready).userAgent, "fixture/0.166.0", "queued reply must survive until dispatch before EOF");
   connection.step();
@@ -410,9 +497,9 @@ test("stdio continues stderr drainage while dispatching queued lines", async () 
   });
   connection.client.onNotification(() => events++);
   const ready = connection.client.initialize(clientInfo);
-  connection.step(); connection.step(); await ready;
+  connection.step(); connection.step(); connection.step(); await ready;
   assert.equal(drained, CODEX_PIPE_CHUNK_MAX, "business dispatch must not block stderr drainage");
-  connection.step(); connection.step();
+  connection.step(); connection.step(); connection.step();
   assert.equal(events, 1);
   assert.equal(connection.drained, true);
   assert.equal(connection.failure, undefined);

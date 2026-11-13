@@ -1,5 +1,6 @@
 import { BoundaryError, encode, utf8Bytes } from "@ghosterm/plugin-sdk";
 import { CodexProtocolError } from "../protocol/client.ts";
+import { utf8ByteLength } from "../protocol/utf8.ts";
 
 export const CODEX_CHANGE_MAX_BYTES = 524288;
 export const CODEX_CHANGES_MAX_BYTES = 1048576;
@@ -59,7 +60,7 @@ export class CodexChangeStore {
     const key = JSON.stringify([params.threadId, params.turnId, itemID]);
     const content = JSON.stringify({ schemaVersion: 1, threadId: params.threadId,
       turnId: params.turnId, itemId: itemID, changes });
-    const bytes = utf8Bytes(content);
+    const bytes = utf8ByteLength(content);
     const previous = this.snapshots.get(key);
     let marker: Record<string, unknown>;
     if (previous?.content === content) {

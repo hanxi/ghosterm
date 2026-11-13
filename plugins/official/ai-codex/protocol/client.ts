@@ -1,4 +1,5 @@
 /** Stable Codex app-server JSON-RPC client. Process ownership and pipe IO belong to the host. */
+import { utf8ByteLength } from "./utf8.ts";
 
 export type RequestID = string | number;
 export type AppServerMethod = "thread/start" | "turn/start" | "turn/interrupt";
@@ -97,23 +98,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function utf8ByteLength(value: string): number {
-  let bytes = 0;
-  for (let index = 0; index < value.length; index++) {
-    const unit = value.charCodeAt(index);
-    if (unit >= 0xd800 && unit <= 0xdbff) {
-      const low = value.charCodeAt(++index);
-      if (!(low >= 0xdc00 && low <= 0xdfff)) throw new CodexProtocolError("invalid UTF-16 string");
-      bytes += 4;
-    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
-      throw new CodexProtocolError("invalid UTF-16 string");
-    } else {
-      bytes += unit <= 0x7f ? 1 : unit <= 0x7ff ? 2 : 3;
-    }
-  }
-  return bytes;
-}
-
 function idKey(value: unknown): string | null {
   if (typeof value === "string") return `s:${value}`;
   if (typeof value === "number" && Number.isSafeInteger(value)) return `n:${value}`;
@@ -187,7 +171,13 @@ export class CodexAppServerClient {
 
   /** Host feeds one complete UTF-8 line. Codex 0.166.0 omits `jsonrpc` on replies. */
   receiveLine(line: string): void {
-    if (this.phase === "closed" || this.phase === "failed") return;
+    this.prepareLine(line)?.();
+  }
+
+  /** Validate now; return a single-use dispatch for the next bounded owner slice.
+   * The closure owns the parsed message and accepts no unvalidated replacement. */
+  prepareLine(line: string): (() => void) | undefined {
+    if (this.phase === "closed" || this.phase === "failed") return undefined;
     let lineBytes: number;
     try { lineBytes = utf8ByteLength(line); }
     catch { this.protocolFailure("app-server line contains invalid UTF-16"); return; }
@@ -202,6 +192,16 @@ export class CodexAppServerClient {
       this.protocolFailure("app-server emitted an invalid JSON-RPC envelope");
       return;
     }
+    let consumed = false;
+    return () => {
+      if (consumed) return;
+      consumed = true;
+      this.receiveMessage(message);
+    };
+  }
+
+  private receiveMessage(message: Record<string, unknown>): void {
+    if (this.phase === "closed" || this.phase === "failed") return;
 
     if (Object.prototype.hasOwnProperty.call(message, "id")) {
       const key = idKey(message.id);

@@ -13,6 +13,7 @@ import com.hanxi.ghosterm.bridge.ExtensionResourceStore
 import com.hanxi.ghosterm.bridge.ExtensionSession
 import com.hanxi.ghosterm.bridge.PreparedSSH
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -29,6 +30,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     private val activeCodexRPCHandles = mutableSetOf<Long>()
     private var sessionGeneration = Any()
     private var rpcGeneration = Any()
+    private var handshakeJob: Job? = null
     internal val changeReview = CodexChangeReviewController(viewModelScope)
     data class Entry(val review: ExtensionController.Review, val decision: String = "尚未批准")
     data class ActiveSession(
@@ -120,7 +122,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                             launchRequest.executorDigest, target.alias, ExtensionRelayBootstrap.build(launchRequest),
                             (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info)
                         launchBusy = false
-                        viewModelScope.launch { advanceToConsent(owner) }
+                        handshakeJob?.cancel()
+                        handshakeJob = viewModelScope.launch { advanceToConsent(owner) }
                         true
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -307,6 +310,10 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         val owner = controller ?: return
         val current = activeSession ?: return
         if (launchBusy || current.info.phase != ExtensionSession.Phase.CONSENT || current.info.consentToken.isBlank()) return
+        // Runtime activation transfers the native Session handle. Its old
+        // consent poller must stop before that transfer, including a pending delay.
+        handshakeJob?.cancel()
+        handshakeJob = null
         launchBusy = true
         viewModelScope.launch {
             try {

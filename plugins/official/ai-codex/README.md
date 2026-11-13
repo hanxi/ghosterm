@@ -192,8 +192,8 @@ decline/cancel send an empty snapshot ID. This replaces the candidate two-field
 input, so old callers receive a schema error. A revision mismatch returns the
 confirmed business result `accepted: false` without writing an approval;
 unclassified handler errors and interrupted transport remain unknown. The
-macOS full-patch RPC-to-UI fixture is described below; real model approval and
-Android RPC-to-UI E2E remain pending. The Android native reader uses strict
+macOS and Android full-patch RPC-to-UI fixtures are described below; real model
+approval and the complete installation/interaction/device matrix remain pending. The Android native reader uses strict
 streaming JSON, exact Kotlin string identity, a selectable read-only Compose
 text field, and the same publication limits. Default App builds still have the
 optional plugin JS runtime disabled.
@@ -223,8 +223,8 @@ ANDROID_SERIAL=emulator-5586 python3 -B scripts/mutation-check-android-codex-rev
 
 The JSON, timeline, Compose and Core combination passed 17 cases on each of the
 disposable API 29 and API 36 arm64 / 4 KiB headless emulators. Component fixtures
-do not replace real Agent requests, approval-version binding E2E, or the complete
-Settings-to-SSH-to-review user flow.
+alone do not replace real Agent requests or the complete installation-to-review
+user flow; the separate protocol-fixture RPC tests are described below.
 
 The AppModel SSH runner's direct selection now also holds a disposable wrapper
 at a FIFO before exec of Codex, observes its actual start, stops that pending
@@ -252,9 +252,30 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer python3 -B scripts/test
 python3 -B scripts/mutation-check-plugin-codex-stdio.py
 ```
 
-The stdio owner now separates line decoding from one-line business dispatch in
-successive slices, retains at most 32 decoded lines, and continues draining stderr
-while dispatching. Queued replies are processed before observing stdout EOF.
-This fixes the representative large-document CPU failure at the existing runtime
-budget; it does not establish the full maximum-size or cold-start performance
-matrix. Exact RPC byte checks remain in place after inexpensive preview pruning.
+The stdio owner separates framing/UTF-8 decoding, JSON validation and business
+dispatch into successive slices, retains at most 32 decoded lines and one
+single-use prepared message, and continues draining stderr during both later
+phases. Closing drops the prepared message; its closure also refuses delivery to
+a closed client. UTF-8 is decoded in blocks of at most 8192 bytes, carrying an
+incomplete code point across blocks while retaining the whole line's one MiB
+byte/EOF limits. Exact UTF-8 counts use native regexp passes; all 1112064 Unicode
+scalars, malformed surrogate inputs and mixed full documents are checked against
+Node's TextEncoder reference. This keeps the fixed CPU budget; it does not
+establish the full maximum-size or cold-start performance matrix. Exact RPC byte
+checks remain after inexpensive preview pruning. The Portable SDK is unchanged.
+
+The Android counterpart uses the production MainActivity Settings and
+ExtensionPackagesViewModel. It prepares package review/approval and route startup
+through their APIs, then uses production Compose controls for consent, thread
+start, message text input, two full reads, approval, stop and release. Both direct
+and forwarding-only ProxyJump routes use the same explicit no-model Python
+fixture as macOS. The test checks all ten files and the exact complete Unicode
+diff, readonly/selectable semantics, stale-version RPC refusal and the original
+child approval response. It also checks the independent remote unknown outcome
+when the Host closes the long-lived Session. It does not cover package import or
+launch-form UI, a real Agent/model, or user hardware.
+
+```sh
+JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$PWD/tmp" ./android/gradlew -p android -PghostermPluginJs=true :app:assembleDebug :app:assembleDebugAndroidTest
+python3 -B scripts/test-plugin-codex-patch-android.py --headless-api 36 --gterm tmp/codex-gterm/gterm --route both
+```

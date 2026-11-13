@@ -1,6 +1,7 @@
 /** Bounded UTF-8 JSON-lines framing for a host-owned app-server stdout pipe. */
 
 export const MAX_APP_SERVER_LINE_BYTES = 1_048_576;
+export const APP_SERVER_DECODE_CHUNK_BYTES = 8192;
 
 export class CodexLineDecoderError extends Error {
   constructor(message: string) {
@@ -55,8 +56,10 @@ function decodeUTF8(bytes: Uint8Array): string {
 }
 
 export class CodexLineDecoder {
-  private readonly buffer = new Uint8Array(MAX_APP_SERVER_LINE_BYTES);
+  private readonly buffer = new Uint8Array(APP_SERVER_DECODE_CHUNK_BYTES);
   private length = 0;
+  private lineBytes = 0;
+  private readonly parts: string[] = [];
   private failed = false;
   private readonly onLine: (line: string) => void;
 
@@ -67,19 +70,30 @@ export class CodexLineDecoder {
   push(bytes: Uint8Array): void {
     if (this.failed) throw new CodexLineDecoderError("Codex line decoder is failed");
     try {
-      for (const byte of bytes) {
-        if (byte === 0x0a) {
-          let end = this.length;
-          if (end > 0 && this.buffer[end - 1] === 0x0d) end--;
-          const line = decodeUTF8(this.buffer.subarray(0, end));
-          this.length = 0;
-          this.onLine(line);
-        } else {
-          if (this.length === MAX_APP_SERVER_LINE_BYTES) {
-            throw new CodexLineDecoderError("Codex app-server line exceeds 1 MiB");
-          }
-          this.buffer[this.length++] = byte;
+      let at = 0;
+      while (at < bytes.length) {
+        const newline = bytes.indexOf(0x0a, at);
+        const end = newline < 0 ? bytes.length : newline;
+        const count = end - at;
+        if (count > MAX_APP_SERVER_LINE_BYTES - this.lineBytes) {
+          throw new CodexLineDecoderError("Codex app-server line exceeds 1 MiB");
         }
+        this.lineBytes += count;
+        while (at < end) {
+          const taken = Math.min(end - at, this.buffer.length - this.length);
+          this.buffer.set(bytes.subarray(at, at + taken), this.length);
+          this.length += taken;
+          at += taken;
+          if (this.length === this.buffer.length) this.flush(false);
+        }
+        if (newline < 0) break;
+        this.flush(true);
+        let line = this.parts.join("");
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        this.parts.length = 0;
+        this.lineBytes = 0;
+        this.onLine(line);
+        at = newline + 1;
       }
     } catch (error) {
       this.failed = true;
@@ -89,10 +103,27 @@ export class CodexLineDecoder {
     }
   }
 
+  /** Keep only an incomplete final UTF-8 sequence for the next bounded block. */
+  private flush(final: boolean): void {
+    let end = this.length;
+    if (!final && end > 0) {
+      let start = end - 1;
+      while (start > 0 && (this.buffer[start]! & 0xc0) === 0x80 && end - start < 4) start--;
+      const lead = this.buffer[start]!;
+      const width = lead >= 0xc2 && lead <= 0xdf ? 2 : lead >= 0xe0 && lead <= 0xef ? 3 :
+        lead >= 0xf0 && lead <= 0xf4 ? 4 : 1;
+      if (end - start < width) end = start;
+    }
+    if (end > 0) this.parts.push(decodeUTF8(this.buffer.subarray(0, end)));
+    const remaining = this.length - end;
+    if (remaining > 0) this.buffer.copyWithin(0, end, this.length);
+    this.length = remaining;
+  }
+
   /** EOF is valid only between complete lines; partial JSON must remain unknown. */
   finish(): void {
     if (this.failed) throw new CodexLineDecoderError("Codex line decoder is failed");
-    if (this.length !== 0) {
+    if (this.lineBytes !== 0) {
       this.failed = true;
       throw new CodexLineDecoderError("Codex app-server pipe ended inside a JSON line");
     }

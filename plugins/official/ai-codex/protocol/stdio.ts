@@ -51,6 +51,7 @@ export class CodexAppServerStdio {
   #writeOffset = 0;
   #queuedBytes = 0;
   #lines: string[] = [];
+  #dispatch: (() => void) | undefined;
   #closed = false;
   #stdoutEOF = false;
   #stderrEOF = false;
@@ -69,19 +70,25 @@ export class CodexAppServerStdio {
   get failure(): Error | undefined { return this.#failure; }
   get closed(): boolean { return this.#closed; }
   /** True after both output pipes have reached EOF and buffered bytes were read. */
-  get drained(): boolean { return this.#stdoutEOF && this.#stderrEOF && this.#lines.length === 0; }
+  get drained(): boolean { return this.#stdoutEOF && this.#stderrEOF && this.#lines.length === 0 && !this.#dispatch; }
 
   /** One bounded, zero-wait IO slice. Stderr is drained but never retained/logged. */
   step(): void {
     if (this.#closed || this.#failure || this.drained) return;
     try {
       if (!this.#stdoutEOF) this.#flushWrites(CODEX_PIPE_CHUNK_MAX);
-      // Decode and business handling use separate worker slices. A large line
-      // must not spend its whole UTF-8 decode plus patch capture budget at once.
-      const line = this.#lines.shift();
-      if (line !== undefined) this.client.receiveLine(line);
-      else if (!this.#stdoutEOF) this.#drainStdout(CODEX_PIPE_CHUNK_MAX);
-      if (this.#stdoutEOF && this.#lines.length === 0) this.client.close();
+      // Framing/decoding, JSON validation, and business dispatch have separate
+      // slices. Capturing a full patch must not share the line validation budget.
+      if (this.#dispatch) {
+        const dispatch = this.#dispatch;
+        this.#dispatch = undefined;
+        dispatch();
+      } else {
+        const line = this.#lines.shift();
+        if (line !== undefined) this.#dispatch = this.client.prepareLine(line);
+        else if (!this.#stdoutEOF) this.#drainStdout(CODEX_PIPE_CHUNK_MAX);
+      }
+      if (this.#stdoutEOF && this.#lines.length === 0 && !this.#dispatch) this.client.close();
       if (!this.#stderrEOF) this.#drainStderr(CODEX_PIPE_CHUNK_MAX);
     } catch (error) {
       this.#fail(error instanceof Error ? error : new Error(String(error)));
@@ -96,6 +103,7 @@ export class CodexAppServerStdio {
     this.client.close();
     this.#writes = [];
     this.#lines = [];
+    this.#dispatch = undefined;
     this.#queuedBytes = 0;
   }
 
@@ -172,6 +180,7 @@ export class CodexAppServerStdio {
     this.client.close();
     this.#writes = [];
     this.#lines = [];
+    this.#dispatch = undefined;
     this.#queuedBytes = 0;
     this.#writeOffset = 0;
   }
