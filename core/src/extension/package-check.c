@@ -92,6 +92,24 @@ bool gt__package_checked_retain(gt_package_checked_t *p, gt_package_checked_t **
     return false;
 }
 
+bool gt__package_checked_at(const gt_package_checked_t *p,
+                            size_t index,
+                            gt_package_member_t *info,
+                            const uint8_t **bytes,
+                            size_t *size) {
+    if (info) {
+        memset(info, 0, sizeof(*info));
+    }
+    if (bytes) {
+        *bytes = NULL;
+    }
+    if (size) {
+        *size = 0;
+    }
+    return p && info && bytes && size && gt__package_snapshot_member(p->snapshot, index, info) &&
+           gt__package_snapshot_view(p->snapshot, index, bytes, size);
+}
+
 gt_package_status_t gt__package_checked_destroy(gt_package_checked_t **out) {
     if (!out || !*out) {
         return GT_PACKAGE_INVALID;

@@ -27,6 +27,7 @@ add_library(ghosterm_core STATIC
   src/extension/package-json.c
   src/extension/package-check.c
   src/extension/package-runtime.c
+  src/extension/package-stage.c
   src/extension/registry.c
   src/extension/registry-api.c
   src/extension/package-api.c
@@ -173,6 +174,24 @@ target_include_directories(test_package_runtime PRIVATE src)
 target_link_libraries(test_package_runtime PRIVATE ghosterm_core)
 target_compile_options(test_package_runtime PRIVATE -Wall -Wextra -Werror)
 if(GHOSTERM_WITH_PLUGIN_JS)
+  add_executable(test_package_stage tests/test_package_stage.c)
+  target_include_directories(test_package_stage PRIVATE src)
+  target_link_libraries(test_package_stage PRIVATE ghosterm_core)
+  target_compile_options(test_package_stage PRIVATE -Wall -Wextra -Werror)
+  foreach(mode node exec default frozen retained parent-close cancel-before cancel-mid cancel-ready
+      limit invalid unsupported allocation global-memory replace-file replace-dir replace-root unknown-file)
+    add_test(NAME plugin_package_stage_${mode} COMMAND test_package_stage ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+    set_tests_properties(plugin_package_stage_${mode} PROPERTIES TIMEOUT 30)
+  endforeach()
+  add_executable(test_package_stage_boundary tests/test_package_stage.c)
+  target_include_directories(test_package_stage_boundary PRIVATE src)
+  target_compile_definitions(test_package_stage_boundary PRIVATE GT_PACKAGE_STAGE_BOUNDARY=1)
+  target_link_libraries(test_package_stage_boundary PRIVATE ghosterm_core)
+  target_compile_options(test_package_stage_boundary PRIVATE -Wall -Wextra -Werror)
+  foreach(mode io-write zero-write short-write interrupted-write close-error entropy-unsupported entropy-io)
+    add_test(NAME plugin_package_stage_boundary_${mode} COMMAND test_package_stage_boundary ${mode} ${CMAKE_CURRENT_SOURCE_DIR}/../tmp)
+    set_tests_properties(plugin_package_stage_boundary_${mode} PROPERTIES TIMEOUT 30)
+  endforeach()
   add_executable(test_process_prefix tests/test_process_prefix.c)
   target_include_directories(test_process_prefix PRIVATE src)
   target_link_libraries(test_process_prefix PRIVATE ghosterm_core)

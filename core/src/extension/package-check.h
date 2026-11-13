@@ -84,6 +84,10 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
 bool gt__package_checked_info(const gt_package_checked_t *, gt_package_check_info_t *);
 bool gt__package_checked_member(
     const gt_package_checked_t *, const char *, gt_package_member_t *, const uint8_t **, size_t *);
+/* Ordered physical catalog, including integrity.json. Same immutable lifetime
+ * as checked_member; no reopening the original package directory. */
+bool gt__package_checked_at(
+    const gt_package_checked_t *, size_t, gt_package_member_t *, const uint8_t **, size_t *);
 /* Retain while holding an existing reference. Immutable reads may then run on
  * independent workers. Custom allocator context must outlive all references
  * and support whichever worker performs the final release. Not a global cache.
