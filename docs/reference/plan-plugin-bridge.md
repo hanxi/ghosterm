@@ -4952,3 +4952,10 @@ gterm 的选择性子进程环境补入显式 TMPDIR（仍无任意变量继承�
 握手修复后，初轮还暴露无资源 Session 的资源轮询令 pump 停止（resourceUnavailable）及远端 gterm 默认 25ms slice 在冷初始化中失败（Runtime error=CPU）。前者已按本次能力过滤；后者给 gterm 配置显式 100ms 有界 Host worker slice，与 Android 档一致，仍受 Core 上限约束。该结果只证明本机该档初始化，不充当完整 CPU / OOM 性能矩阵。所有前置握手 / resourceUnavailable / 超时 / unknown / CPU 失败均保留为失败记录，不计正常变异红或通过。
 
 最终完整 Apple gate 通过：410 tests、2 skip、0 failure，Apple ABI 174 引用 / 3 登记未用；跳过项为独立 owned route fixture 与开发态随包主题检查。Preview AppModel 真实 SSH 的多格式资源链及实际收件快照驱动 WebKit CSS / PNG 绘制通过。最终增强授权断言后的 Codex 专项脚本再通过（1 项、0 skip / failure）。手工 release 初轮漏带 JS-enabled Core 对应的 Swift 链接配置，因 QuickJS 符号未解析失败；该配置不匹配不计产品回归或通过，随后按匹配配置复验。匹配 JS-enabled 与普通默认两档的 macOS arm64 release 构建均通过。离线 gate 初轮复用了平台专项遗留的 CMake 缓存，未据此认定默认配置已验；显式配置 JS=OFF / tests=ON 后，最终 gate 的 481/481 CTest、177 个 ABI 符号及未实现入口检查通过。JS-enabled Android App / instrumentation 源码与测试 APK、clang-format 19.1.7 全仓 220 文件和 git diff --check 通过。Android instrumentation 本轮未运行。测试窗口由现有 TestWindows 后台策略约束；临时 SSH / gterm / Swift scratch / formatter 与日志验收后清理。无公共 C ABI 变化，不增加 macOS CI 二十份；P3 的真实模型 turn / approval、双跳 / tmux、完整 diff、完整 UI 点击链及设备矩阵仍待完成。
+
+
+### macOS CI 编译修复（2026-11-13）
+
+旧 CI `43346407706` 在 SwiftPM release 阶段失败，但旧打包脚本只打印最后 30 行，artifact 也没有完整 Swift 日志。后续同环境 CI `43356856447`（macOS 15 / Xcode 16.4 / Swift 6.1.2）明确报 `ExtensionRelayBootstrap.swift:129` 的数组拼接表达式无法在合理时间内完成类型检查；两次提交中该表达式相同。现改为显式 `[String]` 数组逐段追加，避免长链重载推导，参数顺序、校验和 shell 转义保留。
+
+本机 Xcode Swift 6.4 的 macOS arm64 release 构建通过；Apple 定向 gate 的 ExtensionControllerTests 共 19 项，16 通过、3 项因默认未启用 JS runtime 跳过、零失败，包括启动参数逐字断言、引号转义、目录与进程映射验证。ABI Apple 174 引用 / 3 登记未用及隔离 WebKit CSS / PNG 探针通过，git diff --check 通过。临时产物清理，测试保持后台。尚未复跑云端 Swift 6.1.2，不据此声称原 CI 已绿；无公共 ABI 变化，不增加 CI 二十份，也不改变 P3 未完成状态。

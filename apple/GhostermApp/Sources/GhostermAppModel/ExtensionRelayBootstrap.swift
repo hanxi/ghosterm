@@ -126,15 +126,24 @@ public enum ExtensionRelayBootstrap {
               request.processPrograms.isEmpty || !request.scopedRoots.isEmpty else {
             throw invalid("进程映射必须唯一有效，并且需要至少一个显式 workspace root")
         }
-        let argv = [request.executable, "relay", "--stdio", "--trust-development-digest", request.executorDigest,
-                    "--client-digest", request.clientDigest]
-            + request.methods.flatMap { ["--method", $0] }
-            + request.hostMethods.flatMap { ["--host-method", $0] }
-            + request.scopedRoots.flatMap { ["--root", $0.id, $0.directory] }
-            + request.processPrograms.flatMap {
-                ["--process-program", $0.name, $0.executable, $0.version, $0.sha256]
-            }
-            + ["--", request.executorDirectory, request.command] + request.arguments
+        // Keep each expression small for the Swift 6.1 compiler used by CI.
+        var argv: [String] = [request.executable, "relay", "--stdio", "--trust-development-digest",
+                              request.executorDigest, "--client-digest", request.clientDigest]
+        for method in request.methods {
+            argv.append(contentsOf: ["--method", method])
+        }
+        for method in request.hostMethods {
+            argv.append(contentsOf: ["--host-method", method])
+        }
+        for root in request.scopedRoots {
+            argv.append(contentsOf: ["--root", root.id, root.directory])
+        }
+        for program in request.processPrograms {
+            argv.append(contentsOf: ["--process-program", program.name, program.executable,
+                                      program.version, program.sha256])
+        }
+        argv.append(contentsOf: ["--", request.executorDirectory, request.command])
+        argv.append(contentsOf: request.arguments)
         guard argv.allSatisfy({
             !$0.utf8.contains(0) && !$0.contains("\n") && !$0.contains("\r") && $0.utf8.count <= 4096
         }) else { throw invalid("远端启动参数包含不支持的字符或过长") }
