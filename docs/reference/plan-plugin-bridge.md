@@ -4968,6 +4968,8 @@ gterm 的选择性子进程环境补入显式 TMPDIR（仍无任意变量继承�
 
 默认 Core JS=OFF / tests=ON 的离线 gate 另通过 481/481 CTest、177 个 ABI 符号及未实现入口检查；git diff --check 通过。测试窗口保持后台，临时产物验收后清理。
 
+云端复验：[dev CI 43411785149](https://github.com/hanxi/ghosterm/actions/runs/43411785149) 在修复提交 `79a87049` 上成功，实际工具链为 Swift 6.1.2 / Xcode 16.4。481 项 Core、177 个 ABI、普通 macOS Release 编译、DMG / ZIP 打包、安装脚本集成与变异验证、dev Release 发布 / 复验及 Homebrew cask 对拍均通过。此为 dev 轻档，不冒充 full 档变异或实验 JS-enabled 插件的完整产品验收。
+
 
 ### P3 实施第四十一批：Codex AppModel ProxyJump 与拒绝跳板主机密钥
 
