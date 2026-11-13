@@ -114,9 +114,7 @@ class ExtensionChannelTest {
             export function activate(ctx){
               const codec=object({text:text(40),count:integer(0,100)});
               const echo={name:'fixture.echo',input:codec,output:codec};
-              const ask={name:'fixture.ask',input:codec,output:codec};
               const done={name:'fixture.done',input:codec,output:codec};
-              ctx.session.register(ask,async value=>value);
               ctx.session.request(echo,{text:'bridge',count:17},10000).outcome.then(result=>{
                 if(result.kind==='success'&&result.value.text==='bridge'&&result.value.count===17)
                   ctx.session.request(done,result.value,10000);
@@ -216,12 +214,23 @@ class ExtensionChannelTest {
                 SystemClock.sleep(2)
             }
             assertEquals(ExtensionRuntime.Phase.ACTIVE, runtime.info.phase)
+            var nativeRequestHandled = false
             repeat(100) {
                 SystemClock.sleep(1)
                 runtime = controller.stepRuntime()
                 assertEquals("Client Runtime stopped during the bidirectional RPC exchange: ${runtime.info}",
                     ExtensionRuntime.Phase.ACTIVE, runtime.info.phase)
+                val (requestStatus, request) = controller.takeRuntimeRequest()
+                assertTrue(requestStatus == ExtensionSession.RPCStatus.OK || requestStatus == ExtensionSession.RPCStatus.WAIT)
+                if (request != null) {
+                    assertEquals("fixture.ask", request.method)
+                    assertEquals("{\"text\":\"bridge\",\"count\":17}", request.input.toString(Charsets.UTF_8))
+                    assertEquals(ExtensionSession.RPCStatus.OK, controller.respondRuntimeRequest(request.ticket,
+                        "{\"kind\":\"success\",\"value\":{\"text\":\"bridge\",\"count\":17}}".toByteArray()))
+                    nativeRequestHandled = true
+                }
             }
+            assertTrue("Native Host did not receive an Executor request through the adopted Runtime", nativeRequestHandled)
         } finally {
             runCatching { controller.close() }
             knownHosts.delete()

@@ -265,6 +265,16 @@ class ExtensionController(profile: HostProfile, context: Context) {
         current.takeResourceData(RESOURCE_BYTES)
     }
 
+    suspend fun takeRuntimeRequest(): Pair<ExtensionSession.RPCStatus, ExtensionSession.RPCRequest?> = onWorker {
+        val current = runtime ?: return@onWorker ExtensionSession.RPCStatus.CLOSED to null
+        current.takeHostRequest()
+    }
+
+    suspend fun respondRuntimeRequest(ticket: Long, outcome: ByteArray): ExtensionSession.RPCStatus = onWorker {
+        val current = runtime ?: return@onWorker ExtensionSession.RPCStatus.CLOSED
+        current.respondHostRequest(ticket, outcome.copyOf())
+    }
+
     suspend fun stepRuntime(): RuntimeState = onWorker {
         val current = checkNotNull(runtime) { "插件 Runtime 尚未启动" }
         current.step()

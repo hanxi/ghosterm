@@ -124,7 +124,7 @@ class ExtensionSession private constructor(private val worker: Thread, private v
     fun stop() { val id = handle; if (id != 0L) NativeExtensionSession.stop(id) }
     internal fun runtimeWorker(): Thread { owner(); return worker }
     internal fun runtimeStore(): ExtensionResourceStore? { owner(); return resourceStore }
-    internal fun runtimeLease(): Lease? { owner(); return if (resourceStore == null) null else lease() }
+    internal fun runtimeLease(): Lease? { owner(); return lease() }
     internal fun adoptRuntime(open: (Long) -> LongArray): LongArray {
         owner(); val values = open(handle); check(values.size == 2)
         if (values[0] == 0L) handle = 0L

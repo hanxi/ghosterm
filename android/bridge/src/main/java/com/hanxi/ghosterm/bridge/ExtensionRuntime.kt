@@ -39,6 +39,25 @@ class ExtensionRuntime private constructor(private val worker: Thread,
         val lease = borrowedLease ?: return ExtensionResourceStore.Status.UNSUPPORTED to null
         return currentStore.consume(lease, NativeExtensionRuntime.takeResource(handle, lease.bytes), maxBytes)
     }
+    /** Requests addressed to Native Host remain owned by the Session after
+     * Runtime adoption; only this worker may consume and answer them. */
+    fun takeHostRequest(): Pair<ExtensionSession.RPCStatus, ExtensionSession.RPCRequest?> {
+        owner()
+        if (info().phase != Phase.ACTIVE) return ExtensionSession.RPCStatus.CLOSED to null
+        val lease = borrowedLease ?: return ExtensionSession.RPCStatus.CLOSED to null
+        val fields = NativeExtensionRuntime.takeHostRequest(handle, lease.bytes)
+        val v = fields[0] as LongArray; val bytes = fields[1] as ByteArray
+        check(v.size == 3 && bytes.size == 3235 && v[2] in 0..3072)
+        val status = ExtensionSession.RPCStatus.entries[v[0].toInt()]
+        if (status != ExtensionSession.RPCStatus.OK) return status to null
+        return status to ExtensionSession.RPCRequest(v[1], runtimeRpcText(bytes, 0, 33),
+            runtimeRpcText(bytes, 33, 129), bytes.copyOfRange(162, 162 + v[2].toInt()))
+    }
+    fun respondHostRequest(ticket: Long, outcome: ByteArray): ExtensionSession.RPCStatus {
+        owner(); require(info().phase == Phase.ACTIVE)
+        val lease = borrowedLease ?: return ExtensionSession.RPCStatus.CLOSED
+        return ExtensionSession.RPCStatus.entries[NativeExtensionRuntime.respondHostRequest(handle, lease.bytes, ticket, outcome)]
+    }
     fun stop() { val id = handle; if (id != 0L) NativeExtensionRuntime.stop(id) }
     fun closeStep(): Boolean {
         if (handle == 0L) return true
@@ -120,6 +139,11 @@ internal object NativeExtensionRuntime {
     external fun step(handle: Long): Int
     external fun info(handle: Long): LongArray
     external fun takeResource(handle: Long, lease: ByteArray): Array<Any>
+    external fun takeHostRequest(handle: Long, lease: ByteArray): Array<Any>
+    external fun respondHostRequest(handle: Long, lease: ByteArray, ticket: Long, outcome: ByteArray): Int
     external fun stop(handle: Long)
     external fun close(handle: Long): Int
 }
+
+private fun runtimeRpcText(bytes: ByteArray, start: Int, count: Int): String =
+    bytes.copyOfRange(start, start + count).takeWhile { it != 0.toByte() }.toByteArray().toString(Charsets.UTF_8)
