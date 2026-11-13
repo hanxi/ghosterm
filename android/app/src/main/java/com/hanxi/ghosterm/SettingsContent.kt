@@ -282,6 +282,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                                 color = MaterialTheme.colorScheme.error)
                         }
                         PluginResourcesPanel(extensions.receivedResources)
+                        if (active.command == "ai codex") PluginCodexPanel(extensions)
                         if (active.info.phase in setOf(com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.CREATED,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE,
                                 com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.STARTING)) {
@@ -665,6 +666,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("argv 和两类 RPC 方法均需填写 JSON 字符串数组。进程映射是 Native Host 对远端程序路径、版本和摘要的显式选择，须同时提供 workspace root；批准后才请求 process.spawn / process.pipes。子进程不会继承任意环境变量。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (command.path == "ai codex") Text("Codex 会自动登记固定的 thread / turn / approval 与事件 RPC。还需添加 name 为 codex、版本填 codex-cli 0.166.0 的进程映射，并核对可执行文件 SHA-256；否则启动会被拒绝或版本锁校验失败。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
@@ -685,6 +688,74 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
             }) { Text("连接并请求授权") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } })
+}
+
+@Composable private fun PluginCodexPanel(extensions: ExtensionPackagesViewModel) {
+    val state = extensions.codex
+    var showEvents by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(top = 12.dp).testTag("plugin-codex-panel"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Codex 对话", style = MaterialTheme.typography.titleSmall)
+        state.threadID?.let { Text("Thread：$it", Modifier.testTag("plugin-codex-thread"), style = MaterialTheme.typography.bodySmall) }
+        if (state.timeline.isNotEmpty()) {
+            Text("对话与工具活动", style = MaterialTheme.typography.labelLarge)
+            state.timeline.forEach { item ->
+                Card(Modifier.fillMaxWidth().testTag("plugin-codex-timeline-${item.id}")) {
+                    Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(item.title, style = MaterialTheme.typography.labelLarge)
+                        if (item.detail.isNotEmpty()) SelectionContainer {
+                            Text(item.detail, style = MaterialTheme.typography.bodySmall,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+        }
+        if (state.approvals.isNotEmpty()) {
+            Text("等待中的 Codex 批准请求", style = MaterialTheme.typography.labelLarge)
+            state.approvals.forEach { approval ->
+                Card(Modifier.fillMaxWidth().testTag("plugin-codex-approval-${approval.id}")) {
+                    Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(approval.method, style = MaterialTheme.typography.labelMedium)
+                        SelectionContainer { Text(approval.paramsJSON, style = MaterialTheme.typography.bodySmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { extensions.respondCodexApproval(approval.id, false) },
+                                enabled = !state.callBusy, modifier = Modifier.testTag("plugin-codex-approval-deny")) { Text("拒绝") }
+                            TextButton(onClick = { extensions.respondCodexApproval(approval.id, true) },
+                                enabled = !state.callBusy, modifier = Modifier.testTag("plugin-codex-approval-allow")) { Text("批准一次") }
+                        }
+                    }
+                }
+            }
+        }
+        if (state.threadID == null) {
+            TextButton(onClick = extensions::startCodexThread, enabled = !state.callBusy,
+                modifier = Modifier.testTag("plugin-codex-start-thread")) {
+                Text(if (state.callBusy) "正在启动…" else "启动 Codex 对话")
+            }
+        } else {
+            OutlinedTextField(state.messageDraft, extensions::editCodexMessage,
+                modifier = Modifier.fillMaxWidth().testTag("plugin-codex-message"),
+                label = { Text("发送给 Codex") }, minLines = 1, maxLines = 4)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = extensions::sendCodexMessage,
+                    enabled = !state.callBusy && !state.turnActive && state.messageDraft.isNotBlank(),
+                    modifier = Modifier.testTag("plugin-codex-send")) { Text(if (state.callBusy) "正在处理…" else "发送") }
+                if (state.turnActive) TextButton(onClick = extensions::interruptCodexTurn,
+                    enabled = !state.callBusy, modifier = Modifier.testTag("plugin-codex-interrupt")) { Text("中断当前 turn") }
+            }
+        }
+        if (state.rawEvents.isNotEmpty()) {
+            TextButton(onClick = { showEvents = !showEvents }, modifier = Modifier.testTag("plugin-codex-raw-toggle")) {
+                Text(if (showEvents) "收起协议事件" else "原始协议事件（${state.rawEvents.size}）")
+            }
+            if (showEvents) state.rawEvents.forEachIndexed { index, event ->
+                SelectionContainer { Text(event, Modifier.testTag("plugin-codex-raw-$index"),
+                    style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
+            }
+        }
+    }
 }
 
 @Composable private fun SettingsNotice(message: String, actions: @Composable RowScope.() -> Unit) {

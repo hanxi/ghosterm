@@ -9,8 +9,11 @@ UTF-8 JSON lines without Node or DOM APIs. `protocol/process.ts` launches the
 Host mapping named `codex` through `PluginContext.process` after checking the
 Executor role, current `process.spawn` / `process.pipes` grants, and opaque
 authorized workspace handle. It returns the adapter with explicit bounded
-`step()` and `stop()` lifecycle. This is not yet an installable or complete
-plugin; product Host mappings and UI are not wired.
+`step()` and `stop()` lifecycle. macOS and Android product Hosts now register the
+Codex RPC allowlist, receive bounded `codex.event` messages, and provide native
+thread / turn controls, approval decisions, activity timelines, and raw-event
+inspection. Launch still requires the user to grant a workspace and configure the
+`codex` executable mapping with its expected version and SHA-256.
 
 `executor/index.ts` is the current Native-independent Executor entry. It lazily
 spawns only after `codex.thread.start`, exposes typed thread / turn / interrupt /
@@ -22,10 +25,12 @@ retry requests with unknown outcomes. Cancelling thread initialization also stop
 the child before `thread/start`; cancelling an active turn requests an interrupt
 and leaves the RPC outcome subject to the Session's unknown-result semantics.
 
-This source is not yet a complete installable plugin: package metadata and
-integrity, Client entry, product Host method registration / mapping, and native UI
-are still missing. Validate the Executor entry with an isolated fake Host and
-fake app-server (no model or external service):
+This directory is not yet a separately installable official package: package
+manifest / integrity metadata and catalog registration are still missing. The
+product UI does not yet provide a semantic file-diff review, and the complete
+product path has not been verified against a live Codex turn and approval. Validate
+the Executor entry with an isolated fake Host and fake app-server (no model or
+external service):
 
 ```sh
 python3 -B scripts/test-plugin-codex-entry.py --fetch
@@ -68,4 +73,4 @@ node --experimental-strip-types --test scripts/test-plugin-codex-protocol.mjs
 
 The protocol client initializes each connection once, sends `initialized`, and exposes the locked `thread/start`, `turn/start`, and `turn/interrupt` calls. The first turn input is text with the official `text_elements` field; the current `turn/start` helper exposes only thread ID and input rather than forwarding thread-level configuration. It preserves each server-initiated approval request id and validates the distinct stable command/file response shapes. `serverRequest/resolved` expires a pending approval; pipe closure rejects unfinished outbound calls as unknown without replay. `protocol/stdio.ts` composes that client and the bounded line decoder over a Host-injected nonblocking pipe surface. It limits each IO slice, bounds queued writes, and drains stderr without retaining it, including after stdout EOF. `protocol/process.ts` connects this adapter to the portable Host process contract; Core's QuickJS Runtime supplies that contract only when its checked Executor package, live grants, Host executable mapping, and authorized workspace root all agree. After natural child exit, the helper drains both pipes and automatically releases/reaps once both reach EOF; callers can still explicitly stop a running child. Once release completes, the helper refreshes its exit snapshot from the Host. Core Runtime also enforces a finite per-child lifetime and aggregate stdout/stderr read quota. The Codex helper compares the Host-reported verified version with the app-server lock before sending initialize; after initialization it also parses the server-reported version token from the required `InitializeResponse.userAgent` and rejects a mismatch before exposing `ready` to callers. Either mismatch terminates and reaps the child. The lock checker pins `InitializeResponse.userAgent` as a required string against the official generated TypeScript and JSON Schema. The production-helper test initializes and starts a thread with the pinned real CLI, checking its live version report; a separate fake-child test proves mismatch cleanup. Core checks the Host-supplied executable SHA-256 when Runtime opens and rejects path/file identity changes observed before spawn. These checks do not prove the product App Hosts supply a verified mapping, that exec is descriptor-pinned, or that a live Codex turn, approval UI, or GUI event delivery works.
 
-The locked schema and conversation facade do not claim a real model turn or approval action. The conversation tests use isolated protocol events; the real CLI test stops after `thread/start`. Product Host mapping and native chat / approval / diff views remain subsequent P3 work. See the [official Codex app-server protocol](https://learn.chatgpt.com/docs/app-server).
+The locked schema and conversation facade do not claim a real model turn or approval action. The conversation tests use isolated protocol events; the real CLI test stops after `thread/start`. Native approval buttons and activity views are wired, but live product turn / approval round trips and semantic diff review remain unverified P3 work. See the [official Codex app-server protocol](https://learn.chatgpt.com/docs/app-server).

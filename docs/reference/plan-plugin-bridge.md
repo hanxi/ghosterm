@@ -4908,3 +4908,9 @@ Android `ExtensionRuntime` 新增 Runtime-owned Host request 收件与答复；J
 Android `ExtensionRuntime` / `ExtensionController` 新增 Native Host→Executor request admission、result 查询、cancel 与 forget；请求创建要求 Runtime ACTIVE，结果轮询与清理沿用 Runtime 所持 Session lease，不要求 Runtime 仍 ACTIVE，以便停止后收敛未决句柄。JNI 继续通过 `runtime_session` 调用 Core，不改公共 ABI。双跳 SSH instrumentation 夹具同时发出一条 Native Host `fixture.echo` 并等到确认结果，再接收 / 答复 Executor 的 `fixture.ask`；独立 Executor 完成证明从两条请求调整为三条。
 
 验证：`bash scripts/gate.sh` 通过（481/481 CTest、177 公共 ABI 符号、未实现入口检查）；clang-format 19.1.7 全仓 219 个 C 文件检查通过；NDK arm64 Android API 29 `-Wall -Wextra -Werror -fsyntax-only` 通过；JS-enabled `:app:assembleDebugAndroidTest` 通过，包含 JNI CMake / Kotlin / instrumentation 源码编译；`git diff --check` 通过。双跳 Android 仪器往返本轮未执行：没有已连接设备；可用 AVD 先前存在工程临时目录之外写 pid / crash 数据的记录，本轮不启动它，避免违反临时目录约束，也不弹出测试窗口。工程 `tmp/` 下临时 JDK / clang-format 已清理。无公共 ABI 变化，不增加 macOS CI 二十份。Android Codex 控件、真实 app-server 往返与 P3 其它闭环仍待完成。
+
+### P3 实施第三十六批：Android Codex 原生对话、审批与活动视图
+
+Android `ai codex` 启动现在固定加入 thread / turn / interrupt / approval Executor RPC 与 `codex.event` Host method，并要求显式工作区授权及名为 `codex` 的版本 / 摘要映射。Runtime pump 在每轮 step 后消费一条事件，严格 UTF-8 / JSON 解码、连续序号与已知事件类型校验；单条 3072 字节、原始历史 128 项 / 256 KiB、待审批 32 项、单条展示 32 KiB 均有限额。无效或超限事件显式 DENIED 并停止 Runtime。原生页面现有对话启动、发消息、中断、逐次批准 / 拒绝、合并消息与工具输出的活动时间线，以及可折叠原始事件检查；不自动批准、不对未知 RPC 结果重试。
+
+Android 主代码及 instrumentation Kotlin 源码以 Gradle `--rerun-tasks` 强制编译通过；JS-enabled `:app:assembleDebugAndroidTest` 通过。instrumentation 未执行：无已连接设备，本批不启动 AVD、不弹出窗口。`git diff --check` 通过。CI run `43346407706` 的 SwiftPM 失败诊断缺失已由第三十二批调整 `scripts/package-mac.sh`：后续失败会打印错误上下文，找不到错误标记时打印较长尾部；本机 Swift 6.3.3 在失败提交 `27c4010` 的隔离检出上 `swift build -c release --arch arm64` 通过，但仍无 macOS 15 / Xcode 16.4 / Swift 6.1.2 复跑，不能据此关闭工具链差异。无公共 C ABI 变化，不增加 macOS CI 二十份。真实 Codex turn / approval 产品往返、Android 设备运行、语义化文件 diff 与用户点击整链仍待完成；P3 不记闭环。
