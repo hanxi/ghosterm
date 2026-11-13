@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Compile the Node-only Claude SDK bridge; test isolated callbacks and optional real no-model startup."""
+import argparse
+import hashlib
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / 'plugins/official/ai-claude/node'
+MAIN = 'Claude approval binds scope and frozen input, resolves once, and replays only its identical live request'
+CONTROL = 'Claude decline preserves hints but never grants suggested persistent permissions'
+CASES = (
+    ('scope', 'approvals.ts', 'reference.scope === this.scope &&', 'true &&', MAIN,
+     'foreign Claude scope must not authorize a callback'),
+    ('snapshot', 'approvals.ts', 'const value = snapshot(input);', 'const value = input as unknown as Json;', MAIN,
+     'Claude approval must retain its captured input'),
+    ('expired', 'approvals.ts', 'entry?.state === "pending"', 'entry !== undefined',
+     'Claude backend cancellation expires a prompt without synthesizing a decline',
+     'cancelled Claude request must never accept a late decision'),
+    ('collision', 'approvals.ts', 'previous.identity !== identity', 'false',
+     'Claude request identity collisions close all pending work while distinct Unicode ids remain separate',
+     'Claude reused request IDs must not bind changed input'),
+    ('unread-budget', 'approvals.ts',
+     '!this.events.some(event => event.kind === "requested" && event.request === entry.request)', 'true',
+     'Claude retained budgets charge unread event payloads and never reuse evicted approval tokens',
+     'unread Claude request events must retain their byte reservation'),
+    ('question', 'approvals.ts', '(allow && entry.request.kind === "question")', 'false',
+     'Claude questions require explicit complete answers and cannot be approved as ordinary tools',
+     'Claude questions cannot accept an empty generic approval'),
+    ('provenance', 'approvals.ts', 'source: text(context.mcpServer.source, 128)', 'source: "sdk"',
+     'Claude MCP provenance stays immutable and changed sources cannot reuse an approval',
+     'Claude MCP provenance must not upgrade an unknown source'),
+    ('permission-mode', 'profile.ts', 'permissionMode: "default"', 'permissionMode: "bypassPermissions"',
+     'Claude profile requires a live explicit owner and preserves selected configuration boundaries',
+     'Claude profile must not bypass backend permissions'),
+    ('spawn-once', 'profile.ts', 'if (launched || launchedScopes.has(approvals))', 'if (false)',
+     'Claude profile requires a live explicit owner and preserves selected configuration boundaries',
+     'Claude profile must not replay a process launch'),
+    ('rebuilt-profile', 'profile.ts', 'launchedScopes.has(approvals)', 'false',
+     'Claude profile requires a live explicit owner and preserves selected configuration boundaries',
+     'Claude scopes must not respawn through rebuilt options'),
+    ('broker-generation', 'approvals.ts', '`approval-${this.generation}-${++this.serial}`', '`approval-${++this.serial}`',
+     'Claude approval tokens do not survive a new broker even when caller scope and request id repeat',
+     'Claude references must not cross broker generations'),
+)
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def run(command, env, *, seconds=120, assertion=None):
+    result = subprocess.run(['bash', '-c',
+        '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require claude-node; shift; gt_timeout "$@"',
+        'claude-node', str(ROOT), str(seconds), *map(str, command)], cwd=ROOT, env=env, capture_output=True, text=True)
+    output = result.stdout + result.stderr
+    valid = result.returncode == 0 if assertion is None else (
+        result.returncode == 1 and 'ℹ fail 1' in output and 'AssertionError [ERR_ASSERTION]' in output and assertion in output)
+    if not valid: raise RuntimeError(f'Unexpected Claude test result:\n{output}')
+    return output
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--fetch', action='store_true', help='fetch the integrity-locked Node dependency closure')
+    parser.add_argument('--mutate', action='store_true', help='compile isolated protection mutations')
+    parser.add_argument('--real-cli', action='store_true', help='also initialize the locked native CLI without a prompt, under macOS no-network sandbox')
+    args = parser.parse_args()
+    if args.real_cli and sys.platform != 'darwin':
+        parser.error('--real-cli requires the macOS no-network test profile; no fallback or skip is allowed')
+    (ROOT / 'tmp').mkdir(exist_ok=True)
+    inputs = [*SOURCE.rglob('*.ts'), SOURCE / 'package.json', SOURCE / 'package-lock.json', ROOT / 'scripts/test-plugin-claude-node.mjs']
+    before = {str(path): sha(path) for path in inputs}
+    with tempfile.TemporaryDirectory(prefix='claude-node-test-', dir=ROOT / 'tmp') as temporary:
+        work = Path(temporary)
+        package = work / 'node'
+        shutil.copytree(SOURCE, package)
+        environment = dict(os.environ, TMPDIR=str(ROOT / 'tmp'))
+        install = ['npm', 'ci', '--prefix', package, '--ignore-scripts', '--no-audit', '--no-fund',
+            '--cache', ROOT / 'tmp/claude-npm-cache', '--registry', 'https://registry.npmjs.org']
+        if not args.fetch: install.append('--offline')
+        run(install, environment, seconds=300)
+        test_environment = {key: os.environ[key] for key in ('PATH', 'LANG', 'LC_ALL') if key in os.environ}
+        for key, name in (('HOME', 'home'), ('CLAUDE_CONFIG_DIR', 'config'), ('XDG_CONFIG_HOME', 'xdg')):
+            directory = work / name; directory.mkdir(); test_environment[key] = str(directory)
+        test_environment.update(TMPDIR=str(ROOT / 'tmp'), GHOSTERM_CLAUDE_NODE_PACKAGE=str(package))
+        compiler = ['node', package / 'node_modules/typescript/bin/tsc', '-p', package / 'tsconfig.json', '--noEmitOnError']
+        tests = ['node', '--test', ROOT / 'scripts/test-plugin-claude-node.mjs']
+        run(compiler, environment)
+        if args.real_cli: test_environment['GHOSTERM_CLAUDE_REAL_CLI'] = '1'
+        output = run(tests, test_environment, seconds=90)
+        expected = 12 if args.real_cli else 11
+        if f'ℹ pass {expected}\n' not in output or 'ℹ fail 0' not in output or 'ℹ skipped 0' not in output:
+            raise RuntimeError('Claude test count/skip receipt mismatch:\n' + output)
+        print(output, end='', flush=True)
+        test_environment.pop('GHOSTERM_CLAUDE_REAL_CLI', None)
+        if args.mutate:
+            for name, file, old, new, target, assertion in CASES:
+                source = package / 'src' / file
+                original = source.read_bytes()
+                if original.count(old.encode()) != 1: raise RuntimeError(f'{name}: mutation anchor changed')
+                def one(label, expected_assertion=None):
+                    command = ['node', '--test', '--test-name-pattern=^' + re.escape(label) + '$', ROOT / 'scripts/test-plugin-claude-node.mjs']
+                    transcript = run(command, test_environment, assertion=expected_assertion)
+                    if expected_assertion is None and 'ℹ pass 1\n' not in transcript:
+                        raise RuntimeError('Independent Claude target did not execute:\n' + transcript)
+                try:
+                    source.write_bytes(original.replace(old.encode(), new.encode(), 1))
+                    run(compiler, environment)
+                    one(target, assertion)
+                    one(CONTROL)
+                finally:
+                    source.write_bytes(original)
+                if sha(source) != before[str(SOURCE / 'src' / file)]: raise RuntimeError('Claude source restore SHA256 mismatch')
+                run(compiler, environment); one(target)
+                print(f'PASS {name}: compiled assertion red / same build independent control green / restored green / SHA256', flush=True)
+    if {str(path): sha(path) for path in inputs} != before: raise RuntimeError('Original Claude inputs changed during isolated tests')
+    print(f'CLAUDE NODE BRIDGE PASS: {expected} tests; {len(CASES) if args.mutate else 0} mutation groups; no model request', flush=True)
+
+
+if __name__ == '__main__':
+    main()

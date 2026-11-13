@@ -6,6 +6,8 @@
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
+**最新 P4 进展：** Claude Node 后端首片已有锁定 SDK 的审批 / 用户问题组件、显式进程配置，以及真实 SDK 控制回调和匹配 CLI 的无模型初始化证据。它尚无可导入插件包、gterm Node / Exec 档、原生页面或模型会话；当前 App / gterm 继续只支持 Portable JS，P4 仍未完成。具体版本、变异和限制见文末 P4 第一批。
+
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
@@ -5100,3 +5102,21 @@ API 29 / API 36 的 arm64 / 4 KiB 页设备各有直连 / ProxyJump 两条完整
 最终经修正 launcher 新建的 API 29 / API 36 各两条整链再次零失败 / 跳过；最终同一 app / test APK 的 17 项组合也在两端各重跑通过，实际启动日志均确认 crash reporting disabled。最终 Debug 主 / 测试 APK 摘要分别为 `885dbb0cd0bae8b2d4f445ca78c5b6307cade3c3a1237c89bae4eb00b425adbc` / `589bfdf76f9fa852a7bac917e5cf256cb8513a551daece32f238e0a2c48e3358`，两端均从这两份固定产物安装。C 格式全仓 220 文件与 Python 语法 / git diff --check 通过；首次格式检查缺 19.1.7 工具，临时安装锁版后完成复验，不把缺工具记成源码失败或通过。测试和诊断临时产物均在退出所属进程后清理；本批本地提交不代表已推送或发行。
 
 无公共 C ABI、权限或 wire 变化，不增加 macOS CI 二十份；默认 App 仍 JS-off，本批未发行。真实模型 turn / approval、安装 / 完整交互 / 无障碍 / tmux / 性能 / 16 KiB 页 / 物理设备矩阵及 P3–P6 其余要求继续未完成。
+
+### P4 实施第一批：锁定 Node SDK 的审批桥与无模型初始化（2026-11-13）
+
+`plugins/official/ai-claude/node/` 新增私有 Node 后端组件，锁定 Claude Agent SDK **0.3.323**、匹配原生 CLI **2.1.323**、TypeScript **5.9.3** 和 Node 类型 **22.19.1**，npm lock v3 记录完整依赖及 integrity。测试实际使用 macOS / arm64 的 **Node 26.4.0**；manifest 的 Node 最低版本不代表其它版本已验。SDK / CLI 保留各自许可条款，仓库自行编写的组件为 MIT；本片不把依赖或原生 CLI 装入 App，也不替换执行机器的系统 CLI。
+
+`ClaudeApprovalBroker` 直接实现锁版 SDK 的 `CanUseTool`。每个请求捕获 request ID、tool use ID、agent、工具名、输入、后端提示和 MCP 来源，深冻结并按规范化 JSON 比较；未知 MCP 来源原样保留。scope、每实例随机代次及单调 token 共同隔离审批，即使调用方重用 scope / request ID，旧引用也无效。仅保留期间的完全相同请求共享或回放决定，不承诺进程死亡 / 重连后的 exactly-once；同 ID 改内容立即失败并释放待决请求。取消 / 关闭使回调过期，不合成用户拒绝；批准只返回原输入，不接纳后端建议的持久权限更新。`AskUserQuestion` 必须逐题明确作答，普通批准不能代替答案；保留原问题及 SDK 的字符串答案表示，不渲染选项 preview。
+
+输入逐描述符复制，拒绝 getter / Proxy / 非 JSON 原型、循环、非法 Unicode 和不安全整数。默认最多 32 个 pending、64 个 retained、1 MiB 保留身份、64 KiB 工具输入、32 层 / 4096 节点、八个重复请求 signal 和 128 个事件。已决定但尚未消费的完整请求事件继续计费，关闭归零；这些不是 SDK / CLI 的进程 RSS 限额。Node 编译独立使用 DOM 类型声明，仅为锁定 MCP peer 的标准 fetch `HeadersInit`；保留 `skipLibCheck: false`，不向 Portable SDK 或 Core 引入 Node / DOM。
+
+`claudeOptions` 要求显式 cwd、已核版本、可执行路径、环境、工具集合和进程 owner；真正 spawn 时再检查存活 / abort 与执行目标。同一 broker 即使重新创建 options 也不能重启子进程；owner 抛错后不自动重试，因为动作可能已经发生。配置保留后端 default 权限模式，不启用 bypass，不载入文件系统 settings、隐式 MCP 或插件，不持久化会话 transcript。依赖版本声明不等于实际文件验证或 Core lease；这些仍须由将来的受控进程 owner 完成。[SDK 官方参考](https://code.claude.com/docs/en/agent-sdk/typescript#canusetool)说明 `canUseTool` 只接后端需要询问的动作，不能据此宣称所有工具均会提示，也不能把它当 OS 沙箱。
+
+复现命令为 `python3 -B scripts/test-plugin-claude-node.py --fetch --mutate --real-cli`；依赖通过 npm integrity 在工程 tmp/ 内安装，禁用 install scripts，后续可使用已有缓存离线运行。strict 编译后执行真实输出模块。**12 项、零失败 / 跳过**：十项组件测试，真实锁版 SDK 对明确内存 CLI 协议夹具的审批 / 取消 / 问题回调一项，以及匹配原生 CLI 的无模型初始化 / 退出一项。后者以自有 HOME / config / cwd 运行，测试子进程禁网并拒绝 securityd 查询，不选用个人登录，不发送 user prompt；实际观察退出并回收。此真实 CLI 专项仅允许 macOS，缺该测试环境直接报错，不跳过或降级。
+
+**十一组变异**保护 scope、输入冻结、取消后决定、ID 冲突、未消费事件计账、问题独立作答、MCP 来源、权限模式、单次 spawn、重新创建配置不得重启以及 broker 代次；均在隔离源码 strict 编译成功后单条正常 AssertionError 红、同构件独立拒绝对照绿、恢复绿及 SHA256。默认 JS=OFF / tests=ON 的离线 gate 另通过 **481/481 CTest、177 公共 ABI** 及未实现入口检查。本片不改 Core、公开 ABI、Portable SDK 或平台源码，不以旧原生构建代替新行为验收，不增加 macOS CI 二十份。
+
+前置失败单列：最初 ES2022-only 编译缺 MCP peer 的 `HeadersInit`，属于依赖类型编译错误；初版手工测试缺显式 config 环境，7/9 通过而两项前置失败；内存 CLI 夹具最初误将 SDK `close()` 当同步 kill，8/9 通过，后改为有界等待实际结束。这些不计变异目标红或整轮绿。最终同源测试与变异通过后清理安装、缓存、夹具和日志；全程无自动测试前台窗口。本批为本地提交，不表示已推送或发行。
+
+**继续未完成：** 尚无 `plugin.json`、构建 / 安装产物、gterm Node / Exec runtime、Core 进程授权接线、原生 chat / approval / question 消费、模型会话适配、真实认证 / 工具 / 双向输入 / 中断 / SSH / tmux 或完整子进程资源预算。现有 App / gterm 仍只宣告 Portable JS，不伪报 Node 可用；普通 App 仍 JS-off。无模型控制握手不代替 P4 要求的真实 Agent 专项；P2–P6 的其余要求保持未完成。
