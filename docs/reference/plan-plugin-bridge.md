@@ -6,7 +6,7 @@
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
-**最新 P4 进展：** Claude Node 后端首片已有锁定 SDK 的审批 / 用户问题组件、显式进程配置，以及真实 SDK 控制回调和匹配 CLI 的无模型初始化证据。它尚无可导入插件包、gterm Node / Exec 档、原生页面或模型会话；当前 App / gterm 继续只支持 Portable JS，P4 仍未完成。具体版本、变异和限制见文末 P4 第一批。
+**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置和流式会话适配器；可处理显式输入、原始有序 SDK 消息、关联结果、中断与关闭。真实 SDK 控制回调、流式协议夹具及匹配 CLI 的禁网无模型初始化分别取证。它尚无可导入插件包、gterm Node / Exec 档、原生页面或真实模型会话；当前 App / gterm 继续只支持 Portable JS，P4 仍未完成。具体版本、变异和限制见文末 P4 第一、二批。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -5120,3 +5120,19 @@ API 29 / API 36 的 arm64 / 4 KiB 页设备各有直连 / ProxyJump 两条完整
 前置失败单列：最初 ES2022-only 编译缺 MCP peer 的 `HeadersInit`，属于依赖类型编译错误；初版手工测试缺显式 config 环境，7/9 通过而两项前置失败；内存 CLI 夹具最初误将 SDK `close()` 当同步 kill，8/9 通过，后改为有界等待实际结束。这些不计变异目标红或整轮绿。最终同源测试与变异通过后清理安装、缓存、夹具和日志；全程无自动测试前台窗口。本批为本地提交，不表示已推送或发行。
 
 **继续未完成：** 尚无 `plugin.json`、构建 / 安装产物、gterm Node / Exec runtime、Core 进程授权接线、原生 chat / approval / question 消费、模型会话适配、真实认证 / 工具 / 双向输入 / 中断 / SSH / tmux 或完整子进程资源预算。现有 App / gterm 仍只宣告 Portable JS，不伪报 Node 可用；普通 App 仍 JS-off。无模型控制握手不代替 P4 要求的真实 Agent 专项；P2–P6 的其余要求保持未完成。
+
+### P4 实施第二批：SDK 流式会话、关联结果与退出观察（2026-11-13）
+
+`ClaudeNodeSession` 将上一批的显式 profile / 审批 broker 接到真实锁版 SDK 的 `startup`、单次 `WarmQuery.query` 和流式输入；构造不启动业务，显式 start 后仍不发送 prompt。一次只接收一个显式用户输入，以新 SDK UUID 返回关联键，不把入队当作送达或执行回执；不自动重试。已关联的结果保留 SDK 原始 subtype / is_error / 可选诊断和统计，允许下一次显式输入；有序消息为深冻结的私有 Node 事件，不套用 Codex 的事件模型。缺少或不匹配 UUID 的结果仍保留后端诊断，但观察结束为 lost，保留未确认输入，不据此声称本次 turn 已完成。真实认证成功与模型行为尚无证据。
+
+等待批准时会话保持 running。中断先过期所有 pending 审批并禁止新批准回调，再发一次 SDK interrupt；重复调用共享同一 Promise。中断 receipt 原样保留，不能直接把 turn 变成完成或重新接受输入；仍须关联结果。正常结果到达时也使旧审批过期，再开放下一次输入。关闭 / 初始化期间取消 / deadline 会撤销 broker、结束输入、abort 并请求 SDK close，晚到初始化不能恢复会话或重启子进程。SDK close 不等于 OS 已 reap，实际进程退出、进程树 / 管道和 Core lease 仍由后续受控 owner 接线验证。
+
+新增适配层预算：默认 256 未读事件 / 2 MiB 序列化队列、每 SDK 消息 512 KiB、累计 64 MiB 输出及自启动起十分钟期限；限制可调低，不超过代码中的有限上限。为最后的观察预留一个事件槽及 512 字节；消费事件归还队列计费，但不归还累计输出额度。继续沿用首片 JSON 层数 / 节点 / Unicode 检查。这些不覆盖 SDK 内部队列、Node / CLI RSS、CPU 或完整进程树资源消耗，不能当作 Node runtime 的完整验收。
+
+首轮 **17/18**：SDK streaming-input 的 stdout 已 EOF，消息 iterator 仍等待，未决 turn 没有及时结束。单纯结束自己的输入仍未通过定向复验。现同时观察独占子进程 stdout / exit，停止新输入，给已缓存结果至多 **500 ms** 排空，再以 lost 结束；时间经过仅用于停止观察，不作为业务成功判据。新增同管道最后一条关联 result 紧接 EOF 的断言，结果必须保留，关闭观察的 pending ID 为空；无结果 EOF 则保留原 ID。后续 **17/19** 的两项预算测试又发现，本地验证失败触发 SDK iterator 清理后产生的 EOF 会将 failed 误标为 lost；现先记录本地失败，再退出 iterator。以上失败均未计变异通过或整轮绿。
+
+最终 **19/19、零失败 / 跳过**：旧十项组件与真实 SDK 控制回调保留，新七项会话测试覆盖多轮输入 / 有序冻结输出、审批过期、中断 receipt、EOF / 关闭 / 缓存结果、未关联诊断、队列 / 累计量 / 期限、启动中关闭、非法输入 / 超限输出。SDK 部分始终使用真实锁版依赖对明确内存 CLI 协议夹具；不执行模型或工具。第十九项经生产 `ClaudeNodeSession` 启动真实匹配 CLI，在工程内自有 HOME / config / cwd、禁网和拒绝 securityd 查询的测试子进程中完成初始化，确认无 user prompt，再观察其实际退出。Node / TypeScript / SDK / CLI 版本与第一批相同，非其它平台或 Node 版本证据。
+
+最终 **十九组变异**为旧十一＋新八：新保护包括结果关联、turn / interrupt 审批过期、receipt 不能完成 turn、EOF 不能当成功、未读字节额度、消费后累计输出额度及关闭时未决消息身份。均在隔离副本 strict 编译后单条正常 AssertionError 红、同构件独立拒绝对照绿、恢复绿及原始输入 SHA256；编译 / 崩溃 / 超时不作正常红。复现仍为 `python3 -B scripts/test-plugin-claude-node.py --fetch --mutate --real-cli`，已有 npm 缓存时可省 `--fetch`。默认 JS=OFF / tests=ON 的离线 gate 另通过 **481/481 CTest、177 ABI** 与未实现入口检查；Python / Node 语法及 git diff --check 通过。
+
+本批不改 Core、公共 ABI、Portable SDK 或平台源码，不增加 macOS CI 二十份；不以旧平台结果认定新会话已在 App 可用。验收后清理依赖、缓存、夹具和日志，无自动测试前台窗口；本地提交不代表推送或发行。**仍待完成** ai-claude 包与 SDK / CLI 模式选择、gterm Node / Exec 档及受控 owner、原生 chat / approval / question 消费、真实授权认证 / 模型 / 工具 / 中断、SSH / tmux、完整预算与设备矩阵，P4 及整个计划继续未完成。

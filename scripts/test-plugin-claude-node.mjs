@@ -11,7 +11,7 @@ import { readFileSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 const directory = resolve(process.env.GHOSTERM_CLAUDE_NODE_PACKAGE);
 const require = createRequire(join(directory, "package.json"));
 const sdk = await import(pathToFileURL(require.resolve("@anthropic-ai/claude-agent-sdk")));
-const { ClaudeApprovalBroker, claudeOptions, CLAUDE_CLI_VERSION, CLAUDE_SDK_VERSION } =
+const { ClaudeApprovalBroker, ClaudeNodeSession, claudeOptions, CLAUDE_CLI_VERSION, CLAUDE_SDK_VERSION } =
   await import(pathToFileURL(join(directory, "dist/index.js")));
 assert.equal(JSON.parse(readFileSync(join(directory, "node_modules/@anthropic-ai/claude-agent-sdk/package.json"))).version, CLAUDE_SDK_VERSION);
 const context = (id = "request-1", signal = new AbortController().signal) =>
@@ -208,6 +208,7 @@ test("Claude profile requires a live explicit owner and preserves selected confi
 
 class ProtocolFixture extends EventEmitter {
   stdout = new PassThrough(); killed = false; exitCode = null; signalCode = null; sent = [];
+  initialize = true;
   stdin = new Writable({ write: (chunk, _, done) => { try { this.receive(chunk.toString()); done(); } catch (e) { done(e); } } });
   pending = "";
   emitFrame(value) { this.stdout.write(JSON.stringify(value) + "\n"); }
@@ -217,9 +218,13 @@ class ProtocolFixture extends EventEmitter {
       const newline = this.pending.indexOf("\n"); if (newline < 0) return;
       const message = JSON.parse(this.pending.slice(0, newline)); this.pending = this.pending.slice(newline + 1);
       this.sent.push(message);
-      if (message.type === "control_request" && message.request.subtype === "initialize") {
+      if (this.initialize && message.type === "control_request" && message.request.subtype === "initialize") {
         this.emitFrame({ type: "control_response", response: { subtype: "success", request_id: message.request_id,
           response: { commands: [], agents: [], models: [], output_style: "default", available_output_styles: [], account: {} } } });
+      }
+      if (message.type === "control_request" && message.request.subtype === "interrupt") {
+        this.emitFrame({ type: "control_response", response: { subtype: "success", request_id: message.request_id,
+          response: { still_queued: [], cancelled: [] } } });
       }
     }
   }
@@ -239,6 +244,171 @@ async function until(predicate, label) {
   while (!predicate() && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 5));
   assert(predicate(), label);
 }
+
+async function sessionFixture(limits = {}) {
+  const broker = new ClaudeApprovalBroker("session");
+  const child = new ProtocolFixture(); let starts = 0;
+  const session = new ClaudeNodeSession(profile(broker, () => { starts++; return child; }), limits);
+  await session.start();
+  return { session, child, broker, starts };
+}
+function resultFrame(id, extra = {}) {
+  return { type: "result", subtype: "success", is_error: false, user_message_uuid: id,
+    uuid: "fixture-result", session_id: "fixture-session", result: "fixture result only", ...extra };
+}
+async function stopFixture({ session, child }) {
+  session.close();
+  await until(() => child.killed, "session must eventually stop its SDK fixture process");
+}
+
+test("Claude session streams correlated input and ordered immutable SDK events across turns", async () => {
+  const value = await sessionFixture(); const { session, child, broker } = value;
+  try {
+    assert.equal(session.phase, "ready"); assert.equal(value.starts, 1);
+    assert(!child.sent.some(value => value.type === "user"));
+    const id = session.send("fixture input 中文😀");
+    assert.throws(() => session.send("overlapping input"), /not ready/);
+    await until(() => child.sent.some(value => value.type === "user"), "SDK must receive streaming input");
+    const user = child.sent.find(value => value.type === "user");
+    assert.equal(user.uuid, id); assert.equal(user.message.content, "fixture input 中文😀");
+    child.permission("turn-one-pending");
+    await until(() => broker.pending.length === 1, "session must route SDK approval");
+    const ref = broker.pending[0].reference;
+    child.emitFrame({ type: "assistant", uuid: "fixture-assistant", session_id: "fixture-session", message: { content: "fixture reply" } });
+    child.emitFrame(resultFrame(id));
+    await until(() => session.phase === "ready", "correlated result must end this input");
+    assert.equal(broker.decide(ref, true), false, "Claude turn boundary must expire pending prompts");
+    const a = session.takeEvent(), b = session.takeEvent();
+    assert.equal(a.message.type, "assistant"); assert.equal(b.message.type, "result");
+    assert(a.sequence < b.sequence); assert(Object.isFrozen(a.message.message));
+    const next = session.send("second explicit input"); assert.notEqual(next, id);
+    await until(() => child.sent.filter(value => value.type === "user").length === 2, "SDK must accept next explicit input");
+    child.emitFrame(resultFrame(next, { subtype: "error_during_execution", is_error: true, errors: ["fixture failure"] }));
+    await until(() => session.phase === "ready", "backend error result must remain distinct from transport loss");
+    assert.equal(session.takeEvent().message.is_error, true); assert.equal(session.failure, undefined);
+    await assert.rejects(session.start(), /only start once/);
+  } finally { await stopFixture(value); }
+});
+
+test("Claude session interrupt expires prompts and preserves receipt without fabricating turn completion", async () => {
+  const value = await sessionFixture(); const { session, child, broker } = value;
+  try {
+    const id = session.send("fixture interrupt");
+    await until(() => child.sent.some(value => value.type === "user"), "SDK input not sent");
+    child.permission("interrupt-pending");
+    await until(() => broker.pending.length === 1, "SDK approval not received");
+    const ref = broker.pending[0].reference;
+    const one = session.interrupt(), duplicate = session.interrupt();
+    assert.strictEqual(one, duplicate, "duplicate interrupt must share one SDK control request");
+    await one;
+    assert.equal(session.phase, "interrupting", "Claude interrupt receipt must not complete a turn");
+    assert.equal(session.pendingMessageID, id);
+    assert.equal(broker.decide(ref, true), false, "Claude interrupt must expire pending approval immediately");
+    assert.throws(() => session.send("too early"), /not ready/);
+    assert.equal(child.sent.filter(value => value.request?.subtype === "interrupt").length, 1);
+    const receipt = session.takeEvent(); assert.equal(receipt.kind, "interrupt-receipt"); assert.equal(receipt.messageID, id);
+    child.emitFrame(resultFrame(id, { stop_reason: "interrupted" }));
+    await until(() => session.phase === "ready", "interrupt still needs a correlated result");
+  } finally { await stopFixture(value); }
+});
+
+test("Claude session EOF and explicit close preserve an unresolved input as unknown", async () => {
+  for (const explicit of [false, true]) {
+    const value = await sessionFixture(); const { session, child, broker } = value;
+    try {
+      const id = session.send("fixture unfinished input");
+      await until(() => child.sent.some(value => value.type === "user"), "SDK input not sent");
+      if (explicit) session.close(); else child.stdout.end();
+      await until(() => ["closed", "lost", "failed"].includes(session.phase), "session must observe EOF/close");
+      assert.equal(session.phase, explicit ? "closed" : "lost", "Claude EOF must not be treated as successful completion");
+      const observation = session.takeEvent();
+      assert.equal(observation.pendingMessageID, id, "Claude close must preserve unresolved input identity");
+      assert(broker.closed); assert.throws(() => session.send("late input"), /not ready/);
+      session.close(); assert.equal(session.takeEvent(), undefined);
+    } finally { await stopFixture(value); }
+  }
+  const value = await sessionFixture(); const { session, child } = value;
+  try {
+    const id = session.send("fixture result immediately before EOF");
+    await until(() => child.sent.some(value => value.type === "user"), "SDK input not sent");
+    child.emitFrame(resultFrame(id)); child.stdout.end();
+    await until(() => session.phase === "lost", "SDK EOF must finish after draining buffered output");
+    assert.equal(session.takeEvent().message.user_message_uuid, id, "Claude EOF must preserve a buffered result");
+    assert.equal(session.takeEvent().pendingMessageID, null);
+  } finally { await stopFixture(value); }
+});
+
+test("Claude session preserves uncorrelated backend authentication diagnostics without claiming a result", async () => {
+  const value = await sessionFixture(); const { session, child } = value;
+  try {
+    const id = session.send("fixture authentication failure");
+    child.emitFrame(resultFrame("foreign-input", { subtype: "error_during_execution", is_error: true,
+      startup_failure_reason: "fixture-unknown-reason", errors: ["fixture authentication required"] }));
+    await until(() => session.phase !== "running", "uncorrelated result must terminate observation");
+    assert.equal(session.phase, "lost", "Claude foreign result must not complete the active input");
+    const diagnostic = session.takeEvent(); assert.equal(diagnostic.message.errors[0], "fixture authentication required");
+    assert.equal(diagnostic.message.startup_failure_reason, "fixture-unknown-reason");
+    assert.equal(session.takeEvent().pendingMessageID, id);
+  } finally { await stopFixture(value); }
+});
+
+test("Claude session enforces unread events aggregate output and lifetime budgets", async () => {
+  for (const kind of ["events", "bytes", "output", "lifetime"]) {
+    const limits = kind === "events" ? { events: 2 } : kind === "bytes" ? { queuedBytes: 1024 } :
+      kind === "output" ? { outputBytes: 1024 } : {};
+    const value = await sessionFixture(limits); const { session, child } = value;
+    try {
+      if (kind === "lifetime") {
+        // A fresh session with a short deadline also covers startup cancellation.
+        await stopFixture(value);
+        const broker = new ClaudeApprovalBroker("deadline"), late = new ProtocolFixture(); late.initialize = false;
+        const timed = new ClaudeNodeSession(profile(broker, () => late), { lifetimeMs: 20 });
+        const starting = timed.start();
+        await assert.rejects(starting);
+        assert.equal(timed.phase, "failed", "Claude deadline must stop a stalled SDK startup");
+        await until(() => late.killed, "deadline must close its SDK child");
+        continue;
+      }
+      const id = session.send("fixture output limit");
+      const frame = { type: "system", subtype: "fixture", text: kind === "bytes" ? "x".repeat(700) : "x".repeat(550) };
+      child.emitFrame(frame);
+      if (kind !== "bytes") {
+        await until(() => session.queuedBytes > 0, "session did not retain SDK output");
+        if (kind === "output") session.takeEvent();
+        child.emitFrame(frame);
+      }
+      await until(() => session.phase === "failed", `Claude ${kind} budget must stop the session`);
+      assert(session.queuedBytes <= (limits.queuedBytes ?? 2_097_152));
+      const events = []; for (let item; (item = session.takeEvent());) events.push(item);
+      assert.equal(events.at(-1).kind, "closed"); assert.equal(events.at(-1).pendingMessageID, id);
+      assert.equal(session.queuedBytes, 0);
+    } finally { await stopFixture(value); }
+  }
+});
+
+test("Claude session close during startup rejects late initialization and blocks replacement spawn", async () => {
+  const broker = new ClaudeApprovalBroker("late-start"), child = new ProtocolFixture(); child.initialize = false;
+  let starts = 0;
+  const session = new ClaudeNodeSession(profile(broker, () => { starts++; return child; }));
+  const starting = session.start();
+  await until(() => child.sent.some(value => value.request?.subtype === "initialize"), "initialize request not received");
+  session.close(); await assert.rejects(starting);
+  assert.equal(session.phase, "closed"); assert.equal(starts, 1);
+  await assert.rejects(session.start(), /only start once/);
+  await until(() => child.killed, "closing startup must stop its SDK child");
+});
+
+test("Claude session rejects invalid prompts and oversized backend messages before publication", async () => {
+  const value = await sessionFixture(); const { session, child } = value;
+  try {
+    for (const prompt of ["", "\ud800", "x".repeat(65_537)]) assert.throws(() => session.send(prompt));
+    assert(!child.sent.some(value => value.type === "user"));
+    const id = session.send("fixture oversized output");
+    child.emitFrame({ type: "system", subtype: "fixture", text: "x".repeat(524_288) });
+    await until(() => session.phase === "failed", "Claude oversized SDK output must fail before publishing");
+    assert.equal(session.takeEvent().pendingMessageID, id); assert.equal(session.takeEvent(), undefined);
+  } finally { await stopFixture(value); }
+});
 
 test("pinned real Claude SDK routes its control protocol through the production approval broker", async () => {
   const broker = new ClaudeApprovalBroker("sdk-control");
@@ -284,7 +454,7 @@ test("pinned real Claude SDK routes its control protocol through the production 
 
 if (process.env.GHOSTERM_CLAUDE_REAL_CLI === "1") test("locked real Claude CLI initializes and exits without a prompt in an isolated no-network process", async () => {
   const base = mkdtempSync(join(process.env.TMPDIR, "claude-real-"));
-  const broker = new ClaudeApprovalBroker("real-cli"); let child; let warm; const writes = [];
+  const broker = new ClaudeApprovalBroker("real-cli"); let child; let session; const writes = [];
   const binary = require.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`);
   for (const name of ["home", "config", "workspace"]) mkdirSync(join(base, name));
   const environment = { HOME: join(base, "home"), CLAUDE_CONFIG_DIR: join(base, "config"), TMPDIR: process.env.TMPDIR,
@@ -292,7 +462,7 @@ if (process.env.GHOSTERM_CLAUDE_REAL_CLI === "1") test("locked real Claude CLI i
   try {
     const version = execFileSync(binary, ["--version"], { env: environment, encoding: "utf8" }).trim();
     assert.equal(version, `${CLAUDE_CLI_VERSION} (Claude Code)`);
-    const options = claudeOptions({ ...profile(broker), cwd: join(base, "workspace"), executable: binary,
+    const configuration = { ...profile(broker), cwd: join(base, "workspace"), executable: binary,
       environment, tools: [], spawn: request => {
         assert.equal(request.command, binary);
         child = spawn("/usr/bin/sandbox-exec", ["-p", '(version 1)(allow default)(deny network*)(deny mach-lookup (global-name "com.apple.securityd"))',
@@ -301,13 +471,15 @@ if (process.env.GHOSTERM_CLAUDE_REAL_CLI === "1") test("locked real Claude CLI i
         const original = child.stdin.write.bind(child.stdin);
         child.stdin.write = (chunk, ...args) => { writes.push(chunk.toString()); return original(chunk, ...args); };
         return child;
-      } });
-    warm = await sdk.startup({ options, initializeTimeoutMs: 15000 });
+      } };
+    session = new ClaudeNodeSession(configuration);
+    await session.start();
+    assert.equal(session.phase, "ready");
     const frames = writes.join("").split("\n").filter(Boolean).map(value => JSON.parse(value));
     assert(!frames.some(value => value.type === "user"), "real CLI preflight must not send any prompt");
     assert.equal(broker.pending.length, 0);
   } finally {
-    broker.close(); warm?.close();
+    session?.close(); broker.close();
     if (child && child.exitCode === null && child.signalCode === null) {
       child.kill("SIGTERM");
       let timer;

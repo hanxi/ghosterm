@@ -47,6 +47,34 @@ CASES = (
     ('broker-generation', 'approvals.ts', '`approval-${this.generation}-${++this.serial}`', '`approval-${++this.serial}`',
      'Claude approval tokens do not survive a new broker even when caller scope and request id repeat',
      'Claude references must not cross broker generations'),
+    ('session-correlation', 'session.ts', 'value.user_message_uuid !== this.active', 'false',
+     'Claude session preserves uncorrelated backend authentication diagnostics without claiming a result',
+     'Claude foreign result must not complete the active input'),
+    ('session-turn-expiry', 'session.ts',
+     'this.profile.approvals.expirePending();\n        if', '/* mutation: retain old turn prompts */\n        if',
+     'Claude session streams correlated input and ordered immutable SDK events across turns',
+     'Claude turn boundary must expire pending prompts'),
+    ('session-interrupt-expiry', 'session.ts',
+     'this.profile.approvals.expirePending();\n    if', '/* mutation: retain interrupted prompts */\n    if',
+     'Claude session interrupt expires prompts and preserves receipt without fabricating turn completion',
+     'Claude interrupt must expire pending approval immediately'),
+    ('session-receipt', 'session.ts', 'if (!this.terminal) this.publish({ kind: "interrupt-receipt"',
+     'this.phaseValue = "ready"; if (!this.terminal) this.publish({ kind: "interrupt-receipt"',
+     'Claude session interrupt expires prompts and preserves receipt without fabricating turn completion',
+     'Claude interrupt receipt must not complete a turn'),
+    ('session-eof', 'session.ts', 'this.finish("lost", new Error("Claude SDK output ended"))',
+     'this.finish("stopped", new Error("Claude SDK output ended"))',
+     'Claude session EOF and explicit close preserve an unresolved input as unknown',
+     'Claude EOF must not be treated as successful completion'),
+    ('session-queue-bytes', 'session.ts', 'this.bytes + bytes > this.limits.queuedBytes - 512', 'false',
+     'Claude session enforces unread events aggregate output and lifetime budgets',
+     'Claude bytes budget must stop the session'),
+    ('session-total-output', 'session.ts', 'this.output += bytes;', 'this.output += 0;',
+     'Claude session enforces unread events aggregate output and lifetime budgets',
+     'Claude output budget must stop the session'),
+    ('session-close-identity', 'session.ts', 'const pendingMessageID = this.active ?? null;', 'const pendingMessageID = null;',
+     'Claude session EOF and explicit close preserve an unresolved input as unknown',
+     'Claude close must preserve unresolved input identity'),
 )
 
 
@@ -94,7 +122,7 @@ def main():
         run(compiler, environment)
         if args.real_cli: test_environment['GHOSTERM_CLAUDE_REAL_CLI'] = '1'
         output = run(tests, test_environment, seconds=90)
-        expected = 12 if args.real_cli else 11
+        expected = 19 if args.real_cli else 18
         if f'ℹ pass {expected}\n' not in output or 'ℹ fail 0' not in output or 'ℹ skipped 0' not in output:
             raise RuntimeError('Claude test count/skip receipt mismatch:\n' + output)
         print(output, end='', flush=True)

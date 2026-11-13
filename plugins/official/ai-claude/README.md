@@ -1,8 +1,8 @@
 # Claude Node backend component (candidate)
 
-This is the first P4 backend slice. It is **not an importable Ghosterm plugin**:
+These are the initial P4 backend slices. This is **not an importable Ghosterm plugin**:
 there is no `plugin.json`, gterm Node/Exec runtime, Native page, wire method or
-model-session adapter yet. The existing gterm and App profiles still advertise
+Native conversation adapter yet. The existing gterm and App profiles still advertise
 Portable JS only. An unsupported Node variant must remain unsupported.
 
 `node/` contains an authored MIT component with a separately locked dependency on
@@ -49,6 +49,26 @@ The Node compiler uses DOM declarations because the pinned MCP peer exposes the
 standard fetch `HeadersInit` type. This introduces no browser service or UI;
 `packages/plugin-sdk/portable` and Core remain unchanged and do not import Node
 or DOM. SDK types are checked with `skipLibCheck: false`.
+
+`ClaudeNodeSession` now connects this profile and broker to the locked SDK's
+streaming input and output. It accepts one explicit input at a time and returns
+its SDK UUID as a correlation key, without claiming delivery. Backend messages
+remain immutable, ordered vendor records; result errors and optional diagnostics
+are preserved rather than converted into Codex events. A foreign or absent result
+UUID ends observation as lost, while keeping the diagnostic and unresolved input.
+Interrupt expires pending prompts immediately and shares one control request;
+its receipt does not complete the turn. A correlated result retires any remaining
+prompts before another input can be accepted. Close revokes the whole broker.
+
+Session limits are 256 unread events / two MiB queued bytes, 512 KiB per SDK
+message, 64 MiB cumulative serialized output and ten minutes from startup, with
+explicit lower limits available. One event slot / 512 bytes is reserved for the
+terminal observation. The SDK may keep waiting after stdout EOF in streaming
+mode, so the adapter also observes its owned process and permits up to 500 ms for
+buffered frames to drain. EOF remains a loss observation; an already-received
+correlated result is preserved. SDK close/abort requests do not prove OS reaping:
+the embedding owner must still observe exit and enforce its child/pipeline
+limits. These counters do not cover SDK internal queues or process RSS.
 
 From the repository root:
 

@@ -221,6 +221,15 @@ export class ClaudeApprovalBroker {
     this.events.push(Object.freeze(event)); return true;
   }
 
+  /** Retire prompts at a turn boundary without closing the conversation. */
+  expirePending(): void {
+    for (const entry of this.entries.values()) {
+      if (entry.state !== "pending") continue;
+      entry.state = "expired"; this.detach(entry); entry.reject(new ApprovalExpiredError());
+      if (!this.publish({ kind: "expired", reference: entry.request.reference })) return;
+    }
+  }
+
   close(failure?: Error): void {
     if (this.stopped) return;
     this.stopped = true; this.failed = failure;
