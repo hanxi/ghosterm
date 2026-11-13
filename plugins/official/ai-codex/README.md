@@ -12,6 +12,26 @@ authorized workspace handle. It returns the adapter with explicit bounded
 `step()` and `stop()` lifecycle. This is not yet an installable or complete
 plugin; product Host mappings and UI are not wired.
 
+`executor/index.ts` is the current Native-independent Executor entry. It lazily
+spawns only after `codex.thread.start`, exposes typed thread / turn / interrupt /
+approval RPC handlers, and returns bounded ordered app-server events through
+`codex.event`. Its optional `Disposable.step()` drives one nonblocking pipe slice
+per Native Runtime pump; queue overflow, malformed pipe traffic, failed event
+delivery, and unexpected child exit stop and reap the child. It does not silently
+retry requests with unknown outcomes. Cancelling thread initialization also stops
+the child before `thread/start`; cancelling an active turn requests an interrupt
+and leaves the RPC outcome subject to the Session's unknown-result semantics.
+
+This source is not yet a complete installable plugin: package metadata and
+integrity, Client entry, product Host method registration / mapping, and native UI
+are still missing. Validate the Executor entry with an isolated fake Host and
+fake app-server (no model or external service):
+
+```sh
+python3 -B scripts/test-plugin-codex-entry.py --fetch
+python3 -B scripts/mutation-check-plugin-codex-entry.py
+```
+
 The lock was derived from the official Codex CLI `codex-cli 0.166.0` generators with experimental APIs disabled. Recheck the installed CLI and its generated JSON Schema and TypeScript surface with:
 
 ```sh
