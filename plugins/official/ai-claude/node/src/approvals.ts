@@ -15,6 +15,7 @@ export interface ApprovalRequest {
   readonly kind: "tool" | "question";
   readonly toolName: string;
   readonly toolUseID: string;
+  readonly turnID?: string;
   readonly agentID?: string;
   readonly input: Readonly<Record<string, Json>>;
   readonly defaultToNo: boolean;
@@ -76,6 +77,7 @@ export class ClaudeApprovalBroker {
   private bytes = 0;
   private stopped = false;
   private failed: Error | undefined;
+  private turnID: string | undefined;
 
   constructor(scope: string, limits: ApprovalLimits = {}) {
     this.scope = text(scope, 128);
@@ -95,6 +97,13 @@ export class ClaudeApprovalBroker {
     return Object.freeze([...this.entries.values()].filter(value => value.state === "pending").map(value => value.request));
   }
   takeEvent(): ApprovalEvent | undefined { return this.events.shift(); }
+
+  /** The streaming session binds callbacks to its explicitly submitted input.
+   * Reused backend IDs across turns must not replay a previous user decision. */
+  beginTurn(id: string): void {
+    if (this.stopped || this.pending.length) throw new ApprovalExpiredError();
+    this.turnID = text(id, 128);
+  }
 
   readonly canUseTool: CanUseTool = (toolName, input, context) => {
     try { return this.request(toolName, input, context); }
@@ -116,6 +125,7 @@ export class ClaudeApprovalBroker {
         name: text(context.mcpServer.name, 128), source: text(context.mcpServer.source, 128) }) }),
     };
     const raw = snapshot({ toolName: text(toolName, 128), input: value,
+      turnID: this.turnID ?? null,
       requestID: text(context.requestId, 128), toolUseID: text(context.toolUseID, 128),
       ...metadata,
       defaultToNo: context.defaultToNo === undefined ? false : context.defaultToNo,
@@ -147,6 +157,7 @@ export class ClaudeApprovalBroker {
     const reference = Object.freeze({ scope: this.scope, requestID: context.requestId, token: `approval-${this.generation}-${++this.serial}` });
     const request: ApprovalRequest = Object.freeze({ reference, kind: toolName === "AskUserQuestion" ? "question" : "tool",
       toolName, toolUseID: context.toolUseID, input: value,
+      ...(this.turnID === undefined ? {} : { turnID: this.turnID }),
       defaultToNo: raw.defaultToNo, suppressAlwaysAllowRule: raw.suppressAlwaysAllowRule,
       ...metadata,
       ...(toolName === "AskUserQuestion" ? { questions: questions(value) } : {}) });

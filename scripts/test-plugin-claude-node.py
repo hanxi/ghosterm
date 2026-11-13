@@ -109,6 +109,12 @@ CASES = (
     ('executor-sha', 'executor.ts', 'if (hash.digest("hex") !== expected)', 'if (false)',
      'real Node executor pipes initialize stop and EOF against the locked no-network CLI',
      'real Node executor must distinguish stop EOF and invalid profile'),
+    ('approval-turn', 'approvals.ts', 'turnID: this.turnID ?? null', 'turnID: null',
+     'Claude backend request ids cannot replay an approval across explicit user turns',
+     'Claude approval identity must include the submitted user turn'),
+    ('session-approval-turn', 'session.ts', 'this.profile.approvals.beginTurn(uuid);', '/* mutation: omit submitted turn binding */',
+     'Claude session streams correlated input and ordered immutable SDK events across turns',
+     'Claude session must bind approval identity to its submitted input'),
 )
 
 
@@ -156,7 +162,7 @@ def main():
         run(compiler, environment)
         if args.real_cli: test_environment['GHOSTERM_CLAUDE_REAL_CLI'] = '1'
         output = run(tests, test_environment, seconds=90)
-        expected = 26 if args.real_cli else 24
+        expected = 27 if args.real_cli else 25
         if f'ℹ pass {expected}\n' not in output or 'ℹ fail 0' not in output or 'ℹ skipped 0' not in output:
             raise RuntimeError('Claude test count/skip receipt mismatch:\n' + output)
         print(output, end='', flush=True)

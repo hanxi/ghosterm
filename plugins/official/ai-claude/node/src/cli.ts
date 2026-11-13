@@ -1,6 +1,9 @@
 // Keep dependency loading inside the guarded entry so a missing SDK is an
 // explicit unavailable exit, with no installation or system-CLI fallback.
 async function main(): Promise<number> {
+  if (Number(process.versions.node.split('.')[0]) < 20) {
+    process.stderr.write("claude-node: NODE_VERSION_UNSUPPORTED\n"); return 4;
+  }
   if (process.argv.length !== 4 || process.argv[2] !== "--profile") {
     process.stderr.write("claude-node: expected --profile ABSOLUTE_PROFILE_FILE\n"); return 2;
   }

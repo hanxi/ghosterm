@@ -87,6 +87,18 @@ test("Claude approval tokens do not survive a new broker even when caller scope 
   replacement.close();
 });
 
+test("Claude backend request ids cannot replay an approval across explicit user turns", async () => {
+  const broker = new ClaudeApprovalBroker("turn-identity");
+  broker.beginTurn("user-one");
+  const first = broker.canUseTool("Bash", { command: "fixture" }, context());
+  const request = event(broker).request;
+  assert.equal(request.turnID, "user-one"); assert(broker.decide(request.reference, true)); await first;
+  drain(broker); broker.beginTurn("user-two");
+  const reused = broker.canUseTool("Bash", { command: "fixture" }, context());
+  assert(broker.closed, "Claude approval identity must include the submitted user turn");
+  await assert.rejects(reused, /reused/);
+});
+
 test("Claude request identity collisions close all pending work while distinct Unicode ids remain separate", async () => {
   const broker = new ClaudeApprovalBroker("identity");
   const a = broker.canUseTool("Bash", { command: "a" }, context("é"));
@@ -274,6 +286,7 @@ test("Claude session streams correlated input and ordered immutable SDK events a
     assert.equal(user.uuid, id); assert.equal(user.message.content, "fixture input 中文😀");
     child.permission("turn-one-pending");
     await until(() => broker.pending.length === 1, "session must route SDK approval");
+    assert.equal(broker.pending[0].turnID, id, "Claude session must bind approval identity to its submitted input");
     const ref = broker.pending[0].reference;
     child.emitFrame({ type: "assistant", uuid: "fixture-assistant", session_id: "fixture-session", message: { content: "fixture reply" } });
     child.emitFrame(resultFrame(id));

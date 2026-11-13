@@ -1,9 +1,11 @@
-# Claude Node backend component (candidate)
+# Claude SDK bridge (candidate)
 
-These are the initial P4 backend slices. This is **not an importable Ghosterm plugin**:
-there is no `plugin.json`, gterm Node/Exec runtime, Native page, Ghosterm RPC method or
-Native conversation adapter yet. The existing gterm and App profiles still advertise
-Portable JS only. An unsupported Node variant must remain unsupported.
+The Portable Client/Executor candidate builds into a directory package with
+`plugin.json`, integrity metadata and eight private RPC methods. Its supervisor
+starts the separately configured Node component only on an explicit `start`.
+Native chat/approval/question UI and generic Node/Exec package loading remain
+unfinished; the candidate declares no Native views. The App and gterm package
+profiles continue to support Portable JS only.
 
 `node/` contains an authored MIT component with a separately locked dependency on
 Claude Agent SDK **0.3.323** and its matching native CLI **2.1.323**. The supplied
@@ -12,12 +14,17 @@ the version does not verify a file or grant access. An ordinary system CLI is no
 silently substituted. SDK dependencies and the native CLI retain their own
 licenses/terms, as recorded in `node/package-lock.json` and the installed packages;
 they are not relicensed under this repository's MIT license or included in an App.
+The selected dependency closure requires **Node >=20** (`@hono/node-server`),
+although the SDK's own minimum is 18.14. The component and supervisor reject an
+older declared Node version. The observed test version is Node 26.4.0.
 
 The prompt broker binds each SDK `requestId`, `toolUseID`, agent, input and MCP
-provenance to a scope and a fresh opaque reference. Inputs and backend display
+provenance to a scope, the locally active input UUID and a fresh opaque reference. Inputs and backend display
 metadata are frozen JSON snapshots. Unknown MCP source strings remain unknown,
 not `sdk`. A decision resolves once; identical duplicates share/replay the same
-decision while retained. Changed identity or input under one ID fails the broker.
+decision while retained in the same turn. Reusing an ID in another explicit turn,
+or changing identity/input under that ID, fails the broker. This local binding
+does not prove the source turn of every possible late backend callback.
 Cancellation and close reject the pending callback as expired, without creating
 a user decline. Old references do not authorize a replacement broker, even if a
 caller repeats its scope label. Nothing survives process death or reconnect.
@@ -123,13 +130,38 @@ Exit 0 means explicit stop and observed direct-child cleanup, not business
 success; 7 is transport EOF, 130 cancellation, 4 missing dependency, 2 invalid
 profile/invocation and 5 protocol/runtime/cleanup failure. SDK descendants,
 whole-process RSS and the complete gterm process-group lifecycle remain unverified.
-The standalone executor is not yet a gterm Node runtime or a shippable plugin.
-An owned conformance fixture now launches it through a real native HOST Session,
-gterm's Portable Supervisor and Host-fixed process arguments. Additional selected
-environment names stay on the executing machine. The fixture verifies an exact
-selected value and exclusion of an unselected parent marker, initializes the real
-CLI without a model prompt, stops it and waits for direct-child cleanup. This is
-not a production ai-claude package, generic Node package loader or Native chat UI.
+The candidate package launches this executor through a Host program mapping named
+`claude-node`: Node executable/version/hash, fixed entry and `--profile` arguments,
+workspace root and selected environment names. It neither installs dependencies
+nor infers credentials. The external entry/profile/dependency tree is selected by
+the Host and is not captured inside the Portable package integrity index.
+
+RPC methods are `claude.input.open/append/seal/discard`, `claude.call`,
+`claude.response.read/forget` and `claude.status`. Parameters are compact JSON
+objects, uploaded in offset-checked chunks and consumed once; the final object is
+limited to 64,000 UTF-8 bytes. Offsets and lengths count UTF-16 units. Replies keep
+the complete child record (up to 600,000 bytes) in immutable pages of at most 256
+UTF-16 units, without splitting a surrogate pair. Before any child action, reserve
+its maximum reply size under a 2 MiB / four-document limit. Callers must read and
+forget receipts to free this budget. A cancelled RPC can leave an observed receipt
+available through status; this never changes its old outcome or authorizes replay.
+Only one child operation is in flight. There is no implicit respawn. Stop succeeds
+only after observing a zero exit without a signal and completing Core release.
+
+Build the development import directory (no SDK/CLI binaries or `node_modules`):
+
+```sh
+python3 -B scripts/build-plugin-claude.py --fetch
+python3 -B scripts/build-plugin-claude.py --check
+```
+
+The default output is `build/plugins/ai-claude`. Package tests exercise the compiled
+entry against a named private-pipe fixture. The native integration runner
+`scripts/test-plugin-claude-native.py --build <gterm-build>` additionally uses the
+compiled production package over native HOST Session consent and gterm. Its two
+separate modes use the real pinned SDK with an in-memory CLI protocol fixture for
+large-input approval/question round trips, and the real matching CLI for no-model
+initialization/stop/reap. Neither is evidence of a model turn or Native chat UI.
 
 From the repository root:
 

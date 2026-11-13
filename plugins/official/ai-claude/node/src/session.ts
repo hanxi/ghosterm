@@ -87,8 +87,12 @@ export class ClaudeNodeSession {
         return child;
       } });
       options.includePartialMessages = true;
-      options.canUseTool = (...args) => this.phaseValue === "running" && this.active !== undefined
-        ? this.profile.approvals.canUseTool(...args) : Promise.reject(new ApprovalExpiredError());
+      options.canUseTool = (...args) => {
+        if (this.phaseValue !== "running" || this.active === undefined) return Promise.reject(new ApprovalExpiredError());
+        const result = this.profile.approvals.canUseTool(...args);
+        if (this.profile.approvals.closed) this.finish("failed", this.profile.approvals.failure ?? new ApprovalExpiredError());
+        return result;
+      };
       const warm = await startup({ options, initializeTimeoutMs: 15_000 });
       if (this.terminal) { warm.close(); throw new ApprovalExpiredError(); }
       this.warm = warm;
@@ -107,6 +111,7 @@ export class ClaudeNodeSession {
     if (this.phaseValue !== "ready" || this.inputEnded || this.profile.approvals.closed) throw new Error("Claude session is not ready for input");
     const content = text(prompt, 65_536);
     const uuid = randomUUID();
+    this.profile.approvals.beginTurn(uuid);
     const message: SDKUserMessage = { type: "user", uuid, message: { role: "user", content }, parent_tool_use_id: null };
     this.active = uuid; this.phaseValue = "running";
     const waiter = this.waiter;
