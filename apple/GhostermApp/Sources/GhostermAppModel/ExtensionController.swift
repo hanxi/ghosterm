@@ -146,6 +146,24 @@ public actor ExtensionController {
         public let challenge: UInt64
         public let authentication: [Authentication]
         public let diagnostic: String
+        public let process: ProcessState?
+    }
+
+    public struct ProcessState: Sendable {
+        public let error, cleanupError, groupSignalError: Int32
+        public let reason: UInt32, childExited: Bool, reaped: Bool, groupFenced: Bool
+        public let exitCode, termSignal: Int32?
+        public let stdoutEOF, stderrEOF, stopping: Bool
+        public let stdoutBytes, stderrBytes: UInt64
+        public let diagnostic: String, diagnosticTruncated: Bool
+        init(_ p: ExtensionChannel.ProcessObservation) {
+            error = p.error; cleanupError = p.cleanupError; groupSignalError = p.groupSignalError
+            reason = p.reason.rawValue; childExited = p.childExited; reaped = p.reaped; groupFenced = p.groupFenced
+            exitCode = p.exitCode; termSignal = p.termSignal
+            stdoutEOF = p.stdoutEOF; stderrEOF = p.stderrEOF; stopping = p.stopping
+            stdoutBytes = p.stdoutBytes; stderrBytes = p.stderrBytes
+            diagnostic = String(decoding: p.diagnostic, as: UTF8.self); diagnosticTruncated = p.diagnosticTruncated
+        }
     }
 
     public struct RPCMethod: Sendable {
@@ -170,6 +188,7 @@ public actor ExtensionController {
         public let error: Int32
         public let cleanupError: Int32
         public let consentToken: String
+        public let process: ProcessState?
     }
 
     public struct ResourcePublication: Sendable {
@@ -206,6 +225,7 @@ public actor ExtensionController {
         public let disposeError: Int32
         public let publication: ResourcePublication?
         public let instanceID: String
+        public let process: ProcessState?
     }
 
     public struct HostRPCRequest: Sendable {
@@ -249,6 +269,7 @@ public actor ExtensionController {
         case sessionUnavailable
         case runtimeUnavailable
         case resourceUnavailable
+        case localProcessDraining
         case closed
     }
 
@@ -298,6 +319,11 @@ public actor ExtensionController {
     public func openSSHChannel(hops: [SSHHop], bootstrap: String) async throws -> ChannelState {
         try await worker.openSSHChannel(hops: hops, bootstrap: bootstrap)
     }
+    public func openLocalChannel(executable: String, arguments: [String], launch: ExtensionLocalLaunch,
+                                 environmentNames: [String] = []) async throws -> ChannelState {
+        try await worker.openLocalChannel(executable: executable, arguments: arguments, launch: launch, environmentNames: environmentNames)
+    }
+    public func localProcessState() async throws -> ProcessState? { try await worker.localProcessState() }
 
     public func stepSSHChannel(milliseconds: Int32 = 0) async throws -> ChannelState {
         try await worker.stepSSHChannel(milliseconds: milliseconds)
@@ -320,6 +346,13 @@ public actor ExtensionController {
                                          executorDigest: executorDigest, hostVersion: hostVersion,
                                          peerIdentity: peerIdentity, methods: methods,
                                          additionalRequiredCapabilities: additionalRequiredCapabilities)
+    }
+    public func adoptLocalSession(pluginID: String, packageDigest: String, executorDigest: String,
+                                   hostVersion: String, peerIdentity: String, methods: [RPCMethod],
+                                   additionalRequiredCapabilities: [String] = []) async throws -> SessionState {
+        try await worker.adoptSSHSession(pluginID: pluginID, packageDigest: packageDigest, executorDigest: executorDigest,
+            hostVersion: hostVersion, peerIdentity: peerIdentity, methods: methods,
+            additionalRequiredCapabilities: additionalRequiredCapabilities, local: true)
     }
 
     public func stepSession(milliseconds: Int32 = 0) async throws -> SessionState {
@@ -412,6 +445,8 @@ public actor ExtensionController {
         private var closeComplete = false
         private var closeResult = false
         private var channel: ExtensionChannel?
+        private var local = false
+        private var lastLocalProcess: ProcessState?
         private var session: ExtensionSession?
         private var sessionPackageKey: String?
         private var runtime: ExtensionRuntime?
@@ -501,10 +536,52 @@ public actor ExtensionController {
                     return ExtensionChannel.Hop(options: options, address: address, viaHost: hop.viaHost)
                 }
                 let channel = try ExtensionChannel(hops: hops, bootstrap: bootstrap, owner: self.queue)
+                self.local = false; self.lastLocalProcess = nil
                 self.channel = channel
                 _ = try channel.step(milliseconds: 0)
                 return try self.channelState(channel)
             }
+        }
+
+        func openLocalChannel(executable: String, arguments: [String], launch: ExtensionLocalLaunch,
+                              environmentNames: [String]) async throws -> ChannelState {
+            try await perform {
+                try self.checkOpen()
+                guard self.channel == nil, self.session == nil, self.runtime == nil else { throw ControllerError.channelUnavailable }
+                let names = try ExtensionRelayBootstrap.parseProcessEnvironmentJSON(
+                    String(decoding: JSONEncoder().encode(environmentNames), as: UTF8.self))
+                guard names.allSatisfy({ !$0.hasPrefix("LD_") && !$0.hasPrefix("DYLD_") && $0 != "NODE_OPTIONS" && $0 != "NODE_PATH" }) else {
+                    throw GhostermLocalLaunchError.invalid("不接受动态加载器或 Node 注入环境")
+                }
+                let ambient = ProcessInfo.processInfo.environment
+                var environment: [String] = []
+                for name in ["HOME", "PATH", "XDG_CONFIG_HOME", "CODEX_HOME"] {
+                    if let value = ambient[name] { environment.append(name + "=" + value) }
+                }
+                environment.append("TMPDIR=" + launch.temporaryDirectory)
+                for name in names {
+                    guard let value = ambient[name] else { throw GhostermLocalLaunchError.invalid("缺少显式选择的执行环境：\(name)") }
+                    environment.append(name + "=" + value)
+                }
+                let channel = try launch.withValidatedDirectory(executable: executable) { fd in
+                    try ExtensionChannel(process: .init(executable: executable, arguments: arguments, directoryFD: fd,
+                        environment: environment, executionAuthorized: launch.authorized, lifetimeMilliseconds: 600000,
+                        stopGraceMilliseconds: 500, stdoutLimit: 67108864, stderrLimit: 1048576), owner: self.queue)
+                }
+                self.local = true; self.lastLocalProcess = nil; self.channel = channel
+                return try self.channelState(channel)
+            }
+        }
+
+        func localProcessState() async throws -> ProcessState? {
+            try await perform { try self.captureLocalProcess(); return self.lastLocalProcess }
+        }
+
+        private func captureLocalProcess() throws {
+            guard local else { return }
+            if let runtime { lastLocalProcess = try ProcessState(runtime.transportProcessObservation()) }
+            else if let session { lastLocalProcess = try ProcessState(session.processObservation()) }
+            else if let channel { lastLocalProcess = try ProcessState(channel.processObservation()) }
         }
 
         func stepSSHChannel(milliseconds: Int32) async throws -> ChannelState {
@@ -542,10 +619,10 @@ public actor ExtensionController {
         func adoptSSHSession(pluginID: String, packageDigest: String, executorDigest: String,
                              hostVersion: String, peerIdentity: String,
                              methods input: [RPCMethod],
-                             additionalRequiredCapabilities: [String]) async throws -> SessionState {
+                             additionalRequiredCapabilities: [String], local: Bool = false) async throws -> SessionState {
             try await perform {
                 try self.checkOpen()
-                guard self.session == nil, self.runtime == nil, let channel = self.channel else {
+                guard self.local == local, self.session == nil, self.runtime == nil, let channel = self.channel else {
                     throw ControllerError.channelUnavailable
                 }
                 let packageKey = self.key(pluginID, packageDigest)
@@ -597,7 +674,7 @@ public actor ExtensionController {
                                   clientDigest: metadata.packageDigest, executorDigest: executorDigest,
                                   hostVersion: hostVersion, sdkVersion: metadata.sdkVersion,
                                   required: requiredCapabilities, available: sessionAvailable,
-                                  peerKind: .ssh, peerIdentity: peerIdentity, methods: methods),
+                                  peerKind: local ? .local : .ssh, peerIdentity: peerIdentity, methods: methods),
                     resourceStore: resourceStore)
                 self.channel = nil
                 self.session = session
@@ -887,16 +964,32 @@ public actor ExtensionController {
         }
 
         func releaseFinished() async throws {
-            try await perform {
-                try self.checkOpen()
-                try self.releaseOwners(forceStop: false)
+            let deadline = ProcessInfo.processInfo.systemUptime + 2
+            while true {
+                do {
+                    try await perform { try self.checkOpen(); try self.releaseOwners(forceStop: false) }
+                    return
+                } catch ControllerError.localProcessDraining {
+                    guard ProcessInfo.processInfo.systemUptime < deadline else { throw ControllerError.localProcessDraining }
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
             }
         }
 
         func close() async -> Bool {
+            let deadline = ProcessInfo.processInfo.systemUptime + 2
+            while true {
+                let result = await closeOnce()
+                if result != 0 { return result == 1 }
+                guard ProcessInfo.processInfo.systemUptime < deadline else { return false }
+                do { try await Task.sleep(nanoseconds: 10_000_000) } catch { return false }
+            }
+        }
+
+        private func closeOnce() async -> Int {
             (try? await perform {
                 self.closed = true
-                if self.closeComplete { return self.closeResult }
+                if self.closeComplete { return self.closeResult ? 1 : -1 }
                 do {
                     try self.releaseOwners(forceStop: true)
                     var cleanupFailed = false
@@ -912,9 +1005,10 @@ public actor ExtensionController {
                     self.packages.removeAll()
                     self.closeComplete = true
                     self.closeResult = !cleanupFailed
-                    return self.closeResult
-                } catch { return false }
-            }) ?? false
+                    return self.closeResult ? 1 : -1
+                } catch ControllerError.localProcessDraining { return 0 }
+                catch { return -1 }
+            }) ?? -1
         }
 
         private func channelState(_ channel: ExtensionChannel) throws -> ChannelState {
@@ -926,7 +1020,11 @@ public actor ExtensionController {
                                     Authentication(phase: $0.phase.rawValue, hostState: $0.host.rawValue,
                                                    error: $0.error, deadline: $0.deadline, methods: $0.methods,
                                                    keyType: $0.keyType, fingerprint: $0.fingerprint)
-                                }, diagnostic: String(decoding: info.diagnostic, as: UTF8.self))
+                                }, diagnostic: String(decoding: info.diagnostic, as: UTF8.self), process: try processSnapshot())
+        }
+
+        private func processSnapshot() throws -> ProcessState? {
+            try captureLocalProcess(); return local ? lastLocalProcess : nil
         }
 
         private func sessionState(_ session: ExtensionSession, packageKey: String) throws -> SessionState {
@@ -934,7 +1032,7 @@ public actor ExtensionController {
             guard let record = packages[packageKey] else { throw ControllerError.sessionUnavailable }
             return SessionState(packageID: record.review.id, packageDigest: record.review.digest,
                                 phase: info.phase.rawValue, end: info.end.rawValue, error: info.error,
-                                cleanupError: info.cleanupError, consentToken: info.consentToken)
+                                cleanupError: info.cleanupError, consentToken: info.consentToken, process: try processSnapshot())
         }
 
         private func runtimeState(_ runtime: ExtensionRuntime, packageKey: String,
@@ -943,7 +1041,7 @@ public actor ExtensionController {
             guard let record = packages[packageKey] else { throw ControllerError.runtimeUnavailable }
             return RuntimeState(packageID: record.review.id, packageDigest: record.review.digest,
                                 command: command, phase: info.phase.rawValue, failure: info.error.rawValue,
-                                cleanupError: info.cleanupError, disposeError: info.disposeError ? 1 : 0, publication: clientPublication, instanceID: runtimeInstanceID ?? "")
+                                cleanupError: info.cleanupError, disposeError: info.disposeError ? 1 : 0, publication: clientPublication, instanceID: runtimeInstanceID ?? "", process: try processSnapshot())
         }
 
         private func releaseOwners(forceStop: Bool) throws {
@@ -958,9 +1056,10 @@ public actor ExtensionController {
                 var released = false
                 for _ in 0..<32 {
                     try closeClientSource()
-                    if try runtime.closeStep() { released = true; break }
+                    let done = try runtime.closeStep(); try captureLocalProcess()
+                    if done { released = true; break }
                 }
-                guard released, clientSource == nil else { throw ControllerError.runtimeUnavailable }
+                guard released, clientSource == nil else { throw local ? ControllerError.localProcessDraining : ControllerError.runtimeUnavailable }
                 self.runtime = nil; runtimePackageKey = nil; runtimeCommand = nil; runtimeInstanceID = nil
                 clientPublication = nil
                 if clientRootFD >= 0 {
@@ -975,8 +1074,11 @@ public actor ExtensionController {
                     guard phase == .ended || phase == .closed else { throw ControllerError.sessionUnavailable }
                 }
                 var released = false
-                for _ in 0..<32 { if try session.closeStep() { released = true; break } }
-                guard released else { throw ControllerError.sessionUnavailable }
+                for _ in 0..<32 {
+                    let done = try session.closeStep(); try captureLocalProcess()
+                    if done { released = true; break }
+                }
+                guard released else { throw local ? ControllerError.localProcessDraining : ControllerError.sessionUnavailable }
                 self.session = nil; sessionPackageKey = nil
             }
             try closeResourceStore()
@@ -989,8 +1091,11 @@ public actor ExtensionController {
                     }
                 }
                 var released = false
-                for _ in 0..<32 { if try channel.closeStep() { released = true; break } }
-                guard released else { throw ControllerError.channelUnavailable }
+                for _ in 0..<32 {
+                    let done = try channel.closeStep(); try captureLocalProcess()
+                    if done { released = true; break }
+                }
+                guard released else { throw local ? ControllerError.localProcessDraining : ControllerError.channelUnavailable }
                 self.channel = nil
             }
         }

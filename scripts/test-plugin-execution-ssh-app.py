@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Native macOS/Android App -> owned loopback SSH -> actual Node/native Exec.
+"""Native App -> owned loopback SSH or macOS local pipes -> actual Node/native Exec.
 
 Keys exist only in the fixture service memory and ssh-agent. No accounts/models,
 no foreground windows, no user endpoints; temporary executables stay in project tmp.
 """
 import argparse
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 import base64
 import hashlib
 import importlib.util
@@ -49,6 +49,7 @@ def identity(pid):
 
 
 def execute(args, serial=None):
+    local_mode = getattr(args, "local", False)
     topology, stop_terminal = getattr(args, 'tmux', None), getattr(args, 'stop_tmux', False)
     attaching = getattr(args, 'attach', False)
     kill_front = getattr(args, 'kill_front_pane', False)
@@ -89,19 +90,21 @@ def execute(args, serial=None):
         name = str(p.relative_to(sdk)).encode(); catalog.update(len(name).to_bytes(4, 'big') + p.stat().st_size.to_bytes(8, 'big') + name + sha(p).encode())
     sdk_digest = catalog.hexdigest()
     runtime_types = ('node', 'exec')
-    cases = [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct', 'jump')
+    route_names = ('local',) if local_mode else ('direct', 'jump')
+    cases = [f'{r}:{route}:{mode}' for r in runtime_types for route in route_names
              for mode in ('allow', 'deny', 'no-approval', 'pending-cancel', 'pending-loss',
                           'resource', 'resource-root', 'resource-parent', 'resource-link')]
-    cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct', 'jump')
+    cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in route_names
               for mode in ('process', 'process-root', 'process-program', 'process-cancel', 'process-stderr',
                            'process-environment', 'process-cwd', 'process-stop', 'process-loss')]
-    cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct', 'jump')
+    cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in route_names
               for mode in ('client-resource', 'client-root', 'client-parent', 'client-link', 'client-no-approval', 'client-undeclared', 'client-stop', 'client-loss', 'client-cancel', 'client-directory-link', 'client-directory-file')]
     attach_modes = ('allow','deny','no-approval','pending-cancel','pending-loss','client-resource','process','client-stop','client-loss','attach-instance','attach-command','attach-argument')
-    if attaching: cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct','jump') for mode in attach_modes if mode.startswith('attach-')]
+    if attaching: cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in route_names for mode in attach_modes if mode.startswith('attach-')]
     tmux_modes = ('allow', 'client-resource', 'process') if stop_terminal else ('allow', 'deny', 'no-approval',
         'client-resource', 'process', 'pending-cancel', 'pending-loss', 'client-stop', 'client-loss')
     pane_loss_modes = ('pending-loss', 'process-loss', 'client-loss')
+    if local_mode: cases += [f'{r}:local:{m}' for r in runtime_types for m in ('local-no-approval','local-digest','local-cwd')]
     selected = args.case or ([case for case in cases if case.split(':')[2] in pane_loss_modes] if kill_front else [case for case in cases if case.split(':')[2] in attach_modes] if attaching else [case for case in cases if case.split(':')[2] in tmux_modes] if topology else cases)
     if kill_front and (not attaching or not topology or any(case.split(':')[2] not in pane_loss_modes for case in selected)):
         raise RuntimeError('Pane fault requires explicit tmux attachment and pending / process / client loss')
@@ -112,7 +115,7 @@ def execute(args, serial=None):
     routes = load('execution_routes', 'scripts/test-plugin-route.py')
     keys = load('execution_keys', 'scripts/test-plugin-ssh.py')
     streams = load('execution_streams', 'scripts/test-plugin-ssh-stream.py')
-    private, public = streams.memory_identity()
+    private, public = (b'', b'') if local_mode else streams.memory_identity()
     fault_module = load('execution_fault', 'scripts/fixtures/plugin-execution-fault.py')
     terminal_module = load('execution_tmux', 'scripts/fixtures/plugin-execution-tmux.py') if topology else None
     foreground_module = load('execution_foreground','scripts/fixtures/plugin-execution-foreground.py') if attaching else None
@@ -157,14 +160,14 @@ def execute(args, serial=None):
                 package = 'com.hanxi.ghosterm.test' if 'androidTest/' in name else 'com.hanxi.ghosterm'
                 installed = run('path-' + apk.name, [*adb, 'shell', 'pm', 'path', package]).strip().removeprefix('package:')
                 if run('sha-' + apk.name, [*adb, 'shell', 'sha256sum', installed]).split()[0] != sha(apk): raise RuntimeError('Installed APK mismatch')
-        with keys.owned_agent(work, 'agent') as agent:
+        with (nullcontext(None) if local_mode else keys.owned_agent(work, 'agent')) as agent:
             if topology:
                 added = subprocess.run(['ssh-add', '-'], input=private, capture_output=True,
                     env={**env, 'SSH_AUTH_SOCK': str(agent), 'SSH_ASKPASS_REQUIRE': 'never'}, timeout=10)
                 if added.returncode: raise RuntimeError('Owned terminal client key could not be admitted to memory agent')
-            host_keys = [keys.add_memory_key(agent, 'execution-hop-' + str(i)) for i in range(2)]
+            host_keys = [] if local_mode else [keys.add_memory_key(agent, 'execution-hop-' + str(i)) for i in range(2)]
             route_root = work / 'r'; route_root.mkdir()
-            with routes.chain(route_root, 2, public, host_keys, agent, 'echo', exec_hops=(0,) if topology == 'nested' else ()) as (ports, _, _), ExitStack() as terminals:
+            with (nullcontext(([0, 0], None, None)) if local_mode else routes.chain(route_root, 2, public, host_keys, agent, 'echo', exec_hops=(0,) if topology == 'nested' else ())) as (ports, _, _), ExitStack() as terminals:
                 for index, case in enumerate(selected):
                     runtime, route, mode = case.split(':')
                     client_case = mode.startswith('client-')
@@ -221,11 +224,13 @@ def execute(args, serial=None):
                     payload = dict(runtime=runtime, route=route, mode=mode, ports=ports, tmuxTopology=topology, foregroundTmux=attaching and bool(topology), stopTerminal=stop_terminal, user=pwd.getpwuid(os.getuid()).pw_name,
                         pem=private.decode('ascii'), packageFiles={str(p.relative_to(package)): base64.b64encode(p.read_bytes()).decode()
                         for p in package.rglob('*') if p.is_file()}, packageDigest=digest, packageDirectory=str(package),
-                        wrapper=str(wrapper), temporary=str(stage), scratch=str(scratch), node=str(node), nodeVersion=version,
+                        localTransport=local_mode, localDigest=sha(build / "gterm"), localWorkingDirectory=str(workspace), processStatePath=str(observation / "local-state"),
+                        wrapper=str(build / "gterm") if local_mode else str(wrapper), temporary=str(stage), scratch=str(scratch), node=str(node), nodeVersion=version,
                         nodeDigest=sha(node), sdk=str(sdk), sdkDigest=sdk_digest,
                         workspace=str(workspace), resourceDigest=hashlib.sha256(resource_bytes).hexdigest())
                     utility = utilities['env' if mode == 'process-environment' else 'pwd' if mode == 'process-cwd' else 'cat']
-                    selected_environment = dict(HOME=str(home), PATH='/usr/bin:/bin', TMPDIR=str(stage),
+                    selected_environment = dict(HOME=os.environ.get('HOME', '') if local_mode and not attaching else str(home),
+                        PATH=os.environ.get('PATH', '') if local_mode and not attaching else '/usr/bin:/bin', TMPDIR=str(stage),
                         GT_EXECUTION_APP_FIXTURE=str(observation), GT_SELECTED='approved')
                     expected_output = ('\n'.join(f'{name}={value}' for name, value in sorted(selected_environment.items())) + '\n').encode() \
                         if mode == 'process-environment' else (str(workspace) + '\n').encode() if mode == 'process-cwd' else resource_bytes
@@ -246,10 +251,19 @@ def execute(args, serial=None):
                         payload.update(ipcDirectory=str(endpoint),ipcInstance=instance)
                         attach_observation=observation/'attach';attach_observation.mkdir()
                         wrapper.write_text('#!/bin/sh\nexec '+shlex.join([sys.executable,str(ROOT/'scripts/fixtures/plugin-execution-supervisor.py'),str(build/'gterm'),str(attach_observation),str(home)])+' "$@"\n')
-                    token = secrets.token_hex(24); owned_pids = {}
+                    token = secrets.token_hex(24); owned_pids = {}; local_fault = {}
                     def observe():
+                        native_marker = attach_observation / 'gterm-pid' if attaching else observation / 'gterm-pid'
+                        if local_mode and not native_marker.exists():
+                            table = subprocess.check_output(['ps', '-axo', 'pid=,command='], text=True, timeout=5)
+                            found = [int(f[0]) for line in table.splitlines() if len(f := line.strip().split(None, 1)) == 2
+                                and f[1].startswith(str(build / 'gterm') + ' ')
+                                and (('--attach ' + str(endpoint)) in f[1] if attaching else str(package) in f[1])]
+                            if len(found) > 1: raise RuntimeError('Ambiguous owned local process')
+                            if found: native_marker.write_text(str(found[0]))
                         answer = {'wrapperStarted': (observation / 'gterm-pid').exists(), 'activated': (observation / 'activated').exists(),
                             'handler': (observation / 'handler').exists(), 'entered': (observation / 'entered').exists()}
+                        if local_fault: answer['ownedFault'] = dict(local_fault)
                         if foreground is not None:
                             answer['ipcListening']=foreground.process.poll() is None and (endpoint/'permit').exists()
                             marker=attach_observation/'gterm-pid';answer['attachStarted']=marker.exists()
@@ -294,7 +308,14 @@ def execute(args, serial=None):
                                 answer['businessCandidates'] = candidates
                             answer['businessPids'] = sorted(business_pids)
                             answer['businessLivePids'] = sorted(pid for pid in business_pids if identity(pid) == owned_pids[pid])
-                        if (observation / 'exit').exists(): answer.update(json.loads((observation / 'exit').read_text()))
+                        if (observation / 'local-state').exists():
+                            answer['localProcess'] = json.loads((observation / 'local-state').read_text())
+                            if attaching:
+                                answer['attachObservedLive'] = answer['attachStarted']
+                                answer['attachStarted'] = True  # Native snapshot proves spawn even for a fast rejection.
+                        if (observation / 'exit').exists():
+                            answer.update(json.loads((observation / 'exit').read_text()))
+                            answer['statusOwner'] = 'foreground' if attaching else 'transport'
                         return answer
                     class Handler(socketserver.StreamRequestHandler):
                         def handle(self):
@@ -306,6 +327,13 @@ def execute(args, serial=None):
                                 result = observe()
                                 if action == b'kill':
                                     if kill_front:terminal.kill_foreground()
+                                    elif local_mode:
+                                        marker = attach_observation / 'gterm-pid' if attaching else observation / 'gterm-pid'
+                                        pid = int(marker.read_text())
+                                        if pid not in owned_pids or identity(pid) != owned_pids[pid]: raise RuntimeError('Owned local fault target no longer matches')
+                                        os.kill(pid, signal.SIGTERM)
+                                        local_fault.update(pid=pid, signal=int(signal.SIGTERM), kind='local-transport-termination')
+                                        result['ownedFault'] = dict(local_fault)
                                     elif fault is not None:fault.disconnect()
                                     else:raise RuntimeError('No owned network fault wire')
                             elif action.startswith(b'tmux-') and terminal is not None: result = terminal.action(action.decode('ascii'))
@@ -317,7 +345,7 @@ def execute(args, serial=None):
                     mapped = []
                     business_pids = set()
                     fault = None
-                    if mode in ('pending-loss', 'process-loss', 'client-loss') and not kill_front:
+                    if mode in ('pending-loss', 'process-loss', 'client-loss') and not kill_front and not local_mode:
                         fault = fault_module.FaultWire(ports[0] if route == 'jump' else ports[1])
                         fault.__enter__()
                         client_ports = list(ports); client_ports[0 if route == 'jump' else 1] = fault.port
@@ -329,7 +357,7 @@ def execute(args, serial=None):
                             if args.macos:
                                 output = run(str(index), ['swift', 'test', '--skip-build', '--package-path', source / 'apple/GhostermApp',
                                     '--filter', 'ExecutorSSHAppTests.testRemoteExecutionThroughAppModel'],
-                                    {'GHOSTERM_EXECUTION_PORT': str(port), 'GHOSTERM_EXECUTION_TOKEN': token}, 180)
+                                    {'GHOSTERM_EXECUTION_PORT': str(port), 'GHOSTERM_EXECUTION_TOKEN': token, 'GT_EXECUTION_APP_FIXTURE': str(observation), 'GT_SELECTED': 'approved'}, 180)
                                 if 'Executed 1 test, with 0 failures' not in output or 'skipped' in output.lower(): raise RuntimeError('Expected one executed Swift test')
                             else:
                                 ephemeral = run('device-ephemeral-range', [*adb, 'shell', 'cat', '/proc/sys/net/ipv4/ip_local_port_range']).split()
@@ -380,8 +408,13 @@ def execute(args, serial=None):
                                 time.sleep(.05)
                             else: raise RuntimeError(case + ': remote process/staging retained: ' + repr(dict(
                                 audit=observe(), livePids=[pid for pid,expected in owned_pids.items() if identity(pid)==expected],
-                                staging=sorted(str(path.relative_to(stage)) for path in stage.rglob('*')))) + '\n' + (observation / 'stderr').read_text(errors='replace'))
-                            if 'status' not in audit: audit['exitObservation'] = 'not-started' if mode in ('no-approval', 'client-no-approval', 'client-undeclared') else 'unknown'
+                                staging=sorted(str(path.relative_to(stage)) for path in stage.rglob('*')))) + '\n' +
+                                ((observation / 'stderr').read_text(errors='replace') if (observation / 'stderr').exists() else 'Native local transport: no supervisor stderr file'))
+                            if local_mode and mode not in ('local-no-approval', 'local-digest', 'local-cwd', 'no-approval', 'client-no-approval', 'client-undeclared'):
+                                if not audit.get('localProcess', {}).get('reaped'): raise RuntimeError('Local child not reaped in Native observation: ' + repr(audit))
+                            if 'status' not in audit:
+                                audit['exitObservation'] = 'native-process-snapshot' if 'localProcess' in audit else 'not-started' if mode in (
+                                    'no-approval', 'client-no-approval', 'client-undeclared', 'local-no-approval', 'local-digest', 'local-cwd') else 'unknown'
                             if foreground is not None:foreground.close()
                             terminal_info = None
                             if terminal is not None:
@@ -422,11 +455,12 @@ def execute(args, serial=None):
             raise RuntimeError('Inputs changed during conformance')
         receipt = dict(accepted=True, platform='macos' if args.macos else 'android', cases=records, inputs=hashes,
             binaries=binary_hashes, platformBinaries=platform_binaries, nodeVersion=version, sdkCatalog=sdk_digest, tmuxTopology=topology, terminalStopped=stop_terminal, foregroundAttachment=attaching, foregroundPaneKilled=kill_front,
-            scope='owned loopback direct/ProxyJump; actual Native App and Node/Exec; separate SSH PTY/tmux when selected; no model')
+            scope=('macOS Native local pipes; no SSH connection or credentials; actual gterm and Node/Exec' if local_mode else
+                'owned loopback direct/ProxyJump; actual Native App and Node/Exec; separate SSH PTY/tmux when selected') + '; no model')
         if args.receipt:
             if not args.receipt.resolve().is_relative_to(ROOT / 'tmp'): raise RuntimeError('Use project tmp for receipt')
             args.receipt.write_text(json.dumps(receipt, indent=2) + '\n')
-        print('EXECUTION SSH APP PASS: ' + str(len(records)) + ' actual cases', flush=True)
+        print(('EXECUTION LOCAL APP PASS: ' if local_mode else 'EXECUTION SSH APP PASS: ') + str(len(records)) + ' actual cases', flush=True)
 
 
 def main():
@@ -439,8 +473,10 @@ def main():
     parser.add_argument('--stop-tmux', action='store_true', help='stop owned ordinary terminal before further plugin requests')
     parser.add_argument('--attach', action='store_true', help='explicitly connect an owned foreground IPC instance through SSH')
     parser.add_argument('--kill-front-pane', action='store_true', help='close only the owned foreground pane during an in-flight operation')
+    parser.add_argument('--local', action='store_true', help='macOS Native local process transport; no SSH listener or credentials')
     parser.add_argument('--sdk', type=Path, required=True); parser.add_argument('--case', action='append'); parser.add_argument('--receipt', type=Path)
     args = parser.parse_args()
+    if args.local and (not args.macos or args.tmux): parser.error('--local currently requires macOS without tmux')
     if args.project and not args.project.resolve().is_relative_to(ROOT / 'tmp'): parser.error('--project must be an owned project tmp directory')
     if args.headless_api:
         helper = load('execution_owned_headless', 'scripts/test-plugin-codex-patch-android.py')

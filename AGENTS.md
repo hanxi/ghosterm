@@ -1131,3 +1131,14 @@ API29 / 36 使用同一对 APK、arm64 / 4 KiB / 自有无窗口 AVD；不增加
 Release/R8 和四模块 lint、C 格式 251 文件通过。前置编译、夹具退出竞态、Swift 对象取证、
 JUnit 分类及完整档 802/803 的长 socket 路径失败均保留在插件计划 S5 第五批，不计通过。
 本机 App / IPC 准入与发现、生产本机 Node/Exec 组合及完整插件 / 客户端验收仍未完成，未发行。
+
+**插件 S5 macOS 本机入口（2026-11-15）**：实验 JS-enabled App 已接本机 gterm 摘要 /
+cwd / TMPDIR / 独立执行确认、raw argv、现有前台实例显式附着与关闭后进程观察。
+真实 Native → gterm → Node 26.4.0 / arm64 Exec 的本机启动 64 项、IPC 附着 24 项、旧
+SSH 直连 / ProxyJump 回归 20 项，以及配置 16 项 / 十六组隔离变异通过：实际编译后单条
+正常断言红、独立配置绿、复原及 SHA256。Core 577/181、Apple 178/3、完整 App gate
+493 项含十四项显式跳过 / 零失败、真实 SSH / WebKit 绘制、arm64 Release、C 格式 251
+文件通过。无本片 Android / 公共 C ABI 改动，不增加 CI 二十份。首轮 SIGKILL 清理判据
+未达与次级诊断错误单记，最终中断矩阵明确为自有宿主 SIGTERM，不冒充崩溃恢复；相同 UID
+路径替换、组信号 EPERM、未知业务结果仍显式保留。原件与前置失败见插件计划 S5 第六批。
+默认 JS-off；安装 / 发现 / Android 本机产品、崩溃残留归属与清理及完整 P1–P6 未完成，未发行。

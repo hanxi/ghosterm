@@ -56,6 +56,7 @@ import XCTest
         let payload = try service()
         func string(_ name: String) throws -> String { try XCTUnwrap(payload[name] as? String) }
         let runtime = try string("runtime"), mode = try string("mode"), route = try string("route")
+        let localTransport = payload["localTransport"] as? Bool == true
         let clientCase = mode.hasPrefix("client-")
         let resourceCase = mode.hasPrefix("resource") || clientCase
         let processCase = mode.hasPrefix("process")
@@ -70,7 +71,7 @@ import XCTest
         let controller = try XCTUnwrap(model.extensionController)
         let pem = try string("pem")
         model.sshCredentialStorage = .init(key: { path in
-            XCTAssertEqual(path, "/owned-in-memory"); return pem
+            XCTAssertFalse(localTransport, "Local launch must not ask for SSH credentials"); XCTAssertEqual(path, "/owned-in-memory"); return pem
         }, secret: { _, _ in nil }, save: { _, _, _ in XCTFail("fixture must not save secrets") }, remove: { _, _ in })
         let interaction = CodexRouteInteraction(); model.interaction = interaction
         let review = try await controller.review(directory: package)
@@ -104,14 +105,28 @@ import XCTest
             } else { selectedPath = mode == "client-directory-file" ? local.appendingPathComponent("upload.bin").path : local.path }
             clientWorkspace = .init(directory: selectedPath, authorized: mode != "client-no-approval")
         }
-        addTeardownBlock { await model.stopExtensionRun(); _ = await controller.close() }
+        let processStatePath = localTransport ? URL(fileURLWithPath: try string("processStatePath")) : nil
+        addTeardownBlock {
+            await model.stopExtensionRun()
+            let closed = await controller.close(); XCTAssertTrue(closed)
+            if let processStatePath, let state = try await controller.localProcessState() {
+                let object: [String: Any] = ["exited": state.childExited, "reaped": state.reaped,
+                    "code": state.exitCode as Any? ?? NSNull(), "signal": state.termSignal as Any? ?? NSNull(),
+                    "groupFenced": state.groupFenced, "groupError": state.groupSignalError, "error": state.error]
+                try JSONSerialization.data(withJSONObject: object).write(to: processStatePath)
+            }
+        }
+        let localLaunch: ExtensionLocalLaunch? = localTransport ? .init(
+            executableSHA256: mode == "local-digest" ? String(repeating: "0", count: 64) : try string("localDigest"),
+            workingDirectory: try string("localWorkingDirectory") + (mode == "local-cwd" ? "/missing" : ""),
+            temporaryDirectory: try string("temporary"), authorized: mode != "local-no-approval") : nil
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest, command: "fixture",
             arguments: ["中文😀", "", "literal'$(owned)"], sshAlias: "execution-target",
             executable: try string("wrapper"), executorDirectory: attaching ? "" : package.path, executorDigest: review.digest,
             methods: ["fixture.echo"], hostMethods: [],
             scopedRoots: !attaching && (resourceCase || processCase) ? [.init(id: "workspace", directory: try string("workspace"))] : [],
-            processPrograms: attaching ? [] : programs, processEnvironmentNames: attaching ? [] : environment, executorExecution: execution, executorAttachment: attachment, clientWorkspace: clientWorkspace)
-        if ["no-approval", "client-no-approval", "client-undeclared"].contains(mode) {
+            processPrograms: attaching ? [] : programs, processEnvironmentNames: attaching ? [] : environment, executorExecution: execution, executorAttachment: attachment, clientWorkspace: clientWorkspace, localLaunch: localLaunch)
+        if ["no-approval", "client-no-approval", "client-undeclared", "local-no-approval", "local-digest", "local-cwd"].contains(mode) {
             XCTAssertNotNil(model.extensionRunIssue)
             guard model.extensionRunIssue != nil else { return }
             XCTAssertNil(model.extensionRun)
@@ -129,7 +144,11 @@ import XCTest
             XCTAssertNil(model.extensionRun)
             XCTAssertEqual(try service("audit")["activated"] as? Bool, false)
             XCTAssertEqual(try service("audit")["entered"] as? Bool, false)
-            XCTAssertEqual(try service("audit")["attachStarted"] as? Bool, true)
+            if localTransport {
+                XCTAssertNotNil(model.extensionLastLocalProcess, "Native must retain the rejected attacher's process observation")
+            } else {
+                XCTAssertEqual(try service("audit")["attachStarted"] as? Bool, true)
+            }
             XCTAssertEqual(try service("audit")["ipcListening"] as? Bool, true)
             _ = try service("stop-front")
             return
@@ -139,14 +158,19 @@ import XCTest
         XCTAssertEqual(run.session?.phase, ExtensionSession.Phase.consent.rawValue)
         XCTAssertEqual(run.executorExecution, execution)
         XCTAssertEqual(run.executorAttachment, attachment)
-        if attaching { XCTAssertTrue(run.remoteCommand.contains("'--attach'")); XCTAssertFalse(run.remoteCommand.contains("'--stdio'")) }
+        if attaching {
+            if localTransport {
+                let argv = try JSONDecoder().decode([String].self, from: Data(run.remoteCommand.utf8))
+                XCTAssertTrue(argv.contains("--attach")); XCTAssertFalse(argv.contains("--stdio"))
+            } else { XCTAssertTrue(run.remoteCommand.contains("'--attach'")); XCTAssertFalse(run.remoteCommand.contains("'--stdio'")) }
+        }
         XCTAssertEqual(run.clientWorkspace, clientWorkspace)
         XCTAssertFalse(run.remoteCommand.contains(local.path), "Local grant must not become a remote path")
         var required = ["session.rpc"]
         if resourceCase { required += ["resource.receive", "file.readScoped"] }
         if processCase { required += ["process.spawn", "process.pipes"] }
         XCTAssertEqual(Set(run.requiredCapabilities), Set(required))
-        XCTAssertEqual(interaction.hosts.count, route == "jump" ? 2 : 1)
+        XCTAssertEqual(interaction.hosts.count, localTransport ? 0 : route == "jump" ? 2 : 1)
         XCTAssertEqual(try service("audit")["activated"] as? Bool, false, "No module execution before consent")
         XCTAssertEqual(try service("audit")["entered"] as? Bool, false, "No Executor entry before consent")
         if mode == "deny" {
@@ -171,8 +195,8 @@ import XCTest
         let ttyState = try service("audit")["tty"] as? [Bool]
         let foregroundTmux = payload["foregroundTmux"] as? Bool == true
         let expectedTTY = Array(repeating: foregroundTmux, count: 3)
-        XCTAssertEqual(ttyState, expectedTTY, "Original foreground descriptors must match the selected fixture")
-        guard ttyState == expectedTTY else { return }
+        if !localTransport || attaching { XCTAssertEqual(ttyState, expectedTTY, "Original foreground descriptors must match the selected fixture") }
+        guard localTransport && !attaching || ttyState == expectedTTY else { return }
         let runtimeTTY = try service("audit")["runtimeTTY"] as? [Bool]
         XCTAssertEqual(runtimeTTY, [false, false, false], "Plugin protocol must remain independent of terminal PTYs")
         guard runtimeTTY == [false, false, false] else { return }

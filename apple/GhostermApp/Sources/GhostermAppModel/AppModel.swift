@@ -55,6 +55,7 @@ public final class AppModel: ObservableObject {
     /// build keeps the optional JS backend disabled, so no controller is
     /// offered until a build explicitly includes that runtime.
     public let extensionController: ExtensionController?
+    @Published public private(set) var extensionLastLocalProcess: ExtensionController.ProcessState?
 
     public struct ExtensionRun: Sendable {
         public let packageID: String
@@ -67,6 +68,7 @@ public final class AppModel: ObservableObject {
         public let remoteCommand: String
         public let executorExecution: ExtensionRelayBootstrap.Execution?
         public let executorAttachment: ExtensionRelayBootstrap.Attachment?
+        public let localLaunch: ExtensionLocalLaunch?
         public let clientWorkspace: ExtensionController.ClientWorkspace?
         public let methods: [String]
         public let hostMethods: [String]
@@ -1128,10 +1130,11 @@ public final class AppModel: ObservableObject {
                                      processEnvironmentNames: [String] = [],
                                      executorExecution: ExtensionRelayBootstrap.Execution? = nil,
                                      executorAttachment: ExtensionRelayBootstrap.Attachment? = nil,
-                                     clientWorkspace: ExtensionController.ClientWorkspace? = nil) async {
+                                     clientWorkspace: ExtensionController.ClientWorkspace? = nil,
+                                     localLaunch: ExtensionLocalLaunch? = nil) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
-        extensionRunBusy = true; extensionRunIssue = nil
+        extensionRunBusy = true; extensionRunIssue = nil; extensionLastLocalProcess = nil
         do {
             let selected = try await extensionController.resolve(command: command, selectedID: packageID,
                                                                   selectedDigest: packageDigest)
@@ -1148,16 +1151,26 @@ public final class AppModel: ObservableObject {
             }
             let decodedArguments = try await extensionController.decodeArguments(packageID: packageID,
                 packageDigest: packageDigest, command: command, arguments: arguments)
-            let bootstrap = try ExtensionRelayBootstrap.build(.init(executable: executable,
+            let request = ExtensionRelayBootstrap.Request(executable: executable,
                 executorDirectory: executorDirectory, executorDigest: executorDigest,
                 clientDigest: packageDigest, methods: methods, hostMethods: hostMethods,
                 scopedRoots: scopedRoots, processPrograms: processPrograms,
                 processEnvironmentNames: processEnvironmentNames, execution: executorExecution, attachment: executorAttachment,
-                command: command, arguments: arguments))
+                command: command, arguments: arguments)
+            let argv = try localLaunch.map { _ in try ExtensionRelayBootstrap.buildLocal(request) }
+            let bootstrap = try argv.map { String(decoding: try JSONEncoder().encode($0), as: UTF8.self) } ?? ExtensionRelayBootstrap.build(request)
+            if let localLaunch, let executorExecution, localLaunch.temporaryDirectory != executorExecution.temporaryDirectory {
+                throw GhostermError.failed("本机宿主与 Executor 必须使用同一显式临时目录")
+            }
+            let peerIdentity = localLaunch.map { "local:" + $0.executableSHA256 } ?? sshAlias
             let additionalCapabilities = ((scopedRoots.isEmpty && clientWorkspace == nil) || !selected.requiredCapabilities.contains("resource.receive")
                 ? [] : ["file.readScoped"]) +
                 (processPrograms.isEmpty && executorAttachment?.remoteProcesses != true ? [] : ["process.spawn", "process.pipes"])
-            _ = try await authenticatePluginSSHChannel(alias: sshAlias, bootstrap: bootstrap)
+            if let localLaunch, let argv {
+                _ = try await extensionController.openLocalChannel(executable: executable, arguments: argv, launch: localLaunch, environmentNames: processEnvironmentNames)
+            } else {
+                _ = try await authenticatePluginSSHChannel(alias: sshAlias, bootstrap: bootstrap)
+            }
             let rpcMethods = methods.map {
                 ExtensionController.RPCMethod(name: $0, capability: "session.rpc",
                     receiver: GhostermCore.ExtensionSession.Role.executor.rawValue)
@@ -1167,10 +1180,12 @@ public final class AppModel: ObservableObject {
             }
             let version = Self.extensionHostProtocolVersion(
                 Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
-            let session = try await extensionController.adoptSSHSession(pluginID: packageID,
-                packageDigest: packageDigest, executorDigest: executorDigest,
-                hostVersion: version, peerIdentity: sshAlias, methods: rpcMethods,
-                additionalRequiredCapabilities: additionalCapabilities)
+            let session: ExtensionController.SessionState
+            if localLaunch != nil {
+                session = try await extensionController.adoptLocalSession(pluginID: packageID, packageDigest: packageDigest, executorDigest: executorDigest, hostVersion: version, peerIdentity: peerIdentity, methods: rpcMethods, additionalRequiredCapabilities: additionalCapabilities)
+            } else {
+                session = try await extensionController.adoptSSHSession(pluginID: packageID, packageDigest: packageDigest, executorDigest: executorDigest, hostVersion: version, peerIdentity: peerIdentity, methods: rpcMethods, additionalRequiredCapabilities: additionalCapabilities)
+            }
             extensionRunInvocation = (packageID, packageDigest, command, arguments, clientWorkspace)
             claudeRPC?.invalidate(); claudeRPC = nil
             claudeConversation?.invalidate(); claudeConversation = nil
@@ -1186,7 +1201,7 @@ public final class AppModel: ObservableObject {
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
-                peerIdentity: sshAlias, remoteCommand: bootstrap, executorExecution: executorExecution, executorAttachment: executorAttachment, clientWorkspace: clientWorkspace, methods: methods, hostMethods: hostMethods,
+                peerIdentity: peerIdentity, remoteCommand: bootstrap, executorExecution: executorExecution, executorAttachment: executorAttachment, localLaunch: localLaunch, clientWorkspace: clientWorkspace, methods: methods, hostMethods: hostMethods,
                 requiredCapabilities: Array(Set(selected.requiredCapabilities + additionalCapabilities)).sorted(),
                 session: session, runtime: nil, receivedResources: [], codexEvents: [])
             let deadline = ProcessInfo.processInfo.systemUptime + 60
@@ -1211,6 +1226,7 @@ public final class AppModel: ObservableObject {
             try? await extensionController.stopSession()
             try? await extensionController.stopSSHChannel()
             try? await extensionController.releaseFinished()
+            extensionLastLocalProcess = try? await extensionController.localProcessState()
             extensionRun = nil; extensionRunInvocation = nil
         }
         extensionRunBusy = false
@@ -1295,13 +1311,29 @@ public final class AppModel: ObservableObject {
                 guard ended else { throw GhostermError.failed("插件 Session 未在停止期限内结束，保留 owner 供重试") }
             }
             try await extensionController.releaseFinished()
+            extensionLastLocalProcess = try? await extensionController.localProcessState()
             extensionRun = nil; extensionRunInvocation = nil
             codexThreadID = nil; codexMessageDraft = ""
             codexTurnActive = false
             codexPendingApprovals = []
             codexTimeline = []
             pendingExtensionRPCHandles.removeAll()
-        } catch { extensionRunIssue = "释放插件资源失败：\(error)" }
+        } catch {
+            extensionLastLocalProcess = try? await extensionController.localProcessState()
+            extensionRunIssue = "释放插件资源失败：\(error)"
+        }
+        extensionRunBusy = false
+    }
+
+    public func retryLocalExtensionCleanup() async {
+        guard let extensionController, extensionRun == nil, !extensionRunBusy, extensionLastLocalProcess != nil else { return }
+        extensionRunBusy = true
+        try? await extensionController.stopRuntime()
+        try? await extensionController.stopSession()
+        try? await extensionController.stopSSHChannel()
+        do { try await extensionController.releaseFinished(); extensionRunIssue = nil }
+        catch { extensionRunIssue = "释放本机插件资源失败，仍保留 owner：\(error)" }
+        extensionLastLocalProcess = try? await extensionController.localProcessState()
         extensionRunBusy = false
     }
 
@@ -1612,7 +1644,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest,
-            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, clientWorkspace: run.clientWorkspace,
+            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace,
             methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: session, runtime: run.runtime, receivedResources: run.receivedResources,
@@ -1630,7 +1662,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest,
-            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, clientWorkspace: run.clientWorkspace,
+            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace,
             methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: runtime, receivedResources: run.receivedResources,
@@ -1666,7 +1698,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
-            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, clientWorkspace: run.clientWorkspace, methods: run.methods, hostMethods: run.hostMethods,
+            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace, methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: run.runtime,
             receivedResources: run.receivedResources + [resource], codexEvents: run.codexEvents)
@@ -1748,7 +1780,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
-            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, clientWorkspace: run.clientWorkspace, methods: run.methods, hostMethods: run.hostMethods,
+            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, executorAttachment: run.executorAttachment, localLaunch: run.localLaunch, clientWorkspace: run.clientWorkspace, methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities, session: run.session, runtime: run.runtime,
             receivedResources: run.receivedResources, codexEvents: run.codexEvents + [encoded])
         if event.kind == "notification" {

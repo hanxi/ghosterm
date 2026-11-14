@@ -31,6 +31,17 @@ SWIFT_CASES = [
     ('command-budget', SWIFT, 'guard command.utf8.count <= 1024 else', 'guard true else', 'testInvalidRuntimeDependenciesFailBeforeSSH'),
     ('edit-approval', Path('apple/GhostermApp/Sources/GhostermApp/ExecutorRuntimeFields.swift'), 'var temporaryDirectory = "" { didSet { authorized = false } }', 'var temporaryDirectory = ""', 'testExecutionDraftRevokesApprovalOnEveryDependencyEditAndRuntimeChange'),
 ]
+LOCAL_SWIFT_CASES = [
+    ('local-approval', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionLocalLaunch.swift'), 'self.authorized = authorized', 'self.authorized = true', 'LocalExtensionTests.testLocalWorkerRejectsMissingApprovalBeforeExecution'),
+    ('local-digest', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionLocalLaunch.swift'), 'digest == executableSHA256', 'true', 'LocalExtensionTests.testDigestAndEnvironmentRejectBeforeExecution'),
+    ('local-cwd', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionLocalLaunch.swift'), 'let directory = try openDirectory(workingDirectory)', 'let directory = try openDirectory(temporaryDirectory)', 'LocalExtensionTests.testLocalCloseAwaitsReapAndKeepsFinalObservation'),
+    ('local-loader', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'), '$0 != "NODE_OPTIONS"', 'true', 'LocalExtensionTests.testLoaderEnvironmentIsRejectedWhenValueExists'),
+    ('local-arguments', SWIFT, 'argv.append(contentsOf: request.arguments)', 'argv.append(contentsOf: request.arguments.reversed())', 'LocalExtensionTests.testLocalArgumentsKeepRawBytesWithoutSSHLimit'),
+    ('local-count', SWIFT, 'argv.count <= 64', 'true', 'LocalExtensionTests.testLocalArgumentCountIsNotSilentlyTruncated'),
+    ('local-final', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'), 'guard released else { throw local ? ControllerError.localProcessDraining : ControllerError.channelUnavailable }\n                self.channel = nil', 'guard released else { throw local ? ControllerError.localProcessDraining : ControllerError.channelUnavailable }\n                self.channel = nil; self.lastLocalProcess = nil', 'LocalExtensionTests.testLocalCloseAwaitsReapAndKeepsFinalObservation'),
+    ('local-retry', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'), 'guard ProcessInfo.processInfo.systemUptime < deadline else { throw ControllerError.localProcessDraining }', 'guard false else { throw ControllerError.localProcessDraining }', 'LocalExtensionTests.testTermIgnoreUsesFiniteCloseRetries'),
+    ('local-form', Path('apple/GhostermApp/Sources/GhostermApp/ExtensionsPane.swift'), 'var localDigest = "" { didSet { localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }', 'var localDigest = "" { didSet { clientAuthorized = false; attachmentAllowed = false } }', 'LocalExtensionTests.testLocalFormEditsRevokeCapturedApproval'),
+]
 ANDROID_CASES = [
     ('approval', KOTLIN, 'require(execution.authorized)', 'require(true)', 'nodeAndExecRequireSeparateApprovalAndNeverGrantBusinessProcesses'),
     ('exec-selection', KOTLIN, 'add("exec"); add("--allow-process-execution")', 'add("portable-js"); add("--allow-process-execution")', 'nodeAndExecRequireSeparateApprovalAndNeverGrantBusinessProcesses'),
@@ -52,6 +63,7 @@ def execute(args, serial=None):
     inputs = {str(p.relative_to(ROOT)): sha(p) for directory in ['apple/GhostermApp/Sources', 'apple/GhostermApp/Tests',
         'apple/GhostermCore/Sources', 'apple/GhostermTerminal/Sources', 'android/app/src', 'core/include']
         for p in (ROOT / directory).rglob('*') if p.is_file()}
+    inputs['scripts/fixtures/plugin-local-idle.c'] = sha(ROOT / 'scripts/fixtures/plugin-local-idle.c')
     with tempfile.TemporaryDirectory(prefix='execution-app-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary); logs = work / 'logs'; logs.mkdir(); commands = []
         source = ROOT
@@ -80,6 +92,10 @@ def execute(args, serial=None):
             commands.append(dict(label=label, returncode=result.returncode))
             if result.returncode and not red: raise RuntimeError(label + '\n' + output)
             return result.returncode, output
+        if args.macos and args.local:
+            probe = work / 'local-idle'
+            run('idle-probe', ['xcrun', '--sdk', 'macosx', 'clang', '-std=c11', '-Wall', '-Wextra', '-Werror', ROOT / 'scripts/fixtures/plugin-local-idle.c', '-o', probe])
+            env['GHOSTERM_LOCAL_IDLE_CHILD'] = str(probe)
         adb = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb', '-s', serial] if serial else []
         if adb:
             metadata = {name: run(name, [*adb, 'shell', *command])[1].strip() for name, command in [
@@ -102,12 +118,13 @@ def execute(args, serial=None):
                 if digest != sha(path): raise RuntimeError('Installed APK differs')
         def test(label, target=None, red=False, control=False, compiled_file=None):
             if args.macos:
-                selected = 'ExtensionControllerTests.testClientHostProfileOnlyAdvertisesIntegratedCapabilities' if control else 'ExecutorExecutionTests' + ('.' + target if target else '')
+                selected = 'ExtensionControllerTests.testClientHostProfileOnlyAdvertisesIntegratedCapabilities' if control else (target if target and '.' in target else 'ExecutorExecutionTests.' + target if target else 'LocalExtensionTests|ExecutorExecutionTests' if args.local else 'ExecutorExecutionTests')
                 objects = source / 'apple/GhostermApp/.build'
                 before_objects = {str(p): sha(p) for p in objects.rglob(compiled_file.stem + '.o')} if compiled_file else {}
                 code, output = run(label, ['swift', 'test', '--package-path', source / 'apple/GhostermApp', '--filter', selected], red=red, timeout=300)
-                count = 1 if target or control else 7
-                valid = (code == 1 and 'Executed 1 test, with 1 failure (0 unexpected)' in output and 'XCTAssert' in output) if red else (
+                count = 1 if target or control else 16 if args.local else 7
+                assertion = 'XCTAssert' in output or re.search(r': error: .* : failed - [^\n]+', output)
+                valid = (code == 1 and 'Executed 1 test, with 1 failure (0 unexpected)' in output and assertion) if red else (
                     code == 0 and f'Executed {count} test' in output and 'with 0 failures' in output)
                 if red and not any(sha(p) != before_objects.get(str(p)) for p in objects.rglob(compiled_file.stem + '.o')):
                     raise RuntimeError('Mutated Swift object did not change: ' + str(compiled_file) + '\n' + output)
@@ -125,7 +142,7 @@ def execute(args, serial=None):
                 raise RuntimeError(label + ': expected ' + ('normal single assertion red' if red else 'complete green') + '\n' + output)
         build('baseline'); test('baseline'); print('BASELINE PASS', flush=True)
         groups = []
-        for name, file, old, new, target in (SWIFT_CASES if args.macos else ANDROID_CASES) if args.mutate else []:
+        for name, file, old, new, target in ((SWIFT_CASES + LOCAL_SWIFT_CASES if args.local else SWIFT_CASES) if args.macos else ANDROID_CASES) if args.mutate else []:
             if args.case and name not in args.case: continue
             path = source / file; original = path.read_bytes()
             if original.count(old.encode()) != 1: raise RuntimeError(name + ': ambiguous mutation anchor')
@@ -141,7 +158,7 @@ def execute(args, serial=None):
         if adb: run('stop', [*adb, 'shell', 'am', 'force-stop', 'com.hanxi.ghosterm'])
         if any(sha(ROOT / name) != value for name, value in inputs.items()): raise RuntimeError('Input source changed')
         record = dict(accepted=True, platform='macos' if args.macos else 'android', groups=groups,
-            tests=7 if args.macos else 6, inputs_sha256=inputs, commands=commands,
+            tests=(16 if args.local else 7) if args.macos else 6, inputs_sha256=inputs, commands=commands,
             device=metadata if adb else None,
             scope=('Native launch/approval configuration and actual POSIX argv/environment probe' if args.macos else
                    'Android Native form/approval and generated command validation') + '; no actual Node/Exec SSH activation')
@@ -156,10 +173,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument('--macos', action='store_true'); target.add_argument('--android'); target.add_argument('--headless-api', choices=['29', '36'])
-    parser.add_argument('--mutate', action='store_true'); parser.add_argument('--case', action='append')
+    parser.add_argument('--mutate', action='store_true'); parser.add_argument('--local', action='store_true', help='also exercise local Native launch and metadata guards (macOS)'); parser.add_argument('--case', action='append')
     parser.add_argument('--receipt', type=Path)
     args = parser.parse_args()
-    if args.case and (not args.mutate or set(args.case) - {c[0] for c in (SWIFT_CASES if args.macos else ANDROID_CASES)}):
+    if args.local and not args.macos: parser.error('--local requires --macos')
+    if args.case and (not args.mutate or set(args.case) - {c[0] for c in ((SWIFT_CASES + LOCAL_SWIFT_CASES if args.local else SWIFT_CASES) if args.macos else ANDROID_CASES)}):
         parser.error('--case requires --mutate and known cases')
     (ROOT / 'tmp').mkdir(exist_ok=True)
     manager = nullcontext(args.android)

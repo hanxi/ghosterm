@@ -14,30 +14,41 @@ struct ExtensionsPane: View {
     @State private var issue: String?
     @State private var resourceSelection = PluginResourceSelection()
 
-    private struct Entry: Identifiable {
+    struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
         var decision: String = "尚未批准"
-        var sshAlias = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var executable = "gterm" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var executorDirectory = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var executorDigest = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var command = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var argumentsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var methodsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var hostMethodsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var resourceRoot = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var processProgramsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var processEnvironmentJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
-        var clientDirectory = "" { didSet { clientAuthorized = false } }
+        var localConnection = false { didSet { localAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var localDigest = "" { didSet { localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
+        var localWorkingDirectory = "" { didSet { localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
+        var localTemporaryDirectory = "" { didSet { localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
+        var localAllowed = false
+        var localLaunch: ExtensionLocalLaunch? {
+            localConnection ? .init(executableSHA256: localDigest, workingDirectory: localWorkingDirectory,
+                temporaryDirectory: attachExisting ? localTemporaryDirectory : executionDraft.selection?.temporaryDirectory ?? localTemporaryDirectory,
+                authorized: localAllowed) : nil
+        }
+
+        var sshAlias = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var executable = "gterm" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var executorDirectory = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var executorDigest = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var command = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var argumentsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var methodsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var hostMethodsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var resourceRoot = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var processProgramsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var processEnvironmentJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false; localAllowed = false } }
+        var clientDirectory = "" { didSet { clientAuthorized = false; localAllowed = false } }
         var clientAuthorized = false
         var clientWorkspace: ExtensionController.ClientWorkspace? {
             clientDirectory.isEmpty ? nil : .init(directory: clientDirectory, authorized: clientAuthorized)
         }
-        var executionDraft = ExecutorExecutionDraft()
+        var executionDraft = ExecutorExecutionDraft() { didSet { localAllowed = false } }
         var attachExisting = false { didSet { attachmentAllowed = false; executionDraft.authorized = false; clientAuthorized = false } }
-        var ipcDirectory = "" { didSet { attachmentAllowed = false; clientAuthorized = false } }
-        var ipcInstance = "" { didSet { attachmentAllowed = false; clientAuthorized = false } }
-        var remoteProcesses = false { didSet { attachmentAllowed = false; clientAuthorized = false } }
+        var ipcDirectory = "" { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false } }
+        var ipcInstance = "" { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false } }
+        var remoteProcesses = false { didSet { attachmentAllowed = false; clientAuthorized = false; localAllowed = false } }
         var attachmentAllowed = false
         var attachment: ExtensionRelayBootstrap.Attachment? {
             attachExisting ? .init(directory: ipcDirectory, instance: ipcInstance, authorized: attachmentAllowed, remoteProcesses: remoteProcesses) : nil
@@ -93,25 +104,43 @@ struct ExtensionsPane: View {
                         .font(DS.Font.caption).foregroundStyle(.secondary)
                     if entry.decision == "已批准（本进程）" {
                         VStack(alignment: .leading, spacing: DS.Padding.s) {
+                            Toggle("在本机连接 Executor", isOn: $entry.localConnection)
+                                .accessibilityIdentifier("plugin-local-mode")
+                            if !entry.localConnection {
                             TextField("SSH 主机别名", text: $entry.sshAlias)
                                 .accessibilityIdentifier("plugin-ssh-alias-\(entry.review.id)")
-                            TextField("远端 gterm 可执行文件", text: $entry.executable)
+                            }
+                            TextField(entry.localConnection ? "本机 gterm 绝对路径" : "远端 gterm 可执行文件", text: $entry.executable)
                                 .accessibilityIdentifier("plugin-executable-\(entry.review.id)")
+                            if entry.localConnection {
+                                TextField("所选 gterm SHA-256", text: $entry.localDigest)
+                                    .accessibilityIdentifier("plugin-local-digest")
+                                TextField("本机工作目录", text: $entry.localWorkingDirectory)
+                                    .accessibilityIdentifier("plugin-local-working-directory")
+                                if entry.attachExisting || entry.executionDraft.selection == nil {
+                                    TextField("本机临时目录", text: $entry.localTemporaryDirectory)
+                                        .accessibilityIdentifier("plugin-local-temporary-directory")
+                                }
+                                Toggle("允许本次运行所填本机 gterm（最长十分钟）", isOn: $entry.localAllowed)
+                                    .accessibilityIdentifier("plugin-local-allow")
+                                Text("核对程序来源与摘要。修改连接、命令或依赖后须重新允许；插件能力仍会另行确认。")
+                                    .font(DS.Font.caption).foregroundStyle(.secondary)
+                            }
                             Toggle("连接已有前台 gterm 实例", isOn: $entry.attachExisting)
                                 .accessibilityIdentifier("plugin-ipc-mode")
                             if entry.attachExisting {
-                                TextField("远端私有 IPC 目录", text: $entry.ipcDirectory)
+                                TextField(entry.localConnection ? "本机私有 IPC 目录" : "远端私有 IPC 目录", text: $entry.ipcDirectory)
                                     .accessibilityIdentifier("plugin-ipc-directory")
                                 TextField("前台显示的 32 位实例标识", text: $entry.ipcInstance)
                                     .accessibilityIdentifier("plugin-ipc-instance")
-                                Toggle("允许沿用此实例已有的远端业务进程范围", isOn: $entry.remoteProcesses)
+                                Toggle("允许沿用此实例已有的业务进程范围", isOn: $entry.remoteProcesses)
                                     .accessibilityIdentifier("plugin-ipc-processes")
-                                Toggle("明确连接此主机上的该前台实例", isOn: $entry.attachmentAllowed)
+                                Toggle("明确连接所选位置的该前台实例", isOn: $entry.attachmentAllowed)
                                     .accessibilityIdentifier("plugin-ipc-allow")
                                 Text("请核对原前台进程显示的标识、命令与参数。运行档、工作区与程序映射沿用前台启动配置，连接不会修改；失效或不匹配将报错。")
                                     .font(DS.Font.caption).foregroundStyle(.secondary)
                             } else {
-                            ExecutorRuntimeFields(draft: $entry.executionDraft)
+                            ExecutorRuntimeFields(draft: $entry.executionDraft, location: entry.localConnection ? "本机" : "远端")
                             TextField("Executor 包目录", text: $entry.executorDirectory)
                                 .accessibilityIdentifier("plugin-executor-directory-\(entry.review.id)")
                             }
@@ -127,7 +156,7 @@ struct ExtensionsPane: View {
                             TextField("Host RPC allowlist JSON", text: $entry.hostMethodsJSON)
                                 .accessibilityIdentifier("plugin-host-methods-\(entry.review.id)")
                             if !entry.attachExisting {
-                            TextField("远端资源目录（留空则不开放）", text: $entry.resourceRoot)
+                            TextField("执行端资源目录（留空则不开放）", text: $entry.resourceRoot)
                                 .accessibilityIdentifier("plugin-resource-root-\(entry.review.id)")
                             }
                             if entry.review.requiredCapabilities.contains("resource.receive") {
@@ -136,14 +165,14 @@ struct ExtensionsPane: View {
                                 Toggle("允许本次 Native Host 从此目录向 Executor 发布资源（单文件最多 256 KiB）",
                                        isOn: $entry.clientAuthorized)
                                     .accessibilityIdentifier("plugin-client-workspace-allow")
-                                Text("目录仅供 Native 发布按钮使用，不交给 Client JS，也不传入远端启动命令。修改目录或连接配置须重新允许。")
+                                Text("目录仅供 Native 发布按钮使用，不交给 Client JS，也不传入启动参数。修改目录或连接配置须重新允许。")
                                     .font(DS.Font.caption).foregroundStyle(.secondary)
                             }
                             if !entry.attachExisting {
-                            TextField("远端进程映射 JSON", text: $entry.processProgramsJSON, axis: .vertical)
+                            TextField("执行端进程映射 JSON", text: $entry.processProgramsJSON, axis: .vertical)
                                 .lineLimit(2...5)
                                 .accessibilityIdentifier("plugin-process-programs-\(entry.review.id)")
-                            Text("映射字段：name、executable、version、sha256；可选 prefixArguments 字符串数组用于固定解释器入口和 profile 参数。还需提供 workspace root；可执行摘要由远端 Core 核对。")
+                            Text("映射字段：name、executable、version、sha256；可选 prefixArguments 字符串数组用于固定解释器入口和 profile 参数。还需提供 workspace root；可执行摘要由执行端 Core 核对。")
                                 .font(DS.Font.caption).foregroundStyle(.secondary)
                             TextField("执行端环境变量名称 JSON 数组", text: $entry.processEnvironmentJSON)
                                 .accessibilityIdentifier("plugin-process-environment-\(entry.review.id)")
@@ -170,6 +199,16 @@ struct ExtensionsPane: View {
             }
 
             if let run = model.extensionRun { activeRun(run) }
+            if model.extensionRun == nil, let process = model.extensionLastLocalProcess {
+                Text("上次本机进程：\(process.childExited ? "已观察退出" : "退出结果未知") · reap：\(process.reaped ? "完成" : "待确认") · code：\(process.exitCode.map(String.init) ?? "未知") · signal：\(process.termSignal.map(String.init) ?? "无")")
+                    .font(DS.Font.caption).accessibilityIdentifier("plugin-local-final-state")
+                Text("组清理信号：\(process.groupFenced ? "已发送" : "未确认") · 系统错误：\(process.groupSignalError)").font(DS.Font.caption)
+                if !process.diagnostic.isEmpty { Text(process.diagnostic).font(DS.Font.caption).textSelection(.enabled) }
+                if model.extensionRunIssue != nil {
+                    Button("重试释放本机插件资源") { Task { await model.retryLocalExtensionCleanup() } }
+                        .disabled(model.extensionRunBusy).accessibilityIdentifier("plugin-local-cleanup-retry")
+                }
+            }
             if let message = model.extensionRunIssue {
                 Text(message).foregroundStyle(.red).textSelection(.enabled)
             }
@@ -229,7 +268,7 @@ struct ExtensionsPane: View {
             let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.attachExisting || entry.resourceRoot.isEmpty
                 ? [] : [.init(id: "workspace", directory: entry.resourceRoot)]
             try entry.clientWorkspace?.validate(requiredCapabilities: entry.review.requiredCapabilities)
-            guard !entry.sshAlias.isEmpty else { throw GhostermCore.GhostermError.failed("请填写 SSH 主机别名") }
+            guard entry.localConnection || !entry.sshAlias.isEmpty else { throw GhostermCore.GhostermError.failed("请填写 SSH 主机别名") }
             Task {
                 await model.startExtensionClient(packageID: entry.review.id,
                     packageDigest: entry.review.digest, command: entry.command,
@@ -238,7 +277,7 @@ struct ExtensionsPane: View {
                     executorDigest: entry.executorDigest, methods: methods, hostMethods: hostMethods,
                     scopedRoots: roots, processPrograms: processPrograms,
                     processEnvironmentNames: processEnvironment,
-                    executorExecution: entry.attachExisting ? nil : entry.executionDraft.selection, executorAttachment: entry.attachment, clientWorkspace: entry.clientWorkspace)
+                    executorExecution: entry.attachExisting ? nil : entry.executionDraft.selection, executorAttachment: entry.attachment, clientWorkspace: entry.clientWorkspace, localLaunch: entry.localLaunch)
             }
         } catch { issue = "插件启动参数无效：\(error)" }
     }
@@ -249,11 +288,22 @@ struct ExtensionsPane: View {
             Text("插件运行").font(DS.Font.labelEmphasis)
             Text("\(run.packageID) · \(run.command) · \(run.peerIdentity)")
                 .font(DS.Font.caption).textSelection(.enabled)
+            if let local = run.localLaunch {
+                Text(local.reviewDescription).font(DS.Font.caption).textSelection(.enabled)
+                    .accessibilityIdentifier("plugin-local-review")
+            }
+            if let process = model.extensionLastLocalProcess ?? run.runtime?.process ?? run.session?.process {
+                Text("本机进程：\(process.childExited ? "已观察退出" : "尚无退出结果") · reap：\(process.reaped ? "完成" : "待确认") · code：\(process.exitCode.map(String.init) ?? "未知") · signal：\(process.termSignal.map(String.init) ?? "无")")
+                    .font(DS.Font.caption).accessibilityIdentifier("plugin-local-process-state")
+                Text("组清理信号：\(process.groupFenced ? "已发送" : "未确认") · 系统错误：\(process.groupSignalError)")
+                    .font(DS.Font.caption)
+                if !process.diagnostic.isEmpty { Text(process.diagnostic).font(DS.Font.caption).textSelection(.enabled) }
+            }
             Text("Client 摘要：\(run.packageDigest)")
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             Text("Executor 摘要：\(run.executorDigest)")
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-            Text("远端启动命令：\(run.remoteCommand)")
+            Text("\(run.localLaunch == nil ? "远端启动命令" : "本机启动参数")：\(run.remoteCommand)")
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             Text("参数：\(run.arguments.isEmpty ? "无" : run.arguments.map { String(reflecting: $0) }.joined(separator: " "))")
                 .font(DS.Font.caption).textSelection(.enabled)
@@ -274,7 +324,7 @@ struct ExtensionsPane: View {
                 .font(DS.Font.caption)
             if let session = run.session,
                session.phase == GhostermCore.ExtensionSession.Phase.consent.rawValue {
-                Text("远端请求建立 Native Session。请核对上方固定包摘要、远端身份、命令、参数与本次 RPC allowlist；批准后 Client JavaScript 才会激活。")
+                Text("执行端请求建立 Native Session。请核对上方固定包摘要、执行端身份、命令、参数与本次 RPC allowlist；批准后 Client JavaScript 才会激活。")
                     .font(DS.Font.caption).foregroundStyle(.secondary)
                 Text("请求能力：\(run.requiredCapabilities.joined(separator: ", "))")
                     .font(DS.Font.caption).textSelection(.enabled)

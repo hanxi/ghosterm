@@ -5844,3 +5844,98 @@ Root 输入复核与实际 runner 退出检查，再按临时文件约束清理�
 本批只接公共 Native 层；App 本机启动选择 / 信任、IPC 本机服务与准入 / 发现、生产本机
 Node / Exec 组合、多实例回收 / 资源预算整链及其它 P1–P6 验收仍待完成。不增加 macOS CI
 二十份，不声称完整客户端、用户真机、WAN、OS 沙箱或发行验收。
+
+### S5 实施第六批：macOS 本机受控启动与显式 IPC 附着（2026-11-15）
+
+实验 JS-enabled 插件页新增本机入口：捕获绝对 gterm 路径、SHA-256、工作目录、临时目录
+及单独的本次执行确认；连接、命令、参数、依赖或 IPC 配置变化撤回确认。普通默认 App
+仍 JS-off，不自动下载或安装 gterm / Node / SDK。Client 来源批准、Executor 运行档执行允许、
+Session 能力及业务进程范围仍各自确认，不因本机连接自动获得权限。
+
+`ExtensionRelayBootstrap` 共用校验生成 raw argv，再分别交本机进程 provider 或 POSIX SSH
+命令；本机不经过 shell、PATH 搜索、PTY、SSH 配置、DNS 或凭据 UI，不继承普通终端上下文。
+本机使用既有 64 argv / 16 KiB 总量等 Core 限额，不套用 SSH bootstrap 的 1024 字节限制。
+已有前台实例仍须显式目录 / 实例 / 命令 / 参数绑定，连接不会重配其运行档或范围。
+
+原生 IO worker 打开并检查程序类型 / 所有者 / 权限，流式计算所选文件摘要，复核前后 fd
+与路径 stat，再保留 fd 至构造结束；工作目录以借用 fd 传 Core，临时目录另显式验证。
+这不是 exec-by-fd，不能防御相同 UID 恶意进程在最后检查与 execve 之间替换路径，摘要也
+不是发布者认证或 OS 沙箱。固定基础环境仅取 HOME / PATH / XDG_CONFIG_HOME / CODEX_HOME
+及明确 TMPDIR；额外变量必须逐项选择，LD_* / DYLD_* / NODE_OPTIONS / NODE_PATH 拒绝。
+
+AppModel 复用现有 Session / Runtime / RPC / 资源 owner，在 low-frequency 状态中复制
+基础宿主进程观察，停止与启动失败后保留最后快照；清理未完成保留 owner 并提供重试。
+只有本机 DRAINING 在原两秒预算内异步推进，间隔十毫秒；其它错误不改成无限重试。
+实例时限十分钟、停止宽限五百毫秒、stdout 64 MiB / stderr 1 MiB。退出码 / 实际信号 /
+reap、组信号与 errno、EOF、业务回执分别呈现，不以进程退出证明业务成功。
+
+首轮直接启动 gterm 的 SIGKILL 场景未在既有预算内达到 PID 消失 / 暂存清空判据；
+runner 缺少 supervisor stderr 文件时又发生次级读取异常，完整残留审计未取到，不记通过。
+已修复缺文件时的诊断。最终正常中断矩阵明确使用核对完整命令 / 启动身份的自有宿主
+SIGTERM，在收据中另记故障 PID / 信号 / 类型，不称为崩溃清理通过。强杀 / 崩溃后的残留
+归属、恢复与清理仍待后续实现，不自动删除用户目录。
+
+实际 macOS AppModel → Core process provider → gterm → Node 26.4.0 / arm64 Exec 的
+**64 项**本机直接启动、**24 项**本机 IPC 附着全部通过。两轮各冻结 **752 份输入**及实际
+gterm / Core archive / XCTest / Node / Host SDK 字节；直接启动 52 个、附着 22 个 Native
+实际子进程均最终 reaped，其余场景在启动前拒绝。覆盖真实批准 / 拒绝、未允许执行 / 错摘要 /
+缺工作目录、Unicode / 空参数、非 TTY、256 KiB 双向文件、目录 / 符号链接拒绝、进程映射 /
+环境 / cwd / stderr / 取消 / 停止、已进入 handler 或部分发送后终止宿主的 UNKNOWN，以及
+IPC 实例 / 命令 / 参数错配。快速拒绝不强求外部 ps 能捕获 PID，而由 Native 最终观察证明
+实际创建与 reap；原前台进程退出状态和 Native attacher 观察分别记账。
+
+直接启动正常 stop 的 gterm 实际退出码多为 130，拒绝为 6，错误 IPC attacher 为 5；
+Darwin 组信号可能保留 EPERM / groupFenced=false，不能因 child reaped 宣称整组清理成功。
+运行过的候选 Node / Exec PID 与已观察业务子进程身份均消失，暂存清空另验；这不证明未被
+观察的任意后代不存在，也不将进程退出升级成业务成功。全部对象是工程 tmp 的一次性夹具，
+无用户端点、账户或模型，不增加 SSH 网络、tmux 或真实终端窗口的新证据。
+
+旧 SSH 直连 / 两跳 ProxyJump 的 Node / Exec 批准、拒绝、未允许执行、handler 取消与
+真实 TCP 断流 **20 项**回归通过；与两轮本机矩阵各自的 752 份冻结输入全部对拍 Root。
+本机 SIGTERM 和 SSH TCP 断流是两种不同故障，收据不合并为同一种断网证据。
+
+`test-plugin-execution-app.py --macos --local --mutate` 最终 **16 项配置测试 / 16 组变异**
+通过：原七组 SSH 启动约束，加本机执行允许、摘要、cwd、存在值的 NODE_OPTIONS 拒绝、
+raw argv 顺序、参数总数、关闭后最终观察、TERM-ignore 的有限清理重试及真实 Entry 编辑撤权。
+每组实际 Swift 对象变化、编译后单条正常断言红、独立主机配置绿、复原目标绿与 SHA256；
+最终再次全量 16 项绿，**478 份输入 / 51 个命令**，Root 一致。原两秒清理预算未加长。
+
+前置失败另记：新增测试括号、非隔离 teardown 调用 MainActor 局部函数的编译错误，均修正
+后重编；主机 profile 必填字段在构建前补齐。首次实际 Node 激活误把未构建的 SDK TypeScript 源树
+当 Host SDK，超时失败未计绿，随后用已编译且钉 catalog 的 25 成员 SDK 重跑。首次变异
+已出现单条正常 XCTFail，但 runner 只认 XCTAssert，故该轮中止未计全绿；分类现同时要求
+XCTest 明确 failed 记录 / 单条失败 / 0 unexpected，崩溃、编译失败、跳过仍拒绝。
+后续完整 16 组最终复验通过。快速附着拒绝的 ps 漏采也不伪造 PID，改核对 Native 观察。
+
+复现入口（先按既有 P4 流程准备 JS/SSH-on 的 `tmp/lc/build` CLI 与编译后的
+`tmp/lc/sdk` Host SDK；后者不能用 `packages/plugin-sdk` 源树代替）：
+
+```bash
+python3 scripts/test-plugin-execution-app.py --macos --local --mutate
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-execution-ssh-app.py \
+  --macos --local --build tmp/lc/build --node /opt/homebrew/bin/node --sdk tmp/lc/sdk
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-execution-ssh-app.py \
+  --macos --local --attach --build tmp/lc/build --node /opt/homebrew/bin/node --sdk tmp/lc/sdk
+```
+
+本轮默认 JS-off / tests-on Core **577/577**、**181 ABI**、Apple **178 / 3**通过；
+完整 `apple-app-gate.sh` **493 项、14 项显式跳过、零失败**，真实本机 SSH 与受限 HTML
+的实际 WebKit CSS / PNG 刷新绘制通过。TERM-ignore 夹具显式编译后传入本轮 gate，新增
+九项本机测试全部执行，不借缺夹具跳过记绿。macOS **Xcode 27.1 / Swift 6.4 / arm64
+Release**、clang-format **19.1.7 / 251 文件**、Python 语法及 diff 检查通过。无本片 C ABI /
+JNI / Android 源码改动；默认 Core 保持 JS-off / tests-on。无新云端 Swift 6.1.2、发行或
+Android 本机产品证据，不增加 macOS CI 二十份。
+
+最终四份收据 SHA256（先复核全部冻结输入与实际二进制，再清理临时收据）：
+
+- 本机直接启动：`0e0bb0ba61e8e2caeb05326994d0a02848051fbb111983273a7140ab5a53bb9b`。
+- 本机 IPC 附着：`442353fdd4630a64016c188a2960d7a8a527e1fbf032ff88f492becd7a494c12`。
+- 旧 SSH 回归：`2e941fdcd63c0e8f80ce5b47844fa7828a933a1b42ec0e9c60f86a10ac189418`。
+- 配置 / 变异：`b5ea9949aa26b8a1cdc4ca05c6c3faca5293e3349ce55e4b2e4f6007e732dcfc`。
+
+仅提交本地 main；Android 本机产品能力、IPC 发现 / 准入、强杀残留恢复、多实例 / 资源预算
+整链及完整 P1–P6 仍待继续，不据本批标整项插件或客户端完成。
+
+全部自有 runner / 子进程 / SSH 服务 / 原生测试退出，四份收据与 Root 输入、保留二进制
+再次对拍后，移除 **1,564 个临时根入口 / 6,626 项 / 72.1 MiB 账面分配**。tmp 只保留
+目录本身与原三份 eq-*，逐一核对原 SHA256 不变；系统只读目录句柄保留，不停止非本轮进程。
