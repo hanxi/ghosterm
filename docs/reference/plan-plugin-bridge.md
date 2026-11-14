@@ -5568,3 +5568,19 @@ CI 状态另记：旧 `43346407706` 的 Swift 类型推导问题已由前述提�
 最终默认 **540/540 CTest / 177 ABI**、JS-on / SSH-on / Debug **765/765 CTest**、旧 gterm **21 个实际场景**通过；重构建与计时套件顺序执行。macOS **Xcode 27.1 / Swift 6.4 Release**、Android JS-enabled Debug / 测试 APK、未签名 **Release / R8 与四模块 Release lint**通过；Apple **174 / 3**、JNI **140 / 37**、clang-format **19.1.7 / 241 文件**、Python 语法与 diff 检查通过。Android 实际运行仅为本轮自有 **API36 / arm64 / 4 KiB / -no-window** 模拟器；Android 是 Client，Executor 仍在 macOS arm64，不冒充设备上的 Node / Exec、API29、真机、云端 Swift 6.1.2 或发行验收。
 
 复现入口和独立变异见 [gterm README](../../cli/gterm/README.md#两端-app-的真实-ssh-运行档验证)。本批仅证明 Executor → App 收件方向及所列拒绝边界；双向资源、其它大小 / 中断 / 限额矩阵、业务进程、tmux、官方运行档变体和既有 P1–P6 未完成项继续推进。云端 deny2 关闭失败仍未直接复现，不借本批绿声称恢复 CI。手工证据不增加 CI 二十份；默认 Core 保持 JS-off / tests-on，清理本批临时构建 / SDK / 工具 / 日志并保留三份 eq-*，本地分批提交，不推送或发行。
+
+### P4 实施第二十三批：两端 App 到受控业务进程的实际链路（2026-11-14）
+
+扩展相同 Native App → SSH / ProxyJump → Node / Exec 夹具，在远端原生 ProcessService 中运行本轮明确映射且 SHA-256 固定的系统 cat / env / pwd。每个场景仅配置一个名为 cat 的映射，环境 / cwd 场景分别映射到 env / pwd；Host 版本标签为 fixture，不宣称它来自系统程序版本查询。进程能力只追加 process.spawn / process.pipes，Client 未声明资源接收时不借此追加文件读取能力；既有完整命令 1024 字节上限保持。新增 C 测量逻辑位于 `core/tests/process-runtime-app.inc`，由原 Exec peer 编译；Node 对等逻辑为包内固定的 `process.mjs`。本批是实际链路验证与夹具 / 变异增强，不新增生产 ABI 或 SDK 接口。
+
+最终每端 **72 个实际场景**：保留原三十六个生命周期 / 资源场景，增加 Node / Exec × 直连 / 两跳 ProxyJump × 九种业务进程场景，共三十六个新增。九种为：256 KiB 双向 stdio 回显、未授权工作区、未声明 / 未映射程序、业务取消、stderr 分离、选择环境、cwd、业务子进程存在时的 Runtime 停止、同条件的物理断流。普通回显在远端原生管道中逐字节核对并计算真实 stdout 摘要 / 计数，经 RPC 返回 App 核验；不把这些管道字节计作 SSH 资源数据。stderr 场景实际运行非法选项，要求 stdout 空、stderr 非空及已知非零退出；环境场景排序全部实测条目后计算摘要，独立期望包括选定的默认环境与 GT_SELECTED，未选择的哨兵变量不能混入。cwd 场景核对工作区真实路径输出的字节数与摘要。
+
+正常业务管道要求真实 EOF、明确退出码 / 信号、Native release 回收后引用失效；工作区 / 程序拒绝必须明确 DENIED 且不产生子句柄。Node cancellation token 与 Exec 原生 signal 路径分别要求实际 SIGTERM 退出、release 确认回收。停止 / 断流先等待远端 handler 与实际业务 PID：子进程使用唯一 argv 标记，从本轮 gterm / Runtime 的子进程中按命令与启动身份取得 PID，中断前再次核活；之后要求 RPC UNKNOWN 且未确认、同身份业务 PID / Runtime / gterm 消失及远端暂存清空。最终审计中的业务 PID 列表保留历史观察，live 列表必须为空，不用 handler 文件存在代替 OS 进程存活。失败清理只处理本轮已记录、身份仍一致的 PID。原 gterm wait 状态 7 / 拒绝 6 继续分账。
+
+`mutation-check-plugin-execution-pump.py --business-environment` 在 macOS 与 `--headless-api 36` 各 **一组**隔离宿主变异：Relay builder 漏传显式 GT_SELECTED，实际 env 子进程返回的测量值使单条普通 Native 断言红；同构件 Host profile / Core 配置绿、恢复实际场景绿与源码 SHA256。分别核对真实 `ExtensionRelayBootstrap.o` 与安装 APK 摘要变化；原默认资源泵变异入口保留。错误变异不会修改根工作区源码或降低任何预算，编译 / 崩溃 / 外层 timeout 不计目标红。
+
+首轮完整 macOS 运行在第 43 号业务停止场景因 PID 观察过窄而断言失败，未记整轮绿。夹具改用已拥有的 gterm / Runtime 父集合与唯一 argv，并增加中断前的身份核活后，最终两端各 **72 / 72** 完整通过。此前两个直连业务场景、两个中断专项与首轮部分场景不重复计数。最终收据对拍 **676 份指定输入、33 份 Node / SDK / gterm / Exec / Core / 系统程序二进制身份**，两端相同，完整构建后再次核对仍对应最终文件；Node **26.4.0**，SDK catalog 仍为 `7fb7cae861c391c57e09cca825dc3da69fa00d8f6b037c574d4f6aa6cdab3e79`。
+
+默认 **540/540 CTest / 177 ABI**、JS-on / SSH-on / Debug **765/765 CTest**、旧 gterm **21 个实际场景**通过；重构建与计时套件顺序执行。macOS **Xcode 27.1 / Swift 6.4 Release**、Android JS-enabled Debug / 测试 APK、未签名 **Release / R8 与四模块 Release lint**通过；Apple **174 / 3**、JNI **140 / 37**、clang-format **19.1.7 / 242 文件**、Python 语法与 diff 检查通过。Android 为自有 **API36 / arm64 / 4 KiB / -no-window** Client，实际 Executor 与业务程序仍在 macOS arm64；不是 Android 上的 Node / Exec 或真机 / 云端发行证据。两端授权仍为实验入口，默认普通构建保持 JS-off。
+
+复现命令见 [gterm README](../../cli/gterm/README.md#两端-app-的真实-ssh-运行档验证)。进程前缀 / 更完整 argv、期限 / 输出预算 / 容量、执行文件变化、后代树与其它异常的完整 App 矩阵，双向资源 / tmux / 三跳、API29 / 真机、官方运行档变体、整进程资源预算及既有 P1–P6 未完成项继续推进；不借本批替代这些要求。云端 deny2 关闭失败仍未直接复现，不称 CI 已恢复。本批手工证据不增加 CI 二十份；验收后清理所属工具 / SDK / 隔离源码 / 构建 / 日志，保留既有 VM 三份 eq-*。本地分批提交，不推送或发行。

@@ -226,10 +226,14 @@ python3 scripts/mutation-check-plugin-execution-pump.py --macos --build tmp/exec
   --node 已安装Node路径 --sdk 已构建HostSDK目录
 python3 scripts/mutation-check-plugin-execution-pump.py --headless-api 36 --build tmp/execution-build \
   --node 已安装Node路径 --sdk 已构建HostSDK目录
+python3 scripts/mutation-check-plugin-execution-pump.py --macos --business-environment --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
+python3 scripts/mutation-check-plugin-execution-pump.py --headless-api 36 --business-environment --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
 ```
 
-每端三十六个场景：Node / 原生 Exec × 直连 / 两跳 ProxyJump × 允许、拒绝、无 OS 进程允许、
-已进入处理器后的取消 / 断流、资源发布及三个资源拒绝边界。macOS 走生产 AppModel，Android 走生产 ViewModel 和原生
+每端七十二个场景：Node / 原生 Exec × 直连 / 两跳 ProxyJump × 原有九种生命周期 / 资源情形，
+以及九种业务进程情形。macOS 走生产 AppModel，Android 走生产 ViewModel 和原生
 授权页；SSH 密钥只由服务在内存中交付。断流通过本轮拥有的透明 TCP 故障夹具切断
 加密连接，不启动生产网关。模块 / 原生入口分别在第一条包代码处打点，未批准时不能进入；
 正常 RPC 按实际收到的 JSON 内容回传，终止前等待处理器打点；取消先核对 cancelRequested，再停止 Client Runtime，结果必须 UNKNOWN 且未确认。
@@ -244,8 +248,24 @@ python3 scripts/mutation-check-plugin-execution-pump.py --headless-api 36 --buil
 独立 pump 变异恢复旧的单帧调用，保持十秒发布预算，要求普通单条 Native 断言红、同构件
 配置绿、复原绿与源码 SHA256；另核对实际编译对象 / APK 的改变。
 
+`--case node:jump:process` 经 App RPC 启动远端明确映射、SHA-256 固定的 `/bin/cat`，
+在远端原生管道内双向验证 256 KiB，向 App 返回实测摘要 / 字节数；这部分数据不充当
+SSH 上的资源流量。`process-root / process-program / process-cancel / process-stderr /
+process-environment / process-cwd / process-stop / process-loss` 另护未授权工作区与程序拒绝、
+业务取消、stderr 分离、完整选择环境、工作目录，以及子进程存在时的 Runtime 停止 / 物理断流。
+每个夹具只配置一个名为 cat 的映射；环境 / cwd 场景分别将它明确映射到系统 env / pwd，
+版本标签为 Host 的 fixture 声明，实际系统二进制另以 SHA-256 固定，不声称运行了版本查询。
+正常场景核对 EOF / 实际退出 / release 后引用失效；取消核对 SIGTERM / 回收。停止 / 断流
+先按唯一 argv 标记与进程启动身份观察实际业务 PID 存活，再检查其消失及未确认 UNKNOWN，
+失败清理也只处理本轮已观察且身份仍匹配的进程。
+
+`--business-environment` 变异在隔离宿主源码中漏传显式选择的 GT_SELECTED，保持其它启动
+配置不变；实际 env 进程的测量结果必须触发单条普通 Native 断言红，同构件配置绿、复原绿
+及源码 SHA256。它验证环境名称从 App 传到实际业务子进程的完整链，不把单纯 argv 字符串
+相等当作效果证据。
+
 这是无账号 / 模型的 conformance 包，并非官方业务插件。当前观察到成功回包后的 App
 停止和连接断流使远端 gterm 返回 7（会话结果不明），拒绝返回 6；不把进程消失或一条
 RPC 成功记成整个远端任务成功。上述资源是 Executor 到 App 收件列表的方向；双向资源、
-tmux、其它服务器 / 操作系统、完整资源 / 受控进程矩阵或真实设备仍待验证；不纳入现有
+tmux、其它服务器 / 操作系统、完整资源 / 进程预算与异常矩阵或真实设备仍待验证；不纳入现有
 macOS CI 二十份变异。

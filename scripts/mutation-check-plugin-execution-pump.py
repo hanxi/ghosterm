@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Restore one-frame-per-UI-tick throttling in an isolated Native App.
+"""Compiled Native App regressions in isolated source projects.
 
-The real 256 KiB SSH publication must fail one normal state assertion; compiler,
-crash, sanitizer and outer timeout failures are not an accepted target red.
+Default: restore one-frame-per-UI-tick throttling of a real 256 KiB resource.
+--business-environment: omit an explicitly selected native utility environment.
+Both require one normal state assertion; compiler, crash, sanitizer and outer
+timeout failures are not accepted target reds.
 """
 import argparse
 import hashlib
@@ -25,8 +27,9 @@ def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def execute(args, serial=None):
     mac = args.macos
-    name = Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift' if mac else
-                'android/app/src/main/java/com/hanxi/ghosterm/ExtensionController.kt')
+    component = 'ExtensionRelayBootstrap' if args.business_environment else 'ExtensionController'
+    name = Path('apple/GhostermApp/Sources/GhostermAppModel/' + component + '.swift' if mac else
+                'android/app/src/main/java/com/hanxi/ghosterm/' + component + '.kt')
     original = (ROOT / name).read_bytes()
     with tempfile.TemporaryDirectory(prefix='xpump-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary); source = work / 'h'
@@ -62,19 +65,21 @@ def execute(args, serial=None):
             command = [sys.executable, ROOT / 'scripts/test-plugin-execution-ssh-app.py',
                 *(['--macos'] if mac else ['--android', serial]), '--project', source,
                 '--build', args.build, '--node', args.node, '--sdk', args.sdk,
-                '--case', 'node:direct:resource']
+                '--case', 'node:direct:process-environment' if args.business_environment else 'node:direct:resource']
             code, output = run(label, command)
             if red:
                 if mac:
                     start = output.find("Test Suite 'Selected tests'")
                     transcript = output[start:]
                     valid = (start >= 0 and re.search(r'Executed 1 test, with 1 failure', transcript)
-                             and 'XCTAssertEqual failed:' in transcript and 'RPCState.unknown' in transcript)
+                             and 'XCTAssertEqual failed:' in transcript
+                             and (args.business_environment or 'RPCState.unknown' in transcript))
                 else:
                     start = output.find('INSTRUMENTATION_STATUS: class=')
                     transcript = output[start:]
                     valid = (start >= 0 and re.search(r'Tests run: 1,\s+Failures: 1', transcript)
-                             and 'java.lang.AssertionError: expected:<SUCCEEDED> but was:<UNKNOWN>' in transcript)
+                             and ('java.lang.AssertionError: expected:<' in transcript if args.business_environment else
+                                  'java.lang.AssertionError: expected:<SUCCEEDED> but was:<UNKNOWN>' in transcript))
                 assert code == 1 and valid and not any(x in transcript for x in
                     ['Process crashed', 'AppNotIdleException', 'TimeoutException', 'Compilation error',
                      'INSTRUMENTATION_FAILED', 'AddressSanitizer', 'runtime error:']), output
@@ -84,17 +89,25 @@ def execute(args, serial=None):
         def artifact():
             if not mac:
                 return sha(source / 'android/app/build/outputs/apk/debug/app-debug.apk')
-            objects = list((source / 'apple/GhostermApp/.build').rglob('ExtensionController.o'))
-            assert objects, 'Actual compiled controller object missing'
+            objects = list((source / 'apple/GhostermApp/.build').rglob(component + '.o'))
+            assert objects, 'Actual compiled Native component object missing'
             return {str(p.relative_to(source)): sha(p) for p in objects}
 
         check('baseline'); baseline = artifact()
         text = original.decode()
-        begin = '                // One native step consumes' if mac else '        // Native steps consume'
-        end = '                return try self.runtimeState' if mac else '        val key = checkNotNull(runtimePackageKey)'
-        assert text.count(begin) == 1
-        a = text.index(begin); b = text.index(end, a)
-        replacement = '                _ = try runtime.step()\n' if mac else '        current.step()\n'
+        if args.business_environment:
+            begin = '            argv.append(contentsOf: ["--process-environment", name])' if mac else \
+                '            request.processEnvironmentNames.forEach { add("--process-environment"); add(it) }'
+            assert text.count(begin) == 1
+            a = text.index(begin); b = a + len(begin)
+            replacement = '            if name != "GT_SELECTED" { argv.append(contentsOf: ["--process-environment", name]) }' if mac else \
+                '            request.processEnvironmentNames.filter { it != "GT_SELECTED" }.forEach { add("--process-environment"); add(it) }'
+        else:
+            begin = '                // One native step consumes' if mac else '        // Native steps consume'
+            end = '                return try self.runtimeState' if mac else '        val key = checkNotNull(runtimePackageKey)'
+            assert text.count(begin) == 1
+            a = text.index(begin); b = text.index(end, a)
+            replacement = '                _ = try runtime.step()\n' if mac else '        current.step()\n'
         try:
             target.write_text(text[:a] + replacement + text[b:])
             check('mutated', True); mutant = artifact()
@@ -115,17 +128,18 @@ def execute(args, serial=None):
         check('restored'); restored = artifact()
         assert target.read_bytes() == original and (ROOT / name).read_bytes() == original
         receipt = dict(accepted=True, platform='macos' if mac else 'android',
-            groups=['ui-cadence-resource-throttle'], source_sha256=sha(target),
+            groups=['selected-business-environment' if args.business_environment else 'ui-cadence-resource-throttle'], source_sha256=sha(target),
             artifact_sha256=dict(baseline=baseline, mutant=mutant, restored=restored), commands=commands,
-            scope='Owned Native App/loopback SSH/Node 256 KiB actual resource; single normal assertion red, same build control green, restore; no accounts/models')
+            scope='Owned Native App/loopback SSH/Node actual resource or mapped business process; single normal assertion red, same build control green, restore; no accounts/models')
         if args.receipt: args.receipt.write_text(json.dumps(receipt, indent=2) + '\n')
-        print('PUMP MUTATION PASS: one compiled ordinary assertion red / same build control green / restore / SHA256', flush=True)
+        print(('BUSINESS ENV' if args.business_environment else 'PUMP') + ' MUTATION PASS: one compiled ordinary assertion red / same build control green / restore / SHA256', flush=True)
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     target = p.add_mutually_exclusive_group(required=True)
     target.add_argument('--macos', action='store_true'); target.add_argument('--headless-api', choices=['29', '36'])
+    p.add_argument('--business-environment', action='store_true', help='omit one selected business environment name instead of restoring the old pump')
     for key in ['build', 'node', 'sdk']: p.add_argument('--' + key, type=Path, required=True)
     p.add_argument('--receipt', type=Path); args = p.parse_args()
     if not __debug__: raise RuntimeError('Run checks with Python assertions enabled')

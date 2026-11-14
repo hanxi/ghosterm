@@ -57,6 +57,8 @@ import XCTest
         func string(_ name: String) throws -> String { try XCTUnwrap(payload[name] as? String) }
         let runtime = try string("runtime"), mode = try string("mode"), route = try string("route")
         let resourceCase = mode.hasPrefix("resource")
+        let processCase = mode.hasPrefix("process")
+        let processPending = mode == "process-stop" || mode == "process-loss"
         let scratch = URL(fileURLWithPath: try string("scratch")), package = URL(fileURLWithPath: try string("packageDirectory"))
         let config = scratch.appendingPathComponent("ssh_config"), known = scratch.appendingPathComponent("known")
         let ports = try XCTUnwrap(payload["ports"] as? [Int]), user = try string("user")
@@ -79,13 +81,17 @@ import XCTest
                 sha256: try string("nodeDigest"), sdkDirectory: try string("sdk"), sdkCatalogSHA256: try string("sdkDigest")))
         } else { selected = .exec }
         let execution = ExtensionRelayBootstrap.Execution(runtime: selected, temporaryDirectory: try string("temporary"), authorized: mode != "no-approval")
+        let programs: [ExtensionRelayBootstrap.ProcessProgram] = processCase
+            ? [.init(name: "cat", executable: try string("processExecutable"), version: "fixture", sha256: try string("processDigest"))] : []
+        var environment = ["GT_EXECUTION_APP_FIXTURE"]
+        if mode == "process-environment" { environment.append("GT_SELECTED") }
         addTeardownBlock { await model.stopExtensionRun(); _ = await controller.close() }
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest, command: "fixture",
             arguments: ["中文😀", "", "literal'$(owned)"], sshAlias: "execution-target",
             executable: try string("wrapper"), executorDirectory: package.path, executorDigest: review.digest,
             methods: ["fixture.echo"], hostMethods: [],
-            scopedRoots: resourceCase ? [.init(id: "workspace", directory: try string("workspace"))] : [],
-            processEnvironmentNames: ["GT_EXECUTION_APP_FIXTURE"], executorExecution: execution)
+            scopedRoots: resourceCase || processCase ? [.init(id: "workspace", directory: try string("workspace"))] : [],
+            processPrograms: programs, processEnvironmentNames: environment, executorExecution: execution)
         if mode == "no-approval" {
             XCTAssertNotNil(model.extensionRunIssue); XCTAssertNil(model.extensionRun)
             XCTAssertTrue(interaction.hosts.isEmpty)
@@ -96,7 +102,10 @@ import XCTest
         let run = try XCTUnwrap(model.extensionRun, model.extensionRunIssue ?? "missing run")
         XCTAssertEqual(run.session?.phase, ExtensionSession.Phase.consent.rawValue)
         XCTAssertEqual(run.executorExecution, execution)
-        XCTAssertEqual(Set(run.requiredCapabilities), Set(resourceCase ? ["session.rpc", "resource.receive", "file.readScoped"] : ["session.rpc"]))
+        var required = ["session.rpc"]
+        if resourceCase { required += ["resource.receive", "file.readScoped"] }
+        if processCase { required += ["process.spawn", "process.pipes"] }
+        XCTAssertEqual(Set(run.requiredCapabilities), Set(required))
         XCTAssertEqual(interaction.hosts.count, route == "jump" ? 2 : 1)
         XCTAssertEqual(try service("audit")["activated"] as? Bool, false, "No module execution before consent")
         XCTAssertEqual(try service("audit")["entered"] as? Bool, false, "No Executor entry before consent")
@@ -112,7 +121,8 @@ import XCTest
             return model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue && (audit["activated"] as? Bool) == true
         }
         XCTAssertEqual(try service("audit")["environment"] as? String, try string("temporary"))
-        let input: [String: Any] = ["text": resourceCase ? mode.replacingOccurrences(of: "-", with: "_").uppercased() : "echo 中文😀 '\" }", "count": 17]
+        let specialized = resourceCase || (processCase && !processPending)
+        let input: [String: Any] = ["text": specialized ? mode.replacingOccurrences(of: "-", with: "_").uppercased() : "echo 中文😀 '\" }", "count": 17]
         let admission = try await controller.requestExecutorRPC(method: "fixture.echo", input: JSONSerialization.data(withJSONObject: input))
         let handle = try XCTUnwrap(admission.handle); XCTAssertEqual(admission.status, .ok)
         var completed: ExtensionSession.RPCResult?
@@ -128,8 +138,35 @@ import XCTest
         let outcome = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(completed).outcome) as? [String: Any])
         XCTAssertEqual(outcome["kind"] as? String, "success")
         let echoed = try XCTUnwrap(outcome["value"] as? [String: Any])
-        XCTAssertEqual(echoed["text"] as? String, input["text"] as? String)
-        XCTAssertEqual(echoed["count"] as? Int, 17)
+        if processCase && !processPending {
+            let audit = try service("audit")
+            let proof = try XCTUnwrap(audit["processProof"] as? [String: Any])
+            if mode == "process-root" || mode == "process-program" {
+                XCTAssertEqual(echoed["text"] as? String, "DENIED"); XCTAssertEqual(echoed["count"] as? Int, 0)
+                XCTAssertEqual(proof["rejected"] as? Bool, true)
+            } else if mode == "process-cancel" {
+                XCTAssertEqual(echoed["text"] as? String, "cancelled")
+                XCTAssertEqual(echoed["count"] as? Int, payload["processSignal"] as? Int)
+                XCTAssertEqual(proof["signal"] as? Int, payload["processSignal"] as? Int)
+                XCTAssertEqual(proof["reaped"] as? Bool, true)
+            } else {
+                let count = try XCTUnwrap(echoed["count"] as? Int), digest = try XCTUnwrap(echoed["text"] as? String)
+                XCTAssertEqual(proof["reaped"] as? Bool, true); XCTAssertEqual(proof["signal"] as? Int, 0)
+                XCTAssertEqual(proof["sha256"] as? String, digest); XCTAssertEqual(proof["bytes"] as? Int, count)
+                if mode == "process-stderr" {
+                    XCTAssertGreaterThan(count, 0); XCTAssertLessThanOrEqual(count, 8192)
+                    XCTAssertEqual(digest.count, 64); XCTAssertNotEqual(proof["code"] as? Int, 0)
+                } else {
+                    XCTAssertEqual(proof["code"] as? Int, 0)
+                    XCTAssertEqual(count, payload["processOutputSize"] as? Int)
+                    guard count == (payload["processOutputSize"] as? Int) else { return }
+                    XCTAssertEqual(digest, try string("processOutputDigest"))
+                }
+            }
+        } else {
+            XCTAssertEqual(echoed["text"] as? String, input["text"] as? String)
+            XCTAssertEqual(echoed["count"] as? Int, 17)
+        }
         let forgotten = try await controller.forgetExecutorRPC(handle: handle); XCTAssertEqual(forgotten, .ok)
         if mode == "resource" {
             try await until("Resource did not reach AppModel") { model.extensionRun?.receivedResources.count == 1 }
@@ -145,11 +182,17 @@ import XCTest
             XCTAssertEqual(try service("audit")["resourceError"] as? String, mode == "resource-link" ? "UNSUPPORTED" : "DENIED")
             XCTAssertNil(try service("audit")["resourceReceipt"])
         }
-        if mode == "pending-cancel" || mode == "pending-loss" {
-            let pending = try await controller.requestExecutorRPC(method: "fixture.echo", input: Data(#"{"text":"WAIT","count":99}"#.utf8))
+        if mode == "pending-cancel" || mode == "pending-loss" || processPending {
+            let text = processPending ? mode.replacingOccurrences(of: "-", with: "_").uppercased() : "WAIT"
+            let pending = try await controller.requestExecutorRPC(method: "fixture.echo", input: JSONSerialization.data(withJSONObject: ["text": text, "count": 99]))
             let pendingHandle = try XCTUnwrap(pending.handle)
             try await until("Remote handler did not start") { try self.service("audit")["handler"] as? Bool == true }
-            if mode == "pending-loss" { _ = try service("kill") }
+            if processPending {
+                let audit = try service("audit")
+                XCTAssertFalse(try XCTUnwrap(audit["businessLivePids"] as? [Int]).isEmpty, "Business child must be observed live before interruption: \(audit.filter { $0.key.hasPrefix("business") })")
+            }
+            if mode == "pending-loss" || mode == "process-loss" { _ = try service("kill") }
+            else if mode == "process-stop" { try await controller.stopRuntime() }
             else {
                 let cancelled = try await controller.cancelExecutorRPC(handle: pendingHandle); XCTAssertEqual(cancelled, .ok)
                 let (_, observed) = try await controller.executorRPCResult(handle: pendingHandle)

@@ -9,7 +9,8 @@ import sys
 gterm, directory, home = sys.argv[1:4]
 observation = Path(directory)
 environment = {'PATH': '/usr/bin:/bin', 'HOME': home, 'TMPDIR': os.environ.get('TMPDIR', ''),
-               'GT_EXECUTION_APP_FIXTURE': directory, 'GT_EXECUTION_AMBIENT': 'unselected-fixture'}
+               'GT_EXECUTION_APP_FIXTURE': directory, 'GT_EXECUTION_AMBIENT': 'unselected-fixture',
+               'GT_SELECTED': 'approved'}
 with (observation / 'stderr').open('wb') as error:
     child = subprocess.Popen([gterm, *sys.argv[4:]], stdin=sys.stdin.buffer, stdout=sys.stdout.buffer,
                              stderr=error, env=environment)

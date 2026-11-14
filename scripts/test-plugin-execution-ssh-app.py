@@ -62,9 +62,12 @@ def execute(args, serial=None):
     for name in ['scripts/test-plugin-execution-ssh-app.py', 'scripts/fixtures/plugin-execution-app.mjs',
         'scripts/fixtures/plugin-execution-fault.py', 'scripts/fixtures/plugin-execution-supervisor.py',
         'scripts/test-plugin-route.py', 'scripts/test-plugin-ssh.py', 'scripts/test-plugin-ssh-stream.py',
-        'scripts/test-plugin-codex-patch-android.py']:
+        'scripts/test-plugin-codex-patch-android.py', 'scripts/fixtures/plugin-execution-process.mjs']:
         hashes[name] = sha(ROOT / name)
     binary_hashes.update({str(p): sha(p) for p in sdk.rglob('*') if p.is_file()})
+    utilities = {'cat': Path('/bin/cat').resolve(strict=True), 'env': Path('/usr/bin/env').resolve(strict=True),
+                 'pwd': Path('/bin/pwd').resolve(strict=True)}
+    binary_hashes.update({str(p): sha(p) for p in utilities.values()})
     version = subprocess.check_output([node, '--version'], text=True).strip()[1:]
     catalog = hashlib.sha256()
     for p in sorted((p for p in sdk.rglob('*') if p.is_file()), key=lambda p: str(p.relative_to(sdk)).encode()):
@@ -74,6 +77,9 @@ def execute(args, serial=None):
     cases = [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct', 'jump')
              for mode in ('allow', 'deny', 'no-approval', 'pending-cancel', 'pending-loss',
                           'resource', 'resource-root', 'resource-parent', 'resource-link')]
+    cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct', 'jump')
+              for mode in ('process', 'process-root', 'process-program', 'process-cancel', 'process-stderr',
+                           'process-environment', 'process-cwd', 'process-stop', 'process-loss')]
     selected = args.case or cases
     if set(selected) - set(cases): raise RuntimeError('Unknown execution case')
     routes = load('execution_routes', 'scripts/test-plugin-route.py')
@@ -93,7 +99,7 @@ def execute(args, serial=None):
             output = p.stdout + p.stderr; (logs / (label + '.log')).write_text(output)
             if p.returncode:
                 diagnostics = [(str(f.relative_to(work)), f.read_text(errors='replace'))
-                    for name in ('stderr', 'resource-result', 'resource-receipt', 'resource-error') for f in work.glob('*/o/' + name)]
+                    for name in ('stderr', 'resource-result', 'resource-receipt', 'resource-error', 'process-proof') for f in work.glob('*/o/' + name)]
                 raise RuntimeError(label + '\n' + output + '\nREMOTE STDERR: ' + repr(diagnostics))
             return output
         if args.macos:
@@ -124,6 +130,7 @@ def execute(args, serial=None):
                 for index, case in enumerate(selected):
                     runtime, route, mode = case.split(':')
                     resource_case = mode.startswith('resource')
+                    process_case = mode.startswith('process')
                     root = work / str(index); root.mkdir()
                     package, observation, stage, home, workspace = [root / p for p in ('k', 'o', 't', 'h', 'w')]
                     for folder in [package, observation, stage, home, workspace]: folder.mkdir(mode=0o700)
@@ -136,6 +143,7 @@ def execute(args, serial=None):
                         additionalProperties=False, **{'x-ghosterm-cli': dict(version=1, fields={p: dict(position=i) for i, p in enumerate(fields)})})
                     variant = dict(id='selected', runtime=runtime, requires=['session.rpc'])
                     if resource_case: variant['requires'] += ['resource.receive', 'file.readScoped']
+                    if process_case: variant['requires'] += ['process.spawn', 'process.pipes']
                     if runtime == 'node': variant.update(entry='executor/index.mjs', runtimeVersionRange='>=20.0.0 <1000.0.0')
                     else: variant.update(executable='executor/main', os=[{'Darwin': 'macos', 'Linux': 'linux'}[platform.system()]],
                         arch=[{'arm64': 'aarch64', 'aarch64': 'aarch64', 'x86_64': 'x86_64'}[platform.machine()]])
@@ -148,11 +156,15 @@ def execute(args, serial=None):
                         manifest['client']['requires'] += ['resource.receive']
                         manifest['permissions'] = [dict(side='executor', capability='file.readScoped',
                             purpose='Owned disposable workspace fixture', scope='instance')]
+                    if process_case:
+                        manifest['permissions'] = [dict(side='executor', capability='process.spawn',
+                            purpose='Owned mapped utility fixture', scope='instance', programs=['cat'])]
                     files = {'plugin.json': json.dumps(manifest).encode(), 'schemas/input.json': json.dumps(schema).encode(),
                         'client/index.js': b'export function activate(){return {dispose(){}}}', 'README': b'Owned execution fixture',
                         'LICENSES/MIT.txt': (ROOT / 'LICENSE').read_bytes(),
                         ('executor/index.mjs' if runtime == 'node' else 'executor/main'):
                             (ROOT / 'scripts/fixtures/plugin-execution-app.mjs').read_bytes() if runtime == 'node' else (build / 'test_gterm_exec_peer').read_bytes()}
+                    if runtime == 'node': files['executor/process.mjs'] = (ROOT / 'scripts/fixtures/plugin-execution-process.mjs').read_bytes()
                     for name, content in files.items():
                         p = package / name; p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(content)
                     members = [dict(path=name, bytes=len(content), sha256=hashlib.sha256(content).hexdigest()) for name, content in sorted(files.items())]
@@ -168,6 +180,13 @@ def execute(args, serial=None):
                         wrapper=str(wrapper), temporary=str(stage), scratch=str(scratch), node=str(node), nodeVersion=version,
                         nodeDigest=sha(node), sdk=str(sdk), sdkDigest=sdk_digest,
                         workspace=str(workspace), resourceDigest=hashlib.sha256(resource_bytes).hexdigest())
+                    utility = utilities['env' if mode == 'process-environment' else 'pwd' if mode == 'process-cwd' else 'cat']
+                    selected_environment = dict(HOME=str(home), PATH='/usr/bin:/bin', TMPDIR=str(stage),
+                        GT_EXECUTION_APP_FIXTURE=str(observation), GT_SELECTED='approved')
+                    expected_output = ('\n'.join(f'{name}={value}' for name, value in sorted(selected_environment.items())) + '\n').encode() \
+                        if mode == 'process-environment' else (str(workspace) + '\n').encode() if mode == 'process-cwd' else resource_bytes
+                    payload.update(processExecutable=str(utility), processDigest=sha(utility), processSignal=int(signal.SIGTERM),
+                        processOutputDigest=hashlib.sha256(expected_output).hexdigest(), processOutputSize=len(expected_output))
                     token = secrets.token_hex(24); owned_pids = {}
                     def observe():
                         answer = {'wrapperStarted': (observation / 'gterm-pid').exists(), 'activated': (observation / 'activated').exists(),
@@ -184,6 +203,25 @@ def execute(args, serial=None):
                         if (observation / 'environment').exists(): answer['environment'] = (observation / 'environment').read_text()
                         if (observation / 'resource-receipt').exists(): answer['resourceReceipt'] = (observation / 'resource-receipt').read_text()
                         if (observation / 'resource-error').exists(): answer['resourceError'] = (observation / 'resource-error').read_text()
+                        if (observation / 'process-proof').exists(): answer['processProof'] = json.loads((observation / 'process-proof').read_text())
+                        if process_case:
+                            parent = answer.get('gterm-pid')
+                            answer['businessParentVerified'] = parent in owned_pids and identity(parent) == owned_pids[parent]
+                            if answer['businessParentVerified']:
+                                table = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,comm='], text=True, timeout=5)
+                                owners = {parent, answer.get('runtime-pid')}
+                                candidates = []
+                                for line in table.splitlines():
+                                    fields = line.split(None, 2)
+                                    if len(fields) == 3 and int(fields[1]) in owners:
+                                        candidates.append(line.strip())
+                                        pid = int(fields[0]); observed = identity(pid)
+                                        marker = 'ghosterm-business-' + str(answer.get('runtime-pid'))
+                                        if observed and marker in observed:
+                                            owned_pids.setdefault(pid, observed); business_pids.add(pid)
+                                answer['businessCandidates'] = candidates
+                            answer['businessPids'] = sorted(business_pids)
+                            answer['businessLivePids'] = sorted(pid for pid in business_pids if identity(pid) == owned_pids[pid])
                         if (observation / 'exit').exists(): answer.update(json.loads((observation / 'exit').read_text()))
                         return answer
                     class Handler(socketserver.StreamRequestHandler):
@@ -202,8 +240,9 @@ def execute(args, serial=None):
                             if len(data) > 1048576: raise RuntimeError('Fixture response limit')
                             self.wfile.write(struct.pack('>I', len(data)) + data)
                     mapped = []
+                    business_pids = set()
                     fault = None
-                    if mode == 'pending-loss':
+                    if mode in ('pending-loss', 'process-loss'):
                         fault = fault_module.FaultWire(ports[0] if route == 'jump' else ports[1])
                         fault.__enter__()
                         client_ports = list(ports); client_ports[0 if route == 'jump' else 1] = fault.port

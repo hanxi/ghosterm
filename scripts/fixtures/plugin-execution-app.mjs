@@ -1,6 +1,7 @@
 // Owned no-account conformance Executor, never a business plugin.
 import { object, text, integer } from '@ghosterm/plugin-sdk';
 import { writeFileSync } from 'node:fs';
+import { appProcess } from './process.mjs';
 const observation = process.env.GT_EXECUTION_APP_FIXTURE;
 if (!observation || process.env.GT_EXECUTION_AMBIENT !== undefined) throw Error('fixture environment');
 writeFileSync(observation + '/entered', String(process.pid), { flag: 'wx' });
@@ -10,9 +11,10 @@ export function activate(ctx) {
   if (ctx.invocation.command !== 'fixture' || ctx.invocation.arguments.length !== 3 ||
       ctx.invocation.arguments[0] !== '中文😀' || ctx.invocation.arguments[1] !== '' ||
       ctx.invocation.arguments[2] !== "literal'$(owned)") throw Error('fixture argv');
-  const codec = object({ text: text(512), count: integer(0, 1000) });
+  const codec = object({ text: text(512), count: integer(0, 1048576) });
   ctx.session.register({ name: 'fixture.echo', input: codec, output: codec }, async (value, call) => {
     call.check();
+    if (value.text.startsWith('PROCESS')) return await appProcess(ctx, value.text, observation);
     if (value.text === 'WAIT') {
       writeFileSync(observation + '/handler', 'started');
       return await new Promise(() => {});

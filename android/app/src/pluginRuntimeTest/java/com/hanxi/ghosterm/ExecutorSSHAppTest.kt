@@ -52,6 +52,8 @@ class ExecutorSSHAppTest {
         assertTrue(BuildConfig.PLUGIN_JS_ENABLED)
         val payload = service(); val mode = payload.getString("mode"); val jump = payload.getString("route") == "jump"
         val resourceCase = mode.startsWith("resource")
+        val processCase = mode.startsWith("process")
+        val processPending = mode == "process-stop" || mode == "process-loss"
         val context = instrumentation.targetContext
         val folder = File(context.cacheDir, "execution-${java.util.UUID.randomUUID()}"); check(folder.mkdir())
         val files = payload.getJSONObject("packageFiles")
@@ -78,8 +80,9 @@ class ExecutorSSHAppTest {
             val execution = ExtensionRelayBootstrap.Execution(selected, payload.getString("temporary"), mode != "no-approval")
             val request = ExtensionRelayBootstrap.Request(payload.getString("wrapper"), payload.getString("packageDirectory"), digest, digest,
                 listOf("fixture.echo"), command = "fixture", arguments = listOf("中文😀", "", "literal'$(owned)"),
-                workspaceRootDirectory = if (resourceCase) payload.getString("workspace") else null,
-                processEnvironmentNames = listOf("GT_EXECUTION_APP_FIXTURE"), execution = execution)
+                workspaceRootDirectory = if (resourceCase || processCase) payload.getString("workspace") else null,
+                processPrograms = if (processCase) listOf(ExtensionRelayBootstrap.ProcessProgram("cat", payload.getString("processExecutable"), "fixture", payload.getString("processDigest"))) else emptyList(),
+                processEnvironmentNames = listOf("GT_EXECUTION_APP_FIXTURE") + if (mode == "process-environment") listOf("GT_SELECTED") else emptyList(), execution = execution)
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
             main { extensions.launch(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(), target, request, sessions) }
@@ -106,7 +109,9 @@ class ExecutorSSHAppTest {
             await("Session did not reach consent") { main { extensions.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }
             assertEquals(if (jump) 2 else 1, hostCount)
             assertEquals(execution, main { extensions.activeSession?.executorExecution })
-            assertEquals((if (resourceCase) listOf("session.rpc", "resource.receive", "file.readScoped") else listOf("session.rpc")).toSet(),
+            val required = listOf("session.rpc") + (if (resourceCase) listOf("resource.receive", "file.readScoped") else emptyList()) +
+                (if (processCase) listOf("process.spawn", "process.pipes") else emptyList())
+            assertEquals(required.toSet(),
                 main { extensions.activeSession?.requiredCapabilities?.toSet() })
             assertFalse("No module execution before consent", service("audit").getBoolean("activated"))
             assertFalse("No Executor entry before consent", service("audit").getBoolean("entered"))
@@ -121,7 +126,8 @@ class ExecutorSSHAppTest {
             ui.onNodeWithText("允许并启动").performClick()
             await("Client/Executor did not activate") { main { extensions.activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE } && service("audit").getBoolean("activated") }
             assertEquals(payload.getString("temporary"), service("audit").getString("environment"))
-            val input = JSONObject().put("text", if (resourceCase) mode.replace('-', '_').uppercase(java.util.Locale.ROOT) else "echo 中文😀 '\" }").put("count", 17)
+            val specialized = resourceCase || (processCase && !processPending)
+            val input = JSONObject().put("text", if (specialized) mode.replace('-', '_').uppercase(java.util.Locale.ROOT) else "echo 中文😀 '\" }").put("count", 17)
             val admission = runBlocking { controller.requestRuntimeExecutor("fixture.echo", input.toString().toByteArray()) }
             assertEquals(ExtensionSession.RPCStatus.OK, admission.status); val handle = checkNotNull(admission.handle)
             var result: ExtensionSession.RPCResult? = null
@@ -131,8 +137,23 @@ class ExecutorSSHAppTest {
             }
             assertEquals(ExtensionSession.RPCState.SUCCEEDED, result!!.state)
             val outcome = JSONObject(result!!.outcome.toString(Charsets.UTF_8)); assertEquals("success", outcome.getString("kind"))
-            assertEquals(input.getString("text"), outcome.getJSONObject("value").getString("text"))
-            assertEquals(17, outcome.getJSONObject("value").getInt("count"))
+            val value = outcome.getJSONObject("value")
+            if (processCase && !processPending) {
+                val proof = service("audit").getJSONObject("processProof")
+                if (mode == "process-root" || mode == "process-program") {
+                    assertEquals("DENIED", value.getString("text")); assertEquals(0, value.getInt("count"))
+                    assertTrue(proof.getBoolean("rejected"))
+                } else if (mode == "process-cancel") {
+                    assertEquals("cancelled", value.getString("text")); assertEquals(payload.getInt("processSignal"), value.getInt("count"))
+                    assertEquals(payload.getInt("processSignal"), proof.getInt("signal")); assertTrue(proof.getBoolean("reaped"))
+                } else {
+                    val count = value.getInt("count"); val digest = value.getString("text")
+                    assertTrue(proof.getBoolean("reaped")); assertEquals(0, proof.getInt("signal"))
+                    assertEquals(digest, proof.getString("sha256")); assertEquals(count, proof.getInt("bytes"))
+                    if (mode == "process-stderr") { assertTrue(count in 1..8192); assertEquals(64, digest.length); assertNotEquals(0, proof.getInt("code")) }
+                    else { assertEquals(0, proof.getInt("code")); assertEquals(payload.getInt("processOutputSize"), count); assertEquals(payload.getString("processOutputDigest"), digest) }
+                }
+            } else { assertEquals(input.getString("text"), value.getString("text")); assertEquals(17, value.getInt("count")) }
             assertEquals(ExtensionSession.RPCStatus.OK, runBlocking { controller.forgetRuntimeExecutorRequest(handle) })
             if (mode == "resource") {
                 await("Resource did not reach ViewModel") { main { extensions.receivedResources.size == 1 } }
@@ -151,11 +172,14 @@ class ExecutorSSHAppTest {
                 assertEquals(if (mode == "resource-link") "UNSUPPORTED" else "DENIED", service("audit").getString("resourceError"))
                 assertFalse(service("audit").has("resourceReceipt"))
             }
-            if (mode == "pending-cancel" || mode == "pending-loss") {
-                val pending = runBlocking { controller.requestRuntimeExecutor("fixture.echo", "{\"text\":\"WAIT\",\"count\":99}".toByteArray()) }
+            if (mode == "pending-cancel" || mode == "pending-loss" || processPending) {
+                val text = if (processPending) mode.replace('-', '_').uppercase(java.util.Locale.ROOT) else "WAIT"
+                val pending = runBlocking { controller.requestRuntimeExecutor("fixture.echo", JSONObject().put("text", text).put("count", 99).toString().toByteArray()) }
                 val pendingHandle = checkNotNull(pending.handle)
                 await("Remote handler did not start") { service("audit").getBoolean("handler") }
-                if (mode == "pending-loss") service("kill")
+                if (processPending) assertTrue("Business child must be observed live before interruption", service("audit").getJSONArray("businessLivePids").length() > 0)
+                if (mode == "pending-loss" || mode == "process-loss") service("kill")
+                else if (mode == "process-stop") controller.requestStopRuntime()
                 else {
                     assertEquals(ExtensionSession.RPCStatus.OK, runBlocking { controller.cancelRuntimeExecutorRequest(pendingHandle) })
                     val (_, before) = runBlocking { controller.runtimeExecutorRequestResult(pendingHandle) }

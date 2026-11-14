@@ -12,6 +12,7 @@
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
+| App 到通用运行档业务进程 | 🟡 | [P4 第二十三批](plan-plugin-bridge.md)：macOS / API36 无窗口 Client 各 72 场景，含 Node / Exec × 直连 / ProxyJump × 九种业务进程场景；实测管道字节 / 摘要、环境 / cwd、stderr、拒绝、取消 / 回收与存活子进程停止 / 断流，环境漏传变异每端一组。Core 540 / enabled 765、Release / Android 四模块 lint 通过；Executor 为 macOS arm64，完整预算 / 异常 / 设备矩阵、tmux / 双向资源、发行仍未完成 |
 | 通用 Node / Exec 到 App 的资源发布 | 🟡 | [P4 第二十二批](plan-plugin-bridge.md)：两端 worker 有界批次推进，修复 UI 50 ms 周期逐帧限速；macOS / API36 专用无窗口模拟器各 36 场景，含 256 KiB 全字节 / 摘要 / 发布确认及未授权根、越界、链接拒绝，两端各一组旧调度变异。默认 540 / enabled 765 CTest、Release / Android 四模块 lint 通过；只验远端 macOS arm64 Executor 到 App 收件方向，双向资源、业务进程 / tmux 完整矩阵、其它设备和发行未完成 |
 | 插件 SSH 关闭续步 | 🟡 | [P4 第二十一批](plan-plugin-bridge.md)：首次中止 / I/O 收尾后只续做 dispose，避免内层已释放而外层 draining 时再读旧通道。三个确定性边界用例与一个独立变异组、旧 SSH 十四组 / 路线十三组通过；默认 540 / JS-enabled 765 CTest、macOS Release 重链和 Android JNI Debug 原生构建通过。无新设备 / 云端结论，不能据此认定已复现或修好 `43545823180` 的 deny2 失败 |
 | C ABI（`ghosterm.h` v0，未冻结） | 🟡 | [插件计划第二十六批](plan-plugin-bridge.md) 当前 [P4 第十八批](plan-plugin-bridge.md) 为 177 符号，Apple 174/3、JNI 140/37；原第二十六批的 154 / 150/4 / 116/38 为历史。新增 Node / Exec execution 配置与退出观察有 BREAKING 布局扩展，消费者须重编译；通道 / Session / JSON 请求 / 资源 Store / 保留快照、scoped source 与可选 runtime 已接 native worker，根授权与 App 页面接线见下方分项，完整业务 schema 验收仍未完成；§9.122–§9.123 的 94 符号、Apple 90/4、JNI 56/38 为历史切片；§9.122 增加受控显式删除，§9.123 已接 Android 历史清理与独立记录；含受控读取到 fd、非覆盖发布和单目录创建。Android 只读文件页面与暂存层已消费，macOS 产品仍待迁移；§9.57 已补发布入口及两端绑定，原草稿对拍失败保留为历史。接口未冻结，消费者须同步重编译 |

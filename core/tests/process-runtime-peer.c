@@ -182,6 +182,8 @@ static void app_resource(uint64_t *sequence, char reply[8193], const char *root,
     CHECK(strstr(reply, "\"value\":{\"status\":\"ok\""));
 }
 
+#include "process-runtime-app.inc"
+
 static void app_roundtrip(uint64_t *sequence, char reply[8193], const char *root) {
     CHECK(!getenv("GT_EXECUTION_AMBIENT"));
     char path[4096];
@@ -206,6 +208,17 @@ static void app_roundtrip(uint64_t *sequence, char reply[8193], const char *root
         }
         CHECK(input && d->nodes[ticket].kind == J_STRING && d->nodes[input].kind == J_OBJECT);
         uint16_t label = app_member(d, input, "text");
+        char process_outcome[4096] = {0};
+        if (label && d->nodes[label].kind == J_STRING && d->nodes[label].size >= 7 &&
+            d->nodes[label].size < 32 && !memcmp(d->strings + d->nodes[label].text, "PROCESS", 7)) {
+            char kind[32];
+            CHECK(snprintf(kind,
+                           sizeof(kind),
+                           "%.*s",
+                           (int)d->nodes[label].size,
+                           d->strings + d->nodes[label].text) > 0);
+            app_process(sequence, reply, root, kind, process_outcome);
+        }
         const char *resource_kind = app_string(d, label, "RESOURCE")          ? "RESOURCE"
                                     : app_string(d, label, "RESOURCE_ROOT")   ? "RESOURCE_ROOT"
                                     : app_string(d, label, "RESOURCE_PARENT") ? "RESOURCE_PARENT"
@@ -229,8 +242,9 @@ static void app_roundtrip(uint64_t *sequence, char reply[8193], const char *root
             "\"op\":\"respond\",\"ref\":\"%.*s\",\"outcome\":{\"kind\":\"success\",\"value\":%.*s}",
             (int)d->nodes[ticket].size,
             d->strings + d->nodes[ticket].text,
-            (int)d->nodes[input].bytes,
-            d->input + d->nodes[input].start);
+            process_outcome[0] ? (int)strlen(process_outcome) : (int)d->nodes[input].bytes,
+            process_outcome[0] ? (const uint8_t *)process_outcome
+                               : d->input + d->nodes[input].start);
         CHECK(n > 0 && (size_t)n < sizeof(fields));
         release(NULL, d, sizeof(*d));
         call(sequence, fields, reply);
