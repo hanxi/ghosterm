@@ -584,10 +584,13 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
         title = { Text("插件权限请求") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${active.packageID} · ${active.command.title}")
                 Text("SSH 主机：${active.info.peerIdentity}")
                 Text("Executor 版本：${active.info.peerHostVersion}")
+                SelectionContainer { Text("Executor 运行档：${active.executorExecution?.reviewDescription ?: "Portable JS（内嵌运行时）"}",
+                    Modifier.testTag("plugin-consent-executor-runtime"), style = MaterialTheme.typography.bodySmall) }
                 Text("远端完整启动命令：", style = MaterialTheme.typography.labelMedium)
                 SelectionContainer { Text(active.remoteCommand,
                     Modifier.testTag("plugin-consent-remote-command"), style = MaterialTheme.typography.bodySmall) }
@@ -625,6 +628,19 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var hostMethodsJson by remember { mutableStateOf("[]") }
     var processProgramsJson by remember { mutableStateOf("[]") }
     var processEnvironmentJson by remember { mutableStateOf("[]") }
+    var runtimeChoice by remember { mutableStateOf("Portable JS") }
+    var runtimeMenu by remember { mutableStateOf(false) }
+    var executionTmpdir by remember { mutableStateOf("") }
+    var nodeExecutable by remember { mutableStateOf("") }
+    var nodeVersion by remember { mutableStateOf("") }
+    var nodeSha256 by remember { mutableStateOf("") }
+    var nodeSDKDirectory by remember { mutableStateOf("") }
+    var nodeSDKDigest by remember { mutableStateOf("") }
+    var executionAllowed by remember(entry.review.id, entry.review.digest, command.path,
+        selectedHost, executable, executorDirectory, executorDigest,
+        workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
+        runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest) { mutableStateOf(false) }
+
     var problem by remember { mutableStateOf<String?>(null) }
     AlertDialog(onDismissRequest = onDismiss,
         properties = DialogProperties(securePolicy = SecureFlagPolicy.SecureOn),
@@ -647,6 +663,38 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     }
                 }
                 OutlinedTextField(executable, { executable = it }, singleLine = true, label = { Text("远端 gterm 可执行文件") })
+                Box {
+                    OutlinedButton(onClick = { runtimeMenu = true }, modifier = Modifier.testTag("plugin-executor-runtime")) {
+                        Text("Executor 运行档：$runtimeChoice")
+                    }
+                    DropdownMenu(expanded = runtimeMenu, onDismissRequest = { runtimeMenu = false }) {
+                        listOf("Portable JS", "Node", "Exec").forEach { choice ->
+                            DropdownMenuItem(text = { Text(choice) }, onClick = { runtimeChoice = choice; runtimeMenu = false })
+                        }
+                    }
+                }
+                if (runtimeChoice != "Portable JS") {
+                    OutlinedTextField(executionTmpdir, { executionTmpdir = it }, singleLine = true,
+                        modifier = Modifier.testTag("plugin-execution-tmpdir"), label = { Text("远端已存在的绝对临时目录") })
+                    if (runtimeChoice == "Node") {
+                        OutlinedTextField(nodeExecutable, { nodeExecutable = it }, singleLine = true,
+                            modifier = Modifier.testTag("plugin-node-executable"), label = { Text("远端 Node 规范绝对路径") })
+                        OutlinedTextField(nodeVersion, { nodeVersion = it }, singleLine = true,
+                            modifier = Modifier.testTag("plugin-node-version"), label = { Text("Node 版本（不带 v）") })
+                        OutlinedTextField(nodeSha256, { nodeSha256 = it }, singleLine = true,
+                            modifier = Modifier.testTag("plugin-node-sha256"), label = { Text("Node 可执行 SHA-256") })
+                        OutlinedTextField(nodeSDKDirectory, { nodeSDKDirectory = it }, singleLine = true,
+                            modifier = Modifier.testTag("plugin-node-sdk-directory"), label = { Text("远端 Host SDK 目录") })
+                        OutlinedTextField(nodeSDKDigest, { nodeSDKDigest = it }, singleLine = true,
+                            modifier = Modifier.testTag("plugin-node-sdk-sha256"), label = { Text("Host SDK catalog SHA-256") })
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(executionAllowed, { executionAllowed = it }, Modifier.testTag("plugin-execution-allow"))
+                        Text("允许本次 Executor 以远端登录用户身份运行进程", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("请只运行可信包。Node 和 Host SDK 须预先准备，远端会核对版本及摘要；Exec 使用包内匹配系统与架构的入口。修改配置须重新允许；不会自动安装或切换运行档。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 OutlinedTextField(executorDirectory, { executorDirectory = it }, singleLine = true,
                     modifier = Modifier.testTag("plugin-executor-directory"), label = { Text("远端 Executor 包目录") })
                 OutlinedTextField(workspaceRootDirectory, { workspaceRootDirectory = it }, singleLine = true,
@@ -681,13 +729,19 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
         confirmButton = {
             TextButton(enabled = selectedHost in hostAliases && executable.isNotBlank() && executorDirectory.isNotBlank(), onClick = {
                 try {
+                    val execution = if (runtimeChoice == "Portable JS") null else {
+                        val runtime = if (runtimeChoice == "Exec") ExtensionRelayBootstrap.Execution.Runtime.Exec
+                        else ExtensionRelayBootstrap.Execution.Runtime.Node(ExtensionRelayBootstrap.NodeDependency(
+                            nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest))
+                        ExtensionRelayBootstrap.Execution(runtime, executionTmpdir, executionAllowed)
+                    }
                     val request = ExtensionRelayBootstrap.Request(executable.trim(), executorDirectory,
                         executorDigest.trim(), entry.review.digest, ExtensionRelayBootstrap.parseMethodsJson(methodsJson),
                         ExtensionRelayBootstrap.parseHostMethodsJson(hostMethodsJson), command.path,
                         ExtensionRelayBootstrap.parseArgumentsJson(argumentsJson),
                         workspaceRootDirectory.takeUnless { it.isBlank() },
                         ExtensionRelayBootstrap.parseProcessProgramsJson(processProgramsJson),
-                        ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson))
+                        ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson), execution)
                     ExtensionRelayBootstrap.build(request)
                     onLaunch(selectedHost, request)
                 } catch (failure: IllegalArgumentException) {

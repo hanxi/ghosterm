@@ -18,6 +18,25 @@ object ExtensionRelayBootstrap {
         val prefixArguments: List<String> = emptyList(),
     )
 
+    data class NodeDependency(val executable: String, val version: String, val sha256: String,
+        val sdkDirectory: String, val sdkCatalogSHA256: String)
+
+    data class Execution(val runtime: Runtime, val temporaryDirectory: String, val authorized: Boolean) {
+        sealed interface Runtime {
+            data class Node(val dependency: NodeDependency) : Runtime
+            data object Exec : Runtime
+        }
+        val reviewDescription: String get() {
+            val detail = when (val selected = runtime) {
+                Runtime.Exec -> "Exec（使用已检查包内的原生入口）"
+                is Runtime.Node -> with(selected.dependency) {
+                    "Node $version · $executable\n可执行 SHA-256：$sha256\nHost SDK：$sdkDirectory\nSDK catalog SHA-256：$sdkCatalogSHA256"
+                }
+            }
+            return detail + "\n远端临时目录：$temporaryDirectory\n进程执行：" + if (authorized) "本次已明确允许" else "尚未允许"
+        }
+    }
+
     data class Request(
         val executable: String,
         val executorDirectory: String,
@@ -30,6 +49,7 @@ object ExtensionRelayBootstrap {
         val workspaceRootDirectory: String? = null,
         val processPrograms: List<ProcessProgram> = emptyList(),
         val processEnvironmentNames: List<String> = emptyList(),
+        val execution: Execution? = null,
     )
 
     /** Accept a JSON string array so the UI never invents a shell tokenizer. */
@@ -179,14 +199,31 @@ object ExtensionRelayBootstrap {
             "进程映射必须唯一有效，并且需要显式 workspace root"
         }
         validateEnvironmentNames(request.processEnvironmentNames)
-        require(request.processEnvironmentNames.isEmpty() || request.processPrograms.isNotEmpty()) {
-            "选择执行端环境名称需要固定进程映射"
+        require(request.processEnvironmentNames.isEmpty() || request.processPrograms.isNotEmpty() || request.execution != null) {
+            "选择执行端环境名称需要固定进程映射或 Node / Exec 运行档"
         }
         val argv = buildList {
             add(request.executable)
             add("relay"); add("--stdio")
             add("--trust-development-digest"); add(request.executorDigest)
             add("--client-digest"); add(request.clientDigest)
+            request.execution?.let { execution ->
+                require(execution.authorized) { "Node / Exec 需要明确允许本次进程执行" }
+                require(absolutePath(execution.temporaryDirectory)) { "请指定远端已存在的绝对临时目录" }
+                when (val selected = execution.runtime) {
+                    Execution.Runtime.Exec -> { add("--runtime"); add("exec"); add("--allow-process-execution") }
+                    is Execution.Runtime.Node -> with(selected.dependency) {
+                        require(absolutePath(executable) && absolutePath(sdkDirectory) &&
+                            version.length in 1..128 && version.matches(Regex("[0-9][0-9A-Za-z.+-]*")) &&
+                            sha256.matches(Regex("[a-f0-9]{64}")) && sdkCatalogSHA256.matches(Regex("[a-f0-9]{64}"))) {
+                            "Node 需要绝对路径、无 v 前缀的版本、可执行摘要和 Host SDK catalog 摘要"
+                        }
+                        add("--runtime"); add("node"); add("--allow-process-execution")
+                        add("--node-runtime"); add(executable); add(version); add(sha256)
+                        add("--node-sdk"); add(sdkDirectory); add(sdkCatalogSHA256)
+                    }
+                }
+            }
             request.methods.forEach { add("--method"); add(it) }
             request.hostMethods.forEach { add("--host-method"); add(it) }
             request.workspaceRootDirectory?.let { add("--root"); add("workspace"); add(it) }
@@ -201,10 +238,13 @@ object ExtensionRelayBootstrap {
         require(argv.all { validArgument(it, 4096) }) {
             "远端启动参数包含不支持的字符或过长"
         }
-        return "exec " + argv.joinToString(" ", transform = ::quote).also {
+        val environment = request.execution?.let { "TMPDIR=" + quote(it.temporaryDirectory) + " " }.orEmpty()
+        return (environment + "exec " + argv.joinToString(" ", transform = ::quote)).also {
             require(it.toByteArray().size <= 1024) { "远端启动命令超过 SSH 插件路由上限" }
         }
     }
+
+    private fun absolutePath(value: String): Boolean = value.startsWith('/') && validArgument(value, 4096)
 
     private fun validMethod(value: String): Boolean = value.length <= 128 &&
         value.matches(Regex("[a-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*"))

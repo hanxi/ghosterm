@@ -28,6 +28,37 @@ public enum ExtensionRelayBootstrap {
         }
     }
 
+    /// Explicit remote execution choice. The remote gterm verifies these claims
+    /// against the real executable and captured Host SDK before activation.
+    public struct NodeDependency: Sendable, Equatable {
+        public let executable, version, sha256, sdkDirectory, sdkCatalogSHA256: String
+        public init(executable: String, version: String, sha256: String,
+                    sdkDirectory: String, sdkCatalogSHA256: String) {
+            self.executable = executable; self.version = version; self.sha256 = sha256
+            self.sdkDirectory = sdkDirectory; self.sdkCatalogSHA256 = sdkCatalogSHA256
+        }
+    }
+
+    public struct Execution: Sendable, Equatable {
+        public enum Runtime: Sendable, Equatable { case node(NodeDependency), exec }
+        public let runtime: Runtime
+        public let temporaryDirectory: String
+        public let authorized: Bool
+        public init(runtime: Runtime, temporaryDirectory: String, authorized: Bool) {
+            self.runtime = runtime; self.temporaryDirectory = temporaryDirectory
+            self.authorized = authorized
+        }
+        public var reviewDescription: String {
+            let detail: String
+            switch runtime {
+            case .exec: detail = "Exec（使用已检查包内的原生入口）"
+            case .node(let node):
+                detail = "Node \(node.version) · \(node.executable)\n可执行 SHA-256：\(node.sha256)\nHost SDK：\(node.sdkDirectory)\nSDK catalog SHA-256：\(node.sdkCatalogSHA256)"
+            }
+            return detail + "\n远端临时目录：\(temporaryDirectory)\n进程执行：" + (authorized ? "本次已明确允许" : "尚未允许")
+        }
+    }
+
     public struct Request: Sendable {
         public let executable: String
         public let executorDirectory: String
@@ -38,6 +69,7 @@ public enum ExtensionRelayBootstrap {
         public let scopedRoots: [ScopedRoot]
         public let processPrograms: [ProcessProgram]
         public let processEnvironmentNames: [String]
+        public let execution: Execution?
         public let command: String
         public let arguments: [String]
 
@@ -46,6 +78,7 @@ public enum ExtensionRelayBootstrap {
                     scopedRoots: [ScopedRoot] = [],
                     processPrograms: [ProcessProgram] = [],
                     processEnvironmentNames: [String] = [],
+                    execution: Execution? = nil,
                     command: String, arguments: [String] = []) {
             self.executable = executable; self.executorDirectory = executorDirectory
             self.executorDigest = executorDigest; self.clientDigest = clientDigest
@@ -53,6 +86,7 @@ public enum ExtensionRelayBootstrap {
             self.scopedRoots = scopedRoots
             self.processPrograms = processPrograms
             self.processEnvironmentNames = processEnvironmentNames
+            self.execution = execution
             self.command = command; self.arguments = arguments
         }
     }
@@ -136,12 +170,33 @@ public enum ExtensionRelayBootstrap {
             throw invalid("进程映射必须唯一有效，并且需要至少一个显式 workspace root")
         }
         try validateEnvironmentNames(request.processEnvironmentNames)
-        guard request.processEnvironmentNames.isEmpty || !request.processPrograms.isEmpty else {
-            throw invalid("显式进程环境需要配置进程映射")
+        guard request.processEnvironmentNames.isEmpty || !request.processPrograms.isEmpty || request.execution != nil else {
+            throw invalid("显式进程环境需要配置进程映射或 Node / Exec 运行档")
         }
         // Keep each expression small for the Swift 6.1 compiler used by CI.
         var argv: [String] = [request.executable, "relay", "--stdio", "--trust-development-digest",
                               request.executorDigest, "--client-digest", request.clientDigest]
+        if let execution = request.execution {
+            guard execution.authorized else { throw invalid("Node / Exec 需要明确允许本次进程执行") }
+            guard absolutePath(execution.temporaryDirectory) else { throw invalid("请指定远端已存在的绝对临时目录") }
+            switch execution.runtime {
+            case .exec:
+                argv.append(contentsOf: ["--runtime", "exec", "--allow-process-execution"])
+            case .node(let node):
+                guard absolutePath(node.executable), absolutePath(node.sdkDirectory),
+                      !node.version.isEmpty, node.version.utf8.count <= 128,
+                      node.version.utf8.first.map({ (48...57).contains($0) }) == true,
+                      node.version.utf8.allSatisfy({
+                          (48...57).contains($0) || (65...90).contains($0) ||
+                          (97...122).contains($0) || $0 == 46 || $0 == 45 || $0 == 43
+                      }), isDigest(node.sha256), isDigest(node.sdkCatalogSHA256) else {
+                    throw invalid("Node 需要绝对路径、无 v 前缀的版本、可执行摘要和 Host SDK catalog 摘要")
+                }
+                argv.append(contentsOf: ["--runtime", "node", "--allow-process-execution",
+                    "--node-runtime", node.executable, node.version, node.sha256,
+                    "--node-sdk", node.sdkDirectory, node.sdkCatalogSHA256])
+            }
+        }
         for method in request.methods {
             argv.append(contentsOf: ["--method", method])
         }
@@ -166,7 +221,8 @@ public enum ExtensionRelayBootstrap {
         guard argv.allSatisfy({
             !$0.utf8.contains(0) && !$0.contains("\n") && !$0.contains("\r") && $0.utf8.count <= 4096
         }) else { throw invalid("远端启动参数包含不支持的字符或过长") }
-        let command = "exec " + argv.map(quote).joined(separator: " ")
+        let environment = request.execution.map { "TMPDIR=" + quote($0.temporaryDirectory) + " " } ?? ""
+        let command = environment + "exec " + argv.map(quote).joined(separator: " ")
         guard command.utf8.count <= 1024 else { throw invalid("远端启动命令超过 SSH 插件路由上限") }
         return command
     }
@@ -196,6 +252,11 @@ public enum ExtensionRelayBootstrap {
             return false
         }
         return !previousSeparator
+    }
+
+    private static func absolutePath(_ value: String) -> Bool {
+        value.hasPrefix("/") && value.utf8.count <= 4096 &&
+            !value.utf8.contains(0) && !value.contains("\n") && !value.contains("\r")
     }
 
     private static func validRootID(_ value: String) -> Bool {

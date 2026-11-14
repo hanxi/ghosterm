@@ -5500,3 +5500,23 @@ App 的依赖选择 / 启动配置、通用 Node/Exec 实际 SSH / tmux 产品�
 最终低并发原件：公开 **69 项 / 13 组 / 686 份输入 / 141 条命令**；私有 **63 项 / 17 组 / 686 份 / 159 条**；CLI **21 项 / 9 组 / 694 份 / 49 条**。所有修改对象均恢复到原字节、实际 Node / SDK 输入摘要不变；没有降低两秒或 tmux 原断言。最终默认 **537/537 / 177 ABI**、JS-on / SSH-on / 保留断言 **762/762 CTest**、clang-format **19.1.7 / 240 文件**、Apple **174 引用 / 3 登记未用**、JNI **140 / 37**、Portable 六模块 / 原摘要逐字节检查、脚本语法及 diff 检查通过。macOS Release 删除本批旧 executable 后强制实际重链通过；Android 最终 native Debug / 测试 APK 增量构建通过，四模块 release lint 证据在前轮，未以增量编译冒充设备运行。JS-off gterm 实际独立重建后仍在任何实例 / 子进程激活前显式返回不支持，stdout / 临时目录为空。
 
 验收完成后清理本批临时构建、SDK / 工具、隔离副本、探针和日志，共释放 **861.9 MiB**；tmp/ 保留目录与既有 VM 仍使用的三份 eq-* 配置 / 输出（12 KiB）。默认 Core 恢复 / 保持 JS-off / tests-on；测试均为 CLI 后台运行。本批只本地 main 提交，不推送或发行。
+
+### P4 实施第十九批：两端 App 的 Executor 运行档与依赖配置（2026-11-14）
+
+macOS / Android 的实验插件启动页增加显式 Portable / Node / Exec 选择。默认 Portable 不产生外部进程开关；Client Host 仍只声明 Portable JS，不把远端选择误记成本机引擎支持。Node 配置固定远端规范绝对可执行路径、无 `v` 前缀的版本、SHA-256、Host SDK 目录及独立 catalog SHA-256；Exec 只选择已检查包内的系统 / 架构入口，不沿用隐藏的 Node 字段。UI 仅检查参数格式，实际远端规范路径、版本和身份由 gterm/Core 再验，不把填写值当成已验证观察。
+
+两档要求显式远端已存在的绝对临时目录及默认未勾选的本次 OS 进程执行允许；通过逐项 POSIX 引号构造 `TMPDIR=... exec ...`，不借客户端临时目录，不安装运行时或 SDK。运行档、依赖、主机及其它启动配置编辑后撤回允许。AppModel / ViewModel 保存启动选择快照，在 Session 确认页显示运行档、依赖摘要和临时目录；Swift 的各次运行状态更新继续保留同一快照，Android 异步连接前复制 argv、方法、进程固定参数和环境名称。Android 确认内容可滚动，避免新增依赖信息挤出授权按钮。主进程允许、Session 能力及业务进程映射保持独立；仅选择 Node / Exec 不会追加 process.spawn / process.pipes 或开放根目录。
+
+两端 Relay builder 明确生成 `--runtime`、`--allow-process-execution`、Node 版本 / 摘要 / SDK 参数；Node / Exec 没有业务进程映射时也可选择额外执行端环境名称，值仍只由执行端读取。拒绝缺失允许、相对依赖 / 临时路径、版本格式错误、坏摘要、换行 / CR / NUL / 非法 UTF-8 及超限完整命令。Android 同时修正原 1024 字节判断漏算 `exec ` 前缀的问题；不扩大 C SSH 路由上限。使用方式与边界见 [gterm README](../../cli/gterm/README.md#app-中选择远端-executor-运行档)。
+
+`test-plugin-execution-app.py --macos --mutate` 的七项基线 / 七组隔离变异通过；另与既有 Relay / Claude 固定进程参数及环境入口组成最终十项、零跳过 / 失败的 Swift 回归。真实 POSIX shell 执行一次性 argv 探针，逐项核对中文 / emoji / 引号 / 命令替换字符、空参数和 TMPDIR 原字节，不发生注入。七组依次移除执行允许、错选运行档、把独立 SDK 摘要误绑为可执行摘要、丢 TMPDIR、接受 `v` 版本、放宽命令预算、配置编辑不撤回允许；均真实重新编译后单条普通 XCTest 断言红，独立 Host profile 配置绿，恢复绿及 SHA256。初轮 runner 依赖旧版 SwiftPM 的 `Compiling ...` 日志文本，未识别新版构建输出而拒收；现核对指定 `.o` 的实际 SHA256 变化，完整重跑取证，不把该诊断拒收计作保护通过。最终 macOS 原件记录 472 份输入摘要、23 条命令。
+
+Android API 36 / arm64 / 4 KiB 页专用无窗口模拟器的六项基线 / 八组不同隔离变异通过：除对应 Relay 参数保护外，实际原生表单另护 Exec 选择传递、默认不允许、每个 Node 依赖编辑及切换运行档后撤回允许。增强后的同一六项还实际提交完整 Node 依赖（可执行与 SDK 摘要不同），核对生成的选择及随后编辑不改变已提交目录快照；增强后完整八组再次复验。每组真实 Kotlin 编译、普通单条目标断言红、同 APK Native Core 配置绿、恢复绿与 SHA256；安装 APK 和设备上的 SHA256 一致。旧 Claude RPC / 启动表单十三项另分轮通过，非本轮新增六项的同一次全量客户端验收。
+
+本批不改 C ABI / SDK；两端实际构建与最终闸门见下。所有对象为工程 tmp/ 的隔离源码、argv 探针及专用无窗口模拟器，不连接用户主机或账号，不运行模型。通用 Node / Exec 从两端 App 经真实 SSH / ProxyJump / tmux 的激活、RPC、资源、取消 / 停止 / 断流矩阵、官方候选包运行档、整进程资源预算及 P1–P6 其它未勾选项继续待完成，不以配置与 UI 通过代替这些要求；默认 App 仍 JS-off，不发行、不推送，不增加 CI 二十份。
+
+收尾补上 Android 在同一打开的表单内替换包 / 命令时的身份绑定：允许值另按 Client 包 ID、摘要及完整命令重置；旧 argv / 执行选择快照保持原身份。最终源的原八组完整复验与 `--case selection-identity` 的一组增量分别通过，共九个不同组分轮；每轮首尾六项通过，输入 472 份摘要一致，分别记录 149 / 30 条命令，不重复计算先前的八组。删除身份键时，真实表单的命令替换使单条授权状态断言失败，同 APK Core 对照绿，复原后表单及最终六项绿。旧十三项回归为身份补充前的分轮结果，不冒充该补充后的全客户端复跑。
+
+最终 macOS arm64 Release 使用 Xcode 27.1 / Swift 6.4，Android JS-enabled Debug / 测试 APK、未签名 Release / R8 及 app / bridge / data / terminal 四模块 Release lint 通过；默认 Core **JS-off / tests-on：537/537 CTest、177 ABI**，Apple **174 引用 / 3 登记未用**、JNI **140 / 37**，clang-format **19.1.7 / 240 文件**、Python 语法和 diff 检查通过。没有本批云端 Swift 6.1.2 构建证据。
+
+CI 状态另记：旧 `43346407706` 的 Swift 类型推导问题已由前述提交修复且 `43411785149` 通过；新 `43545823180` 在 Core `bridge_transfer_ssh` 的 deny2 关闭断言失败，并未到 macOS 编译。此前本机重复专项未复现，本批完整 537 项也通过，但没有定位其根因或新云端复验，不称该失败已修复，不降低关闭阈值。

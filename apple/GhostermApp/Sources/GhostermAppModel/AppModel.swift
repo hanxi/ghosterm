@@ -65,6 +65,7 @@ public final class AppModel: ObservableObject {
         public let executorDigest: String
         public let peerIdentity: String
         public let remoteCommand: String
+        public let executorExecution: ExtensionRelayBootstrap.Execution?
         public let methods: [String]
         public let hostMethods: [String]
         public let requiredCapabilities: [String]
@@ -1122,7 +1123,8 @@ public final class AppModel: ObservableObject {
                                      methods: [String], hostMethods: [String],
                                      scopedRoots: [ExtensionRelayBootstrap.ScopedRoot] = [],
                                      processPrograms: [ExtensionRelayBootstrap.ProcessProgram] = [],
-                                     processEnvironmentNames: [String] = []) async {
+                                     processEnvironmentNames: [String] = [],
+                                     executorExecution: ExtensionRelayBootstrap.Execution? = nil) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
         extensionRunBusy = true; extensionRunIssue = nil
@@ -1142,7 +1144,7 @@ public final class AppModel: ObservableObject {
                 executorDirectory: executorDirectory, executorDigest: executorDigest,
                 clientDigest: packageDigest, methods: methods, hostMethods: hostMethods,
                 scopedRoots: scopedRoots, processPrograms: processPrograms,
-                processEnvironmentNames: processEnvironmentNames,
+                processEnvironmentNames: processEnvironmentNames, execution: executorExecution,
                 command: command, arguments: arguments))
             let additionalCapabilities = (scopedRoots.isEmpty || !selected.requiredCapabilities.contains("resource.receive")
                 ? [] : ["file.readScoped"]) +
@@ -1176,7 +1178,7 @@ public final class AppModel: ObservableObject {
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
-                peerIdentity: sshAlias, remoteCommand: bootstrap, methods: methods, hostMethods: hostMethods,
+                peerIdentity: sshAlias, remoteCommand: bootstrap, executorExecution: executorExecution, methods: methods, hostMethods: hostMethods,
                 requiredCapabilities: Array(Set(selected.requiredCapabilities + additionalCapabilities)).sorted(),
                 session: session, runtime: nil, receivedResources: [], codexEvents: [])
             let deadline = ProcessInfo.processInfo.systemUptime + 60
@@ -1584,7 +1586,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest,
-            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
+            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution,
             methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: session, runtime: run.runtime, receivedResources: run.receivedResources,
@@ -1602,7 +1604,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest,
-            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand,
+            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution,
             methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: runtime, receivedResources: run.receivedResources,
@@ -1638,7 +1640,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
-            remoteCommand: run.remoteCommand, methods: run.methods, hostMethods: run.hostMethods,
+            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: run.runtime,
             receivedResources: run.receivedResources + [resource], codexEvents: run.codexEvents)
@@ -1720,7 +1722,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
-            remoteCommand: run.remoteCommand, methods: run.methods, hostMethods: run.hostMethods,
+            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities, session: run.session, runtime: run.runtime,
             receivedResources: run.receivedResources, codexEvents: run.codexEvents + [encoded])
         if event.kind == "notification" {

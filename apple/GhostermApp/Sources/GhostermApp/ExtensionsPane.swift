@@ -17,17 +17,18 @@ struct ExtensionsPane: View {
     private struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
         var decision: String = "尚未批准"
-        var sshAlias = ""
-        var executable = "gterm"
-        var executorDirectory = ""
-        var executorDigest = ""
-        var command = ""
-        var argumentsJSON = "[]"
-        var methodsJSON = "[]"
-        var hostMethodsJSON = "[]"
-        var resourceRoot = ""
-        var processProgramsJSON = "[]"
-        var processEnvironmentJSON = "[]"
+        var sshAlias = "" { didSet { executionDraft.authorized = false } }
+        var executable = "gterm" { didSet { executionDraft.authorized = false } }
+        var executorDirectory = "" { didSet { executionDraft.authorized = false } }
+        var executorDigest = "" { didSet { executionDraft.authorized = false } }
+        var command = "" { didSet { executionDraft.authorized = false } }
+        var argumentsJSON = "[]" { didSet { executionDraft.authorized = false } }
+        var methodsJSON = "[]" { didSet { executionDraft.authorized = false } }
+        var hostMethodsJSON = "[]" { didSet { executionDraft.authorized = false } }
+        var resourceRoot = "" { didSet { executionDraft.authorized = false } }
+        var processProgramsJSON = "[]" { didSet { executionDraft.authorized = false } }
+        var processEnvironmentJSON = "[]" { didSet { executionDraft.authorized = false } }
+        var executionDraft = ExecutorExecutionDraft()
         init(review: ExtensionController.PackageReview) {
             self.review = review
             self.command = review.commands.first?.path ?? ""
@@ -66,7 +67,7 @@ struct ExtensionsPane: View {
                     }
                     Text("版本 \(entry.review.version) · 发布者 \(entry.review.publisher) · \(entry.review.license)")
                         .font(DS.Font.caption).foregroundStyle(.secondary)
-                    Text("运行时：\(entry.review.runtime) · 发布者身份：\(entry.review.publisherAuthenticated ? "已认证" : "未认证")")
+                    Text("Client 运行时：\(entry.review.runtime) · 发布者身份：\(entry.review.publisherAuthenticated ? "已认证" : "未认证")")
                         .font(DS.Font.caption).foregroundStyle(.secondary)
                     Text("声明的必需能力：\(entry.review.requiredCapabilities.isEmpty ? "无" : entry.review.requiredCapabilities.joined(separator: ", "))")
                         .font(DS.Font.caption)
@@ -83,6 +84,7 @@ struct ExtensionsPane: View {
                                 .accessibilityIdentifier("plugin-ssh-alias-\(entry.review.id)")
                             TextField("远端 gterm 可执行文件", text: $entry.executable)
                                 .accessibilityIdentifier("plugin-executable-\(entry.review.id)")
+                            ExecutorRuntimeFields(draft: $entry.executionDraft)
                             TextField("Executor 包目录", text: $entry.executorDirectory)
                                 .accessibilityIdentifier("plugin-executor-directory-\(entry.review.id)")
                             TextField("Executor SHA-256", text: $entry.executorDigest)
@@ -193,7 +195,8 @@ struct ExtensionsPane: View {
                     executable: entry.executable, executorDirectory: entry.executorDirectory,
                     executorDigest: entry.executorDigest, methods: methods, hostMethods: hostMethods,
                     scopedRoots: roots, processPrograms: processPrograms,
-                    processEnvironmentNames: processEnvironment)
+                    processEnvironmentNames: processEnvironment,
+                    executorExecution: entry.executionDraft.selection)
             }
         } catch { issue = "插件启动参数无效：\(error)" }
     }
@@ -212,6 +215,9 @@ struct ExtensionsPane: View {
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             Text("参数：\(run.arguments.isEmpty ? "无" : run.arguments.map { String(reflecting: $0) }.joined(separator: " "))")
                 .font(DS.Font.caption).textSelection(.enabled)
+            Text("Executor 运行档：\(run.executorExecution?.reviewDescription ?? "Portable JS（内嵌运行时）")")
+                .font(DS.Font.caption).textSelection(.enabled)
+                .accessibilityIdentifier("plugin-consent-executor-runtime")
             Text("按已检查 argsSchema 解码：\(run.decodedArguments ?? "无映射（空参数）")")
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             Text("Executor RPC：\(run.methods.isEmpty ? "无" : run.methods.joined(separator: ", "))")

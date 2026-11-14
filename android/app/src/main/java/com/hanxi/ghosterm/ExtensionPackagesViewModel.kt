@@ -41,6 +41,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         val arguments: List<String>, val decodedArguments: String?, val methods: List<String>, val hostMethods: List<String>, val executorDigest: String,
         val peerIdentity: String, val remoteCommand: String, val requiredCapabilities: List<String>,
         val info: ExtensionSession.Info,
+        val executorExecution: ExtensionRelayBootstrap.Execution? = null,
     )
 
     internal val controller: ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
@@ -74,11 +75,15 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
     fun launch(entry: Entry, command: ExtensionController.Command, target: PreparedSSH,
         request: ExtensionRelayBootstrap.Request, sessions: SessionsViewModel) {
         val owner = controller ?: return
-        val launchRequest = if (command.path == "ai codex") request.copy(
+        val configuredRequest = if (command.path == "ai codex") request.copy(
             methods = (request.methods + codexExecutorMethods).distinct(),
             hostMethods = (request.hostMethods + codexHostMethods).distinct())
         else if (command.path == "ai claude") request.copy(methods = (request.methods + ClaudeRPCClient.methods).distinct())
         else request
+        val launchRequest = configuredRequest.copy(arguments = configuredRequest.arguments.toList(),
+            methods = configuredRequest.methods.toList(), hostMethods = configuredRequest.hostMethods.toList(),
+            processPrograms = configuredRequest.processPrograms.map { it.copy(prefixArguments = it.prefixArguments.toList()) },
+            processEnvironmentNames = configuredRequest.processEnvironmentNames.toList())
         if (launchBusy) return
         if (activeSession != null) { error = "请先停止并释放当前插件 Session。"; return }
         if (sessions.connecting != null) { error = "当前已有 SSH 连接请求，请完成或取消后再启动插件"; return }
@@ -110,15 +115,15 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                     try {
                         check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
                         val extraCapabilities = buildList {
-                            if (request.workspaceRootDirectory != null &&
+                            if (launchRequest.workspaceRootDirectory != null &&
                                 "resource.receive" in entry.review.requiredCapabilities) add("file.readScoped")
-                            if (request.processPrograms.isNotEmpty()) {
+                            if (launchRequest.processPrograms.isNotEmpty()) {
                                 add("process.spawn")
                                 add("process.pipes")
                             }
                         }
                         val adopted = owner.adoptSSHSession(entry.review.id, entry.review.digest,
-                            request.executorDigest, "0.1.0", target.alias,
+                            launchRequest.executorDigest, "0.1.0", target.alias,
                             (launchRequest.methods.map { it to ExtensionSession.Role.EXECUTOR } +
                                 launchRequest.hostMethods.map { it to ExtensionSession.Role.HOST }).map { (method, receiver) ->
                                 ExtensionSession.Method(method, "session.rpc", receiver,
@@ -131,7 +136,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                         activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
                             launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
                             launchRequest.executorDigest, target.alias, ExtensionRelayBootstrap.build(launchRequest),
-                            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info)
+                            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info, launchRequest.execution)
                         launchBusy = false
                         handshakeJob?.cancel()
                         handshakeJob = viewModelScope.launch { advanceToConsent(owner) }

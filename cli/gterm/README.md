@@ -65,7 +65,7 @@ Host 必须管理专属 stdio 的对端归属；本入口不实现本机 socket 
 具体业务 schema 仍由 SDK codec 检查，本入口没有实现任意 JSON Schema 服务。
 当前 stdio Executor 提供 `session.rpc` 与有界 ResourceStore；只有显式配置 `--root ID DIRECTORY` 时才提供 `file.readScoped`。每个根以 `O_NOFOLLOW` 打开、验证为当前用户拥有的目录，最多 8 个、每个最多 16 MiB；插件只看到 ID 与相对路径，不看到宿主绝对路径。资源 Store 在 `$TMPDIR` 下创建随机 `0700` 子目录，总预算 16 MiB、单资源 1 MiB、8 个槽位，Session 结束时按 owner 顺序关闭并移除。需要 `resource.receive` 的 Executor 使用带资源 feature 的 Session；缺少 Store 或必需根时明确拒绝。`file.readScoped` 必须与 `resource.receive` 一起声明，普通 argv 仍通过显式启动参数传入。
 
-Native 启动器可为 Executor 明确配置 `--process-program NAME ABSOLUTE_PATH VERSION SHA256`；该映射来自本次用户/Host 设置，不由插件包选择。只有同时存在至少一个显式 workspace root 和映射时，兼容性事实及 Session 才开放 `process.spawn` / `process.pipes`。Core 在 Runtime open 时核对绝对可执行文件 SHA-256，并在每次 spawn 前复核文件身份；程序名还必须出现在已审查包的 `process.spawn` manifest scope。`VERSION` 是 Native Host 提供的版本声明，gterm/Core 不会自行运行 `--version` 探针，Codex adapter 会将它与锁定版本比较。子进程只收到 gterm 选择的 `HOME`、`PATH`、`XDG_CONFIG_HOME`、`CODEX_HOME`（若存在），不会继承其余 SSH/gterm 环境。Host mapping 当前是显式命令参数；不要把摘要/版本当成来自插件自身的声明。
+Native 启动器可为 Executor 明确配置 `--process-program NAME ABSOLUTE_PATH VERSION SHA256`；该映射来自本次用户/Host 设置，不由插件包选择。只有同时存在至少一个显式 workspace root 和映射时，兼容性事实及 Session 才开放 `process.spawn` / `process.pipes`。Core 在 Runtime open 时核对绝对可执行文件 SHA-256，并在每次 spawn 前复核文件身份；程序名还必须出现在已审查包的 `process.spawn` manifest scope。`VERSION` 是此业务程序映射的 Native Host 版本声明，gterm/Core 不会为该映射自行运行 `--version` 探针，Codex adapter 会将它与锁定版本比较。子进程只收到 gterm 选择的 `HOME`、`PATH`、`XDG_CONFIG_HOME`、`CODEX_HOME`、`TMPDIR`（若存在），不会继承其余 SSH/gterm 环境。Host mapping 当前是显式命令参数；不要把摘要/版本当成来自插件自身的声明。
 
 映射之后可重复 `--process-argument NAME VALUE` 固定该程序的启动参数；VALUE 即使以
 `--` 开头也按字面值消费。每个映射最多 16 项、每项 4096 字节、合计 16384 字节（含 NUL）。
@@ -76,8 +76,9 @@ Core 复制全部字符串，在插件 argv[0] 后、插件 argv[1...] 前插入
 
 `--process-environment NAME` 额外选择执行机器已有的环境变量，最多 27 个额外名称，
 与原五个默认候选一起受 32 项上限约束；重复 / 非法名称拒绝，显式名称缺值或空值报不支持。
-值不经 wire 传输，不打印到诊断；未选择的变量不继承。只有包声明、Host 配置与本次 Session
-共同允许进程服务时才可使用。`TMPDIR` 是五个默认候选之一；没有自动搬运客户端凭据或改用身份。
+值不经 wire 传输，不打印到诊断；未选择的变量不继承。Portable 档须有包声明、Host 配置与本次 Session
+共同允许的业务进程服务；Node / Exec 档也可将这些候选用于已明确允许的主 Executor，
+不会因此开放业务进程服务。`TMPDIR` 是五个默认候选之一；没有自动搬运客户端凭据或改用身份。
 
 例如，持有已审查 Node 后端与 profile 的可信启动器可将程序名映射到绝对 Node 可执行文件，
 固定脚本、`--profile` 与 profile 路径，再显式选择后端所需的执行端环境。此为 Portable
@@ -176,3 +177,31 @@ python3 scripts/test-plugin-process-runtime.py --node 已安装Node路径 --tool
 ```
 
 Swift / JNI 已同步公共配置布局和进程事实观察，但 App 的依赖选择、启动参数和 Node / Exec 产品入口仍未接；默认 App 插件开关保持原状态。运行档构件和 Host SDK 不加入 App 打包。
+
+### App 中选择远端 Executor 运行档
+
+实验 JS-enabled 的 macOS / Android 插件页面在来源审查批准后，提供显式的
+「Executor 运行档」选择。Client 仍运行于内嵌 Portable JS；此选择只决定 SSH 另一端的
+Executor，默认保持 Portable JS。
+
+Node 需要填写远端已安装 Node 的规范绝对路径、不带 `v` 的版本、可执行文件 SHA-256，
+以及预先准备好的 Host SDK 目录和独立 catalog SHA-256。Exec 使用已检查包内匹配
+远端系统 / 架构的入口。两档均需填写远端已存在的绝对临时目录，并勾选本次进程执行允许；
+运行档、依赖、主机或其它启动配置改变后需重新允许。目录通过 POSIX 引号构造的
+`TMPDIR=... exec ...` 传给远端 gterm，不使用客户端的临时目录或凭据值。
+
+之后仍有当前 Session 的独立能力确认；页面显示捕获的运行档、依赖与临时目录。
+主运行档允许不授予业务 `process.spawn` / `process.pipes`，业务进程仍需要独立的
+workspace root、Host 映射、包声明与 Session 授权。缺失依赖 / 摘要或版本不匹配会失败，
+不自动安装、不改选其它运行档。远端规范路径、实际文件身份与版本由 gterm/Core 核验，
+客户端的路径格式检查不等同于远端检查成功。完整启动命令仍受 SSH 路由的 1024 字节上限约束。
+
+配置入口验证（无账号 / 模型，Android 使用工程内专用无窗口模拟器）：
+
+```sh
+python3 scripts/test-plugin-execution-app.py --macos --mutate
+python3 scripts/test-plugin-execution-app.py --headless-api 36 --mutate
+```
+
+这些检查覆盖配置、授权撤回、依赖参数、原生表单及字面 shell 传递；它们不替代
+通用 Node / Exec 包从两端 App 经真实 SSH / tmux 激活、业务运行和停止的产品矩阵。
