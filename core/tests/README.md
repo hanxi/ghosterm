@@ -512,3 +512,42 @@ python3 scripts/mutation-check-ssh-read.py
 容量，`realpath` 失败和临时目录创建失败均返回非零，不能静默跳过 Include 断言。
 相对 Include 的真 `ssh -G` 对拍以 argv 执行，不经 shell 拼接；设备缺少真实 ssh 时不能
 将该项作为完整配置对照绿。它不替换或再生锁定版本的 golden 夹具。
+
+
+### 私有本机进程 stream 后端
+
+`extension/process-stream.{h,c}` 为本机基础宿主启动提供共同字节流的私有 provider，复用
+`process-owner` 的专属进程组 / 原生管道；还未接公共 Channel ABI、Swift / JNI 或 App 本机入口。
+Native 调用方必须先建立可执行文件信任并明确允许启动；原始 argv、已选 cwd fd 和环境独立传入，
+不经 shell、PATH 搜索或 PTY，不把基础宿主启动允许当作插件 Session consent / process.spawn。
+本后端不验证发布者、不下载运行时，不提供 OS 沙箱、自动发现、安装或恢复。
+
+默认寿命 60 秒（最大一小时）、TERM 宽限 100 ms（最大五秒）、stdout 16 MiB（最大 64 MiB）、
+stderr 64 KiB（最大 1 MiB）；诊断只保留开头 4096 字节原始数据并标截断。读写沿共同 16 KiB
+quantum，有界 poll 使用单调墙钟和独立 wake fd。stop 只设标记并唤醒，close 仍由原 IO owner
+驱动，未释放继续占 requested-heap 预算。首次业务 IO / 额度 / 寿命失败不因后续清理改写。
+
+stdout EOF、已观察退出、实际 reap 与业务完成必须分开。自然退出时先尝试终止本轮进程组再
+reap leader，之后绝不再向其旧 pgid 发信号。Darwin 的全僵尸组可返回 EPERM；同时保留
+`group_signal_error` 与 `group_fenced=false`，不能据 leader 的实际退出 0 宣布组清理成功。
+TERM 与退出竞态中的 EPERM 只用原有宽限继续观察，不伪造信号已送达；KILL / reap 等释放
+失败继续保留 owner，成功重试后才释放本机资源。CLOSE_RELEASED 不证明任意孙进程或业务成功。
+
+```sh
+# 工程内隔离副本，优化 O1 + ASan/UBSan；25 项基线和可选十五组真编译变异
+TMPDIR="$PWD/tmp" python3 scripts/test-plugin-process-stream.py --mutate \
+  --receipt tmp/process-stream.json
+# 已用 NDK 28.2.13676358 / android-29 / arm64-v8a、JS=OFF / SSH=OFF、tests=ON
+# 构建 test_process_stream、test_process_stream_boundary 后，在自有无窗口 AVD 执行
+python3 scripts/test-plugin-process-stream-android.py --build tmp/process-stream-ndk --headless-api 29
+python3 scripts/test-plugin-process-stream-android.py --build tmp/process-stream-ndk --headless-api 36
+```
+
+正常断言红须为单条 `FAIL process_stream...`、退出 1，编译、sanitizer、崩溃与外层超时单列。
+变异强制重编 provider 库对象及直接包含其 C 源的边界测试对象，核对对应实际对象与可执行
+摘要变化；配置对照链接同 archive，复原核对源码 SHA256 并跑完整 25 项。
+故障夹具子进程另有八秒 alarm，故意破坏 fence / close 时也不成为常驻服务；失败 / 中断清理
+只处理本轮私有可执行路径与已核对启动身份对应的子进程。LSan 关闭；ASan 子夹具显式选择
+`symbolize=0` 避免空 PATH 的符号化警告污染受测 stderr，真实 sanitizer 错误仍报告并中止。
+这些是 Core provider 证据，不是 App、本机 IPC 准入、完整资源 / 生命周期或真实 Agent 验收，
+不增加 macOS CI 二十份。

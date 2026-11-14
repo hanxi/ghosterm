@@ -44,6 +44,7 @@ add_library(ghosterm_core STATIC
   src/extension/runtime.c
   src/extension/runtime-resource.c
   src/extension/process-owner.c
+  src/extension/process-stream.c
   src/extension/process-jobs.c
   src/extension/process-service.c
   src/extension/process-rpc.c
@@ -927,4 +928,23 @@ set_tests_properties(tmux_command PROPERTIES TIMEOUT 15)
 add_test(NAME tmux_adversarial COMMAND ${Python3_EXECUTABLE}
   ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/test-tmux.py --fake --binary $<TARGET_FILE:test_tmux>)
 set_tests_properties(tmux_adversarial PROPERTIES TIMEOUT 30)
+
+add_executable(test_process_stream tests/test_process_stream.c)
+target_include_directories(test_process_stream PRIVATE src)
+target_link_libraries(test_process_stream PRIVATE ghosterm_core)
+target_compile_options(test_process_stream PRIVATE -Wall -Wextra -Werror)
+foreach(mode validation denied memory context duplex tail signal stderr stdout-limit stderr-limit
+    eof-live broken wait deadline wake term ignore orphan)
+  add_test(NAME process_stream_${mode} COMMAND test_process_stream ${mode} ${GHOSTERM_TEST_TMP})
+  set_tests_properties(process_stream_${mode} PROPERTIES TIMEOUT 20)
+endforeach()
+add_executable(test_process_stream_boundary tests/test_process_stream_boundary.c)
+target_include_directories(test_process_stream_boundary PRIVATE src)
+target_link_libraries(test_process_stream_boundary PRIVATE ghosterm_core)
+target_compile_options(test_process_stream_boundary PRIVATE -Wall -Wextra -Werror)
+foreach(mode running-denied dead-group-unknown dead-group-io poll-retry stderr-error wait-error first-error)
+  add_test(NAME process_stream_boundary_${mode} COMMAND test_process_stream_boundary ${mode}
+      $<TARGET_FILE:test_process_stream> ${GHOSTERM_TEST_TMP})
+  set_tests_properties(process_stream_boundary_${mode} PROPERTIES TIMEOUT 20)
+endforeach()
 endif()

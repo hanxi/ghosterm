@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-14 两端显式 SSH attach 与前台实例绑定。状态：**P0 技术风险探针与首个 wire v1 envelope 已关闭并冻结；当前生产双向业务只走无 PTY SSH exec，普通 TTY 回包明确不支持，QuickJS-NG 0.18.0 为首选引擎。Core / gterm 与 macOS、Android 首条 SSH 插件调用链已接入 wire v1；一次性前台 local IPC 和两端显式 SSH attach 已接实验入口，范围见文末 S5 第一、二批；App 本机直接启动 / 自动发现仍未实现。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation。API 29 / API 36 arm64 无窗口 AVD 已通过真实系统 SAF 文件夹选择、Settings 来源摘要批准、双跳 Preview、Session consent、Client Runtime 与资源面板收件。macOS 真实双跳 SSH 的 Markdown / PNG 资源驱动生产 `ExtensionsPane` 离屏绘制；另一真实 Preview Session 收到的 HTML / CSS / PNG 快照现交给独立生产 WebKit Coordinator 绘制探针；插件导入、审查批准、启动参数、consent 与停止控件现有稳定 accessibility identifier。官方 Preview Executor 的路径长度边界已按 Unicode code point 与冻结 argsSchema 对齐，附件列表现在可用 `\\,` 表示文件名内的逗号。API 36 / 16 KiB 页真实双跳 Preview 收件、Markdown + PNG 同目录附件渲染及 Settings 停止 / 释放已通过；冷启动下的默认 25 ms Client Runtime CPU slice 曾失败，Android Host 现显式使用仍受限的 100 ms worker slice，清空应用数据后复验通过。P3 Codex 已将官方 stable 批准嵌套载荷、turn 输入及 turn/item 通知关键字段与 CLI 生成类型和 JSON Schema 精确对拍；无 DOM conversation facade 与生产 Executor helper 已组合真实锁定 CLI 的版本核对、initialize、thread/start 和关闭 reap。macOS AppModel 已接收有界 `codex.event`，原生面板现能启动 thread、发送文本、请求中断，并对命令/文件批准显示请求参数及显式批准一次 / 拒绝按钮；Xcode 27.1 下本轮 Apple 全量闸门为 406 项通过、5 项跳过，仍无真实产品 Codex turn / approval E2E 或模型调用证据。Native process mapping 表单、Runtime `ctx.process` 和 Core owner 已分批接入；两端已有 thread / turn / approval 控件、消息与工具活动时间线及有界补丁预览。官方 Codex 候选包现可构建为目录导入产物，编译后入口 fixture 与原生 metadata / integrity 对拍通过；macOS AppModel 的单跳与双跳隔离 SSH 已用真实 CLI 验证无模型 thread/start、原生事件收件及停止，拒绝跳板主机密钥时 Executor 未启动；真实模型 turn / approval 与安装 / 启动 UI 整链仍待验；完整补丁受控协议夹具的两端证据见最新 P3 进展。用户真机仍待验。**
+日期：2026-11-05，更新至 2026-11-15 前台 tmux 附着与私有本机进程 provider。状态：**P0 技术风险探针与首个 wire v1 envelope 已关闭并冻结；当前生产双向业务只走无 PTY SSH exec，普通 TTY 回包明确不支持，QuickJS-NG 0.18.0 为首选引擎。Core / gterm 与 macOS、Android 首条 SSH 插件调用链已接入 wire v1；一次性前台 local IPC 和两端显式 SSH attach 已接实验入口，范围见文末 S5 第一至三批；S5 第四批已补私有本机进程 provider，公共绑定 / App 本机直接启动 / 自动发现仍未实现。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation。API 29 / API 36 arm64 无窗口 AVD 已通过真实系统 SAF 文件夹选择、Settings 来源摘要批准、双跳 Preview、Session consent、Client Runtime 与资源面板收件。macOS 真实双跳 SSH 的 Markdown / PNG 资源驱动生产 `ExtensionsPane` 离屏绘制；另一真实 Preview Session 收到的 HTML / CSS / PNG 快照现交给独立生产 WebKit Coordinator 绘制探针；插件导入、审查批准、启动参数、consent 与停止控件现有稳定 accessibility identifier。官方 Preview Executor 的路径长度边界已按 Unicode code point 与冻结 argsSchema 对齐，附件列表现在可用 `\\,` 表示文件名内的逗号。API 36 / 16 KiB 页真实双跳 Preview 收件、Markdown + PNG 同目录附件渲染及 Settings 停止 / 释放已通过；冷启动下的默认 25 ms Client Runtime CPU slice 曾失败，Android Host 现显式使用仍受限的 100 ms worker slice，清空应用数据后复验通过。P3 Codex 已将官方 stable 批准嵌套载荷、turn 输入及 turn/item 通知关键字段与 CLI 生成类型和 JSON Schema 精确对拍；无 DOM conversation facade 与生产 Executor helper 已组合真实锁定 CLI 的版本核对、initialize、thread/start 和关闭 reap。macOS AppModel 已接收有界 `codex.event`，原生面板现能启动 thread、发送文本、请求中断，并对命令/文件批准显示请求参数及显式批准一次 / 拒绝按钮；Xcode 27.1 下本轮 Apple 全量闸门为 406 项通过、5 项跳过，仍无真实产品 Codex turn / approval E2E 或模型调用证据。Native process mapping 表单、Runtime `ctx.process` 和 Core owner 已分批接入；两端已有 thread / turn / approval 控件、消息与工具活动时间线及有界补丁预览。官方 Codex 候选包现可构建为目录导入产物，编译后入口 fixture 与原生 metadata / integrity 对拍通过；macOS AppModel 的单跳与双跳隔离 SSH 已用真实 CLI 验证无模型 thread/start、原生事件收件及停止，拒绝跳板主机密钥时 Executor 未启动；真实模型 turn / approval 与安装 / 启动 UI 整链仍待验；完整补丁受控协议夹具的两端证据见最新 P3 进展。用户真机仍待验。**
 
 **仍未完成：** P2 官方 Preview 的完整交互与端到端验证。真实双跳 SSH 资源现已到达 macOS AppModel 并由生产 `ExtensionsPane` 实际绘制；macOS `fileImporter` 选包、页面摘要批准、启动表单、真实 consent 按钮与收件之间的完整用户点击链仍未串成一次 UI E2E。headless WebKit probe 已用合成夹具及真实 AppModel / SSH 收件快照分别验证 CSS / PNG 绘制、资源刷新，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；它仍不替代 SwiftUI 内嵌 WebKit 的用户点击链。Android MainActivity Settings 的真实 SAF 选包 / 页面批准、SSH 收件、Markdown + PNG 绘制、停止 / 释放已在 API 29 / 36 常规页模拟器及 API 36 / 16 KiB 页模拟器分批通过。用户真机及完整生命周期 / 多格式矩阵仍待验。插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P3 已验证官方 CLI stable schema、策略决定和 turn/item 通知字段，生产 conversation facade 与真实 CLI 的无模型 thread/start/关闭链已组合；两端已有原生 turn / approval 控件、结构化消息 / 工具活动和有界 diff 预览；官方目录包可构建，仍没有真实模型 turn / approval 往返、安装启动到会话的完整双端 UI E2E 或 Ghosterm 插件闭环。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
@@ -5684,3 +5684,82 @@ CLI 新 idle-hangup 用例与已有 35 项共 36 项通过；变异 runner 支�
 未完成范围保持：App 本机直接启动 / IPC、发现 / 安装入口完整点击链、跨用户 / Linux、其它设备、压力与完整 fd / 中断生命周期矩阵，以及 P1–P6 总验收。当前前台附着仍在同账户可信 Native 调用方边界内，不把公开实例或私有目录当作 OS 沙箱 / 发布者认证。原 stdio host-method 的一次协议失败仍无已定位根因，不借本轮未复现称修复。无公共 C ABI、Core wire v1 或 SDK 变化，不增加 CI 二十份；本批本地提交，不推送或发行。
 
 全部本轮 runner / AVD / tmux / 前台和 attacher / 回环服务退出、最终收据核对后，清理 **859 个临时根入口、13,446 项、593.2 MiB 实际分配**；保留 tmp 目录与原三份 eq-*，SHA256 均不变。仅有系统服务保留 tmp 根目录句柄，没有本轮子文件的打开句柄；未停止该服务或其它非本轮进程。
+
+
+### S5 实施第四批：本机原生进程 stream provider（2026-11-14–15）
+
+App 本机新启动 / IPC 附着需要拥有 gterm 子进程及其管道的 Core 后端；本批先补必要的私有
+`process-stream`，不在两端 UI 各写进程管理。它复用 `process-owner` 的原生进程组 / 管道，
+新增私有有界 readiness wait，接同一 `gt_bridge_stream` vtable。Native 显式允许、绝对可执行
+文件、raw argv、已选 cwd fd / 环境，启动时不申请 PTY、不执行 shell / PATH 搜索、不继承
+环境；调用方仍负责可执行文件信任。不是插件业务 process.spawn 授权或 OS 沙箱，不新增公共
+ABI，也还没有 App 入口 / 自动发现 / 安装，不能借 Core 后端把本机功能记为可用。
+
+每轮轮转处理 stderr 并保留有界原始摘要；stdout / stderr 分别有总量限额，寿命 / 读写 /
+close 用单调墙钟，独立 wake fd 唤醒阻塞 poll。stop 后拒收新业务，关闭 stdin 后按原预算
+TERM→KILL；只有已 reap / 关闭本机资源才释放，CLOSE_ERROR 保留 owner 与内存预约以便重试。
+首次错误与 reason 不由清理改写。自然退出先尝试处理其仍保留 leader 身份的进程组，再 reap；
+没有在 PID 释放后向可能复用的 pgid 发信号。stdout EOF、退出码、实际信号、reap、组清理
+诊断和业务结果分开记录。默认寿命 / 宽限 / 流量范围及复现见 Core tests README。
+
+初轮缺 `_DARWIN_C_SOURCE` 的夹具编译失败未计通过。首轮 17 项发现 Darwin 全僵尸进程组的
+EPERM 被新后端当作无法继续释放；既有 process runtime 已显式保留该边界，本批对应保留
+`group_signal_error`，不能把已退出 leader 的 reap 当作组清理成功。最终字节读完后、TERM 前
+退出的竞态中，EPERM 也可能早于可 wait 的状态，现用原有宽限继续观察，未提高任何时限；
+若 KILL 仍拒绝或 reap 失败，继续明确保留 owner。两组初始边界夹具只等 stdout EOF 就检查
+reap，未确保故障已消费；改用显式退出触发及独立 reap 观察后，普通十七＋等待一项、系统
+错误七项共 **25 项**通过，含真实二进制 256 KiB 往返、raw Unicode / 空串 / shell 特殊字符、
+cwd / 环境隔离、尾字节 / stderr、EOF 时仍存活、实际退出码 / 信号、额度 / 寿命、线程唤醒、
+TERM / KILL、孙进程组与失败重试，全部为隔离子进程，不访问用户 shell / 主机 / 数据。
+
+优化 sanitizer 首轮有两项 stderr 摘要断言失败，原始诊断为子夹具干净环境未提供 PATH，
+ASan 因找不到外部 symbolizer 多写 159 字节 WARN。没有过滤或放宽原始 stderr 断言；只在
+ASan 夹具构建时显式选择 ASAN_OPTIONS / UBSAN_OPTIONS 的 symbolize=0，仍遇真错误即
+报告并中止，LSan 关闭。优化 **O1 / ASan＋UBSan** 的完整 25 项及十五组变异最终通过：
+批准、两流额度、寿命、WAIT/EOF、实际字节 / 观察计数、诊断、wake、KILL、group fence、
+提前释放、组未知、IO/EOF 和首错保留均为真编译后单条普通断言红、同 archive 配置对照绿、
+复原绿与源码 / 实际对象 / 可执行摘要。初轮 group-unknown 未被杀死未计通过；收紧故障
+消费断言，并强制重编 / 对拍直接包含 provider C 源的实际边界对象后，独立该组及最终完整
+十五组通过，不把库对象改变冒充边界实现已变。最终收据冻结 **123 份**输入。
+
+NDK **28.2.13676358 / android-29 / arm64-v8a / Debug / JS-off / SSH-off** 同源 archive 与
+两个 ELF 编译通过；专用 **API29 / API36 / arm64 / 4096 字节页 / no-window** 各 **25 项**
+通过，按实际 CTest 命令选同组，安装后 SHA256 对拍，两个设备收据 **124 输入 / 三构件**
+相同。仅为原生 Core provider，不是 JNI / APK / App / Node、真机或完整设备矩阵；两个自有
+AVD 与设备端随机私有目录均在结束后清理。设备脚本增加 INT / TERM 异常路径及其自有宿主 adb 进程组清理后，两设备同 25 项重新完整通过，最终收据仍为相同输入与实际 ELF。
+
+
+最终默认 **JS-off / tests-on：565/565 CTest、177 ABI**，独立 **JS-on / SSH-on：790/790 CTest**
+串行通过；旧 POSIX process / common stream、完整 Runtime 等现有用例随相同套件复验。
+clang-format **19.1.7 / 249 文件**、Apple **174 引用 / 3 登记未用**、JNI **140 / 37**、
+Python 语法及 diff 检查通过。没有改公共头或平台产品代码，不借 Core / NDK 原生编译称
+Swift / JNI 新绑定、APK 或平台 App 构建验收；默认 App 与根 Core 的 JS-off 不变。
+
+新变异 runner 的 INT / TERM 两项审计均先真实观察带标记的私有变异源、本轮 root 与
+原生 hold 子进程存活，再向该 root 发信号；两项均非零、已观察子进程启动身份消失、
+私有工作目录移除、Root 源码 SHA256 不变。不计普通目标红。
+
+下一批继续公共进程 Channel / 各端绑定及 App 本机启动 / IPC 入口，之后还需发现 / 安装
+完整点击链、跨用户 / 其它系统、资源 / fd / 压力 / 生命周期与 P1–P6 总验收。当前 private
+constructor 的可执行信任与启动允许只由可信 Native 调用方建立，不能从插件载荷调用，
+不代表新增插件能力或安全沙箱，不冻结 SDK / IPC 原型或增加 CI 二十份。
+
+
+设备中断探针最初按 ps argv 的完整路径查找，未取得 live 子进程前置证据、整轮自然结束，
+未计中断通过。实际观察确认 Android ps 会去掉 argv[0] 路径；最终改为 ps 候选＋内核
+`/proc/PID/exe` 匹配本轮随机目录中的两个 ELF，并在信号前再次核对身份。遇到活进程身份
+无法核验时明确失败，不据 basename 杀进程；僵尸状态与活进程分开。该路径修正后 API29 /
+36 的 25 项再次完整复验，最终 API36 TERM 审计先观察 QEMU / 自有 AVD 与远端原生子进程
+存活，再中断 root；实际回收该 Native 进程、非零退出、自有 QEMU / AVD / 宿主任务目录
+移除及 Root SHA256 不变。仅计这次最终脚本的 TERM 证据，未称 API29 或设备 SIGINT 已验。
+
+最终 NDK 实际 ELF 摘要：
+
+- `test_process_stream`：`161d6aa3f5a3b144008979a544cc0ddd1ca9064fa6967533bddbb64ab38f388f`。
+- `test_process_stream_boundary`：`e082d960e7f1a9b2082e3c2298ae8ea1a665f38d7a4ad56594ec819582fc0513`。
+
+最终收据再次与全部 Root 冻结输入、NDK 实际二进制对拍；优化 sanitizer 123 输入、两设备同 124 输入 / 三构件保持一致。本批只提交本地 main，不推送或发行。
+
+变异红的子进程致命信号识别使用当前平台的 signal 常量（含 Mac / Linux 不同的 SIGBUS 编号），不按 Linux 数字硬判；该分类修正后的完整 25 项 / 十五组再次通过，最终收据以此版本为准。
+
+全部本轮 runner / 自有 AVD / 原生测试进程 / 构件核对结束后，清理 **96 个临时根入口、5,550 项、148.3 MiB 实际分配**。只保留 tmp 目录与原三份 eq-*，SHA256 均不变；不停止非本轮进程，不删除常规 build 缓存。

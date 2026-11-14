@@ -52,6 +52,13 @@ gt_status_t gt__ext_process_spawn(const char *executable,
 gt_ext_process_io_t gt__ext_process_write(gt_ext_process_t *, const void *, size_t);
 gt_ext_process_io_t gt__ext_process_read_stdout(gt_ext_process_t *, void *, size_t);
 gt_ext_process_io_t gt__ext_process_read_stderr(gt_ext_process_t *, void *, size_t);
+/* Private readiness only; descriptors stay exclusively owned here. HUP/ERR
+ * wake the caller to perform the actual read/write, never stand in for EOF.
+ * An optional borrowed wake fd interrupts the finite monotonic wait. */
+#define GT_EXT_PROCESS_WAIT_INPUT 1u
+#define GT_EXT_PROCESS_WAIT_OUTPUT 2u
+#define GT_EXT_PROCESS_WAIT_ERROR 4u
+gt_status_t gt__ext_process_wait(gt_ext_process_t *, unsigned interests, int wake_fd, int ms);
 gt_status_t gt__ext_process_close_stdin(gt_ext_process_t *);
 /* Signals the process group created for this child; callers own grace periods. */
 gt_status_t gt__ext_process_signal(gt_ext_process_t *, int signal_number);

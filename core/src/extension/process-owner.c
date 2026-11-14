@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <pthread.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -12,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <time.h>
 
 struct gt_ext_process {
     pid_t pid;
@@ -368,6 +370,45 @@ gt_ext_process_io_t
 gt__ext_process_read_stderr(gt_ext_process_t *process, void *buffer, size_t size) {
     return process ? process_read(&process->stderr_fd, buffer, size)
                    : process_io(GT_EXT_PROCESS_ERROR, 0, GT_ERR_INVALID_ARG);
+}
+
+gt_status_t
+gt__ext_process_wait(gt_ext_process_t *process, unsigned interests, int wake_fd, int ms) {
+    if (!process || (interests & ~7u) || wake_fd < -1 || ms < 0) {
+        return GT_ERR_INVALID_ARG;
+    }
+    struct timespec t;
+    if (clock_gettime(CLOCK_MONOTONIC, &t)) {
+        return GT_ERR_IO;
+    }
+    uint64_t end = (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000 + (unsigned)ms;
+    for (;;) {
+        struct pollfd fds[] = {
+            {(interests & GT_EXT_PROCESS_WAIT_INPUT) ? process->stdin_fd : -1, POLLOUT, 0},
+            {(interests & GT_EXT_PROCESS_WAIT_OUTPUT) ? process->stdout_fd : -1, POLLIN, 0},
+            {(interests & GT_EXT_PROCESS_WAIT_ERROR) ? process->stderr_fd : -1, POLLIN, 0},
+            {wake_fd, POLLIN, 0}};
+        if (clock_gettime(CLOCK_MONOTONIC, &t)) {
+            return GT_ERR_IO;
+        }
+        uint64_t now = (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
+        int ready = poll(fds, 4, now < end ? (int)(end - now) : 0);
+        if (ready < 0 && errno == EINTR) {
+            if (now >= end) {
+                return GT_OK;
+            }
+            continue;
+        }
+        if (ready < 0) {
+            return GT_ERR_IO;
+        }
+        for (size_t i = 0; i < 4; i++) {
+            if (fds[i].revents & POLLNVAL) {
+                return GT_ERR_IO;
+            }
+        }
+        return GT_OK;
+    }
 }
 
 gt_status_t gt__ext_process_close_stdin(gt_ext_process_t *process) {
