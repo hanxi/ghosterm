@@ -11,13 +11,38 @@ import subprocess
 import time
 
 
+class PaneProcess:
+    def __init__(self, foreground, terminal):self.foreground,self.terminal=foreground,terminal
+    def poll(self):
+        path=self.foreground.observation/'exit'
+        if path.exists():return 'observed'
+        if self.terminal.front_killed:return 'unknown'
+        return None
+    def communicate(self,timeout):
+        end=time.monotonic()+timeout
+        while time.monotonic()<end:
+            if self.poll() is not None:
+                front_exited=not self.terminal.front_killed or all(
+                    self.foreground.identity(pid)!=expected for pid,expected in self.terminal.front_owners.items())
+                child_exited=not self.foreground.pid or self.foreground.identity(self.foreground.pid)!=self.foreground.expected
+                if front_exited and child_exited:return b'',b''
+            time.sleep(.01)
+        raise subprocess.TimeoutExpired('owned foreground pane',timeout)
+    def kill(self):
+        if not self.terminal.front_killed:self.terminal.kill_foreground()
+
+
 class Foreground:
-    def __init__(self, command, environment, observation, endpoint, identity):
+    def __init__(self, command, environment, observation, endpoint, identity, terminal=None):
         self.command,self.environment,self.observation,self.endpoint,self.identity=command,environment,observation,endpoint,identity
         self.process=None;self.pid=None;self.expected=None
+        self.terminal=terminal
     def __enter__(self):
-        self.process=subprocess.Popen(list(map(str,self.command)),env=self.environment,
-            stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        if self.terminal is None:
+            self.process=subprocess.Popen(list(map(str,self.command)),env=self.environment,
+                stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        else:
+            self.terminal.foreground(self.command,self.environment);self.process=PaneProcess(self,self.terminal)
         try:
             end=time.monotonic()+8
             while time.monotonic()<end:

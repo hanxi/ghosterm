@@ -32,7 +32,7 @@ Unicode 转义，终端控制字符不会直接写到终端。检查不执行包
 
 退出码：0 为检查兼容或所查询的 JS 引擎可用；2 为参数/host 输入错误；3 为 UNKNOWN；
 4 为不支持；5 为包校验、IO 或其它失败；130 为收到取消。stdout 为 JSON，参数用法与
-关闭诊断写 stderr。SIGINT/SIGTERM 只设置取消标记，采集循环在下一步停止；同步元数据
+关闭诊断写 stderr。SIGINT/SIGTERM/SIGHUP 只设置取消标记，采集循环在下一步停止；同步元数据
 校验受 Core CPU 预算限制，返回后检查标记，不在 signal handler 调 Core。
 
 ```sh
@@ -149,7 +149,7 @@ gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CL
 stdio conformance 会逐字段对拍。跨包命令发现与关联之外，App 授权 UI 和安装信任仍待接。
 不会自动下载、安装、连接其它执行环境或使用另一身份。
 
-进程保持前台，收到 Host 关闭或 SIGINT/SIGTERM 后释放 runtime/Session/包引用。stdio
+进程保持前台，收到 Host 关闭或 SIGINT/SIGTERM/SIGHUP 后释放 runtime/Session/包引用。stdio
 模式退出码 0 只表示已激活实例随后被对端有序结束，**不表示业务操作成功**；业务结果
 只能依据 RPC 回执。2 参数/命令/TTY 错误，3 包能力未知，4 不支持，5 引擎/校验/关闭错误，
 6 来源摘要不符或 Host 拒绝，7 未建立完整实例或通道结果不明，130 取消。插件 dispose
@@ -350,7 +350,27 @@ python3 scripts/test-plugin-execution-ssh-app.py --macos --tmux nested --stop-tm
 默认跳板仍 MaxSessions=0。未选择 --tmux 时保留原一百一十六个场景。
 
 两端走生产 AppModel / ViewModel，但普通终端为旁路 SSH PTY 夹具；本项不是 App TerminalSurface
-绘制 / IME / 焦点，亦非 tmux pane 内 gterm 的本地 IPC 附着、会话恢复或任意嵌套 TTY 回写证据。
+绘制 / IME / 焦点；不带 `--attach` 的上述矩阵也不证明 pane 内 gterm 的 IPC 附着。
+
+显式前台附着可另与两种 tmux 拓扑组合：
+
+```sh
+python3 scripts/test-plugin-execution-ssh-app.py --macos --attach --tmux target --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
+python3 scripts/test-plugin-execution-ssh-app.py --macos --attach --tmux nested --kill-front-pane --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
+```
+
+每端分别跑 target / nested，Android 将 `--macos` 换成 `--headless-api 36`。普通附着各 48 项，
+`--kill-front-pane` 各 12 项：前台 gterm 确实位于本轮 tmux 的独立窗口，App 经已认证目标的
+独立 SSH 通道连接精确实例。前台启动时三个描述符为 TTY，实际 Node / Exec 插件描述符均非 TTY。
+第二客户端按键选择前台窗口后，惰性包装器只记录固定输入，切回后再确认 RPC；插件结束后
+包装器继续收取固定字符，核对其与其它 pane 的完整输入，绝不将输入交给 shell 执行。
+故障档关闭该 pane，分别打断待确认 RPC、活动业务进程和文件部分发送，要求 UNKNOWN、
+已观察进程身份消失和全部暂存释放，保留未观察到的实际退出码为 unknown。
+gterm 的 HUP 处理走已有取消及有界释放，修复 pane 关闭直接终止后遗留运行副本的问题；
+不增加宽限、不补发业务请求、不关闭其它窗口或用户 tmux。SIGKILL 仍无法保证执行清理。
+这是自有 SSH PTY 的 tmux 档，不是 App TerminalSurface / 焦点 / IME、会话恢复或通用 TTY 回写证据。
 
 这是无账号 / 模型的 conformance 包，并非官方业务插件。当前观察到成功回包后的 App
 停止和连接断流使远端 gterm 返回 7（会话结果不明），拒绝返回 6；不把进程消失或一条

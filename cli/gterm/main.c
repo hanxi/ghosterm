@@ -14,7 +14,7 @@
 #include <unistd.h>
 
 /* No terminal mode changes, network, installation, or business execution here.
- * SIGINT/TERM only set a flag: Core cancellation is not async-signal-safe. */
+ * INT/TERM/HUP only set a flag: Core cancellation is not async-signal-safe. */
 static volatile sig_atomic_t interrupted;
 
 static void interrupt_check(int number) {
@@ -474,7 +474,8 @@ int main(int argc, char **argv) {
     struct sigaction action = {0};
     action.sa_handler = interrupt_check;
     sigemptyset(&action.sa_mask);
-    if (sigaction(SIGINT, &action, NULL) || sigaction(SIGTERM, &action, NULL)) {
+    if (sigaction(SIGINT, &action, NULL) || sigaction(SIGTERM, &action, NULL) ||
+        sigaction(SIGHUP, &action, NULL)) {
         return 5;
     }
     int result;

@@ -684,7 +684,7 @@ gterm plugin link ./dist --side executor
 | 通道 | 编码 | 校验边界 |
 | --- | --- | --- |
 | 当前 gterm / Core conformance stdio | 固定长度前缀 + 有界 metadata / payload；生产双向产品路线为 SSH exec | 最大帧、UTF-8 / JSON、类型、实例归属、EOF 的半帧 |
-| 前台 local IPC CLI 首片 | 一次性 Unix socket 接入既有 stdio / wire v1；App attach 未接 | 当前 UID / 0700 根 / 0600 临时 permit、一次性实例和 owner 生命周期；同账户恶意原生代码不在边界内，具体证据见 S5 第一批 |
+| 前台 local IPC CLI 首片 | 一次性 Unix socket 接入既有 stdio / wire v1；两端显式 SSH attach 与 tmux pane 档见 S5 | 当前 UID / 0700 根 / 0600 临时 permit、一次性实例和 owner 生命周期；同账户恶意原生代码不在边界内，具体证据见 S5 第一批 |
 | 独立 SSH exec / stdio（首片） | 使用冻结长度前缀与逻辑 wire v1 | 无 PTY；stdout 只承载协议，stderr 独立有界排空；绑定实际目标与固定接收者，不依赖终端 pane |
 | TTY carrier | 未选择；不承载本计划支持的双向业务 | 无 TTY 回包授权；任何未来 carrier 须单独设计 / 协商，不能回写未知 pane |
 | TTY / tmux 包装 | 当前不承载插件业务；TTY 双向回包不支持 | 未来 carrier / relay 须独立验证输入归属并显式协商 |
@@ -5660,3 +5660,27 @@ Native 明确连接允许保护两端各一组：实际对象 / APK 改变，单
 剩余：App 本机直接启动 / IPC、自动发现与安装入口全点击链、已有 tmux pane 中的前台进程、跨用户 / Linux、其它设备、压力和完整生命周期矩阵仍未完成。权限边界仍是同账户可信 Native 调用方，公开实例不是凭据，私有目录不是 OS 沙箱。P1–P6 与总目标继续保持未完成，不增加 CI 二十份。
 
 实际 runner、AVD、前台进程 / attacher / 回环服务退出后复验最终收据与 APK，再清理 **848 个临时根入口、20,786 项、796.4 MiB 实际分配**；仅保留原三份 eq-* 并核对 SHA256 不变。本地分批提交，不推送或发行。
+
+
+### S5 实施第三批：tmux pane 内前台附着与 HUP 清理（2026-11-14）
+
+`test-plugin-execution-ssh-app.py --attach --tmux target / nested` 将原前台 gterm 放在本轮独立 tmux 窗口，保留原 TTY；App 经显式认证的独立 SSH 连接精确实例。第二个真实 SSH PTY 客户端按键切 pane / window、detach / attach，并选择前台窗口；惰性包装器只记固定输入，插件结束后仍记录固定字符，不执行 shell 输入。分别观察启动包装器的 TTY 与 Node / Exec 进程的三个管道，不能把前台原 TTY 和插件协议管道混称。不是 App TerminalSurface / IME / 焦点或任意嵌套 TTY 回写证明。
+
+新增 `--kill-front-pane` 仅在明确 attach / tmux 时接受，选待确认 RPC、活动业务进程和文件部分发送三类。故障关闭本轮前台 pane，保留其它窗口 / tmux server 与普通输入；要求未确认 UNKNOWN、已观察进程身份消失和暂存目录全部释放。原前台 Python 观察者也被 HUP 结束时，不伪造 wait 状态；记录 exitObservation=unknown，attacher 的传输退出 0 独立记账。
+
+首轮嵌套 Node pending-loss 在 App 已观测 UNKNOWN 后仍未通过远端释放检查，未计通过；补充残留诊断的目标 tmux 复验确认 livePids 为空，资源目录、Node 包 / Host SDK 副本仍在。gterm 原只捕获 INT / TERM，被关闭 pane 的 HUP 直接终止，无法执行既有 owner 清理。本批在 CLI main 将 HUP 接入同一仅设标记的 handler，随后仍由主循环取消并有界释放，不在 handler 调 Core，不提高任何关闭 / 发布 / 外层观察预算。修复后三项嵌套试跑 Node 直连 pending-loss、Exec 跳板 process-loss、Node 跳板 client-loss 通过，进程和暂存释放，普通终端继续收输入。
+
+CLI 新 idle-hangup 用例与已有 35 项共 36 项通过；变异 runner 支持独立 main 对象，新增移除 HUP handler 一组，连同原十五组共十六组完整通过。每组真实编译、实际目标对象 / 可执行摘要改变、单条普通断言红、同 Core archive 配置对照绿、复原目标绿和源码 SHA256；新增 HUP 的普通红为 idle cancellation observed。ASan / UBSan 仍只覆盖 CLI 对象，Core / Native Host 为共享正常 Debug，LSan 关闭。两端完整矩阵已通过：各 120 项（两种拓扑各 48 附着＋12 关闭 pane），另各 12 项原新启动回归。八份矩阵与两份回归冻结相同 742 份指定输入，矩阵各 36 份共享实际构件、回归的 33 份是其相同子集；两端实际 XCTest / APK 分别一致。最终构建后再次逐项核对十份收据、全部冻结源码 / 共享实际构件与 XCTest / 两 APK，一致；CLI 36 项收据的 135 输入 / 三实际构件也与最终文件相同。
+
+
+最终默认 Core **540/540 CTest / 177 ABI**、enabled **765/765 CTest**串行通过；原 CLI 十二项 / stdio 十七项与 CLI IPC 三十六项完整复验通过。macOS **Xcode 27.1 / Swift 6.4 / arm64 Release**、Android JS-enabled Debug / 测试 APK、未签名 Release / R8 与 app / bridge / data / terminal 四模块 Release lint 通过。clang-format **19.1.7 / 245 文件**、Apple **174 引用 / 3 登记未用**、JNI **140 / 37**、Python 语法及 diff 检查通过。两轮专用模拟器均为 API36 / arm64 / 4 KiB 页 / no-window Client，Executor 仍为本机 macOS arm64 的 Node 26.4.0 / 原生 Exec；不冒充手机 Node、API29、用户真机、云端 Swift 6.1.2 或发行验收。根 Core 保持 JS-off / tests-on。
+
+最终实际构件摘要：
+
+- macos `GhostermAppTests`：`a5fb703c42185e83ad9a49ecee2184ee073e2a7283c44305a064c79aef2be5cf`。
+- android `app-debug.apk`：`fbc3c59ffd1dca1d8e64927c45c0206fa79b219517b81967887ab3416f3903bf`。
+- android `app-debug-androidTest.apk`：`64c1aa96009e6dc0b9312858efa27e6f5b9f8f3ab8c562eb2d13480383421a3e`。
+
+未完成范围保持：App 本机直接启动 / IPC、发现 / 安装入口完整点击链、跨用户 / Linux、其它设备、压力与完整 fd / 中断生命周期矩阵，以及 P1–P6 总验收。当前前台附着仍在同账户可信 Native 调用方边界内，不把公开实例或私有目录当作 OS 沙箱 / 发布者认证。原 stdio host-method 的一次协议失败仍无已定位根因，不借本轮未复现称修复。无公共 C ABI、Core wire v1 或 SDK 变化，不增加 CI 二十份；本批本地提交，不推送或发行。
+
+全部本轮 runner / AVD / tmux / 前台和 attacher / 回环服务退出、最终收据核对后，清理 **859 个临时根入口、13,446 项、593.2 MiB 实际分配**；保留 tmp 目录与原三份 eq-*，SHA256 均不变。仅有系统服务保留 tmp 根目录句柄，没有本轮子文件的打开句柄；未停止该服务或其它非本轮进程。

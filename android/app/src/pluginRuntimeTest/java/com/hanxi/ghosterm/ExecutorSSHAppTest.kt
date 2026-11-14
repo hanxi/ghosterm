@@ -169,7 +169,9 @@ class ExecutorSSHAppTest {
                 state.second?.phase == ExtensionRuntime.Phase.ACTIVE && service("audit").getBoolean("activated")
             }
             assertEquals(payload.getString("temporary"), service("audit").getString("environment"))
-            assertEquals("[false,false,false]", service("audit").getJSONArray("tty").toString())
+            val foregroundTmux = payload.optBoolean("foregroundTmux")
+            assertEquals(if (foregroundTmux) "[true,true,true]" else "[false,false,false]", service("audit").getJSONArray("tty").toString())
+            assertEquals("[false,false,false]", service("audit").getJSONArray("runtimeTTY").toString())
             if (!payload.isNull("tmuxTopology")) {
                 fun probe(label: String) {
                     val admission = runBlocking { controller.requestRuntimeExecutor("fixture.echo", JSONObject().put("text", label).put("count", 23).toString().toByteArray()) }
@@ -183,6 +185,7 @@ class ExecutorSSHAppTest {
                 }
                 service("tmux-pane"); probe("TMUX_PANE")
                 service("tmux-window"); probe("TMUX_WINDOW")
+                if (foregroundTmux) { service("tmux-front"); probe("TMUX_FRONT") }
                 if (payload.optBoolean("stopTerminal")) { service("tmux-stop-terminal"); probe("TMUX_CLOSED") }
             }
             if (clientCase) {

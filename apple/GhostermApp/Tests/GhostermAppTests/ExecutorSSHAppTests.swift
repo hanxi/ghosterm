@@ -169,8 +169,13 @@ import XCTest
         }
         XCTAssertEqual(try service("audit")["environment"] as? String, try string("temporary"))
         let ttyState = try service("audit")["tty"] as? [Bool]
-        XCTAssertEqual(ttyState, [false, false, false], "Plugin exec must remain independent of terminal PTYs")
-        guard ttyState == [false, false, false] else { return }
+        let foregroundTmux = payload["foregroundTmux"] as? Bool == true
+        let expectedTTY = Array(repeating: foregroundTmux, count: 3)
+        XCTAssertEqual(ttyState, expectedTTY, "Original foreground descriptors must match the selected fixture")
+        guard ttyState == expectedTTY else { return }
+        let runtimeTTY = try service("audit")["runtimeTTY"] as? [Bool]
+        XCTAssertEqual(runtimeTTY, [false, false, false], "Plugin protocol must remain independent of terminal PTYs")
+        guard runtimeTTY == [false, false, false] else { return }
         if payload["tmuxTopology"] is String {
             func probe(_ label: String) async throws {
                 let admission = try await controller.requestExecutorRPC(method: "fixture.echo",
@@ -189,6 +194,7 @@ import XCTest
             }
             _ = try service("tmux-pane"); try await probe("TMUX_PANE")
             _ = try service("tmux-window"); try await probe("TMUX_WINDOW")
+            if foregroundTmux { _ = try service("tmux-front"); try await probe("TMUX_FRONT") }
             if payload["stopTerminal"] as? Bool == true {
                 _ = try service("tmux-stop-terminal"); try await probe("TMUX_CLOSED")
             }

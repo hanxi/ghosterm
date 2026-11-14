@@ -31,7 +31,7 @@ CASES = ['roundtrip', 'deny', 'cancel', 'active-cancel', 'peer-digest',
          'bad-permit', 'partial-permit', 'directory-mode', 'directory-link',
          'permit-mode', 'permit-link', 'permit-hardlink', 'socket-link', 'socket-mode',
          'stale', 'second-listener', 'one-shot', 'replacement-cleanup', 'bad-ack',
-         'duplex', 'half-close', 'tty', 'idle-cancel', 'preview', 'setup-deadline',
+         'duplex', 'half-close', 'tty', 'idle-cancel', 'idle-hangup', 'preview', 'setup-deadline',
          'killed-owner', 'partial-cancel', 'directory-link-suffix', 'server-permit-link', 'server-socket-link',
          'instance', 'reused-directory', 'invocation-command', 'invocation-argument', 'invocation-count']
 
@@ -291,7 +291,7 @@ def execute(build, case, work):
                         require(data==b'','bad permit cannot receive ACK')
                         require(process.poll() is None and (endpoint/'permit').read_bytes()==permit,'rejected peer cannot consume instance')
             return
-        if case in ('stale','second-listener','replacement-cleanup','idle-cancel'):
+        if case in ('stale','second-listener','replacement-cleanup','idle-cancel','idle-hangup'):
             if case=='stale':
                 (endpoint/'permit').write_bytes(b'old-owned-fixture')
                 result=subprocess.run([binary,'relay','--listen',endpoint],capture_output=True,env=environment,timeout=4)
@@ -307,7 +307,8 @@ def execute(build, case, work):
                     terminate(process)
                     require(process.returncode==5 and (endpoint/'permit').exists() and (endpoint/'permit').read_bytes()==b'replacement-owned-fixture','cleanup failure must preserve replacement')
                 else:
-                    process.terminate();require(process.wait(timeout=4)==130,'idle cancellation observed')
+                    process.send_signal(signal.SIGHUP if case=='idle-hangup' else signal.SIGTERM)
+                    require(process.wait(timeout=4)==130,'idle cancellation observed')
                     require(not list(endpoint.iterdir()),'idle cancellation cleanup')
             return
         if case=='tty':

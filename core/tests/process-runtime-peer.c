@@ -394,6 +394,15 @@ int main(int argc, char **argv) {
     const char *entered = getenv("GT_EXECUTION_APP_FIXTURE");
     if (entered) {
         app_mark(entered, "entered", true);
+        char descriptors[32];
+        int count = snprintf(descriptors,
+                             sizeof(descriptors),
+                             "[%s,%s,%s]",
+                             isatty(0) ? "true" : "false",
+                             isatty(1) ? "true" : "false",
+                             isatty(2) ? "true" : "false");
+        CHECK(count > 0 && (size_t)count < sizeof(descriptors));
+        app_text(entered, "runtime-tty", descriptors);
     }
 #ifdef GT_GTERM_STDIO_PEER
     if (getenv("GT_GTERM_FIXTURE_UNSUPPORTED")) {

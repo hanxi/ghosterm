@@ -6,6 +6,7 @@ import { appProcess } from './process.mjs';
 const observation = process.env.GT_EXECUTION_APP_FIXTURE;
 if (!observation || process.env.GT_EXECUTION_AMBIENT !== undefined) throw Error('fixture environment');
 writeFileSync(observation + '/entered', String(process.pid), { flag: 'wx' });
+writeFileSync(observation + '/runtime-tty', JSON.stringify([Boolean(process.stdin.isTTY), Boolean(process.stdout.isTTY), Boolean(process.stderr.isTTY)]), { flag: 'wx' });
 writeFileSync(observation + '/environment', process.env.TMPDIR, { flag: 'wx' });
 writeFileSync(observation + '/activated', String(process.pid), { flag: 'wx' });
 export function activate(ctx) {

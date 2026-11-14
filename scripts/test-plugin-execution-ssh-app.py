@@ -51,6 +51,7 @@ def identity(pid):
 def execute(args, serial=None):
     topology, stop_terminal = getattr(args, 'tmux', None), getattr(args, 'stop_tmux', False)
     attaching = getattr(args, 'attach', False)
+    kill_front = getattr(args, 'kill_front_pane', False)
     build, node, sdk = args.build.resolve(strict=True), args.node.resolve(strict=True), args.sdk.resolve(strict=True)
     for p in (build / 'gterm', build / 'test_gterm_exec_peer', build / 'core/libghosterm_core.a'):
         if not p.is_file(): raise RuntimeError('Build the JS/SSH-enabled CLI fixture: ' + str(p))
@@ -67,6 +68,8 @@ def execute(args, serial=None):
         'scripts/fixtures/plugin-execution-fault.py', 'scripts/fixtures/plugin-execution-supervisor.py',
         'scripts/fixtures/plugin-execution-tmux.py',
         'scripts/fixtures/plugin-execution-foreground.py',
+        'scripts/fixtures/plugin-foreground-tty.py',
+        'cli/gterm/main.c', 'cli/gterm/stdio.c', 'cli/gterm/ipc.c', 'cli/gterm/stdio.h', 'cli/gterm/ipc.h',
         'scripts/test-plugin-route.py', 'scripts/test-plugin-ssh.py', 'scripts/test-plugin-ssh-stream.py',
         'scripts/test-plugin-codex-patch-android.py', 'scripts/fixtures/plugin-execution-process.mjs']:
         hashes[name] = sha(ROOT / name)
@@ -98,8 +101,11 @@ def execute(args, serial=None):
     if attaching: cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct','jump') for mode in attach_modes if mode.startswith('attach-')]
     tmux_modes = ('allow', 'client-resource', 'process') if stop_terminal else ('allow', 'deny', 'no-approval',
         'client-resource', 'process', 'pending-cancel', 'pending-loss', 'client-stop', 'client-loss')
-    selected = args.case or ([case for case in cases if case.split(':')[2] in attach_modes] if attaching else [case for case in cases if case.split(':')[2] in tmux_modes] if topology else cases)
-    if attaching and (topology or stop_terminal or any(case.split(':')[2] not in attach_modes for case in selected)):raise RuntimeError('Attach matrix has explicit modes; tmux foreground pane is a separate slice')
+    pane_loss_modes = ('pending-loss', 'process-loss', 'client-loss')
+    selected = args.case or ([case for case in cases if case.split(':')[2] in pane_loss_modes] if kill_front else [case for case in cases if case.split(':')[2] in attach_modes] if attaching else [case for case in cases if case.split(':')[2] in tmux_modes] if topology else cases)
+    if kill_front and (not attaching or not topology or any(case.split(':')[2] not in pane_loss_modes for case in selected)):
+        raise RuntimeError('Pane fault requires explicit tmux attachment and pending / process / client loss')
+    if attaching and (stop_terminal or any(case.split(':')[2] not in (attach_modes + (('process-loss',) if kill_front else ())) for case in selected)):raise RuntimeError('Unsupported foreground attachment mode')
     if stop_terminal and (not topology or any(case.split(':')[2] not in tmux_modes for case in selected)):
         raise RuntimeError('Explicit terminal stop needs tmux and one of allow / client-resource / process')
     if set(selected) - set(cases): raise RuntimeError('Unknown execution case')
@@ -212,7 +218,7 @@ def execute(args, serial=None):
                     wrapper.write_text('#!/bin/sh\nexec ' + shlex.join([sys.executable, str(ROOT / 'scripts/fixtures/plugin-execution-supervisor.py'),
                         str(build / 'gterm'), str(observation), str(home)]) + ' "$@"\n'); wrapper.chmod(0o700)
                     scratch = root / 'c'; scratch.mkdir()
-                    payload = dict(runtime=runtime, route=route, mode=mode, ports=ports, tmuxTopology=topology, stopTerminal=stop_terminal, user=pwd.getpwuid(os.getuid()).pw_name,
+                    payload = dict(runtime=runtime, route=route, mode=mode, ports=ports, tmuxTopology=topology, foregroundTmux=attaching and bool(topology), stopTerminal=stop_terminal, user=pwd.getpwuid(os.getuid()).pw_name,
                         pem=private.decode('ascii'), packageFiles={str(p.relative_to(package)): base64.b64encode(p.read_bytes()).decode()
                         for p in package.rglob('*') if p.is_file()}, packageDigest=digest, packageDirectory=str(package),
                         wrapper=str(wrapper), temporary=str(stage), scratch=str(scratch), node=str(node), nodeVersion=version,
@@ -234,7 +240,7 @@ def execute(args, serial=None):
                         if resource_case or process_case:command += ['--root','workspace',workspace]
                         if process_case:command += ['--process-program','cat',utility,'fixture',sha(utility)]
                         command += ['--',package,'different' if mode=='attach-command' else 'fixture','different' if mode=='attach-argument' else '中文😀','',"literal'$(owned)"]
-                        foreground=terminals.enter_context(foreground_module.Foreground(command,{**env,'TMPDIR':str(stage)},observation,endpoint,identity))
+                        foreground=terminals.enter_context(foreground_module.Foreground(command,{**env,'TMPDIR':str(stage)},observation,endpoint,identity,terminal))
                         instance=foreground.instance
                         if mode=='attach-instance':instance=('0' if instance[0]!='0' else '1')+instance[1:]
                         payload.update(ipcDirectory=str(endpoint),ipcInstance=instance)
@@ -263,6 +269,7 @@ def execute(args, serial=None):
                                     if expected not in observed: raise RuntimeError('Fixture PID does not match its owned command')
                                     owned_pids[pid] = observed
                         if (observation / 'tty').exists(): answer['tty'] = json.loads((observation / 'tty').read_text())
+                        if (observation / 'runtime-tty').exists(): answer['runtimeTTY'] = json.loads((observation / 'runtime-tty').read_text())
                         if (observation / 'environment').exists(): answer['environment'] = (observation / 'environment').read_text()
                         if (observation / 'resource-receipt').exists(): answer['resourceReceipt'] = (observation / 'resource-receipt').read_text()
                         if (observation / 'resource-error').exists(): answer['resourceError'] = (observation / 'resource-error').read_text()
@@ -298,8 +305,9 @@ def execute(args, serial=None):
                             elif action in (b'audit', b'kill'):
                                 result = observe()
                                 if action == b'kill':
-                                    if fault is None: raise RuntimeError('No owned network fault wire')
-                                    fault.disconnect()
+                                    if kill_front:terminal.kill_foreground()
+                                    elif fault is not None:fault.disconnect()
+                                    else:raise RuntimeError('No owned network fault wire')
                             elif action.startswith(b'tmux-') and terminal is not None: result = terminal.action(action.decode('ascii'))
                             elif action == b'stop-front' and foreground is not None: foreground.stop(); result=observe()
                             else: raise RuntimeError('Unknown fixture action')
@@ -309,7 +317,7 @@ def execute(args, serial=None):
                     mapped = []
                     business_pids = set()
                     fault = None
-                    if mode in ('pending-loss', 'process-loss', 'client-loss'):
+                    if mode in ('pending-loss', 'process-loss', 'client-loss') and not kill_front:
                         fault = fault_module.FaultWire(ports[0] if route == 'jump' else ports[1])
                         fault.__enter__()
                         client_ports = list(ports); client_ports[0 if route == 'jump' else 1] = fault.port
@@ -370,7 +378,9 @@ def execute(args, serial=None):
                                 audit = observe()
                                 if not any(identity(pid) == expected for pid, expected in owned_pids.items()) and not list(stage.iterdir()): break
                                 time.sleep(.05)
-                            else: raise RuntimeError(case + ': remote process/staging retained: ' + repr(observe()) + '\n' + (observation / 'stderr').read_text(errors='replace'))
+                            else: raise RuntimeError(case + ': remote process/staging retained: ' + repr(dict(
+                                audit=observe(), livePids=[pid for pid,expected in owned_pids.items() if identity(pid)==expected],
+                                staging=sorted(str(path.relative_to(stage)) for path in stage.rglob('*')))) + '\n' + (observation / 'stderr').read_text(errors='replace'))
                             if 'status' not in audit: audit['exitObservation'] = 'not-started' if mode in ('no-approval', 'client-no-approval', 'client-undeclared') else 'unknown'
                             if foreground is not None:foreground.close()
                             terminal_info = None
@@ -411,7 +421,7 @@ def execute(args, serial=None):
         if any(sha(ROOT / p) != value for p, value in hashes.items()) or any(sha(Path(p)) != value for p, value in binary_hashes.items()):
             raise RuntimeError('Inputs changed during conformance')
         receipt = dict(accepted=True, platform='macos' if args.macos else 'android', cases=records, inputs=hashes,
-            binaries=binary_hashes, platformBinaries=platform_binaries, nodeVersion=version, sdkCatalog=sdk_digest, tmuxTopology=topology, terminalStopped=stop_terminal, foregroundAttachment=attaching,
+            binaries=binary_hashes, platformBinaries=platform_binaries, nodeVersion=version, sdkCatalog=sdk_digest, tmuxTopology=topology, terminalStopped=stop_terminal, foregroundAttachment=attaching, foregroundPaneKilled=kill_front,
             scope='owned loopback direct/ProxyJump; actual Native App and Node/Exec; separate SSH PTY/tmux when selected; no model')
         if args.receipt:
             if not args.receipt.resolve().is_relative_to(ROOT / 'tmp'): raise RuntimeError('Use project tmp for receipt')
@@ -428,6 +438,7 @@ def main():
     parser.add_argument('--tmux', choices=['target', 'nested'], help='owned ordinary SSH PTYs, distinct from plugin exec')
     parser.add_argument('--stop-tmux', action='store_true', help='stop owned ordinary terminal before further plugin requests')
     parser.add_argument('--attach', action='store_true', help='explicitly connect an owned foreground IPC instance through SSH')
+    parser.add_argument('--kill-front-pane', action='store_true', help='close only the owned foreground pane during an in-flight operation')
     parser.add_argument('--sdk', type=Path, required=True); parser.add_argument('--case', action='append'); parser.add_argument('--receipt', type=Path)
     args = parser.parse_args()
     if args.project and not args.project.resolve().is_relative_to(ROOT / 'tmp'): parser.error('--project must be an owned project tmp directory')

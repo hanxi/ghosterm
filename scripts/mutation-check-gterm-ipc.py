@@ -26,8 +26,9 @@ def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--build',type=Path,required=True);parser.add_argument('--group',action='append');args=parser.parse_args()
-    build=args.build.resolve(strict=True);original=(ROOT/'cli/gterm/ipc.c').read_bytes()
-    if MARK.encode() in original:raise RuntimeError('Residual IPC mutation')
+    build=args.build.resolve(strict=True)
+    originals={name:(ROOT/'cli/gterm'/name).read_bytes() for name in ('ipc.c','main.c')}
+    if any(MARK.encode() in original for original in originals.values()):raise RuntimeError('Residual IPC mutation')
     cases=[
         ('directory-link',[('open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)','open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)')],'directory-link'),
         ('directory-mode',[('(info.st_mode & 0777) != 0700','false')],'directory-mode'),
@@ -44,9 +45,11 @@ def main():
         ('public-instance',[('!instance_matches(&permit, instance)','(!instance_matches(&permit, instance) && false)')],'instance'),
         ('invocation-count',[('number[3] != argc','false')],'invocation-count'),
         ('invocation-bytes',[('(!sending && memcmp(bytes, argv[i], size))','false')],'invocation-argument'),
+        ('hangup',[('sigaction(SIGHUP, &action, NULL)','0')],'idle-hangup'),
     ]
     for label,replacements,_ in cases:
         for old,_ in replacements:
+            original=originals['main.c' if label=='hangup' else 'ipc.c']
             if original.decode().count(old)!=1:raise RuntimeError('Ambiguous mutation: '+label+' '+old)
     if args.group:
         if set(args.group)-{label for label,_,_ in cases}:raise RuntimeError('Unknown IPC mutation group')
@@ -88,27 +91,30 @@ def main():
         for i,part in enumerate(link):
             if part.endswith('.o'):link[i]=str(binary/Path(part).name)
             elif part.endswith(('.a','.dylib','.so')) and not Path(part).is_absolute():link[i]=str(build/part)
-        def compile(label):
+        def compile(label,filename='ipc.c'):
             (binary/'ipc.c.o').unlink(missing_ok=True);(binary/'gterm').unlink(missing_ok=True)
+            run(label+'-main',[*flags,'-c',source/'main.c','-o',binary/'main.c.o'])
             run(label+'-compile',[*flags,'-c',source/'ipc.c','-o',binary/'ipc.c.o'])
             run(label+'-link',link)
-            return sha(binary/'ipc.c.o'),sha(binary/'gterm')
+            return sha(binary/(filename+'.o')),sha(binary/'gterm')
         # Match the original CMake object names for the one unchanged link command.
         for name in ['main','stdio']:(binary/(name+'.o')).rename(binary/(name+'.c.o'))
         baseline=compile('baseline')
         run('baseline',['python3',ROOT/'scripts/test-gterm-ipc.py','--build',binary,*(['--case',cases[0][2]] if args.group else [])])
         results=[]
         for label,replacements,case in cases:
+            filename='main.c' if label=='hangup' else 'ipc.c';original=originals[filename]
+            if filename=='main.c':baseline=(sha(binary/'main.c.o'),sha(binary/'gterm'))
             text=original.decode()
             for old,new in replacements:text=text.replace(old,new)
-            (source/'ipc.c').write_text(text+'\n/* '+MARK+' */\n')
-            mutated=compile(label)
+            (source/filename).write_text(text+'\n/* '+MARK+' */\n')
+            mutated=compile(label,filename)
             if any(a==b for a,b in zip(baseline,mutated)):raise RuntimeError('Actual IPC object/binary did not change: '+label)
             run(label+'-target',['python3',ROOT/'scripts/test-gterm-ipc.py','--build',binary,'--case',case],True)
             run(label+'-control',[build/'core/test_config',ROOT/'core/tests/fixtures'])
-            (source/'ipc.c').write_bytes(original);restored=compile(label+'-restore')
+            (source/filename).write_bytes(original);restored=compile(label+'-restore',filename)
             run(label+'-green',['python3',ROOT/'scripts/test-gterm-ipc.py','--build',binary,'--case',case])
-            if sha(source/'ipc.c')!=hashlib.sha256(original).hexdigest():raise RuntimeError('Source restoration failed')
+            if sha(source/filename)!=hashlib.sha256(original).hexdigest():raise RuntimeError('Source restoration failed')
             results.append(dict(group=label,case=case,objectChanged=True,binaryChanged=True,normalAssertionRed=True,restoredObject=restored[0]))
             print(label+': compiled normal IPC assertion red / same Core config green / restore green / SHA256',flush=True)
         run('final',['python3',ROOT/'scripts/test-gterm-ipc.py','--build',binary,*(['--case',cases[-1][2]] if args.group else [])])
