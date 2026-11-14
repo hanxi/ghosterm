@@ -20,11 +20,11 @@
  * Same-account hostile native code is outside this boundary. Session package
  * matching/consent remain mandatory after this transport admission. */
 static const char socket_name[] = "channel.sock", permit_name[] = "permit";
-static const unsigned char magic[8] = {'G', 'T', 'E', 'R', 'M', 'I', 'P', '1'};
-static const unsigned char acknowledged[8] = {'G', 'T', 'E', 'R', 'M', 'O', 'K', '1'};
+static const unsigned char magic[8] = {'G', 'T', 'E', 'R', 'M', 'I', 'P', '2'};
+static const unsigned char acknowledged[8] = {'G', 'T', 'E', 'R', 'M', 'O', 'K', '2'};
 
 typedef struct {
-    unsigned char bytes[40];
+    unsigned char bytes[56]; /* magic, public instance (16), private permit (32) */
 } permit_t;
 
 typedef struct {
@@ -154,6 +154,59 @@ static bool open_directory(endpoint_t *e, const char *path) {
     }
     e->cwd = private_fd(open(".", O_RDONLY | O_DIRECTORY | O_CLOEXEC));
     return e->cwd >= 0 && !fchdir(e->directory);
+}
+
+static bool instance_matches(const permit_t *permit, const char *instance) {
+    if (!instance || strlen(instance) != 32) {
+        return false;
+    }
+    static const char hex[] = "0123456789abcdef";
+    unsigned difference = 0;
+    for (size_t i = 0; i < 16; i++) {
+        difference |=
+            (unsigned char)instance[i * 2] ^ (unsigned char)hex[permit->bytes[8 + i] >> 4];
+        difference |=
+            (unsigned char)instance[i * 2 + 1] ^ (unsigned char)hex[permit->bytes[8 + i] & 15];
+    }
+    return difference == 0;
+}
+
+/* Private IPC prelude only; Core wire v1 starts after ACK. The expected literal
+ * command/argv are not an authority grant and do not replace package/consent. */
+static bool invocation(
+    int fd, int argc, char **argv, bool sending, uint64_t end, volatile sig_atomic_t *cancelled) {
+    if (argc < 1 || argc > 33) {
+        return false;
+    }
+    unsigned char number[4] = {0, 0, 0, (unsigned char)argc};
+    if (!exchange(fd, number, sizeof(number), sending, end, cancelled) || number[0] || number[1] ||
+        number[2] || number[3] != argc) {
+        return false;
+    }
+    size_t total = 0;
+    for (int i = 0; i < argc; i++) {
+        size_t size = strlen(argv[i]);
+        if (size > 4096 || (i == 0 && size == 0) || size + 1 > 16384 - total) {
+            return false;
+        }
+        total += size + 1;
+        unsigned char bytes[4096];
+        number[0] = number[1] = 0;
+        number[2] = (unsigned char)(size >> 8);
+        number[3] = (unsigned char)size;
+        if (!exchange(fd, number, sizeof(number), sending, end, cancelled) || number[0] ||
+            number[1] || (((size_t)number[2] << 8) | number[3]) != size) {
+            return false;
+        }
+        if (sending) {
+            memcpy(bytes, argv[i], size);
+        }
+        if (!exchange(fd, bytes, size, sending, end, cancelled) ||
+            (!sending && memcmp(bytes, argv[i], size))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool
@@ -300,7 +353,12 @@ int gterm_ipc_listen(const char *directory,
     if (listen(e.listener, 1) || !create_permit(&e, &permit)) {
         goto done;
     }
-    fputs("gterm: local endpoint ready\n", stderr);
+    fputs("gterm: local endpoint ready instance=", stderr);
+    for (size_t i = 8; i < 24; i++) {
+        fprintf(stderr, "%02x", permit.bytes[i]);
+    }
+    fputc('\n', stderr);
+    int boundary = gterm_stdio_invocation_index(argc, argv);
     uint64_t end = now();
     if (!end) {
         goto done;
@@ -329,7 +387,10 @@ int gterm_ipc_listen(const char *directory,
             difference |= received.bytes[i] ^ permit.bytes[i];
         }
         memset(&received, 0, sizeof(received));
-        ok = ok && !difference && entry(e.directory, socket_name, &e.socket) &&
+        ok = ok && !difference && boundary >= 0 &&
+             invocation(
+                 e.peer, argc - boundary - 2, argv + boundary + 2, false, admission, cancelled) &&
+             entry(e.directory, socket_name, &e.socket) &&
              remove_entry(&e, permit_name, &e.permit, &e.has_permit);
         if (ok) {
             close(e.listener);
@@ -454,7 +515,11 @@ static int pump(int socket, volatile sig_atomic_t *cancelled) {
     return *cancelled ? 130 : 5;
 }
 
-int gterm_ipc_attach(const char *directory, volatile sig_atomic_t *cancelled) {
+int gterm_ipc_attach(const char *directory,
+                     const char *instance,
+                     int argc,
+                     char **argv,
+                     volatile sig_atomic_t *cancelled) {
     endpoint_t e = {.directory = -1, .listener = -1, .peer = -1, .cwd = -1};
     permit_t permit = {0};
     int result = 5;
@@ -464,7 +529,8 @@ int gterm_ipc_attach(const char *directory, volatile sig_atomic_t *cancelled) {
         (!S_ISFIFO(output.st_mode) && !S_ISSOCK(output.st_mode))) {
         return error();
     }
-    if (!open_directory(&e, directory) || !ignore_pipe() || !read_permit(&e, &permit)) {
+    if (!open_directory(&e, directory) || !ignore_pipe() || !read_permit(&e, &permit) ||
+        !instance_matches(&permit, instance)) {
         goto done;
     }
     if (fstatat(e.directory, socket_name, &socket_info, AT_SYMLINK_NOFOLLOW) ||
@@ -493,7 +559,8 @@ int gterm_ipc_attach(const char *directory, volatile sig_atomic_t *cancelled) {
         }
     }
     if (!peer_user(e.peer) || !entry(e.directory, socket_name, &socket_info) ||
-        !exchange(e.peer, &permit, sizeof(permit), true, end, cancelled)) {
+        !exchange(e.peer, &permit, sizeof(permit), true, end, cancelled) ||
+        !invocation(e.peer, argc, argv, true, end, cancelled)) {
         goto done;
     }
     memset(&permit, 0, sizeof(permit));

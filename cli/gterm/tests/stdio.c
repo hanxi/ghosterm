@@ -92,7 +92,51 @@ int main(int argc, char **argv) {
         const char *trusted = !strcmp(mode, "digest") ? client_digest : package_digest;
         const char *attach = getenv("GT_GTERM_FIXTURE_ATTACH");
         if (attach) {
-            execl(binary, binary, "relay", "--attach", attach, (char *)NULL);
+            const char *instance = getenv("GT_GTERM_FIXTURE_ATTACH_INSTANCE");
+            CHECK(instance);
+            if (preview) {
+                if (preview_unicode) {
+                    execl(binary,
+                          binary,
+                          "relay",
+                          "--attach",
+                          attach,
+                          "--instance",
+                          instance,
+                          "--",
+                          "preview",
+                          preview_path,
+                          (char *)NULL);
+                } else {
+                    execl(binary,
+                          binary,
+                          "relay",
+                          "--attach",
+                          attach,
+                          "--instance",
+                          instance,
+                          "--",
+                          "preview",
+                          preview_path,
+                          "--assets",
+                          "site/theme\\,dark.css",
+                          (char *)NULL);
+                }
+            } else {
+                execl(binary,
+                      binary,
+                      "relay",
+                      "--attach",
+                      attach,
+                      "--instance",
+                      instance,
+                      "--",
+                      "fixture",
+                      "中文",
+                      "",
+                      "';throw Error('injected');//",
+                      (char *)NULL);
+            }
             _exit(127);
         }
         const char *external = getenv("GT_GTERM_FIXTURE_RUNTIME");

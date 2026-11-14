@@ -41,6 +41,9 @@ def main():
         ('ack',[('memcmp(ack, acknowledged, sizeof(ack)) ||','false ||')],'bad-ack'),
         ('bytes',[('p->used = (size_t)n;','p->used = (size_t)n; p->bytes[0] ^= 1;')],'duplex'),
         ('half-close',[('shutdown(socket, SHUT_WR)','shutdown(socket, SHUT_RDWR)')],'half-close'),
+        ('public-instance',[('!instance_matches(&permit, instance)','(!instance_matches(&permit, instance) && false)')],'instance'),
+        ('invocation-count',[('number[3] != argc','false')],'invocation-count'),
+        ('invocation-bytes',[('(!sending && memcmp(bytes, argv[i], size))','false')],'invocation-argument'),
     ]
     for label,replacements,_ in cases:
         for old,_ in replacements:

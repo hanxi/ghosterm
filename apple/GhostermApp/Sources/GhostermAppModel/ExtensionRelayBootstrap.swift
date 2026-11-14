@@ -4,6 +4,16 @@ import GhostermCore
 /// Builds the explicit POSIX command used to start the reviewed Executor over
 /// SSH. This does not discover, install, or trust a remote gterm binary.
 public enum ExtensionRelayBootstrap {
+    public struct Attachment: Sendable, Equatable {
+        public let directory, instance: String
+        public let authorized, remoteProcesses: Bool
+        public init(directory: String, instance: String, authorized: Bool, remoteProcesses: Bool = false) {
+            self.directory = directory; self.instance = instance; self.authorized = authorized; self.remoteProcesses = remoteProcesses
+        }
+        public var reviewDescription: String {
+            "连接已有前台实例：\(instance)\n远端私有目录：\(directory)\n运行档、根目录与程序映射沿用前台启动配置，连接不会修改。\n远端业务进程服务：" + (remoteProcesses ? "明确允许沿用实例范围" : "未允许")
+        }
+    }
     public struct ScopedRoot: Sendable, Equatable {
         public let id: String
         public let directory: String
@@ -70,6 +80,7 @@ public enum ExtensionRelayBootstrap {
         public let processPrograms: [ProcessProgram]
         public let processEnvironmentNames: [String]
         public let execution: Execution?
+        public let attachment: Attachment?
         public let command: String
         public let arguments: [String]
 
@@ -79,6 +90,7 @@ public enum ExtensionRelayBootstrap {
                     processPrograms: [ProcessProgram] = [],
                     processEnvironmentNames: [String] = [],
                     execution: Execution? = nil,
+                    attachment: Attachment? = nil,
                     command: String, arguments: [String] = []) {
             self.executable = executable; self.executorDirectory = executorDirectory
             self.executorDigest = executorDigest; self.clientDigest = clientDigest
@@ -87,6 +99,7 @@ public enum ExtensionRelayBootstrap {
             self.processPrograms = processPrograms
             self.processEnvironmentNames = processEnvironmentNames
             self.execution = execution
+            self.attachment = attachment
             self.command = command; self.arguments = arguments
         }
     }
@@ -144,7 +157,7 @@ public enum ExtensionRelayBootstrap {
     }
 
     public static func build(_ request: Request) throws -> String {
-        guard !request.executable.isEmpty, !request.executorDirectory.isEmpty,
+        guard !request.executable.isEmpty, (request.attachment != nil || !request.executorDirectory.isEmpty),
               !request.command.isEmpty else { throw invalid("请指定 gterm、Executor 目录和完整插件命令") }
         guard isDigest(request.executorDigest), isDigest(request.clientDigest) else {
             throw invalid("插件摘要必须是 64 位小写 SHA-256")
@@ -172,6 +185,20 @@ public enum ExtensionRelayBootstrap {
         try validateEnvironmentNames(request.processEnvironmentNames)
         guard request.processEnvironmentNames.isEmpty || !request.processPrograms.isEmpty || request.execution != nil else {
             throw invalid("显式进程环境需要配置进程映射或 Node / Exec 运行档")
+        }
+        if let attachment = request.attachment {
+            guard attachment.authorized, attachment.instance.utf8.count == 32,
+                  attachment.instance.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+                  canonicalDirectory(attachment.directory), request.execution == nil,
+                  request.executorDirectory.isEmpty, request.scopedRoots.isEmpty,
+                  request.processPrograms.isEmpty, request.processEnvironmentNames.isEmpty else {
+                throw invalid("已有前台实例需要明确允许、规范绝对目录与 32 位小写实例标识；不能同时重配运行档、包目录、根或进程")
+            }
+            let argv = [request.executable, "relay", "--attach", attachment.directory, "--instance", attachment.instance, "--", request.command] + request.arguments
+            guard argv.allSatisfy({ !$0.utf8.contains(0) && !$0.contains("\n") && !$0.contains("\r") && $0.utf8.count <= 4096 }) else { throw invalid("连接参数包含不支持的字符或过长") }
+            let command = "exec " + argv.map(quote).joined(separator: " ")
+            guard command.utf8.count <= 1024 else { throw invalid("远端连接命令超过 SSH 插件路由上限") }
+            return command
         }
         // Keep each expression small for the Swift 6.1 compiler used by CI.
         var argv: [String] = [request.executable, "relay", "--stdio", "--trust-development-digest",
@@ -225,6 +252,11 @@ public enum ExtensionRelayBootstrap {
         let command = environment + "exec " + argv.map(quote).joined(separator: " ")
         guard command.utf8.count <= 1024 else { throw invalid("远端启动命令超过 SSH 插件路由上限") }
         return command
+    }
+
+    private static func canonicalDirectory(_ value: String) -> Bool {
+        guard absolutePath(value), !value.hasSuffix("/") else { return false }
+        return value.dropFirst().split(separator: "/", omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
 
     private static func parseStringArray(_ source: String, limit: Int, label: String) throws -> [String] {

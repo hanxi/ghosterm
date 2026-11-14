@@ -16,11 +16,13 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+MARK = 'GT_PLUGIN_NATIVE_EXECUTION_MUTATION'
 sys.dont_write_bytecode = True
 
 
@@ -29,10 +31,11 @@ def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def execute(args, serial=None):
     mac = args.macos
-    component = 'ExtensionRelayBootstrap' if args.business_environment else 'ExtensionController'
+    component = 'ExtensionRelayBootstrap' if args.business_environment or args.foreground_grant else 'ExtensionController'
     name = Path('apple/GhostermApp/Sources/GhostermAppModel/' + component + '.swift' if mac else
                 'android/app/src/main/java/com/hanxi/ghosterm/' + component + '.kt')
     original = (ROOT / name).read_bytes()
+    if MARK.encode() in original:raise RuntimeError('Residual Native execution mutation')
     with tempfile.TemporaryDirectory(prefix='xpump-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary); source = work / 'h'
         if mac:
@@ -57,9 +60,19 @@ def execute(args, serial=None):
         commands = []
 
         def run(label, command):
-            p = subprocess.run(list(map(str, command)), cwd=ROOT, env=env, capture_output=True,
-                               text=True, timeout=900)
-            output = p.stdout + p.stderr; (work / (label + '.log')).write_text(output)
+            shell='. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require native-execution; shift; exec "$gt_timeout_bin" --foreground 900 "$@"'
+            p = subprocess.Popen(['bash','-c',shell,'native-execution',str(ROOT),*map(str,command)],cwd=ROOT,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+            try:stdout,stderr=p.communicate(timeout=910)
+            except BaseException:
+                try:os.killpg(p.pid,signal.SIGTERM)
+                except ProcessLookupError:pass
+                try:p.communicate(timeout=15)
+                except subprocess.TimeoutExpired:
+                    try:os.killpg(p.pid,signal.SIGKILL)
+                    except ProcessLookupError:pass
+                    p.communicate(timeout=5)
+                raise
+            output = stdout + stderr; (work / (label + '.log')).write_text(output)
             commands.append(dict(label=label, returncode=p.returncode))
             return p.returncode, output
 
@@ -67,7 +80,8 @@ def execute(args, serial=None):
             command = [sys.executable, ROOT / 'scripts/test-plugin-execution-ssh-app.py',
                 *(['--macos'] if mac else ['--android', serial]), '--project', source,
                 '--build', args.build, '--node', args.node, '--sdk', args.sdk,
-                '--case', 'node:direct:client-directory-link' if args.client_directory else
+                *(['--attach'] if args.foreground_grant else []),
+                '--case', 'node:direct:no-approval' if args.foreground_grant else 'node:direct:client-directory-link' if args.client_directory else
                 'node:direct:client-resource' if args.client_instance else
                 'node:direct:client-no-approval' if args.client_workspace else
                 'node:direct:process-environment' if args.business_environment else 'node:direct:resource']
@@ -77,15 +91,15 @@ def execute(args, serial=None):
                     start = output.find("Test Suite 'Selected tests'")
                     transcript = output[start:]
                     valid = (start >= 0 and re.search(r'Executed 1 test, with 1 failure', transcript)
-                             and ('XCTAssertNotNil failed' in transcript if (args.client_workspace or args.client_directory) else
+                             and ('XCTAssertNotNil failed' in transcript if (args.foreground_grant or args.client_workspace or args.client_directory) else
                                   'XCTAssertTrue failed' in transcript if args.client_instance else
                                   'XCTAssertEqual failed:' in transcript)
-                             and (args.client_workspace or args.client_directory or args.client_instance or args.business_environment or 'RPCState.unknown' in transcript))
+                             and (args.foreground_grant or args.client_workspace or args.client_directory or args.client_instance or args.business_environment or 'RPCState.unknown' in transcript))
                 else:
                     start = output.find('INSTRUMENTATION_STATUS: class=')
                     transcript = output[start:]
                     valid = (start >= 0 and re.search(r'Tests run: 1,\s+Failures: 1', transcript)
-                             and ('org.junit.Assert.assertNotNull' in transcript if (args.client_workspace or args.client_directory) else
+                             and ('org.junit.Assert.assertNotNull' in transcript if (args.foreground_grant or args.client_workspace or args.client_directory) else
                                   'Stale Native action must not publish into another Runtime' in transcript if args.client_instance else
                                   'java.lang.AssertionError: expected:<' in transcript if args.business_environment else
                                   'java.lang.AssertionError: expected:<SUCCEEDED> but was:<UNKNOWN>' in transcript))
@@ -104,7 +118,12 @@ def execute(args, serial=None):
 
         check('baseline'); baseline = artifact()
         text = original.decode()
-        if args.client_directory:
+        if args.foreground_grant:
+            begin = 'guard attachment.authorized, attachment.instance' if mac else 'require(attachment.authorized && attachment.instance'
+            assert text.count(begin)==1
+            a=text.index(begin);b=a+len(begin)
+            replacement='guard true, attachment.instance' if mac else 'require(true && attachment.instance'
+        elif args.client_directory:
             begin = 'rootFD = clientWorkspace.directory.withCString {\n                        open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)' if mac else \
                 'OsConstants.O_RDONLY or OsConstants.O_NONBLOCK or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC'
             assert text.count(begin) == 1
@@ -133,7 +152,7 @@ def execute(args, serial=None):
             a = text.index(begin); b = text.index(end, a)
             replacement = '                _ = try runtime.step()\n' if mac else '        current.step()\n'
         try:
-            target.write_text(text[:a] + replacement + text[b:])
+            target.write_text(text[:a] + replacement + text[b:] + '\n// '+MARK+'\n')
             check('mutated', True); mutant = artifact()
             assert baseline != mutant, 'Mutant did not change the actual compiled object/APK'
             if mac:
@@ -152,21 +171,22 @@ def execute(args, serial=None):
         check('restored'); restored = artifact()
         assert target.read_bytes() == original and (ROOT / name).read_bytes() == original
         receipt = dict(accepted=True, platform='macos' if mac else 'android',
-            groups=['native-publication-directory-nofollow' if args.client_directory else
+            groups=['explicit-foreground-attachment-grant' if args.foreground_grant else 'native-publication-directory-nofollow' if args.client_directory else
                     'native-publication-runtime-instance' if args.client_instance else
                     'explicit-client-workspace-grant' if args.client_workspace else
                     'selected-business-environment' if args.business_environment else 'ui-cadence-resource-throttle'], source_sha256=sha(target),
             artifact_sha256=dict(baseline=baseline, mutant=mutant, restored=restored), commands=commands,
             scope='Owned Native App/loopback SSH/Node actual resource or mapped business process; single normal assertion red, same build control green, restore; no accounts/models')
         if args.receipt: args.receipt.write_text(json.dumps(receipt, indent=2) + '\n')
-        print(('CLIENT DIRECTORY' if args.client_directory else 'CLIENT INSTANCE' if args.client_instance else 'CLIENT WORKSPACE' if args.client_workspace else 'BUSINESS ENV' if args.business_environment else 'PUMP') + ' MUTATION PASS: one compiled ordinary assertion red / same build control green / restore / SHA256', flush=True)
+        print(('FOREGROUND GRANT' if args.foreground_grant else 'CLIENT DIRECTORY' if args.client_directory else 'CLIENT INSTANCE' if args.client_instance else 'CLIENT WORKSPACE' if args.client_workspace else 'BUSINESS ENV' if args.business_environment else 'PUMP') + ' MUTATION PASS: one compiled ordinary assertion red / same build control green / restore / SHA256', flush=True)
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     target = p.add_mutually_exclusive_group(required=True)
-    target.add_argument('--macos', action='store_true'); target.add_argument('--headless-api', choices=['29', '36'])
+    target.add_argument('--macos', action='store_true'); target.add_argument('--headless-api', choices=['29', '36']); target.add_argument('--android', help='explicit owned test device serial')
     mode = p.add_mutually_exclusive_group()
+    mode.add_argument('--foreground-grant', action='store_true', help='remove explicit permission to connect the selected existing foreground instance')
     mode.add_argument('--client-directory', action='store_true', help='follow a symlink instead of opening only the selected actual directory')
     mode.add_argument('--client-instance', action='store_true', help='admit a publication action for an obsolete Runtime identity')
     mode.add_argument('--client-workspace', action='store_true', help='remove explicit Client directory approval')
@@ -176,10 +196,14 @@ def main():
     if not __debug__: raise RuntimeError('Run checks with Python assertions enabled')
     if args.receipt and not args.receipt.resolve().is_relative_to(ROOT / 'tmp'): p.error('receipt must be under project tmp')
     if args.macos: execute(args)
+    elif args.android:execute(args,args.android)
     else:
         spec = importlib.util.spec_from_file_location('pump_headless', ROOT / 'scripts/test-plugin-codex-patch-android.py')
         helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
         with helper.headless(args.headless_api) as serial: execute(args, serial)
 
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    def interrupted(number,frame):raise KeyboardInterrupt(str(number))
+    signal.signal(signal.SIGINT,interrupted);signal.signal(signal.SIGTERM,interrupted)
+    main()

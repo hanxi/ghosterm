@@ -34,6 +34,38 @@ class ExecutorExecutionTest {
         assertEquals("exec 'gterm' 'relay' '--stdio' '--trust-development-digest' '$digest' '--client-digest' '$digest' '--' '/k' 'fixture'",
             ExtensionRelayBootstrap.build(request()))
     }
+    @Test fun foregroundAttachmentBindsExplicitInstanceAndCannotReconfigureExecutor() {
+        val attachment=ExtensionRelayBootstrap.Attachment("/private/front","b".repeat(32),true)
+        val request=request().copy(executorDirectory="",attachment=attachment,arguments=listOf("", "中'😀"))
+        assertEquals("exec 'gterm' 'relay' '--attach' '/private/front' '--instance' '${"b".repeat(32)}' '--' 'fixture' '' '中'\\''😀'",ExtensionRelayBootstrap.build(request))
+        for(path in listOf("relative","/private/front/","/private//front","/private/./front","/private/../front","/private/\nfront"))
+            rejected { ExtensionRelayBootstrap.build(request.copy(attachment=attachment.copy(directory=path))) }
+        for(id in listOf("","b".repeat(31),"B".repeat(32)))rejected { ExtensionRelayBootstrap.build(request.copy(attachment=attachment.copy(instance=id))) }
+        rejected { ExtensionRelayBootstrap.build(request.copy(attachment=attachment.copy(authorized=false))) }
+        rejected { ExtensionRelayBootstrap.build(request.copy(executorDirectory="/other")) }
+        rejected { ExtensionRelayBootstrap.build(request.copy(workspaceRootDirectory="/other")) }
+        rejected { ExtensionRelayBootstrap.build(request.copy(execution=ExtensionRelayBootstrap.Execution(ExtensionRelayBootstrap.Execution.Runtime.Exec,"/t",true))) }
+    }
+    @Test fun productionAttachmentFormCapturesInstanceAndRevokesApprovalOnEdits() {
+        var launched:ExtensionRelayBootstrap.Request?=null
+        form { launched=it };fillCommon()
+        ui.onNodeWithTag("plugin-ipc-mode").performScrollTo().performClick()
+        ui.onNodeWithTag("plugin-executor-directory").assertDoesNotExist()
+        ui.onNodeWithTag("plugin-executor-runtime").assertDoesNotExist()
+        ui.onNodeWithTag("plugin-ipc-directory").performScrollTo().performTextInput("/private/front")
+        ui.onNodeWithTag("plugin-ipc-instance").performScrollTo().performTextInput("b".repeat(32))
+        Espresso.closeSoftKeyboard()
+        ui.onNodeWithText("连接并请求授权").performClick();ui.runOnIdle { assertNull(launched) }
+        ui.onNodeWithTag("plugin-ipc-allow").performScrollTo().assertIsOff().performClick()
+        ui.onNodeWithText("连接并请求授权").performClick()
+        ui.runOnIdle { assertEquals("b".repeat(32),launched?.attachment?.instance);assertEquals(true,launched?.attachment?.authorized);assertEquals("",launched?.executorDirectory);assertNull(launched?.execution) }
+        ui.onNodeWithTag("plugin-ipc-instance").performScrollTo().performTextReplacement("c".repeat(32))
+        Espresso.closeSoftKeyboard();ui.onNodeWithTag("plugin-ipc-allow").performScrollTo().assertIsOff()
+        ui.runOnIdle { assertEquals("b".repeat(32),launched?.attachment?.instance) }
+        ui.onNodeWithTag("plugin-ipc-allow").performClick().assertIsOn()
+        ui.onNodeWithTag("plugin-ipc-processes").performScrollTo().performClick()
+        ui.onNodeWithTag("plugin-ipc-allow").performScrollTo().assertIsOff()
+    }
     @Test fun nodeAndExecRequireSeparateApprovalAndNeverGrantBusinessProcesses() {
         for (runtime in listOf(node(), ExtensionRelayBootstrap.Execution.Runtime.Exec)) {
             rejected { ExtensionRelayBootstrap.build(request(runtime, authorized = false)) }
@@ -67,6 +99,20 @@ class ExecutorExecutionTest {
         assertTrue(command.startsWith("TMPDIR='/中'\\''$(touch SHOULD_NOT_EXIST);😀' exec "))
         assertTrue(command.contains("'--node-runtime' '/中'\\''$(touch SHOULD_NOT_EXIST);😀'"))
         assertTrue(command.contains("'--node-sdk' '/中'\\''$(touch SHOULD_NOT_EXIST);😀'"))
+    }
+    @Test fun productionModeSwitchRevokesFreshAndAttachmentApproval() {
+        form { };fillCommon();choose("Exec")
+        ui.onNodeWithTag("plugin-execution-tmpdir").performScrollTo().performTextInput("/t")
+        Espresso.closeSoftKeyboard()
+        ui.onNodeWithTag("plugin-execution-allow").performScrollTo().performClick().assertIsOn()
+        ui.onNodeWithTag("plugin-ipc-mode").performScrollTo().performClick()
+        ui.onNodeWithTag("plugin-ipc-mode").performClick()
+        ui.onNodeWithTag("plugin-execution-allow").performScrollTo().assertIsOff()
+        ui.onNodeWithTag("plugin-ipc-mode").performScrollTo().performClick()
+        ui.onNodeWithTag("plugin-ipc-allow").performScrollTo().performClick().assertIsOn()
+        ui.onNodeWithTag("plugin-ipc-mode").performScrollTo().performClick()
+        ui.onNodeWithTag("plugin-ipc-mode").performClick()
+        ui.onNodeWithTag("plugin-ipc-allow").performScrollTo().assertIsOff()
     }
     @Test fun productionFormRequiresApprovalAndCapturesExecWithoutNodeDependencies() {
         var launched: ExtensionRelayBootstrap.Request? = null

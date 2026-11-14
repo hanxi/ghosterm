@@ -92,18 +92,22 @@ class ExecutorSSHAppTest {
             val selected = if (payload.getString("runtime") == "exec") ExtensionRelayBootstrap.Execution.Runtime.Exec
                 else ExtensionRelayBootstrap.Execution.Runtime.Node(ExtensionRelayBootstrap.NodeDependency(payload.getString("node"),
                     payload.getString("nodeVersion"), payload.getString("nodeDigest"), payload.getString("sdk"), payload.getString("sdkDigest")))
-            val execution = ExtensionRelayBootstrap.Execution(selected, payload.getString("temporary"), mode != "no-approval")
-            val request = ExtensionRelayBootstrap.Request(payload.getString("wrapper"), payload.getString("packageDirectory"), digest, digest,
+            val attaching = payload.has("ipcDirectory")
+            val execution = if (attaching) null else ExtensionRelayBootstrap.Execution(selected, payload.getString("temporary"), mode != "no-approval")
+            val attachment = if (attaching) ExtensionRelayBootstrap.Attachment(payload.getString("ipcDirectory"), payload.getString("ipcInstance"), mode != "no-approval", processCase) else null
+            val request = ExtensionRelayBootstrap.Request(payload.getString("wrapper"), if (attaching) "" else payload.getString("packageDirectory"), digest, digest,
                 listOf("fixture.echo"), command = "fixture", arguments = listOf("中文😀", "", "literal'$(owned)"),
-                workspaceRootDirectory = if (resourceCase || processCase) payload.getString("workspace") else null,
-                processPrograms = if (processCase) listOf(ExtensionRelayBootstrap.ProcessProgram("cat", payload.getString("processExecutable"), "fixture", payload.getString("processDigest"))) else emptyList(),
-                processEnvironmentNames = listOf("GT_EXECUTION_APP_FIXTURE") + if (mode == "process-environment") listOf("GT_SELECTED") else emptyList(), execution = execution)
+                workspaceRootDirectory = if (!attaching && (resourceCase || processCase)) payload.getString("workspace") else null,
+                processPrograms = if (!attaching && processCase) listOf(ExtensionRelayBootstrap.ProcessProgram("cat", payload.getString("processExecutable"), "fixture", payload.getString("processDigest"))) else emptyList(),
+                processEnvironmentNames = if (attaching) emptyList() else listOf("GT_EXECUTION_APP_FIXTURE") + if (mode == "process-environment") listOf("GT_SELECTED") else emptyList(), execution = execution, attachment = attachment)
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
             main { extensions.launch(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(), target, request, sessions, clientWorkspace) }
             if (mode in setOf("no-approval", "client-no-approval", "client-undeclared")) {
                 assertNotNull(main { extensions.error }); assertNull(main { extensions.activeSession })
-                assertNull(main { sessions.connecting }); assertFalse(service("audit").getBoolean("wrapperStarted")); return
+                assertNull(main { sessions.connecting }); assertEquals(attaching,service("audit").getBoolean("wrapperStarted"))
+                if (attaching) { assertFalse(service("audit").getBoolean("attachStarted")); assertTrue(service("audit").getBoolean("ipcListening"));service("stop-front") }
+                return
             }
             val end = SystemClock.elapsedRealtime() + 60_000
             var handled: Triple<Long, Int, SSHAuthPhase>? = null
@@ -120,10 +124,19 @@ class ExecutorSSHAppTest {
                     else -> SystemClock.sleep(20)
                 }
             }
+            if (mode.startsWith("attach-")) {
+                await("mismatched foreground did not end Native Session") { main { extensions.activeSession?.info?.phase == ExtensionSession.Phase.ENDED || extensions.error != null } }
+                assertNull(main { extensions.activeRuntime });assertFalse(service("audit").getBoolean("activated"));assertFalse(service("audit").getBoolean("entered"))
+                assertTrue(service("audit").getBoolean("attachStarted"));assertTrue(service("audit").getBoolean("ipcListening"))
+                service("stop-front");main { extensions.releaseFinished() }
+                await("rejected attach owner release") { main { extensions.activeSession == null && !extensions.launchBusy } }
+                return
+            }
             assertNull(main { extensions.error })
             await("Session did not reach consent") { main { extensions.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }
             assertEquals(if (jump) 2 else 1, hostCount)
             assertEquals(execution, main { extensions.activeSession?.executorExecution })
+            assertEquals(attachment, main { extensions.activeSession?.executorAttachment })
             assertEquals(clientWorkspace, main { extensions.activeSession?.clientWorkspace })
             assertFalse(main { checkNotNull(extensions.activeSession).remoteCommand.contains(local.path) })
             val required = listOf("session.rpc") + (if (resourceCase) listOf("resource.receive", "file.readScoped") else emptyList()) +

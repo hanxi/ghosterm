@@ -23,13 +23,17 @@ import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-MAGIC, ACK = b'GTERMIP1', b'GTERMOK1'
+CALL = ['fixture', '中文', '', "';throw Error('injected');//"]
+def invocation_bytes(args):
+    return len(args).to_bytes(4,'big') + b''.join(len(s.encode()).to_bytes(4,'big')+s.encode() for s in args)
+MAGIC, ACK = b'GTERMIP2', b'GTERMOK2'
 CASES = ['roundtrip', 'deny', 'cancel', 'active-cancel', 'peer-digest',
          'bad-permit', 'partial-permit', 'directory-mode', 'directory-link',
          'permit-mode', 'permit-link', 'permit-hardlink', 'socket-link', 'socket-mode',
          'stale', 'second-listener', 'one-shot', 'replacement-cleanup', 'bad-ack',
          'duplex', 'half-close', 'tty', 'idle-cancel', 'preview', 'setup-deadline',
-         'killed-owner', 'partial-cancel', 'directory-link-suffix', 'server-permit-link', 'server-socket-link']
+         'killed-owner', 'partial-cancel', 'directory-link-suffix', 'server-permit-link', 'server-socket-link',
+         'instance', 'reused-directory', 'invocation-command', 'invocation-argument', 'invocation-count']
 
 
 def require(value, label):
@@ -83,8 +87,16 @@ def execute(build, case, work):
     binary = build/'gterm'; endpoint=work/'e'; endpoint.mkdir(mode=0o700)
     environment={**os.environ,'TMPDIR':str(ROOT/'tmp')}
     owned=[]
+    current_instance='0'*32
+    fixed_arguments=None
     @contextmanager
-    def listener(arguments=(), terminal=False):
+    def listener(arguments=None, terminal=False):
+        nonlocal current_instance, fixed_arguments
+        if arguments is None:
+            if fixed_arguments is None:
+                directory,digest=package(work)
+                fixed_arguments=['--trust-development-digest',digest,'--client-digest','d'*64,'--method','fixture.echo','--',str(directory),*CALL]
+            arguments=fixed_arguments
         master=slave=None
         if terminal: master,slave=pty.openpty()
         process=subprocess.Popen([binary,'relay','--listen',endpoint,*arguments],
@@ -95,20 +107,38 @@ def execute(build, case, work):
             wait(lambda: (endpoint/'permit').exists() or process.poll() is not None,'owned listener startup')
             require(process.poll() is None,'listener must be live')
             require(stat.S_IMODE(endpoint.stat().st_mode)==0o700,'private root')
-            wait(lambda:(endpoint/'permit').stat().st_size==40,'complete private permit')
+            wait(lambda:(endpoint/'permit').stat().st_size==56,'complete private permit')
             require(stat.S_IMODE((endpoint/'permit').stat().st_mode)==0o600,'private permit')
             require(stat.S_ISSOCK((endpoint/'channel.sock').lstat().st_mode),'owned socket')
+            current_instance=(endpoint/'permit').read_bytes()[8:24].hex()
             yield process,master
         finally:
             terminate(process)
             if master is not None: os.close(master); os.close(slave)
             if process.stdout is not None: process.stdout.close()
             process.stderr.close()
-    def attach(directory=endpoint, data=b''):
-        return subprocess.run([binary,'relay','--attach',directory],input=data,capture_output=True,env=environment,timeout=8)
+    def attach(directory=endpoint, data=b'', instance=None, call=CALL):
+        return subprocess.run([binary,'relay','--attach',directory,'--instance',instance or current_instance,'--',*call],input=data,capture_output=True,env=environment,timeout=8)
     def rejected(label):
         result=attach();require(result.returncode==5 and result.stdout==b'',label)
     try:
+        if case in ('instance','invocation-command','invocation-argument','invocation-count','reused-directory'):
+            previous=None
+            if case=='reused-directory':
+                with listener() as (process,_):
+                    previous=current_instance;process.terminate();require(process.wait(timeout=4)==130,'old instance revoked')
+            with listener() as (process,_):
+                call=list(CALL);instance=current_instance
+                if case=='reused-directory':
+                    require(instance!=previous,'fresh instance in reused directory');instance=previous
+                elif case=='instance':instance=('1' if instance[0]!='1' else '0')+instance[1:]
+                elif case=='invocation-command':call[0]='other'
+                elif case=='invocation-argument':call[1]='汉字'
+                else:call.append('--')
+                result=attach(instance=instance,call=call)
+                require(result.returncode==5 and not result.stdout,'instance / invocation mismatch rejected')
+                require(process.poll() is None and (endpoint/'permit').exists(),'mismatch must not consume or activate frontend')
+            return
         if case=='preview':
             directory=ROOT/'plugins/official/preview';digest=hashlib.sha256((directory/'integrity.json').read_bytes()).hexdigest()
             workspace=work/'workspace';site=workspace/'site';site.mkdir(parents=True)
@@ -119,7 +149,7 @@ def execute(build, case, work):
                 '--',str(directory),'preview','site/index.md','--assets','site/theme\\,dark.css']
             with listener(arguments,terminal=True) as (process,master):
                 result=subprocess.run([build/'test_gterm_stdio',binary,directory,digest,'preview',workspace,store],
-                    capture_output=True,env={**environment,'GT_GTERM_FIXTURE_ATTACH':str(endpoint)},timeout=18)
+                    capture_output=True,env={**environment,'GT_GTERM_FIXTURE_ATTACH':str(endpoint),'GT_GTERM_FIXTURE_ATTACH_INSTANCE':current_instance},timeout=18)
                 require(result.returncode==0,'Preview complete resource assertions: '+result.stdout.decode(errors='replace')+result.stderr.decode(errors='replace'))
                 require(process.wait(timeout=6)==0,'Preview foreground completion')
                 require(not select.select([master],[],[],.02)[0],'Preview bytes stay outside terminal')
@@ -148,7 +178,7 @@ def execute(build, case, work):
             arguments=['--trust-development-digest',digest,'--client-digest','d'*64,'--method','fixture.echo',
                 '--',str(directory),'fixture','中文','',"';throw Error('injected');//"]
             with listener(arguments,terminal=True) as (process,master):
-                env={**environment,'GT_GTERM_FIXTURE_ATTACH':str(endpoint)}
+                env={**environment,'GT_GTERM_FIXTURE_ATTACH':str(endpoint),'GT_GTERM_FIXTURE_ATTACH_INSTANCE':current_instance}
                 result=subprocess.run([build/'test_gterm_stdio',binary,directory,digest,case],capture_output=True,env=env,timeout=18)
                 if result.returncode:
                     terminate(process)
@@ -194,13 +224,13 @@ def execute(build, case, work):
                 try:
                     with socket.socket(socket.AF_UNIX) as peer:
                         peer.settimeout(3);peer.connect(str(endpoint/('channel.sock.saved' if name=='channel.sock' else 'channel.sock')))
-                        peer.sendall(permit);require(peer.recv(8)==b'','server must reject replaced entry')
+                        peer.sendall(permit+invocation_bytes(CALL));require(peer.recv(8)==b'','server must reject replaced entry')
                 finally:
                     if path.is_symlink():path.unlink()
                     if saved.exists():saved.rename(path)
             return
         if case in ('permit-link','socket-link'):
-            permit=MAGIC+os.urandom(32);permit_path=endpoint/'permit';permit_path.write_bytes(permit);permit_path.chmod(0o600)
+            permit=MAGIC+os.urandom(48);current_instance=permit[8:24].hex();permit_path=endpoint/'permit';permit_path.write_bytes(permit);permit_path.chmod(0o600)
             native=socket.socket(socket.AF_UNIX);native.bind(str(endpoint/'channel.sock'));native.listen(1);native.settimeout(.05)
             (endpoint/'channel.sock').chmod(0o600)
             observed=bytearray();failures=[]
@@ -213,10 +243,14 @@ def execute(build, case, work):
                             except socket.timeout:continue
                             with connection:
                                 connection.settimeout(3)
-                                while len(observed)<40:
-                                    data=connection.recv(40-len(observed))
+                                while len(observed)<56:
+                                    data=connection.recv(56-len(observed))
                                     if not data:break
                                     observed.extend(data)
+                                expected=invocation_bytes(CALL);prelude=bytearray()
+                                while len(prelude)<len(expected):
+                                    data=connection.recv(len(expected)-len(prelude));require(data,'incomplete expected invocation');prelude.extend(data)
+                                require(bytes(prelude)==expected,'literal invocation prelude')
                                 connection.sendall(ACK)
                             return
                     except BaseException as error:failures.append(error)
@@ -235,7 +269,7 @@ def execute(build, case, work):
             finally:native.close()
             return
         if case in ('bad-permit','partial-permit','one-shot'):
-            arguments=[]
+            arguments=None
             if case=='one-shot':
                 directory,digest=package(work)
                 arguments=['--trust-development-digest',digest,'--client-digest','d'*64,'--method','fixture.echo','--',str(directory),'fixture','中文','',"';throw Error('injected');//"]
@@ -243,9 +277,9 @@ def execute(build, case, work):
                 permit=(endpoint/'permit').read_bytes()
                 with socket.socket(socket.AF_UNIX) as client:
                     client.settimeout(3);client.connect(str(endpoint/'channel.sock'))
-                    if case=='bad-permit':client.sendall(permit[:-1]+bytes([permit[-1]^1]))
+                    if case=='bad-permit':client.sendall(permit[:-1]+bytes([permit[-1]^1])+invocation_bytes(CALL))
                     elif case=='partial-permit':client.sendall(permit[:12]);client.shutdown(socket.SHUT_WR)
-                    else:client.sendall(permit)
+                    else:client.sendall(permit+invocation_bytes(CALL))
                     data=client.recv(8)
                     if case=='one-shot':
                         require(data==ACK,'one-shot acknowledged')
@@ -281,7 +315,7 @@ def execute(build, case, work):
                 for direction in ['input','output']:
                     master,slave=pty.openpty()
                     try:
-                        result=subprocess.run([binary,'relay','--attach',endpoint],stdin=slave if direction=='input' else subprocess.PIPE,
+                        result=subprocess.run([binary,'relay','--attach',endpoint,'--instance',current_instance,'--',*CALL],stdin=slave if direction=='input' else subprocess.PIPE,
                             stdout=slave if direction=='output' else subprocess.PIPE,stderr=subprocess.PIPE,env=environment,timeout=4)
                         require(result.returncode==5,'TTY attach must fail')
                         require((endpoint/'permit').exists(),'TTY rejection cannot consume endpoint')
@@ -289,7 +323,7 @@ def execute(build, case, work):
                     finally:os.close(master);os.close(slave)
             return
         if case in ('bad-ack','duplex','half-close'):
-            permit=MAGIC+os.urandom(32);path=endpoint/'permit';path.write_bytes(permit);path.chmod(0o600)
+            permit=MAGIC+os.urandom(48);current_instance=permit[8:24].hex();path=endpoint/'permit';path.write_bytes(permit);path.chmod(0o600)
             listener_socket=socket.socket(socket.AF_UNIX);listener_socket.bind(str(endpoint/'channel.sock'))
             (endpoint/'channel.sock').chmod(0o600);listener_socket.listen(1);listener_socket.settimeout(5)
             incoming=bytes(i%251 for i in range(1048576));outgoing=bytes((i*7+3)%251 for i in range(1048576))
@@ -298,9 +332,13 @@ def execute(build, case, work):
                 try:
                     with listener_socket.accept()[0] as peer:
                         peer.settimeout(6);header=bytearray()
-                        while len(header)<40:
-                            chunk=peer.recv(40-len(header));require(chunk,'owned admission ended before complete header');header.extend(chunk)
+                        while len(header)<56:
+                            chunk=peer.recv(56-len(header));require(chunk,'owned admission ended before complete header');header.extend(chunk)
                         require(bytes(header)==permit,'private admission bytes')
+                        expected=invocation_bytes(CALL);prelude=bytearray()
+                        while len(prelude)<len(expected):
+                            data=peer.recv(len(expected)-len(prelude));require(data,'incomplete expected invocation');prelude.extend(data)
+                        require(bytes(prelude)==expected,'literal invocation prelude')
                         peer.sendall(b'INVALID!' if case=='bad-ack' else ACK)
                         if case=='bad-ack':require(peer.recv(1)==b'','bad ACK must block protocol');return
                         writer=None

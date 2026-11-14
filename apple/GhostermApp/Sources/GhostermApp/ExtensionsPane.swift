@@ -17,23 +17,31 @@ struct ExtensionsPane: View {
     private struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
         var decision: String = "尚未批准"
-        var sshAlias = "" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
-        var executable = "gterm" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
-        var executorDirectory = "" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
-        var executorDigest = "" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
-        var command = "" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
-        var argumentsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
-        var methodsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
-        var hostMethodsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
-        var resourceRoot = "" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
-        var processProgramsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
-        var processEnvironmentJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var sshAlias = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var executable = "gterm" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var executorDirectory = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var executorDigest = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var command = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var argumentsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var methodsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var hostMethodsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var resourceRoot = "" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var processProgramsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
+        var processEnvironmentJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
         var clientDirectory = "" { didSet { clientAuthorized = false } }
         var clientAuthorized = false
         var clientWorkspace: ExtensionController.ClientWorkspace? {
             clientDirectory.isEmpty ? nil : .init(directory: clientDirectory, authorized: clientAuthorized)
         }
         var executionDraft = ExecutorExecutionDraft()
+        var attachExisting = false { didSet { attachmentAllowed = false; executionDraft.authorized = false; clientAuthorized = false } }
+        var ipcDirectory = "" { didSet { attachmentAllowed = false; clientAuthorized = false } }
+        var ipcInstance = "" { didSet { attachmentAllowed = false; clientAuthorized = false } }
+        var remoteProcesses = false { didSet { attachmentAllowed = false; clientAuthorized = false } }
+        var attachmentAllowed = false
+        var attachment: ExtensionRelayBootstrap.Attachment? {
+            attachExisting ? .init(directory: ipcDirectory, instance: ipcInstance, authorized: attachmentAllowed, remoteProcesses: remoteProcesses) : nil
+        }
         init(review: ExtensionController.PackageReview) {
             self.review = review
             self.command = review.commands.first?.path ?? ""
@@ -89,9 +97,24 @@ struct ExtensionsPane: View {
                                 .accessibilityIdentifier("plugin-ssh-alias-\(entry.review.id)")
                             TextField("远端 gterm 可执行文件", text: $entry.executable)
                                 .accessibilityIdentifier("plugin-executable-\(entry.review.id)")
+                            Toggle("连接已有前台 gterm 实例", isOn: $entry.attachExisting)
+                                .accessibilityIdentifier("plugin-ipc-mode")
+                            if entry.attachExisting {
+                                TextField("远端私有 IPC 目录", text: $entry.ipcDirectory)
+                                    .accessibilityIdentifier("plugin-ipc-directory")
+                                TextField("前台显示的 32 位实例标识", text: $entry.ipcInstance)
+                                    .accessibilityIdentifier("plugin-ipc-instance")
+                                Toggle("允许沿用此实例已有的远端业务进程范围", isOn: $entry.remoteProcesses)
+                                    .accessibilityIdentifier("plugin-ipc-processes")
+                                Toggle("明确连接此主机上的该前台实例", isOn: $entry.attachmentAllowed)
+                                    .accessibilityIdentifier("plugin-ipc-allow")
+                                Text("请核对原前台进程显示的标识、命令与参数。运行档、工作区与程序映射沿用前台启动配置，连接不会修改；失效或不匹配将报错。")
+                                    .font(DS.Font.caption).foregroundStyle(.secondary)
+                            } else {
                             ExecutorRuntimeFields(draft: $entry.executionDraft)
                             TextField("Executor 包目录", text: $entry.executorDirectory)
                                 .accessibilityIdentifier("plugin-executor-directory-\(entry.review.id)")
+                            }
                             TextField("Executor SHA-256", text: $entry.executorDigest)
                                 .font(.system(size: 11, design: .monospaced))
                                 .accessibilityIdentifier("plugin-executor-digest-\(entry.review.id)")
@@ -103,8 +126,10 @@ struct ExtensionsPane: View {
                                 .accessibilityIdentifier("plugin-executor-methods-\(entry.review.id)")
                             TextField("Host RPC allowlist JSON", text: $entry.hostMethodsJSON)
                                 .accessibilityIdentifier("plugin-host-methods-\(entry.review.id)")
+                            if !entry.attachExisting {
                             TextField("远端资源目录（留空则不开放）", text: $entry.resourceRoot)
                                 .accessibilityIdentifier("plugin-resource-root-\(entry.review.id)")
+                            }
                             if entry.review.requiredCapabilities.contains("resource.receive") {
                                 TextField("Native 本机只读资源目录（可选）", text: $entry.clientDirectory)
                                     .accessibilityIdentifier("plugin-client-workspace")
@@ -114,6 +139,7 @@ struct ExtensionsPane: View {
                                 Text("目录仅供 Native 发布按钮使用，不交给 Client JS，也不传入远端启动命令。修改目录或连接配置须重新允许。")
                                     .font(DS.Font.caption).foregroundStyle(.secondary)
                             }
+                            if !entry.attachExisting {
                             TextField("远端进程映射 JSON", text: $entry.processProgramsJSON, axis: .vertical)
                                 .lineLimit(2...5)
                                 .accessibilityIdentifier("plugin-process-programs-\(entry.review.id)")
@@ -123,6 +149,7 @@ struct ExtensionsPane: View {
                                 .accessibilityIdentifier("plugin-process-environment-\(entry.review.id)")
                             Text("只填写执行机器上的变量名，例如 [\"CLAUDE_CONFIG_DIR\"]；不要填写凭据值。缺失的显式变量会报错。")
                                 .font(DS.Font.caption).foregroundStyle(.secondary)
+                            }
                             Button("连接并启动 Client 命令") { launch(entry) }
                                 .disabled(model.extensionRunBusy || model.extensionRun != nil)
                                 .accessibilityIdentifier("plugin-launch-\(entry.review.id)")
@@ -197,9 +224,9 @@ struct ExtensionsPane: View {
                 hostMethods = Array(Set(hostMethods + ["codex.event"])).sorted()
             }
             if entry.command == "ai claude" { methods = Array(Set(methods + ClaudeRPCClient.methods)).sorted() }
-            let processPrograms = try ExtensionRelayBootstrap.parseProcessProgramsJSON(entry.processProgramsJSON)
-            let processEnvironment = try ExtensionRelayBootstrap.parseProcessEnvironmentJSON(entry.processEnvironmentJSON)
-            let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.resourceRoot.isEmpty
+            let processPrograms = entry.attachExisting ? [] : try ExtensionRelayBootstrap.parseProcessProgramsJSON(entry.processProgramsJSON)
+            let processEnvironment = entry.attachExisting ? [] : try ExtensionRelayBootstrap.parseProcessEnvironmentJSON(entry.processEnvironmentJSON)
+            let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.attachExisting || entry.resourceRoot.isEmpty
                 ? [] : [.init(id: "workspace", directory: entry.resourceRoot)]
             try entry.clientWorkspace?.validate(requiredCapabilities: entry.review.requiredCapabilities)
             guard !entry.sshAlias.isEmpty else { throw GhostermCore.GhostermError.failed("请填写 SSH 主机别名") }
@@ -207,11 +234,11 @@ struct ExtensionsPane: View {
                 await model.startExtensionClient(packageID: entry.review.id,
                     packageDigest: entry.review.digest, command: entry.command,
                     arguments: arguments, sshAlias: entry.sshAlias,
-                    executable: entry.executable, executorDirectory: entry.executorDirectory,
+                    executable: entry.executable, executorDirectory: entry.attachExisting ? "" : entry.executorDirectory,
                     executorDigest: entry.executorDigest, methods: methods, hostMethods: hostMethods,
                     scopedRoots: roots, processPrograms: processPrograms,
                     processEnvironmentNames: processEnvironment,
-                    executorExecution: entry.executionDraft.selection, clientWorkspace: entry.clientWorkspace)
+                    executorExecution: entry.attachExisting ? nil : entry.executionDraft.selection, executorAttachment: entry.attachment, clientWorkspace: entry.clientWorkspace)
             }
         } catch { issue = "插件启动参数无效：\(error)" }
     }
@@ -230,7 +257,7 @@ struct ExtensionsPane: View {
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             Text("参数：\(run.arguments.isEmpty ? "无" : run.arguments.map { String(reflecting: $0) }.joined(separator: " "))")
                 .font(DS.Font.caption).textSelection(.enabled)
-            Text("Executor 运行档：\(run.executorExecution?.reviewDescription ?? "Portable JS（内嵌运行时）")")
+            Text("Executor 运行档：\(run.executorAttachment?.reviewDescription ?? run.executorExecution?.reviewDescription ?? "Portable JS（内嵌运行时）")")
                 .font(DS.Font.caption).textSelection(.enabled)
                 .accessibilityIdentifier("plugin-consent-executor-runtime")
             Text(run.clientWorkspace?.reviewDescription ?? "Client 本机资源目录：未开放")

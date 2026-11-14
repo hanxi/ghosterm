@@ -43,6 +43,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         val info: ExtensionSession.Info,
         val executorExecution: ExtensionRelayBootstrap.Execution? = null,
         val clientWorkspace: ExtensionController.ClientWorkspace? = null,
+        val executorAttachment: ExtensionRelayBootstrap.Attachment? = null,
     )
 
     internal val controller: ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
@@ -97,15 +98,18 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             "session.rpc" !in entry.review.requiredCapabilities) {
             error = "此 Client 包未声明 session.rpc，不能协商 RPC 方法"; return
         }
-        if (command.path == "ai codex" && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
+        if (command.path == "ai codex" && launchRequest.attachment == null && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
                 launchRequest.processPrograms.none { it.name == "codex" })) {
             error = "ai codex 需要明确授权工作区，并配置名为 codex 的固定进程映射"; return
         }
-        if (command.path == "ai claude" && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
+        if (command.path == "ai claude" && launchRequest.attachment == null && (launchRequest.workspaceRootDirectory.isNullOrBlank() ||
                 launchRequest.processPrograms.none { it.name == "claude-node" })) {
             error = "ai claude 需要明确授权工作区，并配置名为 claude-node 的固定进程映射"; return
         }
         if (activeSession != null || activeRuntime != null) { error = "此插件控制器已有活动 Session"; return }
+        if (command.path in listOf("ai codex", "ai claude") && launchRequest.attachment != null && !launchRequest.attachment.remoteProcesses) {
+            error = "此命令需要明确允许沿用前台实例已有的远端业务进程范围"; return
+        }
         try {
             clientWorkspace?.validate(entry.review.requiredCapabilities)
             ExtensionRelayBootstrap.build(launchRequest)
@@ -122,7 +126,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                         val extraCapabilities = buildList {
                             if ((launchRequest.workspaceRootDirectory != null || clientWorkspace != null) &&
                                 "resource.receive" in entry.review.requiredCapabilities) add("file.readScoped")
-                            if (launchRequest.processPrograms.isNotEmpty()) {
+                            if (launchRequest.processPrograms.isNotEmpty() || launchRequest.attachment?.remoteProcesses == true) {
                                 add("process.spawn")
                                 add("process.pipes")
                             }
@@ -141,7 +145,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                         activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
                             launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
                             launchRequest.executorDigest, target.alias, ExtensionRelayBootstrap.build(launchRequest),
-                            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info, launchRequest.execution, clientWorkspace)
+                            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info, launchRequest.execution, clientWorkspace, launchRequest.attachment)
                         launchBusy = false
                         handshakeJob?.cancel()
                         handshakeJob = viewModelScope.launch { advanceToConsent(owner) }

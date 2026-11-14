@@ -1,7 +1,7 @@
 # gterm 前台 CLI
 
 独立构件，不加入 Ghosterm App 包、不安装远端 helper、不修改 shell 配置。
-当前接入诊断、固定包兼容性检查、显式 Portable / Node / Exec stdio Executor，以及一次性前台 IPC 的 CLI 首片；普通命令分发、App IPC 入口、安装/升级仍未实现。
+当前接入诊断、固定包兼容性检查、显式 Portable / Node / Exec stdio Executor，以及一次性前台 IPC 与实验 App 的显式 SSH attach；普通命令分发、App 本机直接启动、安装/升级仍未实现。
 它不内置业务命令，未接分发的顶层命令返回 `COMMAND_ACTIVATION_UNAVAILABLE`。
 
 从仓库根目录构建（产物在工程 `tmp/`）：
@@ -56,17 +56,20 @@ gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CL
 stdout 只传 Core 协议，诊断只到 stderr，且不记录参数、模块异常文本或授权 token。
 Host 必须管理专属 stdio 的对端归属；`--stdio` 本身不实现 socket 认证。一次性本机接入使用下节的独立入口。
 
-### 一次性前台 IPC（CLI 首片）
+### 一次性前台 IPC 与显式 SSH attach（实验）
 
 ```text
 gterm relay --listen ABSOLUTE_PRIVATE_DIRECTORY [与 --stdio 相同的显式包/运行档参数]
-gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY
+gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY --instance HEX32 -- COMMAND [ARG...]
 ```
 
 调用方先创建自己拥有的 0700 目录，路径必须为规范绝对路径，不跟最终目录链接。
-listen 是原前台 Executor 进程，不 fork daemon，也不输出发现信息或配对秘密到终端。
+listen 是原前台 Executor 进程，不 fork daemon；就绪诊断只给本次可公开的 32 位十六进制实例标识，不输出配对秘密。
 attach 由明确选定目标的无 PTY SSH / 原生管道启动，stdin / stdout 必须为 pipe 或 stream socket。
-两端核对系统提供的对端 UID；临时 0600 permit 保存 256 位随机实例值，不进 argv、TTY 或日志。
+两端核对系统提供的对端 UID；临时 0600 permit 保存独立的 256 位随机秘密，不进 argv、TTY 或日志。
+attach 必须提供本次公开实例标识与精确的命令 / 原始 argv，包括空字符串和 Unicode 字节。
+同一目录后来重新启动的进程拥有新标识；旧页面或命令 / 参数不匹配在 Session 前拒绝，不能消费或激活现有实例。
+**BREAKING（未冻结的 IPC 原型）**：不再接受省略实例与调用的旧 attach 命令，私有准入前缀为版本 2；Core wire v1 不变，不回退旧入口。
 正确接入后，先移除 permit 和 socket 名字，再交给既有 stdio Session；包摘要匹配、consent、
 能力与资源授权全部照常执行。接入不等于来源信任，也不授予插件运行许可。
 
@@ -77,12 +80,16 @@ attach 的 0 只表示传输结束，业务成功仍看 Session 结果及原前�
 正常退出 / 取消只移除本进程仍匹配 inode 的入口；替换文件保留并报清理失败。
 SIGKILL 可能留下无效文件，进程退出即无可附着的 listener，不自动删残留、重启或复用。
 
-当前 App 尚无本机发现 / attach 配置页，亦未将该入口接到 App TerminalSurface 或已有 tmux pane；
-不从终端输出推断目标，不自动 SSH 转发或恢复旧会话。复现：
+实验 App 的插件页可明确选择已有前台实例、目录与公开标识，另行允许连接；修改主机 / 调用 / 实例配置会撤回允许。
+仍需选择已批准的 Client 包、预期 Executor 摘要和 RPC 方法，保持真实 Session consent。
+前台的运行档、根目录和程序映射不能从此连接页重配；若需要远端业务进程服务，须单独允许沿用实例范围。
+App 本机直接启动 / 自动发现、App TerminalSurface 和已有 tmux pane 尚未接线；
+不从终端输出猜测目标，不自动 SSH 转发或恢复旧会话。复现：
 
 ```sh
 python3 scripts/test-gterm-ipc.py --build tmp/gterm-build
 python3 scripts/mutation-check-gterm-ipc.py --build tmp/gterm-build
+python3 scripts/test-plugin-execution-ssh-app.py --macos --attach --build tmp/gterm-build --node 已安装Node路径 --sdk 已构建HostSDK目录
 ```
 
 测试使用工程内隔离 endpoint 和真实 Core Host Session；变异只编译 CLI 副本，

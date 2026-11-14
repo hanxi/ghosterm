@@ -270,6 +270,25 @@ final class ExtensionControllerTests: XCTestCase {
         XCTAssertTrue(closed)
     }
 
+    func testForegroundAttachmentRequiresExplicitInstanceAndCannotReconfigureExecutor() throws {
+        let digest = String(repeating: "a", count: 64), instance = String(repeating: "b", count: 32)
+        func request(_ attachment: ExtensionRelayBootstrap.Attachment, directory: String = "", roots: [ExtensionRelayBootstrap.ScopedRoot] = []) -> ExtensionRelayBootstrap.Request {
+            .init(executable: "/gterm", executorDirectory: directory, executorDigest: digest, clientDigest: digest,
+                  methods: ["fixture.echo"], scopedRoots: roots, attachment: attachment, command: "fixture", arguments: ["", "中'😀"])
+        }
+        let accepted = ExtensionRelayBootstrap.Attachment(directory: "/private/front", instance: instance, authorized: true)
+        XCTAssertEqual(try ExtensionRelayBootstrap.build(request(accepted)), "exec '/gterm' 'relay' '--attach' '/private/front' '--instance' '\(instance)' '--' 'fixture' '' '中'\\''😀'")
+        for path in ["relative", "/private/front/", "/private//front", "/private/./front", "/private/../front", "/private/\nfront"] {
+            XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(.init(directory: path, instance: instance, authorized: true))))
+        }
+        for id in ["", String(repeating: "b", count: 31), String(repeating: "B", count: 32)] {
+            XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(.init(directory: "/private/front", instance: id, authorized: true))))
+        }
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(.init(directory: "/private/front", instance: instance, authorized: false))))
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(accepted, directory: "/other/package")))
+        XCTAssertThrowsError(try ExtensionRelayBootstrap.build(request(accepted, roots: [.init(id: "workspace", directory: "/other")])) )
+    }
+
     func testRelayBootstrapValidatesAndQuotesEveryArgument() throws {
         let digest = String(repeating: "a", count: 64)
         let request = ExtensionRelayBootstrap.Request(

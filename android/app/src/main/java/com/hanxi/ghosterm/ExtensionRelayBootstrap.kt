@@ -10,6 +10,9 @@ import java.nio.charset.CodingErrorAction
  * Values are argv tokens quoted for the remote POSIX shell; this does not
  * discover or install gterm. */
 object ExtensionRelayBootstrap {
+    data class Attachment(val directory: String, val instance: String, val authorized: Boolean, val remoteProcesses: Boolean = false) {
+        val reviewDescription: String get() = "连接已有前台实例：$instance\n远端私有目录：$directory\n运行档、根目录与程序映射沿用前台启动配置，连接不会修改。\n远端业务进程服务：" + if (remoteProcesses) "明确允许沿用实例范围" else "未允许"
+    }
     data class ProcessProgram(
         val name: String,
         val executable: String,
@@ -50,6 +53,7 @@ object ExtensionRelayBootstrap {
         val processPrograms: List<ProcessProgram> = emptyList(),
         val processEnvironmentNames: List<String> = emptyList(),
         val execution: Execution? = null,
+        val attachment: Attachment? = null,
     )
 
     /** Accept a JSON string array so the UI never invents a shell tokenizer. */
@@ -177,7 +181,7 @@ object ExtensionRelayBootstrap {
 
     fun build(request: Request): String {
         require(request.executable.isNotBlank()) { "请指定远端 gterm 可执行文件" }
-        require(request.executorDirectory.isNotBlank()) { "请指定远端 Executor 包目录" }
+        require(request.attachment != null || request.executorDirectory.isNotBlank()) { "请指定远端 Executor 包目录" }
         require(request.executorDigest.matches(Regex("[a-f0-9]{64}"))) { "Executor 摘要必须是 64 位小写 SHA-256" }
         require(request.clientDigest.matches(Regex("[a-f0-9]{64}"))) { "Client 摘要必须是 64 位小写 SHA-256" }
         require(request.command.isNotBlank()) { "请指定完整插件命令" }
@@ -201,6 +205,18 @@ object ExtensionRelayBootstrap {
         validateEnvironmentNames(request.processEnvironmentNames)
         require(request.processEnvironmentNames.isEmpty() || request.processPrograms.isNotEmpty() || request.execution != null) {
             "选择执行端环境名称需要固定进程映射或 Node / Exec 运行档"
+        }
+        request.attachment?.let { attachment ->
+            require(attachment.authorized && attachment.instance.matches(Regex("[a-f0-9]{32}")) &&
+                canonicalDirectory(attachment.directory) && request.execution == null && request.executorDirectory.isEmpty() &&
+                request.workspaceRootDirectory == null && request.processPrograms.isEmpty() && request.processEnvironmentNames.isEmpty()) {
+                "已有前台实例需要明确允许、规范绝对目录与 32 位小写实例标识；不能同时重配运行档、包目录、根或进程"
+            }
+            val argv = listOf(request.executable, "relay", "--attach", attachment.directory, "--instance", attachment.instance, "--", request.command) + request.arguments
+            require(argv.all { validArgument(it, 4096) }) { "连接参数包含不支持的字符或过长" }
+            return ("exec " + argv.joinToString(" ", transform = ::quote)).also {
+                require(it.toByteArray().size <= 1024) { "远端连接命令超过 SSH 插件路由上限" }
+            }
         }
         val argv = buildList {
             add(request.executable)
@@ -245,6 +261,8 @@ object ExtensionRelayBootstrap {
     }
 
     private fun absolutePath(value: String): Boolean = value.startsWith('/') && validArgument(value, 4096)
+    private fun canonicalDirectory(value: String): Boolean = absolutePath(value) &&
+        value.drop(1).split('/').all { it.isNotEmpty() && it != "." && it != ".." }
 
     private fun validMethod(value: String): Boolean = value.length <= 128 &&
         value.matches(Regex("[a-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*"))

@@ -592,7 +592,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 Text("${active.packageID} · ${active.command.title}")
                 Text("SSH 主机：${active.info.peerIdentity}")
                 Text("Executor 版本：${active.info.peerHostVersion}")
-                SelectionContainer { Text("Executor 运行档：${active.executorExecution?.reviewDescription ?: "Portable JS（内嵌运行时）"}",
+                SelectionContainer { Text("Executor 运行档：${active.executorAttachment?.reviewDescription ?: active.executorExecution?.reviewDescription ?: "Portable JS（内嵌运行时）"}",
                     Modifier.testTag("plugin-consent-executor-runtime"), style = MaterialTheme.typography.bodySmall) }
                 SelectionContainer { Text(active.clientWorkspace?.reviewDescription ?: "Client 本机资源目录：未开放",
                     Modifier.testTag("plugin-consent-client-workspace"), style = MaterialTheme.typography.bodySmall) }
@@ -662,12 +662,19 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var nodeSha256 by remember { mutableStateOf("") }
     var nodeSDKDirectory by remember { mutableStateOf("") }
     var nodeSDKDigest by remember { mutableStateOf("") }
+    var attachExisting by remember { mutableStateOf(false) }
+    var ipcDirectory by remember { mutableStateOf("") }
+    var ipcInstance by remember { mutableStateOf("") }
+    var remoteProcesses by remember { mutableStateOf(false) }
+    var attachmentAllowed by remember(selectedHost, executable, executorDigest, command.path, argumentsJson,
+        methodsJson, hostMethodsJson, attachExisting, ipcDirectory, ipcInstance, remoteProcesses) { mutableStateOf(false) }
     var executionAllowed by remember(entry.review.id, entry.review.digest, command.path,
-        selectedHost, executable, executorDirectory, executorDigest,
+        selectedHost, executable, executorDirectory, executorDigest, attachExisting,
         workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
         runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest) { mutableStateOf(false) }
     var clientAllowed by remember(entry.review.id, entry.review.digest, command.path,
         selectedHost, executable, executorDirectory, executorDigest,
+        attachExisting, ipcDirectory, ipcInstance, remoteProcesses,
         clientDirectory, workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
         runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest) { mutableStateOf(false) }
 
@@ -693,6 +700,25 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     }
                 }
                 OutlinedTextField(executable, { executable = it }, singleLine = true, label = { Text("远端 gterm 可执行文件") })
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(attachExisting, { attachExisting = it }, Modifier.testTag("plugin-ipc-mode"))
+                    Text("连接已有前台 gterm 实例")
+                }
+                if (attachExisting) {
+                    OutlinedTextField(ipcDirectory, { ipcDirectory = it }, singleLine = true,
+                        modifier = Modifier.testTag("plugin-ipc-directory"), label = { Text("远端私有 IPC 目录") })
+                    OutlinedTextField(ipcInstance, { ipcInstance = it }, singleLine = true,
+                        modifier = Modifier.testTag("plugin-ipc-instance"), label = { Text("前台显示的 32 位实例标识") })
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(remoteProcesses, { remoteProcesses = it }, Modifier.testTag("plugin-ipc-processes"))
+                        Text("允许沿用此实例已有的远端业务进程范围", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(attachmentAllowed, { attachmentAllowed = it }, Modifier.testTag("plugin-ipc-allow"))
+                        Text("明确连接此主机上的该前台实例", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("请核对前台显示的标识、命令与参数。运行档、工作区与程序映射沿用前台启动配置；失效或不匹配将报错。", style = MaterialTheme.typography.bodySmall)
+                } else {
                 Box {
                     OutlinedButton(onClick = { runtimeMenu = true }, modifier = Modifier.testTag("plugin-executor-runtime")) {
                         Text("Executor 运行档：$runtimeChoice")
@@ -730,6 +756,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 OutlinedTextField(workspaceRootDirectory, { workspaceRootDirectory = it }, singleLine = true,
                     modifier = Modifier.testTag("plugin-workspace-root"),
                     label = { Text("可选：允许 Executor 读取的工作区目录") })
+                }
                 if ("resource.receive" in entry.review.requiredCapabilities) {
                     OutlinedTextField(clientDirectory, { clientDirectory = it }, singleLine = true,
                         modifier = Modifier.testTag("plugin-client-workspace"), label = { Text("Native 本机只读资源目录（可选）") })
@@ -748,6 +775,7 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     label = { Text("允许调用的 Executor RPC 方法") }, placeholder = { Text("[\"task.run\"]") })
                 OutlinedTextField(hostMethodsJson, { hostMethodsJson = it }, minLines = 2, maxLines = 4,
                     label = { Text("允许 Executor 调用的 Host RPC 方法") }, placeholder = { Text("[\"host.confirm\"]") })
+                if (!attachExisting) {
                 OutlinedTextField(processProgramsJson, { processProgramsJson = it }, minLines = 2, maxLines = 5,
                     modifier = Modifier.testTag("plugin-process-programs"),
                     label = { Text("远端 Executor 进程映射（可选）") },
@@ -763,25 +791,27 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (command.path == "ai claude") Text("Claude 需要名为 claude-node 的 Node 20 或更新版本映射，并用 prefixArguments 选择已安装的桥接入口与 --profile 文件；SDK 0.3.323 / CLI 2.1.323 依赖须在执行机器上准备。不会自动安装或改用本机账号；仅在显式启动对话后初始化后端。",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
-            TextButton(enabled = selectedHost in hostAliases && executable.isNotBlank() && executorDirectory.isNotBlank(), onClick = {
+            TextButton(enabled = selectedHost in hostAliases && executable.isNotBlank() && (attachExisting || executorDirectory.isNotBlank()), onClick = {
                 try {
-                    val execution = if (runtimeChoice == "Portable JS") null else {
+                    val execution = if (attachExisting || runtimeChoice == "Portable JS") null else {
                         val runtime = if (runtimeChoice == "Exec") ExtensionRelayBootstrap.Execution.Runtime.Exec
                         else ExtensionRelayBootstrap.Execution.Runtime.Node(ExtensionRelayBootstrap.NodeDependency(
                             nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest))
                         ExtensionRelayBootstrap.Execution(runtime, executionTmpdir, executionAllowed)
                     }
-                    val request = ExtensionRelayBootstrap.Request(executable.trim(), executorDirectory,
+                    val request = ExtensionRelayBootstrap.Request(executable.trim(), if (attachExisting) "" else executorDirectory,
                         executorDigest.trim(), entry.review.digest, ExtensionRelayBootstrap.parseMethodsJson(methodsJson),
                         ExtensionRelayBootstrap.parseHostMethodsJson(hostMethodsJson), command.path,
                         ExtensionRelayBootstrap.parseArgumentsJson(argumentsJson),
-                        workspaceRootDirectory.takeUnless { it.isBlank() },
-                        ExtensionRelayBootstrap.parseProcessProgramsJson(processProgramsJson),
-                        ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson), execution)
+                        workspaceRootDirectory.takeUnless { attachExisting || it.isBlank() },
+                        if (attachExisting) emptyList() else ExtensionRelayBootstrap.parseProcessProgramsJson(processProgramsJson),
+                        if (attachExisting) emptyList() else ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson), execution,
+                        if (attachExisting) ExtensionRelayBootstrap.Attachment(ipcDirectory, ipcInstance, attachmentAllowed, remoteProcesses) else null)
                     ExtensionRelayBootstrap.build(request)
                     val clientWorkspace = clientDirectory.takeUnless { it.isEmpty() }?.let {
                         ExtensionController.ClientWorkspace(it, clientAllowed).also { grant -> grant.validate(entry.review.requiredCapabilities) }

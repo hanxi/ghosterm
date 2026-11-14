@@ -200,7 +200,36 @@ static bool close_owners(gt_ext_runtime_t **runtime,
     return ok;
 }
 
+int gterm_stdio_invocation_index(int argc, char **argv) {
+    for (int at = 0; at < argc;) {
+        const char *option = argv[at];
+        if (!strcmp(option, "--")) {
+            return at + 2 < argc ? at : -1;
+        }
+        int count =
+            !strcmp(option, "--allow-process-execution") ? 0
+            : !strcmp(option, "--process-program")       ? 4
+            : !strcmp(option, "--node-runtime")          ? 3
+            : !strcmp(option, "--node-sdk") || !strcmp(option, "--root") ||
+                    !strcmp(option, "--process-argument")
+                ? 2
+            : !strcmp(option, "--runtime") || !strcmp(option, "--trust-development-digest") ||
+                    !strcmp(option, "--client-digest") || !strcmp(option, "--method") ||
+                    !strcmp(option, "--host-method") || !strcmp(option, "--process-environment")
+                ? 1
+                : -1;
+        if (count < 0 || count >= argc - at) {
+            return -1;
+        }
+        at += count + 1;
+    }
+    return -1;
+}
+
 int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
+    if (gterm_stdio_invocation_index(argc, argv) < 0) {
+        return diagnostic("incomplete or unknown stdio options", 2);
+    }
     const char *trusted = NULL, *client = NULL;
     const char *runtime_name = NULL, *node_executable = NULL, *node_version = NULL,
                *node_sha = NULL;

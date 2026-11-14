@@ -81,7 +81,9 @@ import XCTest
             selected = .node(.init(executable: try string("node"), version: try string("nodeVersion"),
                 sha256: try string("nodeDigest"), sdkDirectory: try string("sdk"), sdkCatalogSHA256: try string("sdkDigest")))
         } else { selected = .exec }
-        let execution = ExtensionRelayBootstrap.Execution(runtime: selected, temporaryDirectory: try string("temporary"), authorized: mode != "no-approval")
+        let attaching = payload["ipcDirectory"] is String
+        let execution: ExtensionRelayBootstrap.Execution? = attaching ? nil : ExtensionRelayBootstrap.Execution(runtime: selected, temporaryDirectory: try string("temporary"), authorized: mode != "no-approval")
+        let attachment: ExtensionRelayBootstrap.Attachment? = attaching ? .init(directory: try string("ipcDirectory"), instance: try string("ipcInstance"), authorized: mode != "no-approval", remoteProcesses: processCase) : nil
         let programs: [ExtensionRelayBootstrap.ProcessProgram] = processCase
             ? [.init(name: "cat", executable: try string("processExecutable"), version: "fixture", sha256: try string("processDigest"))] : []
         var environment = ["GT_EXECUTION_APP_FIXTURE"]
@@ -105,22 +107,39 @@ import XCTest
         addTeardownBlock { await model.stopExtensionRun(); _ = await controller.close() }
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest, command: "fixture",
             arguments: ["中文😀", "", "literal'$(owned)"], sshAlias: "execution-target",
-            executable: try string("wrapper"), executorDirectory: package.path, executorDigest: review.digest,
+            executable: try string("wrapper"), executorDirectory: attaching ? "" : package.path, executorDigest: review.digest,
             methods: ["fixture.echo"], hostMethods: [],
-            scopedRoots: resourceCase || processCase ? [.init(id: "workspace", directory: try string("workspace"))] : [],
-            processPrograms: programs, processEnvironmentNames: environment, executorExecution: execution, clientWorkspace: clientWorkspace)
+            scopedRoots: !attaching && (resourceCase || processCase) ? [.init(id: "workspace", directory: try string("workspace"))] : [],
+            processPrograms: attaching ? [] : programs, processEnvironmentNames: attaching ? [] : environment, executorExecution: execution, executorAttachment: attachment, clientWorkspace: clientWorkspace)
         if ["no-approval", "client-no-approval", "client-undeclared"].contains(mode) {
             XCTAssertNotNil(model.extensionRunIssue)
             guard model.extensionRunIssue != nil else { return }
             XCTAssertNil(model.extensionRun)
             XCTAssertTrue(interaction.hosts.isEmpty)
-            XCTAssertEqual(try service("audit")["wrapperStarted"] as? Bool, false)
+            XCTAssertEqual(try service("audit")["wrapperStarted"] as? Bool, attaching)
+            if attaching {
+                XCTAssertEqual(try service("audit")["attachStarted"] as? Bool, false)
+                XCTAssertEqual(try service("audit")["ipcListening"] as? Bool, true)
+                _ = try service("stop-front")
+            }
+            return
+        }
+        if mode.hasPrefix("attach-") {
+            XCTAssertNotNil(model.extensionRunIssue)
+            XCTAssertNil(model.extensionRun)
+            XCTAssertEqual(try service("audit")["activated"] as? Bool, false)
+            XCTAssertEqual(try service("audit")["entered"] as? Bool, false)
+            XCTAssertEqual(try service("audit")["attachStarted"] as? Bool, true)
+            XCTAssertEqual(try service("audit")["ipcListening"] as? Bool, true)
+            _ = try service("stop-front")
             return
         }
         XCTAssertNil(model.extensionRunIssue)
         let run = try XCTUnwrap(model.extensionRun, model.extensionRunIssue ?? "missing run")
         XCTAssertEqual(run.session?.phase, ExtensionSession.Phase.consent.rawValue)
         XCTAssertEqual(run.executorExecution, execution)
+        XCTAssertEqual(run.executorAttachment, attachment)
+        if attaching { XCTAssertTrue(run.remoteCommand.contains("'--attach'")); XCTAssertFalse(run.remoteCommand.contains("'--stdio'")) }
         XCTAssertEqual(run.clientWorkspace, clientWorkspace)
         XCTAssertFalse(run.remoteCommand.contains(local.path), "Local grant must not become a remote path")
         var required = ["session.rpc"]
