@@ -33,6 +33,7 @@ struct gt_process_runtime {
     gt_package_snapshot_t *sdk_snapshot;
     gt_package_stage_t *package_stage, *sdk_stage;
     gt_process_rpc_t *rpc;
+    gt_runtime_resources_t *resources;
     gt_ext_process_t *child;
     gt_bridge_decoder_t *decoder;
     int parent, root, executable, startup;
@@ -188,6 +189,7 @@ static void runtime_fail(gt_process_runtime_t *r, gt_status_t error, uint64_t no
         r->info.session_end = session.end;
     }
     gt_ext_session_revoke(r->session);
+    gt__runtime_resources_stop(r->resources);
     r->stop_at = now;
     r->info.phase = GT_PROCESS_RUNTIME_STOPPING;
     if (r->child && !r->killed) {
@@ -231,6 +233,11 @@ static gt_status_t runtime_invocation(gt_process_runtime_t *r, const gt_ext_invo
     return status;
 }
 
+static bool runtime_resource_clock(void *context, uint64_t *out) {
+    (void)context;
+    return runtime_now(out);
+}
+
 gt_status_t gt__process_runtime_open(gt_ext_session_t **session,
                                      gt_package_checked_t *package,
                                      gt_package_snapshot_t **sdk,
@@ -251,7 +258,8 @@ gt_status_t gt__process_runtime_open(gt_ext_session_t **session,
         !gt__bridge_session_runtime_admissible((*session)->inner) || c->environment_count > 32 ||
         !gt__ext_process_environment_valid(c->environment, c->environment_count) ||
         c->activation_ms > 60000 || c->lifetime_ms > 3600000 || c->stop_grace_ms > 5000 ||
-        c->stdout_bytes > 67108864 || c->stderr_bytes > 1048576) {
+        c->stdout_bytes > 67108864 || c->stderr_bytes > 1048576 ||
+        c->root_count > GT_RUNTIME_ROOTS_MAX || (c->root_count && !c->roots)) {
         return GT_ERR_INVALID_ARG;
     }
     if (!c->execution_authorized || (info.association_required && !c->command_associated)) {
@@ -281,7 +289,17 @@ gt_status_t gt__process_runtime_open(gt_ext_session_t **session,
         return GT_ERR_PROTOCOL;
     }
     for (size_t i = 0; i < info.requires_count; i++) {
-        if (strcmp(info.requires[i], "session.rpc")) {
+        const char *capability = info.requires[i];
+        if (strcmp(capability, "session.rpc") && strcmp(capability, "resource.receive") &&
+            strcmp(capability, "file.readScoped")) {
+            return GT_ERR_UNSUPPORTED;
+        }
+        if (strcmp(capability, "session.rpc") && !(*session)->store) {
+            return GT_ERR_UNSUPPORTED;
+        }
+        if (!strcmp(capability, "file.readScoped") &&
+            (!c->root_count || gt_ext_session_access(*session, &lease, "resource.receive") !=
+                                   GT_EXT_ACCESS_ALLOWED)) {
             return GT_ERR_UNSUPPORTED;
         }
         if (gt_ext_session_access(*session, &lease, info.requires[i]) != GT_EXT_ACCESS_ALLOWED) {
@@ -392,6 +410,27 @@ gt_status_t gt__process_runtime_open(gt_ext_session_t **session,
         status = GT_ERR_IO;
         goto fail;
     }
+    if (c->root_count && !(*session)->store) {
+        status = GT_ERR_UNSUPPORTED;
+        goto fail;
+    }
+    if ((*session)->store) {
+        status = gt__runtime_resources_open(*session,
+                                            (*session)->store,
+                                            &lease,
+                                            c->roots,
+                                            c->root_count,
+                                            NULL,
+                                            runtime_resource_clock,
+                                            &r->resources);
+        if (status != GT_OK) {
+            goto fail;
+        }
+    }
+    status = gt__process_rpc_open_resources(*session, r->resources, NULL, &r->rpc);
+    if (status != GT_OK) {
+        goto fail;
+    }
     r->session = *session;
     *session = NULL;
     if (node) {
@@ -401,6 +440,9 @@ gt_status_t gt__process_runtime_open(gt_ext_session_t **session,
     *out = r;
     return GT_OK;
 fail:
+    if (r->resources) {
+        (void)gt__runtime_resources_destroy(&r->resources);
+    }
     if (r->parent >= 0) {
         (void)close(r->parent);
     }
@@ -714,7 +756,18 @@ static void runtime_cleanup(gt_process_runtime_t *r) {
         r->root_created = false;
     }
     if (r->session) {
-        if (gt_ext_session_close(r->session, 0) != GT_EXT_RELEASED) {
+        gt_ext_close_t closed = gt_ext_session_close(r->session, 0);
+        if (r->resources) {
+            gt_runtime_resource_status_t status = gt__runtime_resources_destroy(&r->resources);
+            if (status != GT_RUNTIME_RESOURCE_OK) {
+                if (status != GT_RUNTIME_RESOURCE_WAIT) {
+                    r->info.cleanup_error = GT_ERR_IO;
+                }
+                return;
+            }
+            closed = gt_ext_session_close(r->session, 0);
+        }
+        if (closed != GT_EXT_RELEASED) {
             return;
         }
         gt_ext_session_info_t info;
@@ -752,6 +805,7 @@ gt_process_runtime_phase_t gt__process_runtime_step(gt_process_runtime_t *r) {
             runtime_fail(r, GT_ERR_CANCELLED, now);
         } else {
             gt_ext_session_step(r->session, 0);
+            gt__runtime_resources_step(r->resources);
             if (!runtime_live(r)) {
                 runtime_fail(r, GT_ERR_CANCELLED, now);
             }
@@ -772,7 +826,7 @@ gt_process_runtime_phase_t gt__process_runtime_step(gt_process_runtime_t *r) {
             runtime_fail(
                 r, runtime_stage_error(a != GT_STAGE_OK && a != GT_STAGE_WAIT ? a : b), now);
         } else if (a == GT_STAGE_OK && b == GT_STAGE_OK) {
-            gt_status_t status = gt__process_rpc_open(r->session, NULL, &r->rpc);
+            gt_status_t status = GT_OK;
             if (status == GT_OK && r->node) {
                 status = runtime_spawn(r, true);
                 if (status == GT_OK) {

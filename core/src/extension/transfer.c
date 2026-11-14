@@ -647,9 +647,13 @@ gt_bridge_resource_status_t gt__bridge_transfer_forget(gt_bridge_transfer_t *t,
         transfer_live(t)) {
         return GT_BRIDGE_RESOURCE_WAIT;
     }
-    if (t->inflight >= TRANSFER_BEGIN) {
+    gt_bridge_session_info_t session;
+    if (t->inflight >= TRANSFER_BEGIN && (!gt__bridge_session_info(t->session, &session) ||
+                                          session.phase != GT_BRIDGE_SESSION_CLOSED)) {
         return GT_BRIDGE_RESOURCE_WAIT;
     }
+    /* A fully released stream cannot use the pending frame again. Retire only
+     * its local observation; do not mark the frame sent or invent a receipt. */
     gt__secure_erase(&t->out, sizeof(t->out));
     return GT_BRIDGE_RESOURCE_OK;
 }

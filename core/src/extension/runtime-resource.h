@@ -49,6 +49,8 @@ gt_status_t gt__runtime_resources_open(gt_ext_session_t *,
                                        bool (*clock)(void *, uint64_t *),
                                        gt_runtime_resources_t **);
 size_t gt__runtime_resources_roots(const gt_runtime_resources_t *);
+/* Unused owner bound to this original Session/lease; no adoption across scopes. */
+bool gt__runtime_resources_matches(const gt_runtime_resources_t *, gt_ext_session_t *);
 const char *gt__runtime_resources_root(const gt_runtime_resources_t *, size_t);
 int gt__runtime_resources_root_fd(const gt_runtime_resources_t *, size_t);
 gt_runtime_resource_status_t gt__runtime_resources_publish(gt_runtime_resources_t *,

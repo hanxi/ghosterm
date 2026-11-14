@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "extension/memory.h"
 #include "extension/runtime-resource.h"
+#include "extension/session-owner.h"
 #include "base/secure-random.h"
 #include <fcntl.h>
 #include <stdlib.h>
@@ -218,6 +219,14 @@ gt_status_t gt__runtime_resources_open(gt_ext_session_t *session,
     }
     *out = r;
     return GT_OK;
+}
+
+bool gt__runtime_resources_matches(const gt_runtime_resources_t *r, gt_ext_session_t *session) {
+    gt_ext_lease_t live;
+    return r && session && r->session == session && r->store == session->store && !r->stopped &&
+           r->next == 1 && gt_ext_session_lease(session, &live) && live.epoch == r->lease.epoch &&
+           !strcmp(live.instance, r->lease.instance) &&
+           !strcmp(live.connection, r->lease.connection) && !strcmp(live.token, r->lease.token);
 }
 
 size_t gt__runtime_resources_roots(const gt_runtime_resources_t *r) {

@@ -156,6 +156,12 @@ export class NodeNativePort implements NativePort {
   activated(): void {
     if (this.#call("activated", {}).status !== "ok") { this.#break(); fail("CHILD_ACTIVATION"); }
   }
+  /** Trusted ResourcePort shares this same sequence/mailbox. */
+  resourceCall<T>(action: string, fields: RecordValue, parse: (value: unknown) => T): T {
+    const reply = this.#call("resource", { action, ...fields }, ["value"]);
+    if (reply.status !== "ok") { this.#break(); return fail("CHILD_RESOURCE"); }
+    return this.#value(() => parse(reply.value));
+  }
   get broken(): boolean { return this.#broken; }
   get retained(): number { return this.#handles.size + this.#tickets.size; }
 }

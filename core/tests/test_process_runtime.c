@@ -1,5 +1,5 @@
-#define EXT_RPC_MAIN process_runtime_rpc_fixture_main
-#include "test_ext_rpc.c"
+#define RUNTIME_RESOURCE_MAIN process_runtime_resource_fixture_main
+#include "test_runtime_resources.c"
 #include "extension/process-runtime.h"
 #include "extension/package-check.h"
 #include "extension/package-stage.h"
@@ -46,7 +46,10 @@ static gt_package_snapshot_t *launch_capture(const char *path) {
     return p;
 }
 
-static void launch_pair(rpc_pair_t *f, const gt_package_check_info_t *package) {
+static void launch_pair(rpc_pair_t *f,
+                        const gt_package_check_info_t *package,
+                        res_store_t *hs,
+                        res_store_t *es) {
     memset(f, 0, sizeof(*f));
     int fd[2];
     CHECK(!socketpair(AF_UNIX, SOCK_STREAM, 0, fd));
@@ -64,8 +67,21 @@ static void launch_pair(rpc_pair_t *f, const gt_package_check_info_t *package) {
     for (size_t i = 0; i < count; i++) {
         strcpy(methods[i].capability, "session.rpc");
     }
-    f->pair.h = rpc_adopt(&h, GT_EXT_HOST, &c, methods, count);
-    f->pair.e = rpc_adopt(&e, GT_EXT_EXECUTOR, &c, methods, count);
+    if (hs) {
+        c.features |= GT_EXT_FEATURE_RESOURCES;
+        strcpy(c.required[1], "resource.receive");
+        strcpy(c.required[2], "file.readScoped");
+        strcpy(c.available[1], "resource.receive");
+        strcpy(c.available[2], "file.readScoped");
+        c.required_count = c.available_count = 3;
+        CHECK(gt_ext_session_open_resources(
+                  &h, GT_EXT_HOST, &c, methods, count, hs->s, 1048576, &f->pair.h) == GT_OK);
+        CHECK(gt_ext_session_open_resources(
+                  &e, GT_EXT_EXECUTOR, &c, methods, count, es->s, 1048576, &f->pair.e) == GT_OK);
+    } else {
+        f->pair.h = rpc_adopt(&h, GT_EXT_HOST, &c, methods, count);
+        f->pair.e = rpc_adopt(&e, GT_EXT_EXECUTOR, &c, methods, count);
+    }
     ext_allow(&f->pair);
     CHECK(gt_ext_session_lease(f->pair.h, &f->h) && gt_ext_session_lease(f->pair.e, &f->e));
 }
@@ -75,6 +91,13 @@ int main(int argc, char **argv) {
     CHECK(argc == 9);
     CHECK(!atexit(launch_cleanup));
     const char *mode = argv[1];
+    bool with_resources = !strncmp(mode, "resource-", 9) && strcmp(mode, "resource-missing");
+    res_root = argv[4];
+    res_store_t hs = {0}, es = {0};
+    if (with_resources) {
+        hs = res_store(1048576);
+        es = res_store(1048576);
+    }
     int fact = open(argv[8], O_RDONLY | O_CLOEXEC);
     CHECK(fact >= 0);
     char facts[8192] = {0};
@@ -98,13 +121,22 @@ int main(int argc, char **argv) {
     if (!strcmp(mode, "wrong-identity")) {
         strcpy(package_info.id, "org.ghosterm.bad");
     }
-    launch_pair(&f, &package_info);
+    launch_pair(&f, &package_info, with_resources ? &hs : NULL, with_resources ? &es : NULL);
     char root[4097];
     CHECK(snprintf(root, sizeof(root), "%s/process-runtime-XXXXXX", argv[4]) > 0 && mkdtemp(root));
     int parent = open(root, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     CHECK(parent >= 0);
     cleanup_parent = parent;
     strcpy(cleanup_root, root);
+    pub_source_fixture_t file = {.root = -1};
+    gt_runtime_resources_t *host_resources = NULL;
+    gt_runtime_root_t workspace = {0};
+    if (with_resources) {
+        pub_file(
+            &file, 262144, !strcmp(mode, "resource-unicode") ? "展示\"\\file.bin" : "file.bin");
+        workspace = (gt_runtime_root_t){"workspace", file.root, 262144};
+        host_resources = resource_owner(f.pair.h, hs.s, &f.h, file.root);
+    }
     const char *arguments[] = {"--label", "中文 \"';$()"};
     gt_ext_invocation_t invocation = {"fixture", arguments, 2};
     char large[4097];
@@ -139,6 +171,18 @@ int main(int argc, char **argv) {
                                           .activation_ms = 5000,
                                           .lifetime_ms = 10000,
                                           .stop_grace_ms = 1000};
+    if (with_resources) {
+        config.roots = &workspace;
+        config.root_count = 1;
+    }
+    gt_runtime_root_t duplicate_roots[2] = {workspace, workspace};
+    if (!strcmp(mode, "resource-bad-root")) {
+        workspace.directory_fd = -1;
+    }
+    if (!strcmp(mode, "resource-duplicate-root")) {
+        config.roots = duplicate_roots;
+        config.root_count = 2;
+    }
     if (!strcmp(mode, "denied")) {
         config.execution_authorized = false;
     }
@@ -191,7 +235,9 @@ int main(int argc, char **argv) {
                     !strcmp(mode, "bad-env") || !strcmp(mode, "bad-arguments") ||
                     !strcmp(mode, "bad-command") || !strcmp(mode, "bad-sdk") ||
                     !strcmp(mode, "wrong-identity") || !strcmp(mode, "bad-env-name") ||
-                    !strcmp(mode, "duplicate-env") || !strcmp(mode, "node-alias");
+                    !strcmp(mode, "duplicate-env") || !strcmp(mode, "node-alias") ||
+                    !strcmp(mode, "resource-missing") || !strcmp(mode, "resource-bad-root") ||
+                    !strcmp(mode, "resource-duplicate-root");
     if (rejected) {
         gt_status_t expected = !strcmp(mode, "denied") || !strcmp(mode, "wrong-sha") ||
                                        !strcmp(mode, "bad-sdk") || !strcmp(mode, "node-alias")
@@ -199,10 +245,17 @@ int main(int argc, char **argv) {
                                : !strcmp(mode, "wrong-identity") ? GT_ERR_PROTOCOL
                                : !strcmp(mode, "bad-command")    ? GT_ERR_NOT_FOUND
                                                                  : GT_ERR_INVALID_ARG;
+        if (!strcmp(mode, "resource-missing")) {
+            expected = GT_ERR_UNSUPPORTED;
+        }
         CHECK(status == expected && !runtime && f.pair.e == original && sdk == original_sdk);
         CHECK(gt_ext_session_access(original, &f.e, "session.rpc") == GT_EXT_ACCESS_ALLOWED);
     } else {
         CHECK(status == GT_OK && runtime && !f.pair.e && (!node || !sdk));
+        if (with_resources) {
+            CHECK(!close(file.root));
+            file.root = -1;
+        }
         CHECK(gt__process_runtime_destroy(&runtime) == GT_ERR_INVALID_ARG && runtime);
         if (!strcmp(mode, "retained")) {
             CHECK(gt__package_checked_destroy(&package) == GT_PACKAGE_OK);
@@ -228,11 +281,56 @@ int main(int argc, char **argv) {
         bool roundtrip = !strcmp(mode, "roundtrip") || !strcmp(mode, "retained") ||
                          !strcmp(mode, "frozen") || !strcmp(mode, "busy") ||
                          !strcmp(mode, "stubborn") || !strcmp(mode, "sdk-frozen") ||
-                         !strcmp(mode, "argument-boundary") || !strcmp(mode, "stderr-eof");
+                         !strcmp(mode, "argument-boundary") || !strcmp(mode, "stderr-eof") ||
+                         !strcmp(mode, "resource-roundtrip") || !strcmp(mode, "resource-unicode");
         bool stopping = !strcmp(mode, "stop-created"), completed = false;
         uint64_t began = ext_now(), deadline = began + 15000;
+        bool resource_received = false;
+        uint64_t host_publication = 0;
         while (ext_now() < deadline) {
             gt_ext_session_step(f.pair.h, 0);
+            if (host_resources) {
+                gt__runtime_resources_step(host_resources);
+                if (!strcmp(mode, "resource-stop") && res_usage(&hs).reserved_bytes) {
+                    gt__process_runtime_stop(runtime);
+                    stopping = true;
+                }
+                uint64_t pin;
+                gt_ext_resource_descriptor_t d;
+                if (!resource_received && gt__runtime_resources_take(host_resources, &pin, &d) ==
+                                              GT_RUNTIME_RESOURCE_OK) {
+                    CHECK(d.size == 262144 && d.size_known);
+                    CHECK(gt__runtime_resources_begin_read(host_resources, pin, 262144, 10000) ==
+                          GT_RUNTIME_RESOURCE_OK);
+                    size_t at = 0;
+                    for (size_t i = 0; i < 1000; i++) {
+                        gt__runtime_resources_step(host_resources);
+                        uint8_t bytes[16384];
+                        size_t nread = 0;
+                        CHECK(gt__runtime_resources_read(
+                                  host_resources, pin, at, bytes, sizeof(bytes), &nread) ==
+                              GT_RUNTIME_RESOURCE_OK);
+                        for (size_t j = 0; j < nread; j++) {
+                            CHECK(bytes[j] == (at + j) % 251);
+                        }
+                        at += nread;
+                        if (!nread) {
+                            break;
+                        }
+                    }
+                    CHECK(at == 262144 && gt__runtime_resources_release(host_resources, pin) ==
+                                              GT_RUNTIME_RESOURCE_OK);
+                    resource_received = true;
+                    CHECK(gt__runtime_resources_publish(
+                              host_resources,
+                              "workspace",
+                              !strcmp(mode, "resource-unicode") ? "展示\"\\file.bin" : "file.bin",
+                              "application/octet-stream",
+                              262144,
+                              10000,
+                              &host_publication) == GT_RUNTIME_RESOURCE_OK);
+                }
+            }
             gt__process_runtime_step(runtime);
             CHECK(gt__process_runtime_info(runtime, &info));
             if (info.phase == GT_PROCESS_RUNTIME_CLOSED) {
@@ -291,6 +389,14 @@ int main(int argc, char **argv) {
                 info.term_signal);
         }
         CHECK(info.phase == GT_PROCESS_RUNTIME_CLOSED && info.cleanup_error == GT_OK);
+        if (!strcmp(mode, "resource-roundtrip") || !strcmp(mode, "resource-unicode")) {
+            CHECK(resource_received && host_publication &&
+                  publication(host_resources, host_publication).source.confirmed);
+        }
+        if (!strcmp(mode, "resource-stop")) {
+            CHECK(!info.activated && info.child_exited && info.error == GT_ERR_CANCELLED &&
+                  stopping);
+        }
         if (!strcmp(mode, "leader-exit")) {
             int file = open(descendant_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
             pid_t descendant;
@@ -362,7 +468,20 @@ int main(int argc, char **argv) {
     if (f.pair.e) {
         ext_drop(&f.pair.e);
     }
+    if (host_resources) {
+        gt_ext_session_stop(f.pair.h);
+        gt_ext_session_step(f.pair.h, 0);
+        CHECK(gt__runtime_resources_destroy(&host_resources) == GT_RUNTIME_RESOURCE_OK);
+    }
     ext_drop(&f.pair.h);
+    if (with_resources) {
+        if (file.root >= 0) {
+            CHECK(!close(file.root));
+        }
+        CHECK(!unlink(file.file) && !rmdir(file.directory));
+        res_store_drop(&hs);
+        res_store_drop(&es);
+    }
     CHECK(!close(parent));
     cleanup_parent = -1;
     CHECK(!rmdir(root));

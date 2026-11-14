@@ -8,10 +8,12 @@ import path from 'node:path';
 import { Console } from 'node:console';
 import { setImmediate } from 'node:timers/promises';
 import { NodeNativePort } from '../port.js';
+import { NodeResourcePort } from '../resources.js';
+import { ResourceBroker } from '../../portable/resources.js';
 import { NodeStdioPipe } from './pipe.mjs';
 import { SessionChannel, snapshot, uint64 } from '../../portable/index.js';
 
-let pipe, session, disposable, stopping = false;
+let pipe, session, resources, disposable, stopping = false;
 process.on('SIGTERM', () => { stopping = true; });
 process.on('SIGINT', () => { stopping = true; });
 try {
@@ -51,8 +53,10 @@ try {
   globalThis.console = new Console({ stdout: process.stderr, stderr: process.stderr });
   pipe = new NodeStdioPipe(); await pipe.ready;
   const port = new NodeNativePort(pipe); session = new SessionChannel(port);
+  const resourcePort = new NodeResourcePort(port);
+  if (resourcePort.resourceWorkspaces() !== null) resources = new ResourceBroker(resourcePort);
   const context = Object.freeze({ instanceId: config.instanceId, epoch: config.epoch, side: 'executor',
-    invocation: snapshot(config.invocation), session,
+    invocation: snapshot(config.invocation), session, ...(resources ? { resources } : {}),
     capabilities: Object.freeze({ query: name => port.access(name) }),
     cancellation: Object.freeze({ get cancelled() {
       if (stopping || port.broken) return true;
@@ -71,6 +75,7 @@ try {
   while (!context.cancellation.cancelled) {
     if (failed) throw Error('ACTIVATE');
     session.step();
+    resources?.step();
     if (active && !announced) { port.activated(); announced = true; }
     if (active) disposable.step?.();
     await setImmediate();
@@ -78,6 +83,7 @@ try {
 } catch {
   if (process.exitCode !== 77) process.exitCode = 1;
 } finally {
+  try { resources?.dispose(); } catch { process.exitCode ||= 1; }
   try { session?.dispose(); } catch { process.exitCode ||= 1; }
   try { disposable?.dispose(); } catch { process.exitCode ||= 1; }
   await pipe?.close();

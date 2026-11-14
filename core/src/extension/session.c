@@ -93,6 +93,10 @@ static void end_session(gt_bridge_session_t *s,
 }
 
 static bool tick(gt_bridge_session_t *s) {
+    /* Read/forget observations after close must not regress CLOSED to ENDED. */
+    if (s->released) {
+        return false;
+    }
     if (stopped(s)) {
         end_session(s, GT_BRIDGE_END_REVOKED, GT_ERR_CANCELLED, false);
         s->info.phase = GT_BRIDGE_SESSION_ENDED;

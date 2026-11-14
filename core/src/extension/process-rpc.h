@@ -4,6 +4,7 @@
 #define GT_PRIVATE_PROCESS_RPC_H
 #include "ghosterm/extension_rpc.h"
 #include "base/allocator.h"
+#include "extension/runtime-resource.h"
 #define GT_PROCESS_RPC_MESSAGE_MAX 8192u
 typedef struct gt_process_rpc gt_process_rpc_t;
 
@@ -21,6 +22,12 @@ typedef enum {
  * No process is started, no business permission granted, no lease is exposed.
  * Allocator context outlives destroy; failure clears out without adoption. */
 gt_status_t gt__process_rpc_open(gt_ext_session_t *, const gt_allocator_t *, gt_process_rpc_t **);
+/* Same admission, optionally borrowing an unused resource owner bound to this
+ * Session. It must outlive the broker; native caller steps/stops/destroys it. */
+gt_status_t gt__process_rpc_open_resources(gt_ext_session_t *,
+                                           gt_runtime_resources_t *,
+                                           const gt_allocator_t *,
+                                           gt_process_rpc_t **);
 /* One complete child JSON payload, 1..8192 bytes, carried in uint32 BE frames by
  * the pipe owner. Strict UTF-8/duplicate keys/depth/node/work budgets. v=1, id is
  * a canonical decimal string exactly one greater than the last accepted id.

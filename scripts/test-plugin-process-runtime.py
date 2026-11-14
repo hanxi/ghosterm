@@ -21,6 +21,30 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = 'core/src/extension/process-runtime.c'
 BOOTSTRAP = 'packages/plugin-sdk/node/runtime/bootstrap.mjs'
+RESOURCE = 'core/src/extension/process-resource.inc'
+NODE_RESOURCE = 'packages/plugin-sdk/node/resources.ts'
+RESOURCE_CASES = [
+    ('resource-owner', 'core/src/extension/process-rpc.c', '(resources && !gt__runtime_resources_matches(resources, session))', 'false', 'core:foreign'),
+    ('resource-store', 'core/src/extension/runtime-resource.c', 'r->store == session->store &&', 'true &&', 'core:foreign-store'),
+    ('resource-lease', 'core/src/extension/runtime-resource.c', '!strcmp(live.token, r->lease.token)', 'true', 'core:foreign-lease'),
+    ('resource-unused-owner', 'core/src/extension/runtime-resource.c', 'r->next == 1 &&', 'true &&', 'core:used-owner'),
+    ('resource-fields', RESOURCE, 'if (!process_keys(d, basic, 4)) {', 'if (false && !process_keys(d, basic, 4)) {', 'core:bad-fields'),
+    ('resource-base64', RESOURCE, '(padding == 2 && (v[1] & 15))', 'false', 'core:bad-base64'),
+    ('resource-reference-domain', RESOURCE, 'release || opening || reading ? p->snapshots : p->publications', 'p->publications', 'core:roundtrip'),
+    ('resource-reference-retire', RESOURCE, 'status == GT_RUNTIME_RESOURCE_OK && (forget || release)', 'false', 'core:reuse'),
+    ('resource-confirmation', RESOURCE, 's->confirmed ? "true" : "false"', '"false"', 'node:resource-roundtrip'),
+    ('resource-unknown', RESOURCE, '"unknown",\n', '"cancelled",\n', 'core:unknown'),
+    ('resource-read-chunk', RESOURCE, 'uint8_t bytes[3072];', 'uint8_t bytes[3073];', 'core:roundtrip'),
+    ('resource-native-pump', SOURCE, 'gt__runtime_resources_step(r->resources);', '(void)r->resources;', 'node:resource-roundtrip'),
+    ('resource-after-close', 'core/src/extension/transfer.c', 'session.phase != GT_BRIDGE_SESSION_CLOSED', 'true', 'core:unknown'),
+    ('resource-before-close', 'core/src/extension/transfer.c', 'session.phase != GT_BRIDGE_SESSION_CLOSED', 'false', 'core:unknown'),
+    ('closed-observation', 'core/src/extension/session.c', 'if (s->released) {\n        return false;\n    }\n    if (stopped(s))', 'if (stopped(s))', 'core:roundtrip'),
+    ('node-resource-fields', NODE_RESOURCE, 'Object.keys(v).sort().join(",") !== [...keys].sort().join(",")', 'Object.keys(v).length < 0 && keys.length < 0', 'unit:fields'),
+    ('node-resource-reuse', NODE_RESOURCE, 'compareUint64(ref, this.#reference) <= 0', 'compareUint64(ref, this.#reference) < 0', 'unit:reference'),
+    ('node-resource-retire', NODE_RESOURCE, 's === "ok" && retire', 's === "ok" && retire && false', 'unit:retirement'),
+    ('node-resource-bytes', NODE_RESOURCE, 'v.hex.length > Math.min(3072,maxBytes)*2', 'false', 'unit:readLimit'),
+    ('node-resource-error-bytes', NODE_RESOURCE, '(s !== "ok" && v.hex.length)', 'false', 'unit:errorBytes'),
+]
 CASES = [
     ('execution-approval', SOURCE, '!c->execution_authorized', 'false', 'exec:denied'),
     ('package-identity', SOURCE, 'info.id,', '"org.ghosterm.bad",', 'exec:wrong-identity'),
@@ -42,10 +66,11 @@ CASES = [
 PLUGIN = r'''import {object,boolean} from '@ghosterm/plugin-sdk';
 export async function activate(ctx) {
   const mode = process.env.GT_RUNTIME_MODE;
+  const resourceMode = mode.startsWith('resource-');
   if (ctx.side !== 'executor' || !/^[0-9a-f]{32}$/.test(ctx.instanceId) ||
       typeof ctx.epoch !== 'string' || ctx.invocation.command !== 'fixture' ||
       ctx.capabilities.query('session.rpc') !== 'allowed' || !Object.isFrozen(ctx) || process.env.HOME !== undefined || process.env.NODE_OPTIONS !== undefined ||
-      Object.keys(ctx).sort().join(',') !== 'cancellation,capabilities,epoch,instanceId,invocation,session,side') throw Error('context');
+      Object.keys(ctx).sort().join(',') !== (resourceMode ? 'cancellation,capabilities,epoch,instanceId,invocation,resources,session,side' : 'cancellation,capabilities,epoch,instanceId,invocation,session,side')) throw Error('context');
   if (mode === 'argument-boundary') {
     if (ctx.invocation.arguments.length !== 6 ||
         ['label','second','third'].some(k => ctx.invocation.decodedArguments[k] !== '\x01'.repeat(4096))) throw Error('boundary');
@@ -53,6 +78,27 @@ export async function activate(ctx) {
       ctx.invocation.decodedArguments.label !== "中文 \"';$()") throw Error('arguments');
   if (mode === 'activation-reject') throw Error('fixture rejected');
   if (mode === 'activation-timeout') { process.stderr.write('activation waiting'); await new Promise(() => {}); }
+  if (resourceMode) {
+    const limits = {byteLimit:'262144',timeoutMs:10000};
+    const publication = ctx.resources.publish({root:'workspace',relativePath:mode === 'resource-unicode' ? '展示"\\file.bin' : 'file.bin',mediaType:'application/octet-stream'},limits);
+    const result = await publication.outcome;
+    if (result.kind !== 'success' || result.value.size.kind !== 'known' || result.value.size.bytes !== '262144') throw Error('publication');
+    let taken;
+    for (;;) {
+      taken = ctx.resources.take(); if (taken.status === 'ok') break;
+      if (taken.status !== 'wait') throw Error('take');
+      await new Promise(resolve => setTimeout(resolve,1));
+    }
+    const opened = ctx.resources.open(taken.ref,limits);
+    if (opened.status !== 'ok') throw Error('open');
+    let used=0;
+    for (;;) {
+      const chunk=await opened.stream.read(); if (chunk.kind !== 'success') throw Error('read');
+      for (const byte of chunk.value.bytes) { if(byte !== used%251) throw Error('bytes'); used++; }
+      if (chunk.value.done) break;
+    }
+    if (used !== 262144 || ctx.resources.release(taken.ref) !== 'ok') throw Error('release');
+  }
   const codec = object({peer:boolean()});
   ctx.session.register({name:'fixture.echo',input:codec,output:codec},async (v,c) => { c.check(); return v; });
   return {dispose(){}, step(){
@@ -72,12 +118,14 @@ def main():
     p.add_argument('--node', type=Path, required=True)
     p.add_argument('--tools', type=Path, required=True)
     p.add_argument('--mutate', action='store_true')
+    p.add_argument('--resources', action='store_true', help='include native/Node resource faults and choose resource mutations')
     p.add_argument('--case', action='append')
     args = p.parse_args()
-    if args.case and (not args.mutate or set(args.case) - {c[0] for c in CASES}):
+    available = RESOURCE_CASES if args.resources else CASES
+    if args.case and (not args.mutate or set(args.case) - {c[0] for c in available}):
         p.error('--case requires --mutate and known groups')
     node, tools = args.node.resolve(strict=True), args.tools.resolve(strict=True)
-    cases = [c for c in CASES if not args.case or c[0] in args.case]
+    cases = [c for c in available if not args.case or c[0] in args.case]
     for label, name, old, _, _ in cases:
         assert (ROOT / name).read_text().count(old) == 1, label
     work = Path(tempfile.mkdtemp(prefix='process-runtime-', dir=ROOT / 'tmp'))
@@ -96,7 +144,7 @@ def main():
         (logs / (label + '.log')).write_text(output)
         commands.append(dict(label=label, returncode=result.returncode, assertion=red))
         if red:
-            assert result.returncode == 1 and re.search(r'^FAIL ', result.stderr, re.M) and not any(
+            assert result.returncode == 1 and re.search(r'^(?:FAIL|ASSERT) ', result.stderr, re.M) and not any(
                 x in output for x in ['AddressSanitizer', 'UndefinedBehaviorSanitizer', 'runtime error:']), label + '\n' + output
         else:
             assert result.returncode == 0, label + '\n' + output
@@ -141,13 +189,16 @@ def main():
                           '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
 
         def rebuild(label, changed=None):
+            if changed == RESOURCE: changed = 'core/src/extension/process-rpc.c'
             if changed:
                 (build / ('CMakeFiles/ghosterm_core.dir/' + changed.removeprefix('core/') + '.o')).unlink(missing_ok=True)
-            for name in ['test_process_runtime', 'libghosterm_core.a']:
+            binaries = ['test_process_runtime', 'test_process_runtime_peer', 'test_process_resources', 'test_config']
+            for name in [*binaries, 'libghosterm_core.a']:
                 (build / name).unlink(missing_ok=True)
             output = run(label + '-build', ['cmake', '--build', build, '--target', 'test_process_runtime',
-                                           'test_process_runtime_peer', 'test_config', '-j', '4'])
-            assert 'Linking C executable test_process_runtime' in output
+                                           'test_process_runtime_peer', 'test_process_resources', 'test_config', '-j', '4'])
+            for binary in binaries:
+                assert 'Linking C executable ' + binary in output, label + ': missing actual link ' + binary
             if changed:
                 assert changed.removeprefix('core/') + '.o' in output and 'Linking C static library' in output
 
@@ -159,6 +210,12 @@ def main():
         def target(label, spec, red=False):
             nonlocal sequence
             runtime, mode = spec.split(':')
+            if runtime == 'unit':
+                return run(label,[node,source/'scripts/fixtures/plugin-node-resource-cases.mjs',bundle,mode],red)
+            if runtime == 'core':
+                sandbox = Path(tempfile.mkdtemp(prefix='resource-case-',dir=source/'tmp'))
+                try: return run(label,[build/'test_process_resources',mode,sandbox],red)
+                finally: shutil.rmtree(sandbox)
             sequence += 1
             fixture = work / ('fixture-' + str(sequence))
             package, fixed_sdk, temp = fixture / 'package', fixture / 'sdk', fixture / 'temp'
@@ -180,6 +237,8 @@ def main():
                     schema['x-ghosterm-cli']['fields'][key] = {'option': key, 'default': ''}
             (package / 'schemas/input.json').write_text(json.dumps(schema))
             variant = dict(id='selected', runtime=runtime, requires=['session.rpc'])
+            if mode.startswith('resource-'):
+                variant['requires'] += ['resource.receive','file.readScoped']
             if runtime == 'node':
                 variant.update(entry='executor/main.mjs', runtimeVersionRange='>=20.0.0 <1000.0.0')
                 plugin = PLUGIN
@@ -195,17 +254,26 @@ def main():
                             bridgeProtocolRange=[1], publisher='fixture', license='MIT',
                             commands=[dict(path=['fixture'], title='Fixture', argsSchema='schemas/input.json')],
                             executor=dict(variants=[variant]), permissions=[])
+            if mode.startswith('resource-'):
+                manifest['permissions'] = [dict(side='executor',capability='file.readScoped',purpose='Disposable authorized fixture',scope='instance')]
             (package / 'plugin.json').write_text(json.dumps(manifest))
             members = [dict(path=str(f.relative_to(package)), bytes=f.stat().st_size, sha256=sha(f))
                        for f in sorted(package.rglob('*')) if f.is_file()]
             (package / 'integrity.json').write_text(json.dumps(dict(schemaVersion=1, members=members)))
-            facts = dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=[runtime], capabilities=['session.rpc'],
+            facts = dict(side='executor', sdkVersion='1.0.0', protocols=[1], runtimes=[runtime], capabilities=variant['requires'],
                          programs=dict(node=dict(state='available', version='199.0.0' if mode == 'wrong-version' else version[1:])),
                          os=os_name, arch=arch)
             fact_file = fixture / 'facts.json'
             fact_file.write_text(json.dumps(facts))
             try:
                 run(label, [build / 'test_process_runtime', mode, package, fixed_sdk, temp, node, node_sha, sdk_digest, fact_file], red)
+                if red:
+                    # C atexit stops/reaps its actual child. Left-over native
+                    # fixture roots/stores are private to this test invocation.
+                    for directory, _, _ in os.walk(temp,followlinks=False): os.chmod(directory,0o700)
+                    for child in list(temp.iterdir()):
+                        if child.is_dir() and not child.is_symlink(): shutil.rmtree(child)
+                        else: child.unlink()
                 assert not list(temp.iterdir()), label + ': retained stage'
                 if not red:
                     assert not (fixture / 'ambient-ran').exists(), label + ': outside module executed'
@@ -222,16 +290,21 @@ def main():
         baseline += ['exec:' + mode for mode in ['roundtrip', 'retained', 'frozen', 'stop-created', 'denied',
                      'bad-env', 'bad-env-name', 'duplicate-env', 'bad-arguments', 'bad-command', 'wrong-identity',
                      'stubborn', 'stdout-limit', 'leader-exit', 'stderr-eof', 'stdout-eof']]
+        baseline += ['node:resource-roundtrip', 'node:resource-unicode', 'node:resource-stop', 'node:resource-missing', 'node:resource-bad-root', 'node:resource-duplicate-root']
+        baseline += ['exec:resource-roundtrip']
         for spec in baseline:
             target('baseline-' + spec.replace(':', '-'), spec)
             print(spec + ': PASS', flush=True)
+        if args.resources:
+            run('resource-core-baseline',['ctest','--test-dir',build,'-R','^plugin_process_resources_','--output-on-failure'])
+            run('resource-node-baseline',[node,source/'scripts/fixtures/plugin-node-resource-cases.mjs',bundle])
         if args.mutate:
             for label, name, old, new, spec in cases:
                 path = source / name
                 original = path.read_bytes()
                 try:
                     path.write_text(original.decode().replace(old, new))
-                    if name == BOOTSTRAP:
+                    if name.startswith('packages/'):
                         sdk_digest = sdk(label)
                     else:
                         rebuild(label, name)
@@ -240,7 +313,7 @@ def main():
                 finally:
                     path.write_bytes(original)
                     assert sha(path) == hashlib.sha256(original).hexdigest()
-                if name == BOOTSTRAP:
+                if name.startswith('packages/'):
                     sdk_digest = sdk(label + '-restored')
                 else:
                     rebuild(label + '-restored', name)
@@ -248,6 +321,11 @@ def main():
                 print(label + ': compiled assertion red / same archive control green / restored green / SHA256', flush=True)
         for spec in ['node:roundtrip', 'exec:roundtrip']:
             target('final-' + spec.replace(':', '-'), spec)
+        if args.resources:
+            target('final-node-resource','node:resource-roundtrip')
+            target('final-exec-resource','exec:resource-roundtrip')
+            run('resource-core-final',['ctest','--test-dir',build,'-R','^plugin_process_resources_','--output-on-failure'])
+            run('resource-node-final',[node,source/'scripts/fixtures/plugin-node-resource-cases.mjs',bundle])
         for name, digest in inputs.items():
             assert sha(source / name) == digest and sha(ROOT / name) == digest, name
         assert sha(node) == node_sha

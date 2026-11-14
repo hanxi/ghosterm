@@ -46,6 +46,84 @@ static void call(uint64_t *sequence, const char *fields, char reply[8193]) {
     reply[size] = 0;
 }
 
+static void resource_roundtrip(uint64_t *sequence, char reply[8193]) {
+    call(sequence,
+         "\"op\":\"resource\",\"action\":\"publish\",\"root\":\"workspace\",\"path64\":"
+         "\"ZmlsZS5iaW4=\",\"mime\":\"application/"
+         "octet-stream\",\"limit\":\"262144\",\"timeoutMs\":10000",
+         reply);
+    const char *s = strstr(reply, "\"handle\":\"");
+    CHECK(s);
+    unsigned long long handle = strtoull(s + 10, NULL, 10);
+    char fields[512];
+    for (;;) {
+        CHECK(snprintf(fields,
+                       sizeof(fields),
+                       "\"op\":\"resource\",\"action\":\"publication\",\"ref\":\"%llu\"",
+                       handle) > 0);
+        call(sequence, fields, reply);
+        if (strstr(reply, "\"phase\":\"succeeded\"")) {
+            break;
+        }
+        CHECK(!strstr(reply, "\"phase\":\"failed\"") && !strstr(reply, "\"phase\":\"uncertain\""));
+    }
+    CHECK(strstr(reply, "\"confirmed\":true"));
+    CHECK(snprintf(fields,
+                   sizeof(fields),
+                   "\"op\":\"resource\",\"action\":\"forget\",\"ref\":\"%llu\"",
+                   handle) > 0);
+    call(sequence, fields, reply);
+    for (;;) {
+        call(sequence, "\"op\":\"resource\",\"action\":\"take\"", reply);
+        if ((s = strstr(reply, "\"handle\":\""))) {
+            break;
+        }
+        CHECK(strstr(reply, "\"status\":\"wait\""));
+    }
+    handle = strtoull(s + 10, NULL, 10);
+    CHECK(snprintf(fields,
+                   sizeof(fields),
+                   "\"op\":\"resource\",\"action\":\"open\",\"ref\":\"%llu\",\"limit\":\"262144\","
+                   "\"timeoutMs\":10000",
+                   handle) > 0);
+    call(sequence, fields, reply);
+    CHECK(strstr(reply, "\"value\":{\"status\":\"ok\""));
+    size_t at = 0;
+    for (;;) {
+        CHECK(snprintf(fields,
+                       sizeof(fields),
+                       "\"op\":\"resource\",\"action\":\"read\",\"ref\":\"%llu\",\"at\":\"%zu\","
+                       "\"maxBytes\":16384",
+                       handle,
+                       at) > 0);
+        call(sequence, fields, reply);
+        if (strstr(reply, "\"status\":\"wait\"")) {
+            continue;
+        }
+        CHECK(strstr(reply, "\"value\":{\"status\":\"ok\""));
+        s = strstr(reply, "\"hex\":\"");
+        CHECK(s);
+        s += 7;
+        size_t n = strcspn(s, "\"");
+        CHECK(n % 2 == 0 && n <= 6144);
+        for (size_t i = 0; i < n; i += 2) {
+            char part[3] = {s[i], s[i + 1], 0};
+            CHECK(strtoul(part, NULL, 16) == (at + i / 2) % 251);
+        }
+        at += n / 2;
+        if (!n) {
+            break;
+        }
+    }
+    CHECK(at == 262144);
+    CHECK(snprintf(fields,
+                   sizeof(fields),
+                   "\"op\":\"resource\",\"action\":\"release\",\"ref\":\"%llu\"",
+                   handle) > 0);
+    call(sequence, fields, reply);
+    CHECK(strstr(reply, "\"value\":{\"status\":\"ok\""));
+}
+
 int main(int argc, char **argv) {
     CHECK(argc == 4 && !strcmp(argv[1], "--ghosterm-startup"));
     int fd = open(argv[2], O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
@@ -103,6 +181,9 @@ int main(int argc, char **argv) {
     }
     uint64_t sequence = 0;
     char reply[8193];
+    if (mode && !strcmp(mode, "resource-roundtrip")) {
+        resource_roundtrip(&sequence, reply);
+    }
     call(&sequence, "\"op\":\"activated\"", reply);
     CHECK(strstr(reply, "\"status\":\"ok\""));
     for (;;) {

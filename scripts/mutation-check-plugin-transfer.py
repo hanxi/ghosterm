@@ -4,12 +4,14 @@ config green, complete native and real multi-hop SSH restoration with SHA256.
 """
 from pathlib import Path
 import sys
+import argparse
 import hashlib,json,os,shutil,signal,subprocess,tempfile
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_TRANSFER_MUTATION'
 MODES='roundtrip large unknown empty partial snapshot bidirectional queued-cancel cancel receiver-cancel denied unsupported feature lost stop deferred-credit pending-window rpc-progress io native-scope source-incomplete integrity duplicate receipt-conflict snapshot-quota retired destroy-retry stop-write stop-finish bad-success possible-cancel offset overspend gap epoch instance allocation counter exit-before-receipt credit-overflow fairness source-digest peer-id limit duplicate-conflict release-io release-last-io'.split()
 INPUTS=sorted({str(p.relative_to(ROOT)) for folder in ('core/src','core/include') for p in (ROOT/folder).rglob('*') if p.is_file() and p.suffix in ('.c','.h','.inc')})+['core/CMakeLists.txt','core/tests/test_bridge_transfer.c','core/tests/test_bridge_rpc.c','core/tests/test_bridge_session.c','core/tests/test_bridge_ssh.c','packages/plugin-sdk/schema/bridge-v1.candidate.json','packages/plugin-sdk/schema/bridge-v1.cases.json','scripts/generate-plugin-wire.py','scripts/test-plugin-session.py','scripts/test-plugin-route.py','scripts/test-plugin-ssh.py','scripts/test-plugin-ssh-stream.py','scripts/mutation-check-plugin-transfer.py']
 def digest(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--case',action='append',default=[]);args=parser.parse_args()
     work=Path(tempfile.mkdtemp(prefix='plugin-transfer-mutations-',dir=ROOT/'tmp'));logs=work/'logs';logs.mkdir();source=work/'source';build=work/'build';fixtures=work/'fixtures';fixtures.mkdir()
     hashes={n:digest(ROOT/n) for n in INPUTS};commands=[]
     env={**os.environ,'TMPDIR':str(work),'ASAN_OPTIONS':'detect_leaks=0:abort_on_error=1','UBSAN_OPTIONS':'halt_on_error=1:print_stacktrace=1'}
@@ -54,7 +56,9 @@ def main():
       ('source-digest','transfer.c',[('    if (!valid) {\n','    if (!valid && false) {\n')],'source-digest'),
       ('success-receipt','transfer.c',[('        if (!t->out.end_committed || !transfer_uint(t, v, "byteLength", &size) ||\n','        if ((false && !t->out.end_committed) || !transfer_uint(t, v, "byteLength", &size) ||\n')],'bad-success'),
       ('immutable-receipt','transfer.c',[('        state = GT_BRIDGE_TRANSFER_UNKNOWN;\n    }\n    if (t->out.result.confirmed) {\n','        state = GT_BRIDGE_TRANSFER_UNKNOWN;\n    }\n    if (false && t->out.result.confirmed) {\n')],'receipt-conflict'),
-      ('lost-unknown','transfer.c',[('            t->out.started ? GT_BRIDGE_TRANSFER_UNKNOWN : GT_BRIDGE_TRANSFER_CANCELLED;\n','            t->out.started ? GT_BRIDGE_TRANSFER_SUCCEEDED : GT_BRIDGE_TRANSFER_CANCELLED;\n')],'exit-before-receipt'),
+      # End-state storage and its public observation independently normalize
+      # unknown. Remove both for this observable false-success regression.
+      ('lost-unknown','transfer.c',[('t->out.started ? GT_BRIDGE_TRANSFER_UNKNOWN : GT_BRIDGE_TRANSFER_CANCELLED;','t->out.started ? GT_BRIDGE_TRANSFER_SUCCEEDED : GT_BRIDGE_TRANSFER_CANCELLED;')],'exit-before-receipt'),
       ('queued-cancel','transfer.c',[('    t->out.result.cancel_requested = true;\n    if (!t->out.started) {\n','    t->out.result.cancel_requested = true;\n    if (false && !t->out.started) {\n')],'queued-cancel'),
       ('reserved-control','transfer.c',[('    if (!*control && t->cost > t->tx_credit) {\n','    if ((!*control || t->prepared == TRANSFER_CANCEL_OUT) && t->cost > t->tx_credit) {\n')],'cancel'),
       ('snapshot-scope','transfer.c',[('    if (!gt__bridge_session_scope(t->session, lease)) {\n','    if (false && !gt__bridge_session_scope(t->session, lease)) {\n')],'native-scope'),
@@ -62,18 +66,20 @@ def main():
       ('last-pin','resource.c',[('    if (scope->retiring && !scope->resources && !failed) {\n','    if (false && scope->retiring && !scope->resources && !failed) {\n')],'snapshot'),
       ('owner-release','transfer.c',[('        gt__plugin_memory_free(&a, t, sizeof(*t));\n','        (void)a;\n')],'roundtrip'),
       ('cleanup-retry','session.c',[('    if (cleanup != GT_OK) {\n','    if (false && cleanup != GT_OK) {\n')],'destroy-retry'),
-      ('io-stop-recheck','transfer.c',[('        }\n    }\n    if (!transfer_live(t)) {\n','        }\n    }\n    if (false && !transfer_live(t)) {\n')],'stop-finish'),
+      ('io-stop-recheck','transfer.c',[('        if (!transfer_live(t)) {\n            return GT_ERR_CANCELLED;\n        }\n        if (status != GT_BRIDGE_RESOURCE_OK) {\n','        if (false && !transfer_live(t)) {\n            return GT_ERR_CANCELLED;\n        }\n        if (status != GT_BRIDGE_RESOURCE_OK) {\n')],'stop-finish'),
       ('peer-resource-id','transfer.c',[('    return !memcmp(id, expected, 33);\n','    return true;\n')],'peer-id'),
       ('retired-generation','transfer.c',[('        if (generation <= t->rx_ordinal) {\n','        if (false && generation <= t->rx_ordinal) {\n')],'retired'),
       ('duplicate-end','transfer.c',[('                (cached->kind == RECEIPT_SUCCESS &&\n','                (false && cached->kind == RECEIPT_SUCCESS &&\n')],'duplicate-conflict'),
       ('store-publication','transfer.c',[('        }\n        if (status != GT_BRIDGE_RESOURCE_OK) {\n','        }\n        if (false && status != GT_BRIDGE_RESOURCE_OK) {\n')],'integrity'),
       ('credit-routing','session.c',[('    if (m->kind == GT_BRIDGE_CREDIT && string_equal(s, m->payload, "streamId", "resource")) {\n','    if (false && m->kind == GT_BRIDGE_CREDIT &&\n        string_equal(s, m->payload, "streamId", "resource")) {\n')],'roundtrip'),
       ('data-fairness','session.c',[('                                       (resource_control == rpc_control && s->prefer_resource));\n','                                       (resource_control == rpc_control && false));\n')],'fairness'),
-      ('possible-is-not-none','transfer.c',[('            !transfer_string(t, e, "effect", effect, sizeof(effect)) || strcmp(effect, "none")) {\n','            !transfer_string(t, e, "effect", effect, sizeof(effect)) ||\n            (false && strcmp(effect, "none"))) {\n')],'possible-cancel'),
+      ('possible-is-not-none','transfer.c',[('        if (!transfer_string(t, outcome, "effect", effect, sizeof(effect)) ||\n            strcmp(effect, "none")) {\n','        if (!transfer_string(t, outcome, "effect", effect, sizeof(effect)) ||\n            (false && strcmp(effect, "none"))) {\n')],'possible-cancel'),
       ('sequence','transfer.c',[('        m->sequence != t->rx_sequence) {\n','        (false && m->sequence != t->rx_sequence)) {\n')],'gap'),
       ('release-error-retains-owner','transfer.c',[('    if (t->snapshot_count || failed) {\n','    if (false && (t->snapshot_count || failed)) {\n')],'release-io'),
       ('failed-last-close-scope','resource.c',[('scope->retiring && !scope->resources && !failed','scope->retiring && !scope->resources')],'release-last-io'),
     ]
+    if set(args.case)-{c[0] for c in cases}:parser.error('unknown case')
+    if args.case:cases=[c for c in cases if c[0] in args.case]
     try:
         for name in ('transfer.c','session.c','resource.c'):
             if MARK.encode() in (ROOT/'core/src/extension'/name).read_bytes():print('Residual mutation: '+name,file=sys.stderr);raise SystemExit(2)

@@ -5,6 +5,7 @@
 #define GT_PRIVATE_PROCESS_RUNTIME_H
 #include "extension/package-check.h"
 #include "ghosterm/extension_runtime.h"
+#include "extension/runtime-resource.h"
 typedef struct gt_process_runtime gt_process_runtime_t;
 
 typedef enum {
@@ -26,6 +27,8 @@ typedef struct {
     const gt_ext_invocation_t *invocation;
     const char *const *environment;
     size_t environment_count;
+    const gt_runtime_root_t *roots; /* explicit native authorization; copied fds */
+    size_t root_count;
     uint32_t activation_ms, lifetime_ms, stop_grace_ms;
     uint64_t stdout_bytes, stderr_bytes;
 } gt_process_runtime_config_t;

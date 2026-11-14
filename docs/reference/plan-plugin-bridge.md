@@ -6,7 +6,7 @@
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
-**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 入口；第五批提供 ai-claude Portable 目录候选包及完整参数 / 回包八方法。macOS 和 Android 已接固定启动配置、ACTIVE Runtime 文档适配、原生对话、工具批准、逐题显式回答、中断和停止，Codex / Claude 共用输入、决定按钮和只读完整文本控件。真实生产页面经自有直连 / ProxyJump SSH、gterm、Node 和锁定 SDK 配明确内存 CLI 协议夹具，已验工具批准、四题点击提交及停止 / reap；真实 CLI 另验禁网无模型初始化。第十、十一批补双端未确认操作的显式只读回包观察，保留原未知状态并拒绝重放；两端另验证真实 SSH 的原生 RPC 超时后读取保留回包。它不恢复已断开的 SSH 或 Agent 会话。尚无真实认证 / 模型 / 工具执行、持续模型流量 / 整进程资源证据；第十二至十五批已补已校验包私有暂存、进程 RPC、Node SDK 会话适配与实际 Node / Exec 进程控制器。通用运行档尚未接入 gterm / App，当前控制器只组合 session.rpc，资源 / process 服务和整进程预算继续待接；候选包不声明可移植 Native views，默认 App 仍禁用插件。P4 仍未完成，具体版本、变异和限制见文末 P4 第一至十五批。
+**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 入口；第五批提供 ai-claude Portable 目录候选包及完整参数 / 回包八方法。macOS 和 Android 已接固定启动配置、ACTIVE Runtime 文档适配、原生对话、工具批准、逐题显式回答、中断和停止，Codex / Claude 共用输入、决定按钮和只读完整文本控件。真实生产页面经自有直连 / ProxyJump SSH、gterm、Node 和锁定 SDK 配明确内存 CLI 协议夹具，已验工具批准、四题点击提交及停止 / reap；真实 CLI 另验禁网无模型初始化。第十、十一批补双端未确认操作的显式只读回包观察，保留原未知状态并拒绝重放；两端另验证真实 SSH 的原生 RPC 超时后读取保留回包。它不恢复已断开的 SSH 或 Agent 会话。尚无真实认证 / 模型 / 工具执行、持续模型流量 / 整进程资源证据；第十二至十六批已补已校验包私有暂存、进程 RPC、Node SDK 会话适配、实际 Node / Exec 进程控制器及双向资源服务。通用运行档尚未接入 gterm / App，当前控制器组合 session.rpc 与原生 ResourceBroker；process 服务和整进程预算继续待接；候选包不声明可移植 Native views，默认 App 仍禁用插件。P4 仍未完成，具体版本、变异和限制见文末 P4 第一至十六批。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -5430,3 +5430,25 @@ Node 路径必须为显式 canonical executable，先核对 SHA256 / regular fil
 最终控制器收据对拍 **673 份**原工作区 / 隔离输入、Node executable 摘要及 **126 条**命令；隔离 C 夹具开启 ASan / UBSan，LeakSanitizer 未启用，Native allocator 预约归还由实际断言另验。旧保护分别记录暂存 **658 份 / 101 条**、RPC **649 份 / 122 条**及 Node adapter **665 份 / 203 条**输入 / 命令；四份变异收据均在各自轮次完整通过，共用参数边界夹具最后修正后，控制器完整 40 项 / 15 组与 enabled 全量 747 项另行重跑通过。默认 Core 保持 JS-off / tests-on。
 
 所有本轮所属测试进程已退出，核对临时树无所属进程占用后清理 **1012.7 MiB**；工程 tmp/ 保留既有虚拟机进程仍持有的三份 eq-* 小文件。只在本地 main 分批提交，工作区保持可复核。
+
+### P4 实施第十六批：Node / Exec 双向资源与原生生命周期（2026-11-14）
+
+内部进程控制器现组合既有 Native Resource owner：原生调用方显式提供已授权 workspace 根 fd / ID / 字节预算，构造时复制，失败不消费 Session / SDK / checked 包，不授权或启动进程。必需 resource.receive / file.readScoped 在原生侧核对 Store、根及实时 Session 权限，缺服务显式 UNSUPPORTED。原生进程 RPC 只借用同 Session、同 Store、同 lease 且未使用过的 resource owner；不接管其它实例或已用 owner，也不暴露 fd / lease / 原始 snapshot token。
+
+私有进程消息增加 resource action，复用原顺序号、8 KiB 帧、严格 JSON / UTF-8 / 字段与背压。publication 与 snapshot 使用独立映射，共享单调本地编号；取消 / 遗忘 / 释放只退休对应域。路径用规范 padded base64 承载 UTF-8 字节，覆盖完整 4096 字节上限，避免 JSON 引号 / 反斜杠膨胀后超帧；读回数据使用小写 hex，单条最多 3072 字节，仍可请求原 16 KiB cap、接受真实短读并读到零字节 EOF。Publication 的 hashing / receipt / confirmed / unknown / expired / clock 状态和字节数直接取原生 Source，不把本地消息 ACK 当远端发布成功；读、取消、收件、释放继续由 Native Session / Source / Store 判授权、期限、配额与结果。
+
+Node 增加 Host-only NativeResourcePort，严格核对回包、状态、uint64、descriptor、二进制长度、编号与容量，坏回包破坏链路、不重放。bootstrap 只在原生服务存在时构造已有 Portable ResourceBroker，在原 Node worker 上推进 async activation / ResourceBroker / Session，并先 dispose 资源再关闭管道。Portable 六模块 / 既有 SDK 身份未改；独立 Host bundle 现为 **23 份**成员加 build manifest。进程控制器在构造末接入 broker / resource owner，实际子进程退出 / reap 后按 Source、pin、Session 依赖推进关闭；断流 / 取消先撤销和停止资源，再发终止信号，清理错误与业务 unknown 分开保留。仍是显式可信 Node / Exec OS 执行，不是同 UID 沙箱，也未宣称整进程内存 / CPU / 后代树预算完成。
+
+断流验证修复两处共用生命周期缺陷：Session 已完全 released 后的 tick 不能把 CLOSED 回退成 ENDED；resource writer 的未完成帧在流仍可能持有 continuation 时必须阻止 forget，但流已实际 CLOSED 后允许退休本地观察。没有调用 sent、补 credit 或发明成功收据，未确认传输仍为 UNKNOWN。原生夹具同时验证关闭前 destroy 必须 WAIT、关闭后可释放、后续观察保持 CLOSED，并把 unknown / cancelled 与真实 confirmed 成功分开。
+
+实际组合为已校验包、原生 Session / socketpair、父进程控制器、固定 Host SDK、已安装 Node **26.4.0** 或原生 Exec 二进制。Node 与 Exec 均双向发布 / 接收 / 逐字节读取 **256 KiB** 二进制并释放，确认在实际原生收据之后；Node 另验 Unicode / 引号 / 反斜杠文件名、传输中停止、缺 Store、无效 / 重复根拒绝，以及输入 root fd 交接后立即关闭。沿用完整旧基线，总计 **47 项**实际进程用例。独立 **15 项**C 资源消息用例覆盖空文件、跨 Session / Store / lease、已用 owner、引用跨域、连续 80 次取消 / 释放复用、未声明能力的 UNSUPPORTED 与根外 DENIED、非规范 base64 / 额外字段、撤销与实际断流 unknown；独立 **14 组**Node 合成回包检查不冒充原生业务结果。
+
+`test-plugin-process-runtime.py --node 已安装路径 --tools 锁定工具目录 --resources --mutate` 的 **20 组**不同变异真实重编译 / emit 后正常断言红、同 archive 配置绿、恢复绿及 SHA256 通过；`--mutate` 的旧 **15 组**另完整通过。C 夹具开启 ASan / UBSan，LeakSanitizer 未启用，fd / Native 预约归还另断言。旧 Node adapter **19 组**、进程 RPC **23 组**、Session **21 组**分别完整复验通过。原生 CTest 新增十五项；最终默认 **JS-off / tests-on：537/537 / 177 ABI**、JS-enabled / SSH-enabled / 保留断言的 **762/762 CTest**、clang-format **19.1.7 / 236 文件**、Portable 六模块生成物逐字节检查、脚本语法及 diff 检查通过。
+
+原件与前置失败单列：JSON buffer signedness 编译错误；新夹具把未声明能力误写 DENIED、断流发生在开始传输前、未先关闭本端 channel 的清理错误；首个字段变异移除变量使用而被 -Werror 拒收。均未计目标红或最终绿。既有 transfer 闸门发现三份目标失配：unknown 有两道独立归一化保护，原单点故障仍被挡住；stop-finish 原来改的是 finish 前而非之后的检查；possible-cancel 原来改的是 failed 分支。分别改成可观察的成对 false-success 故障、正确的 finish 后检查、正确的 cancelled 分支；原三份未杀死反例保留，不当作通过。脚本新增 --case 只方便分轮定位，不减少默认全份覆盖。
+
+无公共 C ABI / Apple / Android 源码改动，不增加 macOS CI 二十份；App 默认 JS-off，通用 Node / Exec 尚未接 gterm / App，process 服务、完整资源 / 进程预算、真实认证 / 模型 / 工具、其它平台与 P1–P6 余项继续待完成。所有外部作用对象为一次性工程 tmp/ 与既有脚本自建回环服务；不访问账户、外部机器或用户工作区，也不下载 Node runtime。
+
+最终 transfer 默认完整 **36 组**通过，逐组真实编译 / 断言红 / 同 archive 配置绿 / 恢复 47 个原生与四条受控 SSH 场景 / SHA256；收据记录 **123 份**输入、**1923 条**命令。另一次复跑发现 make 时间戳造成资源测试目标未重新链接，未把该轮旧二进制结果计绿；现每轮强制删除并逐一检查 runtime、Exec peer、resource test、config control 四个 executable 的实际 link，随后完整重跑 **47 项 / 20 组**及 **47 项 / 15 组**通过，分别 **677 份 / 170 条**及 **677 份 / 133 条**输入 / 命令。Session **121 份 / 703 条**、Node adapter **669 份 / 203 条**、RPC **653 份 / 122 条**为各自分轮证据，不能把前置失败与未杀死 / 未重链结果并入通过数。
+
+验收完成后已清理本批隔离构建、工具、探针与日志；工程 tmp/ 当前仅保留既有 VM 仍占用的三份 eq-* 文件，共占 12 KiB，目录本身保留。根 Core 构建配置恢复为 JS-off / tests-on；没有启动前台测试窗口。
