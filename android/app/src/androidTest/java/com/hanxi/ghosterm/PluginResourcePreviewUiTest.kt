@@ -120,12 +120,12 @@ class PluginResourcePreviewUiTest {
         var captured: ExtensionRelayBootstrap.Request? = null
         ui.setContent {
             PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), command,
-                listOf("host"), onDismiss = {}, onLaunch = { _, request -> captured = request })
+                listOf("host"), onDismiss = {}, onLaunch = { _, request, _ -> captured = request })
         }
         val root = "/home/user's space/工作区"
         ui.onNodeWithTag("plugin-executor-directory").performTextInput("/opt/preview")
-        ui.onNodeWithTag("plugin-executor-digest").performTextInput("b".repeat(64))
-        ui.onNodeWithTag("plugin-workspace-root").performTextInput(root)
+        ui.onNodeWithTag("plugin-executor-digest").performScrollTo().performTextInput("b".repeat(64))
+        ui.onNodeWithTag("plugin-workspace-root").performScrollTo().performTextInput(root)
         ui.onNodeWithText("连接并请求授权").performClick()
         assertEquals(root, captured?.workspaceRootDirectory)
         assertTrue(ExtensionRelayBootstrap.build(checkNotNull(captured)).contains("--root' 'workspace'"))

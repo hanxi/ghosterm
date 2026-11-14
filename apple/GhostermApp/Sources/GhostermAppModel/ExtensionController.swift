@@ -48,6 +48,23 @@ public actor ExtensionController {
         }
     }
 
+    /// Local Client publication grant. Never part of the remote relay command.
+    public struct ClientWorkspace: Sendable, Equatable {
+        public let directory: String
+        public let authorized: Bool
+        public init(directory: String, authorized: Bool) {
+            self.directory = directory; self.authorized = authorized
+        }
+        public func validate(requiredCapabilities: [String]) throws {
+            guard authorized, directory.hasPrefix("/"), directory.utf8.count <= 4096,
+                  !directory.utf8.contains(0), !directory.contains("\n"), !directory.contains("\r"),
+                  requiredCapabilities.contains("resource.receive") else {
+                throw GhostermError.failed("本机资源目录需要显式允许，且 Client 必须声明 resource.receive")
+            }
+        }
+        public var reviewDescription: String { "Native 只读发布目录：\(directory) · 单文件上限 256 KiB" }
+    }
+
     public struct Command: Sendable, Equatable {
         public let path: String
         public let title: String
@@ -155,6 +172,30 @@ public actor ExtensionController {
         public let consentToken: String
     }
 
+    public struct ResourcePublication: Sendable {
+        public var id: String, relativePath: String
+        public var phase: UInt32, error: UInt32, cleanupError: UInt32
+        public var confirmed: Bool, released: Bool, expired: Bool
+        public var sha256: String, bytes: UInt64, accepted: UInt64
+        public var reviewDescription: String {
+            let message: String
+            switch ExtensionFileSource.Phase(rawValue: phase) {
+            case .hashing: message = "正在校验文件"
+            case .ready, .sending: message = "正在发送：\(accepted) / \(bytes) 字节"
+            case .receipt: message = "等待对端确认"
+            case .cancelling: message = "正在取消，结果尚未确认"
+            case .succeeded: message = confirmed ? "发布完成，对端已确认" : "发布结果尚未确认"
+            case .stopped: message = "发布已停止"
+            case .uncertain: message = "发布结果不明"
+            case .failed:
+                let reason = ExtensionFileSource.Status(rawValue: error).map { String(describing: $0) } ?? "unknown"
+                message = "发布失败（\(reason)）"
+            case nil: message = "发布状态不可用"
+            }
+            return message + (expired ? " · 已到期" : "") + (cleanupError == 0 ? "" : " · 资源释放失败")
+        }
+    }
+
     public struct RuntimeState: Sendable {
         public let packageID: String
         public let packageDigest: String
@@ -163,6 +204,8 @@ public actor ExtensionController {
         public let failure: UInt32
         public let cleanupError: Int32
         public let disposeError: Int32
+        public let publication: ResourcePublication?
+        public let instanceID: String
     }
 
     public struct HostRPCRequest: Sendable {
@@ -288,9 +331,17 @@ public actor ExtensionController {
     }
 
     public func activateClient(pluginID: String, packageDigest: String, command: String,
-                               arguments: [String]) async throws -> RuntimeState {
+                               arguments: [String], clientWorkspace: ClientWorkspace? = nil) async throws -> RuntimeState {
         try await worker.activateClient(pluginID: pluginID, packageDigest: packageDigest,
-                                        command: command, arguments: arguments)
+                                        command: command, arguments: arguments, clientWorkspace: clientWorkspace)
+    }
+
+    /// Explicit Native UI action; this method is never exposed to Client JS.
+    public func publishClientResource(instanceID: String, root: String = "client", relativePath: String) async throws -> RuntimeState {
+        try await worker.publishClientResource(instanceID: instanceID, root: root, relativePath: relativePath)
+    }
+    public func cancelClientPublication(id: String) async throws {
+        try await worker.cancelClientPublication(id: id)
     }
 
     public func stepRuntime() async throws -> RuntimeState {
@@ -365,7 +416,12 @@ public actor ExtensionController {
         private var sessionPackageKey: String?
         private var runtime: ExtensionRuntime?
         private var runtimePackageKey: String?
+        private var runtimeInstanceID: String?
         private var runtimeCommand: String?
+        private var clientRootFD: Int32 = -1
+        private var clientSource: ExtensionFileSource?
+        private var clientPublication: ResourcePublication?
+        private var clientPublicationDeadline = 0.0
         private var resourceStore: ExtensionResourceStore?
         private var resourceRootFD: Int32 = -1
         private var resourceDirectoryName: String?
@@ -576,7 +632,7 @@ public actor ExtensionController {
         }
 
         func activateClient(pluginID: String, packageDigest: String, command: String,
-                            arguments: [String]) async throws -> RuntimeState {
+                            arguments: [String], clientWorkspace: ClientWorkspace?) async throws -> RuntimeState {
             try await perform {
                 try self.checkOpen()
                 guard let session = self.session, let sessionKey = self.sessionPackageKey,
@@ -595,14 +651,91 @@ public actor ExtensionController {
                     throw ControllerError.registry(selected.status.rawValue)
                 }
                 try exact.close()
+                var rootFD: Int32 = -1
+                defer { if rootFD >= 0 { Darwin.close(rootFD) } }
+                if let clientWorkspace {
+                    try clientWorkspace.validate(requiredCapabilities: record.review.requiredCapabilities)
+                    rootFD = clientWorkspace.directory.withCString {
+                        open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+                    }
+                    var info = stat()
+                    guard rootFD >= 0, fstat(rootFD, &info) == 0,
+                          (info.st_mode & S_IFMT) == S_IFDIR else { throw ControllerError.resourceUnavailable }
+                }
                 let runtime = try ExtensionRuntime(session: session, package: record.package,
                                                    role: .host, associated: true,
                                                    invocation: .init(command: command, arguments: arguments))
+                self.clientRootFD = rootFD; rootFD = -1
                 self.session = nil; self.sessionPackageKey = nil
                 self.runtime = runtime; self.runtimePackageKey = sessionKey
-                self.runtimeCommand = command
+                self.runtimeCommand = command; self.runtimeInstanceID = UUID().uuidString
                 return try self.runtimeState(runtime, packageKey: sessionKey, command: command)
             }
+        }
+
+        func publishClientResource(instanceID: String, root: String, relativePath: String) async throws -> RuntimeState {
+            try await perform {
+                try self.checkOpen()
+                guard let runtime = self.runtime, let key = self.runtimePackageKey,
+                      let command = self.runtimeCommand, try runtime.info().phase == .active,
+                      self.runtimeInstanceID == instanceID,
+                      self.clientRootFD >= 0, self.clientSource == nil else { throw ControllerError.resourceUnavailable }
+                let admission: ExtensionFileSource.Admission
+                if root != "client" {
+                    self.clientPublication = ResourcePublication(id: UUID().uuidString, relativePath: relativePath,
+                        phase: ExtensionFileSource.Phase.failed.rawValue, error: ExtensionFileSource.Status.denied.rawValue,
+                        cleanupError: 0, confirmed: false, released: true, expired: false, sha256: "", bytes: 0, accepted: 0)
+                } else {
+                    admission = try runtime.openSource(rootFD: self.clientRootFD, relativePath: relativePath, byteLimit: 262144)
+                    self.clientSource = admission.source
+                    self.clientPublicationDeadline = ProcessInfo.processInfo.systemUptime + 10
+                    self.clientPublication = ResourcePublication(id: UUID().uuidString, relativePath: relativePath,
+                        phase: (admission.status == .ok ? ExtensionFileSource.Phase.hashing : .failed).rawValue,
+                        error: admission.status.rawValue, cleanupError: 0, confirmed: false,
+                        released: admission.source == nil, expired: false, sha256: "", bytes: 0, accepted: 0)
+                }
+                return try self.runtimeState(runtime, packageKey: key, command: command)
+            }
+        }
+
+        func cancelClientPublication(id: String) async throws {
+            try await perform {
+                try self.checkOpen()
+                guard self.clientPublication?.id == id, let source = self.clientSource else { throw ControllerError.resourceUnavailable }
+                try source.cancel()
+            }
+        }
+
+        private func stepClientPublication() throws {
+            guard let source = clientSource, var publication = clientPublication else { return }
+            if ProcessInfo.processInfo.systemUptime >= clientPublicationDeadline {
+                publication.expired = true; try source.cancel()
+            }
+            let phase = try source.step()
+            if phase == .ready && !publication.expired {
+                let status = try source.send()
+                guard status == .ok || status == .wait else { throw ControllerError.resourceUnavailable }
+            }
+            let info = try source.info()
+            publication.phase = info.phase.rawValue; publication.error = info.error.rawValue
+            publication.cleanupError = info.cleanupError.rawValue
+            publication.confirmed = info.transfer.confirmed
+            publication.sha256 = info.descriptor.sha256; publication.bytes = info.descriptor.size
+            publication.accepted = info.accepted
+            if [.succeeded, .failed, .stopped, .uncertain].contains(info.phase) {
+                let closed = try source.closeStep()
+                if closed == .ok { clientSource = nil; publication.released = true }
+                else if closed != .wait { throw ControllerError.resourceUnavailable }
+            }
+            clientPublication = publication
+        }
+
+        private func closeClientSource() throws {
+            guard let source = clientSource else { return }
+            try source.cancel()
+            let status = try source.closeStep()
+            if status == .ok { clientSource = nil }
+            else if status != .wait { throw ControllerError.resourceUnavailable }
         }
 
         func stepRuntime() async throws -> RuntimeState {
@@ -616,8 +749,11 @@ public actor ExtensionController {
                 // budget applies between calls; each call retains its CPU guard.
                 let deadline = ProcessInfo.processInfo.systemUptime + 0.005
                 for _ in 0..<32 {
+                    try self.stepClientPublication()
                     let phase = try runtime.step()
-                    if phase != .starting && phase != .active { break }
+                    if phase != .starting && phase != .active {
+                        try self.clientSource?.cancel(); try self.stepClientPublication(); break
+                    }
                     if ProcessInfo.processInfo.systemUptime >= deadline { break }
                 }
                 return try self.runtimeState(runtime, packageKey: packageKey, command: command)
@@ -807,7 +943,7 @@ public actor ExtensionController {
             guard let record = packages[packageKey] else { throw ControllerError.runtimeUnavailable }
             return RuntimeState(packageID: record.review.id, packageDigest: record.review.digest,
                                 command: command, phase: info.phase.rawValue, failure: info.error.rawValue,
-                                cleanupError: info.cleanupError, disposeError: info.disposeError ? 1 : 0)
+                                cleanupError: info.cleanupError, disposeError: info.disposeError ? 1 : 0, publication: clientPublication, instanceID: runtimeInstanceID ?? "")
         }
 
         private func releaseOwners(forceStop: Bool) throws {
@@ -820,9 +956,17 @@ public actor ExtensionController {
                     }
                 }
                 var released = false
-                for _ in 0..<32 { if try runtime.closeStep() { released = true; break } }
-                guard released else { throw ControllerError.runtimeUnavailable }
-                self.runtime = nil; runtimePackageKey = nil; runtimeCommand = nil
+                for _ in 0..<32 {
+                    try closeClientSource()
+                    if try runtime.closeStep() { released = true; break }
+                }
+                guard released, clientSource == nil else { throw ControllerError.runtimeUnavailable }
+                self.runtime = nil; runtimePackageKey = nil; runtimeCommand = nil; runtimeInstanceID = nil
+                clientPublication = nil
+                if clientRootFD >= 0 {
+                    let fd = clientRootFD; clientRootFD = -1
+                    guard Darwin.close(fd) == 0 else { throw ControllerError.resourceUnavailable }
+                }
             }
             if let session {
                 if forceStop { session.stop() }

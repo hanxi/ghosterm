@@ -48,13 +48,13 @@ class ExtensionFileSource private constructor(private val worker: Thread) : Auto
             require(buffer.remaining() <= limit) { "源文件参数过长" }
             return ByteArray(buffer.remaining()).also { buffer.get(it) }
         }
-        internal fun open(session: Long, lease: ExtensionSession.Lease, rootFd: Int, path: String, mime: String, limit: Long): Admission {
+        internal fun open(session: Long, lease: ExtensionSession.Lease, rootFd: Int, path: String, mime: String, limit: Long, runtime: Boolean = false): Admission {
             check(Looper.myLooper() != Looper.getMainLooper())
             val encodedPath = encode(path, 4096); val encodedMime = encode(mime, 128)
             val source = ExtensionFileSource(Thread.currentThread()); val result = Admission()
             // Allocate both Java owners before native construction. Filling the
             // already allocated objects after success cannot lose an owning pin.
-            val values = NativeExtensionSource.open(session, lease.bytes, rootFd, encodedPath, encodedMime, limit)
+            val values = NativeExtensionSource.open(session, lease.bytes, rootFd, encodedPath, encodedMime, limit, runtime)
             check(values.size == 2); result.status = Status.entries[values[0].toInt()]
             if (result.status == Status.OK) { check(values[1] > 0); source.handle = values[1]; result.source = source }
             return result
@@ -63,7 +63,7 @@ class ExtensionFileSource private constructor(private val worker: Thread) : Auto
 }
 internal object NativeExtensionSource {
     init { System.loadLibrary("ghosterm_android") }
-    external fun open(session: Long, lease: ByteArray, rootFd: Int, path: ByteArray, mime: ByteArray, limit: Long): LongArray
+    external fun open(session: Long, lease: ByteArray, rootFd: Int, path: ByteArray, mime: ByteArray, limit: Long, runtime: Boolean): LongArray
     external fun step(handle: Long): Int
     external fun send(handle: Long): Int
     external fun cancel(handle: Long)

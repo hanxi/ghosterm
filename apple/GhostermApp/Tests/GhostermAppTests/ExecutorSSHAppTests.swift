@@ -56,7 +56,8 @@ import XCTest
         let payload = try service()
         func string(_ name: String) throws -> String { try XCTUnwrap(payload[name] as? String) }
         let runtime = try string("runtime"), mode = try string("mode"), route = try string("route")
-        let resourceCase = mode.hasPrefix("resource")
+        let clientCase = mode.hasPrefix("client-")
+        let resourceCase = mode.hasPrefix("resource") || clientCase
         let processCase = mode.hasPrefix("process")
         let processPending = mode == "process-stop" || mode == "process-loss"
         let scratch = URL(fileURLWithPath: try string("scratch")), package = URL(fileURLWithPath: try string("packageDirectory"))
@@ -85,15 +86,33 @@ import XCTest
             ? [.init(name: "cat", executable: try string("processExecutable"), version: "fixture", sha256: try string("processDigest"))] : []
         var environment = ["GT_EXECUTION_APP_FIXTURE"]
         if mode == "process-environment" { environment.append("GT_SELECTED") }
+        let local = scratch.appendingPathComponent("local")
+        var clientWorkspace: ExtensionController.ClientWorkspace?
+        if clientCase {
+            try FileManager.default.createDirectory(at: local, withIntermediateDirectories: false)
+            try Data((0..<262144).map { UInt8(($0 * 7 + 3) % 251) }).write(to: local.appendingPathComponent("upload.bin"))
+            let outside = scratch.appendingPathComponent("outside.bin")
+            try Data("UNAUTHORIZED owned fixture".utf8).write(to: outside)
+            try FileManager.default.createSymbolicLink(atPath: local.appendingPathComponent("link.bin").path, withDestinationPath: outside.path)
+            let selectedPath: String
+            if mode == "client-directory-link" {
+                let link = scratch.appendingPathComponent("directory-link")
+                try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: local.path)
+                selectedPath = link.path
+            } else { selectedPath = mode == "client-directory-file" ? local.appendingPathComponent("upload.bin").path : local.path }
+            clientWorkspace = .init(directory: selectedPath, authorized: mode != "client-no-approval")
+        }
         addTeardownBlock { await model.stopExtensionRun(); _ = await controller.close() }
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest, command: "fixture",
             arguments: ["中文😀", "", "literal'$(owned)"], sshAlias: "execution-target",
             executable: try string("wrapper"), executorDirectory: package.path, executorDigest: review.digest,
             methods: ["fixture.echo"], hostMethods: [],
             scopedRoots: resourceCase || processCase ? [.init(id: "workspace", directory: try string("workspace"))] : [],
-            processPrograms: programs, processEnvironmentNames: environment, executorExecution: execution)
-        if mode == "no-approval" {
-            XCTAssertNotNil(model.extensionRunIssue); XCTAssertNil(model.extensionRun)
+            processPrograms: programs, processEnvironmentNames: environment, executorExecution: execution, clientWorkspace: clientWorkspace)
+        if ["no-approval", "client-no-approval", "client-undeclared"].contains(mode) {
+            XCTAssertNotNil(model.extensionRunIssue)
+            guard model.extensionRunIssue != nil else { return }
+            XCTAssertNil(model.extensionRun)
             XCTAssertTrue(interaction.hosts.isEmpty)
             XCTAssertEqual(try service("audit")["wrapperStarted"] as? Bool, false)
             return
@@ -102,6 +121,8 @@ import XCTest
         let run = try XCTUnwrap(model.extensionRun, model.extensionRunIssue ?? "missing run")
         XCTAssertEqual(run.session?.phase, ExtensionSession.Phase.consent.rawValue)
         XCTAssertEqual(run.executorExecution, execution)
+        XCTAssertEqual(run.clientWorkspace, clientWorkspace)
+        XCTAssertFalse(run.remoteCommand.contains(local.path), "Local grant must not become a remote path")
         var required = ["session.rpc"]
         if resourceCase { required += ["resource.receive", "file.readScoped"] }
         if processCase { required += ["process.spawn", "process.pipes"] }
@@ -116,11 +137,72 @@ import XCTest
             return
         }
         await model.decideExtensionConsent(allow: true)
+        if mode == "client-directory-link" || mode == "client-directory-file" {
+            XCTAssertNotNil(model.extensionRunIssue)
+            guard model.extensionRunIssue != nil else { return }
+            XCTAssertNil(model.extensionRun?.runtime)
+            await model.stopExtensionRun(); XCTAssertNil(model.extensionRunIssue)
+            return
+        }
         try await until("Client and remote Executor did not activate: \(model.extensionRunIssue ?? "")") {
             let audit = try self.service("audit")
             return model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue && (audit["activated"] as? Bool) == true
         }
         XCTAssertEqual(try service("audit")["environment"] as? String, try string("temporary"))
+        if clientCase {
+            var rejected = false
+            do { _ = try await controller.publishClientResource(instanceID: "obsolete-runtime", relativePath: "upload.bin") }
+            catch ExtensionController.ControllerError.resourceUnavailable { rejected = true }
+            XCTAssertTrue(rejected, "Stale Native action must not publish into another Runtime")
+            guard rejected else { return }
+            XCTAssertNil(model.extensionRun?.runtime?.publication)
+        }
+        if clientCase {
+            let path = mode == "client-parent" ? "../outside.bin" : mode == "client-link" ? "link.bin" : "upload.bin"
+            await model.publishClientResource(relativePath: path, root: mode == "client-root" ? "outside" : "client")
+            if ["client-stop", "client-loss", "client-cancel"].contains(mode) {
+                try await until("Native publication did not enter a partial send") {
+                    guard let publication = model.extensionRun?.runtime?.publication else { return false }
+                    return publication.phase == ExtensionFileSource.Phase.sending.rawValue && publication.accepted > 0 && publication.accepted < 262144
+                }
+                XCTAssertFalse(try XCTUnwrap(model.extensionRun?.runtime?.publication).confirmed)
+                if mode == "client-cancel" {
+                    let id = try XCTUnwrap(model.extensionRun?.runtime?.publication?.id)
+                    await model.cancelClientPublication(id: id)
+                    try await until("Cancelled Source did not release") { model.extensionRun?.runtime?.publication?.released == true }
+                    let publication = try XCTUnwrap(model.extensionRun?.runtime?.publication)
+                    XCTAssertEqual(publication.phase, ExtensionFileSource.Phase.stopped.rawValue)
+                    XCTAssertEqual(publication.error, ExtensionFileSource.Status.cancelled.rawValue)
+                    XCTAssertFalse(publication.expired)
+                } else {
+                    if mode == "client-loss" { _ = try service("kill") } else { try await controller.stopRuntime() }
+                    try await until("Interrupted Runtime did not stop") {
+                        guard let runtime = model.extensionRun?.runtime else { return false }
+                        return ![ExtensionRuntime.Phase.created.rawValue, ExtensionRuntime.Phase.starting.rawValue, ExtensionRuntime.Phase.active.rawValue].contains(runtime.phase)
+                    }
+                    // A pending Source can pin a stopped Runtime until the explicit
+                    // release drives native Session close. Never call it published.
+                    let publication = try XCTUnwrap(model.extensionRun?.runtime?.publication)
+                    XCTAssertFalse(publication.confirmed)
+                    XCTAssertNotEqual(publication.phase, ExtensionFileSource.Phase.succeeded.rawValue)
+                }
+                await model.stopExtensionRun(); XCTAssertNil(model.extensionRunIssue)
+                return
+            }
+            try await until("Native publication did not release its Source") { model.extensionRun?.runtime?.publication?.released == true }
+            let publication = try XCTUnwrap(model.extensionRun?.runtime?.publication)
+            XCTAssertFalse(publication.expired); XCTAssertEqual(publication.cleanupError, 0)
+            if mode == "client-resource" {
+                XCTAssertEqual(publication.phase, ExtensionFileSource.Phase.succeeded.rawValue)
+                XCTAssertTrue(publication.confirmed); XCTAssertEqual(publication.bytes, 262144)
+                let bytes = Data((0..<262144).map { UInt8(($0 * 7 + 3) % 251) })
+                XCTAssertEqual(publication.sha256, SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined())
+            } else {
+                XCTAssertEqual(publication.phase, ExtensionFileSource.Phase.failed.rawValue)
+                XCTAssertFalse(publication.confirmed)
+                XCTAssertEqual(publication.error, (mode == "client-link" ? ExtensionFileSource.Status.unsupported : .denied).rawValue)
+            }
+        }
         let specialized = resourceCase || (processCase && !processPending)
         let input: [String: Any] = ["text": specialized ? mode.replacingOccurrences(of: "-", with: "_").uppercased() : "echo 中文😀 '\" }", "count": 17]
         let admission = try await controller.requestExecutorRPC(method: "fixture.echo", input: JSONSerialization.data(withJSONObject: input))
@@ -168,7 +250,7 @@ import XCTest
             XCTAssertEqual(echoed["count"] as? Int, 17)
         }
         let forgotten = try await controller.forgetExecutorRPC(handle: handle); XCTAssertEqual(forgotten, .ok)
-        if mode == "resource" {
+        if mode == "resource" || clientCase {
             try await until("Resource did not reach AppModel") { model.extensionRun?.receivedResources.count == 1 }
             let resource = try XCTUnwrap(model.extensionRun?.receivedResources.first)
             let expected = Data((0..<262144).map { UInt8($0 % 251) })
@@ -181,6 +263,13 @@ import XCTest
             XCTAssertTrue(try XCTUnwrap(model.extensionRun).receivedResources.isEmpty)
             XCTAssertEqual(try service("audit")["resourceError"] as? String, mode == "resource-link" ? "UNSUPPORTED" : "DENIED")
             XCTAssertNil(try service("audit")["resourceReceipt"])
+        }
+        if clientCase {
+            let audit = try service("audit")
+            if mode == "client-resource" {
+                let publication = try XCTUnwrap(model.extensionRun?.runtime?.publication)
+                XCTAssertEqual(audit["clientReceived"] as? String, publication.sha256 + " 262144")
+            } else { XCTAssertNil(audit["clientReceived"]) }
         }
         if mode == "pending-cancel" || mode == "pending-loss" || processPending {
             let text = processPending ? mode.replacingOccurrences(of: "-", with: "_").uppercased() : "WAIT"

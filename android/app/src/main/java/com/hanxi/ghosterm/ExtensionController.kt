@@ -16,6 +16,7 @@ import com.hanxi.ghosterm.bridge.ExtensionPackage
 import com.hanxi.ghosterm.bridge.ExtensionRegistry
 import com.hanxi.ghosterm.bridge.ExtensionChannel
 import com.hanxi.ghosterm.bridge.ExtensionSession
+import com.hanxi.ghosterm.bridge.ExtensionFileSource
 import com.hanxi.ghosterm.bridge.ExtensionRuntime
 import com.hanxi.ghosterm.bridge.ExtensionResourceStore
 import com.hanxi.ghosterm.bridge.SSHAuthState
@@ -63,6 +64,18 @@ class ExtensionController(profile: HostProfile, context: Context) {
         }.toString().also { require(it.toByteArray().size <= 65536) }
     }
 
+    /** Local Client grant, deliberately separate from the remote Relay Request. */
+    data class ClientWorkspace(val directory: String, val authorized: Boolean) {
+        fun validate(requiredCapabilities: List<String>) {
+            require(authorized && Charsets.UTF_8.newEncoder().canEncode(directory) && directory.startsWith('/') && directory.toByteArray(Charsets.UTF_8).size <= 4096 &&
+                directory.none { it == '\u0000' || it == '\n' || it == '\r' } &&
+                "resource.receive" in requiredCapabilities) {
+                "本机资源目录需要显式允许，且 Client 必须声明 resource.receive"
+            }
+        }
+        val reviewDescription get() = "Native 只读发布目录：$directory · 单文件上限 256 KiB"
+    }
+
     data class Command(val path: String, val title: String, val argsSchema: String, val views: List<String>)
     data class Review(
         val id: String, val version: String, val publisher: String, val license: String,
@@ -79,7 +92,26 @@ class ExtensionController(profile: HostProfile, context: Context) {
     )
     data class ChannelState(val info: ExtensionChannel.Info, val authentication: SSHAuthState)
     data class SessionState(val packageID: String, val packageDigest: String, val info: ExtensionSession.Info)
-    data class RuntimeState(val packageID: String, val packageDigest: String, val command: String, val info: ExtensionRuntime.Info)
+    data class ResourcePublication(val id: String, val relativePath: String, val phase: ExtensionFileSource.Phase,
+        val error: ExtensionFileSource.Status, val cleanupError: ExtensionFileSource.Status = ExtensionFileSource.Status.OK,
+        val confirmed: Boolean = false, val released: Boolean = false, val expired: Boolean = false,
+        val sha256: String = "", val bytes: Long = 0, val accepted: Long = 0) {
+        val reviewDescription: String get() {
+            val message = when (phase) {
+                ExtensionFileSource.Phase.HASHING -> "正在校验文件"
+                ExtensionFileSource.Phase.READY, ExtensionFileSource.Phase.SENDING -> "正在发送：$accepted / $bytes 字节"
+                ExtensionFileSource.Phase.RECEIPT -> "等待对端确认"
+                ExtensionFileSource.Phase.CANCELLING -> "正在取消，结果尚未确认"
+                ExtensionFileSource.Phase.SUCCEEDED -> if (confirmed) "发布完成，对端已确认" else "发布结果尚未确认"
+                ExtensionFileSource.Phase.STOPPED -> "发布已停止"
+                ExtensionFileSource.Phase.UNCERTAIN -> "发布结果不明"
+                ExtensionFileSource.Phase.FAILED -> "发布失败（$error）"
+            }
+            return message + (if (expired) " · 已到期" else "") + (if (cleanupError == ExtensionFileSource.Status.OK) "" else " · 资源释放失败")
+        }
+    }
+    data class RuntimeState(val packageID: String, val packageDigest: String, val command: String, val info: ExtensionRuntime.Info,
+        val publication: ResourcePublication? = null, val instanceID: String = "")
 
     private data class Key(val id: String, val digest: String)
     private data class Record(val packageBytes: ExtensionPackage, val review: Review, var source: Source)
@@ -101,7 +133,12 @@ class ExtensionController(profile: HostProfile, context: Context) {
     private var sessionPackageKey: Key? = null
     @Volatile private var runtime: ExtensionRuntime? = null
     private var runtimePackageKey: Key? = null
+    private var runtimeInstanceID: String? = null
     private var runtimeCommand: String? = null
+    private var clientRootFD: java.io.FileDescriptor? = null
+    private var clientSource: ExtensionFileSource? = null
+    private var clientPublication: ResourcePublication? = null
+    private var clientPublicationDeadline = 0L
     private var resourceStore: ExtensionResourceStore? = null
 
     /** Create an explicitly requested gterm relay route. This does not install,
@@ -237,7 +274,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
      * is resolved against the exact approved package snapshot before runtime
      * adopts the Session. */
     suspend fun activateClient(pluginID: String, packageDigest: String, command: String,
-        arguments: List<String>): RuntimeState = onWorker {
+        arguments: List<String>, clientWorkspace: ClientWorkspace? = null): RuntimeState = onWorker {
         val current = checkNotNull(session) { "插件 Session 尚未接管" }
         check(current.info().phase == ExtensionSession.Phase.ACTIVE) { "插件 Session 尚未获得授权" }
         check(sessionPackageKey == Key(pluginID, packageDigest)) { "插件 Session 与所选包不匹配" }
@@ -253,12 +290,21 @@ class ExtensionController(profile: HostProfile, context: Context) {
                 "命令解析没有返回精确插件包"
             }
         } finally { exact.close() }
-        val active = ExtensionRuntime.adoptPackage(current, record.packageBytes, ExtensionSession.Role.HOST,
-            associated = true, cpuMilliseconds = CLIENT_RUNTIME_CPU_MILLISECONDS,
-            invocation = ExtensionRuntime.Invocation(command, arguments.toList()))
+        clientWorkspace?.validate(record.review.requiredCapabilities)
+        var rootFD = clientWorkspace?.let {
+            Os.open(it.directory, OsConstants.O_RDONLY or OsConstants.O_NONBLOCK or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC, 0)
+        }
+        val active = try {
+            rootFD?.let { check(Os.fstat(it).st_mode and OsConstants.S_IFMT == OsConstants.S_IFDIR) { "本机资源路径不是目录" } }
+            ExtensionRuntime.adoptPackage(current, record.packageBytes, ExtensionSession.Role.HOST, associated = true,
+                cpuMilliseconds = CLIENT_RUNTIME_CPU_MILLISECONDS,
+                invocation = ExtensionRuntime.Invocation(command, arguments.toList())).also {
+                clientRootFD = rootFD; rootFD = null
+            }
+        } finally { rootFD?.let(Os::close) }
         session = null; sessionPackageKey = null; runtime = active
-        runtimePackageKey = Key(pluginID, packageDigest); runtimeCommand = command
-        RuntimeState(pluginID, packageDigest, command, active.info())
+        runtimePackageKey = Key(pluginID, packageDigest); runtimeCommand = command; runtimeInstanceID = UUID.randomUUID().toString()
+        RuntimeState(pluginID, packageDigest, command, active.info(), instanceID = checkNotNull(runtimeInstanceID))
     }
 
     suspend fun takeRuntimeResource(): Pair<ExtensionResourceStore.Status, ExtensionResourceStore.Content?> = onWorker {
@@ -300,6 +346,73 @@ class ExtensionController(profile: HostProfile, context: Context) {
         current.forgetExecutorRequest(request)
     }
 
+    /** Explicit Native UI action. Client JS gets no local file root or Source. */
+    suspend fun publishClientResource(instanceID: String, relativePath: String, root: String = "client"): RuntimeState = onWorker {
+        val current = checkNotNull(runtime)
+        check(current.info().phase == ExtensionRuntime.Phase.ACTIVE && runtimeInstanceID == instanceID && clientSource == null) { "资源发布尚未就绪或已有发布" }
+        val rootFD = checkNotNull(clientRootFD) { "没有显式允许的本机资源目录" }
+        val id = java.util.UUID.randomUUID().toString()
+        if (root != "client") {
+            clientPublication = ResourcePublication(id, relativePath, ExtensionFileSource.Phase.FAILED,
+                ExtensionFileSource.Status.DENIED, released = true)
+        } else {
+            val admission = ParcelFileDescriptor.dup(rootFD).use { current.openSource(it.fd, relativePath, byteLimit = 262144) }
+            clientSource = admission.source
+            clientPublicationDeadline = SystemClock.elapsedRealtime() + 10000
+            clientPublication = ResourcePublication(id, relativePath,
+                if (admission.status == ExtensionFileSource.Status.OK) ExtensionFileSource.Phase.HASHING else ExtensionFileSource.Phase.FAILED,
+                admission.status, released = admission.source == null)
+        }
+        val key = checkNotNull(runtimePackageKey)
+        RuntimeState(key.id, key.digest, checkNotNull(runtimeCommand), current.info(), clientPublication, checkNotNull(runtimeInstanceID))
+    }
+    suspend fun cancelClientPublication(id: String) = onWorker {
+        check(clientPublication?.id == id) { "发布不属于当前实例" }
+        checkNotNull(clientSource).cancel()
+    }
+    private fun stepClientPublication() {
+        val source = clientSource ?: return
+        var publication = checkNotNull(clientPublication)
+        if (SystemClock.elapsedRealtime() >= clientPublicationDeadline) {
+            publication = publication.copy(expired = true); source.cancel()
+        }
+        val phase = source.step()
+        if (phase == ExtensionFileSource.Phase.READY && !publication.expired) {
+            check(source.send() in setOf(ExtensionFileSource.Status.OK, ExtensionFileSource.Status.WAIT)) { "资源发送失败" }
+        }
+        val info = source.info()
+        publication = publication.copy(phase = info.phase, error = info.error, cleanupError = info.cleanupError,
+            confirmed = info.transfer.confirmed, sha256 = info.descriptor.sha256, bytes = info.descriptor.size, accepted = info.accepted)
+        if (info.phase in setOf(ExtensionFileSource.Phase.SUCCEEDED, ExtensionFileSource.Phase.FAILED,
+                ExtensionFileSource.Phase.STOPPED, ExtensionFileSource.Phase.UNCERTAIN)) {
+            when (val closed = source.closeStep()) {
+                ExtensionFileSource.Status.OK -> { clientSource = null; publication = publication.copy(released = true) }
+                ExtensionFileSource.Status.WAIT -> Unit
+                else -> error("资源释放失败：$closed")
+            }
+        }
+        clientPublication = publication
+    }
+    private fun closeClientRuntime(current: ExtensionRuntime) {
+        current.stop()
+        var released = false
+        for (step in 0 until 32) {
+            clientSource?.let { source ->
+                source.cancel()
+                when (val closed = source.closeStep()) {
+                    ExtensionFileSource.Status.OK -> clientSource = null
+                    ExtensionFileSource.Status.WAIT -> Unit
+                    else -> error("资源释放失败：$closed")
+                }
+            }
+            if (current.closeStep()) { released = true; break }
+        }
+        check(released && clientSource == null) { "运行时与发布资源仍在释放，保留 owner" }
+        clientPublication = null
+        runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null
+        clientRootFD?.let { fd -> clientRootFD = null; Os.close(fd) }
+    }
+
     suspend fun stepRuntime(): RuntimeState = onWorker {
         val current = checkNotNull(runtime) { "插件 Runtime 尚未启动" }
         // Native steps consume one wire frame each. Keep fragment progress on
@@ -307,12 +420,15 @@ class ExtensionController(profile: HostProfile, context: Context) {
         // budget is checked between calls; native CPU limits still apply.
         val deadline = SystemClock.elapsedRealtimeNanos() + 5_000_000L
         for (step in 0 until 32) {
+            stepClientPublication()
             val phase = current.step()
-            if (phase != ExtensionRuntime.Phase.STARTING && phase != ExtensionRuntime.Phase.ACTIVE) break
+            if (phase != ExtensionRuntime.Phase.STARTING && phase != ExtensionRuntime.Phase.ACTIVE) {
+                clientSource?.cancel(); stepClientPublication(); break
+            }
             if (SystemClock.elapsedRealtimeNanos() >= deadline) break
         }
         val key = checkNotNull(runtimePackageKey)
-        RuntimeState(key.id, key.digest, checkNotNull(runtimeCommand), current.info())
+        RuntimeState(key.id, key.digest, checkNotNull(runtimeCommand), current.info(), clientPublication, checkNotNull(runtimeInstanceID))
     }
 
     /** Runtime stop is the only Native runtime operation allowed off-worker. */
@@ -325,8 +441,8 @@ class ExtensionController(profile: HostProfile, context: Context) {
         runtime?.let { current ->
             check(current.info().phase !in setOf(ExtensionRuntime.Phase.CREATED, ExtensionRuntime.Phase.STARTING,
                 ExtensionRuntime.Phase.ACTIVE)) { "请先停止仍在运行的插件" }
-            current.close()
-            runtime = null; runtimePackageKey = null; runtimeCommand = null
+            closeClientRuntime(current)
+            runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null
         }
         session?.let { current ->
             check(current.info().phase in setOf(ExtensionSession.Phase.ENDED, ExtensionSession.Phase.CLOSED)) {
@@ -435,7 +551,7 @@ class ExtensionController(profile: HostProfile, context: Context) {
                 if (cleanupComplete.get()) return@withContext
                 checkWorker()
                 // Close consumers before the transport/package owners they borrow.
-                runtime?.let { current -> current.close(); runtime = null; runtimePackageKey = null; runtimeCommand = null }
+                runtime?.let { current -> closeClientRuntime(current); runtime = null; runtimePackageKey = null; runtimeCommand = null; runtimeInstanceID = null }
                 session?.let { current -> current.close(); session = null; sessionPackageKey = null }
                 // Channel close can retain its native owner while it drains.
                 // Do not release packages or stop this worker until a retry

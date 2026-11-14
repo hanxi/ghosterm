@@ -316,7 +316,14 @@ public final class ExtensionSession {
         return RPCStatus(rawValue: gt_ext_session_forget_request(p, &l, handle).rawValue) ?? .invalid
     }
     public func openSource(_ lease: Lease, rootFD: Int32, relativePath: String, mime: String = "application/octet-stream", byteLimit: UInt64 = 262144) throws -> ExtensionFileSource.Admission {
-        let p = try pointer(); guard !relativePath.utf8.contains(0), relativePath.utf8.count <= 4096, !mime.utf8.contains(0), mime.utf8.count <= 128 else { throw GhostermError.failed("源文件参数无效或超限") }
+        try openSource(try pointer(), lease: lease, rootFD: rootFD, relativePath: relativePath, mime: mime, byteLimit: byteLimit)
+    }
+    internal func openRuntimeSource(rootFD: Int32, relativePath: String, mime: String, byteLimit: UInt64) throws -> ExtensionFileSource.Admission {
+        let (p, lease) = try runtimePointer()
+        return try openSource(p, lease: lease, rootFD: rootFD, relativePath: relativePath, mime: mime, byteLimit: byteLimit)
+    }
+    private func openSource(_ p: OpaquePointer, lease: Lease, rootFD: Int32, relativePath: String, mime: String, byteLimit: UInt64) throws -> ExtensionFileSource.Admission {
+        guard !relativePath.utf8.contains(0), relativePath.utf8.count <= 4096, !mime.utf8.contains(0), mime.utf8.count <= 128 else { throw GhostermError.failed("源文件参数无效或超限") }
         let source = ExtensionFileSource(owner: owner); var l = lease.raw, rawSource: OpaquePointer?
         let status = relativePath.withCString { path in mime.withCString { type in
             var c = gt_ext_source_config_t(root_fd: rootFD, relative_path: path, mime: type, byte_limit: byteLimit)

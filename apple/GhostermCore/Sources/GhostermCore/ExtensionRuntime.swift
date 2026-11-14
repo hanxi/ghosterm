@@ -246,6 +246,12 @@ public final class ExtensionRuntime {
         guard let session else { return (.closed, nil) }
         return try session.takeRuntimeResourceData(maxBytes: maxBytes)
     }
+    /// Native Host publication only; Client JS receives no root or file capability.
+    /// Caller drives Source.step/send and must destroy it before Runtime release.
+    public func openSource(rootFD: Int32, relativePath: String, mime: String = "application/octet-stream", byteLimit: UInt64 = 262144) throws -> ExtensionFileSource.Admission {
+        guard try info().phase == .active, let session else { throw GhostermError.failed("插件 Runtime 未处于活动状态") }
+        return try session.openRuntimeSource(rootFD: rootFD, relativePath: relativePath, mime: mime, byteLimit: byteLimit)
+    }
     /// Takes one Executor -> Host request while this Runtime owns the Session.
     public func takeHostRequest() throws -> (ExtensionSession.RPCStatus, ExtensionSession.RPCRequest?) {
         guard try info().phase == .active, let session else {

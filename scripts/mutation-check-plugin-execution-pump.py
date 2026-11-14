@@ -3,7 +3,9 @@
 
 Default: restore one-frame-per-UI-tick throttling of a real 256 KiB resource.
 --business-environment: omit an explicitly selected native utility environment.
-Both require one normal state assertion; compiler, crash, sanitizer and outer
+--client-workspace / --client-directory / --client-instance: remove Native
+publication approval / no-follow / Runtime identity checks, independently.
+All require one normal state assertion; compiler, crash, sanitizer and outer
 timeout failures are not accepted target reds.
 """
 import argparse
@@ -65,20 +67,27 @@ def execute(args, serial=None):
             command = [sys.executable, ROOT / 'scripts/test-plugin-execution-ssh-app.py',
                 *(['--macos'] if mac else ['--android', serial]), '--project', source,
                 '--build', args.build, '--node', args.node, '--sdk', args.sdk,
-                '--case', 'node:direct:process-environment' if args.business_environment else 'node:direct:resource']
+                '--case', 'node:direct:client-directory-link' if args.client_directory else
+                'node:direct:client-resource' if args.client_instance else
+                'node:direct:client-no-approval' if args.client_workspace else
+                'node:direct:process-environment' if args.business_environment else 'node:direct:resource']
             code, output = run(label, command)
             if red:
                 if mac:
                     start = output.find("Test Suite 'Selected tests'")
                     transcript = output[start:]
                     valid = (start >= 0 and re.search(r'Executed 1 test, with 1 failure', transcript)
-                             and 'XCTAssertEqual failed:' in transcript
-                             and (args.business_environment or 'RPCState.unknown' in transcript))
+                             and ('XCTAssertNotNil failed' in transcript if (args.client_workspace or args.client_directory) else
+                                  'XCTAssertTrue failed' in transcript if args.client_instance else
+                                  'XCTAssertEqual failed:' in transcript)
+                             and (args.client_workspace or args.client_directory or args.client_instance or args.business_environment or 'RPCState.unknown' in transcript))
                 else:
                     start = output.find('INSTRUMENTATION_STATUS: class=')
                     transcript = output[start:]
                     valid = (start >= 0 and re.search(r'Tests run: 1,\s+Failures: 1', transcript)
-                             and ('java.lang.AssertionError: expected:<' in transcript if args.business_environment else
+                             and ('org.junit.Assert.assertNotNull' in transcript if (args.client_workspace or args.client_directory) else
+                                  'Stale Native action must not publish into another Runtime' in transcript if args.client_instance else
+                                  'java.lang.AssertionError: expected:<' in transcript if args.business_environment else
                                   'java.lang.AssertionError: expected:<SUCCEEDED> but was:<UNKNOWN>' in transcript))
                 assert code == 1 and valid and not any(x in transcript for x in
                     ['Process crashed', 'AppNotIdleException', 'TimeoutException', 'Compilation error',
@@ -95,7 +104,22 @@ def execute(args, serial=None):
 
         check('baseline'); baseline = artifact()
         text = original.decode()
-        if args.business_environment:
+        if args.client_directory:
+            begin = 'rootFD = clientWorkspace.directory.withCString {\n                        open($0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)' if mac else \
+                'OsConstants.O_RDONLY or OsConstants.O_NONBLOCK or OsConstants.O_NOFOLLOW or OsConstants.O_CLOEXEC'
+            assert text.count(begin) == 1
+            a = text.index(begin); b = a + len(begin)
+            replacement = begin.replace(' | O_NOFOLLOW', '') if mac else begin.replace(' or OsConstants.O_NOFOLLOW', '')
+        elif args.client_instance:
+            begin = '                      self.runtimeInstanceID == instanceID,\n' if mac else 'runtimeInstanceID == instanceID && '
+            assert text.count(begin) == 1
+            a = text.index(begin); b = a + len(begin); replacement = ''
+        elif args.client_workspace:
+            begin = 'guard authorized, directory.hasPrefix' if mac else 'require(authorized && Charsets.UTF_8.newEncoder()'
+            assert text.count(begin) == 1
+            a = text.index(begin); b = a + len(begin)
+            replacement = 'guard true, directory.hasPrefix' if mac else 'require(true && Charsets.UTF_8.newEncoder()'
+        elif args.business_environment:
             begin = '            argv.append(contentsOf: ["--process-environment", name])' if mac else \
                 '            request.processEnvironmentNames.forEach { add("--process-environment"); add(it) }'
             assert text.count(begin) == 1
@@ -128,18 +152,25 @@ def execute(args, serial=None):
         check('restored'); restored = artifact()
         assert target.read_bytes() == original and (ROOT / name).read_bytes() == original
         receipt = dict(accepted=True, platform='macos' if mac else 'android',
-            groups=['selected-business-environment' if args.business_environment else 'ui-cadence-resource-throttle'], source_sha256=sha(target),
+            groups=['native-publication-directory-nofollow' if args.client_directory else
+                    'native-publication-runtime-instance' if args.client_instance else
+                    'explicit-client-workspace-grant' if args.client_workspace else
+                    'selected-business-environment' if args.business_environment else 'ui-cadence-resource-throttle'], source_sha256=sha(target),
             artifact_sha256=dict(baseline=baseline, mutant=mutant, restored=restored), commands=commands,
             scope='Owned Native App/loopback SSH/Node actual resource or mapped business process; single normal assertion red, same build control green, restore; no accounts/models')
         if args.receipt: args.receipt.write_text(json.dumps(receipt, indent=2) + '\n')
-        print(('BUSINESS ENV' if args.business_environment else 'PUMP') + ' MUTATION PASS: one compiled ordinary assertion red / same build control green / restore / SHA256', flush=True)
+        print(('CLIENT DIRECTORY' if args.client_directory else 'CLIENT INSTANCE' if args.client_instance else 'CLIENT WORKSPACE' if args.client_workspace else 'BUSINESS ENV' if args.business_environment else 'PUMP') + ' MUTATION PASS: one compiled ordinary assertion red / same build control green / restore / SHA256', flush=True)
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     target = p.add_mutually_exclusive_group(required=True)
     target.add_argument('--macos', action='store_true'); target.add_argument('--headless-api', choices=['29', '36'])
-    p.add_argument('--business-environment', action='store_true', help='omit one selected business environment name instead of restoring the old pump')
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument('--client-directory', action='store_true', help='follow a symlink instead of opening only the selected actual directory')
+    mode.add_argument('--client-instance', action='store_true', help='admit a publication action for an obsolete Runtime identity')
+    mode.add_argument('--client-workspace', action='store_true', help='remove explicit Client directory approval')
+    mode.add_argument('--business-environment', action='store_true', help='omit one selected business environment name instead of restoring the old pump')
     for key in ['build', 'node', 'sdk']: p.add_argument('--' + key, type=Path, required=True)
     p.add_argument('--receipt', type=Path); args = p.parse_args()
     if not __debug__: raise RuntimeError('Run checks with Python assertions enabled')

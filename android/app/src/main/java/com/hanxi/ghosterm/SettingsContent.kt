@@ -85,7 +85,7 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     onIdentities: () -> Unit, onKnownHosts: () -> Unit, onAbout: () -> Unit,
     fonts:TerminalFontsViewModel=viewModel(), extensions: ExtensionPackagesViewModel=viewModel(),
     onPickPlugin: () -> Unit = {}, hostAliases: List<String> = emptyList(),
-    onLaunchPlugin: (ExtensionPackagesViewModel.Entry, ExtensionController.Command, String, ExtensionRelayBootstrap.Request) -> Unit = { _, _, _, _ -> }) {
+    onLaunchPlugin: (ExtensionPackagesViewModel.Entry, ExtensionController.Command, String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit = { _, _, _, _, _ -> }) {
     var choice by rememberSaveable { mutableStateOf<PreferenceKey?>(null) }
     var fontPreview by remember { mutableStateOf<Int?>(null) }
     var launchSelection by remember { mutableStateOf<Pair<ExtensionPackagesViewModel.Entry, ExtensionController.Command>?>(null) }
@@ -271,6 +271,9 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
+                    if (extensions.activeSession?.clientWorkspace != null && extensions.activeRuntime != null) {
+                        PluginNativeResourcePublisher(extensions)
+                    }
                     extensions.activeRuntime?.let { active ->
                         Text("Runtime：${active.info.phase} · ${active.command} · steps ${active.info.steps}",
                             Modifier.padding(top = 4.dp).testTag("plugin-runtime-state"), style = MaterialTheme.typography.bodySmall)
@@ -309,9 +312,9 @@ fun SettingsContent(model: SettingsViewModel, configAvailable: Boolean, connecti
     }
     }
     launchSelection?.let { (entry, command) ->
-        PluginLaunchDialog(entry, command, hostAliases, onDismiss = { launchSelection = null }) { alias, request ->
+        PluginLaunchDialog(entry, command, hostAliases, onDismiss = { launchSelection = null }) { alias, request, clientWorkspace ->
             launchSelection = null
-            onLaunchPlugin(entry, command, alias, request)
+            onLaunchPlugin(entry, command, alias, request, clientWorkspace)
         }
     }
     extensions.activeSession?.takeIf { it.info.phase == com.hanxi.ghosterm.bridge.ExtensionSession.Phase.CONSENT }?.let { active ->
@@ -591,6 +594,8 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 Text("Executor 版本：${active.info.peerHostVersion}")
                 SelectionContainer { Text("Executor 运行档：${active.executorExecution?.reviewDescription ?: "Portable JS（内嵌运行时）"}",
                     Modifier.testTag("plugin-consent-executor-runtime"), style = MaterialTheme.typography.bodySmall) }
+                SelectionContainer { Text(active.clientWorkspace?.reviewDescription ?: "Client 本机资源目录：未开放",
+                    Modifier.testTag("plugin-consent-client-workspace"), style = MaterialTheme.typography.bodySmall) }
                 Text("远端完整启动命令：", style = MaterialTheme.typography.labelMedium)
                 SelectionContainer { Text(active.remoteCommand,
                     Modifier.testTag("plugin-consent-remote-command"), style = MaterialTheme.typography.bodySmall) }
@@ -610,18 +615,39 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
         dismissButton = { TextButton(onClick = { onDecision(false) }, enabled = !busy) { Text("拒绝") } })
 }
 
+@Composable private fun PluginNativeResourcePublisher(extensions: ExtensionPackagesViewModel) {
+    var path by remember(extensions.activeSession?.packageDigest, extensions.activeSession?.peerIdentity) { mutableStateOf("") }
+    val runtime = extensions.activeRuntime
+    val publication = runtime?.publication
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(path, { path = it }, singleLine = true,
+            modifier = Modifier.testTag("plugin-client-publication-path"), label = { Text("从已允许本机目录发布的相对文件名") })
+        TextButton(onClick = { extensions.publishClientResource(path, instanceID = runtime?.instanceID) },
+            enabled = path.isNotEmpty() && !extensions.launchBusy && runtime?.info?.phase == com.hanxi.ghosterm.bridge.ExtensionRuntime.Phase.ACTIVE && publication?.released != false,
+            modifier = Modifier.testTag("plugin-client-publish")) { Text("向 Executor 发布文件") }
+        publication?.let {
+            SelectionContainer { Text("${it.relativePath}：${it.reviewDescription}",
+                Modifier.testTag("plugin-client-publication-state"), style = MaterialTheme.typography.bodySmall) }
+            if (it.sha256.isNotEmpty()) SelectionContainer { Text("${it.bytes} 字节 · SHA-256 ${it.sha256}", style = MaterialTheme.typography.bodySmall) }
+            if (!it.released) TextButton(onClick = { extensions.cancelClientPublication(it.id) },
+                modifier = Modifier.testTag("plugin-client-publication-cancel")) { Text("取消发布") }
+        }
+    }
+}
+
 @Composable internal fun PluginLaunchDialog(
     entry: ExtensionPackagesViewModel.Entry,
     command: ExtensionController.Command,
     hostAliases: List<String>,
     onDismiss: () -> Unit,
-    onLaunch: (String, ExtensionRelayBootstrap.Request) -> Unit,
+    onLaunch: (String, ExtensionRelayBootstrap.Request, ExtensionController.ClientWorkspace?) -> Unit,
 ) {
     var selectedHost by remember(entry.review.id, command.path) { mutableStateOf(hostAliases.firstOrNull().orEmpty()) }
     var hostMenu by remember { mutableStateOf(false) }
     var executable by remember { mutableStateOf("gterm") }
     var executorDirectory by remember { mutableStateOf("") }
     var workspaceRootDirectory by remember { mutableStateOf("") }
+    var clientDirectory by remember { mutableStateOf("") }
     var executorDigest by remember { mutableStateOf("") }
     var argumentsJson by remember { mutableStateOf("[]") }
     var methodsJson by remember { mutableStateOf("[]") }
@@ -639,6 +665,10 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
     var executionAllowed by remember(entry.review.id, entry.review.digest, command.path,
         selectedHost, executable, executorDirectory, executorDigest,
         workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
+        runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest) { mutableStateOf(false) }
+    var clientAllowed by remember(entry.review.id, entry.review.digest, command.path,
+        selectedHost, executable, executorDirectory, executorDigest,
+        clientDirectory, workspaceRootDirectory, argumentsJson, methodsJson, hostMethodsJson, processProgramsJson, processEnvironmentJson,
         runtimeChoice, executionTmpdir, nodeExecutable, nodeVersion, nodeSha256, nodeSDKDirectory, nodeSDKDigest) { mutableStateOf(false) }
 
     var problem by remember { mutableStateOf<String?>(null) }
@@ -700,6 +730,16 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                 OutlinedTextField(workspaceRootDirectory, { workspaceRootDirectory = it }, singleLine = true,
                     modifier = Modifier.testTag("plugin-workspace-root"),
                     label = { Text("可选：允许 Executor 读取的工作区目录") })
+                if ("resource.receive" in entry.review.requiredCapabilities) {
+                    OutlinedTextField(clientDirectory, { clientDirectory = it }, singleLine = true,
+                        modifier = Modifier.testTag("plugin-client-workspace"), label = { Text("Native 本机只读资源目录（可选）") })
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(clientAllowed, { clientAllowed = it }, Modifier.testTag("plugin-client-workspace-allow"))
+                        Text("允许本次 Native Host 发布资源（单文件最多 256 KiB）", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("目录须为本 App 可访问的普通目录，不是 SAF URI。仅供 Native 发布按钮使用，不交给 Client JS，也不传入远端启动命令。修改目录或连接配置须重新允许。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 OutlinedTextField(executorDigest, { executorDigest = it }, singleLine = true,
                     modifier = Modifier.testTag("plugin-executor-digest"), label = { Text("Executor 包 SHA-256") })
                 OutlinedTextField(argumentsJson, { argumentsJson = it }, minLines = 2, maxLines = 4,
@@ -743,7 +783,10 @@ internal fun decodePluginResourceBitmap(bytes: ByteArray): android.graphics.Bitm
                         ExtensionRelayBootstrap.parseProcessProgramsJson(processProgramsJson),
                         ExtensionRelayBootstrap.parseProcessEnvironmentJson(processEnvironmentJson), execution)
                     ExtensionRelayBootstrap.build(request)
-                    onLaunch(selectedHost, request)
+                    val clientWorkspace = clientDirectory.takeUnless { it.isEmpty() }?.let {
+                        ExtensionController.ClientWorkspace(it, clientAllowed).also { grant -> grant.validate(entry.review.requiredCapabilities) }
+                    }
+                    onLaunch(selectedHost, request, clientWorkspace)
                 } catch (failure: IllegalArgumentException) {
                     problem = failure.message ?: "插件启动参数无效"
                 }

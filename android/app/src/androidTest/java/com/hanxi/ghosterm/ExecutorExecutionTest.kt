@@ -124,13 +124,54 @@ class ExecutorExecutionTest {
         choose("Portable JS")
         ui.onNodeWithTag("plugin-execution-allow").assertDoesNotExist()
     }
+    @Test fun nativePublicationRequiresClientResourceServiceAndWellFormedAbsolutePath() {
+        val capabilities = listOf("resource.receive")
+        val valid = ExtensionController.ClientWorkspace("/本机/quoted'😀", true)
+        valid.validate(capabilities)
+        assertEquals("Native 只读发布目录：/本机/quoted'😀 · 单文件上限 256 KiB", valid.reviewDescription)
+        for (required in listOf(emptyList(), listOf("file.readScoped"))) rejected { valid.validate(required) }
+        rejected { valid.copy(authorized = false).validate(capabilities) }
+        for (path in listOf("", "relative", "/bad\npath", "/bad\rpath", "/bad\u0000path", "/\uD800", "/" + "界".repeat(1366))) {
+            rejected { valid.copy(directory = path).validate(capabilities) }
+        }
+    }
+    @Test fun localClientFormCapturesSeparateGrantAndRevokesItOnPathAndPackageEdits() {
+        var launched: ExtensionController.ClientWorkspace? = null
+        var request: ExtensionRelayBootstrap.Request? = null
+        val selectedDigest = mutableStateOf(digest)
+        ui.setContent {
+            val command = ExtensionController.Command("fixture", "Fixture", "schemas/input.json", emptyList())
+            val review = ExtensionController.Review("org.ghosterm.fixture", "0.1.0", "fixture", "MIT", selectedDigest.value,
+                "portable-js", listOf("resource.receive"), emptyList(), false, false, listOf(command))
+            MaterialTheme { PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review), command,
+                listOf("fixture"), {}, { _, remote, local -> request = remote; launched = local }) }
+        }
+        fillCommon()
+        ui.onNodeWithTag("plugin-client-workspace").performScrollTo().performTextInput("/local/原件")
+        Espresso.closeSoftKeyboard()
+        ui.onNodeWithText("连接并请求授权").performClick()
+        ui.runOnIdle { assertNull(request) }
+        ui.onNodeWithTag("plugin-client-workspace-allow").performScrollTo().assertIsOff().performClick()
+        ui.onNodeWithText("连接并请求授权").performClick()
+        ui.runOnIdle {
+            assertEquals(ExtensionController.ClientWorkspace("/local/原件", true), launched)
+            assertFalse(ExtensionRelayBootstrap.build(checkNotNull(request)).contains("/local/原件"))
+            assertNull(request?.workspaceRootDirectory)
+        }
+        ui.onNodeWithTag("plugin-client-workspace").performScrollTo().performTextReplacement("/local/changed")
+        Espresso.closeSoftKeyboard()
+        ui.onNodeWithTag("plugin-client-workspace-allow").performScrollTo().assertIsOff().performClick()
+        ui.runOnIdle { selectedDigest.value = "b".repeat(64) }
+        ui.onNodeWithTag("plugin-client-workspace-allow").performScrollTo().assertIsOff()
+        ui.runOnIdle { assertEquals("/local/原件", launched?.directory) }
+    }
     private fun form(commandPath: State<String>? = null, onLaunch: (ExtensionRelayBootstrap.Request) -> Unit) {
         ui.setContent {
             val command = ExtensionController.Command(commandPath?.value ?: "fixture", "Fixture", "schemas/input.json", emptyList())
             val review = ExtensionController.Review("org.ghosterm.fixture", "0.1.0", "fixture", "MIT", digest,
                 "portable-js", emptyList(), emptyList(), false, false, listOf(command))
             MaterialTheme { PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review), command,
-                listOf("fixture"), {}, { _, request -> onLaunch(request) }) }
+                listOf("fixture"), {}, { _, request, _ -> onLaunch(request) }) }
         }
     }
     private fun choose(choice: String) {

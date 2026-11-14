@@ -17,17 +17,22 @@ struct ExtensionsPane: View {
     private struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
         var decision: String = "尚未批准"
-        var sshAlias = "" { didSet { executionDraft.authorized = false } }
-        var executable = "gterm" { didSet { executionDraft.authorized = false } }
-        var executorDirectory = "" { didSet { executionDraft.authorized = false } }
-        var executorDigest = "" { didSet { executionDraft.authorized = false } }
-        var command = "" { didSet { executionDraft.authorized = false } }
-        var argumentsJSON = "[]" { didSet { executionDraft.authorized = false } }
-        var methodsJSON = "[]" { didSet { executionDraft.authorized = false } }
-        var hostMethodsJSON = "[]" { didSet { executionDraft.authorized = false } }
-        var resourceRoot = "" { didSet { executionDraft.authorized = false } }
-        var processProgramsJSON = "[]" { didSet { executionDraft.authorized = false } }
-        var processEnvironmentJSON = "[]" { didSet { executionDraft.authorized = false } }
+        var sshAlias = "" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var executable = "gterm" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var executorDirectory = "" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var executorDigest = "" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var command = "" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var argumentsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var methodsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var hostMethodsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var resourceRoot = "" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var processProgramsJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var processEnvironmentJSON = "[]" { didSet { executionDraft.authorized = false; clientAuthorized = false } }
+        var clientDirectory = "" { didSet { clientAuthorized = false } }
+        var clientAuthorized = false
+        var clientWorkspace: ExtensionController.ClientWorkspace? {
+            clientDirectory.isEmpty ? nil : .init(directory: clientDirectory, authorized: clientAuthorized)
+        }
         var executionDraft = ExecutorExecutionDraft()
         init(review: ExtensionController.PackageReview) {
             self.review = review
@@ -100,6 +105,15 @@ struct ExtensionsPane: View {
                                 .accessibilityIdentifier("plugin-host-methods-\(entry.review.id)")
                             TextField("远端资源目录（留空则不开放）", text: $entry.resourceRoot)
                                 .accessibilityIdentifier("plugin-resource-root-\(entry.review.id)")
+                            if entry.review.requiredCapabilities.contains("resource.receive") {
+                                TextField("Native 本机只读资源目录（可选）", text: $entry.clientDirectory)
+                                    .accessibilityIdentifier("plugin-client-workspace")
+                                Toggle("允许本次 Native Host 从此目录向 Executor 发布资源（单文件最多 256 KiB）",
+                                       isOn: $entry.clientAuthorized)
+                                    .accessibilityIdentifier("plugin-client-workspace-allow")
+                                Text("目录仅供 Native 发布按钮使用，不交给 Client JS，也不传入远端启动命令。修改目录或连接配置须重新允许。")
+                                    .font(DS.Font.caption).foregroundStyle(.secondary)
+                            }
                             TextField("远端进程映射 JSON", text: $entry.processProgramsJSON, axis: .vertical)
                                 .lineLimit(2...5)
                                 .accessibilityIdentifier("plugin-process-programs-\(entry.review.id)")
@@ -187,6 +201,7 @@ struct ExtensionsPane: View {
             let processEnvironment = try ExtensionRelayBootstrap.parseProcessEnvironmentJSON(entry.processEnvironmentJSON)
             let roots: [ExtensionRelayBootstrap.ScopedRoot] = entry.resourceRoot.isEmpty
                 ? [] : [.init(id: "workspace", directory: entry.resourceRoot)]
+            try entry.clientWorkspace?.validate(requiredCapabilities: entry.review.requiredCapabilities)
             guard !entry.sshAlias.isEmpty else { throw GhostermCore.GhostermError.failed("请填写 SSH 主机别名") }
             Task {
                 await model.startExtensionClient(packageID: entry.review.id,
@@ -196,7 +211,7 @@ struct ExtensionsPane: View {
                     executorDigest: entry.executorDigest, methods: methods, hostMethods: hostMethods,
                     scopedRoots: roots, processPrograms: processPrograms,
                     processEnvironmentNames: processEnvironment,
-                    executorExecution: entry.executionDraft.selection)
+                    executorExecution: entry.executionDraft.selection, clientWorkspace: entry.clientWorkspace)
             }
         } catch { issue = "插件启动参数无效：\(error)" }
     }
@@ -218,6 +233,12 @@ struct ExtensionsPane: View {
             Text("Executor 运行档：\(run.executorExecution?.reviewDescription ?? "Portable JS（内嵌运行时）")")
                 .font(DS.Font.caption).textSelection(.enabled)
                 .accessibilityIdentifier("plugin-consent-executor-runtime")
+            Text(run.clientWorkspace?.reviewDescription ?? "Client 本机资源目录：未开放")
+                .font(DS.Font.caption).textSelection(.enabled)
+                .accessibilityIdentifier("plugin-consent-client-workspace")
+            if run.clientWorkspace != nil, run.runtime != nil {
+                NativeResourcePublisher(model: model, run: run)
+            }
             Text("按已检查 argsSchema 解码：\(run.decodedArguments ?? "无映射（空参数）")")
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             Text("Executor RPC：\(run.methods.isEmpty ? "无" : run.methods.joined(separator: ", "))")
@@ -669,5 +690,35 @@ private struct PluginResourceHTMLWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.update(document: document, resource: resource, resources: resources,
                                    in: webView)
+    }
+}
+
+private struct NativeResourcePublisher: View {
+    @ObservedObject var model: AppModel
+    let run: AppModel.ExtensionRun
+    @State private var path = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("从已允许本机目录发布的相对文件名", text: $path)
+                .accessibilityIdentifier("plugin-client-publication-path")
+            Button("向 Executor 发布文件") {
+                guard let instanceID = run.runtime?.instanceID else { return }
+                let selectedPath = path
+                Task { await model.publishClientResource(relativePath: selectedPath, instanceID: instanceID) }
+            }
+                .disabled(path.isEmpty || model.extensionRunBusy || run.runtime?.phase != ExtensionRuntime.Phase.active.rawValue ||
+                    run.runtime?.publication?.released == false)
+                .accessibilityIdentifier("plugin-client-publish")
+            if let publication = run.runtime?.publication {
+                Text("\(publication.relativePath)：\(publication.reviewDescription)")
+                    .font(.caption).textSelection(.enabled)
+                    .accessibilityIdentifier("plugin-client-publication-state")
+                if !publication.sha256.isEmpty { Text("\(publication.bytes) 字节 · SHA-256 \(publication.sha256)").font(.caption).textSelection(.enabled) }
+                if !publication.released {
+                    Button("取消发布") { Task { await model.cancelClientPublication(id: publication.id) } }
+                        .accessibilityIdentifier("plugin-client-publication-cancel")
+                }
+            }
+        }
     }
 }

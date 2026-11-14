@@ -44,6 +44,11 @@ class ExtensionRuntime private constructor(private val worker: Thread,
         val lease = borrowedLease ?: return ExtensionResourceStore.Status.UNSUPPORTED to null
         return currentStore.consume(lease, NativeExtensionRuntime.takeResource(handle, lease.bytes), maxBytes)
     }
+    /** Native Host only. Caller pumps and releases Source before Runtime release. */
+    fun openSource(rootFd: Int, relativePath: String, mime: String = "application/octet-stream", byteLimit: Long = 262144): ExtensionFileSource.Admission {
+        owner(); check(info().phase == Phase.ACTIVE)
+        return ExtensionFileSource.open(handle, checkNotNull(borrowedLease), rootFd, relativePath, mime, byteLimit, runtime = true)
+    }
     /** Requests addressed to Native Host remain owned by the Session after
      * Runtime adoption; only this worker may consume and answer them. */
     fun takeHostRequest(): Pair<ExtensionSession.RPCStatus, ExtensionSession.RPCRequest?> {

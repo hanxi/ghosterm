@@ -12,6 +12,7 @@
 
 | 能力 | 状态 | 证据 |
 |---|---|---|
+| App Native 本机文件发布与双向 SSH 资源 | 🟡 | [P4 第二十四批](plan-plugin-bridge.md)：macOS / API36 arm64、4 KiB 页专用无窗口 Client 各 116 场景，保留旧 72，新增 Node / Exec × 直连 / 两跳 × 十一种本机发布情形。Native Host 显式目录与 consent、256 KiB 全字节 / EOF / 两方向不同摘要及实际收据、取消 / 停止 / 断流、目录 / 路径拒绝和旧 Runtime UUID 隔离；两端各三组编译后普通单条目标红 / 同构件配置绿 / 恢复 / SHA256。Android 另 19 项表单通过；Client manifest 仍禁止 file.*，本机目录与 fd 不给 JS、不进入远端命令。远端执行机器是 macOS arm64；SAF 发布、其它大小 / 限额 / 文件变化、tmux / 三跳、其它设备 / 系统、整进程预算及发行未完成。默认 JS-off，不增加 CI 二十份；前置工具 / 夹具失败与原件见计划 |
 | App 到通用运行档业务进程 | 🟡 | [P4 第二十三批](plan-plugin-bridge.md)：macOS / API36 无窗口 Client 各 72 场景，含 Node / Exec × 直连 / ProxyJump × 九种业务进程场景；实测管道字节 / 摘要、环境 / cwd、stderr、拒绝、取消 / 回收与存活子进程停止 / 断流，环境漏传变异每端一组。Core 540 / enabled 765、Release / Android 四模块 lint 通过；Executor 为 macOS arm64，完整预算 / 异常 / 设备矩阵、tmux / 双向资源、发行仍未完成 |
 | 通用 Node / Exec 到 App 的资源发布 | 🟡 | [P4 第二十二批](plan-plugin-bridge.md)：两端 worker 有界批次推进，修复 UI 50 ms 周期逐帧限速；macOS / API36 专用无窗口模拟器各 36 场景，含 256 KiB 全字节 / 摘要 / 发布确认及未授权根、越界、链接拒绝，两端各一组旧调度变异。默认 540 / enabled 765 CTest、Release / Android 四模块 lint 通过；只验远端 macOS arm64 Executor 到 App 收件方向，双向资源、业务进程 / tmux 完整矩阵、其它设备和发行未完成 |
 | 插件 SSH 关闭续步 | 🟡 | [P4 第二十一批](plan-plugin-bridge.md)：首次中止 / I/O 收尾后只续做 dispose，避免内层已释放而外层 draining 时再读旧通道。三个确定性边界用例与一个独立变异组、旧 SSH 十四组 / 路线十三组通过；默认 540 / JS-enabled 765 CTest、macOS Release 重链和 Android JNI Debug 原生构建通过。无新设备 / 云端结论，不能据此认定已复现或修好 `43545823180` 的 deny2 失败 |

@@ -18,6 +18,22 @@ final class ExtensionControllerTests: XCTestCase {
                        ["session.rpc", "resource.receive", "file.readScoped"])
     }
 
+    func testNativeResourceDirectoryRequiresLocalGrantAndClientResourceService() throws {
+        let capabilities = ["resource.receive"]
+        let valid = ExtensionController.ClientWorkspace(directory: "/本机/quoted'😀", authorized: true)
+        try valid.validate(requiredCapabilities: capabilities)
+        XCTAssertEqual(valid.reviewDescription, "Native 只读发布目录：/本机/quoted'😀 · 单文件上限 256 KiB")
+        for required in [[], ["file.readScoped"]] {
+            XCTAssertThrowsError(try valid.validate(requiredCapabilities: required))
+        }
+        XCTAssertThrowsError(try ExtensionController.ClientWorkspace(directory: "/local", authorized: false)
+            .validate(requiredCapabilities: capabilities))
+        for path in ["", "relative", "/bad\npath", "/bad\rpath", "/bad\0path", "/" + String(repeating: "界", count: 1366)] {
+            XCTAssertThrowsError(try ExtensionController.ClientWorkspace(directory: path, authorized: true)
+                .validate(requiredCapabilities: capabilities))
+        }
+    }
+
     @MainActor
     func testHostProtocolVersionNormalizesAppleMarketingVersion() {
         XCTAssertEqual(AppModel.extensionHostProtocolVersion("16.0"), "16.0.0")

@@ -42,6 +42,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         val peerIdentity: String, val remoteCommand: String, val requiredCapabilities: List<String>,
         val info: ExtensionSession.Info,
         val executorExecution: ExtensionRelayBootstrap.Execution? = null,
+        val clientWorkspace: ExtensionController.ClientWorkspace? = null,
     )
 
     internal val controller: ExtensionController? = if (BuildConfig.PLUGIN_JS_ENABLED && ExtensionRuntime.supportStatus() == 0) {
@@ -73,7 +74,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
         private set
 
     fun launch(entry: Entry, command: ExtensionController.Command, target: PreparedSSH,
-        request: ExtensionRelayBootstrap.Request, sessions: SessionsViewModel) {
+        request: ExtensionRelayBootstrap.Request, sessions: SessionsViewModel,
+        clientWorkspace: ExtensionController.ClientWorkspace? = null) {
         val owner = controller ?: return
         val configuredRequest = if (command.path == "ai codex") request.copy(
             methods = (request.methods + codexExecutorMethods).distinct(),
@@ -104,7 +106,10 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             error = "ai claude 需要明确授权工作区，并配置名为 claude-node 的固定进程映射"; return
         }
         if (activeSession != null || activeRuntime != null) { error = "此插件控制器已有活动 Session"; return }
-        try { ExtensionRelayBootstrap.build(launchRequest) }
+        try {
+            clientWorkspace?.validate(entry.review.requiredCapabilities)
+            ExtensionRelayBootstrap.build(launchRequest)
+        }
         catch (failure: IllegalArgumentException) { error = failure.message ?: "插件启动参数无效"; return }
         launchBusy = true; error = null
         viewModelScope.launch {
@@ -115,7 +120,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                     try {
                         check(ready.info.phase == 1) { "SSH 插件通道尚未就绪" }
                         val extraCapabilities = buildList {
-                            if (launchRequest.workspaceRootDirectory != null &&
+                            if ((launchRequest.workspaceRootDirectory != null || clientWorkspace != null) &&
                                 "resource.receive" in entry.review.requiredCapabilities) add("file.readScoped")
                             if (launchRequest.processPrograms.isNotEmpty()) {
                                 add("process.spawn")
@@ -136,7 +141,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                         activeSession = ActiveSession(entry.review.id, entry.review.digest, command,
                             launchRequest.arguments.toList(), decoded, launchRequest.methods.toList(), launchRequest.hostMethods.toList(),
                             launchRequest.executorDigest, target.alias, ExtensionRelayBootstrap.build(launchRequest),
-                            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info, launchRequest.execution)
+                            (entry.review.requiredCapabilities + extraCapabilities).distinct(), adopted.info, launchRequest.execution, clientWorkspace)
                         launchBusy = false
                         handshakeJob?.cancel()
                         handshakeJob = viewModelScope.launch { advanceToConsent(owner) }
@@ -374,7 +379,7 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
                             ExtensionSession.Phase.ACTIVE -> {
                                 val active = checkNotNull(activeSession)
                                 activeRuntime = owner.activateClient(active.packageID, active.packageDigest,
-                                    active.command.path, active.arguments)
+                                    active.command.path, active.arguments, active.clientWorkspace)
                                 launchBusy = false
                                 viewModelScope.launch { advanceRuntime(owner) }
                                 break
@@ -563,6 +568,33 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
             if (generation !== sessionGeneration) return
             if (statusAfter == ExtensionSession.RPCStatus.OK) pendingExtensionRPCHandles -= handle
             else error = "无法释放终态插件 RPC 句柄：$statusAfter"
+        }
+    }
+
+    fun publishClientResource(relativePath: String, root: String = "client", instanceID: String? = activeRuntime?.instanceID) {
+        val owner = controller ?: return
+        if (launchBusy || activeRuntime?.info?.phase != ExtensionRuntime.Phase.ACTIVE) return
+        val generation = sessionGeneration
+        viewModelScope.launch {
+            try {
+                val state = owner.publishClientResource(instanceID.orEmpty(), relativePath, root)
+                if (generation === sessionGeneration) activeRuntime = state
+            } catch (failure: Throwable) {
+                if (failure is CancellationException) throw failure
+                if (generation === sessionGeneration) error = "资源发布失败：${failure.message ?: failure.javaClass.simpleName}"
+            }
+        }
+    }
+    fun cancelClientPublication(id: String) {
+        val owner = controller ?: return
+        if (activeRuntime?.publication?.id != id) return
+        val generation = sessionGeneration
+        viewModelScope.launch {
+            try { owner.cancelClientPublication(id) }
+            catch (failure: Throwable) {
+                if (failure is CancellationException) throw failure
+                if (generation === sessionGeneration) error = "无法取消资源发布：${failure.message ?: failure.javaClass.simpleName}"
+            }
         }
     }
 

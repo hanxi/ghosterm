@@ -1823,6 +1823,8 @@ static extension_source_slot_t *extension_source_owner(JNIEnv *e, jlong id) {
     return s;
 }
 
+static extension_slot_t *runtime_pin(JNIEnv *, jlong, bool, bool);
+
 JNIEXPORT jlongArray JNICALL
 Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_open(JNIEnv *e,
                                                           jobject self,
@@ -1831,7 +1833,8 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_open(JNIEnv *e,
                                                           jint root,
                                                           jbyteArray path,
                                                           jbyteArray mime,
-                                                          jlong limit) {
+                                                          jlong limit,
+                                                          jboolean runtime) {
     (void)self;
     jlongArray result = (*e)->NewLongArray(e, 2);
     if (!result) {
@@ -1850,7 +1853,8 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_open(JNIEnv *e,
         free(name);
         return NULL;
     }
-    extension_slot_t *parent = session_pin(e, session, true, false);
+    extension_slot_t *parent =
+        runtime ? runtime_pin(e, session, true, false) : session_pin(e, session, true, false);
     if (!parent) {
         free(name);
         free(type);
@@ -1878,7 +1882,8 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionSource_open(JNIEnv *e,
     }
     gt_ext_source_config_t c = {root, name, type, (uint64_t)limit};
     gt_ext_source_t *source = NULL;
-    gt_ext_source_status_t status = gt_ext_source_open(parent->session, &l, &c, &source);
+    gt_ext_source_status_t status =
+        gt_ext_source_open(runtime ? parent->runtime_session : parent->session, &l, &c, &source);
     free(name);
     free(type);
     extension_unpin(parent);

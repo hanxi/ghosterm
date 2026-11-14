@@ -55,7 +55,8 @@ def execute(args, serial=None):
     if 'GHOSTERM_WITH_LIBSSH2:BOOL=ON' not in cache or 'GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' not in cache:
         raise RuntimeError('Explicit JS/SSH-enabled build required')
     hashes = {str(p.relative_to(ROOT)): sha(p) for directory in ['core/src', 'core/include', 'core/tests',
-        'apple/GhostermApp/Sources', 'apple/GhostermApp/Tests', 'android/app/src', 'packages/plugin-sdk/node']
+        'apple/GhostermApp/Sources', 'apple/GhostermApp/Tests', 'apple/GhostermCore/Sources', 'apple/GhostermCore/Tests',
+        'android/app/src', 'android/bridge/src', 'packages/plugin-sdk/node']
         for p in (ROOT / directory).rglob('*') if p.is_file()}
     binary_hashes = {str(p): sha(p) for p in [build / 'gterm', build / 'test_gterm_exec_peer',
         build / 'core/libghosterm_core.a', node]}
@@ -80,6 +81,8 @@ def execute(args, serial=None):
     cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct', 'jump')
               for mode in ('process', 'process-root', 'process-program', 'process-cancel', 'process-stderr',
                            'process-environment', 'process-cwd', 'process-stop', 'process-loss')]
+    cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct', 'jump')
+              for mode in ('client-resource', 'client-root', 'client-parent', 'client-link', 'client-no-approval', 'client-undeclared', 'client-stop', 'client-loss', 'client-cancel', 'client-directory-link', 'client-directory-file')]
     selected = args.case or cases
     if set(selected) - set(cases): raise RuntimeError('Unknown execution case')
     routes = load('execution_routes', 'scripts/test-plugin-route.py')
@@ -102,6 +105,7 @@ def execute(args, serial=None):
                     for name in ('stderr', 'resource-result', 'resource-receipt', 'resource-error', 'process-proof') for f in work.glob('*/o/' + name)]
                 raise RuntimeError(label + '\n' + output + '\nREMOTE STDERR: ' + repr(diagnostics))
             return output
+        platform_binaries = {}
         if args.macos:
             source = args.project.resolve(strict=True) if args.project else work / 'h'
             if not args.project:
@@ -112,6 +116,9 @@ def execute(args, serial=None):
                 for folder in ['build', 'patches']: (source / folder).symlink_to(ROOT / folder, target_is_directory=True)
                 (source / 'tmp').mkdir()
             run('compile', ['swift', 'build', '--build-tests', '--package-path', source / 'apple/GhostermApp'])
+            tests = list((source / 'apple/GhostermApp/.build').rglob('GhostermAppTests.xctest/Contents/MacOS/GhostermAppTests'))
+            if not tests: raise RuntimeError('Actual XCTest binary missing')
+            platform_binaries = {str(p.relative_to(source)): sha(p) for p in tests}
         else:
             source = args.project.resolve(strict=True) if args.project else ROOT
             adb = [ROOT / 'build/android-toolchain/sdk/platform-tools/adb', '-s', serial]
@@ -119,6 +126,7 @@ def execute(args, serial=None):
                 ':app:assembleDebug', ':app:assembleDebugAndroidTest'])
             for name in ['debug/app-debug.apk', 'androidTest/debug/app-debug-androidTest.apk']:
                 apk = source / 'android/app/build/outputs/apk' / name
+                platform_binaries[str(apk.relative_to(source))] = sha(apk)
                 run('install-' + apk.name, [*adb, 'install', '-r', '-t', apk])
                 package = 'com.hanxi.ghosterm.test' if 'androidTest/' in name else 'com.hanxi.ghosterm'
                 installed = run('path-' + apk.name, [*adb, 'shell', 'pm', 'path', package]).strip().removeprefix('package:')
@@ -129,7 +137,8 @@ def execute(args, serial=None):
             with routes.chain(route_root, 2, public, host_keys, agent, 'echo') as (ports, _, _):
                 for index, case in enumerate(selected):
                     runtime, route, mode = case.split(':')
-                    resource_case = mode.startswith('resource')
+                    client_case = mode.startswith('client-')
+                    resource_case = mode.startswith('resource') or client_case
                     process_case = mode.startswith('process')
                     root = work / str(index); root.mkdir()
                     package, observation, stage, home, workspace = [root / p for p in ('k', 'o', 't', 'h', 'w')]
@@ -153,14 +162,14 @@ def execute(args, serial=None):
                         client=dict(runtime='portable-js', entry='client/index.js', requires=['session.rpc']),
                         executor=dict(variants=[variant]), permissions=[])
                     if resource_case:
-                        manifest['client']['requires'] += ['resource.receive']
+                        if mode != 'client-undeclared': manifest['client']['requires'] += ['resource.receive']
                         manifest['permissions'] = [dict(side='executor', capability='file.readScoped',
                             purpose='Owned disposable workspace fixture', scope='instance')]
                     if process_case:
                         manifest['permissions'] = [dict(side='executor', capability='process.spawn',
                             purpose='Owned mapped utility fixture', scope='instance', programs=['cat'])]
                     files = {'plugin.json': json.dumps(manifest).encode(), 'schemas/input.json': json.dumps(schema).encode(),
-                        'client/index.js': b'export function activate(){return {dispose(){}}}', 'README': b'Owned execution fixture',
+                        'client/index.js': b'export function activate(ctx){if(ctx.resources && ctx.resources.workspaces.length) throw Error("Unexpected Client file grant");return {dispose(){}}}', 'README': b'Owned execution fixture',
                         'LICENSES/MIT.txt': (ROOT / 'LICENSE').read_bytes(),
                         ('executor/index.mjs' if runtime == 'node' else 'executor/main'):
                             (ROOT / 'scripts/fixtures/plugin-execution-app.mjs').read_bytes() if runtime == 'node' else (build / 'test_gterm_exec_peer').read_bytes()}
@@ -203,6 +212,8 @@ def execute(args, serial=None):
                         if (observation / 'environment').exists(): answer['environment'] = (observation / 'environment').read_text()
                         if (observation / 'resource-receipt').exists(): answer['resourceReceipt'] = (observation / 'resource-receipt').read_text()
                         if (observation / 'resource-error').exists(): answer['resourceError'] = (observation / 'resource-error').read_text()
+                        for filename, key in [('client-received', 'clientReceived')]:
+                            if (observation / filename).exists(): answer[key] = (observation / filename).read_text()
                         if (observation / 'process-proof').exists(): answer['processProof'] = json.loads((observation / 'process-proof').read_text())
                         if process_case:
                             parent = answer.get('gterm-pid')
@@ -242,13 +253,13 @@ def execute(args, serial=None):
                     mapped = []
                     business_pids = set()
                     fault = None
-                    if mode in ('pending-loss', 'process-loss'):
+                    if mode in ('pending-loss', 'process-loss', 'client-loss'):
                         fault = fault_module.FaultWire(ports[0] if route == 'jump' else ports[1])
                         fault.__enter__()
                         client_ports = list(ports); client_ports[0 if route == 'jump' else 1] = fault.port
                         payload['ports'] = client_ports
                     with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
-                        server.daemon_threads = True; thread = threading.Thread(target=server.serve_forever); thread.start()
+                        server.daemon_threads = True; thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
                         try:
                             port = server.server_address[1]
                             if args.macos:
@@ -257,40 +268,89 @@ def execute(args, serial=None):
                                     {'GHOSTERM_EXECUTION_PORT': str(port), 'GHOSTERM_EXECUTION_TOKEN': token}, 180)
                                 if 'Executed 1 test, with 0 failures' not in output or 'skipped' in output.lower(): raise RuntimeError('Expected one executed Swift test')
                             else:
-                                for p in (port, payload['ports'][0] if route == 'jump' else payload['ports'][1]):
-                                    run('reverse', [*adb, 'reverse', f'tcp:{p}', f'tcp:{p}']); mapped.append(p)
+                                ephemeral = run('device-ephemeral-range', [*adb, 'shell', 'cat', '/proc/sys/net/ipv4/ip_local_port_range']).split()
+                                if len(ephemeral) != 2 or not all(value.isdigit() for value in ephemeral):
+                                    raise RuntimeError('Device ephemeral port range unavailable')
+                                low, high = map(int, ephemeral)
+                                if not 1024 <= low <= high <= 65535: raise RuntimeError('Invalid device ephemeral port range')
+                                start, end = (10000, min(low, 32768)) if low > 10000 else (high + 1, 65536)
+                                if start >= end: raise RuntimeError('No device listener range outside ephemeral connections')
+                                def reverse(host_port):
+                                    # Host-chosen numbers are not reservations on the
+                                    # device. Pick outside its client ephemeral range,
+                                    # use no-rebind, and verify the actual mapping.
+                                    # tcp:0 is avoided: pinned adb 37.0.1 aborted in
+                                    # handle_packet during two such owned probes.
+                                    for attempt in range(32):
+                                        device_port = start + secrets.randbelow(end - start)
+                                        command = [*adb, 'reverse', '--no-rebind', f'tcp:{device_port}', f'tcp:{host_port}']
+                                        result = subprocess.run(list(map(str, command)), cwd=ROOT, env=env,
+                                            capture_output=True, text=True, timeout=15)
+                                        output = result.stdout + result.stderr
+                                        (logs / f'reverse-{index}-{attempt}.log').write_text(output)
+                                        if result.returncode:
+                                            if 'Address already in use' in output or 'cannot rebind existing socket' in output: continue
+                                            raise RuntimeError('ADB reverse failed: ' + output)
+                                        mapped.append(device_port)
+                                        actual = run('reverse-list', [*adb, 'reverse', '--list'])
+                                        if not any(line.split()[-2:] == [f'tcp:{device_port}', f'tcp:{host_port}'] for line in actual.splitlines()):
+                                            raise RuntimeError('ADB mapping did not match the owned host endpoint')
+                                        return device_port
+                                    raise RuntimeError('Could not reserve a device listener without rebinding')
+                                fixture_port = reverse(port)
+                                first_hop = 0 if route == 'jump' else 1
+                                payload['ports'] = list(payload['ports'])
+                                payload['ports'][first_hop] = reverse(payload['ports'][first_hop])
                                 output = run(str(index), [*adb, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'class',
                                     'com.hanxi.ghosterm.ExecutorSSHAppTest#remoteExecutionThroughViewModelAndConsentUI',
-                                    '-e', 'fixturePort', port, '-e', 'fixtureToken', token,
+                                    '-e', 'fixturePort', fixture_port, '-e', 'fixtureToken', token,
                                     'com.hanxi.ghosterm.test/androidx.test.runner.AndroidJUnitRunner'], seconds=180)
                                 if 'OK (1 test)' not in output or 'INSTRUMENTATION_STATUS: numtests=1\n' not in output or any(
-                                    mark in output for mark in ['INSTRUMENTATION_FAILED', 'assumption failed:', 'INSTRUMENTATION_STATUS_CODE: -4']): raise RuntimeError(case + '\n' + output)
+                                    mark in output for mark in ['INSTRUMENTATION_FAILED', 'assumption failed:', 'INSTRUMENTATION_STATUS_CODE: -4']):
+                                    remote = (observation / 'stderr').read_text(errors='replace') if (observation / 'stderr').exists() else ''
+                                    raise RuntimeError(case + '\n' + output + '\nOWNED AUDIT: ' + repr(observe()) + '\nREMOTE STDERR: ' + remote)
                             deadline = time.monotonic() + 15
                             while time.monotonic() < deadline:
                                 audit = observe()
                                 if not any(identity(pid) == expected for pid, expected in owned_pids.items()) and not list(stage.iterdir()): break
                                 time.sleep(.05)
                             else: raise RuntimeError(case + ': remote process/staging retained: ' + repr(observe()) + '\n' + (observation / 'stderr').read_text(errors='replace'))
-                            if 'status' not in audit: audit['exitObservation'] = 'not-started' if mode == 'no-approval' else 'unknown'
+                            if 'status' not in audit: audit['exitObservation'] = 'not-started' if mode in ('no-approval', 'client-no-approval', 'client-undeclared') else 'unknown'
                             records.append(dict(case=case, audit=audit)); print('PASS ' + case + ' ' + json.dumps(audit), flush=True)
                         finally:
-                            for p in mapped: run('reverse-remove', [*adb, 'reverse', '--remove', f'tcp:{p}'])
-                            server.shutdown(); thread.join(); server.server_close()
-                            if fault is not None: fault.__exit__(None, None, None)
-                            observe()
+                            primary = sys.exc_info()[0] is not None
+                            cleanup_errors = []
+                            def cleanup(action):
+                                try: action()
+                                except Exception as failure: cleanup_errors.append(str(failure))
+                            for p in mapped:
+                                cleanup(lambda p=p: run('reverse-remove', [*adb, 'reverse', '--remove', f'tcp:{p}'], seconds=15))
+                            # A lost ADB server must not skip the fixture thread,
+                            # fault wire, or observed-child cleanup, or mask the
+                            # original failure with a secondary removal error.
+                            cleanup(server.shutdown); thread.join(timeout=5); cleanup(server.server_close)
+                            if thread.is_alive(): cleanup_errors.append('Owned fixture service did not stop')
+                            if fault is not None: cleanup(lambda: fault.__exit__(None, None, None))
+                            cleanup(observe)
                             for pid, expected in owned_pids.items():
                                 if identity(pid) == expected:
                                     # Only this fixture's observed child IDs; never the caller/SSHD group.
-                                    os.kill(pid, signal.SIGKILL)
+                                    try: os.kill(pid, signal.SIGKILL)
+                                    except ProcessLookupError: continue
                                     for _ in range(100):
                                         if not alive(pid): break
                                         time.sleep(.01)
+                            if cleanup_errors:
+                                message = 'Owned fixture cleanup: ' + repr(cleanup_errors)
+                                if primary: print(message, file=sys.stderr, flush=True)
+                                else: raise RuntimeError(message)
                     for p in package.rglob('*'):
                         if p.is_file() and (b'PRIVATE KEY-----' in p.read_bytes() or b'openssh-key-v1\0' in p.read_bytes()): raise RuntimeError('Fixture key serialized')
+        if any(sha(source / p) != value for p, value in platform_binaries.items()): raise RuntimeError('Actual platform binaries changed during conformance')
         if any(sha(ROOT / p) != value for p, value in hashes.items()) or any(sha(Path(p)) != value for p, value in binary_hashes.items()):
             raise RuntimeError('Inputs changed during conformance')
         receipt = dict(accepted=True, platform='macos' if args.macos else 'android', cases=records, inputs=hashes,
-            binaries=binary_hashes, nodeVersion=version, sdkCatalog=sdk_digest, scope='owned loopback direct/ProxyJump; actual Native App and Node/Exec; no model/tmux')
+            binaries=binary_hashes, platformBinaries=platform_binaries, nodeVersion=version, sdkCatalog=sdk_digest, scope='owned loopback direct/ProxyJump; actual Native App and Node/Exec; no model/tmux')
         if args.receipt:
             if not args.receipt.resolve().is_relative_to(ROOT / 'tmp'): raise RuntimeError('Use project tmp for receipt')
             args.receipt.write_text(json.dumps(receipt, indent=2) + '\n')

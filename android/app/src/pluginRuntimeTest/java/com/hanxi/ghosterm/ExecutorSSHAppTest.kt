@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hanxi.ghosterm.bridge.ExtensionRegistry
+import com.hanxi.ghosterm.bridge.ExtensionFileSource
 import com.hanxi.ghosterm.bridge.ExtensionRuntime
 import com.hanxi.ghosterm.bridge.ExtensionSession
 import com.hanxi.ghosterm.bridge.PreparedSSH
@@ -51,11 +52,25 @@ class ExecutorSSHAppTest {
     @Test fun remoteExecutionThroughViewModelAndConsentUI() {
         assertTrue(BuildConfig.PLUGIN_JS_ENABLED)
         val payload = service(); val mode = payload.getString("mode"); val jump = payload.getString("route") == "jump"
-        val resourceCase = mode.startsWith("resource")
+        val clientCase = mode.startsWith("client-")
+        val resourceCase = mode.startsWith("resource") || clientCase
         val processCase = mode.startsWith("process")
         val processPending = mode == "process-stop" || mode == "process-loss"
         val context = instrumentation.targetContext
         val folder = File(context.cacheDir, "execution-${java.util.UUID.randomUUID()}"); check(folder.mkdir())
+        val local = File(context.cacheDir, "execution-client-${java.util.UUID.randomUUID()}")
+        var clientWorkspace: ExtensionController.ClientWorkspace? = null
+        if (clientCase) {
+            check(local.mkdir())
+            File(local, "upload.bin").writeBytes(ByteArray(262144) { ((it * 7 + 3) % 251).toByte() })
+            val outside = File(folder, "../${local.name}-outside.bin").canonicalFile
+            outside.writeText("UNAUTHORIZED owned fixture")
+            android.system.Os.symlink(outside.path, File(local, "link.bin").path)
+            val selectedPath = if (mode == "client-directory-link") {
+                File(local.parentFile, "${local.name}-directory-link").also { android.system.Os.symlink(local.path, it.path) }.path
+            } else if (mode == "client-directory-file") File(local, "upload.bin").path else local.path
+            clientWorkspace = ExtensionController.ClientWorkspace(selectedPath, mode != "client-no-approval")
+        }
         val files = payload.getJSONObject("packageFiles")
         for (name in files.keys()) {
             check(!name.startsWith('/') && name.split('/').none { it == ".." || it.isEmpty() })
@@ -85,8 +100,8 @@ class ExecutorSSHAppTest {
                 processEnvironmentNames = listOf("GT_EXECUTION_APP_FIXTURE") + if (mode == "process-environment") listOf("GT_SELECTED") else emptyList(), execution = execution)
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
-            main { extensions.launch(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(), target, request, sessions) }
-            if (mode == "no-approval") {
+            main { extensions.launch(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(), target, request, sessions, clientWorkspace) }
+            if (mode in setOf("no-approval", "client-no-approval", "client-undeclared")) {
                 assertNotNull(main { extensions.error }); assertNull(main { extensions.activeSession })
                 assertNull(main { sessions.connecting }); assertFalse(service("audit").getBoolean("wrapperStarted")); return
             }
@@ -109,6 +124,8 @@ class ExecutorSSHAppTest {
             await("Session did not reach consent") { main { extensions.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }
             assertEquals(if (jump) 2 else 1, hostCount)
             assertEquals(execution, main { extensions.activeSession?.executorExecution })
+            assertEquals(clientWorkspace, main { extensions.activeSession?.clientWorkspace })
+            assertFalse(main { checkNotNull(extensions.activeSession).remoteCommand.contains(local.path) })
             val required = listOf("session.rpc") + (if (resourceCase) listOf("resource.receive", "file.readScoped") else emptyList()) +
                 (if (processCase) listOf("process.spawn", "process.pipes") else emptyList())
             assertEquals(required.toSet(),
@@ -116,6 +133,8 @@ class ExecutorSSHAppTest {
             assertFalse("No module execution before consent", service("audit").getBoolean("activated"))
             assertFalse("No Executor entry before consent", service("audit").getBoolean("entered"))
             ui.onNodeWithTag("plugin-consent-executor-runtime").assertExists()
+            ui.onNodeWithTag("plugin-consent-client-workspace").assertExists()
+            if (clientCase) ui.onNodeWithTag("plugin-consent-client-workspace").assertTextEquals(clientWorkspace!!.reviewDescription)
             if (mode == "deny") {
                 ui.onNodeWithText("拒绝", useUnmergedTree = true).performClick()
                 await("denial did not end Session") { main { !extensions.launchBusy && extensions.activeSession?.info?.phase == ExtensionSession.Phase.ENDED } }
@@ -124,8 +143,71 @@ class ExecutorSSHAppTest {
                 assertNull(main { extensions.error }); return
             }
             ui.onNodeWithText("允许并启动").performClick()
-            await("Client/Executor did not activate") { main { extensions.activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE } && service("audit").getBoolean("activated") }
+            if (mode == "client-directory-link" || mode == "client-directory-file") {
+                await("Invalid Native directory must fail activation") { main { !extensions.launchBusy } }
+                assertNotNull(main { extensions.error }); assertNull(main { extensions.activeRuntime })
+                return
+            }
+            await("Client/Executor did not activate") {
+                val state = main { extensions.error to extensions.activeRuntime?.info }
+                if (state.first != null || state.second?.phase in setOf(ExtensionRuntime.Phase.FAILED, ExtensionRuntime.Phase.STOPPED, ExtensionRuntime.Phase.CLOSED)) {
+                    fail("Native activation failed: error=${state.first}; runtime=${state.second}; remote=${service("audit")}")
+                }
+                state.second?.phase == ExtensionRuntime.Phase.ACTIVE && service("audit").getBoolean("activated")
+            }
             assertEquals(payload.getString("temporary"), service("audit").getString("environment"))
+            if (clientCase) {
+                var rejected = false
+                try { runBlocking { controller.publishClientResource("obsolete-runtime", "upload.bin") } }
+                catch (_: IllegalStateException) { rejected = true }
+                assertTrue("Stale Native action must not publish into another Runtime", rejected)
+                assertNull(main { extensions.activeRuntime?.publication })
+            }
+            if (clientCase) {
+                val path = if (mode == "client-parent") "../${local.name}-outside.bin" else if (mode == "client-link") "link.bin" else "upload.bin"
+                if (mode == "client-resource") {
+                    ui.onNodeWithTag("plugin-client-publication-path").performScrollTo().performTextInput(path)
+                    androidx.test.espresso.Espresso.closeSoftKeyboard()
+                    ui.onNodeWithTag("plugin-client-publish").performScrollTo().performClick()
+                } else main { extensions.publishClientResource(path, if (mode == "client-root") "outside" else "client") }
+                if (mode in setOf("client-stop", "client-loss", "client-cancel")) {
+                    await("Native publication did not enter a partial send") {
+                        main { extensions.activeRuntime?.publication?.let { it.phase == ExtensionFileSource.Phase.SENDING && it.accepted > 0 && it.accepted < 262144 } == true }
+                    }
+                    assertFalse(main { checkNotNull(extensions.activeRuntime?.publication).confirmed })
+                    if (mode == "client-cancel") {
+                        ui.onNodeWithTag("plugin-client-publication-cancel").performScrollTo().performClick()
+                        await("Cancelled Source did not release") { main { extensions.activeRuntime?.publication?.released == true } }
+                        val publication = main { checkNotNull(extensions.activeRuntime?.publication) }
+                        assertEquals(ExtensionFileSource.Phase.STOPPED, publication.phase)
+                        assertEquals(ExtensionFileSource.Status.CANCELLED, publication.error)
+                        assertFalse(publication.expired)
+                    } else {
+                        if (mode == "client-loss") service("kill") else controller.requestStopRuntime()
+                        await("Interrupted Runtime did not stop") { main { extensions.activeRuntime?.info?.phase !in setOf(ExtensionRuntime.Phase.CREATED, ExtensionRuntime.Phase.STARTING, ExtensionRuntime.Phase.ACTIVE) } }
+                        val publication = main { checkNotNull(extensions.activeRuntime?.publication) }
+                        assertFalse(publication.confirmed)
+                        assertNotEquals(ExtensionFileSource.Phase.SUCCEEDED, publication.phase)
+                    }
+                    main { extensions.stopRuntime() }
+                    await("Client Runtime did not stop") { main { !extensions.launchBusy && extensions.activeRuntime?.info?.phase !in setOf(ExtensionRuntime.Phase.CREATED, ExtensionRuntime.Phase.STARTING, ExtensionRuntime.Phase.ACTIVE) } }
+                    main { extensions.releaseFinished() }
+                    await("Interrupted owners not released") { main { !extensions.launchBusy && extensions.activeRuntime == null && extensions.activeSession == null } }
+                    assertNull(main { extensions.error }); return
+                }
+                await("Native publication did not release its Source") { main { extensions.activeRuntime?.publication?.released == true } }
+                val publication = main { checkNotNull(extensions.activeRuntime?.publication) }
+                assertFalse(publication.expired); assertEquals(ExtensionFileSource.Status.OK, publication.cleanupError)
+                if (mode == "client-resource") {
+                    assertEquals(ExtensionFileSource.Phase.SUCCEEDED, publication.phase)
+                    assertTrue(publication.confirmed); assertEquals(262144L, publication.bytes)
+                    val bytes = ByteArray(262144) { ((it * 7 + 3) % 251).toByte() }
+                    assertEquals(MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }, publication.sha256)
+                } else {
+                    assertEquals(ExtensionFileSource.Phase.FAILED, publication.phase); assertFalse(publication.confirmed)
+                    assertEquals(if (mode == "client-link") ExtensionFileSource.Status.UNSUPPORTED else ExtensionFileSource.Status.DENIED, publication.error)
+                }
+            }
             val specialized = resourceCase || (processCase && !processPending)
             val input = JSONObject().put("text", if (specialized) mode.replace('-', '_').uppercase(java.util.Locale.ROOT) else "echo 中文😀 '\" }").put("count", 17)
             val admission = runBlocking { controller.requestRuntimeExecutor("fixture.echo", input.toString().toByteArray()) }
@@ -155,7 +237,7 @@ class ExecutorSSHAppTest {
                 }
             } else { assertEquals(input.getString("text"), value.getString("text")); assertEquals(17, value.getInt("count")) }
             assertEquals(ExtensionSession.RPCStatus.OK, runBlocking { controller.forgetRuntimeExecutorRequest(handle) })
-            if (mode == "resource") {
+            if (mode == "resource" || clientCase) {
                 await("Resource did not reach ViewModel") { main { extensions.receivedResources.size == 1 } }
                 val resource = main { extensions.receivedResources.single() }
                 val expected = ByteArray(262144) { (it % 251).toByte() }
@@ -171,6 +253,11 @@ class ExecutorSSHAppTest {
                 assertTrue(main { extensions.receivedResources.isEmpty() })
                 assertEquals(if (mode == "resource-link") "UNSUPPORTED" else "DENIED", service("audit").getString("resourceError"))
                 assertFalse(service("audit").has("resourceReceipt"))
+            }
+            if (clientCase) {
+                val audit = service("audit")
+                if (mode == "client-resource") assertEquals(main { checkNotNull(extensions.activeRuntime?.publication).sha256 } + " 262144", audit.getString("clientReceived"))
+                else assertFalse(audit.has("clientReceived"))
             }
             if (mode == "pending-cancel" || mode == "pending-loss" || processPending) {
                 val text = if (processPending) mode.replace('-', '_').uppercase(java.util.Locale.ROOT) else "WAIT"
@@ -201,6 +288,9 @@ class ExecutorSSHAppTest {
         } finally {
             runBlocking { controller.close() }
             if (original == null) known.delete() else known.writeBytes(original)
+            File(local.parentFile, "${local.name}-outside.bin").delete()
+            File(local.parentFile, "${local.name}-directory-link").delete()
+            local.deleteRecursively()
             folder.deleteRecursively()
         }
     }

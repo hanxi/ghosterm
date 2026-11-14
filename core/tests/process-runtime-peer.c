@@ -183,6 +183,7 @@ static void app_resource(uint64_t *sequence, char reply[8193], const char *root,
 }
 
 #include "process-runtime-app.inc"
+#include "process-runtime-resource-app.inc"
 
 static void app_roundtrip(uint64_t *sequence, char reply[8193], const char *root) {
     CHECK(!getenv("GT_EXECUTION_AMBIENT"));
@@ -208,6 +209,14 @@ static void app_roundtrip(uint64_t *sequence, char reply[8193], const char *root
         }
         CHECK(input && d->nodes[ticket].kind == J_STRING && d->nodes[input].kind == J_OBJECT);
         uint16_t label = app_member(d, input, "text");
+        bool client_resource = app_string(d, label, "CLIENT_RESOURCE");
+        if (client_resource) {
+            app_receive_client(sequence, reply, root);
+        }
+        if (client_resource || app_string(d, label, "CLIENT_ROOT") ||
+            app_string(d, label, "CLIENT_PARENT") || app_string(d, label, "CLIENT_LINK")) {
+            app_resource(sequence, reply, root, "RESOURCE");
+        }
         char process_outcome[4096] = {0};
         if (label && d->nodes[label].kind == J_STRING && d->nodes[label].size >= 7 &&
             d->nodes[label].size < 32 && !memcmp(d->strings + d->nodes[label].text, "PROCESS", 7)) {

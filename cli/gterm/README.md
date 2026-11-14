@@ -230,10 +230,15 @@ python3 scripts/mutation-check-plugin-execution-pump.py --macos --business-envir
   --node 已安装Node路径 --sdk 已构建HostSDK目录
 python3 scripts/mutation-check-plugin-execution-pump.py --headless-api 36 --business-environment --build tmp/execution-build \
   --node 已安装Node路径 --sdk 已构建HostSDK目录
+# 每端分别用 --client-workspace / --client-directory / --client-instance 执行三组权限保护
+python3 scripts/mutation-check-plugin-execution-pump.py --macos --client-workspace --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
+python3 scripts/mutation-check-plugin-execution-pump.py --headless-api 36 --client-workspace --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
 ```
 
-每端七十二个场景：Node / 原生 Exec × 直连 / 两跳 ProxyJump × 原有九种生命周期 / 资源情形，
-以及九种业务进程情形。macOS 走生产 AppModel，Android 走生产 ViewModel 和原生
+每端一百一十六个场景：Node / 原生 Exec × 直连 / 两跳 ProxyJump × 原有九种生命周期 / 资源情形、
+九种业务进程情形，以及十一种 Native 本机资源发布情形。macOS 走生产 AppModel，Android 走生产 ViewModel 和原生
 授权页；SSH 密钥只由服务在内存中交付。断流通过本轮拥有的透明 TCP 故障夹具切断
 加密连接，不启动生产网关。模块 / 原生入口分别在第一条包代码处打点，未批准时不能进入；
 正常 RPC 按实际收到的 JSON 内容回传，终止前等待处理器打点；取消先核对 cancelRequested，再停止 Client Runtime，结果必须 UNKNOWN 且未确认。
@@ -264,8 +269,27 @@ process-environment / process-cwd / process-stop / process-loss` 另护未授权
 及源码 SHA256。它验证环境名称从 App 传到实际业务子进程的完整链，不把单纯 argv 字符串
 相等当作效果证据。
 
+`--case node:jump:client-resource` 另验证 Native Host → Executor → App 的双向资源：
+本机明确允许的普通目录由 Native worker 在 Session consent 后打开，Native 发布按钮才读取
+相对文件。Client manifest 仍禁止 file.*；Client JS 不得到目录、fd 或可用文件 root。
+本机路径单独捕获，授权页展示，不加入远端启动命令。单文件 256 KiB、发布十秒，
+Native Source 和 Runtime 由同一 worker 推进；成功必须收到实际对端确认，不能把 EOF 或进程
+退出当作成功。Node / Exec 对本机上传的另一种二进制模式逐字节、完整 EOF / 摘要核对并释放
+接收引用，再发布远端文件回 App，核对两方向不同的 SHA-256。Android 正向场景点击生产发布按钮，
+macOS 通过按钮背后的 AppModel 动作；不把后者称完整 UI 点击。
+
+`client-root / client-parent / client-link` 检查错误根、目录越界与文件链接拒绝；
+`client-no-approval / client-undeclared` 必须在 SSH 前拒绝未允许的目录或缺少 Client resource.receive；
+`client-directory-link / client-directory-file` 验证选中的本机目录入口不跟链接且必须为目录。
+`client-stop / client-loss / client-cancel` 先观察真实部分发送，再停止 Runtime、断开 TCP 或显式取消。
+停止或断流不能报告已发布，未完成 Source 可保留到显式释放以驱动 Session close，之后全部 owner 与
+远端暂存必须释放；正常取消仍推进 Session 至本机 Source 释放。
+每次发布带当前 Runtime UUID，旧实例动作不能向后来实例发布。三组独立 Native 变异分别去掉
+显式允许、目录 O_NOFOLLOW 和 Runtime UUID 保护，要求真实编译后的单条普通断言红、
+同构件配置绿、恢复与 SHA256。收据冻结两端 Native bindings / JNI 与测试输入，并保存实际 XCTest / APK 摘要。
+
 这是无账号 / 模型的 conformance 包，并非官方业务插件。当前观察到成功回包后的 App
 停止和连接断流使远端 gterm 返回 7（会话结果不明），拒绝返回 6；不把进程消失或一条
-RPC 成功记成整个远端任务成功。上述资源是 Executor 到 App 收件列表的方向；双向资源、
+RPC 成功记成整个远端任务成功。这里只证明明确列出的资源方向和场景；SAF 来源发布、
 tmux、其它服务器 / 操作系统、完整资源 / 进程预算与异常矩阵或真实设备仍待验证；不纳入现有
 macOS CI 二十份变异。

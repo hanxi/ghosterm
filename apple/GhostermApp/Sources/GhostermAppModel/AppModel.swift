@@ -66,6 +66,7 @@ public final class AppModel: ObservableObject {
         public let peerIdentity: String
         public let remoteCommand: String
         public let executorExecution: ExtensionRelayBootstrap.Execution?
+        public let clientWorkspace: ExtensionController.ClientWorkspace?
         public let methods: [String]
         public let hostMethods: [String]
         public let requiredCapabilities: [String]
@@ -97,7 +98,7 @@ public final class AppModel: ObservableObject {
     private var codexChangeReadGeneration = UUID()
     private var codexChangeReadTask: Task<Void, Never>?
     private var extensionRunGeneration = UUID()
-    private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String])?
+    private var extensionRunInvocation: (packageID: String, digest: String, command: String, arguments: [String], clientWorkspace: ExtensionController.ClientWorkspace?)?
     private var lastCodexEventSequence: UInt64 = 0
     private var pendingExtensionRPCHandles: Set<UInt64> = []
     private var claudeRPC: ClaudeRPCClient?
@@ -1124,7 +1125,8 @@ public final class AppModel: ObservableObject {
                                      scopedRoots: [ExtensionRelayBootstrap.ScopedRoot] = [],
                                      processPrograms: [ExtensionRelayBootstrap.ProcessProgram] = [],
                                      processEnvironmentNames: [String] = [],
-                                     executorExecution: ExtensionRelayBootstrap.Execution? = nil) async {
+                                     executorExecution: ExtensionRelayBootstrap.Execution? = nil,
+                                     clientWorkspace: ExtensionController.ClientWorkspace? = nil) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
         extensionRunBusy = true; extensionRunIssue = nil
@@ -1138,6 +1140,7 @@ public final class AppModel: ObservableObject {
             guard (methods.isEmpty && hostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
                 throw GhostermError.failed("此 Client 包未声明 session.rpc，不能协商 RPC 方法")
             }
+            try clientWorkspace?.validate(requiredCapabilities: selected.requiredCapabilities)
             let decodedArguments = try await extensionController.decodeArguments(packageID: packageID,
                 packageDigest: packageDigest, command: command, arguments: arguments)
             let bootstrap = try ExtensionRelayBootstrap.build(.init(executable: executable,
@@ -1146,7 +1149,7 @@ public final class AppModel: ObservableObject {
                 scopedRoots: scopedRoots, processPrograms: processPrograms,
                 processEnvironmentNames: processEnvironmentNames, execution: executorExecution,
                 command: command, arguments: arguments))
-            let additionalCapabilities = (scopedRoots.isEmpty || !selected.requiredCapabilities.contains("resource.receive")
+            let additionalCapabilities = ((scopedRoots.isEmpty && clientWorkspace == nil) || !selected.requiredCapabilities.contains("resource.receive")
                 ? [] : ["file.readScoped"]) +
                 (processPrograms.isEmpty ? [] : ["process.spawn", "process.pipes"])
             _ = try await authenticatePluginSSHChannel(alias: sshAlias, bootstrap: bootstrap)
@@ -1163,7 +1166,7 @@ public final class AppModel: ObservableObject {
                 packageDigest: packageDigest, executorDigest: executorDigest,
                 hostVersion: version, peerIdentity: sshAlias, methods: rpcMethods,
                 additionalRequiredCapabilities: additionalCapabilities)
-            extensionRunInvocation = (packageID, packageDigest, command, arguments)
+            extensionRunInvocation = (packageID, packageDigest, command, arguments, clientWorkspace)
             claudeRPC?.invalidate(); claudeRPC = nil
             claudeConversation?.invalidate(); claudeConversation = nil
             extensionRunGeneration = UUID()
@@ -1178,7 +1181,7 @@ public final class AppModel: ObservableObject {
             extensionRun = ExtensionRun(packageID: packageID, packageDigest: packageDigest,
                 command: command, arguments: arguments, decodedArguments: decodedArguments,
                 executorDigest: executorDigest,
-                peerIdentity: sshAlias, remoteCommand: bootstrap, executorExecution: executorExecution, methods: methods, hostMethods: hostMethods,
+                peerIdentity: sshAlias, remoteCommand: bootstrap, executorExecution: executorExecution, clientWorkspace: clientWorkspace, methods: methods, hostMethods: hostMethods,
                 requiredCapabilities: Array(Set(selected.requiredCapabilities + additionalCapabilities)).sorted(),
                 session: session, runtime: nil, receivedResources: [], codexEvents: [])
             let deadline = ProcessInfo.processInfo.systemUptime + 60
@@ -1236,7 +1239,7 @@ public final class AppModel: ObservableObject {
                 }
                 let runtime = try await extensionController.activateClient(pluginID: invocation.packageID,
                     packageDigest: invocation.digest, command: invocation.command,
-                    arguments: invocation.arguments)
+                    arguments: invocation.arguments, clientWorkspace: invocation.clientWorkspace)
                 updateExtensionRun(runtime: runtime)
                 Task { await self.advanceExtensionRuntime() }
             } else {
@@ -1581,12 +1584,30 @@ public final class AppModel: ObservableObject {
         }
     }
 
+    public func publishClientResource(relativePath: String, root: String = "client", instanceID: String? = nil) async {
+        guard !extensionRunBusy, let controller = extensionController, extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue else { return }
+        let generation = extensionRunGeneration
+        do {
+            let state = try await controller.publishClientResource(instanceID: instanceID ?? extensionRun?.runtime?.instanceID ?? "", root: root, relativePath: relativePath)
+            guard generation == extensionRunGeneration else { return }
+            updateExtensionRun(runtime: state)
+        } catch {
+            if generation == extensionRunGeneration { extensionRunIssue = "资源发布失败：\(error)" }
+        }
+    }
+    public func cancelClientPublication(id: String) async {
+        guard let controller = extensionController, extensionRun?.runtime?.publication?.id == id else { return }
+        let generation = extensionRunGeneration
+        do { try await controller.cancelClientPublication(id: id) }
+        catch { if generation == extensionRunGeneration { extensionRunIssue = "无法取消资源发布：\(error)" } }
+    }
+
     private func updateExtensionRun(session: ExtensionController.SessionState) {
         guard let run = extensionRun else { return }
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest,
-            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution,
+            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, clientWorkspace: run.clientWorkspace,
             methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: session, runtime: run.runtime, receivedResources: run.receivedResources,
@@ -1604,7 +1625,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest,
-            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution,
+            peerIdentity: run.peerIdentity, remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, clientWorkspace: run.clientWorkspace,
             methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: runtime, receivedResources: run.receivedResources,
@@ -1640,7 +1661,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
-            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, methods: run.methods, hostMethods: run.hostMethods,
+            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, clientWorkspace: run.clientWorkspace, methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities,
             session: run.session, runtime: run.runtime,
             receivedResources: run.receivedResources + [resource], codexEvents: run.codexEvents)
@@ -1722,7 +1743,7 @@ public final class AppModel: ObservableObject {
         extensionRun = ExtensionRun(packageID: run.packageID, packageDigest: run.packageDigest,
             command: run.command, arguments: run.arguments, decodedArguments: run.decodedArguments,
             executorDigest: run.executorDigest, peerIdentity: run.peerIdentity,
-            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, methods: run.methods, hostMethods: run.hostMethods,
+            remoteCommand: run.remoteCommand, executorExecution: run.executorExecution, clientWorkspace: run.clientWorkspace, methods: run.methods, hostMethods: run.hostMethods,
             requiredCapabilities: run.requiredCapabilities, session: run.session, runtime: run.runtime,
             receivedResources: run.receivedResources, codexEvents: run.codexEvents + [encoded])
         if event.kind == "notification" {

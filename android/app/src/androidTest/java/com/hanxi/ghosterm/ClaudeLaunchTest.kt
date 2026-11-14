@@ -84,7 +84,7 @@ class ClaudeLaunchTest {
             commands = listOf(command))
         var launched: ExtensionRelayBootstrap.Request? = null
         ui.setContent { MaterialTheme { PluginLaunchDialog(ExtensionPackagesViewModel.Entry(review), command,
-            listOf("fixture"), {}, { _, request -> launched = request }) } }
+            listOf("fixture"), {}, { _, request, _ -> launched = request }) } }
         ui.onNodeWithTag("plugin-executor-directory").performScrollTo().performTextInput("/k")
         ui.onNodeWithTag("plugin-workspace-root").performScrollTo().performTextInput("/w")
         ui.onNodeWithTag("plugin-executor-digest").performScrollTo().performTextInput("a".repeat(64))
