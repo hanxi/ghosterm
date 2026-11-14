@@ -95,6 +95,9 @@ public final class ExtensionRuntime {
     public struct Info {
         public let phase: Phase, error: Failure, cleanupError: Int32, sessionEnd: ExtensionSession.End, sessionError: Int32
         public let disposeError: Bool, engineReleased: Bool, steps: UInt64, jobs: UInt64, moduleBytes: UInt64
+        public let externalProcess: Bool, activated: Bool, childExited: Bool, probeVerified: Bool
+        public let executionError: Int32, exitCode: Int32, termSignal: Int32, groupSignalError: Int32
+        public let stdoutBytes: UInt64, stderrBytes: UInt64
     }
     public static var supportStatus: Int32 { Int32(gt_ext_runtime_support().rawValue) }
     private let owner: DispatchQueue, stopLock = NSLock()
@@ -164,7 +167,7 @@ public final class ExtensionRuntime {
                 roots: scopes.baseAddress, root_count: scopes.count, process_programs: programValues.baseAddress,
                 process_program_count: programValues.count, process_environment: environmentValues.baseAddress,
                 process_environment_count: environmentValues.count, process_lifetime_ms: config.processLifetimeMilliseconds,
-                process_output_bytes: config.processOutputBytes, invocation: invocation)
+                process_output_bytes: config.processOutputBytes, invocation: invocation, execution: nil)
             return try session.adoptRuntime(config: &c)
         } } } } }
     }
@@ -220,7 +223,7 @@ public final class ExtensionRuntime {
                 roots: values.baseAddress, root_count: values.count, process_programs: programValues.baseAddress,
                 process_program_count: programValues.count, process_environment: environmentValues.baseAddress,
                 process_environment_count: environmentValues.count, process_lifetime_ms: processLifetimeMilliseconds,
-                process_output_bytes: processOutputBytes, invocation: invocation)
+                process_output_bytes: processOutputBytes, invocation: invocation, execution: nil)
             return try session.adoptPackageRuntime(package: package, config: &c, associated: associated)
         } } } }
     }
@@ -230,7 +233,10 @@ public final class ExtensionRuntime {
         return Info(phase: Phase(rawValue: v.phase.rawValue) ?? .failed, error: Failure(rawValue: v.error.rawValue) ?? .io,
             cleanupError: Int32(v.cleanup_error.rawValue), sessionEnd: ExtensionSession.End(rawValue: v.session_end.rawValue) ?? .internal,
             sessionError: Int32(v.session_error.rawValue), disposeError: v.dispose_error, engineReleased: v.engine_released,
-            steps: v.steps, jobs: v.jobs, moduleBytes: v.module_bytes)
+            steps: v.steps, jobs: v.jobs, moduleBytes: v.module_bytes,
+            externalProcess: v.external_process, activated: v.activated, childExited: v.child_exited, probeVerified: v.probe_verified,
+            executionError: Int32(v.execution_error.rawValue), exitCode: v.exit_code, termSignal: v.term_signal,
+            groupSignalError: v.group_signal_error, stdoutBytes: v.stdout_bytes, stderrBytes: v.stderr_bytes)
     }
     /// Pulls one completed incoming resource while this Runtime owns the Session.
     /// The data is copied and its Core snapshot released on the Session owner.

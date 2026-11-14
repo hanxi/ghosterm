@@ -11,10 +11,163 @@
 
 /* A normal assertion red must still stop/reap our actual child. */
 static gt_process_runtime_t *runtime;
+static gt_ext_runtime_t *public_runtime;
+static bool public_mode;
+static int launch_host_socket = -1;
 static gt_process_jobs_t *native_jobs;
 static gt_runtime_resources_t *native_roots;
 static int cleanup_parent = -1;
 static char cleanup_root[4097];
+
+static gt_process_runtime_phase_t launch_public_phase(gt_ext_runtime_phase_t p) {
+    return p == GT_EXT_RUNTIME_CREATED  ? GT_PROCESS_RUNTIME_CREATED
+           : p == GT_EXT_RUNTIME_ACTIVE ? GT_PROCESS_RUNTIME_ACTIVE
+           : p == GT_EXT_RUNTIME_CLOSED ? GT_PROCESS_RUNTIME_CLOSED
+           : p >= GT_EXT_RUNTIME_FAILED ? GT_PROCESS_RUNTIME_STOPPING
+                                        : GT_PROCESS_RUNTIME_STARTING;
+}
+
+static gt_process_runtime_phase_t launch_step(gt_process_runtime_t *r) {
+    return public_mode ? launch_public_phase(gt_ext_runtime_step(public_runtime))
+                       : gt__process_runtime_step(r);
+}
+
+static void launch_stop(gt_process_runtime_t *r) {
+    if (public_mode) {
+        gt_ext_runtime_stop(public_runtime);
+    } else {
+        gt__process_runtime_stop(r);
+    }
+}
+
+static gt_status_t launch_destroy(gt_process_runtime_t **r) {
+    return public_mode ? gt_ext_runtime_destroy(&public_runtime) : gt__process_runtime_destroy(r);
+}
+
+static bool launch_info(gt_process_runtime_t *r, gt_process_runtime_info_t *out) {
+    if (!public_mode) {
+        return gt__process_runtime_info(r, out);
+    }
+    gt_ext_runtime_info_t v;
+    if (!gt_ext_runtime_info(public_runtime, &v)) {
+        return false;
+    }
+    CHECK(v.external_process);
+    *out = (gt_process_runtime_info_t){.phase = launch_public_phase(v.phase),
+                                       .error = v.execution_error,
+                                       .cleanup_error = v.cleanup_error,
+                                       .session_end = v.session_end,
+                                       .session_error = v.session_error,
+                                       .activated = v.activated,
+                                       .child_exited = v.child_exited,
+                                       .probe_verified = v.probe_verified,
+                                       .exit_code = v.exit_code,
+                                       .term_signal = v.term_signal,
+                                       .group_signal_error = v.group_signal_error,
+                                       .stdout_bytes = v.stdout_bytes,
+                                       .stderr_bytes = v.stderr_bytes};
+    return true;
+}
+
+static gt_status_t launch_public_open(gt_ext_session_t **session,
+                                      gt_package_snapshot_t **sdk,
+                                      const gt_process_runtime_config_t *c,
+                                      const char *package_path,
+                                      const char *sdk_path,
+                                      const char *facts,
+                                      const char *mode) {
+    int fd = open(package_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    CHECK(fd >= 0);
+    gt_ext_package_config_t capture = {fd, 1024, 4096, 16777216, 67108864};
+    gt_ext_package_t *package = NULL;
+    CHECK(gt_ext_package_open(&capture, &package) == GT_OK && !close(fd));
+    gt_ext_package_phase_t phase;
+    do {
+        phase = gt_ext_package_step(package);
+    } while (phase == GT_EXT_PACKAGE_CAPTURING);
+    CHECK(phase == GT_EXT_PACKAGE_CAPTURED);
+    gt_ext_package_check_config_t check = {.host_json = facts};
+    CHECK(gt_ext_package_check(package, &check) == GT_EXT_PACKAGE_CHECKED);
+    gt_ext_runtime_root_t roots[8];
+    for (size_t i = 0; i < c->root_count; i++) {
+        roots[i] = (gt_ext_runtime_root_t){
+            c->roots[i].id, c->roots[i].directory_fd, c->roots[i].byte_limit};
+    }
+    char names[32][129] = {{0}}, business_names[32][129] = {{0}};
+    gt_ext_process_environment_t values[32], business_values[32];
+    for (size_t i = 0; i < c->environment_count; i++) {
+        const char *equal = strchr(c->environment[i], '=');
+        CHECK(equal && equal - c->environment[i] < 129);
+        memcpy(names[i], c->environment[i], (size_t)(equal - c->environment[i]));
+        values[i] = (gt_ext_process_environment_t){names[i], equal + 1};
+    }
+    for (size_t i = 0; i < c->process.environment_count; i++) {
+        const char *equal = strchr(c->process.environment[i], '=');
+        CHECK(equal && equal - c->process.environment[i] < 129);
+        memcpy(business_names[i],
+               c->process.environment[i],
+               (size_t)(equal - c->process.environment[i]));
+        business_values[i] = (gt_ext_process_environment_t){business_names[i], equal + 1};
+    }
+    int sdk_fd = *sdk ? open(sdk_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) : -1;
+    CHECK(!*sdk || sdk_fd >= 0);
+    gt_ext_runtime_execution_t execution = {.stage_parent_fd = c->stage_parent_fd,
+                                            .stage_parent_path = c->stage_parent_path,
+                                            .execution_authorized = c->execution_authorized,
+                                            .node_executable = c->node_executable,
+                                            .node_sha256 = c->node_sha256,
+                                            .node_sdk_directory_fd = sdk_fd,
+                                            .node_sdk_catalog_sha256 = c->sdk_catalog_sha256,
+                                            .environment = values,
+                                            .environment_count = c->environment_count,
+                                            .lifetime_ms = c->lifetime_ms,
+                                            .stop_grace_ms = c->stop_grace_ms,
+                                            .stdout_bytes = c->stdout_bytes,
+                                            .stderr_bytes = c->stderr_bytes};
+    if (!*sdk) {
+        execution.node_executable = NULL;
+        execution.node_sha256 = NULL;
+        execution.node_sdk_catalog_sha256 = NULL;
+    }
+    gt_ext_runtime_config_t config = {.role = GT_EXT_EXECUTOR,
+                                      .activation_ms = c->activation_ms,
+                                      .roots = roots,
+                                      .root_count = c->root_count,
+                                      .process_programs = c->process.programs,
+                                      .process_program_count = c->process.program_count,
+                                      .process_environment = business_values,
+                                      .process_environment_count = c->process.environment_count,
+                                      .process_lifetime_ms = c->process.lifetime_ms,
+                                      .process_output_bytes = c->process.output_bytes,
+                                      .invocation = c->invocation,
+                                      .execution = &execution};
+    if (!strcmp(mode, "public-denied-sdk")) {
+        execution.execution_authorized = false;
+        execution.node_sdk_directory_fd = -1;
+    }
+    if (!strcmp(mode, "public-bad-name")) {
+        values[0].name = "PATH=INJECT";
+    }
+    if (!strcmp(mode, "public-no-execution")) {
+        config.execution = NULL;
+    }
+    if (!strcmp(mode, "public-budget")) {
+        config.memory_bytes = 16777216;
+    }
+    if (!strcmp(mode, "public-role")) {
+        config.role = GT_EXT_HOST;
+    }
+    gt_status_t status = gt_ext_runtime_open_package(
+        session, package, &config, c->command_associated, &public_runtime);
+    CHECK(gt_ext_package_destroy(&package) == GT_OK && !package);
+    if (sdk_fd >= 0) {
+        CHECK(!close(sdk_fd));
+    }
+    if (status == GT_OK && *sdk) {
+        CHECK(gt__package_snapshot_destroy(sdk) == GT_PACKAGE_OK);
+    }
+    return status;
+}
 
 static void launch_cleanup(void) {
     if (native_jobs) {
@@ -32,15 +185,14 @@ static void launch_cleanup(void) {
     if (native_roots && !native_jobs) {
         (void)gt__runtime_resources_destroy(&native_roots);
     }
-    if (runtime) {
-        gt__process_runtime_stop(runtime);
+    if (runtime || public_runtime) {
+        launch_stop(runtime);
         uint64_t until = ext_now() + 6000;
-        while (ext_now() < until &&
-               gt__process_runtime_step(runtime) != GT_PROCESS_RUNTIME_CLOSED) {
+        while (ext_now() < until && launch_step(runtime) != GT_PROCESS_RUNTIME_CLOSED) {
             struct timespec pause = {0, 1000000};
             nanosleep(&pause, NULL);
         }
-        (void)gt__process_runtime_destroy(&runtime);
+        (void)launch_destroy(&runtime);
     }
     if (cleanup_parent >= 0) {
         (void)close(cleanup_parent);
@@ -71,6 +223,7 @@ static void launch_pair(rpc_pair_t *f,
     memset(f, 0, sizeof(*f));
     int fd[2];
     CHECK(!socketpair(AF_UNIX, SOCK_STREAM, 0, fd));
+    launch_host_socket = fd[0];
     gt_ext_channel_t *h = ext_channel(fd[0]), *e = ext_channel(fd[1]);
     gt_ext_session_config_t c = ext_config();
     c.features = GT_EXT_FEATURE_REQUESTS;
@@ -193,7 +346,8 @@ static void launch_jobs_native(rpc_pair_t *f,
 
 int main(int argc, char **argv) {
     /* mode package sdk temp canonical-node node-sha sdk-catalog facts.json */
-    CHECK(argc == 9);
+    CHECK(argc == 9 || (argc == 10 && !strcmp(argv[9], "public")));
+    public_mode = argc == 10;
     CHECK(!atexit(launch_cleanup));
     const char *mode = argv[1];
     bool with_resources = !strncmp(mode, "resource-", 9) && strcmp(mode, "resource-missing");
@@ -392,7 +546,10 @@ int main(int argc, char **argv) {
         launch_jobs_native(&f, package, &workspace, &config.process);
     }
     gt_status_t status =
-        direct ? GT_OK : gt__process_runtime_open(&f.pair.e, package, &sdk, &config, &runtime);
+        direct ? GT_OK
+               : (public_mode
+                      ? launch_public_open(&f.pair.e, &sdk, &config, argv[2], argv[3], facts, mode)
+                      : gt__process_runtime_open(&f.pair.e, package, &sdk, &config, &runtime));
     bool rejected = !strcmp(mode, "denied") || !strcmp(mode, "wrong-sha") ||
                     !strcmp(mode, "bad-env") || !strcmp(mode, "bad-arguments") ||
                     !strcmp(mode, "bad-command") || !strcmp(mode, "bad-sdk") ||
@@ -400,7 +557,8 @@ int main(int argc, char **argv) {
                     !strcmp(mode, "duplicate-env") || !strcmp(mode, "node-alias") ||
                     !strcmp(mode, "resource-missing") || !strcmp(mode, "resource-bad-root") ||
                     !strcmp(mode, "resource-duplicate-root") ||
-                    !strcmp(mode, "process-bad-digest") || !strcmp(mode, "process-missing");
+                    !strcmp(mode, "process-bad-digest") || !strcmp(mode, "process-missing") ||
+                    !strncmp(mode, "public-", 7);
     if (direct) {
         CHECK(!runtime && f.pair.e == original && sdk == original_sdk);
     } else if (rejected) {
@@ -416,20 +574,26 @@ int main(int argc, char **argv) {
         if (!strcmp(mode, "process-bad-digest")) {
             expected = GT_ERR_AUTH;
         }
-        CHECK(status == expected && !runtime && f.pair.e == original && sdk == original_sdk);
+        if (!strncmp(mode, "public-", 7)) {
+            expected = !strcmp(mode, "public-denied-sdk") ? GT_ERR_AUTH
+                       : !strcmp(mode, "public-bad-name") ? GT_ERR_INVALID_ARG
+                                                          : GT_ERR_UNSUPPORTED;
+        }
+        CHECK(status == expected && !public_runtime && !runtime && f.pair.e == original &&
+              sdk == original_sdk);
         CHECK(gt_ext_session_access(original, &f.e, "session.rpc") == GT_EXT_ACCESS_ALLOWED);
     } else {
-        CHECK(status == GT_OK && runtime && !f.pair.e && (!node || !sdk));
+        CHECK(status == GT_OK && (runtime || public_runtime) && !f.pair.e && (!node || !sdk));
         if (with_resources || with_process) {
             CHECK(!close(file.root));
             file.root = -1;
         }
-        CHECK(gt__process_runtime_destroy(&runtime) == GT_ERR_INVALID_ARG && runtime);
+        CHECK(launch_destroy(&runtime) == GT_ERR_INVALID_ARG && (runtime || public_runtime));
         if (!strcmp(mode, "retained")) {
             CHECK(gt__package_checked_destroy(&package) == GT_PACKAGE_OK);
         }
         if (!strcmp(mode, "stop-created")) {
-            gt__process_runtime_stop(runtime);
+            launch_stop(runtime);
         }
         if (!strcmp(mode, "frozen")) {
             char path[4097];
@@ -446,11 +610,12 @@ int main(int argc, char **argv) {
         }
         gt_process_runtime_info_t info = {0};
         uint64_t handle = 0;
-        bool roundtrip = !strcmp(mode, "roundtrip") || !strcmp(mode, "retained") ||
-                         !strcmp(mode, "frozen") || !strcmp(mode, "busy") ||
-                         !strcmp(mode, "stubborn") || !strcmp(mode, "sdk-frozen") ||
-                         !strcmp(mode, "argument-boundary") || !strcmp(mode, "stderr-eof") ||
-                         !strcmp(mode, "resource-roundtrip") || !strcmp(mode, "resource-unicode") ||
+        bool roundtrip = !strcmp(mode, "close-public") || !strcmp(mode, "roundtrip") ||
+                         !strcmp(mode, "retained") || !strcmp(mode, "frozen") ||
+                         !strcmp(mode, "busy") || !strcmp(mode, "stubborn") ||
+                         !strcmp(mode, "sdk-frozen") || !strcmp(mode, "argument-boundary") ||
+                         !strcmp(mode, "stderr-eof") || !strcmp(mode, "resource-roundtrip") ||
+                         !strcmp(mode, "resource-unicode") ||
                          (with_process && strcmp(mode, "process-stop") &&
                           strcmp(mode, "process-extra-field") && strcmp(mode, "process-bad-hex"));
         bool stopping = !strcmp(mode, "stop-created"), completed = false;
@@ -462,7 +627,7 @@ int main(int argc, char **argv) {
             if (host_resources) {
                 gt__runtime_resources_step(host_resources);
                 if (!strcmp(mode, "resource-stop") && res_usage(&hs).reserved_bytes) {
-                    gt__process_runtime_stop(runtime);
+                    launch_stop(runtime);
                     stopping = true;
                 }
                 uint64_t pin;
@@ -501,21 +666,26 @@ int main(int argc, char **argv) {
                               &host_publication) == GT_RUNTIME_RESOURCE_OK);
                 }
             }
-            gt__process_runtime_step(runtime);
-            CHECK(gt__process_runtime_info(runtime, &info));
+            launch_step(runtime);
+            CHECK(launch_info(runtime, &info));
             if (info.phase == GT_PROCESS_RUNTIME_CLOSED) {
                 break;
             }
+            if (!strcmp(mode, "peer-loss") && info.phase == GT_PROCESS_RUNTIME_ACTIVE &&
+                !stopping) {
+                CHECK(!shutdown(launch_host_socket, SHUT_RDWR));
+                stopping = true;
+            }
             if (!strcmp(mode, "process-stop") && info.stderr_bytes && !stopping) {
-                gt__process_runtime_stop(runtime);
+                launch_stop(runtime);
                 stopping = true;
             }
             if (!stopping && info.phase == GT_PROCESS_RUNTIME_ACTIVE) {
                 if (!strcmp(mode, "busy") && info.stderr_bytes) {
-                    gt__process_runtime_stop(runtime);
+                    launch_stop(runtime);
                     stopping = true;
                 } else if (!strcmp(mode, "stubborn")) {
-                    gt__process_runtime_stop(runtime);
+                    launch_stop(runtime);
                     stopping = true;
                 } else if (roundtrip && !handle) {
                     CHECK(!node || info.probe_verified);
@@ -532,7 +702,16 @@ int main(int argc, char **argv) {
                         CHECK(gt_ext_session_forget_request(f.pair.h, &f.h, handle) ==
                               GT_EXT_RPC_OK);
                         completed = true;
-                        gt__process_runtime_stop(runtime);
+                        if (public_mode && !strcmp(mode, "close-public")) {
+                            gt_ext_close_t close = gt_ext_runtime_close(public_runtime);
+                            gt_ext_runtime_info_t v;
+                            CHECK(gt_ext_runtime_info(public_runtime, &v));
+                            CHECK(close != GT_EXT_RELEASED ||
+                                  (v.phase == GT_EXT_RUNTIME_CLOSED && v.engine_released &&
+                                   v.child_exited));
+                        } else {
+                            launch_stop(runtime);
+                        }
                         stopping = true;
                     }
                 }
@@ -541,10 +720,10 @@ int main(int argc, char **argv) {
             nanosleep(&pause, NULL);
         }
         if (info.phase != GT_PROCESS_RUNTIME_CLOSED) {
-            gt__process_runtime_stop(runtime);
+            launch_stop(runtime);
             for (size_t i = 0; i < 5000 && info.phase != GT_PROCESS_RUNTIME_CLOSED; i++) {
-                gt__process_runtime_step(runtime);
-                gt__process_runtime_info(runtime, &info);
+                launch_step(runtime);
+                launch_info(runtime, &info);
                 struct timespec pause = {0, 1000000};
                 nanosleep(&pause, NULL);
             }
@@ -607,6 +786,15 @@ int main(int argc, char **argv) {
         if (!strcmp(mode, "busy") || !strcmp(mode, "stubborn")) {
             CHECK(info.child_exited && info.term_signal == SIGKILL);
         }
+        if (!strcmp(mode, "peer-loss")) {
+            CHECK(info.activated && info.child_exited && info.session_end == GT_EXT_END_LOST &&
+                  info.session_error != GT_OK &&
+                  (info.term_signal == 0 || info.term_signal == SIGTERM));
+        }
+        if (!strcmp(mode, "unsupported")) {
+            CHECK(!info.activated && info.child_exited && info.exit_code == 77 &&
+                  !info.term_signal && info.error == GT_ERR_UNSUPPORTED);
+        }
         if (!strcmp(mode, "wrong-version")) {
             CHECK(!info.activated && info.error == GT_ERR_AUTH);
         }
@@ -634,7 +822,7 @@ int main(int argc, char **argv) {
         if (!strcmp(mode, "stdout-limit") || !strcmp(mode, "stderr-limit")) {
             CHECK(info.error == GT_ERR_IO);
         }
-        CHECK(gt__process_runtime_destroy(&runtime) == GT_OK && !runtime);
+        CHECK(launch_destroy(&runtime) == GT_OK && !runtime && !public_runtime);
     }
     if (sdk) {
         CHECK(gt__package_snapshot_destroy(&sdk) == GT_PACKAGE_OK);

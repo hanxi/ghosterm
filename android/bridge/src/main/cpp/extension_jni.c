@@ -2444,7 +2444,8 @@ static jlongArray runtime_open(JNIEnv *e,
                                      .process_environment_count = 0,
                                      .process_lifetime_ms = 0,
                                      .process_output_bytes = 0,
-                                     .invocation = command ? &invocation : NULL};
+                                     .invocation = command ? &invocation : NULL,
+                                     .execution = NULL};
         extension_slot_t *p = package_id ? package_pin(e, package_id, true, false) : NULL;
         if (package_id && !p) {
             goto done;
@@ -2604,7 +2605,7 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_ste
 JNIEXPORT jlongArray JNICALL
 Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_info(JNIEnv *e, jobject self, jlong id) {
     (void)self;
-    jlongArray result = (*e)->NewLongArray(e, 10);
+    jlongArray result = (*e)->NewLongArray(e, 20);
     if (!result) {
         return NULL;
     }
@@ -2619,7 +2620,7 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_info(JNIEnv *e, jobject se
         extension_error(e, "运行时观察无效");
         return NULL;
     }
-    jlong values[10] = {i.phase,
+    jlong values[20] = {i.phase,
                         i.error,
                         i.cleanup_error,
                         i.session_end,
@@ -2628,8 +2629,18 @@ Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_info(JNIEnv *e, jobject se
                         i.engine_released,
                         (jlong)i.steps,
                         (jlong)i.jobs,
-                        (jlong)i.module_bytes};
-    (*e)->SetLongArrayRegion(e, result, 0, 10, values);
+                        (jlong)i.module_bytes,
+                        i.external_process,
+                        i.activated,
+                        i.child_exited,
+                        i.probe_verified,
+                        i.execution_error,
+                        i.exit_code,
+                        i.term_signal,
+                        i.group_signal_error,
+                        (jlong)i.stdout_bytes,
+                        (jlong)i.stderr_bytes};
+    (*e)->SetLongArrayRegion(e, result, 0, 20, values);
     return result;
 }
 

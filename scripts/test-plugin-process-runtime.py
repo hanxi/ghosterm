@@ -26,6 +26,23 @@ NODE_RESOURCE = 'packages/plugin-sdk/node/resources.ts'
 JOBS = 'core/src/extension/process-jobs.c'
 JOBS_RPC = 'core/src/extension/process-jobs-rpc.inc'
 NODE_PROCESS = 'packages/plugin-sdk/node/process.ts'
+RUNTIME_API = 'core/src/extension/runtime-api.c'
+RUNTIME_PROCESS_API = 'core/src/extension/runtime-process-api.inc'
+FACADE_CASES = [
+    ('facade-dispatch', RUNTIME_API, 'if (config->execution) {', 'if (false && config->execution) {', 'node:roundtrip'),
+    ('facade-role', RUNTIME_PROCESS_API, 'config->role != GT_EXT_EXECUTOR ||', 'false ||', 'node:public-role'),
+    ('facade-budgets', RUNTIME_PROCESS_API, 'if (config->memory_bytes || config->stack_bytes || config->cpu_ms || config->jobs_per_step)', 'if (false && (config->memory_bytes || config->stack_bytes || config->cpu_ms || config->jobs_per_step))', 'node:public-budget'),
+    ('facade-approval-before-sdk', RUNTIME_PROCESS_API, 'if (!e->execution_authorized)', 'if (false && !e->execution_authorized)', 'node:public-denied-sdk'),
+    ('facade-environment-name', RUNTIME_PROCESS_API, "if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' ||\n                  (k && c >= '0' && c <= '9')))", "if (false && !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' ||\n                  (k && c >= '0' && c <= '9')))", 'node:public-bad-name'),
+    ('facade-sdk-scope', RUNTIME_PROCESS_API, 'e->node_sdk_directory_fd, 1024, 4096, 16777216, 67108864', 'e->stage_parent_fd, 1024, 4096, 16777216, 67108864', 'node:roundtrip'),
+    ('facade-environment', RUNTIME_PROCESS_API, '.environment_count = e->environment_count,', '.environment_count = 0,', 'node:roundtrip'),
+    ('facade-session-error', RUNTIME_PROCESS_API, 'out->session_error = i.session_error;', 'out->session_error = GT_OK;', 'node:peer-loss'),
+    ('facade-error', RUNTIME_PROCESS_API, 'out->execution_error = i.error;', 'out->execution_error = GT_OK;', 'node:wrong-version'),
+    ('facade-activation', RUNTIME_PROCESS_API, 'out->activated = i.activated;', 'out->activated = false;', 'node:roundtrip'),
+    ('facade-exit', RUNTIME_PROCESS_API, 'out->child_exited = i.child_exited;', 'out->child_exited = false;', 'node:roundtrip'),
+    ('facade-stop', RUNTIME_API, 'gt__process_runtime_stop(r->process);', '(void)r->process;', 'node:stop-created'),
+    ('facade-close', RUNTIME_API, 'return r->process ? gt__process_runtime_close(r->process) : GT_EXT_RELEASED;', 'return GT_EXT_RELEASED;', 'node:close-public'),
+]
 PROCESS_CASES = [
     ('jobs-write-grant', JOBS, '!jobs_live(j) || s->stopping', 's->stopping', 'node:process-native'),
     ('jobs-read-grant', JOBS, 'if (!jobs_live(j)) {\n        return (gt_ext_process_io_t){GT_EXT_PROCESS_CLOSED', 'if (false && !jobs_live(j)) {\n        return (gt_ext_process_io_t){GT_EXT_PROCESS_CLOSED', 'node:process-native'),
@@ -74,6 +91,8 @@ RESOURCE_CASES = [
     ('node-resource-error-bytes', NODE_RESOURCE, '(s !== "ok" && v.hex.length)', 'false', 'unit:errorBytes'),
 ]
 CASES = [
+    ('unsupported-exit', SOURCE, 'r->eof_stop && process.exit_code == 77', 'false && process.exit_code == 77', 'exec:unsupported'),
+    ('session-error', SOURCE, 'r->info.session_error = session.error;', 'r->info.session_error = GT_OK;', 'node:peer-loss'),
     ('execution-approval', SOURCE, '!c->execution_authorized', 'false', 'exec:denied'),
     ('package-identity', SOURCE, 'info.id,', '"org.ghosterm.bad",', 'exec:wrong-identity'),
     ('sdk-identity', SOURCE, 'strcmp(digest, c->sdk_catalog_sha256)', 'false', 'node:bad-sdk'),
@@ -148,12 +167,17 @@ def main():
     p.add_argument('--node', type=Path, required=True)
     p.add_argument('--tools', type=Path, required=True)
     p.add_argument('--mutate', action='store_true')
+    p.add_argument('--facade', action='store_true', help='public facade mutations; requires --public')
+    p.add_argument('--public', action='store_true', help='public opaque Runtime facade instead of private controller')
     p.add_argument('--processes', action='store_true', help='native/Node process service faults')
     p.add_argument('--resources', action='store_true', help='include native/Node resource faults and choose resource mutations')
     p.add_argument('--case', action='append')
     args = p.parse_args()
     if args.resources and args.processes: p.error('choose one mutation family')
-    available = PROCESS_CASES if args.processes else RESOURCE_CASES if args.resources else CASES
+    if args.facade and (not args.public or args.processes or args.resources): p.error('--facade requires --public and its own mutation family')
+    if args.public and args.mutate and not (args.facade or args.resources or args.processes):
+        p.error('public facade defenses also block private-only faults; use --facade or run the legacy family without --public')
+    available = FACADE_CASES if args.facade else PROCESS_CASES if args.processes else RESOURCE_CASES if args.resources else CASES
     if args.case and (not args.mutate or set(args.case) - {c[0] for c in available}):
         p.error('--case requires --mutate and known groups')
     node, tools = args.node.resolve(strict=True), args.tools.resolve(strict=True)
@@ -222,6 +246,7 @@ def main():
 
         def rebuild(label, changed=None):
             if changed in (RESOURCE, JOBS_RPC): changed = 'core/src/extension/process-rpc.c'
+            if changed == RUNTIME_PROCESS_API: changed = RUNTIME_API
             if changed:
                 (build / ('CMakeFiles/ghosterm_core.dir/' + changed.removeprefix('core/') + '.o')).unlink(missing_ok=True)
             binaries = ['test_process_runtime', 'test_process_runtime_peer', 'test_process_resources', 'test_config']
@@ -305,7 +330,7 @@ def main():
             fact_file = fixture / 'facts.json'
             fact_file.write_text(json.dumps(facts))
             try:
-                run(label, [build / 'test_process_runtime', mode, package, fixed_sdk, temp, node, node_sha, sdk_digest, fact_file], red)
+                run(label, [build / 'test_process_runtime', mode, package, fixed_sdk, temp, node, node_sha, sdk_digest, fact_file, *(['public'] if args.public else [])], red)
                 if red:
                     # C atexit stops/reaps its actual child. Left-over native
                     # fixture roots/stores are private to this test invocation.
@@ -332,7 +357,9 @@ def main():
         baseline += ['node:resource-roundtrip', 'node:resource-unicode', 'node:resource-stop', 'node:resource-missing', 'node:resource-bad-root', 'node:resource-duplicate-root']
         baseline += ['exec:resource-roundtrip']
         baseline += ['node:'+m for m in ['process-roundtrip','process-deadline','process-output','process-cancel','process-capacity','process-stop','process-bad-digest','process-missing','process-native','process-first-reason']]
+        baseline += ['node:peer-loss','exec:peer-loss','exec:unsupported']
         baseline += ['exec:process-roundtrip','exec:process-extra-field','exec:process-bad-hex']
+        if args.public: baseline += ['node:public-no-execution','node:public-budget','node:public-role','node:public-denied-sdk','node:public-bad-name','node:close-public']
         for spec in baseline:
             target('baseline-' + spec.replace(':', '-'), spec)
             print(spec + ': PASS', flush=True)

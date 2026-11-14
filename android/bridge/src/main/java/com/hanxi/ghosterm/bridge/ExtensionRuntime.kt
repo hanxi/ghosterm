@@ -18,7 +18,10 @@ class ExtensionRuntime private constructor(private val worker: Thread,
         val jobsPerStep: Int = 0, val activationMilliseconds: Int = 0, val roots: List<WorkspaceRoot> = emptyList(), val invocation: Invocation? = null)
     data class Info(val phase: Phase, val error: Failure, val cleanupError: Int, val sessionEnd: ExtensionSession.End,
         val sessionError: Int, val disposeError: Boolean, val engineReleased: Boolean,
-        val steps: ULong, val jobs: ULong, val moduleBytes: ULong)
+        val steps: ULong, val jobs: ULong, val moduleBytes: ULong,
+        val externalProcess: Boolean, val activated: Boolean, val childExited: Boolean, val probeVerified: Boolean,
+        val executionError: Int, val exitCode: Int, val termSignal: Int, val groupSignalError: Int,
+        val stdoutBytes: ULong, val stderrBytes: ULong)
     @Volatile private var handle = 0L
     private fun owner() {
         check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper() && handle != 0L) {
@@ -27,10 +30,12 @@ class ExtensionRuntime private constructor(private val worker: Thread,
     }
     fun step(): Phase { owner(); return Phase.entries[NativeExtensionRuntime.step(handle)] }
     fun info(): Info {
-        owner(); val v = NativeExtensionRuntime.info(handle); check(v.size == 10)
+        owner(); val v = NativeExtensionRuntime.info(handle); check(v.size == 20)
         return Info(Phase.entries[v[0].toInt()], Failure.entries[v[1].toInt()], v[2].toInt(),
             ExtensionSession.End.entries[v[3].toInt()], v[4].toInt(), v[5] != 0L, v[6] != 0L,
-            v[7].toULong(), v[8].toULong(), v[9].toULong())
+            v[7].toULong(), v[8].toULong(), v[9].toULong(),
+            v[10] != 0L, v[11] != 0L, v[12] != 0L, v[13] != 0L,
+            v[14].toInt(), v[15].toInt(), v[16].toInt(), v[17].toInt(), v[18].toULong(), v[19].toULong())
     }
     fun takeResourceData(maxBytes: Long = 262144): Pair<ExtensionResourceStore.Status, ExtensionResourceStore.Content?> {
         owner(); require(maxBytes in 0..1048576)

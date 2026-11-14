@@ -39,6 +39,7 @@ typedef struct {
     gt_process_runtime_phase_t phase;
     gt_status_t error, cleanup_error;
     gt_ext_session_end_t session_end;
+    gt_status_t session_error;
     bool activated, child_exited, probe_verified;
     int exit_code, term_signal;
     int group_signal_error; /* first errno after known executor/business leader exit */

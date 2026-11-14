@@ -2,12 +2,17 @@
 #include "ghosterm/extension_runtime.h"
 #include "extension/runtime.h"
 #include "extension/package-owner.h"
+#include "extension/process-runtime.h"
 #include "base/secure-random.h"
 #include <stdlib.h>
 #include <string.h>
 
 struct gt_ext_runtime {
     gt_bridge_runtime_t *inner;
+    gt_process_runtime_t *process;
+    bool process_mode;
+    uint64_t process_steps;
+    gt_ext_runtime_info_t final_process_info;
 };
 
 static gt_ext_runtime_phase_t ext_runtime_phase(gt_runtime_phase_t phase) {
@@ -52,6 +57,8 @@ static gt_ext_runtime_error_t ext_runtime_error(gt_runtime_error_t error) {
     return GT_EXT_RUNTIME_IO;
 }
 
+#include "extension/runtime-process-api.inc"
+
 gt_status_t gt_ext_runtime_support(void) {
 #ifdef GT_HAVE_PLUGIN_JS
     return GT_OK;
@@ -84,7 +91,7 @@ gt_status_t gt_ext_runtime_open(gt_ext_session_t **session,
         config->process_output_bytes > GT_EXT_RUNTIME_PROCESS_OUTPUT_BYTES_MAX) {
         return GT_ERR_INVALID_ARG;
     }
-    if (config->process_program_count || config->process_environment_count ||
+    if (config->execution || config->process_program_count || config->process_environment_count ||
         config->process_lifetime_ms || config->process_output_bytes) {
         return GT_ERR_UNSUPPORTED;
     }
@@ -154,6 +161,9 @@ gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,
     if (atomic_load_explicit(&package->stopped, memory_order_relaxed)) {
         return GT_ERR_CANCELLED;
     }
+    if (config->execution) {
+        return runtime_process_open(session, package, config, associated, out);
+    }
     gt_runtime_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX];
     for (size_t i = 0; i < config->root_count; i++) {
         roots[i] = (gt_runtime_root_t){
@@ -190,6 +200,16 @@ gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,
 }
 
 gt_ext_runtime_phase_t gt_ext_runtime_step(gt_ext_runtime_t *r) {
+    if (r && r->process_mode) {
+        if (r->process_steps != UINT64_MAX) {
+            r->process_steps++;
+        }
+        if (r->process) {
+            gt__process_runtime_step(r->process);
+        }
+        gt_ext_runtime_info_t info;
+        return runtime_process_info(r, &info) ? info.phase : GT_EXT_RUNTIME_FAILED;
+    }
     return r ? ext_runtime_phase(gt__bridge_runtime_step(r->inner)) : GT_EXT_RUNTIME_CLOSED;
 }
 
@@ -199,6 +219,9 @@ bool gt_ext_runtime_info(const gt_ext_runtime_t *r, gt_ext_runtime_info_t *out) 
     }
     if (!r || !out) {
         return false;
+    }
+    if (r->process_mode) {
+        return runtime_process_info(r, out);
     }
     gt_runtime_info_t i;
     if (!gt__bridge_runtime_info(r->inner, &i)) {
@@ -219,11 +242,18 @@ bool gt_ext_runtime_info(const gt_ext_runtime_t *r, gt_ext_runtime_info_t *out) 
 
 void gt_ext_runtime_stop(gt_ext_runtime_t *r) {
     if (r) {
-        gt__bridge_runtime_stop(r->inner);
+        if (r->process_mode) {
+            gt__process_runtime_stop(r->process);
+        } else {
+            gt__bridge_runtime_stop(r->inner);
+        }
     }
 }
 
 gt_ext_close_t gt_ext_runtime_close(gt_ext_runtime_t *r) {
+    if (r && r->process_mode) {
+        return r->process ? gt__process_runtime_close(r->process) : GT_EXT_RELEASED;
+    }
     return r ? gt__bridge_runtime_close(r->inner) : GT_EXT_CLOSE_ERROR;
 }
 
@@ -232,7 +262,22 @@ gt_status_t gt_ext_runtime_destroy(gt_ext_runtime_t **out) {
         return GT_ERR_INVALID_ARG;
     }
     gt_ext_runtime_t *r = *out;
-    gt_status_t status = gt__bridge_runtime_destroy(&r->inner);
+    gt_status_t status;
+    if (r->process_mode) {
+        if (r->process) {
+            if (!runtime_process_info(r, &r->final_process_info)) {
+                return GT_ERR_IO;
+            }
+            status = gt__process_runtime_destroy(&r->process);
+            if (!r->process && status != GT_OK) {
+                r->final_process_info.cleanup_error = status;
+            }
+        } else {
+            status = GT_OK;
+        }
+    } else {
+        status = gt__bridge_runtime_destroy(&r->inner);
+    }
     if (status != GT_OK) {
         return status;
     }

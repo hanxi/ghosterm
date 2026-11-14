@@ -1,7 +1,7 @@
 # gterm 前台 CLI
 
 独立构件，不加入 Ghosterm App 包、不安装远端 helper、不修改 shell 配置。
-当前接入诊断、固定包兼容性检查及显式 stdio Executor；普通命令分发、本机 IPC、安装/升级仍未实现。
+当前接入诊断、固定包兼容性检查及显式 Portable / Node / Exec stdio Executor；普通命令分发、本机 IPC、安装/升级仍未实现。
 它不内置业务命令，未接分发的顶层命令返回 `COMMAND_ACTIVATION_UNAVAILABLE`。
 
 从仓库根目录构建（产物在工程 `tmp/`）：
@@ -51,6 +51,7 @@ python3 scripts/mutation-check-gterm.py
 gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 [--method NAME]... [--host-method NAME]... [--root ID DIRECTORY]... [--process-program NAME ABSOLUTE_PATH VERSION SHA256]... [--process-argument NAME VALUE]... [--process-environment NAME]... -- DIRECTORY COMMAND [ARG...]
 ```
 
+默认运行档仍为 Portable；Node / Exec 的显式配置见下节。
 这是当前的前台启动协议，不是向交互终端写回的通道；stdin/stdout 任一为 TTY 都拒绝。
 stdout 只传 Core 协议，诊断只到 stderr，且不记录参数、模块异常文本或授权 token。
 Host 必须管理专属 stdio 的对端归属；本入口不实现本机 socket 认证、发现或后台服务。
@@ -80,7 +81,7 @@ Core 复制全部字符串，在插件 argv[0] 后、插件 argv[1...] 前插入
 
 例如，持有已审查 Node 后端与 profile 的可信启动器可将程序名映射到绝对 Node 可执行文件，
 固定脚本、`--profile` 与 profile 路径，再显式选择后端所需的执行端环境。此为 Portable
-Supervisor 调用外部 Node 进程的接缝，不等于 gterm 已实现通用 `runtime: node` 包加载。
+Supervisor 调用外部 Node 进程的接缝；直接运行 `runtime: node` 包使用下面的独立运行档选择。
 真实原生 HOST Session → gterm → Node → 锁版 Claude CLI 的无模型 conformance：
 
 ```sh
@@ -144,3 +145,34 @@ gterm plugin resolve --host-json host.json --select org.example.ai DIGEST_A -- '
 python3 scripts/test-gterm-resolve.py --binary tmp/gterm-build/gterm
 python3 scripts/mutation-check-gterm.py --resolve
 ```
+
+
+通用 Node / Exec 开发运行档使用相同的固定包检查、命令参数解码、Host Session 批准和公开 runtime 门面。它们仍要求 JS-enabled 构建用于包校验；`doctor` 的引擎支持结果不能证明 Node 已安装或某个包可执行。必须显式选择运行档并批准本次 OS 执行，不自动探测、下载或切换后端：
+
+```text
+gterm relay --stdio --runtime node --allow-process-execution \
+  --node-runtime ABSOLUTE_NODE_PATH VERSION NODE_SHA256 \
+  --node-sdk HOST_SDK_DIRECTORY SDK_CATALOG_SHA256 \
+  --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 \
+  --method METHOD -- DIRECTORY COMMAND [ARG...]
+
+gterm relay --stdio --runtime exec --allow-process-execution \
+  --trust-development-digest PACKAGE_SHA256 --client-digest CLIENT_SHA256 \
+  --method METHOD -- DIRECTORY COMMAND [ARG...]
+```
+
+Node 的 VERSION 不带 `v`，由 Native Host 的显式配置提供；Core 会以空环境运行固定 Node 的 `--version`，必须与已检查包的版本观察精确一致。Node 路径须为规范绝对路径，Core 校验实际 SHA-256。Host SDK 不是插件自带模块；可用 `node scripts/build-plugin-node-sdk.mjs --tools 锁定开发工具目录 --out tmp/新目录` 构建，使用输出的 `catalog=` 摘要。Core 只读捕获该目录、核对独立摘要，再与固定包一起暂存；不重新读取原包入口。Exec 仅运行完整性已核验、与本机 OS / 架构匹配的包内二进制，不接受 Node 依赖参数。
+
+`--allow-process-execution` 是本机可信启动器对主运行进程的明确选择，与包的 `process.spawn` 业务能力、命令关联和 Host Session 批准分别校验。缺少批准在握手前退出 6；缺少依赖参数 / SDK 目录或运行进程报告不支持时退出 4，配置存在但固定文件核验失败或激活失败沿用非零退出；不会运行 Portable 兜底。Node / Exec 同样支持 `--root`、`--process-program` / 固定参数、选定环境与 `ResourceBroker`；业务子进程仍受 manifest scope 和实时授权约束。主进程仅收到同一套明确选定的环境，未选变量不继承。
+
+进程运行档要求显式绝对 `TMPDIR`，在其下建立当前用户私有 0700 暂存父目录；Core 完成实际 child reap 和资源关闭后删除。默认主进程激活期限 10 秒、总期限 60 秒、协议 stdout 16 MiB、stderr 64 KiB；业务子进程另外默认每个 60 秒、实例 stdout / stderr 合计 1 MiB、最多八个保留 child。管道每消息最多 3072 二进制字节，允许正常短读 / 短写；argv 受 8 KiB 私有消息和原参数预算共同约束。进程组信号错误与 leader 退出分开保留，相关 errno 输出为数字诊断；退出 0 仍只说明实例曾激活并由对端有序结束，不证明业务成功或后代树完整回收。这里没有 OS 沙箱或整进程 RSS / CPU 预算承诺。
+
+验证只使用一次性本机目录与真实 Native HOST Session / Node / Exec，不连接账户、模型或用户项目：
+
+```sh
+python3 scripts/test-gterm-process.py --build tmp/gterm-build --node 已安装Node路径 --sdk 已构建HostSDK目录
+python3 scripts/mutation-check-gterm-process.py --node 已安装Node路径 --sdk 已构建HostSDK目录
+python3 scripts/test-plugin-process-runtime.py --node 已安装Node路径 --tools 锁定工具目录 --public --facade --mutate
+```
+
+Swift / JNI 已同步公共配置布局和进程事实观察，但 App 的依赖选择、启动参数和 Node / Exec 产品入口仍未接；默认 App 插件开关保持原状态。运行档构件和 Host SDK 不加入 App 打包。

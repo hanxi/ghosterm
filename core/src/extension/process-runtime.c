@@ -51,7 +51,7 @@ struct gt_process_runtime {
     uint8_t input[16384], output[8196];
     size_t input_at, input_size, output_at, output_size;
     uint64_t began, stop_at, activation_ms, lifetime_ms, grace_ms, stdout_limit, stderr_limit;
-    bool node, root_created, probing, killed, stdout_eof, stderr_eof;
+    bool node, root_created, probing, killed, stdout_eof, stderr_eof, eof_stop;
 };
 
 static bool runtime_now(uint64_t *out) {
@@ -188,6 +188,7 @@ static void runtime_fail(gt_process_runtime_t *r, gt_status_t error, uint64_t no
     gt_ext_session_info_t session;
     if (gt_ext_session_info(r->session, &session)) {
         r->info.session_end = session.end;
+        r->info.session_error = session.error;
     }
     gt_ext_session_revoke(r->session);
     gt__runtime_resources_stop(r->resources);
@@ -817,6 +818,7 @@ static void runtime_cleanup(gt_process_runtime_t *r) {
         gt_ext_session_info_t info;
         if (gt_ext_session_info(r->session, &info) && r->info.session_end == GT_EXT_END_NONE) {
             r->info.session_end = info.end;
+            r->info.session_error = info.error;
         }
         if (gt_ext_session_destroy(&r->session) != GT_OK) {
             r->info.cleanup_error = GT_ERR_IO;
@@ -955,7 +957,10 @@ gt_process_runtime_phase_t gt__process_runtime_step(gt_process_runtime_t *r) {
             if (status != GT_OK) {
                 runtime_fail(r, status, now);
             }
-            if (r->stdout_eof) {
+            if (r->stdout_eof && r->info.phase < GT_PROCESS_RUNTIME_STOPPING) {
+                /* A clean pipe EOF starts shutdown, but its exit classification
+                 * is provisional until the actual child status is reaped. */
+                r->eof_stop = true;
                 runtime_fail(r, GT_ERR_IO, now);
             }
             if (gt__process_rpc_activated(r->rpc) && r->info.phase < GT_PROCESS_RUNTIME_STOPPING) {
@@ -995,6 +1000,10 @@ gt_process_runtime_phase_t gt__process_runtime_step(gt_process_runtime_t *r) {
                 r->info.child_exited = true;
                 r->info.exit_code = process.exit_code;
                 r->info.term_signal = process.term_signal;
+                if (r->eof_stop && process.exit_code == 77 && !process.term_signal &&
+                    r->info.error == GT_ERR_IO) {
+                    r->info.error = GT_ERR_UNSUPPORTED;
+                }
                 runtime_fail(r, process.exit_code == 77 ? GT_ERR_UNSUPPORTED : GT_ERR_IO, now);
             }
         }

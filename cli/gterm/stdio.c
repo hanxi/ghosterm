@@ -143,7 +143,7 @@ static bool close_owners(gt_ext_runtime_t **runtime,
     bool ok = true;
     if (*runtime) {
         gt_ext_runtime_stop(*runtime);
-        for (unsigned i = 0; i < 100; i++) {
+        for (unsigned i = 0; i < 10000; i++) {
             if (gt_ext_runtime_close(*runtime) == GT_EXT_RELEASED) {
                 break;
             }
@@ -151,6 +151,10 @@ static bool close_owners(gt_ext_runtime_t **runtime,
         }
         gt_ext_runtime_info_t info;
         bool observed = gt_ext_runtime_info(*runtime, &info);
+        if (observed && info.external_process && info.group_signal_error) {
+            fprintf(
+                stderr, "gterm: exited process group signal errno=%d\n", info.group_signal_error);
+        }
         if (gt_ext_runtime_destroy(runtime) != GT_OK || !observed || info.dispose_error ||
             info.cleanup_error != GT_OK) {
             ok = false;
@@ -198,6 +202,10 @@ static bool close_owners(gt_ext_runtime_t **runtime,
 
 int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     const char *trusted = NULL, *client = NULL;
+    const char *runtime_name = NULL, *node_executable = NULL, *node_version = NULL,
+               *node_sha = NULL;
+    const char *sdk_directory = NULL, *sdk_sha = NULL;
+    bool execution_authorized = false;
     gt_ext_rpc_method_t methods[GT_EXT_RPC_METHODS_MAX] = {0};
     process_program_t process_programs[GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX] = {0};
     source_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
@@ -213,6 +221,41 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     size_t root_count = 0;
     int at = 0;
     for (; at < argc && strcmp(argv[at], "--");) {
+        if (!strcmp(argv[at], "--allow-process-execution")) {
+            if (execution_authorized) {
+                return diagnostic("duplicate execution approval", 2);
+            }
+            execution_authorized = true;
+            at++;
+            continue;
+        }
+        if (!strcmp(argv[at], "--runtime")) {
+            if (runtime_name || at + 1 >= argc) {
+                return diagnostic("missing or duplicate runtime", 2);
+            }
+            runtime_name = argv[at + 1];
+            at += 2;
+            continue;
+        }
+        if (!strcmp(argv[at], "--node-runtime")) {
+            if (node_executable || at + 3 >= argc) {
+                return diagnostic("missing or duplicate Node identity", 2);
+            }
+            node_executable = argv[at + 1];
+            node_version = argv[at + 2];
+            node_sha = argv[at + 3];
+            at += 4;
+            continue;
+        }
+        if (!strcmp(argv[at], "--node-sdk")) {
+            if (sdk_directory || at + 2 >= argc) {
+                return diagnostic("missing or duplicate Host SDK", 2);
+            }
+            sdk_directory = argv[at + 1];
+            sdk_sha = argv[at + 2];
+            at += 3;
+            continue;
+        }
         if (!strcmp(argv[at], "--root")) {
             if (at + 2 >= argc || root_count == GT_EXT_RUNTIME_ROOTS_MAX) {
                 return diagnostic("missing or excess resource root", 2);
@@ -307,6 +350,46 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     if (gt_ext_runtime_support() != GT_OK) {
         return diagnostic("portable JS is unsupported", 4);
     }
+    if (!runtime_name) {
+        runtime_name = "portable-js";
+    }
+    bool external = strcmp(runtime_name, "portable-js") != 0, node = !strcmp(runtime_name, "node");
+    if (external && !node && strcmp(runtime_name, "exec")) {
+        return diagnostic("unsupported runtime selection", 4);
+    }
+    if (external && !execution_authorized) {
+        return diagnostic("explicit process execution approval required", 6);
+    }
+    if (!external && (execution_authorized || node_executable || sdk_directory)) {
+        return diagnostic("process configuration requires Node or Exec selection", 2);
+    }
+    if (node && (!node_executable || !node_version || !digest(node_sha) || !sdk_directory ||
+                 !digest(sdk_sha))) {
+        return diagnostic("Node requires pinned executable/version and Host SDK", 4);
+    }
+    if (external && !node && (node_executable || sdk_directory)) {
+        return diagnostic("Node configuration does not apply to Exec", 2);
+    }
+    if (node) {
+        size_t n = strlen(node_version);
+        if (!n || n > 128) {
+            return diagnostic("invalid Node version", 2);
+        }
+        for (size_t i = 0; i < n; i++) {
+            char c = node_version[i];
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                  c == '.' || c == '-' || c == '+')) {
+                return diagnostic("invalid Node version", 2);
+            }
+        }
+    }
+    gt_ext_runtime_execution_t execution = {.stage_parent_fd = -1,
+                                            .node_sdk_directory_fd = -1,
+                                            .execution_authorized = execution_authorized,
+                                            .node_executable = node_executable,
+                                            .node_sha256 = node_sha,
+                                            .node_sdk_catalog_sha256 = sdk_sha};
+    char stage_directory[PATH_MAX] = {0};
     gt_ext_package_t *package = NULL;
     gt_ext_channel_t *channel = NULL;
     gt_ext_session_t *session = NULL;
@@ -314,6 +397,33 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
     resource_owner_t resource_owner = {0};
     int result = 5;
     const char *stage = "Executor startup";
+    if (external) {
+        const char *temporary = getenv("TMPDIR");
+        if (!temporary || temporary[0] != '/') {
+            result = diagnostic("process execution requires an explicit absolute TMPDIR", 4);
+            goto done;
+        }
+        int n = snprintf(
+            stage_directory, sizeof(stage_directory), "%s/gterm-execution-XXXXXX", temporary);
+        if (n <= 0 || (size_t)n >= sizeof(stage_directory) || !mkdtemp(stage_directory)) {
+            stage_directory[0] = 0;
+            goto done;
+        }
+        execution.stage_parent_path = stage_directory;
+        execution.stage_parent_fd =
+            open(stage_directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (execution.stage_parent_fd < 0) {
+            goto done;
+        }
+        if (node) {
+            execution.node_sdk_directory_fd =
+                open(sdk_directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            if (execution.node_sdk_directory_fd < 0) {
+                result = diagnostic("Host SDK directory unavailable", 4);
+                goto done;
+            }
+        }
+    }
     if (!open_roots(roots, root_count)) {
         result = diagnostic("resource root unavailable or invalid", 2);
         goto done;
@@ -354,15 +464,44 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         goto done;
     }
     const bool process_available = process_program_count && root_count;
-    char host_json[512];
+    char programs_json[512] = {0};
+    if (node) {
+        int n = snprintf(programs_json,
+                         sizeof(programs_json),
+                         ",\"programs\":{\"node\":{\"state\":\"available\",\"version\":\"%s\"}}",
+                         node_version);
+        if (n <= 0 || (size_t)n >= sizeof(programs_json)) {
+            goto done;
+        }
+    }
+#if defined(__APPLE__)
+    const char *host_os = "macos";
+#elif defined(__linux__)
+    const char *host_os = "linux";
+#else
+    const char *host_os = "unknown";
+#endif
+#if defined(__aarch64__) || defined(__arm64__)
+    const char *host_arch = "aarch64";
+#elif defined(__x86_64__)
+    const char *host_arch = "x86_64";
+#else
+    const char *host_arch = "unknown";
+#endif
+    char host_json[1024];
     int host_size = snprintf(host_json,
                              sizeof(host_json),
                              "{\"side\":\"executor\",\"sdkVersion\":\"" GTERM_SDK_VERSION
-                             "\",\"protocols\":[" GTERM_PROTOCOL "],\"runtimes\":[\"portable-js\"],"
-                             "\"capabilities\":[\"session.rpc\"%s%s%s]}",
+                             "\",\"protocols\":[" GTERM_PROTOCOL
+                             "],\"runtimes\":[\"%s\"],\"capabilities\":[\"session.rpc\"%s%s%s],"
+                             "\"os\":\"%s\",\"arch\":\"%s\"%s}",
+                             runtime_name,
                              process_available ? ",\"process.spawn\",\"process.pipes\"" : "",
                              resource_store_available ? ",\"resource.receive\"" : "",
-                             root_count && resource_store_available ? ",\"file.readScoped\"" : "");
+                             root_count && resource_store_available ? ",\"file.readScoped\"" : "",
+                             host_os,
+                             host_arch,
+                             programs_json);
     if (host_size <= 0 || (size_t)host_size >= sizeof(host_json)) {
         goto done;
     }
@@ -462,14 +601,14 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
             "process mappings require both process.spawn and process.pipes in the package", 4);
         goto done;
     }
-    if (extra_environment_count && !process_spawn) {
+    if (extra_environment_count && !process_spawn && !external) {
         result = diagnostic("selected environment requires an authorized process service", 4);
         goto done;
     }
     if (receive_resources) {
         config.features |= GT_EXT_FEATURE_RESOURCES;
     }
-    if (process_spawn) {
+    if (process_spawn || external) {
         /* Executor children receive only selected user environment values.
          * Do not inherit arbitrary variables such as SSH_AUTH_SOCK or secrets. */
         static const char *const selected_names[] = {
@@ -574,14 +713,17 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         .role = GT_EXT_EXECUTOR,
         /* Cold process/protocol activation over SSH exceeded the default 25ms.
          * Keep a finite Host-selected worker slice, matching the Android Host. */
-        .cpu_ms = 100,
+        .cpu_ms = external ? 0 : 100,
         .invocation = &invocation,
         .roots = root_count ? runtime_roots : NULL,
         .root_count = root_count,
         .process_programs = process_spawn ? runtime_programs : NULL,
         .process_program_count = process_spawn ? process_program_count : 0,
         .process_environment = process_spawn ? runtime_environment : NULL,
-        .process_environment_count = process_spawn ? process_environment_count : 0};
+        .process_environment_count = process_spawn ? process_environment_count : 0,
+        .execution = external ? &execution : NULL};
+    execution.environment = runtime_environment;
+    execution.environment_count = process_environment_count;
     if (gt_ext_runtime_open_package(&session, package, &runtime_config, true, &runtime) != GT_OK) {
         goto done;
     }
@@ -604,18 +746,23 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
             if (!gt_ext_runtime_info(runtime, &info)) {
                 break;
             }
-            result = activated && info.session_end == GT_EXT_END_PEER ? 0
-                     : info.session_end == GT_EXT_END_LOST            ? 7
-                                                                      : 5;
+            activated = activated || (info.external_process && info.activated);
+            result = info.external_process && info.execution_error == GT_ERR_UNSUPPORTED ? 4
+                     : activated && info.session_end == GT_EXT_END_PEER                  ? 0
+                     : info.session_end == GT_EXT_END_LOST                               ? 7
+                                                                                         : 5;
             if (result) {
-                fprintf(
-                    stderr,
-                    "gterm: runtime phase=%u error=%u session-end=%u session-error=%d cleanup=%d\n",
-                    (unsigned)info.phase,
-                    (unsigned)info.error,
-                    (unsigned)info.session_end,
-                    (int)info.session_error,
-                    (int)info.cleanup_error);
+                fprintf(stderr,
+                        "gterm: runtime phase=%u error=%u execution-error=%d child-exit=%d "
+                        "child-signal=%d session-end=%u session-error=%d cleanup=%d\n",
+                        (unsigned)info.phase,
+                        (unsigned)info.error,
+                        (int)info.execution_error,
+                        info.exit_code,
+                        info.term_signal,
+                        (unsigned)info.session_end,
+                        (int)info.session_error,
+                        (int)info.cleanup_error);
             }
             break;
         }
@@ -625,6 +772,15 @@ done:
     if (!close_owners(&runtime, &session, &channel, &resource_owner, roots, root_count)) {
         result = 5;
         stage = "owner cleanup";
+    }
+    if (execution.node_sdk_directory_fd >= 0 && close(execution.node_sdk_directory_fd)) {
+        result = 5;
+    }
+    if (execution.stage_parent_fd >= 0 && close(execution.stage_parent_fd)) {
+        result = 5;
+    }
+    if (stage_directory[0] && rmdir(stage_directory)) {
+        result = 5;
     }
     if (package && gt_ext_package_destroy(&package) != GT_OK) {
         result = 5;

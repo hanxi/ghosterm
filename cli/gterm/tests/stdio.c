@@ -21,6 +21,20 @@ static pid_t child;
 
 static void cleanup(void) {
     if (child > 0) {
+        /* Give gterm's real owner a chance to stop/reap its Node/Exec child. */
+        kill(child, SIGTERM);
+        for (unsigned i = 0; i < 5000; i++) {
+            pid_t waited = waitpid(child, NULL, WNOHANG);
+            if (waited == child) {
+                child = 0;
+                return;
+            }
+            if (waited < 0) {
+                return;
+            }
+            struct timespec pause = {0, 1000000};
+            nanosleep(&pause, NULL);
+        }
         kill(child, SIGKILL);
         waitpid(child, NULL, 0);
     }
@@ -76,7 +90,59 @@ int main(int argc, char **argv) {
             close(fd[1]);
         }
         const char *trusted = !strcmp(mode, "digest") ? client_digest : package_digest;
-        if (process_prefix) {
+        const char *external = getenv("GT_GTERM_FIXTURE_RUNTIME");
+        if (external) {
+            const char *args[72];
+            size_t n = 0;
+            args[n++] = binary;
+            args[n++] = "relay";
+            args[n++] = "--stdio";
+            args[n++] = "--runtime";
+            args[n++] = external;
+            if (!getenv("GT_GTERM_FIXTURE_NO_APPROVAL")) {
+                args[n++] = "--allow-process-execution";
+            }
+            if (!strcmp(external, "node")) {
+                args[n++] = "--node-runtime";
+                args[n++] = getenv("GT_GTERM_FIXTURE_NODE");
+                args[n++] = getenv("GT_GTERM_FIXTURE_VERSION");
+                args[n++] = getenv("GT_GTERM_FIXTURE_NODE_SHA");
+                args[n++] = "--node-sdk";
+                args[n++] = getenv("GT_GTERM_FIXTURE_SDK");
+                args[n++] = getenv("GT_GTERM_FIXTURE_SDK_SHA");
+            }
+            if (getenv("GT_GTERM_FIXTURE_UNSUPPORTED")) {
+                args[n++] = "--process-environment";
+                args[n++] = "GT_GTERM_FIXTURE_UNSUPPORTED";
+            }
+            args[n++] = "--trust-development-digest";
+            args[n++] = trusted;
+            args[n++] = "--client-digest";
+            args[n++] = client_digest;
+            if (process_config) {
+                args[n++] = "--root";
+                args[n++] = "workspace";
+                args[n++] = workspace;
+                args[n++] = "--process-program";
+                args[n++] = "cat";
+                args[n++] = argv[6];
+                args[n++] = argv[7];
+                args[n++] = argv[8];
+            }
+            args[n++] = "--method";
+            args[n++] = "fixture.echo";
+            args[n++] = "--";
+            args[n++] = directory;
+            args[n++] = "fixture";
+            args[n++] = "中文";
+            args[n++] = "";
+            args[n++] = "';throw Error('injected');//";
+            args[n] = NULL;
+            for (size_t i = 0; i < n; i++) {
+                CHECK(args[i]);
+            }
+            execv(binary, (char *const *)args);
+        } else if (process_prefix) {
             execl(binary,
                   binary,
                   "relay",
@@ -468,7 +534,9 @@ int main(int argc, char **argv) {
         if (handle && !confirmed) {
             gt_ext_rpc_result_t result;
             CHECK(gt_ext_session_request_result(session, &lease, handle, &result) == GT_EXT_RPC_OK);
-            if (!strcmp(mode, "pending-loss") && result.state == GT_EXT_RPC_PENDING && !lost) {
+            if (!strcmp(mode, "pending-loss") && result.state == GT_EXT_RPC_PENDING && !lost &&
+                (!getenv("GT_GTERM_FIXTURE_HANDLER") ||
+                 access(getenv("GT_GTERM_FIXTURE_HANDLER"), R_OK) == 0)) {
                 CHECK(!shutdown(fd[0], SHUT_RDWR));
                 lost = true;
             }
@@ -510,9 +578,12 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ABNORMAL child status %d\n", status);
         return 2;
     }
-    int expected = !strcmp(mode, "digest") || !strcmp(mode, "deny") ? 6
-                   : !strcmp(mode, "arguments-invalid")             ? 5
-                   : !strcmp(mode, "command")                       ? 2
+    int expected = !strcmp(mode, "runtime-unsupported")               ? 4
+                   : !strcmp(mode, "runtime-failure")                 ? 5
+                   : !strcmp(mode, "denied-launch")                   ? 6
+                   : !strcmp(mode, "digest") || !strcmp(mode, "deny") ? 6
+                   : !strcmp(mode, "arguments-invalid")               ? 5
+                   : !strcmp(mode, "command")                         ? 2
                    : !strcmp(mode, "peer-digest") || !strcmp(mode, "lost") ||
                            !strcmp(mode, "pending-loss") || !strcmp(mode, "silent")
                        ? 7
@@ -520,14 +591,17 @@ int main(int argc, char **argv) {
                    : !strcmp(mode, "dispose-error")                            ? 5
                                                                                : 0;
     CHECK(WEXITSTATUS(status) == expected);
-    if (!strcmp(mode, "digest") || !strcmp(mode, "command")) {
+    if (!strcmp(mode, "runtime-failure") || !strcmp(mode, "runtime-unsupported")) {
+        CHECK(decided && !confirmed);
+    }
+    if (!strcmp(mode, "digest") || !strcmp(mode, "command") || !strcmp(mode, "denied-launch")) {
         gt_ext_session_info_t info;
         CHECK(gt_ext_session_info(session, &info) && !info.received);
     }
     if (preview) {
         CHECK(preview_main && (preview_unicode || preview_asset) && decided && consent_at);
     }
-    if (!strcmp(mode, "roundtrip") || !strcmp(mode, "dispose-error") || pipes ||
+    if (!strcmp(mode, "roundtrip") || process_config || !strcmp(mode, "dispose-error") || pipes ||
         !strcmp(mode, "active-cancel") || !strcmp(mode, "lost")) {
         CHECK(confirmed && decided && consent_at);
     }

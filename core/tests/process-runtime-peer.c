@@ -17,6 +17,11 @@
         }                                                                                          \
     } while (0)
 
+#ifdef GT_GTERM_STDIO_PEER
+#define GT_PROCESS_PEER_VALUE "{\"text\":\"stdio\",\"count\":17}"
+#else
+#define GT_PROCESS_PEER_VALUE "{\"peer\":true}"
+#endif
 static void exact(int fd, void *buffer, size_t n, int writing) {
     size_t at = 0;
     while (at < n) {
@@ -176,6 +181,11 @@ static void process_roundtrip(uint64_t *sequence, char reply[8193]) {
 }
 
 int main(int argc, char **argv) {
+#ifdef GT_GTERM_STDIO_PEER
+    if (getenv("GT_GTERM_FIXTURE_UNSUPPORTED")) {
+        return 77;
+    }
+#endif
     CHECK(argc == 4 && !strcmp(argv[1], "--ghosterm-startup"));
     int fd = open(argv[2], O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     CHECK(fd >= 0);
@@ -194,6 +204,9 @@ int main(int argc, char **argv) {
     CHECK(strstr(text, "\"instanceId\"") && strstr(text, "\"decodedArguments\""));
     free(text);
     const char *mode = getenv("GT_RUNTIME_MODE");
+    if (mode && !strcmp(mode, "unsupported")) {
+        return 77;
+    }
     if (mode && !strcmp(mode, "stderr-eof")) {
         CHECK(!close(STDERR_FILENO));
     }
@@ -272,7 +285,7 @@ int main(int argc, char **argv) {
             CHECK(id && snprintf(fields,
                                  sizeof(fields),
                                  "\"op\":\"respond\",\"ref\":\"%llu\",\"outcome\":{\"kind\":"
-                                 "\"success\",\"value\":{\"peer\":true}}",
+                                 "\"success\",\"value\":" GT_PROCESS_PEER_VALUE "}",
                                  id) > 0);
             call(&sequence, fields, reply);
             CHECK(strstr(reply, "\"status\":\"ok\""));
