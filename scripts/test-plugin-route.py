@@ -47,8 +47,9 @@ def stalled_peer():
         listener.close()
 
 @contextmanager
-def chain(work,count,public,keys,agent,mode,*,sftp=False):
+def chain(work,count,public,keys,agent,mode,*,sftp=False,exec_hops=()):
     with ExitStack() as stack:
+        require(all(isinstance(i,int) and 0 <= i < count for i in exec_hops),"invalid fixture exec hop")
         ports=[]
         for _ in range(count):
             with socket.socket() as reservation:
@@ -68,7 +69,7 @@ def chain(work,count,public,keys,agent,mode,*,sftp=False):
                 'LogLevel ERROR\nPermitUserRC no\nAllowAgentForwarding no\nAllowStreamLocalForwarding no\n'
                 f'AllowTcpForwarding {"local" if forward else "no"}\n'
                 +(f'PermitOpen 127.0.0.1:{ports[i+1]}\n' if forward else '')
-                +f'MaxSessions {0 if i+1<count else 10}\nPrintMotd no\nPrintLastLog no\nSetEnv HOME={empty} ZDOTDIR={empty} TMPDIR={work}\n')
+                +f'MaxSessions {0 if i+1<count and i not in exec_hops else 10}\nPrintMotd no\nPrintLastLog no\nSetEnv HOME={empty} ZDOTDIR={empty} TMPDIR={work}\n')
             if sftp and i+1 == count:
                 with config.open('a') as output: output.write(f'Subsystem sftp internal-sftp -d {shlex.quote(str(work))}\n')
             support=subprocess.run(['/usr/sbin/sshd','-T','-f',str(config),'-o','PerSourcePenalties=no'],capture_output=True,timeout=5)

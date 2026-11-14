@@ -156,6 +156,22 @@ class ExecutorSSHAppTest {
                 state.second?.phase == ExtensionRuntime.Phase.ACTIVE && service("audit").getBoolean("activated")
             }
             assertEquals(payload.getString("temporary"), service("audit").getString("environment"))
+            assertEquals("[false,false,false]", service("audit").getJSONArray("tty").toString())
+            if (!payload.isNull("tmuxTopology")) {
+                fun probe(label: String) {
+                    val admission = runBlocking { controller.requestRuntimeExecutor("fixture.echo", JSONObject().put("text", label).put("count", 23).toString().toByteArray()) }
+                    val handle = checkNotNull(admission.handle)
+                    await("Plugin did not confirm after terminal routing changed") { runBlocking { controller.runtimeExecutorRequestResult(handle).second?.confirmed == true } }
+                    val result = checkNotNull(runBlocking { controller.runtimeExecutorRequestResult(handle).second })
+                    assertEquals(ExtensionSession.RPCState.SUCCEEDED, result.state)
+                    val value = JSONObject(result.outcome.toString(Charsets.UTF_8)).getJSONObject("value")
+                    assertEquals(label, value.getString("text")); assertEquals(23, value.getInt("count"))
+                    assertEquals(ExtensionSession.RPCStatus.OK, runBlocking { controller.forgetRuntimeExecutorRequest(handle) })
+                }
+                service("tmux-pane"); probe("TMUX_PANE")
+                service("tmux-window"); probe("TMUX_WINDOW")
+                if (payload.optBoolean("stopTerminal")) { service("tmux-stop-terminal"); probe("TMUX_CLOSED") }
+            }
             if (clientCase) {
                 var rejected = false
                 try { runBlocking { controller.publishClientResource("obsolete-runtime", "upload.bin") } }

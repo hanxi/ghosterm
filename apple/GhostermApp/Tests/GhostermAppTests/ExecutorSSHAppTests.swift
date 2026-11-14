@@ -149,6 +149,31 @@ import XCTest
             return model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue && (audit["activated"] as? Bool) == true
         }
         XCTAssertEqual(try service("audit")["environment"] as? String, try string("temporary"))
+        let ttyState = try service("audit")["tty"] as? [Bool]
+        XCTAssertEqual(ttyState, [false, false, false], "Plugin exec must remain independent of terminal PTYs")
+        guard ttyState == [false, false, false] else { return }
+        if payload["tmuxTopology"] is String {
+            func probe(_ label: String) async throws {
+                let admission = try await controller.requestExecutorRPC(method: "fixture.echo",
+                    input: JSONSerialization.data(withJSONObject: ["text": label, "count": 23]))
+                let handle = try XCTUnwrap(admission.handle)
+                try await until("Plugin did not confirm after terminal routing changed") {
+                    let (_, result) = try await controller.executorRPCResult(handle: handle)
+                    return result?.confirmed == true
+                }
+                let (_, result) = try await controller.executorRPCResult(handle: handle)
+                XCTAssertEqual(result?.state, .succeeded)
+                let outcome = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(result).outcome) as? [String: Any])
+                let value = try XCTUnwrap(outcome["value"] as? [String: Any])
+                XCTAssertEqual(value["text"] as? String, label); XCTAssertEqual(value["count"] as? Int, 23)
+                let forgotten = try await controller.forgetExecutorRPC(handle: handle); XCTAssertEqual(forgotten, .ok)
+            }
+            _ = try service("tmux-pane"); try await probe("TMUX_PANE")
+            _ = try service("tmux-window"); try await probe("TMUX_WINDOW")
+            if payload["stopTerminal"] as? Bool == true {
+                _ = try service("tmux-stop-terminal"); try await probe("TMUX_CLOSED")
+            }
+        }
         if clientCase {
             var rejected = false
             do { _ = try await controller.publishClientResource(instanceID: "obsolete-runtime", relativePath: "upload.bin") }

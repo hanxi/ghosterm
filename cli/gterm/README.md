@@ -288,8 +288,33 @@ macOS 通过按钮背后的 AppModel 动作；不把后者称完整 UI 点击。
 显式允许、目录 O_NOFOLLOW 和 Runtime UUID 保护，要求真实编译后的单条普通断言红、
 同构件配置绿、恢复与 SHA256。收据冻结两端 Native bindings / JNI 与测试输入，并保存实际 XCTest / APK 摘要。
 
+可选普通终端 / tmux 共存矩阵（仍为独立插件 exec，未实现 TTY carrier）：
+
+```sh
+python3 scripts/test-plugin-execution-ssh-app.py --macos --tmux target --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
+python3 scripts/test-plugin-execution-ssh-app.py --macos --tmux nested --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
+# Android 将 --macos 换成 --headless-api 36；以下两类各跑 target / nested
+python3 scripts/test-plugin-execution-ssh-app.py --macos --tmux nested --stop-tmux --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
+```
+
+每端 target / nested 各三十六个共存场景，--stop-tmux 各十二个，共九十六个。
+旁路普通终端是自有 SSH PTY，target 为目标 tmux，nested 为 SSH A → tmux A → SSH B → tmux B；
+第二个真实 SSH 客户端按键切 pane / window、detach / attach，外层另切 pane。惰性 peer 只记字节，
+不会执行收到的输入；完整输入必须恰好为各步骤的固定字符，插件协议不能混入。Native App 在切换后
+分别确认两次 RPC，再验业务管道 / 双向资源 / 中断，插件三标准流须实际无 TTY。
+普通终端存活项要求插件停止后仍可输入；--stop-tmux 则先明确结束本轮普通终端和 tmux，
+之后插件仍确认新 RPC 并完成普通请求 / 双向资源 / 业务进程。只关闭显式 socket 的 tmux，
+检查其服务器、pane 和 SSH 客户端进程退出。跳板 fixture 仅 nested 档另允许普通终端 exec；
+默认跳板仍 MaxSessions=0。未选择 --tmux 时保留原一百一十六个场景。
+
+两端走生产 AppModel / ViewModel，但普通终端为旁路 SSH PTY 夹具；本项不是 App TerminalSurface
+绘制 / IME / 焦点，亦非 tmux pane 内 gterm 的本地 IPC 附着、会话恢复或任意嵌套 TTY 回写证据。
+
 这是无账号 / 模型的 conformance 包，并非官方业务插件。当前观察到成功回包后的 App
 停止和连接断流使远端 gterm 返回 7（会话结果不明），拒绝返回 6；不把进程消失或一条
 RPC 成功记成整个远端任务成功。这里只证明明确列出的资源方向和场景；SAF 来源发布、
-tmux、其它服务器 / 操作系统、完整资源 / 进程预算与异常矩阵或真实设备仍待验证；不纳入现有
+App TerminalSurface 与 tmux 的完整交互、其它服务器 / 操作系统、完整资源 / 进程预算与异常矩阵或真实设备仍待验证；不纳入现有
 macOS CI 二十份变异。

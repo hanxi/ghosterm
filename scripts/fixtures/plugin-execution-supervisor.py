@@ -8,6 +8,7 @@ import sys
 
 gterm, directory, home = sys.argv[1:4]
 observation = Path(directory)
+(observation / 'tty').write_text(json.dumps([os.isatty(fd) for fd in (0, 1, 2)]))
 environment = {'PATH': '/usr/bin:/bin', 'HOME': home, 'TMPDIR': os.environ.get('TMPDIR', ''),
                'GT_EXECUTION_APP_FIXTURE': directory, 'GT_EXECUTION_AMBIENT': 'unselected-fixture',
                'GT_SELECTED': 'approved'}

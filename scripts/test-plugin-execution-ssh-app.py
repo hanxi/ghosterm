@@ -5,6 +5,7 @@ Keys exist only in the fixture service memory and ssh-agent. No accounts/models,
 no foreground windows, no user endpoints; temporary executables stay in project tmp.
 """
 import argparse
+from contextlib import ExitStack
 import base64
 import hashlib
 import importlib.util
@@ -48,6 +49,7 @@ def identity(pid):
 
 
 def execute(args, serial=None):
+    topology, stop_terminal = getattr(args, 'tmux', None), getattr(args, 'stop_tmux', False)
     build, node, sdk = args.build.resolve(strict=True), args.node.resolve(strict=True), args.sdk.resolve(strict=True)
     for p in (build / 'gterm', build / 'test_gterm_exec_peer', build / 'core/libghosterm_core.a'):
         if not p.is_file(): raise RuntimeError('Build the JS/SSH-enabled CLI fixture: ' + str(p))
@@ -62,10 +64,17 @@ def execute(args, serial=None):
         build / 'core/libghosterm_core.a', node]}
     for name in ['scripts/test-plugin-execution-ssh-app.py', 'scripts/fixtures/plugin-execution-app.mjs',
         'scripts/fixtures/plugin-execution-fault.py', 'scripts/fixtures/plugin-execution-supervisor.py',
+        'scripts/fixtures/plugin-execution-tmux.py',
         'scripts/test-plugin-route.py', 'scripts/test-plugin-ssh.py', 'scripts/test-plugin-ssh-stream.py',
         'scripts/test-plugin-codex-patch-android.py', 'scripts/fixtures/plugin-execution-process.mjs']:
         hashes[name] = sha(ROOT / name)
     binary_hashes.update({str(p): sha(p) for p in sdk.rglob('*') if p.is_file()})
+    if topology:
+        terminal_tools = [Path('/usr/bin/ssh').resolve(strict=True), Path(sys.executable).resolve(strict=True)]
+        tmux_path = shutil.which('tmux')
+        if not tmux_path: raise RuntimeError('Explicit tmux conformance requires an installed tmux')
+        terminal_tools.append(Path(tmux_path).resolve(strict=True))
+        binary_hashes.update({str(path): sha(path) for path in terminal_tools})
     utilities = {'cat': Path('/bin/cat').resolve(strict=True), 'env': Path('/usr/bin/env').resolve(strict=True),
                  'pwd': Path('/bin/pwd').resolve(strict=True)}
     binary_hashes.update({str(p): sha(p) for p in utilities.values()})
@@ -83,13 +92,18 @@ def execute(args, serial=None):
                            'process-environment', 'process-cwd', 'process-stop', 'process-loss')]
     cases += [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct', 'jump')
               for mode in ('client-resource', 'client-root', 'client-parent', 'client-link', 'client-no-approval', 'client-undeclared', 'client-stop', 'client-loss', 'client-cancel', 'client-directory-link', 'client-directory-file')]
-    selected = args.case or cases
+    tmux_modes = ('allow', 'client-resource', 'process') if stop_terminal else ('allow', 'deny', 'no-approval',
+        'client-resource', 'process', 'pending-cancel', 'pending-loss', 'client-stop', 'client-loss')
+    selected = args.case or ([case for case in cases if case.split(':')[2] in tmux_modes] if topology else cases)
+    if stop_terminal and (not topology or any(case.split(':')[2] not in tmux_modes for case in selected)):
+        raise RuntimeError('Explicit terminal stop needs tmux and one of allow / client-resource / process')
     if set(selected) - set(cases): raise RuntimeError('Unknown execution case')
     routes = load('execution_routes', 'scripts/test-plugin-route.py')
     keys = load('execution_keys', 'scripts/test-plugin-ssh.py')
     streams = load('execution_streams', 'scripts/test-plugin-ssh-stream.py')
     private, public = streams.memory_identity()
     fault_module = load('execution_fault', 'scripts/fixtures/plugin-execution-fault.py')
+    terminal_module = load('execution_tmux', 'scripts/fixtures/plugin-execution-tmux.py') if topology else None
     records = []
     with tempfile.TemporaryDirectory(prefix='xs-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary); logs = work / 'logs'; logs.mkdir()
@@ -132,9 +146,13 @@ def execute(args, serial=None):
                 installed = run('path-' + apk.name, [*adb, 'shell', 'pm', 'path', package]).strip().removeprefix('package:')
                 if run('sha-' + apk.name, [*adb, 'shell', 'sha256sum', installed]).split()[0] != sha(apk): raise RuntimeError('Installed APK mismatch')
         with keys.owned_agent(work, 'agent') as agent:
+            if topology:
+                added = subprocess.run(['ssh-add', '-'], input=private, capture_output=True,
+                    env={**env, 'SSH_AUTH_SOCK': str(agent), 'SSH_ASKPASS_REQUIRE': 'never'}, timeout=10)
+                if added.returncode: raise RuntimeError('Owned terminal client key could not be admitted to memory agent')
             host_keys = [keys.add_memory_key(agent, 'execution-hop-' + str(i)) for i in range(2)]
             route_root = work / 'r'; route_root.mkdir()
-            with routes.chain(route_root, 2, public, host_keys, agent, 'echo') as (ports, _, _):
+            with routes.chain(route_root, 2, public, host_keys, agent, 'echo', exec_hops=(0,) if topology == 'nested' else ()) as (ports, _, _), ExitStack() as terminals:
                 for index, case in enumerate(selected):
                     runtime, route, mode = case.split(':')
                     client_case = mode.startswith('client-')
@@ -143,6 +161,11 @@ def execute(args, serial=None):
                     root = work / str(index); root.mkdir()
                     package, observation, stage, home, workspace = [root / p for p in ('k', 'o', 't', 'h', 'w')]
                     for folder in [package, observation, stage, home, workspace]: folder.mkdir(mode=0o700)
+                    terminal = None
+                    if topology:
+                        terminal_root = root / 'z'; terminal_root.mkdir()
+                        terminal = terminals.enter_context(terminal_module.Terminal(terminal_root, topology, ports,
+                            public, host_keys, agent, keys.bridge, pwd.getpwuid(os.getuid()).pw_name))
                     resource_bytes = bytes(i % 251 for i in range(262144))
                     (workspace / 'file.bin').write_bytes(resource_bytes)
                     (root / 'outside.bin').write_bytes(b'UNAUTHORIZED disposable fixture')
@@ -183,7 +206,7 @@ def execute(args, serial=None):
                     wrapper.write_text('#!/bin/sh\nexec ' + shlex.join([sys.executable, str(ROOT / 'scripts/fixtures/plugin-execution-supervisor.py'),
                         str(build / 'gterm'), str(observation), str(home)]) + ' "$@"\n'); wrapper.chmod(0o700)
                     scratch = root / 'c'; scratch.mkdir()
-                    payload = dict(runtime=runtime, route=route, mode=mode, ports=ports, user=pwd.getpwuid(os.getuid()).pw_name,
+                    payload = dict(runtime=runtime, route=route, mode=mode, ports=ports, tmuxTopology=topology, stopTerminal=stop_terminal, user=pwd.getpwuid(os.getuid()).pw_name,
                         pem=private.decode('ascii'), packageFiles={str(p.relative_to(package)): base64.b64encode(p.read_bytes()).decode()
                         for p in package.rglob('*') if p.is_file()}, packageDigest=digest, packageDirectory=str(package),
                         wrapper=str(wrapper), temporary=str(stage), scratch=str(scratch), node=str(node), nodeVersion=version,
@@ -209,6 +232,7 @@ def execute(args, serial=None):
                                     expected = str(package) if file == 'gterm-pid' else str(stage)
                                     if expected not in observed: raise RuntimeError('Fixture PID does not match its owned command')
                                     owned_pids[pid] = observed
+                        if (observation / 'tty').exists(): answer['tty'] = json.loads((observation / 'tty').read_text())
                         if (observation / 'environment').exists(): answer['environment'] = (observation / 'environment').read_text()
                         if (observation / 'resource-receipt').exists(): answer['resourceReceipt'] = (observation / 'resource-receipt').read_text()
                         if (observation / 'resource-error').exists(): answer['resourceError'] = (observation / 'resource-error').read_text()
@@ -246,6 +270,7 @@ def execute(args, serial=None):
                                 if action == b'kill':
                                     if fault is None: raise RuntimeError('No owned network fault wire')
                                     fault.disconnect()
+                            elif action.startswith(b'tmux-') and terminal is not None: result = terminal.action(action.decode('ascii'))
                             else: raise RuntimeError('Unknown fixture action')
                             data = json.dumps(result, separators=(',', ':')).encode()
                             if len(data) > 1048576: raise RuntimeError('Fixture response limit')
@@ -316,7 +341,10 @@ def execute(args, serial=None):
                                 time.sleep(.05)
                             else: raise RuntimeError(case + ': remote process/staging retained: ' + repr(observe()) + '\n' + (observation / 'stderr').read_text(errors='replace'))
                             if 'status' not in audit: audit['exitObservation'] = 'not-started' if mode in ('no-approval', 'client-no-approval', 'client-undeclared') else 'unknown'
-                            records.append(dict(case=case, audit=audit)); print('PASS ' + case + ' ' + json.dumps(audit), flush=True)
+                            terminal_info = None
+                            if terminal is not None:
+                                terminal_info = terminal.finish(); terminal.close(); terminal_info["cleanupComplete"] = terminal.stopped
+                            records.append(dict(case=case, audit=audit, terminal=terminal_info)); print('PASS ' + case + ' ' + json.dumps(audit), flush=True)
                         finally:
                             primary = sys.exc_info()[0] is not None
                             cleanup_errors = []
@@ -350,7 +378,8 @@ def execute(args, serial=None):
         if any(sha(ROOT / p) != value for p, value in hashes.items()) or any(sha(Path(p)) != value for p, value in binary_hashes.items()):
             raise RuntimeError('Inputs changed during conformance')
         receipt = dict(accepted=True, platform='macos' if args.macos else 'android', cases=records, inputs=hashes,
-            binaries=binary_hashes, platformBinaries=platform_binaries, nodeVersion=version, sdkCatalog=sdk_digest, scope='owned loopback direct/ProxyJump; actual Native App and Node/Exec; no model/tmux')
+            binaries=binary_hashes, platformBinaries=platform_binaries, nodeVersion=version, sdkCatalog=sdk_digest, tmuxTopology=topology, terminalStopped=stop_terminal,
+            scope='owned loopback direct/ProxyJump; actual Native App and Node/Exec; separate SSH PTY/tmux when selected; no model')
         if args.receipt:
             if not args.receipt.resolve().is_relative_to(ROOT / 'tmp'): raise RuntimeError('Use project tmp for receipt')
             args.receipt.write_text(json.dumps(receipt, indent=2) + '\n')
@@ -363,6 +392,8 @@ def main():
     target.add_argument('--macos', action='store_true'); target.add_argument('--android'); target.add_argument('--headless-api', choices=['29', '36'])
     parser.add_argument('--build', type=Path, required=True); parser.add_argument('--node', type=Path, required=True)
     parser.add_argument('--project', type=Path, help='explicit isolated source project under this repository tmp')
+    parser.add_argument('--tmux', choices=['target', 'nested'], help='owned ordinary SSH PTYs, distinct from plugin exec')
+    parser.add_argument('--stop-tmux', action='store_true', help='stop owned ordinary terminal before further plugin requests')
     parser.add_argument('--sdk', type=Path, required=True); parser.add_argument('--case', action='append'); parser.add_argument('--receipt', type=Path)
     args = parser.parse_args()
     if args.project and not args.project.resolve().is_relative_to(ROOT / 'tmp'): parser.error('--project must be an owned project tmp directory')
