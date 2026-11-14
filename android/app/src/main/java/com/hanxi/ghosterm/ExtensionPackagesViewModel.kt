@@ -399,7 +399,8 @@ class ExtensionPackagesViewModel(application: Application) : AndroidViewModel(ap
 
     fun stopRuntime() {
         val owner = controller ?: return
-        if (launchBusy || activeRuntime == null) return
+        if (launchBusy || activeRuntime?.info?.phase !in setOf(ExtensionRuntime.Phase.CREATED,
+                ExtensionRuntime.Phase.STARTING, ExtensionRuntime.Phase.ACTIVE)) return
         invalidateExtensionCalls()
         launchBusy = true
         owner.requestStopRuntime()

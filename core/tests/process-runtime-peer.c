@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE 1
 #include "base/sha256.h"
+#include "base/allocator.h"
 #include <stdint.h>
 #include <signal.h>
 #include <stdio.h>
@@ -49,6 +50,100 @@ static void call(uint64_t *sequence, const char *fields, char reply[8193]) {
     CHECK(size > 0 && size <= 8192);
     exact(0, reply, size, 0);
     reply[size] = 0;
+}
+
+/* App conformance uses the same actual Exec process protocol, echoing the raw
+ * validated input instead of a constant fixture value. No production hook. */
+typedef struct app_json app_json_t;
+#define GT_JSON_TAG app_json
+#define GT_JSON_DOC app_json_t
+#define GT_JSON_ERROR unsigned
+#define GT_JSON_NODES 256u
+#define GT_JSON_BYTES 8192u
+#define GT_JSON_DEPTH 32u
+#define GT_JSON_KEYS 1024u
+#define GT_JSON_WORK 65536u
+#define GT_JSON_LIMIT 1u
+#define GT_JSON_SYNTAX 2u
+#define GT_JSON_UTF8 3u
+#define GT_JSON_DUPLICATE 4u
+#include "base/json-reader.inc"
+
+static uint16_t app_member(const app_json_t *d, uint16_t parent, const char *key) {
+    for (uint16_t i = d->nodes[parent].child; i; i = d->nodes[i].next) {
+        if (d->nodes[i].key_size == strlen(key) &&
+            !memcmp(d->strings + d->nodes[i].key, key, strlen(key))) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+static app_json_t *app_parse(const char *bytes) {
+    app_json_t *d = allocate(NULL, sizeof(*d));
+    CHECK(d);
+    memset(d, 0, sizeof(*d));
+    d->allocator = (gt_allocator_t){NULL, allocate, release};
+    d->input = (const uint8_t *)bytes;
+    d->input_size = strlen(bytes);
+    CHECK(value(d, 0, 0, 0, 0) == 1);
+    space(d);
+    CHECK(d->at == d->input_size);
+    return d;
+}
+
+static void app_mark(const char *root, const char *name, bool pid) {
+    char path[4096], bytes[32];
+    CHECK(snprintf(path, sizeof(path), "%s/%s", root, name) > 0);
+    int n = snprintf(bytes, sizeof(bytes), "%ld", pid ? (long)getpid() : 1L);
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+    CHECK(fd >= 0 && write(fd, bytes, (size_t)n) == n && !close(fd));
+}
+
+static void app_roundtrip(uint64_t *sequence, char reply[8193], const char *root) {
+    CHECK(!getenv("GT_EXECUTION_AMBIENT"));
+    char path[4096];
+    CHECK(snprintf(path, sizeof(path), "%s/environment", root) > 0);
+    const char *temporary = getenv("TMPDIR");
+    int environment_fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    CHECK(temporary && environment_fd >= 0 &&
+          write(environment_fd, temporary, strlen(temporary)) == (ssize_t)strlen(temporary) &&
+          !close(environment_fd));
+    app_mark(root, "activated", true);
+    for (;;) {
+        call(sequence, "\"op\":\"take\",\"methods\":[\"fixture.echo\"]", reply);
+        app_json_t *d = app_parse(reply);
+        uint64_t version;
+        CHECK(node_uint(d, app_member(d, 1, "v"), &version) && version == 1);
+        uint16_t ticket = app_member(d, 1, "ticket"), input = app_member(d, 1, "input");
+        if (!ticket) {
+            release(NULL, d, sizeof(*d));
+            continue;
+        }
+        CHECK(input && d->nodes[ticket].kind == J_STRING && d->nodes[input].kind == J_OBJECT);
+        uint16_t label = app_member(d, input, "text");
+        if (label && d->nodes[label].size == 4 &&
+            !memcmp(d->strings + d->nodes[label].text, "WAIT", 4)) {
+            release(NULL, d, sizeof(*d));
+            app_mark(root, "handler", false);
+            for (;;) {
+                pause();
+            }
+        }
+        char fields[4096];
+        int n = snprintf(
+            fields,
+            sizeof(fields),
+            "\"op\":\"respond\",\"ref\":\"%.*s\",\"outcome\":{\"kind\":\"success\",\"value\":%.*s}",
+            (int)d->nodes[ticket].size,
+            d->strings + d->nodes[ticket].text,
+            (int)d->nodes[input].bytes,
+            d->input + d->nodes[input].start);
+        CHECK(n > 0 && (size_t)n < sizeof(fields));
+        release(NULL, d, sizeof(*d));
+        call(sequence, fields, reply);
+        CHECK(strstr(reply, "\"status\":\"ok\""));
+    }
 }
 
 static void resource_roundtrip(uint64_t *sequence, char reply[8193]) {
@@ -181,6 +276,10 @@ static void process_roundtrip(uint64_t *sequence, char reply[8193]) {
 }
 
 int main(int argc, char **argv) {
+    const char *entered = getenv("GT_EXECUTION_APP_FIXTURE");
+    if (entered) {
+        app_mark(entered, "entered", true);
+    }
 #ifdef GT_GTERM_STDIO_PEER
     if (getenv("GT_GTERM_FIXTURE_UNSUPPORTED")) {
         return 77;
@@ -276,6 +375,10 @@ int main(int argc, char **argv) {
     }
     call(&sequence, "\"op\":\"activated\"", reply);
     CHECK(strstr(reply, "\"status\":\"ok\""));
+    const char *app = getenv("GT_EXECUTION_APP_FIXTURE");
+    if (app) {
+        app_roundtrip(&sequence, reply, app);
+    }
     for (;;) {
         call(&sequence, "\"op\":\"take\",\"methods\":[\"fixture.echo\"]", reply);
         const char *ticket = strstr(reply, "\"ticket\":\"");

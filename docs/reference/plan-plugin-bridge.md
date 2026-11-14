@@ -5520,3 +5520,21 @@ Android API 36 / arm64 / 4 KiB 页专用无窗口模拟器的六项基线 / 八�
 最终 macOS arm64 Release 使用 Xcode 27.1 / Swift 6.4，Android JS-enabled Debug / 测试 APK、未签名 Release / R8 及 app / bridge / data / terminal 四模块 Release lint 通过；默认 Core **JS-off / tests-on：537/537 CTest、177 ABI**，Apple **174 引用 / 3 登记未用**、JNI **140 / 37**，clang-format **19.1.7 / 240 文件**、Python 语法和 diff 检查通过。没有本批云端 Swift 6.1.2 构建证据。
 
 CI 状态另记：旧 `43346407706` 的 Swift 类型推导问题已由前述提交修复且 `43411785149` 通过；新 `43545823180` 在 Core `bridge_transfer_ssh` 的 deny2 关闭断言失败，并未到 macOS 编译。此前本机重复专项未复现，本批完整 537 项也通过，但没有定位其根因或新云端复验，不称该失败已修复，不降低关闭阈值。
+
+### P4 实施第二十批：两端 App → SSH / ProxyJump → Node / 原生 Exec 生命周期（2026-11-14）
+
+新增 `test-plugin-execution-ssh-app.py`，两端使用同一组临时 conformance 包、原生 gterm 和已安装 Node **26.4.0**，不使用账号、模型或用户服务器。macOS 的真实 AppModel / Client Runtime 与 Android 的真实 ViewModel / 原生授权页分别经过专属 SSH 通道、gterm 和 Node / 包内 macOS arm64 Exec 二进制。密钥仅在独立 ssh-agent 与带随机 token 的回环夹具服务内存里交付；不落客户端设备 / 配置 / 日志。macOS 用本进程专有 credential storage 回调提供内存键，不触碰用户 Keychain。只有明确指定的 Node / SDK / gterm / 源码目录参与测试，不安装依赖到产品环境。
+
+每端最终完整 **20 个实际场景**：Node / Exec × 直连 / 两 SSH 主机 ProxyJump × 允许、拒绝、未给 OS 进程允许、已派发请求取消 / 已派发请求断流。未给进程允许时在 SSH 之前拒绝；允许进入 Session 但尚未批准或明确拒绝时，Node 包第一条模块代码 / Exec 的 main 入口打点均不存在，不能用“未回包”替代未执行证明。两端传入中文 / emoji、空参数和含引号 / shell 字符的 argv；Node context 逐项核对，gterm 两侧按同一 argsSchema 解码，Exec 核对启动文件 SHA-256。两种 Executor 都按真实收到的 JSON input 回传，Native Host 核对 Unicode 字段 / 数值、confirmed / SUCCEEDED，再释放该请求，不使用常量应答充当内容往返。
+
+待处理中断先等待远端 handler 的独立打点，排除仍在本机 QUEUED 的假覆盖。取消先确认 cancelRequested 与未确认状态，再请求停止 Client Runtime；真实连接断流用本轮拥有的透明 TCP 故障线切断加密 SSH 字节流，不部署生产网关或改走终端输入。两者均要求已派发请求最终 **UNKNOWN 且未确认**，不重放。App 停止 / release 后观察本轮命令与启动时间对应的 gterm、Node / Exec PID 消失和远端暂存目录清空；失败清理只可向身份仍匹配的本轮进程发信号。独立父进程记录真实 gterm wait 状态，既不代理成功，也不改变其信号行为。
+
+实测正常回包后 App 停止、取消及物理断流均使 gterm 返回 **7**，拒绝返回 **6**；未给 OS 允许则没有 gterm。该 7 保留当前远端未取得有序结束确认的事实，不当作远端整个任务成功，也不覆盖先前 RPC 的已确认回包。Node / Exec 的实际消失与暂存清理分别断言，不能由退出码或本机 Runtime 结束推测。Android 在本批仅为客户端；执行机器仍是当前 macOS / arm64，不能宣称 Node 或该 Exec 已在 Android 上执行。
+
+该链发现并修复一个 Android 生产状态缺陷：`ExtensionPackagesViewModel.stopRuntime` 原先只检查 owner / busy / 是否有 runtime；runtime 已自然结束或被底层取消后，轮询任务已经退出，再次 stop 会置 busy=true 且无人清除。现在仅 CREATED / STARTING / ACTIVE 接受停止，终态保持可释放，不静默制造新的等待。`mutation-check-plugin-execution-stop.py` 在隔离 Android 工程恢复旧条件，以真实 SSH / Node 已派发请求和正常单条“Client Runtime did not stop”断言红复现；同 APK Native Core 配置绿、恢复后原生场景绿及源码 SHA256。已核对安装 APK 摘要，变异 APK 与基线不同；原件记录基线 / 变异 / 恢复三份 APK 摘要。生产修复只有此终态入口保护，没有降低任何关闭 / RPC / 外部进程期限。
+
+最终两端各 **20 项**均再次完整通过；每端收据对拍 **673 份指定源码 / 夹具输入与 30 份 Node / SDK / 二进制身份**，两端输入相同且与最终工作区一致。首轮二十项是新增入口打点前的分轮证据，不代替最终二十项；初轮 macOS 五项、Android 两项也不另加到最终数量。默认 Core **537/537 / 177 ABI**、JS-enabled / SSH-enabled / Debug 保留断言 **762/762 CTest**、旧 gterm **21 个实际场景**通过。macOS 隔离 Native Debug App / 测试构建及 Android JS-enabled Debug / 测试 APK、未签名 Release / R8 与四模块 Release lint 通过；C 格式 **19.1.7 / 240 文件**、Apple **174 / 3**、JNI **140 / 37**及脚本语法、diff 检查通过。没有新云端发行 / Swift 6.1.2 或完整客户端回归结论。
+
+前置失败保留：Exec 夹具漏私有 allocator 头的编译失败；SSH 配置中测试额外写了现有不支持的 IdentityAgent，被产品检查正确拒绝，删除的是夹具无用配置而非生产拒绝规则；审计回包用 PID 覆盖 activated 布尔导致两端误判；变异外层误把 Python traceback 引用的判红字符串当作设备失败标记，改为只解析实际 instrumentation transcript 后重跑；enabled CMake 首次未明确给 SDK 目录而正确拒绝配置。上述均未计目标红或最终通过；真实 Android busy 缺陷另按正常失败记录并修复。
+
+复现入口见 [gterm README](../../cli/gterm/README.md#两端-app-的真实-ssh-运行档验证)。手工 macOS / API36 arm64 / 4 KiB 专用无窗口模拟器证据，不增加 CI 二十份；不改 C ABI / Portable SDK，不修改 vendor，不发布、不推送。tmux / 三跳与其它远端 OS、API29 / 物理设备、通用运行档资源 / 业务进程的完整 App 矩阵、官方业务包 Node / Exec 变体、真实认证 / 模型 / 工具、恢复和整进程预算仍未完成；P1–P6 未勾选状态保持。前述云端 Core deny2 关闭断言仍未定位，不能用本批本地绿色替代云端修复证据。
