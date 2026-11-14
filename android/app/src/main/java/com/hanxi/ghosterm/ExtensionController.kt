@@ -3,6 +3,7 @@ package com.hanxi.ghosterm
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.SystemClock
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
@@ -301,7 +302,15 @@ class ExtensionController(profile: HostProfile, context: Context) {
 
     suspend fun stepRuntime(): RuntimeState = onWorker {
         val current = checkNotNull(runtime) { "插件 Runtime 尚未启动" }
-        current.step()
+        // Native steps consume one wire frame each. Keep fragment progress on
+        // this owner independent of the UI's 50 ms snapshot interval. The wall
+        // budget is checked between calls; native CPU limits still apply.
+        val deadline = SystemClock.elapsedRealtimeNanos() + 5_000_000L
+        for (step in 0 until 32) {
+            val phase = current.step()
+            if (phase != ExtensionRuntime.Phase.STARTING && phase != ExtensionRuntime.Phase.ACTIVE) break
+            if (SystemClock.elapsedRealtimeNanos() >= deadline) break
+        }
         val key = checkNotNull(runtimePackageKey)
         RuntimeState(key.id, key.digest, checkNotNull(runtimeCommand), current.info())
     }

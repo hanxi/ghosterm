@@ -5552,3 +5552,19 @@ CI 状态另记：旧 `43346407706` 的 Swift 类型推导问题已由前述提�
 最终默认 **JS-off / tests-on：540/540 CTest、177 ABI**；隔离 CLI 的 **JS-on / SSH-on / Debug：765/765 CTest**，两个完整套件串行、没有并行重构建压测。Apple **174 引用 / 3 登记未用**、JNI **140 / 37**、clang-format **19.1.7 / 241 文件**、Python 语法及 diff 检查通过。macOS 使用 Xcode 27.1 / Swift 6.4，实际 `.build/out/Products/Release/GhostermApp` 已重新链接；Android JS-enabled arm64 JNI Debug 原生对象已重新编译。没有新的设备、完整客户端、Android Release / lint 或云端 Swift 6.1.2 / 发行结论。复现与边界说明同步到 `core/tests/README.md`。
 
 本批为插件共享 SSH 清理修复，不将 P1–P6 任何阶段勾选完成，不增加 CI 二十份手工变异。两端通用运行档的完整资源 / 业务进程 / tmux 矩阵及此前未完成项继续推进。验收后清理本批工具 / 隔离副本 / SDK / 构建 / 日志，保留既有 VM 使用的三份 eq-* 文件；默认 Core 保持 JS-off / tests-on。本地分批提交，不推送或发行。
+
+### P4 实施第二十二批：两端通用运行档资源发布与 worker 泵（2026-11-14）
+
+将既有真实 App → SSH / ProxyJump → Node / Exec conformance 扩展到远端已授权工作区文件发布。两种 Executor 都通过原生资源服务读取同一 **256 KiB** 二进制文件；macOS AppModel / Android ViewModel 的实际收件列表核对全部字节、独立 SHA-256、大小、MIME 与文件名，另由远端发布者观察确认后写回执。Exec 的处理器保留原请求原始 JSON，避免资源 IPC 重用回包缓冲区后破坏 RPC input。数据不经测试服务或 RPC 字段替代，测试服务只交付包 / 内存凭据、期望摘要及审计状态。
+
+真实链暴露一个两端调度缺陷：原 App worker 每次仅调用一个原生 step，而原生 step 最多消费一帧；UI 每 50 ms 取快照，因而将每个资源片段限到同一节奏。初始 Node 256 KiB 发布在原十秒预算下明确 EXPIRED，处理器返回 `HANDLER_INTERRUPTED` / UNKNOWN。现在两端 Controller 在原串行 worker 上每轮最多执行 **32 个 step**，并在调用之间检查 **五毫秒墙钟预算**，终态立即退出；单个原生调用继续受原 CPU 保护，不将五毫秒解释成可抢占原生调用的硬期限。不改 UI 快照周期，不在 UI 线程搬运片段，不扩大资源 / RPC / 引擎预算，不改 C ABI 或 SDK。
+
+每端最终 **36 个实际场景**：既有二十个生命周期 / 授权 / RPC / 取消 / 物理断流场景，加 Node / Exec × 直连 / 两跳 ProxyJump × 成功发布、未授权根、父目录越界、符号链接四种资源场景，共十六个新增场景。资源拒绝分别核对 DENIED / DENIED / UNSUPPORTED、无成功回执和 App 收件为空；Node SDK 失败 effect 为 none，Exec 原生 admission 不产生句柄。Node / Exec 为本次明确允许的完整 OS 进程，这些范围断言约束 Ghosterm 资源服务，不宣称 OS 沙箱。成功资源 SHA-256 为 `31a1f9dea0169551092d05e8bf4a446228c8c3eb4c9b713c66adcb7fd53c89be`，实际数据从真实 SSH 接收，停止后的 PID / 远端暂存清理仍单独检查；gterm 原始退出 7 / 拒绝 6 的口径保持。
+
+`mutation-check-plugin-execution-pump.py --macos` 与 `--headless-api 36` 各 **一组**隔离源码变异：恢复旧单帧调用，在相同 Node / 直连 / 256 KiB / 十秒预算下编译后单条正常 Native 断言红，同一构件的独立 Host profile / Core 配置绿、恢复场景绿及源码 SHA256。macOS 核对真实 `ExtensionController.o` 变化，Android 核对实际构建并安装的 APK 摘要变化；不用编译失败、崩溃或外层 timeout 充目标红。两端各轮首尾均重跑真实资源场景，未把相同变异重复计组。
+
+最终两端 **36 / 36** 收据对拍 **674 份指定输入、30 份 Node / Host SDK / gterm / Exec / Core 二进制身份**，两端相同，完整 Core 构建后再次核对仍与最终文件一致。Node 为 **26.4.0**，Host SDK catalog 仍为 `7fb7cae861c391c57e09cca825dc3da69fa00d8f6b037c574d4f6aa6cdab3e79`。macOS 先行四个成功资源场景另为前置分轮证据，不加到最终 36。首次测试误按顺序比较原生已排序的能力集合；之后一次已取得真实资源与发布确认，但夹具变量复用把期望摘要算成包入口摘要。两处测试错误均修正后重跑，原失败不记绿；初始真实 EXPIRED 与独立旧调度变异分别保留，不混计。
+
+最终默认 **540/540 CTest / 177 ABI**、JS-on / SSH-on / Debug **765/765 CTest**、旧 gterm **21 个实际场景**通过；重构建与计时套件顺序执行。macOS **Xcode 27.1 / Swift 6.4 Release**、Android JS-enabled Debug / 测试 APK、未签名 **Release / R8 与四模块 Release lint**通过；Apple **174 / 3**、JNI **140 / 37**、clang-format **19.1.7 / 241 文件**、Python 语法与 diff 检查通过。Android 实际运行仅为本轮自有 **API36 / arm64 / 4 KiB / -no-window** 模拟器；Android 是 Client，Executor 仍在 macOS arm64，不冒充设备上的 Node / Exec、API29、真机、云端 Swift 6.1.2 或发行验收。
+
+复现入口和独立变异见 [gterm README](../../cli/gterm/README.md#两端-app-的真实-ssh-运行档验证)。本批仅证明 Executor → App 收件方向及所列拒绝边界；双向资源、其它大小 / 中断 / 限额矩阵、业务进程、tmux、官方运行档变体和既有 P1–P6 未完成项继续推进。云端 deny2 关闭失败仍未直接复现，不借本批绿声称恢复 CI。手工证据不增加 CI 二十份；默认 Core 保持 JS-off / tests-on，清理本批临时构建 / SDK / 工具 / 日志并保留三份 eq-*，本地分批提交，不推送或发行。

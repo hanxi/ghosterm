@@ -72,7 +72,8 @@ def execute(args, serial=None):
     sdk_digest = catalog.hexdigest()
     runtime_types = ('node', 'exec')
     cases = [f'{r}:{route}:{mode}' for r in runtime_types for route in ('direct', 'jump')
-             for mode in ('allow', 'deny', 'no-approval', 'pending-cancel', 'pending-loss')]
+             for mode in ('allow', 'deny', 'no-approval', 'pending-cancel', 'pending-loss',
+                          'resource', 'resource-root', 'resource-parent', 'resource-link')]
     selected = args.case or cases
     if set(selected) - set(cases): raise RuntimeError('Unknown execution case')
     routes = load('execution_routes', 'scripts/test-plugin-route.py')
@@ -91,7 +92,8 @@ def execute(args, serial=None):
             p = subprocess.run(list(map(str, command)), cwd=ROOT, env={**env, **(extra or {})}, capture_output=True, text=True, timeout=seconds)
             output = p.stdout + p.stderr; (logs / (label + '.log')).write_text(output)
             if p.returncode:
-                diagnostics = [(str(f.relative_to(work)), f.read_text(errors='replace')) for f in work.glob('*/o/stderr')]
+                diagnostics = [(str(f.relative_to(work)), f.read_text(errors='replace'))
+                    for name in ('stderr', 'resource-result', 'resource-receipt', 'resource-error') for f in work.glob('*/o/' + name)]
                 raise RuntimeError(label + '\n' + output + '\nREMOTE STDERR: ' + repr(diagnostics))
             return output
         if args.macos:
@@ -121,13 +123,19 @@ def execute(args, serial=None):
             with routes.chain(route_root, 2, public, host_keys, agent, 'echo') as (ports, _, _):
                 for index, case in enumerate(selected):
                     runtime, route, mode = case.split(':')
+                    resource_case = mode.startswith('resource')
                     root = work / str(index); root.mkdir()
-                    package, observation, stage, home = [root / p for p in ('k', 'o', 't', 'h')]
-                    for folder in [package, observation, stage, home]: folder.mkdir(mode=0o700)
+                    package, observation, stage, home, workspace = [root / p for p in ('k', 'o', 't', 'h', 'w')]
+                    for folder in [package, observation, stage, home, workspace]: folder.mkdir(mode=0o700)
+                    resource_bytes = bytes(i % 251 for i in range(262144))
+                    (workspace / 'file.bin').write_bytes(resource_bytes)
+                    (root / 'outside.bin').write_bytes(b'UNAUTHORIZED disposable fixture')
+                    (workspace / 'link.bin').symlink_to(root / 'outside.bin')
                     fields = ['first', 'empty', 'literal']
                     schema = dict(type='object', properties={p: dict(type='string', maxLength=256) for p in fields}, required=fields,
                         additionalProperties=False, **{'x-ghosterm-cli': dict(version=1, fields={p: dict(position=i) for i, p in enumerate(fields)})})
                     variant = dict(id='selected', runtime=runtime, requires=['session.rpc'])
+                    if resource_case: variant['requires'] += ['resource.receive', 'file.readScoped']
                     if runtime == 'node': variant.update(entry='executor/index.mjs', runtimeVersionRange='>=20.0.0 <1000.0.0')
                     else: variant.update(executable='executor/main', os=[{'Darwin': 'macos', 'Linux': 'linux'}[platform.system()]],
                         arch=[{'arm64': 'aarch64', 'aarch64': 'aarch64', 'x86_64': 'x86_64'}[platform.machine()]])
@@ -136,6 +144,10 @@ def execute(args, serial=None):
                         commands=[dict(path=['fixture'], title='Fixture', argsSchema='schemas/input.json')],
                         client=dict(runtime='portable-js', entry='client/index.js', requires=['session.rpc']),
                         executor=dict(variants=[variant]), permissions=[])
+                    if resource_case:
+                        manifest['client']['requires'] += ['resource.receive']
+                        manifest['permissions'] = [dict(side='executor', capability='file.readScoped',
+                            purpose='Owned disposable workspace fixture', scope='instance')]
                     files = {'plugin.json': json.dumps(manifest).encode(), 'schemas/input.json': json.dumps(schema).encode(),
                         'client/index.js': b'export function activate(){return {dispose(){}}}', 'README': b'Owned execution fixture',
                         'LICENSES/MIT.txt': (ROOT / 'LICENSE').read_bytes(),
@@ -154,7 +166,8 @@ def execute(args, serial=None):
                         pem=private.decode('ascii'), packageFiles={str(p.relative_to(package)): base64.b64encode(p.read_bytes()).decode()
                         for p in package.rglob('*') if p.is_file()}, packageDigest=digest, packageDirectory=str(package),
                         wrapper=str(wrapper), temporary=str(stage), scratch=str(scratch), node=str(node), nodeVersion=version,
-                        nodeDigest=sha(node), sdk=str(sdk), sdkDigest=sdk_digest)
+                        nodeDigest=sha(node), sdk=str(sdk), sdkDigest=sdk_digest,
+                        workspace=str(workspace), resourceDigest=hashlib.sha256(resource_bytes).hexdigest())
                     token = secrets.token_hex(24); owned_pids = {}
                     def observe():
                         answer = {'wrapperStarted': (observation / 'gterm-pid').exists(), 'activated': (observation / 'activated').exists(),
@@ -169,6 +182,8 @@ def execute(args, serial=None):
                                     if expected not in observed: raise RuntimeError('Fixture PID does not match its owned command')
                                     owned_pids[pid] = observed
                         if (observation / 'environment').exists(): answer['environment'] = (observation / 'environment').read_text()
+                        if (observation / 'resource-receipt').exists(): answer['resourceReceipt'] = (observation / 'resource-receipt').read_text()
+                        if (observation / 'resource-error').exists(): answer['resourceError'] = (observation / 'resource-error').read_text()
                         if (observation / 'exit').exists(): answer.update(json.loads((observation / 'exit').read_text()))
                         return answer
                     class Handler(socketserver.StreamRequestHandler):

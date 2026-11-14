@@ -51,6 +51,7 @@ class ExecutorSSHAppTest {
     @Test fun remoteExecutionThroughViewModelAndConsentUI() {
         assertTrue(BuildConfig.PLUGIN_JS_ENABLED)
         val payload = service(); val mode = payload.getString("mode"); val jump = payload.getString("route") == "jump"
+        val resourceCase = mode.startsWith("resource")
         val context = instrumentation.targetContext
         val folder = File(context.cacheDir, "execution-${java.util.UUID.randomUUID()}"); check(folder.mkdir())
         val files = payload.getJSONObject("packageFiles")
@@ -77,6 +78,7 @@ class ExecutorSSHAppTest {
             val execution = ExtensionRelayBootstrap.Execution(selected, payload.getString("temporary"), mode != "no-approval")
             val request = ExtensionRelayBootstrap.Request(payload.getString("wrapper"), payload.getString("packageDirectory"), digest, digest,
                 listOf("fixture.echo"), command = "fixture", arguments = listOf("中文😀", "", "literal'$(owned)"),
+                workspaceRootDirectory = if (resourceCase) payload.getString("workspace") else null,
                 processEnvironmentNames = listOf("GT_EXECUTION_APP_FIXTURE"), execution = execution)
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
@@ -104,7 +106,8 @@ class ExecutorSSHAppTest {
             await("Session did not reach consent") { main { extensions.activeSession?.info?.phase == ExtensionSession.Phase.CONSENT } }
             assertEquals(if (jump) 2 else 1, hostCount)
             assertEquals(execution, main { extensions.activeSession?.executorExecution })
-            assertEquals(listOf("session.rpc"), main { extensions.activeSession?.requiredCapabilities })
+            assertEquals((if (resourceCase) listOf("session.rpc", "resource.receive", "file.readScoped") else listOf("session.rpc")).toSet(),
+                main { extensions.activeSession?.requiredCapabilities?.toSet() })
             assertFalse("No module execution before consent", service("audit").getBoolean("activated"))
             assertFalse("No Executor entry before consent", service("audit").getBoolean("entered"))
             ui.onNodeWithTag("plugin-consent-executor-runtime").assertExists()
@@ -118,7 +121,7 @@ class ExecutorSSHAppTest {
             ui.onNodeWithText("允许并启动").performClick()
             await("Client/Executor did not activate") { main { extensions.activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE } && service("audit").getBoolean("activated") }
             assertEquals(payload.getString("temporary"), service("audit").getString("environment"))
-            val input = JSONObject().put("text", "echo 中文😀 '\" }").put("count", 17)
+            val input = JSONObject().put("text", if (resourceCase) mode.replace('-', '_').uppercase(java.util.Locale.ROOT) else "echo 中文😀 '\" }").put("count", 17)
             val admission = runBlocking { controller.requestRuntimeExecutor("fixture.echo", input.toString().toByteArray()) }
             assertEquals(ExtensionSession.RPCStatus.OK, admission.status); val handle = checkNotNull(admission.handle)
             var result: ExtensionSession.RPCResult? = null
@@ -131,6 +134,23 @@ class ExecutorSSHAppTest {
             assertEquals(input.getString("text"), outcome.getJSONObject("value").getString("text"))
             assertEquals(17, outcome.getJSONObject("value").getInt("count"))
             assertEquals(ExtensionSession.RPCStatus.OK, runBlocking { controller.forgetRuntimeExecutorRequest(handle) })
+            if (mode == "resource") {
+                await("Resource did not reach ViewModel") { main { extensions.receivedResources.size == 1 } }
+                val resource = main { extensions.receivedResources.single() }
+                val expected = ByteArray(262144) { (it % 251).toByte() }
+                assertArrayEquals(expected, resource.bytes)
+                val digest = MessageDigest.getInstance("SHA-256").digest(expected).joinToString("") { "%02x".format(it.toInt() and 255) }
+                assertEquals(payload.getString("resourceDigest"), digest)
+                assertEquals(digest, resource.descriptor.sha256)
+                assertEquals("file.bin", resource.descriptor.displayName)
+                assertEquals("application/octet-stream", resource.descriptor.mime)
+                assertEquals(262144L, resource.descriptor.size)
+                assertEquals("$digest 262144", service("audit").getString("resourceReceipt"))
+            } else if (resourceCase) {
+                assertTrue(main { extensions.receivedResources.isEmpty() })
+                assertEquals(if (mode == "resource-link") "UNSUPPORTED" else "DENIED", service("audit").getString("resourceError"))
+                assertFalse(service("audit").has("resourceReceipt"))
+            }
             if (mode == "pending-cancel" || mode == "pending-loss") {
                 val pending = runBlocking { controller.requestRuntimeExecutor("fixture.echo", "{\"text\":\"WAIT\",\"count\":99}".toByteArray()) }
                 val pendingHandle = checkNotNull(pending.handle)

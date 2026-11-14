@@ -17,6 +17,25 @@ export function activate(ctx) {
       writeFileSync(observation + '/handler', 'started');
       return await new Promise(() => {});
     }
+    if (value.text.startsWith('RESOURCE')) {
+      if (!ctx.resources) throw Error('resource service missing');
+      const selected = { RESOURCE: ['workspace', 'file.bin', null], RESOURCE_ROOT: ['outside', 'file.bin', 'DENIED'],
+        RESOURCE_PARENT: ['workspace', '../outside.bin', 'DENIED'], RESOURCE_LINK: ['workspace', 'link.bin', 'UNSUPPORTED'] }[value.text];
+      if (!selected) throw Error('resource case');
+      const [root, relativePath, error] = selected;
+      const result = await ctx.resources.publish({ root, relativePath,
+        mediaType: 'application/octet-stream' }, { byteLimit: '262144', timeoutMs: 10000 }).outcome;
+      writeFileSync(observation + '/resource-result', JSON.stringify(result), { flag: 'wx' });
+      if (error) {
+        if (result.kind !== 'failed' || result.error.code !== error || result.error.effect !== 'none') throw Error('resource rejection');
+        writeFileSync(observation + '/resource-error', error, { flag: 'wx' });
+      } else {
+        if (result.kind !== 'success' || result.value.size.kind !== 'known' ||
+            result.value.size.bytes !== '262144') throw Error('resource publication failed');
+        writeFileSync(observation + '/resource-receipt', result.value.sha256 + ' ' + result.value.size.bytes,
+          { flag: 'wx' });
+      }
+    }
     return value;
   });
   return { dispose() {} };

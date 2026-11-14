@@ -56,6 +56,7 @@ import XCTest
         let payload = try service()
         func string(_ name: String) throws -> String { try XCTUnwrap(payload[name] as? String) }
         let runtime = try string("runtime"), mode = try string("mode"), route = try string("route")
+        let resourceCase = mode.hasPrefix("resource")
         let scratch = URL(fileURLWithPath: try string("scratch")), package = URL(fileURLWithPath: try string("packageDirectory"))
         let config = scratch.appendingPathComponent("ssh_config"), known = scratch.appendingPathComponent("known")
         let ports = try XCTUnwrap(payload["ports"] as? [Int]), user = try string("user")
@@ -82,7 +83,9 @@ import XCTest
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest, command: "fixture",
             arguments: ["中文😀", "", "literal'$(owned)"], sshAlias: "execution-target",
             executable: try string("wrapper"), executorDirectory: package.path, executorDigest: review.digest,
-            methods: ["fixture.echo"], hostMethods: [], processEnvironmentNames: ["GT_EXECUTION_APP_FIXTURE"], executorExecution: execution)
+            methods: ["fixture.echo"], hostMethods: [],
+            scopedRoots: resourceCase ? [.init(id: "workspace", directory: try string("workspace"))] : [],
+            processEnvironmentNames: ["GT_EXECUTION_APP_FIXTURE"], executorExecution: execution)
         if mode == "no-approval" {
             XCTAssertNotNil(model.extensionRunIssue); XCTAssertNil(model.extensionRun)
             XCTAssertTrue(interaction.hosts.isEmpty)
@@ -93,7 +96,7 @@ import XCTest
         let run = try XCTUnwrap(model.extensionRun, model.extensionRunIssue ?? "missing run")
         XCTAssertEqual(run.session?.phase, ExtensionSession.Phase.consent.rawValue)
         XCTAssertEqual(run.executorExecution, execution)
-        XCTAssertEqual(run.requiredCapabilities, ["session.rpc"])
+        XCTAssertEqual(Set(run.requiredCapabilities), Set(resourceCase ? ["session.rpc", "resource.receive", "file.readScoped"] : ["session.rpc"]))
         XCTAssertEqual(interaction.hosts.count, route == "jump" ? 2 : 1)
         XCTAssertEqual(try service("audit")["activated"] as? Bool, false, "No module execution before consent")
         XCTAssertEqual(try service("audit")["entered"] as? Bool, false, "No Executor entry before consent")
@@ -109,7 +112,7 @@ import XCTest
             return model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue && (audit["activated"] as? Bool) == true
         }
         XCTAssertEqual(try service("audit")["environment"] as? String, try string("temporary"))
-        let input: [String: Any] = ["text": "echo 中文😀 '\" }", "count": 17]
+        let input: [String: Any] = ["text": resourceCase ? mode.replacingOccurrences(of: "-", with: "_").uppercased() : "echo 中文😀 '\" }", "count": 17]
         let admission = try await controller.requestExecutorRPC(method: "fixture.echo", input: JSONSerialization.data(withJSONObject: input))
         let handle = try XCTUnwrap(admission.handle); XCTAssertEqual(admission.status, .ok)
         var completed: ExtensionSession.RPCResult?
@@ -119,13 +122,29 @@ import XCTest
             completed = result
             return result?.confirmed == true
         }
-        XCTAssertEqual(completed?.state, .succeeded)
+        XCTAssertNil(model.extensionRunIssue)
+        XCTAssertEqual(completed?.state, .succeeded, String(data: completed?.outcome ?? Data(), encoding: .utf8) ?? "")
+        guard completed?.state == .succeeded else { return }
         let outcome = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(completed).outcome) as? [String: Any])
         XCTAssertEqual(outcome["kind"] as? String, "success")
         let echoed = try XCTUnwrap(outcome["value"] as? [String: Any])
         XCTAssertEqual(echoed["text"] as? String, input["text"] as? String)
         XCTAssertEqual(echoed["count"] as? Int, 17)
         let forgotten = try await controller.forgetExecutorRPC(handle: handle); XCTAssertEqual(forgotten, .ok)
+        if mode == "resource" {
+            try await until("Resource did not reach AppModel") { model.extensionRun?.receivedResources.count == 1 }
+            let resource = try XCTUnwrap(model.extensionRun?.receivedResources.first)
+            let expected = Data((0..<262144).map { UInt8($0 % 251) })
+            XCTAssertEqual(resource.bytes, expected); XCTAssertEqual(resource.size, UInt64(expected.count))
+            XCTAssertEqual(resource.displayName, "file.bin"); XCTAssertEqual(resource.mime, "application/octet-stream")
+            let digest = SHA256.hash(data: expected).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(resource.sha256, digest); XCTAssertEqual(digest, try string("resourceDigest"))
+            XCTAssertEqual(try service("audit")["resourceReceipt"] as? String, digest + " 262144")
+        } else if resourceCase {
+            XCTAssertTrue(try XCTUnwrap(model.extensionRun).receivedResources.isEmpty)
+            XCTAssertEqual(try service("audit")["resourceError"] as? String, mode == "resource-link" ? "UNSUPPORTED" : "DENIED")
+            XCTAssertNil(try service("audit")["resourceReceipt"])
+        }
         if mode == "pending-cancel" || mode == "pending-loss" {
             let pending = try await controller.requestExecutorRPC(method: "fixture.echo", input: Data(#"{"text":"WAIT","count":99}"#.utf8))
             let pendingHandle = try XCTUnwrap(pending.handle)

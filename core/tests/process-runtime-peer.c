@@ -100,6 +100,88 @@ static void app_mark(const char *root, const char *name, bool pid) {
     CHECK(fd >= 0 && write(fd, bytes, (size_t)n) == n && !close(fd));
 }
 
+static bool app_string(const app_json_t *d, uint16_t n, const char *text) {
+    return n && d->nodes[n].kind == J_STRING && d->nodes[n].size == strlen(text) &&
+           !memcmp(d->strings + d->nodes[n].text, text, strlen(text));
+}
+
+static void app_text(const char *root, const char *name, const char *text) {
+    char path[4096];
+    CHECK(snprintf(path, sizeof(path), "%s/%s", root, name) > 0);
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    size_t n = strlen(text);
+    CHECK(fd >= 0 && write(fd, text, n) == (ssize_t)n && !close(fd));
+}
+
+static void app_resource(uint64_t *sequence, char reply[8193], const char *root, const char *kind) {
+    bool outside = !strcmp(kind, "RESOURCE_ROOT"), parent = !strcmp(kind, "RESOURCE_PARENT"),
+         link = !strcmp(kind, "RESOURCE_LINK");
+    char fields[512];
+    CHECK(snprintf(fields,
+                   sizeof(fields),
+                   "\"op\":\"resource\",\"action\":\"publish\",\"root\":\"%s\",\"path64\":\"%s\","
+                   "\"mime\":\"application/octet-stream\",\"limit\":\"262144\",\"timeoutMs\":10000",
+                   outside ? "outside" : "workspace",
+                   parent ? "Li4vb3V0c2lkZS5iaW4="
+                   : link ? "bGluay5iaW4="
+                          : "ZmlsZS5iaW4=") > 0);
+    call(sequence, fields, reply);
+    app_json_t *d = app_parse(reply);
+    uint16_t v = app_member(d, 1, "value"), handle = app_member(d, v, "handle");
+    if (outside || parent || link) {
+        CHECK(app_string(d, app_member(d, v, "status"), link ? "unsupported" : "denied") &&
+              !handle);
+        app_text(root, "resource-error", link ? "UNSUPPORTED" : "DENIED");
+        release(NULL, d, sizeof(*d));
+        return;
+    }
+    CHECK(app_string(d, app_member(d, v, "status"), "ok") && handle &&
+          d->nodes[handle].kind == J_STRING && d->nodes[handle].size < 32);
+    char id[32];
+    CHECK(snprintf(id,
+                   sizeof(id),
+                   "%.*s",
+                   (int)d->nodes[handle].size,
+                   d->strings + d->nodes[handle].text) > 0);
+    release(NULL, d, sizeof(*d));
+    for (;;) {
+        CHECK(snprintf(fields,
+                       sizeof(fields),
+                       "\"op\":\"resource\",\"action\":\"publication\",\"ref\":\"%s\"",
+                       id) > 0);
+        call(sequence, fields, reply);
+        d = app_parse(reply);
+        v = app_member(d, 1, "value");
+        uint16_t pub = app_member(d, v, "publication"), phase = app_member(d, pub, "phase");
+        CHECK(app_string(d, app_member(d, v, "status"), "ok"));
+        if (app_string(d, phase, "succeeded")) {
+            uint16_t confirmed = app_member(d, pub, "confirmed");
+            uint16_t descriptor = app_member(d, pub, "descriptor");
+            uint16_t sha = app_member(d, descriptor, "sha256");
+            CHECK(confirmed && d->nodes[confirmed].kind == J_TRUE &&
+                  app_string(d, app_member(d, pub, "transferState"), "succeeded") &&
+                  app_string(d, app_member(d, descriptor, "bytes"), "262144") && sha &&
+                  d->nodes[sha].kind == J_STRING && d->nodes[sha].size == 64);
+            char receipt[128];
+            int n = snprintf(
+                receipt, sizeof(receipt), "%.*s 262144", 64, d->strings + d->nodes[sha].text);
+            CHECK(n > 0);
+            app_text(root, "resource-receipt", receipt);
+            release(NULL, d, sizeof(*d));
+            break;
+        }
+        CHECK(app_string(d, phase, "hashing") || app_string(d, phase, "ready") ||
+              app_string(d, phase, "sending") || app_string(d, phase, "receipt"));
+        release(NULL, d, sizeof(*d));
+    }
+    CHECK(snprintf(fields,
+                   sizeof(fields),
+                   "\"op\":\"resource\",\"action\":\"forget\",\"ref\":\"%s\"",
+                   id) > 0);
+    call(sequence, fields, reply);
+    CHECK(strstr(reply, "\"value\":{\"status\":\"ok\""));
+}
+
 static void app_roundtrip(uint64_t *sequence, char reply[8193], const char *root) {
     CHECK(!getenv("GT_EXECUTION_AMBIENT"));
     char path[4096];
@@ -112,7 +194,9 @@ static void app_roundtrip(uint64_t *sequence, char reply[8193], const char *root
     app_mark(root, "activated", true);
     for (;;) {
         call(sequence, "\"op\":\"take\",\"methods\":[\"fixture.echo\"]", reply);
-        app_json_t *d = app_parse(reply);
+        char request[8193];
+        memcpy(request, reply, strlen(reply) + 1);
+        app_json_t *d = app_parse(request);
         uint64_t version;
         CHECK(node_uint(d, app_member(d, 1, "v"), &version) && version == 1);
         uint16_t ticket = app_member(d, 1, "ticket"), input = app_member(d, 1, "input");
@@ -122,6 +206,14 @@ static void app_roundtrip(uint64_t *sequence, char reply[8193], const char *root
         }
         CHECK(input && d->nodes[ticket].kind == J_STRING && d->nodes[input].kind == J_OBJECT);
         uint16_t label = app_member(d, input, "text");
+        const char *resource_kind = app_string(d, label, "RESOURCE")          ? "RESOURCE"
+                                    : app_string(d, label, "RESOURCE_ROOT")   ? "RESOURCE_ROOT"
+                                    : app_string(d, label, "RESOURCE_PARENT") ? "RESOURCE_PARENT"
+                                    : app_string(d, label, "RESOURCE_LINK")   ? "RESOURCE_LINK"
+                                                                              : NULL;
+        if (resource_kind) {
+            app_resource(sequence, reply, root, resource_kind);
+        }
         if (label && d->nodes[label].size == 4 &&
             !memcmp(d->strings + d->nodes[label].text, "WAIT", 4)) {
             release(NULL, d, sizeof(*d));

@@ -610,7 +610,16 @@ public actor ExtensionController {
                 try self.checkOpen()
                 guard let runtime = self.runtime, let packageKey = self.runtimePackageKey,
                       let command = self.runtimeCommand else { throw ControllerError.runtimeUnavailable }
-                _ = try runtime.step()
+                // One native step consumes at most one wire frame. Drain a
+                // bounded batch on this worker so the UI snapshot cadence does
+                // not impose a 50 ms delay on every resource fragment. The wall
+                // budget applies between calls; each call retains its CPU guard.
+                let deadline = ProcessInfo.processInfo.systemUptime + 0.005
+                for _ in 0..<32 {
+                    let phase = try runtime.step()
+                    if phase != .starting && phase != .active { break }
+                    if ProcessInfo.processInfo.systemUptime >= deadline { break }
+                }
                 return try self.runtimeState(runtime, packageKey: packageKey, command: command)
             }
         }

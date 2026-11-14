@@ -222,16 +222,30 @@ python3 scripts/test-plugin-execution-ssh-app.py --headless-api 36 --build tmp/e
   --node 已安装Node路径 --sdk 已构建HostSDK目录
 python3 scripts/mutation-check-plugin-execution-stop.py --headless-api 36 --build tmp/execution-build \
   --node 已安装Node路径 --sdk 已构建HostSDK目录
+python3 scripts/mutation-check-plugin-execution-pump.py --macos --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
+python3 scripts/mutation-check-plugin-execution-pump.py --headless-api 36 --build tmp/execution-build \
+  --node 已安装Node路径 --sdk 已构建HostSDK目录
 ```
 
-每端二十组：Node / 原生 Exec × 直连 / 两跳 ProxyJump × 允许、拒绝、无 OS 进程允许、
-已进入处理器后的取消 / 断流。macOS 走生产 AppModel，Android 走生产 ViewModel 和原生
+每端三十六个场景：Node / 原生 Exec × 直连 / 两跳 ProxyJump × 允许、拒绝、无 OS 进程允许、
+已进入处理器后的取消 / 断流、资源发布及三个资源拒绝边界。macOS 走生产 AppModel，Android 走生产 ViewModel 和原生
 授权页；SSH 密钥只由服务在内存中交付。断流通过本轮拥有的透明 TCP 故障夹具切断
 加密连接，不启动生产网关。模块 / 原生入口分别在第一条包代码处打点，未批准时不能进入；
 正常 RPC 按实际收到的 JSON 内容回传，终止前等待处理器打点；取消先核对 cancelRequested，再停止 Client Runtime，结果必须 UNKNOWN 且未确认。
 停止后检查本轮命令对应的远端 PID 消失及暂存目录清空，单独保存 gterm 的实际 wait 状态。
 
+`--case node:jump:resource` 可单选远端已授权工作区文件的 256 KiB 二进制发布，
+两端实际收件列表检查完整字节、SHA-256、大小 / MIME / 文件名，并独立检查远端发布确认。
+`resource-root / resource-parent / resource-link` 分别验证未授权根目录、父目录越界、符号链接：
+资源服务须给出明确错误、不产生收件或成功回执。Node / Exec 仍是显式允许的完整 OS
+进程；这里验证 Ghosterm 资源服务的范围约束。worker 每轮最多 32 个原生 step，并在调用间
+检查五毫秒墙钟预算；单次原生调用继续受原 CPU 保护，不按 UI 的 50 ms 周期逐帧限速。
+独立 pump 变异恢复旧的单帧调用，保持十秒发布预算，要求普通单条 Native 断言红、同构件
+配置绿、复原绿与源码 SHA256；另核对实际编译对象 / APK 的改变。
+
 这是无账号 / 模型的 conformance 包，并非官方业务插件。当前观察到成功回包后的 App
 停止和连接断流使远端 gterm 返回 7（会话结果不明），拒绝返回 6；不把进程消失或一条
-RPC 成功记成整个远端任务成功。测试不覆盖 tmux、其它服务器 / 操作系统、完整资源 /
-受控进程矩阵或真实设备；不纳入现有 macOS CI 二十份变异。
+RPC 成功记成整个远端任务成功。上述资源是 Executor 到 App 收件列表的方向；双向资源、
+tmux、其它服务器 / 操作系统、完整资源 / 受控进程矩阵或真实设备仍待验证；不纳入现有
+macOS CI 二十份变异。
