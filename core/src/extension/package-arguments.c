@@ -8,7 +8,7 @@
 #include <quickjs.h>
 #include "extension/package-cli-decoder.h"
 
-static gt_status_t decode_checked(const gt_ext_package_t *p,
+static gt_status_t decode_checked(const gt_package_checked_t *checked,
                                   const char *command_path,
                                   const char *const *argv,
                                   size_t argc,
@@ -17,8 +17,8 @@ static gt_status_t decode_checked(const gt_ext_package_t *p,
                                   size_t *size) {
     gt_package_command_t command;
     bool found = false;
-    for (size_t i = 0; i < gt__package_checked_command_count(p->checked); i++) {
-        if (gt__package_checked_command(p->checked, i, &command) &&
+    for (size_t i = 0; i < gt__package_checked_command_count(checked); i++) {
+        if (gt__package_checked_command(checked, i, &command) &&
             !strcmp(command.path, command_path)) {
             found = true;
             break;
@@ -52,7 +52,7 @@ static gt_status_t decode_checked(const gt_ext_package_t *p,
     const uint8_t *schema_bytes = NULL;
     size_t schema_size = 0;
     if (!gt__package_checked_member(
-            p->checked, command.args_schema, &member, &schema_bytes, &schema_size) ||
+            checked, command.args_schema, &member, &schema_bytes, &schema_size) ||
         member.bytes != schema_size || !schema_size || schema_size > 65536) {
         return GT_ERR_NOT_FOUND;
     }
@@ -144,6 +144,29 @@ static gt_status_t decode_checked(const gt_ext_package_t *p,
 }
 #endif
 
+gt_status_t gt__package_decode_arguments(const gt_package_checked_t *p,
+                                         const char *command,
+                                         const char *const *argv,
+                                         size_t argc,
+                                         char *output,
+                                         size_t capacity,
+                                         size_t *size) {
+    if (size) {
+        *size = 0;
+    }
+    if (!p || !command || !size || (!output && capacity) || !strnlen(command, 520) ||
+        strnlen(command, 520) >= 520) {
+        return GT_ERR_INVALID_ARG;
+    }
+#ifdef GT_HAVE_PLUGIN_JS
+    return decode_checked(p, command, argv, argc, output, capacity, size);
+#else
+    (void)argv;
+    (void)argc;
+    return GT_ERR_UNSUPPORTED;
+#endif
+}
+
 gt_status_t gt_ext_package_decode_command_arguments(const gt_ext_package_t *p,
                                                     const char *command,
                                                     const char *const *argv,
@@ -167,6 +190,6 @@ gt_status_t gt_ext_package_decode_command_arguments(const gt_ext_package_t *p,
     if (!n || n >= 520) {
         return GT_ERR_INVALID_ARG;
     }
-    return decode_checked(p, command, argv, argc, output, capacity, size);
+    return gt__package_decode_arguments(p->checked, command, argv, argc, output, capacity, size);
 #endif
 }

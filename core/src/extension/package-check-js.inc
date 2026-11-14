@@ -706,6 +706,15 @@ gt_package_check_status_t gt__package_check(gt_package_snapshot_t **snapshot,
         if (info->executor) {
             ok = ok && check_string(c, result, "variantId", info->variant, sizeof(info->variant));
         }
+        if (!strcmp(info->runtime, "node")) {
+            JSValue programs = JS_GetPropertyStr(c, args[3], "programs");
+            JSValue node = JS_GetPropertyStr(c, programs, "node");
+            ok =
+                ok && check_string(
+                          c, node, "version", info->runtime_version, sizeof(info->runtime_version));
+            JS_FreeValue(c, node);
+            JS_FreeValue(c, programs);
+        }
         JS_FreeValue(c, identity);
         JS_FreeValue(c, result);
         JS_FreeValue(c, association);

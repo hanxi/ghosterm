@@ -38,7 +38,7 @@ struct gt_process_rpc {
     process_reference_t outgoing[64], incoming[64];
     char reply[GT_PROCESS_RPC_MESSAGE_MAX + 1];
     size_t reply_size;
-    bool failed;
+    bool failed, activated;
 };
 
 static uint16_t process_member(const process_json_t *d, const char *key) {
@@ -155,6 +155,13 @@ static bool process_dispatch(gt_process_rpc_t *p, const char *op) {
     static const char *const take[] = {"v", "id", "op", "methods"};
     static const char *const respond[] = {"v", "id", "op", "ref", "outcome"};
     static const char *const access[] = {"v", "id", "op", "capability"};
+    if (!strcmp(op, "activated")) {
+        if (!process_keys(d, basic, 3) || p->activated) {
+            return false;
+        }
+        p->activated = true;
+        return process_status(p, GT_EXT_RPC_OK);
+    }
     if (!strcmp(op, "request")) {
         char method[129];
         uint64_t timeout;
@@ -423,6 +430,10 @@ void gt__process_rpc_revoke(gt_process_rpc_t *p) {
     if (p) {
         gt_ext_session_revoke(p->session);
     }
+}
+
+bool gt__process_rpc_activated(const gt_process_rpc_t *p) {
+    return p && p->activated && !p->failed;
 }
 
 gt_status_t gt__process_rpc_destroy(gt_process_rpc_t **out) {

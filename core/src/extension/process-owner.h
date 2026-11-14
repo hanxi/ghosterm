@@ -34,6 +34,9 @@ typedef struct {
     int term_signal;
 } gt_ext_process_info_t;
 
+/* The same bounded name/value and duplicate checks used before fork. */
+bool gt__ext_process_environment_valid(const char *const *, size_t);
+
 /* Absolute executable, raw argv, no shell or PATH search. The caller is a
  * trusted native host that has already applied the process.spawn grant and
  * program allowlist. cwd_fd must name an open directory; only the explicit
@@ -54,6 +57,10 @@ gt_status_t gt__ext_process_close_stdin(gt_ext_process_t *);
 gt_status_t gt__ext_process_signal(gt_ext_process_t *, int signal_number);
 /* Nonblocking waitpid observation. Unknown exit remains distinct from code 0. */
 gt_status_t gt__ext_process_poll(gt_ext_process_t *, gt_ext_process_info_t *);
+/* Observe without reaping (POSIX waitid/WNOWAIT). A controller can fence/kill
+ * the owned process group while its leader PID is still reserved, then poll to
+ * reap. This does not claim that grandchildren have been reaped by this owner. */
+gt_status_t gt__ext_process_observe_exit(gt_ext_process_t *, gt_ext_process_info_t *);
 /* Refuses to free a running child. Caller must stop and reap before destroy. */
 gt_status_t gt__ext_process_destroy(gt_ext_process_t **);
 #endif

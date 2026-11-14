@@ -6,7 +6,7 @@
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
-**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 入口；第五批提供 ai-claude Portable 目录候选包及完整参数 / 回包八方法。macOS 和 Android 已接固定启动配置、ACTIVE Runtime 文档适配、原生对话、工具批准、逐题显式回答、中断和停止，Codex / Claude 共用输入、决定按钮和只读完整文本控件。真实生产页面经自有直连 / ProxyJump SSH、gterm、Node 和锁定 SDK 配明确内存 CLI 协议夹具，已验工具批准、四题点击提交及停止 / reap；真实 CLI 另验禁网无模型初始化。第十、十一批补双端未确认操作的显式只读回包观察，保留原未知状态并拒绝重放；两端另验证真实 SSH 的原生 RPC 超时后读取保留回包。它不恢复已断开的 SSH 或 Agent 会话。尚无真实认证 / 模型 / 工具执行、持续模型流量 / 整进程资源证据；通用 Node / Exec 包运行档未接入，第十二至十四批已补已校验包私有暂存、进程 RPC 接缝和 Node SDK 会话适配；候选包不声明可移植 Native views，默认 App 仍禁用插件。P4 仍未完成，具体版本、变异和限制见文末 P4 第一至十四批。
+**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 入口；第五批提供 ai-claude Portable 目录候选包及完整参数 / 回包八方法。macOS 和 Android 已接固定启动配置、ACTIVE Runtime 文档适配、原生对话、工具批准、逐题显式回答、中断和停止，Codex / Claude 共用输入、决定按钮和只读完整文本控件。真实生产页面经自有直连 / ProxyJump SSH、gterm、Node 和锁定 SDK 配明确内存 CLI 协议夹具，已验工具批准、四题点击提交及停止 / reap；真实 CLI 另验禁网无模型初始化。第十、十一批补双端未确认操作的显式只读回包观察，保留原未知状态并拒绝重放；两端另验证真实 SSH 的原生 RPC 超时后读取保留回包。它不恢复已断开的 SSH 或 Agent 会话。尚无真实认证 / 模型 / 工具执行、持续模型流量 / 整进程资源证据；第十二至十五批已补已校验包私有暂存、进程 RPC、Node SDK 会话适配与实际 Node / Exec 进程控制器。通用运行档尚未接入 gterm / App，当前控制器只组合 session.rpc，资源 / process 服务和整进程预算继续待接；候选包不声明可移植 Native views，默认 App 仍禁用插件。P4 仍未完成，具体版本、变异和限制见文末 P4 第一至十五批。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -5408,3 +5408,25 @@ NativePort 每次 request / take / result / check / respond / access 都经实�
 新增通用 CTest `extension_process_kill`，真实启动自有 sleep 子进程，发送 SIGKILL、观察已知信号退出并 reap。断言失败的夹具清理在 KILL 接口失败时尝试 TERM，避免旧代码反例遗留测试进程。macOS 隔离检出只包含此修复：恢复旧判断、实际重编译后普通断言红，同 archive 配置对照绿，复原后信号退出绿及 SHA256 一致；编译失败 / 崩溃 / sanitizer / 超时不计目标红。最终完整默认离线 gate **522/522 CTest、177 ABI** 通过，C 格式 **19.1.7 / 230 文件** 与 diff 检查通过。
 
 首轮隔离目录过深导致 Unix socket 路径前置失败，缩短到工程 tmp/ 后发现未接锁定 SSH Python 工具链的两项前置失败；显式复用既有锁定工具链后完整重跑通过，前两轮均未记整轮绿。全部对象为本机一次性进程与回环测试服务；无公共 ABI / 平台源码改动，不增加 macOS CI 二十份，也不据此宣称 Node / Exec 档或 P4 完成。
+
+### P4 实施第十五批：已校验 Node / Exec 包的实际进程控制器（2026-11-14）
+
+新增私有 `process-runtime.c/.h`，组合固定包暂存、可信 Host SDK、实际 executable、Native Session / process RPC 与子进程 owner。成功构造才接管原 Session / Node SDK snapshot，保留 checked 包引用；失败不消费、不撤销原授权，也不写文件 / 启动进程。独立执行许可、命令关联、Executor 角色、包 ID / 版本 / digest / SDK / protocol 及必需能力在原生侧核对，当前只支持 session.rpc，不能以 required 服务缺失静默启动。调用参数复用同一个原生 checked argsSchema 解码器，保留原 argv 与冻结 decodedArguments；未另写一份 CLI 语法。
+
+Node 路径必须为显式 canonical executable，先核对 SHA256 / regular file / execute 位 / inode 与时间戳，启动前再次核对；独立空环境的真实 `node --version` 必须与包校验器已验证范围的可信版本观察精确一致，不能只信 manifest 或传入版本字符串。插件只从完整封存的包树运行；独立可信 SDK physical snapshot 连同 build manifest 以排序后的 UTF-8 路径长度、文件长度、路径及成员 SHA256 封帧摘要核对，逐文件暂存并封只读，既不从插件原目录取 SDK，也不把内容摘要当发布者认证 / 执行许可。builder 现输出 **21 份**成员和 build manifest，独立物理 catalog digest 与原生 C / Python 对拍；Portable 六模块的原产物与身份保持。
+
+可信 Node bootstrap 从原生独占 startup 文件校验长度 / SHA256，构造公开 instanceId / epoch / Executor context，不提供 lease token。特殊 SDK import 指向固定 Host bundle；模块解析限制为包树、固定 SDK 或 Node builtins，拒绝普通 ambient 外部模块。console 输出走 stderr，stdout 留给既有有界 pipe worker。此 Node / Exec 档仍是显式可信 OS 执行，模块 hook / 只读文件不是同 UID 沙箱。Exec 使用已校验 executable，私有候选 argv 为 `--ghosterm-startup 路径 摘要`；原生 C peer 验证同一启动文件，未冻结新的公共 ABI 或 SSH wire。
+
+启动状态分 staging / probing / starting / active / stopping / closed；`activated` 私有消息只接受一次，在 Node activate 返回合法 Disposable 后才发送，未激活不能被当作 ACTIVE。构造与启动可能有原生 hash / fork / 文件系统延迟，必须由非 UI owner 驱动；每 step 的 IO / 写入量有限，activation / 总寿命 / TERM→KILL grace 和 stdout / stderr 有独立有限预算。取消 / deadline / 断流 / 错误先撤销 Native Session，再停止进程；管道 EOF 独立记忆，不能把 EOF 后的再次读取参数错误当成新进程错误。已知主进程退出先由 waitid / WNOWAIT 观察，在 PID 尚未回收时向所属进程组发 KILL，再 waitpid / reap，避免事后向已复用的 pgid 发信号。Darwin 对全僵尸组的 EPERM 作为实际 group_signal_error 单独保留；已知主进程退出、信号请求、文件清理和未知业务效果不合并成一张“全部成功”收据。不声称原生 owner reap 了孙进程、阻止 setsid 逃逸或已验证完整后代树。
+
+环境只复制显式变量，复用 process owner 的长度 / 名称 / 重复项检查，并拒绝 NODE_OPTIONS / NODE_PATH / LD_* / DYLD_* 注入。只有实际主进程退出 / reap 后才释放其 owner、Session 和固定文件；文件清理复用 inode 绑定记录，不递归删除未知文件或被替换对象，清理错误单独保留。Node heap / worker / OS descendants、CPU 与整进程 RSS 上限尚未验收，不以固定 mailbox 或 native allocator 限额冒充这些指标。
+
+`test-plugin-process-runtime.py --node 已安装路径 --tools 锁定工具目录 --mutate` 只操作工程 tmp/ 隔离副本与一次性夹具，不用账号、外部 SSH / 模型或用户目录。真实 Node **26.4.0**、TS **5.9.3**、实际原生 Session / socketpair、固定 Node SDK 和原生 Exec 二进制组合完成 **40 项**基线与 **15 组**不同变异：真实重编译 / 重新 emit 后普通断言红、同 archive 配置对照绿、复原绿及 SHA256；不接受编译失败、异常信号退出、sanitizer 或 timeout 充数。覆盖真实往返、原包 / SDK 修改隔离、checked 引用保留、Unicode / 引号 / shell 字符、三份各 4096 字节控制字符参数及 >64 KiB startup、构造拒绝与所有权、真实版本不匹配、启动拒绝 / 超时、寿命、两路输出限额、关闭管道、忙循环 / 忽略 TERM 的强制终止，以及主进程先退出时受控后代的消失观察。孙进程设独立 alarm，仅防反例夹具遗留，不能拿它的延后退出冒充控制器及时停止；目标另断言 controller 在两秒内关闭。
+
+旧暂存 **25 项 / 19 组变异**、RPC **40 项 / 23 组变异**、Node adapter **19 组变异**与实际 C / Node 双路回归分别通过，生产字节与本轮控制器最终源一致。共用参数解码器的四个边界夹具改为带有效 opaque 标记，并分别重命名私有 / 公共边界函数，继续保留真实非 NUL 尾字节、OOM、输出容量及配置对照断言；不是删掉保护换绿。修正后 enabled **747/747 CTest**、默认 JS-off / tests-on 离线 gate **522/522 / 177 ABI**、C 格式 **19.1.7 / 234 文件**、脚本语法与 Portable SDK 六模块字节检查通过。
+
+前置失败均单列：Darwin stat 字段 / peer 的 O_NOFOLLOW / 夹具 kill 声明编译失败；新夹具的转义、SessionChannel.register 签名、CLI required 字段、普通断言后的空测试根清理错误；初始包身份变异的逻辑运算符编译告警；共享参数夹具的四项初次失败；以及并行编辑触发旧保护脚本输入 SHA 审计拒收。均未计正常目标红或最终整轮绿。EOF 重读导致的误停、不可捕获信号校验及退出 / 发信号竞态均按实际原生探针纠正，再重新取证。只记录本机 macOS POSIX / arm64 与明确版本的已安装 Node；其它 OS / Node 版本、完整进程树、资源 / process 服务、gterm / App 公共接线、真实认证 / 模型 / 工具及其余 P1–P6 要求继续未完成。无公共 C ABI / 平台源码改动，不增加 macOS CI 二十份，不发布 / 不推送，也不把内部控制器验收称为整个插件计划完成。
+
+最终控制器收据对拍 **673 份**原工作区 / 隔离输入、Node executable 摘要及 **126 条**命令；隔离 C 夹具开启 ASan / UBSan，LeakSanitizer 未启用，Native allocator 预约归还由实际断言另验。旧保护分别记录暂存 **658 份 / 101 条**、RPC **649 份 / 122 条**及 Node adapter **665 份 / 203 条**输入 / 命令；四份变异收据均在各自轮次完整通过，共用参数边界夹具最后修正后，控制器完整 40 项 / 15 组与 enabled 全量 747 项另行重跑通过。默认 Core 保持 JS-off / tests-on。
+
+所有本轮所属测试进程已退出，核对临时树无所属进程占用后清理 **1012.7 MiB**；工程 tmp/ 保留既有虚拟机进程仍持有的三份 eq-* 小文件。只在本地 main 分批提交，工作区保持可复核。

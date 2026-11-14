@@ -32,6 +32,17 @@ gt_package_stage_status_t gt__package_stage_open(gt_package_checked_t *,
                                                  const atomic_bool *stop,
                                                  const gt_allocator_t *,
                                                  gt_package_stage_t **out);
+/* Host-owned SDK tree: canonical length/digest-framed physical catalog hash,
+ * including the build manifest. Caller supplies an independently trusted hash.
+ * This is content identity, not publisher authentication or an execution grant.
+ * Successful open alone consumes *snapshot. No plugin metadata is fabricated. */
+bool gt__package_stage_catalog_digest(const gt_package_snapshot_t *, char digest[65]);
+gt_package_stage_status_t gt__package_stage_open_host(gt_package_snapshot_t **,
+                                                      const char *trusted_digest,
+                                                      int parent_fd,
+                                                      const atomic_bool *stop,
+                                                      const gt_allocator_t *,
+                                                      gt_package_stage_t **out);
 /* At most one 16 KiB write or one final directory chmod per step, plus a bounded
  * path walk. Errors/cancellation sticky; destroy cleans partial files. No hard
  * filesystem latency guarantee. Files 0400, selected Exec entry 0500, directories

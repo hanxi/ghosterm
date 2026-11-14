@@ -72,9 +72,11 @@ static bool boundary_member(const gt_package_checked_t *checked,
 #define gt__package_checked_command_count boundary_count
 #define gt__package_checked_command boundary_command
 #define gt__package_checked_member boundary_member
+#define gt__package_decode_arguments boundary_decode_checked
 #define gt_ext_package_decode_command_arguments boundary_decode
 #include "../src/extension/package-arguments.c"
 #undef gt_ext_package_decode_command_arguments
+#undef gt__package_decode_arguments
 
 #define CHECK(value)                                                                               \
     do {                                                                                           \
@@ -89,7 +91,11 @@ int main(int argc, char **argv) {
     void *sample = boundary_alloc(NULL, 1);
     CHECK(sample);
     boundary_free(NULL, sample, 1);
-    gt_ext_package_t package = {.info = {.phase = GT_EXT_PACKAGE_CHECKED}};
+    /* Borrowed opaque marker, consumed only by the boundary hooks above. The
+     * actual shared decoder now validates the non-NULL checked owner first. */
+    max_align_t checked_marker;
+    gt_ext_package_t package = {.info = {.phase = GT_EXT_PACKAGE_CHECKED},
+                                .checked = (gt_package_checked_t *)&checked_marker};
     size_t size = 0;
     if (!strcmp(argv[1], "control")) {
         CHECK(boundary_decode(&package, "missing", NULL, 0, NULL, 0, &size) == GT_ERR_NOT_FOUND);

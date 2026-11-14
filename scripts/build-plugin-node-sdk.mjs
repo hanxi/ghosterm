@@ -34,7 +34,7 @@ const emit = program.emit(undefined, (name, text) => {
   outputs.set(relative, Buffer.from(text));
 });
 assert(!emit.emitSkipped && !emit.diagnostics.length);
-for (const name of ['pipe.mjs', 'pipe-worker.mjs']) outputs.set('node/runtime/' + name,
+for (const name of ['pipe.mjs', 'pipe-worker.mjs', 'bootstrap.mjs']) outputs.set('node/runtime/' + name,
   fs.readFileSync(path.join(root, 'packages/plugin-sdk/node/runtime', name)));
 outputs.set('package.json', Buffer.from('{"type":"module","private":true,"license":"MIT"}\n'));
 outputs.set('LICENSE', fs.readFileSync(path.join(root, 'LICENSE')));
@@ -44,9 +44,15 @@ const identity = JSON.parse(fs.readFileSync(path.join(root, 'packages/plugin-sdk
 const metadata = { candidate: true, sdkApiVersion: identity.sdkApiVersion, processProtocolCandidate: 1,
   sha256: sha(JSON.stringify(records)), members: records };
 outputs.set('node-sdk-build.json', Buffer.from(JSON.stringify(metadata, null, 2) + '\n'));
+const catalog = createHash('sha256');
+for (const [name, bytes] of [...outputs].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+  const header = Buffer.alloc(12); header.writeUInt32BE(Buffer.byteLength(name));
+  header.writeBigUInt64BE(BigInt(bytes.length), 4);
+  catalog.update(header); catalog.update(name); catalog.update(sha(bytes));
+}
 fs.mkdirSync(out, { recursive: true });
 for (const [name, bytes] of outputs) {
   const target = path.join(out, name); fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, bytes, { flag: 'wx' });
 }
-console.log(`NODE SDK BUILD PASS: ${records.length} members / ${metadata.sha256}`);
+console.log(`NODE SDK BUILD PASS: ${records.length} members / ${metadata.sha256} / catalog=${catalog.digest('hex')}`);

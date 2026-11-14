@@ -66,7 +66,7 @@ def main():
     original_source = (ROOT / SOURCE).read_text()
     assert MARK not in original_source
     for label, old, _, _ in cases:
-        assert original_source.count(old) == (2 if label == 'cancel-step' else 1), label
+        assert original_source.count(old) == (2 if label in ('cancel-step', 'cancel-open') else 1), label
     work = Path(tempfile.mkdtemp(prefix='package-stage-mutation-', dir=ROOT / 'tmp'))
     source, build, logs = work / 'source', work / 'build', work / 'logs'
     logs.mkdir()

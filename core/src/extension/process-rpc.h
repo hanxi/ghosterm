@@ -36,6 +36,8 @@ gt_process_rpc_status_t gt__process_rpc_consume(gt_process_rpc_t *);
 /* Owner-thread revocation. Existing result/forget observations remain available
  * under the original lease; new business effects are rejected by native Core. */
 void gt__process_rpc_revoke(gt_process_rpc_t *);
+/* One-shot child activation receipt, not a business operation receipt. */
+bool gt__process_rpc_activated(const gt_process_rpc_t *);
 /* Revoke first, forget owned outgoing observations, release reservation and
  * wipe local refs/JSON. Does not close/destroy Session or stop/reap a process;
  * caller must stop the child before releasing its pipe owner. Consumes owner. */

@@ -3,6 +3,7 @@
 #include "extension/package-stage.h"
 #include "extension/memory.h"
 #include "base/secure-random.h"
+#include "base/sha256.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
@@ -19,6 +20,7 @@ typedef struct {
 struct gt_package_stage {
     gt_allocator_t allocator;
     gt_package_checked_t *checked;
+    gt_package_snapshot_t *host;
     const atomic_bool *stop;
     int parent, root, file;
     char name[48], entry[4097];
@@ -256,6 +258,98 @@ gt_package_stage_status_t gt__package_stage_open(gt_package_checked_t *checked,
     return GT_STAGE_OK;
 }
 
+bool gt__package_stage_catalog_digest(const gt_package_snapshot_t *snapshot, char digest[65]) {
+    if (digest) {
+        digest[0] = 0;
+    }
+    size_t count;
+    uint64_t total;
+    if (!digest || !gt__package_snapshot_count(snapshot, &count, &total) || !count ||
+        count > GT_PACKAGE_MEMBERS_MAX) {
+        return false;
+    }
+    gt_package_member_t members[GT_PACKAGE_MEMBERS_MAX];
+    for (size_t i = 0; i < count; i++) {
+        if (!gt__package_snapshot_member(snapshot, i, &members[i])) {
+            return false;
+        }
+    }
+    /* Bounded insertion sort; capture enumeration is not canonical. */
+    for (size_t i = 1; i < count; i++) {
+        gt_package_member_t value = members[i];
+        size_t j = i;
+        while (j && strcmp(members[j - 1].path, value.path) > 0) {
+            members[j] = members[j - 1];
+            j--;
+        }
+        members[j] = value;
+    }
+    gt_sha256_t hash;
+    gt__sha256_init(&hash);
+    for (size_t i = 0; i < count; i++) {
+        size_t n = strlen(members[i].path);
+        uint8_t header[12];
+        for (size_t j = 0; j < 4; j++) {
+            header[j] = (uint8_t)(n >> ((3 - j) * 8));
+        }
+        for (size_t j = 0; j < 8; j++) {
+            header[4 + j] = (uint8_t)(members[i].bytes >> ((7 - j) * 8));
+        }
+        if (!gt__sha256_update(&hash, header, 12) ||
+            !gt__sha256_update(&hash, members[i].path, n) ||
+            !gt__sha256_update(&hash, members[i].sha256, 64)) {
+            return false;
+        }
+    }
+    return gt__sha256_final(&hash, digest);
+}
+
+gt_package_stage_status_t gt__package_stage_open_host(gt_package_snapshot_t **snapshot,
+                                                      const char *trusted,
+                                                      int parent,
+                                                      const atomic_bool *stop,
+                                                      const gt_allocator_t *allocator,
+                                                      gt_package_stage_t **out) {
+    if (out) {
+        *out = NULL;
+    }
+    struct stat st;
+    char digest[65];
+    size_t count;
+    uint64_t bytes;
+    if (!out || !snapshot || !*snapshot || !trusted || strnlen(trusted, 65) != 64 ||
+        (allocator && (!allocator->allocate || !allocator->release)) || fstat(parent, &st) ||
+        !S_ISDIR(st.st_mode) || st.st_uid != geteuid() || (st.st_mode & 0077) ||
+        !gt__package_snapshot_count(*snapshot, &count, &bytes)) {
+        return GT_STAGE_INVALID;
+    }
+    if (!gt__package_stage_catalog_digest(*snapshot, digest) || strcmp(digest, trusted)) {
+        return GT_STAGE_CHANGED;
+    }
+    if (stop && atomic_load_explicit(stop, memory_order_relaxed)) {
+        return GT_STAGE_CANCELLED;
+    }
+    gt_package_stage_t *s = gt__plugin_memory_alloc(allocator, sizeof(*s));
+    if (!s) {
+        return GT_STAGE_NOMEM;
+    }
+    memset(s, 0, sizeof(*s));
+    s->allocator = allocator ? *allocator : (gt_allocator_t){0};
+    s->parent = fcntl(parent, F_DUPFD_CLOEXEC, 3);
+    s->root = s->file = -1;
+    if (s->parent < 0) {
+        gt__plugin_memory_free(allocator, s, sizeof(*s));
+        return GT_STAGE_IO;
+    }
+    s->stop = stop;
+    s->members = count;
+    s->status = GT_STAGE_WAIT;
+    s->host = *snapshot;
+    *snapshot = NULL;
+    *out = s;
+    return GT_STAGE_OK;
+}
+
 static gt_package_stage_status_t stage_seal(gt_package_stage_t *s) {
     if (s->sealing == s->count) {
         return fchmod(s->root, 0500) ? GT_STAGE_IO : GT_STAGE_OK;
@@ -311,8 +405,10 @@ gt_package_stage_status_t gt__package_stage_step(gt_package_stage_t *s) {
     gt_package_member_t member;
     const uint8_t *bytes;
     size_t size;
-    if (!gt__package_checked_at(s->checked, s->member, &member, &bytes, &size) ||
-        !gt__package_path_valid(member.path, strlen(member.path))) {
+    bool source = s->checked ? gt__package_checked_at(s->checked, s->member, &member, &bytes, &size)
+                             : (gt__package_snapshot_member(s->host, s->member, &member) &&
+                                gt__package_snapshot_view(s->host, s->member, &bytes, &size));
+    if (!source || !gt__package_path_valid(member.path, strlen(member.path))) {
         return s->status = GT_STAGE_INVALID;
     }
     if (s->file < 0) {
@@ -447,7 +543,12 @@ gt_package_stage_status_t gt__package_stage_destroy(gt_package_stage_t **out) {
     if (close(s->parent) && result == GT_STAGE_OK) {
         result = GT_STAGE_IO;
     }
-    if (gt__package_checked_destroy(&s->checked) != GT_PACKAGE_OK && result == GT_STAGE_OK) {
+    if (s->checked && gt__package_checked_destroy(&s->checked) != GT_PACKAGE_OK &&
+        result == GT_STAGE_OK) {
+        result = GT_STAGE_IO;
+    }
+    if (s->host && gt__package_snapshot_destroy(&s->host) != GT_PACKAGE_OK &&
+        result == GT_STAGE_OK) {
         result = GT_STAGE_IO;
     }
     gt_allocator_t allocator = s->allocator;

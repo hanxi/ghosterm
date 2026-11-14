@@ -46,6 +46,7 @@ add_library(ghosterm_core STATIC
   src/extension/process-owner.c
   src/extension/process-service.c
   src/extension/process-rpc.c
+  src/extension/process-runtime.c
   src/extension/runtime-api.c
   src/extension/route.c
   src/extension/backends/ssh_exec.c
@@ -187,6 +188,14 @@ target_include_directories(test_package_runtime PRIVATE src)
 target_link_libraries(test_package_runtime PRIVATE ghosterm_core)
 target_compile_options(test_package_runtime PRIVATE -Wall -Wextra -Werror)
 if(GHOSTERM_WITH_PLUGIN_JS)
+  add_executable(test_process_runtime tests/test_process_runtime.c)
+  target_include_directories(test_process_runtime PRIVATE src)
+  target_link_libraries(test_process_runtime PRIVATE ghosterm_core)
+  target_compile_options(test_process_runtime PRIVATE -Wall -Wextra -Werror)
+  add_executable(test_process_runtime_peer tests/process-runtime-peer.c)
+  target_include_directories(test_process_runtime_peer PRIVATE src)
+  target_link_libraries(test_process_runtime_peer PRIVATE ghosterm_core)
+  target_compile_options(test_process_runtime_peer PRIVATE -Wall -Wextra -Werror)
   add_executable(test_package_stage tests/test_package_stage.c)
   target_include_directories(test_package_stage PRIVATE src)
   target_link_libraries(test_package_stage PRIVATE ghosterm_core)

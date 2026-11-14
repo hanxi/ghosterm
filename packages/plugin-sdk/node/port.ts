@@ -152,6 +152,10 @@ export class NodeNativePort implements NativePort {
     if (this.#broken) return;
     if (this.#call("revoke", {}).status !== "ok") { this.#break(); fail("CHILD_REVOKE"); }
   }
+  /** Trusted bootstrap only; activates no capability and proves no RPC effect. */
+  activated(): void {
+    if (this.#call("activated", {}).status !== "ok") { this.#break(); fail("CHILD_ACTIVATION"); }
+  }
   get broken(): boolean { return this.#broken; }
   get retained(): number { return this.#handles.size + this.#tickets.size; }
 }

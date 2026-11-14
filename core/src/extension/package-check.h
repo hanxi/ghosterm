@@ -7,6 +7,7 @@
 #ifndef GT_PRIVATE_PACKAGE_CHECK_H
 #define GT_PRIVATE_PACKAGE_CHECK_H
 #include "extension/package-snapshot.h"
+#include "ghosterm/types.h"
 #include <stdatomic.h>
 typedef struct gt_package_checked gt_package_checked_t;
 
@@ -56,6 +57,7 @@ typedef struct {
     char id[129], version[65], publisher[513], license[513], entry[4097], runtime[16], variant[129],
         sdk_version[65];
     char package_digest[65], manifest_digest[65]; /* raw integrity.json / plugin.json SHA256 */
+    char runtime_version[129]; /* trusted Node observation checked against selected range */
     char requires[16][129], optional_missing[16][129];
     /* Names from the Executor process.spawn permission. This is an untrusted
      * manifest scope observation, not an authorization grant or executable path. */
@@ -88,6 +90,13 @@ bool gt__package_checked_member(
  * as checked_member; no reopening the original package directory. */
 bool gt__package_checked_at(
     const gt_package_checked_t *, size_t, gt_package_member_t *, const uint8_t **, size_t *);
+gt_status_t gt__package_decode_arguments(const gt_package_checked_t *,
+                                         const char *,
+                                         const char *const *,
+                                         size_t,
+                                         char *,
+                                         size_t,
+                                         size_t *);
 /* Retain while holding an existing reference. Immutable reads may then run on
  * independent workers. Custom allocator context must outlive all references
  * and support whichever worker performs the final release. Not a global cache.

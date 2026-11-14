@@ -108,7 +108,7 @@ static bool arguments_valid(const char *exe, const char *const *argv, size_t arg
     return argv[0][0] != '\0';
 }
 
-static bool environment_valid(const char *const *environment, size_t count) {
+bool gt__ext_process_environment_valid(const char *const *environment, size_t count) {
     if ((count && !environment) || count > GT_EXT_PROCESS_ENVIRONMENT_MAX) {
         return false;
     }
@@ -157,7 +157,7 @@ gt_status_t gt__ext_process_spawn(const char *executable,
     }
     struct stat cwd_stat;
     if (!out || !arguments_valid(executable, argv, argc) ||
-        !environment_valid(environment, environment_count) || cwd_fd < 0 ||
+        !gt__ext_process_environment_valid(environment, environment_count) || cwd_fd < 0 ||
         fstat(cwd_fd, &cwd_stat) || !S_ISDIR(cwd_stat.st_mode)) {
         return GT_ERR_INVALID_ARG;
     }
@@ -420,6 +420,37 @@ gt_status_t gt__ext_process_poll(gt_ext_process_t *process, gt_ext_process_info_
         }
     }
     *out = (gt_ext_process_info_t){process->exited, process->exit_code, process->term_signal};
+    return GT_OK;
+}
+
+gt_status_t gt__ext_process_observe_exit(gt_ext_process_t *process, gt_ext_process_info_t *out) {
+    if (!process || !out) {
+        return GT_ERR_INVALID_ARG;
+    }
+    memset(out, 0, sizeof(*out));
+    if (process->exited) {
+        *out = (gt_ext_process_info_t){true, process->exit_code, process->term_signal};
+        return GT_OK;
+    }
+    siginfo_t info;
+    memset(&info, 0, sizeof(info));
+    int status;
+    do {
+        status = waitid(P_PID, (id_t)process->pid, &info, WEXITED | WNOHANG | WNOWAIT);
+    } while (status && errno == EINTR);
+    if (status) {
+        return errno == ENOSYS ? GT_ERR_UNSUPPORTED : GT_ERR_IO;
+    }
+    if (info.si_pid) {
+        out->exited = true;
+        if (info.si_code == CLD_EXITED) {
+            out->exit_code = info.si_status;
+        } else if (info.si_code == CLD_KILLED || info.si_code == CLD_DUMPED) {
+            out->term_signal = info.si_status;
+        } else {
+            return GT_ERR_IO;
+        }
+    }
     return GT_OK;
 }
 
