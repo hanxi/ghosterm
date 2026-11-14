@@ -44,6 +44,7 @@ add_library(ghosterm_core STATIC
   src/extension/runtime.c
   src/extension/runtime-resource.c
   src/extension/process-owner.c
+  src/extension/process-jobs.c
   src/extension/process-service.c
   src/extension/process-rpc.c
   src/extension/process-runtime.c

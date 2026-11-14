@@ -34,10 +34,11 @@ struct gt_process_rpc {
     gt_ext_session_t *session;
     gt_ext_lease_t lease;
     gt_runtime_resources_t *resources;
+    gt_process_jobs_t *jobs;
     process_json_t *json;
     uint64_t sequence, reference;
     process_reference_t outgoing[64], incoming[64];
-    process_reference_t publications[64], snapshots[64];
+    process_reference_t publications[64], snapshots[64], children[64];
     char reply[GT_PROCESS_RPC_MESSAGE_MAX + 1];
     size_t reply_size;
     bool failed, activated;
@@ -148,6 +149,7 @@ static bool process_name(const char *text) {
 }
 
 #include "extension/process-resource.inc"
+#include "extension/process-jobs-rpc.inc"
 
 /* Validate every field before any native mutation. Replies have fixed overhead
  * plus at most one 3072-byte raw JSON value; never serialize plugin strings. */
@@ -159,6 +161,9 @@ static bool process_dispatch(gt_process_rpc_t *p, const char *op) {
     static const char *const take[] = {"v", "id", "op", "methods"};
     static const char *const respond[] = {"v", "id", "op", "ref", "outcome"};
     static const char *const access[] = {"v", "id", "op", "capability"};
+    if (!strcmp(op, "process")) {
+        return process_jobs_dispatch(p);
+    }
     if (!strcmp(op, "resource")) {
         return process_resource_dispatch(p);
     }
@@ -339,6 +344,14 @@ gt_status_t gt__process_rpc_open_resources(gt_ext_session_t *session,
                                            gt_runtime_resources_t *resources,
                                            const gt_allocator_t *input,
                                            gt_process_rpc_t **out) {
+    return gt__process_rpc_open_services(session, resources, NULL, input, out);
+}
+
+gt_status_t gt__process_rpc_open_services(gt_ext_session_t *session,
+                                          gt_runtime_resources_t *resources,
+                                          gt_process_jobs_t *jobs,
+                                          const gt_allocator_t *input,
+                                          gt_process_rpc_t **out) {
     if (out) {
         *out = NULL;
     }
@@ -347,6 +360,7 @@ gt_status_t gt__process_rpc_open_resources(gt_ext_session_t *session,
     gt_bridge_role_t role;
     size_t count;
     if (!out || !session || (resources && !gt__runtime_resources_matches(resources, session)) ||
+        (jobs && !gt__process_jobs_matches(jobs, session)) ||
         (input && (!input->allocate || !input->release)) || !gt_ext_session_info(session, &info) ||
         info.phase != GT_EXT_SESSION_ACTIVE || !session->requests || session->sources ||
         !gt_ext_session_lease(session, &lease) ||
@@ -373,6 +387,7 @@ gt_status_t gt__process_rpc_open_resources(gt_ext_session_t *session,
     p->session = session;
     p->lease = lease;
     p->resources = resources;
+    p->jobs = jobs;
     session->sources++;
     *out = p;
     return GT_OK;
@@ -446,6 +461,7 @@ void gt__process_rpc_revoke(gt_process_rpc_t *p) {
     if (p) {
         gt_ext_session_revoke(p->session);
         gt__runtime_resources_stop(p->resources);
+        gt__process_jobs_stop(p->jobs);
     }
 }
 

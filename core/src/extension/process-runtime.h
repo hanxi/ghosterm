@@ -6,6 +6,7 @@
 #include "extension/package-check.h"
 #include "ghosterm/extension_runtime.h"
 #include "extension/runtime-resource.h"
+#include "extension/process-jobs.h"
 typedef struct gt_process_runtime gt_process_runtime_t;
 
 typedef enum {
@@ -29,6 +30,7 @@ typedef struct {
     size_t environment_count;
     const gt_runtime_root_t *roots; /* explicit native authorization; copied fds */
     size_t root_count;
+    gt_process_jobs_config_t process; /* native selected mappings/environment/budgets */
     uint32_t activation_ms, lifetime_ms, stop_grace_ms;
     uint64_t stdout_bytes, stderr_bytes;
 } gt_process_runtime_config_t;
@@ -39,7 +41,7 @@ typedef struct {
     gt_ext_session_end_t session_end;
     bool activated, child_exited, probe_verified;
     int exit_code, term_signal;
-    int group_signal_error; /* errno after known leader exit; 0 only proves signal acceptance */
+    int group_signal_error; /* first errno after known executor/business leader exit */
     uint64_t stdout_bytes, stderr_bytes;
 } gt_process_runtime_info_t;
 

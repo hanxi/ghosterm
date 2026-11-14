@@ -4,16 +4,34 @@
 #include "extension/package-check.h"
 #include "extension/package-stage.h"
 #include "extension/memory.h"
+#include "extension/process-rpc.h"
 #include "base/sha256.h"
 #include <sys/stat.h>
 #include <signal.h>
 
 /* A normal assertion red must still stop/reap our actual child. */
 static gt_process_runtime_t *runtime;
+static gt_process_jobs_t *native_jobs;
+static gt_runtime_resources_t *native_roots;
 static int cleanup_parent = -1;
 static char cleanup_root[4097];
 
 static void launch_cleanup(void) {
+    if (native_jobs) {
+        gt__process_jobs_stop(native_jobs);
+        uint64_t until = ext_now() + 3000;
+        while (native_jobs && ext_now() < until) {
+            (void)gt__process_jobs_step(native_jobs);
+            if (gt__process_jobs_destroy(&native_jobs) == GT_OK) {
+                break;
+            }
+            struct timespec pause = {0, 1000000};
+            nanosleep(&pause, NULL);
+        }
+    }
+    if (native_roots && !native_jobs) {
+        (void)gt__runtime_resources_destroy(&native_roots);
+    }
     if (runtime) {
         gt__process_runtime_stop(runtime);
         uint64_t until = ext_now() + 6000;
@@ -62,6 +80,13 @@ static void launch_pair(rpc_pair_t *f,
     strcpy(c.required[0], "session.rpc");
     strcpy(c.available[0], "session.rpc");
     c.required_count = c.available_count = 1;
+    if (package->process_program_count) {
+        strcpy(c.required[1], "process.spawn");
+        strcpy(c.required[2], "process.pipes");
+        strcpy(c.available[1], "process.spawn");
+        strcpy(c.available[2], "process.pipes");
+        c.required_count = c.available_count = 3;
+    }
     gt_ext_rpc_method_t methods[4];
     size_t count = rpc_methods(methods);
     for (size_t i = 0; i < count; i++) {
@@ -86,12 +111,93 @@ static void launch_pair(rpc_pair_t *f,
     CHECK(gt_ext_session_lease(f->pair.h, &f->h) && gt_ext_session_lease(f->pair.e, &f->e));
 }
 
+static void launch_jobs_native(rpc_pair_t *f,
+                               gt_package_checked_t *package,
+                               const gt_runtime_root_t *root,
+                               const gt_process_jobs_config_t *config) {
+    size_t fds = ext_fds();
+    CHECK(gt__runtime_resources_open(
+              f->pair.e, NULL, &f->e, root, 1, NULL, resource_clock, &native_roots) == GT_OK);
+    CHECK(gt__process_jobs_open(f->pair.e, native_roots, package, config, &native_jobs) == GT_OK);
+    gt_process_rpc_t *rpc = NULL;
+    CHECK(gt__process_rpc_open_services(f->pair.h, native_roots, native_jobs, NULL, &rpc) ==
+              GT_ERR_INVALID_ARG &&
+          !rpc);
+    const char *args[] = {"cat"}, *version = NULL;
+    uint64_t ids[8], extra = 0;
+    for (size_t i = 0; i < 8; i++) {
+        CHECK(gt__process_jobs_spawn(native_jobs, "cat", "workspace", args, 1, &ids[i], &version) ==
+                  GT_OK &&
+              !strcmp(version, "fixture-cat") && (!i || ids[i] > ids[i - 1]));
+    }
+    CHECK(gt__process_jobs_spawn(native_jobs, "cat", "workspace", args, 1, &extra, &version) ==
+              GT_PROCESS_JOBS_WAIT &&
+          !extra);
+    CHECK(gt__process_jobs_destroy(&native_jobs) == GT_PROCESS_JOBS_WAIT && native_jobs);
+    CHECK(gt__process_rpc_open_services(f->pair.e, native_roots, native_jobs, NULL, &rpc) ==
+              GT_ERR_INVALID_ARG &&
+          !rpc);
+    CHECK(gt__process_jobs_release(native_jobs, ids[0]) == GT_PROCESS_JOBS_WAIT);
+    CHECK(gt__process_jobs_spawn(native_jobs, "cat", "outside", args, 1, &extra, &version) ==
+          GT_ERR_AUTH);
+    for (size_t i = 0; i < 8; i++) {
+        CHECK(gt__process_jobs_signal(native_jobs, ids[i], true) == GT_OK);
+    }
+    uint64_t until = ext_now() + 3000;
+    bool done = false;
+    while (ext_now() < until) {
+        CHECK(gt__process_jobs_step(native_jobs) == GT_OK);
+        done = true;
+        for (size_t i = 0; i < 8; i++) {
+            gt_process_job_info_t v;
+            CHECK(gt__process_jobs_poll(native_jobs, ids[i], &v) == GT_OK);
+            done = done && v.process.exited;
+        }
+        if (done) {
+            break;
+        }
+        struct timespec pause = {0, 1000000};
+        nanosleep(&pause, NULL);
+    }
+    CHECK(done);
+    for (size_t i = 0; i < 8; i++) {
+        CHECK(gt__process_jobs_release(native_jobs, ids[i]) == GT_OK);
+    }
+    CHECK(gt__process_jobs_release(native_jobs, ids[0]) == GT_ERR_INVALID_ARG);
+    CHECK(gt__process_jobs_spawn(native_jobs, "cat", "workspace", args, 1, &extra, &version) ==
+              GT_OK &&
+          extra > ids[7]);
+    gt_ext_session_revoke(f->pair.e);
+    uint8_t byte = 1;
+    CHECK(gt__process_jobs_write(native_jobs, extra, &byte, 1).state == GT_EXT_PROCESS_CLOSED);
+    CHECK(gt__process_jobs_read(native_jobs, extra, false, &byte, 1).state ==
+          GT_EXT_PROCESS_CLOSED);
+    uint64_t denied = 0;
+    CHECK(gt__process_jobs_spawn(native_jobs, "cat", "workspace", args, 1, &denied, &version) ==
+              GT_ERR_AUTH &&
+          !denied);
+    gt__process_jobs_stop(native_jobs);
+    until = ext_now() + 3000;
+    while (native_jobs && ext_now() < until) {
+        CHECK(gt__process_jobs_step(native_jobs) == GT_OK);
+        if (gt__process_jobs_destroy(&native_jobs) == GT_OK) {
+            break;
+        }
+        struct timespec pause = {0, 1000000};
+        nanosleep(&pause, NULL);
+    }
+    CHECK(!native_jobs && gt__runtime_resources_destroy(&native_roots) == GT_RUNTIME_RESOURCE_OK &&
+          !native_roots);
+    CHECK(ext_fds() == fds);
+}
+
 int main(int argc, char **argv) {
     /* mode package sdk temp canonical-node node-sha sdk-catalog facts.json */
     CHECK(argc == 9);
     CHECK(!atexit(launch_cleanup));
     const char *mode = argv[1];
     bool with_resources = !strncmp(mode, "resource-", 9) && strcmp(mode, "resource-missing");
+    bool with_process = !strncmp(mode, "process-", 8);
     res_root = argv[4];
     res_store_t hs = {0}, es = {0};
     if (with_resources) {
@@ -131,11 +237,13 @@ int main(int argc, char **argv) {
     pub_source_fixture_t file = {.root = -1};
     gt_runtime_resources_t *host_resources = NULL;
     gt_runtime_root_t workspace = {0};
-    if (with_resources) {
+    if (with_resources || with_process) {
         pub_file(
             &file, 262144, !strcmp(mode, "resource-unicode") ? "展示\"\\file.bin" : "file.bin");
         workspace = (gt_runtime_root_t){"workspace", file.root, 262144};
-        host_resources = resource_owner(f.pair.h, hs.s, &f.h, file.root);
+        if (with_resources) {
+            host_resources = resource_owner(f.pair.h, hs.s, &f.h, file.root);
+        }
     }
     const char *arguments[] = {"--label", "中文 \"';$()"};
     gt_ext_invocation_t invocation = {"fixture", arguments, 2};
@@ -171,9 +279,58 @@ int main(int argc, char **argv) {
                                           .activation_ms = 5000,
                                           .lifetime_ms = 10000,
                                           .stop_grace_ms = 1000};
-    if (with_resources) {
+    if (with_resources || with_process) {
         config.roots = &workspace;
         config.root_count = 1;
+    }
+    char process_digests[3][65];
+    gt_ext_process_program_mapping_t programs[] = {
+        {"cat", "/bin/cat", "fixture-cat", process_digests[0], NULL, 0},
+        {"env", "/usr/bin/env", "fixture-env", process_digests[1], NULL, 0},
+        {"pwd", "/bin/pwd", "fixture-pwd", process_digests[2], NULL, 0}};
+    char workspace_environment[4200];
+    CHECK(snprintf(workspace_environment,
+                   sizeof(workspace_environment),
+                   "GT_RUNTIME_WORKSPACE=%s",
+                   file.directory) > 0);
+    const char *process_environment[] = {"GT_SELECTED=approved"};
+    const char *process_runtime_environment[6];
+    if (with_process) {
+        for (size_t i = 0; i < 3; i++) {
+            int fd = open(programs[i].executable, O_RDONLY | O_CLOEXEC);
+            CHECK(fd >= 0);
+            gt_sha256_t hash;
+            gt__sha256_init(&hash);
+            uint8_t buffer[32768];
+            ssize_t count;
+            while ((count = read(fd, buffer, sizeof(buffer))) > 0) {
+                CHECK(gt__sha256_update(&hash, buffer, (size_t)count));
+            }
+            CHECK(!count && !close(fd) && gt__sha256_final(&hash, process_digests[i]));
+        }
+        for (size_t i = 0; i < 5; i++) {
+            process_runtime_environment[i] = environment[i];
+        }
+        process_runtime_environment[5] = workspace_environment;
+        config.environment = process_runtime_environment;
+        config.environment_count = 6;
+        config.process = (gt_process_jobs_config_t){
+            programs,
+            3,
+            process_environment,
+            1,
+            (!strcmp(mode, "process-deadline") || !strcmp(mode, "process-first-reason")) ? 300
+                                                                                         : 10000,
+            50,
+            (!strcmp(mode, "process-output") || !strcmp(mode, "process-first-reason")) ? 16
+                                                                                       : 1048576};
+        if (!strcmp(mode, "process-bad-digest")) {
+            programs[0].verified_sha256 =
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        }
+        if (!strcmp(mode, "process-missing")) {
+            config.process.program_count = 0;
+        }
     }
     gt_runtime_root_t duplicate_roots[2] = {workspace, workspace};
     if (!strcmp(mode, "resource-bad-root")) {
@@ -230,29 +387,40 @@ int main(int argc, char **argv) {
     }
     gt_ext_session_t *original = f.pair.e;
     gt_package_snapshot_t *original_sdk = sdk;
-    gt_status_t status = gt__process_runtime_open(&f.pair.e, package, &sdk, &config, &runtime);
+    bool direct = !strcmp(mode, "process-native");
+    if (direct) {
+        launch_jobs_native(&f, package, &workspace, &config.process);
+    }
+    gt_status_t status =
+        direct ? GT_OK : gt__process_runtime_open(&f.pair.e, package, &sdk, &config, &runtime);
     bool rejected = !strcmp(mode, "denied") || !strcmp(mode, "wrong-sha") ||
                     !strcmp(mode, "bad-env") || !strcmp(mode, "bad-arguments") ||
                     !strcmp(mode, "bad-command") || !strcmp(mode, "bad-sdk") ||
                     !strcmp(mode, "wrong-identity") || !strcmp(mode, "bad-env-name") ||
                     !strcmp(mode, "duplicate-env") || !strcmp(mode, "node-alias") ||
                     !strcmp(mode, "resource-missing") || !strcmp(mode, "resource-bad-root") ||
-                    !strcmp(mode, "resource-duplicate-root");
-    if (rejected) {
+                    !strcmp(mode, "resource-duplicate-root") ||
+                    !strcmp(mode, "process-bad-digest") || !strcmp(mode, "process-missing");
+    if (direct) {
+        CHECK(!runtime && f.pair.e == original && sdk == original_sdk);
+    } else if (rejected) {
         gt_status_t expected = !strcmp(mode, "denied") || !strcmp(mode, "wrong-sha") ||
                                        !strcmp(mode, "bad-sdk") || !strcmp(mode, "node-alias")
                                    ? GT_ERR_AUTH
                                : !strcmp(mode, "wrong-identity") ? GT_ERR_PROTOCOL
                                : !strcmp(mode, "bad-command")    ? GT_ERR_NOT_FOUND
                                                                  : GT_ERR_INVALID_ARG;
-        if (!strcmp(mode, "resource-missing")) {
+        if (!strcmp(mode, "resource-missing") || !strcmp(mode, "process-missing")) {
             expected = GT_ERR_UNSUPPORTED;
+        }
+        if (!strcmp(mode, "process-bad-digest")) {
+            expected = GT_ERR_AUTH;
         }
         CHECK(status == expected && !runtime && f.pair.e == original && sdk == original_sdk);
         CHECK(gt_ext_session_access(original, &f.e, "session.rpc") == GT_EXT_ACCESS_ALLOWED);
     } else {
         CHECK(status == GT_OK && runtime && !f.pair.e && (!node || !sdk));
-        if (with_resources) {
+        if (with_resources || with_process) {
             CHECK(!close(file.root));
             file.root = -1;
         }
@@ -282,7 +450,9 @@ int main(int argc, char **argv) {
                          !strcmp(mode, "frozen") || !strcmp(mode, "busy") ||
                          !strcmp(mode, "stubborn") || !strcmp(mode, "sdk-frozen") ||
                          !strcmp(mode, "argument-boundary") || !strcmp(mode, "stderr-eof") ||
-                         !strcmp(mode, "resource-roundtrip") || !strcmp(mode, "resource-unicode");
+                         !strcmp(mode, "resource-roundtrip") || !strcmp(mode, "resource-unicode") ||
+                         (with_process && strcmp(mode, "process-stop") &&
+                          strcmp(mode, "process-extra-field") && strcmp(mode, "process-bad-hex"));
         bool stopping = !strcmp(mode, "stop-created"), completed = false;
         uint64_t began = ext_now(), deadline = began + 15000;
         bool resource_received = false;
@@ -335,6 +505,10 @@ int main(int argc, char **argv) {
             CHECK(gt__process_runtime_info(runtime, &info));
             if (info.phase == GT_PROCESS_RUNTIME_CLOSED) {
                 break;
+            }
+            if (!strcmp(mode, "process-stop") && info.stderr_bytes && !stopping) {
+                gt__process_runtime_stop(runtime);
+                stopping = true;
             }
             if (!stopping && info.phase == GT_PROCESS_RUNTIME_ACTIVE) {
                 if (!strcmp(mode, "busy") && info.stderr_bytes) {
@@ -451,6 +625,9 @@ int main(int argc, char **argv) {
             CHECK(!info.activated && !info.child_exited && !info.probe_verified &&
                   info.error == GT_ERR_CANCELLED);
         }
+        if (!strcmp(mode, "process-extra-field") || !strcmp(mode, "process-bad-hex")) {
+            CHECK(!info.activated && info.child_exited && info.error == GT_ERR_PROTOCOL);
+        }
         if (!strcmp(mode, "activation-reject") || !strcmp(mode, "ambient")) {
             CHECK(!info.activated && info.exit_code != 0);
         }
@@ -474,13 +651,15 @@ int main(int argc, char **argv) {
         CHECK(gt__runtime_resources_destroy(&host_resources) == GT_RUNTIME_RESOURCE_OK);
     }
     ext_drop(&f.pair.h);
-    if (with_resources) {
+    if (with_resources || with_process) {
         if (file.root >= 0) {
             CHECK(!close(file.root));
         }
         CHECK(!unlink(file.file) && !rmdir(file.directory));
-        res_store_drop(&hs);
-        res_store_drop(&es);
+        if (with_resources) {
+            res_store_drop(&hs);
+            res_store_drop(&es);
+        }
     }
     CHECK(!close(parent));
     cleanup_parent = -1;

@@ -23,6 +23,34 @@ SOURCE = 'core/src/extension/process-runtime.c'
 BOOTSTRAP = 'packages/plugin-sdk/node/runtime/bootstrap.mjs'
 RESOURCE = 'core/src/extension/process-resource.inc'
 NODE_RESOURCE = 'packages/plugin-sdk/node/resources.ts'
+JOBS = 'core/src/extension/process-jobs.c'
+JOBS_RPC = 'core/src/extension/process-jobs-rpc.inc'
+NODE_PROCESS = 'packages/plugin-sdk/node/process.ts'
+PROCESS_CASES = [
+    ('jobs-write-grant', JOBS, '!jobs_live(j) || s->stopping', 's->stopping', 'node:process-native'),
+    ('jobs-read-grant', JOBS, 'if (!jobs_live(j)) {\n        return (gt_ext_process_io_t){GT_EXT_PROCESS_CLOSED', 'if (false && !jobs_live(j)) {\n        return (gt_ext_process_io_t){GT_EXT_PROCESS_CLOSED', 'node:process-native'),
+    ('jobs-root', JOBS, 'int fd = -1;', 'int fd = gt__runtime_resources_root_fd(j->roots, 0);', 'node:process-roundtrip'),
+    ('jobs-deadline', JOBS, 'now >= s->deadline', 'false', 'node:process-deadline'),
+    ('jobs-first-reason', JOBS, 'if (!s->reason) {\n            s->reason = 2;', 'if (true) {\n            s->reason = 2;', 'node:process-first-reason'),
+    ('jobs-output', JOBS, 'if (io.count > j->output_limit - j->output_bytes)', 'if (false && io.count > j->output_limit - j->output_bytes)', 'node:process-output'),
+    ('jobs-release', JOBS, 'if (!s->info.exited) {\n        return GT_PROCESS_JOBS_WAIT;', 'if (!s->info.exited) {\n        return GT_OK;', 'node:process-native'),
+    ('jobs-reference', JOBS, 's->id = j->next++;', 's->id = 1; j->next++;', 'node:process-native'),
+    ('jobs-retire', JOBS, 'if (j->stopped && s->info.exited)', 'if (false && j->stopped && s->info.exited)', 'node:process-native'),
+    ('jobs-environment', JOBS, 'j->environment_count = c->environment_count;', 'j->environment_count = 0;', 'node:process-roundtrip'),
+    ('jobs-digest', 'core/src/extension/process-service.c', 'strcmp(actual_sha256, mappings[i].verified_sha256)', 'false', 'node:process-bad-digest'),
+    ('jobs-pump', SOURCE, 'if (gt__process_jobs_step(r->jobs) != GT_OK) {\n        runtime_fail', 'if (false && gt__process_jobs_step(r->jobs) != GT_OK) {\n        runtime_fail', 'node:process-deadline'),
+    ('jobs-owner', 'core/src/extension/process-rpc.c', '(jobs && !gt__process_jobs_matches(jobs, session))', 'false', 'node:process-native'),
+    ('jobs-domain', JOBS_RPC, 'process_find(p->children, ref)', 'process_find(p->outgoing, ref)', 'exec:process-roundtrip'),
+    ('jobs-fields', JOBS_RPC, '!process_keys(d, spawn, 8) ||', '(false && !process_keys(d, spawn, 8)) ||', 'exec:process-extra-field'),
+    ('jobs-hex', JOBS_RPC, "if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))", "if (false && !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))", 'exec:process-bad-hex'),
+    ('node-process-fields', NODE_PROCESS, 'if (Object.keys(v).sort().join(",") !== [...names].sort().join(","))', 'if (false && Object.keys(v).sort().join(",") !== [...names].sort().join(","))', 'process-unit:fields'),
+    ('node-process-reference', NODE_PROCESS, 'compareUint64(ref, this.#reference) <= 0 || this.#children.has(ref)', 'false && (compareUint64(ref, this.#reference) <= 0 || this.#children.has(ref))', 'process-unit:reuse'),
+    ('node-process-bytes', NODE_PROCESS, 'v.hex.length !== count * 2', 'false', 'process-unit:bytes'),
+    ('node-process-error-bytes', NODE_PROCESS, 'v.hex.length !== count * 2', '(v.state === "data" && v.hex.length !== count * 2)', 'process-unit:errorBytes'),
+    ('node-process-exit', NODE_PROCESS, '(!v.exited && (code !== 0 || signal !== 0))', 'false', 'process-unit:unknownExit'),
+    ('node-process-cancel', NODE_PROCESS, 'e.cancelled = true;', 'e.cancelled = false;', 'process-unit:cancellation'),
+    ('node-process-release', NODE_PROCESS, 'if (r.status === "wait") return;', 'if (r.status === "wait") { e.resolve?.(); return; }', 'process-unit:release'),
+]
 RESOURCE_CASES = [
     ('resource-owner', 'core/src/extension/process-rpc.c', '(resources && !gt__runtime_resources_matches(resources, session))', 'false', 'core:foreign'),
     ('resource-store', 'core/src/extension/runtime-resource.c', 'r->store == session->store &&', 'true &&', 'core:foreign-store'),
@@ -63,14 +91,15 @@ CASES = [
     ('context-arguments', BOOTSTRAP, 'invocation: snapshot(config.invocation)', 'invocation: snapshot({ command: config.invocation.command, arguments: [] })', 'node:roundtrip'),
 ]
 
-PLUGIN = r'''import {object,boolean} from '@ghosterm/plugin-sdk';
+PLUGIN = r'''import {runProcessCase} from './process-cases.mjs';
+import {object,boolean} from '@ghosterm/plugin-sdk';
 export async function activate(ctx) {
   const mode = process.env.GT_RUNTIME_MODE;
-  const resourceMode = mode.startsWith('resource-');
+  const resourceMode = mode.startsWith('resource-'), processMode=mode.startsWith('process-');
   if (ctx.side !== 'executor' || !/^[0-9a-f]{32}$/.test(ctx.instanceId) ||
       typeof ctx.epoch !== 'string' || ctx.invocation.command !== 'fixture' ||
       ctx.capabilities.query('session.rpc') !== 'allowed' || !Object.isFrozen(ctx) || process.env.HOME !== undefined || process.env.NODE_OPTIONS !== undefined ||
-      Object.keys(ctx).sort().join(',') !== (resourceMode ? 'cancellation,capabilities,epoch,instanceId,invocation,resources,session,side' : 'cancellation,capabilities,epoch,instanceId,invocation,session,side')) throw Error('context');
+      Object.keys(ctx).sort().join(',') !== (processMode ? 'cancellation,capabilities,epoch,instanceId,invocation,process,resources,session,side' : resourceMode ? 'cancellation,capabilities,epoch,instanceId,invocation,resources,session,side' : 'cancellation,capabilities,epoch,instanceId,invocation,session,side')) throw Error('context');
   if (mode === 'argument-boundary') {
     if (ctx.invocation.arguments.length !== 6 ||
         ['label','second','third'].some(k => ctx.invocation.decodedArguments[k] !== '\x01'.repeat(4096))) throw Error('boundary');
@@ -99,6 +128,7 @@ export async function activate(ctx) {
     }
     if (used !== 262144 || ctx.resources.release(taken.ref) !== 'ok') throw Error('release');
   }
+  if(processMode) await runProcessCase(ctx,mode);
   const codec = object({peer:boolean()});
   ctx.session.register({name:'fixture.echo',input:codec,output:codec},async (v,c) => { c.check(); return v; });
   return {dispose(){}, step(){
@@ -118,10 +148,12 @@ def main():
     p.add_argument('--node', type=Path, required=True)
     p.add_argument('--tools', type=Path, required=True)
     p.add_argument('--mutate', action='store_true')
+    p.add_argument('--processes', action='store_true', help='native/Node process service faults')
     p.add_argument('--resources', action='store_true', help='include native/Node resource faults and choose resource mutations')
     p.add_argument('--case', action='append')
     args = p.parse_args()
-    available = RESOURCE_CASES if args.resources else CASES
+    if args.resources and args.processes: p.error('choose one mutation family')
+    available = PROCESS_CASES if args.processes else RESOURCE_CASES if args.resources else CASES
     if args.case and (not args.mutate or set(args.case) - {c[0] for c in available}):
         p.error('--case requires --mutate and known groups')
     node, tools = args.node.resolve(strict=True), args.tools.resolve(strict=True)
@@ -189,7 +221,7 @@ def main():
                           '-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'])
 
         def rebuild(label, changed=None):
-            if changed == RESOURCE: changed = 'core/src/extension/process-rpc.c'
+            if changed in (RESOURCE, JOBS_RPC): changed = 'core/src/extension/process-rpc.c'
             if changed:
                 (build / ('CMakeFiles/ghosterm_core.dir/' + changed.removeprefix('core/') + '.o')).unlink(missing_ok=True)
             binaries = ['test_process_runtime', 'test_process_runtime_peer', 'test_process_resources', 'test_config']
@@ -210,6 +242,8 @@ def main():
         def target(label, spec, red=False):
             nonlocal sequence
             runtime, mode = spec.split(':')
+            if runtime == 'process-unit':
+                return run(label,[node,source/'scripts/fixtures/plugin-node-process-cases.mjs',bundle,mode],red)
             if runtime == 'unit':
                 return run(label,[node,source/'scripts/fixtures/plugin-node-resource-cases.mjs',bundle,mode],red)
             if runtime == 'core':
@@ -239,6 +273,8 @@ def main():
             variant = dict(id='selected', runtime=runtime, requires=['session.rpc'])
             if mode.startswith('resource-'):
                 variant['requires'] += ['resource.receive','file.readScoped']
+            if mode.startswith('process-'):
+                variant['requires'] += ['process.spawn','process.pipes']
             if runtime == 'node':
                 variant.update(entry='executor/main.mjs', runtimeVersionRange='>=20.0.0 <1000.0.0')
                 plugin = PLUGIN
@@ -247,6 +283,7 @@ def main():
                     foreign.write_text("import{writeFileSync}from'node:fs';writeFileSync(" + json.dumps(str(fixture / 'ambient-ran')) + ",'executed');")
                     plugin = 'import ' + json.dumps(foreign.as_uri()) + ';\n' + plugin
                 (package / 'executor/main.mjs').write_text(plugin)
+                shutil.copyfile(source/'scripts/fixtures/plugin-node-process-run.mjs',package/'executor/process-cases.mjs')
             else:
                 variant.update(executable='executor/main.mjs', os=[os_name], arch=[arch])
                 shutil.copyfile(build / 'test_process_runtime_peer', package / 'executor/main.mjs')
@@ -256,6 +293,8 @@ def main():
                             executor=dict(variants=[variant]), permissions=[])
             if mode.startswith('resource-'):
                 manifest['permissions'] = [dict(side='executor',capability='file.readScoped',purpose='Disposable authorized fixture',scope='instance')]
+            if mode.startswith('process-'):
+                manifest['permissions'] = [dict(side='executor',capability='process.spawn',purpose='Disposable local children',scope='instance',programs=['cat','env','pwd'])]
             (package / 'plugin.json').write_text(json.dumps(manifest))
             members = [dict(path=str(f.relative_to(package)), bytes=f.stat().st_size, sha256=sha(f))
                        for f in sorted(package.rglob('*')) if f.is_file()]
@@ -292,9 +331,13 @@ def main():
                      'stubborn', 'stdout-limit', 'leader-exit', 'stderr-eof', 'stdout-eof']]
         baseline += ['node:resource-roundtrip', 'node:resource-unicode', 'node:resource-stop', 'node:resource-missing', 'node:resource-bad-root', 'node:resource-duplicate-root']
         baseline += ['exec:resource-roundtrip']
+        baseline += ['node:'+m for m in ['process-roundtrip','process-deadline','process-output','process-cancel','process-capacity','process-stop','process-bad-digest','process-missing','process-native','process-first-reason']]
+        baseline += ['exec:process-roundtrip','exec:process-extra-field','exec:process-bad-hex']
         for spec in baseline:
             target('baseline-' + spec.replace(':', '-'), spec)
             print(spec + ': PASS', flush=True)
+        if args.processes:
+            run('process-node-baseline',[node,source/'scripts/fixtures/plugin-node-process-cases.mjs',bundle])
         if args.resources:
             run('resource-core-baseline',['ctest','--test-dir',build,'-R','^plugin_process_resources_','--output-on-failure'])
             run('resource-node-baseline',[node,source/'scripts/fixtures/plugin-node-resource-cases.mjs',bundle])
@@ -321,6 +364,11 @@ def main():
                 print(label + ': compiled assertion red / same archive control green / restored green / SHA256', flush=True)
         for spec in ['node:roundtrip', 'exec:roundtrip']:
             target('final-' + spec.replace(':', '-'), spec)
+        if args.processes:
+            target('final-node-process','node:process-roundtrip')
+            target('final-exec-process','exec:process-roundtrip')
+            target('final-native-process','node:process-native')
+            run('process-node-final',[node,source/'scripts/fixtures/plugin-node-process-cases.mjs',bundle])
         if args.resources:
             target('final-node-resource','node:resource-roundtrip')
             target('final-exec-resource','exec:resource-roundtrip')

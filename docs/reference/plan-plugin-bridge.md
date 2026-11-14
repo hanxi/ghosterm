@@ -6,7 +6,7 @@
 
 **最新 P3 进展：** 两端已接完整补丁读取 / 校验 / 只读文件视图，文件审批核对点击时版本、原生完整文档身份及 Executor 当前快照。macOS 与 Android API 29 / 36 的直连 / ProxyJump 已验明确无模型协议夹具的完整文档经真实 SSH / RPC 到生产原生页面，以及读取、旧版本拒绝、批准和停止。固定预算下的大文档处理分为解码、JSON 校验、业务分发三片；Android consent 轮询在 Session 转交 Runtime 前取消。组件与整链证据见文末第四十四至四十八批。真实模型、安装入口、完整交互 / 性能 / 物理设备矩阵仍未验收，不能据此关闭 P3。
 
-**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 入口；第五批提供 ai-claude Portable 目录候选包及完整参数 / 回包八方法。macOS 和 Android 已接固定启动配置、ACTIVE Runtime 文档适配、原生对话、工具批准、逐题显式回答、中断和停止，Codex / Claude 共用输入、决定按钮和只读完整文本控件。真实生产页面经自有直连 / ProxyJump SSH、gterm、Node 和锁定 SDK 配明确内存 CLI 协议夹具，已验工具批准、四题点击提交及停止 / reap；真实 CLI 另验禁网无模型初始化。第十、十一批补双端未确认操作的显式只读回包观察，保留原未知状态并拒绝重放；两端另验证真实 SSH 的原生 RPC 超时后读取保留回包。它不恢复已断开的 SSH 或 Agent 会话。尚无真实认证 / 模型 / 工具执行、持续模型流量 / 整进程资源证据；第十二至十六批已补已校验包私有暂存、进程 RPC、Node SDK 会话适配、实际 Node / Exec 进程控制器及双向资源服务。通用运行档尚未接入 gterm / App，当前控制器组合 session.rpc 与原生 ResourceBroker；process 服务和整进程预算继续待接；候选包不声明可移植 Native views，默认 App 仍禁用插件。P4 仍未完成，具体版本、变异和限制见文末 P4 第一至十六批。
+**最新 P4 进展：** Claude Node 后端已有锁定 SDK 的审批 / 用户问题组件、显式进程配置、流式会话适配器与独立 stdio 入口；第五批提供 ai-claude Portable 目录候选包及完整参数 / 回包八方法。macOS 和 Android 已接固定启动配置、ACTIVE Runtime 文档适配、原生对话、工具批准、逐题显式回答、中断和停止，Codex / Claude 共用输入、决定按钮和只读完整文本控件。真实生产页面经自有直连 / ProxyJump SSH、gterm、Node 和锁定 SDK 配明确内存 CLI 协议夹具，已验工具批准、四题点击提交及停止 / reap；真实 CLI 另验禁网无模型初始化。第十、十一批补双端未确认操作的显式只读回包观察，保留原未知状态并拒绝重放；两端另验证真实 SSH 的原生 RPC 超时后读取保留回包。它不恢复已断开的 SSH 或 Agent 会话。尚无真实认证 / 模型 / 工具执行、持续模型流量 / 整进程资源证据；第十二至十七批已补已校验包私有暂存、进程 RPC、Node SDK 会话适配、实际 Node / Exec 进程控制器、双向资源及受控进程服务。通用运行档尚未接入 gterm / App，当前控制器组合 session.rpc、原生 ResourceBroker 与 ProcessService；整进程预算继续待验；候选包不声明可移植 Native views，默认 App 仍禁用插件。P4 仍未完成，具体版本、变异和限制见文末 P4 第一至十七批。
 
 当前优先级已由用户明确：**先完成不依赖外部网关的独立 SSH 插件通道，以共用会话协议和可替换字节通道预留外部网关。** 下文第八批收敛封装、启动模式与实施次序；历史 TTY / 网关讨论不再阻塞这一方向。Go→C ABI 仍为可选后端研究，不进入首片 SSH 依赖。
 
@@ -5452,3 +5452,25 @@ Node 增加 Host-only NativeResourcePort，严格核对回包、状态、uint64�
 最终 transfer 默认完整 **36 组**通过，逐组真实编译 / 断言红 / 同 archive 配置绿 / 恢复 47 个原生与四条受控 SSH 场景 / SHA256；收据记录 **123 份**输入、**1923 条**命令。另一次复跑发现 make 时间戳造成资源测试目标未重新链接，未把该轮旧二进制结果计绿；现每轮强制删除并逐一检查 runtime、Exec peer、resource test、config control 四个 executable 的实际 link，随后完整重跑 **47 项 / 20 组**及 **47 项 / 15 组**通过，分别 **677 份 / 170 条**及 **677 份 / 133 条**输入 / 命令。Session **121 份 / 703 条**、Node adapter **669 份 / 203 条**、RPC **653 份 / 122 条**为各自分轮证据，不能把前置失败与未杀死 / 未重链结果并入通过数。
 
 验收完成后已清理本批隔离构建、工具、探针与日志；工程 tmp/ 当前仅保留既有 VM 仍占用的三份 eq-* 文件，共占 12 KiB，目录本身保留。根 Core 构建配置恢复为 JS-off / tests-on；没有启动前台测试窗口。
+
+### P4 实施第十七批：Node / Exec 原生受控进程服务（2026-11-14）
+
+通用 POSIX 运行档新增私有 process-jobs owner 与 process 消息分支，复用既有 process-service 的包程序声明、原生映射、固定文件摘要 / 身份和每次 spawn 的实时授权检查。必须同时有 process.spawn / process.pipes 与原生授权目录；未配置显式 UNSUPPORTED。工作目录只消费复制后的根 fd，调用方不能传路径 / fd / lease。业务环境由 Host 另行选定、校验并复制，不继承 Node worker 或父进程环境，也不接受插件提供变量；拒绝 loader 注入变量。无 Store 的进程服务可使用授权根，但不能因此获得文件发布 / 接收能力。
+
+一实例最多八个保留子进程，每个进程有原生单调时钟期限、TERM → 有界 grace → KILL，stdout / stderr 共用实例输出额度。私有消息仍为 8 KiB BE 帧、单 mailbox 与连续序号，二进制 IO 每次最多 3072 字节；Portable 16 KiB 读写请求允许正常短读 / 短写，argv 还受单帧编码上限约束。进程引用与 Session / resource 引用分域，退休不重用，不导出 PID / 管道 fd。release 必须等真实 waitpid 后才能完成；原生停止在 activation 未完成时仍推进，关闭 RPC 后停止 / 回收业务子进程，再销毁资源、Session 与暂存文件。
+
+Host-only NodeProcessService 接上既有 Portable ProcessChild 类型，严格校验消息字段、状态、引用、版本、字节 / count、退出码 / 信号；坏回包破坏链路、不重放。ctx.process 仅在原生服务已配置时存在，invocation 增加不含路径的 workspaceHandle，取消后不继续写 stdin。bootstrap 在 async activation 和 ACTIVE 期间推进 release / cancellation，不下载 Node、不提供 OS 沙箱。Host bundle 新增 process.js / 声明，现为 25 份成员加 manifest；Portable 六模块与 SDK 摘要不变。
+
+期限与输出限额可能先后发生；保留首个终止原因，超时后的遗留输出触发限额不把 deadline 改写成 output-limit。已补真实子进程和对应变异。
+
+macOS 对已退出系统程序的组信号实际返回 EPERM：保留首个 group_signal_error 并继续回收已确认退出的 leader，不能把组信号拒绝折成成功，也不能因此永久卡住 leader waitpid。仍不宣称后代树已全部回收、整进程 RSS / CPU / 磁盘预算或同 UID 隔离已验完。
+
+最终 `test-plugin-process-runtime.py --node 已安装路径 --tools 锁定工具目录 --processes --mutate` 完整 **60 项**进程组合、**17 组**Node 合成检查及 **23 组**变异通过：真实编译 / emit 后正常断言红、同 archive 配置绿、恢复绿及 SHA256。受控子进程为真实本机 cat / env / pwd，Node 为已安装 **26.4.0**；Node 逐字节往返 256 KiB、工作目录和选定环境、取消 / 八进程容量 / 等待 release / 超时 / 输出限额 / 首因保护 / 关闭待激活进程，Exec 验真实管道及畸形字段 / 非规范 hex 拒绝。另有 C 直接原生 owner 验八个实际 child、容量、活动 destroy / release 必须 WAIT、编号退休 / 复用、跨 Session / 已用 owner 拒绝、撤销后不再读写 / spawn、实际 reap 和 fd / 分配器归还。合成 Node 回包不冒充 OS 或业务收据。
+
+最终新进程组收据为 **683 份输入 / 201 条命令**，旧运行链 **15 组**在相同最终生产源下以 **60 项 / 683 份 / 146 条**复验通过。资源旧 **20 组**已在首因增量前以 **59 项 / 683 份 / 182 条**完整通过（含 15 项原生资源 / 14 组 Node 资源）；其后仅增加进程首因保护与用例，未改资源路径，不能将该早轮声称为包含新首因的 60 项。新增组在首因前的 **59 项 / 22 组 / 195 条**另留为分轮证据；最终完整 23 组已重新执行。C 夹具启用 ASan / UBSan，LeakSanitizer 未启用；每轮强制重链四个 executable 和 archive，输入及实际 Node 摘要核对不变。
+
+最终默认 JS-off / tests-on **537/537 CTest / 177 ABI**、JS-on / SSH-on / 保留断言的 **762/762 CTest**、clang-format **19.1.7 / 239 文件**、Portable 六模块生成物逐字节检查、脚本语法及 diff 检查通过。无公共 ABI / 各端 UI 源码变化，不增加 CI 二十份；App 默认仍 JS-off，通用 Node / Exec 尚未接 gterm / App，完整预算、实际认证 / 模型 / 工具与 P1–P6 余项未完成，不记 P4 闭环。
+
+前置错误单列：私有 pending 错用不存在的 GT_ERR_TIMEOUT、fixture clock 回调名、JS-off 构建目录没有仅实验档测试 target、测试过早 release 后继续消费已退休 child、组信号拒绝导致清理等待、负向协议测试错猜 child exit code，以及引用变异触发 TypeScript 未使用符号检查。编译错误、前置失败均不计目标红。诊断仅在工程 tmp/ 的隔离副本，不改 vendor、不接账户或用户目录；测试无前台窗口。
+
+本批验收后清理临时构建、锁定开发工具、隔离探针和日志，共释放 **630.7 MiB**；tmp/ 保留目录及仍关联既有 VM 的三份 eq-* 配置 / 输出（12 KiB）。默认 Core 保持 JS-off / tests-on，并移除过时的临时 SDK cache 路径。全部测试在 CLI 后台执行；本批仅本地 main 提交，未推送。

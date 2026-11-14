@@ -5,6 +5,7 @@
 #include "ghosterm/extension_rpc.h"
 #include "base/allocator.h"
 #include "extension/runtime-resource.h"
+#include "extension/process-jobs.h"
 #define GT_PROCESS_RPC_MESSAGE_MAX 8192u
 typedef struct gt_process_rpc gt_process_rpc_t;
 
@@ -28,6 +29,12 @@ gt_status_t gt__process_rpc_open_resources(gt_ext_session_t *,
                                            gt_runtime_resources_t *,
                                            const gt_allocator_t *,
                                            gt_process_rpc_t **);
+/* Borrows native jobs until destroy; native owner must step/stop/reap them. */
+gt_status_t gt__process_rpc_open_services(gt_ext_session_t *,
+                                          gt_runtime_resources_t *,
+                                          gt_process_jobs_t *,
+                                          const gt_allocator_t *,
+                                          gt_process_rpc_t **);
 /* One complete child JSON payload, 1..8192 bytes, carried in uint32 BE frames by
  * the pipe owner. Strict UTF-8/duplicate keys/depth/node/work budgets. v=1, id is
  * a canonical decimal string exactly one greater than the last accepted id.

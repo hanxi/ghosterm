@@ -162,6 +162,12 @@ export class NodeNativePort implements NativePort {
     if (reply.status !== "ok") { this.#break(); return fail("CHILD_RESOURCE"); }
     return this.#value(() => parse(reply.value));
   }
+  /** Trusted ProcessService shares this same sequence/mailbox. */
+  processCall<T>(action: string, fields: RecordValue, parse: (value: unknown) => T): T {
+    const reply = this.#call("process", { action, ...fields }, ["value"]);
+    if (reply.status !== "ok") { this.#break(); return fail("CHILD_PROCESS"); }
+    return this.#value(() => parse(reply.value));
+  }
   get broken(): boolean { return this.#broken; }
   get retained(): number { return this.#handles.size + this.#tickets.size; }
 }

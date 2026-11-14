@@ -34,6 +34,7 @@ struct gt_process_runtime {
     gt_package_stage_t *package_stage, *sdk_stage;
     gt_process_rpc_t *rpc;
     gt_runtime_resources_t *resources;
+    gt_process_jobs_t *jobs;
     gt_ext_process_t *child;
     gt_bridge_decoder_t *decoder;
     int parent, root, executable, startup;
@@ -197,7 +198,9 @@ static void runtime_fail(gt_process_runtime_t *r, gt_status_t error, uint64_t no
     }
 }
 
-static gt_status_t runtime_invocation(gt_process_runtime_t *r, const gt_ext_invocation_t *input) {
+static gt_status_t runtime_invocation(gt_process_runtime_t *r,
+                                      const gt_ext_invocation_t *input,
+                                      const char *workspace) {
     if (!input || !input->command || input->argc > 32 || (input->argc && !input->argv)) {
         return GT_ERR_INVALID_ARG;
     }
@@ -222,6 +225,11 @@ static gt_status_t runtime_invocation(gt_process_runtime_t *r, const gt_ext_invo
             decoded[size] = 0;
             ok = ok && runtime_text(r->invocation, &at, ",\"decodedArguments\":") &&
                  runtime_text(r->invocation, &at, decoded);
+        }
+        if (workspace) {
+            ok = ok && runtime_text(r->invocation, &at, ",\"workspaceHandle\":{\"id\":") &&
+                 runtime_quote(r->invocation, &at, workspace) &&
+                 runtime_text(r->invocation, &at, "}");
         }
         ok = ok && runtime_text(r->invocation, &at, "}");
         if (!ok) {
@@ -291,10 +299,19 @@ gt_status_t gt__process_runtime_open(gt_ext_session_t **session,
     for (size_t i = 0; i < info.requires_count; i++) {
         const char *capability = info.requires[i];
         if (strcmp(capability, "session.rpc") && strcmp(capability, "resource.receive") &&
-            strcmp(capability, "file.readScoped")) {
+            strcmp(capability, "file.readScoped") && strcmp(capability, "process.spawn") &&
+            strcmp(capability, "process.pipes")) {
             return GT_ERR_UNSUPPORTED;
         }
-        if (strcmp(capability, "session.rpc") && !(*session)->store) {
+        bool process_cap =
+            !strcmp(capability, "process.spawn") || !strcmp(capability, "process.pipes");
+        if (process_cap &&
+            (!c->process.program_count || !c->root_count ||
+             gt_ext_session_access(*session, &lease, "process.spawn") != GT_EXT_ACCESS_ALLOWED ||
+             gt_ext_session_access(*session, &lease, "process.pipes") != GT_EXT_ACCESS_ALLOWED)) {
+            return GT_ERR_UNSUPPORTED;
+        }
+        if (!process_cap && strcmp(capability, "session.rpc") && !(*session)->store) {
             return GT_ERR_UNSUPPORTED;
         }
         if (!strcmp(capability, "file.readScoped") &&
@@ -363,7 +380,8 @@ gt_status_t gt__process_runtime_open(gt_ext_session_t **session,
     if (!gt__package_checked_retain(package, &r->package)) {
         goto fail;
     }
-    status = runtime_invocation(r, c->invocation);
+    status = runtime_invocation(
+        r, c->invocation, c->process.program_count && c->root_count ? c->roots[0].id : NULL);
     if (status != GT_OK) {
         goto fail;
     }
@@ -410,11 +428,11 @@ gt_status_t gt__process_runtime_open(gt_ext_session_t **session,
         status = GT_ERR_IO;
         goto fail;
     }
-    if (c->root_count && !(*session)->store) {
+    if (c->root_count && !(*session)->store && !c->process.program_count) {
         status = GT_ERR_UNSUPPORTED;
         goto fail;
     }
-    if ((*session)->store) {
+    if ((*session)->store || (c->root_count && c->process.program_count)) {
         status = gt__runtime_resources_open(*session,
                                             (*session)->store,
                                             &lease,
@@ -427,7 +445,13 @@ gt_status_t gt__process_runtime_open(gt_ext_session_t **session,
             goto fail;
         }
     }
-    status = gt__process_rpc_open_resources(*session, r->resources, NULL, &r->rpc);
+    if (c->process.program_count) {
+        status = gt__process_jobs_open(*session, r->resources, package, &c->process, &r->jobs);
+        if (status != GT_OK) {
+            goto fail;
+        }
+    }
+    status = gt__process_rpc_open_services(*session, r->resources, r->jobs, NULL, &r->rpc);
     if (status != GT_OK) {
         goto fail;
     }
@@ -440,6 +464,9 @@ gt_status_t gt__process_runtime_open(gt_ext_session_t **session,
     *out = r;
     return GT_OK;
 fail:
+    if (r->jobs) {
+        (void)gt__process_jobs_destroy(&r->jobs);
+    }
     if (r->resources) {
         (void)gt__runtime_resources_destroy(&r->resources);
     }
@@ -719,6 +746,23 @@ static void runtime_cleanup(gt_process_runtime_t *r) {
     if (r->rpc && gt__process_rpc_destroy(&r->rpc) != GT_OK) {
         r->info.cleanup_error = GT_ERR_IO;
     }
+    if (r->jobs) {
+        gt__process_jobs_stop(r->jobs);
+        if (gt__process_jobs_step(r->jobs) != GT_OK) {
+            r->info.cleanup_error = GT_ERR_IO;
+        }
+        if (!r->info.group_signal_error) {
+            r->info.group_signal_error = gt__process_jobs_group_error(r->jobs);
+        }
+        gt_status_t status = gt__process_jobs_destroy(&r->jobs);
+        if (status == GT_PROCESS_JOBS_WAIT) {
+            return;
+        }
+        if (status != GT_OK) {
+            r->info.cleanup_error = status;
+            return;
+        }
+    }
     if (r->package_stage && gt__package_stage_destroy(&r->package_stage) != GT_STAGE_OK) {
         r->info.cleanup_error = GT_ERR_IO;
     }
@@ -810,6 +854,9 @@ gt_process_runtime_phase_t gt__process_runtime_step(gt_process_runtime_t *r) {
                 runtime_fail(r, GT_ERR_CANCELLED, now);
             }
         }
+    }
+    if (gt__process_jobs_step(r->jobs) != GT_OK) {
+        runtime_fail(r, GT_ERR_IO, now);
     }
     if (r->info.phase == GT_PROCESS_RUNTIME_CREATED) {
         gt_status_t status = runtime_root(r);

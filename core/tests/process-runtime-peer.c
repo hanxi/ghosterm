@@ -124,6 +124,57 @@ static void resource_roundtrip(uint64_t *sequence, char reply[8193]) {
     CHECK(strstr(reply, "\"value\":{\"status\":\"ok\""));
 }
 
+static void process_roundtrip(uint64_t *sequence, char reply[8193]) {
+    call(sequence,
+         "\"op\":\"process\",\"action\":\"spawn\",\"program\":\"cat\",\"root\":\"workspace\","
+         "\"argv\":[\"cat\"],\"envPolicy\":\"selected-user-environment\"",
+         reply);
+    const char *ref = strstr(reply, "\"ref\":\"");
+    CHECK(ref && strstr(reply, "fixture-cat"));
+    unsigned long long id = strtoull(ref + 7, NULL, 10);
+    CHECK(id);
+    char fields[512];
+    snprintf(
+        fields, sizeof(fields), "\"op\":\"process\",\"action\":\"release\",\"ref\":\"%llu\"", id);
+    call(sequence, fields, reply);
+    CHECK(strstr(reply, "\"value\":{\"status\":\"wait\""));
+    snprintf(fields,
+             sizeof(fields),
+             "\"op\":\"process\",\"action\":\"write\",\"ref\":\"%llu\",\"hex\":\"001122ff\"",
+             id);
+    call(sequence, fields, reply);
+    CHECK(strstr(reply, "\"count\":4"));
+    snprintf(fields,
+             sizeof(fields),
+             "\"op\":\"process\",\"action\":\"closeStdin\",\"ref\":\"%llu\"",
+             id);
+    call(sequence, fields, reply);
+    CHECK(strstr(reply, "\"value\":{\"status\":\"ok\""));
+    snprintf(fields,
+             sizeof(fields),
+             "\"op\":\"process\",\"action\":\"read\",\"ref\":\"%llu\",\"stderr\":false,"
+             "\"maxBytes\":16384",
+             id);
+    for (;;) {
+        call(sequence, fields, reply);
+        if (strstr(reply, "\"state\":\"data\"")) {
+            break;
+        }
+        CHECK(strstr(reply, "\"state\":\"wait\""));
+    }
+    CHECK(strstr(reply, "\"hex\":\"001122ff\""));
+    snprintf(fields, sizeof(fields), "\"op\":\"process\",\"action\":\"poll\",\"ref\":\"%llu\"", id);
+    do {
+        call(sequence, fields, reply);
+    } while (strstr(reply, "\"exited\":false"));
+    CHECK(strstr(reply, "\"exited\":true") && strstr(reply, "\"code\":0") &&
+          strstr(reply, "\"signal\":0"));
+    snprintf(
+        fields, sizeof(fields), "\"op\":\"process\",\"action\":\"release\",\"ref\":\"%llu\"", id);
+    call(sequence, fields, reply);
+    CHECK(strstr(reply, "\"value\":{\"status\":\"ok\""));
+}
+
 int main(int argc, char **argv) {
     CHECK(argc == 4 && !strcmp(argv[1], "--ghosterm-startup"));
     int fd = open(argv[2], O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
@@ -183,6 +234,32 @@ int main(int argc, char **argv) {
     char reply[8193];
     if (mode && !strcmp(mode, "resource-roundtrip")) {
         resource_roundtrip(&sequence, reply);
+    }
+    if (mode && !strcmp(mode, "process-extra-field")) {
+        call(&sequence,
+             "\"op\":\"process\",\"action\":\"spawn\",\"program\":\"cat\",\"root\":\"workspace\","
+             "\"argv\":[\"cat\"],\"envPolicy\":\"selected-user-environment\",\"extra\":true",
+             reply);
+        return 0;
+    }
+    if (mode && !strcmp(mode, "process-bad-hex")) {
+        call(&sequence,
+             "\"op\":\"process\",\"action\":\"spawn\",\"program\":\"cat\",\"root\":\"workspace\","
+             "\"argv\":[\"cat\"],\"envPolicy\":\"selected-user-environment\"",
+             reply);
+        const char *ref = strstr(reply, "\"ref\":\"");
+        CHECK(ref);
+        unsigned long long id = strtoull(ref + 7, NULL, 10);
+        char fields[256];
+        snprintf(fields,
+                 sizeof(fields),
+                 "\"op\":\"process\",\"action\":\"write\",\"ref\":\"%llu\",\"hex\":\"AB\"",
+                 id);
+        call(&sequence, fields, reply);
+        return 0;
+    }
+    if (mode && !strcmp(mode, "process-roundtrip")) {
+        process_roundtrip(&sequence, reply);
     }
     call(&sequence, "\"op\":\"activated\"", reply);
     CHECK(strstr(reply, "\"status\":\"ok\""));

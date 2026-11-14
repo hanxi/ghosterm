@@ -9,11 +9,12 @@ import { Console } from 'node:console';
 import { setImmediate } from 'node:timers/promises';
 import { NodeNativePort } from '../port.js';
 import { NodeResourcePort } from '../resources.js';
+import { NodeProcessService } from '../process.js';
 import { ResourceBroker } from '../../portable/resources.js';
 import { NodeStdioPipe } from './pipe.mjs';
 import { SessionChannel, snapshot, uint64 } from '../../portable/index.js';
 
-let pipe, session, resources, disposable, stopping = false;
+let pipe, session, resources, processes, disposable, stopping = false;
 process.on('SIGTERM', () => { stopping = true; });
 process.on('SIGINT', () => { stopping = true; });
 try {
@@ -55,8 +56,10 @@ try {
   const port = new NodeNativePort(pipe); session = new SessionChannel(port);
   const resourcePort = new NodeResourcePort(port);
   if (resourcePort.resourceWorkspaces() !== null) resources = new ResourceBroker(resourcePort);
+  const processService = new NodeProcessService(port);
+  if (processService.available()) processes = processService;
   const context = Object.freeze({ instanceId: config.instanceId, epoch: config.epoch, side: 'executor',
-    invocation: snapshot(config.invocation), session, ...(resources ? { resources } : {}),
+    invocation: snapshot(config.invocation), session, ...(resources ? { resources } : {}), ...(processes ? { process: processes } : {}),
     capabilities: Object.freeze({ query: name => port.access(name) }),
     cancellation: Object.freeze({ get cancelled() {
       if (stopping || port.broken) return true;
@@ -76,6 +79,7 @@ try {
     if (failed) throw Error('ACTIVATE');
     session.step();
     resources?.step();
+    processes?.step();
     if (active && !announced) { port.activated(); announced = true; }
     if (active) disposable.step?.();
     await setImmediate();
@@ -83,6 +87,7 @@ try {
 } catch {
   if (process.exitCode !== 77) process.exitCode = 1;
 } finally {
+  try { processes?.dispose(); } catch { process.exitCode ||= 1; }
   try { resources?.dispose(); } catch { process.exitCode ||= 1; }
   try { session?.dispose(); } catch { process.exitCode ||= 1; }
   try { disposable?.dispose(); } catch { process.exitCode ||= 1; }
