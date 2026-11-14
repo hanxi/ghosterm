@@ -6211,3 +6211,87 @@ pending ledger、目录仍在、活跃 lease 等继续保留 / 报错，未提�
 本批验证后清理 820 个临时根入口 / 12349 项 / 526.9 MiB 账面分配；
 工程 tmp 仅留原三份 eq-*，SHA256 一致。未终止用户 App、已有服务或无关 Java；
 测试未启动 AVD，全部 Native 自动化窗口保持后台，根 Core 保持默认 JS-off / tests-on。
+
+### P5 实施第一批：Portable 表格契约与按页计算的官方 Executor（2026-11-15）
+
+新增 `plugins/official/table` 候选目录包，`table --count 1000` 按页计算整数、平方、立方；
+允许 0 至 1,000,000 行，每次最多生成十六行，不分配完整数据集。立方使用 BigInt 并以
+精确十进制字符串发送。Executor 仅需 `session.rpc`，不读文件、不创建进程或联网；
+Client 明确要求 `ui.table`。当前两端未提供该 Native 服务，包检查必须返回 UNSUPPORTED，
+不把空 Client activate 当作已经显示表格。原生通用 table 组件、分页控件、主题、大字号与
+无障碍是后续接口切片，不在本批声明可用。
+
+Portable SDK 新增 descriptor / page request / page codec 及 `validateTablePage`：
+至多八列、十六行、每个表格消息 2,048 JSON UTF-8 字节；字段拒绝未知项，字符串、ID、
+数组、列 / 行 ID 唯一性与正 uint64 修订均有界。值在边界复制并冻结，不调用输入 getter。
+完整页核对 descriptor 的 viewId / revision、所选 offset / limit、total、行数与单行列数；
+调用方仍须另存当前请求代次，不能把合法的迟到回复应用到新选择。Session 在发送前统一
+执行输出 codec，handler 不再重复对同页复制 / 编码 / 校验。
+
+聚合 SDK 从六个模块增加为七个，生成器、CMake 输入清单、固定 SDK 身份与手工测试模块
+闭包同步；原包运行时的总模块限额仍为 64，边界夹具同步扣除增加的 SDK 模块，并新增
+第 65 个模块明确失败的对照。SDK API 仍为未冻结候选 1.0.0、wire v1，无新公共 C ABI。
+生成的 SDK digest：`ed2c2863ff18eb3b0fb5eca761738e1b93f6ed8e0b78610a20c0e887d1672855`。
+
+`build-plugin-sample.py` 使用锁定 TypeScript 5.9.3，生成 Client / Executor、schema、
+README、MIT 清单与完整性记录；输出限工程 tmp 或 build/plugins，不安装、不执行包。
+`--check` 逐文件比较重建结果。此工具是开发目录包构建器，不提供第三方来源认证或签名。
+
+复现（先按 SDK 既有流程准备锁定 tools；下列路径均在工程 tmp）：
+
+```bash
+export TMPDIR="$PWD/tmp" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+node tmp/table/tools/node_modules/typescript/bin/tsc -p packages/plugin-sdk/tsconfig.json --outDir tmp/table/sdk
+python3 scripts/build-plugin-sample.py --source plugins/official/table --tools tmp/table/tools --out tmp/table/package
+cmake -S core -B tmp/table/core -DCMAKE_BUILD_TYPE=Debug -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_BUILD_TESTS=ON -DGHOSTERM_PLUGIN_SDK_DIR="$PWD/tmp/table/sdk"
+cmake --build tmp/table/core -j2
+cc -std=c11 -Wall -Wextra -Werror -Icore/include scripts/probes/plugin-table.c tmp/table/core/libghosterm_core.a tmp/table/core/libghosterm_quickjs.a -Lbuild/host-native/lib -lssh2 -o tmp/table/probe
+python3 scripts/test-plugin-table.py --build tmp/table/core --tools tmp/table/tools --mutate --receipt tmp/table/receipt.json
+```
+
+最终主机专项通过 **56 项**编译后 Portable 值 / 模拟 adapter 检查，以及实际公共 C
+package → Session → QuickJS Executor 的 descriptor、首十六行、百万行末页、单行尾页、
+末尾空页、过期修订 UNKNOWN、空表和缺 Native 服务 UNSUPPORTED。八组独立变异：六组
+编译后纯值契约正常断言红，两组真实 Core 包的 offset / 精确立方业务断言红；每组同
+archive 的独立主机配置绿、复原绿及源码 SHA256。最终主机收据核对 **159 份输入**。
+旧 SDK O1 ASan/UBSan 基线另通过十七场景、36 项 Ajv schema 对拍；未重跑其旧变异，
+也不把模拟 adapter 证据说成 Native table UI。
+
+同一 NDK arm64 / API29 ELF 与候选包在自有 **API29 / API36、4 KiB 页、-no-window**
+AVD 各通过百万行分页、空表、过期拒绝与缺服务检查；实际 probe 和所有包文件上设备后
+逐一核对 SHA256，运行后仅移除本轮 guest 目录并结束自有 AVD。最终设备收据核对
+**157 份输入**。这是设备上的公开 Core / QuickJS 路径，不是 JNI / APK / Compose 页面、
+SSH / gterm 本机远端整链、真机或发行证据。
+
+前置失败单列：初轮手工 SDK 模块闭包漏 table.js、总模块边界夹具未扣除新 SDK 模块、
+关闭 SSH 配置下运行 SSH 测试，均未计整套通过；修正输入 / 配置而未提高 64 模块限额。
+Node schema 比较最初将 null prototype 与普通 JSON 对象直接比较，改为同 JSON 值比较；
+探针 API 名称 / capture 参数及一组变异 noUnused 编译失败均不计正常断言红。
+原先误判 JavaScript uint64 正则会接受尾换行，实际对照证明原实现已拒绝，故撤回多余 trim；
+存活变异未计通过，改为错误接受零修订的有效保护，尾换行输入保留为回归。
+Android 前两轮在较大页触发 `Runtime error=CPU`；诊断确认重复深复制 / 编码耗尽预算，
+移除 handler 内冗余校验后两档最终同源通过，默认 **25ms CPU / 1s RPC / 2000 观察步**均
+保持原值。未因失败扩大等待或执行预算。
+
+本片只交付可移植数据契约与真正计算数据的官方 Executor。P5 的 diff、持续交互样例、
+Native table、开发体验完整闭环及 P1–P6 所有未完成项继续保留；默认 App 插件 JS-off，
+不增加 CI 二十份，未推送 / 发行。
+
+最终公共闸门：默认 Core **JS-off / tests-on：588/588 CTest、181 ABI**；隔离 Debug
+JS-on / SSH-on **815/815 CTest**，串行执行。Apple **178 引用 / 3 登记未用**、JNI
+**144 / 37**、clang-format **19.1.7 / 256 文件**、SDK 七模块生成器 `--check` / 离线
+输入守卫、Python 语法与 diff 检查通过。Android **JS-enabled 未签名 Release 与 app /
+bridge / data / terminal 四模块 Release lint** 通过，CMake native 实际重构建，R8 为
+UP-TO-DATE；该 APK 未安装，不替代前述 standalone Core 探针的证据范围。无本片 Swift
+源码或新云端 Swift 6.1.2 / macOS 发行结论。
+
+最终主机 / 设备源码收据均与工作区逐文件对拍；两端实际候选包完整性摘要相同。收据
+SHA256（临时原件验收后清理）：
+
+- 主机 56 项 / 八组变异 / 159 输入：`98656091a5826f9bc57389d4a9187ce047fa647be5a58d6b046a381f0fb534de`。
+- 自有 API29 / 36、157 输入：`fee7ebffbbade96ee6a168f80332e44a7da07b51ac813f19f41753943bf840c3`。
+- 旧 SDK ASan/UBSan 基线 / 36 schema 对拍：`4ecd2e7e82801ac8b6f3f6c9035074994ec677728f6150102ba8a5c041ca9a6f`。
+
+专项与构建进程已退出、自有 AVD 已停止后，清理 70 个 tmp 根入口 / 8636 项 /
+226.0 MiB 账面分配；仅保留原三份 eq-*，SHA256 一致。未终止无关 Java、用户 App 或
+既有服务；无前台自动测试窗口，根 Core 保持 JS-off / tests-on。

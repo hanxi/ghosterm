@@ -1188,3 +1188,17 @@ owner TERM/KILL / 新进程检查、42 项无跳过 Native / AppModel、十二�
 默认 Core 588/181、Apple 178/3、JNI 144/37、完整 App 519 项含十八跳过 / 零失败、
 WebKit、macOS arm64 Release 与 C 格式 255 文件通过。无新 C ABI / Android 代码或设备
 证据；损坏记录维护、跨重启残留删除、实际用量治理及完整 P1–P6 未完成，不增加 CI 二十份。
+
+**插件 P5 表格首片（2026-11-15）**：Portable descriptor / page codec 与官方 `table`
+Executor 已接，至多八列 / 十六行 / 2048 JSON 字节；百万行按页计算，立方保留精确十进制。
+56 项编译后值 / adapter 检查、六组纯值与两组实际 Core 包业务变异通过：正常断言红、
+同 archive 独立配置绿、复原及 SHA256。实际公开 package / Session / QuickJS 的首尾页、
+空表、过期 UNKNOWN 与缺 Native 服务 UNSUPPORTED，在 macOS 及同 probe / 包的自有
+API29 / API36 arm64 / 4 KiB 页 / no-window AVD 通过。旧 SDK O1 ASan/UBSan 十七场景 /
+36 项 Ajv 对拍通过，未重跑旧变异。Android 初轮重复复制 / 编码触发 CPU 失败单列，
+移除 handler 冗余处理后通过；默认 25ms CPU / 1s RPC / 2000 观察步与 64 模块上限保持。
+SDK 增至七模块并同步生成身份 / 输入 / 测试闭包，无新 ABI。原生 table 服务与分页控件
+未接，当前 Client 明确不支持；非 APK / Compose / Native UI、SSH gterm 整链、真机或发行，
+P5 与完整 P1–P6 仍未完成，不增加 macOS CI 二十份。原件、前置失败和收据见插件计划 P5 第一批。
+默认 Core 588/181、JS/SSH-on 815 CTest、Apple 178/3、JNI 144/37、C 格式 256 文件、
+Android JS-enabled 未签名 Release / 四模块 lint 通过；native 实际重构建，R8 复用缓存。

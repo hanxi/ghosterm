@@ -5,6 +5,9 @@ export type { Call, Method, NativePort, NativeResult, Outcome, RequestContext, S
 export type { ErrorCode } from "./wire-contract.js";
 export type { ResourceBroker, ResourceRef, ResourceMetadata, ResourceBudget, ScopedResourceInput, BoundedReadStream, ReadChunk } from "./resources.js";
 export type { WorkspaceHandle, ProcessRead, ProcessWrite, ProcessExit, ProcessChild, ProcessSpawnOptions, ProcessService } from "./process.js";
+export { TableDescribeMethod, TablePageMethod, TableDescriptorCodec, TablePageRequestCodec, TablePageCodec,
+  TABLE_PAGE_ROWS_MAX, TABLE_COLUMNS_MAX, TABLE_BODY_BYTES_MAX, validateTablePage } from "./table.js";
+export type { TableDescriptor, TablePageRequest, TablePage } from "./table.js";
 
 /** Current Session grant observation, not a promise that a host service exists.
  * Queries are live: revocation is never a cached allowed result. */

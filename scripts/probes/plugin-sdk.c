@@ -151,9 +151,13 @@ static char *normalize(JSContext *c, const char *base, const char *name, void *u
     if (!strcmp(base, "portable-session.js") && !strncmp(name, "../portable/", 12)) {
         name += 12;
     }
-    const char *allowed[] = {
-        "codec.js", "wire-contract.js", "session.js", "portable-session.js", "index.js"};
-    for (size_t i = 0; i < 5; i++) {
+    const char *allowed[] = {"codec.js",
+                             "wire-contract.js",
+                             "session.js",
+                             "portable-session.js",
+                             "table.js",
+                             "index.js"};
+    for (size_t i = 0; i < sizeof(allowed) / sizeof(allowed[0]); i++) {
         const char *n = !strncmp(name, "./", 2) ? name + 2 : name;
         if (!strcmp(n, allowed[i])) {
             return js_strdup(c, n);

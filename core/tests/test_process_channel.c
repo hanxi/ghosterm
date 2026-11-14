@@ -318,12 +318,16 @@ int main(int argc, char **argv) {
         if (!strcmp(mode, "runtime")) {
             const char *source = "export function activate(){return {dispose(){}}}";
             CHECK(argc == 5);
-            gt_ext_runtime_module_t modules[5] = {{0}};
-            const char *names[] = {"index.js", "codec.js", "session.js", "wire-contract.js"};
-            const char *ids[] = {
-                "sdk:/index.js", "sdk:/codec.js", "sdk:/session.js", "sdk:/wire-contract.js"};
-            char *texts[4];
-            for (size_t n = 0; n < 4; n++) {
+            gt_ext_runtime_module_t modules[6] = {{0}};
+            const char *names[] = {
+                "index.js", "codec.js", "session.js", "wire-contract.js", "table.js"};
+            const char *ids[] = {"sdk:/index.js",
+                                 "sdk:/codec.js",
+                                 "sdk:/session.js",
+                                 "sdk:/wire-contract.js",
+                                 "sdk:/table.js"};
+            char *texts[5];
+            for (size_t n = 0; n < 5; n++) {
                 char path[4096];
                 CHECK(snprintf(path, sizeof(path), "%s/%s", argv[4], names[n]) > 0);
                 FILE *file = fopen(path, "rb");
@@ -340,18 +344,18 @@ int main(int argc, char **argv) {
                 CHECK(gt__sha256_update(&digest, texts[n], (size_t)size) &&
                       gt__sha256_final(&digest, modules[n].sha256));
             }
-            modules[4] = (gt_ext_runtime_module_t){
+            modules[5] = (gt_ext_runtime_module_t){
                 .name = "plugin:/entry.js", .source = source, .size = strlen(source)};
             gt_sha256_t hash;
             gt__sha256_init(&hash);
             CHECK(gt__sha256_update(&hash, source, strlen(source)) &&
-                  gt__sha256_final(&hash, modules[4].sha256));
+                  gt__sha256_final(&hash, modules[5].sha256));
             gt_ext_runtime_config_t rc = {.modules = modules,
-                                          .module_count = 5,
+                                          .module_count = 6,
                                           .entry = "plugin:/entry.js",
                                           .role = GT_EXT_HOST};
             CHECK(gt_ext_runtime_open(&session, &rc, &runtime) == GT_OK && !session && runtime);
-            for (size_t n = 0; n < 4; n++) {
+            for (size_t n = 0; n < 5; n++) {
                 free(texts[n]);
             }
             CHECK(!info().child_exited);

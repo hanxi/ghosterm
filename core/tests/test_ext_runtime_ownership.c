@@ -35,18 +35,21 @@ int main(int argc, char **argv) {
     rpc_pair_t pair;
     rpc_open(&pair, "timeout");
     rpc_adopt_hook = NULL;
-    const char *names[] = {"index.js", "codec.js", "session.js", "wire-contract.js"},
-               *ids[] = {
-                   "sdk:/index.js", "sdk:/codec.js", "sdk:/session.js", "sdk:/wire-contract.js"};
-    char *scripts[4];
-    gt_ext_runtime_module_t modules[5] = {0};
-    for (unsigned i = 0; i < 4; i++) {
+    const char *names[] = {"index.js", "codec.js", "session.js", "wire-contract.js", "table.js"},
+               *ids[] = {"sdk:/index.js",
+                         "sdk:/codec.js",
+                         "sdk:/session.js",
+                         "sdk:/wire-contract.js",
+                         "sdk:/table.js"};
+    char *scripts[5];
+    gt_ext_runtime_module_t modules[6] = {0};
+    for (unsigned i = 0; i < 5; i++) {
         scripts[i] = read_module(argv[2], names[i]);
         module(&modules[i], ids[i], scripts[i]);
     }
-    module(&modules[4], "plugin:/entry.js", echo_plugin);
+    module(&modules[5], "plugin:/entry.js", echo_plugin);
     gt_ext_runtime_config_t c = {.modules = modules,
-                                 .module_count = 5,
+                                 .module_count = 6,
                                  .entry = "plugin:/entry.js",
                                  .role = GT_EXT_EXECUTOR,
                                  .cpu_ms = 500};
@@ -68,7 +71,7 @@ int main(int argc, char **argv) {
         CHECK(gt_ext_session_forget_request(pair.pair.h, &pair.h, handle) == GT_EXT_RPC_OK);
     } else if (!strcmp(argv[1], "untaken-peer")) {
         handle = rpc_start(&pair, false, "{\"text\":\"early\",\"count\":17}", 1000);
-        for (unsigned i = 0; i < 40; i++) {
+        for (unsigned i = 0; i < 50; i++) {
             rpc_pump(&pair);
         }
     } else if (!strcmp(argv[1], "resource-owner")) {
@@ -107,7 +110,7 @@ int main(int argc, char **argv) {
     }
     rt_drop(&runtime);
     ext_drop(&pair.pair.h);
-    for (unsigned i = 0; i < 4; i++) {
+    for (unsigned i = 0; i < 5; i++) {
         free(scripts[i]);
     }
     if (owner_store) {

@@ -32,7 +32,7 @@ function codecs(): void {
   for (const name of ["process", "require", "window", "document", "fetch", "setTimeout", "std", "os"]) check(!(name in globalThis), "no ambient " + name);
   check(utf8Bytes("a中😀") === 8 && compareUint64("9007199254740993", "9007199254740992") === 1, "utf8 and exact counters");
   check(uint64("18446744073709551615") === "18446744073709551615", "uint64 max");
-  for (const v of ["01", "-1", "18446744073709551616", 9007199254740992, "1e2"]) rejects(() => uint64(v), "UINT64");
+  for (const v of ["01", "-1", "18446744073709551616", 9007199254740992, "1e2", "1\n", "1\r", "1\u2028", "1\u2029"]) rejects(() => uint64(v), "UINT64");
   rejects(() => utf8Bytes("\ud800"), "UTF16"); rejects(() => utf8Bytes("\udfff"), "UTF16");
   for (const v of [NaN, Infinity, 9007199254740992]) rejects(() => encode(v), "JSON_NUMBER");
   const cycle: { self?: unknown } = {}; cycle.self = cycle; rejects(() => snapshot(cycle), "JSON_VALUE");

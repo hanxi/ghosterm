@@ -108,12 +108,15 @@ static void runtime_case(const char *mode, const char *root) {
     memset(&empty, 1, sizeof(empty));
     CHECK(!gt__bridge_runtime_info(NULL, &empty) && !empty.steps && !empty.jobs &&
           !empty.module_bytes && !empty.engine_released);
-    const char *names[] = {"index.js", "codec.js", "session.js", "wire-contract.js"};
-    const char *ids[] = {
-        "sdk:/index.js", "sdk:/codec.js", "sdk:/session.js", "sdk:/wire-contract.js"};
-    char *scripts[4];
+    const char *names[] = {"index.js", "codec.js", "session.js", "wire-contract.js", "table.js"};
+    const char *ids[] = {"sdk:/index.js",
+                         "sdk:/codec.js",
+                         "sdk:/session.js",
+                         "sdk:/wire-contract.js",
+                         "sdk:/table.js"};
+    char *scripts[5];
     gt_runtime_module_t modules[8] = {0};
-    for (unsigned i = 0; i < 4; i++) {
+    for (unsigned i = 0; i < 5; i++) {
         scripts[i] = read_module(root, names[i]);
         module(&modules[i], ids[i], scripts[i]);
     }
@@ -222,15 +225,15 @@ static void runtime_case(const char *mode, const char *root) {
                        plugin) > 0);
         plugin = decorated;
     }
-    module(&modules[4], "plugin:/entry.js", plugin);
-    size_t count = 5;
+    module(&modules[5], "plugin:/entry.js", plugin);
+    size_t count = 6;
     if (!strcmp(mode, "relative")) {
-        module(&modules[4],
+        module(&modules[5],
                "plugin:/nested/entry.js",
                "import {value} from '../shared.js';export function activate(){if(value!==42)throw "
                "Error('relative');return {dispose(){}}}");
-        module(&modules[5], "plugin:/shared.js", "export const value=42;");
-        count = 6;
+        module(&modules[6], "plugin:/shared.js", "export const value=42;");
+        count = 7;
     }
     rpc_pair_t pair;
     rpc_open(&pair, "timeout");
@@ -238,7 +241,7 @@ static void runtime_case(const char *mode, const char *root) {
     gt_bridge_runtime_t *rt = (gt_bridge_runtime_t *)1;
     gt_runtime_config_t config = {.modules = modules,
                                   .module_count = count,
-                                  .entry = modules[4].name,
+                                  .entry = modules[5].name,
                                   .role = GT_EXT_EXECUTOR,
                                   .cpu_ms =
                                       (!strcmp(mode, "cpu") || !strcmp(mode, "top-cpu")) ? 10 : 500,
@@ -295,15 +298,15 @@ static void runtime_case(const char *mode, const char *root) {
         CHECK(gt__bridge_runtime_open(&pair.pair.e, &config, &rt) == GT_ERR_INVALID_ARG && !rt &&
               pair.pair.e);
         config.module_count = count;
-        strcpy(modules[4].sha256, "invalid");
+        strcpy(modules[5].sha256, "invalid");
         CHECK(gt__bridge_runtime_open(&pair.pair.e, &config, &rt) == GT_ERR_INVALID_ARG && !rt &&
               pair.pair.e);
-        module(&modules[4], "plugin:/entry.js", plugin);
-        modules[4].sha256[0] = modules[4].sha256[0] == '0' ? '1' : '0';
+        module(&modules[5], "plugin:/entry.js", plugin);
+        modules[5].sha256[0] = modules[5].sha256[0] == '0' ? '1' : '0';
         CHECK(gt__bridge_runtime_open(&pair.pair.e, &config, &rt) == GT_ERR_PROTOCOL && !rt &&
               pair.pair.e);
-        module(&modules[4], "plugin:/entry.js", plugin);
-        module(&modules[4], "host:/native", plugin);
+        module(&modules[5], "plugin:/entry.js", plugin);
+        module(&modules[5], "host:/native", plugin);
         config.entry = "plugin:/missing.js";
         CHECK(gt__bridge_runtime_open(&pair.pair.e, &config, &rt) == GT_ERR_INVALID_ARG && !rt &&
               pair.pair.e);
@@ -330,7 +333,7 @@ static void runtime_case(const char *mode, const char *root) {
             CHECK(reservation);
         }
         /* Prove copies, not borrowed caller source or metadata. */
-        for (unsigned i = 0; i < 4; i++) {
+        for (unsigned i = 0; i < 5; i++) {
             memset(scripts[i], 0, modules[i].size);
             free(scripts[i]);
             scripts[i] = NULL;
@@ -416,23 +419,23 @@ static void runtime_case(const char *mode, const char *root) {
                 rpc_pair_t other = {0};
                 gt_bridge_runtime_t *fault = NULL;
                 if (!strcmp(mode, "isolation")) {
-                    gt_runtime_module_t isolated[5] = {0};
-                    char *copies[4];
-                    for (unsigned j = 0; j < 4; j++) {
+                    gt_runtime_module_t isolated[6] = {0};
+                    char *copies[5];
+                    for (unsigned j = 0; j < 5; j++) {
                         copies[j] = read_module(root, names[j]);
                         module(&isolated[j], ids[j], copies[j]);
                     }
-                    module(&isolated[4],
+                    module(&isolated[5],
                            "plugin:/entry.js",
                            "export function activate(){throw Error('isolated failure')}");
                     rpc_open(&other, "timeout");
                     gt_runtime_config_t local = config;
                     local.modules = isolated;
-                    local.module_count = 5;
+                    local.module_count = 6;
                     local.entry = "plugin:/entry.js";
                     CHECK(gt__bridge_runtime_open(&other.pair.e, &local, &fault) == GT_OK &&
                           fault && !other.pair.e);
-                    for (unsigned j = 0; j < 4; j++) {
+                    for (unsigned j = 0; j < 5; j++) {
                         free(copies[j]);
                     }
                     for (unsigned j = 0; j < 100 && rt_info(fault).phase < GT_RUNTIME_FAILED; j++) {
@@ -477,19 +480,22 @@ static void runtime_case(const char *mode, const char *root) {
             ext_drop(&pair.pair.h);
         }
     }
-    for (unsigned i = 0; i < 4; i++) {
+    for (unsigned i = 0; i < 5; i++) {
         free(scripts[i]);
     }
 }
 
 static void runtime_many(const char *root, unsigned count) {
     CHECK(count && count <= 10);
-    const char *names[] = {"index.js", "codec.js", "session.js", "wire-contract.js"};
-    const char *ids[] = {
-        "sdk:/index.js", "sdk:/codec.js", "sdk:/session.js", "sdk:/wire-contract.js"};
-    char *scripts[4];
-    gt_runtime_module_t modules[5];
-    for (unsigned i = 0; i < 4; i++) {
+    const char *names[] = {"index.js", "codec.js", "session.js", "wire-contract.js", "table.js"};
+    const char *ids[] = {"sdk:/index.js",
+                         "sdk:/codec.js",
+                         "sdk:/session.js",
+                         "sdk:/wire-contract.js",
+                         "sdk:/table.js"};
+    char *scripts[5];
+    gt_runtime_module_t modules[6];
+    for (unsigned i = 0; i < 5; i++) {
         scripts[i] = read_module(root, names[i]);
         module(&modules[i], ids[i], scripts[i]);
     }
@@ -503,12 +509,12 @@ static void runtime_many(const char *root, unsigned count) {
                          "'parallel',count:17},1000).outcome;"
                          "if(r.kind!=='success'||r.value.text!=='parallel')throw Error('parallel "
                          "outcome')}return {dispose(){}}}";
-    module(&modules[4], "plugin:/entry.js", plugin);
+    module(&modules[5], "plugin:/entry.js", plugin);
     rpc_pair_t pairs[5];
     gt_bridge_runtime_t *runtimes[10] = {0};
     unsigned pair_count = (count + 1) / 2;
     gt_runtime_config_t config = {.modules = modules,
-                                  .module_count = 5,
+                                  .module_count = 6,
                                   .entry = "plugin:/entry.js",
                                   .role = GT_EXT_EXECUTOR,
                                   .cpu_ms = 500};
@@ -570,7 +576,7 @@ static void runtime_many(const char *root, unsigned count) {
             ext_drop(&pairs[i].pair.h);
         }
     }
-    for (unsigned i = 0; i < 4; i++) {
+    for (unsigned i = 0; i < 5; i++) {
         free(scripts[i]);
     }
     CHECK(!gt__plugin_memory_info().used);

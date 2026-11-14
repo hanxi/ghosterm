@@ -221,9 +221,12 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         script = "import '../README';export function activate(){return {dispose(){}}}";
     }
     if (!strcmp(mode, "module-count") || !strcmp(mode, "module-boundary") ||
-        !strcmp(mode, "source-total")) {
+        !strcmp(mode, "module-boundary-overflow") || !strcmp(mode, "source-total")) {
         static char loop[4096];
-        unsigned n = !strcmp(mode, "module-count") ? 65 : !strcmp(mode, "module-boundary") ? 59 : 8;
+        unsigned n = !strcmp(mode, "module-count")               ? 65
+                     : !strcmp(mode, "module-boundary")          ? 58
+                     : !strcmp(mode, "module-boundary-overflow") ? 59
+                                                                 : 8;
         size_t used = 0;
         for (unsigned i = 0; i < n; i++) {
             int count = snprintf(loop + used, sizeof(loop) - used, "import '../shared/m%u.js';", i);
@@ -394,10 +397,11 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
         load_write(f, &members[count++], "shared/unused.js", large, 131073);
         free(large);
     }
-    unsigned extra = !strcmp(mode, "module-count")      ? 65
-                     : !strcmp(mode, "module-boundary") ? 59
-                     : !strcmp(mode, "source-total")    ? 8
-                                                        : 0;
+    unsigned extra = !strcmp(mode, "module-count")               ? 65
+                     : !strcmp(mode, "module-boundary")          ? 58
+                     : !strcmp(mode, "module-boundary-overflow") ? 59
+                     : !strcmp(mode, "source-total")             ? 8
+                                                                 : 0;
     for (unsigned i = 0; i < extra; i++) {
         char name[64];
         CHECK(snprintf(name, sizeof(name), "shared/m%u.js", i) > 0);
@@ -816,7 +820,9 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
             load_run(r, peer);
             gt__plugin_memory_free(NULL, reservation, reserved);
             bool memory = !strcmp(mode, "source-limit") || !strcmp(mode, "source-total") ||
-                          !strcmp(mode, "module-count") || !strcmp(mode, "source-memory");
+                          !strcmp(mode, "module-count") ||
+                          !strcmp(mode, "module-boundary-overflow") ||
+                          !strcmp(mode, "source-memory");
             bool script = !strcmp(mode, "missing") || !strcmp(mode, "escape") ||
                           !strcmp(mode, "process-identity") || !strcmp(mode, "native") ||
                           !strcmp(mode, "node") || !strcmp(mode, "network") ||
