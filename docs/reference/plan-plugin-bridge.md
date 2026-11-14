@@ -5763,3 +5763,84 @@ constructor 的可执行信任与启动允许只由可信 Native 调用方建立
 变异红的子进程致命信号识别使用当前平台的 signal 常量（含 Mac / Linux 不同的 SIGBUS 编号），不按 Linux 数字硬判；该分类修正后的完整 25 项 / 十五组再次通过，最终收据以此版本为准。
 
 全部本轮 runner / 自有 AVD / 原生测试进程 / 构件核对结束后，清理 **96 个临时根入口、5,550 项、148.3 MiB 实际分配**。只保留 tmp 目录与原三份 eq-*，SHA256 均不变；不停止非本轮进程，不删除常规 build 缓存。
+
+### S5 实施第五批：公共本机进程通道与两端观察绑定（2026-11-15）
+
+`ghosterm/extension.h` 新增 `gt_ext_channel_open_process` 与独立的原生进程观察 POD；
+Channel、Session 和 Runtime 分别提供查询，公共符号由 177 增至 **181**，Apple **178 引用 /
+3 登记未用**、JNI **144 / 37**。原有通道 / Session / Runtime info 结构布局不变；
+进程 argv / 环境的既有限额移入公共头，原生私有 owner 使用同一份常量。
+
+可信 Native 调用者提供已批准的绝对可执行路径、含 argv[0] 的原始参数、打开的目录 fd 与
+明确环境；Core 不搜索 PATH、不套 shell 或 PTY、不继承环境、不因此批准插件或证明发布者身份。
+构造成功才产生自有进程组；失败保留目录 fd 和原 owner，并归还 channel 预约。
+16 个通道的额度共用，跨 Session 交接、停止与 close 继续计费，实际销毁才归还。
+普通 fd / SSH 通道的进程查询明确 UNSUPPORTED，输出清零，不伪造本机进程退出。
+
+Session 保留借用观察指针直到其 stream 实际销毁；JS 与 Node / Exec 控制器在内部销毁
+Session 前保存最后快照，Runtime 查询不经已失效的 Session 指针。该观察只描述基础宿主
+进程，与 Executor / 业务进程分开；stdout EOF、child exit、实际信号、reap、组 fencing /
+errno 和业务结果仍独立。Swift queue 和 Kotlin worker 同步新入口及字段，Core 释放前复制
+最后观察，关闭后可查询该副本；转交后的旧 wrapper 仍失效。JNI 关闭前为快照分配返回容器，
+分配失败保留原 owner / 代次供重试；原跨线程 stop pin 和退出后的安全销毁边界保留。
+
+新增一次性 `process_channel_child.c`，公开 C、Swift 和 Android 使用同源原生夹具：真实
+256 KiB 二进制往返、raw 空串 / Unicode / shell 特殊字节、目录 / 环境 / 非 TTY、尾字节、
+原始 stderr、退出码 / 信号、EOF 时仍存活、流量 / 期限、线程唤醒、Session 明确 consent /
+Runtime 交接与关闭快照、失败预约归还及跨交接额度。Android 的 standalone 编译只含流量 /
+观察夹具，不含 Core 握手；仅打进测试 APK，不进入普通 Debug / Release 应用。
+
+复现命令（均在工程 tmp 隔离，测试不打开前台窗口）：
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  python3 scripts/test-plugin-process-channel.py --mutate --apple --full
+python3 scripts/test-plugin-process-channel-android.py \
+  --headless-api 29 --also-api36 --mutate
+```
+
+主机最终优化 **O1 ASan / UBSan** 的 **13 项**、关闭 provider 档、**9 组 C** 变异及同 archive
+配置对照、复原和 SHA256 通过；LSan 关闭。Swift 显式 JS-enabled 的 **6 项 / 2 组**通过，
+同库配置对照绿、实际 Swift 对象变化与复原 SHA256 另核对。C 变异重编 channel、Session /
+Runtime 库对象与实际可执行；子夹具 sanitizer stderr 原样保留，异常不当正常断言红。
+
+前置失败分别保留：Swift 条件表达式缺 `try` 的编译失败；新增就绪标记缺 Darwin 的
+`O_NOFOLLOW` 声明；首轮 Runtime 夹具错误使用不带 `plugin:/` 的模块名且未提供锁定 SDK；
+Swift 对象路径只识别旧 `.swift.o` 导致取证中止；Runtime 先发撤销、夹具先退出 41 与预期
+TERM 37 的竞态。最后一项通过让夹具明确等待 transport TERM 固定预期，不放宽退出码或清理
+预算。以上均未计变异通过。Android 初轮第一组正常红后，第二组因 unused `status` 编译失败
+中止，未计目标红；保留该输入读取后重新取证。
+
+完整 enabled Core 首轮 **802/803**，旧 `plugin_package_snapshot_socket` 在实际 bind 前因
+新 runner 的长隔离目录超过 Darwin `sun_path` 上限而失败，未计整轮绿。runner 改用工程 tmp
+下的短随机前缀，不改 socket 夹具、路径上限或任何测试预算，随后重新执行完整档。
+
+Android 最终在工程内复制 Core / Android / Terminal 源码构建与变异，Root 源不改。
+自有 **API29 / API36、arm64 / 4 KiB、-no-window** 各 **6 项**通过，另各一项独立配置和
+四项既有 fd 通道 / Session / 容量回归。API29 的 **两组 JNI / 一组 Kotlin**完整同轮通过：
+实际 JNI 对象 / shared library / APK 变化、编译后的单条正常断言红、同 APK Core 配置绿、
+复原目标绿与 SHA256。首轮 Kotlin 的 JUnit 数组断言省略异常类名，被新 runner 拒收，未计该
+轮通过；最终复用已有 `test-plugin-channel.py` 的判据，要求实际 JUnit ComparisonCriteria
+栈和 AssertionError cause，不收任意包装异常。最终收据覆盖 **626 份输入**，Root 全部一致。
+API29 全部变异恢复后的 **同一对最终 APK**在其 AVD 退出后转入新 API36 AVD 复验，两端安装
+文件 SHA256 均核对；并非两份分别构建的包。两轮自有 AVD / QEMU、复制源码、构建产物与临时
+APK 退出后自动清理；没有停止非本轮进程。
+
+最终默认 **JS-off / tests-on Core 577/577 CTest、181 ABI**；独立 **Debug / JS-on /
+SSH-on Core 803/803**通过，重构建与计时测试串行。主机最终收据 **263 份输入**、设备
+收据 **626 份输入**均与 Root 一致。现有 Swift Channel / Session / RPC / Resource / Source
+定向回归 **40 项、14 项缺显式 SSH 夹具跳过、零失败**，不将其称完整 SSH 或 App 回归。
+macOS **Xcode 27.1 / Swift 6.4 / arm64 Release**、Android 显式 JS-enabled 的未签名
+**Release / R8 与 app / bridge / data / terminal 四模块 Release lint**通过；实际 Release APK
+不含测试进程可执行文件。clang-format **19.1.7 / 251 文件**、两端 ABI、Python 语法及 diff
+检查通过。无新云端 Swift 6.1.2、签名发行或物理设备结论；Root Core 保持默认档。
+
+最终收据 SHA256：主机 `af2d366efe4c83d79a4cd8fcf2e7d661aeda5a93c023120078c378800b403626`，
+设备 `60e43695c85ddbfcce9684ff27d31270306c3f9b8a1b47186adc76916615c113`。两份均先完成
+Root 输入复核与实际 runner 退出检查，再按临时文件约束清理。所有自有任务结束后，剩余
+**261 个临时根入口 / 4,700 项 / 36.2 MiB 实际分配**已移除；保留 tmp 本身与原三份 eq-*，
+逐一核对原 SHA256 不变。只读系统目录句柄保留，不停止非本轮进程；只提交本地 main。
+
+本批只接公共 Native 层；App 本机启动选择 / 信任、IPC 本机服务与准入 / 发现、生产本机
+Node / Exec 组合、多实例回收 / 资源预算整链及其它 P1–P6 验收仍待完成。不增加 macOS CI
+二十份，不声称完整客户端、用户真机、WAN、OS 沙箱或发行验收。

@@ -28,6 +28,8 @@ struct gt_process_runtime {
     atomic_bool stopped;
     gt_process_runtime_info_t info;
     gt_ext_session_t *session;
+    gt_ext_transport_process_info_t transport_process;
+    gt_status_t transport_process_status;
     gt_ext_lease_t lease;
     gt_package_checked_t *package;
     gt_package_snapshot_t *sdk_snapshot;
@@ -820,12 +822,31 @@ static void runtime_cleanup(gt_process_runtime_t *r) {
             r->info.session_end = info.end;
             r->info.session_error = info.error;
         }
+        r->transport_process_status =
+            gt_ext_session_process_info(r->session, &r->transport_process);
         if (gt_ext_session_destroy(&r->session) != GT_OK) {
             r->info.cleanup_error = GT_ERR_IO;
             return;
         }
     }
     r->info.phase = GT_PROCESS_RUNTIME_CLOSED;
+}
+
+gt_status_t gt__process_runtime_transport_process_info(const gt_process_runtime_t *r,
+                                                       gt_ext_transport_process_info_t *out) {
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    if (!r || !out) {
+        return GT_ERR_INVALID_ARG;
+    }
+    if (r->session) {
+        return gt_ext_session_process_info(r->session, out);
+    }
+    if (r->transport_process_status == GT_OK) {
+        *out = r->transport_process;
+    }
+    return r->transport_process_status;
 }
 
 gt_process_runtime_phase_t gt__process_runtime_step(gt_process_runtime_t *r) {

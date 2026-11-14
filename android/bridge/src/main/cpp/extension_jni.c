@@ -185,6 +185,166 @@ JNIEXPORT jlongArray JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionChann
 }
 
 JNIEXPORT jlongArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_openProcess(JNIEnv *e,
+                                                                  jobject self,
+                                                                  jbyteArray executable,
+                                                                  jobjectArray arguments,
+                                                                  jint cwd,
+                                                                  jobjectArray environment,
+                                                                  jboolean authorized,
+                                                                  jint lifetime,
+                                                                  jint grace,
+                                                                  jlong stdout_limit,
+                                                                  jlong stderr_limit) {
+    (void)self;
+    if (!arguments || !environment || lifetime < 0 || grace < 0 || stdout_limit < 0 ||
+        stderr_limit < 0) {
+        extension_error(e, "本机进程参数无效");
+        return NULL;
+    }
+    jsize argc = (*e)->GetArrayLength(e, arguments), envc = (*e)->GetArrayLength(e, environment);
+    if (argc < 1 || argc > (jsize)GT_EXT_PROCESS_ARGUMENTS_MAX ||
+        envc > (jsize)GT_EXT_PROCESS_ENVIRONMENT_MAX) {
+        extension_error(e, "本机进程参数数量超限");
+        return NULL;
+    }
+    jlongArray result = (*e)->NewLongArray(e, 2);
+    if (!result) {
+        return NULL;
+    }
+    char *exe = extension_text(e, executable, GT_EXT_PROCESS_ARGUMENT_MAX);
+    char *argv[GT_EXT_PROCESS_ARGUMENTS_MAX] = {0}, *env[GT_EXT_PROCESS_ENVIRONMENT_MAX] = {0};
+    for (jsize n = 0; exe && !(*e)->ExceptionCheck(e) && n < argc; n++) {
+        argv[n] = extension_item(e, arguments, n, GT_EXT_PROCESS_ARGUMENT_MAX);
+    }
+    for (jsize n = 0; exe && !(*e)->ExceptionCheck(e) && n < envc; n++) {
+        env[n] = extension_item(e, environment, n, GT_EXT_PROCESS_ENVIRONMENT_VALUE_MAX);
+    }
+    if (exe && !(*e)->ExceptionCheck(e)) {
+        extension_slot_t *s = extension_reserve(e);
+        if (s) {
+            gt_ext_process_channel_config_t config = {.executable = exe,
+                                                      .arguments = (const char *const *)argv,
+                                                      .argument_count = (size_t)argc,
+                                                      .cwd_fd = cwd,
+                                                      .environment = (const char *const *)env,
+                                                      .environment_count = (size_t)envc,
+                                                      .execution_authorized =
+                                                          authorized == JNI_TRUE,
+                                                      .lifetime_ms = (uint32_t)lifetime,
+                                                      .stop_grace_ms = (uint32_t)grace,
+                                                      .stdout_limit = (uint64_t)stdout_limit,
+                                                      .stderr_limit = (uint64_t)stderr_limit};
+            gt_ext_channel_t *channel = NULL;
+            gt_status_t status = gt_ext_channel_open_process(&config, &channel);
+            extension_created(e, result, s, status, channel);
+        }
+    }
+    extension_secret_free(exe);
+    for (jsize n = 0; n < argc; n++) {
+        extension_secret_free(argv[n]);
+    }
+    for (jsize n = 0; n < envc; n++) {
+        extension_secret_free(env[n]);
+    }
+    return (*e)->ExceptionCheck(e) ? NULL : result;
+}
+
+/* Snapshot allocations precede retirement; allocation failure keeps the owner
+ * and registry generation available for explicit close retry. */
+static jobjectArray extension_process_observation(JNIEnv *e,
+                                                  gt_status_t status,
+                                                  const gt_ext_transport_process_info_t *i) {
+    if (i->diagnostic_size > GT_EXT_DIAGNOSTIC_MAX) {
+        extension_error(e, "本机进程诊断超限");
+        return NULL;
+    }
+    jclass object = (*e)->FindClass(e, "java/lang/Object");
+    if (!object) {
+        return NULL;
+    }
+    jobjectArray result = (*e)->NewObjectArray(e, 2, object, NULL);
+    if (!result) {
+        return NULL;
+    }
+    jlongArray fields = (*e)->NewLongArray(e, 16);
+    if (!fields) {
+        return NULL;
+    }
+    jbyteArray diagnostic = (*e)->NewByteArray(e, (jsize)i->diagnostic_size);
+    if (!diagnostic) {
+        return NULL;
+    }
+    jlong values[16] = {status,
+                        i->error,
+                        i->cleanup_error,
+                        i->group_signal_error,
+                        i->reason,
+                        i->child_exited,
+                        i->reaped,
+                        i->group_fenced,
+                        i->stdout_eof,
+                        i->stderr_eof,
+                        i->stopping,
+                        i->exit_code,
+                        i->term_signal,
+                        (jlong)i->stdout_bytes,
+                        (jlong)i->stderr_bytes,
+                        i->diagnostic_truncated};
+    (*e)->SetLongArrayRegion(e, fields, 0, 16, values);
+    (*e)->SetByteArrayRegion(
+        e, diagnostic, 0, (jsize)i->diagnostic_size, (const jbyte *)i->diagnostic);
+    (*e)->SetObjectArrayElement(e, result, 0, fields);
+    (*e)->SetObjectArrayElement(e, result, 1, diagnostic);
+    (*e)->DeleteLocalRef(e, object);
+    (*e)->DeleteLocalRef(e, fields);
+    (*e)->DeleteLocalRef(e, diagnostic);
+    return (*e)->ExceptionCheck(e) ? NULL : result;
+}
+
+static bool extension_process_capture(JNIEnv *e,
+                                      jobjectArray destination,
+                                      gt_status_t status,
+                                      const gt_ext_transport_process_info_t *i) {
+    if (!destination) {
+        return true;
+    }
+    if ((*e)->GetArrayLength(e, destination) != 1) {
+        extension_error(e, "进程关闭观察参数无效");
+        return false;
+    }
+    if (status == GT_ERR_UNSUPPORTED) {
+        return true;
+    }
+    if (status != GT_OK) {
+        extension_error(e, "进程关闭观察失败，保留 owner");
+        return false;
+    }
+    jobjectArray snapshot = extension_process_observation(e, status, i);
+    if (!snapshot) {
+        return false;
+    }
+    (*e)->SetObjectArrayElement(e, destination, 0, snapshot);
+    (*e)->DeleteLocalRef(e, snapshot);
+    return !(*e)->ExceptionCheck(e);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_processObservation(JNIEnv *e,
+                                                                         jobject self,
+                                                                         jlong id) {
+    (void)self;
+    extension_slot_t *s = extension_pin(e, id, true, false);
+    if (!s) {
+        return NULL;
+    }
+    gt_ext_transport_process_info_t i;
+    gt_status_t status = gt_ext_channel_process_info(s->channel, &i);
+    extension_unpin(s);
+    return extension_process_observation(e, status, &i);
+}
+
+JNIEXPORT jlongArray JNICALL
 Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_openRoute(JNIEnv *e,
                                                                 jobject self,
                                                                 jobjectArray hosts,
@@ -583,10 +743,8 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_sto
     }
 }
 
-JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_close(JNIEnv *e,
-                                                                                   jobject self,
-                                                                                   jlong id,
-                                                                                   jint ms) {
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_close(
+    JNIEnv *e, jobject self, jlong id, jint ms, jobjectArray observation) {
     (void)self;
     extension_slot_t *s = extension_pin(e, id, true, false);
     if (!s) {
@@ -601,6 +759,12 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionChannel_clo
     if (state != GT_EXT_RELEASED) {
         extension_unpin(s);
         return state;
+    }
+    gt_ext_transport_process_info_t info;
+    gt_status_t observed = gt_ext_channel_process_info(s->channel, &info);
+    if (!extension_process_capture(e, observation, observed, &info)) {
+        extension_unpin(s);
+        return GT_EXT_CLOSE_ERROR;
     }
     pthread_mutex_lock(&extension_lock);
     if (s->pins != 1) {
@@ -912,6 +1076,21 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_ste
 }
 
 JNIEXPORT jobjectArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_processObservation(JNIEnv *e,
+                                                                         jobject self,
+                                                                         jlong id) {
+    (void)self;
+    extension_slot_t *s = session_pin(e, id, true, false);
+    if (!s) {
+        return NULL;
+    }
+    gt_ext_transport_process_info_t i;
+    gt_status_t status = gt_ext_session_process_info(s->session, &i);
+    extension_unpin(s);
+    return extension_process_observation(e, status, &i);
+}
+
+JNIEXPORT jobjectArray JNICALL
 Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_info(JNIEnv *e, jobject self, jlong id) {
     (void)self;
     extension_slot_t *s = session_pin(e, id, true, false);
@@ -1077,10 +1256,8 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_sto
     }
 }
 
-JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_close(JNIEnv *e,
-                                                                                   jobject self,
-                                                                                   jlong id,
-                                                                                   jint ms) {
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_close(
+    JNIEnv *e, jobject self, jlong id, jint ms, jobjectArray observation) {
     (void)self;
     extension_slot_t *s = session_pin(e, id, true, false);
     if (!s) {
@@ -1095,6 +1272,12 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionSession_clo
     if (state != GT_EXT_RELEASED) {
         extension_unpin(s);
         return state;
+    }
+    gt_ext_transport_process_info_t info;
+    gt_status_t observed = gt_ext_session_process_info(s->session, &info);
+    if (!extension_process_capture(e, observation, observed, &info)) {
+        extension_unpin(s);
+        return GT_EXT_CLOSE_ERROR;
     }
     pthread_mutex_lock(&extension_lock);
     if (s->pins != 1) {
@@ -2607,6 +2790,21 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_ste
     return phase;
 }
 
+JNIEXPORT jobjectArray JNICALL
+Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_transportProcessObservation(JNIEnv *e,
+                                                                                  jobject self,
+                                                                                  jlong id) {
+    (void)self;
+    extension_slot_t *s = runtime_pin(e, id, true, false);
+    if (!s) {
+        return NULL;
+    }
+    gt_ext_transport_process_info_t i;
+    gt_status_t status = gt_ext_runtime_transport_process_info(s->runtime, &i);
+    extension_unpin(s);
+    return extension_process_observation(e, status, &i);
+}
+
 JNIEXPORT jlongArray JNICALL
 Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_info(JNIEnv *e, jobject self, jlong id) {
     (void)self;
@@ -2660,9 +2858,8 @@ JNIEXPORT void JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_sto
     }
 }
 
-JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_close(JNIEnv *e,
-                                                                                   jobject self,
-                                                                                   jlong id) {
+JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_close(
+    JNIEnv *e, jobject self, jlong id, jobjectArray observation) {
     (void)self;
     extension_slot_t *s = runtime_pin(e, id, true, false);
     if (!s) {
@@ -2672,6 +2869,12 @@ JNIEXPORT jint JNICALL Java_com_hanxi_ghosterm_bridge_NativeExtensionRuntime_clo
     if (close != GT_EXT_RELEASED) {
         extension_unpin(s);
         return close;
+    }
+    gt_ext_transport_process_info_t info;
+    gt_status_t observed = gt_ext_runtime_transport_process_info(s->runtime, &info);
+    if (!extension_process_capture(e, observation, observed, &info)) {
+        extension_unpin(s);
+        return GT_EXT_CLOSE_ERROR;
     }
     pthread_mutex_lock(&extension_lock);
     if (s->pins != 1) {

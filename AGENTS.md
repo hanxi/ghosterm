@@ -1115,3 +1115,19 @@ macOS 二十项真实场景、Android 既有 49 项组合、两端 Release/Andro
 C 格式 212 文件及隔离 Core 474/176 通过；原工作区插件 SDK 摘要失败单列。
 首轮编译、测试反射参数、变异锚点/异常判据及隔离夹具路径失败见实施计划，不计通过。
 手工证据，不增加 CI 二十份，未发布，非真机/WAN/完整服务器或客户端验收。
+
+**插件 S5 公共本机进程通道（2026-11-15）**：`gt_ext_channel_open_process` 与 Channel /
+Session / Runtime 的独立进程观察已接，181 ABI、Apple 178/3、JNI 144/37。显式 Native
+执行批准、绝对路径 / raw argv / 目录 fd / 环境，复用既有 provider；不是插件 grant、shell /
+PTY 或 OS 沙箱。16-channel 预约跨交接保持到实际销毁；Runtime 在内部 Session 销毁前存
+最终快照，退出 / 信号 / reap / 组信号诊断与业务结果分开。Swift / Kotlin / JNI 已接且关闭
+后保留观察副本，fd / SSH 查询 UNSUPPORTED，不伪造进程成功。`test-plugin-process-channel.py
+--mutate --apple --full` 的 13 C / 关闭档、九 C / 两 Swift 变异、六 Swift；
+`test-plugin-process-channel-android.py --headless-api 29 --also-api36 --mutate` 的两 JNI /
+一 Kotlin 变异、两档各六项 / 配置一项 / 旧通道与 Session 四项通过。实际编译后正常断言
+红、同 archive / 同 APK 独立配置绿、恢复及 SHA256；C 为 O1 ASan/UBSan、无 LSan。
+API29 / 36 使用同一对 APK、arm64 / 4 KiB / 自有无窗口 AVD；不增加 macOS CI 二十份。
+默认 Core 577/181、独立 Debug JS/SSH-on 803、macOS Release、Android JS-enabled 未签名
+Release/R8 和四模块 lint、C 格式 251 文件通过。前置编译、夹具退出竞态、Swift 对象取证、
+JUnit 分类及完整档 802/803 的长 socket 路径失败均保留在插件计划 S5 第五批，不计通过。
+本机 App / IPC 准入与发现、生产本机 Node/Exec 组合及完整插件 / 客户端验收仍未完成，未发行。

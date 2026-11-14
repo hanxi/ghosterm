@@ -9,6 +9,40 @@ public final class ExtensionChannel {
     public enum Stage: UInt32 { case none, authentication, forward, exec, stream }
     public enum IOState: UInt32 { case data, wait, eof, closed, error }
     public struct IO { public let state: IOState, count: Int, error: Int32 }
+    public struct ProcessConfiguration {
+        public let executable: String, arguments: [String], environment: [String], directoryFD: Int32
+        public let executionAuthorized: Bool, lifetimeMilliseconds: UInt32, stopGraceMilliseconds: UInt32
+        public let stdoutLimit: UInt64, stderrLimit: UInt64
+        public init(executable: String, arguments: [String], directoryFD: Int32, environment: [String] = [],
+                    executionAuthorized: Bool, lifetimeMilliseconds: UInt32 = 0, stopGraceMilliseconds: UInt32 = 0,
+                    stdoutLimit: UInt64 = 0, stderrLimit: UInt64 = 0) {
+            self.executable = executable; self.arguments = arguments; self.directoryFD = directoryFD
+            self.environment = environment; self.executionAuthorized = executionAuthorized
+            self.lifetimeMilliseconds = lifetimeMilliseconds; self.stopGraceMilliseconds = stopGraceMilliseconds
+            self.stdoutLimit = stdoutLimit; self.stderrLimit = stderrLimit
+        }
+    }
+    public enum ProcessReason: UInt32 { case none, deadline, stdoutLimit, stderrLimit }
+    public struct ProcessObservation {
+        public let error: Int32, cleanupError: Int32, groupSignalError: Int32, reason: ProcessReason
+        public let childExited: Bool, reaped: Bool, groupFenced: Bool, stdoutEOF: Bool, stderrEOF: Bool, stopping: Bool
+        public let exitCode: Int32?, termSignal: Int32?, stdoutBytes: UInt64, stderrBytes: UInt64
+        public let diagnosticTruncated: Bool, diagnostic: Data
+        internal init(_ i: gt_ext_transport_process_info_t) throws {
+            guard i.diagnostic_size <= 4096, let reason = ProcessReason(rawValue: i.reason.rawValue) else {
+                throw GhostermError.failed("本机进程观察无效")
+            }
+            error = Int32(i.error.rawValue); cleanupError = Int32(i.cleanup_error.rawValue)
+            groupSignalError = i.group_signal_error; self.reason = reason
+            childExited = i.child_exited; reaped = i.reaped; groupFenced = i.group_fenced
+            stdoutEOF = i.stdout_eof; stderrEOF = i.stderr_eof; stopping = i.stopping
+            exitCode = i.child_exited && i.term_signal == 0 ? i.exit_code : nil
+            termSignal = i.child_exited && i.term_signal != 0 ? i.term_signal : nil
+            stdoutBytes = i.stdout_bytes; stderrBytes = i.stderr_bytes
+            diagnosticTruncated = i.diagnostic_truncated
+            diagnostic = withUnsafeBytes(of: i.diagnostic) { Data($0.prefix(Int(i.diagnostic_size))) }
+        }
+    }
     public struct Hop {
         public let options: SSHOptions, address: SSHAddress?, viaHost: String?, timeoutMilliseconds: UInt32
         public init(options: SSHOptions, address: SSHAddress? = nil, viaHost: String? = nil,
@@ -27,6 +61,7 @@ public final class ExtensionChannel {
     private let owner: DispatchQueue
     private let stopLock = NSLock()
     private var raw: OpaquePointer?
+    private var finalProcessObservation: ProcessObservation?
     private var hops: [Hop] = []
     private func checkOwner() {
         dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
@@ -54,6 +89,45 @@ public final class ExtensionChannel {
         self.owner = owner; checkOwner()
         let result = gt_ext_channel_open_fd(readFD, writeFD, &raw)
         guard result == GT_OK else { throw GhostermError.status(Int32(result.rawValue), "无法接管插件通道") }
+    }
+    /// Trusted Native launch only. The explicit directory fd stays with caller;
+    /// no shell/PATH/PTY, inherited environment or implicit plugin consent.
+    public init(process: ProcessConfiguration, owner: DispatchQueue) throws {
+        self.owner = owner; checkOwner()
+        guard process.executable.hasPrefix("/"), (1...64).contains(process.arguments.count),
+              process.environment.count <= 32 else { throw GhostermError.failed("本机进程参数无效") }
+        var buffers: [(UnsafeMutablePointer<CChar>, Int)] = []
+        defer { for (p, size) in buffers { p.initialize(repeating: 0, count: size); p.deallocate() } }
+        func copy(_ text: String) throws -> UnsafePointer<CChar>? {
+            guard !text.utf8.contains(0), text.utf8.count <= 4096 else { throw GhostermError.failed("本机进程参数无效或超限") }
+            let bytes = Array(text.utf8CString), p = UnsafeMutablePointer<CChar>.allocate(capacity: bytes.count)
+            p.initialize(from: bytes, count: bytes.count); buffers.append((p, bytes.count)); return UnsafePointer(p)
+        }
+        let executable = try copy(process.executable)
+        let arguments = try process.arguments.map(copy), environment = try process.environment.map(copy)
+        var config = gt_ext_process_channel_config_t()
+        config.executable = executable; config.cwd_fd = process.directoryFD
+        config.argument_count = arguments.count; config.environment_count = environment.count
+        config.execution_authorized = process.executionAuthorized
+        config.lifetime_ms = process.lifetimeMilliseconds; config.stop_grace_ms = process.stopGraceMilliseconds
+        config.stdout_limit = process.stdoutLimit; config.stderr_limit = process.stderrLimit
+        let status = arguments.withUnsafeBufferPointer { argv in
+            environment.withUnsafeBufferPointer { env in
+                config.arguments = argv.baseAddress; config.environment = env.baseAddress
+                return gt_ext_channel_open_process(&config, &raw)
+            }
+        }
+        guard status == GT_OK else { throw GhostermError.status(Int32(status.rawValue), "无法启动本机插件通道") }
+    }
+    /// Snapshot only. The final observation remains available after closeStep
+    /// destroys the Core owner; adoption requires querying the new owner.
+    public func processObservation() throws -> ProcessObservation {
+        checkOwner()
+        if raw == nil, let finalProcessObservation { return finalProcessObservation }
+        var i = gt_ext_transport_process_info_t()
+        let status = gt_ext_channel_process_info(try pointer(), &i)
+        guard status == GT_OK else { throw GhostermError.status(Int32(status.rawValue), "无法观察本机插件通道") }
+        return try ProcessObservation(i)
     }
     /// Credentials are requested after each host has been verified. No material
     /// is copied from an existing terminal/SFTP owner; no DNS occurs here.
@@ -160,6 +234,8 @@ public final class ExtensionChannel {
         let result = gt_ext_channel_close(p, milliseconds)
         if result == GT_EXT_CLOSE_ERROR { throw GhostermError.failed("插件通道释放失败，仍保留所有权") }
         guard result == GT_EXT_RELEASED else { return false }
+        var observation = gt_ext_transport_process_info_t()
+        if gt_ext_channel_process_info(p, &observation) == GT_OK { finalProcessObservation = try ProcessObservation(observation) }
         stopLock.lock(); defer { stopLock.unlock() }
         guard gt_ext_channel_destroy(&raw) == GT_OK else { throw GhostermError.failed("插件通道尚未释放") }
         return true

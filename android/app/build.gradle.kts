@@ -134,3 +134,27 @@ val buildTestPty = tasks.register<Exec>("buildTestPty") {
 }
 android.sourceSets.getByName("androidTest").jniLibs.srcDir(testPtyLibraries)
 tasks.matching { it.name == "preDebugAndroidTestBuild" }.configureEach { dependsOn(buildTestPty) }
+
+// Standalone transport child: the production APK never includes this executable.
+val processTestLibraries = layout.buildDirectory.dir("generated/test-process-channel/jniLibs")
+val buildProcessChannelChild = tasks.register<Exec>("buildProcessChannelChild") {
+    val source = rootProject.file("../core/tests/process_channel_child.c")
+    val output = processTestLibraries.map { it.file("arm64-v8a/libghosterm_test_process_channel.so") }
+    inputs.file(source); inputs.property("ndkVersion", requireNotNull(android.ndkVersion)); outputs.file(output)
+    doFirst {
+        val host = when {
+            System.getProperty("os.name").startsWith("Mac") -> "darwin-x86_64"
+            System.getProperty("os.name").startsWith("Linux") -> "linux-x86_64"
+            else -> error("Unsupported instrumentation compiler host")
+        }
+        val compiler = android.sdkDirectory.resolve("ndk/${android.ndkVersion}/toolchains/llvm/prebuilt/$host/bin/aarch64-linux-android29-clang")
+        check(compiler.isFile)
+        val temporary = rootProject.projectDir.parentFile.resolve("tmp/android-test-process-channel").apply { mkdirs() }
+        val binary = output.get().asFile.apply { parentFile.mkdirs() }
+        environment("TMPDIR", temporary.absolutePath)
+        commandLine(compiler, "-std=c11", "-Wall", "-Wextra", "-Werror", "-DGT_PROCESS_CHANNEL_STANDALONE=1",
+            "-fPIE", "-pie", "-Wl,-z,max-page-size=16384", source, "-o", binary)
+    }
+}
+android.sourceSets.getByName("androidTest").jniLibs.srcDir(processTestLibraries)
+tasks.matching { it.name == "preDebugAndroidTestBuild" }.configureEach { dependsOn(buildProcessChannelChild) }

@@ -104,6 +104,7 @@ public final class ExtensionRuntime {
     private let session: ExtensionSession?
     private let store: ExtensionResourceStore?
     private var raw: OpaquePointer?
+    private var finalTransportProcessObservation: ExtensionChannel.ProcessObservation?
     private func pointer() throws -> OpaquePointer {
         dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
         guard let raw else { throw GhostermError.failed("插件运行时已释放") }; return raw
@@ -290,11 +291,22 @@ public final class ExtensionRuntime {
         guard let session else { throw GhostermError.failed("插件 Runtime 未持有 Session") }
         return try session.forgetRuntimeRequest(handle: handle)
     }
+    /// Transport child, independent of Executor/business process observations.
+    public func transportProcessObservation() throws -> ExtensionChannel.ProcessObservation {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        if raw == nil, let finalTransportProcessObservation { return finalTransportProcessObservation }
+        var i = gt_ext_transport_process_info_t()
+        let status = gt_ext_runtime_transport_process_info(try pointer(), &i)
+        guard status == GT_OK else { throw GhostermError.status(Int32(status.rawValue), "无法观察 Runtime 进程通道") }
+        return try ExtensionChannel.ProcessObservation(i)
+    }
     public func stop() { stopLock.lock(); defer { stopLock.unlock() }; if let raw { gt_ext_runtime_stop(raw) } }
     @discardableResult public func closeStep() throws -> Bool {
         let p = try pointer(); let close = gt_ext_runtime_close(p)
         if close == GT_EXT_CLOSE_ERROR { throw GhostermError.failed("运行时关闭错误，保留 owner") }
         guard close == GT_EXT_RELEASED else { return false }
+        var observation = gt_ext_transport_process_info_t()
+        if gt_ext_runtime_transport_process_info(p, &observation) == GT_OK { finalTransportProcessObservation = try ExtensionChannel.ProcessObservation(observation) }
         stopLock.lock(); let status = gt_ext_runtime_destroy(&raw); stopLock.unlock()
         guard status == GT_OK else { throw GhostermError.failed("运行时仍有未释放资源") }
         session?.clearRuntimeBorrow()

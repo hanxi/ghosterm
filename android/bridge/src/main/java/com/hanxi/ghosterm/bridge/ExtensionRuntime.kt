@@ -23,6 +23,13 @@ class ExtensionRuntime private constructor(private val worker: Thread,
         val executionError: Int, val exitCode: Int, val termSignal: Int, val groupSignalError: Int,
         val stdoutBytes: ULong, val stderrBytes: ULong)
     @Volatile private var handle = 0L
+    private var finalTransportProcessObservation: Array<Any>? = null
+    fun transportProcessObservation(): ExtensionChannel.ProcessObservation {
+        check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper())
+        val snapshot = if (handle == 0L) checkNotNull(finalTransportProcessObservation) { "插件 Runtime 已释放" }
+            else NativeExtensionRuntime.transportProcessObservation(handle)
+        return ExtensionChannel.decodeProcessObservation(snapshot)
+    }
     private fun owner() {
         check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper() && handle != 0L) {
             "运行时已释放或不在创建它的非 UI worker"
@@ -99,9 +106,13 @@ class ExtensionRuntime private constructor(private val worker: Thread,
     fun stop() { val id = handle; if (id != 0L) NativeExtensionRuntime.stop(id) }
     fun closeStep(): Boolean {
         if (handle == 0L) return true
-        owner(); return when (NativeExtensionRuntime.close(handle)) {
+        owner(); val observation = arrayOfNulls<Any>(1)
+        return when (NativeExtensionRuntime.close(handle, observation)) {
             0 -> false
-            1 -> { handle = 0L; borrowedLease?.bytes?.fill(0); borrowedLease = null; true }
+            1 -> { handle = 0L; borrowedLease?.bytes?.fill(0); borrowedLease = null
+                @Suppress("UNCHECKED_CAST")
+                val snapshot = observation[0] as Array<Any>?
+                finalTransportProcessObservation = snapshot; true }
             else -> throw ExtensionChannelException(3, "运行时关闭错误，保留 owner")
         }
     }
@@ -176,6 +187,7 @@ internal object NativeExtensionRuntime {
     external fun openPackage(session: Long, packageHandle: Long, associated: Boolean, limits: LongArray, rootNames: Array<ByteArray>, rootFds: IntArray, rootLimits: LongArray, command: ByteArray? = null, arguments: Array<ByteArray>? = null): LongArray
     external fun step(handle: Long): Int
     external fun info(handle: Long): LongArray
+    external fun transportProcessObservation(handle: Long): Array<Any>
     external fun takeResource(handle: Long, lease: ByteArray): Array<Any>
     external fun takeHostRequest(handle: Long, lease: ByteArray): Array<Any>
     external fun respondHostRequest(handle: Long, lease: ByteArray, ticket: Long, outcome: ByteArray): Int
@@ -183,7 +195,7 @@ internal object NativeExtensionRuntime {
     external fun executorRequestResult(handle: Long, lease: ByteArray, request: Long): Array<Any>
     external fun executorRequestAction(handle: Long, lease: ByteArray, action: Int, request: Long): Int
     external fun stop(handle: Long)
-    external fun close(handle: Long): Int
+    external fun close(handle: Long, observation: Array<Any?>? = null): Int
 }
 
 private fun runtimeRpcText(bytes: ByteArray, start: Int, count: Int): String =

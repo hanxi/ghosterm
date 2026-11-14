@@ -1,15 +1,9 @@
 /* Private POSIX child-process owner for explicitly authorized native services. */
 #ifndef GT_EXTENSION_PROCESS_OWNER_H
 #define GT_EXTENSION_PROCESS_OWNER_H
-#include "ghosterm/types.h"
+#include "ghosterm/extension.h"
 #include <signal.h>
 
-#define GT_EXT_PROCESS_ARGUMENTS_MAX 64u
-#define GT_EXT_PROCESS_ARGUMENT_MAX 4096u
-#define GT_EXT_PROCESS_ARGUMENT_BYTES_MAX 16384u
-#define GT_EXT_PROCESS_ENVIRONMENT_MAX 32u
-#define GT_EXT_PROCESS_ENVIRONMENT_VALUE_MAX 4096u
-#define GT_EXT_PROCESS_ENVIRONMENT_BYTES_MAX 16384u
 #define GT_EXT_PROCESS_IO_MAX 16384u
 
 typedef struct gt_ext_process gt_ext_process_t;

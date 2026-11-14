@@ -13,6 +13,8 @@ struct gt_ext_runtime {
     bool process_mode;
     uint64_t process_steps;
     gt_ext_runtime_info_t final_process_info;
+    gt_ext_transport_process_info_t final_transport_process;
+    gt_status_t final_transport_process_status;
 };
 
 static gt_ext_runtime_phase_t ext_runtime_phase(gt_runtime_phase_t phase) {
@@ -250,6 +252,26 @@ void gt_ext_runtime_stop(gt_ext_runtime_t *r) {
     }
 }
 
+gt_status_t gt_ext_runtime_transport_process_info(const gt_ext_runtime_t *r,
+                                                  gt_ext_transport_process_info_t *out) {
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    if (!r || !out) {
+        return GT_ERR_INVALID_ARG;
+    }
+    if (!r->process_mode) {
+        return gt__bridge_runtime_transport_process_info(r->inner, out);
+    }
+    if (r->process) {
+        return gt__process_runtime_transport_process_info(r->process, out);
+    }
+    if (r->final_transport_process_status == GT_OK) {
+        *out = r->final_transport_process;
+    }
+    return r->final_transport_process_status;
+}
+
 gt_ext_close_t gt_ext_runtime_close(gt_ext_runtime_t *r) {
     if (r && r->process_mode) {
         return r->process ? gt__process_runtime_close(r->process) : GT_EXT_RELEASED;
@@ -268,6 +290,8 @@ gt_status_t gt_ext_runtime_destroy(gt_ext_runtime_t **out) {
             if (!runtime_process_info(r, &r->final_process_info)) {
                 return GT_ERR_IO;
             }
+            r->final_transport_process_status =
+                gt__process_runtime_transport_process_info(r->process, &r->final_transport_process);
             status = gt__process_runtime_destroy(&r->process);
             if (!r->process && status != GT_OK) {
                 r->final_process_info.cleanup_error = status;

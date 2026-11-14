@@ -45,6 +45,15 @@ void gt__bridge_runtime_stop(gt_bridge_runtime_t *r) {
     (void)r;
 }
 
+gt_status_t gt__bridge_runtime_transport_process_info(const gt_bridge_runtime_t *r,
+                                                      gt_ext_transport_process_info_t *out) {
+    (void)r;
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    return GT_ERR_UNSUPPORTED;
+}
+
 gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
     (void)r;
     return GT_EXT_CLOSE_ERROR;

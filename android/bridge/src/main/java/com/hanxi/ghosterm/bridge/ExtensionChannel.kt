@@ -1,6 +1,8 @@
 package com.hanxi.ghosterm.bridge
 
 import android.os.Looper
+import java.nio.CharBuffer
+import java.nio.charset.CodingErrorAction
 
 class ExtensionChannelException(val status: Int, message: String) : IllegalStateException("$message · Core $status")
 
@@ -8,6 +10,16 @@ class ExtensionChannelException(val status: Int, message: String) : IllegalState
  * belong to that worker's protocol decoder, never a UI/event queue. closeStep
  * retains this owner until actual release; no finalizer or automatic reconnect. */
 class ExtensionChannel private constructor(private val worker: Thread, private val hops: List<Hop>) : AutoCloseable, AuthenticatedSSH {
+    data class ProcessConfiguration(val executable: String, val arguments: List<String>, val directoryFd: Int,
+        val environment: List<String> = emptyList(), val executionAuthorized: Boolean,
+        val lifetimeMilliseconds: Int = 0, val stopGraceMilliseconds: Int = 0,
+        val stdoutLimit: Long = 0, val stderrLimit: Long = 0)
+    enum class ProcessReason { NONE, DEADLINE, STDOUT_LIMIT, STDERR_LIMIT }
+    data class ProcessObservation(val error: Int, val cleanupError: Int, val groupSignalError: Int,
+        val reason: ProcessReason, val childExited: Boolean, val reaped: Boolean, val groupFenced: Boolean,
+        val stdoutEof: Boolean, val stderrEof: Boolean, val stopping: Boolean,
+        val exitCode: Int?, val termSignal: Int?, val stdoutBytes: ULong, val stderrBytes: ULong,
+        val diagnosticTruncated: Boolean, val diagnostic: ByteArray)
     enum class Stage(val nativeValue: Int) { NONE(0), AUTHENTICATION(1), FORWARD(2), EXEC(3), STREAM(4) }
     enum class Decision(val nativeValue: Int) { ACCEPT(0), REJECT(1), UNKNOWN(2) }
     data class Hop(val host: String, val port: Int, val user: String, val knownHosts: String? = null,
@@ -25,6 +37,13 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
                     val buffered: Int, val remoteEof: Boolean, val exitStatus: Int?,
                     val diagnosticTruncated: Boolean, val diagnostic: ByteArray)
     @Volatile private var handle = 0L
+    private var finalProcessObservation: Array<Any>? = null
+    fun processObservation(): ProcessObservation {
+        check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper())
+        val snapshot = if (handle == 0L) checkNotNull(finalProcessObservation) { "插件通道已转交或释放" }
+            else NativeExtensionChannel.processObservation(handle)
+        return decodeProcessObservation(snapshot)
+    }
     private fun owner() {
         check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper()) {
             "插件通道必须在创建它的非 UI worker 中调用"
@@ -123,9 +142,13 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
     fun stop() { val id = handle; if (id != 0L) NativeExtensionChannel.stop(id) }
     fun closeStep(milliseconds: Int = 0): Boolean {
         owner(); require(milliseconds >= 0)
-        return when (NativeExtensionChannel.close(handle, milliseconds)) {
+        val observation = arrayOfNulls<Any>(1)
+        return when (NativeExtensionChannel.close(handle, milliseconds, observation)) {
             0 -> false
-            1 -> { handle = 0L; true }
+            1 -> { handle = 0L
+                @Suppress("UNCHECKED_CAST")
+                val snapshot = observation[0] as Array<Any>?
+                finalProcessObservation = snapshot; true }
             else -> throw ExtensionChannelException(3, "插件通道释放失败，仍保留 owner")
         }
     }
@@ -150,6 +173,37 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
         throw ExtensionChannelException(3, "插件通道仍在释放，请由 worker 重试")
     }
     companion object {
+        internal fun decodeProcessObservation(fields: Array<Any>): ProcessObservation {
+            check(fields.size == 2)
+            val v = fields[0] as LongArray; val diagnostic = fields[1] as ByteArray
+            check(v.size == 16 && diagnostic.size <= 4096)
+            if (v[0] != 0L) throw ExtensionChannelException(v[0].toInt(), "无法观察本机进程通道")
+            check(v[4] in 0L..3L)
+            val exited = v[5] != 0L; val signalled = v[12] != 0L
+            return ProcessObservation(v[1].toInt(), v[2].toInt(), v[3].toInt(), ProcessReason.entries[v[4].toInt()],
+                exited, v[6] != 0L, v[7] != 0L, v[8] != 0L, v[9] != 0L, v[10] != 0L,
+                if (exited && !signalled) v[11].toInt() else null, if (exited && signalled) v[12].toInt() else null,
+                v[13].toULong(), v[14].toULong(), v[15] != 0L, diagnostic.copyOf())
+        }
+        /** Explicit trusted Native launch. No shell/PATH/PTY or ambient environment. */
+        fun process(config: ProcessConfiguration): ExtensionChannel {
+            val thread = worker()
+            require(config.executable.startsWith("/") && config.arguments.size in 1..64 && config.environment.size <= 32)
+            require(config.lifetimeMilliseconds in 0..3600000 && config.stopGraceMilliseconds in 0..5000 &&
+                config.stdoutLimit in 0L..67108864L && config.stderrLimit in 0L..1048576L)
+            fun encode(value: String): ByteArray {
+                require('\u0000' !in value)
+                val buffer = Charsets.UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).encode(CharBuffer.wrap(value))
+                require(buffer.remaining() <= 4096)
+                return ByteArray(buffer.remaining()).also { buffer.get(it) }
+            }
+            val channel = ExtensionChannel(thread, emptyList())
+            return created(channel, NativeExtensionChannel.openProcess(encode(config.executable),
+                config.arguments.map(::encode).toTypedArray(), config.directoryFd,
+                config.environment.map(::encode).toTypedArray(), config.executionAuthorized,
+                config.lifetimeMilliseconds, config.stopGraceMilliseconds, config.stdoutLimit, config.stderrLimit))
+        }
         private fun worker(): Thread {
             check(Looper.myLooper() != Looper.getMainLooper()) { "插件通道不能在 UI 线程创建" }
             return Thread.currentThread()
@@ -182,6 +236,9 @@ class ExtensionChannel private constructor(private val worker: Thread, private v
 internal object NativeExtensionChannel {
     init { System.loadLibrary("ghosterm_android") }
     external fun openFd(readFd: Int, writeFd: Int): LongArray
+    external fun openProcess(executable: ByteArray, arguments: Array<ByteArray>, directoryFd: Int,
+        environment: Array<ByteArray>, authorized: Boolean, lifetime: Int, grace: Int, stdoutLimit: Long, stderrLimit: Long): LongArray
+    external fun processObservation(handle: Long): Array<Any>
     external fun openRoute(hosts: Array<ByteArray>, ports: IntArray, users: Array<ByteArray>, known: Array<ByteArray>,
         via: Array<ByteArray>, address: ByteArray, family: Int, scope: Int, timeouts: IntArray,
         command: ByteArray, setup: Int, admission: Int, stderrLimit: Int): LongArray
@@ -193,7 +250,7 @@ internal object NativeExtensionChannel {
     external fun supply(handle: Long, hop: Int, challenge: Long, host: ByteArray, port: Int, user: ByteArray,
         known: ByteArray, kind: Int, first: ByteArray, second: ByteArray): Int
     external fun stop(handle: Long)
-    external fun close(handle: Long, milliseconds: Int): Int
+    external fun close(handle: Long, milliseconds: Int, observation: Array<Any?>? = null): Int
     external fun openSession(handle: Long, role: Int, texts: Array<ByteArray>, required: Array<ByteArray>,
         available: Array<ByteArray>, numbers: IntArray): LongArray
     external fun openSessionRpc(handle: Long, role: Int, texts: Array<ByteArray>, required: Array<ByteArray>,

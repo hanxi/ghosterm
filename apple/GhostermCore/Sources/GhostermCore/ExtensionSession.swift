@@ -64,6 +64,7 @@ public final class ExtensionSession {
     private let owner: DispatchQueue, stopLock = NSLock()
     private let resourceStore: ExtensionResourceStore?
     private var raw: OpaquePointer?
+    private var finalProcessObservation: ExtensionChannel.ProcessObservation?
     private var runtimeBorrowedRaw: OpaquePointer?
     private var runtimeBorrowedLease: Lease?
     private func pointer() throws -> OpaquePointer {
@@ -361,11 +362,21 @@ public final class ExtensionSession {
         runtimeBorrowedRaw = adoptedSession; runtimeBorrowedLease = adoptedLease
         return runtime
     }
+    public func processObservation() throws -> ExtensionChannel.ProcessObservation {
+        dispatchPrecondition(condition: .onQueue(owner)); precondition(!Thread.isMainThread)
+        if raw == nil, let finalProcessObservation { return finalProcessObservation }
+        var i = gt_ext_transport_process_info_t()
+        let status = gt_ext_session_process_info(try pointer(), &i)
+        guard status == GT_OK else { throw GhostermError.status(Int32(status.rawValue), "无法观察会话进程通道") }
+        return try ExtensionChannel.ProcessObservation(i)
+    }
     @discardableResult public func closeStep(milliseconds: Int32 = 0) throws -> Bool {
         let p = try pointer(); guard milliseconds >= 0 else { throw GhostermError.failed("会话关闭预算无效") }
         let result = gt_ext_session_close(p, milliseconds)
         if result == GT_EXT_CLOSE_ERROR { throw GhostermError.failed("会话释放失败，仍保留所有权") }
         guard result == GT_EXT_RELEASED else { return false }
+        var observation = gt_ext_transport_process_info_t()
+        if gt_ext_session_process_info(p, &observation) == GT_OK { finalProcessObservation = try ExtensionChannel.ProcessObservation(observation) }
         stopLock.lock(); defer { stopLock.unlock() }
         guard gt_ext_session_destroy(&raw) == GT_OK else { throw GhostermError.failed("会话仍有未释放资源") }; return true
     }

@@ -32,6 +32,13 @@ class ExtensionSession private constructor(private val worker: Thread, private v
         val budgets: Budgets, val peerKind: PeerKind, val peerIdentity: String)
     class Lease internal constructor(internal val bytes: ByteArray)
     @Volatile private var handle = 0L
+    private var finalProcessObservation: Array<Any>? = null
+    fun processObservation(): ExtensionChannel.ProcessObservation {
+        check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper())
+        val snapshot = if (handle == 0L) checkNotNull(finalProcessObservation) { "插件会话已转交或释放" }
+            else NativeExtensionSession.processObservation(handle)
+        return ExtensionChannel.decodeProcessObservation(snapshot)
+    }
     private fun owner() {
         check(Thread.currentThread() === worker && Looper.myLooper() != Looper.getMainLooper()) {
             "插件会话必须在创建它的非 UI worker 中调用"
@@ -132,9 +139,13 @@ class ExtensionSession private constructor(private val worker: Thread, private v
     }
     fun closeStep(milliseconds: Int = 0): Boolean {
         owner(); require(milliseconds >= 0)
-        return when (NativeExtensionSession.close(handle, milliseconds)) {
+        val observation = arrayOfNulls<Any>(1)
+        return when (NativeExtensionSession.close(handle, milliseconds, observation)) {
             0 -> false
-            1 -> { handle = 0L; true }
+            1 -> { handle = 0L
+                @Suppress("UNCHECKED_CAST")
+                val snapshot = observation[0] as Array<Any>?
+                finalProcessObservation = snapshot; true }
             else -> throw ExtensionChannelException(3, "会话仍有未释放资源，请由 worker 重试")
         }
     }
@@ -161,12 +172,13 @@ internal object NativeExtensionSession {
     init { System.loadLibrary("ghosterm_android") }
     external fun step(handle: Long, milliseconds: Int): Int
     external fun info(handle: Long): Array<Any>
+    external fun processObservation(handle: Long): Array<Any>
     external fun decide(handle: Long, ticket: ByteArray, decision: Int): Int
     external fun lease(handle: Long): ByteArray?
     external fun access(handle: Long, lease: ByteArray, capability: ByteArray): Int
     external fun revoke(handle: Long)
     external fun stop(handle: Long)
-    external fun close(handle: Long, milliseconds: Int): Int
+    external fun close(handle: Long, milliseconds: Int, observation: Array<Any?>? = null): Int
     external fun request(handle: Long, lease: ByteArray, method: ByteArray, input: ByteArray, timeout: Int): LongArray
     external fun requestAction(handle: Long, lease: ByteArray, action: Int, number: Long): Int
     external fun takeRequest(handle: Long, lease: ByteArray): Array<Any>

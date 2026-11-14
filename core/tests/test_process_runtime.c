@@ -45,6 +45,16 @@ static gt_status_t launch_destroy(gt_process_runtime_t **r) {
 }
 
 static bool launch_info(gt_process_runtime_t *r, gt_process_runtime_info_t *out) {
+    /* These existing Executor fixtures use FD transport. Its absence of a
+     * transport child must survive internal Session destruction, independently
+     * of the actual Executor child reported below. */
+    gt_ext_transport_process_info_t transport;
+    memset(&transport, 255, sizeof(transport));
+    gt_status_t transport_status =
+        public_mode ? gt_ext_runtime_transport_process_info(public_runtime, &transport)
+                    : gt__process_runtime_transport_process_info(r, &transport);
+    CHECK(transport_status == GT_ERR_UNSUPPORTED && !transport.child_exited &&
+          !transport.diagnostic_size);
     if (!public_mode) {
         return gt__process_runtime_info(r, out);
     }

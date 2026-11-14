@@ -49,6 +49,8 @@ typedef union {
 
 struct gt_bridge_runtime {
     gt_ext_session_t *session;
+    gt_ext_transport_process_info_t transport_process;
+    gt_status_t transport_process_status;
     gt_ext_lease_t lease;
     gt_ext_role_t role;
     gt_runtime_resources_t *resources;
@@ -2058,6 +2060,7 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
         r->info.session_end = snapshot.end;
         r->info.session_error = snapshot.error;
     }
+    r->transport_process_status = gt_ext_session_process_info(r->session, &r->transport_process);
     gt_status_t status = gt_ext_session_destroy(&r->session);
     if (status != GT_OK) {
         r->info.cleanup_error = status;
@@ -2066,6 +2069,23 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
     r->info.cleanup_error = r->module_cleanup_error;
     r->info.phase = GT_RUNTIME_CLOSED;
     return GT_EXT_RELEASED;
+}
+
+gt_status_t gt__bridge_runtime_transport_process_info(const gt_bridge_runtime_t *r,
+                                                      gt_ext_transport_process_info_t *out) {
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    if (!r || !out) {
+        return GT_ERR_INVALID_ARG;
+    }
+    if (r->session) {
+        return gt_ext_session_process_info(r->session, out);
+    }
+    if (r->transport_process_status == GT_OK) {
+        *out = r->transport_process;
+    }
+    return r->transport_process_status;
 }
 
 gt_status_t gt__bridge_runtime_destroy(gt_bridge_runtime_t **out) {

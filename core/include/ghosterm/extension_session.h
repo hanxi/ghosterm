@@ -120,6 +120,10 @@ gt_status_t gt_ext_session_open(gt_ext_channel_t **,
                                 gt_ext_session_t **);
 gt_ext_session_phase_t gt_ext_session_step(gt_ext_session_t *, int ms);
 bool gt_ext_session_info(const gt_ext_session_t *, gt_ext_session_info_t *);
+/* Local transport child only; same snapshot/error contract as channel query.
+ * Ownership and its channel reservation last through actual Session destroy. */
+gt_status_t gt_ext_session_process_info(const gt_ext_session_t *,
+                                        gt_ext_transport_process_info_t *);
 /* Ticket is copied native consent_token from this offer; stale/duplicate/wrong
  * instance or late ALLOW never grants. UNKNOWN keeps waiting. Only HOST decides. */
 gt_status_t gt_ext_session_decide(gt_ext_session_t *, const char *ticket, gt_ext_decision_t);

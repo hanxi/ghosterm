@@ -384,6 +384,14 @@ void gt_ext_session_stop(gt_ext_session_t *s) {
     }
 }
 
+gt_status_t gt_ext_session_process_info(const gt_ext_session_t *s,
+                                        gt_ext_transport_process_info_t *out) {
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    return s && out ? gt_ext_channel_process_info(s->channel, out) : GT_ERR_INVALID_ARG;
+}
+
 gt_ext_close_t gt_ext_session_close(gt_ext_session_t *s, int ms) {
     if (!s || ms < 0) {
         return GT_EXT_CLOSE_ERROR;

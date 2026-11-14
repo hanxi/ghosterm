@@ -195,6 +195,12 @@ gt_status_t gt_ext_runtime_open_package(gt_ext_session_t **session,
  * Business outcomes remain separate from runtime lifecycle/error observations. */
 gt_ext_runtime_phase_t gt_ext_runtime_step(gt_ext_runtime_t *);
 bool gt_ext_runtime_info(const gt_ext_runtime_t *, gt_ext_runtime_info_t *);
+/* The transport child adopted with Session, independent of any Executor or
+ * business process reported by runtime_info. Final snapshot survives internal
+ * Session destruction at close, until Runtime destroy. Snapshot only, no IO;
+ * non-process transport returns UNSUPPORTED and zeroes *out. */
+gt_status_t gt_ext_runtime_transport_process_info(const gt_ext_runtime_t *,
+                                                  gt_ext_transport_process_info_t *);
 /* Only sets cancellation; caller schedules/wakes owner. Stop may not race destroy. */
 void gt_ext_runtime_stop(gt_ext_runtime_t *);
 /* Revokes first, bounds cooperative dispose, destroys engine before native close.

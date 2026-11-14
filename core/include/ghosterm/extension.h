@@ -13,6 +13,12 @@ extern "C" {
 #define GT_EXT_CHANNEL_LIMIT 16u
 #define GT_EXT_IO_MAX 16384u
 #define GT_EXT_DIAGNOSTIC_MAX 4096u
+#define GT_EXT_PROCESS_ARGUMENTS_MAX 64u
+#define GT_EXT_PROCESS_ARGUMENT_MAX 4096u
+#define GT_EXT_PROCESS_ARGUMENT_BYTES_MAX 16384u
+#define GT_EXT_PROCESS_ENVIRONMENT_MAX 32u
+#define GT_EXT_PROCESS_ENVIRONMENT_VALUE_MAX 4096u
+#define GT_EXT_PROCESS_ENVIRONMENT_BYTES_MAX 16384u
 typedef struct gt_ext_channel gt_ext_channel_t;
 
 typedef enum {
@@ -83,6 +89,58 @@ typedef struct {
     int32_t exit_status;
     uint8_t diagnostic[GT_EXT_DIAGNOSTIC_MAX]; /* raw bytes; not UI text */
 } gt_ext_channel_info_t;
+
+typedef struct {
+    const char *executable;
+    const char *const *arguments; /* includes argv[0]; copied before return */
+    size_t argument_count;
+    int cwd_fd;                     /* explicit open directory, borrowed only during construction */
+    const char *const *environment; /* NAME=value, no duplicate names */
+    size_t environment_count;
+    bool execution_authorized; /* trusted Native approval, never plugin input */
+    uint32_t lifetime_ms, stop_grace_ms;
+    uint64_t stdout_limit, stderr_limit;
+} gt_ext_process_channel_config_t;
+
+typedef enum {
+    GT_EXT_PROCESS_TRANSPORT_NONE,
+    GT_EXT_PROCESS_TRANSPORT_DEADLINE,
+    GT_EXT_PROCESS_TRANSPORT_STDOUT_LIMIT,
+    GT_EXT_PROCESS_TRANSPORT_STDERR_LIMIT
+} gt_ext_process_transport_reason_t;
+
+typedef struct {
+    gt_status_t error, cleanup_error;
+    int32_t group_signal_error; /* native errno; zero does not prove group cleanup */
+    gt_ext_process_transport_reason_t reason;
+    bool child_exited, reaped, group_fenced, stdout_eof, stderr_eof, stopping;
+    int32_t exit_code, term_signal; /* valid only when child_exited */
+    uint64_t stdout_bytes, stderr_bytes;
+    bool diagnostic_truncated;
+    uint32_t diagnostic_size;
+    uint8_t diagnostic[GT_EXT_DIAGNOSTIC_MAX]; /* raw bytes, never UI text */
+} gt_ext_transport_process_info_t;
+
+/* Starts the approved absolute executable with raw argv, selected environment
+ * and explicit cwd. No shell/PATH/PTY, ambient environment, implicit Session
+ * consent, publisher verification or OS sandbox. The Native caller establishes
+ * executable trust. Fork/exec may incur native latency: IO owner only.
+ * Zero budgets: 60s lifetime, 100ms TERM grace, 16MiB stdout, 64KiB stderr;
+ * maxima: 1h / 5s / 64MiB / 1MiB. Argument/environment bounds include NULs in
+ * aggregate byte limits. Failure retains caller fds; success owns a fresh
+ * process group/pipes and shares the 16-channel budget through Session/Runtime.
+ * Stop wakes IO; close drives TERM/grace/KILL/actual reap, retaining ownership
+ * on DRAINING/ERROR. Natural leader exit fences before reap; Darwin may deny
+ * signalling a dying group. Local RELEASED does not prove descendants cleaned:
+ * group_fenced/group_signal_error preserve that independent observation. */
+gt_status_t gt_ext_channel_open_process(const gt_ext_process_channel_config_t *,
+                                        gt_ext_channel_t **);
+/* Snapshot only: no IO/wait/reap. EOF, exit, reap, group fencing and business
+ * success are independent. Available after close until destroy. Non-process
+ * channels return UNSUPPORTED; malformed arguments INVALID_ARG; failures zero
+ * *out. Ownership transfer requires using the Session/Runtime query instead. */
+gt_status_t gt_ext_channel_process_info(const gt_ext_channel_t *,
+                                        gt_ext_transport_process_info_t *);
 
 /* Adopts exclusive pipe ends/connected stream sockets on success only, marks
  * NONBLOCK/CLOEXEC; equal fds allowed. Failure retains fds/restores flags.

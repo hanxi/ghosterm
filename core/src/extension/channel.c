@@ -3,6 +3,7 @@
 #include "ghosterm/extension.h"
 #include "extension/route.h"
 #include "extension/channel-owner.h"
+#include "extension/process-stream.h"
 #include "base/secure-random.h"
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 
 struct gt_ext_channel {
     gt_bridge_stream_t *stream;
+    gt_bridge_stream_t *process_stream; /* borrowed until retained channel retires */
     bool ssh, closed;
     gt_ext_channel_info_t info;
     uint64_t challenge_counter;
@@ -127,6 +129,22 @@ static void channel_fail(gt_ext_channel_t *c, gt_status_t status) {
 }
 
 static bool channel_refresh(gt_ext_channel_t *c) {
+    if (c->process_stream) {
+        gt_ext_transport_process_info_t p;
+        if (gt_ext_channel_process_info(c, &p) != GT_OK) {
+            return false;
+        }
+        c->info.stderr_bytes = p.stderr_bytes;
+        c->info.remote_eof = p.stdout_eof;
+        c->info.exit_status_known = p.child_exited && !p.term_signal;
+        c->info.exit_status = p.exit_code;
+        c->info.diagnostic_size = p.diagnostic_size;
+        c->info.diagnostic_truncated = p.diagnostic_truncated;
+        memcpy(c->info.diagnostic, p.diagnostic, p.diagnostic_size);
+        if (p.error && !c->closed && c->info.phase != GT_EXT_FAILED) {
+            channel_fail(c, p.error);
+        }
+    }
     if (!c->ssh) {
         return true;
     }
@@ -184,6 +202,96 @@ static bool channel_refresh(gt_ext_channel_t *c) {
     c->wait_hop = (uint32_t)r.hop;
     c->wait_phase = phase;
     return true;
+}
+
+gt_status_t gt_ext_channel_open_process(const gt_ext_process_channel_config_t *config,
+                                        gt_ext_channel_t **out) {
+    if (out) {
+        *out = NULL;
+    }
+    if (!config || !out) {
+        return GT_ERR_INVALID_ARG;
+    }
+#ifndef GT_HAVE_PLUGIN_CHANNEL
+    return GT_ERR_UNSUPPORTED;
+#else
+    gt_ext_channel_t *c = channel_new();
+    if (!c) {
+        return GT_ERR_IO;
+    }
+    gt_process_stream_config_t p = {.executable = config->executable,
+                                    .arguments = config->arguments,
+                                    .argument_count = config->argument_count,
+                                    .cwd_fd = config->cwd_fd,
+                                    .environment = config->environment,
+                                    .environment_count = config->environment_count,
+                                    .execution_authorized = config->execution_authorized,
+                                    .lifetime_ms = config->lifetime_ms,
+                                    .stop_grace_ms = config->stop_grace_ms,
+                                    .stdout_limit = config->stdout_limit,
+                                    .stderr_limit = config->stderr_limit};
+    gt_status_t status = gt__bridge_process_open(&p, &c->stream);
+    if (status != GT_OK) {
+        channel_free(c);
+        return status;
+    }
+    c->process_stream = c->stream;
+    c->info.phase = GT_EXT_READY;
+    c->info.stage = GT_EXT_STAGE_STREAM;
+    *out = c;
+    return GT_OK;
+#endif
+}
+
+gt_status_t gt_ext_channel_process_info(const gt_ext_channel_t *c,
+                                        gt_ext_transport_process_info_t *out) {
+    if (out) {
+        memset(out, 0, sizeof(*out));
+    }
+    if (!c || !out) {
+        return GT_ERR_INVALID_ARG;
+    }
+    if (!c->process_stream) {
+        return GT_ERR_UNSUPPORTED;
+    }
+    gt_process_stream_info_t p;
+    if (!gt__bridge_process_info(c->process_stream, &p) ||
+        p.diagnostic_size > sizeof(out->diagnostic)) {
+        return GT_ERR_INTERNAL;
+    }
+    switch (p.reason) {
+        case GT_PROCESS_STREAM_NONE:
+            out->reason = GT_EXT_PROCESS_TRANSPORT_NONE;
+            break;
+        case GT_PROCESS_STREAM_DEADLINE:
+            out->reason = GT_EXT_PROCESS_TRANSPORT_DEADLINE;
+            break;
+        case GT_PROCESS_STREAM_STDOUT_LIMIT:
+            out->reason = GT_EXT_PROCESS_TRANSPORT_STDOUT_LIMIT;
+            break;
+        case GT_PROCESS_STREAM_STDERR_LIMIT:
+            out->reason = GT_EXT_PROCESS_TRANSPORT_STDERR_LIMIT;
+            break;
+        default:
+            return GT_ERR_INTERNAL;
+    }
+    out->error = p.error;
+    out->cleanup_error = p.cleanup_error;
+    out->group_signal_error = p.group_signal_error;
+    out->child_exited = p.child.exited;
+    out->exit_code = p.child.exit_code;
+    out->term_signal = p.child.term_signal;
+    out->reaped = p.reaped;
+    out->group_fenced = p.group_fenced;
+    out->stdout_eof = p.stdout_eof;
+    out->stderr_eof = p.stderr_eof;
+    out->stopping = p.stopping;
+    out->stdout_bytes = p.stdout_bytes;
+    out->stderr_bytes = p.stderr_bytes;
+    out->diagnostic_size = (uint32_t)p.diagnostic_size;
+    out->diagnostic_truncated = p.diagnostic_truncated;
+    memcpy(out->diagnostic, p.diagnostic, p.diagnostic_size);
+    return GT_OK;
 }
 
 gt_status_t gt_ext_channel_open_fd(int input, int output, gt_ext_channel_t **out) {
@@ -499,6 +607,10 @@ gt_ext_close_t gt_ext_channel_close(gt_ext_channel_t *c, int ms) {
     c->info.challenge = 0;
     c->waiting = false;
     gt_bridge_close_t r = gt__bridge_stream_close(c->stream, ms);
+    if (c->process_stream && !channel_refresh(c)) {
+        c->info.cleanup_error = GT_ERR_INTERNAL;
+        return GT_EXT_CLOSE_ERROR;
+    }
     if (r == GT_BRIDGE_RELEASED) {
         channel_discard(c);
         c->closed = true;
