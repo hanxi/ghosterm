@@ -5400,3 +5400,11 @@ NativePort 每次 request / take / result / check / respond / access 都经实�
 本批是可复用的 Node SDK **会话适配层**，尚未自动构造完整 PluginContext / 启动包。后续仍须接已校验包暂存、固定 runtime / bootstrap / executable 身份、显式执行授权、Native 启动上下文与参数、Resource / process 能力、父进程 CPU / 总寿命 / 整进程预算、停止回收及 gterm / App。App / gterm 仍只公告 Portable JS，默认 App JS-off；P4、真实认证 / 模型 / 工具与其余计划继续未完成。无公共 C ABI、生产 C 或平台源码改动，不增加 macOS CI 二十份。
 
 最终默认 Core **JS=OFF / tests=ON** 离线 gate **521/521 CTest、177 ABI**、clang-format **19.1.7 / 230 文件**、脚本语法与 git diff --check 通过。原 Portable SDK **6 个模块**的生成物逐字节检查及固定摘要 **3e26d62d926c417ba7be1d3e9bc8cae7b22637d8b299bce6659417e70896fb76** 保持；Node 后端只作为独立候选 bundle，不使默认 App 开启 JS / Node。全部本轮进程已退出且无 tmp 子项占用后，清空约 **111 MiB** 临时文件，保留目录本身。仅本地 main 分批提交，不推送、不发行；不将此会话适配验收视为整个 Node / Exec 或 P4 / 插件目标完成。
+
+### macOS POSIX 子进程强制停止修复（2026-11-14）
+
+实际 Node / Exec 控制器联调发现，原 process owner 用 `sigaction(signal, NULL, ...)` 校验信号；Darwin 对不可捕获的 SIGKILL 查询返回 EINVAL，导致请求在真正 `kill` 前就被拒绝。现单独允许 SIGKILL / SIGSTOP 通过该查询关口，其余信号继续校验；不改变显式进程组、授权或已退出 owner 的规则。
+
+新增通用 CTest `extension_process_kill`，真实启动自有 sleep 子进程，发送 SIGKILL、观察已知信号退出并 reap。断言失败的夹具清理在 KILL 接口失败时尝试 TERM，避免旧代码反例遗留测试进程。macOS 隔离检出只包含此修复：恢复旧判断、实际重编译后普通断言红，同 archive 配置对照绿，复原后信号退出绿及 SHA256 一致；编译失败 / 崩溃 / sanitizer / 超时不计目标红。最终完整默认离线 gate **522/522 CTest、177 ABI** 通过，C 格式 **19.1.7 / 230 文件** 与 diff 检查通过。
+
+首轮隔离目录过深导致 Unix socket 路径前置失败，缩短到工程 tmp/ 后发现未接锁定 SSH Python 工具链的两项前置失败；显式复用既有锁定工具链后完整重跑通过，前两轮均未记整轮绿。全部对象为本机一次性进程与回环测试服务；无公共 ABI / 平台源码改动，不增加 macOS CI 二十份，也不据此宣称 Node / Exec 档或 P4 完成。

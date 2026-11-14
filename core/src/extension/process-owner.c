@@ -383,7 +383,9 @@ gt_status_t gt__ext_process_close_stdin(gt_ext_process_t *process) {
 
 gt_status_t gt__ext_process_signal(gt_ext_process_t *process, int signal_number) {
     struct sigaction action;
-    if (!process || signal_number <= 0 || sigaction(signal_number, NULL, &action)) {
+    if (!process || signal_number <= 0 ||
+        (signal_number != SIGKILL && signal_number != SIGSTOP &&
+         sigaction(signal_number, NULL, &action))) {
         return GT_ERR_INVALID_ARG;
     }
     if (process->exited) {

@@ -24,7 +24,9 @@ static void cleanup_process(void) {
     if (!active_process) {
         return;
     }
-    (void)gt__ext_process_signal(active_process, SIGKILL);
+    if (gt__ext_process_signal(active_process, SIGKILL) != GT_OK) {
+        (void)gt__ext_process_signal(active_process, SIGTERM);
+    }
     gt_ext_process_info_t info;
     for (int i = 0; i < 100; i++) {
         if (gt__ext_process_poll(active_process, &info) != GT_OK || info.exited) {
@@ -288,7 +290,7 @@ static int broken_pipe(void) {
     return 0;
 }
 
-static int terminate(void) {
+static int terminate(int signal_number) {
     gt_ext_process_t *process = NULL;
     const char *args[] = {"sleep", "30"};
     struct sigaction previous, ignored;
@@ -300,7 +302,7 @@ static int terminate(void) {
     CHECK(sigaction(SIGTERM, &previous, NULL) == 0);
     CHECK(gt__ext_process_destroy(&process) == GT_ERR_IO);
     CHECK(gt__ext_process_close_stdin(process) == GT_OK);
-    CHECK(gt__ext_process_signal(process, SIGTERM) == GT_OK);
+    CHECK(gt__ext_process_signal(process, signal_number) == GT_OK);
     gt_ext_process_info_t info;
     for (int i = 0; i < 200; i++) {
         CHECK(gt__ext_process_poll(process, &info) == GT_OK);
@@ -309,7 +311,7 @@ static int terminate(void) {
         }
         pause_ms(5);
     }
-    CHECK(info.exited && info.term_signal == SIGTERM);
+    CHECK(info.exited && info.term_signal == signal_number);
     CHECK(destroy(&process) == GT_OK && process == NULL);
     return 0;
 }
@@ -338,7 +340,10 @@ int main(int argc, char **argv) {
         return broken_pipe();
     }
     if (!strcmp(argv[1], "terminate")) {
-        return terminate();
+        return terminate(SIGTERM);
+    }
+    if (!strcmp(argv[1], "kill")) {
+        return terminate(SIGKILL);
     }
     return 2;
 }
