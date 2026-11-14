@@ -41,6 +41,14 @@ LOCAL_SWIFT_CASES = [
     ('local-final', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'), 'guard released else { throw local ? ControllerError.localProcessDraining : ControllerError.channelUnavailable }\n                self.channel = nil', 'guard released else { throw local ? ControllerError.localProcessDraining : ControllerError.channelUnavailable }\n                self.channel = nil; self.lastLocalProcess = nil', 'LocalExtensionTests.testLocalCloseAwaitsReapAndKeepsFinalObservation'),
     ('local-retry', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'), 'guard ProcessInfo.processInfo.systemUptime < deadline else { throw ControllerError.localProcessDraining }', 'guard false else { throw ControllerError.localProcessDraining }', 'LocalExtensionTests.testTermIgnoreUsesFiniteCloseRetries'),
     ('local-form', Path('apple/GhostermApp/Sources/GhostermApp/ExtensionsPane.swift'), 'var localDigest = "" { didSet { localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }', 'var localDigest = "" { didSet { clientAuthorized = false; attachmentAllowed = false } }', 'LocalExtensionTests.testLocalFormEditsRevokeCapturedApproval'),
+    ('temporary-identity', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionLocalTemporaryDirectory.swift'), 'value.st_ino == expected.st_ino', 'true', 'LocalTemporaryDirectoryTests.testReplacedRootRetainsBothNamespacesAndCanRetryAfterRestoration'),
+    ('temporary-nested', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionLocalTemporaryDirectory.swift'), 'frames.indices.dropFirst()', 'frames.indices.dropFirst().prefix(0)', 'LocalTemporaryDirectoryTests.testReplacedNestedDirectoryIsNotTraversedThroughRetainedFD'),
+    ('temporary-quantum', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionLocalTemporaryDirectory.swift'), '0..<64', '0..<65536', 'LocalTemporaryDirectoryTests.testOneStepHasFiniteWorkAndCanContinue'),
+    ('temporary-depth', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionLocalTemporaryDirectory.swift'), 'frames.count < 64', 'true', 'LocalTemporaryDirectoryTests.testDepthLimitRetainsOwner'),
+    ('temporary-entry', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionLocalTemporaryDirectory.swift'), 'entries <= 16384', 'true', 'LocalTemporaryDirectoryTests.testEntryLimitRetainsOwner'),
+    ('temporary-sealed', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionLocalTemporaryDirectory.swift'), 'fchmod(fd, 0o700) == 0', 'true', 'LocalTemporaryDirectoryTests.testSealedDirectoryIsMadeWritableBeforeCleanup'),
+    ('temporary-owner', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'), 'self.channel == nil, self.session == nil, self.runtime == nil, self.localTemporary == nil else { throw ControllerError.channelUnavailable }', 'self.channel == nil, self.session == nil, self.runtime == nil else { throw ControllerError.channelUnavailable }', 'LocalExtensionTests.testRetainedTemporaryOwnerBlocksNewLaunchUntilRestoration'),
+    ('temporary-retain', Path('apple/GhostermApp/Sources/GhostermAppModel/ExtensionController.swift'), '} catch { lastLocalTemporary = temporary.observation; throw error }', '} catch { lastLocalTemporary = temporary.observation; self.localTemporary = nil; throw error }', 'LocalExtensionTests.testRetainedTemporaryOwnerBlocksNewLaunchUntilRestoration'),
 ]
 ANDROID_CASES = [
     ('approval', KOTLIN, 'require(execution.authorized)', 'require(true)', 'nodeAndExecRequireSeparateApprovalAndNeverGrantBusinessProcesses'),
@@ -118,11 +126,11 @@ def execute(args, serial=None):
                 if digest != sha(path): raise RuntimeError('Installed APK differs')
         def test(label, target=None, red=False, control=False, compiled_file=None):
             if args.macos:
-                selected = 'ExtensionControllerTests.testClientHostProfileOnlyAdvertisesIntegratedCapabilities' if control else (target if target and '.' in target else 'ExecutorExecutionTests.' + target if target else 'LocalExtensionTests|ExecutorExecutionTests' if args.local else 'ExecutorExecutionTests')
+                selected = 'ExtensionControllerTests.testClientHostProfileOnlyAdvertisesIntegratedCapabilities' if control else (target if target and '.' in target else 'ExecutorExecutionTests.' + target if target else 'LocalTemporaryDirectoryTests|LocalExtensionTests|ExecutorExecutionTests' if args.local else 'ExecutorExecutionTests')
                 objects = source / 'apple/GhostermApp/.build'
                 before_objects = {str(p): sha(p) for p in objects.rglob(compiled_file.stem + '.o')} if compiled_file else {}
                 code, output = run(label, ['swift', 'test', '--package-path', source / 'apple/GhostermApp', '--filter', selected], red=red, timeout=300)
-                count = 1 if target or control else 16 if args.local else 7
+                count = 1 if target or control else 26 if args.local else 7
                 assertion = 'XCTAssert' in output or re.search(r': error: .* : failed - [^\n]+', output)
                 valid = (code == 1 and 'Executed 1 test, with 1 failure (0 unexpected)' in output and assertion) if red else (
                     code == 0 and f'Executed {count} test' in output and 'with 0 failures' in output)
@@ -158,7 +166,7 @@ def execute(args, serial=None):
         if adb: run('stop', [*adb, 'shell', 'am', 'force-stop', 'com.hanxi.ghosterm'])
         if any(sha(ROOT / name) != value for name, value in inputs.items()): raise RuntimeError('Input source changed')
         record = dict(accepted=True, platform='macos' if args.macos else 'android', groups=groups,
-            tests=(16 if args.local else 7) if args.macos else 6, inputs_sha256=inputs, commands=commands,
+            tests=(26 if args.local else 7) if args.macos else 6, inputs_sha256=inputs, commands=commands,
             device=metadata if adb else None,
             scope=('Native launch/approval configuration and actual POSIX argv/environment probe' if args.macos else
                    'Android Native form/approval and generated command validation') + '; no actual Node/Exec SSH activation')

@@ -5,6 +5,7 @@ Default: restore one-frame-per-UI-tick throttling of a real 256 KiB resource.
 --business-environment: omit an explicitly selected native utility environment.
 --client-workspace / --client-directory / --client-instance: remove Native
 publication approval / no-follow / Runtime identity checks, independently.
+--local-temporary-retry: retry obsolete Core handles instead of retained local cleanup.
 All require one normal state assertion; compiler, crash, sanitizer and outer
 timeout failures are not accepted target reds.
 """
@@ -31,7 +32,7 @@ def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def execute(args, serial=None):
     mac = args.macos
-    component = 'ExtensionRelayBootstrap' if args.business_environment or args.foreground_grant else 'ExtensionController'
+    component = 'AppModel' if args.local_temporary_retry else 'ExtensionRelayBootstrap' if args.business_environment or args.foreground_grant else 'ExtensionController'
     name = Path('apple/GhostermApp/Sources/GhostermAppModel/' + component + '.swift' if mac else
                 'android/app/src/main/java/com/hanxi/ghosterm/' + component + '.kt')
     original = (ROOT / name).read_bytes()
@@ -80,8 +81,9 @@ def execute(args, serial=None):
             command = [sys.executable, ROOT / 'scripts/test-plugin-execution-ssh-app.py',
                 *(['--macos'] if mac else ['--android', serial]), '--project', source,
                 '--build', args.build, '--node', args.node, '--sdk', args.sdk,
+                *(['--local'] if args.local_temporary_retry else []),
                 *(['--attach'] if args.foreground_grant else []),
-                '--case', 'node:direct:no-approval' if args.foreground_grant else 'node:direct:client-directory-link' if args.client_directory else
+                '--case', 'node:local:temporary-retry' if args.local_temporary_retry else 'node:direct:no-approval' if args.foreground_grant else 'node:direct:client-directory-link' if args.client_directory else
                 'node:direct:client-resource' if args.client_instance else
                 'node:direct:client-no-approval' if args.client_workspace else
                 'node:direct:process-environment' if args.business_environment else 'node:direct:resource']
@@ -91,10 +93,10 @@ def execute(args, serial=None):
                     start = output.find("Test Suite 'Selected tests'")
                     transcript = output[start:]
                     valid = (start >= 0 and re.search(r'Executed 1 test, with 1 failure', transcript)
-                             and ('XCTAssertNotNil failed' in transcript if (args.foreground_grant or args.client_workspace or args.client_directory) else
+                             and ('XCTAssertTrue failed' in transcript if args.local_temporary_retry else 'XCTAssertNotNil failed' in transcript if (args.foreground_grant or args.client_workspace or args.client_directory) else
                                   'XCTAssertTrue failed' in transcript if args.client_instance else
                                   'XCTAssertEqual failed:' in transcript)
-                             and (args.foreground_grant or args.client_workspace or args.client_directory or args.client_instance or args.business_environment or 'RPCState.unknown' in transcript))
+                             and (args.local_temporary_retry or args.foreground_grant or args.client_workspace or args.client_directory or args.client_instance or args.business_environment or 'RPCState.unknown' in transcript))
                 else:
                     start = output.find('INSTRUMENTATION_STATUS: class=')
                     transcript = output[start:]
@@ -107,7 +109,7 @@ def execute(args, serial=None):
                     ['Process crashed', 'AppNotIdleException', 'TimeoutException', 'Compilation error',
                      'INSTRUMENTATION_FAILED', 'AddressSanitizer', 'runtime error:']), output
             else:
-                assert code == 0 and 'EXECUTION SSH APP PASS: 1 actual cases' in output, output
+                assert code == 0 and ('EXECUTION LOCAL APP PASS: 1 actual cases' if args.local_temporary_retry else 'EXECUTION SSH APP PASS: 1 actual cases') in output, output
 
         def artifact():
             if not mac:
@@ -118,7 +120,11 @@ def execute(args, serial=None):
 
         check('baseline'); baseline = artifact()
         text = original.decode()
-        if args.foreground_grant:
+        if args.local_temporary_retry:
+            begin = 'temporaryOnly = temporary.phase != .active'
+            assert text.count(begin) == 1
+            a = text.index(begin); b = a + len(begin); replacement = 'temporaryOnly = false'
+        elif args.foreground_grant:
             begin = 'guard attachment.authorized, attachment.instance' if mac else 'require(attachment.authorized && attachment.instance'
             assert text.count(begin)==1
             a=text.index(begin);b=a+len(begin)
@@ -171,14 +177,15 @@ def execute(args, serial=None):
         check('restored'); restored = artifact()
         assert target.read_bytes() == original and (ROOT / name).read_bytes() == original
         receipt = dict(accepted=True, platform='macos' if mac else 'android',
-            groups=['explicit-foreground-attachment-grant' if args.foreground_grant else 'native-publication-directory-nofollow' if args.client_directory else
+            groups=['local-temporary-cleanup-retry' if args.local_temporary_retry else 'explicit-foreground-attachment-grant' if args.foreground_grant else 'native-publication-directory-nofollow' if args.client_directory else
                     'native-publication-runtime-instance' if args.client_instance else
                     'explicit-client-workspace-grant' if args.client_workspace else
                     'selected-business-environment' if args.business_environment else 'ui-cadence-resource-throttle'], source_sha256=sha(target),
             artifact_sha256=dict(baseline=baseline, mutant=mutant, restored=restored), commands=commands,
-            scope='Owned Native App/loopback SSH/Node actual resource or mapped business process; single normal assertion red, same build control green, restore; no accounts/models')
+            scope=('Owned macOS Native local gterm/Node, retained temporary cleanup retry' if args.local_temporary_retry else
+                   'Owned Native App/loopback SSH/Node actual resource or mapped business process') + '; single normal assertion red, same build control green, restore; no accounts/models')
         if args.receipt: args.receipt.write_text(json.dumps(receipt, indent=2) + '\n')
-        print(('FOREGROUND GRANT' if args.foreground_grant else 'CLIENT DIRECTORY' if args.client_directory else 'CLIENT INSTANCE' if args.client_instance else 'CLIENT WORKSPACE' if args.client_workspace else 'BUSINESS ENV' if args.business_environment else 'PUMP') + ' MUTATION PASS: one compiled ordinary assertion red / same build control green / restore / SHA256', flush=True)
+        print(('LOCAL TEMPORARY' if args.local_temporary_retry else 'FOREGROUND GRANT' if args.foreground_grant else 'CLIENT DIRECTORY' if args.client_directory else 'CLIENT INSTANCE' if args.client_instance else 'CLIENT WORKSPACE' if args.client_workspace else 'BUSINESS ENV' if args.business_environment else 'PUMP') + ' MUTATION PASS: one compiled ordinary assertion red / same build control green / restore / SHA256', flush=True)
 
 
 def main():
@@ -186,6 +193,7 @@ def main():
     target = p.add_mutually_exclusive_group(required=True)
     target.add_argument('--macos', action='store_true'); target.add_argument('--headless-api', choices=['29', '36']); target.add_argument('--android', help='explicit owned test device serial')
     mode = p.add_mutually_exclusive_group()
+    mode.add_argument('--local-temporary-retry', action='store_true', help='retry obsolete Core handles after local temporary cleanup retained its owner (macOS)')
     mode.add_argument('--foreground-grant', action='store_true', help='remove explicit permission to connect the selected existing foreground instance')
     mode.add_argument('--client-directory', action='store_true', help='follow a symlink instead of opening only the selected actual directory')
     mode.add_argument('--client-instance', action='store_true', help='admit a publication action for an obsolete Runtime identity')
@@ -194,6 +202,7 @@ def main():
     for key in ['build', 'node', 'sdk']: p.add_argument('--' + key, type=Path, required=True)
     p.add_argument('--receipt', type=Path); args = p.parse_args()
     if not __debug__: raise RuntimeError('Run checks with Python assertions enabled')
+    if args.local_temporary_retry and not args.macos: p.error('--local-temporary-retry requires --macos')
     if args.receipt and not args.receipt.resolve().is_relative_to(ROOT / 'tmp'): p.error('receipt must be under project tmp')
     if args.macos: execute(args)
     elif args.android:execute(args,args.android)

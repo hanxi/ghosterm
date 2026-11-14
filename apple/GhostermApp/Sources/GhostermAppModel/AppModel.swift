@@ -56,6 +56,7 @@ public final class AppModel: ObservableObject {
     /// offered until a build explicitly includes that runtime.
     public let extensionController: ExtensionController?
     @Published public private(set) var extensionLastLocalProcess: ExtensionController.ProcessState?
+    @Published public private(set) var extensionLastLocalTemporary: ExtensionLocalTemporaryState?
 
     public struct ExtensionRun: Sendable {
         public let packageID: String
@@ -1134,7 +1135,7 @@ public final class AppModel: ObservableObject {
                                      localLaunch: ExtensionLocalLaunch? = nil) async {
         guard let extensionController else { extensionRunIssue = "此构建未启用插件运行时"; return }
         guard !extensionRunBusy, extensionRun == nil else { extensionRunIssue = "已有插件运行或授权流程"; return }
-        extensionRunBusy = true; extensionRunIssue = nil; extensionLastLocalProcess = nil
+        extensionRunBusy = true; extensionRunIssue = nil; extensionLastLocalProcess = nil; extensionLastLocalTemporary = nil
         do {
             let selected = try await extensionController.resolve(command: command, selectedID: packageID,
                                                                   selectedDigest: packageDigest)
@@ -1227,6 +1228,7 @@ public final class AppModel: ObservableObject {
             try? await extensionController.stopSSHChannel()
             try? await extensionController.releaseFinished()
             extensionLastLocalProcess = try? await extensionController.localProcessState()
+            extensionLastLocalTemporary = try? await extensionController.localTemporaryState()
             extensionRun = nil; extensionRunInvocation = nil
         }
         extensionRunBusy = false
@@ -1285,7 +1287,11 @@ public final class AppModel: ObservableObject {
         extensionRunBusy = true; extensionRunIssue = nil
         let runtimeOwnsSession = extensionRun?.runtime != nil
         do {
-            if extensionRun?.runtime != nil {
+            var temporaryOnly = false
+            if extensionRun?.localLaunch != nil, let temporary = try await extensionController.localTemporaryState() {
+                temporaryOnly = temporary.phase != .active
+            }
+            if !temporaryOnly, extensionRun?.runtime != nil {
                 try await extensionController.stopRuntime()
                 var stopped = false
                 for _ in 0..<200 {
@@ -1296,7 +1302,7 @@ public final class AppModel: ObservableObject {
                 }
                 guard stopped else { throw GhostermError.failed("插件 Runtime 未在停止期限内结束，保留 owner 供重试") }
             }
-            if !runtimeOwnsSession, let session = extensionRun?.session,
+            if !temporaryOnly, !runtimeOwnsSession, let session = extensionRun?.session,
                session.phase != GhostermCore.ExtensionSession.Phase.ended.rawValue,
                session.phase != GhostermCore.ExtensionSession.Phase.closed.rawValue {
                 try await extensionController.stopSession()
@@ -1312,6 +1318,7 @@ public final class AppModel: ObservableObject {
             }
             try await extensionController.releaseFinished()
             extensionLastLocalProcess = try? await extensionController.localProcessState()
+            extensionLastLocalTemporary = try? await extensionController.localTemporaryState()
             extensionRun = nil; extensionRunInvocation = nil
             codexThreadID = nil; codexMessageDraft = ""
             codexTurnActive = false
@@ -1320,13 +1327,15 @@ public final class AppModel: ObservableObject {
             pendingExtensionRPCHandles.removeAll()
         } catch {
             extensionLastLocalProcess = try? await extensionController.localProcessState()
+            extensionLastLocalTemporary = try? await extensionController.localTemporaryState()
             extensionRunIssue = "释放插件资源失败：\(error)"
         }
         extensionRunBusy = false
     }
 
     public func retryLocalExtensionCleanup() async {
-        guard let extensionController, extensionRun == nil, !extensionRunBusy, extensionLastLocalProcess != nil else { return }
+        guard let extensionController, extensionRun == nil, !extensionRunBusy,
+              extensionLastLocalProcess != nil || extensionLastLocalTemporary != nil else { return }
         extensionRunBusy = true
         try? await extensionController.stopRuntime()
         try? await extensionController.stopSession()
@@ -1334,6 +1343,7 @@ public final class AppModel: ObservableObject {
         do { try await extensionController.releaseFinished(); extensionRunIssue = nil }
         catch { extensionRunIssue = "释放本机插件资源失败，仍保留 owner：\(error)" }
         extensionLastLocalProcess = try? await extensionController.localProcessState()
+        extensionLastLocalTemporary = try? await extensionController.localTemporaryState()
         extensionRunBusy = false
     }
 

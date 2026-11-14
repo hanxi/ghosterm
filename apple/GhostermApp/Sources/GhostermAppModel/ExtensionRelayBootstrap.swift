@@ -59,13 +59,16 @@ public enum ExtensionRelayBootstrap {
             self.authorized = authorized
         }
         public var reviewDescription: String {
+            reviewDescription(temporaryLabel: "执行端临时目录")
+        }
+        public func reviewDescription(temporaryLabel: String) -> String {
             let detail: String
             switch runtime {
             case .exec: detail = "Exec（使用已检查包内的原生入口）"
             case .node(let node):
                 detail = "Node \(node.version) · \(node.executable)\n可执行 SHA-256：\(node.sha256)\nHost SDK：\(node.sdkDirectory)\nSDK catalog SHA-256：\(node.sdkCatalogSHA256)"
             }
-            return detail + "\n执行端临时目录：\(temporaryDirectory)\n进程执行：" + (authorized ? "本次已明确允许" : "尚未允许")
+            return detail + "\n\(temporaryLabel)：\(temporaryDirectory)\n进程执行：" + (authorized ? "本次已明确允许" : "尚未允许")
         }
     }
 

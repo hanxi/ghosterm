@@ -118,10 +118,10 @@ struct ExtensionsPane: View {
                                 TextField("本机工作目录", text: $entry.localWorkingDirectory)
                                     .accessibilityIdentifier("plugin-local-working-directory")
                                 if entry.attachExisting || entry.executionDraft.selection == nil {
-                                    TextField("本机临时目录", text: $entry.localTemporaryDirectory)
+                                    TextField("本机临时根目录（每次新建私有子目录）", text: $entry.localTemporaryDirectory)
                                         .accessibilityIdentifier("plugin-local-temporary-directory")
                                 }
-                                Toggle("允许本次运行所填本机 gterm（最长十分钟）", isOn: $entry.localAllowed)
+                                Toggle("允许本次运行所填本机 gterm 并清理其私有临时目录（最长十分钟）", isOn: $entry.localAllowed)
                                     .accessibilityIdentifier("plugin-local-allow")
                                 Text("核对程序来源与摘要。修改连接、命令或依赖后须重新允许；插件能力仍会另行确认。")
                                     .font(DS.Font.caption).foregroundStyle(.secondary)
@@ -199,6 +199,13 @@ struct ExtensionsPane: View {
             }
 
             if let run = model.extensionRun { activeRun(run) }
+            if model.extensionRun == nil, let temporary = model.extensionLastLocalTemporary {
+                localTemporaryState(temporary)
+                if model.extensionRunIssue != nil, model.extensionLastLocalProcess == nil {
+                    Button("重试释放本机临时目录") { Task { await model.retryLocalExtensionCleanup() } }
+                        .disabled(model.extensionRunBusy).accessibilityIdentifier("plugin-local-temporary-retry")
+                }
+            }
             if model.extensionRun == nil, let process = model.extensionLastLocalProcess {
                 Text("上次本机进程：\(process.childExited ? "已观察退出" : "退出结果未知") · reap：\(process.reaped ? "完成" : "待确认") · code：\(process.exitCode.map(String.init) ?? "未知") · signal：\(process.termSignal.map(String.init) ?? "无")")
                     .font(DS.Font.caption).accessibilityIdentifier("plugin-local-final-state")
@@ -283,6 +290,15 @@ struct ExtensionsPane: View {
     }
 
     @ViewBuilder
+    private func localTemporaryState(_ temporary: ExtensionLocalTemporaryState) -> some View {
+        Text("\(temporary.detail) · \(temporary.directory)").font(DS.Font.caption).textSelection(.enabled)
+            .accessibilityIdentifier("plugin-local-temporary-state")
+        Text("目录清理与任务结果分开；宿主退出或目录移除不能确认其它业务进程已停止。")
+            .font(DS.Font.caption).foregroundStyle(.secondary)
+        if temporary.error != 0 { Text("临时清理错误：\(temporary.error)").font(DS.Font.caption).foregroundStyle(.red) }
+    }
+
+    @ViewBuilder
     private func activeRun(_ run: AppModel.ExtensionRun) -> some View {
         VStack(alignment: .leading, spacing: DS.Padding.s) {
             Text("插件运行").font(DS.Font.labelEmphasis)
@@ -292,6 +308,7 @@ struct ExtensionsPane: View {
                 Text(local.reviewDescription).font(DS.Font.caption).textSelection(.enabled)
                     .accessibilityIdentifier("plugin-local-review")
             }
+            if let temporary = model.extensionLastLocalTemporary ?? run.runtime?.temporary ?? run.session?.temporary { localTemporaryState(temporary) }
             if let process = model.extensionLastLocalProcess ?? run.runtime?.process ?? run.session?.process {
                 Text("本机进程：\(process.childExited ? "已观察退出" : "尚无退出结果") · reap：\(process.reaped ? "完成" : "待确认") · code：\(process.exitCode.map(String.init) ?? "未知") · signal：\(process.termSignal.map(String.init) ?? "无")")
                     .font(DS.Font.caption).accessibilityIdentifier("plugin-local-process-state")
@@ -307,7 +324,7 @@ struct ExtensionsPane: View {
                 .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
             Text("参数：\(run.arguments.isEmpty ? "无" : run.arguments.map { String(reflecting: $0) }.joined(separator: " "))")
                 .font(DS.Font.caption).textSelection(.enabled)
-            Text("Executor 运行档：\(run.executorAttachment?.reviewDescription ?? run.executorExecution?.reviewDescription ?? "Portable JS（内嵌运行时）")")
+            Text("Executor 运行档：\(run.executorAttachment?.reviewDescription ?? run.executorExecution?.reviewDescription(temporaryLabel: run.localLaunch == nil ? "执行端临时目录" : "本机临时根目录（每次新建私有子目录）") ?? "Portable JS（内嵌运行时）")")
                 .font(DS.Font.caption).textSelection(.enabled)
                 .accessibilityIdentifier("plugin-consent-executor-runtime")
             Text(run.clientWorkspace?.reviewDescription ?? "Client 本机资源目录：未开放")

@@ -5939,3 +5939,92 @@ Android 本机产品证据，不增加 macOS CI 二十份。
 全部自有 runner / 子进程 / SSH 服务 / 原生测试退出，四份收据与 Root 输入、保留二进制
 再次对拍后，移除 **1,564 个临时根入口 / 6,626 项 / 72.1 MiB 账面分配**。tmp 只保留
 目录本身与原三份 eq-*，逐一核对原 SHA256 不变；系统只读目录句柄保留，不停止非本轮进程。
+
+### S5 实施第七批：Native 私有临时目录归属与有限清理（2026-11-15）
+
+先复现第六批未取全的 SIGKILL 失败：工程内实际 App → gterm → Node 的 pending-loss 中，
+Native 已观察宿主 SIGKILL / reap，观察到的 PID 全消失，但资源目录、包 / SDK 副本及
+startup.json 仍在。此为真实清理失败，非正常变异断言红；不改原 PID / 暂存清空判据。
+
+本机启动现在将用户所选临时目录作为**根目录**：执行批准后，Native 在该根下原子创建
+新的 `ghosterm-local-<UUID>`，持有 parent / root 的 CLOEXEC fd 及 inode / device，实际
+传入 gterm 的 TMPDIR 为此私有子目录。UI 捕获的执行确认包含该目录生命周期及内容清理；
+所选根、工作目录与兄弟目录不在删除范围内。远端 TMPDIR、公共 Core process provider
+及已有前台实例的配置均不因此重配。连接已有实例时，此子目录只属于新建的 attacher。
+
+`ExtensionLocalTemporaryDirectory` 仅在原生 IO worker 执行。Core channel / Session /
+Runtime 已释放后才开始清理本次 namespace；沿 retained fd 遍历，逐步核对根路径与每级
+目录身份，不跟随 symlink，不 chmod 文件（含硬链接），只将本 scope 的只读目录调整为
+0700 后移除。异设备目录拒绝；不按名称前缀、时间、旧 PID 或一次目录存在就认领旧树。
+这是对本次新建临时 namespace 的 Native 清理许可，不放宽 Core package-stage 对未知
+条目或替换的旧清理规则，也不是同 UID 敌对进程 / OS 沙箱或已停止任意后代的证明。
+
+每 step 最多 64 项，深度 64、单次 16,384 项；不是递归 Foundation 删除或无限清扫。
+FS 系统调用延迟不能硬限时，调度仍在原两秒 close 预算内有限推进。归属变化、限额、
+不支持名称 / 类型、IO 失败均保留 owner / 状态与错误，阻止下一次本机或 SSH 启动，供
+用户显式重试；新 mkdir 成功后即使后续 open / 校验失败也不丢弃 owner。恢复原路径后
+重新打开目录 cursor 继续，关闭 fd 结果异常另记，不反复关闭可能已被复用的 fd。
+
+App 状态分别公开宿主进程观察和临时目录 active / removing / retained / removed；清理
+仅剩临时 owner 时，再次停止绕过已释放的 Core 句柄，仍可完成清理。启动失败且未产生
+进程的残留也可展示与重试。目录移除、宿主 reap、组信号 / errno 和业务完成始终分开。
+
+新增严格 SIGKILL 取证同时确认另一个未修复边界：原生 Exec 正在 WAIT handler 时，
+强杀 gterm 后临时树已清空，但 Exec PID 仍活，严格检查保持失败；该 PID 仅由本轮夹具
+核对身份后回收，不能记成生产 owner 回收成功。不将 SIGTERM 通过或 Node 的协作退出
+升级成任意 Exec / 后代树保证。后续需补父 owner 死亡时的受控进程生命周期，不能凭旧
+PID / PGID 扫描或在失去内核身份保留后信号未知进程组。
+
+本批仍不保存临时目录归属 ledger；Native App 自身崩溃 / 重启后不自动重认领这些目录。
+跨重启归属、持久预算、Android 本机产品与完整 P1–P6 继续未完成；前述 Exec 强杀组合
+明确保持失败，不借下述其它组合通过记为崩溃进程回收已实现。
+
+原生最终 **26 项 / 24 组变异**通过，冻结 **480 份输入 / 75 个命令**，与 Root 对拍。
+新增八组分别护 inode 身份、保留 fd 的子目录替换、64 项 quantum、深度、16,384 项限额、
+只读目录准备、残留 owner 阻止启动及清理失败保留 owner；原十六组完整复验。实际 Swift
+对象变化、编译后单条正常断言红、独立主机配置绿、复原目标绿 / SHA256 及最终完整基线绿。
+原两秒预算未增加。异设备检查有实现，未执行真实挂载点专项，不冒充该设备矩阵已验。
+
+九项新 namespace 测试还实测根 / 子目录恢复后的重试、symlink 不跟随、硬链接目标的
+字节 / 权限保留、未认领兄弟目录及 parent fd / 路径不匹配。无效 UTF-8 名称首轮在创建
+夹具时就被 APFS 以 EILSEQ 拒绝，未计生产 guard 通过；最终显式验证该文件系统拒绝，
+不以跳过记绿，也不声称遍历到了 APFS 不接受的名字。首次 inode 变异触发三条正常断言，
+被严格单条判据拒收；后将同一完整保留契约合并为单条断言，条件与文件内容检查均保留，
+再完整复验，不放宽 runner 失败分类。
+
+最终本机普通矩阵 **66/66** 已通过（原 64 加 Node / Exec 的路径变化后实际 App 停止重试）。
+后者仍保留 gterm 非零退出观察，不因 Native 清理成功改写；无进程失联重放或任务恢复。
+本机附着 **24 项**、旧直连 / ProxyJump 的 Node / Exec **20 项**回归通过，Node 明确
+SIGKILL 的 pending / 业务进程 / 资源部分发送 **3 项**全部通过。四轮各 **754 份输入**、
+真实 gterm / Core archive / XCTest / Node / Host SDK 构件均在各轮复核，最终 Root 输入及
+保留二进制再次对拍；本机直接 54 个、附着 22 个、Node 强杀三个 Native 宿主均实际 reaped，
+本次私有目录 removed / error=0；外部 PID 消失和暂存清空另验，不升级为任意后代证明。
+
+`mutation-check-plugin-execution-pump.py --macos --local-temporary-retry` 在隔离 AppModel
+移除 temporary-only 重试保护：真实 Native → gterm → Node 激活后更名私有目录，第一次
+停止保留错误，恢复路径后再次停止。变异为编译后单条正常断言红、同构件配置绿、恢复实际
+场景绿与源 SHA256；实际 AppModel.o 变化，最终完整流程复验通过。不以 mock 状态代替。
+
+完整默认 **Core 577/577 / 181 ABI、Apple 178/3**通过；完整 Apple 应用闸门 **503 项、
+14 项显式跳过、零失败**，新 namespace / owner / TERM-ignore 全执行，真实本机 SSH 与
+WebKit CSS / PNG 更新绘制通过。**Xcode 27.1 / Swift 6.4 / arm64 Release**、C 格式
+**19.1.7 / 251 文件**通过。无 C ABI / JNI / Android / SDK 产物变更，Root Core 保持
+JS-off / tests-on；没有新云端 Swift 6.1.2 / 发行或 Android 本机产品结论，不增加 CI 二十份。
+
+复现沿第六批命令，CLI / Host SDK 示例改在 `tmp/sc/build` / `tmp/sc/sdk`；Node 强杀明确
+加 `--local-fault-signal kill --case node:local:pending-loss` 等三项，不能以默认 SIGTERM
+冒充。Exec 同档 `--case exec:local:pending-loss` 是本批保留的严格失败入口。
+
+最终收据 SHA256（清理临时产物前已完成输入与保留二进制复核）：
+
+- 原生 26 项 / 24 组：`f15abdb487f91b775bf5ba241f58b18d8b02e899c8fd7d763c187f77dac2bfc3`。
+- 本机 66 项：`5c449ad249e22bf2a17389f6b1d2e463123e456f17f5fc27d606b6f33e83521c`。
+- 本机附着 24 项：`534f4403e1b9a73d02277d56981e815cc852a238272cd286510db2c9d2370e74`。
+- SSH 20 项：`09cc8e503bf598c01df607f9163aa72eb01468f23eb094cbbf2af157b84002f0`。
+- Node SIGKILL 三项：`b41b86d921e7026d9ef6c1dd2241c19984d6729df9243bb2fefd674090d43de1`。
+- 实际 App 重试变异：`508210919173877b3f7e49f894722c8411c5f0ab117db483fe6010eeb23e9c9b`。
+
+自有测试、构建、SSH 夹具退出且已观察的新建进程完成清理后，复核全部收据与 Root / 保留二进制，
+清理 **1,544 个临时根入口 / 6,651 项 / 71.9 MiB 账面分配**。tmp 仅留原三份 eq-*，
+SHA256 逐一不变；只读系统目录句柄和非本轮 Java 进程保持，不停止用户服务。只提交本地
+main，不推送或发行，完整插件目标保持未完成。

@@ -110,9 +110,13 @@ import XCTest
             await model.stopExtensionRun()
             let closed = await controller.close(); XCTAssertTrue(closed)
             if let processStatePath, let state = try await controller.localProcessState() {
-                let object: [String: Any] = ["exited": state.childExited, "reaped": state.reaped,
+                var object: [String: Any] = ["exited": state.childExited, "reaped": state.reaped,
                     "code": state.exitCode as Any? ?? NSNull(), "signal": state.termSignal as Any? ?? NSNull(),
                     "groupFenced": state.groupFenced, "groupError": state.groupSignalError, "error": state.error]
+                if let temporary = try await controller.localTemporaryState() {
+                    object["temporary"] = ["directory": temporary.directory, "phase": temporary.phase.rawValue, "error": temporary.error]
+                    XCTAssertEqual(temporary.phase, .removed); XCTAssertEqual(temporary.error, 0)
+                } else { XCTFail("Native temporary ownership observation missing") }
                 try JSONSerialization.data(withJSONObject: object).write(to: processStatePath)
             }
         }
@@ -191,7 +195,13 @@ import XCTest
             let audit = try self.service("audit")
             return model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue && (audit["activated"] as? Bool) == true
         }
-        XCTAssertEqual(try service("audit")["environment"] as? String, try string("temporary"))
+        let actualTemporary: String
+        if localTransport && !attaching {
+            actualTemporary = try XCTUnwrap(run.session?.temporary?.directory)
+            XCTAssertEqual(URL(fileURLWithPath: actualTemporary).deletingLastPathComponent().path, try string("temporary"))
+            XCTAssertTrue(URL(fileURLWithPath: actualTemporary).lastPathComponent.hasPrefix("ghosterm-local-"))
+        } else { actualTemporary = try string("temporary") }
+        XCTAssertEqual(try service("audit")["environment"] as? String, actualTemporary)
         let ttyState = try service("audit")["tty"] as? [Bool]
         let foregroundTmux = payload["foregroundTmux"] as? Bool == true
         let expectedTTY = Array(repeating: foregroundTmux, count: 3)
@@ -314,9 +324,16 @@ import XCTest
                     XCTAssertEqual(digest.count, 64); XCTAssertNotEqual(proof["code"] as? Int, 0)
                 } else {
                     XCTAssertEqual(proof["code"] as? Int, 0)
-                    XCTAssertEqual(count, payload["processOutputSize"] as? Int)
-                    guard count == (payload["processOutputSize"] as? Int) else { return }
-                    XCTAssertEqual(digest, try string("processOutputDigest"))
+                    let expectedSize: Int, expectedDigest: String
+                    if localTransport && !attaching && mode == "process-environment" {
+                        var environment = try XCTUnwrap(payload["processEnvironment"] as? [String: String])
+                        environment["TMPDIR"] = actualTemporary
+                        let bytes = Data((environment.keys.sorted().map { "\($0)=\(environment[$0]!)" }.joined(separator: "\n") + "\n").utf8)
+                        expectedSize = bytes.count; expectedDigest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+                    } else { expectedSize = try XCTUnwrap(payload["processOutputSize"] as? Int); expectedDigest = try string("processOutputDigest") }
+                    XCTAssertEqual(count, expectedSize)
+                    guard count == expectedSize else { return }
+                    XCTAssertEqual(digest, expectedDigest)
                 }
             }
         } else {
@@ -371,7 +388,18 @@ import XCTest
             }
             XCTAssertFalse(try XCTUnwrap(completed).confirmed, "Interruption is not a remote business receipt")
         }
+        if mode == "temporary-retry" {
+            let directory = try XCTUnwrap(run.session?.temporary?.directory)
+            let moved = scratch.appendingPathComponent("moved-private")
+            try FileManager.default.moveItem(atPath: directory, toPath: moved.path)
+            await model.stopExtensionRun()
+            XCTAssertNotNil(model.extensionRunIssue); XCTAssertNotNil(model.extensionRun)
+            XCTAssertEqual(model.extensionLastLocalTemporary?.phase, .retained)
+            try FileManager.default.moveItem(atPath: moved.path, toPath: directory)
+        }
         await model.stopExtensionRun()
-        XCTAssertNil(model.extensionRunIssue); XCTAssertNil(model.extensionRun)
+        if mode == "temporary-retry" {
+            XCTAssertTrue(model.extensionRunIssue == nil && model.extensionRun == nil, "Stop retry must finish retained temporary cleanup after Core handles were released")
+        } else { XCTAssertNil(model.extensionRunIssue); XCTAssertNil(model.extensionRun) }
     }
 }

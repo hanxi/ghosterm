@@ -33,7 +33,7 @@ struct ExecutorRuntimeFields: View {
                 ForEach(ExecutorExecutionDraft.Choice.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }.accessibilityIdentifier("plugin-executor-runtime")
             if draft.choice != .portable {
-                TextField("\(location)已存在的绝对临时目录", text: $draft.temporaryDirectory)
+                TextField(location == "本机" ? "本机临时根目录（每次新建私有子目录）" : "\(location)已存在的绝对临时目录", text: $draft.temporaryDirectory)
                     .accessibilityIdentifier("plugin-execution-tmpdir")
                 if draft.choice == .node {
                     TextField("\(location) Node 规范绝对路径", text: $draft.executable)

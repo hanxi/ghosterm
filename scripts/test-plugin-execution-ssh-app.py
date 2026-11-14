@@ -104,7 +104,7 @@ def execute(args, serial=None):
     tmux_modes = ('allow', 'client-resource', 'process') if stop_terminal else ('allow', 'deny', 'no-approval',
         'client-resource', 'process', 'pending-cancel', 'pending-loss', 'client-stop', 'client-loss')
     pane_loss_modes = ('pending-loss', 'process-loss', 'client-loss')
-    if local_mode: cases += [f'{r}:local:{m}' for r in runtime_types for m in ('local-no-approval','local-digest','local-cwd')]
+    if local_mode: cases += [f'{r}:local:{m}' for r in runtime_types for m in ('local-no-approval','local-digest','local-cwd','temporary-retry')]
     selected = args.case or ([case for case in cases if case.split(':')[2] in pane_loss_modes] if kill_front else [case for case in cases if case.split(':')[2] in attach_modes] if attaching else [case for case in cases if case.split(':')[2] in tmux_modes] if topology else cases)
     if kill_front and (not attaching or not topology or any(case.split(':')[2] not in pane_loss_modes for case in selected)):
         raise RuntimeError('Pane fault requires explicit tmux attachment and pending / process / client loss')
@@ -235,7 +235,8 @@ def execute(args, serial=None):
                     expected_output = ('\n'.join(f'{name}={value}' for name, value in sorted(selected_environment.items())) + '\n').encode() \
                         if mode == 'process-environment' else (str(workspace) + '\n').encode() if mode == 'process-cwd' else resource_bytes
                     payload.update(processExecutable=str(utility), processDigest=sha(utility), processSignal=int(signal.SIGTERM),
-                        processOutputDigest=hashlib.sha256(expected_output).hexdigest(), processOutputSize=len(expected_output))
+                        processOutputDigest=hashlib.sha256(expected_output).hexdigest(), processOutputSize=len(expected_output),
+                        processEnvironment=selected_environment)
                     foreground = None
                     if attaching:
                         endpoint = root/'i';endpoint.mkdir(mode=0o700)
@@ -331,8 +332,9 @@ def execute(args, serial=None):
                                         marker = attach_observation / 'gterm-pid' if attaching else observation / 'gterm-pid'
                                         pid = int(marker.read_text())
                                         if pid not in owned_pids or identity(pid) != owned_pids[pid]: raise RuntimeError('Owned local fault target no longer matches')
-                                        os.kill(pid, signal.SIGTERM)
-                                        local_fault.update(pid=pid, signal=int(signal.SIGTERM), kind='local-transport-termination')
+                                        number = signal.SIGKILL if args.local_fault_signal == 'kill' else signal.SIGTERM
+                                        os.kill(pid, number)
+                                        local_fault.update(pid=pid, signal=int(number), kind='local-transport-termination')
                                         result['ownedFault'] = dict(local_fault)
                                     elif fault is not None:fault.disconnect()
                                     else:raise RuntimeError('No owned network fault wire')
@@ -474,9 +476,11 @@ def main():
     parser.add_argument('--attach', action='store_true', help='explicitly connect an owned foreground IPC instance through SSH')
     parser.add_argument('--kill-front-pane', action='store_true', help='close only the owned foreground pane during an in-flight operation')
     parser.add_argument('--local', action='store_true', help='macOS Native local process transport; no SSH listener or credentials')
+    parser.add_argument('--local-fault-signal', choices=['term', 'kill'], default='term', help='signal only the identity-checked owned local transport')
     parser.add_argument('--sdk', type=Path, required=True); parser.add_argument('--case', action='append'); parser.add_argument('--receipt', type=Path)
     args = parser.parse_args()
     if args.local and (not args.macos or args.tmux): parser.error('--local currently requires macOS without tmux')
+    if args.local_fault_signal != 'term' and not args.local: parser.error('--local-fault-signal requires --local')
     if args.project and not args.project.resolve().is_relative_to(ROOT / 'tmp'): parser.error('--project must be an owned project tmp directory')
     if args.headless_api:
         helper = load('execution_owned_headless', 'scripts/test-plugin-codex-patch-android.py')

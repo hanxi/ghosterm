@@ -136,4 +136,30 @@ final class LocalExtensionTests: XCTestCase {
         let state = try await controller.localProcessState(); XCTAssertTrue(state?.reaped == true && state?.termSignal == SIGKILL)
     }
 
+    func testRetainedTemporaryOwnerBlocksNewLaunchUntilRestoration() async throws {
+        let (base, helper, digest) = try fixture(); defer { try? FileManager.default.removeItem(at: base) }
+        let controller = try controller()
+        let launch = ExtensionLocalLaunch(executableSHA256: digest, workingDirectory: base.path, temporaryDirectory: base.path, authorized: true)
+        let opened = try await controller.openLocalChannel(executable: helper, arguments: [helper, "hold-silent"], launch: launch)
+        let directory = try XCTUnwrap(opened.temporary?.directory), moved = base.appendingPathComponent("moved-private")
+        let end = ProcessInfo.processInfo.systemUptime + 2
+        while (try? Data(contentsOf: base.appendingPathComponent("ready"))) != Data([82]), ProcessInfo.processInfo.systemUptime < end {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        try FileManager.default.moveItem(atPath: directory, toPath: moved.path)
+        try await controller.stopSSHChannel()
+        do { try await controller.releaseFinished(); XCTFail("renamed temporary owner was discarded") }
+        catch { XCTAssertEqual((error as? ExtensionLocalTemporaryDirectory.Failure)?.code, ESTALE) }
+        do {
+            _ = try await controller.openLocalChannel(executable: helper, arguments: [helper, "hold-silent"], launch: launch)
+            XCTFail("new launch replaced a retained temporary owner")
+        } catch { }
+        try? await controller.stopSSHChannel()
+        try FileManager.default.moveItem(atPath: moved.path, toPath: directory)
+        try await controller.releaseFinished()
+        let state = try await controller.localTemporaryState(); XCTAssertEqual(state?.phase, .removed)
+        let closed = await controller.close(); XCTAssertTrue(closed)
+        XCTAssertEqual(try? Data(contentsOf: base.appendingPathComponent("ready")), Data([82]))
+    }
+
 }
