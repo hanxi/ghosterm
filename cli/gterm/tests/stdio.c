@@ -90,6 +90,11 @@ int main(int argc, char **argv) {
             close(fd[1]);
         }
         const char *trusted = !strcmp(mode, "digest") ? client_digest : package_digest;
+        const char *attach = getenv("GT_GTERM_FIXTURE_ATTACH");
+        if (attach) {
+            execl(binary, binary, "relay", "--attach", attach, (char *)NULL);
+            _exit(127);
+        }
         const char *external = getenv("GT_GTERM_FIXTURE_RUNTIME");
         if (external) {
             const char *args[72];
@@ -590,6 +595,9 @@ int main(int argc, char **argv) {
                    : !strcmp(mode, "cancel") || !strcmp(mode, "active-cancel") ? 130
                    : !strcmp(mode, "dispose-error")                            ? 5
                                                                                : 0;
+    if (getenv("GT_GTERM_FIXTURE_ATTACH")) {
+        expected = !strcmp(mode, "cancel") || !strcmp(mode, "active-cancel") ? 130 : 0;
+    }
     CHECK(WEXITSTATUS(status) == expected);
     if (!strcmp(mode, "runtime-failure") || !strcmp(mode, "runtime-unsupported")) {
         CHECK(decided && !confirmed);

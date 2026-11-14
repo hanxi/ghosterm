@@ -1,7 +1,7 @@
 # gterm 前台 CLI
 
 独立构件，不加入 Ghosterm App 包、不安装远端 helper、不修改 shell 配置。
-当前接入诊断、固定包兼容性检查及显式 Portable / Node / Exec stdio Executor；普通命令分发、本机 IPC、安装/升级仍未实现。
+当前接入诊断、固定包兼容性检查、显式 Portable / Node / Exec stdio Executor，以及一次性前台 IPC 的 CLI 首片；普通命令分发、App IPC 入口、安装/升级仍未实现。
 它不内置业务命令，未接分发的顶层命令返回 `COMMAND_ACTIVATION_UNAVAILABLE`。
 
 从仓库根目录构建（产物在工程 `tmp/`）：
@@ -54,7 +54,39 @@ gterm relay --stdio --trust-development-digest PACKAGE_SHA256 --client-digest CL
 默认运行档仍为 Portable；Node / Exec 的显式配置见下节。
 这是当前的前台启动协议，不是向交互终端写回的通道；stdin/stdout 任一为 TTY 都拒绝。
 stdout 只传 Core 协议，诊断只到 stderr，且不记录参数、模块异常文本或授权 token。
-Host 必须管理专属 stdio 的对端归属；本入口不实现本机 socket 认证、发现或后台服务。
+Host 必须管理专属 stdio 的对端归属；`--stdio` 本身不实现 socket 认证。一次性本机接入使用下节的独立入口。
+
+### 一次性前台 IPC（CLI 首片）
+
+```text
+gterm relay --listen ABSOLUTE_PRIVATE_DIRECTORY [与 --stdio 相同的显式包/运行档参数]
+gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY
+```
+
+调用方先创建自己拥有的 0700 目录，路径必须为规范绝对路径，不跟最终目录链接。
+listen 是原前台 Executor 进程，不 fork daemon，也不输出发现信息或配对秘密到终端。
+attach 由明确选定目标的无 PTY SSH / 原生管道启动，stdin / stdout 必须为 pipe 或 stream socket。
+两端核对系统提供的对端 UID；临时 0600 permit 保存 256 位随机实例值，不进 argv、TTY 或日志。
+正确接入后，先移除 permit 和 socket 名字，再交给既有 stdio Session；包摘要匹配、consent、
+能力与资源授权全部照常执行。接入不等于来源信任，也不授予插件运行许可。
+
+同账户恶意原生程序不在此边界内，拥有该目录读取权的可信调用方必须得到用户授权；这不是 OS 沙箱。
+等待总计 30 秒，单次认证最多 1 秒，最多接收 16 次连接；attach 接入最多 5 秒，转发最多 10 分钟。
+转发每方向仅持有 16 KiB，stdin EOF 在已排队数据发送后执行 SHUT_WR，反方向继续读取。
+attach 的 0 只表示传输结束，业务成功仍看 Session 结果及原前台进程退出，不能从 EOF 推断。
+正常退出 / 取消只移除本进程仍匹配 inode 的入口；替换文件保留并报清理失败。
+SIGKILL 可能留下无效文件，进程退出即无可附着的 listener，不自动删残留、重启或复用。
+
+当前 App 尚无本机发现 / attach 配置页，亦未将该入口接到 App TerminalSurface 或已有 tmux pane；
+不从终端输出推断目标，不自动 SSH 转发或恢复旧会话。复现：
+
+```sh
+python3 scripts/test-gterm-ipc.py --build tmp/gterm-build
+python3 scripts/mutation-check-gterm-ipc.py --build tmp/gterm-build
+```
+
+测试使用工程内隔离 endpoint 和真实 Core Host Session；变异只编译 CLI 副本，
+ASan/UBSan 覆盖 CLI 对象，Core archive 与 native Host / 配置对照共享且不被修改。
 
 `--trust-development-digest` 是调用方对这份固定开发包字节的显式来源选择，不是发布者
 签名认证，也不代替 Host 的本次 Session 决定。包捕获、完整性/兼容检查、摘要和完整

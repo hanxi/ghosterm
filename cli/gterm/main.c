@@ -2,6 +2,7 @@
 #define _DARWIN_C_SOURCE
 #include "ghosterm.h"
 #include "stdio.h"
+#include "ipc.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -25,6 +26,8 @@ static int usage(void) {
           "       gterm plugin resolve --host-json FILE [--select ID DIGEST] -- COMMAND DIRECTORY "
           "DIGEST [DIRECTORY DIGEST]...\n"
           "       gterm plugin check [--host-json FILE] -- DIRECTORY\n"
+          "       gterm relay --listen ABSOLUTE_PRIVATE_DIRECTORY [stdio options...]\n"
+          "       gterm relay --attach ABSOLUTE_PRIVATE_DIRECTORY\n"
           "       gterm relay --stdio [--runtime node|exec --allow-process-execution] "
           "[--node-runtime PATH VERSION SHA256 --node-sdk DIRECTORY SHA256] "
           "--trust-development-digest SHA256 --client-digest SHA256 "
@@ -474,15 +477,21 @@ int main(int argc, char **argv) {
         return 5;
     }
     int result;
+    if (argc >= 4 && !strcmp(argv[1], "relay") && !strcmp(argv[2], "--listen")) {
+        return gterm_ipc_listen(argv[3], argc - 4, argv + 4, &interrupted);
+    }
+    if (argc == 4 && !strcmp(argv[1], "relay") && !strcmp(argv[2], "--attach")) {
+        return gterm_ipc_attach(argv[3], &interrupted);
+    }
     if (argc >= 3 && !strcmp(argv[1], "relay") && !strcmp(argv[2], "--stdio")) {
         return gterm_stdio(argc - 3, argv + 3, &interrupted);
     }
     if (argc == 2 && !strcmp(argv[1], "doctor")) {
         bool available = gt_ext_runtime_support() == GT_OK;
-        printf(
-            "{\"portableJs\":\"%s\",\"commandActivation\":\"%s\",\"localIpc\":\"unsupported\"}\n",
-            available ? "available" : "unsupported",
-            available ? "explicit-stdio-only" : "unsupported");
+        printf("{\"portableJs\":\"%s\",\"commandActivation\":\"%s\",\"localIpc\":\"foreground-one-"
+               "shot\"}\n",
+               available ? "available" : "unsupported",
+               available ? "explicit-stdio-or-ipc" : "unsupported");
         result = available ? 0 : 4;
     } else if (argc >= 3 && !strcmp(argv[1], "plugin") && !strcmp(argv[2], "resolve")) {
         result = package_resolve(argc - 3, argv + 3);
