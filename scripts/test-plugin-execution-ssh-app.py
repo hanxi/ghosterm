@@ -256,10 +256,13 @@ def execute(args, serial=None):
                     def observe():
                         native_marker = attach_observation / 'gterm-pid' if attaching else observation / 'gterm-pid'
                         if local_mode and not native_marker.exists():
-                            table = subprocess.check_output(['ps', '-axo', 'pid=,command='], text=True, timeout=5)
-                            found = [int(f[0]) for line in table.splitlines() if len(f := line.strip().split(None, 1)) == 2
-                                and f[1].startswith(str(build / 'gterm') + ' ')
-                                and (('--attach ' + str(endpoint)) in f[1] if attaching else str(package) in f[1])]
+                            table = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,command='], text=True, timeout=5)
+                            matches = {int(f[0]): int(f[1]) for line in table.splitlines() if len(f := line.strip().split(None, 2)) == 3
+                                and f[2].startswith(str(build / 'gterm') + ' ')
+                                and (('--attach ' + str(endpoint)) in f[2] if attaching else str(package) in f[2])}
+                            # Fork-local monitors retain their owner's command line;
+                            # only the root matching executable is the gterm entry.
+                            found = [pid for pid,parent in matches.items() if parent not in matches]
                             if len(found) > 1: raise RuntimeError('Ambiguous owned local process')
                             if found: native_marker.write_text(str(found[0]))
                         answer = {'wrapperStarted': (observation / 'gterm-pid').exists(), 'activated': (observation / 'activated').exists(),
@@ -297,6 +300,16 @@ def execute(args, serial=None):
                             if answer['businessParentVerified']:
                                 table = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,comm='], text=True, timeout=5)
                                 owners = {parent, answer.get('runtime-pid')}
+                                direct_owners = set(owners)
+                                # One verified monitor hop: never adopt unrelated
+                                # processes merely because their names match cat.
+                                rows = [line.split(None, 2) for line in table.splitlines()]
+                                for fields in rows:
+                                    if len(fields) == 3 and int(fields[1]) in direct_owners:
+                                        pid = int(fields[0]); observed = identity(pid)
+                                        if observed and str(package) in observed and str(build / 'gterm') in observed:
+                                            owned_pids.setdefault(pid, observed)
+                                            owners.add(pid)
                                 candidates = []
                                 for line in table.splitlines():
                                     fields = line.split(None, 2)

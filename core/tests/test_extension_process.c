@@ -74,6 +74,19 @@ static void pause_ms(long milliseconds) {
     }
 }
 
+static bool await_exit(gt_ext_process_t *process, gt_ext_process_info_t *info) {
+    for (int i = 0; i < 2000; i++) {
+        if (gt__ext_process_poll(process, info) != GT_OK) {
+            return false;
+        }
+        if (info->exited) {
+            return true;
+        }
+        pause_ms(1);
+    }
+    return false;
+}
+
 static int spawn_checks(void) {
     gt_ext_process_t *process = NULL;
     const char *args[] = {"cat"};
@@ -190,8 +203,9 @@ static int environment_policy(void) {
     CHECK(read_all(process, output, sizeof(output), &size));
     CHECK(size == sizeof("GT_EXTENSION_PROCESS_OWNER_TEST=controlled\n") - 1 &&
           !memcmp(output, "GT_EXTENSION_PROCESS_OWNER_TEST=controlled\n", size));
+    CHECK(gt__ext_process_read_stdout(process, output, sizeof(output)).state == GT_EXT_PROCESS_EOF);
     gt_ext_process_info_t info;
-    CHECK(gt__ext_process_poll(process, &info) == GT_OK && info.exited && info.exit_code == 0);
+    CHECK(await_exit(process, &info) && info.exit_code == 0 && !info.term_signal);
     CHECK(destroy(&process) == GT_OK && process == NULL);
     CHECK(unsetenv("GT_EXTENSION_PROCESS_OWNER_LEAK") == 0);
     return 0;
@@ -214,7 +228,7 @@ static int cwd_policy(void) {
     output[size - 1] = 0;
     CHECK(!strcmp(output, expected));
     gt_ext_process_info_t info;
-    CHECK(gt__ext_process_poll(process, &info) == GT_OK && info.exited && info.exit_code == 0);
+    CHECK(await_exit(process, &info) && info.exit_code == 0 && !info.term_signal);
     CHECK(destroy(&process) == GT_OK && process == NULL);
     return 0;
 }

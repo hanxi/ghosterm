@@ -62,6 +62,10 @@ gt_status_t gt__ext_process_poll(gt_ext_process_t *, gt_ext_process_info_t *);
  * the owned process group while its leader PID is still reserved, then poll to
  * reap. This does not claim that grandchildren have been reaped by this owner. */
 gt_status_t gt__ext_process_observe_exit(gt_ext_process_t *, gt_ext_process_info_t *);
+/* Actual executable exit has been reported and group authority was handed back
+ * to its monitor; only nonblocking retirement remains. Never signal that pgid. */
+bool gt__ext_process_reaping(const gt_ext_process_t *);
+int gt__ext_process_group_error(const gt_ext_process_t *);
 /* Refuses to free a running child. Caller must stop and reap before destroy. */
 gt_status_t gt__ext_process_destroy(gt_ext_process_t **);
 #endif

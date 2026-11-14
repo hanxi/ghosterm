@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "extension/process-owner.h"
+#include "extension/process-guard.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -17,6 +18,12 @@
 
 struct gt_ext_process {
     pid_t pid;
+    pid_t group;
+    int control_fd, report_fd;
+    gt_process_guard_message_t report;
+    size_t report_size;
+    bool observed, released, final;
+    int group_error;
     int stdin_fd;
     int stdout_fd;
     int stderr_fd;
@@ -35,6 +42,17 @@ static int pipe_cloexec(int fds[2]) {
         return -1;
     }
     for (size_t i = 0; i < 2; i++) {
+        if (fds[i] < 3) {
+            int copy = fcntl(fds[i], F_DUPFD_CLOEXEC, 3);
+            if (copy < 0) {
+                close(fds[0]);
+                close(fds[1]);
+                fds[0] = fds[1] = -1;
+                return -1;
+            }
+            close(fds[i]);
+            fds[i] = copy;
+        }
         int flags = fcntl(fds[i], F_GETFD);
         if (flags < 0 || fcntl(fds[i], F_SETFD, flags | FD_CLOEXEC) < 0) {
             int error = errno;
@@ -167,12 +185,15 @@ gt_status_t gt__ext_process_spawn(const char *executable,
     int output[2] = {-1, -1};     /* child writes [1], parent reads [0] */
     int errors[2] = {-1, -1};     /* child stderr */
     int exec_error[2] = {-1, -1}; /* child writes exec errno; CLOEXEC EOF means exec */
+    int control[2] = {-1, -1}, reports[2] = {-1, -1};
     if (pipe_cloexec(input) || pipe_cloexec(output) || pipe_cloexec(errors) ||
-        pipe_cloexec(exec_error)) {
+        pipe_cloexec(exec_error) || pipe_cloexec(control) || pipe_cloexec(reports)) {
         close_pipe(input);
         close_pipe(output);
         close_pipe(errors);
         close_pipe(exec_error);
+        close_pipe(control);
+        close_pipe(reports);
         return GT_ERR_IO;
     }
 
@@ -195,9 +216,12 @@ gt_status_t gt__ext_process_spawn(const char *executable,
         close_pipe(output);
         close_pipe(errors);
         close_pipe(exec_error);
+        close_pipe(control);
+        close_pipe(reports);
         return GT_ERR_IO;
     }
     process->stdin_fd = process->stdout_fd = process->stderr_fd = -1;
+    process->control_fd = process->report_fd = -1;
     for (size_t i = 0; i < argc; i++) {
         child_argv[i] = (char *)argv[i];
     }
@@ -207,43 +231,17 @@ gt_status_t gt__ext_process_spawn(const char *executable,
 
     pid_t pid = fork();
     if (pid == 0) {
-        sigset_t empty;
-        sigemptyset(&empty);
-        (void)sigprocmask(SIG_SETMASK, &empty, NULL);
-        struct sigaction action;
-        memset(&action, 0, sizeof(action));
-        action.sa_handler = SIG_DFL;
-        sigemptyset(&action.sa_mask);
-        (void)sigaction(SIGPIPE, &action, NULL);
-        (void)sigaction(SIGTERM, &action, NULL);
-        (void)sigaction(SIGINT, &action, NULL);
-        (void)sigaction(SIGHUP, &action, NULL);
-        (void)sigaction(SIGQUIT, &action, NULL);
-        if (setpgid(0, 0)) {
-            int error = errno;
-            (void)write(exec_error[1], &error, sizeof(error));
-            _exit(126);
-        }
-        if (fchdir(cwd_fd)) {
-            int error = errno;
-            (void)write(exec_error[1], &error, sizeof(error));
-            _exit(126);
-        }
-        if (dup2(input[0], STDIN_FILENO) < 0 || dup2(output[1], STDOUT_FILENO) < 0 ||
-            dup2(errors[1], STDERR_FILENO) < 0) {
-            int error = errno;
-            (void)write(exec_error[1], &error, sizeof(error));
-            _exit(126);
-        }
-        for (int fd = 3; fd < max_fd; fd++) {
-            if (fd != exec_error[1]) {
-                (void)close(fd);
-            }
-        }
-        execve(executable, child_argv, child_environment);
-        int error = errno;
-        (void)write(exec_error[1], &error, sizeof(error));
-        _exit(127);
+        gt__process_guard_run(executable,
+                              child_argv,
+                              child_environment,
+                              cwd_fd,
+                              input[0],
+                              output[1],
+                              errors[1],
+                              exec_error[1],
+                              control[0],
+                              reports[1],
+                              max_fd);
     }
     free(child_argv);
     free(child_environment);
@@ -252,6 +250,8 @@ gt_status_t gt__ext_process_spawn(const char *executable,
         close_pipe(output);
         close_pipe(errors);
         close_pipe(exec_error);
+        close_pipe(control);
+        close_pipe(reports);
         free(process);
         return GT_ERR_IO;
     }
@@ -264,6 +264,10 @@ gt_status_t gt__ext_process_spawn(const char *executable,
     errors[1] = -1;
     close(exec_error[1]);
     exec_error[1] = -1;
+    close(control[0]);
+    control[0] = -1;
+    close(reports[1]);
+    reports[1] = -1;
 
     int child_error = 0;
     int handshake_error = 0;
@@ -283,7 +287,27 @@ gt_status_t gt__ext_process_spawn(const char *executable,
     }
     close(exec_error[0]);
     exec_error[0] = -1;
+    gt_process_guard_message_t start = {0};
+    if (!got && !handshake_error) {
+        size_t size = 0;
+        while (size < sizeof(start)) {
+            ssize_t n = read(reports[0], (char *)&start + size, sizeof(start) - size);
+            if (n < 0 && errno == EINTR) {
+                continue;
+            }
+            if (n <= 0) {
+                handshake_error = EIO;
+                break;
+            }
+            size += (size_t)n;
+        }
+        if (start.kind != GT_PROCESS_GUARD_START || start.pid <= 0 || start.pid == pid) {
+            handshake_error = EIO;
+        }
+    }
     if (got || handshake_error) {
+        close_pipe(control);
+        close_pipe(reports);
         int status;
         while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
         }
@@ -293,9 +317,12 @@ gt_status_t gt__ext_process_spawn(const char *executable,
         free(process);
         return child_error == ENOENT && !handshake_error ? GT_ERR_NOT_FOUND : GT_ERR_IO;
     }
-    if (set_nonblocking(input[1]) || set_nonblocking(output[0]) || set_nonblocking(errors[0])) {
+    if (set_nonblocking(input[1]) || set_nonblocking(output[0]) || set_nonblocking(errors[0]) ||
+        set_nonblocking(control[1]) || set_nonblocking(reports[0])) {
         int saved = errno;
-        (void)kill(-pid, SIGKILL);
+        (void)kill(-start.pid, SIGKILL);
+        close_pipe(control);
+        close_pipe(reports);
         int status;
         while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
         }
@@ -307,6 +334,9 @@ gt_status_t gt__ext_process_spawn(const char *executable,
         return GT_ERR_IO;
     }
     process->pid = pid;
+    process->group = (pid_t)start.pid;
+    process->control_fd = control[1];
+    process->report_fd = reports[0];
     process->stdin_fd = input[1];
     input[1] = -1;
     process->stdout_fd = output[0];
@@ -342,8 +372,11 @@ gt__ext_process_write(gt_ext_process_t *process, const void *data, size_t size) 
 }
 
 static gt_ext_process_io_t process_read(int *fd, void *buffer, size_t size) {
-    if (!fd || *fd < 0 || !buffer || !size || size > GT_EXT_PROCESS_IO_MAX) {
+    if (!fd || !buffer || !size || size > GT_EXT_PROCESS_IO_MAX) {
         return process_io(GT_EXT_PROCESS_ERROR, 0, GT_ERR_INVALID_ARG);
+    }
+    if (*fd < 0) {
+        return process_io(GT_EXT_PROCESS_EOF, 0, GT_OK);
     }
     ssize_t count = read(*fd, buffer, size);
     if (count > 0) {
@@ -387,12 +420,13 @@ gt__ext_process_wait(gt_ext_process_t *process, unsigned interests, int wake_fd,
             {(interests & GT_EXT_PROCESS_WAIT_INPUT) ? process->stdin_fd : -1, POLLOUT, 0},
             {(interests & GT_EXT_PROCESS_WAIT_OUTPUT) ? process->stdout_fd : -1, POLLIN, 0},
             {(interests & GT_EXT_PROCESS_WAIT_ERROR) ? process->stderr_fd : -1, POLLIN, 0},
+            {process->report_fd, POLLIN, 0},
             {wake_fd, POLLIN, 0}};
         if (clock_gettime(CLOCK_MONOTONIC, &t)) {
             return GT_ERR_IO;
         }
         uint64_t now = (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
-        int ready = poll(fds, 4, now < end ? (int)(end - now) : 0);
+        int ready = poll(fds, 5, now < end ? (int)(end - now) : 0);
         if (ready < 0 && errno == EINTR) {
             if (now >= end) {
                 return GT_OK;
@@ -402,7 +436,7 @@ gt__ext_process_wait(gt_ext_process_t *process, unsigned interests, int wake_fd,
         if (ready < 0) {
             return GT_ERR_IO;
         }
-        for (size_t i = 0; i < 4; i++) {
+        for (size_t i = 0; i < 5; i++) {
             if (fds[i].revents & POLLNVAL) {
                 return GT_ERR_IO;
             }
@@ -422,6 +456,60 @@ gt_status_t gt__ext_process_close_stdin(gt_ext_process_t *process) {
     return GT_OK;
 }
 
+/* Fixed-size lifecycle records only; terminal/process bytes bypass this pipe. */
+static gt_status_t process_reports(gt_ext_process_t *process) {
+    while (process->report_fd >= 0) {
+        ssize_t n = read(process->report_fd,
+                         (char *)&process->report + process->report_size,
+                         sizeof(process->report) - process->report_size);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return GT_OK;
+        }
+        if (n == 0 && process->final && !process->report_size) {
+            close(process->report_fd);
+            process->report_fd = -1;
+            return GT_OK;
+        }
+        if (n <= 0) {
+            return GT_ERR_IO;
+        }
+        process->report_size += (size_t)n;
+        if (process->report_size != sizeof(process->report)) {
+            continue;
+        }
+        gt_process_guard_message_t *m = &process->report;
+        if (m->pid != process->group || m->exit_code < 0 || m->exit_code > 255 ||
+            m->term_signal < 0 || (m->exit_code && m->term_signal) || m->group_error < 0) {
+            return GT_ERR_IO;
+        }
+        if (m->kind == GT_PROCESS_GUARD_EXIT && !process->observed && !process->released) {
+            process->observed = true;
+            process->exit_code = m->exit_code;
+            process->term_signal = m->term_signal;
+        } else if (m->kind == GT_PROCESS_GUARD_FINAL && process->observed && process->released &&
+                   !process->final && m->exit_code == process->exit_code &&
+                   m->term_signal == process->term_signal) {
+            process->final = true;
+            process->group_error = m->group_error;
+        } else {
+            return GT_ERR_IO;
+        }
+        process->report_size = 0;
+    }
+    return GT_OK;
+}
+
+bool gt__ext_process_reaping(const gt_ext_process_t *process) {
+    return process && process->released;
+}
+
+int gt__ext_process_group_error(const gt_ext_process_t *process) {
+    return process ? process->group_error : 0;
+}
+
 gt_status_t gt__ext_process_signal(gt_ext_process_t *process, int signal_number) {
     struct sigaction action;
     if (!process || signal_number <= 0 ||
@@ -429,10 +517,22 @@ gt_status_t gt__ext_process_signal(gt_ext_process_t *process, int signal_number)
          sigaction(signal_number, NULL, &action))) {
         return GT_ERR_INVALID_ARG;
     }
-    if (process->exited) {
+    if (process->exited || process->released) {
+        errno = ESRCH;
         return GT_ERR_NOT_FOUND;
     }
-    if (kill(-process->pid, signal_number) == 0 || errno == ESRCH) {
+    if (process_reports(process) != GT_OK) {
+        return GT_ERR_IO;
+    }
+    /* The monitor keeps the executable unreaped until our release command.
+     * Refuse known monitor failure rather than signal an unreserved group. */
+    siginfo_t monitor;
+    memset(&monitor, 0, sizeof(monitor));
+    if (waitid(P_PID, (id_t)process->pid, &monitor, WEXITED | WNOHANG | WNOWAIT) ||
+        monitor.si_pid) {
+        return GT_ERR_IO;
+    }
+    if (kill(-process->group, signal_number) == 0 || errno == ESRCH) {
         return GT_OK;
     }
     return GT_ERR_IO;
@@ -442,23 +542,27 @@ gt_status_t gt__ext_process_poll(gt_ext_process_t *process, gt_ext_process_info_
     if (!process || !out) {
         return GT_ERR_INVALID_ARG;
     }
-    if (!process->exited) {
+    memset(out, 0, sizeof(*out));
+    if (process_reports(process) != GT_OK) {
+        return GT_ERR_IO;
+    }
+    if (process->observed && !process->released) {
+        const char command = 1;
+        process->released = true;
+        if (write_without_sigpipe(process->control_fd, &command, 1) != 1) {
+            return GT_ERR_IO;
+        }
+    }
+    if (!process->exited && process->final) {
         int status = 0;
         pid_t waited;
         do {
             waited = waitpid(process->pid, &status, WNOHANG);
         } while (waited < 0 && errno == EINTR);
-        if (waited < 0) {
+        if (waited < 0 || (waited > 0 && (!WIFEXITED(status) || WEXITSTATUS(status)))) {
             return GT_ERR_IO;
         }
-        if (waited == process->pid) {
-            process->exited = true;
-            if (WIFEXITED(status)) {
-                process->exit_code = WEXITSTATUS(status);
-            } else if (WIFSIGNALED(status)) {
-                process->term_signal = WTERMSIG(status);
-            }
-        }
+        process->exited = waited == process->pid;
     }
     *out = (gt_ext_process_info_t){process->exited, process->exit_code, process->term_signal};
     return GT_OK;
@@ -469,29 +573,10 @@ gt_status_t gt__ext_process_observe_exit(gt_ext_process_t *process, gt_ext_proce
         return GT_ERR_INVALID_ARG;
     }
     memset(out, 0, sizeof(*out));
-    if (process->exited) {
-        *out = (gt_ext_process_info_t){true, process->exit_code, process->term_signal};
-        return GT_OK;
+    if (process_reports(process) != GT_OK) {
+        return GT_ERR_IO;
     }
-    siginfo_t info;
-    memset(&info, 0, sizeof(info));
-    int status;
-    do {
-        status = waitid(P_PID, (id_t)process->pid, &info, WEXITED | WNOHANG | WNOWAIT);
-    } while (status && errno == EINTR);
-    if (status) {
-        return errno == ENOSYS ? GT_ERR_UNSUPPORTED : GT_ERR_IO;
-    }
-    if (info.si_pid) {
-        out->exited = true;
-        if (info.si_code == CLD_EXITED) {
-            out->exit_code = info.si_status;
-        } else if (info.si_code == CLD_KILLED || info.si_code == CLD_DUMPED) {
-            out->term_signal = info.si_status;
-        } else {
-            return GT_ERR_IO;
-        }
-    }
+    *out = (gt_ext_process_info_t){process->observed, process->exit_code, process->term_signal};
     return GT_OK;
 }
 
@@ -509,6 +594,12 @@ gt_status_t gt__ext_process_destroy(gt_ext_process_t **owner) {
     }
     if (process->stderr_fd >= 0) {
         close(process->stderr_fd);
+    }
+    if (process->control_fd >= 0) {
+        close(process->control_fd);
+    }
+    if (process->report_fd >= 0) {
+        close(process->report_fd);
     }
     memset(process, 0, sizeof(*process));
     free(process);

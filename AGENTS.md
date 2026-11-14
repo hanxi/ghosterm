@@ -1154,3 +1154,21 @@ Native 遍历证据，真实挂载点专项未执行。Exec WAIT 强杀仍有活
 不因临时目录移除升级业务 / 任意后代成功；本轮夹具按身份回收该 PID，不算生产 owner
 修复。Native App 崩溃后的 ledger / 持久预算、Exec 父死亡生命周期及完整 P1–P6 未完成；
 原件见插件计划 S5 第七批，默认 JS-off，未发行。
+
+
+**插件 S5 父死亡监护（2026-11-15）**：共享 process owner 增加 fork-local POSIX 监护，
+父方 liveness EOF 后 TERM / 100 ms KILL 本次独占组；保留实际 leader 的 WNOWAIT 身份到
+组处理后再 reap，父方交回 lease 后不再发组信号。真实退出 / 监护最终释放 / 业务结果独立，
+数据仍走原管道，无随包 helper / 服务或新 ABI。Channel、Node/Exec、jobs 与 Portable JS
+清理适配异步退休，EOF 可重复观察。默认 Core 588/181、JS/SSH-on 完整 814、公共通道
+原九 C / 两 Swift 变异与六 Swift、两档 Android 各六项 / 配置一项 / 旧通道及 Session 四项
+同轮通过；Android 为同 APK / 专用 no-window arm64 / 4 KiB，未重跑旧 JNI/Kotlin 变异。
+macOS 本机 66 / IPC 附着 24 / SIGKILL 六 / SSH-ProxyJump 二十项最终同源通过。
+正常退出不替代未知业务；第七批 Exec WAIT 孤儿已在上述严格对象范围修复，不扩成任意
+后代保证。监护本身外部强杀、逃离组、权限变化、Native App 重启 ledger / 持久预算及完整
+P1–P6 仍未完成。新父死亡 / 升级 KILL / 同组后代 / 真实退出码及信号 / 报文拒绝 / 重复 EOF 七组 O1
+ASan/UBSan 变异（无 LSan）编译后单条正常断言红、同 archive 配置绿、复原 / SHA256。
+Native 26 项无跳过，完整 App 503 项含十五跳过 / 零失败、WebKit、macOS arm64 Release、
+Android JS-enabled 未签名 Release / 四模块 lint、C 格式 255 文件通过；R8 复用缓存。
+前置失败、runner INT/TERM 收尾与最终构建收据见插件计划 S5 第八批；默认 JS-off，
+未发行，不增加 CI 二十份。

@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-15 前台 tmux 附着与私有本机进程 provider。状态：**P0 技术风险探针与首个 wire v1 envelope 已关闭并冻结；当前生产双向业务只走无 PTY SSH exec，普通 TTY 回包明确不支持，QuickJS-NG 0.18.0 为首选引擎。Core / gterm 与 macOS、Android 首条 SSH 插件调用链已接入 wire v1；一次性前台 local IPC 和两端显式 SSH attach 已接实验入口，范围见文末 S5 第一至三批；S5 第四批已补私有本机进程 provider，公共绑定 / App 本机直接启动 / 自动发现仍未实现。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation。API 29 / API 36 arm64 无窗口 AVD 已通过真实系统 SAF 文件夹选择、Settings 来源摘要批准、双跳 Preview、Session consent、Client Runtime 与资源面板收件。macOS 真实双跳 SSH 的 Markdown / PNG 资源驱动生产 `ExtensionsPane` 离屏绘制；另一真实 Preview Session 收到的 HTML / CSS / PNG 快照现交给独立生产 WebKit Coordinator 绘制探针；插件导入、审查批准、启动参数、consent 与停止控件现有稳定 accessibility identifier。官方 Preview Executor 的路径长度边界已按 Unicode code point 与冻结 argsSchema 对齐，附件列表现在可用 `\\,` 表示文件名内的逗号。API 36 / 16 KiB 页真实双跳 Preview 收件、Markdown + PNG 同目录附件渲染及 Settings 停止 / 释放已通过；冷启动下的默认 25 ms Client Runtime CPU slice 曾失败，Android Host 现显式使用仍受限的 100 ms worker slice，清空应用数据后复验通过。P3 Codex 已将官方 stable 批准嵌套载荷、turn 输入及 turn/item 通知关键字段与 CLI 生成类型和 JSON Schema 精确对拍；无 DOM conversation facade 与生产 Executor helper 已组合真实锁定 CLI 的版本核对、initialize、thread/start 和关闭 reap。macOS AppModel 已接收有界 `codex.event`，原生面板现能启动 thread、发送文本、请求中断，并对命令/文件批准显示请求参数及显式批准一次 / 拒绝按钮；Xcode 27.1 下本轮 Apple 全量闸门为 406 项通过、5 项跳过，仍无真实产品 Codex turn / approval E2E 或模型调用证据。Native process mapping 表单、Runtime `ctx.process` 和 Core owner 已分批接入；两端已有 thread / turn / approval 控件、消息与工具活动时间线及有界补丁预览。官方 Codex 候选包现可构建为目录导入产物，编译后入口 fixture 与原生 metadata / integrity 对拍通过；macOS AppModel 的单跳与双跳隔离 SSH 已用真实 CLI 验证无模型 thread/start、原生事件收件及停止，拒绝跳板主机密钥时 Executor 未启动；真实模型 turn / approval 与安装 / 启动 UI 整链仍待验；完整补丁受控协议夹具的两端证据见最新 P3 进展。用户真机仍待验。**
+日期：2026-11-05，更新至 2026-11-15 前台 tmux 附着与私有本机进程 provider。状态：**P0 技术风险探针与首个 wire v1 envelope 已关闭并冻结；当前生产双向业务只走无 PTY SSH exec，普通 TTY 回包明确不支持，QuickJS-NG 0.18.0 为首选引擎。Core / gterm 与 macOS、Android 首条 SSH 插件调用链已接入 wire v1；一次性前台 local IPC 和两端显式 SSH attach 已接实验入口，范围见文末 S5 第一至三批；S5 第四至七批已补本机进程 provider、公共绑定、macOS 显式本机启动 / IPC 附着与私有临时目录清理；第八批已接父 owner 死亡时的 POSIX 进程组监护并完成受控对象验收。自动发现、跨重启暂存归属与持久预算仍未完成。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation。API 29 / API 36 arm64 无窗口 AVD 已通过真实系统 SAF 文件夹选择、Settings 来源摘要批准、双跳 Preview、Session consent、Client Runtime 与资源面板收件。macOS 真实双跳 SSH 的 Markdown / PNG 资源驱动生产 `ExtensionsPane` 离屏绘制；另一真实 Preview Session 收到的 HTML / CSS / PNG 快照现交给独立生产 WebKit Coordinator 绘制探针；插件导入、审查批准、启动参数、consent 与停止控件现有稳定 accessibility identifier。官方 Preview Executor 的路径长度边界已按 Unicode code point 与冻结 argsSchema 对齐，附件列表现在可用 `\\,` 表示文件名内的逗号。API 36 / 16 KiB 页真实双跳 Preview 收件、Markdown + PNG 同目录附件渲染及 Settings 停止 / 释放已通过；冷启动下的默认 25 ms Client Runtime CPU slice 曾失败，Android Host 现显式使用仍受限的 100 ms worker slice，清空应用数据后复验通过。P3 Codex 已将官方 stable 批准嵌套载荷、turn 输入及 turn/item 通知关键字段与 CLI 生成类型和 JSON Schema 精确对拍；无 DOM conversation facade 与生产 Executor helper 已组合真实锁定 CLI 的版本核对、initialize、thread/start 和关闭 reap。macOS AppModel 已接收有界 `codex.event`，原生面板现能启动 thread、发送文本、请求中断，并对命令/文件批准显示请求参数及显式批准一次 / 拒绝按钮；Xcode 27.1 下本轮 Apple 全量闸门为 406 项通过、5 项跳过，仍无真实产品 Codex turn / approval E2E 或模型调用证据。Native process mapping 表单、Runtime `ctx.process` 和 Core owner 已分批接入；两端已有 thread / turn / approval 控件、消息与工具活动时间线及有界补丁预览。官方 Codex 候选包现可构建为目录导入产物，编译后入口 fixture 与原生 metadata / integrity 对拍通过；macOS AppModel 的单跳与双跳隔离 SSH 已用真实 CLI 验证无模型 thread/start、原生事件收件及停止，拒绝跳板主机密钥时 Executor 未启动；真实模型 turn / approval 与安装 / 启动 UI 整链仍待验；完整补丁受控协议夹具的两端证据见最新 P3 进展。用户真机仍待验。**
 
 **仍未完成：** P2 官方 Preview 的完整交互与端到端验证。真实双跳 SSH 资源现已到达 macOS AppModel 并由生产 `ExtensionsPane` 实际绘制；macOS `fileImporter` 选包、页面摘要批准、启动表单、真实 consent 按钮与收件之间的完整用户点击链仍未串成一次 UI E2E。headless WebKit probe 已用合成夹具及真实 AppModel / SSH 收件快照分别验证 CSS / PNG 绘制、资源刷新，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；它仍不替代 SwiftUI 内嵌 WebKit 的用户点击链。Android MainActivity Settings 的真实 SAF 选包 / 页面批准、SSH 收件、Markdown + PNG 绘制、停止 / 释放已在 API 29 / 36 常规页模拟器及 API 36 / 16 KiB 页模拟器分批通过。用户真机及完整生命周期 / 多格式矩阵仍待验。插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P3 已验证官方 CLI stable schema、策略决定和 turn/item 通知字段，生产 conversation facade 与真实 CLI 的无模型 thread/start/关闭链已组合；两端已有原生 turn / approval 控件、结构化消息 / 工具活动和有界 diff 预览；官方目录包可构建，仍没有真实模型 turn / approval 往返、安装启动到会话的完整双端 UI E2E 或 Ghosterm 插件闭环。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
@@ -6028,3 +6028,99 @@ JS-off / tests-on；没有新云端 Swift 6.1.2 / 发行或 Android 本机产品
 清理 **1,544 个临时根入口 / 6,651 项 / 71.9 MiB 账面分配**。tmp 仅留原三份 eq-*，
 SHA256 逐一不变；只读系统目录句柄和非本轮 Java 进程保持，不停止用户服务。只提交本地
 main，不推送或发行，完整插件目标保持未完成。
+
+### S5 实施第八批：父 owner 死亡后的 POSIX 进程组监护（2026-11-15）
+
+第七批已复现的原生 Exec WAIT 孤儿进程由共享 `process-owner` 修复：每次授权启动增加
+一个 fork-local C 监护进程，真实可执行程序仍有自己的独占进程组、raw argv / cwd / 显式
+环境。监护仅继承本次控制 / 报告 fd，关闭其它 owner 的 liveness 写端，真实 exec 前再
+关闭全部非 stdio fd。终端 / 业务字节仍直接走原管道，不经过监护消息或 UI 事件队列。
+没有随包 helper、安装、后台服务、会话恢复或新的公共 ABI。
+
+父 owner 专有写端消失时，监护 TERM 本次实际进程组，100 ms 后仍未退出则 KILL；保留
+真实 leader 的 WNOWAIT 身份直到组处理结束，再实际 waitpid，避免对已释放 / 复用 PGID
+发信号。正常存活父方仍直接信号这个被保留的组；观察真实退出后显式交还 lease，之后
+拒绝父方再次信号该 PGID。监护通过专用小报文回传真实程序退出码 / 信号和最终回收，
+父方还须 reap 监护自身才算完整释放，不用监护的退出码冒充程序结果。
+
+监护用 SIGCHLD self-pipe 与控制 fd 阻塞等待，不以一毫秒定时轮询消耗空闲 CPU；父方
+查询 / waitpid 仍非阻塞，退出观察与异步退休分别推进。Channel / Node-Exec runtime /
+业务 jobs / Portable JS 的清理调用方同步适配退休期间状态，不将“程序已退出但监护还没
+reap”当错误，不对已交回 lease 的组补发信号。stdout / stderr EOF 现在可重复观察，
+避免 EOF 后等待异步回收时第二次读被当参数错误。原生清理断言期限仍两秒。
+
+首轮定向 45 项为 43 绿、两项私有环境 / cwd 测试在 EOF 后立即要求同步回收失败；改为
+原期限内确认最终状态，保留退出码 / 信号断言。新增 Core 父死亡三组与更新后的 48 项
+定向通过。首轮默认全量 579/580 的 pipe-exec 第二次 EOF 读取失败，修复上述重复 EOF 后
+定向通过。首轮 enabled 全量 813/814 的 Portable process-output 关闭失败，已修复退休
+期间的额外 TERM / KILL 路径，最终 enabled 全量 814/814 通过；以上首轮失败不计通过。
+
+严格实际 macOS App → gterm → Node / 原生 Exec 的 pending / 业务进程 / 资源部分发送
+SIGKILL 六项最终组合通过：宿主保持实际 signal=9 / reap，已观察 Executor / 业务进程
+消失，暂存清空，未决请求仍 UNKNOWN。测试观察器按唯一夹具参数与父子关系区分真实
+gterm 和继承其 argv 的监护，业务 PID 可经过一个经验证的监护 hop，不依名称猜用户进程。
+这只证明此受控进程组与已观察对象；主动逃离组、监护本身被外部强杀、权限变化、Native
+App 重启后的暂存 ledger / 持久预算、任意后代树及整个 P1–P6 仍不据此标完成。
+
+新增生命周期报文拒绝夹具只向本次 pipe 写入数据，模拟 struct 不调用 PID / signal /
+waitpid，验证错误身份 / 顺序 / 范围、截断与未知不折叠。首轮直接破坏监护最终报文时，
+原通道同时产生业务和清理两条断言，未被当作单条正常变异红；转用专门的报文拒绝契约。
+随后发现仅靠 EOF 也会拒绝未知报文，故保持写端活跃要求完整坏报文到达即报错，重新
+验证，未放宽 runner 的正常红判据。
+
+O1 ASan/UBSan、LSan-off 的父死亡 / 升级 KILL / 同组后代 / 真实退出码 / 信号 / 报文顺序 /
+重复 EOF 七组变异最终取证通过：实际重编对象、正常单条断言红、同 archive 配置绿、
+复原及 SHA256。故障夹具五秒独立 alarm 只作失败后的收尾，不计两秒回收判据；启动就绪
+失败单独返回 setup 错误，不能计父死亡断言红。新 runner 另在受控 configure 阶段验证
+INT / TERM：实际 runner 非零退出、所属 configure 进程消失、副本移除与 Root SHA 不变；
+此专项不冒充在活动原生变异编译中断时的验收。
+
+公共通道原有九 C / 两 Swift 变异、六 Swift 观察及关闭档同轮复验通过；C 为 O1
+ASan/UBSan、LSan-off。Android 本轮为同一对 APK 的 API 29 / 36、arm64 / 4 KiB、
+各六项进程通道 / 一项独立配置 / 四项旧通道与 Session，均在专用 no-window AVD 通过。
+该设备轮不重跑 JNI / Kotlin 旧三组变异，不冒充 Android 进程死亡专项或本机产品入口。
+macOS 最终同源的本机启动 66、显式 IPC 附着 24、SIGKILL 六项，以及 SSH 直连 /
+ProxyJump 的旧二十项均零失败通过。四份收据各记录 758 份输入，并逐一核对 Root 内容与
+实际 CLI / Core / Node / SDK / XCTest 摘要；不复用第七批构件冒充本次链路。
+最终默认 Core JS-off / tests-on 的 gate **588/588 CTest、181 ABI**，Apple **178/3**、
+JNI **144/37**，clang-format 19.1.7 的 **255 文件**、Python AST 与 diff 检查通过。
+macOS 完整 App gate **503 项、15 项显式跳过、零失败**，真实 SSH / WebKit CSS / PNG
+绘制通过；缺夹具的 TERM-ignore 另由 `test-plugin-execution-app.py --macos --local`
+补跑 **26 项全部执行 / 零失败**，未重跑旧二十四组 Native 变异。Xcode 27.1 / Swift 6.4
+的 arm64 Release、Android JS-enabled 未签名 Release 与 app / bridge / terminal / data
+四模块 lint 通过。Android 本轮实际重新执行 CMake native 构建，R8 为 UP-TO-DATE，
+不冒充重新执行混淆；APK 的 QuickJS-NG 许可与锁定源逐字节一致，来源仍是 dirty。
+没有新云端 Swift 6.1.2 / 发行 / 真机 / Android 本机产品或完整客户端验收，不增加 CI 二十份。
+
+runner 补接共同 timeout 解析时，首轮 INT 探针发现 shell 外壳与 GNU timeout 的独立组
+导致后者未被取消；该失败未计通过，按已记录的本轮身份回收残留。现解析后直接 exec
+实际 timeout，Popen 保留的直接 child PID / 组一致，最终 INT / TERM 两项重验通过。
+这项 runner 收尾修复没有提高 Core 两秒回收、编译、关闭或设备观察预算。
+
+最终收据 SHA256（验收后清理临时原件）：
+
+- 本机 66 项：`d81e6fa70b7b14a7432b5a0c2122cb8f2115e6cfc64a1d9ce395a261b3d3ceea`。
+- 显式附着 24 项：`c861e6b7d318512439f5201a34d55da032d69de83ec567df204ef1d9980d2ce5`。
+- SIGKILL 六项：`53875e518514c2e508648615def5b4a201942d5c4cfcdbc73805a500f4d6f1ca`。
+- SSH 二十项：`8213b686b4d4858ead8c6988d83b66b3e3e0e86861e775435437c3118cbb312c`。
+- Native 26 项：`d27bf8e0666a2326250883721a1b75694d451ad58e99edfd9403d0b282cca39c`。
+- 新七组 / 238 输入：`5b8cc01e201a91a5d7157d0ab93957c667764e8cafc028e751957d8d49946193`。
+- 原公共通道变异 / 完整 enabled Core：`ada21438f34c168e590406647f570282ea98240fc448dbbffa06cba4e03fed36`。
+- 两档设备：`b9eda0e25cc3985951c0c4f04d84023250a2bad3121242e327fc1ea602b83448`。
+- runner 中断：`7e5164481e688a51ae0433aedb27cbaecadc32a5f3df0f40b105f46f93b42e4f`。
+
+本地未签名 Release APK SHA256 为
+`57c2d6d1672e917c4331f96a242c3774420c82da7c188ada24938c1d7235a361`，
+该构建检查收据为 `fbbbc9438c27189d7e6709d5444450100819b1f57b1f5642321553c720ff8fc4`。
+
+复现新增父死亡 / 报文验证与七组隔离变异：
+
+```bash
+python3 scripts/test-plugin-process-guard.py --mutate --receipt tmp/process-guard.json
+python3 scripts/test-plugin-process-channel.py --mutate --apple --full --receipt tmp/process-channel.json
+python3 scripts/test-plugin-process-channel-android.py --headless-api 29 --also-api36 --receipt tmp/process-channel-android.json
+```
+
+本批验证后清理 836 个临时根入口 / 15058 项 / 536.3 MiB 账面分配；
+只留原三份 eq-* 并复核 SHA256。自有 AVD、SSH / Node / Exec / 监护与测试 runner 已结束，
+未结束用户 Ghosterm、已有服务或无关 Java；根 Core 保持默认 JS-off / tests-on。

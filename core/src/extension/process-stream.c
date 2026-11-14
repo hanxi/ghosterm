@@ -62,7 +62,7 @@ static bool observe(process_stream_t *s) {
     if (!child.exited) {
         return true;
     }
-    if (!s->info.group_fenced) {
+    if (!s->info.group_fenced && !s->info.group_signal_error) {
         if (gt__ext_process_signal(s->child, SIGKILL) != GT_OK) {
             int error = errno ? errno : EIO;
             if (error != EPERM) {
@@ -77,9 +77,15 @@ static bool observe(process_stream_t *s) {
             s->info.group_fenced = true;
         }
     }
-    if (gt__ext_process_poll(s->child, &child) != GT_OK || !child.exited) {
+    if (gt__ext_process_poll(s->child, &child) != GT_OK) {
         s->info.cleanup_error = GT_ERR_IO;
         return false;
+    }
+    if (!child.exited) {
+        return true;
+    }
+    if (!s->info.group_signal_error) {
+        s->info.group_signal_error = gt__ext_process_group_error(s->child);
     }
     s->info.child = child;
     s->info.reaped = true;
@@ -87,6 +93,9 @@ static bool observe(process_stream_t *s) {
 }
 
 static bool signal_process(process_stream_t *s, int number) {
+    if (gt__ext_process_reaping(s->child)) {
+        return true;
+    }
     if (gt__ext_process_signal(s->child, number) == GT_OK) {
         if (number == SIGKILL) {
             s->info.group_fenced = true;

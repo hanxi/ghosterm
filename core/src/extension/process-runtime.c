@@ -166,6 +166,9 @@ static bool runtime_live(gt_process_runtime_t *r) {
 }
 
 static void runtime_signal(gt_process_runtime_t *r, int number) {
+    if (gt__ext_process_reaping(r->child)) {
+        return;
+    }
     if (gt__ext_process_signal(r->child, number) == GT_OK) {
         return;
     }
@@ -999,9 +1002,15 @@ gt_process_runtime_phase_t gt__process_runtime_step(gt_process_runtime_t *r) {
             r->killed = true;
         }
         if (process.exited && (r->stdout_eof || r->info.phase == GT_PROCESS_RUNTIME_STOPPING)) {
-            if (gt__ext_process_poll(r->child, &process) != GT_OK || !process.exited) {
+            if (gt__ext_process_poll(r->child, &process) != GT_OK) {
                 runtime_fail(r, GT_ERR_IO, now);
                 return r->info.phase;
+            }
+            if (!process.exited) {
+                return r->info.phase;
+            }
+            if (!r->info.group_signal_error) {
+                r->info.group_signal_error = gt__ext_process_group_error(r->child);
             }
             if (gt__ext_process_destroy(&r->child) != GT_OK) {
                 r->info.cleanup_error = GT_ERR_IO;

@@ -44,6 +44,7 @@ add_library(ghosterm_core STATIC
   src/extension/runtime.c
   src/extension/runtime-resource.c
   src/extension/process-owner.c
+  src/extension/process-guard.c
   src/extension/process-stream.c
   src/extension/process-jobs.c
   src/extension/process-service.c
@@ -308,6 +309,23 @@ target_include_directories(test_runtime PRIVATE src)
 target_link_libraries(test_runtime PRIVATE ghosterm_core)
 target_compile_options(test_runtime PRIVATE -Wall -Wextra -Werror)
 add_executable(test_extension_process tests/test_extension_process.c)
+add_executable(test_process_guard tests/test_process_guard.c)
+get_filename_component(GHOSTERM_PROCESS_GUARD_TMP ${CMAKE_CURRENT_SOURCE_DIR}/../tmp REALPATH)
+target_include_directories(test_process_guard PRIVATE src)
+target_link_libraries(test_process_guard PRIVATE ghosterm_core)
+target_compile_options(test_process_guard PRIVATE -Wall -Wextra -Werror)
+foreach(mode kill term descendants)
+  add_test(NAME process_guard_${mode} COMMAND test_process_guard ${mode} ${GHOSTERM_PROCESS_GUARD_TMP})
+  set_tests_properties(process_guard_${mode} PROPERTIES TIMEOUT 10)
+endforeach()
+add_executable(test_process_guard_protocol tests/test_process_guard_protocol.c)
+target_include_directories(test_process_guard_protocol PRIVATE src)
+target_link_libraries(test_process_guard_protocol PRIVATE ghosterm_core)
+target_compile_options(test_process_guard_protocol PRIVATE -Wall -Wextra -Werror)
+foreach(mode kind pid range conflict truncated eof early-final final)
+  add_test(NAME process_guard_protocol_${mode} COMMAND test_process_guard_protocol ${mode})
+  set_tests_properties(process_guard_protocol_${mode} PROPERTIES TIMEOUT 10)
+endforeach()
 target_include_directories(test_extension_process PRIVATE src)
 target_link_libraries(test_extension_process PRIVATE ghosterm_core)
 target_compile_options(test_extension_process PRIVATE -Wall -Wextra -Werror)

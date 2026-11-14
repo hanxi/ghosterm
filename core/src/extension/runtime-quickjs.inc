@@ -690,9 +690,11 @@ static bool runtime_process_stop(runtime_process_child_t *slot,
     if (now > UINT64_MAX - GT_RUNTIME_PROCESS_STOP_GRACE_MS) {
         return false;
     }
-    if (gt__ext_process_signal(slot->process, SIGTERM) != GT_OK) {
+    if (!gt__ext_process_reaping(slot->process) &&
+        gt__ext_process_signal(slot->process, SIGTERM) != GT_OK) {
         gt_ext_process_info_t info;
-        if (gt__ext_process_poll(slot->process, &info) != GT_OK || !info.exited) {
+        if (gt__ext_process_poll(slot->process, &info) != GT_OK ||
+            (!info.exited && !gt__ext_process_reaping(slot->process))) {
             return false;
         }
     }
@@ -1074,7 +1076,8 @@ static bool runtime_process_step(gt_bridge_runtime_t *r) {
         }
         if (!info.exited && slot->stop_reason != GT_RUNTIME_PROCESS_STOP_NONE && !slot->killed &&
             now >= slot->stop_deadline) {
-            if (gt__ext_process_signal(slot->process, SIGKILL) != GT_OK) {
+            if (!gt__ext_process_reaping(slot->process) &&
+                gt__ext_process_signal(slot->process, SIGKILL) != GT_OK) {
                 return false;
             }
             slot->killed = true;
@@ -1980,7 +1983,8 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
             if (slot->process) {
                 gt_ext_process_info_t info;
                 if (gt__ext_process_poll(slot->process, &info) != GT_OK ||
-                    (!info.exited && gt__ext_process_signal(slot->process, SIGTERM) != GT_OK)) {
+                    (!info.exited && !gt__ext_process_reaping(slot->process) &&
+                     gt__ext_process_signal(slot->process, SIGTERM) != GT_OK)) {
                     r->info.cleanup_error = GT_ERR_IO;
                     return GT_EXT_CLOSE_ERROR;
                 }
@@ -2013,7 +2017,8 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
                 if (slot->process) {
                     gt_ext_process_info_t info;
                     if (gt__ext_process_poll(slot->process, &info) != GT_OK ||
-                        (!info.exited && gt__ext_process_signal(slot->process, SIGKILL) != GT_OK)) {
+                        (!info.exited && !gt__ext_process_reaping(slot->process) &&
+                         gt__ext_process_signal(slot->process, SIGKILL) != GT_OK)) {
                         r->info.cleanup_error = GT_ERR_IO;
                         return GT_EXT_CLOSE_ERROR;
                     }

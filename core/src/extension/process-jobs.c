@@ -61,7 +61,7 @@ static process_job_t *jobs_find(gt_process_jobs_t *j, uint64_t id) {
 }
 
 static gt_status_t jobs_stop_one(gt_process_jobs_t *j, process_job_t *s, uint64_t now) {
-    if (s->info.exited || s->stopping) {
+    if (s->info.exited || s->stopping || gt__ext_process_reaping(s->child)) {
         return GT_OK;
     }
     if (gt__ext_process_signal(s->child, SIGTERM) != GT_OK) {
@@ -241,6 +241,9 @@ gt_status_t gt__process_jobs_step(gt_process_jobs_t *j) {
             }
             if (info.exited && gt__ext_process_poll(s->child, &s->info) != GT_OK) {
                 result = GT_ERR_IO;
+            }
+            if (!j->group_error) {
+                j->group_error = gt__ext_process_group_error(s->child);
             }
         }
         if (j->stopped && s->info.exited) {
