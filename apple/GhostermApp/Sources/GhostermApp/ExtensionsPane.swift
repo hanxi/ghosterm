@@ -13,6 +13,7 @@ struct ExtensionsPane: View {
     @State private var entries: [Entry] = []
     @State private var issue: String?
     @State private var resourceSelection = PluginResourceSelection()
+    @State private var reservationToRelease: ExtensionLocalJournalEntry?
 
     struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
@@ -198,6 +199,7 @@ struct ExtensionsPane: View {
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: DS.Radius.control))
             }
 
+            localReservations
             if let run = model.extensionRun { activeRun(run) }
             if model.extensionRun == nil, let temporary = model.extensionLastLocalTemporary {
                 localTemporaryState(temporary)
@@ -229,6 +231,50 @@ struct ExtensionsPane: View {
             case .failure(let error):
                 issue = "无法选择插件包：\(error.localizedDescription)"
             }
+        }
+    }
+
+    private var localReservations: some View {
+        VStack(alignment: .leading, spacing: DS.Padding.s) {
+            Button("检查本机临时目录记录") { Task { await model.inspectLocalReservations() } }
+                .disabled(model.extensionController == nil || model.localReservationBusy).accessibilityIdentifier("plugin-local-reservations-inspect")
+            if !model.localReservationEntries.isEmpty {
+                Text("已预约 \(model.localReservationEntries.count) × 256 MiB；总预约上限 1 GiB。残留记录继续计入预约，这不是文件系统写入配额。")
+                    .font(DS.Font.caption)
+            }
+            ForEach(model.localReservationEntries) { entry in
+                VStack(alignment: .leading) {
+                    Text(entry.directory).textSelection(.enabled).font(DS.Font.caption)
+                    Text(reservationLocation(entry)).font(DS.Font.caption)
+                    if !entry.held, entry.location == .missing {
+                        Button("释放已消失目录的预约") { reservationToRelease = entry }
+                            .disabled(model.localReservationBusy).accessibilityIdentifier("plugin-local-reservation-release-\(entry.id)")
+                    }
+                }
+            }
+            if let issue = model.localReservationIssue { Text(issue).foregroundStyle(.red).textSelection(.enabled) }
+            Text("只检查已记录的目录身份；不恢复进程或授权，也不删除残留目录。目录仍在或身份不明时继续保留预约。")
+                .font(DS.Font.caption)
+        }
+        .confirmationDialog("确认目录已消失后释放这份预约？", isPresented: Binding(
+            get: { reservationToRelease != nil }, set: { if !$0 { reservationToRelease = nil } }),
+            presenting: reservationToRelease) { entry in
+            Button("重新核对并释放预约") {
+                reservationToRelease = nil
+                Task { await model.releaseMissingLocalReservation(entry, confirmed: true) }
+            }
+            Button("保留预约", role: .cancel) { reservationToRelease = nil }
+        } message: { entry in Text(entry.directory + "\n不会删除任何文件，也不代表旧任务成功或已停止。") }
+    }
+
+    private func reservationLocation(_ entry: ExtensionLocalJournalEntry) -> String {
+        if entry.held { return "本机运行仍在使用，保留预约" }
+        switch entry.location {
+        case .matching: return "目录身份匹配，继续保留预约"
+        case .missing: return "已记录目录目前不存在，可显式重新核对并释放预约"
+        case .changed: return "目录或父目录身份变化，保留预约"
+        case .unbound: return "目录创建结果不明，保留预约"
+        case .unavailable: return "目录位置查不出来，保留预约"
         }
     }
 

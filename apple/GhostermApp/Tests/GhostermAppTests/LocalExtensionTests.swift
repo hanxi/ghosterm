@@ -39,7 +39,10 @@ final class LocalExtensionTests: XCTestCase {
         return (directory, helper.path, digest)
     }
     private func controller() throws -> ExtensionController {
-        try .init(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc"]))
+        var project = URL(fileURLWithPath: #filePath); for _ in 0..<5 { project.deleteLastPathComponent() }
+        let directory = project.appendingPathComponent("tmp/local-controller-journal-\(UUID().uuidString)")
+        addTeardownBlock { if FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) } }
+        return try .init(profile: .init(side: .client, sdkVersion: "1.0.0", protocols: [1], runtimes: ["portable-js"], capabilities: ["session.rpc"]), localJournalDirectory: directory)
     }
     func testLocalWorkerRejectsMissingApprovalBeforeExecution() async throws {
         let (directory, helper, digest) = try fixture(); defer { try? FileManager.default.removeItem(at: directory) }

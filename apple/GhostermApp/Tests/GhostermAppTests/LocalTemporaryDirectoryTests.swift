@@ -4,6 +4,13 @@ import XCTest
 @testable import GhostermAppModel
 
 final class LocalTemporaryDirectoryTests: XCTestCase {
+    private func journal() throws -> ExtensionLocalJournal {
+        var project = URL(fileURLWithPath: #filePath); for _ in 0..<5 { project.deleteLastPathComponent() }
+        let path = project.appendingPathComponent("tmp/native-journal-\(UUID().uuidString)")
+        let journal = try ExtensionLocalJournal(directory: path)
+        addTeardownBlock { try FileManager.default.removeItem(at: path) }
+        return journal
+    }
     private func fixture() throws -> (URL, ExtensionLocalTemporaryDirectory) {
         var project = URL(fileURLWithPath: #filePath); for _ in 0..<5 { project.deleteLastPathComponent() }
         let base = project.appendingPathComponent("tmp/native-temporary-\(UUID().uuidString)")
@@ -12,7 +19,7 @@ final class LocalTemporaryDirectoryTests: XCTestCase {
         let fd = open(base.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { throw GhostermLocalLaunchError.invalid("fixture directory unavailable") }
         defer { Darwin.close(fd) }
-        return (base, try .init(parentFD: fd, base: base.path))
+        return (base, try .init(parentFD: fd, base: base.path, journal: journal()))
     }
     private func finish(_ owner: ExtensionLocalTemporaryDirectory) throws {
         let end = ProcessInfo.processInfo.systemUptime + 2
@@ -125,7 +132,7 @@ final class LocalTemporaryDirectoryTests: XCTestCase {
         try Data("KEEP".utf8).write(to: other.appendingPathComponent("victim"))
         let fd = open(base.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { throw GhostermLocalLaunchError.invalid("fixture unavailable") }; defer { Darwin.close(fd) }
-        let owner = try ExtensionLocalTemporaryDirectory(parentFD: fd, base: other.path)
+        let owner = try ExtensionLocalTemporaryDirectory(parentFD: fd, base: other.path, journal: journal())
         XCTAssertThrowsError(try owner.executionPath()); XCTAssertThrowsError(try owner.closeStep())
         XCTAssertEqual(try names(other.path), ["victim"])
     }

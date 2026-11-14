@@ -12,7 +12,7 @@ public struct ExtensionLocalLaunch: Sendable, Equatable {
         self.temporaryDirectory = temporaryDirectory; self.authorized = authorized
     }
     public var reviewDescription: String {
-        "本机进程 · SHA-256：\(executableSHA256)\n工作目录：\(workingDirectory)\n临时根目录：\(temporaryDirectory)\n每次新建私有子目录，结束后清理其内容；不会清理根目录或工作目录。\n本次执行与临时清理：" + (authorized ? "已明确允许" : "未允许")
+        "本机进程 · SHA-256：\(executableSHA256)\n工作目录：\(workingDirectory)\n临时根目录：\(temporaryDirectory)\n每次新建私有子目录，结束后清理其内容；不会清理根目录或工作目录。\n每次持久预约 256 MiB，总预约上限 1 GiB；残留记录继续占用预约。这不是文件系统写入配额。\n本次执行与临时清理：" + (authorized ? "已明确允许" : "未允许")
     }
     /// Runs only on the Native IO worker. Keeps the verified executable fd until
     /// construction returns; checks the path again before spawn. This does not

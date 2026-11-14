@@ -278,12 +278,13 @@ public actor ExtensionController {
 
     private let worker: Worker
 
-    public init(profile: HostProfile, resourceDirectory: URL? = nil) throws {
+    public init(profile: HostProfile, resourceDirectory: URL? = nil, localJournalDirectory: URL? = nil) throws {
         guard !profile.capabilities.contains("resource.receive") ||
                 (resourceDirectory?.isFileURL == true && resourceDirectory?.path.isEmpty == false) else {
             throw ControllerError.invalidHostProfile
         }
-        worker = Worker(hostJSON: try profile.json(), resourceDirectory: resourceDirectory)
+        worker = Worker(hostJSON: try profile.json(), resourceDirectory: resourceDirectory,
+                        localJournalDirectory: localJournalDirectory ?? resourceDirectory?.appendingPathComponent("NativeLocalRuns", isDirectory: true))
     }
 
     /// Reads a user-selected directory through a no-follow directory descriptor,
@@ -328,6 +329,10 @@ public actor ExtensionController {
     }
     public func localProcessState() async throws -> ProcessState? { try await worker.localProcessState() }
     public func localTemporaryState() async throws -> ExtensionLocalTemporaryState? { try await worker.localTemporaryState() }
+    public func inspectLocalReservations() async throws -> [ExtensionLocalJournalEntry] { try await worker.inspectLocalReservations() }
+    public func releaseMissingLocalReservation(_ entry: ExtensionLocalJournalEntry, confirmed: Bool) async throws {
+        try await worker.releaseMissingLocalReservation(entry, confirmed: confirmed)
+    }
 
     public func stepSSHChannel(milliseconds: Int32 = 0) async throws -> ChannelState {
         try await worker.stepSSHChannel(milliseconds: milliseconds)
@@ -453,6 +458,8 @@ public actor ExtensionController {
         private var lastLocalProcess: ProcessState?
         private var localTemporary: ExtensionLocalTemporaryDirectory?
         private var lastLocalTemporary: ExtensionLocalTemporaryState?
+        private let localJournalDirectory: URL?
+        private var localJournal: ExtensionLocalJournal?
         private var session: ExtensionSession?
         private var sessionPackageKey: String?
         private var runtime: ExtensionRuntime?
@@ -470,9 +477,10 @@ public actor ExtensionController {
         private var resourceDirectoryInode: ino_t?
         private let hostCapabilities: [String]
 
-        init(hostJSON: String, resourceDirectory: URL?) {
+        init(hostJSON: String, resourceDirectory: URL?, localJournalDirectory: URL?) {
             self.hostJSON = hostJSON
             self.resourceDirectory = resourceDirectory
+            self.localJournalDirectory = localJournalDirectory
             if let data = hostJSON.data(using: .utf8),
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 self.hostCapabilities = object["capabilities"] as? [String] ?? []
@@ -569,7 +577,7 @@ public actor ExtensionController {
                     environment.append(name + "=" + value)
                 }
                 let channel = try launch.withValidatedDirectory(executable: executable) { fd, temporaryFD in
-                    let temporary = try ExtensionLocalTemporaryDirectory(parentFD: temporaryFD, base: launch.temporaryDirectory)
+                    let temporary = try ExtensionLocalTemporaryDirectory(parentFD: temporaryFD, base: launch.temporaryDirectory, journal: self.journal())
                     self.local = true; self.lastLocalProcess = nil; self.localTemporary = temporary
                     self.lastLocalTemporary = temporary.observation
                     environment.append("TMPDIR=" + (try temporary.executionPath()))
@@ -587,6 +595,21 @@ public actor ExtensionController {
         }
         func localTemporaryState() async throws -> ExtensionLocalTemporaryState? {
             try await perform { self.localTemporary?.observation ?? self.lastLocalTemporary }
+        }
+        private func journal() throws -> ExtensionLocalJournal {
+            if let localJournal { return localJournal }
+            guard let localJournalDirectory else { throw GhostermLocalLaunchError.invalid("本机执行需要明确的持久预约记录目录") }
+            let journal = try ExtensionLocalJournal(directory: localJournalDirectory)
+            localJournal = journal; return journal
+        }
+        func inspectLocalReservations() async throws -> [ExtensionLocalJournalEntry] {
+            try await perform { try self.checkOpen(); return try self.journal().inspect() }
+        }
+        func releaseMissingLocalReservation(_ entry: ExtensionLocalJournalEntry, confirmed: Bool) async throws {
+            try await perform {
+                try self.checkOpen()
+                try self.journal().releaseMissing(id: entry.id, snapshot: entry.snapshot, confirmed: confirmed)
+            }
         }
 
         private func captureLocalProcess() throws {

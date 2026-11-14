@@ -106,6 +106,9 @@ public final class AppModel: ObservableObject {
     private var lastCodexEventSequence: UInt64 = 0
     private var pendingExtensionRPCHandles: Set<UInt64> = []
     private var claudeRPC: ClaudeRPCClient?
+    @Published public private(set) var localReservationEntries: [ExtensionLocalJournalEntry] = []
+    @Published public private(set) var localReservationBusy = false
+    @Published public private(set) var localReservationIssue: String?
     @Published public private(set) var claudeConversation: ClaudeConversation?
 
     /// 界面外观偏好（跟随系统 / 浅色 / 深色）与终端色板事件（`theme =
@@ -1345,6 +1348,22 @@ public final class AppModel: ObservableObject {
         extensionLastLocalProcess = try? await extensionController.localProcessState()
         extensionLastLocalTemporary = try? await extensionController.localTemporaryState()
         extensionRunBusy = false
+    }
+
+    public func inspectLocalReservations() async {
+        guard let extensionController, !localReservationBusy else { return }
+        localReservationBusy = true; defer { localReservationBusy = false }
+        do { localReservationEntries = try await extensionController.inspectLocalReservations(); localReservationIssue = nil }
+        catch { localReservationIssue = "本机暂存记录查不出来：\(error)" }
+    }
+
+    public func releaseMissingLocalReservation(_ entry: ExtensionLocalJournalEntry, confirmed: Bool) async {
+        guard let extensionController, !localReservationBusy else { return }
+        localReservationBusy = true; defer { localReservationBusy = false }
+        do {
+            try await extensionController.releaseMissingLocalReservation(entry, confirmed: confirmed)
+            localReservationEntries = try await extensionController.inspectLocalReservations(); localReservationIssue = nil
+        } catch { localReservationIssue = "未能释放预约，请重新检查：\(error)" }
     }
 
     public func startCodexThread() async {

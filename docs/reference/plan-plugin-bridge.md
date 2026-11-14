@@ -1,6 +1,6 @@
 # 插件桥接架构与开发规范计划
 
-日期：2026-11-05，更新至 2026-11-15 前台 tmux 附着与私有本机进程 provider。状态：**P0 技术风险探针与首个 wire v1 envelope 已关闭并冻结；当前生产双向业务只走无 PTY SSH exec，普通 TTY 回包明确不支持，QuickJS-NG 0.18.0 为首选引擎。Core / gterm 与 macOS、Android 首条 SSH 插件调用链已接入 wire v1；一次性前台 local IPC 和两端显式 SSH attach 已接实验入口，范围见文末 S5 第一至三批；S5 第四至七批已补本机进程 provider、公共绑定、macOS 显式本机启动 / IPC 附着与私有临时目录清理；第八批已接父 owner 死亡时的 POSIX 进程组监护并完成受控对象验收。自动发现、跨重启暂存归属与持久预算仍未完成。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation。API 29 / API 36 arm64 无窗口 AVD 已通过真实系统 SAF 文件夹选择、Settings 来源摘要批准、双跳 Preview、Session consent、Client Runtime 与资源面板收件。macOS 真实双跳 SSH 的 Markdown / PNG 资源驱动生产 `ExtensionsPane` 离屏绘制；另一真实 Preview Session 收到的 HTML / CSS / PNG 快照现交给独立生产 WebKit Coordinator 绘制探针；插件导入、审查批准、启动参数、consent 与停止控件现有稳定 accessibility identifier。官方 Preview Executor 的路径长度边界已按 Unicode code point 与冻结 argsSchema 对齐，附件列表现在可用 `\\,` 表示文件名内的逗号。API 36 / 16 KiB 页真实双跳 Preview 收件、Markdown + PNG 同目录附件渲染及 Settings 停止 / 释放已通过；冷启动下的默认 25 ms Client Runtime CPU slice 曾失败，Android Host 现显式使用仍受限的 100 ms worker slice，清空应用数据后复验通过。P3 Codex 已将官方 stable 批准嵌套载荷、turn 输入及 turn/item 通知关键字段与 CLI 生成类型和 JSON Schema 精确对拍；无 DOM conversation facade 与生产 Executor helper 已组合真实锁定 CLI 的版本核对、initialize、thread/start 和关闭 reap。macOS AppModel 已接收有界 `codex.event`，原生面板现能启动 thread、发送文本、请求中断，并对命令/文件批准显示请求参数及显式批准一次 / 拒绝按钮；Xcode 27.1 下本轮 Apple 全量闸门为 406 项通过、5 项跳过，仍无真实产品 Codex turn / approval E2E 或模型调用证据。Native process mapping 表单、Runtime `ctx.process` 和 Core owner 已分批接入；两端已有 thread / turn / approval 控件、消息与工具活动时间线及有界补丁预览。官方 Codex 候选包现可构建为目录导入产物，编译后入口 fixture 与原生 metadata / integrity 对拍通过；macOS AppModel 的单跳与双跳隔离 SSH 已用真实 CLI 验证无模型 thread/start、原生事件收件及停止，拒绝跳板主机密钥时 Executor 未启动；真实模型 turn / approval 与安装 / 启动 UI 整链仍待验；完整补丁受控协议夹具的两端证据见最新 P3 进展。用户真机仍待验。**
+日期：2026-11-05，更新至 2026-11-15 前台 tmux 附着与私有本机进程 provider。状态：**P0 技术风险探针与首个 wire v1 envelope 已关闭并冻结；当前生产双向业务只走无 PTY SSH exec，普通 TTY 回包明确不支持，QuickJS-NG 0.18.0 为首选引擎。Core / gterm 与 macOS、Android 首条 SSH 插件调用链已接入 wire v1；一次性前台 local IPC 和两端显式 SSH attach 已接实验入口，范围见文末 S5 第一至三批；S5 第四至七批已补本机进程 provider、公共绑定、macOS 显式本机启动 / IPC 附着与私有临时目录清理；第八批已接父 owner 死亡时的 POSIX 进程组监护并完成受控对象验收。第九批已接新运行的持久预约与跨重启只读位置核对；自动发现、旧残留删除与实际文件系统预算仍未完成。Android JS-off 与 JS-enabled 的 debug / androidTest 均已用锁定 JDK、SDK / NDK 编译通过；第九十四批参数行为已在 API 29 / API 36 arm64 无窗口 AVD 通过真实双跳 Client Runtime instrumentation。API 29 / API 36 arm64 无窗口 AVD 已通过真实系统 SAF 文件夹选择、Settings 来源摘要批准、双跳 Preview、Session consent、Client Runtime 与资源面板收件。macOS 真实双跳 SSH 的 Markdown / PNG 资源驱动生产 `ExtensionsPane` 离屏绘制；另一真实 Preview Session 收到的 HTML / CSS / PNG 快照现交给独立生产 WebKit Coordinator 绘制探针；插件导入、审查批准、启动参数、consent 与停止控件现有稳定 accessibility identifier。官方 Preview Executor 的路径长度边界已按 Unicode code point 与冻结 argsSchema 对齐，附件列表现在可用 `\\,` 表示文件名内的逗号。API 36 / 16 KiB 页真实双跳 Preview 收件、Markdown + PNG 同目录附件渲染及 Settings 停止 / 释放已通过；冷启动下的默认 25 ms Client Runtime CPU slice 曾失败，Android Host 现显式使用仍受限的 100 ms worker slice，清空应用数据后复验通过。P3 Codex 已将官方 stable 批准嵌套载荷、turn 输入及 turn/item 通知关键字段与 CLI 生成类型和 JSON Schema 精确对拍；无 DOM conversation facade 与生产 Executor helper 已组合真实锁定 CLI 的版本核对、initialize、thread/start 和关闭 reap。macOS AppModel 已接收有界 `codex.event`，原生面板现能启动 thread、发送文本、请求中断，并对命令/文件批准显示请求参数及显式批准一次 / 拒绝按钮；Xcode 27.1 下本轮 Apple 全量闸门为 406 项通过、5 项跳过，仍无真实产品 Codex turn / approval E2E 或模型调用证据。Native process mapping 表单、Runtime `ctx.process` 和 Core owner 已分批接入；两端已有 thread / turn / approval 控件、消息与工具活动时间线及有界补丁预览。官方 Codex 候选包现可构建为目录导入产物，编译后入口 fixture 与原生 metadata / integrity 对拍通过；macOS AppModel 的单跳与双跳隔离 SSH 已用真实 CLI 验证无模型 thread/start、原生事件收件及停止，拒绝跳板主机密钥时 Executor 未启动；真实模型 turn / approval 与安装 / 启动 UI 整链仍待验；完整补丁受控协议夹具的两端证据见最新 P3 进展。用户真机仍待验。**
 
 **仍未完成：** P2 官方 Preview 的完整交互与端到端验证。真实双跳 SSH 资源现已到达 macOS AppModel 并由生产 `ExtensionsPane` 实际绘制；macOS `fileImporter` 选包、页面摘要批准、启动表单、真实 consent 按钮与收件之间的完整用户点击链仍未串成一次 UI E2E。headless WebKit probe 已用合成夹具及真实 AppModel / SSH 收件快照分别验证 CSS / PNG 绘制、资源刷新，并复用生产 HTML decoder、附件 resolver、scheme handler 与导航策略；它仍不替代 SwiftUI 内嵌 WebKit 的用户点击链。Android MainActivity Settings 的真实 SAF 选包 / 页面批准、SSH 收件、Markdown + PNG 绘制、停止 / 释放已在 API 29 / 36 常规页模拟器及 API 36 / 16 KiB 页模拟器分批通过。用户真机及完整生命周期 / 多格式矩阵仍待验。插件安装 / 持久信任；P3 Codex、P4 Claude、P5 通用扩展与开发体验、P6 受控分发及其它平台。P3 已验证官方 CLI stable schema、策略决定和 turn/item 通知字段，生产 conversation facade 与真实 CLI 的无模型 thread/start/关闭链已组合；两端已有原生 turn / approval 控件、结构化消息 / 工具活动和有界 diff 预览；官方目录包可构建，仍没有真实模型 turn / approval 往返、安装启动到会话的完整双端 UI E2E 或 Ghosterm 插件闭环。普通 App 构建仍默认关闭插件 JS。本文继续作为实施与验收记录的单一维护入口；每批具体覆盖和缺口以文末追加记录为准。
 
@@ -6124,3 +6124,90 @@ python3 scripts/test-plugin-process-channel-android.py --headless-api 29 --also-
 本批验证后清理 836 个临时根入口 / 15058 项 / 536.3 MiB 账面分配；
 只留原三份 eq-* 并复核 SHA256。自有 AVD、SSH / Node / Exec / 监护与测试 runner 已结束，
 未结束用户 Ghosterm、已有服务或无关 Java；根 Core 保持默认 JS-off / tests-on。
+
+### S5 实施第九批：Native 跨重启预约记录与只读位置检查（2026-11-15）
+
+新增 macOS Native `ExtensionLocalJournal`，默认位于 App 受控资源根的 `NativeLocalRuns`。
+它不扫描用户临时根、不按名称前缀接管目录，不记录 argv、凭据、对话、进程 PID 或恢复
+能力。Controller 的直接调用方须提供持久记录根（或既有资源根）；没有记录服务时本机
+执行明确拒绝，不静默退回无记录启动。默认普通终端和 SSH 插件入口不创建这份记录。
+
+创建私有 namespace 之前先独占写入并 fsync 一份创建意图；新目录创建后追加 dev / inode /
+uid / birth time 的身份，以同根 pending 文件、fsync、rename 和目录 fsync 提交。每次运行
+持有该记录的 flock lease；更新记录时在发布新文件前取得新 lease，交接后才关闭旧 fd。
+跨 Controller / App 实例的改动另受全局非阻塞 flock 协调，不在 UI 主线程等待。单记录
+上限 16 KiB，最多四份记录，未知文件 / 损坏 / 中断 pending 均保留并阻止新准入。
+
+每条新运行固定预约 **256 MiB**，同一记录根跨临时根合计 **1 GiB**；活跃、创建未决及
+残留记录都计入，不因进程退出、App 重启或当前目录看不见而漏账。这是持久准入预约，
+**不是实际磁盘扫描或 OS 写入配额**，也不约束任意可信原生程序在其它路径写入；P4 / P6
+的真实进程 / 文件系统用量治理仍未因此完成。
+
+原生面板显式「检查本机临时目录记录」只读检查已记录的准确位置，区分仍被使用、目录
+匹配、创建未决、位置变化和读不出来。不会恢复进程、授权、请求或旧 IPC；目录仍在也
+不升级旧业务成功。仅无 live lease、原父目录身份匹配且记录的子目录当前 ENOENT 时，
+提供二次确认的释放预约。确认捕获记录 SHA256，worker 再读取同一记录、重新检查
+lease / 父目录 / ENOENT 后才移除那份 metadata，不删除目录或任意残留文件。
+
+同次运行的正常清理仍走既有 fd / inode 有界遍历。必须真实 rmdir 完成本次 namespace
+之后才退休预约；记录路径替换或同 inode / 等长内容改写都保留 owner。rmdir 后记录写入
+失败有独立重试状态，不能再次按已消失目录的普通 validate 卡死。App 崩溃后的残留目录
+自动 / 手动删除、损坏 ledger 的修复、未记录的历史目录、实际物理用量、恶意同 UID
+替换与电源故障恢复没有据此标可用。
+
+初轮新增测试的 throwing 短路表达式编译失败，未计通过；修正为先读结果再断言。
+首两轮配额 / 确认变异分别触发后续检查和重复释放的非预期异常，不计正常目标红；保持
+原额度、确认与断言条件，将这些可观察错误归入目标布尔断言，拒绝放宽 runner 的正常红
+判据。最终原生构建、变异和实际 App 链路范围见下文。
+
+新增 `test-plugin-local-journal.py` 在工程 tmp 内编译独立 Swift Native owner，分别在预约
+意图与真实 namespace 绑定后发送 TERM / KILL，实际观察四个直接子进程按指定信号死亡。
+新进程核对同一 id / 元数据 SHA / 路径 / 256 MiB 预约，lease 已释放而记录仍在；原目录
+有内容时显式请求仍被拒绝，只有 harness 自行移除其正向识别的夹具后，新的 Native 进程
+才可按旧快照确认释放预约。夹具独立 alarm 不参与正向判据；这不是整个 App / 系统重启。
+
+启用 JS 的隔离 Core archive 供真实 GhostermCore / AppModel 使用；**42 项全执行、零
+跳过**，包括原二十六项、Native journal / 当前 AppModel 确认和 worker 准入。十二组
+实际重编 Swift 对象：预约额度、仍在目录、确认、快照、父目录身份、live lease、不完整
+记录、清理退休、等长内容改写、Controller 准入、AppModel 确认及 worker 快照；均编译后
+单条正常断言红、同库独立主机配置绿、复原目标绿与 SHA256。未重跑上一批 Core / JNI
+变异或旧二十四组 Native 变异，不以这十二组冒充它们。
+
+复现（先在项目 tmp 显式构建启用 JS 的 Core / CLI，不改根 Core 默认档）：
+
+```bash
+cmake -S cli/gterm -B tmp/local-journal-cli -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_BUILD_TESTS=OFF
+cmake --build tmp/local-journal-cli --target gterm
+python3 scripts/test-plugin-local-journal.py --core-build tmp/local-journal-cli/core --mutate --receipt tmp/local-journal.json
+```
+
+上述 runner 还依赖根默认 Core 的 `test_process_channel_child`，须先经 `scripts/gate.sh`
+实际构建，不从系统 tmp 执行、不使用用户设备或应用支持目录。
+
+默认 Core 保持 JS-off / tests-on，离线 gate **588 CTest / 181 ABI** 通过；Apple **178/3**、
+JNI **144/37** 对拍通过。macOS 完整原生 gate **519 项、18 项显式跳过、零失败**，
+真实 SSH 与 WebKit CSS / PNG 绘制、Xcode 27.1 / Swift 6.4 的 arm64 Release、C 格式
+255 文件通过。新增三个 AppModel 用例在默认档跳过，已由上述 JS-enabled 42 项专项
+实际执行；不冒充完整原生 gate 在启用 JS 档全跑。无新 Android 源码 / 构建 / 设备结果，
+没有云端 Swift 6.1.2 / 发行或完整 UI 点击链结论。
+
+本批本机 Node 26.4.0 / 原生 arm64 Exec 的原六十六项已完成，同源实际 Core / gterm /
+Native AppModel / Runtime 的启动、拒绝、取消、业务进程、双向资源和临时清理均通过。
+显式 IPC 附着二十四项、SIGKILL 六项随后同源复验通过；真实 signal=9 / reap 与目录移除
+分别检查，不把预约退休当作未决业务成功。三份实际 App 收据各核对 **760 份输入**；
+不借旧构件替本片 Native 接线验收，旧 SSH 二十项 / Android / 全插件 / 真机未在本批复跑。
+
+最终收据 SHA256（验收后清理临时原件）：
+
+- Native 四次死亡 / 42 项 / 十二组变异，332 输入：`3fe8ccc9465b4f86eb46fa3fc6849d82af2d2464fe8f276fd11ef684b803104c`。
+- 本机 66 项：`c47d6f1572acfc9ae37074ec088d1bda491a7eebd2ff74987d413c3176a697cb`。
+- 显式附着 24 项：`5fad04400ed88ba84b487b05265941647d3a5056e2c2424b9ce45ceba7a203b6`。
+- SIGKILL 六项：`53229e8f9fd7533502624a43350e35975d2c0fe6e3eed2338e25132e07f2537a`。
+
+本批仍只记录和维护新 Native 运行的预约，不接管旧目录；父目录消失或变化、损坏 /
+pending ledger、目录仍在、活跃 lease 等继续保留 / 报错，未提供其自动修复或跨重启
+目录删除。Native 可信同用户边界、非 OS 沙箱与 P1–P6 未完成口径保持。
+
+本批验证后清理 820 个临时根入口 / 12349 项 / 526.9 MiB 账面分配；
+工程 tmp 仅留原三份 eq-*，SHA256 一致。未终止用户 App、已有服务或无关 Java；
+测试未启动 AVD，全部 Native 自动化窗口保持后台，根 Core 保持默认 JS-off / tests-on。

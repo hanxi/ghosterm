@@ -35,6 +35,8 @@ final class ExtensionLocalTemporaryDirectory {
     private let base, name: String
     private var parent: Int32 = -1, root: Int32 = -1
     private var identity: stat?
+    private var reservation: ExtensionLocalJournal.Lease?
+    private var namespaceRemoved = false
     private var frames: [Frame] = []
     private var entries = 0
     private var phase: ExtensionLocalTemporaryState.Phase = .active
@@ -44,13 +46,16 @@ final class ExtensionLocalTemporaryDirectory {
         .init(directory: directory, phase: phase, error: error, detail: detail)
     }
 
-    init(parentFD: Int32, base: String) throws {
+    init(parentFD: Int32, base: String, journal: ExtensionLocalJournal) throws {
         self.base = base
-        name = "ghosterm-local-" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let id = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        name = "ghosterm-local-" + id
         directory = base + (base.hasSuffix("/") ? "" : "/") + name
         guard directory.utf8.count <= 4096 else { throw Failure(ENAMETOOLONG, "私有临时目录路径过长") }
         parent = fcntl(parentFD, F_DUPFD_CLOEXEC, 3)
         guard parent >= 0 else { throw Failure(errno, "无法保留临时根目录") }
+        do { reservation = try journal.reserve(parent: parent, base: base, id: id) }
+        catch { Darwin.close(parent); parent = -1; throw error }
         guard name.withCString({ mkdirat(parent, $0, 0o700) }) == 0 else {
             let code = errno; Darwin.close(parent); parent = -1
             throw Failure(code, "无法创建私有临时目录")
@@ -64,6 +69,7 @@ final class ExtensionLocalTemporaryDirectory {
                 throw Failure(ESTALE, "新建私有临时目录的归属无法确认，保留供检查")
             }
             identity = value
+            try reservation?.bind(value)
             root = name.withCString { openat(parent, $0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) }
             guard root >= 0 else { throw Failure(errno, "无法打开新建私有临时目录") }
             try validate()
@@ -136,6 +142,7 @@ final class ExtensionLocalTemporaryDirectory {
     func closeStep() throws -> Bool {
         if phase == .removed { return true }
         do {
+            if namespaceRemoved { return try finishRemoval() }
             try validate()
             if frames.isEmpty {
                 guard let identity else { throw Failure(ESTALE, "临时目录归属未知") }
@@ -156,16 +163,10 @@ final class ExtensionLocalTemporaryDirectory {
                     guard leaf.withCString({ unlinkat(target, $0, AT_REMOVEDIR) }) == 0 else {
                         throw Failure(errno, "私有临时目录仍有内容或无法移除")
                     }
+                    if frames.count == 1 { namespaceRemoved = true }
                     try frame.close(); frames.removeLast()
                     if frames.isEmpty {
-                        phase = .removed; detail = "本次私有临时目录已移除"
-                        let owned = [root, parent]; root = -1; parent = -1
-                        for fd in owned where fd >= 0 {
-                            if Darwin.close(fd) != 0, error == 0 {
-                                error = errno; detail = "私有临时目录已移除，但句柄释放结果不明"
-                            }
-                        }
-                        return true
+                        return try finishRemoval()
                     }
                     continue
                 }
@@ -197,5 +198,16 @@ final class ExtensionLocalTemporaryDirectory {
             }
             return false
         } catch { retain(error); throw error }
+    }
+    private func finishRemoval() throws -> Bool {
+        try reservation?.finish(); reservation = nil
+        phase = .removed; error = 0; detail = "本次私有临时目录与预约已移除"
+        let owned = [root, parent]; root = -1; parent = -1
+        for fd in owned where fd >= 0 {
+            if Darwin.close(fd) != 0, error == 0 {
+                error = errno; detail = "私有临时目录已移除，但句柄释放结果不明"
+            }
+        }
+        return true
     }
 }

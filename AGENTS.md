@@ -1172,3 +1172,19 @@ Native 26 项无跳过，完整 App 503 项含十五跳过 / 零失败、WebKit�
 Android JS-enabled 未签名 Release / 四模块 lint、C 格式 255 文件通过；R8 复用缓存。
 前置失败、runner INT/TERM 收尾与最终构建收据见插件计划 S5 第八批；默认 JS-off，
 未发行，不增加 CI 二十份。
+
+
+**插件 S5 Native 持久预约（2026-11-15）**：macOS 本机 namespace 创建前先持久化预约，
+目录创建后按 dev / inode / uid / birth time 提交身份；记录与全局操作分别持有非阻塞
+flock，原子 metadata 更新交接 lease。每条固定 256 MiB、同记录根最多 1 GiB，残留与
+创建未决跨重启计入；不是物理磁盘扫描或 OS 配额。正常 rmdir 完成后才退休预约，记录
+路径替换或同 inode / 等长内容变化均保留 owner；rmdir 后失败可重试，不丢账或假完成。
+原生面板显式只读核对已记录位置，仅在无 live lease、父目录身份匹配且子目录 ENOENT
+时允许按准确 SHA 快照二次确认释放预约；不删除旧目录，不恢复进程、权限或请求。
+`test-plugin-local-journal.py --core-build 已启用JS的Core目录 --mutate` 的四次真实 Native
+owner TERM/KILL / 新进程检查、42 项无跳过 Native / AppModel、十二组实际重编 Swift
+对象变异通过：单条正常断言红、同库主机配置绿、复原与 SHA256。前置编译及非预期异常
+不计通过，原件与前置失败见插件计划 S5 第九批。本机 66 / 附着 24 / SIGKILL 六项最终同源通过；
+默认 Core 588/181、Apple 178/3、JNI 144/37、完整 App 519 项含十八跳过 / 零失败、
+WebKit、macOS arm64 Release 与 C 格式 255 文件通过。无新 C ABI / Android 代码或设备
+证据；损坏记录维护、跨重启残留删除、实际用量治理及完整 P1–P6 未完成，不增加 CI 二十份。
