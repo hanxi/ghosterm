@@ -119,6 +119,15 @@ macOS CI 已接入工具链准备和 OpenSSL PATH；是否实际通过以本轮�
 真实服务器、WAN、多跳或 App 可用；十四组变异为手工入口，不增加 macOS CI 二十份。显式无 SSH 构建
 另注册 `bridge_ssh_unsupported` 并链接实际 stub archive；详细证据和剩余事项见插件计划第十批。
 
+`bridge_ssh_close_session / parent / blocked` 单独编译完整生产 SSH stream owner，
+只在 libssh2 关闭调用边界注入续步：部分释放、内层 Session 已释放而外层仍 draining、
+待发送调用的终止收尾。首次 close 的中止 / I/O 收尾只允许一次；此后只能续做 dispose，
+不得再碰可能失效的通道。哨兵不解引用旧句柄，错误重入用普通断言报告，另检查重复 close
+和内存预约归零。这三项是确定性边界测试，不替代真实 SSH / App 或特定 CI 失败复现。
+`python3 scripts/mutation-check-plugin-ssh-close.py` 在隔离 Core 的优化 ASan/UBSan 构建中
+恢复旧的重复收尾条件：一组变异分别命中三个普通断言红，同库配置绿、恢复绿及 SHA256；
+保留断言、关闭 leak detector，不增加 macOS CI 二十份手工变异脚本。
+
 旧 exec 的 `ssh_exec_boundary` 与 `bridge_exec_e2e` 另护 EOF / 状态存在性。`gt_ssh_exec_exit_status`
 是被动快照，不关闭通道，不凭缺省 0 报成功，未知不改输出；EOF 后迟到状态通过后续 read 推进。
 `python3 scripts/test-plugin-ssh-stream.py --legacy` 跑十个协议场景，

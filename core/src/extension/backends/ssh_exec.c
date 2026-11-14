@@ -493,22 +493,26 @@ static void wake(gt_bridge_stream_t *base) {
 static gt_bridge_close_t close_step(gt_bridge_stream_t *base, int ms) {
     (void)ms;
     ssh_stream_t *s = (ssh_stream_t *)base;
-    s->disposing = true;
-    gt__ssh_abort(s->ssh); /* dedicated socket only, before library cleanup */
-    /* Resume a partial admission with its original arguments so libssh2 drops
-   * its pending open/exec allocation, including an unconfirmed open channel. */
-    if (s->admission_pending == 1) {
-        s->channel = open_channel(s);
-    } else if (s->admission_pending == 2) {
-        (void)libssh2_channel_exec(s->channel, s->command);
-    }
-    s->admission_pending = 0;
-    if (s->channel) {
-        if (s->blocked != PUMP_NONE) {
-            (void)pump_call(s, s->blocked);
+    if (!s->disposing) {
+        s->disposing = true;
+        gt__ssh_abort(s->ssh); /* dedicated socket only, before library cleanup */
+        /* Resume a partial admission with its original arguments so libssh2 drops
+         * its pending open/exec allocation, including an unconfirmed open channel. */
+        if (s->admission_pending == 1) {
+            s->channel = open_channel(s);
+        } else if (s->admission_pending == 2) {
+            (void)libssh2_channel_exec(s->channel, s->command);
         }
-        /* Make the shut-down socket visible to the library before session_free. */
-        (void)libssh2_channel_read_ex(s->channel, 0, (char *)s->rx, sizeof(s->rx));
+        s->admission_pending = 0;
+        if (s->channel) {
+            if (s->blocked != PUMP_NONE) {
+                (void)pump_call(s, s->blocked);
+            }
+            /* Make the shut-down socket visible before session_free starts. A
+             * continuation may have already freed this channel, or even the
+             * entire session while its parent SSH stream is still draining. */
+            (void)libssh2_channel_read_ex(s->channel, 0, (char *)s->rx, sizeof(s->rx));
+        }
     }
     bool released = false;
     gt_status_t status = gt__ssh_dispose_step(&s->ssh, &released);

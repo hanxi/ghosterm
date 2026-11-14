@@ -126,7 +126,30 @@ static void session_dispose(gt_bridge_session_t *s) {
         if (r == GT_BRIDGE_RELEASED) {
             break;
         }
-        CHECK(r == GT_BRIDGE_DRAINING && session_now() < end);
+        if (r != GT_BRIDGE_DRAINING || session_now() >= end) {
+            gt_bridge_session_info_t i = session_info(s);
+            fprintf(stderr,
+                    "session close: result=%d phase=%d end=%d error=%d elapsed=%llu ms\n",
+                    r,
+                    i.phase,
+                    i.end,
+                    i.error,
+                    (unsigned long long)(session_now() - (end - 1000)));
+            gt_bridge_route_info_t route;
+            if (gt__bridge_route_info(s->stream, &route)) {
+                fprintf(stderr,
+                        "session close route: hop=%zu/%zu phase=%d error=%d "
+                        "channel phase=%d failure=%d error=%d\n",
+                        route.hop,
+                        route.count,
+                        route.phase,
+                        route.error,
+                        route.channel.phase,
+                        route.channel.failure_phase,
+                        route.channel.error);
+            }
+            CHECK(false);
+        }
     }
     CHECK(gt__bridge_session_close(s, 0) == GT_BRIDGE_RELEASED &&
           gt__bridge_session_destroy(s) == GT_OK);

@@ -5538,3 +5538,17 @@ CI 状态另记：旧 `43346407706` 的 Swift 类型推导问题已由前述提�
 前置失败保留：Exec 夹具漏私有 allocator 头的编译失败；SSH 配置中测试额外写了现有不支持的 IdentityAgent，被产品检查正确拒绝，删除的是夹具无用配置而非生产拒绝规则；审计回包用 PID 覆盖 activated 布尔导致两端误判；变异外层误把 Python traceback 引用的判红字符串当作设备失败标记，改为只解析实际 instrumentation transcript 后重跑；enabled CMake 首次未明确给 SDK 目录而正确拒绝配置。上述均未计目标红或最终通过；真实 Android busy 缺陷另按正常失败记录并修复。
 
 复现入口见 [gterm README](../../cli/gterm/README.md#两端-app-的真实-ssh-运行档验证)。手工 macOS / API36 arm64 / 4 KiB 专用无窗口模拟器证据，不增加 CI 二十份；不改 C ABI / Portable SDK，不修改 vendor，不发布、不推送。tmux / 三跳与其它远端 OS、API29 / 物理设备、通用运行档资源 / 业务进程的完整 App 矩阵、官方业务包 Node / Exec 变体、真实认证 / 模型 / 工具、恢复和整进程预算仍未完成；P1–P6 未勾选状态保持。前述云端 Core deny2 关闭断言仍未定位，不能用本批本地绿色替代云端修复证据。
+
+### P4 实施第二十一批：SSH 释放续步的通道访问边界（2026-11-14）
+
+排查云端 `43545823180` 的 `bridge_transfer_ssh / deny2` 失败时发现共享关闭 owner 的独立缺陷：`gt__ssh_dispose_step` 可以先释放内层 libssh2 Session，再等待外层 SSH stream 释放；`ssh_exec.c` 原先每次 close 续步都执行中止、待发调用及 channel read，因而可能再次访问已经失效的内层通道。现在以既有 `disposing` 状态约束：中止 / 原待发调用 / 首次读取只执行一次，开始 dispose 后仅续做释放，全部释放完成后才报 CLOSED。没有扩大时间预算、改变 EOF / 退出码语义、改 vendor 或新增 ABI。[锁定上游的释放实现](https://github.com/libssh2/libssh2/blob/libssh2-1.11.1/src/session.c#L843)与本工程外层 stream 的释放是两个阶段，不能从内层结束推测整条路线已释放。
+
+新增 `test_bridge_ssh_close`，将完整生产 SSH stream owner 编入测试，仅替换关闭边界的外部调用。`session / parent / blocked` 三项分别注入 libssh2 部分清理、内层 Session 已释放但外层仍 draining、原有待发操作；检查首次 I/O 仅一次、释放开始后不得再读写、四步释放前不报成功、重复 close 幂等以及内存预约归零。哨兵不解引用旧通道，错误访问表现为普通 C 断言红，不借崩溃或 sanitizer 报错充目标红；这三项不是新的真实 SSH 场景。
+
+`python3 -B scripts/mutation-check-plugin-ssh-close.py` 在工程 tmp 的隔离 Core 中将条件恢复为旧的重复收尾：**一个变异组、三条分别运行的正常断言红**，同 archive 配置绿、复原三项绿与 SHA256。最终构建为 `-O2 -g -UNDEBUG`、ASan/UBSan、关闭 leak detector；核对 **138 份指定输入、16 条命令**，包括实际库 / 依赖收据。此前两次相同保护的验证不重复计组。既有 `mutation-check-plugin-ssh-stream.py` **十四组**与 `mutation-check-plugin-route.py` **十三组**也依次完整通过：每组真实编译、普通目标断言红、同库配置绿、复原分别十六 / 十八个实际场景绿及 SHA256；分别记录 74 / 69 条命令。
+
+原云端失败没有被此证据直接复现：本机原行为连续 **30 次 deny2** 通过，不能认定本缺陷就是那次失败根因。首个复验命令漏选 transfer 二进制，误跑 Session 参数断言失败，未计目标红或有效复验。现在 `session_dispose` 在原一秒闸门失败时另输出 close 返回种类、耗时、Session end/error、路线跳数和 SSH 通道阶段，区分 CLOSE_ERROR 与 DRAINING 超时；原期限及失败条件保持，不用增加重试或放宽断言换绿。仍需后续云端原件核验。
+
+最终默认 **JS-off / tests-on：540/540 CTest、177 ABI**；隔离 CLI 的 **JS-on / SSH-on / Debug：765/765 CTest**，两个完整套件串行、没有并行重构建压测。Apple **174 引用 / 3 登记未用**、JNI **140 / 37**、clang-format **19.1.7 / 241 文件**、Python 语法及 diff 检查通过。macOS 使用 Xcode 27.1 / Swift 6.4，实际 `.build/out/Products/Release/GhostermApp` 已重新链接；Android JS-enabled arm64 JNI Debug 原生对象已重新编译。没有新的设备、完整客户端、Android Release / lint 或云端 Swift 6.1.2 / 发行结论。复现与边界说明同步到 `core/tests/README.md`。
+
+本批为插件共享 SSH 清理修复，不将 P1–P6 任何阶段勾选完成，不增加 CI 二十份手工变异。两端通用运行档的完整资源 / 业务进程 / tmux 矩阵及此前未完成项继续推进。验收后清理本批工具 / 隔离副本 / SDK / 构建 / 日志，保留既有 VM 使用的三份 eq-* 文件；默认 Core 保持 JS-off / tests-on。本地分批提交，不推送或发行。
