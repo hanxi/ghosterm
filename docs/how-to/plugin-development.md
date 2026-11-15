@@ -191,7 +191,7 @@ Client 仍在真实 QuickJS，Node 或 Exec 通过既有进程协议运行。契
 引擎释放和 fd 数量平衡。脚手架的 `throw` 是明确错误夹具，结果为 unknown，不能
 将其当作成功业务结果。
 
-单侧 Executor 可显式接入只读资源根，支持 Portable、Node 与 Exec；Node / Exec
+单侧 Executor 和 `--side paired` 可显式接入只读资源根，支持 Portable、Node 与 Exec；Node / Exec
 同时需要上述执行配置和执行授权。命令使用绝对目录，不从 cwd 或环境猜测根：
 
 ```sh
@@ -202,7 +202,10 @@ python3 scripts/gterm-plugin test --project tmp/plugin-dev/resource --tools tmp/
 `session.rpc`、`resource.receive`、`file.readScoped`，manifest 声明对应 Executor
 权限；显式 Host JSON 的 capabilities 也须恰为这三项，已有 denied 事实仍拒绝。
 未提供 Host JSON 时使用上述能力的 Portable Executor 测试 profile。缺授权拒绝，
-`--side client` / `paired` 不接受此根；默认 RPC profile 不因此获得文件服务。
+`--side client` 不接受此根；默认 RPC profile 不因此获得文件服务。paired 的两份
+Host 事实独立：Client 的 capabilities 恰为 `session.rpc / resource.receive`，
+Executor 恰为上述三项；manifest 也分别声明。根只传给 Executor，Client 的
+`resources.workspaces` 为空。未提供 Host JSON 时使用相应的双 Portable profile。
 
 插件自行调用真实 `resources.publish`，Native 对端接收。契约可增加 `resource`
 对象，预期恰好一次发布；不提供该对象则验证没有收件：
@@ -222,7 +225,26 @@ Store 上限 1 MiB、单资源 256 KiB、四个资源槽；测试根读取上限
 原保留快照，核对 pin 阻止 Store 销毁、显式 release、预约 / 引用归零及 fd 平衡。
 输出 `services: ["resources"]` 及实际收件观察；预期摘要不符或释放失败不能通过。
 只读根下的越界路径、其它根名和符号链接均不能发布；没有文件写入服务。此档
-不绘制资源，不代表双侧 JS 资源、SSH、吞吐或完整文件变化 / 限额矩阵已验。
+不绘制资源，不代表 SSH、吞吐或完整文件变化 / 限额矩阵已验。
+
+paired 保留原方法表和实际 Client → Executor → Client 回调，也支持根方法直接
+指向 Executor。资源收件始终在 Client 一侧，独立使用 Client Session 的 lease；
+根请求从哪侧发起不改变资源归属。默认仍由 Native 接收并核验上述保留快照。
+
+要验证 Client 插件实际读取，在 paired 契约增加 `"resourceConsumer":"client"`。
+此时 `resource` 必填，`expected.resource` 必须与之相同；业务成功结果必须包含
+`resource` 回执，字段为 `sha256 / bytes / displayName / mediaType`，其中 `bytes`
+是本次实际读取的整数计数。Client 通过真实 SDK `take / open / stream.read /
+release` 读取，Executor 在发布确认后调用 Client 方法，Client 再把回执返回。
+插件测试处理器应检查实际字节和 EOF；开发命令将业务回执与独立预期精确比对。
+
+Native 同时要求 Store 曾实际持有资源、Runtime 关闭前没有待收件或保留 pin，防止
+仅伪造相同 JSON 回执通过。两侧 owner 关闭后再验预约 / 引用归零及 fd 平衡；
+该档不额外创建 Native 保留快照，也不把其字节摘要检查冒充 Client 读取证据。
+输出资源观察带 `consumer: "client"`，报告 scope 明确区分消费方式。两个档不能
+同时抢同一个收件队列。可复验的测试例见 `scripts/test-plugin-dev.py` 的
+`resource-pair-client` 系列：64 KiB 全字节模式、EOF、精确回执及显式 release，
+并有“匹配回执但从未发布”的负向夹具；多资源业务数量须另写契约断言。
 
 配置预算准入不等于 OOM / RSS 扫描；请求取消不等于业务任务取消。本片不覆盖 OS
 沙箱、SSH、tmux、原生 UI、业务进程服务、整进程预算或完整插件生命周期矩阵。

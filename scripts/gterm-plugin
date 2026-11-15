@@ -300,8 +300,10 @@ def execution_config(value):
 
 def native_test(work, core, package, host, contract, paired=False, execution=None, resource_root=None):
     required = ({'methods'} if paired else set()) | {'schemaVersion', 'command', 'arguments', 'method', 'input', 'expected', 'errorInput', 'errorKind'}
-    require(isinstance(contract, dict) and required <= set(contract) <= required | ({'resource'} if resource_root else set()) and type(contract['schemaVersion']) is int and contract['schemaVersion'] == 1, 'TEST_CONTRACT')
+    require(isinstance(contract, dict) and required <= set(contract) <= required | ({'resource', *(['resourceConsumer'] if paired else [])} if resource_root else set()) and type(contract['schemaVersion']) is int and contract['schemaVersion'] == 1, 'TEST_CONTRACT')
     resource = contract.get('resource')
+    client_reads = 'resourceConsumer' in contract
+    require(not client_reads or (contract['resourceConsumer'] == 'client' and resource is not None), 'TEST_RESOURCE_CONSUMER')
     if resource is not None:
         require(isinstance(resource, dict) and set(resource) == {'sha256', 'bytes', 'displayName', 'mediaType'} and isinstance(resource['sha256'], str) and re.fullmatch('[a-f0-9]{64}', resource['sha256']) and type(resource['bytes']) is int and 0 <= resource['bytes'] <= 262144, 'TEST_RESOURCE_EXPECTATION')
         require(all(isinstance(resource[k], str) and 0 < len(resource[k].encode()) <= size and '\0' not in resource[k] for k, size in [('displayName', 1024), ('mediaType', 128)]), 'TEST_RESOURCE_METADATA')
@@ -309,14 +311,17 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
             re.fullmatch(r'[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+', contract['method']) and len(contract['method']) <= 64, 'TEST_METHOD')
     require(isinstance(contract['arguments'], list) and len(contract['arguments']) <= 32 and all(isinstance(a, str) and '\0' not in a and len(a.encode()) <= 4096 for a in contract['arguments']), 'TEST_ARGUMENTS')
     require(isinstance(contract['input'], dict) and isinstance(contract['errorInput'], dict) and isinstance(contract['expected'], dict) and contract['errorKind'] in ('failed', 'unknown', 'cancelled'), 'TEST_OUTCOMES')
+    if client_reads:
+        require(contract['expected'].get('resource') == resource, 'TEST_RESOURCE_CLIENT_RECEIPT')
     core = Path(core).resolve(strict=True)
     require(core.is_relative_to(TMP), 'TEST_BUILD_USE_PROJECT_TMP')
     cache = (core / 'CMakeCache.txt').read_text()
     require('GHOSTERM_WITH_PLUGIN_JS:BOOL=ON' in cache, 'TEST_REQUIRES_REAL_JS_BUILD')
     profiles = list(host.values()) if paired else [host]
     runtime = execution['runtime'] if execution else 'portable-js'
-    capabilities = ['session.rpc', 'resource.receive', 'file.readScoped'] if resource_root else ['session.rpc']
-    require(all(h['side'] in ('client', 'executor') and set(h['capabilities']) == set(capabilities) and h['runtimes'] == ([runtime] if h['side'] == 'executor' else ['portable-js']) for h in profiles), 'TEST_RPC_PROFILE_ONLY')
+    def capabilities(side):
+        return ['session.rpc', 'resource.receive', *(['file.readScoped'] if side == 'executor' else [])] if resource_root else ['session.rpc']
+    require(all(h['side'] in ('client', 'executor') and set(h['capabilities']) == set(capabilities(h['side'])) and h['runtimes'] == ([runtime] if h['side'] == 'executor' else ['portable-js']) for h in profiles), 'TEST_RPC_PROFILE_ONLY')
     if paired:
         methods = contract['methods']
         require(isinstance(methods, list) and 1 <= len(methods) <= 16 and all(isinstance(m, dict) and set(m) == {'name', 'receiver'} and isinstance(m['name'], str) and re.fullmatch(r'[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)+', m['name']) and len(m['name']) <= 64 and m['receiver'] in ('client', 'executor') for m in methods), 'TEST_PAIR_METHODS')
@@ -339,7 +344,7 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
         for name in ['host', 'executor']: (store / name).mkdir(mode=0o700)
         extra += [resource_root, store, resource['sha256'] if resource else '', str(resource['bytes']) if resource else '0', resource['displayName'] if resource else '', resource['mediaType'] if resource else '']
     if paired:
-        trace = run([probe, package, encoded(host['client']).decode(), encoded(host['executor']).decode(), contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), target, str(len(methods)), *[m['name'] + '=' + m['receiver'] for m in methods], *extra, *contract['arguments']], 30, cooperative=bool(execution))
+        trace = run([probe, package, encoded(host['client']).decode(), encoded(host['executor']).decode(), contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), ('resources-read-' if client_reads else 'resources-' if resource_root else '') + target, str(len(methods)), *[m['name'] + '=' + m['receiver'] for m in methods], *extra, *contract['arguments']], 30, cooperative=bool(execution or resource_root))
     else:
         mode = runtime if execution else host['side']
         trace = run([probe, package, encoded(host).decode(), ('resources-' if resource_root else '') + mode, contract['command'], contract['method'], encoded(contract['input']).decode(), encoded(contract['errorInput']).decode(), *extra, *contract['arguments']], 30, cooperative=bool(execution or resource_root))
@@ -365,8 +370,9 @@ def native_test(work, core, package, host, contract, paired=False, execution=Non
         require(all(lifecycle.get(k) is True for k in ('externalProcess', 'childActivated', 'childExited')), 'TEST_EXECUTION_LIFECYCLE')
     if resource_root:
         require(observations[4].get('verified') is True and observations[4].get('released') is True and observations[4].get('received') is bool(resource), 'TEST_RESOURCE_RESULT')
+        require(observations[4].get('consumer', 'native') == ('client' if client_reads else 'native'), 'TEST_RESOURCE_CONSUMER_RESULT')
     if resource_root:
-        scope = 'real public Core scoped resource publication and Native snapshot bytes/digest/pins; explicit read-only root; no OS sandbox/RSS, Native UI or SSH'
+        scope = ('real paired Client/Executor RPC; ' if paired else '') + 'real public Core scoped resource publication; ' + ('Client SDK reads checked by RPC expected value, Native checks no pending snapshot and released stores; ' if client_reads else 'Native snapshot bytes/digest/pins; ') + 'explicit Executor-only read-only root; no OS sandbox/RSS, Native UI or SSH'
     elif execution:
         scope = ('real public Core Portable Client and authorized Node/Exec paired RPC;' if paired else 'real public Core authorized Node/Exec process RPC; native peer;') + ' pinned Node/SDK; observed activation/reap/stage cleanup; no OS sandbox/RSS, business cancellation, Native UI or SSH'
     elif paired:
@@ -394,7 +400,7 @@ def main():
             command.add_argument('--side', choices=('client', 'executor', 'paired'), default='executor', help='activate one side with a native peer, or both JS sides with paired')
             command.add_argument('--execution-json', type=Path, help='explicit pinned Node or Exec execution configuration')
             command.add_argument('--allow-process-execution', action='store_true', help='authorize this development execution only')
-            command.add_argument('--resource-root', type=Path, help='explicit read-only workspace root for a single Executor resource test')
+            command.add_argument('--resource-root', type=Path, help='explicit read-only Executor workspace root for a single or paired test')
             command.add_argument('--allow-resource-access', action='store_true', help='authorize this root for this test only')
     args = parser.parse_args()
     if args.action == 'init': return scaffold(args.directory, args.id, args.command, args.publisher), 0
@@ -404,7 +410,7 @@ def main():
     if args.action == 'test' and (args.resource_root or args.allow_resource_access):
         require(args.resource_root is not None and args.resource_root.is_absolute(), 'TEST_RESOURCE_ROOT')
         require(args.allow_resource_access, 'TEST_RESOURCE_APPROVAL', 6)
-        require(args.side == 'executor', 'TEST_RESOURCE_SIDE')
+        require(args.side in ('executor', 'paired'), 'TEST_RESOURCE_SIDE')
         resource_root = args.resource_root
     if args.action == 'test' and (args.execution_json or args.allow_process_execution):
         require(args.execution_json is not None, 'TEST_EXECUTION_CONFIG')
@@ -422,7 +428,7 @@ def main():
         host = read_json(args.host_json) if args.host_json else None
         paired = args.action == 'test' and args.side == 'paired'
         if args.action == 'test' and host is None:
-            def profile(side): return dict(side=side, sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc', 'resource.receive', 'file.readScoped'] if resource_root else ['session.rpc'])
+            def profile(side): return dict(side=side, sdkVersion='1.0.0', protocols=[1], runtimes=['portable-js'], capabilities=['session.rpc', 'resource.receive', *(['file.readScoped'] if side == 'executor' else [])] if resource_root else ['session.rpc'])
             host = {s: profile(s) for s in ('client', 'executor')} if paired else profile(args.side)
         if paired:
             require(isinstance(host, dict) and set(host) == {'client', 'executor'} and all(isinstance(host[s], dict) and host[s].get('side') == s for s in host), 'TEST_PAIR_HOSTS')
@@ -437,7 +443,7 @@ def main():
         if paired:
             report['checkedSide'] = 'client'
             if report.get('exitCode', 0) == 0:
-                report = worker(work, tools, package, None, host['executor'], registry, True, execution)
+                report = worker(work, tools, package, None, host['executor'], registry, True, execution, bool(resource_root))
                 report['checkedSide'] = 'executor'
         if args.action == 'check': return report, report.get('exitCode', 0)
         if report.get('exitCode', 0) != 0 and host is not None:

@@ -9,7 +9,7 @@ static struct {
     int root_fd;
     const char *sha, *name, *mime;
     uint64_t bytes;
-    bool received;
+    bool received, client_received;
 } kit_res = {.root_fd = -1};
 
 static void kit_resource_cleanup(void) {
@@ -129,6 +129,7 @@ static void kit_resource_finish(const gt_ext_lease_t *lease) {
                   gt_ext_resource_store_destroy(&kit_res.executor) == GT_EXT_RESOURCE_OK &&
                   !kit_res.executor,
               "both stores destroyed");
-    printf("{\"case\":\"resource\",\"verified\":true,\"released\":true,\"received\":%s}\n",
-           kit_res.received ? "true" : "false");
+    printf("{\"case\":\"resource\",\"verified\":true,\"released\":true,\"received\":%s%s}\n",
+           kit_res.received || kit_res.client_received ? "true" : "false",
+           kit_res.client_received ? ",\"consumer\":\"client\"" : "");
 }

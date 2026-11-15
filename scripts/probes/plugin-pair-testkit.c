@@ -3,8 +3,10 @@
  * like the App's runtime-owned Native RPC facade. Only Runtime destroys them. */
 #define GT_TESTKIT_HELPERS_ONLY 1
 #include "plugin-testkit.c"
+#include "plugin-testkit-resource.inc"
 
 static bool pair_external, pair_child_activated, pair_child_exited;
+static bool pair_resources, pair_resource_seen;
 
 static gt_ext_package_t *pair_package(const char *directory, const char *host) {
     int fd = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
@@ -36,6 +38,11 @@ static void pair_pump(gt_ext_runtime_t *client, gt_ext_runtime_t *executor) {
     kit_check(gt_ext_runtime_info(client, &c) && gt_ext_runtime_info(executor, &e) &&
                   c.phase != GT_EXT_RUNTIME_FAILED && e.phase != GT_EXT_RUNTIME_FAILED,
               "both paired runtimes remain healthy");
+    if (pair_resources) {
+        gt_ext_resource_usage_t usage;
+        kit_check(gt_ext_resource_store_usage(kit_res.host, &usage), "pair resource observation");
+        pair_resource_seen |= usage.resources > 0;
+    }
 }
 
 static void pair_request(gt_ext_session_t *caller,
@@ -103,16 +110,24 @@ int main(int argc, char **argv) {
     /* dir, client host, executor host, command, method, input, error input,
      * target side, count, then name=receiver entries, then raw invocation argv. */
     kit_check(argc >= 11, "pair arguments");
+    bool resources = !strncmp(argv[8], "resources-", 10);
+    pair_resources = resources;
+    const char *target = argv[8] + (resources ? 10 : 0);
+    bool client_reads = resources && !strncmp(target, "read-", 5);
+    target += client_reads ? 5 : 0;
+    if (resources) {
+        kit_check(!atexit(kit_resource_cleanup), "pair resource cleanup registration");
+    }
     kit_check(!atexit(kit_emergency_cleanup), "pair cleanup registration");
     kit_check(signal(SIGTERM, kit_signal) != SIG_ERR && signal(SIGINT, kit_signal) != SIG_ERR,
               "pair interruption registration");
     char *end = NULL;
     unsigned long count = strtoul(argv[9], &end, 10);
     kit_check(end && !*end && count > 0 && count <= GT_EXT_RPC_METHODS_MAX &&
-                  argc >= 10 + (int)count && argc <= 47 + (int)count,
+                  argc >= 10 + (int)count && argc <= 53 + (int)count,
               "pair methods and arguments");
-    bool target_client = !strcmp(argv[8], "client");
-    kit_check(target_client || !strcmp(argv[8], "executor"), "pair target side");
+    bool target_client = !strcmp(target, "client");
+    kit_check(target_client || !strcmp(target, "executor"), "pair target side");
     gt_ext_rpc_method_t methods[GT_EXT_RPC_METHODS_MAX] = {0};
     bool root = false;
     for (size_t i = 0; i < count; i++) {
@@ -140,7 +155,8 @@ int main(int argc, char **argv) {
     pair_external = strcmp(em.runtime, "portable-js") != 0;
     kit_check(!pair_external || !strcmp(em.runtime, "node") || !strcmp(em.runtime, "exec"),
               "pair external runtime");
-    int offset = 10 + (int)count + (pair_external ? 5 : 0);
+    int resource_offset = 10 + (int)count + (pair_external ? 5 : 0);
+    int offset = resource_offset + (resources ? 6 : 0);
     kit_check(argc >= offset && argc <= offset + 32, "pair exact invocation arguments");
     gt_ext_session_config_t config = ext_config();
     strcpy(config.plugin_id, cm.id);
@@ -151,15 +167,55 @@ int main(int argc, char **argv) {
     strcpy(config.required[0], "session.rpc");
     strcpy(config.available[0], "session.rpc");
     config.features = GT_EXT_FEATURE_REQUESTS;
+    if (resources) {
+        const char *caps[] = {"session.rpc", "resource.receive", "file.readScoped"};
+        const gt_ext_package_metadata_t *sides[] = {&cm, &em};
+        for (size_t side = 0; side < 2; side++) {
+            for (size_t cap = 0; cap < (side ? 3u : 2u); cap++) {
+                bool declared = false;
+                for (size_t i = 0; i < sides[side]->requires_count; i++) {
+                    declared |= !strcmp(sides[side]->requires[i], caps[cap]);
+                }
+                kit_check(declared, "pair independently declared resource services");
+            }
+        }
+        config.required_count = config.available_count = 3;
+        for (size_t i = 0; i < 3; i++) {
+            strcpy(config.required[i], caps[i]);
+            strcpy(config.available[i], caps[i]);
+        }
+        config.features |= GT_EXT_FEATURE_RESOURCES;
+        kit_resource_open(argv + resource_offset);
+    }
     int sockets[2];
     kit_check(!socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), "pair owned stream");
     gt_ext_channel_t *h = ext_channel(sockets[0]), *e = ext_channel(sockets[1]);
     ext_pair_t pair = {0};
-    kit_check(gt_ext_session_open_rpc(&h, GT_EXT_HOST, &config, methods, count, &pair.h) == GT_OK &&
-                  gt_ext_session_open_rpc(&e, GT_EXT_EXECUTOR, &config, methods, count, &pair.e) ==
-                      GT_OK,
-              "pair native Sessions");
+    if (resources) {
+        kit_check(gt_ext_session_open_resources(
+                      &h, GT_EXT_HOST, &config, methods, count, kit_res.host, 1048576, &pair.h) ==
+                          GT_OK &&
+                      gt_ext_session_open_resources(&e,
+                                                    GT_EXT_EXECUTOR,
+                                                    &config,
+                                                    methods,
+                                                    count,
+                                                    kit_res.executor,
+                                                    1048576,
+                                                    &pair.e) == GT_OK,
+                  "pair actual resource Sessions");
+    } else {
+        kit_check(
+            gt_ext_session_open_rpc(&h, GT_EXT_HOST, &config, methods, count, &pair.h) == GT_OK &&
+                gt_ext_session_open_rpc(&e, GT_EXT_EXECUTOR, &config, methods, count, &pair.e) ==
+                    GT_OK,
+            "pair native Sessions");
+    }
     ext_allow(&pair);
+    gt_ext_session_t *resource_receiver = pair.h;
+    gt_ext_lease_t resource_lease;
+    kit_check(gt_ext_session_lease(resource_receiver, &resource_lease),
+              "pair resource receiver lease");
     gt_ext_session_t *caller = target_client ? pair.e : pair.h;
     gt_ext_lease_t lease;
     kit_check(gt_ext_session_lease(caller, &lease), "pair caller lease");
@@ -172,6 +228,12 @@ int main(int argc, char **argv) {
                                       .argc = (size_t)argc - (size_t)offset};
     gt_ext_runtime_config_t client_options = {.role = GT_EXT_HOST, .invocation = &invocation};
     gt_ext_runtime_config_t executor_options = {.role = GT_EXT_EXECUTOR, .invocation = &invocation};
+    gt_ext_runtime_root_t resource_root = {
+        .id = "workspace", .directory_fd = kit_res.root_fd, .byte_limit = 262144};
+    if (resources) {
+        executor_options.roots = &resource_root;
+        executor_options.root_count = 1;
+    }
     gt_ext_runtime_execution_t execution = {.stage_parent_fd = -1, .node_sdk_directory_fd = -1};
     gt_ext_process_environment_t environment = {0};
     if (pair_external) {
@@ -194,6 +256,10 @@ int main(int argc, char **argv) {
     opened = gt_ext_runtime_open_package(&pair.e, ep, &executor_options, true, &executor);
     kit_second = executor;
     kit_execution_inputs_close(&execution);
+    if (kit_res.root_fd >= 0) {
+        close(kit_res.root_fd);
+        kit_res.root_fd = -1;
+    }
     kit_check(opened == GT_OK && executor && !pair.e, "pair Executor adoption");
     bool activated = false;
     uint64_t activation_until = ext_now() + 10000;
@@ -230,11 +296,29 @@ int main(int argc, char **argv) {
     printf("{\"case\":\"cancel\",\"outcome\":%.*s}\n", (int)result.outcome_size, result.outcome);
     kit_check(gt_ext_session_forget_request(caller, &lease, handle) == GT_EXT_RPC_OK,
               "pair cancellation retirement");
+    if (resources) {
+        if (client_reads) {
+            gt_ext_resource_snapshot_t pending;
+            gt_ext_resource_usage_t usage;
+            kit_check(pair_resource_seen &&
+                          gt_ext_session_take_resource(resource_receiver,
+                                                       &resource_lease,
+                                                       &pending) == GT_EXT_RESOURCE_WAIT &&
+                          gt_ext_resource_store_usage(kit_res.host, &usage) && !usage.resources,
+                      "Client consumed and released resource before response");
+            kit_res.client_received = true;
+        } else {
+            kit_resource_take(resource_receiver, &resource_lease);
+        }
+    }
     gt_ext_session_revoke(caller);
     status = gt_ext_session_request(caller, &lease, argv[5], "{}", 2, 1000, &handle);
     kit_check(status == GT_EXT_RPC_DENIED || status == GT_EXT_RPC_CLOSED, "pair revocation");
     pair_release(&client);
     pair_release(&executor);
+    if (resources) {
+        kit_resource_finish(&resource_lease);
+    }
     kit_check(gt_ext_package_destroy(&cp) == GT_OK && !cp && gt_ext_package_destroy(&ep) == GT_OK &&
                   !ep,
               "pair package release");

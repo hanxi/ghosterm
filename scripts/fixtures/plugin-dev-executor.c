@@ -45,11 +45,23 @@ static bool dev_callback(uint64_t *sequence, const char *input, char value[4096]
                      text = app_member(json, body, "text");
             CHECK(text && json->nodes[text].kind == J_STRING && json->nodes[text].bytes >= 2);
             /* Preserve the callback's escaped JSON string, adding only an ASCII prefix. */
-            n = snprintf(value,
-                         4096,
-                         "{\"text\":\"executor:%.*s}",
-                         (int)json->nodes[text].bytes - 1,
-                         json->input + json->nodes[text].start + 1);
+            uint16_t resource = app_member(json, body, "resource");
+            if (resource) {
+                CHECK(json->nodes[resource].kind == J_OBJECT);
+                n = snprintf(value,
+                             4096,
+                             "{\"text\":\"executor:%.*s,\"resource\":%.*s}",
+                             (int)json->nodes[text].bytes - 1,
+                             json->input + json->nodes[text].start + 1,
+                             (int)json->nodes[resource].bytes,
+                             json->input + json->nodes[resource].start);
+            } else {
+                n = snprintf(value,
+                             4096,
+                             "{\"text\":\"executor:%.*s}",
+                             (int)json->nodes[text].bytes - 1,
+                             json->input + json->nodes[text].start + 1);
+            }
             CHECK(n > 0 && n < 4096);
         }
         release(NULL, json, sizeof(*json));

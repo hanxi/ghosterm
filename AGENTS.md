@@ -1513,3 +1513,20 @@ C11 / -Werror，无 sanitizer 新结论。无产品 Core / 平台 / ABI / SDK �
 Runtime 预算变化，不记新 App / APK / 设备 / SSH / 发行。双侧资源、完整文件 /
 资源中断矩阵、进程 / UI 服务 testkit 及 P5 / P1–P6 仍未完成，不增加 CI 二十份；
 见插件计划第二十批及[开发指南](docs/how-to/plugin-development.md)。
+
+
+**插件 P5 双侧资源开发测试（2026-11-15）**：`test --side paired` 可显式授权
+Executor 只读根；Client 仅声明收件，workspaces 实测为空。Portable / Node / Exec
+的真实双侧 RPC 组合 Native 快照全字节 / SHA256 / lease / 关闭后 pin；契约可选
+resourceConsumer=client，Client SDK 实际 take / 分块 read / EOF / release，回执
+经实际 Executor 返回并精确匹配 expected.resource。Native 观察真实 Store 收件和
+关闭 owner 前无待件 / pin，匹配 JSON 但无发布的夹具仍断言红；两消费档不抢同一
+队列。根方法两方向、64 KiB 全字节、两侧权限 / 声明、路径边界及实际释放通过。
+57 项基线、39 组隔离变异正常断言红 / 独立配置绿 / 恢复 / SHA256，65 源与 35
+固定构件一致；C / inc 与 Client pin 注入要求编译后的 Native ASSERT。补实际
+Store 观察前中断 143、授权夹具未复原 manifest 的测试步骤失败单列，不计通过。
+默认 Core 588/184、C 格式 264、Apple 181/3、JNI 147/37 通过；macOS arm64 /
+C11 / -Werror，无 sanitizer 新结论。无产品 Core / 平台 / ABI / SDK 身份或
+Runtime 预算变化，不记新 App / APK / 设备 / SSH / 发行；完整资源 / 进程 / UI
+服务测试、资源实际中断、辅助技术 / 生命周期及 P5 / P1–P6 仍未完成，不增加
+CI 二十份；见插件计划第二十一批及[开发指南](docs/how-to/plugin-development.md)。

@@ -301,7 +301,9 @@ def run_case(name, work, tools, core, execution=None):
             hostfile.write_text(json.dumps({**facts, 'variantId': variant})); assert check()['facts']['variantId'] == variant
         hostfile.write_text(json.dumps({**facts, 'runtimes': ['node'], 'variantId': 'native'})); assert check(4)['compatibility'] == 'unsupported'
     elif name.startswith('resource-'):
-        runtime = {'resource-node': 'node', 'resource-exec': 'exec'}.get(name, 'portable-js')
+        paired = name.startswith('resource-pair-')
+        client_reads = name.startswith('resource-pair-client')
+        runtime = {'resource-node': 'node', 'resource-exec': 'exec', 'resource-pair-node': 'node', 'resource-pair-exec': 'exec', 'resource-pair-client-node': 'node', 'resource-pair-client-exec': 'exec'}.get(name, 'portable-js')
         original = (project / 'executor/index.ts').read_text()
         if runtime == 'portable-js':
             manifest = json.loads((project / 'plugin.json').read_text())
@@ -320,7 +322,14 @@ def run_case(name, work, tools, core, execution=None):
         caps = ['session.rpc', 'resource.receive', 'file.readScoped']
         manifest['executor']['variants'][0]['requires'] = caps
         manifest['permissions'] += [dict(side='executor', capability=c, purpose='Read this explicitly authorized disposable root.', scope='instance') for c in caps[1:]]
-        (project / 'plugin.json').write_text(json.dumps(manifest)); facts['capabilities'] = caps; hostfile.write_text(json.dumps(facts))
+        facts['capabilities'] = caps
+        if paired:
+            manifest['client']['requires'] = caps[:2]
+            manifest['permissions'].append(dict(side='client', capability='resource.receive', purpose='Receive this test instance resource.', scope='instance'))
+            facts = dict(client={**host, 'side': 'client', 'capabilities': caps[:2]}, executor=facts)
+            clientfile = project / 'client/index.ts'
+            clientfile.write_text(clientfile.read_text().replace('  let live = true;', '  if (!context.resources || context.resources.workspaces.length !== 0) throw new Error("Client must not receive Executor roots");\n  let live = true;'))
+        (project / 'plugin.json').write_text(json.dumps(manifest)); hostfile.write_text(json.dumps(facts))
         source = work / 'source'; source.mkdir(); data = bytes((i * 7 + 3) % 251 for i in range(65536)); file = source / 'file.bin'; file.write_bytes(data)
         (work / 'outside.bin').write_bytes(b'outside must not be read'); (source / 'link.bin').symlink_to(file)
         if runtime != 'exec':
@@ -332,11 +341,77 @@ def run_case(name, work, tools, core, execution=None):
     const result = await resources.publish({ root, relativePath, mediaType: "application/octet-stream" }, { byteLimit: "262144", timeoutMs: 1000 }).outcome;
     if (result.kind !== "success") return { text: result.kind === "failed" ? result.error.code : "unknown" };
     return { text: input.text };''')
+            if paired:
+                publication = text[text.index('    const resources = context.resources;'):text.index('    return { text: input.text };')]
+                text = text.replace('    const reply = await context.session.request(Callback, input, 1000).outcome;', publication + '    const reply = await context.session.request(Callback, input, 1000).outcome;')
             (project / 'executor/index.ts').write_text(text)
-        contractfile = project / 'plugin.test.json'; contract = json.loads(contractfile.read_text())
-        contract.update(method='fixture.echo' if runtime == 'exec' else 'dev.echo', input={'text': 'resource'}, expected={'text': 'resource'}, resource=dict(sha256=hashlib.sha256(data).hexdigest(), bytes=len(data), displayName='file.bin', mediaType='application/octet-stream'))
+        contractfile = project / ('plugin.pair.test.json' if paired else 'plugin.test.json'); contract = json.loads(contractfile.read_text())
+        contract.update(method='dev.run' if paired else 'fixture.echo' if runtime == 'exec' else 'dev.echo', input={'text': 'resource'}, expected={'text': 'client:executor:callback:resource' if paired else 'resource'}, resource=dict(sha256=hashlib.sha256(data).hexdigest(), bytes=len(data), displayName='file.bin', mediaType='application/octet-stream'))
+        if client_reads:
+            declarations = '''import { object, text, integer } from "@ghosterm/plugin-sdk";
+import type { PluginContext } from "@ghosterm/plugin-sdk";
+const Receipt = object({ sha256: text(64), bytes: integer(0, 262144), displayName: text(1024), mediaType: text(128) });
+const Run = { name: "dev.run", input: object({ text: text(64) }), output: object({ text: text(64), resource: Receipt }) };
+const Exchange = { ...Run, name: "dev.exchange" };
+const Callback = { ...Run, name: "dev.callback" };
+'''
+            (project / 'client/index.ts').write_text(declarations + '''export function activate(context: PluginContext) {
+  const resources = context.resources;
+  if (!resources || resources.workspaces.length !== 0) throw new Error("Client roots");
+  context.session.register(Callback, async (input, request) => {
+    request.check();
+    const taken = resources.take();
+    if (taken.status !== "ok" || !taken.ref) throw new Error("Client take");
+    const ref = taken.ref;
+    try {
+      const opened = resources.open(ref, { byteLimit: "262144", timeoutMs: 1000 });
+      if (opened.status !== "ok" || !opened.stream) throw new Error("Client stream");
+      let total = 0;
+      for (;;) {
+        const chunk = await opened.stream.read();
+        request.check();
+        if (chunk.kind !== "success") throw new Error("Client read");
+        for (let i = 0; i < chunk.value.bytes.length; i++) {
+          if (chunk.value.bytes[i] !== ((total + i) * 7 + 3) % 251) throw new Error("Client byte");
+        }
+        total += chunk.value.bytes.length;
+        if (chunk.value.done) break;
+      }
+      if (ref.size.kind !== "known" || String(total) !== ref.size.bytes) throw new Error("Client size");
+      return { text: "callback:" + input.text, resource: { sha256: ref.sha256, bytes: total, displayName: ref.displayName, mediaType: ref.mediaType } };
+    } finally {
+      if (resources.release(ref) !== "ok") throw new Error("Client release");
+    }
+  });
+  context.session.register(Run, async (input, request) => {
+    const result = await context.session.request(Exchange, input, 1000).outcome;
+    request.check();
+    if (result.kind !== "success") throw new Error("Client exchange");
+    return { text: "client:" + result.value.text, resource: result.value.resource };
+  });
+  return { dispose() {} };
+}
+''')
+            if runtime != 'exec':
+                (project / 'executor/index.ts').write_text(declarations + '''export function activate(context: PluginContext) {
+  const resources = context.resources;
+  if (!resources || resources.workspaces.join() !== "workspace") throw new Error("Executor roots");
+  context.session.register(Exchange, async (input, request) => {
+    request.check();
+    if (input.text === "throw") throw new Error("Declared error");
+    const publication = await resources.publish({ root: "workspace", relativePath: "file.bin", mediaType: "application/octet-stream" }, { byteLimit: "262144", timeoutMs: 1000 }).outcome;
+    if (publication.kind !== "success") throw new Error("Executor publish");
+    const result = await context.session.request(Callback, input, 1000).outcome;
+    request.check();
+    if (result.kind !== "success") throw new Error("Executor callback");
+    return { text: "executor:" + result.value.text, resource: result.value.resource };
+  });
+  return { dispose() {} };
+}
+''')
+            contract.update(resourceConsumer='client', expected={**contract['expected'], 'resource': contract['resource']})
         contractfile.write_text(json.dumps(contract))
-        arguments = ['test', *common, '--contract', contractfile, '--core-build', core, '--host-json', hostfile, '--resource-root', source]
+        arguments = ['test', *common, '--contract', contractfile, '--core-build', core, '--host-json', hostfile, '--resource-root', source, '--side', 'paired' if paired else 'executor']
         if runtime != 'portable-js':
             specfile = work / 'execution.json'; specfile.write_text(json.dumps({k: v for k, v in execution.items() if k != 'version'} if runtime == 'node' else {'runtime': 'exec'}))
             arguments += ['--execution-json', specfile, '--allow-process-execution']
@@ -344,28 +419,66 @@ def run_case(name, work, tools, core, execution=None):
             missing = [a if a != core else work / 'must-not-run' for a in arguments]
             assert cli(*missing, status=6)['code'] == 'TEST_RESOURCE_APPROVAL'
             assert cli(*missing, '--allow-resource-access', '--side', 'client', status=2)['code'] == 'TEST_RESOURCE_SIDE'
-            assert cli(*missing, '--allow-resource-access', '--side', 'paired', status=2)['code'] == 'TEST_RESOURCE_SIDE'
+            assert cli(*missing, '--allow-resource-access', '--side', 'paired', status=2)['code'] == 'TEST_PAIR_HOSTS'
             hostfile.write_text(json.dumps({**facts, 'deniedCapabilities': ['file.readScoped']}))
             assert cli(*missing, '--allow-resource-access', status=6)['compatibility'] == 'denied'
             hostfile.write_text(json.dumps(facts)); manifest['executor']['variants'][0]['requires'].remove('file.readScoped')
             manifest['permissions'] = [p for p in manifest['permissions'] if p['side'] != 'executor' or p['capability'] != 'file.readScoped']
             (project / 'plugin.json').write_text(json.dumps(manifest))
             assert cli(*missing, '--allow-resource-access', status=1, diagnostic='TEST_REQUIRES_DECLARED_RESOURCES')['kind'] == 'error'
-        elif name == 'resource-boundaries':
+        elif name == 'resource-pair-guards':
+            missing = [a if a != core else work / 'must-not-run' for a in arguments]
+            assert cli(*missing, status=6)['code'] == 'TEST_RESOURCE_APPROVAL'
+            original_manifest = json.loads(json.dumps(manifest))
+            for side, capability in [('client', 'resource.receive'), ('executor', 'file.readScoped')]:
+                (project / 'plugin.json').write_text(json.dumps(original_manifest))
+                hostfile.write_text(json.dumps({**facts, side: {**facts[side], 'deniedCapabilities': [capability]}}))
+                report = cli(*missing, '--allow-resource-access', status=6)
+                assert report['compatibility'] == 'denied' and report['checkedSide'] == side
+                hostfile.write_text(json.dumps(facts))
+                manifest = json.loads(json.dumps(original_manifest))
+                selected = manifest['client'] if side == 'client' else manifest['executor']['variants'][0]
+                selected['requires'].remove(capability)
+                manifest['permissions'] = [p for p in manifest['permissions'] if (p['side'], p['capability']) != (side, capability)]
+                (project / 'plugin.json').write_text(json.dumps(manifest))
+                assert cli(*missing, '--allow-resource-access', status=1, diagnostic='TEST_REQUIRES_DECLARED_RESOURCES')['kind'] == 'error'
+            (project / 'plugin.json').write_text(json.dumps(original_manifest))
+            for consumer, code in [('executor', 'TEST_RESOURCE_CONSUMER'), ('client', 'TEST_RESOURCE_CLIENT_RECEIPT')]:
+                contractfile.write_text(json.dumps({**contract, 'resourceConsumer': consumer}))
+                assert cli(*missing, '--allow-resource-access', status=2)['code'] == code
+        elif name in ('resource-boundaries', 'resource-pair-boundaries'):
             base = dict(contract)
             for value, expected in [('traversal', 'DENIED'), ('foreign-root', 'DENIED'), ('symlink', 'UNSUPPORTED')]:
-                contract = {k: v for k, v in base.items() if k != 'resource'}; contract.update(input={'text': value}, expected={'text': expected}); contractfile.write_text(json.dumps(contract))
+                contract = {k: v for k, v in base.items() if k != 'resource'}; contract.update(input={'text': value}, expected={'text': 'client:' + expected if paired else expected}); contractfile.write_text(json.dumps(contract))
                 assert cli(*arguments, '--allow-resource-access')['observations'][4]['received'] is False
             contract = dict(base); contract['resource'] = {**base['resource'], 'sha256': '0' * 64}; contractfile.write_text(json.dumps(contract))
             assert cli(*arguments, '--allow-resource-access', status=1, diagnostic='ASSERT:')['kind'] == 'error'
         else:
             result = cli(*arguments, '--allow-resource-access')
-            assert result['services'] == ['resources'] and result['observations'][4] == dict(case='resource', verified=True, released=True, received=True)
+            assert result['services'] == ['resources'] and result['observations'][4] == dict(case='resource', verified=True, released=True, received=True, **({'consumer': 'client'} if client_reads else {}))
             assert 'scoped resource publication' in result['scope']
-            if runtime == 'portable-js':
+            if paired:
+                assert result['side'] == 'paired' and 'paired Client/Executor' in result['scope']
+                reverse = {**contract, 'method': 'dev.exchange', 'expected': {**contract['expected'], 'text': 'executor:callback:resource'}}
+                contractfile.write_text(json.dumps(reverse))
+                assert cli(*arguments, '--allow-resource-access')['observations'][4]['received'] is True
+                contractfile.write_text(json.dumps(contract))
+            if runtime == 'portable-js' and not client_reads:
                 file.write_bytes(b''); contract['resource'] = {**contract['resource'], 'bytes': 0, 'sha256': hashlib.sha256(b'').hexdigest()}; contractfile.write_text(json.dumps(contract))
                 assert cli(*arguments, '--allow-resource-access')['observations'][4]['received'] is True
                 file.write_bytes(data)
+            if runtime == 'portable-js' and client_reads:
+                # A matching RPC receipt alone must not replace real Store evidence.
+                clientfile = project / 'client/index.ts'; original_client = clientfile.read_text()
+                start = original_client.index('  context.session.register(Callback,')
+                stop = original_client.index('  context.session.register(Run,')
+                fake = '  context.session.register(Callback, (input) => ({ text: "callback:" + input.text, resource: ' + json.dumps(contract['resource']) + ' }));\n'
+                clientfile.write_text(original_client[:start] + fake + original_client[stop:])
+                executorfile = project / 'executor/index.ts'; executor_text = executorfile.read_text()
+                begin = executor_text.index('    const publication = await resources.publish(')
+                end = executor_text.index('\n', begin)
+                executorfile.write_text(executor_text[:begin] + '    const publication = {kind: "success"};' + executor_text[end:])
+                assert cli(*arguments, '--allow-resource-access', status=1, diagnostic='ASSERT:')['kind'] == 'error'
         assert file.read_bytes() == data and (work / 'outside.bin').read_bytes() == b'outside must not be read'
     elif name.startswith('execution-'):
         assert execution is not None
@@ -509,10 +622,12 @@ CASES = ['reproducible', 'host-states', 'strict-types', 'dependencies', 'imports
 CASES += ['paired-rpc', 'paired-contract', 'paired-failures', 'paired-hosts', 'paired-declarations']
 CASES += ['node-project', 'node-boundaries', 'node-facts', 'exec-project', 'runtime-variants']
 CASES += ['source-references']
-CASES += ['resource-portable', 'resource-guards', 'resource-boundaries']
+CASES += ['resource-portable', 'resource-guards', 'resource-boundaries', 'resource-pair-portable', 'resource-pair-guards', 'resource-pair-boundaries']
+CASES += ['resource-pair-client']
 EXECUTION_CASES = ['execution-node', 'execution-exec', 'execution-approval', 'execution-pins', 'execution-interrupt', 'execution-exec-interrupt']
 EXECUTION_CASES += ['execution-pair-node', 'execution-pair-exec', 'execution-pair-guards', 'execution-pair-pins', 'execution-pair-node-interrupt', 'execution-pair-exec-interrupt']
-EXECUTION_CASES += ['resource-node', 'resource-exec']
+EXECUTION_CASES += ['resource-node', 'resource-exec', 'resource-pair-node', 'resource-pair-exec']
+EXECUTION_CASES += ['resource-pair-client-node', 'resource-pair-client-exec']
 MUTATIONS = [
     ('explicit-any', 'strict-types', 'scripts/plugin-dev-worker.mjs', "demand(node.kind !== ts.SyntaxKind.AnyKeyword, 'EXPLICIT_ANY');", ''),
     ('host-denied', 'host-states', 'scripts/plugin-dev-worker.mjs', 'compatibility = error.state; reason = error.code;', "compatibility = error.state === 'denied' ? 'unknown' : error.state; reason = error.code;"),
@@ -527,7 +642,7 @@ MUTATIONS = [
     ('paired-executor-pump', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    gt_ext_runtime_step(executor);', '    (void)executor;'),
     ('paired-direction', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_EXECUTOR : GT_EXT_HOST;'),
     ('paired-executor-release', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    pair_release(&executor);', '    /* missing Executor release */'),
-    ('paired-executor-facts', 'paired-hosts', 'scripts/gterm-plugin', "report = worker(work, tools, package, None, host['executor'], registry, True, execution)", "report = worker(work, tools, package, None, host['client'], registry, True, execution)"),
+    ('paired-executor-facts', 'paired-hosts', 'scripts/gterm-plugin', "report = worker(work, tools, package, None, host['executor'], registry, True, execution, bool(resource_root))", "report = worker(work, tools, package, None, host['client'], registry, True, execution)"),
     ('portable-node-types', 'node-boundaries', 'scripts/plugin-dev-worker.mjs', "types: side.runtime === 'node' ? ['node'] : []", "types: ['node']"),
     ('node-esm', 'node-boundaries', 'scripts/plugin-dev-worker.mjs', "json(path.join(directory, 'package.json')).type === 'module'", "true"),
     ('exec-empty', 'exec-project', 'scripts/plugin-dev-worker.mjs', 'catalog.get(side.executable).length > 0', 'true'),
@@ -538,6 +653,15 @@ MUTATIONS = [
     ('resource-foreign-lease', 'resource-portable', 'scripts/probes/plugin-testkit-resource.inc', 'other.epoch ^= 1;', 'other.epoch = lease->epoch;'),
     ('resource-digest', 'resource-portable', 'scripts/probes/plugin-testkit-resource.inc', 'gt__sha256_update(&hash, bytes, read)', '(bytes[0] ^= 1, gt__sha256_update(&hash, bytes, read))'),
     ('resource-release', 'resource-portable', 'scripts/probes/plugin-testkit-resource.inc', 'gt_ext_resource_store_release(kit_res.host, lease, &kit_res.snapshot) ==\n                          GT_EXT_RESOURCE_OK &&\n                      !kit_res.snapshot.handle', 'true'),
+]
+MUTATIONS += [
+    ('pair-resource-root', 'resource-pair-portable', 'scripts/probes/plugin-pair-testkit.c', 'executor_options.root_count = 1;', 'executor_options.root_count = 0;'),
+    ('pair-resource-client-root', 'resource-pair-portable', 'scripts/probes/plugin-pair-testkit.c', 'executor_options.roots = &resource_root;', 'executor_options.roots = &resource_root; client_options.roots = &resource_root; client_options.root_count = 1;'),
+    ('pair-resource-receiver', 'resource-pair-portable', 'scripts/probes/plugin-pair-testkit.c', 'resource_receiver = pair.h;', 'resource_receiver = pair.e;'),
+    ('pair-resource-approval', 'resource-pair-guards', 'scripts/gterm-plugin', "require(args.allow_resource_access, 'TEST_RESOURCE_APPROVAL', 6)", 'pass'),
+    ('pair-resource-client-read', 'resource-pair-client', 'scripts/test-plugin-dev.py', 'total += ' + 'chunk.value.bytes.length;', 'total += 0;'),
+    ('pair-resource-client-pin', 'resource-pair-client', 'scripts/test-plugin-dev.py', 'if (resources.' + 'release(ref) !== "ok")', 'if (false)'),
+    ('pair-resource-client-observed', 'resource-pair-client', 'scripts/probes/plugin-pair-testkit.c', 'pair_resource_seen |= usage.resources > 0;', 'pair_resource_seen |= false;'),
 ]
 EXECUTION_MUTATIONS = [
     ('development-execution-approval', 'execution-approval', 'scripts/gterm-plugin', "require(args.allow_process_execution, 'TEST_EXECUTION_APPROVAL', 6)", 'pass'),
@@ -579,7 +703,7 @@ def mutations(work, tools, core, execution=None, execution_arguments=()):
             red = probe()
             diagnostics = red.stdout + red.stderr
             assert red.returncode == 1 and b'AssertionError' in diagnostics and b'error: ' not in diagnostics, (label, diagnostics.decode())
-            if filename.endswith(('.c', '.inc')):
+            if filename.endswith(('.c', '.inc')) or label == 'pair-resource-client-pin':
                 assert b'ASSERT:' in diagnostics, (label, 'requires a compiled native assertion red', diagnostics.decode())
             else:
                 assert b'TOOL_FAILED' not in diagnostics, (label, diagnostics.decode())
