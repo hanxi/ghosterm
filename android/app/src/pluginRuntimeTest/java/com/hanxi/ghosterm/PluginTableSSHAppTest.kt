@@ -111,10 +111,10 @@ class PluginTableSSHAppTest {
                 ui.onNodeWithTag("plugin-table-cell-1000000-cube").performScrollTo().assertTextEquals("1000000000000000000")
             } else ui.onNodeWithTag("plugin-table-empty").performScrollTo().assertTextEquals("空表")
             main { extensions.stopRuntime() }
-            await("Table Runtime stop") { main { extensions.activeRuntime?.info?.phase !in setOf(ExtensionRuntime.Phase.ACTIVE,
+            await("Table Runtime stop") { main { !extensions.launchBusy && extensions.activeRuntime?.info?.phase !in setOf(ExtensionRuntime.Phase.ACTIVE,
                 ExtensionRuntime.Phase.STARTING, ExtensionRuntime.Phase.CREATED) } }
             assertFalse(main { table.state.value.valid }); assertNull(main { table.state.value.page })
-            main { extensions.releaseFinished() }
+            ui.onNodeWithText("释放插件资源").performScrollTo().assertIsEnabled().performClick()
             await("Table owner release") { main { extensions.activeSession == null && !extensions.launchBusy } }
             assertNull(main { extensions.error })
         } finally {

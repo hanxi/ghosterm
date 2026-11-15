@@ -16,8 +16,9 @@
 所选页代次和两端同一官方包；API29 / 36 无窗口档的分页 / 授权 / 停止证据见文末。
 第四批提供独立于 Codex 的只读 diff 契约与有界比较 Executor，保持原 CPU / RPC 预算；
 七种 standalone Core 场景在两设备通过。第五批接 macOS 通用原生 ui.diff、精确游标分页、
-Client 服务协商与真实本机 / 直连 / ProxyJump；Android 原生 diff 仍待接。缺能力仍显式
-不支持；持续交互样例及完整开发体验继续，P5 和 P1–P6 均未记完成。
+Client 服务协商与真实本机 / 直连 / ProxyJump；第六批补 Android 对应原生组件、精确服务
+与会话代次隔离，设备档与证据见文末。缺能力仍显式不支持；持续交互样例及完整开发
+体验继续，P5 和 P1–P6 均未记完成。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
 
@@ -6703,3 +6704,104 @@ Python 语法和 diff 检查通过。临时构建、收据、日志与缓存按�
 输入与 SHA256 保留；未操作用户 Java、应用、SSH 服务或模拟器。根 Core 保持默认档。
 
 本轮实际清理 741 个所属 tmp 项，逻辑文件大小约 **564.1 MiB**；原三份 eq 输入摘要未变。
+
+### P5 实施第六批：Android 标准 Native diff 与真实 SSH 分页（2026-11-15）
+
+Android 按准确批准命令的 `views: ["diff"]` 及 `session.rpc` / `ui.diff` 声明创建通用原生
+模型。Native consent 的方法集合自动加入标准 describe / page，显式 Client 服务要求
+传给同一 gterm；不依赖命令名，不增加 C ABI、wire 字段、SDK 身份或业务专属窗格。
+Host profile 仅在实际接线后宣称 ui.diff，未知服务、重复项及不属于该命令的服务仍拒绝。
+
+`PluginDiffCodec` 校验完整字段、正 uint64 修订、计数关系、三行 / 2048 字节、来源行号、
+前后游标、精确 LF / CRLF / CR / 无末尾换行与末页消费两份原文；不把差异行解释为文件
+身份或写入授权。table 原有严格原始 JSON 解析抽到 `PluginViewValue`，保留 3072 字节
+原始信封上限、2048 字节紧凑值、重复字段 / 未配对代理 / 非法 UTF-8 / 整数 / 未知字段
+保护及不可变值快照。模型只保留当前页和最多 257 个游标；下一页必须可由已校验页连续
+到达，上一页重新请求，未访问页不能跳读。切页清旧行，停止 / 替换 / 失败使旧模型失效，
+迟到回复不能重新显示，UNKNOWN 不折叠成空差异，也不自动重放请求。
+
+生产 SettingsContent 复用 Compose Text / SelectionContainer / ScrollView / Button，提供
+双行号、相同 / 删除 / 新增文字、精确行尾说明、原文选择与前后分页。两轴滚动各有独立
+semantics 节点，控件随宽度换行；不增加 WebView、TerminalSurface 或端特有业务窗格。
+已有 100 ms Android Client worker slice、远端 Executor 默认 25 ms、RPC / 握手 / 观察
+预算保持原值；没有为大字号、变异或模拟器提额。
+
+复现先按第五批准备显式 JS/SSH-on `tmp/android-diff/cli`、锁定 TS 5.9.3 tools / 八模块
+SDK 及同一官方 diff 包；测试对象仅为 helper 创建的 API29 / API36 arm64 / 4 KiB 页 /
+`-no-window` AVD 与本轮自有回环 OpenSSH 两跳，不使用用户 AVD / 主机 / 账户或目录：
+
+```bash
+export TMPDIR="$PWD/tmp" JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$PWD/tmp"
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-diff-android-native.py \
+  --build tmp/android-diff/cli --package tmp/android-diff/package --mutate \
+  --receipt tmp/android-diff/native-final.json
+# 旧 table 的共享字节保护和方法接线，选跑两组；23 项基线和四条 SSH 仍执行。
+python3 scripts/build-plugin-sample.py --source plugins/official/table \
+  --tools tmp/android-diff/tools --out tmp/android-diff/table-package
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-table-android-native.py \
+  --build tmp/android-diff/cli --package tmp/android-diff/table-package --api 36 --mutate \
+  --case body-bytes --case native-methods --receipt tmp/android-diff/table-native.json
+```
+
+前置失败单列：首轮 API29 的 27 项中，末尾换行用例污染了自身下一次读取的数据；
+夹具 JSONArray 复用了原行 JSONObject，修改错误页也改了原始行。其余 26 项通过，
+这轮不记整轮绿。改为每次生成独立行对象，负向用例不再互相污染；原始失败日志保留，
+不将测试构造错误当成产品缺陷或变异目标红。
+
+API29 首先通过 **27 项 diff 值 / 模型 / UI**与既有 **23 项 table**；浅 / 深主题 ×
+1× / 2× 字号分别核对精确原文、实际字形位图、行尾 semantics 与真实下一页 action。
+真实 SettingsContent / ViewModel / Session consent / gterm / 官方 Client+Executor 在
+直连 / 两跳 SSH 各变化、空文本、Unicode、相同文本，**每设备八场景**；所有页通过
+真实前后按钮读取，按 UTF-8 精确重建两份原文与行尾，并验停止失效和 owner 释放。
+未操作系统 TalkBack、IME、用户键盘焦点或完整选包 / 摘要批准点击链；review / approve /
+launch 来自测试对生产动作的明确调用，consent 和分页点击来自实际 Settings 页面。
+
+**十五组隔离变异**已在 API29 同轮通过：view、revision、完整页、前 / 后游标、行号、
+末尾换行、末页消费、迟到回复九组，bootstrap 显式服务、下一页、双轴滚动三组，及真实
+Settings 组合的 ViewModel 创建 / 标准方法 / 页面渲染三组。每组实际编译 / APK 变化、
+单条正常断言红、同 APK 的独立 Core 配置对照绿、恢复目标绿、源码 SHA256。两条原生
+runner 均预扫遗留标记，INT / TERM 经清理上下文恢复复制源、关闭自有 agent / SSH /
+AVD，临时文件与 JVM java.io.tmpdir 均在工程 tmp。
+
+第二轮 API36 在两跳 Unicode 的 owner 释放等待失败，内容 / 页读取此前通过；该轮不记
+完整通过。测试仅等 Runtime 终态就允许调用 releaseFinished，未核对 advanceRuntime 的停止
+交接完成；该方法在 launchBusy 时直接返回，而生产 Settings 的释放按钮此时禁用。
+修正 diff 与旧 table 夹具：同一 20 秒上限内同时等终态和 !launchBusy，然后点击真实
+启用的“释放插件资源”按钮。保留原失败，后续完整重跑重新取证；不提高期限，也不
+将 Runtime 的一个终态等同于全部 owner 已释放。原日志没有记录当时的 busy / error，
+故不据修改后的通过结果声称已确认或修复底层释放缺陷；最终流程另验真实 owner 释放。
+
+修正后的最终完整组合：API29 / API36 各 **27 项 diff、23 项既有 table、八种真实 SSH
+场景**，十五组变异在 API29 同一轮重跑通过，停止交接和实际释放按钮均执行。所有
+输入 560 份与当前工作区一致，同一官方包 / gterm / Core；日志未落入内存夹具私钥。
+两设备均为 arm64、4 KiB 页、无窗口，最终 diff 模型 / UI 复验的恢复 APK 相同：
+
+- 生产 APK：`4c29ed77c0750005c9b39808e0b0d2b832784032fba9d3af67debc58c6e6c0d8`。
+- 测试 APK：`304d50bacb407904124e5172b3f91f62f79ccaf2a78a215102e44d157560a728`。
+- API29 前置 27 / 23 与八种 SSH 使用初始生产 APK `4db9cc636022569c87a5d66d3cede0c7595ec62f653e909456340e915432bf93`，测试 APK 相同；不宣称所有场景一次同 APK。逐项安装摘要与恢复构建见收据。
+- 最终 Native 收据 / 十五组 / 560 输入：`8fc9a33badaa70cffc1facef8751ea6025f5e961ae42f35fcee588448bc8a872`。
+
+本批无新 C ABI、SDK 源码身份或 vendor pin。默认 App 仍关闭 JS，候选包不自动安装 /
+发布。TalkBack / IME / 键盘焦点、16 KiB 页 / 真机、diff IPC、ctx.views / 多视图、完整
+选包 / 摘要批准 / 启动用户点击链与完整生命周期矩阵未完成；P5 持续交互样例、开发
+工具 / testkit、P1–P6 其余要求继续，不据这些专项勾选完成，也不增加 CI 二十份。
+
+受共享解析与方法配置影响的旧 table 另在 API36 选跑 **body-bytes / native-methods 两组**，
+并执行 **23 项基线 / 最终与直连 / 两跳 × 百万行 / 空表四场景**，全部通过；两组均
+正常断言红、同 APK Core 配置绿、恢复 / 实际 APK / SHA256。不声称旧十二组全重跑。
+558 份输入一致，收据为 `ec06bf9285b6977734e11c5b658b97ca482f8002c510c1d28b73c5dc77a3d0a5`。
+同轮初始生产 APK `13de14ab31f1299ccf87836df64c3a05544f891fa9a95fbadea9a9a1e0c80c6a`，
+最终恢复 APK `8c9d411c5fade943769e2be03f93e6d871da359d33220dc638f409761364ecf5`；测试
+APK 与上述 diff 轮相同，均逐项核对实际安装字节。分开记录，未将两轮说成同生产 APK。
+
+最终根工程 JS-enabled **Debug / 测试 APK**、未签名 **Release / R8**与 app / bridge /
+data / terminal **四模块 Release lint**通过；本轮 `minifyReleaseWithR8` 实际执行，
+未把 UP-TO-DATE 当成重跑。默认 Core **JS-off / tests-on：588/588 CTest / 181 ABI**、
+clang-format **19.1.7 / 257 文件**、Apple **178/3**、JNI **144/37**、Python 语法及 diff
+检查通过。无本轮 C 源码 / 头文件 / SDK TS / Apple 源码修改，未复跑 enabled Core 全套、
+macOS App / Release、其它插件或完整 Android 客户端，不借旧证据记这些范围通过。
+本轮仅为 Debug AVD 行为与本地构建证据，未推送 / 发行；临时产物按归属清理，保留原
+三份 eq 输入及其 SHA256，不操作用户 Java、AVD、应用或 SSH 服务。
+
+本轮最终清理 107 个所属 tmp 项，逻辑大小约 **143.3 MiB**；三个原始 eq 输入摘要未变。

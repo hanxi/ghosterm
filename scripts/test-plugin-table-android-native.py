@@ -68,6 +68,8 @@ def main():
                  'scripts/test-plugin-route.py', 'scripts/test-plugin-ssh.py', 'scripts/test-plugin-ssh-stream.py',
                  'scripts/test-plugin-channel.py', 'scripts/lib/gt-timeout.sh'):
         inputs[name] = sha(ROOT / name)
+    if any(b'GT_ANDROID_TABLE_MUTATION' in (ROOT / n).read_bytes() for n in inputs if n.endswith('.kt')):
+        raise RuntimeError('leftover Native table mutation')
     package_hashes = {p.relative_to(package).as_posix(): sha(p) for p in package.rglob('*') if p.is_file()}
     binaries = {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a')}
     receipt.parent.mkdir(parents=True, exist_ok=True)
@@ -87,7 +89,7 @@ def main():
         for folder in ('core', 'vendor', 'build', 'assets', 'packages', 'scripts', 'patches', 'runtime-payload'):
             (source / folder).symlink_to(ROOT / folder, target_is_directory=True)
         (source / 'tmp').mkdir()
-        env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'),
+        env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + str(ROOT / 'tmp'),
             JAVA_HOME=str(ROOT / 'build/android-toolchain/jdk-17.0.21+9/Contents/Home'),
             ANDROID_HOME=str(ROOT / 'build/android-toolchain/sdk'),
             GRADLE_USER_HOME=str(ROOT / 'build/android-toolchain/gradle-home'))
@@ -218,7 +220,7 @@ def main():
                             ('revision', MODEL, 'value["revision"].revision() == descriptor.revision', 'value["revision"].revision().isNotEmpty()', 'selectedPageRejectsDifferentViewRevisionOffsetAndTotal'),
                             ('page-complete', MODEL, 'rows.size == minOf(descriptor.pageSize, descriptor.total - offset)', 'true', 'selectedPageMustContainEveryExpectedRow'),
                             ('columns', MODEL, 'cells.size == descriptor.columns.size', 'cells.isNotEmpty()', 'selectedPageRequiresColumnWidthAndUniqueRows'),
-                            ('body-bytes', MODEL, 'utf8(compact(value)).size <= 2048', 'utf8(compact(value)).size <= 3072', 'aggregateBodyByteLimitIsIndependentOfIndividualCells'),
+                            ('body-bytes', APP + 'PluginViewValue.kt', 'utf8(compact(value)).size <= 2048', 'utf8(compact(value)).size <= 3072', 'aggregateBodyByteLimitIsIndependentOfIndividualCells'),
                             ('late-reply', MODEL, 'generation === expected && available && currentCoroutineContext().isActive', 'currentCoroutineContext().isActive', 'latePageCannotReopenAnInvalidatedView'),
                             ('native-service', BOOT, 'request.clientCapabilities.forEach { add("--client-capability"); add(it) }', 'request.clientCapabilities.forEach { _ -> Unit }', 'nativeBootstrapDeclaresOnlyItsImplementedClientService'),
                             ('native-next', UI, 'model.showPage(state.selectedOffset + (description?.pageSize ?: 16))', 'model.showPage(state.selectedOffset + 2 * (description?.pageSize ?: 16))', 'UI#realPagingButtonsShowNextLastAndPreviousExactValues'),
@@ -261,4 +263,7 @@ def main():
     print('ANDROID NATIVE TABLE PASS', flush=True)
 
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    def interrupted(number, frame): raise KeyboardInterrupt(str(number))
+    signal.signal(signal.SIGINT, interrupted); signal.signal(signal.SIGTERM, interrupted)
+    main()

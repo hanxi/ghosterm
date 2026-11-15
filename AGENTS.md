@@ -1272,3 +1272,22 @@ ASan / UBSan 各 56 项基线 / 最终，以及 CLI 两服务各两组；正常�
 Android JS-enabled bridge Release 原生重编、C 格式 19.1.7 / 257 文件、Apple 178/3 与
 JNI 144/37 通过。旧 stdio Preview 一次 owner cleanup 失败、同构件原预算定向及完整
 复验通过分账，原因未确认，不宣称已修复；本片无 Android APK / 设备 / lint 或 R8 复跑。
+
+**插件 P5 Android 原生 diff（2026-11-15）**：准确批准命令 views / ui.diff 接通用只读
+Compose 原文、双行号 / 行尾、连续游标与所选页；停止 / 替换 / 迟到隔离。与 table
+共用严格 JSON 边界，不增加 C ABI、SDK 身份或业务专属窗格，不提高既有预算。
+自有 API29 / 36 arm64、4 KiB、无窗口档各 27 项 diff 与旧 table 23 项通过，浅深主题 ×
+1× / 2× 字号、实际字形像素 / semantics / 真正前后按钮；每端直连 / 两跳各变化 / 空 /
+Unicode / 相同文本八场景，通过原始 UTF-8 / 行尾重建、停止失效与真实释放按钮。
+十五组隔离变异在 API29 同轮重验：编译后单条正常断言红、同 APK Core 配置绿、恢复 /
+实际 APK / SHA256；560 份输入一致。最终两设备模型复验的恢复 APK 摘要相同，API29
+前置八 SSH 使用初始 APK，分轮见插件计划 P5 第六批，不称全矩阵同 APK。初轮 JSON
+夹具共享对象污染与 API36 释放等待失败单列；停止夹具改为原期限内等终态 / !launchBusy，
+再点击实际启用的释放按钮，不将 Runtime 终态当成 owner 已释放，也不声称确认底层释放
+缺陷。TalkBack / IME / 键盘、16 KiB / 真机、diff IPC、ctx.views / 多视图、完整用户点击 /
+生命周期及 P5 / P1–P6 仍未完成，默认 JS-off，未发行，不增加 macOS CI 二十份。
+旧 table 共享字节 / 方法接线两组在 API36 另复验，23 项基线 / 最终与四条 SSH 通过，
+正常断言红 / 同 APK Core 绿 / 恢复 / SHA256；不称旧十二组全重跑。根工程 JS-enabled
+Debug / 测试 APK、未签名 Release / 实际 R8 与四模块 lint、默认 Core 588/181、C 格式
+19.1.7 / 257 文件、Apple 178/3、JNI 144/37 通过。无本片 enabled Core 全套、macOS App /
+Release 或完整 Android 客户端结论，源码、分轮摘要与失败记录见插件计划第六批。

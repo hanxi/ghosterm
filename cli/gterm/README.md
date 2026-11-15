@@ -390,5 +390,5 @@ macOS CI 二十份变异。
 
 macOS 实验插件页按准确批准命令的 `views: ["table"]` / `views: ["diff"]` 加入对应
 标准分页方法及上述要求。同一官方 Executor 目录可用于本机进程通道或显式 SSH 路线。
-Android 已接原生 table，原生 diff 仍待接，缺服务时明确不支持。普通构建仍关闭 JS；
+Android 同样按命令声明接原生 table / diff，缺服务时明确不支持。普通构建仍关闭 JS；
 插件安装、终端 TTY 回写、diff IPC 与正式分发不在本切片结论内。
