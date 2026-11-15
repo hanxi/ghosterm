@@ -853,6 +853,10 @@ private struct PluginResourceHTMLWebView: NSViewRepresentable {
         context.coordinator.update(document: document, resource: resource, resources: resources,
                                    in: webView)
     }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: PluginResourceHTMLCoordinator) {
+        coordinator.close(in: webView)
+    }
 }
 
 private struct NativeResourcePublisher: View {

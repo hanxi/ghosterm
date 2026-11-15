@@ -10,6 +10,73 @@ import WebKit
 @testable import GhostermApp
 
 final class PluginResourceUITests: XCTestCase {
+    @MainActor
+    func testHTMLWebViewUsesFreshNonpersistentStorage() {
+        TestWindows.enterAutomationMode()
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let handler = PluginResourceHTMLSchemeHandler(document: main, resources: [main])
+        let first = PluginResourceHTMLWebViewConfiguration.make(schemeHandler: handler)
+        let second = PluginResourceHTMLWebViewConfiguration.make(schemeHandler: handler)
+        XCTAssertTrue(!first.websiteDataStore.isPersistent && !second.websiteDataStore.isPersistent &&
+                      first.websiteDataStore !== second.websiteDataStore,
+                      "HTML previews require a fresh nonpersistent data store per view")
+    }
+
+    @MainActor
+    func testHTMLCoordinatorCloseStopsLoadingAndRejectsLateUpdates() {
+        TestWindows.enterAutomationMode()
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let owner = PluginResourceHTMLCoordinator(resource: main, resources: [main])
+        let web = HTMLLoadSpy(frame: .zero, configuration: PluginResourceHTMLWebViewConfiguration.make(schemeHandler: owner.schemeHandler))
+        web.navigationDelegate = owner; web.uiDelegate = owner
+        owner.update(document: "doc", resource: main, resources: [main], in: web)
+        owner.close(in: web)
+        owner.close(in: web)
+        owner.update(document: "late document", resource: main, resources: [main], in: web)
+        XCTAssertTrue(web.documents == ["doc"] && web.stops == 1 &&
+                      web.navigationDelegate == nil && web.uiDelegate == nil,
+                      "closed HTML coordinator must stop once, detach delegates and reject late loads")
+    }
+
+    @MainActor
+    func testHTMLClosedSchemeHandlerRejectsLateUpdateAndRequest() throws {
+        TestWindows.enterAutomationMode()
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: Data([1, 2, 3]))
+        let handler = PluginResourceHTMLSchemeHandler(document: main, resources: [main, image])
+        handler.close()
+        handler.update(document: main, resources: [main, image])
+        let task = CapturedSchemeTask(request: URLRequest(url: try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/logo.png"))))
+        let configuration = PluginResourceHTMLWebViewConfiguration.make(schemeHandler: handler)
+        handler.webView(WKWebView(frame: .zero, configuration: configuration), start: task)
+        XCTAssertTrue(task.error != nil && task.response == nil && task.data.isEmpty && !task.finished,
+                      "closed HTML scheme handler must reject future reads and late updates")
+    }
+
+    @MainActor
+    func testHTMLCoordinatorCloseRevokesRetainedSchemeHandler() throws {
+        TestWindows.enterAutomationMode()
+        let main = resource("main", path: "site/index.html", mime: "text/html", bytes: Data("doc".utf8))
+        let image = resource("image", path: "site/logo.png", mime: "image/png", bytes: Data([1, 2, 3]))
+        let owner = PluginResourceHTMLCoordinator(resource: main, resources: [main, image])
+        let web = HTMLLoadSpy(frame: .zero, configuration: PluginResourceHTMLWebViewConfiguration.make(schemeHandler: owner.schemeHandler))
+        owner.close(in: web)
+        let task = CapturedSchemeTask(request: URLRequest(url: try XCTUnwrap(URL(string: "ghosterm-resource://preview/site/logo.png"))))
+        owner.schemeHandler.webView(web, start: task)
+        XCTAssertTrue(task.error != nil && task.data.isEmpty && task.response == nil,
+                      "coordinator close must revoke its retained attachment handler")
+    }
+
+    @MainActor
+    private final class HTMLLoadSpy: WKWebView {
+        var documents: [String] = []
+        var stops = 0
+        override func loadHTMLString(_ string: String, baseURL: URL?) -> WKNavigation? {
+            documents.append(string); return nil
+        }
+        override func stopLoading() { stops += 1 }
+    }
+
     func testCancelledPreviewDecodeDiscardsLateResult() async {
         let gate = DecodeGate()
         let decode = Task {

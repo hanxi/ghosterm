@@ -121,6 +121,9 @@ enum PluginResourceHTMLNavigationPolicy {
 enum PluginResourceHTMLWebViewConfiguration {
     static func make(schemeHandler: PluginResourceHTMLSchemeHandler) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
+        // Resource snapshots belong to this preview, never the application's
+        // persistent WebKit store or another preview's in-memory store.
+        configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "ghosterm-resource")
@@ -130,6 +133,7 @@ enum PluginResourceHTMLWebViewConfiguration {
 
 @MainActor
 final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    private var closed = false
     private var loadedDocument: String?
     private var resourceFingerprint = ""
     private var baseURL: URL?
@@ -143,6 +147,7 @@ final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUID
 
     func update(document: String, resource: ExtensionController.ReceivedResource,
                 resources: [ExtensionController.ReceivedResource], in webView: WKWebView) {
+        guard !closed else { return }
         let fingerprint = resources.map { "\($0.resourceID):\($0.sha256)" }.joined(separator: ",")
         if fingerprint != resourceFingerprint {
             resourceFingerprint = fingerprint
@@ -158,9 +163,21 @@ final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUID
         webView.loadHTMLString(document, baseURL: target)
     }
 
+    func close(in webView: WKWebView) {
+        guard !closed else { return }
+        closed = true
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        schemeHandler.close()
+        loadedDocument = nil
+        resourceFingerprint = ""
+        baseURL = nil
+    }
+
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        let allowed = PluginResourceHTMLNavigationPolicy.permitsAction(
+        let allowed = !closed && PluginResourceHTMLNavigationPolicy.permitsAction(
             type: navigationAction.navigationType,
             isMainFrame: navigationAction.targetFrame?.isMainFrame == true,
             url: navigationAction.request.url, documentURL: baseURL)
@@ -169,7 +186,7 @@ final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUID
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        let allowed = PluginResourceHTMLNavigationPolicy.permitsResponse(
+        let allowed = !closed && PluginResourceHTMLNavigationPolicy.permitsResponse(
             url: navigationResponse.response.url, isMainFrame: navigationResponse.isForMainFrame,
             documentURL: baseURL)
         decisionHandler(allowed ? .allow : .cancel)
@@ -184,7 +201,7 @@ final class PluginResourceHTMLCoordinator: NSObject, WKNavigationDelegate, WKUID
 
 final class PluginResourceHTMLSchemeHandler: NSObject, WKURLSchemeHandler, @unchecked Sendable {
     private let lock = NSLock()
-    private var resolver: PluginResourceHTMLAssetResolver
+    private var resolver: PluginResourceHTMLAssetResolver?
 
     init(document: ExtensionController.ReceivedResource,
          resources: [ExtensionController.ReceivedResource]) {
@@ -194,16 +211,22 @@ final class PluginResourceHTMLSchemeHandler: NSObject, WKURLSchemeHandler, @unch
 
     func update(document: ExtensionController.ReceivedResource,
                 resources: [ExtensionController.ReceivedResource]) {
-        let replacement = PluginResourceHTMLAssetResolver(document: document, resources: resources)
         lock.lock()
-        resolver = replacement
+        defer { lock.unlock() }
+        guard resolver != nil else { return }
+        resolver = PluginResourceHTMLAssetResolver(document: document, resources: resources)
+    }
+
+    func close() {
+        lock.lock()
+        resolver = nil
         lock.unlock()
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         lock.lock()
         let requestedURL = urlSchemeTask.request.url
-        let asset = requestedURL.flatMap(resolver.resolve)
+        let asset = requestedURL.flatMap { resolver?.resolve($0) }
         lock.unlock()
         guard let asset, let url = requestedURL else {
             urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))

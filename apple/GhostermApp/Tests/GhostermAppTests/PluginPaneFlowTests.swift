@@ -187,6 +187,7 @@ final class PluginPaneFlowTests: XCTestCase {
         XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
         try scrollBottom()
         try await Task.sleep(for: .milliseconds(100))
+        var retainedHTML: [WKWebView] = []
         switch format {
         case .markdown:
             var words = ""
@@ -202,6 +203,14 @@ final class PluginPaneFlowTests: XCTestCase {
             guard try await until({ try? scrollBottom(); return panePixels(pane).red > 20 }) else { XCTFail("standalone image did not draw actual red pixels"); return }
         case .html:
             guard try await until({ !webViews(pane).isEmpty }) else { XCTFail("embedded HTML WebKit view missing"); return }
+            let originalWeb = try XCTUnwrap(webViews(pane).first)
+            guard !originalWeb.configuration.websiteDataStore.isPersistent else {
+                XCTFail("embedded HTML must use nonpersistent storage"); return
+            }
+            guard !originalWeb.configuration.defaultWebpagePreferences.allowsContentJavaScript else {
+                XCTFail("embedded HTML must disable JavaScript"); return
+            }
+            retainedHTML.append(originalWeb)
             let rendered = try await htmlPixels(pane)
             guard rendered.red > 20 && rendered.blue > 100 else {
                 XCTFail("embedded HTML did not draw received CSS and PNG: \(rendered)"); return
@@ -212,11 +221,20 @@ final class PluginPaneFlowTests: XCTestCase {
             guard try await until({ node("plugin-resource-preview-" + image.resourceID) != nil && webViews(pane).isEmpty }) else {
                 XCTFail("resource selection did not replace embedded HTML with the selected image"); return
             }
+            guard try await until({ htmlClosed(originalWeb) }) else {
+                XCTFail("removed HTML must detach delegates and revoke attachment reads even while retained"); return
+            }
             guard try await until({ try? scrollBottom(); return panePixels(pane).red > 20 }) else { XCTFail("selected HTML attachment did not draw actual red pixels"); return }
             let main = try XCTUnwrap(resources.first { $0.displayName == path })
             try scrollBottom()
             try press("plugin-resource-select-" + main.resourceID)
             guard try await until({ !webViews(pane).isEmpty }) else { XCTFail("returning to HTML did not rebuild embedded WebKit"); return }
+            let returnedWeb = try XCTUnwrap(webViews(pane).first)
+            guard !returnedWeb.configuration.websiteDataStore.isPersistent &&
+                  returnedWeb.configuration.websiteDataStore !== originalWeb.configuration.websiteDataStore else {
+                XCTFail("reopened HTML must use a fresh nonpersistent store"); return
+            }
+            retainedHTML.append(returnedWeb)
             let reopened = try await htmlPixels(pane)
             XCTAssertGreaterThan(reopened.red, 20); XCTAssertGreaterThan(reopened.blue, 100)
         }
@@ -225,6 +243,9 @@ final class PluginPaneFlowTests: XCTestCase {
         try scrollBottom()
         try press("plugin-stop")
         guard try await until({ model.extensionRun == nil && !model.extensionRunBusy && webViews(pane).isEmpty }) else { XCTFail("stop control did not release run"); return }
+        guard try await until({ retainedHTML.allSatisfy(htmlClosed) }) else {
+            XCTFail("stopped HTML must detach delegates and revoke retained attachment handlers"); return
+        }
         XCTAssertNil(model.extensionRunIssue)
         for item in resources { XCTAssertNil(node("plugin-resource-select-" + item.resourceID)) }
         XCTAssertNil(node("plugin-consent-allow"))
@@ -269,7 +290,6 @@ final class PluginPaneFlowTests: XCTestCase {
 
     private func htmlPixels(_ pane: NSView) async throws -> (red: Int, blue: Int) {
         let web = try XCTUnwrap(webViews(pane).first)
-        XCTAssertFalse(web.configuration.defaultWebpagePreferences.allowsContentJavaScript)
         let deadline = ProcessInfo.processInfo.systemUptime + 10
         var result = (red: 0, blue: 0)
         repeat {
@@ -288,5 +308,24 @@ final class PluginPaneFlowTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(100))
         } while ProcessInfo.processInfo.systemUptime < deadline
         return result
+    }
+
+    private func htmlClosed(_ web: WKWebView) -> Bool {
+        guard web.navigationDelegate == nil, web.uiDelegate == nil,
+              let handler = web.configuration.urlSchemeHandler(forURLScheme: "ghosterm-resource") as? PluginResourceHTMLSchemeHandler,
+              let url = URL(string: "ghosterm-resource://preview/site/image.png") else { return false }
+        let request = HTMLReadProbe(request: URLRequest(url: url))
+        handler.webView(web, start: request)
+        return request.rejected && !request.delivered
+    }
+
+    private final class HTMLReadProbe: NSObject, WKURLSchemeTask {
+        let request: URLRequest
+        var rejected = false, delivered = false
+        init(request: URLRequest) { self.request = request }
+        func didReceive(_ response: URLResponse) { delivered = true }
+        func didReceive(_ data: Data) { delivered = true }
+        func didFinish() { delivered = true }
+        func didFailWithError(_ error: Error) { rejected = true }
     }
 }

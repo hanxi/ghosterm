@@ -17,6 +17,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PANE = 'apple/GhostermApp/Sources/GhostermApp/ExtensionsPane.swift'
+HTML = 'apple/GhostermApp/Sources/GhostermApp/PluginResourceHTMLAssets.swift'
 TEST = 'PluginPaneFlowTests.testPreviewThroughPackageApprovalLaunchConsentAndStopControls'
 CONTROL = 'HostListTests.testReadingDoesNotMutateConfig'
 
@@ -69,11 +70,51 @@ def main():
         ('selection', 'selection.select(resource.resourceID, available: identifiers)', '_ = resource.resourceID',
          'resource selection did not replace embedded HTML with the selected image', selected_html),
     ])
+    html_source = (ROOT / HTML).read_text()
+    start = html_source.index('enum PluginResourceHTMLWebViewConfiguration {')
+    end = html_source.index('\n        configuration.defaultWebpagePreferences', start)
+    factory = html_source[start:end]
+    shared = factory.replace('enum PluginResourceHTMLWebViewConfiguration {',
+        'enum PluginResourceHTMLWebViewConfiguration {\n    private static let sharedStore = WKWebsiteDataStore.nonPersistent()')
+    shared = shared.replace('configuration.websiteDataStore = .nonPersistent()', 'configuration.websiteDataStore = Self.sharedStore')
+    fresh = 'PluginResourceUITests.testHTMLWebViewUsesFreshNonpersistentStorage'
+    lifetime = 'PluginResourceUITests.testHTMLCoordinatorCloseStopsLoadingAndRejectsLateUpdates'
+    handler = 'PluginResourceUITests.testHTMLClosedSchemeHandlerRejectsLateUpdateAndRequest'
+    close_header = 'func close(in webView: WKWebView) {\n        guard !closed else { return }'
+    update_header = 'resources: [ExtensionController.ReceivedResource], in webView: WKWebView) {\n        guard !closed else { return }'
+    view_creation = 'let webView = WKWebView(frame: .zero, configuration: configuration)'
+    cases.extend([
+        ('privacy-persistent', 'configuration.websiteDataStore = .nonPersistent()', 'configuration.websiteDataStore = .default()',
+         'HTML previews require a fresh nonpersistent data store per view', fresh, HTML),
+        ('privacy-shared-store', factory, shared,
+         'HTML previews require a fresh nonpersistent data store per view', fresh, HTML),
+        ('privacy-page-store', view_creation, 'configuration.websiteDataStore = .default()\n        ' + view_creation,
+         'embedded HTML must use nonpersistent storage', selected_html),
+        ('privacy-page-js', view_creation, 'configuration.defaultWebpagePreferences.allowsContentJavaScript = true\n        ' + view_creation,
+         'embedded HTML must disable JavaScript', selected_html),
+        ('privacy-dismantle', 'coordinator.close(in: webView)', 'webView.stopLoading()',
+         'removed HTML must detach delegates and revoke attachment reads even while retained', selected_html),
+        ('privacy-coordinator-stop', 'webView.stopLoading()', '_ = webView',
+         'closed HTML coordinator must stop once, detach delegates and reject late loads', lifetime, HTML),
+        ('privacy-coordinator-late', update_header, update_header.replace('guard !closed else { return }', '_ = closed'),
+         'closed HTML coordinator must stop once, detach delegates and reject late loads', lifetime, HTML),
+        ('privacy-coordinator-repeat', close_header, close_header.replace('guard !closed else { return }', '_ = closed'),
+         'closed HTML coordinator must stop once, detach delegates and reject late loads', lifetime, HTML),
+        ('privacy-coordinator-delegate', 'webView.navigationDelegate = nil', '_ = webView.navigationDelegate',
+         'closed HTML coordinator must stop once, detach delegates and reject late loads', lifetime, HTML),
+        ('privacy-coordinator-revoke', 'schemeHandler.close()', '_ = schemeHandler',
+         'coordinator close must revoke its retained attachment handler', 'PluginResourceUITests.testHTMLCoordinatorCloseRevokesRetainedSchemeHandler', HTML),
+        ('privacy-handler-close', 'resolver = nil', '_ = resolver',
+         'closed HTML scheme handler must reject future reads and late updates', handler, HTML),
+        ('privacy-handler-late', 'guard resolver != nil else { return }', '_ = resolver',
+         'closed HTML scheme handler must reject future reads and late updates', handler, HTML),
+    ])
     if args.mutation_case and (not args.mutate or set(args.mutation_case) - {c[0] for c in cases}):
         parser.error('--mutation-case requires --mutate and a known case name')
-    original = (ROOT / PANE).read_bytes()
-    for label, old, *_ in cases:
-        assert original.count(old.encode()) == 1, label
+    originals = {name: (ROOT / name).read_bytes() for name in [PANE, HTML]}
+    for label, old, _new, _expected, *options in cases:
+        filename = options[1] if len(options) > 1 else PANE
+        assert originals[filename].count(old.encode()) == 1, label
     tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
     names = {p for p in tracked if p.startswith(('core/', 'apple/', 'packages/plugin-sdk/', 'plugins/official/preview/'))
              and (ROOT / p).is_file()}
@@ -145,13 +186,17 @@ def main():
             'core/build/libghosterm_core.a', 'core/build/libghosterm_quickjs.a',
             'build/host-native/lib/libssh2.a',
         ]}
-        path = source / PANE
+        run('html-lifetime-baseline', selected='PluginResourceUITests', count=14)
         for recipe in cases if args.mutate else []:
             label, old, new, expected, *selected_case = recipe
             if args.mutation_case and label not in args.mutation_case:
                 continue
             selected = selected_case[0] if selected_case else selected_markdown
-            objects = {p: sha(p) for p in (source / 'apple/GhostermApp/.build').rglob('*') if p.name in ('ExtensionsPane.swift.o', 'ExtensionsPane.o')}
+            filename = selected_case[1] if len(selected_case) > 1 else PANE
+            path = source / filename
+            original = originals[filename]
+            stem = Path(filename).stem
+            objects = {p: sha(p) for p in (source / 'apple/GhostermApp/.build').rglob('*') if p.name in (stem + '.swift.o', stem + '.o')}
             assert objects, 'compiled production pane object required'
             path.write_bytes(original.replace(old.encode(), new.encode()))
             try:
@@ -161,15 +206,15 @@ def main():
             finally:
                 path.write_bytes(original)
             run(label + '-restored', selected=selected)
-            assert sha(path) == inputs[PANE], 'restoration must match exact source SHA256'
+            assert sha(path) == inputs[filename], 'restoration must match exact source SHA256'
             groups.append(label)
         binary = next((source / 'apple/GhostermApp/.build').rglob('GhostermAppTests.xctest/Contents/MacOS/GhostermAppTests'))
         binary_sha = sha(binary)
     assert all(sha(ROOT / name) == digest for name, digest in inputs.items()), 'source changed during verification'
     assert all(sha(ROOT / name) == digest for name, digest in linked.items()), 'linked archive changed during verification'
     assert sha(gterm) == executable_sha, 'gterm changed during verification'
-    assert (ROOT / PANE).read_bytes() == original, 'original checkout changed'
-    receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned SSH; Markdown/PNG/HTML', routes=['direct', 'jump'] if args.route == 'both' else [args.route], baselineTests=baseline_count,
+    assert all((ROOT / name).read_bytes() == value for name, value in originals.items()), 'original checkout changed'
+    receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned SSH; Markdown/PNG/HTML', routes=['direct', 'jump'] if args.route == 'both' else [args.route], baselineTests=baseline_count, resourceTests=14,
                    inputs=inputs, linkedArchives=linked, gtermSHA256=executable_sha, xctestSHA256=binary_sha,
                    commands=commands, mutations=groups)
     out.parent.mkdir(parents=True, exist_ok=True)
