@@ -1291,3 +1291,19 @@ Unicode / 相同文本八场景，通过原始 UTF-8 / 行尾重建、停止失�
 Debug / 测试 APK、未签名 Release / 实际 R8 与四模块 lint、默认 Core 588/181、C 格式
 19.1.7 / 257 文件、Apple 178/3、JNI 144/37 通过。无本片 enabled Core 全套、macOS App /
 Release 或完整 Android 客户端结论，源码、分轮摘要与失败记录见插件计划第六批。
+
+**插件 P5 Portable task（2026-11-15）**：任务 descriptor / snapshot / 取消请求与回执、
+精确 uint64、2048 字节及单调状态 / 终态校验已接；官方 task primes 真实分步筛法每
+pump 最多 512 操作，取消受理与确认停止分开，未知后只读观察、不自动重放。7,642 项
+与十五组隔离变异通过，其中四组执行实际 Core 业务；编译后正常断言红、同 archive
+配置绿、恢复 / 产物 / SHA256。公开 Core / Session / QuickJS 九场景在本机及自有
+API29 / 36 arm64、4 KiB、无窗口 standalone 探针通过；百万完整计算仅 Node 算法，
+实际 Core 百万场景为取消。丢失确认是受控 Session 时钟，非真实 SSH 丢包。初始 API36
+25 ms CPU 失败后将分配移至 worker 并去重复校验，原预算完整重跑通过，构造 / 编译
+失败均单列。SDK 九模块及生成身份 / 输入闭包同步，模块 64 / 65 边界与原一组变异、
+SDK 十七场景 / 36 schema、旧 table 56 / diff 2,107 项通过，未称旧全组变异重跑。
+enabled Core 822、默认 JS-off Core 588/181、CLI 12 / stdio 17 / IPC 36、macOS 独立
+Release、Android Debug / 测试 APK / 未签名 Release / 四模块 lint、C 格式 19.1.7 / 258、
+Apple 178/3 与 JNI 144/37 通过；R8 为 UP-TO-DATE。无新 ABI / Native task UI / 实际 SSH /
+APK 行为 / 真机或发行证据；缺 ui.task 显式 UNSUPPORTED，完整 P5 / P1–P6 未完成，
+不增加 CI 二十份。分轮原件、摘要与 sanitizer 边界见插件计划 P5 第七批。

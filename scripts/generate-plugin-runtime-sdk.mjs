@@ -17,7 +17,7 @@ const require = createRequire(path.join(tools, 'package.json')), ts = require('t
 assert.equal(ts.version, '5.9.3');
 const sourceDir = 'packages/plugin-sdk/portable/';
 const names = fs.readdirSync(path.join(root, sourceDir)).filter(n => n.endsWith('.ts')).sort();
-assert.deepEqual(names, ['codec.ts', 'diff.ts', 'index.ts', 'process.ts', 'resources.ts', 'session.ts', 'table.ts', 'wire-contract.ts']);
+assert.deepEqual(names, ['codec.ts', 'diff.ts', 'index.ts', 'process.ts', 'resources.ts', 'session.ts', 'table.ts', 'task.ts', 'wire-contract.ts']);
 const configPath = path.join(root, 'packages/plugin-sdk/tsconfig.json');
 const read = ts.readConfigFile(configPath, ts.sys.readFile);assert(!read.error);
 const config = ts.parseJsonConfigFileContent(read.config, ts.sys, path.dirname(configPath));
@@ -25,7 +25,7 @@ const program = ts.createProgram(config.fileNames, config.options);
 assert.equal(ts.getPreEmitDiagnostics(program).length, 0, 'SDK type errors');
 const modules = new Map();
 const emit = program.emit(undefined, (file, text) => { if (file.endsWith('.js')) modules.set(path.basename(file), text); });
-assert(!emit.emitSkipped && !emit.diagnostics.length && modules.size === 8);
+assert(!emit.emitSkipped && !emit.diagnostics.length && modules.size === 9);
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const identity = JSON.parse(fs.readFileSync(path.join(root, 'packages/plugin-sdk/sdk-version.json')));
 assert.equal(identity.sdkApiVersion, '1.0.0');assert.equal(identity.bridgeProtocol, 1);assert.equal(identity.candidate, true);

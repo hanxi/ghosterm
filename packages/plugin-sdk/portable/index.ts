@@ -13,6 +13,11 @@ export { DiffDescribeMethod, DiffPageMethod, DiffDescriptorCodec, DiffPageReques
   DIFF_PAGE_ROWS_MAX, DIFF_LINES_MAX, DIFF_TEXT_MAX, DIFF_BODY_BYTES_MAX, validateDiffPage } from "./diff.js";
 export type { DiffDescriptor, DiffPageRequest, DiffPage, DiffRow } from "./diff.js";
 
+export { TaskDescribeMethod, TaskReadMethod, TaskCancelMethod, TaskDescriptorCodec, TaskSnapshotCodec,
+  TaskReadRequestCodec, TaskCancelRequestCodec, TaskCancelAckCodec, TASK_BODY_BYTES_MAX,
+  taskIsTerminal, validateTaskSnapshot, validateTaskCancelAck } from "./task.js";
+export type { TaskDescriptor, TaskSnapshot, TaskReadRequest, TaskCancelRequest, TaskCancelAck, TaskTotal, TaskResult, TaskPhase } from "./task.js";
+
 /** Current Session grant observation, not a promise that a host service exists.
  * Queries are live: revocation is never a cached allowed result. */
 export type CapabilityAccess = "unknown" | "allowed" | "denied" | "revoked" | "unsupported";

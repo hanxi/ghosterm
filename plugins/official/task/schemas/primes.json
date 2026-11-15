@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "properties": {
+    "limit": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000
+    }
+  },
+  "required": [
+    "limit"
+  ],
+  "additionalProperties": false,
+  "x-ghosterm-cli": {
+    "version": 1,
+    "fields": {
+      "limit": {
+        "option": "limit",
+        "default": 1000000
+      }
+    }
+  }
+}

@@ -4,7 +4,7 @@ import argparse, ast, hashlib, json, re
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BASE = 'core/src/extension/sdk-'
-NAMES = ['codec', 'diff', 'index', 'process', 'resources', 'session', 'table', 'wire-contract']
+NAMES = ['codec', 'diff', 'index', 'process', 'resources', 'session', 'table', 'task', 'wire-contract']
 INPUTS = {'packages/plugin-sdk/portable/'+n+'.ts' for n in NAMES} | {
     'packages/plugin-sdk/tsconfig.json', 'packages/plugin-sdk/sdk-version.json',
     'scripts/fixtures/plugin-sdk-tools/package.json', 'scripts/fixtures/plugin-sdk-tools/package-lock.json',

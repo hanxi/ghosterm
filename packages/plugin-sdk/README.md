@@ -113,3 +113,10 @@ CR / 无末尾换行、最多三行 / 2048 JSON 字节。`validateDiffPage` 可�
 `views: ["diff"]` 接原生只读分页组件并要求 `ui.diff`。缺服务须
 明确不支持。没有通用命令式 `ctx.views` 对象，不通过创建新 C ABI 或专属业务
 窗格绕过标准契约。样例构建和证据范围见[插件计划 P5](../../docs/reference/plan-plugin-bridge.md)。
+
+`task.ts` 提供标准任务描述 / 状态 / 取消确认，进度与序列为精确 uint64 字符串，总量的
+known / unknown 不折叠；结果与运行阶段、取消确认分开。`validateTaskSnapshot` 另核对
+实例 / 修订、序列和进度不倒退、已知总量与终态不改写。取消确认不代表已停止；回包不明
+保留 requestId，不自动重放，可以显式只读观察同一活动任务。官方 `task primes` 样例按
+既有 worker hook 分步筛素数，已接可移植契约 / Executor；原生 `ui.task` 仍待接，缺服务
+明确不支持。此片不增加 C ABI，也不提供通用命令式 `ctx.views` 对象。

@@ -62,3 +62,17 @@ const wrongCount: string = parsed.count; void wrongCount;
 parsed.path = "changed";
 // @ts-expect-error default must match the declared codec
 option(integer(0, 10), "count", "1");
+
+import { TaskCancelMethod, TaskReadMethod } from "../portable/index.js";
+import type { TaskSnapshot, TaskTotal } from "../portable/index.js";
+session.request(TaskReadMethod, { viewId: "task-a", revision: "1" }, 1000);
+session.request(TaskCancelMethod, { viewId: "task-a", revision: "1", requestId: "cancel-1" }, 1000);
+// @ts-expect-error cancellation identity is required independently of the wire request
+session.request(TaskCancelMethod, { viewId: "task-a", revision: "1" }, 1000);
+// @ts-expect-error task counters never round through a JavaScript number
+const numericTaskTotal: TaskTotal = { kind: "known", units: 9007199254740992 }; void numericTaskTotal;
+// @ts-expect-error unknown size has no invented zero counter
+const guessedTaskTotal: TaskTotal = { kind: "unknown", units: "0" }; void guessedTaskTotal;
+declare const taskSnapshot: TaskSnapshot;
+// @ts-expect-error confirmed observations are immutable snapshots
+taskSnapshot.completed = "1";

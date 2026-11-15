@@ -100,11 +100,17 @@ int RESOURCE_JS_MAIN(int argc, char **argv) {
                            "wire-contract.js",
                            "resources.js",
                            "table.js",
-                           "diff.js"};
-    char *text[7];
-    char ids[7][64];
-    gt_ext_runtime_module_t modules[8] = {0};
-    for (unsigned i = 0; i < 7; i++) {
+                           "diff.js",
+                           "task.js"};
+
+    enum {
+        SDK_COUNT = sizeof(names) / sizeof(names[0])
+    };
+
+    char *text[SDK_COUNT];
+    char ids[SDK_COUNT][64];
+    gt_ext_runtime_module_t modules[SDK_COUNT + 1] = {0};
+    for (unsigned i = 0; i < SDK_COUNT; i++) {
         text[i] = resource_js_module(argv[2], names[i]);
         CHECK(snprintf(ids[i], sizeof(ids[i]), "sdk:/%s", names[i]) > 0);
         resource_js_digest(&modules[i], ids[i], text[i]);
@@ -261,11 +267,11 @@ int RESOURCE_JS_MAIN(int argc, char **argv) {
         CHECK(end);
         memmove(at, end, strlen(end) + 1);
     }
-    resource_js_digest(&modules[7], "plugin:/entry.js", plugin);
+    resource_js_digest(&modules[SDK_COUNT], "plugin:/entry.js", plugin);
     char root_id[65] = "workspace";
     gt_ext_runtime_root_t root = {root_id, f.root, 262144};
     gt_ext_runtime_config_t cfg = {.modules = modules,
-                                   .module_count = 8,
+                                   .module_count = SDK_COUNT + 1,
                                    .entry = "plugin:/entry.js",
                                    .role = GT_EXT_EXECUTOR,
                                    .cpu_ms = 500,
@@ -289,7 +295,7 @@ int RESOURCE_JS_MAIN(int argc, char **argv) {
         strcpy(root_id, "bad/root");
         CHECK(gt_ext_runtime_open(&f.pair.rpc.pair.e, &cfg, &runtime) == GT_ERR_INVALID_ARG &&
               !runtime && f.pair.rpc.pair.e);
-        for (unsigned i = 0; i < 7; i++) {
+        for (unsigned i = 0; i < SDK_COUNT; i++) {
             free(text[i]);
         }
         pub_fixture_drop(&f);
@@ -358,7 +364,7 @@ int RESOURCE_JS_MAIN(int argc, char **argv) {
     }
     resource_js_close(&runtime);
     CHECK(!res_usage(&f.pair.e).resources);
-    for (unsigned i = 0; i < 7; i++) {
+    for (unsigned i = 0; i < SDK_COUNT; i++) {
         free(text[i]);
     }
     /* The executor Session was consumed by runtime; close only the host still

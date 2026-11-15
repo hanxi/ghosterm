@@ -17,8 +17,10 @@
 第四批提供独立于 Codex 的只读 diff 契约与有界比较 Executor，保持原 CPU / RPC 预算；
 七种 standalone Core 场景在两设备通过。第五批接 macOS 通用原生 ui.diff、精确游标分页、
 Client 服务协商与真实本机 / 直连 / ProxyJump；第六批补 Android 对应原生组件、精确服务
-与会话代次隔离，设备档与证据见文末。缺能力仍显式不支持；持续交互样例及完整开发
-体验继续，P5 和 P1–P6 均未记完成。
+与会话代次隔离，设备档与证据见文末。第七批选择 task 作为持续交互样例，先接
+Portable 进度 / 取消契约及真实分步素数计算 Executor；公开 Core 和两档无窗口 Android
+standalone 探针验证结果、取消去重及未知后的显式只读观察。原生 ui.task、实际 SSH
+交互与完整开发体验仍待接；缺能力显式不支持，P5 和 P1–P6 均未记完成。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
 
@@ -6805,3 +6807,95 @@ macOS App / Release、其它插件或完整 Android 客户端，不借旧证据�
 三份 eq 输入及其 SHA256，不操作用户 Java、AVD、应用或 SSH 服务。
 
 本轮最终清理 107 个所属 tmp 项，逻辑大小约 **143.3 MiB**；三个原始 eq 输入摘要未变。
+
+### P5 实施第七批：Portable task 与真实可取消计算（2026-11-15）
+
+持续交互样例选择 `task primes --limit n`。新增 Portable `task.ts`，提供 descriptor、
+进度 snapshot、显式取消请求 / acknowledgement 和 describe / read / cancel 三方法。
+计数、修订、序号保留精确 uint64 字符串，已知总数零与未知分开；每个 JSON 值最多
+2048 UTF-8 字节。校验准确 view / 修订 / 取消请求 ID、状态与结果一致、单调序号 /
+进度、稳定已知总数与不可变已确认终态。取消已受理不代表已停止，unknown 不变成拒绝
+或成功；确认丢失后保留未知，只能显式读取，不自动重发取消。
+
+官方 `plugins/official/task` 使用真正的分步筛法，范围 0..1,000,000，每次 pump 最多
+512 个标记 / 分类操作，最多 1,000,001 字节筛表；进度单位是已分类候选数，非 CPU 或
+ETA。请求取消进入 cancelling，随后 worker 停止才返回 cancelled；同 ID 取得相同回执，
+不同 ID 不覆盖已有取消，晚到取消保留成功结果。失效 / 撤权后拒绝读取与动作，dispose
+释放内存但不编造取消结果。Executor 只要求 session.rpc，不访问文件 / 进程 / 网络。
+Client 要求 ui.task；本批未接原生服务，实际 Core 必须返回 UNSUPPORTED。
+
+SDK 从八增至 **九模块**，生成器、离线输入闭包、CMake、原始 runtime / resource /
+process 夹具与 SDK probe 同步；候选 API 1.0.0 / wire 1 不变，身份为
+`098809e9c1016c535659f79766cc6c9f2d1653fc51612feb5af4f2246cf85995`。
+原始 C 夹具用 SDK_COUNT 推导数组和入口下标。包模块生产上限仍为 64；实际导入闭包
+新增 task 后，边界夹具额外模块从 57 / 58 调为 56 / 57，仍验证第 64 可用、第 65 拒绝。
+增加可选 `--case` 以定向复验已有 module-count 变异，默认全组行为不变。
+
+本机编译后 **7,642 项**包括独立试除 oracle 对拍 0..256、1,000 / 10,000 / 100,000 /
+1,000,000 的真实算法、单步工作量、状态 / identity / 字节边界、撤权 / dispose 与
+SessionChannel 未确认取消。**十五组隔离变异**均实际重编后正常断言红、同 archive
+Core 配置绿、恢复绿及源码 / 编译产物摘要；其中筛法结果、取消 worker、重复回执与
+取消身份四组执行真实公开 Core 业务，其余十一组执行编译后值 / worker / adapter。
+编译失败与异常退出不计正常目标红。
+
+公开 package / Session / QuickJS 的 **九种场景**为 10,000 完成、0 / 1 / 2 边界、晚到
+取消、百万上限取消、真实进度、重复 / 不同 ID 与丢失确认；另验过期修订 UNKNOWN、
+缺 Native 服务 UNSUPPORTED。本机与自有 API29 / 36 arm64、4 KiB 页、无窗口 AVD 各
+通过，同一 NDK ELF / 官方包逐文件摘要一致。百万完整计算是 Node 算法证据，实际 Core
+百万场景为取消，不冒充百万完成。丢失确认通过受控 Session 时钟让原请求到期、Executor
+仍完成取消，再显式只读核对；并非真实 SSH 丢包或重连验收。Core 保持默认 16 MiB /
+25 ms、1 秒 RPC 和 2,000 次观察上限；既有夹具原 500 ms 未改。
+
+复现：先按既有方法准备锁定 TS 5.9.3 tools、九模块 SDK、显式 JS-on / tests-on Core，
+由 `scripts/probes/plugin-task.c` 链接该库生成本机 probe；另用 NDK 28.2 / API29 编译
+JS-on standalone probe。全部路径须在工程 tmp。
+
+```bash
+python3 scripts/test-plugin-task.py --build tmp/plugin-task/cli/core \
+  --probe tmp/plugin-task/probe --tools tmp/plugin-task/tools --mutate \
+  --receipt tmp/plugin-task/host-optimized.json
+python3 scripts/build-plugin-sample.py --source plugins/official/task \
+  --tools tmp/plugin-task/tools --out tmp/plugin-task/package-optimized
+python3 scripts/test-plugin-task-android.py --probe tmp/plugin-task/android-probe \
+  --package tmp/plugin-task/package-optimized --receipt tmp/plugin-task/devices-optimized.json
+python3 scripts/mutation-check-plugin-package-runtime.py --case module-count
+```
+
+前置失败保留：初始 API29 九场景通过，API36 首场激活触发原 25 ms CPU 限额，不记整轮
+绿。将筛表分配移到首个 worker step，并移除 Executor 内与 Session 输出 codec 重复的
+校验 / 快照构造；未提高预算。最终重新执行本机完整 7,642 / 九场景 / 十五组与两设备
+九场景，全部通过。早期 TS readonly JSON 窄化、字节边界夹具、文件 URL、零范围输出
+条数、变异 noUnused / 锚点等构造失败单列。既有 table runner 两次误传参数 / 丢执行
+权限是设置失败，修正后重新执行，不计断言红。
+
+最终 task 本机收据 **162 输入** / SHA256：
+`0616cb6e445c161799f539a766db07290b7d9040d89911782798f521d0d6ed0a`；
+两设备收据 **160 输入** / SHA256：
+`2d4d9aa9f4c097fd58201ef538f1f7b5ed85e91d3febdbf3c6527eb184405a5e`。
+输入逐项与最终源码对拍，生成身份同步；无新 C ABI 或业务专属 pane。本片为数据 /
+Executor 与 standalone 设备证据，不含 task Native UI、APK 行为、真实 SSH、用户设备或
+发行。原生 ui.task、持续交互完整点击链、通用 ctx.views / 多视图、开发工具 / testkit
+与完整 P5 / P1–P6 仍未完成；默认 App 保持 JS-off，不增加 macOS CI 二十份。
+
+共享闭包改动后的既有回归另通过：table **56 项**及真实 Core、diff **2,107 项 / 七场景**，
+本轮均不带旧业务变异；SDK **十七场景 / native-owned / 36 Ajv 对拍**，以及原模块上限
+**module-count 一组**与 **56 项包基线 / 恢复**。SDK 与模块组使用 ASan/UBSan、无 LSan，
+不将此 sanitizer 结论借给新 task host / NDK 探针。五份收据均与最终输入一致：
+
+- table / 161 输入：`fce0132719b8c56a43c1a3ca91043a575013be0a629879267074dc51a5f335c9`。
+- diff / 162 输入：`1a203dcb8bbdb6586f1ebc0c144d489f4fe7e221be7beb83219a872a089db4a0`。
+- SDK / 250 输入：`089ff27797a53957d370f75d91c6c9205e9afcac0957409056b2cafc3861426d`。
+- module-count / 726 输入：`b6ccefbbb048b705fe8d02a112115aae95cfb51ffb0507f1451603c9587738ce`。
+- IPC / 139 输入：`6b319bb4cce41b2b988fb83c47a4dcc3f2de4d78a40eaa7a3162486b62810e21`。
+
+最终 JS-enabled Core **822/822 CTest**、CLI **12**、stdio **17**、IPC **36**通过。
+默认 Core **JS-off / tests-on，588/588 CTest / 181 ABI**；macOS arm64 独立 scratch
+**Release**、Android JS-enabled **Debug / 测试 APK / 未签名 Release / 四模块 lint**
+通过，本轮 R8 为 UP-TO-DATE，不记实际重跑。clang-format **19.1.7 / 258 文件**、Apple
+**178/3**、JNI **144/37**、九模块生成 / 离线闭包、strict TS 负向与 diff 检查通过。
+本批没有 macOS App 全量测试或 Android APK 设备 / UI 复跑结论。测试均在后台 / 离屏，
+JVM 临时目录显式放工程 tmp；不操作用户 Java / AVD / 应用 / SSH 服务，未推送 / 发行。
+
+本批验收后清理 **62 个**所属 tmp 项、逻辑大小约 **538.2 MiB**；仅保留原三份 eq 输入，
+逐一核对原 SHA256 未变。macOS 本次 Release 可执行文件 SHA256 为
+`7524a69d85140934dcc03dc7ecf1ca460aa6b0b18632ccdd6b5e98116b496c08`。

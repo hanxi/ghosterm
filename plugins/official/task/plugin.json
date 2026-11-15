@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "id": "org.ghosterm.task",
+  "pluginVersion": "0.1.0",
+  "sdkApiRange": "^1.0.0",
+  "bridgeProtocolRange": [
+    1
+  ],
+  "publisher": "Ghosterm",
+  "license": "MIT",
+  "commands": [
+    {
+      "path": [
+        "task",
+        "primes"
+      ],
+      "title": "Count primes as a cancellable task",
+      "argsSchema": "schemas/primes.json",
+      "views": [
+        "task"
+      ]
+    }
+  ],
+  "client": {
+    "runtime": "portable-js",
+    "entry": "client/index.js",
+    "requires": [
+      "session.rpc",
+      "ui.task"
+    ]
+  },
+  "executor": {
+    "variants": [
+      {
+        "id": "portable",
+        "runtime": "portable-js",
+        "entry": "executor/index.js",
+        "requires": [
+          "session.rpc"
+        ]
+      }
+    ]
+  },
+  "permissions": [
+    {
+      "side": "client",
+      "capability": "session.rpc",
+      "purpose": "Observe this task and explicitly request its cancellation.",
+      "scope": "instance"
+    },
+    {
+      "side": "client",
+      "capability": "ui.task",
+      "purpose": "Display Native task progress, cancellation acknowledgement and confirmed results.",
+      "scope": "instance"
+    },
+    {
+      "side": "executor",
+      "capability": "session.rpc",
+      "purpose": "Run and observe a bounded prime counting computation.",
+      "scope": "instance"
+    }
+  ]
+}
