@@ -1497,3 +1497,19 @@ unknown、排队控制取消 / 旧 epoch / 撤权、激活 / reap / 暂存 / fd�
 平台 / ABI / SDK 身份或 Runtime 预算变化，不记新 App / APK / 设备 / SSH /
 发行；服务 testkit 与完整 P5 / P1–P6 仍未完成，不增加 CI 二十份；见插件计划
 第十九批及[开发指南](docs/how-to/plugin-development.md)。
+
+
+**插件 P5 显式资源开发测试（2026-11-15）**：`test --resource-root 绝对目录
+--allow-resource-access` 为单侧 Executor 接真实公开 Store / resources Session /
+Runtime，Portable / Node / Exec 均验 64 KiB 发布与 Native 快照字节 / SHA256。
+所选 variant 须声明三能力，Host 拒绝仍拒绝；缺授权、Client / paired 根不执行，
+默认 RPC-only 不增权。只读 workspace、256 KiB 单资源；Portable 另验空文件、
+越界 / 外根 / 链接拒绝。错误 lease 无字节、关闭后保留 pin、Store 销毁 WAIT、
+显式 release、预约 / 引用 / fd 归零逐项核验。49 项基线 / 32 组隔离变异正常
+断言红 / 独立配置绿 / 恢复 / SHA256，C / inc 必须编译后 ASSERT；65 源与 35
+固定构件一致。报告范围标签修正前主动中断轮退出 143、无收据，不计整轮通过。
+默认 Core 588/184、C 格式 264、Apple 181/3、JNI 147/37 通过；macOS arm64 /
+C11 / -Werror，无 sanitizer 新结论。无产品 Core / 平台 / ABI / SDK 身份或
+Runtime 预算变化，不记新 App / APK / 设备 / SSH / 发行。双侧资源、完整文件 /
+资源中断矩阵、进程 / UI 服务 testkit 及 P5 / P1–P6 仍未完成，不增加 CI 二十份；
+见插件计划第二十批及[开发指南](docs/how-to/plugin-development.md)。

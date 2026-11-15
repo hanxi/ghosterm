@@ -129,6 +129,8 @@ static void kit_execution_inputs_close(const gt_ext_runtime_execution_t *executi
 }
 
 #ifndef GT_TESTKIT_HELPERS_ONLY
+#include "plugin-testkit-resource.inc"
+
 static void kit_request(gt_ext_session_t *peer,
                         gt_ext_runtime_t *runtime,
                         const gt_ext_lease_t *lease,
@@ -168,17 +170,21 @@ static void kit_request(gt_ext_session_t *peer,
 
 int main(int argc, char **argv) {
     /* directory, host JSON, side, command, method, input, error input, then raw argv */
-    bool external = argc >= 8 && (!strcmp(argv[3], "node") || !strcmp(argv[3], "exec"));
-    int offset = external ? 13 : 8;
+    bool resources = argc >= 8 && !strncmp(argv[3], "resources-", 10);
+    const char *mode = argc >= 8 ? argv[3] + (resources ? 10 : 0) : "";
+    bool external = !strcmp(mode, "node") || !strcmp(mode, "exec");
+    int offset = (external ? 13 : 8) + (resources ? 6 : 0);
     if (argc < offset || argc > offset + 32) {
         return 2;
     }
-    kit_check(external || !strcmp(argv[3], "client") || !strcmp(argv[3], "executor"),
-              "selected side");
+    kit_check(external || !strcmp(mode, "client") || !strcmp(mode, "executor"), "selected side");
+    if (resources) {
+        kit_check(!atexit(kit_resource_cleanup), "resource cleanup registration");
+    }
     kit_check(!atexit(kit_emergency_cleanup), "register owned Runtime cleanup");
     kit_check(signal(SIGTERM, kit_signal) != SIG_ERR && signal(SIGINT, kit_signal) != SIG_ERR,
               "register owned Runtime interruption");
-    gt_ext_role_t role = !strcmp(argv[3], "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;
+    gt_ext_role_t role = !strcmp(mode, "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;
     size_t before = ext_fds();
     int fd = open(argv[1], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     kit_check(fd >= 0, "package directory");
@@ -209,6 +215,23 @@ int main(int argc, char **argv) {
     strcpy(config.required[0], "session.rpc");
     strcpy(config.available[0], "session.rpc");
     config.features = GT_EXT_FEATURE_REQUESTS;
+    if (resources) {
+        const char *caps[] = {"session.rpc", "resource.receive", "file.readScoped"};
+        for (size_t i = 0; i < 3; i++) {
+            bool declared = false;
+            for (size_t j = 0; j < metadata.requires_count; j++) {
+                if (!strcmp(metadata.requires[j], caps[i])) {
+                    declared = true;
+                }
+            }
+            kit_check(declared, "explicit selected-side resource declaration");
+            strcpy(config.required[i], caps[i]);
+            strcpy(config.available[i], caps[i]);
+        }
+        config.required_count = config.available_count = 3;
+        config.features |= GT_EXT_FEATURE_RESOURCES;
+        kit_resource_open(argv + (external ? 13 : 8));
+    }
     gt_ext_rpc_method_t method = {
         .receiver = role, .input_shape = GT_EXT_JSON_OBJECT, .output_shape = GT_EXT_JSON_OBJECT};
     kit_check(strlen(argv[5]) < sizeof(method.method), "method length");
@@ -218,17 +241,28 @@ int main(int argc, char **argv) {
     kit_check(!socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), "owned local stream");
     gt_ext_channel_t *h = ext_channel(sockets[0]), *e = ext_channel(sockets[1]);
     ext_pair_t pair = {0};
-    kit_check(gt_ext_session_open_rpc(&h, GT_EXT_HOST, &config, &method, 1, &pair.h) == GT_OK &&
-                  gt_ext_session_open_rpc(&e, GT_EXT_EXECUTOR, &config, &method, 1, &pair.e) ==
-                      GT_OK,
-              "owned Session pair");
+    if (resources) {
+        kit_check(
+            gt_ext_session_open_resources(
+                &h, GT_EXT_HOST, &config, &method, 1, kit_res.host, 1048576, &pair.h) == GT_OK &&
+                gt_ext_session_open_resources(
+                    &e, GT_EXT_EXECUTOR, &config, &method, 1, kit_res.executor, 1048576, &pair.e) ==
+                    GT_OK,
+            "actual resources and RPC Session pair");
+        kit_res.peer = pair.h;
+    } else {
+        kit_check(gt_ext_session_open_rpc(&h, GT_EXT_HOST, &config, &method, 1, &pair.h) == GT_OK &&
+                      gt_ext_session_open_rpc(&e, GT_EXT_EXECUTOR, &config, &method, 1, &pair.e) ==
+                          GT_OK,
+                  "owned Session pair");
+    }
     ext_allow(&pair);
     gt_ext_session_t **slot = role == GT_EXT_HOST ? &pair.h : &pair.e;
     gt_ext_session_t *peer = role == GT_EXT_HOST ? pair.e : pair.h;
     gt_ext_lease_t lease;
     kit_check(gt_ext_session_lease(peer, &lease), "opposite peer lease");
     printf("{\"case\":\"lease\",\"side\":\"%s\",\"instanceId\":\"%s\",\"epoch\":\"%" PRIu64 "\"}\n",
-           external ? "executor" : argv[3],
+           external ? "executor" : mode,
            lease.instance,
            lease.epoch);
     gt_ext_invocation_t invocation = {.command = argv[4],
@@ -238,8 +272,14 @@ int main(int argc, char **argv) {
     gt_ext_runtime_execution_t execution = {.stage_parent_fd = -1, .node_sdk_directory_fd = -1};
     gt_ext_process_environment_t environment = {0};
     if (external) {
-        kit_execution(&execution, &environment, argv + 8, !strcmp(argv[3], "node"));
+        kit_execution(&execution, &environment, argv + 8, !strcmp(mode, "node"));
         options.execution = &execution;
+    }
+    gt_ext_runtime_root_t root = {
+        .id = "workspace", .directory_fd = kit_res.root_fd, .byte_limit = 262144};
+    if (resources) {
+        options.roots = &root;
+        options.root_count = 1;
     }
     gt_ext_runtime_t *runtime = NULL;
     options.memory_bytes = 128u * 1024u * 1024u + 1u;
@@ -251,6 +291,10 @@ int main(int argc, char **argv) {
     gt_status_t opened = gt_ext_runtime_open_package(slot, package, &options, true, &runtime);
     kit_live = runtime;
     kit_execution_inputs_close(&execution);
+    if (kit_res.root_fd >= 0) {
+        close(kit_res.root_fd);
+        kit_res.root_fd = -1;
+    }
     kit_check(opened == GT_OK && runtime && !*slot, "real Runtime adoption after rejected budget");
     gt_ext_runtime_info_t state;
     bool activated = false;
@@ -292,6 +336,9 @@ int main(int argc, char **argv) {
     printf("{\"case\":\"cancel\",\"outcome\":%.*s}\n", (int)result.outcome_size, result.outcome);
     kit_check(gt_ext_session_forget_request(peer, &lease, handle) == GT_EXT_RPC_OK,
               "cancelled handle retirement");
+    if (resources) {
+        kit_resource_take(peer, &lease);
+    }
     gt_ext_session_revoke(peer);
     status = gt_ext_session_request(peer, &lease, argv[5], "{}", 2, 1000, &handle);
     kit_check(status == GT_EXT_RPC_DENIED || status == GT_EXT_RPC_CLOSED,
@@ -315,6 +362,10 @@ int main(int argc, char **argv) {
     kit_check(gt_ext_runtime_destroy(&runtime) == GT_OK && !runtime, "Runtime destruction");
     kit_live = NULL;
     ext_drop(role == GT_EXT_HOST ? &pair.e : &pair.h);
+    if (resources) {
+        kit_res.peer = NULL;
+        kit_resource_finish(&lease);
+    }
     kit_check(gt_ext_package_destroy(&package) == GT_OK && !package, "package release");
     kit_check(ext_fds() == before, "native descriptor balance");
     printf("{\"case\":\"lifecycle\",\"activation\":true,\"budgetAdmission\":true,"

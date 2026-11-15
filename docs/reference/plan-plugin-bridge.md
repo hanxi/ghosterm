@@ -30,7 +30,9 @@ JNI 门面；第十二 / 十三批由 macOS / Android 通用 Native 组件消费
 同时激活、真实请求 / 回调往返及独立兼容 / 释放检查。第十七批接通 Node / Exec
 构建 / 检查 / 打包与按运行档隔离的类型检查，第十八批接单侧显式授权的 Node / Exec
 开发执行、固定摘要 / 版本核对及实际 INT / TERM 清理；第十九批补 Portable Client
-与真实 Node / Exec 的双侧回调、角色隔离和两个 owner 的有界退出。各批覆盖与证据见文末；
+与真实 Node / Exec 的双侧回调、角色隔离和两个 owner 的有界退出。第二十批补
+单侧 Executor 的显式只读根与真实资源发布，Portable / Node / Exec 均核对 Native
+收件字节、摘要、lease 隔离和保留快照释放；双侧资源与进程 / UI 服务 testkit 继续待接。各批覆盖与证据见文末；
 完整开发体验、系统辅助技术 / 生命周期 / 设备矩阵仍待完成，缺能力显式不支持，
 P5 和 P1–P6 均未记完成。
 
@@ -514,7 +516,7 @@ type Outcome =
 
 ### 开发、构建与验证
 
-候选 `scripts/gterm-plugin init / check / build / pack / test` 已接 Portable 工程首片，操作见[开发指南](../how-to/plugin-development.md)，证据见 P5 第十批。`check` 校验 manifest、schema、提供的命令冲突 / Host 依赖事实与导入闭包；`pack` 生成完整性清单、许可证和可复现产物，无安装后脚本。`test` 首片在真实 Core / QuickJS 的 RPC-only Executor harness 中验证激活、排队请求取消、预算准入拒绝、旧 epoch、错误类别与引擎 / fd 释放；不等同业务任务取消、OOM / RSS 或外部资源服务验收。Node / Exec 包开发、Client 激活及完整开发矩阵仍待完成。
+候选 `scripts/gterm-plugin init / check / build / pack / test` 操作见[开发指南](../how-to/plugin-development.md)，证据见 P5 第十 / 十五至二十批。`check` 校验 manifest、schema、提供的命令冲突 / Host 依赖事实与导入闭包；`pack` 生成完整性清单、许可证和可复现产物，无安装后脚本。Portable / Node / Exec 包开发与按运行档类型检查已接；`test` 在真实 Core / QuickJS 支持选侧或双侧 RPC，显式执行配置可接 Node / Exec Executor，单侧 Executor 可显式授权只读资源根并验真实 Native 收件 / 快照 / 释放。激活、排队请求取消、预算准入拒绝、旧 epoch、错误类别与引擎 / fd 均独立验证；不等同业务任务取消、OOM / RSS、双侧资源或进程 / UI 服务 testkit。完整开发矩阵仍待完成。
 
 官方示例须包括一个资源插件和一个持续双向会话插件，并在 macOS / Android 上通过相同行为夹具。至少做一次破坏权限、一次破坏取消、一次错发实例的变异；正常断言红、独立配置对照绿、恢复绿及 SHA256 一致，编译失败不算目标红。
 
@@ -7800,3 +7802,64 @@ QuickJS archive `cdee4abee0b3e0af8c99afa7b5dfc4086aae6ecdf0512a26a1e0f39b6040b62
 64 源输入及 35 个固定构件再次一致。
 
 结束清理本轮 **30 个 tmp 项、逻辑大小约 81.4 MiB**；原三份 eq 输入摘要不变。全部自有工具 / 测试 / 两侧 owner / Node / Exec 已退出，无窗口 / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。
+
+
+### P5 实施第二十批：开发 testkit 的显式只读根与真实资源收件（2026-11-15）
+
+`gterm-plugin test` 增加 `--resource-root 绝对目录 --allow-resource-access`，仅限
+本次单侧 Executor。未显式授权、Client / paired 使用根、所选 variant 未 requires
+`session.rpc / resource.receive / file.readScoped` 或 Host 已拒绝均不执行；默认
+RPC-only 路径不变。Portable 默认测试 profile 明确声明三能力；Node / Exec 继续
+要求独立执行配置、固定 Node / SDK、Host 事实及进程执行授权。根以 `workspace`
+只读 fd 提供给实际 Runtime；没有 cwd / HOME 猜测或写入服务。双侧资源仍待接。
+
+测试门面通过公开 Core Store / resources Session / Runtime / snapshot ABI 推进，
+Portable / Node 使用实际 SDK publish，Exec 使用实际资源进程协议；Native 对端
+不伪造业务结果。两个私有 Store 各 1 MiB、单资源 256 KiB、四槽，显式根读取上限
+256 KiB，沿用 Session / Runtime 既有预算。可选契约 `resource` 精确声明 SHA256、
+字节数、displayName / mediaType；没有该项则必须无收件。RPC 成功值 / 错误类别
+仍分别比对，不能把文件存在或进程退出当发布确认。
+
+Native 对端核对描述符及 16 KiB 分块实际读取的 SHA256、错误 epoch 无字节、
+恰好一次已确认收件；两个 Session 关闭后原快照仍可读取，保留 pin 阻止 Store
+销毁，显式 release 后预约 / 资源 / scope / Session 全归零，Store 销毁和整体 fd
+平衡再验。源输入和目录外对照文件字节未变。正常 64 KiB 在三种执行档均验，空
+文件另以 Portable 验；越界 `../`、其它根名和符号链接通过 Portable 实际调用拒绝，
+不借此称 Node / Exec 全部负向矩阵通过。错误预期摘要触发真实 Native ASSERT。
+
+初次完整轮在发现报告 scope 标签可能沿用“无 OS 服务”后主动中断，退出 143，
+没有最终收据，不计整轮通过。已用显式分支修正资源范围标注，并在正向断言核对；
+后续最终完整轮重新从头执行。无假业务回包或放大 Core 预算。
+
+最终完整 **49 项基线、32 组隔离变异**同轮通过；新增五项为 Portable 资源、
+资源授权 / 声明、路径 / lease / 摘要边界及真实 Node / Exec 各一项。新增五变异
+**resource-approval / resource-root / resource-foreign-lease / resource-digest /
+resource-release**；原二十七组复验通过。每组正常断言红、独立 Core 配置绿、
+恢复绿 / SHA256；C / inc 变异必须真实编译后 ASSERT，编译失败 / 崩溃 / 超时
+不计目标红。原单侧与双侧 Node / Exec 的八次 INT / TERM 中断也随完整轮复验，
+资源发布中的实际中断不借用该结果称已验。
+
+**65 源输入、35 个 Node / SDK 构件输入**前后逐项一致，收据 SHA256
+`24a68e1bbcad4cd973d36c2355e9a816f55fbf771f05082cadf9388161be910b`。
+Node **26.4.0** / SHA256
+`59cd4fb59cf5bc239f43d5db8c0cd8c23c22db79419612b92da3b7cf34de8553`；可信 SDK catalog
+`b21ea5f2263a32d44f27f36e4eb6517b8dab2a709eea3be65926389d0b4707e7`。
+JS-enabled / libssh2-off Core archive
+`8826f23af0b7ec0778dc420095bf9dd22abc85b85daf874caeed17345b54e4ae`，
+QuickJS archive `d3ebdd0861e5aaedc5d1c9befe9c512e3e4087cc9144b7fd3b08aa4152bec4f2`。
+命令：`python3 scripts/test-plugin-dev.py --tools tmp/plugin-resource-dev/tools --core-build tmp/plugin-resource-dev/core --execute --node-executable 实际Node路径 --node-sdk tmp/plugin-resource-dev/node-sdk --mutate --receipt tmp/plugin-resource-dev/receipt.json`。
+本片为 macOS arm64 / C11 / -Wall / -Wextra / -Werror、RelWithDebInfo，无 sanitizer
+新结论。没有产品 Core / 平台 / 公共 ABI / SDK 身份或 Runtime 预算变化。
+
+双侧 JS 资源、文件变化 / 全限额 / 资源中断矩阵、业务进程 / UI 服务 testkit、
+系统辅助技术 / 完整生命周期与 P5 / P1–P6 仍未完成；Native 资源消费不是 UI 绘制
+或吞吐 / RSS 验收。无新 App / APK / 设备 / SSH / tmux / 真实模型 / 发行结论，
+不增加 macOS CI 二十份；仅本地提交。
+
+最终默认 Core **JS-off / tests-on：588/588 CTest、184 ABI**、clang-format
+**19.1.7 / 264 文件**、Apple **181 引用 / 3 登记未用**、JNI **147 / 37**、
+Python / Node 语法与 diff 检查通过；自有 Exec 夹具另以同版格式只读检查，在实际
+Exec 用例中 -Werror 编译。无平台产品修改，不记新 App / APK / 设备构建；默认
+Core 保持 JS-off / tests-on。清理前 65 源输入及 35 个固定构件再次与收据一致。
+
+结束清理本轮 **31 个 tmp 项、逻辑大小约 81.5 MiB**；原三份 eq 输入摘要不变。全部自有测试 / Native owner / Node / Exec / 工具已退出，无窗口 / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。

@@ -184,15 +184,48 @@ Client 仍在真实 QuickJS，Node 或 Exec 通过既有进程协议运行。契
 再在同一有限期限内关闭它们；不把进程退出改写成业务成功 / 取消。
 
 测试契约是脚手架生成的 `plugin.test.json`：命令、原始 argv、方法、输入 / 预期对象、
-错误输入与预期 outcome kind。仅授予 `session.rpc`，需要其它服务会显式失败。
+错误输入与预期 outcome kind。默认仅授予 `session.rpc`，需要其它服务会显式失败。
 预期值及输入中的完整字符串 `${instanceId}` / `${epoch}` 可绑定本次 lease；字符串
 内嵌片段不替换。夹具使用本次 epoch 的本机 socketpair、真实包检查 / SDK / RPC，
 对选定侧验证激活、成功值、声明错误类别、发送前排队取消、旧 epoch、撤权、配置预算拒绝、
 引擎释放和 fd 数量平衡。脚手架的 `throw` 是明确错误夹具，结果为 unknown，不能
 将其当作成功业务结果。
 
+单侧 Executor 可显式接入只读资源根，支持 Portable、Node 与 Exec；Node / Exec
+同时需要上述执行配置和执行授权。命令使用绝对目录，不从 cwd 或环境猜测根：
+
+```sh
+python3 scripts/gterm-plugin test --project tmp/plugin-dev/resource --tools tmp/plugin-dev/tools --contract tmp/plugin-dev/resource/plugin.test.json --core-build tmp/plugin-dev/core --resource-root "$PWD/tmp/plugin-dev/source" --allow-resource-access
+```
+
+本次授权将该目录以 `workspace` 提供给 Executor。所选 variant 必须显式 requires
+`session.rpc`、`resource.receive`、`file.readScoped`，manifest 声明对应 Executor
+权限；显式 Host JSON 的 capabilities 也须恰为这三项，已有 denied 事实仍拒绝。
+未提供 Host JSON 时使用上述能力的 Portable Executor 测试 profile。缺授权拒绝，
+`--side client` / `paired` 不接受此根；默认 RPC profile 不因此获得文件服务。
+
+插件自行调用真实 `resources.publish`，Native 对端接收。契约可增加 `resource`
+对象，预期恰好一次发布；不提供该对象则验证没有收件：
+
+```json
+{
+  "sha256": "<源文件的64位小写SHA256>",
+  "bytes": 65536,
+  "displayName": "file.bin",
+  "mediaType": "application/octet-stream"
+}
+```
+
+该对象位于原契约的 `resource` 字段，不能替代原 RPC 输入 / 预期结果。当前每个
+Store 上限 1 MiB、单资源 256 KiB、四个资源槽；测试根读取上限 256 KiB。对端
+核对实际描述符、快照逐块读取的摘要和错误 lease 拒绝，Session 关闭后再次读取
+原保留快照，核对 pin 阻止 Store 销毁、显式 release、预约 / 引用归零及 fd 平衡。
+输出 `services: ["resources"]` 及实际收件观察；预期摘要不符或释放失败不能通过。
+只读根下的越界路径、其它根名和符号链接均不能发布；没有文件写入服务。此档
+不绘制资源，不代表双侧 JS 资源、SSH、吞吐或完整文件变化 / 限额矩阵已验。
+
 配置预算准入不等于 OOM / RSS 扫描；请求取消不等于业务任务取消。本片不覆盖 OS
-沙箱、SSH、tmux、原生 UI、外部资源服务、整进程预算或完整插件生命周期矩阵。
+沙箱、SSH、tmux、原生 UI、业务进程服务、整进程预算或完整插件生命周期矩阵。
 隔离变异各要求正常断言红、独立 Core 配置绿、恢复绿及源码 SHA256；编译失败、
 崩溃和超时不计目标红。新增手工脚本未加入 CI 二十份。
 

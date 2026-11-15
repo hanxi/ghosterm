@@ -61,6 +61,49 @@ static bool dev_callback(uint64_t *sequence, const char *input, char value[4096]
     return success;
 }
 
+static void dev_publish(uint64_t *sequence) {
+    char reply[8193], fields[512], handle[32];
+    call(sequence,
+         "\"op\":\"resource\",\"action\":\"publish\",\"root\":\"workspace\",\"path64\":"
+         "\"ZmlsZS5iaW4=\",\"mime\":\"application/"
+         "octet-stream\",\"limit\":\"262144\",\"timeoutMs\":1000",
+         reply);
+    app_json_t *json = app_parse(reply);
+    uint16_t value = app_member(json, 1, "value"), ref = app_member(json, value, "handle");
+    CHECK(app_string(json, app_member(json, value, "status"), "ok") && ref &&
+          json->nodes[ref].kind == J_STRING && json->nodes[ref].size < sizeof(handle));
+    snprintf(handle,
+             sizeof(handle),
+             "%.*s",
+             (int)json->nodes[ref].size,
+             json->strings + json->nodes[ref].text);
+    release(NULL, json, sizeof(*json));
+    for (;;) {
+        snprintf(fields,
+                 sizeof(fields),
+                 "\"op\":\"resource\",\"action\":\"publication\",\"ref\":\"%s\"",
+                 handle);
+        call(sequence, fields, reply);
+        json = app_parse(reply);
+        value = app_member(json, 1, "value");
+        uint16_t pub = app_member(json, value, "publication");
+        CHECK(app_string(json, app_member(json, value, "status"), "ok"));
+        if (app_string(json, app_member(json, pub, "phase"), "succeeded")) {
+            uint16_t confirmed = app_member(json, pub, "confirmed");
+            CHECK(confirmed && json->nodes[confirmed].kind == J_TRUE &&
+                  app_string(json, app_member(json, pub, "transferState"), "succeeded"));
+            release(NULL, json, sizeof(*json));
+            break;
+        }
+        CHECK(!app_string(json, app_member(json, pub, "phase"), "failed"));
+        release(NULL, json, sizeof(*json));
+    }
+    snprintf(
+        fields, sizeof(fields), "\"op\":\"resource\",\"action\":\"forget\",\"ref\":\"%s\"", handle);
+    call(sequence, fields, reply);
+    CHECK(strstr(reply, "\"value\":{\"status\":\"ok\""));
+}
+
 int main(int argc, char **argv) {
     CHECK(signal(SIGTERM, dev_stop) != SIG_ERR);
     CHECK(argc == 4 && !strcmp(argv[1], "--ghosterm-startup"));
@@ -116,7 +159,11 @@ int main(int argc, char **argv) {
                  json->input + json->nodes[input].start);
         bool exchange = app_string(json, app_member(json, 1, "method"), "dev.exchange");
         bool fail = app_string(json, app_member(json, input, "text"), "throw");
+        bool publish = app_string(json, app_member(json, input, "text"), "resource");
         release(NULL, json, sizeof(*json));
+        if (publish) {
+            dev_publish(&sequence);
+        }
         if (exchange && !fail) {
             fail = !dev_callback(&sequence, input_text, value);
         }

@@ -300,6 +300,73 @@ def run_case(name, work, tools, core, execution=None):
         for variant in ['node', 'native']:
             hostfile.write_text(json.dumps({**facts, 'variantId': variant})); assert check()['facts']['variantId'] == variant
         hostfile.write_text(json.dumps({**facts, 'runtimes': ['node'], 'variantId': 'native'})); assert check(4)['compatibility'] == 'unsupported'
+    elif name.startswith('resource-'):
+        runtime = {'resource-node': 'node', 'resource-exec': 'exec'}.get(name, 'portable-js')
+        original = (project / 'executor/index.ts').read_text()
+        if runtime == 'portable-js':
+            manifest = json.loads((project / 'plugin.json').read_text())
+            facts = dict(host)
+        else:
+            assert execution is not None
+            manifest, _ = execution_project(runtime)
+            facts = {**host, 'runtimes': [runtime]}
+            if runtime == 'node':
+                manifest['executor']['variants'][0]['runtimeVersionRange'] = '>=22.0.0 <1000.0.0'
+                facts['programs'] = {'node': {'state': 'available', 'version': execution['version']}}
+            else:
+                facts.update(os='macos', arch='aarch64')
+                built = subprocess.run(['xcrun', '--sdk', 'macosx', 'clang', '-std=c11', '-Wall', '-Wextra', '-Werror', '-I' + str(ROOT / 'core/src'), str(ROOT / 'scripts/fixtures/plugin-dev-executor.c'), str(core / 'libghosterm_core.a'), '-lpthread', '-lm', '-o', str(project / 'bin/fixture')], capture_output=True, text=True, timeout=120)
+                assert built.returncode == 0, built.stderr
+        caps = ['session.rpc', 'resource.receive', 'file.readScoped']
+        manifest['executor']['variants'][0]['requires'] = caps
+        manifest['permissions'] += [dict(side='executor', capability=c, purpose='Read this explicitly authorized disposable root.', scope='instance') for c in caps[1:]]
+        (project / 'plugin.json').write_text(json.dumps(manifest)); facts['capabilities'] = caps; hostfile.write_text(json.dumps(facts))
+        source = work / 'source'; source.mkdir(); data = bytes((i * 7 + 3) % 251 for i in range(65536)); file = source / 'file.bin'; file.write_bytes(data)
+        (work / 'outside.bin').write_bytes(b'outside must not be read'); (source / 'link.bin').symlink_to(file)
+        if runtime != 'exec':
+            text = original.replace('context.session.register(Echo, (input, request) => {', 'context.session.register(Echo, async (input, request) => {')
+            text = text.replace('    return { text: input.text };', '''    const resources = context.resources;
+    if (!resources) throw new Error("Resource service required");
+    const relativePath = input.text === "traversal" ? "../outside.bin" : input.text === "symlink" ? "link.bin" : "file.bin";
+    const root = input.text === "foreign-root" ? "outside" : "workspace";
+    const result = await resources.publish({ root, relativePath, mediaType: "application/octet-stream" }, { byteLimit: "262144", timeoutMs: 1000 }).outcome;
+    if (result.kind !== "success") return { text: result.kind === "failed" ? result.error.code : "unknown" };
+    return { text: input.text };''')
+            (project / 'executor/index.ts').write_text(text)
+        contractfile = project / 'plugin.test.json'; contract = json.loads(contractfile.read_text())
+        contract.update(method='fixture.echo' if runtime == 'exec' else 'dev.echo', input={'text': 'resource'}, expected={'text': 'resource'}, resource=dict(sha256=hashlib.sha256(data).hexdigest(), bytes=len(data), displayName='file.bin', mediaType='application/octet-stream'))
+        contractfile.write_text(json.dumps(contract))
+        arguments = ['test', *common, '--contract', contractfile, '--core-build', core, '--host-json', hostfile, '--resource-root', source]
+        if runtime != 'portable-js':
+            specfile = work / 'execution.json'; specfile.write_text(json.dumps({k: v for k, v in execution.items() if k != 'version'} if runtime == 'node' else {'runtime': 'exec'}))
+            arguments += ['--execution-json', specfile, '--allow-process-execution']
+        if name == 'resource-guards':
+            missing = [a if a != core else work / 'must-not-run' for a in arguments]
+            assert cli(*missing, status=6)['code'] == 'TEST_RESOURCE_APPROVAL'
+            assert cli(*missing, '--allow-resource-access', '--side', 'client', status=2)['code'] == 'TEST_RESOURCE_SIDE'
+            assert cli(*missing, '--allow-resource-access', '--side', 'paired', status=2)['code'] == 'TEST_RESOURCE_SIDE'
+            hostfile.write_text(json.dumps({**facts, 'deniedCapabilities': ['file.readScoped']}))
+            assert cli(*missing, '--allow-resource-access', status=6)['compatibility'] == 'denied'
+            hostfile.write_text(json.dumps(facts)); manifest['executor']['variants'][0]['requires'].remove('file.readScoped')
+            manifest['permissions'] = [p for p in manifest['permissions'] if p['side'] != 'executor' or p['capability'] != 'file.readScoped']
+            (project / 'plugin.json').write_text(json.dumps(manifest))
+            assert cli(*missing, '--allow-resource-access', status=1, diagnostic='TEST_REQUIRES_DECLARED_RESOURCES')['kind'] == 'error'
+        elif name == 'resource-boundaries':
+            base = dict(contract)
+            for value, expected in [('traversal', 'DENIED'), ('foreign-root', 'DENIED'), ('symlink', 'UNSUPPORTED')]:
+                contract = {k: v for k, v in base.items() if k != 'resource'}; contract.update(input={'text': value}, expected={'text': expected}); contractfile.write_text(json.dumps(contract))
+                assert cli(*arguments, '--allow-resource-access')['observations'][4]['received'] is False
+            contract = dict(base); contract['resource'] = {**base['resource'], 'sha256': '0' * 64}; contractfile.write_text(json.dumps(contract))
+            assert cli(*arguments, '--allow-resource-access', status=1, diagnostic='ASSERT:')['kind'] == 'error'
+        else:
+            result = cli(*arguments, '--allow-resource-access')
+            assert result['services'] == ['resources'] and result['observations'][4] == dict(case='resource', verified=True, released=True, received=True)
+            assert 'scoped resource publication' in result['scope']
+            if runtime == 'portable-js':
+                file.write_bytes(b''); contract['resource'] = {**contract['resource'], 'bytes': 0, 'sha256': hashlib.sha256(b'').hexdigest()}; contractfile.write_text(json.dumps(contract))
+                assert cli(*arguments, '--allow-resource-access')['observations'][4]['received'] is True
+                file.write_bytes(data)
+        assert file.read_bytes() == data and (work / 'outside.bin').read_bytes() == b'outside must not be read'
     elif name.startswith('execution-'):
         assert execution is not None
         paired = name.startswith('execution-pair-')
@@ -442,8 +509,10 @@ CASES = ['reproducible', 'host-states', 'strict-types', 'dependencies', 'imports
 CASES += ['paired-rpc', 'paired-contract', 'paired-failures', 'paired-hosts', 'paired-declarations']
 CASES += ['node-project', 'node-boundaries', 'node-facts', 'exec-project', 'runtime-variants']
 CASES += ['source-references']
+CASES += ['resource-portable', 'resource-guards', 'resource-boundaries']
 EXECUTION_CASES = ['execution-node', 'execution-exec', 'execution-approval', 'execution-pins', 'execution-interrupt', 'execution-exec-interrupt']
 EXECUTION_CASES += ['execution-pair-node', 'execution-pair-exec', 'execution-pair-guards', 'execution-pair-pins', 'execution-pair-node-interrupt', 'execution-pair-exec-interrupt']
+EXECUTION_CASES += ['resource-node', 'resource-exec']
 MUTATIONS = [
     ('explicit-any', 'strict-types', 'scripts/plugin-dev-worker.mjs', "demand(node.kind !== ts.SyntaxKind.AnyKeyword, 'EXPLICIT_ANY');", ''),
     ('host-denied', 'host-states', 'scripts/plugin-dev-worker.mjs', 'compatibility = error.state; reason = error.code;', "compatibility = error.state === 'denied' ? 'unknown' : error.state; reason = error.code;"),
@@ -464,6 +533,11 @@ MUTATIONS = [
     ('exec-empty', 'exec-project', 'scripts/plugin-dev-worker.mjs', 'catalog.get(side.executable).length > 0', 'true'),
     ('test-runtime', 'node-facts', 'scripts/plugin-dev-worker.mjs', "if (compatibility === 'compatible' && selected.runtime !== 'portable-js')", "if (false)"),
     ('source-references', 'source-references', 'scripts/plugin-dev-worker.mjs', "demand(!tree.referencedFiles.length && !tree.typeReferenceDirectives.length && !tree.libReferenceDirectives.length, 'REFERENCE_DIRECTIVE');", ''),
+    ('resource-approval', 'resource-guards', 'scripts/gterm-plugin', "require(args.allow_resource_access, 'TEST_RESOURCE_APPROVAL', 6)", 'pass'),
+    ('resource-root', 'resource-portable', 'scripts/probes/plugin-testkit.c', 'options.root_count = 1;', 'options.root_count = 0;'),
+    ('resource-foreign-lease', 'resource-portable', 'scripts/probes/plugin-testkit-resource.inc', 'other.epoch ^= 1;', 'other.epoch = lease->epoch;'),
+    ('resource-digest', 'resource-portable', 'scripts/probes/plugin-testkit-resource.inc', 'gt__sha256_update(&hash, bytes, read)', '(bytes[0] ^= 1, gt__sha256_update(&hash, bytes, read))'),
+    ('resource-release', 'resource-portable', 'scripts/probes/plugin-testkit-resource.inc', 'gt_ext_resource_store_release(kit_res.host, lease, &kit_res.snapshot) ==\n                          GT_EXT_RESOURCE_OK &&\n                      !kit_res.snapshot.handle', 'true'),
 ]
 EXECUTION_MUTATIONS = [
     ('development-execution-approval', 'execution-approval', 'scripts/gterm-plugin', "require(args.allow_process_execution, 'TEST_EXECUTION_APPROVAL', 6)", 'pass'),
@@ -481,7 +555,7 @@ def mutations(work, tools, core, execution=None, execution_arguments=()):
     isolated = work / 'isolated'; isolated.mkdir(); (isolated / 'tmp').mkdir()
     for directory in ['packages/plugin-sdk', 'core/include']:
         shutil.copytree(ROOT / directory, isolated / directory)
-    files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
+    files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/probes/plugin-testkit-resource.inc', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
     for name in files:
         target = isolated / name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(ROOT / name, target)
     extra_sources = ['scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc']
@@ -505,7 +579,7 @@ def mutations(work, tools, core, execution=None, execution_arguments=()):
             red = probe()
             diagnostics = red.stdout + red.stderr
             assert red.returncode == 1 and b'AssertionError' in diagnostics and b'error: ' not in diagnostics, (label, diagnostics.decode())
-            if filename.endswith('.c'):
+            if filename.endswith(('.c', '.inc')):
                 assert b'ASSERT:' in diagnostics, (label, 'requires a compiled native assertion red', diagnostics.decode())
             else:
                 assert b'TOOL_FAILED' not in diagnostics, (label, diagnostics.decode())
@@ -539,6 +613,7 @@ def main():
     if args.case in EXECUTION_CASES and not execution: parser.error('execution cases require --execute')
     sources = {ROOT / name for name in ['scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/lib/gt-timeout.sh', 'core/tests/test_ext_session.c', 'LICENSE']}
     sources.add(Path(__file__).resolve())
+    sources.add(ROOT / 'scripts/probes/plugin-testkit-resource.inc')
     sources.update(ROOT / n for n in ['scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc'])
     for directory in ['scripts/fixtures/plugin-dev-tools', 'packages/plugin-sdk', 'core/include']:
         sources.update(p for p in (ROOT / directory).rglob('*') if p.is_file())
