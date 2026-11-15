@@ -57,6 +57,7 @@ kit_bind(char output[GT_EXT_RPC_BODY_MAX + 1], const char *input, const gt_ext_l
 }
 
 static gt_ext_runtime_t *kit_live, *kit_second;
+static bool kit_business;
 static volatile sig_atomic_t kit_interrupted;
 
 static void kit_signal(int number) {
@@ -91,7 +92,7 @@ static void kit_yield(gt_ext_runtime_t *runtime) {
         exit(128 + kit_interrupted);
     }
     gt_ext_runtime_info_t info;
-    if (gt_ext_runtime_info(runtime, &info) && info.external_process) {
+    if (gt_ext_runtime_info(runtime, &info) && (info.external_process || kit_business)) {
         struct timespec pause = {0, 1000000};
         nanosleep(&pause, NULL);
     }
@@ -128,6 +129,8 @@ static void kit_execution_inputs_close(const gt_ext_runtime_execution_t *executi
     }
 }
 
+#include "plugin-testkit-process.inc"
+
 #ifndef GT_TESTKIT_HELPERS_ONLY
 #include "plugin-testkit-resource.inc"
 
@@ -148,7 +151,15 @@ static void kit_request(gt_ext_session_t *peer,
         gt_ext_runtime_step(runtime);
         kit_yield(runtime);
         gt_ext_runtime_info_t state;
-        kit_check(gt_ext_runtime_info(runtime, &state) && state.phase == GT_EXT_RUNTIME_ACTIVE,
+        bool observed = gt_ext_runtime_info(runtime, &state);
+        if (observed && state.phase != GT_EXT_RUNTIME_ACTIVE) {
+            fprintf(stderr,
+                    "Runtime phase=%d error=%d cleanup=%d\n",
+                    state.phase,
+                    state.error,
+                    state.cleanup_error);
+        }
+        kit_check(observed && state.phase == GT_EXT_RUNTIME_ACTIVE,
                   "active Runtime during request");
         gt_ext_rpc_result_t result;
         kit_check(gt_ext_session_request_result(peer, lease, handle, &result) == GT_EXT_RPC_OK,
@@ -170,10 +181,15 @@ static void kit_request(gt_ext_session_t *peer,
 
 int main(int argc, char **argv) {
     /* directory, host JSON, side, command, method, input, error input, then raw argv */
-    bool resources = argc >= 8 && !strncmp(argv[3], "resources-", 10);
-    const char *mode = argc >= 8 ? argv[3] + (resources ? 10 : 0) : "";
+    kit_business = argc >= 8 && !strncmp(argv[3], "process-", 8);
+    const char *selected = argc >= 8 ? argv[3] + (kit_business ? 8 : 0) : "";
+    bool resources = !strncmp(selected, "resources-", 10);
+    const char *mode = selected + (resources ? 10 : 0);
     bool external = !strcmp(mode, "node") || !strcmp(mode, "exec");
     int offset = (external ? 13 : 8) + (resources ? 6 : 0);
+    if (kit_business) {
+        offset = kit_process_parse(argc, argv, offset);
+    }
     if (argc < offset || argc > offset + 32) {
         return 2;
     }
@@ -232,6 +248,10 @@ int main(int argc, char **argv) {
         config.features |= GT_EXT_FEATURE_RESOURCES;
         kit_resource_open(argv + (external ? 13 : 8));
     }
+    if (kit_business) {
+        kit_process_declarations(&metadata);
+        kit_process_capabilities(&config);
+    }
     gt_ext_rpc_method_t method = {
         .receiver = role, .input_shape = GT_EXT_JSON_OBJECT, .output_shape = GT_EXT_JSON_OBJECT};
     kit_check(strlen(argv[5]) < sizeof(method.method), "method length");
@@ -281,6 +301,9 @@ int main(int argc, char **argv) {
         options.roots = &root;
         options.root_count = 1;
     }
+    if (kit_business) {
+        kit_process_apply(&options);
+    }
     gt_ext_runtime_t *runtime = NULL;
     options.memory_bytes = 128u * 1024u * 1024u + 1u;
     kit_check(gt_ext_runtime_open_package(slot, package, &options, true, &runtime) ==
@@ -291,6 +314,7 @@ int main(int argc, char **argv) {
     gt_status_t opened = gt_ext_runtime_open_package(slot, package, &options, true, &runtime);
     kit_live = runtime;
     kit_execution_inputs_close(&execution);
+    kit_process_inputs_close();
     if (kit_res.root_fd >= 0) {
         close(kit_res.root_fd);
         kit_res.root_fd = -1;

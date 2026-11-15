@@ -300,6 +300,96 @@ def run_case(name, work, tools, core, execution=None):
         for variant in ['node', 'native']:
             hostfile.write_text(json.dumps({**facts, 'variantId': variant})); assert check()['facts']['variantId'] == variant
         hostfile.write_text(json.dumps({**facts, 'runtimes': ['node'], 'variantId': 'native'})); assert check(4)['compatibility'] == 'unsupported'
+    elif name.startswith('business-'):
+        paired = '-pair-' in name
+        runtime = 'node' if name.endswith('-node') else 'exec' if name.endswith('-exec') else 'portable-js'
+        manifest = json.loads((project / 'plugin.json').read_text()) if runtime == 'portable-js' else execution_project(runtime)[0]
+        compiler = ['xcrun', '--sdk', 'macosx', 'clang'] if sys.platform == 'darwin' else ['cc']
+        business = work / 'business'
+        built = subprocess.run([*compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', str(ROOT / 'scripts/fixtures/plugin-dev-business.c'), '-o', str(business)], capture_output=True, text=True, timeout=120)
+        assert built.returncode == 0, built.stderr
+        if runtime == 'exec':
+            built = subprocess.run([*compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-I' + str(ROOT / 'core/src'), str(ROOT / 'scripts/fixtures/plugin-dev-executor.c'), str(core / 'libghosterm_core.a'), '-lpthread', '-lm', '-o', str(project / 'bin/fixture')], capture_output=True, text=True, timeout=120)
+            assert built.returncode == 0, built.stderr
+        else:
+            (project / 'executor/index.ts').write_bytes((ROOT / 'scripts/fixtures/plugin-dev-process.ts').read_bytes())
+        variant = manifest['executor']['variants'][0]
+        variant['requires'] = ['session.rpc', 'process.spawn', 'process.pipes']
+        variant['dependencies'] = [dict(program='business', versionPolicy='range', versionRange='^1.0.0')]
+        for cap in ['process.spawn', 'process.pipes']:
+            permission = dict(side='executor', capability=cap, purpose='Run this explicitly mapped disposable fixture.', scope='instance')
+            if cap == 'process.spawn': permission['programs'] = ['business']
+            manifest['permissions'].append(permission)
+        facts = {**host, 'capabilities': variant['requires'], 'runtimes': [runtime], 'programs': {'business': dict(state='available', version='1.0.0')}}
+        if runtime == 'node':
+            assert execution is not None
+            variant['runtimeVersionRange'] = '>=22.0.0 <1000.0.0'
+            facts['programs']['node'] = dict(state='available', version=execution['version'])
+        elif runtime == 'exec': facts.update(os='macos', arch='aarch64')
+        if paired:
+            facts = dict(client={**host, 'side': 'client'}, executor=facts)
+            client = project / 'client/index.ts'
+            client.write_text(client.read_text().replace('  let live = true;', '  if (context.process || context.invocation?.workspaceHandle) throw new Error("Client must not own process service");\n  let live = true;'))
+        (project / 'plugin.json').write_text(json.dumps(manifest)); hostfile.write_text(json.dumps(facts))
+        workspace = work / 'workspace'; workspace.mkdir(); (workspace / 'sentinel').write_text('workspace-proof')
+        config = dict(workspaceRoot=str(workspace), programs=[dict(name='business', executable=str(business), version='1.0.0', sha256=digest(business))], environment=[dict(name='GT_TEST_VALUE', value='selected')], lifetimeMs=3000, outputBytes=65536)
+        processfile = work / 'process.json'; processfile.write_text(json.dumps(config))
+        contractfile = project / ('plugin.pair.test.json' if paired else 'plugin.test.json'); contract = json.loads(contractfile.read_text())
+        contract.update(method='dev.run' if paired else 'fixture.echo' if runtime == 'exec' else 'dev.echo', input={'text':'business'}, expected={'text':'client:executor:callback:process:2048:0' if paired else 'process:2048:0'})
+        contractfile.write_text(json.dumps(contract))
+        arguments = ['test', *common, '--contract', contractfile, '--core-build', core, '--host-json', hostfile, '--side', 'paired' if paired else 'executor', '--process-json', processfile]
+        if runtime != 'portable-js':
+            executionfile = work / 'execution.json'; executionfile.write_text(json.dumps({k:v for k,v in execution.items() if k != 'version'} if runtime == 'node' else {'runtime':'exec'}))
+            arguments += ['--execution-json', executionfile, '--allow-process-execution']
+        def gone():
+            pid = int((workspace / 'business.pid').read_text())
+            try: os.kill(pid, 0)
+            except ProcessLookupError: return
+            raise AssertionError('owned business child was not reaped')
+        if name == 'business-guards':
+            missing = [a if a != core else work / 'must-not-run' for a in arguments]
+            assert cli(*missing, status=6)['code'] == 'TEST_PROCESS_APPROVAL'
+            assert cli(*missing, '--allow-business-processes', '--side', 'client', status=2)['code'] == 'TEST_PROCESS_SIDE'
+            for update, code in [({'environment':[dict(name='BAD=KEY',value='x')]},'TEST_PROCESS_ENVIRONMENT'),({'lifetimeMs':True},'TEST_PROCESS_BUDGET'),({'programs':config['programs']*2},'TEST_PROCESS_PROGRAM_DUPLICATE')]:
+                processfile.write_text(json.dumps({**config,**update}))
+                assert cli(*missing, '--allow-business-processes', status=2)['code'] == code
+            processfile.write_text(json.dumps(config))
+            for cap in ['process.spawn','process.pipes']:
+                hostfile.write_text(json.dumps({**facts,'deniedCapabilities':[cap]}))
+                assert cli(*missing,'--allow-business-processes',status=6)['compatibility']=='denied'
+            hostfile.write_text(json.dumps(facts));variant['requires'].remove('process.pipes')
+            manifest['permissions']=[p for p in manifest['permissions'] if p['capability']!='process.pipes'];(project/'plugin.json').write_text(json.dumps(manifest))
+            assert cli(*missing,'--allow-business-processes',status=1,diagnostic='TEST_REQUIRES_DECLARED_PROCESSES')['kind']=='error'
+        elif name.startswith('business-interrupt-'):
+            contract['input']={'text':'business-wait'};contractfile.write_text(json.dumps(contract))
+            for number in [signal.SIGTERM,signal.SIGINT]:
+                marker=workspace/'business.pid';marker.unlink(missing_ok=True)
+                process=subprocess.Popen(['python3',str(ROOT/'scripts/gterm-plugin'),*map(str,arguments),'--allow-business-processes'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=dict(os.environ,TMPDIR=str(ROOT/'tmp'),GHOSTERM_AUTOMATION_OFFSCREEN='1'))
+                try:
+                    until=time.monotonic()+15
+                    while process.poll() is None and not marker.exists() and time.monotonic()<until:time.sleep(.005)
+                    assert marker.exists() and process.poll() is None,'business child must enter before signal'
+                    process.send_signal(number);stdout,stderr=process.communicate(timeout=8)
+                    assert process.returncode==128+number and not stdout and b'Traceback' not in stderr,(process.returncode,stdout,stderr)
+                    gone()
+                finally:
+                    if process.poll() is None:process.terminate();process.communicate(timeout=8)
+        else:
+            report=cli(*arguments,'--allow-business-processes');assert report['services']==['processes'];gone()
+            if paired:
+                reverse={**contract,'method':'dev.exchange','expected':{'text':'executor:callback:process:2048:0'}};contractfile.write_text(json.dumps(reverse))
+                assert cli(*arguments,'--allow-business-processes')['kind']=='tested';gone()
+            else:
+                for value,expected in [('stderr','process:0:7'),('cancel','process:signal:15'),('missing','DENIED'),('outside','DENIED')]:
+                    contract.update(input={'text':value},expected={'text':expected});contractfile.write_text(json.dumps(contract))
+                    try:
+                        assert cli(*arguments,'--allow-business-processes')['kind']=='tested';gone()
+                    except AssertionError as error:
+                        raise AssertionError('business mode: ' + value) from error
+            contractfile.write_text(json.dumps({**contract,'input':{'text':'business'},'expected':{'text':'client:executor:callback:process:2048:0' if paired else 'process:2048:0'}}))
+            processfile.write_text(json.dumps({**config,'programs':[{**config['programs'][0],'sha256':'0'*64}]}))
+            assert cli(*arguments,'--allow-business-processes',status=1,diagnostic='ASSERT:')['kind']=='error'
+        assert digest(business)==config['programs'][0]['sha256'] and (workspace/'sentinel').read_text()=='workspace-proof'
     elif name.startswith('resource-'):
         paired = name.startswith('resource-pair-')
         client_reads = name.startswith('resource-pair-client')
@@ -623,11 +713,11 @@ CASES += ['paired-rpc', 'paired-contract', 'paired-failures', 'paired-hosts', 'p
 CASES += ['node-project', 'node-boundaries', 'node-facts', 'exec-project', 'runtime-variants']
 CASES += ['source-references']
 CASES += ['resource-portable', 'resource-guards', 'resource-boundaries', 'resource-pair-portable', 'resource-pair-guards', 'resource-pair-boundaries']
-CASES += ['resource-pair-client']
+CASES += ['resource-pair-client', 'business-portable', 'business-pair-portable', 'business-guards', 'business-interrupt-portable']
 EXECUTION_CASES = ['execution-node', 'execution-exec', 'execution-approval', 'execution-pins', 'execution-interrupt', 'execution-exec-interrupt']
 EXECUTION_CASES += ['execution-pair-node', 'execution-pair-exec', 'execution-pair-guards', 'execution-pair-pins', 'execution-pair-node-interrupt', 'execution-pair-exec-interrupt']
 EXECUTION_CASES += ['resource-node', 'resource-exec', 'resource-pair-node', 'resource-pair-exec']
-EXECUTION_CASES += ['resource-pair-client-node', 'resource-pair-client-exec']
+EXECUTION_CASES += ['resource-pair-client-node', 'resource-pair-client-exec', 'business-node', 'business-exec', 'business-pair-node', 'business-pair-exec', 'business-interrupt-node', 'business-interrupt-exec']
 MUTATIONS = [
     ('explicit-any', 'strict-types', 'scripts/plugin-dev-worker.mjs', "demand(node.kind !== ts.SyntaxKind.AnyKeyword, 'EXPLICIT_ANY');", ''),
     ('host-denied', 'host-states', 'scripts/plugin-dev-worker.mjs', 'compatibility = error.state; reason = error.code;', "compatibility = error.state === 'denied' ? 'unknown' : error.state; reason = error.code;"),
@@ -642,7 +732,7 @@ MUTATIONS = [
     ('paired-executor-pump', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    gt_ext_runtime_step(executor);', '    (void)executor;'),
     ('paired-direction', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_EXECUTOR : GT_EXT_HOST;'),
     ('paired-executor-release', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    pair_release(&executor);', '    /* missing Executor release */'),
-    ('paired-executor-facts', 'paired-hosts', 'scripts/gterm-plugin', "report = worker(work, tools, package, None, host['executor'], registry, True, execution, bool(resource_root))", "report = worker(work, tools, package, None, host['client'], registry, True, execution)"),
+    ('paired-executor-facts', 'paired-hosts', 'scripts/gterm-plugin', "report = worker(work, tools, package, None, host['executor'], registry, True, execution, bool(resource_root), bool(processes))", "report = worker(work, tools, package, None, host['client'], registry, True, execution)"),
     ('portable-node-types', 'node-boundaries', 'scripts/plugin-dev-worker.mjs', "types: side.runtime === 'node' ? ['node'] : []", "types: ['node']"),
     ('node-esm', 'node-boundaries', 'scripts/plugin-dev-worker.mjs', "json(path.join(directory, 'package.json')).type === 'module'", "true"),
     ('exec-empty', 'exec-project', 'scripts/plugin-dev-worker.mjs', 'catalog.get(side.executable).length > 0', 'true'),
@@ -663,6 +753,14 @@ MUTATIONS += [
     ('pair-resource-client-pin', 'resource-pair-client', 'scripts/test-plugin-dev.py', 'if (resources.' + 'release(ref) !== "ok")', 'if (false)'),
     ('pair-resource-client-observed', 'resource-pair-client', 'scripts/probes/plugin-pair-testkit.c', 'pair_resource_seen |= usage.resources > 0;', 'pair_resource_seen |= false;'),
 ]
+MUTATIONS += [
+    ('business-approval', 'business-guards', 'scripts/gterm-plugin', "require(args.allow_business_processes, 'TEST_PROCESS_APPROVAL', 6)", 'pass'),
+    ('business-root', 'business-portable', 'scripts/probes/plugin-testkit-process.inc', 'options->root_count = 1;', 'options->root_count = 0;'),
+    ('business-mappings', 'business-portable', 'scripts/probes/plugin-testkit-process.inc', 'options->process_program_count = kit_process.program_count;', 'options->process_program_count = 0;'),
+    ('business-environment', 'business-portable', 'scripts/probes/plugin-testkit-process.inc', 'options->process_environment = kit_process.environment;', 'options->process_environment = NULL;'),
+    ('business-pin', 'business-portable', 'scripts/probes/plugin-testkit-process.inc', '.verified_sha256 = argv[offset + 3]', '.verified_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"'),
+    ('business-read', 'business-portable', 'scripts/fixtures/plugin-dev-process.ts', 'received += result.bytes.length;', 'received += 0;'),
+]
 EXECUTION_MUTATIONS = [
     ('development-execution-approval', 'execution-approval', 'scripts/gterm-plugin', "require(args.allow_process_execution, 'TEST_EXECUTION_APPROVAL', 6)", 'pass'),
     ('development-execution-environment', 'execution-approval', 'scripts/gterm-plugin', "require(set(value) == keys, 'TEST_EXECUTION_CONFIG')", "require(True, 'TEST_EXECUTION_CONFIG')"),
@@ -679,10 +777,10 @@ def mutations(work, tools, core, execution=None, execution_arguments=()):
     isolated = work / 'isolated'; isolated.mkdir(); (isolated / 'tmp').mkdir()
     for directory in ['packages/plugin-sdk', 'core/include']:
         shutil.copytree(ROOT / directory, isolated / directory)
-    files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/probes/plugin-testkit-resource.inc', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
+    files = ['LICENSE', 'core/tests/test_ext_session.c', 'scripts/test-plugin-dev.py', 'scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/probes/plugin-testkit-resource.inc', 'scripts/probes/plugin-testkit-process.inc', 'scripts/lib/gt-timeout.sh', 'scripts/fixtures/plugin-dev-tools/package.json', 'scripts/fixtures/plugin-dev-tools/package-lock.json']
     for name in files:
         target = isolated / name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(ROOT / name, target)
-    extra_sources = ['scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc']
+    extra_sources = ['scripts/fixtures/plugin-dev-business.c', 'scripts/fixtures/plugin-dev-process.ts', 'scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc']
     for name in extra_sources:
         target = isolated / name; target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(ROOT / name, target)
     build = isolated / 'tmp/core'; build.mkdir()
@@ -738,6 +836,7 @@ def main():
     sources = {ROOT / name for name in ['scripts/gterm-plugin', 'scripts/plugin-dev-worker.mjs', 'scripts/probes/plugin-testkit.c', 'scripts/probes/plugin-pair-testkit.c', 'scripts/lib/gt-timeout.sh', 'core/tests/test_ext_session.c', 'LICENSE']}
     sources.add(Path(__file__).resolve())
     sources.add(ROOT / 'scripts/probes/plugin-testkit-resource.inc')
+    sources.update(ROOT / n for n in ['scripts/probes/plugin-testkit-process.inc', 'scripts/fixtures/plugin-dev-business.c', 'scripts/fixtures/plugin-dev-process.ts'])
     sources.update(ROOT / n for n in ['scripts/fixtures/plugin-dev-executor.c', 'core/tests/process-runtime-peer.c', 'core/tests/process-runtime-app.inc', 'core/tests/process-runtime-resource-app.inc', 'core/src/base/allocator.h', 'core/src/base/sha256.h', 'core/src/base/json-reader.inc'])
     for directory in ['scripts/fixtures/plugin-dev-tools', 'packages/plugin-sdk', 'core/include']:
         sources.update(p for p in (ROOT / directory).rglob('*') if p.is_file())

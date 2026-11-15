@@ -1530,3 +1530,22 @@ C11 / -Werror，无 sanitizer 新结论。无产品 Core / 平台 / ABI / SDK �
 Runtime 预算变化，不记新 App / APK / 设备 / SSH / 发行；完整资源 / 进程 / UI
 服务测试、资源实际中断、辅助技术 / 生命周期及 P5 / P1–P6 仍未完成，不增加
 CI 二十份；见插件计划第二十一批及[开发指南](docs/how-to/plugin-development.md)。
+
+
+**插件 P5 业务进程开发测试与回收修复（2026-11-15）**：`test --process-json`
+配独立 `--allow-business-processes`，显式程序 / 摘要 / Host 已核对版本、cwd、
+选定环境与预算，三运行档单侧 / paired。Client 无 process / workspaceHandle；
+业务字节、EOF、stderr / exit 7、SIGTERM、拒绝 / unknown、实际 PID 回收分别验。
+67 基线 / 45 隔离变异正常断言红 / 独立配置绿 / 恢复 / SHA256，68 源 / 35
+固定构件一致；新六次业务子进程 INT / TERM 与原八次 Executor 中断分开记账。
+修复 Core 四缺陷：QuickJS 不可捕获 InternalError 用于正常 spawn 拒绝、JSON
+非 NUL 字符串直接当 argv、leader / guard 重复 fence，以及未回收时 wire 的
+running / signal 不一致。Core 64 场景 / 三组新 sanitizer 变异、拒绝八场景 /
+一组 sanitizer 变异通过，分别 766 / 750 源最终一致；ASan / UBSan，非 LSan。
+原拒绝 / argv / 组信号 / 及时性失败、两夹具编译失败、NDEBUG 关闭断言的编译失败
+及 SSH-off 全套的三项失败均单列，不计红或整轮绿；不降低时间 / 回收断言。
+最终默认 Core 588/184、JS-on / SSH-on / Debug 849、C 格式 265、Apple 181/3、
+JNI 147/37 通过。无新 ABI / SDK 身份 / 平台源码或生产预算变化，无新 App /
+APK / 设备 / SSH 产品档 / 云端发行；完整进程 / 资源 / UI 服务矩阵、辅助技术 /
+生命周期与 P5 / P1–P6 仍未完成，不增加 CI 二十份；见插件计划第二十二批及
+[开发指南](docs/how-to/plugin-development.md)。

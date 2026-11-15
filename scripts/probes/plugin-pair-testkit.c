@@ -110,9 +110,11 @@ int main(int argc, char **argv) {
     /* dir, client host, executor host, command, method, input, error input,
      * target side, count, then name=receiver entries, then raw invocation argv. */
     kit_check(argc >= 11, "pair arguments");
-    bool resources = !strncmp(argv[8], "resources-", 10);
+    kit_business = !strncmp(argv[8], "process-", 8);
+    const char *selected = argv[8] + (kit_business ? 8 : 0);
+    bool resources = !strncmp(selected, "resources-", 10);
     pair_resources = resources;
-    const char *target = argv[8] + (resources ? 10 : 0);
+    const char *target = selected + (resources ? 10 : 0);
     bool client_reads = resources && !strncmp(target, "read-", 5);
     target += client_reads ? 5 : 0;
     if (resources) {
@@ -124,7 +126,7 @@ int main(int argc, char **argv) {
     char *end = NULL;
     unsigned long count = strtoul(argv[9], &end, 10);
     kit_check(end && !*end && count > 0 && count <= GT_EXT_RPC_METHODS_MAX &&
-                  argc >= 10 + (int)count && argc <= 53 + (int)count,
+                  argc >= 10 + (int)count && argc <= 186 + (int)count,
               "pair methods and arguments");
     bool target_client = !strcmp(target, "client");
     kit_check(target_client || !strcmp(target, "executor"), "pair target side");
@@ -157,6 +159,9 @@ int main(int argc, char **argv) {
               "pair external runtime");
     int resource_offset = 10 + (int)count + (pair_external ? 5 : 0);
     int offset = resource_offset + (resources ? 6 : 0);
+    if (kit_business) {
+        offset = kit_process_parse(argc, argv, offset);
+    }
     kit_check(argc >= offset && argc <= offset + 32, "pair exact invocation arguments");
     gt_ext_session_config_t config = ext_config();
     strcpy(config.plugin_id, cm.id);
@@ -186,6 +191,10 @@ int main(int argc, char **argv) {
         }
         config.features |= GT_EXT_FEATURE_RESOURCES;
         kit_resource_open(argv + resource_offset);
+    }
+    if (kit_business) {
+        kit_process_declarations(&em);
+        kit_process_capabilities(&config);
     }
     int sockets[2];
     kit_check(!socketpair(AF_UNIX, SOCK_STREAM, 0, sockets), "pair owned stream");
@@ -234,6 +243,9 @@ int main(int argc, char **argv) {
         executor_options.roots = &resource_root;
         executor_options.root_count = 1;
     }
+    if (kit_business) {
+        kit_process_apply(&executor_options);
+    }
     gt_ext_runtime_execution_t execution = {.stage_parent_fd = -1, .node_sdk_directory_fd = -1};
     gt_ext_process_environment_t environment = {0};
     if (pair_external) {
@@ -256,6 +268,7 @@ int main(int argc, char **argv) {
     opened = gt_ext_runtime_open_package(&pair.e, ep, &executor_options, true, &executor);
     kit_second = executor;
     kit_execution_inputs_close(&execution);
+    kit_process_inputs_close();
     if (kit_res.root_fd >= 0) {
         close(kit_res.root_fd);
         kit_res.root_fd = -1;

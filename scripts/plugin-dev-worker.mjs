@@ -188,6 +188,7 @@ try {
       manifest.executor?.variants?.find(v => v.id === facts?.variantId) ?? manifest.executor?.variants?.[0];
     demand(selected?.requires.includes('session.rpc'), 'TEST_REQUIRES_DECLARED_RPC');
     if (request.testResources) demand(['resource.receive', ...(host.side === 'executor' ? ['file.readScoped'] : [])].every(c => selected.requires.includes(c)), 'TEST_REQUIRES_DECLARED_RESOURCES');
+    if (request.testProcesses && host.side === 'executor') demand(['process.spawn', 'process.pipes'].every(c => selected.requires.includes(c)), 'TEST_REQUIRES_DECLARED_PROCESSES');
     if (compatibility === 'compatible' && selected.runtime !== 'portable-js') {
       if (request.testRuntime !== selected.runtime) {
         compatibility = 'unsupported'; reason = 'TEST_RUNTIME_UNSUPPORTED';

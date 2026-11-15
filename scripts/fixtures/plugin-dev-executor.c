@@ -73,6 +73,128 @@ static bool dev_callback(uint64_t *sequence, const char *input, char value[4096]
     return success;
 }
 
+static void dev_business(uint64_t *sequence, const char *kind, char outcome[3073]) {
+    char fields[8192], reply[8193], handle[32];
+    const char *mode = !strcmp(kind, "stderr")                              ? "stderr"
+                       : (!strcmp(kind, "cancel") || !strcmp(kind, "wait")) ? "wait"
+                                                                            : "roundtrip";
+    CHECK(snprintf(fields,
+                   sizeof(fields),
+                   "\"op\":\"process\",\"action\":\"spawn\",\"program\":\"%s\",\"root\":\"%s\","
+                   "\"argv\":[\"business\",\"quoted ' \\\" $() 中文\",\"%s\"],"
+                   "\"envPolicy\":\"selected-user-environment\"",
+                   !strcmp(kind, "missing") ? "missing" : "business",
+                   !strcmp(kind, "outside") ? "outside" : "workspace",
+                   mode) > 0);
+    call(sequence, fields, reply);
+    uint16_t value;
+    app_json_t *json = app_proc_value(reply, &value);
+    if (!strcmp(kind, "missing") || !strcmp(kind, "outside")) {
+        CHECK(app_string(json, app_member(json, value, "status"), "denied"));
+        release(NULL, json, sizeof(*json));
+        strcpy(outcome, "{\"text\":\"DENIED\"}");
+        return;
+    }
+    uint16_t ref = app_member(json, value, "ref");
+    CHECK(app_string(json, app_member(json, value, "status"), "ok") &&
+          app_string(json, app_member(json, value, "version"), "1.0.0") && ref &&
+          json->nodes[ref].kind == J_STRING && json->nodes[ref].size < sizeof(handle));
+    snprintf(handle,
+             sizeof(handle),
+             "%.*s",
+             (int)json->nodes[ref].size,
+             json->strings + json->nodes[ref].text);
+    release(NULL, json, sizeof(*json));
+    if (!strcmp(kind, "wait")) {
+        for (;;) {
+            pause();
+        }
+    }
+    if (!strcmp(mode, "roundtrip")) {
+        size_t sent = 0;
+        while (sent < 2048) {
+            char hex[2049];
+            size_t count = 2048 - sent;
+            if (count > 1024) {
+                count = 1024;
+            }
+            for (size_t i = 0; i < count; i++) {
+                snprintf(hex + i * 2, 3, "%02x", (unsigned)((sent + i) % 251));
+            }
+            snprintf(fields,
+                     sizeof(fields),
+                     "\"op\":\"process\",\"action\":\"write\",\"ref\":\"%s\",\"hex\":\"%s\"",
+                     handle,
+                     hex);
+            call(sequence, fields, reply);
+            json = app_proc_value(reply, &value);
+            uint64_t wrote;
+            CHECK(app_string(json, app_member(json, value, "status"), "ok") &&
+                  node_uint(json, app_member(json, value, "count"), &wrote) && wrote <= count);
+            CHECK(app_string(json, app_member(json, value, "state"), "data") ||
+                  app_string(json, app_member(json, value, "state"), "wait"));
+            sent += (size_t)wrote;
+            release(NULL, json, sizeof(*json));
+        }
+    }
+    app_proc_command(sequence, reply, handle, "closeStdin", "");
+    app_proc_ok(reply);
+    bool cancel = !strcmp(kind, "cancel");
+    if (cancel) {
+        size_t ready = 0;
+        while (ready < 5) {
+            uint8_t bytes[3072];
+            size_t count;
+            CHECK(app_proc_read(sequence, reply, handle, false, bytes, &count) != 2 &&
+                  count <= 5 - ready);
+            CHECK(!memcmp(bytes, &"ready"[ready], count));
+            ready += count;
+        }
+        app_proc_command(sequence, reply, handle, "signal", ",\"signal\":\"terminate\"");
+        app_proc_ok(reply);
+    }
+    uint8_t output[8193], errors[8193];
+    size_t count = app_proc_collect(sequence, reply, handle, false, output);
+    size_t error_count = app_proc_collect(sequence, reply, handle, true, errors);
+    uint64_t code, signal_number;
+    for (;;) {
+        app_proc_command(sequence, reply, handle, "poll", "");
+        json = app_proc_value(reply, &value);
+        bool exited = app_string(json, app_member(json, value, "status"), "ok") &&
+                      json->nodes[app_member(json, value, "exited")].kind == J_TRUE;
+        if (exited) {
+            CHECK(node_uint(json, app_member(json, value, "code"), &code) &&
+                  node_uint(json, app_member(json, value, "signal"), &signal_number));
+        }
+        release(NULL, json, sizeof(*json));
+        if (exited) {
+            break;
+        }
+    }
+    if (cancel) {
+        CHECK(!code && signal_number == SIGTERM && !count && !error_count);
+    } else if (!strcmp(mode, "stderr")) {
+        CHECK(code == 7 && !signal_number && !count && error_count == 12 &&
+              !memcmp(errors, "stderr-proof", 12));
+    } else {
+        CHECK(!code && !signal_number && !error_count && count == 2048);
+        for (size_t i = 0; i < count; i++) {
+            CHECK(output[i] == i % 251);
+        }
+    }
+    app_proc_command(sequence, reply, handle, "release", "");
+    app_proc_ok(reply);
+    app_proc_command(sequence, reply, handle, "poll", "");
+    json = app_proc_value(reply, &value);
+    CHECK(app_string(json, app_member(json, value, "status"), "invalid"));
+    release(NULL, json, sizeof(*json));
+    if (cancel) {
+        strcpy(outcome, "{\"text\":\"process:signal:15\"}");
+    } else {
+        snprintf(outcome, 3073, "{\"text\":\"process:%zu:%llu\"}", count, (unsigned long long)code);
+    }
+}
+
 static void dev_publish(uint64_t *sequence) {
     char reply[8193], fields[512], handle[32];
     call(sequence,
@@ -172,7 +294,18 @@ int main(int argc, char **argv) {
         bool exchange = app_string(json, app_member(json, 1, "method"), "dev.exchange");
         bool fail = app_string(json, app_member(json, input, "text"), "throw");
         bool publish = app_string(json, app_member(json, input, "text"), "resource");
+        const char *business_kind = NULL;
+        const char *business_modes[] = {
+            "business", "stderr", "cancel", "missing", "outside", "business-wait"};
+        for (size_t i = 0; i < 6; i++) {
+            if (app_string(json, app_member(json, input, "text"), business_modes[i])) {
+                business_kind = i == 5 ? "wait" : business_modes[i];
+            }
+        }
         release(NULL, json, sizeof(*json));
+        if (business_kind) {
+            dev_business(&sequence, business_kind, input_text);
+        }
         if (publish) {
             dev_publish(&sequence);
         }

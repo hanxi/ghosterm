@@ -247,9 +247,51 @@ Native 同时要求 Store 曾实际持有资源、Runtime 关闭前没有待收�
 并有“匹配回执但从未发布”的负向夹具；多资源业务数量须另写契约断言。
 
 配置预算准入不等于 OOM / RSS 扫描；请求取消不等于业务任务取消。本片不覆盖 OS
-沙箱、SSH、tmux、原生 UI、业务进程服务、整进程预算或完整插件生命周期矩阵。
+沙箱、SSH、tmux、原生 UI、整进程预算或完整插件生命周期矩阵。
 隔离变异各要求正常断言红、独立 Core 配置绿、恢复绿及源码 SHA256；编译失败、
 崩溃和超时不计目标红。新增手工脚本未加入 CI 二十份。
+
+业务进程服务使用独立配置和独立授权；`--allow-process-execution` 只允许启动
+Node / Exec Executor。要让插件通过 `context.process` 启动业务子进程，提供
+`--process-json 文件 --allow-business-processes`，支持单侧 Executor 和 paired。
+例如以下配置中的目录、程序、版本和摘要须替换为已独立核对的实际值：
+
+```json
+{
+  "workspaceRoot": "/absolute/path/to/workspace",
+  "programs": [{"name":"business","executable":"/absolute/physical/path/to/program","version":"1.0.0","sha256":"<64位小写SHA256>"}],
+  "environment": [{"name":"GT_TEST_VALUE","value":"selected"}],
+  "lifetimeMs": 3000,
+  "outputBytes": 65536
+}
+```
+
+programs 为 1–16 个不重名映射，environment 为 0–32 个不重名条目。配置要求
+全部五个字段、绝对路径、规范摘要及有界整数；CLI 的 lifetimeMs 上限十分钟，
+outputBytes 上限 1 MiB，Core 的既有验证和输出 / 期限限制仍生效。插件所选
+Executor 必须 requires `session.rpc / process.spawn / process.pipes`，manifest 的
+process.spawn 权限须列出程序名。Host JSON 仍独立提供程序依赖事实；配置中的
+版本是原生 Host 已核对的版本声明，命令不自动执行任意程序的 `--version`。
+Core 验证可执行字节摘要，启动前再核对文件身份；不从 PATH 找替代程序。
+
+```sh
+python3 scripts/gterm-plugin test --project tmp/plugin-dev/business --tools tmp/plugin-dev/tools --contract tmp/plugin-dev/business/plugin.test.json --core-build tmp/plugin-dev/core --host-json tmp/plugin-dev/business-host.json --process-json tmp/plugin-dev/process.json --allow-business-processes
+```
+
+paired 的 Client 不声明 process.*，也不接收 process 服务或 workspaceHandle；
+Executor 才得到程序映射和 cwd。Node / Exec 另加已核对的 execution JSON 及其
+执行授权。可以组合资源服务，但 resource-root 必须与 workspaceRoot 使用同一
+绝对目录，两种权限仍分别检查。缺本次业务授权、侧别不符、声明或 Host 依赖不符
+都失败，不静默改测另一运行档。配置只支持当前列出的字段，未知字段拒绝。
+
+子进程只获得显式 environment，Executor 自己的 TMPDIR 配置不会自动传给业务
+程序。cwd 以不含绝对路径的 workspaceHandle 提供；它选择工作目录，不限制原生
+程序的文件系统访问，也不是同用户 OS 沙箱。插件自行核验 stdin / stdout / stderr、
+EOF、实际 exit code / signal，再返回契约规定的业务回执；退出码不自动等于业务
+成功。结果 `services` 包含 `processes`，Runtime / fd 释放与业务回执分别核验。
+可复验的自有 C 子进程和三运行档处理器见 `plugin-dev-business.c` /
+`plugin-dev-process.ts`；中断用例先观察自有子进程 PID，再发 INT / TERM 并核对
+实际回收，不以父进程退出代替子进程结束。完整输出 / 期限 / 进程树和平台矩阵仍待验。
 
 用完删除本次创建的 `tmp/plugin-dev/`，保留其它工作的临时目录。开发命令每次调用的
 内部固定副本与探针会在正常退出、INT / TERM 中断时清理；TERM 同时收回受控工具进程组。

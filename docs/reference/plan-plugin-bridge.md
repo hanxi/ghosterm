@@ -34,7 +34,9 @@ JNI 门面；第十二 / 十三批由 macOS / Android 通用 Native 组件消费
 单侧 Executor 的显式只读根与真实资源发布，Portable / Node / Exec 均核对 Native
 收件字节、摘要、lease 隔离和保留快照释放；第二十一批补双侧资源：真实 RPC 回调
 组合 Native 保留快照，或由 Client SDK 实际读取后返回精确回执，根仍只交给
-Executor。业务进程 / UI 服务 testkit 继续待接。各批覆盖与证据见文末；
+Executor。第二十二批接业务 ProcessService testkit：独立程序 / cwd / 环境 / 预算与
+授权，三运行档的单侧、paired 和实际子进程中断，并修复接线验证发现的可捕获拒绝、
+argv 终止、guard 最终清理及回收前退出状态问题。完整服务矩阵与 UI 服务 testkit 继续待验。各批覆盖与证据见文末；
 完整开发体验、系统辅助技术 / 生命周期 / 设备矩阵仍待完成，缺能力显式不支持，
 P5 和 P1–P6 均未记完成。
 
@@ -7936,3 +7938,109 @@ Exec 用例中以 -Werror 编译。无平台产品修改，不记新 App / APK /
 清理前 65 源输入及 35 个固定构件再次与完整收据一致。
 
 结束清理本轮 **31 个 tmp 项、逻辑大小约 82.9 MiB**；原三份 eq 输入摘要不变。全部自有测试 / 两侧 owner / Node / Exec / 工具已退出，无窗口 / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。
+
+
+### P5 实施第二十二批：业务进程 testkit 与进程拒绝 / argv / 回收修复（2026-11-15）
+
+`test --process-json 配置 --allow-business-processes` 接公开 Runtime 的实际
+ProcessService，支持 Portable / Node / Exec Executor 的单侧和 paired。业务进程
+授权与外部 Executor 启动授权分开；Client 不配置 process.* 或 cwd。配置严格给出
+workspaceRoot、1–16 个名字 / 路径 / Host 已核对版本 / SHA256 映射、0–32 条显式
+环境、期限与输出预算；不从 PATH / HOME 猜程序或继承环境，不自动查任意程序版本。
+所选 variant 须 requires process.spawn / process.pipes，manifest 权限列出程序名，
+Host 依赖与 denied / unknown 仍先独立检查。组合资源服务时两个根必须同目录，
+权限分别检查。cwd 是原生子进程工作目录选择，不是 OS 只读或文件系统沙箱。
+
+Native 门面复制根 fd 到 Runtime、接映射 / 环境 / 预算后关闭原输入 fd；实际
+子进程由现有 Core owner 驱动 / 停止 / 回收。Portable / Node 处理器通过真实 SDK，
+Exec 通过实际进程协议；所有业务输入和成功值经真实 RPC，不由 Native 假回包。
+自有 C 程序核对引号 / `$()` / 中文 argv、相对 sentinel 与显式环境，记录自己的
+PID；正常 2048 字节 stdin / stdout 逐字节往返、stderr / exit 7、显式 SIGTERM、
+未知程序 / 外部 cwd 拒绝与错误 executable 摘要均有用例。paired 的两个根调用
+方向使用实际 Client → Executor → Client 回调；Client 实际断言没有 process 或
+workspaceHandle。业务回执、EOF、exit / signal、Runtime 清理与 fd 分别验。
+
+验证发现并修复四处 Core 问题，未改公共 ABI / SDK 身份或提高 Runtime 预算：
+
+1. 未映射程序原用 QuickJS-NG 的不可捕获 InternalError，整个 Runtime 失败，
+   插件 try/catch 无效。改为可捕获 PlainError；新 process-caught-denial 先捕获
+   缺失程序，再真实启动获准 cat / env，确认执行能力仍正常。
+2. 进程 RPC 将带长度、非 NUL 结尾的 JSON string 池直接当 argv，后续参数与
+   envPolicy / 字段值串入前一参数。现有界复制到 16 KiB 参数块，每项追加 NUL；
+   新 Native 实际 printf 回归含引号 / 中文 / 空参数 / tail，逐字节核对输出。
+3. leader 退出后 Runtime 与 guard 重复 SIGKILL，Darwin 的第二次组信号可得
+   EPERM。现立即经 poll 请求 guard 持有的最终 fence，仍继续排空管道，最终
+   才销毁 owner；不清除真实 group_signal_error。保留 leader-exit 的及时性、
+   后代实际死亡、leader 回收和零组信号错误断言。
+4. 短期限子进程已观察终止、guard 尚未回收时，wire 曾发 exited=false / signal=15；
+   Node 严格校验断开协议。现在 wire 在 exited=false 时 code / signal 为 0，
+   回收后才给真实退出状态；原 Native 观察事实保留，不伪造已退出或业务成功。
+
+原始失败单列：Darwin POSIX 特性宏未暴露 O_NOFOLLOW、Exec 夹具字符串加整数
+的 -Werror 编译失败、QuickJS 不可捕获拒绝、Node argv 串接、旧 leader-exit 的
+EPERM、首版只移除竞争信号却未立即请求 guard 导致 5 秒及时性失败、短期限
+running / signal 不一致，均不计目标正常变异红或整轮通过。临时诊断只用于自有
+夹具，Core 诊断插桩已逐字恢复；未修改 vendor。旧构件上启动的完整开发轮在
+重构建最终 Core 前主动中断 143，不计最终通过；最终验证另记下方。
+
+Core 进程 Runtime 的 **64 场景、三组新隔离变异**在最终源码通过：
+jobs-argv-termination、leader-double-fence、jobs-reap-status，均编译后正常断言红、
+同 archive 配置绿、恢复绿 / SHA256，ASan / UBSan，无 LSan 结论。重复 fence 的
+变异仅在隔离副本延迟 50 ms 后走竞争 fence，用于稳定触发 Darwin 已死组错误，
+不是生产预算增加或目标超时；原及时性阈值保留。766 输入与最终工作区逐项一致；
+收据 SHA256 `52a1e942e4086fb87f320e9015fe9524aca850c0d3a4c195bdedc4bdd4d16d1c`。
+命令：`python3 scripts/test-plugin-process-runtime.py --node 实际Node路径 --tools tmp/plugin-process-dev/sdk-tools --processes --mutate --case jobs-argv-termination --case leader-double-fence --case jobs-reap-status`。
+
+阶段清理：确认旧失败进程已退出后，移除 3 份失败测试构件 / 隔离副本，保留失败日志待最终清理，逻辑回收约 155.1 MiB。
+
+最终开发工具完整 **67 项基线、45 组隔离变异**同轮通过。保留原 57 / 39；新增
+单侧 / paired × 三运行档六项、授权 / 配置 / 声明一项、三运行档实际中断三项。
+单侧每档另验 stderr / exit 7、SIGTERM、未知程序与外部 cwd；paired 每档验根
+方法两方向及错误摘要。新增 business-approval / business-root / business-mappings /
+business-environment / business-pin / business-read 六组，旧三十九组完整复验：
+正常断言红、独立 Core 配置绿、恢复绿 / SHA256；C / inc 要求实际编译后 ASSERT，
+编译失败 / 崩溃 / 超时不计红。读计数变异由实际 SDK / Core 字节读取后的结果
+不符失败，不把 Native 编译失败当通过。
+
+新增六次真实 INT / TERM 在业务子进程写入其自有 PID、CLI 仍活跃后注入，分别
+130 / 143、无 JSON 成功输出 / traceback、业务子进程已回收；原 Node / Exec
+Executor 单侧 / paired 八次中断随整轮保留。它们是进程中断 / 回收证据，不当普通
+变异红，也不冒充持久业务任务取消。未授权 / cwd / 程序名的拒绝和业务错误 /
+unknown 分开，不把任意 spawn IO 错误归为拒绝。
+
+**68 源输入、35 个 Node / SDK 构件输入**前后逐项一致；收据 SHA256
+`7e52094853085aaa6b03cd192e58748484ca511d0c127fc932f9803548af4d74`。
+显式 JS-enabled / libssh2-off Core archive
+`820a927094a1c360df5f1f206d69f1e6a9698ad8ef41e4756e0f9e1e42974346`，
+QuickJS archive `1e521f10a02b2d25ce53a1aaec0c764043e499900343e06a21e8895c5e792fe8`。
+Node **26.4.0** / SHA256
+`59cd4fb59cf5bc239f43d5db8c0cd8c23c22db79419612b92da3b7cf34de8553`，SDK catalog
+`b21ea5f2263a32d44f27f36e4eb6517b8dab2a709eea3be65926389d0b4707e7`。
+命令：`python3 scripts/test-plugin-dev.py --tools tmp/plugin-process-dev/tools --core-build tmp/plugin-process-dev/core --execute --node-executable 实际Node路径 --node-sdk tmp/plugin-process-dev/node-sdk --mutate --receipt tmp/plugin-process-dev/receipt.json`。
+开发 harness 为 macOS arm64 / C11 / -Werror、RelWithDebInfo；本段无 harness
+sanitizer 新结论，Core 两类独立 sanitizer 专项分别记账。不改平台源码 / 公共 ABI /
+SDK 身份、默认 JS-off 或生产预算；不记新 App / APK / 设备 / SSH / 真实模型 /
+云端发行。完整输出 / 期限 / 进程树 / 资源 / UI 服务矩阵、辅助技术 / 生命周期 /
+平台验收与 P5 / P1–P6 仍未完成，不增加 macOS CI 二十份。
+
+可捕获拒绝另以 `mutation-check-plugin-package-runtime.py --process` 在最终源码
+复验：原八个 process 子场景、旧 InternalError 编译后正常断言红、独立配置绿、
+恢复八项 / SHA256，ASan / UBSan。750 输入与最终工作区一致，收据 SHA256
+`2a26f142e8d84838c2cfac7d13040fddec8eae3116bebb3f46a52cc74e431270`。
+完整 Core 的首轮全 target 构建误用 RelWithDebInfo / NDEBUG，线程选项测试 assert
+被关闭而出现 -Werror 未使用变量；该编译失败不计通过，不压警告、不改断言，
+改用独立 JS-on / libssh2-off / Debug / 断言开启目录复验。开发 67 / 45 的
+原优化构件与收据保持不变，不拿不同 archive 的测试结果冒充同构件。
+
+全量 Core 的首次 Debug 审计仍误将 SSH 后端关闭，816 项中仅 ssh_e2e /
+known_hosts_e2e / known_hosts_ecdsa 三项因缺后端失败（813 通过），不记整轮绿；
+未删 / 跳过断言。启用已锁定、已验证的 libssh2 后，最终独立 **JS-on / SSH-on /
+Debug：849/849 CTest** 全绿；默认 Root Core 保持 **JS-off / SSH-on / tests-on**，
+最终离线 gate **588/588 CTest、184 ABI** 及未实现入口检查通过。
+clang-format **19.1.7 / 265 文件**、Apple **181 引用 / 3 登记未用**、JNI
+**147 / 37**、Python / Node 语法及 diff 检查通过；两个自有 C 夹具另按同版格式
+检查，实际 -Werror 编译。无平台源改动，不记新 App / APK / 真机验收。
+清理前开发 68 源 / 35 固定构件及原优化 archive、Core 进程 766 源、拒绝回归
+750 源均再次与各自完整收据逐项一致；不同构建档和失败轮保持分开。
+
+结束清理本轮剩余 **53 个 tmp 项、逻辑大小约 387.0 MiB**；加上前述阶段回收约 155.1 MiB。原三份 eq 输入摘要未变，自有测试 / Node / Exec / 业务子进程 / Native owner 均退出，无窗口 / AVD；旧 Java 65439 与用户服务未操作。仅本地提交，未推送 / 发行。
