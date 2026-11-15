@@ -22,6 +22,7 @@ struct ExtensionsPane: View {
     struct Entry: Identifiable {
         let review: ExtensionController.PackageReview
         var signatureDraft = PluginSignatureDraft()
+        var installation: ExtensionController.InstalledRelease?
         var decision: String = "尚未批准"
         var localConnection = false { didSet { localAllowed = false; executionDraft.authorized = false; clientAuthorized = false; attachmentAllowed = false } }
         var localDigest = "" { didSet { localAllowed = false; clientAuthorized = false; attachmentAllowed = false } }
@@ -79,6 +80,14 @@ struct ExtensionsPane: View {
                     .accessibilityIdentifier("plugin-package-import")
             }
 
+            PluginReleaseInstallView(controller: model.extensionController) { installed in
+                let entryID = installed.review.id + ":" + installed.review.digest
+                if let index = entries.firstIndex(where: { $0.id == entryID }) { entries[index].installation = installed }
+                else {
+                    var entry = Entry(review: installed.review); entry.installation = installed; entries.append(entry)
+                }
+            }
+
             if model.extensionController == nil {
                 Label("此构建未启用 Portable JS 插件运行时。", systemImage: "exclamationmark.circle")
                     .foregroundStyle(.secondary)
@@ -100,6 +109,10 @@ struct ExtensionsPane: View {
                     }
                     Text("版本 \(entry.review.version) · 发布者 \(entry.review.publisher) · \(entry.review.license)")
                         .font(DS.Font.caption).foregroundStyle(.secondary)
+                    if let installed = entry.installation {
+                        Text("已安装签名版本 · 渠道 \(installed.signature.channel)\n\(installed.directory.path)")
+                            .font(DS.Font.caption).textSelection(.enabled)
+                    }
                     PluginSignatureReviewView(controller: model.extensionController, review: entry.review,
                                               draft: $entry.signatureDraft)
                     Text("Client 运行时：\(entry.review.runtime) · 结构审查身份：\(entry.review.publisherAuthenticated ? "已认证" : "未认证")")

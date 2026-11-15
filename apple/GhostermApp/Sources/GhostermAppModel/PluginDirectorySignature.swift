@@ -45,6 +45,23 @@ public enum PluginDirectorySignatureVerifier {
 
     public static func verify(descriptor: Data, signature: Data, trustedPolicy: Data,
                               identity: Identity) throws -> PluginDirectorySignature {
+        let authenticated = try authenticate(descriptor: descriptor, signature: signature, trustedPolicy: trustedPolicy)
+        return try authenticated.bind(identity)
+    }
+
+    struct Authenticated {
+        let identity: Identity
+        let proof: PluginDirectorySignature
+        func bind(_ actual: Identity) throws -> PluginDirectorySignature {
+            guard same(identity.id, actual.id), same(identity.version, actual.version),
+                  same(identity.publisher, actual.publisher), identity.packageSHA256 == actual.packageSHA256 else { throw Failure.identity }
+            return proof
+        }
+    }
+
+    // Internal preflight used by the ZIP installer; a directory proof is only
+    // returned publicly after binding the authenticated claims to Core metadata.
+    static func authenticate(descriptor: Data, signature: Data, trustedPolicy: Data) throws -> Authenticated {
         // Own byte copies keep parsing, signature verification and receipt hashes
         // tied to the same input even when a caller used bridged mutable NSData.
         guard descriptor.count <= 65536, trustedPolicy.count <= 131072, signature.count == 64 else { throw Failure.limit }
@@ -93,11 +110,10 @@ public enum PluginDirectorySignatureVerifier {
         message.append(payload)
         let publicKey = try Curve25519.Signing.PublicKey(rawRepresentation: key.raw)
         guard publicKey.isValidSignature(signatureBytes, for: message) else { throw Failure.signature }
-        guard same(id, identity.id), same(version, identity.version), same(publisher, identity.publisher),
-              package == identity.packageSHA256 else { throw Failure.identity }
-        return PluginDirectorySignature(pluginID: id, packageSHA256: package, channel: channel, keyID: keyID,
+        let proof = PluginDirectorySignature(pluginID: id, packageSHA256: package, channel: channel, keyID: keyID,
             publisher: publisher, policySHA256: hash(policyBytes), descriptorSHA256: hash(payload),
             artifactSHA256: artifactSHA, artifactBytes: count)
+        return Authenticated(identity: .init(id: id, version: version, publisher: publisher, packageSHA256: package), proof: proof)
     }
 
     private struct Key { let raw: Data; let publisher: String; let plugins: Set<String> }

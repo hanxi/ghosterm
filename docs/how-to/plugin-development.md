@@ -486,9 +486,9 @@ python3 scripts/gterm-plugin release verify --artifact tmp/preview-release/plugi
 勾选信任确认并点击「核对目录包签名」。包附带的策略不能自行建立信任。成功时显示渠道、
 公钥 / 策略 / 已捕获目录包的 SHA-256；修改材料路径或撤回策略信任会清除旧证明，晚到结果也会丢弃。
 
-此入口只把描述中的身份及包摘要与 Core 已捕获的不可变目录快照绑定，不导入或验证 ZIP，
-也不把描述声明的 ZIP 摘要当作已读取的文件证据。ZIP 的完整传输及内容验证仍使用上面的 CLI
-`release verify`。目录签名不会批准来源、授予 Session 能力或安装插件；批准按钮继续单独使用。
+「目录包发布签名」只把描述中的身份及包摘要与 Core 已捕获的不可变目录快照绑定，不导入或验证 ZIP，
+也不把描述声明的 ZIP 摘要当作已读取的文件证据。ZIP 的完整传输及内容验证可使用上面的 CLI
+`release verify`，或下面的原生发布包安装入口。目录签名核对不会批准来源、授予 Session 能力或安装插件。
 所有信任只对应当前策略文件快照，没有联网撤销刷新或防回滚保证，退出页面不保存这份证明。
 
 原生跨层手工验证（公钥材料由一次性内存 agent 生成，窗口在后台）：
@@ -502,11 +502,50 @@ GHOSTERM_CORE_TEST_PLUGIN_JS=1 python3 -B scripts/test-plugin-native-signature.p
 结果收据留在显式输出路径。验收后恢复 Core 的 `GHOSTERM_WITH_PLUGIN_JS=OFF` /
 `GHOSTERM_BUILD_TESTS=ON` 配置并运行默认离线闸门，核对收据后清理本轮输出目录。
 
-输出目录包含捕获的 `plugin.zip`、精确 UTF-8 `release.json` 和 64 字节原始
+## macOS 签名发布包的检查与安装候选
+
+仅启用 Portable JS 的开发构建提供此入口。插件包页面点击「安装签名发布包…」，填写
+ZIP、发布描述、签名及独立可信渠道策略的绝对路径，确认策略后点击「检查发布包」。
+App 使用 CryptoKit、系统 libz 和 Core 完成本地检查，不调用 Node、Python 或 unzip，
+不联网获取策略或依赖，也不沿 SSH 部署文件。
+
+检查先验证签名及 ZIP 的实际字节摘要，再核对 ZIP32 目录 / 本地头、连续范围、路径、CRC、
+stored / raw DEFLATE 流和预算。私有暂存内容由 Core 校验完整性、SDK / 协议、模块与本机
+Client 兼容性；页面展示发布者、精确摘要、运行时、权限目的 / 程序声明，以及执行端与依赖
+声明。逻辑包完整保存于本机；这不表示已经部署或验证了远端执行端的实际依赖环境。
+
+确认这些信息后点击「安装此发布包」，将候选保存为独立只读版本。默认存放在
+`~/Library/Application Support/Ghosterm/PluginPackages/<发布描述 SHA-256>/payload`；
+同级保存公开的描述、签名与当次策略材料，策略副本只是证据，不会自动变成下次的可信锚。
+文件写入后同步，目录冻结后以禁止覆盖的原子改名发布，再同步父目录；父目录同步失败时
+明确保留“已发布、持久性未确认”，不伪装未发生或重复安装。已有目标即使为空目录也不会覆盖。
+
+修改输入、取消或离开页面会释放本次暂存。安装前检查成员集合、文件身份 / 模式 / 大小和
+修改时间 / 状态变化时间；检查后改动、删除或加入成员须重新检查。清理失败会显示保留位置，
+保留原 owner，并提供显式重试；不按路径前缀猜测归属。安装根目录为当前用户私有目录，
+失败信息中的位置是原登记位置，目录身份变化时不表示它当前仍存在；恢复后仍须核对同一 owner。
+准备期间持有互斥锁，最多保留 64 个版本；当前没有自动删除旧版本或崩溃遗留的维护入口。
+
+安装后仍需单独批准精确来源与本次 Session；安装不执行入口或 lifecycle hook。旧目录与
+已捕获的 Core 包不因新版本发布而替换。当前仍缺跨重启的已安装列表、活动版本选择、
+完整升级 / 回滚 / 禁用管理、运行实例引用验收与断电恢复；不要把此首片称为完整安装管理器。
+
+原生版本发布手工验收：
+
+```sh
+GHOSTERM_BUILD_PLUGIN_JS=1 bash scripts/build-core.sh
+GHOSTERM_CORE_TEST_PLUGIN_JS=1 python3 -B scripts/test-plugin-native-signature.py --tools tmp/plugin-dev/tools --install --mutate --out tmp/native-install/receipt.json
+```
+
+仅使用工程 tmp 内的签名夹具、暂存和离屏窗口。结束后按上节恢复 Core 默认档并核对、清理本轮目录。
+
+## 共享渠道策略与 CLI 签名器
+
+CLI 发布输出目录包含捕获的 `plugin.zip`、精确 UTF-8 `release.json` 和 64 字节原始
 `release.sig`。Ed25519 签署 ASCII `GHOSTERM-PLUGIN-RELEASE-V1`、一个 NUL，再拼接
 完整描述字节（含空白 / 末尾换行）；不把重新编码后的 JSON 当原签名消息。
 描述绑定渠道、keyId、插件 ID / 版本 / 发布者、原始 integrity.json SHA256 和整个
-ZIP 的 SHA256 / 字节数。算法通过 [Node crypto](https://nodejs.org/api/crypto.html#cryptoverifyalgorithm-data-key-signature-callback)
+ZIP 的 SHA256 / 字节数。CLI 通过 [Node crypto](https://nodejs.org/api/crypto.html#cryptoverifyalgorithm-data-key-signature-callback)
 验证；不自写密码算法。schema 位于 `release-v1.candidate.json` / `channel-v1.candidate.json`，
 由锁定 AJV 与宿主语义检查共同验证，仍是候选格式。
 
@@ -527,7 +566,7 @@ ZIP 的 SHA256 / 字节数。算法通过 [Node crypto](https://nodejs.org/api/c
 不等于进程沙箱或完整执行依赖闭包。仓库只提供一次性、内存 KeyObject 的测试 agent，
 没有生产 Keychain / Keystore signer。
 
-验证先固定 regular-file 快照，再检查完整 ZIP32 布局：stored / raw DEFLATE、连续
+CLI 验证先固定 regular-file 快照，再检查完整 ZIP32 布局：stored / raw DEFLATE、连续
 成员范围、中央 / 本地头、CRC、压缩 EOF、条目数、单文件 16 MiB / 总量 64 MiB。
 目录 / 链接 / 设备、路径越界、重复 / 大小写冲突、ZIP64 / extras / data descriptor /
 注释 / 隐藏前后缀等不属于本候选容器。插件 metadata、完整性与兼容性复用原检查器；

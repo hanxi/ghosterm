@@ -88,6 +88,35 @@ public actor ExtensionController {
         public let sourceApproved: Bool
     }
 
+    public struct PreparedRelease: Sendable, Equatable {
+        public let id: String
+        public let review: PackageReview
+        public let signature: PluginDirectorySignature
+        public let sdkVersion: String
+        public let protocols: [UInt16]
+        public let permissions: [ReleasePermission]
+        public let executorDeclarations: String?
+    }
+    public struct ReleasePermission: Sendable, Equatable {
+        public let side: String, capability: String, purpose: String, scope: String
+        public let programs: [String]
+    }
+    public struct InstalledRelease: Sendable, Equatable {
+        public let review: PackageReview
+        public let signature: PluginDirectorySignature
+        public let directory: URL
+        public let durabilityConfirmed: Bool
+    }
+    public struct InstallCleanupError: Error, LocalizedError, Sendable {
+        public let directory: URL
+        public let reason: String
+        init(directory: URL, error: Error) {
+            self.directory = directory
+            reason = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        }
+        public var errorDescription: String? { "安装暂存清理失败，保留于 \(directory.path)：\(reason)" }
+    }
+
     public struct Resolution: Sendable, Equatable {
         /// 0 is success; other values preserve ExtensionRegistry.Status raw values.
         public let status: UInt32
@@ -282,13 +311,15 @@ public actor ExtensionController {
 
     private let worker: Worker
 
-    public init(profile: HostProfile, resourceDirectory: URL? = nil, localJournalDirectory: URL? = nil) throws {
+    public init(profile: HostProfile, resourceDirectory: URL? = nil, localJournalDirectory: URL? = nil,
+                installationDirectory: URL? = nil) throws {
         guard !profile.capabilities.contains("resource.receive") ||
                 (resourceDirectory?.isFileURL == true && resourceDirectory?.path.isEmpty == false) else {
             throw ControllerError.invalidHostProfile
         }
         worker = Worker(hostJSON: try profile.json(), resourceDirectory: resourceDirectory,
-                        localJournalDirectory: localJournalDirectory ?? resourceDirectory?.appendingPathComponent("NativeLocalRuns", isDirectory: true))
+                        localJournalDirectory: localJournalDirectory ?? resourceDirectory?.appendingPathComponent("NativeLocalRuns", isDirectory: true),
+                        installationDirectory: installationDirectory)
     }
 
     /// Reads a user-selected directory through a no-follow directory descriptor,
@@ -296,6 +327,17 @@ public actor ExtensionController {
     public func review(directory: URL) async throws -> PackageReview {
         try await worker.review(directory: directory)
     }
+
+    public func prepareSignedRelease(artifact: URL, descriptor: URL, signature: URL,
+                                     trustedPolicy: URL) async throws -> PreparedRelease {
+        try await worker.prepareSignedRelease(artifact: artifact, descriptor: descriptor,
+            signature: signature, trustedPolicy: trustedPolicy)
+    }
+    public func installPreparedRelease(id: String) async throws -> InstalledRelease {
+        try await worker.installPreparedRelease(id: id)
+    }
+    public func discardPreparedRelease(id: String) async throws { try await worker.discardPreparedRelease(id: id) }
+    public func retryFailedInstallCleanup() async throws { try await worker.retryFailedInstallCleanup() }
 
     /// Attests the immutable checked directory against an explicitly trusted
     /// public policy snapshot. Does not approve a source or grant capabilities.
@@ -465,6 +507,15 @@ public actor ExtensionController {
             var source: SourceDecision
         }
         private var packages: [String: Record] = [:]
+        private struct Prepared {
+            let value: PreparedRelease
+            let record: Record
+            let stage: PluginReleaseStage
+        }
+        private var prepared: [String: Prepared] = [:]
+        private var failedInstallDiscards = Set<String>()
+        private var retainedInstallStages: [PluginReleaseStage] = []
+        private let installationDirectory: URL?
         private var closed = false
         private var closeComplete = false
         private var closeResult = false
@@ -494,10 +545,11 @@ public actor ExtensionController {
         private var resourceDirectoryInode: ino_t?
         private let hostCapabilities: [String]
 
-        init(hostJSON: String, resourceDirectory: URL?, localJournalDirectory: URL?) {
+        init(hostJSON: String, resourceDirectory: URL?, localJournalDirectory: URL?, installationDirectory: URL?) {
             self.hostJSON = hostJSON
             self.resourceDirectory = resourceDirectory
             self.localJournalDirectory = localJournalDirectory
+            self.installationDirectory = installationDirectory
             if let data = hostJSON.data(using: .utf8),
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 self.hostCapabilities = object["capabilities"] as? [String] ?? []
@@ -506,6 +558,113 @@ public actor ExtensionController {
 
         func review(directory: URL) async throws -> PackageReview {
             try await perform { try self.reviewOnQueue(directory: directory) }
+        }
+
+        func prepareSignedRelease(artifact: URL, descriptor: URL, signature: URL,
+                                  trustedPolicy: URL) async throws -> PreparedRelease {
+            try await perform {
+                try self.checkOpen()
+                if let failed = self.retainedInstallStages.last ?? self.failedInstallDiscards.first.flatMap({ self.prepared[$0]?.stage }) {
+                    throw InstallCleanupError(directory: failed.payloadURL.deletingLastPathComponent(), error: PluginReleaseStage.Failure.changed)
+                }
+                guard self.prepared.isEmpty else { throw PluginReleaseStage.Failure.busy }
+                guard let directory = self.installationDirectory else { throw ControllerError.runtimeUnavailable }
+                let payload = try PluginSignatureFile.read(descriptor, limit: 65536)
+                let signed = try PluginSignatureFile.read(signature, limit: 64)
+                let policy = try PluginSignatureFile.read(trustedPolicy, limit: 131072)
+                let authentication = try PluginDirectorySignatureVerifier.authenticate(descriptor: payload,
+                    signature: signed, trustedPolicy: policy)
+                let archive = try PluginSignatureFile.read(artifact, limit: PluginReleaseArchive.limit)
+                let members = try PluginReleaseArchive.inspect(archive, proof: authentication.proof)
+                let stage = try PluginReleaseStage(directory: directory)
+                var record: Record?
+                do {
+                    for member in members {
+                        try stage.write(PluginReleaseArchive.contents(archive, member: member), path: "payload/" + member.path,
+                            executable: member.executable)
+                    }
+                    try stage.write(payload, path: "release.json")
+                    try stage.write(signed, path: "release.sig")
+                    try stage.write(policy, path: "policy.json")
+                    let captured = try self.captureOnQueue(directory: stage.payloadURL)
+                    record = captured
+                    let metadata = try captured.package.metadata()
+                    let proof = try authentication.bind(.init(id: metadata.id, version: metadata.version,
+                        publisher: metadata.publisher, packageSHA256: metadata.packageDigest))
+                    guard let member = members.first(where: { $0.path == "plugin.json" }),
+                          let manifest = try JSONSerialization.jsonObject(with: PluginReleaseArchive.contents(archive, member: member)) as? [String: Any],
+                          let permissionValues = manifest["permissions"] as? [[String: Any]] else { throw ControllerError.invalidPackageURL }
+                    // These display fields come from the same authenticated ZIP
+                    // whose manifest Core checked, never from a reopened path.
+                    let permissions = try permissionValues.map { value -> ReleasePermission in
+                        guard let side = value["side"] as? String, let capability = value["capability"] as? String,
+                              let purpose = value["purpose"] as? String, let scope = value["scope"] as? String else { throw ControllerError.invalidPackageURL }
+                        let programs: [String]
+                        if let value = value["programs"] {
+                            guard let values = value as? [String] else { throw ControllerError.invalidPackageURL }; programs = values
+                        } else { programs = [] }
+                        return ReleasePermission(side: side, capability: capability, purpose: purpose, scope: scope, programs: programs)
+                    }
+                    let executor = try manifest["executor"].map { value in
+                        String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]), as: UTF8.self)
+                    }
+                    let value = PreparedRelease(id: UUID().uuidString, review: captured.review, signature: proof,
+                        sdkVersion: metadata.sdkVersion, protocols: metadata.protocols, permissions: permissions, executorDeclarations: executor)
+                    self.prepared[value.id] = Prepared(value: value, record: captured, stage: stage)
+                    return value
+                } catch {
+                    try? record?.package.close()
+                    // If cleanup fails, report the retained namespace instead
+                    // of silently declaring that failed preparation left none.
+                    do { try stage.discard() }
+                    catch {
+                        self.retainedInstallStages.append(stage)
+                        throw InstallCleanupError(directory: stage.payloadURL.deletingLastPathComponent(), error: error)
+                    }
+                    throw error
+                }
+            }
+        }
+
+        func installPreparedRelease(id: String) async throws -> InstalledRelease {
+            try await perform {
+                try self.checkOpen()
+                guard let pending = self.prepared[id] else { throw ControllerError.invalidPackageURL }
+                let result = try pending.stage.publish(id: pending.value.signature.descriptorSHA256)
+                self.prepared.removeValue(forKey: id)
+                let review = pending.value.review, packageKey = self.key(review.id, review.digest)
+                if self.packages[packageKey] == nil { self.packages[packageKey] = pending.record }
+                else { try? pending.record.package.close() }
+                return InstalledRelease(review: review, signature: pending.value.signature,
+                    directory: result.directory.appendingPathComponent("payload", isDirectory: true),
+                    durabilityConfirmed: result.durabilityConfirmed)
+            }
+        }
+        func discardPreparedRelease(id: String) async throws {
+            try await perform { try self.discardPreparedOnQueue(id: id) }
+        }
+        private func discardPreparedOnQueue(id: String) throws {
+            guard let pending = prepared[id] else { return }
+            do {
+                // Keep the Core owner valid until filesystem cleanup succeeds;
+                // a transient failure must remain retryable on this same owner.
+                try pending.stage.discard()
+                try pending.record.package.close()
+            } catch {
+                failedInstallDiscards.insert(id)
+                throw InstallCleanupError(directory: pending.stage.payloadURL.deletingLastPathComponent(), error: error)
+            }
+            prepared.removeValue(forKey: id)
+            failedInstallDiscards.remove(id)
+        }
+        func retryFailedInstallCleanup() async throws {
+            try await perform {
+                for id in Array(self.failedInstallDiscards) { try self.discardPreparedOnQueue(id: id) }
+                while let stage = self.retainedInstallStages.last {
+                    do { try stage.discard(); self.retainedInstallStages.removeLast() }
+                    catch { throw InstallCleanupError(directory: stage.payloadURL.deletingLastPathComponent(), error: error) }
+                }
+            }
         }
 
         func verifyDirectorySignature(packageID: String, digest: String, descriptor: URL,
@@ -1104,7 +1263,14 @@ public actor ExtensionController {
                         do { try record.package.close() } catch { cleanupFailed = true }
                     }
                     self.packages.removeAll()
-                    self.closeComplete = true
+                    for id in Array(self.prepared.keys) {
+                        do { try self.discardPreparedOnQueue(id: id) } catch { cleanupFailed = true }
+                    }
+                    while let stage = self.retainedInstallStages.last {
+                        do { try stage.discard(); self.retainedInstallStages.removeLast() }
+                        catch { cleanupFailed = true; break }
+                    }
+                    self.closeComplete = self.prepared.isEmpty && self.retainedInstallStages.isEmpty
                     self.closeResult = !cleanupFailed
                     return self.closeResult ? 1 : -1
                 } catch ControllerError.localProcessDraining { return 0 }
@@ -1326,6 +1492,17 @@ public actor ExtensionController {
         private func key(_ id: String, _ digest: String) -> String { id + "\0" + digest }
 
         private func reviewOnQueue(directory: URL) throws -> PackageReview {
+            let record = try captureOnQueue(directory: directory)
+            let packageKey = key(record.review.id, record.review.digest)
+            guard packages[packageKey] == nil else {
+                try? record.package.close()
+                throw ControllerError.registry(ExtensionRegistry.Status.conflict.rawValue)
+            }
+            packages[packageKey] = record
+            return record.review
+        }
+
+        private func captureOnQueue(directory: URL) throws -> Record {
             try checkOpen()
             guard directory.isFileURL, !directory.path.isEmpty,
                   !directory.path.utf8.contains(0), directory.path.utf8.count <= 4096 else {
@@ -1359,10 +1536,6 @@ public actor ExtensionController {
                 let commands = try package.commands().map {
                     Command(path: $0.path, title: $0.title, argsSchema: $0.argsSchema, views: $0.views)
                 }
-                let packageKey = key(metadata.id, metadata.packageDigest)
-                guard packages[packageKey] == nil else {
-                    throw ControllerError.registry(ExtensionRegistry.Status.conflict.rawValue)
-                }
                 let review = PackageReview(id: metadata.id, version: metadata.version,
                                            publisher: metadata.publisher, license: metadata.license,
                                            digest: metadata.packageDigest, runtime: metadata.runtime,
@@ -1372,8 +1545,7 @@ public actor ExtensionController {
                                            publisherAuthenticated: metadata.publisherAuthenticated,
                                            commands: commands,
                                            sourceApproved: false)
-                packages[packageKey] = Record(package: package, review: review, source: .unknown)
-                return review
+                return Record(package: package, review: review, source: .unknown)
             } catch {
                 try? package.close()
                 throw error

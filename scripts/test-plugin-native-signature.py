@@ -16,6 +16,9 @@ import signal
 import subprocess
 import sys
 import tempfile
+import struct
+import zipfile
+import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 VERIFIER = 'apple/GhostermApp/Sources/GhostermAppModel/PluginDirectorySignature.swift'
@@ -30,10 +33,92 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def installation_fixtures(helper, node, fixture, tools, endpoint):
+    """Only public materials reach disk; the disposable signer retains its key."""
+    policy = (fixture / 'policy.json').read_bytes()
+    base = json.loads((fixture / 'r/release.json').read_bytes())
+    def envelope(destination, archive, identity=None):
+        (destination / 'r').mkdir(parents=True)
+        (destination / 'policy.json').write_bytes(policy)
+        (destination / 'r/plugin.zip').write_bytes(archive)
+        descriptor = dict(base)
+        descriptor['artifact'] = dict(format='zip-v1', bytes=len(archive), sha256=hashlib.sha256(archive).hexdigest())
+        if identity is not None: descriptor['packageSHA256'] = identity
+        raw = json.dumps(descriptor, separators=(',', ':')).encode()
+        signed = subprocess.run([node, ROOT / 'scripts/fixtures/plugin-release-agent.mjs', 'client', endpoint],
+            input=helper.DOMAIN + raw, capture_output=True, check=True)
+        (destination / 'r/release.json').write_bytes(raw)
+        (destination / 'r/release.sig').write_bytes(signed.stdout)
+    for name in ['v2', 'compressed']:
+        target = fixture / name
+        shutil.copytree(fixture / 'p', target / 'p')
+        (target / 'policy.json').write_bytes(policy)
+        if name == 'v2':
+            manifest = target / 'p/plugin.json'
+            value = json.loads(manifest.read_bytes()); value['pluginVersion'] = '0.2.0'
+            manifest.write_text(json.dumps(value))
+            integrity = target / 'p/integrity.json'; value = json.loads(integrity.read_bytes())
+            for item in value['members']:
+                data = (target / 'p' / item['path']).read_bytes()
+                item.update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+            integrity.write_text(json.dumps(value))
+        archive = target / 'input.zip'
+        with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED if name == 'compressed' else zipfile.ZIP_STORED) as output:
+            for member in sorted((target / 'p').rglob('*')):
+                if member.is_file(): output.writestr(member.relative_to(target / 'p').as_posix(), member.read_bytes())
+        config = json.loads((fixture / 'signer.json').read_bytes())
+        signer = target / 'signer.json'; signer.write_text(json.dumps(config))
+        subprocess.run([sys.executable, '-B', ROOT / 'scripts/gterm-plugin', 'release', 'sign', '--artifact', archive,
+            '--policy', target / 'policy.json', '--tools', tools, '--key-id', base['keyId'], '--signer-json', signer,
+            '--out', target / 'r'], check=True, stdout=subprocess.DEVNULL, env=dict(os.environ, TMPDIR=str(ROOT / 'tmp')))
+    members = [(p.relative_to(fixture / 'p').as_posix(), p.read_bytes()) for p in sorted((fixture / 'p').rglob('*')) if p.is_file()]
+    def archive(entries, mode=None):
+        records, central, offset = [], [], 0
+        for index, (name, data) in enumerate(entries):
+            raw = name.encode(); crc = zlib.crc32(data); method = 8 if mode == 'compressed-tail' else 0
+            if method:
+                encoder = zlib.compressobj(wbits=-15); packed = encoder.compress(data) + encoder.flush()
+                if index == 0: packed += b'x'
+            else: packed = data
+            declared = len(data)
+            external = 0o100600 << 16
+            extra = b''
+            if index == 0:
+                if mode == 'crc': crc ^= 1
+                if mode == 'link': external = 0o120777 << 16
+                if mode == 'size': declared = 16777217
+                if mode == 'extra': extra = b'\x01\x00\x00\x00'
+            local = struct.pack('<4s5H3I2H', b'PK\x03\x04', 20, 0x800, method, 0, 0, crc, len(packed), declared, len(raw), len(extra)) + raw + extra + packed
+            records.append(local)
+            central.append(struct.pack('<4s6H3I5H2I', b'PK\x01\x02', 0x314, 20, 0x800, method, 0, 0, crc, len(packed), declared,
+                len(raw), len(extra), 0, 0, 0, external, offset) + raw + extra)
+            offset += len(local)
+        catalog = b''.join(central)
+        return b''.join(records) + catalog + struct.pack('<4s4H2IH', b'PK\x05\x06', 0, 0, len(entries), len(entries), len(catalog), offset, 0)
+    original = (fixture / 'r/plugin.zip').read_bytes()
+    for name in ['crc', 'hidden', 'path', 'case', 'file-parent', 'link', 'size', 'extra', 'compressed-tail', 'identity', 'signature', 'bytehash']:
+        entries = members
+        if name == 'path': entries = [('../escape', b'x')]
+        if name == 'case': entries = [('a', b'a'), ('A', b'b')]
+        if name == 'file-parent': entries = [('a', b'a'), ('a/b', b'b')]
+        data = archive(entries, name)
+        if name == 'hidden': data = b'x' + data
+        destination = fixture / 'bad' / name
+        if name in ['signature', 'bytehash']:
+            shutil.copytree(fixture / 'r', destination / 'r')
+            (destination / 'policy.json').write_bytes(policy)
+            if name == 'signature': (destination / 'r/release.sig').write_bytes(bytes(64))
+            else:
+                changed = bytearray(original); changed[12] ^= 1
+                (destination / 'r/plugin.zip').write_bytes(changed)
+        else: envelope(destination, data, '0' * 64 if name == 'identity' else None)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--tools', type=Path, required=True)
     parser.add_argument('--mutate', action='store_true')
+    parser.add_argument('--install', action='store_true', help='also exercise signed ZIP installation transactions')
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args()
     out, tools = args.out.resolve(), args.tools.resolve(strict=True)
@@ -51,7 +136,7 @@ def main():
          'guard publicKey.rawRepresentation.count == 32', TEST + 'testRealSignatureBindsRawDescriptorAndDomain'),
         ('revoked', VERIFIER, 'guard !revokedIDs.contains(keyID)', 'guard keyID.count == 64', TEST + 'testPolicyRevocationAndScope'),
         ('channel', VERIFIER, 'guard requestedChannel == channel', 'guard !requestedChannel.isEmpty && !channel.isEmpty', TEST + 'testPolicyRevocationAndScope'),
-        ('identity', VERIFIER, 'package == identity.packageSHA256 else', 'package.count == identity.packageSHA256.count else', TEST + 'testIdentityCannotBeReplacedByCaller'),
+        ('identity', VERIFIER, 'identity.packageSHA256 == actual.packageSHA256 else', 'identity.packageSHA256.count == actual.packageSHA256.count else', TEST + 'testIdentityCannotBeReplacedByCaller'),
         ('checked-selection', CONTROLLER, 'guard let record = self.packages[self.key(packageID, digest)] else',
          'guard let record = self.packages.values.first(where: { $0.review.id == packageID }) else', TEST + 'testCLISignatureAgainstActualCoreSnapshotWithoutApproval'),
         ('number-precision', VERIFIER, 'var value = raw.lowercased()',
@@ -61,7 +146,29 @@ def main():
         ('late-result', VIEW, 'guard request == token else', 'guard token != UUID() else', TEST + 'testPageDraftInvalidatesProofAndLateResults'),
         ('page-action', VIEW, 'action: verify)', 'action: {})', 'PluginSignatureUITests.testExplicitPolicyAndSignatureThroughActualPackageControls'),
     ]
-    originals = {name: (ROOT / name).read_bytes() for name in [VERIFIER, VIEW, CONTROLLER]}
+    if args.install:
+        archive = 'apple/GhostermApp/Sources/GhostermAppModel/PluginReleaseArchive.swift'
+        stage = 'apple/GhostermApp/Sources/GhostermAppModel/PluginReleaseStage.swift'
+        install = 'apple/GhostermApp/Sources/GhostermApp/PluginReleaseInstallView.swift'
+        selected = 'PluginReleaseInstallTests.'
+        recipes += [
+            ('install-artifact', archive, 'digest == proof.artifactSHA256 else', 'digest.count == proof.artifactSHA256.count else', selected + 'testBadSignedArchivesNeverPublishOrLeaveOwnedStage'),
+            ('install-crc', archive, 'guard UInt32(checksum) == member.crc else', 'guard checksum <= 0xffff_ffff else', selected + 'testBadSignedArchivesNeverPublishOrLeaveOwnedStage'),
+            ('install-stream', archive, 'stream.total_in == member.compressed,', 'stream.total_in <= member.compressed,', selected + 'testBadSignedArchivesNeverPublishOrLeaveOwnedStage'),
+            ('install-freeze', stage, 'fchmod(fd, 0o500)', 'fchmod(fd, 0o700)', selected + 'testInstallPublishesReadOnlyVersionWithoutSourceApproval'),
+            ('install-no-overwrite', stage, 'UInt32(RENAME_EXCL)', '0', selected + 'testExistingEmptySlotIsNeverAdopted'),
+            ('install-durability', stage, 'let durable = parentSync(parent) == 0', 'let durable = parentSync(parent) != 42', selected + 'testPublishedButUnsyncedParentIsExplicitlyUnknown'),
+            ('install-cancel', stage, 'guard unlinkat(parent, name, AT_REMOVEDIR) == 0 else', 'guard name.hasPrefix(".prepare-") else', selected + 'testPreparedReleaseIsPrivateAndCancelCleansIt'),
+            ('install-lock', stage, 'guard flock(parent, LOCK_EX | LOCK_NB) == 0 else', 'guard parent >= 0 else', selected + 'testStageLockFreezeAndFailedPublishCleanup'),
+            ('install-root', stage, 'parentIdentity.st_mode & 0o077 == 0 else', 'parentIdentity.st_mode & S_IFMT == S_IFDIR else', selected + 'testPrivateRootAndRetainedVersionLimit'),
+            ('install-limit', stage, 'guard count < 64 else', 'guard count < 65 else', selected + 'testPrivateRootAndRetainedVersionLimit'),
+            ('install-page', install, 'await draft.inspect(using: controller)', '_ = controller', 'PluginReleaseInstallUITests.testInspectCancelAndInstallThroughActualControls'),
+            ('install-retry-owner', CONTROLLER, 'try pending.stage.discard()\n                try pending.record.package.close()',
+             'try pending.record.package.close()\n                try pending.stage.discard()', selected + 'testFailedDiscardRetainsOwnerForExplicitRetry'),
+            ('install-snapshot', stage, 'guard files[path] == FileStamp(value) else', 'guard files[path] != nil else', selected + 'testChangedPreparedFilesMustNotPublish'),
+            ('install-member-set', stage, 'guard verifiedFiles == files.count else', 'guard verifiedFiles <= files.count else', selected + 'testAddedOrMissingPreparedMembersMustNotPublish'),
+        ]
+    originals = {name: (ROOT / name).read_bytes() for name in {recipe[1] for recipe in recipes}}
     for label, filename, old, _, _ in recipes:
         assert originals[filename].count(old.encode()) == 1, label
     commands, groups = [], []
@@ -71,6 +178,7 @@ def main():
         fixture = work / 'fixture'; fixture.mkdir()
         with helper.agent(node, work) as (public, endpoint):
             assert helper.exercise(ROOT, fixture, tools, node, public, endpoint, selected='success') == ['success']
+            if args.install: installation_fixtures(helper, node, fixture, tools, endpoint)
         source = work / 'source'
         for directory in ['apple/GhostermApp', 'apple/GhostermCore', 'apple/GhostermTerminal']:
             shutil.copytree(ROOT / directory, source / directory, symlinks=True,
@@ -107,7 +215,9 @@ def main():
             commands.append(dict(label=label, selected=selected, status=child.returncode, logSHA256=hashlib.sha256(output).hexdigest()))
             print('PASS ' + label, flush=True)
 
-        run('baseline', '(PluginDirectorySignatureTests|PluginSignatureUITests)', count=11)
+        baseline = '(PluginDirectorySignatureTests|PluginSignatureUITests|PluginReleaseInstallTests|PluginReleaseInstallUITests)' if args.install else '(PluginDirectorySignatureTests|PluginSignatureUITests)'
+        baseline_count = 28 if args.install else 11
+        run('baseline', baseline, count=baseline_count)
         for label, filename, old, new, selected in recipes if args.mutate else []:
             path = source / filename
             stem = Path(filename).stem
@@ -128,9 +238,11 @@ def main():
     assert all(sha(ROOT / name) == digest for name, digest in inputs.items()), 'source changed'
     assert all(sha(Path(name)) == digest for name, digest in binaries.items()), 'tool/archive changed'
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(dict(schemaVersion=1, scope='CLI public release to immutable Core directory attestation and native controls; no ZIP import/install',
-        baselineTests=11, inputs=inputs, binaries=binaries, xctestSHA256=binary_sha, commands=commands, mutations=groups), indent=2) + '\n')
-    print(f'NATIVE SIGNATURE PASS: 11 tests, {len(groups)} mutation/control/restore groups; {out}', flush=True)
+    scope = ('macOS signed ZIP version publication and native controls; no upgrade manager or runtime grant' if args.install else
+             'CLI public release to immutable Core directory attestation and native controls; no ZIP import/install')
+    out.write_text(json.dumps(dict(schemaVersion=1, scope=scope,
+        baselineTests=baseline_count, installation=args.install, inputs=inputs, binaries=binaries, xctestSHA256=binary_sha, commands=commands, mutations=groups), indent=2) + '\n')
+    print(f'NATIVE SIGNATURE PASS: {baseline_count} tests, {len(groups)} mutation/control/restore groups; {out}', flush=True)
 
 
 if __name__ == '__main__':

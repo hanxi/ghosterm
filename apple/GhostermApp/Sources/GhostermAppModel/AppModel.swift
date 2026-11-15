@@ -258,7 +258,8 @@ public final class AppModel: ObservableObject {
                 side: .client, sdkVersion: "1.0.0", protocols: [1],
                 runtimes: ["portable-js"], capabilities: Self.extensionHostCapabilities)
             self.extensionController = profile.flatMap {
-                try? ExtensionController(profile: $0, resourceDirectory: resourceDirectory)
+                try? ExtensionController(profile: $0, resourceDirectory: resourceDirectory,
+                    installationDirectory: resourceDirectory.deletingLastPathComponent().appendingPathComponent("PluginPackages", isDirectory: true))
             }
         } else {
             self.extensionController = nil
