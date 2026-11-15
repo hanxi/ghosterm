@@ -1,7 +1,9 @@
 import AppKit
 import CryptoKit
 import GhostermCore
+import ImageIO
 import SwiftUI
+import WebKit
 @testable import GhostermApp
 @testable import GhostermAppModel
 import XCTest
@@ -19,11 +21,35 @@ final class PluginPaneFlowTests: XCTestCase {
     }
 
     func testPreviewThroughPackageApprovalLaunchConsentAndStopControls() async throws {
+        try await runPreview(.markdown, jump: false)
+    }
+    func testMarkdownAttachmentsThroughProxyJumpControls() async throws {
+        try await runPreview(.markdown, jump: true)
+    }
+    func testHTMLAttachmentsThroughDirectControls() async throws {
+        try await runPreview(.html, jump: false)
+    }
+    func testHTMLAttachmentsThroughProxyJumpControls() async throws {
+        try await runPreview(.html, jump: true)
+    }
+    func testImageThroughDirectControls() async throws {
+        try await runPreview(.image, jump: false)
+    }
+    func testImageThroughProxyJumpControls() async throws {
+        try await runPreview(.image, jump: true)
+    }
+
+    private enum Format { case markdown, html, image }
+
+    private func runPreview(_ format: Format, jump: Bool) async throws {
         let env = ProcessInfo.processInfo.environment
         guard ExtensionRuntime.supportStatus == 0, let gterm = env["GHOSTERM_TEST_GTERM"],
               let host = env["GHOSTERM_SSH_HOST"], let port = env["GHOSTERM_SSH_PORT"],
               let key = env["GHOSTERM_SSH_KEY"], let user = env["GHOSTERM_SSH_USER"] else {
             throw XCTSkip("requires JS-enabled Core and the explicitly owned gate SSH fixture")
+        }
+        if jump && (env["GHOSTERM_SSH_JUMP_HOST"] == nil || env["GHOSTERM_SSH_JUMP_PORT"] == nil) {
+            throw XCTSkip("requires explicitly requested owned forwarding-only jump fixture")
         }
         TestWindows.enterAutomationMode()
         let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
@@ -36,18 +62,37 @@ final class PluginPaneFlowTests: XCTestCase {
         let id = "org.ghosterm.preview"
         let root = repository.appendingPathComponent("tmp/pane-" + UUID().uuidString.prefix(8))
         let workspace = root.appendingPathComponent("workspace")
-        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("site"), withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
-        let document = Data("# Preview controls\n\nOwned SSH pane flow token\n".utf8)
-        try document.write(to: workspace.appendingPathComponent("index.md"))
+        let png = try redPNG()
+        let markdown = Data("# Preview controls\n\n![red sample](image.png)\n\nOwned SSH pane flow token\n".utf8)
+        let html = Data("<html><head><link rel='stylesheet' href='style.css'></head><body><img width='64' height='64' src='image.png'></body></html>".utf8)
+        let css = Data("body { margin: 0; background: rgb(0, 0, 255); }".utf8)
+        let files = ["site/index.md": markdown, "site/index.html": html, "site/style.css": css, "site/image.png": png]
+        for (path, bytes) in files { try bytes.write(to: workspace.appendingPathComponent(path)) }
+        let path: String
+        let arguments: [String]
+        switch format {
+        case .markdown: path = "site/index.md"; arguments = [path, "--assets", "site/image.png"]
+        case .html: path = "site/index.html"; arguments = [path, "--assets", "site/style.css,site/image.png"]
+        case .image: path = "site/image.png"; arguments = [path]
+        }
+        let document = try XCTUnwrap(files[path])
+        let argumentsJSON = String(decoding: try JSONSerialization.data(withJSONObject: arguments), as: UTF8.self)
+        let count = format == .html ? 3 : format == .markdown ? 2 : 1
         let config = root.appendingPathComponent("config"), known = root.appendingPathComponent("known")
-        try Data("Host pane-target\n HostName \(host)\n Port \(port)\n User \(user)\n IdentityFile \(key)\n".utf8).write(to: config)
+        var source = "Host pane-target\n HostName \(host)\n Port \(port)\n User \(user)\n IdentityFile \(key)\n"
+        if jump {
+            source += " ProxyJump pane-jump\nHost pane-jump\n HostName \(env["GHOSTERM_SSH_JUMP_HOST"]!)\n Port \(env["GHOSTERM_SSH_JUMP_PORT"]!)\n User \(user)\n IdentityFile \(key)\n"
+        }
+        try Data(source.utf8).write(to: config)
         try Data().write(to: known)
         let model = isolatedAppModel(configPath: config.path, knownHostsPath: known.path,
                                      pluginResourceDirectory: root.appendingPathComponent("received"))
         let controller = try XCTUnwrap(model.extensionController)
         addTeardownBlock { await model.stopExtensionRun(); let closed = await controller.close(); XCTAssertTrue(closed) }
-        model.interaction = AcceptAllInteraction()
+        let interaction = CodexRouteInteraction()
+        model.interaction = interaction
         var selections = 0
         let pane = NSHostingView(rootView: ScrollView { ExtensionsPane(model: model, packagePicker: { completion in
             selections += 1
@@ -108,7 +153,7 @@ final class PluginPaneFlowTests: XCTestCase {
         for (name, value) in [
             ("ssh-alias", "pane-target"), ("executable", gterm),
             ("executor-directory", package.path), ("executor-digest", digest),
-            ("arguments", "[\"index.md\"]"), ("resource-root", workspace.path),
+            ("arguments", argumentsJSON), ("resource-root", workspace.path),
         ] {
             try set("plugin-" + name + "-" + id, value)
             try await Task.sleep(for: .milliseconds(25))
@@ -122,29 +167,126 @@ final class PluginPaneFlowTests: XCTestCase {
         }
         XCTAssertEqual(model.extensionRun?.session?.phase, ExtensionSession.Phase.consent.rawValue)
         XCTAssertNil(model.extensionRun?.runtime, "source approval must not grant runtime consent")
-        XCTAssertEqual(model.extensionRun?.arguments, ["index.md"])
+        XCTAssertEqual(model.extensionRun?.arguments, arguments)
+        XCTAssertEqual(interaction.hosts.map(\.port), jump ? [UInt16(env["GHOSTERM_SSH_JUMP_PORT"]!)!, UInt16(port)!] : [UInt16(port)!],
+                       "actual host-key prompts must prove the configured route and order")
         XCTAssertTrue(model.extensionRun?.remoteCommand.contains("'--root' 'workspace' '\(workspace.path)'") == true)
         try scrollBottom()
         try await Task.sleep(for: .milliseconds(50))
         try press("plugin-consent-allow")
-        guard try await until({ model.extensionRun?.receivedResources.first?.bytes == document }) else {
+        guard try await until({ model.extensionRun?.receivedResources.count == count && model.extensionRun?.receivedResources.first?.bytes == document }) else {
             XCTFail("Preview did not receive exact owned SSH resource: \(model.extensionRunIssue ?? "none")"); return
         }
         XCTAssertNil(model.extensionRunIssue)
-        XCTAssertEqual(model.extensionRun?.receivedResources.count, 1)
+        let resources = try XCTUnwrap(model.extensionRun?.receivedResources)
+        XCTAssertEqual(resources.count, count)
+        for item in resources {
+            XCTAssertEqual(item.bytes, files[item.displayName], "every received attachment must match the owned source")
+            XCTAssertEqual(item.sha256, SHA256.hash(data: item.bytes).map { String(format: "%02x", $0) }.joined())
+        }
         XCTAssertEqual(model.extensionRun?.runtime?.phase, ExtensionRuntime.Phase.active.rawValue)
         try scrollBottom()
         try await Task.sleep(for: .milliseconds(100))
-        guard try await until({
-            (try? PluginTableRendering.words(pane).joined(separator: " ").lowercased().contains("owned ssh pane flow token")) == true
-        }) else { XCTFail("production pane did not draw received Markdown"); return }
+        switch format {
+        case .markdown:
+            var words = ""
+            guard try await until({
+                // Async image decode changes the document height. Follow the
+                // latest layout instead of leaving text below an old viewport.
+                try? scrollBottom()
+                words = (try? PluginTableRendering.words(pane).joined(separator: " ")) ?? ""
+                return words.lowercased().contains("owned ssh pane flow token")
+            }) else { XCTFail("production pane did not draw received Markdown; OCR: \(words)"); return }
+            guard try await until({ try? scrollBottom(); return panePixels(pane).red > 20 }) else { XCTFail("Markdown attachment did not draw actual red pixels"); return }
+        case .image:
+            guard try await until({ try? scrollBottom(); return panePixels(pane).red > 20 }) else { XCTFail("standalone image did not draw actual red pixels"); return }
+        case .html:
+            guard try await until({ !webViews(pane).isEmpty }) else { XCTFail("embedded HTML WebKit view missing"); return }
+            let rendered = try await htmlPixels(pane)
+            guard rendered.red > 20 && rendered.blue > 100 else {
+                XCTFail("embedded HTML did not draw received CSS and PNG: \(rendered)"); return
+            }
+            let image = try XCTUnwrap(resources.first { $0.displayName == "site/image.png" })
+            try scrollBottom()
+            try press("plugin-resource-select-" + image.resourceID)
+            guard try await until({ node("plugin-resource-preview-" + image.resourceID) != nil && webViews(pane).isEmpty }) else {
+                XCTFail("resource selection did not replace embedded HTML with the selected image"); return
+            }
+            guard try await until({ try? scrollBottom(); return panePixels(pane).red > 20 }) else { XCTFail("selected HTML attachment did not draw actual red pixels"); return }
+            let main = try XCTUnwrap(resources.first { $0.displayName == path })
+            try scrollBottom()
+            try press("plugin-resource-select-" + main.resourceID)
+            guard try await until({ !webViews(pane).isEmpty }) else { XCTFail("returning to HTML did not rebuild embedded WebKit"); return }
+            let reopened = try await htmlPixels(pane)
+            XCTAssertGreaterThan(reopened.red, 20); XCTAssertGreaterThan(reopened.blue, 100)
+        }
         XCTAssertEqual(window.alphaValue, 0)
         XCTAssertFalse(NSScreen.screens.contains { $0.frame.intersects(window.frame) })
-        let receivedID = try XCTUnwrap(model.extensionRun?.receivedResources.first?.resourceID)
+        try scrollBottom()
         try press("plugin-stop")
-        guard try await until({ model.extensionRun == nil && !model.extensionRunBusy }) else { XCTFail("stop control did not release run"); return }
+        guard try await until({ model.extensionRun == nil && !model.extensionRunBusy && webViews(pane).isEmpty }) else { XCTFail("stop control did not release run"); return }
         XCTAssertNil(model.extensionRunIssue)
-        XCTAssertNil(node("plugin-resource-select-" + receivedID))
+        for item in resources { XCTAssertNil(node("plugin-resource-select-" + item.resourceID)) }
         XCTAssertNil(node("plugin-consent-allow"))
+    }
+
+    private func redPNG() throws -> Data {
+        let pixels = Data((0..<64 * 64).flatMap { _ in [UInt8(255), 0, 0, 255] })
+        let provider = try XCTUnwrap(CGDataProvider(data: pixels as CFData))
+        let image = try XCTUnwrap(CGImage(width: 64, height: 64, bitsPerComponent: 8, bitsPerPixel: 32,
+            bytesPerRow: 256, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider,
+            decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        let bytes = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(bytes, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        return bytes as Data
+    }
+
+    private func webViews(_ view: NSView) -> [WKWebView] {
+        (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap(webViews)
+    }
+
+    private func panePixels(_ pane: NSView) -> (red: Int, blue: Int) {
+        pane.layoutSubtreeIfNeeded()
+        guard let bitmap = pane.bitmapImageRepForCachingDisplay(in: pane.bounds) else { return (0, 0) }
+        pane.cacheDisplay(in: pane.bounds, to: bitmap)
+        return pixels(bitmap)
+    }
+
+    private func pixels(_ bitmap: NSBitmapImageRep) -> (red: Int, blue: Int) {
+        var red = 0, blue = 0
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: 2) {
+                guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                if c.redComponent > 0.8 && c.greenComponent < 0.3 && c.blueComponent < 0.3 { red += 1 }
+                if c.blueComponent > 0.8 && c.redComponent < 0.3 && c.greenComponent < 0.3 { blue += 1 }
+            }
+        }
+        return (red, blue)
+    }
+
+    private func htmlPixels(_ pane: NSView) async throws -> (red: Int, blue: Int) {
+        let web = try XCTUnwrap(webViews(pane).first)
+        XCTAssertFalse(web.configuration.defaultWebpagePreferences.allowsContentJavaScript)
+        let deadline = ProcessInfo.processInfo.systemUptime + 10
+        var result = (red: 0, blue: 0)
+        repeat {
+            if !web.isLoading && web.bounds.width > 0 && web.bounds.height > 0 {
+                let image = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<NSImage, Error>) in
+                    web.takeSnapshot(with: nil) { image, error in
+                        if let error { continuation.resume(throwing: error) }
+                        else if let image { continuation.resume(returning: image) }
+                        else { continuation.resume(throwing: GhostermError.failed("embedded WebKit snapshot missing")) }
+                    }
+                }
+                let cg = try XCTUnwrap(image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+                result = pixels(NSBitmapImageRep(cgImage: cg))
+                if result.red > 20 && result.blue > 100 { return result }
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        } while ProcessInfo.processInfo.systemUptime < deadline
+        return result
     }
 }

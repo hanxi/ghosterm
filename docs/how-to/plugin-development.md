@@ -425,21 +425,31 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 export GHOSTERM_AUTOMATION_OFFSCREEN=1
 cmake -S cli/gterm -B tmp/plugin-pane/gterm -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
 cmake --build tmp/plugin-pane/gterm -j4
-python3 -B scripts/test-plugin-pane.py --gterm tmp/plugin-pane/gterm/gterm --mutate --out tmp/plugin-pane/receipt.json
+python3 -B scripts/test-plugin-pane.py --gterm tmp/plugin-pane/gterm/gterm --route both --mutate --out tmp/plugin-pane/receipt.json
 ```
 
 脚本复制原生源码到 `tmp/`，由 Apple gate 启动本轮独占的 loopback SSH 服务。
 实际操作生产页面的导入、摘要批准、启动表单、会话批准与停止按钮；表单经原生
-编辑通知提交，检查真实 SSH 收件的原始字节、滚动后的 Markdown 绘制与释放后的
-资源消失。窗口在显示前已透明、离屏并禁止应用激活。目录选择由显式测试依赖返回，
-默认产品仍使用系统 `fileImporter`；本专项不证明系统文件面板、VoiceOver、用户
-键盘焦点、ProxyJump、HTML / 图片整链、其它设备或完整生命周期。
+编辑通知提交。默认 `--route both` 共六条链：Markdown + PNG、独立 PNG、HTML +
+CSS / PNG 各走直连与 ProxyJump，核对实际主机密钥提示的端口顺序，拒绝只看配置
+就当双跳已执行。`--route direct` / `jump` 各运行对应三条链，缺夹具或跳过项判失败。
+每份真实收件核对字节 / SHA256；Markdown 与图片取原生绘制像素，HTML 则对页面实际
+嵌入的 WKWebView 取快照，核对 CSS 蓝背景与 PNG 红像素，并点击附件图片后切回
+HTML，最后停止并检查资源控件及嵌入 WebKit 移除。
 
-`--mutate` 逐组改变副本中的摘要展示、来源批准、启动、会话批准与停止接线。
+窗口在显示前已透明、离屏并禁止应用激活。目录选择由显式测试依赖返回，默认产品
+仍使用系统 `fileImporter`；本专项不证明系统文件面板、VoiceOver、用户键盘焦点、
+其它设备或完整生命周期，也不把已有原生像素专项当作多格式 / 多服务器全矩阵。
+
+`--mutate` 默认九组：摘要展示、来源批准、启动、会话批准、停止接线，以及
+Markdown 图片、独立图片、HTML 附件集合与资源选择动作。
+`--mutation-case 名称` 仅选择本次组（可重复），必须同时指定 `--mutate`；基础六条
+或对应三条链仍运行，收据逐项记录实际组及选择的测试，不能以选组称完整九组。
 每组要求生产对象实际重编译、单条正常断言红、同副本独立配置读取绿、原件恢复绿
 及 SHA256 一致；编译失败、崩溃和 unexpected failure 不计目标红。收据记录指定
-源码、实际 gterm / XCTest 与链接 Core / QuickJS / libssh2 摘要。此为手工证据，
-不增加 CI 二十份。
+源码、实际 gterm / XCTest 与链接 Core / QuickJS / libssh2 摘要。gate 由仓库
+`gt_timeout` 包装，INT / TERM 沿受控子进程、变异恢复和临时副本清理退出。
+此为手工证据，不增加 CI 二十份。
 
 Apple gate 会显式构建 JS-enabled Core。后续普通闸门先恢复默认配置：
 

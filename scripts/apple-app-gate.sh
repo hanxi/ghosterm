@@ -111,7 +111,7 @@ if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keyg
              GHOSTERM_SSH_USER="$(id -un)"
              GHOSTERM_SSH_KEY="$WORK/clientkey"
              GHOSTERM_SSH_KNOWN_HOSTS="$WORK/known_hosts")
-    if [ "${GHOSTERM_TEST_CODEX_JUMP:-0}" = 1 ]; then
+    if [ "${GHOSTERM_TEST_SSH_JUMP:-${GHOSTERM_TEST_CODEX_JUMP:-0}}" = 1 ]; then
       JUMP_PORT="$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')"
       ssh-keygen -t ed25519 -f "$WORK/jump-hostkey" -N '' -q </dev/null
       {
@@ -141,7 +141,7 @@ if { [ -x "$SSHD" ] || command -v sshd >/dev/null 2>&1; } && command -v ssh-keyg
         exit 1
       fi
       ENVARGS+=(GHOSTERM_SSH_JUMP_HOST=127.0.0.1 GHOSTERM_SSH_JUMP_PORT="$JUMP_PORT")
-      echo "== Codex jump fixture: 127.0.0.1:${JUMP_PORT} -> 127.0.0.1:${PORT} =="
+      echo "== Owned SSH jump fixture: 127.0.0.1:${JUMP_PORT} -> 127.0.0.1:${PORT} =="
     fi
     if [ "$PLUGIN_JS_PROFILE" = 1 ]; then
       ENVARGS+=(GHOSTERM_CORE_TEST_PLUGIN_JS=1)

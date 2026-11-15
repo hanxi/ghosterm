@@ -29,12 +29,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--gterm', type=Path, required=True)
     parser.add_argument('--mutate', action='store_true')
+    parser.add_argument('--route', choices=('direct', 'jump', 'both'), default='both')
+    parser.add_argument('--mutation-case', action='append')
     parser.add_argument('--out', type=Path, default=ROOT / 'tmp/plugin-pane-receipt.json')
     args = parser.parse_args()
     gterm = args.gterm.resolve(strict=True)
     out = args.out.resolve()
     assert ROOT / 'tmp' in out.parents, 'receipt must be under project tmp/'
     assert gterm.is_file() and os.access(gterm, os.X_OK), 'explicit executable gterm required'
+    selected_markdown = TEST if args.route != 'jump' else 'PluginPaneFlowTests.testMarkdownAttachmentsThroughProxyJumpControls'
+    selected_html = 'PluginPaneFlowTests.testHTMLAttachmentsThrough' + ('DirectControls' if args.route == 'direct' else 'ProxyJumpControls')
+    selected_image = 'PluginPaneFlowTests.testImageThrough' + ('ProxyJumpControls' if args.route == 'jump' else 'DirectControls')
+    baseline = 'PluginPaneFlowTests'
+    if args.route == 'direct':
+        baseline += '.test(PreviewThroughPackageApprovalLaunchConsentAndStopControls|HTMLAttachmentsThroughDirectControls|ImageThroughDirectControls)'
+    elif args.route == 'jump':
+        baseline += '.*ProxyJumpControls'
+    baseline_count = 6 if args.route == 'both' else 3
     cases = [
         ('digest', 'Text("摘要：\\(entry.review.digest)")', 'Text("摘要：unverified")',
          'review must display the exact immutable package digest'),
@@ -47,15 +58,28 @@ def main():
         ('stop', 'await model.stopExtensionRun()', 'await Task.yield()',
          'stop control did not release run'),
     ]
+    cases.extend([
+        ('markdown-image', 'PluginResourceImagePreview(data: asset.data, mime: asset.mime)', 'Text("disabled attachment")',
+         'Markdown attachment did not draw actual red pixels', selected_markdown),
+        ('standalone-image', 'PluginResourceImagePreview(data: resource.bytes, mime: resource.mime)', 'Text("disabled image")',
+         'standalone image did not draw actual red pixels', selected_image),
+        ('html-assets', 'PluginResourceHTMLWebView(document: document, resource: resource, resources: resources)',
+         'PluginResourceHTMLWebView(document: document, resource: resource, resources: [])',
+         'embedded HTML did not draw received CSS and PNG', selected_html),
+        ('selection', 'selection.select(resource.resourceID, available: identifiers)', '_ = resource.resourceID',
+         'resource selection did not replace embedded HTML with the selected image', selected_html),
+    ])
+    if args.mutation_case and (not args.mutate or set(args.mutation_case) - {c[0] for c in cases}):
+        parser.error('--mutation-case requires --mutate and a known case name')
     original = (ROOT / PANE).read_bytes()
-    for label, old, _, _ in cases:
+    for label, old, *_ in cases:
         assert original.count(old.encode()) == 1, label
     tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
     names = {p for p in tracked if p.startswith(('core/', 'apple/', 'packages/plugin-sdk/', 'plugins/official/preview/'))
              and (ROOT / p).is_file()}
     names.update([PANE, 'scripts/test-plugin-pane.py', 'scripts/apple-app-gate.sh',
                   'scripts/check-abi-apple.sh', 'scripts/build-core.sh',
-                  'scripts/test-plugin-html-webkit.sh',
+                  'scripts/test-plugin-html-webkit.sh', 'scripts/lib/gt-timeout.sh',
                   'apple/GhostermApp/Tests/GhostermAppTests/PluginPaneFlowTests.swift'])
     inputs = {name: sha(ROOT / name) for name in sorted(names)}
     executable_sha = sha(gterm)
@@ -67,6 +91,9 @@ def main():
         if key.startswith('GHOSTERM_SSH_'):
             del env[key]
     env.pop('GHOSTERM_TEST_CODEX_JUMP', None)
+    env.pop('GHOSTERM_TEST_SSH_JUMP', None)
+    if args.route != 'direct':
+        env['GHOSTERM_TEST_SSH_JUMP'] = '1'
     commands, groups = [], []
     with tempfile.TemporaryDirectory(prefix='pane-ui-', dir=ROOT / 'tmp') as temporary:
         work = Path(temporary)
@@ -82,9 +109,11 @@ def main():
         (source / 'tmp').mkdir()
         env['GHOSTERM_APP_TEST_PACKAGE'] = str(source / 'apple/GhostermApp')
 
-        def run(label, selected=TEST, expected_failure=None):
+        def run(label, selected=selected_markdown, expected_failure=None, count=1):
             child_env = dict(env, GHOSTERM_APP_TEST_FILTER=selected)
-            child = subprocess.Popen(['bash', 'scripts/apple-app-gate.sh'], cwd=ROOT, env=child_env,
+            command = ['bash', '-c', '. "$1/scripts/lib/gt-timeout.sh"; gt_timeout_require plugin-pane; shift; exec "$gt_timeout_bin" --kill-after=8 350 "$@"',
+                       'plugin-pane', str(ROOT), 'bash', 'scripts/apple-app-gate.sh']
+            child = subprocess.Popen(command, cwd=ROOT, env=child_env,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
             try:
                 output, _ = child.communicate(timeout=360)
@@ -104,30 +133,34 @@ def main():
                 assert 'Executed 1 test, with 1 failure (0 unexpected)' in log, (label, log[-12000:])
                 assert not any(s in log for s in ['unexpected signal', 'AddressSanitizer', 'fatalError']), label
             else:
-                assert child.returncode == 0 and 'Executed 1 test, with 0 failures' in log, (label, output.decode()[-4000:], log[-12000:])
+                assert child.returncode == 0 and f'Executed {count} test' + ('s' if count != 1 else '') + ', with 0 failures' in log, (label, output.decode()[-4000:], log[-12000:])
                 assert 'skipped' not in log.lower(), label
-            commands.append(dict(label=label, status=child.returncode,
+            commands.append(dict(label=label, selected=selected, count=count, status=child.returncode,
                                  gateSHA256=hashlib.sha256(output).hexdigest(),
                                  xctestSHA256=hashlib.sha256(log.encode()).hexdigest()))
             print('PASS ' + label, flush=True)
 
-        run('baseline')
+        run('baseline', selected=baseline, count=baseline_count)
         linked = {name: sha(ROOT / name) for name in [
             'core/build/libghosterm_core.a', 'core/build/libghosterm_quickjs.a',
             'build/host-native/lib/libssh2.a',
         ]}
         path = source / PANE
-        for label, old, new, expected in cases if args.mutate else []:
+        for recipe in cases if args.mutate else []:
+            label, old, new, expected, *selected_case = recipe
+            if args.mutation_case and label not in args.mutation_case:
+                continue
+            selected = selected_case[0] if selected_case else selected_markdown
             objects = {p: sha(p) for p in (source / 'apple/GhostermApp/.build').rglob('*') if p.name in ('ExtensionsPane.swift.o', 'ExtensionsPane.o')}
             assert objects, 'compiled production pane object required'
             path.write_bytes(original.replace(old.encode(), new.encode()))
             try:
-                run(label + '-assertion', expected_failure=expected)
+                run(label + '-assertion', selected=selected, expected_failure=expected)
                 assert any(sha(p) != digest for p, digest in objects.items()), 'mutation must be compiled'
                 run(label + '-control', CONTROL)
             finally:
                 path.write_bytes(original)
-            run(label + '-restored')
+            run(label + '-restored', selected=selected)
             assert sha(path) == inputs[PANE], 'restoration must match exact source SHA256'
             groups.append(label)
         binary = next((source / 'apple/GhostermApp/.build').rglob('GhostermAppTests.xctest/Contents/MacOS/GhostermAppTests'))
@@ -136,13 +169,20 @@ def main():
     assert all(sha(ROOT / name) == digest for name, digest in linked.items()), 'linked archive changed during verification'
     assert sha(gterm) == executable_sha, 'gterm changed during verification'
     assert (ROOT / PANE).read_bytes() == original, 'original checkout changed'
-    receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned direct SSH; Markdown',
+    receipt = dict(schemaVersion=1, scope='macOS Native controls; injected directory chooser; owned SSH; Markdown/PNG/HTML', routes=['direct', 'jump'] if args.route == 'both' else [args.route], baselineTests=baseline_count,
                    inputs=inputs, linkedArchives=linked, gtermSHA256=executable_sha, xctestSHA256=binary_sha,
                    commands=commands, mutations=groups)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n')
-    print(f'PLUGIN PANE PASS: 1 flow, {len(groups)} assertion/control/restore groups; receipt {out}', flush=True)
+    print(f'PLUGIN PANE PASS: {baseline_count} flows ({args.route}), {len(groups)} assertion/control/restore groups; receipt {out}', flush=True)
 
 
 if __name__ == '__main__':
+    def interrupted(number, _frame):
+        # Raise through the active child's finally, mutation restoration and
+        # TemporaryDirectory cleanup; default SIGTERM would bypass all three.
+        raise SystemExit(128 + number)
+
+    for number in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(number, interrupted)
     main()
