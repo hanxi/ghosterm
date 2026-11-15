@@ -236,7 +236,7 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
                *node_sha = NULL;
     const char *sdk_directory = NULL, *sdk_sha = NULL;
     bool execution_authorized = false;
-    bool client_table = false, client_diff = false;
+    bool client_table = false, client_diff = false, client_task = false;
     gt_ext_rpc_method_t methods[GT_EXT_RPC_METHODS_MAX] = {0};
     process_program_t process_programs[GT_EXT_RUNTIME_PROCESS_PROGRAMS_MAX] = {0};
     source_root_t roots[GT_EXT_RUNTIME_ROOTS_MAX] = {0};
@@ -266,6 +266,11 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
                     return diagnostic("unknown or duplicate Client service requirement", 2);
                 }
                 client_diff = true;
+            } else if (!strcmp(argv[at + 1], "ui.task")) {
+                if (client_task) {
+                    return diagnostic("unknown or duplicate Client service requirement", 2);
+                }
+                client_task = true;
             } else {
                 return diagnostic("unknown or duplicate Client service requirement", 2);
             }
@@ -654,6 +659,14 @@ int gterm_stdio(int argc, char **argv, volatile sig_atomic_t *cancelled) {
         }
         strcpy(config.required[config.required_count++], "ui.diff");
         strcpy(config.available[config.available_count++], "ui.diff");
+    }
+    if (client_task) {
+        if (!rpc || config.required_count >= 16 || config.available_count >= 16) {
+            result = diagnostic("Client task requires declared RPC and a capability slot", 4);
+            goto done;
+        }
+        strcpy(config.required[config.required_count++], "ui.task");
+        strcpy(config.available[config.available_count++], "ui.task");
     }
     if ((receive_resources && !resource_store_available) || (scoped_reads && !root_count) ||
         (scoped_reads && !receive_resources)) {

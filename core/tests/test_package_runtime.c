@@ -165,11 +165,13 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
           mkdtemp(f->root));
     f->fd = open(f->root, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     CHECK(f->fd >= 0);
+    bool task = !strncmp(mode, "client-task", 11) || !strcmp(mode, "executor-task");
     bool diff = !strncmp(mode, "client-diff", 11) || !strcmp(mode, "executor-diff");
-    bool table = !strncmp(mode, "client-table", 12) || !strcmp(mode, "executor-table") || diff;
+    bool table =
+        !strncmp(mode, "client-table", 12) || !strcmp(mode, "executor-table") || diff || task;
     bool client = !strcmp(mode, "client") || !strcmp(mode, "role") ||
                   !strncmp(mode, "client-table", 12) || !strncmp(mode, "client-diff", 11) ||
-                  !strcmp(mode, "client-service");
+                  !strncmp(mode, "client-task", 11) || !strcmp(mode, "client-service");
     char entry[4097] = "executor/index.js";
     if (client) {
         strcpy(entry, "client/index.js");
@@ -253,7 +255,8 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                        sizeof(side),
                        "\"client\":{\"runtime\":\"portable-js\",\"entry\":%s,\"requires\":[%s]}",
                        entry_json,
-                       diff      ? "\"session.rpc\",\"ui.diff\""
+                       task      ? "\"session.rpc\",\"ui.task\""
+                       : diff    ? "\"session.rpc\",\"ui.diff\""
                        : table   ? "\"session.rpc\",\"ui.table\""
                        : service ? "\"session.rpc\",\"ui.chat\""
                                  : "\"session.rpc\"") > 0);
@@ -266,6 +269,7 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                        nonportable ? "node" : "portable-js",
                        entry_json,
                        process   ? "\"session.rpc\",\"process.spawn\",\"process.pipes\""
+                       : task    ? "\"session.rpc\",\"ui.task\""
                        : diff    ? "\"session.rpc\",\"ui.diff\""
                        : table   ? "\"session.rpc\",\"ui.table\""
                        : service ? "\"session.rpc\",\"ui.chat\""
@@ -468,6 +472,7 @@ static void load_fixture(load_fixture_t *f, const char *mode, const char *temp) 
                    old_sdk ? "0.1.1" : GT_PLUGIN_SDK_API_VERSION,
                    nonportable ? "node" : "portable-js",
                    process ? "\"session.rpc\",\"process.spawn\",\"process.pipes\""
+                   : task  ? "\"session.rpc\",\"ui.task\""
                    : diff  ? "\"session.rpc\",\"ui.diff\""
                    : table ? "\"session.rpc\",\"ui.table\""
                            : "\"session.rpc\",\"ui.chat\"") > 0);
@@ -573,14 +578,18 @@ static void load_pair(rpc_pair_t *p, const load_fixture_t *f, const char *mode) 
         strcpy(c.available[1], "ui.chat");
     }
     if (!strncmp(mode, "client-table", 12) || !strcmp(mode, "executor-table") ||
-        !strncmp(mode, "client-diff", 11) || !strcmp(mode, "executor-diff")) {
+        !strncmp(mode, "client-diff", 11) || !strcmp(mode, "executor-diff") ||
+        !strncmp(mode, "client-task", 11) || !strcmp(mode, "executor-task")) {
+        bool task = !strncmp(mode, "client-task", 11) || !strcmp(mode, "executor-task");
         bool diff = !strncmp(mode, "client-diff", 11) || !strcmp(mode, "executor-diff");
         c.required_count =
-            (!strcmp(mode, "client-table-ungranted") || !strcmp(mode, "client-diff-ungranted")) ? 1
-                                                                                                : 2;
+            (!strcmp(mode, "client-table-ungranted") || !strcmp(mode, "client-diff-ungranted") ||
+             !strcmp(mode, "client-task-ungranted"))
+                ? 1
+                : 2;
         c.available_count = 2;
-        strcpy(c.required[1], diff ? "ui.diff" : "ui.table");
-        strcpy(c.available[1], diff ? "ui.diff" : "ui.table");
+        strcpy(c.required[1], task ? "ui.task" : diff ? "ui.diff" : "ui.table");
+        strcpy(c.available[1], task ? "ui.task" : diff ? "ui.diff" : "ui.table");
     }
     gt_ext_rpc_method_t methods[4];
     rpc_methods(methods);
@@ -705,7 +714,8 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
         rpc_pair_t p;
         load_pair(&p, &f, mode);
         bool client = !strcmp(mode, "client") || !strncmp(mode, "client-table", 12) ||
-                      !strncmp(mode, "client-diff", 11) || !strcmp(mode, "client-service");
+                      !strncmp(mode, "client-diff", 11) || !strncmp(mode, "client-task", 11) ||
+                      !strcmp(mode, "client-service");
         gt_ext_session_t **owned = client ? &p.pair.h : &p.pair.e;
         gt_ext_session_t *peer = client ? p.pair.e : p.pair.h;
         gt_runtime_config_t config = {.role = client ? GT_EXT_HOST : GT_EXT_EXECUTOR,
@@ -757,11 +767,13 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
         }
         if (!strcmp(mode, "sdk-version") || !strcmp(mode, "nonportable") ||
             !strcmp(mode, "service") || !strcmp(mode, "client-service") ||
-            !strcmp(mode, "executor-table") || !strcmp(mode, "executor-diff")) {
+            !strcmp(mode, "executor-table") || !strcmp(mode, "executor-diff") ||
+            !strcmp(mode, "executor-task")) {
             expected = GT_ERR_UNSUPPORTED;
         }
         if (!strcmp(mode, "association") || !strcmp(mode, "ungranted") ||
-            !strcmp(mode, "client-table-ungranted") || !strcmp(mode, "client-diff-ungranted")) {
+            !strcmp(mode, "client-table-ungranted") || !strcmp(mode, "client-diff-ungranted") ||
+            !strcmp(mode, "client-task-ungranted")) {
             expected = GT_ERR_AUTH;
         }
         if (!strcmp(mode, "inactive") || !strcmp(mode, "revoked") || !strcmp(mode, "invalid")) {
@@ -876,10 +888,10 @@ int PACKAGE_RUNTIME_MAIN(int argc, char **argv) {
             }
             bool echo = !strcmp(mode, "roundtrip") || !strcmp(mode, "client") ||
                         !strcmp(mode, "client-table") || !strcmp(mode, "client-diff") ||
-                        !strcmp(mode, "unicode") || !strcmp(mode, "long-path") ||
-                        !strcmp(mode, "frozen") || !strcmp(mode, "unused") ||
-                        !strcmp(mode, "share") || !strcmp(mode, "associated") ||
-                        !strcmp(mode, "allocation");
+                        !strcmp(mode, "client-task") || !strcmp(mode, "unicode") ||
+                        !strcmp(mode, "long-path") || !strcmp(mode, "frozen") ||
+                        !strcmp(mode, "unused") || !strcmp(mode, "share") ||
+                        !strcmp(mode, "associated") || !strcmp(mode, "allocation");
             if (echo) {
                 load_echo_request(r, &p, client);
             }

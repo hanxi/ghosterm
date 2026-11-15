@@ -9,8 +9,9 @@ candidates classified, not elapsed work, an ETA or a percentage of CPU time.
 
 The same Executor has no file, process, network or account dependency and can
 run locally or over an explicitly selected SSH transport. It requires Session
-RPC only. The Client requires the standard Native `ui.task` service; Native
-renderers are pending and missing services must fail explicitly. This candidate
+RPC only. The Client requires the standard Native `ui.task` service. macOS has
+a standard task view with exact progress, read-only refresh and explicit cancel;
+Android rendering is pending and missing services must fail explicitly. This candidate
 is not installed, enabled or released by default.
 
 `view.task.describe` returns the current view identity and revision.

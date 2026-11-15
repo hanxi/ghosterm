@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--package', type=Path, required=True)
-    parser.add_argument('--service', choices=('ui.table', 'ui.diff'), default='ui.table')
+    parser.add_argument('--service', choices=('ui.table', 'ui.diff', 'ui.task'), default='ui.table')
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--receipt', type=Path, required=True)
     args = parser.parse_args()
@@ -82,7 +82,7 @@ def main():
             elif case == 'duplicate': options *= 2
             digest = sha(selected / 'integrity.json')
             status, _, error = run([binary, 'relay', '--stdio', '--trust-development-digest', digest,
-                '--client-digest', digest, *options, '--', selected, contribution])
+                '--client-digest', digest, *options, '--', selected, 'task primes' if contribution == 'task' else contribution])
             expected = ('Client ' + contribution + ' requires declared RPC and a capability slot').encode() if case == 'rpc' else b'unknown or duplicate Client service requirement'
             assert status == (4 if case == 'rpc' else 2) and expected in error, 'Client service rejection: ' + case
         compile()

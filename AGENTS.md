@@ -1307,3 +1307,20 @@ Release、Android Debug / 测试 APK / 未签名 Release / 四模块 lint、C �
 Apple 178/3 与 JNI 144/37 通过；R8 为 UP-TO-DATE。无新 ABI / Native task UI / 实际 SSH /
 APK 行为 / 真机或发行证据；缺 ui.task 显式 UNSUPPORTED，完整 P5 / P1–P6 未完成，
 不增加 CI 二十份。分轮原件、摘要与 sanitizer 边界见插件计划 P5 第七批。
+
+**插件 P5 macOS 原生 task（2026-11-15）**：准确批准命令 views / ui.task 驱动通用
+进度、阶段、结果、读取与取消；精确 uint64、唯一取消 ID，回执与停止分开，未知后
+显式只读、不重放，RPC failed / cancelled 与任务阶段分开。26 项原生测试与旧 table /
+diff 各十五项通过，含浅深主题 × 13 / 28 pt 位图、进程内 AX、真实取消按钮、视图
+自动读取 / 未知暂停 / 显式读回后的恢复、长 Unicode / 控制字符失败回包。本机 / 直连 /
+两跳各完成 / 空任务 / 百万取消九场景，真实 SDK INVALID_INPUT / effect:none 均经
+生产 Native 门面保留。十六组隔离变异正常单条断言红、同复制构件配置绿、恢复 /
+SHA256；十一模型组与一视图组另核对象变化。Core 仅 Host 有效 lease 可准入 ui.task，
+gterm 显式服务协商；无新 ABI / SDK 身份，不提高预算。未操作系统 VoiceOver / 用户
+完整选包点击链，不将模型 unknown 当实际 SSH 丢包 / 重连；Android 原生任务、task
+IPC、ctx.views / 多视图、完整生命周期 / 设备、开发工具 / testkit 与 P5 / P1–P6 待完成。
+默认 JS-off，未推送 / 发行，不增加 CI 二十份；分轮、失败与其它闸门见插件计划第八批。
+本批另有 Core task / table / diff 各三组（各 59 项基线 / 恢复）及 CLI 各两组分套复验；
+enabled Core 825、默认 Core 588/181、App 默认档 578 项 / 35 明确跳过 / 零失败、macOS
+独立 Release 最终重编 / 重链、Android JS-enabled bridge Release、C 格式 258 文件及
+Apple 178/3 / JNI 144/37 通过。无本片 Android APK / 设备 / lint / R8 或打包 / 云端结论。

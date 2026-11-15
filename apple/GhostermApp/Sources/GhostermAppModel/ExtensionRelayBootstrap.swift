@@ -183,7 +183,7 @@ public enum ExtensionRelayBootstrap {
 
     private static func arguments(_ request: Request, local: Bool) throws -> [String] {
         guard request.clientCapabilities.count <= 2, Set(request.clientCapabilities).count == request.clientCapabilities.count,
-              request.clientCapabilities.allSatisfy({ ["ui.table", "ui.diff"].contains($0) }) else {
+              request.clientCapabilities.allSatisfy({ ["ui.table", "ui.diff", "ui.task"].contains($0) }) else {
             throw invalid("此 Host 仅支持显式声明的标准 Client 服务")
         }
         guard !request.executable.isEmpty, (request.attachment != nil || !request.executorDirectory.isEmpty),

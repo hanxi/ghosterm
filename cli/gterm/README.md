@@ -1,7 +1,7 @@
 # gterm 前台 CLI
 
 独立构件，不加入 Ghosterm App 包、不安装远端 helper、不修改 shell 配置。
-当前接入诊断、固定包兼容性检查、显式 Portable / Node / Exec stdio Executor，以及一次性前台 IPC 与实验 App 的显式 SSH attach；普通命令分发、App 本机直接启动、安装/升级仍未实现。
+当前接入诊断、固定包兼容性检查、显式 Portable / Node / Exec stdio Executor，以及一次性前台 IPC、实验 App 的显式 SSH attach 和 macOS App 本机直接启动；普通命令分发与安装/升级仍未实现。
 它不内置业务命令，未接分发的顶层命令返回 `COMMAND_ACTIVATION_UNAVAILABLE`。
 
 从仓库根目录构建（产物在工程 `tmp/`）：
@@ -381,7 +381,7 @@ macOS CI 二十份变异。
 ### Client 提供的标准原生视图服务
 
 `relay --stdio --client-capability ui.table` 要求 Native Client 提供该服务。
-支持 `ui.table` 与 `ui.diff`，每种至多声明一次；未知名称和重复项拒绝，Executor 包必须
+支持 `ui.table`、`ui.diff` 与 `ui.task`，每种至多声明一次；未知名称和重复项拒绝，Executor 包必须
 声明 `session.rpc`。这不是 gterm 本机
 渲染能力或执行批准：该项加入共享 Session 的精确协商集合，Host 仍须实际提供能力并
 显式 consent。缺少参数时不会猜测 Client 服务，旧 Host / 集合不匹配时拒绝握手。

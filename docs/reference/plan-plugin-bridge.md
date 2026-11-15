@@ -19,8 +19,10 @@
 Client 服务协商与真实本机 / 直连 / ProxyJump；第六批补 Android 对应原生组件、精确服务
 与会话代次隔离，设备档与证据见文末。第七批选择 task 作为持续交互样例，先接
 Portable 进度 / 取消契约及真实分步素数计算 Executor；公开 Core 和两档无窗口 Android
-standalone 探针验证结果、取消去重及未知后的显式只读观察。原生 ui.task、实际 SSH
-交互与完整开发体验仍待接；缺能力显式不支持，P5 和 P1–P6 均未记完成。
+standalone 探针验证结果、取消去重及未知后的显式只读观察。第八批接 macOS 标准
+ui.task、精确进度、只读刷新与实际取消按钮；同一包经本机 / 直连 / ProxyJump 完成和
+取消，明确 RPC 失败 / 请求取消 / unknown 分开。Android 原生任务视图与完整开发体验
+仍待接；缺能力显式不支持，P5 和 P1–P6 均未记完成。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
 
@@ -6899,3 +6901,115 @@ JVM 临时目录显式放工程 tmp；不操作用户 Java / AVD / 应用 / SSH 
 本批验收后清理 **62 个**所属 tmp 项、逻辑大小约 **538.2 MiB**；仅保留原三份 eq 输入，
 逐一核对原 SHA256 未变。macOS 本次 Release 可执行文件 SHA256 为
 `7524a69d85140934dcc03dc7ecf1ca460aa6b0b18632ccdd6b5e98116b496c08`。
+
+### P5 实施第八批：macOS 标准 Native task 与真实取消（2026-11-15）
+
+按本进程准确批准命令的 `views: ["task"]` 与 session.rpc / ui.task 声明创建通用任务
+模型 / SwiftUI 组件，沿既有 AppModel → ExtensionController worker → Core 门面调用。
+不识别素数命令或其算法，不增加 C ABI 或业务专属 pane。Core 仅准入 Host 的有效
+ui.task lease；Executor 仍不具备 UI 服务，缺服务 / 缺授权各自显式返回错误。
+gterm 与 bootstrap 增加显式 ui.task Client 服务，未知 / 重复名称和缺 RPC 仍拒绝。
+现有 table / diff 支持保持独立，未增加 SDK 源码身份或提高任何 CPU / RPC / 内存预算。
+
+描述、进度 / 总数 / 序号、结果与取消回执复用严格 JSON 边界，保留精确 uint64、零 /
+未知总量、状态 / 结果对应、单调进度、稳定已知总量与已确认终态。原生视图显示精确
+计数、阶段和结果，浅 / 深主题与大字号共用 Text / ProgressView / Button；进度条只作
+视觉比例，不覆盖精确计数。视图挂载且有效、无未确认结果时，每 500 ms 至多发一个只读
+请求，已有请求期间不重入；终态、结果不明或离开视图停止自动读取。普通读取在显式读回
+有效状态后继续自动更新；取消回包不明仍只允许显式查询，不因此恢复自动更新。
+
+取消操作先保留唯一请求 ID，回执只表示受理，随后独立读取到 cancelled 才表示已停止。
+确认丢失、调用方取消或会话失效不重发；保留上次观察，可显式读取同一有效任务。
+只读新结果不把旧取消回包改成已确认。会话停止 / 替换 / 失败使模型失效，迟到回复
+不能覆盖旧观察或新会话，也不以关闭 / EOF 编造成功或取消。
+
+复核新增请求结果边界：标准任务使用保留 terminal outcome 的内部 Native RPC 门面，
+入队前明确失败为 effect:none，已完成请求保留原失败 / 取消 / unknown；未确认成功
+仍为 unknown。声明的 RPC failed / cancelled 与任务本身的 phase / result 分开显示，
+不能把请求被取消当成任务已取消。其它既有调用继续使用原成功返回策略。实际公开
+Session → gterm → SDK 输入 codec 的无效只读请求返回 INVALID_INPUT / effect:none，
+在本机、SSH 直连与两跳均经该生产门面保留；不是合成成功或绕过 Session 权限。
+
+**26 项 Native 值 / 模型 / UI**与既有 **table 十五项 / diff 十五项**通过。包含精确最大
+uint64、零 / 未知、非法原始 JSON / 聚合字节、倒退 / 同序改写 / 终态、取消 ID 与
+不重放、明确失败 / 请求取消、失效 / 调用方取消。浅 / 深主题 × 13 / 28 pt 分别验证
+实际位图文字、进程内 AX 精确值和真实取消 action，窗口透明且屏幕外；未操作系统
+VoiceOver 或用户键盘焦点。
+
+同一官方 task 包经 **本机 / SSH 直连 / 两跳 × 完成 10,000 / 空任务 / 百万上限取消**
+九种实际场景通过。实际 ExtensionsPane 显示 1,229 / 0 个素数结果，取消用
+真实按钮并等待确认停止，另验 Native 失效及本机 owner reap / 临时目录移除。包选择 /
+批准 / 启动由测试明确调用生产动作，consent 同样由测试调用生产决定入口；不冒充完整 fileImporter
+到启动按钮的用户点击链。unknown 取消为模型 / adapter 证据，不声称实际 SSH 丢包、
+断线恢复或重放验收。
+
+**十六组隔离变异**为十一项状态 / 取消保护、一项真实视图刷新与四项 AppModel / pane 接线（views
+创建、标准方法、明确结果保留、渲染）。每组真实编译后单条正常断言红、同复制构件
+独立配置绿、恢复绿 / SHA256；模型组另核对对象变化，四次实际恢复重复场景单列，不
+把九种路线写成十三种。最终 Native 收据 **274 输入**逐项与工作区一致，SHA256：
+最终源码收据见本节末尾。
+
+复现前按上一批准备锁定 TS tools、九模块 SDK 和显式 JS / SSH-on gterm 构建，然后构建
+官方 task 包。真实 SSH 只用 helper 创建的环回端点、内存密钥与独立 agent，不访问
+用户 SSH 服务 / 配置 / 密钥；所有窗口后台 / 屏幕外，临时产物在工程 tmp。
+
+```bash
+python3 scripts/build-plugin-sample.py --source plugins/official/task \
+  --tools tmp/native-task/tools --out tmp/native-task/package-v2
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-native.py \
+  --build tmp/native-task/cli --package tmp/native-task/package-v2 --mutate \
+  --receipt tmp/native-task/native-final.json
+python3 scripts/mutation-check-plugin-package-runtime.py --task
+python3 scripts/test-gterm-client-service.py --build tmp/native-task/cli \
+  --package tmp/native-task/package-v2 --service ui.task --mutate \
+  --receipt tmp/native-task/cli-task.json
+```
+
+初轮二十二项 / 十四组 / 九路线已通过，但未覆盖明确失败与 unknown 的区别；复核后
+新增保留结果门面和两个模型用例，并将实际 INVALID_INPUT / effect:none 及对应门面
+变异纳入最终全轮，不借初轮结果记最终源码通过。随后补 wire 1024 标量错误消息
+的完整 Unicode / 控制字符显示和真实视图读取暂停 / 恢复；修正原先跳出刷新循环导致
+显式读回后不再更新的问题，保持不明取消不自动读取。成功任务值仍限 2048 字节；
+通用 wire 错误单独按既有字段界限、最多 8192 原始字节读取，控制字符可见转义，
+不将合法长失败回包误写成 unknown，也不提高 Core 预算。Core 变异初轮因清理后的离线 npm
+缓存缺失而止于 tools 设置，尚未编译 / 运行目标，不计正常断言红；补齐同一锁定缓存
+后重新执行。Android 原生 ui.task、task IPC、ctx.views / 多视图、系统辅助技术 / 键盘 /
+完整生命周期与设备矩阵、持续交互完整用户点击链、开发工具 / testkit 与 P5 / P1–P6
+仍未完成。默认 App 仍 JS-off，候选包未推送 / 发行，不增加 macOS CI 二十份。
+
+开发复现与本机 / 远端行为说明见[验证可取消任务插件](../how-to/plugin-task.md)。最终
+既有 Portable task **7,642 项 / 九个公开 Core 场景**通过，本轮不重跑其旧十五组业务
+变异；输入 162 份一致，收据 `980f0662712147d3dd5f6f65400c8616250e48e5652bbf2bd78cf100361f8667`。
+共享 Native 准入的 **task 新三组 / table 旧三组 / diff 旧三组**分套优化 ASan/UBSan
+（无 LSan）通过，每套 **59 项基线 / 恢复**，正常目标断言红、同库配置绿、实际对象 /
+archive / executable 重链、恢复 / SHA256。每套 727 输入与最终代码一致：
+
+- task：`05b5c04d2c3188ebe800551195d2f93f43cd60fe81aa86ef454f840b9192c4ff`。
+- table：`b7a7a0093f53eda92f49ebb1d7e42039d1a903d5ff06d365824a8e54e253f9c9`。
+- diff：`efd5a60292dc41c70c88d95b906896b727ed0c597585fa6ea902efe03cbce6bb`。
+
+CLI 的 task 新两组、table / diff 各旧两组也分套通过：未知 / 重复服务 / 缺 RPC 三种
+实际拒绝，编译后正常断言红、同 archive 配置绿、恢复 / SHA256。CLI 自身 O1 /
+ASan/UBSan，所链接 Core 是显式 enabled Debug 库，不将其写成整库 sanitizer 结论，
+无 LSan；每份 28 输入一致：task `5b55ca04fa99199449e2fae7ff996aa449aa8c7dfde91adf679e17d524321586`、
+table `66112dff90306dfcb234bea84d16106709499cbfc32a0cb86aa6ea7f2c751bcf`、
+diff `6e30cd96685f46f67b856094b757d6b5140787f35e86b68beea34aaad28d5490`。
+
+最终 enabled Core **825/825 CTest**、CLI **12**与 stdio **17**通过；默认 Core 保持
+**JS-off / tests-on，588/588 CTest / 181 ABI**。App 默认档全量最终 **578 项 / 35 项
+明确跳过 / 零失败**；Native 专项使用独立 enabled 构件且要求零跳过，不将默认档的
+跳过记成实际 SSH / 插件执行。Android 本轮为 JS-enabled **bridge Release 原生编译**，
+无本片 APK / 设备 / UI / lint / R8 复跑结论。C 格式 **19.1.7 / 258 文件**、Apple
+**178/3**、JNI **144/37**、SDK 九模块离线闭包、Python 语法与 diff 检查通过。
+缓存设置原始失败日志摘要为 `127bee337798b0c7c4cacb9921387b8f48aaaeb83749577fa76153557d092e7e`；
+中途补充测试后，最终按相同输入重新取证，不用旧收据替新源码。
+
+最后包含显式读取后自动恢复的 Native 全轮再次通过 **26 项 / 九种路线 / 十六组变异**，
+274 输入与最终源码一致，收据 SHA256 为
+`44405d72b9f8a34790c6ccec3fae3fe6df45bef3824513df5fe91e18856cd496`。
+macOS arm64 Release 在独立 scratch 完整构建后，对最后视图修改实际重编 / 重链通过；
+最终可执行文件 SHA256 为
+`14db1bdadc1e091e815b41e283fa18868bb976f34abe8a8d3618fd052c4c2df9`。
+
+最终清理 **1,284 个**所属 tmp 项、逻辑大小约 **845.2 MiB**；仅保留三份原 eq 输入，
+各 SHA256 与本轮开始一致。未操作用户 Java、应用、AVD 或 SSH 服务。
