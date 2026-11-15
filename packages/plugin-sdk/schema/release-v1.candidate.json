@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghosterm.invalid/plugin-schema/release-v1.candidate.json",
+  "$comment": "Candidate detached descriptor. Ed25519 signs the ASCII domain GHOSTERM-PLUGIN-RELEASE-V1 followed by NUL and the exact UTF-8 bytes, including whitespace. A trusted external channel policy selects keys. No installation or runtime authorization implied.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "channel", "keyId", "pluginId", "pluginVersion", "publisher", "packageSHA256", "artifact"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "channel": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,63}$"},
+    "keyId": {"$ref": "#/$defs/digest"},
+    "pluginId": {"type": "string", "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$"},
+    "pluginVersion": {"type": "string", "minLength": 1, "maxLength": 128},
+    "publisher": {"type": "string", "minLength": 1, "maxLength": 128},
+    "packageSHA256": {"$ref": "#/$defs/digest"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "bytes", "sha256"],
+      "properties": {
+        "format": {"const": "zip-v1"},
+        "bytes": {"type": "integer", "minimum": 22, "maximum": 75497472},
+        "sha256": {"$ref": "#/$defs/digest"}
+      }
+    }
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

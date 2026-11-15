@@ -614,8 +614,26 @@ def main():
             command.add_argument('--allow-business-processes', action='store_true', help='authorize these business programs for this test only')
             command.add_argument('--views-json', type=Path, help='explicit Client Native view kinds: table, diff, task')
             command.add_argument('--allow-native-views', action='store_true', help='authorize local view registration for this test only')
+    release = commands.add_parser('release', help='candidate offline signed releases; no installation')
+    release_commands = release.add_subparsers(dest='release_action', required=True)
+    for name in ('sign', 'verify'):
+        command = release_commands.add_parser(name)
+        command.add_argument('--artifact', type=Path, required=True)
+        command.add_argument('--policy', type=Path, required=True, help='explicit trusted channel public-key policy')
+        command.add_argument('--tools', type=Path, required=True)
+        command.add_argument('--host-json', type=Path)
+        if name == 'sign':
+            command.add_argument('--key-id', required=True)
+            command.add_argument('--signer-json', type=Path, required=True, help='explicit external signer; private keys stay outside this tool')
+            command.add_argument('--out', type=Path, required=True)
+        else:
+            command.add_argument('--descriptor', type=Path, required=True)
+            command.add_argument('--signature', type=Path, required=True)
     args = parser.parse_args()
     if args.action == 'init': return scaffold(args.directory, args.id, args.command, args.publisher), 0
+    if args.action == 'release':
+        import plugin_release
+        return plugin_release.execute(args, sys.modules[__name__])
     require(args.action != 'build' or args.project is not None, 'BUILD_REQUIRES_PROJECT')
     execution = None
     resource_root = None

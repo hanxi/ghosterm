@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghosterm.invalid/plugin-schema/channel-v1.candidate.json",
+  "$comment": "Candidate host-supplied public policy, never selected or supplied by an untrusted release. Key id is SHA256 of the raw 32-byte Ed25519 public key; host validation also checks canonical base64, NFC strings and exact publisher/plugin scope. This snapshot has no network freshness or rollback protection.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "channel", "keys", "revokedKeyIds"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "channel": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,63}$"},
+    "keys": {
+      "type": "array", "minItems": 1, "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "algorithm", "publicKey", "publisher", "pluginIds"],
+        "properties": {
+          "id": {"$ref": "#/$defs/digest"},
+          "algorithm": {"const": "ed25519"},
+          "publicKey": {"type": "string", "pattern": "^[A-Za-z0-9+/]{43}=$"},
+          "publisher": {"type": "string", "minLength": 1, "maxLength": 128},
+          "pluginIds": {
+            "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+            "items": {"type": "string", "maxLength": 128, "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$"}
+          }
+        }
+      }
+    },
+    "revokedKeyIds": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/digest"}}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

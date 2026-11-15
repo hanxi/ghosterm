@@ -465,3 +465,55 @@ bash scripts/gate.sh
 ```
 
 核对收据后清理本次创建的 `tmp/plugin-pane/`；脚本内部的原生副本在退出时清理。
+
+## 离线签名发布候选
+
+`gterm-plugin release sign / verify` 是 P6 的开发工具首片，生成 / 检查候选发布包，
+不安装、激活插件或保存来源批准。App / Core 尚未消费此签名格式；不能把工具的
+验签结果当成 App 中已认证的发布者。当前没有内置官方公钥或开放第三方市场。
+
+先用原 `pack` 命令得到 ZIP，再显式选择可信渠道策略与本机签名器：
+
+```sh
+python3 scripts/gterm-plugin pack --package build/plugins/preview --tools tmp/plugin-dev/tools --out tmp/preview.zip
+python3 scripts/gterm-plugin release sign --artifact tmp/preview.zip --policy /可信位置/channel.json --key-id 公钥指纹 --signer-json /可信位置/signer.json --tools tmp/plugin-dev/tools --out tmp/preview-release
+python3 scripts/gterm-plugin release verify --artifact tmp/preview-release/plugin.zip --descriptor tmp/preview-release/release.json --signature tmp/preview-release/release.sig --policy /可信位置/channel.json --tools tmp/plugin-dev/tools
+```
+
+输出目录包含捕获的 `plugin.zip`、精确 UTF-8 `release.json` 和 64 字节原始
+`release.sig`。Ed25519 签署 ASCII `GHOSTERM-PLUGIN-RELEASE-V1`、一个 NUL，再拼接
+完整描述字节（含空白 / 末尾换行）；不把重新编码后的 JSON 当原签名消息。
+描述绑定渠道、keyId、插件 ID / 版本 / 发布者、原始 integrity.json SHA256 和整个
+ZIP 的 SHA256 / 字节数。算法通过 [Node crypto](https://nodejs.org/api/crypto.html#cryptoverifyalgorithm-data-key-signature-callback)
+验证；不自写密码算法。schema 位于 `release-v1.candidate.json` / `channel-v1.candidate.json`，
+由锁定 AJV 与宿主语义检查共同验证，仍是候选格式。
+
+策略由调用者提供，不能从包内选择或导入。形状为
+`{schemaVersion:1, channel, keys:[{id,algorithm:"ed25519",publicKey,publisher,pluginIds:[]}], revokedKeyIds:[]}`。
+`publicKey` 是原始 32 字节公钥的规范 Base64，`id` 是这 32 字节的 SHA256，
+不是 PEM / SSH 容器的摘要。每个 key 的发布者和 pluginIds 精确匹配，无通配或 ID
+前缀授权。未知 / 已撤销 key、跨渠道、改描述、改 ZIP 或包内身份不一致均拒绝。
+返回 `policySHA256` 和 `trustSource=explicit-policy-snapshot`；这只证明本次提供的
+策略快照，不证明策略最新或具有防回滚能力，也不自动取得该发布者的联网身份。
+
+签名器配置是 `{executable,sha256,prefixArguments:[],environmentNames:[]}`：绝对物理
+可执行路径，执行前后核对字节摘要；只继承显式列出的环境名，并固定工程 TMPDIR。
+它从 stdin 读取上述公开签名消息，只向 stdout 返回 64 字节签名，不加换行；15 秒
+期限、64 字节输出和 4096 字节诊断上限，失败诊断不转发到日志。生产签名器须从
+平台安全存储 / 已选 agent 使用私钥，本工具不接受 privateKey / 私钥文件参数，也不
+读取 / 导出私钥。程序及其参数、脚本和动态依赖仍属于调用者的信任范围；前后摘要
+不等于进程沙箱或完整执行依赖闭包。仓库只提供一次性、内存 KeyObject 的测试 agent，
+没有生产 Keychain / Keystore signer。
+
+验证先固定 regular-file 快照，再检查完整 ZIP32 布局：stored / raw DEFLATE、连续
+成员范围、中央 / 本地头、CRC、压缩 EOF、条目数、单文件 16 MiB / 总量 64 MiB。
+目录 / 链接 / 设备、路径越界、重复 / 大小写冲突、ZIP64 / extras / data descriptor /
+注释 / 隐藏前后缀等不属于本候选容器。插件 metadata、完整性与兼容性复用原检查器；
+包入口与 lifecycle hook 不执行。可附 `--host-json`，不兼容即失败；未给事实仍为
+`compatibility=unknown`。成功始终 `installation=false` / `authorization=not-granted`。
+输出目录原子、不覆盖地发布；这不是崩溃持久性或安装 / 升级 / 回滚验收。
+
+手工专项：`python3 -B scripts/test-plugin-release.py --tools tmp/plugin-dev/tools --mutate --receipt tmp/release-receipt.json`。
+只用自有目录 / agent / 隔离源码，真实签名与公钥不写私钥文件；变异先编译 Python，再
+要求行为断言失败、独立 Core 配置绿、恢复绿及摘要。拒绝类型改变和错误接受分别记账，
+不把编译 / 崩溃 / 超时当目标红。测试后清理本轮 tmp，不增加 CI 二十份。
