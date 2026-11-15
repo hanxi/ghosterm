@@ -24,11 +24,11 @@ import java.security.MessageDigest
 class PluginTaskSSHAppTest {
     @get:Rule val ui = createAndroidComposeRule<MainActivity>()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
-    private fun fixture(): JSONObject {
+    private fun fixture(action: String? = null): JSONObject {
         val args = InstrumentationRegistry.getArguments()
         Socket("127.0.0.1", checkNotNull(args.getString("fixturePort")).toInt()).use { socket ->
             socket.soTimeout = 5000
-            socket.getOutputStream().write((checkNotNull(args.getString("fixtureToken")) + "\n").toByteArray())
+            socket.getOutputStream().write((checkNotNull(args.getString("fixtureToken")) + (action?.let { " $it" } ?: "") + "\n").toByteArray())
             val input = DataInputStream(socket.getInputStream()); val size = input.readInt()
             require(size in 1..1048576)
             return JSONObject(ByteArray(size).also(input::readFully).toString(Charsets.UTF_8))
@@ -69,8 +69,9 @@ class PluginTaskSSHAppTest {
             assertEquals(ExtensionRegistry.Status.OK, runBlocking { owner.approve(review.id, hash) })
             val target = PreparedSSH("task-target", "127.0.0.1", payload.getString("user"), ports.getInt(1), emptyList(),
                 if (jump) listOf(PreparedSSH("task-jump", "127.0.0.1", payload.getString("user"), ports.getInt(0), emptyList())) else emptyList())
-            val request = ExtensionRelayBootstrap.Request(payload.getString("gterm"), payload.getString("package"), hash, hash,
-                emptyList(), command = "task primes", arguments = listOf("--limit", limit.toString()))
+            val attachment = if (payload.has("ipcDirectory")) ExtensionRelayBootstrap.Attachment(payload.getString("ipcDirectory"), payload.getString("ipcInstance"), authorized = true) else null
+            val request = ExtensionRelayBootstrap.Request(payload.getString("gterm"), if (attachment == null) payload.getString("package") else "", hash, hash,
+                emptyList(), command = "task primes", arguments = listOf("--limit", limit.toString()), attachment = attachment)
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
             main { extensions.launch(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(), target, request, sessions) }
@@ -94,6 +95,13 @@ class PluginTaskSSHAppTest {
             if (main { extensions.activeSession?.methods } != PluginTaskModel.methods) return
             ui.onNodeWithText("允许并启动").performClick()
             await("Task Client activation") { main { extensions.activeRuntime?.info?.phase == ExtensionRuntime.Phase.ACTIVE } }
+            if (attachment != null) {
+                assertEquals(attachment, main { extensions.activeSession?.executorAttachment })
+                val observed = fixture().getJSONObject("ipcObservation"); val frontend = observed.getInt("frontendPID")
+                val attachers = observed.getJSONArray("attacherPIDs")
+                assertTrue(observed.getBoolean("frontendAlive") && observed.getBoolean("endpointRevoked") && attachers.length() > 0 &&
+                    (0 until attachers.length()).none { attachers.getInt(it) == frontend })
+            }
             val task = main { extensions.task }; assertNotNull("Native task contribution must be wired", task)
             if (task == null) return
             capturedTask = task
@@ -111,6 +119,26 @@ class PluginTaskSSHAppTest {
             } catch (failure: PluginTaskCodec.RPCFailure) { declaredFailure = failure.code == "INVALID_INPUT" && failure.effect == "none" } catch (_: Exception) { }
             assertTrue("Production Native RPC must preserve declared input failure", declaredFailure)
             if (!declaredFailure) return
+            if (scenario == "unknown") {
+                ui.onNodeWithContentDescription("返回").performClick()
+                await("Prior Native read finishes before IPC fault") { main { !task.state.value.busy } }
+                assertTrue(main { task.canCancel })
+                assertTrue(fixture("pause").getJSONObject("ipcObservation").getBoolean("paused"))
+                main { task.cancel() }
+                await("Native cancel intent is reserved without a reply") { main { task.state.value.cancelRequestID != null && task.state.value.cancellation == PluginTaskModel.Cancellation.PENDING } }
+                val id = main { task.state.value.cancelRequestID }
+                fixture("kill")
+                await("IPC loss invalidates Native task") { main { !task.state.value.valid } }
+                main { task.cancel() }
+                assertTrue(main { task.state.value.cancellation == PluginTaskModel.Cancellation.UNCONFIRMED && task.state.value.cancelRequestID == id && !task.canCancel && !task.canAutoRefresh })
+                assertFalse(main { task.state.value.snapshot?.phase == PluginTaskSnapshot.Phase.CANCELLED })
+                ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
+                ui.onNodeWithTag("plugin-task-cancel-status").performScrollTo().assertTextEquals("取消结果不明；不会重发取消请求")
+                ui.onNodeWithText("释放插件资源").performScrollTo().assertIsEnabled().performClick()
+                await("Unknown IPC owner release") { main { extensions.activeSession == null && !extensions.launchBusy } }
+                assertNull(main { extensions.error })
+                return
+            }
             if (scenario == "cancel") {
                 assertTrue(main { task.canCancel && task.state.value.snapshot?.phase == PluginTaskSnapshot.Phase.RUNNING })
                 ui.onNodeWithTag("plugin-task-cancel").performScrollTo().performClick()

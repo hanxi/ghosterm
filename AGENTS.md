@@ -1401,3 +1401,22 @@ RPC 不可复活。关闭失败保留并恢复轮询；task 关闭不取消业�
 Release / 实际 R8 与四模块 lint 通过。无新 ABI / SDK 身份或预算提高；非系统
 TalkBack / 键盘 / IME、16 KiB / 真机、真实断网重连、用户选包整链或完整客户端；
 task IPC、完整开发 / 生命周期及 P5 / P1–P6 仍未完成，不增加 CI 二十份，未发行。
+
+
+**插件 P5 前台 IPC 的 task / 多视图（2026-11-15）**：复用一次性 Attachment /
+Native 标准组件，自有后台 PTY + 独立 attacher；核对 PID、入口撤销、退出、重放拒绝
+及原 PTY 零协议字节。macOS 本机 / 直连 / 两跳十二 task + 三多视图、Android 自有
+API29 / 36 arm64、4 KiB、无窗口十六 task + 四多视图通过；未知取消注入先停前台、
+登记取消 ID 再杀同一自有进程，保持 UNCONFIRMED / 禁用 / 无重放，不声称 handler
+已收到取消。正常受控传输出口 7 / 注入 -9 不当业务成功；确认取消另由 read 回包。
+复验发现 Runtime 撤权后 disposer 误受 stopped / 旧 CPU 截止中断，现仅同步清理用
+同一 quantum 的新截止，alive / grants 仍撤销；真实 throw / 无限清理继续报错。
+新增 raw / public 四项，Runtime / views 55 项、六组隔离 Runtime 变异，正常断言红 /
+同库配置绿 / 恢复 / SHA256 通过；原两跳空任务十二次复验与 INT / TERM 清理通过。
+Native 分轮模型 / UI / APK / 输入与前置失败详见插件计划第十四批。enabled Core
+848、默认 Core 588/184、CLI 12 / stdio 17 / IPC 36 与 IPC 十六组变异、两服务各三项
+拒绝 / 两变异通过；Apple 默认宿主 599 / 22 明确跳过 / 零失败、WebKit 与 macOS
+Release，Android Debug / 测试 APK / 未签名 Release / 四模块 lint、C 格式 262、
+Apple 181/3、JNI 147/37 通过；本轮 R8 为 UP-TO-DATE。无 ABI / SDK 身份或预算
+提高；非系统辅助技术、16 KiB / 真机、真实断网重连、用户选包整链 / 完整生命周期 /
+开发 / 分发矩阵或发行结论；P5 / P1–P6 仍未完成，不增加 CI 二十份。

@@ -10,7 +10,7 @@ import XCTest
 
 /// Same official Executor over local process transport or owned direct/jump SSH.
 @MainActor final class PluginTaskRPCAppTests: XCTestCase {
-    private func fixture() throws -> [String: Any] {
+    private func fixture(action: String? = nil) throws -> [String: Any] {
         let env = ProcessInfo.processInfo.environment
         guard let port = env["GHOSTERM_TASK_PORT"].flatMap(UInt16.init), let token = env["GHOSTERM_TASK_TOKEN"],
               ExtensionRuntime.supportStatus == 0 else { throw XCTSkip("requires explicit owned Native task runner") }
@@ -24,7 +24,7 @@ import XCTest
         guard connected == 0 else { throw GhostermError.failed("owned task fixture connection") }
         var timeout = timeval(tv_sec: 5, tv_usec: 0)
         guard setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else { throw GhostermError.failed("owned task fixture timeout") }
-        let request = Data((token + "\n").utf8)
+        let request = Data((token + (action.map { " " + $0 } ?? "") + "\n").utf8)
         guard request.withUnsafeBytes({ Darwin.write(fd, $0.baseAddress, $0.count) }) == request.count else { throw GhostermError.failed("owned task fixture request") }
         func read(_ size: Int) throws -> Data {
             var data = Data(count: size), at = 0
@@ -75,9 +75,13 @@ import XCTest
         let digest = SHA256.hash(data: try Data(contentsOf: URL(fileURLWithPath: gterm))).map { String(format: "%02x", $0) }.joined()
         let local: ExtensionLocalLaunch? = route == "local" ? .init(executableSHA256: digest,
             workingDirectory: root.path, temporaryDirectory: root.appendingPathComponent("stage").path, authorized: true) : nil
+        var attachment: ExtensionRelayBootstrap.Attachment?
+        if let directory = f["ipcDirectory"] as? String {
+            attachment = .init(directory: directory, instance: try string("ipcInstance"), authorized: true)
+        }
         await model.startExtensionClient(packageID: review.id, packageDigest: review.digest, command: "task primes",
             arguments: ["--limit", String(limit)], sshAlias: "task-target", executable: gterm,
-            executorDirectory: package.path, executorDigest: review.digest, methods: [], hostMethods: [], localLaunch: local)
+            executorDirectory: attachment == nil ? package.path : "", executorDigest: review.digest, methods: [], hostMethods: [], executorAttachment: attachment, localLaunch: local)
         XCTAssertNil(model.extensionRunIssue)
         XCTAssertEqual(model.extensionRun?.requiredCapabilities, ["session.rpc", "ui.task"])
         XCTAssertEqual(model.extensionRun?.methods, PluginTaskModel.methods)
@@ -85,6 +89,14 @@ import XCTest
         await model.decideExtensionConsent(allow: true)
         try await until("Task Client Runtime did not activate: \(model.extensionRunIssue ?? "no issue")") {
             model.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+        }
+        if let attachment {
+            XCTAssertEqual(model.extensionRun?.executorAttachment, attachment)
+            let observation = try XCTUnwrap(try fixture()["ipcObservation"] as? [String: Any])
+            let frontend = try XCTUnwrap(observation["frontendPID"] as? Int)
+            let attachers = try XCTUnwrap(observation["attacherPIDs"] as? [Int])
+            XCTAssertTrue(observation["frontendAlive"] as? Bool == true && observation["endpointRevoked"] as? Bool == true &&
+                !attachers.isEmpty && !attachers.contains(frontend))
         }
         let task = try XCTUnwrap(model.extensionTask)
         await task.load()
@@ -100,7 +112,7 @@ import XCTest
         } catch { }
         XCTAssertTrue(declaredFailure)
         guard declaredFailure else { return }
-        let pane = NSHostingView(rootView: ExtensionsPane(model: model).background(Color(nsColor: .windowBackgroundColor)))
+        let pane = NSHostingView(rootView: AnyView(ExtensionsPane(model: model).background(Color(nsColor: .windowBackgroundColor))))
         pane.frame = NSRect(x: 0, y: 0, width: 1440, height: 2200)
         let window = PluginTableWindow(contentRect: pane.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = pane; TestWindows.presentOffscreen(window)
@@ -110,6 +122,28 @@ import XCTest
         let rendered = nodes.contains { PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-task-count" }
         XCTAssertTrue(rendered)
         guard rendered else { return }
+        if scenario == "unknown" {
+            // Unmount only the UI poller. The real Runtime and RPC worker keep
+            // running; an already dispatched read must finish before the pause.
+            pane.rootView = AnyView(EmptyView()); pane.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+            try await until("Prior read finishes before IPC fault") { !task.busy }
+            XCTAssertTrue(task.canCancel)
+            let paused = try fixture(action: "pause")
+            XCTAssertTrue((paused["ipcObservation"] as? [String: Any])?["paused"] as? Bool == true)
+            let pending = Task { await task.cancel() }
+            try await until("Native cancel intent is reserved without a reply") { task.cancelRequestID != nil && task.cancellation == .pending }
+            let id = task.cancelRequestID
+            _ = try fixture(action: "kill")
+            try await until("IPC loss invalidates Native task") { !task.valid }
+            await pending.value
+            await task.cancel()
+            XCTAssertTrue(task.cancellation == .unconfirmed && task.cancelRequestID == id && !task.canCancel && !task.canAutoRefresh)
+            XCTAssertFalse(task.snapshot?.phase == .cancelled)
+            await model.stopExtensionRun()
+            XCTAssertNil(model.extensionRun); XCTAssertNil(model.extensionRunIssue)
+            return
+        }
         if scenario == "cancel" {
             XCTAssertTrue(task.canCancel && task.snapshot?.phase == .running)
             let button = try XCTUnwrap(nodes.first { PluginTableRendering.attribute($0, "accessibilityIdentifier") == "plugin-task-cancel" })

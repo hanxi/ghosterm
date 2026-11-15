@@ -5,6 +5,7 @@ No user AVD, account, endpoint, filesystem tree or foreground window is used.
 Mutations require a compiled ordinary assertion, same-APK Core control and restore.
 """
 import argparse
+from contextlib import ExitStack
 import base64
 import hashlib
 import importlib.util
@@ -52,6 +53,7 @@ def main():
     parser.add_argument('--api', action='append', choices=('29', '36'))
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--case', action='append', help='select mutation groups (baseline and SSH still run)')
+    parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Portable foreground IPC instance')
     args = parser.parse_args()
     build, package, receipt = args.build.resolve(strict=True), args.package.resolve(strict=True), args.receipt.resolve()
     for path in (build, package, receipt):
@@ -70,6 +72,8 @@ def main():
         inputs[name] = sha(ROOT / name)
     if any(b'GT_ANDROID_TASK_MUTATION' in (ROOT / n).read_bytes() for n in inputs if n.endswith('.kt')):
         raise RuntimeError('leftover Native task mutation')
+    inputs['scripts/fixtures/plugin-native-ipc.py'] = sha(ROOT / 'scripts/fixtures/plugin-native-ipc.py')
+    ipc = load('native_ipc', 'scripts/fixtures/plugin-native-ipc.py')
     package_hashes = {p.relative_to(package).as_posix(): sha(p) for p in package.rglob('*') if p.is_file()}
     binaries = {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a')}
     receipt.parent.mkdir(parents=True, exist_ok=True)
@@ -89,7 +93,7 @@ def main():
         for folder in ('core', 'vendor', 'build', 'assets', 'packages', 'scripts', 'patches', 'runtime-payload'):
             (source / folder).symlink_to(ROOT / folder, target_is_directory=True)
         (source / 'tmp').mkdir()
-        env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + str(ROOT / 'tmp'),
+        env = dict(os.environ, TMPDIR=str(ROOT / 'tmp'), JAVA_TOOL_OPTIONS='-Djava.io.tmpdir=' + str(ROOT / 'tmp') + ' -Djava.awt.headless=true',
             JAVA_HOME=str(ROOT / 'build/android-toolchain/jdk-17.0.21+9/Contents/Home'),
             ANDROID_HOME=str(ROOT / 'build/android-toolchain/sdk'),
             GRADLE_USER_HOME=str(ROOT / 'build/android-toolchain/gradle-home'))
@@ -125,6 +129,7 @@ def main():
         baseline = compile_apks('build-baseline')
 
         scenarios = {'complete': 10000, 'empty': 0, 'cancel': 1000000}
+        if args.attach: scenarios['unknown'] = 1000000
         private, public = streams.memory_identity()
         with keys.owned_agent(work, 'agent') as agent:
             host_keys = [keys.add_memory_key(agent, 'android-task-' + str(i)) for i in range(2)]
@@ -189,27 +194,35 @@ def main():
                                         raise RuntimeError('Actual reverse mapping taskers')
                                     return device
                                 raise RuntimeError('No free owned device listener')
-                            class Handler(socketserver.StreamRequestHandler):
-                                def handle(self):
-                                    self.connection.settimeout(5)
-                                    if self.rfile.readline(128).rstrip(b'\n') != token.encode(): return
-                                    data = json.dumps(payload, separators=(',', ':')).encode()
-                                    self.wfile.write(struct.pack('>I', len(data)) + data)
-                            try:
-                                with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
-                                    first = 0 if route == 'jump' else 1
-                                    payload['ports'][first] = reverse(ports[first])
-                                    fixture_port = reverse(server.server_address[1])
-                                    thread = threading.Thread(target=server.serve_forever); thread.start()
-                                    try: test(label, ACTUAL, 1, red, ['-e', 'fixturePort', fixture_port, '-e', 'fixtureToken', token])
-                                    finally: server.shutdown(); thread.join(5)
-                                    if thread.is_alive(): raise RuntimeError('Owned fixture service did not stop')
-                            finally:
-                                for device in mappings: run(label + '-remove-' + str(device), [*adb, 'reverse', '--remove', f'tcp:{device}'])
-                            if not red: records.append(dict(api=api, route=route, scenario=scenario, limit=limit))
+                            with ExitStack() as attached:
+                                frontend = attached.enter_context(ipc.foreground(build / 'gterm', package, 'task', ['--limit', str(limit)], env)) if args.attach else None
+                                if frontend: payload.update(ipcDirectory=str(frontend.endpoint), ipcInstance=frontend.instance)
+                                class Handler(socketserver.StreamRequestHandler):
+                                    def handle(self):
+                                        self.connection.settimeout(5)
+                                        request = self.rfile.readline(128).rstrip(b'\n').split(b' ')
+                                        if request[0] != token.encode() or len(request) > 2: return
+                                        if len(request) == 2:
+                                            if frontend is None: return
+                                            frontend.control(request[1].decode('ascii'))
+                                        data = json.dumps(dict(payload, ipcObservation=frontend.observation()) if frontend else payload, separators=(',', ':')).encode()
+                                        self.wfile.write(struct.pack('>I', len(data)) + data)
+                                try:
+                                    with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
+                                        first = 0 if route == 'jump' else 1
+                                        payload['ports'][first] = reverse(ports[first])
+                                        fixture_port = reverse(server.server_address[1])
+                                        thread = threading.Thread(target=server.serve_forever); thread.start()
+                                        try: test(label, ACTUAL, 1, red, ['-e', 'fixturePort', fixture_port, '-e', 'fixtureToken', token])
+                                        finally: server.shutdown(); thread.join(5)
+                                        if thread.is_alive(): raise RuntimeError('Owned fixture service did not stop')
+                                finally:
+                                    for device in mappings: run(label + '-remove-' + str(device), [*adb, 'reverse', '--remove', f'tcp:{device}'])
+                                if not red: records.append(dict(api=api, route=route, scenario=scenario, limit=limit))
+                                if frontend and not red: records[-1]['ipc'] = frontend.finish()
 
                         for route in ('direct', 'jump'):
-                            for scenario in ('complete', 'empty', 'cancel'):
+                            for scenario in scenarios:
                                 actual('api' + api + '-' + route + '-' + scenario, route, scenario)
                                 print('PASS API' + api + ': actual Native ' + route + ' ' + scenario, flush=True)
                         cases = [
@@ -259,7 +272,7 @@ def main():
         if any(sha(ROOT / n) != h for n, h in inputs.items()): raise RuntimeError('Root input changed')
         if package_hashes != {p.relative_to(package).as_posix(): sha(p) for p in package.rglob('*') if p.is_file()}: raise RuntimeError('Package changed')
         if binaries != {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a')}: raise RuntimeError('Shared binary changed')
-        receipt.write_text(json.dumps(dict(accepted=True, inputs=inputs, package=package_hashes, binaries=binaries,
+        receipt.write_text(json.dumps(dict(accepted=True, foregroundAttachment=args.attach, inputs=inputs, package=package_hashes, binaries=binaries,
             baselineAPKs=baseline, devices=devices, groups=groups, actual=records, commands=commands,
             scope='Native Android/arm64/owned no-window AVDs; macOS loopback SSH Executor; not physical devices, full client or release'), indent=2) + '\n')
     print('ANDROID NATIVE TASK PASS', flush=True)

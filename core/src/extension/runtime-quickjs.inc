@@ -83,7 +83,7 @@ struct gt_bridge_runtime {
     uint32_t cpu_ms, jobs_per_step, activation_ms;
     gt_runtime_info_t info;
     bool started, rejected, interrupted, memory_failed;
-    bool process_stopping, process_killed, dispose_called;
+    bool process_stopping, process_killed, dispose_called, disposing;
     size_t heap_used, heap_limit;
 };
 
@@ -194,7 +194,7 @@ static int runtime_interrupt(JSContext *ctx, void *opaque) {
     (void)ctx;
     gt_bridge_runtime_t *r = opaque;
     uint64_t now;
-    if (atomic_load_explicit(&r->stopped, memory_order_relaxed)) {
+    if (atomic_load_explicit(&r->stopped, memory_order_relaxed) && !r->disposing) {
         r->interrupted = true;
         return 1;
     }
@@ -2025,7 +2025,19 @@ gt_ext_close_t gt__bridge_runtime_close(gt_bridge_runtime_t *r) {
         }
     }
     if (!r->dispose_called && r->context && JS_IsFunction(r->context, r->dispose)) {
+        uint64_t dispose_cpu_now;
+        if (!runtime_cpu_now(&dispose_cpu_now)) {
+            r->info.cleanup_error = GT_ERR_IO;
+            return GT_EXT_CLOSE_ERROR;
+        }
+        /* Grants and alive() remain revoked. Only this synchronous cleanup
+         * call ignores stop, with a fresh copy of the same configured CPU
+         * quantum; an unbounded disposer must still be interrupted. */
+        r->deadline = dispose_cpu_now + r->cpu_ms;
+        r->interrupted = false;
+        r->disposing = true;
         JSValue v = JS_Call(r->context, r->dispose, JS_UNDEFINED, 0, NULL);
+        r->disposing = false;
         if (JS_IsException(v)) {
             JSValue error = JS_GetException(r->context);
             JS_FreeValue(r->context, error);

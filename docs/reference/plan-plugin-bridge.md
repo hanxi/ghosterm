@@ -7381,3 +7381,141 @@ Core 源码或 Swift 产品修改，没有新 enabled Core 全套 / macOS 构建
 结束后清理本轮 **92 个 tmp 项，逻辑大小约 64.2 MiB**；仅保留原三份
 eq 输入，各 SHA256 未变。自有 AVD / 测试 / worker / SSH / agent 全部退出，所有
 设备均无窗口；未操作旧 Java 或其它用户应用 / 服务。本批仅本地提交，未推送 / 发行。
+
+### P5 实施第十四批：Portable 前台 IPC 的 task / 多视图与有界清理（2026-11-15）
+
+本批复用已有一次性 IPC / Attachment / Session / Native 标准组件，不另起业务专属
+传输或新 ABI。自有后台 PTY 中先启动准确配置的 Portable gterm --listen，再由
+本机进程或已认证 SSH 直连 / 两跳中的独立 attacher 连接；Client / Executor 摘要、
+完整调用、RPC 方法与 Client 服务沿用前台配置，Native consent 不省略。私有 permit
+留在原 0600 文件，不复制到 payload / 日志 / TTY；只有公开 instance 进入测试。
+
+共享夹具核对前台与 attacher 不同 PID、接入后立即撤销入口、最终前台退出、旧 ID
+重放拒绝及原 PTY 零协议字节。task 增加真实 unknown 场景：卸载 UI 轮询，观察自有
+前台确已 SIGSTOP 后在生产模型保留取消 ID，再 SIGKILL 同一自有进程，验证控件
+失效和未确认取消不重放。不据此宣称请求已到达业务 handler，不把故障进程退出
+当业务取消成功；确认取消由另一个场景的 read / cancelled 回包证明。SIGKILL 为
+明确故障注入，单独记账，不计普通变异目标红。
+
+前置 macOS task 本机 / 直连 / 两跳 × 完成 / 空 / 取消 / unknown 十二场景通过后，
+复验两跳空任务发现 Native 业务断言已通过、前台最终却为 5，整轮未记绿。补 stderr
+诊断后再次复现：runtime phase=3 / error=6、Session LOST / IO、cleanup=0，最终
+stage=owner cleanup。追到共享 Runtime close：先撤权并置 stopped，再调用 JS
+wrapper dispose；原中断器把 stopped 无条件视作打断，且沿用旧 pump 的 CPU 截止。
+因此正常有限清理可能随 QuickJS 中断计数位置报 dispose_error，CLI 如实拒绝成功。
+
+修正为只在同步 disposer 调用期间标记 disposing，为它从当前线程 CPU 时间建立
+同一已配置 quantum 的新截止；不扩大数值、不复活 alive() 或 lease，业务请求和
+普通 pump 仍受 stopped 约束。用户 disposer 抛错 / 无限循环继续记 dispose_error，
+资源 / engine / fd 释放仍独立核验。CLI 清理失败另打印 observed / destroy /
+dispose-error / cleanup 数值，禁止隐藏真正清理错误或把 5 放宽当正常退出。
+
+新增 raw / public 两档 dispose-work 与 dispose-fresh-budget 四项：强制解释器跨
+中断检查点的有限工作，且始终只能看到 revoked；后者在 C 侧耗尽旧线程 CPU 截止后
+才关闭，必须独立给同一 quantum。原无限 dispose、真实 throw、能力撤销、stop 与
+CPU 判据保留。旧 Runtime verifier 首轮遗漏 views 的十五用例而发现集合拒绝通过，
+现同时加入完整预期集合、构建 / 重编 / 对象 / 链接和执行，不删断言或排除未构建
+测试换绿。前置发现失败未计测试通过。
+
+Core 手工 Runtime verifier 的 **55 项 raw Runtime / views 基线与最终恢复**、四项
+CPU clock、包 / process 专项与依赖负向守卫通过。六组隔离变异同轮通过：新增
+**dispose-stop / dispose-fresh-budget**，既有 **cpu-budget / stop-signal /
+engine-release / handoff-revoke**；每组真实 C 对象 / archive / 可执行变化、正常
+断言红、同 archive 配置绿、恢复绿 / SHA256。RelWithDebInfo + ASan / UBSan，
+LeakSanitizer 关闭。**258 份输入**与当前相关源码一致，收据 SHA256：
+`eb1dab74a39df7a1aa1a639af7aee37b61b508ce6742bf1a632c663100f54542`。
+命令：`python3 scripts/test-plugin-runtime.py --mutate --case dispose-stop --case dispose-fresh-budget --case cpu-budget --case stop-signal --case engine-release --case handoff-revoke`。
+另有显式 JS-enabled Core 的 **14 项 raw / public 定向**通过，含两个新 cleanup 场景
+的 raw / public 四项、原无限 disposer / throw / capabilities / stop / CPU；不借它
+当全量 Core、平台或完整生命周期证据。
+
+修复后先对原两跳空任务 **十二次连续重放**，Native 业务断言与前台清理均通过，
+未再返回 owner cleanup 5；280 输入一致，收据：
+`e2b35eb7d7a2862d5fd5774368c7c7b2cc8d0cec3ec1587da352992ebdb53bfd`。
+随后 macOS **task 十二场景**（本机 / 直连 / 两跳 × 完成 / 空 / 确认取消 / 未确认
+取消后断流）及 **多视图三路线**完整通过：仍使用屏幕外透明的原 Native 组件与
+生产审阅 / 启动 / 授权 / RPC 门面，不当完整选包点击链。原 task 26 项与 table /
+diff 各十五项，多视图十九项 / 两服务 profile 检查及旧组件回归分别通过，零跳过。
+task 280 输入 / 收据
+`6976650396940272c0aa2a9ebdf1303fea80cd13484c68f58e75ebf7e75d0754`；
+多视图 418 输入 / 收据
+`55bb08acf45de51624c89a8a12e999e07c291b57f420b6ebdfd8ebe4303148f3`，均与相关源码一致。
+
+正常业务完成 / 取消后由 Native 停止 Runtime，受控前台的实际传输出口为 **7**；
+断流注入为 **-9**，不是业务结果字段。前台与 attacher PID 独立、一次性入口在
+ACTIVE 时已撤销；全部场景分别核对端点回收、旧 instance 重放返回 5、原 PTY
+零协议字节。未知场景没有确认取消、没有重新发送，已确认取消另由真实 read 回包
+证明。没有把 7 / -9、EOF 或前台进程死亡写成业务成功或正常变异目标红。
+
+Android 前置夹具失败另记：unknown 分支最初在插件详情寻找只属于设置首页的
+APPEARANCE 分类节点，未走真实返回；修为「返回」卸载轮询后，模型的取消 ID /
+UNCONFIRMED / 禁用均通过，但 assertTextContains 默认整串匹配导致短语断言失败。
+语义节点原文实际已为「取消结果不明；不会重发取消请求」，改为完整文案精确断言
+再复验。两轮均未计完整设备绿或普通变异目标红，产品代码没有为此放宽。
+
+Android task 在自有 **API29 / 36、arm64、4 KiB 页、-no-window** 完整通过：各三十三
+模型 / codec / UI、旧 table 二十三 / diff 二十七项分轮，随后各直连 / 两跳 ×
+完成 / 空 / 确认取消 / unknown 八场景，共 **十六个真实 IPC 业务场景**。unknown
+返回后实际文案和释放按钮通过；正常前台出口各为 7，故障注入各为 -9，仍不拿
+进程出口当业务成功。前台与 attacher 独立 PID、一次性回收 / 重放拒绝、原 PTY
+零协议字节逐项通过。
+
+**577 输入**与当前相关源码一致，收据 SHA256：
+`d56435eaccc6f6af1245d21336812e3b51bdf7852ee283d5a8dadefc988965ab`。
+该 task 分轮的初始 / 两设备最终生产 APK 均为
+`3762f0286a3f4d3e9809de6ee4128256a0356006ea24b811b0818f35071d690d`，
+测试 APK 均为 `0232a8501ce6774cad6da8499fd73b13107126de3b221aba61f2e0c57dde2ad5`；
+实际安装字节逐一对拍，不借该分轮代表后续独立构件。
+
+新 IPC conformance runner 的实际中断清理另做 **INT / TERM 两项**：只有在观察到
+根 runner、自有前台与 attacher 均活跃时才发信号；根进程非零，观察过的自有 PID
+身份退出，私有端点目录删除，不触碰其它进程。此为真实中断 / 清理证据，不计
+普通变异目标红。手工收据 SHA256：
+`226926bae09927537449526408dbda619e64d92ab2337892e1e2b3df12978d46`。
+
+Android 多视图另在相同 **API29 / 36、arm64、4 KiB 页、-no-window** 两档各通过
+二十七新模型 / Compose、旧 table 二十三 / diff 二十七 / task 三十三项分轮；
+各实际直连 / 两跳共 **四场景**，四组件分页、Native 关闭 / Client 新句柄重开、
+任务明确取消及停止 / 释放通过，前台出口均记录为 7，端点回收 / 重放拒绝 / PTY
+零协议字节另验。**577 输入**一致，收据：
+`ab5d625de494cd010ae909b07ad377280ed07b26899a07644f08f8f6207f62b8`。
+该分轮初始 / 两设备最终生产 APK 均为
+`7fc3150795eae699fabcd9c9ae8d6382f05a42f71ff60bbf2331f098237afbed`，测试 APK
+仍为 `0232a8501ce6774cad6da8499fd73b13107126de3b221aba61f2e0c57dde2ad5`。
+与 task 分轮分别记录，不冒充同一生产 APK 的一次整矩阵。
+
+此批合计实际 Native IPC 主矩阵为 macOS 12 task + 3 多视图、Android 16 task +
+4 多视图，另有原失败路线的十二次重放与独立 INT / TERM。macOS 为屏幕外透明
+窗口，Android 全为自有无窗口 AVD；前台 PTY 不代表新增 TerminalSurface / tmux /
+硬件键盘 / 焦点证据。无真实用户主机、模型、账户、外部资源或发行访问；完整
+系统辅助技术、设备 / 16 KiB / 真实断网重连、完整用户选包与开发 / 生命周期 /
+分发矩阵仍待完成，P5 / P1–P6 不勾选，不增加 macOS CI 二十份。
+
+最终补跑显式 JS-enabled Core **848/848 CTest**、CLI 十二项、stdio 十七项、一次性
+IPC 三十六项与完整 **十六组 IPC 变异**通过；后者仍为真实 CLI ASan / UBSan，
+固定 Core archive 不变，编译后正常断言红、同库配置绿、恢复绿 / SHA256。
+ui.task / ui.views 的 CLI Client 服务各三项真实拒绝和两组变异分别通过；输入摘要
+与当前源码重新逐项核对。IPC 141 输入 / 收据
+`c32e4593a2b9e06172337caaf62408c88f2307903b316cf4ed39e91fb0b77556`；
+task / views 各 28 输入 / 收据分别为
+`9446cf57ebc8e9204a55d5132108ecb235762928264771c9e31bc81cafc6a806` /
+`e321e26b4dc6cf0257ad3d101aa1abef3505bb3dc488b8d2c0441c00f89c5b91`。
+默认离线 Core **JS-off / tests-on：588/588 CTest、184 ABI** 另通过，未用实验
+JS-enabled 构建替换默认配置。前述 Native / Runtime 八份相关输入集合再次核对一致。
+
+最终 Apple 默认宿主 gate **599 项 / 22 明确跳过 / 零失败**，真实隔离 WebKit CSS /
+PNG 绘制通过；macOS arm64 **Swift 6.4 Release** 通过。Android 根工程 JS-enabled
+Debug / 测试 APK、未签名 Release 与 app / bridge / data / terminal 四模块 Release
+lint 通过：326 任务，47 执行、279 up-to-date；本轮 `minifyReleaseWithR8` 为
+**UP-TO-DATE**，不说重新执行 R8。最终未签名 Release **9,913,016 字节**，SHA256
+`d8891fe38d1c3ac0c19d0799a77767201b6a5e9140ac1fa779a896627558cf1b`；包内明确
+记录 `3aeb13b1` / dirty，不把最终根构件当上文分轮设备 APK 或云端 clean 包。
+C 格式 **19.1.7 / 262 文件**、Apple **181 引用 / 3 登记未用**、JNI **147 / 37**、
+Python 语法与 diff 检查通过。无公共 ABI / SDK 身份变化，Runtime 预算数值未提高。
+
+旧 CI `43346407706` 的 macOS 编译问题独立复核：同环境后续日志定位的两处
+Swift 6.1.2 类型推导超时已由 `3f26c79f` / `79a87049` 修复；[修复后 dev CI](https://github.com/hanxi/ghosterm/actions/runs/43411785149)
+与[后续 dev CI](https://github.com/hanxi/ghosterm/actions/runs/43673452791) 均为 success。
+此为既有提交的云端结果，不能冒充本批未提交源码的新云端验证。
+
+结束后清理本轮 **645 个 tmp 项，逻辑大小约 341.4 MiB**；仅保留原三份 eq 输入且 SHA256 未变。自有 AVD / 测试 / 前台 / attacher / SSH / agent 已退出；未操作旧 Java 或用户服务。所有自动测试保持后台，本批仅本地提交，未推送 / 发行。

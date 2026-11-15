@@ -5,6 +5,7 @@ No user AVD, account, endpoint, filesystem tree or foreground window is used.
 Mutations require a compiled ordinary assertion, same-APK Core control and restore.
 """
 import argparse
+from contextlib import ExitStack
 import base64
 import hashlib
 import importlib.util
@@ -69,6 +70,7 @@ def main():
     parser.add_argument('--api', action='append', choices=('29', '36'))
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--case', action='append', help='select mutation groups (baseline and SSH still run)')
+    parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Portable foreground IPC instance')
     args = parser.parse_args()
     build, package, receipt = args.build.resolve(strict=True), args.package.resolve(strict=True), args.receipt.resolve()
     for path in (build, package, receipt):
@@ -89,6 +91,8 @@ def main():
         raise RuntimeError('leftover Native views mutation')
     for label, filename, old, _new, _test in CASES:
         if (ROOT / filename).read_text().count(old) != 1: raise RuntimeError('Ambiguous root mutation: ' + label)
+    inputs['scripts/fixtures/plugin-native-ipc.py'] = sha(ROOT / 'scripts/fixtures/plugin-native-ipc.py')
+    ipc = load('native_ipc', 'scripts/fixtures/plugin-native-ipc.py')
     package_hashes = {p.relative_to(package).as_posix(): sha(p) for p in package.rglob('*') if p.is_file()}
     binaries = {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a')}
     receipt.parent.mkdir(parents=True, exist_ok=True)
@@ -209,24 +213,32 @@ def main():
                                         raise RuntimeError('Actual reverse mapping views')
                                     return device
                                 raise RuntimeError('No free owned device listener')
-                            class Handler(socketserver.StreamRequestHandler):
-                                def handle(self):
-                                    self.connection.settimeout(5)
-                                    if self.rfile.readline(128).rstrip(b'\n') != token.encode(): return
-                                    data = json.dumps(payload, separators=(',', ':')).encode()
-                                    self.wfile.write(struct.pack('>I', len(data)) + data)
-                            try:
-                                with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
-                                    first = 0 if route == 'jump' else 1
-                                    payload['ports'][first] = reverse(ports[first])
-                                    fixture_port = reverse(server.server_address[1])
-                                    thread = threading.Thread(target=server.serve_forever); thread.start()
-                                    try: test(label, ACTUAL, 1, red, ['-e', 'fixturePort', fixture_port, '-e', 'fixtureToken', token])
-                                    finally: server.shutdown(); thread.join(5)
-                                    if thread.is_alive(): raise RuntimeError('Owned fixture service did not stop')
-                            finally:
-                                for device in mappings: run(label + '-remove-' + str(device), [*adb, 'reverse', '--remove', f'tcp:{device}'])
-                            if not red: records.append(dict(api=api, route=route, scenario=scenario, limit=limit))
+                            with ExitStack() as attached:
+                                frontend = attached.enter_context(ipc.foreground(build / 'gterm', package, 'views', [], env)) if args.attach else None
+                                if frontend: payload.update(ipcDirectory=str(frontend.endpoint), ipcInstance=frontend.instance)
+                                class Handler(socketserver.StreamRequestHandler):
+                                    def handle(self):
+                                        self.connection.settimeout(5)
+                                        request = self.rfile.readline(128).rstrip(b'\n').split(b' ')
+                                        if request[0] != token.encode() or len(request) > 2: return
+                                        if len(request) == 2:
+                                            if frontend is None: return
+                                            frontend.control(request[1].decode('ascii'))
+                                        data = json.dumps(dict(payload, ipcObservation=frontend.observation()) if frontend else payload, separators=(',', ':')).encode()
+                                        self.wfile.write(struct.pack('>I', len(data)) + data)
+                                try:
+                                    with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
+                                        first = 0 if route == 'jump' else 1
+                                        payload['ports'][first] = reverse(ports[first])
+                                        fixture_port = reverse(server.server_address[1])
+                                        thread = threading.Thread(target=server.serve_forever); thread.start()
+                                        try: test(label, ACTUAL, 1, red, ['-e', 'fixturePort', fixture_port, '-e', 'fixtureToken', token])
+                                        finally: server.shutdown(); thread.join(5)
+                                        if thread.is_alive(): raise RuntimeError('Owned fixture service did not stop')
+                                finally:
+                                    for device in mappings: run(label + '-remove-' + str(device), [*adb, 'reverse', '--remove', f'tcp:{device}'])
+                                if not red: records.append(dict(api=api, route=route, scenario=scenario, limit=limit))
+                                if frontend and not red: records[-1]['ipc'] = frontend.finish()
 
                         for route in ('direct', 'jump'):
                             for scenario in scenarios:
@@ -263,7 +275,7 @@ def main():
         if binaries != {'gterm': sha(build / 'gterm'), 'core': sha(build / 'core/libghosterm_core.a')}: raise RuntimeError('Shared binary changed')
         for log in logs.glob('*.log'):
             if b'PRIVATE KEY-----' in log.read_bytes(): raise RuntimeError('Private fixture leaked to a log')
-        receipt.write_text(json.dumps(dict(accepted=True, inputs=inputs, package=package_hashes, binaries=binaries,
+        receipt.write_text(json.dumps(dict(accepted=True, foregroundAttachment=args.attach, inputs=inputs, package=package_hashes, binaries=binaries,
             baselineAPKs=baseline, devices=devices, groups=groups, actual=records, commands=commands,
             scope='Native Android/arm64/owned no-window AVDs; macOS loopback SSH Executor; not physical devices, full client or release'), indent=2) + '\n')
     print('ANDROID NATIVE VIEWS PASS', flush=True)

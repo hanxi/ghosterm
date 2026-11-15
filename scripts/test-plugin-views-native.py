@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Copied macOS Native view registry, actual owned routes and assertion mutants."""
 import argparse
+from contextlib import ExitStack
 import hashlib
 import importlib.util
 import json
@@ -37,6 +38,7 @@ def main():
     parser.add_argument('--build', type=Path, required=True); parser.add_argument('--package', type=Path, required=True)
     parser.add_argument('--receipt', type=Path, required=True); parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--route', choices=['local', 'direct', 'jump'], action='append')
+    parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Portable foreground IPC instance')
     args = parser.parse_args(); build, package = args.build.resolve(), args.package.resolve()
     for p in [build, package, args.receipt.resolve()]: assert p.is_relative_to(ROOT / 'tmp')
     cache = (build / 'CMakeCache.txt').read_text()
@@ -45,6 +47,8 @@ def main():
               for p in (ROOT / directory).rglob('*') if p.is_file() and not any(x in ('.build', '.swiftpm') for x in p.parts)}
     for name in ['scripts/test-plugin-views-native.py', 'scripts/test-plugin-ssh.py', 'scripts/test-plugin-ssh-stream.py', 'scripts/test-plugin-route.py', 'scripts/lib/gt-timeout.sh']:
         inputs[name] = sha(ROOT / name)
+    inputs['scripts/fixtures/plugin-native-ipc.py'] = sha(ROOT / 'scripts/fixtures/plugin-native-ipc.py')
+    ipc = load('native_ipc', 'scripts/fixtures/plugin-native-ipc.py')
     cases = [
         ('instance', MODEL, 'snapshot.instance == instance, snapshot.epoch == epoch', 'snapshot.instance != "", snapshot.epoch == epoch', 'testWrongInstanceClearsViews'),
         ('epoch', MODEL, 'snapshot.epoch == epoch', 'snapshot.epoch != ""', 'testWrongEpochClearsViews'),
@@ -110,21 +114,28 @@ def main():
                     scratch = work / route; scratch.mkdir(); (scratch / 'stage').mkdir()
                     token = secrets.token_hex(24)
                     payload = dict(route=route, scratch=str(scratch), package=str(package), gterm=str(build / 'gterm'), ports=ports, hostKeys=[k.decode() for k in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode())
-                    class Handler(socketserver.StreamRequestHandler):
-                        def handle(self):
-                            self.connection.settimeout(5)
-                            if self.rfile.readline(128).rstrip(b'\n') != token.encode(): return
-                            data = json.dumps(payload).encode(); self.wfile.write(struct.pack('>I', len(data)) + data)
-                    with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
-                        thread = threading.Thread(target=server.serve_forever); thread.start()
-                        env.update(GHOSTERM_VIEWS_PORT=str(server.server_address[1]), GHOSTERM_VIEWS_TOKEN=token)
-                        try: test('actual-' + route, 'PluginViewsRPCAppTests.testRegisteredViewsThroughNativeAppModel')
-                        finally: server.shutdown(); thread.join(5)
-                    assert not thread.is_alive(); actual.append(route)
+                    with ExitStack() as attached:
+                        frontend = attached.enter_context(ipc.foreground(build / 'gterm', package, 'views', [], env)) if args.attach else None
+                        if frontend: payload.update(ipcDirectory=str(frontend.endpoint), ipcInstance=frontend.instance)
+                        class Handler(socketserver.StreamRequestHandler):
+                            def handle(self):
+                                self.connection.settimeout(5)
+                                request = self.rfile.readline(128).rstrip(b'\n').split(b' ')
+                                if request[0] != token.encode() or len(request) > 2: return
+                                if len(request) == 2:
+                                    if frontend is None: return
+                                    frontend.control(request[1].decode('ascii'))
+                                data = json.dumps(dict(payload, ipcObservation=frontend.observation()) if frontend else payload).encode(); self.wfile.write(struct.pack('>I', len(data)) + data)
+                        with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
+                            thread = threading.Thread(target=server.serve_forever); thread.start()
+                            env.update(GHOSTERM_VIEWS_PORT=str(server.server_address[1]), GHOSTERM_VIEWS_TOKEN=token)
+                            try: test('actual-' + route, 'PluginViewsRPCAppTests.testRegisteredViewsThroughNativeAppModel')
+                            finally: server.shutdown(); thread.join(5)
+                        assert not thread.is_alive(); actual.append(dict(route=route, ipc=frontend.finish()) if frontend else route)
         test('restored', 'PluginViewsTests', 19)
         assert all(sha(ROOT / name) == value for name, value in inputs.items())
         for file in logs.glob('*.log'): assert b'PRIVATE KEY-----' not in file.read_bytes()
-        args.receipt.write_text(json.dumps(dict(inputs=inputs, commands=commands, mutations=groups, actual=actual,
+        args.receipt.write_text(json.dumps(dict(foregroundAttachment=args.attach, inputs=inputs, commands=commands, mutations=groups, actual=actual,
             gtermSHA256=sha(build / 'gterm'), package={str(p.relative_to(package)): sha(p) for p in package.rglob('*') if p.is_file()},
             scope='macOS Native registrations/models, actual local/direct/jump and offscreen controls; no Android, OS VoiceOver, full user import flow or release'), indent=2) + '\n')
 

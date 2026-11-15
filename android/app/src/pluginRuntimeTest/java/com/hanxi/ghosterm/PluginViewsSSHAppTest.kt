@@ -75,8 +75,9 @@ class PluginViewsSSHAppTest {
             val target = PreparedSSH("views-target", "127.0.0.1", payload.getString("user"), ports.getInt(1), emptyList(),
                 if (jump) listOf(PreparedSSH("views-jump", "127.0.0.1", payload.getString("user"), ports.getInt(0), emptyList())) else emptyList())
             val methods = listOf("alpha.describe", "alpha.page", "beta.describe", "beta.page", "changes.describe", "changes.page", "work.describe", "work.read", "work.cancel", "views.reopen")
-            val request = ExtensionRelayBootstrap.Request(payload.getString("gterm"), payload.getString("package"), hash, hash,
-                methods, command = "views demo", hostMethods = listOf("views.client.open"))
+            val attachment = if (payload.has("ipcDirectory")) ExtensionRelayBootstrap.Attachment(payload.getString("ipcDirectory"), payload.getString("ipcInstance"), authorized = true) else null
+            val request = ExtensionRelayBootstrap.Request(payload.getString("gterm"), if (attachment == null) payload.getString("package") else "", hash, hash,
+                methods, command = "views demo", hostMethods = listOf("views.client.open"), attachment = attachment)
             ui.onNodeWithContentDescription("设置").performClick()
             ui.onNodeWithTag("settings-section-PLUGINS").performScrollTo().performClick()
             main { extensions.launch(ExtensionPackagesViewModel.Entry(review, "已批准（本进程）"), review.commands.single(), target, request, sessions) }
@@ -99,6 +100,13 @@ class PluginViewsSSHAppTest {
             ui.onNodeWithText("允许并启动").performClick()
             await("Client activation reaches an observed phase") { main { extensions.activeRuntime?.info?.phase?.let {
                 it !in setOf(ExtensionRuntime.Phase.CREATED, ExtensionRuntime.Phase.STARTING) } == true } }
+            if (attachment != null) {
+                assertEquals(attachment, main { extensions.activeSession?.executorAttachment })
+                val observed = fixture().getJSONObject("ipcObservation"); val frontend = observed.getInt("frontendPID")
+                val attachers = observed.getJSONArray("attacherPIDs")
+                assertTrue(observed.getBoolean("frontendAlive") && observed.getBoolean("endpointRevoked") && attachers.length() > 0 &&
+                    (0 until attachers.length()).none { attachers.getInt(it) == frontend })
+            }
             val views = main { extensions.registeredViews }
             assertNotNull("Native multi-view registration must be enabled before activation", views); if (views == null) return
             captured = views

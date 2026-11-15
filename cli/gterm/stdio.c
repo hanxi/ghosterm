@@ -149,14 +149,20 @@ static bool close_owners(gt_ext_runtime_t **runtime,
             }
             idle();
         }
-        gt_ext_runtime_info_t info;
+        gt_ext_runtime_info_t info = {0};
         bool observed = gt_ext_runtime_info(*runtime, &info);
         if (observed && info.external_process && info.group_signal_error) {
             fprintf(
                 stderr, "gterm: exited process group signal errno=%d\n", info.group_signal_error);
         }
-        if (gt_ext_runtime_destroy(runtime) != GT_OK || !observed || info.dispose_error ||
-            info.cleanup_error != GT_OK) {
+        gt_status_t destroyed = gt_ext_runtime_destroy(runtime);
+        if (destroyed != GT_OK || !observed || info.dispose_error || info.cleanup_error != GT_OK) {
+            fprintf(stderr,
+                    "gterm: runtime cleanup observed=%u destroy=%d dispose-error=%u cleanup=%d\n",
+                    observed ? 1u : 0u,
+                    (int)destroyed,
+                    info.dispose_error ? 1u : 0u,
+                    (int)info.cleanup_error);
             ok = false;
         }
     }

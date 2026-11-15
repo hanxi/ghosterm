@@ -71,13 +71,25 @@ import XCTest
         let launch: ExtensionLocalLaunch? = route == "local" ? .init(executableSHA256: digest, workingDirectory: root.path,
             temporaryDirectory: root.appendingPathComponent("stage").path, authorized: true) : nil
         let methods = ["alpha.describe", "alpha.page", "beta.describe", "beta.page", "changes.describe", "changes.page", "work.describe", "work.read", "work.cancel", "views.reopen"]
+        var attachment: ExtensionRelayBootstrap.Attachment?
+        if let directory = f["ipcDirectory"] as? String {
+            attachment = .init(directory: directory, instance: try string("ipcInstance"), authorized: true)
+        }
         await app.startExtensionClient(packageID: review.id, packageDigest: review.digest, command: "views demo", arguments: [], sshAlias: "view-target",
-            executable: gterm, executorDirectory: package.path, executorDigest: review.digest, methods: methods, hostMethods: ["views.client.open"], localLaunch: launch)
+            executable: gterm, executorDirectory: attachment == nil ? package.path : "", executorDigest: review.digest, methods: methods, hostMethods: ["views.client.open"], executorAttachment: attachment, localLaunch: launch)
         XCTAssertNil(app.extensionRunIssue); guard app.extensionRunIssue == nil else { return }
         XCTAssertTrue(app.extensionRun?.requiredCapabilities.contains("ui.views") == true)
         XCTAssertEqual(Set(app.extensionRun?.methods ?? []), Set(methods))
         await app.decideExtensionConsent(allow: true)
         try await until("View Runtime activation: \(app.extensionRunIssue ?? "no issue")") { app.extensionRegisteredViews?.items.count == 4 }
+        if let attachment {
+            XCTAssertEqual(app.extensionRun?.executorAttachment, attachment)
+            let observation = try XCTUnwrap(try fixture()["ipcObservation"] as? [String: Any])
+            let frontend = try XCTUnwrap(observation["frontendPID"] as? Int)
+            let attachers = try XCTUnwrap(observation["attacherPIDs"] as? [Int])
+            XCTAssertTrue(observation["frontendAlive"] as? Bool == true && observation["endpointRevoked"] as? Bool == true &&
+                !attachers.isEmpty && !attachers.contains(frontend))
+        }
         let views = try XCTUnwrap(app.extensionRegisteredViews)
         XCTAssertNil(app.extensionTable); XCTAssertNil(app.extensionDiff); XCTAssertNil(app.extensionTask)
         guard case .table(let alpha) = views.items[0].content, case .table(let beta) = views.items[1].content,

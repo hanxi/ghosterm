@@ -120,3 +120,24 @@ build/ssh-channel-toolchain/bin/python scripts/test-plugin-views-android-native.
 只在设备自身测试沙箱保存包夹具，内存身份经有 token 的一次性本机服务传入；
 不安装外部插件或访问用户主机。完整 TalkBack、键盘 / IME、16 KiB / 真机、真实
 断网重连及完整选包点击链仍待验收。证据见插件计划 P5 第十三批。
+
+## 前台 IPC 连接
+
+两端 Native 多视图也可使用原 Attachment 门面连接已明确选择的 Portable 前台实例。
+先在前台 gterm 的 `--listen` 配置四个 Client 服务 `ui.table` / `ui.diff` / `ui.task` /
+`ui.views`，Executor 方法为 `alpha.describe / alpha.page / beta.describe / beta.page /
+changes.describe / changes.page / work.describe / work.read / work.cancel / views.reopen`，
+Host 方法为 `views.client.open`。调用必须准确为 `views demo`、空 argv，两个包摘要
+均为本样例完整性清单的 SHA256。私有目录、公开 ID、30 秒期限和一次性连接语义
+见[任务 IPC 指南](plugin-task.md#连接明确选择的前台-ipc-实例)。attach 不新增服务、
+根目录或进程映射，前台配置有缺失时仍须显式失败，不能自动另起 Executor。
+
+```sh
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-views-native.py --build tmp/plugin-views/cli --package tmp/plugin-views/package --attach --receipt tmp/plugin-views/ipc-mac.json
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-views-android-native.py --build tmp/plugin-views/cli --package tmp/plugin-views/package --attach --receipt tmp/plugin-views/ipc-android.json
+```
+
+同一前台 gterm 与 attacher 是不同 PID；先完成原生 Session 授权，Client 视图仍在
+Native owner 中注册。测试复用原分页、独立关闭 / 重开和任务取消按钮验证，另核对
+一次性入口回收、前台退出、旧实例重放拒绝和原 PTY 零协议字节。后台 PTY 夹具不是
+新的 TerminalSurface / tmux pane / 焦点或完整用户点击链证据；分轮见计划 P5 第十四批。

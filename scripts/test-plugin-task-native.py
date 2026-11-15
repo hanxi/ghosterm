@@ -45,7 +45,12 @@ def main():
     parser.add_argument('--package', type=Path, required=True)
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--receipt', type=Path, required=True)
+    parser.add_argument('--attach', action='store_true', help='connect an owned one-shot Portable foreground IPC instance')
+    parser.add_argument('--route', action='append', choices=('local', 'direct', 'jump'))
+    parser.add_argument('--scenario', action='append', choices=('complete', 'empty', 'cancel', 'unknown'))
+    parser.add_argument('--repeat', type=int, default=1, help='repeat each owned route/scenario to inspect lifecycle races')
     args = parser.parse_args()
+    if not 1 <= args.repeat <= 16: parser.error('--repeat must be 1..16')
     build, package = args.build.resolve(strict=True), args.package.resolve(strict=True)
     for path in (build, package, args.receipt.resolve()):
         if not path.is_relative_to(ROOT / 'tmp'): parser.error('use owned project tmp builds, package and receipt')
@@ -58,6 +63,8 @@ def main():
     for name in ('scripts/test-plugin-task-native.py', 'scripts/test-plugin-task.py', 'scripts/test-plugin-route.py', 'scripts/test-plugin-ssh.py',
         'scripts/test-plugin-ssh-stream.py', 'scripts/lib/gt-timeout.sh'):
         inputs[name] = sha(ROOT / name)
+    inputs['scripts/fixtures/plugin-native-ipc.py'] = sha(ROOT / 'scripts/fixtures/plugin-native-ipc.py')
+    ipc = load('native_ipc', 'scripts/fixtures/plugin-native-ipc.py')
     if any(b'GT_TASK_NATIVE_MUTATION' in (ROOT / n).read_bytes() for n in inputs if n.endswith('.swift')):
         raise RuntimeError('leftover Native task mutation marker')
     with tempfile.TemporaryDirectory(prefix='nd-', dir=ROOT / 'tmp') as temporary:
@@ -140,6 +147,7 @@ def main():
         routes = load('task_routes', 'scripts/test-plugin-route.py')
         private, public = streams.memory_identity(); records = []
         scenarios = {'complete': 10000, 'empty': 0, 'cancel': 1000000}
+        if args.attach: scenarios['unknown'] = 1000000
         with keys.owned_agent(work, 'agent') as agent:
             host_keys = [keys.add_memory_key(agent, 'task-hop-' + str(i)) for i in range(2)]
             route_root = work / 'r'; route_root.mkdir()
@@ -150,23 +158,33 @@ def main():
                     token = secrets.token_hex(24)
                     payload = dict(route=route, scenario=scenario, limit=limit, scratch=str(scratch), package=str(package), gterm=str(build / 'gterm'),
                         ports=ports, hostKeys=[p.decode() for p in host_keys], user=pwd.getpwuid(os.getuid()).pw_name, pem=private.decode())
-                    class Handler(socketserver.StreamRequestHandler):
-                        def handle(self):
-                            self.connection.settimeout(5)
-                            if self.rfile.readline(128).rstrip(b'\n') != token.encode(): return
-                            data = json.dumps(payload, separators=(',', ':')).encode()
-                            self.wfile.write(struct.pack('>I', len(data)) + data)
-                    with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
-                        thread = threading.Thread(target=server.serve_forever); thread.start()
-                        env.update(GHOSTERM_TASK_PORT=str(server.server_address[1]), GHOSTERM_TASK_TOKEN=token)
-                        try: test(label, 'PluginTaskRPCAppTests.testTaskThroughNativeAppModel', 1, red)
-                        finally: server.shutdown(); thread.join(5)
-                    if thread.is_alive(): raise RuntimeError('fixture service did not stop')
-                    if not red: records.append(dict(route=route, scenario=scenario, limit=limit))
-                for route in ('local', 'direct', 'jump'):
-                    for scenario in ('complete', 'empty', 'cancel'):
-                        actual(route + '-' + scenario, route, scenario)
-                        print('PASS actual Native ' + route + ' task ' + scenario, flush=True)
+                    with ExitStack() as attached:
+                        frontend = attached.enter_context(ipc.foreground(build / 'gterm', package, 'task', ['--limit', str(limit)], env)) if args.attach else None
+                        if frontend: payload.update(ipcDirectory=str(frontend.endpoint), ipcInstance=frontend.instance)
+                        class Handler(socketserver.StreamRequestHandler):
+                            def handle(self):
+                                self.connection.settimeout(5)
+                                request = self.rfile.readline(128).rstrip(b'\n').split(b' ')
+                                if request[0] != token.encode() or len(request) > 2: return
+                                if len(request) == 2:
+                                    if frontend is None: return
+                                    frontend.control(request[1].decode('ascii'))
+                                data = json.dumps(dict(payload, ipcObservation=frontend.observation()) if frontend else payload, separators=(',', ':')).encode()
+                                self.wfile.write(struct.pack('>I', len(data)) + data)
+                        with socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler) as server:
+                            thread = threading.Thread(target=server.serve_forever); thread.start()
+                            env.update(GHOSTERM_TASK_PORT=str(server.server_address[1]), GHOSTERM_TASK_TOKEN=token)
+                            try: test(label, 'PluginTaskRPCAppTests.testTaskThroughNativeAppModel', 1, red)
+                            finally: server.shutdown(); thread.join(5)
+                        if thread.is_alive(): raise RuntimeError('fixture service did not stop')
+                        if not red: records.append(dict(route=route, scenario=scenario, limit=limit))
+                        if frontend and not red: records[-1]['ipc'] = frontend.finish()
+                if args.scenario and set(args.scenario) - set(scenarios): parser.error('unknown requires --attach')
+                for route in args.route or ('local', 'direct', 'jump'):
+                    for scenario in args.scenario or scenarios:
+                        for repetition in range(args.repeat):
+                            actual(route + '-' + scenario + '-' + str(repetition), route, scenario)
+                            print('PASS actual Native ' + route + ' task ' + scenario + ' repeat=' + str(repetition), flush=True)
                 native = [
                     ('native-declaration', APP, 'if !run.requiredCapabilities.contains("ui.views"), extensionViews.contains("task"),', 'if false,', 'local'),
                     ('native-methods', APP, 'Array(Set(sessionMethods + PluginTaskModel.methods)).sorted()', 'methods', 'local'),
@@ -189,12 +207,12 @@ def main():
         for file in work.rglob('*'):
             if file.is_file() and file.suffix in ('.log', '.json', '.conf', '.pub'):
                 if b'PRIVATE KEY-----' in file.read_bytes(): raise RuntimeError('private fixture leaked to an artifact')
-        record = dict(accepted=True, inputs=inputs, commands=commands, mutations=groups, actual=records,
+        record = dict(accepted=True, foregroundAttachment=args.attach, inputs=inputs, commands=commands, mutations=groups, actual=records,
             binary=sha(build / 'gterm'), core=sha(build / 'core/libghosterm_core.a'),
             package={str(p.relative_to(package)): sha(p) for p in package.rglob('*') if p.is_file()},
             scope='macOS Native task models, process-local AX/pixels and actual local/direct/jump Core/QuickJS; owned endpoints only; no Android, user device, VoiceOver OS interaction or release')
         args.receipt.write_text(json.dumps(record, indent=2) + '\n')
-        print('NATIVE TASK PASS: 26 Native tests / 15 legacy table + 15 diff tests / 9 actual routes / ' + str(len(groups)) + ' mutations', flush=True)
+        print('NATIVE TASK PASS: 26 Native tests / 15 legacy table + 15 diff tests / ' + str(len(records)) + ' actual routes / ' + str(len(groups)) + ' mutations', flush=True)
 
 
 if __name__ == '__main__':

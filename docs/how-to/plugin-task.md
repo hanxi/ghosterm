@@ -82,3 +82,48 @@ build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-android-native.p
 物理设备、TalkBack / IME 和完整客户端验收须另记，不能从本专项推导。
 
 结束后清理本次创建的 tmp 子目录；保留仍在使用的构建与非本次输入，不操作用户服务。
+
+## 连接明确选择的前台 IPC 实例
+
+同一 Portable Executor 也可由独立前台进程启动，然后经 App 的本机进程 / 已认证 SSH
+通道连接。前台实例必须预先配置准确 Client / Executor 摘要、RPC 方法和 Client
+服务；attach 沿用这些配置，不会重新授权或补装缺失服务。前台的公开实例 ID 与
+256 位私有 permit 分开，App 只接收 ID，permit 留在前台 0600 文件中。
+
+以下命令在准备好已构建的任务包后从工程根目录运行；目录须是新的私有目录：
+
+```sh
+ipc_task_package="$PWD/tmp/native-task/package-v2"
+ipc_task_endpoint="$PWD/tmp/native-task/front"
+ipc_task_digest="$(shasum -a 256 "${ipc_task_package}/integrity.json" | cut -d ' ' -f 1)"
+mkdir -m 700 "${ipc_task_endpoint}"
+tmp/native-task/cli/gterm relay --listen "${ipc_task_endpoint}" \
+  --trust-development-digest "${ipc_task_digest}" --client-digest "${ipc_task_digest}" \
+  --client-capability ui.task --method view.task.cancel \
+  --method view.task.describe --method view.task.read \
+  -- "${ipc_task_package}" 'task primes' --limit 1000000
+```
+
+读取 stderr 的 `local endpoint ready instance=...` 公开 ID，在实验页选择连接已有
+前台实例、准确目录 / ID / 完整调用并明确允许。本例调用为 `task primes` 与
+`["--limit","1000000"]`。前台就绪后 30 秒内接入；过期需手动重启并重新核对新 ID，
+不得由旧页面自动回退或接管同目录的新进程。选择 SSH 时目录属于明确选择的远端
+端点，不从终端输出猜主机或代换身份。接入即撤销一次性入口；不能重连 / 重放旧
+instance，不能据此认为任务可恢复。
+
+手工 conformance 使用自有后台 PTY 与本机 / 直连 / 两跳服务，所有 App 窗口在后台：
+
+```sh
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-native.py \
+  --build tmp/native-task/cli --package tmp/native-task/package-v2 --attach \
+  --receipt tmp/native-task/ipc-mac.json
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-task-android-native.py \
+  --build tmp/native-task/cli --package tmp/native-task/package-v2 --attach \
+  --receipt tmp/native-task/ipc-android.json
+```
+
+attach 档另选百万上限的 unknown 场景：卸载 UI 轮询后，先确认自有前台进程已停止
+调度，再在生产模型保留取消意图；未收到回包前杀死该自有进程，检查 Native 控件
+失效、取消 ID 保留和不重放。不证明请求已到达业务 handler，也不以 EOF、SIGKILL
+或进程退出推断业务取消成功；已确认取消由独立按钮场景的 read 回包证明。
+前台退出码、端点撤销、旧 ID 重放拒绝与终端零协议字节分别记录。

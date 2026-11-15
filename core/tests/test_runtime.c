@@ -215,6 +215,11 @@ static void runtime_case(const char *mode, const char *root) {
         plugin = "export function activate(){return {dispose(){throw Error('dispose failure')}}}";
     } else if (!strcmp(mode, "dispose-loop")) {
         plugin = "export function activate(){return {dispose(){for(;;){}}}}";
+    } else if (!strcmp(mode, "dispose-work") || !strcmp(mode, "dispose-fresh-budget")) {
+        plugin = "export function activate(c){return {dispose(){"
+                 "if(c.capabilities.query('ui.form')!=='revoked')throw Error('grant survived');"
+                 "let n=0;for(let i=0;i<20000;i++)n++;"
+                 "if(n!==20000)throw Error('cleanup incomplete')}}}";
     } else if (!strcmp(mode, "activation-timeout")) {
         plugin = "export async function activate(){await new Promise(()=>{});return {dispose(){}}}";
     } else if (!strcmp(mode, "top-await")) {
@@ -409,7 +414,8 @@ static void runtime_case(const char *mode, const char *root) {
                           !strcmp(mode, "relative") || !strcmp(mode, "handled") ||
                           !strcmp(mode, "top-await") || !strcmp(mode, "dispose-loop") ||
                           !strcmp(mode, "peer-loss") || !strcmp(mode, "thread-handoff") ||
-                          !strcmp(mode, "step");
+                          !strcmp(mode, "step") || !strcmp(mode, "dispose-work") ||
+                          !strcmp(mode, "dispose-fresh-budget");
             CHECK(info.phase == (active ? GT_RUNTIME_ACTIVE : GT_RUNTIME_FAILED) && info.steps > 0);
             if (!strcmp(mode, "cpu") || !strcmp(mode, "top-cpu")) {
                 CHECK(info.error == GT_RUNTIME_CPU);
@@ -489,6 +495,16 @@ static void runtime_case(const char *mode, const char *root) {
             }
         }
         gt__plugin_memory_free(NULL, reservation, reserved);
+        if (!strcmp(mode, "dispose-fresh-budget")) {
+            struct timespec start, now;
+            CHECK(!clock_gettime(CLOCK_THREAD_CPUTIME_ID, &start));
+            uint64_t before = (uint64_t)start.tv_sec * 1000 + (uint64_t)start.tv_nsec / 1000000;
+            uint64_t current;
+            do {
+                CHECK(!clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now));
+                current = (uint64_t)now.tv_sec * 1000 + (uint64_t)now.tv_nsec / 1000000;
+            } while (current - before <= config.cpu_ms + 10);
+        }
         expected_dispose_error = !strcmp(mode, "dispose-loop") || !strcmp(mode, "dispose-throw");
         rt_drop(&rt);
         if (pair.pair.h) {

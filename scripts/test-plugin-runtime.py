@@ -6,7 +6,8 @@ import argparse,hashlib,json,os,re,shutil,signal,subprocess,sys,tempfile
 from pathlib import Path
 sys.dont_write_bytecode=True
 ROOT=Path(__file__).resolve().parents[1];MARK='GT_PLUGIN_RUNTIME_MUTATION'
-MODES='invocation capabilities dispose-throw invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory caught-memory global-memory repeat-close many-1 many-4 many-10 stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop activation-timeout peer-loss thread-handoff step'.split()
+MODES='invocation capabilities dispose-throw invalid roundtrip reverse prototype isolation relative top-await handled stop cpu top-cpu atomics jobs memory caught-memory global-memory repeat-close many-1 many-4 many-10 stack reject unhandled entry missing-export native-import node-import escape dynamic-import dispose-loop dispose-work dispose-fresh-budget activation-timeout peer-loss thread-handoff step'.split()
+VIEW_MODES='roundtrip native-close reopen js-close dispose disabled executor ungranted direction kind limit duplicate native-limit native-duplicate native-method'.split()
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
  parser=argparse.ArgumentParser();parser.add_argument('--mutate',action='store_true');parser.add_argument('--case',action='append',help='run named mutation groups only; requires --mutate');parser.add_argument('--fetch',action='store_true');parser.add_argument('--android-build',action='store_true');args=parser.parse_args()
@@ -45,16 +46,16 @@ def main():
   base=['cmake','-S',core,'-DGHOSTERM_WITH_LIBSSH2=OFF','-DGHOSTERM_WITH_PLUGIN_JS=ON','-DGHOSTERM_BUILD_TESTS=ON','-DGHOSTERM_PLUGIN_SDK_DIR='+str(sdk),'-DCMAKE_BUILD_TYPE=RelWithDebInfo']
   run('configure',[*base,'-B',build,'-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer'],budget=120)
   def rebuild(label):
-   objects=[('ghosterm_core','src/extension/runtime.c'),('ghosterm_core','src/extension/process-service.c'),('test_runtime','tests/test_runtime.c'),('test_runtime_boundary','tests/test_runtime_boundary.c'),('test_runtime_cpu_clock','tests/test_runtime_cpu_clock.c'),('test_ext_package','tests/test_ext_package.c'),('test_package_runtime','tests/test_package_runtime.c')]
+   objects=[('ghosterm_core','src/extension/runtime.c'),('ghosterm_core','src/extension/process-service.c'),('test_runtime','tests/test_runtime.c'),('test_runtime_views','tests/test_runtime_views.c'),('test_runtime_boundary','tests/test_runtime_boundary.c'),('test_runtime_cpu_clock','tests/test_runtime_cpu_clock.c'),('test_ext_package','tests/test_ext_package.c'),('test_package_runtime','tests/test_package_runtime.c')]
    for owner,name in objects:(build/'CMakeFiles'/(owner+'.dir')/(name+'.o')).unlink(missing_ok=True)
-   for name in ['libghosterm_core.a','test_runtime','test_runtime_boundary','test_runtime_cpu_clock','test_ext_package','test_package_runtime','test_config']:(build/name).unlink(missing_ok=True)
-   out=run(label+'-build',['cmake','--build',build,'--target','test_runtime','test_runtime_boundary','test_runtime_cpu_clock','test_ext_package','test_package_runtime','test_config','-j','2'],budget=300)
+   for name in ['libghosterm_core.a','test_runtime','test_runtime_views','test_runtime_boundary','test_runtime_cpu_clock','test_ext_package','test_package_runtime','test_config']:(build/name).unlink(missing_ok=True)
+   out=run(label+'-build',['cmake','--build',build,'--target','test_runtime','test_runtime_views','test_runtime_boundary','test_runtime_cpu_clock','test_ext_package','test_package_runtime','test_config','-j','2'],budget=300)
    for owner,name in objects:
     assert 'Building C object CMakeFiles/'+owner+'.dir/'+name+'.o' in out,(label,name)
-   for name in ['test_runtime','test_runtime_boundary','test_runtime_cpu_clock','test_ext_package','test_package_runtime','test_config']:assert 'Linking C executable '+name in out,(label,name)
+   for name in ['test_runtime','test_runtime_views','test_runtime_boundary','test_runtime_cpu_clock','test_ext_package','test_package_runtime','test_config']:assert 'Linking C executable '+name in out,(label,name)
    assert 'Linking C static library libghosterm_core.a' in out
   def suite(label):
-   expected={'runtime_'+m for m in MODES}|{'runtime_boundary_outbound'}
+   expected={'runtime_'+m for m in MODES}|{'runtime_boundary_outbound'}|{'runtime_views_'+m for m in VIEW_MODES}
    discovered=json.loads(run(label+'-discover',['ctest','--test-dir',build,'--show-only=json-v1']))
    assert {t['name'] for t in discovered['tests'] if t['name'].startswith('runtime_')}==expected
    output=run(label,['ctest','--test-dir',build,'-R','^runtime_','--output-on-failure'],budget=90)
@@ -83,6 +84,8 @@ def main():
    ('handled-rejection','            if (handled) {\n','            if (false && handled) {\n','handled'),
    ('stop-signal','        atomic_store_explicit(&r->stopped, true, memory_order_relaxed);\n','        atomic_store_explicit(&r->stopped, false, memory_order_relaxed);\n','stop'),
    ('engine-release','    runtime_free_engine(r);\n    if (!runtime_free_modules(r)) {','    /* engine retained */\n    if (!runtime_free_modules(r)) {','roundtrip'),
+   ('dispose-stop', 'atomic_load_explicit(&r->stopped, memory_order_relaxed) && !r->disposing', 'atomic_load_explicit(&r->stopped, memory_order_relaxed)', 'dispose-work'),
+   ('dispose-fresh-budget', 'r->deadline = dispose_cpu_now + r->cpu_ms;', '(void)dispose_cpu_now;', 'dispose-fresh-budget'),
    ('process-facade', 'r->process_service ? "Object.freeze({spawn:port.processSpawn})" : "undefined"', '"undefined"', 'package-process'),
    ('process-close-reap', 'if (runtime_process_live(r)) {', 'if (false && runtime_process_live(r)) {', 'package-process-close'),
    ('process-deadline', 'now >= slot->deadline &&\n            !runtime_process_stop(slot, GT_RUNTIME_PROCESS_STOP_DEADLINE, now)', 'now < slot->deadline &&\n            !runtime_process_stop(slot, GT_RUNTIME_PROCESS_STOP_DEADLINE, now)', 'package-process-deadline-live'),
@@ -130,7 +133,7 @@ def main():
    binary=android_build/'test_runtime';nm=ndk/'toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-nm';exports=run('android-symbols',[nm,'--defined-only',binary]);assert 'gt__bridge_runtime_open' in exports and 'JS_NewRuntime' in exports;assert binary.read_bytes()[:4]==b'\x7fELF'
    android=dict(abi='arm64-v8a',api=29,executed=False,binary_sha256=sha(binary),core_sha256=sha(android_build/'libghosterm_core.a'),engine_sha256=sha(android_build/'libghosterm_quickjs.a'))
   for name,h in hashes.items():assert sha(ROOT/name)==h,name
-  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in selected] if args.mutate else [],runtime_tests=len(MODES)+1,runtime_modes=MODES,runtime_clock_tests=4,process_runtime_tests=['authorized cat/env stdio roundtrip with selected-environment isolation','runtime close stops and reaps an owned child','Host verified executable digest checked at Runtime open','executable path identity rechecked before spawn','per-child deadline does not fire early and terminates on expiry','aggregate process output quota'],process_config_test='undeclared process mapping rejected; checked package process scope exercised by Runtime integration',guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC / Executor process.spawn; no App enable, gterm, physical devices, WAN or gateway')
+  receipt=dict(accepted=True,inputs_sha256=hashes,commands=commands,groups=[c[0] for c in selected] if args.mutate else [],runtime_tests=len(MODES)+1+len(VIEW_MODES),runtime_modes=MODES,runtime_view_modes=VIEW_MODES,runtime_clock_tests=4,process_runtime_tests=['authorized cat/env stdio roundtrip with selected-environment isolation','runtime close stops and reaps an owned child','Host verified executable digest checked at Runtime open','executable path identity rechecked before spawn','per-child deadline does not fire early and terminates on expiry','aggregate process output quota'],process_config_test='undeclared process mapping rejected; checked package process scope exercised by Runtime integration',guards=4,abi=len(actual),core_sha256=sha(build/'libghosterm_core.a'),engine_sha256=sha(build/'libghosterm_quickjs.a'),android=android,sanitizers=['address','undefined'],leak_sanitizer=False,scope='optional private C runtime / copied modules / native RPC / Executor process.spawn; no App enable, gterm, physical devices, WAN or gateway')
   (logs/'result.json').write_text(json.dumps(receipt,indent=2)+'\n');shutil.rmtree(source);print('PLUGIN RUNTIME PASS; logs: '+str(logs),flush=True)
  except BaseException as error:(logs/'failure.txt').write_text(repr(error)+'\n');raise
 def stop(n,_frame):raise KeyboardInterrupt('signal '+str(n))
