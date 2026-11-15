@@ -14,7 +14,9 @@
 # 普通 AppModel 夹具只使用本地 PTY / SSH，不需要 sessiond 或 runtime catalog。
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PKG="$ROOT/apple/GhostermApp"
+# Native mutation runners may select an isolated copy; the default app and
+# shared Core/ABI checks still come from this checkout.
+PKG="${GHOSTERM_APP_TEST_PACKAGE:-$ROOT/apple/GhostermApp}"
 TMP="$ROOT/tmp"
 SSHD="${SSHD:-/usr/sbin/sshd}"
 mkdir -p "$TMP"

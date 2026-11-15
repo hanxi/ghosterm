@@ -9,6 +9,10 @@ import WebKit
 /// This page does not claim to install, persist trust, or activate a plugin.
 struct ExtensionsPane: View {
     @ObservedObject var model: AppModel
+    // A caller can supply a directory chooser (e.g. an embedded host). The
+    // default remains SwiftUI's system fileImporter. Both use the same review
+    // completion; selecting a directory never approves or activates a package.
+    var packagePicker: ((@escaping (Result<[URL], Error>) -> Void) -> Void)? = nil
     @State private var importing = false
     @State private var entries: [Entry] = []
     @State private var issue: String?
@@ -66,7 +70,10 @@ struct ExtensionsPane: View {
             HStack {
                 Text("插件包").font(DS.Font.labelEmphasis)
                 Spacer()
-                Button("选择文件夹…") { importing = true }
+                Button("选择文件夹…") {
+                    if let packagePicker { packagePicker(selectedPackage) }
+                    else { importing = true }
+                }
                     .disabled(model.extensionController == nil)
                     .accessibilityIdentifier("plugin-package-import")
             }
@@ -223,14 +230,17 @@ struct ExtensionsPane: View {
             }
             SettingsNote("批准仅作用于当前 AppModel 生命周期中的精确包摘要；安装与持久信任尚未接入。资源面板支持有界 UTF-8、Markdown、静态图片和受限 HTML 预览；文档图片只使用本次显式收到的同目录附件。")
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else { return }
-                Task { await review(url) }
-            case .failure(let error):
-                issue = "无法选择插件包：\(error.localizedDescription)"
-            }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.folder], allowsMultipleSelection: false,
+                      onCompletion: selectedPackage)
+    }
+
+    private func selectedPackage(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            Task { await review(url) }
+        case .failure(let error):
+            issue = "无法选择插件包：\(error.localizedDescription)"
         }
     }
 

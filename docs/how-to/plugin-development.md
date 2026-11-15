@@ -412,3 +412,40 @@ python3 scripts/test-plugin-dev-scenarios.py --tools tmp/plugin-dev/tools --core
 
 用完删除本次创建的 `tmp/plugin-dev/`，保留其它工作的临时目录。开发命令每次调用的
 内部固定副本与探针会在正常退出、INT / TERM 中断时清理；TERM 同时收回受控工具进程组。
+
+## macOS 实验插件页控件链
+
+已有补丁版 `build/GhosttyKit.xcframework` 与锁定的主机 SSH 依赖后，可以用以下手工
+专项验证官方 Preview 的页面接线：
+
+```sh
+mkdir -p tmp/plugin-pane
+export TMPDIR="$PWD/tmp"
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+export GHOSTERM_AUTOMATION_OFFSCREEN=1
+cmake -S cli/gterm -B tmp/plugin-pane/gterm -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+cmake --build tmp/plugin-pane/gterm -j4
+python3 -B scripts/test-plugin-pane.py --gterm tmp/plugin-pane/gterm/gterm --mutate --out tmp/plugin-pane/receipt.json
+```
+
+脚本复制原生源码到 `tmp/`，由 Apple gate 启动本轮独占的 loopback SSH 服务。
+实际操作生产页面的导入、摘要批准、启动表单、会话批准与停止按钮；表单经原生
+编辑通知提交，检查真实 SSH 收件的原始字节、滚动后的 Markdown 绘制与释放后的
+资源消失。窗口在显示前已透明、离屏并禁止应用激活。目录选择由显式测试依赖返回，
+默认产品仍使用系统 `fileImporter`；本专项不证明系统文件面板、VoiceOver、用户
+键盘焦点、ProxyJump、HTML / 图片整链、其它设备或完整生命周期。
+
+`--mutate` 逐组改变副本中的摘要展示、来源批准、启动、会话批准与停止接线。
+每组要求生产对象实际重编译、单条正常断言红、同副本独立配置读取绿、原件恢复绿
+及 SHA256 一致；编译失败、崩溃和 unexpected failure 不计目标红。收据记录指定
+源码、实际 gterm / XCTest 与链接 Core / QuickJS / libssh2 摘要。此为手工证据，
+不增加 CI 二十份。
+
+Apple gate 会显式构建 JS-enabled Core。后续普通闸门先恢复默认配置：
+
+```sh
+cmake -S core -B core/build -DGHOSTERM_WITH_PLUGIN_JS=OFF -DGHOSTERM_BUILD_TESTS=ON
+bash scripts/gate.sh
+```
+
+核对收据后清理本次创建的 `tmp/plugin-pane/`；脚本内部的原生副本在退出时清理。

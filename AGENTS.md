@@ -1579,3 +1579,15 @@ INT / TERM 均验实际回收与目录消失。原 76 回归、新十场景 / �
 588/184、C 格式 267、Apple 181/3 与 JNI 147/37 通过。无平台源 / 公共 ABI 变化，
 不记新 App / APK / 真机 / GUI E2E，不增加 CI 二十份；完整开发 / 原生 UI / 三服务
 组合 / 性能矩阵与 P5 / P1–P6 仍待完成，见插件计划第二十四批。
+
+
+**插件 macOS 页面控件链（P2 第五十六批，2026-11-16）**：
+`python3 -B scripts/test-plugin-pane.py --gterm 显式路径 --mutate --out tmp/本轮/receipt.json`
+在隔离 Apple 副本验证目录选择注入、实际摘要批准 / 原生编辑 / 启动 / Session 批准按钮、
+本轮独占 loopback SSH 的官方 Preview Markdown 精确收件、滚动后 OCR 绘制与停止释放。
+一条控件链及五组变异通过：实际生产对象重编、单条正常断言红、同副本独立配置绿、
+恢复绿与 SHA256；539 份指定源 / 实际 gterm / XCTest / 三链接 archive 收据核对一致。
+系统文件面板、OS VoiceOver / 键盘焦点、该 UI 链的双跳 / 多格式 / 完整生命周期未验。
+AppKit 内部替身、编辑 / busy / 滚动前置失败、未定位的清理 InvalidTransition 及旧对象名
+收据失败单列，不计通过。透明离屏且禁止激活；默认 JS-off、不增加 CI 二十份，
+不记完整 UI E2E 或 P2 / P1–P6 完成；细节与构建 / 回归见插件计划第五十六批。
