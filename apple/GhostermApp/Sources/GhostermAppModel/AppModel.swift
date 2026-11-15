@@ -22,7 +22,7 @@ import Foundation
 @MainActor
 public final class AppModel: ObservableObject {
     /// Capabilities implemented by the App-facing Client runtime path.
-    public static let extensionHostCapabilities = ["session.rpc", "resource.receive", "file.readScoped", "ui.table"]
+    public static let extensionHostCapabilities = ["session.rpc", "resource.receive", "file.readScoped", "ui.table", "ui.diff"]
 
     /// The wire protocol carries semantic versions with three numeric
     /// components. Apple's marketing version commonly omits the patch (for
@@ -107,6 +107,7 @@ public final class AppModel: ObservableObject {
     private var pendingExtensionRPCHandles: Set<UInt64> = []
     private var claudeRPC: ClaudeRPCClient?
     @Published public private(set) var extensionTable: PluginTableModel?
+    @Published public private(set) var extensionDiff: PluginDiffModel?
     private var extensionViews: [String] = []
     @Published public private(set) var localReservationEntries: [ExtensionLocalJournalEntry] = []
     @Published public private(set) var localReservationBusy = false
@@ -1152,7 +1153,14 @@ public final class AppModel: ObservableObject {
             if tableContribution && !["session.rpc", "ui.table"].allSatisfy(selected.requiredCapabilities.contains) {
                 throw GhostermError.failed("表格贡献必须声明 session.rpc 与 ui.table")
             }
-            let sessionMethods = tableContribution ? Array(Set(methods + PluginTableModel.methods)).sorted() : methods
+            let diffContribution = selected.command?.views.contains("diff") == true
+            if diffContribution && !["session.rpc", "ui.diff"].allSatisfy(selected.requiredCapabilities.contains) {
+                throw GhostermError.failed("差异贡献必须声明 session.rpc 与 ui.diff")
+            }
+            var sessionMethods = tableContribution ? Array(Set(methods + PluginTableModel.methods)).sorted() : methods
+            if diffContribution { sessionMethods = Array(Set(sessionMethods + PluginDiffModel.methods)).sorted() }
+            var clientServices = tableContribution ? ["ui.table"] : []
+            if diffContribution { clientServices.append("ui.diff") }
             guard (sessionMethods.isEmpty && hostMethods.isEmpty) || selected.requiredCapabilities.contains("session.rpc") else {
                 throw GhostermError.failed("此 Client 包未声明 session.rpc，不能协商 RPC 方法")
             }
@@ -1165,7 +1173,7 @@ public final class AppModel: ObservableObject {
             let request = ExtensionRelayBootstrap.Request(executable: executable,
                 executorDirectory: executorDirectory, executorDigest: executorDigest,
                 clientDigest: packageDigest, methods: sessionMethods, hostMethods: hostMethods,
-                clientCapabilities: tableContribution ? ["ui.table"] : [],
+                clientCapabilities: clientServices,
                 scopedRoots: scopedRoots, processPrograms: processPrograms,
                 processEnvironmentNames: processEnvironmentNames, execution: executorExecution, attachment: executorAttachment,
                 command: command, arguments: arguments)
@@ -1200,6 +1208,7 @@ public final class AppModel: ObservableObject {
             }
             extensionRunInvocation = (packageID, packageDigest, command, arguments, clientWorkspace)
             extensionTable?.invalidate(); extensionTable = nil
+            extensionDiff?.invalidate(); extensionDiff = nil
             extensionViews = selected.command?.views ?? []
             claudeRPC?.invalidate(); claudeRPC = nil
             claudeConversation?.invalidate(); claudeConversation = nil
@@ -1293,6 +1302,7 @@ public final class AppModel: ObservableObject {
     public func stopExtensionRun() async {
         guard let extensionController, extensionRun != nil, !extensionRunBusy else { return }
         extensionTable?.invalidate()
+        extensionDiff?.invalidate()
         claudeRPC?.invalidate(); claudeRPC = nil
         claudeConversation?.invalidate(); claudeConversation = nil
         extensionRunGeneration = UUID()
@@ -1334,7 +1344,7 @@ public final class AppModel: ObservableObject {
             extensionLastLocalProcess = try? await extensionController.localProcessState()
             extensionLastLocalTemporary = try? await extensionController.localTemporaryState()
             extensionRun = nil; extensionRunInvocation = nil
-            extensionTable = nil; extensionViews = []
+            extensionTable = nil; extensionDiff = nil; extensionViews = []
             codexThreadID = nil; codexMessageDraft = ""
             codexTurnActive = false
             codexPendingApprovals = []
@@ -1655,6 +1665,7 @@ public final class AppModel: ObservableObject {
         } catch {
             if Task.isCancelled || generation != extensionRunGeneration { return }
             extensionTable?.invalidate()
+            extensionDiff?.invalidate()
             claudeRPC?.invalidate()
             claudeConversation?.invalidate()
             cancelCodexChangeReview()
@@ -1697,6 +1708,7 @@ public final class AppModel: ObservableObject {
         guard let run = extensionRun else { return }
         if !Self.runtimeIsRunning(runtime.phase) {
             extensionTable?.invalidate()
+            extensionDiff?.invalidate()
             claudeRPC?.invalidate()
             claudeConversation?.invalidate()
             codexPendingApprovals = []
@@ -1715,6 +1727,20 @@ public final class AppModel: ObservableObject {
            PluginTableModel.methods.allSatisfy(run.methods.contains) {
             let generation = extensionRunGeneration
             extensionTable = PluginTableModel(rpc: { [weak self] method, input in
+                guard let self else { throw CancellationError() }
+                try self.checkExtensionRunGeneration(generation)
+                return try await self.callExtensionExecutor(method, inputBytes: input, command: run.command)
+            }, isCurrent: { [weak self] in
+                guard let self else { return false }
+                return generation == self.extensionRunGeneration && !self.extensionRunBusy &&
+                    self.extensionRun?.runtime?.phase == ExtensionRuntime.Phase.active.rawValue
+            })
+        }
+        if extensionViews.contains("diff"), run.requiredCapabilities.contains("ui.diff"),
+           runtime.phase == ExtensionRuntime.Phase.active.rawValue, extensionDiff == nil,
+           PluginDiffModel.methods.allSatisfy(run.methods.contains) {
+            let generation = extensionRunGeneration
+            extensionDiff = PluginDiffModel(rpc: { [weak self] method, input in
                 guard let self else { throw CancellationError() }
                 try self.checkExtensionRunGeneration(generation)
                 return try await self.callExtensionExecutor(method, inputBytes: input, command: run.command)

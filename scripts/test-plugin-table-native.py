@@ -109,7 +109,7 @@ def main():
             ('revision', MODEL, 'try revision(value["revision"]) == descriptor.revision', 'try revision(value["revision"]) != ""', 'testPageRejectsMismatchedViewRevisionOffsetAndTotal'),
             ('page-complete', MODEL, 'rows.count == min(descriptor.pageSize, descriptor.total - offset)', 'true', 'testPageRequiresExactRowCount'),
             ('columns', MODEL, 'cells.count == descriptor.columns.count', '!cells.isEmpty', 'testPageRequiresColumnWidthAndUniqueRows'),
-            ('body-bytes', MODEL, 'try jsonBytes(value) <= 2048', 'try jsonBytes(value) <= 3072', 'testAggregateBytesAndStrictJSON'),
+            ('body-bytes', 'apple/GhostermApp/Sources/GhostermAppModel/PluginViewValue.swift', 'try jsonBytes(value) <= 2048', 'try jsonBytes(value) <= 3072', 'testAggregateBytesAndStrictJSON'),
             ('late-reply', MODEL, 'generation == token && available && !Task.isCancelled', '!Task.isCancelled', 'testLatePageAfterInvalidationCannotReopenTheView'),
         ]
         groups = []

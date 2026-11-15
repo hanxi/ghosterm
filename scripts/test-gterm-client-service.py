@@ -22,9 +22,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--package', type=Path, required=True)
+    parser.add_argument('--service', choices=('ui.table', 'ui.diff'), default='ui.table')
     parser.add_argument('--mutate', action='store_true')
     parser.add_argument('--receipt', type=Path, required=True)
     args = parser.parse_args()
+    service = args.service
+    contribution = service.removeprefix('ui.')
     build, package = args.build.resolve(strict=True), args.package.resolve(strict=True)
     if any(not p.is_relative_to(ROOT / 'tmp') for p in (build, package, args.receipt.resolve())):
         parser.error('use owned project tmp builds, package and receipt')
@@ -74,20 +77,21 @@ def main():
         (no_rpc / 'integrity.json').write_text(json.dumps(dict(schemaVersion=1, members=members)))
         def check(case):
             selected = no_rpc if case == 'rpc' else package
-            options = ['--client-capability', 'ui.table']
+            options = ['--client-capability', service]
             if case == 'unknown': options = ['--client-capability', 'ui.notImplemented']
             elif case == 'duplicate': options *= 2
             digest = sha(selected / 'integrity.json')
             status, _, error = run([binary, 'relay', '--stdio', '--trust-development-digest', digest,
-                '--client-digest', digest, *options, '--', selected, 'table'])
-            expected = b'Client table requires declared RPC and a capability slot' if case == 'rpc' else b'unknown or duplicate Client service requirement'
+                '--client-digest', digest, *options, '--', selected, contribution])
+            expected = ('Client ' + contribution + ' requires declared RPC and a capability slot').encode() if case == 'rpc' else b'unknown or duplicate Client service requirement'
             assert status == (4 if case == 'rpc' else 2) and expected in error, 'Client service rejection: ' + case
         compile()
         for case in ('unknown', 'duplicate', 'rpc'): check(case)
         groups = []
         path = source / 'stdio.c'; original = path.read_bytes()
-        cases = [('allowed-service', 'strcmp(argv[at + 1], "ui.table")', '0', 'unknown'),
-                 ('declared-rpc', '!rpc || config.required_count >= 16', 'false || config.required_count >= 16', 'rpc')]
+        cases = [('allowed-service', 'strcmp(argv[at + 1], "' + service + '")', '0', 'unknown'),
+                 ('declared-rpc', 'if (client_' + contribution + ') {\n        if (!rpc || config.required_count >= 16',
+                  'if (client_' + contribution + ') {\n        if (false || config.required_count >= 16', 'rpc')]
         for name, old, new, case in cases if args.mutate else []:
             if original.count(old.encode()) != 1: raise RuntimeError('mutation anchor: ' + name)
             before = sha(binary)
@@ -103,7 +107,7 @@ def main():
             if path.read_bytes() != original: raise RuntimeError('source restoration mismatch')
             groups.append(name); print('PASS ' + name + ': actual compiled CLI assertion / same archive config / restore / SHA256', flush=True)
         if any(sha(ROOT / p) != h for p, h in inputs.items()): raise RuntimeError('root source changed')
-        args.receipt.write_text(json.dumps(dict(accepted=True, inputs=inputs, mutations=groups,
+        args.receipt.write_text(json.dumps(dict(accepted=True, service=service, inputs=inputs, mutations=groups,
             core=sha(core), binary=sha(binary), scope='macOS O1 ASan/UBSan CLI guards; linked Core is the explicit enabled archive, no LSan; no Native UI/device'), indent=2) + '\n')
         print('CLIENT SERVICE PASS: three actual rejection cases / ' + str(len(groups)) + ' mutations')
 

@@ -15,8 +15,9 @@
 直连 / ProxyJump SSH 完成实际 RPC。第三批补 Android 通用 Native 表格、精确 Client 服务、
 所选页代次和两端同一官方包；API29 / 36 无窗口档的分页 / 授权 / 停止证据见文末。
 第四批提供独立于 Codex 的只读 diff 契约与有界比较 Executor，保持原 CPU / RPC 预算；
-七种 standalone Core 场景在两设备通过，原生 ui.diff 与真实 SSH 组合仍待接。缺能力仍
-显式不支持；持续交互样例及完整开发体验继续，P5 和 P1–P6 均未记完成。
+七种 standalone Core 场景在两设备通过。第五批接 macOS 通用原生 ui.diff、精确游标分页、
+Client 服务协商与真实本机 / 直连 / ProxyJump；Android 原生 diff 仍待接。缺能力仍显式
+不支持；持续交互样例及完整开发体验继续，P5 和 P1–P6 均未记完成。
 
 插件主语言为 TypeScript，核心、CLI 与 TTY 传输使用 C；每个业务插件可包含 Client 与 Executor 两部分。Client 运行于 Ghosterm，Executor 按任务位置在本机或远端执行。各端保持原生 UI，不使用跨端 UI 框架或 Rust。
 
@@ -6583,3 +6584,122 @@ data / terminal 四模块 Release lint**通过，native 实际重编、R8 为 UP
 本轮构建 / 测试 / 自有 AVD 已全部退出后，清理 79 个 tmp 根入口、12078 项、594.7 MiB
 账面分配，只保留原三份 eq-* 且 SHA256 不变。未终止无关 Java、用户 App 或既有服务；
 自动测试保持无窗口 / 后台，根 Core 仍为 JS-off / tests-on。
+
+### P5 实施第五批：macOS 标准 Native diff 与精确游标分页（2026-11-15）
+
+本批将第四批的同一官方 diff Client / Executor 接到 macOS 实验 Host。准确批准命令的
+`views: ["diff"]` 与 `session.rpc` / `ui.diff` 声明共同决定是否创建通用 Native 模型；
+不依赖 `diff` 命令名称，不增加 C ABI、wire 字段、SDK 身份或业务专属窗格类型。
+`PluginDiffView` 复用原生 Text / ScrollView / Button，展示增删 / 相同行、双行号、精确
+LF / CRLF / CR / 无末尾换行；文本可选择，颜色之外仍有文字与符号。小内容靠左上，
+换行标记跟随字号，前后页 / 重新读取控件在空间不足时纵排。
+
+`PluginDiffCodec` 按 Portable 契约校验完整字段、规范正 uint64 修订、计数关系、三行 /
+2048 JSON 字节、行号与游标。与 table 共用 `PluginViewValue` 严格原始 JSON 边界：
+无效 UTF-8、重复字段、孤立代理、额外字段和非确认结果均拒绝；table 的行为约束保留。
+Native 模型只保留所选页与最多 257 个游标，不缓存旧页文本。第一页从零游标开始，
+下一页必须连续通过前一页校验；未访问页不能跳读，上一页重新查询。新请求立即清旧行，
+会话代次变化 / 停止 / 错误与迟到回复隔离，UNKNOWN 不作为空差异或成功。
+
+macOS 显式提供 ui.diff，将标准 describe / page 两条 RPC 与 Client 服务要求纳入本次
+精确协商与 Native consent。gterm 接受唯一的 ui.table / ui.diff 显式要求，检查 Executor
+已声明 RPC 和能力槽；它没有宣称 Executor 自有渲染。Core 仅为 Host 的标准已接服务
+放行，并继续逐项检查当前 Session lease；Executor ui.diff 与未授权 Host 仍失败。
+新增 client-diff / client-diff-ungranted / executor-diff 三 CTest。Android profile 仍不
+宣称 ui.diff；本片没有 Android 原生视图或设备证据。已有实例 attach 配置不因此变更，
+也没有 diff IPC 的通过结论。
+
+复现（锁定 TypeScript 5.9.3 tools / 八模块 SDK，显式构建 CLI）：
+
+```bash
+export TMPDIR="$PWD/tmp" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+export GHOSTERM_AUTOMATION_OFFSCREEN=1
+mkdir -p tmp/native-diff/tools
+cp scripts/fixtures/plugin-sdk-tools/package*.json tmp/native-diff/tools/
+npm ci --prefix tmp/native-diff/tools --ignore-scripts --no-audit --no-fund --cache tmp/plugin-sdk-npm-cache
+node tmp/native-diff/tools/node_modules/typescript/bin/tsc -p packages/plugin-sdk/tsconfig.json --outDir tmp/native-diff/sdk
+cmake -S cli/gterm -B tmp/native-diff/cli -DCMAKE_BUILD_TYPE=Debug \
+  -DGHOSTERM_WITH_PLUGIN_JS=ON -DGHOSTERM_WITH_LIBSSH2=ON \
+  -DGHOSTERM_BUILD_TESTS=ON -DGHOSTERM_GTERM_TESTS=ON \
+  -DGHOSTERM_PLUGIN_SDK_DIR="$PWD/tmp/native-diff/sdk" \
+  -DCMAKE_OSX_SYSROOT="$(xcrun --sdk macosx --show-sdk-path)" -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+cmake --build tmp/native-diff/cli -j2
+python3 scripts/build-plugin-sample.py --source plugins/official/diff \
+  --tools tmp/native-diff/tools --out tmp/native-diff/package
+build/ssh-channel-toolchain/bin/python scripts/test-plugin-diff-native.py \
+  --build tmp/native-diff/cli --package tmp/native-diff/package --mutate \
+  --receipt tmp/native-diff/native-receipt.json
+python3 scripts/test-gterm-client-service.py --build tmp/native-diff/cli \
+  --package tmp/native-diff/package --service ui.diff --mutate --receipt tmp/native-diff/cli-diff.json
+python3 scripts/mutation-check-plugin-package-runtime.py --diff
+```
+
+Native 隔离 runner 的 **15 项新测试 + 15 项既有 table 测试**无跳过通过；浅深主题 ×
+13 / 28 pt 实际位图 OCR 核对 alpha / beta，读取本进程增强 AX 树中的准确原文与 CRLF
+说明，执行公开 AX press selector 的真正下一页 action。窗口透明且受坐标守卫约束，
+断言不与任一屏幕相交；不是系统 VoiceOver、用户键盘焦点或完整设置窗口点击验收。
+
+同一官方包的生产 AppModel / Runtime / gterm / QuickJS 组合，**本机 / 直连 / ProxyJump
+各变化、空文本、Unicode 九场景，加本机宽 Unicode 与交错矩阵两场景，共十一种**通过。
+所有页经连续游标读取，按原始 UTF-8 精确重建两份输入和原行尾，生产 ExtensionsPane
+实际渲染，停止后旧模型失效；本机另核对进程 reap 与 Native 私有 TMPDIR 移除。SSH
+仅用本轮自有回环两跳、公钥 pin 和内存密钥 / 私有 agent，拒绝持久化凭据；不连接用户
+主机、不读用户目录。最大输入的 SSH argv 仍受原命令上限约束，未为测试扩限。
+
+**十一组 Native 变异**：view、revision、页完整、前 / 后游标、行号、末尾换行、迟到回复
+八组，以及真实 AppModel 的声明创建 / 方法协商 / 生产视图三组；编译后单条正常断言红、
+同构件独立配置读取绿、恢复目标绿、源码 SHA256。模型组另核对 Swift 对象产物变化。
+本轮全部保持原 CPU / RPC / 握手 / 观察预算。
+
+前置失败单列：测试初版修改 let 请求字段导致编译失败，随后使用新请求工厂；Swift
+Optional.none 歧义改为明确枚举值。最初 OCR 混排行识别失败时实际位图中有文本，另发现
+小内容居中、换行 caption 不跟随大字号，已修布局与字号；最终 OCR 文本通过。AX 测试
+初读 label 失败，实际 macOS 静态文本将其暴露为 value，改读准确 value 后通过。
+Native 方法保护变异的初版生成 self-assignment，Swift 拒绝编译；未计正常断言红，改为
+保留调用者原 methods 后完整重跑十一组与十一场景通过。所有失败不计为验收绿。
+
+本片仍未接 Android 原生 diff、通用 ctx.views / 多视图句柄、diff IPC、完整选包 / 批准 /
+启动 / consent 用户点击链、系统辅助技术 / 键盘焦点和完整生命周期 / 设备矩阵。持续交互
+样例、开发体验与 P5 / P1–P6 继续未完成。默认 App 保持 JS-off，不增加 macOS CI 二十份，
+未推送 / 发行；当前验证不能冒充云端 Swift 6.1.2 或用户真机。
+
+共享边界回归另以既有 table runner 完整复验：**十五项 Native、百万 / 空表 × 本机 /
+直连 / 两跳六场景、九组变异**通过，包含已迁至共享文件的 2048 字节保护；不是仅运行
+新 diff 测试。Core 新 `--diff` 三组及既有 `--table` 三组分别在隔离 RelWithDebInfo /
+ASan / UBSan 构建通过，各自 **56 项包运行时基线 / 最终**全绿；每组正常断言红、同
+archive 配置绿、恢复 / SHA256，无 LSan。CLI 两种服务各三条实际拒绝、两组 O1
+ASan / UBSan 变异通过，同 archive 配置绿、恢复 / 实际可执行文件变化 / SHA256；
+linked Core 是单列的 enabled archive，不冒充整库 sanitizer。
+
+验证执行记录：为补 JVM 的工程内 java.io.tmpdir，主动中断第一次验证队列；当时 Core
+CTest 未完成，不计通过。确认该 CTest 进程已结束、没有遗留子任务后，从头完整执行，
+**822/822**通过。随后旧 stdio Preview 场景出现一次 `gterm: owner cleanup`，子进程
+退出码不符合旧断言；这轮完整 stdio 不计绿。相同 binary / archive / 原预算的 Preview
+与 Unicode 定向复验通过，原因尚未确认，不将这次复验声称为该退出问题已修复。
+
+最终收据在验收时均逐项比对输入；随后仅补 CLI README 的标准视图服务说明，生产源码
+保持一致，收据保留验收时 README 的摘要。两种 Native runner、两种 CLI 服务与 IPC 使用同一明确的
+JS/SSH-on Core archive / gterm。Core 变异为各自独立的优化 sanitizer 构件：
+
+- diff Native / 十一组 / 270 输入：`fa6b5539270e13e616579aeb28e6009def653c68bf12dc2ef2b0d82802d6ecf8`。
+- table Native / 九组 / 268 输入：`f43a1176c84cab6010ada277a172881c9e772acf5e97588646eec0e6f32e94dc`。
+- diff Core / 三组 / 720 输入：`9b6a5605d550e073e6ba30ed4d1751797f0ac4c816a0926121e29639e1eb9cb5`。
+- table Core / 三组 / 720 输入：`de750657b9e9d724609510b5f7faf5eee00e23e61d5862a4b6a840321d354abb`。
+- diff CLI 服务 / 两组 / 28 输入：`484f917d9178ecd2caf2e86bcea49a75f0f51f8c819bdaa9ee4bfe5f5423b679`。
+- table CLI 服务 / 两组 / 28 输入：`99ea950991f0eb10b80a9e262f3855b2238fd8f156fe1b1aff45f41cff2ed1e5`。
+- 旧 IPC / 36 项 / 139 输入：`44234064b1d82126103e252c65e3438e4483bf6f38b2e54a45644fd106d8826b`。
+
+最终旧 CLI **12 项**、完整 stdio **17 项**、IPC **36 项**通过，stdio 的前置失败按上文
+保留。默认根 Core **JS-off / tests-on：588/588 CTest / 181 ABI**、显式 JS/SSH-on
+**822/822 CTest**通过。完整 macOS App gate **551 项、20 项默认档 / 专用夹具缺失的
+明确跳过、零失败**，本机真实 SSH 与独立 WebKit CSS / PNG 绘制通过；十五项新原生
+模型 / 组件测试无跳过，实际 diff Runtime 十一种路线由独立 enabled runner 验证。
+
+Xcode 27.1 / Swift 6.4 在新 scratch 目录的 **macOS arm64 Release** 通过，实际可执行文件
+重新链接；Android JS-enabled **bridge Release / arm64 JNI**通过，共享 package-runtime
+对象实际重编。Android 本片没有 APK、设备、原生 diff、四模块 lint 或 R8 复跑结论。
+clang-format **19.1.7 / 257 文件**、Apple **178 引用 / 3 登记未用**、JNI **144 / 37**、
+Python 语法和 diff 检查通过。临时构建、收据、日志与缓存按本轮归属清理，原三份 eq
+输入与 SHA256 保留；未操作用户 Java、应用、SSH 服务或模拟器。根 Core 保持默认档。
+
+本轮实际清理 741 个所属 tmp 项，逻辑文件大小约 **564.1 MiB**；原三份 eq 输入摘要未变。

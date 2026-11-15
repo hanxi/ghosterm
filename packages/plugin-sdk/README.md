@@ -109,6 +109,7 @@ runtime 已分批接 Session / 资源 / 受控进程及 activate / dispose，两
 `diff.ts` 提供只读逐行比较：正 uint64 修订、精确所选页、前后行号 / 游标、LF / CRLF /
 CR / 无末尾换行、最多三行 / 2048 JSON 字节。`validateDiffPage` 可接前一页核对连续性；
 请求代次和迟到回复仍由 Host 另行隔离。差异行不是文件身份或写入 / 审批授权。
-官方 diff 样例比较显式提供的 JSON 编码文本，使用有界 LCS；原生 `ui.diff` 组件仍待接，
-缺服务须明确不支持。没有通用命令式 `ctx.views` 对象，不通过创建新 C ABI 或专属业务
+官方 diff 样例比较显式提供的 JSON 编码文本，使用有界 LCS；macOS 实验 Host 按准确命令的
+`views: ["diff"]` 接原生只读分页组件并要求 `ui.diff`。Android 接线仍待完成，缺服务须
+明确不支持。没有通用命令式 `ctx.views` 对象，不通过创建新 C ABI 或专属业务
 窗格绕过标准契约。样例构建和证据范围见[插件计划 P5](../../docs/reference/plan-plugin-bridge.md)。

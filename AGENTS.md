@@ -1252,3 +1252,23 @@ Release 与四模块 lint 通过，R8 为 UP-TO-DATE。两端 ui.diff / 实际 S
 无障碍、完整交互与设备矩阵仍待接；默认 JS-off，不增加 CI 二十份，P5 / P1–P6 未完成，
 未推送 / 发行。前置编译 / 夹具崩溃 / activation CPU 与失败变异的编译错误见计划第四批，
 均未计普通断言红或通过。
+
+**插件 P5 macOS 原生 diff（2026-11-15）**：准确批准命令 views 驱动通用只读 Text /
+ScrollView / Button；精确修订、双行号 / 行尾、所选页与有界连续游标，迟到 / 停止隔离。
+十五项新原生测试与既有 table 十五项通过，含浅深主题、13 / 28 pt 实际位图、本进程 AX
+值与真实下一页 action。同一官方包经本机 / 直连 / 两跳 SSH 的变化 / 空 / Unicode 九项，
+加本机宽 Unicode 与交错矩阵两项，共十一场景通过；全页 UTF-8 / 行尾重建、生产面板和
+停止 / 本机 reap / TMPDIR 移除已核对。十一组隔离 Native 变异通过：编译后单条正常
+断言红、同构件配置绿、恢复 / 对象 / SHA256。最初 OCR / AX 属性错误、请求字段编译
+失败和自赋值变异编译失败均单列，未计普通断言红或通过。ui.diff 纳入 Client 精确协商，
+Core 仅允许 Host 且仍检查 lease；无新 ABI / SDK 身份，不提高原 CPU / RPC / 握手预算。
+Android 原生 diff、diff IPC、通用 ctx.views / 多视图、系统辅助技术 / 键盘焦点、完整
+用户点击 / 生命周期 / 设备与 P5 / P1–P6 仍未完成。默认 JS-off，未推送 / 发行，不增加
+macOS CI 二十份；分批原件、收据与其它闸门见插件计划 P5 第五批。
+本批另复验 table Native 九组 / 六种实际路线，Core diff 新三组与 table 旧三组分套优化
+ASan / UBSan 各 56 项基线 / 最终，以及 CLI 两服务各两组；正常断言红、独立配置绿、
+恢复 / SHA256，无 LSan。默认 Core 588/181、enabled 822、CLI 12 / stdio 17 / IPC 36、
+完整 App 551 项含二十跳过 / 零失败、真实 SSH / WebKit、macOS 新 scratch arm64 Release、
+Android JS-enabled bridge Release 原生重编、C 格式 19.1.7 / 257 文件、Apple 178/3 与
+JNI 144/37 通过。旧 stdio Preview 一次 owner cleanup 失败、同构件原预算定向及完整
+复验通过分账，原因未确认，不宣称已修复；本片无 Android APK / 设备 / lint 或 R8 复跑。

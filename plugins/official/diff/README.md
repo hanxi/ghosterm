@@ -20,6 +20,7 @@ Rows are read-only data; labels are display names, and no patch is applied.
 The package requires only Session RPC on the Executor, with no file, process,
 network or account service. The same Executor runs locally or through owned SSH.
 
-The Client requires the standard Native `ui.diff` service. Native renderers are
-pending; current Hosts must reject the missing service explicitly. The candidate
+The Client requires the standard Native `ui.diff` service. The macOS Host provides
+a read-only Native view with exact line endings and previous/next paging. Android
+rendering is pending and must reject the missing service explicitly. The candidate
 package is built by the developer tool and is not installed or released by default.

@@ -416,6 +416,9 @@ struct ExtensionsPane: View {
                 if let table = model.extensionTable {
                     PluginTableView(model: table)
                 }
+                if let diff = model.extensionDiff {
+                    PluginDiffView(model: diff)
+                }
                 if run.command == "ai claude", let conversation = model.claudeConversation {
                     ClaudeConversationView(model: conversation)
                 } else if run.command == "ai claude", run.runtime?.phase == ExtensionRuntime.Phase.active.rawValue {

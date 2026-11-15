@@ -378,15 +378,17 @@ RPC 成功记成整个远端任务成功。这里只证明明确列出的资源�
 App TerminalSurface 与 tmux 的完整交互、其它服务器 / 操作系统、完整资源 / 进程预算与异常矩阵或真实设备仍待验证；不纳入现有
 macOS CI 二十份变异。
 
-### Client 提供的原生表格服务
+### Client 提供的标准原生视图服务
 
 `relay --stdio --client-capability ui.table` 要求 Native Client 提供该服务。
-当前仅接受一次 `ui.table`，且 Executor 包必须声明 `session.rpc`。这不是 gterm 本机
+支持 `ui.table` 与 `ui.diff`，每种至多声明一次；未知名称和重复项拒绝，Executor 包必须
+声明 `session.rpc`。这不是 gterm 本机
 渲染能力或执行批准：该项加入共享 Session 的精确协商集合，Host 仍须实际提供能力并
 显式 consent。缺少参数时不会猜测 Client 服务，旧 Host / 集合不匹配时拒绝握手。
-包兼容性检查的 Executor profile 不因此声称具有 `ui.table`；其它未接服务仍显式不支持。
+包兼容性检查的 Executor profile 不因此声称具有这些 UI 服务；其它未接服务仍显式不支持。
 已有 `--listen` 实例的配置在附着时不更改，所需服务须在其创建时声明。
 
-macOS 实验插件页按已批准命令的 `views: ["table"]` 加入标准分页方法及上述要求，
-同一官方 Executor 目录可用于本机进程通道或显式 SSH 路线。普通构建仍关闭 JS；这不
-提供插件安装、终端 TTY 回写、Android 表格或正式分发。
+macOS 实验插件页按准确批准命令的 `views: ["table"]` / `views: ["diff"]` 加入对应
+标准分页方法及上述要求。同一官方 Executor 目录可用于本机进程通道或显式 SSH 路线。
+Android 已接原生 table，原生 diff 仍待接，缺服务时明确不支持。普通构建仍关闭 JS；
+插件安装、终端 TTY 回写、diff IPC 与正式分发不在本切片结论内。
