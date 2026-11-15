@@ -1449,3 +1449,19 @@ RelWithDebInfo，无 sanitizer 新结论。默认 Core 588/184、C 格式 263、
 JNI 147/37 通过。无产品 Core / 平台 / 公共 ABI / SDK 身份 / 预算变化或新 App /
 APK / 设备 / SSH / 发行结论；Node / Exec 开发、文件 / 进程 / UI testkit 和完整
 P5 / P1–P6 仍未完成，不增加 CI 二十份；见插件计划第十六批与[开发指南](docs/how-to/plugin-development.md)。
+
+
+**插件 P5 Node / Exec 包开发（2026-11-15）**：通用 check / build / pack 支持
+Portable Client 配 Node / Exec 执行档，按各脚本入口隔离 strict TypeScript 与锁定
+Node 22 开发类型；Portable 不加载 Node 类型，来源必须可达且共享输出一致。
+Node ESM 静态闭包、Exec 非空字节、完整性 / 可复现 ZIP、显式 variantId 与 Host
+三态保留；不执行入口 / 项目钩子或自动安装执行端依赖。Executor / paired test
+仍只执行 Portable，其它兼容运行档明确 4 / TEST_RUNTIME_UNSUPPORTED；Node 包
+的 Portable Client 已在真实 QuickJS 验证。初轮发现三斜线引用可引入 Node 类型，
+实际复现 check compatible 后 TERM 中止；修为禁止 path / types / lib references，
+不能借类型或快照外文件绕过闭包。最终 32 项基线、19 组隔离变异正常断言红 /
+独立配置绿 / 恢复 / SHA256；57 输入一致，另四项预编译 ESM 手工补证。默认 Core
+588/184、C 格式 263、Apple 181/3、JNI 147/37 通过。无产品 Core / 平台 / ABI /
+SDK 身份 / Runtime 预算变化；无新 App / APK / 设备 / Node / Exec 业务执行 /
+SSH / 发行结论，无 sanitizer 新结论。Node / Exec 开发执行、服务 testkit 与
+完整 P5 / P1–P6 仍未完成，不增加 CI 二十份；见插件计划第十七批及开发指南。

@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { createRequire } from 'node:module';
+import { builtinModules, createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
 function demand(ok, code) { if (!ok) throw new Error(code); }
@@ -19,6 +19,7 @@ for (const name of ['bridge-v1.candidate.json', 'manifest-v1.candidate.json', 'i
   ajv.addSchema(JSON.parse(fs.readFileSync(path.join(root, 'packages/plugin-sdk/schema', name), 'utf8')));
 const validateManifest = ajv.getSchema('https://ghosterm.invalid/plugin-schema/manifest-v1.candidate.json');
 const inspect = createPackageInspector({ validateManifest, validateIntegrity: ajv.getSchema('https://ghosterm.invalid/plugin-schema/integrity-v1.candidate.json'), semver });
+const nodeBuiltin = name => name.startsWith('node:') && (builtinModules.includes(name) || builtinModules.includes(name.slice(5)));
 const contained = (parent, file) => file.startsWith(parent + path.sep);
 
 function json(filename) {
@@ -40,6 +41,7 @@ function files(directory) {
 }
 function imports(filename, text) {
   const tree = ts.createSourceFile(filename, text, ts.ScriptTarget.ES2022, true);
+  demand(!tree.referencedFiles.length && !tree.typeReferenceDirectives.length && !tree.libReferenceDirectives.length, 'REFERENCE_DIRECTIVE');
   const values = [];
   function visit(node) {
     demand(node.kind !== ts.SyntaxKind.AnyKeyword, 'EXPLICIT_ANY');
@@ -62,43 +64,60 @@ function project() {
   demand(Object.keys(config).sort().join(',') === 'assets,schemaVersion,sources' && config.schemaVersion === 1 && Array.isArray(config.sources) && Array.isArray(config.assets), 'PROJECT_CONFIG');
   demand(config.sources.length > 0 && config.sources.length <= 64 && config.assets.length <= 1024 &&
     [...config.sources, ...config.assets].every(n => typeof n === 'string') && new Set([...config.sources, ...config.assets]).size === config.sources.length + config.assets.length, 'PROJECT_MEMBERS');
-  const seen = new Set();
-  function collect(name) {
-    canonicalMemberPath(name); demand(name.endsWith('.ts') && !name.endsWith('.d.ts'), 'TYPESCRIPT_SOURCE');
-    if (seen.has(name)) return;
-    demand(seen.size < 64, 'SOURCE_MODULE_COUNT'); seen.add(name);
-    const filename = path.resolve(source, name); demand(contained(source, filename), 'SOURCE_ESCAPE');
-    const data = fs.readFileSync(filename, 'utf8'); demand(Buffer.byteLength(data) <= 131072, 'SOURCE_MODULE_BYTES');
-    for (const specifier of imports(filename, data)) {
-      if (specifier === '@ghosterm/plugin-sdk') continue;
-      demand(specifier.startsWith('.') && !specifier.includes('\\'), 'PORTABLE_IMPORT');
-      const relative = path.relative(source, path.resolve(path.dirname(filename), specifier.replace(/\.js$/, '.ts'))).split(path.sep).join('/');
-      collect(relative);
-    }
-  }
-  for (const name of config.sources) collect(name);
-  const options = { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022, moduleResolution: ts.ModuleResolutionKind.Bundler,
-    lib: ['lib.es2022.d.ts'], types: [], strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true,
-    noUnusedLocals: true, noUnusedParameters: true, noEmitOnError: true, baseUrl: source,
-    paths: { '@ghosterm/plugin-sdk': [path.join(root, 'packages/plugin-sdk/portable/index.ts')] } };
-  const program = ts.createProgram([...seen].map(n => path.join(source, n)), options);
-  const diagnostics = ts.getPreEmitDiagnostics(program);
-  demand(!diagnostics.length, 'TYPESCRIPT: ' + diagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')).join('\n'));
+  const manifest = json(path.join(source, 'plugin.json'));
+  demand(validateManifest(manifest) && manifest.client?.runtime === 'portable-js', 'BUILD_MANIFEST');
+  const sides = [manifest.client, ...(manifest.executor?.variants ?? [])];
+  const allSeen = new Set(), emitted = new Map();
   fs.mkdirSync(output);
-  const emitted = new Set();
-  const result = program.emit(undefined, (_name, text, _bom, _error, origins) => {
-    if (!origins || origins.length !== 1 || !contained(source, origins[0].fileName)) return;
-    const relative = path.relative(source, origins[0].fileName).replace(/\.ts$/, '.js').split(path.sep).join('/');
-    canonicalMemberPath(relative); demand(!emitted.has(relative) && Buffer.byteLength(text) <= 131072, 'EMITTED_MODULE'); emitted.add(relative);
-    const filename = path.join(output, relative); fs.mkdirSync(path.dirname(filename), { recursive: true }); fs.writeFileSync(filename, text);
-  });
-  demand(!result.emitSkipped && !result.diagnostics.length && emitted.size === seen.size, 'EMIT_FAILED');
+  for (const side of sides) {
+    if (side.runtime === 'exec') continue;
+    const entrySource = side.entry.replace(/\.js$/, '.ts');
+    if (!config.sources.includes(entrySource)) {
+      demand(side.runtime === 'node' && config.assets.includes(side.entry), 'ENTRY_SOURCE');
+      continue;
+    }
+    const seen = new Set();
+    function collect(name) {
+      canonicalMemberPath(name); demand(name.endsWith('.ts') && !name.endsWith('.d.ts'), 'TYPESCRIPT_SOURCE');
+      if (seen.has(name)) return;
+      demand(seen.size < 64, 'SOURCE_MODULE_COUNT'); seen.add(name); allSeen.add(name);
+      const filename = path.resolve(source, name); demand(contained(source, filename), 'SOURCE_ESCAPE');
+      const data = fs.readFileSync(filename, 'utf8'); demand(Buffer.byteLength(data) <= 131072, 'SOURCE_MODULE_BYTES');
+      for (const specifier of imports(filename, data)) {
+        if (specifier === '@ghosterm/plugin-sdk') continue;
+        if (side.runtime === 'node' && nodeBuiltin(specifier)) continue;
+        demand(specifier.startsWith('.') && !specifier.includes('\\'), 'PORTABLE_IMPORT');
+        collect(path.relative(source, path.resolve(path.dirname(filename), specifier.replace(/\.js$/, '.ts'))).split(path.sep).join('/'));
+      }
+    }
+    collect(entrySource);
+    const options = { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022, moduleResolution: ts.ModuleResolutionKind.Bundler,
+      lib: ['lib.es2022.d.ts'], types: side.runtime === 'node' ? ['node'] : [],
+      typeRoots: [path.join(request.tools, 'node_modules/@types')],
+      strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true,
+      noUnusedLocals: true, noUnusedParameters: true, noEmitOnError: true, baseUrl: source,
+      paths: { '@ghosterm/plugin-sdk': [path.join(root, 'packages/plugin-sdk/portable/index.ts')] } };
+    if (side.runtime === 'node') demand(require('@types/node/package.json').version === '22.19.7', 'NODE_TYPES_VERSION');
+    const program = ts.createProgram([...seen].map(n => path.join(source, n)), options);
+    const diagnostics = ts.getPreEmitDiagnostics(program);
+    demand(!diagnostics.length, 'TYPESCRIPT: ' + diagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')).join('\n'));
+    const outputs = new Set();
+    const result = program.emit(undefined, (_name, text, _bom, _error, origins) => {
+      if (!origins || origins.length !== 1 || !contained(source, origins[0].fileName)) return;
+      const relative = path.relative(source, origins[0].fileName).replace(/\.ts$/, '.js').split(path.sep).join('/');
+      canonicalMemberPath(relative); demand(!outputs.has(relative) && Buffer.byteLength(text) <= 131072, 'EMITTED_MODULE'); outputs.add(relative);
+      demand(!emitted.has(relative) || emitted.get(relative) === text, 'SHARED_EMIT_MISMATCH'); emitted.set(relative, text);
+    });
+    demand(!result.emitSkipped && !result.diagnostics.length && outputs.size === seen.size, 'EMIT_FAILED');
+  }
+  demand(config.sources.every(n => allSeen.has(n)) && allSeen.size <= 64, 'UNREACHABLE_SOURCE');
+  for (const [name, text] of emitted) {
+    const filename = path.join(output, name); fs.mkdirSync(path.dirname(filename), { recursive: true }); fs.writeFileSync(filename, text);
+  }
   for (const name of ['plugin.json', ...config.assets]) {
     canonicalMemberPath(name); demand(!emitted.has(name) && name !== 'integrity.json' && name !== 'signature', 'ASSET_COLLISION');
     const target = path.join(output, name); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.copyFileSync(path.join(source, name), target);
   }
-  const manifest = json(path.join(output, 'plugin.json'));
-  demand(manifest.client?.runtime === 'portable-js' && manifest.executor?.variants?.length === 1 && manifest.executor.variants[0].runtime === 'portable-js', 'BUILD_PORTABLE_PAIR_ONLY');
   const catalog = files(output);
   const integrity = { schemaVersion: 1, members: [...catalog].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([name, bytes]) => ({ path: name, bytes: bytes.length, sha256: digest(bytes) })) };
   fs.writeFileSync(path.join(output, 'integrity.json'), JSON.stringify(integrity) + '\n');
@@ -123,10 +142,11 @@ try {
     const schema = schemas[command.argsSchema] = json(path.join(directory, command.argsSchema));
     ajv.compile(schema);
   }
+  demand(manifest.client?.runtime === 'portable-js', 'CLIENT_PORTABLE_ONLY');
   // Check the emitted import graph using the TypeScript parser, never regexes.
   // SDK imports are resolved by the real Core during native test activation.
   const visited = new Set(), active = new Set();
-  function closure(name, sdk = false) {
+  function closure(name, sdk = false, runtime = 'portable-js') {
     canonicalMemberPath(name); demand((sdk ? sdkModules : catalog).has(name) && /\.(?:mjs|js)$/.test(name), 'MISSING_SCRIPT');
     const key = (sdk ? 'sdk:' : 'plugin:') + name;
     demand(!active.has(key), 'IMPORT_CYCLE'); if (visited.has(key)) return;
@@ -137,14 +157,21 @@ try {
       for (const node of tree.statements) if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) result.push(node.moduleSpecifier.text);
       return result;
     })() : imports(name, body)) {
-      if (specifier === '@ghosterm/plugin-sdk' && !sdk) { closure('index.js', true); continue; }
+      if (specifier === '@ghosterm/plugin-sdk' && !sdk) { closure('index.js', true, runtime); continue; }
+      if (!sdk && runtime === 'node' && nodeBuiltin(specifier)) continue;
       demand(specifier.startsWith('.') && !specifier.includes('\\'), 'PORTABLE_IMPORT');
-      closure(path.posix.normalize(path.posix.join(path.posix.dirname(name), specifier)), sdk);
+      closure(path.posix.normalize(path.posix.join(path.posix.dirname(name), specifier)), sdk, runtime);
     }
     active.delete(key);
   }
   for (const side of [manifest.client, ...(manifest.executor?.variants ?? [])]) {
-    demand(side.runtime === 'portable-js', 'CHECK_PORTABLE_ONLY'); visited.clear(); active.clear(); closure(side.entry);
+    if (side.runtime === 'exec') {
+      demand(catalog.has(side.executable) && catalog.get(side.executable).length > 0, 'EXECUTABLE_MEMBER');
+      continue;
+    }
+    demand(side.runtime === 'portable-js' || side.runtime === 'node', 'CHECK_RUNTIME');
+    if (side.runtime === 'node') demand(catalog.has('package.json') && json(path.join(directory, 'package.json')).type === 'module', 'NODE_ESM_PACKAGE');
+    visited.clear(); active.clear(); closure(side.entry, false, side.runtime);
     demand(visited.size <= 64 && [...visited].reduce((n, name) => n + (name.startsWith('sdk:') ? Buffer.byteLength(sdkModules.get(name.slice(4))) : catalog.get(name.slice(7)).length), 0) <= 1048576, 'RUNTIME_MODULE_LIMIT');
   }
   const conflict = commandConflicts([manifest, ...registry.map(dir => json(path.join(dir, 'plugin.json')))]);
@@ -157,10 +184,15 @@ try {
     else throw error;
   }
   if (host && request.testProfile) {
-    const selected = host.side === 'client' ? manifest.client : manifest.executor?.variants?.[0];
+    const selected = host.side === 'client' ? manifest.client :
+      manifest.executor?.variants?.find(v => v.id === facts?.variantId) ?? manifest.executor?.variants?.[0];
     demand(selected?.requires.includes('session.rpc'), 'TEST_REQUIRES_DECLARED_RPC');
+    if (compatibility === 'compatible' && selected.runtime !== 'portable-js') {
+      compatibility = 'unsupported'; reason = 'TEST_RUNTIME_UNSUPPORTED';
+    }
   }
   console.log(JSON.stringify({ structural: true, compatibility, reason, exitCode: { compatible: 0, unknown: 3, unsupported: 4, denied: 6 }[compatibility],
+    runtimes: [...new Set([manifest.client.runtime, ...(manifest.executor?.variants ?? []).map(v => v.runtime)])],
     id: manifest.id, packageSHA256: digest(catalog.get('integrity.json')), authorization: 'not-granted', publisherAuthenticated: false, facts }));
 } catch (error) {
   console.error(String(error.message)); process.exitCode = 2;

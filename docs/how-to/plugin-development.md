@@ -1,10 +1,11 @@
-# 开发 Portable 插件
+# 开发与验证插件
 
 `scripts/gterm-plugin` 提供候选 `init/check/build/pack/test` 命令，当前构建对象为
-Portable Client 加单个 Portable Executor。命令读取固定副本，不执行项目的 npm
+Portable Client 加 Portable / Node / Exec Executor 运行档。命令读取固定副本，不执行项目的 npm
 脚本、安装钩子或插件入口；只有 `test` 会在真实 Core / QuickJS 中激活选定的一侧。
 默认测试 Executor，`--side client` 测试 Client，`--side paired` 同时激活两侧。
-Node / Exec 包构建、文件 / 进程 / UI 服务测试仍待接入。
+`test` 的 Executor / paired 档目前只激活 Portable；Node / Exec 的开发执行测试及
+文件 / 进程 / UI 服务测试仍待接入。
 
 在仓库根目录准备锁定的开发工具。Node 是开发依赖，不进入 Portable SDK 或 C Core：
 
@@ -31,8 +32,8 @@ python3 scripts/gterm-plugin check --project tmp/plugin-dev/hello --tools tmp/pl
 检查与这些目录 manifest 声明的命令前缀冲突；这不是读取应用安装注册表。
 
 工程使用 `plugin.project.json` 显式列出 TypeScript 根文件和静态资源。构建强制
-strict / noImplicitAny、禁止显式 any 和跳过类型检查的注释；可用 ES2022，不能引用
-DOM / Node 全局。导入限于包内相对静态闭包及 `@ghosterm/plugin-sdk`，不支持动态
+strict / noImplicitAny、禁止显式 any 和跳过类型检查的注释；可用 ES2022。Portable
+不能引用 DOM / Node 全局。导入限于包内相对静态闭包及 `@ghosterm/plugin-sdk`，不支持动态
 导入、require 或循环。相对运行时导入写 `.js`，构建时解析对应 `.ts`。实际 SDK 值
 导出也计入每端 64 模块 / 1 MiB 限额，不把只有类型的导出计作运行时模块。
 
@@ -47,6 +48,43 @@ python3 scripts/gterm-plugin pack --package tmp/plugin-dev/hello-package --tools
 `integrity.json` 覆盖成员实际字节。ZIP 使用排序路径、固定时间和权限，无签名；同一
 输入和工具链的工程直接打包与已构建目录打包可逐字节对拍。`build/pack` 未提供
 Host 时仍可产生结构有效的产物，报告兼容未知，不安装到应用。
+
+Node Executor 仍配 Portable Client。在 manifest 中把执行档改为例如：
+
+```json
+{"id":"node","runtime":"node","entry":"executor/index.js","runtimeVersionRange":"^22.0.0","requires":["session.rpc"]}
+```
+
+在 `plugin.project.json` 的 `sources` 保留 `client/index.ts`、`executor/index.ts`，并把
+含 `{"type":"module"}` 的 `package.json` 加入 `assets`。Node TypeScript 可使用
+`node:` 内建模块、`process`、`Buffer`；开发工具锁定 `@types/node` 22.19.7，实际
+运行版本仍按 manifest / Host 事实判断，类型通过不证明运行版本兼容。每个运行档
+分别编译；Portable Client 不会因为同包有 Node 运行档就获得 Node 全局或类型。
+共享模块须在各自环境通过检查，不能靠共享代码绕过 Portable 限制。
+不接受三斜线 `reference types/lib/path` 指令；额外类型、DOM 库和快照外文件不能
+通过这些指令进入编译。这是构建闭包检查，不是 Node 进程的 OS 沙箱。
+
+Node 的外部 npm 包不能作为裸导入交给此工具自动安装。可先在作者自己的构建链中
+整理成包内相对 ESM 闭包，再把 `.mjs` 入口及依赖逐项放入 `assets`；这种已编译
+资源只做静态闭包 / 完整性检查，不宣称重新验证了原 TypeScript。构建命令不执行
+这些模块、`package.json` scripts 或安装钩子。`@ghosterm/plugin-sdk` 仍由可信宿主
+提供，工具不把 Node 类型定义复制进插件或 Portable SDK。
+
+Exec 运行档使用 `executable`，例如：
+
+```json
+{"id":"native","runtime":"exec","executable":"bin/tool","os":["macos"],"arch":["aarch64"],"requires":["session.rpc"]}
+```
+
+把 `bin/tool` 列入 `assets`，从 `sources` 移除不再使用的 Executor TypeScript 根。
+构建要求文件非空且受完整性索引覆盖，原始字节随目录 / ZIP 保存；这不证明机器码
+或协议兼容，也不运行二进制。运行时仍须有平台匹配、明确授权和执行配置。
+
+同包多个运行档需在 Host 事实中显式给 `variantId`；工具不根据 Node 是否安装
+悄悄换成另一个运行档。Node 的 `programs.node` 事实须明确 available / missing /
+denied 及版本；没有事实为 unknown，不会执行 `node --version` 或安装 Node。
+`test` 尚未提供 Node / Exec 执行配置，兼容的这些 Executor 会明确返回退出码 4 /
+`TEST_RUNTIME_UNSUPPORTED`；可以用 `--side client` 测试其 Portable Client。
 
 `test` 需要显式启用 JS 的工程内 Core 构建，不复用默认 JS-off 的 `core/build`：
 

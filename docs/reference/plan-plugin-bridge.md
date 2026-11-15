@@ -27,7 +27,8 @@ ui.task、精确进度、只读刷新与实际取消按钮；同一包经本机 
 JNI 门面；第十二 / 十三批由 macOS / Android 通用 Native 组件消费多视图，
 第十四批补两端 task / 多视图的一次性前台 IPC、断流 unknown 与有界 disposer 修复。
 第十五批为开发 testkit 增加显式选侧 Client 激活与反向 RPC，第十六批补双 JS 端
-同时激活、真实请求 / 回调往返及独立兼容 / 释放检查。各批覆盖与证据见文末；
+同时激活、真实请求 / 回调往返及独立兼容 / 释放检查。第十七批接通 Node / Exec
+构建 / 检查 / 打包与按运行档隔离的类型检查，执行测试仍仅 Portable。各批覆盖与证据见文末；
 完整开发体验、系统辅助技术 / 生命周期 / 设备矩阵仍待完成，缺能力显式不支持，
 P5 和 P1–P6 均未记完成。
 
@@ -7622,3 +7623,62 @@ Native App / Android 设备、SSH / tmux 或跨进程资源验收通过。Node /
 清理前再次核对全部 57 输入，源码与完整回归 / 十四组变异时一致。
 
 结束清理本轮 **30 个 tmp 项、逻辑大小约 54.7 MiB**，原三份 eq 输入摘要不变。所有自有测试 / 工具已退出，无窗口 / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。
+
+### P5 实施第十七批：Node / Exec 包开发与类型边界（2026-11-15）
+
+通用 `gterm-plugin check / build / pack` 不再把执行端强制成单个 Portable variant。
+保留 Portable Client，按 manifest 的各脚本入口分别收集和编译 TypeScript；Node
+可使用明确 `node:` 内建导入与 Node 全局，Portable 不加载这些类型。锁定开发工具
+新增 `@types/node` **22.19.7** / `undici-types` **6.21.0** 及 npm integrity，只作为
+编译依赖，不进入 Portable SDK / C Core / 插件产物；现有 SDK 身份不变。每个入口
+都做 strict / noImplicitAny / 显式 any / 类型绕过检查，源根必须实际可达，共享模块
+在各运行档分别检查且输出必须一致；原 64 模块 / 源码预算不提高。
+
+Node 要求 ESM package.json，可编译 `.ts` 入口或显式收录预编译 `.mjs` 静态闭包；
+后者不冒充原 TypeScript 的新类型验收。只允许内建 `node:`、SDK 和包内相对依赖，
+不自动安装裸 npm 依赖、不执行项目脚本或插件顶层。Exec 的 executable 作为非空
+资源收录，字节受完整性 / 平台 / 依赖事实检查；目录与固定 ZIP 可复现，构建不运行
+二进制，不把文件存在当协议或机器码兼容。多运行档保留显式 variantId，不根据
+本机工具是否存在选择回退。Node 的版本 / missing / denied / unknown 仍只来自
+调用者提供的 Host 事实，没有 `node --version` 探测或外部安装。
+
+现有 `test` 的 Executor / paired 执行服务仍仅 Portable，所选 Node / Exec 兼容时
+明确返回 **4 / TEST_RUNTIME_UNSUPPORTED**，不能转为假测试通过；Node 包的
+Portable Client 仍可由真实 QuickJS `--side client` 测试。本片没有提供新的 Node /
+Exec 启动授权 / 执行配置或改用用户身份。后续需将既有受控执行后端接到开发执行
+测试，而不是把结构检查或曾有的 App 执行结果当成本轮开发命令已执行。
+
+初轮三十一项基线通过后，代码复核发现 TypeScript 三斜线引用可绕过导入闭包。
+在自有夹具中实际复现 Portable Client 加 `reference types="node"` / process 后
+被 check 报 compatible / 0。仅 TERM 中止本轮自有 verifier（143、隔离变异正常
+恢复、没有最终收据），不计整轮绿；随后禁止 source / package 脚本的 path / types /
+lib reference 指令。原复现改为 **REFERENCE_DIRECTIVE / 1**，并新增三类回归及
+移除守卫的隔离变异。类型隔离 / 闭包检查不是 Node 的 OS 沙箱。
+
+修正后完整 **32 项基线、19 组隔离变异**同轮通过：新增 Node 构建 / 原生 Client /
+可复现 ZIP、Node 类型 / 导入边界、Node 依赖事实 / 不支持执行、Exec 字节 / 空文件 /
+完整性、显式多 variant 及引用指令六项。新增五组为 **portable-node-types / node-esm /
+exec-empty / test-runtime / source-references**，旧十四组均复验。每组正常断言红、
+独立 Core 配置绿、恢复绿 / SHA256；Native C 变异仍须真实编译后的 ASSERT，编译 /
+崩溃 / 超时不计正常目标红。**57 输入**与当前工具 / SDK / 头文件一致，收据 SHA256
+`6d1cefbe1ead4ae7b37c0dab7c26b175562f69f4c82d3161b415c73751d37e08`。
+显式 JS-enabled / libssh2-off Core archive
+`3aa82f2a4a764808715dfca7fad0fd79b628d7caec470e9f3deb8f86ba946f30`，
+QuickJS archive `71dcf8f1fff7f693c2f35a1c9a86c4b6bc6f1b0e93ab44af1413e025d4eeed11`。
+macOS arm64 / C11 / -Wall / -Wextra / -Werror、RelWithDebInfo，无 sanitizer 新结论。
+命令：`python3 scripts/test-plugin-dev.py --tools tmp/plugin-runtime-dev/tools --core-build tmp/plugin-runtime-dev/core --mutate --receipt tmp/plugin-runtime-dev/receipt.json`。
+
+未改 Core / 平台产品 / 公共 ABI、SDK 身份或 Runtime 预算。无 Node / Exec 业务执行、
+新 App / APK / 设备 / SSH / tmux / 真实模型 / 发行结论；完整开发 / 服务 testkit /
+生命周期 / 分发矩阵及 P5 / P1–P6 仍未完成，手工证据不增加 CI 二十份。
+
+预编译 Node ESM 另有手工四项补证：显式 `.mjs` 入口 / 相对 helper 闭包、项目与
+已构建目录 ZIP 字节相同、顶层 marker 始终未产生、未收录裸包导入拒绝 / 恢复。
+收据 SHA256 `26ae726dec3f8fe06532f32d27262fdbcd2f38f0e8b769f271b4fa293f799026`，
+Worker 摘要与上述 32 项 / 19 组时一致；不把该补证当 Node 业务执行。
+最终默认 Core **JS-off / tests-on：588/588 CTest、184 ABI**、C 格式 **19.1.7 /
+263 文件**、Apple **181 引用 / 3 登记未用**、JNI **147 / 37**、Python / Node
+语法与 diff 检查通过。无平台产品修改，不记新 App / APK / 设备构建。清理前完整
+57 输入再次一致，未以三斜线修正前的中断轮代表最终源码。
+
+结束清理本轮 **30 个 tmp 项、逻辑大小约 68.5 MiB**；原三份 eq 输入摘要不变。自有测试 / 工具进程已退出，无 GUI / AVD；未操作旧 Java 或用户服务。仅本地提交，未推送 / 发行。

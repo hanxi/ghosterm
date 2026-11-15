@@ -53,6 +53,22 @@ def run_case(name, work, tools, core):
             if before is None: target.unlink()
             else: target.write_bytes(before)
 
+    def execution_project(runtime):
+        manifest = json.loads((project / 'plugin.json').read_text())
+        config = json.loads((project / 'plugin.project.json').read_text())
+        if runtime == 'node':
+            manifest['executor']['variants'][0].update(id='node', runtime='node', runtimeVersionRange='^22.0.0')
+            (project / 'package.json').write_text('{"type":"module","scripts":{"postinstall":"touch HOOK_RAN"}}')
+            config['assets'].append('package.json')
+            (project / 'executor/index.ts').write_text('import { writeFileSync } from "node:fs";\nexport const bytes = Buffer.from("typed");\nwriteFileSync(' + json.dumps(str(work / 'ENTRY_RAN')) + ', process.version);\nexport function activate() { return { dispose() {} }; }\n')
+        else:
+            manifest['executor']['variants'][0] = dict(id='native', runtime='exec', executable='bin/fixture', requires=['session.rpc'], os=['macos'], arch=['aarch64'])
+            config['sources'].remove('executor/index.ts'); config['assets'].append('bin/fixture')
+            (project / 'bin').mkdir(); shutil.copyfile('/usr/bin/true', project / 'bin/fixture')
+        (project / 'plugin.json').write_text(json.dumps(manifest))
+        (project / 'plugin.project.json').write_text(json.dumps(config))
+        return manifest, config
+
     if name == 'reproducible':
         # A hostile package lifecycle script is inert input, never a build hook.
         (project / 'package.json').write_text(json.dumps({'scripts': {'postinstall': 'touch HOOK_RAN'}}))
@@ -230,6 +246,59 @@ def run_case(name, work, tools, core):
             manifest['permissions'] = [p for p in manifest['permissions'] if p['side'] != side]
             target.write_text(json.dumps(manifest))
             assert native(project / 'plugin.pair.test.json', side='paired', status=1, diagnostic='TEST_REQUIRES_DECLARED_RPC')['kind'] == 'error'
+    elif name == 'node-project':
+        execution_project('node')
+        package = work / 'package'; cli('build', *common, '--out', package)
+        assert b'node:fs' in (package / 'executor/index.js').read_bytes() and (package / 'client/index.js').is_file()
+        assert not (work / 'ENTRY_RAN').exists() and not (project / 'HOOK_RAN').exists()
+        facts = {**host, 'runtimes': ['node'], 'programs': {'node': {'state': 'available', 'version': '22.19.0'}}}
+        hostfile.write_text(json.dumps(facts)); assert check()['facts']['variantId'] == 'node'
+        assert cli('check', '--package', package, '--tools', tools, '--host-json', hostfile)['runtimes'] == ['portable-js', 'node']
+        a, b = work / 'a.zip', work / 'b.zip'
+        cli('pack', *common, '--out', a); cli('pack', '--package', package, '--tools', tools, '--out', b)
+        assert a.read_bytes() == b.read_bytes() and not (work / 'ENTRY_RAN').exists()
+        assert native(side='client')['side'] == 'client'
+    elif name == 'node-boundaries':
+        execution_project('node'); target = project / 'client/index.ts'; original = target.read_bytes()
+        reject('client/index.ts', original + b'export const bad = process;\n')
+        reject('client/index.ts', original + b'import "node:fs";\n')
+        target = project / 'executor/index.ts'; original = target.read_bytes()
+        for bad in [b'export const bad: any = 1;\n', b'export const bad: string = Buffer.from("bytes");\n', b'import "node:missing_builtin";\n', b'import "some-uninstalled-npm-package";\n', b'export const bad = document;\n', b'import "../../escape.js";\n']:
+            reject('executor/index.ts', original + bad)
+        reject('package.json', b'{"type":"commonjs"}')
+    elif name == 'source-references':
+        target = project / 'client/index.ts'; original = target.read_bytes()
+        ambient = work / 'ambient.d.ts'; ambient.write_text('declare const outsideSnapshot: string;\n')
+        for prefix, statement in [('/// <reference types="node" />\n', 'export const leaked = process;\n'), ('/// <reference lib="dom" />\n', 'export const leaked = document;\n'), ('/// <reference path=' + json.dumps(str(ambient)) + ' />\n', 'export const leaked = outsideSnapshot;\n')]:
+            reject('client/index.ts', prefix.encode() + original + statement.encode())
+    elif name == 'node-facts':
+        execution_project('node')
+        for fact, status, state in [(None, 3, 'unknown'), ({'state': 'missing'}, 4, 'unsupported'), ({'state': 'denied'}, 6, 'denied'), ({'state': 'available', 'version': '20.0.0'}, 4, 'unsupported'), ({'state': 'available', 'version': '22.19.0'}, 0, 'compatible')]:
+            hostfile.write_text(json.dumps({**host, 'runtimes': ['node'], 'programs': {'node': fact}}))
+            assert check(status)['compatibility'] == state
+        args = ['test', *common, '--contract', project / 'plugin.test.json', '--core-build', work / 'must-not-run', '--host-json', hostfile]
+        assert cli(*args, status=4)['reason'] == 'TEST_RUNTIME_UNSUPPORTED'
+    elif name == 'exec-project':
+        execution_project('exec'); hostfile.write_text(json.dumps({**host, 'runtimes': ['exec'], 'os': 'macos', 'arch': 'aarch64'}))
+        assert check()['facts']['variantId'] == 'native'
+        package = work / 'package'; cli('build', *common, '--host-json', hostfile, '--out', package)
+        assert (package / 'bin/fixture').read_bytes() == Path('/usr/bin/true').read_bytes()
+        a, b = work / 'a.zip', work / 'b.zip'
+        cli('pack', *common, '--out', a); cli('pack', '--package', package, '--tools', tools, '--out', b)
+        assert a.read_bytes() == b.read_bytes()
+        reject('bin/fixture', b'')
+        (package / 'bin/fixture').write_bytes(b'tampered')
+        assert cli('check', '--package', package, '--tools', tools, '--host-json', hostfile, status=1)['kind'] == 'error'
+    elif name == 'runtime-variants':
+        manifest, config = execution_project('node')
+        manifest['executor']['variants'].append(dict(id='native', runtime='exec', executable='bin/fixture', requires=['session.rpc'], os=['macos'], arch=['aarch64']))
+        (project / 'bin').mkdir(); shutil.copyfile('/usr/bin/true', project / 'bin/fixture'); config['assets'].append('bin/fixture')
+        (project / 'plugin.json').write_text(json.dumps(manifest)); (project / 'plugin.project.json').write_text(json.dumps(config))
+        facts = {**host, 'runtimes': ['node', 'exec'], 'os': 'macos', 'arch': 'aarch64', 'programs': {'node': {'state': 'available', 'version': '22.19.0'}}}
+        hostfile.write_text(json.dumps(facts)); assert check(1)['kind'] == 'error'
+        for variant in ['node', 'native']:
+            hostfile.write_text(json.dumps({**facts, 'variantId': variant})); assert check()['facts']['variantId'] == variant
+        hostfile.write_text(json.dumps({**facts, 'runtimes': ['node'], 'variantId': 'native'})); assert check(4)['compatibility'] == 'unsupported'
     elif name == 'activation-failure':
         (project / 'executor/index.ts').write_text('export function activate() { throw new Error("fixture activation failure"); }\n')
         assert native(status=1)['kind'] == 'error'
@@ -284,6 +353,8 @@ def run_case(name, work, tools, core):
 
 CASES = ['reproducible', 'host-states', 'strict-types', 'dependencies', 'imports', 'physical-inputs', 'json-inputs', 'integrity', 'conflicts', 'publication', 'rpc', 'activation-failure', 'dispose-failure', 'rpc-required', 'services-unsupported', 'interrupt-cleanup', 'client-rpc', 'client-contract', 'client-failures', 'client-rpc-required', 'side-profile']
 CASES += ['paired-rpc', 'paired-contract', 'paired-failures', 'paired-hosts', 'paired-declarations']
+CASES += ['node-project', 'node-boundaries', 'node-facts', 'exec-project', 'runtime-variants']
+CASES += ['source-references']
 MUTATIONS = [
     ('explicit-any', 'strict-types', 'scripts/plugin-dev-worker.mjs', "demand(node.kind !== ts.SyntaxKind.AnyKeyword, 'EXPLICIT_ANY');", ''),
     ('host-denied', 'host-states', 'scripts/plugin-dev-worker.mjs', 'compatibility = error.state; reason = error.code;', "compatibility = error.state === 'denied' ? 'unknown' : error.state; reason = error.code;"),
@@ -299,6 +370,11 @@ MUTATIONS = [
     ('paired-direction', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_HOST : GT_EXT_EXECUTOR;', 'methods[i].receiver = !strcmp(split + 1, "client") ? GT_EXT_EXECUTOR : GT_EXT_HOST;'),
     ('paired-executor-release', 'paired-rpc', 'scripts/probes/plugin-pair-testkit.c', '    pair_release(&executor);', '    /* missing Executor release */'),
     ('paired-executor-facts', 'paired-hosts', 'scripts/gterm-plugin', "report = worker(work, tools, package, None, host['executor'], registry, True)", "report = worker(work, tools, package, None, host['client'], registry, True)"),
+    ('portable-node-types', 'node-boundaries', 'scripts/plugin-dev-worker.mjs', "types: side.runtime === 'node' ? ['node'] : []", "types: ['node']"),
+    ('node-esm', 'node-boundaries', 'scripts/plugin-dev-worker.mjs', "json(path.join(directory, 'package.json')).type === 'module'", "true"),
+    ('exec-empty', 'exec-project', 'scripts/plugin-dev-worker.mjs', 'catalog.get(side.executable).length > 0', 'true'),
+    ('test-runtime', 'node-facts', 'scripts/plugin-dev-worker.mjs', "if (compatibility === 'compatible' && selected.runtime !== 'portable-js')", "if (false)"),
+    ('source-references', 'source-references', 'scripts/plugin-dev-worker.mjs', "demand(!tree.referencedFiles.length && !tree.typeReferenceDirectives.length && !tree.libReferenceDirectives.length, 'REFERENCE_DIRECTIVE');", ''),
 ]
 
 
